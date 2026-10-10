@@ -412,7 +412,27 @@ Correction: the lead first wrote "B", which is not a §12 code. The SL-426 agent
 
 ## Resolved
 
-### SL-513. A consumed `match` destroys what no arm binding takes at arm entry (Oct 10; the USER's ruling)
+### SL-513 (B). A discarded part dies when the construct that took it completes (Oct 10; the USER's ruling, superseding A below; the Air found no hole)
+A `match` on an owned NoCopy or ExplicitCopy enum still consumes its scrutinee, whatever the arms bind. What no arm binding takes (a `_` sub-pattern, a pattern that binds nothing, a `case _` arm) is held by an implicit binding of the `match`, older than the arm's own bindings, and dies when the `match` completes: after the arm body and the arm's bindings, in reverse declaration order among the leftovers.
+
+**Ruled:** one principle covers every pattern-taking construct. A discarded part dies when the construct that took it completes.
+- **`match`, `if let`, `while let`:** the body is the construct, so `_` parts die after the body. For `while let`, that's after each iteration.
+- **`let (a, _) = pair`, `guard let (a, _) = o`, `let _ = e`:** these bind into the enclosing scope, so the statement completes at once, and the part dies at the end of that statement, as before.
+
+**Clauses (the Air's review):**
+- **Implicit binding:** leftovers follow the ordinary binding rules. That covers the coroutine frame across an arm's suspensions, `__release` on cancellation (exactly the leftovers), the `Send` requirement on a value live across a suspension in a `threads:` task body, and LIFO order (design 218b ruling 1).
+- **Guards:** a guard reads its arm's bindings and takes nothing. When a guard fails and the next arm runs, the arm finally taken decides the leftovers.
+- **Storage:** the `match` takes the scrutinee into its own storage, so assigning the consumed variable inside an arm starts a new value.
+- **Value `match`:** the arm's result is moved out first, then the leftovers die, before the result is bound. A hoisted `match` completes before its temporary is bound.
+- **Early exits:** `return`, `break`, `continue` and a propagating `try` destroy the leftovers on that path.
+- **For readers:** a resource discarded with `_` (a file, a connection, a guard) stays held through the arm, across its suspensions too.
+- **Borrowed scrutinees are unchanged:** a field, a tuple element, a `&`/`&var` binding or a receiver is borrowed, so `_` destroys nothing there.
+
+**Rejected:** A (arm entry), which releases a guard-like payload before the arm runs; C (scrutinee scope end), which contradicts consumption; and a match that binds no owning part borrowing instead, which needs a second rule for little gain.
+
+**Where it lands:** SL-513 (the spec sentence, sawc2's MIR, run-lane pins). Stage 0 destroys at arm entry, and at scope end in its guard and `Optional` cases; those are SL:hazards C10 and C11. Stage 0's suite pins arm entry in four examples, which test the frozen compiler and are not the contract.
+
+### SL-513 (A, SUPERSEDED by B above). A consumed `match` destroys what no arm binding takes at arm entry (Oct 10; the USER's first ruling, reversed the same day)
 A `match` on an owned NoCopy or ExplicitCopy enum consumes its scrutinee, but the spec never said when the parts no arm binding takes are destroyed: a `_` inside a pattern, a pattern like `Full(_)` that binds nothing, or a `case _` arm. Stage 0 destroys them at arm entry. sawc2 did so only when the arm bound part of the payload, and at arm end when it bound nothing.
 
 **Ruled (option A):** what a consumed `match` doesn't bind dies at arm entry, before the arm body runs. (The order among several discarded fields is the lead's scope, not part of the ruling: reverse declaration order, as a consuming body releases the fields that did not leave.) This is the meaning `_` already has in `let _ = e` and `let (a, _) = pair`: discard now. The arm's own bindings die at the arm's end, as before. The ruling rejected arm end (B) and scrutinee scope end (C). A guard-like payload discarded with `_` is therefore released before the arm runs, the same as `let _ = lock()`.
