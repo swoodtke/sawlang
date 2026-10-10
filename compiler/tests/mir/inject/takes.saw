@@ -1,0 +1,24 @@
+// The program compiler/mir/tests/verify_moves.saw lowers, then edits: the
+// closure in `once` takes `r`, the one shape in which the MIR verifier admits
+// an owning move out through a reference. Each edit breaks one part of that
+// shape, the flag's clear or the switch's arms, and the verifier must then
+// report the move.
+
+struct Res {
+    name: String
+}
+
+extension Res: NoCopy {}
+
+func sink(r: Res) -> Int {
+    r.name.len()
+}
+
+func run(body: () -> Int) -> Int {
+    body()
+}
+
+func once() -> Int {
+    let r = Res(name: "abc")
+    run({ [move r] in sink(move r) })
+}

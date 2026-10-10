@@ -104,6 +104,19 @@ definitely whole at some `lend` with a drop flag (`compiler/tests/mir/README.md`
   `flagged` and a use of it in the epilogue after a move in the prologue is
   still a use after move.
 
+A non-escaping closure's `[move v]` of a value that owns something takes `v`
+when the body runs (`compiler/tests/mir/README.md`, "Takes"). Its
+`take(_L, _F)` is a **take** of `_L`, and this one analysis owns both halves
+of it. It is a use, refused like a move when `_L` may already be gone, and it
+leaves `_L` and every path inside it `W M`. The `M` is the static half: every
+later read, borrow or move of `_L` is a use after move, whose message names
+the take as the move. The `W` is the dynamic half: the drop at `_L`'s scope
+end is `flagged`, and elaboration guards it with the take flag the closure
+body clears. The loan half reads the take as a move of `_L`
+(`loan.move-while-borrowed` applies) and makes no loan of it, since nothing
+can reach `_L` after it. Inside the body, the take reaches through the
+environment's reference, so it is a read of `_1` there.
+
 ## The loan analysis
 
 `compiler/borrowck/src/loans.saw` (`borrowck_loans`) is the one answer to
@@ -151,12 +164,12 @@ dump are its clients.
 
 | rule | refuses | fixtures |
 |---|---|---|
-| `move.use-after` | a read, a borrow, a move or a call through a place that may have been moved, or a part of which may have been moved out (`M` or `P`); a write to a part of a place that may have been moved whole | `move.use-after`, `.double`, `.loop`, `.branch`, `.field-init`, `.force`, `.consumed`, `.partial`, `.while-condition` |
+| `move.use-after` | a read, a borrow, a move or a call through a place that may have been moved, or a part of which may have been moved out (`M` or `P`); a write to a part of a place that may have been moved whole | `move.use-after`, `.double`, `.loop`, `.branch`, `.field-init`, `.force`, `.consumed`, `.partial`, `.while-condition`, `.take`, `.retake` |
 | `consumes.some-paths` | a `consumes` method's receiver, or a field of it, moved out on some paths to a `return` and left on others (spec, Moving a field out); a path that diverges reaches no `return`, so it is exempt | `consumes.some-paths` |
 | `loan.read-while-exclusive` | a read or a shared borrow of a place overlapping a live exclusive loan | `loan.read-while-exclusive`, `.tuple-element`, `.forwarded` |
 | `loan.write-while-shared` | a write or an exclusive borrow of a place overlapping a live shared loan | `loan.write-while-shared`, `.receiver` |
 | `loan.exclusive-twice` | a write or an exclusive borrow of a place overlapping a live exclusive loan | `loan.exclusive-twice`, `.dynamic-index` |
-| `loan.move-while-borrowed` | a move of a place overlapping a live loan | `loan.move-while-borrowed` |
+| `loan.move-while-borrowed` | a move of a place overlapping a live loan, a take included | `loan.move-while-borrowed`, `.take` |
 | `loan.drop-while-borrowed` | a drop, at a scope's end or before an assignment, of a place overlapping a live loan | `loan.drop-while-borrowed` |
 | `loan.window-root` | any access but a move or a drop that conflicts with a live window's loan on its whole root | `loan.window-root`, `.receiver-order`, `.two-windows`, `.beside-root`, `.forced` |
 | `loan.closure-carrier` | any access but a move or a drop that conflicts with a loan a live closure carries | `loan.closure-carrier` |
@@ -321,6 +334,7 @@ information.
 | `consumes` field moves: every path, none, a diverging path | consumes |
 | re-initialisation, a whole-referent replacement through `&var` | reinit |
 | a closure capturing by `move` | closures |
+| a take: `W M` after it, its drop `flagged`, whether or not the callee runs the body | takes |
 | a dissolve under `try`, `??`, `if let`, `guard let`, `while let`, `for`, a binding `match` arm | dissolves |
 | the drop labels | every golden |
 | authorisation through a reborrow, a `&var` forwarded three deep | loans |

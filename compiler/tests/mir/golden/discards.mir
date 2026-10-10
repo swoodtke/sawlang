@@ -1,0 +1,823 @@
+module discards
+
+fn discards.Bag.add(n: Int) -> Result<Void, std.alloc.AllocError> {
+    let _0: Result<Void, std.alloc.AllocError>;  // return
+    let _1: &var discards.Bag;  // self
+    let _2: Int;  // param n
+    let _3: Int;
+    let _4: &var std.vector.Vector<Int, std.alloc.GlobalAllocator>;
+    let _5: Result<Void, std.alloc.AllocError>;
+
+    bb0: {
+        _3 = copy _2;
+        _4 = ref(exclusive, (*_1).items);
+        _5 = call std.vector.Vector.push(value: T) (owner std.vector.Vector<Int, std.alloc.GlobalAllocator>) [move _4, move _3] -> [return: bb1];
+    }
+
+    bb1: {
+        _0 = move _5;
+        return;
+    }
+}
+
+fn discards.Bag.label() -> String {
+    let _0: String;  // return
+    let _1: &discards.Bag;  // self
+
+    bb0: {
+        _0 = const "bag": String;
+        return;
+    }
+}
+
+fn discards.Bag.reset() -> Void {
+    let _0: Void;  // return
+    let _1: &var discards.Bag;  // self
+    let _2: &var std.vector.Vector<Int, std.alloc.GlobalAllocator>;
+    let _3: Result<Void, std.alloc.AllocError>;
+
+    bb0: {
+        _2 = ref(exclusive, (*_1).items);
+        _3 = call std.vector.Vector.push(value: T) (owner std.vector.Vector<Int, std.alloc.GlobalAllocator>) [move _2, const 0: Int] -> [return: bb1];
+    }
+
+    bb1: {
+        drop(_3);
+        return;
+    }
+}
+
+fn discards.consume(r: Result<Void, std.alloc.AllocError>) -> Int {
+    let _0: Int;  // return
+    let _1: Result<Void, std.alloc.AllocError>;  // param r
+
+    bb0: {
+        switch discriminant(_1) -> [Ok: bb2, Err: bb3];
+    }
+
+    bb1: {
+        drop(_1);
+        return;
+    }
+
+    bb2: {
+        goto -> bb4;
+    }
+
+    bb3: {
+        goto -> bb5;
+    }
+
+    bb4: {
+        _0 = const 1: Int;
+        goto -> bb1;
+    }
+
+    bb5: {
+        _0 = const 0: Int;
+        goto -> bb1;
+    }
+}
+
+fn discards.take_label(s: String) -> Int {
+    let _0: Int;  // return
+    let _1: String;  // param s
+    let _2: &String;
+    let _3: Int;
+
+    bb0: {
+        _2 = ref(shared, _1);
+        _3 = call std.string.String.len() (owner String) [move _2] -> [return: bb1];
+    }
+
+    bb1: {
+        _0 = move _3;
+        drop(_1);
+        return;
+    }
+}
+
+fn discards.plain(v: &var std.vector.Vector<Int, std.alloc.GlobalAllocator>) -> Void {
+    let _0: Void;  // return
+    let _1: &var std.vector.Vector<Int, std.alloc.GlobalAllocator>;  // param v
+    let _2: &var std.vector.Vector<Int, std.alloc.GlobalAllocator>;
+    let _3: Result<Void, std.alloc.AllocError>;
+
+    bb0: {
+        _2 = ref(exclusive, (*_1));
+        _3 = call std.vector.Vector.push(value: T) (owner std.vector.Vector<Int, std.alloc.GlobalAllocator>) [move _2, const 9: Int] -> [return: bb1];
+    }
+
+    bb1: {
+        drop(_3);
+        return;
+    }
+}
+
+fn discards.through_borrow(rows: &var std.vector.Vector<std.vector.Vector<Int, std.alloc.GlobalAllocator>, std.alloc.GlobalAllocator>) -> Void {
+    let _0: Void;  // return
+    let _1: &var std.vector.Vector<std.vector.Vector<Int, std.alloc.GlobalAllocator>, std.alloc.GlobalAllocator>;  // param rows
+    let _2: &var std.vector.Vector<Int, std.alloc.GlobalAllocator>;
+    let _3: &var std.vector.Vector<std.vector.Vector<Int, std.alloc.GlobalAllocator>, std.alloc.GlobalAllocator>;
+    let _4: &var std.vector.Vector<Int, std.alloc.GlobalAllocator>;
+    let _5: Result<Void, std.alloc.AllocError>;
+    window w0: std.vector.Vector.[](index: Int) exclusive;
+
+    bb0: {
+        _3 = ref(exclusive, (*_1));
+        _2 = window_open w0 prologue std.vector.Vector.[](index: Int) (owner std.vector.Vector<std.vector.Vector<Int, std.alloc.GlobalAllocator>, std.alloc.GlobalAllocator>) [move _3, const 0: Int] -> [present: bb1];
+    }
+
+    bb1: {
+        _4 = ref(exclusive, (*_2));
+        _5 = call std.vector.Vector.push(value: T) (owner std.vector.Vector<Int, std.alloc.GlobalAllocator>) [move _4, const 9: Int] -> [return: bb2];
+    }
+
+    bb2: {
+        drop(_5);
+        window_close w0 epilogue std.vector.Vector.[](index: Int) (owner std.vector.Vector<std.vector.Vector<Int, std.alloc.GlobalAllocator>, std.alloc.GlobalAllocator>) -> [return: bb3];
+    }
+
+    bb3: {
+        return;
+    }
+}
+
+fn discards.through_block(rows: &var std.vector.Vector<std.vector.Vector<Int, std.alloc.GlobalAllocator>, std.alloc.GlobalAllocator>) -> Void {
+    let _0: Void;  // return
+    let _1: &var std.vector.Vector<std.vector.Vector<Int, std.alloc.GlobalAllocator>, std.alloc.GlobalAllocator>;  // param rows
+    let _2: &var std.vector.Vector<Int, std.alloc.GlobalAllocator>;
+    let _3: &var std.vector.Vector<std.vector.Vector<Int, std.alloc.GlobalAllocator>, std.alloc.GlobalAllocator>;
+    let _4: &var std.vector.Vector<Int, std.alloc.GlobalAllocator>;  // ref r
+    let _5: &var std.vector.Vector<Int, std.alloc.GlobalAllocator>;
+    let _6: Result<Void, std.alloc.AllocError>;
+    window w0: std.vector.Vector.[](index: Int) exclusive;
+
+    bb0: {
+        _3 = ref(exclusive, (*_1));
+        _2 = window_open w0 prologue std.vector.Vector.[](index: Int) (owner std.vector.Vector<std.vector.Vector<Int, std.alloc.GlobalAllocator>, std.alloc.GlobalAllocator>) [move _3, const 0: Int] -> [present: bb1];
+    }
+
+    bb1: {
+        _4 = ref(exclusive, (*_2));
+        _5 = ref(exclusive, (*_4));
+        _6 = call std.vector.Vector.push(value: T) (owner std.vector.Vector<Int, std.alloc.GlobalAllocator>) [move _5, const 9: Int] -> [return: bb2];
+    }
+
+    bb2: {
+        drop(_6);
+        window_close w0 epilogue std.vector.Vector.[](index: Int) (owner std.vector.Vector<std.vector.Vector<Int, std.alloc.GlobalAllocator>, std.alloc.GlobalAllocator>) -> [return: bb3];
+    }
+
+    bb3: {
+        return;
+    }
+}
+
+fn discards.var_discard(rows: &var std.vector.Vector<discards.Bag, std.alloc.GlobalAllocator>) -> Void {
+    let _0: Void;  // return
+    let _1: &var std.vector.Vector<discards.Bag, std.alloc.GlobalAllocator>;  // param rows
+    let _2: &var discards.Bag;
+    let _3: &var std.vector.Vector<discards.Bag, std.alloc.GlobalAllocator>;
+    let _4: &var discards.Bag;
+    let _5: Result<Void, std.alloc.AllocError>;
+    window w0: std.vector.Vector.[](index: Int) exclusive;
+
+    bb0: {
+        _3 = ref(exclusive, (*_1));
+        _2 = window_open w0 prologue std.vector.Vector.[](index: Int) (owner std.vector.Vector<discards.Bag, std.alloc.GlobalAllocator>) [move _3, const 0: Int] -> [present: bb1];
+    }
+
+    bb1: {
+        _4 = ref(exclusive, (*_2));
+        _5 = call discards.Bag.add(n: Int) (owner discards.Bag) [move _4, const 9: Int] -> [return: bb2];
+    }
+
+    bb2: {
+        drop(_5);
+        window_close w0 epilogue std.vector.Vector.[](index: Int) (owner std.vector.Vector<discards.Bag, std.alloc.GlobalAllocator>) -> [return: bb3];
+    }
+
+    bb3: {
+        return;
+    }
+}
+
+fn discards.var_force(rows: &var std.vector.Vector<discards.Bag, std.alloc.GlobalAllocator>) -> Void {
+    let _0: Void;  // return
+    let _1: &var std.vector.Vector<discards.Bag, std.alloc.GlobalAllocator>;  // param rows
+    let _2: &var discards.Bag;
+    let _3: &var std.vector.Vector<discards.Bag, std.alloc.GlobalAllocator>;
+    let _4: &var discards.Bag;
+    let _5: Result<Void, std.alloc.AllocError>;
+    let _6: Void;
+    window w0: std.vector.Vector.[](index: Int) exclusive;
+
+    bb0: {
+        _3 = ref(exclusive, (*_1));
+        _2 = window_open w0 prologue std.vector.Vector.[](index: Int) (owner std.vector.Vector<discards.Bag, std.alloc.GlobalAllocator>) [move _3, const 0: Int] -> [present: bb1];
+    }
+
+    bb1: {
+        _4 = ref(exclusive, (*_2));
+        _5 = call discards.Bag.add(n: Int) (owner discards.Bag) [move _4, const 9: Int] -> [return: bb2];
+    }
+
+    bb2: {
+        _6 = copy (_5 as Ok!).0;
+        drop(_5);
+        window_close w0 epilogue std.vector.Vector.[](index: Int) (owner std.vector.Vector<discards.Bag, std.alloc.GlobalAllocator>) -> [return: bb3];
+    }
+
+    bb3: {
+        return;
+    }
+}
+
+fn discards.var_void(rows: &var std.vector.Vector<discards.Bag, std.alloc.GlobalAllocator>) -> Void {
+    let _0: Void;  // return
+    let _1: &var std.vector.Vector<discards.Bag, std.alloc.GlobalAllocator>;  // param rows
+    let _2: &var discards.Bag;
+    let _3: &var std.vector.Vector<discards.Bag, std.alloc.GlobalAllocator>;
+    let _4: &var discards.Bag;
+    let _5: Void;
+    window w0: std.vector.Vector.[](index: Int) exclusive;
+
+    bb0: {
+        _3 = ref(exclusive, (*_1));
+        _2 = window_open w0 prologue std.vector.Vector.[](index: Int) (owner std.vector.Vector<discards.Bag, std.alloc.GlobalAllocator>) [move _3, const 0: Int] -> [present: bb1];
+    }
+
+    bb1: {
+        _4 = ref(exclusive, (*_2));
+        call discards.Bag.reset() (owner discards.Bag) [move _4] -> [return: bb2];
+    }
+
+    bb2: {
+        _5 = const (): Void;
+        window_close w0 epilogue std.vector.Vector.[](index: Int) (owner std.vector.Vector<discards.Bag, std.alloc.GlobalAllocator>) -> [return: bb3];
+    }
+
+    bb3: {
+        return;
+    }
+}
+
+fn discards.var_bind(rows: &var std.vector.Vector<discards.Bag, std.alloc.GlobalAllocator>) -> Int {
+    let _0: Int;  // return
+    let _1: &var std.vector.Vector<discards.Bag, std.alloc.GlobalAllocator>;  // param rows
+    let _2: Result<Void, std.alloc.AllocError>;  // r
+    let _3: &var discards.Bag;
+    let _4: &var std.vector.Vector<discards.Bag, std.alloc.GlobalAllocator>;
+    let _5: &var discards.Bag;
+    let _6: Result<Void, std.alloc.AllocError>;
+    let _7: Int;
+    window w0: std.vector.Vector.[](index: Int) exclusive;
+
+    bb0: {
+        _4 = ref(exclusive, (*_1));
+        _3 = window_open w0 prologue std.vector.Vector.[](index: Int) (owner std.vector.Vector<discards.Bag, std.alloc.GlobalAllocator>) [move _4, const 0: Int] -> [present: bb1];
+    }
+
+    bb1: {
+        _5 = ref(exclusive, (*_3));
+        _6 = call discards.Bag.add(n: Int) (owner discards.Bag) [move _5, const 9: Int] -> [return: bb2];
+    }
+
+    bb2: {
+        _2 = move _6;
+        drop(_6);
+        window_close w0 epilogue std.vector.Vector.[](index: Int) (owner std.vector.Vector<discards.Bag, std.alloc.GlobalAllocator>) -> [return: bb3];
+    }
+
+    bb3: {
+        _7 = call discards.consume(r: Result<Void, std.alloc.AllocError>) [move _2] -> [return: bb4];
+    }
+
+    bb4: {
+        _0 = move _7;
+        drop(_2);
+        return;
+    }
+}
+
+fn discards.var_argument(rows: &var std.vector.Vector<discards.Bag, std.alloc.GlobalAllocator>) -> Int {
+    let _0: Int;  // return
+    let _1: &var std.vector.Vector<discards.Bag, std.alloc.GlobalAllocator>;  // param rows
+    let _2: &var discards.Bag;
+    let _3: &var std.vector.Vector<discards.Bag, std.alloc.GlobalAllocator>;
+    let _4: &var discards.Bag;
+    let _5: Result<Void, std.alloc.AllocError>;
+    let _6: Int;
+    window w0: std.vector.Vector.[](index: Int) exclusive;
+
+    bb0: {
+        _3 = ref(exclusive, (*_1));
+        _2 = window_open w0 prologue std.vector.Vector.[](index: Int) (owner std.vector.Vector<discards.Bag, std.alloc.GlobalAllocator>) [move _3, const 0: Int] -> [present: bb1];
+    }
+
+    bb1: {
+        _4 = ref(exclusive, (*_2));
+        _5 = call discards.Bag.add(n: Int) (owner discards.Bag) [move _4, const 9: Int] -> [return: bb2];
+    }
+
+    bb2: {
+        _6 = call discards.consume(r: Result<Void, std.alloc.AllocError>) [move _5] -> [return: bb3];
+    }
+
+    bb3: {
+        _0 = move _6;
+        drop(_5);
+        window_close w0 epilogue std.vector.Vector.[](index: Int) (owner std.vector.Vector<discards.Bag, std.alloc.GlobalAllocator>) -> [return: bb4];
+    }
+
+    bb4: {
+        return;
+    }
+}
+
+fn discards.var_return(rows: &var std.vector.Vector<discards.Bag, std.alloc.GlobalAllocator>) -> Result<Void, std.alloc.AllocError> {
+    let _0: Result<Void, std.alloc.AllocError>;  // return
+    let _1: &var std.vector.Vector<discards.Bag, std.alloc.GlobalAllocator>;  // param rows
+    let _2: &var discards.Bag;
+    let _3: &var std.vector.Vector<discards.Bag, std.alloc.GlobalAllocator>;
+    let _4: &var discards.Bag;
+    let _5: Result<Void, std.alloc.AllocError>;
+    window w0: std.vector.Vector.[](index: Int) exclusive;
+
+    bb0: {
+        _3 = ref(exclusive, (*_1));
+        _2 = window_open w0 prologue std.vector.Vector.[](index: Int) (owner std.vector.Vector<discards.Bag, std.alloc.GlobalAllocator>) [move _3, const 0: Int] -> [present: bb1];
+    }
+
+    bb1: {
+        _4 = ref(exclusive, (*_2));
+        _5 = call discards.Bag.add(n: Int) (owner discards.Bag) [move _4, const 9: Int] -> [return: bb2];
+    }
+
+    bb2: {
+        _0 = move _5;
+        drop(_5);
+        window_close w0 epilogue std.vector.Vector.[](index: Int) (owner std.vector.Vector<discards.Bag, std.alloc.GlobalAllocator>) -> [return: bb3];
+    }
+
+    bb3: {
+        return;
+    }
+}
+
+fn discards.shared_discard(rows: &std.vector.Vector<discards.Bag, std.alloc.GlobalAllocator>) -> Void {
+    let _0: Void;  // return
+    let _1: &std.vector.Vector<discards.Bag, std.alloc.GlobalAllocator>;  // param rows
+    let _2: &discards.Bag;
+    let _3: &std.vector.Vector<discards.Bag, std.alloc.GlobalAllocator>;
+    let _4: &discards.Bag;
+    let _5: String;
+    window w0: std.vector.Vector.[](index: Int) shared;
+
+    bb0: {
+        _3 = ref(shared, (*_1));
+        _2 = window_open w0 prologue std.vector.Vector.[](index: Int) (owner std.vector.Vector<discards.Bag, std.alloc.GlobalAllocator>) [move _3, const 0: Int] -> [present: bb1];
+    }
+
+    bb1: {
+        _4 = ref(shared, (*_2));
+        _5 = call discards.Bag.label() (owner discards.Bag) [move _4] -> [return: bb2];
+    }
+
+    bb2: {
+        drop(_5);
+        window_close w0 epilogue std.vector.Vector.[](index: Int) (owner std.vector.Vector<discards.Bag, std.alloc.GlobalAllocator>) -> [return: bb3];
+    }
+
+    bb3: {
+        return;
+    }
+}
+
+fn discards.shared_bind(rows: &std.vector.Vector<discards.Bag, std.alloc.GlobalAllocator>) -> Int {
+    let _0: Int;  // return
+    let _1: &std.vector.Vector<discards.Bag, std.alloc.GlobalAllocator>;  // param rows
+    let _2: String;  // s
+    let _3: &discards.Bag;
+    let _4: &std.vector.Vector<discards.Bag, std.alloc.GlobalAllocator>;
+    let _5: &discards.Bag;
+    let _6: String;
+    let _7: &String;
+    let _8: Int;
+    window w0: std.vector.Vector.[](index: Int) shared;
+
+    bb0: {
+        _4 = ref(shared, (*_1));
+        _3 = window_open w0 prologue std.vector.Vector.[](index: Int) (owner std.vector.Vector<discards.Bag, std.alloc.GlobalAllocator>) [move _4, const 0: Int] -> [present: bb1];
+    }
+
+    bb1: {
+        _5 = ref(shared, (*_3));
+        _6 = call discards.Bag.label() (owner discards.Bag) [move _5] -> [return: bb2];
+    }
+
+    bb2: {
+        _2 = move _6;
+        drop(_6);
+        window_close w0 epilogue std.vector.Vector.[](index: Int) (owner std.vector.Vector<discards.Bag, std.alloc.GlobalAllocator>) -> [return: bb3];
+    }
+
+    bb3: {
+        _7 = ref(shared, _2);
+        _8 = call std.string.String.len() (owner String) [move _7] -> [return: bb4];
+    }
+
+    bb4: {
+        _0 = move _8;
+        drop(_2);
+        return;
+    }
+}
+
+fn discards.shared_argument(rows: &std.vector.Vector<discards.Bag, std.alloc.GlobalAllocator>) -> Int {
+    let _0: Int;  // return
+    let _1: &std.vector.Vector<discards.Bag, std.alloc.GlobalAllocator>;  // param rows
+    let _2: &discards.Bag;
+    let _3: &std.vector.Vector<discards.Bag, std.alloc.GlobalAllocator>;
+    let _4: &discards.Bag;
+    let _5: String;
+    let _6: Int;
+    window w0: std.vector.Vector.[](index: Int) shared;
+
+    bb0: {
+        _3 = ref(shared, (*_1));
+        _2 = window_open w0 prologue std.vector.Vector.[](index: Int) (owner std.vector.Vector<discards.Bag, std.alloc.GlobalAllocator>) [move _3, const 0: Int] -> [present: bb1];
+    }
+
+    bb1: {
+        _4 = ref(shared, (*_2));
+        _5 = call discards.Bag.label() (owner discards.Bag) [move _4] -> [return: bb2];
+    }
+
+    bb2: {
+        _6 = call discards.take_label(s: String) [move _5] -> [return: bb3];
+    }
+
+    bb3: {
+        _0 = move _6;
+        drop(_5);
+        window_close w0 epilogue std.vector.Vector.[](index: Int) (owner std.vector.Vector<discards.Bag, std.alloc.GlobalAllocator>) -> [return: bb4];
+    }
+
+    bb4: {
+        return;
+    }
+}
+
+fn discards.shared_return(rows: &std.vector.Vector<discards.Bag, std.alloc.GlobalAllocator>) -> String {
+    let _0: String;  // return
+    let _1: &std.vector.Vector<discards.Bag, std.alloc.GlobalAllocator>;  // param rows
+    let _2: &discards.Bag;
+    let _3: &std.vector.Vector<discards.Bag, std.alloc.GlobalAllocator>;
+    let _4: &discards.Bag;
+    let _5: String;
+    window w0: std.vector.Vector.[](index: Int) shared;
+
+    bb0: {
+        _3 = ref(shared, (*_1));
+        _2 = window_open w0 prologue std.vector.Vector.[](index: Int) (owner std.vector.Vector<discards.Bag, std.alloc.GlobalAllocator>) [move _3, const 0: Int] -> [present: bb1];
+    }
+
+    bb1: {
+        _4 = ref(shared, (*_2));
+        _5 = call discards.Bag.label() (owner discards.Bag) [move _4] -> [return: bb2];
+    }
+
+    bb2: {
+        _0 = move _5;
+        drop(_5);
+        window_close w0 epilogue std.vector.Vector.[](index: Int) (owner std.vector.Vector<discards.Bag, std.alloc.GlobalAllocator>) -> [return: bb3];
+    }
+
+    bb3: {
+        return;
+    }
+}
+
+fn discards.shared_statement(rows: &std.vector.Vector<discards.Bag, std.alloc.GlobalAllocator>) -> Void {
+    let _0: Void;  // return
+    let _1: &std.vector.Vector<discards.Bag, std.alloc.GlobalAllocator>;  // param rows
+    let _2: &discards.Bag;
+    let _3: &std.vector.Vector<discards.Bag, std.alloc.GlobalAllocator>;
+    let _4: &discards.Bag;
+    let _5: String;
+    window w0: std.vector.Vector.[](index: Int) shared;
+
+    bb0: {
+        _3 = ref(shared, (*_1));
+        _2 = window_open w0 prologue std.vector.Vector.[](index: Int) (owner std.vector.Vector<discards.Bag, std.alloc.GlobalAllocator>) [move _3, const 0: Int] -> [present: bb1];
+    }
+
+    bb1: {
+        _4 = ref(shared, (*_2));
+        _5 = call discards.Bag.label() (owner discards.Bag) [move _4] -> [return: bb2];
+    }
+
+    bb2: {
+        drop(_5);
+        window_close w0 epilogue std.vector.Vector.[](index: Int) (owner std.vector.Vector<discards.Bag, std.alloc.GlobalAllocator>) -> [return: bb3];
+    }
+
+    bb3: {
+        return;
+    }
+}
+
+fn discards.shared_arm(rows: &std.vector.Vector<discards.Bag, std.alloc.GlobalAllocator>, flag: Bool) -> Void {
+    let _0: Void;  // return
+    let _1: &std.vector.Vector<discards.Bag, std.alloc.GlobalAllocator>;  // param rows
+    let _2: Bool;  // param flag
+    let _3: &discards.Bag;
+    let _4: &std.vector.Vector<discards.Bag, std.alloc.GlobalAllocator>;
+    let _5: &discards.Bag;
+    let _6: String;
+    window w0: std.vector.Vector.[](index: Int) shared;
+
+    bb0: {
+        switch copy _2 -> [true: bb2, false: bb3];
+    }
+
+    bb1: {
+        return;
+    }
+
+    bb2: {
+        _4 = ref(shared, (*_1));
+        _3 = window_open w0 prologue std.vector.Vector.[](index: Int) (owner std.vector.Vector<discards.Bag, std.alloc.GlobalAllocator>) [move _4, const 0: Int] -> [present: bb4];
+    }
+
+    bb3: {
+        goto -> bb1;
+    }
+
+    bb4: {
+        _5 = ref(shared, (*_3));
+        _6 = call discards.Bag.label() (owner discards.Bag) [move _5] -> [return: bb5];
+    }
+
+    bb5: {
+        drop(_6);
+        window_close w0 epilogue std.vector.Vector.[](index: Int) (owner std.vector.Vector<discards.Bag, std.alloc.GlobalAllocator>) -> [return: bb6];
+    }
+
+    bb6: {
+        goto -> bb1;
+    }
+}
+
+fn discards.nested_discard(grid: &var std.vector.Vector<std.vector.Vector<discards.Bag, std.alloc.GlobalAllocator>, std.alloc.GlobalAllocator>) -> Void {
+    let _0: Void;  // return
+    let _1: &var std.vector.Vector<std.vector.Vector<discards.Bag, std.alloc.GlobalAllocator>, std.alloc.GlobalAllocator>;  // param grid
+    let _2: &std.vector.Vector<discards.Bag, std.alloc.GlobalAllocator>;
+    let _3: &std.vector.Vector<std.vector.Vector<discards.Bag, std.alloc.GlobalAllocator>, std.alloc.GlobalAllocator>;
+    let _4: &var discards.Bag;
+    let _5: &var std.vector.Vector<discards.Bag, std.alloc.GlobalAllocator>;
+    let _6: &var discards.Bag;
+    let _7: Result<Void, std.alloc.AllocError>;
+    window w0: std.vector.Vector.[](index: Int) shared;
+    window w1: std.vector.Vector.[](index: Int) exclusive;
+
+    bb0: {
+        _3 = ref(shared, (*_1));
+        _2 = window_open w0 prologue std.vector.Vector.[](index: Int) (owner std.vector.Vector<std.vector.Vector<discards.Bag, std.alloc.GlobalAllocator>, std.alloc.GlobalAllocator>) [move _3, const 0: Int] -> [present: bb1];
+    }
+
+    bb1: {
+        _5 = ref(exclusive, (*_2));
+        _4 = window_open w1 prologue std.vector.Vector.[](index: Int) (owner std.vector.Vector<discards.Bag, std.alloc.GlobalAllocator>) [move _5, const 1: Int] -> [present: bb2];
+    }
+
+    bb2: {
+        _6 = ref(exclusive, (*_4));
+        _7 = call discards.Bag.add(n: Int) (owner discards.Bag) [move _6, const 9: Int] -> [return: bb3];
+    }
+
+    bb3: {
+        drop(_7);
+        window_close w1 epilogue std.vector.Vector.[](index: Int) (owner std.vector.Vector<discards.Bag, std.alloc.GlobalAllocator>) -> [return: bb4];
+    }
+
+    bb4: {
+        window_close w0 epilogue std.vector.Vector.[](index: Int) (owner std.vector.Vector<std.vector.Vector<discards.Bag, std.alloc.GlobalAllocator>, std.alloc.GlobalAllocator>) -> [return: bb5];
+    }
+
+    bb5: {
+        return;
+    }
+}
+
+fn discards.nested_force(grid: &var std.vector.Vector<std.vector.Vector<discards.Bag, std.alloc.GlobalAllocator>, std.alloc.GlobalAllocator>) -> Void {
+    let _0: Void;  // return
+    let _1: &var std.vector.Vector<std.vector.Vector<discards.Bag, std.alloc.GlobalAllocator>, std.alloc.GlobalAllocator>;  // param grid
+    let _2: &std.vector.Vector<discards.Bag, std.alloc.GlobalAllocator>;
+    let _3: &std.vector.Vector<std.vector.Vector<discards.Bag, std.alloc.GlobalAllocator>, std.alloc.GlobalAllocator>;
+    let _4: &var discards.Bag;
+    let _5: &var std.vector.Vector<discards.Bag, std.alloc.GlobalAllocator>;
+    let _6: &var discards.Bag;
+    let _7: Result<Void, std.alloc.AllocError>;
+    let _8: Void;
+    window w0: std.vector.Vector.[](index: Int) shared;
+    window w1: std.vector.Vector.[](index: Int) exclusive;
+
+    bb0: {
+        _3 = ref(shared, (*_1));
+        _2 = window_open w0 prologue std.vector.Vector.[](index: Int) (owner std.vector.Vector<std.vector.Vector<discards.Bag, std.alloc.GlobalAllocator>, std.alloc.GlobalAllocator>) [move _3, const 0: Int] -> [present: bb1];
+    }
+
+    bb1: {
+        _5 = ref(exclusive, (*_2));
+        _4 = window_open w1 prologue std.vector.Vector.[](index: Int) (owner std.vector.Vector<discards.Bag, std.alloc.GlobalAllocator>) [move _5, const 1: Int] -> [present: bb2];
+    }
+
+    bb2: {
+        _6 = ref(exclusive, (*_4));
+        _7 = call discards.Bag.add(n: Int) (owner discards.Bag) [move _6, const 9: Int] -> [return: bb3];
+    }
+
+    bb3: {
+        _8 = copy (_7 as Ok!).0;
+        drop(_7);
+        window_close w1 epilogue std.vector.Vector.[](index: Int) (owner std.vector.Vector<discards.Bag, std.alloc.GlobalAllocator>) -> [return: bb4];
+    }
+
+    bb4: {
+        window_close w0 epilogue std.vector.Vector.[](index: Int) (owner std.vector.Vector<std.vector.Vector<discards.Bag, std.alloc.GlobalAllocator>, std.alloc.GlobalAllocator>) -> [return: bb5];
+    }
+
+    bb5: {
+        return;
+    }
+}
+
+fn discards.nested_bind(grid: &var std.vector.Vector<std.vector.Vector<discards.Bag, std.alloc.GlobalAllocator>, std.alloc.GlobalAllocator>) -> Int {
+    let _0: Int;  // return
+    let _1: &var std.vector.Vector<std.vector.Vector<discards.Bag, std.alloc.GlobalAllocator>, std.alloc.GlobalAllocator>;  // param grid
+    let _2: Result<Void, std.alloc.AllocError>;  // r
+    let _3: &std.vector.Vector<discards.Bag, std.alloc.GlobalAllocator>;
+    let _4: &std.vector.Vector<std.vector.Vector<discards.Bag, std.alloc.GlobalAllocator>, std.alloc.GlobalAllocator>;
+    let _5: &var discards.Bag;
+    let _6: &var std.vector.Vector<discards.Bag, std.alloc.GlobalAllocator>;
+    let _7: &var discards.Bag;
+    let _8: Result<Void, std.alloc.AllocError>;
+    let _9: Int;
+    window w0: std.vector.Vector.[](index: Int) shared;
+    window w1: std.vector.Vector.[](index: Int) exclusive;
+
+    bb0: {
+        _4 = ref(shared, (*_1));
+        _3 = window_open w0 prologue std.vector.Vector.[](index: Int) (owner std.vector.Vector<std.vector.Vector<discards.Bag, std.alloc.GlobalAllocator>, std.alloc.GlobalAllocator>) [move _4, const 0: Int] -> [present: bb1];
+    }
+
+    bb1: {
+        _6 = ref(exclusive, (*_3));
+        _5 = window_open w1 prologue std.vector.Vector.[](index: Int) (owner std.vector.Vector<discards.Bag, std.alloc.GlobalAllocator>) [move _6, const 1: Int] -> [present: bb2];
+    }
+
+    bb2: {
+        _7 = ref(exclusive, (*_5));
+        _8 = call discards.Bag.add(n: Int) (owner discards.Bag) [move _7, const 9: Int] -> [return: bb3];
+    }
+
+    bb3: {
+        _2 = move _8;
+        drop(_8);
+        window_close w1 epilogue std.vector.Vector.[](index: Int) (owner std.vector.Vector<discards.Bag, std.alloc.GlobalAllocator>) -> [return: bb4];
+    }
+
+    bb4: {
+        window_close w0 epilogue std.vector.Vector.[](index: Int) (owner std.vector.Vector<std.vector.Vector<discards.Bag, std.alloc.GlobalAllocator>, std.alloc.GlobalAllocator>) -> [return: bb5];
+    }
+
+    bb5: {
+        _9 = call discards.consume(r: Result<Void, std.alloc.AllocError>) [move _2] -> [return: bb6];
+    }
+
+    bb6: {
+        _0 = move _9;
+        drop(_2);
+        return;
+    }
+}
+
+fn discards.nested_argument(grid: &var std.vector.Vector<std.vector.Vector<discards.Bag, std.alloc.GlobalAllocator>, std.alloc.GlobalAllocator>) -> Int {
+    let _0: Int;  // return
+    let _1: &var std.vector.Vector<std.vector.Vector<discards.Bag, std.alloc.GlobalAllocator>, std.alloc.GlobalAllocator>;  // param grid
+    let _2: &std.vector.Vector<discards.Bag, std.alloc.GlobalAllocator>;
+    let _3: &std.vector.Vector<std.vector.Vector<discards.Bag, std.alloc.GlobalAllocator>, std.alloc.GlobalAllocator>;
+    let _4: &var discards.Bag;
+    let _5: &var std.vector.Vector<discards.Bag, std.alloc.GlobalAllocator>;
+    let _6: &var discards.Bag;
+    let _7: Result<Void, std.alloc.AllocError>;
+    let _8: Int;
+    window w0: std.vector.Vector.[](index: Int) shared;
+    window w1: std.vector.Vector.[](index: Int) exclusive;
+
+    bb0: {
+        _3 = ref(shared, (*_1));
+        _2 = window_open w0 prologue std.vector.Vector.[](index: Int) (owner std.vector.Vector<std.vector.Vector<discards.Bag, std.alloc.GlobalAllocator>, std.alloc.GlobalAllocator>) [move _3, const 0: Int] -> [present: bb1];
+    }
+
+    bb1: {
+        _5 = ref(exclusive, (*_2));
+        _4 = window_open w1 prologue std.vector.Vector.[](index: Int) (owner std.vector.Vector<discards.Bag, std.alloc.GlobalAllocator>) [move _5, const 1: Int] -> [present: bb2];
+    }
+
+    bb2: {
+        _6 = ref(exclusive, (*_4));
+        _7 = call discards.Bag.add(n: Int) (owner discards.Bag) [move _6, const 9: Int] -> [return: bb3];
+    }
+
+    bb3: {
+        _8 = call discards.consume(r: Result<Void, std.alloc.AllocError>) [move _7] -> [return: bb4];
+    }
+
+    bb4: {
+        _0 = move _8;
+        drop(_7);
+        window_close w1 epilogue std.vector.Vector.[](index: Int) (owner std.vector.Vector<discards.Bag, std.alloc.GlobalAllocator>) -> [return: bb5];
+    }
+
+    bb5: {
+        window_close w0 epilogue std.vector.Vector.[](index: Int) (owner std.vector.Vector<std.vector.Vector<discards.Bag, std.alloc.GlobalAllocator>, std.alloc.GlobalAllocator>) -> [return: bb6];
+    }
+
+    bb6: {
+        return;
+    }
+}
+
+fn discards.nested_field_discard(rows: &var std.vector.Vector<discards.Bag, std.alloc.GlobalAllocator>) -> Void {
+    let _0: Void;  // return
+    let _1: &var std.vector.Vector<discards.Bag, std.alloc.GlobalAllocator>;  // param rows
+    let _2: &var discards.Bag;
+    let _3: &var std.vector.Vector<discards.Bag, std.alloc.GlobalAllocator>;
+    let _4: &var std.vector.Vector<Int, std.alloc.GlobalAllocator>;
+    let _5: Result<Void, std.alloc.AllocError>;
+    window w0: std.vector.Vector.[](index: Int) exclusive;
+
+    bb0: {
+        _3 = ref(exclusive, (*_1));
+        _2 = window_open w0 prologue std.vector.Vector.[](index: Int) (owner std.vector.Vector<discards.Bag, std.alloc.GlobalAllocator>) [move _3, const 0: Int] -> [present: bb1];
+    }
+
+    bb1: {
+        _4 = ref(exclusive, (*_2).items);
+        _5 = call std.vector.Vector.push(value: T) (owner std.vector.Vector<Int, std.alloc.GlobalAllocator>) [move _4, const 9: Int] -> [return: bb2];
+    }
+
+    bb2: {
+        drop(_5);
+        window_close w0 epilogue std.vector.Vector.[](index: Int) (owner std.vector.Vector<discards.Bag, std.alloc.GlobalAllocator>) -> [return: bb3];
+    }
+
+    bb3: {
+        return;
+    }
+}
+
+fn discards.nested_shared_discard(grid: &std.vector.Vector<std.vector.Vector<discards.Bag, std.alloc.GlobalAllocator>, std.alloc.GlobalAllocator>) -> Void {
+    let _0: Void;  // return
+    let _1: &std.vector.Vector<std.vector.Vector<discards.Bag, std.alloc.GlobalAllocator>, std.alloc.GlobalAllocator>;  // param grid
+    let _2: &std.vector.Vector<discards.Bag, std.alloc.GlobalAllocator>;
+    let _3: &std.vector.Vector<std.vector.Vector<discards.Bag, std.alloc.GlobalAllocator>, std.alloc.GlobalAllocator>;
+    let _4: &discards.Bag;
+    let _5: &std.vector.Vector<discards.Bag, std.alloc.GlobalAllocator>;
+    let _6: &discards.Bag;
+    let _7: String;
+    window w0: std.vector.Vector.[](index: Int) shared;
+    window w1: std.vector.Vector.[](index: Int) shared;
+
+    bb0: {
+        _3 = ref(shared, (*_1));
+        _2 = window_open w0 prologue std.vector.Vector.[](index: Int) (owner std.vector.Vector<std.vector.Vector<discards.Bag, std.alloc.GlobalAllocator>, std.alloc.GlobalAllocator>) [move _3, const 0: Int] -> [present: bb1];
+    }
+
+    bb1: {
+        _5 = ref(shared, (*_2));
+        _4 = window_open w1 prologue std.vector.Vector.[](index: Int) (owner std.vector.Vector<discards.Bag, std.alloc.GlobalAllocator>) [move _5, const 1: Int] -> [present: bb2];
+    }
+
+    bb2: {
+        _6 = ref(shared, (*_4));
+        _7 = call discards.Bag.label() (owner discards.Bag) [move _6] -> [return: bb3];
+    }
+
+    bb3: {
+        drop(_7);
+        window_close w1 epilogue std.vector.Vector.[](index: Int) (owner std.vector.Vector<discards.Bag, std.alloc.GlobalAllocator>) -> [return: bb4];
+    }
+
+    bb4: {
+        window_close w0 epilogue std.vector.Vector.[](index: Int) (owner std.vector.Vector<std.vector.Vector<discards.Bag, std.alloc.GlobalAllocator>, std.alloc.GlobalAllocator>) -> [return: bb5];
+    }
+
+    bb5: {
+        return;
+    }
+}

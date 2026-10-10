@@ -57,8 +57,8 @@ kept.
 A **drop flag** `_F` is a `Bool` local that mirrors whether its path is
 whole. Flags are created only for the paths a flagged drop names, and for an
 accessor's record locals that carry one across its split (below), and are
-numbered after the function's locals; the dump's note names the path, `//
-flag _3`. bb0 starts by setting each flag from the entry's conditions (a
+numbered after the function's locals, but for a take flag, which MIR made and
+elaboration adopts (below); the dump's note names the path, `// flag _3`. bb0 starts by setting each flag from the entry's conditions (a
 parameter's path is whole there). After each statement, and before each
 terminator, every flag whose path its accesses change is updated: set where
 the path becomes whole, cleared where it stops being, by the net effect of
@@ -68,6 +68,19 @@ two extreme states), so a flag is set at an assignment, cleared at a move or
 a drop, and kept by a read, a borrow or a write through a reference. A flag
 lives across a suspension like any other local; the coroutine frame builder
 carries it.
+
+**Take flags.** A local a non-escaping closure's `[move v]` takes
+(`compiler/tests/mir/README.md`, "Takes") already has a flag: the take flag
+MIR made at the capture, which the closure body clears when it takes the
+value. Elaboration adopts it as that path's drop flag before it makes any
+other, so the body and the guarded drop read one flag, and two takes of one
+path naming two flags are an `INVARIANT`. It is written like any other flag
+(set in bb0 from the entry's conditions, set at each assignment), except at
+the take itself, which keeps it: the analysis leaves the path `W M` there, and
+the flag's value passes to the closure. The drop at the local's scope end is
+`flagged`, so it comes out as `switch copy _F -> [true: bbD, false: bbC]`,
+then `drop(_L); _F = const false;` in bbD. The dump notes an adopted flag
+like any other, at its own place among the locals.
 
 **Partial paths.** The MIR already decomposes a value whose parts left: a
 consuming destructure drops each owned part it does not move right there
@@ -216,15 +229,13 @@ there. It counts the drop flags over the sawc2 build and over tests/corpus.
 | glue under the new std: `Vector<Token>` and `Vector<Int>` | glue_std |
 | a flag across an accessor's split (the Air's probe) | accessor |
 | a flagged drop across a suspending call | suspension |
+| a take: its take flag adopted, kept at the take, guarding the scope-end drop; a parameter taken, one local taken twice under one flag | takes |
 
 ## The flag counts
 
-The borrow check labels 7 drops `flagged` over the sawc2 build and 23 over
-tests/corpus (its lane counts them over every record). Elaboration creates 7
-flags over the sawc2 build, one per flagged drop. Over the corpus it creates
-18: 3 of the 23 flagged drops are in programs the borrow check refuses
-(`use_after_move_branch`, `use_after_move_loop`,
-`use_after_move_loop_body_always_breaks`), and 2 in programs whose MIR the
-verifier finds a whole drop after a part moved in (`move p.f`, SL-462's to
-refuse: `consumes_receiver_through_a_field_or_place`,
-`optional_move_unwrap_field`); none of those is elaborated.
+The borrow check labels 10 drops `flagged` over the sawc2 build and 29 over
+tests/corpus (its lane counts them over every record). Elaboration has 10
+flags over the sawc2 build, one per flagged drop. Over the corpus it has 26,
+8 of them take flags it adopts: 3 of the 29 flagged drops are in programs the
+borrow check refuses (`use_after_move_branch`, `use_after_move_loop`,
+`use_after_move_loop_body_always_breaks`), which are not elaborated.

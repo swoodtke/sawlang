@@ -6,8 +6,10 @@
 // and calls are arena indices. Types are typecheck's interned ids.
 
 // What a local is: the return place `_0`, a parameter (the receiver first), a
-// closure's environment, a binding the source names, a temporary, or an
-// accessor's state record (a half's parameter, or a window's storage).
+// closure's environment, a binding the source names, a temporary, an
+// accessor's state record (a half's parameter, or a window's storage), or the
+// take flag of a local a non-escaping closure's `[move v]` takes, which drop
+// elaboration adopts as that local's drop flag.
 public enum MirLocalKind {
     case Return,
     case Param,
@@ -15,7 +17,8 @@ public enum MirLocalKind {
     case Env,
     case User,
     case Temp,
-    case Record
+    case Record,
+    case Flag
 }
 
 public struct MirLocal {
@@ -130,7 +133,13 @@ public enum MirRvalueKind {
     // A construction: see MirAggregate.
     case Aggregate,
     // An interpolated string's parts, in order.
-    case Interpolate
+    case Interpolate,
+    // A take capture's environment entry, `take(place, flag)`: an exclusive
+    // reference to the local the closure body takes, and one to its take
+    // flag, `(&var T, &var Bool)`. The local counts as moved for every later
+    // use and as maybe moved for its drop, since the body takes it only if it
+    // runs.
+    case Take
 }
 
 public enum MirAggregate {
@@ -167,6 +176,8 @@ public struct MirRvalue {
     public count: Int
     public aggregate: MirAggregate
     public decl: Int
+    // A `Take`'s flag place, or -1.
+    public flag: Int
 }
 
 public enum MirStmtKind {

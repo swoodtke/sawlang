@@ -1,0 +1,14 @@
+// refuses: move.use-after at 13:19
+// a second non-escaping `[move r]` of a binding the first one took
+
+struct Res { id: Int }
+extension Res: NoCopy {}
+
+func run(body: () -> Int) -> Int { body() }
+func sink(r: Res) -> Int { r.id }
+
+func main() {
+    let r = Res(id: 1)
+    let n = run({ [move r] in sink(move r) })
+    print(n + run({ [move r] in sink(move r) }))
+}

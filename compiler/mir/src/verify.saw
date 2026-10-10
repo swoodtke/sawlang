@@ -21,13 +21,14 @@
 //   - every loop backedge carries an op-budget point;
 //   - every statement and terminator the entry reaches carries a source node;
 //   - no operand moves an owning value out through a reference, but for an
-//     epilogue's record load and a non-escaping closure's `move` capture load.
+//     epilogue's record load and a closure body's take of a take capture,
+//     each in its one shape.
 
 import sawmir.src.build.{mir_func_local}
 import sawmir.src.dump.{mir_dump_module, mir_module_functions}
 import sawmir.src.initialisation.{MIR_INIT_DROPPED, MIR_INIT_MOVED, MIR_INIT_PARTIAL, MIR_INIT_WHOLE, MirAccess, MirAccessKind,
                         MirInit}
-import sawmir.src.model.{MirAccessor, MirArm, MirBlock, MirCall, MirCallKind, MirFunc, MirFuncKind, MirLocal,
+import sawmir.src.model.{MirAccessor, MirArm, MirBlock, MirCall, MirCallKind, MirFunc, MirFuncKind, MirLocal, MirLocalKind,
                          MirOperand, MirOperandKind, MirPlace, MirProj, MirProjKind, MirRvalue, MirRvalueKind,
                          MirStmt, MirStmtKind, MirSuspend, MirSwitchKind, MirTermKind}
 import sawmir.src.program.{MirProgram}
@@ -37,7 +38,7 @@ import sawresolve.src.model.{ResDeclKind}
 import sawresolve.src.program.{ResProgram}
 import sawtypecheck.src.bodydump.{tc_dump_bodies}
 import sawtypecheck.src.conform.{TcSubst, tc_args_subst}
-import sawtypecheck.src.model.{TC_EFFECT_BORROWS, TC_EFFECT_CONSUMES, TcLend, TcReceiver, TcUse}
+import sawtypecheck.src.model.{TC_EFFECT_BORROWS, TC_EFFECT_CONSUMES, TcLend, TcReceiver}
 import sawtypecheck.src.program.{TcProgram}
 import sawtypecheck.src.signatures.{TcContext}
 import sawtypecheck.src.spell.{tc_effects_text}
@@ -80,10 +81,9 @@ extension MirProgram {
     // reached through a `Deref` of a reference belongs to someone else, who
     // drops it again, so such a move is a double free once code exists
     // (SL-475). A value that owns nothing, a reference part among them, may
-    // move. Two shapes are exempt: an epilogue's load from its accessor's
-    // state record, which the accessor owns across its split, and a
-    // non-escaping closure's load of a `move` capture, the take-once transfer
-    // that owes a shape of its own (SL-477).
+    // move. Two shapes are admitted: an epilogue's load from its accessor's
+    // state record, which the accessor owns across its split, and a closure
+    // body's take of a take capture (`take_shape`).
     func verify_moves(&var self, f: Int, out: &var Vector<String>) {
         let info = self.funcs[f]
         var b = 0
@@ -92,28 +92,29 @@ extension MirProgram {
             var s = block.first
             while s >= 0 {
                 let stmt = self.stmts[s]
+                let at = s
                 s = stmt.next
                 if stmt.kind == MirStmtKind.Assign && stmt.rvalue >= 0 {
                     let rv = self.rvalues[stmt.rvalue]
                     var k = 0
                     while k < rv.count {
                         let o = self.lists[rv.first + k]
-                        self.check_move(f, b, o, &var out)
+                        self.check_move(f, b, at, o, &var out)
                         k = k + 1
                     }
                 }
             }
             if block.term == MirTermKind.Switch && block.switch_kind == MirSwitchKind.Bool {
-                self.check_move(f, b, block.operand, &var out)
+                self.check_move(f, b, -1, block.operand, &var out)
             } else if block.term == MirTermKind.Call && block.call >= 0 {
                 let c = self.calls[block.call]
                 if c.callee >= 0 {
-                    self.check_move(f, b, c.callee, &var out)
+                    self.check_move(f, b, -1, c.callee, &var out)
                 }
                 var k = 0
                 while k < c.arg_count {
                     let o = self.lists[c.arg_first + k]
-                    self.check_move(f, b, o, &var out)
+                    self.check_move(f, b, -1, o, &var out)
                     k = k + 1
                 }
             }
@@ -121,7 +122,9 @@ extension MirProgram {
         }
     }
 
-    func check_move(&var self, f: Int, b: Int, o: Int, out: &var Vector<String>) {
+    // Operand `o` of statement `s` of block `b`, or of its terminator when
+    // `s` is -1.
+    func check_move(&var self, f: Int, b: Int, s: Int, o: Int, out: &var Vector<String>) {
         if o < 0 || o >= self.operands.len() {
             return
         }
@@ -129,7 +132,7 @@ extension MirProgram {
         if operand.kind != MirOperandKind.Move || not self.through_reference_deref(operand.place) {
             return
         }
-        if not self.owns(operand.ty) || self.exempt_move(f, operand.place) {
+        if not self.owns(operand.ty) || self.epilogue_record_load(f, operand.place) || self.take_shape(f, b, s) {
             return
         }
         var text = StringBuilder()
@@ -143,42 +146,159 @@ extension MirProgram {
         self.problem(f, &var out, text.build())
     }
 
-    // The two moves through a reference `verify_moves` admits, each a whole
-    // entry `(*_1).K` exactly: an epilogue's load of record local K, and a
-    // non-escaping closure's load of its capture K when that capture is a
-    // `move`.
-    func exempt_move(&self, f: Int, p: Int) -> Bool {
+    // Whether place `p` of `f` is an epilogue's load of record local K, the
+    // whole entry `(*_1).K`.
+    func epilogue_record_load(&self, f: Int, p: Int) -> Bool {
         let info = self.funcs[f]
-        let place = self.places[p]
-        if place.local != 1 || place.count != 2 {
+        if info.kind != MirFuncKind.Epilogue {
             return false
+        }
+        let k = self.env_entry(p, 2)
+        k >= 0 && k < info.record_count
+    }
+
+    // K when place `p` is `(*_1).K` followed by `extra - 2` more steps, else
+    // -1.
+    func env_entry(&self, p: Int, extra: Int) -> Int {
+        let place = self.places[p]
+        if place.local != 1 || place.count != extra {
+            return -1
         }
         let entry = self.projs[place.first + 1]
         if self.projs[place.first].kind != MirProjKind.Deref || entry.kind != MirProjKind.Tuple {
-            return false
+            return -1
         }
-        if info.kind == MirFuncKind.Epilogue {
-            return entry.index < info.record_count
-        }
-        info.kind == MirFuncKind.Closure && self.take_once_capture(f, entry.index)
+        entry.index
     }
 
-    // Whether capture `j` of closure function `f` is a `move` capture of a
-    // closure typecheck found does not escape.
-    func take_once_capture(&self, f: Int, j: Int) -> Bool {
+    // Whether statement `s` of block `b` of `f` is a closure body's take of a
+    // take capture K, the one shape `load_take_capture` emits:
+    //   - `s` is `_L = move (*(*_1).K.0)`, K a take capture of the closure;
+    //   - the statement after it is `(*(*_1).K.1) = const false`;
+    //   - `b` starts with `s` and is entered only by the true arm of
+    //     `switch copy (*(*_1).K.1)`, whose false arm is a block holding
+    //     nothing but a builtin `panic` that never returns.
+    func take_shape(&var self, f: Int, b: Int, s: Int) -> Bool {
+        let info = self.funcs[f]
+        if s < 0 || info.kind != MirFuncKind.Closure {
+            return false
+        }
+        let block = self.blocks[info.block_first + b]
+        let stmt = self.stmts[s]
+        if block.first != s || stmt.place < 0 || self.places[stmt.place].count != 0 {
+            return false
+        }
+        let rv = self.rvalues[stmt.rvalue]
+        if rv.kind != MirRvalueKind.Use || rv.count != 1 {
+            return false
+        }
+        let value = self.operands[self.lists[rv.first]].place
+        let k = self.take_slot(value, 0)
+        if k < 0 || not self.closure_take(f, k) || stmt.next < 0 {
+            return false
+        }
+        let clear = self.stmts[stmt.next]
+        if clear.kind != MirStmtKind.Assign || self.take_slot(clear.place, 1) != k || not self.constant_false(clear.rvalue) {
+            return false
+        }
+        let head = self.only_predecessor(f, b)
+        if head < 0 {
+            return false
+        }
+        let test = self.blocks[info.block_first + head]
+        if test.term != MirTermKind.Switch || test.switch_kind != MirSwitchKind.Bool || test.arm_count != 2 {
+            return false
+        }
+        let tested = self.operands[test.operand]
+        if tested.kind != MirOperandKind.Copy || self.take_slot(tested.place, 1) != k {
+            return false
+        }
+        let yes = self.arms[test.arm_first]
+        let no = self.arms[test.arm_first + 1]
+        yes.value == 1 && yes.target == b && no.value == 0 && self.panics_only(f, no.target)
+    }
+
+    // K when place `p` is `(*(*_1).K.slot)`, else -1.
+    func take_slot(&self, p: Int, slot: Int) -> Int {
+        if p < 0 {
+            return -1
+        }
+        let k = self.env_entry(p, 4)
+        if k < 0 {
+            return -1
+        }
+        let place = self.places[p]
+        let part = self.projs[place.first + 2]
+        let deref = self.projs[place.first + 3]
+        if part.kind != MirProjKind.Tuple || part.index != slot || deref.kind != MirProjKind.Deref {
+            return -1
+        }
+        k
+    }
+
+    // Whether capture K of closure function `f` is a take.
+    func closure_take(&var self, f: Int, k: Int) -> Bool {
         let e = self.funcs[f].root
         let at = self.tc.closure_index.first(e, 0)
         if at < 0 {
             return false
         }
-        let k = self.tc.closure_index.value(at)
-        if k < 0 || k >= self.tc.closure_escaping.len() || self.tc.closure_escaping[k] {
+        let index = self.tc.closure_index.value(at)
+        self.take_capture(index, k)
+    }
+
+    // Whether rvalue `r` is `const false`.
+    func constant_false(&self, r: Int) -> Bool {
+        if r < 0 {
             return false
         }
-        if j < 0 || j >= self.tc.capture_count[k] {
+        let rv = self.rvalues[r]
+        if rv.kind != MirRvalueKind.Use || rv.count != 1 {
             return false
         }
-        self.tc.captures[self.tc.capture_first[k] + j].use == TcUse.Move
+        let o = self.operands[self.lists[rv.first]]
+        o.kind == MirOperandKind.Const && self.tc.name_text(o.text).equals("false")
+    }
+
+    // The one block with an edge to block `b` of `f`, or -1 for none or
+    // several.
+    func only_predecessor(&self, f: Int, b: Int) -> Int {
+        let info = self.funcs[f]
+        var found = -1
+        var p = 0
+        while p < info.block_count {
+            let block = self.blocks[info.block_first + p]
+            var succ = Vector<Int>()
+            var opened = -1
+            self.successors(f, &block, &var succ, &var opened)
+            var j = 0
+            while j < succ.len() {
+                if succ[j] == b {
+                    if found >= 0 && found != p {
+                        return -1
+                    }
+                    found = p
+                }
+                j = j + 1
+            }
+            p = p + 1
+        }
+        found
+    }
+
+    // Whether block `b` of `f` holds nothing but a builtin `panic` call that
+    // never returns.
+    func panics_only(&self, f: Int, b: Int) -> Bool {
+        let info = self.funcs[f]
+        if b < 0 || b >= info.block_count {
+            return false
+        }
+        let block = self.blocks[info.block_first + b]
+        if block.first >= 0 || block.term != MirTermKind.Call {
+            return false
+        }
+        let c = self.calls[block.call]
+        c.kind == MirCallKind.Builtin && c.next < 0 && self.tc.name_text(c.spelling).equals("panic")
     }
 
     // Every statement and terminator the entry reaches carries a source node
@@ -596,6 +716,9 @@ extension MirProgram {
         if info.kind == MirRvalueKind.Ref {
             self.verify_place(f, info.place, &var out)
         }
+        if info.kind == MirRvalueKind.Take {
+            self.verify_take(f, &info, &var out)
+        }
         var k = 0
         while k < info.count {
             let o = self.lists[info.first + k]
@@ -607,6 +730,37 @@ extension MirProgram {
             if self.operands[o].ty != info.ty {
                 self.problem(f, &var out, "a use changes its operand's type")
             }
+        }
+    }
+
+    // A take capture's entry: a whole local and a take flag, typed
+    // `(&var T, &var Bool)`.
+    func verify_take(&self, f: Int, info: &MirRvalue, out: &var Vector<String>) {
+        self.verify_place(f, info.place, &var out)
+        self.verify_place(f, info.flag, &var out)
+        if info.place < 0 || info.flag < 0 || info.place >= self.places.len() || info.flag >= self.places.len() {
+            return
+        }
+        let taken = self.places[info.place]
+        let flag = self.places[info.flag]
+        if taken.count != 0 || taken.local < 0 {
+            self.problem(f, &var out, "a take names no whole local")
+        }
+        if flag.count != 0 || flag.local < 0 || mir_func_local(&self, f, flag.local).kind != MirLocalKind.Flag {
+            self.problem(f, &var out, "a take's flag is no take flag")
+        }
+        if not self.tc.is_bool(flag.ty) {
+            self.problem(f, &var out, "a take's flag is no `Bool`")
+        }
+        var typed = self.tc.kind_of(info.ty) == TcKind.Tuple && self.tc.types.ty(info.ty).count == 2
+        if typed {
+            let value_slot = self.tc.types.arg(info.ty, 0)
+            let flag_slot = self.tc.types.arg(info.ty, 1)
+            typed = self.tc.is_exclusive_ref(value_slot) && self.tc.referent(value_slot) == taken.ty
+            typed = typed && self.tc.is_exclusive_ref(flag_slot) && self.tc.referent(flag_slot) == flag.ty
+        }
+        if not typed {
+            self.problem(f, &var out, "a take is not typed as references to its local and its flag")
         }
     }
 

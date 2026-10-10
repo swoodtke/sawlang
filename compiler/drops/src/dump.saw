@@ -176,7 +176,11 @@ extension DropsProgram {
                 }
                 try! out.append(self.bc.mir.tc.name_text(l.name))
             },
-            case Temp -> {}
+            case Temp -> {},
+            case Flag -> {
+                try! out.append("  // flag ")
+                try! out.append(self.bc.mir.tc.name_text(l.name))
+            }
         }
     }
 }

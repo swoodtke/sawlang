@@ -8,8 +8,8 @@
 // passed to an `escaping` parameter, and non-escaping) and capture kind
 // (plain, `move`, `copy`). A `[copy v]` of an ExplicitCopy `Vector` calls its
 // `copy()` once at creation, in either kind, and the environment and `v` are
-// each dropped once. A non-escaping `[move v]` is the take-once transfer,
-// whose shape is owed elsewhere (SL-477), so it has no row here.
+// each dropped once. A non-escaping `[move v]` of a value that owns something
+// is a take, which golden `takes` holds, so it has no row here.
 
 struct Res {
     name: String

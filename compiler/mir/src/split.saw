@@ -305,8 +305,11 @@ extension MirProgram {
             if stmt.kind == MirStmtKind.Assign {
                 self.def_place(stmt.place, &var state)
                 let rv = self.rvalues[stmt.rvalue]
-                if rv.kind == MirRvalueKind.Ref {
+                if rv.kind == MirRvalueKind.Ref || rv.kind == MirRvalueKind.Take {
                     self.use_place(rv.place, &var state)
+                }
+                if rv.kind == MirRvalueKind.Take {
+                    self.use_place(rv.flag, &var state)
                 }
                 var j = 0
                 while j < rv.count {
@@ -834,8 +837,11 @@ extension MirProgram {
             }
             if stmt.kind == MirStmtKind.Assign {
                 let rv = self.rvalues[stmt.rvalue]
-                if rv.kind == MirRvalueKind.Ref {
+                if rv.kind == MirRvalueKind.Ref || rv.kind == MirRvalueKind.Take {
                     self.use_place(rv.place, &var state)
+                }
+                if rv.kind == MirRvalueKind.Take {
+                    self.use_place(rv.flag, &var state)
                 }
                 var j = 0
                 while j < rv.count {
@@ -1036,6 +1042,9 @@ extension MirProgram {
         var info = self.rvalues[r]
         if info.place >= 0 {
             info.place = self.half_place(info.place, &half)
+        }
+        if info.flag >= 0 {
+            info.flag = self.half_place(info.flag, &half)
         }
         var ops = Vector<Int>()
         var k = 0

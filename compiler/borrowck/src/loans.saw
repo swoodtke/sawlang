@@ -940,6 +940,17 @@ extension BorrowckProgram {
                         let kind = if rv.exclusive { BorrowckAccessKind.Exclusive } else { BorrowckAccessKind.Shared }
                         self.place_access(kind, rv.place, stmt.node, stmt.closing, &var facts, &var out)
                     }
+                    // A take moves its local as far as any loan can tell: the
+                    // initialisation analysis leaves nothing able to reach it
+                    // after, so it makes no loan of its own.
+                    if rv.kind == MirRvalueKind.Take && rv.place >= 0 {
+                        self.place_access(BorrowckAccessKind.Move, rv.place, stmt.node, stmt.closing, &var facts,
+                                          &var out)
+                    }
+                    if rv.kind == MirRvalueKind.Take && rv.flag >= 0 {
+                        self.place_access(BorrowckAccessKind.Exclusive, rv.flag, stmt.node, stmt.closing, &var facts,
+                                          &var out)
+                    }
                 }
                 if stmt.place >= 0 {
                     self.place_access(BorrowckAccessKind.Write, stmt.place, stmt.node, stmt.closing, &var facts,

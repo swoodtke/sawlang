@@ -73,8 +73,9 @@ fn NAME -> RESULT {
   first (`// env`), then the rest. The note names a binding: `// param NAME`,
   `// NAME` for a `let`, `var` or pattern binding, `// ref NAME` for one whose
   local holds a reference its name reads through (a borrow binding, an
-  alias into a borrowed scrutinee, a guard's view of a binding); a temporary
-  has none. A receiver is `&Self` or `&var Self`, and `Self` for a `consumes`
+  alias into a borrowed scrutinee, a guard's view of a binding), `// flag
+  NAME` for the take flag of a binding a take capture takes (Closure
+  environments, below); a temporary has none. A receiver is `&Self` or `&var Self`, and `Self` for a `consumes`
   method, which owns it. `// record` marks an accessor's state record: a
   half's first parameter, `&var` of the record, or a caller's local holding
   one for a window.
@@ -121,6 +122,7 @@ array or an Optional of those alone. An **rvalue** is:
 | `vector [...]: T`, `set [...]: T`, `map [K: V, ...]: T` | a collection literal |
 | `closure#K of PARENT [A, ...]` | a closure, its captures in its table's order |
 | `interpolate [A, ...]` | an interpolated string's segments, placeholders and values, a `String` it allocates |
+| `take(_L, _F)` | a take capture's environment entry: exclusive references to the local `_L` the closure body takes and to its take flag `_F`, `(&var T, &var Bool)` |
 
 A builtin operator's operand is the value for a trivially copyable type, a
 reference, a slice or a function value, and a shared reference to it for any
@@ -213,7 +215,7 @@ whose docstring lists them), each covered by a golden case:
 | a `let` or `var`'s value | `lower_let` | operands, drops |
 | an assignment's value; a compound assignment's | `lower_assign`, `lower_compound` | operands, order |
 | a returned value; a block's or branch's tail | `lower_into` | operands, branches |
-| a value a statement discards, `let _` | `lower_discarded` | drops |
+| a value a statement discards, `let _`, registered with its scope once however it was made | `lower_discarded` | drops, discards |
 | a condition of `if`, `while`, `guard`, a guard | `condition_operand` | branches, matches |
 | a call's arguments, in written order | `call_arguments` | operands, order |
 | a receiver a `consumes` method takes | `receiver_operand` | operands |
@@ -288,6 +290,7 @@ through a reference to stay a reported move.
 | `x.f(...)` on a `borrows` accessor | a window on a place, or a copy out of it | windows |
 | a receiver or a subscript's base reached through a `borrows` accessor, chained, through `!`, under a key or an index | its windows opened in receiver position, before the arguments, keys or index (`open_receiver_windows`); a plain receiver's borrow taken just before the call; an assignment's target opens its windows after the right side, a compound one's too | receivers |
 | a closure | an aggregate of its captures, its body a function of its own | closures |
+| a non-escaping `[move v]` of a value that owns something | `take(_L, _F)` in the environment; in the body, the flag's test, the take and the flag's clear | takes |
 | `print("x = {}", x)`, `panic`'s and `assert`'s format messages | a `format` constant, the arguments after it; `"x = {x}"` an `interpolate` | formats |
 | `lend p` | the end of the accessor's prologue, the start of its epilogue | windows, accessors |
 | a call of a function that may suspend | a suspension point, conditional in a generic body | points |
@@ -390,11 +393,43 @@ through a reference the capture's name reads through (`_2 = ref(shared,
 so that it never transfers: what the local holds is a copy or a view, never
 the environment's value. Typecheck refuses every consuming use of such a
 capture (`capture.escaping-consume`), so no move out of an escaping
-environment is left to lower. A non-escaping closure's `[move v]` still loads
-with a move (`_2 = move (*_1).0`): that is the take-once transfer, which
-needs a shape of its own and a drop flag the body clears (SL-477), and the
-verifier exempts it by name. Each closure kind and capture kind is a function
+environment is left to lower. Each closure kind and capture kind is a function
 of drops golden `captures`.
+
+**Takes** (`take_capture` in `compiler/mir/src/build.saw`, whose docstring
+lists its entry points). A non-escaping closure's `[move v]` of a value that
+owns something transfers when the body runs (spec, "a `[move r]` capture
+transfers when the body runs"; SL-477), as Stage 0's `_deferred_field` does. A
+`[move n]` that owns nothing keeps its plain load. At the capture, MIR makes
+`v`'s take flag, a `Bool` local noted `// flag v`, one per local per function,
+and the environment entry is `take(_L, _F)`, references to the local and to
+its flag:
+
+```
+_4 = take(_1, _3);
+_5 = closure#0 of takes.once() [move _4];
+```
+
+The body's entry tests the flag, panics on a run after the one that took the
+value, and otherwise moves the value into an owned local of its own and clears
+the flag (`load_take_capture`):
+
+```
+bb0: { switch copy (*(*_1).0.1) -> [true: bb1, false: bb2]; }
+bb1: { _2 = move (*(*_1).0.0);
+       (*(*_1).0.1) = const false: Bool;
+       ... }
+bb2: { call builtin panic [const "closure body ran twice on `move` capture `r`": String] -> !; }
+```
+
+The environment then owns nothing, so its glue releases nothing. MIR leaves
+the flag unwritten in the enclosing function: drop elaboration adopts it as
+`v`'s drop flag (`compiler/tests/drops/README.md`), and the initialisation
+analysis reads the take as `W M` (`compiler/tests/borrowck/README.md`), so the
+drop at `v`'s scope end is guarded by it. Each case is a function of golden
+`takes`: a body run once, run twice, never run, one that keeps the value, a
+taken parameter, one local taken twice around a reassignment under one flag,
+a `String`, and an `Int` that is no take.
 
 ## Refusals
 
@@ -481,14 +516,21 @@ nowhere, and checks, from the MIR alone:
   (SL-475): that storage is someone else's, who drops it again. A value that
   owns nothing, a reference part such as an accessor record's `&var` field,
   may move, and a raw pointer's pointee is not a reference's. Two shapes are
-  exempt, each a whole entry `(*_1).K`: an epilogue's load of record local K,
-  which its accessor owns across the split, and a non-escaping closure's load
-  of a `move` capture K, the take-once transfer that is owed a shape of its own
-  (SL-477). The initialisation analysis reads a move
-  through a reference as a read of the reference, so this is the one check
-  that sees one. The verifier reads no text, so its rejection is pinned by the
-  unit program `compiler/mir/tests/verify_moves.saw`, which edits a lowered
-  copy through a reference into a move and requires the report.
+  admitted. One is an epilogue's load of record local K, the whole entry
+  `(*_1).K`, which its accessor owns across the split. The other is a closure
+  body's take (`take_shape`): `_L = move (*(*_1).K.0)` for a take capture K,
+  first in its block and followed by `(*(*_1).K.1) = const false`, the block
+  entered only by the true arm of `switch copy (*(*_1).K.1)` whose false arm
+  is a block holding nothing but a builtin `panic` that never returns. The
+  initialisation analysis reads a move through a reference as a read of the
+  reference, so this is the one check that sees one. The verifier reads no
+  text, so its rejections are pinned by the unit program
+  `compiler/mir/tests/verify_moves.saw`, which edits a lowered copy through a
+  reference into a move, and edits a take (`inject/takes.saw`) by unlinking
+  its flag's clear and by swapping its switch's arms, and requires the report
+  each time;
+- every `take(_L, _F)` names a whole local and a take flag, and is typed
+  `(&var T, &var Bool)`.
 
 ## Source nodes
 

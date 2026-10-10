@@ -1,0 +1,78 @@
+// A non-escaping closure's `[move v]` of a value that owns something is a
+// take: the transfer happens when the body runs (SL-477). The capture's
+// environment entry is `take(_L, _F)`, references to the enclosing local and
+// to its take flag, and the body's entry tests the flag, panics on a second
+// run, and otherwise moves the value out and clears the flag. `once` takes
+// `r` in its one call, `twice` reaches the panic on the second, and `never`
+// leaves `r` to the drop at its own scope's end. `kept` takes `r` and drops
+// it at the body's end; `param` takes a parameter; `retaken` takes one local
+// twice, around a reassignment, under one flag; `copy_tier` takes a `String`;
+// `trivial` moves an `Int`, which owns nothing, so it is no take.
+
+struct Res {
+    name: String
+}
+
+extension Res: NoCopy {}
+
+func sink(r: Res) -> Int {
+    r.name.len()
+}
+
+func run(body: () -> Int) -> Int {
+    body()
+}
+
+func run_twice(body: () -> Int) -> Int {
+    body() + body()
+}
+
+func skip(body: () -> Int) -> Int {
+    0
+}
+
+func once() -> Int {
+    let r = Res(name: "abc")
+    run({ [move r] in sink(move r) })
+}
+
+func twice() -> Int {
+    let r = Res(name: "abc")
+    run_twice({ [move r] in sink(move r) })
+}
+
+func never() -> Int {
+    let r = Res(name: "abc")
+    skip({ [move r] in sink(move r) })
+}
+
+func kept() -> Int {
+    let r = Res(name: "abc")
+    run({ [move r] in r.name.len() })
+}
+
+func param(r: Res) -> Int {
+    run({ [move r] in sink(move r) })
+}
+
+func retaken() -> Int {
+    var r = Res(name: "abc")
+    let first = run({ [move r] in sink(move r) })
+    r = Res(name: "de")
+    first + run({ [move r] in sink(move r) })
+}
+
+func copy_tier() -> Int {
+    let s = "abc"
+    run({ [move s] in s.len() })
+}
+
+func trivial() -> Int {
+    let n = 3
+    run({ [move n] in n + 1 })
+}
+
+func main() {
+    print(once() + never() + kept() + param(Res(name: "f")) + retaken() + copy_tier() + trivial())
+    print(twice())
+}

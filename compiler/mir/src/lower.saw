@@ -605,10 +605,17 @@ extension MirProgram {
         let first = self.tc.capture_first[k]
         let count = self.tc.capture_count[k]
         var elements = Vector<Int>()
+        var takes = Vector<Bool>()
         var j = 0
         while j < count {
             let cap = self.tc.captures[first + j]
-            try! elements.push(self.capture_type(&cap))
+            let take = self.take_capture(k, j)
+            try! takes.push(take)
+            if take {
+                try! elements.push(self.take_entry_type(cap.ty))
+            } else {
+                try! elements.push(self.capture_type(&cap))
+            }
             j = j + 1
         }
         let none = Vector<Int>()
@@ -636,6 +643,11 @@ extension MirProgram {
             let whole = self.project(env_place, MirProjKind.Deref, -1, -1, env_tuple)
             let part = self.project(whole, MirProjKind.Tuple, -1, j, et)
             let borrowed = cap.use == TcUse.Borrow || cap.use == TcUse.BorrowVar
+            if takes[j] {
+                self.load_take_capture(&cap, part, name)
+                j = j + 1
+                continue
+            }
             if not borrowed && (escaping || cap.use == TcUse.Copy) {
                 self.load_owned_capture(&cap, part, name)
                 j = j + 1
@@ -693,6 +705,56 @@ extension MirProgram {
         self.assign_local(l, rv)
         self.bind_leaf(cap.binding, l)
         self.scope_owned(l)
+    }
+
+    // A take capture read from its environment entry `part`, `(*_1).K`: the
+    // take-once transfer. The body panics when the take flag says a run
+    // before it took the value, and otherwise moves the value out of the
+    // enclosing local into an owned local of its own and clears the flag, so
+    // the enclosing scope's guarded drop skips it. `verify_moves` admits an
+    // owning move through a reference in this shape alone (SL-477).
+    func load_take_capture(&var self, cap: &TcCapture, part: Int, name: Int) {
+        let flag_type = self.tc.bool_type()
+        let value_slot_type = self.tc.mk_ref(true, cap.ty)
+        let flag_slot_type = self.tc.mk_ref(true, flag_type)
+        let value_slot = self.project(part, MirProjKind.Tuple, -1, 0, value_slot_type)
+        let value = self.project(value_slot, MirProjKind.Deref, -1, -1, cap.ty)
+        let flag_slot = self.project(part, MirProjKind.Tuple, -1, 1, flag_slot_type)
+        let flag = self.project(flag_slot, MirProjKind.Deref, -1, -1, flag_type)
+        let taken = self.new_block()
+        let gone = self.new_block()
+        let present = self.op_copy(flag)
+        self.switch_bool(present, taken, gone)
+        self.enter(gone)
+        self.panic_taken_twice(name)
+        self.enter(taken)
+        let l = self.new_local(cap.ty, MirLocalKind.User, name, cap.binding)
+        let o = self.op_move(value)
+        let rv = self.rv_use(o)
+        self.assign_local(l, rv)
+        let cleared = self.op_const(MirConstKind.Bool, "false", flag_type)
+        let clear = self.rv_use(cleared)
+        self.assign(flag, clear)
+        self.bind_leaf(cap.binding, l)
+        self.scope_owned(l)
+    }
+
+    // A second run's panic on take capture `name`, in Stage 0's words.
+    func panic_taken_twice(&var self, name: Int) {
+        let st = self.tc.string_type()
+        var text = StringBuilder()
+        try! text.append("\"closure body ran twice on `move` capture `")
+        try! text.append(self.tc.name_text(name))
+        try! text.append("`\"")
+        let message = self.op_const(MirConstKind.String, text.build(), st)
+        var args = Vector<Int>()
+        try! args.push(message)
+        let node = self.at
+        var call = self.blank_call(MirCallKind.Builtin, node)
+        call.spelling = self.tc.res.intern("panic")
+        call.arg_first = self.push_args(&args)
+        call.arg_count = 1
+        let _ = self.emit_call(call)
     }
 
     // The type a capture takes in its closure's environment: the value, or a
@@ -865,7 +927,10 @@ extension MirProgram {
     }
 
     // An operand nothing reads: a temporary it moves out of is registered
-    // with the innermost scope, and any other value is first copied into one.
+    // with the innermost scope, once, since the path that made it may have
+    // registered it already (a place a statement-form `borrow` reads through
+    // a call held in a temporary), and any other value is first copied into
+    // one.
     func discard_operand(&var self, o: Int) {
         if o < 0 || not self.live() {
             return
@@ -877,7 +942,7 @@ extension MirProgram {
         if info.kind == MirOperandKind.Move {
             let l = self.bare_local(info.place)
             if l >= 0 && self.local(l).kind == MirLocalKind.Temp {
-                self.scope_owned(l)
+                self.own_temp(info.place)
                 return
             }
         }
@@ -3711,11 +3776,14 @@ extension MirProgram {
         var j = 0
         while j < count {
             let cap = self.tc.captures[first + j]
+            let take = self.take_capture(k, j)
             j = j + 1
             var steps = Vector<MirStep>()
             self.prepare_local(cap.binding, cap.site, &var steps)
             let p = self.realize_all(&steps)
-            if cap.use == TcUse.Move {
+            if take {
+                try! out.push(self.take_operand(p, cap.site))
+            } else if cap.use == TcUse.Move {
                 try! out.push(self.op_move(p))
             } else if cap.use == TcUse.Copy {
                 try! out.push(self.capture_copy(p, cap.site))
@@ -3725,6 +3793,40 @@ extension MirProgram {
             }
         }
         move out
+    }
+
+    // A take capture's environment entry for local place `p`: `take(p, F)`,
+    // `F` the local's take flag. Drop elaboration writes the flag, as the
+    // local's drop flag, and the closure body clears it when it takes the
+    // value.
+    func take_operand(&var self, p: Int, site: Int) -> Int {
+        let l = self.bare_local(p)
+        if l < 0 {
+            self.missing(site, "a take capture names no local")
+            return self.op_move(p)
+        }
+        let flag = self.take_flag(l)
+        let fp = self.place_local(flag)
+        let rv = self.rv_take(p, fp)
+        self.temp_operand(rv)
+    }
+
+    // Local `l`'s take flag, made at its first take in the function being
+    // lowered; every later take of `l` names the same one, since elaboration
+    // adopts it as `l`'s only drop flag.
+    func take_flag(&var self, l: Int) -> Int {
+        let info = self.local(l)
+        let count = self.locals.len() - self.local_base
+        var k = 0
+        while k < count {
+            let other = self.local(k)
+            if other.kind == MirLocalKind.Flag && info.node >= 0 && other.node == info.node {
+                return k
+            }
+            k = k + 1
+        }
+        let t = self.tc.bool_type()
+        self.new_local(t, MirLocalKind.Flag, info.name, info.node)
     }
 
     // The value a copy capture of place `p` puts in its environment: a

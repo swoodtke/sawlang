@@ -1,0 +1,123 @@
+module takes
+
+fn takes.run(body: () -> Int) {
+    place _1: () -> Int;  // body
+
+    bb0: {
+        [W] _2 = call value copy _1 [] -> [return: bb1];
+    }
+
+    bb1: {
+        [W] _0 = move _2;
+        [W] drop(_1);  // static
+        [D] return;
+    }
+}
+
+fn takes.skip(body: () -> Int) {
+    place _1: () -> Int;  // body
+
+    bb0: {
+        [W] _0 = const 0: Int;
+        [W] drop(_1);  // static
+        [D] return;
+    }
+}
+
+fn takes.sink(r: takes.Res) {
+    place _1: takes.Res;  // r
+
+    bb0: {
+        [W] _0 = copy _1.id;
+        [W] drop(_1);  // static
+        [D] return;
+    }
+}
+
+fn takes.once() {
+    place _1: takes.Res;  // r
+    place _2: takes.Res;  // _2
+    place _5: () -> Int;  // _5
+
+    bb0: {
+        [U U U] _2 = takes.Res { id: const 1: Int };
+        [U W U] _1 = move _2;
+        [W M U] _4 = take(_1, _3);
+        [WM M U] _5 = closure#0 of takes.once() [move _4];
+        [WM M W] _6 = call takes.run(body: () -> Int) [move _5] -> [return: bb1];
+    }
+
+    bb1: {
+        [WM M M] _0 = move _6;
+        [WM M M] drop(_1);  // flagged
+        [D M M] return;
+    }
+}
+
+fn closure#0 of takes.once() {
+    place _2: takes.Res;  // r
+
+    bb0: {
+        [U] switch copy (*(*_1).0.1) -> [true: bb1, false: bb2];
+    }
+
+    bb1: {
+        [U] _2 = move (*(*_1).0.0);
+        [W] (*(*_1).0.1) = const false: Bool;
+        [W] _3 = call takes.sink(r: takes.Res) [move _2] -> [return: bb3];
+    }
+
+    bb2: {
+        [U] call builtin panic [const "closure body ran twice on `move` capture `r`": String] -> !;
+    }
+
+    bb3: {
+        [M] _0 = move _3;
+        [M] drop(_2);  // elided
+        [D] return;
+    }
+}
+
+fn takes.never() {
+    place _1: takes.Res;  // r
+    place _2: takes.Res;  // _2
+    place _5: () -> Int;  // _5
+
+    bb0: {
+        [U U U] _2 = takes.Res { id: const 2: Int };
+        [U W U] _1 = move _2;
+        [W M U] _4 = take(_1, _3);
+        [WM M U] _5 = closure#0 of takes.never() [move _4];
+        [WM M W] _6 = call takes.skip(body: () -> Int) [move _5] -> [return: bb1];
+    }
+
+    bb1: {
+        [WM M M] _0 = move _6;
+        [WM M M] drop(_1);  // flagged
+        [D M M] return;
+    }
+}
+
+fn closure#0 of takes.never() {
+    place _2: takes.Res;  // r
+
+    bb0: {
+        [U] switch copy (*(*_1).0.1) -> [true: bb1, false: bb2];
+    }
+
+    bb1: {
+        [U] _2 = move (*(*_1).0.0);
+        [W] (*(*_1).0.1) = const false: Bool;
+        [W] _3 = call takes.sink(r: takes.Res) [move _2] -> [return: bb3];
+    }
+
+    bb2: {
+        [U] call builtin panic [const "closure body ran twice on `move` capture `r`": String] -> !;
+    }
+
+    bb3: {
+        [M] _0 = move _3;
+        [M] drop(_2);  // elided
+        [D] return;
+    }
+}

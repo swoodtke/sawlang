@@ -1,0 +1,15 @@
+// refuses: move.use-after at 14:11
+// a binding read after a non-escaping closure's `[move r]` took it: the take
+// is a move for every later use, whether or not the body ran
+
+struct Res { id: Int }
+extension Res: NoCopy {}
+
+func run(body: () -> Int) -> Int { body() }
+func sink(r: Res) -> Int { r.id }
+
+func main() {
+    let r = Res(id: 1)
+    let n = run({ [move r] in sink(move r) })
+    print(n + r.id)
+}

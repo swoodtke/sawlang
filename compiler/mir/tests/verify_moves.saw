@@ -4,7 +4,11 @@
 // its one copy of an owning value through a reference becomes a move, and the
 // verifier must report exactly that. `inject/handoff.saw` is lowered as it
 // stands: a generic hand-off of an unbounded `T` must stay a reported move.
-// Paths are the repository root's, where the runner runs.
+// `inject/takes.saw` holds a closure body's take, the one owning move through
+// a reference the verifier admits; it is found clean, then each of two edits,
+// unlinking the flag's clear and swapping the switch's arms, must make the
+// verifier report the move. Paths are the repository root's, where the runner
+// runs.
 import sawmir.src.api.{mir_lower_file}
 import sawmir.src.build.{mir_func_local}
 import sawmir.src.model.{MirOperandKind, MirStmtKind}
@@ -93,6 +97,60 @@ func owning_copy_through_reference(p: &var MirProgram, m: Int) -> Int {
     return -1
 }
 
+// The statement of module `m`'s functions that moves an owning value out
+// through a reference, a closure body's take, or -1; with `function`, the
+// function holding it instead.
+func owning_move_through_reference(p: &var MirProgram, m: Int, function: Bool) -> Int {
+    var f = 0
+    while f < p.funcs.len() {
+        let info = p.funcs[f]
+        let here_function = f
+        f = f + 1
+        if info.module != m {
+            continue
+        }
+        p.local_base = info.local_first
+        var b = 0
+        while b < info.block_count {
+            let first = p.blocks[info.block_first + b].first
+            b = b + 1
+            var s = first
+            while s >= 0 {
+                let stmt = p.stmts[s]
+                let here = s
+                s = stmt.next
+                if stmt.kind != MirStmtKind.Assign || stmt.rvalue < 0 {
+                    continue
+                }
+                let rv = p.rvalues[stmt.rvalue]
+                if rv.count != 1 {
+                    continue
+                }
+                let operand = p.operands[p.lists[rv.first]]
+                if operand.kind == MirOperandKind.Move && p.owns(operand.ty) && p.through_reference_deref(operand.place) {
+                    if function {
+                        return here_function
+                    }
+                    return here
+                }
+            }
+        }
+    }
+    return -1
+}
+
+// The take fixture lowered, checked clean, and its take found.
+func lowered_takes(names: &Vector<String>, dirs: &Vector<String>) -> MirProgram {
+    var p = mir_lower_file("compiler/tests/mir/inject/takes.saw", "sawc", &names, &dirs)
+    let m = module_index(&p, "takes")
+    assert(m >= 0, "the take fixture did not load")
+    assert(p.diags.len() == 0 && p.tc.error_count() == 0, "the take fixture is refused")
+    let clean = mir_verify_module(&var p, m)
+    assert(clean.len() == 0, "the take fixture's MIR is not clean before the edit")
+    assert(owning_move_through_reference(&var p, m, false) >= 0, "the take fixture holds no take")
+    move p
+}
+
 func main() {
     let names = Vector<String>()
     let dirs = Vector<String>()
@@ -120,4 +178,32 @@ func main() {
     assert(q.diags.len() == 0 && q.tc.error_count() == 0, "the hand-off fixture is refused")
     let found = mir_verify_module(&var q, h)
     assert(moves_reported(&found) == 1 && found.len() == 1, "the generic hand-off is not reported as a move")
+
+    // A take whose flag is never cleared would let a second run take again.
+    var t = lowered_takes(&names, &dirs)
+    let tm = module_index(&t, "takes")
+    let s = owning_move_through_reference(&var t, tm, false)
+    var take = t.stmts[s]
+    let clear = t.stmts[take.next]
+    take.next = clear.next
+    t.stmts[s] = take
+    let unclear = mir_verify_module(&var t, tm)
+    assert(moves_reported(&unclear) == 1, "the verifier admits a take that leaves its flag set")
+
+    // A take on the switch's false arm would run when the flag says gone. The
+    // body's one capture is its take, so its entry block ends in the switch.
+    var u = lowered_takes(&names, &dirs)
+    let um = module_index(&u, "takes")
+    let body = owning_move_through_reference(&var u, um, true)
+    let head = u.blocks[u.funcs[body].block_first]
+    assert(head.arm_count == 2, "the take fixture's body does not start with the take's switch")
+    let first = head.arm_first
+    var yes = u.arms[first]
+    var no = u.arms[first + 1]
+    yes.value = 0
+    no.value = 1
+    u.arms[first] = yes
+    u.arms[first + 1] = no
+    let swapped = mir_verify_module(&var u, um)
+    assert(moves_reported(&swapped) == 1, "the verifier admits a take entered on its flag's false edge")
 }

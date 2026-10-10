@@ -41,7 +41,9 @@ public static MIR_INIT_DROPPED: Int = 16
 // only maybe initialised at `lend` with its drop flag: the prologue's write
 // into the record is a transfer, which ends the local as a move does but
 // uses nothing, since the local may already be gone; the epilogue's load out
-// of it is a resume, which leaves the local maybe initialised.
+// of it is a resume, which leaves the local maybe initialised. A take
+// capture's `take(p, flag)` is a take of `p`: a use like a move, which leaves
+// `p` whole or moved, since the closure body takes it only if it runs.
 public enum MirAccessKind {
     case Read,
     case Move,
@@ -49,7 +51,8 @@ public enum MirAccessKind {
     case Write,
     case Drop,
     case Transfer,
-    case Resume
+    case Resume,
+    case Take
 }
 
 // One access of a statement or a terminator, in evaluation order. `path` is
@@ -143,8 +146,9 @@ extension MirInit {
     // dropped. A read or a borrow, and any access reaching through a
     // reference or an index, changes nothing. A write to a part of a partial
     // path leaves that path partial, since the part written need not be the
-    // one that left. A transfer acts as a move, and a resume leaves the path
-    // and everything in it whole or moved.
+    // one that left. A transfer acts as a move, and a resume or a take leaves
+    // the path and everything in it whole or moved: the moved bit makes every
+    // later use a use after move, and the whole bit makes its drop flagged.
     public func apply(&self, state: &var Vector<Int>, a: &MirAccess) {
         if a.path < 0 || a.cut {
             return
@@ -157,7 +161,7 @@ extension MirInit {
             set = MIR_INIT_WHOLE
         } else if a.kind == MirAccessKind.Drop {
             set = MIR_INIT_DROPPED
-        } else if a.kind == MirAccessKind.Resume {
+        } else if a.kind == MirAccessKind.Resume || a.kind == MirAccessKind.Take {
             set = MIR_INIT_WHOLE | MIR_INIT_MOVED
         } else {
             return
@@ -343,6 +347,12 @@ extension MirProgram {
                 }
                 if rv.kind == MirRvalueKind.Ref && rv.place >= 0 {
                     self.init_place_access(MirAccessKind.Borrow, rv.place, s, &facts, &var out)
+                }
+                if rv.kind == MirRvalueKind.Take && rv.place >= 0 {
+                    self.init_place_access(MirAccessKind.Take, rv.place, s, &facts, &var out)
+                }
+                if rv.kind == MirRvalueKind.Take && rv.flag >= 0 {
+                    self.init_place_access(MirAccessKind.Borrow, rv.flag, s, &facts, &var out)
                 }
             }
             if stmt.place >= 0 {
@@ -544,6 +554,9 @@ extension MirProgram {
                     let rv = self.rvalues[stmt.rvalue]
                     if rv.place >= 0 {
                         self.init_add_place(rv.place, &var facts)
+                    }
+                    if rv.flag >= 0 {
+                        self.init_add_place(rv.flag, &var facts)
                     }
                     self.init_add_operands(rv.first, rv.count, &var facts)
                 }

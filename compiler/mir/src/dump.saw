@@ -310,7 +310,11 @@ extension MirProgram {
                 }
                 try! out.append(self.tc.name_text(l.name))
             },
-            case Temp -> {}
+            case Temp -> {},
+            case Flag -> {
+                try! out.append("  // flag ")
+                try! out.append(self.tc.name_text(l.name))
+            }
         }
     }
 
@@ -500,6 +504,13 @@ extension MirProgram {
                 try! out.append("interpolate [")
                 self.append_operands(&var out, info.first, info.count)
                 try! out.append("]")
+            },
+            case Take -> {
+                try! out.append("take(")
+                self.append_place(&var out, info.place)
+                try! out.append(", ")
+                self.append_place(&var out, info.flag)
+                try! out.append(")")
             }
         }
     }

@@ -1,0 +1,679 @@
+module takes
+
+fn takes.sink(r: takes.Res) -> Int {
+    let _0: Int;  // return
+    let _1: takes.Res;  // param r
+    let _2: &String;
+    let _3: Int;
+
+    bb0: {
+        _2 = ref(shared, _1.name);
+        _3 = call std.string.String.len() (owner String) [move _2] -> [return: bb1];
+    }
+
+    bb1: {
+        _0 = move _3;
+        drop(_1);
+        return;
+    }
+
+    glue takes.Res: structural
+}
+
+fn takes.run(body: () -> Int) -> Int {
+    let _0: Int;  // return
+    let _1: () -> Int;  // param body
+    let _2: Int;
+
+    bb0: {
+        _2 = call value copy _1 [] -> [return: bb1];
+    }
+
+    bb1: {
+        _0 = move _2;
+        drop(_1);
+        return;
+    }
+
+    glue () -> Int: closure environment
+}
+
+fn takes.run_twice(body: () -> Int) -> Int {
+    let _0: Int;  // return
+    let _1: () -> Int;  // param body
+    let _2: Int;
+    let _3: Int;
+    let _4: Int;
+
+    bb0: {
+        _2 = call value copy _1 [] -> [return: bb1];
+    }
+
+    bb1: {
+        _3 = call value copy _1 [] -> [return: bb2];
+    }
+
+    bb2: {
+        _4 = Add(move _2, move _3);
+        _0 = move _4;
+        drop(_1);
+        return;
+    }
+
+    glue () -> Int: closure environment
+}
+
+fn takes.skip(body: () -> Int) -> Int {
+    let _0: Int;  // return
+    let _1: () -> Int;  // param body
+
+    bb0: {
+        _0 = const 0: Int;
+        drop(_1);
+        return;
+    }
+
+    glue () -> Int: closure environment
+}
+
+fn takes.once() -> Int {
+    let _0: Int;  // return
+    let _1: takes.Res;  // r
+    let _2: takes.Res;
+    let _3: Bool;  // flag _1
+    let _4: (&var takes.Res, &var Bool);
+    let _5: () -> Int;
+    let _6: Int;
+
+    bb0: {
+        _3 = const false: Bool;
+        _2 = takes.Res { name: const "abc": String };
+        _1 = move _2;
+        _3 = const true: Bool;
+        _4 = take(_1, _3);
+        _5 = closure#0 of takes.once() [move _4];
+        _6 = call takes.run(body: () -> Int) [move _5] -> [return: bb1];
+    }
+
+    bb1: {
+        _0 = move _6;
+        switch copy _3 -> [true: bb2, false: bb3];
+    }
+
+    bb2: {
+        drop(_1);
+        _3 = const false: Bool;
+        goto -> bb3;
+    }
+
+    bb3: {
+        return;
+    }
+
+    glue takes.Res: structural
+}
+
+fn closure#0 of takes.once() -> Int {
+    let _0: Int;  // return
+    let _1: &((&var takes.Res, &var Bool),);  // env
+    let _2: takes.Res;  // r
+    let _3: Int;
+
+    bb0: {
+        switch copy (*(*_1).0.1) -> [true: bb1, false: bb2];
+    }
+
+    bb1: {
+        _2 = move (*(*_1).0.0);
+        (*(*_1).0.1) = const false: Bool;
+        _3 = call takes.sink(r: takes.Res) [move _2] -> [return: bb3];
+    }
+
+    bb2: {
+        call builtin panic [const "closure body ran twice on `move` capture `r`": String] -> !;
+    }
+
+    bb3: {
+        _0 = move _3;
+        return;
+    }
+}
+
+fn takes.twice() -> Int {
+    let _0: Int;  // return
+    let _1: takes.Res;  // r
+    let _2: takes.Res;
+    let _3: Bool;  // flag _1
+    let _4: (&var takes.Res, &var Bool);
+    let _5: () -> Int;
+    let _6: Int;
+
+    bb0: {
+        _3 = const false: Bool;
+        _2 = takes.Res { name: const "abc": String };
+        _1 = move _2;
+        _3 = const true: Bool;
+        _4 = take(_1, _3);
+        _5 = closure#0 of takes.twice() [move _4];
+        _6 = call takes.run_twice(body: () -> Int) [move _5] -> [return: bb1];
+    }
+
+    bb1: {
+        _0 = move _6;
+        switch copy _3 -> [true: bb2, false: bb3];
+    }
+
+    bb2: {
+        drop(_1);
+        _3 = const false: Bool;
+        goto -> bb3;
+    }
+
+    bb3: {
+        return;
+    }
+
+    glue takes.Res: structural
+}
+
+fn closure#0 of takes.twice() -> Int {
+    let _0: Int;  // return
+    let _1: &((&var takes.Res, &var Bool),);  // env
+    let _2: takes.Res;  // r
+    let _3: Int;
+
+    bb0: {
+        switch copy (*(*_1).0.1) -> [true: bb1, false: bb2];
+    }
+
+    bb1: {
+        _2 = move (*(*_1).0.0);
+        (*(*_1).0.1) = const false: Bool;
+        _3 = call takes.sink(r: takes.Res) [move _2] -> [return: bb3];
+    }
+
+    bb2: {
+        call builtin panic [const "closure body ran twice on `move` capture `r`": String] -> !;
+    }
+
+    bb3: {
+        _0 = move _3;
+        return;
+    }
+}
+
+fn takes.never() -> Int {
+    let _0: Int;  // return
+    let _1: takes.Res;  // r
+    let _2: takes.Res;
+    let _3: Bool;  // flag _1
+    let _4: (&var takes.Res, &var Bool);
+    let _5: () -> Int;
+    let _6: Int;
+
+    bb0: {
+        _3 = const false: Bool;
+        _2 = takes.Res { name: const "abc": String };
+        _1 = move _2;
+        _3 = const true: Bool;
+        _4 = take(_1, _3);
+        _5 = closure#0 of takes.never() [move _4];
+        _6 = call takes.skip(body: () -> Int) [move _5] -> [return: bb1];
+    }
+
+    bb1: {
+        _0 = move _6;
+        switch copy _3 -> [true: bb2, false: bb3];
+    }
+
+    bb2: {
+        drop(_1);
+        _3 = const false: Bool;
+        goto -> bb3;
+    }
+
+    bb3: {
+        return;
+    }
+
+    glue takes.Res: structural
+}
+
+fn closure#0 of takes.never() -> Int {
+    let _0: Int;  // return
+    let _1: &((&var takes.Res, &var Bool),);  // env
+    let _2: takes.Res;  // r
+    let _3: Int;
+
+    bb0: {
+        switch copy (*(*_1).0.1) -> [true: bb1, false: bb2];
+    }
+
+    bb1: {
+        _2 = move (*(*_1).0.0);
+        (*(*_1).0.1) = const false: Bool;
+        _3 = call takes.sink(r: takes.Res) [move _2] -> [return: bb3];
+    }
+
+    bb2: {
+        call builtin panic [const "closure body ran twice on `move` capture `r`": String] -> !;
+    }
+
+    bb3: {
+        _0 = move _3;
+        return;
+    }
+}
+
+fn takes.kept() -> Int {
+    let _0: Int;  // return
+    let _1: takes.Res;  // r
+    let _2: takes.Res;
+    let _3: Bool;  // flag _1
+    let _4: (&var takes.Res, &var Bool);
+    let _5: () -> Int;
+    let _6: Int;
+
+    bb0: {
+        _3 = const false: Bool;
+        _2 = takes.Res { name: const "abc": String };
+        _1 = move _2;
+        _3 = const true: Bool;
+        _4 = take(_1, _3);
+        _5 = closure#0 of takes.kept() [move _4];
+        _6 = call takes.run(body: () -> Int) [move _5] -> [return: bb1];
+    }
+
+    bb1: {
+        _0 = move _6;
+        switch copy _3 -> [true: bb2, false: bb3];
+    }
+
+    bb2: {
+        drop(_1);
+        _3 = const false: Bool;
+        goto -> bb3;
+    }
+
+    bb3: {
+        return;
+    }
+
+    glue takes.Res: structural
+}
+
+fn closure#0 of takes.kept() -> Int {
+    let _0: Int;  // return
+    let _1: &((&var takes.Res, &var Bool),);  // env
+    let _2: takes.Res;  // r
+    let _3: &String;
+    let _4: Int;
+
+    bb0: {
+        switch copy (*(*_1).0.1) -> [true: bb1, false: bb2];
+    }
+
+    bb1: {
+        _2 = move (*(*_1).0.0);
+        (*(*_1).0.1) = const false: Bool;
+        _3 = ref(shared, _2.name);
+        _4 = call std.string.String.len() (owner String) [move _3] -> [return: bb3];
+    }
+
+    bb2: {
+        call builtin panic [const "closure body ran twice on `move` capture `r`": String] -> !;
+    }
+
+    bb3: {
+        _0 = move _4;
+        drop(_2);
+        return;
+    }
+
+    glue takes.Res: structural
+}
+
+fn takes.param(r: takes.Res) -> Int {
+    let _0: Int;  // return
+    let _1: takes.Res;  // param r
+    let _2: Bool;  // flag _1
+    let _3: (&var takes.Res, &var Bool);
+    let _4: () -> Int;
+    let _5: Int;
+
+    bb0: {
+        _2 = const true: Bool;
+        _3 = take(_1, _2);
+        _4 = closure#0 of takes.param(r: takes.Res) [move _3];
+        _5 = call takes.run(body: () -> Int) [move _4] -> [return: bb1];
+    }
+
+    bb1: {
+        _0 = move _5;
+        switch copy _2 -> [true: bb2, false: bb3];
+    }
+
+    bb2: {
+        drop(_1);
+        _2 = const false: Bool;
+        goto -> bb3;
+    }
+
+    bb3: {
+        return;
+    }
+
+    glue takes.Res: structural
+}
+
+fn closure#0 of takes.param(r: takes.Res) -> Int {
+    let _0: Int;  // return
+    let _1: &((&var takes.Res, &var Bool),);  // env
+    let _2: takes.Res;  // r
+    let _3: Int;
+
+    bb0: {
+        switch copy (*(*_1).0.1) -> [true: bb1, false: bb2];
+    }
+
+    bb1: {
+        _2 = move (*(*_1).0.0);
+        (*(*_1).0.1) = const false: Bool;
+        _3 = call takes.sink(r: takes.Res) [move _2] -> [return: bb3];
+    }
+
+    bb2: {
+        call builtin panic [const "closure body ran twice on `move` capture `r`": String] -> !;
+    }
+
+    bb3: {
+        _0 = move _3;
+        return;
+    }
+}
+
+fn takes.retaken() -> Int {
+    let _0: Int;  // return
+    let _1: takes.Res;  // r
+    let _2: takes.Res;
+    let _3: Int;  // first
+    let _4: Bool;  // flag _1
+    let _5: (&var takes.Res, &var Bool);
+    let _6: () -> Int;
+    let _7: Int;
+    let _8: takes.Res;
+    let _9: Int;
+    let _10: (&var takes.Res, &var Bool);
+    let _11: () -> Int;
+    let _12: Int;
+    let _13: Int;
+
+    bb0: {
+        _4 = const false: Bool;
+        _2 = takes.Res { name: const "abc": String };
+        _1 = move _2;
+        _4 = const true: Bool;
+        _5 = take(_1, _4);
+        _6 = closure#0 of takes.retaken() [move _5];
+        _7 = call takes.run(body: () -> Int) [move _6] -> [return: bb1];
+    }
+
+    bb1: {
+        _3 = move _7;
+        _8 = takes.Res { name: const "de": String };
+        switch copy _4 -> [true: bb3, false: bb4];
+    }
+
+    bb2: {
+        _13 = Add(move _9, move _12);
+        _0 = move _13;
+        switch copy _4 -> [true: bb5, false: bb6];
+    }
+
+    bb3: {
+        drop(_1);
+        _4 = const false: Bool;
+        goto -> bb4;
+    }
+
+    bb4: {
+        _1 = move _8;
+        _4 = const true: Bool;
+        _9 = copy _3;
+        _10 = take(_1, _4);
+        _11 = closure#1 of takes.retaken() [move _10];
+        _12 = call takes.run(body: () -> Int) [move _11] -> [return: bb2];
+    }
+
+    bb5: {
+        drop(_1);
+        _4 = const false: Bool;
+        goto -> bb6;
+    }
+
+    bb6: {
+        return;
+    }
+
+    glue takes.Res: structural
+}
+
+fn closure#0 of takes.retaken() -> Int {
+    let _0: Int;  // return
+    let _1: &((&var takes.Res, &var Bool),);  // env
+    let _2: takes.Res;  // r
+    let _3: Int;
+
+    bb0: {
+        switch copy (*(*_1).0.1) -> [true: bb1, false: bb2];
+    }
+
+    bb1: {
+        _2 = move (*(*_1).0.0);
+        (*(*_1).0.1) = const false: Bool;
+        _3 = call takes.sink(r: takes.Res) [move _2] -> [return: bb3];
+    }
+
+    bb2: {
+        call builtin panic [const "closure body ran twice on `move` capture `r`": String] -> !;
+    }
+
+    bb3: {
+        _0 = move _3;
+        return;
+    }
+}
+
+fn closure#1 of takes.retaken() -> Int {
+    let _0: Int;  // return
+    let _1: &((&var takes.Res, &var Bool),);  // env
+    let _2: takes.Res;  // r
+    let _3: Int;
+
+    bb0: {
+        switch copy (*(*_1).0.1) -> [true: bb1, false: bb2];
+    }
+
+    bb1: {
+        _2 = move (*(*_1).0.0);
+        (*(*_1).0.1) = const false: Bool;
+        _3 = call takes.sink(r: takes.Res) [move _2] -> [return: bb3];
+    }
+
+    bb2: {
+        call builtin panic [const "closure body ran twice on `move` capture `r`": String] -> !;
+    }
+
+    bb3: {
+        _0 = move _3;
+        return;
+    }
+}
+
+fn takes.copy_tier() -> Int {
+    let _0: Int;  // return
+    let _1: String;  // s
+    let _2: Bool;  // flag _1
+    let _3: (&var String, &var Bool);
+    let _4: () -> Int;
+    let _5: Int;
+
+    bb0: {
+        _2 = const false: Bool;
+        _1 = const "abc": String;
+        _2 = const true: Bool;
+        _3 = take(_1, _2);
+        _4 = closure#0 of takes.copy_tier() [move _3];
+        _5 = call takes.run(body: () -> Int) [move _4] -> [return: bb1];
+    }
+
+    bb1: {
+        _0 = move _5;
+        switch copy _2 -> [true: bb2, false: bb3];
+    }
+
+    bb2: {
+        drop(_1);
+        _2 = const false: Bool;
+        goto -> bb3;
+    }
+
+    bb3: {
+        return;
+    }
+
+    glue String: builtin
+}
+
+fn closure#0 of takes.copy_tier() -> Int {
+    let _0: Int;  // return
+    let _1: &((&var String, &var Bool),);  // env
+    let _2: String;  // s
+    let _3: &String;
+    let _4: Int;
+
+    bb0: {
+        switch copy (*(*_1).0.1) -> [true: bb1, false: bb2];
+    }
+
+    bb1: {
+        _2 = move (*(*_1).0.0);
+        (*(*_1).0.1) = const false: Bool;
+        _3 = ref(shared, _2);
+        _4 = call std.string.String.len() (owner String) [move _3] -> [return: bb3];
+    }
+
+    bb2: {
+        call builtin panic [const "closure body ran twice on `move` capture `s`": String] -> !;
+    }
+
+    bb3: {
+        _0 = move _4;
+        drop(_2);
+        return;
+    }
+
+    glue String: builtin
+}
+
+fn takes.trivial() -> Int {
+    let _0: Int;  // return
+    let _1: Int;  // n
+    let _2: () -> Int;
+    let _3: Int;
+
+    bb0: {
+        _1 = const 3: Int;
+        _2 = closure#0 of takes.trivial() [move _1];
+        _3 = call takes.run(body: () -> Int) [move _2] -> [return: bb1];
+    }
+
+    bb1: {
+        _0 = move _3;
+        return;
+    }
+}
+
+fn closure#0 of takes.trivial() -> Int {
+    let _0: Int;  // return
+    let _1: &(Int,);  // env
+    let _2: Int;  // n
+    let _3: Int;
+
+    bb0: {
+        _2 = copy (*_1).0;
+        _3 = Add(copy _2, const 1: Int);
+        _0 = move _3;
+        return;
+    }
+}
+
+fn takes.main() -> Void {
+    let _0: Void;  // return
+    let _1: Int;
+    let _2: Int;
+    let _3: Int;
+    let _4: Int;
+    let _5: Int;
+    let _6: takes.Res;
+    let _7: Int;
+    let _8: Int;
+    let _9: Int;
+    let _10: Int;
+    let _11: Int;
+    let _12: Int;
+    let _13: Int;
+    let _14: Int;
+    let _15: Int;
+
+    bb0: {
+        _1 = call takes.once() [] -> [return: bb1];
+    }
+
+    bb1: {
+        _2 = call takes.never() [] -> [return: bb2];
+    }
+
+    bb2: {
+        _3 = Add(move _1, move _2);
+        _4 = call takes.kept() [] -> [return: bb3];
+    }
+
+    bb3: {
+        _5 = Add(move _3, move _4);
+        _6 = takes.Res { name: const "f": String };
+        _7 = call takes.param(r: takes.Res) [move _6] -> [return: bb4];
+    }
+
+    bb4: {
+        _8 = Add(move _5, move _7);
+        _9 = call takes.retaken() [] -> [return: bb5];
+    }
+
+    bb5: {
+        _10 = Add(move _8, move _9);
+        _11 = call takes.copy_tier() [] -> [return: bb6];
+    }
+
+    bb6: {
+        _12 = Add(move _10, move _11);
+        _13 = call takes.trivial() [] -> [return: bb7];
+    }
+
+    bb7: {
+        _14 = Add(move _12, move _13);
+        call builtin print [move _14] -> [return: bb8];
+    }
+
+    bb8: {
+        _15 = call takes.twice() [] -> [return: bb9];
+    }
+
+    bb9: {
+        call builtin print [copy _15] -> [return: bb10];
+    }
+
+    bb10: {
+        return;
+    }
+}

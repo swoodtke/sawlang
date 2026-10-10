@@ -1,0 +1,132 @@
+// A discarded value is registered with its statement's scope once, however it
+// was made (SL-488). The statement-form `borrow` of a call reads the call's
+// result as a place held in a temporary, which that read already registers;
+// the discard of the same temporary used to register it a second time, and
+// the scope's exit dropped it twice. `plain`, `through_borrow` and
+// `through_block` are SL-488's three. The sweep after them puts the statement
+// form, with a `&var self` callee, a `&self` callee and a nested chain, before
+// each consumer of the call's result: `let _ =`, `try!`, a `Void` result, a
+// `let` binding, an argument, a `return`, an expression statement and a
+// branch's arm.
+
+struct Bag {
+    items: Vector<Int>
+}
+
+extension Bag: NoCopy {}
+
+extension Bag {
+    func add(&var self, n: Int) -> Result<Void, AllocError> {
+        self.items.push(n)
+    }
+
+    func label(&self) -> String {
+        "bag"
+    }
+
+    func reset(&var self) {
+        let _ = self.items.push(0)
+    }
+}
+
+func consume(r: Result<Void, AllocError>) -> Int {
+    match r {
+        case Ok(_) -> 1,
+        case Err(_) -> 0
+    }
+}
+
+func take_label(s: String) -> Int {
+    s.len()
+}
+
+func plain(v: &var Vector<Int>) {
+    let _ = v.push(9)
+}
+
+func through_borrow(rows: &var Vector<Vector<Int>>) {
+    let _ = borrow var rows[0].push(9)
+}
+
+func through_block(rows: &var Vector<Vector<Int>>) {
+    borrow var r = rows[0] {
+        let _ = r.push(9)
+    }
+}
+
+func var_discard(rows: &var Vector<Bag>) {
+    let _ = borrow var rows[0].add(9)
+}
+
+func var_force(rows: &var Vector<Bag>) {
+    try! borrow var rows[0].add(9)
+}
+
+func var_void(rows: &var Vector<Bag>) {
+    borrow var rows[0].reset()
+}
+
+func var_bind(rows: &var Vector<Bag>) -> Int {
+    let r = borrow var rows[0].add(9)
+    consume(move r)
+}
+
+func var_argument(rows: &var Vector<Bag>) -> Int {
+    consume(borrow var rows[0].add(9))
+}
+
+func var_return(rows: &var Vector<Bag>) -> Result<Void, AllocError> {
+    return borrow var rows[0].add(9)
+}
+
+func shared_discard(rows: &Vector<Bag>) {
+    let _ = borrow rows[0].label()
+}
+
+func shared_bind(rows: &Vector<Bag>) -> Int {
+    let s = borrow rows[0].label()
+    s.len()
+}
+
+func shared_argument(rows: &Vector<Bag>) -> Int {
+    take_label(borrow rows[0].label())
+}
+
+func shared_return(rows: &Vector<Bag>) -> String {
+    return borrow rows[0].label()
+}
+
+func shared_statement(rows: &Vector<Bag>) {
+    borrow rows[0].label()
+}
+
+func shared_arm(rows: &Vector<Bag>, flag: Bool) {
+    if flag {
+        borrow rows[0].label()
+    }
+}
+
+func nested_discard(grid: &var Vector<Vector<Bag>>) {
+    let _ = borrow var grid[0][1].add(9)
+}
+
+func nested_force(grid: &var Vector<Vector<Bag>>) {
+    try! borrow var grid[0][1].add(9)
+}
+
+func nested_bind(grid: &var Vector<Vector<Bag>>) -> Int {
+    let r = borrow var grid[0][1].add(9)
+    consume(move r)
+}
+
+func nested_argument(grid: &var Vector<Vector<Bag>>) -> Int {
+    consume(borrow var grid[0][1].add(9))
+}
+
+func nested_field_discard(rows: &var Vector<Bag>) {
+    let _ = borrow var rows[0].items.push(9)
+}
+
+func nested_shared_discard(grid: &Vector<Vector<Bag>>) {
+    let _ = borrow grid[0][1].label()
+}

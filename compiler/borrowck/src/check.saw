@@ -301,13 +301,15 @@ extension BorrowckProgram {
         found
     }
 
-    // Whether `accesses` move path `q`, a path around it or one inside it.
+    // Whether `accesses` move path `q`, a path around it or one inside it; a
+    // take capture's take counts as the move.
     func moves_related(&self, facts: &MirInit, accesses: &Vector<MirAccess>, q: Int) -> Bool {
         var k = 0
         while k < accesses.len() {
             let a = accesses[k]
             k = k + 1
-            if a.kind != MirAccessKind.Move || a.cut || a.path < 0 {
+            let moving = a.kind == MirAccessKind.Move || a.kind == MirAccessKind.Take
+            if not moving || a.cut || a.path < 0 {
                 continue
             }
             if borrowck_within(&facts, a.path, q) || borrowck_within(&facts, q, a.path) {

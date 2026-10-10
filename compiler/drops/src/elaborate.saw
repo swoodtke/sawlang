@@ -10,7 +10,9 @@
 //     flag enters.
 // Flags exist only for the paths a flagged drop names, and for an
 // accessor's record locals that carry one across its split, whose flag the
-// prologue writes into the record and the epilogue reads back. A drop never
+// prologue writes into the record and the epilogue reads back. A path a take
+// capture takes uses the take flag MIR made for it, which the closure body
+// clears when it takes the value. A drop never
 // moves: placement is the MIR's, which drops in reverse declaration order at
 // scope exits and in reverse creation order at a statement's end, and
 // decomposes a value whose parts left into drops of the parts. A panic does
@@ -24,7 +26,7 @@ import sawmir.src.dump.{mir_module_functions}
 import sawmir.src.initialisation.{MIR_INIT_PARTIAL, MIR_INIT_WHOLE, MirAccess, MirAccessKind, MirInit,
                                   mir_init_apply_all}
 import sawmir.src.model.{MirBlock, MirConstKind, MirDiag, MirFuncKind, MirLocal, MirLocalKind, MirProjKind,
-                         MirStmt, MirStmtKind}
+                         MirRvalueKind, MirStmt, MirStmtKind}
 import sawmir.src.program.{MirProgram}
 import sawresolve.src.lang.{ResLang}
 import sawresolve.src.program.{ResProgram}
@@ -87,13 +89,16 @@ extension DropsProgram {
     }
 
     // Function `f`'s flags: one per path a flagged drop names, and one per
-    // record local a prologue transfers, each numbered after its locals.
+    // record local a prologue transfers, each numbered after its locals. A
+    // path a take capture takes has its take flag instead, adopted first, so
+    // the closure body and the guarded drop read one flag.
     func collect_flags(&var self, f: Int, facts: &MirInit) {
         let info = self.bc.mir.funcs[f]
         // Stage 0 workaround (SL:hazards S4): canonical: self.flag_first[f] = self.flag_local.len()
         let first = self.flag_local.len()
         self.flag_first[f] = first
         var paths = Vector<Int>()
+        self.adopt_take_flags(f, &facts, &var paths)
         var b = 0
         while b < info.block_count {
             if facts.reached[b] {
@@ -115,7 +120,8 @@ extension DropsProgram {
                             try! self.partial_drops.push(s)
                             self.problem(f, s, "is a flagged drop of a place a part of which may have moved out, which no flag can decide")
                         } else if flagged_drop || a.kind == MirAccessKind.Transfer {
-                            self.add_flag(f, &facts, &var paths, a.path, a.place)
+                            let fresh = info.local_count + self.created_flags(f, paths.len())
+                            self.add_flag(f, &facts, &var paths, a.path, a.place, fresh)
                         }
                     }
                     mir_init_apply_all(&facts, &var state, &accesses)
@@ -127,11 +133,11 @@ extension DropsProgram {
         self.flag_count[f] = paths.len()
     }
 
-    // Path `q`'s flag, named by place `p`, unless it has one. A `consumes`
-    // body's receiver is released field by field on every path or on none
-    // (borrowck's `consumes.some-paths`), so a flag there is a broken
-    // invariant.
-    func add_flag(&var self, f: Int, facts: &MirInit, paths: &var Vector<Int>, q: Int, p: Int) {
+    // Path `q`'s flag, held in local `local` and named by place `p`, unless
+    // it has one. A `consumes` body's receiver is released field by field on
+    // every path or on none (borrowck's `consumes.some-paths`), so a flag
+    // there is a broken invariant.
+    func add_flag(&var self, f: Int, facts: &MirInit, paths: &var Vector<Int>, q: Int, p: Int, local: Int) {
         var k = 0
         while k < paths.len() {
             if paths[k] == q {
@@ -142,10 +148,66 @@ extension DropsProgram {
         if self.consumed_receiver(f) && facts.path_local[q] == 1 {
             self.problem(f, -1, "needs a drop flag for its consumed receiver or a field of it, which the every-path-or-none rule makes static")
         }
-        let info = self.bc.mir.funcs[f]
-        try! self.flag_local.push(info.local_count + paths.len())
+        try! self.flag_local.push(local)
         try! self.flag_place.push(p)
         try! paths.push(q)
+    }
+
+    // Each take flag of `f` adopted as the drop flag of the path its take
+    // takes, before any other flag is made. Two takes of one path naming two
+    // flags would split what the closure bodies clear from what the drop
+    // reads, so that is a broken invariant.
+    func adopt_take_flags(&var self, f: Int, facts: &MirInit, paths: &var Vector<Int>) {
+        let info = self.bc.mir.funcs[f]
+        var b = 0
+        while b < info.block_count {
+            let block = self.bc.mir.blocks[info.block_first + b]
+            var s = block.first
+            while s >= 0 {
+                let stmt = self.bc.mir.stmts[s]
+                s = stmt.next
+                if facts.reached[b] && stmt.kind == MirStmtKind.Assign && stmt.rvalue >= 0 {
+                    let rv = self.bc.mir.rvalues[stmt.rvalue]
+                    if rv.kind == MirRvalueKind.Take && rv.place >= 0 && rv.flag >= 0 {
+                        let q = self.bc.mir.init_path_of(rv.place, &facts)
+                        let flag = self.bc.mir.places[rv.flag].local
+                        let held = self.flag_for_path_in(f, &facts, &paths, q)
+                        if held >= 0 && held != flag {
+                            self.problem(f, -1, "takes one local under two take flags")
+                        }
+                        self.add_flag(f, &facts, &var paths, q, rv.place, flag)
+                    }
+                }
+            }
+            b = b + 1
+        }
+    }
+
+    // The local holding the flag collected so far for path `q` of `f`, or -1.
+    func flag_for_path_in(&self, f: Int, facts: &MirInit, paths: &Vector<Int>, q: Int) -> Int {
+        var k = 0
+        while k < paths.len() {
+            if paths[k] == q {
+                return self.flag_local[self.flag_first[f] + k]
+            }
+            k = k + 1
+        }
+        return -1
+    }
+
+    // How many of `f`'s first `count` flags elaboration made, numbered after
+    // its locals, rather than adopted.
+    func created_flags(&self, f: Int, count: Int) -> Int {
+        let locals = self.bc.mir.funcs[f].local_count
+        var n = 0
+        var k = 0
+        while k < count {
+            if self.flag_local[self.flag_first[f] + k] >= locals {
+                n = n + 1
+            }
+            k = k + 1
+        }
+        n
     }
 
     // Whether `f` is a `consumes` body, whose local `_1` is its receiver.
@@ -161,10 +223,12 @@ extension DropsProgram {
     }
 
     // Moves function `f`'s locals and blocks to the end of their arenas,
-    // the locals followed by its flags, so the blocks a guard needs can join
-    // its run. Local and block numbers are unchanged.
+    // the locals followed by the flags elaboration made, so the blocks a
+    // guard needs can join its run. Local and block numbers are unchanged.
     func relocate(&var self, f: Int) {
         var info = self.bc.mir.funcs[f]
+        let count = self.flag_count[f]
+        let created = self.created_flags(f, count)
         let local_first = self.bc.mir.locals.len()
         var k = 0
         while k < info.local_count {
@@ -174,7 +238,7 @@ extension DropsProgram {
         }
         let flag = self.bc.mir.tc.bool_type()
         k = 0
-        while k < self.flag_count[f] {
+        while k < created {
             try! self.bc.mir.locals.push(MirLocal(ty: flag, kind: MirLocalKind.Temp, name: -1, node: -1, owned: false,
                                                   reference: false))
             k = k + 1
@@ -186,7 +250,7 @@ extension DropsProgram {
             try! self.bc.mir.blocks.push(block)
             k = k + 1
         }
-        info.local_count = info.local_count + self.flag_count[f]
+        info.local_count = info.local_count + created
         info.local_first = local_first
         info.block_first = block_first
         self.bc.mir.funcs[f] = info

@@ -5,7 +5,7 @@
 // initialisation analysis; nothing here derives initialisation again.
 
 import sawborrowck.src.program.{BorrowckProgram}
-import sawmir.src.initialisation.{MIR_INIT_UNASSIGNED, MIR_INIT_WHOLE, MirAccess, MirInit}
+import sawmir.src.initialisation.{MIR_INIT_UNASSIGNED, MIR_INIT_WHOLE, MirAccess, MirAccessKind, MirInit}
 import sawmir.src.model.{MirDiag}
 import sawmir.src.program.{MirProgram}
 
@@ -96,9 +96,10 @@ extension DropsProgram {
 // whether `q` is whole, so it is set where the shared analysis's transfer
 // makes `q` whole from any condition, cleared where it leaves `q` anything
 // but whole, and kept otherwise. The answer is the analysis's own `apply`,
-// run on the two extreme states.
+// run on the two extreme states. A take keeps the flag: its value passes to
+// the closure body, which clears it when it takes the path.
 public func drops_flag_effect(facts: &MirInit, q: Int, a: &MirAccess) -> Int {
-    if a.path < 0 || a.cut || not drops_related(&facts, a.path, q) {
+    if a.path < 0 || a.cut || not drops_related(&facts, a.path, q) || a.kind == MirAccessKind.Take {
         return DROPS_KEEP
     }
     let n = facts.path_count()

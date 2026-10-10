@@ -1,0 +1,34 @@
+// A non-escaping closure's `[move r]` of a value that owns something takes it
+// when the body runs (SL-477). `take(_1, _F)` leaves `r` whole or moved: the
+// moved half makes every later use of `r` a use after move, and the whole
+// half labels its drop at the scope's end `flagged`, which drop elaboration
+// guards with the take flag the closure body clears. `once`'s callee runs the
+// body; `never`'s does not, and `r` is the drop's to release.
+
+struct Res {
+    id: Int
+}
+
+extension Res: NoCopy {}
+
+func run(body: () -> Int) -> Int {
+    body()
+}
+
+func skip(body: () -> Int) -> Int {
+    0
+}
+
+func sink(r: Res) -> Int {
+    r.id
+}
+
+func once() -> Int {
+    let r = Res(id: 1)
+    run({ [move r] in sink(move r) })
+}
+
+func never() -> Int {
+    let r = Res(id: 2)
+    skip({ [move r] in sink(move r) })
+}
