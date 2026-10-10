@@ -36,7 +36,7 @@ The spec decides the parameter half:
 It never says whether `struct H { f: () -> Int }` declares an escaping slot. Stage 0 treats every storage slot as escaping, and prints the field as `() escaping -> Int`. sawc2 treats the `escaping` bit as type identity, so it is wrong in both directions: it stores a plain parameter, and refuses to store an `escaping` one.
 
 **Decided (Stage 0's model, written down):**
-- **Where a function type is escaping:** in every position that holds a value past the call. That is a field, an enum payload, a generic argument (`Vector<() -> Int>`, `T?`), a static, a return type, and a closure's capture.
+- **Where a function type is escaping:** in every position that holds a value past the call. That is a field, an enum payload, a generic argument (`Vector<() -> Int>`, `T?`), a static, a return type, and an *escaping* closure's capture. A capture into a non-escaping closure is bounded by that closure's call, so it keeps the captured value's kind (the Air, m441: `v.each({ … f(e) })` forwards a non-escaping visitor). A type argument, written or inferred, is a storage position too: a non-escaping function type cannot instantiate a type parameter, because a generic body may hold its `T` past the call (`id(f)` is refused at the call). This is the `type.reference-position` precedent.
 - **Parameters:** a parameter's function type is non-escaping unless it says `escaping`.
 - **At the transfer funnel:**
   - An escaping value goes to either kind, since a non-escaping parameter is a lend.
