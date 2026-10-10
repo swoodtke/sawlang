@@ -1,0 +1,79 @@
+// A part holding an exclusive reference, read by value, is a move whichever
+// operand builder reads it: a reborrow out of a container that is dead after
+// it, never a second live alias of the referent. A shared reference part is a
+// copy. No source construct in the slice reads such a part by value yet, so
+// the fixture `compiler/tests/mir/inject/exclusive_parts.saw` is lowered and
+// each Optional of a reference its prologues hold is read through `op_move`
+// and `op_copy` directly. Paths are the repository root's, where the runner
+// runs.
+import sawmir.src.api.{mir_lower_file}
+import sawmir.src.build.{mir_func_local}
+import sawmir.src.model.{MirOperandKind, MirProjKind}
+import sawmir.src.program.{MirProgram}
+import sawtypecheck.src.typeops.{TcClient}
+import sawtypecheck.src.types.{TcKind}
+
+// The index of module `name`, or -1.
+func module_index(p: &MirProgram, name: String) -> Int {
+    var m = 0
+    while m < p.tc.res.module_count() {
+        if p.tc.res.module_name(m).equals(name) {
+            return m
+        }
+        m = m + 1
+    }
+    return -1
+}
+
+// How many Optional-of-reference locals of module `m`'s functions read as
+// `want` through both builders, counting those whose reference is exclusive
+// when `exclusive`, else those whose reference is shared; -1 when one reads
+// otherwise.
+func payload_reads(p: &var MirProgram, m: Int, exclusive: Bool, want: MirOperandKind) -> Int {
+    let some = p.optional_case("Some")
+    var seen = 0
+    var f = 0
+    while f < p.funcs.len() {
+        let info = p.funcs[f]
+        f = f + 1
+        if info.module != m {
+            continue
+        }
+        p.local_base = info.local_first
+        var l = 0
+        while l < info.local_count {
+            let t = p.local_type(l)
+            l = l + 1
+            let optional = p.tc.known.optional
+            if not p.tc.is_nominal_of(t, optional) {
+                continue
+            }
+            let inner = p.tc.types.arg(t, 0)
+            if p.tc.kind_of(inner) != TcKind.Ref || (p.tc.types.ty(inner).a == 1) != exclusive {
+                continue
+            }
+            let whole = p.place_local(l - 1)
+            let part = p.project(whole, MirProjKind.Payload, some, 0, inner)
+            let moved = p.op_move(part)
+            let copied = p.op_copy(part)
+            if p.operands[moved].kind != want || p.operands[copied].kind != want {
+                return -1
+            }
+            seen = seen + 1
+        }
+    }
+    seen
+}
+
+func main() {
+    let names = Vector<String>()
+    let dirs = Vector<String>()
+    var p = mir_lower_file("compiler/tests/mir/inject/exclusive_parts.saw", "sawc", &names, &dirs)
+    let m = module_index(&p, "exclusive_parts")
+    assert(m >= 0, "the fixture did not load: run from the repository root")
+    assert(p.diags.len() == 0 && p.tc.error_count() == 0, "the fixture is refused")
+    let exclusive = payload_reads(&var p, m, true, MirOperandKind.Move)
+    assert(exclusive >= 1, "an exclusive reference's payload part is read as a copy, or none was found")
+    let shared = payload_reads(&var p, m, false, MirOperandKind.Copy)
+    assert(shared >= 1, "a shared reference's payload part is read as a move, or none was found")
+}

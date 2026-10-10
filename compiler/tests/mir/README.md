@@ -12,7 +12,8 @@ mir/
   spans/           NAME.saw, a program, and NAME.mir, its expected `--spans` record
   refuse/          NAME.saw, a construct the lowering refuses
   inject/          NAME.saw, a program a unit program lowers, then edits, to
-                   prove the verifier refuses a shape no lowering emits
+                   prove the verifier refuses a shape no lowering emits, or
+                   reads through the builders a shape no construct reaches
   corpus_info.py   how much of tests/corpus/ lowers, for information
 ```
 
@@ -237,7 +238,12 @@ drop is still right (destructures `relayed`). So is a part holding a shared
 reference or slice. A part holding an exclusive reference, `&var T`, read by
 value through no reference, is always a `move`, even where its position copies:
 it is a reborrow out of a container that is dead after it, never a second live
-alias of the referent (references). No transfer moves an owning value out
+alias of the referent. No construct in the slice reads such a part by value
+yet (every conditional lend's payload is reborrowed through `(*P)`, as golden
+`references` shows), so the unit program
+`compiler/mir/tests/exclusive_parts.saw` holds both operand builders to it
+over `inject/exclusive_parts.saw`'s `(&var Int)?`, and to a `copy` for its
+`(&Int)?`. No transfer moves an owning value out
 through a reference: a hand-off or a last read of a place reached through one,
 such as `s.compare(&t)` handing the `deref` of a fresh `&t` to a by-value
 parameter, copies a Copy-tier value (`copy (*_K)`), and a pattern binding of

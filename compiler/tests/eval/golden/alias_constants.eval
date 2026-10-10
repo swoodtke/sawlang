@@ -1,0 +1,21 @@
+ERROR	slice.not-yet	compiler/tests/eval/golden/alias_constants.saw:29:23	a constant of a type the evaluator does not hold in `static alias_constants.RATIO` is not evaluated as a constant in the bootstrap slice yet
+ERROR	slice.not-yet	compiler/tests/eval/golden/alias_constants.saw:30:22	a call in `static alias_constants.CALLED` is not evaluated as a constant in the bootstrap slice yet
+module alias_constants
+static alias_constants.BASE: Int = 7
+static alias_constants.LETTER: UInt8 = 65
+static alias_constants.NEXT: UInt8 = 66
+static alias_constants.WIDE: Int = 65
+static alias_constants.NESTED: UInt8 = 1
+static alias_constants.INNER: UInt8 = 9
+static alias_constants.NEGATIVE: Int8 = -3
+static alias_constants.LOWEST: Int8 = -128
+static alias_constants.SET: Bool = true
+static alias_constants.NAMED: Int = 7
+static alias_constants.CAST: UInt8 = 7
+static alias_constants.FOLDED: UInt8 = 255
+static alias_constants.RATIO: Float (no value)
+static alias_constants.CALLED: Int (no value)
+raw alias_constants.Tag.One: UInt8 = 1
+raw alias_constants.Tag.Two: UInt8 = 2
+static_assert alias_constants 32:15: Bool = true
+static_assert alias_constants 33:15: Bool = true

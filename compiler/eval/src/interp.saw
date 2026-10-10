@@ -4,8 +4,9 @@
 // condition. It runs their MIR as it would run: straight-line typed
 // arithmetic (`sawtypecheck.src.arith`, the one rule typecheck's fold also
 // follows), bit and shift operators, comparisons, `&&` and `||` as the
-// branches MIR makes them, casts between integer types, and reads of other
-// constant statics and raw-backed cases. Calls, loops and memory are outside
+// branches MIR makes them, casts between integer types, a type alias's
+// construction (the identity), and reads of other constant statics and
+// raw-backed cases. Calls, loops and memory are outside
 // it, refused by name. An overflow, an out-of-range shift, a division by zero
 // or a value that does not fit is a compile error naming the statics the
 // evaluation went through; a static whose value depends on itself is a cycle,
@@ -215,7 +216,12 @@ extension EvalProgram {
                 self.not_yet(f, "an aggregate")
             },
             case Ref -> self.not_yet(f, "a reference"),
-            case Conversion -> self.not_yet(f, "a conversion"),
+            case Conversion -> {
+                if self.mir.tc.name_text(rv.op).equals("alias") {
+                    return self.converted(f, &rv, &locals)
+                }
+                self.not_yet(f, "a conversion")
+            },
             case Interpolate -> self.not_yet(f, "an interpolation"),
             case _ -> self.not_yet(f, "a conversion")
         }

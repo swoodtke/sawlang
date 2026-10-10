@@ -1,0 +1,9 @@
+// refuses: format.mixed at 8:18
+// a message that interpolates a value and carries format arguments, with no
+// `{}` slot at all: refused as mixed before its slot count is (spec, "Format
+// arguments and the allocation-free path")
+
+func main() {
+    let x = 1
+    print("only {x}", 2)
+}

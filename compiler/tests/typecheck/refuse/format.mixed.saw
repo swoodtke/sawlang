@@ -1,0 +1,9 @@
+// refuses: format.mixed at 8:19
+// a format string that interpolates a value beside its `{}` slot (spec,
+// "Format arguments and the allocation-free path": "Mixing `{name}`
+// interpolation into a format string that also carries arguments is rejected")
+
+func main() {
+    let x = 1
+    print("mixed {x} and {}", 2)
+}

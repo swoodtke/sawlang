@@ -129,7 +129,9 @@ A module's dump is one S-expression, one entry per line, in this layout:
 - **conformances** lists each conformance the module's extensions declare,
   where the trait is named, and how each requirement of the trait and of the
   traits it refines is met: `written` (a member of the type the conformance's
-  module sees, or a type assignment), `default`, `synthesized` (under
+  module sees, or a type assignment: the conformance's own, or for a parent
+  trait's associated type the one the type's conformance to that trait
+  writes), `default`, `synthesized` (under
   `@synthesize`), `implicit` (a `deinit`, synthesized for every type), or
   `missing`, which a refusal names.
 - **copy-tier** gives each struct and enum the module declares its tier:
@@ -495,7 +497,7 @@ Every body construct in the slice, and how it is typed:
 | construct | typed as | covered by |
 |---|---|---|
 | integer, float, string, `Bool` and `None` literals, `#file`, `#line`, `#function` | `Int` adopting its slot, range-checked, or a suffixed literal's exact type; `Float`, `String`, `Bool`; the slot's Optional, or the Ok payload's `None` at a `Result<T?, E>` slot (spec, Auto-Wrap: "At a declared `Result<T?, E>` it is `Ok(None)`") | funnel, peeling, widening, none_ok |
-| a constant expression: literals, module statics of an integer type and raw-backed cases, under `-`, `~`, arithmetic, shift and bit operators | adopts its slot, or its mixed operator's peer, and folds there by typed arithmetic, every literal and leaf fitting and no operation overflowing; a bare static adopts only as a leaf inside one, and keeps its declared type anywhere else, an operator's peer included (spec, Integer Width Agreement: "a module `static`… may be a leaf"); a combination of cases with no integer slot is the backing integer (spec, Flag enums) | funnel, widening, folding |
+| a constant expression: literals, module statics of an integer type and raw-backed cases, under `-`, `~`, arithmetic, shift and bit operators; `fold.saw` also folds a type alias's construction over one, `Byte(65)`, as the identity, for the evaluator's agreement | adopts its slot, or its mixed operator's peer, and folds there by typed arithmetic, every literal and leaf fitting and no operation overflowing; a bare static adopts only as a leaf inside one, and keeps its declared type anywhere else, an operator's peer included (spec, Integer Width Agreement: "a module `static`… may be a leaf"); a combination of cases with no integer slot is the backing integer (spec, Flag enums) | funnel, widening, folding |
 | a shift, `a << n` | the left operand's type; each count an integer of any width, no peer ("The shift count is exempt") | widening |
 | an interpolation, its segments | `String`; each segment Printable or a primitive, or an erased box `Box<any Trait>` whose trait refines Printable, rendered through the existential; borrowed | format, split_conformance |
 | a local, a parameter, a static, `self` | its type, a place | places |
@@ -926,7 +928,8 @@ says what the fixture shows.
 | `type.default` | a parameter with no default after one with a default; a default that names a type parameter |
 | `type.alias-cycle` | type aliases that stand for each other |
 | `type.infinite-size` | a struct or enum whose storage contains its own inline, through fields, payloads, tuples, optionals, arrays and the generic declarations they instantiate, or through ever larger instantiations |
-| `conformance.incomplete` | a requirement of a trait, or of a trait it refines, that nothing meets: no member written, no default, no derivation; an associated type no type assignment gives |
+| `conformance.incomplete` | a requirement of a trait, or of a trait it refines, that nothing meets: no member written, no default, no derivation; an associated type no type assignment gives, the conformance's own or, for a parent trait's, the type's conformance to that trait (refined_assignments) |
+| `conformance.associated-conflict` | a refining trait's conformance restating a parent trait's associated type as another type than the type's conformance to the parent assigns |
 | `conformance.signature` | a written member that disagrees with its requirement: receiver, staticness, type parameters, parameters, result, an `unsafe` the requirement declares, `consumes`, or `borrows` (a `borrows(sync)` member never meets a plain `borrows` requirement, SL:borrowing §2.5) |
 | `synthesize.required` | a declared conformance to a derivable trait whose method is neither written nor asked for with `@synthesize` (design 128) |
 | `synthesize.inert` | `@synthesize` on a conformance that derives nothing |
@@ -972,6 +975,7 @@ says what the fixture shows.
 | `pattern.case-mismatch` | a lone name resolve took for a case none of whose candidates is a case of the matched type, naming the case and suggesting the rename (D13) |
 | `format.slot-count` | a format string whose `{}` slots and arguments differ in number, or a formatted message that is no literal |
 | `format.argument` | a format argument or interpolated segment that is neither Printable nor a primitive |
+| `format.mixed` | a format string that interpolates a value beside its `{}` slots or arguments (spec, "Format arguments and the allocation-free path"), judged where the string-position funnel records it as `format` |
 | `operator.undefined` | an operator over a type it is not defined for |
 | `static.optional` | a static whose own type is an optional; an `unsafe static var` is exempt (spec, Module-level statics: "Never optional") |
 | `borrowing.containment` | a borrowing struct (spec, Borrowing structs) bound outside the head of a `borrow` or a `for`, taken as a parameter by value, stored in a field or a payload, erased to an existential, returned by a function that does not lend it with `borrows`, or carried by a function type |

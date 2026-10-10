@@ -2888,9 +2888,16 @@ annotated `let` accepts an underlying-typed initializer only for the four
 primitive kinds (`Int`, `Float`, `Bool`, `String`), so `type Handle = UInt` is
 constructible through `Handle(...)` and nothing else. A module `static` is the
 one slot that differs: a bare literal DOES adopt there, so
-`static MINUS_SIGN: Byte = 45` is legal while `let m: Byte = 45` is not, and
-`static MINUS_SIGN: Byte = Byte(45)` is refused because a constructor call is
-not a constant expression.
+`static MINUS_SIGN: Byte = 45` is legal while `let m: Byte = 45` is not.
+`static MINUS_SIGN: Byte = Byte(45)` is legal too: an alias's construction over
+a constant expression is itself a constant expression, the identity at the
+underlying type, so it is accepted wherever a constant is (see *The constant
+grammar*), and `Byte(300)` is refused because 300 does not fit a `UInt8`.
+**Status:** Stage 0 refuses the construction in every constant position
+("must be initialized by a compile-time constant"). The self-hosted compiler
+takes it in a `static` initializer, a `static_assert` and a raw case's value;
+an array length, a repeat count and a const generic argument accept it only
+once those positions are folded by the same evaluator.
 
 ```saw-body
 type Handle = UInt
@@ -10233,7 +10240,8 @@ Statics obey four rules, ratified in design 19:
      const evaluator folds — literals, arithmetic and the bitwise operators
      over them, `sizeof`/`alignof` (see
      [Layout in a constant](#layout-in-a-constant)), the integer limits, a
-     raw-backed enum case, an earlier module `static`, and an IMPORTED one in
+     raw-backed enum case, a type alias's construction over a constant
+     (`Byte(45)`), an earlier module `static`, and an IMPORTED one in
      either spelling (`A` under `import dep.{A}`, `dep.A` under `import dep`)
      — and struct literals, fixed-array literals (including a `[v; N]`
      repeat), `Atomic(<int>)` and `UnsafeMemory(<int>)` built out of those.
@@ -11173,18 +11181,22 @@ exactly as the `UInt32` spelling of it does. It accepts:
 - a module `static` whose own initializer folds, bare or module-qualified — of
   type `Int`/`UInt` where an integer is required, and of **any type** as the
   leaf of a `static` initializer (see *Aggregation over a named constant*);
-- a case of a raw-backed enum, and an `as` between integer types.
+- a case of a raw-backed enum, and an `as` between integer types;
+- a type alias's construction over a constant, `Byte(45)`, which is the
+  constant's value at the alias's underlying type (see *Type Definitions* for
+  its status).
 
 Anything else — a runtime function call, a `let` local, a case of an enum with
 no backing — is rejected as non-constant, and the diagnostic names the
 sub-expression that failed rather than the whole condition.
 
 **Constant arithmetic is ordinary typed arithmetic.** A constant expression
-adopts its literal types and then applies typed operations, exactly as the
-same expression would at run time, at the target's integer width and never
-the host's. Each literal is written at the type its expression adopts, a
-static or a raw-backed case converts into that type where it stands, and each
-operation runs at its operands' type. So `static HIGH: UInt64 = 1 << 63` is
+adopts its literal types and then applies typed operations as the same
+expression would at run time, at the target's integer width and never the
+host's, except that a static or a raw-backed case converts into the type its
+expression adopts where it stands. At run time a named value keeps its
+declared type. Each literal is written at the type its expression adopts, and
+each operation runs at its operands' type. So `static HIGH: UInt64 = 1 << 63` is
 2^63, `~(0 as UInt)` is `UInt.max`, and `1 << 31` at an `Int32` is `Int32.min`:
 `<<` keeps the low bits of its type, as the emitted `shl` does.
 

@@ -1,0 +1,82 @@
+// A refining trait's conformance meets its parent's associated type through
+// the type's conformance to the parent (SL-459): `Maker: Pipe` restates no
+// `type Item`, since `Maker: Source` assigns it, and `Pipe`'s requirements
+// naming `Self.Item` take that assignment. Restating it as the same type is
+// allowed too; restating it as another is conformance.associated-conflict.
+
+trait Source {
+    type Item
+    func next(&var self) -> Self.Item?
+}
+
+trait Pipe: Source {
+    func first(&var self) -> Self.Item?
+}
+
+trait Funnel: Pipe {
+    func last(&var self) -> Self.Item?
+}
+
+struct Maker {
+    n: Int
+}
+
+extension Maker: Source {
+    type Item = Int
+    func next(&var self) -> Int? {
+        if self.n == 0 {
+            return None
+        }
+        self.n = self.n - 1
+        self.n
+    }
+}
+
+extension Maker: Pipe {
+    func first(&var self) -> Int? {
+        self.next()
+    }
+}
+
+extension Maker: Funnel {
+    func last(&var self) -> Int? {
+        var seen: Int? = None
+        while let v = self.next() {
+            seen = v
+        }
+        seen
+    }
+}
+
+struct Echo {
+    word: String
+}
+
+extension Echo: Source {
+    type Item = String
+    func next(&var self) -> String? {
+        None
+    }
+}
+
+extension Echo: Pipe {
+    type Item = String
+    func first(&var self) -> String? {
+        self.word
+    }
+}
+
+func drain<T: Pipe>(p: &var T) -> Int {
+    var c = 0
+    while let _ = p.first() {
+        c = c + 1
+    }
+    c
+}
+
+func main() {
+    var m = Maker(n: 3)
+    var e = Echo(word: "hi")
+    print(drain(&var m) + (m.last() ?? 0))
+    print(e.first() ?? "")
+}

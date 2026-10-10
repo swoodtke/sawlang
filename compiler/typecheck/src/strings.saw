@@ -6,6 +6,7 @@
 // fallback. compiler/typecheck/README.md holds the matrix.
 
 import sawparse.src.grammar.{Alt}
+import sawparse.src.tree.{NodeShape}
 import sawresolve.src.dump.{res_sort_strings}
 import sawresolve.src.lang.{ResLang, res_lang_row}
 import sawtypecheck.src.program.{TcProgram}
@@ -120,6 +121,32 @@ extension TcProgram {
     public func string_position(&var self, e: Int, pos: TcStringPosition) {
         if e >= 0 && e < self.string_positions.len() {
             self.string_positions[e] = tc_string_position_index(pos)
+        }
+        if pos == TcStringPosition.Format {
+            self.check_format_pieces(e)
+        }
+    }
+
+    // A format string holds literal pieces and `{}` slots only: one that also
+    // interpolates a value would build the heap String the format spelling
+    // exists to avoid (spec, "Format arguments and the allocation-free path").
+    // Every format string reaches the funnel as `Format`, so this is the one
+    // place its pieces are judged.
+    func check_format_pieces(&var self, e: Int) {
+        if e < 0 || not self.has_alt(e, Alt.Expr_Interpolation) {
+            return
+        }
+        let n = self.child_count(e)
+        var k = 0
+        while k < n {
+            let c = self.child(e, k)
+            k = k + 1
+            let shape = self.res.nodes[c].shape
+            if shape != NodeShape.Segment && shape != NodeShape.Placeholder && not self.is_leaf(c) {
+                self.refuse(c, "format.mixed",
+                            "this format string interpolates a value beside its `\{\}` slots or arguments: a format string's values come only from the arguments after it, so write `\{\}` for this slot and pass the value as an argument")
+                return
+            }
         }
     }
 

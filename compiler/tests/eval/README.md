@@ -33,7 +33,8 @@ integer and `Bool` literals (a literal is written at the type its expression
 adopts, and a negated literal is one constant, so `-128` is an `Int8`), an
 integer type's `max` and `min`, the arithmetic, wrapping, bit and shift
 operators, comparisons, `not`, `&&` and `||` as the branches MIR makes them,
-casts, widenings and adoptions between integer types, payload-free enum cases
+casts, widenings and adoptions between integer types, a type alias's
+construction (`Byte(65)`, the identity at its underlying type), payload-free enum cases
 (read as their raw values where they adopt an integer type), and reads of
 other statics and raw-backed cases, evaluated once each, before or after the
 reader in the source. Arithmetic is typed: each operation runs at its
@@ -75,7 +76,9 @@ otherwise.
 Each refusal is reported once, at the constant whose evaluation met it. One met
 while evaluating a static another constant reads names the constants evaluated
 to reach it, outermost first (`; evaluated for static m.A`); the reader is
-left with no value and no refusal of its own.
+left with no value and no refusal of its own. A refusal names a static, a raw
+case or an `@align` argument by its MIR function's name, and a `static_assert`,
+which has none, by its condition's position: `the static_assert at 12:16`.
 
 | rule | refuses | fixture |
 |---|---|---|

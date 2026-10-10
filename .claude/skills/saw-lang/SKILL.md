@@ -147,10 +147,14 @@ print("{#file}:{#line} - msg")  // #file/#line/#function: definition-site consts
   negated constant — adopts the slot's width and is range-checked on the
   FOLDED value, so `let e: UInt16 = 1 << 20` is the same clean "does not
   fit" error the bare `1048576` is, and `let a: Int8 = -(1 << 7)` is
-  `Int8.min` and compiles. GOTCHA: the fold is in design 185's SIGNED
-  platform-`Int` domain, so `1 << 63` is `Int.min` and does NOT fit a
-  `UInt64` — mask it (`~0 & 0xFFFF_FFFF`) or write the literal, exactly as
-  `(1 << 63) as UInt64` has always demanded. A runtime operand is not a
+  `Int8.min` and compiles. The fold is TYPED ARITHMETIC (ruled Sep 25,
+  retiring design 185's signed platform-`Int` domain): each literal is
+  written at the type the expression adopts and each operation runs at its
+  operands' type, as at run time, so `static HIGH: UInt64 = 1 << 63` is 2^63
+  and `~0` at a `UInt8` slot is 255. STAGE 0 (`sawc/`) still folds in the
+  signed domain and refuses both (``constant expression -9223372036854775808
+  does not fit in `UInt64` ``), so code it compiles masks
+  (`~0 & 0xFFFF_FFFF`) or writes the literal. A runtime operand is not a
   constant, so `n * 2` is untouched. Treat all of it as working now and
   SUSPECT in older builds: most positions SILENTLY TRUNCATED (`1 << 20` at
   `UInt16` printed 0), the repeat literal and the `??` operand carried the
@@ -175,10 +179,10 @@ print("{#file}:{#line} - msg")  // #file/#line/#function: definition-site consts
   It was refused before that date (``static `M` has type `UInt` but its
   initializer has type `Int` ``) — a `UInt` slot needed an `as UInt` its
   `UInt32` twin did not — so a build that demands the cast predates it. The
-  range check comes with the adoption and the fold is still SIGNED, which
-  is the gotcha above at pointer width: a fold that goes negative does not fit
-  a `UInt`, so `~(0 as UInt)` is refused (it used to compile, DF-283c) and
-  all-ones is spelled `UInt.max`.
+  range check comes with the adoption, and the fold is typed at pointer width
+  too: `~(0 as UInt)` is `UInt.max`. STAGE 0 folds it in the signed domain
+  and refuses it (DF-283c), so `UInt.max` is the spelling that works in
+  both.
   **AND SO DOES A MIXED-BINOP OPERAND (DF-243a, fixed Aug 22)** — the one
   position on the bare literal's list that ladder had not reached. A const
   expression beside a typed operand adopts that operand's width in a
@@ -4187,15 +4191,16 @@ construct in the owner and lend `&driver` down.
   struct PageTable { entries: [UInt64; 1 << 9] }
   var page: [UInt8; 1 << PAGE_SHIFT] = [0; 1 << PAGE_SHIFT]
   ```
-  Folded at the TARGET's integer width in the signed platform-`Int` domain:
-  `1 << 63` is `Int.min` on a 64-bit target and `1 << 31` is `Int.min` on
-  riscv32, `~0` is `-1` (mask it back — `0xFF & ~0` is 255 — or write the value,
-  `UInt.max`), and a shift count
-  outside `0..<width` is a compile error rather than a folded surprise. The
-  domain is the SLOT's business only for the range check, so a fold that goes
-  negative does not fit ANY unsigned slot, the platform `UInt` included: since
-  Aug 31 that reaches `~(0 as UInt)`, which used to compile because a platform
-  slot was not an adoption target at all (DF-283c).
+  Folded at the TARGET's integer width by typed arithmetic (ruled Sep 25):
+  each literal takes the type its expression adopts and each operation runs at
+  its operands' type, as the emitted code would. So `1 << 63` is 2^63 at a
+  `UInt64` slot and `Int.min` at an `Int` one, `1 << 31` at an `Int32` is
+  `Int32.min`, `~0` is 255 at `UInt8` and -1 at `Int`, and a shift count
+  outside `0..<width` is a compile error rather than a folded surprise. STAGE 0
+  still folds in design 185's signed platform-`Int` domain, where a fold that
+  goes negative fits no unsigned slot (`~(0 as UInt)` is refused there,
+  DF-283c), so code Stage 0 compiles masks the value back (`0xFF & ~0`) or
+  writes it (`UInt.max`).
   Precedence is Saw's, NOT C's: the bitwise tier sits BELOW comparison, so a
   compared mask needs its parentheses (`(a | b) == 3`, never `a | b == 3`).
   **FLAG ENUMS**: a raw-backed case is a constant, so `Perm.Read | Perm.Write`
@@ -4602,7 +4607,12 @@ construct in the owner and lend `&driver` down.
   let _ = try d.push(b)         // sinks take UInt8, so a Byte flows in
   let bad: Byte = 65            // error — write Byte(65)
   static LF: Byte = 10          // a `static` DOES adopt a bare literal
+  static CR: Byte = Byte(13)    // and the construction is a constant too
   ```
+  An alias's construction over a constant is a constant (user ruling, Oct
+  10), in a `static`, a `static_assert` and a raw case's value; an array
+  length or repeat count does not take it yet. STAGE 0 refuses it in every
+  constant position, so code Stage 0 compiles writes the bare literal.
   **ORDERED COMPARISON WORKS SINCE Aug 28 (design 252, closing DF-270d) —
   SUSPECT IT IN OLDER BUILDS.** `<`/`<=`/`>`/`>=` with a `Byte` (or any distinct
   alias over an unsigned type) on the LEFT used to be lowered SIGNED, so

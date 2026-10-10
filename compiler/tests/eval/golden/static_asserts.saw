@@ -1,0 +1,27 @@
+// Every fault a `static_assert` condition can meet, one assertion each
+// (SL-459). The evaluator refuses each and names the assertion by its
+// position; typecheck's fold reaches the same fault, which the verifier's
+// agreement check holds, so no record line here is an INVARIANT. A shift keeps
+// its type's low bits, so `2 << 63` is no fault. A refused static the
+// condition reads leaves the assertion with no value and no refusal of its
+// own.
+
+static BIG: Int = 1 << 62
+static EDGE: Int = Int.max + 1
+
+static_assert((1 << 64) == 0, "a count at the width")
+static_assert((1 >> 70) == 0, "a right shift past the width")
+static_assert((Int.max + 1) == 0, "an addition")
+static_assert((Int.min - 1) == 0, "a subtraction")
+static_assert((BIG * 4) == 0, "a multiplication through a static")
+static_assert((-Int.min) == 0, "a negation")
+static_assert((1 / 0) == 0, "a division")
+static_assert((1 % 0) == 0, "a remainder")
+static_assert((300 as UInt8) == 0, "a cast that does not fit")
+static_assert((255 as UInt8) + (1 as UInt8) == 0, "an operation at a narrow type")
+static_assert(EDGE == 0, "a static already refused")
+static_assert((2 << 63) == 0, "the low bits of a shift")
+
+func main() {
+    print(BIG)
+}

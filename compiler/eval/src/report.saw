@@ -4,7 +4,7 @@
 // refusal of its own.
 
 import sawmir.src.dump.{mir_operator_name}
-import sawmir.src.model.{MirDiag}
+import sawmir.src.model.{MirDiag, MirFuncKind}
 import sawmir.src.program.{MirProgram}
 import saweval.src.program.{EvalEnd, EvalKind, EvalProgram, EvalValue, eval_missing}
 import sawtypecheck.src.arith.{TcFault, tc_arith_max, tc_arith_min, tc_arith_text}
@@ -26,13 +26,40 @@ public func eval_rules() -> Vector<String> {
 }
 
 extension EvalProgram {
+    // Constant `f` as a refusal's subject names it: `static m.A` quoted, or
+    // the `static_assert` at its condition's position, which has no name of
+    // its own.
+    public func constant_subject(&self, f: Int) -> String {
+        var out = StringBuilder()
+        let info = self.mir.funcs[f]
+        if info.kind == MirFuncKind.Assert {
+            try! out.append("the `static_assert` at ")
+            try! out.append(self.mir.tc.res.node_position(info.module, info.root))
+            return out.build()
+        }
+        try! out.append("`")
+        try! out.append(self.mir.func_name(f))
+        try! out.append("`")
+        out.build()
+    }
+
+    // Constant `f` as a list of the statics an evaluation went through names
+    // it: its MIR function's name, or the `static_assert` at its position.
+    public func constant_listed(&self, f: Int) -> String {
+        let info = self.mir.funcs[f]
+        if info.kind == MirFuncKind.Assert {
+            return self.constant_subject(f)
+        }
+        self.mir.func_name(f)
+    }
+
     // A construct outside the evaluator's set, met in function `f`.
     public func not_yet(&var self, f: Int, what: String) -> EvalValue {
         var msg = StringBuilder()
         try! msg.append(what)
-        try! msg.append(" in `")
-        try! msg.append(self.mir.func_name(f))
-        try! msg.append("` is not evaluated as a constant in the bootstrap slice yet")
+        try! msg.append(" in ")
+        try! msg.append(self.constant_subject(f))
+        try! msg.append(" is not evaluated as a constant in the bootstrap slice yet")
         self.report_at(f, "slice.not-yet", msg.build())
         self.last_fault = TcFault.NotConstant
         eval_missing(TcFault.NotConstant)
@@ -44,26 +71,25 @@ extension EvalProgram {
             return self.fault_value(f, bits, -1, t)
         }
         var msg = StringBuilder()
-        try! msg.append("`")
-        try! msg.append(self.mir.func_name(f))
+        try! msg.append(self.constant_subject(f))
         var rule = "eval.overflow"
         if fault == TcFault.Overflow {
-            try! msg.append("` overflows `")
+            try! msg.append(" overflows `")
             try! msg.append(self.mir.tc.type_text(t))
             try! msg.append("` (range ")
             try! msg.append(self.range_text(t))
             try! msg.append(")")
         } else if fault == TcFault.ShiftRange {
             rule = "eval.shift-range"
-            try! msg.append("` shifts a value of type `")
+            try! msg.append(" shifts a value of type `")
             try! msg.append(self.mir.tc.type_text(t))
             try! msg.append("` by a count outside its width")
         } else if fault == TcFault.DivideByZero {
             rule = "eval.divide-by-zero"
-            try! msg.append("` divides by zero")
+            try! msg.append(" divides by zero")
         } else {
             rule = "slice.not-yet"
-            try! msg.append("` is not a constant the bootstrap slice evaluates yet")
+            try! msg.append(" is not a constant the bootstrap slice evaluates yet")
         }
         self.report_at(f, rule, msg.build())
         self.last_fault = fault
@@ -74,9 +100,8 @@ extension EvalProgram {
     // unsigned) that type `to` cannot hold, met in function `f`.
     public func fault_value(&var self, f: Int, bits: Int, from: Int, to: Int) -> EvalValue {
         var msg = StringBuilder()
-        try! msg.append("`")
-        try! msg.append(self.mir.func_name(f))
-        try! msg.append("`: ")
+        try! msg.append(self.constant_subject(f))
+        try! msg.append(": ")
         if from >= 0 && self.mir.tc.is_integer(from) {
             try! msg.append(tc_arith_text(bits, self.mir.tc.int_width(from), not self.mir.tc.is_unsigned(from)))
         } else {
@@ -107,9 +132,8 @@ extension EvalProgram {
     // from its first entry to here, and itself again.
     public func report_cycle(&var self, f: Int) {
         var msg = StringBuilder()
-        try! msg.append("`")
-        try! msg.append(self.mir.func_name(f))
-        try! msg.append("` depends on its own value: ")
+        try! msg.append(self.constant_subject(f))
+        try! msg.append(" depends on its own value: ")
         var from = 0
         var k = 0
         while k < self.stack.len() {
@@ -121,11 +145,11 @@ extension EvalProgram {
         k = from
         while k < self.stack.len() {
             let g = self.stack[k]
-            try! msg.append(self.mir.func_name(g))
+            try! msg.append(self.constant_listed(g))
             try! msg.append(", ")
             k = k + 1
         }
-        try! msg.append(self.mir.func_name(f))
+        try! msg.append(self.constant_listed(f))
         self.report_bare(f, "eval.cycle", msg.build())
         self.last_fault = TcFault.Cycle
     }
@@ -140,7 +164,7 @@ extension EvalProgram {
                 try! msg.append(", ")
             }
             let g = self.stack[k]
-            try! msg.append(self.mir.func_name(g))
+            try! msg.append(self.constant_listed(g))
             k = k + 1
         }
         msg.build()
@@ -159,7 +183,7 @@ extension EvalProgram {
                     try! msg.append(", ")
                 }
                 let g = self.stack[k]
-                try! msg.append(self.mir.func_name(g))
+                try! msg.append(self.constant_listed(g))
                 k = k + 1
             }
         }

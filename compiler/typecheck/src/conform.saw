@@ -14,6 +14,7 @@ import sawtypecheck.src.model.{TC_EFFECT_BORROWS, TC_EFFECT_BORROWS_SYNC, TC_EFF
                                TcStatus, TcStatusKind}
 import sawtypecheck.src.program.{TcProgram}
 import sawtypecheck.src.signatures.{TcContext}
+import sawtypecheck.src.spell.{tc_effects_text}
 import sawtypecheck.src.types.{TcKind, TcType}
 
 // The conformance table's entries.
@@ -386,10 +387,13 @@ extension TcProgram {
                 let req = requirements[r]
                 let info = self.res.decls[req]
                 if info.kind == ResDeclKind.AssocType {
-                    let assigned = self.assigned_type(c.ext, info.name)
+                    let assigned = self.assignment_for(at, req)
                     if assigned >= 0 {
                         try! self.statuses.push(TcStatus(requirement: req, kind: TcStatusKind.Written,
                                                          member: assigned))
+                        if self.restates_differently(at, req, assigned) {
+                            refused = true
+                        }
                     } else {
                         try! self.statuses.push(TcStatus(requirement: req, kind: TcStatusKind.Missing,
                                                          member: -1))
@@ -457,7 +461,7 @@ extension TcProgram {
                 let req = requirements[r]
                 let info = self.res.decls[req]
                 if info.kind == ResDeclKind.AssocType {
-                    let assigned = self.assigned_type(c.ext, info.name)
+                    let assigned = self.assignment_for(at, req)
                     if assigned >= 0 {
                         self.build_decl(assigned)
                         let s = self.sigs[assigned]
@@ -471,6 +475,86 @@ extension TcProgram {
         }
         TcSubst(self_type: self_type, from_owner: -1, to_owner: -1, args_owner: -1,
                 args: Vector<Int>(), assoc_decls: move decls, assoc_types: move types)
+    }
+
+    // The type assignment that meets associated type `req` for conformance
+    // `at`, or -1: the one its own extension writes, else the one written by
+    // the conforming type's conformance to the trait that declares `req`. A
+    // refining trait's conformance inherits its parent's associated types
+    // from that one conformance, as it inherits the parent's methods from
+    // any extension, so a parent's `Item` is never restated to be met.
+    public func assignment_for(&self, at: Int, req: Int) -> Int {
+        let c = self.conformances[at]
+        let name = self.res.decls[req].name
+        let own = self.assigned_type(c.ext, name)
+        if own >= 0 {
+            return own
+        }
+        let parent = self.parent_conformance(at, req)
+        if parent < 0 {
+            return -1
+        }
+        let ext = self.conformances[parent].ext
+        self.assigned_type(ext, name)
+    }
+
+    // Whether conformance `at`'s own assignment `assigned` of associated type
+    // `req` names another type than the parent conformance's assignment does,
+    // which is refused: a type has one `Item` per trait that declares it, or a
+    // call through the parent and one through the refinement would disagree.
+    func restates_differently(&var self, at: Int, req: Int, assigned: Int) -> Bool {
+        let parent = self.parent_conformance(at, req)
+        if parent < 0 {
+            return false
+        }
+        let p = self.conformances[parent]
+        let name = self.res.decls[req].name
+        let theirs = self.assigned_type(p.ext, name)
+        if theirs < 0 || theirs == assigned {
+            return false
+        }
+        self.build_decl(assigned)
+        self.build_decl(theirs)
+        let mine_type = self.sigs[assigned].result
+        let their_type = self.sigs[theirs].result
+        if mine_type == their_type || mine_type < 0 || their_type < 0 {
+            return false
+        }
+        let c = self.conformances[at]
+        var msg = StringBuilder()
+        try! msg.append(self.conformance_head(at))
+        try! msg.append(" and assigns `")
+        try! msg.append(self.res.decl_path(req))
+        try! msg.append("` as `")
+        try! msg.append(self.type_text(mine_type))
+        try! msg.append("`, but its conformance to `")
+        try! msg.append(self.res.decl_path(p.trait_decl))
+        try! msg.append("` assigns it as `")
+        try! msg.append(self.type_text(their_type))
+        try! msg.append("`: a type has one assignment per associated type, so drop this one or make the two agree")
+        let site = self.decl_site(assigned)
+        self.refuse_in(c.module, site, "conformance.associated-conflict", msg.build())
+        true
+    }
+
+    // The conformance of conformance `at`'s type to the trait declaring
+    // associated type `req`, when that is a trait `at`'s refines and not its
+    // own; or -1.
+    func parent_conformance(&self, at: Int, req: Int) -> Int {
+        let c = self.conformances[at]
+        let declaring = self.res.decls[req].parent
+        if declaring == c.trait_decl {
+            return -1
+        }
+        var k = 0
+        while k < self.conformances.len() {
+            let other = self.conformances[k]
+            if k != at && other.type_decl == c.type_decl && other.trait_decl == declaring {
+                return k
+            }
+            k = k + 1
+        }
+        return -1
     }
 
     // The type assignment of `name` extension `ext` writes, or -1.

@@ -1,0 +1,26 @@
+// refuses: conformance.associated-conflict at 24:10
+// a refining trait's conformance restating its parent's associated type as
+// another type than the parent conformance assigns
+
+trait Source {
+    type Item
+    func next(&var self) -> Self.Item?
+}
+
+trait Pipe: Source {
+    func first(&var self) -> Self.Item?
+}
+
+struct Maker {
+    n: Int
+}
+
+extension Maker: Source {
+    type Item = Int
+    func next(&var self) -> Int? { None }
+}
+
+extension Maker: Pipe {
+    type Item = String
+    func first(&var self) -> String? { None }
+}

@@ -1,0 +1,34 @@
+// Two conditional lends, an exclusive one and a shared one, whose prologues
+// each hold their lent reference in an Optional: `(&var Int)?` and `(&Int)?`.
+// compiler/mir/tests/exclusive_parts.saw reads each Optional's payload by
+// value through the operand builders.
+
+struct Slot {
+    held: Int?
+}
+
+extension Slot {
+    func writable(&var self) borrows -> &var Int? {
+        if self.held.is_none() {
+            return None
+        }
+        lend self.held!
+    }
+
+    func readable(&self) borrows -> &Int? {
+        if self.held.is_none() {
+            return None
+        }
+        lend self.held!
+    }
+}
+
+func main() {
+    var s = Slot(held: 1)
+    if borrow var n = s.writable() {
+        n += 1
+    }
+    if borrow let n = s.readable() {
+        print(n)
+    }
+}

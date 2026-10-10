@@ -44,8 +44,10 @@ def module_paths(path):
 
 def first_refusals(rels, flags):
     """{path: the rule of its first refusal, or None} for the programs `rels`.
-    A process that dies leaves its last program with no complete record: that
-    one is counted as a crash, and the rest are checked in a fresh process."""
+    The driver prints a program's record only once it is complete, so a
+    process that dies leaves the program it died in with no record: the first
+    pending program with none is counted as a crash, and the programs after it
+    are checked in a fresh process."""
     first = {}
     pending = list(rels)
     while pending:
@@ -64,13 +66,20 @@ def first_refusals(rels, flags):
                 INVARIANTS.append("%s: %s" % (current, line))
         if r.returncode in (0, 1):
             break
-        dead = seen[-1] if seen else pending[0]
+        dead = next((p for p in pending if p not in seen), None)
+        if dead is None:
+            # Every program has its record, so the process died after the
+            # last one; nothing is left to blame or to rerun.
+            CRASHED.append("(after %s)" % seen[-1])
+            break
         first[dead] = "(the checker crashed)"
+        CRASHED.append(dead)
         pending = pending[pending.index(dead) + 1:]
     return first
 
 
 INVARIANTS = []
+CRASHED = []
 
 
 def main():
@@ -106,6 +115,8 @@ def main():
     print("the parser refuses: %d" % parse_refused)
     for rule, n in rules.most_common():
         print("refused first as %s: %d" % (rule, n))
+    for path in CRASHED:
+        print("  crashed: " + path)
     print("verifier problems: %d" % len(INVARIANTS))
     for line in INVARIANTS:
         print("  " + line)

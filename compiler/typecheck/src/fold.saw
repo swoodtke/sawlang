@@ -7,7 +7,8 @@
 // a division by zero is a fault, never an unfolded expression. The grammar is
 // integer and `Bool` literals, module statics, raw-backed enum cases and an
 // integer type's `max` and `min`, under `-`, `~`, `not`, arithmetic, shift,
-// bit and comparison operators, `&&`, `||` and `as` between integer types.
+// bit and comparison operators, `&&`, `||`, `as` between integer types and a
+// type alias's construction, `Byte(65)`.
 // The MIR evaluator in `compiler/eval` computes the same values from MIR,
 // and a lane holds the two to agreement; lowering this fold to MIR on demand
 // is a later unit's.
@@ -20,7 +21,7 @@ import sawtypecheck.src.arith.{TcFault, TcValue, tc_arith_binary, tc_arith_compa
                                tc_arith_max, tc_arith_min, tc_arith_negative_literal, tc_arith_normalize, tc_arith_shift,
                                tc_arith_text, tc_arith_unary}
 import sawtypecheck.src.signatures.{TcContext}
-import sawtypecheck.src.model.{TC_FLAG_UNSAFE_VAR, TcAdjust, TcAdjustKind}
+import sawtypecheck.src.model.{TC_FLAG_UNSAFE_VAR, TcAdjust, TcAdjustKind, TcCall, TcRole}
 import sawtypecheck.src.program.{TcProgram}
 import sawtypecheck.src.typeops.{TcClient}
 
@@ -130,8 +131,47 @@ extension TcProgram {
             },
             case Expr_Name -> self.fold_name(e, &var chain),
             case Expr_Member -> self.fold_member(e, &var chain),
+            case Expr_Call_Paren -> self.fold_alias_construct(e, &var chain),
             case _ -> tc_fold_fault(TcFault.NotConstant, -1, e)
         }
+    }
+
+    // `A(x)` for a type alias `A`: `x`'s value at the type `A` names, which
+    // typecheck already made `x` adopt or convert to, so the construction is
+    // the identity. Any other call is no constant.
+    func fold_alias_construct(&var self, e: Int, chain: &var Vector<Int>) -> TcFold {
+        let at = if e < self.call_at.len() { self.call_at[e] } else { -1 }
+        if at < 0 {
+            return tc_fold_fault(TcFault.NotConstant, -1, e)
+        }
+        let c = self.calls[at]
+        if c.role != TcRole.Conversion || c.spelling < 0 || not self.name_text(c.spelling).equals("alias") {
+            return tc_fold_fault(TcFault.NotConstant, -1, e)
+        }
+        let callee = self.res.first_node_child(e)
+        var arg = -1
+        let n = self.child_count(e)
+        var k = 0
+        while k < n {
+            let child = self.child(e, k)
+            k = k + 1
+            if child == callee || self.is_leaf(child) {
+                continue
+            }
+            if arg >= 0 {
+                return tc_fold_fault(TcFault.NotConstant, -1, e)
+            }
+            arg = child
+            if self.has_alt(child, Alt.Expr_Argument_Positional) {
+                arg = self.res.first_node_child(child)
+            }
+        }
+        let v = self.fold_at(arg, &var chain)
+        if not v.ok {
+            return v
+        }
+        let t = self.expr_types[e]
+        self.fold_convert(v, t, e)
     }
 
     // Value `v` converted to type `t`, which must hold it.

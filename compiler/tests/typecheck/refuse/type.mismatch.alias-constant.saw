@@ -1,0 +1,5 @@
+// refuses: type.mismatch at 5:26
+// an alias's construction in a constant takes the fit check a bare literal
+// gets at the alias's underlying type
+
+static WIDE: Byte = Byte(300)
