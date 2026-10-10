@@ -35,6 +35,18 @@ SL:borrowing §2.7 and §3 are silent on it.
 
 **D2–D21 were all accepted by the user on Oct 9, "for now".** They are revisited if a choice becomes less optimal as we learn more. Nothing in this section is waiting for review.
 
+### D30. A by-value capture of a type parameter: `[copy x]` is refused at the definition, `[x]` is an inferred requirement (Oct 10; SL-481, batch B2's question)
+`[copy x]`, `[x]` and an implicit by-value capture of an `x: T`, where `T` has no `Copy` bound. Today typecheck records nothing for any of them, and MIR's `capture_copy` raises an INVARIANT for all three.
+
+**Decided:** the two spellings follow design 219's two rules.
+- **`[copy x]` is a spelled copy,** so it is refused at the definition (`capture.copy`). There are two exceptions. With `T: Copy`, the copy is silent. With `T: ExplicitCopy` on a bare `T`, MIR calls the bound's `copy()`. The same rule applies to a type that mentions `T`, such as `(T, Int)` or `T?`.
+- **`[x]` and an implicit capture are silent copies,** so they are an inferred `Copy` requirement checked at each call. This is D27's funnel, the one a generic getitem uses. A call at `Int` is accepted, and a call at a NoCopy type is refused at the call site, as Stage 0 refuses it.
+- **MIR's `capture_copy`** accepts the silent capture on the same terms MIR already uses for `v[0]` of a `Vector<T>`, which is clean today through typecheck and mir. The INVARIANT stays for `[copy x]` of an unbounded `T`, because typecheck refuses that first.
+
+**Rejected:** refusing all three at the definition. That would make a silent capture of `T` stricter than a silent getitem of `T`, which is two rules for one fact. D27 rejected the same split.
+
+**Reversal:** refuse `[x]` and implicit captures of an unbounded `T` at the definition with `transfer.implicit-copy`, and keep MIR's INVARIANT.
+
 ### D29. A plain subscript in a rendering or comparison position is a getitem (Oct 10; SL-482, spec482's question; the Air's probes)
 `print(v[0])`, `"{v[0]}"`, `print("{}", v[0])` and `v[0] == w[0]` over a `Vector<Res>` with `Res: NoCopy`. LANGUAGE_SPEC's "Value reads" said these places are borrowed where they sit, and both compilers accept them.
 
