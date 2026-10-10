@@ -98,7 +98,8 @@ compiler/
     std/              the std lane (std_lane.py) over the new std in `std/`: the
                       subset profile's fixtures, the lang items' paired dumps
                       and shape fixtures, the API-equivalence members and
-                      exceptions, the behaviour pairs, the MIR pins and the cones
+                      exceptions, the behaviour pairs, the call programs, the MIR
+                      pins and the cones
     borrowck/         the borrowck lane (borrowck_lane.py): the dump's
                       specification (README.md), golden records, refusal and
                       due fixtures, the soundness premise's pins (premise/),
@@ -228,9 +229,11 @@ these things.
   shape; the std API allowlist's members match in the two stds (below); each
   behaviour pair runs under Stage 0 (exiting 0, or panicking as its
   `// expect-panic:` line says) and checks, lowers and evaluates against
-  `std/`; each MIR pin (`tests/std/mir/`) holds, String's retain and release
-  reading the count with a relaxed atomic load and comparing it with the
-  immortal sentinel before any atomic read-modify-write; and each
+  `std/`; each call program (`tests/std/calls/`), which only the new std can
+  type, checks clean through drop elaboration, or is refused first where its
+  `// refuses:` header says; each MIR pin (`tests/std/mir/`) holds, String's
+  retain and release reading the count with a relaxed atomic load and comparing
+  it with the immortal sentinel before any atomic read-modify-write; and each
   recorded cone holds, the ones of a program using only Optional and Result
   and of one whose only Strings are literals reaching no runtime module and
   no allocator, and the one of a program that interpolates reaching the

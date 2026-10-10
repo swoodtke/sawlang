@@ -1,0 +1,29 @@
+(Module main
+  (names
+    (4:8 stream (module stream))
+    (4:16 Stream (trait stream Stream))
+    (6:17 Stream (trait stream Stream))
+    (7:25 Item (assoc-type stream Producer.Item)))
+  (calls)
+  (declarations
+    (trait Buffered 6:7)
+    (requirement Buffered.last 7:10))
+  (surface)
+  (imports
+    (4:1 stream (select (Stream (trait stream Stream)))))
+  (extensions main stream))
+(Module stream
+  (names
+    (5:22 Producer (trait stream Producer))
+    (6:29 Item (assoc-type stream Producer.Item)))
+  (calls)
+  (declarations
+    (trait Producer 1:14 public)
+    (assoc-type Producer.Item 2:10 public)
+    (trait Stream 5:14 public)
+    (requirement Stream.next 6:10 public))
+  (surface
+    (Producer (trait stream Producer))
+    (Stream (trait stream Stream)))
+  (imports)
+  (extensions stream))

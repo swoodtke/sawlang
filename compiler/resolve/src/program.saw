@@ -94,6 +94,9 @@ public struct ResProgram {
     current_decl: Int
     receiver: ResBinding
     self_type: ResBinding
+    // The refining trait whose members are being resolved, whose inherited
+    // associated types are in scope bare, or -1.
+    inherit_from: Int
     // Inside a test case, group or test-only declaration.
     in_test: Bool
     // The builtin module, the entry module, and the ids of names the phases
@@ -127,7 +130,7 @@ public func res_program(std_root: String) -> ResProgram {
                        pending_params: Vector<Int>(), locals: Vector<ResLocal>(), local_top: 0,
                        scope_marks: Vector<Int>(), scope_top: 0, current: -1,
                        current_decl: -1, receiver: res_blank(), self_type: res_blank(),
-                       in_test: false, builtin: -1, entry: -1, name_self_type: -1, name_error: -1,
+                       inherit_from: -1, in_test: false, builtin: -1, entry: -1, name_self_type: -1, name_error: -1,
                        name_std: -1)
     p.name_self_type = p.names.intern("Self")
     p.name_error = p.names.intern("error")

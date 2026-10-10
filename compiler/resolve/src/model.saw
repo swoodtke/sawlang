@@ -153,10 +153,25 @@ public func res_error_binding() -> ResBinding {
     ResBinding(kind: ResBindKind.Error, module: -1, decl: -1, name: -1, node: -1)
 }
 
+// What a pending name asks of the traits' parents.
+public enum ResPendingKind {
+    // `T.Item`, or `Self.Item` in a trait.
+    case Projection,
+    // A bare name nothing binds while a bounded type parameter is in scope,
+    // refused with its fix-it.
+    case Bare,
+    // A bare name in a refining trait's members, which names an associated
+    // type the trait inherits when one is declared, as its own would.
+    case Inherited,
+    // A refining trait's own associated type, refused when the trait inherits
+    // one of its name (SL:open-questions D34).
+    case Restated
+}
+
 // A name whose meaning depends on traits' parents, settled once every module
-// is walked: `T.Item`, `Self.Item` in a trait, or a bare name nothing binds
-// while a bounded type parameter is in scope, refused with its fix-it.
+// is walked, since a trait's parents may sit in a module not walked yet.
 public struct ResPending {
+    public kind: ResPendingKind
     public module: Int
     // The leaf of the associated type's name, or of the bare name.
     public leaf: Int
@@ -164,7 +179,8 @@ public struct ResPending {
     // The type parameter heading the path, as its TypeParam binding; Unbound
     // for `Self.Item` and for a bare name.
     public param: ResBinding
-    // The trait whose `Self` heads the path, or -1.
+    // The trait whose `Self` heads the path, or, for Inherited and Restated,
+    // whose parents are searched; -1 otherwise.
     public trait_decl: Int
     // The segment after the associated type, or -1.
     public chain: Int
@@ -172,6 +188,9 @@ public struct ResPending {
     // `first .. first + count` of `pending_params`.
     public first: Int
     public count: Int
+    // An Inherited name the lookup bound outside the trait: an inherited
+    // associated type of its name shadows that binding, and none leaves it.
+    public bound: Bool
 }
 
 // One name occurrence and what it denotes.

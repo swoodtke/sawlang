@@ -3,8 +3,9 @@
 //!
 //! `v[i]` is a place: the element is read or written where it sits, and a
 //! value read of it follows the element's copy tier. An index out of range
-//! panics; `get` is the `None`-returning twin. Every operation that can run out
-//! of memory reports it as `Err(AllocError)` and leaves the vector as it was.
+//! panics; `get` is its optional copy, and `find` lends the element only when
+//! it is there. Every operation that can run out of memory reports it as
+//! `Err(AllocError)` and leaves the vector as it was.
 //! `Vector` is ExplicitCopy: a transfer is `move v` or `v.copy()`, and `copy()`
 //! exists when the element is ExplicitCopy.
 
@@ -74,7 +75,10 @@ extension Vector<T, A: Allocator = GlobalAllocator> {
 
     /// Lends the element at `index` where it sits, or nothing when `index` is
     /// outside `0..<len()`.
-    public func get(&var self, index: Int) unsafe borrows -> &var T? {
+    ///
+    /// The absent path opens no window, so the vector is free to use there.
+    @synthesize(shared)
+    public func find(&var self, index: Int) unsafe borrows -> &var T? {
         if index < 0 || index >= self.length {
             return None
         }
@@ -179,6 +183,24 @@ extension Vector<T, A: Allocator = GlobalAllocator> {
         self.buffer = fresh as UnsafePointer<T>
         self.capacity = target
         true
+    }
+}
+
+// `get` copies an element out, so the bound is declared where a caller reads
+// it rather than inferred from the body.
+extension Vector<T: Copy, A: Allocator = GlobalAllocator> {
+    /// Returns a copy of the element at `index`, or `None` when `index` is
+    /// outside `0..<len()`.
+    ///
+    /// The element must be Copy; `find` reaches any element where it sits.
+    public func get(&self, index: Int) unsafe -> T? {
+        if index < 0 || index >= self.length {
+            return None
+        }
+        guard let buf = self.buffer else {
+            return None
+        }
+        buf[index]
     }
 }
 

@@ -1,0 +1,7 @@
+public trait Producer {
+    type Item
+}
+
+public trait Stream: Producer {
+    func next(&var self) -> Item?
+}

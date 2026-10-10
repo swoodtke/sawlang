@@ -17,7 +17,7 @@ import sawparse.src.grammar.{Alt}
 import sawresolve.src.imports.{res_decl_binding, res_same_binding, res_vis_text}
 import sawresolve.src.model.{ResBindKind, ResBinding, ResDecl, ResDeclKind, ResImport,
                              ResImportForm, ResLocal, ResModuleKind, ResName, ResPending,
-                             ResSymbol, res_unbound}
+                             ResPendingKind, ResSymbol, res_unbound}
 import sawresolve.src.program.{ResProgram}
 
 // Adds `b` to `out` unless a binding denoting the same thing is there.
@@ -153,6 +153,17 @@ extension ResProgram {
             let found = self.locals[local]
             return found.binding
         }
+        let found = self.lookup_outside(name, leaf, space)
+        if self.inherit_from >= 0 && found.kind != ResBindKind.Error {
+            self.defer_inherited(name, leaf, true)
+        }
+        found
+    }
+
+    // The lookup past the locals: the module's declarations, imported bare
+    // names, the prelude, the gated std tier, then qualifiers. In a refining
+    // trait's members a name nothing binds waits for the trait's parents.
+    func lookup_outside(&var self, name: Int, leaf: Int, space: ResSpace) -> ResBinding {
         let m = self.current
         let own = self.top.first(m, name)
         if own >= 0 {
@@ -242,6 +253,10 @@ extension ResProgram {
             self.refuse(leaf, "visibility.private", msg.build())
             return self.error_binding()
         }
+        if self.inherit_from >= 0 {
+            self.defer_inherited(name, leaf, false)
+            return self.error_binding()
+        }
         if self.defer_bare_name(name, leaf) {
             return self.error_binding()
         }
@@ -310,15 +325,14 @@ extension ResProgram {
             param = head
         }
         let m = self.current
-        try! self.pending.push(ResPending(module: m, leaf: leaf, name: name, param: param,
-                                          trait_decl: trait_decl, chain: chain, first: 0, count: 0))
+        try! self.pending.push(ResPending(kind: ResPendingKind.Projection, module: m, leaf: leaf,
+                                          name: name, param: param, trait_decl: trait_decl,
+                                          chain: chain, first: 0, count: 0, bound: false))
     }
 
-    // Defers the refusal of bare `name` at `leaf`, which nothing binds, when a
-    // type parameter in scope has a bound: `settle_pending` refuses it with
-    // the `T.Item` spellings the bounds reach as its fix-it. Returns whether
-    // it was deferred.
-    func defer_bare_name(&var self, name: Int, leaf: Int) -> Bool {
+    // Records, for a bare name's fix-it, the in-scope type parameters that
+    // have a bound, and returns how many.
+    func push_bounded_params(&var self) -> Int {
         let first = self.pending_params.len()
         var k = 0
         while k < self.local_top {
@@ -332,32 +346,183 @@ extension ResProgram {
             }
             k = k + 1
         }
-        let count = self.pending_params.len() - first
+        self.pending_params.len() - first
+    }
+
+    // Defers the refusal of bare `name` at `leaf`, which nothing binds, when a
+    // type parameter in scope has a bound: `settle_pending` refuses it with
+    // the `T.Item` spellings the bounds reach as its fix-it. Returns whether
+    // it was deferred.
+    func defer_bare_name(&var self, name: Int, leaf: Int) -> Bool {
+        let first = self.pending_params.len()
+        let count = self.push_bounded_params()
         if count == 0 {
             return false
         }
         let m = self.current
-        try! self.pending.push(ResPending(module: m, leaf: leaf, name: name, param: res_unbound(),
-                                          trait_decl: -1, chain: -1, first: first, count: count))
+        try! self.pending.push(ResPending(kind: ResPendingKind.Bare, module: m, leaf: leaf,
+                                          name: name, param: res_unbound(), trait_decl: -1,
+                                          chain: -1, first: first, count: count, bound: false))
         true
     }
 
+    // Defers bare `name` at `leaf` in a refining trait's members to
+    // `settle_pending`, which binds it to an associated type the trait
+    // inherits of that name. `bound` says the lookup bound it elsewhere.
+    func defer_inherited(&var self, name: Int, leaf: Int, bound: Bool) {
+        let first = self.pending_params.len()
+        var count = 0
+        if not bound {
+            count = self.push_bounded_params()
+        }
+        let m = self.current
+        let t = self.inherit_from
+        try! self.pending.push(ResPending(kind: ResPendingKind.Inherited, module: m, leaf: leaf,
+                                          name: name, param: res_unbound(), trait_decl: t,
+                                          chain: -1, first: first, count: count, bound: bound))
+    }
+
     // Decides every deferred name, once every trait's parents are recorded.
-    // A projection is bound or refused; a bare name is refused with its fix-it.
+    // A projection is bound or refused; a bare name is refused with its fix-it;
+    // an inherited one is bound, or left or refused as the lookup found it;
+    // a refining trait's redeclaration of an inherited one is refused.
     public func settle_pending(&var self) {
         let saved = self.current
         var k = 0
         while k < self.pending.len() {
             let p = self.pending[k]
             self.current = p.module
-            if p.count > 0 {
+            if p.kind == ResPendingKind.Bare {
                 self.settle_bare(&p)
+            } else if p.kind == ResPendingKind.Inherited {
+                self.settle_inherited(&p)
+            } else if p.kind == ResPendingKind.Restated {
+                self.settle_restated(&p)
             } else {
                 self.settle_projection(&p)
             }
             k = k + 1
         }
         self.current = saved
+    }
+
+    // A bare name in a refining trait's members: the one associated type of
+    // its name the trait's parents declare or inherit, which it names as it
+    // would the trait's own, shadowing what the lookup bound outside the
+    // trait. Two are ambiguous. With none, a name the lookup bound keeps that
+    // binding, and one it did not is refused as a lookup miss.
+    func settle_inherited(&var self, p: &ResPending) {
+        var found = Vector<Int>()
+        self.inherited_assoc_types(p.trait_decl, p.name, &var found)
+        var k = 0
+        let text = self.name_text(p.name)
+        var msg = StringBuilder()
+        if found.len() == 1 {
+            let d = found[0]
+            let owner = self.decls[d].module
+            self.rebind(p.leaf, ResBinding(kind: ResBindKind.Decl, module: owner, decl: d,
+                                           name: -1, node: -1))
+            return
+        }
+        if found.len() > 1 {
+            var names = Vector<String>()
+            k = 0
+            while k < found.len() {
+                let d = self.decls[found[k]]
+                var qualified = StringBuilder()
+                let trait_name = self.decls[d.parent].name
+                try! qualified.append(self.name_text(trait_name))
+                try! qualified.append(".")
+                try! qualified.append(text)
+                try! names.push(qualified.build())
+                k = k + 1
+            }
+            try! msg.append("ambiguous `")
+            try! msg.append(text)
+            try! msg.append("`: `")
+            let refining = self.decls[p.trait_decl].name
+            try! msg.append(self.name_text(refining))
+            try! msg.append("` inherits the associated types ")
+            try! msg.append(res_join_names(&names, " and "))
+            let refused = self.error_binding()
+            self.rebind(p.leaf, refused)
+            self.refuse(p.leaf, "name.ambiguous", msg.build())
+            return
+        }
+        if p.bound {
+            return
+        }
+        if p.count > 0 {
+            self.settle_bare(&p)
+            return
+        }
+        try! msg.append("cannot find `")
+        try! msg.append(text)
+        try! msg.append("` in scope")
+        self.refuse(p.leaf, "name.undefined", msg.build())
+    }
+
+    // Adds to `out` each associated type named `name` that trait `t`'s
+    // parents declare or inherit, each declaration once.
+    func inherited_assoc_types(&self, t: Int, name: Int, out: &var Vector<Int>) {
+        var parents = Vector<Int>()
+        let node = self.decls[t].node
+        self.path_traits(node, &var parents)
+        var seen = Vector<Int>()
+        try! seen.push(t)
+        var k = 0
+        while k < parents.len() {
+            self.collect_assoc_types(parents[k], name, &var seen, &var out)
+            k = k + 1
+        }
+    }
+
+    // Defers the check of a refining trait's own associated type, whose name
+    // leaf is `leaf`, against those its parents declare (SL:open-questions D34).
+    public func defer_restated(&var self, leaf: Int, t: Int) {
+        let m = self.current
+        let name = self.leaf_name(leaf)
+        try! self.pending.push(ResPending(kind: ResPendingKind.Restated, module: m, leaf: leaf,
+                                          name: name, param: res_unbound(), trait_decl: t,
+                                          chain: -1, first: 0, count: 0, bound: false))
+    }
+
+    // A refining trait's own associated type of a name it inherits: refused,
+    // since its members already name the inherited one bare, and a second
+    // declaration would make `Self.Item` and `T.Item` ambiguous.
+    func settle_restated(&var self, p: &ResPending) {
+        var found = Vector<Int>()
+        self.inherited_assoc_types(p.trait_decl, p.name, &var found)
+        if found.len() == 0 {
+            return
+        }
+        let text = self.name_text(p.name)
+        var names = Vector<String>()
+        var k = 0
+        while k < found.len() {
+            let d = self.decls[found[k]]
+            let trait_name = self.decls[d.parent].name
+            var qualified = StringBuilder()
+            try! qualified.append(self.name_text(trait_name))
+            try! qualified.append(".")
+            try! qualified.append(text)
+            try! names.push(qualified.build())
+            k = k + 1
+        }
+        let refining = self.decls[p.trait_decl].name
+        var msg = StringBuilder()
+        try! msg.append("`")
+        try! msg.append(self.name_text(refining))
+        if names.len() == 1 {
+            try! msg.append("` inherits the associated type ")
+        } else {
+            try! msg.append("` inherits the associated types ")
+        }
+        try! msg.append(res_join_names(&names, " and "))
+        try! msg.append(", so it may not declare another `")
+        try! msg.append(text)
+        try! msg.append("`: remove this declaration, and its members name the inherited one bare")
+        self.refuse(p.leaf, "name.duplicate-declaration", msg.build())
     }
 
     // `T.Item`: the one associated type named `Item` that `T`'s bounds

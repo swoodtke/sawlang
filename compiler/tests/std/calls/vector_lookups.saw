@@ -1,0 +1,38 @@
+// Vector's two lookups (SL:borrowing §2.4, K14): `get` is the optional copy,
+// a value method a shared root serves, and `find` the conditional lend, whose
+// `@synthesize(shared)` twin serves a `borrow` read through `&Vector` and whose
+// exclusive accessor serves `borrow var`. A move-only element is reached in
+// place through `find`.
+
+struct Entry { n: Int }
+
+struct Token { id: Int }
+extension Token: NoCopy {}
+
+func read_shared(v: &Vector<Entry>) -> Int {
+    let copied = v.get(0) ?? Entry(n: -1)
+    let lent = borrow v.find(0)!.n
+    copied.n + lent
+}
+
+func token_id(toks: &Vector<Token>) -> Int {
+    if borrow let t = toks.find(0) { t.id } else { -1 }
+}
+
+func main() -> Int {
+    var v = Vector<Entry>()
+    try! v.push(Entry(n: 1))
+    let got = v.get(0) ?? Entry(n: 0)
+    let missing = v.get(5)
+    borrow var v.find(0)!.n += 10
+    if borrow var e = v.find(0) {
+        e.n += 1
+    }
+    var toks = Vector<Token>()
+    try! toks.push(Token(id: 4))
+    let present = if borrow let t = toks.find(0) { t.id > 0 } else { false }
+    if missing.is_none() && present {
+        return got.n + token_id(&toks) + read_shared(&v)
+    }
+    0
+}

@@ -1,0 +1,40 @@
+// A refining trait names an associated type it inherits bare, as it names its
+// own (SL:open-questions W4, SL-499): in a requirement, in a default body, two
+// levels down, in a trait declared before its parent, through two parents
+// that inherit one declaration, and beside a bound of a requirement's own type
+// parameter. Like the trait's own, it shadows a module-level type of its name.
+
+struct Item { junk: Int }
+
+trait Valve: Pipe {
+    func peek(&self) -> Item?
+}
+
+trait Source {
+    type Item
+    func pull(&var self) -> Item?
+}
+
+trait Pipe: Source {
+    func push(&var self, item: Item)
+    func relay(&var self) -> Item? {
+        let got: Item? = self.pull()
+        move got
+    }
+}
+
+trait Left: Source {
+    func left(&self) -> Int
+}
+
+trait Right: Source {
+    func right(&self) -> Int
+}
+
+trait Both: Left, Right {
+    func both(&self) -> Item
+}
+
+trait Feeder: Source {
+    func feed<S: Source>(&var self, from: &var S) -> Item
+}

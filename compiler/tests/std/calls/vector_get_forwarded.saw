@@ -1,0 +1,22 @@
+// refuses: type.bound at 10:7
+// `Vector.get` is declared where `T: Copy`, so a generic over an unbounded `T`
+// cannot call it: the refusal is at the generic's definition, not at a caller
+// that names a move-only element.
+
+struct Token { id: Int }
+extension Token: NoCopy {}
+
+func first<T>(v: &Vector<T>) -> T? {
+    v.get(0)
+}
+
+func first_id(toks: &Vector<Token>) -> Int {
+    if let t = first(&toks) {
+        return t.id
+    }
+    0
+}
+
+func main() -> Int {
+    0
+}

@@ -87,6 +87,7 @@ UInt8.from	paired conversions	U5b2
 (api)	conformances Vector	U5b2
 (api)	std.vector init Vector.init capacity:Int	U5b2
 (api)	std.vector method Vector.[] index:Int	U5b2
+(api)	std.vector method Vector.find index:Int	U5b2
 (api)	std.vector method Vector.set index:Int,value:T	U5b2
 (api)	std.vector method Vector.reserve additional:Int	U5b2
 (api)	std.vector method Vector.pop -	U5b2

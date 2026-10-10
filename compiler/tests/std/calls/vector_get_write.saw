@@ -1,0 +1,12 @@
+// refuses: type.not-a-place at 10:5
+// `get` returns a copy, not a place (SL:borrowing K14), so a write through its
+// result is refused; `borrow var v.find(0)!.n += 10` writes the element.
+
+struct Entry { n: Int }
+
+func main() -> Int {
+    var v = Vector<Entry>()
+    try! v.push(Entry(n: 1))
+    v.get(0)!.n += 10
+    0
+}

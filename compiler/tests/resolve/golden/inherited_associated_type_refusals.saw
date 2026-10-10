@@ -1,0 +1,40 @@
+// The refusals around an inherited associated type, with their messages: two
+// parents declaring two associated types of one name, a refining trait naming
+// what neither it nor its parents bind, the same beside a bounded type
+// parameter of a requirement, whose fix-it names what its bound reaches,
+// bare `Item` in a trait that refines nothing, and a trait redeclaring an
+// associated type it inherits two levels up (SL:open-questions D34).
+
+trait Source {
+    type Item
+}
+
+trait Sink {
+    type Out
+}
+
+trait Pipe: Source {
+    func other(&var self) -> Missing
+    func generic<S: Source>(&self, s: &S) -> Elem
+    func drain<S: Sink>(&self, s: &S) -> Out
+}
+
+trait Left {
+    type Item
+}
+
+trait Right {
+    type Item
+}
+
+trait Both: Left, Right {
+    func both(&self) -> Item
+}
+
+trait Plain {
+    func get(&self) -> Item
+}
+
+trait Stage: Pipe {
+    type Item
+}

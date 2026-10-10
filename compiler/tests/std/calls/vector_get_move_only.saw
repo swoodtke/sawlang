@@ -1,0 +1,18 @@
+// refuses: type.bound at 10:21
+// `Vector.get` copies the element, so it is declared in an extension bounded
+// `T: Copy`, as a public generic declares what it requires: at a move-only
+// element the member does not exist, and `find` reaches the element instead.
+
+struct Token { id: Int }
+extension Token: NoCopy {}
+
+func first_id(toks: &Vector<Token>) -> Int {
+    if let t = toks.get(0) {
+        return t.id
+    }
+    0
+}
+
+func main() -> Int {
+    0
+}

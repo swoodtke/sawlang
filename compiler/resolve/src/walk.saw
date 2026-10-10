@@ -408,16 +408,40 @@ extension ResProgram {
             }
             k = k + 1
         }
+        // A trait's parents are its path children. Its members name an
+        // inherited associated type bare, as they do its own (SL-499), so it
+        // may not redeclare one.
+        var refines = false
         k = 0
         while k < n {
             let c = self.child(t, k)
             if self.is_alt(c, Alt.Type_Path) {
                 let _ = self.walk_path(c, ResSpace.Type)
-            } else if self.is_alt(c, Alt.Decl_Requirement) {
+                refines = true
+            }
+            k = k + 1
+        }
+        k = 0
+        while refines && k < n {
+            let c = self.child(t, k)
+            if self.is_alt(c, Alt.Decl_AssocType) {
+                let leaf = self.first_leaf(c)
+                self.defer_restated(leaf, d)
+            }
+            k = k + 1
+        }
+        if refines {
+            self.inherit_from = d
+        }
+        k = 0
+        while k < n {
+            let c = self.child(t, k)
+            if self.is_alt(c, Alt.Decl_Requirement) {
                 self.walk_function(c, interface)
             }
             k = k + 1
         }
+        self.inherit_from = -1
         self.pop_scope()
     }
 

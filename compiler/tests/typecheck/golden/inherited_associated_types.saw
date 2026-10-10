@@ -1,0 +1,43 @@
+// A refining trait's members name an inherited associated type bare
+// (SL-499): its requirements and its default body type with the parent's
+// `Item`, a conformance that assigns `Item` once satisfies both traits, and a
+// call through the refining trait's bound substitutes the assignment.
+
+trait Source {
+    type Item
+    func pull(&var self) -> Item?
+}
+
+trait Pipe: Source {
+    func push(&var self, item: Item)
+    func relay(&var self) -> Item? {
+        let got: Item? = self.pull()
+        move got
+    }
+}
+
+struct Counter {
+    n: Int
+}
+
+extension Counter: Pipe {
+    type Item = Int
+    func pull(&var self) -> Int? {
+        self.n
+    }
+    func push(&var self, item: Int) {
+        self.n = item
+    }
+}
+
+func cycle<P: Pipe>(p: &var P) -> P.Item? {
+    p.relay()
+}
+
+func main() -> Int {
+    var c = Counter(n: 3)
+    c.push(4)
+    let direct = c.relay() ?? 0
+    let through = cycle(&var c) ?? 0
+    direct + through
+}

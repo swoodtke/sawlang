@@ -26,6 +26,9 @@ profile, the lang-item table, and the API equivalence of the two stds.
 - each `pairs/` program exits 0 when Stage 0 builds it against `sawc/std`, or
   panics with the text its `// expect-panic:` line names, and checks, lowers
   and evaluates clean with sawc2 against `std/`;
+- each `calls/` program, which only the new std's API can type, checks clean
+  through drop elaboration against `std/`, or, headed `// refuses: RULE at
+  L:C`, is refused first there by that rule;
 - each `mir/NAME.mir` holds its functions' MIR as sawc2 lowers them against
   `std/`, and String's retain and release read the count with a relaxed
   atomic load and compare it with the immortal sentinel before any atomic
@@ -62,6 +65,7 @@ LANG = os.path.join(HERE, "lang")
 SHAPE = os.path.join(HERE, "shape")
 SUBSET = os.path.join(HERE, "subset")
 PAIRS = os.path.join(HERE, "pairs")
+CALLS = os.path.join(HERE, "calls")
 CONE = os.path.join(HERE, "cone")
 MIR = os.path.join(HERE, "mir")
 MEMBERS = os.path.join(HERE, "equivalence.tsv")
@@ -102,6 +106,7 @@ RELAXED_LOAD = "call builtin __saw_atomic_load_i64_relaxed"
 ATOMIC_RMW = ("call builtin __saw_atomic_add_i64", "call builtin __saw_atomic_sub_i64_release")
 _MARKER = re.compile(r"//\s*refuses:\s*(.+)$")
 _EXPECT_PANIC = re.compile(r"^//\s*expect-panic:\s*(.+)$")
+_REFUSES = re.compile(r"^// refuses: (\S+) at (\d+:\d+)$")
 _PIN_FUNCTION = re.compile(r"^// function: (.+)$")
 _DECLARATION = re.compile(r"^    \((\S+) (\S+) \d+:\d+(.*)\)$")
 _CONFORMANCE = re.compile(r"^    \((\S+) (\S+) \d+:\d+(.*)\)$")
@@ -574,6 +579,47 @@ def check_pairs(failures, counts):
     counts["behaviour pairs"] = len(pairs)
 
 
+# ------------------------------------------------------------ the call programs
+
+def file_sections(output):
+    """{file: its problem lines}, from a `--check` run over several files."""
+    out, current = {}, None
+    for line in output.split("\n"):
+        if line.startswith("FILE\t"):
+            current = line[len("FILE\t"):]
+            out[current] = []
+        elif current is not None and line.startswith(("ERROR\t", "INVARIANT\t")):
+            out[current].append(line)
+    return out
+
+
+def check_calls(failures, counts):
+    """Each `calls/` program against the new std alone, where Stage 0's std
+    cannot say it: one headed `// refuses: RULE at L:C` is refused first there,
+    by that rule, and any other checks clean through drop elaboration."""
+    programs = sorted(glob.glob(os.path.join(CALLS, "*.saw")))
+    headers = {}
+    for path in programs:
+        with open(path, encoding="utf-8") as fh:
+            headers[rel(path)] = _REFUSES.match(fh.readline().rstrip("\n"))
+    _, typed = sawc2("typecheck", "--check", "--std-root", NEW_ROOT, *sorted(headers))
+    _, dropped = sawc2("drops", "--check", "--std-root", NEW_ROOT, *sorted(headers))
+    typed, dropped = file_sections(typed), file_sections(dropped)
+    for path, m in sorted(headers.items()):
+        if m is None:
+            for line in dropped.get(path, ["(no record)"]):
+                failures.append("std call %s: %s" % (path, line))
+            counts["std call programs"] = counts.get("std call programs", 0) + 1
+            continue
+        errors = [l.split("\t") for l in typed.get(path, []) if l.startswith("ERROR\t")]
+        if not errors:
+            failures.append("std call %s: expected %s, nothing refused" % (path, m.group(1)))
+        elif errors[0][1] != m.group(1) or not errors[0][2].endswith(":" + m.group(2)):
+            failures.append("std call %s: expected %s at %s first, refused as %s at %s"
+                            % (path, m.group(1), m.group(2), errors[0][1], errors[0][2]))
+        counts["std call refusals"] = counts.get("std call refusals", 0) + 1
+
+
 # ----------------------------------------------------------------- the cones
 
 def check_cones(failures, counts, write):
@@ -734,6 +780,7 @@ def run(write=False):
     check_shapes(failures, counts)
     check_equivalence(failures, counts)
     check_pairs(failures, counts)
+    check_calls(failures, counts)
     check_mir_pins(failures, counts, write)
     check_cones(failures, counts, write)
     return failures, counts

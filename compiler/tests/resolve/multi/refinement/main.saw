@@ -1,0 +1,8 @@
+// A refining trait whose parent sits in another module, walked after this
+// one, names the associated type the parent inherits bare (SL-499).
+
+import stream.{Stream}
+
+trait Buffered: Stream {
+    func last(&self) -> Item?
+}

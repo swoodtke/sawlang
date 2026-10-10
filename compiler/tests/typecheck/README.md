@@ -304,6 +304,7 @@ that covers it.
 | `Self` in a struct, enum or extension | the type applied to its own parameters | traits, declarations |
 | `Self` in a trait, a trait's associated type | a placeholder | traits |
 | `T.Item`, a type parameter's associated type, inherited from a parent trait or reached through two bounds | a projection | associated_types |
+| bare `Item` in a refining trait's members, an associated type it inherits, and one conformance assigning it for both traits | the parent's associated type | inherited_associated_types |
 | type parameter, const parameter | a parameter keyed by its declaration | generics |
 | generic parameter's bounds, default and const type | traits, a type, a constant | generics |
 | constant argument: a literal, `+`, `-`, `*`, a const parameter | its folded value, or the parameter | generics |

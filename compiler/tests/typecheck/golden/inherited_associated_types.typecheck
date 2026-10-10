@@ -1,0 +1,67 @@
+(Module inherited_associated_types
+  (declarations
+    (trait Source 6:7 private)
+    (assoc-type Source.Item 7:10)
+    (requirement Source.pull 8:10 (signature (receiver exclusive) (params) -> Self.Item?))
+    (trait Pipe 11:7 private (parents inherited_associated_types.Source))
+    (requirement Pipe.push 12:10 (signature (receiver exclusive) (params (item Self.Item owned)) -> Void))
+    (requirement Pipe.relay 13:10 (signature (receiver exclusive) (params) -> Self.Item? default-body) (summary body (suspends when Self.Source.pull) (sync-callable unless Self.Source.pull)))
+    (struct Counter 19:8 private)
+    (field Counter.n 20:5 private Int)
+    (extension 23:1 (target inherited_associated_types.Counter) (conforms inherited_associated_types.Pipe))
+    (type-assign Counter.Item 24:10 Int)
+    (method Counter.pull 25:10 private (signature (receiver exclusive) (params) -> Int?) (summary body (suspends no) (sync-callable yes)))
+    (method Counter.push 28:10 private (signature (receiver exclusive) (params (item Int owned)) -> Void) (summary body (suspends no) (sync-callable yes)))
+    (func cycle 33:6 private (signature (generics (P (bounds inherited_associated_types.Pipe))) (params (p &var P exclusive)) -> P.Item?) (summary body (suspends when P.Pipe.relay) (sync-callable unless P.Pipe.relay)))
+    (func main 37:6 private (signature (params) -> Int) (summary body (suspends no) (sync-callable yes))))
+  (members
+    (inherited_associated_types.Counter
+      (field n Int private declared)
+      (type-assign Item public (extension inherited_associated_types))
+      (method pull private (extension inherited_associated_types))
+      (method push private (extension inherited_associated_types))
+      (method relay public (default inherited_associated_types.Pipe))))
+  (views
+    (inherited_associated_types.Counter n Item pull push relay))
+  (conformances
+    (inherited_associated_types.Counter inherited_associated_types.Pipe 23:20 (push written) (relay default) (Item written) (pull written)))
+  (copy-tier
+    (inherited_associated_types.Counter Copy))
+  (bodies
+    (Pipe.relay 13:10
+      (14:13-14:16 BindingName Self.Item? place temp)
+      (14:26-14:37 Call.paren Self.Item? value temp (call inherited_associated_types.Source.pull() (owner Self)))
+      (14:26-14:30 SelfExpr Self (borrow-var &var Self) place borrow-var)
+      (15:9-15:17 Move Self.Item? value move)
+      (15:14-15:17 Name Self.Item? place move))
+    (Counter.pull 25:10
+      (26:9-26:15 Member Int (some Int?) place copy)
+      (26:9-26:13 SelfExpr inherited_associated_types.Counter place project))
+    (Counter.push 28:10
+      (29:9-29:15 Member Int place write)
+      (29:9-29:13 SelfExpr inherited_associated_types.Counter place project)
+      (29:18-29:22 Name Int place copy))
+    (cycle 33:6
+      (34:5-34:14 Call.paren P.Item? value temp (call inherited_associated_types.Pipe.relay() (owner P)))
+      (34:5-34:6 Name &var P (deref P) (borrow-var &var P) place borrow-var))
+    (main 37:6
+      (38:9-38:10 BindingName inherited_associated_types.Counter place temp)
+      (38:13-38:26 Call.paren inherited_associated_types.Counter value temp (memberwise inherited_associated_types.Counter (owner inherited_associated_types.Counter)))
+      (38:24-38:25 IntLit Int value temp)
+      (39:5-39:14 Call.paren Void value temp (call inherited_associated_types.Counter.push(item: Int) (owner inherited_associated_types.Counter)))
+      (39:5-39:6 Name inherited_associated_types.Counter (borrow-var &var inherited_associated_types.Counter) place borrow-var)
+      (39:12-39:13 IntLit Int value temp)
+      (40:9-40:15 BindingName Int place temp)
+      (40:18-40:32 Coalesce Int value temp (op ??))
+      (40:18-40:27 Call.paren Int? value temp (call inherited_associated_types.Pipe.relay() (owner inherited_associated_types.Counter)))
+      (40:18-40:19 Name inherited_associated_types.Counter (borrow-var &var inherited_associated_types.Counter) place borrow-var)
+      (40:31-40:32 IntLit Int value temp)
+      (41:9-41:16 BindingName Int place temp)
+      (41:19-41:37 Coalesce Int value temp (op ??))
+      (41:19-41:32 Call.paren Int? value temp (call inherited_associated_types.cycle(p: &var P) (inst inherited_associated_types.Counter)))
+      (41:25-41:31 Ref.exclusive &var inherited_associated_types.Counter value temp)
+      (41:30-41:31 Name inherited_associated_types.Counter place borrow-var)
+      (41:36-41:37 IntLit Int value temp)
+      (42:5-42:21 Binary Int value temp (op +))
+      (42:5-42:11 Name Int place copy)
+      (42:14-42:21 Name Int place copy))))

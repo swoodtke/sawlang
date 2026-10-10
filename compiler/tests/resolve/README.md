@@ -161,6 +161,9 @@ GRAMMAR.md alternative; the last table lists them.
 | qualified type `m.T` | a module, then its member | multi/imports |
 | `T.Item` under a type parameter: an associated type its bounds declare or inherit through refinement, once however many bounds reach it | a projection | associated_types |
 | `Self.Item` in a trait: its own associated type or one it inherits | the associated type | associated_types |
+| bare `Item` in a refining trait's members: an associated type it inherits, its parents in any module, shadowing a module-level type of its name as its own would | the associated type | inherited_associated_types, multi/refinement |
+| bare `Item` that two parents declare twice; a name neither a refining trait nor its parents bind | refused, naming both declarations, or as any other lookup miss | inherited_associated_type_refusals |
+| a refining trait's own associated type of a name it inherits, at any depth | refused, naming the inherited declaration | inherited_associated_type_refusals |
 | `T.Item` naming nothing, or two declarations; bare `Item` in a generic body | refused with the bounds searched, the declarations reached, or the `T.Item` fix-it naming every candidate | associated_type_refusals |
 | reference, optional, tuple, array, slice, function and `any` types | their parts | types |
 | `Self` | the enclosing type or trait | types |
@@ -232,11 +235,11 @@ what the fixture shows.
 | rule | refuses |
 |---|---|
 | `name.undefined` | a name nothing binds, or a path segment its module does not have as a type; `T.Item` when no bound of `T` reaches an associated type of that name |
-| `name.duplicate-declaration` | two top-level declarations of one name that are not both functions, a function beside a type of its name included (a reading: types and values share one namespace, which the spec does not state); a case or field declared twice |
+| `name.duplicate-declaration` | two top-level declarations of one name that are not both functions, a function beside a type of its name included (a reading: types and values share one namespace, which the spec does not state); a case or field declared twice; a refining trait's associated type of a name it inherits (SL:open-questions D34) |
 | `name.reserved` | a declaration named like a prelude name (design 255) |
 | `name.shadowing` | a binding that shadows a local or a module static and does not derive from it: a `let`, `var`, loop or optional binding whose initializer does not mention it, a same-scope redefinition, and always a pattern binding, a parameter and a closure parameter (designs 100 and 107) |
 | `name.duplicate-binding` | two parameters, or two generic parameters, of one name |
-| `name.ambiguous` | a bare name two explicit imports bind to two declarations that are not both functions, refused at the use; `T.Item` when `T`'s bounds reach two associated types of that name |
+| `name.ambiguous` | a bare name two explicit imports bind to two declarations that are not both functions, refused at the use; `T.Item` when `T`'s bounds reach two associated types of that name; bare `Item` in a refining trait whose parents declare two |
 | `name.not-in-prelude` | a std name the prelude leaves out, with the import that supplies it (design 255) |
 | `name.self-outside-method` | `self` with no receiver |
 | `name.self-outside-type` | `Self` with no enclosing type |

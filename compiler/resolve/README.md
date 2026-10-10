@@ -179,7 +179,15 @@ These are the reversible readings the unit made; SL-445's report lists them.
   walked (`settle_pending`), and their refusals follow the others.
 - Bare `Item` in a generic body stays refused, as `name.undefined` with the
   fix-it `T.Item`, every in-scope parameter whose bounds reach one listed. A
-  trait's body and its conformances name their own `Item` bare. `T.Item.Key`
+  trait's body and its conformances name their own `Item` bare. A refining
+  trait's members name one it inherits bare too, as its own: the inherited
+  associated type shadows any binding outside the trait, a module-level type
+  of its name included. Its parents may sit in a module walked later, so a
+  bare name in a refining trait's members waits for `settle_pending`, which
+  binds it, refuses two inherited declarations as `name.ambiguous`, or leaves
+  what the lookup found, refusing a miss as it would have. So a refining
+  trait may not declare an associated type of a name it inherits: that is
+  `name.duplicate-declaration` (SL:open-questions D34). `T.Item.Key`
   is `slice.not-yet`: an associated type declares no bound, so it names
   nothing yet. A bare name a glob import misses only because the
   declaration is private in its module is refused as `visibility.private`.

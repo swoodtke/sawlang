@@ -1,0 +1,44 @@
+ERROR	name.undefined	compiler/tests/resolve/golden/inherited_associated_type_refusals.saw:35:24	cannot find `Item` in scope
+ERROR	name.undefined	compiler/tests/resolve/golden/inherited_associated_type_refusals.saw:17:30	cannot find `Missing` in scope
+ERROR	name.undefined	compiler/tests/resolve/golden/inherited_associated_type_refusals.saw:18:46	cannot find `Elem` in scope
+ERROR	name.undefined	compiler/tests/resolve/golden/inherited_associated_type_refusals.saw:19:42	cannot find `Out` in scope; an associated type of a bound is named through its type parameter, as `S.Out`
+ERROR	name.ambiguous	compiler/tests/resolve/golden/inherited_associated_type_refusals.saw:31:25	ambiguous `Item`: `Both` inherits the associated types `Left.Item` and `Right.Item`
+ERROR	name.duplicate-declaration	compiler/tests/resolve/golden/inherited_associated_type_refusals.saw:39:10	`Stage` inherits the associated type `Source.Item`, so it may not declare another `Item`: remove this declaration, and its members name the inherited one bare
+(Module inherited_associated_type_refusals
+  (names
+    (16:13 Source (trait inherited_associated_type_refusals Source))
+    (17:30 Missing (error))
+    (18:21 Source (trait inherited_associated_type_refusals Source))
+    (18:40 S (type-param S 18:18))
+    (18:46 Elem (error))
+    (19:19 Sink (trait inherited_associated_type_refusals Sink))
+    (19:36 S (type-param S 19:16))
+    (19:42 Out (error))
+    (30:13 Left (trait inherited_associated_type_refusals Left))
+    (30:19 Right (trait inherited_associated_type_refusals Right))
+    (31:25 Item (error))
+    (35:24 Item (error))
+    (38:14 Pipe (trait inherited_associated_type_refusals Pipe)))
+  (calls)
+  (declarations
+    (trait Source 8:7)
+    (assoc-type Source.Item 9:10)
+    (trait Sink 12:7)
+    (assoc-type Sink.Out 13:10)
+    (trait Pipe 16:7)
+    (requirement Pipe.other 17:10)
+    (requirement Pipe.generic 18:10)
+    (requirement Pipe.drain 19:10)
+    (trait Left 22:7)
+    (assoc-type Left.Item 23:10)
+    (trait Right 26:7)
+    (assoc-type Right.Item 27:10)
+    (trait Both 30:7)
+    (requirement Both.both 31:10)
+    (trait Plain 34:7)
+    (requirement Plain.get 35:10)
+    (trait Stage 38:7)
+    (assoc-type Stage.Item 39:10))
+  (surface)
+  (imports)
+  (extensions inherited_associated_type_refusals))

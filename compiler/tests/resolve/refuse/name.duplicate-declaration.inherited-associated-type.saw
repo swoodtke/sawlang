@@ -1,0 +1,12 @@
+// refuses: name.duplicate-declaration at 10:10
+// a refining trait redeclaring an associated type it inherits (SL:open-questions D34)
+
+trait Source {
+    type Item
+    func pull(&var self) -> Item?
+}
+
+trait Pipe: Source {
+    type Item
+    func push(&var self, item: Item)
+}
