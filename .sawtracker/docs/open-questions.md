@@ -14,7 +14,7 @@ Nothing is waiting. Q-precedence was approved on Oct 10 and is under "Resolved".
 
 The lead hasn't decided these yet. Each one moves to "Decided" with its reasoning when it is settled.
 
-### O4. The shape of Map's entry iterator (Oct 10; SL-489 item 3, docs489)
+### O4 (moved to SL-506). The shape of Map's entry iterator (Oct 10; SL-489 item 3, docs489)
 SL:borrowing §2.6 says collections implement `LendingIterator`, but it names no Map iterator. It gives no method name and no item shape. A map entry is a key and a value, so the item would be either a tuple of places (§7's tuple lends are a separate rule) or a pair struct. Until this is settled, the spec's Map "Iteration" says `Map` declares no iterator yet, and its visitors and snapshots are the iteration forms.
 
 O1 to O3 are decided as D31 to D33.
