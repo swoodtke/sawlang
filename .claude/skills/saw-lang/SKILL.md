@@ -4542,22 +4542,20 @@ construct in the owner and lend `&driver` down.
   `.copy()`, so a move-only payload had NO `value()` at all and the erased
   `Box<any Error>` asked an existential for a method its trait does not declare
   — so distrust both shapes in an older build.
-- **RENDERING or COMPARING a place is a BORROW, not a read** (DF-218i,
-  DF-248d). Both positions hand the element to a `&self` callee and keep
-  nothing — `format(&self, into:)` for one, `equals`/`compare`'s `other: &Self`
-  for the other — so the copy tier never comes into it and a move-only element
-  prints and compares like an `Int` one:
+- **RENDERING or COMPARING a plain subscript is a getitem: write `borrow` to
+  read in place.** A plain `v[0]` is a value wherever it sits, interpolation,
+  `print`, format arguments and comparison operands included. So a move-only
+  element is refused there, and an ExplicitCopy one wants `.copy()`. The
+  in-place read is spelled at each position:
   ```saw-fragment
-  print("{v[0]}"); print(v[0]); print("{}", v[0])    // every rendering slot
-  v[0] == w[0]; v[0] < w[0]                        // all six operators
+  print("{borrow v[0]}"); print(borrow v[0]); print("{}", borrow v[0])
+  borrow v[0] == borrow w[0]
   ```
-  Rendering covers an interpolation operand anywhere, a single-argument `print`
-  of a `Printable`, and the format arguments of `print`/`panic`/`assert`. Treat
-  both as working now and SUSPECT in older builds, where each was ``lends a
-  place of type `Res`, which is move-only`` — printing or comparing a
-  `Vector<Res>` element was simply unwritable, while the same operation over two
-  move-only LOCALS compiled.
-  GOTCHA: the window spans the whole expression that asks for the borrow, so
+  Copy-tier elements are unaffected, and member hops off a plain subscript
+  (`v[0].id`, `v[0].m()`) are getitems too.
+  STAGE 0: sawc still treats rendering and comparison positions as an in-place
+  borrow, so a plain `print(v[0])` of a move-only element compiles there.
+  GOTCHA (Stage 0): the window spans the whole expression that asks for the borrow, so
   anything else in it is inside the window — an `assert` condition naming the
   place's own root (`assert(v[0].n == 1, "{}", v[0])`) wants a `let` of its own
   first, and so does the two-places-ONE-container comparison `v[0] == v[1]`

@@ -5045,6 +5045,7 @@ bytes, even from an accessor that takes `&var self`:
 
 ```saw-fragment
 struct Frame { payload: Data, reads: Int }
+@synthesize extension Frame: Copy {}   // a field of a declared-Copy type (`Data`) is containment
 
 extension Frame {
     public func byte(&var self, i: Int) borrows -> &UInt8 {
