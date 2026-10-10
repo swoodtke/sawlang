@@ -8,12 +8,7 @@ Newest first within each section. When the user rules, the entry moves to "Resol
 
 ## Waiting for the user (fundamental)
 
-### Q-precedence. Which text wins when LANGUAGE_SPEC and an SL design doc disagree? (Oct 9; the Air's m411; SL-479)
-CLAUDE.md says only 'LANGUAGE_SPEC.md is authoritative for meaning'. Today two conflicts went opposite ways, each correctly. In D27 the spec beat SL:borrowing §2.7, which restated a rule that design 219 later replaced. In m410, SL:borrowing §3/§9 beat the spec, because §9 records a RULED retirement the spec text predates.
-
-**Proposed rule:** a Ruled section of an SL: design doc, or a §9-style retirement, supersedes the spec text it names; otherwise the spec holds. The spec is then rewritten to the ruling (SL-479), so the conflict is temporary.
-
-**Asking you:** may this sentence go into CLAUDE.md's opening paragraph and compiler/README.md? Until you answer, the lead applies it as stated. The stale spec passages are now rewritten (SL-479 and SL-482, both merged), and writing the rule down is SL-489.
+Nothing is waiting. Q-precedence was approved on Oct 10 and is under "Resolved".
 
 ## Open, for the lead to decide with the Air (reversible)
 
@@ -416,6 +411,11 @@ Correction: the lead first wrote "B", which is not a §12 code. The SL-426 agent
 - Both land when SL-426 is dispatched, before U4h.
 
 ## Resolved
+
+### Q-precedence. A Ruled design section supersedes the spec text it names (Oct 10; the USER approved; SL-489)
+CLAUDE.md said only "LANGUAGE_SPEC.md is authoritative for meaning". Two conflicts had gone opposite ways, each correctly. In D27 the spec beat SL:borrowing §2.7, which restated a rule that design 219 later replaced. In m410, SL:borrowing §3/§9 beat the spec, because §9 records a RULED retirement the spec text predates.
+
+**Ruled:** a Ruled section of an SL: design doc, or a §9-style retirement, supersedes the spec text it names; otherwise the spec holds. The spec is then rewritten to the ruling, so the conflict is temporary. The rule goes into CLAUDE.md's opening paragraph and compiler/README.md, in SL-489's last patch.
 
 ### SL-493. An alias constructor over a constant is a constant: `static A: Byte = Byte(65)` (Oct 10; the USER's ruling)
 LANGUAGE_SPEC said `static MINUS_SIGN: Byte = Byte(45)` is refused "because a constructor call is not a constant expression", and Stage 0 refuses it. But in a `let`, `Byte(45)` is the only spelling for an alias over a fixed-width type. So the one conversion that changes nothing about the value was illegal in exactly the slot that wants constants.
