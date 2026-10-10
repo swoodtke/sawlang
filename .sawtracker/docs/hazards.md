@@ -1488,6 +1488,19 @@ C6 to C9 come from the Air's review of SL-505.p1 (chat file f22). Each was verif
 
 **Checker:** covered by `deinit-body`.
 
+### C11. A part discarded by a consumed `match`, `if let` or `while let` dies at arm entry
+
+**Shape (silent: wrong drop timing):** the SL-513 ruling (B, SL:open-questions) says a part no binding takes dies when the construct that took it completes: after the body for `match`, `if let` and `while let`. Stage 0 behaves differently:
+- it destroys such a part at arm entry, before the body runs: `case Full(_) -> print("arm")` prints `drop 3`, then `arm`;
+- the same goes for a `_` in `if let (x, _) = o { … }`;
+- where a guard fails and falls through (`case Both(x, _) if …` and then `case Both(_, y)`), it destroys both parts at the enclosing scope's end, which is neither rule.
+
+Stage 0's own suite pins arm entry deliberately, in `examples/coro_discarded_match_payload_field_drop_order.saw`, `coro_discarded_match_payload_released_at_extraction.saw`, `coro_mixed_match_payload_released_at_extraction.saw` and `discard_forms_release_matrix.saw`. Those test the frozen compiler; they are not the contract. The repros are the Air's `f2_min`, `d8_matchtime` (chat file f22) and `b_guard`, `b_iflet` (f23).
+
+**Instead:** none needed in compiler source, which declares no `deinit` (checker rule `deinit-body`), so the timing is unobservable in Stage 1. A differential mismatch on these shapes is adjudicated against the ruling and annotated with this entry.
+
+**Checker:** covered by `deinit-body`.
+
 ## Inventory
 
 Each of the 82 issues the sweep flagged, plus the four promoted after the Air's review and eight found since, mapped to its entry. "Call" is this
