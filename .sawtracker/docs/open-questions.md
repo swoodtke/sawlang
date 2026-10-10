@@ -8,7 +8,12 @@ Newest first within each section. When the user rules, the entry moves to "Resol
 
 ## Waiting for the user (fundamental)
 
-None right now.
+### Q-precedence. Which text wins when LANGUAGE_SPEC and an SL design doc disagree? (Oct 9; the Air's m411; SL-479)
+CLAUDE.md says only 'LANGUAGE_SPEC.md is authoritative for meaning'. Today two conflicts went opposite ways, each correctly. In D27 the spec beat SL:borrowing §2.7, which restated a rule that design 219 later replaced. In m410, SL:borrowing §3/§9 beat the spec, because §9 records a RULED retirement the spec text predates.
+
+**Proposed rule:** a Ruled section of an SL: design doc, or a §9-style retirement, supersedes the spec text it names; otherwise the spec holds. The spec is then rewritten to the ruling (SL-479), so the conflict is temporary.
+
+**Asking you:** may this sentence go into CLAUDE.md's opening paragraph and compiler/README.md? Until you answer, the lead applies it as stated and SL-479 rewrites the stale spec passages.
 
 ## Decided by the lead, for review (reversible)
 
