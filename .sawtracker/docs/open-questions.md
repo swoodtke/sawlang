@@ -14,6 +14,15 @@ None right now.
 
 **D2–D21 were all accepted by the user on Oct 9, "for now".** They are revisited if a choice becomes less optimal as we learn more. Nothing in this section is waiting for review.
 
+### D26. An assignment through an accessor runs its right side before the accessor's prologue (Oct 9; U6d2, SL-460.p2; the Air's review)
+In `g[k] = f()` and `g[k] += f()`, where `[]` is a `borrows` accessor, the order of the right side and the accessor's prologue (user code) is observable. Stage 0 runs `k`, then the prologue, then `f()`, unless the right side reads the root, in which case it runs `f()` first. So its order depends on what the right side mentions.
+
+**Decided:** sawc2 always runs the target's operands (`k`), then the right side, then opens the window (the prologue), then writes. That is SL:borrowing §2.2/§5.4, "right side first, then the left borrow", and it matches Stage 0's own M38 hint, "the right-hand side is evaluated first". It is one order whatever the right side says, and an exclusive window is never open while the right side runs. A method-call receiver is different (SL-473): it opens before the arguments, as the spec's "the receiver is evaluated before the arguments" requires.
+
+**Rejected:** Stage 0's content-dependent order.
+
+**Reversal:** open the target's windows before the right side, and refuse a right side that reads the root (as `vv[0].push(vv.len())` is). This changes one branch of the assignment lowering.
+
 ### D25. A call argument's loan spans the whole call expression, with a two-phase receiver reservation (Oct 9; U6d2, SL-460; the agent's m393)
 SL:architecture §3.6 says a `ref` loan lives until its last use. Under that rule alone, the spec's "Nested calls" refusals would be accepted: X45 `combine(bump(&var n), scale(&var n))`, where the first loan is dead before the second is taken, and X44 `p.total(reset(&var p))`, where the receiver's `ref` is taken after `reset` returns. The spec says both are errors: an argument's borrow extends over the whole call expression, nested calls included, and the receiver is borrowed for the whole call.
 
