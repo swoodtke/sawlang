@@ -1,0 +1,10 @@
+// refuses: escaping.stored at 5:27
+// a non-escaping function parameter wrapped in an Optional (D35; SL-480)
+
+func keep(f: () -> Int) -> Int {
+    let o: (() -> Int)? = f
+    0
+}
+
+func main() {
+}

@@ -1,0 +1,24 @@
+// refuses: loan.window-root at 17:9
+// a cell-carrying `&self` accessor lending `&var` in the middle of a chain
+// charges its root exclusively even under `borrow let`, and so does every hop
+// it is nested in: a second chain through the root would reach the same cell
+// (SL:borrowing §3, §8; SL-490)
+
+struct Cell { at: UnsafePointer<Int> }
+
+extension Cell {
+    func lock(&self) unsafe borrows -> &var Int {
+        lend self.at[0]
+    }
+}
+
+func twice(v: &Vector<Cell>) unsafe -> Int {
+    borrow let a = v[0].lock() {
+        borrow let b = v[0].lock() {
+            a + b
+        }
+    }
+}
+
+func main() {
+}

@@ -1,0 +1,11 @@
+// refuses: escaping.stored at 7:19
+// a non-escaping function parameter stored in an enum payload (D35; SL-480)
+
+enum Slot { case Holds(f: () -> Int), case Empty }
+
+func keep(f: () -> Int) -> Slot {
+    Slot.Holds(f: f)
+}
+
+func main() {
+}

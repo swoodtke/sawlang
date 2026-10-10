@@ -1,0 +1,11 @@
+// refuses: type.mismatch at 5:13
+// a closure whose tail disagrees with its `return` (design 213; SL-476)
+
+func main() {
+    let f = { x: Int in
+        if x > 0 {
+            return 1
+        }
+        "two"
+    }
+}

@@ -1,0 +1,14 @@
+// due: loan.window-root when `for borrow` enters the slice
+// refuses: slice.not-yet at 11:5
+// a `for` head is a borrow scope: an exclusive chain in its head charges the
+// root exclusively for the whole loop (SL:borrowing §2.6; SL-490)
+
+func main() {
+    var g = Vector<Vector<Int>>()
+    var row = Vector<Int>()
+    try! row.push(1)
+    try! g.push(move row)
+    for borrow var x in g[0].iter() {
+        x = g.len()
+    }
+}

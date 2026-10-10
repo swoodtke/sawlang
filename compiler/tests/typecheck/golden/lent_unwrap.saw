@@ -1,0 +1,118 @@
+// Bindings over a conditional lend's payload (SL:borrowing §2.4; SL-492). Over
+// an optional place a `borrow` binding names, a plain `if let`, `guard let`,
+// `while let` or `case Some(x)` copies a Copy payload, `borrow let|var`
+// binds it in place, and `_` tests presence at every tier. A conditional lend
+// called without `borrow` is read as a value: its payload is copied out, so
+// a `var` binding writes the copy.
+
+struct P { n: Int }
+
+struct Res { n: Int }
+
+extension Res: NoCopy {}
+
+struct Bag { items: [P; 2], held: [Res; 2] }
+
+extension Bag: NoCopy {}
+
+extension Bag {
+    func peek(&self, i: Int) borrows -> &P? {
+        if i < 0 || i > 1 {
+            return None
+        }
+        lend self.items[i]
+    }
+
+    func find(&var self, i: Int) borrows -> &var P? {
+        if i < 0 || i > 1 {
+            return None
+        }
+        lend self.items[i]
+    }
+
+    func res(&var self, i: Int) borrows -> &var Res? {
+        if i < 0 || i > 1 {
+            return None
+        }
+        lend self.held[i]
+    }
+}
+
+struct Cell { at: UnsafePointer<P> }
+
+extension Cell {
+    func try_lock(&self) unsafe borrows -> &var P? {
+        lend self.at[0]
+    }
+}
+
+func copies(b: &var Bag) -> Int {
+    var t = 0
+    borrow let e = b.peek(0) {
+        if let x = e {
+            t = t + x.n
+        }
+        match e {
+            case Some(x) -> {
+                t = t + x.n
+            },
+            case None -> {}
+        }
+    }
+    borrow var f = b.find(1) {
+        guard let y = f else {
+            return t
+        }
+        while let z = f {
+            t = t + z.n
+            break
+        }
+        t = t + y.n
+    }
+    t
+}
+
+func in_place(b: &var Bag) -> Int {
+    borrow var e = b.res(0) {
+        if let _ = e {
+            print("present")
+        }
+        match e {
+            case Some(borrow let r) -> r.n,
+            case None -> 0
+        }
+    }
+}
+
+func writes(b: &var Bag) {
+    borrow var e = b.find(0) {
+        if borrow var x = e {
+            x.n = 9
+        }
+    }
+}
+
+func cell(c: &Cell) unsafe -> Int {
+    borrow var e = c.try_lock() {
+        if let x = e {
+            x.n
+        } else {
+            0
+        }
+    }
+}
+
+func plain(b: &var Bag) -> Int {
+    var t = 0
+    if var x = b.peek(0) {
+        x.n = 5
+        t = x.n
+    }
+    if let y = b.find(1) {
+        t = t + y.n
+    }
+    t
+}
+
+func main() {
+}

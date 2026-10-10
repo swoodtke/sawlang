@@ -1,0 +1,17 @@
+// refuses: loan.window-root at 14:15
+// a two-hop chain under `borrow var` charges its root exclusively: every hop
+// is a nested reborrow, so the body may not read the root (SL:borrowing §2.2,
+// §3; SL-490)
+
+struct P { n: Int }
+
+func main() {
+    var g = Vector<Vector<P>>()
+    var row = Vector<P>()
+    try! row.push(P(n: 1))
+    try! g.push(move row)
+    borrow var c = g[0][0] {
+        c.n = g.len()
+    }
+    print(g.len())
+}

@@ -5,7 +5,8 @@
 //
 // A loan is made by a `ref` (shared or exclusive, on its place), by a
 // `window_open` (on its receiver's place, charging it as the accessor
-// declares: exclusively for a `&var self` receiver or a `&var` lend), and by
+// declares: exclusively for a `&var self` receiver or a `&var` lend, or when a
+// window opened through the place it lends charges exclusively), and by
 // a closure that copies a reference into its environment (on the referent).
 // A window's loan lives until its `window_close`, on the edges it opened on:
 // a conditional lend's absent edge carries none. Any other loan lives while a
@@ -120,8 +121,10 @@ public struct BorrowckLoans {
     // Per local: whether it holds one integer constant, and which.
     public has_const: Vector<Bool>
     public const_value: Vector<Int>
-    // Per window: the place its receiver names.
+    // Per window: the place its receiver names, and whether it charges that
+    // place exclusively.
     public window_path: Vector<BorrowckPath>
+    public window_exclusive: Vector<Bool>
     // Bit sets per block: the locals live at its end, the loans created on
     // some path to its entry, the windows open at its entry.
     public local_words: Int
@@ -315,7 +318,7 @@ extension BorrowckProgram {
                                   holders: Vector<Int>(), ties: Vector<Int>(), def_count: Vector<Int>(),
                                   def_stmt: Vector<Int>(), def_block: Vector<Int>(), has_const: Vector<Bool>(),
                                   const_value: Vector<Int>(), window_path: Vector<BorrowckPath>(),
-                                  local_words: borrowck_words(info.local_count),
+                                  window_exclusive: Vector<Bool>(), local_words: borrowck_words(info.local_count),
                                   loan_words: 0, window_words: borrowck_words(info.window_count),
                                   live_out: Vector<Int>(), created_in: Vector<Int>(), open_in: Vector<Int>(),
                                   reached: Vector<Bool>())
@@ -462,6 +465,53 @@ extension BorrowckProgram {
             }
             b = b + 1
         }
+        w = 0
+        while w < info.window_count {
+            try! facts.window_exclusive.push(self.window_charges_exclusively(f, w))
+            w = w + 1
+        }
+        var changed = true
+        while changed {
+            changed = false
+            w = 0
+            while w < info.window_count {
+                let outer = self.enclosing_window(f, w, &facts)
+                if outer >= 0 && facts.window_exclusive[w] && not facts.window_exclusive[outer] {
+                    facts.window_exclusive[outer] = true
+                    changed = true
+                }
+                w = w + 1
+            }
+        }
+    }
+
+    // The window whose lent place window `w` borrows its receiver through,
+    // or -1. A chain of hops is a chain of nested reborrows, so an exclusive
+    // inner hop makes every hop it is nested in exclusive too: otherwise a
+    // second chain through the root could reach the same storage beside it,
+    // a `&self` cell accessor's included (SL:borrowing §2.2, §3).
+    func enclosing_window(&self, f: Int, w: Int, facts: &BorrowckLoans) -> Int {
+        let p = facts.window_path[w]
+        let l = p.local
+        if l < 0 || p.count < 1 || facts.def_count[l] != 1 || facts.def_stmt[l] >= 0 {
+            return -1
+        }
+        // A conditional lend's place is reached through its payload.
+        let first = facts.projs[p.first].kind
+        let through = first == MirProjKind.Deref || (p.count > 1 && first != MirProjKind.Field && facts.projs[p.first + 1].kind == MirProjKind.Deref)
+        if not through {
+            return -1
+        }
+        let info = self.mir.funcs[f]
+        let block = self.mir.blocks[info.block_first + facts.def_block[l]]
+        if block.term != MirTermKind.Call {
+            return -1
+        }
+        let c = self.mir.calls[block.call]
+        if c.kind != MirCallKind.WindowOpen || c.window < 0 || c.window >= info.window_count || c.window == w {
+            return -1
+        }
+        c.window
     }
 
     // The place window call `call` takes its receiver's borrow of: the
@@ -521,7 +571,7 @@ extension BorrowckProgram {
                 let c = self.mir.calls[block.call]
                 if c.kind == MirCallKind.WindowOpen && c.window >= 0 && c.window < info.window_count {
                     let path = facts.window_path[c.window]
-                    let exclusive = self.window_charges_exclusively(f, c.window)
+                    let exclusive = facts.window_exclusive[c.window]
                     self.add_loan(&var facts, BorrowckLoanKind.Window, path, exclusive, block.term_node,
                                   block.term_closing, b, -1, c.window, -1)
                 }

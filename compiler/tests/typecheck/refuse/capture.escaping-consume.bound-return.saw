@@ -11,7 +11,7 @@ extension Res: NoCopy {}
 
 func probe() -> Res {
     let r = Res(id: 1)
-    let f: () -> Res = { [move r] in
+    let f = { [move r] in
         return move r
     }
     f()

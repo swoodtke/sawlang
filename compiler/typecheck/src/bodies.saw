@@ -98,7 +98,11 @@ public enum TcOrigin {
     case Owned,
     // A borrowed scrutinee, a field or a receiver: each binding aliases its
     // part.
-    case Borrowed
+    case Borrowed,
+    // An optional place an accessor lends, reached through a `borrow`
+    // binding: a plain binding copies its payload, as a place's does, and
+    // `borrow let` is the way to read it in place (SL:borrowing §2.4).
+    case Lent
 }
 
 extension TcProgram {
@@ -117,6 +121,8 @@ extension TcProgram {
             try! self.call_at.push(-1)
             try! self.local_types.push(-1)
             try! self.aliasing_bindings.push(false)
+            try! self.lent_bindings.push(false)
+            try! self.nonescaping_bindings.push(false)
             try! self.res_call_at.push(-1)
             try! self.string_positions.push(-1)
             k = k + 1
@@ -268,11 +274,16 @@ extension TcProgram {
             if self.has_alt(c, Alt.Decl_Param_Plain) || self.has_alt(c, Alt.Decl_Param_Default) {
                 let leaf = self.res.first_leaf(c)
                 var t = self.error_type
+                var escaping = false
                 if index < s.param_count {
                     let param = self.params[s.param_first + index]
                     t = param.ty
+                    escaping = param.escaping
                 }
                 self.local_types[leaf] = t
+                if not escaping && self.kind_of(t) == TcKind.Func {
+                    self.nonescaping_bindings[leaf] = true
+                }
                 try! self.param_leaves.push(leaf)
                 if self.has_alt(c, Alt.Decl_Param_Default) {
                     let value = self.res.last_node_child(c)
@@ -625,6 +636,13 @@ extension TcProgram {
             t = self.read_through_reference(value)
         }
         self.bind_target(target, t, TcOrigin.Temporary)
+        // `let g = f` keeps a non-escaping `f`'s kind (SL:open-questions D35).
+        if self.has_alt(target, Alt.Stmt_BindingName) && self.nonescaping_value(value) {
+            let leaf = self.res.first_leaf(target)
+            if leaf >= 0 {
+                self.nonescaping_bindings[leaf] = true
+            }
+        }
     }
 
     // The type a position that names none takes from expression `e`: a
@@ -824,6 +842,12 @@ extension TcProgram {
                     self.refuse_implicit_copy(node, t)
                 }
             },
+            case Lent -> {
+                self.set_use(node, TcUse.Copy)
+                if not self.copies_silently(t) {
+                    self.refuse_lent_copy(node, t)
+                }
+            },
             case Temporary -> self.set_use(node, TcUse.Temp),
             case Owned -> self.set_use(node, TcUse.Move),
             case Borrowed -> {
@@ -845,6 +869,9 @@ extension TcProgram {
         let own = self.expr_types[scrutinee]
         if not self.expr_place[scrutinee] && self.referent(own) < 0 {
             return TcOrigin.Temporary
+        }
+        if self.is_optional(t) && self.lent_place(scrutinee) {
+            return TcOrigin.Lent
         }
         if self.has_alt(scrutinee, Alt.Expr_Name) && self.referent(own) < 0 {
             let leaf = self.res.first_leaf(scrutinee)
@@ -873,6 +900,11 @@ extension TcProgram {
         }
         self.check_assigned(value, t)
         self.placement_value = outer
+        // A non-escaping local may take another non-escaping value; any other
+        // target holds it past the call (SL:open-questions D35).
+        if self.nonescaping_value(value) && not self.nonescaping_value(target) {
+            self.refuse_escape(value, "the assignment's target")
+        }
     }
 
     // Whether assignment target `target` writes through a mutable raw
@@ -958,6 +990,10 @@ extension TcProgram {
     func check_return(&var self, s: Int) {
         let e = self.res.first_node_child(s)
         let result = self.body_result
+        if result < 0 && self.result_open {
+            self.open_return(e)
+            return
+        }
         if e < 0 {
             if result >= 0 && not self.is_void(result) && not self.has_error(result) && not self.returns_void_ok(result) {
                 var msg = StringBuilder()
@@ -974,6 +1010,27 @@ extension TcProgram {
             return
         }
         self.check_returned(e, result)
+    }
+
+    // The first `return` of a closure with no expected result, `e` its value
+    // or -1: it gives the closure's result, which every later `return` and
+    // the tail are checked against (design 213). A reference binding returned
+    // gives its value, as a reference tail does.
+    func open_return(&var self, e: Int) {
+        var t = self.void_type()
+        if e >= 0 {
+            t = self.expr(e, TC_WANT_NONE)
+            self.consume(e)
+            t = self.final_type(e)
+            if self.referent(t) >= 0 && self.expr_place[e] {
+                t = self.read_through_reference(e)
+            } else if self.referent(t) >= 0 && not self.has_alt(e, Alt.Expr_Ref_Shared) && not self.has_alt(e, Alt.Expr_Ref_Exclusive) {
+                self.refuse_reference_result(e, t)
+            }
+        }
+        if not self.has_error(t) && not self.is_never(t) {
+            self.body_result = t
+        }
     }
 
     // Whether `t` is a `Result<Void, E>`, whose `Ok` a bare `return` and a
@@ -1063,7 +1120,7 @@ extension TcProgram {
             self.not_in_slice(s, Alt.Stmt_BindingSubject_ChainAssign)
             return
         }
-        self.check_optional_binding(target, subject)
+        self.check_optional_binding(s, target, subject)
         let _ = self.check_block(block, TC_WANT_STMT, TcTail.Plain)
     }
 
@@ -1194,6 +1251,7 @@ extension TcProgram {
         let sigiled = pos == TcPosition.Argument || pos == TcPosition.Field
         let read = self.reads_reference(e) && (sigiled || not ref_slot)
         let from = if read { self.read_value(e) } else { self.final_type(e) }
+        self.check_escape(e, slot, pos)
         if not known {
             self.take(e, borrowed)
             return from
@@ -1687,6 +1745,71 @@ extension TcProgram {
             a = adj.next
         }
         t
+    }
+
+    // Whether `t` is the type of a non-escaping function value: a function
+    // type that does not say `escaping`, as a parameter declares one.
+    func nonescaping_type(&self, t: Int) -> Bool {
+        t >= 0 && self.kind_of(t) == TcKind.Func && (self.types.ty(t).a & TC_EFFECT_ESCAPING) == 0
+    }
+
+    // Whether expression `e` reads a non-escaping function value: a binding
+    // `nonescaping_bindings` marks, read or moved.
+    func nonescaping_value(&self, e: Int) -> Bool {
+        var at = self.unparen(e)
+        if at >= 0 && self.has_alt(at, Alt.Expr_Move_Place) {
+            let operand = self.res.first_node_child(at)
+            at = self.unparen(operand)
+        }
+        if at < 0 || not self.has_alt(at, Alt.Expr_Name) {
+            return false
+        }
+        let leaf = self.res.first_leaf(at)
+        let b = self.binding_at(leaf)
+        b.kind == ResBindKind.Local && b.node >= 0 && self.nonescaping_bindings[b.node]
+    }
+
+    // A non-escaping function value may be called, passed to a non-escaping
+    // parameter, captured by a non-escaping closure or bound to a local; any
+    // other position holds it past the call (SL:open-questions D35). `slot`
+    // is what position `pos` expects.
+    func check_escape(&var self, e: Int, slot: Int, pos: TcPosition) {
+        if not self.nonescaping_value(e) {
+            return
+        }
+        // An argument is judged against its declared parameter type
+        // (`check_call_argument`), and an assignment against its target
+        // (`check_assign`).
+        if pos == TcPosition.Argument || pos == TcPosition.Assign {
+            return
+        }
+        if pos == TcPosition.Let && (slot < 0 || self.kind_of(slot) == TcKind.Func) {
+            return
+        }
+        let holder = match pos {
+            case Field -> "a field",
+            case Payload -> "an enum payload",
+            case Element -> "a collection element",
+            case Static -> "a static",
+            case Return -> "the function's result",
+            case Tail -> "the function's result",
+            case ClosureTail -> "the closure's result",
+            case Let -> "the optional it is wrapped in",
+            case Branch -> "the value the branch hands on",
+            case _ -> "this position"
+        }
+        self.refuse_escape(e, holder)
+    }
+
+    func refuse_escape(&var self, e: Int, holder: String) {
+        let m = self.node_module(e)
+        var msg = StringBuilder()
+        try! msg.append("`")
+        try! msg.append(self.text(m, e))
+        try! msg.append("` is a non-escaping function value, a parameter whose type does not say `escaping` or a binding of one, and ")
+        try! msg.append(holder)
+        try! msg.append(" holds it past the call: mark the parameter `escaping`, as `() escaping -> T`, or only call it and pass it to parameters that do not escape")
+        self.refuse_in(m, e, "escaping.stored", msg.build())
     }
 
     public func check_let_value(&var self, e: Int, slot: Int) {
@@ -3060,6 +3183,10 @@ extension TcProgram {
         if exclusive && not self.expr_place[operand] {
             self.refuse_not_a_place(operand)
         }
+        let accessor = self.sigil_accessor(operand)
+        if accessor >= 0 {
+            self.refuse_sigil_place(e, operand, accessor, exclusive)
+        }
         let inner = self.referent(ot)
         if inner >= 0 {
             // Whether a `&var` may reborrow it is the writability funnel's
@@ -3070,6 +3197,64 @@ extension TcProgram {
         }
         let t = self.mk_ref(exclusive, ot)
         self.set_type(e, t, false)
+    }
+
+    // The `borrows` call place `e` reaches storage through, following its
+    // fields, tuple elements, payloads and builtin elements down, or -1: the
+    // sigil a call argument writes reaches no accessor (SL:borrowing §9).
+    func sigil_accessor(&self, e: Int) -> Int {
+        var at = self.unparen(e)
+        var steps = 0
+        while at >= 0 && steps < 10000 {
+            steps = steps + 1
+            if self.has_alt(at, Alt.Expr_Member) || self.has_alt(at, Alt.Expr_TupleIndex) || self.has_alt(at, Alt.Expr_Force) || self.has_alt(at, Alt.Expr_Paren) {
+                at = self.res.first_node_child(at)
+                continue
+            }
+            let subscript = self.has_alt(at, Alt.Expr_Subscript_Single) || self.has_alt(at, Alt.Expr_Subscript_Multi)
+            if not subscript && not self.has_alt(at, Alt.Expr_Call_Paren) {
+                return -1
+            }
+            let c = self.call_at[at]
+            let target = if c >= 0 { self.calls[c].target } else { -1 }
+            if target >= 0 && (self.sigs[target].effects & TC_EFFECT_BORROWS) != 0 {
+                // A borrowing struct is lent by value: `&` of it is a
+                // reference to a temporary, which its own rules govern.
+                let lent = self.sigs[target].lending
+                if lent == TcLend.BorrowingStruct || lent == TcLend.Other {
+                    return -1
+                }
+                return at
+            }
+            if not subscript {
+                return -1
+            }
+            at = self.res.first_node_child(at)
+        }
+        return -1
+    }
+
+    // `&v[i]` or `&var v[i]`, a sigil on a place an accessor lends, which
+    // SL:borrowing §9 retires: the place is passed with `borrow`.
+    func refuse_sigil_place(&var self, e: Int, operand: Int, accessor: Int, exclusive: Bool) {
+        let m = self.current
+        let place = self.text(m, operand)
+        let sigil = if exclusive { "&var " } else { "&" }
+        let word = if exclusive { "borrow var " } else { "borrow " }
+        var msg = StringBuilder()
+        try! msg.append("`")
+        try! msg.append(sigil)
+        try! msg.append(place)
+        try! msg.append("` reaches a place through the accessor `")
+        let c = self.call_at[accessor]
+        let target = self.calls[c].target
+        let name_id = self.res.decls[target].name
+        try! msg.append(self.name_text(name_id))
+        try! msg.append("`, and a sigil no longer passes one: write `")
+        try! msg.append(word)
+        try! msg.append(place)
+        try! msg.append("`, which passes the place by reference for the call")
+        self.refuse(e, "borrowing.sigil-place", msg.build())
     }
 
     // `move x`: the place's value, taken; the place is moved from.
@@ -3701,7 +3886,7 @@ extension TcProgram {
             let annotation = self.res.last_node_child(c)
             var t = self.error_type
             if annotation >= 0 && res_is_type_alt(self.node_alt(annotation)) {
-                t = self.build_type(annotation)
+                t = self.build_param_type(annotation)
                 if self.has_alt(c, Alt.Expr_ClosureParam_Ref) {
                     t = self.mk_ref(false, t)
                 } else if self.has_alt(c, Alt.Expr_ClosureParam_RefExclusive) {
@@ -3713,7 +3898,13 @@ extension TcProgram {
                 self.refuse(c, "infer.failed",
                             "this closure parameter has no type: write one, as `x: Int`, or pass the closure where a function type is expected")
             }
-            self.local_types[leaf] = t
+            // The closure's function type keeps the parameter's `escaping`;
+            // the binding holds the value in its storage form (D35).
+            if self.nonescaping_type(t) {
+                self.nonescaping_bindings[leaf] = true
+            }
+            let held = self.strip_escaping(t)
+            self.local_types[leaf] = held
             try! params.push(t)
         }
         var result = -1
@@ -3724,11 +3915,13 @@ extension TcProgram {
             effects = info.a
         }
         let saved_result = self.body_result
+        let saved_open = self.result_open
         let saved_loops = tc_copy_ints(&self.loop_breaks)
         let saved_captures = self.borrow_captures.len()
         self.note_borrow_captures(e)
         self.loop_breaks = Vector<Int>()
         self.body_result = result
+        self.result_open = result < 0
         var body = self.error_type
         if result >= 0 && self.is_void(result) {
             body = self.check_statements(e, TC_WANT_STMT, TcTail.Closure)
@@ -3740,11 +3933,10 @@ extension TcProgram {
             if self.referent(result) >= 0 {
                 result = self.closure_result_value(e, result)
             }
-            if self.is_never(result) {
-                result = self.void_type()
-            }
+            result = self.merge_open_result(e, result)
         }
         self.body_result = saved_result
+        self.result_open = saved_open
         self.loop_breaks = move saved_loops
         if self.borrow_captures.len() > saved_captures {
             var kept = Vector<Int>()
@@ -3757,6 +3949,35 @@ extension TcProgram {
         }
         let t = self.mk_func(&params, result, effects)
         self.set_type(e, t, false)
+    }
+
+    // An inferred closure result: the tail's type `tail`, against what its
+    // `return`s gave (`body_result`). A body whose every path returns ends in
+    // `Never` and takes the returns' type; a tail with a value must agree with
+    // them; a body with neither is `Void` (design 213).
+    func merge_open_result(&var self, e: Int, tail: Int) -> Int {
+        let returned = self.body_result
+        if returned < 0 {
+            if self.is_never(tail) {
+                return self.void_type()
+            }
+            return tail
+        }
+        if self.is_never(tail) || self.has_error(tail) || tail == returned {
+            return returned
+        }
+        var msg = StringBuilder()
+        try! msg.append("this closure's `return` gives `")
+        try! msg.append(self.type_text(returned))
+        if self.is_void(tail) {
+            try! msg.append("`, and its body can end without a value: end it with an expression of that type, or return one")
+        } else {
+            try! msg.append("`, and its body ends in `")
+            try! msg.append(self.type_text(tail))
+            try! msg.append("`: a closure's result is one type")
+        }
+        self.refuse(e, "type.mismatch", msg.build())
+        returned
     }
 
     // Notes the bindings closure `e`'s capture list borrows, `[&x]` and
@@ -3799,13 +4020,17 @@ extension TcProgram {
         let bare = tail >= 0 && (self.has_alt(tail, Alt.Expr_Ref_Shared) || self.has_alt(tail, Alt.Expr_Ref_Exclusive))
         if not bare {
             let at = if tail >= 0 { tail } else { e }
-            var msg = StringBuilder()
-            try! msg.append("a closure's result may not be a reference: this body's value is `")
-            try! msg.append(self.type_text(result))
-            try! msg.append("`, and references are parameters only, so one handed out of the closure would outlive the call it borrows for; yield the value instead")
-            self.refuse(at, "type.reference-position", msg.build())
+            self.refuse_reference_result(at, result)
         }
         result
+    }
+
+    func refuse_reference_result(&var self, at: Int, result: Int) {
+        var msg = StringBuilder()
+        try! msg.append("a closure's result may not be a reference: this body's value is `")
+        try! msg.append(self.type_text(result))
+        try! msg.append("`, and references are parameters only, so one handed out of the closure would outlive the call it borrows for; yield the value instead")
+        self.refuse(at, "type.reference-position", msg.build())
     }
 
     func is_closure_param(&self, c: Int) -> Bool {
@@ -4117,7 +4342,7 @@ extension TcProgram {
         if self.has_alt(head, Alt.Expr_OptionalBinding_Let) || self.has_alt(head, Alt.Expr_OptionalBinding_Var) {
             let target = self.res.first_node_child(head)
             let subject = self.res.last_node_child(head)
-            self.check_optional_binding(target, subject)
+            self.check_optional_binding(head, target, subject)
             return
         }
         if self.has_alt(head, Alt.Borrow_Unwrap_Let) || self.has_alt(head, Alt.Borrow_Unwrap_Var) {
@@ -4127,9 +4352,12 @@ extension TcProgram {
         self.check_condition(head)
     }
 
-    // `let x = e` in an `if`, `while` or `guard` head: `e` is an Optional,
-    // and `x` its payload, copied out of a place (design 131).
-    func check_optional_binding(&var self, target: Int, subject: Int) {
+    // `let x = e` in an `if`, `while` or `guard` head (`head`, the binding
+    // construct): `e` is an Optional, and `x` its payload, copied out of a
+    // place (design 131). Out of an optional place an accessor lends, the
+    // copy is spelled `let`: a `var` would write the copy and never the
+    // place (SL:borrowing §2.4).
+    func check_optional_binding(&var self, head: Int, target: Int, subject: Int) {
         let _ = self.expr(subject, TC_WANT_NONE)
         self.set_use(subject, TcUse.Test)
         let t = self.through_refs(subject)
@@ -4145,8 +4373,70 @@ extension TcProgram {
             return
         }
         let payload = self.arg_of(t, 0)
-        let from = if self.expr_place[subject] { TcOrigin.Place } else { TcOrigin.Temporary }
+        var from = if self.expr_place[subject] { TcOrigin.Place } else { TcOrigin.Temporary }
+        if self.lent_place(subject) {
+            from = TcOrigin.Lent
+            if self.has_alt(head, Alt.Expr_OptionalBinding_Var) || self.has_alt(head, Alt.Stmt_Guard_Var) || self.has_alt(head, Alt.Expr_WhileLet_Var) {
+                self.refuse_var_unwrap(head, target, subject)
+            }
+        }
         self.bind_target(target, payload, from)
+    }
+
+    // Whether expression `e` names storage a `borrow` binding reaches: the
+    // binding itself, or a field or tuple element of it.
+    func lent_place(&self, e: Int) -> Bool {
+        var at = self.unparen(e)
+        var steps = 0
+        while at >= 0 && steps < 10000 {
+            steps = steps + 1
+            if self.has_alt(at, Alt.Expr_Member) || self.has_alt(at, Alt.Expr_TupleIndex) || self.has_alt(at, Alt.Expr_Paren) {
+                at = self.res.first_node_child(at)
+                continue
+            }
+            if not self.has_alt(at, Alt.Expr_Name) {
+                return false
+            }
+            let leaf = self.res.first_leaf(at)
+            let b = self.binding_at(leaf)
+            return b.kind == ResBindKind.Local && b.node >= 0 && self.lent_bindings[b.node]
+        }
+        false
+    }
+
+    // `if var x = e`, `guard var` or `while var` over an optional place an
+    // accessor lends (SL:borrowing §2.4).
+    func refuse_var_unwrap(&var self, head: Int, target: Int, subject: Int) {
+        let m = self.current
+        let name = self.text(m, target)
+        let place = self.text(m, subject)
+        var msg = StringBuilder()
+        try! msg.append("`")
+        try! msg.append(place)
+        try! msg.append("` is a place an accessor lends, and a `var` binding of its payload would write a copy, never the place: write `")
+        if self.has_alt(head, Alt.Expr_WhileLet_Var) {
+            try! msg.append("while")
+        } else {
+            try! msg.append("if")
+        }
+        try! msg.append(" borrow var ")
+        try! msg.append(name)
+        try! msg.append(" = ")
+        try! msg.append(place)
+        try! msg.append("` to write the place, or `")
+        if self.has_alt(head, Alt.Stmt_Guard_Var) {
+            try! msg.append("guard")
+        } else if self.has_alt(head, Alt.Expr_WhileLet_Var) {
+            try! msg.append("while")
+        } else {
+            try! msg.append("if")
+        }
+        try! msg.append(" let ")
+        try! msg.append(name)
+        try! msg.append(" = ")
+        try! msg.append(place)
+        try! msg.append("` for a copy")
+        self.refuse(head, "borrowing.var-unwrap", msg.build())
     }
 
     // `if borrow let x = e` and `while borrow var x = e`: `e` is an optional
@@ -4180,6 +4470,7 @@ extension TcProgram {
             self.local_types[leaf] = t
             // The binding names the borrowed place, which its owner ends.
             self.aliasing_bindings[leaf] = true
+            self.lent_bindings[leaf] = true
         }
         let _ = self.set_type(target, t, true)
         if exclusive {
@@ -4370,7 +4661,7 @@ extension TcProgram {
             }
             k = k + 1
         }
-        self.check_optional_binding(target, subject)
+        self.check_optional_binding(e, target, subject)
         let _ = self.check_block(block, TC_WANT_STMT, TcTail.Plain)
         let _ = self.pop_loop()
         let t = self.void_type()
@@ -5690,6 +5981,8 @@ extension TcProgram {
             if k < info.count {
                 let p = self.types.arg(t, k)
                 self.check_argument(args.values[k], p)
+                let says = self.says_escaping(p)
+                self.check_escaping_argument(args.values[k], p, says)
             } else {
                 let _ = self.expr(args.values[k], TC_WANT_NONE)
                 self.consume(args.values[k])
@@ -6583,7 +6876,7 @@ extension TcProgram {
                     if not self.mentions_unsolved(pt, &solve) {
                         let s2 = self.solve_subst(&solve)
                         let target = self.subst(pt, &s2)
-                        self.check_call_argument(c, v, target)
+                        self.check_call_argument(c, v, target, raw, bind.arg_param[k])
                         done[k] = true
                         progress = true
                     }
@@ -6607,7 +6900,7 @@ extension TcProgram {
                     if not self.mentions_unsolved(pt, &solve) {
                         let s2 = self.solve_subst(&solve)
                         let target = self.subst(pt, &s2)
-                        self.check_call_argument(c, v, target)
+                        self.check_call_argument(c, v, target, raw, bind.arg_param[k])
                         done[k] = true
                         changed = true
                     } else if not self.is_typed(v) && self.types_itself(v) {
@@ -6645,7 +6938,7 @@ extension TcProgram {
                 let pt = self.subst(raw, &sub)
                 let s2 = self.solve_subst(&solve)
                 let target = self.subst(pt, &s2)
-                self.check_call_argument(c, v, target)
+                self.check_call_argument(c, v, target, raw, bind.arg_param[k])
             }
             k = k + 1
         }
@@ -6862,12 +7155,36 @@ extension TcProgram {
         true
     }
 
-    // An argument, through the funnel entry for what it fills.
-    func check_call_argument(&var self, c: TcCand, v: Int, target: Int) {
+    // An argument, through the funnel entry for what it fills; `raw` is the
+    // parameter's declared type, before any type argument is substituted,
+    // and `k` the parameter.
+    func check_call_argument(&var self, c: TcCand, v: Int, target: Int, raw: Int, k: Int) {
         match c.kind {
-            case Function -> self.check_argument(v, target),
+            case Function -> {
+                self.check_argument(v, target)
+                let p = self.params[self.sigs[c.decl].param_first + k]
+                self.check_escaping_argument(v, raw, p.escaping)
+            },
             case Memberwise -> self.check_field_argument(v, target),
             case Case -> self.check_payload(v, target)
+        }
+    }
+
+    // A non-escaping function value passed as an argument: legal only for a
+    // parameter whose declared type is a function type that does not say
+    // `escaping`. A type parameter holds its argument as storage, written or
+    // inferred, as it does a reference (SL:open-questions D35).
+    func check_escaping_argument(&var self, v: Int, raw: Int, escaping: Bool) {
+        if not self.nonescaping_value(v) || raw < 0 || self.has_error(raw) {
+            return
+        }
+        if self.kind_of(raw) == TcKind.Func && not escaping {
+            return
+        }
+        if self.kind_of(raw) == TcKind.Func {
+            self.refuse_escape(v, "an `escaping` parameter")
+        } else {
+            self.refuse_escape(v, "a type argument, which a generic holds as storage,")
         }
     }
 
@@ -7620,6 +7937,24 @@ extension TcProgram {
     }
 }
 
+// How many ancestors node `e` has, memoised in `depth`.
+func tc_node_depth(e: Int, parents: &Vector<Int>, depth: &var Vector<Int>) -> Int {
+    var path = Vector<Int>()
+    var node = e
+    while node >= 0 && depth[node] < 0 {
+        try! path.push(node)
+        node = parents[node]
+    }
+    var d = if node >= 0 { depth[node] } else { -1 }
+    var k = path.len() - 1
+    while k >= 0 {
+        d = d + 1
+        depth[path[k]] = d
+        k = k - 1
+    }
+    depth[e]
+}
+
 // What each place's use decides, once every body is checked.
 extension TcProgram {
     // Settles a subscript's role (SL:borrowing §5) and the borrow of a
@@ -7646,12 +7981,60 @@ extension TcProgram {
             }
             k = k + 1
         }
+        let order = self.consumer_first(&parents)
         k = 0
-        while k < self.calls.len() {
-            self.settle_call(k, &parents)
+        while k < order.len() {
+            self.settle_call(order[k], &parents)
             k = k + 1
         }
         self.check_plain_subscript_reads(&parents)
+    }
+
+    // The calls in the order they settle: each before every call nested in
+    // it, so a chain's later hop has settled how it borrows the place the
+    // earlier hop lends before that earlier hop reads its own use. A hop
+    // under an exclusive one is then exclusive too, and charges its root so
+    // (SL:borrowing §2.2, §3; pinned by borrowck's loan.window-root.chain-*).
+    func consumer_first(&self, parents: &Vector<Int>) -> Vector<Int> {
+        let n = self.res.nodes.len()
+        var depth = Vector<Int>()
+        var k = 0
+        while k < n {
+            try! depth.push(-1)
+            k = k + 1
+        }
+        var counts = Vector<Int>()
+        k = 0
+        while k < self.calls.len() {
+            let d = tc_node_depth(self.calls[k].node, &parents, &var depth)
+            while counts.len() <= d {
+                try! counts.push(0)
+            }
+            counts[d] += 1
+            k = k + 1
+        }
+        var starts = Vector<Int>()
+        var at = 0
+        k = 0
+        while k < counts.len() {
+            try! starts.push(at)
+            at = at + counts[k]
+            k = k + 1
+        }
+        var order = Vector<Int>()
+        k = 0
+        while k < self.calls.len() {
+            try! order.push(-1)
+            k = k + 1
+        }
+        k = 0
+        while k < self.calls.len() {
+            let d = depth[self.calls[k].node]
+            order[starts[d]] = k
+            starts[d] += 1
+            k = k + 1
+        }
+        return move order
     }
 
     // A plain subscript is a getitem wherever it is read, so it copies its
@@ -7662,7 +8045,8 @@ extension TcProgram {
     // one, and `borrow` reads either in place; an element that copies only
     // by inference owes design 219's requirement (`implied_copies`).
     // The positions that lend a place, and so exempt it, are the `borrow`
-    // forms, `lend`, a `for` head and a sigiled `&` (`lends_in_place`).
+    // forms, `lend` and a `for` head (`lends_in_place`); a sigil on an
+    // accessor's place is `borrowing.sigil-place`.
     func check_plain_subscript_reads(&var self, parents: &Vector<Int>) {
         let n = self.res.nodes.len()
         self.implied_copies = Vector<Int>()
@@ -7793,7 +8177,7 @@ extension TcProgram {
         guard let alt = self.node_alt(p) else {
             return false
         }
-        alt == Alt.Borrow_Place_Shared || alt == Alt.Borrow_Place_Var || alt == Alt.Borrow_OptionalTarget || alt == Alt.Borrow_Block || alt == Alt.Borrow_Binding_Let || alt == Alt.Borrow_Binding_Var || alt == Alt.Borrow_Unwrap_Let || alt == Alt.Borrow_Unwrap_Var || alt == Alt.Borrow_For_Let || alt == Alt.Borrow_For_Var || alt == Alt.Stmt_Lend || alt == Alt.Expr_Lends || alt == Alt.Expr_For_Plain || alt == Alt.Expr_For_Borrow || alt == Alt.Expr_Ref_Shared || alt == Alt.Expr_Ref_Exclusive
+        alt == Alt.Borrow_Place_Shared || alt == Alt.Borrow_Place_Var || alt == Alt.Borrow_OptionalTarget || alt == Alt.Borrow_Block || alt == Alt.Borrow_Binding_Let || alt == Alt.Borrow_Binding_Var || alt == Alt.Borrow_Unwrap_Let || alt == Alt.Borrow_Unwrap_Var || alt == Alt.Borrow_For_Let || alt == Alt.Borrow_For_Var || alt == Alt.Stmt_Lend || alt == Alt.Expr_Lends || alt == Alt.Expr_For_Plain || alt == Alt.Expr_For_Borrow
     }
 
     // Whether subscript `e` is the receiver of a `.copy()` call, which spells
@@ -8169,6 +8553,11 @@ extension TcProgram {
         if frame && escapes {
             self.refuse_escaping_borrow(site, binding, t, entry >= 0)
         }
+        // A non-escaping closure may capture a non-escaping function value,
+        // which keeps its kind in the body (SL:open-questions D35).
+        if escapes && binding >= 0 && self.nonescaping_bindings[binding] {
+            self.refuse_escape(site, "an escaping closure that captures it")
+        }
         try! self.captures.push(TcCapture(closure: e, binding: binding, ty: t, use: u, site: site,
                                           explicit: entry >= 0))
     }
@@ -8254,16 +8643,20 @@ extension TcProgram {
             return true
         }
         var pt = -1
+        var says = false
         if c.role == TcRole.Value && c.owner >= 0 && self.kind_of(c.owner) == TcKind.Func {
             if found < self.types.ty(c.owner).count {
                 pt = self.types.arg(c.owner, found)
+                says = (self.types.ty(pt).a & TC_EFFECT_ESCAPING) != 0
             }
         } else if c.role == TcRole.Call && c.bind_first >= 0 {
             var j = 0
             while j < c.bind_count {
                 if self.binds[c.bind_first + j] == found {
                     let s = self.sigs[c.target]
-                    pt = self.params[s.param_first + j].ty
+                    let p = self.params[s.param_first + j]
+                    pt = p.ty
+                    says = p.escaping
                 }
                 j = j + 1
             }
@@ -8271,7 +8664,7 @@ extension TcProgram {
         if pt < 0 || self.kind_of(pt) != TcKind.Func {
             return true
         }
-        (self.types.ty(pt).a & TC_EFFECT_ESCAPING) != 0
+        says
     }
 
     // The name a capture's binding is written with.
@@ -8484,6 +8877,18 @@ extension TcProgram {
         try! msg.append("`, which is ")
         try! msg.append(self.tier_word(t))
         try! msg.append(", by value: only a Copy type copies silently; write `move` to take it, `.copy()` for a copy, or borrow it")
+        self.refuse(e, "transfer.implicit-copy", msg.build())
+    }
+
+    // A plain binding of the payload of an optional place an accessor lends,
+    // which copies it (SL:borrowing §2.4).
+    func refuse_lent_copy(&var self, e: Int, t: Int) {
+        var msg = StringBuilder()
+        try! msg.append("this binding copies the payload of a place an accessor lends, of type `")
+        try! msg.append(self.type_text(t))
+        try! msg.append("`, which is ")
+        try! msg.append(self.tier_word(t))
+        try! msg.append(": only a Copy type copies silently; write `borrow let` to bind the payload in place")
         self.refuse(e, "transfer.implicit-copy", msg.build())
     }
 

@@ -108,6 +108,9 @@ public struct TcParam {
     public leaf: Int
     public ty: Int
     public has_default: Bool
+    // Whether the parameter's function type says `escaping`, which its type,
+    // the storage form, does not carry (D35).
+    public escaping: Bool
 }
 
 public enum TcStatusKind {

@@ -1,0 +1,16 @@
+// refuses: borrowing.sigil-place at 12:10
+// a field of an accessor's place behind a sigil, `&var v[0].n`: the path
+// still passes through `[]` (SL:borrowing §9; SL-491)
+
+struct P { n: Int }
+
+func bump(n: &var Int) {
+    n = n + 1
+}
+
+func first(v: &var Vector<P>) {
+    bump(&var v[0].n)
+}
+
+func main() {
+}

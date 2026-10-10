@@ -1,0 +1,21 @@
+// refuses: loan.window-root at 18:15
+// a field, then two subscript hops: the chain charges the field exclusively
+// (SL-490)
+
+struct P { n: Int }
+
+struct Sheet { grid: Vector<Vector<P>>, other: Vector<P> }
+
+extension Sheet: NoCopy {}
+
+func main() {
+    var row = Vector<P>()
+    try! row.push(P(n: 1))
+    var grid = Vector<Vector<P>>()
+    try! grid.push(move row)
+    var s = Sheet(grid: move grid, other: Vector<P>())
+    borrow var c = s.grid[0][0] {
+        c.n = s.grid.len()
+    }
+    print(s.grid.len())
+}

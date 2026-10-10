@@ -1,0 +1,15 @@
+// refuses: borrowing.sigil-place at 14:10
+// `&var v[0]`, the retired sigil on a place `Vector.[]` lends: the argument
+// is spelled `borrow var v[0]` (SL:borrowing §9; SL-491)
+
+struct P { n: Int }
+
+func bump(p: &var P) {
+    p.n = p.n + 1
+}
+
+func main() {
+    var v = Vector<P>()
+    try! v.push(P(n: 1))
+    bump(&var v[0])
+}

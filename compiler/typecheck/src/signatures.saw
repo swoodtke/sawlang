@@ -1031,7 +1031,11 @@ extension TcProgram {
 
     // A function type: its parameter types, its effect words and its return
     // type, which is its last child node.
+    // Only a parameter's function type keeps `escaping`: every other
+    // position, the result included, holds its value past the call, so one
+    // type serves them whatever they spell (SL:open-questions D35).
     func build_func_type(&var self, t: Int) -> Int {
+        let keep = self.keep_escaping
         let last = self.res.last_node_child(t)
         var params = Vector<Int>()
         var effects = 0
@@ -1044,13 +1048,54 @@ extension TcProgram {
                 let word = self.text(m, c)
                 effects = tc_effect_bit(effects, &word)
             } else if c != last {
+                self.keep_escaping = true
                 try! params.push(self.build_type(c))
             }
             k = k + 1
         }
+        self.keep_escaping = false
         let result = if last >= 0 { self.build_type(last) } else { self.error_type }
+        self.keep_escaping = keep
         try! self.func_nodes.push(t)
+        if not keep {
+            effects = effects & ~TC_EFFECT_ESCAPING
+        }
         self.mk_func(&params, result, effects)
+    }
+
+    // A declared parameter's type as written, `escaping` kept: the parameter
+    // records the word (`says_escaping`) and takes the storage form
+    // (`strip_escaping`) as its type (D35).
+    public func build_param_type(&var self, node: Int) -> Int {
+        let keep = self.keep_escaping
+        self.keep_escaping = true
+        let t = self.build_type(node)
+        self.keep_escaping = keep
+        t
+    }
+
+    // Whether `t` is a function type that says `escaping`.
+    public func says_escaping(&self, t: Int) -> Bool {
+        if t < 0 {
+            return false
+        }
+        let info = self.types.ty(t)
+        info.kind == TcKind.Func && (info.a & TC_EFFECT_ESCAPING) != 0
+    }
+
+    // Function type `t` without `escaping`; any other type as it is.
+    public func strip_escaping(&var self, t: Int) -> Int {
+        if not self.says_escaping(t) {
+            return t
+        }
+        let info = self.types.ty(t)
+        var args = Vector<Int>()
+        var k = 0
+        while k < info.count {
+            try! args.push(self.types.arg(t, k))
+            k = k + 1
+        }
+        self.mk_func(&args, info.b, info.a & ~TC_EFFECT_ESCAPING)
     }
 }
 

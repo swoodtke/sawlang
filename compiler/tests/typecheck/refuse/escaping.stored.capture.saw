@@ -1,0 +1,11 @@
+// refuses: escaping.stored at 6:15
+// a non-escaping function parameter captured by an escaping closure, a
+// closure bound to a `let` (D35; SL-480)
+
+func keep(f: () -> Int) -> Int {
+    let g = { f() + 1 }
+    g()
+}
+
+func main() {
+}

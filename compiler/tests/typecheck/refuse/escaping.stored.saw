@@ -1,0 +1,12 @@
+// refuses: escaping.stored at 8:15
+// a non-escaping function parameter stored in a field, which holds it past
+// the call (SL:open-questions D35; SL-480)
+
+struct Holder { f: () -> Int }
+
+func keep(f: () -> Int) -> Holder {
+    Holder(f: f)
+}
+
+func main() {
+}

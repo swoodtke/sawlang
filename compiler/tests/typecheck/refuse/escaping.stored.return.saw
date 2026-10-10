@@ -1,0 +1,9 @@
+// refuses: escaping.stored at 5:12
+// a non-escaping function parameter returned (D35; SL-480)
+
+func hand(f: () -> Int) -> () -> Int {
+    return f
+}
+
+func main() {
+}

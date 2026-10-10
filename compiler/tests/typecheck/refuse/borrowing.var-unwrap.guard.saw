@@ -1,0 +1,28 @@
+// refuses: borrowing.var-unwrap at 19:9
+// `guard var` over a lent optional place (SL:borrowing §2.4; SL-492)
+
+struct P { n: Int }
+
+struct Bag { items: [P; 2] }
+
+extension Bag {
+    func find(&var self, i: Int) borrows -> &var P? {
+        if i < 0 || i > 1 {
+            return None
+        }
+        lend self.items[i]
+    }
+}
+
+func bump(b: &var Bag) -> Int {
+    borrow var e = b.find(0) {
+        guard var x = e else {
+            return 0
+        }
+        x.n = 4
+        x.n
+    }
+}
+
+func main() {
+}

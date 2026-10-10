@@ -1,0 +1,184 @@
+module chains
+
+fn prologue chains.Cell.lock() {
+    loan L0: exclusive (*_1).at[_2];  // ref at 17:9
+
+    bb0: {
+        [] {} _2 = const 0: Int;
+        [] {} _3 = ref(exclusive, (*_1).at[_2]);
+        [] {L0} _0 = move _3;
+        [] {L0} return;
+    }
+}
+
+fn epilogue chains.Cell.lock() {
+
+    bb0: {
+        [] goto -> bb1;
+    }
+
+    bb1: {
+        [] return;
+    }
+}
+
+fn chains.right_side_first(g: &var std.vector.Vector<std.vector.Vector<chains.P, std.alloc.GlobalAllocator>, std.alloc.GlobalAllocator>) {
+    loan L0: shared (*_1);  // argument at 22:29
+    loan L1: exclusive (*_1);  // ref at 22:5
+    loan L2: exclusive (*_1);  // window w0 at 22:5
+    loan L3: exclusive (*_4);  // ref at 22:5
+    loan L4: exclusive (*_4);  // window w1 at 22:5
+
+    bb0: {
+        [] {} _2 = ref(shared, (*_1));
+        [] {L0} _3 = call std.vector.Vector.len() (owner std.vector.Vector<std.vector.Vector<chains.P, std.alloc.GlobalAllocator>, std.alloc.GlobalAllocator>) [move _2] -> [return: bb1];
+    }
+
+    bb1: {
+        [] {} _5 = ref(exclusive, (*_1));
+        [] {L1} _4 = window_open w0 prologue std.vector.Vector.[](index: Int) (owner std.vector.Vector<std.vector.Vector<chains.P, std.alloc.GlobalAllocator>, std.alloc.GlobalAllocator>) [move _5, const 0: Int] -> [present: bb2];
+    }
+
+    bb2: {
+        [] {L1 L2} _7 = ref(exclusive, (*_4));
+        [] {L1 L2 L3} _6 = window_open w1 prologue std.vector.Vector.[](index: Int) (owner std.vector.Vector<chains.P, std.alloc.GlobalAllocator>) [move _7, const 0: Int] -> [present: bb3];
+    }
+
+    bb3: {
+        [] {L1 L2 L3 L4} (*_6).n = Add(copy (*_6).n, move _3);
+        [] {L1 L2 L3 L4} window_close w1 epilogue std.vector.Vector.[](index: Int) (owner std.vector.Vector<chains.P, std.alloc.GlobalAllocator>) -> [return: bb4];
+    }
+
+    bb4: {
+        [] {L1 L2} window_close w0 epilogue std.vector.Vector.[](index: Int) (owner std.vector.Vector<std.vector.Vector<chains.P, std.alloc.GlobalAllocator>, std.alloc.GlobalAllocator>) -> [return: bb5];
+    }
+
+    bb5: {
+        [] {} return;
+    }
+}
+
+fn chains.beside(s: &var chains.Sheet) {
+    loan L0: exclusive (*_1).grid;  // ref at 26:5
+    loan L1: exclusive (*_1).grid;  // window w0 at 26:5
+    loan L2: exclusive (*_2);  // ref at 26:5
+    loan L3: exclusive (*_2);  // window w1 at 26:5
+    loan L4: exclusive (*_4);  // ref at 26:16
+    loan L5: shared (*_1).other;  // argument at 27:15
+
+    bb0: {
+        [] {} _3 = ref(exclusive, (*_1).grid);
+        [] {L0} _2 = window_open w0 prologue std.vector.Vector.[](index: Int) (owner std.vector.Vector<std.vector.Vector<chains.P, std.alloc.GlobalAllocator>, std.alloc.GlobalAllocator>) [move _3, const 0: Int] -> [present: bb1];
+    }
+
+    bb1: {
+        [] {L0 L1} _5 = ref(exclusive, (*_2));
+        [] {L0 L1 L2} _4 = window_open w1 prologue std.vector.Vector.[](index: Int) (owner std.vector.Vector<chains.P, std.alloc.GlobalAllocator>) [move _5, const 0: Int] -> [present: bb2];
+    }
+
+    bb2: {
+        [] {L0 L1 L2 L3} _6 = ref(exclusive, (*_4));
+        [] {L0 L1 L2 L3 L4} _7 = ref(shared, (*_1).other);
+        [] {L0 L1 L2 L3 L4 L5} _8 = call std.vector.Vector.len() (owner std.vector.Vector<chains.P, std.alloc.GlobalAllocator>) [move _7] -> [return: bb3];
+    }
+
+    bb3: {
+        [] {L0 L1 L2 L3 L4} (*_6).n = move _8;
+        [] {L0 L1 L2 L3} window_close w1 epilogue std.vector.Vector.[](index: Int) (owner std.vector.Vector<chains.P, std.alloc.GlobalAllocator>) -> [return: bb4];
+    }
+
+    bb4: {
+        [] {L0 L1} window_close w0 epilogue std.vector.Vector.[](index: Int) (owner std.vector.Vector<std.vector.Vector<chains.P, std.alloc.GlobalAllocator>, std.alloc.GlobalAllocator>) -> [return: bb5];
+    }
+
+    bb5: {
+        [] {} return;
+    }
+}
+
+fn chains.shared_read(g: &std.vector.Vector<std.vector.Vector<chains.P, std.alloc.GlobalAllocator>, std.alloc.GlobalAllocator>) {
+    loan L0: shared (*_1);  // ref at 32:5
+    loan L1: shared (*_1);  // window w0 at 32:5
+    loan L2: shared (*_2);  // ref at 32:5
+    loan L3: shared (*_2);  // window w1 at 32:5
+    loan L4: shared (*_4);  // ref at 32:16
+    loan L5: shared (*_1);  // argument at 33:15
+
+    bb0: {
+        [] {} _3 = ref(shared, (*_1));
+        [] {L0} _2 = window_open w0 prologue std.vector.Vector.[](index: Int) (owner std.vector.Vector<std.vector.Vector<chains.P, std.alloc.GlobalAllocator>, std.alloc.GlobalAllocator>) [move _3, const 0: Int] -> [present: bb1];
+    }
+
+    bb1: {
+        [] {L0 L1} _5 = ref(shared, (*_2));
+        [] {L0 L1 L2} _4 = window_open w1 prologue std.vector.Vector.[](index: Int) (owner std.vector.Vector<chains.P, std.alloc.GlobalAllocator>) [move _5, const 0: Int] -> [present: bb2];
+    }
+
+    bb2: {
+        [] {L0 L1 L2 L3} _6 = ref(shared, (*_4));
+        [] {L0 L1 L2 L3 L4} _7 = copy (*_6).n;
+        [] {L0 L1 L2 L3} _8 = ref(shared, (*_1));
+        [] {L0 L1 L2 L3 L5} _9 = call std.vector.Vector.len() (owner std.vector.Vector<std.vector.Vector<chains.P, std.alloc.GlobalAllocator>, std.alloc.GlobalAllocator>) [move _8] -> [return: bb3];
+    }
+
+    bb3: {
+        [] {L0 L1 L2 L3} _10 = Add(move _7, move _9);
+        [] {L0 L1 L2 L3} _0 = move _10;
+        [] {L0 L1 L2 L3} window_close w1 epilogue std.vector.Vector.[](index: Int) (owner std.vector.Vector<chains.P, std.alloc.GlobalAllocator>) -> [return: bb4];
+    }
+
+    bb4: {
+        [] {L0 L1} window_close w0 epilogue std.vector.Vector.[](index: Int) (owner std.vector.Vector<std.vector.Vector<chains.P, std.alloc.GlobalAllocator>, std.alloc.GlobalAllocator>) -> [return: bb5];
+    }
+
+    bb5: {
+        [] {} return;
+    }
+}
+
+fn chains.after_close(v: &std.vector.Vector<chains.Cell, std.alloc.GlobalAllocator>) {
+    loan L0: shared (*_1);  // ref at 38:13
+    loan L1: exclusive (*_1);  // window w0 at 38:13
+    loan L2: shared (*_3);  // ref at 38:13
+    loan L3: exclusive (*_3);  // window w1 at 38:13
+    loan L4: shared (*_1);  // argument at 39:9
+
+    bb0: {
+        [] {} _4 = ref(shared, (*_1));
+        [] {L0} _3 = window_open w0 prologue std.vector.Vector.[](index: Int) (owner std.vector.Vector<chains.Cell, std.alloc.GlobalAllocator>) [move _4, const 0: Int] -> [present: bb1];
+    }
+
+    bb1: {
+        [] {L0 L1} _6 = ref(shared, (*_3));
+        [] {L0 L1 L2} _5 = window_open w1 prologue chains.Cell.lock() (owner chains.Cell) [move _6] -> [present: bb2];
+    }
+
+    bb2: {
+        [] {L0 L1 L2 L3} _7 = copy (*_5);
+        [] {L0 L1 L2 L3} window_close w1 epilogue chains.Cell.lock() (owner chains.Cell) -> [return: bb3];
+    }
+
+    bb3: {
+        [] {L0 L1} window_close w0 epilogue std.vector.Vector.[](index: Int) (owner std.vector.Vector<chains.Cell, std.alloc.GlobalAllocator>) -> [return: bb4];
+    }
+
+    bb4: {
+        [] {} _2 = move _7;
+        [] {} _8 = copy _2;
+        [] {} _9 = ref(shared, (*_1));
+        [] {L4} _10 = call std.vector.Vector.len() (owner std.vector.Vector<chains.Cell, std.alloc.GlobalAllocator>) [move _9] -> [return: bb5];
+    }
+
+    bb5: {
+        [] {} _11 = Add(move _8, move _10);
+        [] {} _0 = move _11;
+        [] {} return;
+    }
+}
+
+fn chains.main() {
+
+    bb0: {
+        [] return;
+    }
+}

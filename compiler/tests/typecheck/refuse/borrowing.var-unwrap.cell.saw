@@ -1,0 +1,24 @@
+// refuses: borrowing.var-unwrap at 17:12
+// `if var` over the optional place a cell-carrying `&self` accessor lends
+// (SL:borrowing §2.4, §8; SL-492)
+
+struct P { n: Int }
+
+struct Cell { at: UnsafePointer<P> }
+
+extension Cell {
+    func try_lock(&self) unsafe borrows -> &var P? {
+        lend self.at[0]
+    }
+}
+
+func bump(c: &Cell) unsafe {
+    borrow var e = c.try_lock() {
+        if var x = e {
+            x.n = 3
+        }
+    }
+}
+
+func main() {
+}

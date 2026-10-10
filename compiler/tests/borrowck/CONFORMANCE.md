@@ -138,7 +138,7 @@ INDEX.md, or when an owner is not one of the words below.
 | X14 | U6d2 | `loan.window-root`: `compiler/tests/borrowck/refuse/loan.window-root.saw` |
 | X15 | U6d2 | `loan.window-root`: `compiler/tests/borrowck/refuse/loan.window-root.saw`; an argument reading the root of an accessor receiver, `compiler/tests/borrowck/refuse/loan.window-root.receiver-order.saw` (SL-473) |
 | X16 | U6d2 | `loan.window-root`: `compiler/tests/borrowck/refuse/loan.window-root.two-windows.saw` |
-| X17 | U6d2 | accepted: nested windows, `compiler/tests/borrowck/golden/windows.saw` |
+| X17 | U6d2 | accepted: nested windows, `compiler/tests/borrowck/golden/windows.saw`, and the chains `compiler/tests/borrowck/golden/chains.saw` accepts; a written chain charges every hop's root exclusively, so its body reading the root is `loan.window-root`, `compiler/tests/borrowck/refuse/loan.window-root.chain.saw` (SL-490) |
 | X18 | U6d2 | accepted: a `&var` and a window that is not `borrows(sync)` across a suspension, `compiler/tests/borrowck/golden/windows.saw` (then §3.9) |
 | X19 | U6d2 | accepted: a `&var` forwarded three deep, `compiler/tests/borrowck/golden/loans.saw` |
 | X20 | U6d2 | `loan.window-root`: `compiler/tests/borrowck/refuse/loan.window-root.beside-root.saw` |

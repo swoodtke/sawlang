@@ -1,0 +1,28 @@
+// refuses: borrowing.var-unwrap at 21:12
+// `if var` over the optional place a `&var self` conditional lend hands a
+// `borrow var` binding: it would write a copy of the payload, never the place
+// (SL:borrowing §2.4; SL-492)
+
+struct P { n: Int }
+
+struct Bag { items: [P; 2] }
+
+extension Bag {
+    func find(&var self, i: Int) borrows -> &var P? {
+        if i < 0 || i > 1 {
+            return None
+        }
+        lend self.items[i]
+    }
+}
+
+func bump(b: &var Bag) {
+    borrow var e = b.find(0) {
+        if var x = e {
+            x.n = 9
+        }
+    }
+}
+
+func main() {
+}

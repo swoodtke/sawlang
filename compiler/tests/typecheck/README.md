@@ -524,7 +524,7 @@ Every body construct in the slice, and how it is typed:
 | `try`, `try!`, `try?` | the `Ok` type, its error propagating into the body's Result | carried |
 | tuples, repeat, `Map` and `Set` literals | from the slot, or the first element | funnel |
 | a bracket literal | a `Vector` where the slot is one; otherwise a fixed array `[T; N]`, `T` from the slot or the first element and `N` its element count (spec, Composite Types: "with no expected type it is a fixed-size array") | arrays, funnel |
-| a closure | parameters written or from the slot's function type, or, as a generic call's argument, from the parameter type once inference has solved its parameters; result from the slot or its tail | control, closure_inference |
+| a closure | parameters written or from the slot's function type, or, as a generic call's argument, from the parameter type once inference has solved its parameters; result from the slot or its tail; with no slot, from its first `return`, which the later `return`s and the tail must agree with, so a body whose every path returns has what it returns (design 213, SL-476): all-`return`, a `return` beside a tail, `return`s in `if`/`match` arms and a loop, a generic parameter's slot, a bare `return`, a nested closure's `return` kept to it | control, closure_inference, closure_returns; type.mismatch.closure-returns, .closure-returns-fall-off, .closure-returns-tail |
 | a closure's captures: a Copy local named with nothing written, `[move x]`, `[copy x]`, `[&x]`, `[&var x]`, a reference parameter, `self`, `[&self]`, `[&var self]` | copied, moved, or borrowed as the word or the receiver says; a borrow of the frame only in a closure passed straight to a parameter whose function type does not say `escaping` | captures; transfer.implicit-copy.capture, capture.copy, capture.escaping-borrow, capture.exclusive-self |
 | `if`, `match` | the merged branch type, or `Void` as a statement | control, patterns |
 | `while`, `while { }`, `while let`, `for`, `break`, `continue`, `return` | `Void`, or `Never` with no `break` | control, places |
@@ -718,6 +718,7 @@ shared twin, SL-470), and a `[&var x]` capture. Under
 | a `&self` `borrows` body writing through a window on `self`'s inline storage (row M33) | refused | mutability.immutable.shared-accessor-window |
 | a read through a `&var self` accessor with no shared twin, on a `let` root, at each window opener: a subscript, a named accessor, a conditional lend through `!`, a `borrow let` head, a `for` head, a nested window, a method call's receiver; a `&self` accessor forwarding its lend through one (rows K123, K125, K129) | refused | mutability.immutable.exclusive-only-subscript, -accessor, -conditional, -borrow-let, -for-head, -nested, -receiver, -forwarded-lend |
 | reads through a `&var self` accessor on a `var` and through a `&var` parameter; on a `let` root, through a `@synthesize(shared)` twin or a hand-written `&self` overload (rows K123, K127, K128) | allowed | exclusive_only |
+| a chain of hops settles from its use outward: a write through the last hop borrows every earlier hop's receiver exclusively and picks the exclusive accessor over its twin, at a subscript and a named accessor; a read leaves each hop shared (SL-490) | allowed | chain_settle |
 | a `var` parameter | none: the grammar has no `var` parameter | |
 | an interior cell's `&self` method on a `let` (`Atomic`, `Mutex`, `SpinLock`) | allowed: a `&self` method borrows shared, so no row reaches the funnel; the cells' constructions are `slice.not-yet` | |
 
@@ -780,6 +781,9 @@ the walk meets a `move` (`check_whole_move`):
 | `move` of a payload binding where the scrutinee is a name reading through a borrow: a `borrow let`, a `borrow var`, an `if borrow let` unwrap binding, a payload binding matched again, a `[&s]` capture (SL-478) | refused | transfer.move-from-borrow.borrow-let, .borrow-var, .borrow-unwrap, .borrow-payload, .borrow-capture |
 | `move` of a `borrow let` binding itself, and of a `[&s]` capture (row V69) | refused | transfer.move-from-borrow.borrow-binding |
 | a `match` on such a name reading its payloads in place, a Copy payload copied out | allowed | borrowed_scrutinees |
+| a plain binding of a lent optional place's payload, the place a `borrow` binding or a field of one: `if let`, `guard let`, `while let`, `case Some(x)`, over a `&self`, a `&var self` and a cell-carrying conditional lend, a NoCopy payload (SL:borrowing §2.4, SL-492) | refused, the hint naming `borrow let` | transfer.implicit-copy.lent-if, .lent-guard, .lent-while, .lent-match |
+| a `var` binding of a lent optional place's payload: `if var` over each of the three lends, `guard var`, `while var`, a lent place's optional field (SL-492) | refused | borrowing.var-unwrap, .shared, .cell, .guard, .while, .field |
+| the same heads copying a Copy payload; `borrow let|var` binding it in place; `_` testing presence; a conditional lend called without `borrow`, whose payload is copied out, so `if var` writes the copy (SL-492) | allowed | lent_unwrap |
 | a whole binding, `move o!`, `move self.f` in a `consumes` body, `move buf[i]` through a raw pointer | allowed | field_moves |
 
 **Relocation** (design 188: a `NoMove` value moves once, into its home).
@@ -824,8 +828,9 @@ subscript is a getitem wherever it is read). Settled once places are
 (`check_plain_subscript_reads`), over every accessor subscript whose use
 borrows or projects without writing and whose projection does not end in a
 position that lends (`lends_in_place`: the `borrow` forms, `lend`, a `for`
-head, a sigiled `&`). Under `transfer.implicit-copy`, `g.` abbreviating
-`refuse/transfer.implicit-copy.getitem-`:
+head). A sigil on an accessor's place lends nothing: it is refused itself, by
+`borrowing.sigil-place` (below). Under `transfer.implicit-copy`, `g.`
+abbreviating `refuse/transfer.implicit-copy.getitem-`:
 
 | position | verdict | covered by |
 |---|---|---|
@@ -836,6 +841,42 @@ head, a sigiled `&`). Under `transfer.implicit-copy`, `g.` abbreviating
 | a `match` whose arm binds a payload | refused | g.scrutinee |
 | an element of a type parameter's type, hopped off in a generic body | design 219's inferred requirement, refused at a NoCopy call | copy.requirement.getitem-hop |
 | each position spelled `borrow`; `.copy()` on an ExplicitCopy element; Copy-tier elements plain; a `match` binding nothing; a generic at a Copy type | allowed | plain_subscript_reads |
+
+**Sigils on an accessor's place** (SL:borrowing §2.2, §9: `bump(&var g[4])`
+becomes `bump(borrow var g[4])`). `ref_expr` follows the operand's fields,
+tuple elements, payloads and builtin elements down (`sigil_accessor`), and a
+`borrows` call there is `borrowing.sigil-place`, `s.` abbreviating
+`refuse/borrowing.sigil-place`:
+
+| position | verdict | covered by |
+|---|---|---|
+| `&var v[0]`, `&v[0]` as a function's argument | refused, the fix-it `borrow var` / `borrow` | s, s.shared |
+| a field of the place, `&var v[0].n`; a chained subscript, `&var g[0][1]`; a named accessor, `&var bag.at(0)` | refused | s.field, s.chain, s.named |
+| a method call's argument, `t.absorb(&var v[0])` | refused | s.method-argument |
+| a local, a field path, a fixed array's element, a raw pointer's element (`(&buf[i]) as UnsafePointer<T>`) | allowed | sigil_places |
+
+**Escaping function values** (SL:open-questions D35). A function type in a
+storage position is escaping whatever it spells: only a parameter's keeps the
+word, recorded on the parameter (`TcParam.escaping`) while its type takes the
+storage form (`build_param_type`, `strip_escaping`), so one type serves every
+storage position. A non-escaping value, a parameter whose function type does
+not say `escaping` or a local bound to one (`nonescaping_bindings`), is judged
+where it lands (`check_escape`, `check_escaping_argument`, `check_assign`,
+`add_capture`), under `escaping.stored`, `e.` abbreviating
+`refuse/escaping.stored`:
+
+| position | non-escaping value | escaping value |
+|---|---|---|
+| a struct field, in a construction and in an assignment | refused: e, e.assign | allowed: escaping_values (written plain and spelled `escaping`) |
+| an enum payload | refused: e.payload | allowed: escaping_values |
+| a `Vector` element, through `push`'s type parameter | refused: e.element | allowed: escaping_values |
+| an Optional | refused: e.optional | allowed: escaping_values |
+| a static | none reaches it: a static's initializer is a constant, and an `unsafe static var` holds only trivially destructible values | |
+| a capture into an escaping closure | refused: e.capture | allowed: escaping_values |
+| a return | refused: e.return | allowed: escaping_values |
+| a type argument, inferred or written, `id(f)`, `id<() -> Int>(f)` | refused: e.generic-inferred, e.generic-written | allowed |
+| an `escaping` parameter | refused: e.escaping-parameter | allowed |
+| a call; a parameter that does not escape; a local `let g = f`, which keeps the kind (e.bound refuses storing `g`); a capture into a closure that does not escape, where the kind holds (e.inner refuses storing it there) | allowed: escaping_values | allowed: escaping_values (a lend) |
 
 **Declared bounds** (design 219: a generic's signature covers its body's
 inferred Copy requirement where it publishes or declares one), under
@@ -979,6 +1020,9 @@ says what the fixture shows.
 | `operator.undefined` | an operator over a type it is not defined for |
 | `static.optional` | a static whose own type is an optional; an `unsafe static var` is exempt (spec, Module-level statics: "Never optional") |
 | `borrowing.containment` | a borrowing struct (spec, Borrowing structs) bound outside the head of a `borrow` or a `for`, taken as a parameter by value, stored in a field or a payload, erased to an existential, returned by a function that does not lend it with `borrows`, or carried by a function type |
+| `escaping.stored` | a non-escaping function value (a parameter whose function type does not say `escaping`, or a local bound to one) in a position that holds it past the call: a field, a payload, an element, an Optional, a return, an assignment's target, an escaping closure's capture, a type argument, an `escaping` parameter (D35) |
+| `borrowing.sigil-place` | `&` or `&var` on a place reached through a `borrows` call, a subscript accessor or a named one, at any depth of fields, tuple elements and payloads: the place is passed with `borrow` (SL:borrowing §9) |
+| `borrowing.var-unwrap` | an `if var`, `guard var` or `while var` binding of the payload of an optional place a `borrow` binding names, or of an optional field of one: it would write a copy, never the place (SL:borrowing §2.4) |
 | `borrows.result` | a `borrows` function whose result is no place, slice, optional of either or borrowing struct (the accessor-signature reader's `other`) |
 | `borrows.sync-window` | a call that may suspend, for some type argument, in the block of a `borrow` or a `for` whose head calls a `borrows(sync)` accessor (SL:borrowing §2.5) |
 | `consumes.move` | a bare call of a `consumes` method on a place, at every Copy tier: the call spells `(move x).m()`, and a temporary receiver needs no `move` (spec, `consumes`) |

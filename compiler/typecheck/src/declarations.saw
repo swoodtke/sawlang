@@ -178,7 +178,7 @@ extension TcProgram {
                 let name = self.res.intern(text)
                 let inner = self.res.last_node_child(c)
                 let t = self.build_type(inner)
-                try! self.params.push(TcParam(name: name, leaf: leaf, ty: t, has_default: false))
+                try! self.params.push(TcParam(name: name, leaf: leaf, ty: t, has_default: false, escaping: false))
             }
             k = k + 1
         }
@@ -282,9 +282,11 @@ extension TcProgram {
                 let text = self.text(m, leaf)
                 let name = self.res.intern(text)
                 let type_node = self.res.first_node_child(c)
-                let t = self.build_type(type_node)
+                let written = self.build_param_type(type_node)
+                let escaping = self.says_escaping(written)
+                let t = self.strip_escaping(written)
                 let has_default = self.has_alt(c, Alt.Decl_Param_Default)
-                try! self.params.push(TcParam(name: name, leaf: leaf, ty: t, has_default: has_default))
+                try! self.params.push(TcParam(name: name, leaf: leaf, ty: t, has_default: has_default, escaping: escaping))
             } else if res_is_type_alt(self.node_alt(c)) {
                 result = self.build_type(c)
                 flags = flags | TC_FLAG_WRITTEN_RETURN
@@ -467,7 +469,7 @@ extension TcProgram {
                 let name = self.res.intern(text)
                 let type_node = self.res.last_node_child(c)
                 let t = self.build_type(type_node)
-                try! self.params.push(TcParam(name: name, leaf: leaf, ty: t, has_default: false))
+                try! self.params.push(TcParam(name: name, leaf: leaf, ty: t, has_default: false, escaping: false))
             } else if res_is_type_alt(self.node_alt(c)) {
                 result = self.build_type(c)
                 flags = flags | TC_FLAG_WRITTEN_RETURN

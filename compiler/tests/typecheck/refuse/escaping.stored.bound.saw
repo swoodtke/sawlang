@@ -1,0 +1,13 @@
+// refuses: escaping.stored at 9:15
+// `let g = f` keeps a non-escaping `f`'s kind, so storing `g` is refused as
+// storing `f` is (D35; SL-480)
+
+struct Holder { f: () -> Int }
+
+func keep(f: () -> Int) -> Holder {
+    let g = f
+    Holder(f: g)
+}
+
+func main() {
+}

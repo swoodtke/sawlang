@@ -1,0 +1,43 @@
+// A chain of accessor hops settles from its use outward: a write through the
+// last hop makes every hop before it borrow its receiver exclusively and pick
+// the exclusive accessor over its shared twin, and a read leaves each hop
+// shared (SL:borrowing §2.2, §4; SL-490).
+
+struct Row {
+    cells: [Int; 2]
+}
+
+extension Row {
+    @synthesize(shared)
+    func [](&var self, i: Int) borrows -> &var Int {
+        lend self.cells[i]
+    }
+}
+
+struct Table {
+    rows: [Row; 2]
+}
+
+extension Table {
+    @synthesize(shared)
+    func [](&var self, i: Int) borrows -> &var Row {
+        lend self.rows[i]
+    }
+
+    @synthesize(shared)
+    func row(&var self, i: Int) borrows -> &var Row {
+        lend self.rows[i]
+    }
+}
+
+func write(t: &var Table) {
+    borrow var t[0][1] += 1
+    borrow var t.row(1)[0] = 2
+}
+
+func read(t: &Table) -> Int {
+    borrow t[0][1] + borrow t.row(1)[0]
+}
+
+func main() {
+}

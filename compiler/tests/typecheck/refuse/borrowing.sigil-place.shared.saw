@@ -1,0 +1,16 @@
+// refuses: borrowing.sigil-place at 12:10
+// `&v[0]`, the shared sigil on an accessor's place: `borrow v[0]` (SL:borrowing
+// §9; SL-491)
+
+struct P { n: Int }
+
+func read(p: &P) -> Int {
+    p.n
+}
+
+func first(v: &Vector<P>) -> Int {
+    read(&v[0])
+}
+
+func main() {
+}

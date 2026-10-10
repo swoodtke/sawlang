@@ -107,7 +107,7 @@
       (43:9-43:35 BorrowPlace.var Int place update)
       (43:20-43:35 Subscript.single Int place project (place std.vector.Vector.[](index: Int) (owner std.vector.Vector<Int, std.alloc.GlobalAllocator>)))
       (43:20-43:32 Subscript.single std.vector.Vector<Int, std.alloc.GlobalAllocator> (borrow-var &var std.vector.Vector<Int, std.alloc.GlobalAllocator>) place borrow-var (place std.vector.Vector.[](index: Int) (owner std.vector.Vector<std.vector.Vector<Int, std.alloc.GlobalAllocator>, std.alloc.GlobalAllocator>)))
-      (43:20-43:29 Member std.vector.Vector<std.vector.Vector<Int, std.alloc.GlobalAllocator>, std.alloc.GlobalAllocator> (borrow &std.vector.Vector<std.vector.Vector<Int, std.alloc.GlobalAllocator>, std.alloc.GlobalAllocator>) place borrow)
+      (43:20-43:29 Member std.vector.Vector<std.vector.Vector<Int, std.alloc.GlobalAllocator>, std.alloc.GlobalAllocator> (borrow-var &var std.vector.Vector<std.vector.Vector<Int, std.alloc.GlobalAllocator>, std.alloc.GlobalAllocator>) place borrow-var)
       (43:20-43:24 SelfExpr mutability.Rows place project)
       (43:30-43:31 IntLit Int value temp)
       (43:33-43:34 IntLit Int value temp)

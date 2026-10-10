@@ -1,0 +1,29 @@
+// Where a sigil still passes a place (SL:borrowing §2.2, §9; SL-491): a local,
+// a field path, a fixed array's element, a raw pointer's element. A place an
+// accessor lends is passed with `borrow` instead.
+
+struct P { n: Int }
+
+struct Pair { a: P, b: P }
+
+func bump(p: &var P) {
+    p.n = p.n + 1
+}
+
+func read(p: &P) -> Int {
+    p.n
+}
+
+func places(arr: &var [P; 2], pair: &var Pair, v: &var Vector<P>) -> Int {
+    bump(&var arr[0])
+    bump(&var pair.a)
+    bump(borrow var v[0])
+    read(&arr[1]) + read(&pair.b) + read(borrow v[0])
+}
+
+func address(buf: UnsafePointer<P>) unsafe -> UnsafePointer<P> {
+    (&buf[1]) as UnsafePointer<P>
+}
+
+func main() {
+}

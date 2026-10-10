@@ -14,7 +14,7 @@
     (func optionals 26:6 private (signature (params (a Int? owned) (b types.Point?? owned) (c &Int? shared) (d &var types.Point? exclusive)) -> types.Shape?) (summary body (suspends no) (sync-callable yes)))
     (func references 30:6 private (signature (params (a &types.Point shared) (b &var types.Point exclusive) (c &[UInt8] shared) (d &var [UInt8] exclusive)) -> Int) (summary body (suspends no) (sync-callable yes)))
     (func tuples 34:6 private (signature (params (a () owned) (b (Int, String) owned) (c (Int,) owned) (d (x: Int, y: Int) owned)) -> (types.Point, types.Shape)) (summary body (suspends no) (sync-callable yes)))
-    (func functions 38:6 private (signature (params (f (Int, Int) sync -> Bool owned) (g () -> Void owned) (h (&var types.Point) escaping -> Int owned)) -> ((Int) -> Int)?) (summary body (suspends no) (sync-callable yes)))
+    (func functions 38:6 private (signature (params (f (Int, Int) sync -> Bool owned) (g () -> Void owned) (h (&var types.Point) -> Int owned escaping)) -> ((Int) -> Int)?) (summary body (suspends no) (sync-callable yes)))
     (func existentials 42:6 private (signature (params (a &any types.Named shared) (b &var any types.Named exclusive)) -> Bool) (summary body (suspends no) (sync-callable yes)))
     (func no_result 46:6 private (signature (params (p types.Point owned)) -> Void) (summary body (suspends no) (sync-callable yes))))
   (members

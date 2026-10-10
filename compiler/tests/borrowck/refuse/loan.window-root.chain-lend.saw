@@ -1,0 +1,25 @@
+// refuses: loan.window-root at 14:27
+// a forwarded `lend` through two hops: the inner index runs inside the outer
+// hop's window, which a `-> &var` lend makes exclusive (SL:borrowing §2.7;
+// SL-490)
+
+struct P { n: Int }
+
+struct Grid { rows: Vector<Vector<P>> }
+
+extension Grid: NoCopy {}
+
+extension Grid {
+    func last(&var self) borrows -> &var P {
+        lend self.rows[0][self.rows.len() - 1]
+    }
+}
+
+func main() {
+    var row = Vector<P>()
+    try! row.push(P(n: 1))
+    var rows = Vector<Vector<P>>()
+    try! rows.push(move row)
+    var grid = Grid(rows: move rows)
+    borrow var grid.last().n += 1
+}

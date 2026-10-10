@@ -1,0 +1,14 @@
+// refuses: escaping.stored at 9:27
+// a non-escaping function parameter for a written type argument (D35; SL-480)
+
+func id<T>(x: T) -> T {
+    x
+}
+
+func pass(f: () -> Int) -> Int {
+    let _ = id<() -> Int>(f)
+    0
+}
+
+func main() {
+}

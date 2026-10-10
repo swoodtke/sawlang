@@ -1,0 +1,12 @@
+// refuses: type.mismatch at 6:13
+// a closure whose `return` gives a value and whose body can end without one
+// (design 213; SL-476)
+
+func main() {
+    let f = { x: Int in
+        if x > 0 {
+            return 1
+        }
+        print(x)
+    }
+}

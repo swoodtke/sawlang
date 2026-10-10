@@ -75,8 +75,8 @@ fn epilogue windows.Row.find(i: Int) {
 }
 
 fn windows.nested(b: &var std.vector.Vector<std.vector.Vector<windows.Cell, std.alloc.GlobalAllocator>, std.alloc.GlobalAllocator>) {
-    loan L0: shared (*_1);  // ref at 31:5
-    loan L1: shared (*_1);  // window w0 at 31:5
+    loan L0: exclusive (*_1);  // ref at 31:5
+    loan L1: exclusive (*_1);  // window w0 at 31:5
     loan L2: exclusive (*_2);  // ref at 31:5
     loan L3: exclusive (*_2);  // window w1 at 31:5
     loan L4: shared (*_1);  // ref at 32:5
@@ -85,7 +85,7 @@ fn windows.nested(b: &var std.vector.Vector<std.vector.Vector<windows.Cell, std.
     loan L7: shared (*_6);  // window w3 at 32:5
 
     bb0: {
-        [] {} _3 = ref(shared, (*_1));
+        [] {} _3 = ref(exclusive, (*_1));
         [] {L0} _2 = window_open w0 prologue std.vector.Vector.[](index: Int) (owner std.vector.Vector<std.vector.Vector<windows.Cell, std.alloc.GlobalAllocator>, std.alloc.GlobalAllocator>) [move _3, const 0: Int] -> [present: bb1];
     }
 

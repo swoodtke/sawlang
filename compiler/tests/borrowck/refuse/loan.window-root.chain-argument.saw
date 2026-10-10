@@ -1,0 +1,21 @@
+// refuses: loan.window-root at 19:33
+// the statement form: a method argument runs inside the chain's windows,
+// after both prologues, so it may not read the root the chain holds
+// exclusively (SL:borrowing §2.2; SL-490)
+
+struct P { n: Int }
+
+extension P {
+    func bump(&var self, by: Int) {
+        self.n = self.n + by
+    }
+}
+
+func main() {
+    var g = Vector<Vector<P>>()
+    var row = Vector<P>()
+    try! row.push(P(n: 1))
+    try! g.push(move row)
+    borrow var g[0][0].bump(by: g.len())
+    print(g.len())
+}

@@ -128,7 +128,10 @@ dump are its clients.
   receiver argument was made by: exclusive when the use site borrowed
   exclusively, or when the accessor takes `&var self` or lends `&var T` and
   declares no shared twin (`@synthesize(shared)`), shared otherwise
-  (SL:borrowing §3). Stage 0's std predates declared modes, so each of its
+  (SL:borrowing §3). A window whose receiver is reached through another
+  window's lent place is a later hop of one chain, and an exclusive one
+  makes the hop it is nested in exclusive too, transitively (§2.2). Stage
+  0's std predates declared modes, so each of its
   accessors serves both from one declaration, the use site choosing. A
   closure that copies a reference into its environment makes a loan on the
   referent. A `ref` of an accessor's state record makes none.
@@ -171,7 +174,7 @@ dump are its clients.
 | `loan.exclusive-twice` | a write or an exclusive borrow of a place overlapping a live exclusive loan | `loan.exclusive-twice`, `.dynamic-index` |
 | `loan.move-while-borrowed` | a move of a place overlapping a live loan, a take included | `loan.move-while-borrowed`, `.take` |
 | `loan.drop-while-borrowed` | a drop, at a scope's end or before an assignment, of a place overlapping a live loan | `loan.drop-while-borrowed` |
-| `loan.window-root` | any access but a move or a drop that conflicts with a live window's loan on its whole root | `loan.window-root`, `.receiver-order`, `.two-windows`, `.beside-root`, `.forced` |
+| `loan.window-root` | any access but a move or a drop that conflicts with a live window's loan on its whole root | `loan.window-root`, `.receiver-order`, `.two-windows`, `.beside-root`, `.forced`; a chain of hops, each exclusive under an exclusive one: `.chain` (block), `.chain-argument` (statement), `.chain-field`, `.chain-member`, `.chain-method`, `.chain-lend`, `.chain-cell`, and `.chain-for` (due) |
 | `loan.closure-carrier` | any access but a move or a drop that conflicts with a loan a live closure carries | `loan.closure-carrier` |
 | `loan.nested-call` | in a call's access set (spec, Nested calls), two written references overlapping, one exclusive and one inside a nested call, or a written `&var` inside a nested call overlapping the receiver of a call it is nested in, a shared reservation for the whole call | `loan.nested-call`, `.receiver`, `.sibling` |
 | `loan.sync-suspend` | a suspension point, a call that may suspend or a yield-capable budget point, while a `borrows(sync)` window is open; typecheck's `borrows.sync-window` refuses the block form first | `loan.sync-suspend` |
@@ -341,6 +344,7 @@ information.
 | field, tuple-element and constant-index disjointness; two shared borrows of one place | loans |
 | a loan rooted in an `unsafe static var`, checked within the function | loans |
 | nested windows, last opened first | windows |
+| chains: an assignment's right side before the target's hops, a field beside the chain's, a read-only chain, a cell accessor's root after its window | chains |
 | a conditional lend's absent edge carrying no loan | windows |
 | a window's loan ending at its close | windows |
 | a reference, and a window not `borrows(sync)`, spanning a suspension | windows |

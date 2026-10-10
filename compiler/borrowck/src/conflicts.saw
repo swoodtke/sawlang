@@ -126,7 +126,7 @@ extension BorrowckProgram {
         if path.count < 0 {
             return
         }
-        let kind = if self.window_charges_exclusively(f, c.window) {
+        let kind = if facts.window_exclusive[c.window] {
             BorrowckAccessKind.Exclusive
         } else {
             BorrowckAccessKind.Shared

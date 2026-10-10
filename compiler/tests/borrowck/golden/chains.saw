@@ -1,0 +1,43 @@
+// Chains of accessor hops the loan half accepts (SL-490): every hop of a
+// written chain is exclusive, an assignment's right side runs before the
+// target's windows open, a field beside the chain's is disjoint, a read-only
+// chain stays shared, and a cell accessor's root is free once its window
+// closes.
+
+struct P { n: Int }
+
+struct Sheet { grid: Vector<Vector<P>>, other: Vector<P> }
+
+extension Sheet: NoCopy {}
+
+struct Cell { at: UnsafePointer<Int> }
+
+extension Cell {
+    func lock(&self) unsafe borrows -> &var Int {
+        lend self.at[0]
+    }
+}
+
+func right_side_first(g: &var Vector<Vector<P>>) {
+    borrow var g[0][0].n += g.len()
+}
+
+func beside(s: &var Sheet) {
+    borrow var c = s.grid[0][0] {
+        c.n = s.other.len()
+    }
+}
+
+func shared_read(g: &Vector<Vector<P>>) -> Int {
+    borrow let c = g[0][0] {
+        c.n + g.len()
+    }
+}
+
+func after_close(v: &Vector<Cell>) unsafe -> Int {
+    let a = borrow v[0].lock()
+    a + v.len()
+}
+
+func main() {
+}

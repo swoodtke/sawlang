@@ -1,0 +1,34 @@
+// refuses: transfer.implicit-copy at 25:16
+// a plain `if let` over the optional place a `&var self` conditional lend
+// hands a `borrow var` binding copies the payload, so a NoCopy payload is
+// refused with a hint naming `borrow let` (SL:borrowing §2.4; SL-492)
+
+struct Res { n: Int }
+
+extension Res: NoCopy {}
+
+struct Bag { held: [Res; 2] }
+
+extension Bag: NoCopy {}
+
+extension Bag {
+    func find(&var self, i: Int) borrows -> &var Res? {
+        if i < 0 || i > 1 {
+            return None
+        }
+        lend self.held[i]
+    }
+}
+
+func look(b: &var Bag) -> Int {
+    borrow var e = b.find(0) {
+        if let x = e {
+            x.n
+        } else {
+            0
+        }
+    }
+}
+
+func main() {
+}

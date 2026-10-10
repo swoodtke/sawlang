@@ -1,0 +1,13 @@
+// refuses: escaping.stored at 9:11
+// a non-escaping function parameter passed to an `escaping` one (D35; SL-480)
+
+func store(f: () escaping -> Int) -> Int {
+    f()
+}
+
+func pass(f: () -> Int) -> Int {
+    store(f)
+}
+
+func main() {
+}

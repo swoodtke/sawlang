@@ -1,0 +1,78 @@
+// A closure with no expected result takes it from its `return`s (design 213,
+// SL-476): a body whose every path returns has what it returns, a `return`
+// beside a tail agrees with it, `return`s in arms and loops count, a generic
+// parameter's slot infers from one, a bare `return` gives `Void`, and a nested
+// closure's `return` stays its own.
+
+func run<T>(f: () -> T) -> T {
+    f()
+}
+
+func all_return() -> Int {
+    let f = { return 5 }
+    f()
+}
+
+func mixed(flag: Bool) -> Int {
+    let f = { x: Int in
+        if x > 0 {
+            return x
+        }
+        x + 1
+    }
+    f(3)
+}
+
+func arms(k: Int) -> Int {
+    let f = { x: Int in
+        match x {
+            case 0 -> {
+                return 10
+            },
+            case _ -> {
+                return 20
+            }
+        }
+    }
+    f(k)
+}
+
+func loop_return() -> Int {
+    let f = { n: Int in
+        var i = 0
+        while i < n {
+            if i == 3 {
+                return i
+            }
+            i = i + 1
+        }
+        return -1
+    }
+    f(5)
+}
+
+func generic_param() -> Int {
+    run({ return 7 })
+}
+
+func no_value() {
+    let f = { x: Int in
+        if x > 0 {
+            return
+        }
+        print(x)
+    }
+    f(1)
+}
+
+func nested() -> String {
+    let f = {
+        let g = { return 3 }
+        let n = g()
+        return "{n}"
+    }
+    f()
+}
+
+func main() {
+}

@@ -39,7 +39,7 @@ func exclusive(g: &var Grid) -> Int {
     if borrow var r = g.slot() {
         r += 1
     }
-    inc(&var g.slot()!)
+    inc(borrow var g.slot()!)
     g.reads
 }
 

@@ -1,0 +1,16 @@
+// refuses: escaping.stored at 11:16
+// a non-escaping function parameter instantiating an inferred type argument:
+// a generic holds its type argument as storage, so the call is refused even
+// though nothing keeps the result (D35; SL-480)
+
+func id<T>(x: T) -> T {
+    x
+}
+
+func pass(f: () -> Int) -> Int {
+    let _ = id(f)
+    0
+}
+
+func main() {
+}

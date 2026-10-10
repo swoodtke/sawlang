@@ -1,0 +1,12 @@
+// refuses: type.mismatch at 10:16
+// with no expected result, a closure's `return`s are checked against the
+// first one (design 213; SL-476)
+
+func main() {
+    let f = { x: Int in
+        if x > 0 {
+            return 1
+        }
+        return "no"
+    }
+}

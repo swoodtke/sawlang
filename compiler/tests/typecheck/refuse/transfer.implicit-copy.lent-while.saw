@@ -1,0 +1,27 @@
+// refuses: transfer.implicit-copy at 19:19
+// a plain `while let` over the optional place a cell-carrying `&self`
+// accessor lends copies the payload (SL:borrowing §2.4; SL-492)
+
+struct Res { n: Int }
+
+extension Res: NoCopy {}
+
+struct Cell { at: UnsafePointer<Res> }
+
+extension Cell {
+    func try_lock(&self) unsafe borrows -> &var Res? {
+        lend self.at[0]
+    }
+}
+
+func look(c: &Cell) unsafe -> Int {
+    borrow var e = c.try_lock() {
+        while let x = e {
+            return x.n
+        }
+        0
+    }
+}
+
+func main() {
+}

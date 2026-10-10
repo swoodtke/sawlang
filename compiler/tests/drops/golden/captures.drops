@@ -18,9 +18,9 @@ fn captures.run(body: () -> Int) -> Int {
     glue () -> Int: closure environment
 }
 
-fn captures.later(body: () escaping -> Int) -> Int {
+fn captures.later(body: () -> Int) -> Int {
     let _0: Int;  // return
-    let _1: () escaping -> Int;  // param body
+    let _1: () -> Int;  // param body
     let _2: Int;
 
     bb0: {
@@ -33,7 +33,7 @@ fn captures.later(body: () escaping -> Int) -> Int {
         return;
     }
 
-    glue () escaping -> Int: closure environment
+    glue () -> Int: closure environment
 }
 
 fn captures.readonly() -> Int {
@@ -408,14 +408,14 @@ fn captures.passed_move() -> Int {
     let _0: Int;  // return
     let _1: captures.Res;  // r
     let _2: captures.Res;
-    let _3: () escaping -> Int;
+    let _3: () -> Int;
     let _4: Int;
 
     bb0: {
         _2 = captures.Res { name: const "abc": String };
         _1 = move _2;
         _3 = closure#0 of captures.passed_move() [move _1];
-        _4 = call captures.later(body: () escaping -> Int) [move _3] -> [return: bb1];
+        _4 = call captures.later(body: () -> Int) [move _3] -> [return: bb1];
     }
 
     bb1: {

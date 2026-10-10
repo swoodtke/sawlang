@@ -1,0 +1,74 @@
+// A function value's escaping-ness (SL:open-questions D35; SL-480). A
+// function type in a storage position is escaping whatever it spells, so an
+// `escaping` parameter is stored in a field, a payload, a `Vector` element, an
+// Optional, a return and an escaping closure's capture, and lends to a
+// parameter that does not escape. A non-escaping one is called, passed to a
+// parameter that does not escape, bound to a local that keeps its kind, and
+// captured by a closure that does not escape.
+
+struct Holder { f: () -> Int }
+
+struct Spelled { f: () escaping -> Int }
+
+enum Slot { case Holds(f: () -> Int), case Empty }
+
+func run(f: () -> Int) -> Int {
+    f()
+}
+
+func field(f: () escaping -> Int) -> Int {
+    let h = Holder(f: f)
+    let s = Spelled(f: f)
+    0
+}
+
+func payload(f: () escaping -> Int) -> Int {
+    let e = Slot.Holds(f: f)
+    0
+}
+
+func element(f: () escaping -> Int) -> Int {
+    var v = Vector<() -> Int>()
+    try! v.push(f)
+    v.len()
+}
+
+func optional(f: () escaping -> Int) -> Int {
+    let o: (() -> Int)? = f
+    0
+}
+
+func captured(f: () escaping -> Int) -> Int {
+    let g = { f() + 1 }
+    g()
+}
+
+func returned(f: () escaping -> Int) -> () -> Int {
+    return f
+}
+
+func lends(f: () escaping -> Int) -> Int {
+    run(f)
+}
+
+func called(f: () -> Int) -> Int {
+    f() + run(f)
+}
+
+func bound(f: () -> Int) -> Int {
+    let g = f
+    run({ g() })
+}
+
+func inner_capture(f: () -> Int) -> Int {
+    run({ f() + 1 })
+}
+
+func visited(f: (Int) -> Int, v: &Vector<Int>) -> Int {
+    var total = 0
+    v.each({ [&var total] e in total = total + f(e) })
+    total
+}
+
+func main() {
+}

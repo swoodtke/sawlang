@@ -105,6 +105,10 @@ public struct TcProgram {
     public obligations: Vector<TcObligation>
     // Every function-type node of a signature, for the unsafe check.
     public func_nodes: Vector<Int>
+    // Whether the type being built is a parameter's, whose `escaping` the
+    // function type keeps; anywhere else a function type holds its value past
+    // the call, so it is escaping whether or not it says so (D35).
+    public keep_escaping: Bool
     public diags: Vector<TcDiag>
     public known: TcKnown
     // The module and declaration being built, and what `Self` and the
@@ -153,6 +157,12 @@ public struct TcProgram {
     // Whether the pattern binding a leaf declares aliases a part of a
     // borrowed scrutinee, which it may not move out.
     public aliasing_bindings: Vector<Bool>
+    // Whether a leaf declares a `borrow let|var` binding, which names a place
+    // an accessor lends.
+    public lent_bindings: Vector<Bool>
+    // Whether a leaf declares a non-escaping function value: a parameter
+    // whose function type does not say `escaping`, or a local bound to one.
+    public nonescaping_bindings: Vector<Bool>
     // Resolve's call record for a call node, or -1.
     public res_call_at: Vector<Int>
     // The roots of every body checked, and the declaration each belongs to.
@@ -164,6 +174,9 @@ public struct TcProgram {
     // loops around the position: each open loop's count of `break`s.
     public body_result: Int
     public loop_breaks: Vector<Int>
+    // Whether the closure being checked has no expected result, so its first
+    // `return` gives `body_result` and the later ones are checked against it.
+    public result_open: Bool
     // What the funnel position a value branch stands in allows, which its
     // arms inherit.
     public branch_allow: TcAllowance
@@ -277,7 +290,7 @@ public func tc_program(res: ResProgram) -> TcProgram {
                       conformances: Vector<TcConformance>(), statuses: Vector<TcStatus>(),
                       members: Vector<TcMember>(), member_first: move firsts,
                       member_count: move counts, tiers: Vector<TcTier>(),
-                      obligations: Vector<TcObligation>(), func_nodes: Vector<Int>(),
+                      obligations: Vector<TcObligation>(), func_nodes: Vector<Int>(), keep_escaping: false,
                       diags: Vector<TcDiag>(), known: known, current: -1, current_decl: -1,
                       current_trait: -1, current_ext: -1, current_self: -1, error_type: -1,
                       satisfy_depth: 0, skipped: Vector<Int>(), string_positions: Vector<Int>(),
@@ -287,10 +300,10 @@ public func tc_program(res: ResProgram) -> TcProgram {
                       adj_tail: Vector<Int>(), adjusts: Vector<TcAdjust>(),
                       call_at: Vector<Int>(), calls: Vector<TcCall>(), insts: Vector<Int>(),
                       binds: Vector<Int>(),
-                      local_types: Vector<Int>(), aliasing_bindings: Vector<Bool>(),
+                      local_types: Vector<Int>(), aliasing_bindings: Vector<Bool>(), lent_bindings: Vector<Bool>(), nonescaping_bindings: Vector<Bool>(),
                       res_call_at: Vector<Int>(),
                       body_roots: Vector<Int>(), body_decls: Vector<Int>(),
-                      ext_visible: Vector<Bool>(), body_result: -1, loop_breaks: Vector<Int>(),
+                      ext_visible: Vector<Bool>(), body_result: -1, loop_breaks: Vector<Int>(), result_open: false,
                       branch_allow: TcAllowance(optionals: 1, results: 1, erases: false, widens: true),
                       chosen_twin: -1, unmet_member: -1, unmet_owner: -1,
                       placement_value: -1, borrow_captures: Vector<Int>(), param_leaves: Vector<Int>(), referenced_params: Vector<Int>(), current_root: -1, poisoned: Vector<Int>(), borrow_head: -1,

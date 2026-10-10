@@ -1,0 +1,19 @@
+// refuses: escaping.stored at 13:27
+// a non-escaping closure may capture a non-escaping `f`, and `f` keeps its
+// kind there, so the closure's body may not store it either (D35; SL-480)
+
+struct Holder { f: () -> Int }
+
+func run(body: () -> Int) -> Int {
+    body()
+}
+
+func keep(f: () -> Int) -> Int {
+    run({
+        let h = Holder(f: f)
+        0
+    })
+}
+
+func main() {
+}

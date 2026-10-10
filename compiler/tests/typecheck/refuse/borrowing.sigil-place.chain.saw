@@ -1,0 +1,15 @@
+// refuses: borrowing.sigil-place at 11:10
+// a chained subscript behind a sigil, `&var g[0][1]` (SL:borrowing §9; SL-491)
+
+struct P { n: Int }
+
+func bump(p: &var P) {
+    p.n = p.n + 1
+}
+
+func corner(g: &var Vector<Vector<P>>) {
+    bump(&var g[0][1])
+}
+
+func main() {
+}

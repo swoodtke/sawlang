@@ -1,0 +1,32 @@
+// refuses: transfer.implicit-copy at 24:19
+// a plain `guard let` over the optional place a `&self` conditional lend
+// hands a `borrow let` binding copies the payload (SL:borrowing §2.4; SL-492)
+
+struct Res { n: Int }
+
+extension Res: NoCopy {}
+
+struct Bag { held: [Res; 2] }
+
+extension Bag: NoCopy {}
+
+extension Bag {
+    func peek(&self, i: Int) borrows -> &Res? {
+        if i < 0 || i > 1 {
+            return None
+        }
+        lend self.held[i]
+    }
+}
+
+func look(b: &Bag) -> Int {
+    borrow let e = b.peek(0) {
+        guard let x = e else {
+            return 0
+        }
+        x.n
+    }
+}
+
+func main() {
+}

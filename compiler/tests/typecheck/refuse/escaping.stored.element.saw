@@ -1,0 +1,13 @@
+// refuses: escaping.stored at 8:17
+// a non-escaping function parameter pushed into a `Vector`: `push`'s
+// parameter is a type parameter, which holds its argument as storage (D35;
+// SL-480)
+
+func keep(f: () -> Int) -> Int {
+    var v = Vector<() -> Int>()
+    try! v.push(f)
+    v.len()
+}
+
+func main() {
+}

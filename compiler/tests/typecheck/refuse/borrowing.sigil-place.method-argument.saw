@@ -1,0 +1,21 @@
+// refuses: borrowing.sigil-place at 17:14
+// the sigil as a method call's argument, `t.absorb(&var v[0])`
+// (SL:borrowing §9; SL-491)
+
+struct P { n: Int }
+
+struct Tally { total: Int }
+
+extension Tally {
+    func absorb(&var self, p: &var P) {
+        self.total = self.total + p.n
+        p.n = 0
+    }
+}
+
+func drain(t: &var Tally, v: &var Vector<P>) {
+    t.absorb(&var v[0])
+}
+
+func main() {
+}

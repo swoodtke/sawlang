@@ -1,0 +1,33 @@
+// refuses: loan.window-root at 30:15
+// a named accessor with a shared twin in the middle of the chain: the write
+// below it picks the exclusive accessor, which charges the root exclusively
+// (SL:borrowing §4; SL-490)
+
+struct P { n: Int }
+
+struct Grid { rows: Vector<Vector<P>> }
+
+extension Grid: NoCopy {}
+
+extension Grid {
+    @synthesize(shared)
+    func row(&var self, i: Int) borrows -> &var Vector<P> {
+        lend self.rows[i]
+    }
+
+    func size(&self) -> Int {
+        self.rows.len()
+    }
+}
+
+func main() {
+    var row = Vector<P>()
+    try! row.push(P(n: 1))
+    var rows = Vector<Vector<P>>()
+    try! rows.push(move row)
+    var grid = Grid(rows: move rows)
+    borrow var c = grid.row(0)[0] {
+        c.n = grid.size()
+    }
+    print(grid.size())
+}

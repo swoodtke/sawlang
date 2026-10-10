@@ -1,0 +1,11 @@
+// refuses: escaping.stored at 7:11
+// a non-escaping function parameter assigned into a field (D35; SL-480)
+
+struct Holder { f: () -> Int }
+
+func swap_in(h: &var Holder, f: () -> Int) {
+    h.f = f
+}
+
+func main() {
+}
