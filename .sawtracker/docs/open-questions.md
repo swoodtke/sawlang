@@ -28,6 +28,19 @@ O1 to O3 are decided as D31 to D33.
 
 **D2–D21 were all accepted by the user on Oct 9, "for now".** They are revisited if a choice becomes less optimal as we learn more. Nothing in this section is waiting for review.
 
+### D34. A refining trait may not redeclare an inherited associated type (Oct 10; SL-499, std496's question)
+`trait Source { type Item }` and `trait Pipe: Source { type Item }`. The spec says nothing about associated types under refinement. Today a bare `Item` in `Pipe` binds `Pipe`'s own, while `Self.Item` and `T.Item` under `T: Pipe` are `name.ambiguous`.
+
+**Decided:** the redeclaration is refused at `Pipe`'s `type Item` (`name.duplicate-declaration`). The hint names `Source.Item` and says an inherited associated type is already in scope. Per W4, an inherited associated type is in scope bare in the refining trait, the same as its own.
+
+**Rejected for now:**
+- Swift's merge, where the redeclaration names the parent's type.
+- Rust's two distinct types, where `Self.Item` stays ambiguous.
+
+Either one can be added later without breaking accepted code, because the refusal admits nothing that they would reinterpret.
+
+**Reversal:** accept the redeclaration under the merge reading.
+
 ### D33. No expression forms a value of a `borrows` function type yet (Oct 10; SL-489 item 6, was O3)
 The spec lets a function type carry `borrows` or `borrows(sync)` (`syntax.type.func-borrows`), and a `borrows(sync)` value does not convert to a plain `borrows` type. Nothing says how such a value is made. Two ways are closed:
 - **A method reference:** the grammar has none.
