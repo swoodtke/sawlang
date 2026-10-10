@@ -1,0 +1,14 @@
+// refuses: assign.rhs-borrow at 12:5
+// a compound assignment whose right side borrows the path it writes: the
+// right side runs first, so its write is overwritten (conformance M38)
+
+func bump(n: &var Int) -> Int {
+    n = n + 1
+    1
+}
+
+func main() {
+    var x = 1
+    x += bump(&var x)
+    print(x)
+}

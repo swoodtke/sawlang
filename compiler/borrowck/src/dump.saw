@@ -3,13 +3,16 @@
 // the conditions those places are in before it, and each drop's label.
 
 import sawborrowck.src.check.{borrowck_label_name}
+import sawborrowck.src.loans.{BorrowckLoanKind, BorrowckLoans, BorrowckPath, borrowck_slice}
 import sawborrowck.src.program.{BorrowckProgram}
 import sawmir.src.build.{mir_func_local}
 import sawmir.src.dump.{mir_module_functions}
 import sawmir.src.initialisation.{MIR_INIT_DROPPED, MIR_INIT_MOVED, MIR_INIT_PARTIAL, MIR_INIT_UNASSIGNED,
                                   MIR_INIT_WHOLE, MirInit, mir_init_apply_all}
-import sawmir.src.model.{MirStmtKind}
+import sawmir.src.model.{MirProjKind, MirStmtKind}
 import sawmir.src.program.{MirProgram}
+import sawresolve.src.dump.{res_sort_strings}
+import sawresolve.src.program.{ResProgram}
 
 // The letters of conditions `own`, in a fixed order: `U` unassigned, `W`
 // whole, `P` partial, `M` moved, `D` dropped; `-` for a block no path reaches.
@@ -55,6 +58,7 @@ extension BorrowckProgram {
         let info = self.mir.funcs[f]
         let facts = self.mir.init_analysis(f)
         let shown = self.owned_paths(f, &facts)
+        var loans = self.borrowck_loans(f)
         try! out.append("fn ")
         try! out.append(self.mir.func_name(f))
         try! out.append(" \{\n")
@@ -71,6 +75,12 @@ extension BorrowckProgram {
             try! out.append("\n")
             k = k + 1
         }
+        k = 0
+        while k < loans.loan_count() {
+            self.append_loan(&var out, f, k, &var loans)
+            k = k + 1
+        }
+        let with_loans = loans.loan_count() > 0
         var b = 0
         while b < info.block_count {
             try! out.append("\n    bb")
@@ -82,12 +92,21 @@ extension BorrowckProgram {
             }
             try! out.append(": \{\n")
             var state = facts.entry_state(b)
+            let lives = self.instruction_live(f, b, &var loans)
+            let lw = loans.loan_words
+            let ww = loans.window_words
+            var created = borrowck_slice(&loans.created_in, b * lw, lw)
+            var open = borrowck_slice(&loans.open_in, b * ww, ww)
             let block = self.mir.blocks[info.block_first + b]
+            var i = 0
             var s = block.first
             while s >= 0 {
                 let stmt = self.mir.stmts[s]
                 try! out.append("        ")
                 self.append_state(&var out, &shown, &state)
+                if with_loans {
+                    self.append_live_loans(&var out, &loans, &lives, i, &created, &open)
+                }
                 self.mir.append_stmt(&var out, info.local_first, &stmt)
                 if stmt.kind == MirStmtKind.Drop {
                     try! out.append("  // ")
@@ -96,15 +115,122 @@ extension BorrowckProgram {
                 try! out.append("\n")
                 let accesses = self.mir.init_stmt_accesses(f, s, &facts)
                 mir_init_apply_all(&facts, &var state, &accesses)
+                self.step_forward(&loans, f, b, i, &var created, &var open)
+                i = i + 1
                 s = stmt.next
             }
             try! out.append("        ")
             self.append_state(&var out, &shown, &state)
+            if with_loans {
+                self.append_live_loans(&var out, &loans, &lives, i, &created, &open)
+            }
             self.mir.append_term(&var out, info.local_first, &block)
             try! out.append("\n    \}\n")
             b = b + 1
         }
         try! out.append("\}\n")
+    }
+
+    // `loan LK: MODE PLACE;  // ORIGIN at L:C`: loan `n`, the place it
+    // charges as the MIR dump spells it, and where it came from.
+    func append_loan(&self, out: &var StringBuilder, f: Int, n: Int, loans: &var BorrowckLoans) {
+        let loan = loans.loans[n]
+        try! out.append("    loan L")
+        try! out.append(n)
+        if loan.exclusive {
+            try! out.append(": exclusive ")
+        } else {
+            try! out.append(": shared ")
+        }
+        self.append_mir_path(&var out, &loans, &loan.path)
+        try! out.append(";  // ")
+        if loan.kind == BorrowckLoanKind.Window {
+            try! out.append("window w")
+            try! out.append(loan.window)
+        } else if loan.kind == BorrowckLoanKind.Capture || loan.captured {
+            try! out.append("capture")
+        } else if loan.argument {
+            try! out.append("argument")
+        } else {
+            try! out.append("ref")
+        }
+        try! out.append(" at ")
+        try! out.append(self.mir.span_text(loan.node, loan.closing))
+        try! out.append("\n")
+    }
+
+    // Path `p` spelled as the MIR dump spells a place; `?` for one not known.
+    func append_mir_path(&self, out: &var StringBuilder, loans: &BorrowckLoans, p: &BorrowckPath) {
+        if p.count < 0 {
+            try! out.append("?")
+            return
+        }
+        var text = StringBuilder()
+        if p.local >= 0 {
+            try! text.append("_")
+            try! text.append(p.local)
+        } else {
+            try! text.append("static ")
+            try! text.append(self.mir.tc.res.decl_identity(p.static_decl))
+        }
+        var k = 0
+        while k < p.count {
+            let step = loans.projs[p.first + k]
+            k = k + 1
+            let inner = text.build()
+            text = StringBuilder()
+            if step.kind == MirProjKind.Field {
+                try! text.append(inner)
+                try! text.append(".")
+                try! text.append(self.mir.decl_name(step.decl))
+            } else if step.kind == MirProjKind.Tuple {
+                try! text.append(inner)
+                try! text.append(".")
+                try! text.append(step.index)
+            } else if step.kind == MirProjKind.Index {
+                try! text.append(inner)
+                try! text.append("[_")
+                try! text.append(step.index)
+                try! text.append("]")
+            } else if step.kind == MirProjKind.Deref {
+                try! text.append("(*")
+                try! text.append(inner)
+                try! text.append(")")
+            } else {
+                try! text.append("(")
+                try! text.append(inner)
+                try! text.append(" as ")
+                try! text.append(self.mir.decl_name(step.decl))
+                if step.kind == MirProjKind.Force {
+                    try! text.append("!")
+                }
+                try! text.append(").")
+                try! text.append(step.index)
+            }
+        }
+        try! out.append(text.build())
+    }
+
+    // `{LK ...} `: the loans live before instruction `i`.
+    func append_live_loans(&self, out: &var StringBuilder, loans: &BorrowckLoans, lives: &Vector<Int>, i: Int,
+                           created: &Vector<Int>, open: &Vector<Int>) {
+        let words = loans.local_words
+        let live = borrowck_slice(&lives, i * words, words)
+        try! out.append("\{")
+        var first = true
+        var n = 0
+        while n < loans.loan_count() {
+            if loans.is_live(n, &live, &created, &open) {
+                if not first {
+                    try! out.append(" ")
+                }
+                try! out.append("L")
+                try! out.append(n)
+                first = false
+            }
+            n = n + 1
+        }
+        try! out.append("\} ")
     }
 
     // `[C C ...] `: the conditions of each shown path in `state`.

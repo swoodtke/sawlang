@@ -1,0 +1,36 @@
+// refuses: loan.sync-suspend at 29:30
+// a `borrows(sync)` window held across a suspension point: the window a
+// `borrow var` argument opens stays open while a later argument suspends
+// (SL:borrowing §2.5); typecheck's `borrows.sync-window` refuses the block
+// form, where the suspension is written inside the window's body
+
+import std.task.{yield_now}
+
+struct Lock {
+    n: Int
+}
+
+extension Lock {
+    func hold(&var self) sync borrows(sync) -> &var Int {
+        lend self.n
+    }
+}
+
+func slow() -> Int {
+    yield_now()
+    1
+}
+
+func add(n: &var Int, k: Int) {
+    n += k
+}
+
+func bump(l: &var Lock) {
+    add(borrow var l.hold(), slow())
+}
+
+func main() {
+    var l = Lock(n: 0)
+    bump(&var l)
+    print(l.n)
+}

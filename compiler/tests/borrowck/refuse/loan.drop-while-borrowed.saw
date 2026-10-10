@@ -1,0 +1,10 @@
+// refuses: loan.drop-while-borrowed at 7:9
+// a place replaced, which drops its old value, while a window over it is open
+
+func main() {
+    var names: Vector<String> = ["a", "b"]
+    borrow let first = names[0] {
+        names = ["c"]
+        print(first)
+    }
+}

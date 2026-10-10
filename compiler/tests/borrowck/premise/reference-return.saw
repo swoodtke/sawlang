@@ -1,0 +1,15 @@
+// refuses: type.reference-position at 8:30
+// The borrow check's soundness premise: a reference never leaves the function
+// that made it, so loans need no lifetimes. Typecheck refuses a function that
+// returns one (SL-462) before the borrow check ever sees it.
+
+struct Holder { n: Int }
+
+func leak(h: &var Holder) -> &var Int {
+    &var h.n
+}
+
+func main() {
+    var h = Holder(n: 1)
+    print(leak(&var h))
+}

@@ -1,0 +1,14 @@
+// refuses: loan.exclusive-twice at 12:18
+// one place passed `&var` twice in one call (conformance X01)
+
+func swap(a: &var Int, b: &var Int) {
+    let t = a
+    a = b
+    b = t
+}
+
+func main() {
+    var x = 1
+    swap(&var x, &var x)
+    print(x)
+}

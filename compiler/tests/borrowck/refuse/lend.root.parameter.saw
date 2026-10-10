@@ -1,0 +1,18 @@
+// refuses: lend.root at 11:9
+// a `lend` of a by-value parameter, which lives in the accessor's frame
+// (conformance P16)
+
+struct Counter {
+    n: Int
+}
+
+extension Counter {
+    func pick(&self, fallback: Int) borrows -> &Int {
+        lend fallback
+    }
+}
+
+func main() {
+    let c = Counter(n: 1)
+    print(borrow c.pick(9))
+}

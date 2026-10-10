@@ -268,6 +268,7 @@ alias of the referent (references).
 | `borrow var p += v`, `borrow p` | a window closed at the statement's end, or once the value is copied out | windows |
 | `v[i]` read, `v[i] = x` | a derived getitem or setitem around the place accessor's window, or the declared `[]`, `[]=` | windows, order |
 | `x.f(...)` on a `borrows` accessor | a window on a place, or a copy out of it | windows |
+| a receiver or a subscript's base reached through a `borrows` accessor, chained, through `!`, under a key or an index | its windows opened in receiver position, before the arguments, keys or index (`open_receiver_windows`); a plain receiver's borrow taken just before the call; an assignment's target opens its windows after the right side, a compound one's too | receivers |
 | a closure | an aggregate of its captures, its body a function of its own | closures |
 | `print("x = {}", x)`, `panic`'s and `assert`'s format messages | a `format` constant, the arguments after it; `"x = {x}"` an `interpolate` | formats |
 | `lend p` | the end of the accessor's prologue, the start of its epilogue | windows, accessors |
@@ -335,9 +336,14 @@ slice.not-yet at L:C`.
 | a `borrow` block binding a conditional lend | conditional-block |
 | a `for` over an iterator held in a place | iterator-place |
 | a consuming destructure of a type that writes its own `deinit`, since the spec does not say whether dissolving one skips that body | consuming-deinit |
-| a `consumes` body moving out of `self` deeper than one field | refused by typecheck as transfer.partial-move (SL-462) |
 | the release of a consumed receiver that moves out whole, or is an enum, when its type writes its own `deinit` | consumes-whole |
-| a `for` head that lends a place; a `borrows` call lending a slice or a borrowing struct outside a `for` head; a `borrows` function called with no receiver; a setitem derived from a conditional lend; a conditional lend's place read other than through `!`; an accessor's local partly moved out at a `lend` | none: nothing in the slice reaches them |
+| a `for` head that lends a place; a `borrows` call lending a slice or a borrowing struct outside a `for` head; a `borrows` function called with no receiver; a setitem derived from a conditional lend; a conditional lend's place read other than through `!` | none: nothing in the slice reaches them |
+
+Two constructs typecheck refuses before lowering, as `transfer.partial-move`,
+are invariants here rather than refusals: a `consumes` body moving out of
+`self` deeper than one field, and an accessor's local partly moved out at a
+`lend` (only a source `move` of a part leaves a local partial). Meeting
+either prints an `INVARIANT` line.
 
 ## The verifier
 

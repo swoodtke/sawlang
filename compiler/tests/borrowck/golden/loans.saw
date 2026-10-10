@@ -1,0 +1,51 @@
+// Loans accepted: an access through a borrow binding or a reborrow is the
+// loan's own use; distinct fields, tuple elements and constant indices are
+// disjoint; two shared borrows may overlap; a loan ends at its last use; a
+// loan rooted in an `unsafe static var` is checked within the function.
+
+struct Point { x: Int, y: Int }
+
+unsafe static var COUNTS: [Int; 2] = [0, 0]
+
+func add(a: &var Int, b: &Int) {
+    a = a + b
+}
+
+func both(a: &Int, b: &Int) -> Int {
+    a + b
+}
+
+func forward(r: &var Point) {
+    add(&var r.x, &r.y)
+    add(&var r.y, &r.x)
+}
+
+func reborrow(r: &var Point) -> Int {
+    forward(&var r)
+    r.x = r.x + 1
+    r.x
+}
+
+func disjoint() -> Int {
+    var p = Point(x: 1, y: 2)
+    add(&var p.x, &p.y)
+    var t = (1, 2)
+    add(&var t.0, &t.1)
+    var arr: [Int; 3] = [1, 2, 3]
+    add(&var arr[0], &arr[1])
+    let n = both(&p.x, &p.x)
+    add(&var p.x, &n)
+    p.x + t.0 + arr[0]
+}
+
+func bump_static() unsafe -> Int {
+    add(&var COUNTS[0], &COUNTS[1])
+    COUNTS[0]
+}
+
+func main() unsafe {
+    var p = Point(x: 1, y: 2)
+    print(reborrow(&var p))
+    print(disjoint())
+    print(bump_static())
+}

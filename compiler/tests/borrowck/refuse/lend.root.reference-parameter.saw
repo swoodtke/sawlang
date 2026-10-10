@@ -1,0 +1,22 @@
+// refuses: lend.root at 13:9
+// a `lend` of a place an `&var` parameter refers to: an accessor lends only
+// storage its receiver owns, and a parameter is refused on the same terms as
+// a local, even though its referent outlives the window (spec, The lent
+// place is rooted in the receiver)
+
+struct Pair { n: Int }
+
+struct Grid { cells: [Int; 2] }
+
+extension Grid {
+    func relay(&var self, r: &var Pair) borrows -> &var Int {
+        lend r.n
+    }
+}
+
+func main() {
+    var g = Grid(cells: [1, 2])
+    var p = Pair(n: 1)
+    borrow var g.relay(&var p) = 9
+    print(p.n)
+}

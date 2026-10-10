@@ -1,0 +1,16 @@
+// refuses: assign.rhs-borrow at 14:5
+// a plain assignment to a field whose right side borrows the whole value
+// (spec, the Law of Exclusivity: Assignment)
+
+struct Point { x: Int, y: Int }
+
+func shift(p: &var Point) -> Int {
+    p.y = p.y + 1
+    p.y
+}
+
+func main() {
+    var p = Point(x: 1, y: 2)
+    p.x = shift(&var p)
+    print(p.x)
+}

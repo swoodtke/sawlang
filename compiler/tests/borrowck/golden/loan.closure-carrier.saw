@@ -1,0 +1,26 @@
+// A non-escaping closure capturing `[&var v]` writes `v` through its capture:
+// the closure carries the loan from its creation to its last call, and `v` is
+// free again after it. A closure capturing a reference parameter carries a
+// loan on what it refers to.
+
+func apply(f: (Int) -> Int, x: Int) -> Int {
+    f(x)
+}
+
+func pushed(v: &var Vector<Int>) -> Int {
+    let n = apply({ k: Int in
+        try! v.push(k)
+        v.len()
+    }, 4)
+    n + v.len()
+}
+
+func main() {
+    var v: Vector<Int> = [1]
+    let n = apply({ [&var v] k: Int in
+        try! v.push(k)
+        v.len()
+    }, 2)
+    try! v.push(3)
+    print(n + v.len() + pushed(&var v))
+}

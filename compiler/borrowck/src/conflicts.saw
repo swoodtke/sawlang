@@ -1,0 +1,869 @@
+// The borrow check's loan half (SL:architecture §3.6): one function at a
+// time, a client of the loan analysis (loans.saw). Every access, a move and a
+// drop included, is checked against the loans live where it happens: an
+// overlapping access conflicts with a live exclusive loan, and a write with a
+// live shared one. A call's written references are checked together over the
+// whole call, nested calls included (spec, Nested calls); an assignment's
+// right side may not borrow what the assignment writes; no `borrows(sync)`
+// window may be open across a suspension; and inside an accessor, what a
+// `lend` hands out must outlive the prologue.
+
+import sawborrowck.src.loans.{BorrowckAccess, BorrowckAccessKind, BorrowckLoanKind, BorrowckLoans,
+                              BorrowckPath, borrowck_bit, borrowck_no_path, borrowck_slice, borrowck_zeros}
+import sawborrowck.src.program.{BorrowckProgram}
+import sawmir.src.build.{mir_func_local}
+import sawmir.src.dump.{mir_module_functions}
+import sawmir.src.initialisation.{MIR_INIT_WHOLE, MirInit}
+import sawmir.src.model.{MirCallKind, MirDiag, MirFuncKind, MirLocalKind, MirProjKind, MirRvalueKind, MirStmtKind,
+                         MirTermKind}
+import sawmir.src.program.{MirProgram}
+import sawparse.src.grammar.{Alt}
+import sawresolve.src.collect.{res_is_top_level}
+import sawresolve.src.model.{ResCallClass}
+import sawresolve.src.program.{ResProgram}
+import sawtypecheck.src.bodies.{tc_check_bodies}
+import sawtypecheck.src.checks.{tc_check_unsafe}
+import sawtypecheck.src.model.{TC_EFFECT_BORROWS_SYNC, TcLend}
+import sawtypecheck.src.program.{TcProgram}
+import sawtypecheck.src.typeops.{TcClient}
+import sawtypecheck.src.types.{TcKind}
+
+// A written `&` or `&var` in a call's access set (spec, Nested calls), with
+// the calls whose argument lists hold it, innermost first: a run of the
+// check's chains.
+struct BorrowckMember {
+    node: Int
+    exclusive: Bool
+    path: BorrowckPath
+    chain_first: Int
+    chain_count: Int
+}
+
+// The innermost call both members stand in the argument lists of, or -1.
+func borrowck_common_call(chains: &Vector<Int>, x: &BorrowckMember, y: &BorrowckMember) -> Int {
+    var i = 0
+    while i < x.chain_count {
+        let c = chains[x.chain_first + i]
+        var j = 0
+        while j < y.chain_count {
+            if chains[y.chain_first + j] == c {
+                return c
+            }
+            j = j + 1
+        }
+        i = i + 1
+    }
+    return -1
+}
+
+extension BorrowckProgram {
+    // Every loan rule over function `f`, whose initialisation facts are
+    // `inits`.
+    public func check_loans(&var self, f: Int, inits: &MirInit) {
+        var facts = self.borrowck_loans(f)
+        var reported = Vector<Int>()
+        self.check_call_sets(f, &var facts, &var reported)
+        self.check_assignments(f, &var facts, &var reported)
+        let info = self.mir.funcs[f]
+        var b = 0
+        while b < info.block_count {
+            if facts.reached[b] {
+                self.check_block(f, b, &var facts, &var reported)
+            }
+            b = b + 1
+        }
+        if info.kind == MirFuncKind.Prologue {
+            self.check_prologue(f, &inits, &var facts, &var reported)
+        }
+        if info.kind == MirFuncKind.Epilogue {
+            self.check_epilogue(f, &var reported)
+        }
+    }
+
+    // Each access of block `b` against the loans live before it, and each
+    // suspension point against the open `borrows(sync)` windows.
+    func check_block(&var self, f: Int, b: Int, facts: &var BorrowckLoans, reported: &var Vector<Int>) {
+        let info = self.mir.funcs[f]
+        let block = self.mir.blocks[info.block_first + b]
+        let lw = facts.loan_words
+        let ww = facts.window_words
+        let words = facts.local_words
+        let lives = self.instruction_live(f, b, &var facts)
+        var created = borrowck_slice(&facts.created_in, b * lw, lw)
+        var open = borrowck_slice(&facts.open_in, b * ww, ww)
+        let count = self.instruction_count(f, b)
+        var i = 0
+        while i < count {
+            let live = borrowck_slice(&lives, i * words, words)
+            let accesses = self.instruction_accesses(f, b, i, &var facts)
+            var k = 0
+            while k < accesses.len() {
+                let a = accesses[k]
+                self.check_access(f, &a, -1, &var facts, &live, &created, &open, &var reported)
+                k = k + 1
+            }
+            if i == count - 1 && block.term == MirTermKind.Call {
+                let c = self.mir.calls[block.call]
+                if c.kind == MirCallKind.WindowOpen && c.window >= 0 {
+                    self.check_window_charge(f, block.call, &var facts, &live, &created, &open, &var reported)
+                }
+            }
+            if self.suspends_at(f, b, i) {
+                self.check_suspension(f, b, i, &facts, &open, &var reported)
+            }
+            self.step_forward(&facts, f, b, i, &var created, &var open)
+            i = i + 1
+        }
+    }
+
+    // A window's root charge, at its open: an exclusive or shared access of
+    // its receiver's place, by the declared mode, beside every live loan but
+    // the ones its own arguments carry.
+    func check_window_charge(&var self, f: Int, call: Int, facts: &var BorrowckLoans, live: &Vector<Int>,
+                             created: &Vector<Int>, open: &Vector<Int>, reported: &var Vector<Int>) {
+        let c = self.mir.calls[call]
+        let path = facts.window_path[c.window]
+        if path.count < 0 {
+            return
+        }
+        let kind = if self.window_charges_exclusively(f, c.window) {
+            BorrowckAccessKind.Exclusive
+        } else {
+            BorrowckAccessKind.Shared
+        }
+        let a = BorrowckAccess(kind: kind, path: path, node: c.node, closing: false)
+        self.check_access(f, &a, call, &var facts, &live, &created, &open, &var reported)
+    }
+
+    // Access `a` against every live loan on an overlapping place, the
+    // loans the arguments of window call `skip` carry excepted; the first
+    // conflict is reported, once per source node.
+    func check_access(&var self, f: Int, a: &BorrowckAccess, skip: Int, facts: &var BorrowckLoans, live: &Vector<Int>,
+                      created: &Vector<Int>, open: &Vector<Int>, reported: &var Vector<Int>) {
+        if a.path.count < 0 || borrowck_seen(&reported, a.node) {
+            return
+        }
+        let writes = a.kind != BorrowckAccessKind.Read && a.kind != BorrowckAccessKind.Shared
+        var found = -1
+        var n = 0
+        while n < facts.loan_count() {
+            let loan = facts.loans[n]
+            n = n + 1
+            if loan.path.local != a.path.local || loan.path.static_decl != a.path.static_decl {
+                continue
+            }
+            if not loan.exclusive && not writes {
+                continue
+            }
+            if not facts.is_live(n - 1, &live, &created, &open) {
+                continue
+            }
+            if skip >= 0 && self.skipped_by(&facts, n - 1, skip) {
+                continue
+            }
+            if not facts.overlaps(&a.path, &loan.path) {
+                continue
+            }
+            // A window's own loan names the conflict better than the
+            // receiver borrow its open consumed.
+            if found < 0 || loan.kind == BorrowckLoanKind.Window {
+                found = n - 1
+            }
+        }
+        if found >= 0 {
+            self.report_conflict(f, &a, found, &var facts, &var reported)
+        }
+    }
+
+    // Whether loan `n` is carried by an argument of window call `call`, or
+    // is that window's own loan.
+    func skipped_by(&self, facts: &BorrowckLoans, n: Int, call: Int) -> Bool {
+        let c = self.mir.calls[call]
+        let loan = facts.loans[n]
+        if loan.kind == BorrowckLoanKind.Window && loan.window == c.window {
+            return true
+        }
+        var k = 0
+        while k < c.arg_count {
+            let o = self.mir.operands[self.mir.lists[c.arg_first + k]]
+            if o.place >= 0 {
+                let l = self.mir.places[o.place].local
+                if l >= 0 && facts.carries(n, l) {
+                    return true
+                }
+            }
+            k = k + 1
+        }
+        false
+    }
+
+    func report_conflict(&var self, f: Int, a: &BorrowckAccess, n: Int, facts: &var BorrowckLoans,
+                         reported: &var Vector<Int>) {
+        let loan = facts.loans[n]
+        var rule = ""
+        var tail = ""
+        if a.kind == BorrowckAccessKind.Move {
+            rule = "loan.move-while-borrowed"
+            tail = "a borrowed value cannot leave while the borrow is live"
+        } else if a.kind == BorrowckAccessKind.Drop {
+            rule = "loan.drop-while-borrowed"
+            tail = "a borrowed value cannot be dropped, by its scope's end or by an assignment, while the borrow is live"
+        } else if loan.kind == BorrowckLoanKind.Window {
+            rule = "loan.window-root"
+            tail = "a window charges its whole root until it closes, so the root is reached only through the window's binding"
+        } else if loan.kind == BorrowckLoanKind.Capture || loan.captured {
+            rule = "loan.closure-carrier"
+            tail = "the closure carries the borrow from its creation to its last call"
+        } else if loan.exclusive && (a.kind == BorrowckAccessKind.Write || a.kind == BorrowckAccessKind.Exclusive) {
+            rule = "loan.exclusive-twice"
+            tail = "two exclusive borrows of one place cannot be live at once"
+        } else if loan.exclusive {
+            rule = "loan.read-while-exclusive"
+            tail = "an exclusive borrow admits no other access while it is live"
+        } else {
+            rule = "loan.write-while-shared"
+            tail = "a shared borrow admits only reads while it is live"
+        }
+        let access = self.borrowck_trace(f, &a.path, &var facts)
+        var msg = StringBuilder()
+        try! msg.append("`")
+        try! msg.append(self.borrowck_path_text(f, &access, &facts))
+        try! msg.append("` is ")
+        try! msg.append(borrowck_access_verb(a.kind))
+        try! msg.append(" here while ")
+        try! msg.append(self.loan_origin(f, n, &var facts))
+        try! msg.append("; ")
+        try! msg.append(tail)
+        self.report_loan(f, a.node, rule, msg.build(), &var reported)
+    }
+
+    // Where loan `n` came from and what it holds, as a diagnostic says it.
+    public func loan_origin(&self, f: Int, n: Int, facts: &var BorrowckLoans) -> String {
+        let loan = facts.loans[n]
+        let root = self.borrowck_trace(f, &loan.path, &var facts)
+        var text = StringBuilder()
+        let info = self.mir.funcs[f]
+        if loan.kind == BorrowckLoanKind.Window {
+            let w = self.mir.windows[info.window_first + loan.window]
+            try! text.append("the window of `")
+            if w.accessor >= 0 {
+                try! text.append(self.mir.decl_name(w.accessor))
+            }
+            try! text.append("` opened at ")
+        } else if loan.kind == BorrowckLoanKind.Capture || loan.captured {
+            try! text.append("the closure capture at ")
+        } else if loan.argument {
+            try! text.append("the argument at ")
+        } else {
+            try! text.append("the borrow at ")
+        }
+        try! text.append(self.mir.span_text(loan.node, loan.closing))
+        try! text.append(" holds `")
+        try! text.append(self.borrowck_path_text(f, &root, &facts))
+        try! text.append("` ")
+        if loan.exclusive {
+            try! text.append("exclusively")
+        } else {
+            try! text.append("shared")
+        }
+        if loan.kind == BorrowckLoanKind.Window {
+            try! text.append(" until the window closes")
+        } else if loan.kind == BorrowckLoanKind.Capture || loan.captured {
+            try! text.append(" until the closure's last call")
+        } else if loan.argument {
+            try! text.append(" for its call")
+        } else {
+            try! text.append(" until its last use")
+        }
+        text.build()
+    }
+
+    // A suspension point inside an open `borrows(sync)` window, which a
+    // window's own close is not.
+    func check_suspension(&var self, f: Int, b: Int, i: Int, facts: &BorrowckLoans, open: &Vector<Int>,
+                          reported: &var Vector<Int>) {
+        let info = self.mir.funcs[f]
+        let block = self.mir.blocks[info.block_first + b]
+        let s = self.instruction_stmt(f, b, i)
+        var node = block.term_node
+        var closing = block.term_closing
+        var closes = -1
+        if s >= 0 {
+            node = self.mir.stmts[s].node
+            closing = self.mir.stmts[s].closing
+        } else if block.term == MirTermKind.Call {
+            let c = self.mir.calls[block.call]
+            if c.kind == MirCallKind.WindowClose {
+                closes = c.window
+            }
+        }
+        var w = 0
+        while w < info.window_count {
+            let window = self.mir.windows[info.window_first + w]
+            if window.sync && w != closes && borrowck_bit(&open, 0, w) {
+                var msg = StringBuilder()
+                try! msg.append("this may suspend while the `borrows(sync)` window of `")
+                if window.accessor >= 0 {
+                    try! msg.append(self.mir.decl_name(window.accessor))
+                }
+                try! msg.append("` opened at ")
+                try! msg.append(self.mir.span_text(window.node, false))
+                try! msg.append(" is open; a `borrows(sync)` borrow cannot be held across a suspension")
+                self.report_loan(f, node, "loan.sync-suspend", msg.build(), &var reported)
+                return
+            }
+            w = w + 1
+        }
+    }
+
+    // The access sets of the function's calls (spec, Nested calls): every
+    // reference written as `&` or `&var` in a call's argument list, nested
+    // calls included, and the receiver of each call such a reference is
+    // nested inside, as a shared reservation. Two that overlap, one of them
+    // exclusive and one inside a nested call, conflict whatever order the
+    // calls run in. A receiver joins only through a written reference, so
+    // `v.push(v.len())` and `combine(n.get(), bump(&var n))` stay legal.
+    // References that are arguments of one call side by side are the loan
+    // walk's (`check_block`).
+    func check_call_sets(&var self, f: Int, facts: &var BorrowckLoans, reported: &var Vector<Int>) {
+        let info = self.mir.funcs[f]
+        var members = Vector<BorrowckMember>()
+        var chains = Vector<Int>()
+        var b = 0
+        while b < info.block_count {
+            let block = self.mir.blocks[info.block_first + b]
+            var s = block.first
+            while s >= 0 {
+                let stmt = self.mir.stmts[s]
+                s = stmt.next
+                if stmt.kind != MirStmtKind.Assign || stmt.rvalue < 0 || not self.written_reference(stmt.node) {
+                    continue
+                }
+                let rv = self.mir.rvalues[stmt.rvalue]
+                if rv.kind != MirRvalueKind.Ref || rv.place < 0 {
+                    continue
+                }
+                let calls = self.enclosing_calls(stmt.node)
+                if calls.len() == 0 {
+                    continue
+                }
+                let raw = self.path_of(rv.place, &var facts)
+                let path = self.borrowck_trace(f, &raw, &var facts)
+                let first = chains.len()
+                var k = 0
+                while k < calls.len() {
+                    try! chains.push(calls[k])
+                    k = k + 1
+                }
+                try! members.push(BorrowckMember(node: stmt.node, exclusive: rv.exclusive, path: path,
+                                                 chain_first: first, chain_count: calls.len()))
+            }
+            b = b + 1
+        }
+        var i = 0
+        while i < members.len() {
+            let x = members[i]
+            // Two written references: nested is relative to the innermost
+            // call both stand in.
+            var j = i + 1
+            while j < members.len() {
+                let y = members[j]
+                j = j + 1
+                let common = borrowck_common_call(&chains, &x, &y)
+                if common < 0 || not (x.exclusive || y.exclusive) {
+                    continue
+                }
+                let x_nested = chains[x.chain_first] != common
+                let y_nested = chains[y.chain_first] != common
+                if not (x_nested || y_nested) || not facts.overlaps(&x.path, &y.path) {
+                    continue
+                }
+                var at = y
+                var other = x
+                if not y_nested {
+                    at = x
+                    other = y
+                }
+                var msg = StringBuilder()
+                try! msg.append("`")
+                try! msg.append(self.borrowck_path_text(f, &at.path, &facts))
+                try! msg.append("` is borrowed by a nested call in this argument list while `")
+                try! msg.append(self.borrowck_path_text(f, &other.path, &facts))
+                try! msg.append("` is also accessed by reference in the same call, at ")
+                try! msg.append(self.mir.span_text(other.node, false))
+                try! msg.append("; a call's references are checked together over the whole call, nested calls included, so bind the nested call's result in a statement of its own")
+                self.report_loan(f, at.node, "loan.nested-call", msg.build(), &var reported)
+            }
+            // The receiver of each call this reference is nested inside, a
+            // shared reservation from its evaluation to the call.
+            var k = 1
+            while k < x.chain_count && x.exclusive {
+                let c = chains[x.chain_first + k]
+                k = k + 1
+                let receiver = self.call_receiver(f, c, &var facts)
+                if receiver.count < 0 || not facts.overlaps(&x.path, &receiver) {
+                    continue
+                }
+                var msg = StringBuilder()
+                try! msg.append("`")
+                try! msg.append(self.borrowck_path_text(f, &x.path, &facts))
+                try! msg.append("` is borrowed by a nested call in this argument list while `")
+                try! msg.append(self.borrowck_path_text(f, &receiver, &facts))
+                try! msg.append("` is also the receiver of the call at ")
+                try! msg.append(self.mir.span_text(c, false))
+                try! msg.append(", which borrows it for the whole call; bind the nested call's result in a statement of its own")
+                self.report_loan(f, x.node, "loan.nested-call", msg.build(), &var reported)
+                k = x.chain_count
+            }
+            i = i + 1
+        }
+    }
+
+    // Whether source node `node` is a written reference: `&x`, `&var x`, or
+    // a `borrow` place passed by reference.
+    func written_reference(&self, node: Int) -> Bool {
+        if node < 0 {
+            return false
+        }
+        guard let alt = self.mir.tc.node_alt(node) else {
+            return false
+        }
+        let reference = alt == Alt.Expr_Ref_Shared || alt == Alt.Expr_Ref_Exclusive
+        reference || alt == Alt.Borrow_Place_Shared || alt == Alt.Borrow_Place_Var
+    }
+
+    // The calls whose argument lists hold node `node`, innermost first, up to
+    // the closure or body it stands in.
+    func enclosing_calls(&var self, node: Int) -> Vector<Int> {
+        self.node_parents()
+        var out = Vector<Int>()
+        var prev = node
+        var at = self.parents[node]
+        while at >= 0 {
+            if self.mir.tc.has_alt(at, Alt.Expr_Closure) {
+                break
+            }
+            if self.mir.tc.is_call_alt(at) && self.mir.tc.res.first_node_child(at) != prev {
+                try! out.push(at)
+            }
+            prev = at
+            at = self.parents[at]
+        }
+        move out
+    }
+
+    // The parent of every source node, built once.
+    public func node_parents(&var self) {
+        let n = self.mir.tc.res.nodes.len()
+        if self.parents.len() == n {
+            return
+        }
+        var parents = borrowck_zeros(n)
+        var id = 0
+        while id < n {
+            parents[id] = -1
+            id = id + 1
+        }
+        id = 0
+        while id < n {
+            if not self.mir.tc.res.is_leaf(id) {
+                let count = self.mir.tc.res.child_count(id)
+                var k = 0
+                while k < count {
+                    let c = self.mir.tc.res.child(id, k)
+                    if c >= 0 && c < n {
+                        parents[c] = id
+                    }
+                    k = k + 1
+                }
+            }
+            id = id + 1
+        }
+        self.parents = move parents
+    }
+
+    // The place method call `node` borrows its receiver from, traced, or a
+    // path with `count` -1 for a call with no receiver taken by reference.
+    func call_receiver(&self, f: Int, node: Int, facts: &var BorrowckLoans) -> BorrowckPath {
+        let rc = self.mir.tc.res_call_at[node]
+        if rc < 0 || self.mir.tc.res.calls[rc].classification != ResCallClass.Method {
+            return borrowck_no_path()
+        }
+        let info = self.mir.funcs[f]
+        var b = 0
+        while b < info.block_count {
+            let block = self.mir.blocks[info.block_first + b]
+            b = b + 1
+            if block.term != MirTermKind.Call || block.term_node != node {
+                continue
+            }
+            let c = self.mir.calls[block.call]
+            if c.kind != MirCallKind.Function && c.kind != MirCallKind.Builtin || c.arg_count < 1 {
+                continue
+            }
+            let o = self.mir.operands[self.mir.lists[c.arg_first]]
+            if o.place < 0 {
+                continue
+            }
+            let l = self.bare_local_of(o.place)
+            if l < 0 || facts.def_count[l] != 1 || facts.def_stmt[l] < 0 {
+                continue
+            }
+            let def = self.mir.stmts[facts.def_stmt[l]]
+            let rv = self.mir.rvalues[def.rvalue]
+            if rv.kind != MirRvalueKind.Ref || rv.place < 0 || self.written_reference(def.node) {
+                continue
+            }
+            let raw = self.path_of(rv.place, &var facts)
+            return self.borrowck_trace(f, &raw, &var facts)
+        }
+        borrowck_no_path()
+    }
+
+    // An assignment whose right side writes `&var` of a place overlapping
+    // its target (spec, Assignment), plain or compound: the right side runs
+    // first, so what it writes through the borrow is overwritten. Shared
+    // reads are fine, `v[0] += v.len()` included, and so is a receiver the
+    // right side borrows without writing it, as the call sets count only a
+    // written reference.
+    func check_assignments(&var self, f: Int, facts: &var BorrowckLoans, reported: &var Vector<Int>) {
+        let info = self.mir.funcs[f]
+        var seen = Vector<Int>()
+        var b = 0
+        while b < info.block_count {
+            let block = self.mir.blocks[info.block_first + b]
+            var s = block.first
+            while s >= 0 {
+                let node = self.mir.stmts[s].node
+                s = self.mir.stmts[s].next
+                if node < 0 || borrowck_seen(&seen, node) {
+                    continue
+                }
+                let compound = self.mir.tc.has_alt(node, Alt.Stmt_CompoundAssign)
+                if compound || self.mir.tc.has_alt(node, Alt.Stmt_Assign) {
+                    try! seen.push(node)
+                    self.check_assignment(f, node, compound, &var facts, &var reported)
+                }
+            }
+            b = b + 1
+        }
+    }
+
+    func check_assignment(&var self, f: Int, node: Int, compound: Bool, facts: &var BorrowckLoans,
+                          reported: &var Vector<Int>) {
+        let target = self.mir.tc.res.first_node_child(node)
+        let value = self.mir.tc.res.last_node_child(node)
+        if target < 0 || value < 0 || target == value {
+            return
+        }
+        let info = self.mir.funcs[f]
+        // What the assignment writes: its own statements' targets, and the
+        // roots its target's windows charge.
+        var written = Vector<BorrowckPath>()
+        var b = 0
+        while b < info.block_count {
+            let block = self.mir.blocks[info.block_first + b]
+            var s = block.first
+            while s >= 0 {
+                let stmt = self.mir.stmts[s]
+                s = stmt.next
+                if stmt.node == node && stmt.kind == MirStmtKind.Assign && stmt.place >= 0 {
+                    let raw = self.path_of(stmt.place, &var facts)
+                    try! written.push(self.borrowck_trace(f, &raw, &var facts))
+                }
+            }
+            if block.term == MirTermKind.Call {
+                let c = self.mir.calls[block.call]
+                if c.kind == MirCallKind.WindowOpen && c.window >= 0 && self.node_within(block.term_node, target) {
+                    try! written.push(facts.window_path[c.window])
+                }
+            }
+            b = b + 1
+        }
+        b = 0
+        while b < info.block_count {
+            let block = self.mir.blocks[info.block_first + b]
+            var s = block.first
+            while s >= 0 {
+                let stmt = self.mir.stmts[s]
+                s = stmt.next
+                if stmt.kind != MirStmtKind.Assign || not self.node_within(stmt.node, value) {
+                    continue
+                }
+                if stmt.rvalue < 0 || not self.written_reference(stmt.node) {
+                    continue
+                }
+                let rv = self.mir.rvalues[stmt.rvalue]
+                if rv.kind == MirRvalueKind.Ref && rv.exclusive && rv.place >= 0 {
+                    let raw = self.path_of(rv.place, &var facts)
+                    let path = self.borrowck_trace(f, &raw, &var facts)
+                    if self.report_overwritten(f, node, compound, &written, &path, stmt.node, &var facts,
+                                               &var reported) {
+                        return
+                    }
+                }
+            }
+            b = b + 1
+        }
+    }
+
+    // Reports the assignment at `node` when `path`, borrowed or written in
+    // its right side at `at`, overlaps a place it writes.
+    func report_overwritten(&var self, f: Int, node: Int, compound: Bool, written: &Vector<BorrowckPath>,
+                            path: &BorrowckPath, at: Int, facts: &var BorrowckLoans, reported: &var Vector<Int>) -> Bool {
+        var k = 0
+        while k < written.len() {
+            let w = written[k]
+            k = k + 1
+            if not facts.overlaps(&w, &path) {
+                continue
+            }
+            var msg = StringBuilder()
+            try! msg.append("`")
+            try! msg.append(self.borrowck_path_text(f, &w, &facts))
+            if compound {
+                try! msg.append("` is written by this compound assignment while its right-hand side borrows `")
+            } else {
+                try! msg.append("` is written by this assignment while its right-hand side borrows `")
+            }
+            try! msg.append(self.borrowck_path_text(f, &path, &facts))
+            try! msg.append("` exclusively at ")
+            try! msg.append(self.mir.span_text(at, false))
+            try! msg.append("; the right-hand side runs first, so what it writes through that borrow is overwritten by the assignment. Bind the value in a statement of its own, or borrow a disjoint path")
+            self.report_loan(f, node, "assign.rhs-borrow", msg.build(), &var reported)
+            return true
+        }
+        false
+    }
+
+    // Whether source node `inner` lies within node `outer`'s span.
+    func node_within(&self, inner: Int, outer: Int) -> Bool {
+        if inner < 0 || outer < 0 {
+            return false
+        }
+        if self.mir.tc.node_module(inner) != self.mir.tc.node_module(outer) {
+            return false
+        }
+        let a = self.mir.tc.res.nodes[inner]
+        let o = self.mir.tc.res.nodes[outer]
+        a.start >= o.start && a.end <= o.end
+    }
+
+    // An accessor's prologue (SL:borrowing §2.7): each return of a lend that
+    // is not conditional lends; the place each `lend` hands out is rooted in
+    // `self`, a reference parameter, a static, or a window opened on one,
+    // since the prologue's frame ends at the `lend`; and a `borrows(sync)`
+    // window still open there makes the accessor `borrows(sync)` itself.
+    func check_prologue(&var self, f: Int, inits: &MirInit, facts: &var BorrowckLoans, reported: &var Vector<Int>) {
+        let info = self.mir.funcs[f]
+        let s = self.mir.tc.sigs[info.decl]
+        let conditional = s.lending == TcLend.ConditionalPlace || s.lending == TcLend.ConditionalSlice
+        let declared_sync = (s.effects & TC_EFFECT_BORROWS_SYNC) != 0
+        var b = 0
+        while b < info.block_count {
+            let block = self.mir.blocks[info.block_first + b]
+            if not facts.reached[b] || block.term != MirTermKind.Return {
+                b = b + 1
+                continue
+            }
+            if not conditional && inits.reached[b] {
+                var state = inits.entry_state(b)
+                self.mir.init_walk_block(f, b, &inits, &var state)
+                if state[0] != MIR_INIT_WHOLE {
+                    var msg = StringBuilder()
+                    try! msg.append("this path through the `borrows` body of `")
+                    try! msg.append(self.mir.decl_name(info.decl))
+                    try! msg.append("` ends without lending; an accessor whose lend is not conditional lends on every path, and returns no value")
+                    self.report_loan(f, block.term_node, "lend.missing", msg.build(), &var reported)
+                }
+            }
+            let count = self.instruction_count(f, b)
+            let lives = self.instruction_live(f, b, &var facts)
+            let words = facts.local_words
+            let live = borrowck_slice(&lives, (count - 1) * words, words)
+            let lw = facts.loan_words
+            let ww = facts.window_words
+            var created = borrowck_slice(&facts.created_in, b * lw, lw)
+            var open = borrowck_slice(&facts.open_in, b * ww, ww)
+            var i = 0
+            while i < count - 1 {
+                self.step_forward(&facts, f, b, i, &var created, &var open)
+                i = i + 1
+            }
+            var n = 0
+            while n < facts.loan_count() {
+                let loan = facts.loans[n]
+                if loan.kind != BorrowckLoanKind.Window && facts.carries(n, 0) && facts.is_live(n, &live, &created, &open) {
+                    let root = self.borrowck_trace(f, &loan.path, &var facts)
+                    if not self.lendable_root(f, &root, &var facts) {
+                        var msg = StringBuilder()
+                        try! msg.append("`lend` hands out `")
+                        try! msg.append(self.borrowck_path_text(f, &root, &facts))
+                        try! msg.append("`, which is not rooted in the receiver: it is the accessor's own local or parameter, storage a parameter refers to, or a static. An accessor lends storage its receiver already owns: `self`'s fields, a receiver-rooted `match` payload, an indirection read out of the receiver, or a window opened on one of those")
+                        self.report_loan(f, loan.node, "lend.root", msg.build(), &var reported)
+                    }
+                }
+                n = n + 1
+            }
+            if not declared_sync {
+                var w = 0
+                while w < info.window_count {
+                    let window = self.mir.windows[info.window_first + w]
+                    if window.sync && borrowck_bit(&open, 0, w) {
+                        var msg = StringBuilder()
+                        try! msg.append("the `borrows(sync)` window of `")
+                        if window.accessor >= 0 {
+                            try! msg.append(self.mir.decl_name(window.accessor))
+                        }
+                        try! msg.append("` opened at ")
+                        try! msg.append(self.mir.span_text(window.node, false))
+                        try! msg.append(" is still open at this `lend`, so `")
+                        try! msg.append(self.mir.decl_name(info.decl))
+                        try! msg.append("` must be declared `borrows(sync)` itself: its consumer's body runs while the window is held")
+                        self.report_loan(f, block.term_node, "lend.sync-undeclared", msg.build(), &var reported)
+                        w = info.window_count
+                    }
+                    w = w + 1
+                }
+            }
+            b = b + 1
+        }
+    }
+
+    // Whether traced path `p` of prologue `f` is the receiver's own storage
+    // (spec, The lent place is rooted in the receiver): rooted in `self`, or
+    // reached through an indirection, a pointer's index or referent, whose
+    // pointer was read out of the receiver. Tracing has already followed a
+    // window's lent reference to its receiver. A place a parameter refers
+    // to, `&var` included, the accessor's own locals, a fixed array element
+    // of one, and a static are refused; widening later stays compatible.
+    func lendable_root(&self, f: Int, p: &BorrowckPath, facts: &var BorrowckLoans) -> Bool {
+        if p.count < 0 {
+            return true
+        }
+        if p.local < 0 {
+            return false
+        }
+        if mir_func_local(&self.mir, f, p.local).kind == MirLocalKind.Receiver {
+            return true
+        }
+        var base = mir_func_local(&self.mir, f, p.local).ty
+        var k = 0
+        while k < p.count {
+            let step = facts.projs[p.first + k]
+            k = k + 1
+            let kind = self.mir.tc.kind_of(base)
+            let pointer_deref = step.kind == MirProjKind.Deref && kind != TcKind.Ref && kind != TcKind.Slice
+            let pointer_index = step.kind == MirProjKind.Index && kind != TcKind.Array
+            if pointer_deref || pointer_index {
+                return self.from_receiver(f, p.local, &var facts, 0)
+            }
+            base = step.ty
+        }
+        false
+    }
+
+    // Whether local `l` of prologue `f` holds a value read out of the
+    // receiver: the receiver itself, or a local assigned once from a place
+    // tracing to it, or from a call one of whose arguments does.
+    func from_receiver(&self, f: Int, l: Int, facts: &var BorrowckLoans, depth: Int) -> Bool {
+        if l < 0 || depth > 32 {
+            return false
+        }
+        if mir_func_local(&self.mir, f, l).kind == MirLocalKind.Receiver {
+            return true
+        }
+        if facts.def_count[l] != 1 {
+            return false
+        }
+        let s = facts.def_stmt[l]
+        var first = 0
+        var count = 0
+        if s >= 0 {
+            let stmt = self.mir.stmts[s]
+            if stmt.rvalue < 0 {
+                return false
+            }
+            let rv = self.mir.rvalues[stmt.rvalue]
+            if rv.kind == MirRvalueKind.Ref && rv.place >= 0 {
+                let raw = self.path_of(rv.place, &var facts)
+                let traced = self.borrowck_trace(f, &raw, &var facts)
+                return self.from_receiver(f, traced.local, &var facts, depth + 1)
+            }
+            first = rv.first
+            count = rv.count
+        } else {
+            let block = self.mir.blocks[self.mir.funcs[f].block_first + facts.def_block[l]]
+            let c = self.mir.calls[block.call]
+            first = c.arg_first
+            count = c.arg_count
+        }
+        var k = 0
+        while k < count {
+            let o = self.mir.operands[self.mir.lists[first + k]]
+            k = k + 1
+            if o.place < 0 {
+                continue
+            }
+            let raw = self.path_of(o.place, &var facts)
+            let traced = self.borrowck_trace(f, &raw, &var facts)
+            if self.from_receiver(f, traced.local, &var facts, depth + 1) {
+                return true
+            }
+        }
+        false
+    }
+
+    // An accessor's epilogue: a `lend` in it is a second `lend` on one path.
+    func check_epilogue(&var self, f: Int, reported: &var Vector<Int>) {
+        let info = self.mir.funcs[f]
+        var b = 0
+        while b < info.block_count {
+            let block = self.mir.blocks[info.block_first + b]
+            if block.term == MirTermKind.Call && self.mir.calls[block.call].kind == MirCallKind.Lend {
+                var msg = StringBuilder()
+                try! msg.append("this path lends twice: a `borrows` body pauses at its first `lend` and resumes after it, so the code after a `lend` must not reach another")
+                self.report_loan(f, block.term_node, "lend.twice", msg.build(), &var reported)
+            }
+            b = b + 1
+        }
+    }
+
+    func report_loan(&var self, f: Int, node: Int, id: String, message: String, reported: &var Vector<Int>) {
+        if borrowck_seen(&reported, node) {
+            return
+        }
+        try! reported.push(node)
+        var at = node
+        if at < 0 {
+            at = self.mir.funcs[f].root
+        }
+        let m = self.mir.tc.node_module(at)
+        let n = self.mir.tc.res.nodes[at]
+        try! self.diags.push(MirDiag(module: m, start: n.start, end: n.end, id: id, message: message))
+    }
+}
+
+// Whether `xs` holds `x`.
+public func borrowck_seen(xs: &Vector<Int>, x: Int) -> Bool {
+    var k = 0
+    while k < xs.len() {
+        if xs[k] == x {
+            return true
+        }
+        k = k + 1
+    }
+    false
+}
+
+// How a diagnostic says an access of `kind` touches its place.
+public func borrowck_access_verb(kind: BorrowckAccessKind) -> String {
+    match kind {
+        case Read -> "read",
+        case Write -> "written",
+        case Move -> "moved",
+        case Drop -> "dropped",
+        case Shared -> "borrowed",
+        case Exclusive -> "borrowed exclusively"
+    }
+}

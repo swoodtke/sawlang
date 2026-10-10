@@ -1,0 +1,16 @@
+// refuses: lend.missing at 9:9
+// `return` of a value in a `borrows` body: the path ends without lending
+// (conformance P01)
+
+struct Bag { items: [Int; 4] }
+
+extension Bag {
+    func at(&self, i: Int) borrows -> &Int {
+        return self.items[i]
+    }
+}
+
+func main() {
+    let b = Bag(items: [1, 2, 3, 4])
+    print(borrow b.at(0))
+}

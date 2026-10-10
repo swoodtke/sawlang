@@ -1,0 +1,9 @@
+// refuses: loan.window-root at 7:21
+// an accessor receiver opens its window before the call's arguments run, so
+// an argument reading the root reads it inside the window (SL-473)
+
+func main() {
+    var vv: Vector<Vector<Int>> = [[1]]
+    try! vv[0].push(vv.len())
+    print(vv.len())
+}

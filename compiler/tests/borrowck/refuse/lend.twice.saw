@@ -1,0 +1,16 @@
+// refuses: lend.twice at 9:9
+// two `lend`s on one path (conformance P03)
+
+struct Bag { items: [Int; 4] }
+
+extension Bag {
+    func at(&self, i: Int) borrows -> &Int {
+        lend self.items[0]
+        lend self.items[1]
+    }
+}
+
+func main() {
+    let b = Bag(items: [1, 2, 3, 4])
+    print(borrow b.at(0))
+}

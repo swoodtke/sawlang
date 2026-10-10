@@ -3,8 +3,10 @@
 // (compiler/mir/src/initialisation.saw). It refuses a use of a place that may
 // have been moved, and a `consumes` body moving a field out on some paths to
 // a return and not others, and labels each reached drop for drop
-// elaboration: static, elided or flagged.
+// elaboration: static, elided or flagged. Each function's loans are checked
+// after it (conflicts.saw).
 
+import sawborrowck.src.conflicts.{borrowck_seen}
 import sawborrowck.src.program.{BORROWCK_LABEL_ELIDED, BORROWCK_LABEL_FLAGGED, BORROWCK_LABEL_STATIC,
                                 BorrowckProgram}
 import sawmir.src.build.{mir_func_local}
@@ -19,7 +21,21 @@ import sawtypecheck.src.program.{TcProgram}
 // Every rule the borrow check refuses by.
 public func borrowck_rules() -> Vector<String> {
     var out = Vector<String>()
+    try! out.push("assign.rhs-borrow")
     try! out.push("consumes.some-paths")
+    try! out.push("lend.missing")
+    try! out.push("lend.root")
+    try! out.push("lend.sync-undeclared")
+    try! out.push("lend.twice")
+    try! out.push("loan.closure-carrier")
+    try! out.push("loan.drop-while-borrowed")
+    try! out.push("loan.exclusive-twice")
+    try! out.push("loan.move-while-borrowed")
+    try! out.push("loan.nested-call")
+    try! out.push("loan.read-while-exclusive")
+    try! out.push("loan.sync-suspend")
+    try! out.push("loan.window-root")
+    try! out.push("loan.write-while-shared")
     try! out.push("move.use-after")
     move out
 }
@@ -86,6 +102,7 @@ extension BorrowckProgram {
             }
             b = b + 1
         }
+        self.check_loans(f, &facts)
     }
 
     // Each of `accesses` checked against `state`, then applied to it: a read,

@@ -1,0 +1,17 @@
+// refuses: loan.read-while-exclusive at 10:18
+// one incoming `&var` forwarded twice in one call, `&var r` and `&r`
+// (conformance X13): reborrows of one reference overlap
+
+func look(a: &var Int, b: &Int) {
+    a = a + b
+}
+
+func forward(r: &var Int) {
+    look(&var r, &r)
+}
+
+func main() {
+    var x = 1
+    forward(&var x)
+    print(x)
+}

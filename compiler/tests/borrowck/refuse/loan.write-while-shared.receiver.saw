@@ -1,0 +1,18 @@
+// refuses: loan.write-while-shared at 16:5
+// a `&var self` receiver beside a `&self.field` argument: the receiver's
+// borrow, taken just before the call, meets the argument's live loan
+// (conformance X11)
+
+struct Counter { n: Int, step: Int }
+
+extension Counter {
+    func add(&var self, k: &Int) {
+        self.n = self.n + k
+    }
+}
+
+func main() {
+    var c = Counter(n: 1, step: 2)
+    c.add(&c.step)
+    print(c.n)
+}

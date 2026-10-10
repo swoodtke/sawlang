@@ -1,0 +1,29 @@
+// refuses: lend.sync-undeclared at 21:9
+// an accessor that forwards a `borrows(sync)` accessor's place without
+// declaring `borrows(sync)` itself (SL:borrowing §2.7)
+
+struct Lock {
+    n: Int
+}
+
+extension Lock {
+    func hold(&var self) sync borrows(sync) -> &var Int {
+        lend self.n
+    }
+}
+
+struct Guarded {
+    lock: Lock
+}
+
+extension Guarded {
+    func value(&var self) borrows -> &var Int {
+        lend self.lock.hold()
+    }
+}
+
+func main() {
+    var g = Guarded(lock: Lock(n: 0))
+    borrow var g.value() += 1
+    print(g.lock.n)
+}

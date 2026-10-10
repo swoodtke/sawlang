@@ -1,0 +1,181 @@
+module loans
+
+fn static loans.COUNTS {
+
+    bb0: {
+        [] _1 = [const 0: Int, const 0: Int];
+        [] _0 = move _1;
+        [] return;
+    }
+}
+
+fn loans.add(a: &var Int, b: &Int) {
+
+    bb0: {
+        [] _3 = Add(copy (*_1), copy (*_2));
+        [] (*_1) = move _3;
+        [] return;
+    }
+}
+
+fn loans.both(a: &Int, b: &Int) {
+
+    bb0: {
+        [] _3 = Add(copy (*_1), copy (*_2));
+        [] _0 = move _3;
+        [] return;
+    }
+}
+
+fn loans.forward(r: &var loans.Point) {
+    loan L0: exclusive (*_1).x;  // argument at 19:9
+    loan L1: shared (*_1).y;  // argument at 19:19
+    loan L2: exclusive (*_1).y;  // argument at 20:9
+    loan L3: shared (*_1).x;  // argument at 20:19
+
+    bb0: {
+        [] {} _2 = ref(exclusive, (*_1).x);
+        [] {L0} _3 = ref(shared, (*_1).y);
+        [] {L0 L1} call loans.add(a: &var Int, b: &Int) [move _2, move _3] -> [return: bb1];
+    }
+
+    bb1: {
+        [] {} _4 = ref(exclusive, (*_1).y);
+        [] {L2} _5 = ref(shared, (*_1).x);
+        [] {L2 L3} call loans.add(a: &var Int, b: &Int) [move _4, move _5] -> [return: bb2];
+    }
+
+    bb2: {
+        [] {} return;
+    }
+}
+
+fn loans.reborrow(r: &var loans.Point) {
+    loan L0: exclusive (*_1);  // argument at 24:13
+
+    bb0: {
+        [] {} _2 = ref(exclusive, (*_1));
+        [] {L0} call loans.forward(r: &var loans.Point) [move _2] -> [return: bb1];
+    }
+
+    bb1: {
+        [] {} _3 = Add(copy (*_1).x, const 1: Int);
+        [] {} (*_1).x = move _3;
+        [] {} _0 = copy (*_1).x;
+        [] {} return;
+    }
+}
+
+fn loans.disjoint() {
+    loan L0: exclusive _1.x;  // argument at 31:9
+    loan L1: shared _1.y;  // argument at 31:19
+    loan L2: exclusive _5.0;  // argument at 33:9
+    loan L3: shared _5.1;  // argument at 33:19
+    loan L4: exclusive _9[_11];  // argument at 35:9
+    loan L5: shared _9[_13];  // argument at 35:22
+    loan L6: shared _1.x;  // argument at 36:18
+    loan L7: shared _1.x;  // argument at 36:24
+    loan L8: exclusive _1.x;  // argument at 37:9
+    loan L9: shared _15;  // argument at 37:19
+
+    bb0: {
+        [] {} _2 = loans.Point { x: const 1: Int, y: const 2: Int };
+        [] {} _1 = move _2;
+        [] {} _3 = ref(exclusive, _1.x);
+        [] {L0} _4 = ref(shared, _1.y);
+        [] {L0 L1} call loans.add(a: &var Int, b: &Int) [move _3, move _4] -> [return: bb1];
+    }
+
+    bb1: {
+        [] {} _6 = (const 1: Int, const 2: Int);
+        [] {} _5 = move _6;
+        [] {} _7 = ref(exclusive, _5.0);
+        [] {L2} _8 = ref(shared, _5.1);
+        [] {L2 L3} call loans.add(a: &var Int, b: &Int) [move _7, move _8] -> [return: bb2];
+    }
+
+    bb2: {
+        [] {} _10 = [const 1: Int, const 2: Int, const 3: Int];
+        [] {} _9 = move _10;
+        [] {} _11 = const 0: Int;
+        [] {} _12 = ref(exclusive, _9[_11]);
+        [] {L4} _13 = const 1: Int;
+        [] {L4} _14 = ref(shared, _9[_13]);
+        [] {L4 L5} call loans.add(a: &var Int, b: &Int) [move _12, move _14] -> [return: bb3];
+    }
+
+    bb3: {
+        [] {} _16 = ref(shared, _1.x);
+        [] {L6} _17 = ref(shared, _1.x);
+        [] {L6 L7} _18 = call loans.both(a: &Int, b: &Int) [move _16, move _17] -> [return: bb4];
+    }
+
+    bb4: {
+        [] {} _15 = move _18;
+        [] {} _19 = ref(exclusive, _1.x);
+        [] {L8} _20 = ref(shared, _15);
+        [] {L8 L9} call loans.add(a: &var Int, b: &Int) [move _19, move _20] -> [return: bb5];
+    }
+
+    bb5: {
+        [] {} _21 = Add(copy _1.x, copy _5.0);
+        [] {} _22 = const 0: Int;
+        [] {} _23 = Add(move _21, copy _9[_22]);
+        [] {} _0 = move _23;
+        [] {} return;
+    }
+}
+
+fn loans.bump_static() {
+    loan L0: exclusive static loans.COUNTS[_1];  // argument at 42:9
+    loan L1: shared static loans.COUNTS[_3];  // argument at 42:25
+
+    bb0: {
+        [] {} _1 = const 0: Int;
+        [] {} _2 = ref(exclusive, static loans.COUNTS[_1]);
+        [] {L0} _3 = const 1: Int;
+        [] {L0} _4 = ref(shared, static loans.COUNTS[_3]);
+        [] {L0 L1} call loans.add(a: &var Int, b: &Int) [move _2, move _4] -> [return: bb1];
+    }
+
+    bb1: {
+        [] {} _5 = const 0: Int;
+        [] {} _0 = copy static loans.COUNTS[_5];
+        [] {} return;
+    }
+}
+
+fn loans.main() {
+    loan L0: exclusive _1;  // argument at 48:20
+
+    bb0: {
+        [] {} _2 = loans.Point { x: const 1: Int, y: const 2: Int };
+        [] {} _1 = move _2;
+        [] {} _3 = ref(exclusive, _1);
+        [] {L0} _4 = call loans.reborrow(r: &var loans.Point) [move _3] -> [return: bb1];
+    }
+
+    bb1: {
+        [] {} call builtin print [copy _4] -> [return: bb2];
+    }
+
+    bb2: {
+        [] {} _5 = call loans.disjoint() [] -> [return: bb3];
+    }
+
+    bb3: {
+        [] {} call builtin print [copy _5] -> [return: bb4];
+    }
+
+    bb4: {
+        [] {} _6 = call loans.bump_static() [] -> [return: bb5];
+    }
+
+    bb5: {
+        [] {} call builtin print [copy _6] -> [return: bb6];
+    }
+
+    bb6: {
+        [] {} return;
+    }
+}

@@ -1,0 +1,15 @@
+// refuses: loan.write-while-shared at 14:23
+// an exclusive borrow of a place a shared argument holds in the same call,
+// the whole overlapping its field (conformance X03)
+
+struct Point { x: Int, y: Int }
+
+func shift(r: &Int, p: &var Point) -> Int {
+    p.y = p.y + r
+    p.y
+}
+
+func main() {
+    var p = Point(x: 1, y: 2)
+    print(shift(&p.x, &var p))
+}

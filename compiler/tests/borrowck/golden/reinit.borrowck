@@ -25,27 +25,28 @@ fn reinit.revived() {
     place _1: reinit.Res;  // r
     place _2: reinit.Res;  // _2
     place _6: reinit.Res;  // _6
+    loan L0: exclusive _1;  // argument at 18:13
 
     bb0: {
-        [U U U] _2 = reinit.Res { id: const 1: Int };
-        [U W U] _1 = move _2;
-        [W M U] _4 = call reinit.take(r: reinit.Res) [move _1] -> [return: bb1];
+        [U U U] {} _2 = reinit.Res { id: const 1: Int };
+        [U W U] {} _1 = move _2;
+        [W M U] {} _4 = call reinit.take(r: reinit.Res) [move _1] -> [return: bb1];
     }
 
     bb1: {
-        [M M U] _3 = move _4;
-        [M M U] _5 = Add(copy _3, const 1: Int);
-        [M M U] _6 = reinit.Res { id: move _5 };
-        [M M W] drop(_1);  // elided
-        [D M W] _1 = move _6;
-        [W M M] _7 = ref(exclusive, _1);
-        [W M M] call reinit.replace(slot: &var reinit.Res, n: Int) [move _7, const 5: Int] -> [return: bb2];
+        [M M U] {} _3 = move _4;
+        [M M U] {} _5 = Add(copy _3, const 1: Int);
+        [M M U] {} _6 = reinit.Res { id: move _5 };
+        [M M W] {} drop(_1);  // elided
+        [D M W] {} _1 = move _6;
+        [W M M] {} _7 = ref(exclusive, _1);
+        [W M M] {L0} call reinit.replace(slot: &var reinit.Res, n: Int) [move _7, const 5: Int] -> [return: bb2];
     }
 
     bb2: {
-        [W M M] _0 = copy _1.id;
-        [W M M] drop(_1);  // static
-        [D M M] return;
+        [W M M] {} _0 = copy _1.id;
+        [W M M] {} drop(_1);  // static
+        [D M M] {} return;
     }
 }
 

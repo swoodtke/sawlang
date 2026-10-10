@@ -1,0 +1,88 @@
+// Windows accepted: a window's binding reaches the place it lends; nested
+// windows open and close last opened first; a conditional lend's absent edge
+// carries no loan, so the root is free there; the root is free again once the
+// window closes; a window that is not `borrows(sync)`, and a reference, may
+// span a suspension point; a shared window on a `let` root, whose body
+// reaches an enclosing local, and two shared windows rendered and compared
+// side by side.
+
+import std.task.{yield_now}
+
+struct Cell { n: Int }
+
+struct Row {
+    cells: [Int; 4]
+}
+
+extension Row {
+    func [](&var self, i: Int) borrows -> &var Int {
+        lend self.cells[i]
+    }
+
+    func find(&var self, i: Int) borrows -> &var Int? {
+        if i < 0 || i >= 4 {
+            return None
+        }
+        lend self.cells[i]
+    }
+}
+
+func nested(b: &var Vector<Vector<Cell>>) -> Int {
+    borrow var b[0][1].n += 1
+    borrow b[0][1].n
+}
+
+func absent(r: &var Row, i: Int) -> Int {
+    if borrow var found = r.find(i) {
+        found += 1
+    } else {
+        r.cells[0] = 9
+    }
+    r.cells[0]
+}
+
+func after(v: &var Vector<Int>) -> Int {
+    borrow var first = v[0] {
+        first += 1
+    }
+    try! v.push(1)
+    v.len()
+}
+
+func across(r: &var Row, n: &var Int) -> Int {
+    borrow var cell = r[0] {
+        yield_now()
+        cell += 1
+    }
+    n += 1
+    yield_now()
+    n += 1
+    n
+}
+
+func let_root() -> Int {
+    let v: Vector<Int> = [4, 4]
+    var total = 0
+    borrow let first = v[0] {
+        total = total + first
+    }
+    print("{borrow v[0]} {borrow v[1]}")
+    if borrow v[0] == borrow v[1] {
+        total = total + 1
+    }
+    total
+}
+
+func main() {
+    print(let_root())
+    var b: Vector<Vector<Cell>> = []
+    var row: Vector<Cell> = [Cell(n: 0), Cell(n: 5)]
+    try! b.push(move row)
+    print(nested(&var b))
+    var r = Row(cells: [1, 2, 3, 4])
+    print(absent(&var r, 7))
+    var v: Vector<Int> = [1]
+    print(after(&var v))
+    var n = 0
+    print(across(&var r, &var n))
+}

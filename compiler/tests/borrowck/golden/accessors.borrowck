@@ -1,0 +1,210 @@
+module accessors
+
+fn prologue accessors.Lock.hold() {
+    loan L0: exclusive (*_1).n;  // ref at 12:9
+
+    bb0: {
+        [] {} _2 = ref(exclusive, (*_1).n);
+        [] {L0} _0 = move _2;
+        [] {L0} return;
+    }
+}
+
+fn epilogue accessors.Lock.hold() {
+
+    bb0: {
+        [] goto -> bb1;
+    }
+
+    bb1: {
+        [] return;
+    }
+}
+
+fn prologue accessors.Row.[](i: Int) {
+    loan L0: exclusive (*_1).cells[_3];  // ref at 22:9
+
+    bb0: {
+        [] {} _3 = copy _2;
+        [] {} _4 = ref(exclusive, (*_1).cells[_3]);
+        [] {L0} _0 = move _4;
+        [] {L0} return;
+    }
+}
+
+fn epilogue accessors.Row.[](i: Int) {
+
+    bb0: {
+        [] goto -> bb1;
+    }
+
+    bb1: {
+        [] return;
+    }
+}
+
+fn prologue accessors.Grid.at(i: Int) {
+    loan L0: exclusive (*_1).row;  // ref at 33:9
+    loan L1: exclusive (*_1).row;  // window w0 at 33:9
+    loan L2: exclusive (*_4);  // ref at 33:9
+
+    bb0: {
+        [] {} _3 = copy _2;
+        [] {} _5 = ref(exclusive, (*_1).row);
+        [] {L0} _4 = window_open w0 prologue accessors.Row.[](i: Int) (owner accessors.Row) [move _5, move _3] -> [present: bb1];
+    }
+
+    bb1: {
+        [] {L0 L1} _6 = ref(exclusive, (*_4));
+        [] {L0 L1 L2} _0 = move _6;
+        [] {L0 L1 L2} return;
+    }
+}
+
+fn epilogue accessors.Grid.at(i: Int) {
+
+    bb0: {
+        [] goto -> bb1;
+    }
+
+    bb1: {
+        [] window_close w0 epilogue accessors.Row.[](i: Int) (owner accessors.Row) -> [return: bb2];
+    }
+
+    bb2: {
+        [] return;
+    }
+}
+
+fn prologue accessors.Grid.held() {
+    loan L0: exclusive (*_1).lock;  // ref at 37:9
+    loan L1: exclusive (*_1).lock;  // window w0 at 37:9
+    loan L2: exclusive (*_2);  // ref at 37:9
+
+    bb0: {
+        [] {} _3 = ref(exclusive, (*_1).lock);
+        [] {L0} _2 = window_open w0 prologue accessors.Lock.hold() (owner accessors.Lock) [move _3] -> [present: bb1];
+    }
+
+    bb1: {
+        [] {L0 L1} _4 = ref(exclusive, (*_2));
+        [] {L0 L1 L2} _0 = move _4;
+        [] {L0 L1 L2} return;
+    }
+}
+
+fn epilogue accessors.Grid.held() {
+
+    bb0: {
+        [] goto -> bb1;
+    }
+
+    bb1: {
+        [] window_close w0 epilogue accessors.Lock.hold() (owner accessors.Lock) -> [return: bb2];
+    }
+
+    bb2: {
+        [] return;
+    }
+}
+
+fn prologue accessors.Grid.maybe(i: Int) {
+    loan L0: exclusive (*_1).row.cells[_4];  // ref at 44:9
+
+    bb0: {
+        [] {} _3 = Gt(copy _2, const 3: Int);
+        [] {} switch move _3 -> [true: bb2, false: bb3];
+    }
+
+    bb1: {
+        [] {} _4 = copy _2;
+        [] {} _5 = ref(exclusive, (*_1).row.cells[_4]);
+        [] {L0} _6 = (&var Int)?::Some(move _5);
+        [] {L0} _0 = move _6;
+        [] {L0} return;
+    }
+
+    bb2: {
+        [] {} _0 = (&var Int)?::None;
+        [] {} return;
+    }
+
+    bb3: {
+        [] {} goto -> bb1;
+    }
+}
+
+fn epilogue accessors.Grid.maybe(i: Int) {
+
+    bb0: {
+        [] goto -> bb1;
+    }
+
+    bb1: {
+        [] return;
+    }
+}
+
+fn accessors.main() {
+    loan L0: exclusive _1;  // ref at 50:5
+    loan L1: exclusive _1;  // window w0 at 50:5
+    loan L2: exclusive _1;  // ref at 51:5
+    loan L3: exclusive _1;  // window w1 at 51:5
+    loan L4: exclusive _1;  // ref at 52:5
+    loan L5: exclusive _1;  // window w2 at 52:5
+    loan L6: exclusive (*_10);  // ref at 52:19
+
+    bb0: {
+        [] {} _2 = [const 1: Int, const 2: Int, const 3: Int, const 4: Int];
+        [] {} _3 = accessors.Row { cells: move _2 };
+        [] {} _4 = accessors.Lock { n: const 0: Int };
+        [] {} _5 = accessors.Grid { row: move _3, lock: move _4 };
+        [] {} _1 = move _5;
+        [] {} _7 = ref(exclusive, _1);
+        [] {L0} _6 = window_open w0 prologue accessors.Grid.at(i: Int) (owner accessors.Grid) [move _7, const 1: Int] -> [present: bb1];
+    }
+
+    bb1: {
+        [] {L0 L1} (*_6) = Add(copy (*_6), const 1: Int);
+        [] {L0 L1} window_close w0 epilogue accessors.Grid.at(i: Int) (owner accessors.Grid) -> [return: bb2];
+    }
+
+    bb2: {
+        [] {} _9 = ref(exclusive, _1);
+        [] {L2} _8 = window_open w1 prologue accessors.Grid.held() (owner accessors.Grid) [move _9] -> [present: bb3];
+    }
+
+    bb3: {
+        [] {L2 L3} (*_8) = Add(copy (*_8), const 1: Int);
+        [] {L2 L3} window_close w1 epilogue accessors.Grid.held() (owner accessors.Grid) -> [return: bb4];
+    }
+
+    bb4: {
+        [] {} _11 = ref(exclusive, _1);
+        [] {L4} _10 = window_open w2 prologue accessors.Grid.maybe(i: Int) (owner accessors.Grid) [move _11, const 2: Int] -> [present: bb6, absent: bb7];
+    }
+
+    bb5: {
+        [] {} _13 = const 1: Int;
+        [] {} _14 = Add(copy _1.row.cells[_13], copy _1.lock.n);
+        [] {} call builtin print [move _14] -> [return: bb9];
+    }
+
+    bb6: {
+        [] {L4 L5} _12 = ref(exclusive, (*_10));
+        [] {L4 L5 L6} (*_12) = Add(copy (*_12), const 1: Int);
+        [] {L4 L5} window_close w2 epilogue accessors.Grid.maybe(i: Int) (owner accessors.Grid) -> [return: bb8];
+    }
+
+    bb7: {
+        [] {} goto -> bb5;
+    }
+
+    bb8: {
+        [] {} goto -> bb5;
+    }
+
+    bb9: {
+        [] {} return;
+    }
+}

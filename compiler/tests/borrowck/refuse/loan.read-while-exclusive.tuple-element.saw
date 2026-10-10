@@ -1,0 +1,12 @@
+// refuses: loan.read-while-exclusive at 10:20
+// the same tuple element passed `&var` and `&` in one call (conformance X08)
+
+func look(a: &var Int, b: &Int) {
+    a = a + b
+}
+
+func main() {
+    var t = (1, 2)
+    look(&var t.0, &t.0)
+    print(t.0)
+}

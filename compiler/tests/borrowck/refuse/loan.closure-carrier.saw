@@ -1,0 +1,16 @@
+// refuses: loan.closure-carrier at 14:8
+// a non-escaping closure capturing `[&var v]` carries the loan from its
+// creation to its last call, so a later argument reading `v` conflicts
+
+func apply(f: (Int) -> Int, x: Int) -> Int {
+    f(x)
+}
+
+func main() {
+    var v: Vector<Int> = [1]
+    let n = apply({ [&var v] k: Int in
+        try! v.push(k)
+        v.len()
+    }, v.len())
+    print(n)
+}

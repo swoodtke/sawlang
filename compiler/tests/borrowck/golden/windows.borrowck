@@ -1,0 +1,420 @@
+module windows
+
+fn prologue windows.Row.[](i: Int) {
+    loan L0: exclusive (*_1).cells[_3];  // ref at 19:9
+
+    bb0: {
+        [] {} _3 = copy _2;
+        [] {} _4 = ref(exclusive, (*_1).cells[_3]);
+        [] {L0} _0 = move _4;
+        [] {L0} return;
+    }
+}
+
+fn epilogue windows.Row.[](i: Int) {
+
+    bb0: {
+        [] goto -> bb1;
+    }
+
+    bb1: {
+        [] return;
+    }
+}
+
+fn prologue windows.Row.find(i: Int) {
+    loan L0: exclusive (*_1).cells[_6];  // ref at 26:9
+
+    bb0: {
+        [] {} _4 = Lt(copy _2, const 0: Int);
+        [] {} switch move _4 -> [true: bb4, false: bb3];
+    }
+
+    bb1: {
+        [] {} _6 = copy _2;
+        [] {} _7 = ref(exclusive, (*_1).cells[_6]);
+        [] {L0} _8 = (&var Int)?::Some(move _7);
+        [] {L0} _0 = move _8;
+        [] {L0} return;
+    }
+
+    bb2: {
+        [] {} switch move _3 -> [true: bb5, false: bb6];
+    }
+
+    bb3: {
+        [] {} _5 = Ge(copy _2, const 4: Int);
+        [] {} _3 = move _5;
+        [] {} goto -> bb2;
+    }
+
+    bb4: {
+        [] {} _3 = const true: Bool;
+        [] {} goto -> bb2;
+    }
+
+    bb5: {
+        [] {} _0 = (&var Int)?::None;
+        [] {} return;
+    }
+
+    bb6: {
+        [] {} goto -> bb1;
+    }
+}
+
+fn epilogue windows.Row.find(i: Int) {
+
+    bb0: {
+        [] goto -> bb1;
+    }
+
+    bb1: {
+        [] return;
+    }
+}
+
+fn windows.nested(b: &var std.vector.Vector<std.vector.Vector<windows.Cell, std.alloc.GlobalAllocator>, std.alloc.GlobalAllocator>) {
+    loan L0: shared (*_1);  // ref at 31:5
+    loan L1: shared (*_1);  // window w0 at 31:5
+    loan L2: exclusive (*_2);  // ref at 31:5
+    loan L3: exclusive (*_2);  // window w1 at 31:5
+    loan L4: shared (*_1);  // ref at 32:5
+    loan L5: shared (*_1);  // window w2 at 32:5
+    loan L6: shared (*_6);  // ref at 32:5
+    loan L7: shared (*_6);  // window w3 at 32:5
+
+    bb0: {
+        [] {} _3 = ref(shared, (*_1));
+        [] {L0} _2 = window_open w0 prologue std.vector.Vector.[](index: Int) (owner std.vector.Vector<std.vector.Vector<windows.Cell, std.alloc.GlobalAllocator>, std.alloc.GlobalAllocator>) [move _3, const 0: Int] -> [present: bb1];
+    }
+
+    bb1: {
+        [] {L0 L1} _5 = ref(exclusive, (*_2));
+        [] {L0 L1 L2} _4 = window_open w1 prologue std.vector.Vector.[](index: Int) (owner std.vector.Vector<windows.Cell, std.alloc.GlobalAllocator>) [move _5, const 1: Int] -> [present: bb2];
+    }
+
+    bb2: {
+        [] {L0 L1 L2 L3} (*_4).n = Add(copy (*_4).n, const 1: Int);
+        [] {L0 L1 L2 L3} window_close w1 epilogue std.vector.Vector.[](index: Int) (owner std.vector.Vector<windows.Cell, std.alloc.GlobalAllocator>) -> [return: bb3];
+    }
+
+    bb3: {
+        [] {L0 L1} window_close w0 epilogue std.vector.Vector.[](index: Int) (owner std.vector.Vector<std.vector.Vector<windows.Cell, std.alloc.GlobalAllocator>, std.alloc.GlobalAllocator>) -> [return: bb4];
+    }
+
+    bb4: {
+        [] {} _7 = ref(shared, (*_1));
+        [] {L4} _6 = window_open w2 prologue std.vector.Vector.[](index: Int) (owner std.vector.Vector<std.vector.Vector<windows.Cell, std.alloc.GlobalAllocator>, std.alloc.GlobalAllocator>) [move _7, const 0: Int] -> [present: bb5];
+    }
+
+    bb5: {
+        [] {L4 L5} _10 = ref(shared, (*_6));
+        [] {L4 L5 L6} _9 = window_open w3 prologue std.vector.Vector.[](index: Int) (owner std.vector.Vector<windows.Cell, std.alloc.GlobalAllocator>) [move _10, const 1: Int] -> [present: bb6];
+    }
+
+    bb6: {
+        [] {L4 L5 L6 L7} _8 = copy (*_9);
+        [] {L4 L5 L6 L7} window_close w3 epilogue std.vector.Vector.[](index: Int) (owner std.vector.Vector<windows.Cell, std.alloc.GlobalAllocator>) -> [return: bb7];
+    }
+
+    bb7: {
+        [] {L4 L5} _11 = copy _8.n;
+        [] {L4 L5} window_close w2 epilogue std.vector.Vector.[](index: Int) (owner std.vector.Vector<std.vector.Vector<windows.Cell, std.alloc.GlobalAllocator>, std.alloc.GlobalAllocator>) -> [return: bb8];
+    }
+
+    bb8: {
+        [] {} _0 = move _11;
+        [] {} return;
+    }
+}
+
+fn windows.absent(r: &var windows.Row, i: Int) {
+    loan L0: exclusive (*_1);  // ref at 36:5
+    loan L1: exclusive (*_1);  // window w0 at 36:5
+    loan L2: exclusive (*_4);  // ref at 36:19
+
+    bb0: {
+        [] {} _3 = copy _2;
+        [] {} _5 = ref(exclusive, (*_1));
+        [] {L0} _4 = window_open w0 prologue windows.Row.find(i: Int) (owner windows.Row) [move _5, move _3] -> [present: bb2, absent: bb3];
+    }
+
+    bb1: {
+        [] {} _8 = const 0: Int;
+        [] {} _0 = copy (*_1).cells[_8];
+        [] {} return;
+    }
+
+    bb2: {
+        [] {L0 L1} _6 = ref(exclusive, (*_4));
+        [] {L0 L1 L2} (*_6) = Add(copy (*_6), const 1: Int);
+        [] {L0 L1} window_close w0 epilogue windows.Row.find(i: Int) (owner windows.Row) -> [return: bb4];
+    }
+
+    bb3: {
+        [] {} _7 = const 0: Int;
+        [] {} (*_1).cells[_7] = const 9: Int;
+        [] {} goto -> bb1;
+    }
+
+    bb4: {
+        [] {} goto -> bb1;
+    }
+}
+
+fn windows.after(v: &var std.vector.Vector<Int, std.alloc.GlobalAllocator>) {
+    place _6: Result<Void, std.alloc.AllocError>;  // _6
+    loan L0: exclusive (*_1);  // ref at 45:5
+    loan L1: exclusive (*_1);  // window w0 at 45:5
+    loan L2: exclusive (*_2);  // ref at 45:16
+    loan L3: exclusive (*_1);  // argument at 48:10
+    loan L4: shared (*_1);  // argument at 49:5
+
+    bb0: {
+        [U] {} _3 = ref(exclusive, (*_1));
+        [U] {L0} _2 = window_open w0 prologue std.vector.Vector.[](index: Int) (owner std.vector.Vector<Int, std.alloc.GlobalAllocator>) [move _3, const 0: Int] -> [present: bb1];
+    }
+
+    bb1: {
+        [U] {L0 L1} _4 = ref(exclusive, (*_2));
+        [U] {L0 L1 L2} (*_4) = Add(copy (*_4), const 1: Int);
+        [U] {L0 L1} window_close w0 epilogue std.vector.Vector.[](index: Int) (owner std.vector.Vector<Int, std.alloc.GlobalAllocator>) -> [return: bb2];
+    }
+
+    bb2: {
+        [U] {} _5 = ref(exclusive, (*_1));
+        [U] {L3} _6 = call std.vector.Vector.push(value: T) (owner std.vector.Vector<Int, std.alloc.GlobalAllocator>) [move _5, const 1: Int] -> [return: bb3];
+    }
+
+    bb3: {
+        [W] {} _7 = copy (_6 as Ok!).0;
+        [W] {} drop(_6);  // static
+        [D] {} _8 = ref(shared, (*_1));
+        [D] {L4} _9 = call std.vector.Vector.len() (owner std.vector.Vector<Int, std.alloc.GlobalAllocator>) [move _8] -> [return: bb4];
+    }
+
+    bb4: {
+        [D] {} _0 = move _9;
+        [D] {} return;
+    }
+}
+
+fn windows.across(r: &var windows.Row, n: &var Int) {
+    loan L0: exclusive (*_1);  // ref at 53:5
+    loan L1: exclusive (*_1);  // window w0 at 53:5
+    loan L2: exclusive (*_3);  // ref at 53:16
+
+    bb0: {
+        [] {} _4 = ref(exclusive, (*_1));
+        [] {L0} _3 = window_open w0 prologue windows.Row.[](i: Int) (owner windows.Row) [move _4, const 0: Int] -> [present: bb1];
+    }
+
+    bb1: {
+        [] {L0 L1} _5 = ref(exclusive, (*_3));
+        [] {L0 L1 L2} call std.task.yield_now() [] -> [return: bb2] suspends;
+    }
+
+    bb2: {
+        [] {L0 L1 L2} (*_5) = Add(copy (*_5), const 1: Int);
+        [] {L0 L1} window_close w0 epilogue windows.Row.[](i: Int) (owner windows.Row) -> [return: bb3];
+    }
+
+    bb3: {
+        [] {} (*_2) = Add(copy (*_2), const 1: Int);
+        [] {} call std.task.yield_now() [] -> [return: bb4] suspends;
+    }
+
+    bb4: {
+        [] {} (*_2) = Add(copy (*_2), const 1: Int);
+        [] {} _0 = copy (*_2);
+        [] {} return;
+    }
+}
+
+fn windows.let_root() {
+    place _1: std.vector.Vector<Int, std.alloc.GlobalAllocator>;  // v
+    place _2: std.vector.Vector<Int, std.alloc.GlobalAllocator>;  // _2
+    place _14: String;  // _14
+    loan L0: shared _1;  // ref at 66:5
+    loan L1: shared _1;  // window w0 at 66:5
+    loan L2: shared (*_4);  // ref at 66:16
+    loan L3: shared _1;  // ref at 69:13
+    loan L4: shared _1;  // window w1 at 69:13
+    loan L5: shared _1;  // ref at 69:27
+    loan L6: shared _1;  // window w2 at 69:27
+    loan L7: shared _1;  // ref at 70:8
+    loan L8: shared _1;  // window w3 at 70:8
+    loan L9: shared _1;  // ref at 70:23
+    loan L10: shared _1;  // window w4 at 70:23
+
+    bb0: {
+        [U U U] {} _2 = vector [const 4: Int, const 4: Int]: std.vector.Vector<Int, std.alloc.GlobalAllocator>;
+        [U W U] {} _1 = move _2;
+        [W M U] {} _3 = const 0: Int;
+        [W M U] {} _5 = ref(shared, _1);
+        [W M U] {L0} _4 = window_open w0 prologue std.vector.Vector.[](index: Int) (owner std.vector.Vector<Int, std.alloc.GlobalAllocator>) [move _5, const 0: Int] -> [present: bb1];
+    }
+
+    bb1: {
+        [W M U] {L0 L1} _6 = ref(shared, (*_4));
+        [W M U] {L0 L1 L2} _7 = Add(copy _3, copy (*_6));
+        [W M U] {L0 L1} _3 = move _7;
+        [W M U] {L0 L1} window_close w0 epilogue std.vector.Vector.[](index: Int) (owner std.vector.Vector<Int, std.alloc.GlobalAllocator>) -> [return: bb2];
+    }
+
+    bb2: {
+        [W M U] {} _10 = ref(shared, _1);
+        [W M U] {L3} _9 = window_open w1 prologue std.vector.Vector.[](index: Int) (owner std.vector.Vector<Int, std.alloc.GlobalAllocator>) [move _10, const 0: Int] -> [present: bb3];
+    }
+
+    bb3: {
+        [W M U] {L3 L4} _8 = copy (*_9);
+        [W M U] {L3 L4} window_close w1 epilogue std.vector.Vector.[](index: Int) (owner std.vector.Vector<Int, std.alloc.GlobalAllocator>) -> [return: bb4];
+    }
+
+    bb4: {
+        [W M U] {} _13 = ref(shared, _1);
+        [W M U] {L5} _12 = window_open w2 prologue std.vector.Vector.[](index: Int) (owner std.vector.Vector<Int, std.alloc.GlobalAllocator>) [move _13, const 1: Int] -> [present: bb5];
+    }
+
+    bb5: {
+        [W M U] {L5 L6} _11 = copy (*_12);
+        [W M U] {L5 L6} window_close w2 epilogue std.vector.Vector.[](index: Int) (owner std.vector.Vector<Int, std.alloc.GlobalAllocator>) -> [return: bb6];
+    }
+
+    bb6: {
+        [W M U] {} _14 = interpolate [copy _8, const " ": String, copy _11];
+        [W M W] {} call builtin print [move _14] -> [return: bb7];
+    }
+
+    bb7: {
+        [W M M] {} _17 = ref(shared, _1);
+        [W M M] {L7} _16 = window_open w3 prologue std.vector.Vector.[](index: Int) (owner std.vector.Vector<Int, std.alloc.GlobalAllocator>) [move _17, const 0: Int] -> [present: bb9];
+    }
+
+    bb8: {
+        [W M M] {} _0 = copy _3;
+        [W M M] {} drop(_1);  // static
+        [D M M] {} return;
+    }
+
+    bb9: {
+        [W M M] {L7 L8} _15 = copy (*_16);
+        [W M M] {L7 L8} window_close w3 epilogue std.vector.Vector.[](index: Int) (owner std.vector.Vector<Int, std.alloc.GlobalAllocator>) -> [return: bb10];
+    }
+
+    bb10: {
+        [W M M] {} _20 = ref(shared, _1);
+        [W M M] {L9} _19 = window_open w4 prologue std.vector.Vector.[](index: Int) (owner std.vector.Vector<Int, std.alloc.GlobalAllocator>) [move _20, const 1: Int] -> [present: bb11];
+    }
+
+    bb11: {
+        [W M M] {L9 L10} _18 = copy (*_19);
+        [W M M] {L9 L10} window_close w4 epilogue std.vector.Vector.[](index: Int) (owner std.vector.Vector<Int, std.alloc.GlobalAllocator>) -> [return: bb12];
+    }
+
+    bb12: {
+        [W M M] {} _21 = Eq(copy _15, copy _18);
+        [W M M] {} switch move _21 -> [true: bb13, false: bb14];
+    }
+
+    bb13: {
+        [W M M] {} _22 = Add(copy _3, const 1: Int);
+        [W M M] {} _3 = move _22;
+        [W M M] {} goto -> bb8;
+    }
+
+    bb14: {
+        [W M M] {} goto -> bb8;
+    }
+}
+
+fn windows.main() {
+    place _2: std.vector.Vector<std.vector.Vector<windows.Cell, std.alloc.GlobalAllocator>, std.alloc.GlobalAllocator>;  // b
+    place _3: std.vector.Vector<std.vector.Vector<windows.Cell, std.alloc.GlobalAllocator>, std.alloc.GlobalAllocator>;  // _3
+    place _4: std.vector.Vector<windows.Cell, std.alloc.GlobalAllocator>;  // row
+    place _7: std.vector.Vector<windows.Cell, std.alloc.GlobalAllocator>;  // _7
+    place _8: std.vector.Vector<windows.Cell, std.alloc.GlobalAllocator>;  // _8
+    place _10: Result<Void, std.alloc.AllocError>;  // _10
+    place _19: std.vector.Vector<Int, std.alloc.GlobalAllocator>;  // v
+    place _20: std.vector.Vector<Int, std.alloc.GlobalAllocator>;  // _20
+    loan L0: exclusive _2;  // argument at 80:10
+    loan L1: exclusive _2;  // argument at 81:18
+    loan L2: exclusive _14;  // argument at 83:18
+    loan L3: exclusive _19;  // argument at 85:17
+    loan L4: exclusive _14;  // argument at 87:18
+    loan L5: exclusive _23;  // argument at 87:26
+
+    bb0: {
+        [U U U U U U U U] {} _1 = call windows.let_root() [] -> [return: bb1];
+    }
+
+    bb1: {
+        [U U U U U U U U] {} call builtin print [copy _1] -> [return: bb2];
+    }
+
+    bb2: {
+        [U U U U U U U U] {} _3 = vector []: std.vector.Vector<std.vector.Vector<windows.Cell, std.alloc.GlobalAllocator>, std.alloc.GlobalAllocator>;
+        [U W U U U U U U] {} _2 = move _3;
+        [W M U U U U U U] {} _5 = windows.Cell { n: const 0: Int };
+        [W M U U U U U U] {} _6 = windows.Cell { n: const 5: Int };
+        [W M U U U U U U] {} _7 = vector [move _5, move _6]: std.vector.Vector<windows.Cell, std.alloc.GlobalAllocator>;
+        [W M U W U U U U] {} _4 = move _7;
+        [W M W M U U U U] {} _8 = move _4;
+        [W M M M W U U U] {} _9 = ref(exclusive, _2);
+        [W M M M W U U U] {L0} _10 = call std.vector.Vector.push(value: T) (owner std.vector.Vector<std.vector.Vector<windows.Cell, std.alloc.GlobalAllocator>, std.alloc.GlobalAllocator>) [move _9, move _8] -> [return: bb3];
+    }
+
+    bb3: {
+        [W M M M M W U U] {} _11 = copy (_10 as Ok!).0;
+        [W M M M M W U U] {} drop(_10);  // static
+        [W M M M M D U U] {} _12 = ref(exclusive, _2);
+        [W M M M M D U U] {L1} _13 = call windows.nested(b: &var std.vector.Vector<std.vector.Vector<windows.Cell, std.alloc.GlobalAllocator>, std.alloc.GlobalAllocator>) [move _12] -> [return: bb4];
+    }
+
+    bb4: {
+        [W M M M M D U U] {} call builtin print [copy _13] -> [return: bb5];
+    }
+
+    bb5: {
+        [W M M M M D U U] {} _15 = [const 1: Int, const 2: Int, const 3: Int, const 4: Int];
+        [W M M M M D U U] {} _16 = windows.Row { cells: move _15 };
+        [W M M M M D U U] {} _14 = move _16;
+        [W M M M M D U U] {} _17 = ref(exclusive, _14);
+        [W M M M M D U U] {L2} _18 = call windows.absent(r: &var windows.Row, i: Int) [move _17, const 7: Int] -> [return: bb6];
+    }
+
+    bb6: {
+        [W M M M M D U U] {} call builtin print [copy _18] -> [return: bb7];
+    }
+
+    bb7: {
+        [W M M M M D U U] {} _20 = vector [const 1: Int]: std.vector.Vector<Int, std.alloc.GlobalAllocator>;
+        [W M M M M D U W] {} _19 = move _20;
+        [W M M M M D W M] {} _21 = ref(exclusive, _19);
+        [W M M M M D W M] {L3} _22 = call windows.after(v: &var std.vector.Vector<Int, std.alloc.GlobalAllocator>) [move _21] -> [return: bb8];
+    }
+
+    bb8: {
+        [W M M M M D W M] {} call builtin print [copy _22] -> [return: bb9];
+    }
+
+    bb9: {
+        [W M M M M D W M] {} _23 = const 0: Int;
+        [W M M M M D W M] {} _24 = ref(exclusive, _14);
+        [W M M M M D W M] {L4} _25 = ref(exclusive, _23);
+        [W M M M M D W M] {L4 L5} _26 = call windows.across(r: &var windows.Row, n: &var Int) [move _24, move _25] -> [return: bb10] suspends;
+    }
+
+    bb10: {
+        [W M M M M D W M] {} call builtin print [copy _26] -> [return: bb11];
+    }
+
+    bb11: {
+        [W M M M M D W M] {} drop(_19);  // static
+        [W M M M M D D M] {} drop(_4);  // elided
+        [W M D M M D D M] {} drop(_2);  // static
+        [D M D M M D D M] {} return;
+    }
+}

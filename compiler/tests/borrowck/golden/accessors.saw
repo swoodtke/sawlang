@@ -1,0 +1,56 @@
+// Accessors accepted: a `lend` rooted in `self`, or forwarding a window opened
+// on `self`, which stays open until the epilogue closes it; an accessor that
+// forwards a `borrows(sync)` window declares `borrows(sync)` itself; a
+// conditional lend's absent path returns `None`.
+
+struct Lock {
+    n: Int
+}
+
+extension Lock {
+    func hold(&var self) sync borrows(sync) -> &var Int {
+        lend self.n
+    }
+}
+
+struct Row {
+    cells: [Int; 4]
+}
+
+extension Row {
+    func [](&var self, i: Int) borrows -> &var Int {
+        lend self.cells[i]
+    }
+}
+
+struct Grid {
+    row: Row,
+    lock: Lock
+}
+
+extension Grid {
+    func at(&var self, i: Int) borrows -> &var Int {
+        lend self.row[i]
+    }
+
+    func held(&var self) sync borrows(sync) -> &var Int {
+        lend self.lock.hold()
+    }
+
+    func maybe(&var self, i: Int) borrows -> &var Int? {
+        if i > 3 {
+            return None
+        }
+        lend self.row.cells[i]
+    }
+}
+
+func main() {
+    var g = Grid(row: Row(cells: [1, 2, 3, 4]), lock: Lock(n: 0))
+    borrow var g.at(1) += 1
+    borrow var g.held() += 1
+    if borrow var m = g.maybe(2) {
+        m += 1
+    }
+    print(g.row.cells[1] + g.lock.n)
+}

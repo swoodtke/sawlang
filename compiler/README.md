@@ -93,10 +93,12 @@ compiler/
                       and shape fixtures, the API-equivalence members and
                       exceptions, the behaviour pairs, the MIR pins and the cones
     borrowck/         the borrowck lane (borrowck_lane.py): the dump's
-                      specification (README.md), golden records, refusal
-                      fixtures, the conformance matrix of the borrow-check rows
-                      (CONFORMANCE.md) and the move-error differential over
-                      tests/corpus/ (differential.tsv)
+                      specification (README.md), golden records, refusal and
+                      due fixtures, the soundness premise's pins (premise/),
+                      the conformance matrix of the borrow-check rows
+                      (CONFORMANCE.md), and the move-error and loan
+                      differentials over tests/corpus/ (differential.tsv,
+                      loan_differential.tsv)
     drops/            the drops lane (drops_lane.py): the dump's specification
                       (README.md), golden records, refusal and due fixtures, and
                       the conformance rows drop elaboration owns (conformance.tsv)
@@ -228,12 +230,17 @@ these things.
   builder and the allocator.
 - **The borrow check** (`tests/borrowck/README.md`): the borrowck lane
   (`tests/borrowck/borrowck_lane.py`) holds `sawc2 borrowck` to its golden
-  records and refusal fixtures, requires a fixture for every rule it refuses
-  by, checks the compiler's own source whole and the new std with no refusal
-  and no invariant, requires `tests/borrowck/CONFORMANCE.md` to account for
-  every row of the five borrow-check sections of
-  `examples/conformance/INDEX.md`, and holds every tests/corpus/ program that
-  expects a move error to a borrow-check refusal or a stated reason.
+  records, refusal and due fixtures, requires a fixture for every rule it
+  refuses by, checks the compiler's own source whole and the new std with no
+  refusal and no invariant, requires `tests/borrowck/CONFORMANCE.md` to
+  account for every row of the five borrow-check sections of
+  `examples/conformance/INDEX.md`, holds every tests/corpus/ program that
+  expects a move error to a borrow-check refusal or a stated reason, and
+  every program that expects a loan error, or that a loan rule refuses
+  though it expects to succeed, to a loan refusal or a stated mechanism. The
+  check is sound without lifetimes only because typecheck keeps every
+  reference inside its function (SL-462), which `tests/borrowck/premise/`
+  pins.
 - **Drop elaboration** (`tests/drops/README.md`): the drops lane
   (`tests/drops/drops_lane.py`) holds `sawc2 drops` to its golden records,
   refusal and due fixtures, elaborates the compiler's own source whole and

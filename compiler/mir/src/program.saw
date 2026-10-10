@@ -100,6 +100,11 @@ public struct MirProgram {
     // at its end (`source_at` in build.saw).
     public at: Int
     public at_closing: Bool
+    // Whether the place being prepared is an assignment's target, whose
+    // windows open after its right side; anywhere else a plan opens its
+    // windows in receiver position, before the arguments that follow them
+    // (`open_receiver_windows` in lower.saw).
+    public defer_windows: Bool
 }
 
 extension MirProgram: NoCopy {}
@@ -134,5 +139,5 @@ public func mir_program(tc: TcProgram) -> MirProgram {
                statement_windows: Vector<Int>(), refused: false, moved_parts: Vector<Int>(),
                release_fields: Vector<Int>(), release_types: Vector<Int>(),
                aux: Vector<Int>(), accessors: Vector<MirAccessor>(), accessor_of: move accessor_of,
-               order_now: 0, at: -1, at_closing: false)
+               order_now: 0, at: -1, at_closing: false, defer_windows: false)
 }

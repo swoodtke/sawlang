@@ -1,0 +1,12 @@
+// refuses: loan.window-root at 8:14
+// `v.push` inside a window on the same vector: the window charges its whole
+// root (conformance X14, X15, P18)
+
+func main() {
+    var v: Vector<Int> = [1, 2]
+    borrow var first = v[0] {
+        try! v.push(3)
+        first += 1
+    }
+    print(v.len())
+}

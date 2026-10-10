@@ -436,7 +436,8 @@ extension MirProgram {
 
     // The fields of struct `d` that `move self.f` moves out anywhere under
     // node `id`, each once; `whole` set by a `move self` of all of it. A move
-    // deeper into `self` is refused. A trivially copyable field is read as a
+    // deeper into `self` is typecheck's to refuse, so meeting one here is an
+    // invariant. A trivially copyable field is read as a
     // copy (`op_move`), which leaves `self` whole, so it is never one.
     func fields_moved_from_self(&var self, id: Int, d: Int, moved: &var Vector<Int>, whole: &var Bool) {
         let n = self.tc.child_count(id)
@@ -460,7 +461,7 @@ extension MirProgram {
                         try! moved.push(f)
                     }
                 } else if self.rooted_in_self(operand) {
-                    self.not_yet(c, "a move out of `self` that is not one of its fields")
+                    self.missing(c, "a move out of `self` deeper than one field, which typecheck refuses as transfer.partial-move")
                 }
             }
             self.fields_moved_from_self(c, d, &var moved, &var whole)
@@ -1000,7 +1001,7 @@ extension MirProgram {
         let value = self.tc.res.last_node_child(s)
         let _ = self.open_scope()
         var steps = Vector<MirStep>()
-        self.prepare_base(target, &var steps)
+        self.prepare_target(target, &var steps)
         let o = self.operand(value)
         let n = steps.len()
         if n > 0 && steps[n - 1].kind == MIR_STEP_SETITEM {
@@ -1015,6 +1016,15 @@ extension MirProgram {
             self.assign(p, rv)
         }
         self.close_scope()
+    }
+
+    // An assignment's target planned: its subexpressions evaluated now, its
+    // windows left for `realize`, after the right side (SL:borrowing §2.2).
+    func prepare_target(&var self, target: Int, steps: &var Vector<MirStep>) {
+        let deferred = self.defer_windows
+        self.defer_windows = true
+        self.prepare_base(target, &var steps)
+        self.defer_windows = deferred
     }
 
     // `place op= value`: read and written in place, the value evaluated
@@ -1037,7 +1047,7 @@ extension MirProgram {
         }
         let _ = self.open_scope()
         var steps = Vector<MirStep>()
-        self.prepare_base(target, &var steps)
+        self.prepare_target(target, &var steps)
         let o = self.operand(value)
         let p = self.realize_all(&steps)
         let t = self.place_type(p)
@@ -1523,7 +1533,12 @@ extension MirProgram {
     // Expression `e` lowered, before its adjustments and its transfer.
     public func lower_val(&var self, e: Int) -> MirVal {
         let saved = self.source_at(e)
+        // A value inside an assignment's target, a key, is an expression of
+        // its own, whose windows open in receiver position.
+        let deferred = self.defer_windows
+        self.defer_windows = false
         let v = self.lower_val_at(e)
+        self.defer_windows = deferred
         self.source_restore(saved)
         v
     }
@@ -1948,6 +1963,32 @@ extension MirProgram {
         }
     }
 
+    // Opens the windows plan `steps` holds now, leaving one root step naming
+    // the place they lend. Opening a window runs its accessor's prologue, so
+    // a receiver's windows open before the arguments of its call (spec,
+    // Argument Evaluation Order); a plain receiver's borrow, which runs no
+    // code, still waits for the call. An assignment's target defers instead.
+    func open_receiver_windows(&var self, steps: &var Vector<MirStep>) {
+        if self.defer_windows {
+            return
+        }
+        var opens = false
+        var k = 0
+        while k < steps.len() {
+            if steps[k].kind == MIR_STEP_WINDOW {
+                opens = true
+            }
+            k = k + 1
+        }
+        if not opens {
+            return
+        }
+        let node = steps[steps.len() - 1].node
+        let p = self.realize_all(&steps)
+        steps = Vector<MirStep>()
+        self.push_root(&var steps, node, p, false)
+    }
+
     // Whether the receiver base `e` is borrowed exclusively, as its
     // adjustment chain records.
     func borrows_exclusively(&self, e: Int) -> Bool {
@@ -2096,6 +2137,7 @@ extension MirProgram {
         let base = self.tc.res.first_node_child(e)
         if c.role == TcRole.BuiltinOperator {
             self.prepare_base(base, &var steps)
+            self.open_receiver_windows(&var steps)
             let key = self.subscript_values(e)
             let o = self.operand(key[0])
             let p = self.as_place(mir_operand_val(o), key[0])
@@ -2110,6 +2152,7 @@ extension MirProgram {
             return
         }
         self.prepare_base(base, &var steps)
+        self.open_receiver_windows(&var steps)
         let keys = self.call_arguments(e, &c, true)
         let first = self.push_args(&keys)
         var kind = MIR_STEP_WINDOW
@@ -2173,6 +2216,7 @@ extension MirProgram {
         }
         let base = self.tc.res.first_node_child(callee)
         self.prepare_base(base, &var steps)
+        self.open_receiver_windows(&var steps)
         let args = self.call_arguments(e, &c, true)
         let first = self.push_args(&args)
         var exclusive = 0
@@ -2401,6 +2445,7 @@ extension MirProgram {
         let t = self.tc.expr_types[e]
         var steps = Vector<MirStep>()
         self.prepare_base(base, &var steps)
+        self.open_receiver_windows(&var steps)
         let keys = self.call_arguments(e, &c, true)
         let p = self.realize_all(&steps)
         let result = self.new_temp(t)
@@ -2571,6 +2616,7 @@ extension MirProgram {
         let base = self.tc.res.first_node_child(callee)
         var steps = Vector<MirStep>()
         self.prepare_base(base, &var steps)
+        self.open_receiver_windows(&var steps)
         let args = self.call_arguments(e, &c, true)
         let p = self.realize_all(&steps)
         let first = self.push_args(&args)
@@ -2583,9 +2629,9 @@ extension MirProgram {
     }
 
     // A call of a function, method, requirement or `init`. A receiver taken
-    // by reference has its place resolved first and its borrow taken after
-    // the arguments, just before the call; one taken by value is an operand
-    // like an argument.
+    // by reference has its place resolved and its windows opened first, and
+    // its borrow taken after the arguments, just before the call; one taken
+    // by value is an operand like an argument.
     func function_call(&var self, e: Int, c: &TcCall) -> MirVal {
         let t = self.tc.expr_types[e]
         let callee = self.tc.res.first_node_child(e)
@@ -2602,6 +2648,7 @@ extension MirProgram {
             if self.borrows_receiver(base) {
                 by_reference = true
                 self.prepare_base(base, &var steps)
+                self.open_receiver_windows(&var steps)
             } else {
                 receiver = self.receiver_operand(base, e, &c)
             }
@@ -2847,6 +2894,7 @@ extension MirProgram {
             if self.borrows_receiver(base) {
                 var steps = Vector<MirStep>()
                 self.prepare_base(base, &var steps)
+                self.open_receiver_windows(&var steps)
                 let args = self.builtin_operands(e)
                 let p = self.realize_all(&steps)
                 let exclusive = self.borrows_exclusively(base)
@@ -3876,6 +3924,7 @@ extension MirProgram {
         }
         var steps = Vector<MirStep>()
         self.prepare_base(base, &var steps)
+        self.open_receiver_windows(&var steps)
         let args = self.call_arguments(e, &c, true)
         let p = self.realize_all(&steps)
         let first = self.push_args(&args)
@@ -4182,6 +4231,7 @@ extension MirProgram {
                 let base = self.tc.res.first_node_child(callee)
                 var steps = Vector<MirStep>()
                 self.prepare_base(base, &var steps)
+                self.open_receiver_windows(&var steps)
                 let args = self.call_arguments(seq, &c, true)
                 let p = self.realize_all(&steps)
                 let first = self.push_args(&args)

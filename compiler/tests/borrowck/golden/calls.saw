@@ -1,0 +1,76 @@
+// A call's references accepted: a plain receiver's borrow is taken just
+// before its call, after the arguments, so an argument may read the receiver;
+// a receiver a nested call borrows without a written reference joins no
+// access set; nested written references on disjoint fields or distinct roots
+// do not overlap; an assignment's right side may read what it writes, and may
+// borrow a disjoint path exclusively.
+
+struct Point { x: Int, y: Int }
+
+struct Bag { items: Vector<Int> }
+extension Bag: NoCopy {}
+
+extension Bag {
+    func size(&self) -> Int {
+        self.items.len()
+    }
+
+    func add(&var self, n: Int) {
+        try! self.items.push(n)
+    }
+}
+
+extension Int {
+    func get(&self) -> Int {
+        self
+    }
+}
+
+func bump(n: &var Int) -> Int {
+    n = n + 1
+    n
+}
+
+func combine(a: Int, b: Int) -> Int { a + b }
+
+func scale(a: &var Int, k: Int) {
+    a = a * k
+}
+
+func add(a: &var Int, k: Int) {
+    a = a + k
+}
+
+func receivers(v: &var Vector<Int>, b: &var Bag) -> Int {
+    try! v.push(v.len())
+    b.add(b.size())
+    v.len() + b.size()
+}
+
+func nested() -> Int {
+    var n = 1
+    let total = combine(n.get(), bump(&var n))
+    var p = Point(x: 1, y: 2)
+    scale(&var p.y, bump(&var p.x))
+    var x = 1
+    var y = 2
+    add(&var x, bump(&var y))
+    total + p.y + x
+}
+
+func assignments(v: &var Vector<Int>, w: &var Vector<Int>) -> Int {
+    v[0] += v.len()
+    w[0] += w[1]
+    var p = Point(x: 1, y: 2)
+    p.x = bump(&var p.y)
+    p.x + v[0] + w[0]
+}
+
+func main() {
+    var v: Vector<Int> = [1, 2]
+    var b = Bag(items: [])
+    print(receivers(&var v, &var b))
+    print(nested())
+    var w: Vector<Int> = [3, 4]
+    print(assignments(&var v, &var w))
+}

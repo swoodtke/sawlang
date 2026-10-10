@@ -1,0 +1,19 @@
+// refuses: lend.root at 12:9
+// a `lend` of the accessor's own local, which dies when the accessor pauses
+// (conformance P05, P14, P15)
+
+struct Counter {
+    n: Int
+}
+
+extension Counter {
+    func slot(&self) borrows -> &Int {
+        var tmp = self.n + 1
+        lend tmp
+    }
+}
+
+func main() {
+    let c = Counter(n: 1)
+    print(borrow c.slot())
+}

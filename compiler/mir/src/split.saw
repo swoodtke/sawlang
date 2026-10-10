@@ -136,6 +136,17 @@ extension MirProgram {
         self.funcs[f] = info
     }
 
+    // A fact typecheck guarantees found false in function `f`, at node
+    // `node`: an INVARIANT line, never a user's refusal.
+    func missing_at(&var self, f: Int, node: Int, what: String) {
+        let outer = self.refused
+        self.missing(node, what)
+        self.refused = outer
+        var info = self.funcs[f]
+        info.refused = true
+        self.funcs[f] = info
+    }
+
     // The blocks of `f` reachable from block `from`; with `stop`, a `lend`'s
     // resume edge is not followed.
     func reach(&self, f: Int, from: Int, stop: Bool) -> Vector<Bool> {
@@ -397,8 +408,10 @@ extension MirProgram {
             let own = states[k]
             var slot = -1
             if (own & MIR_INIT_PARTIAL) != 0 {
+                // Only a source `move` of a part leaves a local partial across
+                // a `lend`, and typecheck refuses that (transfer.partial-move).
                 let root = self.funcs[f].root
-                self.not_yet_at(f, root, "an accessor whose local is partly moved out at `lend`")
+                self.missing_at(f, root, "an accessor's local is partly moved out at `lend`, which typecheck refuses as transfer.partial-move")
             } else if own != MIR_INIT_WHOLE && self.owns(t) {
                 slot = next
                 next = next + 1

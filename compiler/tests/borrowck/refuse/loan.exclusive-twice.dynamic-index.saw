@@ -1,0 +1,14 @@
+// refuses: loan.exclusive-twice at 12:23
+// two dynamic indices of one array are assumed to overlap (conformance X06)
+
+func pair(a: &var Int, b: &var Int) {
+    a = a + b
+}
+
+func main() {
+    var arr: [Int; 4] = [1, 2, 3, 4]
+    let i = 0
+    let j = 1
+    pair(&var arr[i], &var arr[j])
+    print(arr[0])
+}

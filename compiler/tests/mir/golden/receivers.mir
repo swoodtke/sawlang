@@ -1,0 +1,405 @@
+module receivers
+
+fn prologue receivers.Inner.inner(k: Int) -> &var std.vector.Vector<Int, std.alloc.GlobalAllocator> {
+    let _0: &var std.vector.Vector<Int, std.alloc.GlobalAllocator>;  // return
+    let _1: &var receivers.Inner;  // self
+    let _2: Int;  // param k
+    let _3: &var std.vector.Vector<Int, std.alloc.GlobalAllocator>;
+
+    bb0: {
+        call builtin print [const "inner prologue": String] -> [return: bb1];
+    }
+
+    bb1: {
+        _3 = ref(exclusive, (*_1).items);
+        _0 = move _3;
+        return;
+    }
+}
+
+fn epilogue receivers.Inner.inner(k: Int) -> Void {
+    let _0: Void;  // return
+
+    bb0: {
+        goto -> bb1;
+    }
+
+    bb1: {
+        return;
+    }
+}
+
+fn prologue receivers.Grid.cell() -> &var receivers.Inner {
+    let _0: &var receivers.Inner;  // return
+    let _1: &var receivers.Grid;  // self
+    let _2: &var receivers.Inner;
+
+    bb0: {
+        call builtin print [const "cell prologue": String] -> [return: bb1];
+    }
+
+    bb1: {
+        _2 = ref(exclusive, (*_1).held);
+        _0 = move _2;
+        return;
+    }
+}
+
+fn epilogue receivers.Grid.cell() -> Void {
+    let _0: Void;  // return
+
+    bb0: {
+        goto -> bb1;
+    }
+
+    bb1: {
+        return;
+    }
+}
+
+fn prologue receivers.Grid.find(i: Int) -> (&var receivers.Inner)? {
+    let _0: (&var receivers.Inner)?;  // return
+    let _1: &var receivers.Grid;  // self
+    let _2: Int;  // param i
+    let _3: Bool;
+    let _4: &var receivers.Inner;
+    let _5: (&var receivers.Inner)?;
+
+    bb0: {
+        _3 = Gt(copy _2, const 0: Int);
+        switch move _3 -> [true: bb2, false: bb3];
+    }
+
+    bb1: {
+        _4 = ref(exclusive, (*_1).held);
+        _5 = (&var receivers.Inner)?::Some(move _4);
+        _0 = move _5;
+        return;
+    }
+
+    bb2: {
+        _0 = (&var receivers.Inner)?::None;
+        return;
+    }
+
+    bb3: {
+        goto -> bb1;
+    }
+}
+
+fn epilogue receivers.Grid.find(i: Int) -> Void {
+    let _0: Void;  // return
+
+    bb0: {
+        goto -> bb1;
+    }
+
+    bb1: {
+        return;
+    }
+}
+
+fn prologue receivers.Grid.[](i: Int) -> &var Int {
+    let _0: &var Int;  // return
+    let _1: &var receivers.Grid;  // self
+    let _2: Int;  // param i
+    let _3: Int;
+    let _4: &var Int;
+
+    bb0: {
+        _3 = copy _2;
+        _4 = ref(exclusive, (*_1).held.cells[_3]);
+        _0 = move _4;
+        return;
+    }
+}
+
+fn epilogue receivers.Grid.[](i: Int) -> Void {
+    let _0: Void;  // return
+
+    bb0: {
+        goto -> bb1;
+    }
+
+    bb1: {
+        return;
+    }
+}
+
+fn receivers.note(n: Int) -> Int {
+    let _0: Int;  // return
+    let _1: Int;  // param n
+
+    bb0: {
+        _0 = copy _1;
+        return;
+    }
+}
+
+fn receivers.accessor_receiver(g: &var receivers.Grid) -> Void {
+    let _0: Void;  // return
+    let _1: &var receivers.Grid;  // param g
+    let _2: &var receivers.Inner;
+    let _3: &var receivers.Grid;
+    let _4: Int;
+    let _5: &var std.vector.Vector<Int, std.alloc.GlobalAllocator>;
+    let _6: Result<Void, std.alloc.AllocError>;
+    let _7: Void;
+    window w0: receivers.Grid.cell() exclusive;
+
+    bb0: {
+        _3 = ref(exclusive, (*_1));
+        _2 = window_open w0 prologue receivers.Grid.cell() (owner receivers.Grid) [move _3] -> [present: bb1];
+    }
+
+    bb1: {
+        _4 = call receivers.note(n: Int) [const 1: Int] -> [return: bb2];
+    }
+
+    bb2: {
+        _5 = ref(exclusive, (*_2).items);
+        _6 = call std.vector.Vector.push(value: T) (owner std.vector.Vector<Int, std.alloc.GlobalAllocator>) [move _5, move _4] -> [return: bb3];
+    }
+
+    bb3: {
+        _7 = copy (_6 as Ok!).0;
+        drop(_6);
+        window_close w0 epilogue receivers.Grid.cell() (owner receivers.Grid) -> [return: bb4];
+    }
+
+    bb4: {
+        return;
+    }
+}
+
+fn receivers.chained(g: &var receivers.Grid) -> Void {
+    let _0: Void;  // return
+    let _1: &var receivers.Grid;  // param g
+    let _2: &receivers.Inner;
+    let _3: &receivers.Grid;
+    let _4: Int;
+    let _5: &var std.vector.Vector<Int, std.alloc.GlobalAllocator>;
+    let _6: &var receivers.Inner;
+    let _7: Int;
+    let _8: &var std.vector.Vector<Int, std.alloc.GlobalAllocator>;
+    let _9: Result<Void, std.alloc.AllocError>;
+    let _10: Void;
+    window w0: receivers.Grid.cell() shared;
+    window w1: receivers.Inner.inner(k: Int) exclusive;
+
+    bb0: {
+        _3 = ref(shared, (*_1));
+        _2 = window_open w0 prologue receivers.Grid.cell() (owner receivers.Grid) [move _3] -> [present: bb1];
+    }
+
+    bb1: {
+        _4 = call receivers.note(n: Int) [const 1: Int] -> [return: bb2];
+    }
+
+    bb2: {
+        _6 = ref(exclusive, (*_2));
+        _5 = window_open w1 prologue receivers.Inner.inner(k: Int) (owner receivers.Inner) [move _6, move _4] -> [present: bb3];
+    }
+
+    bb3: {
+        _7 = call receivers.note(n: Int) [const 2: Int] -> [return: bb4];
+    }
+
+    bb4: {
+        _8 = ref(exclusive, (*_5));
+        _9 = call std.vector.Vector.push(value: T) (owner std.vector.Vector<Int, std.alloc.GlobalAllocator>) [move _8, move _7] -> [return: bb5];
+    }
+
+    bb5: {
+        _10 = copy (_9 as Ok!).0;
+        drop(_9);
+        window_close w1 epilogue receivers.Inner.inner(k: Int) (owner receivers.Inner) -> [return: bb6];
+    }
+
+    bb6: {
+        window_close w0 epilogue receivers.Grid.cell() (owner receivers.Grid) -> [return: bb7];
+    }
+
+    bb7: {
+        return;
+    }
+}
+
+fn receivers.forced(g: &var receivers.Grid) -> Void {
+    let _0: Void;  // return
+    let _1: &var receivers.Grid;  // param g
+    let _2: (&var receivers.Inner)?;
+    let _3: &var receivers.Grid;
+    let _4: Int;
+    let _5: &var std.vector.Vector<Int, std.alloc.GlobalAllocator>;
+    let _6: Result<Void, std.alloc.AllocError>;
+    let _7: Void;
+    window w0: receivers.Grid.find(i: Int) exclusive conditional;
+
+    bb0: {
+        _3 = ref(exclusive, (*_1));
+        _2 = window_open w0 prologue receivers.Grid.find(i: Int) (owner receivers.Grid) [move _3, const 0: Int] -> [present: bb1];
+    }
+
+    bb1: {
+        _4 = call receivers.note(n: Int) [const 1: Int] -> [return: bb2];
+    }
+
+    bb2: {
+        _5 = ref(exclusive, (*(_2 as Some!).0).items);
+        _6 = call std.vector.Vector.push(value: T) (owner std.vector.Vector<Int, std.alloc.GlobalAllocator>) [move _5, move _4] -> [return: bb3];
+    }
+
+    bb3: {
+        _7 = copy (_6 as Ok!).0;
+        drop(_6);
+        window_close w0 epilogue receivers.Grid.find(i: Int) (owner receivers.Grid) -> [return: bb4];
+    }
+
+    bb4: {
+        return;
+    }
+}
+
+fn receivers.keyed(g: &var receivers.Grid) -> Int {
+    let _0: Int;  // return
+    let _1: &var receivers.Grid;  // param g
+    let _2: &receivers.Inner;
+    let _3: &receivers.Grid;
+    let _4: Int;
+    let _5: &std.vector.Vector<Int, std.alloc.GlobalAllocator>;
+    let _6: &receivers.Inner;
+    let _7: Int;
+    let _8: Int;
+    let _9: &Int;
+    let _10: &std.vector.Vector<Int, std.alloc.GlobalAllocator>;
+    window w0: receivers.Grid.cell() shared;
+    window w1: receivers.Inner.inner(k: Int) shared;
+    window w2: std.vector.Vector.[](index: Int) shared;
+
+    bb0: {
+        _3 = ref(shared, (*_1));
+        _2 = window_open w0 prologue receivers.Grid.cell() (owner receivers.Grid) [move _3] -> [present: bb1];
+    }
+
+    bb1: {
+        _4 = call receivers.note(n: Int) [const 1: Int] -> [return: bb2];
+    }
+
+    bb2: {
+        _6 = ref(shared, (*_2));
+        _5 = window_open w1 prologue receivers.Inner.inner(k: Int) (owner receivers.Inner) [move _6, move _4] -> [present: bb3];
+    }
+
+    bb3: {
+        _7 = call receivers.note(n: Int) [const 2: Int] -> [return: bb4];
+    }
+
+    bb4: {
+        _10 = ref(shared, (*_5));
+        _9 = window_open w2 prologue std.vector.Vector.[](index: Int) (owner std.vector.Vector<Int, std.alloc.GlobalAllocator>) [move _10, move _7] -> [present: bb5];
+    }
+
+    bb5: {
+        _8 = copy (*_9);
+        window_close w2 epilogue std.vector.Vector.[](index: Int) (owner std.vector.Vector<Int, std.alloc.GlobalAllocator>) -> [return: bb6];
+    }
+
+    bb6: {
+        _0 = move _8;
+        window_close w1 epilogue receivers.Inner.inner(k: Int) (owner receivers.Inner) -> [return: bb7];
+    }
+
+    bb7: {
+        window_close w0 epilogue receivers.Grid.cell() (owner receivers.Grid) -> [return: bb8];
+    }
+
+    bb8: {
+        return;
+    }
+}
+
+fn receivers.indexed(g: &var receivers.Grid) -> Int {
+    let _0: Int;  // return
+    let _1: &var receivers.Grid;  // param g
+    let _2: &receivers.Inner;
+    let _3: &receivers.Grid;
+    let _4: Int;
+    window w0: receivers.Grid.cell() shared;
+
+    bb0: {
+        _3 = ref(shared, (*_1));
+        _2 = window_open w0 prologue receivers.Grid.cell() (owner receivers.Grid) [move _3] -> [present: bb1];
+    }
+
+    bb1: {
+        _4 = call receivers.note(n: Int) [const 1: Int] -> [return: bb2];
+    }
+
+    bb2: {
+        _0 = copy (*_2).cells[_4];
+        window_close w0 epilogue receivers.Grid.cell() (owner receivers.Grid) -> [return: bb3];
+    }
+
+    bb3: {
+        return;
+    }
+}
+
+fn receivers.compound(g: &var receivers.Grid) -> Void {
+    let _0: Void;  // return
+    let _1: &var receivers.Grid;  // param g
+    let _2: Int;
+    let _3: Int;
+    let _4: &var Int;
+    let _5: &var receivers.Grid;
+    window w0: receivers.Grid.[](i: Int) exclusive;
+
+    bb0: {
+        _2 = call receivers.note(n: Int) [const 1: Int] -> [return: bb1];
+    }
+
+    bb1: {
+        _3 = call receivers.note(n: Int) [const 2: Int] -> [return: bb2];
+    }
+
+    bb2: {
+        _5 = ref(exclusive, (*_1));
+        _4 = window_open w0 prologue receivers.Grid.[](i: Int) (owner receivers.Grid) [move _5, move _2] -> [present: bb3];
+    }
+
+    bb3: {
+        (*_4) = Add(copy (*_4), move _3);
+        window_close w0 epilogue receivers.Grid.[](i: Int) (owner receivers.Grid) -> [return: bb4];
+    }
+
+    bb4: {
+        return;
+    }
+}
+
+fn receivers.plain(v: &var std.vector.Vector<Int, std.alloc.GlobalAllocator>) -> Void {
+    let _0: Void;  // return
+    let _1: &var std.vector.Vector<Int, std.alloc.GlobalAllocator>;  // param v
+    let _2: &std.vector.Vector<Int, std.alloc.GlobalAllocator>;
+    let _3: Int;
+    let _4: &var std.vector.Vector<Int, std.alloc.GlobalAllocator>;
+    let _5: Result<Void, std.alloc.AllocError>;
+    let _6: Void;
+
+    bb0: {
+        _2 = ref(shared, (*_1));
+        _3 = call std.vector.Vector.len() (owner std.vector.Vector<Int, std.alloc.GlobalAllocator>) [move _2] -> [return: bb1];
+    }
+
+    bb1: {
+        _4 = ref(exclusive, (*_1));
+        _5 = call std.vector.Vector.push(value: T) (owner std.vector.Vector<Int, std.alloc.GlobalAllocator>) [move _4, move _3] -> [return: bb2];
+    }
+
+    bb2: {
+        _6 = copy (_5 as Ok!).0;
+        drop(_5);
+        return;
+    }
+}

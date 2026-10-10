@@ -1,0 +1,15 @@
+// refuses: loan.move-while-borrowed at 14:11
+// a `move` argument aliasing a reference argument of the same call
+// (conformance X10)
+
+struct Res { id: Int }
+extension Res: NoCopy {}
+
+func both(a: &Res, b: Res) -> Int {
+    a.id + b.id
+}
+
+func main() {
+    let r = Res(id: 1)
+    print(both(&r, move r))
+}

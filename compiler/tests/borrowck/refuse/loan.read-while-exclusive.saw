@@ -1,0 +1,13 @@
+// refuses: loan.read-while-exclusive at 12:24
+// a shared borrow of a place an exclusive argument holds in the same call
+// (conformance X02)
+
+func look(a: &var Int, b: &Int) -> Int {
+    a = a + b
+    a
+}
+
+func main() {
+    var x = 1
+    print(look(&var x, &x))
+}

@@ -1,0 +1,19 @@
+// refuses: loan.nested-call at 18:25
+// a nested call's `&var` overlapping the outer call's receiver, which is a
+// shared reservation for the whole call (conformance X44)
+
+struct Pair { a: Int, b: Int }
+
+extension Pair {
+    func total(&self, extra: Int) -> Int { self.a + self.b + extra }
+}
+
+func reset(p: &var Pair) -> Int {
+    p.a = 100
+    7
+}
+
+func main() {
+    var p = Pair(a: 1, b: 2)
+    print(p.total(reset(&var p)))
+}

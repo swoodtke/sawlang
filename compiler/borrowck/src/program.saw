@@ -17,6 +17,9 @@ public struct BorrowckProgram {
     public diags: Vector<MirDiag>
     // By statement, in the MIR's statement arena: each reached drop's label.
     public labels: Vector<Int>
+    // By source node, its parent node, or -1; built when a rule first needs
+    // it (`node_parents` in conflicts.saw).
+    public parents: Vector<Int>
 }
 
 extension BorrowckProgram: NoCopy {}
@@ -28,5 +31,5 @@ public func borrowck_program(mir: MirProgram) -> BorrowckProgram {
         try! labels.push(BORROWCK_LABEL_NONE)
         k = k + 1
     }
-    BorrowckProgram(mir: move mir, diags: Vector<MirDiag>(), labels: move labels)
+    BorrowckProgram(mir: move mir, diags: Vector<MirDiag>(), labels: move labels, parents: Vector<Int>())
 }

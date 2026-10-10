@@ -319,39 +319,40 @@ fn dissolves.iterated(n: Int) {
     place _4: dissolves.Res?;  // _4
     place _6: dissolves.Res;  // r
     place (_4 as Some).0: dissolves.Res;  // (_4 as Some).0
+    loan L0: exclusive _3;  // argument at 87:5
 
     bb0: {
-        [U U U] _2 = const 0: Int;
-        [U U U] _3 = dissolves.Countdown { n: copy _1 };
-        [U U U] goto -> bb1;
+        [U U U] {} _2 = const 0: Int;
+        [U U U] {} _3 = dissolves.Countdown { n: copy _1 };
+        [U U U] {} goto -> bb1;
     }
 
     bb1: {
-        [UP UD UM] _5 = ref(exclusive, _3);
-        [UP UD UM] _4 = call dissolves.Countdown.next() (owner dissolves.Countdown) [move _5] -> [return: bb3];
+        [UP UD UM] {} _5 = ref(exclusive, _3);
+        [UP UD UM] {L0} _4 = call dissolves.Countdown.next() (owner dissolves.Countdown) [move _5] -> [return: bb3];
     }
 
     bb2: {
-        [W UD W] _0 = copy _2;
-        [W UD W] return;
+        [W UD W] {} _0 = copy _2;
+        [W UD W] {} return;
     }
 
     bb3: {
-        [W UD W] switch discriminant(_4) -> [Some: bb4, None: bb2];
+        [W UD W] {} switch discriminant(_4) -> [Some: bb4, None: bb2];
     }
 
     bb4: {
-        [W UD W] _6 = move (_4 as Some).0;
-        [P W M] _7 = copy _2;
-        [P W M] _8 = call dissolves.take(r: dissolves.Res) [move _6] -> [return: bb5];
+        [W UD W] {} _6 = move (_4 as Some).0;
+        [P W M] {} _7 = copy _2;
+        [P W M] {} _8 = call dissolves.take(r: dissolves.Res) [move _6] -> [return: bb5];
     }
 
     bb5: {
-        [P M M] _9 = Add(move _7, move _8);
-        [P M M] _2 = move _9;
-        [P M M] drop(_6);  // elided
-        [P D M] budget(yield-capable);
-        [P D M] goto -> bb1;
+        [P M M] {} _9 = Add(move _7, move _8);
+        [P M M] {} _2 = move _9;
+        [P M M] {} drop(_6);  // elided
+        [P D M] {} budget(yield-capable);
+        [P D M] {} goto -> bb1;
     }
 }
 

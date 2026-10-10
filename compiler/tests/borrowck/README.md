@@ -2,18 +2,27 @@
 
 The corpus the borrow check (`compiler/borrowck`, package `sawborrowck`,
 SL-460) is held to. This file specifies `sawc2 borrowck`'s records and dump,
-the initialisation analysis it shares with the MIR verifier, the rules it
-refuses by, and the drop labels it exports for drop elaboration. Today it is
-the check's initialisation half (U6d1); loans and conflicts are U6d2's.
+the initialisation analysis it shares with the MIR verifier, the loan
+analysis, the rules it refuses by, and the drop labels it exports for drop
+elaboration.
+
+The check needs no lifetimes and never looks outside a function, which is
+sound only because a reference never escapes the function that made it:
+typecheck's `type.reference-position` family (SL-462) refuses every position
+that would let one out, and `premise/` pins that a returned reference never
+reaches the borrow check.
 
 ```
 borrowck/
-  README.md          this specification
-  CONFORMANCE.md     every borrow-check row of examples/conformance/INDEX.md, and its owner
-  borrowck_lane.py   the lane compiler/tests/run.py runs
-  golden/            NAME.saw, a program, and NAME.borrowck, its expected record
-  refuse/            RULE.saw or RULE.VARIANT.saw, a program the check refuses
-  differential.tsv   the tests/corpus move errors the check does not refuse, and why
+  README.md              this specification
+  CONFORMANCE.md         every borrow-check row of examples/conformance/INDEX.md, and its owner
+  borrowck_lane.py       the lane compiler/tests/run.py runs
+  golden/                NAME.saw, a program, and NAME.borrowck, its expected record
+  refuse/                RULE.saw or RULE.VARIANT.saw, a program the check refuses
+  premise/               NAME.saw, a program an earlier stage refuses so the check stays sound
+  differential.tsv       the tests/corpus move errors the check does not refuse, and why
+  loan_differential.tsv  the tests/corpus loan errors the check does not refuse, and the
+                         expected successes it does, each with its mechanism
 ```
 
 ## `sawc2 borrowck`
@@ -95,14 +104,84 @@ definitely whole at some `lend` with a drop flag (`compiler/tests/mir/README.md`
   `flagged` and a use of it in the epilogue after a move in the prologue is
   still a use after move.
 
+## The loan analysis
+
+`compiler/borrowck/src/loans.saw` (`borrowck_loans`) is the one answer to
+"which borrows are live here"; the conflict rules (`conflicts.saw`) and the
+dump are its clients.
+
+- **Loans.** A `ref(shared | exclusive, P)` makes a loan on `P`. A
+  `window_open` makes one on its receiver's place, the place of the `ref` its
+  receiver argument was made by: exclusive when the use site borrowed
+  exclusively, or when the accessor takes `&var self` or lends `&var T` and
+  declares no shared twin (`@synthesize(shared)`), shared otherwise
+  (SL:borrowing §3). Stage 0's std predates declared modes, so each of its
+  accessors serves both from one declaration, the use site choosing. A
+  closure that copies a reference into its environment makes a loan on the
+  referent. A `ref` of an accessor's state record makes none.
+- **Liveness.** A window's loan is live from its open's present edge to its
+  `window_close`, so a conditional lend's absent edge carries none. Any other
+  loan is live where a local carrying it is live, by a backward liveness of
+  locals over the CFG (a use is any read, move, borrow or access through the
+  local; a whole assignment kills it; a drop uses nothing; a `return` uses
+  `_0`), and after a path from its creation reaches the point. A loan a
+  window's argument carries lives while the window is open. An accessor's
+  epilogue starts with the windows its prologue left open across the `lend`
+  (the halves' record, `compiler/tests/mir/README.md`, "Accessors").
+- **Carrying.** A local carries the loan made into it, and the loans of
+  every value assigned into it: an operand read from a local's own storage,
+  or a reference or function value read through one, carries; a value read
+  through a reference carries nothing, since references are never stored. A
+  reborrow, a `ref` through a reference, carries that reference's loans.
+  Carrying is flow-insensitive.
+- **Authorisation.** An access through a reference names a place rooted in
+  the reference's local, so it never overlaps the loan the reference holds.
+- **Overlap.** Two places overlap when they share a root and no step parts
+  them at distinct fields, tuple elements, payload fields of one case, or
+  constant indices (an index local assigned one integer constant, once). A
+  place that ends where the other goes on through a deref names the
+  reference, not its referent. A window's loan is on its whole receiver,
+  whatever it lends.
+- **Tracing.** `borrowck_trace` follows a deref of a reference back to the
+  place the reference was made from: a `ref`'s place, the local it was copied
+  or moved from, or a window's receiver. It stops at a parameter or a local
+  assigned more than once.
+
 ## Rules
 
 | rule | refuses | fixtures |
 |---|---|---|
 | `move.use-after` | a read, a borrow, a move or a call through a place that may have been moved, or a part of which may have been moved out (`M` or `P`); a write to a part of a place that may have been moved whole | `move.use-after`, `.double`, `.loop`, `.branch`, `.field-init`, `.force`, `.consumed`, `.partial`, `.while-condition` |
 | `consumes.some-paths` | a `consumes` method's receiver, or a field of it, moved out on some paths to a `return` and left on others (spec, Moving a field out); a path that diverges reaches no `return`, so it is exempt | `consumes.some-paths` |
+| `loan.read-while-exclusive` | a read or a shared borrow of a place overlapping a live exclusive loan | `loan.read-while-exclusive`, `.tuple-element`, `.forwarded` |
+| `loan.write-while-shared` | a write or an exclusive borrow of a place overlapping a live shared loan | `loan.write-while-shared`, `.receiver` |
+| `loan.exclusive-twice` | a write or an exclusive borrow of a place overlapping a live exclusive loan | `loan.exclusive-twice`, `.dynamic-index` |
+| `loan.move-while-borrowed` | a move of a place overlapping a live loan | `loan.move-while-borrowed` |
+| `loan.drop-while-borrowed` | a drop, at a scope's end or before an assignment, of a place overlapping a live loan | `loan.drop-while-borrowed` |
+| `loan.window-root` | any access but a move or a drop that conflicts with a live window's loan on its whole root | `loan.window-root`, `.receiver-order`, `.two-windows`, `.beside-root`, `.forced` |
+| `loan.closure-carrier` | any access but a move or a drop that conflicts with a loan a live closure carries | `loan.closure-carrier` |
+| `loan.nested-call` | in a call's access set (spec, Nested calls), two written references overlapping, one exclusive and one inside a nested call, or a written `&var` inside a nested call overlapping the receiver of a call it is nested in, a shared reservation for the whole call | `loan.nested-call`, `.receiver`, `.sibling` |
+| `loan.sync-suspend` | a suspension point, a call that may suspend or a yield-capable budget point, while a `borrows(sync)` window is open; typecheck's `borrows.sync-window` refuses the block form first | `loan.sync-suspend` |
+| `lend.root` | a `lend` of a place that is not the receiver's own storage (spec, The lent place is rooted in the receiver): the accessor's own local or parameter, a place a reference parameter refers to (`&var` included), or a static. The receiver's storage is a place rooted in `self`, one reached through an indirection whose pointer was read out of the receiver (`lend buf[index]`), and, by tracing, a window opened on either | `lend.root`, `.parameter`, `.reference-parameter` |
+| `lend.sync-undeclared` | a `lend` while a `borrows(sync)` window is open, in an accessor not declared `borrows(sync)` | `lend.sync-undeclared` |
+| `lend.missing` | a path through a `borrows` body whose lend is not conditional that returns without lending | `lend.missing` |
+| `lend.twice` | a `lend` in the code after a `lend`, an epilogue | `lend.twice` |
+| `assign.rhs-borrow` | an assignment, plain or compound, whose right side writes `&var` of a place overlapping what it assigns: the right side runs first, so the write through the borrow is overwritten | `assign.rhs-borrow`, `.plain` |
 
-The error stands at the use; its message names where the move happened,
+The struct carrier, a borrowing struct carrying its window's loan, is due
+when `lends` enters the slice (SL-461): `refuse/loan.struct-carrier.saw`,
+headed `// due:`, is held to the `slice.not-yet` that stands in its way.
+
+A loan conflict stands at the conflicting access, and its message names the
+loan, where it came from (a window, a closure capture, an argument, a borrow)
+and the place it holds, each traced to the names the source spells. Where
+several live loans conflict, a window's names the conflict. A call set's
+refusal stands at the nested reference, an assignment's at the assignment,
+and a `lend` rule's at the `lend`. Each source node is refused once by the
+loan rules, the call sets checked first, then assignments, then each access
+in order.
+
+The error of `move.use-after` stands at the use; its message names where the move happened,
 the nearest move of the place, of a place around it or of a part of it that
 reaches the use. Positions are the statement's or terminator's source node
 (`compiler/tests/mir/README.md`, "Source nodes"). A use is reported once per
@@ -161,11 +240,13 @@ the MIR dump's order:
 fn NAME {
     place PATH: TYPE;  // NAME
     ...
+    loan LK: shared|exclusive PLACE;  // ORIGIN at L:C
+    ...
 
     bbK: {
-        [C C ...] STATEMENT;
-        [C C ...] drop(PLACE);  // LABEL
-        [C C ...] TERMINATOR;
+        [C C ...] {LK ...} STATEMENT;
+        [C C ...] {LK ...} drop(PLACE);  // LABEL
+        [C C ...] {LK ...} TERMINATOR;
     }
 
     bbK: unreached
@@ -176,9 +257,14 @@ fn NAME {
 - Each `place` line is a move path whose type owns something a drop releases
   (the MIR's owned places), spelled as the MIR dump spells a place, with the
   name a diagnostic gives it.
+- Each `loan` line is a loan the function creates, numbered in block and
+  statement order: its mode, the place it charges as the MIR dump spells it,
+  and where it came from, `ref`, `argument`, `capture` or `window wK`, at the
+  position of the statement or terminator that creates it.
 - Each statement and terminator is the MIR dump's, after a bracket holding,
   for each place listed, its conditions just before it, as letters in the
-  order `U W P M D`; a drop ends in its label.
+  order `U W P M D`, then, in a function with loans, the loans live just
+  before it in braces; a drop ends in its label.
 - A block no path reaches is `unreached`.
 
 ## The verifier
@@ -200,17 +286,31 @@ drop-after-move site it lists must be labelled `elided` or `flagged`.
 
 `borrowck_lane.py` checks the conformance matrix (every row of the five
 sections, each with an owner, every path it names existing, every row the
-borrow check owns naming a fixture or golden here); that each golden's record
-equals its `.borrowck` file byte for byte (`--write` rewrites them); that each
-refusal fixture is refused first at its header's position (`--fill` writes a
-`// refuses: TODO` header), with no `INVARIANT` under `sawc2 borrowck` and
-neither an `ERROR` nor an `INVARIANT` under `sawc2 mir`, and that every rule
-has a fixture; that the compiler's own source, the sawc2 build and each unit
-program, and the new std's entry under `--std-root std`, check with no
-refusal and no invariant; and the differential: every tests/corpus program
-whose expected diagnostic names a move is refused by a borrow-check rule, or
-`differential.tsv` says why not. It counts the drop labels over the sawc2
-build and over tests/corpus, for information.
+borrow check owns, U6d1's or U6d2's, naming a fixture or golden here); that
+each golden's record equals its `.borrowck` file byte for byte (`--write`
+rewrites them); that each refusal fixture is refused first at its header's
+position (`--fill` writes a `// refuses: TODO` header), with no `INVARIANT`
+under `sawc2 borrowck` and neither an `ERROR` nor an `INVARIANT` under `sawc2
+mir`, and that every rule has a fixture; that a due fixture is still refused
+by what stands in its way; that each premise program is refused first by the
+earlier stage's rule its header names; that the compiler's own source, the
+sawc2 build and each unit program, and the new std's entry under `--std-root
+std`, check with no refusal and no invariant; and the two differentials.
+Every tests/corpus program whose expected diagnostic names a move is refused
+by a borrow-check rule, or `differential.tsv` says why not. Every program
+whose expected diagnostic names an exclusivity or loan error is refused by a
+rule of the loan half, and every program expected to succeed is refused by
+none, or `loan_differential.tsv` names it with its direction (`accepts`: the
+loan half refuses nothing Stage 0 refused; `refuses`: it refuses what Stage
+0 ran) and its class: `owned` (another stage refuses it first, a migration
+artifact included), `order` (an evaluation-order difference),
+`stage0-over-refusal`, `stricter` (the loan half refuses by design what
+Stage 0 compiles, the decision cited), `gap` (the loan half misses it) or
+`mir-bug` (the lowering hands the check wrong MIR). A line may also name a
+refusal fixture of this directory that Stage 0 compiles, always `refuses`:
+the lane checks that a loan rule refuses it and that Stage 0 compiles it. It
+counts the drop labels over the sawc2 build and over tests/corpus, for
+information.
 
 | aspect | golden |
 |---|---|
@@ -223,3 +323,16 @@ build and over tests/corpus, for information.
 | a closure capturing by `move` | closures |
 | a dissolve under `try`, `??`, `if let`, `guard let`, `while let`, `for`, a binding `match` arm | dissolves |
 | the drop labels | every golden |
+| authorisation through a reborrow, a `&var` forwarded three deep | loans |
+| field, tuple-element and constant-index disjointness; two shared borrows of one place | loans |
+| a loan rooted in an `unsafe static var`, checked within the function | loans |
+| nested windows, last opened first | windows |
+| a conditional lend's absent edge carrying no loan | windows |
+| a window's loan ending at its close | windows |
+| a reference, and a window not `borrows(sync)`, spanning a suspension | windows |
+| a shared window on a `let` root; shared windows rendered and compared side by side | windows |
+| a plain receiver's two-phase borrow: `v.push(v.len())`, `b.add(b.size())` | calls |
+| a call's access set accepted: `combine(n.get(), bump(&var n))`, disjoint fields, distinct roots | calls |
+| an assignment's right side reading its target, or borrowing a disjoint path | calls |
+| a non-escaping `[&var v]` closure writing `v`, its loan ending at its last call; a captured reference parameter | loan.closure-carrier |
+| a `lend` rooted in `self` or forwarding a window on it; a `borrows(sync)` forward declared so; a conditional lend's absent path | accessors |

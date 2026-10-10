@@ -1,0 +1,75 @@
+// A receiver reached through a `borrows` accessor opens its window in receiver
+// position, before the call's arguments (spec, Argument Evaluation Order):
+// opening it runs the accessor's prologue. A plain receiver's borrow runs no
+// code, so it is still taken just before the call. An assignment's target
+// opens its windows after the right side (SL:borrowing §2.2).
+
+struct Inner {
+    items: Vector<Int>,
+    cells: [Int; 3]
+}
+
+extension Inner: NoCopy {}
+
+extension Inner {
+    func inner(&var self, k: Int) borrows -> &var Vector<Int> {
+        print("inner prologue")
+        lend self.items
+    }
+}
+
+struct Grid {
+    held: Inner
+}
+
+extension Grid: NoCopy {}
+
+extension Grid {
+    func cell(&var self) borrows -> &var Inner {
+        print("cell prologue")
+        lend self.held
+    }
+
+    func find(&var self, i: Int) borrows -> &var Inner? {
+        if i > 0 {
+            return None
+        }
+        lend self.held
+    }
+
+    func [](&var self, i: Int) borrows -> &var Int {
+        lend self.held.cells[i]
+    }
+}
+
+func note(n: Int) -> Int {
+    n
+}
+
+func accessor_receiver(g: &var Grid) {
+    try! g.cell().items.push(note(1))
+}
+
+func chained(g: &var Grid) {
+    try! g.cell().inner(note(1)).push(note(2))
+}
+
+func forced(g: &var Grid) {
+    try! g.find(0)!.items.push(note(1))
+}
+
+func keyed(g: &var Grid) -> Int {
+    g.cell().inner(note(1))[note(2)]
+}
+
+func indexed(g: &var Grid) -> Int {
+    g.cell().cells[note(1)]
+}
+
+func compound(g: &var Grid) {
+    g[note(1)] += note(2)
+}
+
+func plain(v: &var Vector<Int>) {
+    try! v.push(v.len())
+}

@@ -9,7 +9,7 @@ INDEX.md, or when an owner is not one of the words below.
 | Owner | Meaning |
 |---|---|
 | `U6d1` | the borrow check's initialisation analysis (SL-460 U6d1): a refusal fixture or golden under `compiler/tests/borrowck/` |
-| `U6d2` | the borrow check's loans and conflicts (SL-460 U6d2), not written yet |
+| `U6d2` | the borrow check's loans and conflicts (SL-460 U6d2): a refusal fixture or golden under `compiler/tests/borrowck/` |
 | `typecheck` | refused or accepted by typecheck today: the named fixture in `compiler/tests/typecheck/` |
 | `SL-462` | a typecheck rule SL-462 owns and has not written; SL-462 wrote reference positions, mutability and moving out of a part or through a borrow, so no row names it |
 | `typecheck-gap` | a typecheck rule that refuses nothing today, which no issue owns yet (a finding of this unit) |
@@ -61,7 +61,7 @@ INDEX.md, or when an owner is not one of the words below.
 | M35 | typecheck | accepted: writes under `&var self`, `compiler/tests/typecheck/golden/mutability.saw` |
 | M36 | typecheck | `mutability.immutable`: `compiler/tests/typecheck/refuse/mutability.immutable.shared-capture-self.saw` |
 | M37 | typecheck | `mutability.immutable`: `compiler/tests/typecheck/refuse/mutability.immutable.array-element.saw` and `compiler/tests/typecheck/refuse/mutability.immutable.array-element-compound.saw` |
-| M38 | U6d2 | a compound assignment's right side borrowing the path it writes |
+| M38 | U6d2 | `assign.rhs-borrow`: `compiler/tests/borrowck/refuse/assign.rhs-borrow.saw`, the plain form `compiler/tests/borrowck/refuse/assign.rhs-borrow.plain.saw`; accepted shared reads of the target (`v[0] += v.len()`, `w[0] += w[1]`) and a disjoint `&var`, `compiler/tests/borrowck/golden/calls.saw` |
 | M39 | slice.not-yet | `syntax.stmt.optional-assign.plain` (then typecheck, `mutability.immutable`) |
 | M40 | slice.not-yet | `syntax.stmt.optional-assign.compound` (then typecheck, `mutability.immutable`) |
 | M41 | typecheck | accepted: the indirection carve-out at a `Vector` subscript, nested, and a hand-written accessor over a `Vector`, in `compiler/tests/typecheck/golden/mutability.saw`; the migrated file is refused first by `operator.undefined`, a migration artifact |
@@ -102,7 +102,7 @@ INDEX.md, or when an owner is not one of the words below.
 | R27 | typecheck | `type.reference-position`: `compiler/tests/typecheck/refuse/type.reference-position.nested-generic.saw` |
 | R28 | typecheck | accepted: the sanctioned `(&var n) as UnsafePointer<Int>`, `address` in `compiler/tests/typecheck/golden/reference_positions.saw` |
 | R29 | typecheck | `type.reference-position`: `compiler/tests/typecheck/refuse/type.reference-position.cast-to-integer.saw` |
-| R30 | typecheck | accepted: a non-escaping borrow capture; typecheck golden `captures.saw` |
+| R30 | typecheck | accepted: a non-escaping borrow capture; typecheck golden `captures.saw`. Its loan side, the closure as the loan's carrier, is U6d2's: `compiler/tests/borrowck/golden/loan.closure-carrier.saw` (a `[&var v]` writer, and a reference parameter captured), `compiler/tests/borrowck/refuse/loan.closure-carrier.saw` (a conflict while the carrier is live); the capture-mutability side is SL-472's, in typecheck: the write-kind matrix `mutability.immutable.capture-*`, e.g. `compiler/tests/typecheck/refuse/mutability.immutable.capture-plain-assign-escaping.saw`, and `compiler/tests/typecheck/refuse/mutability.immutable.capture-reborrow-of-value.saw` |
 | R31 | typecheck | `type.reference-position`: `compiler/tests/typecheck/refuse/type.reference-position.operand.saw` |
 | R32 | typecheck | `type.reference-position`: `compiler/tests/typecheck/refuse/type.reference-position.box.saw` |
 | R33 | typecheck | accepted: `borrows` lends in `compiler/tests/typecheck/golden/reference_positions.saw`; the same result without `borrows` is `compiler/tests/typecheck/refuse/type.reference-position.method-return.saw` |
@@ -122,36 +122,36 @@ INDEX.md, or when an owner is not one of the words below.
 
 | Row | Owner | Covered by, or why not |
 |---|---|---|
-| X01 | U6d2 | `f(&var x, &var x)` |
-| X02 | U6d2 | `f(&var x, &x)` |
-| X03 | U6d2 | whole overlapping its field |
-| X04 | U6d2 | accepted: disjoint fields |
-| X05 | U6d2 | accepted: two shared reads |
-| X06 | U6d2 | dynamic indices overlap |
-| X07 | U6d2 | accepted: distinct constant indices |
-| X08 | U6d2 | the same tuple element twice |
-| X09 | U6d2 | accepted: disjoint tuple elements |
-| X10 | U6d2 | a `move` argument aliasing a reference argument |
-| X11 | U6d2 | `&var self` with a `&self.field` argument |
+| X01 | U6d2 | `loan.exclusive-twice`: `compiler/tests/borrowck/refuse/loan.exclusive-twice.saw` |
+| X02 | U6d2 | `loan.read-while-exclusive`: `compiler/tests/borrowck/refuse/loan.read-while-exclusive.saw` |
+| X03 | U6d2 | `loan.write-while-shared`: `compiler/tests/borrowck/refuse/loan.write-while-shared.saw` |
+| X04 | U6d2 | accepted: disjoint fields, `compiler/tests/borrowck/golden/loans.saw` |
+| X05 | U6d2 | accepted: two shared borrows of one place, `compiler/tests/borrowck/golden/loans.saw` |
+| X06 | U6d2 | `loan.exclusive-twice`: `compiler/tests/borrowck/refuse/loan.exclusive-twice.dynamic-index.saw` |
+| X07 | U6d2 | accepted: distinct constant indices, `compiler/tests/borrowck/golden/loans.saw` |
+| X08 | U6d2 | `loan.read-while-exclusive`: `compiler/tests/borrowck/refuse/loan.read-while-exclusive.tuple-element.saw` |
+| X09 | U6d2 | accepted: disjoint tuple elements, `compiler/tests/borrowck/golden/loans.saw` |
+| X10 | U6d2 | `loan.move-while-borrowed`: `compiler/tests/borrowck/refuse/loan.move-while-borrowed.saw` |
+| X11 | U6d2 | `loan.write-while-shared`: `compiler/tests/borrowck/refuse/loan.write-while-shared.receiver.saw` |
 | X12 | typecheck | forwarding `&` as `&var`: `type.not-a-place`, `compiler/tests/typecheck/refuse/type.not-a-place.saw` |
-| X13 | U6d2 | `g(&var r, &r)` from one `&var` |
-| X14 | U6d2 | `v.push` inside a window on the same vector |
-| X15 | U6d2 | `v.push` inside a place window |
-| X16 | U6d2 | two exclusive place windows in one call |
-| X17 | U6d2 | accepted: nested windows |
-| X18 | U6d2 | accepted: a `&var` across a suspension (then §3.9) |
-| X19 | U6d2 | accepted: a `&var` forwarded three deep |
-| X20 | U6d2 | a named accessor's place charging its root |
-| X30 | U6d2 | two exclusive windows on a trivial struct |
-| X31 | U6d2 | a window beside a `&var` of its root |
-| X33 | U6d2 | two exclusive windows on a Copy-tier struct |
-| X40 | U6d2 | two windows on `Data`; the migrated file is refused first by `result.discarded`, a migration artifact |
-| X41 | U6d2 | a place through a `!` head charging its root |
-| X41 | U6d2 | a nested call's `&var` overlapping a sibling |
-| X42 | U6d2 | accepted: a nested reference onto a disjoint root |
-| X43 | U6d2 | accepted: a nested reference disjoint from every sibling |
-| X44 | U6d2 | a nested call's `&var` overlapping the receiver |
-| X45 | U6d2 | two nested calls borrowing one root |
+| X13 | U6d2 | `loan.read-while-exclusive`: `compiler/tests/borrowck/refuse/loan.read-while-exclusive.forwarded.saw` |
+| X14 | U6d2 | `loan.window-root`: `compiler/tests/borrowck/refuse/loan.window-root.saw` |
+| X15 | U6d2 | `loan.window-root`: `compiler/tests/borrowck/refuse/loan.window-root.saw`; an argument reading the root of an accessor receiver, `compiler/tests/borrowck/refuse/loan.window-root.receiver-order.saw` (SL-473) |
+| X16 | U6d2 | `loan.window-root`: `compiler/tests/borrowck/refuse/loan.window-root.two-windows.saw` |
+| X17 | U6d2 | accepted: nested windows, `compiler/tests/borrowck/golden/windows.saw` |
+| X18 | U6d2 | accepted: a `&var` and a window that is not `borrows(sync)` across a suspension, `compiler/tests/borrowck/golden/windows.saw` (then §3.9) |
+| X19 | U6d2 | accepted: a `&var` forwarded three deep, `compiler/tests/borrowck/golden/loans.saw` |
+| X20 | U6d2 | `loan.window-root`: `compiler/tests/borrowck/refuse/loan.window-root.beside-root.saw` |
+| X30 | U6d2 | `loan.window-root`: `compiler/tests/borrowck/refuse/loan.window-root.two-windows.saw`, a trivially copyable struct |
+| X31 | U6d2 | `loan.window-root`: `compiler/tests/borrowck/refuse/loan.window-root.beside-root.saw` |
+| X33 | U6d2 | `loan.window-root`, which is blind to the copy tier: `compiler/tests/borrowck/refuse/loan.window-root.two-windows.saw` |
+| X40 | U6d2 | `loan.window-root`, blind to the copy tier: `compiler/tests/borrowck/refuse/loan.window-root.two-windows.saw`; the migrated file is refused first by `result.discarded`, a migration artifact, and by `loan.window-root` once its discards are spelled |
+| X41 | U6d2 | `loan.window-root`: `compiler/tests/borrowck/refuse/loan.window-root.forced.saw` |
+| X41 | U6d2 | `loan.nested-call`: `compiler/tests/borrowck/refuse/loan.nested-call.sibling.saw` |
+| X42 | U6d2 | accepted: a nested reference onto a distinct root, `compiler/tests/borrowck/golden/calls.saw` |
+| X43 | U6d2 | accepted: a nested reference on a field disjoint from its sibling's, `compiler/tests/borrowck/golden/calls.saw` |
+| X44 | U6d2 | `loan.nested-call`: `compiler/tests/borrowck/refuse/loan.nested-call.receiver.saw` |
+| X45 | U6d2 | `loan.nested-call`: `compiler/tests/borrowck/refuse/loan.nested-call.saw` |
 
 ## Moves and use-after-move
 
@@ -282,25 +282,25 @@ INDEX.md, or when an owner is not one of the words below.
 
 | Row | Owner | Covered by, or why not |
 |---|---|---|
-| P01 | U6d2 | `return` of a value in a `borrows` body (inside an accessor) |
+| P01 | U6d2 | `lend.missing`: `compiler/tests/borrowck/refuse/lend.missing.saw` |
 | P02 | slice.not-yet | an accessor whose code after `lend` is reachable without lending (then U6d2) |
-| P03 | U6d2 | two `lend`s on one path (inside an accessor) |
+| P03 | U6d2 | `lend.twice`: `compiler/tests/borrowck/refuse/lend.twice.saw` |
 | P04 | slice.not-yet | an accessor whose code after `lend` is reachable without lending (then U6d2) |
-| P05 | U6d2 | `lend` of an accessor's local: the lent place's root |
+| P05 | U6d2 | `lend.root`: `compiler/tests/borrowck/refuse/lend.root.saw` |
 | P06 | parse | `#lend_var` is removed syntax: `compiler/tests/parse/negative/removed.saw` |
 | P07 | parse | `#lend_var` is removed syntax: `compiler/tests/parse/negative/removed.saw` |
 | P08 | mir | superseded: an accessor body may suspend (SL:borrowing §2.5); `compiler/tests/mir/golden/accessors.saw`, `Grid.waited` |
-| P09 | U6d2 | an assignment target that is no place; the migrated file is refused first by `result.discarded`, a migration artifact |
-| P10 | mir | the absent path opens no window: `compiler/tests/mir/golden/accessors.saw`, `Grid.find` |
-| P11 | U6d2 | accepted: a shared window on a `let` root |
+| P09 | typecheck | `type.not-a-place`: `compiler/tests/typecheck/refuse/type.not-a-place.saw`; the migrated file is refused first by `result.discarded`, a migration artifact, then by `type.not-a-place` |
+| P10 | mir | the absent path opens no window: `compiler/tests/mir/golden/accessors.saw`, `Grid.find`; its edge carries no loan, `compiler/tests/borrowck/golden/windows.saw` |
+| P11 | U6d2 | accepted: a shared window on a `let` root, `compiler/tests/borrowck/golden/windows.saw` |
 | P12 | typecheck-gap | a place read by value in a generic body without a `Copy` bound is not refused today |
 | P13 | mir | epilogues run at close, last opened first: `compiler/tests/mir/golden/windows.saw` |
-| P14 | U6d2 | a write through a window over an accessor-local |
-| P15 | U6d2 | a read through a window over an accessor-local |
-| P16 | U6d2 | lending the accessor's own parameter; refused today only by `type.mismatch` |
-| P17 | U6d2 | accepted: a window body reaches enclosing locals by borrow |
-| P18 | U6d2 | the window's root is not borrowed inside the extent |
+| P14 | U6d2 | `lend.root`, which refuses the lend whatever the window does with it: `compiler/tests/borrowck/refuse/lend.root.saw` |
+| P15 | U6d2 | `lend.root`, a read included: `compiler/tests/borrowck/refuse/lend.root.saw` |
+| P16 | U6d2 | `lend.root`: a by-value parameter, `compiler/tests/borrowck/refuse/lend.root.parameter.saw`, and a place an `&var` parameter refers to, `compiler/tests/borrowck/refuse/lend.root.reference-parameter.saw`; the migrated file is refused first by `type.mismatch` for its `&var` parameter |
+| P17 | U6d2 | accepted: a window body reaches an enclosing local, `compiler/tests/borrowck/golden/windows.saw` |
+| P18 | U6d2 | `loan.window-root`: `compiler/tests/borrowck/refuse/loan.window-root.saw` |
 | P21 | slice.not-yet | `syntax.stmt.optional-assign.borrow-plain` (then U6d2) |
-| P19 | U6d2 | accepted: rendering a place is a borrow; the migrated file is refused first by `member.unknown`, a migration artifact |
-| P20 | U6d2 | accepted: comparing a place is a borrow |
+| P19 | U6d2 | accepted: rendering two shared windows side by side, `compiler/tests/borrowck/golden/windows.saw`; the migrated file is refused first by `member.unknown`, a migration artifact |
+| P20 | U6d2 | accepted: comparing two shared windows, `compiler/tests/borrowck/golden/windows.saw` |
 | P22 | typecheck | `transfer.implicit-copy` for a move-only `Box.value()` read; tests/corpus file refused by it |
