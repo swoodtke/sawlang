@@ -1446,6 +1446,40 @@ as the equivalence exception "Stage 0 under-reports the effect" (SL-456 U5b1).
 
 **Checker:** not needed. sawc2 refuses it wherever it builds the code.
 
+C6 to C9 come from the Air's review of SL-505.p1 (chat file f22). Each was verified by running both compilers, and the lead re-ran C6's shapes.
+
+### C6. A generic parameter written by value into a struct literal
+
+**Shape (silent: a double drop):** in a generic body, Stage 0 copies a by-value parameter of type `T` that is written as a struct-literal field without `move` (`Box2<T>(v: x)`), bit for bit with no retain. It then drops the parameter again when the function returns. With an owning `T`, the value is dropped twice: a `deinit` runs twice, and a `String` is over-released. This reproduces in a free generic function, in a method using the extension's own `T`, and in a method with its own `<C>`. The non-generic spelling is refused ("cannot copy value of type `Noisy`"), so the hole is the generic body's unresolved copy tier. sawc2 moves the value and drops it once.
+
+**Instead:** write `move x` for the field (`Box2<T>(v: move x)`), or bind it first with `let y = move x`. Both drop once under Stage 0.
+
+**Checker:** no. The compiler source has only two generic functions, `put_at` and `trim_to` in `compiler/parse/src/tree.saw`, both bounded `T: Copy`, and neither writes a parameter into a literal. A new generic function in compiler source is reviewed against this entry.
+
+### C7. An unsigned-to-narrower-signed `as`, or `T.from(x)`, out of range
+
+**Shape (silent: a missing check):** `UInt16(65535) as Int8` gives `-1` under Stage 0 instead of panicking, and `Int8.from(x)` from a wider unsigned value has the same hole. The Air found nine width pairs in its cast sweep. sawc2 panics, as the spec's checked conversion says.
+
+**Instead:** use `from(truncating:)` where truncation is meant, and range-check first where it isn't.
+
+**Checker:** no. The compiler source converts only with `from(truncating:)`.
+
+### C8. `Vector<Box<T>>` elements never run `deinit`
+
+**Shape (silent, leak only):** under Stage 0, the elements of a `Vector<Box<Noisy>>` never run `Noisy`'s `deinit` when the vector is destroyed. sawc2 runs it once per element.
+
+**Instead:** none needed. The compiler source declares no `deinit` (checker rule `deinit-body`), so the leak has no observable effect in Stage 1.
+
+**Checker:** covered by `deinit-body`.
+
+### C9. Over-instantiation reports a depth error for a method never called
+
+**Shape (loud):** Stage 0 instantiates every method of a generic type it instantiates, so a polymorphically recursive method that nothing calls still trips its instantiation-depth limit. The program is refused. sawc2's mono starts from the roots and instantiates only what is reached.
+
+**Instead:** don't declare a method whose instantiation grows the type argument without bound, even an unused one.
+
+**Checker:** not needed: the build fails visibly.
+
 ## Inventory
 
 Each of the 82 issues the sweep flagged, plus the four promoted after the Air's review and eight found since, mapped to its entry. "Call" is this
