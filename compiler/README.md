@@ -12,6 +12,13 @@ prints:
 - **SL:testing** and **SL:borrowing**: the locked-down language the compiler
   implements.
 
+LANGUAGE_SPEC.md is authoritative for meaning, with one exception. Where it
+and one of these docs disagree, a **Ruled** section of the doc, or a retirement
+it records (SL:borrowing §9), supersedes the spec text it names. Otherwise the
+spec holds, and a doc that restates a rule the spec has since replaced is the
+stale one. The spec is then rewritten to the ruling, so a conflict is temporary.
+SL:open-questions logs how each one was settled.
+
 ## Layout
 
 ```

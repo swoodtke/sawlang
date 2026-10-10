@@ -7854,6 +7854,26 @@ multiple threads (design 75) — carrying the coroutine transform, suspending
   closed design 71's residual gap: an owning closure in a copyable struct that is
   then copied now retains the shared env and tears it down once at the last
   owner.)*
+- **A function type is escaping wherever it holds a value past a call.** That is
+  a struct field, an enum payload, a type argument (`Vector<() -> Int>`,
+  `(() -> Int)?`, or one a generic call infers), a static, a return type, and an
+  escaping closure's capture. None of them needs the word, and writing
+  `escaping` there is redundant but legal. A parameter's function type is the
+  exception: it is non-escaping unless it says `escaping`, and a local bound to
+  such a parameter keeps that kind. An escaping value goes anywhere a function
+  value goes. A non-escaping one may only be called, passed to a non-escaping
+  parameter, or captured by a non-escaping closure, whose body inherits the same
+  limit. Storing it anywhere else is refused, and the fix is to mark the
+  parameter `escaping`:
+
+  ```saw-fragment
+  struct Handler { run: () -> Int }               // an escaping slot
+  func run(body: () -> Int) -> Int { body() }     // a non-escaping parameter
+
+  func keep(f: () escaping -> Int) -> Handler { Handler(run: f) }
+  func call_twice(f: () -> Int) -> Int { run({ f() + f() }) }    // fine: never stored
+  func store(f: () -> Int) -> Handler { Handler(run: f) }        // error: `f` is non-escaping
+  ```
 - **A `move` capture into a non-escaping closure transfers when the body runs.**
   A non-escaping closure keeps its environment on the stack and has no teardown
   of its own, so it cannot own a value from creation the way an escaping

@@ -7,7 +7,11 @@ skill** (`.claude/skills/saw-lang/`). **LANGUAGE_SPEC.md** is
 authoritative for meaning, and **GRAMMAR.md** for spelling: it is the
 formal grammar (how each construct is spelled, its stable `syntax.*`
 name, and the positions it may appear in), and where the spec's text
-shows an older spelling, the grammar's holds. Open work:
+shows an older spelling, the grammar's holds. Where the spec and an SL
+design doc (SL:borrowing, SL:testing, ...) disagree, a **Ruled** section of
+the doc, or a retirement it records, supersedes the spec text it names;
+otherwise the spec holds. The spec is then rewritten to the ruling, so the
+conflict is temporary. Open work:
 **designs/todo.md** (tracker); decided designs: `designs/NN-*.md`.
 
 ## Repo map
