@@ -1499,6 +1499,20 @@ a `static` flag, read off the declared keyword. Private fields,
 methods, and inits are left out; `--emit-docs-all` keeps them. Ordering is
 fixed, so the output is diffable.
 
+The `self` kind of a `borrows` accessor is read off its declared receiver, as
+for any method: `&self` is `borrows` and `&var self` is `borrows-var`. A
+`borrows` accessor also carries a `lends` record with the facts the receiver
+cannot show: the lent type, the root charge (`shared` or `exclusive`, per the
+table in [Receiver access is a second fact](#receiver-access-is-a-second-fact)),
+and whether it is `borrows(sync)`. A cell-carrying `(&self) borrows -> &var T`
+accessor therefore reports `self` as `borrows`, since it serves a `let` root,
+and its root charge as `exclusive`. A `&self` accessor derived by
+`@synthesize(shared)` is its own item, marked `synthesized: "shared"`.
+
+**Status:** Stage 0 (`sawc`) still reports a `borrows` accessor's receiver kind
+as `window` (`borrows-var` when its body writes `self`) and emits no `lends`
+record. `sawc2` has no `--emit-docs` yet.
+
 ### Composite Types
 
 ```saw-fragment
@@ -5006,14 +5020,43 @@ The separation reads the true refcount: a `borrows` receiver travels by pointer,
 so the accessor sees the same `Arc` the caller holds rather than a retained
 copy, and `strong_count()` answers about the caller's sharing.
 
-**A forwarded lend reaches the inner accessor the outer declaration allows.**
-An accessor that forwards another accessor's place (`lend self.inner[i]`)
-borrows `self.inner` with its own receiver's access. Inside a `&self` accessor
-the receiver is shared, so only the inner `&self` accessor can serve it, and a
-shared read of a nested copy-on-write buffer does not copy. Inside a
-`&var self` accessor that lends `&var T`, the lend needs the inner exclusive
-accessor. An outer `-> &var T` backed by an inner `-> &T` cannot supply the
-writable place it promises, and is refused at the `lend`.
+**A forwarded lend picks the inner accessor by the outer's lent type.** When an
+accessor forwards another accessor's place (`lend self.inner[i]`), its lent
+type plays the binding keyword for the `lend` operand:
+
+- **`-> &T` reads as `borrow let`.** The operand uses the inner `&self`
+  accessor when one exists, the least privilege that works, and otherwise the
+  exclusive one.
+- **`-> &var T` reads as `borrow var`.** The operand needs a writable inner
+  lend, so an outer `-> &var T` backed by an inner `-> &T` cannot supply the
+  place it promises, and is refused at the `lend`.
+
+The pick is made among the inner accessors the outer's receiver can reach.
+Inside a `&self` accessor the receiver is shared, so only an inner `&self`
+accessor can serve it, and an inner `&var self` one is never reached: a
+cell-carrying `(&self) borrows -> &var T` can forward only an inner
+cell-carrying `&self` accessor, and a `lend` that needs any other is refused.
+The rule applies at each accessor hop of the operand, so `lend self.a[i].b[j]`
+picks for `a` and for `b` separately. The outer's own root charge is unchanged
+by what it forwards; it still follows the outer's declaration.
+
+So a read-only forward through `Data` runs the shared `[]` and never separates
+bytes, even from an accessor that takes `&var self`:
+
+```saw-fragment
+struct Frame { payload: Data, reads: Int }
+
+extension Frame {
+    public func byte(&var self, i: Int) borrows -> &UInt8 {
+        lend self.payload[i]           // `-> &UInt8` reads as `borrow let`: the
+                                       // shared `Data.[]` runs, and separates nothing
+        self.reads = self.reads + 1
+    }
+}
+```
+
+A `(&var self) borrows -> &var UInt8` forward of the same place runs the
+exclusive `Data.[]`, which separates first.
 
 #### Window extent and nesting
 
@@ -5368,7 +5411,12 @@ declaration's terms.**
   `borrows` wrapper never hides a lock from its consumer.
 - A function type carries `borrows` or `borrows(sync)` in its effect slot
   (`syntax.type.func-borrows`), and a value of a `borrows(sync)` type does not
-  convert to a plain `borrows` type.
+  convert to a plain `borrows` type. No expression forms a value of such a type
+  yet. The language has no method reference, and a closure has no receiver to
+  root a `lend` in, while a `lend` rooted in a parameter is refused (see
+  [The lent place is rooted in the receiver](#the-lent-place-is-rooted-in-the-receiver)).
+  The type describes methods: a trait requirement, and a call through a bound
+  or an `any Trait`. Writing the type is legal.
 - A trait may require a `borrows` or `borrows(sync)` method
   (`syntax.rule.requirement-borrows`), as `KeyedPlace` does (see
   [Subscripts](#subscripts-getitem-setitem-and-the-place)). A call through a

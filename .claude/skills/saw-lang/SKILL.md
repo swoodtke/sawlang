@@ -502,7 +502,10 @@ print("{#file}:{#line} - msg")  // #file/#line/#function: definition-site consts
   drop. `sawc <entry> --emit-docs` emits the whole surface as JSON (signatures,
   suspending-vs-sync effect, self borrows/consumes, conformances) for the entry
   module plus every module it imports; write user-facing doc text per the
-  saw-docs skill.
+  saw-docs skill. A `borrows` accessor's `self` kind is its declared receiver,
+  plus a `lends` record (lent type, root charge `shared`/`exclusive`,
+  `borrows(sync)`); a `@synthesize(shared)` twin is its own item. Stage 0
+  still reports `window` for the receiver and no `lends` record.
 - Shadowing (design 100/107): a `let`/`var`/`for`-var that shadows an ENCLOSING
   binding (an outer local/param/capture/loop-var or a module `static`) is a
   compile ERROR unless its initializer MENTIONS the shadowed name —
@@ -1063,7 +1066,12 @@ var u = w.copy()       // explicit duplicate
   (Stage 0 spelling: `match self.slots[i] { case Filled(_, r) -> { lend r }, … }`.)
   A `lend` inside a `borrow` block keeps that block's borrow open while the
   accessor's own lend is open; only the `lend` operand itself needs no
-  `borrow` (`lend self.sections[i]` forwards another accessor's place).
+  `borrow` (`lend self.sections[i]` forwards another accessor's place). The
+  outer's LENT TYPE picks the inner accessor, at each hop: `-> &T` reads as
+  `borrow let` (the inner `&self` one when it exists, so a read-only forward
+  through `Data.[]` never separates bytes), `-> &var T` as `borrow var`; and
+  only accessors the outer's receiver reaches count, so a `&self` outer never
+  reaches an inner `&var self` accessor.
   Tag stability is free: the window borrows the scrutinee's ROOT, so the Law of
   Exclusivity freezes the enum (discriminant included) for the window's whole
   extent. The scrutinee must be storage reached through the receiver
@@ -1139,7 +1147,9 @@ var u = w.copy()       // explicit duplicate
   four refusals: shared fields only, `&self` origin only, owned `Item`, no
   temporary head.
   Fences, ruled language: any borrow may span a suspend unless the accessor is
-  `borrows(sync)`; function types carry `borrows`/`borrows(sync)`; traits may
+  `borrows(sync)`; function types carry `borrows`/`borrows(sync)` (legal to
+  spell, but no expression makes such a value: no method references, and a closure
+  has no receiver to root a `lend` in — the type describes methods); traits may
   require `borrows` methods (`KeyedPlace`); a body may forward a conditional
   place by borrowing it and lending the bound place. STAGE 0 fences: a borrows
   ACCESSOR's body is `sync` and its `lend` window never spans a suspend
