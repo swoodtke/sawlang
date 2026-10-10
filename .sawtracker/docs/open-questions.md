@@ -379,6 +379,19 @@ Correction: the lead first wrote "B", which is not a §12 code. The SL-426 agent
 
 ## Resolved
 
+### SL-493. An alias constructor over a constant is a constant: `static A: Byte = Byte(65)` (Oct 10; the USER's ruling)
+LANGUAGE_SPEC said `static MINUS_SIGN: Byte = Byte(45)` is refused "because a constructor call is not a constant expression", and Stage 0 refuses it. But in a `let`, `Byte(45)` is the only spelling for an alias over a fixed-width type. So the one conversion that changes nothing about the value was illegal in exactly the slot that wants constants.
+
+**Ruled:** accept it as a constant. The lead's scope:
+- A type alias's constructor applied to a constant expression, `A(e)`, is a constant expression.
+- It folds to `e`'s value at the alias's underlying type.
+- It gets the same fit check a bare literal gets, so `Byte(300)` is "constant expression 300 does not fit in `UInt8`".
+- It is accepted in every constant position, not only static initializers, since all of them share one evaluator.
+
+Function calls in general stay refused (tier 3), as do `init` bodies and non-alias constructors.
+
+**Where it lands:** the spec's alias passage and the tier-2 list, typecheck's fold and the evaluator (misc459, SL-459), and SL-493's refusal funnel, which must not refuse this shape. Stage 0 still refuses it, and it is frozen, so source that Stage 0 compiles keeps the bare-literal spelling.
+
 ### Escaping closures stay refcounted `Copy`, not move-only (Oct 9; the USER agreed with the lead and the Air)
 The user asked whether escaping closures should be move-only. After SL-469 and SL-472 the shared env is immutable and never consumed, so sharing is semantically invisible, and move-only would cost copyability for callbacks held twice and the Copy tier of every struct with a closure field. The refcount's only job is deciding when the env's owned captures are freed. **Decided:** keep the refcounted Copy model. **For the codegen unit, measure two observable-equivalent optimisations:** a non-atomic refcount (closures never cross threads; spawn takes an explicit capture list), and copying a closure whose captures are all trivial bitwise, like a plain function. Revisit the model only if a `Send` closure type is ever added.
 
