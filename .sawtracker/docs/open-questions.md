@@ -39,6 +39,8 @@ O1 to O3 are decided as D31 to D33.
 
 Either one can be added later without breaking accepted code, because the refusal admits nothing that they would reinterpret.
 
+**The Air agreed** (m438). GRAMMAR's `assoc-type-decl` takes no bound, so a redeclaration can only restate the name and never tighten it. Tightening is what motivates Swift's merge, so the choice belongs to a future design for associated-type bounds.
+
 **Reversal:** accept the redeclaration under the merge reading.
 
 ### D33. No expression forms a value of a `borrows` function type yet (Oct 10; SL-489 item 6, was O3)
