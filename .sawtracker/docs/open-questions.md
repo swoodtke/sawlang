@@ -66,7 +66,7 @@ An outer `(&var self) borrows -> &T` forwards `lend self.data[i]`, and the inner
 - **Lending `&T`** is read like `borrow let`. Per §4, it picks the `&self` variant when one exists ("the least privilege that works"), and otherwise the exclusive one.
 - **Lending `&var T`** is read like `borrow var`, and needs a writable inner lend.
 
-This applies at each accessor hop of the operand. The outer's own root charge is unchanged, because it is still exclusive from its `&var self` declaration. A read-only forward through `Data` therefore never separates bytes.
+The pick is made among the inner accessors the outer's receiver can reach (the Air, m426). A cell-carrying `(&self) borrows -> &var T` outer can therefore forward only an inner cell-carrying `&self` accessor. An inner `&var self` one is unreachable from `&self`, so that `lend` is refused. This applies at each accessor hop of the operand. The outer's own root charge is unchanged, because it is still exclusive from its `&var self` declaration. A read-only forward through `Data` therefore never separates bytes.
 
 **Rejected:** picking by the outer's receiver (`&var self`, so always the exclusive variant). It would make a read-only accessor perform a write's side effects, such as a copy-on-write separation and its allocation panic.
 
