@@ -833,6 +833,14 @@ sawc2 searches the importing file's own directory, then its package root, and no
 
 **Checker:** yes, for the compiler source: `import-allowlist` refuses any import that is neither std's nor a compiler stage's, so the source writes only the self-named `import <stage>.x`, which `compiler/tools/build.py` maps with `--module-path`. Blade and `libs/` are not checked; they write the self-named spelling by convention (SL-519).
 
+### S28. A `deinit` with an observable effect in the compiler's cone (SL-522)
+
+**Shape (silent: lost output):** Stage 1 is built by Stage 0, and its leaks are tolerated, provided that no skipped drop has an observable effect (see "Leaks are tolerated in Stage 1" above). A `deinit` that does more than free memory or close a read descriptor (a buffered writer that flushes, a process handle that waits or kills, a file that is renamed into place on drop) would turn a Stage 0 leak into lost or wrong output, silently. That is the natural design for an output file, so writing the compiler's own output (SL-522: the `.ll`, objects, and the spawned clang) is where this hazard arises.
+
+**Instead:** effects are explicit calls that return a `Result`, never `deinit` work. Write unbuffered (`write(&Data) -> Result<_, SystemError>`) and finish with an explicit `close() -> Result`; wait for a spawned process explicitly (`run()` blocks and returns the exit status); a `deinit` only releases the descriptor. Every site marks the canonical design it replaces: `// Stage 0 workaround (SL:hazards S28): canonical: <the buffered writer / deinit-flushing form>`. They return to it under SL-425, once Stage 0 is retired by the pinned seed binary (SL:open-questions, "Bootstrap seed").
+
+**Checker:** the existing `deinit-body` rule refuses a `deinit` in compiler source. The std modules in the cone are reviewed against this entry in `compiler/tools/std_cone_review.md`, and adding a std write or process API re-checks it (the allowlist pin).
+
 ## Loud hazards
 
 ### L1. Integer literal adoption (SL-13, SL-53, SL-56, SL-70, SL-75, SL-84, SL-194)
