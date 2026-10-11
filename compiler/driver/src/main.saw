@@ -21,7 +21,8 @@
 //   sawc2 mono --dump FILE...       each entry file's program monomorphized, and its items
 //   sawc2 mono --layouts FILE...    each entry file's program monomorphized, and its types' layouts
 //   sawc2 mono --check FILE...      each entry file's program monomorphized, refusals and invariants only
-//   sawc2 build FILE                the entry file's program as one `.ll` on standard output
+//   sawc2 build FILE [-o OUT]       the entry file's program compiled and linked by clang
+//   sawc2 build --emit-ll FILE      the entry file's program as one `.ll` on standard output
 //
 // The lexer's records are its canonical dump (compiler/lex/README.md), the
 // parser's are described in compiler/parse/README.md, the resolver's in
@@ -44,17 +45,20 @@ import sawmono.api.{MonoOptions, mono_record}
 import sawparse.api.{ParseOptions, parse_record}
 import sawparse.reader.{redump}
 import sawresolve.api.{ResolveOptions, resolve_record}
-import sawtarget.layout.{target_known}
+import sawtarget.layout.{target_clang_triple, target_known}
 import sawtypecheck.api.{TypecheckOptions, typecheck_record}
+import std.data.{Data}
 import std.env.{Env}
 import std.file.{File}
 import std.path.{Path}
+import std.process.{Command}
 
 static DRIVER_EXIT_LEX_ERROR: Int = 1
 static DRIVER_EXIT_USAGE: Int = 2
 static DRIVER_NEWLINE: Int = 10
 static DRIVER_AT: Int = 64
 static DRIVER_EQUALS: Int = 61
+static DRIVER_SLASH: Int = 47
 
 func driver_usage() -> Int {
     print("usage: sawc2 lex [--docs] <file.saw>")
@@ -76,7 +80,7 @@ func driver_usage() -> Int {
     print("       sawc2 mono (--dump | --layouts | --check) [--notes] [--std-root DIR] [--target TRIPLE]")
     print("                  [--module-path NAME=DIR]... [FILE | @LIST]...")
     print("       sawc2 build [-O0 | -O1 | -O2 | -Os | -Oz] [--std-root DIR] [--target TRIPLE]")
-    print("                   [--module-triple TRIPLE] [--module-path NAME=DIR]... FILE")
+    print("                   [--module-path NAME=DIR]... (FILE [-o OUT] | --emit-ll FILE)")
     DRIVER_EXIT_USAGE
 }
 
@@ -89,17 +93,20 @@ func driver_speed_level(flag: String) -> String {
     ""
 }
 
-// `sawc2 build FILE`: the program's `.ll` on standard output, its link
-// manifest in its head, or the record of what refused it and exit 1.
-// compiler/driver/sawc2 links it.
+// `sawc2 build FILE`: the program compiled to `OUT.ll` and linked by clang
+// into `OUT` against the runtime objects the manifest beside this binary
+// names; with `--emit-ll`, its `.ll` on standard output and nothing linked.
+// A refusal prints its record and exits 1, and a failing clang's exit status
+// is the build's (compiler/tests/run/README.md).
 func driver_build(args: &Vector<String>) -> Int {
     var std_root = "sawc"
-    var triple = "arm64-apple-darwin"
-    var module_triple = ""
+    var triple = ""
     var speed = "-O0"
     var names = Vector<String>()
     var dirs = Vector<String>()
     var path = ""
+    var out = ""
+    var emit = false
     var i = 2
     while i < args.len() {
         let arg = args.get(i) ?? ""
@@ -107,7 +114,9 @@ func driver_build(args: &Vector<String>) -> Int {
         let valued = arg.equals("--std-root") || arg.equals("--module-path") || arg.equals("--target")
         if level.len() > 0 {
             speed = level
-        } else if valued || arg.equals("--module-triple") {
+        } else if arg.equals("--emit-ll") {
+            emit = true
+        } else if valued || arg.equals("-o") {
             let value = args.get(i + 1) ?? ""
             if value.len() == 0 {
                 return driver_usage()
@@ -116,8 +125,8 @@ func driver_build(args: &Vector<String>) -> Int {
                 std_root = value
             } else if arg.equals("--target") {
                 triple = value
-            } else if arg.equals("--module-triple") {
-                module_triple = value
+            } else if arg.equals("-o") {
+                out = value
             } else if not driver_add_mapping(&var names, &var dirs, value) {
                 return driver_usage()
             }
@@ -129,30 +138,235 @@ func driver_build(args: &Vector<String>) -> Int {
         }
         i = i + 1
     }
-    if path.len() == 0 {
+    if path.len() == 0 || (emit && out.len() > 0) {
         return driver_usage()
     }
-    if not target_known(triple) {
+    if triple.len() > 0 && not target_known(triple) {
         // Stage 0 workaround (SL:hazards S23): canonical: print("sawc2: unknown target {triple}")
         print("sawc2: unknown target {}", triple)
         return DRIVER_EXIT_USAGE
     }
-    let options = BuildOptions(std_root: std_root, target: triple, speed: speed, module_triple: module_triple)
-    var out = StringBuilder()
+    if emit {
+        if triple.len() == 0 {
+            triple = "arm64-apple-darwin"
+        }
+        return driver_emit(path, std_root, triple, speed, &names, &dirs)
+    }
+    var objects = Vector<String>()
+    let host = driver_read_runtime(args.get(0) ?? "", &var objects)
+    if host.len() == 0 {
+        return DRIVER_EXIT_USAGE
+    }
+    if triple.len() == 0 {
+        triple = host
+    } else if not triple.equals(host) {
+        print("sawc2 build: --target {} is not this host ({}): a build links against the host's runtime, so only the host is a build target; `sawc2 mono --layouts --target {}` describes another target's layouts", triple, host, triple)
+        return 1
+    }
+    if out.len() == 0 {
+        out = driver_default_output(path)
+    }
+    let clang_triple = target_clang_triple(triple)
+    let options = BuildOptions(std_root: std_root, target: triple, speed: speed, module_triple: clang_triple)
+    var record = StringBuilder()
     var ir = StringBuilder()
-    let status = llvm_build(out: &var out, ir: &var ir, path: path, options: &options, names: &names, dirs: &dirs)
+    let status = llvm_build(out: &var record, ir: &var ir, path: path, options: &options, names: &names, dirs: &dirs)
     if status != 0 {
-        try! out.append("\n")
-        var record = StringBuilder()
-        try! record.append("FILE\t")
-        try! record.append(path)
-        try! record.append("\n")
-        try! record.append(out.build())
-        print(record.build())
+        driver_print_refusal(path, &var record)
+        return status
+    }
+    var ll = StringBuilder()
+    try! ll.append(out)
+    try! ll.append(".ll")
+    let ll_path = ll.build()
+    if not driver_write_file(ll_path, ir.build()) {
+        return 1
+    }
+    driver_link(ll_path, out, speed, clang_triple, &objects)
+}
+
+// `sawc2 build --emit-ll FILE`: the program's `.ll` on standard output, or
+// the record of what refused it and its status.
+func driver_emit(path: String, std_root: String, triple: String, speed: String, names: &Vector<String>,
+                 dirs: &Vector<String>) -> Int {
+    let options = BuildOptions(std_root: std_root, target: triple, speed: speed,
+                               module_triple: target_clang_triple(triple))
+    var record = StringBuilder()
+    var ir = StringBuilder()
+    let status = llvm_build(out: &var record, ir: &var ir, path: path, options: &options, names: &names, dirs: &dirs)
+    if status != 0 {
+        driver_print_refusal(path, &var record)
         return status
     }
     print(ir.build())
     0
+}
+
+// Prints the record `sawc2 mono --check` would, headed by its file.
+func driver_print_refusal(path: String, found: &var StringBuilder) {
+    try! found.append("\n")
+    var record = StringBuilder()
+    try! record.append("FILE\t")
+    try! record.append(path)
+    try! record.append("\n")
+    try! record.append(found.build())
+    print(record.build())
+}
+
+// `.build/NAME` for the entry file `path`, NAME its file name without `.saw`.
+func driver_default_output(path: String) -> String {
+    var start = 0
+    var i = 0
+    while i < path.len() {
+        if (path.byte_at(i) as Int) == DRIVER_SLASH {
+            start = i + 1
+        }
+        i = i + 1
+    }
+    var stop = path.len()
+    if stop - start > 4 && path.substring(stop - 4, stop).equals(".saw") {
+        stop = stop - 4
+    }
+    var name = StringBuilder()
+    try! name.append(".build/")
+    try! name.append(path.substring(start, stop))
+    name.build()
+}
+
+// The host target the runtime manifest beside this binary names, its objects
+// added to `objects`; "" once the reason it cannot be read is printed. The
+// manifest is `sawc2-runtime.txt` in the directory of `binary`, this
+// process's own path: a `target TRIPLE` line, then an `object PATH` line per
+// runtime object (compiler/tools/build.py writes it).
+func driver_read_runtime(binary: String, objects: &var Vector<String>) -> String {
+    var slash = 0 - 1
+    var i = 0
+    while i < binary.len() {
+        if (binary.byte_at(i) as Int) == DRIVER_SLASH {
+            slash = i
+        }
+        i = i + 1
+    }
+    var manifest = StringBuilder()
+    if slash < 0 {
+        try! manifest.append(".")
+    } else {
+        try! manifest.append(binary.substring(0, slash))
+    }
+    try! manifest.append("/sawc2-runtime.txt")
+    let at = manifest.build()
+    guard let text = driver_read_source(at) else {
+        print("sawc2 build: no runtime manifest beside the binary; compiler/tools/build.py writes it")
+        return ""
+    }
+    var host = ""
+    var start = 0
+    var k = 0
+    while k <= text.len() {
+        if k == text.len() || (text.byte_at(k) as Int) == DRIVER_NEWLINE {
+            if k > start {
+                let line = text.substring(start, k)
+                if line.starts_with("target ") {
+                    host = text.substring(start + 7, k)
+                } else if line.starts_with("object ") {
+                    try! objects.push(text.substring(start + 7, k))
+                } else {
+                    print("sawc2 build: {}: unknown line `{}`", at, line)
+                    return ""
+                }
+            }
+            start = k + 1
+        }
+        k = k + 1
+    }
+    if host.len() == 0 || not target_known(host) {
+        print("sawc2 build: {} names no target sawc2 knows", at)
+        return ""
+    }
+    host
+}
+
+// Writes `text` to the file at `path`, or prints why it could not and
+// returns false.
+func driver_write_file(path: String, text: String) -> Bool {
+    let created = File.create(Path(s: path))
+    var file = match created {
+        case Ok(handle) -> move handle,
+        case Err(e) -> {
+            // Stage 0 workaround (SL:hazards S23): canonical: print("sawc2: cannot create {path}: {e}")
+            print("sawc2: cannot create {}: {}", path, e)
+            return false
+        }
+    }
+    let converted = text.to_data()
+    let data = match converted {
+        case Ok(bytes) -> bytes,
+        case Err(e) -> {
+            // Stage 0 workaround (SL:hazards S23): canonical: print("sawc2: cannot write {path}: {e}")
+            print("sawc2: cannot write {}: {}", path, e)
+            return false
+        }
+    }
+    let written = file.write(data)
+    match written {
+        case Ok(count) -> {
+            if count != text.len() {
+                print("sawc2: {}: wrote {} of {} bytes", path, count, text.len())
+                return false
+            }
+        },
+        case Err(e) -> {
+            // Stage 0 workaround (SL:hazards S23): canonical: print("sawc2: cannot write {path}: {e}")
+            print("sawc2: cannot write {}: {}", path, e)
+            return false
+        }
+    }
+    // Stage 0 workaround (SL:hazards S28): canonical: var out = BufferedFile(move file); try out.write(text) — its deinit flushes and closes the file
+    let closed = file.close()
+    match closed {
+        case Ok(_) -> true,
+        case Err(e) -> {
+            // Stage 0 workaround (SL:hazards S23): canonical: print("sawc2: cannot close {path}: {e}")
+            print("sawc2: cannot close {}: {}", path, e)
+            false
+        }
+    }
+}
+
+// Runs `clang -target TRIPLE SPEED -x ir LL -x none OBJECTS... -o OUT` and
+// returns its exit status, or 1 once the reason it could not run is printed.
+func driver_link(ll: String, out: String, speed: String, triple: String, objects: &Vector<String>) -> Int {
+    var clang = Command(program: "clang")
+    try! clang.arg("-target")
+    try! clang.arg(triple)
+    try! clang.arg(speed)
+    try! clang.arg("-x")
+    try! clang.arg("ir")
+    try! clang.arg(ll)
+    try! clang.arg("-x")
+    try! clang.arg("none")
+    var i = 0
+    while i < objects.len() {
+        try! clang.arg(objects.get(i) ?? "")
+        i = i + 1
+    }
+    try! clang.arg("-o")
+    try! clang.arg(out)
+    // Stage 0 workaround (SL:hazards S28): canonical: let code = try clang.status() — a child handle whose deinit waits for it
+    let waited = clang.wait()
+    match waited {
+        case Ok(code) -> {
+            if code != 0 {
+                print("sawc2 build: clang exited {}", code)
+            }
+            code as Int
+        },
+        case Err(e) -> {
+            // Stage 0 workaround (SL:hazards S23): canonical: print("sawc2 build: cannot run clang: {e}")
+            print("sawc2 build: cannot run clang: {}", e)
+            1
+        }
+    }
 }
 
 // `sawc2 mono`: one record per entry file, in order, each file the entry of

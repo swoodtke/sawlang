@@ -62,9 +62,8 @@ compiler/
   llvm/               the textual LLVM IR backend, package `sawllvm`
                       (tests/run/README.md has its translation and `sawc2 build`)
     src/*.saw
-  driver/             the `sawc2` binary, package `sawc2`, and the `sawc2` script
-    src/main.saw      that links what `sawc2 build` writes
-    sawc2
+  driver/             the `sawc2` binary, package `sawc2`
+    src/main.saw
   tools/
     build.py          builds Stage 1 and Stage 2, or any program over the stage
                       packages
@@ -80,7 +79,8 @@ compiler/
                       check, recorded in std_suspension.txt and compiled into
                       typecheck/src/stdsuspension.saw
     runtime_objects.py the Saw runtime objects a hosted `sawc2 build` links:
-                      Stage 0's prebuilt ones, from its `.build/rt/` cache
+                      Stage 0's prebuilt ones, from its `.build/rt/` cache, and
+                      with --manifest the runtime manifest build.py writes
   tests/
     run.py            the test runner
     parse_lane.py     the parse lane: sawc2 parse against the parser corpus
@@ -166,19 +166,23 @@ Use the venv's Python, since it runs the frozen compiler:
 .build/sawc2 lex --kinds                               # every token kind's dump name
 .build/sawc2 parse --dump FILE...                      # each file's canonical AST dump
 .build/sawc2 parse --check FILE...                     # each file's diagnostics
-compiler/driver/sawc2 build --std-root std FILE -o OUT # FILE compiled and linked
+.build/sawc2 build --std-root std FILE -o OUT          # FILE compiled and linked by clang
+.build/sawc2 build --std-root std --emit-ll FILE       # FILE's `.ll` on standard output
 ./.venv/bin/python compiler/tools/build.py ENTRY.saw -o OUT   # another program
 ```
 
-`sawc2 build` runs through the script `compiler/driver/sawc2`: the binary
-writes one `.ll` and spawns nothing (SL:architecture §4), and the script hands
-it to clang with Stage 0's prebuilt runtime objects (tests/run/README.md).
+`sawc2 build` writes the program's `.ll` beside its output and runs clang on
+it with the runtime objects the manifest beside the binary names, Stage 0's
+prebuilt ones (tests/run/README.md). The file and process API it uses is the
+ruled Stage 0 workaround of SL:open-questions, "SL-522": an unbuffered write
+with an explicit `close`, and a blocking `Command.wait`, each site marked for
+SL:hazards S28.
 
 `build.py` rebuilds Stage 1 on every call and caches Stage 2 under a key
 covering Stage 1's object (the linker stamps each Stage 1 binary with a fresh
-UUID, so its bytes never repeat), the trees it compiles, the script, the
-runtime objects and clang (`.build/sawc2-stage2.key`), so an unchanged tree
-links nothing. The lanes run Stage 2; `SAWC2_STAGE=1` (or `run.py --stage 1`) runs
+UUID, so its bytes never repeat), the trees it compiles, `build.py` itself,
+which holds the link's arguments, the runtime manifest and its objects, and
+clang (`.build/sawc2-stage2.key`), so an unchanged tree links nothing. The lanes run Stage 2; `SAWC2_STAGE=1` (or `run.py --stage 1`) runs
 them on Stage 1 instead, for bisecting, and Stage 2 is then not built.
 
 A lex error prints one `ERROR` record and exits 1, and so does a file the parser
@@ -463,7 +467,8 @@ leak costs it memory, never output. That holds while no skipped drop has an
 effect, which is why the source declares no `deinit` and why
 `ALLOWED_STD_MODULES` is pinned in `tests/run.py`: adding a std module means
 checking that every `deinit` it reaches only frees memory or closes a
-descriptor. S13, a nested generic with defaulted parameters, only leaks, so it
+descriptor (SL:hazards S28: a write is unbuffered and a child is waited for
+explicitly, so no `deinit` flushes or waits). S13, a nested generic with defaulted parameters, only leaks, so it
 has no rule. S23 only leaks too, and has one anyway: a parser comparing token
 text, or a diagnostic interpolating it, would leak once per token of every file
 Stage 1 compiles. S3's `try?`, which never releases the error it discards, has

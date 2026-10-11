@@ -80,9 +80,10 @@ OUT = os.path.join(REPO, ".build", "std-lane")
 TIMEOUT = 300
 RUN_TIMEOUT = 60
 
-# The units of SL-456 whose std modules have landed. A member row of a landed
+# The units whose std declarations have landed: SL-456's, and SL-522's file
+# writing and process waiting. A member row of a landed
 # unit is compared, and an exception due by one fails until it is resolved.
-LANDED_UNITS = ("U5b1", "U5b2", "U5b3")
+LANDED_UNITS = ("U5b1", "U5b2", "U5b3", "SL-522")
 # The programs of `lang/` checked against the new std only, or refused.
 NEW_ONLY = ("optional_methods", "string_positions")
 REFUSED_PAIRED = ("missing_case",)

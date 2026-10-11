@@ -427,6 +427,7 @@ extension ResProgram {
         self.std_module("path")
         self.std_module("env")
         self.std_module("file")
+        self.std_module("process")
     }
 
     // Stage 0's std modules, each `std.X` at `<std root>/std/X.saw`.

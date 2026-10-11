@@ -64,7 +64,8 @@ def driver_ir(binary, root):
     the seconds it took; None when it refused."""
     start = time.time()
     entry = os.path.join(root, "compiler", "driver", "src", "main.saw")
-    r = subprocess.run([binary, "build", "--std-root", os.path.join(root, "std")] + build.package_arguments(root)
+    r = subprocess.run([binary, "build", "--emit-ll", "--std-root", os.path.join(root, "std")]
+                       + build.package_arguments(root)
                        + [entry], cwd=root, capture_output=True, timeout=TIMEOUT)
     seconds = time.time() - start
     if r.returncode != 0:
@@ -147,8 +148,6 @@ def replay_lanes(failures, counts):
     os.environ["FIXPOINT_REF"] = build.STAGE1
     os.environ["FIXPOINT_NEW"] = build.STAGE2
     os.environ["FIXPOINT_LOG"] = LOG
-    os.environ["SAWC2_BIN"] = twin
-    os.environ["SAW_PYTHON"] = sys.executable
     real = build.SAWC2
     build.SAWC2 = twin
     try:

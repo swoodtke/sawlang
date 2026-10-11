@@ -1,7 +1,6 @@
 // `sawc2 build`'s compile half: the program through every stage to one
-// `.ll`. The binary spawns no process (SL:architecture §4); the link manifest
-// heads the IR as comment lines, and compiler/driver/sawc2 runs clang on it
-// against the runtime objects the manifest names.
+// `.ll`, its link manifest heading the IR as comment lines. The driver writes
+// it to a file and runs clang on it (compiler/tests/run/README.md).
 
 import sawllvm.program.{llvm_emit_program}
 import sawmono.api.{mono_append_findings, mono_lower_file}
@@ -14,8 +13,8 @@ public struct BuildOptions {
     target: String
     // The optimisation flag clang receives (`speed_level`'s spelling).
     speed: String
-    // The triple the module names, as the clang that links it spells the
-    // target; "" names the target as sawc2 does.
+    // The triple the module names, the one the driver passes clang as
+    // `-target`; "" names the target as sawc2 does.
     module_triple: String
 }
 

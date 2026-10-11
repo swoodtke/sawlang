@@ -8,7 +8,10 @@ The runtime objects a hosted link adds are reviewed with it, because their
 bodies are in the same executable.
 
 `sawc/std` is frozen. Nothing here proposes an edit to it: a defect found in a
-cone body becomes an SL issue for the new std.
+cone body becomes an SL issue for the new std. The one ruled exception is
+SL-522's: `File.close` and the blocking `Command.wait`, added so the driver can
+write its `.ll` and run clang under both stds (SL:open-questions, "SL-522
+(Stage 0 std)"), and reviewed below with the rest.
 
 ## Method
 
@@ -110,15 +113,18 @@ The rules split in two (SL-441 c1):
 
 ## Summary
 
-The cone is 250 declarations in 19 modules: 13 in `builtin`, 51 in three runtime
-modules, and 186 in 15 std modules. `owned-operand` finds no site anywhere in
+The cone is 320 declarations in 23 modules: 13 in `builtin`, 92 in six runtime
+modules, and 215 in 16 std modules. SL-522 added 70 of them: `File.create`,
+`.write` and `.close`, `String.to_data`, `std.process`'s `Command` with its
+blocking `wait`, and the runtime bodies behind their seams (`rt.common.proc`,
+`rt.common.sleep`, `rt.host_macos.clock`, and `rt_fs_write`). `owned-operand` finds no site anywhere in
 sawc2's build, and the frame ledger for it has no frame and no suspension site.
 
 No firing is a defect. Obligations by hazard:
 
 | Entry | Rule | Declarations | Verdict |
 |---|---|---|---|
-| C1 (raw memory) | `raw-pointer` | 96 | Raw memory is one of the new std's named low-level features. Each body keeps its own invariant (below). C1's own shape, `move *p`, occurs nowhere |
+| C1 (raw memory) | `raw-pointer` | 117 | Raw memory is one of the new std's named low-level features. Each body keeps its own invariant (below). C1's own shape, `move *p`, occurs nowhere |
 | S1 | `generic-extension-init` | 2 | `Vector.init()` takes no parameter. `Arc.init(value:)` moves `value` by a placement write, and a probe with a `NoCopy` payload whose `deinit` prints shows one drop, at the end |
 | S2 | `borrowed-match-payload` | 2 | Each scrutinee is a call's result, an owned temporary. The rule treats every call as borrowed |
 | S3 | none | 3 | `try` appears in `StringBuilder.append(value:)`, `.append(scalar:)` and `Env.args`. The error is `AllocError`, which owns nothing, and nothing owned is evaluated before the `try` in the same expression. No `try?`, no `catch` |
@@ -127,11 +133,12 @@ No firing is a defect. Obligations by hazard:
 | S9 | `type-alias` | 1 | `Byte = UInt8`. No generic in the cone is instantiated at `Byte`, so SL-49's `G<Alias>` face is not reached; SL-383/384 concern aliases over structs |
 | S10, S12, S13, L8 | `nested-optional`, `any-type`, `box-type` | 2 | `TaskGroup`'s `Vector<Box<any Resumable>?>` fields. No `TaskGroup` is constructed in sawc2; the only instance reached on them is `Vector.len`, and nothing is taken out of a box |
 | S11, S15 | `cell-type` | 12 | `Arc<DataBuf>` in `Data`, and `Atomic<Int>` statics. `Arc` does not use `UnsafeMutableInterior`, and drops its payload (probed). No cell method is called on an indexed element |
-| S18 | `program-unique-names` | 1 | `ASCII_ZERO` in `std.stringbuilder` and `std.net`: private statics take module-local symbols, and SL-195's collision is loud |
+| S18 | `program-unique-names` | 4 | `ASCII_ZERO` in `std.stringbuilder` and `std.net`, `SYS_WOULD_BLOCK` in `std.process` and `std.net`, `EQUALS_BYTE` in `rt.common.proc` and `std.process`, `NANOS_PER_MICRO` in `rt.common.sleep` and `std.duration`: private statics take module-local symbols, each pair holds equal values, and SL-195's collision is loud |
 | S23 | `owned-operand` | 0 | No site. The head-receiver face, which the rule does not check, was read for and not found |
 | §4 sync | `sync-only` | 5 | The backtrace walk names `TaskGroup` and `VoidThread` as types. sawc2's frame ledger has no frame and no suspension site |
-| leak tolerance | `deinit-body` | 5 | Each `deinit` frees memory or closes a descriptor; `Arc.deinit` panics only on an over-release, which is a double drop, not a skipped one |
-| L1, L2, L5, L6, L7, L9, L17 | `integer-overload`, `closure-syntax`, `empty-struct`, `bounded-extension`, `fixed-array`, `name-collision`, `prelude-type-name` | 46 firings by declaration | Loud entries: Stage 0 compiles these bodies, so the failure each describes did not happen. `prelude-type-name` fires on the prelude's own declarations |
+| leak tolerance | `deinit-body` | 6 | Each `deinit` frees memory or closes a descriptor; `Arc.deinit` panics only on an over-release, which is a double drop, not a skipped one. `Command.deinit` is empty |
+| S28 | `deinit-body` | 2 | `File.deinit` and `Command.deinit` have no observable effect: `File.write` reaches the file in its own write(2), and `Command.wait` reaps the child before it returns, so a skipped drop loses nothing a caller reads. The driver's `close()` and `wait()` call sites carry S28's workaround marker |
+| L1, L2, L5, L6, L7, L9, L17 | `integer-overload`, `closure-syntax`, `empty-struct`, `bounded-extension`, `fixed-array`, `name-collision`, `prelude-type-name` | 48 firings by declaration | Loud entries: Stage 0 compiles these bodies, so the failure each describes did not happen. `prelude-type-name` fires on the prelude's own declarations |
 
 Surprises, for the new std's scope:
 
@@ -248,10 +255,13 @@ No body: externs `__saw_rt_get_argc`, `__saw_rt_get_argv`, `__saw_string_from_by
 | `File.open` | `raw-pointer` | Passes `path: Path` on by value |
 | `File._opened` | `raw-pointer` | S23's cast face, already bound first under a workaround marker (SL-427's std half) |
 | `File.read` | `borrowed-match-payload`, `raw-pointer` | S2's rule misreads `match Data(capacity: bytes_read)`, an owned temporary. C1: the `malloc` staging buffer is freed on every path |
-| `File.deinit` | `deinit-body` | Closes the descriptor |
+| `File.create` | `raw-pointer` | As `File.open`, through `_opened`, with the write-truncate mode and 0644 |
+| `File.write` | `raw-pointer` | C1: the bytes are staged in a `malloc` buffer of `data.len()`, freed before the result is read; one write(2), whose count the driver checks against the text's length. Unbuffered, so nothing waits for a drop (S28) |
+| `File.close` | `raw-pointer` | Sets the descriptor to -1 before close(2), so the deinit closes nothing and a second `close` is `Err(InvalidArgument)`; a failing close(2) is `Err(Unknown)`, since no seam captures its errno |
+| `File.deinit` | `deinit-body` | Closes the descriptor `close` has not; every write has already reached the file (S28) |
 | enums `OpenMode`, `SeekWhence` | none | Raw-backed; used only through `as UInt8` |
 
-No body: externs `__saw_rt_fs_open`, `__saw_rt_fs_read`, `__saw_rt_fs_lseek`, `close`, `malloc`, `free`.
+No body: externs `__saw_rt_fs_open`, `__saw_rt_fs_read`, `__saw_rt_fs_write`, `__saw_rt_fs_lseek`, `close`, `malloc`, `free`; static `MODE_RW_R_R`.
 
 ### std.net
 
@@ -264,6 +274,25 @@ No body: externs `__saw_rt_fs_open`, `__saw_rt_fs_read`, `__saw_rt_fs_lseek`, `c
 | `raw_code_now` | none | The range check keeps the `as Int32` from panicking |
 
 No body: extern `__saw_rt_last_raw_code`.
+
+### std.process
+
+| Declaration | Rules | Shapes |
+|---|---|---|
+| struct `Command` | `prelude-type-name` | Owns its program `String` and two `Vector<String>`s |
+| `Command.init(program:)`, `.arg` | none | `arg` pushes its argument, which `push` consumes on both paths |
+| `Command.wait` | `raw-pointer` | Blocks the thread: `try_wait` polled on a doubling `__saw_rt_sleep_ns`, 1 ms to 32 ms. Suspends nothing (sync-only holds; the frame ledger of sawc2's build has no frame and no site). A spawn failure, a reap's `-tag` and the child's exit 127 are `launch_failed` |
+| `Command.spawn_job`, `.build_argv`, `.build_envp` | `raw-pointer` | C1: each `char**` is `malloc`ed at its slot count, NULL-terminated by zero bytes, and freed by `spawn_job` after the seam returns; the slots borrow `Strings` the `Command` owns. With no `env` call, `build_envp` is not reached at run time |
+| `Command.deinit` | `deinit-body` | Empty: the fields' drops free memory, and no child outlives `wait` (S28) |
+| struct `ProcessError`, `ProcessError.format`, `launch_failed` | `prelude-type-name` (`ProcessError`) | Owns the program's `String`; the driver only prints it |
+| `decode_wait_status` | none | The raw status's exit byte, or 128 plus the signal, so a crash is never 0 |
+| enum `RedirectFlag` | none | Raw-backed; neither bit is set by `wait` |
+
+No body: statics `BLOCKING_POLL_START_NS`, `BLOCKING_POLL_MAX_NS`,
+`EXEC_FAILED_CODE`, `SYS_WOULD_BLOCK` (`program-unique-names`); externs
+`__saw_rt_proc_spawn`, `__saw_rt_proc_spawn_env`, `__saw_rt_proc_try_wait`,
+`__saw_rt_sleep_ns`, `malloc`, `free`. `run`, `reap` and `output` are not in
+the cone: they suspend.
 
 ### std.scalar
 
@@ -284,6 +313,7 @@ No body: statics `MAX_SCALAR`, `SURROGATE_MIN`, `SURROGATE_MAX`.
 | `String._substring` | `raw-pointer` | C1: fills a fresh block, `new_ptr as String` |
 | `String._parse_uint` | `root-reuse` | S4: `self._digit_value(self._ubyte_at(i))`, shared reads |
 | `String.fromBytes` | `raw-pointer` | C1; the invalid-UTF-8 path releases `candidate` at scope end |
+| `String.to_data` | none | S3: `let _ = try data.push(...)` of a `Byte`; `AllocError` owns nothing |
 | struct `Utf8Error` | `prelude-type-name` | One `Int` field |
 
 No body: externs `__saw_string_alloc`, `__saw_string_len`, `strlen`.
@@ -339,7 +369,10 @@ No body: extern `memcpy`.
 | Declaration | Rules | Shapes |
 |---|---|---|
 | `rt_alloc`, `rt_dealloc` (rt) | `raw-pointer` | C1. `ALLOC_*` are `Atomic<Int>` statics (`cell-type`), written only by the test hook |
-| `rt_fs_open`, `rt_fs_read`, `rt_fs_lseek` (rt) | `raw-pointer` | Forward to the C library; failures return the negated tag |
+| `rt_fs_open`, `rt_fs_read`, `rt_fs_write`, `rt_fs_lseek` (rt) | `raw-pointer` | Forward to the C library; failures return the negated tag |
+| `rt_proc_spawn`, `rt_proc_spawn_env`, `proc_spawn_impl`, `merge_environ`, `same_env_name` (rt) | `raw-pointer` | `fork` and `execvp`; between them the child calls only `close`, `dup2`, `execvp` and `_exit`. The environment merge runs in the parent. `EQUALS_BYTE` is `program-unique-names` |
+| `rt_proc_try_wait`, `proc_job_close` (rt), struct `ProcJob`, `PipeFds` | `raw-pointer` | `waitpid` with `WNOHANG`; the job is freed on every answer but `-WouldBlock`, so `wait` never touches it again |
+| `rt_sleep_ns`, `rt_clock_monotonic_nanos` (rt) | `raw-pointer` | `usleep` in chunks corrected by the monotonic clock; `NANOS_PER_MICRO` is `program-unique-names` |
 | enum `SysError` (rt) | none | Raw-backed |
 | `errno_value`, `raw_code_store`, `rt_last_raw_code`, `rt_last_syserror` (rt) | `raw-pointer` | none |
 | `raw_code_key` (rt) | `raw-pointer` | `&fresh` of a local `var`, and a CAS on the `RAW_CODE_KEY` static (`cell-type`) by name |
@@ -353,15 +386,16 @@ nothing.
 One entry per hazard rule that fires, naming each declaration and why it is
 safe there. Line numbers are in `std_cone.py --rules`.
 
-- **`raw-pointer` (C1).** 96 declarations, listed in the tables above. The cone's
+- **`raw-pointer` (C1).** 117 declarations, listed in the tables above. The cone's
   raw memory is the new std's first named low-level feature, so this is the
   review's main obligation. Each pointer is guarded by its owner's invariant:
   `Vector` by `length <= capacity` and a bounds check on every index;
   `StringBuilder` by `_reserve` before every write; `Data`/`DataBuf` by
   `_make_ready` and `Data.length`; `String` by `byte_at`'s bounds check and
   `__saw_string_alloc`'s block size; `Arc` by its control block layout; the
-  backtrace walk by the table's counts and `BT_MAX_*`. C1's own shape, the
-  uncharged `move *p`, occurs in no cone body.
+  backtrace walk by the table's counts and `BT_MAX_*`; `File.write` by its
+  staging buffer of `data.len()`; `Command`'s argument vectors by their slot
+  counts. C1's own shape, the uncharged `move *p`, occurs in no cone body.
 - **`generic-extension-init` (S1).** `Vector.init()`: SL-80 needs an owning
   parameter moved into the value, and this `init` has none. `Arc.init(value:)`:
   the parameter is moved by a placement write; probed with a `NoCopy` payload
@@ -389,9 +423,12 @@ safe there. Line numbers are in `std_cone.py --rules`.
   and called on statics by name (`ALLOC_ALLOW`, `ALLOC_LIMIT_ACTIVE`,
   `RAW_CODE_KEY`, `__saw_bt_head`, `__saw_bt_dumping`), never on an indexed
   element.
-- **`program-unique-names` (S18).** `ASCII_ZERO`: declared privately in
-  `std.stringbuilder` and `std.net`; private statics get module-local symbols,
-  and SL-195's failure would be loud.
+- **`program-unique-names` (S18).** `ASCII_ZERO` (`std.stringbuilder`,
+  `std.net`), `SYS_WOULD_BLOCK` (`std.process`, `std.net`), `EQUALS_BYTE`
+  (`rt.common.proc`, `std.process`) and `NANOS_PER_MICRO` (`rt.common.sleep`,
+  `std.duration`): each is private to its module, so it gets a module-local
+  symbol; each pair holds the same value; and SL-195's failure would be
+  loud.
 - **`owned-operand` (S23).** No firing. The rule does not check a temporary
   receiver in a control-flow head; no cone body has one that owns memory (the
   heads call methods on `self`, on named locals, or on `GlobalAllocator()`,
@@ -402,7 +439,15 @@ safe there. Line numbers are in `std_cone.py --rules`.
   no suspension site.
 - **`deinit-body` (leak tolerance).** `Vector.deinit`, `StringBuilder.deinit`,
   `DataBuf.deinit` and `Arc.deinit` free memory; `File.deinit` closes a
-  descriptor. A skipped one leaks and has no other effect.
+  descriptor; `Command.deinit` is empty. A skipped one leaks and has no other
+  effect.
+- **S28 (a `deinit` with an observable effect).** No `deinit` in the cone
+  flushes, renames or waits. `File.write` is one write(2) of the whole buffer
+  and `File.close` is explicit; `Command.wait` reaps its child before it
+  returns. A Stage 1 that skips `File.deinit` leaves a descriptor the process
+  exit closes, after every byte is already in the file. The driver's two
+  sites, the `close()` after its `.ll` and the `wait()` on clang, carry the
+  workaround marker naming the buffered, deinit-flushing form.
 - **Loud entries.** `integer-overload` (L1: `StringBuilder.append`, four
   overloads), `closure-syntax` (L2: `Data._make_ready`, `Data._store_at`,
   `__saw_bt_live_count`, `__saw_bt_dump`), `empty-struct` (L5:
@@ -467,21 +512,22 @@ What this reading cannot see, besides the blind spots listed above:
 
 ## Summary
 
-The cone is 109 declarations in 14 modules, all of them std:
+The cone is 132 declarations in 15 modules, all of them std:
 
 | Module | Declarations |
 |---|---|
 | `std.alloc` | 8 |
-| `std.data` | 12 |
+| `std.data` | 16 |
 | `std.env` | 7 |
-| `std.file` | 11 |
+| `std.file` | 16 |
 | `std.mem` | 2 |
 | `std.panic` | 2 |
 | `std.path` | 3 |
 | `std.prelude` | 5 |
+| `std.process` | 11 |
 | `std.scalar` | 6 |
-| `std.string` | 20 |
-| `std.stringbuilder` | 15 |
+| `std.string` | 22 |
+| `std.stringbuilder` | 16 |
 | `std.systemerror` | 5 |
 | `std.utf8` | 4 |
 | `std.vector` | 9 |
@@ -518,6 +564,8 @@ No body: the byte-range statics.
 | `Data.spare`, `.spare_count`, `.grow` | C1: a write goes at `spare()`, within `spare_count()`, and `spare()` panics on a shared block, so no `Data` observes another's write; `grow` panics past the capacity |
 | `Data.to_string`, `.decoded` | Validates through `std.utf8` before `string_from_bytes` copies; an invalid run is `Err(Utf8Error)`, never a `String` |
 | `Data.copy`, `Data.deinit` | The atomic refcount, with `String`'s orderings. `deinit` frees the block it was allocated with, through the same allocator, and panics only on an over-release |
+| `Data.count`, `.first_byte` | Read the length and the block's first byte, `None` for an empty `Data` |
+| `String.to_data`, `data_of_string` | C1: one block of the string's length, filled within `spare_count()` from `String.c_bytes()`; a refusal is `Err(AllocError)` |
 | `data_refcount`, `data_capacity`, `data_bytes` | C1: header reads at fixed offsets |
 
 ### std.systemerror
@@ -545,21 +593,42 @@ No body: externs `__saw_rt_get_argc`, `__saw_rt_get_argv`.
 
 | Declaration | Shapes |
 |---|---|
-| struct `File` | One descriptor, opened by `open` and closed by `deinit` |
-| `File.open` | C1: the path's bytes are copied into a buffer of `len + 1` and NUL-terminated; a NUL inside the path is `Err(InvalidArgument)`, never a shorter path; the buffer is freed on every path |
+| struct `File` | One descriptor, opened by `open` or `create`, and closed by `close` or else by `deinit` |
+| `File.open`, `File.create`, `File.opened` | C1: the path's bytes are copied into a buffer of `len + 1` and NUL-terminated; a NUL inside the path is `Err(InvalidArgument)`, never a shorter path; the buffer is freed on every path |
+| `File.write` | C1: writes from `Data.first_byte()` within `Data.count()`. A short write repeats with the rest, an interrupted one is retried, and a write(2) taking nothing is `Err(UnexpectedEnd)`; nothing is buffered (S28) |
+| `File.close` | Marks the descriptor closed before close(2), so `deinit` closes nothing; a second `close` is `Err(InvalidArgument)`, a failing close(2) `Err(Unknown)` |
 | `File.read` | C1: reads land at `Data.spare()` within `spare_count()`. A short read repeats, an interrupted one is retried, and an end before the length lseek(2) reported is `Err(UnexpectedEnd)`; the `Data` is released on every error path |
-| `File.deinit` | Leak tolerance: closes the descriptor, through the C library's close(2), since no runtime seam closes one |
+| `File.deinit` | Leak tolerance and S28: closes a descriptor `close` has not, through the C library's close(2), since no runtime seam closes one; every write has already reached the file |
 | `file_interrupted` | S2 does not apply: the scrutinee is a call's result |
 | enums `OpenMode`, `SeekOrigin` | Raw-backed; used only through `as UInt8` |
 
-No body: externs `__saw_rt_fs_open`, `__saw_rt_fs_read`, `__saw_rt_fs_lseek`,
-`close`; statics `NO_PERMISSION`, `NUL_BYTE`.
+No body: externs `__saw_rt_fs_open`, `__saw_rt_fs_read`, `__saw_rt_fs_write`,
+`__saw_rt_fs_lseek`, `close`; statics `NO_PERMISSION`, `CREATED_PERMISSION`,
+`CLOSED`, `NUL_BYTE`.
+
+### std.process
+
+| Declaration | Shapes |
+|---|---|
+| struct `Command`, `Command.init(program:)`, `.arg` | Owns its program and arguments; `arg` is `Vector.push`, which consumes its argument on both paths |
+| `Command.wait` | C1: the argument vector is allocated at `count + 2` slots, the program's and each argument's `c_bytes()`, then a NULL written as zero bytes, and freed once the spawn returns; a NUL inside the program or an argument is `Err(InvalidArgument)` before anything is spawned. The child's exit 127 is `Err(LaunchFailed)`. Blocks the thread and suspends nothing |
+| `process_reaped`, `process_running` | Polls `try_wait` on a doubling `__saw_rt_sleep_ns`, 1 ms to 32 ms, until the answer is not `-WouldBlock`; the job is the runtime's to free on that answer |
+| `process_exit_code` | The exit byte, or 128 plus the signal, so only a clean exit 0 is 0 |
+| `process_holds_nul` | A scan of the text's bytes |
+
+No body: externs `__saw_rt_proc_spawn`, `__saw_rt_proc_try_wait`,
+`__saw_rt_sleep_ns`. `Command`'s `deinit` is synthesized: it frees the
+program's `String` and the arguments' `Vector`.
 
 ### The leak-tolerance condition
 
-`ALLOWED_STD_MODULES` (`env`, `file`, `path`) and the pin in `tests/run.py` are
-unchanged: the compiler imports no new module. The modules those three reach
-are `std.data`, `std.systemerror` and `std.utf8`, and every `deinit` in the new
-cone frees memory (`Data`, `String`, `StringBuilder`, `Vector`) or closes a
-descriptor (`File`), so a drop Stage 1 skips has no effect but memory. None of
-the system modules writes a file.
+`ALLOWED_STD_MODULES` is `data`, `env`, `file`, `path` and `process`, and the
+pin in `tests/run.py` was updated with SL-522's additions, which the driver
+imports to write its `.ll` and run clang (`std.data` for `String.to_data`,
+which the new std declares there). The modules they reach are `std.data`,
+`std.systemerror` and `std.utf8`, and every `deinit` in the new cone frees
+memory (`Command`, `Data`, `String`, `StringBuilder`, `Vector`) or closes a
+descriptor (`File`), so a drop Stage 1 skips has no effect but memory
+(SL:hazards S28). The one file the compiler writes is its `.ll`, written
+unbuffered and closed explicitly, and the one process it runs is clang,
+waited for explicitly.

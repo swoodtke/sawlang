@@ -18,7 +18,7 @@ import sawtypecheck.typeops.{TcClient}
 // The program's `.ll`, or "" when the backend refused something, which the
 // refusals in `mono.diags` say. `speed` is the optimisation flag the link
 // manifest carries to clang; `module_triple`, when not empty, is the triple
-// the module names, the spelling the clang that links it compiles for.
+// the module names, which the driver passes clang as `-target`.
 public func llvm_emit_program(mono: &var MonoProgram, target: &var Target, speed: String,
                               module_triple: String) -> String {
     var e = ll_emitter()

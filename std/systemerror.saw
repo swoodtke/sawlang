@@ -8,8 +8,8 @@
 
 /// What kind of failure an operating-system operation reported.
 ///
-/// The kinds are the runtime's portable tags, plus `UnexpectedEnd`, which the
-/// standard library raises itself. Several platform codes share one kind
+/// The kinds are the runtime's portable tags, plus `UnexpectedEnd` and
+/// `LaunchFailed`, which the standard library raises itself. Several platform codes share one kind
 /// (`EACCES` and `EPERM` are both `PermissionDenied`), and `Unknown` is a
 /// failure the portable set has no word for.
 public enum SystemErrorKind {
@@ -57,7 +57,10 @@ public enum SystemErrorKind {
     case NetworkDown,
     /// The data ended before the length the operation was promised, as when a
     /// file shrinks while it is read.
-    case UnexpectedEnd
+    case UnexpectedEnd,
+    /// A child process could not run its program: it exited 127, the code
+    /// the spawn's child reports when the program cannot be executed.
+    case LaunchFailed
 }
 
 // The runtime's portable tags (sawc/rt/ABI.md, "Errors"). Tag 0 is success
@@ -156,7 +159,8 @@ extension SystemErrorKind {
             case TimedOut -> "timed out",
             case HostDown -> "host is down",
             case NetworkDown -> "network is down",
-            case UnexpectedEnd -> "unexpected end of data"
+            case UnexpectedEnd -> "unexpected end of data",
+            case LaunchFailed -> "the program could not be launched"
         }
     }
 }

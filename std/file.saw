@@ -1,7 +1,9 @@
-//! `File`: a file opened for reading.
+//! `File`: a file opened for reading, or created for writing.
 //!
 //! Every operation is synchronous: none suspends, so the calling thread waits
-//! in the system call until it returns.
+//! in the system call until it returns. A write is unbuffered, and `close`
+//! reports what closing the file found; the deinit only releases the
+//! descriptor (SL:hazards S28).
 
 import std.data.{Data}
 import std.path.{Path}
@@ -12,6 +14,7 @@ extern "C" {
     // count, an offset) or a negated portable tag (sawc/rt/ABI.md).
     func __saw_rt_fs_open(path: UnsafePointer<Int8>, mode: Int, perm: Int) -> Int
     func __saw_rt_fs_read(fd: Int, buf: UnsafePointer<Int8>, count: Int) -> Int
+    func __saw_rt_fs_write(fd: Int, buf: UnsafePointer<Int8>, count: Int) -> Int
     func __saw_rt_fs_lseek(fd: Int, offset: Int, whence: Int) -> Int
     // No runtime seam closes a descriptor, so the C library's close(2) does.
     func close(fd: Int32) -> Int32
@@ -20,7 +23,8 @@ extern "C" {
 // The runtime's portable open modes; the runtime translates each into its
 // host's flag bits.
 enum OpenMode: UInt8 {
-    case Read = 0
+    case Read = 0,
+    case WriteTruncate = 1
 }
 
 // Where an lseek(2) offset is measured from: POSIX's `SEEK_SET`, `SEEK_CUR`
@@ -31,11 +35,16 @@ enum SeekOrigin: UInt8 {
     case End = 2
 }
 
-// The creation permission, which an open that creates nothing ignores.
+// The creation permission, which an open that creates nothing ignores, and
+// the one a created file gets: 0644.
 static NO_PERMISSION: Int = 0
+static CREATED_PERMISSION: Int = 420
+// The descriptor of a closed file, which the deinit leaves alone.
+static CLOSED: Int = -1
 static NUL_BYTE: Int8 = 0
 
-/// A file opened for reading, closed when it is destroyed.
+/// A file opened for reading or created for writing, its descriptor
+/// released when it is destroyed.
 public struct File {
     private descriptor: Int
 }
@@ -47,6 +56,19 @@ extension File {
     /// holding a NUL byte, which no system path can, is `InvalidArgument`,
     /// and a path whose C string cannot be allocated is `ResourcesExhausted`.
     public static func open(path: Path) unsafe -> Result<File, SystemError> {
+        File.opened(path, OpenMode.Read, NO_PERMISSION)
+    }
+
+    /// Creates the file at `path` for writing, emptying a file already there.
+    ///
+    /// Returns `Err(SystemError)` with the reason open(2) refused, or
+    /// `InvalidArgument` and `ResourcesExhausted` as `open` does.
+    public static func create(path: Path) unsafe -> Result<File, SystemError> {
+        File.opened(path, OpenMode.WriteTruncate, CREATED_PERMISSION)
+    }
+
+    // The one open(2) call `open` and `create` share.
+    static func opened(path: Path, mode: OpenMode, permission: Int) unsafe -> Result<File, SystemError> {
         let text = path.as_string()
         let length = text.len()
         let size = length + 1
@@ -64,7 +86,7 @@ extension File {
             i = i + 1
         }
         name[length] = NUL_BYTE
-        let fd = __saw_rt_fs_open(name, (OpenMode.Read as UInt8) as Int, NO_PERMISSION)
+        let fd = __saw_rt_fs_open(name, (mode as UInt8) as Int, permission)
         GlobalAllocator().dealloc(name, size, 1)
         if fd < 0 {
             return SystemError.of("open", 0 - fd)
@@ -113,6 +135,51 @@ extension File {
         }
         data
     }
+
+    /// Writes all of `data` at the current position, and returns how many
+    /// bytes that was.
+    ///
+    /// The bytes reach the file before it returns: nothing is buffered. A
+    /// write that takes fewer bytes than offered repeats with the rest, and a
+    /// signal's interruption is retried. Returns `Err(SystemError)` with the
+    /// cause of a failing write(2).
+    public func write(&self, data: Data) unsafe -> Result<Int, SystemError> {
+        let total = data.count()
+        guard let bytes = data.first_byte() else {
+            return 0
+        }
+        var done = 0
+        while done < total {
+            let from = (&bytes[done]) as UnsafePointer<Int8>
+            let n = __saw_rt_fs_write(self.descriptor, from, total - done)
+            if n > 0 {
+                done = done + n
+            } else if n == 0 {
+                return SystemError.raised("write", SystemErrorKind.UnexpectedEnd)
+            } else if not file_interrupted(0 - n) {
+                return SystemError.of("write", 0 - n)
+            }
+        }
+        done
+    }
+
+    /// Closes the file now, and reports what close(2) found.
+    ///
+    /// The descriptor is released either way, and the deinit then closes
+    /// nothing. Returns `Err(SystemError)` when close(2) fails, its kind
+    /// `Unknown` since no runtime seam reports a close's cause, and
+    /// `InvalidArgument` for a file already closed.
+    public func close(&var self) unsafe -> Result<Void, SystemError> {
+        if self.descriptor < 0 {
+            return SystemError.raised("close", SystemErrorKind.InvalidArgument)
+        }
+        let fd = self.descriptor
+        self.descriptor = CLOSED
+        if close(fd as Int32) != 0 {
+            return SystemError.raised("close", SystemErrorKind.Unknown)
+        }
+        return
+    }
 }
 
 // Whether a portable tag reports a call a signal interrupted.
@@ -124,9 +191,12 @@ func file_interrupted(tag: Int) -> Bool {
 }
 
 extension File: NoCopy {
-    // A failed close(2) of a descriptor opened for reading loses no data, so
-    // its status has nothing to report.
+    // Releases the descriptor `close` has not. Every write has already reached
+    // the file, so a skipped or failed close here loses no data; a caller that
+    // needs the status calls `close` (SL:hazards S28).
     public func deinit(&var self) {
-        let _ = close(self.descriptor as Int32)
+        if self.descriptor >= 0 {
+            let _ = close(self.descriptor as Int32)
+        }
     }
 }

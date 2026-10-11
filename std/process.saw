@@ -1,0 +1,166 @@
+//! `Command`: a program run as a child process, and waited for.
+//!
+//! The child is spawned with a real argument vector, never a shell command
+//! line, so each argument reaches it as one element, whatever bytes it holds.
+//! `wait` blocks the calling thread until the child exits; nothing here
+//! suspends, and a `Command` holds no process, so its deinit has nothing to
+//! wait for (SL:hazards S28).
+
+import std.systemerror.{SystemError, SystemErrorKind, system_error_kind}
+
+extern "C" {
+    // A job handle (`> 0`) or a negated portable tag; `argv` is the program's
+    // name, then its arguments, then NULL (sawc/rt/ABI.md, "Process spawn").
+    func __saw_rt_proc_spawn(path: UnsafePointer<Int8>, argv: UnsafePointer<UnsafePointer<Int8>>, flags: Int) -> Int
+    // The raw POSIX wait status of a child that has exited, `-WouldBlock`
+    // while it runs, or another negated tag; every answer but `-WouldBlock`
+    // destroys the job.
+    func __saw_rt_proc_try_wait(job: Int) -> Int
+    // Parks the calling thread for the given nanoseconds.
+    func __saw_rt_sleep_ns(ns: UInt64)
+}
+
+// No redirection: the child inherits standard input, output and error.
+static NO_REDIRECTION: Int = 0
+// The exit code the spawn's child reports when it cannot execute the program.
+static EXEC_FAILED: Int32 = 127
+// The poll interval of `wait`, in nanoseconds: short at first, since most
+// children are quick, doubling to a ceiling that bounds how late an exit is
+// noticed.
+static POLL_START_NS: UInt64 = 1_000_000
+static POLL_MAX_NS: UInt64 = 32_000_000
+static ARGV_END_BYTE: Int8 = 0
+
+/// A program to run as a child process, with its arguments.
+public struct Command {
+    private program: String
+    private args: Vector<String>
+}
+
+extension Command {
+    /// Creates a command that runs `program`, found on `PATH` when it names no
+    /// directory, with no arguments.
+    public init(program: String) -> Command {
+        Command(program: program, args: Vector<String>())
+    }
+
+    /// Adds one argument, which the child receives as exactly one element of
+    /// its argument vector.
+    ///
+    /// Returns `Err(AllocError)` when the argument list cannot grow.
+    public func arg(&var self, argument: String) -> Result<Void, AllocError> {
+        self.args.push(argument)
+    }
+
+    /// Runs the program and blocks the calling thread until it exits, and
+    /// returns its exit code.
+    ///
+    /// A child killed by a signal reports 128 plus the signal's number, so it
+    /// never reads as success. Returns `Err(SystemError)` when the program
+    /// cannot be launched: the spawn's cause, `LaunchFailed` when the child
+    /// cannot execute it, and `InvalidArgument` for a program or argument
+    /// holding a NUL byte, which no argument vector can carry. A program
+    /// that itself exits 127 reads as `LaunchFailed` too.
+    public func wait(&self) unsafe -> Result<Int32, SystemError> {
+        if process_holds_nul(self.program) {
+            return SystemError.raised("spawn", SystemErrorKind.InvalidArgument)
+        }
+        let count = self.args.len()
+        let slots = count + 2
+        let size = slots * sizeof<UnsafePointer<Int8>>()
+        let align = alignof<UnsafePointer<Int8>>()
+        guard let block = GlobalAllocator().alloc(size, align) else {
+            return SystemError.raised("spawn", SystemErrorKind.ResourcesExhausted)
+        }
+        let argv = block as UnsafePointer<UnsafePointer<Int8>>
+        argv[0] = self.program.c_bytes()
+        var i = 0
+        while i < count {
+            let argument = self.args.get(i) ?? ""
+            if process_holds_nul(argument) {
+                GlobalAllocator().dealloc(block, size, align)
+                return SystemError.raised("spawn", SystemErrorKind.InvalidArgument)
+            }
+            argv[i + 1] = argument.c_bytes()
+            i = i + 1
+        }
+        // The NULL that ends the vector, written as zero bytes: there is no
+        // null-pointer literal.
+        var k = 0
+        let end = (slots - 1) * sizeof<UnsafePointer<Int8>>()
+        while k < sizeof<UnsafePointer<Int8>>() {
+            block[end + k] = ARGV_END_BYTE
+            k = k + 1
+        }
+        let job = __saw_rt_proc_spawn(self.program.c_bytes(), argv, NO_REDIRECTION)
+        GlobalAllocator().dealloc(block, size, align)
+        if job < 0 {
+            return SystemError.of("spawn", 0 - job)
+        }
+        let status = process_reaped(job)
+        if status < 0 {
+            return SystemError.of("wait", 0 - status)
+        }
+        let code = process_exit_code(status)
+        if code == EXEC_FAILED {
+            return SystemError.raised("exec", SystemErrorKind.LaunchFailed)
+        }
+        code
+    }
+}
+
+// The raw wait status of `job`'s child once it has exited, or the negated tag
+// of a failing reap, polling on a doubling sleep of the calling thread.
+func process_reaped(job: Int) unsafe -> Int {
+    var nap = POLL_START_NS
+    var answer = __saw_rt_proc_try_wait(job)
+    while process_running(answer) {
+        __saw_rt_sleep_ns(nap)
+        if nap < POLL_MAX_NS {
+            nap = nap * 2
+        }
+        answer = __saw_rt_proc_try_wait(job)
+    }
+    answer
+}
+
+// Whether a reap's answer says the child is still running: `-WouldBlock`.
+func process_running(answer: Int) -> Bool {
+    if answer >= 0 {
+        return false
+    }
+    match system_error_kind(0 - answer) {
+        case WouldBlock -> true,
+        case _ -> false
+    }
+}
+
+// The exit code a raw POSIX wait status stands for, as a shell reports it:
+// the exit byte for a normal exit, 128 plus the signal for a child a signal
+// killed, and 128 plus the stop signal for a stopped one, so only a normal
+// exit 0 is 0.
+func process_exit_code(status: Int) -> Int32 {
+    let low = status & 0x7F
+    let high = (status >> 8) & 0xFF
+    if low == 0 {
+        Int32.from(truncating: high)
+    } else if low == 0x7F {
+        Int32.from(truncating: 128 + high)
+    } else {
+        Int32.from(truncating: 128 + low)
+    }
+}
+
+// Whether `text` holds a NUL byte, which would end its C string early.
+func process_holds_nul(text: String) -> Bool {
+    var i = 0
+    while i < text.len() {
+        if text.byte_at(i) == 0 {
+            return true
+        }
+        i = i + 1
+    }
+    false
+}
+
+extension Command: NoCopy {}

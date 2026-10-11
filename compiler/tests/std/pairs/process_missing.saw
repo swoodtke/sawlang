@@ -1,0 +1,16 @@
+// Command.wait of a program that does not exist is an Err, a launch failure,
+// never an exit code, and the error renders as text.
+
+import std.process.{Command}
+
+func main() -> Int {
+    let missing = Command(program: "sawc2-no-such-program")
+    let waited = missing.wait()
+    match waited {
+        case Ok(code) -> panic("a missing program exited {}", code),
+        case Err(e) -> {
+            assert(not e.to_string().is_empty(), "the error renders as text")
+        }
+    }
+    0
+}

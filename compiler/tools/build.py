@@ -12,9 +12,10 @@ sawc2 built by Stage 1 at -O2 (`.build/sawc2-stage2`). The lanes run Stage 2;
 the two, and then Stage 2 is not built. `SAWC2` is the binary selected.
 
 Stage 2 is cached: its key covers Stage 1's object, the sources Stage 1
-compiles, the link script, the runtime objects and clang, so an unchanged
-tree links nothing. Stage 1 is rebuilt on every call, as Stage 0 has no cache
-of its own.
+compiles, this file, the runtime manifest and its objects and clang, so an
+unchanged tree links nothing. Stage 1 is rebuilt on every call, as Stage 0
+has no cache of its own. Beside them goes `.build/sawc2-runtime.txt`, the
+runtime manifest a hosted `sawc2 build` links against.
 
 The interpreter running this script runs `sawc/sawc.py`, so invoke it with the
 venv's Python. `STAGE_PACKAGES` is the one place that maps a stage package to
@@ -36,8 +37,11 @@ STAGE1_OBJECT = STAGE1 + ".o"
 STAGE2 = os.path.join(BUILD_DIR, "sawc2-stage2")
 STAGE2_KEY = STAGE2 + ".key"
 DRIVER_ENTRY = os.path.join(REPO, "compiler", "driver", "src", "main.saw")
-LINK_SCRIPT = os.path.join(REPO, "compiler", "driver", "sawc2")
 RUNTIME_OBJECTS = os.path.join(REPO, "compiler", "tools", "runtime_objects.py")
+# The runtime manifest a hosted `sawc2 build` reads beside its own binary: the
+# host target and the runtime objects it links (compiler/tests/run/README.md).
+RUNTIME_MANIFEST = os.path.join(BUILD_DIR, "sawc2-runtime.txt")
+THIS_FILE = os.path.abspath(__file__)
 STD_ROOT = os.path.join(REPO, "std")
 LINK_TIMEOUT = 1800
 
@@ -97,24 +101,48 @@ def build_program(entry, out):
 
 
 def link_driver(compiler, out):
-    """The driver built by the sawc2 binary `compiler` at -O2 and linked into
-    `out`; the error text, or "" when it linked. Stage 2 and Stage 3 are both
-    linked here, so the fixpoint compares two links made the same way."""
+    """The driver built and linked into `out` at -O2 by the sawc2 binary
+    `compiler`, which reads the runtime manifest beside itself; the error
+    text, or "" when it linked. Stage 2 and Stage 3 are both linked here, so
+    the fixpoint compares two links made the same way."""
     os.makedirs(os.path.dirname(out), exist_ok=True)
-    env = dict(os.environ)
-    env["SAWC2_BIN"] = compiler
-    env["SAW_PYTHON"] = sys.executable
-    r = subprocess.run([LINK_SCRIPT, "build", "-O2", "--std-root", "std"] + package_arguments(REPO)
-                       + [os.path.relpath(DRIVER_ENTRY, REPO), "-o", out], cwd=REPO, env=env,
+    r = subprocess.run([compiler, "build", "-O2", "--std-root", "std"] + package_arguments(REPO)
+                       + [os.path.relpath(DRIVER_ENTRY, REPO), "-o", out], cwd=REPO,
                        capture_output=True, text=True, timeout=LINK_TIMEOUT)
     if r.returncode != 0:
-        return (r.stdout + r.stderr).strip()[:600] or "it exited %d" % r.returncode
+        return (r.stdout + r.stderr).strip()[-600:] or "it exited %d" % r.returncode
+    return ""
+
+
+def write_runtime_manifest():
+    """Writes `.build/sawc2-runtime.txt`, naming Stage 0's prebuilt runtime
+    objects and the host target they are built for. Returns the error text,
+    or "" when it is written."""
+    r = subprocess.run([sys.executable, RUNTIME_OBJECTS, "--manifest"], cwd=REPO, capture_output=True,
+                       text=True)
+    if r.returncode != 0:
+        return (r.stdout + r.stderr).strip()
+    old = None
+    if os.path.exists(RUNTIME_MANIFEST):
+        with open(RUNTIME_MANIFEST) as fh:
+            old = fh.read()
+    if old != r.stdout:
+        with open(RUNTIME_MANIFEST + ".tmp", "w") as fh:
+            fh.write(r.stdout)
+        os.replace(RUNTIME_MANIFEST + ".tmp", RUNTIME_MANIFEST)
     return ""
 
 
 def build_stage1():
-    """Stage 0 builds the driver into `.build/sawc2`. Returns (ok, output)."""
-    return build_program(DRIVER_ENTRY, STAGE1)
+    """Stage 0 builds the driver into `.build/sawc2`, and the runtime
+    manifest it links against is written beside it. Returns (ok, output)."""
+    ok, output = build_program(DRIVER_ENTRY, STAGE1)
+    if not ok:
+        return ok, output
+    why = write_runtime_manifest()
+    if why:
+        return False, "build: the runtime manifest cannot be written: " + why
+    return True, output
 
 
 def _hash_tree(digest, root):
@@ -129,10 +157,11 @@ def _hash_tree(digest, root):
 
 def stage2_key():
     """What Stage 2 is a function of: Stage 1's code, the trees it compiles,
-    the link script, the runtime objects both links take and the clang that
-    links them. Stage 1's code is the object Stage 0 links it from, since the
-    linker stamps each Stage 1 binary with a fresh UUID. None when Stage 1's
-    object is missing or the runtime objects cannot be named."""
+    this file (which holds the link's arguments), the runtime manifest and the
+    objects it names, and the clang that links them. Stage 1's code is the
+    object Stage 0 links it from, since the linker stamps each Stage 1 binary
+    with a fresh UUID. None when Stage 1's object or the manifest is
+    missing."""
     if not os.path.exists(STAGE1_OBJECT):
         return None
     digest = hashlib.sha256()
@@ -141,16 +170,18 @@ def stage2_key():
     for root in [os.path.join(REPO, rel) for _, rel in STAGE_PACKAGES] + [os.path.dirname(DRIVER_ENTRY),
                                                                           STD_ROOT]:
         _hash_tree(digest, root)
-    with open(LINK_SCRIPT, "rb") as fh:
+    with open(THIS_FILE, "rb") as fh:
         digest.update(fh.read())
-    r = subprocess.run([sys.executable, RUNTIME_OBJECTS], cwd=REPO, capture_output=True, text=True)
-    if r.returncode != 0:
+    if not os.path.exists(RUNTIME_MANIFEST):
         return None
-    for path in r.stdout.split():
-        digest.update(path.encode("utf-8") + b"\0")
-        with open(path, "rb") as fh:
-            digest.update(hashlib.sha256(fh.read()).digest())
-    clang = subprocess.run([os.environ.get("CLANG", "clang"), "--version"], capture_output=True, text=True)
+    with open(RUNTIME_MANIFEST, "rb") as fh:
+        manifest = fh.read()
+    digest.update(manifest)
+    for line in manifest.decode("utf-8").split("\n"):
+        if line.startswith("object "):
+            with open(line[len("object "):], "rb") as fh:
+                digest.update(hashlib.sha256(fh.read()).digest())
+    clang = subprocess.run(["clang", "--version"], capture_output=True, text=True)
     digest.update(clang.stdout.encode("utf-8"))
     return digest.hexdigest()
 
@@ -160,8 +191,8 @@ def build_stage2():
     link has the same key. Returns (ok, output)."""
     key = stage2_key()
     if key is None:
-        return False, ("build: Stage 2's cache key needs %s and the runtime objects, and one is missing"
-                       % os.path.relpath(STAGE1_OBJECT, REPO))
+        return False, ("build: Stage 2's cache key needs %s and %s, and one is missing"
+                       % (os.path.relpath(STAGE1_OBJECT, REPO), os.path.relpath(RUNTIME_MANIFEST, REPO)))
     if os.path.exists(STAGE2) and os.path.exists(STAGE2_KEY):
         with open(STAGE2_KEY) as fh:
             if fh.read().strip() == key:

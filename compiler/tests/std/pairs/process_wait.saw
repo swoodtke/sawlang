@@ -1,0 +1,35 @@
+// Command.wait blocks until the child exits and returns its exit code: 0 for
+// `true`, nonzero for `false`, and the code a shell child exits with, each
+// argument reaching it as one argv element.
+
+import std.process.{Command}
+
+func main() -> Int {
+    let yes = Command(program: "true")
+    let passed = yes.wait()
+    match passed {
+        case Ok(code) -> {
+            assert(code == 0, "`true` exits 0")
+        },
+        case Err(e) -> panic("`true` did not launch: {}", e)
+    }
+    let no = Command(program: "false")
+    let failed = no.wait()
+    match failed {
+        case Ok(code) -> {
+            assert(code != 0, "`false` exits nonzero")
+        },
+        case Err(e) -> panic("`false` did not launch: {}", e)
+    }
+    var shell = Command(program: "sh")
+    try! shell.arg("-c")
+    try! shell.arg("exit 3")
+    let exited = shell.wait()
+    match exited {
+        case Ok(code) -> {
+            assert(code == 3, "the shell's own exit code comes back")
+        },
+        case Err(e) -> panic("`sh` did not launch: {}", e)
+    }
+    0
+}

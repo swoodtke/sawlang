@@ -1,6 +1,6 @@
 # The cone of compiler/driver/src/main.saw against the new std (std): every std declaration its
 # functions reach, read off sawc2's typecheck dump by compiler/tools/std_cone.py.
-# 111 declarations in 14 modules
+# 132 declarations in 15 modules
 
 std.alloc: 8
   extern __saw_rt_alloc
@@ -12,18 +12,22 @@ std.alloc: 8
   struct AllocError
   struct GlobalAllocator
 
-std.data: 12
+std.data: 16
   func data_bytes
   func data_capacity
+  func data_of_string
   func data_refcount
   method Data.copy
+  method Data.count
   method Data.decoded
   method Data.deinit
+  method Data.first_byte
   method Data.grow
   method Data.reserved
   method Data.spare
   method Data.spare_count
   method Data.to_string
+  method String.to_data
   struct Data
 
 std.env: 7
@@ -35,17 +39,22 @@ std.env: 7
   method Env.argument_count
   struct Env
 
-std.file: 11
+std.file: 16
   enum OpenMode
   enum SeekOrigin
   extern __saw_rt_fs_lseek
   extern __saw_rt_fs_open
   extern __saw_rt_fs_read
+  extern __saw_rt_fs_write
   extern close
   func file_interrupted
+  method File.close
+  method File.create
   method File.deinit
   method File.open
+  method File.opened
   method File.read
+  method File.write
   struct File
 
 std.mem: 2
@@ -68,6 +77,19 @@ std.prelude: 5
   requirement Printable.format
   requirement Printable.to_string
 
+std.process: 11
+  extern __saw_rt_proc_spawn
+  extern __saw_rt_proc_try_wait
+  extern __saw_rt_sleep_ns
+  func process_exit_code
+  func process_holds_nul
+  func process_reaped
+  func process_running
+  init Command.init
+  method Command.arg
+  method Command.wait
+  struct Command
+
 std.scalar: 6
   enum InvalidScalar
   init Scalar.init
@@ -76,7 +98,7 @@ std.scalar: 6
   method Scalar.value
   struct Scalar
 
-std.string: 21
+std.string: 22
   extern __saw_rt_alloc
   extern __saw_rt_dealloc
   func digit_value
@@ -86,6 +108,7 @@ std.string: 21
   func string_length
   func string_literal
   method String.byte_at
+  method String.c_bytes
   method String.copy
   method String.copy_range
   method String.deinit

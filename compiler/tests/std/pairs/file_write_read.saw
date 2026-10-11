@@ -1,0 +1,88 @@
+// arguments: {files}
+// File.create, write and close: the bytes written are on disk once close
+// returns, a second close is an Err, and File.open reads them back whole.
+
+import std.data.{Data}
+import std.env.{Env}
+import std.file.{File}
+import std.path.{Path}
+
+func main() -> Int {
+    let args = try! Env.args()
+    let dir = args.get(1) ?? ""
+    let path = Path(s: "{dir}/written.txt")
+    let created = File.create(path)
+    var file = match created {
+        case Ok(handle) -> move handle,
+        case Err(e) -> panic("cannot create written.txt: {}", e)
+    }
+    let text = "saw: héllo\nline two\n"
+    let converted = text.to_data()
+    let data = match converted {
+        case Ok(bytes) -> bytes,
+        case Err(e) -> panic("the text does not convert: {}", e)
+    }
+    let written = file.write(data)
+    match written {
+        case Ok(count) -> {
+            assert(count == text.len(), "every byte written")
+        },
+        case Err(e) -> panic("cannot write written.txt: {}", e)
+    }
+    let closed = file.close()
+    match closed {
+        case Ok(_) -> {},
+        case Err(e) -> panic("cannot close written.txt: {}", e)
+    }
+    let again = file.close()
+    match again {
+        case Ok(_) -> panic("a second close succeeded"),
+        case Err(e) -> {
+            assert(not e.to_string().is_empty(), "the error renders as text")
+        }
+    }
+    let opened = File.open(Path(s: "{dir}/written.txt"))
+    var reader = match opened {
+        case Ok(handle) -> move handle,
+        case Err(e) -> panic("cannot open written.txt: {}", e)
+    }
+    let read = reader.read()
+    let back = match read {
+        case Ok(bytes) -> bytes,
+        case Err(e) -> panic("cannot read written.txt: {}", e)
+    }
+    let decoded = back.to_string()
+    let round = match decoded {
+        case Ok(t) -> t,
+        case Err(e) -> panic("written.txt does not decode: {}", e)
+    }
+    assert(round.equals(text), "the bytes read back are the bytes written")
+    let recreated = File.create(Path(s: "{dir}/written.txt"))
+    var emptied = match recreated {
+        case Ok(handle) -> move handle,
+        case Err(e) -> panic("cannot create written.txt again: {}", e)
+    }
+    let shut = emptied.close()
+    match shut {
+        case Ok(_) -> {},
+        case Err(e) -> panic("cannot close the emptied file: {}", e)
+    }
+    let reopened = File.open(Path(s: "{dir}/written.txt"))
+    var last = match reopened {
+        case Ok(handle) -> move handle,
+        case Err(e) -> panic("cannot reopen written.txt: {}", e)
+    }
+    let rest = last.read()
+    let left = match rest {
+        case Ok(bytes) -> bytes,
+        case Err(e) -> panic("cannot read the emptied file: {}", e)
+    }
+    let empty = left.to_string()
+    match empty {
+        case Ok(t) -> {
+            assert(t.is_empty(), "create empties a file already there")
+        },
+        case Err(e) -> panic("an empty file does not decode: {}", e)
+    }
+    0
+}

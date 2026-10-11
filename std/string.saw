@@ -133,6 +133,13 @@ extension String {
         words[LENGTH_SLOT]
     }
 
+    // The bytes, NUL-terminated as they stand, so a C string while this
+    // `String` is alive. An interior NUL ends the C string early; a caller
+    // handing it to the system checks for one first.
+    public(package) func c_bytes(&self) unsafe -> UnsafePointer<Int8> {
+        self.bytes
+    }
+
     /// Returns whether the string holds no bytes.
     public func is_empty(&self) -> Bool {
         self.len() == 0

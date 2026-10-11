@@ -34,6 +34,10 @@ extern "C" {
     func __saw_rt_op_budget_tick() -> Int
     func __saw_rt_op_budget_reset()
 
+    // The thread-parking sleep `wait()` polls on: it holds the calling thread,
+    // which is what a blocking wait means.
+    func __saw_rt_sleep_ns(ns: UInt64)
+
     // Memory. Only the two `char**` arrays `execvp` wants are built by hand;
     // the stdout capture is a `Data` and grows itself.
     func malloc(size: Int) -> UnsafePointer<Int8>?
@@ -71,6 +75,12 @@ static SYS_WOULD_BLOCK: Int = 1
 // doubling nap is slower than a park but never blocks a thread.
 static WAIT_POLL_START_MS: UInt64 = 1
 static WAIT_POLL_MAX_MS: UInt64 = 32
+
+// The blocking wait's poll interval, in nanoseconds: it starts short, since
+// most children a sync caller waits for are quick, and doubles to a ceiling
+// that bounds how late an exit is noticed.
+static BLOCKING_POLL_START_NS: UInt64 = 1_000_000
+static BLOCKING_POLL_MAX_NS: UInt64 = 32_000_000
 
 // The wait seam returns the raw POSIX wait status, not an exit code. `status
 // >> 8` alone would drop signal deaths: a child killed by SIGABRT or SIGSEGV
@@ -380,6 +390,42 @@ extension Command {
             return launch_failed(self.program)
         }
         let code = decode_wait_status(w.raw as Int32)
+        if code == EXEC_FAILED_CODE {
+            return launch_failed(self.program)
+        }
+        code
+    }
+
+    // Run the command and block the calling thread until it exits, inheriting
+    // stdin/stdout/stderr. The answers are `run()`'s: `Ok(code)` once the
+    // command launched and exited (a signal death decodes to 128+signum), `Err`
+    // when it could not be launched.
+    //
+    // Unlike `run()` this never suspends: it polls the child on a doubling
+    // sleep of the calling thread, so a `sync` caller may use it, and sibling
+    // tasks on that thread wait for the child too. Nothing cancels it.
+    public func wait(&self) unsafe -> Result<Int32, ProcessError> {
+        let job = self.spawn_job(false)
+        if job <= 0 {
+            return launch_failed(self.program)
+        }
+        var status = 0
+        var nap = BLOCKING_POLL_START_NS
+        while {
+            let r = __saw_rt_proc_try_wait(job)
+            if r != -SYS_WOULD_BLOCK {
+                status = r                     // exited: the raw status, or -tag
+                break
+            }
+            __saw_rt_sleep_ns(nap)
+            if nap < BLOCKING_POLL_MAX_NS {
+                nap = nap * 2
+            }
+        }
+        if status < 0 {
+            return launch_failed(self.program)
+        }
+        let code = decode_wait_status(status as Int32)
         if code == EXEC_FAILED_CODE {
             return launch_failed(self.program)
         }

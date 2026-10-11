@@ -3,7 +3,7 @@
 ; speed -O0
 ; runtime hosted
 
-target triple = "arm64-apple-darwin"
+target triple = "arm64-apple-macosx11.0.0"
 
 @.bytes.0 = private unnamed_addr constant [12 x i8] c"hello, world"
 @.bytes.1 = private unnamed_addr constant [1 x i8] c"\0A"

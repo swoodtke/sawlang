@@ -48,7 +48,6 @@ sys.path.insert(0, os.path.join(COMPILER, "tools"))
 
 import build  # noqa: E402
 
-SCRIPT = os.path.join(COMPILER, "driver", "sawc2")
 OUT = os.path.join(REPO, ".build", "run-lane")
 RUN_TIMEOUT = 20
 BUILD_TIMEOUT = 600
@@ -146,12 +145,13 @@ def ll_rules():
 
 
 def build_new(src, speed="-O0"):
+    """sawc2's build of `src` at `speed`. Its standard error carries the
+    linker's warnings about Stage 0's runtime objects, which name a newer
+    macOS than the module's target; they are not failures, and the lane reads
+    the exit status alone."""
     name = os.path.splitext(os.path.basename(src))[0]
     out = os.path.join(OUT, name + (".new" if speed == "-O0" else ".new" + speed[1:]))
-    env = dict(os.environ)
-    env["SAWC2_BIN"] = build.SAWC2
-    env["SAW_PYTHON"] = sys.executable
-    r = subprocess.run([SCRIPT, "build", speed, "--std-root", "std", rel(src), "-o", out], cwd=REPO, env=env,
+    r = subprocess.run([build.SAWC2, "build", speed, "--std-root", "std", rel(src), "-o", out], cwd=REPO,
                        capture_output=True, text=True, timeout=BUILD_TIMEOUT)
     return r.returncode == 0, out, (r.stdout + r.stderr).strip()
 
@@ -240,11 +240,10 @@ def cases(names=None):
 
 def check_pinned_ir(failures, counts, write):
     """hello.saw's `.ll`, as the compiler binary writes it for the default
-    target, against hello.ll. The script's build names the host clang's own
-    triple in the module, which is a fact about the host, so the pin reads the
-    binary's output instead."""
+    target, against hello.ll."""
     pinned = os.path.join(HERE, "hello.ll")
-    r = subprocess.run([build.SAWC2, "build", "--std-root", "std", rel(os.path.join(HERE, "hello.saw"))],
+    r = subprocess.run([build.SAWC2, "build", "--emit-ll", "--std-root", "std",
+                        rel(os.path.join(HERE, "hello.saw"))],
                        cwd=REPO, capture_output=True, text=True, timeout=BUILD_TIMEOUT)
     if r.returncode != 0:
         failures.append("run hello: sawc2 build wrote no .ll: %s" % r.stdout.strip()[:300])
@@ -274,19 +273,17 @@ def check_foreign_targets(failures, counts):
     host's, so a foreign triple would be linked into a host binary."""
     hello = os.path.join(HERE, "hello.saw")
     probe = os.path.join(OUT, "foreign")
-    env = dict(os.environ)
-    env["SAWC2_BIN"] = build.SAWC2
-    env["SAW_PYTHON"] = sys.executable
     refused = 0
     for triple in TARGETS:
-        if os.path.exists(probe):
-            os.remove(probe)
-        r = subprocess.run([SCRIPT, "build", "--std-root", "std", "--target", triple, rel(hello), "-o", probe],
-                           cwd=REPO, env=env, capture_output=True, text=True, timeout=BUILD_TIMEOUT)
+        for written in (probe, probe + ".ll"):
+            if os.path.exists(written):
+                os.remove(written)
+        r = subprocess.run([build.SAWC2, "build", "--std-root", "std", "--target", triple, rel(hello), "-o",
+                            probe], cwd=REPO, capture_output=True, text=True, timeout=BUILD_TIMEOUT)
         if r.returncode == 0:
             continue
         refused += 1
-        if "is not this host" not in r.stderr or os.path.exists(probe):
+        if "is not this host" not in r.stdout or os.path.exists(probe) or os.path.exists(probe + ".ll"):
             failures.append("run target %s: refused without saying it is not the host, or a binary was "
                             "written: %s" % (triple, (r.stdout + r.stderr).strip()[:300]))
     if refused != len(TARGETS) - 1:

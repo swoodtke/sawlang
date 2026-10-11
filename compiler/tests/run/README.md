@@ -15,15 +15,22 @@ run/
 ## `sawc2 build`
 
 ```sh
-compiler/driver/sawc2 build [-O0|-O1|-O2|-Os|-Oz] [--std-root DIR] [--target TRIPLE]
-                            [--module-path NAME=DIR]... FILE [-o OUT]
+.build/sawc2 build [-O0|-O1|-O2|-Os|-Oz] [--std-root DIR] [--target TRIPLE]
+                   [--module-path NAME=DIR]... FILE [-o OUT]
+.build/sawc2 build [...] --emit-ll FILE
 ```
 
-The compiler binary spawns no process (SL:architecture §4).
-`.build/sawc2 build ... FILE` writes the program's whole `.ll` to standard
-output and exits 0, or prints the record of what refused it (as `sawc2 mono
---check` prints one) and exits 1. The `.ll` opens with its link manifest, as
-comment lines:
+`sawc2 build FILE` compiles the program, writes its whole `.ll` to `OUT.ll`
+(`-o` defaults to `.build/NAME`), and runs
+`clang -target TRIPLE SPEED -x ir OUT.ll -x none RUNTIME... -o OUT`,
+blocking until clang exits. A refusal prints its record (as `sawc2 mono
+--check` prints one), writes nothing and exits 1; a failure to write the
+`.ll` or to start clang prints why and exits 1; otherwise the exit status
+is clang's. The `.ll` is written unbuffered and closed explicitly, and clang
+is waited for explicitly, so no step's result rests on a `deinit` (SL:hazards
+S28, whose workaround markers name the canonical buffered form). With
+`--emit-ll` the `.ll` goes to standard output instead and nothing is linked.
+The `.ll` opens with its link manifest, as comment lines:
 
 ```
 ; sawc2 link manifest
@@ -32,29 +39,30 @@ comment lines:
 ; runtime hosted
 ```
 
-The target is `--target` (default `arm64-apple-darwin`); `--module-triple
-TRIPLE` makes the module's `target triple` line name TRIPLE rather than the
-target, the spelling of the clang that will compile it.
+The module's `target triple` is the target's clang triple
+(`target_clang_triple` in `compiler/target`), and the same string is clang's
+`-target`, so clang compiles the module as written and needs asking nothing.
+For `arm64-apple-darwin` that is `arm64-apple-macosx11.0.0`: a versionless
+Darwin triple is one clang replaces with the host's own deployment version,
+with a warning, and learning that version would take capturing clang's
+output.
 
-`compiler/driver/sawc2` is the script that connects the pieces. A build
-links for the host alone, since the runtime objects are the host's: the
-script asks `$CLANG` (else `clang`) which triple it compiles IR for here
-(`clang -###`), takes the sawc2 target that triple is, and refuses a
-`--target` naming any other one before anything is written, rather than
-link a host binary from a module laid out for another target. It then runs
-the binary at the host's target with that triple as the module's, writes
-`OUT.ll` (`-o` defaults to `.build/NAME`), and runs
-`clang SPEED -x ir OUT.ll RUNTIME... -o OUT`, which compiles the module for
-the triple it names, with no override and nothing silenced. A
-hosted runtime is Stage 0's prebuilt one, the objects Stage 0 builds and
-caches under `.build/rt/<key>/`: `compiler/tools/runtime_objects.py` asks
-Stage 0's `sawc/rt_build.py` for them at llvmlite's host triple, which is
-what a Stage 0 build links, so the cache a Stage 0 build filled is the one
-used. The script finds the binary at `.build/sawc2` (`$SAWC2_BIN` overrides
-it) and Python as `$SAW_PYTHON`, the repository's `.venv`, or `python3`. The
-speed flag passes through the driver's one `driver_speed_level` funnel
-(design 265); `-O0` is the default. Every other command runs the binary as
-it is.
+A hosted build links for the host alone, since the runtime objects are the
+host's. They are named by the runtime manifest, `sawc2-runtime.txt` in the
+directory of the sawc2 binary that runs (the directory of its own `argv[0]`):
+a `target TRIPLE` line naming the sawc2 target the objects are built for, then
+an `object PATH` line per object. `compiler/tools/build.py` writes it beside
+Stage 1 and Stage 2, from `compiler/tools/runtime_objects.py --manifest`. The
+objects are Stage 0's prebuilt runtime, built and cached under
+`.build/rt/<key>/` by Stage 0's `sawc/rt_build.py` at llvmlite's host triple,
+which is what a Stage 0 build links. A `--target` naming another target is
+refused, saying it is not the host, before anything is written, rather than
+link a host binary from a module laid out for another target. Stage 0's
+objects are built for the host's macOS, newer than the module's 11.0, so the
+linker warns once per object on standard error; the warnings are expected
+until sawc2 builds the runtime at the module's target (SL-522), and no lane
+counts them as failures. The speed flag passes through the driver's one
+`driver_speed_level` funnel (design 265); `-O0` is the default.
 
 ## The backend
 
@@ -127,9 +135,9 @@ description's (`compiler/tests/mono/README.md`, "Layouts").
 ## The lane
 
 `run_lane.py` builds every program both ways, eight at a time, under
-`.build/run-lane/`. The sawc2 side is the binary the runner selected (Stage 2
-by default, `compiler/tools/build.py`), handed to the script as `$SAWC2_BIN`.
-The lane compares:
+`.build/run-lane/`. The sawc2 side is `sawc2 build` run by the binary the
+runner selected (Stage 2 by default, `compiler/tools/build.py`). The lane
+compares:
 
 - a plain program passes when sawc2's binary, built at -O0 and again at -O2,
   writes the same bytes as Stage 0's and exits with the same status, a
@@ -148,10 +156,15 @@ The lane compares:
 - a `// due: REASON` program, with `// refuses: RULE at L:C` after it, must
   be refused there by that rule; once sawc2 builds it the lane fails, so the
   lines come off as the slice grows; every rule of `ll_rules` has one;
-- `hello.saw`'s `.ll`, as the binary writes it for the default target with
-  no module triple, equals `hello.ll` byte for byte (`--write` rewrites it);
+- `hello.saw`'s `.ll`, as `sawc2 build --emit-ll` writes it for the default
+  target, equals `hello.ll` byte for byte (`--write` rewrites it);
 - `sawc2 build --target` refuses every target but the host's, saying so, and
-  leaves no binary.
+  leaves no binary and no `.ll`.
+
+A build's standard error carries the linker's per-object warnings about
+Stage 0's runtime objects (above); the lane reads only a build's exit status,
+and the fixpoint lane compares the standard error of a build under Stage 1
+and Stage 2, which link the same objects and so warn the same bytes.
 
 Stage 0 is the oracle: a difference is a sawc2 bug until shown otherwise
 (SL:architecture §5).

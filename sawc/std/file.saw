@@ -196,6 +196,23 @@ extension File {
         return written
     }
 
+    // Close the file now, reporting a failure the deinit would have to drop.
+    // The descriptor is released either way, and the deinit then closes
+    // nothing. A second `close` is `InvalidArgument`. The cause of a failing
+    // close(2) is `Unknown`: no runtime seam closes a descriptor, so its errno
+    // is not captured.
+    public func close(&var self) unsafe -> Result<Void, IoError> {
+        if self.fd < (0 as Int32) {
+            return IoError.of("close", IoErrorKind.InvalidArgument)
+        }
+        let fd = self.fd
+        self.fd = -1 as Int32
+        if close(fd) != (0 as Int32) {
+            return IoError.of("close", IoErrorKind.Unknown)
+        }
+        return
+    }
+
     // Each returns the resulting absolute offset, or the errno cause of the
     // failing lseek(2).
 

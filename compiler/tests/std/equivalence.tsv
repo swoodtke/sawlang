@@ -118,3 +118,12 @@ UInt8.from	paired conversions	U5b2
 (api)	std.systemerror method SystemErrorKind.describe -	U5b3
 (api)	std.vector method Vector.iter -	SL-461
 (api)	std.vector struct VectorIterator -	SL-461
+File.create	std.file method File.create path:std.path.Path	SL-522
+.write	std.file method File.write data:std.data.Data	SL-522
+.close	std.file method File.close -	SL-522
+.to_data	std.string method String.to_data -	SL-522
+Command	std.process struct Command -	SL-522
+Command	std.process init Command.init program:String	SL-522
+.arg	std.process method Command.arg argument:String	SL-522
+.wait	std.process method Command.wait -	SL-522
+(api)	std.process conformance Command NoCopy	SL-522

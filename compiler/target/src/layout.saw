@@ -123,6 +123,18 @@ public func target_known(triple: String) -> Bool {
     false
 }
 
+// The triple a module for `triple` names, and clang is told with `-target`:
+// the two agree, so clang compiles the module as written. A Darwin triple
+// carries a fixed deployment version, since clang would otherwise put the
+// host's own in place of a versionless one, and finding that out takes its
+// output.
+public func target_clang_triple(triple: String) -> String {
+    if triple.equals("arm64-apple-darwin") {
+        return "arm64-apple-macosx11.0.0"
+    }
+    triple
+}
+
 // The description of `triple`, which `target_known` must answer for: every
 // triple it knows is LP64.
 public func target_named(triple: String) -> Target {

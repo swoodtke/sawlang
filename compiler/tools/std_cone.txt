@@ -5,7 +5,7 @@
 # the build's cone differs from this file. `via runtime` marks what only the
 # runtime objects reach; an `instance` line is one type-argument tuple, a type
 # the compiler source declares written as (owning) or (plain).
-# 250 declarations in 19 modules
+# 320 declarations in 23 modules
 
 builtin: 13
   struct Atomic
@@ -30,7 +30,7 @@ rt.common.mem: 6
   func rt_alloc  via runtime
   func rt_dealloc  via runtime
 
-rt.common.os_ops: 8
+rt.common.os_ops: 10
   extern __saw_open_flags  via runtime
   extern __saw_rt_last_syserror  via runtime
   extern lseek  via runtime
@@ -39,6 +39,53 @@ rt.common.os_ops: 8
   func rt_fs_lseek  via runtime
   func rt_fs_open  via runtime
   func rt_fs_read  via runtime
+  func rt_fs_write  via runtime
+  extern write  via runtime
+
+rt.common.proc: 30
+  static EQUALS_BYTE  via runtime
+  static EXEC_FAILED_STATUS  via runtime
+  static NO_FD  via runtime
+  static NULL_ENVP  via runtime
+  struct PipeFds  via runtime
+  struct ProcJob  via runtime
+  enum RedirectFlag  via runtime
+  static STDERR_FILENO  via runtime
+  static STDOUT_FILENO  via runtime
+  enum SysError  via runtime
+  static WNOHANG  via runtime
+  extern __saw_environ_get  via runtime
+  extern __saw_environ_set  via runtime
+  extern __saw_rt_last_syserror  via runtime
+  extern _exit  via runtime
+  extern close  via runtime
+  extern dup2  via runtime
+  extern execvp  via runtime
+  extern fork  via runtime
+  extern free  via runtime
+  extern malloc  via runtime
+  func merge_environ  via runtime
+  extern pipe  via runtime
+  func proc_job_close  via runtime
+  func proc_spawn_impl  via runtime
+  func rt_proc_spawn  via runtime
+  func rt_proc_spawn_env  via runtime
+  func rt_proc_try_wait  via runtime
+  func same_env_name  via runtime
+  extern waitpid  via runtime
+
+rt.common.sleep: 5
+  static CHUNK_NANOS  via runtime
+  static NANOS_PER_MICRO  via runtime
+  extern __saw_rt_clock_monotonic_nanos  via runtime
+  func rt_sleep_ns  via runtime
+  extern usleep  via runtime
+
+rt.host_macos.clock: 4
+  static CLOCK_MONOTONIC  via runtime
+  struct Timespec  via runtime
+  extern clock_gettime  via runtime
+  func rt_clock_monotonic_nanos  via runtime
 
 rt.host_macos.net_os: 37
   static EACCES  via runtime
@@ -151,17 +198,22 @@ std.env: 8
   extern __saw_string_from_bytes
   extern strlen
 
-std.file: 13
+std.file: 18
   struct File
   static-method File._opened
+  method File.close
+  static-method File.create
   method File.deinit
   static-method File.open
   method File.read
+  method File.write
+  static MODE_RW_R_R
   enum OpenMode
   enum SeekWhence
   extern __saw_rt_fs_lseek
   extern __saw_rt_fs_open
   extern __saw_rt_fs_read
+  extern __saw_rt_fs_write
   extern close
   extern free
   extern malloc
@@ -182,6 +234,31 @@ std.path: 3
   method Path.as_str
   init Path.init(s:)
 
+std.process: 23
+  static BLOCKING_POLL_MAX_NS
+  static BLOCKING_POLL_START_NS
+  struct Command
+  method Command.arg
+  method Command.build_argv
+  method Command.build_envp
+  method Command.deinit
+  init Command.init(program:)
+  method Command.spawn_job
+  method Command.wait
+  static EXEC_FAILED_CODE
+  struct ProcessError
+  method ProcessError.format
+  enum RedirectFlag
+  static SYS_WOULD_BLOCK
+  extern __saw_rt_proc_spawn
+  extern __saw_rt_proc_spawn_env
+  extern __saw_rt_proc_try_wait
+  extern __saw_rt_sleep_ns
+  func decode_wait_status
+  extern free
+  func launch_failed
+  extern malloc
+
 std.scalar: 8
   enum InvalidScalar
   method InvalidScalar.format
@@ -192,7 +269,7 @@ std.scalar: 8
   init Scalar.init(value:)
   method Scalar.value
 
-std.string: 18
+std.string: 19
   method String._decode_at
   method String._digit_value
   method String._parse_uint
@@ -206,6 +283,7 @@ std.string: 18
   method String.len
   method String.starts_with
   method String.substring
+  method String.to_data
   method String.to_uint(radix: Int)
   struct Utf8Error
   extern __saw_string_alloc
@@ -349,13 +427,14 @@ std.vector: 10
     instance T=String, A=GlobalAllocator
   extern memcpy
 
-(compiler-emitted IR helpers): 15
+(compiler-emitted IR helpers): 16
   String_copy
   String_deinit
   __saw_atomic_add_i64
   __saw_atomic_fence_acquire
   __saw_atomic_sub_i64_release
   __saw_fmt_int
+  __saw_fmt_uint  via runtime
   __saw_panic$bt$*
   __saw_panic$rt$*  via runtime
   __saw_rt_get_argc
@@ -366,17 +445,25 @@ std.vector: 10
   __saw_string_release
   __saw_string_retain
 
-(external C symbols): 19
+(external C symbols): 30
   __error
+  __saw_environ_get  shim.c
+  __saw_environ_set  shim.c
   __saw_open_flags  shim.c
   __saw_rt_panic  shim.c
   __saw_rt_write  shim.c
+  _exit
+  clock_gettime
   close
+  dup2
+  execvp
+  fork
   free
   lseek
   malloc
   memcpy
   open
+  pipe
   pthread_getspecific
   pthread_key_create
   pthread_key_delete
@@ -386,3 +473,6 @@ std.vector: 10
   strcat
   strcpy
   strlen
+  usleep
+  waitpid
+  write

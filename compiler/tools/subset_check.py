@@ -114,7 +114,7 @@ MARKER_FORM = "// Stage 0 workaround (SL:hazards ID): canonical: <the code it re
 # every module on this list, so each addition widens that unit's cone. Stage 1
 # may skip drops, so an addition also re-checks that every std `deinit` it
 # reaches only frees memory or closes a descriptor (SL:hazards, leak tolerance).
-ALLOWED_STD_MODULES = ("env", "file", "path")
+ALLOWED_STD_MODULES = ("data", "env", "file", "path", "process")
 
 PACKAGE_RELATIVE_HEADS = ("parent", "package")
 
@@ -135,9 +135,13 @@ STD_API = {
     "Vector": "an empty growable array",
     "Env.args": "every command-line argument in order; Err when allocation fails",
     "File.open": "opens the file at a path for reading; Err carries why open(2) refused",
+    "File.create": "creates the file at a path for writing, emptying one already there; Err carries why",
+    "Command": "a program to run as a child process, with no arguments yet",
     "UInt8.from": "the value when it fits a UInt8, else None",
     "Result.Ok": "the success case, its payload the value",
     "Result.Err": "the failure case, its payload the error",
+    ".arg": "adds one argument a command's child receives as one argv element; Err when allocation fails",
+    ".close": "closes a file now, releasing its descriptor either way; Err when close(2) fails",
     ".append": "adds to the end: text, a rendering, or an element; Err when allocation fails",
     ".build": "the builder's text as a new String",
     ".byte_at": "the byte at an index; panics out of range",
@@ -151,7 +155,10 @@ STD_API = {
     ".starts_with": "whether the text begins with the given prefix",
     ".substring": "the bytes between two indices as a new String; panics out of range",
     ".to_string": "the value's text rendering, through its `format`",
+    ".to_data": "the text's bytes as a new Data; Err when allocation fails",
     ".to_uint": "the whole text, untrimmed, as an unsigned decimal; None when it is not one",
+    ".wait": "runs a command, blocking the thread until it exits; its exit code, Err when it cannot launch",
+    ".write": "writes bytes to a file unbuffered and returns the count written; Err carries the cause",
 }
 
 # The std profile (SL-456): the subset's rules over the new std in `std/`, which

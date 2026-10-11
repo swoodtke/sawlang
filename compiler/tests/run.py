@@ -116,7 +116,7 @@ _MARKER = re.compile(r"//\s*refuses:\s*(.+)$")
 # Stage 1 tolerates leaks only while every std `deinit` the compiler reaches
 # frees memory or closes a descriptor, so widening the std cone fails here until
 # that is re-checked and the pin updated (SL:hazards, leak tolerance).
-PINNED_STD_MODULES = ("env", "file", "path")
+PINNED_STD_MODULES = ("data", "env", "file", "path", "process")
 
 
 class Run:

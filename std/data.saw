@@ -93,6 +93,20 @@ extension Data {
         self.length = self.length + count
     }
 
+    // How many bytes the `Data` holds.
+    public(package) func count(&self) -> Int {
+        self.length
+    }
+
+    // The address of the first byte, or `None` for an empty `Data`, which
+    // owns no block. Valid while this `Data` is.
+    public(package) func first_byte(&self) unsafe -> UnsafePointer<Int8>? {
+        guard let block = self.block else {
+            return None
+        }
+        data_bytes(block)
+    }
+
     /// Decodes the bytes as UTF-8 into a new `String`.
     ///
     /// Returns `Err(Utf8Error)` when they are not UTF-8, its `offset` the byte
@@ -112,6 +126,37 @@ extension Data {
         }
         string_from_bytes(bytes, self.length)
     }
+}
+
+// Declared here rather than beside `String`: `std.data` imports
+// `std.string`, and an import back would be a cycle.
+extension String {
+    /// Returns a new `Data` holding a copy of the string's bytes.
+    ///
+    /// Returns `Err(AllocError)` when the block cannot be allocated.
+    public func to_data(&self) -> Result<Data, AllocError> {
+        data_of_string(&self)
+    }
+}
+
+// A new `Data` holding a copy of `text`'s bytes, or the refused allocation.
+func data_of_string(text: &String) unsafe -> Result<Data, AllocError> {
+    let count = text.len()
+    guard var data = Data.reserved(count) else {
+        return AllocError(size: DATA_HEADER_WORDS * sizeof<Int>() + count, align: DATA_BLOCK_ALIGN)
+    }
+    if count == 0 {
+        return data
+    }
+    let source = text.c_bytes()
+    let into = data.spare()
+    var i = 0
+    while i < count {
+        into[i] = source[i]
+        i = i + 1
+    }
+    data.grow(count)
+    data
 }
 
 /// `Data` copies by reference count.

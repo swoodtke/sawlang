@@ -171,6 +171,7 @@ std.env.Env.set_cwd(path)	sync
 std.env.Env.unset(name)	sync
 std.file.File._opened(path, mode, perm, syscall)	sync
 std.file.File._seek(fd, offset, whence)	sync
+std.file.File.close()	sync
 std.file.File.create(path)	sync
 std.file.File.deinit()	sync
 std.file.File.exists(path)	sync
@@ -435,6 +436,7 @@ std.process.Command.output()	suspends
 std.process.Command.reap(job)	suspends
 std.process.Command.run()	suspends
 std.process.Command.spawn_job(capture)	sync
+std.process.Command.wait()	sync
 std.process.CommandOutput.success()	sync
 std.process.ProcessError.cancelled()	sync
 std.process.ProcessError.format(into)	sync
