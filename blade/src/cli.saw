@@ -36,7 +36,7 @@ extension BladeCommand: ExplicitCopy {}
 // =============================================================================
 
 public struct ParseError {
-    public message: String
+    message: String
 }
 
 extension ParseError {
@@ -46,8 +46,8 @@ extension ParseError {
 }
 
 public struct ScanResult {
-    public flags: Map<String, String>
-    public positional: Vector<String>
+    flags: Map<String, String>
+    positional: Vector<String>
 }
 
 extension ScanResult: NoCopy {}
@@ -73,7 +73,7 @@ func scan_args(args: &Vector<String>, start: Int, value_flags: &Set<String>) -> 
 }
 
 public struct Cli {
-    public command: BladeCommand
+    command: BladeCommand
 }
 
 // The containment cascade: `Cli` holds an ExplicitCopy field, so it picks the

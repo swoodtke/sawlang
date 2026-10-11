@@ -1,5 +1,5 @@
 // Operators, compound assignments, wrapping ops, punctuation, $-params, @.
-import src.lib.{LexResult, TokenKind, format_token, lex}
+import sawlex.{LexResult, TokenKind, format_token, lex}
 
 func lexed(s: String) -> LexResult {
     let result = lex(s)

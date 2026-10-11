@@ -1074,7 +1074,7 @@ process. `blade test`:
 
 ```saw
 // libs/toml/tests/toml_parsing.saw (abridged)
-import src.lib.*
+import toml.*
 
 func main() {
     match TomlDoc.parse("[package]\nname = \"demo\"\n") {
@@ -1120,9 +1120,11 @@ test as a mysterious `FAILED`). When a test does not compile, the compiler's
 error is shown; when a test aborts (a `panic` or failed `assert`), its stderr is
 shown — a passing run stays quiet, a failing one explains itself.
 
-`blade test` compiles each test with the project's resolved dependency
-module-paths (the same flags `blade build` uses), so a test can `import` a
-dependency. It also reports per-test timing (`test NAME ... ok (Nms)`).
+`blade test` compiles each test with the same `--module-path` flags `blade
+build` uses: the package's own, which maps its name to its `src/`, and one per
+resolved dependency. So a test imports the package it tests by name, as
+`import toml.*` above or `import blade.manifest`, and can `import` a dependency
+too. It also reports per-test timing (`test NAME ... ok (Nms)`).
 
 The compiled test binaries go in `.build/host/tests/`, under the same per-target
 build directory as everything else Blade produces (see the README's Blade

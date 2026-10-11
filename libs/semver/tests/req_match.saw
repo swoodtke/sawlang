@@ -1,4 +1,4 @@
-import src.lib.*
+import semver.*
 
 func mk(a: Int, b: Int, c: Int) -> Version {
     Version(major: a, minor: b, patch: c)

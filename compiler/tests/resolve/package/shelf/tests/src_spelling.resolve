@@ -1,0 +1,11 @@
+ERROR	import.src-path	compiler/tests/resolve/package/shelf/tests/src_spelling.saw:5:8	`src.layout` is not a module path: a package's module root is its `src/`, so `src` is never a segment; write `import layout` inside the package, or `import shelf.layout` by its name
+(Module src_spelling
+  (names
+    (5:12 layout (error)))
+  (calls)
+  (declarations
+    (func main 7:6 (signature ())))
+  (surface)
+  (imports
+    (5:1 (error) (qualifier layout)))
+  (extensions src_spelling))

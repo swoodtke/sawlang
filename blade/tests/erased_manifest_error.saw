@@ -5,7 +5,7 @@
 // vtable (`{error}` / to_string). This is a real Blade error path migrated off a
 // hand-written concrete error type.
 
-import src.manifest
+import blade.manifest
 import std.path.{Path}
 
 func main() {

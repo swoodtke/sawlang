@@ -1,8 +1,9 @@
 // Builder - Build orchestration for Blade (design 64 B6)
 //
 // `blade build` now runs the full dependency pipeline: resolve the graph (or
-// honor an existing Saw.lock), write the lock, compile the root with one
-// `--module-path <name>=<checkout>/src` per resolved dependency (B0), and skip
+// honor an existing Saw.lock), write the lock, compile the root with its own
+// `--module-path <name>=<root>/src` and one `--module-path <name>=<checkout>/src`
+// per resolved dependency (B0), and skip
 // the compile entirely when nothing reachable has changed (content-hash build
 // avoidance; `--force` bypasses it).
 //
@@ -10,11 +11,11 @@
 // source, and the up-to-date stamp lives there too — so it answers for one
 // target only.
 
-import src.layout.*
-import src.manifest.*
-import src.resolver.*
-import src.lock.*
-import src.sosimg.*
+import blade.layout.*
+import blade.manifest.*
+import blade.resolver.*
+import blade.lock.*
+import blade.sosimg.*
 import std.directory.{Directory}
 import std.env.{Env}
 import std.file.{File}
@@ -26,8 +27,8 @@ import std.process.{Command}
 // =============================================================================
 
 public struct BuildError {
-    public message: String
-    public exit_code: Int32
+    message: String
+    exit_code: Int32
 }
 
 extension BuildError {
@@ -374,6 +375,10 @@ extension Builder {
             try! saw.arg("--target-features")
             try! saw.arg(cfg.target_features)
         }
+        // The package's own name maps to its module root, so its sources may
+        // import one another as `<name>.module`.
+        try! saw.arg("--module-path")
+        try! saw.arg(self.manifest.own_module_path())
         var i = 0
         while i < res.len() {
             try! saw.arg("--module-path")
@@ -525,6 +530,10 @@ extension Builder {
         if self.manifest.is_runtime() {
             try! cmd.arg("--runtime-provider")
         }
+        // The package's own name maps to its module root, so its sources may
+        // import one another as `<name>.module`.
+        try! cmd.arg("--module-path")
+        try! cmd.arg(self.manifest.own_module_path())
         var i = 0
         while i < res.len() {
             let name = res.name(i)

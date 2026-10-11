@@ -1,5 +1,5 @@
 // Typed TOML access via String.to_int — TomlSection.get_int / TomlValue.int_value.
-import src.lib.*
+import toml.*
 
 func main() {
     match TomlDoc.parse("[deps]\ncount = \"42\"\nname = \"widget\"\n") {

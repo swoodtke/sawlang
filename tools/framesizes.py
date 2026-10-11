@@ -92,6 +92,7 @@ def discover(groups):
         main = os.path.join(REPO, "blade", "src", "main.saw")
         if os.path.exists(main):
             targets.append(("blade", "blade", main, [
+                "--module-path", f"blade={os.path.join(REPO, 'blade', 'src')}",
                 "--module-path", f"toml={os.path.join(REPO, 'libs', 'toml', 'src')}",
                 "--module-path",
                 f"semver={os.path.join(REPO, 'libs', 'semver', 'src')}"]))

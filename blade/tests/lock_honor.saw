@@ -4,9 +4,9 @@
 // build/update decision is `lock_is_current` over the lock's manifest_hash — this
 // exercises it end-to-end through the real resolve -> serialize -> parse_lock
 // round-trip that `blade build` and `blade update` use.
-import src.lock.*
-import src.manifest.*
-import src.resolver.*
+import blade.lock.*
+import blade.manifest.*
+import blade.resolver.*
 import std.path.{Path}
 
 func main() {

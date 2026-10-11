@@ -1,9 +1,9 @@
 // B4: Saw.lock serialization is deterministic (byte-identical) and round-trips
 // through the parser. Uses the chain/app path fixture (app -> a -> b).
-import src.layout.*
-import src.lock.*
-import src.resolver.*
-import src.manifest.*
+import blade.layout.*
+import blade.lock.*
+import blade.resolver.*
+import blade.manifest.*
 import std.path.{Path}
 
 func main() {

@@ -35,9 +35,9 @@ extension SemverError: Error {
 // =============================================================================
 
 public struct Version {
-    public major: Int
-    public minor: Int
-    public patch: Int
+    major: Int
+    minor: Int
+    patch: Int
 }
 
 // Trivial (POD) struct: auto-Equatable. Comparable is opt-in; `@synthesize`

@@ -1,7 +1,7 @@
 // B1: a bare version dependency (`tiny = "0.3.1"`) has no source. With no
 // registry in v1, that is a clean error, not a silent default. Uses
 // fixtures/deps_bare/.
-import src.manifest.*
+import blade.manifest.*
 import std.path.{Path}
 
 func main() {

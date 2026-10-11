@@ -1,8 +1,8 @@
 // B5: the resolver resolves a GIT dependency end-to-end against a local file://
 // repo — ls-remote for tags, pick the highest satisfying ^1.0.0, clone the tag
 // into .blade/deps/, and record (version, git source, rev). No network.
-import src.resolver.*
-import src.manifest.*
+import blade.resolver.*
+import blade.manifest.*
 import std.directory.{Directory}
 import std.path.{Path}
 

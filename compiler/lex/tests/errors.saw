@@ -1,6 +1,6 @@
 // Lex-error cases, one per kind of error the lexer reports, each checked at
 // its exact line:col and by the rule it names.
-import src.lib.{lex, lex_segment}
+import sawlex.{lex, lex_segment}
 
 // Assert that lexing `s` fails at exactly line:col, naming `rule`.
 func expect_err(s: String, line: Int, col: Int, rule: String, why: String) {

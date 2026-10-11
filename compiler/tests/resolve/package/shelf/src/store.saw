@@ -1,0 +1,8 @@
+// An in-package bare import: `layout` is found through this file's own
+// directory, and is the module `shelf.layout`.
+
+import layout.{Slot, slot_width}
+
+public func stocked(s: &Slot) -> Int {
+    slot_width(&s) + 1
+}

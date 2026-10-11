@@ -12234,7 +12234,8 @@ import data              // error: two imports bind the qualifier `data`:
 
 The second import there names YOUR module, not std's. `sawc/std/` is reachable
 only through a `std.`-prefixed path: a bare `import data` searches the importing
-file's own directory, its package root and the configured search paths, and
+file's own directory, its package root (the package's `src/`, see
+[Package Structure](#package-structure)) and the configured search paths, and
 stops. So a user module named after a std leaf is an ordinary module — the
 collision above is a collision of QUALIFIERS, which `as` fixes, and never a
 second compilation of a std file.
@@ -12357,6 +12358,35 @@ my_project/
 └── examples/
     └── demo.saw
 ```
+
+A package's root is its `src/` directory, the one holding its `lib.saw` or
+`main.saw`, and its module paths start there: `src/parser.saw` is the module
+`parser`, and `src/compiler/lexer.saw` is `compiler.lexer`. A file inside
+`src/` has that directory as its package root, the second place a bare import
+searches (see [Qualifier collisions](#qualifier-collisions)). A file outside
+it, such as a test in `tests/`, has no package root.
+
+A package names its own modules in two ways. Both name one module, so a type
+declared in `src/parser.saw` is the same type whichever spelling reached it.
+
+- **Bare**, found through the importing file's own directory or the package
+  root: `import parser` in `src/main.saw`, and in `src/compiler/codegen.saw`
+  too.
+- **By the package's own name**: `import my_project.parser`. The name resolves
+  through the package's own `--module-path my_project=<root>/src`, which Blade
+  passes, with the name from `Saw.toml`, whenever it builds or tests the
+  package.
+
+A package's tests import it by name, as any client does:
+`import my_project.parser`, the way a Rust integration test writes
+`use my_project::parser`. Another package reaches a dependency the same way,
+through the `--module-path NAME=<dependency>/src` that Blade passes for it:
+`import NAME` is the dependency's `lib.saw`, and `import NAME.sub` its
+`sub.saw`.
+
+`src` is never a segment of a module path. `import src.parser` is not a
+spelling the language gives meaning to, and it is refused with a hint naming
+the two spellings above.
 
 ---
 
@@ -13999,7 +14029,9 @@ sawc <source.saw> [options]
   --module-path NAME=DIR
                Map package NAME to source directory DIR (`import NAME` ->
                DIR/lib.saw, `import NAME.sub` -> DIR/sub.saw). Repeatable;
-               this is how the package manager wires dependencies.
+               this is how the package manager wires dependencies, and how
+               a package names itself (DIR is the package's `src/`; see
+               Package Structure).
   -W NAME      Enable a warning category (repeatable; `-W all` for every one).
                Warnings are off by default and never affect the exit status.
                See Compiler warnings.

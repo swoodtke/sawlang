@@ -11,15 +11,15 @@ import sawresolve.model.{ResBindKind, ResBinding, ResDecl, ResDeclKind, ResExpor
                              ResImport, ResImportForm, ResModule, ResModuleKind, ResName,
                              ResSymbol, ResVis}
 import sawresolve.loader.{res_after_first_segment, res_dir_of, res_dots_to_slashes,
-                              res_first_segment, res_join, res_read_file}
+                              res_first_segment, res_is_within, res_join, res_read_file}
 import sawresolve.names.{res_index}
 import sawresolve.program.{ResProgram}
 
 // Where a bare import path's file is: in the importing file's directory, else
-// in the entry file's, else under the importing file's package root, the
-// nearest directory at or above it that holds a `Saw.toml`. Returns the first
-// place looked when none has the file.
-public func res_find_beside(dir: String, root: String, rel: String) -> String {
+// in the entry file's, else under the importing file's package root when it
+// has one. Returns the first place looked when none has the file.
+public func res_find_beside(dir: String, root: String, package_root: String,
+                            rel: String) -> String {
     let near = res_join(dir, rel)
     if let found = res_read_file(near) {
         return near
@@ -28,18 +28,29 @@ public func res_find_beside(dir: String, root: String, rel: String) -> String {
     if let found = res_read_file(from_root) {
         return from_root
     }
+    if package_root.len() > 0 {
+        let from_package = res_join(package_root, rel)
+        if let found = res_read_file(from_package) {
+            return from_package
+        }
+    }
+    near
+}
+
+// The nearest directory at or above `dir` that holds a `Saw.toml`, or None.
+public func res_manifest_dir(dir: String) -> String? {
     var at = dir
     var searching = true
     while searching {
         let manifest = res_join(at, "Saw.toml")
         if let text = res_read_file(manifest) {
-            return res_join(at, rel)
+            return at
         }
         searching = at.len() > 0
         let parent = res_dir_of(&at)
         at = parent
     }
-    near
+    None
 }
 
 // Whether two bindings denote the same thing.
@@ -242,37 +253,107 @@ extension ResProgram {
             try! rel.append(".saw")
             let rel_text = rel.build()
             let file = res_join(dir, rel_text)
-            return self.load_import(path, text, file, ResModuleKind.Package, first)
+            let canonical = self.canonical_identity(&file)
+            let identity = if canonical.len() > 0 { canonical } else { text }
+            return self.load_import(path, identity, text, file, ResModuleKind.Package, first)
         }
         let dir = self.name_text(own.dir)
+        if first.equals("src") {
+            self.refuse_src_path(path, text, dir)
+            return -1
+        }
+        let package_root = self.package_root_of(dir)
         var rel = StringBuilder()
         try! rel.append(res_dots_to_slashes(&text))
         try! rel.append(".saw")
         let rel_text = rel.build()
         let entry = self.modules[self.entry]
         let root = self.name_text(entry.dir)
-        let file = res_find_beside(dir, root, rel_text)
+        let file = res_find_beside(dir, root, package_root, rel_text)
+        // A file a mapped package holds is that package's module, whichever
+        // spelling reached it, so two spellings never load one file twice.
+        let canonical = self.canonical_identity(&file)
+        if canonical.len() > 0 {
+            let owner = res_first_segment(&canonical)
+            return self.load_import(path, canonical, text, file, ResModuleKind.Package, owner)
+        }
         let package = self.name_text(own.package)
-        self.load_import(path, text, file, own.kind, package)
+        self.load_import(path, text, text, file, own.kind, package)
     }
 
-    func load_import(&var self, path: Int, text: String, file: String, kind: ResModuleKind,
-                     package: String) -> Int {
-        let key = self.intern(text)
+    // The package root of a file in directory `dir`: the directory of the
+    // mapped package holding it, else the `src/` beside the nearest `Saw.toml`
+    // at or above it, when `dir` lies inside that `src/`. A file outside every
+    // package root, a package's test among them, has none: "".
+    func package_root_of(&self, dir: String) -> String {
+        let k = self.package_holding(&dir)
+        if k >= 0 {
+            let p = self.packages[k]
+            return self.name_text(p.dir)
+        }
+        if let manifest_dir = res_manifest_dir(dir) {
+            let src = res_join(manifest_dir, "src")
+            if res_is_within(&dir, &src) {
+                return src
+            }
+        }
+        ""
+    }
+
+    // `src` heads no module path: a package's module root is its `src/`, so
+    // the module `src.X` names is `X`, spelled bare or after the package name.
+    // The name is the mapped package whose root holds the importing file, or
+    // whose root sits beside the `Saw.toml` above it, as a test's does.
+    func refuse_src_path(&var self, path: Int, text: String, dir: String) {
+        let rest = res_after_first_segment(&text)
+        var k = self.package_holding(&dir)
+        if k < 0 {
+            if let manifest_dir = res_manifest_dir(dir) {
+                let src = res_join(manifest_dir, "src")
+                k = self.package_holding(&src)
+            }
+        }
+        var package = "<package>"
+        if k >= 0 {
+            let p = self.packages[k]
+            package = self.name_text(p.name)
+        }
+        var msg = StringBuilder()
+        try! msg.append("`")
+        try! msg.append(text)
+        try! msg.append("` is not a module path: a package's module root is its `src/`, ")
+        try! msg.append("so `src` is never a segment; write `import ")
+        if rest.len() == 0 {
+            try! msg.append(package)
+            try! msg.append("` for the package's `lib.saw`")
+        } else {
+            try! msg.append(rest)
+            try! msg.append("` inside the package, or `import ")
+            try! msg.append(package)
+            try! msg.append(".")
+            try! msg.append(rest)
+            try! msg.append("` by its name")
+        }
+        self.refuse(path, "import.src-path", msg.build())
+    }
+
+    func load_import(&var self, path: Int, identity: String, written: String, file: String,
+                     kind: ResModuleKind, package: String) -> Int {
+        let key = self.intern(identity)
         let known = self.find_module(key)
         if known >= 0 {
             return known
         }
         guard let readable = res_read_file(file) else {
-            self.refuse_unknown_module(path, text, file)
+            self.refuse_unknown_module(path, written, file)
             return -1
         }
         let saved = self.current
-        let m = self.load_module(text, file, kind, package)
+        let m = self.load_module(identity, file, kind, package)
         self.current = saved
         let info = self.modules[m]
         if not info.available {
-            self.refuse_unavailable(path, text)
+            self.refuse_unavailable(path, written)
         }
         m
     }

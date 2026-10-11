@@ -1,6 +1,6 @@
 // Every token's byte offset, and every interpolation segment's, is the byte its
 // line:col names: one per token, index for index, for every kind of token.
-import src.lib.{LexResult, SegmentKind, lex}
+import sawlex.{LexResult, SegmentKind, lex}
 
 func lexed(s: String) -> LexResult {
     let result = lex(s)

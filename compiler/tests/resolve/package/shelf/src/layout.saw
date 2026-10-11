@@ -1,0 +1,9 @@
+// The module the other two spellings of this fixture reach.
+
+public struct Slot {
+    width: Int
+}
+
+public func slot_width(s: &Slot) -> Int {
+    s.width
+}

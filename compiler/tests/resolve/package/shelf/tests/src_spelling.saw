@@ -1,0 +1,8 @@
+// `src` heads no module path: refused, with a hint naming the two spellings
+// and this package's name, which the test's `Saw.toml` places beside the
+// mapped `src/`.
+
+import src.layout
+
+func main() {
+}

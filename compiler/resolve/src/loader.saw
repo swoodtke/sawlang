@@ -71,6 +71,51 @@ public func res_dir_of(path: &String) -> String {
     ""
 }
 
+// `text` with each `/` made a `.`: a relative file path's directories as a
+// module path's segments.
+public func res_slashes_to_dots(text: &String) -> String {
+    var out = StringBuilder()
+    var run = 0
+    var i = 0
+    let n = text.len()
+    while i < n {
+        if (text.byte_at(i) as Int) == RES_SLASH {
+            try! out.append(text.substring(run, i))
+            try! out.append(".")
+            run = i + 1
+        }
+        i = i + 1
+    }
+    try! out.append(text.substring(run, n))
+    out.build()
+}
+
+// Whether `path` is directory `dir` or lies below it. Both are compared as
+// written, so a package's directory and the files under it must be spelled
+// from the same base.
+public func res_is_within(path: &String, dir: &String) -> Bool {
+    let n = dir.len()
+    if n == 0 {
+        return false
+    }
+    if path.equals(dir) {
+        return true
+    }
+    if path.len() <= n || not path.starts_with(dir) {
+        return false
+    }
+    (path.byte_at(n) as Int) == RES_SLASH
+}
+
+// `dir` without the `/` that may end it.
+func res_trim_slash(dir: String) -> String {
+    let n = dir.len()
+    if n > 1 && (dir.byte_at(n - 1) as Int) == RES_SLASH {
+        return dir.substring(0, n - 1)
+    }
+    dir
+}
+
 // `dir/rel`, or `rel` when `dir` is empty.
 public func res_join(dir: String, rel: String) -> String {
     if dir.len() == 0 {
@@ -112,8 +157,48 @@ public func res_after_first_segment(text: &String) -> String {
 extension ResProgram {
     public func add_package(&var self, name: String, dir: String) {
         let n = self.intern(name)
-        let d = self.intern(dir)
+        let d = self.intern(res_trim_slash(dir))
         try! self.packages.push(ResPackage(name: n, dir: d))
+    }
+
+    // The index of the mapped package whose directory holds `path`, or -1.
+    public func package_holding(&self, path: &String) -> Int {
+        var k = 0
+        while k < self.packages.len() {
+            let p = self.packages[k]
+            let dir = self.name_text(p.dir)
+            if res_is_within(&path, &dir) {
+                return k
+            }
+            k = k + 1
+        }
+        return -1
+    }
+
+    // The identity of the module in file `path` when a mapped package holds
+    // it, the package's name and the file's path from the package's root, so
+    // a bare import and a self-named one reach one module; "" otherwise.
+    public func canonical_identity(&self, path: &String) -> String {
+        let k = self.package_holding(&path)
+        if k < 0 {
+            return ""
+        }
+        let p = self.packages[k]
+        let name = self.name_text(p.name)
+        let dir = self.name_text(p.dir)
+        let n = path.len()
+        if n <= dir.len() + 5 || not path.substring(n - 4, n).equals(".saw") {
+            return ""
+        }
+        let rel = path.substring(dir.len() + 1, n - 4)
+        if rel.equals("lib") {
+            return name
+        }
+        var out = StringBuilder()
+        try! out.append(name)
+        try! out.append(".")
+        try! out.append(res_slashes_to_dots(&rel))
+        out.build()
     }
 
     // The directory a package name is mapped to, or None.
@@ -395,10 +480,17 @@ extension ResProgram {
     }
 
     // Loads the entry file named on the command line: a module whose identity
-    // is its file name without `.saw`, in the empty package.
+    // is its file name without `.saw`, in the package whose directory holds
+    // it, else in the empty package.
     public func load_entry(&var self, path: String) -> Int {
         let base = res_base_name(&path)
-        let m = self.load_module(base, path, ResModuleKind.Entry, "")
+        let k = self.package_holding(&path)
+        var package = ""
+        if k >= 0 {
+            let p = self.packages[k]
+            package = self.name_text(p.name)
+        }
+        let m = self.load_module(base, path, ResModuleKind.Entry, package)
         self.entry = m
         m
     }

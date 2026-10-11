@@ -1,8 +1,8 @@
 // B4: the manifest-deps hash is stable, and drift (a lock whose hash no longer
 // matches the manifest) is detected -> build must steer the user to
 // `blade update` rather than silently re-resolve.
-import src.lock.*
-import src.manifest.*
+import blade.lock.*
+import blade.manifest.*
 import std.path.{Path}
 
 func main() {

@@ -208,10 +208,13 @@ def main():
               os.path.join(BLADE_DIR, "blade.ll")]:
         subprocess.run(["rm", "-rf", p])
 
-    # stage0: sawc builds blade directly (with the toml + semver deps mapped).
+    # stage0: sawc builds blade directly, with blade's own module root mapped
+    # (its modules import one another as `blade.X`) and each dependency's.
     print("== stage0: sawc builds blade ==")
     r = run([PY, SAWC, os.path.join(BLADE_DIR, "src", "main.saw"),
-             "-o", STAGE0, "--module-path", f"toml={TOML_SRC}",
+             "-o", STAGE0,
+             "--module-path", f"blade={os.path.join(BLADE_DIR, 'src')}",
+             "--module-path", f"toml={TOML_SRC}",
              "--module-path", f"semver={SEMVER_SRC}",
              "--module-path", f"imgformat={IMGFORMAT_SRC}"])
     if r.returncode != 0:

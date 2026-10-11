@@ -1,0 +1,62 @@
+(Module main
+  (names
+    (5:8 layout (module shelf.layout))
+    (5:16 Slot (struct shelf.layout Slot))
+    (6:14 store (module shelf.store))
+    (6:21 stocked (overload shelf.store stocked))
+    (7:14 layout (module shelf.layout))
+    (10:13 Slot (struct shelf.layout Slot))
+    (11:13 layout (module shelf.layout))
+    (11:20 Slot (struct shelf.layout Slot))
+    (12:13 stocked (overload shelf.store stocked))
+    (12:22 s (local s 10:9))
+    (12:27 layout (module shelf.layout))
+    (12:34 slot_width (overload shelf.layout slot_width))
+    (12:46 t (local t 11:9)))
+  (calls
+    (10:13 init (struct shelf.layout Slot))
+    (11:13 init (struct shelf.layout Slot))
+    (12:13 overload (overload shelf.store stocked))
+    (12:27 overload (overload shelf.layout slot_width)))
+  (declarations
+    (func main 9:6 (signature ())))
+  (surface)
+  (imports
+    (5:1 shelf.layout (select (Slot (struct shelf.layout Slot))))
+    (6:1 shelf.store (select (stocked (overload shelf.store stocked))))
+    (7:1 shelf.layout (qualifier layout)))
+  (extensions main shelf.layout shelf.store))
+(Module shelf.layout
+  (names
+    (4:12 Int (type builtin Int))
+    (7:28 Slot (struct shelf.layout Slot))
+    (7:37 Int (type builtin Int))
+    (8:5 s (local s 7:24)))
+  (calls)
+  (declarations
+    (struct Slot 3:15 public)
+    (field Slot.width 4:5 public)
+    (func slot_width 7:13 public (signature (s: &shelf.layout.Slot) -> builtin.Int)))
+  (surface
+    (Slot (struct shelf.layout Slot))
+    (slot_width (overload shelf.layout slot_width)))
+  (imports)
+  (extensions shelf.layout))
+(Module shelf.store
+  (names
+    (4:8 layout (module shelf.layout))
+    (4:16 Slot (struct shelf.layout Slot))
+    (4:22 slot_width (overload shelf.layout slot_width))
+    (6:25 Slot (struct shelf.layout Slot))
+    (6:34 Int (type builtin Int))
+    (7:5 slot_width (overload shelf.layout slot_width))
+    (7:17 s (local s 6:21)))
+  (calls
+    (7:5 overload (overload shelf.layout slot_width)))
+  (declarations
+    (func stocked 6:13 public (signature (s: &shelf.layout.Slot) -> builtin.Int)))
+  (surface
+    (stocked (overload shelf.store stocked)))
+  (imports
+    (4:1 shelf.layout (select (Slot (struct shelf.layout Slot)) (slot_width (overload shelf.layout slot_width)))))
+  (extensions shelf.layout shelf.store))

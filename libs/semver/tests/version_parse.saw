@@ -1,4 +1,4 @@
-import src.lib.*
+import semver.*
 
 func main() {
     match parse_version("1.2.3") {

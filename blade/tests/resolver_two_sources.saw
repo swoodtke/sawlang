@@ -1,7 +1,7 @@
 // B3: `a` is reached via two different path sources (../a1 from app, ../a2 from
 // b). v1 does not unify sources, so this is an error.
-import src.resolver.*
-import src.manifest.*
+import blade.resolver.*
+import blade.manifest.*
 import std.path.{Path}
 
 func main() {

@@ -1,7 +1,7 @@
 // B3: a path dependency's version comes from its own manifest, and a requirer's
 // version requirement (^0.3.0) is validated against it (mathx is 0.3.1 -> ok).
-import src.resolver.*
-import src.manifest.*
+import blade.resolver.*
+import blade.manifest.*
 import std.path.{Path}
 
 func main() {

@@ -66,12 +66,12 @@
 /// out — a hole in a wire struct is a field like any other (design 58).
 public struct SosimgHeader {
     /// `SOSIMG_MAGIC` — the bytes 'S','O','S','I' read as a little-endian word.
-    public magic: UInt32,
+    magic: UInt32,
     /// `SOSIMG_VERSION`. A loader refuses anything it does not know.
-    public version: UInt16,
+    version: UInt16,
     /// How many `SosimgSeg` records follow. A loader bounds this against its
     /// own budget (the kernel's is its grant budget).
-    public seg_count: UInt8,
+    seg_count: UInt8,
     /// Which architecture this image's code is for — a `SosimgArch` tag.
     ///
     /// Deliberately a raw `UInt8` and not a `SosimgArch`, for the same reason
@@ -82,19 +82,19 @@ public struct SosimgHeader {
     /// 3). Before this field the two profiles' images were byte-compatible
     /// headers wrapping incompatible instructions, and the only thing that
     /// stopped one booting on the other was that nobody had tried.
-    public arch: UInt8,
+    arch: UInt8,
     /// The §7 band -> level map, one byte per band, low byte first:
     /// background, low, normal, high. Build-time metadata and a REQUEST — the
     /// launcher may honor, clamp or override it (§7). The kernel applies
     /// root's verbatim because root is trusted by construction (§12).
-    public prio_map: UInt32,
+    prio_map: UInt32,
     /// Zero. Present so `entry` lands 8-aligned; a later version can spend it
     /// without moving anything.
-    public reserved0: UInt32,
+    reserved0: UInt32,
     /// ABSOLUTE load address of the first instruction, 64-bit since v3. Not an
     /// offset: nothing relocates on Profile A, so an offset would only be an
     /// addition every loader has to perform and re-validate.
-    public entry: UInt64,
+    entry: UInt64,
 }
 
 /// One loadable segment: 24 bytes, `seg_count` of them from offset 24.
@@ -102,14 +102,14 @@ public struct SosimgSeg {
     /// ABSOLUTE address this segment loads at, 64-bit since v3. First for the
     /// same reason `entry` is last in the header — the 8-byte field goes where
     /// it is 8-aligned.
-    public load_addr: UInt64,
+    load_addr: UInt64,
     /// Offset from the IMAGE BASE to this segment's bytes.
-    public file_off: UInt32,
+    file_off: UInt32,
     /// Bytes present in the image.
-    public file_len: UInt32,
+    file_len: UInt32,
     /// Bytes the segment occupies once loaded. `mem_len > file_len` is how a
     /// `.bss` tail is expressed; the loader zero-fills the difference.
-    public mem_len: UInt32,
+    mem_len: UInt32,
     /// A MASK of `SegFlag` bits.
     ///
     /// Deliberately a raw `UInt8` and not a `SegFlag`, for two reasons. A mask
@@ -121,10 +121,10 @@ public struct SosimgSeg {
     /// the first case). The kernel would then install a grant from a permission
     /// it never validated. Raw bytes stay raw; `has` and `has_sane_perms` below
     /// are the validating boundary.
-    public flags: UInt8,
-    public reserved0: UInt8,
-    public reserved1: UInt8,
-    public reserved2: UInt8,
+    flags: UInt8,
+    reserved0: UInt8,
+    reserved1: UInt8,
+    reserved2: UInt8,
 }
 
 // The ABI pin. These sizes are the format; a layout edit that skews them stops

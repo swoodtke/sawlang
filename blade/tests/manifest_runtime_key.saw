@@ -6,8 +6,8 @@
 // declaring one by accident would suppress the runtime link and leave every
 // seam undefined at the link step, with nothing in the manifest to explain why.
 
-import src.manifest.*
-import src.layout.*
+import blade.manifest.*
+import blade.layout.*
 import std.file.{File}
 import std.path.{Path}
 

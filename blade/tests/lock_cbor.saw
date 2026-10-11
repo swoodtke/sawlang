@@ -7,9 +7,9 @@
 // vector: `tests/cbor_vectors/lock_entry.cbor` in the compiler repo was written
 // by `tools/sawcbor.py` over `cbor2` for exactly this record, and the hex below
 // is that blob.
-import src.lock.*
-import src.resolver.*
-import src.manifest.*
+import blade.lock.*
+import blade.resolver.*
+import blade.manifest.*
 import std.cbor.{CborEncoder, CborDecoder}
 import std.data.{Data}
 import std.path.{Path}

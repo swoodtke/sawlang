@@ -1,7 +1,7 @@
 // String interpolation delimiters: a bare `{...}` makes an INTERP_STRING whose
 // value is the RAW source spelling between the quotes and whose parse input is
 // its TYPED SEGMENTS (design 268), dumped as one `T:`/`E:` field each.
-import src.lib.{LexResult, format_token, lex}
+import sawlex.{LexResult, format_token, lex}
 
 func lexed(s: String) -> LexResult {
     let result = lex(s)

@@ -1,0 +1,11 @@
+// A package's test, outside its module root, importing the package by name.
+// `shelf.store` imports `layout` bare, and that is the `shelf.layout` this
+// test names.
+
+import shelf.layout.{Slot}
+import shelf.store.{stocked}
+
+func main() {
+    let s = Slot(width: 4)
+    let n = stocked(&s)
+}

@@ -1000,9 +1000,11 @@ parser, a manifest model, a dependency resolver, a deterministic lockfile, git
 fetching, and incremental builds.
 
 ```bash
-# Build the package manager (`make blade` does exactly this; it depends on the
-# libs/toml, libs/semver and libs/imgformat packages, so map all three)
+# Build the package manager (`make blade` does exactly this). Map Blade's own
+# module root, since its modules import one another as `blade.X`, and the
+# libs/toml, libs/semver and libs/imgformat packages it depends on
 ./.venv/bin/python sawc/sawc.py blade/src/main.saw -o .build/blade \
+    --module-path blade=blade/src \
     --module-path toml=libs/toml/src \
     --module-path semver=libs/semver/src \
     --module-path imgformat=libs/imgformat/src

@@ -11,8 +11,8 @@
 //   - a resolved version that fails a requirer's version requirement (names
 //     every requirer + its requirement).
 
-import src.manifest.*
-import src.git.*
+import blade.manifest.*
+import blade.git.*
 import semver.{Version, VersionReq, parse_version, parse_req}
 import std.directory.{Directory}
 import std.file.{File}

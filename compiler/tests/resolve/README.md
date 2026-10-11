@@ -10,6 +10,9 @@ resolve/
   resolve_lane.py    the lane compiler/tests/run.py runs
   golden/            NAME.saw, a program, and NAME.resolve, its expected record
   multi/             NAME/main.saw and its modules, and NAME.resolve
+  package/           NAME/, a package (Saw.toml, src/, tests/), resolved with
+                     `--module-path NAME=package/NAME/src`: src/main.saw and each
+                     tests/*.saw, each with its expected record beside it
   refuse/            RULE[.VARIANT].saw, or RULE[.VARIANT]/main.saw and its modules
   prelude_check.py   the prelude and std tables against the frozen compiler's
   frozen_check.py    call heads and import bindings against the frozen compiler's
@@ -192,6 +195,7 @@ GRAMMAR.md alternative; the last table lists them.
 | test-only declaration, test group, test case | collected test-only; named from test code only | tests |
 | prelude names | the prelude table | prelude |
 | every import form, re-exports through a facade | Imports, below | multi/imports |
+| a package's own modules: bare from inside its `src/`, by its name through its own `--module-path`, and from its tests by name; one module whichever spelling | the module, its identity `NAME.path` | package/shelf |
 
 | outside the slice | refused as |
 |---|---|
@@ -245,6 +249,7 @@ what the fixture shows.
 | `name.self-outside-type` | `Self` with no enclosing type |
 | `name.unknown-case` | an implicit member no enum in the module's import closure declares as a case |
 | `import.unknown-module` | an import of a module that does not exist |
+| `import.src-path` | a path headed by `src`, which no module path contains: a package's module root is its `src/` (LANGUAGE_SPEC, Package Structure); the hint names `import X` and `import NAME.X` |
 | `import.unknown-symbol` | a name a module's surface does not have, asked for by a selective import or a qualified path |
 | `import.not-reexported` | a name a module imports but does not hand on (design 229) |
 | `visibility.private` | a name private, or of another package or parent, in its module (design 80), asked for by an import or a qualified path, or a bare name a glob import misses only for that reason |

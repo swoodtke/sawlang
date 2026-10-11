@@ -17,8 +17,8 @@
 //   rev     = "<sha or empty>"
 
 import toml
-import src.manifest.*
-import src.resolver.*
+import blade.manifest.*
+import blade.resolver.*
 import std.file.{File}
 import std.path.{Path}
 import std.cbor.{CborEncoder, CborDecoder}
@@ -33,11 +33,11 @@ import std.data.{Data}
 // `@synthesize` derivation walks, so the CBOR form below costs no hand-written
 // wire code.
 public struct LockEntry {
-    public name: String
-    public version: String
-    public source: String
-    public loc: String
-    public rev: String
+    name: String
+    version: String
+    source: String
+    loc: String
+    rev: String
 }
 
 @synthesize
@@ -47,7 +47,7 @@ extension LockEntry: Serialize {}
 extension LockEntry: Deserialize {}
 
 public struct LockData {
-    public manifest_hash: String
+    manifest_hash: String
     private entries: Vector<LockEntry>
 }
 

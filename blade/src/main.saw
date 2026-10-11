@@ -1,10 +1,10 @@
 // Blade - The Saw Package Manager
 // Entry point
 
-import src.cli
-import src.manifest
-import src.builder
-import src.tester
+import blade.cli
+import blade.manifest
+import blade.builder
+import blade.tester
 import std.directory.{Directory}
 import std.file.{File}
 import std.path.{Path}

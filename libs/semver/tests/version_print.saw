@@ -1,4 +1,4 @@
-import src.lib.*
+import semver.*
 
 func req_str(s: String) -> String {
     match parse_req(s) {

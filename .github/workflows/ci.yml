@@ -69,6 +69,7 @@ jobs:
           # imgformat one included: `blade/src/sosimg.saw` imports it, so a
           # build missing the flag fails with `module imgformat not found`.
           python sawc/sawc.py blade/src/main.saw -o .build/blade_ci \
+            --module-path blade=blade/src \
             --module-path toml=libs/toml/src \
             --module-path semver=libs/semver/src \
             --module-path imgformat=libs/imgformat/src

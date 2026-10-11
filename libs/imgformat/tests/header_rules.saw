@@ -5,7 +5,7 @@
 // so a build is already the size test. What a build cannot check is the
 // VALUES — a magic word or a version number edited on one side would compile
 // fine and mismatch at boot — and the rules `is_wellformed` decides.
-import src.lib.*
+import imgformat.*
 
 func header(magic: UInt32, version: UInt16, seg_count: UInt8) -> SosimgHeader {
     SosimgHeader(magic: magic, version: version, seg_count: seg_count,

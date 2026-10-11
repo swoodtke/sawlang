@@ -5,7 +5,7 @@
 // and checks the artifacts); this test pins the layout rules themselves — what
 // each path is, that two targets never share one, and that creating and
 // removing a build directory both work.
-import src.layout.*
+import blade.layout.*
 import std.directory.{Directory}
 import std.file.{File}
 import std.path.{Path}

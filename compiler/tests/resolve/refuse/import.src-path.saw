@@ -1,0 +1,8 @@
+// refuses: import.src-path at 4:8
+// `src` heads no module path, since a package's module root is its `src/`.
+
+import src.shapes.{Circle}
+
+func f() -> Int {
+    1
+}

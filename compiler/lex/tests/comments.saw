@@ -1,5 +1,5 @@
 // Line comments are skipped (never tokens); code after them still lexes.
-import src.lib.{LexResult, format_token, lex}
+import sawlex.{LexResult, format_token, lex}
 
 func lexed(s: String) -> LexResult {
     let result = lex(s)

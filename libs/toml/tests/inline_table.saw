@@ -1,5 +1,5 @@
 // One-level inline tables: key = { subkey = "v", ... }.
-import src.lib.*
+import toml.*
 
 func main() {
     let src = "[package]\nname = \"app\"\n\n[dependencies]\nmathx = \{ path = \"../mathx\" \}\njsonx = \{ git = \"https://x/jsonx\", version = \"1.2.0\" \}\n"

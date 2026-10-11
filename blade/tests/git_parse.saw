@@ -2,7 +2,7 @@
 // candidates. Pure — no git process is spawned. Covers: leading-`v` stripping,
 // peeled `^{}` commit-sha preference for annotated tags, lightweight tags, and
 // skipping non-tag refs / non-semver tags.
-import src.git.*
+import blade.git.*
 
 func main() {
     let out = "aaa111\trefs/tags/v1.0.0\nbbb222\trefs/tags/v1.0.0^\{\}\nccc333\trefs/tags/v2.1.3\nddd444\trefs/heads/main\neee555\trefs/tags/release-1\n"

@@ -116,7 +116,7 @@ MARKER_FORM = "// Stage 0 workaround (SL:hazards ID): canonical: <the code it re
 # reaches only frees memory or closes a descriptor (SL:hazards, leak tolerance).
 ALLOWED_STD_MODULES = ("env", "file", "path")
 
-PACKAGE_RELATIVE_HEADS = ("src", "parent", "package")
+PACKAGE_RELATIVE_HEADS = ("parent", "package")
 
 # The std members the compiler may call, each meaning the same under `sawc/std`
 # (Stage 0) and the new std (Stage 1): a free function or constructor by name, a
@@ -1202,6 +1202,12 @@ class FileChecker:
             if module not in ALLOWED_STD_MODULES:
                 self.report(imp.line, "import-allowlist",
                             "`std.%s` is not on the compiler's std allowlist" % module)
+        elif head == "src":
+            # A package's module root is its `src/` (LANGUAGE_SPEC, Package
+            # Structure), so `src` names no module path segment.
+            self.report(imp.line, "import-allowlist",
+                        "`src` heads no module path: a package's module root is its `src/`; "
+                        "name the stage, `import <stage>.%s`" % ".".join(path[1:]))
         elif head not in PACKAGE_RELATIVE_HEADS and \
                 head not in [name for name, _ in STAGE_PACKAGES]:
             self.report(imp.line, "import-allowlist",

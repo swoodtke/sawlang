@@ -18,7 +18,7 @@
 // visibility, which is exactly what makes extending a std type from a package
 // safe. Two modules can each have their own without colliding.)
 
-import src.sosimg.{elf_to_sosimg, arch_for_target}
+import blade.sosimg.{elf_to_sosimg, arch_for_target}
 import imgformat.{
     SosimgHeader, SosimgSeg, SegFlag, SosimgArch, SOSIMG_MAGIC, SOSIMG_VERSION,
     fits_target_word,

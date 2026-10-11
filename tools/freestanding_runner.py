@@ -853,6 +853,7 @@ def _build_blade(build_dir):
     blade_bin = os.path.join(build_dir, "blade")
     _run([sys.executable, SAWC, os.path.join(BLADE_DIR, "src", "main.saw"),
           "-o", blade_bin,
+          "--module-path", f"blade={os.path.join(BLADE_DIR, 'src')}",
           "--module-path", f"toml={TOML_SRC}",
           "--module-path", f"semver={SEMVER_SRC}",
           "--module-path", f"imgformat={IMGFORMAT_SRC}"])

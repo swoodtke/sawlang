@@ -1,5 +1,5 @@
 // The TOML parser reads sections and key/value pairs correctly.
-import src.lib.*
+import toml.*
 
 func main() {
     let content = "# a comment\n[package]\nname = \"demo\"\nversion = \"1.2.3\"\n"

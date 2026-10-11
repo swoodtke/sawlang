@@ -380,7 +380,7 @@ so it is compiled by itself, without the source rules.
 | `type-alias` | any `type` alias | §4, S9 |
 | `prelude-type-name` | a declared type named like a public std type, import-gated ones included, or like `Optional` or `Result` | §4, L17 |
 | `selective-imports` | `import m` and `import m.*` | §4, L3 |
-| `import-allowlist` | a std module off `ALLOWED_STD_MODULES`, or a package that is not a compiler stage | §4 |
+| `import-allowlist` | a std module off `ALLOWED_STD_MODULES`, a package that is not a compiler stage, or a path headed by `src` | §4 |
 | `std-api` | a std call off `STD_API`; `m[k]` on a Map; a write, a mutating method or a presence test through `get`; `m[k]! = v`; `with_ref`, `with_var_ref`, `with_unique`, a closure-taking `lock` | §4 |
 | `borrows-accessor` | `borrows`, `lend`, `lends`, and a `borrows struct` | §4 |
 | `generic-extension-init` | an `init` in an extension with type parameters | §4, S1 |

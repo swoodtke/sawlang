@@ -140,9 +140,9 @@ static BITS_PER_BAND: Int = 8
 
 /// What `[sos]` says about how to build this package's image.
 public struct SosConfig {
-    public target: String
-    public march: String
-    public mabi: String
+    target: String
+    march: String
+    mabi: String
     /// The same extensions as `march`, in LLVM subtarget-feature form, for
     /// sawc's `--target-features`. A triple names the architecture but not
     /// which optional extensions the part has, so without this the Saw half of
@@ -150,16 +150,16 @@ public struct SosConfig {
     /// the Saw half then emits `__divsi3` / `__atomic_*` calls into a link that
     /// has no library to satisfy them. Keeping both halves on one subtarget is
     /// the whole job of this field.
-    public target_features: String
-    public linker_script: String
+    target_features: String
+    linker_script: String
     /// C/assembly translation units linked alongside the Saw object, as a
     /// SPACE-SEPARATED list, or "" for none. A freestanding SOS process needs
     /// at least a syscall stub, which no amount of Saw can express; in practice
     /// it names its architecture's HAL plus the shared runtime support.
-    public native: String
+    native: String
     /// The spec §7 band -> level map, packed one byte per band, low byte first:
     /// background, low, normal, high.
-    public prio_map: UInt
+    prio_map: UInt
     /// The MMIO window this image asks to be granted, and its size in bytes —
     /// zero for a program that drives no device, which is every program that is
     /// not a driver.
@@ -167,8 +167,8 @@ public struct SosConfig {
     /// PER MACHINE, because a device address is: the same driver source names
     /// 0x1000_0000 on one board and 0x0900_0000 on another, so the window lives
     /// in `[sos.<triple>]` beside the linker script rather than in `[sos]`.
-    public device_base: UInt
-    public device_len: UInt
+    device_base: UInt
+    device_len: UInt
 }
 
 /// What a `device-window` gets when the manifest does not say how big: one page

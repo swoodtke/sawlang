@@ -65,10 +65,22 @@ nothing declares and `builtin.saw`'s declarations (SL:open-questions D12).
   an unclosed bracket, is unavailable; a note says so, and an import of it is
   refused as `import.unavailable`.
 - For a package mapped with `--module-path NAME=DIR`, `NAME` is `DIR/lib.saw`
-  and `NAME.rest` is `DIR/rest.saw`, as the frozen compiler maps them.
+  and `NAME.rest` is `DIR/rest.saw`, as the frozen compiler maps them. `DIR`
+  is the package's module root, its `src/` (LANGUAGE_SPEC, Package Structure).
 - Any other path is looked for beside the importing file, then beside the
-  entry file, then under the importing file's package root, the nearest
-  directory at or above it that holds a `Saw.toml`.
+  entry file, then under the importing file's package root: the mapped
+  directory holding it, else the `src/` beside the nearest `Saw.toml` above it
+  when the file lies inside that `src/`. A file outside every package root,
+  such as a package's test, has none, and names its package by name.
+- A file a mapped package holds is that package's module whichever spelling
+  reached it: `import layout` from inside `blade/src/` and `import
+  blade.layout` are both the module `blade.layout`, so no file loads twice.
+  An entry file a mapped package holds is in that package.
+- A path headed by `src` is refused as `import.src-path`, unless `src` is a
+  mapped package's name: `src` is never a segment of a module path, and the
+  hint names the bare and the self-named spellings, with the package's name
+  when one is mapped to the importing file's root or to the `src/` beside its
+  `Saw.toml`.
 - A `package` or `parent` path is not in the bootstrap slice yet.
 
 Each module is collected as it loads. Ids are the program's: nodes index one

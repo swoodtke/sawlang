@@ -10,8 +10,8 @@
 // =============================================================================
 
 public struct TomlError {
-    public message: String
-    public line: Int
+    message: String
+    line: Int
 }
 
 extension TomlError {

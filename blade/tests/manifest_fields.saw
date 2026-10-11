@@ -1,7 +1,7 @@
 // Test: Manifest.load() reads Blade's own Saw.toml (the test runs from the
 // project root) and exposes the package name and version fields.
 
-import src.manifest
+import blade.manifest
 
 func main() {
     match manifest.Manifest.load() {

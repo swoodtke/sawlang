@@ -49,9 +49,9 @@ public enum DepSource {
 // requirement string (e.g. "1.2.0", "^1.0.0", or "" when unspecified — a path
 // dep takes its version from the depended-on package's own manifest).
 public struct Dependency {
-    public name: String
-    public source: DepSource
-    public version: String
+    name: String
+    source: DepSource
+    version: String
 }
 
 extension Dependency {
@@ -117,7 +117,7 @@ public struct Package {
 
 public struct Manifest {
     private package: Package
-    public root_dir: Path
+    root_dir: Path
 }
 
 extension Manifest {
@@ -260,6 +260,14 @@ extension Manifest {
     // Get the package version
     public func version(&self) -> String {
         self.package.version
+    }
+
+    // The package's own `--module-path` flag value, `NAME=<root>/src`. A
+    // package's module root is its `src/`, so this is what lets its sources
+    // and its tests write `import <name>.layout`.
+    public func own_module_path(&self) -> String {
+        let root = self.root_dir.join("src")
+        "{self.package.name}={root.as_str()}"
     }
 
     // Whether this package provides the `__saw_rt_*` runtime seams (design 149).

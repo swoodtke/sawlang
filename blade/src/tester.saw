@@ -7,9 +7,9 @@
 // per-test ok/FAILED plus a summary. Execution is sequential (parallelism is a
 // later refinement). No new language surface: the test harness is just Saw.
 
-import src.layout.*
-import src.manifest.*
-import src.resolver.*
+import blade.layout.*
+import blade.manifest.*
+import blade.resolver.*
 import std.directory.{Directory}
 import std.env.{Env}
 import std.path.{Path}
@@ -67,14 +67,17 @@ extension Tester {
         system(ptr) == (0 as Int32)
     }
 
-    // Dependency `--module-path` flags for compiling tests — the same flags
-    // `blade build` uses, so a test sees the project's dependencies (design 64
-    // B6). Empty string when there are no deps (or resolution fails; a test that
-    // needs a missing dep then fails to compile, surfacing it).
+    // The `--module-path` flags for compiling tests — the same flags `blade
+    // build` uses: the package's own, so a test imports it as
+    // `<name>.module`, then one per dependency (design 64 B6). When resolution
+    // fails only the package's own is passed, so a test that needs a missing
+    // dependency fails to compile and says so.
     public func dep_flags(&self) -> String {
+        let own = " --module-path {self.manifest.own_module_path()}"
         match resolve(self.manifest) {
             case Ok(res) -> {
                 var b = StringBuilder()
+                try! b.append(own)
                 var i = 0
                 while i < res.len() {
                     let name = res.name(i)
@@ -89,7 +92,7 @@ extension Tester {
                 }
                 b.build()
             },
-            case Err(_) -> ""
+            case Err(_) -> own
         }
     }
 

@@ -4,7 +4,7 @@
 // `flags` is a raw byte on purpose (the loader did not write these bytes), so
 // `has` and `has_sane_perms` are the validating boundary and are what this
 // file pins.
-import src.lib.*
+import imgformat.*
 
 func seg(flags: UInt8, file_len: UInt32, mem_len: UInt32) -> SosimgSeg {
     SosimgSeg(load_addr: 0x8000_0000, file_off: 24, file_len: file_len,

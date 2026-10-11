@@ -1,0 +1,13 @@
+// A package's entry naming its modules both ways: `layout` bare and
+// `shelf.store` by the package's own name. `store` imports `layout` bare too,
+// and all three reach one module, `shelf.layout`.
+
+import layout.{Slot}
+import shelf.store.{stocked}
+import shelf.layout
+
+func main() {
+    let s = Slot(width: 2)
+    let t = layout.Slot(width: 3)
+    let n = stocked(&s) + layout.slot_width(&t)
+}

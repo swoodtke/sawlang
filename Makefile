@@ -39,6 +39,7 @@ BLADE_BIN := .build/blade
 
 blade:
 	@bin/sawc blade/src/main.saw -o $(BLADE_BIN) \
+		--module-path blade=blade/src \
 		--module-path toml=libs/toml/src \
 		--module-path semver=libs/semver/src \
 		--module-path imgformat=libs/imgformat/src

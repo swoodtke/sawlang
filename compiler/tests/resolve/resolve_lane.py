@@ -10,6 +10,9 @@ directory specifies:
 
 - each golden program, `golden/NAME.saw` or `multi/NAME/main.saw`, resolves to
   exactly the record in `golden/NAME.resolve` or `multi/NAME.resolve`;
+- each package entry, `package/NAME/src/main.saw` or `package/NAME/tests/*.saw`,
+  resolved with `--module-path NAME=package/NAME/src`, resolves to exactly the
+  record in the `.resolve` file beside it;
 - each refusal fixture, `refuse/RULE[.VARIANT].saw` or
   `refuse/RULE[.VARIANT]/main.saw`, is refused first by the rule and at the
   position its `// refuses:` header names;
@@ -39,6 +42,7 @@ import interface_pin  # noqa: E402
 
 GOLDEN = os.path.join(HERE, "golden")
 MULTI = os.path.join(HERE, "multi")
+PACKAGE = os.path.join(HERE, "package")
 REFUSE = os.path.join(HERE, "refuse")
 RESOLVE_SOURCE = os.path.join(COMPILER, "resolve", "src")
 TIMEOUT = 300
@@ -121,6 +125,22 @@ def golden_cases():
     return cases
 
 
+def package_cases():
+    """(entry path, expectation path), sorted, and the `--module-path` flags
+    that map each fixture package's name, its directory's, to its `src/`."""
+    cases = []
+    args = []
+    for root in sorted(glob.glob(os.path.join(PACKAGE, "*", "Saw.toml"))):
+        directory = os.path.dirname(root)
+        args += ["--module-path", "%s=%s" % (os.path.basename(directory),
+                                             rel(os.path.join(directory, "src")))]
+        entries = glob.glob(os.path.join(directory, "src", "main.saw"))
+        entries += sorted(glob.glob(os.path.join(directory, "tests", "*.saw")))
+        for entry in entries:
+            cases.append((entry, os.path.splitext(entry)[0] + ".resolve"))
+    return cases, args
+
+
 def refusal_cases():
     cases = sorted(glob.glob(os.path.join(REFUSE, "*.saw")))
     cases += sorted(glob.glob(os.path.join(REFUSE, "*", "main.saw")))
@@ -128,8 +148,13 @@ def refusal_cases():
 
 
 def check_golden(failures, counts, write):
-    cases = golden_cases()
-    code, out = sawc2(["--dump"] + [rel(src) for src, _ in cases])
+    compare_records(failures, counts, write, golden_cases(), [])
+    cases, args = package_cases()
+    compare_records(failures, counts, write, cases, args)
+
+
+def compare_records(failures, counts, write, cases, args):
+    code, out = sawc2(["--dump"] + args + [rel(src) for src, _ in cases])
     got = records(out)
     for src, exp in cases:
         record = got.get(rel(src))
@@ -334,6 +359,9 @@ def run(write=False, fill=False):
     named = check_refusals(failures, counts, fill)
     code, out = sawc2(["--check"] + [rel(p) for p in refusal_cases()]
                       + [rel(src) for src, _ in golden_cases()])
+    check_invariants(failures, records(out))
+    cases, args = package_cases()
+    code, out = sawc2(["--check"] + args + [rel(src) for src, _ in cases])
     check_invariants(failures, records(out))
     check_catalog(failures, counts, named)
     check_built_cases(failures, counts)

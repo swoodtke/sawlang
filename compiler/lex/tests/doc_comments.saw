@@ -1,6 +1,6 @@
 // Doc comments (`///`, `//!`) are captured as trivia: they never enter the token
 // stream, and the lex result reports them separately (design 121).
-import src.lib.{format_doc, format_token, lex}
+import sawlex.{format_doc, format_token, lex}
 
 func recs(s: String) -> Vector<String> {
     var out = Vector<String>()

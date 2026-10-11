@@ -1,7 +1,7 @@
 // B1: Manifest.dependencies() reads the [dependencies] table, distinguishing a
 // path source from a git source (with its version requirement). Uses the
 // fixtures/deps_ok/ package. Runs with cwd = blade/ (the tester's cwd).
-import src.manifest.*
+import blade.manifest.*
 import std.path.{Path}
 
 func main() {
