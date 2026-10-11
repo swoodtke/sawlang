@@ -3,5 +3,5 @@
 //! forwards each dependency's extension scope, whole.
 // EXPECT: skip
 
-public import modules.ext254_panel.{Panel}
-public import modules.ext254_knobs.{Knob}
+public import ext254_panel.{Panel}
+public import ext254_knobs.{Knob}

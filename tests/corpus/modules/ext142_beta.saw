@@ -3,7 +3,7 @@
 //! overload rules.
 // EXPECT: skip
 
-import modules.ext142_base.{Reading}
+import ext142_base.{Reading}
 
 extension Reading {
     public func tag(&self, n: Int) -> Int {

@@ -12233,12 +12233,15 @@ import data              // error: two imports bind the qualifier `data`:
 ```
 
 The second import there names YOUR module, not std's. `sawc/std/` is reachable
-only through a `std.`-prefixed path: a bare `import data` searches the importing
-file's own directory, its package root (the package's `src/`, see
-[Package Structure](#package-structure)) and the configured search paths, and
-stops. So a user module named after a std leaf is an ordinary module — the
-collision above is a collision of QUALIFIERS, which `as` fixes, and never a
-second compilation of a std file.
+only through a `std.`-prefixed path. A bare `import data` searches, in order,
+the importing file's own directory, then its package root (the package's
+`src/`, see [Package Structure](#package-structure)), then the configured search
+paths, and nothing else. So a user module named after a std leaf is an ordinary
+module — the collision above is a collision of QUALIFIERS, which `as` fixes, and
+never a second compilation of a std file. The directory of the program's entry
+file is not on that list either, so a dependency's bare `import util` finds the
+dependency's own `util.saw`, never a `util.saw` beside the program that uses
+it.
 
 #### Import cycles
 
@@ -12383,6 +12386,10 @@ A package's tests import it by name, as any client does:
 through the `--module-path NAME=<dependency>/src` that Blade passes for it:
 `import NAME` is the dependency's `lib.saw`, and `import NAME.sub` its
 `sub.saw`.
+
+A package's tests in `tests/` are outside the package: they reach its `public`
+members only, never a `public(package)` or private one. White-box tests use
+`@test` or a test sidecar, which are part of the module they test (SL:testing).
 
 `src` is never a segment of a module path. `import src.parser` is not a
 spelling the language gives meaning to, and it is refused with a hint naming

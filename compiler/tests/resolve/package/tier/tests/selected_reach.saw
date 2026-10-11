@@ -1,0 +1,9 @@
+// A package's test is outside the package (SL-531): selecting a
+// `public(package)` member by the package's name is refused, and the hint
+// names `@test` and the sidecar.
+
+import tier.{tier_open, tier_only}
+
+func main() {
+    let open = tier_open()
+}

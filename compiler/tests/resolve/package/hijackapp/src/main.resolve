@@ -1,0 +1,53 @@
+(Module main
+  (names
+    (6:8 util (module hijackapp.util))
+    (7:22 reader (module hijacklib.sub.reader))
+    (10:16 util (module hijackapp.util))
+    (10:21 tag (overload hijackapp.util tag))
+    (11:18 reader (module hijacklib.sub.reader))
+    (11:25 reader_tag (overload hijacklib.sub.reader reader_tag)))
+  (calls
+    (10:16 overload (overload hijackapp.util tag))
+    (11:18 overload (overload hijacklib.sub.reader reader_tag)))
+  (declarations
+    (func main 9:6 (signature ())))
+  (surface)
+  (imports
+    (6:1 hijackapp.util (qualifier util))
+    (7:1 hijacklib.sub.reader (qualifier reader)))
+  (extensions hijackapp.util hijacklib.sub.reader main))
+(Module hijackapp.util
+  (names
+    (4:22 Int (type builtin Int)))
+  (calls)
+  (declarations
+    (func tag 4:13 public (signature () -> builtin.Int)))
+  (surface
+    (tag (overload hijackapp.util tag)))
+  (imports)
+  (extensions hijackapp.util))
+(Module hijacklib.sub.reader
+  (names
+    (6:8 util (module hijacklib.util))
+    (8:29 Int (type builtin Int))
+    (9:5 util (module hijacklib.util))
+    (9:10 tag (overload hijacklib.util tag)))
+  (calls
+    (9:5 overload (overload hijacklib.util tag)))
+  (declarations
+    (func reader_tag 8:13 public (signature () -> builtin.Int)))
+  (surface
+    (reader_tag (overload hijacklib.sub.reader reader_tag)))
+  (imports
+    (6:1 hijacklib.util (qualifier util)))
+  (extensions hijacklib.sub.reader hijacklib.util))
+(Module hijacklib.util
+  (names
+    (4:22 Int (type builtin Int)))
+  (calls)
+  (declarations
+    (func tag 4:13 public (signature () -> builtin.Int)))
+  (surface
+    (tag (overload hijacklib.util tag)))
+  (imports)
+  (extensions hijacklib.util))

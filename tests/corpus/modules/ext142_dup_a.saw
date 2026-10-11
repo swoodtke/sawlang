@@ -3,7 +3,7 @@
 //! know the other exists.
 // EXPECT: skip
 
-import modules.ext142_base.{Reading}
+import ext142_base.{Reading}
 
 extension Reading {
     public func kind(&self) -> Int {

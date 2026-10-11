@@ -3,8 +3,8 @@
 //! transitive-dependency rule, untouched.
 // EXPECT: skip
 
-public import modules.ext254_panel.{Panel}
-import modules.ext254_knobs
+public import ext254_panel.{Panel}
+import ext254_knobs
 
 public func kind_here(p: &Panel) -> Int {
     p.kind()

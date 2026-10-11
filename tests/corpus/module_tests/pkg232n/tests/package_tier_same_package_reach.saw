@@ -1,14 +1,15 @@
-// DF-232n, the SIBLING direction: this entry sits INSIDE `pkg232n`'s manifest
-// root, so it is one of the package's own files and the package tier is its to
-// name — through a relative import, with no `--module-path` anywhere. This is
-// `libs/toml/tests/*.saw` in miniature, and it is the shape the fix had to keep
-// working while it closed the foreign reach next door
-// (`package_tier_foreign_relative_reach_error.saw`).
-// EXPECT: success
-// EXPECT-OUTPUT: 7
-// EXPECT-OUTPUT: 3
-// EXPECT-OUTPUT: 11
-import src.lib.*
+// A package's test sits outside the package (SL-531, the user's ruling): it
+// imports `pkg232n` by name, as any client does, and reaches its `public`
+// members only. `pkg_secret` and `PkgBox` are the package tier, so the test is
+// refused at the first of them; `pkg_open` beside them is genuinely `public`,
+// so the refusal is about the TIER and not about the module being unreachable.
+// White-box tests of a `public(package)` member go inside its module, with
+// `@test` or a sidecar.
+// COMPILE-FLAGS: --module-path pkg232n={TESTDIR}/../src
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: `pkg_secret` is public(package) in `pkg232n`
+// EXPECT-ERROR-CONTAINS: a package's tests in `tests/` are outside it
+import pkg232n.*
 
 func main() {
     print(pkg_secret())

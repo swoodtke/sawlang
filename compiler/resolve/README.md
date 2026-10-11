@@ -30,9 +30,11 @@ resolve/
 ## Modules
 
 `sawc2 resolve` takes each file it is given as the entry of its own program.
-A module's identity is its import path: `std.vector`, `sawparse.api`, or,
-beside the entry file, the path as written (`shapes`, `util.io`); the entry
-file's is its name without `.saw`. The synthetic `builtin` module holds what
+A module's identity is its import path: `std.vector`, `sawparse.api`, or, for
+a file no mapped package holds, its path from the entry file's directory
+(`shapes`, `util.io`), whichever spelling reached it; the entry file's is its
+name without `.saw`. So `modules/b.saw` is `modules.b` both when the entry
+imports `modules.b` and when its sibling `modules/a.saw` imports `b`. The synthetic `builtin` module holds what
 nothing declares and `builtin.saw`'s declarations (SL:open-questions D12).
 
 - The std root holds one of two stds. The new std (`--std-root std`) is told
@@ -67,15 +69,22 @@ nothing declares and `builtin.saw`'s declarations (SL:open-questions D12).
 - For a package mapped with `--module-path NAME=DIR`, `NAME` is `DIR/lib.saw`
   and `NAME.rest` is `DIR/rest.saw`, as the frozen compiler maps them. `DIR`
   is the package's module root, its `src/` (LANGUAGE_SPEC, Package Structure).
-- Any other path is looked for beside the importing file, then beside the
-  entry file, then under the importing file's package root: the mapped
-  directory holding it, else the `src/` beside the nearest `Saw.toml` above it
-  when the file lies inside that `src/`. A file outside every package root,
-  such as a package's test, has none, and names its package by name.
+- Any other path is looked for beside the importing file, then under the
+  importing file's package root: the mapped directory holding it, else the
+  `src/` beside the nearest `Saw.toml` above it when the file lies inside that
+  `src/`. Nowhere else: the entry file's directory is not searched, so a
+  dependency's bare `import util` never binds a `util.saw` beside the program
+  compiling it (SL-532; `package/hijackapp/` pins it). A file outside every
+  package root, such as a package's test, has none, and names its package by
+  name.
 - A file a mapped package holds is that package's module whichever spelling
   reached it: `import layout` from inside `blade/src/` and `import
   blade.layout` are both the module `blade.layout`, so no file loads twice.
   An entry file a mapped package holds is in that package.
+- A package's test, a file whose `Saw.toml` sits beside the package root, is
+  outside the package: a reach into its `public(package)` members is refused
+  as `visibility.private`, with a hint naming `@test` and the sidecar (SL-531;
+  `package/tier/` pins it).
 - A path headed by `src` is refused as `import.src-path`, unless `src` is a
   mapped package's name: `src` is never a segment of a module path, and the
   hint names the bare and the self-named spellings, with the package's name

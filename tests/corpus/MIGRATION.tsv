@@ -1893,18 +1893,18 @@ module_matrix/import_form_glob_positions.saw	copied	-	-
 module_matrix/import_form_qualified_positions.saw	copied	-	-
 module_matrix/import_form_renamed_positions.saw	copied	-	-
 module_matrix/import_form_selective_positions.saw	copied	-	-
-module_matrix/modules/graphcyc2/a.saw	copied	-	-
-module_matrix/modules/graphcyc2/b.saw	copied	-	-
-module_matrix/modules/graphcyc2/lib.saw	copied	-	-
-module_matrix/modules/graphcyc3/a.saw	copied	-	-
-module_matrix/modules/graphcyc3/b.saw	copied	-	-
-module_matrix/modules/graphcyc3/c.saw	copied	-	-
-module_matrix/modules/graphdiamond/b.saw	copied	-	-
-module_matrix/modules/graphdiamond/c.saw	copied	-	-
+module_matrix/modules/graphcyc2/a.saw	manual	manual.import-search:1	migrated: this module's imports of its siblings are bare, since a bare import searches the importing file's own directory and never the entry file's (SL-532)
+module_matrix/modules/graphcyc2/b.saw	manual	manual.import-search:1	migrated: this module's imports of its siblings are bare, since a bare import searches the importing file's own directory and never the entry file's (SL-532)
+module_matrix/modules/graphcyc2/lib.saw	manual	manual.import-search:1	migrated: this module's imports of its siblings are bare, since a bare import searches the importing file's own directory and never the entry file's (SL-532)
+module_matrix/modules/graphcyc3/a.saw	manual	manual.import-search:1	migrated: this module's imports of its siblings are bare, since a bare import searches the importing file's own directory and never the entry file's (SL-532)
+module_matrix/modules/graphcyc3/b.saw	manual	manual.import-search:1	migrated: this module's imports of its siblings are bare, since a bare import searches the importing file's own directory and never the entry file's (SL-532)
+module_matrix/modules/graphcyc3/c.saw	manual	manual.import-search:1	migrated: this module's imports of its siblings are bare, since a bare import searches the importing file's own directory and never the entry file's (SL-532)
+module_matrix/modules/graphdiamond/b.saw	manual	manual.import-search:1	migrated: this module's imports of its siblings are bare, since a bare import searches the importing file's own directory and never the entry file's (SL-532)
+module_matrix/modules/graphdiamond/c.saw	manual	manual.import-search:1	migrated: this module's imports of its siblings are bare, since a bare import searches the importing file's own directory and never the entry file's (SL-532)
 module_matrix/modules/graphdiamond/d.saw	copied	-	-
-module_matrix/modules/graphexport/facade.saw	copied	-	-
+module_matrix/modules/graphexport/facade.saw	manual	manual.import-search:1	migrated: this module's imports of its siblings are bare, since a bare import searches the importing file's own directory and never the entry file's (SL-532)
 module_matrix/modules/graphexport/leaf.saw	copied	-	-
-module_matrix/modules/graphself/a.saw	copied	-	-
+module_matrix/modules/graphself/a.saw	manual	manual.import-search:1	migrated: this module's imports of its siblings are bare, since a bare import searches the importing file's own directory and never the entry file's (SL-532)
 module_matrix/modules/importforms/lib.saw	copied	-	-
 module_matrix/modules/vis232n/inner.saw	copied	-	-
 module_matrix/modules/visprivate/lib.saw	copied	-	-
@@ -1930,7 +1930,7 @@ module_tests/lib.saw	copied	-	-
 module_tests/mod.saw	copied	-	-
 module_tests/pkg232n/Saw.toml	copied	-	-
 module_tests/pkg232n/src/lib.saw	copied	-	-
-module_tests/pkg232n/tests/package_tier_same_package_reach.saw	copied	-	-
+module_tests/pkg232n/tests/package_tier_same_package_reach.saw	manual	manual.tests-outside:1,manual.tests-outside.companion:10	re-aimed: a package's test is outside the package (SL-531), so it imports `pkg232n` by name through its own `--module-path` and is refused at the package tier; the examples/ original keeps Stage 0's same-package reading
 module_tests/static_config.saw	copied	-	-
 module_tests/static_dup_a.saw	copied	-	-
 module_tests/static_dup_b.saw	copied	-	-
@@ -1984,31 +1984,31 @@ modules/df300d_shapes.saw	copied	-	-
 modules/embed_annotations.saw	copied	-	-
 modules/embed_provider.saw	copied	-	-
 modules/embed_typename_deeper.saw	copied	-	-
-modules/embed_typenames.saw	copied	-	-
+modules/embed_typenames.saw	manual	manual.import-search:1	migrated: this module's imports of its siblings are bare, since a bare import searches the importing file's own directory and never the entry file's (SL-532)
 modules/enum145_base.saw	copied	-	-
-modules/enum145_far.saw	copied	-	-
-modules/enum145_near.saw	copied	-	-
-modules/export229_facade.saw	copied	-	-
-modules/export229_facade_glob.saw	copied	-	-
-modules/export229_facade_whole.saw	copied	-	-
+modules/enum145_far.saw	manual	manual.import-search:1	migrated: this module's imports of its siblings are bare, since a bare import searches the importing file's own directory and never the entry file's (SL-532)
+modules/enum145_near.saw	manual	manual.import-search:2	migrated: this module's imports of its siblings are bare, since a bare import searches the importing file's own directory and never the entry file's (SL-532)
+modules/export229_facade.saw	manual	manual.import-search:1	migrated: this module's imports of its siblings are bare, since a bare import searches the importing file's own directory and never the entry file's (SL-532)
+modules/export229_facade_glob.saw	manual	manual.import-search:1	migrated: this module's imports of its siblings are bare, since a bare import searches the importing file's own directory and never the entry file's (SL-532)
+modules/export229_facade_whole.saw	manual	manual.import-search:1	migrated: this module's imports of its siblings are bare, since a bare import searches the importing file's own directory and never the entry file's (SL-532)
 modules/export229_leaf.saw	copied	-	-
-modules/export229_wall.saw	copied	-	-
-modules/ext142_alpha.saw	copied	-	-
+modules/export229_wall.saw	manual	manual.import-search:1	migrated: this module's imports of its siblings are bare, since a bare import searches the importing file's own directory and never the entry file's (SL-532)
+modules/ext142_alpha.saw	manual	manual.import-search:1	migrated: this module's imports of its siblings are bare, since a bare import searches the importing file's own directory and never the entry file's (SL-532)
 modules/ext142_base.saw	copied	-	-
-modules/ext142_beta.saw	copied	-	-
+modules/ext142_beta.saw	manual	manual.import-search:1	migrated: this module's imports of its siblings are bare, since a bare import searches the importing file's own directory and never the entry file's (SL-532)
 modules/ext142_bytes.saw	copied	-	-
-modules/ext142_dup_a.saw	copied	-	-
-modules/ext142_dup_b.saw	copied	-	-
-modules/ext142_far.saw	copied	-	-
-modules/ext142_near.saw	copied	-	-
-modules/ext142_pkg.saw	copied	-	-
-modules/ext142_trait.saw	copied	-	-
-modules/ext254_facade.saw	copied	-	-
-modules/ext254_facade_outer.saw	copied	-	-
-modules/ext254_facade_plain.saw	copied	-	-
-modules/ext254_facade_sel.saw	copied	-	-
-modules/ext254_kindb.saw	copied	-	-
-modules/ext254_knobs.saw	copied	-	-
+modules/ext142_dup_a.saw	manual	manual.import-search:1	migrated: this module's imports of its siblings are bare, since a bare import searches the importing file's own directory and never the entry file's (SL-532)
+modules/ext142_dup_b.saw	manual	manual.import-search:1	migrated: this module's imports of its siblings are bare, since a bare import searches the importing file's own directory and never the entry file's (SL-532)
+modules/ext142_far.saw	manual	manual.import-search:1	migrated: this module's imports of its siblings are bare, since a bare import searches the importing file's own directory and never the entry file's (SL-532)
+modules/ext142_near.saw	manual	manual.import-search:3	migrated: this module's imports of its siblings are bare, since a bare import searches the importing file's own directory and never the entry file's (SL-532)
+modules/ext142_pkg.saw	manual	manual.import-search:1	migrated: this module's imports of its siblings are bare, since a bare import searches the importing file's own directory and never the entry file's (SL-532)
+modules/ext142_trait.saw	manual	manual.import-search:1	migrated: this module's imports of its siblings are bare, since a bare import searches the importing file's own directory and never the entry file's (SL-532)
+modules/ext254_facade.saw	manual	manual.import-search:2	migrated: this module's imports of its siblings are bare, since a bare import searches the importing file's own directory and never the entry file's (SL-532)
+modules/ext254_facade_outer.saw	manual	manual.import-search:1	migrated: this module's imports of its siblings are bare, since a bare import searches the importing file's own directory and never the entry file's (SL-532)
+modules/ext254_facade_plain.saw	manual	manual.import-search:2	migrated: this module's imports of its siblings are bare, since a bare import searches the importing file's own directory and never the entry file's (SL-532)
+modules/ext254_facade_sel.saw	manual	manual.import-search:2	migrated: this module's imports of its siblings are bare, since a bare import searches the importing file's own directory and never the entry file's (SL-532)
+modules/ext254_kindb.saw	manual	manual.import-search:1	migrated: this module's imports of its siblings are bare, since a bare import searches the importing file's own directory and never the entry file's (SL-532)
+modules/ext254_knobs.saw	manual	manual.import-search:1	migrated: this module's imports of its siblings are bare, since a bare import searches the importing file's own directory and never the entry file's (SL-532)
 modules/ext254_panel.saw	copied	-	-
 modules/globassert/lib.saw	copied	-	-
 modules/globconf/lib.saw	copied	-	-
@@ -2022,7 +2022,7 @@ modules/l3_shape_a.saw	copied	-	-
 modules/l3_shape_b.saw	copied	-	-
 modules/l6_pair.saw	copied	-	-
 modules/lengthdep/lib.saw	copied	-	-
-modules/lib_with_import.saw	copied	-	-
+modules/lib_with_import.saw	manual	manual.import-search:1	migrated: this module's imports of its siblings are bare, since a bare import searches the importing file's own directory and never the entry file's (SL-532)
 modules/lib_with_private_module.saw	copied	-	-
 modules/lib_with_public_module.saw	copied	-	-
 modules/members80.saw	copied	-	-

@@ -3,7 +3,7 @@
 //! published and the op numbers beside them are not.
 // EXPECT: skip
 
-public import modules.export229_leaf.{Widget, leaf_make}
+public import export229_leaf.{Widget, leaf_make}
 
 public func facade_make(n: Int) -> Widget {
     leaf_make(n: n)

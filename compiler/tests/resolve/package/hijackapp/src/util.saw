@@ -1,0 +1,6 @@
+// The application's own `util`, beside its entry file: what the entry's bare
+// `import util` names, and what the library's bare `import util` must not.
+
+public func tag() -> Int {
+    1
+}

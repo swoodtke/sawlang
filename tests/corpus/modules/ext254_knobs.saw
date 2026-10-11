@@ -4,7 +4,7 @@
 //! `add(knob:key:)` however the facade was written.
 // EXPECT: skip
 
-import modules.ext254_panel.{Panel}
+import ext254_panel.{Panel}
 
 public struct Knob {
     public id: Int

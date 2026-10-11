@@ -2,11 +2,11 @@
 //! which is therefore only a TRANSITIVE dependency of that entry.
 // EXPECT: skip
 
-import modules.ext142_base.{Reading}
-import modules.ext142_far
+import ext142_base.{Reading}
+import ext142_far
 // Pulls `ext142_dup_b` into the LINK without putting it in any entry's import
 // list — so an entry that imports only `ext142_dup_a` still sees one `kind`.
-import modules.ext142_dup_b
+import ext142_dup_b
 
 public func make_reading() -> Reading {
     Reading(raw: 21)

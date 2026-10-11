@@ -1,0 +1,6 @@
+// The library's own `util`, at its package root: the module the bare
+// `import util` in `sub/reader.saw` names.
+
+public func tag() -> Int {
+    2
+}

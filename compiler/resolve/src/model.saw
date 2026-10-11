@@ -24,7 +24,8 @@ public struct ResModule {
     file: Int
     kind: ResModuleKind
     // The first segment of the identity, interned: std's is `std`, and a module
-    // beside the entry file belongs to the empty package.
+    // no mapped package holds belongs to its importer's, the empty package
+    // when that is a file outside every mapped package.
     package: Int
     // The directory of the file, interned, where a sibling import looks.
     dir: Int

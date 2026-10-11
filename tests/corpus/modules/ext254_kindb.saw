@@ -4,7 +4,7 @@
 //! the widened scope invents no new diagnostic.
 // EXPECT: skip
 
-import modules.ext254_panel.{Panel}
+import ext254_panel.{Panel}
 
 extension Panel {
     public func kind(&self) -> Int {

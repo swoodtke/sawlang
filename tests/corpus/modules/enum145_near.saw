@@ -2,8 +2,8 @@
 //! `enum145_far`, which is therefore only a transitive dependency of the entry.
 // EXPECT: skip
 
-import modules.enum145_base.{Level}
-import modules.enum145_far
+import enum145_base.{Level}
+import enum145_far
 
 extension Level {
     public func label(&self) -> String {

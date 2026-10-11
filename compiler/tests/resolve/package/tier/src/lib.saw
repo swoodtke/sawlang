@@ -1,0 +1,10 @@
+// A package's `public(package)` member beside a `public` one, so a refusal of
+// the first is about its tier and not about the module being unreachable.
+
+public(package) func tier_only() -> Int {
+    7
+}
+
+public func tier_open() -> Int {
+    11
+}

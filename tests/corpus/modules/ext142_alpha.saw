@@ -2,7 +2,7 @@
 //! with a `tag` method. This one takes no argument.
 // EXPECT: skip
 
-import modules.ext142_base.{Reading}
+import ext142_base.{Reading}
 
 extension Reading {
     public func tag(&self) -> Int {

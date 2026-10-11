@@ -1,0 +1,10 @@
+// A library module's bare import. Nothing named `util.saw` sits beside this
+// file, so the search goes on to the package root and binds
+// `hijacklib.util`. The `util.saw` beside the program compiling this library
+// (`hijackapp/src/util.saw`) is never searched (SL-532).
+
+import util
+
+public func reader_tag() -> Int {
+    util.tag()
+}

@@ -2,4 +2,4 @@
 //! importer of THIS module sees what `ext254_facade_sel` forwards.
 // EXPECT: skip
 
-public import modules.ext254_facade_sel.{Panel, Knob}
+public import ext254_facade_sel.{Panel, Knob}

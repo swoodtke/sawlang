@@ -3,5 +3,5 @@
 //! 254, `ext254_knobs`' extensions on `Panel` too.
 // EXPECT: skip
 
-public import modules.ext254_panel
-public import modules.ext254_knobs
+public import ext254_panel
+public import ext254_knobs

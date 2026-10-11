@@ -1,0 +1,28 @@
+ERROR	visibility.private	compiler/tests/resolve/package/tier/tests/glob_reach.saw:8:18	`tier_only` is public(package) in `tier`; a package's tests in `tests/` are outside it and reach its `public` members only, so test this inside its module, with `@test` or a sidecar `lib.test.saw`
+(Module glob_reach
+  (names
+    (4:8 tier (module tier))
+    (7:16 tier_open (overload tier tier_open))
+    (8:18 tier_only (error)))
+  (calls
+    (7:16 overload (overload tier tier_open))
+    (8:18 value))
+  (declarations
+    (func main 6:6 (signature ())))
+  (surface)
+  (imports
+    (4:1 tier (glob)))
+  (extensions glob_reach tier))
+(Module tier
+  (names
+    (4:37 Int (type builtin Int))
+    (8:28 Int (type builtin Int)))
+  (calls)
+  (declarations
+    (func tier_only 4:22 public(package) (signature () -> builtin.Int))
+    (func tier_open 8:13 public (signature () -> builtin.Int)))
+  (surface
+    (tier_only (overload tier tier_only))
+    (tier_open (overload tier tier_open)))
+  (imports)
+  (extensions tier))

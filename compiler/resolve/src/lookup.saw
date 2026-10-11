@@ -14,7 +14,7 @@
 //     walk_catch_block
 
 import sawparse.grammar.{Alt}
-import sawresolve.imports.{res_decl_binding, res_same_binding, res_vis_text}
+import sawresolve.imports.{res_decl_binding, res_same_binding}
 import sawresolve.model.{ResBindKind, ResBinding, ResDecl, ResDeclKind, ResImport,
                              ResImportForm, ResLocal, ResModuleKind, ResName, ResPending,
                              ResPendingKind, ResSymbol, res_unbound}
@@ -242,15 +242,7 @@ extension ResProgram {
         }
         let hidden_in = self.glob_hiding(name)
         if hidden_in >= 0 {
-            let d = self.decls[hidden_in]
-            try! msg.append("`")
-            try! msg.append(text)
-            try! msg.append("` is ")
-            try! msg.append(res_vis_text(d.vis))
-            try! msg.append(" in `")
-            try! msg.append(self.module_name(d.module))
-            try! msg.append("`")
-            self.refuse(leaf, "visibility.private", msg.build())
+            self.refuse_hidden(leaf, hidden_in)
             return self.error_binding()
         }
         if self.inherit_from >= 0 {

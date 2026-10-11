@@ -3,4 +3,4 @@
 //! re-export.
 // EXPECT: skip
 
-public import modules.graphexport.leaf
+public import leaf

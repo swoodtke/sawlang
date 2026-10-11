@@ -1,0 +1,12 @@
+// An application beside a `util.saw` of its own, using a library whose module
+// imports `util` bare. The entry's bare import finds its sibling,
+// `hijackapp.util`; the library's binds the library's own `hijacklib.util`,
+// because the entry's directory is no place a bare import searches (SL-532).
+
+import util
+import hijacklib.sub.reader
+
+func main() {
+    let mine = util.tag()
+    let theirs = reader.reader_tag()
+}

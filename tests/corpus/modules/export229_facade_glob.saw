@@ -2,7 +2,7 @@
 //! handed on bare. No form of `public import` is refused.
 // EXPECT: skip
 
-public import modules.export229_leaf.*
+public import export229_leaf.*
 
 public func glob_make(n: Int) -> Widget {
     leaf_make(n: n)

@@ -2,6 +2,6 @@
 //! imports itself — a degenerate cycle of length one.
 // EXPECT: skip
 
-import modules.graphself.a
+import a
 
 public func alpha() -> Int { 1 }

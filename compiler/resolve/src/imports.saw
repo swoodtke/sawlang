@@ -10,23 +10,21 @@ import sawresolve.collect.{res_is_top_level}
 import sawresolve.model.{ResBindKind, ResBinding, ResDecl, ResDeclKind, ResExport,
                              ResImport, ResImportForm, ResModule, ResModuleKind, ResName,
                              ResSymbol, ResVis}
-import sawresolve.loader.{res_after_first_segment, res_dir_of, res_dots_to_slashes,
-                              res_first_segment, res_is_within, res_join, res_read_file}
+import sawresolve.loader.{res_after_first_segment, res_base_name, res_dir_of,
+                              res_dots_to_slashes, res_first_segment, res_is_within, res_join,
+                              res_read_file}
 import sawresolve.names.{res_index}
 import sawresolve.program.{ResProgram}
 
 // Where a bare import path's file is: in the importing file's directory, else
-// in the entry file's, else under the importing file's package root when it
-// has one. Returns the first place looked when none has the file.
-public func res_find_beside(dir: String, root: String, package_root: String,
-                            rel: String) -> String {
+// under its package root when it has one, and nowhere else. The entry file's
+// directory is not searched, so a dependency's bare import cannot bind to a
+// file beside the program compiling it (LANGUAGE_SPEC, Qualifier collisions).
+// Returns the first place looked when neither has the file.
+public func res_find_beside(dir: String, package_root: String, rel: String) -> String {
     let near = res_join(dir, rel)
     if let found = res_read_file(near) {
         return near
-    }
-    let from_root = res_join(root, rel)
-    if let found = res_read_file(from_root) {
-        return from_root
     }
     if package_root.len() > 0 {
         let from_package = res_join(package_root, rel)
@@ -267,9 +265,7 @@ extension ResProgram {
         try! rel.append(res_dots_to_slashes(&text))
         try! rel.append(".saw")
         let rel_text = rel.build()
-        let entry = self.modules[self.entry]
-        let root = self.name_text(entry.dir)
-        let file = res_find_beside(dir, root, package_root, rel_text)
+        let file = res_find_beside(dir, package_root, rel_text)
         // A file a mapped package holds is that package's module, whichever
         // spelling reached it, so two spellings never load one file twice.
         let canonical = self.canonical_identity(&file)
@@ -278,7 +274,9 @@ extension ResProgram {
             return self.load_import(path, canonical, text, file, ResModuleKind.Package, owner)
         }
         let package = self.name_text(own.package)
-        self.load_import(path, text, text, file, own.kind, package)
+        let loose = self.loose_identity(&file)
+        let identity = if loose.len() > 0 { loose } else { text }
+        self.load_import(path, identity, text, file, own.kind, package)
     }
 
     // The package root of a file in directory `dir`: the directory of the
@@ -782,22 +780,65 @@ extension ResProgram {
         ResBinding(kind: ResBindKind.Error, module: -1, decl: -1, name: -1, node: -1)
     }
 
+    // Refuses the current module's reach into declaration `d`, which its tier
+    // hides from it. A package's test is outside the package, so a reach into
+    // its `public(package)` members is told where white-box tests go: the
+    // test's `Saw.toml` sits beside the `src/` that is the owner's package root
+    // (LANGUAGE_SPEC, Package Structure).
+    //
+    // ENTRY POINTS:
+    //     refuse_missing_member
+    //     lookup
+    public func refuse_hidden(&var self, leaf: Int, d: Int) {
+        let decl = self.decls[d]
+        let text = self.name_text(decl.name)
+        let owner = self.modules[decl.module]
+        var msg = StringBuilder()
+        try! msg.append("`")
+        try! msg.append(text)
+        try! msg.append("` is ")
+        try! msg.append(res_vis_text(decl.vis))
+        try! msg.append(" in `")
+        try! msg.append(self.module_name(decl.module))
+        try! msg.append("`")
+        if decl.vis == ResVis.Package && self.tests_package_of(decl.module) {
+            let file = self.name_text(owner.file)
+            try! msg.append("; a package's tests in `tests/` are outside it and reach its ")
+            try! msg.append("`public` members only, so test this inside its module, with ")
+            try! msg.append("`@test` or a sidecar `")
+            try! msg.append(res_base_name(&file))
+            try! msg.append(".test.saw`")
+        }
+        self.refuse(leaf, "visibility.private", msg.build())
+    }
+
+    // Whether the current module lies beside the package root of module
+    // `owner` rather than inside it: its nearest `Saw.toml` is the one whose
+    // `src/` holds `owner`, as a package's test's is.
+    func tests_package_of(&self, owner: Int) -> Bool {
+        let viewer = self.modules[self.current]
+        let viewer_dir = self.name_text(viewer.dir)
+        let owner_info = self.modules[owner]
+        let owner_dir = self.name_text(owner_info.dir)
+        let root = self.package_root_of(owner_dir)
+        if root.len() == 0 || res_is_within(&viewer_dir, &root) {
+            return false
+        }
+        guard let manifest_dir = res_manifest_dir(viewer_dir) else {
+            return false
+        }
+        let src = res_join(manifest_dir, "src")
+        src.equals(root)
+    }
+
     // Why `name` is not on `m`'s surface for the current module.
     func refuse_missing_member(&var self, m: Int, name: Int, leaf: Int) {
         let text = self.name_text(name)
         let module = self.module_name(m)
         let own = self.top.first(m, name)
         if own >= 0 {
-            let d = self.decls[self.top.value(own)]
-            var msg = StringBuilder()
-            try! msg.append("`")
-            try! msg.append(text)
-            try! msg.append("` is ")
-            try! msg.append(res_vis_text(d.vis))
-            try! msg.append(" in `")
-            try! msg.append(module)
-            try! msg.append("`")
-            self.refuse(leaf, "visibility.private", msg.build())
+            let d = self.top.value(own)
+            self.refuse_hidden(leaf, d)
             return
         }
         if self.bare.first(m, name) >= 0 || self.qualifiers.first(m, name) >= 0 {

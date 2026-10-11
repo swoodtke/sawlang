@@ -196,6 +196,8 @@ GRAMMAR.md alternative; the last table lists them.
 | prelude names | the prelude table | prelude |
 | every import form, re-exports through a facade | Imports, below | multi/imports |
 | a package's own modules: bare from inside its `src/`, by its name through its own `--module-path`, and from its tests by name; one module whichever spelling | the module, its identity `NAME.path` | package/shelf |
+| a dependency's bare import, with a file of that name beside the program's entry; the entry's own bare import of it | the dependency's own module, at its package root; the entry's sibling | package/hijackapp, package/hijacklib |
+| a package's test reaching a `public(package)` member, selected or through a glob | `visibility.private`, the hint naming `@test` and the sidecar | package/tier |
 
 | outside the slice | refused as |
 |---|---|

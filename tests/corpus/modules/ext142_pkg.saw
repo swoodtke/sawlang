@@ -3,7 +3,7 @@
 //! must be in the package AND import this module.
 // EXPECT: skip
 
-import modules.ext142_base.{Reading}
+import ext142_base.{Reading}
 
 extension Reading {
     public(package) func halved(&self) -> Int {

@@ -1,0 +1,9 @@
+// The same reach through a glob import: the glob hands on the `public` member
+// only, and naming the hidden one is refused with the same hint.
+
+import tier.*
+
+func main() {
+    let open = tier_open()
+    let hidden = tier_only()
+}

@@ -3,6 +3,6 @@
 //! DF-232e's error lands on instead of naming the cycle.
 // EXPECT: skip
 
-import modules.graphcyc2.a.{alpha}
+import a.{alpha}
 
 public func run() -> Int { alpha() }

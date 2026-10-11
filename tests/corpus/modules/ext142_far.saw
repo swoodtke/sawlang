@@ -2,7 +2,7 @@
 //! THIS module see `scaled`.
 // EXPECT: skip
 
-import modules.ext142_base.{Reading}
+import ext142_base.{Reading}
 
 extension Reading {
     public func scaled(&self, by: Int) -> Int {

@@ -8,7 +8,7 @@
 // itself": it cleared the whole subtree's `embed_preserved` marks and the
 // entry module re-resolved names only this module can see.
 
-import modules.embed_typename_deeper
+import embed_typename_deeper
 
 public enum Cmd {
     case Build
