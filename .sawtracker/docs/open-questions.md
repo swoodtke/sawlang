@@ -418,6 +418,20 @@ Correction: the lead first wrote "B", which is not a §12 code. The SL-426 agent
 
 ## Resolved
 
+### SL-531. A package's tests in `tests/` are outside the package (Oct 11; the USER's ruling)
+SL-519 made a package's tests import it by name (`import blade.layout`). That raised the question of whether such a test is inside the package for `public(package)` reach.
+
+**Ruled:** outside. A test in `tests/` is a client like any other: it reaches the package's `public` members only, with no `public(package)` and no private reach.
+
+White-box testing has its own route, already ruled in SL:testing: an `@test { … }` group, or a sidecar `x.test.saw`, is part of its module, with private access, type-checked in every build and emitted only in test builds. That is the same split Rust has between `#[cfg(test)] mod tests` and `tests/`. Both compilers already treat a test as outside (sl519's finding).
+
+**Consequences:**
+- The corpus twin `module_tests/pkg232n/tests/package_tier_same_package_reach.saw` flips to a refusal (a `manual` row; the `examples/` original tests Stage 0 and stays).
+- Nothing in `blade/` or `libs/` changes.
+- Until sawc2 implements `@test` and sidecars, a `public(package)` helper is testable only through the public API, which is a reason to schedule SL:testing soon after self-hosting.
+
+**Where it lands:** SL-531 adds the spec sentence in Package Structure and the corpus twin; its two Stage 0 hazard entries are recorded with it.
+
 ### Q-args. `Env.args` takes a defaulted policy for a non-UTF-8 argument (Oct 10; the USER's ruling; SL-521)
 The new std's `Env.args()` panicked on an argument that isn't valid UTF-8 (U5b3). The Air accepted that for the unit, but noted that an argument comes from outside the program, and the doctrine has such failures surface rather than crash.
 
