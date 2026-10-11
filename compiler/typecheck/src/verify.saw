@@ -8,13 +8,13 @@
 //   - every conformance accounts for each requirement of its trait and the
 //     traits it refines, and leaves none missing without a refusal.
 
-import sawparse.src.grammar.{Alt}
-import sawresolve.src.kinds.{res_is_type_alt}
-import sawresolve.src.model.{ResBindKind, ResDecl, ResDeclKind, ResModule}
-import sawtypecheck.src.conform.{TcSubst}
-import sawtypecheck.src.model.{TcConformance, TcSig, TcStatus, TcStatusKind, TcTier}
-import sawtypecheck.src.program.{TcProgram}
-import sawtypecheck.src.types.{TcKind, TcType}
+import sawparse.grammar.{Alt}
+import sawresolve.kinds.{res_is_type_alt}
+import sawresolve.model.{ResBindKind, ResDecl, ResDeclKind, ResModule}
+import sawtypecheck.conform.{TcSubst}
+import sawtypecheck.model.{TcConformance, TcSig, TcStatus, TcStatusKind, TcTier}
+import sawtypecheck.program.{TcProgram}
+import sawtypecheck.types.{TcKind, TcType}
 
 static TC_VERIFY_TIER_DONE: Int = 2
 static TC_VERIFY_BUILT: Int = 4

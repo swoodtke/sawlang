@@ -2,7 +2,7 @@
 // scoped to the bootstrap slice's constant positions, a static's initializer,
 // a raw-backed case's value, an `@align` argument and a `static_assert`'s
 // condition. It runs their MIR as it would run: straight-line typed
-// arithmetic (`sawtypecheck.src.arith`, the one rule typecheck's fold also
+// arithmetic (`sawtypecheck.arith`, the one rule typecheck's fold also
 // follows), bit and shift operators, comparisons, `&&` and `||` as the
 // branches MIR makes them, casts between integer types, a type alias's
 // construction (the identity), and reads of other constant statics and
@@ -12,21 +12,21 @@
 // evaluation went through; a static whose value depends on itself is a cycle,
 // and a step budget bounds every evaluation besides.
 
-import sawmir.src.dump.{mir_operator_name}
-import sawmir.src.model.{MirAggregate, MirBlock, MirCallKind, MirConstKind, MirDiag, MirFuncKind, MirOperand,
+import sawmir.dump.{mir_operator_name}
+import sawmir.model.{MirAggregate, MirBlock, MirCallKind, MirConstKind, MirDiag, MirFuncKind, MirOperand,
                          MirOperandKind, MirPlace, MirRvalue, MirRvalueKind, MirStmt, MirStmtKind, MirSwitchKind,
                          MirTermKind}
-import sawmir.src.program.{MirProgram}
-import saweval.src.program.{EvalEnd, EvalKind, EvalProgram, EvalValue, eval_is_constant_kind, eval_missing,
+import sawmir.program.{MirProgram}
+import saweval.program.{EvalEnd, EvalKind, EvalProgram, EvalValue, eval_is_constant_kind, eval_missing,
                             eval_value}
-import saweval.src.report.{eval_rules}
-import sawtypecheck.src.arith.{TcFault, TcValue, tc_arith_binary, tc_arith_compare, tc_arith_convert,
+import saweval.report.{eval_rules}
+import sawtypecheck.arith.{TcFault, TcValue, tc_arith_binary, tc_arith_compare, tc_arith_convert,
                                tc_arith_literal, tc_arith_max, tc_arith_min, tc_arith_negative_literal,
                                tc_arith_shift, tc_arith_text, tc_arith_unary}
-import sawtypecheck.src.model.{TC_FLAG_UNSAFE_VAR}
-import sawtypecheck.src.program.{TcProgram}
-import sawtypecheck.src.signatures.{TcContext}
-import sawtypecheck.src.typeops.{TcClient}
+import sawtypecheck.model.{TC_FLAG_UNSAFE_VAR}
+import sawtypecheck.program.{TcProgram}
+import sawtypecheck.signatures.{TcContext}
+import sawtypecheck.typeops.{TcClient}
 
 // How many blocks one constant's evaluation may enter, the statics it reads
 // included.

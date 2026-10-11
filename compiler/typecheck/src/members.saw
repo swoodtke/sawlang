@@ -4,11 +4,11 @@
 // two filters, `member_visible`: an extension is seen where it is imported,
 // and a member where its visibility reaches.
 
-import sawresolve.src.imports.{res_decl_binding}
-import sawresolve.src.model.{ResDecl, ResDeclKind, ResVis}
-import sawtypecheck.src.conform.{TcSubst}
-import sawtypecheck.src.model.{TcConformance, TcMember, TcSource, TcStatus, TcStatusKind}
-import sawtypecheck.src.program.{TcProgram}
+import sawresolve.imports.{res_decl_binding}
+import sawresolve.model.{ResDecl, ResDeclKind, ResVis}
+import sawtypecheck.conform.{TcSubst}
+import sawtypecheck.model.{TcConformance, TcMember, TcSource, TcStatus, TcStatusKind}
+import sawtypecheck.program.{TcProgram}
 
 // Every nominal type's member table.
 public func tc_build_members(p: &var TcProgram) {

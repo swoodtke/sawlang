@@ -19,6 +19,8 @@ let w = 3; let h = 4       // …and `;` separates two that share a line (SL-347
 func f(a: Int, b: Int = 2) -> Int { a * b }   // default param (trailing)
 f(5); f(5, 3); f(5, b: 3)  // labels optional; required only on ambiguity
 struct Point { x: Int, y: Int }
+public struct Pin { id: Int, private key: Int }  // a field inherits its struct's tier:
+                           // write it bare, and mark only a narrowing `private`
 extension Point { func mag(&self) -> Int { self.x * self.x } }
 extension Point { init(m: Int) -> Point { Point(x: m, y: m) } }
                            // an `init` declares the RECEIVER (`Self`, the

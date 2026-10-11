@@ -2,12 +2,12 @@
 // every type written in its canonical spelling, so no output depends on the
 // order types were interned in.
 
-import sawresolve.src.dump.{res_sort_strings}
-import sawresolve.src.model.{ResDecl, ResDeclKind, ResModule, ResModuleKind, ResVis}
-import sawtypecheck.src.bodydump.{tc_dump_bodies}
-import sawtypecheck.src.conform.{TcSubst}
-import sawtypecheck.src.members.{tc_build_members}
-import sawtypecheck.src.model.{TC_EFFECT_BORROWS, TC_EFFECT_BORROWS_SYNC, TC_EFFECT_CONSTEXPR,
+import sawresolve.dump.{res_sort_strings}
+import sawresolve.model.{ResDecl, ResDeclKind, ResModule, ResModuleKind, ResVis}
+import sawtypecheck.bodydump.{tc_dump_bodies}
+import sawtypecheck.conform.{TcSubst}
+import sawtypecheck.members.{tc_build_members}
+import sawtypecheck.model.{TC_EFFECT_BORROWS, TC_EFFECT_BORROWS_SYNC, TC_EFFECT_CONSTEXPR,
                                TC_EFFECT_CONSUMES, TC_EFFECT_ESCAPING, TC_EFFECT_SYNC,
                                TC_EFFECT_UNSAFE, TC_FLAG_BLOCKING, TC_FLAG_BORROWS_STRUCT,
                                TC_FLAG_DEFAULT_BODY, TC_FLAG_STATIC, TC_FLAG_SYNTHESIZE,
@@ -15,12 +15,12 @@ import sawtypecheck.src.model.{TC_EFFECT_BORROWS, TC_EFFECT_BORROWS_SYNC, TC_EFF
                                TC_FLAG_VARIADIC, TC_TIER_COPY, TC_TIER_EXPLICIT, TcConformance,
                                TcGeneric, TcLend, TcMember, TcParam, TcReceiver, TcSig, TcSource,
                                TcStatus, TcStatusKind, TcTier}
-import sawtypecheck.src.program.{TcProgram}
-import sawtypecheck.src.spell.{tc_effects_text}
-import sawtypecheck.src.strings.{TcStringPosition}
-import sawtypecheck.src.summaries.{tc_solve_summaries}
-import sawtypecheck.src.tier.{tc_bit}
-import sawtypecheck.src.types.{TcKind, TcType}
+import sawtypecheck.program.{TcProgram}
+import sawtypecheck.spell.{tc_effects_text}
+import sawtypecheck.strings.{TcStringPosition}
+import sawtypecheck.summaries.{tc_solve_summaries}
+import sawtypecheck.tier.{tc_bit}
+import sawtypecheck.types.{TcKind, TcType}
 
 // Module `m`'s dump, with `visible` each module's extension set.
 public func tc_dump_module(p: &TcProgram, out: &var StringBuilder, m: Int, visible: &Vector<Bool>) {

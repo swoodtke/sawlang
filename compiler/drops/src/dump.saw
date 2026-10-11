@@ -2,14 +2,14 @@
 // function as the MIR dump prints a function, its drop flags named after the
 // paths they track, then the glue each dropped type resolves to.
 
-import sawdrops.src.glue.{DropsGlue}
-import sawdrops.src.program.{DropsProgram}
-import sawmir.src.dump.{mir_module_functions}
-import sawmir.src.model.{MirLocal, MirLocalKind, MirStmtKind}
-import sawmir.src.program.{MirProgram}
-import sawresolve.src.dump.{res_sort_strings}
-import sawtypecheck.src.bodydump.{tc_dump_bodies}
-import sawtypecheck.src.program.{TcProgram}
+import sawdrops.glue.{DropsGlue}
+import sawdrops.program.{DropsProgram}
+import sawmir.dump.{mir_module_functions}
+import sawmir.model.{MirLocal, MirLocalKind, MirStmtKind}
+import sawmir.program.{MirProgram}
+import sawresolve.dump.{res_sort_strings}
+import sawtypecheck.bodydump.{tc_dump_bodies}
+import sawtypecheck.program.{TcProgram}
 
 // Module `m`'s dump: every elaborated function, in the MIR dump's order.
 public func drops_dump_module(p: &var DropsProgram, out: &var StringBuilder, m: Int) {

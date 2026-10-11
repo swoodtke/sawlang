@@ -6,9 +6,9 @@
 // compiler/tests/resolve/prelude_check.py compares all three with the frozen
 // compiler's view of today's std.
 
-import sawresolve.src.collect.{res_is_top_level}
-import sawresolve.src.model.{ResDeclKind, ResVis}
-import sawresolve.src.program.{ResProgram}
+import sawresolve.collect.{res_is_top_level}
+import sawresolve.model.{ResDeclKind, ResVis}
+import sawresolve.program.{ResProgram}
 
 // Declares the builtin module's synthetic declarations into the current
 // module, which is the builtin module: what no Saw source can declare, and,

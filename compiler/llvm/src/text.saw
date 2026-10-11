@@ -172,8 +172,8 @@ func ll_push_utf8(out: &var Vector<Int>, scalar: Int) {
 // A format string's pieces: the literal text between its `{}` slots, one
 // more piece than slots, as one run of bytes and each piece's end in it.
 public struct LlPieces {
-    public bytes: Vector<Int>
-    public ends: Vector<Int>
+    bytes: Vector<Int>
+    ends: Vector<Int>
 }
 
 extension LlPieces: NoCopy {}

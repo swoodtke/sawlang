@@ -1,7 +1,7 @@
 // Typed integer arithmetic at the edges of each width: what a value of each
 // type holds, where an operation overflows, how a shift and a division
 // fault, and how a 64-bit unsigned value past `Int.max` is held and printed.
-import sawtypecheck.src.arith.{TcFault, TcValue, tc_arith_binary, tc_arith_compare, tc_arith_convert, tc_arith_literal,
+import sawtypecheck.arith.{TcFault, TcValue, tc_arith_binary, tc_arith_compare, tc_arith_convert, tc_arith_literal,
                                tc_arith_max, tc_arith_min, tc_arith_shift, tc_arith_text, tc_arith_unary}
 
 func expect_value(v: TcValue, bits: Int, what: String) {

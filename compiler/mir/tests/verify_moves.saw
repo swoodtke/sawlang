@@ -9,11 +9,11 @@
 // each of two edits, unlinking the flag's clear and swapping the switch's arms,
 // must make the verifier report the move. Paths are the repository root's,
 // where the runner runs.
-import sawmir.src.api.{mir_lower_file}
-import sawmir.src.build.{mir_func_local}
-import sawmir.src.model.{MirOperandKind, MirStmtKind}
-import sawmir.src.program.{MirProgram}
-import sawmir.src.verify.{mir_verify_module}
+import sawmir.api.{mir_lower_file}
+import sawmir.build.{mir_func_local}
+import sawmir.model.{MirOperandKind, MirStmtKind}
+import sawmir.program.{MirProgram}
+import sawmir.verify.{mir_verify_module}
 
 // The index of module `name`, or -1.
 func module_index(p: &MirProgram, name: String) -> Int {

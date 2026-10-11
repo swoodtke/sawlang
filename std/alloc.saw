@@ -42,9 +42,9 @@ extension GlobalAllocator: Allocator {
 /// `allocation of 64 bytes (align 8) failed`.
 public struct AllocError {
     /// Byte count of the request that failed.
-    public size: Int
+    size: Int
     /// Alignment of the request that failed.
-    public align: Int
+    align: Int
 }
 
 extension AllocError: Error {

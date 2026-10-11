@@ -166,7 +166,7 @@ def observe(out_path, sawc_argv):
             return os.path.join(REPO, "sawc", "std", *parts[1:]) + ".saw"
         for name, directory in build.STAGE_PACKAGES:
             if parts[0] == name:
-                return os.path.join(REPO, directory, *parts[1:]) + ".saw"
+                return os.path.join(REPO, directory, *(parts[1:] or ["lib"])) + ".saw"
         return os.path.join(os.path.dirname(importer), *parts) + ".saw"
 
     # Code generation receives the whole program, its modules merged and every
@@ -206,6 +206,8 @@ def frozen_answers(entry):
 def module_file(identity, entry_rel):
     """The file a module identity of the compiler's build names."""
     for name, directory in build.STAGE_PACKAGES:
+        if identity == name:
+            return os.path.join(directory, "lib.saw")
         if identity.startswith(name + "."):
             return os.path.join(directory, *identity.split(".")[1:]) + ".saw"
     return entry_rel

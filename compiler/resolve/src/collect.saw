@@ -4,12 +4,12 @@
 // and their members; a duplicate is refused here. A module's own table never
 // depends on its imports, so the order modules are collected in cannot matter.
 
-import sawparse.src.grammar.{Alt, alt_name}
-import sawparse.src.tree.{NodeShape}
-import sawresolve.src.kinds.{res_is_decl_item}
-import sawresolve.src.model.{ResBindKind, ResBinding, ResDecl, ResDeclKind, ResImport,
+import sawparse.grammar.{Alt, alt_name}
+import sawparse.tree.{NodeShape}
+import sawresolve.kinds.{res_is_decl_item}
+import sawresolve.model.{ResBindKind, ResBinding, ResDecl, ResDeclKind, ResImport,
                              ResImportForm, ResModule, ResModuleKind, ResSymbol, ResVis}
-import sawresolve.src.program.{ResProgram}
+import sawresolve.program.{ResProgram}
 
 extension ResProgram {
     // Collects module `m`, whose tree is in the arena.

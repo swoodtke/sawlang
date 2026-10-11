@@ -5,14 +5,14 @@
 // changing what programs mean. The expected shapes are Stage 0's built-in
 // vocabulary's, so the check over `sawc/builtin.saw` pins the table to it.
 
-import sawresolve.src.lang.{ResLang, res_lang_roles, res_lang_row}
-import sawresolve.src.model.{ResDecl, ResDeclKind}
-import sawtypecheck.src.conform.{tc_extension_sets}
-import sawtypecheck.src.dump.{tc_vis_text}
-import sawtypecheck.src.members.{tc_build_members}
-import sawtypecheck.src.model.{TcDiag}
-import sawtypecheck.src.program.{TcProgram}
-import sawtypecheck.src.spell.{tc_effects_text}
+import sawresolve.lang.{ResLang, res_lang_roles, res_lang_row}
+import sawresolve.model.{ResDecl, ResDeclKind}
+import sawtypecheck.conform.{tc_extension_sets}
+import sawtypecheck.dump.{tc_vis_text}
+import sawtypecheck.members.{tc_build_members}
+import sawtypecheck.model.{TcDiag}
+import sawtypecheck.program.{TcProgram}
+import sawtypecheck.spell.{tc_effects_text}
 
 // Holds every bound role whose declaration has a source to its shape. Stage
 // 0's synthesized `Optional` and `Result` have none: they are the compiler's.

@@ -7,16 +7,16 @@
 // The walk recurses only into a node's children, so its depth is the tree's
 // height, which the parser's depth funnel bounds (principle 6).
 
-import sawparse.src.grammar.{Alt}
-import sawresolve.src.collect.{res_is_top_level}
-import sawresolve.src.imports.{res_decl_binding}
-import sawresolve.src.kinds.{res_is_capture, res_is_closure_param, res_is_decl_item,
+import sawparse.grammar.{Alt}
+import sawresolve.collect.{res_is_top_level}
+import sawresolve.imports.{res_decl_binding}
+import sawresolve.kinds.{res_is_capture, res_is_closure_param, res_is_decl_item,
                              res_is_head_binding, res_is_plain_expr, res_is_plain_statement,
                              res_is_statement_alt, res_is_type_alt, res_names_type}
-import sawresolve.src.lookup.{ResShadow, ResSpace}
-import sawresolve.src.model.{ResBindKind, ResBinding, ResCall, ResCallClass, ResConformance,
+import sawresolve.lookup.{ResShadow, ResSpace}
+import sawresolve.model.{ResBindKind, ResBinding, ResCall, ResCallClass, ResConformance,
                              ResDecl, ResDeclKind, ResModule}
-import sawresolve.src.program.{ResProgram}
+import sawresolve.program.{ResProgram}
 
 // Phase 3 over the whole program.
 public func res_resolve_bodies(p: &var ResProgram) {

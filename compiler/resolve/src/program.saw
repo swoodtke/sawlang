@@ -2,12 +2,12 @@
 // copied into one, and every table the three phases fill. One value holds it
 // all, so each phase is a set of methods on it.
 
-import sawparse.src.grammar.{Alt}
-import sawparse.src.tree.{AstNode, AstTree, NodeShape, is_leaf_shape}
-import sawresolve.src.model.{ResBinding, ResBindKind, ResCall, ResConformance, ResDecl,
+import sawparse.grammar.{Alt}
+import sawparse.tree.{AstNode, AstTree, NodeShape, is_leaf_shape}
+import sawresolve.model.{ResBinding, ResBindKind, ResCall, ResConformance, ResDecl,
                              ResDeclKind, ResDiag, ResExport, ResImport, ResLocal, ResModule,
                              ResModuleKind, ResName, ResPending, ResSymbol, ResVis}
-import sawresolve.src.names.{ResIndex, ResNames, res_index, res_names}
+import sawresolve.names.{ResIndex, ResNames, res_index, res_names}
 
 static RES_NEWLINE: Int = 10
 static RES_CONTINUATION_LOW: Int = 128
@@ -15,8 +15,8 @@ static RES_CONTINUATION_HIGH: Int = 191
 
 // A package mapped to a directory with `--module-path NAME=DIR`.
 public struct ResPackage {
-    public name: Int
-    public dir: Int
+    name: Int
+    dir: Int
 }
 
 public struct ResProgram {

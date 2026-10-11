@@ -3,17 +3,17 @@
 // item order, the C entry point and the compiler's own helpers. Nothing is
 // iterated in hash order, so the text is a function of the program alone.
 
-import sawborrowck.src.program.{BorrowckProgram}
-import sawdrops.src.program.{DropsProgram}
-import sawllvm.src.bodies.{ll_param_name}
-import sawllvm.src.prims.{LL_MESSAGE_LIMIT}
-import sawllvm.src.module.{LlEmitter, ll_emitter, ll_is_scalar, ll_symbol, ll_value_type}
-import sawmir.src.program.{MirProgram}
-import sawmono.src.dump.{mono_dump_layouts}
-import sawmono.src.program.{MonoItem, MonoItemKind, MonoProgram}
-import sawtarget.src.layout.{Target, TargetKind, TargetLayout}
-import sawtypecheck.src.program.{TcProgram}
-import sawtypecheck.src.typeops.{TcClient}
+import sawborrowck.program.{BorrowckProgram}
+import sawdrops.program.{DropsProgram}
+import sawllvm.bodies.{ll_param_name}
+import sawllvm.prims.{LL_MESSAGE_LIMIT}
+import sawllvm.module.{LlEmitter, ll_emitter, ll_is_scalar, ll_symbol, ll_value_type}
+import sawmir.program.{MirProgram}
+import sawmono.dump.{mono_dump_layouts}
+import sawmono.program.{MonoItem, MonoItemKind, MonoProgram}
+import sawtarget.layout.{Target, TargetKind, TargetLayout}
+import sawtypecheck.program.{TcProgram}
+import sawtypecheck.typeops.{TcClient}
 
 // The program's `.ll`, or "" when the backend refused something, which the
 // refusals in `mono.diags` say. `speed` is the optimisation flag the link

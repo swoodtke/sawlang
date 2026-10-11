@@ -11,24 +11,24 @@
 // suspension; what they would make illegal at an instantiation joins the
 // function's summary as a condition phase 3 refuses at the call.
 
-import sawparse.src.grammar.{Alt}
-import sawresolve.src.dump.{res_sort_strings}
-import sawresolve.src.model.{ResDecl, ResDeclKind, ResModule}
-import sawresolve.src.names.{ResIndex, res_index}
-import sawtypecheck.src.conform.{TcSubst, tc_args_subst}
-import sawtypecheck.src.model.{TC_COPY_COVERED, TC_EFFECT_SYNC, TC_FLAG_BLOCKING, TC_FLAG_DEFAULT_BODY, TC_FORBID_CLOSURE,
+import sawparse.grammar.{Alt}
+import sawresolve.dump.{res_sort_strings}
+import sawresolve.model.{ResDecl, ResDeclKind, ResModule}
+import sawresolve.names.{ResIndex, res_index}
+import sawtypecheck.conform.{TcSubst, tc_args_subst}
+import sawtypecheck.model.{TC_COPY_COVERED, TC_EFFECT_SYNC, TC_FLAG_BLOCKING, TC_FLAG_DEFAULT_BODY, TC_FORBID_CLOSURE,
                                TC_FORBID_ERASE, TC_FORBID_SYNC, TC_ITEM_CALL, TC_ITEM_COPY, TC_ITEM_ERASE,
                                TC_SUMMARY_BODY, TC_SUMMARY_DECLARED, TC_SUMMARY_NONE, TC_SUMMARY_TABLE,
                                TC_SUMMARY_UNTABLED, TC_TIER_COPY, TcAdjust, TcAdjustKind, TcAtom,
                                TcCall, TcConformance, TcItem, TcParam, TcRole, TcSig, TcStatus,
                                TcStatusKind, TcSummary, TcTier, TcUnit, TcUse, tc_blank_summary}
-import sawtypecheck.src.program.{TcProgram}
-import sawtypecheck.src.signatures.{TcContext}
-import sawtypecheck.src.spell.{tc_effects_text}
-import sawtypecheck.src.stdsuspension.{TC_STD_NONSYNC, TC_STD_SUSPENDS, tc_std_suspension_rows}
-import sawtypecheck.src.tier.{tc_bit}
-import sawtypecheck.src.typeops.{TcClient}
-import sawtypecheck.src.types.{TcKind, TcType}
+import sawtypecheck.program.{TcProgram}
+import sawtypecheck.signatures.{TcContext}
+import sawtypecheck.spell.{tc_effects_text}
+import sawtypecheck.stdsuspension.{TC_STD_NONSYNC, TC_STD_SUSPENDS, tc_std_suspension_rows}
+import sawtypecheck.tier.{tc_bit}
+import sawtypecheck.typeops.{TcClient}
+import sawtypecheck.types.{TcKind, TcType}
 
 // How deeply a condition's evaluation follows implementations before it gives
 // the conservative answer.
@@ -36,16 +36,16 @@ static TC_EVAL_DEPTH: Int = 16
 
 // What evaluating a body's items gathers.
 public struct TcAcc {
-    public suspends: Bool
-    public nonsync: Bool
-    public suspend_atoms: Vector<TcAtom>
-    public nonsync_atoms: Vector<TcAtom>
-    public copies: Vector<TcAtom>
-    public forbids: Vector<TcAtom>
+    suspends: Bool
+    nonsync: Bool
+    suspend_atoms: Vector<TcAtom>
+    nonsync_atoms: Vector<TcAtom>
+    copies: Vector<TcAtom>
+    forbids: Vector<TcAtom>
     // The declaration whose type parameters are the conditions' own.
-    public owner: Int
+    owner: Int
     // The unit being summarized, whose dependencies each summary read adds to.
-    public unit: Int
+    unit: Int
 }
 
 extension TcAcc: NoCopy {}

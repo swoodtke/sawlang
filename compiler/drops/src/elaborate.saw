@@ -18,23 +18,23 @@
 // decomposes a value whose parts left into drops of the parts. A panic does
 // not unwind, so no cleanup path is generated.
 
-import sawborrowck.src.program.{BORROWCK_LABEL_ELIDED, BORROWCK_LABEL_FLAGGED, BORROWCK_LABEL_STATIC,
+import sawborrowck.program.{BORROWCK_LABEL_ELIDED, BORROWCK_LABEL_FLAGGED, BORROWCK_LABEL_STATIC,
                                 BorrowckProgram}
-import sawdrops.src.program.{DROPS_KEEP, DROPS_PLAIN, DROPS_SET, DropsProgram, drops_flag_effect}
-import sawmir.src.build.{mir_func_local}
-import sawmir.src.dump.{mir_module_functions}
-import sawmir.src.initialisation.{MIR_INIT_PARTIAL, MIR_INIT_WHOLE, MirAccess, MirAccessKind, MirInit,
+import sawdrops.program.{DROPS_KEEP, DROPS_PLAIN, DROPS_SET, DropsProgram, drops_flag_effect}
+import sawmir.build.{mir_func_local}
+import sawmir.dump.{mir_module_functions}
+import sawmir.initialisation.{MIR_INIT_PARTIAL, MIR_INIT_WHOLE, MirAccess, MirAccessKind, MirInit,
                                   mir_init_apply_all}
-import sawmir.src.model.{MirBlock, MirConstKind, MirDiag, MirFuncKind, MirLocal, MirLocalKind, MirProjKind,
+import sawmir.model.{MirBlock, MirConstKind, MirDiag, MirFuncKind, MirLocal, MirLocalKind, MirProjKind,
                          MirRvalueKind, MirStmt, MirStmtKind}
-import sawmir.src.program.{MirProgram}
-import sawresolve.src.lang.{ResLang}
-import sawresolve.src.program.{ResProgram}
-import sawtypecheck.src.checks.{tc_check_unsafe}
-import sawtypecheck.src.model.{TC_EFFECT_CONSUMES}
-import sawtypecheck.src.program.{TcProgram}
-import sawtypecheck.src.spell.{tc_effects_text}
-import sawtypecheck.src.typeops.{TcClient}
+import sawmir.program.{MirProgram}
+import sawresolve.lang.{ResLang}
+import sawresolve.program.{ResProgram}
+import sawtypecheck.checks.{tc_check_unsafe}
+import sawtypecheck.model.{TC_EFFECT_CONSUMES}
+import sawtypecheck.program.{TcProgram}
+import sawtypecheck.spell.{tc_effects_text}
+import sawtypecheck.typeops.{TcClient}
 
 // Every rule drop elaboration refuses by.
 public func drops_rules() -> Vector<String> {

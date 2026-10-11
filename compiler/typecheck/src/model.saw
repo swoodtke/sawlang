@@ -4,7 +4,7 @@
 // resolve's ids: a declaration by its index in resolve's table, a node by its
 // arena id, a type by its interner id.
 
-import sawresolve.src.model.{ResVis}
+import sawresolve.model.{ResVis}
 
 // The effect slot's words, as bits (syntax.rule.effect-slot).
 public static TC_EFFECT_UNSAFE: Int = 1
@@ -68,19 +68,19 @@ public enum TcLend {
 // conditions its members hold under.
 public struct TcSig {
     // 0 unbuilt, 1 generics under construction, 2 generics built, 3 built.
-    public state: Int
-    public generic_first: Int
-    public generic_count: Int
-    public param_first: Int
-    public param_count: Int
-    public trait_first: Int
-    public trait_count: Int
-    public receiver: TcReceiver
-    public result: Int
-    public effects: Int
-    public flags: Int
-    public lending: TcLend
-    public lending_exclusive: Bool
+    state: Int
+    generic_first: Int
+    generic_count: Int
+    param_first: Int
+    param_count: Int
+    trait_first: Int
+    trait_count: Int
+    receiver: TcReceiver
+    result: Int
+    effects: Int
+    flags: Int
+    lending: TcLend
+    lending_exclusive: Bool
 }
 
 public func tc_blank_sig() -> TcSig {
@@ -92,25 +92,25 @@ public func tc_blank_sig() -> TcSig {
 // One generic parameter: its bounds are traits, its default a type (or a
 // constant for a const parameter), and a const parameter's type.
 public struct TcGeneric {
-    public name: Int
-    public leaf: Int
-    public node: Int
-    public is_const: Bool
-    public bound_first: Int
-    public bound_count: Int
-    public default_type: Int
-    public const_type: Int
+    name: Int
+    leaf: Int
+    node: Int
+    is_const: Bool
+    bound_first: Int
+    bound_count: Int
+    default_type: Int
+    const_type: Int
 }
 
 // A parameter, a payload field, or a named-tuple element: its name and type.
 public struct TcParam {
-    public name: Int
-    public leaf: Int
-    public ty: Int
-    public has_default: Bool
+    name: Int
+    leaf: Int
+    ty: Int
+    has_default: Bool
     // Whether the parameter's function type says `escaping`, which its type,
     // the storage form, does not carry (D35).
-    public escaping: Bool
+    escaping: Bool
 }
 
 public enum TcStatusKind {
@@ -128,22 +128,22 @@ public enum TcStatusKind {
 
 // How one requirement of a conformance is met.
 public struct TcStatus {
-    public requirement: Int
-    public kind: TcStatusKind
+    requirement: Int
+    kind: TcStatusKind
     // The member that meets it, when one is written.
-    public member: Int
+    member: Int
 }
 
 // One entry of the conformance table: (type, trait), where it is declared,
 // and how each requirement is met.
 public struct TcConformance {
-    public module: Int
-    public ext: Int
-    public node: Int
-    public type_decl: Int
-    public trait_decl: Int
-    public status_first: Int
-    public status_count: Int
+    module: Int
+    ext: Int
+    node: Int
+    type_decl: Int
+    trait_decl: Int
+    status_first: Int
+    status_count: Int
 }
 
 public enum TcSource {
@@ -163,46 +163,46 @@ public enum TcSource {
 // One member of a nominal type's table, built once per type; a module's view
 // of it is a filter (`member_visible`), not a copy.
 public struct TcMember {
-    public type_decl: Int
-    public decl: Int
-    public source: TcSource
-    public module: Int
-    public ext: Int
-    public trait_decl: Int
-    public vis: ResVis
-    public name: Int
+    type_decl: Int
+    decl: Int
+    source: TcSource
+    module: Int
+    ext: Int
+    trait_decl: Int
+    vis: ResVis
+    name: Int
 }
 
 // A bound a member's declaring extension puts on a parameter of its type that
 // a receiver's argument does not meet: the parameter's index and the trait.
 public struct TcUnmetBound {
-    public index: Int
-    public trait_decl: Int
+    index: Int
+    trait_decl: Int
 }
 
 // A nominal type's Copy tier: `base` joined with the tiers of the arguments
 // whose parameter indices `mask` holds. A declared policy is uniform over the
 // arguments, so its mask is empty.
 public struct TcTier {
-    public state: Int
-    public base: Int
-    public mask: Int
-    public declared: Bool
+    state: Int
+    base: Int
+    mask: Int
+    declared: Bool
 }
 
 // A type argument whose bound is checked once the conformance table exists.
 public struct TcObligation {
-    public module: Int
-    public node: Int
-    public arg: Int
-    public trait_decl: Int
+    module: Int
+    node: Int
+    arg: Int
+    trait_decl: Int
     // The generic parameter it is bound for: its declaration and index.
-    public owner: Int
-    public index: Int
+    owner: Int
+    index: Int
     // Where the argument is written: the declaration and the extension whose
     // parameters' bounds are in scope there.
-    public env_decl: Int
-    public env_ext: Int
+    env_decl: Int
+    env_ext: Int
 }
 
 // How a body's expression is read where it stands (SL:architecture §3.4,
@@ -265,26 +265,26 @@ public enum TcAdjustKind {
 // wrap and erasure matrix".
 public struct TcAllowance {
     // Optional wraps still allowed; TC_ANY_DEPTH for any number.
-    public optionals: Int
+    optionals: Int
     // Result wraps still allowed.
-    public results: Int
+    results: Int
     // Whether a concrete error erases into `Box<any Error>` under the `Err`
     // wrap: only a return target supplies the box's allocator.
-    public erases: Bool
+    erases: Bool
     // Whether an integer widens losslessly: every transfer, and never an
     // operator's peer, which must agree.
-    public widens: Bool
+    widens: Bool
 }
 
 // An allowance's `optionals` when a slot may nest optionals to any depth.
 public static TC_ANY_DEPTH: Int = -1
 
 public struct TcAdjust {
-    public kind: TcAdjustKind
+    kind: TcAdjustKind
     // The type after this step.
-    public to: Int
+    to: Int
     // The next step of the same expression's chain, or -1.
-    public next: Int
+    next: Int
 }
 
 // What a call, operator, subscript or loop head calls.
@@ -320,27 +320,27 @@ public enum TcRole {
 // generic type is instantiated at `owner`, the receiver's type, and a
 // generic declaration at its own type arguments.
 public struct TcCall {
-    public node: Int
-    public target: Int
-    public role: TcRole
+    node: Int
+    target: Int
+    role: TcRole
     // Whether a getitem or setitem is derived from the place accessor.
-    public derived: Bool
-    public owner: Int
-    public inst_first: Int
-    public inst_count: Int
+    derived: Bool
+    owner: Int
+    inst_first: Int
+    inst_count: Int
     // A builtin operator's or function's spelling, interned; -1 otherwise.
-    public spelling: Int
+    spelling: Int
     // The exclusive twin of a shared accessor the call chose, which a use
     // that writes switches to (design 141); -1 for none.
-    public twin: Int
+    twin: Int
     // How the written arguments bind the target's parameters (design 66): a
     // run of `binds`, one entry per parameter in order, the index of the
     // written argument that binds it or TC_BIND_DEFAULT when its default
     // fills it. -1 for a record no overload filter resolved.
-    public bind_first: Int
-    public bind_count: Int
+    bind_first: Int
+    bind_count: Int
     // The first written argument a C variadic tail takes, or -1.
-    public variadic_from: Int
+    variadic_from: Int
 }
 
 // A parameter no written argument binds, which its default fills.
@@ -352,15 +352,15 @@ public static TC_BIND_DEFAULT: Int = -1
 // by-value capture, `Borrow` or `BorrowVar` for a borrow of the enclosing
 // frame; a reference parameter's value is copied, so it borrows through it.
 public struct TcCapture {
-    public closure: Int
+    closure: Int
     // The leaf that declares the binding, or the receiver's parameter node
     // for `self`.
-    public binding: Int
-    public ty: Int
-    public use: TcUse
+    binding: Int
+    ty: Int
+    use: TcUse
     // The capture-list entry, or the body's first mention of the binding.
-    public site: Int
-    public explicit: Bool
+    site: Int
+    explicit: Bool
 }
 
 // Where a function's summary comes from (phase 2).
@@ -397,28 +397,28 @@ public static TC_FORBID_SYNC: Int = 3
 // that brings it, and `origin` the construct it comes from, a closure's call
 // or a coercion, possibly in another body. A Copy requirement's `req` is -1.
 public struct TcAtom {
-    public ty: Int
-    public req: Int
-    public site: Int
-    public origin: Int
-    public kind: Int
+    ty: Int
+    req: Int
+    site: Int
+    origin: Int
+    kind: Int
 }
 
 // A function's three summaries: may-suspend and sync-callable, each a word
 // and a condition list, the Copy requirement, and the conditions under which
 // an instantiation of it is refused. Each list is a run of the atom pool.
 public struct TcSummary {
-    public state: Int
-    public suspends: Bool
-    public suspend_first: Int
-    public suspend_count: Int
-    public nonsync: Bool
-    public nonsync_first: Int
-    public nonsync_count: Int
-    public copy_first: Int
-    public copy_count: Int
-    public forbid_first: Int
-    public forbid_count: Int
+    state: Int
+    suspends: Bool
+    suspend_first: Int
+    suspend_count: Int
+    nonsync: Bool
+    nonsync_first: Int
+    nonsync_count: Int
+    copy_first: Int
+    copy_count: Int
+    forbid_first: Int
+    forbid_count: Int
 }
 
 public func tc_blank_summary() -> TcSummary {
@@ -431,26 +431,26 @@ public func tc_blank_summary() -> TcSummary {
 // whose summary a closure's conditions join; a top unit's run of items covers
 // its closures' too.
 public struct TcUnit {
-    public decl: Int
-    public node: Int
-    public top: Int
-    public sync: Bool
-    public item_first: Int
-    public item_end: Int
+    decl: Int
+    node: Int
+    top: Int
+    sync: Bool
+    item_first: Int
+    item_end: Int
 }
 
 public struct TcItem {
-    public kind: Int
-    public node: Int
-    public unit: Int
+    kind: Int
+    node: Int
+    unit: Int
 }
 
 public struct TcDiag {
-    public module: Int
-    public start: Int
-    public end: Int
-    public id: String
-    public message: String
+    module: Int
+    start: Int
+    end: Int
+    id: String
+    message: String
     // A diagnostic in an interface module, which refuses nothing.
-    public note: Bool
+    note: Bool
 }

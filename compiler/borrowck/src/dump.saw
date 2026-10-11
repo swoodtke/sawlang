@@ -2,17 +2,17 @@
 // its owned places, then each block's statements and terminator, each after
 // the conditions those places are in before it, and each drop's label.
 
-import sawborrowck.src.check.{borrowck_label_name}
-import sawborrowck.src.loans.{BorrowckLoanKind, BorrowckLoans, BorrowckPath, borrowck_slice}
-import sawborrowck.src.program.{BorrowckProgram}
-import sawmir.src.build.{mir_func_local}
-import sawmir.src.dump.{mir_module_functions}
-import sawmir.src.initialisation.{MIR_INIT_DROPPED, MIR_INIT_MOVED, MIR_INIT_PARTIAL, MIR_INIT_UNASSIGNED,
+import sawborrowck.check.{borrowck_label_name}
+import sawborrowck.loans.{BorrowckLoanKind, BorrowckLoans, BorrowckPath, borrowck_slice}
+import sawborrowck.program.{BorrowckProgram}
+import sawmir.build.{mir_func_local}
+import sawmir.dump.{mir_module_functions}
+import sawmir.initialisation.{MIR_INIT_DROPPED, MIR_INIT_MOVED, MIR_INIT_PARTIAL, MIR_INIT_UNASSIGNED,
                                   MIR_INIT_WHOLE, MirInit, mir_init_apply_all}
-import sawmir.src.model.{MirProjKind, MirStmtKind}
-import sawmir.src.program.{MirProgram}
-import sawresolve.src.dump.{res_sort_strings}
-import sawresolve.src.program.{ResProgram}
+import sawmir.model.{MirProjKind, MirStmtKind}
+import sawmir.program.{MirProgram}
+import sawresolve.dump.{res_sort_strings}
+import sawresolve.program.{ResProgram}
 
 // The letters of conditions `own`, in a fixed order: `U` unassigned, `W`
 // whole, `P` partial, `M` moved, `D` dropped; `-` for a block no path reaches.

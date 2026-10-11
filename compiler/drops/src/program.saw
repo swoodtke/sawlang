@@ -4,10 +4,10 @@
 // flags. The labels it elaborates are the borrow check's, read off the shared
 // initialisation analysis; nothing here derives initialisation again.
 
-import sawborrowck.src.program.{BorrowckProgram}
-import sawmir.src.initialisation.{MIR_INIT_UNASSIGNED, MIR_INIT_WHOLE, MirAccess, MirAccessKind, MirInit}
-import sawmir.src.model.{MirDiag}
-import sawmir.src.program.{MirProgram}
+import sawborrowck.program.{BorrowckProgram}
+import sawmir.initialisation.{MIR_INIT_UNASSIGNED, MIR_INIT_WHOLE, MirAccess, MirAccessKind, MirInit}
+import sawmir.model.{MirDiag}
+import sawmir.program.{MirProgram}
 
 // An output statement's guard: no drop, a plain drop, or (any value from 0
 // up) a drop guarded by the drop flag held in that local.
@@ -20,26 +20,26 @@ public static DROPS_CLEAR: Int = 0
 public static DROPS_SET: Int = 1
 
 public struct DropsProgram {
-    public bc: BorrowckProgram
+    bc: BorrowckProgram
     // The refusals elaboration makes, `drop.must-consume`.
-    public diags: Vector<MirDiag>
+    diags: Vector<MirDiag>
     // What elaboration found the stages before it left wrong, and in which
     // module: each an INVARIANT line.
-    public problems: Vector<String>
-    public problem_modules: Vector<Int>
+    problems: Vector<String>
+    problem_modules: Vector<Int>
     // The flagged drops of a place a part of which may have moved out, by
     // statement: reported once, and elaborated to nothing.
-    public partial_drops: Vector<Int>
+    partial_drops: Vector<Int>
     // By statement, in the MIR's statement arena: an output drop's guard.
-    public guards: Vector<Int>
+    guards: Vector<Int>
     // By function: whether it was elaborated, and its run of flags.
-    public elaborated: Vector<Bool>
-    public flag_first: Vector<Int>
-    public flag_count: Vector<Int>
+    elaborated: Vector<Bool>
+    flag_first: Vector<Int>
+    flag_count: Vector<Int>
     // By flag: the local holding it, and a place naming the move path it
     // tracks, which locates the path in any analysis of the function.
-    public flag_local: Vector<Int>
-    public flag_place: Vector<Int>
+    flag_local: Vector<Int>
+    flag_place: Vector<Int>
 }
 
 extension DropsProgram: NoCopy {}

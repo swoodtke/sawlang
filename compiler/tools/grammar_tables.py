@@ -212,7 +212,7 @@ def render(model):
         "// The parser's grammar tables, written from GRAMMAR.md by",
         "// compiler/tools/grammar_tables.py: edit the grammar and regenerate this file.",
         "",
-        "import sawlex.src.lib.{TokenKind}",
+        "import sawlex.{TokenKind}",
         "",
         "// Every alternative of GRAMMAR.md, in document order.",
         "public enum Alt: UInt16 {",

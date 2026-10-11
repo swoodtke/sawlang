@@ -3,5 +3,5 @@
 import std.net.{TcpStream}   // refuses: import-allowlist
 import blade.src.lib.{Manifest}   // refuses: import-allowlist
 import std.file.{File}
-import sawlex.src.lib.{lex}
+import sawlex.{lex}
 import src.lib.{helper}

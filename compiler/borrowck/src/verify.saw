@@ -4,12 +4,12 @@
 // its place's conditions give, re-derived from the shared analysis at the
 // drop. A disagreement, either way, names the function and the drop.
 
-import sawborrowck.src.check.{borrowck_label_name, borrowck_label_of}
-import sawborrowck.src.program.{BORROWCK_LABEL_NONE, BORROWCK_LABEL_STATIC, BorrowckProgram}
-import sawmir.src.dump.{mir_module_functions}
-import sawmir.src.initialisation.{MirAccessKind, MirInit}
-import sawmir.src.model.{MirStmtKind}
-import sawmir.src.program.{MirProgram}
+import sawborrowck.check.{borrowck_label_name, borrowck_label_of}
+import sawborrowck.program.{BORROWCK_LABEL_NONE, BORROWCK_LABEL_STATIC, BorrowckProgram}
+import sawmir.dump.{mir_module_functions}
+import sawmir.initialisation.{MirAccessKind, MirInit}
+import sawmir.model.{MirStmtKind}
+import sawmir.program.{MirProgram}
 
 // Every problem the verifier finds in module `m`'s functions, one line each.
 public func borrowck_verify_module(p: &var BorrowckProgram, m: Int) -> Vector<String> {

@@ -6,12 +6,12 @@
 // each Optional of a reference its prologues hold is read through `op_move`
 // and `op_copy` directly. Paths are the repository root's, where the runner
 // runs.
-import sawmir.src.api.{mir_lower_file}
-import sawmir.src.build.{mir_func_local}
-import sawmir.src.model.{MirOperandKind, MirProjKind}
-import sawmir.src.program.{MirProgram}
-import sawtypecheck.src.typeops.{TcClient}
-import sawtypecheck.src.types.{TcKind}
+import sawmir.api.{mir_lower_file}
+import sawmir.build.{mir_func_local}
+import sawmir.model.{MirOperandKind, MirProjKind}
+import sawmir.program.{MirProgram}
+import sawtypecheck.typeops.{TcClient}
+import sawtypecheck.types.{TcKind}
 
 // The index of module `name`, or -1.
 func module_index(p: &MirProgram, name: String) -> Int {

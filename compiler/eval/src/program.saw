@@ -2,11 +2,11 @@
 // value table it fills, one entry per MIR function, of which the constant
 // positions' are read by later stages (SL:architecture §3.10).
 
-import sawmir.src.model.{MirDiag, MirFuncKind}
-import sawmir.src.program.{MirProgram}
-import sawresolve.src.program.{ResProgram}
-import sawtypecheck.src.arith.{TcFault}
-import sawtypecheck.src.program.{TcProgram}
+import sawmir.model.{MirDiag, MirFuncKind}
+import sawmir.program.{MirProgram}
+import sawresolve.program.{ResProgram}
+import sawtypecheck.arith.{TcFault}
+import sawtypecheck.program.{TcProgram}
 
 // What an evaluated value is: an integer of type `ty`, a `Bool`, a
 // payload-free case `decl` of an enum, `()`, or no value.
@@ -20,11 +20,11 @@ public enum EvalKind {
 
 // A value, or, `Missing`, the fault that left none.
 public struct EvalValue {
-    public kind: EvalKind
-    public bits: Int
-    public ty: Int
-    public decl: Int
-    public fault: TcFault
+    kind: EvalKind
+    bits: Int
+    ty: Int
+    decl: Int
+    fault: TcFault
 }
 
 public func eval_value(kind: EvalKind, bits: Int, ty: Int) -> EvalValue {
@@ -46,22 +46,22 @@ public enum EvalEnd {
 }
 
 public struct EvalProgram {
-    public mir: MirProgram
+    mir: MirProgram
     // By MIR function: its value, how its evaluation ended, and whether it is
     // under way.
-    public values: Vector<EvalValue>
-    public ends: Vector<EvalEnd>
-    public active: Vector<Bool>
+    values: Vector<EvalValue>
+    ends: Vector<EvalEnd>
+    active: Vector<Bool>
     // By declaration: the MIR function computing a static's initializer or a
     // raw-backed case's value, or -1.
-    public constant_of: Vector<Int>
+    constant_of: Vector<Int>
     // The functions being evaluated, outermost first.
-    public stack: Vector<Int>
+    stack: Vector<Int>
     // Steps taken by the evaluation under way, which the step budget bounds.
-    public steps: Int
-    public diags: Vector<MirDiag>
+    steps: Int
+    diags: Vector<MirDiag>
     // The fault that stopped the last evaluation step that had one.
-    public last_fault: TcFault
+    last_fault: TcFault
 }
 
 extension EvalProgram: NoCopy {}

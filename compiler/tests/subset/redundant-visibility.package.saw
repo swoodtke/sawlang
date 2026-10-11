@@ -1,0 +1,7 @@
+// A field that writes its struct's own tier, `public(package)` on a
+// `public(package) struct`.
+public(package) struct Cursor {
+    public(package) offset: Int // refuses: redundant-visibility
+    line: Int
+    private column: Int
+}

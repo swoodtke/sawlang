@@ -2,17 +2,17 @@
 // span, a message and a hint. A refusal no named rule decides is a plain parse
 // error, and carries no name.
 
-import sawparse.src.grammar.{Rule, rule_name}
-import sawparse.src.source.{SourceFile}
+import sawparse.grammar.{Rule, rule_name}
+import sawparse.source.{SourceFile}
 
 public struct Diagnostic {
     // The rule, lexical rule or removed production that refuses; None for a
     // plain parse error.
-    public rule: Rule?
-    public start: Int
-    public end: Int
-    public message: String
-    public hint: String
+    rule: Rule?
+    start: Int
+    end: Int
+    message: String
+    hint: String
 }
 
 // The name a refusal is compared by: its rule's, or `parse-error`.

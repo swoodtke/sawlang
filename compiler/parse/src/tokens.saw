@@ -1,8 +1,8 @@
 // The parser's token stream: the lexer's tokens with byte spans, and without
 // the line breaks GRAMMAR.md section 2.4 rule 1 makes insignificant.
 
-import sawlex.src.lib.{LexResult, SegmentKind, Token, TokenKind}
-import sawparse.src.source.{SourceFile}
+import sawlex.{LexResult, SegmentKind, Token, TokenKind}
+import sawparse.source.{SourceFile}
 
 static TOKEN_QUOTE: Int = 34
 static TOKEN_BACKSLASH: Int = 92
@@ -18,21 +18,21 @@ static TOKEN_LOWER_Z: Int = 122
 // A token as the parser reads it: its kind, its bytes in the source, and the
 // line the lexer placed it on, which is how a doc comment finds what follows it.
 public struct ParseToken {
-    public kind: TokenKind
-    public start: Int
-    public end: Int
-    public line: Int
+    kind: TokenKind
+    start: Int
+    end: Int
+    line: Int
     // Its run of the parser's interpolation pieces, for an interpolated string.
-    public seg_start: Int
-    public seg_count: Int
+    seg_start: Int
+    seg_count: Int
 }
 
 // One expression segment of an interpolated string: the source byte of its
 // opening `{`, and how many bytes stand between its braces. The lexer keeps a
 // segment's text raw, so those bytes are the segment's text as written.
 public struct InterpPiece {
-    public open: Int
-    public len: Int
+    open: Int
+    len: Int
 }
 
 func is_digit_byte(b: Int) -> Bool { b >= TOKEN_DIGIT_0 && b <= TOKEN_DIGIT_9 }

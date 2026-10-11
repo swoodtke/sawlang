@@ -2,13 +2,13 @@
 // what it holds, and the builtin types a literal, a condition or a range has
 // with no name occurrence to read.
 
-import sawresolve.src.model.{ResDecl, ResDeclKind}
-import sawtypecheck.src.declarations.{tc_build_signatures}
-import sawtypecheck.src.model.{TC_TIER_COPY, TcTier}
-import sawtypecheck.src.program.{TcKnown, TcProgram}
-import sawtypecheck.src.signatures.{TcContext}
-import sawtypecheck.src.tier.{tc_tier}
-import sawtypecheck.src.types.{TcKind, TcType}
+import sawresolve.model.{ResDecl, ResDeclKind}
+import sawtypecheck.declarations.{tc_build_signatures}
+import sawtypecheck.model.{TC_TIER_COPY, TcTier}
+import sawtypecheck.program.{TcKnown, TcProgram}
+import sawtypecheck.signatures.{TcContext}
+import sawtypecheck.tier.{tc_tier}
+import sawtypecheck.types.{TcKind, TcType}
 
 // What asks an expected type to be peeled: each takes some types as they are
 // and looks through the rest (SL:architecture §3.4, "Peeling").

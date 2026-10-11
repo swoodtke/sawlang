@@ -6,17 +6,17 @@
 // elaboration: static, elided or flagged. Each function's loans are checked
 // after it (conflicts.saw).
 
-import sawborrowck.src.conflicts.{borrowck_seen}
-import sawborrowck.src.program.{BORROWCK_LABEL_ELIDED, BORROWCK_LABEL_FLAGGED, BORROWCK_LABEL_STATIC,
+import sawborrowck.conflicts.{borrowck_seen}
+import sawborrowck.program.{BORROWCK_LABEL_ELIDED, BORROWCK_LABEL_FLAGGED, BORROWCK_LABEL_STATIC,
                                 BorrowckProgram}
-import sawmir.src.build.{mir_func_local}
-import sawmir.src.dump.{mir_module_functions}
-import sawmir.src.initialisation.{MIR_INIT_MOVED, MIR_INIT_PARTIAL, MirAccess, MirAccessKind, MirDropLabel, MirInit,
+import sawmir.build.{mir_func_local}
+import sawmir.dump.{mir_module_functions}
+import sawmir.initialisation.{MIR_INIT_MOVED, MIR_INIT_PARTIAL, MirAccess, MirAccessKind, MirDropLabel, MirInit,
                                   mir_drop_label}
-import sawmir.src.model.{MirDiag, MirLocalKind, MirProjKind}
-import sawmir.src.program.{MirProgram}
-import sawtypecheck.src.checks.{tc_check_unsafe}
-import sawtypecheck.src.program.{TcProgram}
+import sawmir.model.{MirDiag, MirLocalKind, MirProjKind}
+import sawmir.program.{MirProgram}
+import sawtypecheck.checks.{tc_check_unsafe}
+import sawtypecheck.program.{TcProgram}
 
 // Every rule the borrow check refuses by.
 public func borrowck_rules() -> Vector<String> {

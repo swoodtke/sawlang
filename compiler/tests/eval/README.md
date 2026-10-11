@@ -38,7 +38,7 @@ construction (`Byte(65)`, the identity at its underlying type), payload-free enu
 (read as their raw values where they adopt an integer type), and reads of
 other statics and raw-backed cases, evaluated once each, before or after the
 reader in the source. Arithmetic is typed: each operation runs at its
-operands' type through `sawtypecheck.src.arith`, the rule typecheck's fold
+operands' type through `sawtypecheck.arith`, the rule typecheck's fold
 follows too. Calls, loops, aggregates, references and every other construct
 are outside it.
 

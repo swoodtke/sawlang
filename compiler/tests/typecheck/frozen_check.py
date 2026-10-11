@@ -196,6 +196,8 @@ def frozen_answers(entry):
 def module_file(identity, entry_rel):
     """The file a module identity of the compiler's build names."""
     for name, directory in build.STAGE_PACKAGES:
+        if identity == name:
+            return os.path.join(directory, "lib.saw")
         if identity.startswith(name + "."):
             return os.path.join(directory, *identity.split(".")[1:]) + ".saw"
     return entry_rel

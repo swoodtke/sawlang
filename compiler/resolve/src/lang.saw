@@ -7,9 +7,9 @@
 // `StringBuilder` to its std's, and leaves unbound the String functions its
 // code generator synthesizes.
 
-import sawresolve.src.loader.{res_read_file}
-import sawresolve.src.model.{ResDeclKind}
-import sawresolve.src.program.{ResProgram}
+import sawresolve.loader.{res_read_file}
+import sawresolve.model.{ResDeclKind}
+import sawresolve.program.{ResProgram}
 
 // A role the compiler knows a declaration by. The types and traits are the
 // vocabulary its checks reason about; a function role is a call the compiler
@@ -63,11 +63,11 @@ public enum ResLang {
 // root declares it: the module and the name, empty when Stage 0's compiler
 // synthesizes the role and no declaration has it.
 public struct ResLangRow {
-    public index: Int
-    public name: String
-    public home: String
-    public builtin_home: String
-    public builtin_name: String
+    index: Int
+    name: String
+    home: String
+    builtin_home: String
+    builtin_name: String
 }
 
 // Every role, in table order.

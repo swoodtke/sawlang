@@ -21,12 +21,12 @@
 //     sawdrops (compiler/drops: each flag's updates, and the verifier after
 //     elaboration)
 
-import sawmir.src.build.{mir_func_local}
-import sawmir.src.dump.{mir_module_functions}
-import sawmir.src.model.{MirCallKind, MirFuncKind, MirLocalKind, MirOperandKind, MirProjKind, MirRvalueKind,
+import sawmir.build.{mir_func_local}
+import sawmir.dump.{mir_module_functions}
+import sawmir.model.{MirCallKind, MirFuncKind, MirLocalKind, MirOperandKind, MirProjKind, MirRvalueKind,
                          MirStmtKind, MirSwitchKind, MirTermKind}
-import sawmir.src.program.{MirProgram}
-import sawtypecheck.src.model.{TC_EFFECT_CONSUMES}
+import sawmir.program.{MirProgram}
+import sawtypecheck.model.{TC_EFFECT_CONSUMES}
 
 // The conditions, one bit each.
 public static MIR_INIT_UNASSIGNED: Int = 1
@@ -61,12 +61,12 @@ public enum MirAccessKind {
 // reads the path rather than acting on it. An index projection's local is an
 // access of its own, a read with no place.
 public struct MirAccess {
-    public kind: MirAccessKind
-    public place: Int
-    public path: Int
-    public cut: Bool
+    kind: MirAccessKind
+    place: Int
+    path: Int
+    cut: Bool
     // The statement it belongs to, or -1 for the block's terminator.
-    public stmt: Int
+    stmt: Int
 }
 
 // What drop elaboration does with a `drop(p)` (SL:architecture §3.7): a
@@ -80,24 +80,24 @@ public enum MirDropLabel {
 
 // One function's move paths and the conditions at each block's entry.
 public struct MirInit {
-    public f: Int
-    public block_count: Int
+    f: Int
+    block_count: Int
     // Paths `0 .. local_count` are the locals themselves.
-    public local_count: Int
-    public path_local: Vector<Int>
-    public path_parent: Vector<Int>
+    local_count: Int
+    path_local: Vector<Int>
+    path_parent: Vector<Int>
     // The step from the parent: its projection kind (a payload's `!` form
     // counted as the payload), declaration and index.
-    public path_kind: Vector<MirProjKind>
-    public path_decl: Vector<Int>
-    public path_index: Vector<Int>
+    path_kind: Vector<MirProjKind>
+    path_decl: Vector<Int>
+    path_index: Vector<Int>
     // The path's type.
-    public path_ty: Vector<Int>
-    public path_child: Vector<Int>
-    public path_sibling: Vector<Int>
+    path_ty: Vector<Int>
+    path_child: Vector<Int>
+    path_sibling: Vector<Int>
     // `block * path_count + path`: the conditions at the block's entry.
-    public entry: Vector<Int>
-    public reached: Vector<Bool>
+    entry: Vector<Int>
+    reached: Vector<Bool>
 }
 
 extension MirInit: NoCopy {}

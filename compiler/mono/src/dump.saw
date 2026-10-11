@@ -3,18 +3,18 @@
 // body, each call terminator followed by the item it reaches; and the layout
 // table of every concrete type the items reach.
 
-import sawborrowck.src.program.{BorrowckProgram}
-import sawdrops.src.program.{DropsProgram}
-import sawmir.src.dump.{mir_module_functions}
-import sawmir.src.model.{MirBlock, MirLocal, MirLocalKind, MirStmt, MirTermKind}
-import sawmir.src.program.{MirProgram}
-import sawmono.src.program.{MonoItem, MonoItemKind, MonoProgram}
-import sawresolve.src.dump.{res_sort_strings}
-import sawresolve.src.program.{ResProgram}
-import sawtypecheck.src.program.{TcProgram}
-import sawtarget.src.layout.{Target}
-import sawtypecheck.src.bodydump.{tc_dump_bodies}
-import sawtypecheck.src.spell.{tc_effects_text}
+import sawborrowck.program.{BorrowckProgram}
+import sawdrops.program.{DropsProgram}
+import sawmir.dump.{mir_module_functions}
+import sawmir.model.{MirBlock, MirLocal, MirLocalKind, MirStmt, MirTermKind}
+import sawmir.program.{MirProgram}
+import sawmono.program.{MonoItem, MonoItemKind, MonoProgram}
+import sawresolve.dump.{res_sort_strings}
+import sawresolve.program.{ResProgram}
+import sawtypecheck.program.{TcProgram}
+import sawtarget.layout.{Target}
+import sawtypecheck.bodydump.{tc_dump_bodies}
+import sawtypecheck.spell.{tc_effects_text}
 
 extension MonoProgram {
     // Every item's dump, in item order.

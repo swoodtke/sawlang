@@ -1,5 +1,5 @@
 // The generated grammar tables: names, Kinds and the reverse Kind lookup.
-import sawparse.src.grammar.{ALT_COUNT, Alt, Rule, alt_for_kind, alt_kind, alt_name, rule_name}
+import sawparse.grammar.{ALT_COUNT, Alt, Rule, alt_for_kind, alt_kind, alt_name, rule_name}
 
 func main() {
     assert(alt_name(Alt.File_Source).equals("syntax.file.source"), "a single alternative")

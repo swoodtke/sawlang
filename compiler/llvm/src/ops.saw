@@ -6,21 +6,21 @@
 // value checks that it fits (design 170). Each check panics with Stage 0's
 // wording at the statement's `FILE:LINE`.
 
-import sawborrowck.src.program.{BorrowckProgram}
-import sawdrops.src.program.{DropsProgram}
-import sawllvm.src.prims.{LL_MESSAGE_LIMIT}
-import sawllvm.src.module.{LlEmitter, ll_is_scalar, ll_symbol, ll_value_type}
-import sawllvm.src.places.{ll_local_slot}
-import sawllvm.src.text.{ll_fit_signed, ll_integer_value}
-import sawmir.src.model.{MirAggregate, MirConstKind, MirOperandKind, MirRvalue, MirRvalueKind}
-import sawmir.src.program.{MirProgram}
-import sawmono.src.program.{MonoProgram}
-import sawresolve.src.program.{ResProgram}
-import sawtarget.src.layout.{Target, TargetCase, TargetKind, TargetLayout}
-import sawtypecheck.src.program.{TcProgram}
-import sawtypecheck.src.spell.{tc_effects_text}
-import sawtypecheck.src.typeops.{TcClient}
-import sawtypecheck.src.types.{TcKind}
+import sawborrowck.program.{BorrowckProgram}
+import sawdrops.program.{DropsProgram}
+import sawllvm.prims.{LL_MESSAGE_LIMIT}
+import sawllvm.module.{LlEmitter, ll_is_scalar, ll_symbol, ll_value_type}
+import sawllvm.places.{ll_local_slot}
+import sawllvm.text.{ll_fit_signed, ll_integer_value}
+import sawmir.model.{MirAggregate, MirConstKind, MirOperandKind, MirRvalue, MirRvalueKind}
+import sawmir.program.{MirProgram}
+import sawmono.program.{MonoProgram}
+import sawresolve.program.{ResProgram}
+import sawtarget.layout.{Target, TargetCase, TargetKind, TargetLayout}
+import sawtypecheck.program.{TcProgram}
+import sawtypecheck.spell.{tc_effects_text}
+import sawtypecheck.typeops.{TcClient}
+import sawtypecheck.types.{TcKind}
 
 extension LlEmitter {
     // Rvalue `r` written into `dest`.

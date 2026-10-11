@@ -5,28 +5,28 @@
 // block by block, statement by statement, so the order is a function of the
 // program alone.
 
-import sawborrowck.src.program.{BorrowckProgram}
-import sawdrops.src.program.{DropsProgram}
-import sawmir.src.model.{MirAggregate, MirBlock, MirCall, MirCallKind, MirFunc, MirFuncKind, MirLocal, MirOperand,
+import sawborrowck.program.{BorrowckProgram}
+import sawdrops.program.{DropsProgram}
+import sawmir.model.{MirAggregate, MirBlock, MirCall, MirCallKind, MirFunc, MirFuncKind, MirLocal, MirOperand,
                          MirOperandKind, MirPlace, MirProj, MirRvalue, MirRvalueKind, MirStmt, MirStmtKind,
                          MirSwitchKind, MirTermKind, MirWindow}
-import sawmir.src.program.{MirProgram}
-import sawmir.src.build.{mir_func_local}
-import sawmono.src.glue.{mono_copies_bitwise}
-import sawtarget.src.layout.{target_struct_fields}
-import sawmono.src.program.{MONO_DEPTH_LIMIT, MONO_KEY_COPY, MONO_KEY_DROP, MONO_KEY_EXTERN, MONO_KEY_FUNCTION,
+import sawmir.program.{MirProgram}
+import sawmir.build.{mir_func_local}
+import sawmono.glue.{mono_copies_bitwise}
+import sawtarget.layout.{target_struct_fields}
+import sawmono.program.{MONO_DEPTH_LIMIT, MONO_KEY_COPY, MONO_KEY_DROP, MONO_KEY_EXTERN, MONO_KEY_FUNCTION,
                             MonoItem, MonoItemKind, MonoProgram}
-import sawtypecheck.src.bodydump.{tc_dump_bodies}
-import sawtypecheck.src.signatures.{TcContext}
-import sawtypecheck.src.spell.{tc_effects_text}
-import sawtypecheck.src.typeops.{TcClient}
-import sawresolve.src.lang.{ResLang}
-import sawresolve.src.model.{ResDeclKind, ResModuleKind}
-import sawresolve.src.program.{ResProgram}
-import sawtypecheck.src.conform.{tc_args_subst}
-import sawtypecheck.src.model.{TcStatusKind}
-import sawtypecheck.src.program.{TcProgram}
-import sawtypecheck.src.types.{TcKind}
+import sawtypecheck.bodydump.{tc_dump_bodies}
+import sawtypecheck.signatures.{TcContext}
+import sawtypecheck.spell.{tc_effects_text}
+import sawtypecheck.typeops.{TcClient}
+import sawresolve.lang.{ResLang}
+import sawresolve.model.{ResDeclKind, ResModuleKind}
+import sawresolve.program.{ResProgram}
+import sawtypecheck.conform.{tc_args_subst}
+import sawtypecheck.model.{TcStatusKind}
+import sawtypecheck.program.{TcProgram}
+import sawtypecheck.types.{TcKind}
 
 // Every rule monomorphization refuses by.
 public func mono_rules() -> Vector<String> {

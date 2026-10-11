@@ -42,16 +42,16 @@ public enum TcKind {
 }
 
 public struct TcType {
-    public kind: TcKind
-    public decl: Int
-    public a: Int
-    public b: Int
+    kind: TcKind
+    decl: Int
+    a: Int
+    b: Int
     // The type's arguments are `first .. first + count` of the args pool, and
     // its labels, when it has any, the same run of the labels pool.
-    public first: Int
-    public count: Int
-    public labeled: Bool
-    public hash: Int
+    first: Int
+    count: Int
+    labeled: Bool
+    hash: Int
 }
 
 public struct TcTypes {

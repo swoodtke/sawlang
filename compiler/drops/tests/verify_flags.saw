@@ -3,13 +3,13 @@
 // is elaborated, found clean, then edited: the move its flag's clear stands
 // for becomes a copy, which leaves the clear saying the value left while it
 // is still whole. Paths are the repository root's, where the runner runs.
-import sawborrowck.src.check.{borrowck_rules}
-import sawborrowck.src.program.{borrowck_program}
-import sawdrops.src.elaborate.{drops_rules}
-import sawdrops.src.program.{DropsProgram, drops_program}
-import sawdrops.src.verify.{drops_verify_module}
-import sawmir.src.api.{mir_lower_file}
-import sawmir.src.model.{MirOperandKind, MirTermKind}
+import sawborrowck.check.{borrowck_rules}
+import sawborrowck.program.{borrowck_program}
+import sawdrops.elaborate.{drops_rules}
+import sawdrops.program.{DropsProgram, drops_program}
+import sawdrops.verify.{drops_verify_module}
+import sawmir.api.{mir_lower_file}
+import sawmir.model.{MirOperandKind, MirTermKind}
 
 // The index of module `name`, or -1.
 func module_index(p: &DropsProgram, name: String) -> Int {

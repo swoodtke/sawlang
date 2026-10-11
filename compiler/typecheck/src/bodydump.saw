@@ -2,14 +2,14 @@
 // one line per typed node in source order, with its type, its adjustments,
 // whether it is a place and how it is used, and what it calls.
 
-import sawparse.src.grammar.{Alt, alt_kind}
-import sawresolve.src.dump.{res_sort_strings}
-import sawresolve.src.lang.{ResLang}
-import sawresolve.src.model.{ResDecl, ResDeclKind, ResModule}
-import sawtypecheck.src.conform.{tc_extension_sets}
-import sawtypecheck.src.model.{TC_BIND_DEFAULT, TcAdjust, TcAdjustKind, TcCall, TcRole, TcUse}
-import sawtypecheck.src.program.{TcProgram}
-import sawtypecheck.src.spell.{tc_effects_text}
+import sawparse.grammar.{Alt, alt_kind}
+import sawresolve.dump.{res_sort_strings}
+import sawresolve.lang.{ResLang}
+import sawresolve.model.{ResDecl, ResDeclKind, ResModule}
+import sawtypecheck.conform.{tc_extension_sets}
+import sawtypecheck.model.{TC_BIND_DEFAULT, TcAdjust, TcAdjustKind, TcCall, TcRole, TcUse}
+import sawtypecheck.program.{TcProgram}
+import sawtypecheck.spell.{tc_effects_text}
 
 // Module `m`'s bodies section.
 public func tc_dump_bodies(p: &TcProgram, out: &var StringBuilder, m: Int) {

@@ -2,14 +2,14 @@
 // the arena into the program. Each module is collected (phase 1) as soon as it
 // is loaded, since its own table depends on nothing else.
 
-import sawparse.src.api.{parse_interface, parse_source}
-import sawparse.src.diag.{diagnostic_id}
-import sawparse.src.parser.{Parser}
-import sawparse.src.tree.{tree_problem}
-import sawresolve.src.collect.{res_is_top_level}
-import sawresolve.src.model.{ResModule, ResModuleKind, ResVis}
-import sawresolve.src.prelude.{res_declare_synthetic_builtins}
-import sawresolve.src.program.{ResPackage, ResProgram}
+import sawparse.api.{parse_interface, parse_source}
+import sawparse.diag.{diagnostic_id}
+import sawparse.parser.{Parser}
+import sawparse.tree.{tree_problem}
+import sawresolve.collect.{res_is_top_level}
+import sawresolve.model.{ResModule, ResModuleKind, ResVis}
+import sawresolve.prelude.{res_declare_synthetic_builtins}
+import sawresolve.program.{ResPackage, ResProgram}
 import std.file.{File}
 import std.path.{Path}
 

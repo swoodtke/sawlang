@@ -183,8 +183,8 @@ public trait Iterator {
 
 /// The half-open range `current..end`.
 public struct Range {
-    public current: Int
-    public end: Int
+    current: Int
+    end: Int
 }
 
 extension Range: Iterator {
@@ -204,9 +204,9 @@ extension Range: Iterator {
 /// The closed range `current..=last`, which stops after `last` without
 /// stepping past it.
 public struct RangeInclusive {
-    public current: Int
-    public last: Int
-    public done: Bool
+    current: Int
+    last: Int
+    done: Bool
 }
 
 extension RangeInclusive: Iterator {

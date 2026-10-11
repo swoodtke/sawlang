@@ -5,15 +5,15 @@
 // cycles are found with an explicit stack (principle 6), and each module's
 // import closure bounds the cases its patterns consult.
 
-import sawparse.src.grammar.{Alt}
-import sawresolve.src.collect.{res_is_top_level}
-import sawresolve.src.model.{ResBindKind, ResBinding, ResDecl, ResDeclKind, ResExport,
+import sawparse.grammar.{Alt}
+import sawresolve.collect.{res_is_top_level}
+import sawresolve.model.{ResBindKind, ResBinding, ResDecl, ResDeclKind, ResExport,
                              ResImport, ResImportForm, ResModule, ResModuleKind, ResName,
                              ResSymbol, ResVis}
-import sawresolve.src.loader.{res_after_first_segment, res_dir_of, res_dots_to_slashes,
+import sawresolve.loader.{res_after_first_segment, res_dir_of, res_dots_to_slashes,
                               res_first_segment, res_join, res_read_file}
-import sawresolve.src.names.{res_index}
-import sawresolve.src.program.{ResProgram}
+import sawresolve.names.{res_index}
+import sawresolve.program.{ResProgram}
 
 // Where a bare import path's file is: in the importing file's directory, else
 // in the entry file's, else under the importing file's package root, the

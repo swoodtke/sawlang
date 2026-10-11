@@ -4,17 +4,17 @@
 // generated once per concrete type at monomorphization (§3.8), so this stage
 // records the resolution and generates nothing.
 
-import sawdrops.src.program.{DropsProgram}
-import sawmir.src.build.{mir_func_local}
-import sawmir.src.program.{MirProgram}
-import sawresolve.src.dump.{res_sort_strings}
-import sawresolve.src.lang.{ResLang}
-import sawresolve.src.program.{ResProgram}
-import sawtypecheck.src.bodydump.{tc_dump_bodies}
-import sawtypecheck.src.program.{TcProgram}
-import sawtypecheck.src.signatures.{TcContext}
-import sawtypecheck.src.typeops.{TcClient}
-import sawtypecheck.src.types.{TcKind}
+import sawdrops.program.{DropsProgram}
+import sawmir.build.{mir_func_local}
+import sawmir.program.{MirProgram}
+import sawresolve.dump.{res_sort_strings}
+import sawresolve.lang.{ResLang}
+import sawresolve.program.{ResProgram}
+import sawtypecheck.bodydump.{tc_dump_bodies}
+import sawtypecheck.program.{TcProgram}
+import sawtypecheck.signatures.{TcContext}
+import sawtypecheck.typeops.{TcClient}
+import sawtypecheck.types.{TcKind}
 
 // What a type's drop glue is: none; its members, by field in reverse
 // declaration order or by an enum's active payload; a hand-written `deinit`
@@ -31,10 +31,10 @@ public enum DropsGlueKind {
 }
 
 public struct DropsGlue {
-    public kind: DropsGlueKind
+    kind: DropsGlueKind
     // A `deinit`'s declaration, and the trait of the conformance declaring it.
-    public decl: Int
-    public trait_decl: Int
+    decl: Int
+    trait_decl: Int
 }
 
 extension DropsProgram {

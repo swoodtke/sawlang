@@ -8,23 +8,23 @@
 // when its conformance writes one, else a memberwise rebuild whose parts
 // copy by their own glue.
 
-import sawborrowck.src.program.{BorrowckProgram}
-import sawdrops.src.program.{DropsProgram}
-import sawmir.src.build.{mir_func_local}
-import sawmir.src.model.{MirAggregate, MirCall, MirCallKind, MirFunc, MirFuncKind, MirLocalKind, MirOperandKind,
+import sawborrowck.program.{BorrowckProgram}
+import sawdrops.program.{DropsProgram}
+import sawmir.build.{mir_func_local}
+import sawmir.model.{MirAggregate, MirCall, MirCallKind, MirFunc, MirFuncKind, MirLocalKind, MirOperandKind,
                          MirProjKind}
-import sawmir.src.program.{MirProgram}
-import sawmono.src.program.{MONO_KEY_COPY, MONO_KEY_DROP, MonoItem, MonoItemKind, MonoProgram}
-import sawresolve.src.model.{ResDeclKind}
-import sawresolve.src.program.{ResProgram}
-import sawtarget.src.layout.{target_enum_cases, target_member_type, target_struct_fields}
-import sawtypecheck.src.model.{TcSource}
-import sawtypecheck.src.program.{TcProgram}
-import sawtypecheck.src.spell.{tc_effects_text}
-import sawtypecheck.src.signatures.{TcContext}
-import sawtypecheck.src.tier.{tc_compute_tiers}
-import sawtypecheck.src.typeops.{TcClient}
-import sawtypecheck.src.types.{TcKind}
+import sawmir.program.{MirProgram}
+import sawmono.program.{MONO_KEY_COPY, MONO_KEY_DROP, MonoItem, MonoItemKind, MonoProgram}
+import sawresolve.model.{ResDeclKind}
+import sawresolve.program.{ResProgram}
+import sawtarget.layout.{target_enum_cases, target_member_type, target_struct_fields}
+import sawtypecheck.model.{TcSource}
+import sawtypecheck.program.{TcProgram}
+import sawtypecheck.spell.{tc_effects_text}
+import sawtypecheck.signatures.{TcContext}
+import sawtypecheck.tier.{tc_compute_tiers}
+import sawtypecheck.typeops.{TcClient}
+import sawtypecheck.types.{TcKind}
 
 // Whether a copy of type `t` is the bits alone: a trivially copyable type, a
 // reference, a slice, or a function value.

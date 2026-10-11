@@ -18,32 +18,32 @@ public enum ResModuleKind {
 }
 
 public struct ResModule {
-    // The module's identity, interned: `main`, `sawparse.src.api`, `std.vector`.
-    public name: Int
+    // The module's identity, interned: `main`, `sawparse.api`, `std.vector`.
+    name: Int
     // The file it was read from, interned; -1 for none.
-    public file: Int
-    public kind: ResModuleKind
+    file: Int
+    kind: ResModuleKind
     // The first segment of the identity, interned: std's is `std`, and a module
     // beside the entry file belongs to the empty package.
-    public package: Int
+    package: Int
     // The directory of the file, interned, where a sibling import looks.
-    public dir: Int
+    dir: Int
     // Whether the file was read and parsed; a module that was not has no
     // declarations and every lookup into it is refused.
-    public available: Bool
+    available: Bool
     // Only an interface: declarations and imports, no bodies.
-    public interface_only: Bool
+    interface_only: Bool
     // The module's nodes are `node_base .. node_base + node_count` of the
     // program's arena, and `root` is its File node; -1 when unavailable.
-    public node_base: Int
-    public node_count: Int
-    public root: Int
+    node_base: Int
+    node_count: Int
+    root: Int
     // The byte offset of each line start, in the program's `line_starts`.
-    public line_base: Int
-    public line_count: Int
+    line_base: Int
+    line_count: Int
     // The module's declarations are `decl_first .. decl_first + decl_count`.
-    public decl_first: Int
-    public decl_count: Int
+    decl_first: Int
+    decl_count: Int
 }
 
 public enum ResVis {
@@ -77,25 +77,25 @@ public enum ResDeclKind {
 }
 
 public struct ResDecl {
-    public module: Int
-    public kind: ResDeclKind
+    module: Int
+    kind: ResDeclKind
     // The declared name, interned; -1 for an extension.
-    public name: Int
+    name: Int
     // The declaration's own node (Func, Struct, Case, ...); -1 when synthetic.
-    public node: Int
+    node: Int
     // The node that holds its modifiers: a Declaration, ExtensionMember or
     // TestOnly node, else the declaration's own node.
-    public outer: Int
+    outer: Int
     // The leaf of its name, where it is reported; -1 when synthetic.
-    public leaf: Int
-    public vis: ResVis
+    leaf: Int
+    vis: ResVis
     // The enclosing declaration: an enum for a case, a struct for a field, a
     // trait or an extension for a member; -1 at the top level.
-    public parent: Int
+    parent: Int
     // Declared under `@test`, so ordinary code may not name it.
-    public test_only: Bool
+    test_only: Bool
     // A static method, or a case with a payload.
-    public flag: Bool
+    flag: Bool
 }
 
 public enum ResBindKind {
@@ -132,17 +132,17 @@ public enum ResBindKind {
 }
 
 public struct ResBinding {
-    public kind: ResBindKind
+    kind: ResBindKind
     // The module of a Module or Overload binding.
-    public module: Int
+    module: Int
     // The declaration of a Decl or Case binding, or the type of a SelfType or
     // Member one; -1 otherwise.
-    public decl: Int
+    decl: Int
     // The name of an Overload or Cases binding.
-    public name: Int
+    name: Int
     // The leaf that declares a Local or TypeParam binding, or the node that
     // introduces an implicit one (a catch block's `error`).
-    public node: Int
+    node: Int
 }
 
 public func res_unbound() -> ResBinding {
@@ -171,33 +171,33 @@ public enum ResPendingKind {
 // A name whose meaning depends on traits' parents, settled once every module
 // is walked, since a trait's parents may sit in a module not walked yet.
 public struct ResPending {
-    public kind: ResPendingKind
-    public module: Int
+    kind: ResPendingKind
+    module: Int
     // The leaf of the associated type's name, or of the bare name.
-    public leaf: Int
-    public name: Int
+    leaf: Int
+    name: Int
     // The type parameter heading the path, as its TypeParam binding; Unbound
     // for `Self.Item` and for a bare name.
-    public param: ResBinding
+    param: ResBinding
     // The trait whose `Self` heads the path, or, for Inherited and Restated,
     // whose parents are searched; -1 otherwise.
-    public trait_decl: Int
+    trait_decl: Int
     // The segment after the associated type, or -1.
-    public chain: Int
+    chain: Int
     // A bare name's in-scope type parameters: their leaves are
     // `first .. first + count` of `pending_params`.
-    public first: Int
-    public count: Int
+    first: Int
+    count: Int
     // An Inherited name the lookup bound outside the trait: an inherited
     // associated type of its name shadows that binding, and none leaves it.
-    public bound: Bool
+    bound: Bool
 }
 
 // One name occurrence and what it denotes.
 public struct ResName {
-    public module: Int
-    public leaf: Int
-    public binding: ResBinding
+    module: Int
+    leaf: Int
+    binding: ResBinding
 }
 
 // How a call's head is classified, once (SL:architecture §3.3).
@@ -223,10 +223,10 @@ public enum ResCallClass {
 }
 
 public struct ResCall {
-    public module: Int
-    public node: Int
-    public classification: ResCallClass
-    public binding: ResBinding
+    module: Int
+    node: Int
+    classification: ResCallClass
+    binding: ResBinding
 }
 
 public enum ResImportForm {
@@ -236,70 +236,70 @@ public enum ResImportForm {
 }
 
 public struct ResImport {
-    public module: Int
-    public node: Int
+    module: Int
+    node: Int
     // The Path node, and the leaf its last segment is.
-    public path: Int
-    public leaf: Int
+    path: Int
+    leaf: Int
     // The imported module, or -1 when it could not be found.
-    public target: Int
-    public form: ResImportForm
-    public reexport: Bool
-    public test_only: Bool
+    target: Int
+    form: ResImportForm
+    reexport: Bool
+    test_only: Bool
     // The qualifier a whole-module import binds, interned; -1 otherwise.
-    public qualifier: Int
-    public qualifier_leaf: Int
+    qualifier: Int
+    qualifier_leaf: Int
 }
 
 // One name a selective import takes.
 public struct ResSymbol {
-    public import_at: Int
-    public module: Int
+    import_at: Int
+    module: Int
     // The name asked for, and the name it is bound to (its `as` rename).
-    public name: Int
-    public bound: Int
-    public leaf: Int
-    public bound_leaf: Int
-    public binding: ResBinding
+    name: Int
+    bound: Int
+    leaf: Int
+    bound_leaf: Int
+    binding: ResBinding
 }
 
 // One name on a module's surface: its own public declarations and what it
 // re-exports (design 229).
 public struct ResExport {
-    public module: Int
-    public name: Int
-    public binding: ResBinding
-    public vis: ResVis
+    module: Int
+    name: Int
+    binding: ResBinding
+    vis: ResVis
     // The module whose declaration grants the visibility.
-    public owner: Int
+    owner: Int
 }
 
 // A binding in scope in a body or a signature.
 public struct ResLocal {
-    public name: Int
-    public binding: ResBinding
+    name: Int
+    binding: ResBinding
     // The scope depth it was declared at.
-    public depth: Int
+    depth: Int
     // Whether this is a type-level binding (a type parameter, `Self`, an
     // associated type), which a type position sees and a value position does not.
-    public type_level: Bool
+    type_level: Bool
 }
 
 public struct ResDiag {
-    public module: Int
-    public start: Int
-    public end: Int
-    public id: String
-    public message: String
+    module: Int
+    start: Int
+    end: Int
+    id: String
+    message: String
     // A note about an interface module, which refuses nothing.
-    public note: Bool
+    note: Bool
 }
 
 // A conformance an extension declares: which type, which trait, where.
 public struct ResConformance {
-    public module: Int
-    public ext: Int
-    public path: Int
-    public target: ResBinding
-    public trait_binding: ResBinding
+    module: Int
+    ext: Int
+    path: Int
+    target: ResBinding
+    trait_binding: ResBinding
 }

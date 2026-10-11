@@ -5,18 +5,18 @@
 // leading `sret` pointer, and a memory argument is passed by the address of a
 // value the callee copies on entry.
 
-import sawborrowck.src.program.{BorrowckProgram}
-import sawdrops.src.program.{DropsProgram}
-import sawllvm.src.prims.{LL_MESSAGE_LIMIT}
-import sawllvm.src.calls.{ll_block}
-import sawllvm.src.module.{LlEmitter, ll_is_scalar, ll_symbol, ll_value_type}
-import sawllvm.src.ops.{ll_lossless}
-import sawllvm.src.places.{ll_local_slot}
-import sawmir.src.model.{MirBlock, MirStmt, MirStmtKind}
-import sawmir.src.program.{MirProgram}
-import sawmono.src.program.{MONO_KEY_DROP, MonoItem, MonoProgram}
-import sawtarget.src.layout.{Target, TargetKind, TargetLayout}
-import sawtypecheck.src.program.{TcProgram}
+import sawborrowck.program.{BorrowckProgram}
+import sawdrops.program.{DropsProgram}
+import sawllvm.prims.{LL_MESSAGE_LIMIT}
+import sawllvm.calls.{ll_block}
+import sawllvm.module.{LlEmitter, ll_is_scalar, ll_symbol, ll_value_type}
+import sawllvm.ops.{ll_lossless}
+import sawllvm.places.{ll_local_slot}
+import sawmir.model.{MirBlock, MirStmt, MirStmtKind}
+import sawmir.program.{MirProgram}
+import sawmono.program.{MONO_KEY_DROP, MonoItem, MonoProgram}
+import sawtarget.layout.{Target, TargetKind, TargetLayout}
+import sawtypecheck.program.{TcProgram}
 
 // The name a function's parameter `j` arrives in, before its entry copy into
 // the parameter's slot.

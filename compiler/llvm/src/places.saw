@@ -2,22 +2,22 @@
 // name, each projection at the target's offset; an operand is a scalar's SSA
 // value, or a value written into, or read from, an address.
 
-import sawborrowck.src.program.{BorrowckProgram}
-import sawdrops.src.program.{DropsProgram}
-import sawllvm.src.prims.{LL_MESSAGE_LIMIT}
-import sawllvm.src.module.{LlEmitter, ll_is_scalar, ll_symbol, ll_value_type}
-import sawllvm.src.text.{ll_fit_signed, ll_integer_value, ll_quoted, ll_string_bytes}
-import sawmir.src.model.{MirConstKind, MirOperand, MirOperandKind, MirProjKind}
-import sawmir.src.program.{MirProgram}
-import sawmono.src.program.{MONO_KEY_COPY, MonoProgram}
-import sawresolve.src.dump.{res_sort_strings}
-import sawresolve.src.program.{ResProgram}
-import sawtarget.src.layout.{Target, TargetKind, TargetLayout, target_struct_fields}
-import sawtypecheck.src.checks.{tc_check_unsafe}
-import sawtypecheck.src.program.{TcProgram}
-import sawtypecheck.src.spell.{tc_effects_text}
-import sawtypecheck.src.typeops.{TcClient}
-import sawtypecheck.src.types.{TcKind}
+import sawborrowck.program.{BorrowckProgram}
+import sawdrops.program.{DropsProgram}
+import sawllvm.prims.{LL_MESSAGE_LIMIT}
+import sawllvm.module.{LlEmitter, ll_is_scalar, ll_symbol, ll_value_type}
+import sawllvm.text.{ll_fit_signed, ll_integer_value, ll_quoted, ll_string_bytes}
+import sawmir.model.{MirConstKind, MirOperand, MirOperandKind, MirProjKind}
+import sawmir.program.{MirProgram}
+import sawmono.program.{MONO_KEY_COPY, MonoProgram}
+import sawresolve.dump.{res_sort_strings}
+import sawresolve.program.{ResProgram}
+import sawtarget.layout.{Target, TargetKind, TargetLayout, target_struct_fields}
+import sawtypecheck.checks.{tc_check_unsafe}
+import sawtypecheck.program.{TcProgram}
+import sawtypecheck.spell.{tc_effects_text}
+import sawtypecheck.typeops.{TcClient}
+import sawtypecheck.types.{TcKind}
 
 // The address of MIR local `l`'s slot.
 public func ll_local_slot(l: Int) -> String {

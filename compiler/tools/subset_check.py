@@ -89,6 +89,13 @@ RULES = {
     "generic-extension-params": "SL:hazards L18",
     "interpolation-content": "SL:hazards C3",
     "workaround-marker": "SL:hazards: a workaround names the entry it works around",
+    "redundant-visibility": "LANGUAGE_SPEC: a field's tier is stated once, on the type",
+}
+
+VISIBILITY_SPELLING = {
+    A.Visibility.PUBLIC: "public",
+    A.Visibility.PACKAGE: "public(package)",
+    A.Visibility.PARENT: "public(parent)",
 }
 
 # The tracked copy of SL:hazards, whose headings name its entries. Its sibling
@@ -1104,6 +1111,7 @@ class FileChecker:
         for s in prog.structs:
             if not s.fields and s.name not in allocators:
                 self.report(s.line, "empty-struct", "give every struct at least one field")
+            self.check_field_visibility(s)
         for blk in prog.extern_blocks:
             for fn in blk.functions:
                 if fn.is_blocking:
@@ -1143,6 +1151,18 @@ class FileChecker:
                 BodyChecker(self, None, None).run_expression(st.initializer)
         for sa in prog.static_asserts:
             BodyChecker(self, None, None).run_expression(sa.condition)
+
+    def check_field_visibility(self, s):
+        """A field inherits its struct's tier, so writing that same tier on it
+        says nothing; only a narrowing, `private`, is written."""
+        tier = VISIBILITY_SPELLING.get(s.visibility)
+        if tier is None:
+            return
+        for f in s.fields:
+            if f.visibility_written and f.visibility == s.visibility:
+                self.report(f.line, "redundant-visibility",
+                            "`%s` repeats the tier of `%s struct %s`; write the field "
+                            "bare, and mark only a narrowing `private`" % (tier, tier, s.name))
 
     def refused_bound(self, bound):
         """Every bound, but the std profile's allocator parameter and the
@@ -2556,8 +2576,7 @@ def _under(path, rel_dir):
 
 def stage_files():
     """The source files of every stage package, which a unit program links."""
-    dirs = [os.path.join(rel, "src") for _, rel in STAGE_PACKAGES]
-    return [p for p in tree_files() if any(_under(p, d) for d in dirs)]
+    return [p for p in tree_files() if any(_under(p, rel) for _, rel in STAGE_PACKAGES)]
 
 
 def check_files(paths, compiler=(), stages=None):

@@ -10,13 +10,13 @@
 //   - every declaration is collected under its name token as written;
 //   - no module but an interface holds a skipped node.
 
-import sawparse.src.grammar.{Alt}
-import sawparse.src.tree.{is_skipped_shape}
-import sawresolve.src.collect.{res_is_top_level}
-import sawresolve.src.kinds.{res_is_type_alt}
-import sawresolve.src.model.{ResBindKind, ResBinding, ResCall, ResDecl, ResDeclKind, ResDiag,
+import sawparse.grammar.{Alt}
+import sawparse.tree.{is_skipped_shape}
+import sawresolve.collect.{res_is_top_level}
+import sawresolve.kinds.{res_is_type_alt}
+import sawresolve.model.{ResBindKind, ResBinding, ResCall, ResDecl, ResDeclKind, ResDiag,
                              ResModule, ResName}
-import sawresolve.src.program.{ResProgram}
+import sawresolve.program.{ResProgram}
 
 // What the tree says of a node: 0 is no occurrence, 1 one that must be
 // recorded, 2 one that may be (a member, which is recorded only when its base

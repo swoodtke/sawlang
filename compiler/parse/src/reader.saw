@@ -4,10 +4,10 @@
 // text is unescaped into a buffer the tree's spans point into, so rendering
 // escapes it afresh.
 
-import sawparse.src.grammar.{Alt, alt_for_kind}
-import sawparse.src.render.{render_tree}
-import sawparse.src.source.{source_file}
-import sawparse.src.tree.{NodeShape, TreeBuilder, tree_builder, tree_problem}
+import sawparse.grammar.{Alt, alt_for_kind}
+import sawparse.render.{render_tree}
+import sawparse.source.{source_file}
+import sawparse.tree.{NodeShape, TreeBuilder, tree_builder, tree_problem}
 
 static READ_NEWLINE: Int = 10
 static READ_SPACE: Int = 32

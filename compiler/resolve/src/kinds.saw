@@ -1,8 +1,8 @@
 // Which alternatives build which kinds of position: the tables the walk
 // dispatches on, kept apart from it so every phase can read them.
 
-import sawparse.src.grammar.{Alt}
-import sawresolve.src.model.{ResDeclKind}
+import sawparse.grammar.{Alt}
+import sawresolve.model.{ResDeclKind}
 
 // Whether `alt` builds a Declaration node.
 public func res_is_decl_item(alt: Alt) -> Bool {

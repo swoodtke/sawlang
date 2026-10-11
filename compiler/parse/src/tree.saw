@@ -4,8 +4,8 @@
 // too, so a node's children hold its leaves and its child nodes in source
 // order, which is the order the dump prints them in.
 
-import sawparse.src.grammar.{Alt}
-import sawparse.src.source.{SourceFile}
+import sawparse.grammar.{Alt}
+import sawparse.source.{SourceFile}
 
 // What a node is, which decides how the dump prints it.
 public enum NodeShape {
@@ -33,22 +33,22 @@ public enum NodeShape {
 }
 
 public struct AstNode {
-    public shape: NodeShape
+    shape: NodeShape
     // The alternative a `Built` node records; None for every other shape.
-    public alt: Alt?
-    public start: Int
-    public end: Int
-    public first: Int
-    public count: Int
+    alt: Alt?
+    start: Int
+    end: Int
+    first: Int
+    count: Int
 }
 
 public struct AstTree {
-    public source: SourceFile
-    public nodes: Vector<AstNode>
-    public children: Vector<Int>
-    public root: Int
+    source: SourceFile
+    nodes: Vector<AstNode>
+    children: Vector<Int>
+    root: Int
     // Built by an interface parse, the only tree a skipped node may stand in.
-    public interface: Bool
+    interface: Bool
 }
 
 extension AstTree: NoCopy {}
@@ -117,12 +117,12 @@ public func trim_to<T: Copy>(v: &var Vector<T>, used: Int) {
 // Where a builder stood when a speculation began, so that `restore` can
 // return it there.
 public struct BuilderCheckpoint {
-    public nodes: Int
-    public children: Int
-    public top: Int
-    public root: Int
+    nodes: Int
+    children: Int
+    top: Int
+    root: Int
     // The watermark of the checkpoint this one is nested in.
-    public low: Int
+    low: Int
 }
 
 // Builds an arena bottom-up. A construct under way owns the run of the

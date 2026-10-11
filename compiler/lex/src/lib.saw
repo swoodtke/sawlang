@@ -254,11 +254,11 @@ public enum SegmentKind {
 // `Token` in the automatic Copy tier: an owning `Vector` field would make the
 // whole token move-only, so every token read would become a borrow.
 public struct StringSegment {
-    public kind: SegmentKind
-    public text: String
-    public line: Int
-    public col: Int
-    public offset: Int
+    kind: SegmentKind
+    text: String
+    line: Int
+    col: Int
+    offset: Int
 }
 
 // A lexed token. `value` holds the token's canonical text (decoded, for a plain
@@ -270,13 +270,13 @@ public struct StringSegment {
 // `seg_start`/`seg_count` name this token's run in the lex's segment arena
 // (design 268): `seg_count` is 0 on every token but an InterpString.
 public struct Token {
-    public kind: TokenKind
-    public value: String
-    public line: Int
-    public col: Int
-    public suffix: String?
-    public seg_start: Int
-    public seg_count: Int
+    kind: TokenKind
+    value: String
+    line: Int
+    col: Int
+    suffix: String?
+    seg_start: Int
+    seg_count: Int
 }
 
 // A lex error, positioned at 1-based line:col. The message is prose for the
@@ -285,11 +285,11 @@ public struct Token {
 // (`syntax.expr.int`, `syntax.expr.float`) when no rule names it, and
 // `parse-error` when neither does. `hint` suggests a fix, or is empty.
 public struct LexError {
-    public line: Int
-    public col: Int
-    public message: String
-    public rule: String
-    public hint: String
+    line: Int
+    col: Int
+    message: String
+    rule: String
+    hint: String
 }
 
 // A captured documentation-comment LINE (design 121). Doc comments are lexed as
@@ -299,10 +299,10 @@ public struct LexError {
 // module). `text` is the line body with the `///`/`//!` prefix (and one following
 // space, if present) stripped; `line`/`col` are 1-based at the leading `/`.
 public struct DocComment {
-    public kind: String
-    public text: String
-    public line: Int
-    public col: Int
+    kind: String
+    text: String
+    line: Int
+    col: Int
 }
 
 // The full output of a lex: the token stream with each token's byte offset, the
@@ -316,10 +316,10 @@ public struct DocComment {
 // It sits beside the tokens rather than on `Token` because code outside the
 // lexer constructs tokens (prototypes/minivm).
 public struct LexResult {
-    public tokens: Vector<Token>
-    public offsets: Vector<Int>
-    public docs: Vector<DocComment>
-    public segments: Vector<StringSegment>
+    tokens: Vector<Token>
+    offsets: Vector<Int>
+    docs: Vector<DocComment>
+    segments: Vector<StringSegment>
 }
 
 extension LexResult: NoCopy {}

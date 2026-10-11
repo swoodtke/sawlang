@@ -4,10 +4,10 @@
 // clean, then edited: the epilogue drops a carried window, then names one out
 // of range, and each edit must be reported. Paths are the repository root's,
 // where the runner runs.
-import sawmir.src.api.{mir_lower_file}
-import sawmir.src.model.{MirFuncKind}
-import sawmir.src.program.{MirProgram}
-import sawmir.src.verify.{mir_verify_module}
+import sawmir.api.{mir_lower_file}
+import sawmir.model.{MirFuncKind}
+import sawmir.program.{MirProgram}
+import sawmir.verify.{mir_verify_module}
 
 // The index of module `name`, or -1.
 func module_index(p: &MirProgram, name: String) -> Int {

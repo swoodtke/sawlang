@@ -2,19 +2,19 @@
 // node and records the types its positions denote through `build_type`, so
 // the node table is complete for every signature once the pass is done.
 
-import sawparse.src.grammar.{Alt}
-import sawparse.src.tree.{is_body_node}
-import sawresolve.src.collect.{res_is_top_level}
-import sawresolve.src.kinds.{res_is_type_alt}
-import sawresolve.src.model.{ResBindKind, ResDecl, ResDeclKind, ResModule}
-import sawtypecheck.src.model.{TC_EFFECT_BORROWS, TC_FLAG_BLOCKING, TC_FLAG_BORROWS_STRUCT,
+import sawparse.grammar.{Alt}
+import sawparse.tree.{is_body_node}
+import sawresolve.collect.{res_is_top_level}
+import sawresolve.kinds.{res_is_type_alt}
+import sawresolve.model.{ResBindKind, ResDecl, ResDeclKind, ResModule}
+import sawtypecheck.model.{TC_EFFECT_BORROWS, TC_FLAG_BLOCKING, TC_FLAG_BORROWS_STRUCT,
                                TC_FLAG_DEFAULT_BODY, TC_FLAG_STATIC, TC_FLAG_SYNTHESIZE,
                                TC_FLAG_SYNTHESIZE_SHARED, TC_FLAG_UNSAFE_STRUCT, TC_FLAG_UNSAFE_VAR,
                                TC_FLAG_VARIADIC, TC_FLAG_WRITTEN_RETURN, TcLend, TcParam,
                                TcReceiver, TcSig}
-import sawtypecheck.src.program.{TcProgram}
-import sawtypecheck.src.signatures.{tc_effect_bit}
-import sawtypecheck.src.types.{TcKind, TcType}
+import sawtypecheck.program.{TcProgram}
+import sawtypecheck.signatures.{tc_effect_bit}
+import sawtypecheck.types.{TcKind, TcType}
 
 // Every declaration's signature, program-wide.
 public func tc_build_signatures(p: &var TcProgram) {

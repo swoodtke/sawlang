@@ -1,0 +1,7 @@
+// The new std writes a field's tier once, on its type, as the compiler does.
+
+public struct Span {
+    public start: Int // refuses: redundant-visibility
+    end: Int
+    private generation: Int
+}

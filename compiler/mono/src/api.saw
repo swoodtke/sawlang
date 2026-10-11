@@ -2,31 +2,31 @@
 // checked and elaborated, its constants evaluated, then monomorphized from
 // its roots; and the record `sawc2 mono` prints for it.
 
-import sawborrowck.src.check.{borrowck_rules}
-import sawborrowck.src.program.{BorrowckProgram, borrowck_program}
-import sawdrops.src.elaborate.{drops_rules}
-import sawborrowck.src.verify.{borrowck_verify_module}
-import sawdrops.src.api.{drops_has_invariant}
-import sawdrops.src.program.{DropsProgram, drops_program}
-import sawdrops.src.verify.{drops_verify_module}
-import saweval.src.program.{EvalEnd, EvalKind, EvalProgram, eval_program}
-import saweval.src.interp.{eval_step_budget}
-import sawmir.src.api.{mir_append_checks, mir_append_diag, mir_append_invariants, mir_lower_file}
-import sawmir.src.program.{MirProgram}
-import sawmono.src.dump.{mono_dump_layouts}
-import sawmono.src.program.{MonoProgram, mono_program}
-import sawmono.src.worklist.{mono_rules}
-import sawtarget.src.layout.{Target, target_named}
+import sawborrowck.check.{borrowck_rules}
+import sawborrowck.program.{BorrowckProgram, borrowck_program}
+import sawdrops.elaborate.{drops_rules}
+import sawborrowck.verify.{borrowck_verify_module}
+import sawdrops.api.{drops_has_invariant}
+import sawdrops.program.{DropsProgram, drops_program}
+import sawdrops.verify.{drops_verify_module}
+import saweval.program.{EvalEnd, EvalKind, EvalProgram, eval_program}
+import saweval.interp.{eval_step_budget}
+import sawmir.api.{mir_append_checks, mir_append_diag, mir_append_invariants, mir_lower_file}
+import sawmir.program.{MirProgram}
+import sawmono.dump.{mono_dump_layouts}
+import sawmono.program.{MonoProgram, mono_program}
+import sawmono.worklist.{mono_rules}
+import sawtarget.layout.{Target, target_named}
 
 // How `sawc2 mono` treats one entry file.
 public struct MonoOptions {
-    public std_root: String
-    public target: String
+    std_root: String
+    target: String
     // Print each item's concrete function.
-    public dump: Bool
+    dump: Bool
     // Print the layout table of the types the items reach.
-    public layouts: Bool
-    public notes: Bool
+    layouts: Bool
+    notes: Bool
 }
 
 // The program whose entry file is `path`, brought through every stage

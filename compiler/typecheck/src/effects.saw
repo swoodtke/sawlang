@@ -6,24 +6,24 @@
 // may suspend. The last two are what make a call through a function value or
 // an existential sound to treat as never suspending.
 
-import sawresolve.src.collect.{res_is_top_level}
-import sawresolve.src.dump.{res_sort_strings}
-import sawresolve.src.model.{ResDecl, ResDeclKind, ResModule, ResVis}
-import sawtypecheck.src.candidates.{tc_contains}
-import sawtypecheck.src.tier.{tc_tier}
-import sawtypecheck.src.checks.{tc_check_unsafe}
-import sawtypecheck.src.conform.{TcSubst}
-import sawtypecheck.src.spell.{tc_effects_text}
-import sawtypecheck.src.typeops.{TcClient}
-import sawtypecheck.src.model.{TC_EFFECT_SYNC, TC_FLAG_DEFAULT_BODY, TC_FORBID_CLOSURE, TC_FORBID_ERASE,
+import sawresolve.collect.{res_is_top_level}
+import sawresolve.dump.{res_sort_strings}
+import sawresolve.model.{ResDecl, ResDeclKind, ResModule, ResVis}
+import sawtypecheck.candidates.{tc_contains}
+import sawtypecheck.tier.{tc_tier}
+import sawtypecheck.checks.{tc_check_unsafe}
+import sawtypecheck.conform.{TcSubst}
+import sawtypecheck.spell.{tc_effects_text}
+import sawtypecheck.typeops.{TcClient}
+import sawtypecheck.model.{TC_EFFECT_SYNC, TC_FLAG_DEFAULT_BODY, TC_FORBID_CLOSURE, TC_FORBID_ERASE,
                                TC_FORBID_SYNC,
                                TC_ITEM_CALL, TC_ITEM_ERASE, TC_SUMMARY_BODY, TC_SUMMARY_UNTABLED,
                                TcAtom, TcCall, TcConformance, TcItem, TcRole, TcStatus, TcStatusKind,
                                TcSummary, TcUnit, TcUse}
-import sawtypecheck.src.program.{TcProgram}
-import sawtypecheck.src.signatures.{TcContext}
-import sawtypecheck.src.summaries.{TcAcc, tc_acc}
-import sawtypecheck.src.types.{TcKind, TcType}
+import sawtypecheck.program.{TcProgram}
+import sawtypecheck.signatures.{TcContext}
+import sawtypecheck.summaries.{TcAcc, tc_acc}
+import sawtypecheck.types.{TcKind, TcType}
 
 // Runs every check that reads the summaries (phase 3).
 public func tc_check_effects(p: &var TcProgram) {

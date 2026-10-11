@@ -1,26 +1,26 @@
 // The resolve stage's entry points: a program resolved from its entry file,
 // and the record `sawc2 resolve` prints for it.
 
-import sawresolve.src.dump.{res_sort_strings}
-import sawresolve.src.imports.{res_same_binding}
-import sawresolve.src.lang.{ResLang}
-import sawresolve.src.loader.{res_read_file}
-import sawresolve.src.model.{ResDiag, ResModule, ResModuleKind}
-import sawresolve.src.prelude.{res_declare_prelude}
-import sawresolve.src.program.{ResProgram, res_program}
-import sawresolve.src.rules.{res_conformance_decl}
-import sawresolve.src.verify.{res_verify_module}
-import sawresolve.src.walk.{res_resolve_bodies}
+import sawresolve.dump.{res_sort_strings}
+import sawresolve.imports.{res_same_binding}
+import sawresolve.lang.{ResLang}
+import sawresolve.loader.{res_read_file}
+import sawresolve.model.{ResDiag, ResModule, ResModuleKind}
+import sawresolve.prelude.{res_declare_prelude}
+import sawresolve.program.{ResProgram, res_program}
+import sawresolve.rules.{res_conformance_decl}
+import sawresolve.verify.{res_verify_module}
+import sawresolve.walk.{res_resolve_bodies}
 
 // How `sawc2 resolve` treats one entry file.
 public struct ResolveOptions {
     // The std root: Stage 0's, holding `std/` and `builtin.saw`, or the new
     // std's, holding its modules and `prelude.saw`.
-    public std_root: String
+    std_root: String
     // Print each resolved module's dump.
-    public dump: Bool
+    dump: Bool
     // Print the notes about interface modules as well as the refusals.
-    public notes: Bool
+    notes: Bool
 }
 
 // Resolves the program whose entry file is `path`, with each of `names`

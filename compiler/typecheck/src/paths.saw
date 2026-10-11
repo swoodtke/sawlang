@@ -10,14 +10,14 @@
 // read them. A read out of storage the body does not own, a field, an element
 // or a payload, stays a copy, since there is no partial move.
 
-import sawparse.src.grammar.{Alt}
-import sawresolve.src.collect.{res_is_top_level}
-import sawresolve.src.model.{ResBindKind}
-import sawtypecheck.src.conform.{tc_copy_ints}
-import sawtypecheck.src.model.{TC_COPY_COVERED, TcAdjustKind, TcUse}
-import sawtypecheck.src.program.{TcProgram}
-import sawtypecheck.src.summaries.{tc_acc}
-import sawtypecheck.src.typeops.{TcClient}
+import sawparse.grammar.{Alt}
+import sawresolve.collect.{res_is_top_level}
+import sawresolve.model.{ResBindKind}
+import sawtypecheck.conform.{tc_copy_ints}
+import sawtypecheck.model.{TC_COPY_COVERED, TcAdjustKind, TcUse}
+import sawtypecheck.program.{TcProgram}
+import sawtypecheck.summaries.{tc_acc}
+import sawtypecheck.typeops.{TcClient}
 
 // A tracked local's slot in a path state: not yet read by value, or moved by
 // a spelled `move`. A slot at or above zero holds the by-value read that
@@ -33,23 +33,23 @@ static TC_FRAME_CLOSURE: Int = 1
 // tracked local and a last one that is 1 when no path reaches the position.
 public struct TcPaths {
     // By declaring leaf: the tracked local's index, or -1.
-    public index: Vector<Int>
+    index: Vector<Int>
     // The leaves `index` holds an entry for, cleared after each body.
-    public leaves: Vector<Int>
+    leaves: Vector<Int>
     // Leaves that declare an alias of a borrowed place.
-    public aliases: Vector<Int>
+    aliases: Vector<Int>
     // Each candidate read and its local's index.
-    public reads: Vector<Int>
-    public read_local: Vector<Int>
+    reads: Vector<Int>
+    read_local: Vector<Int>
     // By local: the by-value read and the use after it on one path, or -1.
-    public dup_first: Vector<Int>
-    public dup_second: Vector<Int>
-    public width: Int
+    dup_first: Vector<Int>
+    dup_second: Vector<Int>
+    width: Int
     // The open frames, innermost last up to `depth`: each one's kind and two
     // accumulated states, what reaches its exit and, for a loop, its head.
-    public frame_kinds: Vector<Int>
-    public frame_states: Vector<Int>
-    public depth: Int
+    frame_kinds: Vector<Int>
+    frame_states: Vector<Int>
+    depth: Int
 }
 
 extension TcPaths: NoCopy {}

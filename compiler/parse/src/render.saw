@@ -4,8 +4,8 @@
 // `quote_doc`. Every walk here is a loop over the arena, never a recursion,
 // since a tree may be as deep as the parser's depth budget allows.
 
-import sawparse.src.grammar.{alt_kind}
-import sawparse.src.tree.{AstTree, AstNode, NodeShape, is_leaf_shape}
+import sawparse.grammar.{alt_kind}
+import sawparse.tree.{AstTree, AstNode, NodeShape, is_leaf_shape}
 
 static RENDER_BACKSLASH: Int = 92
 static RENDER_QUOTE: Int = 34

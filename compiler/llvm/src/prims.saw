@@ -3,16 +3,16 @@
 // the two seams every function may reach: `__saw_rt_write` for output and
 // the panic sink for a failed check.
 
-import sawborrowck.src.program.{BorrowckProgram}
-import sawdrops.src.program.{DropsProgram}
-import sawllvm.src.module.{LlEmitter, ll_is_scalar, ll_symbol, ll_value_type}
-import sawmir.src.program.{MirProgram}
-import sawmono.src.dump.{mono_dump_layouts}
-import sawmono.src.program.{MonoProgram}
-import sawresolve.src.program.{ResProgram}
-import sawtarget.src.layout.{Target, TargetKind, TargetLayout}
-import sawtypecheck.src.program.{TcProgram}
-import sawtypecheck.src.spell.{tc_effects_text}
+import sawborrowck.program.{BorrowckProgram}
+import sawdrops.program.{DropsProgram}
+import sawllvm.module.{LlEmitter, ll_is_scalar, ll_symbol, ll_value_type}
+import sawmir.program.{MirProgram}
+import sawmono.dump.{mono_dump_layouts}
+import sawmono.program.{MonoProgram}
+import sawresolve.program.{ResProgram}
+import sawtarget.layout.{Target, TargetKind, TargetLayout}
+import sawtypecheck.program.{TcProgram}
+import sawtypecheck.spell.{tc_effects_text}
 
 // How many bytes a rendered panic message may hold, as Stage 0's stack
 // scratch does (design 137).

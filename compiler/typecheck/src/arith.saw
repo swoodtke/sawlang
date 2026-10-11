@@ -28,9 +28,9 @@ public enum TcFault {
 
 // An evaluated value, or the fault that stopped it.
 public struct TcValue {
-    public ok: Bool
-    public bits: Int
-    public fault: TcFault
+    ok: Bool
+    bits: Int
+    fault: TcFault
 }
 
 static TC_ARITH_LOW32: Int = 0xFFFF_FFFF

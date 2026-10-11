@@ -5,17 +5,17 @@
 // keyed by the concrete arenas' ids say which item each call and each closure
 // reaches and which glue each drop and copy runs.
 
-import sawborrowck.src.program.{BorrowckProgram}
-import sawdrops.src.program.{DropsProgram}
-import sawmir.src.program.{MirProgram}
-import sawtypecheck.src.program.{TcProgram}
-import sawmir.src.model.{MirDiag}
-import sawparse.src.tree.{AstNode}
-import sawresolve.src.names.{ResIndex, res_index}
-import sawresolve.src.model.{ResModuleKind}
-import sawresolve.src.program.{ResProgram}
-import sawtypecheck.src.checks.{tc_check_unsafe}
-import sawtypecheck.src.typeops.{TcClient}
+import sawborrowck.program.{BorrowckProgram}
+import sawdrops.program.{DropsProgram}
+import sawmir.program.{MirProgram}
+import sawtypecheck.program.{TcProgram}
+import sawmir.model.{MirDiag}
+import sawparse.tree.{AstNode}
+import sawresolve.names.{ResIndex, res_index}
+import sawresolve.model.{ResModuleKind}
+import sawresolve.program.{ResProgram}
+import sawtypecheck.checks.{tc_check_unsafe}
+import sawtypecheck.typeops.{TcClient}
 
 // What an item is: a function's body at concrete arguments, a type's drop or
 // copy glue, or an `extern` the program calls by its C name.
@@ -32,75 +32,75 @@ public enum MonoItemKind {
 // default body. Typecheck interns types by canonical form with defaults
 // filled, so two spellings of one instantiation are one item.
 public struct MonoItem {
-    public kind: MonoItemKind
+    kind: MonoItemKind
     // The generic MIR function a function item instantiates, or -1.
-    public source: Int
+    source: Int
     // The declaration whose generic parameters `args` instantiate, or -1.
-    public type_decl: Int
+    type_decl: Int
     // The declaration whose own parameters `inst` instantiate, or -1.
-    public func_decl: Int
+    func_decl: Int
     // Runs of the item type pool.
-    public args_first: Int
-    public args_count: Int
-    public inst_first: Int
-    public inst_count: Int
-    public self_type: Int
+    args_first: Int
+    args_count: Int
+    inst_first: Int
+    inst_count: Int
+    self_type: Int
     // A glue item's type; an extern's declaration.
-    public glue_type: Int
-    public decl: Int
+    glue_type: Int
+    decl: Int
     // The concrete MIR function, once instantiated, or -1.
-    public body: Int
+    body: Int
     // The item whose body first reached this one, or -1 for a root, and the
     // node there that reached it, or -1.
-    public origin: Int
-    public origin_node: Int
+    origin: Int
+    origin_node: Int
 }
 
 public struct MonoProgram {
-    public dp: DropsProgram
-    public items: Vector<MonoItem>
-    public item_types: Vector<Int>
+    dp: DropsProgram
+    items: Vector<MonoItem>
+    item_types: Vector<Int>
     // (source function, 0), (type, 1) for drop glue, (type, 2) for copy glue,
     // (C name, 3) for an extern -> the items with that key.
-    public by_key: ResIndex
+    by_key: ResIndex
     // By concrete call: the item it calls, or -1 for a builtin.
-    public call_items: Vector<Int>
+    call_items: Vector<Int>
     // By concrete rvalue: the item a closure construction's body is, or -1.
-    public closure_items: Vector<Int>
+    closure_items: Vector<Int>
     // The first function index that is a concrete copy.
-    public concrete_first: Int
+    concrete_first: Int
     // Refusals (`mono.not-yet`, `mono.depth`) and broken invariants.
-    public diags: Vector<MirDiag>
-    public problems: Vector<String>
+    diags: Vector<MirDiag>
+    problems: Vector<String>
     // By declaration: a static's evaluated value, `kind` -1 for none; 0 an
     // integer, 1 a Bool, 2 a payload-free case whose declaration is `bits`.
-    public static_kinds: Vector<Int>
-    public static_bits: Vector<Int>
+    static_kinds: Vector<Int>
+    static_bits: Vector<Int>
     // The roots: the entry's `main`, then the lang functions the backend's
     // own lowering calls; -1 when absent.
-    public main_item: Int
-    public panic_item: Int
-    public literal_item: Int
-    public bytes_item: Int
-    public length_item: Int
+    main_item: Int
+    panic_item: Int
+    literal_item: Int
+    bytes_item: Int
+    length_item: Int
     // The String comparison roles, made when a comparison of Strings is
     // reached; -1 until then.
-    public equals_item: Int
-    public compare_item: Int
+    equals_item: Int
+    compare_item: Int
     // Where the depth limit was first met: at a call, and at a drop or copy;
     // -1 for neither. The worklist's end refuses once, at the call when there
     // is one.
-    public depth_call: Int
-    public depth_glue: Int
+    depth_call: Int
+    depth_glue: Int
     // The item being resolved or emitted, or -1: a refusal inside std is
     // reported at the user's call that reached it.
-    public current: Int
+    current: Int
     // Whether an earlier stage refused the program, so nothing was made.
-    public blocked: Bool
+    blocked: Bool
     // By declaration: the elaborated MIR function of its body, or -1; and
     // (declaration, parameter) -> a default value's function.
-    public body_of: Vector<Int>
-    public defaults: ResIndex
+    body_of: Vector<Int>
+    defaults: ResIndex
 }
 
 extension MonoProgram: NoCopy {}

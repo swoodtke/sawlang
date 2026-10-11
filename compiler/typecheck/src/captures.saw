@@ -4,15 +4,15 @@
 // still there for the next call and for the environment's own teardown
 // (SL-469). A closure that does not escape keeps its transfer-when-run rule.
 
-import sawparse.src.grammar.{Alt}
-import sawresolve.src.collect.{res_is_top_level}
-import sawresolve.src.model.{ResBindKind}
-import sawtypecheck.src.bodies.{tc_check_bodies}
-import sawtypecheck.src.checks.{tc_check_unsafe}
-import sawtypecheck.src.model.{TcUse}
-import sawtypecheck.src.mutability.{tc_check_mutability}
-import sawtypecheck.src.program.{TcProgram}
-import sawtypecheck.src.typeops.{TcClient}
+import sawparse.grammar.{Alt}
+import sawresolve.collect.{res_is_top_level}
+import sawresolve.model.{ResBindKind}
+import sawtypecheck.bodies.{tc_check_bodies}
+import sawtypecheck.checks.{tc_check_unsafe}
+import sawtypecheck.model.{TcUse}
+import sawtypecheck.mutability.{tc_check_mutability}
+import sawtypecheck.program.{TcProgram}
+import sawtypecheck.typeops.{TcClient}
 
 // Refuses each consuming use of a by-value capture in a closure that
 // escapes, once every closure's captures are settled.

@@ -2,109 +2,109 @@
 // MIR's arenas, with the state the builder keeps while one function is
 // lowered. One value holds it all, so each phase is a set of methods on it.
 
-import sawmir.src.model.{MirAccessor, MirArm, MirBlock, MirCall, MirDiag, MirFunc, MirLocal, MirOperand,
+import sawmir.model.{MirAccessor, MirArm, MirBlock, MirCall, MirDiag, MirFunc, MirLocal, MirOperand,
                          MirPlace, MirProj, MirRvalue, MirStmt, MirWindow}
-import sawresolve.src.names.{ResIndex, res_index}
-import sawtypecheck.src.program.{TcProgram}
+import sawresolve.names.{ResIndex, res_index}
+import sawtypecheck.program.{TcProgram}
 
 // One entry of the builder's scope stack: an owned local a scope exit drops,
 // or a window it closes. A consumed receiver whose body moves fields out is
 // released field by field, the fields that stayed (`release_fields`).
 public struct MirScopeEntry {
-    public window: Bool
-    public index: Int
-    public fieldwise: Bool
+    window: Bool
+    index: Int
+    fieldwise: Bool
 }
 
 // A loop being lowered: where `continue` goes, where `break` goes, the scope
 // depth outside its body, and whether its backedge's budget point may yield.
 public struct MirLoop {
-    public head: Int
-    public exit: Int
-    public depth: Int
-    public yields: Bool
+    head: Int
+    exit: Int
+    depth: Int
+    yields: Bool
     // The loop's node, which its budget points carry.
-    public node: Int
+    node: Int
 }
 
 public struct MirProgram {
-    public tc: TcProgram
-    public funcs: Vector<MirFunc>
-    public locals: Vector<MirLocal>
-    public blocks: Vector<MirBlock>
-    public stmts: Vector<MirStmt>
-    public places: Vector<MirPlace>
-    public projs: Vector<MirProj>
-    public operands: Vector<MirOperand>
-    public rvalues: Vector<MirRvalue>
+    tc: TcProgram
+    funcs: Vector<MirFunc>
+    locals: Vector<MirLocal>
+    blocks: Vector<MirBlock>
+    stmts: Vector<MirStmt>
+    places: Vector<MirPlace>
+    projs: Vector<MirProj>
+    operands: Vector<MirOperand>
+    rvalues: Vector<MirRvalue>
     // Operand runs: an rvalue's operands, a call's arguments.
-    public lists: Vector<Int>
-    public arms: Vector<MirArm>
-    public calls: Vector<MirCall>
+    lists: Vector<Int>
+    arms: Vector<MirArm>
+    calls: Vector<MirCall>
     // Type runs: a call's instantiation.
-    public types: Vector<Int>
+    types: Vector<Int>
     // Condition runs: a conditional suspension point's conditions.
-    public conds: Vector<String>
-    public windows: Vector<MirWindow>
-    public diags: Vector<MirDiag>
+    conds: Vector<String>
+    windows: Vector<MirWindow>
+    diags: Vector<MirDiag>
     // What the lowering found typecheck left unrecorded, and in which module:
     // each an INVARIANT line, never a guess.
-    public problems: Vector<String>
-    public problem_modules: Vector<Int>
+    problems: Vector<String>
+    problem_modules: Vector<Int>
     // (body root, 0) -> the function lowering it; (closure node, 0) -> its
     // body's function.
-    public func_of: ResIndex
+    func_of: ResIndex
     // The function being lowered, its first local and block, and the block
     // code is emitted into, -1 once control cannot reach it.
-    public cur: Int
-    public local_base: Int
-    public block_base: Int
-    public current: Int
-    public scope: Vector<MirScopeEntry>
-    public scope_marks: Vector<Int>
-    public loops: Vector<MirLoop>
+    cur: Int
+    local_base: Int
+    block_base: Int
+    current: Int
+    scope: Vector<MirScopeEntry>
+    scope_marks: Vector<Int>
+    loops: Vector<MirLoop>
     // By leaf: the local a binding lowers to, or -1; the leaves set, so they
     // are cleared when the function is done.
-    public leaf_local: Vector<Int>
-    public touched: Vector<Int>
+    leaf_local: Vector<Int>
+    touched: Vector<Int>
     // A closure body's captures: by the binding's leaf, its index in the
     // environment, or -1.
-    public leaf_capture: Vector<Int>
+    leaf_capture: Vector<Int>
     // The closures met while a function is lowered, lowered after it.
-    public pending: Vector<Int>
-    public pending_parents: Vector<Int>
+    pending: Vector<Int>
+    pending_parents: Vector<Int>
     // How many closures each declaration's bodies hold so far.
-    public closure_counts: ResIndex
+    closure_counts: ResIndex
     // Windows a statement-form `borrow` opened, closed when its statement
     // ends or its value is copied out.
-    public statement_windows: Vector<Int>
+    statement_windows: Vector<Int>
     // Whether the function being lowered is refused.
-    public refused: Bool
+    refused: Bool
     // The owned parts a destructure's bindings have moved out so far, which
     // `dissolve` reads once they are bound.
-    public moved_parts: Vector<Int>
+    moved_parts: Vector<Int>
     // A `consumes` body's receiver release: the fields its body leaves in
     // `self`, in declaration order, with their types. A field moved on some
     // paths only is borrowck's to refuse (`init_consumes_partial`).
-    public release_fields: Vector<Int>
-    public release_types: Vector<Int>
+    release_fields: Vector<Int>
+    release_types: Vector<Int>
     // Runs a function's record locals and carried windows name.
-    public aux: Vector<Int>
+    aux: Vector<Int>
     // The accessors lowered as halves, and by declaration the one each
     // declaration's halves are, or -1.
-    public accessors: Vector<MirAccessor>
-    public accessor_of: Vector<Int>
+    accessors: Vector<MirAccessor>
+    accessor_of: Vector<Int>
     // The order of the body root being lowered, which its functions take.
-    public order_now: Int
+    order_now: Int
     // The source node the next statement or terminator carries, and whether
     // at its end (`source_at` in build.saw).
-    public at: Int
-    public at_closing: Bool
+    at: Int
+    at_closing: Bool
     // Whether the place being prepared is an assignment's target, whose
     // windows open after its right side; anywhere else a plan opens its
     // windows in receiver position, before the arguments that follow them
     // (`open_receiver_windows` in lower.saw).
-    public defer_windows: Bool
+    defer_windows: Bool
 }
 
 extension MirProgram: NoCopy {}

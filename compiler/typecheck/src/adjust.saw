@@ -5,13 +5,13 @@
 // caller for a position's expectation, and hands each conversion what its
 // position allows; a receiver's borrow is recorded where a call is resolved.
 
-import sawresolve.src.model.{ResDeclKind}
-import sawtypecheck.src.model.{TcAdjust, TcAdjustKind, TcAllowance}
-import sawtypecheck.src.program.{TcProgram}
-import sawtypecheck.src.signatures.{TcContext}
-import sawtypecheck.src.tier.{tc_tier}
-import sawtypecheck.src.typeops.{TcClient}
-import sawtypecheck.src.types.{TcKind, TcType}
+import sawresolve.model.{ResDeclKind}
+import sawtypecheck.model.{TcAdjust, TcAdjustKind, TcAllowance}
+import sawtypecheck.program.{TcProgram}
+import sawtypecheck.signatures.{TcContext}
+import sawtypecheck.tier.{tc_tier}
+import sawtypecheck.typeops.{TcClient}
+import sawtypecheck.types.{TcKind, TcType}
 
 // How a conversion fits: not at all, through an adjustment, or exactly.
 public static TC_FIT_NONE: Int = 0

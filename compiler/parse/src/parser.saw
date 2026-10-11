@@ -12,16 +12,16 @@
 // which skips to the next boundary at the same bracket depth and goes on, so
 // one run reports every independent error.
 
-import sawlex.src.lib.{DocComment, TokenKind, lex_segment}
-import sawparse.src.source.{source_file}
-import sawparse.src.diag.{Diagnostic}
-import sawparse.src.grammar.{ALT_COUNT, Alt, Rule, begins_expression, begins_extension_member,
+import sawlex.{DocComment, TokenKind, lex_segment}
+import sawparse.source.{source_file}
+import sawparse.diag.{Diagnostic}
+import sawparse.grammar.{ALT_COUNT, Alt, Rule, begins_expression, begins_extension_member,
                              begins_extern_func, begins_range_bound, begins_statement,
                              begins_statement_only, begins_top_level_item, begins_trait_member,
                              follows_cast_list, holds_capture, holds_closure_head, rule_named,
                              stops_list_scan}
-import sawparse.src.tokens.{InterpPiece, ParseToken, closes_bracket, opens_bracket, parser_tokens}
-import sawparse.src.tree.{BuilderCheckpoint, NodeShape, TreeBuilder, put_at, trim_to}
+import sawparse.tokens.{InterpPiece, ParseToken, closes_bracket, opens_bracket, parser_tokens}
+import sawparse.tree.{BuilderCheckpoint, NodeShape, TreeBuilder, put_at, trim_to}
 
 public static PARSE_MAX_DEPTH: Int = 256
 static PARSE_SPACE: Int = 32
@@ -422,32 +422,32 @@ func list_gap_message(shape: ListShape) -> String {
 // to. SPECULATION LEDGER below lists each field of `Parser` and why a restore
 // leaves it right.
 public struct Checkpoint {
-    public tree: BuilderCheckpoint
-    public tokens: Int
-    public pieces: Int
-    public pos: Int
-    public limit: Int
-    public prev_end: Int
-    public depth: Int
-    public taken: Int
-    public edits: Int
-    public lists: Int
-    public speculating: Int
-    public trailing_comma: Int
-    public rejected_list: Int
-    public head: HeadState
-    public head_at: Int
-    public head_until: TokenKind
-    public primed: Bool
-    public spine: Int
-    public literal_arm: Int
-    public head_brace: Int
-    public head_start: Int
-    public head_follow: TokenKind
-    public shadow_brace: Int
-    public lifted_brace: Int
-    public dropped: Int
-    public catchless_try: Int
+    tree: BuilderCheckpoint
+    tokens: Int
+    pieces: Int
+    pos: Int
+    limit: Int
+    prev_end: Int
+    depth: Int
+    taken: Int
+    edits: Int
+    lists: Int
+    speculating: Int
+    trailing_comma: Int
+    rejected_list: Int
+    head: HeadState
+    head_at: Int
+    head_until: TokenKind
+    primed: Bool
+    spine: Int
+    literal_arm: Int
+    head_brace: Int
+    head_start: Int
+    head_follow: TokenKind
+    shadow_brace: Int
+    lifted_brace: Int
+    dropped: Int
+    catchless_try: Int
 }
 
 public struct Parser {
@@ -562,10 +562,10 @@ extension Parser: NoCopy {}
 // A declaration an interface parse dropped: its span, and the run of
 // diagnostics that is the reason, first to last.
 public struct DroppedDeclaration {
-    public start: Int
-    public end: Int
-    public first: Int
-    public count: Int
+    start: Int
+    end: Int
+    first: Int
+    count: Int
 }
 
 public func new_parser(builder: TreeBuilder, tokens: Vector<ParseToken>,

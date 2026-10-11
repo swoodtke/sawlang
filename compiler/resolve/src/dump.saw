@@ -3,15 +3,15 @@
 // surface and import tables and its visible extension set. Every list is in a
 // defined order, so the dump is byte-stable.
 
-import sawparse.src.grammar.{Alt}
-import sawresolve.src.collect.{res_is_top_level}
-import sawresolve.src.imports.{res_vis_text}
-import sawresolve.src.kinds.{res_is_type_alt}
-import sawresolve.src.lang.{ResLang}
-import sawresolve.src.model.{ResBindKind, ResBinding, ResCall, ResCallClass, ResDecl,
+import sawparse.grammar.{Alt}
+import sawresolve.collect.{res_is_top_level}
+import sawresolve.imports.{res_vis_text}
+import sawresolve.kinds.{res_is_type_alt}
+import sawresolve.lang.{ResLang}
+import sawresolve.model.{ResBindKind, ResBinding, ResCall, ResCallClass, ResDecl,
                              ResDeclKind, ResExport, ResImport, ResImportForm, ResModule,
                              ResName, ResSymbol, ResVis}
-import sawresolve.src.program.{ResProgram}
+import sawresolve.program.{ResProgram}
 
 public func res_call_class_text(c: ResCallClass) -> String {
     match c {

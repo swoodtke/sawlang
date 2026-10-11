@@ -1,0 +1,8 @@
+// A field that writes its struct's own tier, `public` on a `public struct`.
+public struct Account {
+    public id: Int // refuses: redundant-visibility
+    owner: Int
+    private balance: Int
+}
+
+public struct Ledger { public total: Int, count: Int } // refuses: redundant-visibility

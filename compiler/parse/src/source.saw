@@ -9,15 +9,15 @@ static UTF8_CONTINUATION_HIGH: Int = 191
 // A line:column position. The column counts Unicode scalars from 1, as the
 // lexer does, so a diagnostic points where the lexer's own positions point.
 public struct Position {
-    public line: Int
-    public col: Int
+    line: Int
+    col: Int
 }
 
 public struct SourceFile {
     // The file's identity as the driver was given it; rendering a diagnostic
     // is the only place it is shown.
-    public path: String
-    public text: String
+    path: String
+    text: String
     // The byte offset at which each 1-based line starts.
     private line_starts: Vector<Int>
 }

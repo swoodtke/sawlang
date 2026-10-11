@@ -4,21 +4,21 @@
 // parameter; a solution is a table beside the call, and a type mentioning an
 // unsolved parameter is never recorded.
 
-import sawtypecheck.src.adjust.{TC_FIT_NONE}
-import sawtypecheck.src.conform.{TcSubst, tc_args_subst, tc_copy_ints}
-import sawtypecheck.src.program.{TcProgram}
-import sawtypecheck.src.signatures.{TcContext}
-import sawtypecheck.src.typeops.{TcClient}
-import sawtypecheck.src.types.{TcKind, TcType}
+import sawtypecheck.adjust.{TC_FIT_NONE}
+import sawtypecheck.conform.{TcSubst, tc_args_subst, tc_copy_ints}
+import sawtypecheck.program.{TcProgram}
+import sawtypecheck.signatures.{TcContext}
+import sawtypecheck.typeops.{TcClient}
+import sawtypecheck.types.{TcKind, TcType}
 
 // The solutions for the type parameters of `owner`: -1 where unsolved. The
 // first conflict found is kept for its message.
 public struct TcSolve {
-    public owner: Int
-    public sol: Vector<Int>
-    public conflict_index: Int
-    public conflict_a: Int
-    public conflict_b: Int
+    owner: Int
+    sol: Vector<Int>
+    conflict_index: Int
+    conflict_a: Int
+    conflict_b: Int
 }
 
 extension TcSolve: NoCopy {}

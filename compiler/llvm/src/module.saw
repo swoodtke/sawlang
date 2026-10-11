@@ -5,19 +5,19 @@
 // how a type is laid out) is already in the concrete MIR, in mono's side
 // tables, or in the target.
 
-import sawllvm.src.text.{ll_c_string, ll_quoted}
-import sawmir.src.model.{MirDiag}
-import sawmono.src.dump.{mono_dump_layouts}
-import sawmono.src.program.{MonoItem, MonoItemKind, MonoProgram}
-import sawtarget.src.layout.{Target, TargetKind, TargetLayout}
+import sawllvm.text.{ll_c_string, ll_quoted}
+import sawmir.model.{MirDiag}
+import sawmono.dump.{mono_dump_layouts}
+import sawmono.program.{MonoItem, MonoItemKind, MonoProgram}
+import sawtarget.layout.{Target, TargetKind, TargetLayout}
 
 // The output being assembled, and the state of the function being written.
 public struct LlEmitter {
     // Constants and statics, extern and intrinsic declarations, and function
     // definitions, each in first-use or item order.
-    public globals: StringBuilder
-    public decls: StringBuilder
-    public defs: StringBuilder
+    globals: StringBuilder
+    decls: StringBuilder
+    defs: StringBuilder
     declared: Vector<String>
     // The byte constants made so far, by their `c"..."` text, and whether
     // each is a String literal block.

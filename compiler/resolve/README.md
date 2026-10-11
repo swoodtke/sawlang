@@ -30,7 +30,7 @@ resolve/
 ## Modules
 
 `sawc2 resolve` takes each file it is given as the entry of its own program.
-A module's identity is its import path: `std.vector`, `sawparse.src.api`, or,
+A module's identity is its import path: `std.vector`, `sawparse.api`, or,
 beside the entry file, the path as written (`shapes`, `util.io`); the entry
 file's is its name without `.saw`. The synthetic `builtin` module holds what
 nothing declares and `builtin.saw`'s declarations (SL:open-questions D12).

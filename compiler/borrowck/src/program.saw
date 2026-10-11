@@ -2,8 +2,8 @@
 // check makes, and the drop labels it exports for drop elaboration
 // (SL:architecture §3.7).
 
-import sawmir.src.model.{MirDiag}
-import sawmir.src.program.{MirProgram}
+import sawmir.model.{MirDiag}
+import sawmir.program.{MirProgram}
 
 // A drop's label in the side table: none for a statement that is no drop,
 // or a drop no path reaches.
@@ -13,13 +13,13 @@ public static BORROWCK_LABEL_ELIDED: Int = 1
 public static BORROWCK_LABEL_FLAGGED: Int = 2
 
 public struct BorrowckProgram {
-    public mir: MirProgram
-    public diags: Vector<MirDiag>
+    mir: MirProgram
+    diags: Vector<MirDiag>
     // By statement, in the MIR's statement arena: each reached drop's label.
-    public labels: Vector<Int>
+    labels: Vector<Int>
     // By source node, its parent node, or -1; built when a rule first needs
     // it (`node_parents` in conflicts.saw).
-    public parents: Vector<Int>
+    parents: Vector<Int>
 }
 
 extension BorrowckProgram: NoCopy {}

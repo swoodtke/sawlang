@@ -5,11 +5,11 @@
 // for every such node, so a missed one is an invariant rather than a silent
 // fallback. compiler/typecheck/README.md holds the matrix.
 
-import sawparse.src.grammar.{Alt}
-import sawparse.src.tree.{NodeShape}
-import sawresolve.src.dump.{res_sort_strings}
-import sawresolve.src.lang.{ResLang, res_lang_row}
-import sawtypecheck.src.program.{TcProgram}
+import sawparse.grammar.{Alt}
+import sawparse.tree.{NodeShape}
+import sawresolve.dump.{res_sort_strings}
+import sawresolve.lang.{ResLang, res_lang_row}
+import sawtypecheck.program.{TcProgram}
 
 // A position, and through it the lang item it lowers through.
 public enum TcStringPosition {

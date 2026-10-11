@@ -20,20 +20,21 @@ BUILD_DIR = os.path.join(REPO, ".build")
 SAWC2 = os.path.join(BUILD_DIR, "sawc2")
 DRIVER_ENTRY = os.path.join(REPO, "compiler", "driver", "src", "main.saw")
 
-# (package name, directory relative to the repo root). Each stage is a package
-# the others import as `<name>.src.<module>`.
+# (package name, source directory relative to the repo root). The directory is
+# the package's module root, as `--module-path NAME=DIR` defines it: the others
+# import a stage as `<name>.<module>`, and `<name>` alone is its `lib.saw`.
 STAGE_PACKAGES = (
-    ("sawlex", "compiler/lex"),
-    ("sawparse", "compiler/parse"),
-    ("sawresolve", "compiler/resolve"),
-    ("sawtypecheck", "compiler/typecheck"),
-    ("sawmir", "compiler/mir"),
-    ("saweval", "compiler/eval"),
-    ("sawborrowck", "compiler/borrowck"),
-    ("sawdrops", "compiler/drops"),
-    ("sawtarget", "compiler/target"),
-    ("sawmono", "compiler/mono"),
-    ("sawllvm", "compiler/llvm"),
+    ("sawlex", "compiler/lex/src"),
+    ("sawparse", "compiler/parse/src"),
+    ("sawresolve", "compiler/resolve/src"),
+    ("sawtypecheck", "compiler/typecheck/src"),
+    ("sawmir", "compiler/mir/src"),
+    ("saweval", "compiler/eval/src"),
+    ("sawborrowck", "compiler/borrowck/src"),
+    ("sawdrops", "compiler/drops/src"),
+    ("sawtarget", "compiler/target/src"),
+    ("sawmono", "compiler/mono/src"),
+    ("sawllvm", "compiler/llvm/src"),
 )
 
 

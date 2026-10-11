@@ -13,20 +13,20 @@
 //   - every type written in a body was built exactly once, and resolved.
 // Nothing under a construct refused as outside the slice is asked about.
 
-import sawparse.src.grammar.{Alt}
-import sawresolve.src.collect.{res_is_top_level}
-import sawresolve.src.kinds.{res_is_type_alt}
-import sawresolve.src.model.{ResBindKind, ResBinding, ResCall, ResCallClass, ResDecl, ResDeclKind,
+import sawparse.grammar.{Alt}
+import sawresolve.collect.{res_is_top_level}
+import sawresolve.kinds.{res_is_type_alt}
+import sawresolve.model.{ResBindKind, ResBinding, ResCall, ResCallClass, ResDecl, ResDeclKind,
                              ResModule}
-import sawtypecheck.src.adjust.{TC_FIT_NONE}
-import sawtypecheck.src.bodies.{tc_closure_mentions}
-import sawtypecheck.src.conform.{tc_extension_sets}
-import sawtypecheck.src.model.{TC_BIND_DEFAULT, TcAdjust, TcAdjustKind, TcCall, TcRole, TcUse}
-import sawtypecheck.src.program.{TcProgram}
-import sawtypecheck.src.signatures.{TcContext}
-import sawtypecheck.src.strings.{TcStringPosition}
-import sawtypecheck.src.typeops.{TcClient}
-import sawtypecheck.src.types.{TcKind, TcType}
+import sawtypecheck.adjust.{TC_FIT_NONE}
+import sawtypecheck.bodies.{tc_closure_mentions}
+import sawtypecheck.conform.{tc_extension_sets}
+import sawtypecheck.model.{TC_BIND_DEFAULT, TcAdjust, TcAdjustKind, TcCall, TcRole, TcUse}
+import sawtypecheck.program.{TcProgram}
+import sawtypecheck.signatures.{TcContext}
+import sawtypecheck.strings.{TcStringPosition}
+import sawtypecheck.typeops.{TcClient}
+import sawtypecheck.types.{TcKind, TcType}
 
 // Every problem the body verifier finds in module `m`, one line each.
 public func tc_verify_bodies(p: &TcProgram, m: Int) -> Vector<String> {

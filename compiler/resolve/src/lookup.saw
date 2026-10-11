@@ -13,12 +13,12 @@
 //     walk_capture
 //     walk_catch_block
 
-import sawparse.src.grammar.{Alt}
-import sawresolve.src.imports.{res_decl_binding, res_same_binding, res_vis_text}
-import sawresolve.src.model.{ResBindKind, ResBinding, ResDecl, ResDeclKind, ResImport,
+import sawparse.grammar.{Alt}
+import sawresolve.imports.{res_decl_binding, res_same_binding, res_vis_text}
+import sawresolve.model.{ResBindKind, ResBinding, ResDecl, ResDeclKind, ResImport,
                              ResImportForm, ResLocal, ResModuleKind, ResName, ResPending,
                              ResPendingKind, ResSymbol, res_unbound}
-import sawresolve.src.program.{ResProgram}
+import sawresolve.program.{ResProgram}
 
 // Adds `b` to `out` unless a binding denoting the same thing is there.
 func res_add_distinct(out: &var Vector<ResBinding>, b: ResBinding) {

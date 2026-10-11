@@ -34,18 +34,18 @@
 // exits 1, and so does a file a later stage refuses; a usage or I/O failure
 // prints a message and exits 2.
 
-import sawborrowck.src.api.{BorrowckOptions, borrowck_record}
-import sawdrops.src.api.{DropsOptions, drops_record}
-import saweval.src.api.{EvalOptions, eval_record}
-import sawlex.src.lib.{LexResult, format_doc, format_error, format_token, kind_name, lex, token_kinds}
-import sawllvm.src.api.{BuildOptions, llvm_build}
-import sawmir.src.api.{MirOptions, mir_record}
-import sawmono.src.api.{MonoOptions, mono_record}
-import sawparse.src.api.{ParseOptions, parse_record}
-import sawparse.src.reader.{redump}
-import sawresolve.src.api.{ResolveOptions, resolve_record}
-import sawtarget.src.layout.{target_known}
-import sawtypecheck.src.api.{TypecheckOptions, typecheck_record}
+import sawborrowck.api.{BorrowckOptions, borrowck_record}
+import sawdrops.api.{DropsOptions, drops_record}
+import saweval.api.{EvalOptions, eval_record}
+import sawlex.{LexResult, format_doc, format_error, format_token, kind_name, lex, token_kinds}
+import sawllvm.api.{BuildOptions, llvm_build}
+import sawmir.api.{MirOptions, mir_record}
+import sawmono.api.{MonoOptions, mono_record}
+import sawparse.api.{ParseOptions, parse_record}
+import sawparse.reader.{redump}
+import sawresolve.api.{ResolveOptions, resolve_record}
+import sawtarget.layout.{target_known}
+import sawtypecheck.api.{TypecheckOptions, typecheck_record}
 import std.env.{Env}
 import std.file.{File}
 import std.path.{Path}

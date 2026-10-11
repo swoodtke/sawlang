@@ -8,13 +8,13 @@
 // as an `Int32` tag before its cases' payloads overlaid, and a function value
 // as a code pointer beside an environment pointer.
 
-import sawresolve.src.model.{ResDeclKind}
-import sawresolve.src.program.{ResProgram}
-import sawtypecheck.src.conform.{tc_args_subst}
-import sawtypecheck.src.program.{TcProgram}
-import sawtypecheck.src.spell.{tc_effects_text}
-import sawtypecheck.src.typeops.{TcClient}
-import sawtypecheck.src.types.{TcKind}
+import sawresolve.model.{ResDeclKind}
+import sawresolve.program.{ResProgram}
+import sawtypecheck.conform.{tc_args_subst}
+import sawtypecheck.program.{TcProgram}
+import sawtypecheck.spell.{tc_effects_text}
+import sawtypecheck.typeops.{TcClient}
+import sawtypecheck.types.{TcKind}
 
 // What a value of a type is to a backend: nothing, an integer of `bits`, a
 // 64-bit float, a pointer, bytes in memory, or a type this target cannot lay
@@ -41,31 +41,31 @@ public enum TargetShape {
 }
 
 public struct TargetLayout {
-    public size: Int
-    public align: Int
-    public kind: TargetKind
-    public bits: Int
-    public shape: TargetShape
+    size: Int
+    align: Int
+    kind: TargetKind
+    bits: Int
+    shape: TargetShape
     // An enum's tag width in bytes, at offset 0.
-    public tag_bytes: Int
+    tag_bytes: Int
     // A record's member offsets, a run of `offsets`; an enum's or an
     // Optional's cases, a run of `cases`.
-    public first: Int
-    public count: Int
+    first: Int
+    count: Int
     // An array's element type and length.
-    public element: Int
-    public length: Int
+    element: Int
+    length: Int
     // Why the type is unsupported, a run of `reasons`, or -1.
-    public reason: Int
+    reason: Int
 }
 
 // One case of an enum: its declaration, the tag value a switch compares, and
 // its payload's offsets, a run of `offsets`.
 public struct TargetCase {
-    public decl: Int
-    public tag: Int
-    public first: Int
-    public count: Int
+    decl: Int
+    tag: Int
+    first: Int
+    count: Int
 }
 
 // How a value crosses the C calling convention of an `extern` call.
@@ -81,8 +81,8 @@ public enum TargetCClass {
 }
 
 public struct Target {
-    public triple: String
-    public word: Int
+    triple: String
+    word: Int
     layouts: Vector<TargetLayout>
     // By type id: 0 not laid out, 1 being laid out, 2 done.
     states: Vector<Int>

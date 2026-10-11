@@ -1,13 +1,13 @@
 // Rollback: a restore returns the parser to its checkpoint exactly, whatever
 // was parsed since, and a parse after it is the parse a fresh parser makes.
-import sawlex.src.lib.{lex}
-import sawparse.src.api.{parse_source}
-import sawparse.src.grammar.{Alt}
-import sawparse.src.parser.{Checkpoint, Parser, new_parser}
-import sawparse.src.render.{render_tree}
-import sawparse.src.source.{source_file}
-import sawparse.src.tokens.{InterpPiece, ParseToken, parser_tokens}
-import sawparse.src.tree.{tree_builder, tree_problem}
+import sawlex.{lex}
+import sawparse.api.{parse_source}
+import sawparse.grammar.{Alt}
+import sawparse.parser.{Checkpoint, Parser, new_parser}
+import sawparse.render.{render_tree}
+import sawparse.source.{source_file}
+import sawparse.tokens.{InterpPiece, ParseToken, parser_tokens}
+import sawparse.tree.{tree_builder, tree_problem}
 
 // A parser over `text` that has parsed nothing yet.
 func unparsed(text: String) -> Parser {

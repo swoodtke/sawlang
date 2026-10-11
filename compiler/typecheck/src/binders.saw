@@ -1,7 +1,7 @@
 // What a binding construct makes of the names it binds, the one table the
 // writability funnel and the hints that propose a write both read.
 
-import sawparse.src.grammar.{Alt}
+import sawparse.grammar.{Alt}
 
 public enum TcBinder {
     // Not a binding construct: the search goes on outward.

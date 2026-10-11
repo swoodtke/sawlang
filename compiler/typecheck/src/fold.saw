@@ -13,28 +13,28 @@
 // and a lane holds the two to agreement; lowering this fold to MIR on demand
 // is a later unit's.
 
-import sawparse.src.grammar.{Alt}
-import sawresolve.src.collect.{res_is_top_level}
-import sawresolve.src.kinds.{res_is_type_alt}
-import sawresolve.src.model.{ResBindKind, ResBinding, ResDecl, ResDeclKind}
-import sawtypecheck.src.arith.{TcFault, TcValue, tc_arith_binary, tc_arith_compare, tc_arith_convert, tc_arith_literal,
+import sawparse.grammar.{Alt}
+import sawresolve.collect.{res_is_top_level}
+import sawresolve.kinds.{res_is_type_alt}
+import sawresolve.model.{ResBindKind, ResBinding, ResDecl, ResDeclKind}
+import sawtypecheck.arith.{TcFault, TcValue, tc_arith_binary, tc_arith_compare, tc_arith_convert, tc_arith_literal,
                                tc_arith_max, tc_arith_min, tc_arith_negative_literal, tc_arith_normalize, tc_arith_shift,
                                tc_arith_text, tc_arith_unary}
-import sawtypecheck.src.signatures.{TcContext}
-import sawtypecheck.src.model.{TC_FLAG_UNSAFE_VAR, TcAdjust, TcAdjustKind, TcCall, TcRole}
-import sawtypecheck.src.program.{TcProgram}
-import sawtypecheck.src.typeops.{TcClient}
+import sawtypecheck.signatures.{TcContext}
+import sawtypecheck.model.{TC_FLAG_UNSAFE_VAR, TcAdjust, TcAdjustKind, TcCall, TcRole}
+import sawtypecheck.program.{TcProgram}
+import sawtypecheck.typeops.{TcClient}
 
 // A folded value: an integer's bits at type `ty`, or a `Bool` as 1 or 0; or
 // the fault that stopped the fold, at node `at`, with `bits` the value a
 // conversion could not hold and `ty` the type it was converted from, or the
 // type an operation faulted in.
 public struct TcFold {
-    public ok: Bool
-    public bits: Int
-    public ty: Int
-    public fault: TcFault
-    public at: Int
+    ok: Bool
+    bits: Int
+    ty: Int
+    fault: TcFault
+    at: Int
 }
 
 public func tc_folded(bits: Int, ty: Int) -> TcFold {

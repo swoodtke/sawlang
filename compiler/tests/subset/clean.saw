@@ -2,7 +2,7 @@
 // recommends, next to the shapes nearest its refusals.
 import std.file.{File}
 import std.path.{Path}
-import sawlex.src.lib.{lex, LexResult}
+import sawlex.{lex, LexResult}
 
 struct CleanNode { kind: Int, first_child: Int, next: Int }
 

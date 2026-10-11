@@ -18,16 +18,16 @@
 //   - no flag tracks a `consumes` body's receiver or a field of it;
 //   - a prologue's `lend` writes every flag field of its record.
 
-import sawdrops.src.elaborate.{drops_rules}
-import sawdrops.src.program.{DROPS_KEEP, DROPS_NOT_A_DROP, DROPS_PLAIN, DROPS_SET, DropsProgram,
+import sawdrops.elaborate.{drops_rules}
+import sawdrops.program.{DROPS_KEEP, DROPS_NOT_A_DROP, DROPS_PLAIN, DROPS_SET, DropsProgram,
                              drops_flag_effect, drops_within}
-import sawmir.src.build.{mir_func_local}
-import sawmir.src.dump.{mir_module_functions}
-import sawmir.src.initialisation.{MIR_INIT_DROPPED, MIR_INIT_PARTIAL, MIR_INIT_WHOLE, MirAccess, MirAccessKind,
+import sawmir.build.{mir_func_local}
+import sawmir.dump.{mir_module_functions}
+import sawmir.initialisation.{MIR_INIT_DROPPED, MIR_INIT_PARTIAL, MIR_INIT_WHOLE, MirAccess, MirAccessKind,
                                   MirInit, mir_init_apply_all}
-import sawmir.src.model.{MirFuncKind, MirOperandKind, MirProjKind, MirRvalueKind, MirStmt, MirStmtKind,
+import sawmir.model.{MirFuncKind, MirOperandKind, MirProjKind, MirRvalueKind, MirStmt, MirStmtKind,
                          MirSwitchKind, MirTermKind}
-import sawmir.src.program.{MirProgram}
+import sawmir.program.{MirProgram}
 
 // Every problem the verifier finds in module `m`'s elaborated functions.
 public func drops_verify_module(p: &var DropsProgram, m: Int) -> Vector<String> {

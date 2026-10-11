@@ -139,8 +139,10 @@ and compile each of its modules whole. Its prelude module declares what Stage
 binds the compiler's vocabulary to it.
 
 Each stage has its own directory and is a package, with its source under
-`src/`. The others import it as `<package>.src.<module>`, through
-`--module-path`. `STAGE_PACKAGES` in `tools/build.py` is the one table of those
+`src/`, which is the package's module root: `--module-path` maps the package
+to that directory, so the others import a module of it as `<package>.<module>`,
+and the lexer, whose one file is `lib.saw`, as `sawlex`.
+`STAGE_PACKAGES` in `tools/build.py` is the one table of those
 packages, and every build goes through `build_program` there. The driver is
 named `sawc2` for now.
 
@@ -423,9 +425,12 @@ so it is compiled by itself, without the source rules.
 | `generic-extension-params` | an extension head naming a generic type, the build's or std's (`Optional` and `Result` included), without its type parameters, as `extension Gen { }`, `extension Gen: NoCopy {}`, `extension Vector { }` or `extension Result { }`; its message for `extension Optional { }` says Stage 0 cannot extend `Optional` at all | L18 |
 | `interpolation-content` | `//`, a brace or a quote inside an interpolation | C3 |
 | `workaround-marker` | a comment that reads as a Stage 0 workaround marker but is not in its one form, or names an S or L entry SL:hazards does not declare | SL:hazards |
+| `redundant-visibility` | a field marked with its struct's own tier, `public` in a `public struct` or `public(package)` in a `public(package) struct`; a field inherits that tier, so only a narrowing `private` is written | the spec |
 
-§4 is SL:architecture §4; the other codes are SL:hazards entries, and "leak
-tolerance" is its introduction's "Leaks are tolerated in Stage 1". A hazard that
+§4 is SL:architecture §4; "the spec" is LANGUAGE_SPEC.md's member visibility,
+which states a field's tier once, on its type; the other codes are SL:hazards
+entries, and "leak tolerance" is its introduction's "Leaks are tolerated in
+Stage 1". A hazard that
 only leaks has no rule: Stage 1 is replaced after it compiles the source, so a
 leak costs it memory, never output. That holds while no skipped drop has an
 effect, which is why the source declares no `deinit` and why

@@ -26,27 +26,27 @@
 //     epilogue's record load and a closure body's take of a take capture,
 //     each in its one shape.
 
-import sawmir.src.build.{mir_func_local}
-import sawmir.src.dump.{mir_dump_module, mir_module_functions}
-import sawmir.src.initialisation.{MIR_INIT_DROPPED, MIR_INIT_MOVED, MIR_INIT_PARTIAL, MIR_INIT_WHOLE, MirAccess, MirAccessKind,
+import sawmir.build.{mir_func_local}
+import sawmir.dump.{mir_dump_module, mir_module_functions}
+import sawmir.initialisation.{MIR_INIT_DROPPED, MIR_INIT_MOVED, MIR_INIT_PARTIAL, MIR_INIT_WHOLE, MirAccess, MirAccessKind,
                         MirInit}
-import sawmir.src.model.{MirAccessor, MirArm, MirBlock, MirCall, MirCallKind, MirFunc, MirFuncKind, MirLocal, MirLocalKind,
+import sawmir.model.{MirAccessor, MirArm, MirBlock, MirCall, MirCallKind, MirFunc, MirFuncKind, MirLocal, MirLocalKind,
                          MirOperand, MirOperandKind, MirPlace, MirProj, MirProjKind, MirRvalue, MirRvalueKind,
                          MirStmt, MirStmtKind, MirSuspend, MirSwitchKind, MirTermKind}
-import sawmir.src.program.{MirProgram}
-import sawmir.src.split.{MirHalf}
-import sawresolve.src.dump.{res_sort_strings}
-import sawresolve.src.model.{ResDeclKind}
-import sawresolve.src.program.{ResProgram}
-import sawtypecheck.src.bodydump.{tc_dump_bodies}
-import sawtypecheck.src.conform.{TcSubst, tc_args_subst}
-import sawtypecheck.src.model.{TC_EFFECT_BORROWS, TC_EFFECT_CONSUMES, TcLend, TcReceiver}
-import sawtypecheck.src.program.{TcProgram}
-import sawtypecheck.src.signatures.{TcContext}
-import sawtypecheck.src.spell.{tc_effects_text}
-import sawtypecheck.src.summaries.{TcAcc, tc_acc}
-import sawtypecheck.src.typeops.{TcClient}
-import sawtypecheck.src.types.{TcKind}
+import sawmir.program.{MirProgram}
+import sawmir.split.{MirHalf}
+import sawresolve.dump.{res_sort_strings}
+import sawresolve.model.{ResDeclKind}
+import sawresolve.program.{ResProgram}
+import sawtypecheck.bodydump.{tc_dump_bodies}
+import sawtypecheck.conform.{TcSubst, tc_args_subst}
+import sawtypecheck.model.{TC_EFFECT_BORROWS, TC_EFFECT_CONSUMES, TcLend, TcReceiver}
+import sawtypecheck.program.{TcProgram}
+import sawtypecheck.signatures.{TcContext}
+import sawtypecheck.spell.{tc_effects_text}
+import sawtypecheck.summaries.{TcAcc, tc_acc}
+import sawtypecheck.typeops.{TcClient}
+import sawtypecheck.types.{TcKind}
 
 // Every problem the verifier finds in the functions module `m`'s bodies
 // lowered to, one line each.

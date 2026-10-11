@@ -1,8 +1,8 @@
 // The arena's invariants: a tree the builder makes keeps them, and the checker
 // finds each way a tree can break them.
-import sawparse.src.grammar.{Alt}
-import sawparse.src.source.{source_file}
-import sawparse.src.tree.{AstTree, AstNode, NodeShape, TreeBuilder, tree_builder, tree_problem}
+import sawparse.grammar.{Alt}
+import sawparse.source.{source_file}
+import sawparse.tree.{AstTree, AstNode, NodeShape, TreeBuilder, tree_builder, tree_problem}
 
 func leaf(start: Int, end: Int) -> AstNode {
     AstNode(shape: NodeShape.Token, alt: None, start: start, end: end, first: 0, count: 0)

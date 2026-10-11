@@ -74,8 +74,8 @@ compiler records there, since the frozen compiler places a method call at its
 - the frozen overload symbol `StringBuilder_append$OL$String` names the
   overload by its first parameter's type, which is compared with the first
   parameter of sawc2's target;
-- the frozen module symbol `f$m$sawresolve_src_kinds` is compared with sawc2's
-  target module, `sawresolve.src.kinds`; the entry module is unnamed in the
+- the frozen module symbol `f$m$sawresolve_kinds` is compared with sawc2's
+  target module, `sawresolve.kinds`; the entry module is unnamed in the
   frozen symbol and named `main` by sawc2;
 - a construction's frozen type arguments, `Vector` with `Int,
   GlobalAllocator`, are compared with the arguments of the type sawc2

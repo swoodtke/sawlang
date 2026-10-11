@@ -3,19 +3,19 @@
 // completeness, signature agreement, and the rule that a declared derivation
 // is asked for with `@synthesize` (SL:architecture §3.4, "Traits").
 
-import sawparse.src.grammar.{Alt}
-import sawresolve.src.dump.{res_sort_strings}
-import sawresolve.src.model.{ResBindKind, ResConformance, ResDecl, ResDeclKind, ResModule,
+import sawparse.grammar.{Alt}
+import sawresolve.dump.{res_sort_strings}
+import sawresolve.model.{ResBindKind, ResConformance, ResDecl, ResDeclKind, ResModule,
                              ResModuleKind}
-import sawtypecheck.src.declarations.{tc_build_signatures}
-import sawtypecheck.src.model.{TC_EFFECT_BORROWS, TC_EFFECT_BORROWS_SYNC, TC_EFFECT_CONSUMES,
+import sawtypecheck.declarations.{tc_build_signatures}
+import sawtypecheck.model.{TC_EFFECT_BORROWS, TC_EFFECT_BORROWS_SYNC, TC_EFFECT_CONSUMES,
                                TC_EFFECT_UNSAFE, TC_FLAG_DEFAULT_BODY, TC_FLAG_STATIC,
                                TC_FLAG_SYNTHESIZE, TcConformance, TcParam, TcReceiver, TcSig,
                                TcStatus, TcStatusKind}
-import sawtypecheck.src.program.{TcProgram}
-import sawtypecheck.src.signatures.{TcContext}
-import sawtypecheck.src.spell.{tc_effects_text}
-import sawtypecheck.src.types.{TcKind, TcType}
+import sawtypecheck.program.{TcProgram}
+import sawtypecheck.signatures.{TcContext}
+import sawtypecheck.spell.{tc_effects_text}
+import sawtypecheck.types.{TcKind, TcType}
 
 // The conformance table's entries.
 public func tc_collect_conformances(p: &var TcProgram) {
@@ -38,13 +38,13 @@ public func tc_extension_sets(p: &TcProgram) -> Vector<Bool> {
 // requirement's to its implementation's), and a type's parameters to
 // arguments.
 public struct TcSubst {
-    public self_type: Int
-    public from_owner: Int
-    public to_owner: Int
-    public args_owner: Int
-    public args: Vector<Int>
-    public assoc_decls: Vector<Int>
-    public assoc_types: Vector<Int>
+    self_type: Int
+    from_owner: Int
+    to_owner: Int
+    args_owner: Int
+    args: Vector<Int>
+    assoc_decls: Vector<Int>
+    assoc_types: Vector<Int>
 }
 
 extension TcSubst: NoCopy {}

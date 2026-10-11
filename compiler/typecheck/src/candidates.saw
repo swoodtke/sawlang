@@ -4,16 +4,16 @@
 // bounds grant. Each list is in declaration order, so every diagnostic that
 // names candidates names them in one order.
 
-import sawresolve.src.imports.{res_decl_binding}
-import sawresolve.src.model.{ResBinding, ResBindKind, ResDecl, ResDeclKind}
-import sawtypecheck.src.conform.{TcSubst, tc_args_subst, tc_copy_ints}
-import sawtypecheck.src.members.{tc_build_members}
-import sawtypecheck.src.model.{TC_FLAG_STATIC, TcMember, TcSig, TcSource, TcUnmetBound}
-import sawtypecheck.src.program.{TcProgram}
-import sawtypecheck.src.signatures.{TcContext}
-import sawtypecheck.src.tier.{tc_tier}
-import sawtypecheck.src.typeops.{TcClient}
-import sawtypecheck.src.types.{TcKind, TcType}
+import sawresolve.imports.{res_decl_binding}
+import sawresolve.model.{ResBinding, ResBindKind, ResDecl, ResDeclKind}
+import sawtypecheck.conform.{TcSubst, tc_args_subst, tc_copy_ints}
+import sawtypecheck.members.{tc_build_members}
+import sawtypecheck.model.{TC_FLAG_STATIC, TcMember, TcSig, TcSource, TcUnmetBound}
+import sawtypecheck.program.{TcProgram}
+import sawtypecheck.signatures.{TcContext}
+import sawtypecheck.tier.{tc_tier}
+import sawtypecheck.typeops.{TcClient}
+import sawtypecheck.types.{TcKind, TcType}
 
 extension TcProgram {
     // Whether module `viewer` sees member `k` of the member tables, through

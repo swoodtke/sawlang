@@ -5,24 +5,24 @@
 // and rendered argument through the write seam, `panic` and `assert` render
 // their message into stack scratch for the panic sink (design 137).
 
-import sawborrowck.src.program.{BorrowckProgram}
-import sawdrops.src.program.{DropsProgram}
-import sawllvm.src.prims.{LL_MESSAGE_LIMIT}
-import sawllvm.src.module.{LlEmitter, ll_is_scalar, ll_symbol, ll_value_type}
-import sawllvm.src.ops.{ll_lossless}
-import sawllvm.src.places.{ll_local_slot}
-import sawllvm.src.text.{LlPieces, ll_format_pieces, ll_string_bytes}
-import sawmir.src.model.{MirBlock, MirCall, MirCallKind, MirConstKind, MirOperand, MirOperandKind, MirSwitchKind,
+import sawborrowck.program.{BorrowckProgram}
+import sawdrops.program.{DropsProgram}
+import sawllvm.prims.{LL_MESSAGE_LIMIT}
+import sawllvm.module.{LlEmitter, ll_is_scalar, ll_symbol, ll_value_type}
+import sawllvm.ops.{ll_lossless}
+import sawllvm.places.{ll_local_slot}
+import sawllvm.text.{LlPieces, ll_format_pieces, ll_string_bytes}
+import sawmir.model.{MirBlock, MirCall, MirCallKind, MirConstKind, MirOperand, MirOperandKind, MirSwitchKind,
                          MirTermKind}
-import sawmir.src.program.{MirProgram}
-import sawmono.src.program.{MONO_KEY_DROP, MonoItem, MonoItemKind, MonoProgram}
-import sawresolve.src.program.{ResProgram}
-import sawtarget.src.layout.{Target, TargetCClass, TargetCase, TargetKind, TargetLayout}
-import sawtypecheck.src.model.{TC_FLAG_VARIADIC}
-import sawtypecheck.src.program.{TcProgram}
-import sawtypecheck.src.spell.{tc_effects_text}
-import sawtypecheck.src.typeops.{TcClient}
-import sawtypecheck.src.types.{TcKind}
+import sawmir.program.{MirProgram}
+import sawmono.program.{MONO_KEY_DROP, MonoItem, MonoItemKind, MonoProgram}
+import sawresolve.program.{ResProgram}
+import sawtarget.layout.{Target, TargetCClass, TargetCase, TargetKind, TargetLayout}
+import sawtypecheck.model.{TC_FLAG_VARIADIC}
+import sawtypecheck.program.{TcProgram}
+import sawtypecheck.spell.{tc_effects_text}
+import sawtypecheck.typeops.{TcClient}
+import sawtypecheck.types.{TcKind}
 
 extension LlEmitter {
     public func terminator(&var self, mono: &var MonoProgram, target: &var Target, b: &MirBlock) {
@@ -715,9 +715,9 @@ static LL_PART_BOOL: Int = 3
 
 // A message's parts, in order.
 public struct LlParts {
-    public kinds: Vector<Int>
-    public firsts: Vector<String>
-    public seconds: Vector<String>
+    kinds: Vector<Int>
+    firsts: Vector<String>
+    seconds: Vector<String>
 }
 
 extension LlParts: NoCopy {}

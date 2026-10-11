@@ -10,26 +10,26 @@
 // whole at every `lend`, and a resume index when the body lends at more than
 // one place. It is the shape coroutine frames take (§3.9).
 
-import sawmir.src.build.{mir_func_local}
-import sawmir.src.initialisation.{MIR_INIT_PARTIAL, MIR_INIT_WHOLE, MirInit}
-import sawmir.src.model.{MirAccessor, MirAggregate, MirArm, MirBlock, MirCall, MirCallKind, MirConstKind,
+import sawmir.build.{mir_func_local}
+import sawmir.initialisation.{MIR_INIT_PARTIAL, MIR_INIT_WHOLE, MirInit}
+import sawmir.model.{MirAccessor, MirAggregate, MirArm, MirBlock, MirCall, MirCallKind, MirConstKind,
                          MirFunc, MirFuncKind, MirLocal, MirLocalKind, MirOperand, MirOperandKind, MirPlace,
                          MirProj, MirProjKind, MirRvalue, MirRvalueKind, MirStmt, MirStmtKind, MirSuspend,
                          MirSwitchKind, MirTermKind, MirWindow}
-import sawmir.src.program.{MirLoop, MirProgram, MirScopeEntry}
-import sawtypecheck.src.declarations.{tc_build_signatures}
-import sawtypecheck.src.model.{TcLend}
-import sawtypecheck.src.program.{TcProgram}
-import sawtypecheck.src.signatures.{TcContext}
-import sawtypecheck.src.typeops.{TcClient}
-import sawtypecheck.src.types.{TcKind}
+import sawmir.program.{MirLoop, MirProgram, MirScopeEntry}
+import sawtypecheck.declarations.{tc_build_signatures}
+import sawtypecheck.model.{TcLend}
+import sawtypecheck.program.{TcProgram}
+import sawtypecheck.signatures.{TcContext}
+import sawtypecheck.typeops.{TcClient}
+import sawtypecheck.types.{TcKind}
 
 // One half under construction: the source function's locals, blocks and
 // windows it keeps, each mapped to its own numbering, or -1.
 public struct MirHalf {
-    public local_map: Vector<Int>
-    public block_map: Vector<Int>
-    public window_map: Vector<Int>
+    local_map: Vector<Int>
+    block_map: Vector<Int>
+    window_map: Vector<Int>
 }
 
 extension MirHalf: NoCopy {}

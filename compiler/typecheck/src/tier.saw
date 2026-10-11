@@ -7,15 +7,15 @@
 // `satisfies` answers whether a type meets a bound, for every kind of type an
 // argument can be, primitives included (design 109).
 
-import sawresolve.src.dump.{res_sort_strings}
-import sawresolve.src.model.{ResDecl, ResDeclKind}
-import sawtypecheck.src.conform.{TcSubst, tc_args_subst}
-import sawtypecheck.src.model.{TC_TIER_COPY, TC_TIER_EXPLICIT, TC_TIER_NOCOPY, TcConformance,
+import sawresolve.dump.{res_sort_strings}
+import sawresolve.model.{ResDecl, ResDeclKind}
+import sawtypecheck.conform.{TcSubst, tc_args_subst}
+import sawtypecheck.model.{TC_TIER_COPY, TC_TIER_EXPLICIT, TC_TIER_NOCOPY, TcConformance,
                                TcGeneric, TcObligation, TcSig, TcTier}
-import sawtypecheck.src.program.{TcProgram}
-import sawtypecheck.src.signatures.{TcContext}
-import sawtypecheck.src.spell.{tc_effects_text}
-import sawtypecheck.src.types.{TcKind, TcType}
+import sawtypecheck.program.{TcProgram}
+import sawtypecheck.signatures.{TcContext}
+import sawtypecheck.spell.{tc_effects_text}
+import sawtypecheck.types.{TcKind, TcType}
 
 // Every nominal type's Copy tier.
 public func tc_compute_tiers(p: &var TcProgram) {

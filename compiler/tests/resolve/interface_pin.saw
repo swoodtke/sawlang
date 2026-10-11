@@ -10,10 +10,10 @@
 //       anything else.
 // Exits 1 when any file fails.
 
-import sawparse.src.api.{parse_interface, parse_source}
-import sawparse.src.diag.{diagnostic_id}
-import sawparse.src.tree.{AstTree, NodeShape, interface_difference, tree_problem}
-import sawresolve.src.loader.{res_read_file}
+import sawparse.api.{parse_interface, parse_source}
+import sawparse.diag.{diagnostic_id}
+import sawparse.tree.{AstTree, NodeShape, interface_difference, tree_problem}
+import sawresolve.loader.{res_read_file}
 import std.env.{Env}
 
 func pin_count(tree: &AstTree, shape: NodeShape) -> Int {

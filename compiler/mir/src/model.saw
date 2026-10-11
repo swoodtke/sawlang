@@ -22,18 +22,18 @@ public enum MirLocalKind {
 }
 
 public struct MirLocal {
-    public ty: Int
-    public kind: MirLocalKind
+    ty: Int
+    kind: MirLocalKind
     // The binding's name, interned in resolve's names, or -1.
-    public name: Int
+    name: Int
     // The leaf that declares it, or -1.
-    public node: Int
+    node: Int
     // Whether scope exits drop it: an owned local whose value no hand-off
     // consumes by construction (SL:architecture §3.5, "Scopes end in drops").
-    public owned: Bool
+    owned: Bool
     // A borrow binding, or a match binding that aliases its part: the local
     // holds a reference, and its name reads through it.
-    public reference: Bool
+    reference: Bool
 }
 
 public enum MirProjKind {
@@ -54,21 +54,21 @@ public enum MirProjKind {
 }
 
 public struct MirProj {
-    public kind: MirProjKind
-    public decl: Int
-    public index: Int
+    kind: MirProjKind
+    decl: Int
+    index: Int
     // The type of the place this step produces.
-    public ty: Int
+    ty: Int
 }
 
 // A root and a run of the program's projections. `local` is -1 for a place
 // rooted in module static `static_decl`.
 public struct MirPlace {
-    public local: Int
-    public static_decl: Int
-    public first: Int
-    public count: Int
-    public ty: Int
+    local: Int
+    static_decl: Int
+    first: Int
+    count: Int
+    ty: Int
 }
 
 public enum MirOperandKind {
@@ -99,13 +99,13 @@ public enum MirConstKind {
 }
 
 public struct MirOperand {
-    public kind: MirOperandKind
+    kind: MirOperandKind
     // The place a copy or a move reads, or -1.
-    public place: Int
-    public ty: Int
-    public const_kind: MirConstKind
+    place: Int
+    ty: Int
+    const_kind: MirConstKind
     // A constant's spelling, interned in the program's texts, or -1.
-    public text: Int
+    text: Int
 }
 
 public enum MirRvalueKind {
@@ -163,21 +163,21 @@ public enum MirAggregate {
 }
 
 public struct MirRvalue {
-    public kind: MirRvalueKind
-    public ty: Int
+    kind: MirRvalueKind
+    ty: Int
     // The operator's or conversion's spelling, interned in the texts; -1.
-    public op: Int
+    op: Int
     // A `Ref`'s mode.
-    public exclusive: Bool
+    exclusive: Bool
     // A `Ref`'s place, or -1.
-    public place: Int
+    place: Int
     // The operands: a run of the program's operand lists.
-    public first: Int
-    public count: Int
-    public aggregate: MirAggregate
-    public decl: Int
+    first: Int
+    count: Int
+    aggregate: MirAggregate
+    decl: Int
     // A `Take`'s flag place, or -1.
-    public flag: Int
+    flag: Int
 }
 
 public enum MirStmtKind {
@@ -190,18 +190,18 @@ public enum MirStmtKind {
 }
 
 public struct MirStmt {
-    public kind: MirStmtKind
-    public place: Int
-    public rvalue: Int
+    kind: MirStmtKind
+    place: Int
+    rvalue: Int
     // A budget point's class: yield-capable, or charge-only inside a
     // `borrows(sync)` window.
-    public yields: Bool
+    yields: Bool
     // The next statement of the same block, or -1.
-    public next: Int
+    next: Int
     // The source node it lowers, and whether it stands at that node's end,
     // a block's closing (compiler/tests/mir/README.md, "Source nodes").
-    public node: Int
-    public closing: Bool
+    node: Int
+    closing: Bool
 }
 
 public enum MirTermKind {
@@ -223,27 +223,27 @@ public enum MirSwitchKind {
 // One arm of a switch: a `Bool`'s value (1 or 0) or a case declaration, and
 // its target.
 public struct MirArm {
-    public value: Int
-    public target: Int
+    value: Int
+    target: Int
 }
 
 public struct MirBlock {
-    public first: Int
-    public last: Int
-    public term: MirTermKind
+    first: Int
+    last: Int
+    term: MirTermKind
     // A goto's target.
-    public target: Int
-    public switch_kind: MirSwitchKind
-    public operand: Int
-    public place: Int
-    public arm_first: Int
-    public arm_count: Int
+    target: Int
+    switch_kind: MirSwitchKind
+    operand: Int
+    place: Int
+    arm_first: Int
+    arm_count: Int
     // A switch's arm for every value no arm names, or -1.
-    public otherwise: Int
-    public call: Int
+    otherwise: Int
+    call: Int
     // The terminator's source node, and whether it stands at that node's end.
-    public term_node: Int
-    public term_closing: Bool
+    term_node: Int
+    term_closing: Bool
 }
 
 // What a call terminator calls.
@@ -275,57 +275,57 @@ public enum MirSuspend {
 }
 
 public struct MirCall {
-    public kind: MirCallKind
-    public target: Int
-    public param: Int
+    kind: MirCallKind
+    target: Int
+    param: Int
     // The type a member is instantiated at, or -1; a function value's type.
-    public owner: Int
+    owner: Int
     // The target's own type arguments: a run of the program's types list.
-    public inst_first: Int
-    public inst_count: Int
+    inst_first: Int
+    inst_count: Int
     // A builtin's spelling, interned in the texts; -1.
-    public spelling: Int
-    public callee: Int
-    public arg_first: Int
-    public arg_count: Int
+    spelling: Int
+    callee: Int
+    arg_first: Int
+    arg_count: Int
     // Where the result goes, or -1.
-    public dest: Int
+    dest: Int
     // The return edge (the present edge of a window), or -1 when the call
     // never returns.
-    public next: Int
+    next: Int
     // A conditional window's absent edge, or -1.
-    public absent: Int
+    absent: Int
     // The window a window call opens or closes, or -1.
-    public window: Int
-    public suspend: MirSuspend
+    window: Int
+    suspend: MirSuspend
     // A conditional point's conditions, canonical and sorted: a run of the
     // program's condition texts.
-    public cond_first: Int
-    public cond_count: Int
+    cond_first: Int
+    cond_count: Int
     // The source node the call lowers.
-    public node: Int
+    node: Int
     // A window call's half: the accessor's prologue for an open, its
     // epilogue for a close, a MIR function; -1 when this program lowers no
     // body for the accessor.
-    public half: Int
+    half: Int
 }
 
 // A window a body opens: the accessor, whether it lends exclusively, and
 // whether its borrow may not span a suspension (`borrows(sync)`).
 public struct MirWindow {
-    public accessor: Int
-    public exclusive: Bool
-    public sync: Bool
-    public conditional: Bool
+    accessor: Int
+    exclusive: Bool
+    sync: Bool
+    conditional: Bool
     // The call node the window lowers, whose summary answers whether each
     // half suspends.
-    public node: Int
+    node: Int
     // The local holding the accessor's state record for the window's
     // duration, or -1: none when the record is empty or the accessor's body
     // is not lowered here.
-    public record: Int
+    record: Int
     // Whether this program lowers the accessor's body, so its halves exist.
-    public lowered: Bool
+    lowered: Bool
 }
 
 // A `borrows` accessor lowered as two halves around its `lend`
@@ -336,15 +336,15 @@ public struct MirWindow {
 // flag for each one only maybe initialised there, and a resume index when the
 // body lends at more than one place.
 public struct MirAccessor {
-    public decl: Int
-    public prologue: Int
-    public epilogue: Int
+    decl: Int
+    prologue: Int
+    epilogue: Int
     // The record's type, or -1 when nothing lives across the `lend`.
-    public record: Int
-    public lend_sites: Int
+    record: Int
+    lend_sites: Int
     // Whether each half holds a call that may suspend.
-    public prologue_suspends: Bool
-    public epilogue_suspends: Bool
+    prologue_suspends: Bool
+    epilogue_suspends: Bool
 }
 
 // Which body a MIR function lowers.
@@ -372,49 +372,49 @@ public enum MirFuncKind {
 }
 
 public struct MirFunc {
-    public module: Int
-    public kind: MirFuncKind
+    module: Int
+    kind: MirFuncKind
     // The declaration the body belongs to, or -1 for an item.
-    public decl: Int
-    public root: Int
-    public param: Int
-    public parent: Int
+    decl: Int
+    root: Int
+    param: Int
+    parent: Int
     // A closure's ordinal among its declaration's closures.
-    public ordinal: Int
-    public local_first: Int
-    public local_count: Int
-    public block_first: Int
-    public block_count: Int
+    ordinal: Int
+    local_first: Int
+    local_count: Int
+    block_first: Int
+    block_count: Int
     // How many locals after `_0` are parameters (the receiver and a
     // closure's environment included).
-    public param_count: Int
-    public window_first: Int
-    public window_count: Int
+    param_count: Int
+    window_first: Int
+    window_count: Int
     // The type parameters conditions and instantiations are over: the
     // declaration whose generic list is in scope.
-    public owner: Int
+    owner: Int
     // Whether lowering refused a construct in it, or found a fact missing;
     // a refused function is neither dumped nor verified.
-    public refused: Bool
+    refused: Bool
     // Where its body root stands in typecheck's order, which the dump
     // follows; a closure and an accessor's halves share their function's.
-    public order: Int
+    order: Int
     // An accessor half's record locals and the windows open across its
     // `lend`, in its own numbering: runs of the program's `aux` list.
-    public record_first: Int
-    public record_count: Int
+    record_first: Int
+    record_count: Int
     // Parallel to the record locals: the record field holding each one's
     // drop flag, or -1 for a local definitely whole at every `lend`. Drop
     // elaboration writes those fields (SL:architecture §3.7).
-    public record_flags_first: Int
-    public carried_first: Int
-    public carried_count: Int
+    record_flags_first: Int
+    carried_first: Int
+    carried_count: Int
 }
 
 public struct MirDiag {
-    public module: Int
-    public start: Int
-    public end: Int
-    public id: String
-    public message: String
+    module: Int
+    start: Int
+    end: Int
+    id: String
+    message: String
 }

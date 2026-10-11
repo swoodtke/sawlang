@@ -21,19 +21,19 @@
 //     build_function
 //     build_extern
 
-import sawparse.src.grammar.{Alt, alt_name}
-import sawresolve.src.collect.{res_is_top_level}
-import sawresolve.src.kinds.{res_is_type_alt}
-import sawresolve.src.model.{ResBindKind, ResBinding, ResDecl, ResDeclKind, ResModule}
-import sawtypecheck.src.model.{TC_EFFECT_BORROWS, TC_EFFECT_BORROWS_SYNC, TC_EFFECT_CONSTEXPR,
+import sawparse.grammar.{Alt, alt_name}
+import sawresolve.collect.{res_is_top_level}
+import sawresolve.kinds.{res_is_type_alt}
+import sawresolve.model.{ResBindKind, ResBinding, ResDecl, ResDeclKind, ResModule}
+import sawtypecheck.model.{TC_EFFECT_BORROWS, TC_EFFECT_BORROWS_SYNC, TC_EFFECT_CONSTEXPR,
                                TC_EFFECT_CONSUMES, TC_EFFECT_ESCAPING, TC_EFFECT_SYNC,
                                TC_EFFECT_UNSAFE, TC_FLAG_ALIAS_BUILDING, TC_FLAG_BLOCKING,
                                TC_FLAG_BORROWS_STRUCT, TC_FLAG_DEFAULT_BODY, TC_FLAG_STATIC, TC_FLAG_SYNTHESIZE,
                                TC_FLAG_SYNTHESIZE_SHARED, TC_FLAG_UNSAFE_STRUCT, TC_FLAG_UNSAFE_VAR,
                                TC_FLAG_VARIADIC, TC_FLAG_WRITTEN_RETURN, TcGeneric, TcLend,
                                TcObligation, TcParam, TcReceiver, TcSig}
-import sawtypecheck.src.program.{TcProgram}
-import sawtypecheck.src.types.{TcKind, TcType}
+import sawtypecheck.program.{TcProgram}
+import sawtypecheck.types.{TcKind, TcType}
 
 // The generic parameters of every declaration, keyed by where each is declared.
 public func tc_index_generics(p: &var TcProgram) {
@@ -51,11 +51,11 @@ static TC_SIG_BUILT: Int = 4
 // Where a signature is being built: its module and declaration, the trait or
 // extension around it, and what `Self` is there.
 public struct TcContext {
-    public module: Int
-    public decl: Int
-    public trait_decl: Int
-    public ext: Int
-    public self_type: Int
+    module: Int
+    decl: Int
+    trait_decl: Int
+    ext: Int
+    self_type: Int
 }
 
 extension TcProgram {

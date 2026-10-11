@@ -2,7 +2,7 @@
 
 import std.box.{Box}
 import std.net.{TcpStream} // refuses: import-allowlist
-import sawparse.src.api.{parse_source} // refuses: import-allowlist
+import sawparse.api.{parse_source} // refuses: import-allowlist
 
 public func count_cells() -> Int {
     0

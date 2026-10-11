@@ -15,35 +15,35 @@
 // The walk recurses only into a node's children, so its depth is the tree's
 // height, which the parser's depth funnel bounds.
 
-import sawparse.src.grammar.{Alt, alt_name}
-import sawparse.src.tree.{AstNode, NodeShape}
-import sawresolve.src.collect.{res_is_top_level}
-import sawresolve.src.dump.{res_sort_strings}
-import sawresolve.src.imports.{res_decl_binding}
-import sawresolve.src.kinds.{res_is_statement_alt, res_is_type_alt}
-import sawresolve.src.model.{ResBindKind, ResBinding, ResCall, ResCallClass, ResDecl, ResDeclKind,
+import sawparse.grammar.{Alt, alt_name}
+import sawparse.tree.{AstNode, NodeShape}
+import sawresolve.collect.{res_is_top_level}
+import sawresolve.dump.{res_sort_strings}
+import sawresolve.imports.{res_decl_binding}
+import sawresolve.kinds.{res_is_statement_alt, res_is_type_alt}
+import sawresolve.model.{ResBindKind, ResBinding, ResCall, ResCallClass, ResDecl, ResDeclKind,
                              ResModule, ResModuleKind}
-import sawtypecheck.src.adjust.{TC_FIT_AMBIGUOUS, TC_FIT_CONVERTED, TC_FIT_EXACT, TC_FIT_NONE,
+import sawtypecheck.adjust.{TC_FIT_AMBIGUOUS, TC_FIT_CONVERTED, TC_FIT_EXACT, TC_FIT_NONE,
                                 TC_PEEL_AMBIGUOUS, TC_PEEL_NONE}
-import sawtypecheck.src.candidates.{tc_contains}
-import sawtypecheck.src.checks.{tc_check_unsafe}
-import sawtypecheck.src.conform.{TcSubst, tc_args_subst, tc_copy_ints, tc_extension_sets}
-import sawtypecheck.src.declarations.{tc_build_signatures}
-import sawtypecheck.src.arith.{TcFault, tc_arith_literal}
-import sawtypecheck.src.binders.{TcBinder, tc_binder_of, tc_binder_text}
-import sawtypecheck.src.fold.{TcFold}
-import sawtypecheck.src.infer.{TcSolve, tc_solve}
-import sawtypecheck.src.members.{tc_build_members}
-import sawtypecheck.src.model.{TC_ANY_DEPTH, TC_BIND_DEFAULT, TC_EFFECT_BORROWS, TC_EFFECT_CONSUMES, TC_EFFECT_ESCAPING, TC_FLAG_STATIC, TC_FLAG_SYNTHESIZE_SHARED, TC_FLAG_UNSAFE_VAR, TC_FLAG_VARIADIC,
+import sawtypecheck.candidates.{tc_contains}
+import sawtypecheck.checks.{tc_check_unsafe}
+import sawtypecheck.conform.{TcSubst, tc_args_subst, tc_copy_ints, tc_extension_sets}
+import sawtypecheck.declarations.{tc_build_signatures}
+import sawtypecheck.arith.{TcFault, tc_arith_literal}
+import sawtypecheck.binders.{TcBinder, tc_binder_of, tc_binder_text}
+import sawtypecheck.fold.{TcFold}
+import sawtypecheck.infer.{TcSolve, tc_solve}
+import sawtypecheck.members.{tc_build_members}
+import sawtypecheck.model.{TC_ANY_DEPTH, TC_BIND_DEFAULT, TC_EFFECT_BORROWS, TC_EFFECT_CONSUMES, TC_EFFECT_ESCAPING, TC_FLAG_STATIC, TC_FLAG_SYNTHESIZE_SHARED, TC_FLAG_UNSAFE_VAR, TC_FLAG_VARIADIC,
                                TC_TIER_EXPLICIT, TC_TIER_NOCOPY, TcAdjust, TcAdjustKind, TcAllowance, TcCall, TcCapture, TcLend, TcMember, TcParam, TcReceiver,
                                TcRole, TcSig, TcSource, TcUse, tc_blank_sig}
-import sawtypecheck.src.program.{TcProgram}
-import sawtypecheck.src.signatures.{TcContext}
-import sawtypecheck.src.spell.{tc_effects_text}
-import sawtypecheck.src.strings.{TcStringPosition}
-import sawtypecheck.src.tier.{tc_tier}
-import sawtypecheck.src.typeops.{TcClient}
-import sawtypecheck.src.types.{TcKind, TcType}
+import sawtypecheck.program.{TcProgram}
+import sawtypecheck.signatures.{TcContext}
+import sawtypecheck.spell.{tc_effects_text}
+import sawtypecheck.strings.{TcStringPosition}
+import sawtypecheck.tier.{tc_tier}
+import sawtypecheck.typeops.{TcClient}
+import sawtypecheck.types.{TcKind, TcType}
 
 // Checks every body of every module checked in full.
 public func tc_check_bodies(p: &var TcProgram) {
@@ -5388,10 +5388,10 @@ public enum TcCandKind {
 // came from (-1 for none), and the type a member is instantiated at (-1 when
 // that is what inference solves, or for a free function).
 public struct TcCand {
-    public decl: Int
-    public kind: TcCandKind
-    public member: Int
-    public owner: Int
+    decl: Int
+    kind: TcCandKind
+    member: Int
+    owner: Int
 }
 
 // The root a hint's proposed write would land in: its node, or -1, whether a
@@ -5404,8 +5404,8 @@ struct TcHintRoot {
 
 // A call's arguments: each value expression, and its label's name, or -1.
 public struct TcArgs {
-    public values: Vector<Int>
-    public labels: Vector<Int>
+    values: Vector<Int>
+    labels: Vector<Int>
 }
 
 extension TcArgs: NoCopy {}
@@ -5413,9 +5413,9 @@ extension TcArgs: NoCopy {}
 // How a call's arguments bind to one candidate's parameters: the parameter
 // each argument binds, and why binding failed.
 public struct TcBind {
-    public arg_param: Vector<Int>
-    public status: Int
-    public detail: Int
+    arg_param: Vector<Int>
+    status: Int
+    detail: Int
 }
 
 extension TcBind: NoCopy {}

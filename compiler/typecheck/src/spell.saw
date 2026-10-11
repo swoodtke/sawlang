@@ -2,13 +2,13 @@
 // every nominal type by its identity (design 144). The dump and every
 // diagnostic that names a type spell it here.
 
-import sawresolve.src.dump.{res_sort_strings}
-import sawresolve.src.lang.{ResLang}
-import sawtypecheck.src.model.{TC_EFFECT_BORROWS, TC_EFFECT_BORROWS_SYNC, TC_EFFECT_CONSTEXPR,
+import sawresolve.dump.{res_sort_strings}
+import sawresolve.lang.{ResLang}
+import sawtypecheck.model.{TC_EFFECT_BORROWS, TC_EFFECT_BORROWS_SYNC, TC_EFFECT_CONSTEXPR,
                                TC_EFFECT_CONSUMES, TC_EFFECT_ESCAPING, TC_EFFECT_SYNC,
                                TC_EFFECT_UNSAFE}
-import sawtypecheck.src.program.{TcProgram}
-import sawtypecheck.src.types.{TcKind, TcType}
+import sawtypecheck.program.{TcProgram}
+import sawtypecheck.types.{TcKind, TcType}
 
 // The effect words of `effects`, in the slot's order, each after a space.
 public func tc_effects_text(effects: Int) -> String {

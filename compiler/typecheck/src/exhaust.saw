@@ -7,21 +7,21 @@
 // nothing. The check is the usefulness of a wildcard row against the arms'
 // pattern matrix, which also builds a witness for each missing value.
 
-import sawparse.src.grammar.{Alt}
-import sawresolve.src.collect.{res_is_top_level}
-import sawresolve.src.dump.{res_sort_strings}
-import sawresolve.src.model.{ResBindKind, ResBinding, ResDecl, ResDeclKind}
-import sawtypecheck.src.adjust.{TC_FIT_EXACT}
-import sawtypecheck.src.bodies.{TcCand, TcCandKind}
-import sawtypecheck.src.candidates.{tc_contains}
-import sawtypecheck.src.conform.{TcSubst, tc_args_subst}
-import sawtypecheck.src.program.{TcProgram}
-import sawtypecheck.src.signatures.{TcContext}
-import sawtypecheck.src.spell.{tc_effects_text}
-import sawtypecheck.src.summaries.{tc_acc}
-import sawtypecheck.src.tier.{tc_bit}
-import sawtypecheck.src.typeops.{TcClient}
-import sawtypecheck.src.types.{TcKind, TcType}
+import sawparse.grammar.{Alt}
+import sawresolve.collect.{res_is_top_level}
+import sawresolve.dump.{res_sort_strings}
+import sawresolve.model.{ResBindKind, ResBinding, ResDecl, ResDeclKind}
+import sawtypecheck.adjust.{TC_FIT_EXACT}
+import sawtypecheck.bodies.{TcCand, TcCandKind}
+import sawtypecheck.candidates.{tc_contains}
+import sawtypecheck.conform.{TcSubst, tc_args_subst}
+import sawtypecheck.program.{TcProgram}
+import sawtypecheck.signatures.{TcContext}
+import sawtypecheck.spell.{tc_effects_text}
+import sawtypecheck.summaries.{tc_acc}
+import sawtypecheck.tier.{tc_bit}
+import sawtypecheck.typeops.{TcClient}
+import sawtypecheck.types.{TcKind, TcType}
 
 // A pattern cell that matches anything: a wildcard, a binding, or the
 // wildcard a constructor's expansion fills in.
@@ -38,8 +38,8 @@ static TC_WITNESS_LIMIT: Int = 8
 // Whether a pattern matrix leaves a value unmatched, and one such value, a
 // pattern text per column.
 public struct TcWitness {
-    public missing: Bool
-    public parts: Vector<String>
+    missing: Bool
+    parts: Vector<String>
 }
 
 extension TcWitness: NoCopy {}

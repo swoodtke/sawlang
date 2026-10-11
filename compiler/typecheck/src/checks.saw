@@ -2,17 +2,17 @@
 // size, which is a cycle in the by-value containment graph (spec, Recursive
 // types), and the signature half of `unsafe` (designs 130 and 136).
 
-import sawresolve.src.dump.{res_sort_strings}
-import sawresolve.src.model.{ResDecl, ResDeclKind}
-import sawtypecheck.src.conform.{TcSubst, tc_args_subst}
-import sawtypecheck.src.declarations.{tc_build_signatures}
-import sawtypecheck.src.model.{TC_EFFECT_UNSAFE, TC_FLAG_UNSAFE_STRUCT, TC_FLAG_WRITTEN_RETURN, TcParam,
+import sawresolve.dump.{res_sort_strings}
+import sawresolve.model.{ResDecl, ResDeclKind}
+import sawtypecheck.conform.{TcSubst, tc_args_subst}
+import sawtypecheck.declarations.{tc_build_signatures}
+import sawtypecheck.model.{TC_EFFECT_UNSAFE, TC_FLAG_UNSAFE_STRUCT, TC_FLAG_WRITTEN_RETURN, TcParam,
                                TcReceiver, TcSig}
-import sawtypecheck.src.program.{TcProgram}
-import sawtypecheck.src.signatures.{TcContext}
-import sawtypecheck.src.spell.{tc_effects_text}
-import sawtypecheck.src.tier.{tc_tier}
-import sawtypecheck.src.types.{TcKind, TcType}
+import sawtypecheck.program.{TcProgram}
+import sawtypecheck.signatures.{TcContext}
+import sawtypecheck.spell.{tc_effects_text}
+import sawtypecheck.tier.{tc_tier}
+import sawtypecheck.types.{TcKind, TcType}
 
 // Finite struct size.
 public func tc_check_finite_size(p: &var TcProgram) {

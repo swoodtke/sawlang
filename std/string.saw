@@ -359,7 +359,7 @@ extension String: UnsafeSync {}
 /// `invalid UTF-8 at byte offset 6`.
 public struct Utf8Error {
     /// Byte index of the first malformed sequence.
-    public offset: Int
+    offset: Int
 }
 
 extension Utf8Error: Error {

@@ -3,14 +3,14 @@
 // there; a constant that reads a refused one is left with no value and no
 // refusal of its own.
 
-import sawmir.src.dump.{mir_operator_name}
-import sawmir.src.model.{MirDiag, MirFuncKind}
-import sawmir.src.program.{MirProgram}
-import saweval.src.program.{EvalEnd, EvalKind, EvalProgram, EvalValue, eval_missing}
-import sawtypecheck.src.arith.{TcFault, tc_arith_max, tc_arith_min, tc_arith_text}
-import sawtypecheck.src.program.{TcProgram}
-import sawtypecheck.src.spell.{tc_effects_text}
-import sawtypecheck.src.typeops.{TcClient}
+import sawmir.dump.{mir_operator_name}
+import sawmir.model.{MirDiag, MirFuncKind}
+import sawmir.program.{MirProgram}
+import saweval.program.{EvalEnd, EvalKind, EvalProgram, EvalValue, eval_missing}
+import sawtypecheck.arith.{TcFault, tc_arith_max, tc_arith_min, tc_arith_text}
+import sawtypecheck.program.{TcProgram}
+import sawtypecheck.spell.{tc_effects_text}
+import sawtypecheck.typeops.{TcClient}
 
 // Every rule the evaluator refuses by.
 public func eval_rules() -> Vector<String> {

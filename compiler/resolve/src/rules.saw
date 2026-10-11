@@ -2,8 +2,8 @@
 // type's module or its trait's (the orphan rule), and a type conforms to a
 // trait at most once in the program (design 142).
 
-import sawresolve.src.model.{ResBindKind, ResBinding, ResConformance, ResDecl, ResDeclKind}
-import sawresolve.src.program.{ResProgram}
+import sawresolve.model.{ResBindKind, ResBinding, ResConformance, ResDecl, ResDeclKind}
+import sawresolve.program.{ResProgram}
 
 extension ResProgram {
     public func check_conformances(&var self) {
