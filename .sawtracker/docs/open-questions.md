@@ -32,6 +32,7 @@ The spec already rules the surface:
 - `std/` gains `UnsafeMutableInterior<T>`, layout-transparent with `ptr(&self) unsafe`, and `Atomic<T>` as a struct over one.
 - `Atomic(<int>)` is a lang role (`atomic`) whose construction the one constant evaluator folds as an aggregate. It's the named form the spec lists, not a general relaxation of "an `init` is not a constant" (SL-493's ruling stands).
 - The backend emits a static holding an interior cell as a writable global, and never marks a receiver read-only when its pointee is a cell.
+- **Amended after the Air's review:** `Atomic<T>` states Stage 0's two declarations, `extension Atomic<T>: NoCopy {}` (design 202: a copy would be a second counter) and `extension Atomic<T>: UnsafeSync {}` (design 186: without it, `static HITS: Atomic<Int>` is refused as non-`Sync`). Its operations sit in `extension Atomic<Int>`, the v1 width, so another `T` is a refusal, not an `i64` intrinsic over a narrower cell. Pins: a copy refused, and the static accepted.
 
 ### D39. D23's atomic intrinsics grow to the orderings the `Atomic<Int>` section names (Oct 11; U7c M2 census)
 Stage 0's `Atomic` operations are sequentially consistent. **Decided:** add `__saw_atomic_*` intrinsics for a seq_cst load, store, compare-exchange and fetch-add, spelled in Stage 0's vocabulary, and nothing more. As D23's reversal clause says, this changes only `std/`'s internals and the builtin table.
