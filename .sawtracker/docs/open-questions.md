@@ -418,6 +418,26 @@ Correction: the lead first wrote "B", which is not a §12 code. The SL-426 agent
 
 ## Resolved
 
+### Bootstrap seed. A pinned sawc2 seed binary replaces Python Stage 0 as the bootstrap (Oct 11; the USER's ruling, option b)
+With U7b (SL-533) merged, sawc2 builds itself and the Stage 1 = Stage 2 fixpoint holds. What builds sawc2 on a fresh checkout?
+- (a) Python Stage 0 forever, which keeps every Stage 0 workaround and the subset restrictions on `compiler/`;
+- **(b) a pinned seed binary** (Rust's stage0 model): each sawlang release publishes a sawc2 binary per host, and a checkout fetches the pinned one through `tools/toolchain.py`'s resolver;
+- (c) both.
+
+**Ruled: (b).** Stage 0 retires once the seed is proven. `compiler/` is then free of the subset, and SL-425 reverts every `// Stage 0 workaround (SL:hazards …)` marker to its canonical spelling. The lead's plan: keep `sawc/` in the repository, frozen, until the first seed release has bootstrapped a clean checkout end to end, then retire it. Its order:
+1. SL-522 (a self-contained sawc2);
+2. the seed release mechanism;
+3. switching the lanes to the seed;
+4. SL-425.
+
+### SL-522. sawc2 writes its own output and runs clang: unbuffered writes with explicit close, and a blocking process API (Oct 11; the USER's ruling, with a caveat)
+**Ruled:**
+- `File.create(path)` and `write(&Data) -> Result`, with an explicit `close() -> Result`; the `deinit` only releases the descriptor;
+- `Command(program:).arg(…).run() -> Result<ExitStatus, SystemError>`, blocking, with no pipes in the first cut;
+- sawc2 builds the runtime from `sawc/rt/`'s Saw sources, plus `shim.c` through clang.
+
+**The caveat (the user):** this shape exists because Stage 1 tolerates leaks while Stage 0 builds it, so a `deinit` must have no observable effect (SL:hazards S28). It is therefore a Stage 0 workaround. Every site carries `// Stage 0 workaround (SL:hazards S28): canonical: <the buffered, deinit-flushing form>`, and SL-425 reverts it with the rest once the seed retires Stage 0.
+
 ### SL-531. A package's tests in `tests/` are outside the package (Oct 11; the USER's ruling)
 SL-519 made a package's tests import it by name (`import blade.layout`). That raised the question of whether such a test is inside the package for `public(package)` reach.
 
