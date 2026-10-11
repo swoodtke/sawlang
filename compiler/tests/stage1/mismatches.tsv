@@ -1,4 +1,0 @@
-# The stage1 lane's adjudicated mismatches (compiler/tests/stage1/stage1_lane.py):
-# a sawc2 invocation whose output Stage 1 writes differently from Stage
-# 0-built sawc2, and why, once the reason is established (SL:hazards, "oracle
-# known wrong"). Columns: the arguments joined by single spaces, the reason.

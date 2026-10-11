@@ -1,10 +1,13 @@
 #!/usr/bin/env python3
 """The self-hosted compiler's tests, until it can run its own `@test` sidecars.
 
-    python compiler/tests/run.py
+    python compiler/tests/run.py [--stage 1|2]
 
-Builds `sawc2` and the unit programs with the frozen compiler and runs the unit
-programs; compares `sawc2 lex` with the golden fixtures in `lex/`, whose token
+Builds Stage 1 (`sawc2`, by the frozen compiler) and Stage 2 (sawc2 built by
+Stage 1, `compiler/tools/build.py`), and every sawc2-driven lane below runs
+Stage 2; `--stage 1`, or `SAWC2_STAGE=1`, runs them on Stage 1 instead, for
+bisecting. Builds the unit programs with the frozen compiler and runs them;
+compares `sawc2 lex` with the golden fixtures in `lex/`, whose token
 kinds and lex errors must cover the lexer's; runs the subset checker over the
 compiler source and its own fixtures in `subset/`; recomputes the std cone of
 sawc2's build and compares it with `tools/std_cone.txt`, and the std suspension
@@ -550,6 +553,14 @@ def run_programs(run):
 
 
 def main():
+    args = sys.argv[1:]
+    if args[:1] == ["--stage"] and len(args) == 2 and args[1] in ("1", "2"):
+        # The environment carries the choice to the lanes' own child processes.
+        os.environ["SAWC2_STAGE"] = args[1]
+        build.SAWC2 = build.STAGE1 if args[1] == "1" else build.STAGE2
+    elif args:
+        print("usage: run.py [--stage 1|2]")
+        return 2
     run = Run()
     ok, output = build.build_sawc2()
     if not ok:

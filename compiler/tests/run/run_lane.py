@@ -149,6 +149,7 @@ def build_new(src, speed="-O0"):
     name = os.path.splitext(os.path.basename(src))[0]
     out = os.path.join(OUT, name + (".new" if speed == "-O0" else ".new" + speed[1:]))
     env = dict(os.environ)
+    env["SAWC2_BIN"] = build.SAWC2
     env["SAW_PYTHON"] = sys.executable
     r = subprocess.run([SCRIPT, "build", speed, "--std-root", "std", rel(src), "-o", out], cwd=REPO, env=env,
                        capture_output=True, text=True, timeout=BUILD_TIMEOUT)
@@ -274,6 +275,7 @@ def check_foreign_targets(failures, counts):
     hello = os.path.join(HERE, "hello.saw")
     probe = os.path.join(OUT, "foreign")
     env = dict(os.environ)
+    env["SAWC2_BIN"] = build.SAWC2
     env["SAW_PYTHON"] = sys.executable
     refused = 0
     for triple in TARGETS:

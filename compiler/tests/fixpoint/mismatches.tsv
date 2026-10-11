@@ -1,0 +1,4 @@
+# The fixpoint lane's adjudicated mismatches (compiler/tests/fixpoint/fixpoint_lane.py):
+# a sawc2 invocation whose output Stage 2 writes differently from Stage 1,
+# and why, once the reason is established (SL:hazards, "oracle known wrong").
+# Columns: the arguments joined by single spaces, the reason.

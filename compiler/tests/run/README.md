@@ -127,7 +127,9 @@ description's (`compiler/tests/mono/README.md`, "Layouts").
 ## The lane
 
 `run_lane.py` builds every program both ways, eight at a time, under
-`.build/run-lane/`, and compares:
+`.build/run-lane/`. The sawc2 side is the binary the runner selected (Stage 2
+by default, `compiler/tools/build.py`), handed to the script as `$SAWC2_BIN`.
+The lane compares:
 
 - a plain program passes when sawc2's binary, built at -O0 and again at -O2,
   writes the same bytes as Stage 0's and exits with the same status, a
@@ -156,7 +158,7 @@ Stage 0 is the oracle: a difference is a sawc2 bug until shown otherwise
 
 ## The self-build census
 
-What stood between `sawc2 build` of sawc2's own driver and a working Stage 1
+What stood between `sawc2 build` of sawc2's own driver and a working Stage 2
 (SL-398, U7b), class by class, in the order met. Mono stops at its refusals,
 so the backend's classes were counted with mono's set aside, and the backend
 reports only the first refusal in each function, so its counts are functions
@@ -173,8 +175,8 @@ refused, not sites.
 | `backend.not-yet`: a `Vector` literal | 1 | its type's `init()`, then a `push` per element, a refused push panicking with its error | `collection_literal` |
 | `backend.not-yet`: `==` on an `Alt?`, met once the enum classes were gone | 1 | trivially copyable memory values compare part by part, an Optional's payload only when both are present | `value_equality` |
 | clang: `__saw_rt_get_argc` declared by std's `extern` and defined by the entry point | 1 | the entry point's definitions stand for the declaration | `program_arguments` |
-| Stage 1 wrong: every token's text lexed as decimal byte values | the lexer's every token | the new std lacked `StringBuilder.append(b: Byte)`, so a `Byte` argument widened into `append(value: Int)` (SL-529) | `byte_append` |
+| Stage 2 wrong: every token's text lexed as decimal byte values | the lexer's every token | the new std lacked `StringBuilder.append(b: Byte)`, so a `Byte` argument widened into `append(value: Int)` (SL-529) | `byte_append` |
 
 With these, sawc2 builds its driver with no refusal, clang accepts the
-module, and the link is `.build/sawc2-stage1`, which the stage1 lane
-(`compiler/tests/stage1/stage1_lane.py`) holds to Stage 0-built sawc2.
+module, and the link is `.build/sawc2-stage2`, which the fixpoint lane
+(`compiler/tests/fixpoint/fixpoint_lane.py`) holds to Stage 1.

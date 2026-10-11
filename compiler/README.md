@@ -66,7 +66,8 @@ compiler/
     src/main.saw      that links what `sawc2 build` writes
     sawc2
   tools/
-    build.py          builds sawc2, or any program over the stage packages
+    build.py          builds Stage 1 and Stage 2, or any program over the stage
+                      packages
     subset_check.py   the subset checker
     grammar_tables.py writes parse/src/grammar.saw from GRAMMAR.md
     depth_funnel.py   the parser's depth-funnel lane
@@ -130,10 +131,10 @@ compiler/
     run/              the run lane (run_lane.py): the backend's and `sawc2
                       build`'s specification (README.md), and programs built by
                       sawc2 and by Stage 0 whose binaries' output must agree
-    stage1/           the stage1 lane (stage1_lane.py): Stage 1, sawc2 built by
-                      sawc2, against Stage 0-built sawc2 over every lane's
-                      invocations (twin.py runs both), and the adjudicated
-                      mismatches (mismatches.tsv)
+    fixpoint/         the fixpoint lane (fixpoint_lane.py): Stage 2, sawc2
+                      built by sawc2, against Stage 1 over every lane's
+                      invocations (twin.py runs both), Stage 3 against Stage 2,
+                      and the adjudicated mismatches (mismatches.tsv)
 ```
 
 The new std, the std sawc2 compiles from Stage 1 on, is the top-level `std/`
@@ -152,10 +153,15 @@ named `sawc2` for now.
 
 ## Building
 
+The stages are numbered the conventional way. Stage 0 is the frozen Python
+compiler in `sawc/`. Stage 1 is the sawc2 it builds, `.build/sawc2`. Stage 2
+is sawc2 built by Stage 1 at -O2, `.build/sawc2-stage2`, and Stage 3 is Stage 2
+building itself. The fixpoint is Stage 3 equal to Stage 2, byte for byte.
+
 Use the venv's Python, since it runs the frozen compiler:
 
 ```sh
-./.venv/bin/python compiler/tools/build.py            # builds .build/sawc2
+./.venv/bin/python compiler/tools/build.py            # builds Stage 1, then Stage 2
 .build/sawc2 lex [--docs] <file.saw>                   # the token dump, or the doc trivia
 .build/sawc2 lex --kinds                               # every token kind's dump name
 .build/sawc2 parse --dump FILE...                      # each file's canonical AST dump
@@ -168,6 +174,13 @@ compiler/driver/sawc2 build --std-root std FILE -o OUT # FILE compiled and linke
 writes one `.ll` and spawns nothing (SL:architecture §4), and the script hands
 it to clang with Stage 0's prebuilt runtime objects (tests/run/README.md).
 
+`build.py` rebuilds Stage 1 on every call and caches Stage 2 under a key
+covering Stage 1's object (the linker stamps each Stage 1 binary with a fresh
+UUID, so its bytes never repeat), the trees it compiles, the script, the
+runtime objects and clang (`.build/sawc2-stage2.key`), so an unchanged tree
+links nothing. The lanes run Stage 2; `SAWC2_STAGE=1` (or `run.py --stage 1`) runs
+them on Stage 1 instead, for bisecting, and Stage 2 is then not built.
+
 A lex error prints one `ERROR` record and exits 1, and so does a file the parser
 refuses. A usage or I/O failure exits 2.
 
@@ -179,8 +192,8 @@ refuses. A usage or I/O failure exits 2.
 
 The runner prints each failure on its own line, then one summary line, and exits
 1 if anything failed. Its output is deterministic. The battery's `compiler` lane
-runs it, and so does every per-patch gate run (`./build.sh test`). It checks
-these things.
+runs it, and so does every per-patch gate run (`./build.sh test`). Every lane
+below that runs sawc2 runs Stage 2. It checks these things.
 
 - **Unit programs**: `compiler/<stage>/tests/*.saw`. These are small programs in
   the subset, built by the frozen compiler against the stage packages. Each
@@ -301,15 +314,15 @@ these things.
   the same output and exit status; a due program must be refused where it
   says; hello's `.ll` is pinned.
 
-One lane runs apart from the runner, as the battery's `stage1` stage:
+One lane runs apart from the runner, as the battery's `fixpoint` stage:
 
-- **Stage 1** (`tests/stage1/stage1_lane.py`): sawc2 builds its own driver
-  into `.build/sawc2-stage1`; the driver's `.ll` is the same bytes over two
-  builds and from another directory, Stage 1 writes that same `.ll`, Stage
-  2 (Stage 1 building itself) links into Stage 1's bytes, and every `sawc2`
-  invocation the runner's sawc2-driven lanes make gives the same output and
-  exit status under Stage 1 as under Stage 0-built sawc2, but for the
-  mismatches `tests/stage1/mismatches.tsv` adjudicates.
+- **The fixpoint** (`tests/fixpoint/fixpoint_lane.py`): Stage 1's `.ll` of
+  its own driver is the same bytes over two builds and from another
+  directory, Stage 2 writes that same `.ll`, Stage 3 (Stage 2 building
+  itself) links into Stage 2's bytes, and every `sawc2` invocation the
+  runner's sawc2-driven lanes make gives the same output and exit status
+  under Stage 2 as under Stage 1, but for the mismatches
+  `tests/fixpoint/mismatches.tsv` adjudicates.
 
 ## The std profile
 
