@@ -820,6 +820,19 @@ A temporary passed by value as an argument is dropped by its callee. An owned `m
 
 **Checker:** yes: `bounded-extension` refuses every bound on an extension in compiler source, so the shape cannot arise there, and the new std is compiled by sawc2 alone.
 
+### S27. Bare imports inside a package: searched from the entry file, keyed by their text (SL-531, SL-532)
+
+**Shape (silent: a different module binds, or one file loads as two modules):** Stage 0 resolves every bare import against the ENTRY file. `_prepare_codegen` in `sawc/sawc.py` passes the entry's path to `resolver.resolve_module` for each pending import, whichever module wrote it, and `ModuleResolver._file_relative_dirs` searches the entry's directory and the entry's `Saw.toml` directory, never the importing module's own. Module identity is keyed by the import's text (`_cache`, `module_map`). One rule avoids all three faces, so they are one entry:
+- **A different module binds (silent, SL-532).** A dependency's bare `import util`, written in `libpkg/src/sub/a.saw`, binds the `util.saw` beside the program compiling it, not `libpkg/src/util.saw`. With the application's `tag()` returning 1 and the library's returning 2, Stage 0's binary prints 1 (the Air's repro in the SL-519.p1 review, re-run for this entry). Nothing reports it, and a library's meaning depends on its client.
+- **A sibling is not found (loud, SL-531).** The spec's in-package bare spelling resolves only when the importing file sits beside the entry. Changing `blade/src/resolver.saw`'s import to a bare `import manifest.*` and building any Blade test fails with ``module `manifest` not found``; building `blade/src/main.saw` works, since that importer and the entry share `blade/src/`.
+- **One file, two modules (silent for state, loud for types, SL-531).** A bare `import layout` and a self-named `import ident.layout` load one file twice. A type declared there becomes two types (``argument `s` expects `&Slot` but got `&Slot` ``), and a `static` becomes two statics: an `Atomic<Int>` counter bumped once through each spelling reads 1, not 2.
+
+sawc2 searches the importing file's own directory, then its package root, and nothing else (LANGUAGE_SPEC, Qualifier collisions), and gives a file one identity whatever spelling reaches it. `compiler/tests/resolve/package/hijackapp/` pins the first face.
+
+**Instead:** inside a package, name its own modules by the package's name, `import <pkg>.x`, through the package's own `--module-path <pkg>=<root>/src`, as Blade does (`import blade.layout`), and spell each module the same way throughout a program. Don't rely on a file beside the entry to satisfy a bare import written elsewhere. A loose program (no `Saw.toml`) whose modules sit in a subdirectory is the one place the two compilers need different text: Stage 0 needs the entry-relative `import modules.x` inside `modules/`, which sawc2 refuses, and sawc2 needs the sibling `import x`. So `examples/` keeps the first and its `tests/corpus/` twin writes the second.
+
+**Checker:** yes, for the compiler source: `import-allowlist` refuses any import that is neither std's nor a compiler stage's, so the source writes only the self-named `import <stage>.x`, which `compiler/tools/build.py` maps with `--module-path`. Blade and `libs/` are not checked; they write the self-named spelling by convention (SL-519).
+
 ## Loud hazards
 
 ### L1. Integer literal adoption (SL-13, SL-53, SL-56, SL-70, SL-75, SL-84, SL-194)
