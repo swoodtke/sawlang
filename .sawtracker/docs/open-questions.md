@@ -418,6 +418,17 @@ Correction: the lead first wrote "B", which is not a §12 code. The SL-426 agent
 
 ## Resolved
 
+### SL-522 (Stage 0 std). The frozen `sawc/std` gains `File.close()` and a blocking `Command.wait()` (Oct 11; the USER's ruling)
+The driver's link code compiles under both stds: Stage 1 is built by Stage 0 against `sawc/std`, and Stage 2 on against `std/`. `sawc/std` had no explicit close, and no sync spawn-and-wait, since its `Command.run()` suspends on the reactor, which the sync-only compiler source can't call.
+
+**Ruled:** add both to `sawc/std`, as rewrite blockers under the Sep 24 freeze policy, and mirror them in `std/`.
+- They are additive: existing code and Stage 0's cooperative `run()` are unchanged.
+- `Command.wait()` blocks by polling `__saw_rt_proc_try_wait` with `__saw_rt_sleep_ns`, all existing seams, with no ABI change.
+- `write` keeps Stage 0's by-value `Data` spelling in both stds.
+- The compiler's call sites carry the S28 markers, and all of this goes with Stage 0 when the seed retires it (SL-534, SL-425).
+
+The lead's accompanying decision: the module's triple is the fixed `arm64-apple-macosx11.0.0`, passed to clang as `-target` too, with no output capture. The linker warnings about Stage 0-built runtime objects (built for macOS 26) stand until M2 builds the runtime at the same target.
+
 ### Bootstrap seed. A pinned sawc2 seed binary replaces Python Stage 0 as the bootstrap (Oct 11; the USER's ruling, option b)
 With U7b (SL-533) merged, sawc2 builds itself and the Stage 1 = Stage 2 fixpoint holds. What builds sawc2 on a fresh checkout?
 - (a) Python Stage 0 forever, which keeps every Stage 0 workaround and the subset restrictions on `compiler/`;
