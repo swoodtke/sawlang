@@ -21,6 +21,32 @@ O1 to O3 are decided as D31 to D33.
 
 ## Decided by the lead, for review (reversible)
 
+### D38. The new std's `Atomic<T>` wraps `UnsafeMutableInterior<T>`; `Atomic(<int>)` folds as a constant through a lang role (Oct 11; U7c M2 census, SL-522)
+The spec already rules the surface:
+- `Atomic(<int>)` is a tier-2 constant initializer for a static (Statics, "Const-initialized only");
+- `UnsafeMutableInterior<T>` is the one interior-mutability primitive, with positional construction (design 186);
+- `Atomic<Int>` has its own section, with its orderings;
+- D23 makes `Atomic` a `std/` type over builtin intrinsics.
+
+**Decided:**
+- `std/` gains `UnsafeMutableInterior<T>`, layout-transparent with `ptr(&self) unsafe`, and `Atomic<T>` as a struct over one.
+- `Atomic(<int>)` is a lang role (`atomic`) whose construction the one constant evaluator folds as an aggregate. It's the named form the spec lists, not a general relaxation of "an `init` is not a constant" (SL-493's ruling stands).
+- The backend emits a static holding an interior cell as a writable global, and never marks a receiver read-only when its pointee is a cell.
+
+### D39. D23's atomic intrinsics grow to the orderings the `Atomic<Int>` section names (Oct 11; U7c M2 census)
+Stage 0's `Atomic` operations are sequentially consistent. **Decided:** add `__saw_atomic_*` intrinsics for a seq_cst load, store, compare-exchange and fetch-add, spelled in Stage 0's vocabulary, and nothing more. As D23's reversal clause says, this changes only `std/`'s internals and the builtin table.
+
+### D40. A `static_assert` over a layout is checked once layouts exist, at mono (Oct 11; U7c M2 census; the spec per SL-493)
+The spec allows `sizeof`/`alignof` of any type inside a `static_assert`. Layouts are computed by `compiler/target`, which only mono reaches. **Decided:** the evaluator defers a `static_assert` whose condition needs a code-generation layout, marking it pending rather than refusing it. Mono checks it against `sawtarget`'s layout and refuses with `static_assert.failed`, at the assert, if it is false. Everything else is unchanged: `static.not-constant` outside `static_assert` (SL-493).
+
+### D41. sawc2 builds the runtime through a `sawc2 runtime --out DIR` command, and doesn't cache (Oct 11; U7c M2 census)
+Caching inside sawc2 would need directory, exists and rename APIs, which is more std surface in both stds. **Decided:**
+- sawc2 gets a runtime-build mode, the spec'd feature (designs 113b/149): exports checked against a generated Saw ABI table, made from `sawc/runtime_abi.py` and kept current by `run.py`, as `stdsuspension.saw` is. The table is checked in, so it outlives Stage 0.
+- `sawc2 runtime --out DIR` writes one object per runtime source, plus `shim.o`, at the module's target, into a directory that already exists.
+- `build.py` keys and caches it in development. The seed bootstrap (SL-534) can run it unconditionally, in seconds, or the seed release can ship the objects; that is SL-534's choice.
+- Building the runtime at sawc2's target removes M1's linker warnings.
+- **Reversal:** add caching to sawc2 once the std grows a directory API anyway.
+
 ### D36. `File`'s deinit calls `close(2)` directly (Oct 10; U5b3, SL-456.p3; the Air confirmed)
 `sawc/rt/ABI.md` has no close seam, and adding one would be an ABI change. Stage 0 does the same, and `std.file` is hosted-only. A failed close of a read-only descriptor loses no data, so its status is dropped. EINTR isn't retried, which is correct, since on Linux the descriptor is already released.
 
