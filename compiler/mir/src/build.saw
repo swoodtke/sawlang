@@ -234,7 +234,8 @@ extension MirProgram {
         var info = self.locals[at]
         info.owned = true
         self.locals[at] = info
-        try! self.scope.push(MirScopeEntry(window: false, index: l, fieldwise: false))
+        try! self.scope.push(MirScopeEntry(window: false, index: l, fieldwise: false, parts_first: 0,
+                                           parts_count: -1))
     }
 
     // Binds leaf `leaf` to local `l` for the rest of the function.
@@ -1012,6 +1013,13 @@ extension MirProgram {
                 self.close_window(entry.index)
             } else if entry.fieldwise {
                 self.release_fields_of(entry.index)
+            } else if entry.parts_count >= 0 {
+                var j = 0
+                while j < entry.parts_count {
+                    let p = self.leftover_parts[entry.parts_first + j]
+                    self.emit_drop(p)
+                    j = j + 1
+                }
             } else {
                 let p = self.place_local(entry.index)
                 self.emit_drop(p)
@@ -1040,7 +1048,8 @@ extension MirProgram {
     // Registers consumed receiver `l` with the innermost scope, released
     // field by field.
     public func scope_fieldwise(&var self, l: Int) {
-        try! self.scope.push(MirScopeEntry(window: false, index: l, fieldwise: true))
+        try! self.scope.push(MirScopeEntry(window: false, index: l, fieldwise: true, parts_first: 0,
+                                           parts_count: -1))
     }
 
     func pop_scope_entries(&var self, mark: Int) {
@@ -1055,7 +1064,8 @@ extension MirProgram {
 
     // Registers window `w` with the innermost scope, whose exits close it.
     public func scope_window(&var self, w: Int) {
-        try! self.scope.push(MirScopeEntry(window: true, index: w, fieldwise: false))
+        try! self.scope.push(MirScopeEntry(window: true, index: w, fieldwise: false, parts_first: 0,
+                                           parts_count: -1))
     }
 
     // Removes the newest scope entry for window `w`, which its own
@@ -1080,6 +1090,32 @@ extension MirProgram {
             k = k - 1
         }
         self.scope = move kept
+    }
+
+    // Makes the newest scope entry for owned local `l` the implicit binding
+    // of `parts`, the places in it a construct's pattern left over: its exits
+    // drop those, in order, and never `l` whole. The entry keeps its place in
+    // the stack, so the leftovers stay older than the bindings made after it
+    // and die after them (spec, Match consumes an owned enum). Only entries
+    // from `mark` on are searched; returns false when none of them holds `l`.
+    public func hold_leftovers(&var self, l: Int, parts: &Vector<Int>, mark: Int) -> Bool {
+        var k = self.scope.len() - 1
+        while k >= mark {
+            var entry = self.scope[k]
+            if not entry.window && not entry.fieldwise && entry.index == l {
+                entry.parts_first = self.leftover_parts.len()
+                entry.parts_count = parts.len()
+                var j = 0
+                while j < parts.len() {
+                    try! self.leftover_parts.push(parts[j])
+                    j = j + 1
+                }
+                self.scope[k] = entry
+                return true
+            }
+            k = k - 1
+        }
+        false
     }
 
     // Removes the newest scope entry for owned local `l`, which a consuming

@@ -1,0 +1,68 @@
+// What a `match`, `if let` or `while let` leaves over of the scrutinee it
+// consumed is dropped once its body completes (spec, Match consumes an owned
+// enum): each leftover is a part of a temporary whole on every path that
+// reaches its drop, so every drop is `static` and none needs a flag, on the
+// arm's end, a `return` from it, across a suspending call in it, and per
+// iteration and on the `break` of a `while let`.
+
+import std.task.{yield_now}
+
+struct Res { id: Int }
+extension Res: NoCopy {}
+
+enum Two {
+    case Both(a: Res, b: Res),
+    case One(a: Res)
+}
+extension Two: NoCopy {}
+
+func two(n: Int) -> Two { Two.Both(a: Res(id: n), b: Res(id: n + 1)) }
+func pair(n: Int) -> (Res, Res)? {
+    if n < 0 {
+        return None
+    }
+    (Res(id: n), Res(id: n + 1))
+}
+func touch(r: &Res) -> Int { r.id }
+
+func returned(n: Int) -> Int {
+    match two(n) {
+        case Both(a, _) -> {
+            if a.id > 3 {
+                return 1
+            }
+            touch(&a)
+        },
+        case One(_) -> 0
+    }
+}
+
+func suspended(n: Int) -> Int {
+    match two(n) {
+        case Both(a, _) -> {
+            yield_now()
+            touch(&a)
+        },
+        case One(_) -> 0
+    }
+}
+
+func unwrapped(n: Int) -> Int {
+    if let (x, _) = pair(n) {
+        return touch(&x)
+    }
+    0
+}
+
+func drained(n: Int) -> Int {
+    var total = 0
+    var k = n
+    while let (x, _) = pair(k) {
+        if x.id > 9 {
+            break
+        }
+        total = total + touch(&x)
+        k = k - 1
+    }
+    total
+}

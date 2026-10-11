@@ -1,0 +1,57 @@
+// differs: SL:hazards C11, Stage 0 destroys a discarded part at arm entry
+// prints: arm 1
+// prints: drop 1
+// prints: drop 2
+// prints: returned 7
+// prints: value arm 3
+// prints: drop 3
+// prints: drop 4
+// prints: value 3
+// prints: end
+// An early exit destroys what the arm left over on its way out, after the
+// arm's own binding, as the arm's end does; a value `match` moves its result
+// out before its leftovers die.
+struct Noisy {
+    id: Int
+}
+
+extension Noisy: NoCopy {
+    func deinit(&var self) {
+        print("drop {}", self.id)
+    }
+}
+
+enum Two {
+    case Both(a: Noisy, b: Noisy),
+    case Neither
+}
+
+extension Two: NoCopy {}
+
+func early(t: Two) -> Int {
+    match t {
+        case Both(a, _) -> {
+            print("arm {}", a.id)
+            if a.id > 0 {
+                return 7
+            }
+            print("not reached")
+        },
+        case Neither -> print("neither")
+    }
+    0
+}
+
+func main() {
+    print("returned {}", early(Two.Both(a: Noisy(id: 1), b: Noisy(id: 2))))
+    let t = Two.Both(a: Noisy(id: 3), b: Noisy(id: 4))
+    let v = match t {
+        case Both(a, _) -> {
+            print("value arm {}", a.id)
+            a.id
+        },
+        case Neither -> 0
+    }
+    print("value {}", v)
+    print("end")
+}

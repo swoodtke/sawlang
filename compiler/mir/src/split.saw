@@ -378,16 +378,24 @@ extension MirProgram {
     // so the epilogue's drop of it is decided by the flag, not by the load
     // (SL:architecture §3.7). The record write is a transfer the shared
     // analysis models (initialisation.saw). A local partly moved out at a
-    // `lend` has no one flag, and is refused.
+    // `lend` has no one flag, and is refused. A temporary is partial there
+    // only when it is a `match`, `if let` or `while let` scrutinee whose
+    // leftovers the construct holds across a `lend` in its body: the record
+    // owes them a place it cannot give a partial value yet, so that is a
+    // `slice.not-yet` (spec, Match consumes an owned enum).
     func record_flag_slots(&var self, f: Int, record: &Vector<Int>, sites: &Vector<Int>) -> Vector<Int> {
         var out = Vector<Int>()
         let facts = self.init_analysis(f)
         var states = Vector<Int>()
+        // Per record local, the first `lend` it is partial at, or -1.
+        var partial_at = Vector<Int>()
         var k = 0
         while k < record.len() {
             try! states.push(0)
+            try! partial_at.push(-1)
             k = k + 1
         }
+        let block_first = self.funcs[f].block_first
         var j = 0
         while j < sites.len() {
             let b = sites[j]
@@ -401,6 +409,10 @@ extension MirProgram {
             while k < record.len() {
                 let l = record[k]
                 states[k] |= state[l]
+                if (state[l] & MIR_INIT_PARTIAL) != 0 && partial_at[k] < 0 {
+                    let site = self.blocks[block_first + b]
+                    partial_at[k] = self.calls[site.call].node
+                }
                 k = k + 1
             }
         }
@@ -410,9 +422,13 @@ extension MirProgram {
             let t = mir_func_local(&self, f, record[k]).ty
             let own = states[k]
             var slot = -1
-            if (own & MIR_INIT_PARTIAL) != 0 {
-                // Only a source `move` of a part leaves a local partial across
-                // a `lend`, and typecheck refuses that (transfer.partial-move).
+            if (own & MIR_INIT_PARTIAL) != 0 && mir_func_local(&self, f, record[k]).kind == MirLocalKind.Temp {
+                let what = "a `match`, `if let` or `while let` holding what its pattern left over across a `lend`"
+                self.not_yet_at(f, partial_at[k], what)
+            } else if (own & MIR_INIT_PARTIAL) != 0 {
+                // Only a source `move` of a part leaves a user's local partial
+                // across a `lend`, and typecheck refuses that
+                // (transfer.partial-move).
                 let root = self.funcs[f].root
                 self.missing_at(f, root, "an accessor's local is partly moved out at `lend`, which typecheck refuses as transfer.partial-move")
             } else if own != MIR_INIT_WHOLE && self.owns(t) {

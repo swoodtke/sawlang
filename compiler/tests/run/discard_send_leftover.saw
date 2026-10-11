@@ -1,0 +1,33 @@
+// due: the new std's tasks and spawn enter the slice, to a Send refusal
+// refuses: import.unknown-module at 11:8
+// A part a consumed `match` discards with `_` is held until the arm
+// completes, so it lives across the arm's suspension: in a task spawned into
+// a `threads:` group, that makes it a value the frame carries between
+// workers, which must be `Send`. A closure is not, so this program must be
+// refused at `step` for the discarded payload, as Stage 0 refuses it ("local
+// `job` of type `Job` is held across a suspension but is not `Send`"). The
+// new std has no `std.task` yet, and sawc2 lowers no spawn, so the refusal
+// standing in the way today is the import.
+import std.task.{yield_now}
+
+enum Job {
+    case Run(work: () -> Int),
+    case Idle
+}
+
+func step(n: Int) -> Int {
+    let job = if n > 0 { Job.Run(work: { 10 }) } else { Job.Idle }
+    match job {
+        case Run(_) -> {
+            yield_now()
+            n
+        },
+        case Idle -> 0
+    }
+}
+
+func main() {
+    var group = try! TaskGroup(threads: 2)
+    let h = group.spawn(step(1))
+    print(h.join())
+}

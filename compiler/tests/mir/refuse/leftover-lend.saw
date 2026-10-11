@@ -1,0 +1,32 @@
+// refuses: slice.not-yet at 27:17
+// A `lend` inside an arm that holds what its pattern left over: the match's
+// scrutinee is partly moved out across the `lend`, so the accessor's state
+// record would have to carry a partial value, which it cannot yet.
+
+struct Res { id: Int }
+extension Res: NoCopy {}
+
+enum Two {
+    case Both(a: Res, b: Res),
+    case Neither
+}
+extension Two: NoCopy {}
+
+func make() -> Two { Two.Both(a: Res(id: 1), b: Res(id: 2)) }
+
+struct Grid {
+    cells: [Int; 2],
+    reads: Int
+}
+
+extension Grid {
+    func picked(&var self) borrows -> &var Int {
+        match make() {
+            case Both(a, _) -> {
+                self.reads = a.id
+                lend self.cells[0]
+            },
+            case Neither -> lend self.cells[1]
+        }
+    }
+}

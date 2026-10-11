@@ -24,7 +24,10 @@
 //   - every statement and terminator the entry reaches carries a source node;
 //   - no operand moves an owning value out through a reference, but for an
 //     epilogue's record load and a closure body's take of a take capture,
-//     each in its one shape.
+//     each in its one shape;
+//   - every proven payload `(P as CASE)` is used only where every path has
+//     switched `P` to CASE with nothing writing `P` since, which is what lets
+//     a construct drop its leftovers when its body completes.
 
 import sawmir.build.{mir_func_local}
 import sawmir.dump.{mir_dump_module, mir_module_functions}
@@ -77,6 +80,7 @@ extension MirProgram {
         self.verify_halves(f, &var out)
         self.verify_nodes(f, &var out)
         self.verify_moves(f, &var out)
+        self.verify_payloads(f, &var out)
     }
 
     // No operand moves an owning value out through a reference. Storage
@@ -1410,5 +1414,291 @@ extension MirProgram {
                 try! cursor.push(0)
             }
         }
+    }
+}
+
+// Proven payloads. A `(P as CASE)` projection reads CASE's payload with no
+// check of its own, so it is sound only where the case is proven; a checked
+// `(P as CASE!)` panics on any other case and needs no proof.
+extension MirProgram {
+    // Every proven payload function `f` uses, read, written, borrowed or
+    // dropped, stands where every path from the entry has switched on `P`'s
+    // discriminant to CASE, with nothing writing `P` or a place it lies in
+    // since. A `match`, `if let` or `while let` holds what its pattern left
+    // over as such places until its body completes (spec, Match consumes an
+    // owned enum), so this is the check that a construct's leftovers drop only
+    // on the paths of the case that left them, and never once the scrutinee's
+    // storage holds a new value. A must-dataflow over the (switched place,
+    // case) facts the function's switches prove; the entry knows none, an
+    // epilogue's entry included.
+    func verify_payloads(&self, f: Int, out: &var Vector<String>) {
+        let info = self.funcs[f]
+        let n = info.block_count
+        var fact_place = Vector<Int>()
+        var fact_case = Vector<Int>()
+        var b = 0
+        while b < n {
+            let block = self.blocks[info.block_first + b]
+            if block.term == MirTermKind.Switch && block.switch_kind == MirSwitchKind.Discriminant {
+                var k = 0
+                while k < block.arm_count {
+                    let c = self.arms[block.arm_first + k].value
+                    if self.fact_index(&fact_place, &fact_case, block.place, c) < 0 {
+                        try! fact_place.push(block.place)
+                        try! fact_case.push(c)
+                    }
+                    k = k + 1
+                }
+            }
+            b = b + 1
+        }
+        let width = fact_place.len()
+        var entry = Vector<Bool>()
+        var reached = Vector<Bool>()
+        b = 0
+        while b < n {
+            try! reached.push(b == 0)
+            var k = 0
+            while k < width {
+                try! entry.push(b != 0)
+                k = k + 1
+            }
+            b = b + 1
+        }
+        var quiet = Vector<String>()
+        var changed = true
+        var rounds = 0
+        while changed && rounds < 1000 {
+            changed = false
+            rounds = rounds + 1
+            b = 0
+            while b < n {
+                if reached[b] {
+                    var state = Vector<Bool>()
+                    var k = 0
+                    while k < width {
+                        try! state.push(entry[b * width + k])
+                        k = k + 1
+                    }
+                    self.payload_block(f, b, &fact_place, &fact_case, &var state, false, &var quiet)
+                    let block = self.blocks[info.block_first + b]
+                    var succ = Vector<Int>()
+                    var opened = -1
+                    self.successors(f, &block, &var succ, &var opened)
+                    var j = 0
+                    while j < succ.len() {
+                        let target = succ[j]
+                        var next = Vector<Bool>()
+                        k = 0
+                        while k < width {
+                            try! next.push(state[k])
+                            k = k + 1
+                        }
+                        if block.term == MirTermKind.Switch && block.switch_kind == MirSwitchKind.Discriminant && j < block.arm_count {
+                            let c = self.arms[block.arm_first + j].value
+                            let at = self.fact_index(&fact_place, &fact_case, block.place, c)
+                            next[at] = true
+                        }
+                        if not reached[target] {
+                            reached[target] = true
+                            changed = true
+                            k = 0
+                            while k < width {
+                                entry[target * width + k] = next[k]
+                                k = k + 1
+                            }
+                        } else {
+                            k = 0
+                            while k < width {
+                                if entry[target * width + k] && not next[k] {
+                                    entry[target * width + k] = false
+                                    changed = true
+                                }
+                                k = k + 1
+                            }
+                        }
+                        j = j + 1
+                    }
+                }
+                b = b + 1
+            }
+        }
+        b = 0
+        while b < n {
+            if reached[b] {
+                var state = Vector<Bool>()
+                var k = 0
+                while k < width {
+                    try! state.push(entry[b * width + k])
+                    k = k + 1
+                }
+                self.payload_block(f, b, &fact_place, &fact_case, &var state, true, &var out)
+            }
+            b = b + 1
+        }
+    }
+
+    // Block `b`'s statements and terminator over `state`: each place used
+    // checked against it when `report`, then each write applied, a call's
+    // destination last, since it is written on the return edge.
+    func payload_block(&self, f: Int, b: Int, fact_place: &Vector<Int>, fact_case: &Vector<Int>,
+                       state: &var Vector<Bool>, report: Bool, out: &var Vector<String>) {
+        let info = self.funcs[f]
+        let block = self.blocks[info.block_first + b]
+        var s = block.first
+        while s >= 0 {
+            let stmt = self.stmts[s]
+            s = stmt.next
+            if stmt.kind == MirStmtKind.Budget {
+                continue
+            }
+            var used = Vector<Int>()
+            try! used.push(stmt.place)
+            if stmt.kind == MirStmtKind.Assign && stmt.rvalue >= 0 {
+                let rv = self.rvalues[stmt.rvalue]
+                try! used.push(rv.place)
+                try! used.push(rv.flag)
+                var k = 0
+                while k < rv.count {
+                    // Stage 0 workaround (SL:hazards S4): canonical: self.push_operand_place(&var used, self.lists[rv.first + k])
+                    let o = self.lists[rv.first + k]
+                    self.push_operand_place(&var used, o)
+                    k = k + 1
+                }
+            }
+            if report {
+                self.check_payloads(f, b, &fact_place, &fact_case, &state, &used, &var out)
+            }
+            self.kill_facts(&fact_place, &var state, stmt.place)
+            if stmt.kind == MirStmtKind.Assign && stmt.rvalue >= 0 {
+                let rv = self.rvalues[stmt.rvalue]
+                if rv.kind == MirRvalueKind.Ref && rv.exclusive {
+                    self.kill_facts(&fact_place, &var state, rv.place)
+                }
+            }
+        }
+        var used = Vector<Int>()
+        if block.term == MirTermKind.Switch && block.switch_kind == MirSwitchKind.Discriminant {
+            try! used.push(block.place)
+        } else if block.term == MirTermKind.Switch {
+            self.push_operand_place(&var used, block.operand)
+        } else if block.term == MirTermKind.Call && block.call >= 0 {
+            let c = self.calls[block.call]
+            self.push_operand_place(&var used, c.callee)
+            var k = 0
+            while k < c.arg_count {
+                // Stage 0 workaround (SL:hazards S4): canonical: self.push_operand_place(&var used, self.lists[c.arg_first + k])
+                let o = self.lists[c.arg_first + k]
+                self.push_operand_place(&var used, o)
+                k = k + 1
+            }
+            try! used.push(c.dest)
+        }
+        if report {
+            self.check_payloads(f, b, &fact_place, &fact_case, &state, &used, &var out)
+        }
+        if block.term == MirTermKind.Call && block.call >= 0 {
+            // Stage 0 workaround (SL:hazards S4): canonical: self.kill_facts(&fact_place, &var state, self.calls[block.call].dest)
+            let dest = self.calls[block.call].dest
+            self.kill_facts(&fact_place, &var state, dest)
+        }
+    }
+
+    func push_operand_place(&self, used: &var Vector<Int>, o: Int) {
+        if o >= 0 && self.operands[o].kind != MirOperandKind.Const {
+            try! used.push(self.operands[o].place)
+        }
+    }
+
+    // Each proven payload step of the places in `used` against `state`.
+    func check_payloads(&self, f: Int, b: Int, fact_place: &Vector<Int>, fact_case: &Vector<Int>,
+                        state: &Vector<Bool>, used: &Vector<Int>, out: &var Vector<String>) {
+        var u = 0
+        while u < used.len() {
+            let p = used[u]
+            u = u + 1
+            if p < 0 {
+                continue
+            }
+            let info = self.places[p]
+            var k = 0
+            while k < info.count {
+                let step = self.projs[info.first + k]
+                if step.kind == MirProjKind.Payload {
+                    var proven = false
+                    var i = 0
+                    while i < fact_place.len() && not proven {
+                        if fact_case[i] == step.decl && state[i] && self.prefix_is(p, k, fact_place[i]) {
+                            proven = true
+                        }
+                        i = i + 1
+                    }
+                    if not proven {
+                        var text = StringBuilder()
+                        try! text.append("bb")
+                        try! text.append(b)
+                        try! text.append(" uses ")
+                        self.append_place(&var text, p)
+                        try! text.append(" where some path has not switched its scrutinee to `")
+                        try! text.append(self.decl_name(step.decl))
+                        try! text.append("`, or has written the scrutinee since")
+                        self.problem(f, &var out, text.build())
+                    }
+                }
+                k = k + 1
+            }
+        }
+    }
+
+    // Clears every fact whose switched place written place `w` is, or holds.
+    func kill_facts(&self, fact_place: &Vector<Int>, state: &var Vector<Bool>, w: Int) {
+        if w < 0 {
+            return
+        }
+        let count = self.places[w].count
+        var i = 0
+        while i < fact_place.len() {
+            if self.places[fact_place[i]].count >= count && self.prefix_is(fact_place[i], count, w) {
+                state[i] = false
+            }
+            i = i + 1
+        }
+    }
+
+    // The fact (place `p`, case `c`)'s index, places compared by structure.
+    func fact_index(&self, fact_place: &Vector<Int>, fact_case: &Vector<Int>, p: Int, c: Int) -> Int {
+        let count = self.places[p].count
+        var i = 0
+        while i < fact_place.len() {
+            if fact_case[i] == c && self.places[fact_place[i]].count == count && self.prefix_is(p, count, fact_place[i]) {
+                return i
+            }
+            i = i + 1
+        }
+        return -1
+    }
+
+    // Whether place `p` cut to its first `count` projections is place `q`:
+    // the same root and the same steps, a proven payload and a checked one
+    // counting as one.
+    func prefix_is(&self, p: Int, count: Int, q: Int) -> Bool {
+        let a = self.places[p]
+        let c = self.places[q]
+        if c.count != count || a.count < count || a.local != c.local || a.static_decl != c.static_decl {
+            return false
+        }
+        var k = 0
+        while k < count {
+            let x = self.projs[a.first + k]
+            let y = self.projs[c.first + k]
+            let x_payload = x.kind == MirProjKind.Payload || x.kind == MirProjKind.Force
+            let y_payload = y.kind == MirProjKind.Payload || y.kind == MirProjKind.Force
+            let same_kind = x.kind == y.kind || (x_payload && y_payload)
+            if not same_kind || x.decl != y.decl || x.index != y.index {
+                return false
+            }
+            k = k + 1
+        }
+        true
     }
 }

@@ -83,14 +83,17 @@ then `drop(_L); _F = const false;` in bbD. The dump notes an adopted flag
 like any other, at its own place among the locals.
 
 **Partial paths.** The MIR already decomposes a value whose parts left: a
-consuming destructure drops each owned part it does not move right there
-(`dissolve`), and a `consumes` body's release drops the fields that stayed
+consuming destructure drops each owned part it does not move (`leftovers`),
+and a `consumes` body's release drops the fields that stayed
 (`compiler/tests/mir/README.md`). So elaboration sees drops of parts, each
 elaborated by its own label, and never a whole drop of a partly moved place
 in valid MIR; a flagged drop of one is reported as an `INVARIANT` and
 elaborated to nothing. The every-path-or-none rule (`consumes.some-paths`)
 makes a `consumes` field's release static, so a flag on a consumed receiver
-or a field of it is an `INVARIANT` too.
+or a field of it is an `INVARIANT` too. A `match`, `if let` or `while let`
+drops its leftovers on each exit of its body rather than at the
+destructure, and no path between can make a leftover anything but whole,
+so those drops are `static` too and need no flag (golden `leftovers`).
 
 **Order.** A drop never moves: scope exits drop in reverse declaration order
 and a statement's temporaries in reverse creation order, as the MIR placed
@@ -192,7 +195,7 @@ path. The analysis keeps every case's payload paths, and only one case is
 active at run time; after a join, a case another path never entered looks
 whole, so following them would refuse every match whose arms take parts of
 different cases. An owning payload a lowering failed to drop beside a payload
-it moved out therefore escapes this check: MIR's `dissolve`, which drops every
+it moved out therefore escapes this check: MIR's `leftovers`, which drops every
 owned part a destructure does not take, is what rules it out, and §3.8 must
 not read this verifier as covering it. `compiler/drops/tests/leak_payloads.saw`
 pins the limit: it unlinks the drop of the payload `first_name` leaves in
@@ -220,6 +223,7 @@ there. It counts the drop flags over the sawc2 build and over tests/corpus.
 | a loop moving on some iterations | loops |
 | early exits: `return`, `break`, `continue`, `try` | exits |
 | a dissolve under each consuming form: part drops | dissolves |
+| what a `match`, `if let` or `while let` leaves over, static, on each exit of its body: the arm's end, a `return`, across a suspension, per iteration and on `break` | leftovers |
 | a `consumes` body: field release, no flag | consumes |
 | statement temporaries in reverse creation order; one on a short circuit, flagged | temporaries |
 | drops inside a window's body before its close; a `for` over a borrowing struct | windows |

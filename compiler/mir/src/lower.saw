@@ -258,6 +258,7 @@ extension MirProgram {
         self.local_base = self.locals.len()
         self.block_base = self.blocks.len()
         self.scope = Vector<MirScopeEntry>()
+        self.leftover_parts = Vector<Int>()
         self.scope_marks = Vector<Int>()
         self.loops = Vector<MirLoop>()
         self.refused = false
@@ -1273,7 +1274,7 @@ extension MirProgram {
         let opened = self.open_head(subject, false, target)
         let test = opened.test
         var bound = Vector<Int>()
-        self.bind_test(&test, target, false, &var bound)
+        self.bind_test(&test, target, false, -1, &var bound)
         let absent = self.close_head(&opened)
         let present = self.current
         self.enter(absent)
@@ -3995,7 +3996,7 @@ extension MirProgram {
                 let test = opened.test
                 let _ = self.open_scope()
                 var bound = Vector<Int>()
-                self.bind_test(&test, target, unwrap, &var bound)
+                self.bind_test(&test, target, unwrap, opened.depth, &var bound)
                 self.scope_all(&bound)
                 self.lower_block(block, dest)
                 let saved = self.source_closing(block)
@@ -4144,14 +4145,20 @@ extension MirProgram {
         self.window_open(e, p, exclusive, first, args.len(), edges)
     }
 
-    // The present edge's bindings: `target` bound from the payload. A copy
-    // out of a lent place lets its window close at once; a `borrow` unwrap
-    // keeps it open for the arm, whose scope then closes it.
-    func bind_test(&var self, test: &MirTest, target: Int, unwrap: Bool, bound: &var Vector<Int>) {
+    // The present edge's bindings: `target` bound from the payload. What the
+    // pattern leaves over of a consumed Optional is held by the head scope
+    // `hold`, so `if let` and `while let` drop it once their body completes,
+    // after its bindings; with `hold` -1, as for `guard let`, whose bindings
+    // enter the enclosing scope, it drops here (spec, The Deinit trait). A
+    // copy out of a lent place lets its window close at once; a `borrow`
+    // unwrap keeps it open for the arm, whose scope then closes it.
+    func bind_test(&var self, test: &MirTest, target: Int, unwrap: Bool, hold: Int, bound: &var Vector<Int>) {
         self.begin_taking()
         self.bind_pattern(target, test.payload, &var bound)
         let taken = self.taken_parts()
-        if test.consuming {
+        if test.consuming && hold >= 0 {
+            self.hold_parts(test.whole, &taken, target, hold)
+        } else if test.consuming {
             self.dissolve(test.whole, &taken, target)
             self.forget_temp(test.whole)
         }
@@ -4344,7 +4351,7 @@ extension MirProgram {
         try! self.loops.push(MirLoop(head: head, exit: exit, depth: opened.depth, yields: yields, node: e))
         let _ = self.open_scope()
         var bound = Vector<Int>()
-        self.bind_test(&test, target, false, &var bound)
+        self.bind_test(&test, target, false, opened.depth, &var bound)
         self.scope_all(&bound)
         self.lower_block(block, -1)
         let saved = self.source_closing(block)
@@ -4545,19 +4552,17 @@ extension MirProgram {
 
 // Consuming destructures. Saw has no partial moves, so the one way a value
 // comes apart is a destructure that consumes it whole: a pattern's bindings,
-// or a payload taken out of an Optional or a Result. The value is dissolved
-// where it is destructured, never dropped whole after a part has left it.
+// or a payload taken out of an Optional or a Result. The value is taken
+// apart where it is destructured and never dropped whole after a part has
+// left it; what is left over drops there, or when its construct completes.
 extension MirProgram {
-    // The one helper every consuming destructure goes through: on the
-    // current path, the parts of `whole` in `taken`, places rooted at it
-    // whose values have moved out, belong to whoever took them, and every
-    // other owned part of what the path proved `whole` holds is dropped
-    // here, in reverse declaration order (spec, Synthesized destruction);
-    // with nothing taken, `whole` is dropped as one value. `whole` is a
-    // temporary its construct consumes on every path past it, so the caller
-    // takes it off its scope once each path is done. A value whose type
-    // writes its own `deinit` is refused: the spec does not say whether
-    // dissolving one skips that body.
+    // A consuming destructure that discards at once: on the current path,
+    // the parts of `whole` in `taken`, places rooted at it whose values have
+    // moved out, belong to whoever took them, and what is left over
+    // (`leftovers`) is dropped here. `whole` is a temporary its construct
+    // consumes on every path past it, so the caller takes it off its scope
+    // once each path is done. A `match`, `if let` or `while let` holds its
+    // leftovers until its body completes instead (`hold_parts`).
     //
     // ENTRY POINTS (dissolve):
     //     try_propagate
@@ -4565,7 +4570,6 @@ extension MirProgram {
     //     coalesce
     //     take_payload
     //     consumed_root
-    //     leaf
     //     bind_test
     //     lower_let
     //     lower_for
@@ -4574,20 +4578,59 @@ extension MirProgram {
             return
         }
         let saved = self.source_at(node)
-        if taken.len() == 0 {
-            let t = self.place_type(whole)
-            if self.owns(t) {
-                self.emit_drop(whole)
-            }
-        } else {
-            self.drop_rest(whole, &taken, node)
+        let parts = self.leftovers(whole, &taken, node)
+        var k = 0
+        while k < parts.len() {
+            self.emit_drop(parts[k])
+            k = k + 1
         }
         self.source_restore(saved)
     }
 
-    // The owned parts of `base` no place in `taken` reaches, dropped; a part
-    // some taken place lies inside is opened in turn.
-    func drop_rest(&var self, base: Int, taken: &Vector<Int>, node: Int) {
+    // What a destructure of `whole` leaves over once the places in `taken`
+    // have moved out: its owned parts no taken place reaches, in the order
+    // they drop, reverse declaration order (spec, Synthesized destruction);
+    // `whole` itself when nothing is taken and it owns something. A value
+    // whose type writes its own `deinit` is refused: the spec does not say
+    // whether dissolving one skips that body.
+    //
+    // ENTRY POINTS (leftovers):
+    //     dissolve
+    //     hold_parts
+    func leftovers(&var self, whole: Int, taken: &Vector<Int>, node: Int) -> Vector<Int> {
+        var out = Vector<Int>()
+        if taken.len() == 0 {
+            let t = self.place_type(whole)
+            if self.owns(t) {
+                try! out.push(whole)
+            }
+            return move out
+        }
+        self.drop_rest(whole, &taken, node, &var out)
+        move out
+    }
+
+    // A construct that completes after its body, `match`, `if let` or `while
+    // let`, holds what its pattern left over of `whole` until then: the entry
+    // of its own scope `depth` that holds the temporary `whole` becomes the
+    // implicit binding of those parts, so every exit of the body drops them
+    // after the bindings it made (spec, Match consumes an owned enum).
+    //
+    // ENTRY POINTS (hold_parts):
+    //     lower_match
+    //     bind_test
+    func hold_parts(&var self, whole: Int, taken: &Vector<Int>, node: Int, depth: Int) {
+        let parts = self.leftovers(whole, &taken, node)
+        let l = self.bare_local(whole)
+        let mark = self.scope_marks[depth]
+        if l < 0 || not self.hold_leftovers(l, &parts, mark) {
+            self.missing(node, "a construct's scrutinee is held by no entry of its scope, so what its pattern leaves over has no owner")
+        }
+    }
+
+    // The owned parts of `base` no place in `taken` reaches, into `out`; a
+    // part some taken place lies inside is opened in turn.
+    func drop_rest(&var self, base: Int, taken: &Vector<Int>, node: Int, out: &var Vector<Int>) {
         let info = self.places[base]
         var inside = -1
         var k = 0
@@ -4604,7 +4647,7 @@ extension MirProgram {
         let ty = info.ty
         if inside < 0 {
             if self.owns(ty) {
-                self.emit_drop(base)
+                try! out.push(base)
             }
             return
         }
@@ -4650,7 +4693,7 @@ extension MirProgram {
         }
         k = parts.len() - 1
         while k >= 0 {
-            self.drop_rest(parts[k], &taken, node)
+            self.drop_rest(parts[k], &taken, node, &var out)
             k = k - 1
         }
     }
@@ -4844,9 +4887,16 @@ public struct MirMatch {
     bind_leaves: Vector<Int>
     bind_locals: Vector<Int>
     bind_arms: Vector<Int>
-    // Whether some arm takes an owned part by move, so every leaf dissolves
-    // the scrutinee.
+    // Whether some arm takes an owned part by move.
     consuming: Bool
+    // Whether the match's scope holds the scrutinee, a temporary of its own;
+    // then each arm's leftovers are held until the arm completes, and
+    // `taken_first`/`taken_count` give, per arm, the run of `taken` its
+    // bindings moved out (-1 before its first leaf).
+    held: Bool
+    taken: Vector<Int>
+    taken_first: Vector<Int>
+    taken_count: Vector<Int>
 }
 
 extension MirMatch: NoCopy {}
@@ -4855,11 +4905,13 @@ extension MirMatch: NoCopy {}
 extension MirProgram {
     // `match`: the scrutinee's place, then a decision tree of switches on
     // discriminants and tests on literals, ranges and guards; each arm's body
-    // once. A consumed owned local is moved into the match first, so its
-    // parts the arms do not take drop when the match ends. A scrutinee that
-    // reads through a reference, a borrow binding's name or a borrow
-    // capture's, is matched where it sits whatever its recorded use: its
-    // storage is the referent's owner's, so no arm consumes it (SL-475).
+    // once. A consumed owned local is moved into the match first, a
+    // temporary of the match's scope, which holds what each arm's bindings
+    // leave over until the arm completes, on every way out of the arm and
+    // after the arm's own bindings (spec, Match consumes an owned enum). A
+    // scrutinee that reads through a reference, a borrow binding's name or a
+    // borrow capture's, is matched where it sits whatever its recorded use:
+    // its storage is the referent's owner's, so no arm consumes it (SL-475).
     func lower_match(&var self, e: Int, dest: Int) {
         let scrutinee = self.tc.res.first_node_child(e)
         let depth = self.open_scope()
@@ -4892,7 +4944,8 @@ extension MirProgram {
         var state = MirMatch(arms: Vector<Int>(), entries: Vector<Int>(), cells: Vector<MirCell>(),
                              cache_parent: Vector<Int>(), cache_decl: Vector<Int>(), cache_index: Vector<Int>(),
                              cache_place: Vector<Int>(), bind_leaves: Vector<Int>(), bind_locals: Vector<Int>(),
-                             bind_arms: Vector<Int>(), consuming: false)
+                             bind_arms: Vector<Int>(), consuming: false, held: false, taken: Vector<Int>(),
+                             taken_first: Vector<Int>(), taken_count: Vector<Int>())
         var rows = Vector<MirRow>()
         let n = self.tc.child_count(e)
         var consuming = false
@@ -4914,6 +4967,11 @@ extension MirProgram {
             root = self.consumed_root(root, scrutinee)
         }
         state.consuming = consuming
+        let held_local = self.bare_local(root)
+        state.held = held_local >= 0 && self.local(held_local).kind == MirLocalKind.Temp && self.local(held_local).owned
+        if consuming && not state.held {
+            self.missing(scrutinee, "a consumed `match` scrutinee is held by no scope, so what its arms leave over has no owner")
+        }
         k = 0
         while k < n {
             let arm = self.tc.child(e, k)
@@ -4924,21 +4982,24 @@ extension MirProgram {
             let index = state.arms.len()
             try! state.arms.push(arm)
             try! state.entries.push(-1)
+            try! state.taken_first.push(-1)
+            try! state.taken_count.push(-1)
             let first = state.cells.len()
             try! state.cells.push(MirCell(place: root, pattern: self.tc.res.first_node_child(arm)))
             try! rows.push(MirRow(arm: index, first: first, count: 1))
         }
         let join = self.new_block()
         self.compile_rows(&var state, &rows, root)
-        if consuming {
-            // Every leaf consumed the scrutinee on its path.
-            self.forget_temp(root)
-        }
         k = 0
         while k < state.arms.len() {
             let entry = state.entries[k]
             if entry >= 0 {
                 self.enter(entry)
+                if state.held {
+                    let taken = self.arm_taken(&state, k)
+                    let pattern = self.tc.res.first_node_child(state.arms[k])
+                    self.hold_parts(root, &taken, pattern, depth)
+                }
                 let _ = self.open_scope()
                 var j = 0
                 while j < state.bind_arms.len() {
@@ -5403,8 +5464,9 @@ extension MirProgram {
 
     // A leaf: arm `arm`'s pattern matched. Without a guard its bindings are
     // made and its body entered; with one, the guard reads the bindings
-    // through references first, and the rest of the rows take its false
-    // edge.
+    // through references first, taking nothing, and the rest of the rows
+    // take its false edge, so the arm finally taken decides what is left
+    // over.
     func leaf(&var self, state: &var MirMatch, arm: Int, rest: &Vector<MirRow>, root: Int) {
         let node = state.arms[arm]
         let pattern = self.tc.res.first_node_child(node)
@@ -5432,13 +5494,52 @@ extension MirProgram {
         self.begin_taking()
         self.bind_arm(&var state, arm, pattern, root, false)
         let taken = self.taken_parts()
-        if state.consuming {
-            self.dissolve(root, &taken, pattern)
+        if state.held {
+            self.note_arm_taken(&var state, arm, &taken, pattern)
         }
         if state.entries[arm] < 0 {
             state.entries[arm] = self.new_block()
         }
         self.goto(state.entries[arm])
+    }
+
+    // Records the owned parts arm `arm`'s bindings moved out at one of its
+    // leaves. Every leaf of an arm binds the same places, since a match makes
+    // each part's place once, so a leaf that took others would leave over a
+    // set its arm's body cannot hold: an invariant.
+    func note_arm_taken(&var self, state: &var MirMatch, arm: Int, taken: &Vector<Int>, pattern: Int) {
+        if state.taken_count[arm] < 0 {
+            // Stage 0 workaround (SL:hazards S4): canonical: state.taken_first[arm] = state.taken.len()
+            let first = state.taken.len()
+            state.taken_first[arm] = first
+            state.taken_count[arm] = taken.len()
+            var k = 0
+            while k < taken.len() {
+                try! state.taken.push(taken[k])
+                k = k + 1
+            }
+            return
+        }
+        var same = state.taken_count[arm] == taken.len()
+        var k = 0
+        while same && k < taken.len() {
+            same = state.taken[state.taken_first[arm] + k] == taken[k]
+            k = k + 1
+        }
+        if not same {
+            self.missing(pattern, "two leaves of one match arm move different parts out of the scrutinee")
+        }
+    }
+
+    // The owned parts arm `arm`'s bindings moved out, as its leaves recorded.
+    func arm_taken(&self, state: &MirMatch, arm: Int) -> Vector<Int> {
+        var out = Vector<Int>()
+        var k = 0
+        while k < state.taken_count[arm] {
+            try! out.push(state.taken[state.taken_first[arm] + k])
+            k = k + 1
+        }
+        move out
     }
 
     // Arm `arm`'s bindings of its pattern against the scrutinee's place: for

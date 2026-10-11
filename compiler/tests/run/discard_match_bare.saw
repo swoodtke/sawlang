@@ -1,0 +1,31 @@
+// differs: SL:hazards C11, Stage 0 destroys a discarded payload at arm entry
+// prints: arm
+// prints: drop 3
+// prints: after
+// An arm whose pattern binds nothing of a consumed scrutinee: the payload it
+// discards dies when the arm completes, after the arm body has run.
+struct Noisy {
+    id: Int
+}
+
+extension Noisy: NoCopy {
+    func deinit(&var self) {
+        print("drop {}", self.id)
+    }
+}
+
+enum Slot {
+    case Full(a: Noisy),
+    case Empty
+}
+
+extension Slot: NoCopy {}
+
+func main() {
+    let n = Slot.Full(a: Noisy(id: 3))
+    match n {
+        case Full(_) -> print("arm"),
+        case Empty -> print("empty")
+    }
+    print("after")
+}

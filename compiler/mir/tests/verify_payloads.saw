@@ -1,0 +1,165 @@
+// The MIR verifier holds every proven payload `(P as CASE)` to a path that
+// switched `P` to CASE with nothing writing `P` since, which is what makes a
+// construct's leftovers, dropped when its body completes, sound. The verifier
+// reads no text, so the fixture `compiler/tests/mir/inject/leftovers.saw` is
+// lowered, found clean, then edited twice: its match's switch arms swap, so
+// the arm that moves and drops `Both`'s parts runs for `One`; and the
+// scrutinee is assigned again just before the leftover's drop, the storage
+// holding a new value. Each edit must be reported. Paths are the repository
+// root's, where the runner runs.
+import sawmir.api.{mir_lower_file}
+import sawmir.model.{MirProjKind, MirStmt, MirStmtKind, MirSwitchKind, MirTermKind}
+import sawmir.program.{MirProgram}
+import sawmir.verify.{mir_verify_module}
+
+// The index of module `name`, or -1.
+func module_index(p: &MirProgram, name: String) -> Int {
+    var m = 0
+    while m < p.tc.res.module_count() {
+        if p.tc.res.module_name(m).equals(name) {
+            return m
+        }
+        m = m + 1
+    }
+    return -1
+}
+
+// Whether `text` holds `word` at some byte.
+func holds(text: &String, word: String) -> Bool {
+    let n = text.len()
+    let w = word.len()
+    var at = 0
+    while at + w <= n {
+        var k = 0
+        while k < w && text.byte_at(at + k) == word.byte_at(k) {
+            k = k + 1
+        }
+        if k == w {
+            return true
+        }
+        at = at + 1
+    }
+    false
+}
+
+// How many of `found` report an unproven payload.
+func unproven(found: &Vector<String>) -> Int {
+    var count = 0
+    var k = 0
+    while k < found.len() {
+        let line = found.get(k) ?? ""
+        if holds(&line, "has not switched its scrutinee") {
+            count = count + 1
+        }
+        k = k + 1
+    }
+    count
+}
+
+// Module `m`'s function whose blocks end in a switch on a discriminant, or -1.
+func matching_function(p: &MirProgram, m: Int) -> Int {
+    var f = 0
+    while f < p.funcs.len() {
+        let info = p.funcs[f]
+        if info.module == m {
+            var b = 0
+            while b < info.block_count {
+                let block = p.blocks[info.block_first + b]
+                if block.term == MirTermKind.Switch && block.switch_kind == MirSwitchKind.Discriminant {
+                    return f
+                }
+                b = b + 1
+            }
+        }
+        f = f + 1
+    }
+    return -1
+}
+
+// Whether place `p` reads a proven payload.
+func reads_payload(p: &MirProgram, place: Int) -> Bool {
+    let info = p.places[place]
+    var k = 0
+    while k < info.count {
+        if p.projs[info.first + k].kind == MirProjKind.Payload {
+            return true
+        }
+        k = k + 1
+    }
+    false
+}
+
+// The fixture lowered and checked clean.
+func lowered(names: &Vector<String>, dirs: &Vector<String>) -> MirProgram {
+    var p = mir_lower_file("compiler/tests/mir/inject/leftovers.saw", "sawc", &names, &dirs)
+    let m = module_index(&p, "leftovers")
+    assert(m >= 0, "the fixture did not load: run from the repository root")
+    assert(p.diags.len() == 0 && p.tc.error_count() == 0, "the fixture is refused")
+    let clean = mir_verify_module(&var p, m)
+    assert(clean.len() == 0, "the fixture's MIR is not clean before the edit")
+    assert(matching_function(&p, m) >= 0, "the fixture holds no match")
+    move p
+}
+
+func main() {
+    let names = Vector<String>()
+    let dirs = Vector<String>()
+
+    // The arms swapped: `Both`'s moves and drops run when the switch says `One`.
+    var p = lowered(&names, &dirs)
+    let m = module_index(&p, "leftovers")
+    let f = matching_function(&p, m)
+    let info = p.funcs[f]
+    var b = 0
+    while b < info.block_count {
+        let block = p.blocks[info.block_first + b]
+        if block.term == MirTermKind.Switch && block.switch_kind == MirSwitchKind.Discriminant {
+            let first = block.arm_first
+            var yes = p.arms[first]
+            var no = p.arms[first + 1]
+            let target = yes.target
+            yes.target = no.target
+            no.target = target
+            p.arms[first] = yes
+            p.arms[first + 1] = no
+        }
+        b = b + 1
+    }
+    let swapped = mir_verify_module(&var p, m)
+    assert(unproven(&swapped) >= 1, "the verifier admits a payload read on another case's path")
+
+    // The scrutinee written again, `_2 = move _1`, just before the drop of
+    // what the arm left over: that drop would read the new value's bytes.
+    var q = lowered(&names, &dirs)
+    let qm = module_index(&q, "leftovers")
+    let g = matching_function(&q, qm)
+    let ginfo = q.funcs[g]
+    let entry = q.blocks[ginfo.block_first]
+    let write = q.stmts[entry.first]
+    assert(write.kind == MirStmtKind.Assign, "the match does not start by taking its scrutinee")
+    var inserted = false
+    b = 0
+    while b < ginfo.block_count && not inserted {
+        let block = q.blocks[ginfo.block_first + b]
+        b = b + 1
+        var prev = -1
+        var s = block.first
+        while s >= 0 && not inserted {
+            let stmt = q.stmts[s]
+            if stmt.kind == MirStmtKind.Drop && reads_payload(&q, stmt.place) && prev >= 0 {
+                let at = q.stmts.len()
+                try! q.stmts.push(MirStmt(kind: write.kind, place: write.place, rvalue: write.rvalue,
+                                          yields: false, next: s, node: write.node, closing: false))
+                var before = q.stmts[prev]
+                before.next = at
+                q.stmts[prev] = before
+                inserted = true
+            }
+            prev = s
+            s = stmt.next
+        }
+    }
+    assert(inserted, "the fixture's arm drops no leftover after another statement")
+    let rewritten = mir_verify_module(&var q, qm)
+    assert(unproven(&rewritten) == 1, "the verifier admits a leftover's drop after its scrutinee is written again")
+}

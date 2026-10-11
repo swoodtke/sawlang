@@ -307,7 +307,10 @@ through a reference to stay a reported move.
 
 **Optional heads** (`open_head` in `compiler/mir/src/lower.saw`, whose
 docstring lists its entry points: `if let`, `guard let`, `while let`). The
-subject is evaluated in a head scope of its own. Its absent edge runs that
+subject is evaluated in a head scope of its own, which also holds what the
+pattern leaves over of a consumed Optional (Consuming destructures, below):
+`if let` and `while let` pass `bind_test` that scope, `guard let` none, so a
+guard's leftovers drop at its binding. Its absent edge runs that
 scope's exits at once, its Optional and the subject's owned temporaries
 dropping there; `close_head` ends the scope on the present edge before it
 hands out the absent one, so a `guard`'s else block, lowered after, leaves
@@ -327,19 +330,35 @@ time. Each way out of a `guard let`'s else block, with a temporary owning a
 | a `try` inside the subject | guards `tried` |
 | an owning payload, `h!.label(n)`: taken by the binding on the present edge, the `None` dropped once on the absent one | guards `present` |
 
-**Consuming destructures** (`dissolve` in `compiler/mir/src/lower.saw`,
-whose docstring lists its entry points). Saw has no partial moves, so a value
+**Consuming destructures** (`leftovers` in `compiler/mir/src/lower.saw`, and
+its two clients `dissolve` and `hold_parts`, whose docstrings list their entry
+points). Saw has no partial moves, so a value
 comes apart only where a construct consumes it whole: a pattern whose bindings
 take parts by move, a payload taken out of an Optional or a Result, a field or
 element of a temporary read by value, and a `consumes` body's `move self.f`.
 The value, always a temporary (a consumed local moves into one first, `move
-o!` included), is dissolved at the destructure: the parts the bindings take
-move into them, every other owned part drops right there, in reverse
-declaration order (spec, Synthesized destruction), and the value is never
-dropped whole on that path, so it leaves its scope. A path that takes no part
-drops the value whole there instead. A construct is consuming when some
+o!` included), is taken apart at the destructure: the parts the bindings take
+move into them, and every other owned part, what the pattern leaves over
+(`leftovers`), drops in reverse declaration order (spec, Synthesized
+destruction). The value is never dropped whole on that path. A path that takes
+no part leaves the value over whole. A construct is consuming when some
 binding takes an owned part by move; one that only copies or borrows changes
 nothing.
+
+When the leftovers drop is the construct's (spec, Match consumes an owned
+enum). A destructuring `let`, `guard let`, `for` and the expression forms drop
+them at the destructure (`dissolve`), and take the value off its scope. A
+`match`, `if let` and `while let` complete after their body, so they hold them
+(`hold_parts`): the scope entry of the temporary, in the match's scope or the
+optional head's, becomes the implicit binding of exactly the leftover places
+(`hold_leftovers` in `compiler/mir/src/build.saw`), older than the body's
+bindings, and every exit of the body drops them after those bindings: the
+arm's or branch's end, each iteration's end, a `break`, `continue`, `return`
+or `try` out of it. A `match` records each arm's taken parts at its leaves
+(every leaf of one arm takes the same places, or it is an `INVARIANT`) and
+sets the entry as it lowers that arm, so a guard, which takes nothing, leaves
+the arm finally taken to decide, and an arm that binds nothing holds the whole
+value the same way. Golden `leftovers` covers each.
 
 | position | dissolved at | covered by |
 |---|---|---|
@@ -349,9 +368,10 @@ nothing.
 | `a ?? b` | the present edge's payload; the absent edge drops the `None` | destructures `coalesced` |
 | `move o!` | the Optional moved whole into a temporary, then its payload | destructures `moved_force` |
 | `f()!`, `f().field`, `f().0` by value | the temporary, around the part | destructures `temporary_parts` |
-| `match` on a consumed local or a temporary | each leaf, after its bindings | destructures `matched`, `matched_temporary` |
-| `if let`, `guard let`, `while let` | the present edge, after the binding; `if let x = move o` moves `o` into a temporary first | destructures `optional`, `unwrapped`, `drained` |
-| a destructuring `let` | after its bindings | destructures `destructured` |
+| `match` on a consumed local or a temporary | each leaf takes its bindings' parts; the leftovers drop on each exit of its arm, after the arm's bindings, a value `match`'s after its result is written | destructures `matched`, `matched_temporary`; leftovers `partial`, `guarded`, `returned`, `suspended` |
+| `if let`, `while let` | the present edge takes the binding's parts; the leftovers drop on each exit of the branch or iteration; `if let x = move o` moves `o` into a temporary first | destructures `optional`, `unwrapped`, `drained`; leftovers `unwrapped`, `drained` || `guard let` | the present edge, after the binding | destructures `unwrapped`; leftovers `guarded_let` |
+| a destructuring `let` | after its bindings | destructures `destructured`; leftovers `guarded_let` |
+| a borrowed scrutinee | nowhere: nothing is consumed | leftovers `borrowed`; Scrutinees read through a reference, below |
 | `for`'s `next()` Optional | each item, after the binding; an item nothing binds drops there | destructures `iterated` |
 | `move self.f` in a `consumes` body | every exit: the fields the body moves out nowhere, never the whole receiver nor its `deinit` body; a field moved on some paths to a return only is borrowck's `consumes.some-paths` | destructures `Holder.take_kept` |
 
@@ -458,6 +478,7 @@ slice.not-yet at L:C`.
 | a consuming destructure of a type that writes its own `deinit`, since the spec does not say whether dissolving one skips that body | consuming-deinit |
 | the release of a consumed receiver that moves out whole, or is an enum, when its type writes its own `deinit` | consumes-whole |
 | a write to an owning part of a raw pointer's pointee (`p[i].f = v`, `(*p).f = v`), since the spec makes only a whole pointer slot a placement write | pointer-part |
+| a `lend` in the body of a `match`, `if let` or `while let` that holds leftovers: the scrutinee is partly moved out across the `lend`, and the accessor's state record cannot carry a partial value yet (`record_flag_slots` in `compiler/mir/src/split.saw`) | leftover-lend |
 | a `for` head that lends a place; a `borrows` call lending a slice or a borrowing struct outside a `for` head; a `borrows` function called with no receiver; a setitem derived from a conditional lend; a conditional lend's place read other than through `!` | none: nothing in the slice reaches them |
 
 Two constructs typecheck refuses before lowering, as `transfer.partial-move`,
@@ -550,7 +571,20 @@ nowhere, and checks, from the MIR alone:
   its flag's clear and by swapping its switch's arms, and requires the report
   each time;
 - every `take(_L, _F)` names a whole local and a take flag, and is typed
-  `(&var T, &var Bool)`.
+  `(&var T, &var Bool)`;
+- every proven payload `(P as CASE)` a statement or terminator uses (read,
+  moved, borrowed, written or dropped) stands where every path from the entry
+  has taken CASE's edge of a switch on `P`'s discriminant, with nothing since
+  writing `P` or a place it lies in (an assignment, a call's destination, a
+  drop, an exclusive borrow); a checked `(P as CASE!)` needs no proof, and an
+  epilogue's entry knows none. A construct's leftovers are such places,
+  dropped after its body, so this is the check that each drops only on its
+  own case's paths and never after its storage took a new value (an arm
+  assigning the consumed variable writes the variable, not the match's
+  temporary, so it is no such write). The unit program `compiler/mir/tests/verify_payloads.saw`
+  edits `inject/leftovers.saw`'s lowered match twice, swapping its switch's
+  arms and writing the scrutinee again before the leftover's drop, and
+  requires the report each time.
 
 ## Source nodes
 

@@ -1,0 +1,53 @@
+// differs: SL:hazards C11, Stage 0 destroys a discarded element at the binding
+// prints: item 3
+// prints: drop 3
+// prints: drop 30
+// prints: item 2
+// prints: drop 2
+// prints: drop 20
+// prints: skip 1
+// prints: drop 1
+// prints: drop 10
+// prints: stop 9
+// prints: drop 9
+// prints: drop 90
+// prints: done
+// A `while let` completes once per iteration: the element its tuple pattern
+// discards dies at the end of each iteration, after `x`, and on the
+// `continue` and `break` edges too.
+struct Noisy {
+    id: Int
+}
+
+extension Noisy: NoCopy {
+    func deinit(&var self) {
+        print("drop {}", self.id)
+    }
+}
+
+func next(k: Int) -> (Noisy, Noisy)? {
+    if k == 0 {
+        return (Noisy(id: 9), Noisy(id: 90))
+    }
+    if k < 0 {
+        return None
+    }
+    (Noisy(id: k), Noisy(id: k * 10))
+}
+
+func main() {
+    var k = 3
+    while let (x, _) = next(k) {
+        k = k - 1
+        if x.id == 1 {
+            print("skip {}", x.id)
+            continue
+        }
+        if x.id == 9 {
+            print("stop {}", x.id)
+            break
+        }
+        print("item {}", x.id)
+    }
+    print("done")
+}

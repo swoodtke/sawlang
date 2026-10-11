@@ -1,0 +1,34 @@
+// differs: SL:hazards C11, Stage 0 destroys both parts at the scope's end here
+// prints: second 2
+// prints: drop 2
+// prints: drop 1
+// prints: after
+// A guarded arm that binds an owning payload and fails, falling through to a
+// later arm: the guard takes nothing, and the arm finally taken decides what
+// is left over, which dies after that arm's own binding.
+struct Noisy {
+    id: Int
+}
+
+extension Noisy: NoCopy {
+    func deinit(&var self) {
+        print("drop {}", self.id)
+    }
+}
+
+enum Pair {
+    case Both(a: Noisy, b: Noisy),
+    case Neither
+}
+
+extension Pair: NoCopy {}
+
+func main() {
+    let p = Pair.Both(a: Noisy(id: 1), b: Noisy(id: 2))
+    match p {
+        case Both(x, _) if x.id > 5 -> print("big {}", x.id),
+        case Both(_, y) -> print("second {}", y.id),
+        case Neither -> print("neither")
+    }
+    print("after")
+}

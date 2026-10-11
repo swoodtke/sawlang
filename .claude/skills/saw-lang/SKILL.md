@@ -1185,6 +1185,14 @@ var u = w.copy()       // explicit duplicate
   driven twin, whose whole-value release goes through the synthesized deinit)
   and the destructuring `let`'s (both twins) — so distrust a multi-field discard's
   order in an older build. Only the ORDER moved; nothing leaked either way.
+- **A DISCARDED PART DIES WHEN THE CONSTRUCT THAT TOOK IT COMPLETES** (SL-513,
+  ruled Oct 10). In a consumed `match`, `if let` or `while let`, what no
+  binding takes (`case Both(a, _)`, `case Full(_)`, `case _`, `if let (x, _)`)
+  is held by an implicit binding older than the arm's, so it dies AFTER the
+  body and its bindings (per iteration for `while let`), on early exits too: a
+  `_`-discarded guard or fd stays held through the arm. `let (a, _)`,
+  `guard let (a, _)` and `let _` still discard at the statement. Stage 0 drops
+  at arm entry (SL:hazards C11); sawc2 is right.
 - `let _ = expr` = true discard (consumes + drops immediately). It is also the
   REQUIRED spelling for dropping a `Result` (design 151, Errors below).
 

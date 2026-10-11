@@ -1,0 +1,42 @@
+// differs: SL:hazards C10, Stage 0 keeps an Optional arm's payload to scope end
+// prints: filled 1
+// prints: drop 1
+// prints: after enum match
+// prints: some 2
+// prints: drop 2
+// prints: after optional match
+// prints: end
+// A consumed `match` on an owned enum and on an owned Optional: each arm
+// binding owns its payload and dies at the arm's end, for both.
+struct Noisy {
+    id: Int
+}
+
+extension Noisy: NoCopy {
+    func deinit(&var self) {
+        print("drop {}", self.id)
+    }
+}
+
+enum Slot {
+    case Filled(n: Noisy),
+    case Empty
+}
+
+extension Slot: NoCopy {}
+
+func main() {
+    let s = Slot.Filled(n: Noisy(id: 1))
+    match s {
+        case Filled(n) -> print("filled {}", n.id),
+        case Empty -> print("empty")
+    }
+    print("after enum match")
+    let o: Noisy? = Noisy(id: 2)
+    match o {
+        case Some(n) -> print("some {}", n.id),
+        case _ -> print("none")
+    }
+    print("after optional match")
+    print("end")
+}

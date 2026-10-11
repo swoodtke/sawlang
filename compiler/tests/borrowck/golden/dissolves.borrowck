@@ -379,8 +379,7 @@ fn dissolves.matched(n: Int) {
     }
 
     bb4: {
-        [W U W] drop(_2);  // static
-        [D U D] goto -> bb6;
+        [W U W] goto -> bb6;
     }
 
     bb5: {
@@ -388,7 +387,8 @@ fn dissolves.matched(n: Int) {
     }
 
     bb6: {
-        [D U D] _0 = const 0: Int;
+        [W U W] _0 = const 0: Int;
+        [W U W] drop(_2);  // static
         [D U D] goto -> bb2;
     }
 

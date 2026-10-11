@@ -20,7 +20,10 @@ exit status compared.
   compilers may word differently, for the reason given (a panic raised inside
   std reports std's own file and line, and the two stds are different files):
   the lane compares the exit status and every line but a `panic at` line's
-  location;
+  location; when the reason cites an SL:hazards entry, a timing Stage 0 gets
+  wrong, the program's `// prints: LINE` headers are the oracle instead:
+  sawc2 must print exactly those lines, and Stage 0 the same lines in some
+  other order, since such a hazard moves output and never adds or loses it;
 - `hello.saw`'s `.ll`, as the compiler binary writes it, equals `hello.ll`
   byte for byte;
 - `sawc2 build --target` refuses every target but the host, and links
@@ -52,6 +55,8 @@ BUILD_TIMEOUT = 600
 _DUE = re.compile(r"^// due: (.+)$")
 _REFUSES = re.compile(r"^// refuses: (\S+) at (\d+:\d+)$")
 _DIFFERS = re.compile(r"^// differs: (.+)$")
+_HAZARD = re.compile(r"\bSL:hazards C\d+\b")
+_PRINTS = re.compile(r"^// prints: (.*)$")
 _PANIC = re.compile(r"^panic at [^:]+:\d+: ")
 _RULE = re.compile(r'try! out\.push\("([^"]+)"\)')
 RULES_SOURCE = os.path.join(COMPILER, "llvm", "src", "module.saw")
@@ -82,6 +87,44 @@ def headers(path):
             if m:
                 differs = m.group(1)
     return due, refuses, differs
+
+
+def stated_prints(path):
+    """The output lines a program's `// prints:` headers state, in order."""
+    lines = []
+    with open(path) as fh:
+        for line in fh:
+            line = line.rstrip("\n")
+            if not line.startswith("//"):
+                break
+            m = _PRINTS.match(line)
+            if m:
+                lines.append(m.group(1))
+    return lines
+
+
+def check_hazard(src, differs, out_new, out_old):
+    """Failures for a program whose `// differs:` cites an SL:hazards entry:
+    its `// prints:` lines are what sawc2 must print, and Stage 0 must print
+    the same lines in another order."""
+    stated = stated_prints(src)
+    if not stated:
+        return ["run %s: cites %s but states no `// prints:` lines" % (rel(src), _HAZARD.search(differs).group(0))]
+    want = ("\n".join(stated) + "\n").encode("utf-8")
+    failures = []
+    if out_new != want:
+        failures.append("run %s: sawc2 does not print the stated lines: %s"
+                        % (rel(src), first_difference(out_new, want)))
+    old_lines = out_old.decode("utf-8", "replace").split("\n")
+    if old_lines and old_lines[-1] == "":
+        old_lines = old_lines[:-1]
+    if out_old == want:
+        failures.append("run %s: Stage 0 prints the stated lines, so %s no longer shows here: drop the "
+                        "`// differs:` line" % (rel(src), _HAZARD.search(differs).group(0)))
+    elif sorted(old_lines) != sorted(stated):
+        failures.append("run %s: Stage 0's output differs beyond the order %s moves: %s"
+                        % (rel(src), _HAZARD.search(differs).group(0), first_difference(out_old, want)))
+    return failures
 
 
 def first_error(output):
@@ -170,7 +213,9 @@ def check_case(src):
         failures.append("run %s: a binary timed out" % rel(src))
     elif code_new != code_old:
         failures.append("run %s: exit %d under sawc2, %d under Stage 0" % (rel(src), code_new, code_old))
-    if differs is not None:
+    if differs is not None and _HAZARD.search(differs):
+        failures.extend(check_hazard(src, differs, out_new, out_old))
+    elif differs is not None:
         if masked(out_new) != masked(out_old):
             failures.append("run %s: output differs beyond a panic location: %s"
                             % (rel(src), first_difference(out_new, out_old)))

@@ -1,0 +1,33 @@
+// `let (a, _)` and `guard let (a, _)` bind into the enclosing scope, so the
+// statement is the construct that took the pair, and the discarded element
+// dies as it completes, before anything after it runs; `let _ = e` too. The
+// two compilers agree on these.
+struct Noisy {
+    id: Int
+}
+
+extension Noisy: NoCopy {
+    func deinit(&var self) {
+        print("drop {}", self.id)
+    }
+}
+
+func pair(a: Int, b: Int) -> (Noisy, Noisy)? {
+    (Noisy(id: a), Noisy(id: b))
+}
+
+func via_guard() {
+    guard let (k, _) = pair(5, 6) else {
+        return
+    }
+    print("guard bound {}", k.id)
+}
+
+func main() {
+    via_guard()
+    print("after guard")
+    let (m, _) = (Noisy(id: 7), Noisy(id: 8))
+    print("let bound {}", m.id)
+    let _ = Noisy(id: 1)
+    print("after discard")
+}

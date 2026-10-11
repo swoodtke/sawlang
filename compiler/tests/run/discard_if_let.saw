@@ -1,0 +1,46 @@
+// differs: SL:hazards C11, Stage 0 destroys a discarded element at the binding
+// prints: if bound 1
+// prints: drop 1
+// prints: drop 2
+// prints: after if
+// prints: var bound 3
+// prints: drop 3
+// prints: drop 4
+// prints: none
+// prints: end
+// The element an `if let` tuple pattern discards is held by an implicit
+// binding older than `x`, so it dies after the then-branch and after `x`.
+// The absent edge destroys nothing it never had.
+struct Noisy {
+    id: Int
+}
+
+extension Noisy: NoCopy {
+    func deinit(&var self) {
+        print("drop {}", self.id)
+    }
+}
+
+func pair(a: Int, b: Int) -> (Noisy, Noisy)? {
+    if a < 0 {
+        return None
+    }
+    (Noisy(id: a), Noisy(id: b))
+}
+
+func main() {
+    if let (x, _) = pair(1, 2) {
+        print("if bound {}", x.id)
+    }
+    print("after if")
+    if var (y, _) = pair(3, 4) {
+        y.id = y.id
+        print("var bound {}", y.id)
+    }
+    if let (z, _) = pair(-1, 0) {
+        print("unexpected {}", z.id)
+    } else {
+        print("none")
+    }
+    print("end")
+}

@@ -1,0 +1,41 @@
+// A `match` on a field borrows it, so a `_` there destroys nothing: both
+// matches see the payload, and it dies once, when its owner does.
+struct Noisy {
+    id: Int
+}
+
+extension Noisy: NoCopy {
+    func deinit(&var self) {
+        print("drop {}", self.id)
+    }
+}
+
+enum Slot {
+    case Full(a: Noisy),
+    case Empty
+}
+
+extension Slot: NoCopy {}
+
+struct Holder {
+    slot: Slot
+}
+
+extension Holder: NoCopy {}
+
+func probe(h: &Holder) {
+    match h.slot {
+        case Full(_) -> print("full"),
+        case Empty -> print("empty")
+    }
+}
+
+func main() {
+    let h = Holder(slot: Slot.Full(a: Noisy(id: 5)))
+    match h.slot {
+        case Full(_) -> print("first"),
+        case Empty -> print("empty")
+    }
+    probe(&h)
+    print("end")
+}

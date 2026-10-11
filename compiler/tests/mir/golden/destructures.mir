@@ -517,7 +517,6 @@ fn destructures.matched(n: Int) -> Int {
     bb3: {
         _5 = move (_4 as Filled).0;
         _6 = copy (_4 as Filled).2;
-        drop((_4 as Filled).1);
         goto -> bb6;
     }
 
@@ -526,7 +525,6 @@ fn destructures.matched(n: Int) -> Int {
     }
 
     bb5: {
-        drop(_4);
         goto -> bb11;
     }
 
@@ -536,13 +534,11 @@ fn destructures.matched(n: Int) -> Int {
 
     bb7: {
         _7 = move ((_4 as Nested).0 as Some).0;
-        drop((_4 as Nested).1);
         goto -> bb9;
     }
 
     bb8: {
         _8 = move (_4 as Nested).1;
-        drop((_4 as Nested).0);
         goto -> bb10;
     }
 
@@ -556,6 +552,7 @@ fn destructures.matched(n: Int) -> Int {
 
     bb11: {
         _0 = const 0: Int;
+        drop(_4);
         goto -> bb2;
     }
 
@@ -563,18 +560,21 @@ fn destructures.matched(n: Int) -> Int {
         _10 = Add(move _9, copy _6);
         _0 = move _10;
         drop(_5);
+        drop((_4 as Filled).1);
         goto -> bb2;
     }
 
     bb13: {
         _0 = move _11;
         drop(_7);
+        drop((_4 as Nested).1);
         goto -> bb2;
     }
 
     bb14: {
         _0 = move _12;
         drop(_8);
+        drop((_4 as Nested).0);
         goto -> bb2;
     }
 }
@@ -600,12 +600,10 @@ fn destructures.matched_temporary(n: Int) -> Int {
 
     bb3: {
         _3 = move (_2 as Filled).1;
-        drop((_2 as Filled).0);
         goto -> bb5;
     }
 
     bb4: {
-        drop(_2);
         goto -> bb6;
     }
 
@@ -615,12 +613,14 @@ fn destructures.matched_temporary(n: Int) -> Int {
 
     bb6: {
         _0 = const 0: Int;
+        drop(_2);
         goto -> bb2;
     }
 
     bb7: {
         _0 = move _4;
         drop(_3);
+        drop((_2 as Filled).0);
         goto -> bb2;
     }
 }

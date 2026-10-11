@@ -432,12 +432,10 @@ fn dissolves.matched(n: Int) -> Int {
 
     bb3: {
         _3 = move (_2 as Pair).0;
-        drop((_2 as Pair).1);
         goto -> bb5;
     }
 
     bb4: {
-        drop(_2);
         goto -> bb6;
     }
 
@@ -447,11 +445,13 @@ fn dissolves.matched(n: Int) -> Int {
 
     bb6: {
         _0 = const 0: Int;
+        drop(_2);
         goto -> bb2;
     }
 
     bb7: {
         _0 = move _4;
+        drop((_2 as Pair).1);
         goto -> bb2;
     }
 

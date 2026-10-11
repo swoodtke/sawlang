@@ -1,0 +1,115 @@
+// A discarded part dies when the construct that took it completes (spec,
+// Match consumes an owned enum). A `match`, `if let` or `while let` holds
+// what its pattern leaves over of the scrutinee it consumed, a temporary of
+// its own scope, and drops it on every way out of the body, after the body's
+// bindings: at the arm's end, on a `return` or `break` from it, after a
+// suspending call in it, per iteration for `while let`, after a value
+// `match` writes its result. A guard takes nothing, so the arm finally taken
+// decides what is left over. `let` and `guard let` drop what they discard as
+// the statement completes, and a borrowed scrutinee drops nothing.
+
+import std.task.{yield_now}
+
+struct Res { id: Int }
+extension Res: NoCopy {}
+
+enum Two {
+    case Both(a: Res, b: Res),
+    case One(a: Res)
+}
+extension Two: NoCopy {}
+
+struct Holder { slot: Two }
+extension Holder: NoCopy {}
+
+func two(n: Int) -> Two { Two.Both(a: Res(id: n), b: Res(id: n + 1)) }
+func pair(n: Int) -> (Res, Res)? {
+    if n < 0 {
+        return None
+    }
+    (Res(id: n), Res(id: n + 1))
+}
+func touch(r: &Res) -> Int { r.id }
+
+// `b` dies after `a`, at the arm's end; the arm that binds nothing drops the
+// whole scrutinee there too.
+func partial(n: Int) -> Int {
+    let t = two(n)
+    match t {
+        case Both(a, _) -> touch(&a),
+        case One(_) -> 0
+    }
+}
+
+// The guard reads `x` through a reference and takes nothing; the arm taken
+// on its false edge leaves over `.0`.
+func guarded(n: Int) -> Int {
+    match two(n) {
+        case Both(x, _) if x.id > 5 -> touch(&x),
+        case Both(_, y) -> touch(&y),
+        case One(a) -> touch(&a)
+    }
+}
+
+// A `return` from the arm drops the leftover on its way out.
+func returned(n: Int) -> Int {
+    match two(n) {
+        case Both(a, _) -> {
+            if a.id > 3 {
+                return 1
+            }
+            touch(&a)
+        },
+        case One(_) -> 0
+    }
+}
+
+// The leftover is live across the arm's suspension point.
+func suspended(n: Int) -> Int {
+    match two(n) {
+        case Both(a, _) -> {
+            yield_now()
+            touch(&a)
+        },
+        case One(_) -> 0
+    }
+}
+
+// The element `_` takes dies after the branch and `x`.
+func unwrapped(n: Int) -> Int {
+    if let (x, _) = pair(n) {
+        return touch(&x)
+    }
+    0
+}
+
+// Per iteration, and on the `break`.
+func drained(n: Int) -> Int {
+    var total = 0
+    var k = n
+    while let (x, _) = pair(k) {
+        if x.id > 9 {
+            break
+        }
+        total = total + touch(&x)
+        k = k - 1
+    }
+    total
+}
+
+// Controls: `guard let` and `let` drop their `_` element at the statement.
+func guarded_let(n: Int) -> Int {
+    guard let (x, _) = pair(n) else {
+        return 0
+    }
+    let (y, _) = (Res(id: n), Res(id: n))
+    touch(&x) + touch(&y)
+}
+
+// A borrowed scrutinee drops nothing.
+func borrowed(h: &Holder) -> Int {
+    match h.slot {
+        case Both(_, b) -> touch(&b),
+        case One(_) -> 0
+    }
+}

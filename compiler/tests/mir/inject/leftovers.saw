@@ -1,0 +1,19 @@
+// A `match` holding what its arm leaves over, `b`, until the arm completes:
+// `compiler/mir/tests/verify_payloads.saw` lowers it, then edits the MIR so
+// the leftover's drop is no longer proven.
+
+struct Res { id: Int }
+extension Res: NoCopy {}
+
+enum Two {
+    case Both(a: Res, b: Res),
+    case One(a: Res)
+}
+extension Two: NoCopy {}
+
+func held(t: Two) -> Int {
+    match t {
+        case Both(a, _) -> a.id,
+        case One(_) -> 0
+    }
+}

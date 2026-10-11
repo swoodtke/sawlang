@@ -859,6 +859,9 @@ Binding rules are `if let`'s, applied once per iteration:
   `NoCopy` one needs `move`, `.copy()` or `take()` exactly where `if let` needs
   it.
 - `while var x = ...` binds mutably, as `if var` does.
+- The same destruction. The bindings die at the end of each iteration, and a
+  part the pattern discards with `_` dies right after them, before the
+  scrutinee is evaluated again (see [The Deinit trait](#the-deinit-trait)).
 
 There is no `else` clause. The absent case is the loop exit, so writing one is a
 parse error naming `if let ... else` as the one-shot form.
@@ -1838,6 +1841,69 @@ match s {
 }
 match s { ... }   // error: use of moved variable `s`
 ```
+
+**A discarded part dies when the `match` completes.** Each arm binding owns
+the part it binds. What no binding of the arm takes, a `_` sub-pattern, a
+pattern such as `Filled(_)` that binds nothing, or a `case _` arm, is held by an
+implicit binding of the `match` itself. That binding is older than the arm's
+own bindings, so it dies after them, once the arm's body completes, and the
+parts it holds die in reverse declaration order.
+
+```saw
+struct Res {
+    id: Int
+}
+
+extension Res: NoCopy {
+    func deinit(&var self) {
+        print("deinit {}", self.id)
+    }
+}
+
+enum Pair {
+    case Both(a: Res, b: Res),
+    case Neither
+}
+
+extension Pair: NoCopy {}
+
+func main() {
+    let p = Pair.Both(a: Res(id: 1), b: Res(id: 2))
+    match p {
+        case Both(a, _) -> print("arm {}", a.id),
+        case Neither -> print("neither")
+    }
+    print("after")
+}
+// prints: arm 1, deinit 1, deinit 2, after
+```
+
+The rest follows from treating what is left over as a binding:
+
+- A guard takes nothing. It reads its arm's bindings, and when it fails and a
+  later arm runs, the arm finally taken decides what is left over.
+- The `match` holds the scrutinee in storage of its own. Assigning the consumed
+  variable inside an arm (a moved `var` revives on assignment) starts a new
+  value; what the arm left over of the old one still dies when the arm
+  completes, and the new value lives on in the variable.
+- A value `match`, `let x = match s { ... }`, moves the arm's result out
+  first. The leftovers die next, and then `x` is bound.
+- An early exit from the arm, `return`, `break`, `continue` or a `try` that
+  propagates, destroys the leftovers on its way out, as it destroys every
+  other binding it leaves.
+- A part discarded with `_` stays held for the whole arm, across the arm's
+  suspensions too. A file, a connection or a lock guard discarded this way is
+  released after the arm runs, not before: `case Locked(_) -> critical()`
+  calls `critical()` with the guard still held.
+
+A borrowed scrutinee is unaffected. A `match` through a `&` or `&var`
+parameter, a receiver, a field or a tuple element consumes nothing, so a `_`
+there destroys nothing, and the value's owner still ends it.
+
+`if let` and `while let` follow the same rule, since their body is the
+construct that took the value; `let`, `guard let` and `let _` destroy what they
+discard at once, because their bindings belong to the enclosing scope (see
+[The Deinit trait](#the-deinit-trait)).
 
 A Copy-tier enum is matched as a borrow instead. Each binding takes a
 retain of the payload and releases it when the arm ends; the scrutinee keeps
@@ -5775,6 +5841,44 @@ edges, so a `return` out of the branch releases it exactly as falling off the
 end of the branch does. A `guard let` binding is the deliberate exception: it
 outlives the guard by design, so it belongs to the enclosing scope and is
 released with it.
+
+A part the pattern discards dies when the construct that took it completes,
+the rule [Match consumes an owned enum](#match-consumes-an-owned-enum) states
+for `match`. For `if let` and `if var` the construct is the then-branch: in
+`if let (x, _) = pair()` the `_` element is held by an implicit binding older
+than `x`, and dies after `x`, on the same list of edges. For `while let` and
+`while var` it is one iteration, so the discarded part dies at the end of each
+iteration, before the scrutinee is evaluated again. `let (a, _) = pair`,
+`guard let (a, _) = o` and `let _ = e` destroy what they discard as the
+statement completes: their bindings enter the enclosing scope, so the
+statement itself is the construct, and nothing about it waits for the scope to
+end.
+
+```saw
+struct Res {
+    id: Int
+}
+
+extension Res: NoCopy {
+    func deinit(&var self) {
+        print("deinit {}", self.id)
+    }
+}
+
+func pair(a: Int, b: Int) -> (Res, Res)? {
+    (Res(id: a), Res(id: b))
+}
+
+func main() {
+    if let (x, _) = pair(1, 2) {
+        print("bound {}", x.id)
+    }
+    // prints: bound 1, deinit 1, deinit 2
+    let (y, _) = (Res(id: 3), Res(id: 4))
+    print("bound {}", y.id)
+    // prints: deinit 4, bound 3, then deinit 3 when main ends
+}
+```
 
 You rarely write the body. Any struct or enum that owns something gets a
 memberwise `deinit` synthesized from its fields, so a hand-written one is for

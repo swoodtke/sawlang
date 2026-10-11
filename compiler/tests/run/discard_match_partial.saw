@@ -1,0 +1,50 @@
+// differs: SL:hazards C11, Stage 0 destroys a discarded part at arm entry
+// prints: arm a 1
+// prints: drop 1
+// prints: drop 2
+// prints: after 1
+// prints: arm one
+// prints: drop 3
+// prints: after 2
+// prints: arm wild
+// prints: drop 4
+// prints: after 3
+// What a consumed `match` arm does not bind is held by an implicit binding
+// older than the arm's own: `_` beside a binding dies after it, at the arm's
+// end, and so does a payload `One(_)` or a `case _` arm discards whole.
+struct Noisy {
+    id: Int
+}
+
+extension Noisy: NoCopy {
+    func deinit(&var self) {
+        print("drop {}", self.id)
+    }
+}
+
+enum Two {
+    case Both(a: Noisy, b: Noisy),
+    case One(a: Noisy)
+}
+
+extension Two: NoCopy {}
+
+func main() {
+    let m = Two.Both(a: Noisy(id: 1), b: Noisy(id: 2))
+    match m {
+        case Both(a, _) -> print("arm a {}", a.id),
+        case One(a) -> print("one {}", a.id)
+    }
+    print("after 1")
+    let n = Two.One(a: Noisy(id: 3))
+    match n {
+        case Both(_, _) -> print("both"),
+        case One(_) -> print("arm one")
+    }
+    print("after 2")
+    let k = Two.One(a: Noisy(id: 4))
+    match k {
+        case _ -> print("arm wild")
+    }
+    print("after 3")
+}

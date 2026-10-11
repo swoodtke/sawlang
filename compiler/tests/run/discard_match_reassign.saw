@@ -1,0 +1,49 @@
+// differs: SL:hazards C11, Stage 0 destroys a discarded payload at arm entry
+// prints: arm reassigned
+// prints: drop 3
+// prints: after match
+// prints: arm emptied
+// prints: drop 4
+// prints: end
+// prints: drop 9
+// The match holds its scrutinee in storage of its own: an arm that assigns
+// the consumed variable again (a moved `var` revives on assignment) starts a
+// new value, and what the arm left over of the old one still dies when the
+// arm completes.
+struct Noisy {
+    id: Int
+}
+
+extension Noisy: NoCopy {
+    func deinit(&var self) {
+        print("drop {}", self.id)
+    }
+}
+
+enum Slot {
+    case Full(a: Noisy),
+    case Empty
+}
+
+extension Slot: NoCopy {}
+
+func main() {
+    var s = Slot.Full(a: Noisy(id: 3))
+    match s {
+        case Full(_) -> {
+            s = Slot.Full(a: Noisy(id: 9))
+            print("arm reassigned")
+        },
+        case Empty -> print("empty")
+    }
+    print("after match")
+    var t = Slot.Full(a: Noisy(id: 4))
+    match t {
+        case Full(_) -> {
+            t = Slot.Empty
+            print("arm emptied")
+        },
+        case Empty -> print("empty")
+    }
+    print("end")
+}

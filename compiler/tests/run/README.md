@@ -122,6 +122,14 @@ description's (`compiler/tests/mono/README.md`, "Layouts").
 - a `// differs: REASON` program compares its exit status and every line
   but a `panic at` line's location, for a panic std raises, since each
   compiler's std is its own file;
+- a `// differs:` program whose REASON cites an SL:hazards entry is one whose
+  output Stage 0 orders wrongly, a destruction timing it gets wrong (C10,
+  C11): its `// prints: LINE` headers, one per line of output, are the
+  oracle in Stage 0's place. sawc2 must print exactly them, Stage 0 the same
+  lines in another order, since such a hazard moves a line and never adds or
+  loses one, and both must exit alike; a Stage 0 that prints them in order
+  fails the program too, so the line comes off when the hazard no longer
+  shows there;
 - a `// due: REASON` program, with `// refuses: RULE at L:C` after it, must
   be refused there by that rule; once sawc2 builds it the lane fails, so the
   lines come off as the slice grows; every rule of `ll_rules` has one;
