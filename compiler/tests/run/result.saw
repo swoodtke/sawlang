@@ -1,0 +1,42 @@
+// Results: the automatic wraps, `try` handing an error on, a `match` on both
+// cases, and `try!` on success.
+enum Problem {
+    case Negative(value: Int),
+    case TooBig
+}
+
+func checked_double(n: Int) -> Result<Int, Problem> {
+    if n < 0 {
+        return Problem.Negative(value: n)
+    }
+    if n > 1000 {
+        return Problem.TooBig
+    }
+    n * 2
+}
+
+func quadruple(n: Int) -> Result<Int, Problem> {
+    let twice = try checked_double(n)
+    let again = try checked_double(twice)
+    again
+}
+
+func report(r: Result<Int, Problem>) {
+    match r {
+        case Ok(v) -> print("ok {}", v),
+        case Err(e) -> {
+            match e {
+                case Negative(value) -> print("negative {}", value),
+                case TooBig -> print("too big")
+            }
+        }
+    }
+}
+
+func main() {
+    report(quadruple(5))
+    report(quadruple(-3))
+    report(quadruple(400))
+    let sure = try! checked_double(21)
+    print("sure {}", sure)
+}

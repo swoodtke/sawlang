@@ -1,0 +1,42 @@
+// A type with a printing `deinit`: scope exits drop in reverse declaration
+// order, a moved value drops once at its new owner, a conditional move is
+// decided by a drop flag, and a struct holding two drops its fields in
+// reverse.
+struct Noisy {
+    id: Int
+}
+
+extension Noisy: NoCopy {
+    func deinit(&var self) {
+        print("drop {}", self.id)
+    }
+}
+
+struct Holder {
+    first: Noisy
+    second: Noisy
+}
+
+extension Holder: NoCopy {}
+
+func consume(n: Noisy) {
+    print("consuming {}", n.id)
+}
+
+func maybe(flag: Bool) {
+    let n = Noisy(id: 30)
+    if flag {
+        consume(move n)
+    }
+    print("end of maybe {}", flag)
+}
+
+func main() {
+    let a = Noisy(id: 1)
+    let b = Noisy(id: 2)
+    consume(move b)
+    let h = Holder(first: Noisy(id: 10), second: Noisy(id: 11))
+    maybe(true)
+    maybe(false)
+    print("end of main {} {}", a.id, h.first.id)
+}

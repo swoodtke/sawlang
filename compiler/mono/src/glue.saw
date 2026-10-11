@@ -1,0 +1,296 @@
+// Glue (SL:architecture §3.7, §3.8): what a drop or a copy of a concrete type
+// does, made once per type as a synthesized concrete MIR function. A drop's
+// glue follows drop elaboration's resolution: the type's written `deinit`,
+// then its owning parts in reverse declaration order, an enum's active
+// payload by a switch on its case. A copy's glue runs only where a value of a
+// type that is not trivially copyable is copied, which concrete MIR spells
+// as a `copy` operand only in a generic body: the type's written `copy()`
+// when its conformance writes one, else a memberwise rebuild whose parts
+// copy by their own glue.
+
+import sawborrowck.src.program.{BorrowckProgram}
+import sawdrops.src.program.{DropsProgram}
+import sawmir.src.build.{mir_func_local}
+import sawmir.src.model.{MirAggregate, MirCall, MirCallKind, MirFunc, MirFuncKind, MirLocalKind, MirOperandKind,
+                         MirProjKind}
+import sawmir.src.program.{MirProgram}
+import sawmono.src.program.{MONO_KEY_COPY, MONO_KEY_DROP, MonoItem, MonoItemKind, MonoProgram}
+import sawresolve.src.model.{ResDeclKind}
+import sawresolve.src.program.{ResProgram}
+import sawtarget.src.layout.{target_enum_cases, target_member_type, target_struct_fields}
+import sawtypecheck.src.model.{TcSource}
+import sawtypecheck.src.program.{TcProgram}
+import sawtypecheck.src.spell.{tc_effects_text}
+import sawtypecheck.src.signatures.{TcContext}
+import sawtypecheck.src.tier.{tc_compute_tiers}
+import sawtypecheck.src.typeops.{TcClient}
+import sawtypecheck.src.types.{TcKind}
+
+// Whether a copy of type `t` is the bits alone: a trivially copyable type, a
+// reference, a slice, or a function value.
+public func mono_copies_bitwise(tc: &var TcProgram, t: Int) -> Bool {
+    if t < 0 {
+        return true
+    }
+    let kind = tc.kind_of(t)
+    if kind == TcKind.Ref || kind == TcKind.Slice || kind == TcKind.Func {
+        return true
+    }
+    tc.is_trivial(t, 0)
+}
+
+extension MonoProgram {
+    // A synthesized function's frame: `_0` of `result`, `_1` the parameter;
+    // the builder positioned in its entry block.
+    func begin_glue(&var self, result: Int, param: Int) -> Int {
+        let f = self.dp.bc.mir.funcs.len()
+        let local_first = self.dp.bc.mir.locals.len()
+        let block_first = self.dp.bc.mir.blocks.len()
+        let window_first = self.dp.bc.mir.windows.len()
+        try! self.dp.bc.mir.funcs.push(MirFunc(module: -1, kind: MirFuncKind.Body, decl: -1, root: -1, param: -1,
+                                               parent: -1, ordinal: 0, local_first: local_first, local_count: 0,
+                                               block_first: block_first, block_count: 0, param_count: 1,
+                                               window_first: window_first, window_count: 0, owner: -1,
+                                               refused: false, order: 0, record_first: 0, record_count: 0,
+                                               record_flags_first: 0, carried_first: 0, carried_count: 0))
+        self.dp.bc.mir.cur = f
+        self.dp.bc.mir.local_base = local_first
+        self.dp.bc.mir.block_base = block_first
+        self.dp.bc.mir.at = -1
+        self.dp.bc.mir.at_closing = false
+        let _ = self.dp.bc.mir.new_local(result, MirLocalKind.Return, -1, -1)
+        let _ = self.dp.bc.mir.new_local(param, MirLocalKind.Param, -1, -1)
+        let entry = self.dp.bc.mir.new_block()
+        self.dp.bc.mir.enter(entry)
+        f
+    }
+
+    func finish_glue(&var self, k: Int, f: Int) {
+        var info = self.dp.bc.mir.funcs[f]
+        info.local_count = self.dp.bc.mir.locals.len() - info.local_first
+        info.block_count = self.dp.bc.mir.blocks.len() - info.block_first
+        self.dp.bc.mir.funcs[f] = info
+        self.dp.bc.mir.current = -1
+        var done = self.items[k]
+        done.body = f
+        self.items[k] = done
+    }
+
+    // `(*_1)`: the value glue's parameter refers to.
+    func glue_subject(&var self, t: Int) -> Int {
+        let p = self.dp.bc.mir.place_local(1)
+        self.dp.bc.mir.project(p, MirProjKind.Deref, -1, -1, t)
+    }
+
+    public func build_drop_glue(&var self, k: Int) {
+        let t = self.items[k].glue_type
+        let void_decl = self.dp.bc.mir.tc.known.void_type
+        let void_type = self.dp.bc.mir.tc.prim(void_decl)
+        let param = self.dp.bc.mir.tc.mk_ref(true, t)
+        let f = self.begin_glue(void_type, param)
+        let d = self.dp.bc.mir.tc.nominal_decl(t)
+        if d >= 0 {
+            let member = self.dp.bc.mir.deinit_member(d)
+            if member >= 0 {
+                let decl = self.dp.bc.mir.tc.members[member].decl
+                let subject = self.glue_subject(t)
+                let rv = self.dp.bc.mir.rv_ref(true, subject)
+                let receiver = self.dp.bc.mir.temp_of(rv)
+                let op = self.dp.bc.mir.move_local(receiver)
+                var args = Vector<Int>()
+                try! args.push(op)
+                var c = self.dp.bc.mir.blank_call(MirCallKind.Function, -1)
+                c.target = decl
+                c.owner = t
+                c.arg_first = self.dp.bc.mir.push_args(&args)
+                c.arg_count = 1
+                let _ = self.dp.bc.mir.call_and_continue(c)
+            }
+        }
+        self.drop_parts(t)
+        self.dp.bc.mir.ret()
+        self.finish_glue(k, f)
+    }
+
+    // The drops of `(*_1)`'s owning parts: a tuple's elements and a struct's
+    // fields in reverse declaration order, an enum's active payload.
+    func drop_parts(&var self, t: Int) {
+        let info = self.dp.bc.mir.tc.types.ty(t)
+        if info.kind == TcKind.Tuple {
+            var j = info.count - 1
+            while j >= 0 {
+                let element = self.dp.bc.mir.tc.types.arg(t, j)
+                if self.dp.bc.mir.owns(element) {
+                    let subject = self.glue_subject(t)
+                    let part = self.dp.bc.mir.project(subject, MirProjKind.Tuple, -1, j, element)
+                    self.dp.bc.mir.emit_drop(part)
+                }
+                j = j - 1
+            }
+            return
+        }
+        if info.kind != TcKind.Nominal {
+            return
+        }
+        let d = info.decl
+        let kind = self.dp.bc.mir.tc.res.decls[d].kind
+        if kind == ResDeclKind.Struct {
+            let fields = target_struct_fields(&self.dp.bc.mir.tc, d)
+            var j = fields.len() - 1
+            while j >= 0 {
+                let written = self.dp.bc.mir.tc.sigs[fields[j]].result
+                let ft = target_member_type(&var self.dp.bc.mir.tc, t, written)
+                if self.dp.bc.mir.owns(ft) {
+                    let subject = self.glue_subject(t)
+                    let part = self.dp.bc.mir.project(subject, MirProjKind.Field, fields[j], -1, ft)
+                    self.dp.bc.mir.emit_drop(part)
+                }
+                j = j - 1
+            }
+            return
+        }
+        if kind == ResDeclKind.Enum {
+            self.by_case(t, false)
+        }
+    }
+
+    // A switch on `(*_1)`'s case, each arm either dropping the case's owning
+    // payload fields in reverse order (`copying` false), or building `_0` as
+    // that case of copies of them, then joining.
+    func by_case(&var self, t: Int, copying: Bool) {
+        let d = self.dp.bc.mir.tc.types.ty(t).decl
+        let cases = target_enum_cases(&self.dp.bc.mir.tc, d)
+        let join = self.dp.bc.mir.new_block()
+        var arms = Vector<Int>()
+        var j = 0
+        while j < cases.len() {
+            try! arms.push(self.dp.bc.mir.new_block())
+            j = j + 1
+        }
+        let subject = self.glue_subject(t)
+        self.dp.bc.mir.switch_cases(subject, &cases, &arms, -1)
+        j = 0
+        while j < cases.len() {
+            self.dp.bc.mir.enter(arms[j])
+            let case_decl = cases[j]
+            let s = self.dp.bc.mir.tc.sigs[case_decl]
+            var types = Vector<Int>()
+            var p = 0
+            while p < s.param_count {
+                let written = self.dp.bc.mir.tc.params[s.param_first + p].ty
+                try! types.push(target_member_type(&var self.dp.bc.mir.tc, t, written))
+                p = p + 1
+            }
+            if copying {
+                var ops = Vector<Int>()
+                p = 0
+                while p < types.len() {
+                    let base = self.glue_subject(t)
+                    let part = self.dp.bc.mir.project(base, MirProjKind.Payload, case_decl, p, types[p])
+                    try! ops.push(self.dp.bc.mir.op_copy(part))
+                    p = p + 1
+                }
+                let rv = self.dp.bc.mir.rv_aggregate(MirAggregate.Case, case_decl, t, &ops)
+                let result = self.dp.bc.mir.place_local(0)
+                self.dp.bc.mir.assign(result, rv)
+            } else {
+                p = types.len() - 1
+                while p >= 0 {
+                    if self.dp.bc.mir.owns(types[p]) {
+                        let base = self.glue_subject(t)
+                        let part = self.dp.bc.mir.project(base, MirProjKind.Payload, case_decl, p, types[p])
+                        self.dp.bc.mir.emit_drop(part)
+                    }
+                    p = p - 1
+                }
+            }
+            self.dp.bc.mir.goto(join)
+            j = j + 1
+        }
+        self.dp.bc.mir.enter(join)
+    }
+
+    public func build_copy_glue(&var self, k: Int) {
+        let t = self.items[k].glue_type
+        let param = self.dp.bc.mir.tc.mk_ref(false, t)
+        let f = self.begin_glue(t, param)
+        let info = self.dp.bc.mir.tc.types.ty(t)
+        let hook = self.copy_member(t)
+        if hook >= 0 {
+            let subject = self.glue_subject(t)
+            let rv = self.dp.bc.mir.rv_ref(false, subject)
+            let receiver = self.dp.bc.mir.temp_of(rv)
+            let op = self.dp.bc.mir.move_local(receiver)
+            var args = Vector<Int>()
+            try! args.push(op)
+            var c = self.dp.bc.mir.blank_call(MirCallKind.Function, -1)
+            c.target = hook
+            c.owner = t
+            c.arg_first = self.dp.bc.mir.push_args(&args)
+            c.arg_count = 1
+            c.dest = self.dp.bc.mir.place_local(0)
+            let _ = self.dp.bc.mir.call_and_continue(c)
+        } else if info.kind == TcKind.Tuple {
+            var ops = Vector<Int>()
+            var j = 0
+            while j < info.count {
+                let element = self.dp.bc.mir.tc.types.arg(t, j)
+                let subject = self.glue_subject(t)
+                let part = self.dp.bc.mir.project(subject, MirProjKind.Tuple, -1, j, element)
+                try! ops.push(self.dp.bc.mir.op_copy(part))
+                j = j + 1
+            }
+            let rv = self.dp.bc.mir.rv_aggregate(MirAggregate.Tuple, -1, t, &ops)
+            let result = self.dp.bc.mir.place_local(0)
+            self.dp.bc.mir.assign(result, rv)
+        } else if info.kind == TcKind.Nominal && self.dp.bc.mir.tc.res.decls[info.decl].kind == ResDeclKind.Struct {
+            let fields = target_struct_fields(&self.dp.bc.mir.tc, info.decl)
+            var ops = Vector<Int>()
+            var j = 0
+            while j < fields.len() {
+                let written = self.dp.bc.mir.tc.sigs[fields[j]].result
+                let ft = target_member_type(&var self.dp.bc.mir.tc, t, written)
+                let subject = self.glue_subject(t)
+                let part = self.dp.bc.mir.project(subject, MirProjKind.Field, fields[j], -1, ft)
+                try! ops.push(self.dp.bc.mir.op_copy(part))
+                j = j + 1
+            }
+            let rv = self.dp.bc.mir.rv_aggregate(MirAggregate.Struct, info.decl, t, &ops)
+            let result = self.dp.bc.mir.place_local(0)
+            self.dp.bc.mir.assign(result, rv)
+        } else if info.kind == TcKind.Nominal && self.dp.bc.mir.tc.res.decls[info.decl].kind == ResDeclKind.Enum {
+            self.by_case(t, true)
+        } else {
+            var msg = StringBuilder()
+            try! msg.append("a copy of `")
+            try! msg.append(self.dp.bc.mir.tc.type_text(t))
+            try! msg.append("` is not in the backend slice yet")
+            self.refuse(-1, "mono.not-yet", msg.build())
+        }
+        self.dp.bc.mir.ret()
+        self.finish_glue(k, f)
+    }
+
+    // The `copy()` type `t`'s copy-policy conformance writes, or -1.
+    func copy_member(&var self, t: Int) -> Int {
+        let d = self.dp.bc.mir.tc.nominal_decl(t)
+        if d < 0 || d >= self.dp.bc.mir.tc.member_first.len() {
+            return -1
+        }
+        let first = self.dp.bc.mir.tc.member_first[d]
+        if first < 0 {
+            return -1
+        }
+        let count = self.dp.bc.mir.tc.member_count[d]
+        let name = self.dp.bc.mir.tc.res.intern("copy")
+        var j = first
+        while j < first + count {
+            let member = self.dp.bc.mir.tc.members[j]
+            if member.name == name && member.source == TcSource.Extension {
+                return member.decl
+            }
+            j = j + 1
+        }
+        return -1
+    }
+}

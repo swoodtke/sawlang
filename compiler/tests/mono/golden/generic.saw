@@ -1,0 +1,59 @@
+// A generic function at two types, a generic struct's method, a trait call
+// through a bound made direct, a trait's default body under `Self`, and the
+// drop glue of an enum and a struct holding a String.
+trait Weigh {
+    func weight(&self) -> Int
+
+    func doubled(&self) -> Int {
+        self.weight() * 2
+    }
+}
+
+struct Crate {
+    label: String
+    load: Int
+}
+
+extension Crate: NoCopy {}
+
+extension Crate: Weigh {
+    func weight(&self) -> Int {
+        self.load
+    }
+}
+
+struct Pair<T> {
+    left: T
+    right: T
+}
+
+extension Pair<T> {
+    func swapped(&self) -> Pair<T> {
+        Pair<T>(left: self.right, right: self.left)
+    }
+}
+
+enum Slot {
+    case Full(c: Crate),
+    case Empty
+}
+
+extension Slot: NoCopy {}
+
+func pick<T>(a: T, b: T, first: Bool) -> T {
+    if first { move a } else { move b }
+}
+
+func heaviest<T: Weigh>(x: &T) -> Int {
+    x.doubled()
+}
+
+func main() {
+    let n = pick(1, 2, true)
+    let s = pick("a", "b", false)
+    let p = Pair<Int>(left: 3, right: 4).swapped()
+    let c = Crate(label: "box", load: 7)
+    print("{} {} {} {}", n, s, p.left + p.right, heaviest(&c))
+    let slot = Slot.Full(c: Crate(label: "inner", load: 1))
+    let empty = Slot.Empty
+}

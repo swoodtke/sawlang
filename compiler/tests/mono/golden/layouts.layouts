@@ -1,0 +1,38 @@
+&Int: size 8 align 8 pointer
+&String: size 8 align 8 pointer
+&std.alloc.GlobalAllocator: size 8 align 8 pointer
+&std.vector.Vector<Int, std.alloc.GlobalAllocator>: size 8 align 8 pointer
+&var Result<Int, Int>: size 8 align 8 pointer
+&var Result<Int32, Int8>: size 8 align 8 pointer
+&var Result<Void, std.alloc.AllocError>: size 8 align 8 pointer
+&var layouts.Shape: size 8 align 8 pointer
+&var layouts.Shape?: size 8 align 8 pointer
+&var std.vector.Vector<Int, std.alloc.GlobalAllocator>: size 8 align 8 pointer
+(Int, Bool): size 16 align 8 record offsets 0 8
+Bool: size 1 align 1 int
+Bool?: size 2 align 1 optional tag 1, Some=1 @1, None=0
+Int: size 8 align 8 int
+Int32: size 4 align 4 int
+Int8: size 1 align 1 int
+Int?: size 16 align 8 optional tag 1, Some=1 @8, None=0
+Never: size 0 align 1 zero
+Result<Int, Int>: size 16 align 8 enum tag 4, Ok=0 @8, Err=1 @8
+Result<Int32, Int8>: size 8 align 4 enum tag 4, Ok=0 @4, Err=1 @4
+Result<Void, std.alloc.AllocError>: size 24 align 8 enum tag 4, Ok=0 @8, Err=1 @8
+String: size 8 align 8 record offsets 0
+UInt16: size 2 align 2 int
+UInt64: size 8 align 8 int
+UnsafePointer<Int8>: size 8 align 8 pointer
+UnsafePointer<Int8>?: size 16 align 8 optional tag 1, Some=1 @8, None=0
+UnsafePointer<Int>: size 8 align 8 pointer
+UnsafePointer<Int>?: size 16 align 8 optional tag 1, Some=1 @8, None=0
+Void: size 0 align 1 zero
+layouts.Color: size 4 align 4 enum tag 4, Red=0, Green=1
+layouts.Color?: size 8 align 4 optional tag 1, Some=1 @4, None=0
+layouts.Mixed: size 24 align 8 record offsets 0 8 16
+layouts.Mixed?: size 32 align 8 optional tag 1, Some=1 @8, None=0
+layouts.Shape: size 24 align 8 enum tag 4, Circle=0 @8, Rect=1 @8 @16, Empty=2
+layouts.Shape?: size 32 align 8 optional tag 1, Some=1 @8, None=0
+std.alloc.AllocError: size 16 align 8 record offsets 0 8
+std.alloc.GlobalAllocator: size 0 align 1 record offsets
+std.vector.Vector<Int, std.alloc.GlobalAllocator>: size 32 align 8 record offsets 0 16 24

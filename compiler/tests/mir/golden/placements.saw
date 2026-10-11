@@ -1,0 +1,47 @@
+// Stores into storage a raw pointer reaches (SL-512). A whole slot, `p[i]` or
+// `*p`, tracks no occupancy, so a store there is a placement and drops nothing
+// first (spec, Placement writes), an owning element or an Optional slot
+// included; a part of a pointee that owns nothing is written in place, as a
+// compound assignment is. A fixed array's element and a reference's referent
+// are tracked storage, and keep the drop of the value they held.
+
+struct Pair {
+    name: String
+    n: Int
+}
+
+extension Pair: NoCopy {}
+
+func whole_index(p: UnsafePointer<String>, s: String) unsafe {
+    p[1] = move s
+}
+
+func whole_star(p: UnsafePointer<String>, s: String) unsafe {
+    *p = move s
+}
+
+func optional_slot(p: UnsafePointer<String?>) unsafe {
+    p[0] = None
+}
+
+func part_plain(p: UnsafePointer<Pair>) unsafe {
+    p[0].n = 3
+    (*p).n = 4
+}
+
+func compound(p: UnsafePointer<Int>) unsafe {
+    p[2] += 5
+    *p -= 1
+}
+
+func array(s: String) {
+    var a: [String; 2] = ["x", "y"]
+    a[1] = move s
+}
+
+func referent(r: &var String, s: String) {
+    r = move s
+}
+
+func main() {
+}

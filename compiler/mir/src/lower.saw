@@ -1096,7 +1096,11 @@ extension MirProgram {
 
     // `place = value`: the target's subexpressions first, then the value,
     // then the target's borrows open and the old value drops before the new
-    // one is stored (SL:architecture §3.5, evaluation order).
+    // one is stored (SL:architecture §3.5, evaluation order). A whole slot
+    // reached through a raw pointer is a placement write and drops nothing:
+    // its storage holds no value the language tracks (spec, Placement
+    // writes). The spec says nothing of an owning part of a pointee, so that
+    // write is refused rather than given either meaning.
     func lower_assign(&var self, s: Int) {
         let target = self.tc.res.first_node_child(s)
         let value = self.tc.res.last_node_child(s)
@@ -1110,7 +1114,10 @@ extension MirProgram {
         } else {
             let p = self.realize(&steps, n)
             let t = self.place_type(p)
-            if self.owns(t) {
+            let at = self.pointer_step(p)
+            if self.owns(t) && at >= 0 && at < self.places[p].count - 1 {
+                self.not_yet(target, "a write to an owning part of a raw pointer's pointee")
+            } else if self.owns(t) && at < 0 {
                 self.emit_drop(p)
             }
             let rv = self.rv_use(o)

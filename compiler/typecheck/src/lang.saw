@@ -161,6 +161,9 @@ func tc_lang_expected(role: ResLang) -> Vector<String> {
         case StringBytesFunction -> {
             try! out.push("func (signature (params (text &String shared)) (effects unsafe) -> UnsafePointer<Int8>)")
         },
+        case StringLengthFunction -> {
+            try! out.push("func (signature (params (text &String shared)) (effects unsafe) -> Int)")
+        },
         case StringEqualsFunction -> {
             try! out.push("func (signature (params (left &String shared) (right &String shared)) (effects unsafe) -> Bool)")
         },

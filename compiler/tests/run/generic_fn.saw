@@ -1,0 +1,49 @@
+// A generic function instantiated at three types, one through another
+// generic, and a generic function calling a trait's method through a bound.
+struct Pair {
+    left: Int
+    right: Int
+}
+
+trait Measure {
+    func measure(&self) -> Int
+}
+
+extension Pair: Measure {
+    func measure(&self) -> Int {
+        self.left + self.right
+    }
+}
+
+extension Int: Measure {
+    func measure(&self) -> Int {
+        self * 10
+    }
+}
+
+func pick<T>(a: T, b: T, first: Bool) -> T {
+    if first { a } else { b }
+}
+
+func pick_twice<T>(a: T, b: T) -> T {
+    let once = pick(a, b, false)
+    once
+}
+
+func total<T: Measure>(a: &T, b: &T) -> Int {
+    a.measure() + b.measure()
+}
+
+func main() {
+    print("int {}", pick(1, 2, true))
+    print("bool {}", pick(true, false, false))
+    let p = pick(Pair(left: 1, right: 2), Pair(left: 3, right: 4), false)
+    print("pair {} {}", p.left, p.right)
+    print("twice {}", pick_twice(7, 8))
+    let x = Pair(left: 5, right: 6)
+    let y = Pair(left: 7, right: 8)
+    print("measured {}", total(&x, &y))
+    let m = 4
+    let n = 9
+    print("ints measured {}", total(&m, &n))
+}

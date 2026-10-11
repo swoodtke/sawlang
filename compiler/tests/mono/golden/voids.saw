@@ -1,0 +1,26 @@
+// Locals whose types hold a zero-sized `Void`: an Optional of it and of that,
+// a tuple and a struct holding one, an enum case carrying one, a Result with a
+// `Void` on either side, and an Optional of a fieldless struct beside them.
+struct HasVoidOpt {
+    v: Void?
+    b: UInt8
+}
+
+enum Carrier {
+    case Holds(v: Void),
+    case Bare
+}
+
+struct Empty {
+}
+
+func main() {
+    let a: Void? = None
+    let b: Void?? = None
+    let c: (Void?, UInt8) = (None, 1)
+    let d = HasVoidOpt(v: None, b: 2)
+    let e = Carrier.Bare
+    let f: Result<Void, Int8> = Result<Void, Int8>.Err(error: 3)
+    let g: Empty? = None
+    print("{} {}", c.1, d.b)
+}

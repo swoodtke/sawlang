@@ -1022,7 +1022,9 @@ _NEW_CALL = re.compile(r"\((?:call|memberwise|iterator) ([\w.]+)")
 _NEW_NAME = re.compile(r"[A-Za-z_][\w.]*")
 _NEW_CONFORMANCE = re.compile(r"^    \(([\w.]+) ([\w.]+) \d+:\d+((?: \(\w+ \w+\))*)\)*$")
 _NEW_LANG = re.compile(r"^    \((\w+) ([\w.]+)\)")
-_NEW_POSITION = re.compile(r"^    \((\d+:\d+) ([\w-]+) ([\w.]+)\)")
+# A position names one lang item, or several where the compiler reads more
+# than one (a String argument's bytes and length).
+_NEW_POSITION = re.compile(r"^    \((\d+:\d+) ([\w-]+) ([\w. ]+)\)")
 _NEW_LINE_START = re.compile(r"^\s*\((\d+:\d+)-")
 # What a String position reaches of its lang item, when not the item itself:
 # an interpolation builds, appends and finishes; a format string's scratch is
@@ -1095,7 +1097,8 @@ def new_std_cone(entry, std_root="std", extra=()):
         elif section == "string-positions":
             m = _NEW_POSITION.match(line)
             if m:
-                roles = [m.group(3) + member for member in _POSITION_MEMBERS.get(m.group(2), ("",))]
+                roles = [item + member for item in m.group(3).split(" ")
+                         for member in _POSITION_MEMBERS.get(m.group(2), ("",))]
                 positions.setdefault((module, m.group(1)), []).extend(roles)
 
     def identity_of(name):

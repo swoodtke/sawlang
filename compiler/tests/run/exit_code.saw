@@ -1,0 +1,15 @@
+// `main` returning an Int sets the exit status.
+func compute() -> Int {
+    var n = 0
+    var i = 0
+    while i < 7 {
+        n = n + 6
+        i = i + 1
+    }
+    n
+}
+
+func main() -> Int {
+    print("exiting with {}", compute())
+    compute()
+}

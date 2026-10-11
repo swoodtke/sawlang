@@ -22,8 +22,12 @@ lane over `typecheck/`, the MIR lane over `mir/` and the evaluator lane over
 hold `sawc2 resolve`, `sawc2 typecheck`, `sawc2 mir` and `sawc2 eval` to their
 specifications, the evaluator lane also holding the evaluator and typecheck's
 fold to agreement over tests/corpus/; runs the std lane over `std/`, the
-new std; runs the borrowck lane over `borrowck/`; and runs the drops lane over
-`drops/`.
+new std; runs the borrowck lane over `borrowck/`; runs the drops lane over
+`drops/`; runs the mono lane over `mono/`, whose golden item dumps, layout
+tables and refusal fixtures hold `sawc2 mono` and the target description, and
+whose layouts are compared with Stage 0's; and runs the run lane over `run/`,
+which builds each program with `sawc2 build` and with Stage 0 and compares
+the two binaries' output.
 The inventory of Stage 0 workaround markers prints first, then each failure as
 one line in a fixed order; the summary comes last, and any failure exits 1.
 """
@@ -80,6 +84,12 @@ import borrowck_lane  # noqa: E402
 sys.path.insert(0, os.path.join(HERE, "drops"))
 import drops_lane  # noqa: E402
 
+sys.path.insert(0, os.path.join(HERE, "mono"))
+import mono_lane  # noqa: E402
+
+sys.path.insert(0, os.path.join(HERE, "run"))
+import run_lane  # noqa: E402
+
 UNIT_OUT = os.path.join(REPO, ".build", "compiler-tests")
 LEX_FIXTURES = os.path.join(HERE, "lex")
 SUBSET_FIXTURES = os.path.join(HERE, "subset")
@@ -92,6 +102,8 @@ MIR_CORPUS = os.path.join(HERE, "mir")
 EVAL_CORPUS = os.path.join(HERE, "eval")
 BORROWCK_CORPUS = os.path.join(HERE, "borrowck")
 DROPS_CORPUS = os.path.join(HERE, "drops")
+MONO_CORPUS = os.path.join(HERE, "mono")
+RUN_CORPUS = os.path.join(HERE, "run")
 FUNNEL_FIXTURES = os.path.join(HERE, "funnel")
 LEXER_SOURCE = os.path.join(COMPILER, "lex", "src", "lib.saw")
 RUN_TIMEOUT = 60
@@ -194,6 +206,10 @@ def check_fixture_whitespace(run):
         paths += glob.glob(os.path.join(BORROWCK_CORPUS, "**", suffix), recursive=True)
     for suffix in ("*.saw", "*.drops", "*.md", "*.tsv"):
         paths += glob.glob(os.path.join(DROPS_CORPUS, "**", suffix), recursive=True)
+    for suffix in ("*.saw", "*.mono", "*.layouts", "*.md", "*.tsv"):
+        paths += glob.glob(os.path.join(MONO_CORPUS, "**", suffix), recursive=True)
+    for suffix in ("*.saw", "*.ll", "*.md"):
+        paths += glob.glob(os.path.join(RUN_CORPUS, "**", suffix), recursive=True)
     for path in sorted(paths):
         rel = os.path.relpath(path, REPO)
         with open(path, "rb") as fh:
@@ -511,6 +527,28 @@ def run_drops(run):
         run.count(key, n)
 
 
+def run_mono(run):
+    """The mono lane (compiler/tests/mono/mono_lane.py): the golden item dumps
+    and layout tables, the refusal fixtures and their rule coverage, and the
+    layouts against Stage 0's."""
+    failures, counts = mono_lane.run()
+    for failure in failures:
+        run.fail(failure)
+    for key, n in counts.items():
+        run.count(key, n)
+
+
+def run_programs(run):
+    """The run lane (compiler/tests/run/run_lane.py): each program built by
+    sawc2 and by Stage 0, the two binaries' output and exit status compared,
+    the due programs refused where they say, and hello's `.ll` pinned."""
+    failures, counts, _ = run_lane.run()
+    for failure in failures:
+        run.fail(failure)
+    for key, n in counts.items():
+        run.count(key, n)
+
+
 def main():
     run = Run()
     ok, output = build.build_sawc2()
@@ -535,6 +573,8 @@ def main():
         run_std(run)
         run_borrowck(run)
         run_drops(run)
+        run_mono(run)
+        run_programs(run)
     for line in run.inventory:
         print(line)
     for failure in run.failures:

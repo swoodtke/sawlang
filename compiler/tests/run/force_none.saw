@@ -1,0 +1,14 @@
+// Forcing an absent Optional panics with its location.
+func lookup(key: Int) -> Int? {
+    if key == 1 {
+        return 100
+    }
+    None
+}
+
+func main() {
+    let hit = lookup(1)
+    print("hit {}", hit!)
+    let miss = lookup(2)
+    print("miss {}", miss!)
+}

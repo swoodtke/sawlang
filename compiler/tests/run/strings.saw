@@ -1,0 +1,27 @@
+// Strings: literals, copies that retain, a String message, String format
+// arguments, an escape, an interior NUL counted by the length, and a String
+// in a struct field moved with its owner.
+struct Label {
+    text: String
+    weight: Int
+}
+
+extension Label: NoCopy {}
+
+func greet(name: String) -> String {
+    name
+}
+
+func main() {
+    let s = "saw"
+    let t = s
+    print(t)
+    print("name: {} and {}", s, greet("again"))
+    let escaped = "tab\there \"quoted\" back\\slash"
+    print(escaped)
+    print("len {} {}", s.len(), "a\0b".len())
+    let l = Label(text: "heavy", weight: 9)
+    let m = move l
+    print("{} {}", m.text, m.weight)
+    print("{}", m.text.starts_with("hea"))
+}

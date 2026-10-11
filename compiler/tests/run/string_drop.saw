@@ -1,0 +1,16 @@
+// Heap Strings released through their refcount: a substring allocates, its
+// copies retain, and every reference's drop releases once, with no
+// over-release panic.
+func main() {
+    let base = "abcdefgh"
+    let part = base.substring(2, 5)
+    let again = part
+    print(part)
+    print("{} {}", again, part.len())
+    var i = 0
+    while i < 3 {
+        let piece = base.substring(i, i + 2)
+        print(piece)
+        i = i + 1
+    }
+}

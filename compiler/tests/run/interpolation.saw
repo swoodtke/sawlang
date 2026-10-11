@@ -1,0 +1,9 @@
+// due: an interpolation is an rvalue no stage lowers to the builder's calls yet
+// refuses: backend.not-yet at 7:16
+// String interpolation builds a heap String through the builder.
+func main() {
+    let n = 42
+    let who = "world"
+    let line = "hello {who}, n = {n}"
+    print(line)
+}

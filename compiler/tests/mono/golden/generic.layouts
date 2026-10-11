@@ -1,0 +1,17 @@
+&Int: size 8 align 8 pointer
+&String: size 8 align 8 pointer
+&generic.Crate: size 8 align 8 pointer
+&generic.Pair<Int>: size 8 align 8 pointer
+&var String: size 8 align 8 pointer
+&var generic.Crate: size 8 align 8 pointer
+&var generic.Slot: size 8 align 8 pointer
+Bool: size 1 align 1 int
+Int: size 8 align 8 int
+Never: size 0 align 1 zero
+String: size 8 align 8 record offsets 0
+UnsafePointer<Int8>: size 8 align 8 pointer
+UnsafePointer<Int>: size 8 align 8 pointer
+Void: size 0 align 1 zero
+generic.Crate: size 16 align 8 record offsets 0 8
+generic.Pair<Int>: size 16 align 8 record offsets 0 8
+generic.Slot: size 24 align 8 enum tag 4, Full=0 @8, Empty=1

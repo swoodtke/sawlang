@@ -1,0 +1,167 @@
+// One concrete function as LLVM IR: each MIR local an `alloca`, each
+// statement a store into its place, each terminator its LLVM twin. Values of
+// a scalar layout travel as SSA values; memory values travel by address and
+// move by `memcpy`. A function returning a memory value writes it through a
+// leading `sret` pointer, and a memory argument is passed by the address of a
+// value the callee copies on entry.
+
+import sawborrowck.src.program.{BorrowckProgram}
+import sawdrops.src.program.{DropsProgram}
+import sawllvm.src.prims.{LL_MESSAGE_LIMIT}
+import sawllvm.src.calls.{ll_block}
+import sawllvm.src.module.{LlEmitter, ll_is_scalar, ll_symbol, ll_value_type}
+import sawllvm.src.ops.{ll_lossless}
+import sawllvm.src.places.{ll_local_slot}
+import sawmir.src.model.{MirBlock, MirStmt, MirStmtKind}
+import sawmir.src.program.{MirProgram}
+import sawmono.src.program.{MONO_KEY_DROP, MonoItem, MonoProgram}
+import sawtarget.src.layout.{Target, TargetKind, TargetLayout}
+import sawtypecheck.src.program.{TcProgram}
+
+// The name a function's parameter `j` arrives in, before its entry copy into
+// the parameter's slot.
+public func ll_param_name(j: Int) -> String {
+    var param = StringBuilder()
+    try! param.append("%p")
+    try! param.append(j)
+    param.build()
+}
+
+extension LlEmitter {
+    // Item `k`'s concrete function, written into the definitions unless the
+    // backend refused something in it.
+    public func emit_function(&var self, mono: &var MonoProgram, target: &var Target, k: Int) {
+        let it = mono.items[k]
+        let f = it.body
+        let info = mono.dp.bc.mir.funcs[f]
+        self.current = f
+        mono.current = k
+        self.body = StringBuilder()
+        self.allocas = StringBuilder()
+        self.temps = 0
+        self.labels = 0
+        self.refused = false
+        let ret_type = self.local_type(&mono, 0)
+        let ret = self.lay_at(&var mono, &var target, ret_type, -1)
+        self.sret = ret.kind == TargetKind.Memory
+        var head = StringBuilder()
+        try! head.append("define internal ")
+        if ll_is_scalar(&ret) {
+            try! head.append(ll_value_type(&ret))
+        } else {
+            try! head.append("void")
+        }
+        try! head.append(" ")
+        try! head.append(ll_symbol(&mono, k))
+        try! head.append("(")
+        var first = true
+        if self.sret {
+            try! head.append("ptr %ret")
+            first = false
+        }
+        var prelude = StringBuilder()
+        var j = 0
+        while j < info.local_count {
+            let t = self.local_type(&mono, j)
+            let node = mono.dp.bc.mir.locals[info.local_first + j].node
+            let l = self.lay_at(&var mono, &var target, t, node)
+            try! self.allocas.append("  ")
+            try! self.allocas.append(ll_local_slot(j))
+            try! self.allocas.append(" = alloca ")
+            if ll_is_scalar(&l) {
+                try! self.allocas.append(ll_value_type(&l))
+            } else {
+                try! self.allocas.append("[")
+                try! self.allocas.append(l.size)
+                try! self.allocas.append(" x i8]")
+            }
+            try! self.allocas.append(", align ")
+            try! self.allocas.append(l.align)
+            try! self.allocas.append("\n")
+            if j >= 1 && j <= info.param_count && l.kind != TargetKind.Zero {
+                if not first {
+                    try! head.append(", ")
+                }
+                first = false
+                let name = ll_param_name(j)
+                if ll_is_scalar(&l) {
+                    try! head.append(ll_value_type(&l))
+                    try! prelude.append("  store ")
+                    try! prelude.append(ll_value_type(&l))
+                    try! prelude.append(" ")
+                    try! prelude.append(name)
+                    try! prelude.append(", ptr ")
+                    try! prelude.append(ll_local_slot(j))
+                    try! prelude.append("\n")
+                } else {
+                    try! head.append("ptr")
+                    self.declare("llvm.memcpy.p0.p0.i64", "declare void @llvm.memcpy.p0.p0.i64(ptr, ptr, i64, i1)")
+                    try! prelude.append("  call void @llvm.memcpy.p0.p0.i64(ptr ")
+                    try! prelude.append(ll_local_slot(j))
+                    try! prelude.append(", ptr ")
+                    try! prelude.append(name)
+                    try! prelude.append(", i64 ")
+                    try! prelude.append(l.size)
+                    try! prelude.append(", i1 false)\n")
+                }
+                try! head.append(" ")
+                try! head.append(name)
+            }
+            j = j + 1
+        }
+        try! head.append(")")
+        var b = 0
+        while b < info.block_count {
+            let block = mono.dp.bc.mir.blocks[info.block_first + b]
+            self.put_label(ll_block(b))
+            var s = block.first
+            while s >= 0 {
+                let stmt = mono.dp.bc.mir.stmts[s]
+                self.statement(&var mono, &var target, &stmt)
+                s = stmt.next
+            }
+            self.terminator(&var mono, &var target, &block)
+            b = b + 1
+        }
+        if self.refused {
+            return
+        }
+        try! self.defs.append(head.build())
+        try! self.defs.append(" \{\nentry:\n")
+        let slots = self.allocas.build()
+        try! self.defs.append(slots)
+        try! self.defs.append(prelude.build())
+        try! self.defs.append("  br label %bb0\n")
+        let blocks = self.body.build()
+        try! self.defs.append(blocks)
+        try! self.defs.append("\}\n\n")
+    }
+
+    // A statement: an assignment writes its rvalue into its place; a drop
+    // runs its type's glue when the type has one; a budget point mono marked
+    // inert writes nothing.
+    func statement(&var self, mono: &var MonoProgram, target: &var Target, stmt: &MirStmt) {
+        match stmt.kind {
+            case Budget -> {},
+            case Drop -> {
+                let t = mono.dp.bc.mir.places[stmt.place].ty
+                let glue = mono.glue_item(t, MONO_KEY_DROP)
+                if glue < 0 {
+                    return
+                }
+                let addr = self.place_addr(&var mono, &var target, stmt.place, stmt.node)
+                var line = StringBuilder()
+                try! line.append("call void ")
+                try! line.append(ll_symbol(&mono, glue))
+                try! line.append("(ptr ")
+                try! line.append(addr)
+                try! line.append(")")
+                self.put(line.build())
+            },
+            case Assign -> {
+                let dest = self.place_addr(&var mono, &var target, stmt.place, stmt.node)
+                self.rvalue_into(&var mono, &var target, stmt.rvalue, dest, stmt.node)
+            }
+        }
+    }
+}

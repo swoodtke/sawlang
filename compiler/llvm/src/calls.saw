@@ -1,0 +1,742 @@
+// Terminators and calls: a goto, return, switch or unreachable is its LLVM
+// twin; a call reaches the item mono resolved it to, an extern by the C
+// convention the target gives, a function value through its code and
+// environment, and a builtin by its fixed lowering: `print` writes each piece
+// and rendered argument through the write seam, `panic` and `assert` render
+// their message into stack scratch for the panic sink (design 137).
+
+import sawborrowck.src.program.{BorrowckProgram}
+import sawdrops.src.program.{DropsProgram}
+import sawllvm.src.prims.{LL_MESSAGE_LIMIT}
+import sawllvm.src.module.{LlEmitter, ll_is_scalar, ll_symbol, ll_value_type}
+import sawllvm.src.ops.{ll_lossless}
+import sawllvm.src.places.{ll_local_slot}
+import sawllvm.src.text.{LlPieces, ll_format_pieces, ll_string_bytes}
+import sawmir.src.model.{MirBlock, MirCall, MirCallKind, MirConstKind, MirOperand, MirOperandKind, MirSwitchKind,
+                         MirTermKind}
+import sawmir.src.program.{MirProgram}
+import sawmono.src.program.{MONO_KEY_DROP, MonoItem, MonoItemKind, MonoProgram}
+import sawresolve.src.program.{ResProgram}
+import sawtarget.src.layout.{Target, TargetCClass, TargetCase, TargetKind, TargetLayout}
+import sawtypecheck.src.model.{TC_FLAG_VARIADIC}
+import sawtypecheck.src.program.{TcProgram}
+import sawtypecheck.src.spell.{tc_effects_text}
+import sawtypecheck.src.typeops.{TcClient}
+import sawtypecheck.src.types.{TcKind}
+
+extension LlEmitter {
+    public func terminator(&var self, mono: &var MonoProgram, target: &var Target, b: &MirBlock) {
+        let node = b.term_node
+        match b.term {
+            case Open -> self.refuse_here(&var mono, node, "an unterminated block"),
+            case Goto -> self.jump(ll_block(b.target)),
+            case Unreachable -> self.put("unreachable"),
+            case Return -> self.ret(&var mono, &var target),
+            case Switch -> self.switch_term(&var mono, &var target, &b),
+            case Call -> {
+                let info = mono.dp.bc.mir.calls[b.call]
+                self.call_term(&var mono, &var target, b.call, &info)
+                if info.next >= 0 {
+                    self.jump(ll_block(info.next))
+                } else {
+                    self.put("unreachable")
+                }
+            }
+        }
+    }
+
+    func ret(&var self, mono: &var MonoProgram, target: &var Target) {
+        let t = self.local_type(&mono, 0)
+        let l = self.lay(&var mono, &var target, t)
+        if self.sret {
+            self.memcpy("%ret", ll_local_slot(0), l.size)
+            self.put("ret void")
+            return
+        }
+        if ll_is_scalar(&l) {
+            let ty = ll_value_type(&l)
+            let v = self.load(ty, ll_local_slot(0))
+            var line = StringBuilder()
+            try! line.append("ret ")
+            try! line.append(ty)
+            try! line.append(" ")
+            try! line.append(v)
+            self.put(line.build())
+            return
+        }
+        self.put("ret void")
+    }
+
+    func switch_term(&var self, mono: &var MonoProgram, target: &var Target, b: &MirBlock) {
+        let node = b.term_node
+        if b.switch_kind == MirSwitchKind.Bool {
+            let v = self.operand_value(&var mono, &var target, b.operand, node)
+            let bit = self.to_bit(v)
+            var yes = -1
+            var no = -1
+            var k = 0
+            while k < b.arm_count {
+                let arm = mono.dp.bc.mir.arms[b.arm_first + k]
+                if arm.value == 1 {
+                    yes = arm.target
+                } else {
+                    no = arm.target
+                }
+                k = k + 1
+            }
+            if b.otherwise >= 0 {
+                if yes < 0 {
+                    yes = b.otherwise
+                }
+                if no < 0 {
+                    no = b.otherwise
+                }
+            }
+            self.branch(bit, ll_block(yes), ll_block(no))
+            return
+        }
+        let t = mono.dp.bc.mir.places[b.place].ty
+        let addr = self.place_addr(&var mono, &var target, b.place, node)
+        let tag = self.tag_of(&var mono, &var target, addr, t, node)
+        var other = ""
+        if b.otherwise >= 0 {
+            other = ll_block(b.otherwise)
+        } else {
+            other = self.new_label("nocase")
+        }
+        var line = StringBuilder()
+        try! line.append("switch i64 ")
+        try! line.append(tag)
+        try! line.append(", label %")
+        try! line.append(other)
+        try! line.append(" [")
+        var k = 0
+        while k < b.arm_count {
+            let arm = mono.dp.bc.mir.arms[b.arm_first + k]
+            let c = target.case_of(&var mono.dp.bc.mir.tc, t, arm.value)
+            try! line.append(" i64 ")
+            try! line.append(c.tag)
+            try! line.append(", label %")
+            try! line.append(ll_block(arm.target))
+            k = k + 1
+        }
+        try! line.append(" ]")
+        self.put(line.build())
+        if b.otherwise < 0 {
+            self.put_label(other)
+            self.put("unreachable")
+        }
+    }
+
+    func call_term(&var self, mono: &var MonoProgram, target: &var Target, c: Int, info: &MirCall) {
+        let node = info.node
+        match info.kind {
+            case Builtin -> self.builtin(&var mono, &var target, &info),
+            case Value -> self.value_call(&var mono, &var target, &info),
+            case Lend -> self.refuse_here(&var mono, node, "a lend outside an accessor's split"),
+            case _ -> {
+                if info.kind == MirCallKind.WindowOpen && info.absent >= 0 {
+                    self.refuse_here(&var mono, node, "a conditional borrow is not in the backend slice yet")
+                    return
+                }
+                let item = mono.call_item(c)
+                if item < 0 {
+                    self.refuse_here(&var mono, node, "a call mono did not resolve")
+                    return
+                }
+                let callee = mono.items[item]
+                if callee.kind == MonoItemKind.Extern {
+                    self.extern_call(&var mono, &var target, callee.decl, &info)
+                    return
+                }
+                let body = callee.body
+                let info_f = mono.dp.bc.mir.funcs[body]
+                var params = Vector<Int>()
+                var j = 1
+                while j <= info_f.param_count {
+                    try! params.push(mono.dp.bc.mir.locals[info_f.local_first + j].ty)
+                    j = j + 1
+                }
+                let result = mono.dp.bc.mir.locals[info_f.local_first].ty
+                let none = Vector<String>()
+                let symbol = ll_symbol(&mono, item)
+                self.call_with(&var mono, &var target, symbol, result, &params, &none, &info)
+            }
+        }
+    }
+
+    // An internal call of `callee` (an SSA pointer or a symbol) returning
+    // `result` and taking `params`, after `leading` arguments already
+    // spelled: the call's operands as the parameters' layouts pass them, its
+    // result into its destination.
+    func call_with(&var self, mono: &var MonoProgram, target: &var Target, callee: String, result: Int,
+                   params: &Vector<Int>, leading: &Vector<String>, info: &MirCall) {
+        let node = info.node
+        let ret = self.lay_at(&var mono, &var target, result, node)
+        var args = StringBuilder()
+        var first = true
+        var dest = ""
+        if info.dest >= 0 {
+            dest = self.place_addr(&var mono, &var target, info.dest, node)
+        }
+        if ret.kind == TargetKind.Memory {
+            if info.dest < 0 {
+                dest = self.slot(ret.size, ret.align)
+            }
+            try! args.append("ptr ")
+            try! args.append(dest)
+            first = false
+        }
+        var k = 0
+        while k < leading.len() {
+            if not first {
+                try! args.append(", ")
+            }
+            first = false
+            try! args.append(leading.get(k) ?? "")
+            k = k + 1
+        }
+        k = 0
+        while k < info.arg_count && k < params.len() {
+            let o = mono.dp.bc.mir.lists[info.arg_first + k]
+            let pt = params[k]
+            let pl = self.lay_at(&var mono, &var target, pt, node)
+            k = k + 1
+            if pl.kind == TargetKind.Zero {
+                continue
+            }
+            if not first {
+                try! args.append(", ")
+            }
+            first = false
+            if ll_is_scalar(&pl) {
+                let v = self.operand_value(&var mono, &var target, o, node)
+                try! args.append(ll_value_type(&pl))
+                try! args.append(" ")
+                try! args.append(v)
+            } else {
+                let a = self.operand_addr(&var mono, &var target, o, pt, node)
+                try! args.append("ptr ")
+                try! args.append(a)
+            }
+        }
+        var call = StringBuilder()
+        try! call.append("call ")
+        if ll_is_scalar(&ret) {
+            try! call.append(ll_value_type(&ret))
+        } else {
+            try! call.append("void")
+        }
+        try! call.append(" ")
+        try! call.append(callee)
+        try! call.append("(")
+        try! call.append(args.build())
+        try! call.append(")")
+        if ll_is_scalar(&ret) {
+            let v = self.assign(call.build())
+            if info.dest >= 0 {
+                self.store(ll_value_type(&ret), v, dest)
+            }
+        } else {
+            self.put(call.build())
+        }
+    }
+
+    // A call of a function value: its code pointer, called with its
+    // environment first.
+    func value_call(&var self, mono: &var MonoProgram, target: &var Target, info: &MirCall) {
+        let node = info.node
+        let fty = mono.dp.bc.mir.operands[info.callee].ty
+        let addr = self.operand_addr(&var mono, &var target, info.callee, fty, node)
+        let code = self.load("ptr", addr)
+        let env_at = self.offset_addr(addr, target.closure_env_offset())
+        let env = self.load("ptr", env_at)
+        let shape = mono.dp.bc.mir.tc.types.ty(fty)
+        var params = Vector<Int>()
+        var k = 0
+        while k < shape.count {
+            try! params.push(mono.dp.bc.mir.tc.types.arg(fty, k))
+            k = k + 1
+        }
+        var leading = Vector<String>()
+        var env_arg = StringBuilder()
+        try! env_arg.append("ptr ")
+        try! env_arg.append(env)
+        try! leading.push(env_arg.build())
+        self.call_with(&var mono, &var target, code, shape.b, &params, &leading, &info)
+    }
+
+    // An extern call by the C convention: scalars direct, a nullable pointer
+    // result made an Optional, anything else refused.
+    func extern_call(&var self, mono: &var MonoProgram, target: &var Target, d: Int, info: &MirCall) {
+        let node = info.node
+        let s = mono.dp.bc.mir.tc.sigs[d]
+        let name_id = mono.dp.bc.mir.tc.res.decls[d].name
+        let name = mono.dp.bc.mir.tc.res.name_text(name_id)
+        if (s.flags & TC_FLAG_VARIADIC) != 0 {
+            self.refuse_here(&var mono, node, "a call of a variadic extern is not in the backend slice yet")
+            return
+        }
+        var decl = StringBuilder()
+        var args = StringBuilder()
+        let result_class = target.c_class(&var mono.dp.bc.mir.tc, s.result, true)
+        let rl = self.lay(&var mono, &var target, s.result)
+        var ret_type = "void"
+        if result_class == TargetCClass.Direct {
+            ret_type = ll_value_type(&rl)
+        } else if result_class == TargetCClass.NullablePointer {
+            ret_type = "ptr"
+        } else if result_class == TargetCClass.Refused {
+            self.refuse_here(&var mono, node, "an extern whose result crosses the C convention as an aggregate is not in the backend slice yet")
+            return
+        }
+        try! decl.append("declare ")
+        try! decl.append(ret_type)
+        try! decl.append(" @")
+        try! decl.append(name)
+        try! decl.append("(")
+        var k = 0
+        while k < s.param_count {
+            let pt = mono.dp.bc.mir.tc.params[s.param_first + k].ty
+            let passing = target.c_class(&var mono.dp.bc.mir.tc, pt, false)
+            if passing != TargetCClass.Direct {
+                self.refuse_here(&var mono, node, "an extern parameter that crosses the C convention as an aggregate is not in the backend slice yet")
+                return
+            }
+            let pl = self.lay(&var mono, &var target, pt)
+            if k > 0 {
+                try! decl.append(", ")
+                try! args.append(", ")
+            }
+            try! decl.append(ll_value_type(&pl))
+            let o = mono.dp.bc.mir.lists[info.arg_first + k]
+            let v = self.operand_value(&var mono, &var target, o, node)
+            try! args.append(ll_value_type(&pl))
+            try! args.append(" ")
+            try! args.append(v)
+            k = k + 1
+        }
+        try! decl.append(")")
+        self.declare(name, decl.build())
+        var call = StringBuilder()
+        try! call.append("call ")
+        try! call.append(ret_type)
+        try! call.append(" @")
+        try! call.append(name)
+        try! call.append("(")
+        try! call.append(args.build())
+        try! call.append(")")
+        if ret_type.equals("void") {
+            self.put(call.build())
+            return
+        }
+        let v = self.assign(call.build())
+        if info.dest < 0 {
+            return
+        }
+        let dest = self.place_addr(&var mono, &var target, info.dest, node)
+        if result_class == TargetCClass.Direct {
+            self.store(ret_type, v, dest)
+            return
+        }
+        var cmp = StringBuilder()
+        try! cmp.append("icmp ne ptr ")
+        try! cmp.append(v)
+        try! cmp.append(", null")
+        let present = self.assign(cmp.build())
+        let flag = self.to_bool(present)
+        self.store("i8", flag, dest)
+        let some = target.present_case(&var mono.dp.bc.mir.tc, s.result)
+        let off = target.payload_offset(&var mono.dp.bc.mir.tc, s.result, some.decl, 0)
+        let at = self.offset_addr(dest, off)
+        self.store("ptr", v, at)
+    }
+}
+
+// Builtins.
+extension LlEmitter {
+    func builtin(&var self, mono: &var MonoProgram, target: &var Target, info: &MirCall) {
+        let node = info.node
+        let name = mono.dp.bc.mir.tc.res.name_text(info.spelling)
+        if name.equals("print") {
+            self.print_call(&var mono, &var target, &info)
+        } else if name.equals("panic") {
+            self.panic_call(&var mono, &var target, &info, 0, "")
+        } else if name.equals("assert") {
+            let cond = mono.dp.bc.mir.lists[info.arg_first]
+            let v = self.operand_value(&var mono, &var target, cond, node)
+            let bit = self.to_bit(v)
+            let pass = self.new_label("asserted")
+            let fail = self.new_label("assert")
+            self.branch(bit, pass, fail)
+            self.put_label(fail)
+            self.panic_call(&var mono, &var target, &info, 1, "assertion failed: ")
+            self.put_label(pass)
+            var k = 1
+            while k < info.arg_count {
+                let o = mono.dp.bc.mir.lists[info.arg_first + k]
+                self.drop_moved(&var mono, &var target, o, node)
+                k = k + 1
+            }
+        } else if name.equals("sizeof") || name.equals("alignof") {
+            let t = mono.dp.bc.mir.types[info.inst_first]
+            let l = self.lay_at(&var mono, &var target, t, node)
+            if info.dest >= 0 {
+                let dest = self.place_addr(&var mono, &var target, info.dest, node)
+                var v = StringBuilder()
+                if name.equals("sizeof") {
+                    try! v.append(l.size)
+                } else {
+                    try! v.append(l.align)
+                }
+                self.store("i64", v.build(), dest)
+            }
+        } else if name.equals("init") {
+            return
+        } else {
+            self.atomic(&var mono, &var target, &info, &name)
+        }
+    }
+
+    // The four atomics the String layer's refcount uses, as LLVM atomics of
+    // the orderings their names state.
+    func atomic(&var self, mono: &var MonoProgram, target: &var Target, info: &MirCall, name: &String) {
+        let node = info.node
+        if name.equals("__saw_atomic_fence_acquire") {
+            self.put("fence acquire")
+            return
+        }
+        let p = mono.dp.bc.mir.lists[info.arg_first]
+        let at = self.operand_value(&var mono, &var target, p, node)
+        var text = StringBuilder()
+        if name.equals("__saw_atomic_load_i64_relaxed") {
+            try! text.append("load atomic i64, ptr ")
+            try! text.append(at)
+            try! text.append(" monotonic, align 8")
+        } else {
+            let o = mono.dp.bc.mir.lists[info.arg_first + 1]
+            let v = self.operand_value(&var mono, &var target, o, node)
+            if name.equals("__saw_atomic_add_i64") {
+                try! text.append("atomicrmw add ptr ")
+                try! text.append(at)
+                try! text.append(", i64 ")
+                try! text.append(v)
+                try! text.append(" monotonic")
+            } else {
+                try! text.append("atomicrmw sub ptr ")
+                try! text.append(at)
+                try! text.append(", i64 ")
+                try! text.append(v)
+                try! text.append(" release")
+            }
+        }
+        let result = self.assign(text.build())
+        if info.dest >= 0 {
+            let dest = self.place_addr(&var mono, &var target, info.dest, node)
+            self.store("i64", result, dest)
+        }
+    }
+
+    // `print`: a literal message's bytes, a String's, or a format string's
+    // pieces with each argument rendered between them; then a line break.
+    // Every argument is read before anything is written, so a check that
+    // fails while one is read panics before any of the line is out. A String
+    // the call was handed by `move` is the call's to drop.
+    func print_call(&var self, mono: &var MonoProgram, target: &var Target, info: &MirCall) {
+        let node = info.node
+        var parts = ll_parts()
+        self.message_parts(&var mono, &var target, &info, 0, &var parts)
+        var k = 0
+        while k < parts.kinds.len() {
+            let kind = parts.kinds[k]
+            let first = parts.firsts.get(k) ?? ""
+            let second = parts.seconds.get(k) ?? ""
+            if kind == LL_PART_RUN || kind == LL_PART_BOOL {
+                let run = self.part_run(kind, first, second)
+                let length = self.part_run_length(kind, first, second)
+                self.write_out(run, length)
+            } else {
+                let buf = self.slot(24, 1)
+                let n = self.render_integer(buf, first, kind == LL_PART_SIGNED)
+                self.write_out(buf, n)
+            }
+            k = k + 1
+        }
+        var newline = Vector<Int>()
+        try! newline.push(10)
+        self.write_bytes(&newline)
+        k = 0
+        while k < info.arg_count {
+            let o = mono.dp.bc.mir.lists[info.arg_first + k]
+            self.drop_moved(&var mono, &var target, o, node)
+            k = k + 1
+        }
+    }
+
+    // `panic`, or `assert`'s failure: `panic at FILE:LINE: ` and `lead`,
+    // then the message from operand `from` on, and a line break, rendered
+    // into stack scratch and handed to the panic sink.
+    func panic_call(&var self, mono: &var MonoProgram, target: &var Target, info: &MirCall, from: Int, lead: String) {
+        let node = info.node
+        var parts = ll_parts()
+        self.message_parts(&var mono, &var target, &info, from, &var parts)
+        let buf = self.message_slot()
+        var head = StringBuilder()
+        try! head.append("panic at ")
+        try! head.append(mono.site_text(node))
+        try! head.append(": ")
+        try! head.append(lead)
+        let head_bytes = self.text_bytes(head.build())
+        var pos = self.append_bytes(buf, "0", &head_bytes)
+        var k = 0
+        while k < parts.kinds.len() {
+            let kind = parts.kinds[k]
+            let first = parts.firsts.get(k) ?? ""
+            let second = parts.seconds.get(k) ?? ""
+            if kind == LL_PART_RUN || kind == LL_PART_BOOL {
+                let run = self.part_run(kind, first, second)
+                let length = self.part_run_length(kind, first, second)
+                pos = self.append_run(buf, pos, run, length)
+            } else {
+                pos = self.append_integer(buf, pos, first, kind == LL_PART_SIGNED)
+            }
+            k = k + 1
+        }
+        let end = self.finish_message(buf, pos)
+        self.call_panic_sink(&var mono, node, buf, end)
+    }
+
+    // A message's parts, from operand `from` of the call on: a format
+    // string's pieces with each argument read between them, or one value.
+    // Every argument is read here, in order, before any part is written.
+    func message_parts(&var self, mono: &var MonoProgram, target: &var Target, info: &MirCall, from: Int,
+                       parts: &var LlParts) {
+        if from >= info.arg_count {
+            return
+        }
+        let node = info.node
+        let first = mono.dp.bc.mir.lists[info.arg_first + from]
+        let op = mono.dp.bc.mir.operands[first]
+        if not (op.kind == MirOperandKind.Const && op.const_kind == MirConstKind.Format) {
+            self.prepare(&var mono, &var target, first, node, &var parts)
+            return
+        }
+        var values = ll_parts()
+        var k = from + 1
+        while k < info.arg_count {
+            let arg = mono.dp.bc.mir.lists[info.arg_first + k]
+            self.prepare(&var mono, &var target, arg, node, &var values)
+            k = k + 1
+        }
+        let pieces = ll_format_pieces(mono.dp.bc.mir.tc.name_text(op.text))
+        var start = 0
+        k = 0
+        while k < pieces.ends.len() {
+            let end = pieces.ends[k]
+            var piece = Vector<Int>()
+            var j = start
+            while j < end {
+                try! piece.push(pieces.bytes[j])
+                j = j + 1
+            }
+            start = end
+            if piece.len() > 0 {
+                let g = self.pooled(&piece, false, 0)
+                var len = StringBuilder()
+                try! len.append(piece.len())
+                ll_parts_push(&var parts, LL_PART_RUN, g, len.build())
+            }
+            if k < values.kinds.len() {
+                let kind = values.kinds[k]
+                ll_parts_push(&var parts, kind, values.firsts.get(k) ?? "", values.seconds.get(k) ?? "")
+            }
+            k = k + 1
+        }
+    }
+
+    // Operand `o` read as a message part: a String's bytes and length, read
+    // through the String roles in place (a `&String` through its
+    // reference); an integer widened to i64; a Bool's byte.
+    func prepare(&var self, mono: &var MonoProgram, target: &var Target, o: Int, node: Int, parts: &var LlParts) {
+        let op = mono.dp.bc.mir.operands[o]
+        if op.kind == MirOperandKind.Const && op.const_kind == MirConstKind.String {
+            let bytes = ll_string_bytes(mono.dp.bc.mir.tc.name_text(op.text))
+            let g = self.pooled(&bytes, false, 0)
+            var len = StringBuilder()
+            try! len.append(bytes.len())
+            ll_parts_push(&var parts, LL_PART_RUN, g, len.build())
+            return
+        }
+        var t = op.ty
+        var through = ""
+        let referent = mono.dp.bc.mir.tc.referent(t)
+        if referent >= 0 {
+            t = referent
+        }
+        if mono.dp.bc.mir.tc.is_string(t) {
+            let text = self.string_addr(&var mono, &var target, o, node)
+            let bytes = self.string_bytes_of(&var mono, text, node)
+            let len = self.string_length(&var mono, text, node)
+            ll_parts_push(&var parts, LL_PART_RUN, bytes, len)
+            return
+        }
+        if referent >= 0 {
+            through = self.operand_value(&var mono, &var target, o, node)
+        }
+        let l = self.lay_at(&var mono, &var target, t, node)
+        var v = ""
+        if through.len() > 0 {
+            v = self.load(ll_value_type(&l), through)
+        } else {
+            v = self.operand_value(&var mono, &var target, o, node)
+        }
+        if mono.dp.bc.mir.tc.is_bool(t) {
+            ll_parts_push(&var parts, LL_PART_BOOL, v, "")
+            return
+        }
+        let signed = not mono.dp.bc.mir.tc.is_unsigned(t)
+        let wide = self.int_convert(v, l.bits, 64, signed)
+        if signed {
+            ll_parts_push(&var parts, LL_PART_SIGNED, wide, "")
+        } else {
+            ll_parts_push(&var parts, LL_PART_UNSIGNED, wide, "")
+        }
+    }
+
+    // A run part's bytes: its own, or a Bool's word.
+    func part_run(&var self, kind: Int, first: String, second: String) -> String {
+        if kind == LL_PART_RUN {
+            return first
+        }
+        let bit = self.to_bit(first)
+        let yes = self.text_bytes("true")
+        let no = self.text_bytes("false")
+        let yes_at = self.pooled(&yes, false, 0)
+        let no_at = self.pooled(&no, false, 0)
+        var pick = StringBuilder()
+        try! pick.append("select i1 ")
+        try! pick.append(bit)
+        try! pick.append(", ptr ")
+        try! pick.append(yes_at)
+        try! pick.append(", ptr ")
+        try! pick.append(no_at)
+        self.assign(pick.build())
+    }
+
+    func part_run_length(&var self, kind: Int, first: String, second: String) -> String {
+        if kind == LL_PART_RUN {
+            return second
+        }
+        let bit = self.to_bit(first)
+        var size = StringBuilder()
+        try! size.append("select i1 ")
+        try! size.append(bit)
+        try! size.append(", i64 4, i64 5")
+        self.assign(size.build())
+    }
+
+    // Integer `wide` (an i64) rendered in decimal into `buf`; returns the
+    // length.
+    func render_integer(&var self, buf: String, wide: String, signed: Bool) -> String {
+        var call = StringBuilder()
+        if signed {
+            try! call.append("call i64 @__saw_render_int(ptr ")
+        } else {
+            try! call.append("call i64 @__saw_render_uint(ptr ")
+        }
+        try! call.append(buf)
+        try! call.append(", i64 ")
+        try! call.append(wide)
+        try! call.append(")")
+        self.assign(call.build())
+    }
+
+    // A String operand the builtin was handed by `move`, dropped through its
+    // glue once its bytes are written.
+    func drop_moved(&var self, mono: &var MonoProgram, target: &var Target, o: Int, node: Int) {
+        let op = mono.dp.bc.mir.operands[o]
+        if op.kind != MirOperandKind.Move {
+            return
+        }
+        let glue = mono.glue_item(op.ty, MONO_KEY_DROP)
+        if glue < 0 {
+            return
+        }
+        let addr = self.place_addr(&var mono, &var target, op.place, node)
+        var line = StringBuilder()
+        try! line.append("call void ")
+        try! line.append(ll_symbol(&mono, glue))
+        try! line.append("(ptr ")
+        try! line.append(addr)
+        try! line.append(")")
+        self.put(line.build())
+    }
+
+    // The bytes and the length of the String at `text`, read through the
+    // String roles.
+    func string_bytes_of(&var self, mono: &var MonoProgram, text: String, node: Int) -> String {
+        if mono.bytes_item < 0 {
+            self.refuse_here(&var mono, node, "a String argument with no bytes role bound")
+            return "null"
+        }
+        var call = StringBuilder()
+        try! call.append("call ptr ")
+        let role = mono.bytes_item
+        try! call.append(ll_symbol(&mono, role))
+        try! call.append("(ptr ")
+        try! call.append(text)
+        try! call.append(")")
+        self.assign(call.build())
+    }
+
+    func string_length(&var self, mono: &var MonoProgram, text: String, node: Int) -> String {
+        if mono.length_item < 0 {
+            self.refuse_here(&var mono, node, "a String argument with no length role bound")
+            return "0"
+        }
+        var call = StringBuilder()
+        try! call.append("call i64 ")
+        let role = mono.length_item
+        try! call.append(ll_symbol(&mono, role))
+        try! call.append("(ptr ")
+        try! call.append(text)
+        try! call.append(")")
+        self.assign(call.build())
+    }
+}
+
+// What a message part is: a run of bytes (`first` its address, `second` its
+// length), an integer widened to i64 (`first`), signed or not, or a Bool's
+// byte (`first`).
+static LL_PART_RUN: Int = 0
+static LL_PART_SIGNED: Int = 1
+static LL_PART_UNSIGNED: Int = 2
+static LL_PART_BOOL: Int = 3
+
+// A message's parts, in order.
+public struct LlParts {
+    public kinds: Vector<Int>
+    public firsts: Vector<String>
+    public seconds: Vector<String>
+}
+
+extension LlParts: NoCopy {}
+
+func ll_parts() -> LlParts {
+    LlParts(kinds: Vector<Int>(), firsts: Vector<String>(), seconds: Vector<String>())
+}
+
+func ll_parts_push(parts: &var LlParts, kind: Int, first: String, second: String) {
+    try! parts.kinds.push(kind)
+    try! parts.firsts.push(first)
+    try! parts.seconds.push(second)
+}
+
+
+// MIR block `b`'s label.
+public func ll_block(b: Int) -> String {
+    var out = StringBuilder()
+    try! out.append("bb")
+    try! out.append(b)
+    out.build()
+}

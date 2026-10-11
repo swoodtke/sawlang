@@ -1,0 +1,12 @@
+// due: a Float constant has no lowering in the backend slice yet
+// refuses: backend.not-yet at 10:22
+// A Float written into a struct literal is refused at the Float itself.
+struct Point {
+    x: Float
+    n: Int
+}
+
+func main() {
+    let p = Point(x: 1.5, n: 2)
+    print("{}", p.n)
+}

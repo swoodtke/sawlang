@@ -1,0 +1,40 @@
+// Structs: memberwise construction, nested fields, `&self` and `&var self`
+// methods, a static method, and a copy of a trivially copyable struct.
+struct Point {
+    x: Int
+    y: Int
+}
+
+struct Segment {
+    from: Point
+    to: Point
+}
+
+extension Point {
+    static func origin() -> Point {
+        Point(x: 0, y: 0)
+    }
+
+    func manhattan(&self) -> Int {
+        let dx = if self.x < 0 { 0 - self.x } else { self.x }
+        let dy = if self.y < 0 { 0 - self.y } else { self.y }
+        dx + dy
+    }
+
+    func shift(&var self, by: Int) {
+        self.x = self.x + by
+        self.y = self.y - by
+    }
+}
+
+func main() {
+    var p = Point(x: 3, y: -4)
+    print("manhattan {}", p.manhattan())
+    p.shift(by: 2)
+    print("shifted {} {}", p.x, p.y)
+    let q = p
+    p.shift(by: 1)
+    print("copy kept {} {}, original {} {}", q.x, q.y, p.x, p.y)
+    let s = Segment(from: Point.origin(), to: q)
+    print("segment {} {} -> {} {}", s.from.x, s.from.y, s.to.x, s.to.y)
+}

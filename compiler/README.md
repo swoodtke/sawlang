@@ -52,8 +52,19 @@ compiler/
                       (tests/drops/README.md has its flags, glue resolution, rule,
                       dump and verifier)
     src/*.saw
-  driver/             the `sawc2` binary, package `sawc2`
-    src/main.saw
+  target/             the target description, package `sawtarget`: every concrete
+                      type's layout and the C convention (tests/mono/README.md,
+                      "Layouts")
+    src/layout.saw
+  mono/               monomorphization over elaborated MIR, package `sawmono`
+                      (tests/mono/README.md has its items, glue, dump and rules)
+    src/*.saw
+  llvm/               the textual LLVM IR backend, package `sawllvm`
+                      (tests/run/README.md has its translation and `sawc2 build`)
+    src/*.saw
+  driver/             the `sawc2` binary, package `sawc2`, and the `sawc2` script
+    src/main.saw      that links what `sawc2 build` writes
+    sawc2
   tools/
     build.py          builds sawc2, or any program over the stage packages
     subset_check.py   the subset checker
@@ -67,6 +78,8 @@ compiler/
     std_suspension.py each std function's suspension verdict from Stage 0's std
                       check, recorded in std_suspension.txt and compiled into
                       typecheck/src/stdsuspension.saw
+    runtime_objects.py the Saw runtime objects a hosted `sawc2 build` links:
+                      Stage 0's prebuilt ones, from its `.build/rt/` cache
   tests/
     run.py            the test runner
     parse_lane.py     the parse lane: sawc2 parse against the parser corpus
@@ -110,6 +123,13 @@ compiler/
     drops/            the drops lane (drops_lane.py): the dump's specification
                       (README.md), golden records, refusal and due fixtures, and
                       the conformance rows drop elaboration owns (conformance.tsv)
+    mono/             the mono lane (mono_lane.py): the dump's and the layout
+                      table's specification (README.md), golden item dumps and
+                      layout tables, refusal fixtures, and the layouts against
+                      Stage 0's (layout_exceptions.tsv)
+    run/              the run lane (run_lane.py): the backend's and `sawc2
+                      build`'s specification (README.md), and programs built by
+                      sawc2 and by Stage 0 whose binaries' output must agree
 ```
 
 The new std, the std sawc2 compiles from Stage 1 on, is the top-level `std/`
@@ -134,8 +154,13 @@ Use the venv's Python, since it runs the frozen compiler:
 .build/sawc2 lex --kinds                               # every token kind's dump name
 .build/sawc2 parse --dump FILE...                      # each file's canonical AST dump
 .build/sawc2 parse --check FILE...                     # each file's diagnostics
+compiler/driver/sawc2 build --std-root std FILE -o OUT # FILE compiled and linked
 ./.venv/bin/python compiler/tools/build.py ENTRY.saw -o OUT   # another program
 ```
+
+`sawc2 build` runs through the script `compiler/driver/sawc2`: the binary
+writes one `.ll` and spawns nothing (SL:architecture §4), and the script hands
+it to clang with Stage 0's prebuilt runtime objects (tests/run/README.md).
 
 A lex error prints one `ERROR` record and exits 1, and so does a file the parser
 refuses. A usage or I/O failure exits 2.
@@ -260,6 +285,15 @@ these things.
   the new std with no refusal and no invariant, requires the verifier after
   elaboration to be clean over every tests/corpus/ program that elaborates,
   and holds each conformance row drop elaboration owns to its summary.
+- **Monomorphization and layout** (`tests/mono/README.md`): the mono lane
+  (`tests/mono/mono_lane.py`) holds `sawc2 mono` to its golden item dumps and
+  layout tables and its refusal fixtures, requires a fixture for every rule it
+  refuses by, and compares each layout Stage 0 can name with Stage 0's.
+- **The backend and `sawc2 build`** (`tests/run/README.md`): the run lane
+  (`tests/run/run_lane.py`) builds each program of `tests/run/` with
+  `sawc2 build` against the new std and with Stage 0, runs both, and requires
+  the same output and exit status; a due program must be refused where it
+  says; hello's `.ll` is pinned.
 
 ## The std profile
 

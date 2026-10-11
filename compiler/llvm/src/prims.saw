@@ -1,0 +1,386 @@
+// The emitter's primitives: SSA names, labels, entry-block slots, loads,
+// stores, address arithmetic, the layout questions put to the target, and
+// the two seams every function may reach: `__saw_rt_write` for output and
+// the panic sink for a failed check.
+
+import sawborrowck.src.program.{BorrowckProgram}
+import sawdrops.src.program.{DropsProgram}
+import sawllvm.src.module.{LlEmitter, ll_is_scalar, ll_symbol, ll_value_type}
+import sawmir.src.program.{MirProgram}
+import sawmono.src.dump.{mono_dump_layouts}
+import sawmono.src.program.{MonoProgram}
+import sawresolve.src.program.{ResProgram}
+import sawtarget.src.layout.{Target, TargetKind, TargetLayout}
+import sawtypecheck.src.program.{TcProgram}
+import sawtypecheck.src.spell.{tc_effects_text}
+
+// How many bytes a rendered panic message may hold, as Stage 0's stack
+// scratch does (design 137).
+public static LL_MESSAGE_LIMIT: Int = 508
+
+extension LlEmitter {
+    // A fresh SSA name.
+    public func fresh(&var self) -> String {
+        var out = StringBuilder()
+        try! out.append("%t")
+        try! out.append(self.temps)
+        self.temps = self.temps + 1
+        out.build()
+    }
+
+    // A fresh label, `word` then a number.
+    public func new_label(&var self, word: String) -> String {
+        var out = StringBuilder()
+        try! out.append(word)
+        try! out.append(".")
+        try! out.append(self.labels)
+        self.labels = self.labels + 1
+        out.build()
+    }
+
+    public func put(&var self, text: String) {
+        try! self.body.append("  ")
+        try! self.body.append(text)
+        try! self.body.append("\n")
+    }
+
+    public func put_label(&var self, name: String) {
+        try! self.body.append(name)
+        try! self.body.append(":\n")
+    }
+
+    // A fresh entry-block slot of `size` bytes at `align`; returns its name.
+    public func slot(&var self, size: Int, align: Int) -> String {
+        let name = self.fresh()
+        try! self.allocas.append("  ")
+        try! self.allocas.append(name)
+        try! self.allocas.append(" = alloca [")
+        try! self.allocas.append(size)
+        try! self.allocas.append(" x i8], align ")
+        try! self.allocas.append(align)
+        try! self.allocas.append("\n")
+        name
+    }
+
+    // Refuses what the function reaches that the backend slice does not
+    // lower; the function is not emitted.
+    public func refuse_here(&var self, mono: &var MonoProgram, node: Int, message: String) {
+        if not self.refused {
+            mono.refuse(node, "backend.not-yet", message)
+        }
+        self.refused = true
+    }
+
+    public func lay(&var self, mono: &var MonoProgram, target: &var Target, t: Int) -> TargetLayout {
+        target.layout(&var mono.dp.bc.mir.tc, t)
+    }
+
+    // The layout of `t`, refused at `node` when the target cannot lay it out.
+    public func lay_at(&var self, mono: &var MonoProgram, target: &var Target, t: Int, node: Int) -> TargetLayout {
+        let l = target.layout(&var mono.dp.bc.mir.tc, t)
+        if l.kind == TargetKind.Unsupported {
+            var msg = StringBuilder()
+            try! msg.append("the type `")
+            try! msg.append(mono.dp.bc.mir.tc.type_text(t))
+            try! msg.append("` is not in the backend slice yet: ")
+            try! msg.append(target.reason_of(&l))
+            self.refuse_here(&var mono, node, msg.build())
+        }
+        l
+    }
+
+    // Address `base` moved `offset` bytes on.
+    public func offset_addr(&var self, base: String, offset: Int) -> String {
+        if offset == 0 {
+            return base
+        }
+        let name = self.fresh()
+        var line = StringBuilder()
+        try! line.append(name)
+        try! line.append(" = getelementptr i8, ptr ")
+        try! line.append(base)
+        try! line.append(", i64 ")
+        try! line.append(offset)
+        self.put(line.build())
+        name
+    }
+
+    public func load(&var self, ty: String, addr: String) -> String {
+        let name = self.fresh()
+        var line = StringBuilder()
+        try! line.append(name)
+        try! line.append(" = load ")
+        try! line.append(ty)
+        try! line.append(", ptr ")
+        try! line.append(addr)
+        self.put(line.build())
+        name
+    }
+
+    public func store(&var self, ty: String, value: String, addr: String) {
+        var line = StringBuilder()
+        try! line.append("store ")
+        try! line.append(ty)
+        try! line.append(" ")
+        try! line.append(value)
+        try! line.append(", ptr ")
+        try! line.append(addr)
+        self.put(line.build())
+    }
+
+    // `name = text` as one instruction; returns `name`.
+    public func assign(&var self, text: String) -> String {
+        let name = self.fresh()
+        var line = StringBuilder()
+        try! line.append(name)
+        try! line.append(" = ")
+        try! line.append(text)
+        self.put(line.build())
+        name
+    }
+
+    public func memcpy(&var self, dest: String, src: String, size: Int) {
+        if size == 0 {
+            return
+        }
+        self.declare("llvm.memcpy.p0.p0.i64", "declare void @llvm.memcpy.p0.p0.i64(ptr, ptr, i64, i1)")
+        var line = StringBuilder()
+        try! line.append("call void @llvm.memcpy.p0.p0.i64(ptr ")
+        try! line.append(dest)
+        try! line.append(", ptr ")
+        try! line.append(src)
+        try! line.append(", i64 ")
+        try! line.append(size)
+        try! line.append(", i1 false)")
+        self.put(line.build())
+    }
+
+    // The bits of a value of layout `l` from `src` to `dest`.
+    public func copy_bits(&var self, l: &TargetLayout, dest: String, src: String) {
+        if ll_is_scalar(&l) {
+            let ty = ll_value_type(&l)
+            let v = self.load(ty, src)
+            self.store(ty, v, dest)
+        } else if l.kind == TargetKind.Memory {
+            self.memcpy(dest, src, l.size)
+        }
+    }
+
+    // The type of local `j` of the function being written.
+    public func local_type(&self, mono: &MonoProgram, j: Int) -> Int {
+        let info = mono.dp.bc.mir.funcs[self.current]
+        mono.dp.bc.mir.locals[info.local_first + j].ty
+    }
+
+    public func branch(&var self, cond: String, yes: String, no: String) {
+        var line = StringBuilder()
+        try! line.append("br i1 ")
+        try! line.append(cond)
+        try! line.append(", label %")
+        try! line.append(yes)
+        try! line.append(", label %")
+        try! line.append(no)
+        self.put(line.build())
+    }
+
+    public func jump(&var self, label: String) {
+        var line = StringBuilder()
+        try! line.append("br label %")
+        try! line.append(label)
+        self.put(line.build())
+    }
+
+    // An `i1` as a `Bool`, a byte.
+    public func to_bool(&var self, bit: String) -> String {
+        var widen = StringBuilder()
+        try! widen.append("zext i1 ")
+        try! widen.append(bit)
+        try! widen.append(" to i8")
+        self.assign(widen.build())
+    }
+
+    // A `Bool` byte as an `i1`.
+    public func to_bit(&var self, byte: String) -> String {
+        var cmp = StringBuilder()
+        try! cmp.append("icmp ne i8 ")
+        try! cmp.append(byte)
+        try! cmp.append(", 0")
+        self.assign(cmp.build())
+    }
+
+    // `len` bytes at `ptr` to standard output, through the runtime's write
+    // seam.
+    public func write_out(&var self, ptr: String, len: String) {
+        self.declare("__saw_rt_write", "declare void @__saw_rt_write(ptr, i64)")
+        var line = StringBuilder()
+        try! line.append("call void @__saw_rt_write(ptr ")
+        try! line.append(ptr)
+        try! line.append(", i64 ")
+        try! line.append(len)
+        try! line.append(")")
+        self.put(line.build())
+    }
+
+    // Constant bytes `bytes` to standard output.
+    public func write_bytes(&var self, bytes: &Vector<Int>) {
+        if bytes.len() == 0 {
+            return
+        }
+        let g = self.pooled(&bytes, false, 0)
+        var len = StringBuilder()
+        try! len.append(bytes.len())
+        self.write_out(g, len.build())
+    }
+
+    // The message `len` bytes at `ptr` handed to the panic sink, which does
+    // not return.
+    public func call_panic_sink(&var self, mono: &var MonoProgram, node: Int, ptr: String, len: String) {
+        if mono.panic_item < 0 {
+            self.refuse_here(&var mono, node, "a panic with no panic sink bound")
+            return
+        }
+        var line = StringBuilder()
+        try! line.append("call void ")
+        let sink = mono.panic_item
+        try! line.append(ll_symbol(&mono, sink))
+        try! line.append("(ptr ")
+        try! line.append(ptr)
+        try! line.append(", i64 ")
+        try! line.append(len)
+        try! line.append(")")
+        self.put(line.build())
+        self.put("unreachable")
+    }
+
+    // A message buffer's start: a stack slot, and position 0 in it.
+    public func message_slot(&var self) -> String {
+        self.slot(LL_MESSAGE_LIMIT + 4, 1)
+    }
+
+    // Constant bytes appended to message buffer `buf` at `pos`; returns the
+    // new position.
+    public func append_bytes(&var self, buf: String, pos: String, bytes: &Vector<Int>) -> String {
+        if bytes.len() == 0 {
+            return pos
+        }
+        let g = self.pooled(&bytes, false, 0)
+        var len = StringBuilder()
+        try! len.append(bytes.len())
+        self.append_run(buf, pos, g, len.build())
+    }
+
+    // A message buffer's end: the cut's `…` when something was cut, then the
+    // line break; returns the message's length.
+    public func finish_message(&var self, buf: String, pos: String) -> String {
+        var call = StringBuilder()
+        try! call.append("call i64 @__saw_finish(ptr ")
+        try! call.append(buf)
+        try! call.append(", i64 ")
+        try! call.append(pos)
+        try! call.append(")")
+        self.assign(call.build())
+    }
+
+    // `len` bytes at `src` appended to message buffer `buf` at `pos`, cut at
+    // the buffer's limit.
+    public func append_run(&var self, buf: String, pos: String, src: String, len: String) -> String {
+        var call = StringBuilder()
+        try! call.append("call i64 @__saw_append(ptr ")
+        try! call.append(buf)
+        try! call.append(", i64 ")
+        try! call.append(pos)
+        try! call.append(", ptr ")
+        try! call.append(src)
+        try! call.append(", i64 ")
+        try! call.append(len)
+        try! call.append(")")
+        self.assign(call.build())
+    }
+
+    // Integer `value` (an i64) rendered in decimal into message buffer `buf`
+    // at `pos`, as signed or unsigned.
+    public func append_integer(&var self, buf: String, pos: String, value: String, signed: Bool) -> String {
+        var call = StringBuilder()
+        if signed {
+            try! call.append("call i64 @__saw_append_int(ptr ")
+        } else {
+            try! call.append("call i64 @__saw_append_uint(ptr ")
+        }
+        try! call.append(buf)
+        try! call.append(", i64 ")
+        try! call.append(pos)
+        try! call.append(", i64 ")
+        try! call.append(value)
+        try! call.append(")")
+        self.assign(call.build())
+    }
+
+    // A constant message's bytes as the scratch would hold them: whole when
+    // it fits, else cut on a UTF-8 boundary at the limit and marked `…`,
+    // then a line break.
+    public func bounded_message(&self, text: String) -> Vector<Int> {
+        var bytes = self.text_bytes(text)
+        if bytes.len() > LL_MESSAGE_LIMIT {
+            var n = LL_MESSAGE_LIMIT
+            while n > 0 && (bytes[n] & 0xC0) == 0x80 {
+                n = n - 1
+            }
+            var cut = Vector<Int>()
+            var k = 0
+            while k < n {
+                try! cut.push(bytes[k])
+                k = k + 1
+            }
+            try! cut.push(0xE2)
+            try! cut.push(0x80)
+            try! cut.push(0xA6)
+            bytes = move cut
+        }
+        try! bytes.push(10)
+        move bytes
+    }
+
+    // `text`'s bytes.
+    public func text_bytes(&self, text: String) -> Vector<Int> {
+        var bytes = Vector<Int>()
+        let n = text.len()
+        var k = 0
+        while k < n {
+            try! bytes.push(text.byte_at(k) as Int)
+            k = k + 1
+        }
+        move bytes
+    }
+
+    // A check's panic naming a value: `panic at FILE:LINE: REASON` then
+    // integer `value` (an i64) and a line break, rendered into stack scratch.
+    public func panic_with_value(&var self, mono: &var MonoProgram, node: Int, reason: String, value: String,
+                                 signed: Bool) {
+        let buf = self.message_slot()
+        var text = StringBuilder()
+        try! text.append("panic at ")
+        try! text.append(mono.site_text(node))
+        try! text.append(": ")
+        try! text.append(reason)
+        let head = self.text_bytes(text.build())
+        let pos = self.append_bytes(buf, "0", &head)
+        let after = self.append_integer(buf, pos, value, signed)
+        let end = self.finish_message(buf, after)
+        self.call_panic_sink(&var mono, node, buf, end)
+    }
+
+    // A check's panic: `panic at FILE:LINE: REASON` and a line break, the
+    // whole message one constant (design 122).
+    public func panic_static(&var self, mono: &var MonoProgram, target: &var Target, node: Int, reason: String) {
+        var text = StringBuilder()
+        try! text.append("panic at ")
+        try! text.append(mono.site_text(node))
+        try! text.append(": ")
+        try! text.append(reason)
+        let bytes = self.bounded_message(text.build())
+        let g = self.pooled(&bytes, false, 0)
+        var len = StringBuilder()
+        try! len.append(bytes.len())
+        self.call_panic_sink(&var mono, node, g, len.build())
+    }
+}

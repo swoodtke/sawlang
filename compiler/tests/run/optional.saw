@@ -1,0 +1,33 @@
+// Optionals: the automatic wrap, `if let`, `guard let`, `??`, a `match` and
+// `is_some`.
+func find(target: Int, limit: Int) -> Int? {
+    var i = 0
+    while i < limit {
+        if i * i == target {
+            return i
+        }
+        i = i + 1
+    }
+    None
+}
+
+func root_or_zero(n: Int) -> Int {
+    guard let r = find(n, 20) else {
+        return 0
+    }
+    r
+}
+
+func main() {
+    if let r = find(49, 20) {
+        print("root {}", r)
+    }
+    let missing = find(50, 20)
+    print("default {}", missing ?? -1)
+    print("guarded {} {}", root_or_zero(81), root_or_zero(82))
+    match find(16, 20) {
+        case Some(v) -> print("matched {}", v),
+        case _ -> print("none")
+    }
+    print("present {} {}", missing.is_some(), find(4, 20).is_some())
+}

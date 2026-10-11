@@ -1,0 +1,7 @@
+// A String written out is read as its bytes and their count; the length role
+// answers the count as an Int.
+file: string.saw
+replace: func string_length(text: &String) unsafe -> Int {
+with: func string_length(text: &String) unsafe -> UInt {
+refuses: lang.shape string.saw
+message: expected `func (signature (params (text &String shared)) (effects unsafe) -> Int)`

@@ -1,0 +1,273 @@
+// The text the backend writes that no MIR record spells: a source literal's
+// value (an integer's digits under its base and suffix, a string's bytes
+// under its escapes), and those bytes as an LLVM `c"..."` constant. Each is a
+// fixed reading of the lexer's literal forms, never a language decision.
+
+static LL_UNDERSCORE: Int = 95
+static LL_ZERO: Int = 48
+static LL_NINE: Int = 57
+static LL_LOWER_A: Int = 97
+static LL_LOWER_F: Int = 102
+static LL_UPPER_A: Int = 65
+static LL_UPPER_F: Int = 70
+static LL_LOWER_X: Int = 120
+static LL_LOWER_B: Int = 98
+static LL_LOWER_O: Int = 111
+static LL_LOWER_I: Int = 105
+static LL_LOWER_U: Int = 117
+static LL_MINUS: Int = 45
+static LL_QUOTE: Int = 34
+static LL_BACKSLASH: Int = 92
+static LL_LOWER_N: Int = 110
+static LL_LOWER_T: Int = 116
+static LL_LOWER_R: Int = 114
+static LL_OPEN_BRACE: Int = 123
+static LL_CLOSE_BRACE: Int = 125
+static LL_SPACE: Int = 32
+static LL_TILDE: Int = 126
+
+// The value of integer literal `text` as the low 64 bits of its two's
+// complement: a decimal, `0x`, `0b` or `0o` literal with `_` separators and
+// an optional width suffix (`255u8`, `7i64`), and a leading `-`.
+public func ll_integer_value(text: String) -> Int {
+    let n = text.len()
+    var i = 0
+    var negative = false
+    if n > 0 && (text.byte_at(0) as Int) == LL_MINUS {
+        negative = true
+        i = 1
+    }
+    var radix = 10
+    if i + 1 < n && (text.byte_at(i) as Int) == LL_ZERO {
+        let marker = text.byte_at(i + 1) as Int
+        if marker == LL_LOWER_X {
+            radix = 16
+            i = i + 2
+        } else if marker == LL_LOWER_B {
+            radix = 2
+            i = i + 2
+        } else if marker == LL_LOWER_O {
+            radix = 8
+            i = i + 2
+        }
+    }
+    var acc = 0
+    while i < n {
+        let b = text.byte_at(i) as Int
+        if b == LL_UNDERSCORE {
+            i = i + 1
+            continue
+        }
+        if radix != 16 && (b == LL_LOWER_I || b == LL_LOWER_U) {
+            break
+        }
+        if radix == 16 && (b == LL_LOWER_I || b == LL_LOWER_U) {
+            break
+        }
+        var d = -1
+        if b >= LL_ZERO && b <= LL_NINE {
+            d = b - LL_ZERO
+        } else if b >= LL_LOWER_A && b <= LL_LOWER_F {
+            d = b - LL_LOWER_A + 10
+        } else if b >= LL_UPPER_A && b <= LL_UPPER_F {
+            d = b - LL_UPPER_A + 10
+        }
+        if d < 0 || d >= radix {
+            break
+        }
+        acc = (acc &* radix) &+ d
+        i = i + 1
+    }
+    if negative {
+        return 0 &- acc
+    }
+    acc
+}
+
+// `v` as a signed `bits`-wide integer, the spelling LLVM reads at that width.
+public func ll_fit_signed(v: Int, bits: Int) -> Int {
+    if bits >= 64 {
+        return v
+    }
+    let span = 1 << bits
+    var m = v % span
+    if m < 0 {
+        m = m + span
+    }
+    if m >= span / 2 {
+        return m - span
+    }
+    m
+}
+
+// The bytes string literal `text` (quotes included, as the source spells
+// it) denotes, under the lexer's escapes: `\\ \" \n \t \r \0 \{ \}` and
+// `\u{HEX}`, encoded as UTF-8.
+public func ll_string_bytes(text: String) -> Vector<Int> {
+    var out = Vector<Int>()
+    let n = text.len()
+    var i = 1
+    let end = n - 1
+    while i < end {
+        let b = text.byte_at(i) as Int
+        if b != LL_BACKSLASH || i + 1 >= end {
+            try! out.push(b)
+            i = i + 1
+            continue
+        }
+        let e = text.byte_at(i + 1) as Int
+        i = i + 2
+        if e == LL_LOWER_N {
+            try! out.push(10)
+        } else if e == LL_LOWER_T {
+            try! out.push(9)
+        } else if e == LL_LOWER_R {
+            try! out.push(13)
+        } else if e == LL_ZERO {
+            try! out.push(0)
+        } else if e == LL_LOWER_U {
+            // `\u{HEX}`: `i` stands on the brace.
+            var scalar = 0
+            var j = i + 1
+            while j < end && (text.byte_at(j) as Int) != LL_CLOSE_BRACE {
+                let h = text.byte_at(j) as Int
+                var d = 0
+                if h >= LL_ZERO && h <= LL_NINE {
+                    d = h - LL_ZERO
+                } else if h >= LL_LOWER_A && h <= LL_LOWER_F {
+                    d = h - LL_LOWER_A + 10
+                } else if h >= LL_UPPER_A && h <= LL_UPPER_F {
+                    d = h - LL_UPPER_A + 10
+                }
+                scalar = scalar * 16 + d
+                j = j + 1
+            }
+            ll_push_utf8(&var out, scalar)
+            i = j + 1
+        } else {
+            try! out.push(e)
+        }
+    }
+    move out
+}
+
+func ll_push_utf8(out: &var Vector<Int>, scalar: Int) {
+    if scalar < 0x80 {
+        try! out.push(scalar)
+    } else if scalar < 0x800 {
+        try! out.push(0xC0 | (scalar >> 6))
+        try! out.push(0x80 | (scalar & 0x3F))
+    } else if scalar < 0x10000 {
+        try! out.push(0xE0 | (scalar >> 12))
+        try! out.push(0x80 | ((scalar >> 6) & 0x3F))
+        try! out.push(0x80 | (scalar & 0x3F))
+    } else {
+        try! out.push(0xF0 | (scalar >> 18))
+        try! out.push(0x80 | ((scalar >> 12) & 0x3F))
+        try! out.push(0x80 | ((scalar >> 6) & 0x3F))
+        try! out.push(0x80 | (scalar & 0x3F))
+    }
+}
+
+// A format string's pieces: the literal text between its `{}` slots, one
+// more piece than slots, as one run of bytes and each piece's end in it.
+public struct LlPieces {
+    public bytes: Vector<Int>
+    public ends: Vector<Int>
+}
+
+extension LlPieces: NoCopy {}
+
+// The pieces of format string `text`; `\{` and `\}` are literal braces, not
+// slots.
+public func ll_format_pieces(text: String) -> LlPieces {
+    var ends = Vector<Int>()
+    var current = Vector<Int>()
+    let n = text.len()
+    var i = 1
+    let end = n - 1
+    while i < end {
+        let b = text.byte_at(i) as Int
+        if b == LL_BACKSLASH && i + 1 < end {
+            let e = text.byte_at(i + 1) as Int
+            if e == LL_OPEN_BRACE || e == LL_CLOSE_BRACE {
+                try! current.push(e)
+                i = i + 2
+                continue
+            }
+            // Any other escape reads as the literal reader reads it.
+            var one = StringBuilder()
+            try! one.append("\"")
+            try! one.append(text.substring(i, i + 2))
+            try! one.append("\"")
+            let decoded = ll_string_bytes(one.build())
+            var k = 0
+            while k < decoded.len() {
+                try! current.push(decoded[k])
+                k = k + 1
+            }
+            i = i + 2
+            continue
+        }
+        if b == LL_OPEN_BRACE && i + 1 < end && (text.byte_at(i + 1) as Int) == LL_CLOSE_BRACE {
+            try! ends.push(current.len())
+            i = i + 2
+            continue
+        }
+        try! current.push(b)
+        i = i + 1
+    }
+    try! ends.push(current.len())
+    LlPieces(bytes: move current, ends: move ends)
+}
+
+// Bytes `bytes` as an LLVM string constant's body, `c"..."`, printable
+// ASCII as itself and every other byte as `\XX`.
+public func ll_c_string(bytes: &Vector<Int>) -> String {
+    var out = StringBuilder()
+    try! out.append("c\"")
+    var k = 0
+    while k < bytes.len() {
+        let b = bytes[k] & 0xFF
+        if b >= LL_SPACE && b <= LL_TILDE && b != LL_QUOTE && b != LL_BACKSLASH {
+            try! out.append(ll_printable(b))
+        } else {
+            try! out.append("\\")
+            try! out.append(ll_hex_digit(b >> 4))
+            try! out.append(ll_hex_digit(b & 15))
+        }
+        k = k + 1
+    }
+    try! out.append("\"")
+    out.build()
+}
+
+// Printable ASCII byte `b` as a one-byte String.
+func ll_printable(b: Int) -> String {
+    let all = " !\"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz\{|\}~"
+    all.substring(b - LL_SPACE, b - LL_SPACE + 1)
+}
+
+func ll_hex_digit(d: Int) -> String {
+    let digits = "0123456789ABCDEF"
+    digits.substring(d, d + 1)
+}
+
+// `name` as an LLVM quoted identifier's body: a `"` or `\` becomes `\XX`.
+public func ll_quoted(name: String) -> String {
+    var out = StringBuilder()
+    let n = name.len()
+    var k = 0
+    while k < n {
+        let b = name.byte_at(k) as Int
+        if b == LL_QUOTE || b == LL_BACKSLASH {
+            try! out.append("\\")
+            try! out.append(ll_hex_digit(b >> 4))
+            try! out.append(ll_hex_digit(b & 15))
+        } else {
+            try! out.append(name.substring(k, k + 1))
+        }
+        k = k + 1
+    }
+    out.build()
+}

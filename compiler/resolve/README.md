@@ -111,7 +111,8 @@ The compiler knows some std declarations by role (SL-456): `Optional`,
 and `RangeInclusive`, the panic sink every panic calls once its message is
 formatted, and the String layer: `String`, the functions the compiler lowers
 its String positions through (`string_literal`, which wraps a literal's
-immortal static block; `string_bytes`; `string_equals` and `string_compare`,
+immortal static block; `string_bytes` and `string_length`, which a String
+written out is read through; `string_equals` and `string_compare`,
 which `==`, the ordering operators and string-literal patterns compare with),
 and `StringBuilder`, which interpolation builds through and a format string's
 arguments render into (typecheck/README.md, "The String positions").

@@ -1,0 +1,12 @@
+// A checked add that overflows panics with its location (design 122).
+func bump(x: Int) -> Int {
+    x + 1
+}
+
+func main() {
+    print("before")
+    let top = bump(9223372036854775806)
+    print("top {}", top)
+    let over = bump(top)
+    print("never {}", over)
+}

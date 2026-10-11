@@ -1,0 +1,19 @@
+// A `Vector<Int>`: push, index reads, length and a loop over the elements by
+// index.
+func main() {
+    var v = Vector<Int>()
+    var i = 0
+    while i < 10 {
+        try! v.push(i * i)
+        i = i + 1
+    }
+    print("len {}", v.len())
+    print("first {} last {}", v[0], v[9])
+    var sum = 0
+    var k = 0
+    while k < v.len() {
+        sum = sum + v[k]
+        k = k + 1
+    }
+    print("sum {}", sum)
+}

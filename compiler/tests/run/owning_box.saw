@@ -1,0 +1,27 @@
+// A Box of an owning payload: `Box.make` places the value in fresh heap
+// storage and drops nothing there (SL-512); the payload's `deinit` runs once,
+// when its box is dropped.
+struct Noisy {
+    id: Int
+}
+
+extension Noisy: NoCopy {
+    func deinit(&var self) {
+        print("drop {}", self.id)
+    }
+}
+
+func keep(b: Box<Noisy>) {
+    var held = move b
+    print("kept {}", held.value().id)
+}
+
+func main() {
+    var a = try! Box<Noisy>.make(Noisy(id: 7))
+    print("made {}", a.value().id)
+    let b = try! Box<Noisy>.make(Noisy(id: 8))
+    keep(move b)
+    var s = try! Box<String>.make("abcdef".substring(1, 4))
+    print("string {}", s.value())
+    print("end")
+}

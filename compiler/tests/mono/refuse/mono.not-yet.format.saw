@@ -1,0 +1,16 @@
+// refuses: mono.not-yet at 15:5
+// A format argument that is neither an integer, a Bool nor a String renders
+// through its Printable conformance, which this slice does not lower.
+struct Tag {
+    n: Int
+}
+
+extension Tag: Printable {
+    func format(&self, into: &var StringBuilder) {
+        try! into.append(self.n)
+    }
+}
+
+func main() {
+    print("{}", Tag(n: 3))
+}

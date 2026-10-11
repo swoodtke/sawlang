@@ -296,6 +296,7 @@ through a reference to stay a reported move.
 | `borrow let x = p { }` | a window, closed on every edge out of the body | windows |
 | `borrow var p += v`, `borrow p` | a window closed at the statement's end, or once the value is copied out | windows |
 | `v[i]` read, `v[i] = x` | a derived getitem or setitem around the place accessor's window, or the declared `[]`, `[]=` | windows, order |
+| `p[i] = x`, `*p = x` through a raw pointer | a placement store, no drop of the slot first (spec, Placement writes); a fixed array's `a[i] = x` and a `&var` referent's `r = x` drop what they held | placements |
 | `x.f(...)` on a `borrows` accessor | a window on a place, or a copy out of it | windows |
 | a receiver or a subscript's base reached through a `borrows` accessor, chained, through `!`, under a key or an index | its windows opened in receiver position, before the arguments, keys or index (`open_receiver_windows`); a plain receiver's borrow taken just before the call; an assignment's target opens its windows after the right side, a compound one's too | receivers |
 | a closure | an aggregate of its captures, its body a function of its own | closures |
@@ -456,6 +457,7 @@ slice.not-yet at L:C`.
 | a `for` over an iterator held in a place | iterator-place |
 | a consuming destructure of a type that writes its own `deinit`, since the spec does not say whether dissolving one skips that body | consuming-deinit |
 | the release of a consumed receiver that moves out whole, or is an enum, when its type writes its own `deinit` | consumes-whole |
+| a write to an owning part of a raw pointer's pointee (`p[i].f = v`, `(*p).f = v`), since the spec makes only a whole pointer slot a placement write | pointer-part |
 | a `for` head that lends a place; a `borrows` call lending a slice or a borrowing struct outside a `for` head; a `borrows` function called with no receiver; a setitem derived from a conditional lend; a conditional lend's place read other than through `!` | none: nothing in the slice reaches them |
 
 Two constructs typecheck refuses before lowering, as `transfer.partial-move`,

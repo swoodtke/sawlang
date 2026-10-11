@@ -1,0 +1,642 @@
+// The target description (SL:architecture §3.10): the one module that answers
+// how a concrete type is laid out in memory and how a value of it crosses the
+// C calling convention. Every backend asks here, so no layout fact lives in a
+// backend. The rules are Stage 0's, which shares the runtime ABI with sawc2:
+// primitives at their natural size, references and raw pointers one word,
+// structs and tuples in declaration order with natural alignment, `Optional`
+// as a one-byte flag before its payload, every other enum (`Result` included)
+// as an `Int32` tag before its cases' payloads overlaid, and a function value
+// as a code pointer beside an environment pointer.
+
+import sawresolve.src.model.{ResDeclKind}
+import sawresolve.src.program.{ResProgram}
+import sawtypecheck.src.conform.{tc_args_subst}
+import sawtypecheck.src.program.{TcProgram}
+import sawtypecheck.src.spell.{tc_effects_text}
+import sawtypecheck.src.typeops.{TcClient}
+import sawtypecheck.src.types.{TcKind}
+
+// What a value of a type is to a backend: nothing, an integer of `bits`, a
+// 64-bit float, a pointer, bytes in memory, or a type this target cannot lay
+// out yet (`reason` says why).
+public enum TargetKind {
+    case Zero,
+    case Int,
+    case Float,
+    case Pointer,
+    case Memory,
+    case Unsupported
+}
+
+// How a memory type's parts are found: members at offsets (a struct, a
+// tuple, a slice), cases under a tag (an enum), a payload under a presence
+// flag (`Optional`), a closure's code and environment, or array elements.
+public enum TargetShape {
+    case Scalar,
+    case Record,
+    case Enum,
+    case Flagged,
+    case Closure,
+    case Array
+}
+
+public struct TargetLayout {
+    public size: Int
+    public align: Int
+    public kind: TargetKind
+    public bits: Int
+    public shape: TargetShape
+    // An enum's tag width in bytes, at offset 0.
+    public tag_bytes: Int
+    // A record's member offsets, a run of `offsets`; an enum's or an
+    // Optional's cases, a run of `cases`.
+    public first: Int
+    public count: Int
+    // An array's element type and length.
+    public element: Int
+    public length: Int
+    // Why the type is unsupported, a run of `reasons`, or -1.
+    public reason: Int
+}
+
+// One case of an enum: its declaration, the tag value a switch compares, and
+// its payload's offsets, a run of `offsets`.
+public struct TargetCase {
+    public decl: Int
+    public tag: Int
+    public first: Int
+    public count: Int
+}
+
+// How a value crosses the C calling convention of an `extern` call.
+public enum TargetCClass {
+    // Passed or returned in a register as the value itself.
+    case Direct,
+    // No value: `Void` or `Never` returned.
+    case Nothing,
+    // `UnsafePointer<T>?` returned as a nullable pointer, null meaning `None`.
+    case NullablePointer,
+    // Not in the slice: an aggregate by value.
+    case Refused
+}
+
+public struct Target {
+    public triple: String
+    public word: Int
+    layouts: Vector<TargetLayout>
+    // By type id: 0 not laid out, 1 being laid out, 2 done.
+    states: Vector<Int>
+    offsets: Vector<Int>
+    cases: Vector<TargetCase>
+    reasons: Vector<String>
+}
+
+extension Target: NoCopy {}
+
+// The triples this description answers for, the default first. Both are
+// LP64; they differ only in how an aggregate crosses the C convention, which
+// this slice refuses.
+public func target_triples() -> Vector<String> {
+    var out = Vector<String>()
+    try! out.push("arm64-apple-darwin")
+    try! out.push("x86_64-unknown-linux-gnu")
+    move out
+}
+
+// Whether `triple` is one this module describes.
+public func target_known(triple: String) -> Bool {
+    let known = target_triples()
+    var k = 0
+    while k < known.len() {
+        let one = known.get(k) ?? ""
+        if one.equals(triple) {
+            return true
+        }
+        k = k + 1
+    }
+    false
+}
+
+// The description of `triple`, which `target_known` must answer for: every
+// triple it knows is LP64.
+public func target_named(triple: String) -> Target {
+    Target(triple: triple, word: 8, layouts: Vector<TargetLayout>(), states: Vector<Int>(), offsets: Vector<Int>(),
+           cases: Vector<TargetCase>(), reasons: Vector<String>())
+}
+
+func target_align_up(n: Int, align: Int) -> Int {
+    if align <= 1 {
+        return n
+    }
+    let rem = n % align
+    if rem == 0 {
+        return n
+    }
+    n + align - rem
+}
+
+func target_blank(kind: TargetKind) -> TargetLayout {
+    TargetLayout(size: 0, align: 1, kind: kind, bits: 0, shape: TargetShape.Scalar, tag_bytes: 0, first: 0,
+                 count: 0, element: -1, length: 0, reason: -1)
+}
+
+func target_scalar(kind: TargetKind, bytes: Int) -> TargetLayout {
+    TargetLayout(size: bytes, align: bytes, kind: kind, bits: bytes * 8, shape: TargetShape.Scalar, tag_bytes: 0,
+                 first: 0, count: 0, element: -1, length: 0, reason: -1)
+}
+
+extension Target {
+    // THE LAYOUT FUNNEL: type `t`'s layout, computed once per type. Every
+    // size, alignment, offset and tag a backend uses comes out of here.
+    // ENTRY POINTS:
+    //     member_offset
+    //     case_of
+    //     present_case
+    //     payload_offset
+    //     c_class
+    //     dump_layout
+    public func layout(&var self, tc: &var TcProgram, t: Int) -> TargetLayout {
+        if t < 0 {
+            return self.unsupported("an unformed type")
+        }
+        while self.states.len() <= t {
+            try! self.states.push(0)
+            try! self.layouts.push(target_blank(TargetKind.Zero))
+        }
+        let state = self.states[t]
+        if state == 2 {
+            return self.layouts[t]
+        }
+        if state == 1 {
+            return self.unsupported("a type that contains itself inline")
+        }
+        self.states[t] = 1
+        let computed = self.compute(&var tc, t)
+        self.layouts[t] = computed
+        self.states[t] = 2
+        computed
+    }
+
+    // Why `layout` refused, or "" for a supported layout.
+    public func reason_of(&self, l: &TargetLayout) -> String {
+        if l.reason < 0 {
+            return ""
+        }
+        self.reasons.get(l.reason) ?? ""
+    }
+
+    func unsupported(&var self, why: String) -> TargetLayout {
+        var l = target_blank(TargetKind.Unsupported)
+        l.reason = self.reasons.len()
+        try! self.reasons.push(why)
+        l
+    }
+
+    func compute(&var self, tc: &var TcProgram, t: Int) -> TargetLayout {
+        let info = tc.types.ty(t)
+        match info.kind {
+            case Nominal -> self.nominal(&var tc, t),
+            case Ref -> target_scalar(TargetKind.Pointer, self.word),
+            case Tuple -> {
+                var members = Vector<Int>()
+                var k = 0
+                while k < info.count {
+                    try! members.push(tc.types.arg(t, k))
+                    k = k + 1
+                }
+                self.record(&var tc, &members)
+            },
+            case Slice -> {
+                var l = target_blank(TargetKind.Memory)
+                l.shape = TargetShape.Record
+                l.size = 2 * self.word
+                l.align = self.word
+                l.first = self.offsets.len()
+                l.count = 2
+                try! self.offsets.push(0)
+                // Stage 0 workaround (SL:hazards S4): canonical: try! self.offsets.push(self.word)
+                let length_at = self.word
+                try! self.offsets.push(length_at)
+                l
+            },
+            case Func -> {
+                var l = target_blank(TargetKind.Memory)
+                l.shape = TargetShape.Closure
+                l.size = 2 * self.word
+                l.align = self.word
+                l
+            },
+            case Array -> {
+                let element = info.b
+                let el = self.layout(&var tc, element)
+                if el.kind == TargetKind.Unsupported {
+                    return el
+                }
+                let length_type = tc.types.arg(t, 0)
+                let lt = tc.types.ty(length_type)
+                if lt.kind != TcKind.ConstInt {
+                    return self.unsupported("an array whose length is not a folded constant")
+                }
+                var l = target_blank(TargetKind.Memory)
+                l.shape = TargetShape.Array
+                l.size = el.size * lt.a
+                l.align = el.align
+                l.element = element
+                l.length = lt.a
+                l
+            },
+            case _ -> self.unsupported("a type that is not concrete")
+        }
+    }
+
+    func nominal(&var self, tc: &var TcProgram, t: Int) -> TargetLayout {
+        let info = tc.types.ty(t)
+        let d = info.decl
+        let k = tc.known
+        if d == k.int8 || d == k.uint8 || d == k.bool_type {
+            return target_scalar(TargetKind.Int, 1)
+        }
+        if d == k.int16 || d == k.uint16 {
+            return target_scalar(TargetKind.Int, 2)
+        }
+        if d == k.int32 || d == k.uint32 {
+            return target_scalar(TargetKind.Int, 4)
+        }
+        if d == k.int64 || d == k.uint64 {
+            return target_scalar(TargetKind.Int, 8)
+        }
+        if d == k.int || d == k.uint {
+            return target_scalar(TargetKind.Int, self.word)
+        }
+        if d == k.float {
+            return target_scalar(TargetKind.Float, 8)
+        }
+        if d == k.void_type || d == k.never {
+            return target_blank(TargetKind.Zero)
+        }
+        if d == k.unsafe_pointer || d == k.unsafe_const_pointer || d == k.func_pointer {
+            return target_scalar(TargetKind.Pointer, self.word)
+        }
+        if d == k.optional {
+            return self.flagged(&var tc, t)
+        }
+        let decl = tc.res.decls[d]
+        if decl.kind == ResDeclKind.Struct {
+            var members = Vector<Int>()
+            let fields = target_struct_fields(&tc, d)
+            var j = 0
+            while j < fields.len() {
+                let written = tc.sigs[fields[j]].result
+                try! members.push(target_member_type(&var tc, t, written))
+                j = j + 1
+            }
+            return self.record(&var tc, &members)
+        }
+        if decl.kind == ResDeclKind.Enum {
+            if tc.sigs[d].result >= 0 {
+                return self.unsupported("a raw-backed enum")
+            }
+            return self.tagged(&var tc, t)
+        }
+        self.unsupported("a builtin type with no layout in this slice")
+    }
+
+    // Members `members` laid out in order, each at its natural alignment.
+    func record(&var self, tc: &var TcProgram, members: &Vector<Int>) -> TargetLayout {
+        var offs = Vector<Int>()
+        var at = 0
+        var align = 1
+        var k = 0
+        while k < members.len() {
+            let m = self.layout(&var tc, members[k])
+            if m.kind == TargetKind.Unsupported {
+                return m
+            }
+            at = target_align_up(at, m.align)
+            try! offs.push(at)
+            at = at + m.size
+            if m.align > align {
+                align = m.align
+            }
+            k = k + 1
+        }
+        var l = target_blank(TargetKind.Memory)
+        l.shape = TargetShape.Record
+        l.align = align
+        l.size = target_align_up(at, align)
+        l.first = self.offsets.len()
+        l.count = offs.len()
+        k = 0
+        while k < offs.len() {
+            try! self.offsets.push(offs[k])
+            k = k + 1
+        }
+        l
+    }
+
+    // An enum: an `Int32` tag at 0, then each case's payload laid out as a
+    // record from one offset, the largest payload alignment.
+    func tagged(&var self, tc: &var TcProgram, t: Int) -> TargetLayout {
+        let d = tc.types.ty(t).decl
+        let cases = target_enum_cases(&tc, d)
+        let tag = 4
+        var payload_align = 1
+        var k = 0
+        while k < cases.len() {
+            let s = tc.sigs[cases[k]]
+            var j = 0
+            while j < s.param_count {
+                let written = tc.params[s.param_first + j].ty
+                let pt = target_member_type(&var tc, t, written)
+                let pl = self.layout(&var tc, pt)
+                if pl.kind == TargetKind.Unsupported {
+                    return pl
+                }
+                if pl.align > payload_align {
+                    payload_align = pl.align
+                }
+                j = j + 1
+            }
+            k = k + 1
+        }
+        let base = target_align_up(tag, payload_align)
+        self.laid_cases(&var tc, t, &cases, tag, base, payload_align)
+    }
+
+    // `Optional<T>`: a one-byte presence flag at 0 (`Some` 1, `None` 0), then
+    // the payload at its own alignment.
+    func flagged(&var self, tc: &var TcProgram, t: Int) -> TargetLayout {
+        let d = tc.types.ty(t).decl
+        let payload = tc.types.arg(t, 0)
+        let pl = self.layout(&var tc, payload)
+        if pl.kind == TargetKind.Unsupported {
+            return pl
+        }
+        let cases = target_enum_cases(&tc, d)
+        let base = target_align_up(1, pl.align)
+        var l = self.laid_cases(&var tc, t, &cases, 1, base, pl.align)
+        l.shape = TargetShape.Flagged
+        l
+    }
+
+    func laid_cases(&var self, tc: &var TcProgram, t: Int, cases: &Vector<Int>, tag: Int, base: Int,
+                    payload_align: Int) -> TargetLayout {
+        let flagged = tag == 1
+        var end = base
+        var laid = Vector<TargetCase>()
+        var k = 0
+        while k < cases.len() {
+            let s = tc.sigs[cases[k]]
+            var at = base
+            var offs = Vector<Int>()
+            var j = 0
+            while j < s.param_count {
+                let written = tc.params[s.param_first + j].ty
+                let pt = target_member_type(&var tc, t, written)
+                let pl = self.layout(&var tc, pt)
+                at = target_align_up(at, pl.align)
+                try! offs.push(at)
+                at = at + pl.size
+                j = j + 1
+            }
+            // Pushed only now: a payload's own layout may append runs of its own.
+            let first = self.offsets.len()
+            j = 0
+            while j < offs.len() {
+                try! self.offsets.push(offs[j])
+                j = j + 1
+            }
+            if at > end {
+                end = at
+            }
+            var value = k
+            if flagged {
+                value = if s.param_count > 0 { 1 } else { 0 }
+            }
+            try! laid.push(TargetCase(decl: cases[k], tag: value, first: first, count: s.param_count))
+            k = k + 1
+        }
+        var align = tag
+        if payload_align > align {
+            align = payload_align
+        }
+        var l = target_blank(TargetKind.Memory)
+        l.shape = TargetShape.Enum
+        l.tag_bytes = tag
+        l.align = align
+        l.size = target_align_up(end, align)
+        l.first = self.cases.len()
+        l.count = laid.len()
+        k = 0
+        while k < laid.len() {
+            try! self.cases.push(laid[k])
+            k = k + 1
+        }
+        l
+    }
+
+    // The offset of member `k` of record type `t`: a struct's field in
+    // declaration order, a tuple's element.
+    public func member_offset(&var self, tc: &var TcProgram, t: Int, k: Int) -> Int {
+        let l = self.layout(&var tc, t)
+        if l.shape != TargetShape.Record || k < 0 || k >= l.count {
+            return -1
+        }
+        self.offsets[l.first + k]
+    }
+
+    // Case `decl` of enum or Optional type `t`, or one with decl -1.
+    public func case_of(&var self, tc: &var TcProgram, t: Int, decl: Int) -> TargetCase {
+        let l = self.layout(&var tc, t)
+        let tagged = l.shape == TargetShape.Enum || l.shape == TargetShape.Flagged
+        if tagged {
+            var k = 0
+            while k < l.count {
+                let c = self.cases[l.first + k]
+                if c.decl == decl {
+                    return c
+                }
+                k = k + 1
+            }
+        }
+        TargetCase(decl: -1, tag: -1, first: 0, count: 0)
+    }
+
+    // The case of Optional type `t` whose flag says present, or one with
+    // decl -1.
+    public func present_case(&var self, tc: &var TcProgram, t: Int) -> TargetCase {
+        let l = self.layout(&var tc, t)
+        if l.shape == TargetShape.Flagged {
+            var k = 0
+            while k < l.count {
+                let c = self.cases[l.first + k]
+                if c.tag == 1 {
+                    return c
+                }
+                k = k + 1
+            }
+        }
+        TargetCase(decl: -1, tag: -1, first: 0, count: 0)
+    }
+
+    // How far a String literal's bytes sit into its static block: the
+    // String layer's two header words, the refcount and the length
+    // (std/string.saw).
+    public func literal_header_bytes(&self) -> Int {
+        2 * self.word
+    }
+
+    // Where a closure value keeps its environment pointer; its code pointer
+    // is at 0.
+    public func closure_env_offset(&self) -> Int {
+        self.word
+    }
+
+    // The offset of payload field `k` of case `decl` of `t`, or -1.
+    public func payload_offset(&var self, tc: &var TcProgram, t: Int, decl: Int, k: Int) -> Int {
+        let c = self.case_of(&var tc, t, decl)
+        if c.decl < 0 || k < 0 || k >= c.count {
+            return -1
+        }
+        self.offsets[c.first + k]
+    }
+
+    // How a value of type `t` crosses the C convention as a parameter
+    // (`result` false) or a result.
+    public func c_class(&var self, tc: &var TcProgram, t: Int, result: Bool) -> TargetCClass {
+        let l = self.layout(&var tc, t)
+        if l.kind == TargetKind.Zero {
+            if result {
+                return TargetCClass.Nothing
+            }
+            return TargetCClass.Refused
+        }
+        if l.kind == TargetKind.Int || l.kind == TargetKind.Float || l.kind == TargetKind.Pointer {
+            return TargetCClass.Direct
+        }
+        if result && tc.is_optional(t) {
+            let payload = tc.types.arg(t, 0)
+            let d = tc.nominal_decl(payload)
+            if d >= 0 && (d == tc.known.unsafe_pointer || d == tc.known.unsafe_const_pointer) {
+                return TargetCClass.NullablePointer
+            }
+        }
+        TargetCClass.Refused
+    }
+
+    // One line describing `t`'s layout, for the layout goldens:
+    // `TYPE: size S align A KIND [offsets ...] [case TAG @ offsets ...]`.
+    public func dump_layout(&var self, tc: &var TcProgram, t: Int) -> String {
+        let l = self.layout(&var tc, t)
+        var out = StringBuilder()
+        try! out.append(tc.type_text(t))
+        try! out.append(": ")
+        if l.kind == TargetKind.Unsupported {
+            try! out.append("unsupported: ")
+            try! out.append(self.reason_of(&l))
+            return out.build()
+        }
+        try! out.append("size ")
+        try! out.append(l.size)
+        try! out.append(" align ")
+        try! out.append(l.align)
+        try! out.append(" ")
+        try! out.append(target_kind_name(l.kind, l.shape))
+        if l.shape == TargetShape.Record {
+            try! out.append(" offsets")
+            var k = 0
+            while k < l.count {
+                try! out.append(" ")
+                try! out.append(self.offsets[l.first + k])
+                k = k + 1
+            }
+        } else if l.shape == TargetShape.Enum || l.shape == TargetShape.Flagged {
+            try! out.append(" tag ")
+            try! out.append(l.tag_bytes)
+            var k = 0
+            while k < l.count {
+                let c = self.cases[l.first + k]
+                try! out.append(", ")
+                let name = tc.res.decls[c.decl].name
+                try! out.append(tc.res.name_text(name))
+                try! out.append("=")
+                try! out.append(c.tag)
+                var j = 0
+                while j < c.count {
+                    try! out.append(" @")
+                    try! out.append(self.offsets[c.first + j])
+                    j = j + 1
+                }
+                k = k + 1
+            }
+        } else if l.shape == TargetShape.Array {
+            try! out.append(" of ")
+            try! out.append(l.length)
+        }
+        out.build()
+    }
+}
+
+func target_kind_name(kind: TargetKind, shape: TargetShape) -> String {
+    match kind {
+        case Zero -> "zero",
+        case Int -> "int",
+        case Float -> "float",
+        case Pointer -> "pointer",
+        case Unsupported -> "unsupported",
+        case Memory -> {
+            match shape {
+                case Record -> "record",
+                case Enum -> "enum",
+                case Flagged -> "optional",
+                case Closure -> "closure",
+                case Array -> "array",
+                case Scalar -> "memory"
+            }
+        }
+    }
+}
+
+// The fields of struct `d`, in declaration order.
+public func target_struct_fields(tc: &TcProgram, d: Int) -> Vector<Int> {
+    var out = Vector<Int>()
+    let members = tc.members_of(d)
+    var k = 0
+    while k < members.len() {
+        let m = members[k]
+        if tc.res.decls[m].kind == ResDeclKind.Field {
+            try! out.push(m)
+        }
+        k = k + 1
+    }
+    move out
+}
+
+// The cases of enum `d`, in declaration order.
+public func target_enum_cases(tc: &TcProgram, d: Int) -> Vector<Int> {
+    var out = Vector<Int>()
+    let members = tc.members_of(d)
+    var k = 0
+    while k < members.len() {
+        let m = members[k]
+        if tc.res.decls[m].kind == ResDeclKind.Case {
+            try! out.push(m)
+        }
+        k = k + 1
+    }
+    move out
+}
+
+// A member type as written in nominal `t`'s declaration, with `t`'s
+// arguments in place of its parameters.
+public func target_member_type(tc: &var TcProgram, t: Int, written: Int) -> Int {
+    let info = tc.types.ty(t)
+    var args = Vector<Int>()
+    var k = 0
+    while k < info.count {
+        try! args.push(tc.types.arg(t, k))
+        k = k + 1
+    }
+    let s = tc_args_subst(info.decl, move args)
+    tc.subst(written, &s)
+}

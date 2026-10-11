@@ -1,0 +1,32 @@
+// An enum with payload cases, matched by value and through a reference,
+// with literal, range and guard arms over integers.
+enum Shape {
+    case Circle(r: Int),
+    case Rect(w: Int, h: Int),
+    case Empty
+}
+
+func area(s: &Shape) -> Int {
+    match s {
+        case Circle(r) -> r * r * 3,
+        case Rect(w, h) -> w * h,
+        case Empty -> 0
+    }
+}
+
+func describe(n: Int) -> Int {
+    match n {
+        case 0 -> 100,
+        case 1..=9 -> 200,
+        case k if k < 0 -> 300,
+        case _ -> 400
+    }
+}
+
+func main() {
+    let shapes = Shape.Rect(w: 3, h: 4)
+    let circle = Shape.Circle(r: 2)
+    let empty = Shape.Empty
+    print("areas {} {} {}", area(&shapes), area(&circle), area(&empty))
+    print("classes {} {} {} {}", describe(0), describe(5), describe(-3), describe(50))
+}

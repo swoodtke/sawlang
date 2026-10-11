@@ -1,0 +1,6 @@
+# A type whose sawc2 layout differs from Stage 0's, and why: TYPE<TAB>reason.
+# TYPE is spelled as the probe program spells it.
+(Void?, UInt8)	holds a Void?, 1 byte here and 2 under Stage 0 (see Void?)
+HasVoidOpt	holds a Void?, 1 byte here and 2 under Stage 0 (see Void?)
+Void?	the flag alone, as for any zero-sized payload; Stage 0 gives Void a byte of its own inside an Optional, yet lays out an empty struct's Optional as the flag alone, so Stage 0 is the inconsistent one
+Void??	a flag around a Void?, 1 byte more than Void? here and under Stage 0 (see Void?)

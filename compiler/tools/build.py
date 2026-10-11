@@ -31,6 +31,9 @@ STAGE_PACKAGES = (
     ("saweval", "compiler/eval"),
     ("sawborrowck", "compiler/borrowck"),
     ("sawdrops", "compiler/drops"),
+    ("sawtarget", "compiler/target"),
+    ("sawmono", "compiler/mono"),
+    ("sawllvm", "compiler/llvm"),
 )
 
 

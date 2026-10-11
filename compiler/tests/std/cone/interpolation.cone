@@ -1,6 +1,6 @@
 # The cone of compiler/tests/std/cone/interpolation.saw against the new std (std): every std declaration its
 # functions reach, read off sawc2's typecheck dump by compiler/tools/std_cone.py.
-# 37 declarations in 7 modules
+# 38 declarations in 7 modules
 
 std.alloc: 6
   extern __saw_rt_alloc
@@ -25,11 +25,12 @@ std.scalar: 2
   method Scalar.value
   struct Scalar
 
-std.string: 10
+std.string: 11
   extern __saw_rt_alloc
   extern __saw_rt_dealloc
   func string_bytes
   func string_from_bytes
+  func string_length
   func string_literal
   method String.byte_at
   method String.copy

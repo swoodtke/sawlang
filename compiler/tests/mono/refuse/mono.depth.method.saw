@@ -1,0 +1,26 @@
+// refuses: mono.depth at 19:9
+// A method that calls itself on a receiver of a growing type meets the depth
+// limit at every item the chain reaches, its drops included; the program is
+// refused once, at the recursive call.
+struct Wrap<T> {
+    inner: T
+}
+
+struct Chain<T> {
+    v: T
+}
+
+extension Chain<T: Copy> {
+    func go(&self, n: Int) -> Int {
+        if n == 0 {
+            return 0
+        }
+        let c = Chain<Wrap<T>>(v: Wrap<T>(inner: self.v))
+        c.go(n - 1) + 1
+    }
+}
+
+func main() {
+    let c = Chain<Int>(v: 5)
+    print("{}", c.go(3))
+}

@@ -51,6 +51,12 @@ func string_bytes(text: &String) unsafe -> UnsafePointer<Int8> {
     text.bytes
 }
 
+// The length role: how many of those bytes there are, read from the header,
+// so an interior NUL is printed rather than ending the text.
+func string_length(text: &String) unsafe -> Int {
+    text.len()
+}
+
 // The equality role: what `==`, `!=` and a string-literal pattern compare
 // with, byte for byte. The bytes are read in range of both lengths, so no
 // bounds check, and no panic path, is reached from a comparison.

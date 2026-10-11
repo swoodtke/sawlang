@@ -1,0 +1,16 @@
+&String: size 8 align 8 pointer
+&var Result<Void, Int8>: size 8 align 8 pointer
+&var voids.Carrier: size 8 align 8 pointer
+(Void?, UInt8): size 2 align 1 record offsets 0 1
+Int: size 8 align 8 int
+Never: size 0 align 1 zero
+Result<Void, Int8>: size 8 align 4 enum tag 4, Ok=0 @4, Err=1 @4
+String: size 8 align 8 record offsets 0
+UnsafePointer<Int8>: size 8 align 8 pointer
+UnsafePointer<Int>: size 8 align 8 pointer
+Void: size 0 align 1 zero
+Void?: size 1 align 1 optional tag 1, Some=1 @1, None=0
+Void??: size 2 align 1 optional tag 1, Some=1 @1, None=0
+voids.Carrier: size 4 align 4 enum tag 4, Holds=0 @4, Bare=1
+voids.Empty?: size 1 align 1 optional tag 1, Some=1 @1, None=0
+voids.HasVoidOpt: size 2 align 1 record offsets 0 1

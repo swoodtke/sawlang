@@ -1,0 +1,45 @@
+// `sawc2 build`'s compile half: the program through every stage to one
+// `.ll`. The binary spawns no process (SL:architecture §4); the link manifest
+// heads the IR as comment lines, and compiler/driver/sawc2 runs clang on it
+// against the runtime objects the manifest names.
+
+import sawllvm.src.program.{llvm_emit_program}
+import sawmono.src.api.{mono_append_findings, mono_lower_file}
+import sawmono.src.program.{MonoProgram}
+import sawtarget.src.layout.{Target, target_named}
+
+// How `sawc2 build` treats its entry file.
+public struct BuildOptions {
+    public std_root: String
+    public target: String
+    // The optimisation flag clang receives (`speed_level`'s spelling).
+    public speed: String
+    // The triple the module names, as the clang that links it spells the
+    // target; "" names the target as sawc2 does.
+    public module_triple: String
+}
+
+// The `.ll` of the program whose entry file is `path` into `ir`, returning
+// 0; or, when any stage refused it, the record `sawc2 mono --check` would
+// print into `out`, returning 1.
+public func llvm_build(out: &var StringBuilder, ir: &var StringBuilder, path: String, options: &BuildOptions,
+                       names: &Vector<String>, dirs: &Vector<String>) -> Int {
+    var front = StringBuilder()
+    var mono = mono_lower_file(out: &var front, path: path, std_root: options.std_root, notes: false,
+                               names: &names, dirs: &dirs)
+    let head = front.build()
+    if mono.blocked || mono.diags.len() > 0 || mono.problems.len() > 0 {
+        try! out.append(head)
+        mono_append_findings(out: &var out, mono: &mono)
+        return 1
+    }
+    var target = target_named(options.target)
+    let text = llvm_emit_program(&var mono, &var target, options.speed, options.module_triple)
+    if text.len() == 0 {
+        try! out.append(head)
+        mono_append_findings(out: &var out, mono: &mono)
+        return 1
+    }
+    try! ir.append(text)
+    0
+}

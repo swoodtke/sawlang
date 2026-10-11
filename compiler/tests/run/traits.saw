@@ -1,0 +1,43 @@
+// A trait with a default body: a conformance writing only the required
+// method, one overriding the default, both reached through a generic bound.
+trait Describe {
+    func code(&self) -> Int
+
+    func doubled(&self) -> Int {
+        self.code() * 2
+    }
+}
+
+struct Plain {
+    n: Int
+}
+
+struct Fancy {
+    n: Int
+}
+
+extension Plain: Describe {
+    func code(&self) -> Int {
+        self.n
+    }
+}
+
+extension Fancy: Describe {
+    func code(&self) -> Int {
+        self.n + 1
+    }
+
+    func doubled(&self) -> Int {
+        self.n * 100
+    }
+}
+
+func both<T: Describe>(x: &T) -> Int {
+    x.code() + x.doubled()
+}
+
+func main() {
+    let p = Plain(n: 4)
+    let f = Fancy(n: 4)
+    print("plain {} fancy {}", both(&p), both(&f))
+}

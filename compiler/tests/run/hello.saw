@@ -1,0 +1,4 @@
+// The first milestone: a literal message through the write seam.
+func main() {
+    print("hello, world")
+}

@@ -1,0 +1,39 @@
+// A generic struct with methods, instantiated at two types, and a generic
+// enum of its own.
+struct Boxed<T> {
+    value: T
+    count: Int
+}
+
+extension Boxed<T> {
+    func times(&self) -> Int {
+        self.count
+    }
+
+    func bumped(&self) -> Boxed<T> {
+        Boxed<T>(value: self.value, count: self.count + 1)
+    }
+}
+
+enum Either<A, B> {
+    case Left(a: A),
+    case Right(b: B)
+}
+
+func side(e: &Either<Int, Bool>) -> Int {
+    match e {
+        case Left(a) -> a,
+        case Right(b) -> if b { 1 } else { 0 }
+    }
+}
+
+func main() {
+    let a = Boxed<Int>(value: 41, count: 1)
+    let b = a.bumped().bumped()
+    print("int boxed {} {}", b.value, b.times())
+    let c = Boxed<Bool>(value: true, count: 7)
+    print("bool boxed {} {}", c.value, c.bumped().times())
+    let l = Either<Int, Bool>.Left(a: 12)
+    let r = Either<Int, Bool>.Right(b: true)
+    print("sides {} {}", side(&l), side(&r))
+}

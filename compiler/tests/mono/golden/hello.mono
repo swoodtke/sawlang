@@ -1,0 +1,84 @@
+item #0: hello.main()
+fn -> Void {
+    let _0: Void;  // return
+
+    bb0: {
+        call builtin print [const "hello, world": String] -> [return: bb1];
+    }
+
+    bb1: {
+        return;
+    }
+}
+
+item #1: std.panic.panic_sink(message: UnsafePointer<Int8>, length: Int)
+fn -> Never {
+    let _0: Never;  // return
+    let _1: UnsafePointer<Int8>;  // param message
+    let _2: Int;  // param length
+
+    bb0: {
+        call std.panic.__saw_rt_panic(ptr: UnsafePointer<Int8>, len: Int) [copy _1, copy _2] -> !; => #5
+    }
+}
+
+item #2: std.string.string_literal(bytes: UnsafePointer<Int8>)
+fn -> String {
+    let _0: String;  // return
+    let _1: UnsafePointer<Int8>;  // param bytes
+    let _2: String;
+
+    bb0: {
+        _2 = String { bytes: copy _1 };
+        _0 = move _2;
+        return;
+    }
+}
+
+item #3: std.string.string_bytes(text: &String)
+fn -> UnsafePointer<Int8> {
+    let _0: UnsafePointer<Int8>;  // return
+    let _1: &String;  // param text
+
+    bb0: {
+        _0 = copy (*_1).bytes;
+        return;
+    }
+}
+
+item #4: std.string.string_length(text: &String)
+fn -> Int {
+    let _0: Int;  // return
+    let _1: &String;  // param text
+    let _2: &String;
+    let _3: Int;
+
+    bb0: {
+        _2 = ref(shared, (*_1));
+        _3 = call std.string.String.len() (owner String) [move _2] -> [return: bb1]; => #6
+    }
+
+    bb1: {
+        _0 = move _3;
+        return;
+    }
+}
+
+item #5: extern __saw_rt_panic  (from #1)
+
+item #6: std.string.String.len()  (from #4)
+fn -> Int {
+    let _0: Int;  // return
+    let _1: &String;  // self
+    let _2: UnsafePointer<Int>;  // words
+    let _3: UnsafePointer<Int>;
+    let _4: Int;
+
+    bb0: {
+        _3 = cast(copy (*_1).bytes as UnsafePointer<Int>);
+        _2 = move _3;
+        _4 = copy static std.string.LENGTH_SLOT;
+        _0 = copy _2[_4];
+        return;
+    }
+}

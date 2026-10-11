@@ -1,0 +1,50 @@
+// String comparisons compare bytes, never addresses: locals, a copy of one,
+// computed Strings, literals, `&String` parameters and String fields, under
+// every equality and ordering operator, and a literal pattern.
+struct Named {
+    name: String
+    rank: Int
+}
+
+extension Named: NoCopy {}
+
+func same(a: &String, b: &String) -> Bool {
+    a == b
+}
+
+func before(a: &String, b: &String) -> Bool {
+    a < b
+}
+
+func by_field(x: &Named, y: &Named) -> Bool {
+    x.name == y.name
+}
+
+func field_order(x: &Named, y: &Named) -> Bool {
+    x.name >= y.name
+}
+
+func kind(s: String) -> Int {
+    match s {
+        case "first" -> 1,
+        case "second" -> 2,
+        case _ -> 0
+    }
+}
+
+func main() {
+    let a = "abc"
+    let b = "abcd".substring(0, 3)
+    let c = a
+    let d = "abd"
+    print("{} {} {} {}", a == b, a != b, a == c, a != d)
+    print("{} {} {} {}", a < d, a <= b, d > a, a >= d)
+    print("{} {}", b == "abc", "abc" < "ab")
+    print("{} {} {}", "" < "a", "a" > "", "" == "")
+    print("{} {}", same(&a, &b), before(&d, &a))
+    let x = Named(name: "kay", rank: 1)
+    let y = Named(name: "kayak".substring(0, 3), rank: 2)
+    let z = Named(name: "kb", rank: 3)
+    print("{} {} {}", by_field(&x, &y), field_order(&x, &z), field_order(&z, &y))
+    print("{} {} {}", kind("second"), kind("first"), kind("third"))
+}

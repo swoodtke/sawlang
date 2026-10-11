@@ -1,0 +1,357 @@
+// Places and operands: a place is the address its root and projections
+// name, each projection at the target's offset; an operand is a scalar's SSA
+// value, or a value written into, or read from, an address.
+
+import sawborrowck.src.program.{BorrowckProgram}
+import sawdrops.src.program.{DropsProgram}
+import sawllvm.src.prims.{LL_MESSAGE_LIMIT}
+import sawllvm.src.module.{LlEmitter, ll_is_scalar, ll_symbol, ll_value_type}
+import sawllvm.src.text.{ll_fit_signed, ll_integer_value, ll_quoted, ll_string_bytes}
+import sawmir.src.model.{MirConstKind, MirOperand, MirOperandKind, MirProjKind}
+import sawmir.src.program.{MirProgram}
+import sawmono.src.program.{MONO_KEY_COPY, MonoProgram}
+import sawresolve.src.dump.{res_sort_strings}
+import sawresolve.src.program.{ResProgram}
+import sawtarget.src.layout.{Target, TargetKind, TargetLayout, target_struct_fields}
+import sawtypecheck.src.checks.{tc_check_unsafe}
+import sawtypecheck.src.program.{TcProgram}
+import sawtypecheck.src.spell.{tc_effects_text}
+import sawtypecheck.src.typeops.{TcClient}
+import sawtypecheck.src.types.{TcKind}
+
+// The address of MIR local `l`'s slot.
+public func ll_local_slot(l: Int) -> String {
+    var name = StringBuilder()
+    try! name.append("%l")
+    try! name.append(l)
+    name.build()
+}
+
+extension LlEmitter {
+    // The address place `p` names.
+    public func place_addr(&var self, mono: &var MonoProgram, target: &var Target, p: Int, node: Int) -> String {
+        let pl = mono.dp.bc.mir.places[p]
+        var addr = ""
+        var current = -1
+        if pl.local >= 0 {
+            addr = ll_local_slot(pl.local)
+            current = self.local_type(&mono, pl.local)
+        } else {
+            current = mono.dp.bc.mir.tc.sigs[pl.static_decl].result
+            addr = self.static_global(&var mono, &var target, pl.static_decl, current, node)
+        }
+        var k = 0
+        while k < pl.count {
+            let step = mono.dp.bc.mir.projs[pl.first + k]
+            k = k + 1
+            match step.kind {
+                case Field -> {
+                    let owner = mono.dp.bc.mir.tc.nominal_decl(current)
+                    let fields = target_struct_fields(&mono.dp.bc.mir.tc, owner)
+                    var index = -1
+                    var j = 0
+                    while j < fields.len() {
+                        if fields[j] == step.decl {
+                            index = j
+                        }
+                        j = j + 1
+                    }
+                    let off = target.member_offset(&var mono.dp.bc.mir.tc, current, index)
+                    addr = self.offset_addr(addr, off)
+                },
+                case Tuple -> {
+                    let off = target.member_offset(&var mono.dp.bc.mir.tc, current, step.index)
+                    addr = self.offset_addr(addr, off)
+                },
+                case Deref -> {
+                    addr = self.load("ptr", addr)
+                },
+                case Index -> {
+                    let element = self.lay_at(&var mono, &var target, step.ty, node)
+                    let base_layout = target.layout(&var mono.dp.bc.mir.tc, current)
+                    if base_layout.kind != TargetKind.Pointer {
+                        self.refuse_here(&var mono, node, "indexing an array or a slice is not in the backend slice yet")
+                        return addr
+                    }
+                    let base = self.load("ptr", addr)
+                    var index = StringBuilder()
+                    try! index.append("%l")
+                    try! index.append(step.index)
+                    let i = self.load("i64", index.build())
+                    var mul = StringBuilder()
+                    try! mul.append("mul i64 ")
+                    try! mul.append(i)
+                    try! mul.append(", ")
+                    try! mul.append(element.size)
+                    let scaled = self.assign(mul.build())
+                    var gep = StringBuilder()
+                    try! gep.append("getelementptr i8, ptr ")
+                    try! gep.append(base)
+                    try! gep.append(", i64 ")
+                    try! gep.append(scaled)
+                    addr = self.assign(gep.build())
+                },
+                case Payload -> {
+                    let off = target.payload_offset(&var mono.dp.bc.mir.tc, current, step.decl, step.index)
+                    addr = self.offset_addr(addr, off)
+                },
+                case Force -> {
+                    self.check_case(&var mono, &var target, addr, current, step.decl, node)
+                    let off = target.payload_offset(&var mono.dp.bc.mir.tc, current, step.decl, step.index)
+                    addr = self.offset_addr(addr, off)
+                }
+            }
+            current = step.ty
+        }
+        addr
+    }
+
+    // The tag of the enum or Optional value at `addr`, of type `t`, widened
+    // to i64.
+    public func tag_of(&var self, mono: &var MonoProgram, target: &var Target, addr: String, t: Int,
+                       node: Int) -> String {
+        let l = self.lay_at(&var mono, &var target, t, node)
+        var ty = "i32"
+        if l.tag_bytes == 1 {
+            ty = "i8"
+        }
+        let raw = self.load(ty, addr)
+        var widen = StringBuilder()
+        try! widen.append("zext ")
+        try! widen.append(ty)
+        try! widen.append(" ")
+        try! widen.append(raw)
+        try! widen.append(" to i64")
+        self.assign(widen.build())
+    }
+
+    // A forced payload's check: the value at `addr` holds case `decl`, or
+    // the program panics as Stage 0's `!` and `try!` do.
+    func check_case(&var self, mono: &var MonoProgram, target: &var Target, addr: String, t: Int, decl: Int,
+                    node: Int) {
+        let c = target.case_of(&var mono.dp.bc.mir.tc, t, decl)
+        let tag = self.tag_of(&var mono, &var target, addr, t, node)
+        var cmp = StringBuilder()
+        try! cmp.append("icmp eq i64 ")
+        try! cmp.append(tag)
+        try! cmp.append(", ")
+        try! cmp.append(c.tag)
+        let ok = self.assign(cmp.build())
+        let pass = self.new_label("forced")
+        let fail = self.new_label("unforced")
+        self.branch(ok, pass, fail)
+        self.put_label(fail)
+        if mono.dp.bc.mir.tc.is_optional(t) {
+            self.panic_static(&var mono, &var target, node, "force unwrap of None")
+        } else {
+            self.panic_static(&var mono, &var target, node, "try! failed")
+        }
+        self.put_label(pass)
+    }
+
+    // The global of static `d`, of concrete type `t`, from its evaluated
+    // value.
+    func static_global(&var self, mono: &var MonoProgram, target: &var Target, d: Int, t: Int, node: Int) -> String {
+        var name = StringBuilder()
+        try! name.append("@\"static ")
+        try! name.append(ll_quoted(mono.dp.bc.mir.tc.res.decl_identity(d)))
+        try! name.append("\"")
+        let symbol = name.build()
+        if self.static_seen(d) {
+            return symbol
+        }
+        let l = self.lay_at(&var mono, &var target, t, node)
+        let kind = mono.static_kinds[d]
+        if not ll_is_scalar(&l) || (kind != 0 && kind != 1) {
+            self.refuse_here(&var mono, node, "a static whose value is not an integer or a Bool is not in the backend slice yet")
+            return symbol
+        }
+        var line = StringBuilder()
+        try! line.append(symbol)
+        try! line.append(" = internal global ")
+        try! line.append(ll_value_type(&l))
+        try! line.append(" ")
+        try! line.append(ll_fit_signed(mono.static_bits[d], l.bits))
+        try! self.globals.append(line.build())
+        try! self.globals.append("\n")
+        symbol
+    }
+
+    // The SSA value of scalar operand `o`.
+    public func operand_value(&var self, mono: &var MonoProgram, target: &var Target, o: Int, node: Int) -> String {
+        let op = mono.dp.bc.mir.operands[o]
+        let l = self.lay_at(&var mono, &var target, op.ty, node)
+        if op.kind == MirOperandKind.Const {
+            return self.const_value(&var mono, &op, &l, node)
+        }
+        let addr = self.place_addr(&var mono, &var target, op.place, node)
+        if not ll_is_scalar(&l) {
+            self.refuse_here(&var mono, node, "a memory value where a scalar is read is not in the backend slice yet")
+            return "0"
+        }
+        self.load(ll_value_type(&l), addr)
+    }
+
+    // The address of the String operand `o` names, read in place and never a
+    // retained copy: a literal's String in a slot, the value a `&String`
+    // holds, or the place itself.
+    public func string_addr(&var self, mono: &var MonoProgram, target: &var Target, o: Int, node: Int) -> String {
+        let op = mono.dp.bc.mir.operands[o]
+        if op.kind == MirOperandKind.Const {
+            let tmp = self.slot(target.word, target.word)
+            self.operand_into(&var mono, &var target, o, tmp, op.ty, node)
+            return tmp
+        }
+        if mono.dp.bc.mir.tc.referent(op.ty) >= 0 {
+            return self.operand_value(&var mono, &var target, o, node)
+        }
+        self.place_addr(&var mono, &var target, op.place, node)
+    }
+
+    // A scalar constant's spelling at its layout.
+    func const_value(&var self, mono: &var MonoProgram, op: &MirOperand, l: &TargetLayout, node: Int) -> String {
+        let text = mono.dp.bc.mir.tc.name_text(op.text)
+        if op.const_kind == MirConstKind.Int && l.kind == TargetKind.Int {
+            var out = StringBuilder()
+            try! out.append(ll_fit_signed(ll_integer_value(text), l.bits))
+            return out.build()
+        }
+        if op.const_kind == MirConstKind.Bool {
+            if text.equals("true") {
+                return "1"
+            }
+            return "0"
+        }
+        let at = ll_constant_site(&mono, node, text)
+        var msg = StringBuilder()
+        if op.const_kind == MirConstKind.Float {
+            try! msg.append("a Float constant, `")
+            try! msg.append(text)
+            try! msg.append("`, is not in the backend slice yet")
+        } else if op.const_kind == MirConstKind.String {
+            try! msg.append("the string literal ")
+            try! msg.append(text)
+            try! msg.append(" read as a scalar is not in the backend slice yet")
+        } else {
+            try! msg.append("the constant `")
+            try! msg.append(text)
+            try! msg.append("` is not in the backend slice yet")
+        }
+        self.refuse_here(&var mono, at, msg.build())
+        "0"
+    }
+
+    // Operand `o`, of type `t`, written into `dest`. A copy of a type with
+    // copy glue runs the glue; any other copy or move is the bits.
+    public func operand_into(&var self, mono: &var MonoProgram, target: &var Target, o: Int, dest: String, t: Int,
+                             node: Int) {
+        let op = mono.dp.bc.mir.operands[o]
+        let l = self.lay_at(&var mono, &var target, t, node)
+        if op.kind == MirOperandKind.Const {
+            if op.const_kind == MirConstKind.String {
+                self.literal_into(&var mono, &var target, &op, dest, node)
+                return
+            }
+            if op.const_kind == MirConstKind.Unit || l.kind == TargetKind.Zero {
+                return
+            }
+            if not ll_is_scalar(&l) {
+                self.refuse_here(&var mono, node, "a memory constant is not in the backend slice yet")
+                return
+            }
+            let v = self.const_value(&var mono, &op, &l, node)
+            self.store(ll_value_type(&l), v, dest)
+            return
+        }
+        let src = self.place_addr(&var mono, &var target, op.place, node)
+        if op.kind == MirOperandKind.Copy {
+            let glue = mono.glue_item(op.ty, MONO_KEY_COPY)
+            if glue >= 0 {
+                var line = StringBuilder()
+                try! line.append("call void ")
+                try! line.append(ll_symbol(&mono, glue))
+                try! line.append("(ptr ")
+                try! line.append(dest)
+                try! line.append(", ptr ")
+                try! line.append(src)
+                try! line.append(")")
+                self.put(line.build())
+                return
+            }
+        }
+        self.copy_bits(&l, dest, src)
+    }
+
+    // The address of operand `o`'s value, of type `t`: a place's own for a
+    // move or a copy of the bits, else a slot written with the value.
+    public func operand_addr(&var self, mono: &var MonoProgram, target: &var Target, o: Int, t: Int,
+                             node: Int) -> String {
+        let op = mono.dp.bc.mir.operands[o]
+        let glued = op.kind == MirOperandKind.Copy && mono.glue_item(op.ty, MONO_KEY_COPY) >= 0
+        if op.kind != MirOperandKind.Const && not glued {
+            return self.place_addr(&var mono, &var target, op.place, node)
+        }
+        let l = self.lay_at(&var mono, &var target, t, node)
+        let tmp = self.slot(l.size, l.align)
+        self.operand_into(&var mono, &var target, o, tmp, t, node)
+        tmp
+    }
+
+    // A String literal: its static block, wrapped by the literal role.
+    func literal_into(&var self, mono: &var MonoProgram, target: &var Target, op: &MirOperand, dest: String,
+                      node: Int) {
+        if mono.literal_item < 0 {
+            self.refuse_here(&var mono, node, "a String literal with no literal role bound")
+            return
+        }
+        let text = mono.dp.bc.mir.tc.name_text(op.text)
+        let bytes = ll_string_bytes(text)
+        let header = target.literal_header_bytes()
+        let block = self.pooled(&bytes, true, header)
+        let start = self.offset_addr(block, header)
+        var line = StringBuilder()
+        try! line.append("call void ")
+        let role = mono.literal_item
+        try! line.append(ll_symbol(&mono, role))
+        try! line.append("(ptr ")
+        try! line.append(dest)
+        try! line.append(", ptr ")
+        try! line.append(start)
+        try! line.append(")")
+        self.put(line.build())
+    }
+}
+
+// Where a constant spelled `text` is written inside the statement at `node`:
+// the first leaf of that spelling, depth first, so a refusal of a constant
+// inside an aggregate lands on the constant; `node` when none is.
+func ll_constant_site(mono: &MonoProgram, node: Int, text: String) -> Int {
+    if node < 0 {
+        return node
+    }
+    let m = mono.dp.bc.mir.tc.node_module(node)
+    let found = ll_leaf_spelled(&mono, m, node, text)
+    if found >= 0 { found } else { node }
+}
+
+// The first leaf under `n`, depth first, whose text in module `m` is `text`,
+// or -1.
+func ll_leaf_spelled(mono: &MonoProgram, m: Int, n: Int, text: String) -> Int {
+    if mono.dp.bc.mir.tc.is_leaf(n) {
+        if mono.dp.bc.mir.tc.text(m, n).equals(text) {
+            return n
+        }
+        return -1
+    }
+    let count = mono.dp.bc.mir.tc.child_count(n)
+    var k = 0
+    while k < count {
+        let c = mono.dp.bc.mir.tc.child(n, k)
+        let found = ll_leaf_spelled(&mono, m, c, text)
+        if found >= 0 {
+            return found
+        }
+        k = k + 1
+    }
+    return -1
+}

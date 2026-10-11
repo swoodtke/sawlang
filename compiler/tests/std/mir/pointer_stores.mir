@@ -1,0 +1,258 @@
+// The std's stores through a raw pointer as sawc2 lowers them against std/
+// (SL-512). A whole pointer slot tracks no occupancy, so each store is a
+// placement that drops nothing first: `Box.make` and `Vector.push` write a
+// fresh slot, and `Vector.set` and `Optional.take_payload` write one their
+// own `move` has just emptied.
+// function: fn std.box.Box.make(value: T)
+// function: fn std.vector.Vector.push(value: T)
+// function: fn std.vector.Vector.set(index: Int, value: T)
+// function: fn Optional.take_payload()
+fn std.box.Box.make(value: T) -> Result<std.box.Box<T, A>, std.alloc.AllocError> {
+    let _0: Result<std.box.Box<T, A>, std.alloc.AllocError>;  // return
+    let _1: T;  // param value
+    let _2: Int;  // size
+    let _3: Int;
+    let _4: Int;  // align
+    let _5: Int;
+    let _6: A;
+    let _7: Int;
+    let _8: Int;
+    let _9: &A;
+    let _10: UnsafePointer<Int8>?;
+    let _11: UnsafePointer<Int8>;  // raw
+    let _12: UnsafePointer<T>;  // ptr
+    let _13: UnsafePointer<T>;
+    let _14: Int;
+    let _15: std.box.Box<T, A>;
+    let _16: Result<std.box.Box<T, A>, std.alloc.AllocError>;
+    let _17: std.alloc.AllocError;
+    let _18: Result<std.box.Box<T, A>, std.alloc.AllocError>;
+
+    bb0: {
+        _3 = call builtin sizeof (inst T) [] -> [return: bb1];
+    }
+
+    bb1: {
+        _2 = move _3;
+        _5 = call builtin alignof (inst T) [] -> [return: bb2];
+    }
+
+    bb2: {
+        _4 = move _5;
+        _6 = call builtin init (owner A) [] -> [return: bb4];
+    }
+
+    bb3: {
+        _17 = std.alloc.AllocError { size: copy _2, align: copy _4 };
+        _18 = Result<std.box.Box<T, A>, std.alloc.AllocError>::Err(move _17);
+        _0 = move _18;
+        drop(_1);
+        return;
+    }
+
+    bb4: {
+        _7 = copy _2;
+        _8 = copy _4;
+        _9 = ref(shared, _6);
+        _10 = call std.alloc.Allocator.alloc(size: Int, align: Int) (owner A) [move _9, move _7, move _8] -> [return: bb5] suspends when A.Allocator.alloc;
+    }
+
+    bb5: {
+        switch discriminant(_10) -> [Some: bb6, None: bb7];
+    }
+
+    bb6: {
+        _11 = copy (_10 as Some).0;
+        _13 = cast(copy _11 as UnsafePointer<T>);
+        _12 = move _13;
+        _14 = const 0: Int;
+        _12[_14] = move _1;
+        _15 = std.box.Box<T, A> { ptr: copy _12 };
+        _16 = Result<std.box.Box<T, A>, std.alloc.AllocError>::Ok(move _15);
+        _0 = move _16;
+        drop(_6);
+        drop(_1);
+        return;
+    }
+
+    bb7: {
+        drop(_6);
+        goto -> bb3;
+    }
+}
+
+fn std.vector.Vector.push(value: T) -> Result<Void, std.alloc.AllocError> {
+    let _0: Result<Void, std.alloc.AllocError>;  // return
+    let _1: &var std.vector.Vector<T, A>;  // self
+    let _2: T;  // param value
+    let _3: Int;  // wanted
+    let _4: Int;
+    let _5: Int;
+    let _6: &var std.vector.Vector<T, A>;
+    let _7: Bool;
+    let _8: Bool;
+    let _9: Int;
+    let _10: &std.vector.Vector<T, A>;
+    let _11: Int;
+    let _12: Int;
+    let _13: Int;
+    let _14: Int;
+    let _15: std.alloc.AllocError;
+    let _16: Result<Void, std.alloc.AllocError>;
+    let _17: UnsafePointer<T>;  // buf
+    let _18: Int;
+    let _19: Int;
+
+    bb0: {
+        _4 = Add(copy (*_1).length, const 1: Int);
+        _3 = move _4;
+        _5 = copy _3;
+        _6 = ref(exclusive, (*_1));
+        _7 = call std.vector.Vector.reserve_slots(wanted: Int) (owner std.vector.Vector<T, A>) [move _6, move _5] -> [return: bb2] suspends when A.Allocator.alloc A.Allocator.dealloc;
+    }
+
+    bb1: {
+        switch discriminant((*_1).buffer) -> [Some: bb8, None: bb9];
+    }
+
+    bb2: {
+        _8 = Not(move _7);
+        switch move _8 -> [true: bb3, false: bb4];
+    }
+
+    bb3: {
+        _9 = copy _3;
+        _10 = ref(shared, (*_1));
+        _11 = call std.vector.Vector.grow_target(wanted: Int) (owner std.vector.Vector<T, A>) [move _10, move _9] -> [return: bb5];
+    }
+
+    bb4: {
+        goto -> bb1;
+    }
+
+    bb5: {
+        _12 = call builtin sizeof (inst T) [] -> [return: bb6];
+    }
+
+    bb6: {
+        _13 = Mul(move _11, move _12);
+        _14 = call builtin alignof (inst T) [] -> [return: bb7];
+    }
+
+    bb7: {
+        _15 = std.alloc.AllocError { size: move _13, align: move _14 };
+        _16 = Result<Void, std.alloc.AllocError>::Err(move _15);
+        _0 = move _16;
+        drop(_2);
+        return;
+    }
+
+    bb8: {
+        _17 = copy ((*_1).buffer as Some).0;
+        _18 = copy (*_1).length;
+        _17[_18] = move _2;
+        _19 = Add(copy (*_1).length, const 1: Int);
+        (*_1).length = move _19;
+        _0 = Result<Void, std.alloc.AllocError>::Ok(const (): Void);
+        drop(_2);
+        return;
+    }
+
+    bb9: {
+        call builtin panic [const "Vector.push: buffer is empty": String] -> !;
+    }
+}
+
+fn std.vector.Vector.set(index: Int, value: T) -> Void {
+    let _0: Void;  // return
+    let _1: &var std.vector.Vector<T, A>;  // self
+    let _2: Int;  // param index
+    let _3: T;  // param value
+    let _4: Bool;
+    let _5: Bool;
+    let _6: Bool;
+    let _7: UnsafePointer<T>;  // buf
+    let _8: T;  // old
+    let _9: Int;
+    let _10: Int;
+    let _11: T;
+
+    bb0: {
+        _5 = Lt(copy _2, const 0: Int);
+        switch move _5 -> [true: bb4, false: bb3];
+    }
+
+    bb1: {
+        switch discriminant((*_1).buffer) -> [Some: bb8, None: bb9];
+    }
+
+    bb2: {
+        switch move _4 -> [true: bb5, false: bb6];
+    }
+
+    bb3: {
+        _6 = Ge(copy _2, copy (*_1).length);
+        _4 = move _6;
+        goto -> bb2;
+    }
+
+    bb4: {
+        _4 = const true: Bool;
+        goto -> bb2;
+    }
+
+    bb5: {
+        call builtin panic [format "Vector.set: index out of range: {} (len {})", copy _2, copy (*_1).length] -> !;
+    }
+
+    bb6: {
+        goto -> bb1;
+    }
+
+    bb7: {
+        drop(_3);
+        return;
+    }
+
+    bb8: {
+        _7 = copy ((*_1).buffer as Some).0;
+        _9 = copy _2;
+        _8 = move _7[_9];
+        _10 = copy _2;
+        _7[_10] = move _3;
+        _11 = move _8;
+        drop(_11);
+        drop(_8);
+        goto -> bb7;
+    }
+
+    bb9: {
+        goto -> bb7;
+    }
+}
+
+fn Optional.take_payload() -> T? {
+    let _0: T?;  // return
+    let _1: &var T?;  // self
+    let _2: UnsafePointer<T?>;  // at
+    let _3: &var T?;
+    let _4: UnsafePointer<T?>;
+    let _5: T?;  // held
+    let _6: Int;
+    let _7: Int;
+    let _8: T?;
+
+    bb0: {
+        _3 = ref(exclusive, (*_1));
+        _4 = cast(move _3 as UnsafePointer<T?>);
+        _2 = move _4;
+        _6 = const 0: Int;
+        _5 = move _2[_6];
+        _7 = const 0: Int;
+        _8 = T?::None;
+        _2[_7] = move _8;
+        _0 = move _5;
+        drop(_5);
+        return;
+    }
+}

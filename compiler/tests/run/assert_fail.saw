@@ -1,0 +1,8 @@
+// `assert` passes silently, then fails with its formatted message.
+func main() {
+    let a = 3
+    assert(a == 3, "a is {}", a)
+    print("passed")
+    assert(a > 5, "want more than {} got {}", 5, a)
+    print("never")
+}

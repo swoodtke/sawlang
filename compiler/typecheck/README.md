@@ -457,7 +457,7 @@ POSITION DECLARATION) ...)`, the declaration each lowers through; under Stage
 | `interpolation` | `"{x}"`, a message or not | `std.stringbuilder.StringBuilder`: `init`, `append`, `build` | std lang `string_positions`, cone `interpolation` |
 | `message` | a literal message of `print`, `panic`, `assert` with no format arguments | `std.string.string_literal`: its bytes go out as they are | std lang `string_positions`, cone `literal_only` |
 | `format` | a format string with `{}` slots (design 137) | `std.stringbuilder.StringBuilder`'s fixed mode, in stack scratch | std lang `string_positions` |
-| `argument` | a String format argument, or a String message | `std.string.string_bytes` | std lang `string_positions` |
+| `argument` | a String format argument, or a String message | `std.string.string_bytes` and `std.string.string_length`, its bytes and their count | std lang `string_positions` |
 | `rendered` | a message that is a Printable value off the builtin fast path | `std.prelude.Printable`'s `to_string` default | std lang `string_positions` |
 | `pattern` | `case "zero" ->` | `std.string.string_equals` | std lang `string_positions` |
 | `equality` | `==`, `!=` on Strings | `std.string.string_equals` | std lang `string_positions` |

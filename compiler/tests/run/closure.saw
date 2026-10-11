@@ -1,0 +1,15 @@
+// A non-escaping closure passed straight to its call: a capture by value,
+// called twice, and a closure taking two parameters.
+func apply(f: (Int) -> Int, x: Int) -> Int {
+    f(x) + f(x + 1)
+}
+
+func combine(f: (Int, Int) -> Int, a: Int, b: Int) -> Int {
+    f(a, b)
+}
+
+func main() {
+    let k = 10
+    print("{}", apply({ x in x + k }, 5))
+    print("{}", combine({ a, b in a * b }, 6, 7))
+}

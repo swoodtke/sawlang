@@ -1,0 +1,14 @@
+// A generic body's silent copy at a heap String runs String's copy hook (a
+// retain), and every reference is released once.
+func dup<T: Copy>(x: T) -> (T, T) {
+    (x, x)
+}
+
+func main() {
+    let base = "copy hooks"
+    let heap = base.substring(0, 4)
+    let pair = dup(heap)
+    print("{} {} {}", pair.0, pair.1, heap)
+    let numbers = dup(5)
+    print("{} {}", numbers.0, numbers.1)
+}

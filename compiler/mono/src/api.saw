@@ -1,0 +1,211 @@
+// Monomorphization's entry points: a program checked, lowered, borrow
+// checked and elaborated, its constants evaluated, then monomorphized from
+// its roots; and the record `sawc2 mono` prints for it.
+
+import sawborrowck.src.check.{borrowck_rules}
+import sawborrowck.src.program.{BorrowckProgram, borrowck_program}
+import sawdrops.src.elaborate.{drops_rules}
+import sawborrowck.src.verify.{borrowck_verify_module}
+import sawdrops.src.api.{drops_has_invariant}
+import sawdrops.src.program.{DropsProgram, drops_program}
+import sawdrops.src.verify.{drops_verify_module}
+import saweval.src.program.{EvalEnd, EvalKind, EvalProgram, eval_program}
+import saweval.src.interp.{eval_step_budget}
+import sawmir.src.api.{mir_append_checks, mir_append_diag, mir_append_invariants, mir_lower_file}
+import sawmir.src.program.{MirProgram}
+import sawmono.src.dump.{mono_dump_layouts}
+import sawmono.src.program.{MonoProgram, mono_program}
+import sawmono.src.worklist.{mono_rules}
+import sawtarget.src.layout.{Target, target_named}
+
+// How `sawc2 mono` treats one entry file.
+public struct MonoOptions {
+    public std_root: String
+    public target: String
+    // Print each item's concrete function.
+    public dump: Bool
+    // Print the layout table of the types the items reach.
+    public layouts: Bool
+    public notes: Bool
+}
+
+// The program whose entry file is `path`, brought through every stage
+// before mono, then monomorphized. Everything the stages before it report
+// (as `sawc2 drops --check` prints it) is appended to `out`; when any of it
+// is a refusal or a broken invariant, the program comes back blocked and
+// nothing is instantiated.
+public func mono_lower_file(out: &var StringBuilder, path: String, std_root: String, notes: Bool,
+                            names: &Vector<String>, dirs: &Vector<String>) -> MonoProgram {
+    var lowered = mir_lower_file(path, std_root, &names, &dirs)
+    var head = StringBuilder()
+    var status = mir_append_checks(out: &var head, p: &var lowered, notes: notes)
+    var bc = borrowck_program(move lowered)
+    var m = 0
+    while m < bc.mir.tc.res.module_count() {
+        let info = bc.mir.tc.res.module(m)
+        if info.available && not info.interface_only {
+            bc.check_module(m)
+        }
+        m = m + 1
+    }
+    var k = 0
+    while k < bc.diags.len() {
+        let d = bc.diags[k]
+        mir_append_diag(out: &var head, p: &bc.mir, d: &d)
+        k = k + 1
+    }
+    if bc.diags.len() > 0 {
+        status = 1
+    }
+    m = 0
+    while m < bc.mir.tc.res.module_count() {
+        let info = bc.mir.tc.res.module(m)
+        if info.available && not info.interface_only {
+            let found = borrowck_verify_module(&var bc, m)
+            mir_append_invariants(out: &var head, p: &bc.mir, m: m, problems: &found)
+        }
+        m = m + 1
+    }
+    let before = head.build()
+    try! out.append(before)
+    var blocked = status != 0 || drops_has_invariant(before)
+    var p = drops_program(move bc)
+    if not blocked {
+        var tail = StringBuilder()
+        mono_elaborate(&var p, &var tail)
+        let after = tail.build()
+        try! out.append(after)
+        if p.diags.len() > 0 || drops_has_invariant(after) {
+            blocked = true
+        }
+    }
+    var mono = mono_program(move p, blocked)
+    if not blocked {
+        mono_take_statics(&var mono, path, std_root, &names, &dirs)
+        mono.run()
+    }
+    move mono
+}
+
+// Drop elaboration over every module checked in full, its refusals and the
+// invariants it met or its verifier finds appended to `out`.
+func mono_elaborate(p: &var DropsProgram, out: &var StringBuilder) {
+    var m = 0
+    while m < p.bc.mir.tc.res.module_count() {
+        let info = p.bc.mir.tc.res.module(m)
+        if info.available && not info.interface_only {
+            p.elaborate_module(m)
+        }
+        m = m + 1
+    }
+    var k = 0
+    while k < p.diags.len() {
+        let d = p.diags[k]
+        mir_append_diag(out: &var out, p: &p.bc.mir, d: &d)
+        k = k + 1
+    }
+    m = 0
+    while m < p.bc.mir.tc.res.module_count() {
+        let info = p.bc.mir.tc.res.module(m)
+        if info.available && not info.interface_only {
+            var met = Vector<String>()
+            var j = 0
+            while j < p.problems.len() {
+                if p.problem_modules[j] == m {
+                    try! met.push(p.problems.get(j) ?? "")
+                }
+                j = j + 1
+            }
+            mir_append_invariants(out: &var out, p: &p.bc.mir, m: m, problems: &met)
+            let found = drops_verify_module(&var p, m)
+            mir_append_invariants(out: &var out, p: &p.bc.mir, m: m, problems: &found)
+        }
+        m = m + 1
+    }
+}
+
+// Each static's evaluated value, by declaration. The evaluator owns the MIR
+// program it runs over and hands nothing back, so it runs over a second
+// lowering of the same file; both lowerings are functions of the same input,
+// so their declarations are numbered alike, which a count check confirms.
+func mono_take_statics(mono: &var MonoProgram, path: String, std_root: String, names: &Vector<String>,
+                       dirs: &Vector<String>) {
+    let lowered = mir_lower_file(path, std_root, &names, &dirs)
+    var ev = eval_program(move lowered)
+    ev.evaluate_all()
+    let count = ev.constant_of.len()
+    if count != mono.static_kinds.len() {
+        try! mono.problems.push("the evaluator's lowering numbers the declarations differently")
+        return
+    }
+    var d = 0
+    while d < count {
+        let f = ev.constant_of[d]
+        if f >= 0 && ev.ends[f] == EvalEnd.Valued {
+            let v = ev.values[f]
+            match v.kind {
+                case Integer -> {
+                    mono.static_kinds[d] = 0
+                    mono.static_bits[d] = v.bits
+                },
+                case Boolean -> {
+                    mono.static_kinds[d] = 1
+                    mono.static_bits[d] = v.bits
+                },
+                case Case -> {
+                    mono.static_kinds[d] = 2
+                    mono.static_bits[d] = v.decl
+                },
+                case _ -> {}
+            }
+        }
+        d = d + 1
+    }
+}
+
+// The record of one program, after its `FILE` line: everything
+// `sawc2 drops --check` prints for it, then mono's refusals, each an `ERROR`
+// line, and an `INVARIANT` line per problem it met; then, as asked, each
+// item's dump or the layout table. Returns 0 when nothing was refused and 1
+// otherwise.
+public func mono_record(out: &var StringBuilder, path: String, options: &MonoOptions, names: &Vector<String>,
+                        dirs: &Vector<String>) -> Int {
+    var mono = mono_lower_file(out: &var out, path: path, std_root: options.std_root, notes: options.notes,
+                               names: &names, dirs: &dirs)
+    var status = 0
+    if mono.blocked {
+        status = 1
+    }
+    mono_append_findings(out: &var out, mono: &mono)
+    if mono.diags.len() > 0 {
+        status = 1
+    }
+    if mono.blocked {
+        return status
+    }
+    if options.dump {
+        mono.dump_items(&var out)
+    }
+    if options.layouts {
+        var target = target_named(options.target)
+        mono_dump_layouts(&var mono, &var target, &var out)
+    }
+    status
+}
+
+// Mono's refusals and the invariants it met, in the order met.
+public func mono_append_findings(out: &var StringBuilder, mono: &MonoProgram) {
+    var k = 0
+    while k < mono.diags.len() {
+        let d = mono.diags[k]
+        mir_append_diag(out: &var out, p: &mono.dp.bc.mir, d: &d)
+        k = k + 1
+    }
+    k = 0
+    while k < mono.problems.len() {
+        try! out.append("INVARIANT\tmono\t")
+        try! out.append(mono.problems.get(k) ?? "")
+        try! out.append("\n")
+        k = k + 1
+    }
+}

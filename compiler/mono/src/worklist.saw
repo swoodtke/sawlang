@@ -1,0 +1,921 @@
+// The worklist (SL:architecture §3.8): items reached from the roots, each
+// instantiated once by substituting its concrete arguments into a copy of its
+// source function, whose calls, closures, drops and copies then add the items
+// they reach. Items are numbered in discovery order, and a body is walked
+// block by block, statement by statement, so the order is a function of the
+// program alone.
+
+import sawborrowck.src.program.{BorrowckProgram}
+import sawdrops.src.program.{DropsProgram}
+import sawmir.src.model.{MirAggregate, MirBlock, MirCall, MirCallKind, MirFunc, MirFuncKind, MirLocal, MirOperand,
+                         MirOperandKind, MirPlace, MirProj, MirRvalue, MirRvalueKind, MirStmt, MirStmtKind,
+                         MirSwitchKind, MirTermKind, MirWindow}
+import sawmir.src.program.{MirProgram}
+import sawmir.src.build.{mir_func_local}
+import sawmono.src.glue.{mono_copies_bitwise}
+import sawtarget.src.layout.{target_struct_fields}
+import sawmono.src.program.{MONO_DEPTH_LIMIT, MONO_KEY_COPY, MONO_KEY_DROP, MONO_KEY_EXTERN, MONO_KEY_FUNCTION,
+                            MonoItem, MonoItemKind, MonoProgram}
+import sawtypecheck.src.bodydump.{tc_dump_bodies}
+import sawtypecheck.src.signatures.{TcContext}
+import sawtypecheck.src.spell.{tc_effects_text}
+import sawtypecheck.src.typeops.{TcClient}
+import sawresolve.src.lang.{ResLang}
+import sawresolve.src.model.{ResDeclKind, ResModuleKind}
+import sawresolve.src.program.{ResProgram}
+import sawtypecheck.src.conform.{tc_args_subst}
+import sawtypecheck.src.model.{TcStatusKind}
+import sawtypecheck.src.program.{TcProgram}
+import sawtypecheck.src.types.{TcKind}
+
+// Every rule monomorphization refuses by.
+public func mono_rules() -> Vector<String> {
+    var out = Vector<String>()
+    try! out.push("mono.depth")
+    try! out.push("mono.not-yet")
+    move out
+}
+
+// The builtins the backend's slice lowers, by spelling.
+func mono_builtin_supported(name: String) -> Bool {
+    name.equals("print") || name.equals("panic") || name.equals("assert") || name.equals("init") || name.equals("sizeof") || name.equals("alignof") || name.equals("__saw_atomic_add_i64") || name.equals("__saw_atomic_sub_i64_release") || name.equals("__saw_atomic_fence_acquire") || name.equals("__saw_atomic_load_i64_relaxed")
+}
+
+// A resolved call target: the declaration whose body runs, and the `Self`
+// it runs under (a trait's default body), or -1.
+struct MonoTarget {
+    decl: Int
+    self_type: Int
+}
+
+extension MonoProgram {
+    // Runs the worklist to its end: the roots, then every item they reach.
+    public func run(&var self) {
+        if self.blocked {
+            return
+        }
+        self.index_bodies()
+        self.add_roots()
+        var k = 0
+        while k < self.items.len() {
+            self.current = k
+            self.instantiate(k)
+            k = k + 1
+        }
+        self.current = -1
+        self.report_depth()
+    }
+
+    func index_bodies(&var self) {
+        var f = 0
+        while f < self.concrete_first {
+            let info = self.dp.bc.mir.funcs[f]
+            if self.dp.elaborated[f] && info.decl >= 0 {
+                if info.kind == MirFuncKind.Body && self.body_of[info.decl] < 0 {
+                    self.body_of[info.decl] = f
+                } else if info.kind == MirFuncKind.Default {
+                    self.defaults.add(info.decl, info.param, f)
+                }
+            }
+            f = f + 1
+        }
+    }
+
+    // The roots, in order: the entry module's `main`, then the lang functions
+    // the backend's own lowering calls: the panic sink, which every check
+    // ends in, and the String roles a literal and a written-out String are
+    // read through.
+    func add_roots(&var self) {
+        let entry = self.entry_module()
+        let main_decl = self.dp.bc.mir.tc.top_decl(entry, "main")
+        let none = Vector<Int>()
+        if main_decl >= 0 {
+            self.main_item = self.root_item(main_decl, &none)
+        }
+        let sink = self.dp.bc.mir.tc.res.lang_item(ResLang.PanicSinkFunction)
+        self.panic_item = self.root_item(sink, &none)
+        let literal = self.dp.bc.mir.tc.res.lang_item(ResLang.StringLiteralFunction)
+        self.literal_item = self.root_item(literal, &none)
+        let bytes = self.dp.bc.mir.tc.res.lang_item(ResLang.StringBytesFunction)
+        self.bytes_item = self.root_item(bytes, &none)
+        let length = self.dp.bc.mir.tc.res.lang_item(ResLang.StringLengthFunction)
+        self.length_item = self.root_item(length, &none)
+    }
+
+    // The module of the file the program was named by.
+    public func entry_module(&self) -> Int {
+        var m = 0
+        while m < self.dp.bc.mir.tc.res.module_count() {
+            let info = self.dp.bc.mir.tc.res.module(m)
+            if info.kind == ResModuleKind.Entry && info.available {
+                return m
+            }
+            m = m + 1
+        }
+        return -1
+    }
+
+    // The item of non-generic declaration `d`'s body, or -1 when it has none.
+    func root_item(&var self, d: Int, none: &Vector<Int>) -> Int {
+        if d < 0 || self.body_of[d] < 0 {
+            return -1
+        }
+        let f = self.body_of[d]
+        let no_inst = Vector<Int>()
+        self.function_item(f, -1, &none, -1, &no_inst, -1, -1, -1)
+    }
+
+    // THE ITEM FUNNEL for functions: the item of source function `source` at
+    // owner arguments `args` (for `type_decl`'s parameters), its own type
+    // arguments `inst` (for `func_decl`'s) and `self_type`, made when new.
+    // ENTRY POINTS:
+    //     root_item
+    //     role_item
+    //     call_item_of
+    //     resolve_closure
+    func function_item(&var self, source: Int, type_decl: Int, args: &Vector<Int>, func_decl: Int, inst: &Vector<Int>,
+                       self_type: Int, origin: Int, node: Int) -> Int {
+        var at = self.by_key.first(source, MONO_KEY_FUNCTION)
+        while at >= 0 {
+            let k = self.by_key.value(at)
+            if self.same_arguments(k, &args, &inst, self_type) {
+                return k
+            }
+            at = self.by_key.following(at)
+        }
+        var j = 0
+        while j < args.len() {
+            if self.depth_exceeded(args[j], node, true) {
+                return -1
+            }
+            j = j + 1
+        }
+        j = 0
+        while j < inst.len() {
+            if self.depth_exceeded(inst[j], node, true) {
+                return -1
+            }
+            j = j + 1
+        }
+        let args_first = self.item_types.len()
+        j = 0
+        while j < args.len() {
+            try! self.item_types.push(args[j])
+            j = j + 1
+        }
+        let inst_first = self.item_types.len()
+        j = 0
+        while j < inst.len() {
+            try! self.item_types.push(inst[j])
+            j = j + 1
+        }
+        let k = self.items.len()
+        let decl = self.dp.bc.mir.funcs[source].decl
+        try! self.items.push(MonoItem(kind: MonoItemKind.Function, source: source, type_decl: type_decl,
+                                      func_decl: func_decl, args_first: args_first, args_count: args.len(),
+                                      inst_first: inst_first, inst_count: inst.len(), self_type: self_type,
+                                      glue_type: -1, decl: decl, body: -1, origin: origin, origin_node: node))
+        self.by_key.add(source, MONO_KEY_FUNCTION, k)
+        k
+    }
+
+    func same_arguments(&self, k: Int, args: &Vector<Int>, inst: &Vector<Int>, self_type: Int) -> Bool {
+        let it = self.items[k]
+        if it.args_count != args.len() || it.inst_count != inst.len() || it.self_type != self_type {
+            return false
+        }
+        var j = 0
+        while j < args.len() {
+            if self.item_types[it.args_first + j] != args[j] {
+                return false
+            }
+            j = j + 1
+        }
+        j = 0
+        while j < inst.len() {
+            if self.item_types[it.inst_first + j] != inst[j] {
+                return false
+            }
+            j = j + 1
+        }
+        true
+    }
+
+    // Whether concrete argument `t` nests past the depth limit: polymorphic
+    // recursion grows a type without bound, and its ruled refusal before mono
+    // is not built yet (SL-507). The first call `call` meets at is kept, and
+    // the first drop or copy otherwise, for the one refusal `report_depth`
+    // makes: one growing chain meets the limit at every item it reaches.
+    func depth_exceeded(&var self, t: Int, node: Int, call: Bool) -> Bool {
+        if self.type_depth(t, 0) <= MONO_DEPTH_LIMIT {
+            return false
+        }
+        if call && self.depth_call < 0 {
+            self.depth_call = node
+        } else if not call && self.depth_glue < 0 {
+            self.depth_glue = node
+        }
+        true
+    }
+
+    // The depth limit's one refusal: at the first call that met it, else at
+    // the first drop or copy.
+    func report_depth(&var self) {
+        var node = self.depth_call
+        var what = "this call instantiates"
+        if node < 0 {
+            node = self.depth_glue
+            what = "this value has"
+        }
+        if node < 0 {
+            return
+        }
+        var msg = StringBuilder()
+        try! msg.append(what)
+        try! msg.append(" a type nested more than ")
+        try! msg.append(MONO_DEPTH_LIMIT)
+        try! msg.append(" deep: a generic that instantiates itself at a growing type has no finite set of instances (polymorphic recursion, SL-507)")
+        self.refuse(node, "mono.depth", msg.build())
+    }
+
+    func type_depth(&self, t: Int, depth: Int) -> Int {
+        if t < 0 || depth > MONO_DEPTH_LIMIT {
+            return depth
+        }
+        let info = self.dp.bc.mir.tc.types.ty(t)
+        var deepest = depth
+        if info.b >= 0 && (info.kind == TcKind.Func || info.kind == TcKind.Ref || info.kind == TcKind.Slice || info.kind == TcKind.Array) {
+            let inner = self.type_depth(info.b, depth + 1)
+            if inner > deepest {
+                deepest = inner
+            }
+        }
+        var k = 0
+        while k < info.count {
+            let arg = self.dp.bc.mir.tc.types.arg(t, k)
+            let inner = self.type_depth(arg, depth + 1)
+            if inner > deepest {
+                deepest = inner
+            }
+            k = k + 1
+        }
+        deepest
+    }
+
+    // Type `t` with item `k`'s concrete arguments in place of its parameters.
+    public func concrete_type(&var self, k: Int, t: Int) -> Int {
+        if t < 0 || not self.dp.bc.mir.tc.mentions_param(t) {
+            return t
+        }
+        let it = self.items[k]
+        var out = t
+        if it.type_decl >= 0 || it.self_type >= 0 {
+            var args = Vector<Int>()
+            var j = 0
+            while j < it.args_count {
+                try! args.push(self.item_types[it.args_first + j])
+                j = j + 1
+            }
+            var s = tc_args_subst(it.type_decl, move args)
+            s.self_type = it.self_type
+            out = self.dp.bc.mir.tc.subst(out, &s)
+        }
+        if it.func_decl >= 0 && it.inst_count > 0 {
+            var inst = Vector<Int>()
+            var j = 0
+            while j < it.inst_count {
+                try! inst.push(self.item_types[it.inst_first + j])
+                j = j + 1
+            }
+            let s = tc_args_subst(it.func_decl, move inst)
+            out = self.dp.bc.mir.tc.subst(out, &s)
+        }
+        out
+    }
+
+    func instantiate(&var self, k: Int) {
+        let it = self.items[k]
+        match it.kind {
+            case Function -> {
+                if not self.dp.elaborated[it.source] {
+                    try! self.problems.push("an item's source function was not elaborated")
+                    return
+                }
+                let f = self.copy_function(k)
+                var done = self.items[k]
+                done.body = f
+                self.items[k] = done
+            },
+            case DropGlue -> self.build_drop_glue(k),
+            case CopyGlue -> self.build_copy_glue(k),
+            case Extern -> {}
+        }
+        let body = self.items[k].body
+        if body >= 0 {
+            self.resolve_function(k, body)
+        }
+    }
+
+    // THE GLUE FUNNEL: the drop glue of type `t` (`kind` MONO_KEY_DROP) or its
+    // copy glue (MONO_KEY_COPY), made when new; -1 when refused.
+    // ENTRY POINTS:
+    //     need_drop
+    //     need_operand
+    public func glue_of(&var self, t: Int, kind: Int, origin: Int, node: Int) -> Int {
+        let found = self.glue_item(t, kind)
+        if found >= 0 {
+            return found
+        }
+        if self.depth_exceeded(t, node, false) {
+            return -1
+        }
+        var item_kind = MonoItemKind.DropGlue
+        if kind == MONO_KEY_COPY {
+            item_kind = MonoItemKind.CopyGlue
+        }
+        let k = self.items.len()
+        let first = self.item_types.len()
+        try! self.items.push(MonoItem(kind: item_kind, source: -1, type_decl: -1, func_decl: -1, args_first: first,
+                                      args_count: 0, inst_first: first, inst_count: 0, self_type: -1, glue_type: t,
+                                      decl: -1, body: -1, origin: origin, origin_node: node))
+        self.by_key.add(t, kind, k)
+        k
+    }
+
+    // A drop of type `t` in item `k`: its glue, unless the type owns nothing.
+    // A function value owns nothing in this slice: a closure capturing an
+    // owning value is refused where it is built.
+    func need_drop(&var self, k: Int, t: Int, node: Int) {
+        if not self.dp.bc.mir.owns(t) || self.dp.bc.mir.tc.kind_of(t) == TcKind.Func {
+            return
+        }
+        let _ = self.glue_of(t, MONO_KEY_DROP, k, node)
+    }
+
+    // An operand of item `k`: a copy of a type that is not the bits alone
+    // runs that type's copy glue.
+    func need_operand(&var self, k: Int, o: Int, node: Int) {
+        if o < 0 {
+            return
+        }
+        let info = self.dp.bc.mir.operands[o]
+        if info.kind != MirOperandKind.Copy || mono_copies_bitwise(&var self.dp.bc.mir.tc, info.ty) {
+            return
+        }
+        let _ = self.glue_of(info.ty, MONO_KEY_COPY, k, node)
+    }
+}
+
+// The copy: a concrete function appended after every generic one, its
+// locals, blocks and statements numbered as its source's, every type
+// substituted.
+extension MonoProgram {
+    func copy_function(&var self, k: Int) -> Int {
+        let it = self.items[k]
+        let src = self.dp.bc.mir.funcs[it.source]
+        let local_first = self.dp.bc.mir.locals.len()
+        var j = 0
+        while j < src.local_count {
+            var l = self.dp.bc.mir.locals[src.local_first + j]
+            l.ty = self.concrete_type(k, l.ty)
+            try! self.dp.bc.mir.locals.push(l)
+            j = j + 1
+        }
+        let window_first = self.dp.bc.mir.windows.len()
+        j = 0
+        while j < src.window_count {
+            let w = self.dp.bc.mir.windows[src.window_first + j]
+            try! self.dp.bc.mir.windows.push(w)
+            j = j + 1
+        }
+        let block_first = self.dp.bc.mir.blocks.len()
+        j = 0
+        while j < src.block_count {
+            let b = self.dp.bc.mir.blocks[src.block_first + j]
+            let copied = self.copy_block(k, &b)
+            try! self.dp.bc.mir.blocks.push(copied)
+            j = j + 1
+        }
+        let f = self.dp.bc.mir.funcs.len()
+        try! self.dp.bc.mir.funcs.push(MirFunc(module: src.module, kind: src.kind, decl: src.decl, root: src.root,
+                                               param: src.param, parent: src.parent, ordinal: src.ordinal,
+                                               local_first: local_first, local_count: src.local_count,
+                                               block_first: block_first, block_count: src.block_count,
+                                               param_count: src.param_count, window_first: window_first,
+                                               window_count: src.window_count, owner: src.owner, refused: false,
+                                               order: src.order, record_first: src.record_first,
+                                               record_count: src.record_count,
+                                               record_flags_first: src.record_flags_first,
+                                               carried_first: src.carried_first, carried_count: src.carried_count))
+        f
+    }
+
+    func copy_block(&var self, k: Int, b: &MirBlock) -> MirBlock {
+        var out = b
+        out.first = -1
+        out.last = -1
+        var s = b.first
+        while s >= 0 {
+            let stmt = self.dp.bc.mir.stmts[s]
+            let place = self.copy_place(k, stmt.place)
+            var rvalue = -1
+            if stmt.rvalue >= 0 {
+                rvalue = self.copy_rvalue(k, stmt.rvalue)
+            }
+            let at = self.dp.bc.mir.stmts.len()
+            try! self.dp.bc.mir.stmts.push(MirStmt(kind: stmt.kind, place: place, rvalue: rvalue, yields: stmt.yields,
+                                                   next: -1, node: stmt.node, closing: stmt.closing))
+            if out.first < 0 {
+                out.first = at
+            } else {
+                var prev = self.dp.bc.mir.stmts[out.last]
+                prev.next = at
+                self.dp.bc.mir.stmts[out.last] = prev
+            }
+            out.last = at
+            s = stmt.next
+        }
+        out.operand = self.copy_operand(k, b.operand)
+        out.place = self.copy_place(k, b.place)
+        if b.arm_count > 0 {
+            let arm_first = self.dp.bc.mir.arms.len()
+            var j = 0
+            while j < b.arm_count {
+                let arm = self.dp.bc.mir.arms[b.arm_first + j]
+                try! self.dp.bc.mir.arms.push(arm)
+                j = j + 1
+            }
+            out.arm_first = arm_first
+        }
+        if b.call >= 0 {
+            out.call = self.copy_call(k, b.call)
+        }
+        out
+    }
+
+    func copy_place(&var self, k: Int, p: Int) -> Int {
+        if p < 0 {
+            return -1
+        }
+        let info = self.dp.bc.mir.places[p]
+        let first = self.dp.bc.mir.projs.len()
+        var j = 0
+        while j < info.count {
+            var step = self.dp.bc.mir.projs[info.first + j]
+            step.ty = self.concrete_type(k, step.ty)
+            try! self.dp.bc.mir.projs.push(step)
+            j = j + 1
+        }
+        let ty = self.concrete_type(k, info.ty)
+        let at = self.dp.bc.mir.places.len()
+        try! self.dp.bc.mir.places.push(MirPlace(local: info.local, static_decl: info.static_decl, first: first,
+                                                 count: info.count, ty: ty))
+        at
+    }
+
+    func copy_operand(&var self, k: Int, o: Int) -> Int {
+        if o < 0 {
+            return -1
+        }
+        let info = self.dp.bc.mir.operands[o]
+        let place = self.copy_place(k, info.place)
+        let ty = self.concrete_type(k, info.ty)
+        let at = self.dp.bc.mir.operands.len()
+        try! self.dp.bc.mir.operands.push(MirOperand(kind: info.kind, place: place, ty: ty,
+                                                     const_kind: info.const_kind, text: info.text))
+        at
+    }
+
+    // Operands `first .. first + count` of the lists, copied into a new run.
+    func copy_list(&var self, k: Int, first: Int, count: Int) -> Int {
+        var copied = Vector<Int>()
+        var j = 0
+        while j < count {
+            let o = self.dp.bc.mir.lists[first + j]
+            try! copied.push(self.copy_operand(k, o))
+            j = j + 1
+        }
+        let at = self.dp.bc.mir.lists.len()
+        j = 0
+        while j < copied.len() {
+            try! self.dp.bc.mir.lists.push(copied[j])
+            j = j + 1
+        }
+        at
+    }
+
+    func copy_rvalue(&var self, k: Int, r: Int) -> Int {
+        let info = self.dp.bc.mir.rvalues[r]
+        let first = self.copy_list(k, info.first, info.count)
+        let place = self.copy_place(k, info.place)
+        let flag = self.copy_place(k, info.flag)
+        let ty = self.concrete_type(k, info.ty)
+        let at = self.dp.bc.mir.rvalues.len()
+        try! self.dp.bc.mir.rvalues.push(MirRvalue(kind: info.kind, ty: ty, op: info.op, exclusive: info.exclusive,
+                                                   place: place, first: first, count: info.count,
+                                                   aggregate: info.aggregate, decl: info.decl, flag: flag))
+        at
+    }
+
+    func copy_call(&var self, k: Int, c: Int) -> Int {
+        var info = self.dp.bc.mir.calls[c]
+        let args = self.copy_list(k, info.arg_first, info.arg_count)
+        let callee = self.copy_operand(k, info.callee)
+        let dest = self.copy_place(k, info.dest)
+        var inst = Vector<Int>()
+        var j = 0
+        while j < info.inst_count {
+            let t = self.dp.bc.mir.types[info.inst_first + j]
+            try! inst.push(self.concrete_type(k, t))
+            j = j + 1
+        }
+        let inst_first = self.dp.bc.mir.types.len()
+        j = 0
+        while j < inst.len() {
+            try! self.dp.bc.mir.types.push(inst[j])
+            j = j + 1
+        }
+        info.arg_first = args
+        info.callee = callee
+        info.dest = dest
+        info.inst_first = inst_first
+        info.owner = self.concrete_type(k, info.owner)
+        let at = self.dp.bc.mir.calls.len()
+        try! self.dp.bc.mir.calls.push(info)
+        at
+    }
+}
+
+// Resolution: what each concrete call, closure, drop and copy reaches.
+extension MonoProgram {
+    func resolve_function(&var self, k: Int, f: Int) {
+        let info = self.dp.bc.mir.funcs[f]
+        var b = 0
+        while b < info.block_count {
+            let block = self.dp.bc.mir.blocks[info.block_first + b]
+            var s = block.first
+            while s >= 0 {
+                let stmt = self.dp.bc.mir.stmts[s]
+                self.resolve_stmt(k, &stmt)
+                s = stmt.next
+            }
+            if block.term == MirTermKind.Call {
+                self.resolve_call(k, block.call)
+            } else if block.term == MirTermKind.Switch && block.switch_kind == MirSwitchKind.Bool {
+                self.need_operand(k, block.operand, block.term_node)
+            }
+            b = b + 1
+        }
+    }
+
+    func resolve_stmt(&var self, k: Int, stmt: &MirStmt) {
+        if stmt.kind == MirStmtKind.Drop {
+            let t = self.dp.bc.mir.places[stmt.place].ty
+            self.need_drop(k, t, stmt.node)
+            return
+        }
+        if stmt.kind != MirStmtKind.Assign {
+            return
+        }
+        let rv = self.dp.bc.mir.rvalues[stmt.rvalue]
+        var j = 0
+        while j < rv.count {
+            let o = self.dp.bc.mir.lists[rv.first + j]
+            self.need_operand(k, o, stmt.node)
+            j = j + 1
+        }
+        if rv.kind == MirRvalueKind.Aggregate && rv.aggregate == MirAggregate.Closure {
+            self.resolve_closure(k, stmt.rvalue, stmt.node)
+        }
+        if rv.kind == MirRvalueKind.Binary && rv.count == 2 {
+            self.resolve_string_comparison(k, &rv, stmt.node)
+        }
+    }
+
+    // A builtin comparison of Strings compares their bytes through the String
+    // layer: `==` and `!=` through the equality role, an ordering through the
+    // ordering role. Each role is an item made at the first comparison that
+    // needs it.
+    func resolve_string_comparison(&var self, k: Int, rv: &MirRvalue, node: Int) {
+        let a = self.dp.bc.mir.lists[rv.first]
+        let b = self.dp.bc.mir.lists[rv.first + 1]
+        if not self.string_operand(a) && not self.string_operand(b) {
+            return
+        }
+        let op = self.dp.bc.mir.tc.name_text(rv.op)
+        if op.equals("==") || op.equals("!=") {
+            if self.equals_item < 0 {
+                let d = self.dp.bc.mir.tc.res.lang_item(ResLang.StringEqualsFunction)
+                self.equals_item = self.role_item(d, k, node)
+            }
+        } else if op.equals("<") || op.equals("<=") || op.equals(">") || op.equals(">=") {
+            if self.compare_item < 0 {
+                let d = self.dp.bc.mir.tc.res.lang_item(ResLang.StringCompareFunction)
+                self.compare_item = self.role_item(d, k, node)
+            }
+        }
+    }
+
+    // The item of non-generic lang function `d`, first reached from item `k`
+    // at `node`, or -1 when the std root declares none.
+    func role_item(&var self, d: Int, k: Int, node: Int) -> Int {
+        if d < 0 || self.body_of[d] < 0 {
+            return -1
+        }
+        let source = self.body_of[d]
+        let none = Vector<Int>()
+        let no_inst = Vector<Int>()
+        self.function_item(source, -1, &none, -1, &no_inst, -1, k, node)
+    }
+
+    // A closure construction's body is an item under its parent's arguments.
+    // A capture that owns something would need the environment's release when
+    // the closure value drops, which this slice does not make, so it is
+    // refused rather than leaked.
+    func resolve_closure(&var self, k: Int, r: Int, node: Int) {
+        let rv = self.dp.bc.mir.rvalues[r]
+        var j = 0
+        while j < rv.count {
+            let o = self.dp.bc.mir.lists[rv.first + j]
+            let t = self.dp.bc.mir.operands[o].ty
+            if self.dp.bc.mir.owns(t) {
+                self.refuse(node, "mono.not-yet", "a closure capturing a value that owns something is not in the backend slice yet")
+                return
+            }
+            j = j + 1
+        }
+        let at = self.dp.bc.mir.func_of.first(rv.decl, 0)
+        if at < 0 {
+            try! self.problems.push("a closure construction names no lowered body")
+            return
+        }
+        let body = self.dp.bc.mir.func_of.value(at)
+        let it = self.items[k]
+        var args = Vector<Int>()
+        j = 0
+        while j < it.args_count {
+            try! args.push(self.item_types[it.args_first + j])
+            j = j + 1
+        }
+        var inst = Vector<Int>()
+        j = 0
+        while j < it.inst_count {
+            try! inst.push(self.item_types[it.inst_first + j])
+            j = j + 1
+        }
+        let item = self.function_item(body, it.type_decl, &args, it.func_decl, &inst, it.self_type, k, node)
+        self.set_closure_item(r, item)
+    }
+
+    func resolve_call(&var self, k: Int, c: Int) {
+        let info = self.dp.bc.mir.calls[c]
+        var a = 0
+        while a < info.arg_count {
+            let o = self.dp.bc.mir.lists[info.arg_first + a]
+            self.need_operand(k, o, info.node)
+            a = a + 1
+        }
+        match info.kind {
+            case Builtin -> {
+                let name = self.dp.bc.mir.tc.res.name_text(info.spelling)
+                if not mono_builtin_supported(name) {
+                    var msg = StringBuilder()
+                    try! msg.append("the builtin `")
+                    try! msg.append(name)
+                    try! msg.append("` is not in the backend slice yet")
+                    self.refuse(info.node, "mono.not-yet", msg.build())
+                    return
+                }
+                if name.equals("init") {
+                    self.check_empty_construction(c)
+                    return
+                }
+                self.check_format_arguments(c, &name)
+            },
+            case Value -> self.need_operand(k, info.callee, info.node),
+            case Lend -> try! self.problems.push("a lend outside an accessor's split reached mono"),
+            case Function -> {
+                let decl = self.dp.bc.mir.tc.res.decls[info.target]
+                if decl.kind == ResDeclKind.Extern {
+                    let item = self.extern_item(k, info.target)
+                    self.set_call_item(c, item)
+                    return
+                }
+                var target = MonoTarget(decl: info.target, self_type: -1)
+                if decl.kind == ResDeclKind.Requirement {
+                    target = self.resolve_requirement(info.target, info.owner, info.node)
+                    if target.decl < 0 {
+                        return
+                    }
+                }
+                let body = self.body_of[target.decl]
+                let item = self.call_item_of(k, body, target.decl, target.self_type, &info)
+                self.set_call_item(c, item)
+            },
+            case Default -> {
+                let at = self.defaults.first(info.target, info.param)
+                if at < 0 {
+                    self.refuse(info.node, "mono.not-yet", "a default value whose function was not lowered")
+                    return
+                }
+                let body = self.defaults.value(at)
+                let decl = info.target
+                let item = self.call_item_of(k, body, decl, -1, &info)
+                self.set_call_item(c, item)
+            },
+            case WindowOpen -> self.resolve_window(k, c, &info),
+            case WindowClose -> self.resolve_window(k, c, &info)
+        }
+    }
+
+    // A window's open or close calls its accessor's half at the window's
+    // instantiation; an accessor whose body this program does not lower has
+    // no halves to call.
+    func resolve_window(&var self, k: Int, c: Int, info: &MirCall) {
+        if info.half < 0 {
+            self.refuse(info.node, "mono.not-yet", "a borrow of an accessor whose body is not lowered")
+            return
+        }
+        let half = info.half
+        let decl = info.target
+        let item = self.call_item_of(k, half, decl, -1, &info)
+        self.set_call_item(c, item)
+    }
+
+    // The item a call of declaration `decl`, whose body is `body`, reaches:
+    // the receiver type's arguments for the parameters of the type an
+    // extension method extends, the call's own type arguments for `decl`'s.
+    func call_item_of(&var self, k: Int, body: Int, decl: Int, self_type: Int, info: &MirCall) -> Int {
+        if body < 0 || not self.dp.elaborated[body] {
+            var msg = StringBuilder()
+            try! msg.append("a call of `")
+            try! msg.append(self.dp.bc.mir.tc.target_text(decl))
+            try! msg.append("`, whose body this program does not lower, is not in the backend slice yet")
+            self.refuse(info.node, "mono.not-yet", msg.build())
+            return -1
+        }
+        let type_decl = self.type_decl_of(decl)
+        var args = Vector<Int>()
+        if type_decl >= 0 && info.owner >= 0 {
+            let owner = self.dp.bc.mir.tc.types.ty(info.owner)
+            if owner.kind == TcKind.Nominal && owner.decl == type_decl {
+                var j = 0
+                while j < owner.count {
+                    try! args.push(self.dp.bc.mir.tc.types.arg(info.owner, j))
+                    j = j + 1
+                }
+            }
+        }
+        if type_decl >= 0 && self.dp.bc.mir.tc.sigs[type_decl].generic_count != args.len() {
+            self.refuse(info.node, "mono.not-yet", "a call whose receiver type does not name the extended type's arguments")
+            return -1
+        }
+        var inst = Vector<Int>()
+        var j = 0
+        while j < info.inst_count {
+            try! inst.push(self.dp.bc.mir.types[info.inst_first + j])
+            j = j + 1
+        }
+        self.function_item(body, type_decl, &args, decl, &inst, self_type, k, info.node)
+    }
+
+    // The type declaration whose parameters a member's body names: the type
+    // an extension extends, or -1 for a free function and a trait's default
+    // body, which reads `Self` instead.
+    func type_decl_of(&self, decl: Int) -> Int {
+        let parent = self.dp.bc.mir.tc.res.decls[decl].parent
+        if parent < 0 {
+            return -1
+        }
+        if self.dp.bc.mir.tc.res.decls[parent].kind == ResDeclKind.Extension {
+            return self.dp.bc.mir.tc.ext_target(parent)
+        }
+        return -1
+    }
+
+    // Requirement `req` called on concrete `owner`: the member the owner's
+    // conformance writes, or the trait's default body under `Self` = owner.
+    // A derived or implicit member, and an owner with no conformance, are
+    // refused.
+    func resolve_requirement(&var self, req: Int, owner: Int, node: Int) -> MonoTarget {
+        let trait_decl = self.dp.bc.mir.tc.res.decls[req].parent
+        let d = self.dp.bc.mir.tc.nominal_decl(owner)
+        var c = 0
+        while c < self.dp.bc.mir.tc.conformances.len() {
+            let one = self.dp.bc.mir.tc.conformances[c]
+            c = c + 1
+            if d < 0 || one.type_decl != d || not self.dp.bc.mir.tc.trait_refines(one.trait_decl, trait_decl) {
+                continue
+            }
+            var s = 0
+            while s < one.status_count {
+                let status = self.dp.bc.mir.tc.statuses[one.status_first + s]
+                s = s + 1
+                if status.requirement != req {
+                    continue
+                }
+                if status.kind == TcStatusKind.Written {
+                    return MonoTarget(decl: status.member, self_type: -1)
+                }
+                if status.kind == TcStatusKind.Default {
+                    return MonoTarget(decl: req, self_type: owner)
+                }
+            }
+        }
+        var msg = StringBuilder()
+        try! msg.append("a call of `")
+        try! msg.append(self.dp.bc.mir.tc.target_text(req))
+        try! msg.append("` on `")
+        try! msg.append(self.dp.bc.mir.tc.type_text(owner))
+        try! msg.append("`, which no written member or default body meets, is not in the backend slice yet")
+        self.refuse(node, "mono.not-yet", msg.build())
+        MonoTarget(decl: -1, self_type: -1)
+    }
+
+    // `T()` on a type parameter, at a concrete `T`: in the slice, a fieldless
+    // struct with no `init` of its own, whose value is nothing (an
+    // allocator's).
+    func check_empty_construction(&var self, c: Int) {
+        let info = self.dp.bc.mir.calls[c]
+        let d = self.dp.bc.mir.tc.nominal_decl(info.owner)
+        let fieldless = d >= 0 && self.dp.bc.mir.tc.res.decls[d].kind == ResDeclKind.Struct && target_struct_fields(&self.dp.bc.mir.tc, d).len() == 0
+        if fieldless && not self.declares_init(d) {
+            return
+        }
+        var msg = StringBuilder()
+        try! msg.append("constructing `")
+        try! msg.append(self.dp.bc.mir.tc.type_text(info.owner))
+        try! msg.append("` through a type parameter is not in the backend slice yet: only a fieldless struct with no `init`")
+        self.refuse(info.node, "mono.not-yet", msg.build())
+    }
+
+    // Whether type declaration `d` has an `init` among its members.
+    func declares_init(&self, d: Int) -> Bool {
+        if d >= self.dp.bc.mir.tc.member_first.len() || self.dp.bc.mir.tc.member_first[d] < 0 {
+            return false
+        }
+        let first = self.dp.bc.mir.tc.member_first[d]
+        var j = first
+        while j < first + self.dp.bc.mir.tc.member_count[d] {
+            let member = self.dp.bc.mir.tc.members[j]
+            if self.dp.bc.mir.tc.res.decls[member.decl].kind == ResDeclKind.Init {
+                return true
+            }
+            j = j + 1
+        }
+        false
+    }
+
+    // A format argument of `print`, `panic` or `assert` renders in the slice
+    // when it is an integer, a `Bool` or a `String`, or a reference to one.
+    func check_format_arguments(&var self, c: Int, name: &String) {
+        let info = self.dp.bc.mir.calls[c]
+        let printing = name.equals("print") || name.equals("panic") || name.equals("assert")
+        if not printing {
+            return
+        }
+        var a = 0
+        while a < info.arg_count {
+            let o = self.dp.bc.mir.lists[info.arg_first + a]
+            let op = self.dp.bc.mir.operands[o]
+            a = a + 1
+            if op.kind == MirOperandKind.Const {
+                continue
+            }
+            var t = op.ty
+            let referent = self.dp.bc.mir.tc.referent(t)
+            if referent >= 0 {
+                t = referent
+            }
+            let renders = self.dp.bc.mir.tc.is_integer(t) || self.dp.bc.mir.tc.is_bool(t) || self.dp.bc.mir.tc.is_string(t)
+            if not renders {
+                var msg = StringBuilder()
+                try! msg.append("a `")
+                try! msg.append(self.dp.bc.mir.tc.type_text(t))
+                try! msg.append("` argument of `")
+                try! msg.append(name)
+                try! msg.append("` is not in the backend slice yet: only integers, Bool and String render")
+                self.refuse(info.node, "mono.not-yet", msg.build())
+                return
+            }
+        }
+    }
+
+    // The extern item of declaration `d`, one per C name: two modules
+    // declaring one seam call one symbol.
+    func extern_item(&var self, origin: Int, d: Int) -> Int {
+        let name = self.dp.bc.mir.tc.res.decls[d].name
+        let at = self.by_key.first(name, MONO_KEY_EXTERN)
+        if at >= 0 {
+            return self.by_key.value(at)
+        }
+        let k = self.items.len()
+        let first = self.item_types.len()
+        try! self.items.push(MonoItem(kind: MonoItemKind.Extern, source: -1, type_decl: -1, func_decl: -1,
+                                      args_first: first, args_count: 0, inst_first: first, inst_count: 0,
+                                      self_type: -1, glue_type: -1, decl: d, body: -1, origin: origin,
+                                      origin_node: -1))
+        self.by_key.add(name, MONO_KEY_EXTERN, k)
+        k
+    }
+}

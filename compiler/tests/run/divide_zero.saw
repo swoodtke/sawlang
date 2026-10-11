@@ -1,0 +1,9 @@
+// A zero divisor panics before the division runs.
+func ratio(a: Int, b: Int) -> Int {
+    a / b
+}
+
+func main() {
+    print("{}", ratio(10, 3))
+    print("{}", ratio(10, 0))
+}

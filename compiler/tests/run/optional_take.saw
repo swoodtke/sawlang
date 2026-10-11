@@ -1,0 +1,33 @@
+// `Optional.take()` on an owning payload: the payload moves out of the slot
+// and `None` is written back over storage that no longer holds it, so
+// nothing drops twice (SL-512).
+struct Noisy {
+    id: Int
+}
+
+extension Noisy: NoCopy {
+    func deinit(&var self) {
+        print("drop {}", self.id)
+    }
+}
+
+func main() {
+    let base = "abcdefgh"
+    var slot: String? = base.substring(1, 5)
+    if let s = slot.take() {
+        print("took {}", s)
+    }
+    if slot.is_none() {
+        print("now empty")
+    }
+    if let t = slot.take() {
+        print("never {}", t)
+    }
+    slot = base.substring(2, 6)
+    print("refilled {}", slot!)
+    var held: Noisy? = Noisy(id: 4)
+    if let n = held.take() {
+        print("took noisy {}", n.id)
+    }
+    print("end")
+}

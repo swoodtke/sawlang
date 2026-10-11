@@ -1,0 +1,169 @@
+// The whole program as one `.ll`: a header naming the target and the link
+// it needs, then the constants, the declarations, every item's function in
+// item order, the C entry point and the compiler's own helpers. Nothing is
+// iterated in hash order, so the text is a function of the program alone.
+
+import sawborrowck.src.program.{BorrowckProgram}
+import sawdrops.src.program.{DropsProgram}
+import sawllvm.src.bodies.{ll_param_name}
+import sawllvm.src.prims.{LL_MESSAGE_LIMIT}
+import sawllvm.src.module.{LlEmitter, ll_emitter, ll_is_scalar, ll_symbol, ll_value_type}
+import sawmir.src.program.{MirProgram}
+import sawmono.src.dump.{mono_dump_layouts}
+import sawmono.src.program.{MonoItem, MonoItemKind, MonoProgram}
+import sawtarget.src.layout.{Target, TargetKind, TargetLayout}
+import sawtypecheck.src.program.{TcProgram}
+import sawtypecheck.src.typeops.{TcClient}
+
+// The program's `.ll`, or "" when the backend refused something, which the
+// refusals in `mono.diags` say. `speed` is the optimisation flag the link
+// manifest carries to clang; `module_triple`, when not empty, is the triple
+// the module names, the spelling the clang that links it compiles for.
+public func llvm_emit_program(mono: &var MonoProgram, target: &var Target, speed: String,
+                              module_triple: String) -> String {
+    var e = ll_emitter()
+    // The helpers copy with it whether or not any function does.
+    e.declare("llvm.memcpy.p0.p0.i64", "declare void @llvm.memcpy.p0.p0.i64(ptr, ptr, i64, i1)")
+    if mono.main_item < 0 {
+        try! mono.problems.push("the entry module declares no `main` with a body")
+        return ""
+    }
+    var k = 0
+    while k < mono.items.len() {
+        let it = mono.items[k]
+        if it.body >= 0 {
+            e.emit_function(&var mono, &var target, k)
+        }
+        k = k + 1
+    }
+    mono.current = -1
+    let entry = e.entry_point(&var mono, &var target)
+    if mono.diags.len() > 0 || mono.problems.len() > 0 {
+        return ""
+    }
+    var out = StringBuilder()
+    try! out.append("; sawc2 link manifest\n")
+    try! out.append("; target ")
+    try! out.append(target.triple)
+    try! out.append("\n; speed ")
+    try! out.append(speed)
+    try! out.append("\n; runtime hosted\n\n")
+    try! out.append("target triple = \"")
+    if module_triple.len() > 0 {
+        try! out.append(module_triple)
+    } else {
+        try! out.append(target.triple)
+    }
+    try! out.append("\"\n\n")
+    try! out.append(e.globals.build())
+    try! out.append("\n")
+    try! out.append(e.decls.build())
+    try! out.append("\n")
+    try! out.append(e.defs.build())
+    try! out.append(entry)
+    try! out.append(ll_helpers())
+    out.build()
+}
+
+extension LlEmitter {
+    // The C entry point: `main(argc, argv)` keeps both for the argument
+    // accessors the compiler emits into every program (rt/ABI.md, "Program
+    // arguments"), calls the program's `main`, and exits with its `Int`, or
+    // 0 for a `Void` main.
+    func entry_point(&var self, mono: &var MonoProgram, target: &var Target) -> String {
+        let main = mono.items[mono.main_item]
+        let f = mono.dp.bc.mir.funcs[main.body]
+        let result = mono.dp.bc.mir.locals[f.local_first].ty
+        let l = self.lay(&var mono, &var target, result)
+        var out = StringBuilder()
+        try! out.append("@__saw_argc = internal global i32 0\n")
+        try! out.append("@__saw_argv = internal global ptr null\n\n")
+        try! out.append("define i32 @__saw_rt_get_argc() \{\n  %v = load i32, ptr @__saw_argc\n  ret i32 %v\n\}\n\n")
+        try! out.append("define ptr @__saw_rt_get_argv() \{\n  %v = load ptr, ptr @__saw_argv\n  ret ptr %v\n\}\n\n")
+        try! out.append("define i32 @main(i32 %argc, ptr %argv) \{\nentry:\n")
+        try! out.append("  store i32 %argc, ptr @__saw_argc\n  store ptr %argv, ptr @__saw_argv\n")
+        let main_item = mono.main_item
+        let symbol = ll_symbol(&mono, main_item)
+        if l.kind == TargetKind.Zero {
+            try! out.append("  call void ")
+            try! out.append(symbol)
+            try! out.append("()\n  ret i32 0\n")
+        } else if l.kind == TargetKind.Int && mono.dp.bc.mir.tc.is_integer(result) {
+            try! out.append("  %status = call ")
+            try! out.append(ll_value_type(&l))
+            try! out.append(" ")
+            try! out.append(symbol)
+            try! out.append("()\n")
+            if l.bits > 32 {
+                try! out.append("  %code = trunc ")
+                try! out.append(ll_value_type(&l))
+                try! out.append(" %status to i32\n  ret i32 %code\n")
+            } else {
+                try! out.append("  ret i32 %status\n")
+            }
+        } else {
+            mono.refuse(-1, "backend.not-yet", "a `main` returning anything but Void or Int is not in the backend slice yet")
+        }
+        try! out.append("\}\n\n")
+        out.build()
+    }
+}
+
+// The compiler's own helpers (rt/ABI.md's `__saw_*` tier, never a runtime
+// seam): decimal rendering of an `i64`, signed and unsigned, and an append
+// into a panic message's stack scratch that cuts at its limit, and the end
+// that marks a cut.
+func ll_helpers() -> String {
+    var out = StringBuilder()
+    try! out.append("define internal i64 @__saw_render_uint(ptr %out, i64 %v) \{\n")
+    try! out.append("entry:\n  %tmp = alloca [24 x i8], align 1\n  br label %loop\n")
+    try! out.append("loop:\n  %n = phi i64 [ %v, %entry ], [ %q, %loop ]\n  %i = phi i64 [ 24, %entry ], [ %i1, %loop ]\n")
+    try! out.append("  %q = udiv i64 %n, 10\n  %r = urem i64 %n, 10\n  %d = trunc i64 %r to i8\n  %c = add i8 %d, 48\n")
+    try! out.append("  %i1 = sub i64 %i, 1\n  %p = getelementptr i8, ptr %tmp, i64 %i1\n  store i8 %c, ptr %p\n")
+    try! out.append("  %more = icmp ne i64 %q, 0\n  br i1 %more, label %loop, label %done\n")
+    try! out.append("done:\n  %len = sub i64 24, %i1\n  %src = getelementptr i8, ptr %tmp, i64 %i1\n")
+    try! out.append("  call void @llvm.memcpy.p0.p0.i64(ptr %out, ptr %src, i64 %len, i1 false)\n  ret i64 %len\n\}\n\n")
+    try! out.append("define internal i64 @__saw_render_int(ptr %out, i64 %v) \{\n")
+    try! out.append("entry:\n  %neg = icmp slt i64 %v, 0\n  br i1 %neg, label %minus, label %plain\n")
+    try! out.append("minus:\n  store i8 45, ptr %out\n  %mag = sub i64 0, %v\n  %rest = getelementptr i8, ptr %out, i64 1\n")
+    try! out.append("  %n = call i64 @__saw_render_uint(ptr %rest, i64 %mag)\n  %len = add i64 %n, 1\n  ret i64 %len\n")
+    try! out.append("plain:\n  %m = call i64 @__saw_render_uint(ptr %out, i64 %v)\n  ret i64 %m\n\}\n\n")
+    // A position below zero is a closed buffer, `-1 - END`: an append cut
+    // its text at END, on a UTF-8 boundary, so nothing more is written, and
+    // `__saw_finish` stamps the `…` there. The scratch holds the limit's bytes
+    // plus the marker and the line break.
+    try! out.append("define internal i64 @__saw_append(ptr %buf, i64 %pos, ptr %src, i64 %len) \{\n")
+    try! out.append("entry:\n  %closed = icmp slt i64 %pos, 0\n  br i1 %closed, label %keep, label %open\n")
+    try! out.append("keep:\n  ret i64 %pos\n")
+    try! out.append("open:\n  %room = sub i64 ")
+    try! out.append(LL_MESSAGE_LIMIT)
+    try! out.append(", %pos\n  %fits = icmp ule i64 %len, %room\n  br i1 %fits, label %whole, label %back\n")
+    try! out.append("whole:\n  %at = getelementptr i8, ptr %buf, i64 %pos\n")
+    try! out.append("  call void @llvm.memcpy.p0.p0.i64(ptr %at, ptr %src, i64 %len, i1 false)\n")
+    try! out.append("  %end = add i64 %pos, %len\n  ret i64 %end\n")
+    try! out.append("back:\n  %n = phi i64 [ %room, %open ], [ %n1, %step ]\n")
+    try! out.append("  %none = icmp eq i64 %n, 0\n  br i1 %none, label %cut, label %test\n")
+    try! out.append("test:\n  %p = getelementptr i8, ptr %src, i64 %n\n  %b = load i8, ptr %p\n")
+    try! out.append("  %hi = and i8 %b, -64\n  %inside = icmp eq i8 %hi, -128\n  br i1 %inside, label %step, label %cut\n")
+    try! out.append("step:\n  %n1 = sub i64 %n, 1\n  br label %back\n")
+    try! out.append("cut:\n  %at2 = getelementptr i8, ptr %buf, i64 %pos\n")
+    try! out.append("  call void @llvm.memcpy.p0.p0.i64(ptr %at2, ptr %src, i64 %n, i1 false)\n")
+    try! out.append("  %stop = add i64 %pos, %n\n  %shut = sub i64 -1, %stop\n  ret i64 %shut\n\}\n\n")
+    try! out.append("define internal i64 @__saw_finish(ptr %buf, i64 %pos) \{\n")
+    try! out.append("entry:\n  %cut = icmp slt i64 %pos, 0\n  br i1 %cut, label %mark, label %line\n")
+    try! out.append("mark:\n  %stop = sub i64 -1, %pos\n  %m0 = getelementptr i8, ptr %buf, i64 %stop\n")
+    try! out.append("  store i8 -30, ptr %m0\n  %m1 = getelementptr i8, ptr %m0, i64 1\n  store i8 -128, ptr %m1\n")
+    try! out.append("  %m2 = getelementptr i8, ptr %m0, i64 2\n  store i8 -90, ptr %m2\n  %marked = add i64 %stop, 3\n")
+    try! out.append("  br label %line\n")
+    try! out.append("line:\n  %end = phi i64 [ %marked, %mark ], [ %pos, %entry ]\n")
+    try! out.append("  %nl = getelementptr i8, ptr %buf, i64 %end\n  store i8 10, ptr %nl\n")
+    try! out.append("  %total = add i64 %end, 1\n  ret i64 %total\n\}\n\n")
+    try! out.append("define internal i64 @__saw_append_int(ptr %buf, i64 %pos, i64 %v) \{\n")
+    try! out.append("entry:\n  %tmp = alloca [24 x i8], align 1\n  %n = call i64 @__saw_render_int(ptr %tmp, i64 %v)\n")
+    try! out.append("  %end = call i64 @__saw_append(ptr %buf, i64 %pos, ptr %tmp, i64 %n)\n  ret i64 %end\n\}\n\n")
+    try! out.append("define internal i64 @__saw_append_uint(ptr %buf, i64 %pos, i64 %v) \{\n")
+    try! out.append("entry:\n  %tmp = alloca [24 x i8], align 1\n  %n = call i64 @__saw_render_uint(ptr %tmp, i64 %v)\n")
+    // The last line has no line break of its own: print supplies it.
+    try! out.append("  %end = call i64 @__saw_append(ptr %buf, i64 %pos, ptr %tmp, i64 %n)\n  ret i64 %end\n\}")
+    out.build()
+}

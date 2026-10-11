@@ -1,0 +1,182 @@
+// The LLVM backend's program (SL:architecture §3.10): one textual `.ll` for
+// the whole program, written from mono's items in item order, every layout
+// fact asked of the target description. The backend translates; every
+// decision it consumes (which body a call reaches, which glue a drop runs,
+// how a type is laid out) is already in the concrete MIR, in mono's side
+// tables, or in the target.
+
+import sawllvm.src.text.{ll_c_string, ll_quoted}
+import sawmir.src.model.{MirDiag}
+import sawmono.src.dump.{mono_dump_layouts}
+import sawmono.src.program.{MonoItem, MonoItemKind, MonoProgram}
+import sawtarget.src.layout.{Target, TargetKind, TargetLayout}
+
+// The output being assembled, and the state of the function being written.
+public struct LlEmitter {
+    // Constants and statics, extern and intrinsic declarations, and function
+    // definitions, each in first-use or item order.
+    public globals: StringBuilder
+    public decls: StringBuilder
+    public defs: StringBuilder
+    declared: Vector<String>
+    // The byte constants made so far, by their `c"..."` text, and whether
+    // each is a String literal block.
+    pool_texts: Vector<String>
+    pool_blocks: Vector<Bool>
+    // The statics given a global.
+    statics: Vector<Int>
+    // The function being written: its MIR function, its blocks' text and
+    // entry allocas, the counters its SSA names and labels take, whether it
+    // returns through `sret`, and whether the backend refused it. Refusals
+    // go to mono's diagnostics, the program's one list.
+    current: Int
+    body: StringBuilder
+    allocas: StringBuilder
+    temps: Int
+    labels: Int
+    sret: Bool
+    refused: Bool
+}
+
+extension LlEmitter: NoCopy {}
+
+public func ll_emitter() -> LlEmitter {
+    LlEmitter(globals: StringBuilder(), decls: StringBuilder(), defs: StringBuilder(), declared: Vector<String>(),
+              pool_texts: Vector<String>(), pool_blocks: Vector<Bool>(), statics: Vector<Int>(), current: -1,
+              body: StringBuilder(), allocas: StringBuilder(), temps: 0, labels: 0, sret: false, refused: false)
+}
+
+// Every rule the backend refuses by.
+public func ll_rules() -> Vector<String> {
+    var out = Vector<String>()
+    try! out.push("backend.not-yet")
+    move out
+}
+
+// Layout `l` as an LLVM value type: an integer of its width, `double`, `ptr`;
+// memory and zero-sized types have none, and are `[N x i8]` in storage.
+public func ll_value_type(l: &TargetLayout) -> String {
+    var out = StringBuilder()
+    match l.kind {
+        case Int -> {
+            try! out.append("i")
+            try! out.append(l.bits)
+        },
+        case Float -> try! out.append("double"),
+        case Pointer -> try! out.append("ptr"),
+        case _ -> {
+            try! out.append("[")
+            try! out.append(l.size)
+            try! out.append(" x i8]")
+        }
+    }
+    out.build()
+}
+
+// Whether a value of layout `l` travels as an SSA value.
+public func ll_is_scalar(l: &TargetLayout) -> Bool {
+    l.kind == TargetKind.Int || l.kind == TargetKind.Float || l.kind == TargetKind.Pointer
+}
+
+// The symbol of item `k`: its dump name, quoted. Names are derived from what
+// the item is, so they never depend on discovery order.
+public func ll_symbol(mono: &MonoProgram, k: Int) -> String {
+    var out = StringBuilder()
+    try! out.append("@\"saw ")
+    try! out.append(ll_quoted(mono.item_name(k)))
+    try! out.append("\"")
+    out.build()
+}
+
+extension LlEmitter {
+    // Declares `line` once, by its symbol `name`.
+    public func declare(&var self, name: String, line: String) {
+        var k = 0
+        while k < self.declared.len() {
+            let one = self.declared.get(k) ?? ""
+            if one.equals(name) {
+                return
+            }
+            k = k + 1
+        }
+        try! self.declared.push(name)
+        try! self.decls.append(line)
+        try! self.decls.append("\n")
+    }
+
+    // The global holding bytes `bytes`, made once per distinct run: a plain
+    // constant, or (`block` true) a String literal's static block, the
+    // String layer's literal layout of an immortal refcount, the length, the
+    // bytes and a NUL (std/string.saw), whose bytes start `header` bytes in.
+    public func pooled(&var self, bytes: &Vector<Int>, block: Bool, header: Int) -> String {
+        let text = ll_c_string(&bytes)
+        var k = 0
+        while k < self.pool_texts.len() {
+            let one = self.pool_texts.get(k) ?? ""
+            if self.pool_blocks[k] == block && one.equals(text) {
+                return ll_pool_name(k)
+            }
+            k = k + 1
+        }
+        let at = self.pool_texts.len()
+        try! self.pool_texts.push(text)
+        try! self.pool_blocks.push(block)
+        var line = StringBuilder()
+        try! line.append(ll_pool_name(at))
+        if block {
+            var with_nul = Vector<Int>()
+            var j = 0
+            while j < bytes.len() {
+                try! with_nul.push(bytes[j])
+                j = j + 1
+            }
+            try! with_nul.push(0)
+            let word = header / 2
+            try! line.append(" = private unnamed_addr constant \{ i")
+            try! line.append(word * 8)
+            try! line.append(", i")
+            try! line.append(word * 8)
+            try! line.append(", [")
+            try! line.append(with_nul.len())
+            try! line.append(" x i8] \} \{ i")
+            try! line.append(word * 8)
+            try! line.append(" -1, i")
+            try! line.append(word * 8)
+            try! line.append(" ")
+            try! line.append(bytes.len())
+            try! line.append(", [")
+            try! line.append(with_nul.len())
+            try! line.append(" x i8] ")
+            try! line.append(ll_c_string(&with_nul))
+            try! line.append(" \}, align 16")
+        } else {
+            try! line.append(" = private unnamed_addr constant [")
+            try! line.append(bytes.len())
+            try! line.append(" x i8] ")
+            try! line.append(text)
+        }
+        try! self.globals.append(line.build())
+        try! self.globals.append("\n")
+        ll_pool_name(at)
+    }
+
+    // Whether static `d` has its global yet; records it when not.
+    public func static_seen(&var self, d: Int) -> Bool {
+        var k = 0
+        while k < self.statics.len() {
+            if self.statics[k] == d {
+                return true
+            }
+            k = k + 1
+        }
+        try! self.statics.push(d)
+        false
+    }
+}
+
+func ll_pool_name(k: Int) -> String {
+    var out = StringBuilder()
+    try! out.append("@.bytes.")
+    try! out.append(k)
+    out.build()
+}

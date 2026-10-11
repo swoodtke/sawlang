@@ -1,0 +1,9 @@
+// `panic` with a formatted message naming an integer, a Bool and a String.
+func fail(code: Int, why: String) -> Never {
+    panic("failed with {} ({}): {}", code, code > 2, why)
+}
+
+func main() {
+    print("about to fail")
+    fail(7, "the reason")
+}

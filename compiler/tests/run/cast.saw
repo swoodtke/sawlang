@@ -1,0 +1,14 @@
+// Integer conversions: lossless widening, `from(truncating:)`, the partial
+// `from`, and a checked `as` that fails naming its value (design 170).
+func main() {
+    let small: Int8 = -3
+    let wide: Int = small
+    print("widened {}", wide)
+    let n = 300
+    print("truncated {}", UInt8.from(truncating: n))
+    print("fits {} {}", UInt8.from(200) ?? 0, UInt8.from(n) ?? 0)
+    let ok = 100 as UInt8
+    print("cast {}", ok)
+    let bad = n as UInt8
+    print("never {}", bad)
+}

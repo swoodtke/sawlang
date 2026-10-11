@@ -1,0 +1,15 @@
+// Module statics folded at compile time and read at run time.
+static PAGE_SHIFT: Int = 12
+static PAGE_SIZE: Int = 1 << PAGE_SHIFT
+static MASK: Int = PAGE_SIZE - 1
+static ENABLED: Bool = true
+
+func pages(bytes: Int) -> Int {
+    (bytes + MASK) >> PAGE_SHIFT
+}
+
+func main() {
+    print("page {} mask {}", PAGE_SIZE, MASK)
+    print("pages {} {} {}", pages(1), pages(4096), pages(4097))
+    print("enabled {}", ENABLED)
+}

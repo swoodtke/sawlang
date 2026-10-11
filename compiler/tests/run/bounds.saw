@@ -1,0 +1,9 @@
+// differs: the panic is raised inside std, and each compiler's std is its own file
+// An index past a Vector's end panics in the accessor.
+func main() {
+    var v = Vector<Int>()
+    try! v.push(1)
+    try! v.push(2)
+    print("in range {}", v[1])
+    print("never {}", v[5])
+}

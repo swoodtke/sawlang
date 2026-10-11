@@ -1,0 +1,10 @@
+// refuses: mono.not-yet at 8:13
+// A refusal met inside std is reported at the program's own call that
+// reached it, the std position named in its message: `Vector.copy()` renders
+// an `AllocError` in a panic, which the slice does not.
+func main() {
+    var v = Vector<Int>()
+    try! v.push(1)
+    let w = v.copy()
+    print("{} {}", v.len(), w.len())
+}

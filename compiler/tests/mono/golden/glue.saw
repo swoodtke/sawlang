@@ -1,0 +1,12 @@
+// A generic body's silent copy lands on String at one instantiation and on
+// Int at another: the first runs String's copy glue, the second copies the
+// bits. A tuple of Strings gets drop glue that drops both elements.
+func dup<T: Copy>(x: T) -> (T, T) {
+    (x, x)
+}
+
+func main() {
+    let words = dup("echo")
+    let numbers = dup(5)
+    print("{} {} {} {}", words.0, words.1, numbers.0, numbers.1)
+}

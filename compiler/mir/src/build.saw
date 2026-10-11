@@ -188,6 +188,41 @@ extension MirProgram {
         false
     }
 
+    // The position, among place `p`'s projections, of the last one that
+    // reaches a raw pointer's pointee (an index into a pointer, or `*p`), or
+    // -1 when none does. Such a place tracks no occupancy (spec, Placement
+    // writes), so no lowering may drop what it holds.
+    public func pointer_step(&self, p: Int) -> Int {
+        if p < 0 || p >= self.places.len() {
+            return -1
+        }
+        let place = self.places[p]
+        var before = -1
+        if place.local >= 0 {
+            before = self.local_type(place.local)
+        } else {
+            before = self.tc.sigs[place.static_decl].result
+        }
+        var found = -1
+        var k = 0
+        while k < place.count {
+            let step = self.projs[place.first + k]
+            let through = step.kind == MirProjKind.Index || step.kind == MirProjKind.Deref
+            if through && before >= 0 && self.raw_pointer(before) {
+                found = k
+            }
+            before = step.ty
+            k = k + 1
+        }
+        found
+    }
+
+    // Whether `t` is `UnsafePointer<T>` or `UnsafeConstPointer<T>`.
+    public func raw_pointer(&self, t: Int) -> Bool {
+        let d = self.tc.nominal_decl(t)
+        d >= 0 && (d == self.tc.known.unsafe_pointer || d == self.tc.known.unsafe_const_pointer)
+    }
+
     // Registers local `l` with the innermost scope, whose exits drop it,
     // when its type owns something.
     public func scope_owned(&var self, l: Int) {

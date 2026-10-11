@@ -1,0 +1,41 @@
+// Locals of the shapes the target lays out: every integer width, Bool, an
+// Optional of a scalar, of a struct and of an enum, a Result of each payload
+// alignment, a tuple, a payload-free enum and one with payloads, a struct
+// mixing alignments, and a Vector.
+struct Mixed {
+    a: Int8
+    b: Int
+    c: Bool
+}
+
+enum Color {
+    case Red,
+    case Green
+}
+
+enum Shape {
+    case Circle(r: Int),
+    case Rect(w: Int, h: Int),
+    case Empty
+}
+
+func main() {
+    let i8: Int8 = 1
+    let u16: UInt16 = 2
+    let i32: Int32 = 3
+    let u64: UInt64 = 4
+    let maybe_int: Int? = 5
+    let maybe_bool: Bool? = true
+    let mixed = Mixed(a: 1, b: 2, c: true)
+    let maybe_mixed: Mixed? = Mixed(a: 3, b: 4, c: false)
+    let color = Color.Green
+    let maybe_color: Color? = Color.Red
+    let shape = Shape.Rect(w: 1, h: 2)
+    let maybe_shape: Shape? = Shape.Empty
+    let wide = Result<Int, Int>.Ok(value: 6)
+    let narrow: Result<Int32, Int8> = Result<Int32, Int8>.Err(error: 7)
+    let pair = (8, true)
+    var v = Vector<Int>()
+    try! v.push(9)
+    print("{} {} {} {} {}", i8, u16, i32, u64, pair.0)
+}

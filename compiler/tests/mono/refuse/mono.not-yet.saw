@@ -1,0 +1,9 @@
+// refuses: mono.not-yet at 8:21
+// A closure capturing a value that owns something would need its environment
+// released when the closure value drops, which this slice does not make.
+func run(f: () -> Int) -> Int { f() }
+
+func main() {
+    let s = "owned"
+    print("{}", run({ [copy s] in s.len() }))
+}

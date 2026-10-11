@@ -1,0 +1,242 @@
+// Monomorphization's dump (compiler/tests/mono/README.md): each item in item
+// order, its identity, then its concrete function as the MIR dump prints a
+// body, each call terminator followed by the item it reaches; and the layout
+// table of every concrete type the items reach.
+
+import sawborrowck.src.program.{BorrowckProgram}
+import sawdrops.src.program.{DropsProgram}
+import sawmir.src.dump.{mir_module_functions}
+import sawmir.src.model.{MirBlock, MirLocal, MirLocalKind, MirStmt, MirTermKind}
+import sawmir.src.program.{MirProgram}
+import sawmono.src.program.{MonoItem, MonoItemKind, MonoProgram}
+import sawresolve.src.dump.{res_sort_strings}
+import sawresolve.src.program.{ResProgram}
+import sawtypecheck.src.program.{TcProgram}
+import sawtarget.src.layout.{Target}
+import sawtypecheck.src.bodydump.{tc_dump_bodies}
+import sawtypecheck.src.spell.{tc_effects_text}
+
+extension MonoProgram {
+    // Every item's dump, in item order.
+    public func dump_items(&self, out: &var StringBuilder) {
+        var k = 0
+        while k < self.items.len() {
+            if k > 0 {
+                try! out.append("\n")
+            }
+            self.dump_item(&var out, k)
+            k = k + 1
+        }
+    }
+
+    // How the dump names item `k`: its source function, or its glue's type,
+    // or its extern's name, then its concrete arguments.
+    public func item_name(&self, k: Int) -> String {
+        let it = self.items[k]
+        var out = StringBuilder()
+        match it.kind {
+            case Function -> {
+                try! out.append(self.dp.bc.mir.func_name(it.source))
+                self.append_run(&var out, " args", it.args_first, it.args_count)
+                self.append_run(&var out, " inst", it.inst_first, it.inst_count)
+                if it.self_type >= 0 {
+                    try! out.append(" self ")
+                    try! out.append(self.dp.bc.mir.tc.type_text(it.self_type))
+                }
+            },
+            case DropGlue -> {
+                try! out.append("drop glue ")
+                try! out.append(self.dp.bc.mir.tc.type_text(it.glue_type))
+            },
+            case CopyGlue -> {
+                try! out.append("copy glue ")
+                try! out.append(self.dp.bc.mir.tc.type_text(it.glue_type))
+            },
+            case Extern -> {
+                try! out.append("extern ")
+                let name = self.dp.bc.mir.tc.res.decls[it.decl].name
+                try! out.append(self.dp.bc.mir.tc.res.name_text(name))
+            }
+        }
+        out.build()
+    }
+
+    func append_run(&self, out: &var StringBuilder, word: String, first: Int, count: Int) {
+        if count == 0 {
+            return
+        }
+        try! out.append(word)
+        var j = 0
+        while j < count {
+            try! out.append(" ")
+            let t = self.item_types[first + j]
+            try! out.append(self.dp.bc.mir.tc.type_text(t))
+            j = j + 1
+        }
+    }
+
+    func dump_item(&self, out: &var StringBuilder, k: Int) {
+        let it = self.items[k]
+        try! out.append("item #")
+        try! out.append(k)
+        try! out.append(": ")
+        try! out.append(self.item_name(k))
+        if it.origin >= 0 {
+            try! out.append("  (from #")
+            try! out.append(it.origin)
+            try! out.append(")")
+        }
+        try! out.append("\n")
+        if it.body < 0 {
+            return
+        }
+        let info = self.dp.bc.mir.funcs[it.body]
+        try! out.append("fn -> ")
+        let result = self.dp.bc.mir.locals[info.local_first].ty
+        self.dp.bc.mir.append_type(&var out, result)
+        try! out.append(" \{\n")
+        var j = 0
+        while j < info.local_count {
+            let l = self.dp.bc.mir.locals[info.local_first + j]
+            try! out.append("    let _")
+            try! out.append(j)
+            try! out.append(": ")
+            self.dp.bc.mir.append_type(&var out, l.ty)
+            try! out.append(";")
+            self.append_note(&var out, &l)
+            try! out.append("\n")
+            j = j + 1
+        }
+        j = 0
+        while j < info.block_count {
+            try! out.append("\n    bb")
+            try! out.append(j)
+            try! out.append(": \{\n")
+            let b = self.dp.bc.mir.blocks[info.block_first + j]
+            var s = b.first
+            while s >= 0 {
+                let stmt = self.dp.bc.mir.stmts[s]
+                try! out.append("        ")
+                self.dp.bc.mir.append_stmt(&var out, info.local_first, &stmt)
+                try! out.append("\n")
+                s = stmt.next
+            }
+            try! out.append("        ")
+            self.dp.bc.mir.append_term(&var out, info.local_first, &b)
+            if b.term == MirTermKind.Call {
+                let target = self.call_item(b.call)
+                if target >= 0 {
+                    try! out.append(" => #")
+                    try! out.append(target)
+                }
+            }
+            try! out.append("\n    \}\n")
+            j = j + 1
+        }
+        try! out.append("\}\n")
+    }
+
+    func append_note(&self, out: &var StringBuilder, l: &MirLocal) {
+        match l.kind {
+            case Return -> try! out.append("  // return"),
+            case Receiver -> try! out.append("  // self"),
+            case Env -> try! out.append("  // env"),
+            case Record -> try! out.append("  // record"),
+            case Temp -> {},
+            case Param -> {
+                if l.name >= 0 {
+                    try! out.append("  // param ")
+                    try! out.append(self.dp.bc.mir.tc.name_text(l.name))
+                } else {
+                    try! out.append("  // param")
+                }
+            },
+            case User -> {
+                if l.reference {
+                    try! out.append("  // ref ")
+                } else {
+                    try! out.append("  // ")
+                }
+                try! out.append(self.dp.bc.mir.tc.name_text(l.name))
+            },
+            case Flag -> {
+                try! out.append("  // flag ")
+                try! out.append(self.dp.bc.mir.tc.name_text(l.name))
+            }
+        }
+    }
+
+    // Every concrete type a local of an item's function has, each once,
+    // sorted by spelling: the types whose layouts a backend asks for.
+    public func reached_types(&self) -> Vector<Int> {
+        var seen = Vector<Int>()
+        var k = 0
+        while k < self.items.len() {
+            let it = self.items[k]
+            k = k + 1
+            if it.body < 0 {
+                continue
+            }
+            let info = self.dp.bc.mir.funcs[it.body]
+            var j = 0
+            while j < info.local_count {
+                let t = self.dp.bc.mir.locals[info.local_first + j].ty
+                var known = false
+                var i = 0
+                while i < seen.len() {
+                    if seen[i] == t {
+                        known = true
+                    }
+                    i = i + 1
+                }
+                if not known && t >= 0 {
+                    try! seen.push(t)
+                }
+                j = j + 1
+            }
+        }
+        var texts = Vector<String>()
+        var sorted = Vector<String>()
+        k = 0
+        while k < seen.len() {
+            let t = seen[k]
+            try! texts.push(self.dp.bc.mir.tc.type_text(t))
+            try! sorted.push(self.dp.bc.mir.tc.type_text(t))
+            k = k + 1
+        }
+        res_sort_strings(&var sorted)
+        var out = Vector<Int>()
+        var taken = Vector<Bool>()
+        k = 0
+        while k < seen.len() {
+            try! taken.push(false)
+            k = k + 1
+        }
+        k = 0
+        while k < sorted.len() {
+            let want = sorted.get(k) ?? ""
+            var i = 0
+            while i < seen.len() {
+                let text = texts.get(i) ?? ""
+                if not taken[i] && text.equals(want) {
+                    try! out.push(seen[i])
+                    taken[i] = true
+                }
+                i = i + 1
+            }
+            k = k + 1
+        }
+        move out
+    }
+}
+
+// The layout table: one line per reached type, as the target describes it.
+public func mono_dump_layouts(p: &var MonoProgram, target: &var Target, out: &var StringBuilder) {
+    let types = p.reached_types()
+    var k = 0
+    while k < types.len() {
+        try! out.append(target.dump_layout(&var p.dp.bc.mir.tc, types[k]))
+        try! out.append("\n")
+        k = k + 1
+    }
+}

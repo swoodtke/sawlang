@@ -1,6 +1,6 @@
 # The cone of compiler/driver/src/main.saw against the new std (std): every std declaration its
 # functions reach, read off sawc2's typecheck dump by compiler/tools/std_cone.py.
-# 109 declarations in 14 modules
+# 110 declarations in 14 modules
 
 std.alloc: 8
   extern __saw_rt_alloc
@@ -76,13 +76,14 @@ std.scalar: 6
   method Scalar.value
   struct Scalar
 
-std.string: 20
+std.string: 21
   extern __saw_rt_alloc
   extern __saw_rt_dealloc
   func digit_value
   func string_bytes
   func string_equals
   func string_from_bytes
+  func string_length
   func string_literal
   method String.byte_at
   method String.copy

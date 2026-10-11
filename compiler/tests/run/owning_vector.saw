@@ -1,0 +1,44 @@
+// A Vector of owning elements: a push places the element in a slot nothing
+// occupies, so it drops nothing, and a set drops the element it replaces
+// exactly once (SL-512). The Strings are computed, so each owns a buffer.
+struct Noisy {
+    id: Int
+}
+
+extension Noisy: NoCopy {
+    func deinit(&var self) {
+        print("drop {}", self.id)
+    }
+}
+
+func strings() {
+    let base = "abcdefghijklmnop"
+    var v = Vector<String>()
+    var i = 0
+    while i < 20 {
+        try! v.push(base.substring(i % 8, i % 8 + 3))
+        i = i + 1
+    }
+    v.set(1, base.substring(0, 1))
+    v.set(19, base.substring(10, 16))
+    print("{} {} {} {}", v[0], v[1], v[19], v.len())
+}
+
+func noisy() {
+    var v = Vector<Noisy>()
+    try! v.push(Noisy(id: 1))
+    try! v.push(Noisy(id: 2))
+    try! v.push(Noisy(id: 3))
+    print("pushed {}", v.len())
+    v.set(1, Noisy(id: 20))
+    print("set {}", v.len())
+    if let last = v.pop() {
+        print("popped {}", last.id)
+    }
+    print("end of noisy")
+}
+
+func main() {
+    strings()
+    noisy()
+}

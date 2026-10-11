@@ -187,6 +187,16 @@ extension TcProgram {
                 } else {
                     try! out.append(self.res.decl_identity(d))
                 }
+                // A String's bytes are written out with its length beside them.
+                if pos == TcStringPosition.Argument {
+                    let length = self.res.lang_item(ResLang.StringLengthFunction)
+                    try! out.append(" ")
+                    if length < 0 {
+                        try! out.append("(unbound string_length)")
+                    } else {
+                        try! out.append(self.res.decl_identity(length))
+                    }
+                }
                 try! out.append(")")
             }
             e = e + 1

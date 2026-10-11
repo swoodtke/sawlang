@@ -52,7 +52,10 @@ public enum ResLang {
     case StringCompareFunction,
     // The builder an interpolation builds through, and the scratch a
     // message's format arguments render into.
-    case StringBuilderStruct
+    case StringBuilderStruct,
+    // How many bytes a String holds, read beside its bytes wherever they
+    // are written out.
+    case StringLengthFunction
 }
 
 // One role's row: its index in the table, the name its declaration carries
@@ -98,6 +101,7 @@ public func res_lang_roles() -> Vector<ResLang> {
     try! out.push(ResLang.StringEqualsFunction)
     try! out.push(ResLang.StringCompareFunction)
     try! out.push(ResLang.StringBuilderStruct)
+    try! out.push(ResLang.StringLengthFunction)
     move out
 }
 
@@ -146,7 +150,8 @@ public func res_lang_row(role: ResLang) -> ResLangRow {
         case StringBuilderStruct -> ResLangRow(index: 27, name: "StringBuilder",
                                                home: "std.stringbuilder",
                                                builtin_home: "std.stringbuilder",
-                                               builtin_name: "StringBuilder")
+                                               builtin_name: "StringBuilder"),
+        case StringLengthFunction -> res_lang_string_function(28, "string_length")
     }
 }
 
@@ -161,6 +166,8 @@ extension ResProgram {
     //     dump_lang_items
     //     prints_bare
     //     string_position
+    //     dump_string_positions
+    //     add_roots
     public func lang_item(&self, role: ResLang) -> Int {
         let row = res_lang_row(role)
         self.lang[row.index]

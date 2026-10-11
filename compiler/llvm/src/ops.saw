@@ -1,0 +1,710 @@
+// Rvalues: each written into its place's address. An operator's semantics
+// are its spelling's and its operand type's, resolved once in MIR: `+`, `-`
+// and `*` are checked by the operand's signedness and `&+`, `&-`, `&*` wrap;
+// `/` and `%` check a zero divisor and the signed `MIN / -1`; a shift checks
+// its count against the width; an `as` between integers that can lose the
+// value checks that it fits (design 170). Each check panics with Stage 0's
+// wording at the statement's `FILE:LINE`.
+
+import sawborrowck.src.program.{BorrowckProgram}
+import sawdrops.src.program.{DropsProgram}
+import sawllvm.src.prims.{LL_MESSAGE_LIMIT}
+import sawllvm.src.module.{LlEmitter, ll_is_scalar, ll_symbol, ll_value_type}
+import sawllvm.src.places.{ll_local_slot}
+import sawllvm.src.text.{ll_fit_signed, ll_integer_value}
+import sawmir.src.model.{MirAggregate, MirConstKind, MirOperandKind, MirRvalue, MirRvalueKind}
+import sawmir.src.program.{MirProgram}
+import sawmono.src.program.{MonoProgram}
+import sawresolve.src.program.{ResProgram}
+import sawtarget.src.layout.{Target, TargetCase, TargetKind, TargetLayout}
+import sawtypecheck.src.program.{TcProgram}
+import sawtypecheck.src.spell.{tc_effects_text}
+import sawtypecheck.src.typeops.{TcClient}
+import sawtypecheck.src.types.{TcKind}
+
+extension LlEmitter {
+    // Rvalue `r` written into `dest`.
+    public func rvalue_into(&var self, mono: &var MonoProgram, target: &var Target, r: Int, dest: String, node: Int) {
+        let rv = mono.dp.bc.mir.rvalues[r]
+        match rv.kind {
+            case Use -> {
+                let o = mono.dp.bc.mir.lists[rv.first]
+                self.operand_into(&var mono, &var target, o, dest, rv.ty, node)
+            },
+            case Ref -> {
+                let addr = self.place_addr(&var mono, &var target, rv.place, node)
+                self.store("ptr", addr, dest)
+            },
+            case Binary -> self.binary_into(&var mono, &var target, &rv, dest, node),
+            case Unary -> self.unary_into(&var mono, &var target, &rv, dest, node),
+            case Cast -> self.convert_into(&var mono, &var target, &rv, dest, node, "cast"),
+            case Widen -> self.convert_into(&var mono, &var target, &rv, dest, node, "widen"),
+            case Adopt -> self.convert_into(&var mono, &var target, &rv, dest, node, "adopt"),
+            case Conversion -> {
+                let word = mono.dp.bc.mir.tc.name_text(rv.op)
+                self.convert_into(&var mono, &var target, &rv, dest, node, word)
+            },
+            case Aggregate -> self.aggregate_into(&var mono, &var target, r, dest, node),
+            case Interpolate -> self.refuse_here(&var mono, node, "an interpolation is not in the backend slice yet: no stage lowers it to the builder's calls"),
+            case Erase -> self.refuse_here(&var mono, node, "an erasure into `any` is not in the backend slice yet"),
+            case Slice -> self.refuse_here(&var mono, node, "a slice is not in the backend slice yet"),
+            case Take -> self.refuse_here(&var mono, node, "a `[move]` capture's take is not in the backend slice yet")
+        }
+    }
+
+    func aggregate_into(&var self, mono: &var MonoProgram, target: &var Target, r: Int, dest: String, node: Int) {
+        let rv = mono.dp.bc.mir.rvalues[r]
+        match rv.aggregate {
+            case Struct -> self.members_into(&var mono, &var target, &rv, dest, node),
+            case Tuple -> self.members_into(&var mono, &var target, &rv, dest, node),
+            case Case -> {
+                let l = self.lay_at(&var mono, &var target, rv.ty, node)
+                let c = target.case_of(&var mono.dp.bc.mir.tc, rv.ty, rv.decl)
+                var tag = StringBuilder()
+                try! tag.append(c.tag)
+                if l.tag_bytes == 1 {
+                    self.store("i8", tag.build(), dest)
+                } else {
+                    self.store("i32", tag.build(), dest)
+                }
+                var k = 0
+                while k < rv.count {
+                    let o = mono.dp.bc.mir.lists[rv.first + k]
+                    let t = mono.dp.bc.mir.operands[o].ty
+                    let off = target.payload_offset(&var mono.dp.bc.mir.tc, rv.ty, rv.decl, k)
+                    let at = self.offset_addr(dest, off)
+                    self.operand_into(&var mono, &var target, o, at, t, node)
+                    k = k + 1
+                }
+            },
+            case Closure -> self.closure_into(&var mono, &var target, r, dest, node),
+            case _ -> self.refuse_here(&var mono, node, "an array, a repeat or a collection literal is not in the backend slice yet")
+        }
+    }
+
+    // A struct's fields or a tuple's elements, each at its member offset.
+    func members_into(&var self, mono: &var MonoProgram, target: &var Target, rv: &MirRvalue, dest: String,
+                      node: Int) {
+        var k = 0
+        while k < rv.count {
+            let o = mono.dp.bc.mir.lists[rv.first + k]
+            let t = mono.dp.bc.mir.operands[o].ty
+            let off = target.member_offset(&var mono.dp.bc.mir.tc, rv.ty, k)
+            let at = self.offset_addr(dest, off)
+            self.operand_into(&var mono, &var target, o, at, t, node)
+            k = k + 1
+        }
+    }
+
+    // A non-escaping closure: its captures in an environment slot of this
+    // frame, then the value, the body's code beside the environment.
+    func closure_into(&var self, mono: &var MonoProgram, target: &var Target, r: Int, dest: String, node: Int) {
+        let rv = mono.dp.bc.mir.rvalues[r]
+        let item = mono.closure_item(r)
+        if item < 0 {
+            self.refuse_here(&var mono, node, "a closure whose body mono did not reach")
+            return
+        }
+        let body = mono.items[item].body
+        let env_local = mono.dp.bc.mir.funcs[body].local_first + 1
+        let env_ref = mono.dp.bc.mir.locals[env_local].ty
+        let env_type = mono.dp.bc.mir.tc.referent(env_ref)
+        let env_layout = self.lay_at(&var mono, &var target, env_type, node)
+        let env = self.slot(env_layout.size, env_layout.align)
+        var k = 0
+        while k < rv.count {
+            let o = mono.dp.bc.mir.lists[rv.first + k]
+            let t = mono.dp.bc.mir.operands[o].ty
+            let off = target.member_offset(&var mono.dp.bc.mir.tc, env_type, k)
+            let at = self.offset_addr(env, off)
+            self.operand_into(&var mono, &var target, o, at, t, node)
+            k = k + 1
+        }
+        self.store("ptr", ll_symbol(&mono, item), dest)
+        let env_at = self.offset_addr(dest, target.closure_env_offset())
+        self.store("ptr", env, env_at)
+    }
+
+    // Whether integer type `t` is signed; `Bool` and pointers compare
+    // unsigned.
+    func signed_type(&self, mono: &MonoProgram, t: Int) -> Bool {
+        mono.dp.bc.mir.tc.is_integer(t) && not mono.dp.bc.mir.tc.is_unsigned(t)
+    }
+
+    func binary_into(&var self, mono: &var MonoProgram, target: &var Target, rv: &MirRvalue, dest: String,
+                     node: Int) {
+        let op = mono.dp.bc.mir.tc.name_text(rv.op)
+        let a = mono.dp.bc.mir.lists[rv.first]
+        let b = mono.dp.bc.mir.lists[rv.first + 1]
+        if op.equals("..") || op.equals("..=") {
+            let inclusive = op.equals("..=")
+            self.range_into(&var mono, &var target, &rv, dest, node, inclusive)
+            return
+        }
+        if mono.string_operand(a) || mono.string_operand(b) {
+            self.string_comparison(&var mono, &var target, op, a, b, dest, node)
+            return
+        }
+        let left_type = mono.dp.bc.mir.operands[a].ty
+        let right_type = mono.dp.bc.mir.operands[b].ty
+        let l = self.lay_at(&var mono, &var target, left_type, node)
+        if l.kind != TargetKind.Int && l.kind != TargetKind.Pointer {
+            self.refuse_here(&var mono, node, "an operator on this type is not in the backend slice yet")
+            return
+        }
+        // A pointer-sized operand is compared by address only when both are
+        // raw pointers: a reference's address is not its referent's value.
+        if l.kind == TargetKind.Pointer {
+            let raw = ll_raw_pointer(&mono.dp.bc.mir.tc, left_type) && ll_raw_pointer(&mono.dp.bc.mir.tc, right_type)
+            if not raw || ll_compare_predicate(op, false).len() == 0 {
+                var msg = StringBuilder()
+                try! msg.append("the operator `")
+                try! msg.append(op)
+                try! msg.append("` on `")
+                try! msg.append(mono.dp.bc.mir.tc.type_text(left_type))
+                try! msg.append("` is not in the backend slice yet")
+                self.refuse_here(&var mono, node, msg.build())
+                return
+            }
+        }
+        let x = self.operand_value(&var mono, &var target, a, node)
+        let y = self.operand_value(&var mono, &var target, b, node)
+        let ty = ll_value_type(&l)
+        let signed = self.signed_type(&mono, left_type)
+        let compare = ll_compare_predicate(op, signed)
+        if compare.len() > 0 {
+            var text = StringBuilder()
+            try! text.append("icmp ")
+            try! text.append(compare)
+            try! text.append(" ")
+            try! text.append(ty)
+            try! text.append(" ")
+            try! text.append(x)
+            try! text.append(", ")
+            try! text.append(y)
+            let bit = self.assign(text.build())
+            let v = self.to_bool(bit)
+            self.store("i8", v, dest)
+            return
+        }
+        var result = ""
+        if op.equals("+") || op.equals("-") || op.equals("*") {
+            result = self.checked(&var mono, op, signed, l.bits, x, y, node)
+        } else if op.equals("&+") {
+            result = self.simple("add", ty, x, y)
+        } else if op.equals("&-") {
+            result = self.simple("sub", ty, x, y)
+        } else if op.equals("&*") {
+            result = self.simple("mul", ty, x, y)
+        } else if op.equals("&") {
+            result = self.simple("and", ty, x, y)
+        } else if op.equals("|") {
+            result = self.simple("or", ty, x, y)
+        } else if op.equals("^") {
+            result = self.simple("xor", ty, x, y)
+        } else if op.equals("/") || op.equals("%") {
+            result = self.divide(&var mono, &var target, op, signed, l.bits, x, y, node)
+        } else if op.equals("<<") || op.equals(">>") {
+            let count = self.lay_at(&var mono, &var target, right_type, node)
+            result = self.shift(&var mono, &var target, op, signed, l.bits, x, y, count.bits, node)
+        } else {
+            self.refuse_here(&var mono, node, "this operator is not in the backend slice yet")
+            return
+        }
+        self.store(ty, result, dest)
+    }
+
+    // A comparison of Strings, through the String layer's roles mono made:
+    // `==` and `!=` ask the equality role, and an ordering compares the
+    // ordering role's `Ordering` with one case, as a declared `compare` is
+    // read. Each operand is read in place.
+    func string_comparison(&var self, mono: &var MonoProgram, target: &var Target, op: String, a: Int, b: Int,
+                           dest: String, node: Int) {
+        let equality = op.equals("==") || op.equals("!=")
+        let item = if equality { mono.equals_item } else { mono.compare_item }
+        if item < 0 || ll_compare_predicate(op, false).len() == 0 {
+            var msg = StringBuilder()
+            try! msg.append("the operator `")
+            try! msg.append(op)
+            try! msg.append("` on Strings, with no String role bound for it, is not in the backend slice yet")
+            self.refuse_here(&var mono, node, msg.build())
+            return
+        }
+        let x = self.string_addr(&var mono, &var target, a, node)
+        let y = self.string_addr(&var mono, &var target, b, node)
+        if equality {
+            var call = StringBuilder()
+            try! call.append("call i8 ")
+            try! call.append(ll_symbol(&mono, item))
+            try! call.append("(ptr ")
+            try! call.append(x)
+            try! call.append(", ptr ")
+            try! call.append(y)
+            try! call.append(")")
+            var v = self.assign(call.build())
+            if op.equals("!=") {
+                v = self.simple("xor", "i8", v, "1")
+            }
+            self.store("i8", v, dest)
+            return
+        }
+        let body = mono.items[item].body
+        let ordering = mono.dp.bc.mir.locals[mono.dp.bc.mir.funcs[body].local_first].ty
+        let ol = self.lay_at(&var mono, &var target, ordering, node)
+        if ol.kind != TargetKind.Memory {
+            self.refuse_here(&var mono, node, "an `Ordering` held other than in memory is not in the backend slice yet")
+            return
+        }
+        let result = self.slot(ol.size, ol.align)
+        var call = StringBuilder()
+        try! call.append("call void ")
+        try! call.append(ll_symbol(&mono, item))
+        try! call.append("(ptr ")
+        try! call.append(result)
+        try! call.append(", ptr ")
+        try! call.append(x)
+        try! call.append(", ptr ")
+        try! call.append(y)
+        try! call.append(")")
+        self.put(call.build())
+        var case_name = "Less"
+        var predicate = "eq"
+        if op.equals("<=") {
+            case_name = "Greater"
+            predicate = "ne"
+        } else if op.equals(">") {
+            case_name = "Greater"
+        } else if op.equals(">=") {
+            predicate = "ne"
+        }
+        let name = mono.dp.bc.mir.tc.res.intern(case_name)
+        let d = mono.dp.bc.mir.tc.nominal_decl(ordering)
+        let case_decl = mono.dp.bc.mir.tc.case_named(d, name)
+        let c = target.case_of(&var mono.dp.bc.mir.tc, ordering, case_decl)
+        let tag = self.tag_of(&var mono, &var target, result, ordering, node)
+        var expected = StringBuilder()
+        try! expected.append(c.tag)
+        var cmp = StringBuilder()
+        try! cmp.append("icmp ")
+        try! cmp.append(predicate)
+        try! cmp.append(" i64 ")
+        try! cmp.append(tag)
+        try! cmp.append(", ")
+        try! cmp.append(expected.build())
+        let bit = self.assign(cmp.build())
+        let v = self.to_bool(bit)
+        self.store("i8", v, dest)
+    }
+
+    func simple(&var self, word: String, ty: String, x: String, y: String) -> String {
+        var text = StringBuilder()
+        try! text.append(word)
+        try! text.append(" ")
+        try! text.append(ty)
+        try! text.append(" ")
+        try! text.append(x)
+        try! text.append(", ")
+        try! text.append(y)
+        self.assign(text.build())
+    }
+
+    // `x op y` through the overflow intrinsic, panicking on overflow.
+    func checked(&var self, mono: &var MonoProgram, op: String, signed: Bool, bits: Int, x: String, y: String,
+                 node: Int) -> String {
+        var name = StringBuilder()
+        try! name.append("llvm.")
+        if signed {
+            try! name.append("s")
+        } else {
+            try! name.append("u")
+        }
+        if op.equals("+") {
+            try! name.append("add")
+        } else if op.equals("-") {
+            try! name.append("sub")
+        } else {
+            try! name.append("mul")
+        }
+        try! name.append(".with.overflow.i")
+        try! name.append(bits)
+        let intrinsic = name.build()
+        var decl = StringBuilder()
+        try! decl.append("declare \{ i")
+        try! decl.append(bits)
+        try! decl.append(", i1 \} @")
+        try! decl.append(intrinsic)
+        try! decl.append("(i")
+        try! decl.append(bits)
+        try! decl.append(", i")
+        try! decl.append(bits)
+        try! decl.append(")")
+        self.declare(intrinsic, decl.build())
+        var call = StringBuilder()
+        try! call.append("call \{ i")
+        try! call.append(bits)
+        try! call.append(", i1 \} @")
+        try! call.append(intrinsic)
+        try! call.append("(i")
+        try! call.append(bits)
+        try! call.append(" ")
+        try! call.append(x)
+        try! call.append(", i")
+        try! call.append(bits)
+        try! call.append(" ")
+        try! call.append(y)
+        try! call.append(")")
+        let pair = self.assign(call.build())
+        var value = StringBuilder()
+        try! value.append("extractvalue \{ i")
+        try! value.append(bits)
+        try! value.append(", i1 \} ")
+        try! value.append(pair)
+        try! value.append(", 0")
+        let result = self.assign(value.build())
+        var flag = StringBuilder()
+        try! flag.append("extractvalue \{ i")
+        try! flag.append(bits)
+        try! flag.append(", i1 \} ")
+        try! flag.append(pair)
+        try! flag.append(", 1")
+        let overflow = self.assign(flag.build())
+        self.check_bit(&var mono, overflow, node, "integer overflow")
+        result
+    }
+
+    // Panics with `reason` when `bit` is set; continues in a fresh block.
+    func check_bit(&var self, mono: &var MonoProgram, bit: String, node: Int, reason: String) {
+        let fail = self.new_label("check")
+        let pass = self.new_label("checked")
+        self.branch(bit, fail, pass)
+        self.put_label(fail)
+        var text = StringBuilder()
+        try! text.append("panic at ")
+        try! text.append(mono.site_text(node))
+        try! text.append(": ")
+        try! text.append(reason)
+        let bytes = self.bounded_message(text.build())
+        let g = self.pooled(&bytes, false, 0)
+        var len = StringBuilder()
+        try! len.append(bytes.len())
+        self.call_panic_sink(&var mono, node, g, len.build())
+        self.put_label(pass)
+    }
+
+    func divide(&var self, mono: &var MonoProgram, target: &var Target, op: String, signed: Bool, bits: Int,
+                x: String, y: String, node: Int) -> String {
+        var ty = StringBuilder()
+        try! ty.append("i")
+        try! ty.append(bits)
+        let t = ty.build()
+        var zero = StringBuilder()
+        try! zero.append("icmp eq ")
+        try! zero.append(t)
+        try! zero.append(" ")
+        try! zero.append(y)
+        try! zero.append(", 0")
+        let is_zero = self.assign(zero.build())
+        self.check_bit(&var mono, is_zero, node, "division by zero")
+        if signed {
+            var min = StringBuilder()
+            try! min.append("icmp eq ")
+            try! min.append(t)
+            try! min.append(" ")
+            try! min.append(x)
+            try! min.append(", ")
+            try! min.append(ll_signed_min(bits))
+            let is_min = self.assign(min.build())
+            var neg = StringBuilder()
+            try! neg.append("icmp eq ")
+            try! neg.append(t)
+            try! neg.append(" ")
+            try! neg.append(y)
+            try! neg.append(", -1")
+            let is_neg = self.assign(neg.build())
+            let both = self.simple("and", "i1", is_min, is_neg)
+            self.check_bit(&var mono, both, node, "integer overflow")
+        }
+        var word = ""
+        if op.equals("/") {
+            word = if signed { "sdiv" } else { "udiv" }
+        } else {
+            word = if signed { "srem" } else { "urem" }
+        }
+        self.simple(word, t, x, y)
+    }
+
+    // A shift whose count is checked against the left operand's width; the
+    // count is compared unsigned at its own width before it is narrowed.
+    func shift(&var self, mono: &var MonoProgram, target: &var Target, op: String, signed: Bool, bits: Int,
+               x: String, y: String, count_bits: Int, node: Int) -> String {
+        var cmp = StringBuilder()
+        try! cmp.append("icmp uge i")
+        try! cmp.append(count_bits)
+        try! cmp.append(" ")
+        try! cmp.append(y)
+        try! cmp.append(", ")
+        try! cmp.append(bits)
+        let out_of_range = self.assign(cmp.build())
+        self.check_bit(&var mono, out_of_range, node, "shift out of range")
+        let amount = self.int_convert(y, count_bits, bits, false)
+        var ty = StringBuilder()
+        try! ty.append("i")
+        try! ty.append(bits)
+        if op.equals("<<") {
+            return self.simple("shl", ty.build(), x, amount)
+        }
+        if signed {
+            return self.simple("ashr", ty.build(), x, amount)
+        }
+        self.simple("lshr", ty.build(), x, amount)
+    }
+
+    // Integer `v` from `from` bits to `to` bits: truncated, or extended by
+    // the source's signedness.
+    public func int_convert(&var self, v: String, from: Int, to: Int, signed: Bool) -> String {
+        if from == to {
+            return v
+        }
+        var text = StringBuilder()
+        if to < from {
+            try! text.append("trunc i")
+        } else if signed {
+            try! text.append("sext i")
+        } else {
+            try! text.append("zext i")
+        }
+        try! text.append(from)
+        try! text.append(" ")
+        try! text.append(v)
+        try! text.append(" to i")
+        try! text.append(to)
+        self.assign(text.build())
+    }
+
+    // `a..b` and `a..=b`: the range struct from its bounds.
+    func range_into(&var self, mono: &var MonoProgram, target: &var Target, rv: &MirRvalue, dest: String, node: Int,
+                    inclusive: Bool) {
+        let a = mono.dp.bc.mir.lists[rv.first]
+        let b = mono.dp.bc.mir.lists[rv.first + 1]
+        let ta = mono.dp.bc.mir.operands[a].ty
+        let tb = mono.dp.bc.mir.operands[b].ty
+        let first = target.member_offset(&var mono.dp.bc.mir.tc, rv.ty, 0)
+        let at = self.offset_addr(dest, first)
+        self.operand_into(&var mono, &var target, a, at, ta, node)
+        let second = target.member_offset(&var mono.dp.bc.mir.tc, rv.ty, 1)
+        let bt = self.offset_addr(dest, second)
+        self.operand_into(&var mono, &var target, b, bt, tb, node)
+        if inclusive {
+            let third = target.member_offset(&var mono.dp.bc.mir.tc, rv.ty, 2)
+            let done = self.offset_addr(dest, third)
+            self.store("i8", "0", done)
+        }
+    }
+
+    func unary_into(&var self, mono: &var MonoProgram, target: &var Target, rv: &MirRvalue, dest: String,
+                    node: Int) {
+        let op = mono.dp.bc.mir.tc.name_text(rv.op)
+        let a = mono.dp.bc.mir.lists[rv.first]
+        let t = mono.dp.bc.mir.operands[a].ty
+        let l = self.lay_at(&var mono, &var target, t, node)
+        if l.kind != TargetKind.Int {
+            self.refuse_here(&var mono, node, "this operator's operand type is not in the backend slice yet")
+            return
+        }
+        let ty = ll_value_type(&l)
+        let operand = mono.dp.bc.mir.operands[a]
+        if op.equals("-") && operand.kind == MirOperandKind.Const && operand.const_kind == MirConstKind.Int {
+            // A negated literal is one constant: its magnitude may be the
+            // width's minimum's, which no positive value of the width holds.
+            let text = mono.dp.bc.mir.tc.name_text(operand.text)
+            var folded = StringBuilder()
+            try! folded.append(ll_fit_signed(0 &- ll_integer_value(text), l.bits))
+            self.store(ty, folded.build(), dest)
+            return
+        }
+        let x = self.operand_value(&var mono, &var target, a, node)
+        if op.equals("not") {
+            let v = self.simple("xor", ty, x, "1")
+            self.store(ty, v, dest)
+            return
+        }
+        if op.equals("-") {
+            let signed = self.signed_type(&mono, t)
+            let v = self.checked(&var mono, "-", signed, l.bits, "0", x, node)
+            self.store(ty, v, dest)
+            return
+        }
+        let v = self.simple("xor", ty, x, "-1")
+        self.store(ty, v, dest)
+    }
+
+    // The conversions: `as` (`cast`), the implicit `widen` and `adopt`, and
+    // the written `from`, `from(truncating:)` and an alias's construction.
+    func convert_into(&var self, mono: &var MonoProgram, target: &var Target, rv: &MirRvalue, dest: String,
+                      node: Int, word: String) {
+        let a = mono.dp.bc.mir.lists[rv.first]
+        let op = mono.dp.bc.mir.operands[a]
+        let from = op.ty
+        let to = rv.ty
+        let fl = self.lay_at(&var mono, &var target, from, node)
+        if word.equals("from") && mono.dp.bc.mir.tc.is_optional(to) {
+            // The partial conversion: `Some` of the value when it fits.
+            let payload = mono.dp.bc.mir.tc.types.arg(to, 0)
+            let pl = self.lay_at(&var mono, &var target, payload, node)
+            if fl.kind != TargetKind.Int || pl.kind != TargetKind.Int {
+                self.refuse_here(&var mono, node, "this conversion is not in the backend slice yet")
+                return
+            }
+            let x = self.operand_value(&var mono, &var target, a, node)
+            let fs = self.signed_type(&mono, from)
+            let ps = self.signed_type(&mono, payload)
+            let fits = self.fits(x, fl.bits, fs, pl.bits, ps)
+            let v = self.int_convert(x, fl.bits, pl.bits, fs)
+            self.optional_into(&var mono, &var target, to, fits, v, ll_value_type(&pl), dest, node)
+            return
+        }
+        let tl = self.lay_at(&var mono, &var target, to, node)
+        if word.equals("alias") {
+            self.operand_into(&var mono, &var target, a, dest, to, node)
+            return
+        }
+        if word.equals("adopt") && op.kind == MirOperandKind.Const && ll_is_scalar(&tl) {
+            self.operand_into(&var mono, &var target, a, dest, to, node)
+            return
+        }
+        if fl.kind == TargetKind.Pointer && tl.kind == TargetKind.Pointer {
+            let v = self.operand_value(&var mono, &var target, a, node)
+            self.store("ptr", v, dest)
+            return
+        }
+        if fl.kind != TargetKind.Int || tl.kind != TargetKind.Int {
+            self.refuse_here(&var mono, node, "this conversion is not in the backend slice yet")
+            return
+        }
+        let x = self.operand_value(&var mono, &var target, a, node)
+        let fs = self.signed_type(&mono, from)
+        let ts = self.signed_type(&mono, to)
+        let ty = ll_value_type(&tl)
+        if word.equals("widen") || word.equals("adopt") || word.equals("from(truncating:)") {
+            let v = self.int_convert(x, fl.bits, tl.bits, fs)
+            self.store(ty, v, dest)
+            return
+        }
+        if word.equals("cast") {
+            let fits = self.fits(x, fl.bits, fs, tl.bits, ts)
+            let v = self.int_convert(x, fl.bits, tl.bits, fs)
+            if not ll_lossless(fl.bits, fs, tl.bits, ts) {
+                let bad = self.simple("xor", "i1", fits, "1")
+                let fail = self.new_label("cast")
+                let pass = self.new_label("casted")
+                self.branch(bad, fail, pass)
+                self.put_label(fail)
+                var reason = StringBuilder()
+                try! reason.append("cast to ")
+                try! reason.append(mono.dp.bc.mir.tc.type_text(to))
+                try! reason.append(" out of range: ")
+                let wide = self.int_convert(x, fl.bits, 64, fs)
+                self.panic_with_value(&var mono, node, reason.build(), wide, fs)
+                self.put_label(pass)
+            }
+            self.store(ty, v, dest)
+            return
+        }
+        self.refuse_here(&var mono, node, "this conversion is not in the backend slice yet")
+    }
+
+    // Whether integer `x` (`fb` bits, signed `fs`) has a value a `tb`-bit
+    // integer (signed `ts`) holds: its round trip is itself, and no sign is
+    // lost on the way.
+    func fits(&var self, x: String, fb: Int, fs: Bool, tb: Int, ts: Bool) -> String {
+        let there = self.int_convert(x, fb, tb, fs)
+        let back = self.int_convert(there, tb, fb, ts)
+        var ty = StringBuilder()
+        try! ty.append("i")
+        try! ty.append(fb)
+        let same = self.simple("icmp eq", ty.build(), back, x)
+        if fs && not ts {
+            var tyf = StringBuilder()
+            try! tyf.append("i")
+            try! tyf.append(fb)
+            let nonneg = self.simple("icmp sge", tyf.build(), x, "0")
+            return self.simple("and", "i1", same, nonneg)
+        }
+        if ts && not fs {
+            var tyt = StringBuilder()
+            try! tyt.append("i")
+            try! tyt.append(tb)
+            let nonneg = self.simple("icmp sge", tyt.build(), there, "0")
+            return self.simple("and", "i1", same, nonneg)
+        }
+        same
+    }
+
+    // `Some(v)` when `present` holds, else `None`, written as Optional `t`.
+    func optional_into(&var self, mono: &var MonoProgram, target: &var Target, t: Int, present: String, v: String,
+                       ty: String, dest: String, node: Int) {
+        let flag = self.to_bool(present)
+        self.store("i8", flag, dest)
+        let some = target.present_case(&var mono.dp.bc.mir.tc, t)
+        if some.decl < 0 {
+            self.refuse_here(&var mono, node, "an Optional with no present case")
+            return
+        }
+        let off = target.payload_offset(&var mono.dp.bc.mir.tc, t, some.decl, 0)
+        let at = self.offset_addr(dest, off)
+        self.store(ty, v, at)
+    }
+}
+
+// Whether every `fb`-bit integer of signedness `fs` is a `tb`-bit one of
+// `ts`: the identity, same-sign widening, or unsigned into wider signed.
+public func ll_lossless(fb: Int, fs: Bool, tb: Int, ts: Bool) -> Bool {
+    if fs == ts {
+        return tb >= fb
+    }
+    not fs && ts && tb > fb
+}
+
+func ll_signed_min(bits: Int) -> String {
+    var out = StringBuilder()
+    if bits >= 64 {
+        try! out.append("-9223372036854775808")
+    } else {
+        try! out.append(0 - (1 << (bits - 1)))
+    }
+    out.build()
+}
+
+// Whether `t` is `UnsafePointer<T>` or `UnsafeConstPointer<T>`.
+func ll_raw_pointer(tc: &TcProgram, t: Int) -> Bool {
+    let d = tc.nominal_decl(t)
+    d >= 0 && (d == tc.known.unsafe_pointer || d == tc.known.unsafe_const_pointer)
+}
+
+// The `icmp` predicate of comparison `op`, or "" for any other operator.
+func ll_compare_predicate(op: String, signed: Bool) -> String {
+    if op.equals("==") {
+        return "eq"
+    }
+    if op.equals("!=") {
+        return "ne"
+    }
+    var out = StringBuilder()
+    if signed {
+        try! out.append("s")
+    } else {
+        try! out.append("u")
+    }
+    if op.equals("<") {
+        try! out.append("lt")
+    } else if op.equals("<=") {
+        try! out.append("le")
+    } else if op.equals(">") {
+        try! out.append("gt")
+    } else if op.equals(">=") {
+        try! out.append("ge")
+    } else {
+        return ""
+    }
+    out.build()
+}

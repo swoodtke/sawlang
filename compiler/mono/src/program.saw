@@ -1,0 +1,286 @@
+// Monomorphization's program (SL:architecture §3.8): drop elaboration's
+// program, the item table a worklist from the roots fills, and the concrete
+// MIR each item instantiates. Concrete functions are appended to the MIR's
+// own arenas, after every generic one, which they never edit; side tables
+// keyed by the concrete arenas' ids say which item each call and each closure
+// reaches and which glue each drop and copy runs.
+
+import sawborrowck.src.program.{BorrowckProgram}
+import sawdrops.src.program.{DropsProgram}
+import sawmir.src.program.{MirProgram}
+import sawtypecheck.src.program.{TcProgram}
+import sawmir.src.model.{MirDiag}
+import sawparse.src.tree.{AstNode}
+import sawresolve.src.names.{ResIndex, res_index}
+import sawresolve.src.model.{ResModuleKind}
+import sawresolve.src.program.{ResProgram}
+import sawtypecheck.src.checks.{tc_check_unsafe}
+import sawtypecheck.src.typeops.{TcClient}
+
+// What an item is: a function's body at concrete arguments, a type's drop or
+// copy glue, or an `extern` the program calls by its C name.
+public enum MonoItemKind {
+    case Function,
+    case DropGlue,
+    case CopyGlue,
+    case Extern
+}
+
+// One item. A function's identity is its source MIR function and canonical
+// concrete arguments: the receiver type's arguments for the parameters of
+// `type_decl`, the function's own type arguments, and `Self` for a trait's
+// default body. Typecheck interns types by canonical form with defaults
+// filled, so two spellings of one instantiation are one item.
+public struct MonoItem {
+    public kind: MonoItemKind
+    // The generic MIR function a function item instantiates, or -1.
+    public source: Int
+    // The declaration whose generic parameters `args` instantiate, or -1.
+    public type_decl: Int
+    // The declaration whose own parameters `inst` instantiate, or -1.
+    public func_decl: Int
+    // Runs of the item type pool.
+    public args_first: Int
+    public args_count: Int
+    public inst_first: Int
+    public inst_count: Int
+    public self_type: Int
+    // A glue item's type; an extern's declaration.
+    public glue_type: Int
+    public decl: Int
+    // The concrete MIR function, once instantiated, or -1.
+    public body: Int
+    // The item whose body first reached this one, or -1 for a root, and the
+    // node there that reached it, or -1.
+    public origin: Int
+    public origin_node: Int
+}
+
+public struct MonoProgram {
+    public dp: DropsProgram
+    public items: Vector<MonoItem>
+    public item_types: Vector<Int>
+    // (source function, 0), (type, 1) for drop glue, (type, 2) for copy glue,
+    // (C name, 3) for an extern -> the items with that key.
+    public by_key: ResIndex
+    // By concrete call: the item it calls, or -1 for a builtin.
+    public call_items: Vector<Int>
+    // By concrete rvalue: the item a closure construction's body is, or -1.
+    public closure_items: Vector<Int>
+    // The first function index that is a concrete copy.
+    public concrete_first: Int
+    // Refusals (`mono.not-yet`, `mono.depth`) and broken invariants.
+    public diags: Vector<MirDiag>
+    public problems: Vector<String>
+    // By declaration: a static's evaluated value, `kind` -1 for none; 0 an
+    // integer, 1 a Bool, 2 a payload-free case whose declaration is `bits`.
+    public static_kinds: Vector<Int>
+    public static_bits: Vector<Int>
+    // The roots: the entry's `main`, then the lang functions the backend's
+    // own lowering calls; -1 when absent.
+    public main_item: Int
+    public panic_item: Int
+    public literal_item: Int
+    public bytes_item: Int
+    public length_item: Int
+    // The String comparison roles, made when a comparison of Strings is
+    // reached; -1 until then.
+    public equals_item: Int
+    public compare_item: Int
+    // Where the depth limit was first met: at a call, and at a drop or copy;
+    // -1 for neither. The worklist's end refuses once, at the call when there
+    // is one.
+    public depth_call: Int
+    public depth_glue: Int
+    // The item being resolved or emitted, or -1: a refusal inside std is
+    // reported at the user's call that reached it.
+    public current: Int
+    // Whether an earlier stage refused the program, so nothing was made.
+    public blocked: Bool
+    // By declaration: the elaborated MIR function of its body, or -1; and
+    // (declaration, parameter) -> a default value's function.
+    public body_of: Vector<Int>
+    public defaults: ResIndex
+}
+
+extension MonoProgram: NoCopy {}
+
+// The key kinds of `by_key`.
+public static MONO_KEY_FUNCTION: Int = 0
+public static MONO_KEY_DROP: Int = 1
+public static MONO_KEY_COPY: Int = 2
+public static MONO_KEY_EXTERN: Int = 3
+
+// How deeply a concrete argument may nest before mono refuses it: unbounded
+// instantiation has no identity cycle to detect (SL-507).
+public static MONO_DEPTH_LIMIT: Int = 64
+
+public func mono_program(dp: DropsProgram, blocked: Bool) -> MonoProgram {
+    let first = dp.bc.mir.funcs.len()
+    var kinds = Vector<Int>()
+    var bits = Vector<Int>()
+    var bodies = Vector<Int>()
+    var k = 0
+    while k < dp.bc.mir.tc.res.decls.len() {
+        try! kinds.push(-1)
+        try! bits.push(0)
+        try! bodies.push(-1)
+        k = k + 1
+    }
+    MonoProgram(dp: move dp, items: Vector<MonoItem>(), item_types: Vector<Int>(), by_key: res_index(),
+                call_items: Vector<Int>(), closure_items: Vector<Int>(), concrete_first: first,
+                diags: Vector<MirDiag>(), problems: Vector<String>(), static_kinds: move kinds,
+                static_bits: move bits, main_item: -1, panic_item: -1, literal_item: -1, bytes_item: -1,
+                length_item: -1, equals_item: -1, compare_item: -1, depth_call: -1, depth_glue: -1,
+                current: -1, blocked: blocked, body_of: move bodies, defaults: res_index())
+}
+
+extension MonoProgram {
+    public func item(&self, k: Int) -> MonoItem { self.items[k] }
+
+    // Whether operand `o` is a String, or a reference to one: the operands a
+    // builtin comparison of Strings has.
+    public func string_operand(&self, o: Int) -> Bool {
+        let t = self.dp.bc.mir.operands[o].ty
+        let r = self.dp.bc.mir.tc.referent(t)
+        let inner = if r >= 0 { r } else { t }
+        self.dp.bc.mir.tc.is_string(inner)
+    }
+
+    // The item concrete call `c` calls, or -1.
+    public func call_item(&self, c: Int) -> Int {
+        if c < 0 || c >= self.call_items.len() {
+            return -1
+        }
+        self.call_items[c]
+    }
+
+    // The item concrete closure construction `r` builds, or -1.
+    public func closure_item(&self, r: Int) -> Int {
+        if r < 0 || r >= self.closure_items.len() {
+            return -1
+        }
+        self.closure_items[r]
+    }
+
+    // The glue item of `kind` (MONO_KEY_DROP or MONO_KEY_COPY) made for type
+    // `t`, or -1 when `t` needs none.
+    public func glue_item(&self, t: Int, kind: Int) -> Int {
+        let at = self.by_key.first(t, kind)
+        if at < 0 {
+            return -1
+        }
+        self.by_key.value(at)
+    }
+
+    public func set_call_item(&var self, c: Int, item: Int) {
+        while self.call_items.len() <= c {
+            try! self.call_items.push(-1)
+        }
+        self.call_items[c] = item
+    }
+
+    public func set_closure_item(&var self, r: Int, item: Int) {
+        while self.closure_items.len() <= r {
+            try! self.closure_items.push(-1)
+        }
+        self.closure_items[r] = item
+    }
+
+    // Records a refusal at source node `node`. A node inside std is reported
+    // at the nearest call the program itself writes on the chain of items
+    // that reached it, the std position named in the message, since the
+    // program's author can change only that call.
+    public func refuse(&var self, node: Int, rule: String, message: String) {
+        if node < 0 {
+            try! self.problems.push(message)
+            return
+        }
+        let m = self.dp.bc.mir.tc.node_module(node)
+        if m < 0 {
+            try! self.problems.push(message)
+            return
+        }
+        var at = node
+        var text = message
+        if self.std_module(m) {
+            let site = self.user_site()
+            if site >= 0 {
+                at = site
+                var msg = StringBuilder()
+                try! msg.append(message)
+                try! msg.append(" (inside ")
+                try! msg.append(self.dp.bc.mir.tc.res.module_file(m))
+                try! msg.append(":")
+                try! msg.append(self.dp.bc.mir.tc.res.node_position(m, node))
+                try! msg.append(")")
+                text = msg.build()
+            }
+        }
+        let am = self.dp.bc.mir.tc.node_module(at)
+        let span = self.dp.bc.mir.tc.res.node(at)
+        try! self.diags.push(MirDiag(module: am, start: span.start, end: span.end, id: rule, message: text))
+    }
+
+    // Whether module `m` is std's or the builtin module's.
+    func std_module(&self, m: Int) -> Bool {
+        let kind = self.dp.bc.mir.tc.res.module(m).kind
+        kind == ResModuleKind.Std || kind == ResModuleKind.Builtin
+    }
+
+    // The node of the nearest program-written call on the chain of items
+    // that reached the current one, or -1.
+    func user_site(&self) -> Int {
+        var k = self.current
+        while k >= 0 {
+            let it = self.items[k]
+            let n = it.origin_node
+            if n >= 0 {
+                let m = self.dp.bc.mir.tc.node_module(n)
+                if m >= 0 && not self.std_module(m) {
+                    return n
+                }
+            }
+            k = it.origin
+        }
+        return -1
+    }
+
+    // `FILE:LINE` of source node `node`, as a panic message names it: the
+    // file's base name and the node's 1-based line.
+    public func site_text(&self, node: Int) -> String {
+        if node < 0 {
+            return "?"
+        }
+        let m = self.dp.bc.mir.tc.node_module(node)
+        if m < 0 {
+            return "?"
+        }
+        let path = self.dp.bc.mir.tc.res.module_file(m)
+        var cut = 0
+        var i = 0
+        // Stage 0 workaround (SL:hazards S4): canonical: let base = path.substring(cut, path.len())
+        let size = path.len()
+        while i < size {
+            if (path.byte_at(i) as Int) == MONO_SLASH {
+                cut = i + 1
+            }
+            i = i + 1
+        }
+        let base = path.substring(cut, size)
+        let span = self.dp.bc.mir.tc.res.node(node)
+        let position = self.dp.bc.mir.tc.res.position_text(m, span.start)
+        var line_end = 0
+        while line_end < position.len() && (position.byte_at(line_end) as Int) != MONO_COLON {
+            line_end = line_end + 1
+        }
+        var out = StringBuilder()
+        try! out.append(base)
+        try! out.append(":")
+        try! out.append(position.substring(0, line_end))
+        out.build()
+    }
+}
+
+static MONO_SLASH: Int = 47
+static MONO_COLON: Int = 58

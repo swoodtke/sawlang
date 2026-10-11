@@ -1,0 +1,17 @@
+// refuses: slice.not-yet at 13:5
+// A write to an owning field of a raw pointer's pointee: a whole pointer slot
+// is a placement write that drops nothing, and the spec does not say whether
+// a part of a pointee is one.
+
+struct Pair {
+    name: String
+    n: Int
+}
+extension Pair: NoCopy {}
+
+func rename(p: UnsafePointer<Pair>, s: String) unsafe {
+    p[0].name = move s
+}
+
+func main() {
+}

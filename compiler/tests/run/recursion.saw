@@ -1,0 +1,42 @@
+// Recursion, mutual recursion and a struct passed and returned by value.
+struct Fib {
+    a: Int
+    b: Int
+}
+
+func step(f: Fib) -> Fib {
+    Fib(a: f.b, b: f.a + f.b)
+}
+
+func fib(n: Int) -> Int {
+    if n < 2 {
+        return n
+    }
+    fib(n - 1) + fib(n - 2)
+}
+
+func is_even(n: Int) -> Bool {
+    if n == 0 {
+        return true
+    }
+    is_odd(n - 1)
+}
+
+func is_odd(n: Int) -> Bool {
+    if n == 0 {
+        return false
+    }
+    is_even(n - 1)
+}
+
+func main() {
+    print("fib {}", fib(20))
+    var f = Fib(a: 0, b: 1)
+    var i = 0
+    while i < 30 {
+        f = step(f)
+        i = i + 1
+    }
+    print("iterated {}", f.a)
+    print("parity {} {}", is_even(10), is_odd(7))
+}

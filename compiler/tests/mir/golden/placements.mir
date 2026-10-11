@@ -1,0 +1,113 @@
+module placements
+
+fn placements.whole_index(p: UnsafePointer<String>, s: String) -> Void {
+    let _0: Void;  // return
+    let _1: UnsafePointer<String>;  // param p
+    let _2: String;  // param s
+    let _3: Int;
+
+    bb0: {
+        _3 = const 1: Int;
+        _1[_3] = move _2;
+        drop(_2);
+        return;
+    }
+}
+
+fn placements.whole_star(p: UnsafePointer<String>, s: String) -> Void {
+    let _0: Void;  // return
+    let _1: UnsafePointer<String>;  // param p
+    let _2: String;  // param s
+    let _3: UnsafePointer<String>;
+
+    bb0: {
+        _3 = copy _1;
+        (*_3) = move _2;
+        drop(_2);
+        return;
+    }
+}
+
+fn placements.optional_slot(p: UnsafePointer<String?>) -> Void {
+    let _0: Void;  // return
+    let _1: UnsafePointer<String?>;  // param p
+    let _2: Int;
+    let _3: String?;
+
+    bb0: {
+        _2 = const 0: Int;
+        _3 = String?::None;
+        _1[_2] = move _3;
+        return;
+    }
+}
+
+fn placements.part_plain(p: UnsafePointer<placements.Pair>) -> Void {
+    let _0: Void;  // return
+    let _1: UnsafePointer<placements.Pair>;  // param p
+    let _2: Int;
+    let _3: UnsafePointer<placements.Pair>;
+
+    bb0: {
+        _2 = const 0: Int;
+        _1[_2].n = const 3: Int;
+        _3 = copy _1;
+        (*_3).n = const 4: Int;
+        return;
+    }
+}
+
+fn placements.compound(p: UnsafePointer<Int>) -> Void {
+    let _0: Void;  // return
+    let _1: UnsafePointer<Int>;  // param p
+    let _2: Int;
+    let _3: UnsafePointer<Int>;
+
+    bb0: {
+        _2 = const 2: Int;
+        _1[_2] = Add(copy _1[_2], const 5: Int);
+        _3 = copy _1;
+        (*_3) = Sub(copy (*_3), const 1: Int);
+        return;
+    }
+}
+
+fn placements.array(s: String) -> Void {
+    let _0: Void;  // return
+    let _1: String;  // param s
+    let _2: [String; 2];  // a
+    let _3: [String; 2];
+    let _4: Int;
+
+    bb0: {
+        _3 = [const "x": String, const "y": String];
+        _2 = move _3;
+        _4 = const 1: Int;
+        drop(_2[_4]);
+        _2[_4] = move _1;
+        drop(_2);
+        drop(_1);
+        return;
+    }
+}
+
+fn placements.referent(r: &var String, s: String) -> Void {
+    let _0: Void;  // return
+    let _1: &var String;  // param r
+    let _2: String;  // param s
+
+    bb0: {
+        drop((*_1));
+        (*_1) = move _2;
+        drop(_2);
+        return;
+    }
+}
+
+fn placements.main() -> Void {
+    let _0: Void;  // return
+
+    bb0: {
+        return;
+    }
+}
