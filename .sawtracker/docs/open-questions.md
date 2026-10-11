@@ -454,6 +454,8 @@ A `match` on an owned NoCopy or ExplicitCopy enum still consumes its scrutinee, 
 - **For readers:** a resource discarded with `_` (a file, a connection, a guard) stays held through the arm, across its suspensions too.
 - **Borrowed scrutinees are unchanged:** a field, a tuple element, a `&`/`&var` binding or a receiver is borrowed, so `_` destroys nothing there.
 
+**`for` heads:** a `for` head binds a single name today (GRAMMAR `syntax.expr.refused-for-tuple` is removed, and both compilers refuse it at parse), so the rule has no `for` case. If a tuple pattern in a `for` head is ever admitted, its `_` parts follow this rule per iteration, as `while let`'s do (SL-530, closed as not applicable).
+
 **Rejected:** A (arm entry), which releases a guard-like payload before the arm runs; C (scrutinee scope end), which contradicts consumption; and a match that binds no owning part borrowing instead, which needs a second rule for little gain.
 
 **Where it lands:** SL-513 (the spec sentence, sawc2's MIR, run-lane pins). Stage 0 destroys at arm entry, and at scope end in its guard and `Optional` cases; those are SL:hazards C10 and C11. Stage 0's suite pins arm entry in four examples, which test the frozen compiler and are not the contract.
