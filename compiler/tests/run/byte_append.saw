@@ -1,0 +1,23 @@
+// `StringBuilder.append(b:)` writes a raw byte where `append(value:)` writes
+// digits: the argument's type decides, a `Byte` from a String or a
+// construction alike.
+
+func spell(text: String) -> String {
+    var sb = StringBuilder()
+    var i = text.len() - 1
+    while i >= 0 {
+        try! sb.append(text.byte_at(i))
+        i = i - 1
+    }
+    sb.build()
+}
+
+func main() {
+    var sb = StringBuilder()
+    try! sb.append(Byte(65))
+    try! sb.append(66)
+    try! sb.append(Byte(UInt8.from(truncating: 67)))
+    print(sb.build())
+    print(spell("stressed"))
+    print(spell("é").len())
+}

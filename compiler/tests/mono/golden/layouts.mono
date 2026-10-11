@@ -24,17 +24,25 @@ fn -> Void {
     let _21: layouts.Shape?;  // maybe_shape
     let _22: layouts.Shape;
     let _23: layouts.Shape?;
-    let _24: Result<Int, Int>;  // wide
-    let _25: Result<Int, Int>;
-    let _26: Result<Int32, Int8>;  // narrow
-    let _27: Result<Int32, Int8>;
-    let _28: (Int, Bool);  // pair
-    let _29: (Int, Bool);
-    let _30: std.vector.Vector<Int, std.alloc.GlobalAllocator>;  // v
-    let _31: std.vector.Vector<Int, std.alloc.GlobalAllocator>;
-    let _32: &var std.vector.Vector<Int, std.alloc.GlobalAllocator>;
-    let _33: Result<Void, std.alloc.AllocError>;
-    let _34: Void;
+    let _24: layouts.Code;  // code
+    let _25: layouts.Code;
+    let _26: layouts.Code?;  // maybe_code
+    let _27: layouts.Code;
+    let _28: layouts.Code?;
+    let _29: layouts.Tagged;  // tagged
+    let _30: layouts.Code;
+    let _31: layouts.Tagged;
+    let _32: Result<Int, Int>;  // wide
+    let _33: Result<Int, Int>;
+    let _34: Result<Int32, Int8>;  // narrow
+    let _35: Result<Int32, Int8>;
+    let _36: (Int, Bool);  // pair
+    let _37: (Int, Bool);
+    let _38: std.vector.Vector<Int, std.alloc.GlobalAllocator>;  // v
+    let _39: std.vector.Vector<Int, std.alloc.GlobalAllocator>;
+    let _40: &var std.vector.Vector<Int, std.alloc.GlobalAllocator>;
+    let _41: Result<Void, std.alloc.AllocError>;
+    let _42: Void;
 
     bb0: {
         _1 = const 1: Int8;
@@ -60,31 +68,39 @@ fn -> Void {
         _22 = layouts.Shape::Empty;
         _23 = layouts.Shape?::Some(move _22);
         _21 = move _23;
-        _25 = Result<Int, Int>::Ok(const 6: Int);
+        _25 = layouts.Code::Long;
         _24 = move _25;
-        _27 = Result<Int32, Int8>::Err(const 7: Int8);
-        _26 = move _27;
-        _29 = (const 8: Int, const true: Bool);
-        _28 = move _29;
-        _31 = call std.vector.Vector.init() (owner std.vector.Vector<Int, std.alloc.GlobalAllocator>) [] -> [return: bb1]; => #5
+        _27 = layouts.Code::Short;
+        _28 = layouts.Code?::Some(move _27);
+        _26 = move _28;
+        _30 = layouts.Code::Short;
+        _31 = layouts.Tagged { flag: const true: Bool, code: move _30 };
+        _29 = move _31;
+        _33 = Result<Int, Int>::Ok(const 6: Int);
+        _32 = move _33;
+        _35 = Result<Int32, Int8>::Err(const 7: Int8);
+        _34 = move _35;
+        _37 = (const 8: Int, const true: Bool);
+        _36 = move _37;
+        _39 = call std.vector.Vector.init() (owner std.vector.Vector<Int, std.alloc.GlobalAllocator>) [] -> [return: bb1]; => #5
     }
 
     bb1: {
-        _30 = move _31;
-        _32 = ref(exclusive, _30);
-        _33 = call std.vector.Vector.push(value: T) (owner std.vector.Vector<Int, std.alloc.GlobalAllocator>) [move _32, const 9: Int] -> [return: bb2]; => #6
+        _38 = move _39;
+        _40 = ref(exclusive, _38);
+        _41 = call std.vector.Vector.push(value: T) (owner std.vector.Vector<Int, std.alloc.GlobalAllocator>) [move _40, const 9: Int] -> [return: bb2]; => #6
     }
 
     bb2: {
-        _34 = copy (_33 as Ok!).0;
-        drop(_33);
-        call builtin print [format "{} {} {} {} {}", copy _1, copy _2, copy _3, copy _4, copy _28.0] -> [return: bb3];
+        _42 = copy (_41 as Ok!).0;
+        drop(_41);
+        call builtin print [format "{} {} {} {} {}", copy _1, copy _2, copy _3, copy _4, copy _36.0] -> [return: bb3];
     }
 
     bb3: {
-        drop(_30);
-        drop(_26);
-        drop(_24);
+        drop(_38);
+        drop(_34);
+        drop(_32);
         drop(_21);
         drop(_19);
         return;

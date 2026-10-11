@@ -165,6 +165,29 @@ extension StringBuilder {
         return
     }
 
+    /// Appends one raw byte: the byte itself, not its digits.
+    ///
+    /// The argument's type decides: `append(65)` writes `65`, and
+    /// `append(Byte(65))` writes `A`. Returns `Err(AllocError)` when a
+    /// growable builder cannot grow, leaving it unchanged; a fixed builder
+    /// that is full truncates instead.
+    public func append(&var self, b: Byte) -> Result<Void, AllocError> {
+        self.append_byte(b as Int)
+    }
+
+    func append_byte(&var self, b: Int) unsafe -> Result<Void, AllocError> {
+        let needed = self.length + 2
+        if not self.reserve_bytes(needed) {
+            if self.fixed {
+                self.mark_truncated()
+                return
+            }
+            return AllocError(size: self.grow_target(needed), align: 1)
+        }
+        self.place_byte(b)
+        return
+    }
+
     /// Appends the UTF-8 encoding of `scalar`: the character, not its number.
     ///
     /// Returns `Err(AllocError)` when a growable builder cannot grow, leaving

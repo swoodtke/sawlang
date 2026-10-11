@@ -1,0 +1,17 @@
+// The builtin integer bounds, `T.max` and `T.min`, at each width and
+// signedness, read as values and compared against.
+
+func main() {
+    print("{} {}", Int.max, Int.min)
+    print("{} {}", UInt.max, UInt.min)
+    print("{} {}", Int8.max, Int8.min)
+    print("{} {}", UInt8.max, UInt8.min)
+    print("{} {}", Int16.max, Int16.min)
+    print("{} {}", UInt16.max, UInt32.max)
+    print("{} {}", Int32.min, Int64.min)
+    print(UInt64.max)
+    let v: UInt = 255
+    print(v <= (UInt8.max as UInt))
+    let n = -9223372036854775807 - 1
+    print(n == Int.min)
+}

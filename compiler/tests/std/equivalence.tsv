@@ -36,6 +36,7 @@ Env.args	std.env method Env.args -	U5b3
 File.open	std.file method File.open path:std.path.Path	U5b3
 UInt8.from	paired conversions	U5b2
 .append	std.stringbuilder method StringBuilder.append scalar:std.scalar.Scalar	U5b2
+.append	std.stringbuilder method StringBuilder.append b:UInt8	U5b2
 .byte_at	std.string method String.byte_at index:Int	U5b2
 .clear	std.vector method Vector.clear -	U5b2
 .clear	std.stringbuilder method StringBuilder.clear -	U5b2

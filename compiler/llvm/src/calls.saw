@@ -11,6 +11,8 @@ import sawllvm.prims.{LL_MESSAGE_LIMIT}
 import sawllvm.module.{LlEmitter, ll_is_scalar, ll_symbol, ll_value_type}
 import sawllvm.ops.{ll_lossless}
 import sawllvm.places.{ll_local_slot}
+import sawllvm.render.{LL_PART_BOOL, LL_PART_RUN, LL_PART_SIGNED, LL_PART_UNSIGNED, LlParts, ll_parts,
+                           ll_parts_push}
 import sawllvm.text.{LlPieces, ll_format_pieces, ll_string_bytes}
 import sawmir.model.{MirBlock, MirCall, MirCallKind, MirConstKind, MirOperand, MirOperandKind, MirSwitchKind,
                          MirTermKind}
@@ -580,6 +582,11 @@ extension LlEmitter {
             ll_parts_push(&var parts, LL_PART_RUN, bytes, len)
             return
         }
+        if not mono.dp.bc.mir.tc.is_integer(t) && not mono.dp.bc.mir.tc.is_bool(t) {
+            let at = self.value_ref(&var mono, &var target, o, node)
+            self.render_fixed(&var mono, &var target, at, t, node, &var parts)
+            return
+        }
         if referent >= 0 {
             through = self.operand_value(&var mono, &var target, o, node)
         }
@@ -704,34 +711,6 @@ extension LlEmitter {
         self.assign(call.build())
     }
 }
-
-// What a message part is: a run of bytes (`first` its address, `second` its
-// length), an integer widened to i64 (`first`), signed or not, or a Bool's
-// byte (`first`).
-static LL_PART_RUN: Int = 0
-static LL_PART_SIGNED: Int = 1
-static LL_PART_UNSIGNED: Int = 2
-static LL_PART_BOOL: Int = 3
-
-// A message's parts, in order.
-public struct LlParts {
-    kinds: Vector<Int>
-    firsts: Vector<String>
-    seconds: Vector<String>
-}
-
-extension LlParts: NoCopy {}
-
-func ll_parts() -> LlParts {
-    LlParts(kinds: Vector<Int>(), firsts: Vector<String>(), seconds: Vector<String>())
-}
-
-func ll_parts_push(parts: &var LlParts, kind: Int, first: String, second: String) {
-    try! parts.kinds.push(kind)
-    try! parts.firsts.push(first)
-    try! parts.seconds.push(second)
-}
-
 
 // MIR block `b`'s label.
 public func ll_block(b: Int) -> String {

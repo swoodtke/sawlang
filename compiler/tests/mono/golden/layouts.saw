@@ -1,7 +1,7 @@
 // Locals of the shapes the target lays out: every integer width, Bool, an
 // Optional of a scalar, of a struct and of an enum, a Result of each payload
-// alignment, a tuple, a payload-free enum and one with payloads, a struct
-// mixing alignments, and a Vector.
+// alignment, a tuple, a payload-free enum, one with payloads and a raw-backed
+// one, a struct mixing alignments, and a Vector.
 struct Mixed {
     a: Int8
     b: Int
@@ -19,6 +19,16 @@ enum Shape {
     case Empty
 }
 
+enum Code: UInt16 {
+    case Short = 3,
+    case Long = 40000
+}
+
+struct Tagged {
+    flag: Bool
+    code: Code
+}
+
 func main() {
     let i8: Int8 = 1
     let u16: UInt16 = 2
@@ -32,6 +42,9 @@ func main() {
     let maybe_color: Color? = Color.Red
     let shape = Shape.Rect(w: 1, h: 2)
     let maybe_shape: Shape? = Shape.Empty
+    let code = Code.Long
+    let maybe_code: Code? = Code.Short
+    let tagged = Tagged(flag: true, code: Code.Short)
     let wide = Result<Int, Int>.Ok(value: 6)
     let narrow: Result<Int32, Int8> = Result<Int32, Int8>.Err(error: 7)
     let pair = (8, true)

@@ -130,6 +130,10 @@ compiler/
     run/              the run lane (run_lane.py): the backend's and `sawc2
                       build`'s specification (README.md), and programs built by
                       sawc2 and by Stage 0 whose binaries' output must agree
+    stage1/           the stage1 lane (stage1_lane.py): Stage 1, sawc2 built by
+                      sawc2, against Stage 0-built sawc2 over every lane's
+                      invocations (twin.py runs both), and the adjudicated
+                      mismatches (mismatches.tsv)
 ```
 
 The new std, the std sawc2 compiles from Stage 1 on, is the top-level `std/`
@@ -296,6 +300,16 @@ these things.
   `sawc2 build` against the new std and with Stage 0, runs both, and requires
   the same output and exit status; a due program must be refused where it
   says; hello's `.ll` is pinned.
+
+One lane runs apart from the runner, as the battery's `stage1` stage:
+
+- **Stage 1** (`tests/stage1/stage1_lane.py`): sawc2 builds its own driver
+  into `.build/sawc2-stage1`; the driver's `.ll` is the same bytes over two
+  builds and from another directory, Stage 1 writes that same `.ll`, Stage
+  2 (Stage 1 building itself) links into Stage 1's bytes, and every `sawc2`
+  invocation the runner's sawc2-driven lanes make gives the same output and
+  exit status under Stage 1 as under Stage 0-built sawc2, but for the
+  mismatches `tests/stage1/mismatches.tsv` adjudicates.
 
 ## The std profile
 

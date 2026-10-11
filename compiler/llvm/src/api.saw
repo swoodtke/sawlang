@@ -6,7 +6,7 @@
 import sawllvm.program.{llvm_emit_program}
 import sawmono.api.{mono_append_findings, mono_lower_file}
 import sawmono.program.{MonoProgram}
-import sawtarget.layout.{Target, target_named}
+import sawtarget.layout.{Target}
 
 // How `sawc2 build` treats its entry file.
 public struct BuildOptions {
@@ -33,7 +33,7 @@ public func llvm_build(out: &var StringBuilder, ir: &var StringBuilder, path: St
         mono_append_findings(out: &var out, mono: &mono)
         return 1
     }
-    var target = target_named(options.target)
+    var target = mono.target_for(options.target)
     let text = llvm_emit_program(&var mono, &var target, options.speed, options.module_triple)
     if text.len() == 0 {
         try! out.append(head)

@@ -12,17 +12,21 @@ import sawtypecheck.program.{TcProgram}
 import sawmir.model.{MirDiag}
 import sawparse.tree.{AstNode}
 import sawresolve.names.{ResIndex, res_index}
-import sawresolve.model.{ResModuleKind}
+import sawresolve.model.{ResDeclKind, ResModuleKind}
+import sawtarget.layout.{Target, target_named}
 import sawresolve.program.{ResProgram}
 import sawtypecheck.checks.{tc_check_unsafe}
 import sawtypecheck.typeops.{TcClient}
 
 // What an item is: a function's body at concrete arguments, a type's drop or
-// copy glue, or an `extern` the program calls by its C name.
+// copy glue, the glue of a trait requirement a conformance meets with no
+// written member and no default body, or an `extern` the program calls by its
+// C name.
 public enum MonoItemKind {
     case Function,
     case DropGlue,
     case CopyGlue,
+    case MemberGlue,
     case Extern
 }
 
@@ -45,7 +49,8 @@ public struct MonoItem {
     inst_first: Int
     inst_count: Int
     self_type: Int
-    // A glue item's type; an extern's declaration.
+    // A glue item's type; an extern's declaration, a member glue's
+    // requirement.
     glue_type: Int
     decl: Int
     // The concrete MIR function, once instantiated, or -1.
@@ -61,7 +66,8 @@ public struct MonoProgram {
     items: Vector<MonoItem>
     item_types: Vector<Int>
     // (source function, 0), (type, 1) for drop glue, (type, 2) for copy glue,
-    // (C name, 3) for an extern -> the items with that key.
+    // (C name, 3) for an extern, (type, 4) for member glue -> the items with
+    // that key.
     by_key: ResIndex
     // By concrete call: the item it calls, or -1 for a builtin.
     call_items: Vector<Int>
@@ -87,6 +93,18 @@ public struct MonoProgram {
     // reached; -1 until then.
     equals_item: Int
     compare_item: Int
+    // The builder role's members a rendering calls, made when the first one
+    // that needs each is reached; -1 until then: `init()`, which an
+    // interpolation builds through, `init(bytes:capacity:)`, the fixed mode a
+    // format argument renders into over stack scratch, `build()` and `len()`.
+    builder_new_item: Int
+    builder_fixed_item: Int
+    builder_build_item: Int
+    builder_len_item: Int
+    // By concrete rvalue: a collection literal's container `init()` and its
+    // element `push`, or -1.
+    literal_inits: Vector<Int>
+    literal_pushes: Vector<Int>
     // Where the depth limit was first met: at a call, and at a drop or copy;
     // -1 for neither. The worklist's end refuses once, at the call when there
     // is one.
@@ -110,6 +128,8 @@ public static MONO_KEY_FUNCTION: Int = 0
 public static MONO_KEY_DROP: Int = 1
 public static MONO_KEY_COPY: Int = 2
 public static MONO_KEY_EXTERN: Int = 3
+public static MONO_KEY_MEMBER: Int = 4
+public static MONO_KEY_RENDER: Int = 5
 
 // How deeply a concrete argument may nest before mono refuses it: unbounded
 // instantiation has no identity cycle to detect (SL-507).
@@ -131,12 +151,29 @@ public func mono_program(dp: DropsProgram, blocked: Bool) -> MonoProgram {
                 call_items: Vector<Int>(), closure_items: Vector<Int>(), concrete_first: first,
                 diags: Vector<MirDiag>(), problems: Vector<String>(), static_kinds: move kinds,
                 static_bits: move bits, main_item: -1, panic_item: -1, literal_item: -1, bytes_item: -1,
-                length_item: -1, equals_item: -1, compare_item: -1, depth_call: -1, depth_glue: -1,
-                current: -1, blocked: blocked, body_of: move bodies, defaults: res_index())
+                length_item: -1, equals_item: -1, compare_item: -1, builder_new_item: -1, builder_fixed_item: -1,
+                builder_build_item: -1, builder_len_item: -1, literal_inits: Vector<Int>(),
+                literal_pushes: Vector<Int>(), depth_call: -1, depth_glue: -1, current: -1, blocked: blocked,
+                body_of: move bodies, defaults: res_index())
 }
 
 extension MonoProgram {
     public func item(&self, k: Int) -> MonoItem { self.items[k] }
+
+    // The description of `triple` this program's layouts are asked of, given
+    // the evaluated value of every raw-backed case, which its enum's layout
+    // reads.
+    public func target_for(&self, triple: String) -> Target {
+        var target = target_named(triple)
+        var d = 0
+        while d < self.static_kinds.len() {
+            if self.static_kinds[d] == 0 && self.dp.bc.mir.tc.res.decls[d].kind == ResDeclKind.Case {
+                target.set_case_value(d, self.static_bits[d])
+            }
+            d = d + 1
+        }
+        move target
+    }
 
     // Whether operand `o` is a String, or a reference to one: the operands a
     // builtin comparison of Strings has.
@@ -153,6 +190,41 @@ extension MonoProgram {
             return -1
         }
         self.call_items[c]
+    }
+
+    // The item that renders a value of concrete type `t` into the builder,
+    // its `Printable.format(into:)`, or -1.
+    public func render_item(&self, t: Int) -> Int {
+        let at = self.by_key.first(t, MONO_KEY_RENDER)
+        if at < 0 {
+            return -1
+        }
+        self.by_key.value(at)
+    }
+
+    // A collection literal's container `init()` item at concrete rvalue `r`,
+    // and its element `push` item, or -1.
+    public func literal_init(&self, r: Int) -> Int {
+        if r < 0 || r >= self.literal_inits.len() {
+            return -1
+        }
+        self.literal_inits[r]
+    }
+
+    public func literal_push(&self, r: Int) -> Int {
+        if r < 0 || r >= self.literal_pushes.len() {
+            return -1
+        }
+        self.literal_pushes[r]
+    }
+
+    public func set_literal_items(&var self, r: Int, made: Int, push: Int) {
+        while self.literal_inits.len() <= r {
+            try! self.literal_inits.push(-1)
+            try! self.literal_pushes.push(-1)
+        }
+        self.literal_inits[r] = made
+        self.literal_pushes[r] = push
     }
 
     // The item concrete closure construction `r` builds, or -1.

@@ -104,6 +104,12 @@ extension LlEmitter {
         try! self.decls.append("\n")
     }
 
+    // Records that the module defines symbol `name` itself, so an `extern`
+    // naming it is called with no declaration beside the definition.
+    public func defines(&var self, name: String) {
+        try! self.declared.push(name)
+    }
+
     // The global holding bytes `bytes`, made once per distinct run: a plain
     // constant, or (`block` true) a String literal's static block, the
     // String layer's literal layout of an immortal refcount, the length, the

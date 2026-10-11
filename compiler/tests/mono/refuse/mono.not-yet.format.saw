@@ -1,16 +1,7 @@
-// refuses: mono.not-yet at 15:5
-// A format argument that is neither an integer, a Bool nor a String renders
-// through its Printable conformance, which this slice does not lower.
-struct Tag {
-    n: Int
-}
-
-extension Tag: Printable {
-    func format(&self, into: &var StringBuilder) {
-        try! into.append(self.n)
-    }
-}
-
+// refuses: mono.not-yet at 6:5
+// A format argument renders through its Printable `format`; a Float's is
+// synthesized glue the slice does not make.
 func main() {
-    print("{}", Tag(n: 3))
+    let f = 2.5
+    print("{}", f)
 }

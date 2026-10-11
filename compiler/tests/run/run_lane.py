@@ -9,8 +9,9 @@ exit status compared.
 
 `compiler/tests/run.py` runs `run()`. Each `NAME.saw` is one case:
 
-- a plain program passes when both binaries print the same bytes and exit
-  with the same status (a panic's abort included);
+- a plain program passes when sawc2's binary, built at -O0 and again at -O2,
+  prints the same bytes as Stage 0's and exits with the same status (a
+  panic's abort included);
 - a program whose first lines are `// due: REASON` and `// refuses: RULE at
   L:C` is one sawc2 cannot build yet: the lane requires `sawc2 build` to
   refuse it first there by that rule, and fails once it builds, so the lines
@@ -144,12 +145,12 @@ def ll_rules():
     return _RULE.findall(body)
 
 
-def build_new(src):
+def build_new(src, speed="-O0"):
     name = os.path.splitext(os.path.basename(src))[0]
-    out = os.path.join(OUT, name + ".new")
+    out = os.path.join(OUT, name + (".new" if speed == "-O0" else ".new" + speed[1:]))
     env = dict(os.environ)
     env["SAW_PYTHON"] = sys.executable
-    r = subprocess.run([SCRIPT, "build", "--std-root", "std", rel(src), "-o", out], cwd=REPO, env=env,
+    r = subprocess.run([SCRIPT, "build", speed, "--std-root", "std", rel(src), "-o", out], cwd=REPO, env=env,
                        capture_output=True, text=True, timeout=BUILD_TIMEOUT)
     return r.returncode == 0, out, (r.stdout + r.stderr).strip()
 
@@ -206,21 +207,26 @@ def check_case(src):
     ok_old, old, old_log = build_old(src)
     if not ok_old:
         return ["run %s: Stage 0 does not build it: %s" % (rel(src), old_log[-300:])], "fail"
-    code_new, out_new = execute(new)
+    ok_fast, fast, fast_log = build_new(src, "-O2")
+    if not ok_fast:
+        return ["run %s: sawc2 does not build it at -O2: %s" % (rel(src), fast_log[:300])], "fail"
     code_old, out_old = execute(old)
     failures = []
-    if code_new is None or code_old is None:
-        failures.append("run %s: a binary timed out" % rel(src))
-    elif code_new != code_old:
-        failures.append("run %s: exit %d under sawc2, %d under Stage 0" % (rel(src), code_new, code_old))
-    if differs is not None and _HAZARD.search(differs):
-        failures.extend(check_hazard(src, differs, out_new, out_old))
-    elif differs is not None:
-        if masked(out_new) != masked(out_old):
-            failures.append("run %s: output differs beyond a panic location: %s"
-                            % (rel(src), first_difference(out_new, out_old)))
-    elif out_new != out_old:
-        failures.append("run %s: output differs: %s" % (rel(src), first_difference(out_new, out_old)))
+    for speed, binary in (("-O0", new), ("-O2", fast)):
+        code_new, out_new = execute(binary)
+        where = "%s %s" % (rel(src), speed)
+        if code_new is None or code_old is None:
+            failures.append("run %s: a binary timed out" % where)
+        elif code_new != code_old:
+            failures.append("run %s: exit %d under sawc2, %d under Stage 0" % (where, code_new, code_old))
+        if differs is not None and _HAZARD.search(differs):
+            failures.extend("%s (%s)" % (f, speed) for f in check_hazard(src, differs, out_new, out_old))
+        elif differs is not None:
+            if masked(out_new) != masked(out_old):
+                failures.append("run %s: output differs beyond a panic location: %s"
+                                % (where, first_difference(out_new, out_old)))
+        elif out_new != out_old:
+            failures.append("run %s: output differs: %s" % (where, first_difference(out_new, out_old)))
     return failures, "fail" if failures else "pass"
 
 

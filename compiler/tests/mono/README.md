@@ -41,7 +41,8 @@ numbered alike; mono checks the counts agree.
 ## Items
 
 An **item** is a function's body at concrete arguments, a type's drop or copy
-glue, or an `extern` the program calls by its C name. A function item's
+glue, the member glue of a requirement no written member or default body
+meets, or an `extern` the program calls by its C name. A function item's
 identity is its source MIR function and its canonical concrete arguments:
 
 - the receiver type's arguments, for the parameters of the type an extension
@@ -52,9 +53,9 @@ identity is its source MIR function and its canonical concrete arguments:
 Typecheck interns types by canonical form with defaults filled (SL-382), so
 two spellings of one instantiation are one item. A closure, a default
 value's function and an accessor's prologue and epilogue are items under
-their parent's arguments. A glue item is (drop or copy, concrete type); an
-extern item is its C name, so two std modules declaring one seam call one
-symbol.
+their parent's arguments. A glue item is (drop or copy, concrete type), a
+member glue item (requirement, concrete type); an extern item is its C name,
+so two std modules declaring one seam call one symbol.
 
 **The worklist** starts from the roots, in this order: the entry module's
 `main`, then the lang functions the backend's own lowering calls (the panic
@@ -66,6 +67,16 @@ instantiated first in, first out, in the order they are found; within an item
 blocks are walked in order, and statements and terminators in order, so the
 item numbering is a function of the program alone.
 
+**Rendering** goes through the builder role (design 137). A format argument
+of `print`, `panic` or `assert` that is not an integer, a `Bool` or a String
+reaches the builder's `init(bytes:capacity:)`, its `len()` and its drop glue;
+an interpolation reaches its `init()`, its `build()` and its drop glue; and
+each value either renders reaches the item of its `Printable.format(into:)`,
+which the render funnel (`render_of`) resolves through the requirement funnel,
+once per type. A `Vector` literal reaches its type's `init()` and
+`push(value:)`, and the rendering of `push`'s error, which a refused push
+panics with. Each is made where the first construct needing it is found.
+
 **Instantiation** copies the source function into the MIR's arenas after every
 generic function, substituting every type: locals, places, projections,
 operands, rvalues, a call's owner and instantiation. The copy keeps its
@@ -74,7 +85,7 @@ source's local and block numbering. Then each call is resolved to its item:
 | call | resolved to |
 |---|---|
 | a function, a method, an `init` | its body at the receiver's arguments and the call's own |
-| a trait requirement on a concrete owner | the owner's conformance: the member it writes, or the trait's default body under `Self` |
+| a trait requirement on a concrete owner | the owner's conformance: the member it writes, or the trait's default body under `Self`; a requirement met with neither, by a derivation or by a builtin type's own conformance, is its member glue (`resolve_requirement`, the one funnel) |
 | a parameter's default value | the default's function |
 | a window's open or close | the accessor's prologue or epilogue |
 | an `extern` | its extern item |
@@ -96,6 +107,14 @@ statement and a copy operand:
 
 A type that owns nothing has no glue, and neither does a function value: a
 closure capturing a value that owns something is refused where it is built.
+
+**Member glue** is made once per (requirement, concrete type) by its own
+funnel (`member_glue_of`), the body a conformance has with nothing written:
+in the slice, a signed integer's `Printable.format(into:)`, which appends the
+value, widened to `Int`, through the builder's `append(value: Int)` and
+panics as `try!` does if a growable builder cannot grow. Every other one,
+an unsigned integer's rendering and a derived `Equatable` among them, is
+refused as `mono.not-yet`.
 
 **Budget points.** Spawn is not lowered, so no task root exists and every
 op-budget point is inert; the backend writes nothing for one. Coroutine
@@ -120,7 +139,8 @@ fn -> RESULT {
 ```
 
 NAME is the MIR dump's name for the source function, or `drop glue TYPE`,
-`copy glue TYPE`, `extern NAME`. `(from #ORIGIN)` names the item whose body
+`copy glue TYPE`, `member glue REQUIREMENT on TYPE`, `extern NAME`.
+`(from #ORIGIN)` names the item whose body
 first reached it; a root has none. Statements and terminators print as the
 MIR dump prints them (`compiler/tests/mir/README.md`), and a call terminator
 is followed by ` => #K`, the item it reaches. A glue function's `_1` is its
@@ -147,12 +167,15 @@ shares the runtime ABI with sawc2:
 | `Void`, `Never` | zero-sized |
 | a struct, a tuple | members in declaration order, each at its alignment |
 | `Optional<T>` | a one-byte flag (`Some` 1, `None` 0), then `T` at its alignment |
+| a raw-backed enum | its backing integer, each case's tag the value it states, read unsigned at the backing's width (`int tag N` in the table) |
 | any other enum, `Result` included | an `Int32` tag (the case's ordinal), then each case's payload as a record from one offset, the largest payload alignment |
 | a function value | its code pointer, then its environment pointer |
 | `[T; N]` | N elements |
 
-A raw-backed enum, an `any` existential and a type that contains itself
-inline are unsupported, and the backend refuses a program reaching one.
+A raw-backed case's value is the evaluator's, which mono hands the target
+before any layout is asked for (`target_for`). An `any` existential and a
+type that contains itself inline are unsupported, and the backend refuses a
+program reaching one.
 
 **The C convention for `extern` calls** is the target's too: a scalar or a
 pointer passes and returns directly, an `UnsafePointer<T>?` result is a
@@ -162,7 +185,7 @@ nullable pointer (null is `None`), and an aggregate by value is refused.
 
 | rule | refuses | fixture |
 |---|---|---|
-| `mono.not-yet` | what the backend's slice does not lower: a builtin outside it, a format argument that is not an integer, a Bool or a String, a requirement no member or default meets, a call of a body this program does not lower, a closure capturing an owning value | `mono.not-yet`, `mono.not-yet.format`, `mono.not-yet.std` |
+| `mono.not-yet` | what the backend's slice does not lower: a builtin outside it, a format argument or an interpolated part whose rendering the slice does not make, a fixed array, repeat, `Map` or `Set` literal, a requirement no member, default or member glue in the slice meets, a call of a body this program does not lower, a closure capturing an owning value | `mono.not-yet`, `mono.not-yet.format`, `mono.not-yet.std`, `mono.not-yet.unsigned` |
 | `mono.depth` | a concrete argument nested more than 64 deep, once per program, at the first call that met the limit | `mono.depth`, `mono.depth.method` |
 
 A refusal whose node lies in std or the builtin module is reported at the

@@ -52,6 +52,12 @@ extension MonoProgram {
                 try! out.append("copy glue ")
                 try! out.append(self.dp.bc.mir.tc.type_text(it.glue_type))
             },
+            case MemberGlue -> {
+                try! out.append("member glue ")
+                try! out.append(self.dp.bc.mir.tc.target_text(it.decl))
+                try! out.append(" on ")
+                try! out.append(self.dp.bc.mir.tc.type_text(it.glue_type))
+            },
             case Extern -> {
                 try! out.append("extern ")
                 let name = self.dp.bc.mir.tc.res.decls[it.decl].name

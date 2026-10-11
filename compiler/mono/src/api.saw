@@ -16,7 +16,7 @@ import sawmir.program.{MirProgram}
 import sawmono.dump.{mono_dump_layouts}
 import sawmono.program.{MonoProgram, mono_program}
 import sawmono.worklist.{mono_rules}
-import sawtarget.layout.{Target, target_named}
+import sawtarget.layout.{Target}
 
 // How `sawc2 mono` treats one entry file.
 public struct MonoOptions {
@@ -187,7 +187,7 @@ public func mono_record(out: &var StringBuilder, path: String, options: &MonoOpt
         mono.dump_items(&var out)
     }
     if options.layouts {
-        var target = target_named(options.target)
+        var target = mono.target_for(options.target)
         mono_dump_layouts(&var mono, &var target, &var out)
     }
     status

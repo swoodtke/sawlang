@@ -1,0 +1,44 @@
+// `==` and `!=` on payload-free enums, plain and raw-backed: the cases alone
+// decide, through a field, a parameter and a returned value alike.
+
+enum Phase {
+    case Idle,
+    case Running,
+    case Done
+}
+
+enum Wire: UInt8 {
+    case Ack = 6,
+    case Nak = 21
+}
+
+struct Job {
+    phase: Phase
+    id: Int
+}
+
+func advance(p: Phase) -> Phase {
+    if p == Phase.Idle {
+        return Phase.Running
+    }
+    Phase.Done
+}
+
+func main() {
+    let job = Job(phase: Phase.Running, id: 4)
+    print(job.phase == Phase.Running)
+    print(job.phase != Phase.Running)
+    print(advance(job.phase) == Phase.Done)
+    print(advance(Phase.Idle) == advance(Phase.Idle))
+    var count = 0
+    var p = Phase.Idle
+    while p != Phase.Done {
+        p = advance(p)
+        count = count + 1
+    }
+    print(count)
+    let w = Wire.Nak
+    print(w == Wire.Ack)
+    print(w != Wire.Ack)
+    print(w == Wire.Nak)
+}

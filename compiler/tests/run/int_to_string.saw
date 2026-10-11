@@ -1,0 +1,22 @@
+// A signed integer's `to_string()`: Printable's default body over the
+// integer's synthesized `format`, its decimal digits, at a narrow width and
+// at the extremes of the platform width.
+
+func digits(n: Int) -> Int {
+    n.to_string().len()
+}
+
+func main() {
+    let n = 42
+    let s = n.to_string()
+    print(s)
+    print(Int.min.to_string())
+    print(Int.max.to_string())
+    let z = 0
+    print(z.to_string())
+    let small: Int8 = -7
+    print(small.to_string())
+    print(digits(-12345))
+    var joined = (-3).to_string()
+    print(joined)
+}

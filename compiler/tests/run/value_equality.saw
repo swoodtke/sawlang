@@ -1,0 +1,50 @@
+// `==` and `!=` on trivially copyable values held in memory: an Optional by
+// its case and then its payload, a struct and a tuple member by member.
+
+enum Code: UInt16 {
+    case Low = 1,
+    case High = 900
+}
+
+enum Mode {
+    case On,
+    case Off
+}
+
+struct Spot {
+    row: Int
+    col: Int
+    mode: Mode
+}
+
+func find(k: Int) -> Code? {
+    if k == 1 {
+        return Code.Low
+    }
+    if k == 2 {
+        return Code.High
+    }
+    None
+}
+
+func main() {
+    print(find(1) == find(1))
+    print(find(1) == find(2))
+    print(find(3) == find(3))
+    print(find(3) == find(1))
+    print(find(2) != find(3))
+    let a: Int? = 5
+    let b: Int? = 5
+    let c: Int? = None
+    print(a == b)
+    print(a == c)
+    print(c == c)
+    let s = Spot(row: 1, col: 2, mode: Mode.On)
+    let t = Spot(row: 1, col: 2, mode: Mode.Off)
+    print(s == s)
+    print(s == t)
+    print(s != t)
+    let pair = (3, true)
+    print(pair == (3, true))
+    print(pair == (3, false))
+}

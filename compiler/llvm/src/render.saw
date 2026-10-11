@@ -1,0 +1,303 @@
+// Rendering through the builder role (design 137): a call of an item mono
+// made with its arguments already spelled, a value formatted through its
+// `Printable.format` into a fixed builder over stack scratch, an
+// interpolation built through a growable one, a collection literal's
+// container built by its `init()` and a `push` per element, and the parts a
+// message is assembled from.
+
+import sawborrowck.program.{BorrowckProgram}
+import sawdrops.program.{DropsProgram}
+import sawllvm.module.{LlEmitter, ll_is_scalar, ll_symbol, ll_value_type}
+import sawllvm.places.{ll_local_slot}
+import sawllvm.prims.{LL_MESSAGE_LIMIT}
+import sawmir.build.{mir_func_local}
+import sawmir.model.{MirOperandKind, MirRvalue}
+import sawmir.program.{MirProgram}
+import sawmono.program.{MONO_KEY_DROP, MonoItem, MonoProgram}
+import sawtarget.layout.{Target, TargetKind, TargetLayout}
+import sawtypecheck.program.{TcProgram}
+import sawtypecheck.spell.{tc_effects_text}
+import sawtypecheck.typeops.{TcClient}
+
+extension LlEmitter {
+    // A call of item `item` with `args` already spelled, `TYPE VALUE` each, a
+    // memory result written through `sret` at `dest`; returns a scalar
+    // result's SSA name, or "".
+    public func call_item_direct(&var self, mono: &var MonoProgram, target: &var Target, item: Int,
+                                 args: &Vector<String>, dest: String, node: Int) -> String {
+        let body = mono.items[item].body
+        let result = mono.dp.bc.mir.locals[mono.dp.bc.mir.funcs[body].local_first].ty
+        let ret = self.lay_at(&var mono, &var target, result, node)
+        var call = StringBuilder()
+        try! call.append("call ")
+        if ll_is_scalar(&ret) {
+            try! call.append(ll_value_type(&ret))
+        } else {
+            try! call.append("void")
+        }
+        try! call.append(" ")
+        try! call.append(ll_symbol(&mono, item))
+        try! call.append("(")
+        var first = true
+        if ret.kind == TargetKind.Memory {
+            try! call.append("ptr ")
+            try! call.append(dest)
+            first = false
+        }
+        var k = 0
+        while k < args.len() {
+            if not first {
+                try! call.append(", ")
+            }
+            first = false
+            try! call.append(args.get(k) ?? "")
+            k = k + 1
+        }
+        try! call.append(")")
+        if ll_is_scalar(&ret) {
+            return self.assign(call.build())
+        }
+        self.put(call.build())
+        ""
+    }
+
+    // The address operand `o`'s value is read through in place: the pointer a
+    // reference holds, else the value's own address.
+    public func value_ref(&var self, mono: &var MonoProgram, target: &var Target, o: Int, node: Int) -> String {
+        let op = mono.dp.bc.mir.operands[o]
+        if mono.dp.bc.mir.tc.referent(op.ty) >= 0 {
+            return self.operand_value(&var mono, &var target, o, node)
+        }
+        self.operand_addr(&var mono, &var target, o, op.ty, node)
+    }
+
+    // The value of type `t` at `at` rendered through its `Printable.format`
+    // into a fixed builder over stack scratch, as Stage 0 renders a format
+    // argument: text past the scratch is cut and marked `…`. The rendered
+    // bytes become one run part.
+    public func render_fixed(&var self, mono: &var MonoProgram, target: &var Target, at: String, t: Int, node: Int,
+                             parts: &var LlParts) {
+        let item = mono.render_item(t)
+        let fixed = mono.builder_fixed_item
+        let length = mono.builder_len_item
+        if item < 0 || fixed < 0 || length < 0 {
+            self.refuse_here(&var mono, node, "a rendering mono did not resolve")
+            return
+        }
+        let builder = self.item_result(&mono, fixed)
+        let bl = self.lay_at(&var mono, &var target, builder, node)
+        let scratch = self.slot(LL_RENDER_SCRATCH, 1)
+        let sb = self.slot(bl.size, bl.align)
+        var made = Vector<String>()
+        try! made.push(ll_spelled("ptr", scratch))
+        var capacity = StringBuilder()
+        try! capacity.append(LL_RENDER_SCRATCH)
+        try! made.push(ll_spelled(self.word_type(&var mono, &var target, node), capacity.build()))
+        let _ = self.call_item_direct(&var mono, &var target, fixed, &made, sb, node)
+        var into = Vector<String>()
+        try! into.push(ll_spelled("ptr", at))
+        try! into.push(ll_spelled("ptr", sb))
+        let _ = self.call_item_direct(&var mono, &var target, item, &into, "", node)
+        var asked = Vector<String>()
+        try! asked.push(ll_spelled("ptr", sb))
+        let len = self.call_item_direct(&var mono, &var target, length, &asked, "", node)
+        self.drop_at(&var mono, builder, sb)
+        ll_parts_push(&var parts, LL_PART_RUN, scratch, len)
+    }
+
+    // A String built at `dest` from interpolation `rv`'s parts, each rendered
+    // through its `Printable.format` into a growable builder, in order.
+    public func interpolation_into(&var self, mono: &var MonoProgram, target: &var Target, rv: &MirRvalue,
+                                   dest: String, node: Int) {
+        let made = mono.builder_new_item
+        let built = mono.builder_build_item
+        if made < 0 || built < 0 {
+            self.refuse_here(&var mono, node, "an interpolation mono did not resolve")
+            return
+        }
+        let builder = self.item_result(&mono, made)
+        let bl = self.lay_at(&var mono, &var target, builder, node)
+        let sb = self.slot(bl.size, bl.align)
+        let none = Vector<String>()
+        let _ = self.call_item_direct(&var mono, &var target, made, &none, sb, node)
+        var k = 0
+        while k < rv.count {
+            let o = mono.dp.bc.mir.lists[rv.first + k]
+            k = k + 1
+            var t = mono.dp.bc.mir.operands[o].ty
+            let referent = mono.dp.bc.mir.tc.referent(t)
+            if referent >= 0 {
+                t = referent
+            }
+            let item = mono.render_item(t)
+            if item < 0 {
+                self.refuse_here(&var mono, node, "an interpolated part mono did not resolve")
+                return
+            }
+            let at = self.value_ref(&var mono, &var target, o, node)
+            var into = Vector<String>()
+            try! into.push(ll_spelled("ptr", at))
+            try! into.push(ll_spelled("ptr", sb))
+            let _ = self.call_item_direct(&var mono, &var target, item, &into, "", node)
+            // A part handed over by `move` is the interpolation's to drop.
+            let op = mono.dp.bc.mir.operands[o]
+            if op.kind == MirOperandKind.Move && referent < 0 {
+                self.drop_at(&var mono, op.ty, at)
+            }
+        }
+        var from = Vector<String>()
+        try! from.push(ll_spelled("ptr", sb))
+        let _ = self.call_item_direct(&var mono, &var target, built, &from, dest, node)
+        self.drop_at(&var mono, builder, sb)
+    }
+
+    // A collection literal at concrete rvalue `r` built at `dest`: its
+    // container's `init()`, then a `push` per element in order. A refused
+    // push panics naming its error, as Stage 0's synthesized force does.
+    public func collection_into(&var self, mono: &var MonoProgram, target: &var Target, r: Int, dest: String,
+                                node: Int) {
+        let rv = mono.dp.bc.mir.rvalues[r]
+        let made = mono.literal_init(r)
+        let push = mono.literal_push(r)
+        if made < 0 || push < 0 {
+            self.refuse_here(&var mono, node, "a collection literal mono did not resolve")
+            return
+        }
+        let none = Vector<String>()
+        let _ = self.call_item_direct(&var mono, &var target, made, &none, dest, node)
+        let push_body = mono.items[push].body
+        let push_first = mono.dp.bc.mir.funcs[push_body].local_first
+        let status_type = mono.dp.bc.mir.locals[push_first].ty
+        let element_type = mono.dp.bc.mir.locals[push_first + 2].ty
+        let sl = self.lay_at(&var mono, &var target, status_type, node)
+        let el = self.lay_at(&var mono, &var target, element_type, node)
+        var k = 0
+        while k < rv.count {
+            let o = mono.dp.bc.mir.lists[rv.first + k]
+            k = k + 1
+            var args = Vector<String>()
+            try! args.push(ll_spelled("ptr", dest))
+            if el.kind == TargetKind.Zero {
+                // A zero-sized element crosses no argument.
+            } else if ll_is_scalar(&el) {
+                let v = self.operand_value(&var mono, &var target, o, node)
+                try! args.push(ll_spelled(ll_value_type(&el), v))
+            } else {
+                let a = self.operand_addr(&var mono, &var target, o, element_type, node)
+                try! args.push(ll_spelled("ptr", a))
+            }
+            let status = self.slot(sl.size, sl.align)
+            let _ = self.call_item_direct(&var mono, &var target, push, &args, status, node)
+            self.force_ok(&var mono, &var target, status, status_type, "collection literal", node)
+        }
+    }
+
+    // The `Result` at `at`, of type `t`, holds `Ok`, or the program panics
+    // with `what`, then the error, rendered as a format argument is.
+    func force_ok(&var self, mono: &var MonoProgram, target: &var Target, at: String, t: Int, what: String,
+                  node: Int) {
+        let ok_decl = mono.dp.bc.mir.result_case("Ok")
+        let err_decl = mono.dp.bc.mir.result_case("Err")
+        let c = target.case_of(&var mono.dp.bc.mir.tc, t, ok_decl)
+        let tag = self.tag_of(&var mono, &var target, at, t, node)
+        var cmp = StringBuilder()
+        try! cmp.append("icmp eq i64 ")
+        try! cmp.append(tag)
+        try! cmp.append(", ")
+        try! cmp.append(c.tag)
+        let ok = self.assign(cmp.build())
+        let pass = self.new_label("pushed")
+        let fail = self.new_label("refused")
+        self.branch(ok, pass, fail)
+        self.put_label(fail)
+        let error = mono.dp.bc.mir.tc.types.arg(t, 1)
+        let off = target.payload_offset(&var mono.dp.bc.mir.tc, t, err_decl, 0)
+        let payload = self.offset_addr(at, off)
+        var parts = ll_parts()
+        self.render_fixed(&var mono, &var target, payload, error, node, &var parts)
+        let buf = self.message_slot()
+        var head = StringBuilder()
+        try! head.append("panic at ")
+        try! head.append(mono.site_text(node))
+        try! head.append(": ")
+        try! head.append(what)
+        try! head.append(": ")
+        let head_bytes = self.text_bytes(head.build())
+        var pos = self.append_bytes(buf, "0", &head_bytes)
+        if parts.kinds.len() > 0 {
+            pos = self.append_run(buf, pos, parts.firsts.get(0) ?? "", parts.seconds.get(0) ?? "")
+        }
+        let end = self.finish_message(buf, pos)
+        self.call_panic_sink(&var mono, node, buf, end)
+        self.put_label(pass)
+    }
+
+    // The concrete result type of item `k`'s function.
+    func item_result(&self, mono: &MonoProgram, k: Int) -> Int {
+        let body = mono.items[k].body
+        mono.dp.bc.mir.locals[mono.dp.bc.mir.funcs[body].local_first].ty
+    }
+
+    // The integer type a word spells, the target's `Int`.
+    func word_type(&var self, mono: &var MonoProgram, target: &var Target, node: Int) -> String {
+        let int_type = mono.dp.bc.mir.tc.int_type()
+        let l = self.lay_at(&var mono, &var target, int_type, node)
+        ll_value_type(&l)
+    }
+
+    // The value of type `t` at `at` dropped through its glue, when it has
+    // one.
+    func drop_at(&var self, mono: &var MonoProgram, t: Int, at: String) {
+        let glue = mono.glue_item(t, MONO_KEY_DROP)
+        if glue < 0 {
+            return
+        }
+        var line = StringBuilder()
+        try! line.append("call void ")
+        try! line.append(ll_symbol(&mono, glue))
+        try! line.append("(ptr ")
+        try! line.append(at)
+        try! line.append(")")
+        self.put(line.build())
+    }
+}
+
+// How many bytes of stack scratch a rendered format argument is given, as
+// Stage 0 gives its fixed builder (design 137).
+static LL_RENDER_SCRATCH: Int = 512
+
+// `TYPE VALUE`, an argument as a call spells it.
+public func ll_spelled(ty: String, value: String) -> String {
+    var out = StringBuilder()
+    try! out.append(ty)
+    try! out.append(" ")
+    try! out.append(value)
+    out.build()
+}
+
+// What a message part is: a run of bytes (`first` its address, `second` its
+// length), an integer widened to i64 (`first`), signed or not, or a Bool's
+// byte (`first`).
+public static LL_PART_RUN: Int = 0
+public static LL_PART_SIGNED: Int = 1
+public static LL_PART_UNSIGNED: Int = 2
+public static LL_PART_BOOL: Int = 3
+
+// A message's parts, in order.
+public struct LlParts {
+    kinds: Vector<Int>
+    firsts: Vector<String>
+    seconds: Vector<String>
+}
+
+extension LlParts: NoCopy {}
+
+public func ll_parts() -> LlParts {
+    LlParts(kinds: Vector<Int>(), firsts: Vector<String>(), seconds: Vector<String>())
+}
+
+public func ll_parts_push(parts: &var LlParts, kind: Int, first: String, second: String) {
+    try! parts.kinds.push(kind)
+    try! parts.firsts.push(first)
+    try! parts.seconds.push(second)
+}

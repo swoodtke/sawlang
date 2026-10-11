@@ -1,0 +1,40 @@
+// A Vector literal: the container's `init()`, then a `push` per element in
+// order, with trivial, enum and owning elements.
+
+enum Kind {
+    case Word,
+    case Number,
+    case Mark
+}
+
+func kinds() -> Vector<Kind> {
+    [Kind.Word, Kind.Number, Kind.Mark, Kind.Word]
+}
+
+func names() -> Vector<String> {
+    ["one", "two", "three"]
+}
+
+func main() {
+    let ks = kinds()
+    print(ks.len())
+    var words = 0
+    var i = 0
+    while i < ks.len() {
+        if ks[i] == Kind.Word {
+            words = words + 1
+        }
+        i = i + 1
+    }
+    print(words)
+    let ns = names()
+    print("{} {}", ns.len(), ns[2])
+    let squares: Vector<Int> = [1, 4, 9, 16]
+    var sum = 0
+    var j = 0
+    while j < squares.len() {
+        sum = sum + squares[j]
+        j = j + 1
+    }
+    print(sum)
+}

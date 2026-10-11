@@ -1,0 +1,60 @@
+// A Printable format argument renders through its `format` into a fixed
+// builder over stack scratch: beside integers and Strings, nested through a
+// field's own `format`, in a panic's message, and cut and marked when it
+// renders past the scratch.
+
+struct Point {
+    x: Int
+    y: Int
+}
+
+extension Point: Printable {
+    func format(&self, into: &var StringBuilder) {
+        try! into.append("(")
+        try! into.append(value: self.x)
+        try! into.append(", ")
+        try! into.append(value: self.y)
+        try! into.append(")")
+    }
+}
+
+struct Segment {
+    name: String
+    from: Point
+    to: Point
+}
+
+extension Segment: Printable {
+    func format(&self, into: &var StringBuilder) {
+        try! into.append(self.name)
+        try! into.append(": ")
+        self.from.format(into: &var into)
+        try! into.append(" -> ")
+        self.to.format(into: &var into)
+    }
+}
+
+struct Wall {
+    count: Int
+}
+
+extension Wall: Printable {
+    func format(&self, into: &var StringBuilder) {
+        var k = 0
+        while k < self.count {
+            try! into.append("brick é ")
+            k = k + 1
+        }
+    }
+}
+
+func main() {
+    let p = Point(x: 3, y: -4)
+    print("{}", p)
+    let s = Segment(name: "edge", from: p, to: Point(x: 0, y: 7))
+    print("segment {} of {} points", s, 2)
+    print("{}{}", p, p)
+    print("{}", Wall(count: 3))
+    print("{}", Wall(count: 80))
+    panic("bad segment {}", s)
+}

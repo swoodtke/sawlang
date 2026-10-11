@@ -7,15 +7,15 @@
 
 import sawborrowck.program.{BorrowckProgram}
 import sawdrops.program.{DropsProgram}
-import sawmir.model.{MirAggregate, MirBlock, MirCall, MirCallKind, MirFunc, MirFuncKind, MirLocal, MirOperand,
-                         MirOperandKind, MirPlace, MirProj, MirRvalue, MirRvalueKind, MirStmt, MirStmtKind,
-                         MirSwitchKind, MirTermKind, MirWindow}
+import sawmir.model.{MirAggregate, MirBlock, MirCall, MirCallKind, MirConstKind, MirFunc, MirFuncKind, MirLocal,
+                         MirOperand, MirOperandKind, MirPlace, MirProj, MirRvalue, MirRvalueKind, MirStmt,
+                         MirStmtKind, MirSwitchKind, MirTermKind, MirWindow}
 import sawmir.program.{MirProgram}
 import sawmir.build.{mir_func_local}
 import sawmono.glue.{mono_copies_bitwise}
 import sawtarget.layout.{target_struct_fields}
 import sawmono.program.{MONO_DEPTH_LIMIT, MONO_KEY_COPY, MONO_KEY_DROP, MONO_KEY_EXTERN, MONO_KEY_FUNCTION,
-                            MonoItem, MonoItemKind, MonoProgram}
+                            MONO_KEY_MEMBER, MONO_KEY_RENDER, MonoItem, MonoItemKind, MonoProgram}
 import sawtypecheck.bodydump.{tc_dump_bodies}
 import sawtypecheck.signatures.{TcContext}
 import sawtypecheck.spell.{tc_effects_text}
@@ -24,8 +24,9 @@ import sawresolve.lang.{ResLang}
 import sawresolve.model.{ResDeclKind, ResModuleKind}
 import sawresolve.program.{ResProgram}
 import sawtypecheck.conform.{tc_args_subst}
-import sawtypecheck.model.{TcStatusKind}
+import sawtypecheck.model.{TC_FLAG_DEFAULT_BODY, TcStatusKind}
 import sawtypecheck.program.{TcProgram}
+import sawtypecheck.tier.{tc_compute_tiers}
 import sawtypecheck.types.{TcKind}
 
 // Every rule monomorphization refuses by.
@@ -42,10 +43,12 @@ func mono_builtin_supported(name: String) -> Bool {
 }
 
 // A resolved call target: the declaration whose body runs, and the `Self`
-// it runs under (a trait's default body), or -1.
+// it runs under (a trait's default body), or -1; or the glue item that
+// synthesizes the member, or -1.
 struct MonoTarget {
     decl: Int
     self_type: Int
+    item: Int
 }
 
 extension MonoProgram {
@@ -308,6 +311,7 @@ extension MonoProgram {
             },
             case DropGlue -> self.build_drop_glue(k),
             case CopyGlue -> self.build_copy_glue(k),
+            case MemberGlue -> self.build_member_glue(k),
             case Extern -> {}
         }
         let body = self.items[k].body
@@ -587,6 +591,13 @@ extension MonoProgram {
         if rv.kind == MirRvalueKind.Aggregate && rv.aggregate == MirAggregate.Closure {
             self.resolve_closure(k, stmt.rvalue, stmt.node)
         }
+        let collection = rv.aggregate == MirAggregate.Vector || rv.aggregate == MirAggregate.Map || rv.aggregate == MirAggregate.Set
+        if rv.kind == MirRvalueKind.Aggregate && collection {
+            self.resolve_collection_literal(k, stmt.rvalue, stmt.node)
+        }
+        if rv.kind == MirRvalueKind.Interpolate {
+            self.resolve_interpolation(k, &rv, stmt.node)
+        }
         if rv.kind == MirRvalueKind.Binary && rv.count == 2 {
             self.resolve_string_comparison(k, &rv, stmt.node)
         }
@@ -690,7 +701,7 @@ extension MonoProgram {
                     self.check_empty_construction(c)
                     return
                 }
-                self.check_format_arguments(c, &name)
+                self.check_format_arguments(k, c, &name)
             },
             case Value -> self.need_operand(k, info.callee, info.node),
             case Lend -> try! self.problems.push("a lend outside an accessor's split reached mono"),
@@ -701,10 +712,14 @@ extension MonoProgram {
                     self.set_call_item(c, item)
                     return
                 }
-                var target = MonoTarget(decl: info.target, self_type: -1)
+                var target = MonoTarget(decl: info.target, self_type: -1, item: -1)
                 if decl.kind == ResDeclKind.Requirement {
-                    target = self.resolve_requirement(info.target, info.owner, info.node)
+                    target = self.resolve_requirement(info.target, info.owner, k, info.node)
                     if target.decl < 0 {
+                        return
+                    }
+                    if target.item >= 0 {
+                        self.set_call_item(c, target.item)
                         return
                     }
                 }
@@ -793,11 +808,15 @@ extension MonoProgram {
         return -1
     }
 
-    // Requirement `req` called on concrete `owner`: the member the owner's
-    // conformance writes, or the trait's default body under `Self` = owner.
-    // A derived or implicit member, and an owner with no conformance, are
-    // refused.
-    func resolve_requirement(&var self, req: Int, owner: Int, node: Int) -> MonoTarget {
+    // THE REQUIREMENT FUNNEL: requirement `req` called on concrete `owner`,
+    // the member the owner's conformance writes, or the trait's default body
+    // under `Self` = owner; a requirement met with neither, by a derivation or
+    // by a builtin type's own conformance, is the member glue that
+    // synthesizes it. `item` is -1 unless the answer is glue.
+    // ENTRY POINTS:
+    //     resolve_call
+    //     render_of
+    func resolve_requirement(&var self, req: Int, owner: Int, k: Int, node: Int) -> MonoTarget {
         let trait_decl = self.dp.bc.mir.tc.res.decls[req].parent
         let d = self.dp.bc.mir.tc.nominal_decl(owner)
         var c = 0
@@ -815,21 +834,83 @@ extension MonoProgram {
                     continue
                 }
                 if status.kind == TcStatusKind.Written {
-                    return MonoTarget(decl: status.member, self_type: -1)
+                    return MonoTarget(decl: status.member, self_type: -1, item: -1)
                 }
                 if status.kind == TcStatusKind.Default {
-                    return MonoTarget(decl: req, self_type: owner)
+                    return MonoTarget(decl: req, self_type: owner, item: -1)
+                }
+                if status.kind == TcStatusKind.Synthesized || status.kind == TcStatusKind.Implicit {
+                    return self.glued(req, owner, k, node)
                 }
             }
+        }
+        if d >= 0 && self.dp.bc.mir.tc.primitive_grants(d, trait_decl) {
+            if (self.dp.bc.mir.tc.sigs[req].flags & TC_FLAG_DEFAULT_BODY) != 0 {
+                return MonoTarget(decl: req, self_type: owner, item: -1)
+            }
+            return self.glued(req, owner, k, node)
         }
         var msg = StringBuilder()
         try! msg.append("a call of `")
         try! msg.append(self.dp.bc.mir.tc.target_text(req))
         try! msg.append("` on `")
         try! msg.append(self.dp.bc.mir.tc.type_text(owner))
-        try! msg.append("`, which no written member or default body meets, is not in the backend slice yet")
+        try! msg.append("`, which no conformance of it meets, is not in the backend slice yet")
         self.refuse(node, "mono.not-yet", msg.build())
-        MonoTarget(decl: -1, self_type: -1)
+        MonoTarget(decl: -1, self_type: -1, item: -1)
+    }
+
+    // The member glue of `req` on `owner` as a call target, or a refused one
+    // when glue for it is not in the slice.
+    func glued(&var self, req: Int, owner: Int, k: Int, node: Int) -> MonoTarget {
+        let item = self.member_glue_of(req, owner, k, node)
+        if item < 0 {
+            return MonoTarget(decl: -1, self_type: -1, item: -1)
+        }
+        MonoTarget(decl: req, self_type: -1, item: item)
+    }
+
+    // THE MEMBER GLUE FUNNEL: the glue that synthesizes requirement `req` for
+    // concrete type `t`, made when new; -1 when refused. In the slice: a signed
+    // integer's `Printable.format`, its decimal digits.
+    // ENTRY POINTS:
+    //     glued
+    public func member_glue_of(&var self, req: Int, t: Int, origin: Int, node: Int) -> Int {
+        var at = self.by_key.first(t, MONO_KEY_MEMBER)
+        while at >= 0 {
+            let found = self.by_key.value(at)
+            if self.items[found].decl == req {
+                return found
+            }
+            at = self.by_key.following(at)
+        }
+        if not self.integer_format(req, t) {
+            var msg = StringBuilder()
+            try! msg.append("a synthesized `")
+            try! msg.append(self.dp.bc.mir.tc.target_text(req))
+            try! msg.append("` on `")
+            try! msg.append(self.dp.bc.mir.tc.type_text(t))
+            try! msg.append("` is not in the backend slice yet: only a signed integer's `Printable.format`")
+            self.refuse(node, "mono.not-yet", msg.build())
+            return -1
+        }
+        let k = self.items.len()
+        let first = self.item_types.len()
+        try! self.items.push(MonoItem(kind: MonoItemKind.MemberGlue, source: -1, type_decl: -1, func_decl: -1,
+                                      args_first: first, args_count: 0, inst_first: first, inst_count: 0,
+                                      self_type: -1, glue_type: t, decl: req, body: -1, origin: origin,
+                                      origin_node: node))
+        self.by_key.add(t, MONO_KEY_MEMBER, k)
+        k
+    }
+
+    // Whether `req` is `Printable.format` and `t` a signed integer type: the
+    // new std's builder renders an `Int` and has no unsigned rendering.
+    public func integer_format(&var self, req: Int, t: Int) -> Bool {
+        let info = self.dp.bc.mir.tc.res.decls[req]
+        let format = self.dp.bc.mir.tc.res.intern("format")
+        let printable = info.parent == self.dp.bc.mir.tc.known.printable && info.name == format
+        printable && self.dp.bc.mir.tc.is_integer(t) && not self.dp.bc.mir.tc.is_unsigned(t)
     }
 
     // `T()` on a type parameter, at a concrete `T`: in the slice, a fieldless
@@ -866,9 +947,11 @@ extension MonoProgram {
         false
     }
 
-    // A format argument of `print`, `panic` or `assert` renders in the slice
-    // when it is an integer, a `Bool` or a `String`, or a reference to one.
-    func check_format_arguments(&var self, c: Int, name: &String) {
+    // A format argument of `print`, `panic` or `assert`: an integer, a `Bool`
+    // or a `String`, or a reference to one, the backend writes as it is; any
+    // other value renders through its `Printable.format` into a fixed builder
+    // over stack scratch (design 137).
+    func check_format_arguments(&var self, k: Int, c: Int, name: &String) {
         let info = self.dp.bc.mir.calls[c]
         let printing = name.equals("print") || name.equals("panic") || name.equals("assert")
         if not printing {
@@ -887,18 +970,227 @@ extension MonoProgram {
             if referent >= 0 {
                 t = referent
             }
-            let renders = self.dp.bc.mir.tc.is_integer(t) || self.dp.bc.mir.tc.is_bool(t) || self.dp.bc.mir.tc.is_string(t)
-            if not renders {
-                var msg = StringBuilder()
-                try! msg.append("a `")
-                try! msg.append(self.dp.bc.mir.tc.type_text(t))
-                try! msg.append("` argument of `")
-                try! msg.append(name)
-                try! msg.append("` is not in the backend slice yet: only integers, Bool and String render")
-                self.refuse(info.node, "mono.not-yet", msg.build())
+            let direct = self.dp.bc.mir.tc.is_integer(t) || self.dp.bc.mir.tc.is_bool(t) || self.dp.bc.mir.tc.is_string(t)
+            if not direct && not self.need_fixed_render(k, t, info.node) {
                 return
             }
         }
+    }
+
+    // A value of type `t` rendered into a fixed builder over stack scratch:
+    // the builder's fixed `init`, its `len()` and its drop, and `t`'s
+    // rendering. False when one of them is refused.
+    func need_fixed_render(&var self, k: Int, t: Int, node: Int) -> Bool {
+        let builder = self.builder_type()
+        if builder < 0 {
+            self.refuse(node, "mono.not-yet", "a rendering with no builder role bound")
+            return false
+        }
+        if self.builder_fixed_item < 0 {
+            var labels = Vector<String>()
+            try! labels.push("bytes")
+            try! labels.push("capacity")
+            self.builder_fixed_item = self.builder_item("init", &labels, k, node)
+        }
+        if self.builder_len_item < 0 {
+            let none = Vector<String>()
+            self.builder_len_item = self.builder_item("len", &none, k, node)
+        }
+        self.need_drop(k, builder, node)
+        if self.builder_fixed_item < 0 || self.builder_len_item < 0 {
+            return false
+        }
+        self.render_of(k, t, node) >= 0
+    }
+
+    // An interpolation builds a String through the growable builder: its
+    // `init()`, each part's rendering, `build()`, and the builder's drop.
+    func resolve_interpolation(&var self, k: Int, rv: &MirRvalue, node: Int) {
+        let builder = self.builder_type()
+        if builder < 0 {
+            self.refuse(node, "mono.not-yet", "an interpolation with no builder role bound")
+            return
+        }
+        let none = Vector<String>()
+        if self.builder_new_item < 0 {
+            self.builder_new_item = self.builder_item("init", &none, k, node)
+        }
+        if self.builder_build_item < 0 {
+            self.builder_build_item = self.builder_item("build", &none, k, node)
+        }
+        self.need_drop(k, builder, node)
+        var j = 0
+        while j < rv.count {
+            let o = self.dp.bc.mir.lists[rv.first + j]
+            j = j + 1
+            let op = self.dp.bc.mir.operands[o]
+            if op.kind == MirOperandKind.Const && op.const_kind == MirConstKind.Placeholder {
+                self.refuse(node, "mono.not-yet", "a `\{\}` slot in an interpolation is not in the backend slice yet")
+                return
+            }
+            var t = op.ty
+            let referent = self.dp.bc.mir.tc.referent(t)
+            if referent >= 0 {
+                t = referent
+            } else if op.kind == MirOperandKind.Move {
+                self.need_drop(k, t, node)
+            }
+            if self.render_of(k, t, node) < 0 {
+                return
+            }
+        }
+    }
+
+    // A collection literal: its container's `init()` and its element `push`,
+    // each at the literal's type; in the slice, a `Vector`. A refused `push`
+    // panics naming its error, rendered as a format argument is.
+    func resolve_collection_literal(&var self, k: Int, r: Int, node: Int) {
+        let rv = self.dp.bc.mir.rvalues[r]
+        let d = self.dp.bc.mir.tc.nominal_decl(rv.ty)
+        if rv.aggregate != MirAggregate.Vector || d < 0 || d != self.dp.bc.mir.tc.known.vector {
+            self.refuse(node, "mono.not-yet", "a fixed array, a repeat, a `Map` or a `Set` literal is not in the backend slice yet")
+            return
+        }
+        let none = Vector<String>()
+        var labels = Vector<String>()
+        try! labels.push("value")
+        let made_decl = self.member_with(d, "init", &none)
+        let push_decl = self.member_with(d, "push", &labels)
+        if made_decl < 0 || push_decl < 0 {
+            self.refuse(node, "mono.not-yet", "a collection literal whose type has no `init()` or `push(value:)`")
+            return
+        }
+        let made = self.member_item(k, made_decl, rv.ty, node)
+        let push = self.member_item(k, push_decl, rv.ty, node)
+        if made < 0 || push < 0 {
+            return
+        }
+        self.set_literal_items(r, made, push)
+        let result = self.dp.bc.mir.tc.sigs[push_decl].result
+        if self.dp.bc.mir.tc.is_result(result) {
+            let error = self.dp.bc.mir.tc.types.arg(result, 1)
+            let _ = self.need_fixed_render(k, error, node)
+        }
+    }
+
+    // THE RENDER FUNNEL: the item that formats a value of concrete type `t`
+    // into the builder, `Printable.format(into:)` resolved on `t` through the
+    // requirement funnel, made when new; -1 when refused.
+    // ENTRY POINTS:
+    //     need_fixed_render
+    //     resolve_interpolation
+    func render_of(&var self, k: Int, t: Int, node: Int) -> Int {
+        let found = self.render_item(t)
+        if found >= 0 {
+            return found
+        }
+        let req = self.format_requirement()
+        if req < 0 {
+            self.refuse(node, "mono.not-yet", "a rendering with no `Printable.format` requirement")
+            return -1
+        }
+        let target = self.resolve_requirement(req, t, k, node)
+        var item = target.item
+        if target.decl >= 0 && item < 0 {
+            item = self.member_item_at(k, target.decl, target.self_type, t, node)
+        }
+        if item >= 0 {
+            self.by_key.add(t, MONO_KEY_RENDER, item)
+        }
+        item
+    }
+
+    // The item of member `decl` called on concrete owner `owner`, as a call
+    // with no type arguments of its own reaches it.
+    func member_item(&var self, k: Int, decl: Int, owner: Int, node: Int) -> Int {
+        self.member_item_at(k, decl, -1, owner, node)
+    }
+
+    func member_item_at(&var self, k: Int, decl: Int, self_type: Int, owner: Int, node: Int) -> Int {
+        var info = self.dp.bc.mir.blank_call(MirCallKind.Function, node)
+        info.target = decl
+        info.owner = owner
+        let body = self.body_of[decl]
+        self.call_item_of(k, body, decl, self_type, &info)
+    }
+
+    // `Printable`'s `format` requirement, or -1.
+    func format_requirement(&var self) -> Int {
+        let printable = self.dp.bc.mir.tc.known.printable
+        if printable < 0 {
+            return -1
+        }
+        let reqs = self.dp.bc.mir.tc.members_of(printable)
+        let format = self.dp.bc.mir.tc.res.intern("format")
+        var j = 0
+        while j < reqs.len() {
+            if self.dp.bc.mir.tc.res.decls[reqs[j]].name == format {
+                return reqs[j]
+            }
+            j = j + 1
+        }
+        return -1
+    }
+
+    // The builder role's type, or -1.
+    func builder_type(&var self) -> Int {
+        let d = self.dp.bc.mir.tc.res.lang_item(ResLang.StringBuilderStruct)
+        if d < 0 {
+            return -1
+        }
+        self.dp.bc.mir.tc.prim(d)
+    }
+
+    // The item of the builder's member `name` whose parameters carry `labels`.
+    func builder_item(&var self, name: String, labels: &Vector<String>, k: Int, node: Int) -> Int {
+        let builder = self.builder_type()
+        let d = self.dp.bc.mir.tc.res.lang_item(ResLang.StringBuilderStruct)
+        let decl = self.member_with(d, name, &labels)
+        if decl < 0 {
+            var msg = StringBuilder()
+            try! msg.append("the builder role declares no `")
+            try! msg.append(name)
+            try! msg.append("` this rendering calls")
+            self.refuse(node, "mono.not-yet", msg.build())
+            return -1
+        }
+        self.member_item(k, decl, builder, node)
+    }
+
+    // Type declaration `d`'s member named `name` whose parameters carry
+    // `labels`, in order, or -1.
+    func member_with(&var self, d: Int, name: String, labels: &Vector<String>) -> Int {
+        if d < 0 || d >= self.dp.bc.mir.tc.member_first.len() || self.dp.bc.mir.tc.member_first[d] < 0 {
+            return -1
+        }
+        let first = self.dp.bc.mir.tc.member_first[d]
+        let count = self.dp.bc.mir.tc.member_count[d]
+        let id = self.dp.bc.mir.tc.res.intern(name)
+        var j = first
+        while j < first + count {
+            let member = self.dp.bc.mir.tc.members[j]
+            j = j + 1
+            if member.name != id {
+                continue
+            }
+            let s = self.dp.bc.mir.tc.sigs[member.decl]
+            if s.param_count != labels.len() {
+                continue
+            }
+            var same = true
+            var p = 0
+            while p < s.param_count {
+                let label = self.dp.bc.mir.tc.res.intern(labels.get(p) ?? "")
+                if self.dp.bc.mir.tc.params[s.param_first + p].name != label {
+                    same = false
+                }
+                p = p + 1
+            }
+            if same {
+                return member.decl
+            }
+        }
+        return -1
     }
 
     // The extern item of declaration `d`, one per C name: two modules

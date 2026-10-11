@@ -24,6 +24,10 @@ public func llvm_emit_program(mono: &var MonoProgram, target: &var Target, speed
     var e = ll_emitter()
     // The helpers copy with it whether or not any function does.
     e.declare("llvm.memcpy.p0.p0.i64", "declare void @llvm.memcpy.p0.p0.i64(ptr, ptr, i64, i1)")
+    // The entry point defines the argument accessors (rt/ABI.md, "Program
+    // arguments"), which std's `extern` declarations name.
+    e.defines("__saw_rt_get_argc")
+    e.defines("__saw_rt_get_argv")
     if mono.main_item < 0 {
         try! mono.problems.push("the entry module declares no `main` with a body")
         return ""

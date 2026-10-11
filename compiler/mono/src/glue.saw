@@ -12,9 +12,10 @@ import sawborrowck.program.{BorrowckProgram}
 import sawdrops.program.{DropsProgram}
 import sawmir.build.{mir_func_local}
 import sawmir.model.{MirAggregate, MirCall, MirCallKind, MirFunc, MirFuncKind, MirLocalKind, MirOperandKind,
-                         MirProjKind}
+                         MirProjKind, MirRvalueKind}
 import sawmir.program.{MirProgram}
 import sawmono.program.{MONO_KEY_COPY, MONO_KEY_DROP, MonoItem, MonoItemKind, MonoProgram}
+import sawresolve.lang.{ResLang}
 import sawresolve.model.{ResDeclKind}
 import sawresolve.program.{ResProgram}
 import sawtarget.layout.{target_enum_cases, target_member_type, target_struct_fields}
@@ -269,6 +270,88 @@ extension MonoProgram {
         }
         self.dp.bc.mir.ret()
         self.finish_glue(k, f)
+    }
+
+    // A signed integer's `Printable.format(into:)`: its decimal digits,
+    // appended through the builder's own `append(value: Int)`, the value
+    // widened first. The append can fail only for a growable builder's
+    // refused growth, which panics as a `try!` does.
+    public func build_member_glue(&var self, k: Int) {
+        let t = self.items[k].glue_type
+        let req = self.items[k].decl
+        let void_decl = self.dp.bc.mir.tc.known.void_type
+        let void_type = self.dp.bc.mir.tc.prim(void_decl)
+        let receiver = self.dp.bc.mir.tc.mk_ref(false, t)
+        let s = self.dp.bc.mir.tc.sigs[req]
+        let into = self.dp.bc.mir.tc.params[s.param_first].ty
+        let f = self.begin_glue(void_type, receiver)
+        let _ = self.dp.bc.mir.new_local(into, MirLocalKind.Param, -1, -1)
+        var info = self.dp.bc.mir.funcs[f]
+        info.param_count = 2
+        self.dp.bc.mir.funcs[f] = info
+        let wide = self.dp.bc.mir.tc.int_type()
+        let append = self.builder_append(wide)
+        let builder = self.dp.bc.mir.tc.referent(into)
+        if append < 0 || builder < 0 {
+            self.refuse(-1, "mono.not-yet", "an integer's `Printable.format` with no `append(value: Int)` on the builder")
+            self.dp.bc.mir.ret()
+            self.finish_glue(k, f)
+            return
+        }
+        let subject = self.glue_subject(t)
+        var value = self.dp.bc.mir.op_copy(subject)
+        if wide != t {
+            let rv = self.dp.bc.mir.rv_one(MirRvalueKind.Widen, wide, "", value)
+            let widened = self.dp.bc.mir.temp_of(rv)
+            value = self.dp.bc.mir.move_local(widened)
+        }
+        let target = self.dp.bc.mir.place_local(2)
+        var args = Vector<Int>()
+        let into_ref = self.dp.bc.mir.op_copy(target)
+        try! args.push(into_ref)
+        try! args.push(value)
+        let result = self.dp.bc.mir.tc.sigs[append].result
+        let status = self.dp.bc.mir.new_temp(result)
+        var c = self.dp.bc.mir.blank_call(MirCallKind.Function, -1)
+        c.target = append
+        c.owner = builder
+        c.arg_first = self.dp.bc.mir.push_args(&args)
+        c.arg_count = 2
+        c.dest = self.dp.bc.mir.place_local(status)
+        let _ = self.dp.bc.mir.call_and_continue(c)
+        let ok = self.dp.bc.mir.result_case("Ok")
+        let whole = self.dp.bc.mir.place_local(status)
+        let payload = self.dp.bc.mir.project(whole, MirProjKind.Force, ok, 0, void_type)
+        let checked = self.dp.bc.mir.op_copy(payload)
+        let rv = self.dp.bc.mir.rv_use(checked)
+        let _ = self.dp.bc.mir.temp_of(rv)
+        self.dp.bc.mir.ret()
+        self.finish_glue(k, f)
+    }
+
+    // The builder's `append(value:)` taking `wide`, or -1.
+    func builder_append(&var self, wide: Int) -> Int {
+        let d = self.dp.bc.mir.tc.res.lang_item(ResLang.StringBuilderStruct)
+        if d < 0 || d >= self.dp.bc.mir.tc.member_first.len() || self.dp.bc.mir.tc.member_first[d] < 0 {
+            return -1
+        }
+        let first = self.dp.bc.mir.tc.member_first[d]
+        let count = self.dp.bc.mir.tc.member_count[d]
+        let name = self.dp.bc.mir.tc.res.intern("append")
+        let label = self.dp.bc.mir.tc.res.intern("value")
+        var j = first
+        while j < first + count {
+            let member = self.dp.bc.mir.tc.members[j]
+            j = j + 1
+            if member.name != name {
+                continue
+            }
+            let s = self.dp.bc.mir.tc.sigs[member.decl]
+            if s.param_count == 1 && self.dp.bc.mir.tc.params[s.param_first].name == label && self.dp.bc.mir.tc.params[s.param_first].ty == wide {
+                return member.decl
+            }
+        }
+        return -1
     }
 
     // The `copy()` type `t`'s copy-policy conformance writes, or -1.

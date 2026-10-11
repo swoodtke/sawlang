@@ -1,0 +1,11 @@
+// The program's arguments through std's `Env.args()`, whose externs name the
+// accessors the entry point defines rather than a runtime seam. The lane runs
+// each binary with no arguments, so only its own name is there, a path the two
+// binaries spell differently.
+import std.env.{Env}
+
+func main() {
+    let args = try! Env.args()
+    print(args.len())
+    print(args[0].len() > 0)
+}

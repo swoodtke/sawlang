@@ -10,13 +10,16 @@ import sawborrowck.program.{BorrowckProgram}
 import sawdrops.program.{DropsProgram}
 import sawllvm.prims.{LL_MESSAGE_LIMIT}
 import sawllvm.module.{LlEmitter, ll_is_scalar, ll_symbol, ll_value_type}
-import sawllvm.places.{ll_local_slot}
+import sawllvm.places.{ll_local_slot, ll_tag_type}
+import sawllvm.render.{ll_spelled}
 import sawllvm.text.{ll_fit_signed, ll_integer_value}
 import sawmir.model.{MirAggregate, MirConstKind, MirOperandKind, MirRvalue, MirRvalueKind}
 import sawmir.program.{MirProgram}
 import sawmono.program.{MonoProgram}
+import sawresolve.model.{ResDeclKind}
 import sawresolve.program.{ResProgram}
-import sawtarget.layout.{Target, TargetCase, TargetKind, TargetLayout}
+import sawtarget.layout.{Target, TargetCase, TargetKind, TargetLayout, TargetShape, target_member_type,
+                            target_struct_fields}
 import sawtypecheck.program.{TcProgram}
 import sawtypecheck.spell.{tc_effects_text}
 import sawtypecheck.typeops.{TcClient}
@@ -45,7 +48,7 @@ extension LlEmitter {
                 self.convert_into(&var mono, &var target, &rv, dest, node, word)
             },
             case Aggregate -> self.aggregate_into(&var mono, &var target, r, dest, node),
-            case Interpolate -> self.refuse_here(&var mono, node, "an interpolation is not in the backend slice yet: no stage lowers it to the builder's calls"),
+            case Interpolate -> self.interpolation_into(&var mono, &var target, &rv, dest, node),
             case Erase -> self.refuse_here(&var mono, node, "an erasure into `any` is not in the backend slice yet"),
             case Slice -> self.refuse_here(&var mono, node, "a slice is not in the backend slice yet"),
             case Take -> self.refuse_here(&var mono, node, "a `[move]` capture's take is not in the backend slice yet")
@@ -61,12 +64,8 @@ extension LlEmitter {
                 let l = self.lay_at(&var mono, &var target, rv.ty, node)
                 let c = target.case_of(&var mono.dp.bc.mir.tc, rv.ty, rv.decl)
                 var tag = StringBuilder()
-                try! tag.append(c.tag)
-                if l.tag_bytes == 1 {
-                    self.store("i8", tag.build(), dest)
-                } else {
-                    self.store("i32", tag.build(), dest)
-                }
+                try! tag.append(ll_fit_signed(c.tag, l.tag_bytes * 8))
+                self.store(ll_tag_type(&l), tag.build(), dest)
                 var k = 0
                 while k < rv.count {
                     let o = mono.dp.bc.mir.lists[rv.first + k]
@@ -78,7 +77,8 @@ extension LlEmitter {
                 }
             },
             case Closure -> self.closure_into(&var mono, &var target, r, dest, node),
-            case _ -> self.refuse_here(&var mono, node, "an array, a repeat or a collection literal is not in the backend slice yet")
+            case Vector -> self.collection_into(&var mono, &var target, r, dest, node),
+            case _ -> self.refuse_here(&var mono, node, "an array, a repeat, a `Map` or a `Set` literal is not in the backend slice yet")
         }
     }
 
@@ -125,9 +125,16 @@ extension LlEmitter {
         self.store("ptr", env, env_at)
     }
 
-    // Whether integer type `t` is signed; `Bool` and pointers compare
-    // unsigned.
+    // Whether integer type `t` is signed, a raw-backed enum by its backing;
+    // `Bool` and pointers compare unsigned.
     func signed_type(&self, mono: &MonoProgram, t: Int) -> Bool {
+        let d = mono.dp.bc.mir.tc.nominal_decl(t)
+        if d >= 0 && mono.dp.bc.mir.tc.res.decls[d].kind == ResDeclKind.Enum {
+            let backing = mono.dp.bc.mir.tc.sigs[d].result
+            if backing >= 0 {
+                return self.signed_type(&mono, backing)
+            }
+        }
         mono.dp.bc.mir.tc.is_integer(t) && not mono.dp.bc.mir.tc.is_unsigned(t)
     }
 
@@ -148,6 +155,10 @@ extension LlEmitter {
         let left_type = mono.dp.bc.mir.operands[a].ty
         let right_type = mono.dp.bc.mir.operands[b].ty
         let l = self.lay_at(&var mono, &var target, left_type, node)
+        if l.kind == TargetKind.Memory {
+            self.memory_comparison(&var mono, &var target, op, a, b, left_type, dest, node)
+            return
+        }
         if l.kind != TargetKind.Int && l.kind != TargetKind.Pointer {
             self.refuse_here(&var mono, node, "an operator on this type is not in the backend slice yet")
             return
@@ -212,6 +223,167 @@ extension LlEmitter {
             return
         }
         self.store(ty, result, dest)
+    }
+
+    // `==` or `!=` on a trivially copyable value held in memory: its
+    // automatic Equatable, which compares member by member, a payload-free
+    // enum by its case and an Optional by its case and then its payload.
+    func memory_comparison(&var self, mono: &var MonoProgram, target: &var Target, op: String, a: Int, b: Int,
+                           t: Int, dest: String, node: Int) {
+        let equality = op.equals("==") || op.equals("!=")
+        if not equality || not self.comparable_bits(&var mono, &var target, t, 0) {
+            var msg = StringBuilder()
+            try! msg.append("the operator `")
+            try! msg.append(op)
+            try! msg.append("` on `")
+            try! msg.append(mono.dp.bc.mir.tc.type_text(t))
+            try! msg.append("` is not in the backend slice yet: only `==` and `!=` on integers, Bools, raw pointers, payload-free enums, and Optionals, structs and tuples of them")
+            self.refuse_here(&var mono, node, msg.build())
+            return
+        }
+        let x = self.operand_addr(&var mono, &var target, a, t, node)
+        let y = self.operand_addr(&var mono, &var target, b, t, node)
+        let same = self.equal_at(&var mono, &var target, x, y, t, node)
+        var bit = same
+        if op.equals("!=") {
+            bit = self.simple("xor", "i1", same, "1")
+        }
+        let v = self.to_bool(bit)
+        self.store("i8", v, dest)
+    }
+
+    // Whether a value of `t` is equal to another exactly when its parts are,
+    // part by part, as `equal_at` compares them.
+    func comparable_bits(&var self, mono: &var MonoProgram, target: &var Target, t: Int, depth: Int) -> Bool {
+        if depth > 16 || mono.dp.bc.mir.tc.is_string(t) {
+            return false
+        }
+        let d = mono.dp.bc.mir.tc.nominal_decl(t)
+        if d >= 0 && ll_declares_equality(&mono.dp.bc.mir.tc, d) {
+            return false
+        }
+        let l = self.lay(&var mono, &var target, t)
+        if l.kind == TargetKind.Int {
+            return true
+        }
+        if l.kind == TargetKind.Pointer {
+            return ll_raw_pointer(&mono.dp.bc.mir.tc, t)
+        }
+        if l.kind == TargetKind.Zero {
+            return true
+        }
+        if l.kind != TargetKind.Memory {
+            return false
+        }
+        if l.shape == TargetShape.Enum {
+            return target.payload_free(&var mono.dp.bc.mir.tc, t)
+        }
+        if l.shape == TargetShape.Flagged {
+            let payload = mono.dp.bc.mir.tc.types.arg(t, 0)
+            return self.comparable_bits(&var mono, &var target, payload, depth + 1)
+        }
+        if l.shape == TargetShape.Record {
+            let parts = self.record_parts(&var mono, t)
+            var k = 0
+            while k < parts.len() {
+                if not self.comparable_bits(&var mono, &var target, parts[k], depth + 1) {
+                    return false
+                }
+                k = k + 1
+            }
+            return true
+        }
+        false
+    }
+
+    // The member types of record type `t`: a tuple's elements, a struct's
+    // fields, in order.
+    func record_parts(&var self, mono: &var MonoProgram, t: Int) -> Vector<Int> {
+        var out = Vector<Int>()
+        let info = mono.dp.bc.mir.tc.types.ty(t)
+        if info.kind == TcKind.Tuple {
+            var k = 0
+            while k < info.count {
+                try! out.push(mono.dp.bc.mir.tc.types.arg(t, k))
+                k = k + 1
+            }
+            return move out
+        }
+        let d = mono.dp.bc.mir.tc.nominal_decl(t)
+        if d < 0 {
+            return move out
+        }
+        let fields = target_struct_fields(&mono.dp.bc.mir.tc, d)
+        var k = 0
+        while k < fields.len() {
+            let written = mono.dp.bc.mir.tc.sigs[fields[k]].result
+            try! out.push(target_member_type(&var mono.dp.bc.mir.tc, t, written))
+            k = k + 1
+        }
+        move out
+    }
+
+    // An `i1` saying whether the values of type `t` at `x` and `y` are equal,
+    // for a type `comparable_bits` accepts. An Optional's payloads are read
+    // only when both are present.
+    func equal_at(&var self, mono: &var MonoProgram, target: &var Target, x: String, y: String, t: Int,
+                  node: Int) -> String {
+        let l = self.lay_at(&var mono, &var target, t, node)
+        if l.kind == TargetKind.Zero {
+            return "true"
+        }
+        if l.kind == TargetKind.Int || l.kind == TargetKind.Pointer {
+            let ty = ll_value_type(&l)
+            let vx = self.load(ty, x)
+            let vy = self.load(ty, y)
+            return self.simple("icmp eq", ty, vx, vy)
+        }
+        if l.shape == TargetShape.Enum {
+            let tx = self.tag_of(&var mono, &var target, x, t, node)
+            let ty = self.tag_of(&var mono, &var target, y, t, node)
+            return self.simple("icmp eq", "i64", tx, ty)
+        }
+        if l.shape == TargetShape.Flagged {
+            let fx = self.tag_of(&var mono, &var target, x, t, node)
+            let fy = self.tag_of(&var mono, &var target, y, t, node)
+            let flags = self.simple("icmp eq", "i64", fx, fy)
+            let present = self.simple("icmp ne", "i64", fx, "0")
+            let answer = self.slot(1, 1)
+            self.store("i8", "0", answer)
+            let deeper = self.new_label("payloads")
+            let decided = self.new_label("decided")
+            let shallow = self.new_label("flags")
+            self.branch(flags, shallow, decided)
+            self.put_label(shallow)
+            let flag_byte = self.to_bool(flags)
+            self.store("i8", flag_byte, answer)
+            self.branch(present, deeper, decided)
+            self.put_label(deeper)
+            let some = target.present_case(&var mono.dp.bc.mir.tc, t)
+            let off = target.payload_offset(&var mono.dp.bc.mir.tc, t, some.decl, 0)
+            let px = self.offset_addr(x, off)
+            let py = self.offset_addr(y, off)
+            let payload = mono.dp.bc.mir.tc.types.arg(t, 0)
+            let inner = self.equal_at(&var mono, &var target, px, py, payload, node)
+            let inner_byte = self.to_bool(inner)
+            self.store("i8", inner_byte, answer)
+            self.jump(decided)
+            self.put_label(decided)
+            let byte = self.load("i8", answer)
+            return self.to_bit(byte)
+        }
+        let parts = self.record_parts(&var mono, t)
+        var all = "true"
+        var k = 0
+        while k < parts.len() {
+            let off = target.member_offset(&var mono.dp.bc.mir.tc, t, k)
+            let mx = self.offset_addr(x, off)
+            let my = self.offset_addr(y, off)
+            let one = self.equal_at(&var mono, &var target, mx, my, parts[k], node)
+            all = self.simple("and", "i1", all, one)
+            k = k + 1
+        }
+        all
     }
 
     // A comparison of Strings, through the String layer's roles mono made:
@@ -673,6 +845,21 @@ func ll_signed_min(bits: Int) -> String {
         try! out.append(0 - (1 << (bits - 1)))
     }
     out.build()
+}
+
+// Whether type declaration `d` declares an `Equatable` conformance, whose
+// equality is its own rather than its parts'.
+func ll_declares_equality(tc: &TcProgram, d: Int) -> Bool {
+    let equatable = tc.known.equatable
+    var k = 0
+    while k < tc.conformances.len() {
+        let c = tc.conformances[k]
+        if c.type_decl == d && c.trait_decl == equatable {
+            return true
+        }
+        k = k + 1
+    }
+    false
 }
 
 // Whether `t` is `UnsafePointer<T>` or `UnsafeConstPointer<T>`.

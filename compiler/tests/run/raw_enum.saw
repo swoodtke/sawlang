@@ -1,0 +1,72 @@
+// Raw-backed enums: each is its backing integer, its cases the values they
+// state, so a cast, a match and a switch read those values.
+
+enum Small: UInt8 {
+    case Zero = 0,
+    case Big = 200,
+    case Top = 255
+}
+
+enum Signed: Int8 {
+    case Low = -128,
+    case Minus = -1,
+    case Plus = 7
+}
+
+enum Wide: UInt16 {
+    case First = 1,
+    case Far = 40000
+}
+
+enum Huge: UInt64 {
+    case Max = 18446744073709551615,
+    case One = 1
+}
+
+struct Holder {
+    tag: Wide,
+    count: Int,
+    sign: Signed
+}
+
+func name_of(s: Small) -> String {
+    match s {
+        case Zero -> "zero",
+        case Big -> "big",
+        case Top -> "top"
+    }
+}
+
+func flip(s: Signed) -> Signed {
+    match s {
+        case Low -> Signed.Plus,
+        case Minus -> Signed.Low,
+        case Plus -> Signed.Minus
+    }
+}
+
+func pick(first: Bool) -> Wide? {
+    if first {
+        return Wide.First
+    }
+    Wide.Far
+}
+
+func main() {
+    let a = Small.Big
+    print("{} {} {}", (a as UInt8) as Int, (Small.Top as UInt8) as Int, name_of(a))
+    print(name_of(Small.Top))
+    let s = flip(Signed.Plus)
+    print("{} {}", (s as Int8) as Int, (flip(s) as Int8) as Int)
+    print((Signed.Low as Int8) as Int)
+    let h = Holder(tag: Wide.Far, count: 3, sign: Signed.Minus)
+    print("{} {} {}", (h.tag as UInt16) as Int, h.count, (h.sign as Int8) as Int)
+    if let w = pick(false) {
+        print((w as UInt16) as Int)
+    }
+    print((Huge.Max as UInt64) == 18446744073709551615)
+    print((Huge.One as UInt64) as Int)
+    print(sizeof<Small>())
+    print(sizeof<Holder>())
+    print(sizeof<Wide?>())
+}

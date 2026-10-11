@@ -1,9 +1,45 @@
-// due: an interpolation is an rvalue no stage lowers to the builder's calls yet
-// refuses: backend.not-yet at 7:16
-// String interpolation builds a heap String through the builder.
+// String interpolation builds a heap String through the builder: each part
+// renders through its `Printable.format`, a String, an integer, a field read
+// and a Printable value alike.
+struct Tag {
+    label: String
+    id: Int
+}
+
+extension Tag: Printable {
+    func format(&self, into: &var StringBuilder) {
+        try! into.append(self.label)
+        try! into.append("#")
+        try! into.append(value: self.id)
+    }
+}
+
+func describe(t: &Tag) -> String {
+    "tag {t} of {t.label.len()} letters"
+}
+
+func named(n: Int) -> String {
+    if n > 2 {
+        return "many"
+    }
+    "few"
+}
+
 func main() {
     let n = 42
     let who = "world"
     let line = "hello {who}, n = {n}"
     print(line)
+    let t = Tag(label: "alpha", id: -3)
+    print(describe(&t))
+    let empty = "{who}"
+    print(empty.len())
+    var total = 0
+    var k = 0
+    while k < 3 {
+        let piece = "{k}:{named(k)}"
+        total = total + piece.len()
+        k = k + 1
+    }
+    print(total)
 }

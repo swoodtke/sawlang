@@ -13,11 +13,21 @@ import sawmono.program.{MONO_KEY_COPY, MonoProgram}
 import sawresolve.dump.{res_sort_strings}
 import sawresolve.program.{ResProgram}
 import sawtarget.layout.{Target, TargetKind, TargetLayout, target_struct_fields}
+import sawtypecheck.arith.{tc_arith_max, tc_arith_min}
 import sawtypecheck.checks.{tc_check_unsafe}
 import sawtypecheck.program.{TcProgram}
 import sawtypecheck.spell.{tc_effects_text}
 import sawtypecheck.typeops.{TcClient}
 import sawtypecheck.types.{TcKind}
+
+// The integer type an enum's or an Optional's tag is stored as, layout `l`'s
+// tag width: Optional's flag byte, an enum's `Int32`, a raw backing's own.
+public func ll_tag_type(l: &TargetLayout) -> String {
+    var out = StringBuilder()
+    try! out.append("i")
+    try! out.append(l.tag_bytes * 8)
+    out.build()
+}
 
 // The address of MIR local `l`'s slot.
 public func ll_local_slot(l: Int) -> String {
@@ -111,9 +121,9 @@ extension LlEmitter {
     public func tag_of(&var self, mono: &var MonoProgram, target: &var Target, addr: String, t: Int,
                        node: Int) -> String {
         let l = self.lay_at(&var mono, &var target, t, node)
-        var ty = "i32"
-        if l.tag_bytes == 1 {
-            ty = "i8"
+        let ty = ll_tag_type(&l)
+        if ty.equals("i64") {
+            return self.load(ty, addr)
         }
         let raw = self.load(ty, addr)
         var widen = StringBuilder()
@@ -222,6 +232,19 @@ extension LlEmitter {
             }
             return "0"
         }
+        if op.const_kind == MirConstKind.Builtin && l.kind == TargetKind.Int && mono.dp.bc.mir.tc.is_integer(op.ty) {
+            // `T.max` and `T.min`: the bound of the constant's own type.
+            let signed = not mono.dp.bc.mir.tc.is_unsigned(op.ty)
+            var bound = StringBuilder()
+            if ll_ends_with(&text, ".max") {
+                try! bound.append(ll_fit_signed(tc_arith_max(l.bits, signed), l.bits))
+                return bound.build()
+            }
+            if ll_ends_with(&text, ".min") {
+                try! bound.append(ll_fit_signed(tc_arith_min(l.bits, signed), l.bits))
+                return bound.build()
+            }
+        }
         let at = ll_constant_site(&mono, node, text)
         var msg = StringBuilder()
         if op.const_kind == MirConstKind.Float {
@@ -320,6 +343,23 @@ extension LlEmitter {
         try! line.append(")")
         self.put(line.build())
     }
+}
+
+// Whether `text` ends in `suffix`.
+func ll_ends_with(text: &String, suffix: String) -> Bool {
+    let n = text.len()
+    let m = suffix.len()
+    if m > n {
+        return false
+    }
+    var k = 0
+    while k < m {
+        if text.byte_at(n - m + k) != suffix.byte_at(k) {
+            return false
+        }
+        k = k + 1
+    }
+    true
 }
 
 // Where a constant spelled `text` is written inside the statement at `node`:

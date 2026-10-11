@@ -4,9 +4,10 @@
 // backend. The rules are Stage 0's, which shares the runtime ABI with sawc2:
 // primitives at their natural size, references and raw pointers one word,
 // structs and tuples in declaration order with natural alignment, `Optional`
-// as a one-byte flag before its payload, every other enum (`Result` included)
-// as an `Int32` tag before its cases' payloads overlaid, and a function value
-// as a code pointer beside an environment pointer.
+// as a one-byte flag before its payload, a raw-backed enum as its backing
+// integer, every other enum (`Result` included) as an `Int32` tag before its
+// cases' payloads overlaid, and a function value as a code pointer beside an
+// environment pointer.
 
 import sawresolve.model.{ResDeclKind}
 import sawresolve.program.{ResProgram}
@@ -89,6 +90,11 @@ public struct Target {
     offsets: Vector<Int>
     cases: Vector<TargetCase>
     reasons: Vector<String>
+    // By case declaration: a raw-backed case's evaluated value, and whether
+    // one was given. The evaluator computes them, so its caller hands them
+    // over before any layout is asked for (`set_case_value`).
+    case_values: Vector<Int>
+    case_valued: Vector<Bool>
 }
 
 extension Target: NoCopy {}
@@ -121,7 +127,8 @@ public func target_known(triple: String) -> Bool {
 // triple it knows is LP64.
 public func target_named(triple: String) -> Target {
     Target(triple: triple, word: 8, layouts: Vector<TargetLayout>(), states: Vector<Int>(), offsets: Vector<Int>(),
-           cases: Vector<TargetCase>(), reasons: Vector<String>())
+           cases: Vector<TargetCase>(), reasons: Vector<String>(), case_values: Vector<Int>(),
+           case_valued: Vector<Bool>())
 }
 
 func target_align_up(n: Int, align: Int) -> Int {
@@ -151,6 +158,7 @@ extension Target {
     // ENTRY POINTS:
     //     member_offset
     //     case_of
+    //     payload_free
     //     present_case
     //     payload_offset
     //     c_class
@@ -293,8 +301,9 @@ extension Target {
             return self.record(&var tc, &members)
         }
         if decl.kind == ResDeclKind.Enum {
-            if tc.sigs[d].result >= 0 {
-                return self.unsupported("a raw-backed enum")
+            let backing = tc.sigs[d].result
+            if backing >= 0 {
+                return self.raw_backed(&var tc, t, backing)
             }
             return self.tagged(&var tc, t)
         }
@@ -361,6 +370,55 @@ extension Target {
         }
         let base = target_align_up(tag, payload_align)
         self.laid_cases(&var tc, t, &cases, tag, base, payload_align)
+    }
+
+    // A raw-backed enum IS its backing integer (design 145): the backing's
+    // size, alignment and width, each case's tag the value its declaration
+    // states, held as the backing's bits read unsigned so a switch's widened
+    // tag compares equal to it.
+    func raw_backed(&var self, tc: &var TcProgram, t: Int, backing: Int) -> TargetLayout {
+        let b = self.layout(&var tc, backing)
+        if b.kind != TargetKind.Int {
+            return self.unsupported("a raw-backed enum whose backing is not an integer")
+        }
+        let d = tc.types.ty(t).decl
+        let cases = target_enum_cases(&tc, d)
+        var laid = Vector<TargetCase>()
+        var k = 0
+        while k < cases.len() {
+            let c = cases[k]
+            if c >= self.case_valued.len() || not self.case_valued[c] {
+                return self.unsupported("a raw-backed case whose value was not evaluated")
+            }
+            var tag = self.case_values[c]
+            if b.bits < 64 {
+                tag = tag & ((1 << b.bits) - 1)
+            }
+            try! laid.push(TargetCase(decl: c, tag: tag, first: self.offsets.len(), count: 0))
+            k = k + 1
+        }
+        var l = b
+        l.shape = TargetShape.Enum
+        l.tag_bytes = b.size
+        l.first = self.cases.len()
+        l.count = laid.len()
+        k = 0
+        while k < laid.len() {
+            try! self.cases.push(laid[k])
+            k = k + 1
+        }
+        l
+    }
+
+    // Records raw-backed case `decl`'s evaluated value, which its enum's
+    // layout reads; given before the first layout is asked for.
+    public func set_case_value(&var self, decl: Int, value: Int) {
+        while self.case_values.len() <= decl {
+            try! self.case_values.push(0)
+            try! self.case_valued.push(false)
+        }
+        self.case_values[decl] = value
+        self.case_valued[decl] = true
     }
 
     // `Optional<T>`: a one-byte presence flag at 0 (`Some` 1, `None` 0), then
@@ -460,6 +518,22 @@ extension Target {
             }
         }
         TargetCase(decl: -1, tag: -1, first: 0, count: 0)
+    }
+
+    // Whether enum type `t` is laid out with no case carrying a payload.
+    public func payload_free(&var self, tc: &var TcProgram, t: Int) -> Bool {
+        let l = self.layout(&var tc, t)
+        if l.shape != TargetShape.Enum {
+            return false
+        }
+        var k = 0
+        while k < l.count {
+            if self.cases[l.first + k].count > 0 {
+                return false
+            }
+            k = k + 1
+        }
+        true
     }
 
     // The case of Optional type `t` whose flag says present, or one with
