@@ -845,7 +845,7 @@ sawc2 searches the importing file's own directory, then its package root, and no
 
 **Shape (silent: an uninitialised or double drop, a hang, or a leak):** Stage 0 drops a temporary made on an operand that only some paths evaluate at the end of its statement, with no flag:
 - **`??`'s right side** (`maybe(k) ?? mk(30 + k).val()`): when the left is present, the never-made temporary is dropped from garbage; when it is absent, the temporary drops twice;
-- **a BARE value-`match` arm** (`case _ -> mk(80 + k).val()`): a garbage drop on a pass that takes another arm. With a `Vector` temporary, Stage 0 HANGS. Both block-arm spellings (`case _ -> { … }`) drop correctly;
+- **a BARE value-`match` arm** (`case _ -> mk(80 + k).val()`): a garbage drop on a pass that takes another arm. On a pass that TAKES the arm, Stage 0 still drops its temporary at statement end, so the drop ORDER differs from sawc2's arm-end rule (D42) too. An index into a call's result (`case Made -> fields(k)[1]`, a `Vector` temporary) makes Stage 0 ABORT (SIGABRT) on the other arm's pass. With a `Vector` temporary, Stage 0 HANGS. Both block-arm spellings (`case _ -> { … }`) drop correctly;
 - **a plain `match` guard** (`case j if mk(20 + j).ok() ->`): a garbage drop on a pass an earlier arm takes;
 - **the right side of `&&` in a `while` condition**: the temporary is never dropped, a leak.
 
