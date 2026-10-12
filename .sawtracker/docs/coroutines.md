@@ -914,7 +914,13 @@ For comparison, the lead's guide (SL-545 c2) was 3 weeks for the core, 3–5 day
 
 ## 5. Open questions for the user
 
-Q1–Q7 (Q2 in two parts) are fundamental, and each one goes to SL:open-questions with its recommendation. Q1–Q6 belong to phase C, so phases A and B do not wait on them. Q7 is needed by A12a. Under them is the list of reversible choices the plan has already made.
+**RULED by the user (Oct 12):**
+- **Q1:** opt-in, as the effect-slot word `frame_alloc` (`func walk(n: &Node) frame_alloc -> Int`). Read `indirect` below as `frame_alloc`.
+- **Q2a:** (a), a panic under the existing boundary.
+- **Q2b:** (i), accepted under `--no-hidden-alloc`, PLUS a separate flag. The lead spelled it `--no-frame-alloc` (a refusal), with a `-W frame-alloc` warning category beside it (unit C4).
+- **Q3, Q4, Q5, Q6 and Q7:** (a), (a), (b), (a) and (a), each as recommended.
+
+The options and reasoning below are kept as the record. Q1–Q6 belong to phase C, so phases A and B do not wait on them; Q7 is needed by A12a.
 
 ### Q1. Heap frames: opt-in or automatic, and how is it spelled?
 Today a cycle in the suspending-call graph is refused, since it has no finite frame.
