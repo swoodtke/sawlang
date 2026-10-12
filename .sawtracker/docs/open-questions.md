@@ -455,6 +455,14 @@ Correction: the lead first wrote "B", which is not a §12 code. The SL-426 agent
 
 ## Resolved
 
+### Q-noalias. A live `&var` borrow is exclusive against unsafe code too, and codegen assumes it (Oct 12; the USER's ruling; SL-592)
+While a `&var` borrow of a place is live, reading or writing that place through a raw pointer that did not come from the borrow is outside the language's guarantees. This matches Saw's unsafe model: an unsafe function with all-safe parameters must be sound for every input, so the unsafe author carries the obligation. Stage 0 already emits `noalias` on `&var self`, so this is today's behaviour, made explicit. **Consequences:**
+- sawc2 emits `noalias` on every `&var` parameter (SL-592);
+- shared `&` parameters get it only where the pointee is not cell-carrying, as the spec's cell-carrying section already says;
+- raw pointers get nothing.
+
+The spec gains the sentence in Reference passing and in the unsafe section, in SL-592's patch. The Air's SL-591 profile found that this alone takes Stage 2's self-compile from 1.045× to 0.982× of Stage 1.
+
 ### Q-coro1 to Q-coro7. The coroutine plan's questions (Oct 12; the USER's rulings; SL-545, SL:coroutines §5)
 | | question | ruling |
 |---|---|---|
