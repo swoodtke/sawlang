@@ -916,7 +916,7 @@ For comparison, the lead's guide (SL-545 c2) was 3 weeks for the core, 3–5 day
 The plan holds except where an amendment below says otherwise. Each one is the lead's reversible ruling on an implementing agent's stop, recorded on the units it touches.
 
 - **A2 (SL-553 c3):**
-  - its sync-context pin is the 8 tests its vocabulary reaches;
+  - its sync-context pin is the tests its vocabulary reaches (see the next entry);
   - its files gain `compiler/typecheck/src/lang.saw`, `compiler/tools/subset_check.py` and a `compiler/tests/std/subset/` fixture;
   - the park intrinsics are role-bound std declarations in `std/task.saw`;
   - `cancelled()` does NOT park, as in Stage 0: it reads `__saw_cancel_requested() -> Bool` (body `false`), which A9 lowers inside frames.
