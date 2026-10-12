@@ -12,7 +12,9 @@ Probes cited as `.build/scratch/coroplan/...` live in the planning worktree (`.c
 
 ## 1. Scope and non-goals
 
-**"sawc2 coroutines done" means:** every program in `tests/corpus/` that Stage 0 compiles into a coroutine builds with sawc2 and behaves as its `EXPECT` directives say. "A coroutine" here means one or more framed functions in Stage 0's frame ledger (`--emit-frame-ledger`); §3.2's census counts 490 such programs and 93 coroutine refusal tests. **Every language refusal Stage 0 makes is matched:** the same programs are refused, under a sawc2 rule ID, with a message that names the same limit. Stage 0's *implementation limits* (the spec's "Not yet supported" list) are lifted, since MIR lowering has nothing to refuse there (§3.3). The mechanism is SL:architecture §3.9's, not Stage 0's:
+**"sawc2 coroutines done" means:** every program in `tests/corpus/` that Stage 0 compiles into a coroutine builds with sawc2 and behaves as its `EXPECT` directives say. That target has two levels (settled in t1):
+- **Plan-complete, which closes SL-545:** the 490 minus a *gated* list, the programs that also need a std port this plan leaves out (`std.net` past A12b's slice, `Arc`, `Map`, `json`, `mutex`, `directory`, …). The census lane (A0b) generates that list from each program's missing names, so it cannot drift. The plan's last check is the census green over the plan-complete set.
+- **Fully done:** each gated program flips when its port lands, tracked by that port's issue, not by SL-545. "A coroutine" here means one or more framed functions in Stage 0's frame ledger (`--emit-frame-ledger`); §3.2's census counts 490 such programs and 93 coroutine refusal tests. **Every language refusal Stage 0 makes is matched:** the same programs are refused, under a sawc2 rule ID, with a message that names the same limit. Stage 0's *implementation limits* (the spec's "Not yet supported" list) are lifted, since MIR lowering has nothing to refuse there (§3.3). The mechanism is SL:architecture §3.9's, not Stage 0's:
 - a post-mono *definitely suspends* fixpoint;
 - by-value frames, packed by storage lifetime;
 - teardown keyed by state;
@@ -203,7 +205,7 @@ This is the shape every unit in §4 builds toward. Where it fixes a detail §3.9
   - `cancelled()` reads the cancel word through `cx`;
   - control leaves through ordinary MIR edges, whose drops and `window_close`s are already there.
 
-  So §3.9's "cancel path at each state" is these ordinary edges, and the verifier checks that what they drop at each state is exactly that state's live set. The one frame-level teardown left is a result nobody took, which the task's cell owns (design 134). **For the Air:** this reading leaves no forced-destroy entry. If one is wanted (an abandoned frame, a test driver that stops early), it is generated from the same per-state live sets, as a second consumer of the same data.
+  So §3.9's "cancel path at each state" is these ordinary edges, and the verifier checks that what they drop at each state is exactly that state's live set. The one frame-level teardown left is a result nobody took, which the task's cell owns (design 134). **Settled with the Air (t3):** this reading leaves no forced-destroy entry (see the next bullets). If one is ever wanted, it is generated from the same per-state live sets, as a second consumer of the same data.
 - **Driving a child**, at a suspending call `x = g(args)`:
   1. the arguments are written into the child's parameter slots and its state is set to 0;
   2. a drive block calls `resume_g(&frame.slot_g, cx)`;
@@ -219,6 +221,15 @@ This is the shape every unit in §4 builds toward. Where it fixes a detail §3.9
   - A charge-only point decrements and never parks.
   - Every point in an unframed item is deleted.
 - **Joining drives the scheduler; it is not a suspension.** That matches Stage 0, where `Task.join` drives the ambient scheduler on the calling thread and a joining `main` is not framed (`std/taskgroup.saw` `join`; probe `stage0/p3_dump.saw`).
+  - **The invariant that makes this sound** (t2): a join inside a task runs the scheduler *re-entrantly*. A task joins a task, and a nested group's `Deinit` drives its members. **A nested drive never resumes a frame that is active on the C stack.** On a `threads: N` group, `active` is claimed and cleared under the queue lock.
+  - Stage 0 enforces it by skipping every `active` frame in the sweep (`sawc/std/taskgroup.saw`, "Reentrancy-safe"). Without the skip, a nested sweep resumes a frame whose own `resume` is further up the stack and corrupts its state.
+  - This is a runtime property of the executor, invisible to the MIR verifier. So it is pinned, at A8a, by `taskgroup_nested_groups` (expects `124`), and A7b ports the skip.
+- **Every frame leaves through its own code** (t3). The cases that could have wanted a forced destroy were each checked:
+  - `__saw_drive_steps` drives to completion, counting `Pending`s (`coro_discarded_tail_move_cross_module`);
+  - program exit is cancel, then join;
+  - a panic aborts.
+
+  A7b makes it a checked invariant: the executor releases a task box only after its root has returned `Ready`, so a future early-stopping driver fails loudly instead of leaking a frame's live values.
 
 ### 3.2 The census: which corpus programs need coroutines
 
@@ -335,7 +346,7 @@ The matrix stays, as the **test plan**: each row is a lowering claim plus the St
 - a multi-hop `?.` assignment with a suspending right side;
 - a suspending `try { } catch { }` raising two error types (`coro_try_block_two_error_types`, which is already `refuses:`-pinned).
 
-**For the Air:** this is a "language changed" annotation under SL:architecture §5, and the spec's list shrinks with it. The decision is reversible; if lifting is wrong, sawc2 refuses the same four.
+**Settled with the Air (t5):** this is a "language changed" annotation under SL:architecture §5, and the spec's list shrinks in the same unit (A6). The decision is reversible: if lifting is wrong, sawc2 refuses the same four. **These four pins have no behavioural oracle,** since Stage 0 refuses them. Each expected output is derived from the spec by hand, marked `spec-derived expectation (no oracle)` in its file, and reviewed as part of A6's review, the way an "oracle known wrong" entry is adjudicated.
 
 **Spawn, drive and park forms:**
 
@@ -361,7 +372,7 @@ The matrix stays, as the **test plan**: each row is a lowering claim plus the St
 | fd readiness (`io_wait`) | record `-1`, then register through the executor funnel | can run | `net_precise_wakeup` | A12 |
 | io-budget yield (design 89-c) | std's `__saw_rt_op_budget_tick` then `yield_now`; no compiler part | runnable | `net_budget_fairness` | A12b |
 | channel wait | record the channel's readiness-word address | **parked**: the only state the walk counts | `conformance/K63_channel_wait_is_a_park`, `conformance/K67_quiescent_channel_deadlock_is_reported` | A13 |
-| offload job | an fd park on the job's pipe; take (join) before leaving, cancelled or not | can run | `offload_seam_first_tick` | A14 |
+| offload job | an fd park on the job's pipe; take (join) before leaving, cancelled or not. Spec, offload "Cancellation": a cancelled task waits for its C call, and its frame keeps the call's storage until the join (t4; risk R6) | can run | `offload_seam_first_tick`, plus A14's cancel-during-call pin | A14 |
 | signal watch | an fd park inside `SignalWatch.next` | can run (it counts as I/O) | `conformance/K98_signal_wakes_a_parked_watcher` | A15 |
 
 **Language refusals Stage 0 makes and sawc2 matches:**
