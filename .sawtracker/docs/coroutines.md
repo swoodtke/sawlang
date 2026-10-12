@@ -912,6 +912,19 @@ None of these puts two agents on one file.
 
 For comparison, the lead's guide (SL-545 c2) was 3 weeks for the core, 3–5 days for the overlay and 1–1.5 weeks for heap frames. The core comes out larger mostly because about 13 of phase A's 31.5 days are std porting that Stage 0 already had: the executor, `TaskGroup`, timers, the fd park, `std.net`'s slice, channels, the deadlock walk, offload's executor half, signals, the dump and the thread pool (the std track's units). The compiler part alone, about 18.5 days, is close to the guide.
 
+### Amendments during implementation
+The plan holds except where an amendment below says otherwise. Each one is the lead's reversible ruling on an implementing agent's stop, recorded on the units it touches.
+
+- **A2 (SL-553 c3):**
+  - its sync-context pin is the 8 tests its vocabulary reaches;
+  - its files gain `compiler/typecheck/src/lang.saw`, `compiler/tools/subset_check.py` and a `compiler/tests/std/subset/` fixture;
+  - the park intrinsics are role-bound std declarations in `std/task.saw`;
+  - `cancelled()` does NOT park, as in Stage 0: it reads `__saw_cancel_requested() -> Bool` (body `false`), which A9 lowers inside frames.
+- **A4 (SL-557):** the intrinsic list gains `__saw_test_suspend` (design 22, with Stage 0's meaning), and it takes the 15 sync-context tests that call it or `__saw_suspend`.
+- **A18 (SL-580):** takes K83 and K112, and settles `runtime_build_suspending_body_error`'s bare `yield_now`.
+- **A6 (SL-559) and A12b (SL-570), from A0b's census (SL-551):** the pins that need `Vector.iter`, `Map`, `std.mutex` or `Arc` stay gated, and the same shapes are pinned with the plan's vocabulary.
+- **A0b:** the census hook in `compiler/tests/run.py` lands with A0b.
+
 ## 5. Open questions for the user
 
 **RULED by the user (Oct 12):**
