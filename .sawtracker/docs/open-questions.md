@@ -29,6 +29,9 @@ O1 to O3 are decided as D31 to D33.
 
 ## Decided by the lead, for review (reversible)
 
+### D42. A temporary on a conditionally evaluated operand dies at the end of that operand (Oct 12; SL-508, agent fe3)
+A temporary made on an operand that only some paths evaluate cannot be dropped at the end of its statement without a runtime drop flag. That covers the right side or a middle operand of `&&`/`||`, and every `??` operand after the first. sawc2 did exactly that, and the MIR verifier rightly flagged a double drop in a loop. **Decided:** such an operand is its own temporary scope, so its temporaries die when the operand completes, before any later temporary of the statement exists. That is Stage 0's behaviour (the run lane's oracle), Rust's (a lazy boolean operand is a temporary scope), and the principle of the user's ruling SL-513 (B): a part dies when the construct that took it completes. It needs no drop flags; the flagged drops over sawc2's own build go from 10 to 1. The spec gains a sentence where it states a temporary's lifetime, and SL:architecture §3.7's "Temporaries are dropped at the end of their statement" gains the exception. **Reversal:** statement-end drop with a runtime flag per conditional temporary. **Flagged for the user's morning review:** this is a timing refinement.
+
 ### D38. The new std's `Atomic<T>` wraps `UnsafeMutableInterior<T>`; `Atomic(<int>)` folds as a constant through a lang role (Oct 11; U7c M2 census, SL-522)
 The spec already rules the surface:
 - `Atomic(<int>)` is a tier-2 constant initializer for a static (Statics, "Const-initialized only");
