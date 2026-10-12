@@ -34,7 +34,8 @@ profile, the lang-item table, and the API equivalence of the two stds.
 - each `mir/NAME.mir` holds its functions' MIR as sawc2 lowers them against
   `std/`, and String's retain and release read the count with a relaxed
   atomic load and compare it with the immortal sentinel before any atomic
-  read-modify-write;
+  read-modify-write, and `Data.spare`, past its relaxed sole-owner test,
+  issues an acquire fence before it returns the bytes;
 - each `cone/` program's new-std cone (compiler/tools/std_cone.py) equals
   `NAME.cone`; `optional_result`'s and `literal_only`'s hold no runtime module,
   nothing of `std.alloc` and no task module, `interpolation`'s reaches the
@@ -117,6 +118,10 @@ REFCOUNT_HOOKS = ("fn std.string.String.copy()", "fn std.string.String.deinit()"
 SENTINEL = "static std.string.IMMORTAL"
 RELAXED_LOAD = "call builtin __saw_atomic_load_i64_relaxed"
 ATOMIC_RMW = ("call builtin __saw_atomic_add_i64", "call builtin __saw_atomic_sub_i64_release")
+# Data's uniqueness gate, which tests the count with a relaxed load and must
+# then issue an acquire fence before it hands out the bytes for writing.
+UNIQUENESS_GATES = ("fn std.data.Data.spare()",)
+ACQUIRE_FENCE = "call builtin __saw_atomic_fence_acquire"
 _MARKER = re.compile(r"//\s*refuses:\s*(.+)$")
 _EXPECT_PANIC = re.compile(r"^//\s*expect-panic:\s*(.+)$")
 _ARGUMENTS = re.compile(r"^//\s*arguments:\s*(.+)$")
@@ -801,11 +806,7 @@ def refcount_order_problem(body):
     immortal, or None. The entry block must end in the relaxed load and hold
     no read-modify-write, and the block the load returns to must compare the
     count with the sentinel: then every read-modify-write lies past both."""
-    blocks = {}
-    marks = list(_BLOCK.finditer(body))
-    for i, m in enumerate(marks):
-        end = marks[i + 1].start() if i + 1 < len(marks) else len(body)
-        blocks[m.group(1)] = body[m.end():end]
+    blocks = blocks_of(body)
     entry = blocks.get("bb0", "")
     if any(op in entry for op in ATOMIC_RMW):
         return "performs an atomic read-modify-write in its entry block"
@@ -820,6 +821,46 @@ def refcount_order_problem(body):
     return None
 
 
+_SWITCH_FALSE = re.compile(r"switch move _\d+ -> \[true: bb\d+, false: (bb\d+)\]")
+_ONE_SUCCESSOR = re.compile(r"(?:goto -> |-> \[return: )(bb\d+)")
+
+
+def uniqueness_order_problem(body):
+    """Why a uniqueness gate's MIR may hand out its bytes before an acquire
+    fence, or None. The block the relaxed load returns to tests the count, and
+    the path its test's false arm takes, the sole-owner path, must reach the
+    fence before it can return."""
+    blocks = blocks_of(body)
+    loads = [name for name, text in blocks.items() if RELAXED_LOAD in text]
+    if len(loads) != 1:
+        return "does not read the count with exactly one relaxed atomic load"
+    after = _RETURN_TO.search(blocks[loads[0]][blocks[loads[0]].find(RELAXED_LOAD):])
+    test = _SWITCH_FALSE.search(blocks.get(after.group(1), "")) if after else None
+    if test is None:
+        return "does not branch on the loaded count next"
+    current, seen = test.group(1), set()
+    while current not in seen:
+        seen.add(current)
+        text = blocks.get(current, "")
+        if ACQUIRE_FENCE in text:
+            return None
+        step = _ONE_SUCCESSOR.search(text)
+        if step is None:
+            break
+        current = step.group(1)
+    return "reaches its return on the sole-owner path with no acquire fence"
+
+
+def blocks_of(body):
+    """{block name: its text} of one function's MIR."""
+    blocks = {}
+    marks = list(_BLOCK.finditer(body))
+    for i, m in enumerate(marks):
+        end = marks[i + 1].start() if i + 1 < len(marks) else len(body)
+        blocks[m.group(1)] = body[m.end():end]
+    return blocks
+
+
 def check_mir_pins(failures, counts, write):
     _, dump = sawc2("mir", "--dump", "--std-root", NEW_ROOT, rel(ENTRY))
     functions = mir_functions(dump)
@@ -832,6 +873,15 @@ def check_mir_pins(failures, counts, write):
         if problem:
             failures.append("std mir: `%s` %s, so a literal's block could be written"
                             % (header, problem))
+    for header in UNIQUENESS_GATES:
+        found = [text for line, text in functions.items() if line.startswith(header + " ")]
+        if len(found) != 1:
+            failures.append("std mir: no single `%s` in the new std's MIR" % header)
+            continue
+        problem = uniqueness_order_problem(found[0])
+        if problem:
+            failures.append("std mir: `%s` %s, so its writes could race a released "
+                            "copy's reads" % (header, problem))
     for path in sorted(glob.glob(os.path.join(MIR, "*.mir"))):
         header, names, expected = pin_parts(path)
         got = pinned_text(functions, names)

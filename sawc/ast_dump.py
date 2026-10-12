@@ -1142,6 +1142,12 @@ class ASTDumper:
                 return (f"[{self._expr_summary(expr.elements[0])}; "
                         f"{self._expr_summary(expr.repeat_count)}]")
             return f"[{len(expr.elements)} elements]"
+        elif isinstance(expr, TupleLiteral):
+            # A named tuple's labels are part of its type, so the summary keeps
+            # them: by arity alone it would read as a positional tuple.
+            if expr.field_names:
+                return f"({len(expr.elements)} elements: {', '.join(expr.field_names)})"
+            return f"({len(expr.elements)} elements)"
         elif isinstance(expr, UnaryOp):
             return f"{expr.op}{self._expr_summary(expr.operand)}"
         elif isinstance(expr, BinaryOp):

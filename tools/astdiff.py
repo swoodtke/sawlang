@@ -50,8 +50,7 @@ NEW_COMPILER_CORPORA = ("tests/corpus/", "compiler/tests/parse/")
 def owned_elsewhere(path: str) -> bool:
     """Whether the file is the new compiler's input rather than the frozen
     parser's: both corpora are written in the syntax GRAMMAR.md rules, which
-    this parser never learns, and the grammar lanes check them. The parse
-    corpus's nesting-depth cases also overflow this parser's recursion."""
+    this parser never learns, and the grammar lanes check them."""
     return path.startswith(NEW_COMPILER_CORPORA)
 
 

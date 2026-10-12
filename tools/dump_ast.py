@@ -32,6 +32,12 @@ from ast_dump import ASTDumper     # noqa: E402
 
 _ERR_RE = re.compile(r"at (\d+):(\d+): (.*)", re.DOTALL)
 
+# The parser has no depth limit of its own and descends its whole precedence
+# ladder, about sixteen frames, per level of nesting. GRAMMAR.md caps nesting at
+# 256 levels and its refusal fixtures nest just past the cap, so this limit, good
+# for over a thousand levels, lets every such file dump instead of crashing.
+RECURSION_LIMIT = 20000
+
 
 def dump(path: str, ids: bool = False):
     """(records, exit_code). One record per output line."""
@@ -73,6 +79,7 @@ def main():
     if not args:
         sys.stderr.write("usage: dump_ast.py [--ids] <file.saw>\n")
         sys.exit(2)
+    sys.setrecursionlimit(RECURSION_LIMIT)
     records, code = dump(args[0], ids=ids)
     data = b"\n".join(records) + (b"\n" if records else b"")
     sys.stdout.buffer.write(data)

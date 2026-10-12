@@ -1,0 +1,64 @@
+// Data's uniqueness gate as sawc2 lowers it against std/. It tests that the
+// block's count is 1 with a relaxed load, then issues an acquire fence before
+// it returns a pointer for writing, so the reads a released copy made of the
+// bytes happen-before the sole owner's writes, as `Arc::get_mut`'s acquire
+// load orders them in Rust.
+// function: fn std.data.Data.spare()
+fn std.data.Data.spare() -> UnsafePointer<Int8> {
+    let _0: UnsafePointer<Int8>;  // return
+    let _1: &var std.data.Data;  // self
+    let _2: UnsafePointer<Int8>;  // block
+    let _3: UnsafePointer<Int>;
+    let _4: Int;
+    let _5: Bool;
+    let _6: UnsafePointer<Int8>;
+    let _7: Int;
+    let _8: &Int8;
+    let _9: UnsafePointer<Int8>;
+
+    bb0: {
+        switch discriminant((*_1).block) -> [Some: bb1, None: bb2];
+    }
+
+    bb1: {
+        _2 = copy ((*_1).block as Some).0;
+        _3 = call std.data.data_refcount(block: UnsafePointer<Int8>) [copy _2] -> [return: bb4];
+    }
+
+    bb2: {
+        call builtin panic [const "Data.spare: no block": String] -> !;
+    }
+
+    bb3: {
+        call builtin __saw_atomic_fence_acquire [] -> [return: bb8];
+    }
+
+    bb4: {
+        _4 = call builtin __saw_atomic_load_i64_relaxed [move _3] -> [return: bb5];
+    }
+
+    bb5: {
+        _5 = Ne(copy _4, const 1: Int);
+        switch move _5 -> [true: bb6, false: bb7];
+    }
+
+    bb6: {
+        call builtin panic [const "Data.spare: the block is shared": String] -> !;
+    }
+
+    bb7: {
+        goto -> bb3;
+    }
+
+    bb8: {
+        _6 = call std.data.data_bytes(block: UnsafePointer<Int8>) [copy _2] -> [return: bb9];
+    }
+
+    bb9: {
+        _7 = copy (*_1).length;
+        _8 = ref(shared, _6[_7]);
+        _9 = cast(move _8 as UnsafePointer<Int8>);
+        _0 = move _9;
+        return;
+    }
+}

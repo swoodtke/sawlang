@@ -94,7 +94,12 @@ extension File {
         File(descriptor: fd)
     }
 
-    /// Reads the rest of the file, from the current position to its end.
+    /// Reads the rest of the file, from the current position up to the length
+    /// lseek(2) reports when the read begins.
+    ///
+    /// A file that grows during the read is cut at that length, and the bytes
+    /// written past it are left for a later `read`. A pipe or FIFO has no
+    /// length to report, so reading one is the `Err` of its lseek(2).
     ///
     /// An empty `Ok` means nothing was left. Returns `Err(SystemError)` with
     /// the cause of a failing lseek(2) or read(2); `UnexpectedEnd` when the

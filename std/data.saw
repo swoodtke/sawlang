@@ -73,6 +73,11 @@ extension Data {
         if __saw_atomic_load_i64_relaxed(data_refcount(block)) != 1 {
             panic("Data.spare: the block is shared")
         }
+        // A count of 1 can follow another thread's release of its copy, whose
+        // reads of these bytes must happen-before our writes. The relaxed load
+        // orders nothing, so this fence pairs with that release's subtract, as
+        // the last owner's fence in `deinit` does.
+        __saw_atomic_fence_acquire()
         (&data_bytes(block)[self.length]) as UnsafePointer<Int8>
     }
 
