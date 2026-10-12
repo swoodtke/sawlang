@@ -799,12 +799,17 @@ Pins are named by their `tests/corpus/` program: each becomes a run-lane copy co
 - **Estimate:** 1.5.
 
 **B3. The verifier's no-intersecting-lifetimes check.**
-- **Scope:** recompute storage lifetimes *from the lowered MIR's frame-slot accesses*, not from B1's sets, over parked states and the resume transitions. Then check that no two values sharing bytes intersect.
+- **Scope:**
+  - **The static check:** recompute storage lifetimes *from the lowered MIR's frame-slot accesses*, not from B1's sets, over parked states and the resume transitions. Then check that no two values sharing bytes intersect.
+  - **Its dynamic twin** (t10, risk R2): a sawc2 sanitize flag that stamps `sanitize_address` on every function, plus, under it, `__asan_unpoison_memory_region` / `__asan_poison_memory_region` on each frame value's slot where its storage lifetime starts and ends. The run lane builds the coroutine programs once with it.
 - **Depends on:** B2.
-- **Files:** `compiler/coro/src/verify.saw`, `compiler/tests/coro/inject/`.
-- **Pins:** an injection that forces two interfering values onto one offset fails, naming both, the point and the state; another that moves a drop past the end of its lifetime fails.
-- **Done when:** both injections fail as described, and the corpus verifies clean.
-- **Estimate:** 1.
+- **Files:** `compiler/coro/src/{verify,lower}.saw`, `compiler/llvm/src/module.saw` and `compiler/driver/src/main.saw` (the flag), `compiler/tests/coro/inject/`, `compiler/tests/run/`.
+- **Pins:**
+  - an injection that forces two interfering values onto one offset fails, naming both, the point and the state;
+  - another that moves a drop past the end of its lifetime fails;
+  - the same overlap injected at run time is reported by ASan at the access, and the clean corpus reports nothing.
+- **Done when:** all three fail as described, and the corpus is clean both ways.
+- **Estimate:** 1.5.
 
 **B4. Frame sizes against Stage 0.**
 - **Scope:** a lane over every corpus frame: sawc2's extent against Stage 0's snapshot. It fails on a frame larger than Stage 0's unless an exception with a reason is recorded (such as a resident value Stage 0 got wrong), and it reports the total saving.
@@ -820,7 +825,7 @@ These units start after A and B. Q1–Q4 in §5 are their rulings.
 
 **C1. Heap edges.**
 - **Scope:** per §5 Q1, the edges into a heap-framed function inside its suspending-call cycle hold a box pointer instead of an embedded child. The child frame is allocated per Q2, driven by a direct call, and freed after `Ready` (its drops have run in its body). `--layouts` reports such a task as unbounded, naming the edge. The cycle refusal's fixit names the spelling.
-- **Depends on:** phases A and B; §5 Q1 and Q2.
+- **Depends on:** phases A and B; §5 Q1 and Q2a.
 - **Files:** `compiler/coro/src/{suspends,layout,lower}.saw`, plus the spelling's front-half rule (resolve and typecheck).
 - **Pins:** the 8 recursion tests rewritten with the spelling, as run programs; the unmarked ones still refused.
 - **Done when:** all pass.
@@ -845,7 +850,7 @@ These units start after A and B. Q1–Q4 in §5 are their rulings.
 - **Estimate:** 1.
 
 **C4. Heap frames under `--no-hidden-alloc` and freestanding.**
-- **Scope:** per §5 Q2 and Q3, the profile rules, and the frame-size report for unbounded tasks (a hook for design 152's warning).
+- **Scope:** per §5 Q2a, Q2b and Q3, the profile rules, and the frame-size report for unbounded tasks (a hook for design 152's warning).
 - **Depends on:** C1.
 - **Files:** `compiler/coro/src/suspends.saw`, the driver.
 - **Pins:** a `--no-hidden-alloc` refusal or acceptance per the ruling; a freestanding refusal.
@@ -896,7 +901,7 @@ None of these puts two agents on one file.
 |---|---|---|---|
 | 0, groundwork | A0, A0b | 1 | |
 | A, the embedded core | A1–A18, after the t6/t7 splits | 31.5 | about 3.5–4 weeks for 0, A and B together |
-| B, the overlay | B1–B4 | 4 | inside A's wall time, on the back track |
+| B, the overlay | B1–B4 | 4.5 | inside A's wall time, on the back track |
 | C, heap frames | C1–C4 | 4 | 1 week after A and B |
 | C, the follow-ons | C5, C6 | 3.5 | + 0.5 week; C5 also waits on `any` method calls |
 
@@ -904,7 +909,7 @@ For comparison, the lead's guide (SL-545 c2) was 3 weeks for the core, 3–5 day
 
 ## 5. Open questions for the user
 
-Q1–Q7 are fundamental, and each one goes to SL:open-questions with its recommendation. Q1–Q6 belong to phase C, so phases A and B do not wait on them. Q7 is needed by A12a. Under them is the list of reversible choices the plan has already made.
+Q1–Q7 (Q2 in two parts) are fundamental, and each one goes to SL:open-questions with its recommendation. Q1–Q6 belong to phase C, so phases A and B do not wait on them. Q7 is needed by A12a. Under them is the list of reversible choices the plan has already made.
 
 ### Q1. Heap frames: opt-in or automatic, and how is it spelled?
 Today a cycle in the suspending-call graph is refused, since it has no finite frame.
@@ -914,18 +919,25 @@ Today a cycle in the suspending-call graph is refused, since it has no finite fr
   - an attribute, `@heap_frame`.
 - **(c) Opt-in at the call site:** `indirect walk(n.left)`. That is precise, but every recursive call carries it.
 
-**Recommendation: (b), as the effect-slot word.** The doctrine says reader-visibility trumps inference, and a heap frame changes two things a caller can see: it may allocate (Q2), and a task loses its static size (Q3). The effect slot is where callers read a function's contract, beside `unsafe` and `sync`. Freestanding targets depend on static task sizes, so a silent switch would undercut a guarantee those targets are designed around.
+**Recommendation: (b), as the effect-slot word.** The doctrine says reader-visibility trumps inference, and a heap frame changes two things a caller can see: it may allocate (Q2a), and a task loses its static size (Q3). The effect slot is where callers read a function's contract, beside `unsafe` and `sync`. Freestanding targets depend on static task sizes, so a silent switch would undercut a guarantee those targets are designed around.
 
-### Q2. What happens when a heap frame cannot be allocated?
+### Q2a. What happens when a heap frame cannot be allocated?
 - **(a) A panic,** under the existing panic boundary for compiler-inserted allocations (design 234's list). No new boundary is needed, since this is exactly such an allocation.
 - **(b) Fallible calls:** a call into an `indirect` function returns `Result<T, AllocError>`, and every recursive call site handles it.
 - **(c) A fallible declaration:** the function must return `Result<_, E>` with `E` able to carry an `AllocError`, and a failed allocation surfaces as that `Err`.
 
-Each choice also needs answers for two profiles:
-- **`--no-hidden-alloc`:** the call site names nothing, so it is refused there, the same way an escaping closure's environment is (design 135);
-- **freestanding:** allowed wherever `Box` is, meaning the runtime provides `__saw_rt_alloc`.
+**Recommendation: (a).** (b) makes recursion unreadable. (c) is defensible, and is the fallback if the user wants allocation failure visible in a signature.
 
-**Recommendation: (a),** plus both profile rules. (b) makes recursion unreadable. (c) is defensible, and is the fallback if the user wants allocation failure visible in a signature.
+**Freestanding:** heap frames are allowed wherever `Box` is, meaning the runtime provides `__saw_rt_alloc`.
+
+### Q2b. Does `--no-hidden-alloc` accept a heap frame? (split out on the Air's t11)
+Design 135 rejects "the allocations the compiler inserts that no source construct names", and Q1's spelling decides which reading is natural:
+- **(i) The declaration names it.** Under Q1 (b), `indirect` in the callee's signature says "allocate" the way `Box(...)` does, so the profile accepts heap frames. A kernel audits them by finding `indirect`. A call to any function whose body allocates is already accepted, and this is the same visibility, one step stronger since it is in the signature.
+- **(ii) The allocation must be named at the call.** The profile refuses heap frames, and Q1 (c)'s call-site spelling is the way in.
+
+An escaping closure's environment is refused today, but that analogy is weaker than it looks: a closure literal never says "allocate", while `indirect` does.
+
+**Recommendation: (i) with Q1 (b).** If the user prefers Q1 (c), (ii) follows from it, and the call-site word is what the profile accepts.
 
 ### Q3. A task whose frame tree has a heap edge has no static size. What follows from that?
 - **(a) Report it:** `--emit-frame-layout` says "unbounded: heap edge at `walk`", and design 152's frame-size warning gains a category for it. The program is allowed.
@@ -955,7 +967,7 @@ These are DF-223b's options:
 - **(b) Size the slot per function type.** It is not knowable without whole-program flow analysis of function values.
 - **(c) Keep it refused.** Spec: "a closure body cannot suspend".
 
-**Recommendation: (a),** refused under `--no-hidden-alloc` as an escaping environment already is, and allowed elsewhere as Q2 says.
+**Recommendation: (a),** refused under `--no-hidden-alloc` as an escaping environment already is, and allowed elsewhere as Q2a says.
 
 ### Q7. Where does SL-355's runtime half (R5) land?
 R5 is the ruled atomic wake word with its CAS(-1 → 0) latch, plus a `register` that returns a status. It is in neither runtime yet, and `sawc/rt/` is shared by both compilers.
@@ -1004,7 +1016,11 @@ Each risk names what could blow up the estimate, then the unit that retires it, 
 - **How it is retired:**
   - B1 takes loans from the borrow check's own facts, not a second analysis;
   - B3 recomputes lifetimes from the *lowered* MIR's frame-slot accesses and fails on any intersection, with injections proving it can fail;
-  - the run lane also builds coroutine programs with `-fsanitize=address` at clang (no compiler change), so a missed case shows up as a report rather than a wrong number.
+  - B3 adds a *dynamic* twin of that check (settled with the Air, t10; probe `air-review/coro/asan/`). Plain ASan can't see R2 for two reasons:
+    - clang instruments only functions carrying `sanitize_address`, and sawc2's `.ll` has none;
+    - R2 is two values overlapping inside one live frame allocation, which whole-allocation tracking never reports.
+
+    So sawc2 gains a sanitize flag that stamps the attribute, a small backend change useful beyond coroutines. Under that flag, coro emits `__asan_unpoison_memory_region` where each value's storage lifetime starts and `__asan_poison_memory_region` where it ends. An access through a lifetime B1 computed too short then reports at the access. Normal builds pay nothing. The run lane builds coroutine programs once with the flag.
 
 **R3. Cancellation** (A10, A12a, A14b).
 - **The risk:** cancellation is cooperative, so correctness lives in each std park (record, arm, observe the cancel word, unregister on the way out). That is the SL-353 family: a wake lost between arming and recording.
