@@ -8,27 +8,7 @@ Newest first within each section. When the user rules, the entry moves to "Resol
 
 ## Waiting for the user (fundamental)
 
-### Q-shiftcount. Should a constant out-of-range shift count beside a run-time operand be a compile error? (Oct 12; SL-514, agent fe3)
-LANGUAGE_SPEC says a run-time shift by an out-of-range amount panics ("Shift range is checked"), and that such a count is a compile error only inside a constant expression. So `x << (1 << 64)` with a run-time `x` is legal under the spec, and panics every time it runs. Stage 0 compiles it and panics.
-
-The options:
-- **(a)** keep the spec: compile it, and it panics at run time (as landed for SL-514);
-- **(b)** refuse it at compile time as `constant.shift-range`, since the panic is certain. That is Rust's default-deny `arithmetic_overflow` approach, and changes which programs compile. fe3 had implemented this, and it was removed pending your call;
-- **(c)** compile it, and emit a `-W` warning (off by default, per design 150).
-
-The lead leans to **(b)**: a guaranteed panic found at compile time is an error reported earlier, not hidden. But it's a change to what compiles, so it's yours. The same question applies to `x / 0` with a run-time `x` and other certain run-time faults; a ruling would cover the family.
-
-**If (b), the Air's evidence on WHERE the line falls:** const generics make some counts constant only per instantiation, and those may be guarded. In `func top_bit<const N: Int>(x: Int, marker: [Int; N]) -> Int { if N > 0 { x << (N - 1) } else { x } }`, the count folds to `-1` at `N = 0`, but the guard means the shift never runs; Stage 0 compiles it, and `top_bit(1, [0; 0])`, `top_bit(1, [0; 4])` print `1 8`. A check after monomorphization would refuse this valid program. So (b) should cover only counts that are constant BEFORE instantiation (a literal, a `static`, a const expression over those), independent of every generic parameter. That is the line between a guaranteed panic and a merely possible one. The ruling should also say whether dead code counts (`if false { x << 64 }`), and whether `x / 0` is in the same family.
-
-### Q-astdiff. Should the per-patch gate run astdiff on changed `.saw` files? (Oct 12; SL-527, agent sl527's recommendation)
-The `astdiff` lane (the Python parser's AST dump: complete and deterministic over every tracked `.saw`) went red on main because two fixture-only patches (SL-412's depth fixture, SL-504's tuple-static fixtures) never ran it. The per-patch gate runs the full `grammarcorpus` only when its inputs change, and otherwise checks each changed `.saw` file against `corpus_expected.tsv` alone. astdiff has no such per-file step. SL-527.p1 makes the lane green again, but nothing stops the next fixture from breaking it.
-
-**The options:**
-- **(a)** give `astdiff.py` a per-file mode, and have `tools/patch_gate.py` run it on each changed `.saw` file outside the two new-syntax corpora (as `CHANGED_SAW` does for the grammar corpus), in seconds. A full run triggers on `sawc/lexer.py`, `sawc/parser/`, `sawc/ast_dump.py`, `sawc/ast_nodes.py`, `tools/astdiff.py` and `tools/dump_ast.py`.
-- **(b)** leave the gate as it is and rely on periodic main runs (the battery, once ST-45 schedules it).
-
-**The lead recommends (a).** It is cheap, path-aware like the rest of the gate, and closes the hole that let main go red. Note that astdiff retires with `sawc/` (SL-539's sequence), so this protects only the remaining Stage 0 window.
-
+Nothing is waiting. Q-shiftcount and Q-astdiff were ruled on Oct 12 and are under "Resolved".
 
 ## Open, for the lead to decide with the Air (reversible)
 
