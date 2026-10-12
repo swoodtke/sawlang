@@ -855,7 +855,7 @@ The right side of `&&`/`||` in an `if` condition or a `let`, a middle operand, a
 
 **Instead:** write the arm as a block, `case Memberwise -> { self.struct_fields(c.decl).len() }`, or bind the operand's value to a `let` before the statement, so no owning temporary sits on a conditional operand. Mark it `// Stage 0 workaround (SL:hazards S29): canonical: <the bare arm>`.
 
-**Checker:** yes, once it lands with SL-508's patch. A syntactic subset rule refuses, in compiler source, an owning-temporary shape (a call whose result is the receiver of another call, field access or method) in a bare value-`match` arm, a guard, or a `??` right side. The `while … && call` face can only leak, which Stage 1 tolerates ("Leaks are tolerated in Stage 1" above), so the rule doesn't cover it.
+**Checker:** yes: `conditional-temporary` (SL-508.p1). In compiler source it refuses a call's result used as the receiver of a method or a field in a bare value-`match` arm, a `match` guard, or the right side of `??`. A block arm, `&&`/`||` in an `if` or a `let`, and a value `if` arm are not refused, since Stage 0 gets them right. Over the compiler source it found exactly the one live site (now braced under an S29 marker), and 0 in the std profile. A syntactic subset rule refuses, in compiler source, an owning-temporary shape (a call whose result is the receiver of another call, field access or method) in a bare value-`match` arm, a guard, or a `??` right side. The `while … && call` face can only leak, which Stage 1 tolerates ("Leaks are tolerated in Stage 1" above), so the rule doesn't cover it.
 
 ## Loud hazards
 
