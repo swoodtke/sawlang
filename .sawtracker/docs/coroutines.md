@@ -920,7 +920,7 @@ The plan holds except where an amendment below says otherwise. Each one is the l
   - its files gain `compiler/typecheck/src/lang.saw`, `compiler/tools/subset_check.py` and a `compiler/tests/std/subset/` fixture;
   - the park intrinsics are role-bound std declarations in `std/task.saw`;
   - `cancelled()` does NOT park, as in Stage 0: it reads `__saw_cancel_requested() -> Bool` (body `false`), which A9 lowers inside frames.
-- **A4 (SL-557):** the intrinsic list gains `__saw_test_suspend` (design 22, with Stage 0's meaning), and it takes the 15 sync-context tests that call it or `__saw_suspend`.
+- **A2 and A4 (SL-553, adopting the Air's adjustment):** the typecheck SUMMARIES of `__saw_test_suspend` (design 22, effect-only, never lowered) and `__saw_suspend`, resolve's acceptance of their names, and the 15 sync-context refusal tests that call them are A2's, so A2's pin is about 23 of the 27. A4 keeps `__saw_suspend`'s `park(ready)` lowering and the drivers.
 - **A18 (SL-580):** takes K83 and K112, and settles `runtime_build_suspending_body_error`'s bare `yield_now`.
 - **A6 (SL-559) and A12b (SL-570), from A0b's census (SL-551):** the pins that need `Vector.iter`, `Map`, `std.mutex` or `Arc` stay gated, and the same shapes are pinned with the plan's vocabulary.
 - **A0b:** the census hook in `compiler/tests/run.py` lands with A0b.
