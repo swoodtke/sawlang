@@ -8,6 +8,16 @@ Newest first within each section. When the user rules, the entry moves to "Resol
 
 ## Waiting for the user (fundamental)
 
+### Q-shiftcount. Should a constant out-of-range shift count beside a run-time operand be a compile error? (Oct 12; SL-514, agent fe3)
+LANGUAGE_SPEC says a run-time shift by an out-of-range amount panics ("Shift range is checked"), and that such a count is a compile error only inside a constant expression. So `x << (1 << 64)` with a run-time `x` is legal under the spec, and panics every time it runs. Stage 0 compiles it and panics.
+
+The options:
+- **(a)** keep the spec: compile it, and it panics at run time (as landed for SL-514);
+- **(b)** refuse it at compile time as `constant.shift-range`, since the panic is certain. That is Rust's default-deny `arithmetic_overflow` approach, and changes which programs compile. fe3 had implemented this, and it was removed pending your call;
+- **(c)** compile it, and emit a `-W` warning (off by default, per design 150).
+
+The lead leans to **(b)**: a guaranteed panic found at compile time is an error reported earlier, not hidden. But it's a change to what compiles, so it's yours. The same question applies to `x / 0` with a run-time `x` and other certain run-time faults; a ruling would cover the family.
+
 ### Q-astdiff. Should the per-patch gate run astdiff on changed `.saw` files? (Oct 12; SL-527, agent sl527's recommendation)
 The `astdiff` lane (the Python parser's AST dump: complete and deterministic over every tracked `.saw`) went red on main because two fixture-only patches (SL-412's depth fixture, SL-504's tuple-static fixtures) never ran it. The per-patch gate runs the full `grammarcorpus` only when its inputs change, and otherwise checks each changed `.saw` file against `corpus_expected.tsv` alone. astdiff has no such per-file step. SL-527.p1 makes the lane green again, but nothing stops the next fixture from breaking it.
 
