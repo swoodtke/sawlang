@@ -849,13 +849,18 @@ These units start after A and B. Q1–Q4 in §5 are their rulings.
 - **Done when:** both pass.
 - **Estimate:** 1.
 
-**C4. Heap frames under `--no-hidden-alloc` and freestanding.**
-- **Scope:** per §5 Q2a, Q2b and Q3, the profile rules, and the frame-size report for unbounded tasks (a hook for design 152's warning).
+**C4. Heap frames under the allocation profiles and freestanding.**
+- **Scope (the user's Q-coro2a, 2b and 3 rulings):**
+  - a failed frame allocation panics under the compiler-inserted-allocation boundary;
+  - `--no-hidden-alloc` ACCEPTS `frame_alloc`, since the signature names the allocation;
+  - a new `--no-frame-alloc` flag refuses any reachable `frame_alloc` function, naming the function and the call chain;
+  - a new `-W frame-alloc` warning category (off by default, never affecting the exit code) warns at each call into a `frame_alloc` function;
+  - an unbounded task is REPORTED in the frame-size report, never refused, freestanding included, wherever the runtime provides `__saw_rt_alloc`.
 - **Depends on:** C1.
-- **Files:** `compiler/coro/src/suspends.saw`, the driver.
-- **Pins:** a `--no-hidden-alloc` refusal or acceptance per the ruling; a freestanding refusal.
-- **Done when:** both pins pass.
-- **Estimate:** 0.5.
+- **Files:** `compiler/coro/src/suspends.saw`, the driver (the flag and the warning category).
+- **Pins:** a `--no-hidden-alloc` acceptance; a `--no-frame-alloc` refusal naming the chain; a `-W frame-alloc` warning (`EXPECT-WARNING-CONTAINS`) and its absence without the flag; a freestanding acceptance with the unbounded report.
+- **Done when:** all the pins pass.
+- **Estimate:** 0.5–1.
 
 **C5. Suspending `any Trait` dispatch (K37 lifted).**
 - **Scope:** per §5 Q5, a suspending requirement's vtable entry carries a frame descriptor and an init thunk, and the caller's storage is the union slot or a heap box. K37's refusal becomes a run program.
