@@ -8,7 +8,15 @@ Newest first within each section. When the user rules, the entry moves to "Resol
 
 ## Waiting for the user (fundamental)
 
-Nothing is waiting. Q-args was ruled on Oct 10 and is under "Resolved".
+### Q-astdiff. Should the per-patch gate run astdiff on changed `.saw` files? (Oct 12; SL-527, agent sl527's recommendation)
+The `astdiff` lane (the Python parser's AST dump: complete and deterministic over every tracked `.saw`) went red on main because two fixture-only patches (SL-412's depth fixture, SL-504's tuple-static fixtures) never ran it. The per-patch gate runs the full `grammarcorpus` only when its inputs change, and otherwise checks each changed `.saw` file against `corpus_expected.tsv` alone. astdiff has no such per-file step. SL-527.p1 makes the lane green again, but nothing stops the next fixture from breaking it.
+
+**The options:**
+- **(a)** give `astdiff.py` a per-file mode, and have `tools/patch_gate.py` run it on each changed `.saw` file outside the two new-syntax corpora (as `CHANGED_SAW` does for the grammar corpus), in seconds. A full run triggers on `sawc/lexer.py`, `sawc/parser/`, `sawc/ast_dump.py`, `sawc/ast_nodes.py`, `tools/astdiff.py` and `tools/dump_ast.py`.
+- **(b)** leave the gate as it is and rely on periodic main runs (the battery, once ST-45 schedules it).
+
+**The lead recommends (a).** It is cheap, path-aware like the rest of the gate, and closes the hole that let main go red. Note that astdiff retires with `sawc/` (SL-539's sequence), so this protects only the remaining Stage 0 window.
+
 
 ## Open, for the lead to decide with the Air (reversible)
 
