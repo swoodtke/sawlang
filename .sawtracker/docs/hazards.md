@@ -1522,6 +1522,14 @@ Stage 0's own suite pins arm entry deliberately, in `examples/coro_discarded_mat
 
 **Checker:** covered by `deinit-body`.
 
+### C12. A narrow signed argument to a variadic extern arrives zero-extended
+
+**Shape (silent: a wrong value):** Stage 0 passes an `Int8` or `Int16` argument in a C variadic call's `...` part zero-extended, where C's default argument promotions sign-extend a signed type. `dprintf(1, fmt, -5i8, -300i16)` prints `251 65236` under Stage 0. Unsigned narrow types are right either way (`UInt8 250`, `UInt16 65000`). sawc2 promotes correctly: its IR passes each value as a sign- or zero-extended `i32`, and its binary prints `-5 250 -300 65000`. The repro is the Air's `variadic_promote.saw`, from its review of SL-522.p2.
+
+**Instead:** widen explicitly at the call (`x as Int32`) when a narrow signed value goes to a variadic extern.
+
+**Checker:** not needed yet. Neither the compiler source nor `sawc/rt` passes a narrow signed value to a variadic extern; `open` and `fcntl` take `Int32` flags.
+
 ## Inventory
 
 Each of the 82 issues the sweep flagged, plus the four promoted after the Air's review and eight found since, mapped to its entry. "Call" is this
