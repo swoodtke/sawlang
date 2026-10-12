@@ -1,0 +1,7 @@
+log	"error: cannot spawn `bump` into a multi-threaded `TaskGroup(threads: ...)`: parameter `n` of type `&var Int` is not `Send`, so the task frame cannot cross to a worker thread. Share thread-safe state via `Arc` (and `Mutex` for mutation) or a `Channel` instead of moving it in."
+log	"  --> examples/conformance/K19_spawn_ref_param_mt_send.saw:18:1"
+log	"     |"
+log	" 18 | func bump(n: &var Int) -> Int {"
+log	"     | ^"
+log	""
+log	"1 error(s) generated"

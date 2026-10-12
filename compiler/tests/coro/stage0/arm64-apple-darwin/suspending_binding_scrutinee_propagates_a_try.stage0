@@ -1,0 +1,97 @@
+program	suspending_binding_scrutinee_propagates_a_try.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"while ok 6"
+stdout	"while err A27"
+stdout	"if ok 6"
+stdout	"if err A27"
+stdout	"guard ok 12"
+stdout	"guard err A30"
+stdout	"guard_nested ok 600"
+stdout	"guard_nested err A30"
+stdout	"if_cond ok 6"
+stdout	"if_cond err A30"
+stdout	"for_range ok 6"
+stdout	"for_range err A30"
+stdout	"match_scrutinee ok 6"
+stdout	"match_scrutinee err A30"
+stdout	""
+meets_expect	yes
+frame	__Frame_row_for_range$m$	row_for_range	88	8	states=9	own=88	sub=0	bt=0	root=1	method=0	agrees=1
+field	n	own	0	8	8
+field	__saw_loop_budget	own	8	8	8
+field	sum	own	16	8	8
+field	__head0	own	24	8	8
+field	i	own	32	8	8
+field	__end_i	own	40	8	8
+field	__state	own	48	8	8
+field	__wake	own	56	8	8
+field	__io_tok	own	64	8	8
+field	__io_deadline	own	72	8	8
+field	__cellp	own	80	8	8
+frame	__Frame_row_guard$m$	row_guard	80	8	states=4	own=80	sub=0	bt=1	root=1	method=0	agrees=1
+field	n	own	0	8	8
+field	__head0	own	8	24	8
+field	__ob0	own	32	8	8
+field	__state	own	40	8	8
+field	__wake	own	48	8	8
+field	__io_tok	own	56	8	8
+field	__io_deadline	own	64	8	8
+field	__cellp	own	72	8	8
+frame	__Frame_row_guard_nested$m$	row_guard_nested	80	8	states=4	own=80	sub=0	bt=2	root=1	method=0	agrees=1
+field	n	own	0	8	8
+field	__head0	own	8	24	8
+field	__ob0	own	32	8	8
+field	__state	own	40	8	8
+field	__wake	own	48	8	8
+field	__io_tok	own	56	8	8
+field	__io_deadline	own	64	8	8
+field	__cellp	own	72	8	8
+frame	__Frame_row_if$m$	row_if	80	8	states=4	own=80	sub=0	bt=3	root=1	method=0	agrees=1
+field	n	own	0	8	8
+field	__head0	own	8	24	8
+field	__ob0	own	32	8	8
+field	__state	own	40	8	8
+field	__wake	own	48	8	8
+field	__io_tok	own	56	8	8
+field	__io_deadline	own	64	8	8
+field	__cellp	own	72	8	8
+frame	__Frame_row_if_cond$m$	row_if_cond	56	8	states=4	own=49	sub=0	bt=4	root=1	method=0	agrees=1
+field	n	own	0	8	8
+field	__head0	own	8	1	1
+field	__state	own	16	8	8
+field	__wake	own	24	8	8
+field	__io_tok	own	32	8	8
+field	__io_deadline	own	40	8	8
+field	__cellp	own	48	8	8
+frame	__Frame_row_match_scrutinee$m$	row_match_scrutinee	56	8	states=5	own=56	sub=0	bt=5	root=1	method=0	agrees=1
+field	n	own	0	8	8
+field	__head0	own	8	8	8
+field	__state	own	16	8	8
+field	__wake	own	24	8	8
+field	__io_tok	own	32	8	8
+field	__io_deadline	own	40	8	8
+field	__cellp	own	48	8	8
+frame	__Frame_row_while$m$	row_while	104	8	states=10	own=104	sub=0	bt=6	root=1	method=0	agrees=1
+field	n	own	0	8	8
+field	__saw_loop_budget	own	8	8	8
+field	sum	own	16	8	8
+field	i	own	24	8	8
+field	__head0	own	32	24	8
+field	__ob0	own	56	8	8
+field	__state	own	64	8	8
+field	__wake	own	72	8	8
+field	__io_tok	own	80	8	8
+field	__io_deadline	own	88	8	8
+field	__cellp	own	96	8	8
+bt	1093	strtab=349	version=1	word_bits=64
+btframe	__Frame_row_for_range$m$	row_for_range	suspending_binding_scrutinee_propagates_a_try.saw	48	0 0 0 0 0 0 0 120 121
+btframe	__Frame_row_guard$m$	row_guard	suspending_binding_scrutinee_propagates_a_try.saw	40	0 0 0 97
+btframe	__Frame_row_guard_nested$m$	row_guard_nested	suspending_binding_scrutinee_propagates_a_try.saw	40	0 103 0 0
+btframe	__Frame_row_if$m$	row_if	suspending_binding_scrutinee_propagates_a_try.saw	40	0 0 0 87
+btframe	__Frame_row_if_cond$m$	row_if_cond	suspending_binding_scrutinee_propagates_a_try.saw	16	0 0 0 112
+btframe	__Frame_row_match_scrutinee$m$	row_match_scrutinee	suspending_binding_scrutinee_propagates_a_try.saw	16	0 0 0 0 130
+btframe	__Frame_row_while$m$	row_while	suspending_binding_scrutinee_propagates_a_try.saw	64	0 0 0 0 0 76 0 0 0 77

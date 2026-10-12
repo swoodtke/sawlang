@@ -1,0 +1,6 @@
+program	coro_for_inclusive_range_last_iteration.saw
+triple	x86_64-unknown-linux-gnu
+twin	same
+expect	success
+build	not-run
+layout	same-as	arm64-apple-darwin

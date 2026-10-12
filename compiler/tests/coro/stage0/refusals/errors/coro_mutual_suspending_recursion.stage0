@@ -1,0 +1,7 @@
+log	"error: suspending recursion is not allowed: the suspending-call cycle `ping -> pong -> ping` has no compile-time frame size (design 44 embeds callee frames by value). Break the cycle or drive the inner call separately. This refusal is PENDING SL-322, the heap-allocated-frame design: an existential dispatch of a suspending body and suspending recursion both need a heap frame with an indirect resume, so the two land together and neither alone."
+log	"  --> examples/errors/coro_mutual_suspending_recursion.saw:13:1"
+log	"     |"
+log	" 13 | func ping(n: Int) -> Int {"
+log	"     | ^"
+log	""
+log	"1 error(s) generated"

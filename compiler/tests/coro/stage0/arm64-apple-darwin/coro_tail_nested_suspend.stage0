@@ -1,0 +1,51 @@
+program	coro_tail_nested_suspend.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"7"
+stdout	"3"
+stdout	""
+meets_expect	yes
+frame	__Frame_handle$m$	handle	112	8	states=4	own=49	sub=56	bt=0	root=0	method=0	agrees=1
+field	n	own	0	8	8
+field	r	own	8	8	8
+field	__sub0	sub	16	56	8	callee=__Frame_serve$m$	live=2
+field	__state	own	72	8	8
+field	__wake	own	80	8	8
+field	__io_tok	own	88	8	8
+field	__io_deadline	own	96	8	8
+field	__cancel	own	104	1	1
+frame	__Frame_serve$m$	serve	56	8	states=2	own=49	sub=0	bt=1	root=0	method=0	agrees=1
+field	n	own	0	8	8
+field	__state	own	8	8	8
+field	__wake	own	16	8	8
+field	__io_tok	own	24	8	8
+field	__io_deadline	own	32	8	8
+field	__cancel	own	40	1	1
+field	__result	own	48	8	8
+frame	__Frame_step$m$	step	112	8	states=3	own=49	sub=56	bt=2	root=0	method=0	agrees=1
+field	n	own	0	8	8
+field	__sub0	sub	8	56	8	callee=__Frame_serve$m$	live=2
+field	__state	own	64	8	8
+field	__wake	own	72	8	8
+field	__io_tok	own	80	8	8
+field	__io_deadline	own	88	8	8
+field	__cancel	own	96	1	1
+field	__result	own	104	8	8
+frame	__Frame_worker$m$	worker	280	8	states=10	own=56	sub=224	bt=3	root=1	method=0	agrees=1
+field	__saw_loop_budget	own	0	8	8
+field	i	own	8	8	8
+field	__sub0	sub	16	112	8	callee=__Frame_handle$m$	live=7
+field	__sub1	sub	128	112	8	callee=__Frame_step$m$	live=9
+field	__state	own	240	8	8
+field	__wake	own	248	8	8
+field	__io_tok	own	256	8	8
+field	__io_deadline	own	264	8	8
+field	__cellp	own	272	8	8
+bt	585	strtab=165	version=1	word_bits=64
+btframe	__Frame_handle$m$	handle	coro_tail_nested_suspend.saw	72	0 22 23>1@16 0
+btframe	__Frame_serve$m$	serve	coro_tail_nested_suspend.saw	8	0 12
+btframe	__Frame_step$m$	step	coro_tail_nested_suspend.saw	64	0 17 18>1@8
+btframe	__Frame_worker$m$	worker	coro_tail_nested_suspend.saw	240	0 0 0 0 0 0 29 30>0@16 0 33>2@128

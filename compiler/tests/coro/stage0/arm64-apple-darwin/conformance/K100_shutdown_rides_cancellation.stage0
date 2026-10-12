@@ -1,0 +1,89 @@
+program	conformance/K100_shutdown_rides_cancellation.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"worker parked"
+stdout	"shutdown signalled"
+stdout	"worker unwound"
+stdout	"deinits=1"
+stdout	"main returned normally"
+stdout	""
+meets_expect	yes
+frame	__Frame_SignalWatch_next	SignalWatch.next	104	8	states=9	own=97	sub=0	bt=0	root=0	method=1	agrees=1
+field	__recv	own	0	8	8
+field	n	own	8	8	8
+field	__state	own	16	8	8
+field	__wake	own	24	8	8
+field	__io_tok	own	32	8	8
+field	__io_deadline	own	40	8	8
+field	__io_fd	own	48	8	8
+field	__io_dir	own	56	8	8
+field	__cancel	own	64	1	1
+field	__result	own	72	32	8
+frame	__Frame_TcpStream_read$OL$	TcpStream.read	176	8	states=16	own=169	sub=0	bt=1	root=0	method=1	agrees=1
+field	__recv	own	0	8	8
+field	out	own	8	48	8
+field	r	own	56	8	8
+field	__state	own	64	8	8
+field	__wake	own	72	8	8
+field	__io_tok	own	80	8	8
+field	__io_deadline	own	88	8	8
+field	__io_fd	own	96	8	8
+field	__io_dir	own	104	8	8
+field	__cancel	own	112	1	1
+field	__result	own	120	56	8
+frame	__Frame_main	main	816	8	states=3	own=33	sub=776	bt=2	root=0	method=0	agrees=1
+field	__sub0	sub	0	776	8	callee=__Frame_serve$m$	live=1
+field	__state	own	776	8	8
+field	__wake	own	784	8	8
+field	__io_tok	own	792	8	8
+field	__io_deadline	own	800	8	8
+field	__cancel	own	808	1	1
+frame	__Frame_serve$m$	serve	776	8	states=13	own=763	sub=0	bt=3	root=0	method=0	agrees=1
+field	w	own	0	24	8
+field	a	own	24	16	8
+field	b	own	40	16	8
+field	group	own	56	432	8
+field	parked	own	488	24	8
+field	signalled	own	512	24	8
+field	hw	own	536	56	8
+field	hs	own	592	56	8
+field	__trycall0	own	648	40	8
+field	__trycall1	own	688	40	8
+field	__have0	own	728	1	1
+field	__have1	own	729	1	1
+field	__state	own	736	8	8
+field	__wake	own	744	8	8
+field	__io_tok	own	752	8	8
+field	__io_deadline	own	760	8	8
+field	__cancel	own	768	1	1
+frame	__Frame_shutdown$m$	shutdown	224	8	states=3	own=120	sub=104	bt=4	root=1	method=0	agrees=1
+field	w	own	0	24	8
+field	ready	own	24	24	8
+field	__trycall0	own	48	32	8
+field	__sub0	sub	80	104	8	callee=__Frame_SignalWatch_next	live=1
+field	__state	own	184	8	8
+field	__wake	own	192	8	8
+field	__io_tok	own	200	8	8
+field	__io_deadline	own	208	8	8
+field	__cellp	own	216	8	8
+frame	__Frame_worker$m$	worker	328	8	states=3	own=152	sub=176	bt=5	root=1	method=0	agrees=1
+field	s	own	0	16	8
+field	ready	own	16	24	8
+field	_held	own	40	16	8
+field	__match0	own	56	56	8
+field	__sub0	sub	112	176	8	callee=__Frame_TcpStream_read$OL$	live=1
+field	__state	own	288	8	8
+field	__wake	own	296	8	8
+field	__io_tok	own	304	8	8
+field	__io_deadline	own	312	8	8
+field	__cellp	own	320	8	8
+bt	1081	strtab=277	version=1	word_bits=64
+btframe	__Frame_SignalWatch_next	SignalWatch.next	signal.saw	16	0 0 0 0 0 179 0 0 183
+btframe	__Frame_TcpStream_read$OL$	TcpStream.read	net.saw	64	0 0 0 0 0 0 1023 0 0 0 0 0 0 0 0 1036
+btframe	__Frame_main	main	K100_shutdown_rides_cancellation.saw	776	0 92>3@0 0
+btframe	__Frame_serve$m$	serve	K100_shutdown_rides_cancellation.saw	736	0 81 0 0 0 0 0 83 0 0 0 0 0
+btframe	__Frame_shutdown$m$	shutdown	K100_shutdown_rides_cancellation.saw	184	0 54>0@80 0
+btframe	__Frame_worker$m$	worker	K100_shutdown_rides_cancellation.saw	288	0 46>1@112 0

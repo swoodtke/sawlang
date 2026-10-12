@@ -1,0 +1,151 @@
+program	conformance/K137_window_destruction_order.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"-- sync"
+stdout	"iterator deinit, owner still has 3"
+stdout	"after sync loop"
+stdout	"walk 6"
+stdout	"owner deinit"
+stdout	"-- driven"
+stdout	"iterator deinit, owner still has 3"
+stdout	"after driven loop"
+stdout	"walk 6"
+stdout	"owner deinit"
+stdout	"-- break on the first element"
+stdout	"iterator deinit, owner still has 3"
+stdout	"after break loop"
+stdout	"walk 1"
+stdout	"-- driven break"
+stdout	"iterator deinit, owner still has 3"
+stdout	"after driven break"
+stdout	"walk 3"
+stdout	"-- driven return"
+stdout	"iterator deinit, owner still has 3"
+stdout	"after driven return 3"
+stdout	"-- driven continue to the outer loop"
+stdout	"iterator deinit, owner still has 3"
+stdout	"after inner 1"
+stdout	"iterator deinit, owner still has 3"
+stdout	"after inner 2"
+stdout	"after outer"
+stdout	"walk 12"
+stdout	"-- driven try propagated"
+stdout	"iterator deinit, owner still has 3"
+stdout	"caught stop"
+stdout	"-- owned driven"
+stdout	"drop counter"
+stdout	"after owned loop"
+stdout	"walk 7"
+stdout	"-- owned driven break"
+stdout	"drop counter"
+stdout	"after owned break"
+stdout	"walk 3"
+stdout	"owner deinit"
+stdout	""
+meets_expect	yes
+frame	__Frame_fails$m$	fails	72	8	states=2	own=65	sub=0	bt=0	root=0	method=0	agrees=1
+field	x	own	0	8	8
+field	__state	own	8	8	8
+field	__wake	own	16	8	8
+field	__io_tok	own	24	8	8
+field	__io_deadline	own	32	8	8
+field	__cancel	own	40	1	1
+field	__result	own	48	24	8
+frame	__Frame_walk_driven$m$	walk_driven	112	8	states=10	own=105	sub=0	bt=1	root=0	method=0	agrees=1
+field	b	own	0	8	8
+field	__saw_loop_budget	own	8	8	8
+field	total	own	16	8	8
+field	__saw_iter0	own	24	32	8
+field	__ob0	own	56	8	8
+field	__state	own	64	8	8
+field	__wake	own	72	8	8
+field	__io_tok	own	80	8	8
+field	__io_deadline	own	88	8	8
+field	__cancel	own	96	1	1
+field	__result	own	104	8	8
+frame	__Frame_walk_driven_break$m$	walk_driven_break	112	8	states=12	own=105	sub=0	bt=2	root=0	method=0	agrees=1
+field	b	own	0	8	8
+field	__saw_loop_budget	own	8	8	8
+field	total	own	16	8	8
+field	__saw_iter0	own	24	32	8
+field	__ob0	own	56	8	8
+field	__state	own	64	8	8
+field	__wake	own	72	8	8
+field	__io_tok	own	80	8	8
+field	__io_deadline	own	88	8	8
+field	__cancel	own	96	1	1
+field	__result	own	104	8	8
+frame	__Frame_walk_driven_continue_outer$m$	walk_driven_continue_outer	120	8	states=18	own=113	sub=0	bt=3	root=0	method=0	agrees=1
+field	b	own	0	8	8
+field	__saw_loop_budget	own	8	8	8
+field	total	own	16	8	8
+field	round	own	24	8	8
+field	__saw_iter0	own	32	32	8
+field	__ob0	own	64	8	8
+field	__state	own	72	8	8
+field	__wake	own	80	8	8
+field	__io_tok	own	88	8	8
+field	__io_deadline	own	96	8	8
+field	__cancel	own	104	1	1
+field	__result	own	112	8	8
+frame	__Frame_walk_driven_return$m$	walk_driven_return	112	8	states=10	own=105	sub=0	bt=4	root=0	method=0	agrees=1
+field	b	own	0	8	8
+field	__saw_loop_budget	own	8	8	8
+field	total	own	16	8	8
+field	__saw_iter0	own	24	32	8
+field	__ob0	own	56	8	8
+field	__state	own	64	8	8
+field	__wake	own	72	8	8
+field	__io_tok	own	80	8	8
+field	__io_deadline	own	88	8	8
+field	__cancel	own	96	1	1
+field	__result	own	104	8	8
+frame	__Frame_walk_driven_try$m$	walk_driven_try	232	8	states=11	own=153	sub=72	bt=5	root=0	method=0	agrees=1
+field	b	own	0	8	8
+field	__saw_loop_budget	own	8	8	8
+field	total	own	16	8	8
+field	__saw_iter0	own	24	32	8
+field	__ob0	own	56	8	8
+field	__trycall0	own	64	24	8
+field	k	own	88	8	8
+field	__sub0	sub	96	72	8	callee=__Frame_fails$m$	live=9
+field	__state	own	168	8	8
+field	__wake	own	176	8	8
+field	__io_tok	own	184	8	8
+field	__io_deadline	own	192	8	8
+field	__cancel	own	200	1	1
+field	__result	own	208	24	8
+frame	__Frame_walk_owned_driven$m$	walk_owned_driven	88	8	states=12	own=81	sub=0	bt=6	root=0	method=0	agrees=1
+field	__saw_loop_budget	own	0	8	8
+field	total	own	8	8	8
+field	__saw_iter0	own	16	16	8
+field	__ob0	own	32	8	8
+field	__state	own	40	8	8
+field	__wake	own	48	8	8
+field	__io_tok	own	56	8	8
+field	__io_deadline	own	64	8	8
+field	__cancel	own	72	1	1
+field	__result	own	80	8	8
+frame	__Frame_walk_owned_driven_break$m$	walk_owned_driven_break	88	8	states=12	own=81	sub=0	bt=7	root=0	method=0	agrees=1
+field	__saw_loop_budget	own	0	8	8
+field	total	own	8	8	8
+field	__saw_iter0	own	16	16	8
+field	__ob0	own	32	8	8
+field	__state	own	40	8	8
+field	__wake	own	48	8	8
+field	__io_tok	own	56	8	8
+field	__io_deadline	own	64	8	8
+field	__cancel	own	72	1	1
+field	__result	own	80	8	8
+bt	1776	strtab=444	version=1	word_bits=64
+btframe	__Frame_fails$m$	fails	K137_window_destruction_order.saw	8	0 140
+btframe	__Frame_walk_driven$m$	walk_driven	K137_window_destruction_order.saw	64	0 0 0 0 0 0 0 0 166 166
+btframe	__Frame_walk_driven_break$m$	walk_driven_break	K137_window_destruction_order.saw	64	0 0 0 0 0 0 0 0 180 180 0 0
+btframe	__Frame_walk_driven_continue_outer$m$	walk_driven_continue_outer	K137_window_destruction_order.saw	72	0 0 0 0 0 0 195 0 0 0 0 0 0 0 197 197 0 0
+btframe	__Frame_walk_driven_return$m$	walk_driven_return	K137_window_destruction_order.saw	64	0 0 0 0 0 0 0 0 187 187
+btframe	__Frame_walk_driven_try$m$	walk_driven_try	K137_window_destruction_order.saw	168	0 0 0 0 0 0 0 0 206 206>0@96 0
+btframe	__Frame_walk_owned_driven$m$	walk_owned_driven	K137_window_destruction_order.saw	40	0 0 0 0 0 0 0 0 213 213 0 0
+btframe	__Frame_walk_owned_driven_break$m$	walk_owned_driven_break	K137_window_destruction_order.saw	40	0 0 0 0 0 0 0 0 220 220 0 0

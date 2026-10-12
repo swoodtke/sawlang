@@ -1,0 +1,25 @@
+program	extension_of_imported_type_with_spawn.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"doubled 42"
+stdout	"origin 0"
+stdout	"square 9"
+stdout	"described 31"
+stdout	"carried 2"
+stdout	"band 2"
+stdout	"total 6"
+stdout	"spun 22"
+stdout	""
+meets_expect	yes
+frame	__Frame_doubled_after_yield$m$	doubled_after_yield	48	8	states=2	own=48	sub=0	bt=0	root=1	method=0	agrees=1
+field	n	own	0	8	8
+field	__state	own	8	8	8
+field	__wake	own	16	8	8
+field	__io_tok	own	24	8	8
+field	__io_deadline	own	32	8	8
+field	__cellp	own	40	8	8
+bt	279	strtab=135	version=1	word_bits=64
+btframe	__Frame_doubled_after_yield$m$	doubled_after_yield	extension_of_imported_type_with_spawn.saw	8	0 66

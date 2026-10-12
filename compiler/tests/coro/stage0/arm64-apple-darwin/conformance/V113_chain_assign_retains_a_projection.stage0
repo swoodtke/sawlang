@@ -1,0 +1,36 @@
+program	conformance/V113_chain_assign_retains_a_projection.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"-- sync"
+stdout	"identifier 3 -> 3"
+stdout	"member 5 -> 5"
+stdout	"tuple 7 -> 7"
+stdout	"array 10 -> 10"
+stdout	"trivial 41"
+stdout	"none-skips 11 -> 11"
+stdout	"live 11"
+stdout	"-- driven"
+stdout	"identifier 3 -> 3"
+stdout	"member 5 -> 5"
+stdout	"live 5"
+stdout	"end"
+stdout	""
+meets_expect	yes
+frame	__Frame_driven_rows$m$	driven_rows	160	8	states=4	own=153	sub=0	bt=0	root=0	method=0	agrees=1
+field	base	own	0	8	8
+field	ident	own	8	24	8
+field	c1	own	32	24	8
+field	before_i	own	56	8	8
+field	h	own	64	24	8
+field	c2	own	88	24	8
+field	before_m	own	112	8	8
+field	__state	own	120	8	8
+field	__wake	own	128	8	8
+field	__io_tok	own	136	8	8
+field	__io_deadline	own	144	8	8
+field	__cancel	own	152	1	1
+bt	288	strtab=120	version=1	word_bits=64
+btframe	__Frame_driven_rows$m$	driven_rows	V113_chain_assign_retains_a_projection.saw	120	0 101 105 112

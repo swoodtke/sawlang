@@ -1,0 +1,47 @@
+program	coro_panic_value_position.saw
+triple	arm64-apple-darwin
+twin	same
+expect	panic
+build	ok
+exit	-6
+stdout	"branch 5"
+stdout	"guarded 1"
+stdout	"alive 3"
+stdout	"panic at coro_panic_value_position.saw:49: deliberate"
+stdout	"saw tasks: 1 live (as-of panic, unsynchronized)"
+stdout	"  task group 1 slot 0 gen 4 running"
+stdout	"    at coro_panic_value_position.saw:48 in boom"
+stdout	""
+meets_expect	yes
+frame	__Frame_boom$m$	boom	40	8	states=2	own=40	sub=0	bt=0	root=1	method=0	agrees=1
+field	__state	own	0	8	8
+field	__wake	own	8	8	8
+field	__io_tok	own	16	8	8
+field	__io_deadline	own	24	8	8
+field	__cellp	own	32	8	8
+frame	__Frame_branch$m$	branch	48	8	states=2	own=48	sub=0	bt=1	root=1	method=0	agrees=1
+field	k	own	0	8	8
+field	__state	own	8	8	8
+field	__wake	own	16	8	8
+field	__io_tok	own	24	8	8
+field	__io_deadline	own	32	8	8
+field	__cellp	own	40	8	8
+frame	__Frame_guarded$m$	guarded	48	8	states=2	own=48	sub=0	bt=2	root=1	method=0	agrees=1
+field	k	own	0	8	8
+field	__state	own	8	8	8
+field	__wake	own	16	8	8
+field	__io_tok	own	24	8	8
+field	__io_deadline	own	32	8	8
+field	__cellp	own	40	8	8
+frame	__Frame_via_never$m$	via_never	48	8	states=2	own=48	sub=0	bt=3	root=1	method=0	agrees=1
+field	k	own	0	8	8
+field	__state	own	8	8	8
+field	__wake	own	16	8	8
+field	__io_tok	own	24	8	8
+field	__io_deadline	own	32	8	8
+field	__cellp	own	40	8	8
+bt	464	strtab=176	version=1	word_bits=64
+btframe	__Frame_boom$m$	boom	coro_panic_value_position.saw	0	0 48
+btframe	__Frame_branch$m$	branch	coro_panic_value_position.saw	8	0 27
+btframe	__Frame_guarded$m$	guarded	coro_panic_value_position.saw	8	0 34
+btframe	__Frame_via_never$m$	via_never	coro_panic_value_position.saw	8	0 41

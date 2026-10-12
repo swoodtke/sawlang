@@ -1,0 +1,22 @@
+program	channel_recv_buried_expr.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"6"
+stdout	""
+meets_expect	yes
+frame	__Frame_worker$m$	worker	128	8	states=7	own=121	sub=0	bt=0	root=1	method=0	agrees=1
+field	ch	own	0	24	8
+field	__trycall0	own	24	40	8
+field	__anf0	own	64	8	8
+field	x	own	72	8	8
+field	__have0	own	80	1	1
+field	__state	own	88	8	8
+field	__wake	own	96	8	8
+field	__io_tok	own	104	8	8
+field	__io_deadline	own	112	8	8
+field	__cellp	own	120	8	8
+bt	300	strtab=96	version=1	word_bits=64
+btframe	__Frame_worker$m$	worker	channel_recv_buried_expr.saw	88	0 11 0 0 0 0 0

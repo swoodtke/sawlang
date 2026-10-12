@@ -1,0 +1,21 @@
+program	coro_closure_taskgroup.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"34"
+stdout	"56"
+stdout	""
+meets_expect	yes
+frame	__Frame_work$m$	work	112	8	states=3	own=112	sub=0	bt=0	root=1	method=0	agrees=1
+field	base	own	0	8	8
+field	f	own	8	32	8
+field	g	own	40	32	8
+field	__state	own	72	8	8
+field	__wake	own	80	8	8
+field	__io_tok	own	88	8	8
+field	__io_deadline	own	96	8	8
+field	__cellp	own	104	8	8
+bt	246	strtab=90	version=1	word_bits=64
+btframe	__Frame_work$m$	work	coro_closure_taskgroup.saw	72	0 13 15

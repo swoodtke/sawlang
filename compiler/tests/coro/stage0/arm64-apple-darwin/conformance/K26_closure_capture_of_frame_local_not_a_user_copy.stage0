@@ -1,0 +1,42 @@
+program	conformance/K26_closure_capture_of_frame_local_not_a_user_copy.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"nocopy r"
+stdout	"live 0"
+stdout	"autoimplicit tag"
+stdout	"arc inside 2"
+stdout	"arc outside 2"
+stdout	"live 0"
+stdout	""
+meets_expect	yes
+frame	__Frame_arc_capture$m$	arc_capture	96	8	states=2	own=89	sub=0	bt=0	root=0	method=0	agrees=1
+field	a	own	0	24	8
+field	f	own	24	32	8
+field	__state	own	56	8	8
+field	__wake	own	64	8	8
+field	__io_tok	own	72	8	8
+field	__io_deadline	own	80	8	8
+field	__cancel	own	88	1	1
+frame	__Frame_autoimplicit_capture$m$	autoimplicit_capture	88	8	states=2	own=81	sub=0	bt=1	root=0	method=0	agrees=1
+field	t	own	0	16	8
+field	f	own	16	32	8
+field	__state	own	48	8	8
+field	__wake	own	56	8	8
+field	__io_tok	own	64	8	8
+field	__io_deadline	own	72	8	8
+field	__cancel	own	80	1	1
+frame	__Frame_nocopy_capture$m$	nocopy_capture	88	8	states=2	own=81	sub=0	bt=2	root=0	method=0	agrees=1
+field	r	own	0	16	8
+field	f	own	16	32	8
+field	__state	own	48	8	8
+field	__wake	own	56	8	8
+field	__io_tok	own	64	8	8
+field	__io_deadline	own	72	8	8
+field	__cancel	own	80	1	1
+bt	466	strtab=226	version=1	word_bits=64
+btframe	__Frame_arc_capture$m$	arc_capture	K26_closure_capture_of_frame_local_not_a_user_copy.saw	56	0 70
+btframe	__Frame_autoimplicit_capture$m$	autoimplicit_capture	K26_closure_capture_of_frame_local_not_a_user_copy.saw	48	0 62
+btframe	__Frame_nocopy_capture$m$	nocopy_capture	K26_closure_capture_of_frame_local_not_a_user_copy.saw	48	0 54

@@ -1,0 +1,31 @@
+program	taskgroup_compute_preemption_unbounded.saw
+triple	arm64-apple-darwin
+twin	differs
+expect	success
+build	ok
+exit	0
+stdout	"5"
+stdout	""
+meets_expect	yes
+frame	__Frame_spinner$m$	spinner	88	8	states=7	own=81	sub=0	bt=0	root=1	method=0	agrees=1
+field	stop	own	0	24	8
+field	__saw_loop_budget	own	24	8	8
+field	n	own	32	8	8
+field	going	own	40	1	1
+field	__state	own	48	8	8
+field	__wake	own	56	8	8
+field	__io_tok	own	64	8	8
+field	__io_deadline	own	72	8	8
+field	__cellp	own	80	8	8
+frame	__Frame_stopper$m$	stopper	80	8	states=8	own=80	sub=0	bt=1	root=1	method=0	agrees=1
+field	stop	own	0	24	8
+field	__saw_loop_budget	own	24	8	8
+field	k	own	32	8	8
+field	__state	own	40	8	8
+field	__wake	own	48	8	8
+field	__io_tok	own	56	8	8
+field	__io_deadline	own	64	8	8
+field	__cellp	own	72	8	8
+bt	463	strtab=139	version=1	word_bits=64
+btframe	__Frame_spinner$m$	spinner	taskgroup_compute_preemption_unbounded.saw	48	0 0 0 0 0 0 30
+btframe	__Frame_stopper$m$	stopper	taskgroup_compute_preemption_unbounded.saw	40	0 0 0 0 0 0 43 45

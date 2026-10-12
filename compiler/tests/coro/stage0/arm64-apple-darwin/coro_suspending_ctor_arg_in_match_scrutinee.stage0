@@ -1,0 +1,50 @@
+program	coro_suspending_ctor_arg_in_match_scrutinee.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"val 1"
+stdout	"holder 2"
+stdout	"done"
+stdout	""
+meets_expect	yes
+frame	__Frame_enum_ctor_scrutinee$m$	enum_ctor_scrutinee	128	8	states=3	own=65	sub=56	bt=0	root=0	method=0	agrees=1
+field	__anf0	own	0	8	8
+field	__head0	own	8	24	8
+field	__sub0	sub	32	56	8	callee=__Frame_mk_s$m$	live=1
+field	__state	own	88	8	8
+field	__wake	own	96	8	8
+field	__io_tok	own	104	8	8
+field	__io_deadline	own	112	8	8
+field	__cancel	own	120	1	1
+frame	__Frame_main	main	288	8	states=5	own=33	sub=248	bt=1	root=0	method=0	agrees=1
+field	__sub0	sub	0	128	8	callee=__Frame_enum_ctor_scrutinee$m$	live=1
+field	__sub1	sub	128	120	8	callee=__Frame_struct_init_scrutinee$m$	live=3
+field	__state	own	248	8	8
+field	__wake	own	256	8	8
+field	__io_tok	own	264	8	8
+field	__io_deadline	own	272	8	8
+field	__cancel	own	280	1	1
+frame	__Frame_mk_s$m$	mk_s	56	8	states=2	own=49	sub=0	bt=2	root=0	method=0	agrees=1
+field	id	own	0	8	8
+field	__state	own	8	8	8
+field	__wake	own	16	8	8
+field	__io_tok	own	24	8	8
+field	__io_deadline	own	32	8	8
+field	__cancel	own	40	1	1
+field	__result	own	48	8	8
+frame	__Frame_struct_init_scrutinee$m$	struct_init_scrutinee	120	8	states=3	own=57	sub=56	bt=3	root=0	method=0	agrees=1
+field	__anf0	own	0	8	8
+field	__head0	own	8	16	8
+field	__sub0	sub	24	56	8	callee=__Frame_mk_s$m$	live=1
+field	__state	own	80	8	8
+field	__wake	own	88	8	8
+field	__io_tok	own	96	8	8
+field	__io_deadline	own	104	8	8
+field	__cancel	own	112	1	1
+bt	583	strtab=235	version=1	word_bits=64
+btframe	__Frame_enum_ctor_scrutinee$m$	enum_ctor_scrutinee	coro_suspending_ctor_arg_in_match_scrutinee.saw	88	0 31>2@32 0
+btframe	__Frame_main	main	coro_suspending_ctor_arg_in_match_scrutinee.saw	248	0 43>0@0 0 44>3@128 0
+btframe	__Frame_mk_s$m$	mk_s	coro_suspending_ctor_arg_in_match_scrutinee.saw	8	0 26
+btframe	__Frame_struct_init_scrutinee$m$	struct_init_scrutinee	coro_suspending_ctor_arg_in_match_scrutinee.saw	80	0 37>2@24 0

@@ -1,0 +1,29 @@
+program	conformance/K55_mt_same_group_send_and_receive.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"relayed 9"
+stdout	""
+meets_expect	yes
+frame	__Frame_consume$m$	consume	112	8	states=7	own=105	sub=0	bt=0	root=1	method=0	agrees=1
+field	inbox	own	0	24	8
+field	__trycall0	own	24	40	8
+field	__have0	own	64	1	1
+field	__state	own	72	8	8
+field	__wake	own	80	8	8
+field	__io_tok	own	88	8	8
+field	__io_deadline	own	96	8	8
+field	__cellp	own	104	8	8
+frame	__Frame_feed$m$	feed	72	8	states=1	own=72	sub=0	bt=1	root=1	method=0	agrees=1
+field	inbox	own	0	24	8
+field	v	own	24	8	8
+field	__state	own	32	8	8
+field	__wake	own	40	8	8
+field	__io_tok	own	48	8	8
+field	__io_deadline	own	56	8	8
+field	__cellp	own	64	8	8
+bt	369	strtab=129	version=1	word_bits=64
+btframe	__Frame_consume$m$	consume	K55_mt_same_group_send_and_receive.saw	72	0 22 0 0 0 0 0
+btframe	__Frame_feed$m$	feed	K55_mt_same_group_send_and_receive.saw	32	0

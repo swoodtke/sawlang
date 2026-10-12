@@ -1,0 +1,34 @@
+program	df151e_optional_element_array.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"list -1 -1"
+stdout	"repeat -1 -1"
+stdout	"list 1 2"
+stdout	"repeat 7 7"
+stdout	"strings s0 s1"
+stdout	"repeat-string x1 x1"
+stdout	"mixed 1 -1 3"
+stdout	"nested 1 -1 4"
+stdout	"written w2 -"
+stdout	"arc base 1"
+stdout	"arc inside 3"
+stdout	"arc after 1"
+stdout	"suspending 5 -1"
+stdout	"suspending arc after 1"
+stdout	"done"
+stdout	""
+meets_expect	yes
+frame	__Frame_suspending_build$m$	suspending_build	176	8	states=3	own=176	sub=0	bt=0	root=1	method=0	agrees=1
+field	r	own	0	24	8
+field	slots	own	24	56	8
+field	held	own	80	56	8
+field	__state	own	136	8	8
+field	__wake	own	144	8	8
+field	__io_tok	own	152	8	8
+field	__io_deadline	own	160	8	8
+field	__cellp	own	168	8	8
+bt	277	strtab=121	version=1	word_bits=64
+btframe	__Frame_suspending_build$m$	suspending_build	df151e_optional_element_array.saw	136	0 60 62

@@ -1,0 +1,37 @@
+program	conformance/K14_spawn_ref_param_join_releases.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"task filled 3"
+stdout	"root len 3"
+stdout	"root sum 300"
+stdout	"after second join: 6"
+stdout	""
+meets_expect	yes
+frame	__Frame_fill$m$	fill	80	8	states=8	own=80	sub=0	bt=0	root=1	method=0	agrees=1
+field	v	own	0	8	8
+field	n	own	8	8	8
+field	base	own	16	8	8
+field	__saw_loop_budget	own	24	8	8
+field	i	own	32	8	8
+field	__state	own	40	8	8
+field	__wake	own	48	8	8
+field	__io_tok	own	56	8	8
+field	__io_deadline	own	64	8	8
+field	__cellp	own	72	8	8
+frame	__Frame_total$m$	total	96	8	states=10	own=96	sub=0	bt=1	root=1	method=0	agrees=1
+field	v	own	0	8	8
+field	__saw_loop_budget	own	8	8	8
+field	sum	own	16	8	8
+field	__saw_iter0	own	24	24	8
+field	__ob0	own	48	8	8
+field	__state	own	56	8	8
+field	__wake	own	64	8	8
+field	__io_tok	own	72	8	8
+field	__io_deadline	own	80	8	8
+field	__cellp	own	88	8	8
+bt	484	strtab=124	version=1	word_bits=64
+btframe	__Frame_fill$m$	fill	K14_spawn_ref_param_join_releases.saw	40	0 0 0 0 0 0 27 29
+btframe	__Frame_total$m$	total	K14_spawn_ref_param_join_releases.saw	56	0 36 0 0 0 0 0 0 0 38

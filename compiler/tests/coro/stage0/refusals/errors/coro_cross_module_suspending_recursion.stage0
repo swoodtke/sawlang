@@ -1,0 +1,7 @@
+log	"error: suspending recursion is not allowed: the suspending-call cycle `descend -> descend` has no compile-time frame size (design 44 embeds callee frames by value). Break the cycle or drive the inner call separately. This refusal is PENDING SL-322, the heap-allocated-frame design: an existential dispatch of a suspending body and suspending recursion both need a heap frame with an indirect resume, so the two land together and neither alone."
+log	"  --> examples/modules/recursion227/lib.saw:11:8"
+log	"     |"
+log	" 11 | public func descend(depth: Int) -> Int {"
+log	"     |        ^"
+log	""
+log	"1 error(s) generated"

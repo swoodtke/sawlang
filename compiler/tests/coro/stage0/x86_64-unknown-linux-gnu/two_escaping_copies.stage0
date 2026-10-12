@@ -1,0 +1,6 @@
+program	two_escaping_copies.saw
+triple	x86_64-unknown-linux-gnu
+twin	same
+expect	success
+build	not-run
+layout	same-as	arm64-apple-darwin

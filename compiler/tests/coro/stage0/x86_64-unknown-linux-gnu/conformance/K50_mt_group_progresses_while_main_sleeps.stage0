@@ -1,0 +1,6 @@
+program	conformance/K50_mt_group_progresses_while_main_sleeps.saw
+triple	x86_64-unknown-linux-gnu
+twin	differs
+expect	success
+build	not-run
+layout	same-as	arm64-apple-darwin

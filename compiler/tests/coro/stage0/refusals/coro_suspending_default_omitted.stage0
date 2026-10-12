@@ -1,0 +1,7 @@
+log	"error: coroutine transform: the default value of parameter `x` of `target` suspends, and a suspending default cannot be materialized at a call that omits it — the expression would need a coroutine frame of its own at every such call. Pass the argument explicitly, or give the parameter a non-suspending default"
+log	"  --> examples/coro_suspending_default_omitted.saw:41:1"
+log	"     |"
+log	" 41 |     target()"
+log	"     | ^"
+log	""
+log	"1 error(s) generated"

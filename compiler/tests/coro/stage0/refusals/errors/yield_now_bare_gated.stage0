@@ -1,0 +1,8 @@
+log	"error: `yield_now` is a stdlib-internal cooperative-yield intrinsic and cannot be called bare"
+log	"  --> examples/errors/yield_now_bare_gated.saw:9:5"
+log	"    |"
+log	" 9 |     yield_now()"
+log	"    |     ^"
+log	"   hint: add `import std.task` and call its public `yield_now()`"
+log	""
+log	"1 error(s) generated"

@@ -1,0 +1,96 @@
+program	coro_iflet_move_scrutinee_releases_payload.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"t1 in t1p"
+stdout	"t1 plain 0"
+stdout	"t1 in t1d"
+stdout	"t1 driven 0"
+stdout	"t2 in 1"
+stdout	"t2 plain 0"
+stdout	"t2 in 1"
+stdout	"t2 driven 0"
+stdout	"t3 in t3p"
+stdout	"t3 plain 0"
+stdout	"t3 in t3d"
+stdout	"t3 driven 0"
+stdout	"t4 in t4p"
+stdout	"t4 plain 0"
+stdout	"t4 in t4d"
+stdout	"t4 driven 0"
+stdout	"t5 in t5p"
+stdout	"t5 plain 0"
+stdout	"t5 in t5d"
+stdout	"t5 driven 0"
+stdout	"t6 in 2"
+stdout	"t6 plain 0"
+stdout	"t6 in 2"
+stdout	"t6 driven 0"
+stdout	"t7 in t7p"
+stdout	"t7 plain 0"
+stdout	"t7 in t7d"
+stdout	"t7 driven 0"
+stdout	""
+meets_expect	yes
+frame	__Frame_t1_driven$m$	t1_driven	64	8	states=2	own=57	sub=0	bt=0	root=0	method=0	agrees=1
+field	opt	own	0	24	8
+field	__state	own	24	8	8
+field	__wake	own	32	8	8
+field	__io_tok	own	40	8	8
+field	__io_deadline	own	48	8	8
+field	__cancel	own	56	1	1
+frame	__Frame_t2_driven$m$	t2_driven	72	8	states=2	own=65	sub=0	bt=1	root=0	method=0	agrees=1
+field	opt	own	0	32	8
+field	__state	own	32	8	8
+field	__wake	own	40	8	8
+field	__io_tok	own	48	8	8
+field	__io_deadline	own	56	8	8
+field	__cancel	own	64	1	1
+frame	__Frame_t3_driven$m$	t3_driven	72	8	states=2	own=58	sub=0	bt=2	root=0	method=0	agrees=1
+field	flag	own	0	1	1
+field	opt	own	8	24	8
+field	__state	own	32	8	8
+field	__wake	own	40	8	8
+field	__io_tok	own	48	8	8
+field	__io_deadline	own	56	8	8
+field	__cancel	own	64	1	1
+frame	__Frame_t4_driven$m$	t4_driven	80	8	states=4	own=73	sub=0	bt=3	root=0	method=0	agrees=1
+field	opt	own	0	24	8
+field	__ob0	own	24	16	8
+field	__state	own	40	8	8
+field	__wake	own	48	8	8
+field	__io_tok	own	56	8	8
+field	__io_deadline	own	64	8	8
+field	__cancel	own	72	1	1
+frame	__Frame_t5_driven$m$	t5_driven	80	8	states=5	own=73	sub=0	bt=4	root=0	method=0	agrees=1
+field	opt	own	0	24	8
+field	__ob0	own	24	16	8
+field	__state	own	40	8	8
+field	__wake	own	48	8	8
+field	__io_tok	own	56	8	8
+field	__io_deadline	own	64	8	8
+field	__cancel	own	72	1	1
+frame	__Frame_t6_driven$m$	t6_driven	72	8	states=2	own=65	sub=0	bt=5	root=0	method=0	agrees=1
+field	opt	own	0	32	8
+field	__state	own	32	8	8
+field	__wake	own	40	8	8
+field	__io_tok	own	48	8	8
+field	__io_deadline	own	56	8	8
+field	__cancel	own	64	1	1
+frame	__Frame_t7_driven$m$	t7_driven	64	8	states=2	own=57	sub=0	bt=6	root=0	method=0	agrees=1
+field	opt	own	0	24	8
+field	__state	own	24	8	8
+field	__wake	own	32	8	8
+field	__io_tok	own	40	8	8
+field	__io_deadline	own	48	8	8
+field	__cancel	own	56	1	1
+bt	798	strtab=306	version=1	word_bits=64
+btframe	__Frame_t1_driven$m$	t1_driven	coro_iflet_move_scrutinee_releases_payload.saw	24	0 88
+btframe	__Frame_t2_driven$m$	t2_driven	coro_iflet_move_scrutinee_releases_payload.saw	32	0 101
+btframe	__Frame_t3_driven$m$	t3_driven	coro_iflet_move_scrutinee_releases_payload.saw	32	0 120
+btframe	__Frame_t4_driven$m$	t4_driven	coro_iflet_move_scrutinee_releases_payload.saw	40	0 138 0 0
+btframe	__Frame_t5_driven$m$	t5_driven	coro_iflet_move_scrutinee_releases_payload.saw	40	0 151 0 0 153
+btframe	__Frame_t6_driven$m$	t6_driven	coro_iflet_move_scrutinee_releases_payload.saw	32	0 168
+btframe	__Frame_t7_driven$m$	t7_driven	coro_iflet_move_scrutinee_releases_payload.saw	24	0 181

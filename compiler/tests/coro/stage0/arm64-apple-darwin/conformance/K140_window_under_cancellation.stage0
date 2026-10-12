@@ -1,0 +1,91 @@
+program	conformance/K140_window_under_cancellation.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"-- parked in a nested callee"
+stdout	"iterator deinit"
+stdout	"owner deinit"
+stdout	"iterator deinit"
+stdout	"-- caught and continued: 3 items seen"
+stdout	"owner deinit"
+stdout	"-- cancellation out of the head: 0 iterators built"
+stdout	"owner deinit"
+stdout	"-- cancel at the park then exhaustion"
+stdout	"iterator deinit"
+stdout	"owner deinit"
+stdout	""
+meets_expect	yes
+frame	__Frame_cancel_at_park_then_exhaustion$m$	cancel_at_park_then_exhaustion	136	8	states=10	own=136	sub=0	bt=0	root=1	method=0	agrees=1
+field	b	own	0	40	8
+field	__saw_loop_budget	own	40	8	8
+field	total	own	48	8	8
+field	__saw_iter0	own	56	32	8
+field	__ob0	own	88	8	8
+field	__state	own	96	8	8
+field	__wake	own	104	8	8
+field	__io_tok	own	112	8	8
+field	__io_deadline	own	120	8	8
+field	__cellp	own	128	8	8
+frame	__Frame_cancellation_out_of_the_head$m$	cancellation_out_of_the_head	240	8	states=11	own=168	sub=72	bt=1	root=1	method=0	agrees=1
+field	b	own	0	40	8
+field	__saw_loop_budget	own	40	8	8
+field	total	own	48	8	8
+field	__trycall0	own	56	24	8
+field	__anf0	own	80	8	8
+field	__saw_iter0	own	88	32	8
+field	__ob0	own	120	8	8
+field	__sub0	sub	128	72	8	callee=__Frame_failing_head$m$	live=1
+field	__state	own	200	8	8
+field	__wake	own	208	8	8
+field	__io_tok	own	216	8	8
+field	__io_deadline	own	224	8	8
+field	__cellp	own	232	8	8
+frame	__Frame_caught_and_continued$m$	caught_and_continued	136	8	states=12	own=136	sub=0	bt=2	root=1	method=0	agrees=1
+field	b	own	0	40	8
+field	__saw_loop_budget	own	40	8	8
+field	seen	own	48	8	8
+field	__saw_iter0	own	56	32	8
+field	__ob0	own	88	8	8
+field	__state	own	96	8	8
+field	__wake	own	104	8	8
+field	__io_tok	own	112	8	8
+field	__io_deadline	own	120	8	8
+field	__cellp	own	128	8	8
+frame	__Frame_failing_head$m$	failing_head	72	8	states=2	own=65	sub=0	bt=3	root=0	method=0	agrees=1
+field	x	own	0	8	8
+field	__state	own	8	8	8
+field	__wake	own	16	8	8
+field	__io_tok	own	24	8	8
+field	__io_deadline	own	32	8	8
+field	__cancel	own	40	1	1
+field	__result	own	48	24	8
+frame	__Frame_park_deep$m$	park_deep	56	8	states=3	own=49	sub=0	bt=4	root=0	method=0	agrees=1
+field	x	own	0	8	8
+field	__state	own	8	8	8
+field	__wake	own	16	8	8
+field	__io_tok	own	24	8	8
+field	__io_deadline	own	32	8	8
+field	__cancel	own	40	1	1
+field	__result	own	48	8	8
+frame	__Frame_parked_in_a_nested_callee$m$	parked_in_a_nested_callee	200	8	states=13	own=144	sub=56	bt=5	root=1	method=0	agrees=1
+field	b	own	0	40	8
+field	__saw_loop_budget	own	40	8	8
+field	total	own	48	8	8
+field	__saw_iter0	own	56	32	8
+field	__ob0	own	88	8	8
+field	__anf0	own	96	8	8
+field	__sub0	sub	104	56	8	callee=__Frame_park_deep$m$	live=9
+field	__state	own	160	8	8
+field	__wake	own	168	8	8
+field	__io_tok	own	176	8	8
+field	__io_deadline	own	184	8	8
+field	__cellp	own	192	8	8
+bt	1255	strtab=403	version=1	word_bits=64
+btframe	__Frame_cancel_at_park_then_exhaustion$m$	cancel_at_park_then_exhaustion	K140_window_under_cancellation.saw	96	0 0 0 0 0 0 0 0 141 142
+btframe	__Frame_cancellation_out_of_the_head$m$	cancellation_out_of_the_head	K140_window_under_cancellation.saw	200	0 135>3@128 0 0 0 0 0 0 0 0 135
+btframe	__Frame_caught_and_continued$m$	caught_and_continued	K140_window_under_cancellation.saw	96	0 0 0 0 0 0 0 0 114 115 0 0
+btframe	__Frame_failing_head$m$	failing_head	K140_window_under_cancellation.saw	8	0 129
+btframe	__Frame_park_deep$m$	park_deep	K140_window_under_cancellation.saw	8	0 96 97
+btframe	__Frame_parked_in_a_nested_callee$m$	parked_in_a_nested_callee	K140_window_under_cancellation.saw	160	0 0 0 0 0 0 0 0 103 104>4@104 0 0 0

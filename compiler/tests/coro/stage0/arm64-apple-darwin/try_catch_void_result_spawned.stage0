@@ -1,0 +1,20 @@
+program	try_catch_void_result_spawned.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"1"
+stdout	"worker: refused"
+stdout	"-1"
+stdout	""
+meets_expect	yes
+frame	__Frame_worker$m$	worker	48	8	states=2	own=41	sub=0	bt=0	root=1	method=0	agrees=1
+field	ok	own	0	1	1
+field	__state	own	8	8	8
+field	__wake	own	16	8	8
+field	__io_tok	own	24	8	8
+field	__io_deadline	own	32	8	8
+field	__cellp	own	40	8	8
+bt	245	strtab=101	version=1	word_bits=64
+btframe	__Frame_worker$m$	worker	try_catch_void_result_spawned.saw	8	0 23

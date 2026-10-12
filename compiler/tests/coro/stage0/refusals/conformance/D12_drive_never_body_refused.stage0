@@ -1,0 +1,8 @@
+log	"error: a task body may not be `Never`: `halt` never returns, so `__saw_drive` would drive it for ever"
+log	"  --> examples/conformance/D12_drive_never_body_refused.saw:21:5"
+log	"     |"
+log	" 21 |     __saw_drive(halt(1))"
+log	"     |     ^"
+log	"   hint: a task is something to wait for, and a `Never` body gives it a result that cannot exist. Write a forever-task as `-> Void` with a loop — `func serve() { while { ... } }` — and end it by cancelling the task or breaking the loop"
+log	""
+log	"1 error(s) generated"

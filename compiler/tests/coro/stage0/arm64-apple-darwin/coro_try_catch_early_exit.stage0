@@ -1,0 +1,63 @@
+program	coro_try_catch_early_exit.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"break-in-try 1 1"
+stdout	"-- break-in-catch, sync"
+stdout	"err nope"
+stdout	"total 3"
+stdout	"-- break-in-catch, driven"
+stdout	"err nope"
+stdout	"total 3"
+stdout	""
+meets_expect	yes
+frame	__Frame_break_in_catch_driven$m$	break_in_catch_driven	136	8	states=11	own=89	sub=40	bt=0	root=0	method=0	agrees=1
+field	__saw_loop_budget	own	0	8	8
+field	total	own	8	8	8
+field	i	own	16	8	8
+field	error	own	24	16	8
+field	v	own	40	8	8
+field	__sub0	sub	48	40	8	callee=__Frame_slow$m$	live=7
+field	__state	own	88	8	8
+field	__wake	own	96	8	8
+field	__io_tok	own	104	8	8
+field	__io_deadline	own	112	8	8
+field	__cancel	own	120	1	1
+field	__result	own	128	8	8
+frame	__Frame_break_in_try_driven$m$	break_in_try_driven	136	8	states=13	own=89	sub=40	bt=1	root=0	method=0	agrees=1
+field	__saw_loop_budget	own	0	8	8
+field	total	own	8	8	8
+field	i	own	16	8	8
+field	error	own	24	16	8
+field	v	own	40	8	8
+field	__sub0	sub	48	40	8	callee=__Frame_slow$m$	live=7
+field	__state	own	88	8	8
+field	__wake	own	96	8	8
+field	__io_tok	own	104	8	8
+field	__io_deadline	own	112	8	8
+field	__cancel	own	120	1	1
+field	__result	own	128	8	8
+frame	__Frame_main	main	336	8	states=5	own=57	sub=272	bt=2	root=0	method=0	agrees=1
+field	__anf0	own	0	8	8
+field	__anf1	own	8	8	8
+field	__anf2	own	16	8	8
+field	__sub0	sub	24	136	8	callee=__Frame_break_in_try_driven$m$	live=1
+field	__sub1	sub	160	136	8	callee=__Frame_break_in_catch_driven$m$	live=3
+field	__state	own	296	8	8
+field	__wake	own	304	8	8
+field	__io_tok	own	312	8	8
+field	__io_deadline	own	320	8	8
+field	__cancel	own	328	1	1
+frame	__Frame_slow$m$	slow	40	8	states=2	own=33	sub=0	bt=3	root=0	method=0	agrees=1
+field	__state	own	0	8	8
+field	__wake	own	8	8	8
+field	__io_tok	own	16	8	8
+field	__io_deadline	own	24	8	8
+field	__cancel	own	32	1	1
+bt	781	strtab=217	version=1	word_bits=64
+btframe	__Frame_break_in_catch_driven$m$	break_in_catch_driven	coro_try_catch_early_exit.saw	88	0 0 0 0 0 0 91 92>3@48 0 0 0
+btframe	__Frame_break_in_try_driven$m$	break_in_try_driven	coro_try_catch_early_exit.saw	88	0 0 0 0 0 0 56 57>3@48 0 0 0 0 0
+btframe	__Frame_main	main	coro_try_catch_early_exit.saw	296	0 106>1@24 0 110>0@160 0
+btframe	__Frame_slow$m$	slow	coro_try_catch_early_exit.saw	0	0 31

@@ -1,0 +1,37 @@
+program	expr_suspend_arg_order.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"1"
+stdout	"2"
+stdout	"3"
+stdout	"456"
+stdout	""
+meets_expect	yes
+frame	__Frame_ordered$m$	ordered	264	8	states=7	own=65	sub=192	bt=0	root=0	method=0	agrees=1
+field	__anf0	own	0	8	8
+field	__anf1	own	8	8	8
+field	__anf2	own	16	8	8
+field	__sub0	sub	24	64	8	callee=__Frame_se$m$	live=1
+field	__sub1	sub	88	64	8	callee=__Frame_se$m$	live=3
+field	__sub2	sub	152	64	8	callee=__Frame_se$m$	live=5
+field	__state	own	216	8	8
+field	__wake	own	224	8	8
+field	__io_tok	own	232	8	8
+field	__io_deadline	own	240	8	8
+field	__cancel	own	248	1	1
+field	__result	own	256	8	8
+frame	__Frame_se$m$	se	64	8	states=2	own=57	sub=0	bt=1	root=0	method=0	agrees=1
+field	id	own	0	8	8
+field	val	own	8	8	8
+field	__state	own	16	8	8
+field	__wake	own	24	8	8
+field	__io_tok	own	32	8	8
+field	__io_deadline	own	40	8	8
+field	__cancel	own	48	1	1
+field	__result	own	56	8	8
+bt	365	strtab=113	version=1	word_bits=64
+btframe	__Frame_ordered$m$	ordered	expr_suspend_arg_order.saw	216	0 21>1@24 0 21>1@88 0 21>1@152 0
+btframe	__Frame_se$m$	se	expr_suspend_arg_order.saw	16	0 13

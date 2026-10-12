@@ -1,0 +1,53 @@
+program	net_loopback_echo.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"3"
+stdout	"1"
+stdout	""
+meets_expect	yes
+frame	__Frame_client$m$	client	184	8	states=31	own=170	sub=0	bt=0	root=1	method=0	agrees=1
+field	port	own	0	8	8
+field	__saw_loop_budget	own	8	8	8
+field	addr	own	16	8	8
+field	fd	own	24	8	8
+field	connecting	own	32	1	1
+field	cs	own	40	8	8
+field	msg	own	48	16	8
+field	off	own	64	8	8
+field	going	own	72	1	1
+field	w	own	80	8	8
+field	buf	own	88	16	8
+field	n	own	104	8	8
+field	r	own	112	8	8
+field	matched	own	120	8	8
+field	__state	own	128	8	8
+field	__wake	own	136	8	8
+field	__io_tok	own	144	8	8
+field	__io_deadline	own	152	8	8
+field	__io_fd	own	160	8	8
+field	__io_dir	own	168	8	8
+field	__cellp	own	176	8	8
+frame	__Frame_server$m$	server	144	8	states=31	own=137	sub=0	bt=1	root=1	method=0	agrees=1
+field	lfd	own	0	8	8
+field	__saw_loop_budget	own	8	8	8
+field	cfd	own	16	8	8
+field	going	own	24	1	1
+field	c	own	32	8	8
+field	buf	own	40	16	8
+field	n	own	56	8	8
+field	r	own	64	8	8
+field	off	own	72	8	8
+field	w	own	80	8	8
+field	__state	own	88	8	8
+field	__wake	own	96	8	8
+field	__io_tok	own	104	8	8
+field	__io_deadline	own	112	8	8
+field	__io_fd	own	120	8	8
+field	__io_dir	own	128	8	8
+field	__cellp	own	136	8	8
+bt	1002	strtab=114	version=1	word_bits=64
+btframe	__Frame_client$m$	client	net_loopback_echo.saw	128	0 0 0 0 0 0 63 0 0 0 66 0 0 0 0 0 77 0 0 0 80 0 0 0 0 0 91 0 0 0 94
+btframe	__Frame_server$m$	server	net_loopback_echo.saw	88	0 0 0 0 0 0 15 0 0 0 18 0 0 0 0 0 27 0 0 0 30 0 0 0 0 0 38 0 0 0 41

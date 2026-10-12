@@ -1,0 +1,151 @@
+program	coro_autowrap_argument_in_driven_body.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"opt call 6"
+stdout	"opt local 7"
+stdout	"result call 8"
+stdout	"result local 9"
+stdout	"result err bad 10"
+stdout	"double 11"
+stdout	"method 12"
+stdout	"enum payload 13"
+stdout	"channel 14"
+stdout	"struct field 15"
+stdout	""
+meets_expect	yes
+frame	__Frame_channel_send$m$	channel_send	200	8	states=9	own=130	sub=56	bt=0	root=0	method=0	agrees=1
+field	ch	own	0	24	8
+field	__anf0	own	24	8	8
+field	__trycall0	own	32	40	8
+field	got	own	72	24	8
+field	__sub0	sub	96	56	8	callee=__Frame_s$m$	live=1
+field	__have0	own	152	1	1
+field	__state	own	160	8	8
+field	__wake	own	168	8	8
+field	__io_tok	own	176	8	8
+field	__io_deadline	own	184	8	8
+field	__cancel	own	192	1	1
+frame	__Frame_double_wrap$m$	double_wrap	104	8	states=3	own=41	sub=56	bt=1	root=0	method=0	agrees=1
+field	__anf0	own	0	8	8
+field	__sub0	sub	8	56	8	callee=__Frame_s$m$	live=1
+field	__state	own	64	8	8
+field	__wake	own	72	8	8
+field	__io_tok	own	80	8	8
+field	__io_deadline	own	88	8	8
+field	__cancel	own	96	1	1
+frame	__Frame_enum_payload$m$	enum_payload	136	8	states=3	own=73	sub=56	bt=2	root=0	method=0	agrees=1
+field	__anf0	own	0	8	8
+field	h	own	8	32	8
+field	__sub0	sub	40	56	8	callee=__Frame_s$m$	live=1
+field	__state	own	96	8	8
+field	__wake	own	104	8	8
+field	__io_tok	own	112	8	8
+field	__io_deadline	own	120	8	8
+field	__cancel	own	128	1	1
+frame	__Frame_main	main	1264	8	states=21	own=33	sub=1224	bt=3	root=0	method=0	agrees=1
+field	__sub0	sub	0	104	8	callee=__Frame_opt_from_call$m$	live=1
+field	__sub1	sub	104	104	8	callee=__Frame_opt_from_frame_local$m$	live=3
+field	__sub2	sub	208	104	8	callee=__Frame_result_from_call$m$	live=5
+field	__sub3	sub	312	104	8	callee=__Frame_result_from_frame_local$m$	live=7
+field	__sub4	sub	416	120	8	callee=__Frame_result_err_side$m$	live=9
+field	__sub5	sub	536	104	8	callee=__Frame_double_wrap$m$	live=11
+field	__sub6	sub	640	120	8	callee=__Frame_method_argument$m$	live=13
+field	__sub7	sub	760	136	8	callee=__Frame_enum_payload$m$	live=15
+field	__sub8	sub	896	200	8	callee=__Frame_channel_send$m$	live=17
+field	__sub9	sub	1096	128	8	callee=__Frame_struct_field$m$	live=19
+field	__state	own	1224	8	8
+field	__wake	own	1232	8	8
+field	__io_tok	own	1240	8	8
+field	__io_deadline	own	1248	8	8
+field	__cancel	own	1256	1	1
+frame	__Frame_method_argument$m$	method_argument	120	8	states=3	own=57	sub=56	bt=4	root=0	method=0	agrees=1
+field	sink	own	0	16	8
+field	__anf0	own	16	8	8
+field	__sub0	sub	24	56	8	callee=__Frame_s$m$	live=1
+field	__state	own	80	8	8
+field	__wake	own	88	8	8
+field	__io_tok	own	96	8	8
+field	__io_deadline	own	104	8	8
+field	__cancel	own	112	1	1
+frame	__Frame_opt_from_call$m$	opt_from_call	104	8	states=3	own=41	sub=56	bt=5	root=0	method=0	agrees=1
+field	__anf0	own	0	8	8
+field	__sub0	sub	8	56	8	callee=__Frame_s$m$	live=1
+field	__state	own	64	8	8
+field	__wake	own	72	8	8
+field	__io_tok	own	80	8	8
+field	__io_deadline	own	88	8	8
+field	__cancel	own	96	1	1
+frame	__Frame_opt_from_frame_local$m$	opt_from_frame_local	104	8	states=3	own=41	sub=56	bt=6	root=0	method=0	agrees=1
+field	v	own	0	8	8
+field	__sub0	sub	8	56	8	callee=__Frame_s$m$	live=1
+field	__state	own	64	8	8
+field	__wake	own	72	8	8
+field	__io_tok	own	80	8	8
+field	__io_deadline	own	88	8	8
+field	__cancel	own	96	1	1
+frame	__Frame_result_err_side$m$	result_err_side	120	8	states=3	own=49	sub=64	bt=7	root=0	method=0	agrees=1
+field	__anf0	own	0	16	8
+field	__sub0	sub	16	64	8	callee=__Frame_s_bad$m$	live=1
+field	__state	own	80	8	8
+field	__wake	own	88	8	8
+field	__io_tok	own	96	8	8
+field	__io_deadline	own	104	8	8
+field	__cancel	own	112	1	1
+frame	__Frame_result_from_call$m$	result_from_call	104	8	states=3	own=41	sub=56	bt=8	root=0	method=0	agrees=1
+field	__anf0	own	0	8	8
+field	__sub0	sub	8	56	8	callee=__Frame_s$m$	live=1
+field	__state	own	64	8	8
+field	__wake	own	72	8	8
+field	__io_tok	own	80	8	8
+field	__io_deadline	own	88	8	8
+field	__cancel	own	96	1	1
+frame	__Frame_result_from_frame_local$m$	result_from_frame_local	104	8	states=3	own=41	sub=56	bt=9	root=0	method=0	agrees=1
+field	v	own	0	8	8
+field	__sub0	sub	8	56	8	callee=__Frame_s$m$	live=1
+field	__state	own	64	8	8
+field	__wake	own	72	8	8
+field	__io_tok	own	80	8	8
+field	__io_deadline	own	88	8	8
+field	__cancel	own	96	1	1
+frame	__Frame_s$m$	s	56	8	states=2	own=49	sub=0	bt=10	root=0	method=0	agrees=1
+field	n	own	0	8	8
+field	__state	own	8	8	8
+field	__wake	own	16	8	8
+field	__io_tok	own	24	8	8
+field	__io_deadline	own	32	8	8
+field	__cancel	own	40	1	1
+field	__result	own	48	8	8
+frame	__Frame_s_bad$m$	s_bad	64	8	states=2	own=57	sub=0	bt=11	root=0	method=0	agrees=1
+field	n	own	0	8	8
+field	__state	own	8	8	8
+field	__wake	own	16	8	8
+field	__io_tok	own	24	8	8
+field	__io_deadline	own	32	8	8
+field	__cancel	own	40	1	1
+field	__result	own	48	16	8
+frame	__Frame_struct_field$m$	struct_field	128	8	states=3	own=65	sub=56	bt=12	root=0	method=0	agrees=1
+field	__anf0	own	0	8	8
+field	f	own	8	24	8
+field	__sub0	sub	32	56	8	callee=__Frame_s$m$	live=1
+field	__state	own	88	8	8
+field	__wake	own	96	8	8
+field	__io_tok	own	104	8	8
+field	__io_deadline	own	112	8	8
+field	__cancel	own	120	1	1
+bt	1708	strtab=568	version=1	word_bits=64
+btframe	__Frame_channel_send$m$	channel_send	coro_autowrap_argument_in_driven_body.saw	160	0 131>10@96 0 132 0 0 0 0 0
+btframe	__Frame_double_wrap$m$	double_wrap	coro_autowrap_argument_in_driven_body.saw	64	0 110>10@8 0
+btframe	__Frame_enum_payload$m$	enum_payload	coro_autowrap_argument_in_driven_body.saw	96	0 121>10@40 0
+btframe	__Frame_main	main	coro_autowrap_argument_in_driven_body.saw	1224	0 143>5@0 0 144>6@104 0 145>8@208 0 146>9@312 0 147>7@416 0 148>1@536 0 149>4@640 0 150>2@760 0 151>0@896 0 152>12@1096 0
+btframe	__Frame_method_argument$m$	method_argument	coro_autowrap_argument_in_driven_body.saw	80	0 116>10@24 0
+btframe	__Frame_opt_from_call$m$	opt_from_call	coro_autowrap_argument_in_driven_body.saw	64	0 82>10@8 0
+btframe	__Frame_opt_from_frame_local$m$	opt_from_frame_local	coro_autowrap_argument_in_driven_body.saw	64	0 89>10@8 0
+btframe	__Frame_result_err_side$m$	result_err_side	coro_autowrap_argument_in_driven_body.saw	80	0 105>11@16 0
+btframe	__Frame_result_from_call$m$	result_from_call	coro_autowrap_argument_in_driven_body.saw	64	0 94>10@8 0
+btframe	__Frame_result_from_frame_local$m$	result_from_frame_local	coro_autowrap_argument_in_driven_body.saw	64	0 99>10@8 0
+btframe	__Frame_s$m$	s	coro_autowrap_argument_in_driven_body.saw	8	0 54
+btframe	__Frame_s_bad$m$	s_bad	coro_autowrap_argument_in_driven_body.saw	8	0 59
+btframe	__Frame_struct_field$m$	struct_field	coro_autowrap_argument_in_driven_body.saw	88	0 138>10@32 0

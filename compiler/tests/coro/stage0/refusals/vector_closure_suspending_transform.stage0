@@ -1,0 +1,7 @@
+log	"error: coroutine transform: the suspending call `slow_double(...)` appears inside a CLOSURE BODY in driven `traverse`, and a closure body is not driven — its suspension has no frame to park in. Call it outside the closure and pass the result in, or move the whole closure body into a named function the driven body calls."
+log	"  --> examples/vector_closure_suspending_transform.saw:41:42"
+log	"     |"
+log	" 41 |     let doubled = try! v.map<Int>({ n in slow_double(n) })"
+log	"     |                                          ^"
+log	""
+log	"1 error(s) generated"

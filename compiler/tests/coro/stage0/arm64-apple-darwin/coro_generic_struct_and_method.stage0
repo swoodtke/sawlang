@@ -1,0 +1,57 @@
+program	coro_generic_struct_and_method.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"11"
+stdout	"12"
+stdout	"21"
+stdout	"22"
+stdout	""
+meets_expect	yes
+frame	__Frame_Dual_mix$2$A$A	Dual.mix$2$A$A	72	8	states=2	own=58	sub=0	bt=0	root=0	method=1	agrees=1
+field	__recv	own	0	8	8
+field	other	own	8	1	1
+field	base	own	16	8	8
+field	__state	own	24	8	8
+field	__wake	own	32	8	8
+field	__io_tok	own	40	8	8
+field	__io_deadline	own	48	8	8
+field	__cancel	own	56	1	1
+field	__result	own	64	8	8
+frame	__Frame_Dual_mix$2$A$B	Dual.mix$2$A$B	72	8	states=2	own=58	sub=0	bt=1	root=0	method=1	agrees=1
+field	__recv	own	0	8	8
+field	other	own	8	1	1
+field	base	own	16	8	8
+field	__state	own	24	8	8
+field	__wake	own	32	8	8
+field	__io_tok	own	40	8	8
+field	__io_deadline	own	48	8	8
+field	__cancel	own	56	1	1
+field	__result	own	64	8	8
+frame	__Frame_Dual_mix$2$B$A	Dual.mix$2$B$A	72	8	states=2	own=58	sub=0	bt=2	root=0	method=1	agrees=1
+field	__recv	own	0	8	8
+field	other	own	8	1	1
+field	base	own	16	8	8
+field	__state	own	24	8	8
+field	__wake	own	32	8	8
+field	__io_tok	own	40	8	8
+field	__io_deadline	own	48	8	8
+field	__cancel	own	56	1	1
+field	__result	own	64	8	8
+frame	__Frame_Dual_mix$2$B$B	Dual.mix$2$B$B	72	8	states=2	own=58	sub=0	bt=3	root=0	method=1	agrees=1
+field	__recv	own	0	8	8
+field	other	own	8	1	1
+field	base	own	16	8	8
+field	__state	own	24	8	8
+field	__wake	own	32	8	8
+field	__io_tok	own	40	8	8
+field	__io_deadline	own	48	8	8
+field	__cancel	own	56	1	1
+field	__result	own	64	8	8
+bt	517	strtab=229	version=1	word_bits=64
+btframe	__Frame_Dual_mix$2$A$A	Dual.mix$2$A$A	coro_generic_struct_and_method.saw	24	0 31
+btframe	__Frame_Dual_mix$2$A$B	Dual.mix$2$A$B	coro_generic_struct_and_method.saw	24	0 31
+btframe	__Frame_Dual_mix$2$B$A	Dual.mix$2$B$A	coro_generic_struct_and_method.saw	24	0 31
+btframe	__Frame_Dual_mix$2$B$B	Dual.mix$2$B$B	coro_generic_struct_and_method.saw	24	0 31

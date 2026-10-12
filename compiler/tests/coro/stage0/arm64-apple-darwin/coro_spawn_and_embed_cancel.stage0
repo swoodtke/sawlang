@@ -1,0 +1,39 @@
+program	coro_spawn_and_embed_cancel.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"101"
+stdout	"107"
+stdout	""
+meets_expect	yes
+frame	__Frame_caller$m$	caller	112	8	states=2	own=40	sub=72	bt=0	root=1	method=0	agrees=1
+field	__sub0	sub	0	72	8	callee=__Frame_leaf$m$	live=1
+field	__state	own	72	8	8
+field	__wake	own	80	8	8
+field	__io_tok	own	88	8	8
+field	__io_deadline	own	96	8	8
+field	__cellp	own	104	8	8
+frame	__Frame_leaf$m$	leaf	72	8	states=8	own=65	sub=0	bt=1	root=0	method=0	agrees=1
+field	base	own	0	8	8
+field	__saw_loop_budget	own	8	8	8
+field	i	own	16	8	8
+field	__state	own	24	8	8
+field	__wake	own	32	8	8
+field	__io_tok	own	40	8	8
+field	__io_deadline	own	48	8	8
+field	__cancel	own	56	1	1
+field	__result	own	64	8	8
+frame	__Frame_leaf$m$$spawnroot	leaf$m$$spawnroot	120	8	states=2	own=48	sub=72	bt=2	root=1	method=0	agrees=1
+field	base	own	0	8	8
+field	__sub0	sub	8	72	8	callee=__Frame_leaf$m$	live=1
+field	__state	own	80	8	8
+field	__wake	own	88	8	8
+field	__io_tok	own	96	8	8
+field	__io_deadline	own	104	8	8
+field	__cellp	own	112	8	8
+bt	476	strtab=164	version=1	word_bits=64
+btframe	__Frame_caller$m$	caller	coro_spawn_and_embed_cancel.saw	72	0 30>1@0
+btframe	__Frame_leaf$m$	leaf	coro_spawn_and_embed_cancel.saw	24	0 0 0 0 0 0 19 23
+btframe	__Frame_leaf$m$$spawnroot	leaf$m$$spawnroot	coro_spawn_and_embed_cancel.saw	80	0 17>1@8

@@ -1,0 +1,76 @@
+program	coro_move_scrutinee_span.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"id: 7"
+stdout	"guarded: 5"
+stdout	"absent: -2"
+stdout	"explicit: 12"
+stdout	"implicit: 4"
+stdout	"deinits=2"
+stdout	""
+meets_expect	yes
+frame	__Frame_absent$m$	absent	152	8	states=8	own=80	sub=72	bt=0	root=1	method=0	agrees=1
+field	held	own	0	24	8
+field	__ob0	own	24	16	8
+field	__sub0	sub	40	72	8	callee=__Frame_make$m$	live=1
+field	__state	own	112	8	8
+field	__wake	own	120	8	8
+field	__io_tok	own	128	8	8
+field	__io_deadline	own	136	8	8
+field	__cellp	own	144	8	8
+frame	__Frame_consume$m$	consume	160	8	states=7	own=88	sub=72	bt=1	root=1	method=0	agrees=1
+field	id	own	0	8	8
+field	held	own	8	24	8
+field	__ob0	own	32	16	8
+field	__sub0	sub	48	72	8	callee=__Frame_make$m$	live=1
+field	__state	own	120	8	8
+field	__wake	own	128	8	8
+field	__io_tok	own	136	8	8
+field	__io_deadline	own	144	8	8
+field	__cellp	own	152	8	8
+frame	__Frame_explicit$m$	explicit	176	8	states=5	own=176	sub=0	bt=2	root=1	method=0	agrees=1
+field	n	own	0	8	8
+field	base	own	8	40	8
+field	held	own	48	48	8
+field	__ob0	own	96	40	8
+field	__state	own	136	8	8
+field	__wake	own	144	8	8
+field	__io_tok	own	152	8	8
+field	__io_deadline	own	160	8	8
+field	__cellp	own	168	8	8
+frame	__Frame_guarded$m$	guarded	160	8	states=6	own=88	sub=72	bt=3	root=1	method=0	agrees=1
+field	id	own	0	8	8
+field	held	own	8	24	8
+field	__ob0	own	32	16	8
+field	__sub0	sub	48	72	8	callee=__Frame_make$m$	live=1
+field	__state	own	120	8	8
+field	__wake	own	128	8	8
+field	__io_tok	own	136	8	8
+field	__io_deadline	own	144	8	8
+field	__cellp	own	152	8	8
+frame	__Frame_implicit$m$	implicit	80	8	states=5	own=80	sub=0	bt=4	root=1	method=0	agrees=1
+field	held	own	0	24	8
+field	__ob0	own	24	16	8
+field	__state	own	40	8	8
+field	__wake	own	48	8	8
+field	__io_tok	own	56	8	8
+field	__io_deadline	own	64	8	8
+field	__cellp	own	72	8	8
+frame	__Frame_make$m$	make	72	8	states=2	own=65	sub=0	bt=5	root=0	method=0	agrees=1
+field	id	own	0	8	8
+field	__state	own	8	8	8
+field	__wake	own	16	8	8
+field	__io_tok	own	24	8	8
+field	__io_deadline	own	32	8	8
+field	__cancel	own	40	1	1
+field	__result	own	48	24	8
+bt	865	strtab=229	version=1	word_bits=64
+btframe	__Frame_absent$m$	absent	coro_move_scrutinee_span.saw	112	0 74>5@40 0 0 0 0 76 79
+btframe	__Frame_consume$m$	consume	coro_move_scrutinee_span.saw	120	0 52>5@48 0 0 0 0 54
+btframe	__Frame_explicit$m$	explicit	coro_move_scrutinee_span.saw	136	0 0 0 0 89
+btframe	__Frame_guarded$m$	guarded	coro_move_scrutinee_span.saw	120	0 63>5@48 0 0 0 67
+btframe	__Frame_implicit$m$	implicit	coro_move_scrutinee_span.saw	40	0 0 0 0 101
+btframe	__Frame_make$m$	make	coro_move_scrutinee_span.saw	8	0 44

@@ -1,0 +1,31 @@
+program	coro_bind_id_param_shadow.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"driven: 15"
+stdout	"spawned: 15"
+stdout	"sync: 15"
+stdout	""
+meets_expect	yes
+frame	__Frame_driven$m$	driven	64	8	states=2	own=57	sub=0	bt=0	root=0	method=0	agrees=1
+field	n	own	0	8	8
+field	__saw_u0_n	own	8	8	8
+field	__state	own	16	8	8
+field	__wake	own	24	8	8
+field	__io_tok	own	32	8	8
+field	__io_deadline	own	40	8	8
+field	__cancel	own	48	1	1
+field	__result	own	56	8	8
+frame	__Frame_spawned$m$	spawned	56	8	states=2	own=56	sub=0	bt=1	root=1	method=0	agrees=1
+field	n	own	0	8	8
+field	__saw_u0_n	own	8	8	8
+field	__state	own	16	8	8
+field	__wake	own	24	8	8
+field	__io_tok	own	32	8	8
+field	__io_deadline	own	40	8	8
+field	__cellp	own	48	8	8
+bt	316	strtab=124	version=1	word_bits=64
+btframe	__Frame_driven$m$	driven	coro_bind_id_param_shadow.saw	16	0 17
+btframe	__Frame_spawned$m$	spawned	coro_bind_id_param_shadow.saw	16	0 23

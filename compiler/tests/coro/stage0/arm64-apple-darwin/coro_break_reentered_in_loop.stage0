@@ -1,0 +1,59 @@
+program	coro_break_reentered_in_loop.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"4"
+stdout	"6"
+stdout	""
+meets_expect	yes
+frame	__Frame_count_break$m$	count_break	72	8	states=9	own=65	sub=0	bt=0	root=0	method=0	agrees=1
+field	limit	own	0	8	8
+field	__saw_loop_budget	own	8	8	8
+field	n	own	16	8	8
+field	__state	own	24	8	8
+field	__wake	own	32	8	8
+field	__io_tok	own	40	8	8
+field	__io_deadline	own	48	8	8
+field	__cancel	own	56	1	1
+field	__result	own	64	8	8
+frame	__Frame_count_break_elseif$m$	count_break_elseif	72	8	states=13	own=65	sub=0	bt=1	root=0	method=0	agrees=1
+field	limit	own	0	8	8
+field	__saw_loop_budget	own	8	8	8
+field	n	own	16	8	8
+field	__state	own	24	8	8
+field	__wake	own	32	8	8
+field	__io_tok	own	40	8	8
+field	__io_deadline	own	48	8	8
+field	__cancel	own	56	1	1
+field	__result	own	64	8	8
+frame	__Frame_driver$m$	driver	152	8	states=9	own=73	sub=72	bt=2	root=0	method=0	agrees=1
+field	__saw_loop_budget	own	0	8	8
+field	total	own	8	8	8
+field	i	own	16	8	8
+field	r	own	24	8	8
+field	__sub0	sub	32	72	8	callee=__Frame_count_break$m$	live=7
+field	__state	own	104	8	8
+field	__wake	own	112	8	8
+field	__io_tok	own	120	8	8
+field	__io_deadline	own	128	8	8
+field	__cancel	own	136	1	1
+field	__result	own	144	8	8
+frame	__Frame_driver_elseif$m$	driver_elseif	152	8	states=9	own=73	sub=72	bt=3	root=0	method=0	agrees=1
+field	__saw_loop_budget	own	0	8	8
+field	total	own	8	8	8
+field	i	own	16	8	8
+field	r	own	24	8	8
+field	__sub0	sub	32	72	8	callee=__Frame_count_break_elseif$m$	live=7
+field	__state	own	104	8	8
+field	__wake	own	112	8	8
+field	__io_tok	own	120	8	8
+field	__io_deadline	own	128	8	8
+field	__cancel	own	136	1	1
+field	__result	own	144	8	8
+bt	895	strtab=223	version=1	word_bits=64
+btframe	__Frame_count_break$m$	count_break	coro_break_reentered_in_loop.saw	24	0 0 0 0 0 17 19 0 0
+btframe	__Frame_count_break_elseif$m$	count_break_elseif	coro_break_reentered_in_loop.saw	24	0 0 0 0 0 31 0 0 0 34 0 0 0
+btframe	__Frame_driver$m$	driver	coro_break_reentered_in_loop.saw	104	0 0 0 0 0 0 47 48>0@32 0
+btframe	__Frame_driver_elseif$m$	driver_elseif	coro_break_reentered_in_loop.saw	104	0 0 0 0 0 0 58 59>1@32 0

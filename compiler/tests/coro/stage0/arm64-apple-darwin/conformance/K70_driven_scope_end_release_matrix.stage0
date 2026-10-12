@@ -1,0 +1,159 @@
+program	conformance/K70_driven_scope_end_release_matrix.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"-- SC2 sync"
+stdout	"iter a0"
+stdout	"DEINIT a0"
+stdout	"iter a1"
+stdout	"DEINIT a1"
+stdout	"after loop"
+stdout	"-- SC2 driven"
+stdout	"iter a0"
+stdout	"DEINIT a0"
+stdout	"iter a1"
+stdout	"DEINIT a1"
+stdout	"after loop"
+stdout	"-- SC3 sync"
+stdout	"iter b0"
+stdout	"DEINIT b0"
+stdout	"iter b1"
+stdout	"DEINIT b1"
+stdout	"after break"
+stdout	"-- SC3 driven"
+stdout	"iter b0"
+stdout	"DEINIT b0"
+stdout	"iter b1"
+stdout	"DEINIT b1"
+stdout	"after break"
+stdout	"-- SC4 sync"
+stdout	"iter c0"
+stdout	"DEINIT c0"
+stdout	"iter c1"
+stdout	"DEINIT c1"
+stdout	"after continue"
+stdout	"-- SC4 driven"
+stdout	"iter c0"
+stdout	"DEINIT c0"
+stdout	"iter c1"
+stdout	"DEINIT c1"
+stdout	"after continue"
+stdout	"-- SC5 sync"
+stdout	"in if d-inner"
+stdout	"DEINIT d-inner"
+stdout	"after if c-outer"
+stdout	"DEINIT c-outer"
+stdout	"-- SC5 driven"
+stdout	"in if d-inner"
+stdout	"DEINIT d-inner"
+stdout	"after if c-outer"
+stdout	"DEINIT c-outer"
+stdout	"-- SC6 sync"
+stdout	"got p1"
+stdout	"DEINIT p1"
+stdout	"after iflet"
+stdout	"-- SC6 driven"
+stdout	"got p1"
+stdout	"DEINIT p1"
+stdout	"after iflet"
+stdout	"-- SC7 sync"
+stdout	"arm m1"
+stdout	"DEINIT m1"
+stdout	"after match"
+stdout	"-- SC7 driven"
+stdout	"arm m1"
+stdout	"DEINIT m1"
+stdout	"after match"
+stdout	"-- SC8 sync"
+stdout	"DEINIT s1"
+stdout	"now s1-2"
+stdout	"DEINIT s1-2"
+stdout	"-- SC8 driven"
+stdout	"DEINIT s1"
+stdout	"now s1-2"
+stdout	"DEINIT s1-2"
+stdout	""
+meets_expect	yes
+frame	__Frame_main	main	544	8	states=15	own=33	sub=504	bt=0	root=0	method=0	agrees=1
+field	__sub0	sub	0	72	8	callee=__Frame_sc2_driven$m$	live=1
+field	__sub1	sub	72	72	8	callee=__Frame_sc3_driven$m$	live=3
+field	__sub2	sub	144	72	8	callee=__Frame_sc4_driven$m$	live=5
+field	__sub3	sub	216	80	8	callee=__Frame_sc5_driven$m$	live=7
+field	__sub4	sub	296	80	8	callee=__Frame_sc6_driven$m$	live=9
+field	__sub5	sub	376	56	8	callee=__Frame_sc7_driven$m$	live=11
+field	__sub6	sub	432	72	8	callee=__Frame_sc8_driven$m$	live=13
+field	__state	own	504	8	8
+field	__wake	own	512	8	8
+field	__io_tok	own	520	8	8
+field	__io_deadline	own	528	8	8
+field	__cancel	own	536	1	1
+frame	__Frame_sc2_driven$m$	sc2_driven	72	8	states=8	own=65	sub=0	bt=1	root=0	method=0	agrees=1
+field	__saw_loop_budget	own	0	8	8
+field	i	own	8	8	8
+field	a	own	16	16	8
+field	__state	own	32	8	8
+field	__wake	own	40	8	8
+field	__io_tok	own	48	8	8
+field	__io_deadline	own	56	8	8
+field	__cancel	own	64	1	1
+frame	__Frame_sc3_driven$m$	sc3_driven	72	8	states=10	own=65	sub=0	bt=2	root=0	method=0	agrees=1
+field	__saw_loop_budget	own	0	8	8
+field	i	own	8	8	8
+field	b	own	16	16	8
+field	__state	own	32	8	8
+field	__wake	own	40	8	8
+field	__io_tok	own	48	8	8
+field	__io_deadline	own	56	8	8
+field	__cancel	own	64	1	1
+frame	__Frame_sc4_driven$m$	sc4_driven	72	8	states=10	own=65	sub=0	bt=3	root=0	method=0	agrees=1
+field	__saw_loop_budget	own	0	8	8
+field	i	own	8	8	8
+field	c	own	16	16	8
+field	__state	own	32	8	8
+field	__wake	own	40	8	8
+field	__io_tok	own	48	8	8
+field	__io_deadline	own	56	8	8
+field	__cancel	own	64	1	1
+frame	__Frame_sc5_driven$m$	sc5_driven	80	8	states=4	own=73	sub=0	bt=4	root=0	method=0	agrees=1
+field	n	own	0	8	8
+field	c	own	8	16	8
+field	d	own	24	16	8
+field	__state	own	40	8	8
+field	__wake	own	48	8	8
+field	__io_tok	own	56	8	8
+field	__io_deadline	own	64	8	8
+field	__cancel	own	72	1	1
+frame	__Frame_sc6_driven$m$	sc6_driven	80	8	states=4	own=73	sub=0	bt=5	root=0	method=0	agrees=1
+field	opt	own	0	24	8
+field	__ob0	own	24	16	8
+field	__state	own	40	8	8
+field	__wake	own	48	8	8
+field	__io_tok	own	56	8	8
+field	__io_deadline	own	64	8	8
+field	__cancel	own	72	1	1
+frame	__Frame_sc7_driven$m$	sc7_driven	56	8	states=5	own=49	sub=0	bt=6	root=0	method=0	agrees=1
+field	r	own	0	16	8
+field	__state	own	16	8	8
+field	__wake	own	24	8	8
+field	__io_tok	own	32	8	8
+field	__io_deadline	own	40	8	8
+field	__cancel	own	48	1	1
+frame	__Frame_sc8_driven$m$	sc8_driven	72	8	states=2	own=65	sub=0	bt=7	root=0	method=0	agrees=1
+field	s	own	0	16	8
+field	__saw_u0_s	own	16	16	8
+field	__state	own	32	8	8
+field	__wake	own	40	8	8
+field	__io_tok	own	48	8	8
+field	__io_deadline	own	56	8	8
+field	__cancel	own	64	1	1
+bt	1315	strtab=331	version=1	word_bits=64
+btframe	__Frame_main	main	K70_driven_scope_end_release_matrix.saw	504	0 251>1@0 0 255>2@72 0 259>3@144 0 263>4@216 0 267>5@296 0 271>6@376 0 275>7@432 0
+btframe	__Frame_sc2_driven$m$	sc2_driven	K70_driven_scope_end_release_matrix.saw	32	0 0 0 0 0 0 121 122
+btframe	__Frame_sc3_driven$m$	sc3_driven	K70_driven_scope_end_release_matrix.saw	32	0 0 0 0 0 0 144 145 0 0
+btframe	__Frame_sc4_driven$m$	sc4_driven	K70_driven_scope_end_release_matrix.saw	32	0 0 0 0 0 0 168 169 0 0
+btframe	__Frame_sc5_driven$m$	sc5_driven	K70_driven_scope_end_release_matrix.saw	40	0 0 0 191
+btframe	__Frame_sc6_driven$m$	sc6_driven	K70_driven_scope_end_release_matrix.saw	40	0 0 0 210
+btframe	__Frame_sc7_driven$m$	sc7_driven	K70_driven_scope_end_release_matrix.saw	16	0 0 0 0 227
+btframe	__Frame_sc8_driven$m$	sc8_driven	K70_driven_scope_end_release_matrix.saw	32	0 241

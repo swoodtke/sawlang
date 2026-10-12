@@ -1,0 +1,135 @@
+program	coro_head_move_with_early_exit_drops_once.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"guard-exit sync"
+stdout	"drop old"
+stdout	"-> 1"
+stdout	"guard-exit driven"
+stdout	"drop old"
+stdout	"-> 1"
+stdout	"for-exit sync"
+stdout	"drop old"
+stdout	"-> 2"
+stdout	"for-exit driven"
+stdout	"drop old"
+stdout	"-> 2"
+stdout	"while-exit sync"
+stdout	"drop old"
+stdout	"-> 3"
+stdout	"while-exit driven"
+stdout	"drop old"
+stdout	"-> 3"
+stdout	"guard-reinit sync"
+stdout	"drop old"
+stdout	"drop new"
+stdout	"-> 4"
+stdout	"guard-reinit driven"
+stdout	"drop old"
+stdout	"drop new"
+stdout	"-> 4"
+stdout	"for-reinit sync"
+stdout	"drop old"
+stdout	"drop new"
+stdout	"-> 5"
+stdout	"for-reinit driven"
+stdout	"drop old"
+stdout	"drop new"
+stdout	"-> 5"
+stdout	"while-reinit sync"
+stdout	"drop old"
+stdout	"drop new"
+stdout	"-> 6"
+stdout	"while-reinit driven"
+stdout	"drop old"
+stdout	"drop new"
+stdout	"-> 6"
+stdout	""
+meets_expect	yes
+frame	__Frame_for_exit_driven$m$	for_exit_driven	184	8	states=18	own=171	sub=0	bt=0	root=0	method=0	agrees=1
+field	items	own	0	40	8
+field	__saw_loop_budget	own	40	8	8
+field	__saw_iter0	own	48	24	8
+field	__ob0	own	72	8	8
+field	r	own	80	16	8
+field	__saw_iter1	own	96	32	8
+field	__ob1	own	128	2	1
+field	__state	own	136	8	8
+field	__wake	own	144	8	8
+field	__io_tok	own	152	8	8
+field	__io_deadline	own	160	8	8
+field	__cancel	own	168	1	1
+field	__result	own	176	8	8
+frame	__Frame_for_reinit_driven$m$	for_reinit_driven	184	8	states=18	own=171	sub=0	bt=1	root=0	method=0	agrees=1
+field	items	own	0	40	8
+field	__saw_loop_budget	own	40	8	8
+field	__saw_iter0	own	48	24	8
+field	__ob0	own	72	8	8
+field	r	own	80	16	8
+field	__saw_iter1	own	96	32	8
+field	__ob1	own	128	2	1
+field	__state	own	136	8	8
+field	__wake	own	144	8	8
+field	__io_tok	own	152	8	8
+field	__io_deadline	own	160	8	8
+field	__cancel	own	168	1	1
+field	__result	own	176	8	8
+frame	__Frame_guard_exit_driven$m$	guard_exit_driven	152	8	states=12	own=145	sub=0	bt=2	root=0	method=0	agrees=1
+field	items	own	0	40	8
+field	__saw_loop_budget	own	40	8	8
+field	__saw_iter0	own	48	24	8
+field	__ob0	own	72	8	8
+field	r	own	80	16	8
+field	__ob1	own	96	8	8
+field	__state	own	104	8	8
+field	__wake	own	112	8	8
+field	__io_tok	own	120	8	8
+field	__io_deadline	own	128	8	8
+field	__cancel	own	136	1	1
+field	__result	own	144	8	8
+frame	__Frame_guard_reinit_driven$m$	guard_reinit_driven	152	8	states=12	own=145	sub=0	bt=3	root=0	method=0	agrees=1
+field	items	own	0	40	8
+field	__saw_loop_budget	own	40	8	8
+field	__saw_iter0	own	48	24	8
+field	__ob0	own	72	8	8
+field	r	own	80	16	8
+field	__ob1	own	96	8	8
+field	__state	own	104	8	8
+field	__wake	own	112	8	8
+field	__io_tok	own	120	8	8
+field	__io_deadline	own	128	8	8
+field	__cancel	own	136	1	1
+field	__result	own	144	8	8
+frame	__Frame_while_exit_driven$m$	while_exit_driven	144	8	states=16	own=137	sub=0	bt=4	root=0	method=0	agrees=1
+field	items	own	0	40	8
+field	__saw_loop_budget	own	40	8	8
+field	__saw_iter0	own	48	24	8
+field	__ob0	own	72	8	8
+field	r	own	80	16	8
+field	__state	own	96	8	8
+field	__wake	own	104	8	8
+field	__io_tok	own	112	8	8
+field	__io_deadline	own	120	8	8
+field	__cancel	own	128	1	1
+field	__result	own	136	8	8
+frame	__Frame_while_reinit_driven$m$	while_reinit_driven	144	8	states=16	own=137	sub=0	bt=5	root=0	method=0	agrees=1
+field	items	own	0	40	8
+field	__saw_loop_budget	own	40	8	8
+field	__saw_iter0	own	48	24	8
+field	__ob0	own	72	8	8
+field	r	own	80	16	8
+field	__state	own	96	8	8
+field	__wake	own	104	8	8
+field	__io_tok	own	112	8	8
+field	__io_deadline	own	120	8	8
+field	__cancel	own	128	1	1
+field	__result	own	136	8	8
+bt	1718	strtab=374	version=1	word_bits=64
+btframe	__Frame_for_exit_driven$m$	for_exit_driven	coro_head_move_with_early_exit_drops_once.saw	136	0 137 0 0 0 0 0 0 0 138 0 0 0 0 0 0 0 141
+btframe	__Frame_for_reinit_driven$m$	for_reinit_driven	coro_head_move_with_early_exit_drops_once.saw	136	0 206 0 0 0 0 0 0 0 207 0 0 0 0 0 0 0 210
+btframe	__Frame_guard_exit_driven$m$	guard_exit_driven	coro_head_move_with_early_exit_drops_once.saw	104	0 119 0 0 0 0 0 0 0 120 0 0
+btframe	__Frame_guard_reinit_driven$m$	guard_reinit_driven	coro_head_move_with_early_exit_drops_once.saw	104	0 185 0 0 0 0 0 0 0 186 0 0
+btframe	__Frame_while_exit_driven$m$	while_exit_driven	coro_head_move_with_early_exit_drops_once.saw	96	0 162 0 0 0 0 0 0 0 163 0 0 0 0 0 166
+btframe	__Frame_while_reinit_driven$m$	while_reinit_driven	coro_head_move_with_early_exit_drops_once.saw	96	0 227 0 0 0 0 0 0 0 228 0 0 0 0 0 231

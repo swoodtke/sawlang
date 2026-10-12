@@ -1,0 +1,6 @@
+program	conformance/V111_discard_let_retains_a_projection.saw
+triple	x86_64-unknown-linux-gnu
+twin	same
+expect	success
+build	not-run
+layout	same-as	arm64-apple-darwin

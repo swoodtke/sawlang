@@ -1,0 +1,6 @@
+program	place_window_move_arg_consumes_local.saw
+triple	x86_64-unknown-linux-gnu
+twin	differs
+expect	success
+build	not-run
+layout	same-as	arm64-apple-darwin

@@ -1,0 +1,27 @@
+program	align_nonresident_local_in_suspending_function.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"nonresident%64 = 0"
+stdout	"value = 7"
+stdout	""
+meets_expect	yes
+frame	__Frame_valued$m$	valued	48	8	states=2	own=48	sub=0	bt=0	root=1	method=0	agrees=1
+field	out	own	0	8	8
+field	__state	own	8	8	8
+field	__wake	own	16	8	8
+field	__io_tok	own	24	8	8
+field	__io_deadline	own	32	8	8
+field	__cellp	own	40	8	8
+frame	__Frame_worker$m$	worker	48	8	states=2	own=48	sub=0	bt=1	root=1	method=0	agrees=1
+field	seen	own	0	8	8
+field	__state	own	8	8	8
+field	__wake	own	16	8	8
+field	__io_tok	own	24	8	8
+field	__io_deadline	own	32	8	8
+field	__cellp	own	40	8	8
+bt	335	strtab=143	version=1	word_bits=64
+btframe	__Frame_valued$m$	valued	align_nonresident_local_in_suspending_function.saw	8	0 39
+btframe	__Frame_worker$m$	worker	align_nonresident_local_in_suspending_function.saw	8	0 25

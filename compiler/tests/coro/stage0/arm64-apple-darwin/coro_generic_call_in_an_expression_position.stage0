@@ -1,0 +1,39 @@
+program	coro_generic_call_in_an_expression_position.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"let 10"
+stdout	"interpolation 11"
+stdout	"argument 12"
+stdout	"operand 14"
+stdout	"done"
+stdout	""
+meets_expect	yes
+frame	__Frame_main	main	328	8	states=10	own=65	sub=256	bt=0	root=0	method=0	agrees=1
+field	bound	own	0	8	8
+field	__anf0	own	8	8	8
+field	__anf1	own	16	8	8
+field	__anf2	own	24	8	8
+field	__sub0	sub	32	64	8	callee=__Frame_warp$m$$1$Int	live=1
+field	__sub1	sub	96	64	8	callee=__Frame_warp$m$$1$Int	live=3
+field	__sub2	sub	160	64	8	callee=__Frame_warp$m$$1$Int	live=5
+field	__sub3	sub	224	64	8	callee=__Frame_warp$m$$1$Int	live=7
+field	__state	own	288	8	8
+field	__wake	own	296	8	8
+field	__io_tok	own	304	8	8
+field	__io_deadline	own	312	8	8
+field	__cancel	own	320	1	1
+frame	__Frame_warp$m$$1$Int	warp$m$$1$Int	64	8	states=2	own=57	sub=0	bt=1	root=0	method=0	agrees=1
+field	x	own	0	8	8
+field	n	own	8	8	8
+field	__state	own	16	8	8
+field	__wake	own	24	8	8
+field	__io_tok	own	32	8	8
+field	__io_deadline	own	40	8	8
+field	__cancel	own	48	1	1
+field	__result	own	56	8	8
+bt	432	strtab=144	version=1	word_bits=64
+btframe	__Frame_main	main	coro_generic_call_in_an_expression_position.saw	288	0 38>1@32 0 40>1@96 0 41>1@160 0 42>1@224 0 43
+btframe	__Frame_warp$m$$1$Int	warp$m$$1$Int	coro_generic_call_in_an_expression_position.saw	16	0 31

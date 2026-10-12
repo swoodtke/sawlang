@@ -1,0 +1,167 @@
+program	coro_match_arm_binding_patterns.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"guard-break 1 1"
+stdout	"guard-spanning-arm 1 1"
+stdout	"guard-shared-name 1 1"
+stdout	"guard-reads-frame-local 6 6"
+stdout	"catchall-scrutinee 110 110"
+stdout	"tuple-pattern 3 3"
+stdout	"two-payloads 3 3"
+stdout	"generic-payload 102 102"
+stdout	""
+meets_expect	yes
+frame	__Frame_catchall_driven$m$	catchall_driven	120	8	states=14	own=73	sub=40	bt=0	root=0	method=0	agrees=1
+field	__saw_loop_budget	own	0	8	8
+field	total	own	8	8	8
+field	i	own	16	8	8
+field	v	own	24	8	8
+field	__sub0	sub	32	40	8	callee=__Frame_slow$m$	live=7
+field	__state	own	72	8	8
+field	__wake	own	80	8	8
+field	__io_tok	own	88	8	8
+field	__io_deadline	own	96	8	8
+field	__cancel	own	104	1	1
+field	__result	own	112	8	8
+frame	__Frame_generic_driven$m$	generic_driven	144	8	states=15	own=97	sub=40	bt=1	root=0	method=0	agrees=1
+field	__saw_loop_budget	own	0	8	8
+field	total	own	8	8	8
+field	i	own	16	8	8
+field	v	own	24	16	8
+field	__saw_u0_v	own	40	16	8
+field	__sub0	sub	56	40	8	callee=__Frame_slow$m$	live=7
+field	__state	own	96	8	8
+field	__wake	own	104	8	8
+field	__io_tok	own	112	8	8
+field	__io_deadline	own	120	8	8
+field	__cancel	own	128	1	1
+field	__result	own	136	8	8
+frame	__Frame_guard_break_driven$m$	guard_break_driven	128	8	states=13	own=81	sub=40	bt=2	root=0	method=0	agrees=1
+field	__saw_loop_budget	own	0	8	8
+field	total	own	8	8	8
+field	i	own	16	8	8
+field	n	own	24	8	8
+field	__saw_u0_n	own	32	8	8
+field	__sub0	sub	40	40	8	callee=__Frame_slow$m$	live=7
+field	__state	own	80	8	8
+field	__wake	own	88	8	8
+field	__io_tok	own	96	8	8
+field	__io_deadline	own	104	8	8
+field	__cancel	own	112	1	1
+field	__result	own	120	8	8
+frame	__Frame_guard_frame_local_driven$m$	guard_frame_local_driven	128	8	states=15	own=81	sub=40	bt=3	root=0	method=0	agrees=1
+field	__saw_loop_budget	own	0	8	8
+field	total	own	8	8	8
+field	i	own	16	8	8
+field	n	own	24	8	8
+field	__saw_u0_n	own	32	8	8
+field	__sub0	sub	40	40	8	callee=__Frame_slow$m$	live=7
+field	__state	own	80	8	8
+field	__wake	own	88	8	8
+field	__io_tok	own	96	8	8
+field	__io_deadline	own	104	8	8
+field	__cancel	own	112	1	1
+field	__result	own	120	8	8
+frame	__Frame_guard_shared_driven$m$	guard_shared_driven	128	8	states=13	own=81	sub=40	bt=4	root=0	method=0	agrees=1
+field	__saw_loop_budget	own	0	8	8
+field	total	own	8	8	8
+field	i	own	16	8	8
+field	n	own	24	8	8
+field	__saw_u0_n	own	32	8	8
+field	__sub0	sub	40	40	8	callee=__Frame_slow$m$	live=11
+field	__state	own	80	8	8
+field	__wake	own	88	8	8
+field	__io_tok	own	96	8	8
+field	__io_deadline	own	104	8	8
+field	__cancel	own	112	1	1
+field	__result	own	120	8	8
+frame	__Frame_guard_spanning_driven$m$	guard_spanning_driven	128	8	states=13	own=81	sub=40	bt=5	root=0	method=0	agrees=1
+field	__saw_loop_budget	own	0	8	8
+field	total	own	8	8	8
+field	i	own	16	8	8
+field	g	own	24	8	8
+field	n	own	32	8	8
+field	__sub0	sub	40	40	8	callee=__Frame_slow$m$	live=11
+field	__state	own	80	8	8
+field	__wake	own	88	8	8
+field	__io_tok	own	96	8	8
+field	__io_deadline	own	104	8	8
+field	__cancel	own	112	1	1
+field	__result	own	120	8	8
+frame	__Frame_main	main	1208	8	states=17	own=161	sub=1040	bt=6	root=0	method=0	agrees=1
+field	__anf0	own	0	8	8
+field	__anf1	own	8	8	8
+field	__anf2	own	16	8	8
+field	__anf3	own	24	8	8
+field	__anf4	own	32	8	8
+field	__anf5	own	40	8	8
+field	__anf6	own	48	8	8
+field	__anf7	own	56	8	8
+field	__anf8	own	64	8	8
+field	__anf9	own	72	8	8
+field	__anf10	own	80	8	8
+field	__anf11	own	88	8	8
+field	__anf12	own	96	8	8
+field	__anf13	own	104	8	8
+field	__anf14	own	112	8	8
+field	__anf15	own	120	8	8
+field	__sub0	sub	128	128	8	callee=__Frame_guard_break_driven$m$	live=1
+field	__sub1	sub	256	128	8	callee=__Frame_guard_spanning_driven$m$	live=3
+field	__sub2	sub	384	128	8	callee=__Frame_guard_shared_driven$m$	live=5
+field	__sub3	sub	512	128	8	callee=__Frame_guard_frame_local_driven$m$	live=7
+field	__sub4	sub	640	120	8	callee=__Frame_catchall_driven$m$	live=9
+field	__sub5	sub	760	136	8	callee=__Frame_tuple_driven$m$	live=11
+field	__sub6	sub	896	128	8	callee=__Frame_two_payload_driven$m$	live=13
+field	__sub7	sub	1024	144	8	callee=__Frame_generic_driven$m$	live=15
+field	__state	own	1168	8	8
+field	__wake	own	1176	8	8
+field	__io_tok	own	1184	8	8
+field	__io_deadline	own	1192	8	8
+field	__cancel	own	1200	1	1
+frame	__Frame_slow$m$	slow	40	8	states=2	own=33	sub=0	bt=7	root=0	method=0	agrees=1
+field	__state	own	0	8	8
+field	__wake	own	8	8	8
+field	__io_tok	own	16	8	8
+field	__io_deadline	own	24	8	8
+field	__cancel	own	32	1	1
+frame	__Frame_tuple_driven$m$	tuple_driven	136	8	states=14	own=89	sub=40	bt=8	root=0	method=0	agrees=1
+field	__saw_loop_budget	own	0	8	8
+field	total	own	8	8	8
+field	i	own	16	8	8
+field	b	own	24	8	8
+field	a	own	32	8	8
+field	__saw_u0_b	own	40	8	8
+field	__sub0	sub	48	40	8	callee=__Frame_slow$m$	live=7
+field	__state	own	88	8	8
+field	__wake	own	96	8	8
+field	__io_tok	own	104	8	8
+field	__io_deadline	own	112	8	8
+field	__cancel	own	120	1	1
+field	__result	own	128	8	8
+frame	__Frame_two_payload_driven$m$	two_payload_driven	128	8	states=14	own=81	sub=40	bt=9	root=0	method=0	agrees=1
+field	__saw_loop_budget	own	0	8	8
+field	total	own	8	8	8
+field	i	own	16	8	8
+field	a	own	24	8	8
+field	b	own	32	8	8
+field	__sub0	sub	40	40	8	callee=__Frame_slow$m$	live=7
+field	__state	own	80	8	8
+field	__wake	own	88	8	8
+field	__io_tok	own	96	8	8
+field	__io_deadline	own	104	8	8
+field	__cancel	own	112	1	1
+field	__result	own	120	8	8
+bt	2399	strtab=503	version=1	word_bits=64
+btframe	__Frame_catchall_driven$m$	catchall_driven	coro_match_arm_binding_patterns.saw	72	0 0 0 0 0 0 185 186>7@32 0 0 0 0 0 0
+btframe	__Frame_generic_driven$m$	generic_driven	coro_match_arm_binding_patterns.saw	96	0 0 0 0 0 0 304 305>7@56 0 0 0 0 0 0 0
+btframe	__Frame_guard_break_driven$m$	guard_break_driven	coro_match_arm_binding_patterns.saw	80	0 0 0 0 0 0 58 59>7@40 0 0 0 0 0
+btframe	__Frame_guard_frame_local_driven$m$	guard_frame_local_driven	coro_match_arm_binding_patterns.saw	80	0 0 0 0 0 0 150 151>7@40 0 0 0 0 0 0 0
+btframe	__Frame_guard_shared_driven$m$	guard_shared_driven	coro_match_arm_binding_patterns.saw	80	0 0 0 0 0 0 118 0 0 0 0 121>7@40 0
+btframe	__Frame_guard_spanning_driven$m$	guard_spanning_driven	coro_match_arm_binding_patterns.saw	80	0 0 0 0 0 0 89 0 0 0 0 92>7@40 0
+btframe	__Frame_main	main	coro_match_arm_binding_patterns.saw	1168	0 320>2@128 0 321>5@256 0 322>4@384 0 323>3@512 0 324>0@640 0 325>8@760 0 326>9@896 0 327>1@1024 0
+btframe	__Frame_slow$m$	slow	coro_match_arm_binding_patterns.saw	0	0 38
+btframe	__Frame_tuple_driven$m$	tuple_driven	coro_match_arm_binding_patterns.saw	88	0 0 0 0 0 0 221 222>7@48 0 0 0 0 0 0
+btframe	__Frame_two_payload_driven$m$	two_payload_driven	coro_match_arm_binding_patterns.saw	80	0 0 0 0 0 0 262 263>7@40 0 0 0 0 0 0

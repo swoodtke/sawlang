@@ -1,0 +1,33 @@
+program	taskgroup_threads_send_accept.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"60"
+stdout	""
+meets_expect	yes
+frame	__Frame_drain$m$	drain	152	8	states=13	own=145	sub=0	bt=0	root=1	method=0	agrees=1
+field	ch	own	0	24	8
+field	count	own	24	8	8
+field	__saw_loop_budget	own	32	8	8
+field	sum	own	40	8	8
+field	got	own	48	8	8
+field	__trycall0	own	56	40	8
+field	v	own	96	8	8
+field	__have0	own	104	1	1
+field	__state	own	112	8	8
+field	__wake	own	120	8	8
+field	__io_tok	own	128	8	8
+field	__io_deadline	own	136	8	8
+field	__cellp	own	144	8	8
+frame	__Frame_square$m$	square	48	8	states=2	own=48	sub=0	bt=1	root=1	method=0	agrees=1
+field	n	own	0	8	8
+field	__state	own	8	8	8
+field	__wake	own	16	8	8
+field	__io_tok	own	24	8	8
+field	__io_deadline	own	32	8	8
+field	__cellp	own	40	8	8
+bt	448	strtab=124	version=1	word_bits=64
+btframe	__Frame_drain$m$	drain	taskgroup_threads_send_accept.saw	112	0 0 0 0 0 0 19 20 0 0 0 0 0
+btframe	__Frame_square$m$	square	taskgroup_threads_send_accept.saw	8	0 12

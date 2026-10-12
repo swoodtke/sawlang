@@ -1,0 +1,6 @@
+program	conformance/K116_one_frame_ledger_answers_every_discovery_question.saw
+triple	x86_64-unknown-linux-gnu
+twin	same
+expect	success
+build	not-run
+layout	same-as	arm64-apple-darwin

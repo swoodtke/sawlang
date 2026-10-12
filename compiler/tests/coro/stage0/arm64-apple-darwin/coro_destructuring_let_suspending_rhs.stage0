@@ -1,0 +1,157 @@
+program	coro_destructuring_let_suspending_rhs.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"literal 1 2"
+stdout	"call 3 4"
+stdout	"var 5 6"
+stdout	"nested 7 8 9"
+stdout	"wildcard 11"
+stdout	"order noisy"
+stdout	"order slow"
+stdout	"1 2"
+stdout	"coalesce 12 4"
+stdout	"done"
+stdout	""
+meets_expect	yes
+frame	__Frame_conditional_rhs$m$	conditional_rhs	192	8	states=3	own=105	sub=80	bt=0	root=0	method=0	agrees=1
+field	__head0	own	0	32	8
+field	a	own	32	8	8
+field	b	own	40	8	8
+field	__vch0	own	48	24	8
+field	__sub0	sub	72	80	8	callee=__Frame_maybe_pair$m$	live=1
+field	__state	own	152	8	8
+field	__wake	own	160	8	8
+field	__io_tok	own	168	8	8
+field	__io_deadline	own	176	8	8
+field	__cancel	own	184	1	1
+frame	__Frame_evaluation_order_rhs$m$	evaluation_order_rhs	128	8	states=3	own=65	sub=56	bt=1	root=0	method=0	agrees=1
+field	__anf0	own	0	8	8
+field	__anf1	own	8	8	8
+field	a	own	16	8	8
+field	b	own	24	8	8
+field	__sub0	sub	32	56	8	callee=__Frame_loud_s$m$	live=1
+field	__state	own	88	8	8
+field	__wake	own	96	8	8
+field	__io_tok	own	104	8	8
+field	__io_deadline	own	112	8	8
+field	__cancel	own	120	1	1
+frame	__Frame_loud_s$m$	loud_s	56	8	states=2	own=49	sub=0	bt=2	root=0	method=0	agrees=1
+field	id	own	0	8	8
+field	__state	own	8	8	8
+field	__wake	own	16	8	8
+field	__io_tok	own	24	8	8
+field	__io_deadline	own	32	8	8
+field	__cancel	own	40	1	1
+field	__result	own	48	8	8
+frame	__Frame_main	main	1304	8	states=15	own=33	sub=1264	bt=3	root=0	method=0	agrees=1
+field	__sub0	sub	0	184	8	callee=__Frame_tuple_literal_rhs$m$	live=1
+field	__sub1	sub	184	144	8	callee=__Frame_suspending_call_rhs$m$	live=3
+field	__sub2	sub	328	184	8	callee=__Frame_var_rhs$m$	live=5
+field	__sub3	sub	512	256	8	callee=__Frame_nested_pattern_rhs$m$	live=7
+field	__sub4	sub	768	176	8	callee=__Frame_wildcard_position_rhs$m$	live=9
+field	__sub5	sub	944	128	8	callee=__Frame_evaluation_order_rhs$m$	live=11
+field	__sub6	sub	1072	192	8	callee=__Frame_conditional_rhs$m$	live=13
+field	__state	own	1264	8	8
+field	__wake	own	1272	8	8
+field	__io_tok	own	1280	8	8
+field	__io_deadline	own	1288	8	8
+field	__cancel	own	1296	1	1
+frame	__Frame_maybe_pair$m$	maybe_pair	80	8	states=2	own=66	sub=0	bt=4	root=0	method=0	agrees=1
+field	want	own	0	1	1
+field	__state	own	8	8	8
+field	__wake	own	16	8	8
+field	__io_tok	own	24	8	8
+field	__io_deadline	own	32	8	8
+field	__cancel	own	40	1	1
+field	__result	own	48	32	8
+frame	__Frame_mk_pair$m$	mk_pair	64	8	states=2	own=57	sub=0	bt=5	root=0	method=0	agrees=1
+field	__state	own	0	8	8
+field	__wake	own	8	8	8
+field	__io_tok	own	16	8	8
+field	__io_deadline	own	24	8	8
+field	__cancel	own	32	1	1
+field	__result	own	40	24	8
+frame	__Frame_mk_s$m$	mk_s	56	8	states=2	own=49	sub=0	bt=6	root=0	method=0	agrees=1
+field	id	own	0	8	8
+field	__state	own	8	8	8
+field	__wake	own	16	8	8
+field	__io_tok	own	24	8	8
+field	__io_deadline	own	32	8	8
+field	__cancel	own	40	1	1
+field	__result	own	48	8	8
+frame	__Frame_nested_pattern_rhs$m$	nested_pattern_rhs	256	8	states=7	own=81	sub=168	bt=7	root=0	method=0	agrees=1
+field	__anf0	own	0	8	8
+field	__anf1	own	8	8	8
+field	__anf2	own	16	8	8
+field	a	own	24	8	8
+field	b	own	32	8	8
+field	c	own	40	8	8
+field	__sub0	sub	48	56	8	callee=__Frame_mk_s$m$	live=1
+field	__sub1	sub	104	56	8	callee=__Frame_mk_s$m$	live=3
+field	__sub2	sub	160	56	8	callee=__Frame_mk_s$m$	live=5
+field	__state	own	216	8	8
+field	__wake	own	224	8	8
+field	__io_tok	own	232	8	8
+field	__io_deadline	own	240	8	8
+field	__cancel	own	248	1	1
+frame	__Frame_suspending_call_rhs$m$	suspending_call_rhs	144	8	states=3	own=73	sub=64	bt=8	root=0	method=0	agrees=1
+field	__anf0	own	0	24	8
+field	a	own	24	8	8
+field	b	own	32	8	8
+field	__sub0	sub	40	64	8	callee=__Frame_mk_pair$m$	live=1
+field	__state	own	104	8	8
+field	__wake	own	112	8	8
+field	__io_tok	own	120	8	8
+field	__io_deadline	own	128	8	8
+field	__cancel	own	136	1	1
+frame	__Frame_tuple_literal_rhs$m$	tuple_literal_rhs	184	8	states=5	own=65	sub=112	bt=9	root=0	method=0	agrees=1
+field	__anf0	own	0	8	8
+field	__anf1	own	8	8	8
+field	a	own	16	8	8
+field	b	own	24	8	8
+field	__sub0	sub	32	56	8	callee=__Frame_mk_s$m$	live=1
+field	__sub1	sub	88	56	8	callee=__Frame_mk_s$m$	live=3
+field	__state	own	144	8	8
+field	__wake	own	152	8	8
+field	__io_tok	own	160	8	8
+field	__io_deadline	own	168	8	8
+field	__cancel	own	176	1	1
+frame	__Frame_var_rhs$m$	var_rhs	184	8	states=5	own=65	sub=112	bt=10	root=0	method=0	agrees=1
+field	__anf0	own	0	8	8
+field	__anf1	own	8	8	8
+field	a	own	16	8	8
+field	b	own	24	8	8
+field	__sub0	sub	32	56	8	callee=__Frame_mk_s$m$	live=1
+field	__sub1	sub	88	56	8	callee=__Frame_mk_s$m$	live=3
+field	__state	own	144	8	8
+field	__wake	own	152	8	8
+field	__io_tok	own	160	8	8
+field	__io_deadline	own	168	8	8
+field	__cancel	own	176	1	1
+frame	__Frame_wildcard_position_rhs$m$	wildcard_position_rhs	176	8	states=5	own=57	sub=112	bt=11	root=0	method=0	agrees=1
+field	__anf0	own	0	8	8
+field	__anf1	own	8	8	8
+field	a	own	16	8	8
+field	__sub0	sub	24	56	8	callee=__Frame_mk_s$m$	live=1
+field	__sub1	sub	80	56	8	callee=__Frame_mk_s$m$	live=3
+field	__state	own	136	8	8
+field	__wake	own	144	8	8
+field	__io_tok	own	152	8	8
+field	__io_deadline	own	160	8	8
+field	__cancel	own	168	1	1
+bt	1565	strtab=533	version=1	word_bits=64
+btframe	__Frame_conditional_rhs$m$	conditional_rhs	coro_destructuring_let_suspending_rhs.saw	152	0 88>4@72 0
+btframe	__Frame_evaluation_order_rhs$m$	evaluation_order_rhs	coro_destructuring_let_suspending_rhs.saw	88	0 83>2@32 0
+btframe	__Frame_loud_s$m$	loud_s	coro_destructuring_let_suspending_rhs.saw	8	0 44
+btframe	__Frame_main	main	coro_destructuring_let_suspending_rhs.saw	1264	0 93>9@0 0 94>8@184 0 95>10@328 0 96>7@512 0 97>11@768 0 98>1@944 0 99>0@1072 0
+btframe	__Frame_maybe_pair$m$	maybe_pair	coro_destructuring_let_suspending_rhs.saw	8	0 50
+btframe	__Frame_mk_pair$m$	mk_pair	coro_destructuring_let_suspending_rhs.saw	0	0 34
+btframe	__Frame_mk_s$m$	mk_s	coro_destructuring_let_suspending_rhs.saw	8	0 29
+btframe	__Frame_nested_pattern_rhs$m$	nested_pattern_rhs	coro_destructuring_let_suspending_rhs.saw	216	0 73>6@48 0 73>6@104 0 73>6@160 0
+btframe	__Frame_suspending_call_rhs$m$	suspending_call_rhs	coro_destructuring_let_suspending_rhs.saw	104	0 61>5@40 0
+btframe	__Frame_tuple_literal_rhs$m$	tuple_literal_rhs	coro_destructuring_let_suspending_rhs.saw	144	0 56>6@32 0 56>6@88 0
+btframe	__Frame_var_rhs$m$	var_rhs	coro_destructuring_let_suspending_rhs.saw	144	0 66>6@32 0 66>6@88 0
+btframe	__Frame_wildcard_position_rhs$m$	wildcard_position_rhs	coro_destructuring_let_suspending_rhs.saw	136	0 78>6@24 0 78>6@80 0

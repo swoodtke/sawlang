@@ -1,0 +1,8 @@
+log	"error: a task body may not be `Never`: `halt` never returns, so the task never completes and `join` on its handle could never return"
+log	"  --> examples/conformance/D10_spawn_never_body_refused.saw:30:18"
+log	"     |"
+log	" 30 |     let h = group.spawn(halt(1))"
+log	"     |                  ^"
+log	"   hint: a task is something to wait for, and a `Never` body gives it a result that cannot exist. Write a forever-task as `-> Void` with a loop — `func serve() { while { ... } }` — and end it by cancelling the task or breaking the loop"
+log	""
+log	"1 error(s) generated"

@@ -1,0 +1,8 @@
+log	"error: `__saw_rt_resolve_ipv4` is declared without `blocking` here, but another declaration of the same symbol says `blocking`"
+log	"  --> examples/errors/resolve_seam_must_be_blocking.saw:14:5"
+log	"     |"
+log	" 14 |     func __saw_rt_resolve_ipv4(host: UnsafePointer<Int8>,"
+log	"     |     ^"
+log	"   hint: `blocking` is part of an extern's contract (it makes every call a suspension point), so every declaration of one symbol must agree — annotate the declaration they share, or offload a distinctly-named wrapper of your own instead"
+log	""
+log	"1 error(s) generated"

@@ -1,0 +1,58 @@
+program	try_routing_clause.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"statement ok 1"
+stdout	"statement err alloc/A30"
+stdout	"let_init ok 6"
+stdout	"let_init err alloc/A30"
+stdout	"argument ok 12"
+stdout	"argument err alloc/A30"
+stdout	"interpolation ok v=6"
+stdout	"interpolation err alloc/A30"
+stdout	"match_subject ok 600"
+stdout	"match_subject err alloc/A30"
+stdout	"coalesce ok 6"
+stdout	"coalesce err alloc/A30"
+stdout	"returned ok 4"
+stdout	"returned err parse/P-3"
+stdout	"tail ok 4"
+stdout	"tail err parse/P-3"
+stdout	"two_sources ok 1"
+stdout	"two_sources err alloc/A30"
+stdout	"two_sources err parse/P-12"
+stdout	"in_catch 6"
+stdout	"in_catch caught"
+stdout	"qualified ok 9"
+stdout	"qualified err dep/dep alloc 30"
+stdout	"suspending ok 6"
+stdout	"suspending err alloc/A30"
+stdout	"susp_two ok 1"
+stdout	"susp_two err alloc/A30"
+stdout	"susp_two err parse/P-12"
+stdout	"cast_still_a_cast 12"
+stdout	"paren_after_try 6"
+stdout	""
+meets_expect	yes
+frame	__Frame_row_susp_two$m$	row_susp_two	64	8	states=3	own=64	sub=0	bt=0	root=1	method=0	agrees=1
+field	n	own	0	8	8
+field	a	own	8	8	8
+field	b	own	16	8	8
+field	__state	own	24	8	8
+field	__wake	own	32	8	8
+field	__io_tok	own	40	8	8
+field	__io_deadline	own	48	8	8
+field	__cellp	own	56	8	8
+frame	__Frame_row_suspending$m$	row_suspending	56	8	states=3	own=56	sub=0	bt=1	root=1	method=0	agrees=1
+field	n	own	0	8	8
+field	a	own	8	8	8
+field	__state	own	16	8	8
+field	__wake	own	24	8	8
+field	__io_tok	own	32	8	8
+field	__io_deadline	own	40	8	8
+field	__cellp	own	48	8	8
+bt	359	strtab=143	version=1	word_bits=64
+btframe	__Frame_row_susp_two$m$	row_susp_two	try_routing_clause.saw	24	0 200 203
+btframe	__Frame_row_suspending$m$	row_suspending	try_routing_clause.saw	16	0 191 193

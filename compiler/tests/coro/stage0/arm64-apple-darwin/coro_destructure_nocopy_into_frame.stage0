@@ -1,0 +1,33 @@
+program	coro_destructure_nocopy_into_frame.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"pair 8 live 2"
+stdout	"after pair 0"
+stdout	"wildcard 5 live 1"
+stdout	"after wildcard 0"
+stdout	"done 0"
+stdout	""
+meets_expect	yes
+frame	__Frame_pair$m$	pair	80	8	states=2	own=80	sub=0	bt=0	root=1	method=0	agrees=1
+field	k	own	0	8	8
+field	a	own	8	16	8
+field	b	own	24	16	8
+field	__state	own	40	8	8
+field	__wake	own	48	8	8
+field	__io_tok	own	56	8	8
+field	__io_deadline	own	64	8	8
+field	__cellp	own	72	8	8
+frame	__Frame_wildcard$m$	wildcard	64	8	states=2	own=64	sub=0	bt=1	root=1	method=0	agrees=1
+field	k	own	0	8	8
+field	a	own	8	16	8
+field	__state	own	24	8	8
+field	__wake	own	32	8	8
+field	__io_tok	own	40	8	8
+field	__io_deadline	own	48	8	8
+field	__cellp	own	56	8	8
+bt	323	strtab=131	version=1	word_bits=64
+btframe	__Frame_pair$m$	pair	coro_destructure_nocopy_into_frame.saw	40	0 47
+btframe	__Frame_wildcard$m$	wildcard	coro_destructure_nocopy_into_frame.saw	24	0 56

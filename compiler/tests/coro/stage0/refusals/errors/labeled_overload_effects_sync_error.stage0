@@ -1,0 +1,8 @@
+log	"error: cannot suspend in `sync func` declaration: `sync func caller` calls `work` → __saw_test_suspend (`work` suspends at line 9)"
+log	"  --> examples/errors/labeled_overload_effects_sync_error.saw:13:1"
+log	"     |"
+log	" 13 | func caller() sync -> Int {"
+log	"     | ^"
+log	"   hint: a `sync` context must be transitively suspension-free: remove the suspending call or hoist it out of the sync region"
+log	""
+log	"1 error(s) generated"

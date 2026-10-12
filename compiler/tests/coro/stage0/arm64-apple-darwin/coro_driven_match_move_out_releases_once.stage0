@@ -1,0 +1,148 @@
+program	coro_driven_match_move_out_releases_once.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"-- let_initializer"
+stdout	"NEW t1"
+stdout	"bound t1"
+stdout	"DEINIT t1"
+stdout	"-- outer_local"
+stdout	"NEW t2"
+stdout	"assigned"
+stdout	"DEINIT t2"
+stdout	"-- consuming_call"
+stdout	"NEW t3"
+stdout	"held t3"
+stdout	"DEINIT t3"
+stdout	"after call"
+stdout	"-- into_vector"
+stdout	"NEW t4"
+stdout	"len 1"
+stdout	"DEINIT t4"
+stdout	"-- user_enum"
+stdout	"NEW t5"
+stdout	"held t5"
+stdout	"DEINIT t5"
+stdout	"after enum"
+stdout	"-- sync_control"
+stdout	"NEW t6"
+stdout	"held t6"
+stdout	"DEINIT t6"
+stdout	"after sync"
+stdout	"-- non_moving_arm"
+stdout	"NEW t7"
+stdout	"read t7"
+stdout	"DEINIT t7"
+stdout	"after nomove"
+stdout	"-- arm_suspends"
+stdout	"NEW t8"
+stdout	"held t8"
+stdout	"DEINIT t8"
+stdout	"after arm suspends"
+stdout	"-- sibling_suspends"
+stdout	"NEW t9"
+stdout	"held t9"
+stdout	"DEINIT t9"
+stdout	"after sibling"
+stdout	""
+meets_expect	yes
+frame	__Frame_fill$m$	fill	80	8	states=2	own=73	sub=0	bt=0	root=0	method=0	agrees=1
+field	name	own	0	16	8
+field	__state	own	16	8	8
+field	__wake	own	24	8	8
+field	__io_tok	own	32	8	8
+field	__io_deadline	own	40	8	8
+field	__cancel	own	48	1	1
+field	__result	own	56	24	8
+frame	__Frame_make$m$	make	80	8	states=2	own=73	sub=0	bt=1	root=0	method=0	agrees=1
+field	name	own	0	16	8
+field	__state	own	16	8	8
+field	__wake	own	24	8	8
+field	__io_tok	own	32	8	8
+field	__io_deadline	own	40	8	8
+field	__cancel	own	48	1	1
+field	__result	own	56	24	8
+frame	__Frame_row_arm_suspends$m$	row_arm_suspends	176	8	states=7	own=89	sub=80	bt=2	root=0	method=0	agrees=1
+field	__match0	own	0	24	8
+field	p	own	24	16	8
+field	e	own	40	16	8
+field	__sub0	sub	56	80	8	callee=__Frame_make$m$	live=1
+field	__state	own	136	8	8
+field	__wake	own	144	8	8
+field	__io_tok	own	152	8	8
+field	__io_deadline	own	160	8	8
+field	__cancel	own	168	1	1
+frame	__Frame_row_call$m$	row_call	144	8	states=3	own=57	sub=80	bt=3	root=0	method=0	agrees=1
+field	__match0	own	0	24	8
+field	__sub0	sub	24	80	8	callee=__Frame_make$m$	live=1
+field	__state	own	104	8	8
+field	__wake	own	112	8	8
+field	__io_tok	own	120	8	8
+field	__io_deadline	own	128	8	8
+field	__cancel	own	136	1	1
+frame	__Frame_row_let$m$	row_let	160	8	states=3	own=73	sub=80	bt=4	root=0	method=0	agrees=1
+field	__match0	own	0	24	8
+field	h	own	24	16	8
+field	__sub0	sub	40	80	8	callee=__Frame_make$m$	live=1
+field	__state	own	120	8	8
+field	__wake	own	128	8	8
+field	__io_tok	own	136	8	8
+field	__io_deadline	own	144	8	8
+field	__cancel	own	152	1	1
+frame	__Frame_row_nomove$m$	row_nomove	144	8	states=3	own=57	sub=80	bt=5	root=0	method=0	agrees=1
+field	__match0	own	0	24	8
+field	__sub0	sub	24	80	8	callee=__Frame_make$m$	live=1
+field	__state	own	104	8	8
+field	__wake	own	112	8	8
+field	__io_tok	own	120	8	8
+field	__io_deadline	own	128	8	8
+field	__cancel	own	136	1	1
+frame	__Frame_row_outer$m$	row_outer	168	8	states=3	own=81	sub=80	bt=6	root=0	method=0	agrees=1
+field	out	own	0	24	8
+field	__match0	own	24	24	8
+field	__sub0	sub	48	80	8	callee=__Frame_make$m$	live=1
+field	__state	own	128	8	8
+field	__wake	own	136	8	8
+field	__io_tok	own	144	8	8
+field	__io_deadline	own	152	8	8
+field	__cancel	own	160	1	1
+frame	__Frame_row_sibling_suspends$m$	row_sibling_suspends	176	8	states=7	own=89	sub=80	bt=7	root=0	method=0	agrees=1
+field	__match0	own	0	24	8
+field	p	own	24	16	8
+field	e	own	40	16	8
+field	__sub0	sub	56	80	8	callee=__Frame_make$m$	live=1
+field	__state	own	136	8	8
+field	__wake	own	144	8	8
+field	__io_tok	own	152	8	8
+field	__io_deadline	own	160	8	8
+field	__cancel	own	168	1	1
+frame	__Frame_row_user_enum$m$	row_user_enum	144	8	states=3	own=57	sub=80	bt=8	root=0	method=0	agrees=1
+field	__match0	own	0	24	8
+field	__sub0	sub	24	80	8	callee=__Frame_fill$m$	live=1
+field	__state	own	104	8	8
+field	__wake	own	112	8	8
+field	__io_tok	own	120	8	8
+field	__io_deadline	own	128	8	8
+field	__cancel	own	136	1	1
+frame	__Frame_row_vector$m$	row_vector	184	8	states=3	own=97	sub=80	bt=9	root=0	method=0	agrees=1
+field	sink	own	0	40	8
+field	__match0	own	40	24	8
+field	__sub0	sub	64	80	8	callee=__Frame_make$m$	live=1
+field	__state	own	144	8	8
+field	__wake	own	152	8	8
+field	__io_tok	own	160	8	8
+field	__io_deadline	own	168	8	8
+field	__cancel	own	176	1	1
+bt	1187	strtab=419	version=1	word_bits=64
+btframe	__Frame_fill$m$	fill	coro_driven_match_move_out_releases_once.saw	16	0 107
+btframe	__Frame_make$m$	make	coro_driven_match_move_out_releases_once.saw	16	0 96
+btframe	__Frame_row_arm_suspends$m$	row_arm_suspends	coro_driven_match_move_out_releases_once.saw	136	0 173>1@56 0 0 0 0 175
+btframe	__Frame_row_call$m$	row_call	coro_driven_match_move_out_releases_once.saw	104	0 132>1@24 0
+btframe	__Frame_row_let$m$	row_let	coro_driven_match_move_out_releases_once.saw	120	0 115>1@40 0
+btframe	__Frame_row_nomove$m$	row_nomove	coro_driven_match_move_out_releases_once.saw	104	0 165>1@24 0
+btframe	__Frame_row_outer$m$	row_outer	coro_driven_match_move_out_releases_once.saw	128	0 124>1@48 0
+btframe	__Frame_row_sibling_suspends$m$	row_sibling_suspends	coro_driven_match_move_out_releases_once.saw	136	0 184>1@56 0 0 0 0 187
+btframe	__Frame_row_user_enum$m$	row_user_enum	coro_driven_match_move_out_releases_once.saw	104	0 149>0@24 0
+btframe	__Frame_row_vector$m$	row_vector	coro_driven_match_move_out_releases_once.saw	144	0 141>1@64 0

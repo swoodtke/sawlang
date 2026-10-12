@@ -1,0 +1,31 @@
+program	result_optional_none_survives_the_transform.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"worker 7"
+stdout	"poll -1"
+stdout	"poll 3"
+stdout	"method -1"
+stdout	"suspending -1"
+stdout	"arms -1"
+stdout	"generic -1"
+stdout	""
+meets_expect	yes
+frame	__Frame_poll_suspending$m$	poll_suspending	48	8	states=2	own=48	sub=0	bt=0	root=1	method=0	agrees=1
+field	n	own	0	8	8
+field	__state	own	8	8	8
+field	__wake	own	16	8	8
+field	__io_tok	own	24	8	8
+field	__io_deadline	own	32	8	8
+field	__cellp	own	40	8	8
+frame	__Frame_worker$m$	worker	40	8	states=2	own=40	sub=0	bt=1	root=1	method=0	agrees=1
+field	__state	own	0	8	8
+field	__wake	own	8	8	8
+field	__io_tok	own	16	8	8
+field	__io_deadline	own	24	8	8
+field	__cellp	own	32	8	8
+bt	350	strtab=158	version=1	word_bits=64
+btframe	__Frame_poll_suspending$m$	poll_suspending	result_optional_none_survives_the_transform.saw	8	0 63
+btframe	__Frame_worker$m$	worker	result_optional_none_survives_the_transform.saw	0	0 83

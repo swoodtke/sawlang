@@ -1,0 +1,114 @@
+program	coro_cross_module_free_call_positions.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"100"
+stdout	"10"
+stdout	"5"
+stdout	"9"
+stdout	"6"
+stdout	"5"
+stdout	"1"
+stdout	"1"
+stdout	"1"
+stdout	"2"
+stdout	"1"
+stdout	"2"
+stdout	""
+meets_expect	yes
+frame	__Frame_cross_letbind$m$	cross_letbind	104	8	states=3	own=49	sub=48	bt=0	root=0	method=0	agrees=1
+field	n	own	0	8	8
+field	__sub0	sub	8	48	8	callee=__Frame_respondN$m$modules_sl208_0calls	live=1
+field	__state	own	56	8	8
+field	__wake	own	64	8	8
+field	__io_tok	own	72	8	8
+field	__io_deadline	own	80	8	8
+field	__cancel	own	88	1	1
+field	__result	own	96	8	8
+frame	__Frame_cross_matcharm$m$	cross_matcharm	224	8	states=8	own=97	sub=120	bt=1	root=0	method=0	agrees=1
+field	x	own	0	8	8
+field	__match0	own	8	24	8
+field	v	own	32	8	8
+field	__anf0	own	40	8	8
+field	r	own	48	8	8
+field	__sub0	sub	56	72	8	callee=__Frame_fallibleN$m$modules_sl208_0calls	live=1
+field	__sub1	sub	128	48	8	callee=__Frame_respondN$m$modules_sl208_0calls	live=6
+field	__state	own	176	8	8
+field	__wake	own	184	8	8
+field	__io_tok	own	192	8	8
+field	__io_deadline	own	200	8	8
+field	__cancel	own	208	1	1
+field	__result	own	216	8	8
+frame	__Frame_cross_toplevel$m$	cross_toplevel	96	8	states=3	own=41	sub=48	bt=2	root=0	method=0	agrees=1
+field	__sub0	sub	0	48	8	callee=__Frame_respondN$m$modules_sl208_0calls	live=1
+field	__state	own	48	8	8
+field	__wake	own	56	8	8
+field	__io_tok	own	64	8	8
+field	__io_deadline	own	72	8	8
+field	__cancel	own	80	1	1
+field	__result	own	88	8	8
+frame	__Frame_fallibleN$m$modules_sl208_0calls	fallibleN	72	8	states=2	own=65	sub=0	bt=3	root=0	method=0	agrees=1
+field	x	own	0	8	8
+field	__state	own	8	8	8
+field	__wake	own	16	8	8
+field	__io_tok	own	24	8	8
+field	__io_deadline	own	32	8	8
+field	__cancel	own	40	1	1
+field	__result	own	48	24	8
+frame	__Frame_fallible_local$m$	fallible_local	72	8	states=2	own=65	sub=0	bt=4	root=0	method=0	agrees=1
+field	x	own	0	8	8
+field	__state	own	8	8	8
+field	__wake	own	16	8	8
+field	__io_tok	own	24	8	8
+field	__io_deadline	own	32	8	8
+field	__cancel	own	40	1	1
+field	__result	own	48	24	8
+frame	__Frame_respondN$m$modules_sl208_0calls	respondN	48	8	states=2	own=41	sub=0	bt=5	root=0	method=0	agrees=1
+field	__state	own	0	8	8
+field	__wake	own	8	8	8
+field	__io_tok	own	16	8	8
+field	__io_deadline	own	24	8	8
+field	__cancel	own	32	1	1
+field	__result	own	40	8	8
+frame	__Frame_respond_local$m$	respond_local	48	8	states=2	own=41	sub=0	bt=6	root=0	method=0	agrees=1
+field	__state	own	0	8	8
+field	__wake	own	8	8	8
+field	__io_tok	own	16	8	8
+field	__io_deadline	own	24	8	8
+field	__cancel	own	32	1	1
+field	__result	own	40	8	8
+frame	__Frame_same_letbind$m$	same_letbind	104	8	states=3	own=49	sub=48	bt=7	root=0	method=0	agrees=1
+field	n	own	0	8	8
+field	__sub0	sub	8	48	8	callee=__Frame_respond_local$m$	live=1
+field	__state	own	56	8	8
+field	__wake	own	64	8	8
+field	__io_tok	own	72	8	8
+field	__io_deadline	own	80	8	8
+field	__cancel	own	88	1	1
+field	__result	own	96	8	8
+frame	__Frame_same_matcharm$m$	same_matcharm	224	8	states=8	own=97	sub=120	bt=8	root=0	method=0	agrees=1
+field	x	own	0	8	8
+field	__match0	own	8	24	8
+field	v	own	32	8	8
+field	__anf0	own	40	8	8
+field	r	own	48	8	8
+field	__sub0	sub	56	72	8	callee=__Frame_fallible_local$m$	live=1
+field	__sub1	sub	128	48	8	callee=__Frame_respond_local$m$	live=6
+field	__state	own	176	8	8
+field	__wake	own	184	8	8
+field	__io_tok	own	192	8	8
+field	__io_deadline	own	200	8	8
+field	__cancel	own	208	1	1
+field	__result	own	216	8	8
+bt	1185	strtab=477	version=1	word_bits=64
+btframe	__Frame_cross_letbind$m$	cross_letbind	coro_cross_module_free_call_positions.saw	56	0 58>5@8 0
+btframe	__Frame_cross_matcharm$m$	cross_matcharm	coro_cross_module_free_call_positions.saw	176	0 64>3@56 0 0 0 0 66>5@128 0
+btframe	__Frame_cross_toplevel$m$	cross_toplevel	coro_cross_module_free_call_positions.saw	48	0 52>5@0 0
+btframe	__Frame_fallibleN$m$modules_sl208_0calls	fallibleN	sl208_calls.saw	8	0 19
+btframe	__Frame_fallible_local$m$	fallible_local	coro_cross_module_free_call_positions.saw	8	0 45
+btframe	__Frame_respondN$m$modules_sl208_0calls	respondN	sl208_calls.saw	0	0 14
+btframe	__Frame_respond_local$m$	respond_local	coro_cross_module_free_call_positions.saw	0	0 40
+btframe	__Frame_same_letbind$m$	same_letbind	coro_cross_module_free_call_positions.saw	56	0 73>6@8 0
+btframe	__Frame_same_matcharm$m$	same_matcharm	coro_cross_module_free_call_positions.saw	176	0 78>4@56 0 0 0 0 80>6@128 0

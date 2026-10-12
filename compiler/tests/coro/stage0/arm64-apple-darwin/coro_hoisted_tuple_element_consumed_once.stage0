@@ -1,0 +1,42 @@
+program	coro_hoisted_tuple_element_consumed_once.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"t=70 71"
+stdout	"deinit 71"
+stdout	"deinit 70"
+stdout	"done"
+stdout	""
+meets_expect	yes
+frame	__Frame_main	main	264	8	states=3	own=33	sub=224	bt=0	root=0	method=0	agrees=1
+field	__sub0	sub	0	224	8	callee=__Frame_tuple_elements$m$	live=1
+field	__state	own	224	8	8
+field	__wake	own	232	8	8
+field	__io_tok	own	240	8	8
+field	__io_deadline	own	248	8	8
+field	__cancel	own	256	1	1
+frame	__Frame_mk$m$	mk	64	8	states=2	own=57	sub=0	bt=1	root=0	method=0	agrees=1
+field	n	own	0	8	8
+field	__state	own	8	8	8
+field	__wake	own	16	8	8
+field	__io_tok	own	24	8	8
+field	__io_deadline	own	32	8	8
+field	__cancel	own	40	1	1
+field	__result	own	48	16	8
+frame	__Frame_tuple_elements$m$	tuple_elements	224	8	states=5	own=89	sub=128	bt=2	root=0	method=0	agrees=1
+field	__anf0	own	0	16	8
+field	__anf1	own	16	16	8
+field	t	own	32	24	8
+field	__sub0	sub	56	64	8	callee=__Frame_mk$m$	live=1
+field	__sub1	sub	120	64	8	callee=__Frame_mk$m$	live=3
+field	__state	own	184	8	8
+field	__wake	own	192	8	8
+field	__io_tok	own	200	8	8
+field	__io_deadline	own	208	8	8
+field	__cancel	own	216	1	1
+bt	451	strtab=163	version=1	word_bits=64
+btframe	__Frame_main	main	coro_hoisted_tuple_element_consumed_once.saw	224	0 38>2@0 0
+btframe	__Frame_mk$m$	mk	coro_hoisted_tuple_element_consumed_once.saw	8	0 28
+btframe	__Frame_tuple_elements$m$	tuple_elements	coro_hoisted_tuple_element_consumed_once.saw	184	0 33>1@56 0 33>1@120 0

@@ -1,0 +1,22 @@
+program	taskgroup_result_joined_once.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"7"
+stdout	"77"
+stdout	"999"
+stdout	"977"
+stdout	""
+meets_expect	yes
+frame	__Frame_producer$m$	producer	64	8	states=3	own=64	sub=0	bt=0	root=1	method=0	agrees=1
+field	n	own	0	8	8
+field	r	own	8	16	8
+field	__state	own	24	8	8
+field	__wake	own	32	8	8
+field	__io_tok	own	40	8	8
+field	__io_deadline	own	48	8	8
+field	__cellp	own	56	8	8
+bt	260	strtab=104	version=1	word_bits=64
+btframe	__Frame_producer$m$	producer	taskgroup_result_joined_once.saw	24	0 21 23

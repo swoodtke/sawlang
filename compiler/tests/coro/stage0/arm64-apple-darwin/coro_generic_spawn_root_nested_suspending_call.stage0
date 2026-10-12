@@ -1,0 +1,43 @@
+program	coro_generic_spawn_root_nested_suspending_call.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"v 1"
+stdout	"joined 0"
+stdout	"ambient v 1"
+stdout	"ambient 0"
+stdout	""
+meets_expect	yes
+frame	__Frame_gambient$m$$1$Int	gambient$m$$1$Int	120	8	states=3	own=57	sub=56	bt=0	root=0	method=0	agrees=1
+field	seed	own	0	8	8
+field	v1	own	8	8	8
+field	__sub0	sub	16	56	8	callee=__Frame_mk$m$	live=1
+field	__state	own	72	8	8
+field	__wake	own	80	8	8
+field	__io_tok	own	88	8	8
+field	__io_deadline	own	96	8	8
+field	__cancel	own	104	1	1
+field	__result	own	112	8	8
+frame	__Frame_gworker$m$$1$Int	gworker$m$$1$Int	112	8	states=3	own=56	sub=56	bt=1	root=1	method=0	agrees=1
+field	seed	own	0	8	8
+field	v1	own	8	8	8
+field	__sub0	sub	16	56	8	callee=__Frame_mk$m$	live=1
+field	__state	own	72	8	8
+field	__wake	own	80	8	8
+field	__io_tok	own	88	8	8
+field	__io_deadline	own	96	8	8
+field	__cellp	own	104	8	8
+frame	__Frame_mk$m$	mk	56	8	states=2	own=49	sub=0	bt=2	root=0	method=0	agrees=1
+field	id	own	0	8	8
+field	__state	own	8	8	8
+field	__wake	own	16	8	8
+field	__io_tok	own	24	8	8
+field	__io_deadline	own	32	8	8
+field	__cancel	own	40	1	1
+field	__result	own	48	8	8
+bt	460	strtab=196	version=1	word_bits=64
+btframe	__Frame_gambient$m$$1$Int	gambient$m$$1$Int	coro_generic_spawn_root_nested_suspending_call.saw	72	0 77>2@16 0
+btframe	__Frame_gworker$m$$1$Int	gworker$m$$1$Int	coro_generic_spawn_root_nested_suspending_call.saw	72	0 70>2@16 0
+btframe	__Frame_mk$m$	mk	coro_generic_spawn_root_nested_suspending_call.saw	8	0 65

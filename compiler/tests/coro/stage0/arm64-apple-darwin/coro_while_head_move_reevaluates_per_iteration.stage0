@@ -1,0 +1,102 @@
+program	coro_while_head_move_reevaluates_per_iteration.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"fallthrough sync"
+stdout	"drop 0"
+stdout	"drop 1"
+stdout	"drop 2"
+stdout	"-> 2"
+stdout	"fallthrough driven"
+stdout	"drop 0"
+stdout	"drop 1"
+stdout	"drop 2"
+stdout	"-> 2"
+stdout	"continue sync"
+stdout	"drop 0"
+stdout	"drop 1"
+stdout	"drop 2"
+stdout	"-> 2"
+stdout	"continue driven"
+stdout	"drop 0"
+stdout	"drop 1"
+stdout	"drop 2"
+stdout	"-> 2"
+stdout	"while-let sync"
+stdout	"drop 0"
+stdout	"drop 1"
+stdout	"drop 2"
+stdout	"-> 2"
+stdout	"while-let driven"
+stdout	"drop 0"
+stdout	"drop 1"
+stdout	"drop 2"
+stdout	"-> 2"
+stdout	"never-enters sync"
+stdout	"drop 9"
+stdout	"-> 0"
+stdout	"never-enters driven"
+stdout	"drop 9"
+stdout	"-> 0"
+stdout	""
+meets_expect	yes
+frame	__Frame_fallthrough_driven$m$	fallthrough_driven	152	8	states=16	own=145	sub=0	bt=0	root=0	method=0	agrees=1
+field	items	own	0	40	8
+field	__saw_loop_budget	own	40	8	8
+field	__saw_iter0	own	48	24	8
+field	__ob0	own	72	8	8
+field	r	own	80	16	8
+field	n	own	96	8	8
+field	__state	own	104	8	8
+field	__wake	own	112	8	8
+field	__io_tok	own	120	8	8
+field	__io_deadline	own	128	8	8
+field	__cancel	own	136	1	1
+field	__result	own	144	8	8
+frame	__Frame_never_enters_driven$m$	never_enters_driven	152	8	states=16	own=145	sub=0	bt=1	root=0	method=0	agrees=1
+field	items	own	0	40	8
+field	__saw_loop_budget	own	40	8	8
+field	__saw_iter0	own	48	24	8
+field	__ob0	own	72	8	8
+field	r	own	80	16	8
+field	n	own	96	8	8
+field	__state	own	104	8	8
+field	__wake	own	112	8	8
+field	__io_tok	own	120	8	8
+field	__io_deadline	own	128	8	8
+field	__cancel	own	136	1	1
+field	__result	own	144	8	8
+frame	__Frame_reinit_continue_driven$m$	reinit_continue_driven	152	8	states=16	own=145	sub=0	bt=2	root=0	method=0	agrees=1
+field	items	own	0	40	8
+field	__saw_loop_budget	own	40	8	8
+field	__saw_iter0	own	48	24	8
+field	__ob0	own	72	8	8
+field	r	own	80	16	8
+field	n	own	96	8	8
+field	__state	own	104	8	8
+field	__wake	own	112	8	8
+field	__io_tok	own	120	8	8
+field	__io_deadline	own	128	8	8
+field	__cancel	own	136	1	1
+field	__result	own	144	8	8
+frame	__Frame_while_let_driven$m$	while_let_driven	160	8	states=18	own=153	sub=0	bt=3	root=0	method=0	agrees=1
+field	items	own	0	40	8
+field	__saw_loop_budget	own	40	8	8
+field	__saw_iter0	own	48	24	8
+field	__ob0	own	72	8	8
+field	r	own	80	16	8
+field	n	own	96	8	8
+field	__ob1	own	104	8	8
+field	__state	own	112	8	8
+field	__wake	own	120	8	8
+field	__io_tok	own	128	8	8
+field	__io_deadline	own	136	8	8
+field	__cancel	own	144	1	1
+field	__result	own	152	8	8
+bt	1279	strtab=295	version=1	word_bits=64
+btframe	__Frame_fallthrough_driven$m$	fallthrough_driven	coro_while_head_move_reevaluates_per_iteration.saw	104	0 130 0 0 0 0 0 0 0 131 0 0 0 0 0 135
+btframe	__Frame_never_enters_driven$m$	never_enters_driven	coro_while_head_move_reevaluates_per_iteration.saw	104	0 222 0 0 0 0 0 0 0 223 0 0 0 0 0 227
+btframe	__Frame_reinit_continue_driven$m$	reinit_continue_driven	coro_while_head_move_reevaluates_per_iteration.saw	104	0 161 0 0 0 0 0 0 0 162 0 0 0 0 0 166
+btframe	__Frame_while_let_driven$m$	while_let_driven	coro_while_head_move_reevaluates_per_iteration.saw	112	0 192 0 0 0 0 0 0 0 193 0 0 0 0 197 0 0 0

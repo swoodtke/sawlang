@@ -1,0 +1,40 @@
+program	coro_hoisted_coalesce_rhs_consumed_once.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"r=9"
+stdout	"deinit 9"
+stdout	"done"
+stdout	""
+meets_expect	yes
+frame	__Frame_coalesce_rhs$m$	coalesce_rhs	152	8	states=6	own=81	sub=64	bt=0	root=0	method=0	agrees=1
+field	__ob0	own	0	16	8
+field	__anf0	own	16	16	8
+field	r	own	32	16	8
+field	__sub0	sub	48	64	8	callee=__Frame_mk$m$	live=4
+field	__state	own	112	8	8
+field	__wake	own	120	8	8
+field	__io_tok	own	128	8	8
+field	__io_deadline	own	136	8	8
+field	__cancel	own	144	1	1
+frame	__Frame_main	main	192	8	states=3	own=33	sub=152	bt=1	root=0	method=0	agrees=1
+field	__sub0	sub	0	152	8	callee=__Frame_coalesce_rhs$m$	live=1
+field	__state	own	152	8	8
+field	__wake	own	160	8	8
+field	__io_tok	own	168	8	8
+field	__io_deadline	own	176	8	8
+field	__cancel	own	184	1	1
+frame	__Frame_mk$m$	mk	64	8	states=2	own=57	sub=0	bt=2	root=0	method=0	agrees=1
+field	n	own	0	8	8
+field	__state	own	8	8	8
+field	__wake	own	16	8	8
+field	__io_tok	own	24	8	8
+field	__io_deadline	own	32	8	8
+field	__cancel	own	40	1	1
+field	__result	own	48	16	8
+bt	458	strtab=158	version=1	word_bits=64
+btframe	__Frame_coalesce_rhs$m$	coalesce_rhs	coro_hoisted_coalesce_rhs_consumed_once.saw	112	0 0 0 0 36>2@48 0
+btframe	__Frame_main	main	coro_hoisted_coalesce_rhs_consumed_once.saw	152	0 41>0@0 0
+btframe	__Frame_mk$m$	mk	coro_hoisted_coalesce_rhs_consumed_once.saw	8	0 31

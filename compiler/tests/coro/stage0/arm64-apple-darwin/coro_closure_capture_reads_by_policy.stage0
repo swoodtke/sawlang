@@ -1,0 +1,104 @@
+program	coro_closure_capture_reads_by_policy.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"c1 7"
+stdout	"c1 7"
+stdout	"c2 b"
+stdout	"c2 b"
+stdout	"c3 c"
+stdout	"c3 c"
+stdout	"c4 inside 2"
+stdout	"c4 outside 2"
+stdout	"c4 inside 2"
+stdout	"c4 outside 2"
+stdout	"c4 live 0"
+stdout	"c5 3"
+stdout	"c5 3"
+stdout	"c6 r"
+stdout	"c6 r"
+stdout	"c6 live 0"
+stdout	"c7 r"
+stdout	"c7 live 0"
+stdout	"c8 s"
+stdout	"c8 s"
+stdout	"c8 s"
+stdout	"c8 s"
+stdout	""
+meets_expect	yes
+frame	__Frame_c1_driven$m$	c1_driven	80	8	states=2	own=73	sub=0	bt=0	root=0	method=0	agrees=1
+field	n	own	0	8	8
+field	f	own	8	32	8
+field	__state	own	40	8	8
+field	__wake	own	48	8	8
+field	__io_tok	own	56	8	8
+field	__io_deadline	own	64	8	8
+field	__cancel	own	72	1	1
+frame	__Frame_c2_driven$m$	c2_driven	88	8	states=2	own=81	sub=0	bt=1	root=0	method=0	agrees=1
+field	b	own	0	16	8
+field	f	own	16	32	8
+field	__state	own	48	8	8
+field	__wake	own	56	8	8
+field	__io_tok	own	64	8	8
+field	__io_deadline	own	72	8	8
+field	__cancel	own	80	1	1
+frame	__Frame_c3_driven$m$	c3_driven	88	8	states=2	own=81	sub=0	bt=2	root=0	method=0	agrees=1
+field	b	own	0	16	8
+field	f	own	16	32	8
+field	__state	own	48	8	8
+field	__wake	own	56	8	8
+field	__io_tok	own	64	8	8
+field	__io_deadline	own	72	8	8
+field	__cancel	own	80	1	1
+frame	__Frame_c4_driven$m$	c4_driven	96	8	states=2	own=89	sub=0	bt=3	root=0	method=0	agrees=1
+field	a	own	0	24	8
+field	f	own	24	32	8
+field	__state	own	56	8	8
+field	__wake	own	64	8	8
+field	__io_tok	own	72	8	8
+field	__io_deadline	own	80	8	8
+field	__cancel	own	88	1	1
+frame	__Frame_c5_driven$m$	c5_driven	112	8	states=2	own=105	sub=0	bt=4	root=0	method=0	agrees=1
+field	v	own	0	40	8
+field	f	own	40	32	8
+field	__state	own	72	8	8
+field	__wake	own	80	8	8
+field	__io_tok	own	88	8	8
+field	__io_deadline	own	96	8	8
+field	__cancel	own	104	1	1
+frame	__Frame_c6_driven$m$	c6_driven	88	8	states=2	own=81	sub=0	bt=5	root=0	method=0	agrees=1
+field	r	own	0	16	8
+field	f	own	16	32	8
+field	__state	own	48	8	8
+field	__wake	own	56	8	8
+field	__io_tok	own	64	8	8
+field	__io_deadline	own	72	8	8
+field	__cancel	own	80	1	1
+frame	__Frame_c7_spawned$m$	c7_spawned	88	8	states=2	own=88	sub=0	bt=6	root=1	method=0	agrees=1
+field	r	own	0	16	8
+field	f	own	16	32	8
+field	__state	own	48	8	8
+field	__wake	own	56	8	8
+field	__io_tok	own	64	8	8
+field	__io_deadline	own	72	8	8
+field	__cellp	own	80	8	8
+frame	__Frame_c8_driven$m$	c8_driven	120	8	states=2	own=113	sub=0	bt=7	root=0	method=0	agrees=1
+field	b	own	0	16	8
+field	f	own	16	32	8
+field	g	own	48	32	8
+field	__state	own	80	8	8
+field	__wake	own	88	8	8
+field	__io_tok	own	96	8	8
+field	__io_deadline	own	104	8	8
+field	__cancel	own	112	1	1
+bt	813	strtab=333	version=1	word_bits=64
+btframe	__Frame_c1_driven$m$	c1_driven	coro_closure_capture_reads_by_policy.saw	40	0 86
+btframe	__Frame_c2_driven$m$	c2_driven	coro_closure_capture_reads_by_policy.saw	48	0 100
+btframe	__Frame_c3_driven$m$	c3_driven	coro_closure_capture_reads_by_policy.saw	48	0 114
+btframe	__Frame_c4_driven$m$	c4_driven	coro_closure_capture_reads_by_policy.saw	56	0 129
+btframe	__Frame_c5_driven$m$	c5_driven	coro_closure_capture_reads_by_policy.saw	72	0 145
+btframe	__Frame_c6_driven$m$	c6_driven	coro_closure_capture_reads_by_policy.saw	48	0 159
+btframe	__Frame_c7_spawned$m$	c7_spawned	coro_closure_capture_reads_by_policy.saw	48	0 167
+btframe	__Frame_c8_driven$m$	c8_driven	coro_closure_capture_reads_by_policy.saw	80	0 185

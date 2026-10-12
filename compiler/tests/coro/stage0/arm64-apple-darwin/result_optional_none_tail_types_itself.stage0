@@ -1,0 +1,26 @@
+program	result_optional_none_tail_types_itself.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"fn -1"
+stdout	"fn_if -1"
+stdout	"fn_match -1"
+stdout	"method -1"
+stdout	"generic -1"
+stdout	"generic_m -1"
+stdout	"closure -1"
+stdout	"erased -1"
+stdout	"suspending -1"
+stdout	"some 7"
+stdout	""
+meets_expect	yes
+frame	__Frame_row_suspending$m$	row_suspending	40	8	states=2	own=40	sub=0	bt=0	root=1	method=0	agrees=1
+field	__state	own	0	8	8
+field	__wake	own	8	8	8
+field	__io_tok	own	16	8	8
+field	__io_deadline	own	24	8	8
+field	__cellp	own	32	8	8
+bt	270	strtab=126	version=1	word_bits=64
+btframe	__Frame_row_suspending$m$	row_suspending	result_optional_none_tail_types_itself.saw	0	0 103

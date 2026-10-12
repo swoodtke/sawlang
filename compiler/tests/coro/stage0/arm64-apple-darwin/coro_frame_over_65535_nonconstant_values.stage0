@@ -1,0 +1,30 @@
+program	coro_frame_over_65535_nonconstant_values.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"42"
+stdout	""
+meets_expect	yes
+frame	__Frame_inspect$m$	inspect	524360	8	states=2	own=524353	sub=0	bt=0	root=0	method=0	agrees=1
+field	pointer	own	0	16	8
+field	values	own	16	524296	8
+field	__state	own	524312	8	8
+field	__wake	own	524320	8	8
+field	__io_tok	own	524328	8	8
+field	__io_deadline	own	524336	8	8
+field	__cancel	own	524344	1	1
+field	__result	own	524352	8	8
+frame	__Frame_outer$m$	outer	524424	8	states=2	own=57	sub=524360	bt=1	root=0	method=0	agrees=1
+field	pointer	own	0	16	8
+field	__sub0	sub	16	524360	8	callee=__Frame_inspect$m$	live=1
+field	__state	own	524376	8	8
+field	__wake	own	524384	8	8
+field	__io_tok	own	524392	8	8
+field	__io_deadline	own	524400	8	8
+field	__cancel	own	524408	1	1
+field	__result	own	524416	8	8
+bt	329	strtab=137	version=1	word_bits=64
+btframe	__Frame_inspect$m$	inspect	coro_frame_over_65535_nonconstant_values.saw	524312	0 19
+btframe	__Frame_outer$m$	outer	coro_frame_over_65535_nonconstant_values.saw	524376	0 24>0@16

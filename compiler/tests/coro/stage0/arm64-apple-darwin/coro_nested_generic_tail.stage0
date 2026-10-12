@@ -1,0 +1,39 @@
+program	coro_nested_generic_tail.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"30"
+stdout	"40"
+stdout	"50"
+stdout	""
+meets_expect	yes
+frame	__Frame_viaReturn$m$	viaReturn	120	8	states=2	own=41	sub=72	bt=0	root=0	method=0	agrees=1
+field	__sub0	sub	0	72	8	callee=__Frame_work$m$$1$A	live=1
+field	__state	own	72	8	8
+field	__wake	own	80	8	8
+field	__io_tok	own	88	8	8
+field	__io_deadline	own	96	8	8
+field	__cancel	own	104	1	1
+field	__result	own	112	8	8
+frame	__Frame_viaTailExpr$m$	viaTailExpr	112	8	states=2	own=40	sub=72	bt=1	root=1	method=0	agrees=1
+field	__sub0	sub	0	72	8	callee=__Frame_work$m$$1$A	live=1
+field	__state	own	72	8	8
+field	__wake	own	80	8	8
+field	__io_tok	own	88	8	8
+field	__io_deadline	own	96	8	8
+field	__cellp	own	104	8	8
+frame	__Frame_work$m$$1$A	work$m$$1$A	72	8	states=2	own=65	sub=0	bt=2	root=0	method=0	agrees=1
+field	w	own	0	16	8
+field	base	own	16	8	8
+field	__state	own	24	8	8
+field	__wake	own	32	8	8
+field	__io_tok	own	40	8	8
+field	__io_deadline	own	48	8	8
+field	__cancel	own	56	1	1
+field	__result	own	64	8	8
+bt	409	strtab=169	version=1	word_bits=64
+btframe	__Frame_viaReturn$m$	viaReturn	coro_nested_generic_tail.saw	72	0 35>2@0
+btframe	__Frame_viaTailExpr$m$	viaTailExpr	coro_nested_generic_tail.saw	72	0 39>2@0
+btframe	__Frame_work$m$$1$A	work$m$$1$A	coro_nested_generic_tail.saw	24	0 30

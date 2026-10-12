@@ -1,0 +1,44 @@
+program	coro_match_binds_scrutinee.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"5"
+stdout	"30"
+stdout	"alive 8"
+stdout	""
+meets_expect	yes
+frame	__Frame_describe$m$	describe	104	8	states=5	own=104	sub=0	bt=0	root=1	method=0	agrees=1
+field	s	own	0	24	8
+field	out	own	24	16	8
+field	whole	own	40	24	8
+field	__state	own	64	8	8
+field	__wake	own	72	8	8
+field	__io_tok	own	80	8	8
+field	__io_deadline	own	88	8	8
+field	__cellp	own	96	8	8
+frame	__Frame_pair$m$	pair	80	8	states=5	own=80	sub=0	bt=1	root=1	method=0	agrees=1
+field	a	own	0	8	8
+field	b	own	8	8	8
+field	out	own	16	8	8
+field	x	own	24	8	8
+field	y	own	32	8	8
+field	__state	own	40	8	8
+field	__wake	own	48	8	8
+field	__io_tok	own	56	8	8
+field	__io_deadline	own	64	8	8
+field	__cellp	own	72	8	8
+frame	__Frame_pick$m$	pick	64	8	states=5	own=64	sub=0	bt=2	root=1	method=0	agrees=1
+field	n	own	0	8	8
+field	out	own	8	8	8
+field	v	own	16	8	8
+field	__state	own	24	8	8
+field	__wake	own	32	8	8
+field	__io_tok	own	40	8	8
+field	__io_deadline	own	48	8	8
+field	__cellp	own	56	8	8
+bt	492	strtab=144	version=1	word_bits=64
+btframe	__Frame_describe$m$	describe	coro_match_binds_scrutinee.saw	64	0 0 0 0 64
+btframe	__Frame_pair$m$	pair	coro_match_binds_scrutinee.saw	40	0 0 0 0 52
+btframe	__Frame_pick$m$	pick	coro_match_binds_scrutinee.saw	24	0 0 0 0 40

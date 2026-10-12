@@ -1,0 +1,54 @@
+program	coro_hoisted_push_arg_consumed_once.saw
+triple	arm64-apple-darwin
+twin	differs
+expect	success
+build	ok
+exit	0
+stdout	"len=1"
+stdout	"deinit 52"
+stdout	"deinit 1"
+stdout	"head=3"
+stdout	"deinit 3"
+stdout	"deinit 2"
+stdout	"done"
+stdout	""
+meets_expect	yes
+frame	__Frame_main	main	360	8	states=5	own=33	sub=320	bt=0	root=0	method=0	agrees=1
+field	__sub0	sub	0	160	8	callee=__Frame_push_argument$m$	live=1
+field	__sub1	sub	160	160	8	callee=__Frame_set_argument$m$	live=3
+field	__state	own	320	8	8
+field	__wake	own	328	8	8
+field	__io_tok	own	336	8	8
+field	__io_deadline	own	344	8	8
+field	__cancel	own	352	1	1
+frame	__Frame_mk$m$	mk	64	8	states=2	own=57	sub=0	bt=1	root=0	method=0	agrees=1
+field	n	own	0	8	8
+field	__state	own	8	8	8
+field	__wake	own	16	8	8
+field	__io_tok	own	24	8	8
+field	__io_deadline	own	32	8	8
+field	__cancel	own	40	1	1
+field	__result	own	48	16	8
+frame	__Frame_push_argument$m$	push_argument	160	8	states=3	own=89	sub=64	bt=2	root=0	method=0	agrees=1
+field	v	own	0	40	8
+field	__anf0	own	40	16	8
+field	__sub0	sub	56	64	8	callee=__Frame_mk$m$	live=1
+field	__state	own	120	8	8
+field	__wake	own	128	8	8
+field	__io_tok	own	136	8	8
+field	__io_deadline	own	144	8	8
+field	__cancel	own	152	1	1
+frame	__Frame_set_argument$m$	set_argument	160	8	states=3	own=89	sub=64	bt=3	root=0	method=0	agrees=1
+field	v	own	0	40	8
+field	__anf0	own	40	16	8
+field	__sub0	sub	56	64	8	callee=__Frame_mk$m$	live=1
+field	__state	own	120	8	8
+field	__wake	own	128	8	8
+field	__io_tok	own	136	8	8
+field	__io_deadline	own	144	8	8
+field	__cancel	own	152	1	1
+bt	541	strtab=193	version=1	word_bits=64
+btframe	__Frame_main	main	coro_hoisted_push_arg_consumed_once.saw	320	0 53>2@0 0 54>3@160 0
+btframe	__Frame_mk$m$	mk	coro_hoisted_push_arg_consumed_once.saw	8	0 36
+btframe	__Frame_push_argument$m$	push_argument	coro_hoisted_push_arg_consumed_once.saw	120	0 42>1@56 0
+btframe	__Frame_set_argument$m$	set_argument	coro_hoisted_push_arg_consumed_once.saw	120	0 48>1@56 0

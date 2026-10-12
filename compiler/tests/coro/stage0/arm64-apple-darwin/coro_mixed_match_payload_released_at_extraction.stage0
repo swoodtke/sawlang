@@ -1,0 +1,42 @@
+program	coro_mixed_match_payload_released_at_extraction.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"-- sync"
+stdout	"NEW t1"
+stdout	"NEW t2"
+stdout	"DEINIT t2"
+stdout	"arm"
+stdout	"DEINIT t1"
+stdout	"scope closed"
+stdout	"-- driven"
+stdout	"NEW t1"
+stdout	"NEW t2"
+stdout	"DEINIT t2"
+stdout	"arm"
+stdout	"DEINIT t1"
+stdout	"scope closed"
+stdout	""
+meets_expect	yes
+frame	__Frame_driven_mixed$m$	driven_mixed	184	8	states=3	own=105	sub=72	bt=0	root=0	method=0	agrees=1
+field	__anf0	own	0	24	8
+field	__head0	own	24	48	8
+field	__sub0	sub	72	72	8	callee=__Frame_mk_tag_s$m$	live=1
+field	__state	own	144	8	8
+field	__wake	own	152	8	8
+field	__io_tok	own	160	8	8
+field	__io_deadline	own	168	8	8
+field	__cancel	own	176	1	1
+frame	__Frame_mk_tag_s$m$	mk_tag_s	72	8	states=2	own=65	sub=0	bt=1	root=0	method=0	agrees=1
+field	id	own	0	8	8
+field	__state	own	8	8	8
+field	__wake	own	16	8	8
+field	__io_tok	own	24	8	8
+field	__io_deadline	own	32	8	8
+field	__cancel	own	40	1	1
+field	__result	own	48	24	8
+bt	364	strtab=160	version=1	word_bits=64
+btframe	__Frame_driven_mixed$m$	driven_mixed	coro_mixed_match_payload_released_at_extraction.saw	144	0 74>1@72 0
+btframe	__Frame_mk_tag_s$m$	mk_tag_s	coro_mixed_match_payload_released_at_extraction.saw	8	0 61

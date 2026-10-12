@@ -1,0 +1,21 @@
+program	conformance/O12_iflet_move_binding_released_in_coroutine.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"in plain"
+stdout	"plain live 0"
+stdout	"in driven"
+stdout	"driven live 0"
+stdout	""
+meets_expect	yes
+frame	__Frame_driven$m$	driven	64	8	states=2	own=57	sub=0	bt=0	root=0	method=0	agrees=1
+field	opt	own	0	24	8
+field	__state	own	24	8	8
+field	__wake	own	32	8	8
+field	__io_tok	own	40	8	8
+field	__io_deadline	own	48	8	8
+field	__cancel	own	56	1	1
+bt	260	strtab=116	version=1	word_bits=64
+btframe	__Frame_driven$m$	driven	O12_iflet_move_binding_released_in_coroutine.saw	24	0 50

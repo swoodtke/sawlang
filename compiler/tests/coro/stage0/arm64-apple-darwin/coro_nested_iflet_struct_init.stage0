@@ -1,0 +1,61 @@
+program	coro_nested_iflet_struct_init.saw
+triple	arm64-apple-darwin
+twin	differs
+expect	success
+build	ok
+exit	0
+stdout	"[6]"
+stdout	"map: 6"
+stdout	"deep: 6"
+stdout	""
+meets_expect	yes
+frame	__Frame_maybe$m$	maybe	72	8	states=2	own=65	sub=0	bt=0	root=0	method=0	agrees=1
+field	n	own	0	8	8
+field	__state	own	8	8	8
+field	__wake	own	16	8	8
+field	__io_tok	own	24	8	8
+field	__io_deadline	own	32	8	8
+field	__cancel	own	40	1	1
+field	__result	own	48	24	8
+frame	__Frame_two$m$	two	248	8	states=8	own=104	sub=144	bt=1	root=1	method=0	agrees=1
+field	n	own	0	8	8
+field	__hoist0	own	8	24	8
+field	__ob0	own	32	8	8
+field	__hoist1	own	40	24	8
+field	__sub0	sub	64	72	8	callee=__Frame_maybe$m$	live=1
+field	__sub1	sub	136	72	8	callee=__Frame_maybe$m$	live=6
+field	__state	own	208	8	8
+field	__wake	own	216	8	8
+field	__io_tok	own	224	8	8
+field	__io_deadline	own	232	8	8
+field	__cellp	own	240	8	8
+frame	__Frame_two_deep$m$	two_deep	248	8	states=8	own=104	sub=144	bt=2	root=1	method=0	agrees=1
+field	n	own	0	8	8
+field	__hoist0	own	8	24	8
+field	__ob0	own	32	8	8
+field	__hoist1	own	40	24	8
+field	__sub0	sub	64	72	8	callee=__Frame_maybe$m$	live=1
+field	__sub1	sub	136	72	8	callee=__Frame_maybe$m$	live=6
+field	__state	own	208	8	8
+field	__wake	own	216	8	8
+field	__io_tok	own	224	8	8
+field	__io_deadline	own	232	8	8
+field	__cellp	own	240	8	8
+frame	__Frame_two_map$m$	two_map	304	8	states=8	own=160	sub=144	bt=3	root=1	method=0	agrees=1
+field	n	own	0	8	8
+field	__hoist0	own	8	24	8
+field	__ob0	own	32	8	8
+field	__hoist1	own	40	24	8
+field	m	own	64	56	8
+field	__sub0	sub	120	72	8	callee=__Frame_maybe$m$	live=1
+field	__sub1	sub	192	72	8	callee=__Frame_maybe$m$	live=6
+field	__state	own	264	8	8
+field	__wake	own	272	8	8
+field	__io_tok	own	280	8	8
+field	__io_deadline	own	288	8	8
+field	__cellp	own	296	8	8
+bt	678	strtab=174	version=1	word_bits=64
+btframe	__Frame_maybe$m$	maybe	coro_nested_iflet_struct_init.saw	8	0 35
+btframe	__Frame_two$m$	two	coro_nested_iflet_struct_init.saw	208	0 41>0@64 0 0 0 0 42>0@136 0
+btframe	__Frame_two_deep$m$	two_deep	coro_nested_iflet_struct_init.saw	208	0 69>0@64 0 0 0 0 70>0@136 0
+btframe	__Frame_two_map$m$	two_map	coro_nested_iflet_struct_init.saw	264	0 54>0@120 0 0 0 0 55>0@192 0

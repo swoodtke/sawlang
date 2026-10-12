@@ -1,0 +1,36 @@
+program	conformance/V98_driven_generic_judges_each_instance.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"copy 5"
+stdout	"copy 5"
+stdout	"counted 10"
+stdout	"trivial 14"
+stdout	"end"
+stdout	""
+meets_expect	yes
+frame	__Frame_weigh_twice$m$$1$Counted	weigh_twice$m$$1$Counted	96	8	states=3	own=89	sub=0	bt=0	root=0	method=0	agrees=1
+field	w	own	0	16	8
+field	a	own	16	16	8
+field	b	own	32	16	8
+field	__state	own	48	8	8
+field	__wake	own	56	8	8
+field	__io_tok	own	64	8	8
+field	__io_deadline	own	72	8	8
+field	__cancel	own	80	1	1
+field	__result	own	88	8	8
+frame	__Frame_weigh_twice$m$$1$Int	weigh_twice$m$$1$Int	80	8	states=3	own=73	sub=0	bt=1	root=0	method=0	agrees=1
+field	w	own	0	16	8
+field	a	own	16	8	8
+field	b	own	24	8	8
+field	__state	own	32	8	8
+field	__wake	own	40	8	8
+field	__io_tok	own	48	8	8
+field	__io_deadline	own	56	8	8
+field	__cancel	own	64	1	1
+field	__result	own	72	8	8
+bt	410	strtab=194	version=1	word_bits=64
+btframe	__Frame_weigh_twice$m$$1$Counted	weigh_twice$m$$1$Counted	V98_driven_generic_judges_each_instance.saw	48	0 48 50
+btframe	__Frame_weigh_twice$m$$1$Int	weigh_twice$m$$1$Int	V98_driven_generic_judges_each_instance.saw	32	0 48 50

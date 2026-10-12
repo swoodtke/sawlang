@@ -1,0 +1,32 @@
+program	match_borrowed_payload_in_a_driven_body.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"ran 2 args"
+stdout	"still holding 2"
+stdout	"idle"
+stdout	"0"
+stdout	""
+meets_expect	yes
+frame	__Frame_consume$m$	consume	88	8	states=2	own=81	sub=0	bt=0	root=0	method=0	agrees=1
+field	args	own	0	40	8
+field	__state	own	40	8	8
+field	__wake	own	48	8	8
+field	__io_tok	own	56	8	8
+field	__io_deadline	own	64	8	8
+field	__cancel	own	72	1	1
+field	__result	own	80	8	8
+frame	__Frame_execute$m$	execute	176	8	states=5	own=88	sub=88	bt=1	root=1	method=0	agrees=1
+field	plan	own	0	8	8
+field	args	own	8	40	8
+field	__sub0	sub	48	88	8	callee=__Frame_consume$m$	live=4
+field	__state	own	136	8	8
+field	__wake	own	144	8	8
+field	__io_tok	own	152	8	8
+field	__io_deadline	own	160	8	8
+field	__cellp	own	168	8	8
+bt	368	strtab=140	version=1	word_bits=64
+btframe	__Frame_consume$m$	consume	match_borrowed_payload_in_a_driven_body.saw	40	0 39
+btframe	__Frame_execute$m$	execute	match_borrowed_payload_in_a_driven_body.saw	136	0 0 0 0 46>0@48

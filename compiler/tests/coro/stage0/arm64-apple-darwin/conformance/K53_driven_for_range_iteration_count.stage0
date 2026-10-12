@@ -1,0 +1,69 @@
+program	conformance/K53_driven_for_range_iteration_count.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"inclusive 15 15"
+stdout	"single 3 3"
+stdout	"empty 0 0"
+stdout	"exclusive 10 10"
+stdout	"int_max 3 3"
+stdout	""
+meets_expect	yes
+frame	__Frame_empty_driven$m$	empty_driven	72	8	states=10	own=72	sub=0	bt=0	root=1	method=0	agrees=1
+field	__saw_loop_budget	own	0	8	8
+field	n	own	8	8	8
+field	i	own	16	8	8
+field	__end_i	own	24	8	8
+field	__state	own	32	8	8
+field	__wake	own	40	8	8
+field	__io_tok	own	48	8	8
+field	__io_deadline	own	56	8	8
+field	__cellp	own	64	8	8
+frame	__Frame_exclusive_driven$m$	exclusive_driven	72	8	states=9	own=72	sub=0	bt=1	root=1	method=0	agrees=1
+field	__saw_loop_budget	own	0	8	8
+field	n	own	8	8	8
+field	i	own	16	8	8
+field	__end_i	own	24	8	8
+field	__state	own	32	8	8
+field	__wake	own	40	8	8
+field	__io_tok	own	48	8	8
+field	__io_deadline	own	56	8	8
+field	__cellp	own	64	8	8
+frame	__Frame_inclusive_driven$m$	inclusive_driven	72	8	states=10	own=72	sub=0	bt=2	root=1	method=0	agrees=1
+field	__saw_loop_budget	own	0	8	8
+field	n	own	8	8	8
+field	i	own	16	8	8
+field	__end_i	own	24	8	8
+field	__state	own	32	8	8
+field	__wake	own	40	8	8
+field	__io_tok	own	48	8	8
+field	__io_deadline	own	56	8	8
+field	__cellp	own	64	8	8
+frame	__Frame_int_max_driven$m$	int_max_driven	72	8	states=10	own=72	sub=0	bt=3	root=1	method=0	agrees=1
+field	__saw_loop_budget	own	0	8	8
+field	n	own	8	8	8
+field	i	own	16	8	8
+field	__end_i	own	24	8	8
+field	__state	own	32	8	8
+field	__wake	own	40	8	8
+field	__io_tok	own	48	8	8
+field	__io_deadline	own	56	8	8
+field	__cellp	own	64	8	8
+frame	__Frame_single_driven$m$	single_driven	72	8	states=10	own=72	sub=0	bt=4	root=1	method=0	agrees=1
+field	__saw_loop_budget	own	0	8	8
+field	n	own	8	8	8
+field	i	own	16	8	8
+field	__end_i	own	24	8	8
+field	__state	own	32	8	8
+field	__wake	own	40	8	8
+field	__io_tok	own	48	8	8
+field	__io_deadline	own	56	8	8
+field	__cellp	own	64	8	8
+bt	1094	strtab=290	version=1	word_bits=64
+btframe	__Frame_empty_driven$m$	empty_driven	K53_driven_for_range_iteration_count.saw	32	0 0 0 0 0 0 0 71 73 0
+btframe	__Frame_exclusive_driven$m$	exclusive_driven	K53_driven_for_range_iteration_count.saw	32	0 0 0 0 0 0 0 88 90
+btframe	__Frame_inclusive_driven$m$	inclusive_driven	K53_driven_for_range_iteration_count.saw	32	0 0 0 0 0 0 0 37 39 0
+btframe	__Frame_int_max_driven$m$	int_max_driven	K53_driven_for_range_iteration_count.saw	32	0 0 0 0 0 0 0 107 109 0
+btframe	__Frame_single_driven$m$	single_driven	K53_driven_for_range_iteration_count.saw	32	0 0 0 0 0 0 0 54 56 0

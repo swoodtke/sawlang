@@ -1,0 +1,20 @@
+program	source_location_suspending.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"source_location_suspending.saw:14:worker"
+stdout	"done 23"
+stdout	""
+meets_expect	yes
+frame	__Frame_worker$m$	worker	64	8	states=3	own=64	sub=0	bt=0	root=1	method=0	agrees=1
+field	n	own	0	8	8
+field	loc	own	8	16	8
+field	__state	own	24	8	8
+field	__wake	own	32	8	8
+field	__io_tok	own	40	8	8
+field	__io_deadline	own	48	8	8
+field	__cellp	own	56	8	8
+bt	254	strtab=98	version=1	word_bits=64
+btframe	__Frame_worker$m$	worker	source_location_suspending.saw	24	0 13 15

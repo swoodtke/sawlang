@@ -1,0 +1,46 @@
+program	coro_optional_binding_suspending_method.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"first: 10"
+stdout	"guarded: 20"
+stdout	"interleaved: true"
+stdout	"-- done"
+stdout	""
+meets_expect	yes
+frame	__Frame_Source_next	Source.next	80	8	states=2	own=73	sub=0	bt=0	root=0	method=1	agrees=1
+field	__recv	own	0	8	8
+field	step	own	8	8	8
+field	__state	own	16	8	8
+field	__wake	own	24	8	8
+field	__io_tok	own	32	8	8
+field	__io_deadline	own	40	8	8
+field	__cancel	own	48	1	1
+field	__result	own	56	24	8
+frame	__Frame_consume$m$	consume	280	8	states=7	own=120	sub=160	bt=1	root=1	method=0	agrees=1
+field	src	own	0	16	8
+field	__hoist0	own	16	24	8
+field	midway	own	40	8	8
+field	__hoist1	own	48	24	8
+field	__ob0	own	72	8	8
+field	__sub0	sub	80	80	8	callee=__Frame_Source_next	live=1
+field	__sub1	sub	160	80	8	callee=__Frame_Source_next	live=3
+field	__state	own	240	8	8
+field	__wake	own	248	8	8
+field	__io_tok	own	256	8	8
+field	__io_deadline	own	264	8	8
+field	__cellp	own	272	8	8
+frame	__Frame_ticker$m$	ticker	56	8	states=8	own=56	sub=0	bt=2	root=1	method=0	agrees=1
+field	__saw_loop_budget	own	0	8	8
+field	i	own	8	8	8
+field	__state	own	16	8	8
+field	__wake	own	24	8	8
+field	__io_tok	own	32	8	8
+field	__io_deadline	own	40	8	8
+field	__cellp	own	48	8	8
+bt	542	strtab=170	version=1	word_bits=64
+btframe	__Frame_Source_next	Source.next	coro_optional_binding_suspending_method.saw	16	0 32
+btframe	__Frame_consume$m$	consume	coro_optional_binding_suspending_method.saw	240	0 43>0@80 0 48>0@160 0 0 0
+btframe	__Frame_ticker$m$	ticker	coro_optional_binding_suspending_method.saw	16	0 0 0 0 0 0 60 62

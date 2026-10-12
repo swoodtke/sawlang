@@ -1,0 +1,42 @@
+program	task_backtrace_panic.saw
+triple	arm64-apple-darwin
+twin	same
+expect	panic
+build	ok
+exit	-6
+stdout	"panic at task_backtrace_panic.saw:32: deliberate"
+stdout	"saw tasks: 2 live (as-of panic, unsynchronized)"
+stdout	"  task group 1 slot 0 gen 1 sleeping"
+stdout	"    at task_backtrace_panic.saw:21 in panicking_leaf"
+stdout	"    at task_backtrace_panic.saw:26 in panicking_worker"
+stdout	"  task group 1 slot 1 gen 1 running"
+stdout	"    at task_backtrace_panic.saw:31 in exploder"
+stdout	""
+meets_expect	yes
+frame	__Frame_exploder$m$	exploder	40	8	states=2	own=40	sub=0	bt=0	root=1	method=0	agrees=1
+field	__state	own	0	8	8
+field	__wake	own	8	8	8
+field	__io_tok	own	16	8	8
+field	__io_deadline	own	24	8	8
+field	__cellp	own	32	8	8
+frame	__Frame_panicking_leaf$m$	panicking_leaf	56	8	states=2	own=49	sub=0	bt=1	root=0	method=0	agrees=1
+field	n	own	0	8	8
+field	__state	own	8	8	8
+field	__wake	own	16	8	8
+field	__io_tok	own	24	8	8
+field	__io_deadline	own	32	8	8
+field	__cancel	own	40	1	1
+field	__result	own	48	8	8
+frame	__Frame_panicking_worker$m$	panicking_worker	112	8	states=3	own=56	sub=56	bt=2	root=1	method=0	agrees=1
+field	seed	own	0	8	8
+field	n	own	8	8	8
+field	__sub0	sub	16	56	8	callee=__Frame_panicking_leaf$m$	live=1
+field	__state	own	72	8	8
+field	__wake	own	80	8	8
+field	__io_tok	own	88	8	8
+field	__io_deadline	own	96	8	8
+field	__cellp	own	104	8	8
+bt	434	strtab=182	version=1	word_bits=64
+btframe	__Frame_exploder$m$	exploder	task_backtrace_panic.saw	0	0 31
+btframe	__Frame_panicking_leaf$m$	panicking_leaf	task_backtrace_panic.saw	8	0 21
+btframe	__Frame_panicking_worker$m$	panicking_worker	task_backtrace_panic.saw	72	0 26>1@16 0

@@ -1,0 +1,50 @@
+program	channel_receive_in_main.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"waiting"
+stdout	"producing 7"
+stdout	"got 7"
+stdout	"waiting again"
+stdout	"producing 9"
+stdout	"got 9 through helper"
+stdout	""
+meets_expect	yes
+frame	__Frame_main	main	688	8	states=9	own=546	sub=128	bt=0	root=0	method=0	agrees=1
+field	ch	own	0	24	8
+field	group	own	24	432	8
+field	__trycall0	own	456	40	8
+field	first	own	496	8	8
+field	second	own	504	8	8
+field	__sub0	sub	512	128	8	callee=__Frame_take_one$m$	live=7
+field	__have0	own	640	1	1
+field	__state	own	648	8	8
+field	__wake	own	656	8	8
+field	__io_tok	own	664	8	8
+field	__io_deadline	own	672	8	8
+field	__cancel	own	680	1	1
+frame	__Frame_producer$m$	producer	72	8	states=2	own=72	sub=0	bt=1	root=1	method=0	agrees=1
+field	ch	own	0	24	8
+field	n	own	24	8	8
+field	__state	own	32	8	8
+field	__wake	own	40	8	8
+field	__io_tok	own	48	8	8
+field	__io_deadline	own	56	8	8
+field	__cellp	own	64	8	8
+frame	__Frame_take_one$m$	take_one	128	8	states=7	own=114	sub=0	bt=2	root=0	method=0	agrees=1
+field	ch	own	0	24	8
+field	__trycall0	own	24	40	8
+field	v	own	64	8	8
+field	__have0	own	72	1	1
+field	__state	own	80	8	8
+field	__wake	own	88	8	8
+field	__io_tok	own	96	8	8
+field	__io_deadline	own	104	8	8
+field	__cancel	own	112	1	1
+field	__result	own	120	8	8
+bt	530	strtab=146	version=1	word_bits=64
+btframe	__Frame_main	main	channel_receive_in_main.saw	648	0 47 0 0 0 0 0 52>2@512 0
+btframe	__Frame_producer$m$	producer	channel_receive_in_main.saw	32	0 26
+btframe	__Frame_take_one$m$	take_one	channel_receive_in_main.saw	80	0 37 0 0 0 0 0

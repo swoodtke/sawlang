@@ -1,0 +1,45 @@
+program	async_main_nested_sleep.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"97"
+stdout	"1"
+stdout	"2"
+stdout	"98"
+stdout	"99"
+stdout	"3"
+stdout	""
+meets_expect	yes
+frame	__Frame_main	main	224	8	states=4	own=41	sub=176	bt=0	root=0	method=0	agrees=1
+field	r	own	0	8	8
+field	__sub0	sub	8	176	8	callee=__Frame_run$m$	live=1
+field	__state	own	184	8	8
+field	__wake	own	192	8	8
+field	__io_tok	own	200	8	8
+field	__io_deadline	own	208	8	8
+field	__cancel	own	216	1	1
+frame	__Frame_run$m$	run	176	8	states=6	own=57	sub=112	bt=1	root=0	method=0	agrees=1
+field	x	own	0	8	8
+field	y	own	8	8	8
+field	__sub0	sub	16	56	8	callee=__Frame_step$m$	live=1
+field	__sub1	sub	72	56	8	callee=__Frame_step$m$	live=4
+field	__state	own	128	8	8
+field	__wake	own	136	8	8
+field	__io_tok	own	144	8	8
+field	__io_deadline	own	152	8	8
+field	__cancel	own	160	1	1
+field	__result	own	168	8	8
+frame	__Frame_step$m$	step	56	8	states=2	own=49	sub=0	bt=2	root=0	method=0	agrees=1
+field	label	own	0	8	8
+field	__state	own	8	8	8
+field	__wake	own	16	8	8
+field	__io_tok	own	24	8	8
+field	__io_deadline	own	32	8	8
+field	__cancel	own	40	1	1
+field	__result	own	48	8	8
+bt	440	strtab=128	version=1	word_bits=64
+btframe	__Frame_main	main	async_main_nested_sleep.saw	184	0 31>1@8 0 33
+btframe	__Frame_run$m$	run	async_main_nested_sleep.saw	128	0 23>2@16 0 24 25>2@72 0
+btframe	__Frame_step$m$	step	async_main_nested_sleep.saw	8	0 18

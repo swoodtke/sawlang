@@ -1,0 +1,61 @@
+program	coro_discarded_tail_move_cross_module.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"15"
+stdout	"15"
+stdout	"1"
+stdout	"1"
+stdout	""
+meets_expect	yes
+frame	__Frame_entry_side$m$	entry_side	200	8	states=11	own=145	sub=48	bt=0	root=0	method=0	agrees=1
+field	items	own	0	40	8
+field	__saw_loop_budget	own	40	8	8
+field	total	own	48	8	8
+field	__saw_iter0	own	56	24	8
+field	__ob0	own	80	8	8
+field	r	own	88	16	8
+field	__sub0	sub	104	48	8	callee=__Frame_slow$m$modules_sl222_0sink	live=1
+field	__state	own	152	8	8
+field	__wake	own	160	8	8
+field	__io_tok	own	168	8	8
+field	__io_deadline	own	176	8	8
+field	__cancel	own	184	1	1
+field	__result	own	192	8	8
+frame	__Frame_gather$m$modules_sl222_0sink	gather	200	8	states=11	own=145	sub=48	bt=1	root=0	method=0	agrees=1
+field	items	own	0	40	8
+field	__saw_loop_budget	own	40	8	8
+field	total	own	48	8	8
+field	__saw_iter0	own	56	24	8
+field	__ob0	own	80	8	8
+field	r	own	88	16	8
+field	__sub0	sub	104	48	8	callee=__Frame_slow$m$modules_sl222_0sink	live=1
+field	__state	own	152	8	8
+field	__wake	own	160	8	8
+field	__io_tok	own	168	8	8
+field	__io_deadline	own	176	8	8
+field	__cancel	own	184	1	1
+field	__result	own	192	8	8
+frame	__Frame_slow$m$modules_sl222_0sink	slow	48	8	states=2	own=41	sub=0	bt=2	root=0	method=0	agrees=1
+field	__state	own	0	8	8
+field	__wake	own	8	8	8
+field	__io_tok	own	16	8	8
+field	__io_deadline	own	24	8	8
+field	__cancel	own	32	1	1
+field	__result	own	40	8	8
+frame	__Frame_via_dep$m$	via_dep	288	8	states=2	own=81	sub=200	bt=3	root=0	method=0	agrees=1
+field	items	own	0	40	8
+field	__sub0	sub	40	200	8	callee=__Frame_gather$m$modules_sl222_0sink	live=1
+field	__state	own	240	8	8
+field	__wake	own	248	8	8
+field	__io_tok	own	256	8	8
+field	__io_deadline	own	264	8	8
+field	__cancel	own	272	1	1
+field	__result	own	280	8	8
+bt	747	strtab=243	version=1	word_bits=64
+btframe	__Frame_entry_side$m$	entry_side	coro_discarded_tail_move_cross_module.saw	152	0 25>2@104 0 0 0 0 0 0 0 0 26
+btframe	__Frame_gather$m$modules_sl222_0sink	gather	sl222_sink.saw	152	0 22>2@104 0 0 0 0 0 0 0 0 23
+btframe	__Frame_slow$m$modules_sl222_0sink	slow	sl222_sink.saw	0	0 16
+btframe	__Frame_via_dep$m$	via_dep	coro_discarded_tail_move_cross_module.saw	240	0 36>1@40

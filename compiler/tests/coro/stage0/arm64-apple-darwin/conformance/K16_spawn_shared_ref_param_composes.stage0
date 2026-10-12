@@ -1,0 +1,21 @@
+program	conformance/K16_spawn_shared_ref_param_composes.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"caller reads base while shared: 7"
+stdout	"doubled 14 tripled 21"
+stdout	"base after both joins: 7"
+stdout	""
+meets_expect	yes
+frame	__Frame_scaled$m$	scaled	56	8	states=2	own=56	sub=0	bt=0	root=1	method=0	agrees=1
+field	base	own	0	8	8
+field	k	own	8	8	8
+field	__state	own	16	8	8
+field	__wake	own	24	8	8
+field	__io_tok	own	32	8	8
+field	__io_deadline	own	40	8	8
+field	__cellp	own	48	8	8
+bt	251	strtab=107	version=1	word_bits=64
+btframe	__Frame_scaled$m$	scaled	K16_spawn_shared_ref_param_composes.saw	16	0 17

@@ -1,0 +1,30 @@
+program	resolve_seam_offloads.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"sibling: ran while the resolve was in flight"
+stdout	"resolver: localhost -> 127.0.0.1 (1 address)"
+stdout	""
+meets_expect	yes
+frame	__Frame_resolver$m$	resolver	112	8	states=5	own=108	sub=0	bt=0	root=1	method=0	agrees=1
+field	host	own	0	16	8
+field	found	own	16	20	4
+field	n	own	40	8	8
+field	text	own	48	16	8
+field	__blkjob0	own	64	8	8
+field	__state	own	72	8	8
+field	__wake	own	80	8	8
+field	__io_tok	own	88	8	8
+field	__io_deadline	own	96	8	8
+field	__cellp	own	104	8	8
+frame	__Frame_sibling$m$	sibling	40	8	states=1	own=40	sub=0	bt=1	root=1	method=0	agrees=1
+field	__state	own	0	8	8
+field	__wake	own	8	8	8
+field	__io_tok	own	16	8	8
+field	__io_deadline	own	24	8	8
+field	__cellp	own	32	8	8
+bt	340	strtab=124	version=1	word_bits=64
+btframe	__Frame_resolver$m$	resolver	resolve_seam_offloads.saw	72	0 38 0 0 0
+btframe	__Frame_sibling$m$	sibling	resolve_seam_offloads.saw	0	0

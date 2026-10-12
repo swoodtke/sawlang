@@ -1,0 +1,6 @@
+program	conformance/K53_mt_group_stays_live_across_spawns.saw
+triple	x86_64-unknown-linux-gnu
+twin	differs
+expect	success
+build	not-run
+layout	same-as	arm64-apple-darwin

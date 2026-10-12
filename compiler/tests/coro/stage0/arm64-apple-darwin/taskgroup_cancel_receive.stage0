@@ -1,0 +1,23 @@
+program	taskgroup_cancel_receive.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"55"
+stdout	"30"
+stdout	""
+meets_expect	yes
+frame	__Frame_consumer$m$	consumer	104	8	states=10	own=97	sub=0	bt=0	root=1	method=0	agrees=1
+field	ch	own	0	24	8
+field	__saw_loop_budget	own	24	8	8
+field	held	own	32	16	8
+field	sum	own	48	8	8
+field	empty	own	56	1	1
+field	__state	own	64	8	8
+field	__wake	own	72	8	8
+field	__io_tok	own	80	8	8
+field	__io_deadline	own	88	8	8
+field	__cellp	own	96	8	8
+bt	340	strtab=100	version=1	word_bits=64
+btframe	__Frame_consumer$m$	consumer	taskgroup_cancel_receive.saw	64	0 0 0 0 0 0 21 0 0 31

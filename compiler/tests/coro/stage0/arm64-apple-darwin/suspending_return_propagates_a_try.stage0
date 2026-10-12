@@ -1,0 +1,102 @@
+program	suspending_return_propagates_a_try.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"plain ok 6"
+stdout	"plain err A30"
+stdout	"argument ok 12"
+stdout	"argument err A30"
+stdout	"receiver ok 1"
+stdout	"receiver err A30"
+stdout	"binary ok 7"
+stdout	"binary err A30"
+stdout	"subject ok 600"
+stdout	"subject err A30"
+stdout	"coalesce ok 6"
+stdout	"coalesce err A30"
+stdout	"tail ok 6"
+stdout	"tail err A30"
+stdout	"tail_arm ok 6"
+stdout	"tail_arm err A30"
+stdout	"in_loop ok 6"
+stdout	"in_loop err A30"
+stdout	""
+meets_expect	yes
+frame	__Frame_row_argument$m$	row_argument	48	8	states=2	own=48	sub=0	bt=0	root=1	method=0	agrees=1
+field	n	own	0	8	8
+field	__state	own	8	8	8
+field	__wake	own	16	8	8
+field	__io_tok	own	24	8	8
+field	__io_deadline	own	32	8	8
+field	__cellp	own	40	8	8
+frame	__Frame_row_binary$m$	row_binary	48	8	states=2	own=48	sub=0	bt=1	root=1	method=0	agrees=1
+field	n	own	0	8	8
+field	__state	own	8	8	8
+field	__wake	own	16	8	8
+field	__io_tok	own	24	8	8
+field	__io_deadline	own	32	8	8
+field	__cellp	own	40	8	8
+frame	__Frame_row_coalesce$m$	row_coalesce	48	8	states=2	own=48	sub=0	bt=2	root=1	method=0	agrees=1
+field	n	own	0	8	8
+field	__state	own	8	8	8
+field	__wake	own	16	8	8
+field	__io_tok	own	24	8	8
+field	__io_deadline	own	32	8	8
+field	__cellp	own	40	8	8
+frame	__Frame_row_in_loop$m$	row_in_loop	72	8	states=8	own=72	sub=0	bt=3	root=1	method=0	agrees=1
+field	n	own	0	8	8
+field	__saw_loop_budget	own	8	8	8
+field	out	own	16	8	8
+field	i	own	24	8	8
+field	__state	own	32	8	8
+field	__wake	own	40	8	8
+field	__io_tok	own	48	8	8
+field	__io_deadline	own	56	8	8
+field	__cellp	own	64	8	8
+frame	__Frame_row_plain$m$	row_plain	48	8	states=2	own=48	sub=0	bt=4	root=1	method=0	agrees=1
+field	n	own	0	8	8
+field	__state	own	8	8	8
+field	__wake	own	16	8	8
+field	__io_tok	own	24	8	8
+field	__io_deadline	own	32	8	8
+field	__cellp	own	40	8	8
+frame	__Frame_row_receiver$m$	row_receiver	48	8	states=2	own=48	sub=0	bt=5	root=1	method=0	agrees=1
+field	n	own	0	8	8
+field	__state	own	8	8	8
+field	__wake	own	16	8	8
+field	__io_tok	own	24	8	8
+field	__io_deadline	own	32	8	8
+field	__cellp	own	40	8	8
+frame	__Frame_row_subject$m$	row_subject	48	8	states=2	own=48	sub=0	bt=6	root=1	method=0	agrees=1
+field	n	own	0	8	8
+field	__state	own	8	8	8
+field	__wake	own	16	8	8
+field	__io_tok	own	24	8	8
+field	__io_deadline	own	32	8	8
+field	__cellp	own	40	8	8
+frame	__Frame_row_tail$m$	row_tail	48	8	states=2	own=48	sub=0	bt=7	root=1	method=0	agrees=1
+field	n	own	0	8	8
+field	__state	own	8	8	8
+field	__wake	own	16	8	8
+field	__io_tok	own	24	8	8
+field	__io_deadline	own	32	8	8
+field	__cellp	own	40	8	8
+frame	__Frame_row_tail_arm$m$	row_tail_arm	48	8	states=2	own=48	sub=0	bt=8	root=1	method=0	agrees=1
+field	n	own	0	8	8
+field	__state	own	8	8	8
+field	__wake	own	16	8	8
+field	__io_tok	own	24	8	8
+field	__io_deadline	own	32	8	8
+field	__cellp	own	40	8	8
+bt	992	strtab=392	version=1	word_bits=64
+btframe	__Frame_row_argument$m$	row_argument	suspending_return_propagates_a_try.saw	8	0 86
+btframe	__Frame_row_binary$m$	row_binary	suspending_return_propagates_a_try.saw	8	0 96
+btframe	__Frame_row_coalesce$m$	row_coalesce	suspending_return_propagates_a_try.saw	8	0 109
+btframe	__Frame_row_in_loop$m$	row_in_loop	suspending_return_propagates_a_try.saw	32	0 0 0 0 0 0 129 130
+btframe	__Frame_row_plain$m$	row_plain	suspending_return_propagates_a_try.saw	8	0 81
+btframe	__Frame_row_receiver$m$	row_receiver	suspending_return_propagates_a_try.saw	8	0 91
+btframe	__Frame_row_subject$m$	row_subject	suspending_return_propagates_a_try.saw	8	0 101
+btframe	__Frame_row_tail$m$	row_tail	suspending_return_propagates_a_try.saw	8	0 114
+btframe	__Frame_row_tail_arm$m$	row_tail_arm	suspending_return_propagates_a_try.saw	8	0 119

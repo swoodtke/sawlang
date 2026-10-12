@@ -1,0 +1,265 @@
+program	coro_head_move_relinquishes_before_early_exit.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"drop old"
+stdout	"1"
+stdout	"drop old"
+stdout	"2"
+stdout	"drop old"
+stdout	"drop old"
+stdout	"3"
+stdout	"drop old"
+stdout	"4"
+stdout	"drop old"
+stdout	"drop old"
+stdout	"5"
+stdout	"drop old"
+stdout	"6"
+stdout	"drop old"
+stdout	"7"
+stdout	"drop old"
+stdout	"drop new"
+stdout	"8"
+stdout	"drop old"
+stdout	"drop new"
+stdout	"9"
+stdout	"drop old"
+stdout	"drop new"
+stdout	"10"
+stdout	"drop old"
+stdout	"drop new"
+stdout	"11"
+stdout	"drop old"
+stdout	"12"
+stdout	"drop old"
+stdout	"13"
+stdout	"drop old"
+stdout	"new"
+stdout	"drop new"
+stdout	"14"
+stdout	"drop old"
+stdout	"new"
+stdout	"drop new"
+stdout	"15"
+stdout	"drop old"
+stdout	"drop new"
+stdout	"16"
+stdout	""
+meets_expect	yes
+frame	__Frame_bare_arm$m$	bare_arm	152	8	states=10	own=145	sub=0	bt=0	root=0	method=0	agrees=1
+field	items	own	0	40	8
+field	__saw_loop_budget	own	40	8	8
+field	acc	own	48	8	8
+field	__saw_iter0	own	56	24	8
+field	__ob0	own	80	8	8
+field	r	own	88	16	8
+field	__state	own	104	8	8
+field	__wake	own	112	8	8
+field	__io_tok	own	120	8	8
+field	__io_deadline	own	128	8	8
+field	__cancel	own	136	1	1
+field	__result	own	144	8	8
+frame	__Frame_if_continue$m$	if_continue	144	8	states=12	own=137	sub=0	bt=1	root=0	method=0	agrees=1
+field	items	own	0	40	8
+field	__saw_loop_budget	own	40	8	8
+field	__saw_iter0	own	48	24	8
+field	__ob0	own	72	8	8
+field	r	own	80	16	8
+field	__state	own	96	8	8
+field	__wake	own	104	8	8
+field	__io_tok	own	112	8	8
+field	__io_deadline	own	120	8	8
+field	__cancel	own	128	1	1
+field	__result	own	136	8	8
+frame	__Frame_if_reinit$m$	if_reinit	144	8	states=10	own=137	sub=0	bt=2	root=0	method=0	agrees=1
+field	items	own	0	40	8
+field	__saw_loop_budget	own	40	8	8
+field	__saw_iter0	own	48	24	8
+field	__ob0	own	72	8	8
+field	r	own	80	16	8
+field	__state	own	96	8	8
+field	__wake	own	104	8	8
+field	__io_tok	own	112	8	8
+field	__io_deadline	own	120	8	8
+field	__cancel	own	128	1	1
+field	__result	own	136	8	8
+frame	__Frame_if_return$m$	if_return	144	8	states=10	own=137	sub=0	bt=3	root=0	method=0	agrees=1
+field	items	own	0	40	8
+field	__saw_loop_budget	own	40	8	8
+field	__saw_iter0	own	48	24	8
+field	__ob0	own	72	8	8
+field	r	own	80	16	8
+field	__state	own	96	8	8
+field	__wake	own	104	8	8
+field	__io_tok	own	112	8	8
+field	__io_deadline	own	120	8	8
+field	__cancel	own	128	1	1
+field	__result	own	136	8	8
+frame	__Frame_iflet_owning_payload$m$	iflet_owning_payload	144	8	states=10	own=137	sub=0	bt=4	root=0	method=0	agrees=1
+field	items	own	0	40	8
+field	__saw_loop_budget	own	40	8	8
+field	__saw_iter0	own	48	24	8
+field	__ob0	own	72	8	8
+field	r	own	80	16	8
+field	__state	own	96	8	8
+field	__wake	own	104	8	8
+field	__io_tok	own	112	8	8
+field	__io_deadline	own	120	8	8
+field	__cancel	own	128	1	1
+field	__result	own	136	8	8
+frame	__Frame_iflet_reinit_then_use$m$	iflet_reinit_then_use	152	8	states=10	own=145	sub=0	bt=5	root=0	method=0	agrees=1
+field	items	own	0	40	8
+field	__saw_loop_budget	own	40	8	8
+field	acc	own	48	8	8
+field	__saw_iter0	own	56	24	8
+field	__ob0	own	80	8	8
+field	r	own	88	16	8
+field	__state	own	104	8	8
+field	__wake	own	112	8	8
+field	__io_tok	own	120	8	8
+field	__io_deadline	own	128	8	8
+field	__cancel	own	136	1	1
+field	__result	own	144	8	8
+frame	__Frame_iflet_return$m$	iflet_return	144	8	states=10	own=137	sub=0	bt=6	root=0	method=0	agrees=1
+field	items	own	0	40	8
+field	__saw_loop_budget	own	40	8	8
+field	__saw_iter0	own	48	24	8
+field	__ob0	own	72	8	8
+field	r	own	80	16	8
+field	__state	own	96	8	8
+field	__wake	own	104	8	8
+field	__io_tok	own	112	8	8
+field	__io_deadline	own	120	8	8
+field	__cancel	own	128	1	1
+field	__result	own	136	8	8
+frame	__Frame_match_owning_payload$m$	match_owning_payload	144	8	states=10	own=137	sub=0	bt=7	root=0	method=0	agrees=1
+field	items	own	0	40	8
+field	__saw_loop_budget	own	40	8	8
+field	__saw_iter0	own	48	24	8
+field	__ob0	own	72	8	8
+field	r	own	80	16	8
+field	__state	own	96	8	8
+field	__wake	own	104	8	8
+field	__io_tok	own	112	8	8
+field	__io_deadline	own	120	8	8
+field	__cancel	own	128	1	1
+field	__result	own	136	8	8
+frame	__Frame_match_reinit$m$	match_reinit	144	8	states=10	own=137	sub=0	bt=8	root=0	method=0	agrees=1
+field	items	own	0	40	8
+field	__saw_loop_budget	own	40	8	8
+field	__saw_iter0	own	48	24	8
+field	__ob0	own	72	8	8
+field	r	own	80	16	8
+field	__state	own	96	8	8
+field	__wake	own	104	8	8
+field	__io_tok	own	112	8	8
+field	__io_deadline	own	120	8	8
+field	__cancel	own	128	1	1
+field	__result	own	136	8	8
+frame	__Frame_match_return$m$	match_return	144	8	states=10	own=137	sub=0	bt=9	root=0	method=0	agrees=1
+field	items	own	0	40	8
+field	__saw_loop_budget	own	40	8	8
+field	__saw_iter0	own	48	24	8
+field	__ob0	own	72	8	8
+field	r	own	80	16	8
+field	__state	own	96	8	8
+field	__wake	own	104	8	8
+field	__io_tok	own	112	8	8
+field	__io_deadline	own	120	8	8
+field	__cancel	own	128	1	1
+field	__result	own	136	8	8
+frame	__Frame_no_else_not_taken$m$	no_else_not_taken	152	8	states=10	own=145	sub=0	bt=10	root=0	method=0	agrees=1
+field	items	own	0	40	8
+field	__saw_loop_budget	own	40	8	8
+field	acc	own	48	8	8
+field	__saw_iter0	own	56	24	8
+field	__ob0	own	80	8	8
+field	r	own	88	16	8
+field	__state	own	104	8	8
+field	__wake	own	112	8	8
+field	__io_tok	own	120	8	8
+field	__io_deadline	own	128	8	8
+field	__cancel	own	136	1	1
+field	__result	own	144	8	8
+frame	__Frame_try_break$m$	try_break	160	8	states=12	own=153	sub=0	bt=11	root=0	method=0	agrees=1
+field	items	own	0	40	8
+field	__saw_loop_budget	own	40	8	8
+field	__saw_iter0	own	48	24	8
+field	__ob0	own	72	8	8
+field	r	own	80	16	8
+field	__saw_caught0	own	96	16	8
+field	__state	own	112	8	8
+field	__wake	own	120	8	8
+field	__io_tok	own	128	8	8
+field	__io_deadline	own	136	8	8
+field	__cancel	own	144	1	1
+field	__result	own	152	8	8
+frame	__Frame_try_continue$m$	try_continue	160	8	states=12	own=153	sub=0	bt=12	root=0	method=0	agrees=1
+field	items	own	0	40	8
+field	__saw_loop_budget	own	40	8	8
+field	__saw_iter0	own	48	24	8
+field	__ob0	own	72	8	8
+field	r	own	80	16	8
+field	__saw_caught0	own	96	16	8
+field	__state	own	112	8	8
+field	__wake	own	120	8	8
+field	__io_tok	own	128	8	8
+field	__io_deadline	own	136	8	8
+field	__cancel	own	144	1	1
+field	__result	own	152	8	8
+frame	__Frame_try_owning_value$m$	try_owning_value	144	8	states=10	own=137	sub=0	bt=13	root=0	method=0	agrees=1
+field	items	own	0	40	8
+field	__saw_loop_budget	own	40	8	8
+field	__saw_iter0	own	48	24	8
+field	__ob0	own	72	8	8
+field	r	own	80	16	8
+field	__state	own	96	8	8
+field	__wake	own	104	8	8
+field	__io_tok	own	112	8	8
+field	__io_deadline	own	120	8	8
+field	__cancel	own	128	1	1
+field	__result	own	136	8	8
+frame	__Frame_try_reinit$m$	try_reinit	144	8	states=10	own=137	sub=0	bt=14	root=0	method=0	agrees=1
+field	items	own	0	40	8
+field	__saw_loop_budget	own	40	8	8
+field	__saw_iter0	own	48	24	8
+field	__ob0	own	72	8	8
+field	r	own	80	16	8
+field	__state	own	96	8	8
+field	__wake	own	104	8	8
+field	__io_tok	own	112	8	8
+field	__io_deadline	own	120	8	8
+field	__cancel	own	128	1	1
+field	__result	own	136	8	8
+frame	__Frame_try_return$m$	try_return	144	8	states=10	own=137	sub=0	bt=15	root=0	method=0	agrees=1
+field	items	own	0	40	8
+field	__saw_loop_budget	own	40	8	8
+field	__saw_iter0	own	48	24	8
+field	__ob0	own	72	8	8
+field	r	own	80	16	8
+field	__state	own	96	8	8
+field	__wake	own	104	8	8
+field	__io_tok	own	112	8	8
+field	__io_deadline	own	120	8	8
+field	__cancel	own	128	1	1
+field	__result	own	136	8	8
+bt	3188	strtab=716	version=1	word_bits=64
+btframe	__Frame_bare_arm$m$	bare_arm	coro_head_move_relinquishes_before_early_exit.saw	104	0 263 0 0 0 0 0 0 0 265
+btframe	__Frame_if_continue$m$	if_continue	coro_head_move_relinquishes_before_early_exit.saw	96	0 157 0 0 0 0 0 0 0 158 0 0
+btframe	__Frame_if_reinit$m$	if_reinit	coro_head_move_relinquishes_before_early_exit.saw	96	0 205 0 0 0 0 0 0 0 206
+btframe	__Frame_if_return$m$	if_return	coro_head_move_relinquishes_before_early_exit.saw	96	0 147 0 0 0 0 0 0 0 148
+btframe	__Frame_iflet_owning_payload$m$	iflet_owning_payload	coro_head_move_relinquishes_before_early_exit.saw	96	0 288 0 0 0 0 0 0 0 289
+btframe	__Frame_iflet_reinit_then_use$m$	iflet_reinit_then_use	coro_head_move_relinquishes_before_early_exit.saw	104	0 230 0 0 0 0 0 0 0 232
+btframe	__Frame_iflet_return$m$	iflet_return	coro_head_move_relinquishes_before_early_exit.saw	96	0 182 0 0 0 0 0 0 0 183
+btframe	__Frame_match_owning_payload$m$	match_owning_payload	coro_head_move_relinquishes_before_early_exit.saw	96	0 298 0 0 0 0 0 0 0 299
+btframe	__Frame_match_reinit$m$	match_reinit	coro_head_move_relinquishes_before_early_exit.saw	96	0 215 0 0 0 0 0 0 0 216
+btframe	__Frame_match_return$m$	match_return	coro_head_move_relinquishes_before_early_exit.saw	96	0 168 0 0 0 0 0 0 0 169
+btframe	__Frame_no_else_not_taken$m$	no_else_not_taken	coro_head_move_relinquishes_before_early_exit.saw	104	0 249 0 0 0 0 0 0 0 251
+btframe	__Frame_try_break$m$	try_break	coro_head_move_relinquishes_before_early_exit.saw	112	0 126 0 0 0 0 0 0 0 127 0 0
+btframe	__Frame_try_continue$m$	try_continue	coro_head_move_relinquishes_before_early_exit.saw	112	0 136 0 0 0 0 0 0 0 137 0 0
+btframe	__Frame_try_owning_value$m$	try_owning_value	coro_head_move_relinquishes_before_early_exit.saw	96	0 314 0 0 0 0 0 0 0 315
+btframe	__Frame_try_reinit$m$	try_reinit	coro_head_move_relinquishes_before_early_exit.saw	96	0 195 0 0 0 0 0 0 0 196
+btframe	__Frame_try_return$m$	try_return	coro_head_move_relinquishes_before_early_exit.saw	96	0 116 0 0 0 0 0 0 0 117

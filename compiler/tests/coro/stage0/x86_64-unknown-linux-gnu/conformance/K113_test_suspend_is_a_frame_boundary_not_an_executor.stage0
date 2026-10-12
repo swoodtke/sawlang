@@ -1,0 +1,6 @@
+program	conformance/K113_test_suspend_is_a_frame_boundary_not_an_executor.saw
+triple	x86_64-unknown-linux-gnu
+twin	same
+expect	success
+build	not-run
+layout	same-as	arm64-apple-darwin

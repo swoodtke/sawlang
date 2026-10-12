@@ -1,0 +1,20 @@
+program	coro_existential_only_body_is_not_framed.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"6"
+stdout	""
+meets_expect	yes
+frame	__Frame_root$m$	root	72	8	states=2	own=65	sub=0	bt=0	root=0	method=0	agrees=1
+field	a	own	0	16	8
+field	x	own	16	8	8
+field	__state	own	24	8	8
+field	__wake	own	32	8	8
+field	__io_tok	own	40	8	8
+field	__io_deadline	own	48	8	8
+field	__cancel	own	56	1	1
+field	__result	own	64	8	8
+bt	252	strtab=108	version=1	word_bits=64
+btframe	__Frame_root$m$	root	coro_existential_only_body_is_not_framed.saw	24	0 49

@@ -1,0 +1,6 @@
+program	net_connect_dials_the_host_it_was_given.saw
+triple	x86_64-unknown-linux-gnu
+twin	same
+expect	success
+build	not-run
+layout	same-as	arm64-apple-darwin

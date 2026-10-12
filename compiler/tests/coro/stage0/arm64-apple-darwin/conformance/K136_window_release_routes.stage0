@@ -1,0 +1,192 @@
+program	conformance/K136_window_release_routes.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"exhaustion sync 6 4"
+stdout	"exhaustion driven 6 4"
+stdout	"break plain sync 1 4"
+stdout	"break plain driven 1 4"
+stdout	"break with value sync 3 4"
+stdout	"continue keeps the window sync 4 4"
+stdout	"continue keeps the window driven 4 4"
+stdout	"return from the body 1 4"
+stdout	"error propagated 2 4"
+stdout	"error caught and continued 5 4"
+stdout	"empty loop 0 1"
+stdout	"break then mutate 1 5"
+stdout	"inner loop jump closes nothing 12"
+stdout	"outer continue closes the inner window 12"
+stdout	""
+meets_expect	yes
+frame	__Frame_break_plain_driven$m$	break_plain_driven	168	8	states=11	own=105	sub=56	bt=0	root=0	method=0	agrees=1
+field	v	own	0	8	8
+field	__saw_loop_budget	own	8	8	8
+field	total	own	16	8	8
+field	__saw_iter0	own	24	24	8
+field	__ob0	own	48	8	8
+field	__anf0	own	56	8	8
+field	__sub0	sub	64	56	8	callee=__Frame_slow$m$	live=9
+field	__state	own	120	8	8
+field	__wake	own	128	8	8
+field	__io_tok	own	136	8	8
+field	__io_deadline	own	144	8	8
+field	__cancel	own	152	1	1
+field	__result	own	160	8	8
+frame	__Frame_break_then_mutate$m$	break_then_mutate	168	8	states=11	own=105	sub=56	bt=1	root=0	method=0	agrees=1
+field	v	own	0	8	8
+field	__saw_loop_budget	own	8	8	8
+field	total	own	16	8	8
+field	__saw_iter0	own	24	24	8
+field	__ob0	own	48	8	8
+field	__anf0	own	56	8	8
+field	__sub0	sub	64	56	8	callee=__Frame_slow$m$	live=9
+field	__state	own	120	8	8
+field	__wake	own	128	8	8
+field	__io_tok	own	136	8	8
+field	__io_deadline	own	144	8	8
+field	__cancel	own	152	1	1
+field	__result	own	160	8	8
+frame	__Frame_caught_and_continued$m$	caught_and_continued	208	8	states=11	own=129	sub=72	bt=2	root=0	method=0	agrees=1
+field	v	own	0	8	8
+field	__saw_loop_budget	own	8	8	8
+field	total	own	16	8	8
+field	__saw_iter0	own	24	24	8
+field	__ob0	own	48	8	8
+field	__trycall0	own	56	24	8
+field	got	own	80	8	8
+field	__sub0	sub	88	72	8	callee=__Frame_fails$m$	live=9
+field	__state	own	160	8	8
+field	__wake	own	168	8	8
+field	__io_tok	own	176	8	8
+field	__io_deadline	own	184	8	8
+field	__cancel	own	192	1	1
+field	__result	own	200	8	8
+frame	__Frame_continue_driven$m$	continue_driven	168	8	states=13	own=105	sub=56	bt=3	root=0	method=0	agrees=1
+field	v	own	0	8	8
+field	__saw_loop_budget	own	8	8	8
+field	total	own	16	8	8
+field	__saw_iter0	own	24	24	8
+field	__ob0	own	48	8	8
+field	__anf0	own	56	8	8
+field	__sub0	sub	64	56	8	callee=__Frame_slow$m$	live=11
+field	__state	own	120	8	8
+field	__wake	own	128	8	8
+field	__io_tok	own	136	8	8
+field	__io_deadline	own	144	8	8
+field	__cancel	own	152	1	1
+field	__result	own	160	8	8
+frame	__Frame_empty_loop$m$	empty_loop	168	8	states=11	own=105	sub=56	bt=4	root=0	method=0	agrees=1
+field	v	own	0	8	8
+field	__saw_loop_budget	own	8	8	8
+field	total	own	16	8	8
+field	__saw_iter0	own	24	24	8
+field	__ob0	own	48	8	8
+field	__anf0	own	56	8	8
+field	__sub0	sub	64	56	8	callee=__Frame_slow$m$	live=9
+field	__state	own	120	8	8
+field	__wake	own	128	8	8
+field	__io_tok	own	136	8	8
+field	__io_deadline	own	144	8	8
+field	__cancel	own	152	1	1
+field	__result	own	160	8	8
+frame	__Frame_exhaustion_driven$m$	exhaustion_driven	168	8	states=11	own=105	sub=56	bt=5	root=0	method=0	agrees=1
+field	v	own	0	8	8
+field	__saw_loop_budget	own	8	8	8
+field	total	own	16	8	8
+field	__saw_iter0	own	24	24	8
+field	__ob0	own	48	8	8
+field	__anf0	own	56	8	8
+field	__sub0	sub	64	56	8	callee=__Frame_slow$m$	live=9
+field	__state	own	120	8	8
+field	__wake	own	128	8	8
+field	__io_tok	own	136	8	8
+field	__io_deadline	own	144	8	8
+field	__cancel	own	152	1	1
+field	__result	own	160	8	8
+frame	__Frame_fails$m$	fails	72	8	states=2	own=65	sub=0	bt=6	root=0	method=0	agrees=1
+field	x	own	0	8	8
+field	__state	own	8	8	8
+field	__wake	own	16	8	8
+field	__io_tok	own	24	8	8
+field	__io_deadline	own	32	8	8
+field	__cancel	own	40	1	1
+field	__result	own	48	24	8
+frame	__Frame_inner_loop_jump_closes_nothing$m$	inner_loop_jump_closes_nothing	176	8	states=21	own=113	sub=56	bt=7	root=0	method=0	agrees=1
+field	v	own	0	8	8
+field	__saw_loop_budget	own	8	8	8
+field	total	own	16	8	8
+field	__saw_iter0	own	24	24	8
+field	__ob0	own	48	8	8
+field	n	own	56	8	8
+field	__anf0	own	64	8	8
+field	__sub0	sub	72	56	8	callee=__Frame_slow$m$	live=19
+field	__state	own	128	8	8
+field	__wake	own	136	8	8
+field	__io_tok	own	144	8	8
+field	__io_deadline	own	152	8	8
+field	__cancel	own	160	1	1
+field	__result	own	168	8	8
+frame	__Frame_outer_continue_closes_the_inner_window$m$	outer_continue_closes_the_inner_window	176	8	states=21	own=113	sub=56	bt=8	root=0	method=0	agrees=1
+field	v	own	0	8	8
+field	__saw_loop_budget	own	8	8	8
+field	total	own	16	8	8
+field	n	own	24	8	8
+field	__saw_iter0	own	32	24	8
+field	__ob0	own	56	8	8
+field	__anf0	own	64	8	8
+field	__sub0	sub	72	56	8	callee=__Frame_slow$m$	live=15
+field	__state	own	128	8	8
+field	__wake	own	136	8	8
+field	__io_tok	own	144	8	8
+field	__io_deadline	own	152	8	8
+field	__cancel	own	160	1	1
+field	__result	own	168	8	8
+frame	__Frame_propagates$m$	propagates	224	8	states=11	own=145	sub=72	bt=9	root=0	method=0	agrees=1
+field	v	own	0	8	8
+field	__saw_loop_budget	own	8	8	8
+field	total	own	16	8	8
+field	__saw_iter0	own	24	24	8
+field	__ob0	own	48	8	8
+field	__trycall0	own	56	24	8
+field	__anf0	own	80	8	8
+field	__sub0	sub	88	72	8	callee=__Frame_fails$m$	live=9
+field	__state	own	160	8	8
+field	__wake	own	168	8	8
+field	__io_tok	own	176	8	8
+field	__io_deadline	own	184	8	8
+field	__cancel	own	192	1	1
+field	__result	own	200	24	8
+frame	__Frame_return_from_body$m$	return_from_body	96	8	states=9	own=89	sub=0	bt=10	root=0	method=0	agrees=1
+field	v	own	0	8	8
+field	__saw_loop_budget	own	8	8	8
+field	__saw_iter0	own	16	24	8
+field	__ob0	own	40	8	8
+field	__state	own	48	8	8
+field	__wake	own	56	8	8
+field	__io_tok	own	64	8	8
+field	__io_deadline	own	72	8	8
+field	__cancel	own	80	1	1
+field	__result	own	88	8	8
+frame	__Frame_slow$m$	slow	56	8	states=2	own=49	sub=0	bt=11	root=0	method=0	agrees=1
+field	x	own	0	8	8
+field	__state	own	8	8	8
+field	__wake	own	16	8	8
+field	__io_tok	own	24	8	8
+field	__io_deadline	own	32	8	8
+field	__cancel	own	40	1	1
+field	__result	own	48	8	8
+bt	2621	strtab=629	version=1	word_bits=64
+btframe	__Frame_break_plain_driven$m$	break_plain_driven	K136_window_release_routes.saw	120	0 0 0 0 0 0 0 0 88 88>11@64 0
+btframe	__Frame_break_then_mutate$m$	break_then_mutate	K136_window_release_routes.saw	120	0 0 0 0 0 0 0 0 172 173>11@64 0
+btframe	__Frame_caught_and_continued$m$	caught_and_continued	K136_window_release_routes.saw	160	0 0 0 0 0 0 0 0 153 154>6@88 0
+btframe	__Frame_continue_driven$m$	continue_driven	K136_window_release_routes.saw	120	0 0 0 0 0 0 0 0 124 0 0 126>11@64 0
+btframe	__Frame_empty_loop$m$	empty_loop	K136_window_release_routes.saw	120	0 0 0 0 0 0 0 0 165 165>11@64 0
+btframe	__Frame_exhaustion_driven$m$	exhaustion_driven	K136_window_release_routes.saw	120	0 0 0 0 0 0 0 0 72 72>11@64 0
+btframe	__Frame_fails$m$	fails	K136_window_release_routes.saw	8	0 56
+btframe	__Frame_inner_loop_jump_closes_nothing$m$	inner_loop_jump_closes_nothing	K136_window_release_routes.saw	128	0 0 0 0 0 0 0 0 184 0 0 0 0 0 186 0 0 0 0 191>11@72 0
+btframe	__Frame_outer_continue_closes_the_inner_window$m$	outer_continue_closes_the_inner_window	K136_window_release_routes.saw	128	0 0 0 0 0 0 199 0 0 0 0 0 0 0 201 202>11@72 0 0 0 0 0
+btframe	__Frame_propagates$m$	propagates	K136_window_release_routes.saw	160	0 0 0 0 0 0 0 0 143 143>6@88 0
+btframe	__Frame_return_from_body$m$	return_from_body	K136_window_release_routes.saw	48	0 0 0 0 0 0 0 0 135
+btframe	__Frame_slow$m$	slow	K136_window_release_routes.saw	8	0 51

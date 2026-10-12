@@ -1,0 +1,31 @@
+program	two_copy_arc.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"-- sync"
+stdout	"inside 3"
+stdout	"inside 3"
+stdout	"root while live 3"
+stdout	"root after 1"
+stdout	"read 7"
+stdout	"-- driven"
+stdout	"inside 3"
+stdout	"inside 3"
+stdout	"root while live 3"
+stdout	"root after 1"
+stdout	"read 7"
+stdout	"end"
+stdout	""
+meets_expect	yes
+frame	__Frame_pair_driven$m$	pair_driven	120	8	states=2	own=113	sub=0	bt=0	root=0	method=0	agrees=1
+field	h	own	0	24	8
+field	__state	own	24	8	8
+field	__wake	own	32	8	8
+field	__io_tok	own	40	8	8
+field	__io_deadline	own	48	8	8
+field	__cancel	own	56	1	1
+field	__result	own	64	56	8
+bt	238	strtab=94	version=1	word_bits=64
+btframe	__Frame_pair_driven$m$	pair_driven	two_copy_arc.saw	24	0 56

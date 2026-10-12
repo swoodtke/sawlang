@@ -1,0 +1,33 @@
+program	conformance/K33_suspending_enum_method_embedded.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"A1"
+stdout	"B1"
+stdout	"A2 red"
+stdout	"B2 red"
+stdout	""
+meets_expect	yes
+frame	__Frame_Color_label	Color.label	64	8	states=2	own=57	sub=0	bt=0	root=0	method=1	agrees=1
+field	__recv	own	0	8	8
+field	__state	own	8	8	8
+field	__wake	own	16	8	8
+field	__io_tok	own	24	8	8
+field	__io_deadline	own	32	8	8
+field	__cancel	own	40	1	1
+field	__result	own	48	16	8
+frame	__Frame_work$m$	work	144	8	states=3	own=80	sub=64	bt=1	root=1	method=0	agrees=1
+field	tag	own	0	16	8
+field	c	own	16	8	4
+field	s	own	24	16	8
+field	__sub0	sub	40	64	8	callee=__Frame_Color_label	live=1
+field	__state	own	104	8	8
+field	__wake	own	112	8	8
+field	__io_tok	own	120	8	8
+field	__io_deadline	own	128	8	8
+field	__cellp	own	136	8	8
+bt	339	strtab=135	version=1	word_bits=64
+btframe	__Frame_Color_label	Color.label	K33_suspending_enum_method_embedded.saw	8	0 34
+btframe	__Frame_work$m$	work	K33_suspending_enum_method_embedded.saw	104	0 45>0@40 0

@@ -1,0 +1,32 @@
+program	coro_match_arm_binding_early_exit.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"1 1"
+stdout	""
+meets_expect	yes
+frame	__Frame_driven_loop$m$	driven_loop	80	8	states=12	own=73	sub=0	bt=0	root=0	method=0	agrees=1
+field	__saw_loop_budget	own	0	8	8
+field	total	own	8	8	8
+field	i	own	16	8	8
+field	n	own	24	8	8
+field	__state	own	32	8	8
+field	__wake	own	40	8	8
+field	__io_tok	own	48	8	8
+field	__io_deadline	own	56	8	8
+field	__cancel	own	64	1	1
+field	__result	own	72	8	8
+frame	__Frame_main	main	136	8	states=3	own=49	sub=80	bt=1	root=0	method=0	agrees=1
+field	__anf0	own	0	8	8
+field	__anf1	own	8	8	8
+field	__sub0	sub	16	80	8	callee=__Frame_driven_loop$m$	live=1
+field	__state	own	96	8	8
+field	__wake	own	104	8	8
+field	__io_tok	own	112	8	8
+field	__io_deadline	own	120	8	8
+field	__cancel	own	128	1	1
+bt	457	strtab=133	version=1	word_bits=64
+btframe	__Frame_driven_loop$m$	driven_loop	coro_match_arm_binding_early_exit.saw	32	0 0 0 0 0 44 45 0 0 0 0 0
+btframe	__Frame_main	main	coro_match_arm_binding_early_exit.saw	96	0 59>0@16 0

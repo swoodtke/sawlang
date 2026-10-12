@@ -1,0 +1,8 @@
+log	"error: cannot suspend in `deinit` context: `deinit` of `Resource` calls __saw_suspend (`Resource.deinit` suspends at line 14)"
+log	"  --> examples/errors/suspend_in_deinit.saw:13:5"
+log	"     |"
+log	" 13 |     func deinit(&var self) {"
+log	"     |     ^"
+log	"   hint: a `sync` context must be transitively suspension-free: remove the suspending call or hoist it out of the sync region"
+log	""
+log	"1 error(s) generated"

@@ -1,0 +1,140 @@
+program	coro_discarded_match_payload_field_drop_order.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"-- all_discarded sync"
+stdout	"NEW t1"
+stdout	"NEW t2"
+stdout	"DEINIT t2"
+stdout	"DEINIT t1"
+stdout	"arm"
+stdout	"scope closed"
+stdout	"-- all_discarded driven"
+stdout	"NEW t1"
+stdout	"NEW t2"
+stdout	"DEINIT t2"
+stdout	"DEINIT t1"
+stdout	"arm"
+stdout	"scope closed"
+stdout	"-- three_discarded sync"
+stdout	"NEW t1"
+stdout	"NEW t2"
+stdout	"NEW t3"
+stdout	"DEINIT t3"
+stdout	"DEINIT t2"
+stdout	"DEINIT t1"
+stdout	"arm"
+stdout	"scope closed"
+stdout	"-- three_discarded driven"
+stdout	"NEW t1"
+stdout	"NEW t2"
+stdout	"NEW t3"
+stdout	"DEINIT t3"
+stdout	"DEINIT t2"
+stdout	"DEINIT t1"
+stdout	"arm"
+stdout	"scope closed"
+stdout	"-- mixed_head sync"
+stdout	"NEW t1"
+stdout	"NEW t2"
+stdout	"NEW t3"
+stdout	"DEINIT t3"
+stdout	"DEINIT t2"
+stdout	"arm"
+stdout	"DEINIT t1"
+stdout	"scope closed"
+stdout	"-- mixed_tail sync"
+stdout	"NEW t1"
+stdout	"NEW t2"
+stdout	"NEW t3"
+stdout	"DEINIT t2"
+stdout	"DEINIT t1"
+stdout	"arm"
+stdout	"DEINIT t3"
+stdout	"scope closed"
+stdout	"-- destructure sync"
+stdout	"NEW t1"
+stdout	"NEW t2"
+stdout	"NEW t3"
+stdout	"DEINIT t3"
+stdout	"DEINIT t2"
+stdout	"DEINIT t1"
+stdout	"scope closed"
+stdout	"-- destructure driven"
+stdout	"NEW t1"
+stdout	"NEW t2"
+stdout	"NEW t3"
+stdout	"DEINIT t3"
+stdout	"DEINIT t2"
+stdout	"DEINIT t1"
+stdout	"scope closed"
+stdout	"-- destructure_mixed sync"
+stdout	"NEW t1"
+stdout	"NEW t2"
+stdout	"NEW t3"
+stdout	"DEINIT t3"
+stdout	"DEINIT t2"
+stdout	"bound"
+stdout	"scope closed"
+stdout	"DEINIT t1"
+stdout	"-- iflet_tuple sync"
+stdout	"NEW t1"
+stdout	"NEW t2"
+stdout	"NEW t3"
+stdout	"DEINIT t3"
+stdout	"DEINIT t2"
+stdout	"bound"
+stdout	"DEINIT t1"
+stdout	"scope closed"
+stdout	"-- named_control sync"
+stdout	"NEW t1"
+stdout	"NEW t2"
+stdout	"NEW t3"
+stdout	"arm"
+stdout	"DEINIT t3"
+stdout	"DEINIT t2"
+stdout	"DEINIT t1"
+stdout	"scope closed"
+stdout	""
+meets_expect	yes
+frame	__Frame_driven_all_discarded$m$	driven_all_discarded	184	8	states=3	own=105	sub=72	bt=0	root=0	method=0	agrees=1
+field	__anf0	own	0	24	8
+field	__head0	own	24	48	8
+field	__sub0	sub	72	72	8	callee=__Frame_mk_tag_s$m$	live=1
+field	__state	own	144	8	8
+field	__wake	own	152	8	8
+field	__io_tok	own	160	8	8
+field	__io_deadline	own	168	8	8
+field	__cancel	own	176	1	1
+frame	__Frame_driven_destructure$m$	driven_destructure	136	8	states=3	own=57	sub=72	bt=1	root=0	method=0	agrees=1
+field	__anf0	own	0	24	8
+field	__sub0	sub	24	72	8	callee=__Frame_mk_tag_s$m$	live=1
+field	__state	own	96	8	8
+field	__wake	own	104	8	8
+field	__io_tok	own	112	8	8
+field	__io_deadline	own	120	8	8
+field	__cancel	own	128	1	1
+frame	__Frame_driven_three_discarded$m$	driven_three_discarded	200	8	states=3	own=121	sub=72	bt=2	root=0	method=0	agrees=1
+field	__anf0	own	0	24	8
+field	__head0	own	24	64	8
+field	__sub0	sub	88	72	8	callee=__Frame_mk_tag_s$m$	live=1
+field	__state	own	160	8	8
+field	__wake	own	168	8	8
+field	__io_tok	own	176	8	8
+field	__io_deadline	own	184	8	8
+field	__cancel	own	192	1	1
+frame	__Frame_mk_tag_s$m$	mk_tag_s	72	8	states=2	own=65	sub=0	bt=3	root=0	method=0	agrees=1
+field	id	own	0	8	8
+field	__state	own	8	8	8
+field	__wake	own	16	8	8
+field	__io_tok	own	24	8	8
+field	__io_deadline	own	32	8	8
+field	__cancel	own	40	1	1
+field	__result	own	48	24	8
+bt	604	strtab=280	version=1	word_bits=64
+btframe	__Frame_driven_all_discarded$m$	driven_all_discarded	coro_discarded_match_payload_field_drop_order.saw	144	0 181>3@72 0
+btframe	__Frame_driven_destructure$m$	driven_destructure	coro_discarded_match_payload_field_drop_order.saw	96	0 227>3@24 0
+btframe	__Frame_driven_three_discarded$m$	driven_three_discarded	coro_discarded_match_payload_field_drop_order.saw	160	0 197>3@88 0
+btframe	__Frame_mk_tag_s$m$	mk_tag_s	coro_discarded_match_payload_field_drop_order.saw	8	0 166

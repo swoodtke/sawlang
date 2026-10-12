@@ -1,0 +1,67 @@
+program	df151c_optional_dest_copy.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"sync-arm one-7"
+stdout	"suspending-arm one-7"
+stdout	"local loc-7 loc-7"
+stdout	"field fld-7 fld-7"
+stdout	"method-field mth-7 mth-7"
+stdout	"init ini-7 ini-7"
+stdout	"ref ref-7 ref-7"
+stdout	"self-replace slf-7 slf-7"
+stdout	"chain chn-7 chn-7"
+stdout	"discard dsc-7"
+stdout	"balance-field 1 2 1"
+stdout	"deinit 1"
+stdout	"balance-init 1 3 1"
+stdout	"deinit 2"
+stdout	"balance-suspending-arm 1 4 1"
+stdout	"deinit 3"
+stdout	""
+meets_expect	yes
+frame	__Frame_balance_suspending_arm$m$	balance_suspending_arm	216	8	states=3	own=81	sub=128	bt=0	root=0	method=0	agrees=1
+field	arc	own	0	24	8
+field	alone	own	24	8	8
+field	during	own	32	8	8
+field	after	own	40	8	8
+field	__sub0	sub	48	128	8	callee=__Frame_suspending_arc_arm$m$	live=1
+field	__state	own	176	8	8
+field	__wake	own	184	8	8
+field	__io_tok	own	192	8	8
+field	__io_deadline	own	200	8	8
+field	__cancel	own	208	1	1
+frame	__Frame_main	main	328	8	states=5	own=41	sub=280	bt=1	root=0	method=0	agrees=1
+field	n	own	0	8	8
+field	__sub0	sub	8	64	8	callee=__Frame_suspending_arm$m$	live=1
+field	__sub1	sub	72	216	8	callee=__Frame_balance_suspending_arm$m$	live=3
+field	__state	own	288	8	8
+field	__wake	own	296	8	8
+field	__io_tok	own	304	8	8
+field	__io_deadline	own	312	8	8
+field	__cancel	own	320	1	1
+frame	__Frame_suspending_arc_arm$m$	suspending_arc_arm	128	8	states=5	own=121	sub=0	bt=2	root=0	method=0	agrees=1
+field	a	own	0	24	8
+field	e	own	24	32	8
+field	v	own	56	24	8
+field	__state	own	80	8	8
+field	__wake	own	88	8	8
+field	__io_tok	own	96	8	8
+field	__io_deadline	own	104	8	8
+field	__cancel	own	112	1	1
+field	__result	own	120	8	8
+frame	__Frame_suspending_arm$m$	suspending_arm	64	8	states=5	own=57	sub=0	bt=3	root=0	method=0	agrees=1
+field	n	own	0	8	8
+field	v	own	8	16	8
+field	__state	own	24	8	8
+field	__wake	own	32	8	8
+field	__io_tok	own	40	8	8
+field	__io_deadline	own	48	8	8
+field	__cancel	own	56	1	1
+bt	645	strtab=237	version=1	word_bits=64
+btframe	__Frame_balance_suspending_arm$m$	balance_suspending_arm	df151c_optional_dest_copy.saw	176	0 213>2@48 0
+btframe	__Frame_main	main	df151c_optional_dest_copy.saw	288	0 221>3@8 0 232>0@72 0
+btframe	__Frame_suspending_arc_arm$m$	suspending_arc_arm	df151c_optional_dest_copy.saw	80	0 0 0 0 203
+btframe	__Frame_suspending_arm$m$	suspending_arm	df151c_optional_dest_copy.saw	24	0 0 0 0 77

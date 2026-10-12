@@ -1,0 +1,37 @@
+program	conformance/V111_discard_let_retains_a_projection.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"-- sync"
+stdout	"identifier 2 -> 2"
+stdout	"member 3 -> 3"
+stdout	"tuple 4 -> 4"
+stdout	"array 6 -> 6"
+stdout	"trivial 41"
+stdout	"move-once 7"
+stdout	"drop 7"
+stdout	"-- driven"
+stdout	"identifier 2 -> 2"
+stdout	"member 3 -> 3"
+stdout	"tuple 4 -> 4"
+stdout	"live 4 4 4"
+stdout	"end"
+stdout	""
+meets_expect	yes
+frame	__Frame_driven_rows$m$	driven_rows	152	8	states=4	own=145	sub=0	bt=0	root=0	method=0	agrees=1
+field	base	own	0	8	8
+field	ident	own	8	24	8
+field	before_i	own	32	8	8
+field	h	own	40	24	8
+field	before_m	own	64	8	8
+field	p	own	72	32	8
+field	before_t	own	104	8	8
+field	__state	own	112	8	8
+field	__wake	own	120	8	8
+field	__io_tok	own	128	8	8
+field	__io_deadline	own	136	8	8
+field	__cancel	own	144	1	1
+bt	287	strtab=119	version=1	word_bits=64
+btframe	__Frame_driven_rows$m$	driven_rows	V111_discard_let_retains_a_projection.saw	112	0 98 106 112

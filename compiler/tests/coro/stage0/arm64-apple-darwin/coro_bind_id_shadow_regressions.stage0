@@ -1,0 +1,75 @@
+program	coro_bind_id_shadow_regressions.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"r1: 8"
+stdout	"r2: 10"
+stdout	"r3: 112"
+stdout	"r4: 8"
+stdout	"r5: 9"
+stdout	""
+meets_expect	yes
+frame	__Frame_inner$m$	inner	80	8	states=5	own=73	sub=0	bt=0	root=0	method=0	agrees=1
+field	s	own	0	24	8
+field	k	own	24	8	8
+field	__state	own	32	8	8
+field	__wake	own	40	8	8
+field	__io_tok	own	48	8	8
+field	__io_deadline	own	56	8	8
+field	__cancel	own	64	1	1
+field	__result	own	72	8	8
+frame	__Frame_outer$m$	outer	160	8	states=4	own=73	sub=80	bt=1	root=0	method=0	agrees=1
+field	s	own	0	24	8
+field	k	own	24	8	8
+field	__sub0	sub	32	80	8	callee=__Frame_inner$m$	live=1
+field	__state	own	112	8	8
+field	__wake	own	120	8	8
+field	__io_tok	own	128	8	8
+field	__io_deadline	own	136	8	8
+field	__cancel	own	144	1	1
+field	__result	own	152	8	8
+frame	__Frame_r1$m$	r1	80	8	states=4	own=73	sub=0	bt=2	root=0	method=0	agrees=1
+field	x	own	0	24	8
+field	__ob0	own	24	8	8
+field	__state	own	32	8	8
+field	__wake	own	40	8	8
+field	__io_tok	own	48	8	8
+field	__io_deadline	own	56	8	8
+field	__cancel	own	64	1	1
+field	__result	own	72	8	8
+frame	__Frame_r2$m$	r2	64	8	states=2	own=57	sub=0	bt=3	root=0	method=0	agrees=1
+field	data	own	0	8	8
+field	__saw_u0_data	own	8	8	8
+field	__state	own	16	8	8
+field	__wake	own	24	8	8
+field	__io_tok	own	32	8	8
+field	__io_deadline	own	40	8	8
+field	__cancel	own	48	1	1
+field	__result	own	56	8	8
+frame	__Frame_r4$m$	r4	72	8	states=4	own=72	sub=0	bt=4	root=1	method=0	agrees=1
+field	x	own	0	24	8
+field	__ob0	own	24	8	8
+field	__state	own	32	8	8
+field	__wake	own	40	8	8
+field	__io_tok	own	48	8	8
+field	__io_deadline	own	56	8	8
+field	__cellp	own	64	8	8
+frame	__Frame_r5$m$	r5	88	8	states=4	own=81	sub=0	bt=5	root=0	method=0	agrees=1
+field	x	own	0	24	8
+field	__ob0	own	24	8	8
+field	__saw_u1_x	own	32	8	8
+field	__state	own	40	8	8
+field	__wake	own	48	8	8
+field	__io_tok	own	56	8	8
+field	__io_deadline	own	64	8	8
+field	__cancel	own	72	1	1
+field	__result	own	80	8	8
+bt	708	strtab=192	version=1	word_bits=64
+btframe	__Frame_inner$m$	inner	coro_bind_id_shadow_regressions.saw	32	0 0 0 0 46
+btframe	__Frame_outer$m$	outer	coro_bind_id_shadow_regressions.saw	112	0 52>0@32 0 53
+btframe	__Frame_r1$m$	r1	coro_bind_id_shadow_regressions.saw	32	0 0 0 29
+btframe	__Frame_r2$m$	r2	coro_bind_id_shadow_regressions.saw	16	0 38
+btframe	__Frame_r4$m$	r4	coro_bind_id_shadow_regressions.saw	32	0 0 0 60
+btframe	__Frame_r5$m$	r5	coro_bind_id_shadow_regressions.saw	40	0 0 0 69

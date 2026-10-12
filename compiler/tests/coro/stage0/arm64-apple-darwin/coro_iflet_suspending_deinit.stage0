@@ -1,0 +1,31 @@
+program	coro_iflet_suspending_deinit.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"907"
+stdout	"7"
+stdout	"-1"
+stdout	""
+meets_expect	yes
+frame	__Frame_maybe_res$m$	maybe_res	72	8	states=2	own=65	sub=0	bt=0	root=0	method=0	agrees=1
+field	n	own	0	8	8
+field	__state	own	8	8	8
+field	__wake	own	16	8	8
+field	__io_tok	own	24	8	8
+field	__io_deadline	own	32	8	8
+field	__cancel	own	40	1	1
+field	__result	own	48	24	8
+frame	__Frame_worker$m$	worker	144	8	states=3	own=72	sub=72	bt=1	root=1	method=0	agrees=1
+field	n	own	0	8	8
+field	__hoist0	own	8	24	8
+field	__sub0	sub	32	72	8	callee=__Frame_maybe_res$m$	live=1
+field	__state	own	104	8	8
+field	__wake	own	112	8	8
+field	__io_tok	own	120	8	8
+field	__io_deadline	own	128	8	8
+field	__cellp	own	136	8	8
+bt	335	strtab=131	version=1	word_bits=64
+btframe	__Frame_maybe_res$m$	maybe_res	coro_iflet_suspending_deinit.saw	8	0 21
+btframe	__Frame_worker$m$	worker	coro_iflet_suspending_deinit.saw	104	0 29>0@32 0

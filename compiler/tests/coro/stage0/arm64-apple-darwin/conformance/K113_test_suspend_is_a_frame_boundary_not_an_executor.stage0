@@ -1,0 +1,22 @@
+program	conformance/K113_test_suspend_is_a_frame_boundary_not_an_executor.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"before"
+stdout	"driven 12"
+stdout	"after"
+stdout	""
+meets_expect	yes
+frame	__Frame_driven$m$	driven	64	8	states=2	own=57	sub=0	bt=0	root=0	method=0	agrees=1
+field	n	own	0	8	8
+field	bumped	own	8	8	8
+field	__state	own	16	8	8
+field	__wake	own	24	8	8
+field	__io_tok	own	32	8	8
+field	__io_deadline	own	40	8	8
+field	__cancel	own	48	1	1
+field	__result	own	56	8	8
+bt	269	strtab=125	version=1	word_bits=64
+btframe	__Frame_driven$m$	driven	K113_test_suspend_is_a_frame_boundary_not_an_executor.saw	16	0 33

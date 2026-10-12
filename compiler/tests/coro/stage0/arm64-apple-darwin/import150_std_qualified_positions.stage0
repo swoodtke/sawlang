@@ -1,0 +1,25 @@
+program	import150_std_qualified_positions.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"annotation true"
+stdout	"generic 2"
+stdout	"static true"
+stdout	"callhead 7"
+stdout	"nested 3"
+stdout	""
+meets_expect	yes
+frame	__Frame_main	main	200	8	states=2	own=193	sub=0	bt=0	root=0	method=0	agrees=1
+field	v	own	0	40	8
+field	started	own	40	16	8
+field	bytes	own	56	48	8
+field	maybe	own	104	56	8
+field	__state	own	160	8	8
+field	__wake	own	168	8	8
+field	__io_tok	own	176	8	8
+field	__io_deadline	own	184	8	8
+field	__cancel	own	192	1	1
+bt	242	strtab=98	version=1	word_bits=64
+btframe	__Frame_main	main	import150_std_qualified_positions.saw	160	0 40

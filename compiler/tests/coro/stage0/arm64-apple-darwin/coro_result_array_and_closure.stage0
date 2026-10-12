@@ -1,0 +1,67 @@
+program	coro_result_array_and_closure.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"24"
+stdout	"24"
+stdout	"42"
+stdout	"42"
+stdout	""
+meets_expect	yes
+frame	__Frame_call_closure$m$	call_closure	152	8	states=3	own=73	sub=72	bt=0	root=0	method=0	agrees=1
+field	f	own	0	32	8
+field	__sub0	sub	32	72	8	callee=__Frame_mk_closure$m$	live=1
+field	__state	own	104	8	8
+field	__wake	own	112	8	8
+field	__io_tok	own	120	8	8
+field	__io_deadline	own	128	8	8
+field	__cancel	own	136	1	1
+field	__result	own	144	8	8
+frame	__Frame_mk_array$m$	mk_array	72	8	states=2	own=65	sub=0	bt=1	root=0	method=0	agrees=1
+field	__state	own	0	8	8
+field	__wake	own	8	8	8
+field	__io_tok	own	16	8	8
+field	__io_deadline	own	24	8	8
+field	__cancel	own	32	1	1
+field	__result	own	40	32	8
+frame	__Frame_mk_closure$m$	mk_closure	72	8	states=2	own=65	sub=0	bt=2	root=0	method=0	agrees=1
+field	__state	own	0	8	8
+field	__wake	own	8	8	8
+field	__io_tok	own	16	8	8
+field	__io_deadline	own	24	8	8
+field	__cancel	own	32	1	1
+field	__result	own	40	32	8
+frame	__Frame_sum_array$m$	sum_array	152	8	states=3	own=73	sub=72	bt=3	root=0	method=0	agrees=1
+field	a	own	0	32	8
+field	__sub0	sub	32	72	8	callee=__Frame_mk_array$m$	live=1
+field	__state	own	104	8	8
+field	__wake	own	112	8	8
+field	__io_tok	own	120	8	8
+field	__io_deadline	own	128	8	8
+field	__cancel	own	136	1	1
+field	__result	own	144	8	8
+frame	__Frame_tail_array$m$	tail_array	144	8	states=2	own=65	sub=72	bt=4	root=0	method=0	agrees=1
+field	__sub0	sub	0	72	8	callee=__Frame_mk_array$m$	live=1
+field	__state	own	72	8	8
+field	__wake	own	80	8	8
+field	__io_tok	own	88	8	8
+field	__io_deadline	own	96	8	8
+field	__cancel	own	104	1	1
+field	__result	own	112	32	8
+frame	__Frame_tail_closure$m$	tail_closure	144	8	states=2	own=65	sub=72	bt=5	root=0	method=0	agrees=1
+field	__sub0	sub	0	72	8	callee=__Frame_mk_closure$m$	live=1
+field	__state	own	72	8	8
+field	__wake	own	80	8	8
+field	__io_tok	own	88	8	8
+field	__io_deadline	own	96	8	8
+field	__cancel	own	104	1	1
+field	__result	own	112	32	8
+bt	684	strtab=276	version=1	word_bits=64
+btframe	__Frame_call_closure$m$	call_closure	coro_result_array_and_closure.saw	104	0 56>2@32 0
+btframe	__Frame_mk_array$m$	mk_array	coro_result_array_and_closure.saw	0	0 30
+btframe	__Frame_mk_closure$m$	mk_closure	coro_result_array_and_closure.saw	0	0 47
+btframe	__Frame_sum_array$m$	sum_array	coro_result_array_and_closure.saw	104	0 42>1@32 0
+btframe	__Frame_tail_array$m$	tail_array	coro_result_array_and_closure.saw	72	0 37>1@0
+btframe	__Frame_tail_closure$m$	tail_closure	coro_result_array_and_closure.saw	72	0 52>2@0

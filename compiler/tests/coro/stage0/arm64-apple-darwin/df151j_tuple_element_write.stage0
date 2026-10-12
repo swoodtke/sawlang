@@ -1,0 +1,41 @@
+program	df151j_tuple_element_write.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"start 0"
+stdout	"whole_element_replace 1 live 0"
+stdout	"replace_frees_the_buffer 3 live 0"
+stdout	"element_field_write 42 live 0"
+stdout	"element_compound 44 live 0"
+stdout	"tuple_element_compound 8 live 0"
+stdout	"named_element_write 9 live 0"
+stdout	"nested_element_write 7 live 0"
+stdout	"string_element_replace second live 0"
+stdout	"optional_element_write 5 live 0"
+stdout	"element_of_array_of_tuples 12 live 0"
+stdout	"implicit_copy_rhs_retains 2 live 0"
+stdout	"across_suspend 40 live 0"
+stdout	"done 0"
+stdout	""
+meets_expect	yes
+frame	__Frame_across_suspend$m$	across_suspend	72	8	states=3	own=65	sub=0	bt=0	root=0	method=0	agrees=1
+field	t	own	0	24	8
+field	__state	own	24	8	8
+field	__wake	own	32	8	8
+field	__io_tok	own	40	8	8
+field	__io_deadline	own	48	8	8
+field	__cancel	own	56	1	1
+field	__result	own	64	8	8
+frame	__Frame_main	main	120	8	states=3	own=41	sub=72	bt=1	root=0	method=0	agrees=1
+field	__anf0	own	0	8	8
+field	__sub0	sub	8	72	8	callee=__Frame_across_suspend$m$	live=1
+field	__state	own	80	8	8
+field	__wake	own	88	8	8
+field	__io_tok	own	96	8	8
+field	__io_deadline	own	104	8	8
+field	__cancel	own	112	1	1
+bt	348	strtab=132	version=1	word_bits=64
+btframe	__Frame_across_suspend$m$	across_suspend	df151j_tuple_element_write.saw	24	0 166 168
+btframe	__Frame_main	main	df151j_tuple_element_write.saw	80	0 185>0@8 0

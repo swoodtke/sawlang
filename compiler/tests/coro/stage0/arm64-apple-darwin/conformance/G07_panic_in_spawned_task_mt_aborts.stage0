@@ -1,0 +1,20 @@
+program	conformance/G07_panic_in_spawned_task_mt_aborts.saw
+triple	arm64-apple-darwin
+twin	same
+expect	panic
+build	ok
+exit	-6
+stdout	"panic at G07_panic_in_spawned_task_mt_aborts.saw:14: task panicked"
+stdout	"saw tasks: 1 live (as-of panic, unsynchronized)"
+stdout	"  task group 1 slot 0 gen 1 running"
+stdout	"    at G07_panic_in_spawned_task_mt_aborts.saw:13 in work"
+stdout	""
+meets_expect	yes
+frame	__Frame_work$m$	work	40	8	states=2	own=40	sub=0	bt=0	root=1	method=0	agrees=1
+field	__state	own	0	8	8
+field	__wake	own	8	8	8
+field	__io_tok	own	16	8	8
+field	__io_deadline	own	24	8	8
+field	__cellp	own	32	8	8
+bt	247	strtab=103	version=1	word_bits=64
+btframe	__Frame_work$m$	work	G07_panic_in_spawned_task_mt_aborts.saw	0	0 13

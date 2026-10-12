@@ -1,0 +1,41 @@
+program	conformance/K22_cross_module_generic_embed_private_sibling.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"105"
+stdout	"114"
+stdout	""
+meets_expect	yes
+frame	__Frame_Cell$m$embedmod_charge$1$Lo	Cell$m$embedmod.charge$1$Lo	64	8	states=2	own=57	sub=0	bt=0	root=0	method=1	agrees=1
+field	__recv	own	0	8	8
+field	b	own	8	8	8
+field	__state	own	16	8	8
+field	__wake	own	24	8	8
+field	__io_tok	own	32	8	8
+field	__io_deadline	own	40	8	8
+field	__cancel	own	48	1	1
+field	__result	own	56	8	8
+frame	__Frame_amplify$m$embedmod$1$Lo	amplify$m$embedmod$1$Lo	72	8	states=2	own=65	sub=0	bt=1	root=0	method=0	agrees=1
+field	w	own	0	16	8
+field	b	own	16	8	8
+field	__state	own	24	8	8
+field	__wake	own	32	8	8
+field	__io_tok	own	40	8	8
+field	__io_deadline	own	48	8	8
+field	__cancel	own	56	1	1
+field	__result	own	64	8	8
+frame	__Frame_run_free$m$	run_free	128	8	states=2	own=49	sub=72	bt=2	root=0	method=0	agrees=1
+field	x	own	0	8	8
+field	__sub0	sub	8	72	8	callee=__Frame_amplify$m$embedmod$1$Lo	live=1
+field	__state	own	80	8	8
+field	__wake	own	88	8	8
+field	__io_tok	own	96	8	8
+field	__io_deadline	own	104	8	8
+field	__cancel	own	112	1	1
+field	__result	own	120	8	8
+bt	490	strtab=250	version=1	word_bits=64
+btframe	__Frame_Cell$m$embedmod_charge$1$Lo	Cell$m$embedmod.charge$1$Lo	lib.saw	16	0 60
+btframe	__Frame_amplify$m$embedmod$1$Lo	amplify$m$embedmod$1$Lo	lib.saw	24	0 50
+btframe	__Frame_run_free$m$	run_free	K22_cross_module_generic_embed_private_sibling.saw	80	0 27>1@8

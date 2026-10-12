@@ -1,0 +1,27 @@
+program	conformance/K64_close_drains_before_it_reports_closed.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"got 1"
+stdout	"got 2"
+stdout	"got 3"
+stdout	"closed"
+stdout	"drained 3"
+stdout	""
+meets_expect	yes
+frame	__Frame_drain$m$	drain	136	8	states=13	own=122	sub=0	bt=0	root=1	method=0	agrees=1
+field	ch	own	0	24	8
+field	__saw_loop_budget	own	24	8	8
+field	n	own	32	8	8
+field	going	own	40	1	1
+field	__match0	own	48	40	8
+field	__have0	own	88	1	1
+field	__state	own	96	8	8
+field	__wake	own	104	8	8
+field	__io_tok	own	112	8	8
+field	__io_deadline	own	120	8	8
+field	__cellp	own	128	8	8
+bt	387	strtab=111	version=1	word_bits=64
+btframe	__Frame_drain$m$	drain	K64_close_drains_before_it_reports_closed.saw	96	0 0 0 0 0 0 25 26 0 0 0 0 0

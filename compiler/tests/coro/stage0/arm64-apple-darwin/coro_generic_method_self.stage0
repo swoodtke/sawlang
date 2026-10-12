@@ -1,0 +1,21 @@
+program	coro_generic_method_self.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"106"
+stdout	"106"
+stdout	""
+meets_expect	yes
+frame	__Frame_Counter_absorb$1$Slow	Counter.absorb$1$Slow	72	8	states=2	own=65	sub=0	bt=0	root=0	method=1	agrees=1
+field	__recv	own	0	8	8
+field	w	own	8	16	8
+field	__state	own	24	8	8
+field	__wake	own	32	8	8
+field	__io_tok	own	40	8	8
+field	__io_deadline	own	48	8	8
+field	__cancel	own	56	1	1
+field	__result	own	64	8	8
+bt	267	strtab=123	version=1	word_bits=64
+btframe	__Frame_Counter_absorb$1$Slow	Counter.absorb$1$Slow	coro_generic_method_self.saw	24	0 20

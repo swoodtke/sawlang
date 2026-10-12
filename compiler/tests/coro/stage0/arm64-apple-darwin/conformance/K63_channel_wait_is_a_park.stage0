@@ -1,0 +1,45 @@
+program	conformance/K63_channel_wait_is_a_park.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"saw tasks: 3 live (unsynchronized snapshot)"
+stdout	"  task group 1 slot 0 gen 1 channel-parked"
+stdout	"    at K63_channel_wait_is_a_park.saw:32 in waiter"
+stdout	"  task group 1 slot 1 gen 1 channel-parked"
+stdout	"    at K63_channel_wait_is_a_park.saw:38 in idle"
+stdout	"  task group 1 slot 2 gen 1 running"
+stdout	"    at K63_channel_wait_is_a_park.saw:42 in watcher"
+stdout	"waiter 7"
+stdout	"idle 9"
+stdout	""
+meets_expect	yes
+frame	__Frame_idle$m$	idle	112	8	states=7	own=105	sub=0	bt=0	root=1	method=0	agrees=1
+field	ch	own	0	24	8
+field	__trycall0	own	24	40	8
+field	__have0	own	64	1	1
+field	__state	own	72	8	8
+field	__wake	own	80	8	8
+field	__io_tok	own	88	8	8
+field	__io_deadline	own	96	8	8
+field	__cellp	own	104	8	8
+frame	__Frame_waiter$m$	waiter	112	8	states=7	own=105	sub=0	bt=1	root=1	method=0	agrees=1
+field	ch	own	0	24	8
+field	__trycall0	own	24	40	8
+field	__have0	own	64	1	1
+field	__state	own	72	8	8
+field	__wake	own	80	8	8
+field	__io_tok	own	88	8	8
+field	__io_deadline	own	96	8	8
+field	__cellp	own	104	8	8
+frame	__Frame_watcher$m$	watcher	40	8	states=2	own=40	sub=0	bt=2	root=1	method=0	agrees=1
+field	__state	own	0	8	8
+field	__wake	own	8	8	8
+field	__io_tok	own	16	8	8
+field	__io_deadline	own	24	8	8
+field	__cellp	own	32	8	8
+bt	506	strtab=146	version=1	word_bits=64
+btframe	__Frame_idle$m$	idle	K63_channel_wait_is_a_park.saw	72	0 38 0 0 0 0 0
+btframe	__Frame_waiter$m$	waiter	K63_channel_wait_is_a_park.saw	72	0 32 0 0 0 0 0
+btframe	__Frame_watcher$m$	watcher	K63_channel_wait_is_a_park.saw	0	0 42

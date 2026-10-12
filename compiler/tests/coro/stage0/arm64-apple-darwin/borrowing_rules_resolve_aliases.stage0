@@ -1,0 +1,25 @@
+program	borrowing_rules_resolve_aliases.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"3"
+stdout	"jt 10"
+stdout	"jt driven 10"
+stdout	"pt 10"
+stdout	"poked 7"
+stdout	""
+meets_expect	yes
+frame	__Frame_alias_field_driven$m$	alias_field_driven	88	8	states=10	own=81	sub=0	bt=0	root=0	method=0	agrees=1
+field	o	own	0	8	8
+field	__saw_loop_budget	own	8	8	8
+field	__saw_iter0	own	16	24	8
+field	__ob0	own	40	8	8
+field	__state	own	48	8	8
+field	__wake	own	56	8	8
+field	__io_tok	own	64	8	8
+field	__io_deadline	own	72	8	8
+field	__cancel	own	80	1	1
+bt	367	strtab=127	version=1	word_bits=64
+btframe	__Frame_alias_field_driven$m$	alias_field_driven	borrowing_rules_resolve_aliases.saw	48	0 0 0 0 0 0 0 0 115 115

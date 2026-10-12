@@ -1,0 +1,6 @@
+program	task_backtrace_panic.saw
+triple	x86_64-unknown-linux-gnu
+twin	same
+expect	panic
+build	not-run
+layout	same-as	arm64-apple-darwin

@@ -1,0 +1,16 @@
+bool_elem	1
+group_size	432
+head_symbol	saw.static.__saw_bt_head$m$std_taskgroup
+off_active	128
+off_bt_next	416
+off_done	64
+off_gen	160
+off_remaining	96
+off_tasks	0
+off_workers	320
+task_data	8
+task_elem	24
+task_present	0
+task_vtable	16
+vec_len_off	16
+vec_ptr_off	8

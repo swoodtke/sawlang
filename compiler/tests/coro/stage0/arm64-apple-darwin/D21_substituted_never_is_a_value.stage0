@@ -1,0 +1,31 @@
+program	D21_substituted_never_is_a_value.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"text n7 2"
+stdout	"empty 0"
+stdout	"-- done"
+stdout	""
+meets_expect	yes
+frame	__Frame_read$m$	read	88	8	states=5	own=88	sub=0	bt=0	root=1	method=0	agrees=1
+field	n	own	0	8	8
+field	note	own	8	24	8
+field	v	own	32	16	8
+field	__state	own	48	8	8
+field	__wake	own	56	8	8
+field	__io_tok	own	64	8	8
+field	__io_deadline	own	72	8	8
+field	__cellp	own	80	8	8
+frame	__Frame_read_empty$m$	read_empty	80	8	states=6	own=80	sub=0	bt=1	root=1	method=0	agrees=1
+field	note	own	0	24	8
+field	v	own	24	16	8
+field	__state	own	40	8	8
+field	__wake	own	48	8	8
+field	__io_tok	own	56	8	8
+field	__io_deadline	own	64	8	8
+field	__cellp	own	72	8	8
+bt	409	strtab=133	version=1	word_bits=64
+btframe	__Frame_read$m$	read	D21_substituted_never_is_a_value.saw	48	0 0 0 0 43
+btframe	__Frame_read_empty$m$	read_empty	D21_substituted_never_is_a_value.saw	40	0 0 0 0 55 59

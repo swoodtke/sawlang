@@ -1,0 +1,40 @@
+program	coro_reassign_owning_local.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"ok 4"
+stdout	"ok 4 then more"
+stdout	"2 and 9"
+stdout	""
+meets_expect	yes
+frame	__Frame_fill$m$	fill	128	8	states=3	own=128	sub=0	bt=0	root=1	method=0	agrees=1
+field	n	own	0	8	8
+field	v	own	8	40	8
+field	fresh	own	48	40	8
+field	__state	own	88	8	8
+field	__wake	own	96	8	8
+field	__io_tok	own	104	8	8
+field	__io_deadline	own	112	8	8
+field	__cellp	own	120	8	8
+frame	__Frame_grow$m$	grow	64	8	states=3	own=64	sub=0	bt=1	root=1	method=0	agrees=1
+field	n	own	0	8	8
+field	out	own	8	16	8
+field	__state	own	24	8	8
+field	__wake	own	32	8	8
+field	__io_tok	own	40	8	8
+field	__io_deadline	own	48	8	8
+field	__cellp	own	56	8	8
+frame	__Frame_work$m$	work	64	8	states=3	own=64	sub=0	bt=2	root=1	method=0	agrees=1
+field	n	own	0	8	8
+field	out	own	8	16	8
+field	__state	own	24	8	8
+field	__wake	own	32	8	8
+field	__io_tok	own	40	8	8
+field	__io_deadline	own	48	8	8
+field	__cellp	own	56	8	8
+bt	412	strtab=136	version=1	word_bits=64
+btframe	__Frame_fill$m$	fill	coro_reassign_owning_local.saw	88	0 43 46
+btframe	__Frame_grow$m$	grow	coro_reassign_owning_local.saw	24	0 34 36
+btframe	__Frame_work$m$	work	coro_reassign_owning_local.saw	24	0 26 28

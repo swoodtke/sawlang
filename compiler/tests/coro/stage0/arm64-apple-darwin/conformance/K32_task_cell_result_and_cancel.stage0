@@ -1,0 +1,75 @@
+program	conformance/K32_task_cell_result_and_cancel.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"joined r1"
+stdout	"live 1"
+stdout	"deinit r1"
+stdout	"live 0"
+stdout	"arc count 1"
+stdout	"live 1"
+stdout	"deinit a1"
+stdout	"live 0"
+stdout	"unjoined live 1"
+stdout	"deinit r2"
+stdout	"live 0"
+stdout	"cancelled 101"
+stdout	"void task cancelled"
+stdout	""
+meets_expect	yes
+frame	__Frame_cancel_word$m$	cancel_word	64	8	states=8	own=64	sub=0	bt=0	root=1	method=0	agrees=1
+field	base	own	0	8	8
+field	__saw_loop_budget	own	8	8	8
+field	i	own	16	8	8
+field	__state	own	24	8	8
+field	__wake	own	32	8	8
+field	__io_tok	own	40	8	8
+field	__io_deadline	own	48	8	8
+field	__cellp	own	56	8	8
+frame	__Frame_cancel_word_void$m$	cancel_word_void	56	8	states=8	own=56	sub=0	bt=1	root=1	method=0	agrees=1
+field	__saw_loop_budget	own	0	8	8
+field	i	own	8	8	8
+field	__state	own	16	8	8
+field	__wake	own	24	8	8
+field	__io_tok	own	32	8	8
+field	__io_deadline	own	40	8	8
+field	__cellp	own	48	8	8
+frame	__Frame_main	main	528	8	states=3	own=33	sub=488	bt=2	root=0	method=0	agrees=1
+field	__sub0	sub	0	488	8	callee=__Frame_unjoined_result$m$	live=1
+field	__state	own	488	8	8
+field	__wake	own	496	8	8
+field	__io_tok	own	504	8	8
+field	__io_deadline	own	512	8	8
+field	__cancel	own	520	1	1
+frame	__Frame_make_arc$m$	make_arc	56	8	states=2	own=56	sub=0	bt=3	root=1	method=0	agrees=1
+field	tag	own	0	16	8
+field	__state	own	16	8	8
+field	__wake	own	24	8	8
+field	__io_tok	own	32	8	8
+field	__io_deadline	own	40	8	8
+field	__cellp	own	48	8	8
+frame	__Frame_make_one$m$	make_one	56	8	states=2	own=56	sub=0	bt=4	root=1	method=0	agrees=1
+field	tag	own	0	16	8
+field	__state	own	16	8	8
+field	__wake	own	24	8	8
+field	__io_tok	own	32	8	8
+field	__io_deadline	own	40	8	8
+field	__cellp	own	48	8	8
+frame	__Frame_unjoined_result$m$	unjoined_result	488	8	states=8	own=481	sub=0	bt=5	root=0	method=0	agrees=1
+field	__saw_loop_budget	own	0	8	8
+field	group	own	8	432	8
+field	spins	own	440	8	8
+field	__state	own	448	8	8
+field	__wake	own	456	8	8
+field	__io_tok	own	464	8	8
+field	__io_deadline	own	472	8	8
+field	__cancel	own	480	1	1
+bt	889	strtab=277	version=1	word_bits=64
+btframe	__Frame_cancel_word$m$	cancel_word	K32_task_cell_result_and_cancel.saw	24	0 0 0 0 0 0 103 107
+btframe	__Frame_cancel_word_void$m$	cancel_word_void	K32_task_cell_result_and_cancel.saw	16	0 0 0 0 0 0 117 122
+btframe	__Frame_main	main	K32_task_cell_result_and_cancel.saw	488	0 142>5@0 0
+btframe	__Frame_make_arc$m$	make_arc	K32_task_cell_result_and_cancel.saw	16	0 62
+btframe	__Frame_make_one$m$	make_one	K32_task_cell_result_and_cancel.saw	16	0 57
+btframe	__Frame_unjoined_result$m$	unjoined_result	K32_task_cell_result_and_cancel.saw	448	0 0 0 0 0 0 91 92

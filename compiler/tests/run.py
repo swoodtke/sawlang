@@ -31,7 +31,8 @@ new std; runs the borrowck lane over `borrowck/`; runs the drops lane over
 tables and refusal fixtures hold `sawc2 mono` and the target description, and
 whose layouts are compared with Stage 0's; and runs the run lane over `run/`,
 which builds each program with `sawc2 build` and with Stage 0 and compares
-the two binaries' output.
+the two binaries' output; and checks that the Stage 0 snapshot in
+`coro/stage0/` is whole and prints the coroutine census, which gates nothing.
 The inventory of Stage 0 workaround markers prints first, then each failure as
 one line in a fixed order; the summary comes last, and any failure exits 1.
 """
@@ -95,6 +96,9 @@ import mono_lane  # noqa: E402
 sys.path.insert(0, os.path.join(HERE, "run"))
 import run_lane  # noqa: E402
 
+sys.path.insert(0, os.path.join(HERE, "coro"))
+import census  # noqa: E402
+
 UNIT_OUT = os.path.join(REPO, ".build", "compiler-tests")
 LEX_FIXTURES = os.path.join(HERE, "lex")
 SUBSET_FIXTURES = os.path.join(HERE, "subset")
@@ -109,6 +113,7 @@ BORROWCK_CORPUS = os.path.join(HERE, "borrowck")
 DROPS_CORPUS = os.path.join(HERE, "drops")
 MONO_CORPUS = os.path.join(HERE, "mono")
 RUN_CORPUS = os.path.join(HERE, "run")
+CORO_CORPUS = os.path.join(HERE, "coro")
 FUNNEL_FIXTURES = os.path.join(HERE, "funnel")
 LEXER_SOURCE = os.path.join(COMPILER, "lex", "src", "lib.saw")
 RUN_TIMEOUT = 60
@@ -215,6 +220,8 @@ def check_fixture_whitespace(run):
         paths += glob.glob(os.path.join(MONO_CORPUS, "**", suffix), recursive=True)
     for suffix in ("*.saw", "*.ll", "*.md"):
         paths += glob.glob(os.path.join(RUN_CORPUS, "**", suffix), recursive=True)
+    for suffix in ("*.tsv", "*.stage0"):
+        paths += glob.glob(os.path.join(CORO_CORPUS, "**", suffix), recursive=True)
     for path in sorted(paths):
         rel = os.path.relpath(path, REPO)
         with open(path, "rb") as fh:
@@ -565,6 +572,18 @@ def run_programs(run):
         run.count(key, n)
 
 
+def run_census(run):
+    """The coroutine census (compiler/tests/coro/census.py), as information:
+    only a Stage 0 snapshot that is not whole fails, and the census's lines
+    print beside the inventory."""
+    failures, counts, lines = census.run()
+    for failure in failures:
+        run.fail(failure)
+    for key, n in counts.items():
+        run.count(key, n)
+    run.inventory += lines
+
+
 def main():
     args = sys.argv[1:]
     if args[:1] == ["--stage"] and len(args) == 2 and args[1] in ("1", "2"):
@@ -600,6 +619,7 @@ def main():
         run_drops(run)
         run_mono(run)
         run_programs(run)
+        run_census(run)
     for line in run.inventory:
         print(line)
     for failure in run.failures:

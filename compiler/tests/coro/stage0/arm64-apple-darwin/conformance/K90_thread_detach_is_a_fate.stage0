@@ -1,0 +1,24 @@
+program	conformance/K90_thread_detach_is_a_fate.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"detached"
+stdout	"chained"
+stdout	"ticket released"
+stdout	"ticket released"
+stdout	"main is finished"
+stdout	""
+meets_expect	yes
+frame	__Frame_main	main	88	8	states=8	own=81	sub=0	bt=0	root=0	method=0	agrees=1
+field	__saw_loop_budget	own	0	8	8
+field	first	own	8	32	8
+field	spins	own	40	8	8
+field	__state	own	48	8	8
+field	__wake	own	56	8	8
+field	__io_tok	own	64	8	8
+field	__io_deadline	own	72	8	8
+field	__cancel	own	80	1	1
+bt	308	strtab=92	version=1	word_bits=64
+btframe	__Frame_main	main	K90_thread_detach_is_a_fate.saw	48	0 0 0 0 0 0 96 97

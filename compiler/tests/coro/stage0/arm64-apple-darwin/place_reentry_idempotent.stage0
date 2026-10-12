@@ -1,0 +1,25 @@
+program	place_reentry_idempotent.saw
+triple	arm64-apple-darwin
+twin	differs
+expect	success
+build	ok
+exit	0
+stdout	"10"
+stdout	"21"
+stdout	"100"
+stdout	"7"
+stdout	"ok"
+stdout	"4"
+stdout	""
+meets_expect	yes
+frame	__Frame_doubled$m$$1$Cell	doubled$m$$1$Cell	72	8	states=2	own=65	sub=0	bt=0	root=0	method=0	agrees=1
+field	c	own	0	16	8
+field	n	own	16	8	8
+field	__state	own	24	8	8
+field	__wake	own	32	8	8
+field	__io_tok	own	40	8	8
+field	__io_deadline	own	48	8	8
+field	__cancel	own	56	1	1
+field	__result	own	64	8	8
+bt	259	strtab=115	version=1	word_bits=64
+btframe	__Frame_doubled$m$$1$Cell	doubled$m$$1$Cell	place_reentry_idempotent.saw	24	0 36

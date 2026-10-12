@@ -1,0 +1,8 @@
+log	"error: `harvest` moves field `a` out of `self` and also SUSPENDS — design 260 v1 does not support both in one method"
+log	"  --> examples/errors/consumes_suspending_field_move.saw:30:5"
+log	"     |"
+log	" 30 |     func harvest(&var self) consumes -> Tag {"
+log	"     |     ^"
+log	"   hint: a suspending method's receiver lives in the caller's coroutine frame, whose release is decided per slot and cannot skip a field. Extract with `self.a.take()`, or split the extraction into a `sync` consuming method"
+log	""
+log	"1 error(s) generated"

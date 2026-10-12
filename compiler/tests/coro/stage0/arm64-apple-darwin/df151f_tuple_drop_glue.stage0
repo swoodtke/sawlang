@@ -1,0 +1,49 @@
+program	df151f_tuple_drop_glue.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"start 0"
+stdout	"named_tuple 1 live 0"
+stdout	"field_named_tuple 3 live 0"
+stdout	"nested_tuple 2 live 0"
+stdout	"tuple_in_struct 3 live 0"
+stdout	"tuple_in_enum 1 live 0"
+stdout	"destructured 2 live 0"
+stdout	"matched_temp 5 live 0"
+stdout	"whole_copy 2 live 0"
+stdout	"by_value_arg 2 live 0"
+stdout	"returned 1 live 0"
+stdout	"element_read 2 live 0"
+stdout	"in_vector 2 live 0"
+stdout	"owning_array 1 live 0"
+stdout	"array_of_tuples 6 live 0"
+stdout	"optional_tuple 8 live 0"
+stdout	"overwritten 12 live 0"
+stdout	"across_suspend 13 live 0"
+stdout	"destructured_across_suspend 2 live 0"
+stdout	"done 0"
+stdout	""
+meets_expect	yes
+frame	__Frame_across_suspend$m$	across_suspend	80	8	states=2	own=80	sub=0	bt=0	root=1	method=0	agrees=1
+field	k	own	0	8	8
+field	t	own	8	32	8
+field	__state	own	40	8	8
+field	__wake	own	48	8	8
+field	__io_tok	own	56	8	8
+field	__io_deadline	own	64	8	8
+field	__cellp	own	72	8	8
+frame	__Frame_destructured_across_suspend$m$	destructured_across_suspend	112	8	states=2	own=112	sub=0	bt=1	root=1	method=0	agrees=1
+field	k	own	0	8	8
+field	t	own	8	32	8
+field	a	own	40	24	8
+field	b	own	64	8	8
+field	__state	own	72	8	8
+field	__wake	own	80	8	8
+field	__io_tok	own	88	8	8
+field	__io_deadline	own	96	8	8
+field	__cellp	own	104	8	8
+bt	369	strtab=177	version=1	word_bits=64
+btframe	__Frame_across_suspend$m$	across_suspend	df151f_tuple_drop_glue.saw	40	0 227
+btframe	__Frame_destructured_across_suspend$m$	destructured_across_suspend	df151f_tuple_drop_glue.saw	72	0 236

@@ -1,0 +1,41 @@
+program	net_io_sleep_interleave.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"5"
+stdout	"5"
+stdout	""
+meets_expect	yes
+frame	__Frame_reader$m$	reader	112	8	states=11	own=105	sub=0	bt=0	root=1	method=0	agrees=1
+field	fd	own	0	8	8
+field	__saw_loop_budget	own	8	8	8
+field	buf	own	16	16	8
+field	n	own	32	8	8
+field	going	own	40	1	1
+field	r	own	48	8	8
+field	__state	own	56	8	8
+field	__wake	own	64	8	8
+field	__io_tok	own	72	8	8
+field	__io_deadline	own	80	8	8
+field	__io_fd	own	88	8	8
+field	__io_dir	own	96	8	8
+field	__cellp	own	104	8	8
+frame	__Frame_writer$m$	writer	112	8	states=12	own=105	sub=0	bt=1	root=1	method=0	agrees=1
+field	fd	own	0	8	8
+field	__saw_loop_budget	own	8	8	8
+field	msg	own	16	16	8
+field	off	own	32	8	8
+field	going	own	40	1	1
+field	w	own	48	8	8
+field	__state	own	56	8	8
+field	__wake	own	64	8	8
+field	__io_tok	own	72	8	8
+field	__io_deadline	own	80	8	8
+field	__io_fd	own	88	8	8
+field	__io_dir	own	96	8	8
+field	__cellp	own	104	8	8
+bt	540	strtab=120	version=1	word_bits=64
+btframe	__Frame_reader$m$	reader	net_io_sleep_interleave.saw	56	0 0 0 0 0 0 17 0 0 0 20
+btframe	__Frame_writer$m$	writer	net_io_sleep_interleave.saw	56	0 31 0 0 0 0 0 40 0 0 0 43

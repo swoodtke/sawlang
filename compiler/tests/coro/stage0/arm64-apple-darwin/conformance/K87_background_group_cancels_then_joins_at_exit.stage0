@@ -1,0 +1,24 @@
+program	conformance/K87_background_group_cancels_then_joins_at_exit.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"main is finished"
+stdout	"worker 1 saw the cancel"
+stdout	"resource 1 released"
+stdout	"worker 2 saw the cancel"
+stdout	"resource 2 released"
+stdout	""
+meets_expect	yes
+frame	__Frame_serve$m$	serve	72	8	states=8	own=72	sub=0	bt=0	root=1	method=0	agrees=1
+field	id	own	0	8	8
+field	__saw_loop_budget	own	8	8	8
+field	held	own	16	16	8
+field	__state	own	32	8	8
+field	__wake	own	40	8	8
+field	__io_tok	own	48	8	8
+field	__io_deadline	own	56	8	8
+field	__cellp	own	64	8	8
+bt	333	strtab=117	version=1	word_bits=64
+btframe	__Frame_serve$m$	serve	K87_background_group_cancels_then_joins_at_exit.saw	32	0 0 0 0 0 0 39 44

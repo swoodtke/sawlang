@@ -1,0 +1,41 @@
+program	coro_module_json_encode_in_task.saw
+triple	arm64-apple-darwin
+twin	differs
+expect	success
+build	ok
+exit	0
+stdout	"public {\"a\":1}"
+stdout	"private {\"a\":1}"
+stdout	""
+meets_expect	yes
+frame	__Frame_main	main	696	8	states=13	own=683	sub=0	bt=0	root=0	method=0	agrees=1
+field	inbox	own	0	24	8
+field	outbox	own	24	24	8
+field	group	own	48	432	8
+field	task	own	480	56	8
+field	__trycall0	own	536	40	8
+field	__anf0	own	576	16	8
+field	__trycall1	own	592	40	8
+field	__anf1	own	632	16	8
+field	__have0	own	648	1	1
+field	__have1	own	649	1	1
+field	__state	own	656	8	8
+field	__wake	own	664	8	8
+field	__io_tok	own	672	8	8
+field	__io_deadline	own	680	8	8
+field	__cancel	own	688	1	1
+frame	__Frame_worker$m$	worker	208	8	states=7	own=201	sub=0	bt=1	root=1	method=0	agrees=1
+field	inbox	own	0	24	8
+field	outbox	own	24	24	8
+field	__trycall0	own	48	40	8
+field	n	own	88	8	8
+field	doc	own	96	64	8
+field	__have0	own	160	1	1
+field	__state	own	168	8	8
+field	__wake	own	176	8	8
+field	__io_tok	own	184	8	8
+field	__io_deadline	own	192	8	8
+field	__cellp	own	200	8	8
+bt	505	strtab=121	version=1	word_bits=64
+btframe	__Frame_main	main	coro_module_json_encode_in_task.saw	656	0 38 0 0 0 0 0 39 0 0 0 0 0
+btframe	__Frame_worker$m$	worker	coro_module_json_encode_in_task.saw	168	0 25 0 0 0 0 0

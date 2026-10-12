@@ -1,0 +1,33 @@
+program	coro_for_inclusive_range_int_max.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"inclusive 3 3"
+stdout	"exclusive 2 2"
+stdout	""
+meets_expect	yes
+frame	__Frame_exclusive_driven$m$	exclusive_driven	72	8	states=9	own=72	sub=0	bt=0	root=1	method=0	agrees=1
+field	__saw_loop_budget	own	0	8	8
+field	n	own	8	8	8
+field	i	own	16	8	8
+field	__end_i	own	24	8	8
+field	__state	own	32	8	8
+field	__wake	own	40	8	8
+field	__io_tok	own	48	8	8
+field	__io_deadline	own	56	8	8
+field	__cellp	own	64	8	8
+frame	__Frame_inclusive_driven$m$	inclusive_driven	72	8	states=10	own=72	sub=0	bt=1	root=1	method=0	agrees=1
+field	__saw_loop_budget	own	0	8	8
+field	n	own	8	8	8
+field	i	own	16	8	8
+field	__end_i	own	24	8	8
+field	__state	own	32	8	8
+field	__wake	own	40	8	8
+field	__io_tok	own	48	8	8
+field	__io_deadline	own	56	8	8
+field	__cellp	own	64	8	8
+bt	541	strtab=169	version=1	word_bits=64
+btframe	__Frame_exclusive_driven$m$	exclusive_driven	coro_for_inclusive_range_int_max.saw	32	0 0 0 0 0 0 0 40 42
+btframe	__Frame_inclusive_driven$m$	inclusive_driven	coro_for_inclusive_range_int_max.saw	32	0 0 0 0 0 0 0 23 25 0

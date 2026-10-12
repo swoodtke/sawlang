@@ -1,0 +1,28 @@
+program	erased_error_across_suspension.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"err MyErr(7)"
+stdout	""
+meets_expect	yes
+frame	__Frame_fail$m$	fail	80	8	states=2	own=73	sub=0	bt=0	root=0	method=0	agrees=1
+field	n	own	0	8	8
+field	__state	own	8	8	8
+field	__wake	own	16	8	8
+field	__io_tok	own	24	8	8
+field	__io_deadline	own	32	8	8
+field	__cancel	own	40	1	1
+field	__result	own	48	32	8
+frame	__Frame_main	main	152	8	states=3	own=65	sub=80	bt=1	root=0	method=0	agrees=1
+field	__match0	own	0	32	8
+field	__sub0	sub	32	80	8	callee=__Frame_fail$m$	live=1
+field	__state	own	112	8	8
+field	__wake	own	120	8	8
+field	__io_tok	own	128	8	8
+field	__io_deadline	own	136	8	8
+field	__cancel	own	144	1	1
+bt	320	strtab=116	version=1	word_bits=64
+btframe	__Frame_fail$m$	fail	erased_error_across_suspension.saw	8	0 31
+btframe	__Frame_main	main	erased_error_across_suspension.saw	112	0 36>0@32 0

@@ -1,0 +1,49 @@
+program	coro_ref_param_compound_assign.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"3"
+stdout	"3.5"
+stdout	"6"
+stdout	""
+meets_expect	yes
+frame	__Frame_bump$m$	bump	48	8	states=2	own=41	sub=0	bt=0	root=0	method=0	agrees=1
+field	n	own	0	8	8
+field	__state	own	8	8	8
+field	__wake	own	16	8	8
+field	__io_tok	own	24	8	8
+field	__io_deadline	own	32	8	8
+field	__cancel	own	40	1	1
+frame	__Frame_bump_field$m$	bump_field	48	8	states=2	own=41	sub=0	bt=1	root=0	method=0	agrees=1
+field	h	own	0	8	8
+field	__state	own	8	8	8
+field	__wake	own	16	8	8
+field	__io_tok	own	24	8	8
+field	__io_deadline	own	32	8	8
+field	__cancel	own	40	1	1
+frame	__Frame_main	main	224	8	states=7	own=73	sub=144	bt=2	root=0	method=0	agrees=1
+field	n	own	0	8	8
+field	f	own	8	16	8
+field	h	own	24	16	8
+field	__sub0	sub	40	48	8	callee=__Frame_bump$m$	live=1
+field	__sub1	sub	88	48	8	callee=__Frame_scale$m$	live=3
+field	__sub2	sub	136	48	8	callee=__Frame_bump_field$m$	live=5
+field	__state	own	184	8	8
+field	__wake	own	192	8	8
+field	__io_tok	own	200	8	8
+field	__io_deadline	own	208	8	8
+field	__cancel	own	216	1	1
+frame	__Frame_scale$m$	scale	48	8	states=2	own=41	sub=0	bt=3	root=0	method=0	agrees=1
+field	f	own	0	8	8
+field	__state	own	8	8	8
+field	__wake	own	16	8	8
+field	__io_tok	own	24	8	8
+field	__io_deadline	own	32	8	8
+field	__cancel	own	40	1	1
+bt	520	strtab=172	version=1	word_bits=64
+btframe	__Frame_bump$m$	bump	coro_ref_param_compound_assign.saw	8	0 22
+btframe	__Frame_bump_field$m$	bump_field	coro_ref_param_compound_assign.saw	8	0 40
+btframe	__Frame_main	main	coro_ref_param_compound_assign.saw	184	0 46>0@40 0 50>3@88 0 54>1@136 0
+btframe	__Frame_scale$m$	scale	coro_ref_param_compound_assign.saw	8	0 31

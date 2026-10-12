@@ -1,0 +1,42 @@
+program	coro_frame_byte_local_across_suspend.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"104"
+stdout	"66"
+stdout	"104"
+stdout	""
+meets_expect	yes
+frame	__Frame_first_byte$m$modules_sl208_0calls	first_byte	72	8	states=2	own=59	sub=0	bt=0	root=0	method=0	agrees=1
+field	s	own	0	16	8
+field	b	own	16	2	1
+field	__state	own	24	8	8
+field	__wake	own	32	8	8
+field	__io_tok	own	40	8	8
+field	__io_deadline	own	48	8	8
+field	__cancel	own	56	1	1
+field	__result	own	64	8	8
+frame	__Frame_first_byte_cross$m$	first_byte_cross	136	8	states=2	own=57	sub=72	bt=1	root=0	method=0	agrees=1
+field	s	own	0	16	8
+field	__sub0	sub	16	72	8	callee=__Frame_first_byte$m$modules_sl208_0calls	live=1
+field	__state	own	88	8	8
+field	__wake	own	96	8	8
+field	__io_tok	own	104	8	8
+field	__io_deadline	own	112	8	8
+field	__cancel	own	120	1	1
+field	__result	own	128	8	8
+frame	__Frame_first_byte_local$m$	first_byte_local	72	8	states=2	own=59	sub=0	bt=2	root=0	method=0	agrees=1
+field	s	own	0	16	8
+field	b	own	16	2	1
+field	__state	own	24	8	8
+field	__wake	own	32	8	8
+field	__io_tok	own	40	8	8
+field	__io_deadline	own	48	8	8
+field	__cancel	own	56	1	1
+field	__result	own	64	8	8
+bt	482	strtab=242	version=1	word_bits=64
+btframe	__Frame_first_byte$m$modules_sl208_0calls	first_byte	sl208_calls.saw	24	0 29
+btframe	__Frame_first_byte_cross$m$	first_byte_cross	coro_frame_byte_local_across_suspend.saw	88	0 29>0@16
+btframe	__Frame_first_byte_local$m$	first_byte_local	coro_frame_byte_local_across_suspend.saw	24	0 22

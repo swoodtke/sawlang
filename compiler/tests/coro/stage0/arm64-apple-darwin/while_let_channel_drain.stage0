@@ -1,0 +1,35 @@
+program	while_let_channel_drain.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"3"
+stdout	"6"
+stdout	""
+meets_expect	yes
+frame	__Frame_consumer$m$	consumer	128	8	states=18	own=128	sub=0	bt=0	root=1	method=0	agrees=1
+field	ch	own	0	24	8
+field	__saw_loop_budget	own	24	8	8
+field	sum	own	32	8	8
+field	got	own	40	8	8
+field	drained	own	48	8	8
+field	__head0	own	56	24	8
+field	__ob0	own	80	8	8
+field	__state	own	88	8	8
+field	__wake	own	96	8	8
+field	__io_tok	own	104	8	8
+field	__io_deadline	own	112	8	8
+field	__cellp	own	120	8	8
+frame	__Frame_producer$m$	producer	80	8	states=8	own=80	sub=0	bt=1	root=1	method=0	agrees=1
+field	ch	own	0	24	8
+field	__saw_loop_budget	own	24	8	8
+field	i	own	32	8	8
+field	__state	own	40	8	8
+field	__wake	own	48	8	8
+field	__io_tok	own	56	8	8
+field	__io_deadline	own	64	8	8
+field	__cellp	own	72	8	8
+bt	584	strtab=128	version=1	word_bits=64
+btframe	__Frame_consumer$m$	consumer	while_let_channel_drain.saw	88	0 0 0 0 0 0 46 0 0 0 0 48 0 0 0 0 0 54
+btframe	__Frame_producer$m$	producer	while_let_channel_drain.saw	40	0 0 0 0 0 0 35 37

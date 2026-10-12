@@ -1,0 +1,46 @@
+program	coro_frame_local_released_at_scope_end.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"iter a0"
+stdout	"DEINIT a0"
+stdout	"iter a1"
+stdout	"DEINIT a1"
+stdout	"after loop"
+stdout	"DEINIT s1"
+stdout	"now s1-2"
+stdout	"DEINIT s1-2"
+stdout	"done"
+stdout	""
+meets_expect	yes
+frame	__Frame_driven_loop$m$	driven_loop	72	8	states=8	own=65	sub=0	bt=0	root=0	method=0	agrees=1
+field	__saw_loop_budget	own	0	8	8
+field	i	own	8	8	8
+field	a	own	16	16	8
+field	__state	own	32	8	8
+field	__wake	own	40	8	8
+field	__io_tok	own	48	8	8
+field	__io_deadline	own	56	8	8
+field	__cancel	own	64	1	1
+frame	__Frame_driven_shadow_rebind$m$	driven_shadow_rebind	72	8	states=2	own=65	sub=0	bt=1	root=0	method=0	agrees=1
+field	s	own	0	16	8
+field	__saw_u0_s	own	16	16	8
+field	__state	own	32	8	8
+field	__wake	own	40	8	8
+field	__io_tok	own	48	8	8
+field	__io_deadline	own	56	8	8
+field	__cancel	own	64	1	1
+frame	__Frame_main	main	184	8	states=5	own=33	sub=144	bt=2	root=0	method=0	agrees=1
+field	__sub0	sub	0	72	8	callee=__Frame_driven_loop$m$	live=1
+field	__sub1	sub	72	72	8	callee=__Frame_driven_shadow_rebind$m$	live=3
+field	__state	own	144	8	8
+field	__wake	own	152	8	8
+field	__io_tok	own	160	8	8
+field	__io_deadline	own	168	8	8
+field	__cancel	own	176	1	1
+bt	539	strtab=191	version=1	word_bits=64
+btframe	__Frame_driven_loop$m$	driven_loop	coro_frame_local_released_at_scope_end.saw	32	0 0 0 0 0 0 41 42
+btframe	__Frame_driven_shadow_rebind$m$	driven_shadow_rebind	coro_frame_local_released_at_scope_end.saw	32	0 51
+btframe	__Frame_main	main	coro_frame_local_released_at_scope_end.saw	144	0 58>0@0 0 59>1@72 0

@@ -1,0 +1,47 @@
+program	coro_bind_id_scopes_stress.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"stress: 109"
+stdout	"pre: 1"
+stdout	"caught: boom"
+stdout	"catches: 1005"
+stdout	"sync stress: 109"
+stdout	""
+meets_expect	yes
+frame	__Frame_catches$m$	catches	64	8	states=2	own=57	sub=0	bt=0	root=0	method=0	agrees=1
+field	__saw_u0_error	own	0	8	8
+field	got	own	8	8	8
+field	__state	own	16	8	8
+field	__wake	own	24	8	8
+field	__io_tok	own	32	8	8
+field	__io_deadline	own	40	8	8
+field	__cancel	own	48	1	1
+field	__result	own	56	8	8
+frame	__Frame_slow$m$	slow	56	8	states=2	own=49	sub=0	bt=1	root=0	method=0	agrees=1
+field	n	own	0	8	8
+field	__state	own	8	8	8
+field	__wake	own	16	8	8
+field	__io_tok	own	24	8	8
+field	__io_deadline	own	32	8	8
+field	__cancel	own	40	1	1
+field	__result	own	48	8	8
+frame	__Frame_stress$m$	stress	144	8	states=9	own=81	sub=56	bt=2	root=0	method=0	agrees=1
+field	__saw_loop_budget	own	0	8	8
+field	total	own	8	8	8
+field	i	own	16	8	8
+field	v	own	24	8	8
+field	__saw_u0_v	own	32	8	8
+field	__sub0	sub	40	56	8	callee=__Frame_slow$m$	live=7
+field	__state	own	96	8	8
+field	__wake	own	104	8	8
+field	__io_tok	own	112	8	8
+field	__io_deadline	own	120	8	8
+field	__cancel	own	128	1	1
+field	__result	own	136	8	8
+bt	470	strtab=146	version=1	word_bits=64
+btframe	__Frame_catches$m$	catches	coro_bind_id_scopes_stress.saw	16	0 64
+btframe	__Frame_slow$m$	slow	coro_bind_id_scopes_stress.saw	8	0 30
+btframe	__Frame_stress$m$	stress	coro_bind_id_scopes_stress.saw	96	0 0 0 0 0 0 44 53>1@40 0

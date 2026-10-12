@@ -1,0 +1,32 @@
+program	closure_leaves_enclosing_void_local_visible.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"hi"
+stdout	"6"
+stdout	"two"
+stdout	"8"
+stdout	"between"
+stdout	"33"
+stdout	"method"
+stdout	"14"
+stdout	"drive"
+stdout	"driven: 5"
+stdout	"5"
+stdout	""
+meets_expect	yes
+frame	__Frame_driven$m$$1$Void	driven$m$$1$Void	128	8	states=2	own=109	sub=0	bt=0	root=0	method=0	agrees=1
+field	make	own	0	32	8
+field	r	own	32	2	1
+field	scale	own	40	32	8
+field	echo	own	72	2	1
+field	__state	own	80	8	8
+field	__wake	own	88	8	8
+field	__io_tok	own	96	8	8
+field	__io_deadline	own	104	8	8
+field	__cancel	own	112	1	1
+field	__result	own	120	8	8
+bt	276	strtab=132	version=1	word_bits=64
+btframe	__Frame_driven$m$$1$Void	driven$m$$1$Void	closure_leaves_enclosing_void_local_visible.saw	80	0 68

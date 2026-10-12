@@ -1,0 +1,35 @@
+program	two_escaping_copies.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"-- sync"
+stdout	"copy 20 -> 21"
+stdout	"copy 20 -> 21"
+stdout	"drop 21"
+stdout	"drop 21"
+stdout	"drop 20"
+stdout	"= 42"
+stdout	"-- driven"
+stdout	"copy 20 -> 21"
+stdout	"copy 20 -> 21"
+stdout	"drop 21"
+stdout	"drop 21"
+stdout	"drop 20"
+stdout	"= 42"
+stdout	"end"
+stdout	""
+meets_expect	yes
+frame	__Frame_pair_driven$m$	pair_driven	128	8	states=2	own=121	sub=0	bt=0	root=0	method=0	agrees=1
+field	d	own	0	16	8
+field	f	own	16	32	8
+field	g	own	48	32	8
+field	__state	own	80	8	8
+field	__wake	own	88	8	8
+field	__io_tok	own	96	8	8
+field	__io_deadline	own	104	8	8
+field	__cancel	own	112	1	1
+field	__result	own	120	8	8
+bt	245	strtab=101	version=1	word_bits=64
+btframe	__Frame_pair_driven$m$	pair_driven	two_escaping_copies.saw	80	0 49

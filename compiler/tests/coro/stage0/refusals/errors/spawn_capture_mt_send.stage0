@@ -1,0 +1,7 @@
+log	"error: cannot spawn `run` into a multi-threaded `TaskGroup(threads: ...)`: parameter `f` of type `() -> Int` is not `Send`, so the task frame cannot cross to a worker thread. Share thread-safe state via `Arc` (and `Mutex` for mutation) or a `Channel` instead of moving it in."
+log	"  --> examples/errors/spawn_capture_mt_send.saw:19:1"
+log	"     |"
+log	" 19 | func run(f: () -> Int) -> Int {"
+log	"     | ^"
+log	""
+log	"1 error(s) generated"

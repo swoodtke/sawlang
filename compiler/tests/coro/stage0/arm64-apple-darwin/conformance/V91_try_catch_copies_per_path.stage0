@@ -1,0 +1,58 @@
+program	conformance/V91_try_catch_copies_per_path.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"-- ok/alias/alias"
+stdout	"copy 1"
+stdout	"= 1"
+stdout	"-- ok/alias/fresh"
+stdout	"copy 2"
+stdout	"= 2"
+stdout	"-- ok/fresh/alias"
+stdout	"= 3"
+stdout	"-- ok/fresh/fresh"
+stdout	"= 4"
+stdout	"-- err/alias/alias"
+stdout	"copy 95"
+stdout	"= 95"
+stdout	"-- err/alias/fresh"
+stdout	"= 96"
+stdout	"-- err/fresh/alias"
+stdout	"copy 97"
+stdout	"= 97"
+stdout	"-- err/fresh/fresh"
+stdout	"= 98"
+stdout	"-- driven err/alias/alias"
+stdout	"copy 5"
+stdout	"= 5"
+stdout	"-- driven ok/alias/alias"
+stdout	"copy 6"
+stdout	"= 6"
+stdout	"end"
+stdout	""
+meets_expect	yes
+frame	__Frame_driven_err$m$	driven_err	104	8	states=2	own=104	sub=0	bt=0	root=1	method=0	agrees=1
+field	n	own	0	8	8
+field	r	own	8	24	8
+field	fallback	own	32	16	8
+field	got	own	48	16	8
+field	__state	own	64	8	8
+field	__wake	own	72	8	8
+field	__io_tok	own	80	8	8
+field	__io_deadline	own	88	8	8
+field	__cellp	own	96	8	8
+frame	__Frame_driven_ok$m$	driven_ok	104	8	states=2	own=104	sub=0	bt=1	root=1	method=0	agrees=1
+field	n	own	0	8	8
+field	r	own	8	24	8
+field	fallback	own	32	16	8
+field	got	own	48	16	8
+field	__state	own	64	8	8
+field	__wake	own	72	8	8
+field	__io_tok	own	80	8	8
+field	__io_deadline	own	88	8	8
+field	__cellp	own	96	8	8
+bt	332	strtab=140	version=1	word_bits=64
+btframe	__Frame_driven_err$m$	driven_err	V91_try_catch_copies_per_path.saw	64	0 154
+btframe	__Frame_driven_ok$m$	driven_ok	V91_try_catch_copies_per_path.saw	64	0 162

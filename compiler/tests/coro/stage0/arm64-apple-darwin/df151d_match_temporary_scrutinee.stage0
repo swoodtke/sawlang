@@ -1,0 +1,32 @@
+program	df151d_match_temporary_scrutinee.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"start 0"
+stdout	"bind_nothing 1 live 0"
+stdout	"wildcard 9 live 0"
+stdout	"wildcard_other 8 live 0"
+stdout	"named 1 live 0"
+stdout	"returns_out 4 live 0"
+stdout	"guarded 6 live 0"
+stdout	"retained 1 live 0"
+stdout	"consumed 1 live 0"
+stdout	"escaped_guard 1 live 0"
+stdout	"broke 7 live 0"
+stdout	"nested 2 live 0"
+stdout	"suspending 1 live 0"
+stdout	"done 0"
+stdout	""
+meets_expect	yes
+frame	__Frame_suspending$m$	suspending	56	8	states=3	own=56	sub=0	bt=0	root=1	method=0	agrees=1
+field	tag	own	0	8	8
+field	v	own	8	8	8
+field	__state	own	16	8	8
+field	__wake	own	24	8	8
+field	__io_tok	own	32	8	8
+field	__io_deadline	own	40	8	8
+field	__cellp	own	48	8	8
+bt	268	strtab=112	version=1	word_bits=64
+btframe	__Frame_suspending$m$	suspending	df151d_match_temporary_scrutinee.saw	16	0 199 204

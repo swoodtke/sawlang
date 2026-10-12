@@ -1,0 +1,8 @@
+log	"error: cannot suspend in `sync func` declaration: `sync func caller_slow` calls `run$1$Slow` → `Slow.step` → __saw_suspend (`Slow.step` suspends at line 17)"
+log	"  --> examples/errors/sync_generic_instantiation_suspends.saw:38:1"
+log	"     |"
+log	" 38 | func caller_slow() sync -> Int {"
+log	"     | ^"
+log	"   hint: a `sync` context must be transitively suspension-free: remove the suspending call or hoist it out of the sync region"
+log	""
+log	"1 error(s) generated"

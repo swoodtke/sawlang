@@ -1,0 +1,42 @@
+program	coro_nested_suspend_two_deep.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"6"
+stdout	"13"
+stdout	""
+meets_expect	yes
+frame	__Frame_inner$m$	inner	64	8	states=2	own=57	sub=0	bt=0	root=0	method=0	agrees=1
+field	a	own	0	8	8
+field	x	own	8	8	8
+field	__state	own	16	8	8
+field	__wake	own	24	8	8
+field	__io_tok	own	32	8	8
+field	__io_deadline	own	40	8	8
+field	__cancel	own	48	1	1
+field	__result	own	56	8	8
+frame	__Frame_mid$m$	mid	128	8	states=4	own=57	sub=64	bt=1	root=0	method=0	agrees=1
+field	b	own	0	8	8
+field	y	own	8	8	8
+field	__sub0	sub	16	64	8	callee=__Frame_inner$m$	live=1
+field	__state	own	80	8	8
+field	__wake	own	88	8	8
+field	__io_tok	own	96	8	8
+field	__io_deadline	own	104	8	8
+field	__cancel	own	112	1	1
+field	__result	own	120	8	8
+frame	__Frame_outer$m$	outer	184	8	states=4	own=49	sub=128	bt=2	root=0	method=0	agrees=1
+field	z	own	0	8	8
+field	__sub0	sub	8	128	8	callee=__Frame_mid$m$	live=1
+field	__state	own	136	8	8
+field	__wake	own	144	8	8
+field	__io_tok	own	152	8	8
+field	__io_deadline	own	160	8	8
+field	__cancel	own	168	1	1
+field	__result	own	176	8	8
+bt	428	strtab=140	version=1	word_bits=64
+btframe	__Frame_inner$m$	inner	coro_nested_suspend_two_deep.saw	16	0 13
+btframe	__Frame_mid$m$	mid	coro_nested_suspend_two_deep.saw	80	0 18>0@16 0 19
+btframe	__Frame_outer$m$	outer	coro_nested_suspend_two_deep.saw	136	0 24>1@8 0 25

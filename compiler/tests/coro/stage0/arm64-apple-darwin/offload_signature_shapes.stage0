@@ -1,0 +1,27 @@
+program	offload_signature_shapes.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"usleep -> 0"
+stdout	"ppid positive: true"
+stdout	"srand: returned"
+stdout	"pow(2, 10) == 1024: true"
+stdout	""
+meets_expect	yes
+frame	__Frame_shapes$m$	shapes	96	8	states=17	own=96	sub=0	bt=0	root=1	method=0	agrees=1
+field	slept	own	0	4	4
+field	ppid	own	4	4	4
+field	p	own	8	16	8
+field	__blkjob0	own	24	8	8
+field	__blkjob1	own	32	8	8
+field	__blkjob2	own	40	8	8
+field	__blkjob3	own	48	8	8
+field	__state	own	56	8	8
+field	__wake	own	64	8	8
+field	__io_tok	own	72	8	8
+field	__io_deadline	own	80	8	8
+field	__cellp	own	88	8	8
+bt	420	strtab=96	version=1	word_bits=64
+btframe	__Frame_shapes$m$	shapes	offload_signature_shapes.saw	56	0 26 0 0 0 29 0 0 0 32 0 0 0 35 0 0 0

@@ -1,0 +1,8 @@
+log	"error: ambiguous call to `dump_tasks`: multiple overloads match the argument types ()"
+log	"  --> examples/d249_own_declaration_beside_bare_std_import_error.saw:17:5"
+log	"     |"
+log	" 17 |     dump_tasks()"
+log	"     |     ^"
+log	"   hint: matching candidates: dump_tasks() [<std>.task]; dump_tasks() [this module]"
+log	""
+log	"1 error(s) generated"

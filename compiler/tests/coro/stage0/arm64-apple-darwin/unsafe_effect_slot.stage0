@@ -1,0 +1,42 @@
+program	unsafe_effect_slot.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"2"
+stdout	"10"
+stdout	"8"
+stdout	"5"
+stdout	""
+meets_expect	yes
+frame	__Frame_drain$m$	drain	72	8	states=2	own=65	sub=0	bt=0	root=0	method=0	agrees=1
+field	offset	own	0	8	8
+field	reg	own	8	16	8
+field	__state	own	24	8	8
+field	__wake	own	32	8	8
+field	__io_tok	own	40	8	8
+field	__io_deadline	own	48	8	8
+field	__cancel	own	56	1	1
+field	__result	own	64	8	8
+frame	__Frame_drain_register$m$	drain_register	128	8	states=2	own=49	sub=72	bt=1	root=0	method=0	agrees=1
+field	index	own	0	8	8
+field	__sub0	sub	8	72	8	callee=__Frame_drain$m$	live=1
+field	__state	own	80	8	8
+field	__wake	own	88	8	8
+field	__io_tok	own	96	8	8
+field	__io_deadline	own	104	8	8
+field	__cancel	own	112	1	1
+field	__result	own	120	8	8
+frame	__Frame_main	main	176	8	states=3	own=41	sub=128	bt=2	root=0	method=0	agrees=1
+field	__anf0	own	0	8	8
+field	__sub0	sub	8	128	8	callee=__Frame_drain_register$m$	live=1
+field	__state	own	136	8	8
+field	__wake	own	144	8	8
+field	__io_tok	own	152	8	8
+field	__io_deadline	own	160	8	8
+field	__cancel	own	168	1	1
+bt	399	strtab=147	version=1	word_bits=64
+btframe	__Frame_drain$m$	drain	unsafe_effect_slot.saw	24	0 47
+btframe	__Frame_drain_register$m$	drain_register	unsafe_effect_slot.saw	80	0 64>0@8
+btframe	__Frame_main	main	unsafe_effect_slot.saw	136	0 76>1@8 0

@@ -1,0 +1,8 @@
+log	"error: cannot suspend in `sync func` declaration: `sync func handler` calls `f` → `g` → __saw_test_suspend (`g` suspends at line 17)"
+log	"  --> examples/errors/sync_transitive_path.saw:8:1"
+log	"    |"
+log	" 8 | func handler() sync {"
+log	"    | ^"
+log	"   hint: a `sync` context must be transitively suspension-free: remove the suspending call or hoist it out of the sync region"
+log	""
+log	"1 error(s) generated"

@@ -1,0 +1,6 @@
+program	result_optional_none_survives_the_transform.saw
+triple	x86_64-unknown-linux-gnu
+twin	same
+expect	success
+build	not-run
+layout	same-as	arm64-apple-darwin

@@ -1,0 +1,54 @@
+program	erased_error_spawned_container_result.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"ok 4"
+stdout	"err MyErr(-4)"
+stdout	"downcast -7"
+stdout	""
+meets_expect	yes
+frame	__Frame_code_of$m$	code_of	240	8	states=3	own=97	sub=136	bt=0	root=0	method=0	agrees=1
+field	n	own	0	8	8
+field	__match0	own	8	48	8
+field	__sub0	sub	56	136	8	callee=__Frame_gather$m$	live=1
+field	__state	own	192	8	8
+field	__wake	own	200	8	8
+field	__io_tok	own	208	8	8
+field	__io_deadline	own	216	8	8
+field	__cancel	own	224	1	1
+field	__result	own	232	8	8
+frame	__Frame_gather$m$	gather	136	8	states=2	own=129	sub=0	bt=1	root=0	method=0	agrees=1
+field	n	own	0	8	8
+field	v	own	8	40	8
+field	__state	own	48	8	8
+field	__wake	own	56	8	8
+field	__io_tok	own	64	8	8
+field	__io_deadline	own	72	8	8
+field	__cancel	own	80	1	1
+field	__result	own	88	48	8
+frame	__Frame_gather$m$$spawnroot	gather$m$$spawnroot	184	8	states=2	own=48	sub=136	bt=2	root=1	method=0	agrees=1
+field	n	own	0	8	8
+field	__sub0	sub	8	136	8	callee=__Frame_gather$m$	live=1
+field	__state	own	144	8	8
+field	__wake	own	152	8	8
+field	__io_tok	own	160	8	8
+field	__io_deadline	own	168	8	8
+field	__cellp	own	176	8	8
+frame	__Frame_main	main	848	8	states=3	own=601	sub=240	bt=3	root=0	method=0	agrees=1
+field	group	own	0	432	8
+field	a	own	432	64	8
+field	b	own	496	64	8
+field	__anf0	own	560	8	8
+field	__sub0	sub	568	240	8	callee=__Frame_code_of$m$	live=1
+field	__state	own	808	8	8
+field	__wake	own	816	8	8
+field	__io_tok	own	824	8	8
+field	__io_deadline	own	832	8	8
+field	__cancel	own	840	1	1
+bt	514	strtab=202	version=1	word_bits=64
+btframe	__Frame_code_of$m$	code_of	erased_error_spawned_container_result.saw	192	0 40>1@56 0
+btframe	__Frame_gather$m$	gather	erased_error_spawned_container_result.saw	48	0 32
+btframe	__Frame_gather$m$$spawnroot	gather$m$$spawnroot	erased_error_spawned_container_result.saw	144	0 31>1@8
+btframe	__Frame_main	main	erased_error_spawned_container_result.saw	808	0 63>0@568 0

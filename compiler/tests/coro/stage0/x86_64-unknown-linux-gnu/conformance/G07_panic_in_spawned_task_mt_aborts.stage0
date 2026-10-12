@@ -1,0 +1,6 @@
+program	conformance/G07_panic_in_spawned_task_mt_aborts.saw
+triple	x86_64-unknown-linux-gnu
+twin	same
+expect	panic
+build	not-run
+layout	same-as	arm64-apple-darwin

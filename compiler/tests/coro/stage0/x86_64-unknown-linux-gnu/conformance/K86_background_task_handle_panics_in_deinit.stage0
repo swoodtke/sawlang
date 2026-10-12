@@ -1,0 +1,6 @@
+program	conformance/K86_background_task_handle_panics_in_deinit.saw
+triple	x86_64-unknown-linux-gnu
+twin	same
+expect	panic
+build	not-run
+layout	same-as	arm64-apple-darwin

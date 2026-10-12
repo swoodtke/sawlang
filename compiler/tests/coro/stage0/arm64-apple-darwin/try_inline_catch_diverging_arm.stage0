@@ -1,0 +1,58 @@
+program	try_inline_catch_diverging_arm.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"err MyErr(99)"
+stdout	"ok 0"
+stdout	"err MyErr(99)"
+stdout	"ok 5"
+stdout	"ok 12"
+stdout	""
+meets_expect	yes
+frame	__Frame_driven_return_arm$m$	driven_return_arm	176	8	states=3	own=97	sub=72	bt=0	root=0	method=0	agrees=1
+field	n	own	0	8	8
+field	__trycall0	own	8	24	8
+field	v	own	32	8	8
+field	__sub0	sub	40	72	8	callee=__Frame_slow_inner$m$	live=1
+field	__state	own	112	8	8
+field	__wake	own	120	8	8
+field	__io_tok	own	128	8	8
+field	__io_deadline	own	136	8	8
+field	__cancel	own	144	1	1
+field	__result	own	152	24	8
+frame	__Frame_driven_value_arm$m$	driven_value_arm	176	8	states=3	own=97	sub=72	bt=1	root=0	method=0	agrees=1
+field	n	own	0	8	8
+field	__trycall0	own	8	24	8
+field	v	own	32	8	8
+field	__sub0	sub	40	72	8	callee=__Frame_slow_inner$m$	live=1
+field	__state	own	112	8	8
+field	__wake	own	120	8	8
+field	__io_tok	own	128	8	8
+field	__io_deadline	own	136	8	8
+field	__cancel	own	144	1	1
+field	__result	own	152	24	8
+frame	__Frame_main	main	440	8	states=5	own=81	sub=352	bt=2	root=0	method=0	agrees=1
+field	__anf0	own	0	24	8
+field	__anf1	own	24	24	8
+field	__sub0	sub	48	176	8	callee=__Frame_driven_return_arm$m$	live=1
+field	__sub1	sub	224	176	8	callee=__Frame_driven_value_arm$m$	live=3
+field	__state	own	400	8	8
+field	__wake	own	408	8	8
+field	__io_tok	own	416	8	8
+field	__io_deadline	own	424	8	8
+field	__cancel	own	432	1	1
+frame	__Frame_slow_inner$m$	slow_inner	72	8	states=2	own=65	sub=0	bt=3	root=0	method=0	agrees=1
+field	n	own	0	8	8
+field	__state	own	8	8	8
+field	__wake	own	16	8	8
+field	__io_tok	own	24	8	8
+field	__io_deadline	own	32	8	8
+field	__cancel	own	40	1	1
+field	__result	own	48	24	8
+bt	568	strtab=220	version=1	word_bits=64
+btframe	__Frame_driven_return_arm$m$	driven_return_arm	try_inline_catch_diverging_arm.saw	112	0 53>3@40 0
+btframe	__Frame_driven_value_arm$m$	driven_value_arm	try_inline_catch_diverging_arm.saw	112	0 58>3@40 0
+btframe	__Frame_main	main	try_inline_catch_diverging_arm.saw	400	0 77>0@48 0 78>1@224 0
+btframe	__Frame_slow_inner$m$	slow_inner	try_inline_catch_diverging_arm.saw	8	0 42

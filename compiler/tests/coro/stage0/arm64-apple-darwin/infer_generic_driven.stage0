@@ -1,0 +1,31 @@
+program	infer_generic_driven.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"11"
+stdout	"21"
+stdout	""
+meets_expect	yes
+frame	__Frame_run$m$$1$Fast	run$m$$1$Fast	72	8	states=2	own=65	sub=0	bt=0	root=0	method=0	agrees=1
+field	w	own	0	16	8
+field	base	own	16	8	8
+field	__state	own	24	8	8
+field	__wake	own	32	8	8
+field	__io_tok	own	40	8	8
+field	__io_deadline	own	48	8	8
+field	__cancel	own	56	1	1
+field	__result	own	64	8	8
+frame	__Frame_run$m$$1$Slow	run$m$$1$Slow	72	8	states=2	own=65	sub=0	bt=1	root=0	method=0	agrees=1
+field	w	own	0	16	8
+field	base	own	16	8	8
+field	__state	own	24	8	8
+field	__wake	own	32	8	8
+field	__io_tok	own	40	8	8
+field	__io_deadline	own	48	8	8
+field	__cancel	own	56	1	1
+field	__result	own	64	8	8
+bt	331	strtab=139	version=1	word_bits=64
+btframe	__Frame_run$m$$1$Fast	run$m$$1$Fast	infer_generic_driven.saw	24	0 20
+btframe	__Frame_run$m$$1$Slow	run$m$$1$Slow	infer_generic_driven.saw	24	0 20

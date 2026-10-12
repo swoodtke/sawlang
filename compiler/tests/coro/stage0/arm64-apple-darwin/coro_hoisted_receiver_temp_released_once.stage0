@@ -1,0 +1,61 @@
+program	coro_hoisted_receiver_temp_released_once.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"deinit 10"
+stdout	"x=10"
+stdout	"deinit 44"
+stdout	"n=44"
+stdout	"done"
+stdout	""
+meets_expect	yes
+frame	__Frame_call_result_receiver$m$	call_result_receiver	128	8	states=3	own=57	sub=64	bt=0	root=0	method=0	agrees=1
+field	__anf0	own	0	16	8
+field	x	own	16	8	8
+field	__sub0	sub	24	64	8	callee=__Frame_mk$m$	live=1
+field	__state	own	88	8	8
+field	__wake	own	96	8	8
+field	__io_tok	own	104	8	8
+field	__io_deadline	own	112	8	8
+field	__cancel	own	120	1	1
+frame	__Frame_forced_optional_receiver$m$	forced_optional_receiver	144	8	states=3	own=65	sub=72	bt=1	root=0	method=0	agrees=1
+field	__anf0	own	0	24	8
+field	n	own	24	8	8
+field	__sub0	sub	32	72	8	callee=__Frame_mk_opt$m$	live=1
+field	__state	own	104	8	8
+field	__wake	own	112	8	8
+field	__io_tok	own	120	8	8
+field	__io_deadline	own	128	8	8
+field	__cancel	own	136	1	1
+frame	__Frame_main	main	312	8	states=5	own=33	sub=272	bt=2	root=0	method=0	agrees=1
+field	__sub0	sub	0	128	8	callee=__Frame_call_result_receiver$m$	live=1
+field	__sub1	sub	128	144	8	callee=__Frame_forced_optional_receiver$m$	live=3
+field	__state	own	272	8	8
+field	__wake	own	280	8	8
+field	__io_tok	own	288	8	8
+field	__io_deadline	own	296	8	8
+field	__cancel	own	304	1	1
+frame	__Frame_mk$m$	mk	64	8	states=2	own=57	sub=0	bt=3	root=0	method=0	agrees=1
+field	n	own	0	8	8
+field	__state	own	8	8	8
+field	__wake	own	16	8	8
+field	__io_tok	own	24	8	8
+field	__io_deadline	own	32	8	8
+field	__cancel	own	40	1	1
+field	__result	own	48	16	8
+frame	__Frame_mk_opt$m$	mk_opt	72	8	states=2	own=65	sub=0	bt=4	root=0	method=0	agrees=1
+field	n	own	0	8	8
+field	__state	own	8	8	8
+field	__wake	own	16	8	8
+field	__io_tok	own	24	8	8
+field	__io_deadline	own	32	8	8
+field	__cancel	own	40	1	1
+field	__result	own	48	24	8
+bt	657	strtab=261	version=1	word_bits=64
+btframe	__Frame_call_result_receiver$m$	call_result_receiver	coro_hoisted_receiver_temp_released_once.saw	88	0 57>3@24 0
+btframe	__Frame_forced_optional_receiver$m$	forced_optional_receiver	coro_hoisted_receiver_temp_released_once.saw	104	0 62>4@32 0
+btframe	__Frame_main	main	coro_hoisted_receiver_temp_released_once.saw	272	0 67>0@0 0 68>1@128 0
+btframe	__Frame_mk$m$	mk	coro_hoisted_receiver_temp_released_once.saw	8	0 47
+btframe	__Frame_mk_opt$m$	mk_opt	coro_hoisted_receiver_temp_released_once.saw	8	0 52

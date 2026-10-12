@@ -1,0 +1,31 @@
+program	taskgroup_result_unjoined_once.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"955"
+stdout	"1"
+stdout	"977"
+stdout	""
+meets_expect	yes
+frame	__Frame_main	main	536	8	states=2	own=529	sub=0	bt=0	root=0	method=0	agrees=1
+field	group	own	0	432	8
+field	_h	own	432	64	8
+field	__state	own	496	8	8
+field	__wake	own	504	8	8
+field	__io_tok	own	512	8	8
+field	__io_deadline	own	520	8	8
+field	__cancel	own	528	1	1
+frame	__Frame_producer$m$	producer	80	8	states=3	own=80	sub=0	bt=1	root=1	method=0	agrees=1
+field	n	own	0	8	8
+field	held	own	8	16	8
+field	r	own	24	16	8
+field	__state	own	40	8	8
+field	__wake	own	48	8	8
+field	__io_tok	own	56	8	8
+field	__io_deadline	own	64	8	8
+field	__cellp	own	72	8	8
+bt	328	strtab=124	version=1	word_bits=64
+btframe	__Frame_main	main	taskgroup_result_unjoined_once.saw	496	0 31
+btframe	__Frame_producer$m$	producer	taskgroup_result_unjoined_once.saw	40	0 21 23

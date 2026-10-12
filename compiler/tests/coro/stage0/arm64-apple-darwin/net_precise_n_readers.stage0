@@ -1,0 +1,44 @@
+program	net_precise_n_readers.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"10"
+stdout	"20"
+stdout	"30"
+stdout	"0"
+stdout	""
+meets_expect	yes
+frame	__Frame_reader$m$	reader	112	8	states=11	own=106	sub=0	bt=0	root=1	method=0	agrees=1
+field	fd	own	0	8	8
+field	__saw_loop_budget	own	8	8	8
+field	buf	own	16	16	8
+field	v	own	32	8	8
+field	parked	own	40	1	1
+field	going	own	41	1	1
+field	r	own	48	8	8
+field	__state	own	56	8	8
+field	__wake	own	64	8	8
+field	__io_tok	own	72	8	8
+field	__io_deadline	own	80	8	8
+field	__io_fd	own	88	8	8
+field	__io_dir	own	96	8	8
+field	__cellp	own	104	8	8
+frame	__Frame_writer$m$	writer	112	8	states=11	own=105	sub=0	bt=1	root=1	method=0	agrees=1
+field	fd	own	0	8	8
+field	b	own	8	8	8
+field	__saw_loop_budget	own	16	8	8
+field	buf	own	24	16	8
+field	going	own	40	1	1
+field	w	own	48	8	8
+field	__state	own	56	8	8
+field	__wake	own	64	8	8
+field	__io_tok	own	72	8	8
+field	__io_deadline	own	80	8	8
+field	__io_fd	own	88	8	8
+field	__io_dir	own	96	8	8
+field	__cellp	own	104	8	8
+bt	526	strtab=118	version=1	word_bits=64
+btframe	__Frame_reader$m$	reader	net_precise_n_readers.saw	56	0 0 0 0 0 0 25 0 0 0 32
+btframe	__Frame_writer$m$	writer	net_precise_n_readers.saw	56	0 0 0 0 0 0 46 0 0 0 49

@@ -1,0 +1,142 @@
+program	coro_for_inclusive_range_last_iteration.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"row1 15 15"
+stdout	"row2 15 15"
+stdout	"row3 15 15"
+stdout	"row4 15 15"
+stdout	"row5 15 15"
+stdout	"row6 3 3"
+stdout	"row7 0 0"
+stdout	"row8 4 4"
+stdout	"row9 15 15"
+stdout	"row10 10 10"
+stdout	""
+meets_expect	yes
+frame	__Frame_r10_driven$m$	r10_driven	72	8	states=9	own=72	sub=0	bt=0	root=1	method=0	agrees=1
+field	__saw_loop_budget	own	0	8	8
+field	n	own	8	8	8
+field	i	own	16	8	8
+field	__end_i	own	24	8	8
+field	__state	own	32	8	8
+field	__wake	own	40	8	8
+field	__io_tok	own	48	8	8
+field	__io_deadline	own	56	8	8
+field	__cellp	own	64	8	8
+frame	__Frame_r1_driven$m$	r1_driven	72	8	states=10	own=72	sub=0	bt=1	root=1	method=0	agrees=1
+field	__saw_loop_budget	own	0	8	8
+field	n	own	8	8	8
+field	i	own	16	8	8
+field	__end_i	own	24	8	8
+field	__state	own	32	8	8
+field	__wake	own	40	8	8
+field	__io_tok	own	48	8	8
+field	__io_deadline	own	56	8	8
+field	__cellp	own	64	8	8
+frame	__Frame_r2_driven$m$	r2_driven	80	8	states=10	own=80	sub=0	bt=2	root=1	method=0	agrees=1
+field	__saw_loop_budget	own	0	8	8
+field	hi	own	8	8	8
+field	n	own	16	8	8
+field	i	own	24	8	8
+field	__end_i	own	32	8	8
+field	__state	own	40	8	8
+field	__wake	own	48	8	8
+field	__io_tok	own	56	8	8
+field	__io_deadline	own	64	8	8
+field	__cellp	own	72	8	8
+frame	__Frame_r3_driven$m$	r3_driven	72	8	states=10	own=72	sub=0	bt=3	root=1	method=0	agrees=1
+field	__saw_loop_budget	own	0	8	8
+field	n	own	8	8	8
+field	i	own	16	8	8
+field	__end_i	own	24	8	8
+field	__state	own	32	8	8
+field	__wake	own	40	8	8
+field	__io_tok	own	48	8	8
+field	__io_deadline	own	56	8	8
+field	__cellp	own	64	8	8
+frame	__Frame_r4_driven$m$	r4_driven	128	8	states=3	own=48	sub=80	bt=4	root=1	method=0	agrees=1
+field	r	own	0	8	8
+field	__sub0	sub	8	80	8	callee=__Frame_r4_inner$m$	live=1
+field	__state	own	88	8	8
+field	__wake	own	96	8	8
+field	__io_tok	own	104	8	8
+field	__io_deadline	own	112	8	8
+field	__cellp	own	120	8	8
+frame	__Frame_r4_inner$m$	r4_inner	80	8	states=10	own=73	sub=0	bt=5	root=0	method=0	agrees=1
+field	__saw_loop_budget	own	0	8	8
+field	n	own	8	8	8
+field	i	own	16	8	8
+field	__end_i	own	24	8	8
+field	__state	own	32	8	8
+field	__wake	own	40	8	8
+field	__io_tok	own	48	8	8
+field	__io_deadline	own	56	8	8
+field	__cancel	own	64	1	1
+field	__result	own	72	8	8
+frame	__Frame_r5_driven$m$	r5_driven	72	8	states=10	own=72	sub=0	bt=6	root=1	method=0	agrees=1
+field	__saw_loop_budget	own	0	8	8
+field	n	own	8	8	8
+field	i	own	16	8	8
+field	__end_i	own	24	8	8
+field	__state	own	32	8	8
+field	__wake	own	40	8	8
+field	__io_tok	own	48	8	8
+field	__io_deadline	own	56	8	8
+field	__cellp	own	64	8	8
+frame	__Frame_r6_driven$m$	r6_driven	72	8	states=10	own=72	sub=0	bt=7	root=1	method=0	agrees=1
+field	__saw_loop_budget	own	0	8	8
+field	n	own	8	8	8
+field	i	own	16	8	8
+field	__end_i	own	24	8	8
+field	__state	own	32	8	8
+field	__wake	own	40	8	8
+field	__io_tok	own	48	8	8
+field	__io_deadline	own	56	8	8
+field	__cellp	own	64	8	8
+frame	__Frame_r7_driven$m$	r7_driven	72	8	states=10	own=72	sub=0	bt=8	root=1	method=0	agrees=1
+field	__saw_loop_budget	own	0	8	8
+field	n	own	8	8	8
+field	i	own	16	8	8
+field	__end_i	own	24	8	8
+field	__state	own	32	8	8
+field	__wake	own	40	8	8
+field	__io_tok	own	48	8	8
+field	__io_deadline	own	56	8	8
+field	__cellp	own	64	8	8
+frame	__Frame_r8_driven$m$	r8_driven	88	8	states=18	own=88	sub=0	bt=9	root=1	method=0	agrees=1
+field	__saw_loop_budget	own	0	8	8
+field	n	own	8	8	8
+field	i	own	16	8	8
+field	__end_i	own	24	8	8
+field	j	own	32	8	8
+field	__end_j	own	40	8	8
+field	__state	own	48	8	8
+field	__wake	own	56	8	8
+field	__io_tok	own	64	8	8
+field	__io_deadline	own	72	8	8
+field	__cellp	own	80	8	8
+frame	__Frame_r9_driven$m$	r9_driven	72	8	states=10	own=72	sub=0	bt=10	root=1	method=0	agrees=1
+field	__saw_loop_budget	own	0	8	8
+field	n	own	8	8	8
+field	i	own	16	8	8
+field	__end_i	own	24	8	8
+field	__state	own	32	8	8
+field	__wake	own	40	8	8
+field	__io_tok	own	48	8	8
+field	__io_deadline	own	56	8	8
+field	__cellp	own	64	8	8
+bt	2107	strtab=427	version=1	word_bits=64
+btframe	__Frame_r10_driven$m$	r10_driven	coro_for_inclusive_range_last_iteration.saw	32	0 0 0 0 0 0 0 238 240
+btframe	__Frame_r1_driven$m$	r1_driven	coro_for_inclusive_range_last_iteration.saw	32	0 0 0 0 0 0 0 51 53 0
+btframe	__Frame_r2_driven$m$	r2_driven	coro_for_inclusive_range_last_iteration.saw	40	0 0 0 0 0 0 0 71 73 0
+btframe	__Frame_r3_driven$m$	r3_driven	coro_for_inclusive_range_last_iteration.saw	32	0 0 0 0 0 0 0 91 93 0
+btframe	__Frame_r4_driven$m$	r4_driven	coro_for_inclusive_range_last_iteration.saw	88	0 118>5@8 0
+btframe	__Frame_r4_inner$m$	r4_inner	coro_for_inclusive_range_last_iteration.saw	32	0 0 0 0 0 0 0 110 112 0
+btframe	__Frame_r5_driven$m$	r5_driven	coro_for_inclusive_range_last_iteration.saw	32	0 139 0 0 0 0 0 0 140 0
+btframe	__Frame_r6_driven$m$	r6_driven	coro_for_inclusive_range_last_iteration.saw	32	0 0 0 0 0 0 0 158 160 0
+btframe	__Frame_r7_driven$m$	r7_driven	coro_for_inclusive_range_last_iteration.saw	32	0 0 0 0 0 0 0 177 179 0
+btframe	__Frame_r8_driven$m$	r8_driven	coro_for_inclusive_range_last_iteration.saw	48	0 0 0 0 0 0 0 196 0 0 0 0 0 0 197 199 0 0
+btframe	__Frame_r9_driven$m$	r9_driven	coro_for_inclusive_range_last_iteration.saw	32	0 0 0 0 0 0 0 219 221 0

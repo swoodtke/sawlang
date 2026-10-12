@@ -1,0 +1,125 @@
+program	conformance/V108_each_copy_capture_owns_one_duplicate.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"-- A two literals, non-escaping, sync, 1 call each"
+stdout	"copy 20 -> 21"
+stdout	"copy 20 -> 21"
+stdout	"drop 21"
+stdout	"drop 21"
+stdout	"drop 20"
+stdout	"= 42"
+stdout	"-- B two literals, non-escaping, driven, 1 call each"
+stdout	"copy 20 -> 21"
+stdout	"copy 20 -> 21"
+stdout	"drop 20"
+stdout	"drop 21"
+stdout	"drop 21"
+stdout	"= 42"
+stdout	"-- C two literals, escaping, sync, 1 call each"
+stdout	"copy 30 -> 31"
+stdout	"copy 30 -> 31"
+stdout	"drop 31"
+stdout	"drop 31"
+stdout	"drop 30"
+stdout	"= 62"
+stdout	"-- D two literals, escaping, driven, 1 call each"
+stdout	"copy 30 -> 31"
+stdout	"copy 30 -> 31"
+stdout	"drop 31"
+stdout	"drop 31"
+stdout	"drop 30"
+stdout	"= 62"
+stdout	"-- E THREE literals, non-escaping, driven, 1 call each"
+stdout	"copy 40 -> 41"
+stdout	"copy 40 -> 41"
+stdout	"copy 40 -> 41"
+stdout	"drop 40"
+stdout	"drop 41"
+stdout	"drop 41"
+stdout	"drop 41"
+stdout	"= 123"
+stdout	"-- F two literals, escaping, driven, 2 calls each"
+stdout	"copy 50 -> 51"
+stdout	"copy 50 -> 51"
+stdout	"drop 51"
+stdout	"drop 51"
+stdout	"drop 50"
+stdout	"= 204"
+stdout	"-- G the Arc oracle, two literals, escaping, driven"
+stdout	"inside 3"
+stdout	"inside 3"
+stdout	"root while live 3"
+stdout	"root after 1"
+stdout	"read 7"
+stdout	"-- H nested literals, driven, 1 call each"
+stdout	"copy 60 -> 61"
+stdout	"copy 61 -> 62"
+stdout	"drop 62"
+stdout	"drop 60"
+stdout	"drop 61"
+stdout	"= 62"
+stdout	"end"
+stdout	""
+meets_expect	yes
+frame	__Frame_b_driven$m$	b_driven	64	8	states=2	own=57	sub=0	bt=0	root=0	method=0	agrees=1
+field	d	own	0	16	8
+field	__state	own	16	8	8
+field	__wake	own	24	8	8
+field	__io_tok	own	32	8	8
+field	__io_deadline	own	40	8	8
+field	__cancel	own	48	1	1
+field	__result	own	56	8	8
+frame	__Frame_d_driven$m$	d_driven	128	8	states=2	own=121	sub=0	bt=1	root=0	method=0	agrees=1
+field	d	own	0	16	8
+field	f	own	16	32	8
+field	g	own	48	32	8
+field	__state	own	80	8	8
+field	__wake	own	88	8	8
+field	__io_tok	own	96	8	8
+field	__io_deadline	own	104	8	8
+field	__cancel	own	112	1	1
+field	__result	own	120	8	8
+frame	__Frame_e_driven$m$	e_driven	64	8	states=2	own=57	sub=0	bt=2	root=0	method=0	agrees=1
+field	d	own	0	16	8
+field	__state	own	16	8	8
+field	__wake	own	24	8	8
+field	__io_tok	own	32	8	8
+field	__io_deadline	own	40	8	8
+field	__cancel	own	48	1	1
+field	__result	own	56	8	8
+frame	__Frame_f_driven$m$	f_driven	128	8	states=2	own=121	sub=0	bt=3	root=0	method=0	agrees=1
+field	d	own	0	16	8
+field	f	own	16	32	8
+field	g	own	48	32	8
+field	__state	own	80	8	8
+field	__wake	own	88	8	8
+field	__io_tok	own	96	8	8
+field	__io_deadline	own	104	8	8
+field	__cancel	own	112	1	1
+field	__result	own	120	8	8
+frame	__Frame_g_driven$m$	g_driven	120	8	states=2	own=113	sub=0	bt=4	root=0	method=0	agrees=1
+field	h	own	0	24	8
+field	__state	own	24	8	8
+field	__wake	own	32	8	8
+field	__io_tok	own	40	8	8
+field	__io_deadline	own	48	8	8
+field	__cancel	own	56	1	1
+field	__result	own	64	56	8
+frame	__Frame_h_driven$m$	h_driven	64	8	states=2	own=57	sub=0	bt=5	root=0	method=0	agrees=1
+field	d	own	0	16	8
+field	__state	own	16	8	8
+field	__wake	own	24	8	8
+field	__io_tok	own	32	8	8
+field	__io_deadline	own	40	8	8
+field	__cancel	own	48	1	1
+field	__result	own	56	8	8
+bt	646	strtab=262	version=1	word_bits=64
+btframe	__Frame_b_driven$m$	b_driven	V108_each_copy_capture_owns_one_duplicate.saw	16	0 120
+btframe	__Frame_d_driven$m$	d_driven	V108_each_copy_capture_owns_one_duplicate.saw	80	0 132
+btframe	__Frame_e_driven$m$	e_driven	V108_each_copy_capture_owns_one_duplicate.saw	16	0 140
+btframe	__Frame_f_driven$m$	f_driven	V108_each_copy_capture_owns_one_duplicate.saw	80	0 147
+btframe	__Frame_g_driven$m$	g_driven	V108_each_copy_capture_owns_one_duplicate.saw	24	0 166
+btframe	__Frame_h_driven$m$	h_driven	V108_each_copy_capture_owns_one_duplicate.saw	16	0 182

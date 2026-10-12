@@ -1,0 +1,75 @@
+program	if_let_binding_released_on_early_exit.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"-- sync"
+stdout	"in branch"
+stdout	"DEINIT s-return"
+stdout	"DEINIT s-break"
+stdout	"after break loop"
+stdout	"DEINIT s-continue1"
+stdout	"DEINIT s-continue2"
+stdout	"after continue loop"
+stdout	"in branch"
+stdout	"DEINIT s-fall"
+stdout	"after fall"
+stdout	"DEINIT s-ifvar"
+stdout	"DEINIT s-whilelet"
+stdout	"after while let 1"
+stdout	"DEINIT s-tuple"
+stdout	"sank"
+stdout	"DEINIT s-move"
+stdout	"-- controls"
+stdout	"after guard"
+stdout	"DEINIT c-guard"
+stdout	"DEINIT c-match"
+stdout	"-- driven"
+stdout	"DEINIT d-return"
+stdout	"DEINIT d-break"
+stdout	"after driven break"
+stdout	"DEINIT d-continue1"
+stdout	"DEINIT d-continue2"
+stdout	"after driven continue"
+stdout	"DEINIT d-fall"
+stdout	"after driven fall"
+stdout	""
+meets_expect	yes
+frame	__Frame_driven_break$m$	driven_break	72	8	states=10	own=65	sub=0	bt=0	root=0	method=0	agrees=1
+field	__saw_loop_budget	own	0	8	8
+field	i	own	8	8	8
+field	__ob0	own	16	16	8
+field	__state	own	32	8	8
+field	__wake	own	40	8	8
+field	__io_tok	own	48	8	8
+field	__io_deadline	own	56	8	8
+field	__cancel	own	64	1	1
+frame	__Frame_driven_continue$m$	driven_continue	72	8	states=10	own=65	sub=0	bt=1	root=0	method=0	agrees=1
+field	__saw_loop_budget	own	0	8	8
+field	i	own	8	8	8
+field	__ob0	own	16	16	8
+field	__state	own	32	8	8
+field	__wake	own	40	8	8
+field	__io_tok	own	48	8	8
+field	__io_deadline	own	56	8	8
+field	__cancel	own	64	1	1
+frame	__Frame_driven_fallthrough$m$	driven_fallthrough	56	8	states=4	own=49	sub=0	bt=2	root=0	method=0	agrees=1
+field	__ob0	own	0	16	8
+field	__state	own	16	8	8
+field	__wake	own	24	8	8
+field	__io_tok	own	32	8	8
+field	__io_deadline	own	40	8	8
+field	__cancel	own	48	1	1
+frame	__Frame_driven_return$m$	driven_return	56	8	states=4	own=49	sub=0	bt=3	root=0	method=0	agrees=1
+field	__ob0	own	0	16	8
+field	__state	own	16	8	8
+field	__wake	own	24	8	8
+field	__io_tok	own	32	8	8
+field	__io_deadline	own	40	8	8
+field	__cancel	own	48	1	1
+bt	780	strtab=252	version=1	word_bits=64
+btframe	__Frame_driven_break$m$	driven_break	if_let_binding_released_on_early_exit.saw	32	0 0 0 0 0 0 183 0 0 186
+btframe	__Frame_driven_continue$m$	driven_continue	if_let_binding_released_on_early_exit.saw	32	0 0 0 0 0 0 195 0 0 198
+btframe	__Frame_driven_fallthrough$m$	driven_fallthrough	if_let_binding_released_on_early_exit.saw	16	0 0 0 208
+btframe	__Frame_driven_return$m$	driven_return	if_let_binding_released_on_early_exit.saw	16	0 0 0 176

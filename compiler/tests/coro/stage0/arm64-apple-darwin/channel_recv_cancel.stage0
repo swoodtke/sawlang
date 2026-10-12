@@ -1,0 +1,24 @@
+program	channel_recv_cancel.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"77"
+stdout	"0"
+stdout	""
+meets_expect	yes
+frame	__Frame_worker$m$	worker	144	8	states=13	own=137	sub=0	bt=0	root=1	method=0	agrees=1
+field	ch	own	0	24	8
+field	__saw_loop_budget	own	24	8	8
+field	held	own	32	16	8
+field	got	own	48	8	8
+field	__match0	own	56	40	8
+field	__have0	own	96	1	1
+field	__state	own	104	8	8
+field	__wake	own	112	8	8
+field	__io_tok	own	120	8	8
+field	__io_deadline	own	128	8	8
+field	__cellp	own	136	8	8
+bt	367	strtab=91	version=1	word_bits=64
+btframe	__Frame_worker$m$	worker	channel_recv_cancel.saw	104	0 0 0 0 0 0 27 28 0 0 0 0 0

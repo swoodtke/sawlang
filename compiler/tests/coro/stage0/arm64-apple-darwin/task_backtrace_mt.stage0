@@ -1,0 +1,68 @@
+program	task_backtrace_mt.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"saw tasks: 2 live (unsynchronized snapshot)"
+stdout	"  task group 1 slot 0 gen 1 channel-parked"
+stdout	"    at task_backtrace_mt.saw:50 in mt_leaf"
+stdout	"    at task_backtrace_mt.saw:55 in mt_middle"
+stdout	"    at task_backtrace_mt.saw:60 in mt_worker"
+stdout	"  task group 1 slot 1 gen 1 running"
+stdout	"    at task_backtrace_mt.saw:78 in mt_watcher"
+stdout	"watcher 0"
+stdout	"worker 13"
+stdout	""
+meets_expect	yes
+frame	__Frame_mt_leaf$m$	mt_leaf	152	8	states=7	own=138	sub=0	bt=0	root=0	method=0	agrees=1
+field	n	own	0	8	8
+field	gate	own	8	24	8
+field	ready	own	32	24	8
+field	__have0	own	56	1	1
+field	__rcv0	own	64	40	8
+field	__state	own	104	8	8
+field	__wake	own	112	8	8
+field	__io_tok	own	120	8	8
+field	__io_deadline	own	128	8	8
+field	__cancel	own	136	1	1
+field	__result	own	144	8	8
+frame	__Frame_mt_middle$m$	mt_middle	264	8	states=3	own=105	sub=152	bt=1	root=0	method=0	agrees=1
+field	n	own	0	8	8
+field	gate	own	8	24	8
+field	ready	own	32	24	8
+field	r	own	56	8	8
+field	__sub0	sub	64	152	8	callee=__Frame_mt_leaf$m$	live=1
+field	__state	own	216	8	8
+field	__wake	own	224	8	8
+field	__io_tok	own	232	8	8
+field	__io_deadline	own	240	8	8
+field	__cancel	own	248	1	1
+field	__result	own	256	8	8
+frame	__Frame_mt_watcher$m$	mt_watcher	112	8	states=9	own=105	sub=0	bt=2	root=1	method=0	agrees=1
+field	gate	own	0	24	8
+field	ready	own	24	24	8
+field	__saw_loop_budget	own	48	8	8
+field	at_gate	own	56	1	1
+field	ticks	own	64	8	8
+field	__state	own	72	8	8
+field	__wake	own	80	8	8
+field	__io_tok	own	88	8	8
+field	__io_deadline	own	96	8	8
+field	__cellp	own	104	8	8
+frame	__Frame_mt_worker$m$	mt_worker	368	8	states=3	own=104	sub=264	bt=3	root=1	method=0	agrees=1
+field	seed	own	0	8	8
+field	gate	own	8	24	8
+field	ready	own	32	24	8
+field	n	own	56	8	8
+field	__sub0	sub	64	264	8	callee=__Frame_mt_middle$m$	live=1
+field	__state	own	328	8	8
+field	__wake	own	336	8	8
+field	__io_tok	own	344	8	8
+field	__io_deadline	own	352	8	8
+field	__cellp	own	360	8	8
+bt	642	strtab=186	version=1	word_bits=64
+btframe	__Frame_mt_leaf$m$	mt_leaf	task_backtrace_mt.saw	104	0 50 0 0 0 0 0
+btframe	__Frame_mt_middle$m$	mt_middle	task_backtrace_mt.saw	216	0 55>0@64 0
+btframe	__Frame_mt_watcher$m$	mt_watcher	task_backtrace_mt.saw	72	0 0 0 0 0 0 67 68 78
+btframe	__Frame_mt_worker$m$	mt_worker	task_backtrace_mt.saw	328	0 60>1@64 0

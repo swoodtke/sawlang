@@ -1,0 +1,6 @@
+program	net_write_to_closed_peer_is_an_error.saw
+triple	x86_64-unknown-linux-gnu
+twin	same
+expect	success
+build	not-run
+layout	same-as	arm64-apple-darwin

@@ -1,0 +1,6 @@
+program	df151j_tuple_element_write.saw
+triple	x86_64-unknown-linux-gnu
+twin	same
+expect	success
+build	not-run
+layout	same-as	arm64-apple-darwin

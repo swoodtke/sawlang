@@ -1,0 +1,57 @@
+program	nested_closure_captures_frame_local.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"-- both implicit, sync"
+stdout	"= 30"
+stdout	"-- both implicit, driven"
+stdout	"= 30"
+stdout	"-- outer [copy] over an implicit inner, driven"
+stdout	"= 30"
+stdout	"-- both [copy], sync"
+stdout	"copy 20 -> 21"
+stdout	"copy 21 -> 22"
+stdout	"drop 22"
+stdout	"drop 21"
+stdout	"drop 20"
+stdout	"= 22"
+stdout	"-- both [copy], driven"
+stdout	"copy 20 -> 21"
+stdout	"copy 21 -> 22"
+stdout	"drop 22"
+stdout	"drop 20"
+stdout	"drop 21"
+stdout	"= 22"
+stdout	"end"
+stdout	""
+meets_expect	yes
+frame	__Frame_authored_outer_driven$m$	authored_outer_driven	64	8	states=2	own=57	sub=0	bt=0	root=0	method=0	agrees=1
+field	t	own	0	16	8
+field	__state	own	16	8	8
+field	__wake	own	24	8	8
+field	__io_tok	own	32	8	8
+field	__io_deadline	own	40	8	8
+field	__cancel	own	48	1	1
+field	__result	own	56	8	8
+frame	__Frame_both_copy_driven$m$	both_copy_driven	64	8	states=2	own=57	sub=0	bt=1	root=0	method=0	agrees=1
+field	d	own	0	16	8
+field	__state	own	16	8	8
+field	__wake	own	24	8	8
+field	__io_tok	own	32	8	8
+field	__io_deadline	own	40	8	8
+field	__cancel	own	48	1	1
+field	__result	own	56	8	8
+frame	__Frame_both_implicit_driven$m$	both_implicit_driven	64	8	states=2	own=57	sub=0	bt=2	root=0	method=0	agrees=1
+field	t	own	0	16	8
+field	__state	own	16	8	8
+field	__wake	own	24	8	8
+field	__io_tok	own	32	8	8
+field	__io_deadline	own	40	8	8
+field	__cancel	own	48	1	1
+field	__result	own	56	8	8
+bt	475	strtab=235	version=1	word_bits=64
+btframe	__Frame_authored_outer_driven$m$	authored_outer_driven	nested_closure_captures_frame_local.saw	16	0 73
+btframe	__Frame_both_copy_driven$m$	both_copy_driven	nested_closure_captures_frame_local.saw	16	0 82
+btframe	__Frame_both_implicit_driven$m$	both_implicit_driven	nested_closure_captures_frame_local.saw	16	0 68

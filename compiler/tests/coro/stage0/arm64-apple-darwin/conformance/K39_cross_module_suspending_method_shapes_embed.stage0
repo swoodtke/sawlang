@@ -1,0 +1,57 @@
+program	conformance/K39_cross_module_suspending_method_shapes_embed.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"A1"
+stdout	"B1"
+stdout	"A2 red boxed A"
+stdout	"B2 red boxed B"
+stdout	""
+meets_expect	yes
+frame	__Frame_Box2$m$coro223_describe$1$String	Box2$m$coro223.describe$1$String	64	8	states=2	own=57	sub=0	bt=0	root=0	method=1	agrees=1
+field	__recv	own	0	8	8
+field	__state	own	8	8	8
+field	__wake	own	16	8	8
+field	__io_tok	own	24	8	8
+field	__io_deadline	own	32	8	8
+field	__cancel	own	40	1	1
+field	__result	own	48	16	8
+frame	__Frame_Color$m$coro223_label	Color$m$coro223.label	64	8	states=2	own=57	sub=0	bt=1	root=0	method=1	agrees=1
+field	__recv	own	0	8	8
+field	__state	own	8	8	8
+field	__wake	own	16	8	8
+field	__io_tok	own	24	8	8
+field	__io_deadline	own	32	8	8
+field	__cancel	own	40	1	1
+field	__result	own	48	16	8
+frame	__Frame_Talker$m$coro223_greet	Talker$m$coro223.greet	64	8	states=2	own=57	sub=0	bt=2	root=0	method=1	agrees=1
+field	__recv	own	0	8	8
+field	__state	own	8	8	8
+field	__wake	own	16	8	8
+field	__io_tok	own	24	8	8
+field	__io_deadline	own	32	8	8
+field	__cancel	own	40	1	1
+field	__result	own	48	16	8
+frame	__Frame_work$m$	work	336	8	states=7	own=144	sub=192	bt=3	root=1	method=0	agrees=1
+field	tag	own	0	16	8
+field	c	own	16	8	4
+field	l	own	24	16	8
+field	b	own	40	16	8
+field	d	own	56	16	8
+field	t	own	72	16	8
+field	g	own	88	16	8
+field	__sub0	sub	104	64	8	callee=__Frame_Color$m$coro223_label	live=1
+field	__sub1	sub	168	64	8	callee=__Frame_Box2$m$coro223_describe$1$String	live=3
+field	__sub2	sub	232	64	8	callee=__Frame_Talker$m$coro223_greet	live=5
+field	__state	own	296	8	8
+field	__wake	own	304	8	8
+field	__io_tok	own	312	8	8
+field	__io_deadline	own	320	8	8
+field	__cellp	own	328	8	8
+bt	651	strtab=303	version=1	word_bits=64
+btframe	__Frame_Box2$m$coro223_describe$1$String	Box2$m$coro223.describe$1$String	lib.saw	8	0 24
+btframe	__Frame_Color$m$coro223_label	Color$m$coro223.label	lib.saw	8	0 12
+btframe	__Frame_Talker$m$coro223_greet	Talker$m$coro223.greet	lib.saw	8	0 37
+btframe	__Frame_work$m$	work	K39_cross_module_suspending_method_shapes_embed.saw	296	0 36>1@104 0 38>0@168 0 40>2@232 0

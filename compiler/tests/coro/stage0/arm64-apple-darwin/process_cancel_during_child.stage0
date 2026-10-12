@@ -1,0 +1,61 @@
+program	process_cancel_during_child.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"cancelled: true"
+stdout	"woke early: true"
+stdout	"deinits=1"
+stdout	""
+meets_expect	yes
+frame	__Frame_Command_reap	Command.reap	128	8	states=13	own=121	sub=0	bt=0	root=0	method=1	agrees=1
+field	__recv	own	0	8	8
+field	job	own	8	8	8
+field	status	own	16	8	8
+field	nap	own	24	8	8
+field	r	own	32	8	8
+field	__saw_u0_wfd	own	40	8	8
+field	__state	own	48	8	8
+field	__wake	own	56	8	8
+field	__io_tok	own	64	8	8
+field	__io_deadline	own	72	8	8
+field	__io_fd	own	80	8	8
+field	__io_dir	own	88	8	8
+field	__cancel	own	96	1	1
+field	__result	own	104	24	8
+frame	__Frame_Command_run	Command.run	248	8	states=3	own=109	sub=128	bt=1	root=0	method=1	agrees=1
+field	__recv	own	0	8	8
+field	job	own	8	8	8
+field	w	own	16	24	8
+field	code	own	40	4	4
+field	__sub0	sub	48	128	8	callee=__Frame_Command_reap	live=1
+field	__state	own	176	8	8
+field	__wake	own	184	8	8
+field	__io_tok	own	192	8	8
+field	__io_deadline	own	200	8	8
+field	__cancel	own	208	1	1
+field	__result	own	216	32	8
+frame	__Frame_canceller$m$	canceller	48	8	states=1	own=48	sub=0	bt=2	root=1	method=0	agrees=1
+field	addr	own	0	8	8
+field	__state	own	8	8	8
+field	__wake	own	16	8	8
+field	__io_tok	own	24	8	8
+field	__io_deadline	own	32	8	8
+field	__cellp	own	40	8	8
+frame	__Frame_child_waiter$m$	child_waiter	440	8	states=3	own=192	sub=248	bt=3	root=1	method=0	agrees=1
+field	start	own	0	16	8
+field	_held	own	16	16	8
+field	c	own	32	88	8
+field	__match0	own	120	32	8
+field	__sub0	sub	152	248	8	callee=__Frame_Command_run	live=1
+field	__state	own	400	8	8
+field	__wake	own	408	8	8
+field	__io_tok	own	416	8	8
+field	__io_deadline	own	424	8	8
+field	__cellp	own	432	8	8
+bt	652	strtab=220	version=1	word_bits=64
+btframe	__Frame_Command_reap	Command.reap	process.saw	48	0 0 0 0 0 0 0 0 469 474 0 0 481
+btframe	__Frame_Command_run	Command.run	process.saw	176	0 385>0@48 0
+btframe	__Frame_canceller$m$	canceller	process_cancel_during_child.saw	8	0
+btframe	__Frame_child_waiter$m$	child_waiter	process_cancel_during_child.saw	400	0 39>1@152 0

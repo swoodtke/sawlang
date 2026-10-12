@@ -1,0 +1,32 @@
+program	conformance/O13_wildcard_optional_binding_releases_moved_payload.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"if let plain 0"
+stdout	"if let driven 0"
+stdout	"guard let plain 0"
+stdout	"guard let driven 0"
+stdout	"control temporary 0"
+stdout	"control named 0"
+stdout	""
+meets_expect	yes
+frame	__Frame_guardlet_driven$m$	guardlet_driven	80	8	states=4	own=73	sub=0	bt=0	root=0	method=0	agrees=1
+field	o	own	0	24	8
+field	__ob0	own	24	16	8
+field	__state	own	40	8	8
+field	__wake	own	48	8	8
+field	__io_tok	own	56	8	8
+field	__io_deadline	own	64	8	8
+field	__cancel	own	72	1	1
+frame	__Frame_iflet_driven$m$	iflet_driven	64	8	states=2	own=57	sub=0	bt=1	root=0	method=0	agrees=1
+field	o	own	0	24	8
+field	__state	own	24	8	8
+field	__wake	own	32	8	8
+field	__io_tok	own	40	8	8
+field	__io_deadline	own	48	8	8
+field	__cancel	own	56	1	1
+bt	395	strtab=179	version=1	word_bits=64
+btframe	__Frame_guardlet_driven$m$	guardlet_driven	O13_wildcard_optional_binding_releases_moved_payload.saw	40	0 60 0 0
+btframe	__Frame_iflet_driven$m$	iflet_driven	O13_wildcard_optional_binding_releases_moved_payload.saw	24	0 49

@@ -1,0 +1,7 @@
+log	"error: cannot spawn `work` into a multi-threaded `TaskGroup(threads: ...)`: local `v` of type `Vector<() sync escaping -> Int, GlobalAllocator>` is held across a suspension but is not `Send`, so the task frame cannot cross to a worker thread. `Vector` is `Send` only when its payload is `Send`, and `() sync escaping -> Int` is not — that is the bound to satisfy."
+log	"  --> examples/conformance/K02_nonsend_across_suspend_local_mt.saw:20:1"
+log	"     |"
+log	" 20 | func work(n: Int) -> Int {"
+log	"     | ^"
+log	""
+log	"1 error(s) generated"

@@ -1,0 +1,101 @@
+program	coro_optbind_loop_control.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"6"
+stdout	"306"
+stdout	"203"
+stdout	"6"
+stdout	"6"
+stdout	"6"
+stdout	"6"
+stdout	""
+meets_expect	yes
+frame	__Frame_cont$m$	cont	80	8	states=11	own=73	sub=0	bt=0	root=0	method=0	agrees=1
+field	__saw_loop_budget	own	0	8	8
+field	n	own	8	8	8
+field	total	own	16	8	8
+field	__ob0	own	24	8	8
+field	__state	own	32	8	8
+field	__wake	own	40	8	8
+field	__io_tok	own	48	8	8
+field	__io_deadline	own	56	8	8
+field	__cancel	own	64	1	1
+field	__result	own	72	8	8
+frame	__Frame_for_break$m$	for_break	88	8	states=12	own=81	sub=0	bt=1	root=0	method=0	agrees=1
+field	__saw_loop_budget	own	0	8	8
+field	total	own	8	8	8
+field	i	own	16	8	8
+field	__end_i	own	24	8	8
+field	__ob0	own	32	8	8
+field	__state	own	40	8	8
+field	__wake	own	48	8	8
+field	__io_tok	own	56	8	8
+field	__io_deadline	own	64	8	8
+field	__cancel	own	72	1	1
+field	__result	own	80	8	8
+frame	__Frame_guard_break_nested$m$	guard_break_nested	80	8	states=11	own=73	sub=0	bt=2	root=0	method=0	agrees=1
+field	__saw_loop_budget	own	0	8	8
+field	n	own	8	8	8
+field	total	own	16	8	8
+field	__ob0	own	24	8	8
+field	__state	own	32	8	8
+field	__wake	own	40	8	8
+field	__io_tok	own	48	8	8
+field	__io_deadline	own	56	8	8
+field	__cancel	own	64	1	1
+field	__result	own	72	8	8
+frame	__Frame_in_match_arm$m$	in_match_arm	80	8	states=13	own=73	sub=0	bt=3	root=0	method=0	agrees=1
+field	__saw_loop_budget	own	0	8	8
+field	n	own	8	8	8
+field	total	own	16	8	8
+field	__ob0	own	24	8	8
+field	__state	own	32	8	8
+field	__wake	own	40	8	8
+field	__io_tok	own	48	8	8
+field	__io_deadline	own	56	8	8
+field	__cancel	own	64	1	1
+field	__result	own	72	8	8
+frame	__Frame_nested_if_break$m$	nested_if_break	80	8	states=12	own=73	sub=0	bt=4	root=0	method=0	agrees=1
+field	__saw_loop_budget	own	0	8	8
+field	n	own	8	8	8
+field	total	own	16	8	8
+field	__ob0	own	24	8	8
+field	__state	own	32	8	8
+field	__wake	own	40	8	8
+field	__io_tok	own	48	8	8
+field	__io_deadline	own	56	8	8
+field	__cancel	own	64	1	1
+field	__result	own	72	8	8
+frame	__Frame_stmt_break$m$	stmt_break	80	8	states=10	own=73	sub=0	bt=5	root=0	method=0	agrees=1
+field	__saw_loop_budget	own	0	8	8
+field	n	own	8	8	8
+field	total	own	16	8	8
+field	__ob0	own	24	8	8
+field	__state	own	32	8	8
+field	__wake	own	40	8	8
+field	__io_tok	own	48	8	8
+field	__io_deadline	own	56	8	8
+field	__cancel	own	64	1	1
+field	__result	own	72	8	8
+frame	__Frame_tail_break$m$	tail_break	80	8	states=10	own=73	sub=0	bt=6	root=0	method=0	agrees=1
+field	__saw_loop_budget	own	0	8	8
+field	n	own	8	8	8
+field	total	own	16	8	8
+field	__ob0	own	24	8	8
+field	__state	own	32	8	8
+field	__wake	own	40	8	8
+field	__io_tok	own	48	8	8
+field	__io_deadline	own	56	8	8
+field	__cancel	own	64	1	1
+field	__result	own	72	8	8
+bt	1531	strtab=319	version=1	word_bits=64
+btframe	__Frame_cont$m$	cont	coro_optbind_loop_control.saw	32	0 0 0 0 0 0 63 64 0 0 0
+btframe	__Frame_for_break$m$	for_break	coro_optbind_loop_control.saw	40	0 0 0 0 0 0 0 123 124 0 0 0
+btframe	__Frame_guard_break_nested$m$	guard_break_nested	coro_optbind_loop_control.saw	32	0 0 0 0 0 109 110 0 0 0 0
+btframe	__Frame_in_match_arm$m$	in_match_arm	coro_optbind_loop_control.saw	32	0 0 0 0 0 91 92 0 0 0 0 0 0
+btframe	__Frame_nested_if_break$m$	nested_if_break	coro_optbind_loop_control.saw	32	0 0 0 0 0 77 78 0 0 0 0 0
+btframe	__Frame_stmt_break$m$	stmt_break	coro_optbind_loop_control.saw	32	0 0 0 0 0 50 51 0 0 0
+btframe	__Frame_tail_break$m$	tail_break	coro_optbind_loop_control.saw	32	0 0 0 0 0 38 39 0 0 0

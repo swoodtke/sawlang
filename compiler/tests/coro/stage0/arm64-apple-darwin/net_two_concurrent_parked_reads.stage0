@@ -1,0 +1,68 @@
+program	net_two_concurrent_parked_reads.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"1"
+stdout	"1"
+stdout	"0"
+stdout	"0"
+stdout	""
+meets_expect	yes
+frame	__Frame_TcpStream_read$OL$	TcpStream.read	176	8	states=16	own=169	sub=0	bt=0	root=0	method=1	agrees=1
+field	__recv	own	0	8	8
+field	out	own	8	48	8
+field	r	own	56	8	8
+field	__state	own	64	8	8
+field	__wake	own	72	8	8
+field	__io_tok	own	80	8	8
+field	__io_deadline	own	88	8	8
+field	__io_fd	own	96	8	8
+field	__io_dir	own	104	8	8
+field	__cancel	own	112	1	1
+field	__result	own	120	56	8
+frame	__Frame_TcpStream_write$OL$String	TcpStream.write	184	8	states=11	own=177	sub=0	bt=1	root=0	method=1	agrees=1
+field	__recv	own	0	8	8
+field	s	own	8	16	8
+field	bytes	own	24	48	8
+field	off	own	72	8	8
+field	total	own	80	8	8
+field	w	own	88	8	8
+field	__state	own	96	8	8
+field	__wake	own	104	8	8
+field	__io_tok	own	112	8	8
+field	__io_deadline	own	120	8	8
+field	__io_fd	own	128	8	8
+field	__io_dir	own	136	8	8
+field	__cancel	own	144	1	1
+field	__result	own	152	32	8
+frame	__Frame_reader$m$	reader	416	8	states=9	own=233	sub=176	bt=2	root=1	method=0	agrees=1
+field	stream	own	0	16	8
+field	want	own	16	16	8
+field	__saw_loop_budget	own	32	8	8
+field	got	own	40	48	8
+field	reading	own	88	1	1
+field	__trycall0	own	96	56	8
+field	chunk	own	152	48	8
+field	__sub0	sub	200	176	8	callee=__Frame_TcpStream_read$OL$	live=7
+field	__state	own	376	8	8
+field	__wake	own	384	8	8
+field	__io_tok	own	392	8	8
+field	__io_deadline	own	400	8	8
+field	__cellp	own	408	8	8
+frame	__Frame_writer$m$	writer	288	8	states=3	own=104	sub=184	bt=3	root=1	method=0	agrees=1
+field	stream	own	0	16	8
+field	msg	own	16	16	8
+field	__trycall0	own	32	32	8
+field	__sub0	sub	64	184	8	callee=__Frame_TcpStream_write$OL$String	live=1
+field	__state	own	248	8	8
+field	__wake	own	256	8	8
+field	__io_tok	own	264	8	8
+field	__io_deadline	own	272	8	8
+field	__cellp	own	280	8	8
+bt	888	strtab=228	version=1	word_bits=64
+btframe	__Frame_TcpStream_read$OL$	TcpStream.read	net.saw	64	0 0 0 0 0 0 1023 0 0 0 0 0 0 0 0 1036
+btframe	__Frame_TcpStream_write$OL$String	TcpStream.write	net.saw	96	0 0 0 0 0 0 0 1210 0 0 1219
+btframe	__Frame_reader$m$	reader	net_two_concurrent_parked_reads.saw	376	0 0 0 0 0 0 19 20>0@200 0
+btframe	__Frame_writer$m$	writer	net_two_concurrent_parked_reads.saw	248	0 34>1@64 0

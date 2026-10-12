@@ -1,0 +1,26 @@
+program	coro_early_return_after_resume.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"1"
+stdout	"100"
+stdout	"999"
+stdout	"2"
+stdout	"1"
+stdout	"3"
+stdout	""
+meets_expect	yes
+frame	__Frame_work$m$	work	88	8	states=2	own=74	sub=0	bt=0	root=0	method=0	agrees=1
+field	early	own	0	1	1
+field	t	own	8	16	8
+field	u	own	24	16	8
+field	__state	own	40	8	8
+field	__wake	own	48	8	8
+field	__io_tok	own	56	8	8
+field	__io_deadline	own	64	8	8
+field	__cancel	own	72	1	1
+field	__result	own	80	8	8
+bt	242	strtab=98	version=1	word_bits=64
+btframe	__Frame_work$m$	work	coro_early_return_after_resume.saw	40	0 22

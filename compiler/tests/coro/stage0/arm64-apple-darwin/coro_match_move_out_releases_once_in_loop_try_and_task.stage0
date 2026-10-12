@@ -1,0 +1,77 @@
+program	coro_match_move_out_releases_once_in_loop_try_and_task.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"-- in_loop"
+stdout	"NEW l0"
+stdout	"held l0"
+stdout	"DEINIT l0"
+stdout	"NEW l1"
+stdout	"held l1"
+stdout	"DEINIT l1"
+stdout	"after loop"
+stdout	"-- in_try_catch"
+stdout	"NEW t2"
+stdout	"held t2"
+stdout	"DEINIT t2"
+stdout	"after try"
+stdout	"-- in_task"
+stdout	"NEW t3"
+stdout	"held t3"
+stdout	"DEINIT t3"
+stdout	"task done"
+stdout	"after task"
+stdout	""
+meets_expect	yes
+frame	__Frame_make$m$	make	80	8	states=2	own=73	sub=0	bt=0	root=0	method=0	agrees=1
+field	name	own	0	16	8
+field	__state	own	16	8	8
+field	__wake	own	24	8	8
+field	__io_tok	own	32	8	8
+field	__io_deadline	own	40	8	8
+field	__cancel	own	48	1	1
+field	__result	own	56	24	8
+frame	__Frame_make_n$m$	make_n	72	8	states=2	own=65	sub=0	bt=1	root=0	method=0	agrees=1
+field	i	own	0	8	8
+field	__state	own	8	8	8
+field	__wake	own	16	8	8
+field	__io_tok	own	24	8	8
+field	__io_deadline	own	32	8	8
+field	__cancel	own	40	1	1
+field	__result	own	48	24	8
+frame	__Frame_row_loop$m$	row_loop	152	8	states=9	own=73	sub=72	bt=2	root=0	method=0	agrees=1
+field	__saw_loop_budget	own	0	8	8
+field	n	own	8	8	8
+field	__match0	own	16	24	8
+field	__sub0	sub	40	72	8	callee=__Frame_make_n$m$	live=7
+field	__state	own	112	8	8
+field	__wake	own	120	8	8
+field	__io_tok	own	128	8	8
+field	__io_deadline	own	136	8	8
+field	__cancel	own	144	1	1
+frame	__Frame_row_try$m$	row_try	184	8	states=5	own=97	sub=80	bt=3	root=0	method=0	agrees=1
+field	error	own	0	16	8
+field	__match0	own	16	24	8
+field	__sub0	sub	40	80	8	callee=__Frame_make$m$	live=3
+field	__state	own	120	8	8
+field	__wake	own	128	8	8
+field	__io_tok	own	136	8	8
+field	__io_deadline	own	144	8	8
+field	__cancel	own	152	1	1
+field	__result	own	160	24	8
+frame	__Frame_task_body$m$	task_body	144	8	states=3	own=64	sub=80	bt=4	root=1	method=0	agrees=1
+field	__match0	own	0	24	8
+field	__sub0	sub	24	80	8	callee=__Frame_make$m$	live=1
+field	__state	own	104	8	8
+field	__wake	own	112	8	8
+field	__io_tok	own	120	8	8
+field	__io_deadline	own	128	8	8
+field	__cellp	own	136	8	8
+bt	702	strtab=234	version=1	word_bits=64
+btframe	__Frame_make$m$	make	coro_match_move_out_releases_once_in_loop_try_and_task.saw	16	0 53
+btframe	__Frame_make_n$m$	make_n	coro_match_move_out_releases_once_in_loop_try_and_task.saw	8	0 59
+btframe	__Frame_row_loop$m$	row_loop	coro_match_move_out_releases_once_in_loop_try_and_task.saw	112	0 0 0 0 0 0 71 72>1@40 0
+btframe	__Frame_row_try$m$	row_try	coro_match_move_out_releases_once_in_loop_try_and_task.saw	120	0 0 0 83>0@40 0
+btframe	__Frame_task_body$m$	task_body	coro_match_move_out_releases_once_in_loop_try_and_task.saw	104	0 96>0@24 0

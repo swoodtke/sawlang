@@ -1,0 +1,45 @@
+program	conformance/K93_timed_park_observes_cancellation.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"reader-cancelled"
+stdout	"deinits=1"
+stdout	""
+meets_expect	yes
+frame	__Frame_TcpStream_read$OL$Duration	TcpStream.read	208	8	states=16	own=201	sub=0	bt=0	root=0	method=1	agrees=1
+field	__recv	own	0	8	8
+field	timeout	own	8	16	8
+field	out	own	24	48	8
+field	at	own	72	8	8
+field	r	own	80	8	8
+field	__state	own	88	8	8
+field	__wake	own	96	8	8
+field	__io_tok	own	104	8	8
+field	__io_deadline	own	112	8	8
+field	__io_fd	own	120	8	8
+field	__io_dir	own	128	8	8
+field	__cancel	own	136	1	1
+field	__result	own	144	64	8
+frame	__Frame_canceller$m$	canceller	48	8	states=1	own=48	sub=0	bt=1	root=1	method=0	agrees=1
+field	addr	own	0	8	8
+field	__state	own	8	8	8
+field	__wake	own	16	8	8
+field	__io_tok	own	24	8	8
+field	__io_deadline	own	32	8	8
+field	__cellp	own	40	8	8
+frame	__Frame_reader$m$	reader	344	8	states=3	own=136	sub=208	bt=2	root=1	method=0	agrees=1
+field	s	own	0	16	8
+field	_held	own	16	16	8
+field	__match0	own	32	64	8
+field	__sub0	sub	96	208	8	callee=__Frame_TcpStream_read$OL$Duration	live=1
+field	__state	own	304	8	8
+field	__wake	own	312	8	8
+field	__io_tok	own	320	8	8
+field	__io_deadline	own	328	8	8
+field	__cellp	own	336	8	8
+bt	605	strtab=197	version=1	word_bits=64
+btframe	__Frame_TcpStream_read$OL$Duration	TcpStream.read	net.saw	88	0 0 0 0 0 0 1065 0 0 0 0 0 0 0 0 1077
+btframe	__Frame_canceller$m$	canceller	K93_timed_park_observes_cancellation.saw	8	0
+btframe	__Frame_reader$m$	reader	K93_timed_park_observes_cancellation.saw	304	0 37>0@96 0

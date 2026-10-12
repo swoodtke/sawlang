@@ -1,0 +1,8 @@
+log	"error: cannot `Thread.spawn`: captured `v` of type `T` is not `Send`"
+log	"  --> examples/conformance/k74_refused_unbounded.saw:12:26"
+log	"     |"
+log	" 12 |     var t = Thread.spawn { [v] in v.size() }"
+log	"     |                          ^"
+log	"   hint: only Send values may cross to another task; share via `Arc` (and `Mutex` for mutation)."
+log	""
+log	"1 error(s) generated"

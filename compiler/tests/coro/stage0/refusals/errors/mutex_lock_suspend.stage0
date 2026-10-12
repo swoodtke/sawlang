@@ -1,0 +1,8 @@
+log	"error: cannot suspend in a `sync` closure context: closure calls `block_forever` → __saw_test_suspend (`block_forever` suspends at line 10)"
+log	"  --> examples/errors/mutex_lock_suspend.saw:15:12"
+log	"     |"
+log	" 15 |     m.lock { &var c in"
+log	"     |            ^"
+log	"   hint: a `sync` context must be transitively suspension-free: remove the suspending call or hoist it out of the sync region"
+log	""
+log	"1 error(s) generated"

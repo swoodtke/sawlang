@@ -1,0 +1,8 @@
+log	"error: cannot suspend in `sync func` declaration: `sync func fill` calls blocking extern `slow_into` (`fill` suspends at line 18)"
+log	"  --> examples/errors/offload_pointer_sync_reject.saw:16:1"
+log	"     |"
+log	" 16 | func fill() unsafe sync -> Int {"
+log	"     | ^"
+log	"   hint: a `sync` context must be transitively suspension-free: remove the suspending call or hoist it out of the sync region"
+log	""
+log	"1 error(s) generated"

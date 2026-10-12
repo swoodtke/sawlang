@@ -1,0 +1,40 @@
+program	coro_nested_yield_wrapper.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"worker rounds 8"
+stdout	"witness saw worker alive: true"
+stdout	""
+meets_expect	yes
+frame	__Frame_nap$m$	nap	40	8	states=2	own=33	sub=0	bt=0	root=0	method=0	agrees=1
+field	__state	own	0	8	8
+field	__wake	own	8	8	8
+field	__io_tok	own	16	8	8
+field	__io_deadline	own	24	8	8
+field	__cancel	own	32	1	1
+frame	__Frame_witness$m$	witness	72	8	states=8	own=72	sub=0	bt=1	root=1	method=0	agrees=1
+field	rounds	own	0	8	8
+field	__saw_loop_budget	own	8	8	8
+field	turns	own	16	8	8
+field	i	own	24	8	8
+field	__state	own	32	8	8
+field	__wake	own	40	8	8
+field	__io_tok	own	48	8	8
+field	__io_deadline	own	56	8	8
+field	__cellp	own	64	8	8
+frame	__Frame_worker$m$	worker	104	8	states=9	own=64	sub=40	bt=2	root=1	method=0	agrees=1
+field	rounds	own	0	8	8
+field	__saw_loop_budget	own	8	8	8
+field	i	own	16	8	8
+field	__sub0	sub	24	40	8	callee=__Frame_nap$m$	live=7
+field	__state	own	64	8	8
+field	__wake	own	72	8	8
+field	__io_tok	own	80	8	8
+field	__io_deadline	own	88	8	8
+field	__cellp	own	96	8	8
+bt	539	strtab=143	version=1	word_bits=64
+btframe	__Frame_nap$m$	nap	coro_nested_yield_wrapper.saw	0	0 28
+btframe	__Frame_witness$m$	witness	coro_nested_yield_wrapper.saw	32	0 0 0 0 0 0 44 48
+btframe	__Frame_worker$m$	worker	coro_nested_yield_wrapper.saw	64	0 0 0 0 0 0 33 34>0@24 0

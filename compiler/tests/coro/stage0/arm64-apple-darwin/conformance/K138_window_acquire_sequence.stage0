@@ -1,0 +1,90 @@
+program	conformance/K138_window_acquire_sequence.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"a"
+stdout	"b"
+stdout	"order sync a b 9"
+stdout	"a"
+stdout	"b"
+stdout	"order driven a b 9"
+stdout	"suspending argument sync 9"
+stdout	""
+stdout	"suspending argument driven 9"
+stdout	"failing argument: no iterator built, root writable 4"
+stdout	"owned iterator from a suspending head 12"
+stdout	""
+meets_expect	yes
+frame	__Frame_note_slow$m$	note_slow	64	8	states=2	own=57	sub=0	bt=0	root=0	method=0	agrees=1
+field	tag	own	0	16	8
+field	__state	own	16	8	8
+field	__wake	own	24	8	8
+field	__io_tok	own	32	8	8
+field	__io_deadline	own	40	8	8
+field	__cancel	own	48	1	1
+field	__result	own	56	8	8
+frame	__Frame_order_driven$m$	order_driven	176	8	states=11	own=113	sub=56	bt=1	root=0	method=0	agrees=1
+field	h	own	0	8	8
+field	__saw_loop_budget	own	8	8	8
+field	total	own	16	8	8
+field	__saw_iter0	own	24	32	8
+field	__ob0	own	56	8	8
+field	__anf0	own	64	8	8
+field	__sub0	sub	72	56	8	callee=__Frame_yield_and$m$	live=9
+field	__state	own	128	8	8
+field	__wake	own	136	8	8
+field	__io_tok	own	144	8	8
+field	__io_deadline	own	152	8	8
+field	__cancel	own	160	1	1
+field	__result	own	168	8	8
+frame	__Frame_owned_from_suspending_head$m$	owned_from_suspending_head	168	8	states=11	own=89	sub=72	bt=2	root=0	method=0	agrees=1
+field	__saw_loop_budget	own	0	8	8
+field	total	own	8	8	8
+field	__saw_iter0	own	16	24	8
+field	__ob0	own	40	8	8
+field	__sub0	sub	48	72	8	callee=__Frame_slow_counter$m$	live=1
+field	__state	own	120	8	8
+field	__wake	own	128	8	8
+field	__io_tok	own	136	8	8
+field	__io_deadline	own	144	8	8
+field	__cancel	own	152	1	1
+field	__result	own	160	8	8
+frame	__Frame_slow_counter$m$	slow_counter	72	8	states=2	own=65	sub=0	bt=3	root=0	method=0	agrees=1
+field	last	own	0	8	8
+field	__state	own	8	8	8
+field	__wake	own	16	8	8
+field	__io_tok	own	24	8	8
+field	__io_deadline	own	32	8	8
+field	__cancel	own	40	1	1
+field	__result	own	48	24	8
+frame	__Frame_suspending_argument_driven$m$	suspending_argument_driven	184	8	states=11	own=113	sub=64	bt=4	root=0	method=0	agrees=1
+field	b	own	0	8	8
+field	__saw_loop_budget	own	8	8	8
+field	total	own	16	8	8
+field	__anf0	own	24	8	8
+field	__saw_iter0	own	32	32	8
+field	__ob0	own	64	8	8
+field	__sub0	sub	72	64	8	callee=__Frame_note_slow$m$	live=1
+field	__state	own	136	8	8
+field	__wake	own	144	8	8
+field	__io_tok	own	152	8	8
+field	__io_deadline	own	160	8	8
+field	__cancel	own	168	1	1
+field	__result	own	176	8	8
+frame	__Frame_yield_and$m$	yield_and	56	8	states=2	own=49	sub=0	bt=5	root=0	method=0	agrees=1
+field	x	own	0	8	8
+field	__state	own	8	8	8
+field	__wake	own	16	8	8
+field	__io_tok	own	24	8	8
+field	__io_deadline	own	32	8	8
+field	__cancel	own	40	1	1
+field	__result	own	48	8	8
+bt	1049	strtab=341	version=1	word_bits=64
+btframe	__Frame_note_slow$m$	note_slow	K138_window_acquire_sequence.saw	16	0 90
+btframe	__Frame_order_driven$m$	order_driven	K138_window_acquire_sequence.saw	128	0 0 0 0 0 0 0 0 124 124>5@72 0
+btframe	__Frame_owned_from_suspending_head$m$	owned_from_suspending_head	K138_window_acquire_sequence.saw	120	0 181>3@48 0 0 0 0 0 0 0 0 181
+btframe	__Frame_slow_counter$m$	slow_counter	K138_window_acquire_sequence.saw	8	0 175
+btframe	__Frame_suspending_argument_driven$m$	suspending_argument_driven	K138_window_acquire_sequence.saw	136	0 143>0@72 0 0 0 0 0 0 0 0 143
+btframe	__Frame_yield_and$m$	yield_and	K138_window_acquire_sequence.saw	8	0 129

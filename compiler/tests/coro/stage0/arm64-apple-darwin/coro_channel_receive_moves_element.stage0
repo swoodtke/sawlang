@@ -1,0 +1,66 @@
+program	coro_channel_receive_moves_element.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"nocopy ctor 7"
+stdout	"nocopy got 7 seven"
+stdout	"nocopy deinit 7 seven"
+stdout	"nocopy join 7"
+stdout	"explicit got 8 eight"
+stdout	"explicit join 8"
+stdout	"vector join 2"
+stdout	"arc after ctor 1"
+stdout	"arc after send 2"
+stdout	"arc in worker 2"
+stdout	"arc join 9"
+stdout	"arc after join 1"
+stdout	"arc deinit 9"
+stdout	""
+meets_expect	yes
+frame	__Frame_arc_worker$m$	arc_worker	136	8	states=7	own=129	sub=0	bt=0	root=1	method=0	agrees=1
+field	ch	own	0	24	8
+field	__trycall0	own	24	40	8
+field	a	own	64	24	8
+field	__have0	own	88	1	1
+field	__state	own	96	8	8
+field	__wake	own	104	8	8
+field	__io_tok	own	112	8	8
+field	__io_deadline	own	120	8	8
+field	__cellp	own	128	8	8
+frame	__Frame_explicit_worker$m$	explicit_worker	136	8	states=7	own=129	sub=0	bt=1	root=1	method=0	agrees=1
+field	ch	own	0	24	8
+field	__trycall0	own	24	40	8
+field	got	own	64	24	8
+field	__have0	own	88	1	1
+field	__state	own	96	8	8
+field	__wake	own	104	8	8
+field	__io_tok	own	112	8	8
+field	__io_deadline	own	120	8	8
+field	__cellp	own	128	8	8
+frame	__Frame_nocopy_worker$m$	nocopy_worker	136	8	states=7	own=129	sub=0	bt=2	root=1	method=0	agrees=1
+field	ch	own	0	24	8
+field	__trycall0	own	24	40	8
+field	got	own	64	24	8
+field	__have0	own	88	1	1
+field	__state	own	96	8	8
+field	__wake	own	104	8	8
+field	__io_tok	own	112	8	8
+field	__io_deadline	own	120	8	8
+field	__cellp	own	128	8	8
+frame	__Frame_vector_worker$m$	vector_worker	160	8	states=7	own=153	sub=0	bt=3	root=1	method=0	agrees=1
+field	ch	own	0	24	8
+field	__trycall0	own	24	48	8
+field	v	own	72	40	8
+field	__have0	own	112	1	1
+field	__state	own	120	8	8
+field	__wake	own	128	8	8
+field	__io_tok	own	136	8	8
+field	__io_deadline	own	144	8	8
+field	__cellp	own	152	8	8
+bt	763	strtab=235	version=1	word_bits=64
+btframe	__Frame_arc_worker$m$	arc_worker	coro_channel_receive_moves_element.saw	96	0 70 0 0 0 0 0
+btframe	__Frame_explicit_worker$m$	explicit_worker	coro_channel_receive_moves_element.saw	96	0 59 0 0 0 0 0
+btframe	__Frame_nocopy_worker$m$	nocopy_worker	coro_channel_receive_moves_element.saw	96	0 53 0 0 0 0 0
+btframe	__Frame_vector_worker$m$	vector_worker	coro_channel_receive_moves_element.saw	120	0 65 0 0 0 0 0

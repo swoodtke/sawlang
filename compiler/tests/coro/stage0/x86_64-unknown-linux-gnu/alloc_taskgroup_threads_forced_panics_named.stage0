@@ -1,0 +1,6 @@
+program	alloc_taskgroup_threads_forced_panics_named.saw
+triple	x86_64-unknown-linux-gnu
+twin	same
+expect	panic
+build	not-run
+layout	same-as	arm64-apple-darwin

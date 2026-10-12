@@ -1,0 +1,98 @@
+program	coro_discarded_match_payload_released_at_extraction.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"-- sync"
+stdout	"NEW t1"
+stdout	"DEINIT t1"
+stdout	"arm"
+stdout	"scope closed"
+stdout	"-- driven"
+stdout	"NEW t1"
+stdout	"DEINIT t1"
+stdout	"arm"
+stdout	"scope closed"
+stdout	"-- sync wildcard"
+stdout	"NEW t2"
+stdout	"DEINIT t2"
+stdout	"arm"
+stdout	"scope closed"
+stdout	"-- driven wildcard"
+stdout	"NEW t2"
+stdout	"DEINIT t2"
+stdout	"arm"
+stdout	"scope closed"
+stdout	"-- sync split"
+stdout	"NEW t3"
+stdout	"DEINIT t3"
+stdout	"arm"
+stdout	"scope closed"
+stdout	"-- driven split"
+stdout	"NEW t3"
+stdout	"DEINIT t3"
+stdout	"arm"
+stdout	"scope closed"
+stdout	"-- sync named"
+stdout	"NEW t4"
+stdout	"arm"
+stdout	"DEINIT t4"
+stdout	"scope closed"
+stdout	"-- driven named"
+stdout	"NEW t4"
+stdout	"arm"
+stdout	"DEINIT t4"
+stdout	"scope closed"
+stdout	""
+meets_expect	yes
+frame	__Frame_driven_discard$m$	driven_discard	168	8	states=3	own=89	sub=72	bt=0	root=0	method=0	agrees=1
+field	__anf0	own	0	24	8
+field	__head0	own	24	32	8
+field	__sub0	sub	56	72	8	callee=__Frame_mk_tag_s$m$	live=1
+field	__state	own	128	8	8
+field	__wake	own	136	8	8
+field	__io_tok	own	144	8	8
+field	__io_deadline	own	152	8	8
+field	__cancel	own	160	1	1
+frame	__Frame_driven_named$m$	driven_named	168	8	states=3	own=89	sub=72	bt=1	root=0	method=0	agrees=1
+field	__anf0	own	0	24	8
+field	__head0	own	24	32	8
+field	__sub0	sub	56	72	8	callee=__Frame_mk_tag_s$m$	live=1
+field	__state	own	128	8	8
+field	__wake	own	136	8	8
+field	__io_tok	own	144	8	8
+field	__io_deadline	own	152	8	8
+field	__cancel	own	160	1	1
+frame	__Frame_driven_split$m$	driven_split	168	8	states=6	own=89	sub=72	bt=2	root=0	method=0	agrees=1
+field	__anf0	own	0	24	8
+field	__head0	own	24	32	8
+field	__sub0	sub	56	72	8	callee=__Frame_mk_tag_s$m$	live=1
+field	__state	own	128	8	8
+field	__wake	own	136	8	8
+field	__io_tok	own	144	8	8
+field	__io_deadline	own	152	8	8
+field	__cancel	own	160	1	1
+frame	__Frame_driven_wildcard$m$	driven_wildcard	168	8	states=3	own=89	sub=72	bt=3	root=0	method=0	agrees=1
+field	__anf0	own	0	24	8
+field	__head0	own	24	32	8
+field	__sub0	sub	56	72	8	callee=__Frame_mk_tag_s$m$	live=1
+field	__state	own	128	8	8
+field	__wake	own	136	8	8
+field	__io_tok	own	144	8	8
+field	__io_deadline	own	152	8	8
+field	__cancel	own	160	1	1
+frame	__Frame_mk_tag_s$m$	mk_tag_s	72	8	states=2	own=65	sub=0	bt=4	root=0	method=0	agrees=1
+field	id	own	0	8	8
+field	__state	own	8	8	8
+field	__wake	own	16	8	8
+field	__io_tok	own	24	8	8
+field	__io_deadline	own	32	8	8
+field	__cancel	own	40	1	1
+field	__result	own	48	24	8
+bt	705	strtab=285	version=1	word_bits=64
+btframe	__Frame_driven_discard$m$	driven_discard	coro_discarded_match_payload_released_at_extraction.saw	128	0 114>4@56 0
+btframe	__Frame_driven_named$m$	driven_named	coro_discarded_match_payload_released_at_extraction.saw	128	0 159>4@56 0
+btframe	__Frame_driven_split$m$	driven_split	coro_discarded_match_payload_released_at_extraction.saw	128	0 142>4@56 0 0 0 144
+btframe	__Frame_driven_wildcard$m$	driven_wildcard	coro_discarded_match_payload_released_at_extraction.saw	128	0 128>4@56 0
+btframe	__Frame_mk_tag_s$m$	mk_tag_s	coro_discarded_match_payload_released_at_extraction.saw	8	0 101

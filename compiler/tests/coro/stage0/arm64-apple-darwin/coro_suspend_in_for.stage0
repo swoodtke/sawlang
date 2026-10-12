@@ -1,0 +1,23 @@
+program	coro_suspend_in_for.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"10"
+stdout	"5"
+stdout	""
+meets_expect	yes
+frame	__Frame_total$m$	total	80	8	states=9	own=73	sub=0	bt=0	root=0	method=0	agrees=1
+field	__saw_loop_budget	own	0	8	8
+field	sum	own	8	8	8
+field	i	own	16	8	8
+field	__end_i	own	24	8	8
+field	__state	own	32	8	8
+field	__wake	own	40	8	8
+field	__io_tok	own	48	8	8
+field	__io_deadline	own	56	8	8
+field	__cancel	own	64	1	1
+field	__result	own	72	8	8
+bt	317	strtab=89	version=1	word_bits=64
+btframe	__Frame_total$m$	total	coro_suspend_in_for.saw	32	0 0 0 0 0 0 0 12 13

@@ -1,0 +1,6 @@
+program	conformance/K87_background_group_cancels_then_joins_at_exit.saw
+triple	x86_64-unknown-linux-gnu
+twin	same
+expect	success
+build	not-run
+layout	same-as	arm64-apple-darwin

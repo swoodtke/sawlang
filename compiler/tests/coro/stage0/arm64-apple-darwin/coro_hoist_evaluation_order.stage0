@@ -1,0 +1,96 @@
+program	coro_hoist_evaluation_order.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"noisy-1"
+stdout	"slow-3"
+stdout	"r1=7"
+stdout	"slow-4"
+stdout	"noisy-2"
+stdout	"r2=10"
+stdout	"noisy-1"
+stdout	"slow-2"
+stdout	"noisy-3"
+stdout	"r3=8"
+stdout	"slow-2"
+stdout	"state=7"
+stdout	"noisy-5"
+stdout	"slow-1"
+stdout	"r5=7"
+stdout	"noisy-6"
+stdout	"slow-1"
+stdout	"r6=6-2"
+stdout	""
+meets_expect	yes
+frame	__Frame_interpolated$m$	interpolated	112	8	states=3	own=56	sub=56	bt=0	root=1	method=0	agrees=1
+field	__anf0	own	0	8	8
+field	__anf1	own	8	8	8
+field	__sub0	sub	16	56	8	callee=__Frame_slow$m$	live=1
+field	__state	own	72	8	8
+field	__wake	own	80	8	8
+field	__io_tok	own	88	8	8
+field	__io_deadline	own	96	8	8
+field	__cellp	own	104	8	8
+frame	__Frame_left_sibling$m$	left_sibling	112	8	states=3	own=56	sub=56	bt=1	root=1	method=0	agrees=1
+field	__anf0	own	0	8	8
+field	__anf1	own	8	8	8
+field	__sub0	sub	16	56	8	callee=__Frame_slow$m$	live=1
+field	__state	own	72	8	8
+field	__wake	own	80	8	8
+field	__io_tok	own	88	8	8
+field	__io_deadline	own	96	8	8
+field	__cellp	own	104	8	8
+frame	__Frame_operand$m$	operand	112	8	states=3	own=56	sub=56	bt=2	root=1	method=0	agrees=1
+field	__anf0	own	0	8	8
+field	__anf1	own	8	8	8
+field	__sub0	sub	16	56	8	callee=__Frame_slow$m$	live=1
+field	__state	own	72	8	8
+field	__wake	own	80	8	8
+field	__io_tok	own	88	8	8
+field	__io_deadline	own	96	8	8
+field	__cellp	own	104	8	8
+frame	__Frame_right_sibling$m$	right_sibling	104	8	states=3	own=48	sub=56	bt=3	root=1	method=0	agrees=1
+field	__anf0	own	0	8	8
+field	__sub0	sub	8	56	8	callee=__Frame_slow$m$	live=1
+field	__state	own	64	8	8
+field	__wake	own	72	8	8
+field	__io_tok	own	80	8	8
+field	__io_deadline	own	88	8	8
+field	__cellp	own	96	8	8
+frame	__Frame_slow$m$	slow	56	8	states=2	own=49	sub=0	bt=4	root=0	method=0	agrees=1
+field	tag	own	0	8	8
+field	__state	own	8	8	8
+field	__wake	own	16	8	8
+field	__io_tok	own	24	8	8
+field	__io_deadline	own	32	8	8
+field	__cancel	own	40	1	1
+field	__result	own	48	8	8
+frame	__Frame_state_shape$m$	state_shape	152	8	states=3	own=96	sub=56	bt=5	root=1	method=0	agrees=1
+field	v	own	0	40	8
+field	__anf0	own	40	8	8
+field	__anf1	own	48	8	8
+field	__sub0	sub	56	56	8	callee=__Frame_slow$m$	live=1
+field	__state	own	112	8	8
+field	__wake	own	120	8	8
+field	__io_tok	own	128	8	8
+field	__io_deadline	own	136	8	8
+field	__cellp	own	144	8	8
+frame	__Frame_three_args$m$	three_args	112	8	states=3	own=56	sub=56	bt=6	root=1	method=0	agrees=1
+field	__anf0	own	0	8	8
+field	__anf1	own	8	8	8
+field	__sub0	sub	16	56	8	callee=__Frame_slow$m$	live=1
+field	__state	own	72	8	8
+field	__wake	own	80	8	8
+field	__io_tok	own	88	8	8
+field	__io_deadline	own	96	8	8
+field	__cellp	own	104	8	8
+bt	807	strtab=303	version=1	word_bits=64
+btframe	__Frame_interpolated$m$	interpolated	coro_hoist_evaluation_order.saw	72	0 83>4@16 0
+btframe	__Frame_left_sibling$m$	left_sibling	coro_hoist_evaluation_order.saw	72	0 53>4@16 0
+btframe	__Frame_operand$m$	operand	coro_hoist_evaluation_order.saw	72	0 78>4@16 0
+btframe	__Frame_right_sibling$m$	right_sibling	coro_hoist_evaluation_order.saw	64	0 59>4@8 0
+btframe	__Frame_slow$m$	slow	coro_hoist_evaluation_order.saw	8	0 38
+btframe	__Frame_state_shape$m$	state_shape	coro_hoist_evaluation_order.saw	112	0 73>4@56 0
+btframe	__Frame_three_args$m$	three_args	coro_hoist_evaluation_order.saw	72	0 64>4@16 0

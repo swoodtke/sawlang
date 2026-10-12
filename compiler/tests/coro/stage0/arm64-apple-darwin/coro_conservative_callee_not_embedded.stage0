@@ -1,0 +1,25 @@
+program	coro_conservative_callee_not_embedded.saw
+triple	arm64-apple-darwin
+twin	differs
+expect	success
+build	ok
+exit	0
+stdout	"entry {\"a\":1}"
+stdout	"public {\"a\":1}"
+stdout	"private {\"a\":1}"
+stdout	"fold 42 42 42"
+stdout	"sum 6 6"
+stdout	"driven root resumed"
+stdout	""
+meets_expect	yes
+frame	__Frame_main	main	160	8	states=2	own=153	sub=0	bt=0	root=0	method=0	agrees=1
+field	doc	own	0	64	8
+field	folder	own	64	16	8
+field	values	own	80	40	8
+field	__state	own	120	8	8
+field	__wake	own	128	8	8
+field	__io_tok	own	136	8	8
+field	__io_deadline	own	144	8	8
+field	__cancel	own	152	1	1
+bt	246	strtab=102	version=1	word_bits=64
+btframe	__Frame_main	main	coro_conservative_callee_not_embedded.saw	120	0 57

@@ -1,0 +1,19 @@
+program	taskgroup_threads_sleep.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"6"
+stdout	""
+meets_expect	yes
+frame	__Frame_napper$m$	napper	64	8	states=4	own=64	sub=0	bt=0	root=1	method=0	agrees=1
+field	nap	own	0	16	8
+field	val	own	16	8	8
+field	__state	own	24	8	8
+field	__wake	own	32	8	8
+field	__io_tok	own	40	8	8
+field	__io_deadline	own	48	8	8
+field	__cellp	own	56	8	8
+bt	263	strtab=95	version=1	word_bits=64
+btframe	__Frame_napper$m$	napper	taskgroup_threads_sleep.saw	24	0 12 13 14

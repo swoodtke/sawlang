@@ -1,0 +1,32 @@
+program	coro_try_catch_suspending.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"worker 42"
+stdout	""
+meets_expect	yes
+frame	__Frame_compute$m$	compute	72	8	states=2	own=58	sub=0	bt=0	root=0	method=0	agrees=1
+field	ok	own	0	1	1
+field	__state	own	8	8	8
+field	__wake	own	16	8	8
+field	__io_tok	own	24	8	8
+field	__io_deadline	own	32	8	8
+field	__cancel	own	40	1	1
+field	__result	own	48	24	8
+frame	__Frame_worker$m$	worker	248	8	states=5	own=104	sub=144	bt=1	root=1	method=0	agrees=1
+field	__trycall0	own	0	24	8
+field	a	own	24	8	8
+field	__trycall1	own	32	24	8
+field	b	own	56	8	8
+field	__sub0	sub	64	72	8	callee=__Frame_compute$m$	live=1
+field	__sub1	sub	136	72	8	callee=__Frame_compute$m$	live=3
+field	__state	own	208	8	8
+field	__wake	own	216	8	8
+field	__io_tok	own	224	8	8
+field	__io_deadline	own	232	8	8
+field	__cellp	own	240	8	8
+bt	352	strtab=124	version=1	word_bits=64
+btframe	__Frame_compute$m$	compute	coro_try_catch_suspending.saw	8	0 34
+btframe	__Frame_worker$m$	worker	coro_try_catch_suspending.saw	208	0 42>0@64 0 43>0@136 0

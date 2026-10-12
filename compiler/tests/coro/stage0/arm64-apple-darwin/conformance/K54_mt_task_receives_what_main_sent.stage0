@@ -1,0 +1,20 @@
+program	conformance/K54_mt_task_receives_what_main_sent.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"task got 5"
+stdout	""
+meets_expect	yes
+frame	__Frame_consume$m$	consume	112	8	states=7	own=105	sub=0	bt=0	root=1	method=0	agrees=1
+field	inbox	own	0	24	8
+field	__trycall0	own	24	40	8
+field	__have0	own	64	1	1
+field	__state	own	72	8	8
+field	__wake	own	80	8	8
+field	__io_tok	own	88	8	8
+field	__io_deadline	own	96	8	8
+field	__cellp	own	104	8	8
+bt	313	strtab=109	version=1	word_bits=64
+btframe	__Frame_consume$m$	consume	K54_mt_task_receives_what_main_sent.saw	72	0 16 0 0 0 0 0

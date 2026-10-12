@@ -1,0 +1,32 @@
+program	coro_bind_id_guardlet_nonspanning.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"inner: 30"
+stdout	"after: 3"
+stdout	"sync inner: 30"
+stdout	"sync after: 3"
+stdout	""
+meets_expect	yes
+frame	__Frame_slow$m$	slow	56	8	states=2	own=49	sub=0	bt=0	root=0	method=0	agrees=1
+field	n	own	0	8	8
+field	__state	own	8	8	8
+field	__wake	own	16	8	8
+field	__io_tok	own	24	8	8
+field	__io_deadline	own	32	8	8
+field	__cancel	own	40	1	1
+field	__result	own	48	8	8
+frame	__Frame_suspending$m$	suspending	112	8	states=3	own=49	sub=56	bt=1	root=0	method=0	agrees=1
+field	n	own	0	8	8
+field	got	own	8	8	8
+field	__sub0	sub	16	56	8	callee=__Frame_slow$m$	live=1
+field	__state	own	72	8	8
+field	__wake	own	80	8	8
+field	__io_tok	own	88	8	8
+field	__io_deadline	own	96	8	8
+field	__cancel	own	104	1	1
+bt	338	strtab=134	version=1	word_bits=64
+btframe	__Frame_slow$m$	slow	coro_bind_id_guardlet_nonspanning.saw	8	0 14
+btframe	__Frame_suspending$m$	suspending	coro_bind_id_guardlet_nonspanning.saw	72	0 24>0@16 0

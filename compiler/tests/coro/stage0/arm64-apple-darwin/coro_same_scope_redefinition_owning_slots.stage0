@@ -1,0 +1,139 @@
+program	coro_same_scope_redefinition_owning_slots.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"D a1"
+stdout	"r1 a12"
+stdout	"D a12"
+stdout	"D b1"
+stdout	"D b12"
+stdout	"r2 b123"
+stdout	"D b123"
+stdout	"D c1"
+stdout	"r3 c12"
+stdout	"D c12"
+stdout	"D d1"
+stdout	"r4 d12"
+stdout	"D d12"
+stdout	"r5 e1 e12"
+stdout	"D e12"
+stdout	"D e1"
+stdout	"r6 f12"
+stdout	"D f12"
+stdout	"D f1"
+stdout	"r7 41 52"
+stdout	"r8 2 3"
+stdout	"r9 g1"
+stdout	"D g1"
+stdout	"r9 g12"
+stdout	"D g12"
+stdout	"r10 h1"
+stdout	"D h1"
+stdout	"r10 h12"
+stdout	"D h12"
+stdout	"r10 h1"
+stdout	"D h1"
+stdout	"r10 h12"
+stdout	"D h12"
+stdout	""
+meets_expect	yes
+frame	__Frame_r1$m$	r1	72	8	states=3	own=65	sub=0	bt=0	root=0	method=0	agrees=1
+field	s	own	0	16	8
+field	__saw_u0_s	own	16	16	8
+field	__state	own	32	8	8
+field	__wake	own	40	8	8
+field	__io_tok	own	48	8	8
+field	__io_deadline	own	56	8	8
+field	__cancel	own	64	1	1
+frame	__Frame_r10$m$	r10	88	8	states=9	own=81	sub=0	bt=1	root=0	method=0	agrees=1
+field	__saw_loop_budget	own	0	8	8
+field	i	own	8	8	8
+field	s	own	16	16	8
+field	__saw_u0_s	own	32	16	8
+field	__state	own	48	8	8
+field	__wake	own	56	8	8
+field	__io_tok	own	64	8	8
+field	__io_deadline	own	72	8	8
+field	__cancel	own	80	1	1
+frame	__Frame_r2$m$	r2	88	8	states=4	own=81	sub=0	bt=2	root=0	method=0	agrees=1
+field	s	own	0	16	8
+field	__saw_u0_s	own	16	16	8
+field	__saw_u1_s	own	32	16	8
+field	__state	own	48	8	8
+field	__wake	own	56	8	8
+field	__io_tok	own	64	8	8
+field	__io_deadline	own	72	8	8
+field	__cancel	own	80	1	1
+frame	__Frame_r3$m$	r3	72	8	states=3	own=65	sub=0	bt=3	root=0	method=0	agrees=1
+field	s	own	0	16	8
+field	__saw_u0_s	own	16	16	8
+field	__state	own	32	8	8
+field	__wake	own	40	8	8
+field	__io_tok	own	48	8	8
+field	__io_deadline	own	56	8	8
+field	__cancel	own	64	1	1
+frame	__Frame_r4$m$	r4	72	8	states=2	own=65	sub=0	bt=4	root=0	method=0	agrees=1
+field	s	own	0	16	8
+field	__saw_u0_s	own	16	16	8
+field	__state	own	32	8	8
+field	__wake	own	40	8	8
+field	__io_tok	own	48	8	8
+field	__io_deadline	own	56	8	8
+field	__cancel	own	64	1	1
+frame	__Frame_r5$m$	r5	72	8	states=3	own=65	sub=0	bt=5	root=0	method=0	agrees=1
+field	s	own	0	16	8
+field	s2	own	16	16	8
+field	__state	own	32	8	8
+field	__wake	own	40	8	8
+field	__io_tok	own	48	8	8
+field	__io_deadline	own	56	8	8
+field	__cancel	own	64	1	1
+frame	__Frame_r6$m$	r6	80	8	states=5	own=66	sub=0	bt=6	root=0	method=0	agrees=1
+field	flag	own	0	1	1
+field	s	own	8	16	8
+field	__saw_u0_s	own	24	16	8
+field	__state	own	40	8	8
+field	__wake	own	48	8	8
+field	__io_tok	own	56	8	8
+field	__io_deadline	own	64	8	8
+field	__cancel	own	72	1	1
+frame	__Frame_r7$m$	r7	88	8	states=7	own=81	sub=0	bt=7	root=0	method=0	agrees=1
+field	s	own	0	24	8
+field	k	own	24	8	8
+field	__saw_u0_k	own	32	8	8
+field	__state	own	40	8	8
+field	__wake	own	48	8	8
+field	__io_tok	own	56	8	8
+field	__io_deadline	own	64	8	8
+field	__cancel	own	72	1	1
+field	__result	own	80	8	8
+frame	__Frame_r8$m$	r8	128	8	states=3	own=121	sub=0	bt=8	root=0	method=0	agrees=1
+field	b	own	0	40	8
+field	n	own	40	8	8
+field	__saw_u0_b	own	48	40	8
+field	__state	own	88	8	8
+field	__wake	own	96	8	8
+field	__io_tok	own	104	8	8
+field	__io_deadline	own	112	8	8
+field	__cancel	own	120	1	1
+frame	__Frame_r9$m$	r9	72	8	states=3	own=72	sub=0	bt=9	root=1	method=0	agrees=1
+field	s	own	0	16	8
+field	__saw_u0_s	own	16	16	8
+field	__state	own	32	8	8
+field	__wake	own	40	8	8
+field	__io_tok	own	48	8	8
+field	__io_deadline	own	56	8	8
+field	__cellp	own	64	8	8
+bt	1100	strtab=260	version=1	word_bits=64
+btframe	__Frame_r1$m$	r1	coro_same_scope_redefinition_owning_slots.saw	32	0 98 100
+btframe	__Frame_r10$m$	r10	coro_same_scope_redefinition_owning_slots.saw	48	0 0 0 0 0 0 203 205 208
+btframe	__Frame_r2$m$	r2	coro_same_scope_redefinition_owning_slots.saw	48	0 107 109 111
+btframe	__Frame_r3$m$	r3	coro_same_scope_redefinition_owning_slots.saw	32	0 118 120
+btframe	__Frame_r4$m$	r4	coro_same_scope_redefinition_owning_slots.saw	32	0 130
+btframe	__Frame_r5$m$	r5	coro_same_scope_redefinition_owning_slots.saw	32	0 136 138
+btframe	__Frame_r6$m$	r6	coro_same_scope_redefinition_owning_slots.saw	40	0 146 0 0 149
+btframe	__Frame_r7$m$	r7	coro_same_scope_redefinition_owning_slots.saw	40	0 0 0 0 0 160 161
+btframe	__Frame_r8$m$	r8	coro_same_scope_redefinition_owning_slots.saw	88	0 181 184
+btframe	__Frame_r9$m$	r9	coro_same_scope_redefinition_owning_slots.saw	32	0 191 194

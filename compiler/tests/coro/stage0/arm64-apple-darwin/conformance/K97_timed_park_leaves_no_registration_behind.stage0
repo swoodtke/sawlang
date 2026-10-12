@@ -1,0 +1,38 @@
+program	conformance/K97_timed_park_leaves_no_registration_behind.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"10 rounds timed out"
+stdout	"deinits=10"
+stdout	""
+meets_expect	yes
+frame	__Frame_TcpStream_read$OL$Duration	TcpStream.read	208	8	states=16	own=201	sub=0	bt=0	root=0	method=1	agrees=1
+field	__recv	own	0	8	8
+field	timeout	own	8	16	8
+field	out	own	24	48	8
+field	at	own	72	8	8
+field	r	own	80	8	8
+field	__state	own	88	8	8
+field	__wake	own	96	8	8
+field	__io_tok	own	104	8	8
+field	__io_deadline	own	112	8	8
+field	__io_fd	own	120	8	8
+field	__io_dir	own	128	8	8
+field	__cancel	own	136	1	1
+field	__result	own	144	64	8
+frame	__Frame_one_round$m$	one_round	352	8	states=3	own=144	sub=208	bt=1	root=1	method=0	agrees=1
+field	s	own	0	16	8
+field	id	own	16	8	8
+field	_held	own	24	16	8
+field	__match0	own	40	64	8
+field	__sub0	sub	104	208	8	callee=__Frame_TcpStream_read$OL$Duration	live=1
+field	__state	own	312	8	8
+field	__wake	own	320	8	8
+field	__io_tok	own	328	8	8
+field	__io_deadline	own	336	8	8
+field	__cellp	own	344	8	8
+bt	552	strtab=180	version=1	word_bits=64
+btframe	__Frame_TcpStream_read$OL$Duration	TcpStream.read	net.saw	88	0 0 0 0 0 0 1065 0 0 0 0 0 0 0 0 1077
+btframe	__Frame_one_round$m$	one_round	K97_timed_park_leaves_no_registration_behind.saw	312	0 40>0@104 0

@@ -1,0 +1,124 @@
+program	spawned_task_runs_before_reactor_park.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"worker connecting"
+stdout	"worker done"
+stdout	"accepted"
+stdout	"done"
+stdout	""
+meets_expect	yes
+frame	__Frame_TcpListener_accept$OL$	TcpListener.accept	104	8	states=13	own=97	sub=0	bt=0	root=0	method=1	agrees=1
+field	__recv	own	0	8	8
+field	c	own	8	8	8
+field	__state	own	16	8	8
+field	__wake	own	24	8	8
+field	__io_tok	own	32	8	8
+field	__io_deadline	own	40	8	8
+field	__io_fd	own	48	8	8
+field	__io_dir	own	56	8	8
+field	__cancel	own	64	1	1
+field	__result	own	72	32	8
+frame	__Frame_TcpStream_connect$OL$String$Int	TcpStream.connect	440	8	states=7	own=101	sub=328	bt=1	root=0	method=1	agrees=1
+field	host	own	0	16	8
+field	port	own	16	8	8
+field	__ob0	own	24	4	4
+field	first	own	32	8	8
+field	__sub0	sub	40	120	8	callee=__Frame_TcpStream_dial	live=3
+field	__sub1	sub	160	88	8	callee=__Frame_TcpStream_resolve_first	live=4
+field	__sub2	sub	248	120	8	callee=__Frame_TcpStream_dial	live=6
+field	__state	own	368	8	8
+field	__wake	own	376	8	8
+field	__io_tok	own	384	8	8
+field	__io_deadline	own	392	8	8
+field	__cancel	own	400	1	1
+field	__result	own	408	32	8
+frame	__Frame_TcpStream_dial	TcpStream.dial	120	8	states=13	own=113	sub=0	bt=2	root=0	method=1	agrees=1
+field	addr	own	0	8	8
+field	port	own	8	8	8
+field	fd	own	16	8	8
+field	check	own	24	8	8
+field	__state	own	32	8	8
+field	__wake	own	40	8	8
+field	__io_tok	own	48	8	8
+field	__io_deadline	own	56	8	8
+field	__io_fd	own	64	8	8
+field	__io_dir	own	72	8	8
+field	__cancel	own	80	1	1
+field	__result	own	88	32	8
+frame	__Frame_TcpStream_read$OL$	TcpStream.read	176	8	states=16	own=169	sub=0	bt=3	root=0	method=1	agrees=1
+field	__recv	own	0	8	8
+field	out	own	8	48	8
+field	r	own	56	8	8
+field	__state	own	64	8	8
+field	__wake	own	72	8	8
+field	__io_tok	own	80	8	8
+field	__io_deadline	own	88	8	8
+field	__io_fd	own	96	8	8
+field	__io_dir	own	104	8	8
+field	__cancel	own	112	1	1
+field	__result	own	120	56	8
+frame	__Frame_TcpStream_resolve_first	TcpStream.resolve_first	88	8	states=5	own=81	sub=0	bt=4	root=0	method=1	agrees=1
+field	host	own	0	16	8
+field	found	own	16	8	4
+field	n	own	24	8	8
+field	__blkjob0	own	32	8	8
+field	__state	own	40	8	8
+field	__wake	own	48	8	8
+field	__io_tok	own	56	8	8
+field	__io_deadline	own	64	8	8
+field	__cancel	own	72	1	1
+field	__result	own	80	8	8
+frame	__Frame_TcpStream_write$OL$String	TcpStream.write	184	8	states=11	own=177	sub=0	bt=5	root=0	method=1	agrees=1
+field	__recv	own	0	8	8
+field	s	own	8	16	8
+field	bytes	own	24	48	8
+field	off	own	72	8	8
+field	total	own	80	8	8
+field	w	own	88	8	8
+field	__state	own	96	8	8
+field	__wake	own	104	8	8
+field	__io_tok	own	112	8	8
+field	__io_deadline	own	120	8	8
+field	__io_fd	own	128	8	8
+field	__io_dir	own	136	8	8
+field	__cancel	own	144	1	1
+field	__result	own	152	32	8
+frame	__Frame_main	main	944	8	states=5	own=657	sub=280	bt=6	root=0	method=0	agrees=1
+field	group	own	0	432	8
+field	listener	own	432	16	8
+field	port	own	448	8	8
+field	h	own	456	64	8
+field	__trycall0	own	520	32	8
+field	s	own	552	16	8
+field	__trycall1	own	568	56	8
+field	__sub0	sub	624	104	8	callee=__Frame_TcpListener_accept$OL$	live=1
+field	__sub1	sub	728	176	8	callee=__Frame_TcpStream_read$OL$	live=3
+field	__state	own	904	8	8
+field	__wake	own	912	8	8
+field	__io_tok	own	920	8	8
+field	__io_deadline	own	928	8	8
+field	__cancel	own	936	1	1
+frame	__Frame_worker$m$	worker	752	8	states=5	own=128	sub=624	bt=7	root=1	method=0	agrees=1
+field	port	own	0	8	8
+field	__trycall0	own	8	32	8
+field	s	own	40	16	8
+field	__trycall1	own	56	32	8
+field	__sub0	sub	88	440	8	callee=__Frame_TcpStream_connect$OL$String$Int	live=1
+field	__sub1	sub	528	184	8	callee=__Frame_TcpStream_write$OL$String	live=3
+field	__state	own	712	8	8
+field	__wake	own	720	8	8
+field	__io_tok	own	728	8	8
+field	__io_deadline	own	736	8	8
+field	__cellp	own	744	8	8
+bt	1617	strtab=429	version=1	word_bits=64
+btframe	__Frame_TcpListener_accept$OL$	TcpListener.accept	net.saw	16	0 0 0 0 0 0 747 0 0 0 0 0 753
+btframe	__Frame_TcpStream_connect$OL$String$Int	TcpStream.connect	net.saw	368	0 0 0 832>2@40 838>4@160 0 842>2@248
+btframe	__Frame_TcpStream_dial	TcpStream.dial	net.saw	32	0 0 0 0 0 0 893 0 0 0 0 0 903
+btframe	__Frame_TcpStream_read$OL$	TcpStream.read	net.saw	64	0 0 0 0 0 0 1023 0 0 0 0 0 0 0 0 1036
+btframe	__Frame_TcpStream_resolve_first	TcpStream.resolve_first	net.saw	40	0 861 0 0 0
+btframe	__Frame_TcpStream_write$OL$String	TcpStream.write	net.saw	96	0 0 0 0 0 0 0 1210 0 0 1219
+btframe	__Frame_main	main	spawned_task_runs_before_reactor_park.saw	904	0 44>0@624 0 46>3@728 0
+btframe	__Frame_worker$m$	worker	spawned_task_runs_before_reactor_park.saw	712	0 33>1@88 0 34>5@528 0

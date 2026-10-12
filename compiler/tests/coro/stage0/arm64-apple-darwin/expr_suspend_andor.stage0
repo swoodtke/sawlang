@@ -1,0 +1,45 @@
+program	expr_suspend_andor.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"0"
+stdout	"0"
+stdout	"1"
+stdout	"1"
+stdout	"1"
+stdout	"1"
+stdout	"2"
+stdout	""
+meets_expect	yes
+frame	__Frame_andRhs$m$	andRhs	96	8	states=5	own=35	sub=48	bt=0	root=0	method=0	agrees=1
+field	c	own	0	1	1
+field	__sub0	sub	8	48	8	callee=__Frame_sb$m$	live=4
+field	__state	own	56	8	8
+field	__wake	own	64	8	8
+field	__io_tok	own	72	8	8
+field	__io_deadline	own	80	8	8
+field	__cancel	own	88	1	1
+field	__result	own	89	1	1
+frame	__Frame_orRhs$m$	orRhs	96	8	states=5	own=35	sub=48	bt=1	root=0	method=0	agrees=1
+field	c	own	0	1	1
+field	__sub0	sub	8	48	8	callee=__Frame_sb$m$	live=4
+field	__state	own	56	8	8
+field	__wake	own	64	8	8
+field	__io_tok	own	72	8	8
+field	__io_deadline	own	80	8	8
+field	__cancel	own	88	1	1
+field	__result	own	89	1	1
+frame	__Frame_sb$m$	sb	48	8	states=2	own=35	sub=0	bt=2	root=0	method=0	agrees=1
+field	b	own	0	1	1
+field	__state	own	8	8	8
+field	__wake	own	16	8	8
+field	__io_tok	own	24	8	8
+field	__io_deadline	own	32	8	8
+field	__cancel	own	40	1	1
+field	__result	own	41	1	1
+bt	442	strtab=130	version=1	word_bits=64
+btframe	__Frame_andRhs$m$	andRhs	expr_suspend_andor.saw	56	0 0 0 0 22>2@8
+btframe	__Frame_orRhs$m$	orRhs	expr_suspend_andor.saw	56	0 0 0 0 23>2@8
+btframe	__Frame_sb$m$	sb	expr_suspend_andor.saw	8	0 18

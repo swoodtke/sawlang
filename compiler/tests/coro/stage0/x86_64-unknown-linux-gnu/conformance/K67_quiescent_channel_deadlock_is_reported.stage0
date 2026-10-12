@@ -1,0 +1,6 @@
+program	conformance/K67_quiescent_channel_deadlock_is_reported.saw
+triple	x86_64-unknown-linux-gnu
+twin	same
+expect	panic
+build	not-run
+layout	same-as	arm64-apple-darwin

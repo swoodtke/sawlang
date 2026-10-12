@@ -1,0 +1,8 @@
+log	"error: cannot suspend in a `sync` closure context: closure calls yield_now (closure suspends at line 17)"
+log	"  --> examples/errors/spinlock_suspending_body.saw:16:16"
+log	"     |"
+log	" 16 |     COUNT.lock({ n in"
+log	"     |                ^"
+log	"   hint: a `sync` context must be transitively suspension-free: remove the suspending call or hoist it out of the sync region"
+log	""
+log	"1 error(s) generated"

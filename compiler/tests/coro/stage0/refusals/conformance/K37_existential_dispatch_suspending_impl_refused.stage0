@@ -1,0 +1,8 @@
+log	"error: cannot dispatch through `any Greeter` to `greet`: `Person` implements it with a SUSPENDING body, and a suspending call needs the callee's frame at compile time — dynamic dispatch has only a vtable word, so there is no frame to embed and nothing to drive"
+log	"  --> examples/conformance/K37_existential_dispatch_suspending_impl_refused.saw:49:6"
+log	"     |"
+log	" 49 |     g.greet()"
+log	"     |      ^"
+log	"   hint: call `greet` on the concrete type, or take the receiver as a generic `<T: Greeter>` (which monomorphizes and keeps the frame identity). Erasing a suspending method is unimplemented by design, not by accident — see DF-223b. This refusal is PENDING SL-322, the heap-allocated-frame design: an existential dispatch of a suspending body and suspending recursion both need a heap frame with an indirect resume, so the two land together and neither alone."
+log	""
+log	"1 error(s) generated"

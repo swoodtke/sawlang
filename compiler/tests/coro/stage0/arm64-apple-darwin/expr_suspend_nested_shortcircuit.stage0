@@ -1,0 +1,110 @@
+program	expr_suspend_nested_shortcircuit.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"7"
+stdout	"0"
+stdout	"5"
+stdout	"1"
+stdout	"8"
+stdout	"1"
+stdout	"6"
+stdout	"2"
+stdout	"1"
+stdout	"2"
+stdout	"0"
+stdout	"3"
+stdout	"6"
+stdout	"3"
+stdout	"10"
+stdout	"4"
+stdout	"v5"
+stdout	"5"
+stdout	""
+meets_expect	yes
+frame	__Frame_in_arg$m$	in_arg	160	8	states=6	own=97	sub=56	bt=0	root=0	method=0	agrees=1
+field	o	own	0	24	8
+field	__ob0	own	24	8	8
+field	__anf0	own	32	8	8
+field	r	own	40	8	8
+field	__vch0	own	48	8	8
+field	__sub0	sub	56	56	8	callee=__Frame_s$m$	live=4
+field	__state	own	112	8	8
+field	__wake	own	120	8	8
+field	__io_tok	own	128	8	8
+field	__io_deadline	own	136	8	8
+field	__cancel	own	144	1	1
+field	__result	own	152	8	8
+frame	__Frame_in_double$m$	in_double	152	8	states=6	own=89	sub=56	bt=1	root=0	method=0	agrees=1
+field	o	own	0	24	8
+field	__ob0	own	24	8	8
+field	__anf0	own	32	8	8
+field	__vch0	own	40	8	8
+field	__sub0	sub	48	56	8	callee=__Frame_s$m$	live=4
+field	__state	own	104	8	8
+field	__wake	own	112	8	8
+field	__io_tok	own	120	8	8
+field	__io_deadline	own	128	8	8
+field	__cancel	own	136	1	1
+field	__result	own	144	8	8
+frame	__Frame_in_interp$m$	in_interp	160	8	states=6	own=97	sub=56	bt=2	root=0	method=0	agrees=1
+field	o	own	0	24	8
+field	__ob0	own	24	8	8
+field	__anf0	own	32	8	8
+field	__vch0	own	40	8	8
+field	__sub0	sub	48	56	8	callee=__Frame_s$m$	live=4
+field	__state	own	104	8	8
+field	__wake	own	112	8	8
+field	__io_tok	own	120	8	8
+field	__io_deadline	own	128	8	8
+field	__cancel	own	136	1	1
+field	__result	own	144	16	8
+frame	__Frame_in_not$m$	in_not	96	8	states=6	own=37	sub=48	bt=3	root=0	method=0	agrees=1
+field	c	own	0	1	1
+field	__anf0	own	1	1	1
+field	__vch0	own	2	1	1
+field	__sub0	sub	8	48	8	callee=__Frame_sb$m$	live=4
+field	__state	own	56	8	8
+field	__wake	own	64	8	8
+field	__io_tok	own	72	8	8
+field	__io_deadline	own	80	8	8
+field	__cancel	own	88	1	1
+field	__result	own	89	1	1
+frame	__Frame_in_operand$m$	in_operand	152	8	states=6	own=89	sub=56	bt=4	root=0	method=0	agrees=1
+field	o	own	0	24	8
+field	__ob0	own	24	8	8
+field	__anf0	own	32	8	8
+field	__vch0	own	40	8	8
+field	__sub0	sub	48	56	8	callee=__Frame_s$m$	live=4
+field	__state	own	104	8	8
+field	__wake	own	112	8	8
+field	__io_tok	own	120	8	8
+field	__io_deadline	own	128	8	8
+field	__cancel	own	136	1	1
+field	__result	own	144	8	8
+frame	__Frame_s$m$	s	56	8	states=2	own=49	sub=0	bt=5	root=0	method=0	agrees=1
+field	n	own	0	8	8
+field	__state	own	8	8	8
+field	__wake	own	16	8	8
+field	__io_tok	own	24	8	8
+field	__io_deadline	own	32	8	8
+field	__cancel	own	40	1	1
+field	__result	own	48	8	8
+frame	__Frame_sb$m$	sb	48	8	states=2	own=35	sub=0	bt=6	root=0	method=0	agrees=1
+field	b	own	0	1	1
+field	__state	own	8	8	8
+field	__wake	own	16	8	8
+field	__io_tok	own	24	8	8
+field	__io_deadline	own	32	8	8
+field	__cancel	own	40	1	1
+field	__result	own	41	1	1
+bt	928	strtab=256	version=1	word_bits=64
+btframe	__Frame_in_arg$m$	in_arg	expr_suspend_nested_shortcircuit.saw	112	0 0 0 0 48>5@56 0
+btframe	__Frame_in_double$m$	in_double	expr_suspend_nested_shortcircuit.saw	104	0 0 0 0 64>5@48 0
+btframe	__Frame_in_interp$m$	in_interp	expr_suspend_nested_shortcircuit.saw	104	0 0 0 0 69>5@48 0
+btframe	__Frame_in_not$m$	in_not	expr_suspend_nested_shortcircuit.saw	56	0 0 0 0 59>6@8 0
+btframe	__Frame_in_operand$m$	in_operand	expr_suspend_nested_shortcircuit.saw	104	0 0 0 0 54>5@48 0
+btframe	__Frame_s$m$	s	expr_suspend_nested_shortcircuit.saw	8	0 33
+btframe	__Frame_sb$m$	sb	expr_suspend_nested_shortcircuit.saw	8	0 39

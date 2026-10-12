@@ -1,0 +1,47 @@
+program	background_task_spawn.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"36"
+stdout	"counter ran"
+stdout	"cancelled early"
+stdout	""
+meets_expect	yes
+frame	__Frame_count_up$m$	count_up	56	8	states=8	own=56	sub=0	bt=0	root=1	method=0	agrees=1
+field	__saw_loop_budget	own	0	8	8
+field	i	own	8	8	8
+field	__state	own	16	8	8
+field	__wake	own	24	8	8
+field	__io_tok	own	32	8	8
+field	__io_deadline	own	40	8	8
+field	__cellp	own	48	8	8
+frame	__Frame_main	main	216	8	states=2	own=209	sub=0	bt=1	root=0	method=0	agrees=1
+field	squared	own	0	64	8
+field	counter	own	64	56	8
+field	spinner	own	120	56	8
+field	__state	own	176	8	8
+field	__wake	own	184	8	8
+field	__io_tok	own	192	8	8
+field	__io_deadline	own	200	8	8
+field	__cancel	own	208	1	1
+frame	__Frame_spin$m$	spin	48	8	states=8	own=48	sub=0	bt=2	root=1	method=0	agrees=1
+field	__saw_loop_budget	own	0	8	8
+field	__state	own	8	8	8
+field	__wake	own	16	8	8
+field	__io_tok	own	24	8	8
+field	__io_deadline	own	32	8	8
+field	__cellp	own	40	8	8
+frame	__Frame_square$m$	square	48	8	states=2	own=48	sub=0	bt=3	root=1	method=0	agrees=1
+field	n	own	0	8	8
+field	__state	own	8	8	8
+field	__wake	own	16	8	8
+field	__io_tok	own	24	8	8
+field	__io_deadline	own	32	8	8
+field	__cellp	own	40	8	8
+bt	593	strtab=161	version=1	word_bits=64
+btframe	__Frame_count_up$m$	count_up	background_task_spawn.saw	16	0 0 0 0 0 0 26 27
+btframe	__Frame_main	main	background_task_spawn.saw	176	0 56
+btframe	__Frame_spin$m$	spin	background_task_spawn.saw	8	0 0 0 0 0 0 34 39
+btframe	__Frame_square$m$	square	background_task_spawn.saw	8	0 20

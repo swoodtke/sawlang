@@ -1,0 +1,63 @@
+program	expr_suspend_optchain_multihop.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"6"
+stdout	"-1"
+stdout	"-1"
+stdout	"1"
+stdout	"9"
+stdout	"-1"
+stdout	"-1"
+stdout	"3"
+stdout	""
+meets_expect	yes
+frame	__Frame_Inner_susp	Inner.susp	56	8	states=2	own=49	sub=0	bt=0	root=0	method=1	agrees=1
+field	__recv	own	0	8	8
+field	__state	own	8	8	8
+field	__wake	own	16	8	8
+field	__io_tok	own	24	8	8
+field	__io_deadline	own	32	8	8
+field	__cancel	own	40	1	1
+field	__result	own	48	8	8
+frame	__Frame_Outer_susp_inner	Outer.susp_inner	72	8	states=2	own=65	sub=0	bt=1	root=0	method=1	agrees=1
+field	__recv	own	0	8	8
+field	__state	own	8	8	8
+field	__wake	own	16	8	8
+field	__io_tok	own	24	8	8
+field	__io_deadline	own	32	8	8
+field	__cancel	own	40	1	1
+field	__result	own	48	24	8
+frame	__Frame_early$m$	early	248	8	states=6	own=169	sub=72	bt=2	root=0	method=0	agrees=1
+field	o	own	0	32	8
+field	__ob0	own	32	24	8
+field	__anf0	own	56	24	8
+field	r	own	80	24	8
+field	__vch0	own	104	24	8
+field	__sub0	sub	128	72	8	callee=__Frame_Outer_susp_inner	live=4
+field	__state	own	200	8	8
+field	__wake	own	208	8	8
+field	__io_tok	own	216	8	8
+field	__io_deadline	own	224	8	8
+field	__cancel	own	232	1	1
+field	__result	own	240	8	8
+frame	__Frame_last$m$	last	208	8	states=6	own=145	sub=56	bt=3	root=0	method=0	agrees=1
+field	o	own	0	32	8
+field	__vch0	own	32	24	8
+field	__ob0	own	56	16	8
+field	__anf0	own	72	8	8
+field	r	own	80	24	8
+field	__sub0	sub	104	56	8	callee=__Frame_Inner_susp	live=4
+field	__state	own	160	8	8
+field	__wake	own	168	8	8
+field	__io_tok	own	176	8	8
+field	__io_deadline	own	184	8	8
+field	__cancel	own	192	1	1
+field	__result	own	200	8	8
+bt	577	strtab=193	version=1	word_bits=64
+btframe	__Frame_Inner_susp	Inner.susp	expr_suspend_optchain_multihop.saw	8	0 25
+btframe	__Frame_Outer_susp_inner	Outer.susp_inner	expr_suspend_optchain_multihop.saw	8	0 33
+btframe	__Frame_early$m$	early	expr_suspend_optchain_multihop.saw	200	0 0 0 0 46>1@128 0
+btframe	__Frame_last$m$	last	expr_suspend_optchain_multihop.saw	160	0 0 0 0 40>0@104 0

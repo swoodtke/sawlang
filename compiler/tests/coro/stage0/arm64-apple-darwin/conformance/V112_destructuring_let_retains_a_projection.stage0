@@ -1,0 +1,68 @@
+program	conformance/V112_destructuring_let_retains_a_projection.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"-- sync named"
+stdout	"identifier 3 -> 5"
+stdout	"member 7 -> 9"
+stdout	"trivial 11 12"
+stdout	"move-once 21 22"
+stdout	"keep 9 9 9 9 21 22"
+stdout	"drop 22"
+stdout	"drop 21"
+stdout	"-- sync wildcard"
+stdout	"W1 named+wildcard  borrowed 6 -> 7"
+stdout	"W2 all-wildcard    borrowed 7 -> 7"
+stdout	"W3 nested-wildcard borrowed 7 -> 8"
+stdout	"W4 named+wildcard  fresh    8 -> 9"
+stdout	"W5 all-wildcard    fresh    9 -> 9"
+stdout	"W6 nested-wildcard fresh    9 -> 10"
+stdout	"W7 all-named       borrowed 10 -> 12"
+stdout	"drop 32"
+stdout	"W8 move-once 31"
+stdout	"hold 12 12 12 12 12 12"
+stdout	"drop 31"
+stdout	"-- entry points"
+stdout	"E1 if-let all-named    inside 5 after 3"
+stdout	"E2 if-let named+wild   inside 4 after 3"
+stdout	"E3 guard-let all-named inside 5 after 3"
+stdout	"E4 if-let fresh        inside 4 after 3"
+stdout	"-- driven"
+stdout	"identifier 3 -> 5"
+stdout	"member 7 -> 9"
+stdout	"D1 named+wildcard  borrowed 12 -> 13"
+stdout	"D2 all-wildcard    borrowed 13 -> 13"
+stdout	"D3 nested-wildcard borrowed 13 -> 14"
+stdout	"D4 named+wildcard  fresh    14 -> 15"
+stdout	"keep 15 15 15 15"
+stdout	"hold 15 15 15"
+stdout	"end"
+stdout	""
+meets_expect	yes
+frame	__Frame_driven_rows$m$	driven_rows	400	8	states=6	own=393	sub=0	bt=0	root=0	method=0	agrees=1
+field	base	own	0	8	8
+field	src	own	8	40	8
+field	before_i	own	48	8	8
+field	a	own	56	24	8
+field	b	own	80	24	8
+field	p	own	104	40	8
+field	before_m	own	144	8	8
+field	c	own	152	24	8
+field	d	own	176	24	8
+field	n	own	200	56	8
+field	d1	own	256	8	8
+field	k1	own	264	24	8
+field	d2	own	288	8	8
+field	d3	own	296	8	8
+field	k3	own	304	24	8
+field	d4	own	328	8	8
+field	k4	own	336	24	8
+field	__state	own	360	8	8
+field	__wake	own	368	8	8
+field	__io_tok	own	376	8	8
+field	__io_deadline	own	384	8	8
+field	__cancel	own	392	1	1
+bt	317	strtab=125	version=1	word_bits=64
+btframe	__Frame_driven_rows$m$	driven_rows	V112_destructuring_let_retains_a_projection.saw	360	0 228 231 237 243 249

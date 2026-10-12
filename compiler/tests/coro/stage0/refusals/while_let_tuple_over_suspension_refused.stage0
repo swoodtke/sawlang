@@ -1,0 +1,7 @@
+log	"error: coroutine transform: a tuple-pattern `while let` whose body spans a suspension in `drain_pairs` is not supported; bind a single name and destructure inside the body"
+log	"  --> examples/while_let_tuple_over_suspension_refused.saw:26:5"
+log	"     |"
+log	" 26 |     while let (a, b) = c.next_pair() {"
+log	"     |     ^"
+log	""
+log	"1 error(s) generated"

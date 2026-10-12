@@ -1,0 +1,38 @@
+program	channel_receive_cancel_mt.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"the receiving task was cancelled"
+stdout	"handled 30"
+stdout	""
+meets_expect	yes
+frame	__Frame_consume$m$	consume	152	8	states=13	own=145	sub=0	bt=0	root=1	method=0	agrees=1
+field	orders	own	0	24	8
+field	progress	own	24	24	8
+field	__saw_loop_budget	own	48	8	8
+field	handled	own	56	8	8
+field	__match0	own	64	40	8
+field	__have0	own	104	1	1
+field	__state	own	112	8	8
+field	__wake	own	120	8	8
+field	__io_tok	own	128	8	8
+field	__io_deadline	own	136	8	8
+field	__cellp	own	144	8	8
+frame	__Frame_main	main	608	8	states=8	own=601	sub=0	bt=1	root=0	method=0	agrees=1
+field	__saw_loop_budget	own	0	8	8
+field	g	own	8	432	8
+field	orders	own	440	24	8
+field	progress	own	464	24	8
+field	h	own	488	64	8
+field	handled	own	552	8	8
+field	ticks	own	560	8	8
+field	__state	own	568	8	8
+field	__wake	own	576	8	8
+field	__io_tok	own	584	8	8
+field	__io_deadline	own	592	8	8
+field	__cancel	own	600	1	1
+bt	513	strtab=117	version=1	word_bits=64
+btframe	__Frame_consume$m$	consume	channel_receive_cancel_mt.saw	112	0 0 0 0 0 0 46 47 0 0 0 0 0
+btframe	__Frame_main	main	channel_receive_cancel_mt.saw	568	0 0 0 0 0 0 70 71

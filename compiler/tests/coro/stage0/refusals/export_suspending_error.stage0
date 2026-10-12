@@ -1,0 +1,8 @@
+log	"error: cannot suspend in an `@export` function: `@export func worker` calls sleep (`worker` suspends at line 8)"
+log	"  --> examples/export_suspending_error.saw:7:1"
+log	"    |"
+log	" 7 | func worker() {"
+log	"    | ^"
+log	"   hint: a `sync` context must be transitively suspension-free: remove the suspending call or hoist it out of the sync region"
+log	""
+log	"1 error(s) generated"

@@ -1,0 +1,8 @@
+log	"error: cannot suspend in `sync func` declaration: `sync func handler` calls `blockingRead` → __saw_test_suspend (`blockingRead` suspends at line 10)"
+log	"  --> examples/errors/sync_module_call.saw:15:1"
+log	"     |"
+log	" 15 | func handler() sync -> Int {"
+log	"     | ^"
+log	"   hint: a `sync` context must be transitively suspension-free: remove the suspending call or hoist it out of the sync region"
+log	""
+log	"1 error(s) generated"

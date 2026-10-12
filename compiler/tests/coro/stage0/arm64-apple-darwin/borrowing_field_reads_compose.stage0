@@ -1,0 +1,25 @@
+program	borrowing_field_reads_compose.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"sync 70"
+stdout	"generic 7"
+stdout	"driven 70"
+stdout	""
+meets_expect	yes
+frame	__Frame_walk_driven$m$	walk_driven	104	8	states=10	own=97	sub=0	bt=0	root=0	method=0	agrees=1
+field	o	own	0	8	8
+field	__saw_loop_budget	own	8	8	8
+field	total	own	16	8	8
+field	__saw_iter0	own	24	24	8
+field	__ob0	own	48	8	8
+field	__state	own	56	8	8
+field	__wake	own	64	8	8
+field	__io_tok	own	72	8	8
+field	__io_deadline	own	80	8	8
+field	__cancel	own	88	1	1
+field	__result	own	96	8	8
+bt	351	strtab=111	version=1	word_bits=64
+btframe	__Frame_walk_driven$m$	walk_driven	borrowing_field_reads_compose.saw	56	0 0 0 0 0 0 0 0 100 101

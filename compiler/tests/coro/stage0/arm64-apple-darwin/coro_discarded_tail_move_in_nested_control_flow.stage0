@@ -1,0 +1,216 @@
+program	coro_discarded_tail_move_in_nested_control_flow.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"1"
+stdout	"2"
+stdout	"3"
+stdout	"4"
+stdout	"5"
+stdout	"6"
+stdout	"7"
+stdout	"8"
+stdout	"9"
+stdout	"10"
+stdout	"8"
+stdout	"11"
+stdout	"12"
+stdout	"13"
+stdout	""
+meets_expect	yes
+frame	__Frame_a_if_no_else$m$	a_if_no_else	144	8	states=10	own=137	sub=0	bt=0	root=0	method=0	agrees=1
+field	items	own	0	40	8
+field	__saw_loop_budget	own	40	8	8
+field	__saw_iter0	own	48	24	8
+field	__ob0	own	72	8	8
+field	r	own	80	16	8
+field	__state	own	96	8	8
+field	__wake	own	104	8	8
+field	__io_tok	own	112	8	8
+field	__io_deadline	own	120	8	8
+field	__cancel	own	128	1	1
+field	__result	own	136	8	8
+frame	__Frame_b_if_else$m$	b_if_else	144	8	states=10	own=137	sub=0	bt=1	root=0	method=0	agrees=1
+field	items	own	0	40	8
+field	__saw_loop_budget	own	40	8	8
+field	__saw_iter0	own	48	24	8
+field	__ob0	own	72	8	8
+field	r	own	80	16	8
+field	__state	own	96	8	8
+field	__wake	own	104	8	8
+field	__io_tok	own	112	8	8
+field	__io_deadline	own	120	8	8
+field	__cancel	own	128	1	1
+field	__result	own	136	8	8
+frame	__Frame_d_match_arms$m$	d_match_arms	144	8	states=10	own=137	sub=0	bt=2	root=0	method=0	agrees=1
+field	items	own	0	40	8
+field	__saw_loop_budget	own	40	8	8
+field	__saw_iter0	own	48	24	8
+field	__ob0	own	72	8	8
+field	r	own	80	16	8
+field	__state	own	96	8	8
+field	__wake	own	104	8	8
+field	__io_tok	own	112	8	8
+field	__io_deadline	own	120	8	8
+field	__cancel	own	128	1	1
+field	__result	own	136	8	8
+frame	__Frame_e_if_let$m$	e_if_let	168	8	states=10	own=161	sub=0	bt=3	root=0	method=0	agrees=1
+field	items	own	0	40	8
+field	__saw_loop_budget	own	40	8	8
+field	__saw_iter0	own	48	24	8
+field	__ob0	own	72	8	8
+field	r	own	80	16	8
+field	opt	own	96	24	8
+field	__state	own	120	8	8
+field	__wake	own	128	8	8
+field	__io_tok	own	136	8	8
+field	__io_deadline	own	144	8	8
+field	__cancel	own	152	1	1
+field	__result	own	160	8	8
+frame	__Frame_f_nested_if$m$	f_nested_if	144	8	states=10	own=137	sub=0	bt=4	root=0	method=0	agrees=1
+field	items	own	0	40	8
+field	__saw_loop_budget	own	40	8	8
+field	__saw_iter0	own	48	24	8
+field	__ob0	own	72	8	8
+field	r	own	80	16	8
+field	__state	own	96	8	8
+field	__wake	own	104	8	8
+field	__io_tok	own	112	8	8
+field	__io_deadline	own	120	8	8
+field	__cancel	own	128	1	1
+field	__result	own	136	8	8
+frame	__Frame_g_try_catch$m$	g_try_catch	152	8	states=10	own=145	sub=0	bt=5	root=0	method=0	agrees=1
+field	items	own	0	40	8
+field	__saw_loop_budget	own	40	8	8
+field	__saw_iter0	own	48	24	8
+field	__ob0	own	72	8	8
+field	r	own	80	16	8
+field	n	own	96	8	8
+field	__state	own	104	8	8
+field	__wake	own	112	8	8
+field	__io_tok	own	120	8	8
+field	__io_deadline	own	128	8	8
+field	__cancel	own	136	1	1
+field	__result	own	144	8	8
+frame	__Frame_h_while_body$m$	h_while_body	88	8	states=8	own=81	sub=0	bt=6	root=0	method=0	agrees=1
+field	n	own	0	8	8
+field	__saw_loop_budget	own	8	8	8
+field	k	own	16	8	8
+field	r	own	24	16	8
+field	__state	own	40	8	8
+field	__wake	own	48	8	8
+field	__io_tok	own	56	8	8
+field	__io_deadline	own	64	8	8
+field	__cancel	own	72	1	1
+field	__result	own	80	8	8
+frame	__Frame_i_nested_loops$m$	i_nested_loops	176	8	states=18	own=169	sub=0	bt=7	root=0	method=0	agrees=1
+field	items	own	0	40	8
+field	__saw_loop_budget	own	40	8	8
+field	__saw_iter0	own	48	24	8
+field	__ob0	own	72	8	8
+field	__saw_iter1	own	80	24	8
+field	__ob1	own	104	8	8
+field	r	own	112	16	8
+field	__state	own	128	8	8
+field	__wake	own	136	8	8
+field	__io_tok	own	144	8	8
+field	__io_deadline	own	152	8	8
+field	__cancel	own	160	1	1
+field	__result	own	168	8	8
+frame	__Frame_j_while_as_tail$m$	j_while_as_tail	152	8	states=16	own=138	sub=0	bt=8	root=0	method=0	agrees=1
+field	items	own	0	40	8
+field	__saw_loop_budget	own	40	8	8
+field	__saw_iter0	own	48	24	8
+field	__ob0	own	72	8	8
+field	once	own	80	1	1
+field	r	own	88	16	8
+field	__state	own	104	8	8
+field	__wake	own	112	8	8
+field	__io_tok	own	120	8	8
+field	__io_deadline	own	128	8	8
+field	__cancel	own	136	1	1
+field	__result	own	144	8	8
+frame	__Frame_l_if_branch$m$	l_if_branch	72	8	states=2	own=65	sub=0	bt=9	root=0	method=0	agrees=1
+field	k	own	0	8	8
+field	r	own	8	16	8
+field	__state	own	24	8	8
+field	__wake	own	32	8	8
+field	__io_tok	own	40	8	8
+field	__io_deadline	own	48	8	8
+field	__cancel	own	56	1	1
+field	__result	own	64	8	8
+frame	__Frame_m_inline_catch$m$	m_inline_catch	144	8	states=10	own=137	sub=0	bt=10	root=0	method=0	agrees=1
+field	items	own	0	40	8
+field	__saw_loop_budget	own	40	8	8
+field	__saw_iter0	own	48	24	8
+field	__ob0	own	72	8	8
+field	r	own	80	16	8
+field	__state	own	96	8	8
+field	__wake	own	104	8	8
+field	__io_tok	own	112	8	8
+field	__io_deadline	own	120	8	8
+field	__cancel	own	128	1	1
+field	__result	own	136	8	8
+frame	__Frame_n_inline_catch_value$m$	n_inline_catch_value	144	8	states=10	own=137	sub=0	bt=11	root=0	method=0	agrees=1
+field	items	own	0	40	8
+field	__saw_loop_budget	own	40	8	8
+field	total	own	48	8	8
+field	__saw_iter0	own	56	24	8
+field	__ob0	own	80	8	8
+field	got	own	88	8	8
+field	__state	own	96	8	8
+field	__wake	own	104	8	8
+field	__io_tok	own	112	8	8
+field	__io_deadline	own	120	8	8
+field	__cancel	own	128	1	1
+field	__result	own	136	8	8
+frame	__Frame_o_guard_else$m$	o_guard_else	176	8	states=12	own=169	sub=0	bt=12	root=0	method=0	agrees=1
+field	items	own	0	40	8
+field	__saw_loop_budget	own	40	8	8
+field	__saw_iter0	own	48	24	8
+field	__ob0	own	72	8	8
+field	r	own	80	16	8
+field	opt	own	96	24	8
+field	__ob1	own	120	8	8
+field	__state	own	128	8	8
+field	__wake	own	136	8	8
+field	__io_tok	own	144	8	8
+field	__io_deadline	own	152	8	8
+field	__cancel	own	160	1	1
+field	__result	own	168	8	8
+frame	__Frame_slow$m$	slow	48	8	states=2	own=41	sub=0	bt=13	root=0	method=0	agrees=1
+field	__state	own	0	8	8
+field	__wake	own	8	8	8
+field	__io_tok	own	16	8	8
+field	__io_deadline	own	24	8	8
+field	__cancel	own	32	1	1
+field	__result	own	40	8	8
+frame	__Frame_value_try_catch$m$	value_try_catch	120	8	states=3	own=65	sub=48	bt=14	root=0	method=0	agrees=1
+field	k	own	0	8	8
+field	n	own	8	8	8
+field	v	own	16	8	8
+field	__sub0	sub	24	48	8	callee=__Frame_slow$m$	live=1
+field	__state	own	72	8	8
+field	__wake	own	80	8	8
+field	__io_tok	own	88	8	8
+field	__io_deadline	own	96	8	8
+field	__cancel	own	104	1	1
+field	__result	own	112	8	8
+bt	2797	strtab=649	version=1	word_bits=64
+btframe	__Frame_a_if_no_else$m$	a_if_no_else	coro_discarded_tail_move_in_nested_control_flow.saw	96	0 106 0 0 0 0 0 0 0 107
+btframe	__Frame_b_if_else$m$	b_if_else	coro_discarded_tail_move_in_nested_control_flow.saw	96	0 117 0 0 0 0 0 0 0 118
+btframe	__Frame_d_match_arms$m$	d_match_arms	coro_discarded_tail_move_in_nested_control_flow.saw	96	0 128 0 0 0 0 0 0 0 129
+btframe	__Frame_e_if_let$m$	e_if_let	coro_discarded_tail_move_in_nested_control_flow.saw	120	0 142 0 0 0 0 0 0 0 143
+btframe	__Frame_f_nested_if$m$	f_nested_if	coro_discarded_tail_move_in_nested_control_flow.saw	96	0 154 0 0 0 0 0 0 0 155
+btframe	__Frame_g_try_catch$m$	g_try_catch	coro_discarded_tail_move_in_nested_control_flow.saw	104	0 165 0 0 0 0 0 0 0 166
+btframe	__Frame_h_while_body$m$	h_while_body	coro_discarded_tail_move_in_nested_control_flow.saw	40	0 181 0 0 0 0 0 183
+btframe	__Frame_i_nested_loops$m$	i_nested_loops	coro_discarded_tail_move_in_nested_control_flow.saw	128	0 194 0 0 0 0 0 0 0 195 0 0 0 0 0 0 0 196
+btframe	__Frame_j_while_as_tail$m$	j_while_as_tail	coro_discarded_tail_move_in_nested_control_flow.saw	104	0 208 0 0 0 0 0 0 0 209 0 0 0 0 0 211
+btframe	__Frame_l_if_branch$m$	l_if_branch	coro_discarded_tail_move_in_nested_control_flow.saw	24	0 225
+btframe	__Frame_m_inline_catch$m$	m_inline_catch	coro_discarded_tail_move_in_nested_control_flow.saw	96	0 255 0 0 0 0 0 0 0 256
+btframe	__Frame_n_inline_catch_value$m$	n_inline_catch_value	coro_discarded_tail_move_in_nested_control_flow.saw	96	0 269 0 0 0 0 0 0 0 271
+btframe	__Frame_o_guard_else$m$	o_guard_else	coro_discarded_tail_move_in_nested_control_flow.saw	128	0 281 0 0 0 0 0 0 0 282 0 0
+btframe	__Frame_slow$m$	slow	coro_discarded_tail_move_in_nested_control_flow.saw	0	0 100
+btframe	__Frame_value_try_catch$m$	value_try_catch	coro_discarded_tail_move_in_nested_control_flow.saw	72	0 239>13@24 0
