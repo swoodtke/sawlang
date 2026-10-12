@@ -841,6 +841,22 @@ sawc2 searches the importing file's own directory, then its package root, and no
 
 **Checker:** the existing `deinit-body` rule refuses a `deinit` in compiler source. The std modules in the cone are reviewed against this entry in `compiler/tools/std_cone_review.md`, and adding a std write or process API re-checks it (the allowlist pin).
 
+### S29. A temporary on a conditionally evaluated operand: dropped uninitialised, twice, or never (SL-541)
+
+**Shape (silent: an uninitialised or double drop, a hang, or a leak):** Stage 0 drops a temporary made on an operand that only some paths evaluate at the end of its statement, with no flag:
+- **`??`'s right side** (`maybe(k) ?? mk(30 + k).val()`): when the left is present, the never-made temporary is dropped from garbage; when it is absent, the temporary drops twice;
+- **a BARE value-`match` arm** (`case _ -> mk(80 + k).val()`): a garbage drop on a pass that takes another arm. With a `Vector` temporary, Stage 0 HANGS. Both block-arm spellings (`case _ -> { … }`) drop correctly;
+- **a plain `match` guard** (`case j if mk(20 + j).ok() ->`): a garbage drop on a pass an earlier arm takes;
+- **the right side of `&&` in a `while` condition**: the temporary is never dropped, a leak.
+
+The right side of `&&`/`||` in an `if` condition or a `let`, a middle operand, and a value `if` arm are right. sawc2 is right everywhere: each such operand is its own temporary scope (SL:open-questions D42). Repros: fe3's `sweep.saw` and `sweep2p.saw` (SL-541), and the Air's reproduction of the live instance (SL-541 c2).
+
+**Live instance in the compiler source** (the Air, SL-541 c2): `cand_param_count`'s `case Memberwise -> self.struct_fields(c.decl).len()` makes an owning `Vector<Int>` temporary in a bare arm. Today's frame layout makes it harmless, which the fixpoint lane shows, but nothing guarantees the slot stays that way.
+
+**Instead:** write the arm as a block, `case Memberwise -> { self.struct_fields(c.decl).len() }`, or bind the operand's value to a `let` before the statement, so no owning temporary sits on a conditional operand. Mark it `// Stage 0 workaround (SL:hazards S29): canonical: <the bare arm>`.
+
+**Checker:** yes, once it lands with SL-508's patch. A syntactic subset rule refuses, in compiler source, an owning-temporary shape (a call whose result is the receiver of another call, field access or method) in a bare value-`match` arm, a guard, or a `??` right side. The `while … && call` face can only leak, which Stage 1 tolerates ("Leaks are tolerated in Stage 1" above), so the rule doesn't cover it.
+
 ## Loud hazards
 
 ### L1. Integer literal adoption (SL-13, SL-53, SL-56, SL-70, SL-75, SL-84, SL-194)
