@@ -1,0 +1,21 @@
+// A compound shift's count is no peer of its target, as a binary shift's is
+// not (spec, Integer Width Agreement: "The compound forms `<<=` and `>>=`
+// follow"): a count at another width than the target's keeps its own type,
+// and a constant count is an `Int` (SL-514).
+
+func main() {
+    var u: UInt8 = 1
+    let k8: UInt8 = 2
+    let k64: Int64 = 3
+    var w: Int32 = 1
+    let ku: UInt = 1
+    u <<= k8
+    u >>= k64
+    w <<= ku
+    w >>= k8
+    u <<= 3
+    w >>= (1 + 2)
+    let x: UInt16 = 5
+    let y = x << k8
+    print("{} {} {}", u, w, y)
+}

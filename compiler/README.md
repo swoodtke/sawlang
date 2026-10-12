@@ -466,6 +466,7 @@ so it is compiled by itself, without the source rules.
 | `interpolation-line-break` | a line break inside an interpolation's braces | S21 |
 | `inline-module` | every inline `module name { }` | S22 |
 | `owned-operand` | an operand Stage 0's `_is_owned_temporary` calls an owned temporary, as a comparison operand, an interpolation segment, a format argument of `print`, `panic` or `assert`, or the operand of an `as` cast that builds a new value rather than forwarding it, a string literal exempt; any interpolation segment codegen renders through a synthesized `to_string()` (a type off its builtin fast path, such as a user `Printable`), a named place included | S23 |
+| `conditional-temporary` | a call's result read through a method, a field, an index or a tuple element in a bare value-`match` arm, a `match` guard or the right side of `??`, an operand only some paths evaluate | S29 |
 | `from-raw-literal` | `from(raw:)` with a bare literal | L1 |
 | `closure-syntax` | an unannotated closure parameter, `$0`, a trailing closure, a function type under `?` | L2 |
 | `default-value-literal` | a default parameter value that is not a literal | L3 |

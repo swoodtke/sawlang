@@ -1,0 +1,128 @@
+// The body verifier admits a generic call's instantiation naming a type
+// parameter its body sees, as a recursive call does, and reports one naming a
+// parameter it cannot see, which only a signature leaking into a call could
+// put there. The verifier reads no text, so the fixture
+// `compiler/tests/typecheck/inject/instantiations.saw` is checked clean, then
+// edited twice: `ping`'s call of `pong` is instantiated at `pong`'s own `U`,
+// and `count`'s call of itself at that same `U`. Each edit must be reported.
+// Paths are the repository root's, where the runner runs.
+import sawresolve.model.{ResDeclKind}
+import sawtypecheck.api.{typecheck_program}
+import sawtypecheck.bodyverify.{tc_verify_bodies}
+import sawtypecheck.program.{TcProgram}
+// For the extension writing `mk_param`, the interner's one way to form a
+// type parameter.
+import sawtypecheck.signatures.{TcContext}
+import sawtypecheck.types.{TcKind}
+
+// The index of module `name`, or -1.
+func module_index(p: &TcProgram, name: String) -> Int {
+    var m = 0
+    while m < p.res.module_count() {
+        if p.res.module_name(m).equals(name) {
+            return m
+        }
+        m = m + 1
+    }
+    return -1
+}
+
+// Module `m`'s function named `name`, or -1.
+func function_named(p: &TcProgram, m: Int, name: String) -> Int {
+    var d = 0
+    while d < p.res.decls.len() {
+        let info = p.res.decls[d]
+        if info.module == m && info.kind == ResDeclKind.Func && info.name >= 0 && p.res.name_text(info.name).equals(name) {
+            return d
+        }
+        d = d + 1
+    }
+    return -1
+}
+
+// The record of a call of `target` instantiated at a type parameter, or -1.
+func call_at_param(p: &TcProgram, target: Int) -> Int {
+    var k = 0
+    while k < p.calls.len() {
+        let c = p.calls[k]
+        if c.target == target && c.inst_count == 1 {
+            let arg = p.insts[c.inst_first]
+            if p.ty(arg).kind == TcKind.Param {
+                return k
+            }
+        }
+        k = k + 1
+    }
+    return -1
+}
+
+// Whether `text` holds `word` at some byte.
+func holds(text: &String, word: String) -> Bool {
+    let n = text.len()
+    let w = word.len()
+    var at = 0
+    while at + w <= n {
+        var k = 0
+        while k < w && text.byte_at(at + k) == word.byte_at(k) {
+            k = k + 1
+        }
+        if k == w {
+            return true
+        }
+        at = at + 1
+    }
+    false
+}
+
+// How many of `found` report an instantiation naming an unseen parameter.
+func unseen(found: &Vector<String>) -> Int {
+    var count = 0
+    var k = 0
+    while k < found.len() {
+        let line = found.get(k) ?? ""
+        if holds(&line, "names a type parameter its body cannot see") {
+            count = count + 1
+        }
+        k = k + 1
+    }
+    count
+}
+
+// The fixture checked clean.
+func checked(names: &Vector<String>, dirs: &Vector<String>) -> TcProgram {
+    let p = typecheck_program("compiler/tests/typecheck/inject/instantiations.saw", "sawc", &names, &dirs)
+    let m = module_index(&p, "instantiations")
+    assert(m >= 0, "the fixture did not load: run from the repository root")
+    assert(p.error_count() == 0, "the fixture is refused")
+    let clean = tc_verify_bodies(&p, m)
+    assert(clean.len() == 0, "the fixture's bodies are not clean before the edit")
+    move p
+}
+
+// Call `target`'s instantiation at a parameter rewritten to `pong`'s own.
+func edited(names: &Vector<String>, dirs: &Vector<String>, target_name: String) -> Vector<String> {
+    var p = checked(&names, &dirs)
+    let m = module_index(&p, "instantiations")
+    let target = function_named(&p, m, target_name)
+    let pong = function_named(&p, m, "pong")
+    assert(target >= 0 && pong >= 0, "the fixture lacks its functions")
+    let at = call_at_param(&p, target)
+    assert(at >= 0, "the fixture holds no call instantiated at a parameter")
+    let c = p.calls[at]
+    let foreign = p.mk_param(pong, 0)
+    p.insts[c.inst_first] = foreign
+    tc_verify_bodies(&p, m)
+}
+
+func main() {
+    let names = Vector<String>()
+    let dirs = Vector<String>()
+
+    // `ping` calling `pong<U>`: `U` is `pong`'s, which `ping`'s body cannot see.
+    let leaked = edited(&names, &dirs, "pong")
+    assert(unseen(&leaked) == 1, "the verifier admits a callee's own parameter in its caller's call")
+
+    // `count` calling itself at `pong`'s `U`, a parameter of neither.
+    let foreign = edited(&names, &dirs, "count")
+    assert(unseen(&foreign) == 1, "the verifier admits another declaration's parameter in a recursive call")
+}

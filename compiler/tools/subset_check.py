@@ -75,6 +75,7 @@ RULES = {
     "interpolation-line-break": "SL:hazards S21",
     "inline-module": "SL:hazards S22",
     "owned-operand": "SL:hazards S23",
+    "conditional-temporary": "SL:hazards S29",
     "from-raw-literal": "SL:hazards L1",
     "closure-syntax": "SL:hazards L2",
     "default-value-literal": "SL:hazards L3",
@@ -648,6 +649,27 @@ def _collect(value, out):
             _collect(v, out)
     elif dataclasses.is_dataclass(value) and not isinstance(value, type):
         out.append(value)
+
+
+def conditional_temporary(expr):
+    """The first method, field, index or tuple element `expr` reads off a
+    call's result, a temporary the frozen compiler drops at the end of the
+    statement whether or not the operand holding it ran (SL:hazards S29), or
+    None. A block or a closure inside is a scope of its own and is not
+    searched."""
+    stack = [expr]
+    while stack:
+        n = stack.pop()
+        if n is None or isinstance(n, (A.Block, A.ClosureExpr)):
+            continue
+        if isinstance(n, (A.MethodCall, A.MemberAccess)) and isinstance(n.object, CALLS):
+            return n
+        if isinstance(n, A.ArrayIndex) and isinstance(n.array_expr, CALLS):
+            return n
+        if isinstance(n, A.TupleIndex) and isinstance(n.tuple_expr, CALLS):
+            return n
+        stack.extend(children(n))
+    return None
 
 
 def walk(node):
@@ -1737,6 +1759,8 @@ class BodyChecker:
                 if terms > MAX_CHAIN:
                     self.report(e.line, "chain-length",
                                 "a `??` chain of %d terms; split it" % terms)
+            self.check_conditional_temporary(e.default, "the right side of `??`",
+                                             "write it as a `match` whose arms are blocks")
             self.expr(e.expr, e)
             self.expr(e.default, e)
         elif isinstance(e, A.ReferenceExpr):
@@ -1837,12 +1861,30 @@ class BodyChecker:
             types = self.arm_payload_types(scrutinee_type, arm)
             for name in pattern_names(arm.pattern, arm.bindings):
                 self.bind(name, "pattern", borrowed=borrowed, type_=types.get(name))
+            self.check_conditional_temporary(arm.guard, "a `match` guard",
+                                             "test it inside the arm's block")
             self.expr(arm.guard, arm)
             if isinstance(arm.body, A.Block):
                 self.block(arm.body)
             else:
+                self.check_conditional_temporary(arm.body, "a bare `match` arm",
+                                                 "write the arm as a block")
                 self.expr(arm.body, arm)
             self.pop()
+
+    def check_conditional_temporary(self, expr, position, fix):
+        """An owning-temporary shape on an operand only some paths evaluate:
+        a bare arm, a guard, the right side of `??`."""
+        if expr is None:
+            return
+        hop = conditional_temporary(expr)
+        if hop is not None:
+            self.report(getattr(hop, "line", None) or expr.line, "conditional-temporary",
+                        "a call's result read through a method, a field or an index in "
+                        "%s is dropped by the "
+                        "frozen compiler whether or not that operand ran; %s, and mark "
+                        "it `// Stage 0 workaround (SL:hazards S29): canonical: <the "
+                        "original line>`" % (position, fix))
 
     def arm_payload_types(self, scrutinee, arm):
         """The written type of each name an enum-case arm binds, by position in

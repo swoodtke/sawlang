@@ -1,0 +1,51 @@
+// `<<=` and `>>=` at every integer width, each count at a width other than
+// its target's, as the binary shift takes its count (SL-514).
+func main() {
+    var a: Int8 = 1
+    var b: Int16 = 1
+    var c: Int32 = 1
+    var d: Int64 = 1
+    var e: Int = 1
+    var f: UInt8 = 1
+    var g: UInt16 = 1
+    var h: UInt32 = 1
+    var i: UInt64 = 1
+    var j: UInt = 1
+    let k8: UInt8 = 2
+    let k16: Int16 = 3
+    let k32: UInt32 = 4
+    let k64: Int64 = 5
+    let k: Int = 1
+    let ku: UInt = 1
+    a <<= k8
+    b <<= k32
+    c <<= k64
+    d <<= k16
+    e <<= ku
+    f <<= k8
+    g <<= k64
+    h <<= k16
+    i <<= k
+    j <<= k32
+    print("{} {} {} {} {} {} {} {} {} {}", a, b, c, d, e, f, g, h, i, j)
+    a >>= k
+    b >>= k8
+    c >>= ku
+    d >>= k32
+    e >>= k64
+    f >>= k16
+    g >>= k8
+    h >>= k64
+    i >>= k32
+    j >>= k16
+    print("{} {} {} {} {} {} {} {} {} {}", a, b, c, d, e, f, g, h, i, j)
+    f <<= 3
+    g >>= 1
+    h <<= (1 + 2)
+    print("{} {} {}", f, g, h)
+    var m: Int8 = -64
+    m >>= k8
+    print("{}", m)
+    let x: UInt8 = 200
+    print("{} {}", x << k8, x >> k64)
+}

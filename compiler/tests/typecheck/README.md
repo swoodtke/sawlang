@@ -13,6 +13,8 @@ typecheck/
   golden/            NAME.saw, a program, and NAME.typecheck, its expected record
   multi/             NAME/main.saw and its modules, and NAME.typecheck
   refuse/            RULE[.VARIANT].saw
+  inject/            NAME.saw, a program a unit program checks, then edits, to
+                     prove the body verifier reports a record no check makes
   frozen_check.py    signatures, Copy tiers, call targets and binding types against
                      the frozen compiler's
   frozen_effects.py  exhaustiveness, discarded-Result and suspension verdicts
@@ -347,7 +349,7 @@ SL:architecture §3.4, each a function `expect`'s docstring names:
 | a body's tail | `check_body_tail` | funnel, peeling |
 | the `if`, `else` and `match` results that merge | `check_branch` | funnel, control |
 | an enum payload | `check_payload` | funnel, calls |
-| a compound assignment's right side | `check_compound_value` | funnel, places |
+| a compound assignment's right side, but a shift's count, which is no peer | `check_compound_value` | funnel, places |
 | a collection literal's element, key and value, a tuple's element | `check_element` | funnel |
 | a closure's tail and branch results | `check_closure_tail` | funnel, control |
 | a mixed operator's other operand; a comparison's, borrowed | `check_operand`, `check_compared` | funnel, operators, peeling |
@@ -561,7 +563,7 @@ Every body construct in the slice, and how it is typed:
 |---|---|---|
 | integer, float, string, `Bool` and `None` literals, `#file`, `#line`, `#function` | `Int` adopting its slot, range-checked, or a suffixed literal's exact type; `Float`, `String`, `Bool`; the slot's Optional, or the Ok payload's `None` at a `Result<T?, E>` slot (spec, Auto-Wrap: "At a declared `Result<T?, E>` it is `Ok(None)`") | funnel, peeling, widening, none_ok |
 | a constant expression: literals, module statics of an integer type and raw-backed cases, under `-`, `~`, arithmetic, shift and bit operators; `fold.saw` also folds a type alias's construction over one, `Byte(65)`, as the identity, for the evaluator's agreement | adopts its slot, or its mixed operator's peer, and folds there by typed arithmetic, every literal and leaf fitting and no operation overflowing; a bare static adopts only as a leaf inside one, and keeps its declared type anywhere else, an operator's peer included (spec, Integer Width Agreement: "a module `static`… may be a leaf"); a combination of cases with no integer slot is the backing integer (spec, Flag enums) | funnel, widening, folding |
-| a shift, `a << n` | the left operand's type; each count an integer of any width, no peer ("The shift count is exempt") | widening |
+| a shift, `a << n`, and a compound one, `a <<= n` | the left operand's type; each count an integer of any width, no peer ("The shift count is exempt", "The compound forms `<<=` and `>>=` follow"), a constant one an `Int`; only a wholly constant shift folds, so a constant count beside a run-time value is range-checked at run time (spec, Bitwise and Shift Operators) | widening, compound_shifts; operator.undefined.compound-shift-count |
 | an interpolation, its segments | `String`; each segment Printable or a primitive, or an erased box `Box<any Trait>` whose trait refines Printable, rendered through the existential; borrowed | format, split_conformance |
 | a local, a parameter, a static, `self` | its type, a place | places |
 | a const parameter, `N` | a value of its declared type, not a place (design 148) | builtin_values |
@@ -1189,7 +1191,13 @@ expression and pattern was typed exactly once, that no type is left unresolved i
 no other module's refusal poisoned (SL:architecture §3.0), that each
 has a use and a value use a transfer that fits its category, that each call has
 a target and as many type arguments as its target has parameters, none of them
-its target's own, that each call the overload filter resolved records a total
+naming a type parameter its body does not see (its declaration's own, or the
+type its extension extends): a recursive call names its own parameters, and a
+parameter of the callee's signature in its caller's call can only have leaked
+there (golden `generic_recursion`; the unit program
+`compiler/typecheck/tests/verify_instantiations.saw` edits
+`inject/instantiations.saw`'s calls to name an unseen parameter and requires
+the report), that each call the overload filter resolved records a total
 argument binding (every written argument binds exactly one parameter or falls
 in the variadic tail, and every parameter no argument binds has a default),
 that each closure records a capture, with a capture's transfer, of every

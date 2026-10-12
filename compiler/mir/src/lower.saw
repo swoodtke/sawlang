@@ -1313,7 +1313,8 @@ extension MirProgram {
     }
 
     // A condition's operand, its temporaries dropped before the branch reads
-    // it.
+    // it: a construct's head, a guard, or an operand of `&&` or `||` between
+    // the first and the last.
     public func condition_operand(&var self, e: Int) -> Int {
         let _ = self.open_scope()
         let mark = self.scope_marks[self.scope_marks.len() - 1]
@@ -3264,7 +3265,8 @@ extension MirProgram {
     }
 
     // `a && b`, `a || b`: each operand after the first evaluated only on the
-    // path the ones before leave open.
+    // path the ones before leave open, and in a scope of its own, so the
+    // temporaries it makes die on that path before the paths join.
     func logic(&var self, e: Int, conjunction: Bool) -> Int {
         let t = self.tc.expr_types[e]
         var operands = Vector<Int>()
@@ -3282,7 +3284,12 @@ extension MirProgram {
         let settled = if conjunction { "false" } else { "true" }
         k = 0
         while k + 1 < operands.len() {
-            let o = self.operand(operands[k])
+            var o = -1
+            if k == 0 {
+                o = self.operand(operands[k])
+            } else {
+                o = self.condition_operand(operands[k])
+            }
             let next = self.new_block()
             let short = self.new_block()
             if conjunction {
@@ -3300,11 +3307,20 @@ extension MirProgram {
             k = k + 1
         }
         let rp = self.place_local(r)
-        self.lower_into(operands[operands.len() - 1], rp)
+        self.scoped_into(operands[operands.len() - 1], rp)
         self.goto(join)
         self.enter(join)
         let p = self.place_local(r)
         self.op_move(p)
+    }
+
+    // Expression `e`, an operand only some paths evaluate, into place `dest`
+    // in a scope of its own, which ends before those paths join: a temporary
+    // made there would otherwise reach the join assigned on one path only.
+    func scoped_into(&var self, e: Int, dest: Int) {
+        let _ = self.open_scope()
+        self.lower_into(e, dest)
+        self.close_scope()
     }
 
     // `a == b` and the other comparisons: a builtin operator over borrowed
@@ -3410,6 +3426,13 @@ extension MirProgram {
         let none = self.optional_case("None")
         k = 0
         while k + 1 < operands.len() {
+            // An operand after the first is evaluated only when the ones
+            // before are absent, so it gets a scope of its own, ended on both
+            // of its edges.
+            var depth = -1
+            if k > 0 {
+                depth = self.open_scope()
+            }
             let o = self.operand(operands[k])
             let p = self.as_place(mir_operand_val(o), operands[k])
             // An optional default keeps the left operand whole when the two
@@ -3444,16 +3467,22 @@ extension MirProgram {
                     self.dissolve(p, &taken, e)
                 }
             }
+            if depth >= 0 {
+                self.unwind_to(depth)
+            }
             self.goto(join)
             self.enter(absent)
             if consuming {
                 let none_taken = Vector<Int>()
                 self.dissolve(p, &none_taken, e)
             }
+            if depth >= 0 {
+                self.close_scope()
+            }
             k = k + 1
         }
         let rp = self.place_local(r)
-        self.lower_into(operands[operands.len() - 1], rp)
+        self.scoped_into(operands[operands.len() - 1], rp)
         self.goto(join)
         self.enter(join)
         self.move_local(r)

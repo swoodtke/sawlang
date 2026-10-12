@@ -4653,7 +4653,9 @@ accessor is called. Inside a borrow, a bound place is passed on the same way
 a temporary is legal for a shared `&` argument, as in `m.find(&"zz")` or
 `m.find(&key_of(x))`. The temporary lives to the end of the statement, or, in a
 borrow's head, until that borrow closes, and the reference cannot outlive it,
-since a reference is never stored.
+since a reference is never stored. One made on an operand that only some
+paths evaluate, such as the right side of `&&` or `??`, lives only to the end
+of that operand (see [The Deinit trait](#the-deinit-trait)).
 
 **The binding keyword is a capability on the place, and the declaration
 charges the root.** `borrow let` and bare `borrow` only read the place, and are
@@ -5877,6 +5879,95 @@ func main() {
     let (y, _) = (Res(id: 3), Res(id: 4))
     print("bound {}", y.id)
     // prints: deinit 4, bound 3, then deinit 3 when main ends
+}
+```
+
+A temporary, a value an expression makes that no binding holds, is destroyed
+at the end of its statement, temporaries in reverse order of creation; a
+condition of `if`, `while` or `guard`, and a `match` guard, ends before the
+branch it decides. A block ends its own temporaries, its tail expression's
+included, so a value `if` or a braced `match` arm destroys what its tail made
+before the expression around it goes on.
+
+An operand that only some paths evaluate is a temporary scope of its own: the
+right side of `&&` or `||`, an operand of either between the first and the
+last, every operand of `??` after the first, and a bare `match` arm, as a
+braced arm is. A temporary made there is destroyed at the end of its own
+operand, on the path that made it, before any later temporary of the statement
+is made. Its destruction is decided where it is written, so it never needs a
+run-time record of whether the operand ran.
+
+```saw
+struct Res {
+    id: Int
+}
+
+extension Res: NoCopy {
+    func deinit(&var self) {
+        print("deinit {}", self.id)
+    }
+}
+
+extension Res {
+    func ready(&self) -> Bool {
+        true
+    }
+}
+
+func open(id: Int) -> Res {
+    Res(id: id)
+}
+
+func main() {
+    let warm = true
+    let same = (warm && open(1).ready()) == open(2).ready()
+    print("same {}", same)
+    // prints: deinit 1, deinit 2, same true
+    let cold = false
+    let either = cold || open(3).ready()
+    print("either {}", either)
+    // prints: deinit 3, either true
+}
+```
+
+`open(1)` is made on the right side of `&&`, so it is destroyed there, before
+`open(2)` exists. A statement-end rule would destroy it last.
+
+An arm and a block end the same way:
+
+```saw
+struct Res {
+    id: Int
+}
+
+extension Res: NoCopy {
+    func deinit(&var self) {
+        print("deinit {}", self.id)
+    }
+}
+
+extension Res {
+    func size(&self) -> Int {
+        self.id
+    }
+}
+
+func open(id: Int) -> Res {
+    Res(id: id)
+}
+
+func main() {
+    let k = 1
+    let total = match k {
+        case 0 -> 0,
+        case _ -> open(1).size()
+    } + open(2).size()
+    print("total {}", total)
+    // prints: deinit 1, deinit 2, total 3
+    let warm = true
+    let sum = (if warm { open(3).size() } else { 0 }) + open(4).size()
+    print("sum {}", sum)
+    // prints: deinit 3, deinit 4, sum 7
 }
 ```
 

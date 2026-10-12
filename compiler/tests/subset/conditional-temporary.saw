@@ -1,0 +1,144 @@
+// A call's result read through a method, a field, an index or a tuple element
+// on an operand only some paths evaluate, which the frozen compiler drops at
+// the end of the statement whether or not the operand ran (SL:hazards S29): a
+// bare `match` arm, a guard, and the right side of `??`. A block arm, a bare arm holding a single call or a plain
+// value, and `&&` or `||` in an `if`, which it gets right, are not refused.
+struct CtempRow {
+    cells: Vector<Int>
+}
+
+extension CtempRow: NoCopy {}
+
+func ctemp_row(n: Int) -> CtempRow {
+    var cells = Vector<Int>()
+    try! cells.push(n)
+    CtempRow(cells: move cells)
+}
+
+func ctemp_cells(n: Int) -> Vector<Int> {
+    var cells = Vector<Int>()
+    try! cells.push(n)
+    move cells
+}
+
+func ctemp_maybe(n: Int) -> Int? {
+    if n > 0 {
+        return n
+    }
+    None
+}
+
+func ctemp_bare_method(k: Int) -> Int {
+    match k {
+        case 0 -> 0,
+        case _ -> ctemp_cells(k).len()   // refuses: conditional-temporary
+    }
+}
+
+func ctemp_bare_field(k: Int) -> Int {
+    match k {
+        case 0 -> 0,
+        case _ -> ctemp_row(k).cells.len()   // refuses: conditional-temporary
+    }
+}
+
+extension CtempRow {
+    func ctemp_widths(&self, k: Int) -> Vector<Int> {
+        ctemp_cells(k)
+    }
+
+    func ctemp_bare_self(&self, k: Int) -> Int {
+        match k {
+            case 0 -> 0,
+            case _ -> self.ctemp_widths(k).len()   // refuses: conditional-temporary
+        }
+    }
+}
+
+func ctemp_guard(k: Int) -> Int {
+    match k {
+        case 0 -> 0,
+        case j if ctemp_cells(j).len() > 0 -> 1,   // refuses: conditional-temporary
+        case _ -> 2
+    }
+}
+
+func ctemp_coalesce(k: Int) -> Int {
+    ctemp_maybe(k) ?? ctemp_cells(k).len()   // refuses: conditional-temporary
+}
+
+func ctemp_pair(k: Int) -> (Int, Int) {
+    (k, k + 1)
+}
+
+func ctemp_bare_index(k: Int) -> Int {
+    match k {
+        case 0 -> 0,
+        case _ -> ctemp_cells(k)[0]   // refuses: conditional-temporary
+    }
+}
+
+func ctemp_bare_element(k: Int) -> Int {
+    match k {
+        case 0 -> 0,
+        case _ -> ctemp_pair(k).1   // refuses: conditional-temporary
+    }
+}
+
+func ctemp_guard_index(k: Int) -> Int {
+    match k {
+        case 0 -> 0,
+        case j if ctemp_cells(j)[0] > 0 -> 1,   // refuses: conditional-temporary
+        case _ -> 2
+    }
+}
+
+func ctemp_coalesce_index(k: Int) -> Int {
+    ctemp_maybe(k) ?? ctemp_cells(k)[0]   // refuses: conditional-temporary
+}
+
+func ctemp_coalesce_element(k: Int) -> Int {
+    ctemp_maybe(k) ?? ctemp_pair(k).0   // refuses: conditional-temporary
+}
+
+func ctemp_block_index(k: Int) -> Int {
+    match k {
+        case 0 -> 0,
+        case _ -> {
+            ctemp_cells(k)[0]
+        }
+    }
+}
+
+func ctemp_block_arm(k: Int) -> Int {
+    match k {
+        case 0 -> 0,
+        case _ -> {
+            ctemp_cells(k).len()
+        }
+    }
+}
+
+func ctemp_single_call(k: Int) -> Int {
+    match k {
+        case 0 -> 0,
+        case _ -> ctemp_maybe(k) ?? 0
+    }
+}
+
+func ctemp_plain(k: Int, cells: &Vector<Int>) -> Int {
+    match k {
+        case 0 -> 0,
+        case _ -> cells.len()
+    }
+}
+
+func ctemp_short_circuit(k: Int) -> Int {
+    if k > 0 && ctemp_cells(k).len() > 0 {
+        return 1
+    }
+    if k == 0 || ctemp_cells(k).len() > 1 {
+        return 2
+    }
+    0
+}

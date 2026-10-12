@@ -1,0 +1,61 @@
+// A generic call inside a generic body is instantiated at the parameters the
+// body sees: a function calling itself at its own `T`, a pair calling each
+// other, a call with the parameters swapped, a generic method at its own `U`
+// and its type's `T`, and a call from inside a closure (SL-509).
+
+struct Chain<T> {
+    v: T
+}
+
+func count<T>(x: T, n: Int) -> Int {
+    if n == 0 {
+        return 0
+    }
+    1 + count(x, n - 1)
+}
+
+func ping<T>(x: T, n: Int) -> Int {
+    if n == 0 {
+        return 0
+    }
+    1 + pong(x, n - 1)
+}
+
+func pong<U>(y: U, n: Int) -> Int {
+    if n == 0 {
+        return 0
+    }
+    ping(y, n - 1)
+}
+
+func flip<A, B>(a: A, b: B, n: Int) -> Int {
+    if n == 0 {
+        return 0
+    }
+    flip(b, a, n - 1)
+}
+
+extension Chain<T: Copy> {
+    func walk<U>(&self, u: U, n: Int) -> Int {
+        if n == 0 {
+            return 0
+        }
+        self.walk(u, n - 1)
+    }
+}
+
+func run(body: (Int) -> Int, n: Int) -> Int {
+    body(n)
+}
+
+func closed<T>(x: T, n: Int) -> Int {
+    if n == 0 {
+        return 0
+    }
+    run({ k in closed(x, k) }, n - 1)
+}
+
+func main() {
+    let c = Chain<Int>(v: 5)
+    print("{}", count(true, 3) + ping(1, 3) + flip(1, true, 3) + c.walk(true, 2) + closed(1, 3))
+}

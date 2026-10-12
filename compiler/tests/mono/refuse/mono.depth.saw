@@ -1,7 +1,7 @@
 // refuses: mono.depth at 12:13
 // A concrete argument nested past mono's depth limit is refused where the
 // call instantiates it, never instantiated without bound (SL-507). A written
-// type reaches the limit, since a recursive generic meets SL-509 first.
+// type reaches the limit; mono.depth.recursive reaches it by recursion.
 struct Wrap<T> {
     inner: T
 }

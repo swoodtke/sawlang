@@ -6,8 +6,9 @@
 //     unresolved: an error type only where the module has a refusal;
 //   - every expression and pattern has a use, and a value use a transfer
 //     kind that fits it: a copy of a place, a temporary's hand-off, a move;
-//   - every call has a target and a complete instantiation, and a call the
-//     overload filter resolved a total argument binding;
+//   - every call has a target and a complete instantiation naming only type
+//     parameters its body sees, and a call the overload filter resolved a
+//     total argument binding;
 //   - every closure records a capture of each enclosing binding it names;
 //   - every adjustment chain composes, each step's source the last's result;
 //   - every type written in a body was built exactly once, and resolved.
@@ -50,7 +51,8 @@ extension TcProgram {
                 continue
             }
             let poisoned = self.is_poisoned(root)
-            self.verify_subtree(&var problems, m, root, refused || poisoned, &skipped)
+            let d = self.body_decls[k - 1]
+            self.verify_subtree(&var problems, m, root, d, refused || poisoned, &skipped)
         }
         self.verify_captures(&var problems, m, &skipped)
         move problems
@@ -153,7 +155,8 @@ extension TcProgram {
         move marks
     }
 
-    func verify_subtree(&self, problems: &var Vector<String>, m: Int, root: Int, refused: Bool,
+    // Body `root` of declaration `d` (-1 for a body of the file itself).
+    func verify_subtree(&self, problems: &var Vector<String>, m: Int, root: Int, d: Int, refused: Bool,
                         skipped: &Vector<Bool>) {
         let info = self.res.modules[m]
         var stack = Vector<Int>()
@@ -173,7 +176,7 @@ extension TcProgram {
                 }
             }
             if self.is_call_node(id) {
-                self.verify_call(&var problems, m, id, refused)
+                self.verify_call(&var problems, m, id, d, refused)
             }
             let n = self.child_count(id)
             var c = n - 1
@@ -504,9 +507,10 @@ extension TcProgram {
         }
     }
 
-    // A call's record: a target, or the builtin it names; a complete
-    // instantiation; an owner where the target is a generic type's member.
-    func verify_call(&self, problems: &var Vector<String>, m: Int, id: Int, refused: Bool) {
+    // A call's record, in a body of declaration `d`: a target, or the builtin
+    // it names; a complete instantiation, naming no type parameter the body
+    // cannot see; an owner where the target is a generic type's member.
+    func verify_call(&self, problems: &var Vector<String>, m: Int, id: Int, d: Int, refused: Bool) {
         let at = self.call_at[id]
         if at < 0 {
             if not refused {
@@ -536,8 +540,10 @@ extension TcProgram {
             if not refused && self.type_has_error(arg) {
                 self.body_problem(&var problems, m, id, "a call's instantiation is unresolved")
             }
-            if self.mentions_decl_param(arg, c.target) {
-                self.body_problem(&var problems, m, id, "a call's instantiation names its own target's parameter")
+            // A recursive call names its own parameters legitimately; a
+            // parameter the body cannot see leaked from a signature.
+            if self.mentions_unseen_param(arg, d) {
+                self.body_problem(&var problems, m, id, "a call's instantiation names a type parameter its body cannot see")
             }
             k = k + 1
         }
@@ -640,25 +646,46 @@ extension TcProgram {
         param.has_default
     }
 
-    // Whether `t` names a type parameter of declaration `d`.
-    func mentions_decl_param(&self, t: Int, d: Int) -> Bool {
+    // Whether `t` names a type parameter a body of declaration `d` cannot
+    // see.
+    func mentions_unseen_param(&self, t: Int, d: Int) -> Bool {
         let info = self.types.ty(t)
-        if info.kind == TcKind.Param && info.decl == d {
+        if info.kind == TcKind.Param && not self.param_visible(info.decl, d) {
             return true
         }
         let has_inner = info.kind == TcKind.Func || info.kind == TcKind.Ref || info.kind == TcKind.Slice || info.kind == TcKind.Array
-        if has_inner && info.b >= 0 && self.mentions_decl_param(info.b, d) {
+        if has_inner && info.b >= 0 && self.mentions_unseen_param(info.b, d) {
             return true
         }
         var k = 0
         while k < info.count {
             let part = self.types.arg(t, k)
-            if self.mentions_decl_param(part, d) {
+            if self.mentions_unseen_param(part, d) {
                 return true
             }
             k = k + 1
         }
         false
+    }
+
+    // Whether a body of declaration `d` sees the type parameters declaration
+    // `owner` declares: its own, and its parent's, an extension's being the
+    // extended type's (signatures.saw keys them so).
+    func param_visible(&self, owner: Int, d: Int) -> Bool {
+        if d < 0 {
+            return false
+        }
+        if owner == d {
+            return true
+        }
+        let parent = self.res.decls[d].parent
+        if parent < 0 {
+            return false
+        }
+        if owner == parent {
+            return true
+        }
+        self.res.decls[parent].kind == ResDeclKind.Extension && self.ext_target(parent) == owner
     }
 }
 

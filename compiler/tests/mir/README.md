@@ -220,7 +220,7 @@ whose docstring lists them), each covered by a golden case:
 | an assignment's value; a compound assignment's | `lower_assign`, `lower_compound` | operands, order |
 | a returned value; a block's or branch's tail | `lower_into` | operands, branches |
 | a value a statement discards, `let _`, registered with its scope once however it was made | `lower_discarded` | drops, discards |
-| a condition of `if`, `while`, `guard`, a guard | `condition_operand` | branches, matches |
+| a condition of `if`, `while`, `guard`, a guard; an operand of `&&` or `\|\|` after the first that another follows | `condition_operand` | branches, matches, short_circuits |
 | a call's arguments, in written order | `call_arguments` | operands, order |
 | a receiver a `consumes` method takes | `receiver_operand` | operands |
 | a struct's, a case's, a tuple's, an array's, a collection's operands | `aggregate_operands` | operands, adjustments |
@@ -286,8 +286,8 @@ through a reference to stay a reported move.
 | `if let`, `guard let`, `while let` | a discriminant switch, or a conditional window's two edges | branches, windows, guards |
 | `while`, `while { }`, `for` | a head, a body, an op-budget point on each backedge | drops, points, windows |
 | `break`, `continue`, `return` | the scopes' exits, then the edge | drops |
-| `&&`, `\|\|` | a switch per operand | branches |
-| `??` | a discriminant switch per operand, peeling one layer of a nested Optional, keeping the left operand whole against an Optional default of its own type | branches, peel |
+| `&&`, `\|\|` | a switch per operand; each operand after the first a scope of its own, its temporaries dropped on its own path before the paths join | branches, short_circuits |
+| `??` | a discriminant switch per operand, peeling one layer of a nested Optional, keeping the left operand whole against an Optional default of its own type; each operand after the first a scope of its own, ended on each of its edges | branches, peel, short_circuits |
 | `borrow p` handed to a `&` or `&var` parameter | a reference taken inside the window, which stays open to the statement's end | windows |
 | `borrow v.get(i)` in `if let` or `??` | the conditional window `v.get(i)` opens | windows |
 | each kind of body | a function of its own | bodies |

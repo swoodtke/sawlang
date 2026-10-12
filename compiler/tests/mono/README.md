@@ -188,7 +188,7 @@ nullable pointer (null is `None`), and an aggregate by value is refused.
 | rule | refuses | fixture |
 |---|---|---|
 | `mono.not-yet` | what the backend's slice does not lower: a builtin outside it, a format argument or an interpolated part whose rendering the slice does not make, a fixed array, repeat, `Map` or `Set` literal, a requirement no member, default or member glue in the slice meets, a call of a body this program does not lower, a closure capturing an owning value | `mono.not-yet`, `mono.not-yet.format`, `mono.not-yet.std`, `mono.not-yet.unsigned` |
-| `mono.depth` | a concrete argument nested more than 64 deep, once per program, at the first call that met the limit | `mono.depth`, `mono.depth.method` |
+| `mono.depth` | a concrete argument nested more than 64 deep, once per program, at the first call that met the limit | `mono.depth`, `mono.depth.method`, `mono.depth.recursive` |
 | `atomic.width` | an `Atomic<X>` at an `X` other than `Int` that only an instantiation forms, once per type, where the item was reached; one a written or inferred position carries is typecheck's (SL:open-questions D38) | `atomic.width` |
 
 A refusal whose node lies in std or the builtin module is reported at the
@@ -199,10 +199,9 @@ backend's `backend.not-yet` refusals go through the same funnel.
 
 Unbounded instantiation (polymorphic recursion) is ruled to be refused before
 mono, by a check on the generic call graph (SL:architecture §3.8); that check
-is SL-507. `mono.depth` is mono's backstop, so mono never loops. Today any
-recursive generic call, polymorphic or not, meets an invariant of
-typecheck's body verifier first (SL-509), so the fixture reaches the limit
-with a written type instead.
+is SL-507. `mono.depth` is mono's backstop, so mono never loops: until that
+check lands, polymorphic recursion passes typecheck and reaches the limit
+here (`mono.depth.recursive`), as a written type does (`mono.depth`).
 
 ## The lane
 

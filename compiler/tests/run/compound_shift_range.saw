@@ -1,0 +1,11 @@
+// A compound shift whose count, at another width than its target's, reaches
+// the target's width panics as the binary shift does (SL-514).
+func main() {
+    var u: UInt8 = 1
+    let count: Int64 = 7
+    u <<= count
+    print("{}", u)
+    let wide: UInt16 = 8
+    u <<= wide
+    print("{}", u)
+}

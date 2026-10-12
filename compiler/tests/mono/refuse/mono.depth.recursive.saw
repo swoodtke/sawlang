@@ -1,0 +1,19 @@
+// refuses: mono.depth at 14:5
+// A generic that calls itself at a growing type, `deepen<T>` calling
+// `deepen<Wrap<T>>`, passes typecheck, whose verifier admits a recursive
+// call's own parameters (SL-509), and meets the depth limit at the recursive
+// call, never instantiated without bound (SL-507).
+struct Wrap<T> {
+    inner: T
+}
+
+func deepen<T>(x: T, n: Int) -> Int {
+    if n <= 0 {
+        return 0
+    }
+    deepen(Wrap<T>(inner: x), n - 1)
+}
+
+func main() {
+    print("{}", deepen(1, 3))
+}

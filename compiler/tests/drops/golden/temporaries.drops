@@ -76,20 +76,17 @@ fn temporaries.short(n: Int, check: Bool) -> Bool {
     let _5: &String;
     let _6: Int;
     let _7: Bool;
-    let _8: Bool;  // flag _4
 
     bb0: {
-        _8 = const false: Bool;
         switch copy _2 -> [true: bb2, false: bb3];
     }
 
     bb1: {
         _0 = move _3;
-        switch copy _8 -> [true: bb6, false: bb7];
+        return;
     }
 
     bb2: {
-        _8 = const true: Bool;
         _4 = call temporaries.label(n: Int) [copy _1] -> [return: bb4];
     }
 
@@ -106,26 +103,168 @@ fn temporaries.short(n: Int, check: Bool) -> Bool {
     bb5: {
         _7 = Gt(copy _6, const 3: Int);
         _3 = move _7;
+        drop(_4);
         goto -> bb1;
     }
 
-    bb6: {
-        drop(_4);
-        _8 = const false: Bool;
-        goto -> bb7;
+    glue String: builtin
+}
+
+fn temporaries.spare(n: Int) -> String? {
+    let _0: String?;  // return
+    let _1: Int;  // param n
+    let _2: Bool;
+    let _3: String?;
+    let _4: String?;
+
+    bb0: {
+        _2 = Gt(copy _1, const 1: Int);
+        switch move _2 -> [true: bb2, false: bb3];
     }
 
-    bb7: {
+    bb1: {
+        _4 = String?::None;
+        _0 = move _4;
         return;
     }
 
+    bb2: {
+        _3 = String?::Some(const "spare": String);
+        _0 = move _3;
+        return;
+    }
+
+    bb3: {
+        goto -> bb1;
+    }
+}
+
+fn temporaries.looped(n: Int) -> Int {
+    let _0: Int;  // return
+    let _1: Int;  // param n
+    let _2: Int;  // total
+    let _3: Int;  // k
+    let _4: Bool;
+    let _5: Bool;
+    let _6: Bool;
+    let _7: String;
+    let _8: &String;
+    let _9: Int;
+    let _10: Bool;
+    let _11: Int;
+    let _12: Int;
+    let _13: String;
+    let _14: String?;
+    let _15: String;
+    let _16: &String;
+    let _17: Int;
+    let _18: Int;
+    let _19: Int;
+
+    bb0: {
+        _2 = const 0: Int;
+        _3 = const 0: Int;
+        goto -> bb1;
+    }
+
+    bb1: {
+        _4 = Lt(copy _3, copy _1);
+        switch move _4 -> [true: bb3, false: bb2];
+    }
+
+    bb2: {
+        _0 = copy _2;
+        return;
+    }
+
+    bb3: {
+        _6 = Gt(copy _3, const 0: Int);
+        switch move _6 -> [true: bb6, false: bb7];
+    }
+
+    bb4: {
+        _12 = copy _2;
+        _14 = call temporaries.spare(n: Int) [copy _3] -> [return: bb13];
+    }
+
+    bb5: {
+        switch move _5 -> [true: bb10, false: bb11];
+    }
+
+    bb6: {
+        _7 = call temporaries.label(n: Int) [copy _3] -> [return: bb8];
+    }
+
+    bb7: {
+        _5 = const false: Bool;
+        goto -> bb5;
+    }
+
+    bb8: {
+        _8 = ref(shared, _7);
+        _9 = call std.string.String.len() (owner String) [move _8] -> [return: bb9];
+    }
+
+    bb9: {
+        _10 = Gt(copy _9, const 3: Int);
+        _5 = move _10;
+        drop(_7);
+        goto -> bb5;
+    }
+
+    bb10: {
+        _11 = Add(copy _2, const 1: Int);
+        _2 = move _11;
+        goto -> bb4;
+    }
+
+    bb11: {
+        goto -> bb4;
+    }
+
+    bb12: {
+        _16 = ref(shared, _13);
+        _17 = call std.string.String.len() (owner String) [move _16] -> [return: bb17];
+    }
+
+    bb13: {
+        switch discriminant(_14) -> [Some: bb14, None: bb15];
+    }
+
+    bb14: {
+        _13 = move (_14 as Some).0;
+        goto -> bb12;
+    }
+
+    bb15: {
+        drop(_14);
+        _15 = call temporaries.label(n: Int) [copy _3] -> [return: bb16];
+    }
+
+    bb16: {
+        _13 = move _15;
+        goto -> bb12;
+    }
+
+    bb17: {
+        _18 = Add(move _12, move _17);
+        _2 = move _18;
+        drop(_13);
+        _19 = Add(copy _3, const 1: Int);
+        _3 = move _19;
+        budget(yield-capable);
+        goto -> bb1;
+    }
+
     glue String: builtin
+    glue String?: structural
 }
 
 fn temporaries.main() -> Void {
     let _0: Void;  // return
     let _1: Int;
     let _2: Bool;
+    let _3: Int;
 
     bb0: {
         _1 = call temporaries.both(n: Int) [const 1: Int] -> [return: bb1];
@@ -144,6 +283,14 @@ fn temporaries.main() -> Void {
     }
 
     bb4: {
+        _3 = call temporaries.looped(n: Int) [const 3: Int] -> [return: bb5];
+    }
+
+    bb5: {
+        call builtin print [copy _3] -> [return: bb6];
+    }
+
+    bb6: {
         return;
     }
 }

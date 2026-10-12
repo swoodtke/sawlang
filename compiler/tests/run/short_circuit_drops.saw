@@ -1,0 +1,105 @@
+// A temporary made on the right side of `&&` or `||`, or on a middle
+// operand, drops on the path that made it, before the paths join and before
+// any later temporary of its statement is made; in a loop, once per pass that
+// makes it (SL-508).
+struct Noisy {
+    n: Int
+}
+
+extension Noisy: NoCopy {
+    func deinit(&var self) {
+        print("drop {}", self.n)
+    }
+}
+
+extension Noisy {
+    func ok(&self) -> Bool {
+        print("ok {}", self.n)
+        true
+    }
+
+    func no(&self) -> Bool {
+        print("no {}", self.n)
+        false
+    }
+}
+
+func mk(n: Int) -> Noisy {
+    print("make {}", n)
+    Noisy(n: n)
+}
+
+func conjunction(n: Int) -> Int {
+    var hits = 0
+    var k = 0
+    while k < n {
+        if k > 0 && mk(10 + k).ok() {
+            hits = hits + 1
+        }
+        k = k + 1
+    }
+    hits
+}
+
+func disjunction(n: Int) -> Int {
+    var hits = 0
+    var k = 0
+    while k < n {
+        if k > 0 || mk(20 + k).no() {
+            hits = hits + 1
+        }
+        k = k + 1
+    }
+    hits
+}
+
+func middle(n: Int) -> Int {
+    var hits = 0
+    var k = 0
+    while k < n {
+        if k > 0 && mk(30 + k).ok() && k > 1 {
+            hits = hits + 1
+        }
+        k = k + 1
+    }
+    hits
+}
+
+func nested(n: Int) -> Int {
+    var hits = 0
+    var k = 0
+    while k < n {
+        let b = k > 0 && (k > 1 || mk(40 + k).ok())
+        if b {
+            hits = hits + 1
+        }
+        k = k + 1
+    }
+    hits
+}
+
+func early(n: Int) -> Int {
+    var k = 0
+    while k < n {
+        if k > 1 && mk(50 + k).ok() {
+            return k
+        }
+        k = k + 1
+    }
+    -1
+}
+
+func later(c: Bool) -> Bool {
+    let r = (c && mk(60).ok()) == mk(61).ok()
+    r
+}
+
+func main() {
+    print("conjunction {}", conjunction(3))
+    print("disjunction {}", disjunction(3))
+    print("middle {}", middle(3))
+    print("nested {}", nested(3))
+    print("early {}", early(4))
+    print("later {}", later(true))
+    print("later {}", later(false))
+}

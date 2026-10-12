@@ -923,7 +923,9 @@ extension TcProgram {
     }
 
     // `place op= value`: the target is read and written, and the value
-    // expects the target's type, or `Int` for a shift's amount.
+    // expects the target's type, but for a shift's count, which is checked as
+    // a binary shift's is: no peer of the target (spec, Integer Width
+    // Agreement, "The compound forms `<<=` and `>>=` follow").
     func check_compound(&var self, s: Int) {
         let target = self.res.first_node_child(s)
         let value = self.res.last_node_child(s)
@@ -937,8 +939,7 @@ extension TcProgram {
         let shift = op.equals("<<=") || op.equals(">>=")
         let arithmetic = op.equals("+=") || op.equals("-=") || op.equals("*=") || op.equals("/=") || op.equals("%=")
         if shift {
-            let i = self.int_type()
-            self.check_compound_value(value, i)
+            self.shift_count(value)
             if not self.is_integer(t) {
                 self.refuse_operator_type(s, op, t)
             }
@@ -1529,11 +1530,8 @@ extension TcProgram {
         while k < n {
             let child = self.child(item, k)
             k = k + 1
-            if self.is_leaf(child) {
-                let text = self.text(m, child)
-                if text.starts_with("\"") {
-                    message = child
-                }
+            if self.is_leaf(child) && self.text(m, child).starts_with("\"") {
+                message = child
             }
         }
         self.check_constant_position(c, TcConstPosition.Assert, -1, message)
@@ -3468,7 +3466,8 @@ extension TcProgram {
         self.set_type(e, pt, false)
     }
 
-    // A shift's count: an integer of any width, a constant one an `Int`.
+    // A shift's count, binary or compound: an integer of any width, a
+    // constant one an `Int`.
     func shift_count(&var self, c: Int) {
         if self.is_constant_part(c) {
             let i = self.int_type()
@@ -6760,7 +6759,10 @@ extension TcProgram {
     public func cand_param_count(&self, c: TcCand) -> Int {
         match c.kind {
             case Function -> self.sigs[c.decl].param_count,
-            case Memberwise -> self.struct_fields(c.decl).len(),
+            // Stage 0 workaround (SL:hazards S29): canonical: case Memberwise -> self.struct_fields(c.decl).len()
+            case Memberwise -> {
+                self.struct_fields(c.decl).len()
+            },
             case Case -> {
                 if self.res.decls[c.decl].node < 0 {
                     if self.case_has_payload(c.decl) {

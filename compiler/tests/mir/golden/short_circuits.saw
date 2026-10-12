@@ -1,0 +1,120 @@
+// An operand only some paths evaluate, the right side of `&&` and `||`, a
+// middle operand of either, and every operand of `??` after the first, is a
+// scope of its own: the temporaries it makes drop on its own path, before the
+// paths join. Each is in a loop, where a drop at the join would meet the last
+// pass's drop on the path that skips the operand (SL-508).
+
+func label(n: Int) -> String {
+    if n > 1 {
+        return "long"
+    }
+    "s"
+}
+
+func spare(n: Int) -> String? {
+    if n % 2 == 0 {
+        return "even"
+    }
+    None
+}
+
+func width(n: Int) -> Int? {
+    if n % 3 == 0 {
+        return n
+    }
+    None
+}
+
+func conjunction(n: Int) -> Int {
+    var hits = 0
+    var k = 0
+    while k < n {
+        if k > 0 && label(k).starts_with("l") {
+            hits = hits + 1
+        }
+        k = k + 1
+    }
+    hits
+}
+
+func disjunction(n: Int) -> Int {
+    var hits = 0
+    var k = 0
+    while k < n {
+        if k == 0 || label(k).len() > 1 {
+            hits = hits + 1
+        }
+        k = k + 1
+    }
+    hits
+}
+
+func middle(n: Int) -> Int {
+    var hits = 0
+    var k = 0
+    while k < n {
+        if k > 0 && label(k).len() > 1 && k > 1 {
+            hits = hits + 1
+        }
+        k = k + 1
+    }
+    hits
+}
+
+func nested(n: Int) -> Int {
+    var hits = 0
+    var k = 0
+    while k < n {
+        let b = k > 0 && (k > 1 || label(k).len() > 0)
+        if b {
+            hits = hits + 1
+        }
+        k = k + 1
+    }
+    hits
+}
+
+func condition(n: Int) -> Int {
+    var k = 0
+    while k < n && label(k).len() > 0 {
+        k = k + 1
+    }
+    k
+}
+
+func guarded(n: Int) -> Int {
+    var hits = 0
+    var k = 0
+    while k < n {
+        match k {
+            case 0 -> {
+                hits = hits + 10
+            },
+            case j if j > 1 && label(j).len() > 1 -> {
+                hits = hits + 1
+            },
+            case _ -> {
+                hits = hits + 100
+            }
+        }
+        k = k + 1
+    }
+    hits
+}
+
+func coalesced(n: Int) -> Int {
+    var total = 0
+    var k = 0
+    while k < n {
+        let s = spare(k) ?? spare(label(k).len()) ?? "none"
+        let w = width(k) ?? label(k).len()
+        total = total + s.len() + w
+        k = k + 1
+    }
+    total
+}
+
+func main() {
+    print(conjunction(3) + disjunction(3) + middle(3) + nested(3))
+    print(condition(3) + guarded(3) + coalesced(4))
+}

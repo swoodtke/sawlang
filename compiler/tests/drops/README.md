@@ -225,7 +225,7 @@ there. It counts the drop flags over the sawc2 build and over tests/corpus.
 | a dissolve under each consuming form: part drops | dissolves |
 | what a `match`, `if let` or `while let` leaves over, static, on each exit of its body: the arm's end, a `return`, across a suspension, per iteration and on `break` | leftovers |
 | a `consumes` body: field release, no flag | consumes |
-| statement temporaries in reverse creation order; one on a short circuit, flagged | temporaries |
+| statement temporaries in reverse creation order; one on a short circuit's right side, or `??`'s, dropped on that side before the sides join, unflagged, in a loop too | temporaries |
 | drops inside a window's body before its close; a `for` over a borrowing struct | windows |
 | glue: `deinit`, structural, closure environment, builtin, per instantiation | glue |
 | an escaping closure's captures, released once by the environment, never by a call; each closure kind and capture kind | captures |
@@ -237,9 +237,9 @@ there. It counts the drop flags over the sawc2 build and over tests/corpus.
 
 ## The flag counts
 
-The borrow check labels 10 drops `flagged` over the sawc2 build and 29 over
-tests/corpus (its lane counts them over every record). Elaboration has 10
-flags over the sawc2 build, one per flagged drop. Over the corpus it has 26,
-8 of them take flags it adopts: 3 of the 29 flagged drops are in programs the
+The borrow check labels 1 drop `flagged` over the sawc2 build and 28 over
+tests/corpus (its lane counts them over every record). Elaboration has 1
+flag over the sawc2 build, one per flagged drop. Over the corpus it has 25,
+8 of them take flags it adopts: 3 of the 28 flagged drops are in programs the
 borrow check refuses (`use_after_move_branch`, `use_after_move_loop`,
 `use_after_move_loop_body_always_breaks`), which are not elaborated.

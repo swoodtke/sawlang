@@ -1,0 +1,7 @@
+// refuses: operator.undefined at 6:11
+// a compound shift's count is an integer of any width, as a binary shift's is, so a `Bool` is refused as the count, not as a peer of the target (SL-514)
+
+func main() {
+    var w: Int16 = 1
+    w <<= true
+}

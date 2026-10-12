@@ -1,7 +1,8 @@
 // Statement temporaries drop at the end of their statement, in reverse order
 // of creation: the second `label` call's String drops before the first's.
-// A temporary created on one side of a short circuit only is dropped under
-// a flag, since the other side never creates it.
+// A temporary created on one side of a short circuit only drops on that
+// side, before the sides join, so it needs no flag; in a loop, each pass
+// drops its own (SL-508).
 
 func label(n: Int) -> String {
     if n > 0 {
@@ -18,7 +19,28 @@ func short(n: Int, check: Bool) -> Bool {
     check && label(n).len() > 3
 }
 
+func spare(n: Int) -> String? {
+    if n > 1 {
+        return "spare"
+    }
+    None
+}
+
+func looped(n: Int) -> Int {
+    var total = 0
+    var k = 0
+    while k < n {
+        if k > 0 && label(k).len() > 3 {
+            total = total + 1
+        }
+        total = total + (spare(k) ?? label(k)).len()
+        k = k + 1
+    }
+    total
+}
+
 func main() {
     print(both(1))
     print(short(1, true))
+    print(looped(3))
 }
