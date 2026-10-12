@@ -591,7 +591,10 @@ caching.
   After a `consumes` body moves fields out of `self`, the end-of-body release
   drops exactly the fields that stayed. Each field is decided on every path or
   on none, so that needs no flag. Temporaries are dropped at the end of their
-  statement, in reverse order of creation.
+  statement, in reverse order of creation, except on an operand only some paths
+  evaluate (the right side or a middle operand of `&&`/`||`, a `??` operand
+  after the first): that operand is its own temporary scope, so its
+  temporaries die when it completes and still need no flag (D42).
 - **Must-consume types.** Some types forbid an implicit drop: a `Thread` or
   `Task` handle's fate must be written. A value of such a type that reaches an
   implicit drop is refused here, because this is the stage that knows exactly
