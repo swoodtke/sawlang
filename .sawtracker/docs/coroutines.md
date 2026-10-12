@@ -1,6 +1,6 @@
 # sawc2 coroutines: the implementation plan (SL-545)
 
-**Status: DRAFT, being written.** Nothing here is approved until the user says so. The Air reviews each section as it lands.
+**Status: complete draft (r9), all six sections reviewed by the Air, with threads t1–t11 folded in and resolved.** Nothing here is approved until the user says so. §5's questions wait for the user.
 
 The authorities, in order:
 1. LANGUAGE_SPEC §6 (Concurrency) for meaning, and GRAMMAR.md for spelling;
