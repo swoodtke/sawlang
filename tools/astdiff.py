@@ -17,7 +17,12 @@ the oracle itself must have before it can judge anything:
       hashing per process, so a single run cannot reveal a `set`-ordered dump.
 
 Usage:
-    python tools/astdiff.py [-v]
+    python tools/astdiff.py [-v]              every tracked .saw file
+    python tools/astdiff.py [-v] FILE...      those files alone
+
+Given files, it checks those that exist and are not the new compiler's
+corpora, and says which it skipped, so the per-patch gate can hand it a
+patch's changed paths, deletions included.
 """
 import argparse
 import os
@@ -54,6 +59,19 @@ def owned_elsewhere(path: str) -> bool:
     return path.startswith(NEW_COMPILER_CORPORA)
 
 
+def given_files(paths: list) -> list:
+    """The repository-relative `paths` worth dumping, naming each one skipped."""
+    files = []
+    for rel in sorted(set(paths)):
+        if owned_elsewhere(rel):
+            print("astdiff: skipped %s: the new compiler's corpus" % rel)
+        elif not os.path.isfile(os.path.join(REPO, rel)):
+            print("astdiff: skipped %s: no such file" % rel)
+        else:
+            files.append(rel)
+    return files
+
+
 def dump_once(rel: str, seed: str):
     """(stdout_bytes, status, stderr_bytes) from a fresh dumper process.
 
@@ -77,9 +95,13 @@ def dump_once(rel: str, seed: str):
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("-v", "--verbose", action="store_true")
+    ap.add_argument("files", nargs="*", help="repository-relative .saw paths")
     args = ap.parse_args()
 
-    files = tracked_saw_files()
+    if args.files:
+        files, what = given_files(args.files), "given"
+    else:
+        files, what = tracked_saw_files(), "tracked"
     t0 = time.time()
     incomplete, unstable, crashed = [], [], []
     n_error_files = 0
@@ -102,8 +124,8 @@ def main() -> int:
             unstable.append(rel)
 
     dt = time.time() - t0
-    print("astdiff: swept %d tracked .saw files (%d rejected by the parser, "
-          "%.1fs)" % (len(files), n_error_files, dt))
+    print("astdiff: swept %d %s .saw files (%d rejected by the parser, "
+          "%.1fs)" % (len(files), what, n_error_files, dt))
 
     if crashed:
         print("astdiff: %d file(s) CRASHED the dumper" % len(crashed))

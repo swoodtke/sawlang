@@ -12,7 +12,8 @@
 # tools/patch_gate.py decides which suites a change needs and runs them. This
 # script bootstraps .venv when absent (SAW_PYTHON names an interpreter to use
 # instead, as from a worktree) and holds the machine-wide suite lock around the
-# run (TESTING.md), so a server-side patch test never overlaps a local suite.
+# run through tools/suite_lock.sh, so a server-side patch test never overlaps a
+# local suite.
 set -e
 
 cd "$(dirname "$0")"
@@ -41,9 +42,17 @@ else
     PY=.venv/bin/python
 fi
 
-LOCK="/private/tmp/claude-$(id -u)/saw-suite-lock"
-mkdir -p "$(dirname "$LOCK")"
-until mkdir "$LOCK" 2>/dev/null; do sleep 15; done
-trap 'rmdir "$LOCK"' EXIT INT TERM
+# The lock's own messages say who holds it and how long the wait took; the
+# gate's summary reports that wait apart from the test time.
+LOCK_START=$(date +%s)
+sh tools/suite_lock.sh acquire --pid $$ "./build.sh test $*"
+SAW_GATE_LOCK_WAIT=$(($(date +%s) - LOCK_START))
+export SAW_GATE_LOCK_WAIT
+# A signal exits with 128 + its number, so the server can tell an interrupted
+# run from a failed one; the exit trap releases the lock either way.
+trap 'sh tools/suite_lock.sh release' EXIT
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
 "$PY" tools/patch_gate.py "$@"

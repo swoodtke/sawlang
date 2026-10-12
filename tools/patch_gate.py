@@ -3,11 +3,13 @@
 
     ./build.sh test [--changed-since REV | --diff FILE] [--dry-run]
 
-`build.sh` bootstraps the venv and holds the suite lock around this script. The
-self-hosted compiler's tests always run. The Python suite, the freestanding
-suite and the full grammar corpus run only when a changed path is one they read
-(`SUITE_INPUTS`); otherwise each changed .saw file is checked against the
-grammar's recorded verdicts on its own. With no source of changed paths, or when
+`build.sh` bootstraps the venv and holds the suite lock around this script,
+passing the time it waited for the lock in `SAW_GATE_LOCK_WAIT`. The
+self-hosted compiler's tests always run. The fixpoint lane, the Python suite,
+the freestanding suite, the full grammar corpus and the full astdiff run only
+when a changed path is one they read (`SUITE_INPUTS`); without the full grammar
+corpus or astdiff, each changed .saw file gets that check on its own
+(`PER_FILE`). With no source of changed paths, or when
 git cannot name them, everything runs. `--dry-run` prints the decision and runs
 nothing.
 """
@@ -15,11 +17,14 @@ import argparse
 import os
 import subprocess
 import sys
+import time
+
+from astdiff import NEW_COMPILER_CORPORA
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 # A change to the gate's own definition re-runs everything.
-GATE_DEFINITION = ("build.sh", "tools/patch_gate.py", ".sawtracker/")
+GATE_DEFINITION = ("build.sh", "tools/patch_gate.py", "tools/suite_lock.sh", ".sawtracker/")
 
 # Paths each suite reads, as prefixes, taken from the two runners.
 SUITE_INPUTS = {
@@ -46,23 +51,48 @@ SUITE_INPUTS = {
         "compiler/tools/build.py",  # which builds sawc2
         "sawc/",                    # Stage 0, which builds sawc2, and the parser that classifies
     ),
+    "fixpoint": (
+        "compiler/",                # the compiler Stage 1 and Stage 2 are built from
+        "std/",                     # the std Stage 1 builds Stage 2 against
+        "sawc/",                    # Stage 0, which builds Stage 1, and the runtime both link
+        "compiler/tests/fixpoint/", # the lane, twin.py and mismatches.tsv
+        "compiler/tools/build.py",  # which builds both stages
+    ),
+    "astdiff": (
+        "sawc/lexer.py",            # the Python front end whose tree it dumps
+        "sawc/parser/",
+        "sawc/ast_nodes.py",
+        "sawc/ast_dump.py",         # the canonical dump
+        "tools/astdiff.py",         # the harness and its dumper
+        "tools/dump_ast.py",
+    ),
 }
 
 GRAMMAR_CORPUS = "compiler/tests/grammar/corpus.py"
+ASTDIFF = "tools/astdiff.py"
 
 # (name, command) in running order. The first always runs.
 PARTS = (
     ("compiler tests", ["compiler/tests/run.py"]),
+    ("fixpoint", ["compiler/tests/fixpoint/fixpoint_lane.py"]),
     ("python suite", ["test_runner.py"]),
     ("freestanding", ["tools/freestanding_runner.py"]),
     ("grammar corpus", [GRAMMAR_CORPUS]),
+    ("astdiff", [ASTDIFF]),
 )
 
-# Checks each changed .saw file against the recorded verdicts when the full
-# grammar corpus does not run; its command takes the files.
-CHANGED_SAW = "grammar: changed .saw files"
 # The parser corpus, whose case files corpus.py skips too.
 PARSE_CORPUS = "compiler/tests/parse/"
+
+# Checks of each changed .saw file on its own, for a patch the full part does
+# not run on: (name, the full part, the corpora it leaves to others, command).
+# The command takes the files. The parser corpus's case files belong to the
+# parse lane, which the compiler tests run on every patch, and both new-syntax
+# corpora are outside what the Python parser reads.
+PER_FILE = (
+    ("grammar: changed .saw files", "grammar corpus", (PARSE_CORPUS,), [GRAMMAR_CORPUS]),
+    ("astdiff: changed .saw files", "astdiff", NEW_COMPILER_CORPORA, [ASTDIFF]),
+)
 
 
 def git(*args):
@@ -123,21 +153,20 @@ def plan(paths, source):
         else:
             decisions.append((name, False, "no changed path is one of its inputs: %s"
                               % ", ".join(SUITE_INPUTS[name]), command))
-    decisions.append(_changed_saw(paths, decisions))
+    for entry in PER_FILE:
+        decisions.append(_per_file(paths, decisions, *entry))
     return decisions
 
 
-def _changed_saw(paths, decisions):
-    """The per-file grammar check, which the full corpus run makes redundant.
-    The parser corpus's case files are the parse lane's, which the compiler
-    tests run on every patch."""
-    if any(name == "grammar corpus" and run for name, run, _, _ in decisions):
-        return (CHANGED_SAW, False, "the full grammar corpus runs", None)
-    saw = sorted(p for p in paths if p.endswith(".saw") and not p.startswith(PARSE_CORPUS))
+def _per_file(paths, decisions, name, full, elsewhere, command):
+    """A PER_FILE check's decision, which the full part's run makes redundant."""
+    if any(part == full and run for part, run, _, _ in decisions):
+        return (name, False, "the full %s runs" % full, None)
+    saw = sorted(p for p in paths if p.endswith(".saw") and not p.startswith(elsewhere))
     if not saw:
-        return (CHANGED_SAW, False, "no .saw file changed outside %s" % PARSE_CORPUS, None)
+        return (name, False, "no .saw file changed outside %s" % ", ".join(elsewhere), None)
     shown = ", ".join(saw[:5]) + (", ..." if len(saw) > 5 else "")
-    return (CHANGED_SAW, True, "%d changed: %s" % (len(saw), shown), [GRAMMAR_CORPUS] + saw)
+    return (name, True, "%d changed: %s" % (len(saw), shown), command + saw)
 
 
 def _first_hit(paths, prefixes):
@@ -182,15 +211,36 @@ def main():
         return 0
 
     results = []
+    tests_start = time.time()
     for name, run, _, command in decisions:
         if not run:
             results.append("%s skipped" % name)
             continue
         print("gate: ---- %s ----" % name, flush=True)
+        start = time.time()
         rc = subprocess.run([sys.executable] + command, cwd=REPO).returncode
-        results.append("%s %s" % (name, "passed" if rc == 0 else "FAILED (exit %d)" % rc))
+        took = duration(time.time() - start)
+        results.append("%s %s (%s)" % (name, "passed" if rc == 0 else "FAILED, exit %d" % rc, took))
     print("gate: " + "; ".join(results))
+    print("gate: time: %s; tests %s" % (lock_wait(), duration(time.time() - tests_start)))
     return 1 if any("FAILED" in r for r in results) else 0
+
+
+def lock_wait():
+    """The suite-lock wait build.sh measured, which the test time excludes."""
+    seconds = os.environ.get("SAW_GATE_LOCK_WAIT", "")
+    if not seconds.isdigit():
+        return "suite-lock wait unknown (the lock was not taken by build.sh)"
+    return "suite-lock wait %s" % duration(int(seconds))
+
+
+def duration(seconds):
+    s = int(round(seconds))
+    if s >= 3600:
+        return "%dh %dm %ds" % (s // 3600, s % 3600 // 60, s % 60)
+    if s >= 60:
+        return "%dm %ds" % (s // 60, s % 60)
+    return "%ds" % s
 
 
 if __name__ == "__main__":

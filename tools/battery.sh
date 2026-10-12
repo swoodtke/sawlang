@@ -80,6 +80,7 @@ STAGES=(
     "moduletag|no|every module renders to its own \$m\$ tag, and it decodes back|$PY tools/test_module_tag.py"
     "stdtypes|no|two std files may each own one private type name (design 204)|$PY tools/test_std_private_type_names.py"
     "toolchain|no|the toolchain resolver: four steps, the version check, the refusal|$PY tools/test_toolchain.py"
+    "suitelock|no|the suite lock names its holder, heartbeats, reports its wait; build.sh hands the wait to the gate|$PY tools/test_suite_lock.py"
     "floatvectors|no|the Float<->text vectors against CPython's own conversions|$PY tools/sawfloat.py verify --rule"
     "abidoc|no|rt/ABI.md describes exactly the frozen seam set|$PY tools/test_runtime_abi_doc.py"
     "bttable|no|the task-backtrace table against the frame layouts|$PY tools/test_bt_table.py"

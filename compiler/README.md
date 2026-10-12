@@ -340,7 +340,9 @@ below that runs sawc2 runs Stage 2. It checks these things.
   pinned; and `sawc2 runtime` writes the same bytes twice and refuses a
   runtime that leaves a seam undefined or defines one twice.
 
-One lane runs apart from the runner, as the battery's `fixpoint` stage:
+One lane runs apart from the runner: the per-patch gate runs it when
+`compiler/`, `std/` or `sawc/` (Stage 0) changes, and the battery's `fixpoint` stage
+runs it by hand:
 
 - **The fixpoint** (`tests/fixpoint/fixpoint_lane.py`): Stage 1's `.ll` of
   its own driver is the same bytes over two builds and from another

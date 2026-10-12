@@ -127,25 +127,37 @@ objects are built + cached under `.build/rt/` and auto-linked (delete
   inputs (`SUITE_INPUTS` in `tools/patch_gate.py`: `sawc/`, `examples/`,
   `tests/{cbor,float}_vectors/`, `tests/freestanding/`, `blade/`, `libs/`,
   the runners — a new input a runner reads is added there), when the gate itself
-  changes (`build.sh`, `tools/patch_gate.py`, `.sawtracker/`), or when
-  the changed paths are unknown. The full `grammarcorpus` run follows the
+  changes (`build.sh`, `tools/patch_gate.py`, `tools/suite_lock.sh`,
+  `.sawtracker/`), or when
+  the changed paths are unknown. The `fixpoint` lane
+  (`compiler/tests/fixpoint/fixpoint_lane.py`) follows the same rule over
+  `compiler/`, `std/`, `compiler/tools/build.py` and `sawc/` (Stage 0
+  builds Stage 1, so a `sawc/` change can move it). The full
+  `grammarcorpus` run follows the
   same rule over its inputs (`GRAMMAR.md`, `LANGUAGE_SPEC.md`,
   `compiler/tests/grammar/`, `compiler/lex/`, `compiler/driver/`,
   `compiler/tools/build.py`, `sawc/`); without it, each changed `.saw`
-  file is checked against `corpus_expected.tsv` alone, in seconds. It
-  prints each decision and why; `./build.sh test --dry-run --diff FILE`
-  shows a patch's decision without running anything.
+  file is checked against `corpus_expected.tsv` alone, in seconds. The
+  full `astdiff` follows the same rule over the Python parser and its
+  dumper (`sawc/lexer.py`, `sawc/parser/`, `sawc/ast_nodes.py`,
+  `sawc/ast_dump.py`, `tools/astdiff.py`, `tools/dump_ast.py`); without
+  it, `tools/astdiff.py FILE...` checks each changed `.saw` file outside
+  `tests/corpus/` and `compiler/tests/parse/`. It prints each decision
+  and why; `./build.sh test --dry-run --diff FILE` shows a patch's
+  decision without running anything.
 - **PER-COMMIT GATE POLICY (user, Sep 24): run only the tests a change
   affects, and never duplicate what the server runs.** The per-patch gate
-  above runs the full suite and freestanding (both arches) on every patch
-  that reaches their inputs, so NOBODY, implementer or lead, runs a
-  per-commit or pre-submit full suite or freestanding. Before a commit or
+  above runs the full suite, freestanding (both arches), `fixpoint` and
+  `astdiff` on every patch that reaches their inputs, so NOBODY,
+  implementer or lead, runs a per-commit or pre-submit full suite,
+  freestanding, `fixpoint` or `astdiff` (the battery keeps `fixpoint` and
+  `astdiff` as stages for manual runs). Before a commit or
   a submission, run the change's pins, targeted `test_runner.py -f`
   subsets, and the battery lanes that touch the change's subject and that
   the server does not run: `astgraft` and `transferdecisions` for the
   typechecker or codegen, `bootstrap` for the blade/libs corpus,
-  `docverify` for spec prose, `compiler` and `citations` for `compiler/`,
-  `astdiff` for the parser; `irdet` and `reemit` only when the change can
+  `docverify` for spec prose, `compiler` and `citations` for `compiler/`;
+  `irdet` and `reemit` only when the change can
   reach them. No branch owes the full battery; it will run on main
   periodically, never per merge, once sawtracker schedules it (ST-45, open).
   SawOS work happens in the sawos repo under
@@ -276,7 +288,9 @@ objects are built + cached under `.build/rt/` and auto-linked (delete
   the gate for the files nothing compiles),
   `forgetgate`, `ircontract`, `preludegate`, `stdtypes`, `toolchain` (design
   238 unit 4: the sawlang-artifact resolver — four steps, the pin's version
-  check, the refusal), `abidoc`, `bttable`,
+  check, the refusal), `suitelock` (`tools/suite_lock.sh`'s holder line,
+  heartbeat and wait, and build.sh handing the wait to the gate, against
+  a lock directory of its own), `abidoc`, `bttable`,
   `fuzz` (`sawfuzz --quick`), `corodiff` (`--quick`), `bench` (the warehouse
   benchmark — checksums GATE, timing report-only; devtools/bench/ +
   TESTING.md), `minivm` (the paused prototype builds against compiler/lex
@@ -458,20 +472,33 @@ known-ledger entry (corodiff_known.txt, sawfuzz_known.txt) in the SAME
 commit, and its gate includes that harness's lane.
 
 **THE SUITE LOCK (machine-wide, sawlang's):** all suite-shaped invocations
-in THIS repo (test_runner, battery.sh, freestanding_runner) serialize
-through a mkdir lock at `/private/tmp/claude-<uid>/saw-suite-lock`
-(uid = `id -u`; create the parent once per machine; the sawos repo has
-its OWN lock path so the two never queue on each other). Acquire + gate +
-release in ONE chained FOREGROUND command: `until mkdir <lock>
-2>/dev/null; do sleep 15; done; <gate>; rc=$?; rmdir <lock>; echo
-GATE=$rc` — in SANDBOXED agent worktrees, where the chained form is
-refused, SPLIT it: the bare mkdir-wait as its own call, each gate as its
-own call, the bare rmdir immediately after; the never-background and
-never-stop-while-waiting-or-holding rules apply unchanged. Never
-background the wait or the gate (a stopped agent's background waiters die
-silently); never hold the lock while editing; if the command times out,
-rerun the same command. Clear a stale lock only VERIFIED-DEAD: no suite
-process exists (pgrep) AND the holder is identified dead.
+in THIS repo (test_runner, battery.sh, freestanding_runner; `./build.sh
+test` takes it itself) serialize through a mkdir lock at
+`/private/tmp/claude-<uid>/saw-suite-lock` (uid = `id -u`; the sawos repo
+has its OWN lock path so the two never queue on each other), taken and
+given back with `tools/suite_lock.sh`. `acquire '<what>'` waits for the
+directory, then writes a `holder` file into it (pid, command, cwd, start
+time); while it waits it names the holder and since when, prints a
+heartbeat every five minutes, and prints the total wait once it holds the
+lock. It waits for a process (`--pid`, by default the calling shell), and
+stops waiting WITHOUT the lock once that process is gone, so a signal that
+kills only the waiter's parent never leaves it to take the lock for
+nobody. `release` removes the holder file and the directory; `status`
+names the holder. A lock directory with no holder file still works and
+reads as an unknown holder. Acquire + gate + release in ONE chained
+FOREGROUND command: `tools/suite_lock.sh acquire '<gate>' && { <gate>;
+rc=$?; tools/suite_lock.sh release; echo GATE=$rc; }` — in SANDBOXED
+agent worktrees, where the chained form is refused, SPLIT it:
+`tools/suite_lock.sh acquire '<gate>'` as its own call, each gate as its
+own call, `tools/suite_lock.sh release` immediately after; the
+never-background and never-stop-while-waiting-or-holding rules apply
+unchanged. Never background the wait or the gate (a stopped agent's
+background waiters die silently); never hold the lock while editing; if
+the command times out, rerun the same command. Clear a stale lock only
+VERIFIED-DEAD, with `release`: no suite process exists (pgrep) AND the
+holder is identified dead. The holder file's pid is the shell that took
+the lock, which in the split form exits at once, so a dead pid alone
+proves nothing; its command and cwd name the taker.
 
 **DESIGN DOCTRINE (user rulings, standing):**
 - **Never hide errors** — failures surface as Result/Optional; no

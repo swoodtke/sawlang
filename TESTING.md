@@ -444,15 +444,24 @@ decision is `tools/patch_gate.py`'s:
   runner itself);
 - the freestanding suite runs when a changed path is one of its runner's inputs
   (`sawc/`, `tests/freestanding/`, `blade/`, `libs/`, the runner itself);
+- the fixpoint lane (`compiler/tests/fixpoint/fixpoint_lane.py`) runs when
+  `compiler/` (the lane itself and `compiler/tools/build.py` included), `std/`
+  or `sawc/` changes (Stage 0 builds Stage 1, so a `sawc/` change can move it),
+  so a local gate never runs it;
 - the full grammar corpus runs when `GRAMMAR.md`, `LANGUAGE_SPEC.md` (whose
   headings `spec=` names), `compiler/tests/grammar/` or `sawc/` (the reference
   lexer and the classifying parser) changes; otherwise each changed `.saw` file
   is checked against `corpus_expected.tsv` on its own, except the parser
   corpus's case files under `compiler/tests/parse/`, which the compiler tests'
   parse lane checks case by case;
+- the full astdiff (`tools/astdiff.py`) runs when the Python parser or its dump
+  changes (`sawc/lexer.py`, `sawc/parser/`, `sawc/ast_nodes.py`,
+  `sawc/ast_dump.py`, `tools/astdiff.py`, `tools/dump_ast.py`); otherwise
+  `tools/astdiff.py FILE...` checks each changed `.saw` file outside the two
+  new-syntax corpora, `tests/corpus/` and `compiler/tests/parse/`;
 - a change to the gate itself (`build.sh`, `tools/patch_gate.py`,
-  `.sawtracker/`) runs everything, and so does a run whose changed paths are
-  unknown.
+  `tools/suite_lock.sh`, `.sawtracker/`) runs everything, and so does a run
+  whose changed paths are unknown.
 
 It prints each part's decision with its reason. `--dry-run` prints the decision
 and runs nothing, for a revision (`--changed-since REV`) or a patch file
@@ -463,9 +472,12 @@ submitting it:
 ./build.sh test --dry-run --diff /tmp/patch.diff
 ```
 
-`build.sh` holds the suite lock around everything the gate runs. From a
-worktree, point `SAW_PYTHON` at the main checkout's venv rather than letting it
-bootstrap one.
+`build.sh` holds the suite lock around everything the gate runs, through
+`tools/suite_lock.sh`. When another run holds the lock, the gate prints who
+holds it and since when, a heartbeat every five minutes while it waits, and the
+total wait once it starts; its last line reports that wait apart from the test
+time. From a worktree, point `SAW_PYTHON` at the main checkout's venv rather
+than letting it bootstrap one.
 
 ## The Gate Battery
 
