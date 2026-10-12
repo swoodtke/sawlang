@@ -1,0 +1,12 @@
+// refuses: export.c-abi at 6:6
+// an exported function's optional result, which C has no spelling for: the
+// seam returns a raw pointer and the caller's `extern` adds the optional
+
+@export("find_slot")
+func find_slot(key: Int) unsafe -> UnsafePointer<Int8>? {
+    None
+}
+
+func main() {
+    print(0)
+}

@@ -113,11 +113,13 @@ The rules split in two (SL-441 c1):
 
 ## Summary
 
-The cone is 320 declarations in 23 modules: 13 in `builtin`, 92 in six runtime
-modules, and 215 in 16 std modules. SL-522 added 70 of them: `File.create`,
+The cone is 325 declarations in 23 modules: 13 in `builtin`, 92 in six runtime
+modules, and 220 in 16 std modules. SL-522 added 75 of them: `File.create`,
 `.write` and `.close`, `String.to_data`, `std.process`'s `Command` with its
 blocking `wait`, and the runtime bodies behind their seams (`rt.common.proc`,
-`rt.common.sleep`, `rt.host_macos.clock`, and `rt_fs_write`). `owned-operand` finds no site anywhere in
+`rt.common.sleep`, `rt.host_macos.clock`, and `rt_fs_write`); then
+`Env.executable_path` and its four externs, through which the driver finds its
+runtime manifest beside its real executable, and one more `Vector` instance. `owned-operand` finds no site anywhere in
 sawc2's build, and the frame ledger for it has no frame and no suspension site.
 
 No firing is a defect. Obligations by hazard:
@@ -243,9 +245,10 @@ No body: extern `memcpy`.
 | `Env.argc` | none | none |
 | `Env.arg` | `raw-pointer` | C1: `argv[index]`, after the bounds check |
 | `Env.args` | none | S3: `let _ = try result.push(arg)`. `push` consumes `arg` on both paths, and `AllocError` owns nothing |
+| `Env.executable_path` | `raw-pointer` | C1: `_NSGetExecutablePath` is asked the length first, then fills a `malloc` buffer one byte longer; realpath(3) mallocs its answer, which is copied into a `String` and freed. Both buffers are freed on every path. No errno is read after the bare libc calls, as rt/ABI.md requires, so a failure is `Unknown`. It writes nothing and spawns nothing (S28) |
 | struct `Path`, `Path.init(s:)`, `Path.as_str` | `prelude-type-name` (`Path`) | none; `init` is in a non-generic extension |
 
-No body: externs `__saw_rt_get_argc`, `__saw_rt_get_argv`, `__saw_string_from_bytes`, `strlen`.
+No body: externs `__saw_rt_get_argc`, `__saw_rt_get_argv`, `__saw_string_from_bytes`, `_NSGetExecutablePath`, `free`, `malloc`, `realpath`, `strlen`.
 
 ### std.file
 
@@ -512,13 +515,13 @@ What this reading cannot see, besides the blind spots listed above:
 
 ## Summary
 
-The cone is 132 declarations in 15 modules, all of them std:
+The cone is 137 declarations in 15 modules, all of them std:
 
 | Module | Declarations |
 |---|---|
 | `std.alloc` | 8 |
 | `std.data` | 16 |
-| `std.env` | 7 |
+| `std.env` | 12 |
 | `std.file` | 16 |
 | `std.mem` | 2 |
 | `std.panic` | 2 |
@@ -586,8 +589,9 @@ No body: the tag statics, one per portable tag.
 | `Env.argument` | C1: `argv[index]` after the bounds check against `argc`; the length is the scan to the NUL that ends a C argument; a non-UTF-8 argument panics rather than becoming a `String` |
 | `Env.args` | S3's shape, an owned `String` argument under a propagating `try`: `push` consumes its argument on both paths, and `AllocError` owns nothing |
 | `c_string_length` | C1: the scan stops at the argument's NUL |
+| `Env.executable_path` | C1: `_NSGetExecutablePath` is asked the length first, then fills a `malloc` buffer one byte longer; realpath(3) mallocs its answer, which `c_string_length` measures and `string_from_bytes` copies, after a UTF-8 check that panics rather than make an invalid `String`. Both buffers are freed on every path. No errno is read after the bare libc calls, as rt/ABI.md requires, so a failure is `Unknown`. It writes nothing and spawns nothing (S28) |
 
-No body: externs `__saw_rt_get_argc`, `__saw_rt_get_argv`.
+No body: externs `__saw_rt_get_argc`, `__saw_rt_get_argv`, `_NSGetExecutablePath`, `free`, `malloc`, `realpath`.
 
 ### std.file
 

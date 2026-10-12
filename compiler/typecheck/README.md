@@ -46,6 +46,9 @@ typecheck/
                       fixpoint, their dump text and their verifier
     stdsuspension.saw the std suspension table, written by
                       compiler/tools/std_suspension.py
+    exports.saw       `@export`: each export's C symbol, and the export rules
+    runtimeabi.saw    the runtime ABI table, written by
+                      compiler/tools/runtime_table.py
     effects.saw       phase 3: the checks that read the summaries
     exhaust.saw       match exhaustiveness
     arith.saw         typed integer arithmetic, the one rule every constant follows
@@ -149,6 +152,15 @@ typecheck/
     half of `unsafe`, and the `borrows(sync)` window, which reads the
     summaries. A `consumes` call's `move` and `move self`'s `consumes` body
     are checked as the body is walked.
+15. **Exports** (`exports.saw`, the export funnel `tc_check_exports`): each
+    `@export`ed function and static of a module checked in full has its C
+    symbol recorded by declaration (`export_symbols`), which mono roots and
+    the backend defines. Its signature takes and returns only what C passes,
+    no generic is exported, no symbol twice, and none may suspend, by its
+    summary. `main`, `saw_*` and `__saw_*` are reserved, except that a
+    runtime (`runtime_build`, set by `sawc2 runtime` and `typecheck
+    --runtime`) defines the frozen seams it owns, each against the ABI table
+    `runtimeabi.saw`: its arity and every width class.
 
 ## Constants
 

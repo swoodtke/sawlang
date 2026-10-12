@@ -1,0 +1,11 @@
+// refuses: export.reserved at 4:1
+// a runtime seam exported by an ordinary program, which only a runtime built by `sawc2 runtime` defines
+
+@export("__saw_rt_alloc_deny_after")
+func deny_after(allow: Int) {
+    print(allow)
+}
+
+func main() {
+    deny_after(1)
+}

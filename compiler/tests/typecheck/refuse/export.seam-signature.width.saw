@@ -1,0 +1,8 @@
+// refuses: export.seam-signature at 5:1
+// flags: --runtime
+// a runtime seam whose parameter is narrower than the ABI's: `__saw_rt_sleep_ns` takes an `i64`, and a 32-bit count would truncate a long sleep
+
+@export("__saw_rt_sleep_ns")
+func sleep_ns(ns: UInt32) {
+    print(ns)
+}

@@ -2,6 +2,7 @@
 // `.ll`, its link manifest heading the IR as comment lines. The driver writes
 // it to a file and runs clang on it (compiler/tests/run/README.md).
 
+import sawllvm.module.{ll_export_symbol}
 import sawllvm.program.{llvm_emit_program}
 import sawmono.api.{mono_append_findings, mono_lower_file}
 import sawmono.program.{MonoProgram}
@@ -16,6 +17,9 @@ public struct BuildOptions {
     // The triple the module names, the one the driver passes clang as
     // `-target`; "" names the target as sawc2 does.
     module_triple: String
+    // Whether the file is a runtime source: its exports may be the frozen
+    // seams, they are its roots, and it has no `main` or entry point.
+    runtime: Bool
 }
 
 // The `.ll` of the program whose entry file is `path` into `ir`, returning
@@ -23,9 +27,19 @@ public struct BuildOptions {
 // print into `out`, returning 1.
 public func llvm_build(out: &var StringBuilder, ir: &var StringBuilder, path: String, options: &BuildOptions,
                        names: &Vector<String>, dirs: &Vector<String>) -> Int {
+    var exports = Vector<String>()
+    llvm_build_exporting(out: &var out, ir: &var ir, exports: &var exports, path: path, options: &options,
+                         names: &names, dirs: &dirs)
+}
+
+// `llvm_build`, with the C symbol of each function the module defines for C
+// added to `exports`, in declaration order.
+public func llvm_build_exporting(out: &var StringBuilder, ir: &var StringBuilder, exports: &var Vector<String>,
+                                 path: String, options: &BuildOptions, names: &Vector<String>,
+                                 dirs: &Vector<String>) -> Int {
     var front = StringBuilder()
     var mono = mono_lower_file(out: &var front, path: path, std_root: options.std_root, notes: false,
-                               names: &names, dirs: &dirs)
+                               names: &names, dirs: &dirs, runtime: options.runtime)
     let head = front.build()
     if mono.blocked || mono.diags.len() > 0 || mono.problems.len() > 0 {
         try! out.append(head)
@@ -40,5 +54,11 @@ public func llvm_build(out: &var StringBuilder, ir: &var StringBuilder, path: St
         return 1
     }
     try! ir.append(text)
+    var k = 0
+    while k < mono.export_items.len() {
+        let item = mono.export_items[k]
+        try! exports.push(ll_export_symbol(&mono, item))
+        k = k + 1
+    }
     0
 }

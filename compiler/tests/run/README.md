@@ -10,6 +10,8 @@ run/
   run_lane.py    the lane compiler/tests/run.py runs
   NAME.saw       a program
   hello.ll       the `.ll` sawc2 writes for hello.saw, pinned
+  runtime_dirent.ll  the `.ll` `sawc2 runtime` writes for sawc/rt/host_macos/dirent.saw, pinned
+  probes/        programs the lane runs apart from the comparison
 ```
 
 ## `sawc2 build`
@@ -49,20 +51,55 @@ output.
 
 A hosted build links for the host alone, since the runtime objects are the
 host's. They are named by the runtime manifest, `sawc2-runtime.txt` in the
-directory of the sawc2 binary that runs (the directory of its own `argv[0]`):
-a `target TRIPLE` line naming the sawc2 target the objects are built for, then
-an `object PATH` line per object. `compiler/tools/build.py` writes it beside
-Stage 1 and Stage 2, from `compiler/tools/runtime_objects.py --manifest`. The
-objects are Stage 0's prebuilt runtime, built and cached under
-`.build/rt/<key>/` by Stage 0's `sawc/rt_build.py` at llvmlite's host triple,
-which is what a Stage 0 build links. A `--target` naming another target is
-refused, saying it is not the host, before anything is written, rather than
-link a host binary from a module laid out for another target. Stage 0's
-objects are built for the host's macOS, newer than the module's 11.0, so the
-linker warns once per object on standard error; the warnings are expected
-until sawc2 builds the runtime at the module's target (SL-522), and no lane
-counts them as failures. The speed flag passes through the driver's one
+directory of the executable that runs: its real path, from
+`Env.executable_path()` (`_NSGetExecutablePath`, then realpath(3)), so a
+sawc2 run by a bare name through `PATH`, or through a symbolic link, finds the
+manifest beside the file it really is. The manifest is a `target TRIPLE` line
+naming the sawc2 target the objects are built for, then an `object PATH` line
+per object, which is what `sawc2 runtime` prints; `compiler/tools/build.py`
+writes it beside Stage 1 and Stage 2 from Stage 1's `sawc2 runtime` (below).
+A `--target` naming another target is refused, saying it is not the host,
+before anything is written, rather than link a host binary from a module laid
+out for another target. The runtime is built at the module's own target, so a
+link prints nothing. The speed flag passes through the driver's one
 `driver_speed_level` funnel (design 265); `-O0` is the default.
+
+## `sawc2 runtime`
+
+```sh
+.build/sawc2 runtime [--std-root DIR] [--rt-root DIR] --out DIR
+.build/sawc2 runtime [--std-root DIR] --emit-ll FILE
+```
+
+`sawc2 runtime --out DIR` builds the host's runtime (designs 113b and 149,
+SL:open-questions D41) into `DIR`, which must exist: sawc2 has no API to
+create a directory, so a missing one is refused, saying so. The sources are
+compiled against the new std, `--std-root std` by default, the one std they
+are written for. The ABI table
+(`compiler/typecheck/src/runtimeabi.saw`) lists the host's sources under the
+runtime root (`--rt-root`, `sawc/rt` by default): every `.saw` of `common/`,
+then of `host_macos/`. Each is compiled as a runtime source to `DIR/NAME.ll`,
+unbuffered and closed explicitly, and by `clang -c -target TRIPLE -O2 -x ir`
+to `DIR/NAME.o`; then `clang -c shim.c -O2 -fno-strict-aliasing -target
+TRIPLE` writes `DIR/shim.o`. TRIPLE is the module's (`target_clang_triple`),
+so the objects and the programs they link into name one macOS. A runtime
+source is checked with `runtime_build` set: its exports may be the frozen
+seams it owns, each held to the table's arity and widths (the typecheck
+lane's `export.*` rules), it needs no `main`, and mono roots its exports. The
+backend defines each export under its C symbol with external linkage, every
+other function internal, and emits no `main`, no `__saw_rt_get_argc` or
+`__saw_rt_get_argv`, which are the program's, and no backtrace table.
+
+Then the seams are counted: the exports of every source and the seams the
+table says the shim defines must be the table's runtime seams, each exactly
+once. A seam no object defines, one two objects define, and an export that is
+no runtime seam are each printed, and the command exits 1 with no manifest, so
+a runtime missing a seam never links. Otherwise it prints the runtime
+manifest naming the fourteen objects. A refused source prints its record, as
+`sawc2 build` does; a clang that fails gives its exit status. Nothing is
+cached here: `build.py` keys and caches the directory (D41's ruling). Two
+builds into two directories write the same bytes. With `--emit-ll FILE`, that
+one runtime source's `.ll` goes to standard output.
 
 ## The backend
 
@@ -127,13 +164,18 @@ description's (`compiler/tests/mono/README.md`, "Layouts").
 - **The entry.** The C `main(argc, argv)` keeps both for the argument
   accessors the compiler emits into every program (rt/ABI.md, "Program
   arguments"), calls the program's `main`, and exits with its `Int`, or 0
-  for a `Void` main.
+  for a `Void` main. A runtime source has no entry and no accessors.
+- **Exports.** Each `@export`ed function is a root, defined under its C
+  symbol with external linkage, an integer narrower than 32 bits taken and
+  returned `signext` or `zeroext` as C does; an `extern` naming the symbol is
+  called with no declaration beside it. An exported static is refused as
+  `backend.not-yet`.
 - **Determinism.** Functions are written in item order and globals in first
   use; every symbol is derived from what the item is (`@"saw NAME"`).
 
 | rule | refuses | due program |
 |---|---|---|
-| `backend.not-yet` | what the backend does not lower yet: a Float constant, an operator on a Float, or on anything but an integer, a Bool, a String, two raw pointers or the memory values compared part by part, an erasure, a slice, a take capture, a fixed array, a repeat, a `Map` or a `Set` literal, a static that is not an integer or a Bool, a conditional borrow, an aggregate crossing the C convention, a pointer cast to or from an integer narrower than a pointer, an unsupported layout, a `main` returning neither `Void` nor `Int`; a constant is refused at its own spelling, inside an aggregate too | `float_field` |
+| `backend.not-yet` | what the backend does not lower yet: a Float constant, an operator on a Float, or on anything but an integer, a Bool, a String, two raw pointers or the memory values compared part by part, an erasure, a slice, a take capture, a fixed array, a repeat, a `Map` or a `Set` literal, a static that is not an integer or a Bool, an exported static, a conditional borrow, an aggregate crossing the C convention, a pointer cast to or from an integer narrower than a pointer, an unsupported layout, a `main` returning neither `Void` nor `Int`; a constant is refused at its own spelling, inside an aggregate too | `float_field` |
 
 ## The lane
 
@@ -159,15 +201,23 @@ compares:
 - a `// due: REASON` program, with `// refuses: RULE at L:C` after it, must
   be refused there by that rule; once sawc2 builds it the lane fails, so the
   lines come off as the slice grows; every rule of `ll_rules` has one;
+- a build that links prints nothing, standard output or standard error: the
+  linker has no object built for another macOS to warn about;
 - `hello.saw`'s `.ll`, as `sawc2 build --emit-ll` writes it for the default
-  target, equals `hello.ll` byte for byte (`--write` rewrites it);
+  target, equals `hello.ll` byte for byte, and `sawc/rt/host_macos/dirent.saw`'s,
+  as `sawc2 runtime --emit-ll` writes it, `runtime_dirent.ll` (`--write`
+  rewrites both);
 - `sawc2 build --target` refuses every target but the host's, saying so, and
-  leaves no binary and no `.ll`.
-
-A build's standard error carries the linker's per-object warnings about
-Stage 0's runtime objects (above); the lane reads only a build's exit status,
-and the fixpoint lane compares the standard error of a build under Stage 1
-and Stage 2, which link the same objects and so warn the same bytes.
+  leaves no binary and no `.ll`;
+- `sawc2 runtime --out` writes the same files, byte for byte, into two
+  directories, and refuses a copy of `sawc/rt` that leaves a seam undefined
+  (`sleep.saw` without its `@export`) or defines one twice (`dirent.saw`
+  exporting `os_ops.saw`'s `__saw_rt_fs_chdir`), naming the seam and printing
+  no manifest;
+- `probes/executable_path.saw`, built by sawc2 and by Stage 0, run by a bare
+  name that a renamed relative symbolic link on `PATH` resolves, from another
+  working directory, prints its binary's real path: what the manifest lookup
+  rests on.
 
 Stage 0 is the oracle: a difference is a sawc2 bug until shown otherwise
 (SL:architecture §5).
@@ -196,3 +246,12 @@ refused, not sites.
 With these, sawc2 builds its driver with no refusal, clang accepts the
 module, and the link is `.build/sawc2-stage2`, which the fixpoint lane
 (`compiler/tests/fixpoint/fixpoint_lane.py`) holds to Stage 1.
+
+Building the runtime (SL-522, U7c M2) met seven classes. The first six were
+the new std's cell and `Atomic`, its sequentially consistent atomic
+intrinsics, layout `static_assert`s, pointer-integer casts, variadic extern
+calls and pointer arithmetic (SL:open-questions D38 to D40), pinned by
+`atomic_ops`, `layout_asserts`, `pointer_address`, `variadic_extern` and
+`pointer_offset`; the seventh was the runtime-build mode itself, `sawc2
+runtime` above (D41). With it, every source of `sawc/rt/common/` and
+`sawc/rt/host_macos/` builds with no refusal.

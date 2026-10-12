@@ -1,0 +1,18 @@
+// Prints the running executable's path as `Env.executable_path` resolves it;
+// the run lane starts it through a renamed symbolic link on `PATH`.
+
+import std.env.{Env}
+
+func main() -> Int {
+    let found = Env.executable_path()
+    match found {
+        case Ok(path) -> {
+            print(path)
+            0
+        },
+        case Err(e) -> {
+            print("no executable path: {}", e)
+            1
+        }
+    }
+}

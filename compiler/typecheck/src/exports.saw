@@ -1,0 +1,383 @@
+// `@export`: the C symbol a function or static is defined under, recorded by
+// declaration for mono and the backend, and the rules an export meets. A
+// runtime's seams are checked against the ABI table compiled from
+// sawc/rt/ABI.md, `runtimeabi.saw` (design 149).
+
+import sawparse.grammar.{Alt}
+import sawresolve.model.{ResDeclKind}
+import sawtypecheck.conform.{TcSubst}
+import sawtypecheck.program.{TcProgram}
+import sawtypecheck.runtimeabi.{tc_runtime_abi_rows}
+import sawtypecheck.spell.{tc_effects_text}
+import sawtypecheck.typeops.{TcClient}
+import sawtypecheck.types.{TcKind}
+
+// Every rule the export funnel refuses by.
+public func tc_export_rules() -> Vector<String> {
+    var out = Vector<String>()
+    try! out.push("export.c-abi")
+    try! out.push("export.duplicate")
+    try! out.push("export.generic")
+    try! out.push("export.reserved")
+    try! out.push("export.seam-signature")
+    try! out.push("export.suspends")
+    try! out.push("export.unknown-seam")
+    move out
+}
+
+// The ABI table's rows, loaded once per program.
+struct TcAbiTable {
+    names: Vector<String>
+    params: Vector<String>
+    results: Vector<String>
+    owners: Vector<String>
+}
+
+extension TcAbiTable: NoCopy {}
+
+// THE EXPORT FUNNEL: each function and static of a module checked in full
+// that carries `@export` has its C symbol recorded in `export_symbols` and
+// meets the export rules. It runs after the summaries, which say whether an
+// export may suspend; mono roots the exports and the backend defines each
+// under its symbol, both reading the record this writes.
+// ENTRY POINTS:
+//     typecheck_program
+public func tc_check_exports(p: &var TcProgram) {
+    var names = Vector<String>()
+    var params = Vector<String>()
+    var results = Vector<String>()
+    var owners = Vector<String>()
+    tc_runtime_abi_rows(&var names, &var params, &var results, &var owners)
+    let table = TcAbiTable(names: move names, params: move params, results: move results, owners: move owners)
+    var d = 0
+    while d < p.res.decls.len() {
+        let info = p.res.decls[d]
+        if info.kind == ResDeclKind.Func || info.kind == ResDeclKind.Static {
+            let m = p.res.module(info.module)
+            if m.available && not m.interface_only {
+                let attr = p.export_attribute(d)
+                if attr >= 0 {
+                    p.record_export(d, attr, &table)
+                }
+            }
+        }
+        d = d + 1
+    }
+}
+
+extension TcProgram {
+    // The `@export` attribute declaration `d` carries, or -1.
+    func export_attribute(&self, d: Int) -> Int {
+        let info = self.res.decls[d]
+        let outer = info.outer
+        if outer < 0 || outer == info.node {
+            return -1
+        }
+        let n = self.child_count(outer)
+        var k = 0
+        while k < n {
+            let c = self.child(outer, k)
+            if self.has_alt(c, Alt.Attr_Attribute_Export) || self.has_alt(c, Alt.Attr_Attribute_ExportSymbol) {
+                return c
+            }
+            k = k + 1
+        }
+        return -1
+    }
+
+    // The C symbol attribute `attr` names: its string, or the declaration's
+    // own name when it writes none.
+    func export_symbol_of(&self, d: Int, attr: Int) -> String {
+        let info = self.res.decls[d]
+        let n = self.child_count(attr)
+        var k = 0
+        while k < n {
+            let c = self.child(attr, k)
+            if self.is_leaf(c) {
+                let text = self.text(info.module, c)
+                let size = text.len()
+                if size >= 2 && text.starts_with("\"") {
+                    return text.substring(1, size - 1)
+                }
+            }
+            k = k + 1
+        }
+        self.name_text(info.name)
+    }
+
+    func record_export(&var self, d: Int, attr: Int, table: &TcAbiTable) {
+        let info = self.res.decls[d]
+        let m = info.module
+        let site = self.decl_site(d)
+        let symbol = self.export_symbol_of(d, attr)
+        self.export_symbols[d] = symbol
+        self.export_nodes[d] = attr
+        let name = self.name_text(info.name)
+        let s = self.sigs[d]
+        if info.kind == ResDeclKind.Func {
+            if s.generic_count > 0 {
+                var msg = StringBuilder()
+                try! msg.append("cannot `@export` the generic function `")
+                try! msg.append(name)
+                try! msg.append("`: a C symbol has no type parameters; export a concrete wrapper instead")
+                self.refuse_in(m, site, "export.generic", msg.build())
+                return
+            }
+            if not self.export_signature_ok(d) {
+                return
+            }
+        } else if not self.export_data_ok(s.result, 0) {
+            var msg = StringBuilder()
+            try! msg.append("`@export` static `")
+            try! msg.append(name)
+            try! msg.append("`: type `")
+            try! msg.append(self.type_text(s.result))
+            try! msg.append("` is not a C-ABI-safe data layout: an exported static holds fixed-width integers, `Int`/`UInt`, `Float`, pointers, and arrays and structs of them")
+            self.refuse_in(m, site, "export.c-abi", msg.build())
+            return
+        }
+        if not self.export_name_ok(d, attr, symbol, &table) {
+            return
+        }
+        if not self.export_unique(d, attr, symbol) {
+            return
+        }
+        if info.kind != ResDeclKind.Func || d >= self.summaries.len() {
+            return
+        }
+        let summary = self.summaries[d]
+        if summary.nonsync {
+            var msg = StringBuilder()
+            try! msg.append("`@export` function `")
+            try! msg.append(name)
+            try! msg.append("` may suspend: C calls an export directly, with no executor to resume it, so an exported body is sync")
+            self.refuse_in(m, site, "export.suspends", msg.build())
+        }
+    }
+
+    // Each parameter and the result of function `d` against the C-ABI
+    // whitelist; false once one is refused.
+    func export_signature_ok(&var self, d: Int) -> Bool {
+        let info = self.res.decls[d]
+        let site = self.decl_site(d)
+        let s = self.sigs[d]
+        var k = 0
+        while k < s.param_count {
+            let prm = self.params[s.param_first + k]
+            let machine = self.export_class(prm.ty, false)
+            if machine.len() == 0 {
+                var msg = StringBuilder()
+                try! msg.append("`@export` function `")
+                try! msg.append(self.name_text(info.name))
+                try! msg.append("`: parameter `")
+                try! msg.append(self.name_text(prm.name))
+                try! msg.append("` has type `")
+                try! msg.append(self.type_text(prm.ty))
+                try! msg.append("`, which is not C-ABI-safe: an exported signature takes fixed-width integers, `Int`/`UInt`, `Float` and pointers; pass an aggregate by `UnsafePointer<S>`")
+                let at = if prm.leaf >= 0 { prm.leaf } else { site }
+                self.refuse_in(info.module, at, "export.c-abi", msg.build())
+                return false
+            }
+            k = k + 1
+        }
+        let result = self.export_class(s.result, true)
+        if result.len() == 0 {
+            var msg = StringBuilder()
+            try! msg.append("`@export` function `")
+            try! msg.append(self.name_text(info.name))
+            try! msg.append("`: its result `")
+            try! msg.append(self.type_text(s.result))
+            try! msg.append("` is not C-ABI-safe: an exported function returns a fixed-width integer, `Int`/`UInt`, `Float`, a pointer, `Void` or `Never`, and never an optional")
+            self.refuse_in(info.module, site, "export.c-abi", msg.build())
+            return false
+        }
+        true
+    }
+
+    // The machine class the C convention passes type `t` in, in
+    // sawc/runtime_abi.py's vocabulary widened by the narrow integers and
+    // `float`; "" when an exported signature may not name it. `result` admits
+    // `Void` and `Never`.
+    public func export_class(&self, t: Int, result: Bool) -> String {
+        let d = self.nominal_decl(t)
+        if d < 0 {
+            return ""
+        }
+        let k = self.known
+        if d == k.int || d == k.uint || d == k.unsafe_pointer || d == k.unsafe_const_pointer || d == k.func_pointer {
+            return "word"
+        }
+        if d == k.int64 || d == k.uint64 {
+            return "i64"
+        }
+        if d == k.int32 || d == k.uint32 {
+            return "i32"
+        }
+        if d == k.int16 || d == k.uint16 {
+            return "i16"
+        }
+        if d == k.int8 || d == k.uint8 {
+            return "i8"
+        }
+        if d == k.float {
+            return "float"
+        }
+        if result && d == k.void_type {
+            return "void"
+        }
+        if result && d == k.never {
+            return "noreturn"
+        }
+        ""
+    }
+
+    // Whether an exported static's type has a fixed C data layout: a C scalar,
+    // or an array or a non-generic struct of them.
+    func export_data_ok(&self, t: Int, depth: Int) -> Bool {
+        if depth > TC_EXPORT_DATA_DEPTH || t < 0 {
+            return false
+        }
+        let machine = self.export_class(t, false)
+        if machine.len() > 0 {
+            return true
+        }
+        let shape = self.types.ty(t)
+        if shape.kind == TcKind.Array {
+            return self.export_data_ok(shape.b, depth + 1)
+        }
+        let d = self.nominal_decl(t)
+        if d < 0 || not self.is_struct_decl(d) {
+            return false
+        }
+        let own = self.sigs[d]
+        if own.generic_count > 0 {
+            return false
+        }
+        let members = self.members_of(d)
+        var k = 0
+        while k < members.len() {
+            let f = members[k]
+            let field = self.sigs[f]
+            if self.res.decls[f].kind == ResDeclKind.Field && not self.export_data_ok(field.result, depth + 1) {
+                return false
+            }
+            k = k + 1
+        }
+        true
+    }
+
+    // The reserved names: `main`, `saw_*` and `__saw_*` belong to the program
+    // and the compiler, except that a runtime defines the frozen seams it owns,
+    // each with the signature the ABI table gives.
+    func export_name_ok(&var self, d: Int, attr: Int, symbol: String, table: &TcAbiTable) -> Bool {
+        let m = self.res.decls[d].module
+        if not (symbol.equals("main") || symbol.starts_with("saw_") || symbol.starts_with("__saw_")) {
+            return true
+        }
+        let row = tc_abi_row_of(&table, symbol)
+        let owner = table.owners.get(row) ?? ""
+        if self.runtime_build && owner.equals("runtime") {
+            return self.export_seam_ok(d, attr, symbol, &table, row)
+        }
+        if self.runtime_build && row < 0 && symbol.starts_with("__saw_rt_") {
+            var msg = StringBuilder()
+            try! msg.append("`@export` symbol `")
+            try! msg.append(symbol)
+            try! msg.append("` is not part of the frozen `__saw_rt_*` runtime ABI (sawc/rt/ABI.md): a runtime defines only the seams it lists")
+            self.refuse_in(m, attr, "export.unknown-seam", msg.build())
+            return false
+        }
+        var msg = StringBuilder()
+        try! msg.append("`@export` symbol `")
+        try! msg.append(symbol)
+        if self.runtime_build && row >= 0 {
+            try! msg.append("` is the program's, not the runtime's: the compiler defines it in every program (sawc/rt/ABI.md, \"Program arguments\")")
+        } else if symbol.starts_with("__saw_rt_") {
+            try! msg.append("` collides with a reserved runtime symbol (`main`, `saw_*`, `__saw_*`): `__saw_rt_*` names are the runtime ABI, which only a runtime built by `sawc2 runtime` defines")
+        } else {
+            try! msg.append("` collides with a reserved runtime symbol (`main`, `saw_*`, `__saw_*`); choose another with `@export(\"name\")`")
+        }
+        self.refuse_in(m, attr, "export.reserved", msg.build())
+        false
+    }
+
+    // Seam `symbol`'s arity and each width class against ABI table row `row`.
+    // A pointer and a word share the class `word`, which is all the C
+    // convention distinguishes at that width.
+    func export_seam_ok(&var self, d: Int, attr: Int, symbol: String, table: &TcAbiTable, row: Int) -> Bool {
+        let s = self.sigs[d]
+        let want_params = table.params.get(row) ?? ""
+        let want_result = table.results.get(row) ?? ""
+        var got = StringBuilder()
+        var k = 0
+        while k < s.param_count {
+            if k > 0 {
+                try! got.append(", ")
+            }
+            let prm = self.params[s.param_first + k]
+            let machine = self.export_class(prm.ty, false)
+            try! got.append(machine)
+            k = k + 1
+        }
+        let got_params = got.build()
+        let got_result = self.export_class(s.result, true)
+        if got_params.equals(want_params) && got_result.equals(want_result) {
+            return true
+        }
+        var msg = StringBuilder()
+        try! msg.append("`@export` seam `")
+        try! msg.append(symbol)
+        try! msg.append("` does not match the runtime ABI: it is `(")
+        try! msg.append(got_params)
+        try! msg.append(") -> ")
+        try! msg.append(got_result)
+        try! msg.append("`, and sawc/rt/ABI.md freezes it as `(")
+        try! msg.append(want_params)
+        try! msg.append(") -> ")
+        try! msg.append(want_result)
+        try! msg.append("`; a runtime is a link-time swap, so a seam that disagrees links cleanly and misbehaves at run time")
+        let m = self.res.decls[d].module
+        self.refuse_in(m, attr, "export.seam-signature", msg.build())
+        false
+    }
+
+    // Whether no earlier declaration exports `symbol`: an unmangled C symbol
+    // is unique across the program.
+    func export_unique(&var self, d: Int, attr: Int, symbol: String) -> Bool {
+        var e = 0
+        while e < d {
+            let other = self.export_symbols.get(e) ?? ""
+            if other.equals(symbol) {
+                let first = self.res.decls[e]
+                let m = self.res.decls[d].module
+                var msg = StringBuilder()
+                try! msg.append("duplicate `@export` symbol `")
+                try! msg.append(symbol)
+                try! msg.append("`, already exported by `")
+                try! msg.append(self.name_text(first.name))
+                try! msg.append("`: an unmangled C symbol is unique across the program")
+                self.refuse_in(m, attr, "export.duplicate", msg.build())
+                return false
+            }
+            e = e + 1
+        }
+        true
+    }
+}
+
+// The row of the ABI table naming `symbol`, or -1.
+func tc_abi_row_of(table: &TcAbiTable, symbol: String) -> Int {
+    var k = 0
+    while k < table.names.len() {
+        let name = table.names.get(k) ?? ""
+        if name.equals(symbol) {
+            return k
+        }
+        k = k + 1
+    }
+    return -1
+}
+
+// How deeply an exported static's arrays and structs may nest before the
+// walk gives up on it.
+static TC_EXPORT_DATA_DEPTH: Int = 16

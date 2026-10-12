@@ -1,0 +1,16 @@
+// refuses: export.duplicate at 9:1
+// two functions exported under one C symbol, the second refused
+
+@export("tick")
+func tick_a() -> Int {
+    1
+}
+
+@export("tick")
+func tick_b() -> Int {
+    2
+}
+
+func main() {
+    print(tick_a() + tick_b())
+}

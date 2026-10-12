@@ -1,0 +1,23 @@
+// An exported function is defined under its C symbol, with external linkage,
+// and a call from Saw reaches it there; one nothing calls is defined all the
+// same, and a narrow integer crosses extended by its signedness.
+
+@export("probe_twice")
+func twice(n: Int) -> Int {
+    n * 2
+}
+
+@export
+func narrow_back(b: Int8) -> Int8 {
+    b
+}
+
+@export("probe_unused")
+func unused(n: UInt16) -> UInt16 {
+    n
+}
+
+func main() {
+    print(twice(21))
+    print(narrow_back(-5))
+}

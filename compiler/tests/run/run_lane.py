@@ -25,10 +25,18 @@ exit status compared.
   wrong, the program's `// prints: LINE` headers are the oracle instead:
   sawc2 must print exactly those lines, and Stage 0 the same lines in some
   other order, since such a hazard moves output and never adds or loses it;
+- a build that links prints nothing: the runtime it links is built at the
+  module's own target, so the linker has nothing to warn about;
 - `hello.saw`'s `.ll`, as the compiler binary writes it, equals `hello.ll`
-  byte for byte;
+  byte for byte, and `sawc/rt/host_macos/dirent.saw`'s, as `sawc2 runtime`
+  writes it, `runtime_dirent.ll`;
 - `sawc2 build --target` refuses every target but the host, and links
-  nothing.
+  nothing;
+- `sawc2 runtime` writes the same bytes into two directories, and refuses a
+  copy of the runtime that leaves a seam undefined or defines one twice;
+- `probes/executable_path.saw`, built by sawc2 and by Stage 0 and run through
+  a renamed symbolic link on `PATH` from another directory, prints its
+  binary's real path.
 
 Stage 0 is the oracle; a difference is a sawc2 bug until shown otherwise
 (SL:architecture §5).
@@ -37,6 +45,7 @@ import concurrent.futures
 import glob
 import os
 import re
+import shutil
 import subprocess
 import sys
 
@@ -145,10 +154,9 @@ def ll_rules():
 
 
 def build_new(src, speed="-O0"):
-    """sawc2's build of `src` at `speed`. Its standard error carries the
-    linker's warnings about Stage 0's runtime objects, which name a newer
-    macOS than the module's target; they are not failures, and the lane reads
-    the exit status alone."""
+    """sawc2's build of `src` at `speed`: whether it linked, the binary, and
+    what it printed. The runtime it links is built at the module's own target,
+    so a build that links prints nothing."""
     name = os.path.splitext(os.path.basename(src))[0]
     out = os.path.join(OUT, name + (".new" if speed == "-O0" else ".new" + speed[1:]))
     r = subprocess.run([build.SAWC2, "build", speed, "--std-root", "std", rel(src), "-o", out], cwd=REPO,
@@ -205,6 +213,8 @@ def check_case(src):
     if not ok_new:
         first = next((l for l in new_log.split("\n") if l.startswith(("ERROR", "INVARIANT"))), new_log[:300])
         return ["run %s: sawc2 does not build it: %s" % (rel(src), first)], "fail"
+    if new_log:
+        return ["run %s: sawc2 builds it but prints: %s" % (rel(src), new_log[:300])], "fail"
     ok_old, old, old_log = build_old(src)
     if not ok_old:
         return ["run %s: Stage 0 does not build it: %s" % (rel(src), old_log[-300:])], "fail"
@@ -240,13 +250,19 @@ def cases(names=None):
 
 def check_pinned_ir(failures, counts, write):
     """hello.saw's `.ll`, as the compiler binary writes it for the default
-    target, against hello.ll."""
-    pinned = os.path.join(HERE, "hello.ll")
-    r = subprocess.run([build.SAWC2, "build", "--emit-ll", "--std-root", "std",
-                        rel(os.path.join(HERE, "hello.saw"))],
-                       cwd=REPO, capture_output=True, text=True, timeout=BUILD_TIMEOUT)
+    target, against hello.ll, and one runtime source's, as `sawc2 runtime`
+    writes it, against runtime_dirent.ll."""
+    check_pinned(failures, counts, write, "hello", os.path.join(HERE, "hello.ll"),
+                 ["build", "--emit-ll", "--std-root", "std", rel(os.path.join(HERE, "hello.saw"))])
+    check_pinned(failures, counts, write, "runtime dirent", os.path.join(HERE, "runtime_dirent.ll"),
+                 ["runtime", "--std-root", "std", "--emit-ll", os.path.join("sawc", "rt", "host_macos",
+                                                                           "dirent.saw")])
+
+
+def check_pinned(failures, counts, write, what, pinned, args):
+    r = subprocess.run([build.SAWC2] + args, cwd=REPO, capture_output=True, text=True, timeout=BUILD_TIMEOUT)
     if r.returncode != 0:
-        failures.append("run hello: sawc2 build wrote no .ll: %s" % r.stdout.strip()[:300])
+        failures.append("run %s: sawc2 wrote no .ll: %s" % (what, r.stdout.strip()[:300]))
         return
     text = r.stdout
     if write:
@@ -254,7 +270,7 @@ def check_pinned_ir(failures, counts, write):
             fh.write(text)
         return
     if not os.path.exists(pinned):
-        failures.append("run hello: no pinned %s" % rel(pinned))
+        failures.append("run %s: no pinned %s" % (what, rel(pinned)))
         return
     with open(pinned) as fh:
         expected = fh.read()
@@ -263,8 +279,68 @@ def check_pinned_ir(failures, counts, write):
         b = text.split("\n")
         k = next((i for i in range(max(len(a), len(b)))
                   if (a[i] if i < len(a) else None) != (b[i] if i < len(b) else None)), 0)
-        failures.append("run hello: the .ll differs from %s at line %d" % (rel(pinned), k + 1))
+        failures.append("run %s: the .ll differs from %s at line %d" % (what, rel(pinned), k + 1))
     counts["run pinned .ll files"] = counts.get("run pinned .ll files", 0) + 1
+
+
+def build_runtime(directory, rt_root):
+    """`sawc2 runtime` of the sources under `rt_root` into a fresh
+    `directory`: (exit status, what it printed)."""
+    shutil.rmtree(directory, ignore_errors=True)
+    os.makedirs(directory)
+    r = subprocess.run([build.SAWC2, "runtime", "--std-root", "std", "--rt-root", rel(rt_root), "--out",
+                        rel(directory)], cwd=REPO, capture_output=True, text=True, timeout=BUILD_TIMEOUT)
+    return r.returncode, (r.stdout + r.stderr).strip()
+
+
+# Each defect a runtime source may carry, and the line `sawc2 runtime` must
+# print for it: (source under sawc/rt, the text replaced, its replacement,
+# the line).
+RUNTIME_DEFECTS = (
+    ("common/sleep.saw", '@export("__saw_rt_sleep_ns")\n', "",
+     "sawc2 runtime: no runtime object defines `__saw_rt_sleep_ns`, which sawc/rt/ABI.md lists"),
+    ("host_macos/dirent.saw", '@export("__saw_rt_fs_dirent_name")', '@export("__saw_rt_fs_chdir")',
+     "sawc2 runtime: `__saw_rt_fs_chdir` is defined by both"),
+)
+
+
+def check_runtime(failures, counts):
+    """`sawc2 runtime` writes the same bytes into two directories, and refuses
+    a runtime that leaves a seam undefined or defines one twice, naming it and
+    printing no manifest."""
+    first_dir = os.path.join(OUT, "runtime-a")
+    second_dir = os.path.join(OUT, "runtime-b")
+    rt = os.path.join(REPO, "sawc", "rt")
+    code_a, log_a = build_runtime(first_dir, rt)
+    code_b, log_b = build_runtime(second_dir, rt)
+    if code_a != 0 or code_b != 0:
+        failures.append("run runtime: sawc2 runtime fails: %s" % (log_a or log_b)[:300])
+        return
+    names = sorted(os.listdir(first_dir))
+    if names != sorted(os.listdir(second_dir)):
+        failures.append("run runtime: two builds write different files")
+    for name in names:
+        with open(os.path.join(first_dir, name), "rb") as a, open(os.path.join(second_dir, name), "rb") as b:
+            if a.read() != b.read():
+                failures.append("run runtime: %s differs between two builds" % name)
+    counts["run runtime objects"] = sum(1 for n in names if n.endswith(".o"))
+    for source, old, new, line in RUNTIME_DEFECTS:
+        copy = os.path.join(OUT, "runtime-defect", "rt")
+        shutil.rmtree(os.path.dirname(copy), ignore_errors=True)
+        shutil.copytree(rt, copy)
+        path = os.path.join(copy, source)
+        with open(path) as fh:
+            text = fh.read()
+        if old not in text:
+            failures.append("run runtime: %s no longer holds %r to break" % (source, old))
+            continue
+        with open(path, "w") as fh:
+            fh.write(text.replace(old, new, 1))
+        code, log = build_runtime(os.path.join(OUT, "runtime-defect", "out"), copy)
+        if code == 0 or line not in log or any(l.startswith("object ") for l in log.split("\n")):
+            failures.append("run runtime: a runtime broken in %s is not refused with %r: %s"
+                            % (source, line, log[:300]))
+        counts["run runtime defects refused"] = counts.get("run runtime defects refused", 0) + 1
 
 
 def check_foreign_targets(failures, counts):
@@ -292,6 +368,43 @@ def check_foreign_targets(failures, counts):
     counts["run foreign targets refused"] = refused
 
 
+def check_executable_path(failures, counts):
+    """`Env.executable_path` names the real file however the program is
+    started: `probes/executable_path.saw`, built by sawc2 and by Stage 0, is
+    run by a bare name that a renamed relative symbolic link on `PATH`
+    resolves, from another working directory, and must print its binary's
+    real path."""
+    probe = os.path.join(HERE, "probes", "executable_path.saw")
+    links = os.path.join(OUT, "probe-links")
+    elsewhere = os.path.join(OUT, "probe-elsewhere")
+    shutil.rmtree(links, ignore_errors=True)
+    os.makedirs(links)
+    os.makedirs(elsewhere, exist_ok=True)
+    built = []
+    new = os.path.join(OUT, "executable_path.new")
+    r = subprocess.run([build.SAWC2, "build", "--std-root", "std", rel(probe), "-o", new], cwd=REPO,
+                       capture_output=True, text=True, timeout=BUILD_TIMEOUT)
+    built.append(("sawc2", r.returncode, new, (r.stdout + r.stderr).strip()))
+    old = os.path.join(OUT, "executable_path.old")
+    r = subprocess.run([sys.executable, build.FROZEN_SAWC, rel(probe), "-o", old], cwd=REPO,
+                       capture_output=True, text=True, timeout=BUILD_TIMEOUT)
+    built.append(("Stage 0", r.returncode, old, (r.stdout + r.stderr).strip()))
+    for who, code, binary, log in built:
+        if code != 0:
+            failures.append("run executable path: %s does not build the probe: %s" % (who, log[:300]))
+            continue
+        name = "renamed-probe-" + ("new" if binary == new else "old")
+        os.symlink(os.path.relpath(binary, links), os.path.join(links, name))
+        env = dict(os.environ, PATH=links + os.pathsep + "/usr/bin" + os.pathsep + "/bin")
+        r = subprocess.run([name], cwd=elsewhere, env=env, capture_output=True, text=True,
+                           timeout=RUN_TIMEOUT)
+        want = os.path.realpath(binary) + "\n"
+        if r.returncode != 0 or r.stdout != want:
+            failures.append("run executable path: %s's probe, run as `%s` through PATH, prints %r, not %r"
+                            % (who, name, r.stdout[:300], want))
+        counts["run executable paths resolved"] = counts.get("run executable paths resolved", 0) + 1
+
+
 def run(names=None, write=False):
     os.makedirs(OUT, exist_ok=True)
     failures = []
@@ -316,6 +429,8 @@ def run(names=None, write=False):
                 failures.append("run rule %s: no due program is refused by it" % rule)
         check_pinned_ir(failures, counts, write)
         check_foreign_targets(failures, counts)
+        check_runtime(failures, counts)
+        check_executable_path(failures, counts)
     return failures, counts, dues
 
 

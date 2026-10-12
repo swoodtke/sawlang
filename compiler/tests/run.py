@@ -11,7 +11,8 @@ compares `sawc2 lex` with the golden fixtures in `lex/`, whose token
 kinds and lex errors must cover the lexer's; runs the subset checker over the
 compiler source and its own fixtures in `subset/`; recomputes the std cone of
 sawc2's build and compares it with `tools/std_cone.txt`, and the std suspension
-table with `tools/std_suspension.txt`; and runs the grammar lint,
+table with `tools/std_suspension.txt`; compares the runtime ABI table compiled
+into sawc2 with `sawc/rt/ABI.md` and the runtime's sources; and runs the grammar lint,
 the reference recognizer's own tests in `grammar/`, and the parser corpus's
 checks over `parse/`; runs the corpus rewriter's golden fixtures in
 `migrate/`; checks that the parser's grammar tables are current and that its
@@ -54,6 +55,7 @@ import depth_funnel  # noqa: E402
 import grammar_tables  # noqa: E402
 import speculation_ledger  # noqa: E402
 import std_cone  # noqa: E402
+import runtime_table  # noqa: E402
 import std_suspension  # noqa: E402
 import subset_check  # noqa: E402
 import ast_nodes as A  # noqa: E402  (on sys.path through subset_check)
@@ -415,6 +417,17 @@ def run_std_suspension(run):
         run.count(key, n)
 
 
+def run_runtime_table(run):
+    """The runtime ABI table compiled into sawc2 against a fresh reading of
+    rt/ABI.md through `sawc/runtime_abi.py`, and each host's runtime sources
+    and shim against it."""
+    failures, counts = runtime_table.check()
+    for failure in failures:
+        run.fail(failure)
+    for key, n in counts.items():
+        run.count(key, n)
+
+
 def run_grammar(run):
     """The grammar lint with its fixtures, the recognizer's unit tests, and the
     parser corpus's checks; the full-corpus recognizer run is the battery's
@@ -573,6 +586,7 @@ def main():
     if ok:
         run_std_cone(run)
     run_std_suspension(run)
+    run_runtime_table(run)
     run_grammar(run)
     run_migrate(run)
     if ok:

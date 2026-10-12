@@ -14,8 +14,12 @@ the two, and then Stage 2 is not built. `SAWC2` is the binary selected.
 Stage 2 is cached: its key covers Stage 1's object, the sources Stage 1
 compiles, this file, the runtime manifest and its objects and clang, so an
 unchanged tree links nothing. Stage 1 is rebuilt on every call, as Stage 0
-has no cache of its own. Beside them goes `.build/sawc2-runtime.txt`, the
-runtime manifest a hosted `sawc2 build` links against.
+has no cache of its own. Stage 1 links against Stage 0's runtime, since Stage
+0 links it; every link after that takes the runtime Stage 1 builds with
+`sawc2 runtime`, cached under `.build/rt2/<key>/` by a key covering Stage 1's
+object, `sawc/rt/`, std and clang. Beside the stages goes
+`.build/sawc2-runtime.txt`, the runtime manifest naming those objects, which a
+hosted `sawc2 build` links against.
 
 The interpreter running this script runs `sawc/sawc.py`, so invoke it with the
 venv's Python. `STAGE_PACKAGES` is the one place that maps a stage package to
@@ -23,8 +27,10 @@ its directory: the driver, the unit programs and the runner all build through
 `build_program`, so a new stage is registered here once.
 """
 import argparse
+import fcntl
 import hashlib
 import os
+import shutil
 import subprocess
 import sys
 
@@ -37,10 +43,13 @@ STAGE1_OBJECT = STAGE1 + ".o"
 STAGE2 = os.path.join(BUILD_DIR, "sawc2-stage2")
 STAGE2_KEY = STAGE2 + ".key"
 DRIVER_ENTRY = os.path.join(REPO, "compiler", "driver", "src", "main.saw")
-RUNTIME_OBJECTS = os.path.join(REPO, "compiler", "tools", "runtime_objects.py")
 # The runtime manifest a hosted `sawc2 build` reads beside its own binary: the
 # host target and the runtime objects it links (compiler/tests/run/README.md).
 RUNTIME_MANIFEST = os.path.join(BUILD_DIR, "sawc2-runtime.txt")
+# The runtime's sources, and where the objects Stage 1 builds from them are
+# cached by key.
+RT_ROOT = os.path.join(REPO, "sawc", "rt")
+RUNTIME_CACHE = os.path.join(BUILD_DIR, "rt2")
 THIS_FILE = os.path.abspath(__file__)
 STD_ROOT = os.path.join(REPO, "std")
 LINK_TIMEOUT = 1800
@@ -115,34 +124,108 @@ def link_driver(compiler, out):
     return ""
 
 
-def write_runtime_manifest():
-    """Writes `.build/sawc2-runtime.txt`, naming Stage 0's prebuilt runtime
-    objects and the host target they are built for. Returns the error text,
-    or "" when it is written."""
-    r = subprocess.run([sys.executable, RUNTIME_OBJECTS, "--manifest"], cwd=REPO, capture_output=True,
-                       text=True)
-    if r.returncode != 0:
-        return (r.stdout + r.stderr).strip()
+def runtime_key():
+    """What the runtime Stage 1 builds is a function of: Stage 1's code (its
+    object, as for Stage 2's key), the runtime's sources and C shim, the std
+    they compile against, and clang. None when Stage 1's object is missing."""
+    if not os.path.exists(STAGE1_OBJECT):
+        return None
+    digest = hashlib.sha256()
+    digest.update(b"sawc2-runtime-v1\0")
+    with open(STAGE1_OBJECT, "rb") as fh:
+        digest.update(hashlib.sha256(fh.read()).digest())
+    for root in (RT_ROOT, STD_ROOT):
+        _hash_tree(digest, root)
+    clang = subprocess.run(["clang", "--version"], capture_output=True, text=True)
+    digest.update(clang.stdout.encode("utf-8"))
+    return digest.hexdigest()[:16]
+
+
+def runtime_seam_problems(objects):
+    """Every way the external `__saw_rt_*` definitions of `objects`, as `nm`
+    reads them, are not the ABI table's runtime seams each exactly once: the
+    check `sawc2 runtime` makes from its own exports, made again on the bytes
+    it wrote."""
+    import runtime_table
+    rows, _ = runtime_table.abi_rows()
+    wanted = set(name for name, _, _, owner in rows if owner == "runtime")
+    seen = {}
+    for path in objects:
+        r = subprocess.run(["nm", "-gU", path], capture_output=True, text=True)
+        if r.returncode != 0:
+            return ["nm cannot read %s: %s" % (path, r.stderr.strip())]
+        for line in r.stdout.splitlines():
+            fields = line.split()
+            if len(fields) == 3 and fields[1] in ("T", "D", "S"):
+                name = fields[2][1:] if fields[2].startswith("_") else fields[2]
+                if name.startswith("__saw_rt_"):
+                    seen.setdefault(name, []).append(os.path.basename(path))
+    problems = []
+    for name in sorted(wanted - set(seen)):
+        problems.append("no runtime object defines `%s`" % name)
+    for name in sorted(seen):
+        if name not in wanted:
+            problems.append("%s defines `%s`, which is not a runtime seam" % (", ".join(seen[name]), name))
+        elif len(seen[name]) > 1:
+            problems.append("`%s` is defined by %s" % (name, ", ".join(seen[name])))
+    return problems
+
+
+def build_runtime():
+    """Stage 1's `sawc2 runtime` builds the host's runtime objects into
+    `.build/rt2/<key>/`, unless that directory already holds the build of the
+    same key, and the runtime manifest naming them is written beside the
+    stages. Returns the error text, or "" when the manifest is written."""
+    key = runtime_key()
+    if key is None:
+        return "the runtime's key needs %s" % os.path.relpath(STAGE1_OBJECT, REPO)
+    directory = os.path.join(RUNTIME_CACHE, key)
+    done = os.path.join(directory, "manifest.txt")
+    os.makedirs(RUNTIME_CACHE, exist_ok=True)
+    # Two builds of one key in one checkout would remove each other's
+    # half-built directory, so the build of a key holds its lock, and the
+    # check for a finished one is repeated under it.
+    with open(os.path.join(RUNTIME_CACHE, key + ".lock"), "w") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        if not os.path.exists(done):
+            shutil.rmtree(directory, ignore_errors=True)
+            os.makedirs(directory)
+            r = subprocess.run([STAGE1, "runtime", "--rt-root", "sawc/rt", "--out", directory],
+                               cwd=REPO, capture_output=True, text=True, timeout=LINK_TIMEOUT)
+            if r.returncode != 0:
+                return "Stage 1 does not build the runtime: " + ((r.stdout + r.stderr).strip()[-600:]
+                                                                  or "it exited %d" % r.returncode)
+            objects = [line[len("object "):] for line in r.stdout.splitlines() if line.startswith("object ")]
+            problems = runtime_seam_problems(objects)
+            if problems:
+                return "the runtime Stage 1 built does not define the ABI's seams: " + "; ".join(problems)
+            with open(done + ".tmp", "w") as fh:
+                fh.write(r.stdout)
+            os.replace(done + ".tmp", done)
+    with open(done) as fh:
+        manifest = fh.read()
     old = None
     if os.path.exists(RUNTIME_MANIFEST):
         with open(RUNTIME_MANIFEST) as fh:
             old = fh.read()
-    if old != r.stdout:
+    if old != manifest:
         with open(RUNTIME_MANIFEST + ".tmp", "w") as fh:
-            fh.write(r.stdout)
+            fh.write(manifest)
         os.replace(RUNTIME_MANIFEST + ".tmp", RUNTIME_MANIFEST)
     return ""
 
 
 def build_stage1():
-    """Stage 0 builds the driver into `.build/sawc2`, and the runtime
-    manifest it links against is written beside it. Returns (ok, output)."""
+    """Stage 0 builds the driver into `.build/sawc2`, linking it against Stage
+    0's own runtime as every Stage 0 build does; then Stage 1 builds the
+    runtime every later link takes, and its manifest is written beside the
+    stages. Returns (ok, output)."""
     ok, output = build_program(DRIVER_ENTRY, STAGE1)
     if not ok:
         return ok, output
-    why = write_runtime_manifest()
+    why = build_runtime()
     if why:
-        return False, "build: the runtime manifest cannot be written: " + why
+        return False, "build: " + why
     return True, output
 
 

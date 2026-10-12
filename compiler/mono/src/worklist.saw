@@ -91,16 +91,30 @@ extension MonoProgram {
         }
     }
 
-    // The roots, in order: the entry module's `main`, then the lang functions
-    // the backend's own lowering calls: the panic sink, which every check
-    // ends in, and the String roles a literal and a written-out String are
-    // read through.
+    // The roots, in order: the entry module's `main`, which a runtime has
+    // none of; each exported function, in declaration order; then the lang
+    // functions the backend's own lowering calls: the panic sink, which every
+    // check ends in, and the String roles a literal and a written-out String
+    // are read through.
     func add_roots(&var self) {
         let entry = self.entry_module()
-        let main_decl = self.dp.bc.mir.tc.top_decl(entry, "main")
         let none = Vector<Int>()
-        if main_decl >= 0 {
-            self.main_item = self.root_item(main_decl, &none)
+        if not self.runtime {
+            let main_decl = self.dp.bc.mir.tc.top_decl(entry, "main")
+            if main_decl >= 0 {
+                self.main_item = self.root_item(main_decl, &none)
+            }
+        }
+        var d = 0
+        while d < self.dp.bc.mir.tc.export_symbols.len() {
+            let symbol = self.dp.bc.mir.tc.export_symbols.get(d) ?? ""
+            if symbol.len() > 0 && self.dp.bc.mir.tc.res.decls[d].kind == ResDeclKind.Func {
+                let k = self.root_item(d, &none)
+                if k >= 0 {
+                    try! self.export_items.push(k)
+                }
+            }
+            d = d + 1
         }
         let sink = self.dp.bc.mir.tc.res.lang_item(ResLang.PanicSinkFunction)
         self.panic_item = self.root_item(sink, &none)

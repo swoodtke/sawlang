@@ -14,7 +14,8 @@ directory specifies:
   the record leaves out the `std.` modules' dumps;
 - each refusal fixture, `refuse/RULE[.VARIANT].saw` or
   `refuse/RULE[.VARIANT]/main.saw`, is refused first by the rule and at the
-  position its `// refuses:` header names;
+  position its `// refuses:` header names, checked with the flags a second
+  line `// flags: ...` passes (`--runtime`, for a runtime's seams);
 - every rule typecheck refuses by has a fixture;
 - the compiler's own source, the sawc2 build and each unit program, checks
   with no refusal;
@@ -45,7 +46,8 @@ _FLAGS = re.compile(r"^// flags: (.*)$")
 _RULE_ID = re.compile(r'"((?:type|conformance|synthesize|copy|unsafe|slice|member|call|infer|'
                       r'transfer|subscript|pattern|format|extension|implicit-member|operator|'
                       r'init|deinit|effect|match|result|borrowing|borrows|consumes|static|'
-                      r'capture|escaping|mutability|nomove|constant|static_assert|trait|atomic)\.[a-z-]+)"')
+                      r'capture|escaping|mutability|nomove|constant|static_assert|trait|atomic|'
+                      r'export)\.[a-z-]+)"')
 
 
 def rel(path):
@@ -199,10 +201,23 @@ def write_header(path, found):
         fh.write("\n".join(lines))
 
 
+def refusal_flags(path):
+    """The flags a refusal fixture's second line `// flags: ...` passes."""
+    with open(path) as fh:
+        fh.readline()
+        m = _FLAGS.match(fh.readline().rstrip("\n"))
+    return tuple(m.group(1).split()) if m else ()
+
+
 def check_refusals(failures, counts, fill):
     cases = refusal_cases()
-    code, out = sawc2(["--check"] + [rel(p) for p in cases])
-    got = records(out)
+    groups = {}
+    for path in cases:
+        groups.setdefault(refusal_flags(path), []).append(path)
+    got = {}
+    for flags, paths in sorted(groups.items()):
+        code, out = sawc2(["--check"] + list(flags) + [rel(p) for p in paths])
+        got.update(records(out))
     named = set()
     for path in cases:
         record = got.get(rel(path), "")

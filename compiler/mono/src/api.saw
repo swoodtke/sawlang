@@ -35,10 +35,11 @@ public struct MonoOptions {
 // before mono, then monomorphized. Everything the stages before it report
 // (as `sawc2 drops --check` prints it) is appended to `out`; when any of it
 // is a refusal or a broken invariant, the program comes back blocked and
-// nothing is instantiated.
+// nothing is instantiated. A `runtime` program is checked and rooted as a
+// runtime: its roots are its exports, and it has no `main`.
 public func mono_lower_file(out: &var StringBuilder, path: String, std_root: String, notes: Bool,
-                            names: &Vector<String>, dirs: &Vector<String>) -> MonoProgram {
-    var lowered = mir_lower_file(path, std_root, &names, &dirs)
+                            names: &Vector<String>, dirs: &Vector<String>, runtime: Bool = false) -> MonoProgram {
+    var lowered = mir_lower_file(path, std_root, &names, &dirs, runtime: runtime)
     var head = StringBuilder()
     var status = mir_append_checks(out: &var head, p: &var lowered, notes: notes)
     var bc = borrowck_program(move lowered)
@@ -82,8 +83,9 @@ public func mono_lower_file(out: &var StringBuilder, path: String, std_root: Str
         }
     }
     var mono = mono_program(move p, blocked)
+    mono.runtime = runtime
     if not blocked {
-        mono_take_statics(&var mono, path, std_root, &names, &dirs)
+        mono_take_statics(&var mono, path, std_root, &names, &dirs, runtime)
         mono.run()
         mono_check_layout_asserts(&var mono)
     }
@@ -185,8 +187,8 @@ func mono_elaborate(p: &var DropsProgram, out: &var StringBuilder) {
 // lowering of the same file; both lowerings are functions of the same input,
 // so their declarations are numbered alike, which a count check confirms.
 func mono_take_statics(mono: &var MonoProgram, path: String, std_root: String, names: &Vector<String>,
-                       dirs: &Vector<String>) {
-    let lowered = mir_lower_file(path, std_root, &names, &dirs)
+                       dirs: &Vector<String>, runtime: Bool) {
+    let lowered = mir_lower_file(path, std_root, &names, &dirs, runtime: runtime)
     var ev = eval_program(move lowered)
     ev.evaluate_all()
     let count = ev.constant_of.len()

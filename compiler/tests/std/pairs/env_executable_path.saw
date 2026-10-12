@@ -1,0 +1,28 @@
+// Env.executable_path: the running program's own file, an absolute path
+// whose last component is the file the first argument names.
+
+import std.env.{Env}
+
+func main() -> Int {
+    let found = Env.executable_path()
+    let path = match found {
+        case Ok(text) -> text,
+        case Err(e) -> panic("the executable's path is not known: {}", e)
+    }
+    assert(path.starts_with("/"), "an absolute path, not {}", path)
+    let args = try! Env.args()
+    let program = args.get(0) ?? ""
+    var start = 0
+    var k = 0
+    while k < program.len() {
+        if (program.byte_at(k) as Int) == 47 {
+            start = k + 1
+        }
+        k = k + 1
+    }
+    let name = program.substring(start, program.len())
+    let size = path.len()
+    let tail = path.substring(size - name.len(), size)
+    assert(tail.equals(name), "the path ends in the program's own name: {} and {}", path, name)
+    0
+}

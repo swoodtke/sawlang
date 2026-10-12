@@ -5,7 +5,7 @@
 # the build's cone differs from this file. `via runtime` marks what only the
 # runtime objects reach; an `instance` line is one type-argument tuple, a type
 # the compiler source declares written as (owning) or (plain).
-# 320 declarations in 23 modules
+# 325 declarations in 23 modules
 
 builtin: 13
   struct Atomic
@@ -188,14 +188,19 @@ std.data: 27
   method DataBuf.store
   extern memcpy
 
-std.env: 8
+std.env: 13
   struct Env
   static-method Env.arg
   static-method Env.argc
   static-method Env.args
+  static-method Env.executable_path
+  extern _NSGetExecutablePath
   extern __saw_rt_get_argc
   extern __saw_rt_get_argv
   extern __saw_string_from_bytes
+  extern free
+  extern malloc
+  extern realpath
   extern strlen
 
 std.file: 18
@@ -382,6 +387,7 @@ std.vector: 10
     instance T=Int, A=GlobalAllocator, __R=Int
     instance T=Int, A=GlobalAllocator, __R=Void
     instance T=String, A=GlobalAllocator, __R=Bool
+    instance T=String, A=GlobalAllocator, __R=Void
   method Vector._grow_target
     instance T=(owning), A=GlobalAllocator
     instance T=(plain), A=GlobalAllocator
@@ -445,7 +451,8 @@ std.vector: 10
   __saw_string_release
   __saw_string_retain
 
-(external C symbols): 30
+(external C symbols): 32
+  _NSGetExecutablePath
   __error
   __saw_environ_get  shim.c
   __saw_environ_set  shim.c
@@ -469,6 +476,7 @@ std.vector: 10
   pthread_key_delete
   pthread_setspecific
   read
+  realpath
   snprintf
   strcat
   strcpy

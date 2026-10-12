@@ -9,7 +9,7 @@ import sawborrowck.program.{BorrowckProgram}
 import sawdrops.program.{DropsProgram}
 import sawllvm.prims.{LL_MESSAGE_LIMIT}
 import sawllvm.calls.{ll_block}
-import sawllvm.module.{LlEmitter, ll_is_scalar, ll_symbol, ll_value_type}
+import sawllvm.module.{LlEmitter, ll_export_symbol, ll_is_scalar, ll_symbol, ll_value_type}
 import sawllvm.ops.{ll_lossless}
 import sawllvm.places.{ll_local_slot}
 import sawmir.model.{MirBlock, MirStmt, MirStmtKind}
@@ -44,9 +44,23 @@ extension LlEmitter {
         let ret_type = self.local_type(&mono, 0)
         let ret = self.lay_at(&var mono, &var target, ret_type, -1)
         self.sret = ret.kind == TargetKind.Memory
+        // An export is defined under its C symbol with external linkage, and
+        // takes and returns its narrow integers extended as C does.
+        let exported = ll_export_symbol(&mono, k).len() > 0
         var head = StringBuilder()
-        try! head.append("define internal ")
+        if exported {
+            try! head.append("define ")
+        } else {
+            try! head.append("define internal ")
+        }
         if ll_is_scalar(&ret) {
+            if exported {
+                let widened = self.c_extension(&mono, ret_type, &ret)
+                if widened.len() > 0 {
+                    try! head.append(widened)
+                    try! head.append(" ")
+                }
+            }
             try! head.append(ll_value_type(&ret))
         } else {
             try! head.append("void")
@@ -86,6 +100,11 @@ extension LlEmitter {
                 let name = ll_param_name(j)
                 if ll_is_scalar(&l) {
                     try! head.append(ll_value_type(&l))
+                    let widened = if exported { self.c_extension(&mono, t, &l) } else { "" }
+                    if widened.len() > 0 {
+                        try! head.append(" ")
+                        try! head.append(widened)
+                    }
                     try! prelude.append("  store ")
                     try! prelude.append(ll_value_type(&l))
                     try! prelude.append(" ")
@@ -135,6 +154,18 @@ extension LlEmitter {
         let blocks = self.body.build()
         try! self.defs.append(blocks)
         try! self.defs.append("\}\n\n")
+    }
+
+    // The attribute a C signature gives an integer narrower than 32 bits of
+    // type `t`, extended by its signedness, or "" for any other value.
+    func c_extension(&self, mono: &MonoProgram, t: Int, l: &TargetLayout) -> String {
+        if l.kind != TargetKind.Int || l.bits >= 32 {
+            return ""
+        }
+        if self.signed_type(&mono, t) {
+            return "signext"
+        }
+        "zeroext"
     }
 
     // A statement: an assignment writes its rvalue into its place; a drop

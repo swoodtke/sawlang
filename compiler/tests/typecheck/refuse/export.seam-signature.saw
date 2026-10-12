@@ -1,0 +1,8 @@
+// refuses: export.seam-signature at 5:1
+// flags: --runtime
+// a runtime seam with a parameter fewer than the ABI's: `__saw_rt_alloc` takes a size and an alignment
+
+@export("__saw_rt_alloc")
+func allocate(size: Int) -> Int {
+    size
+}

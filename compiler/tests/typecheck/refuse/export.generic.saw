@@ -1,0 +1,11 @@
+// refuses: export.generic at 5:6
+// an exported generic function: a C symbol names one body, and a generic has one per instantiation
+
+@export("first_of")
+func first_of<T>(value: T) -> T {
+    value
+}
+
+func main() {
+    print(first_of(3))
+}

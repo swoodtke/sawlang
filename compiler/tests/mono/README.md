@@ -58,8 +58,10 @@ member glue item (requirement, concrete type); an extern item is its C name,
 so two std modules declaring one seam call one symbol.
 
 **The worklist** starts from the roots, in this order: the entry module's
-`main`, then the lang functions the backend's own lowering calls (the panic
-sink, `string_literal`, `string_bytes` and `string_length`). A builtin
+`main`, which a runtime source (`sawc2 runtime`) has none of; each `@export`ed
+function, in declaration order, which typecheck's export funnel records; then
+the lang functions the backend's own lowering calls (the panic sink,
+`string_literal`, `string_bytes` and `string_length`). A builtin
 comparison of Strings reaches the String layer's `string_equals` (`==`,
 `!=`) or `string_compare` (an ordering), each an item made where the first
 such comparison is found. Items are

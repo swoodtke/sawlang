@@ -169,6 +169,7 @@ public func tc_std_suspension_rows(keys: &var Vector<String>, verdicts: &var Vec
     tc_std_row(&var keys, &var verdicts, "std.env.Env.args()", TC_STD_SYNC)
     tc_std_row(&var keys, &var verdicts, "std.env.Env.contains(name)", TC_STD_SYNC)
     tc_std_row(&var keys, &var verdicts, "std.env.Env.cwd()", TC_STD_SYNC)
+    tc_std_row(&var keys, &var verdicts, "std.env.Env.executable_path()", TC_STD_SYNC)
     tc_std_row(&var keys, &var verdicts, "std.env.Env.get(name)", TC_STD_SYNC)
     tc_std_row(&var keys, &var verdicts, "std.env.Env.set(name, value, overwrite)", TC_STD_SYNC)
     tc_std_row(&var keys, &var verdicts, "std.env.Env.set_cwd(path)", TC_STD_SYNC)

@@ -78,14 +78,36 @@ public func ll_is_scalar(l: &TargetLayout) -> Bool {
     l.kind == TargetKind.Int || l.kind == TargetKind.Float || l.kind == TargetKind.Pointer
 }
 
-// The symbol of item `k`: its dump name, quoted. Names are derived from what
-// the item is, so they never depend on discovery order.
+// The symbol of item `k`: an exported function's C symbol, else its dump
+// name, quoted. Names are derived from what the item is, so they never depend
+// on discovery order.
 public func ll_symbol(mono: &MonoProgram, k: Int) -> String {
+    let exported = ll_export_symbol(&mono, k)
     var out = StringBuilder()
+    if exported.len() > 0 {
+        try! out.append("@\"")
+        try! out.append(ll_quoted(exported))
+        try! out.append("\"")
+        return out.build()
+    }
     try! out.append("@\"saw ")
     try! out.append(ll_quoted(mono.item_name(k)))
     try! out.append("\"")
     out.build()
+}
+
+// The C symbol item `k` is defined under when it is an exported function's,
+// or "".
+public func ll_export_symbol(mono: &MonoProgram, k: Int) -> String {
+    var j = 0
+    while j < mono.export_items.len() {
+        if mono.export_items[j] == k {
+            let d = mono.items[k].decl
+            return mono.dp.bc.mir.tc.export_symbols.get(d) ?? ""
+        }
+        j = j + 1
+    }
+    ""
 }
 
 extension LlEmitter {

@@ -33,6 +33,7 @@ Scalar	std.scalar init Scalar.init value:Int	U5b2
 Vector	std.vector struct Vector -	U5b2
 Vector	std.vector init Vector.init -	U5b2
 Env.args	std.env method Env.args -	U5b3
+Env.executable_path	std.env method Env.executable_path -	SL-522
 File.open	std.file method File.open path:std.path.Path	U5b3
 UInt8.from	paired conversions	U5b2
 .append	std.stringbuilder method StringBuilder.append scalar:std.scalar.Scalar	U5b2

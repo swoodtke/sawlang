@@ -1,0 +1,11 @@
+// refuses: export.reserved at 4:1
+// an export named `main`, which the program's entry point already is
+
+@export("main")
+func entry_twin() -> Int {
+    0
+}
+
+func main() {
+    print(entry_twin())
+}

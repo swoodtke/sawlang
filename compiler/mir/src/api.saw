@@ -27,8 +27,8 @@ public struct MirOptions {
 
 // The program whose entry file is `path`, type checked and lowered to MIR.
 public func mir_lower_file(path: String, std_root: String, names: &Vector<String>,
-                           dirs: &Vector<String>) -> MirProgram {
-    let tc = asserts_typecheck_program(path, std_root, &names, &dirs)
+                           dirs: &Vector<String>, runtime: Bool = false) -> MirProgram {
+    let tc = asserts_typecheck_program(path, std_root, &names, &dirs, runtime: runtime)
     var p = mir_program(move tc)
     mir_lower_program(&var p)
     move p

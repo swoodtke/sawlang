@@ -1,6 +1,6 @@
 # The cone of compiler/driver/src/main.saw against the new std (std): every std declaration its
 # functions reach, read off sawc2's typecheck dump by compiler/tools/std_cone.py.
-# 132 declarations in 15 modules
+# 137 declarations in 15 modules
 
 std.alloc: 8
   extern __saw_rt_alloc
@@ -30,13 +30,18 @@ std.data: 16
   method String.to_data
   struct Data
 
-std.env: 7
+std.env: 12
+  extern _NSGetExecutablePath
   extern __saw_rt_get_argc
   extern __saw_rt_get_argv
+  extern free
+  extern malloc
+  extern realpath
   func c_string_length
   method Env.args
   method Env.argument
   method Env.argument_count
+  method Env.executable_path
   struct Env
 
 std.file: 16

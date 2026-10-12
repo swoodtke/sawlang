@@ -1,0 +1,9 @@
+// refuses: export.c-abi at 5:8
+// an exported static whose type has no C data layout: a `Bool`, whose width C does not fix
+
+@export
+static READY: Bool = true
+
+func main() {
+    print(READY)
+}

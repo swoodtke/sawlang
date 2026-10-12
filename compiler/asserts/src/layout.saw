@@ -21,8 +21,8 @@ import sawtypecheck.typeops.{TcClient}
 //     driver_resolve
 //     mir_lower_file
 public func asserts_typecheck_program(path: String, std_root: String, names: &Vector<String>,
-                                      dirs: &Vector<String>) -> TcProgram {
-    var p = typecheck_program(path, std_root, &names, &dirs)
+                                      dirs: &Vector<String>, runtime: Bool = false) -> TcProgram {
+    var p = typecheck_program(path, std_root, &names, &dirs, runtime: runtime)
     asserts_check_concrete(&var p)
     move p
 }

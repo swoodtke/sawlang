@@ -25,14 +25,16 @@ typecheck/
 ## `sawc2 typecheck`
 
 ```sh
-.build/sawc2 typecheck (--dump | --check) [--notes] [--interfaces] [--summaries]
+.build/sawc2 typecheck (--dump | --check) [--notes] [--interfaces] [--summaries] [--runtime]
                        [--std-root DIR] [--module-path NAME=DIR]... [FILE | @LIST]...
 ```
 
 Each FILE is the entry of its own program, which is resolved, then checked,
 with every module it imports. The flags are resolve's (see
 `compiler/tests/resolve/README.md`); `--interfaces` also dumps the std and
-builtin modules, whose signatures are checked as interfaces. Each entry gets one record, starting
+builtin modules, whose signatures are checked as interfaces; `--runtime` checks
+each program as a runtime source, whose exports may be the frozen seams, as
+`sawc2 runtime` does (the `export.*` rules). Each entry gets one record, starting
 with the line `FILE<TAB>path`, holding in order:
 
 - one `ERROR<TAB>rule<TAB>file:line:col<TAB>message` line per refusal:
@@ -1104,6 +1106,13 @@ says what the fixture shows.
 | `format.argument` | a format argument or interpolated segment that is neither Printable nor a primitive |
 | `format.mixed` | a format string that interpolates a value beside its `{}` slots or arguments (spec, "Format arguments and the allocation-free path"), judged where the string-position funnel records it as `format` |
 | `atomic.width` | an `Atomic<X>` at an `X` other than `Int`, written or inferred, once per type, where a position first carries it: v1 atomics are `Atomic<Int>` only (SL:open-questions D38); one only an instantiation forms is mono's |
+| `export.c-abi` | an `@export`ed function whose parameter or result C cannot pass: anything but a fixed-width integer, `Int`/`UInt`, `Float`, a pointer or a `FuncPointer`, and `Void` or `Never` as a result, so never an optional; an exported static whose type has no fixed C data layout (designs 58 and 113b) |
+| `export.generic` | an `@export`ed generic function, whose one C symbol cannot name a body per instantiation |
+| `export.duplicate` | a second declaration exported under a C symbol the program already exports, at the second |
+| `export.reserved` | an export named `main`, `saw_*` or `__saw_*`; in a runtime (`--runtime`, `sawc2 runtime`) the frozen seams the runtime owns are the exception, and a seam the program owns, an argument accessor, is still refused (rt/ABI.md, "Program arguments") |
+| `export.unknown-seam` | in a runtime, a `__saw_rt_*` export the ABI table (`typecheck/src/runtimeabi.saw`, from rt/ABI.md) does not list |
+| `export.seam-signature` | in a runtime, a seam whose arity or a parameter's or the result's width class differs from the ABI table's, pointers and words sharing the class `word` (design 149) |
+| `export.suspends` | an `@export`ed function that may suspend, read from its summary: C calls it with no executor to resume it |
 | `operator.undefined` | an operator over a type it is not defined for; a raw pointer takes only `p + n` and `p - n`, an integer offset after it, which steps `n` elements |
 | `static.optional` | a static whose own type is an optional; an `unsafe static var` is exempt (spec, Module-level statics: "Never optional") |
 | `static.not-constant` | a sub-expression outside the constant grammar of a static's initializer, a raw case's value, an `@align` argument or a `static_assert` condition, named (the constant-position funnel) |

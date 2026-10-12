@@ -23,6 +23,8 @@
 //   sawc2 mono --check FILE...      each entry file's program monomorphized, refusals and invariants only
 //   sawc2 build FILE [-o OUT]       the entry file's program compiled and linked by clang
 //   sawc2 build --emit-ll FILE      the entry file's program as one `.ll` on standard output
+//   sawc2 runtime --out DIR         the host's runtime objects built into DIR
+//   sawc2 runtime --emit-ll FILE    one runtime source as one `.ll` on standard output
 //
 // The lexer's records are its canonical dump (compiler/lex/README.md), the
 // parser's are described in compiler/parse/README.md, the resolver's in
@@ -40,7 +42,7 @@ import sawborrowck.api.{BorrowckOptions, borrowck_record}
 import sawdrops.api.{DropsOptions, drops_record}
 import saweval.api.{EvalOptions, eval_record}
 import sawlex.{LexResult, format_doc, format_error, format_token, kind_name, lex, token_kinds}
-import sawllvm.api.{BuildOptions, llvm_build}
+import sawllvm.api.{BuildOptions, llvm_build, llvm_build_exporting}
 import sawmir.api.{MirOptions, mir_record}
 import sawmono.api.{MonoOptions, mono_record}
 import sawparse.api.{ParseOptions, parse_record}
@@ -48,6 +50,7 @@ import sawparse.reader.{redump}
 import sawresolve.api.{ResolveOptions, resolve_record}
 import sawtarget.layout.{target_clang_triple, target_known}
 import sawtypecheck.api.{TypecheckOptions, typecheck_record}
+import sawtypecheck.runtimeabi.{tc_runtime_abi_rows, tc_runtime_shim_seams, tc_runtime_sources}
 import std.data.{Data}
 import std.env.{Env}
 import std.file.{File}
@@ -60,7 +63,6 @@ static DRIVER_NEWLINE: Int = 10
 static DRIVER_AT: Int = 64
 static DRIVER_EQUALS: Int = 61
 static DRIVER_SLASH: Int = 47
-
 func driver_usage() -> Int {
     print("usage: sawc2 lex [--docs] <file.saw>")
     print("       sawc2 lex --kinds")
@@ -68,7 +70,7 @@ func driver_usage() -> Int {
     print("       sawc2 parse --redump [FILE | @LIST]...")
     print("       sawc2 resolve (--dump | --check) [--notes] [--std-root DIR]")
     print("                     [--module-path NAME=DIR]... [FILE | @LIST]...")
-    print("       sawc2 typecheck (--dump | --check) [--notes] [--interfaces] [--summaries]")
+    print("       sawc2 typecheck (--dump | --check) [--notes] [--interfaces] [--summaries] [--runtime]")
     print("                       [--std-root DIR] [--module-path NAME=DIR]... [FILE | @LIST]...")
     print("       sawc2 mir (--dump | --check) [--notes] [--spans] [--std-root DIR]")
     print("                 [--module-path NAME=DIR]... [FILE | @LIST]...")
@@ -82,6 +84,7 @@ func driver_usage() -> Int {
     print("                  [--module-path NAME=DIR]... [FILE | @LIST]...")
     print("       sawc2 build [-O0 | -O1 | -O2 | -Os | -Oz] [--std-root DIR] [--target TRIPLE]")
     print("                   [--module-path NAME=DIR]... (FILE [-o OUT] | --emit-ll FILE)")
+    print("       sawc2 runtime [--std-root DIR] [--rt-root DIR] (--out DIR | --emit-ll FILE)")
     DRIVER_EXIT_USAGE
 }
 
@@ -154,7 +157,7 @@ func driver_build(args: &Vector<String>) -> Int {
         return driver_emit(path, std_root, triple, speed, &names, &dirs)
     }
     var objects = Vector<String>()
-    let host = driver_read_runtime(args.get(0) ?? "", &var objects)
+    let host = driver_read_runtime(&var objects)
     if host.len() == 0 {
         return DRIVER_EXIT_USAGE
     }
@@ -168,7 +171,8 @@ func driver_build(args: &Vector<String>) -> Int {
         out = driver_default_output(path)
     }
     let clang_triple = target_clang_triple(triple)
-    let options = BuildOptions(std_root: std_root, target: triple, speed: speed, module_triple: clang_triple)
+    let options = BuildOptions(std_root: std_root, target: triple, speed: speed, module_triple: clang_triple,
+                               runtime: false)
     var record = StringBuilder()
     var ir = StringBuilder()
     let status = llvm_build(out: &var record, ir: &var ir, path: path, options: &options, names: &names, dirs: &dirs)
@@ -191,7 +195,7 @@ func driver_build(args: &Vector<String>) -> Int {
 func driver_emit(path: String, std_root: String, triple: String, speed: String, names: &Vector<String>,
                  dirs: &Vector<String>) -> Int {
     let options = BuildOptions(std_root: std_root, target: triple, speed: speed,
-                               module_triple: target_clang_triple(triple))
+                               module_triple: target_clang_triple(triple), runtime: false)
     var record = StringBuilder()
     var ir = StringBuilder()
     let status = llvm_build(out: &var record, ir: &var ir, path: path, options: &options, names: &names, dirs: &dirs)
@@ -216,30 +220,24 @@ func driver_print_refusal(path: String, found: &var StringBuilder) {
 
 // `.build/NAME` for the entry file `path`, NAME its file name without `.saw`.
 func driver_default_output(path: String) -> String {
-    var start = 0
-    var i = 0
-    while i < path.len() {
-        if (path.byte_at(i) as Int) == DRIVER_SLASH {
-            start = i + 1
-        }
-        i = i + 1
-    }
-    var stop = path.len()
-    if stop - start > 4 && path.substring(stop - 4, stop).equals(".saw") {
-        stop = stop - 4
-    }
-    var name = StringBuilder()
-    try! name.append(".build/")
-    try! name.append(path.substring(start, stop))
-    name.build()
+    driver_path(".build", driver_stem(path), "")
 }
 
 // The host target the runtime manifest beside this binary names, its objects
 // added to `objects`; "" once the reason it cannot be read is printed. The
-// manifest is `sawc2-runtime.txt` in the directory of `binary`, this
-// process's own path: a `target TRIPLE` line, then an `object PATH` line per
-// runtime object (compiler/tools/build.py writes it).
-func driver_read_runtime(binary: String, objects: &var Vector<String>) -> String {
+// manifest is `sawc2-runtime.txt` in the directory of the executable this
+// process runs from, its real path, since `argv[0]` names a bare command
+// found through `PATH` or a symbolic link: a `target TRIPLE` line, then an
+// `object PATH` line per runtime object (compiler/tools/build.py writes it).
+func driver_read_runtime(objects: &var Vector<String>) -> String {
+    let found = Env.executable_path()
+    let binary = match found {
+        case Ok(path) -> path,
+        case Err(e) -> {
+            print("sawc2 build: cannot find this executable's path: {}", e)
+            return ""
+        }
+    }
     var slash = 0 - 1
     var i = 0
     while i < binary.len() {
@@ -337,37 +335,311 @@ func driver_write_file(path: String, text: String) -> Bool {
 // Runs `clang -target TRIPLE SPEED -x ir LL -x none OBJECTS... -o OUT` and
 // returns its exit status, or 1 once the reason it could not run is printed.
 func driver_link(ll: String, out: String, speed: String, triple: String, objects: &Vector<String>) -> Int {
-    var clang = Command(program: "clang")
-    try! clang.arg("-target")
-    try! clang.arg(triple)
-    try! clang.arg(speed)
-    try! clang.arg("-x")
-    try! clang.arg("ir")
-    try! clang.arg(ll)
-    try! clang.arg("-x")
-    try! clang.arg("none")
+    var arguments = Vector<String>()
+    try! arguments.push("-target")
+    try! arguments.push(triple)
+    try! arguments.push(speed)
+    try! arguments.push("-x")
+    try! arguments.push("ir")
+    try! arguments.push(ll)
+    try! arguments.push("-x")
+    try! arguments.push("none")
     var i = 0
     while i < objects.len() {
-        try! clang.arg(objects.get(i) ?? "")
+        try! arguments.push(objects.get(i) ?? "")
         i = i + 1
     }
-    try! clang.arg("-o")
-    try! clang.arg(out)
+    try! arguments.push("-o")
+    try! arguments.push(out)
+    driver_clang("sawc2 build", &arguments)
+}
+
+// Runs clang with `arguments` and returns its exit status, or 1 once the
+// reason it could not run is printed, headed by `command`.
+func driver_clang(command: String, arguments: &Vector<String>) -> Int {
+    var clang = Command(program: "clang")
+    var i = 0
+    while i < arguments.len() {
+        try! clang.arg(arguments.get(i) ?? "")
+        i = i + 1
+    }
     // Stage 0 workaround (SL:hazards S28): canonical: let code = try clang.status() — a child handle whose deinit waits for it
     let waited = clang.wait()
     match waited {
         case Ok(code) -> {
             if code != 0 {
-                print("sawc2 build: clang exited {}", code)
+                print("{}: clang exited {}", command, code)
             }
             code as Int
         },
         case Err(e) -> {
-            // Stage 0 workaround (SL:hazards S23): canonical: print("sawc2 build: cannot run clang: {e}")
-            print("sawc2 build: cannot run clang: {}", e)
+            // Stage 0 workaround (SL:hazards S23): canonical: print("{command}: cannot run clang: {e}")
+            print("{}: cannot run clang: {}", command, e)
             1
         }
     }
+}
+
+// `sawc2 runtime --out DIR`: each runtime source of the host, as the ABI
+// table lists them under the runtime root, compiled to `DIR/NAME.ll` and by
+// clang to `DIR/NAME.o`, and the C shim to `DIR/shim.o`, all at the module's
+// target; then every runtime seam of the table must be defined by exactly one
+// of them, and nothing else by any. On success the runtime manifest naming
+// the objects is printed. DIR must exist, and nothing is cached here, since
+// caching would need directory operations std lacks (SL:open-questions D41).
+// With `--emit-ll FILE`, that one source's `.ll` goes to standard output.
+func driver_runtime(args: &Vector<String>) -> Int {
+    // The runtime sources are written against the new std's `Atomic` and cell,
+    // so they build against `std/` alone, unlike every other subcommand.
+    var std_root = "std"
+    var rt_root = "sawc/rt"
+    var out_dir = ""
+    var emit = ""
+    var i = 2
+    while i < args.len() {
+        let arg = args.get(i) ?? ""
+        let value = args.get(i + 1) ?? ""
+        if value.len() == 0 {
+            return driver_usage()
+        }
+        if arg.equals("--std-root") {
+            std_root = value
+        } else if arg.equals("--rt-root") {
+            rt_root = value
+        } else if arg.equals("--out") {
+            out_dir = value
+        } else if arg.equals("--emit-ll") {
+            emit = value
+        } else {
+            return driver_usage()
+        }
+        i = i + 2
+    }
+    if (out_dir.len() == 0) == (emit.len() == 0) {
+        return driver_usage()
+    }
+    let host = driver_runtime_host()
+    let speed = driver_runtime_speed()
+    let options = BuildOptions(std_root: std_root, target: host, speed: speed,
+                               module_triple: target_clang_triple(host), runtime: true)
+    let names = Vector<String>()
+    let dirs = Vector<String>()
+    if emit.len() > 0 {
+        var record = StringBuilder()
+        var ir = StringBuilder()
+        let status = llvm_build(out: &var record, ir: &var ir, path: emit, options: &options, names: &names,
+                                dirs: &dirs)
+        if status != 0 {
+            driver_print_refusal(emit, &var record)
+            return status
+        }
+        print(ir.build())
+        return 0
+    }
+    let sources = tc_runtime_sources(host)
+    var objects = Vector<String>()
+    var seams = Vector<String>()
+    var definers = Vector<String>()
+    var status = 0
+    var k = 0
+    while k < sources.len() {
+        let source = driver_path(rt_root, sources.get(k) ?? "", "")
+        let stem = driver_stem(source)
+        let ll = driver_path(out_dir, stem, ".ll")
+        let object = driver_path(out_dir, stem, ".o")
+        k = k + 1
+        var record = StringBuilder()
+        var ir = StringBuilder()
+        var exports = Vector<String>()
+        let built = llvm_build_exporting(out: &var record, ir: &var ir, exports: &var exports, path: source,
+                                         options: &options, names: &names, dirs: &dirs)
+        if built != 0 {
+            driver_print_refusal(source, &var record)
+            status = 1
+            continue
+        }
+        if not driver_write_file(ll, ir.build()) {
+            print("sawc2 runtime: --out {} must be a directory that exists; sawc2 creates none", out_dir)
+            return 1
+        }
+        var arguments = Vector<String>()
+        try! arguments.push("-c")
+        try! arguments.push("-target")
+        try! arguments.push(options.module_triple)
+        try! arguments.push(speed)
+        try! arguments.push("-x")
+        try! arguments.push("ir")
+        try! arguments.push(ll)
+        try! arguments.push("-o")
+        try! arguments.push(object)
+        let compiled = driver_clang("sawc2 runtime", &arguments)
+        if compiled != 0 {
+            return compiled
+        }
+        var j = 0
+        while j < exports.len() {
+            try! seams.push(exports.get(j) ?? "")
+            try! definers.push(object)
+            j = j + 1
+        }
+        try! objects.push(object)
+    }
+    if status != 0 {
+        return status
+    }
+    let shim = driver_path(out_dir, "shim", ".o")
+    var arguments = Vector<String>()
+    try! arguments.push("-c")
+    try! arguments.push(driver_path(rt_root, "shim.c", ""))
+    try! arguments.push("-O2")
+    try! arguments.push("-fno-strict-aliasing")
+    try! arguments.push("-target")
+    try! arguments.push(options.module_triple)
+    try! arguments.push("-o")
+    try! arguments.push(shim)
+    let compiled = driver_clang("sawc2 runtime", &arguments)
+    if compiled != 0 {
+        return compiled
+    }
+    let shim_seams = tc_runtime_shim_seams(host)
+    k = 0
+    while k < shim_seams.len() {
+        try! seams.push(shim_seams.get(k) ?? "")
+        try! definers.push(shim)
+        k = k + 1
+    }
+    try! objects.push(shim)
+    if not driver_runtime_seams_hold(&seams, &definers) || not driver_distinct(&objects) {
+        return 1
+    }
+    print("target {}", host)
+    k = 0
+    while k < objects.len() {
+        // Stage 0 workaround (SL:hazards S23): canonical: print("object {}", objects.get(k) ?? "")
+        let object = objects.get(k) ?? ""
+        print("object {}", object)
+        k = k + 1
+    }
+    0
+}
+
+// The host `sawc2 runtime` builds for, whose runtime directory and C shim the
+// ABI table names.
+func driver_runtime_host() -> String {
+    "arm64-apple-darwin"
+}
+
+// The optimisation level a runtime object is built at.
+func driver_runtime_speed() -> String {
+    "-O2"
+}
+
+// Whether `seams`, each defined by the object at the same index of
+// `definers`, are the ABI table's runtime seams, each exactly once; every way
+// they are not is printed first.
+func driver_runtime_seams_hold(seams: &Vector<String>, definers: &Vector<String>) -> Bool {
+    var names = Vector<String>()
+    var params = Vector<String>()
+    var results = Vector<String>()
+    var owners = Vector<String>()
+    tc_runtime_abi_rows(&var names, &var params, &var results, &var owners)
+    var holds = true
+    var k = 0
+    while k < names.len() {
+        let name = names.get(k) ?? ""
+        let owner = owners.get(k) ?? ""
+        k = k + 1
+        if not owner.equals("runtime") {
+            continue
+        }
+        var first = ""
+        var j = 0
+        while j < seams.len() {
+            let seam = seams.get(j) ?? ""
+            if seam.equals(name) {
+                let by = definers.get(j) ?? ""
+                if first.len() > 0 {
+                    print("sawc2 runtime: `{}` is defined by both {} and {}", name, first, by)
+                    holds = false
+                }
+                first = by
+            }
+            j = j + 1
+        }
+        if first.len() == 0 {
+            print("sawc2 runtime: no runtime object defines `{}`, which sawc/rt/ABI.md lists", name)
+            holds = false
+        }
+    }
+    k = 0
+    while k < seams.len() {
+        let seam = seams.get(k) ?? ""
+        var listed = false
+        var j = 0
+        while j < names.len() {
+            let name = names.get(j) ?? ""
+            let owner = owners.get(j) ?? ""
+            if name.equals(seam) && owner.equals("runtime") {
+                listed = true
+            }
+            j = j + 1
+        }
+        if not listed {
+            // Stage 0 workaround (SL:hazards S23): canonical: print("sawc2 runtime: {} defines `{}`, which is not a runtime seam of sawc/rt/ABI.md", definers.get(k) ?? "", seam)
+            let by = definers.get(k) ?? ""
+            print("sawc2 runtime: {} defines `{}`, which is not a runtime seam of sawc/rt/ABI.md", by, seam)
+            holds = false
+        }
+        k = k + 1
+    }
+    holds
+}
+
+// Whether no two of `paths` are the same, which two sources of one stem would
+// make; the first repeat is printed.
+func driver_distinct(paths: &Vector<String>) -> Bool {
+    var k = 0
+    while k < paths.len() {
+        let one = paths.get(k) ?? ""
+        var j = 0
+        while j < k {
+            let other = paths.get(j) ?? ""
+            if other.equals(one) {
+                print("sawc2 runtime: two runtime sources write {}", one)
+                return false
+            }
+            j = j + 1
+        }
+        k = k + 1
+    }
+    true
+}
+
+// `DIR/NAME` followed by `suffix`.
+func driver_path(dir: String, name: String, suffix: String) -> String {
+    var out = StringBuilder()
+    try! out.append(dir)
+    try! out.append("/")
+    try! out.append(name)
+    try! out.append(suffix)
+    out.build()
+}
+
+// The file name of `path` without its directory and its `.saw`.
+func driver_stem(path: String) -> String {
+    var start = 0
+    var i = 0
+    while i < path.len() {
+        if (path.byte_at(i) as Int) == DRIVER_SLASH {
+            start = i + 1
+        }
+        i = i + 1
+    }
+    var stop = path.len()
+    if stop - start > 4 && path.substring(stop - 4, stop).equals(".saw") {
+        stop = stop - 4
+    }
+    path.substring(start, stop)
 }
 
 // `sawc2 mono`: one record per entry file, in order, each file the entry of
@@ -483,6 +755,9 @@ func main() -> Int {
     if command.equals("build") {
         return driver_build(&args)
     }
+    if command.equals("runtime") {
+        return driver_runtime(&args)
+    }
     driver_usage()
 }
 
@@ -506,6 +781,7 @@ func driver_resolve(args: &Vector<String>, stage: Int) -> Int {
     var spans = false
     var interfaces = false
     var summaries = false
+    var runtime = false
     var std_root = "sawc"
     var names = Vector<String>()
     var dirs = Vector<String>()
@@ -523,6 +799,8 @@ func driver_resolve(args: &Vector<String>, stage: Int) -> Int {
             interfaces = true
         } else if arg.equals("--summaries") && typecheck {
             summaries = true
+        } else if arg.equals("--runtime") && typecheck {
+            runtime = true
         } else if arg.equals("--spans") && stage == DRIVER_STAGE_MIR {
             spans = true
         } else if arg.equals("--std-root") || arg.equals("--module-path") {
@@ -582,7 +860,8 @@ func driver_resolve(args: &Vector<String>, stage: Int) -> Int {
                 result = mir_record(out: &var out, path: input.path, options: &lowering, names: &names,
                                     dirs: &dirs)
             } else if typecheck {
-                let checked = asserts_typecheck_program(input.path, checking.std_root, &names, &dirs)
+                let checked = asserts_typecheck_program(input.path, checking.std_root, &names, &dirs,
+                                                        runtime: runtime)
                 result = typecheck_record(out: &var out, p: &checked, options: &checking)
             } else {
                 result = resolve_record(out: &var out, path: input.path, options: &options,

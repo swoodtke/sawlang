@@ -1,0 +1,11 @@
+// refuses: export.c-abi at 5:16
+// an exported function's parameter of a type C cannot pass: a `String`
+
+@export("take_text")
+func take_text(text: String) -> Int {
+    text.len()
+}
+
+func main() {
+    print(take_text("x"))
+}

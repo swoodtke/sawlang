@@ -165,6 +165,7 @@ std.env.Env.argc()	sync
 std.env.Env.args()	sync
 std.env.Env.contains(name)	sync
 std.env.Env.cwd()	sync
+std.env.Env.executable_path()	sync
 std.env.Env.get(name)	sync
 std.env.Env.set(name, value, overwrite)	sync
 std.env.Env.set_cwd(path)	sync

@@ -1,0 +1,8 @@
+// refuses: export.reserved at 5:1
+// flags: --runtime
+// a runtime exporting a seam the program owns: every program's entry point defines the argument accessors
+
+@export("__saw_rt_get_argc")
+func argument_count() -> Int32 {
+    0
+}

@@ -1,0 +1,14 @@
+// refuses: export.suspends at 7:6
+// an exported function that may suspend: C calls it directly, with no executor to resume it
+
+import std.task.{yield_now}
+
+@export("pause_once")
+func pause_once() -> Int {
+    yield_now()
+    1
+}
+
+func main() {
+    print(pause_once())
+}

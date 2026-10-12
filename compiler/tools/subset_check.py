@@ -134,6 +134,7 @@ STD_API = {
     "StringBuilder": "an empty growable text buffer",
     "Vector": "an empty growable array",
     "Env.args": "every command-line argument in order; Err when allocation fails",
+    "Env.executable_path": "the running executable's absolute path, every symbolic link resolved; Err carries why",
     "File.open": "opens the file at a path for reading; Err carries why open(2) refused",
     "File.create": "creates the file at a path for writing, emptying one already there; Err carries why",
     "Command": "a program to run as a child process, with no arguments yet",

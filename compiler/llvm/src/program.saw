@@ -7,7 +7,8 @@ import sawborrowck.program.{BorrowckProgram}
 import sawdrops.program.{DropsProgram}
 import sawllvm.bodies.{ll_param_name}
 import sawllvm.prims.{LL_MESSAGE_LIMIT}
-import sawllvm.module.{LlEmitter, ll_emitter, ll_is_scalar, ll_symbol, ll_value_type}
+import sawllvm.module.{LlEmitter, ll_emitter, ll_export_symbol, ll_is_scalar, ll_symbol, ll_value_type}
+import sawresolve.model.{ResDeclKind}
 import sawmir.program.{MirProgram}
 import sawmono.dump.{mono_dump_layouts}
 import sawmono.program.{MonoItem, MonoItemKind, MonoProgram}
@@ -24,13 +25,35 @@ public func llvm_emit_program(mono: &var MonoProgram, target: &var Target, speed
     var e = ll_emitter()
     // The helpers copy with it whether or not any function does.
     e.declare("llvm.memcpy.p0.p0.i64", "declare void @llvm.memcpy.p0.p0.i64(ptr, ptr, i64, i1)")
-    // The entry point defines the argument accessors (rt/ABI.md, "Program
-    // arguments"), which std's `extern` declarations name.
-    e.defines("__saw_rt_get_argc")
-    e.defines("__saw_rt_get_argv")
-    if mono.main_item < 0 {
-        try! mono.problems.push("the entry module declares no `main` with a body")
-        return ""
+    // A program's entry point defines the argument accessors (rt/ABI.md,
+    // "Program arguments"), which std's `extern` declarations name. A runtime
+    // has no entry point: those belong to the program it is linked into.
+    if not mono.runtime {
+        e.defines("__saw_rt_get_argc")
+        e.defines("__saw_rt_get_argv")
+        if mono.main_item < 0 {
+            try! mono.problems.push("the entry module declares no `main` with a body")
+            return ""
+        }
+    }
+    // An export is defined here, so an `extern` naming its symbol is called
+    // with no declaration beside the definition.
+    var x = 0
+    while x < mono.export_items.len() {
+        let item = mono.export_items[x]
+        let exported = ll_export_symbol(&mono, item)
+        e.defines(exported)
+        x = x + 1
+    }
+    var s = 0
+    while s < mono.dp.bc.mir.tc.export_symbols.len() {
+        let symbol = mono.dp.bc.mir.tc.export_symbols.get(s) ?? ""
+        if symbol.len() > 0 && mono.dp.bc.mir.tc.res.decls[s].kind == ResDeclKind.Static {
+            let node = mono.dp.bc.mir.tc.export_nodes[s]
+            mono.refuse(node, "backend.not-yet", "an exported static is not in the backend slice yet")
+            return ""
+        }
+        s = s + 1
     }
     var k = 0
     while k < mono.items.len() {
@@ -41,7 +64,10 @@ public func llvm_emit_program(mono: &var MonoProgram, target: &var Target, speed
         k = k + 1
     }
     mono.current = -1
-    let entry = e.entry_point(&var mono, &var target)
+    var entry = ""
+    if not mono.runtime {
+        entry = e.entry_point(&var mono, &var target)
+    }
     if mono.diags.len() > 0 || mono.problems.len() > 0 {
         return ""
     }
@@ -51,7 +77,11 @@ public func llvm_emit_program(mono: &var MonoProgram, target: &var Target, speed
     try! out.append(target.triple)
     try! out.append("\n; speed ")
     try! out.append(speed)
-    try! out.append("\n; runtime hosted\n\n")
+    if mono.runtime {
+        try! out.append("\n; runtime none\n\n")
+    } else {
+        try! out.append("\n; runtime hosted\n\n")
+    }
     try! out.append("target triple = \"")
     if module_triple.len() > 0 {
         try! out.append(module_triple)

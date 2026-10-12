@@ -82,9 +82,9 @@ compiler/
     std_suspension.py each std function's suspension verdict from Stage 0's std
                       check, recorded in std_suspension.txt and compiled into
                       typecheck/src/stdsuspension.saw
-    runtime_objects.py the Saw runtime objects a hosted `sawc2 build` links:
-                      Stage 0's prebuilt ones, from its `.build/rt/` cache, and
-                      with --manifest the runtime manifest build.py writes
+    runtime_table.py  the runtime ABI table, from sawc/runtime_abi.py's reading
+                      of sawc/rt/ABI.md and the runtime's sources, compiled into
+                      typecheck/src/runtimeabi.saw
   tests/
     run.py            the test runner
     parse_lane.py     the parse lane: sawc2 parse against the parser corpus
@@ -132,9 +132,10 @@ compiler/
                       table's specification (README.md), golden item dumps and
                       layout tables, refusal fixtures, and the layouts against
                       Stage 0's (layout_exceptions.tsv)
-    run/              the run lane (run_lane.py): the backend's and `sawc2
-                      build`'s specification (README.md), and programs built by
-                      sawc2 and by Stage 0 whose binaries' output must agree
+    run/              the run lane (run_lane.py): the backend's, `sawc2 build`'s
+                      and `sawc2 runtime`'s specification (README.md), and
+                      programs built by sawc2 and by Stage 0 whose binaries'
+                      output must agree
     fixpoint/         the fixpoint lane (fixpoint_lane.py): Stage 2, sawc2
                       built by sawc2, against Stage 1 over every lane's
                       invocations (twin.py runs both), Stage 3 against Stage 2,
@@ -172,21 +173,28 @@ Use the venv's Python, since it runs the frozen compiler:
 .build/sawc2 parse --check FILE...                     # each file's diagnostics
 .build/sawc2 build --std-root std FILE -o OUT          # FILE compiled and linked by clang
 .build/sawc2 build --std-root std --emit-ll FILE       # FILE's `.ll` on standard output
+.build/sawc2 runtime --out DIR                         # the host's runtime objects, into DIR
 ./.venv/bin/python compiler/tools/build.py ENTRY.saw -o OUT   # another program
 ```
 
 `sawc2 build` writes the program's `.ll` beside its output and runs clang on
-it with the runtime objects the manifest beside the binary names, Stage 0's
-prebuilt ones (tests/run/README.md). The file and process API it uses is the
-ruled Stage 0 workaround of SL:open-questions, "SL-522": an unbuffered write
-with an explicit `close`, and a blocking `Command.wait`, each site marked for
-SL:hazards S28.
+it with the runtime objects the manifest beside the executable names
+(tests/run/README.md). `sawc2 runtime` builds those objects: each runtime
+source of `sawc/rt/` and its C shim, at the module's own target, each export
+checked against the runtime ABI table. The file and process API they use is
+the ruled Stage 0 workaround of SL:open-questions, "SL-522": an unbuffered
+write with an explicit `close`, and a blocking `Command.wait`, each site
+marked for SL:hazards S28.
 
-`build.py` rebuilds Stage 1 on every call and caches Stage 2 under a key
-covering Stage 1's object (the linker stamps each Stage 1 binary with a fresh
-UUID, so its bytes never repeat), the trees it compiles, `build.py` itself,
-which holds the link's arguments, the runtime manifest and its objects, and
-clang (`.build/sawc2-stage2.key`), so an unchanged tree links nothing. The lanes run Stage 2; `SAWC2_STAGE=1` (or `run.py --stage 1`) runs
+`build.py` rebuilds Stage 1 on every call. Stage 1 is linked by Stage 0
+against Stage 0's own runtime; every link after it takes the runtime Stage 1
+builds, cached under `.build/rt2/<key>/` by a key covering Stage 1's object,
+`sawc/rt/`, std and clang, and named by `.build/sawc2-runtime.txt`. Stage 2
+is cached under a key covering Stage 1's object (the linker stamps each Stage
+1 binary with a fresh UUID, so its bytes never repeat), the trees it
+compiles, `build.py` itself, which holds the link's arguments, the runtime
+manifest and its objects, and clang (`.build/sawc2-stage2.key`), so an
+unchanged tree links nothing. The lanes run Stage 2; `SAWC2_STAGE=1` (or `run.py --stage 1`) runs
 them on Stage 1 instead, for bisecting, and Stage 2 is then not built.
 
 A lex error prints one `ERROR` record and exits 1, and so does a file the parser
@@ -237,6 +245,14 @@ below that runs sawc2 runs Stage 2. It checks these things.
   observes, or when the std modules holding a suspending function differ from
   those whose bodies spell a cooperative primitive. Rerun it with `--write`
   after std changes, and review the difference.
+- **The runtime ABI table**: `tools/runtime_table.py` reads every
+  `__saw_rt_*` seam's signature as Stage 0 does (`sawc/runtime_abi.py`, over
+  `sawc/rt/ABI.md`), with its owner, each host's runtime sources and the seams
+  its C shim defines, and fails when `typecheck/src/runtimeabi.saw` differs
+  from that reading, or when a host's sources and shim do not export the
+  runtime's seams exactly once each. Rerun it with `--write` after an ABI or
+  runtime-source change, and review the difference. The table is checked in
+  so that it outlives Stage 0 (SL:open-questions D41).
 - **The grammar tools** in `tests/grammar/`: the lint over `GRAMMAR.md`, with a
   fixture per check that injects one defect and names the line the check must
   report, and the reference recognizer's pinned trees, coverage records and
@@ -319,8 +335,10 @@ below that runs sawc2 runs Stage 2. It checks these things.
 - **The backend and `sawc2 build`** (`tests/run/README.md`): the run lane
   (`tests/run/run_lane.py`) builds each program of `tests/run/` with
   `sawc2 build` against the new std and with Stage 0, runs both, and requires
-  the same output and exit status; a due program must be refused where it
-  says; hello's `.ll` is pinned.
+  the same output and exit status, a link printing nothing; a due program
+  must be refused where it says; hello's `.ll` and one runtime source's are
+  pinned; and `sawc2 runtime` writes the same bytes twice and refuses a
+  runtime that leaves a seam undefined or defines one twice.
 
 One lane runs apart from the runner, as the battery's `fixpoint` stage:
 
