@@ -1,0 +1,25 @@
+// The Collatz path lengths of every start below 300,000: checked arithmetic
+// alone, with no memory traffic.
+func collatz_total(limit: Int) -> Int {
+    var total = 0
+    var n = 1
+    while n < limit {
+        var x = n
+        var steps = 0
+        while x != 1 {
+            if x % 2 == 0 {
+                x = x / 2
+            } else {
+                x = 3 * x + 1
+            }
+            steps = steps + 1
+        }
+        total = total + steps
+        n = n + 1
+    }
+    total
+}
+
+func main() {
+    print("collatz {}", collatz_total(300000))
+}

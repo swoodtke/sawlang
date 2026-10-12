@@ -1,7 +1,7 @@
 // The emitter's primitives: SSA names, labels, entry-block slots, loads,
 // stores, address arithmetic, the layout questions put to the target, and
-// the two seams every function may reach: `__saw_rt_write` for output and
-// the panic sink for a failed check.
+// the two seams every function may reach: `__saw_rt_write` for output and,
+// through the failure funnel, the panic sink.
 
 import sawborrowck.program.{BorrowckProgram}
 import sawdrops.program.{DropsProgram}
@@ -232,114 +232,6 @@ extension LlEmitter {
         self.write_out(g, len.build())
     }
 
-    // The message `len` bytes at `ptr` handed to the panic sink, which does
-    // not return.
-    public func call_panic_sink(&var self, mono: &var MonoProgram, node: Int, ptr: String, len: String) {
-        if mono.panic_item < 0 {
-            self.refuse_here(&var mono, node, "a panic with no panic sink bound")
-            return
-        }
-        var line = StringBuilder()
-        try! line.append("call void ")
-        let sink = mono.panic_item
-        try! line.append(ll_symbol(&mono, sink))
-        try! line.append("(ptr ")
-        try! line.append(ptr)
-        try! line.append(", i64 ")
-        try! line.append(len)
-        try! line.append(")")
-        self.put(line.build())
-        self.put("unreachable")
-    }
-
-    // A message buffer's start: a stack slot, and position 0 in it.
-    public func message_slot(&var self) -> String {
-        self.slot(LL_MESSAGE_LIMIT + 4, 1)
-    }
-
-    // Constant bytes appended to message buffer `buf` at `pos`; returns the
-    // new position.
-    public func append_bytes(&var self, buf: String, pos: String, bytes: &Vector<Int>) -> String {
-        if bytes.len() == 0 {
-            return pos
-        }
-        let g = self.pooled(&bytes, false, 0)
-        var len = StringBuilder()
-        try! len.append(bytes.len())
-        self.append_run(buf, pos, g, len.build())
-    }
-
-    // A message buffer's end: the cut's `…` when something was cut, then the
-    // line break; returns the message's length.
-    public func finish_message(&var self, buf: String, pos: String) -> String {
-        var call = StringBuilder()
-        try! call.append("call i64 @__saw_finish(ptr ")
-        try! call.append(buf)
-        try! call.append(", i64 ")
-        try! call.append(pos)
-        try! call.append(")")
-        self.assign(call.build())
-    }
-
-    // `len` bytes at `src` appended to message buffer `buf` at `pos`, cut at
-    // the buffer's limit.
-    public func append_run(&var self, buf: String, pos: String, src: String, len: String) -> String {
-        var call = StringBuilder()
-        try! call.append("call i64 @__saw_append(ptr ")
-        try! call.append(buf)
-        try! call.append(", i64 ")
-        try! call.append(pos)
-        try! call.append(", ptr ")
-        try! call.append(src)
-        try! call.append(", i64 ")
-        try! call.append(len)
-        try! call.append(")")
-        self.assign(call.build())
-    }
-
-    // Integer `value` (an i64) rendered in decimal into message buffer `buf`
-    // at `pos`, as signed or unsigned.
-    public func append_integer(&var self, buf: String, pos: String, value: String, signed: Bool) -> String {
-        var call = StringBuilder()
-        if signed {
-            try! call.append("call i64 @__saw_append_int(ptr ")
-        } else {
-            try! call.append("call i64 @__saw_append_uint(ptr ")
-        }
-        try! call.append(buf)
-        try! call.append(", i64 ")
-        try! call.append(pos)
-        try! call.append(", i64 ")
-        try! call.append(value)
-        try! call.append(")")
-        self.assign(call.build())
-    }
-
-    // A constant message's bytes as the scratch would hold them: whole when
-    // it fits, else cut on a UTF-8 boundary at the limit and marked `…`,
-    // then a line break.
-    public func bounded_message(&self, text: String) -> Vector<Int> {
-        var bytes = self.text_bytes(text)
-        if bytes.len() > LL_MESSAGE_LIMIT {
-            var n = LL_MESSAGE_LIMIT
-            while n > 0 && (bytes[n] & 0xC0) == 0x80 {
-                n = n - 1
-            }
-            var cut = Vector<Int>()
-            var k = 0
-            while k < n {
-                try! cut.push(bytes[k])
-                k = k + 1
-            }
-            try! cut.push(0xE2)
-            try! cut.push(0x80)
-            try! cut.push(0xA6)
-            bytes = move cut
-        }
-        try! bytes.push(10)
-        move bytes
-    }
-
     // `text`'s bytes.
     public func text_bytes(&self, text: String) -> Vector<Int> {
         var bytes = Vector<Int>()
@@ -352,35 +244,252 @@ extension LlEmitter {
         move bytes
     }
 
-    // A check's panic naming a value: `panic at FILE:LINE: REASON` then
-    // integer `value` (an i64) and a line break, rendered into stack scratch.
-    public func panic_with_value(&var self, mono: &var MonoProgram, node: Int, reason: String, value: String,
-                                 signed: Bool) {
-        let buf = self.message_slot()
-        var text = StringBuilder()
-        try! text.append("panic at ")
-        try! text.append(mono.site_text(node))
-        try! text.append(": ")
-        try! text.append(reason)
-        let head = self.text_bytes(text.build())
-        let pos = self.append_bytes(buf, "0", &head)
-        let after = self.append_integer(buf, pos, value, signed)
-        let end = self.finish_message(buf, after)
-        self.call_panic_sink(&var mono, node, buf, end)
+}
+
+// The failure funnel: every failing path the backend lowers ends in one call
+// of a never-inlined `__saw_fail*` helper (`ll_fail_helpers`), handed
+// the site's file and line and the operands its message names, then
+// `unreachable`. The message buffer and its formatting live in the helper's
+// frame, so a checked function keeps only its compare, its branch and this
+// call, and stays small enough for clang to inline. A helper renders exactly
+// the bytes the inline rendering did: `panic at FILE:LINE: `, the message cut
+// on a UTF-8 boundary at `LL_MESSAGE_LIMIT` and marked `…`, a line break.
+//
+// ENTRY POINTS:
+//   fail_check
+//   fail_message
+//   fail_value
+//   fail_parts
+extension LlEmitter {
+    // A check whose message is its kind's reason alone: an overflow, a zero
+    // divisor, a shift count, a forced payload.
+    public func fail_check(&var self, mono: &var MonoProgram, node: Int, kind: Int) {
+        let site = self.fail_site(&mono, node)
+        var call = StringBuilder()
+        try! call.append("call void @")
+        try! call.append(ll_fail_symbol(kind))
+        try! call.append("(")
+        try! call.append(site)
+        try! call.append(")")
+        self.fail_call(&var mono, node, call.build())
     }
 
-    // A check's panic: `panic at FILE:LINE: REASON` and a line break, the
-    // whole message one constant (design 122).
-    public func panic_static(&var self, mono: &var MonoProgram, target: &var Target, node: Int, reason: String) {
-        var text = StringBuilder()
-        try! text.append("panic at ")
-        try! text.append(mono.site_text(node))
-        try! text.append(": ")
-        try! text.append(reason)
-        let bytes = self.bounded_message(text.build())
-        let g = self.pooled(&bytes, false, 0)
-        var len = StringBuilder()
-        try! len.append(bytes.len())
-        self.call_panic_sink(&var mono, node, g, len.build())
+    // A constant message's bytes after the site.
+    public func fail_message(&var self, mono: &var MonoProgram, node: Int, message: &Vector<Int>) {
+        let site = self.fail_site(&mono, node)
+        let text = self.fail_bytes(&message)
+        var call = StringBuilder()
+        try! call.append("call void @__saw_fail(")
+        try! call.append(site)
+        try! call.append(", ")
+        try! call.append(text)
+        try! call.append(")")
+        self.fail_call(&var mono, node, call.build())
     }
+
+    // `reason`, then integer `value` (an i64) in decimal, signed or not.
+    public func fail_value(&var self, mono: &var MonoProgram, node: Int, reason: String, value: String,
+                           signed: Bool) {
+        let site = self.fail_site(&mono, node)
+        let bytes = self.text_bytes(reason)
+        let text = self.fail_bytes(&bytes)
+        var call = StringBuilder()
+        if signed {
+            try! call.append("call void @__saw_fail_signed(")
+        } else {
+            try! call.append("call void @__saw_fail_unsigned(")
+        }
+        try! call.append(site)
+        try! call.append(", ")
+        try! call.append(text)
+        try! call.append(", i64 ")
+        try! call.append(value)
+        try! call.append(")")
+        self.fail_call(&var mono, node, call.build())
+    }
+
+    // `lead`, then each of `parts` rendered in order. The parts cross as a
+    // table in this frame, `LL_FAIL_PART_SIZE` bytes each: the part's kind,
+    // then a run's address and length, an integer, or a Bool's byte.
+    public func fail_parts(&var self, mono: &var MonoProgram, node: Int, lead: String, parts: &LlParts) {
+        let site = self.fail_site(&mono, node)
+        let lead_bytes = self.text_bytes(lead)
+        let text = self.fail_bytes(&lead_bytes)
+        let count = parts.kinds.len()
+        let table = self.slot(count * LL_FAIL_PART_SIZE, 8)
+        var k = 0
+        while k < count {
+            let kind = parts.kinds[k]
+            let first = parts.firsts.get(k) ?? ""
+            let second = parts.seconds.get(k) ?? ""
+            let at = self.offset_addr(table, k * LL_FAIL_PART_SIZE)
+            var tag = StringBuilder()
+            try! tag.append(kind)
+            self.store("i64", tag.build(), at)
+            let value_at = self.offset_addr(table, k * LL_FAIL_PART_SIZE + 8)
+            if kind == LL_PART_RUN {
+                self.store("ptr", first, value_at)
+                let length_at = self.offset_addr(table, k * LL_FAIL_PART_SIZE + 16)
+                self.store("i64", second, length_at)
+            } else if kind == LL_PART_BOOL {
+                self.store("i8", first, value_at)
+            } else {
+                self.store("i64", first, value_at)
+            }
+            k = k + 1
+        }
+        var call = StringBuilder()
+        try! call.append("call void @__saw_fail_parts(")
+        try! call.append(site)
+        try! call.append(", ")
+        try! call.append(text)
+        try! call.append(", ptr ")
+        try! call.append(table)
+        try! call.append(", i64 ")
+        try! call.append(count)
+        try! call.append(")")
+        self.fail_call(&var mono, node, call.build())
+    }
+
+    // The helpers end in the panic sink, so a program with none bound has no
+    // helpers to call.
+    func fail_call(&var self, mono: &var MonoProgram, node: Int, call: String) {
+        if mono.panic_item < 0 {
+            self.refuse_here(&var mono, node, "a panic with no panic sink bound")
+            return
+        }
+        self.put(call)
+        self.put("unreachable")
+    }
+
+    // The site's arguments, `ptr FILE, i64 LENGTH, i64 LINE`: the base name
+    // and line `site_text` spells as `FILE:LINE`, or its whole text and line
+    // -1, which the helpers render without a line, for a node with no source
+    // position.
+    func fail_site(&var self, mono: &MonoProgram, node: Int) -> String {
+        let text = mono.site_text(node)
+        let n = text.len()
+        var colon = -1
+        var k = 0
+        while k < n {
+            if (text.byte_at(k) as Int) == 58 {
+                colon = k
+            }
+            k = k + 1
+        }
+        var line = -1
+        if colon >= 0 && colon + 1 < n {
+            line = 0
+            k = colon + 1
+            while k < n && line >= 0 {
+                let digit = (text.byte_at(k) as Int) - 48
+                if digit < 0 || digit > 9 {
+                    line = -1
+                } else {
+                    line = line * 10 + digit
+                }
+                k = k + 1
+            }
+        }
+        var file = self.text_bytes(text)
+        if line >= 0 {
+            var base = Vector<Int>()
+            k = 0
+            while k < colon {
+                try! base.push(file[k])
+                k = k + 1
+            }
+            file = move base
+        }
+        let spelled = self.fail_bytes(&file)
+        var out = StringBuilder()
+        try! out.append(spelled)
+        try! out.append(", i64 ")
+        try! out.append(line)
+        out.build()
+    }
+
+    // Constant `bytes` as a helper's `ptr ADDRESS, i64 LENGTH` arguments.
+    func fail_bytes(&var self, bytes: &Vector<Int>) -> String {
+        let g = self.pooled(&bytes, false, 0)
+        var out = StringBuilder()
+        try! out.append("ptr ")
+        try! out.append(g)
+        try! out.append(", i64 ")
+        try! out.append(bytes.len())
+        out.build()
+    }
+}
+
+// The kinds of check `fail_check` takes, each with a helper of its own whose
+// message is the kind's reason, so a site passes only its file and line.
+public static LL_FAIL_OVERFLOW: Int = 0
+public static LL_FAIL_DIVIDE: Int = 1
+public static LL_FAIL_SHIFT: Int = 2
+public static LL_FAIL_UNWRAP: Int = 3
+public static LL_FAIL_TRY: Int = 4
+public static LL_FAIL_KINDS: Int = 5
+
+// How many bytes one part takes in `fail_parts`' table.
+public static LL_FAIL_PART_SIZE: Int = 24
+
+// The helper `fail_check` calls for check kind `kind`.
+public func ll_fail_symbol(kind: Int) -> String {
+    if kind == LL_FAIL_OVERFLOW {
+        return "__saw_fail_overflow"
+    }
+    if kind == LL_FAIL_DIVIDE {
+        return "__saw_fail_divide"
+    }
+    if kind == LL_FAIL_SHIFT {
+        return "__saw_fail_shift"
+    }
+    if kind == LL_FAIL_UNWRAP {
+        return "__saw_fail_unwrap"
+    }
+    "__saw_fail_try"
+}
+
+// The reason check kind `kind` panics with, in Stage 0's wording.
+public func ll_fail_reason(kind: Int) -> String {
+    if kind == LL_FAIL_OVERFLOW {
+        return "integer overflow"
+    }
+    if kind == LL_FAIL_DIVIDE {
+        return "division by zero"
+    }
+    if kind == LL_FAIL_SHIFT {
+        return "shift out of range"
+    }
+    if kind == LL_FAIL_UNWRAP {
+        return "force unwrap of None"
+    }
+    "try! failed"
+}
+
+// What a message part is: a run of bytes (`first` its address, `second` its
+// length), an integer widened to i64 (`first`), signed or not, or a Bool's
+// byte (`first`). `__saw_fail_parts` reads the same codes.
+public static LL_PART_RUN: Int = 0
+public static LL_PART_SIGNED: Int = 1
+public static LL_PART_UNSIGNED: Int = 2
+public static LL_PART_BOOL: Int = 3
+
+// A message's parts, in order.
+public struct LlParts {
+    kinds: Vector<Int>
+    firsts: Vector<String>
+    seconds: Vector<String>
+}
+
+extension LlParts: NoCopy {}
+
+public func ll_parts() -> LlParts {
+    LlParts(kinds: Vector<Int>(), firsts: Vector<String>(), seconds: Vector<String>())
+}
+
+public func ll_parts_push(parts: &var LlParts, kind: Int, first: String, second: String) {
+    try! parts.kinds.push(kind)
+    try! parts.firsts.push(first)
+    try! parts.seconds.push(second)
 }

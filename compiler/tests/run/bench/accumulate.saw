@@ -1,0 +1,30 @@
+// A million pushes, then a fold over the elements into a struct: growth
+// through the allocator, then sequential indexed reads.
+struct Acc {
+    total: Int
+    count: Int
+}
+
+func accumulate(n: Int) -> Acc {
+    var xs = Vector<Int>()
+    var i = 0
+    while i < n {
+        try! xs.push(i)
+        i = i + 1
+    }
+    var total = 0
+    var count = 0
+    var j = 0
+    while j < xs.len() {
+        let x = xs[j]
+        total = (total + x * x) % 1000000007
+        count = count + 1
+        j = j + 1
+    }
+    Acc(total: total, count: count)
+}
+
+func main() {
+    let r = accumulate(1000000)
+    print("accumulate {} {}", r.total, r.count)
+}

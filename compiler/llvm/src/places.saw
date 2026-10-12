@@ -4,7 +4,7 @@
 
 import sawborrowck.program.{BorrowckProgram}
 import sawdrops.program.{DropsProgram}
-import sawllvm.prims.{LL_MESSAGE_LIMIT}
+import sawllvm.prims.{LL_FAIL_TRY, LL_FAIL_UNWRAP, LL_MESSAGE_LIMIT}
 import sawllvm.module.{LlEmitter, ll_is_scalar, ll_symbol, ll_value_type}
 import sawllvm.text.{ll_fit_signed, ll_integer_value, ll_quoted, ll_string_bytes}
 import sawmir.model.{MirConstKind, MirOperand, MirOperandKind, MirProjKind}
@@ -152,9 +152,9 @@ extension LlEmitter {
         self.branch(ok, pass, fail)
         self.put_label(fail)
         if mono.dp.bc.mir.tc.is_optional(t) {
-            self.panic_static(&var mono, &var target, node, "force unwrap of None")
+            self.fail_check(&var mono, node, LL_FAIL_UNWRAP)
         } else {
-            self.panic_static(&var mono, &var target, node, "try! failed")
+            self.fail_check(&var mono, node, LL_FAIL_TRY)
         }
         self.put_label(pass)
     }

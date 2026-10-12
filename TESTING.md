@@ -702,6 +702,12 @@ does; quote headline numbers only from a quiet machine, per the bench
 README. The Swift and Rust files beside the benchmark are manual reference
 baselines and are never built by the battery.
 
+The self-hosted compiler's code generation has its own timing report:
+`compiler/tests/run/run_lane.py --bench` times the kernels in
+`compiler/tests/run/bench/` under `sawc2 build -O2` against Stage 0, best of
+five each. It gates nothing and no lane runs it; the run lane's README
+describes the kernels.
+
 ## Ownership and Concurrency Gates Under Guard Malloc
 
 ```bash

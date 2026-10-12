@@ -2,17 +2,17 @@
 // twin; a call reaches the item mono resolved it to, an extern by the C
 // convention the target gives, a function value through its code and
 // environment, and a builtin by its fixed lowering: `print` writes each piece
-// and rendered argument through the write seam, `panic` and `assert` render
-// their message into stack scratch for the panic sink (design 137).
+// and rendered argument through the write seam, `panic` and `assert` hand
+// their message's parts to the failure funnel (design 137).
 
 import sawborrowck.program.{BorrowckProgram}
 import sawdrops.program.{DropsProgram}
-import sawllvm.prims.{LL_MESSAGE_LIMIT}
+import sawllvm.prims.{LL_MESSAGE_LIMIT, LL_PART_BOOL, LL_PART_RUN, LL_PART_SIGNED, LL_PART_UNSIGNED, LlParts,
+                          ll_parts, ll_parts_push}
 import sawllvm.module.{LlEmitter, ll_is_scalar, ll_symbol, ll_value_type}
 import sawllvm.ops.{ll_lossless}
 import sawllvm.places.{ll_local_slot}
-import sawllvm.render.{LL_PART_BOOL, LL_PART_RUN, LL_PART_SIGNED, LL_PART_UNSIGNED, LlParts, ll_parts,
-                           ll_parts_push}
+import sawllvm.render.{ll_spelled}
 import sawllvm.text.{LlPieces, ll_format_pieces, ll_string_bytes}
 import sawmir.model.{MirBlock, MirCall, MirCallKind, MirConstKind, MirOperand, MirOperandKind, MirSwitchKind,
                          MirTermKind}
@@ -581,37 +581,35 @@ extension LlEmitter {
         }
     }
 
-    // `panic`, or `assert`'s failure: `panic at FILE:LINE: ` and `lead`,
-    // then the message from operand `from` on, and a line break, rendered
-    // into stack scratch and handed to the panic sink.
+    // `panic`, or `assert`'s failure: `lead`, then the message from operand
+    // `from` on, through the failure funnel. A message with nothing to read,
+    // none or one String literal, is a single constant.
     func panic_call(&var self, mono: &var MonoProgram, target: &var Target, info: &MirCall, from: Int, lead: String) {
         let node = info.node
+        var literal = from >= info.arg_count
+        var text = ""
+        if not literal {
+            let first = mono.dp.bc.mir.lists[info.arg_first + from]
+            let op = mono.dp.bc.mir.operands[first]
+            if op.kind == MirOperandKind.Const && op.const_kind == MirConstKind.String {
+                literal = true
+                text = mono.dp.bc.mir.tc.name_text(op.text)
+            }
+        }
+        if literal {
+            var message = self.text_bytes(lead)
+            let bytes = ll_string_bytes(text)
+            var k = 0
+            while k < bytes.len() {
+                try! message.push(bytes[k])
+                k = k + 1
+            }
+            self.fail_message(&var mono, node, &message)
+            return
+        }
         var parts = ll_parts()
         self.message_parts(&var mono, &var target, &info, from, &var parts)
-        let buf = self.message_slot()
-        var head = StringBuilder()
-        try! head.append("panic at ")
-        try! head.append(mono.site_text(node))
-        try! head.append(": ")
-        try! head.append(lead)
-        let head_bytes = self.text_bytes(head.build())
-        var pos = self.append_bytes(buf, "0", &head_bytes)
-        var k = 0
-        while k < parts.kinds.len() {
-            let kind = parts.kinds[k]
-            let first = parts.firsts.get(k) ?? ""
-            let second = parts.seconds.get(k) ?? ""
-            if kind == LL_PART_RUN || kind == LL_PART_BOOL {
-                let run = self.part_run(kind, first, second)
-                let length = self.part_run_length(kind, first, second)
-                pos = self.append_run(buf, pos, run, length)
-            } else {
-                pos = self.append_integer(buf, pos, first, kind == LL_PART_SIGNED)
-            }
-            k = k + 1
-        }
-        let end = self.finish_message(buf, pos)
-        self.call_panic_sink(&var mono, node, buf, end)
+        self.fail_parts(&var mono, node, lead, &parts)
     }
 
     // A message's parts, from operand `from` of the call on: a format

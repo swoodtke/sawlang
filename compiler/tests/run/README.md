@@ -127,13 +127,27 @@ description's (`compiler/tests/mono/README.md`, "Layouts").
   can lose its value checks that it fits and names the value; a forced payload
   checks its case. Each panics with Stage 0's wording, `panic at FILE:LINE:
   REASON` (design 122), through the panic sink.
+- **The failure funnel.** Every failing path, a check's, `panic`'s, a failed
+  `assert`'s and a refused literal push's, is one call of a compiler helper,
+  then `unreachable`: `__saw_fail_overflow`, `_divide`, `_shift`, `_unwrap`
+  and `_try` take the site's file and line, `__saw_fail` a constant message
+  besides, `__saw_fail_signed` and `_unsigned` a reason and the value, and
+  `__saw_fail_parts` a lead and a table of the message's parts in the
+  caller's frame. The helpers render the message into their own 512-byte
+  buffer and hand it to the panic sink, so a checked function keeps only its
+  compare and branch, and clang can inline an accessor such as `Vector.[]`.
+  They are `noinline` and `noreturn` but not `cold`: `cold`, like `!prof`
+  weights on the branches, sets off clang's hot/cold splitting, which grows
+  the object with a `.cold.N` function per failing block and measured no
+  faster (SL-528). The funnel's entry points are named in
+  `compiler/llvm/src/prims.saw`.
 - **Builtins.** `print` reads every argument first, then writes each piece of
   its format string and each rendered argument through `__saw_rt_write`, then
   a line break; a String argument's bytes and length are read in place
   through the `string_bytes` and `string_length` roles, and a String handed
   over by `move` is dropped after. `panic` and a failed `assert` render the
-  same parts after their `panic at` prefix into stack scratch for the panic
-  sink: a message over 508 bytes is cut there, on a UTF-8 boundary, and
+  same parts after their `panic at` prefix, through the failure funnel: a
+  message over 508 bytes is cut there, on a UTF-8 boundary, and
   marked `…` before its line break (spec, Panic). Stage 0 cuts on a byte, so
   the two differ only where the cut falls inside a scalar. Integers render through the compiler's own
   `__saw_render_int` and `__saw_render_uint` helpers. Any other argument
@@ -221,6 +235,23 @@ compares:
 
 Stage 0 is the oracle: a difference is a sawc2 bug until shown otherwise
 (SL:architecture §5).
+
+## The timing report
+
+`run_lane.py --bench` builds each kernel of `bench/` with `sawc2 build -O2`
+and with Stage 0, runs each binary once to warm it, then five times, and
+prints the best time of each and their ratio:
+
+- `sieve`: a sieve to two million over a `Vector<Bool>`, `set` and `[]`;
+- `sort`: an insertion sort of 20,000 `Int`s, whose inner loop is all `v[k]`
+  and `v.set`, so it shows whether the checked accessors inline (SL-528);
+- `collatz`: checked arithmetic with no memory traffic;
+- `accumulate`: a million pushes, then a fold over the elements.
+
+It gates nothing. A build that fails, or two binaries whose outputs differ,
+fail the report, but a time never does: it is only as good as the machine is
+quiet, so quote one from an idle machine and repeat a noisy run. The runner
+never runs it.
 
 ## The self-build census
 

@@ -6,7 +6,8 @@
 import sawborrowck.program.{BorrowckProgram}
 import sawdrops.program.{DropsProgram}
 import sawllvm.bodies.{ll_param_name}
-import sawllvm.prims.{LL_MESSAGE_LIMIT}
+import sawllvm.prims.{LL_FAIL_KINDS, LL_FAIL_PART_SIZE, LL_MESSAGE_LIMIT, LL_PART_BOOL, LL_PART_SIGNED,
+                          LL_PART_UNSIGNED, ll_fail_reason, ll_fail_symbol}
 import sawllvm.module.{LlEmitter, ll_emitter, ll_export_symbol, ll_is_scalar, ll_symbol, ll_value_type}
 import sawresolve.model.{ResDeclKind}
 import sawmir.program.{MirProgram}
@@ -96,6 +97,11 @@ public func llvm_emit_program(mono: &var MonoProgram, target: &var Target, speed
     try! out.append(e.defs.build())
     try! out.append(entry)
     try! out.append(ll_helpers())
+    if mono.panic_item >= 0 {
+        let sink = mono.panic_item
+        let symbol = ll_symbol(&mono, sink)
+        try! out.append(ll_fail_helpers(symbol))
+    }
     out.build()
 }
 
@@ -145,8 +151,8 @@ extension LlEmitter {
 
 // The compiler's own helpers (rt/ABI.md's `__saw_*` tier, never a runtime
 // seam): decimal rendering of an `i64`, signed and unsigned, and an append
-// into a panic message's stack scratch that cuts at its limit, and the end
-// that marks a cut.
+// into a panic message's buffer that cuts at its limit, and the end that
+// marks a cut.
 func ll_helpers() -> String {
     var out = StringBuilder()
     try! out.append("define internal i64 @__saw_render_uint(ptr %out, i64 %v) \{\n")
@@ -199,5 +205,144 @@ func ll_helpers() -> String {
     try! out.append("entry:\n  %tmp = alloca [24 x i8], align 1\n  %n = call i64 @__saw_render_uint(ptr %tmp, i64 %v)\n")
     // The last line has no line break of its own: print supplies it.
     try! out.append("  %end = call i64 @__saw_append(ptr %buf, i64 %pos, ptr %tmp, i64 %n)\n  ret i64 %end\n\}")
+    out.build()
+}
+
+// The failure funnel's helpers (prims.saw), each ending in the panic sink
+// `sink`. Every one but the head is `noinline`, which keeps the message buffer
+// and its formatting out of the checked function, so it stays small enough to
+// inline, and `noreturn`, which already ranks its block unlikely. They are
+// deliberately not `cold`: clang's hot/cold splitting then outlines every
+// failing block into a `.cold.N` function with unwind entries of its own,
+// which grows the object for no measured gain, as `!prof` weights on the check
+// branches do (SL-528). A line below zero is a site with no line,
+// rendered as its file alone.
+func ll_fail_helpers(sink: String) -> String {
+    let attributes = ") noinline noreturn \{\nentry:\n  %buf = alloca ["
+    var size = StringBuilder()
+    try! size.append(LL_MESSAGE_LIMIT + 4)
+    let buffer = size.build()
+    var out = StringBuilder()
+    try! out.append("\n\n@__saw_fail_at = private unnamed_addr constant [9 x i8] c\"panic at \"\n")
+    try! out.append("@__saw_fail_colon = private unnamed_addr constant [2 x i8] c\": \"\n")
+    try! out.append("@__saw_fail_true = private unnamed_addr constant [4 x i8] c\"true\"\n")
+    try! out.append("@__saw_fail_false = private unnamed_addr constant [5 x i8] c\"false\"\n")
+    var kind = 0
+    while kind < LL_FAIL_KINDS {
+        let symbol = ll_fail_symbol(kind)
+        let reason = ll_fail_reason(kind)
+        try! out.append("@")
+        try! out.append(symbol)
+        try! out.append(".reason = private unnamed_addr constant [")
+        try! out.append(reason.len())
+        try! out.append(" x i8] c\"")
+        try! out.append(reason)
+        try! out.append("\"\n")
+        kind = kind + 1
+    }
+    try! out.append("\ndefine internal i64 @__saw_fail_head(ptr %buf, ptr %file, i64 %file_len, i64 %line) \{\n")
+    try! out.append("entry:\n  %at = call i64 @__saw_append(ptr %buf, i64 0, ptr @__saw_fail_at, i64 9)\n")
+    try! out.append("  %named = call i64 @__saw_append(ptr %buf, i64 %at, ptr %file, i64 %file_len)\n")
+    try! out.append("  %known = icmp sge i64 %line, 0\n  br i1 %known, label %number, label %tail\n")
+    try! out.append("number:\n  %colon = call i64 @__saw_append(ptr %buf, i64 %named, ptr @__saw_fail_colon, i64 1)\n")
+    try! out.append("  %lined = call i64 @__saw_append_uint(ptr %buf, i64 %colon, i64 %line)\n  br label %tail\n")
+    try! out.append("tail:\n  %pos = phi i64 [ %named, %entry ], [ %lined, %number ]\n")
+    try! out.append("  %end = call i64 @__saw_append(ptr %buf, i64 %pos, ptr @__saw_fail_colon, i64 2)\n")
+    try! out.append("  ret i64 %end\n\}\n\n")
+    let site = "(ptr %file, i64 %file_len, i64 %line, ptr %text, i64 %text_len"
+    let head = "  %head = call i64 @__saw_fail_head(ptr %buf, ptr %file, i64 %file_len, i64 %line)\n"
+    let text = "  %pos = call i64 @__saw_append(ptr %buf, i64 %head, ptr %text, i64 %text_len)\n"
+    var tail = StringBuilder()
+    try! tail.append(", i64 %done)\n  call void ")
+    try! tail.append(sink)
+    try! tail.append("(ptr %buf, i64 %end)\n  unreachable\n\}\n\n")
+    let sunk = tail.build()
+    var whole = StringBuilder()
+    try! whole.append("  %end = call i64 @__saw_finish(ptr %buf")
+    try! whole.append(sunk)
+    let finish = whole.build()
+    try! out.append("define internal void @__saw_fail")
+    try! out.append(site)
+    try! out.append(attributes)
+    try! out.append(buffer)
+    try! out.append(" x i8], align 1\n")
+    try! out.append(head)
+    try! out.append("  %done = call i64 @__saw_append(ptr %buf, i64 %head, ptr %text, i64 %text_len)\n")
+    try! out.append(finish)
+    try! out.append("define internal void @__saw_fail_signed")
+    try! out.append(site)
+    try! out.append(", i64 %v")
+    try! out.append(attributes)
+    try! out.append(buffer)
+    try! out.append(" x i8], align 1\n")
+    try! out.append(head)
+    try! out.append(text)
+    try! out.append("  %done = call i64 @__saw_append_int(ptr %buf, i64 %pos, i64 %v)\n")
+    try! out.append(finish)
+    try! out.append("define internal void @__saw_fail_unsigned")
+    try! out.append(site)
+    try! out.append(", i64 %v")
+    try! out.append(attributes)
+    try! out.append(buffer)
+    try! out.append(" x i8], align 1\n")
+    try! out.append(head)
+    try! out.append(text)
+    try! out.append("  %done = call i64 @__saw_append_uint(ptr %buf, i64 %pos, i64 %v)\n")
+    try! out.append(finish)
+    // A part is its kind, then a run's address and length, an integer, or a
+    // Bool's byte, `LL_FAIL_PART_SIZE` bytes in all.
+    try! out.append("define internal void @__saw_fail_parts")
+    try! out.append(site)
+    try! out.append(", ptr %parts, i64 %count")
+    try! out.append(attributes)
+    try! out.append(buffer)
+    try! out.append(" x i8], align 1\n")
+    try! out.append(head)
+    try! out.append(text)
+    try! out.append("  br label %loop\n")
+    try! out.append("loop:\n  %i = phi i64 [ 0, %entry ], [ %i1, %next ]\n  %at = phi i64 [ %pos, %entry ], [ %after, %next ]\n")
+    try! out.append("  %more = icmp slt i64 %i, %count\n  br i1 %more, label %part, label %last\n")
+    try! out.append("part:\n  %offset = mul i64 %i, ")
+    try! out.append(LL_FAIL_PART_SIZE)
+    try! out.append("\n  %p = getelementptr i8, ptr %parts, i64 %offset\n  %kind = load i64, ptr %p\n")
+    try! out.append("  %first = getelementptr i8, ptr %p, i64 8\n  %second = getelementptr i8, ptr %p, i64 16\n")
+    try! out.append("  switch i64 %kind, label %run [ i64 ")
+    try! out.append(LL_PART_SIGNED)
+    try! out.append(", label %signed i64 ")
+    try! out.append(LL_PART_UNSIGNED)
+    try! out.append(", label %unsigned i64 ")
+    try! out.append(LL_PART_BOOL)
+    try! out.append(", label %bool ]\n")
+    try! out.append("run:\n  %src = load ptr, ptr %first\n  %len = load i64, ptr %second\n")
+    try! out.append("  %ran = call i64 @__saw_append(ptr %buf, i64 %at, ptr %src, i64 %len)\n  br label %next\n")
+    try! out.append("signed:\n  %sv = load i64, ptr %first\n")
+    try! out.append("  %sd = call i64 @__saw_append_int(ptr %buf, i64 %at, i64 %sv)\n  br label %next\n")
+    try! out.append("unsigned:\n  %uv = load i64, ptr %first\n")
+    try! out.append("  %ud = call i64 @__saw_append_uint(ptr %buf, i64 %at, i64 %uv)\n  br label %next\n")
+    try! out.append("bool:\n  %byte = load i8, ptr %first\n  %yes = icmp ne i8 %byte, 0\n")
+    try! out.append("  %word = select i1 %yes, ptr @__saw_fail_true, ptr @__saw_fail_false\n")
+    try! out.append("  %size = select i1 %yes, i64 4, i64 5\n")
+    try! out.append("  %bd = call i64 @__saw_append(ptr %buf, i64 %at, ptr %word, i64 %size)\n  br label %next\n")
+    try! out.append("next:\n  %after = phi i64 [ %ran, %run ], [ %sd, %signed ], [ %ud, %unsigned ], [ %bd, %bool ]\n")
+    try! out.append("  %i1 = add i64 %i, 1\n  br label %loop\n")
+    try! out.append("last:\n  %done = phi i64 [ %at, %loop ]\n")
+    try! out.append(finish)
+    kind = 0
+    while kind < LL_FAIL_KINDS {
+        let symbol = ll_fail_symbol(kind)
+        let reason = ll_fail_reason(kind)
+        try! out.append("define internal void @")
+        try! out.append(symbol)
+        try! out.append("(ptr %file, i64 %file_len, i64 %line) noinline noreturn \{\nentry:\n")
+        try! out.append("  call void @__saw_fail(ptr %file, i64 %file_len, i64 %line, ptr @")
+        try! out.append(symbol)
+        try! out.append(".reason, i64 ")
+        try! out.append(reason.len())
+        try! out.append(")\n  unreachable\n\}")
+        kind = kind + 1
+        if kind < LL_FAIL_KINDS {
+            try! out.append("\n\n")
+        }
+    }
     out.build()
 }

@@ -1,15 +1,14 @@
 // Rendering through the builder role (design 137): a call of an item mono
 // made with its arguments already spelled, a value formatted through its
 // `Printable.format` into a fixed builder over stack scratch, an
-// interpolation built through a growable one, a collection literal's
-// container built by its `init()` and a `push` per element, and the parts a
-// message is assembled from.
+// interpolation built through a growable one, and a collection literal's
+// container built by its `init()` and a `push` per element.
 
 import sawborrowck.program.{BorrowckProgram}
 import sawdrops.program.{DropsProgram}
 import sawllvm.module.{LlEmitter, ll_is_scalar, ll_symbol, ll_value_type}
 import sawllvm.places.{ll_local_slot}
-import sawllvm.prims.{LL_MESSAGE_LIMIT}
+import sawllvm.prims.{LL_MESSAGE_LIMIT, LL_PART_RUN, LlParts, ll_parts, ll_parts_push}
 import sawmir.build.{mir_func_local}
 import sawmir.model.{MirOperandKind, MirRvalue}
 import sawmir.program.{MirProgram}
@@ -215,20 +214,10 @@ extension LlEmitter {
         let payload = self.offset_addr(at, off)
         var parts = ll_parts()
         self.render_fixed(&var mono, &var target, payload, error, node, &var parts)
-        let buf = self.message_slot()
-        var head = StringBuilder()
-        try! head.append("panic at ")
-        try! head.append(mono.site_text(node))
-        try! head.append(": ")
-        try! head.append(what)
-        try! head.append(": ")
-        let head_bytes = self.text_bytes(head.build())
-        var pos = self.append_bytes(buf, "0", &head_bytes)
-        if parts.kinds.len() > 0 {
-            pos = self.append_run(buf, pos, parts.firsts.get(0) ?? "", parts.seconds.get(0) ?? "")
-        }
-        let end = self.finish_message(buf, pos)
-        self.call_panic_sink(&var mono, node, buf, end)
+        var lead = StringBuilder()
+        try! lead.append(what)
+        try! lead.append(": ")
+        self.fail_parts(&var mono, node, lead.build(), &parts)
         self.put_label(pass)
     }
 
@@ -273,31 +262,4 @@ public func ll_spelled(ty: String, value: String) -> String {
     try! out.append(" ")
     try! out.append(value)
     out.build()
-}
-
-// What a message part is: a run of bytes (`first` its address, `second` its
-// length), an integer widened to i64 (`first`), signed or not, or a Bool's
-// byte (`first`).
-public static LL_PART_RUN: Int = 0
-public static LL_PART_SIGNED: Int = 1
-public static LL_PART_UNSIGNED: Int = 2
-public static LL_PART_BOOL: Int = 3
-
-// A message's parts, in order.
-public struct LlParts {
-    kinds: Vector<Int>
-    firsts: Vector<String>
-    seconds: Vector<String>
-}
-
-extension LlParts: NoCopy {}
-
-public func ll_parts() -> LlParts {
-    LlParts(kinds: Vector<Int>(), firsts: Vector<String>(), seconds: Vector<String>())
-}
-
-public func ll_parts_push(parts: &var LlParts, kind: Int, first: String, second: String) {
-    try! parts.kinds.push(kind)
-    try! parts.firsts.push(first)
-    try! parts.seconds.push(second)
 }

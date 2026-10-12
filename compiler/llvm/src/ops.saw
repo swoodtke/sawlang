@@ -8,7 +8,7 @@
 
 import sawborrowck.program.{BorrowckProgram}
 import sawdrops.program.{DropsProgram}
-import sawllvm.prims.{LL_MESSAGE_LIMIT}
+import sawllvm.prims.{LL_FAIL_DIVIDE, LL_FAIL_OVERFLOW, LL_FAIL_SHIFT, LL_MESSAGE_LIMIT}
 import sawllvm.module.{LlEmitter, ll_is_scalar, ll_symbol, ll_value_type}
 import sawllvm.places.{ll_local_slot, ll_tag_type}
 import sawllvm.render.{ll_spelled}
@@ -545,26 +545,18 @@ extension LlEmitter {
         try! flag.append(pair)
         try! flag.append(", 1")
         let overflow = self.assign(flag.build())
-        self.check_bit(&var mono, overflow, node, "integer overflow")
+        self.check_bit(&var mono, overflow, node, LL_FAIL_OVERFLOW)
         result
     }
 
-    // Panics with `reason` when `bit` is set; continues in a fresh block.
-    func check_bit(&var self, mono: &var MonoProgram, bit: String, node: Int, reason: String) {
+    // Panics as check kind `kind` when `bit` is set; continues in a fresh
+    // block.
+    func check_bit(&var self, mono: &var MonoProgram, bit: String, node: Int, kind: Int) {
         let fail = self.new_label("check")
         let pass = self.new_label("checked")
         self.branch(bit, fail, pass)
         self.put_label(fail)
-        var text = StringBuilder()
-        try! text.append("panic at ")
-        try! text.append(mono.site_text(node))
-        try! text.append(": ")
-        try! text.append(reason)
-        let bytes = self.bounded_message(text.build())
-        let g = self.pooled(&bytes, false, 0)
-        var len = StringBuilder()
-        try! len.append(bytes.len())
-        self.call_panic_sink(&var mono, node, g, len.build())
+        self.fail_check(&var mono, node, kind)
         self.put_label(pass)
     }
 
@@ -581,7 +573,7 @@ extension LlEmitter {
         try! zero.append(y)
         try! zero.append(", 0")
         let is_zero = self.assign(zero.build())
-        self.check_bit(&var mono, is_zero, node, "division by zero")
+        self.check_bit(&var mono, is_zero, node, LL_FAIL_DIVIDE)
         if signed {
             var min = StringBuilder()
             try! min.append("icmp eq ")
@@ -599,7 +591,7 @@ extension LlEmitter {
             try! neg.append(", -1")
             let is_neg = self.assign(neg.build())
             let both = self.simple("and", "i1", is_min, is_neg)
-            self.check_bit(&var mono, both, node, "integer overflow")
+            self.check_bit(&var mono, both, node, LL_FAIL_OVERFLOW)
         }
         var word = ""
         if op.equals("/") {
@@ -622,7 +614,7 @@ extension LlEmitter {
         try! cmp.append(", ")
         try! cmp.append(bits)
         let out_of_range = self.assign(cmp.build())
-        self.check_bit(&var mono, out_of_range, node, "shift out of range")
+        self.check_bit(&var mono, out_of_range, node, LL_FAIL_SHIFT)
         let amount = self.int_convert(y, count_bits, bits, false)
         var ty = StringBuilder()
         try! ty.append("i")
@@ -831,7 +823,7 @@ extension LlEmitter {
                 try! reason.append(mono.dp.bc.mir.tc.type_text(to))
                 try! reason.append(" out of range: ")
                 let wide = self.int_convert(x, fl.bits, 64, fs)
-                self.panic_with_value(&var mono, node, reason.build(), wide, fs)
+                self.fail_value(&var mono, node, reason.build(), wide, fs)
                 self.put_label(pass)
             }
             self.store(ty, v, dest)

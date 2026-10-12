@@ -235,3 +235,140 @@ entry:
   %end = call i64 @__saw_append(ptr %buf, i64 %pos, ptr %tmp, i64 %n)
   ret i64 %end
 }
+
+@__saw_fail_at = private unnamed_addr constant [9 x i8] c"panic at "
+@__saw_fail_colon = private unnamed_addr constant [2 x i8] c": "
+@__saw_fail_true = private unnamed_addr constant [4 x i8] c"true"
+@__saw_fail_false = private unnamed_addr constant [5 x i8] c"false"
+@__saw_fail_overflow.reason = private unnamed_addr constant [16 x i8] c"integer overflow"
+@__saw_fail_divide.reason = private unnamed_addr constant [16 x i8] c"division by zero"
+@__saw_fail_shift.reason = private unnamed_addr constant [18 x i8] c"shift out of range"
+@__saw_fail_unwrap.reason = private unnamed_addr constant [20 x i8] c"force unwrap of None"
+@__saw_fail_try.reason = private unnamed_addr constant [11 x i8] c"try! failed"
+
+define internal i64 @__saw_fail_head(ptr %buf, ptr %file, i64 %file_len, i64 %line) {
+entry:
+  %at = call i64 @__saw_append(ptr %buf, i64 0, ptr @__saw_fail_at, i64 9)
+  %named = call i64 @__saw_append(ptr %buf, i64 %at, ptr %file, i64 %file_len)
+  %known = icmp sge i64 %line, 0
+  br i1 %known, label %number, label %tail
+number:
+  %colon = call i64 @__saw_append(ptr %buf, i64 %named, ptr @__saw_fail_colon, i64 1)
+  %lined = call i64 @__saw_append_uint(ptr %buf, i64 %colon, i64 %line)
+  br label %tail
+tail:
+  %pos = phi i64 [ %named, %entry ], [ %lined, %number ]
+  %end = call i64 @__saw_append(ptr %buf, i64 %pos, ptr @__saw_fail_colon, i64 2)
+  ret i64 %end
+}
+
+define internal void @__saw_fail(ptr %file, i64 %file_len, i64 %line, ptr %text, i64 %text_len) noinline noreturn {
+entry:
+  %buf = alloca [512 x i8], align 1
+  %head = call i64 @__saw_fail_head(ptr %buf, ptr %file, i64 %file_len, i64 %line)
+  %done = call i64 @__saw_append(ptr %buf, i64 %head, ptr %text, i64 %text_len)
+  %end = call i64 @__saw_finish(ptr %buf, i64 %done)
+  call void @"saw std.panic.panic_sink(message: UnsafePointer<Int8>, length: Int)"(ptr %buf, i64 %end)
+  unreachable
+}
+
+define internal void @__saw_fail_signed(ptr %file, i64 %file_len, i64 %line, ptr %text, i64 %text_len, i64 %v) noinline noreturn {
+entry:
+  %buf = alloca [512 x i8], align 1
+  %head = call i64 @__saw_fail_head(ptr %buf, ptr %file, i64 %file_len, i64 %line)
+  %pos = call i64 @__saw_append(ptr %buf, i64 %head, ptr %text, i64 %text_len)
+  %done = call i64 @__saw_append_int(ptr %buf, i64 %pos, i64 %v)
+  %end = call i64 @__saw_finish(ptr %buf, i64 %done)
+  call void @"saw std.panic.panic_sink(message: UnsafePointer<Int8>, length: Int)"(ptr %buf, i64 %end)
+  unreachable
+}
+
+define internal void @__saw_fail_unsigned(ptr %file, i64 %file_len, i64 %line, ptr %text, i64 %text_len, i64 %v) noinline noreturn {
+entry:
+  %buf = alloca [512 x i8], align 1
+  %head = call i64 @__saw_fail_head(ptr %buf, ptr %file, i64 %file_len, i64 %line)
+  %pos = call i64 @__saw_append(ptr %buf, i64 %head, ptr %text, i64 %text_len)
+  %done = call i64 @__saw_append_uint(ptr %buf, i64 %pos, i64 %v)
+  %end = call i64 @__saw_finish(ptr %buf, i64 %done)
+  call void @"saw std.panic.panic_sink(message: UnsafePointer<Int8>, length: Int)"(ptr %buf, i64 %end)
+  unreachable
+}
+
+define internal void @__saw_fail_parts(ptr %file, i64 %file_len, i64 %line, ptr %text, i64 %text_len, ptr %parts, i64 %count) noinline noreturn {
+entry:
+  %buf = alloca [512 x i8], align 1
+  %head = call i64 @__saw_fail_head(ptr %buf, ptr %file, i64 %file_len, i64 %line)
+  %pos = call i64 @__saw_append(ptr %buf, i64 %head, ptr %text, i64 %text_len)
+  br label %loop
+loop:
+  %i = phi i64 [ 0, %entry ], [ %i1, %next ]
+  %at = phi i64 [ %pos, %entry ], [ %after, %next ]
+  %more = icmp slt i64 %i, %count
+  br i1 %more, label %part, label %last
+part:
+  %offset = mul i64 %i, 24
+  %p = getelementptr i8, ptr %parts, i64 %offset
+  %kind = load i64, ptr %p
+  %first = getelementptr i8, ptr %p, i64 8
+  %second = getelementptr i8, ptr %p, i64 16
+  switch i64 %kind, label %run [ i64 1, label %signed i64 2, label %unsigned i64 3, label %bool ]
+run:
+  %src = load ptr, ptr %first
+  %len = load i64, ptr %second
+  %ran = call i64 @__saw_append(ptr %buf, i64 %at, ptr %src, i64 %len)
+  br label %next
+signed:
+  %sv = load i64, ptr %first
+  %sd = call i64 @__saw_append_int(ptr %buf, i64 %at, i64 %sv)
+  br label %next
+unsigned:
+  %uv = load i64, ptr %first
+  %ud = call i64 @__saw_append_uint(ptr %buf, i64 %at, i64 %uv)
+  br label %next
+bool:
+  %byte = load i8, ptr %first
+  %yes = icmp ne i8 %byte, 0
+  %word = select i1 %yes, ptr @__saw_fail_true, ptr @__saw_fail_false
+  %size = select i1 %yes, i64 4, i64 5
+  %bd = call i64 @__saw_append(ptr %buf, i64 %at, ptr %word, i64 %size)
+  br label %next
+next:
+  %after = phi i64 [ %ran, %run ], [ %sd, %signed ], [ %ud, %unsigned ], [ %bd, %bool ]
+  %i1 = add i64 %i, 1
+  br label %loop
+last:
+  %done = phi i64 [ %at, %loop ]
+  %end = call i64 @__saw_finish(ptr %buf, i64 %done)
+  call void @"saw std.panic.panic_sink(message: UnsafePointer<Int8>, length: Int)"(ptr %buf, i64 %end)
+  unreachable
+}
+
+define internal void @__saw_fail_overflow(ptr %file, i64 %file_len, i64 %line) noinline noreturn {
+entry:
+  call void @__saw_fail(ptr %file, i64 %file_len, i64 %line, ptr @__saw_fail_overflow.reason, i64 16)
+  unreachable
+}
+
+define internal void @__saw_fail_divide(ptr %file, i64 %file_len, i64 %line) noinline noreturn {
+entry:
+  call void @__saw_fail(ptr %file, i64 %file_len, i64 %line, ptr @__saw_fail_divide.reason, i64 16)
+  unreachable
+}
+
+define internal void @__saw_fail_shift(ptr %file, i64 %file_len, i64 %line) noinline noreturn {
+entry:
+  call void @__saw_fail(ptr %file, i64 %file_len, i64 %line, ptr @__saw_fail_shift.reason, i64 18)
+  unreachable
+}
+
+define internal void @__saw_fail_unwrap(ptr %file, i64 %file_len, i64 %line) noinline noreturn {
+entry:
+  call void @__saw_fail(ptr %file, i64 %file_len, i64 %line, ptr @__saw_fail_unwrap.reason, i64 20)
+  unreachable
+}
+
+define internal void @__saw_fail_try(ptr %file, i64 %file_len, i64 %line) noinline noreturn {
+entry:
+  call void @__saw_fail(ptr %file, i64 %file_len, i64 %line, ptr @__saw_fail_try.reason, i64 11)
+  unreachable
+}

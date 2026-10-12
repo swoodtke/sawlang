@@ -1,0 +1,36 @@
+// The primes up to two million by a sieve over a `Vector<Bool>`: an indexed
+// write and read per step, each through a checked accessor.
+func sieve(limit: Int) -> Int {
+    var marks = Vector<Bool>()
+    var i = 0
+    while i <= limit {
+        try! marks.push(true)
+        i = i + 1
+    }
+    marks.set(0, false)
+    marks.set(1, false)
+    var p = 2
+    while p * p <= limit {
+        if marks[p] {
+            var m = p * p
+            while m <= limit {
+                marks.set(m, false)
+                m = m + p
+            }
+        }
+        p = p + 1
+    }
+    var primes = 0
+    var k = 0
+    while k <= limit {
+        if marks[k] {
+            primes = primes + 1
+        }
+        k = k + 1
+    }
+    primes
+}
+
+func main() {
+    print("sieve {}", sieve(2000000))
+}

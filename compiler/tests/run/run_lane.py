@@ -6,6 +6,7 @@ exit status compared.
     python compiler/tests/run/run_lane.py            # check
     python compiler/tests/run/run_lane.py --write    # rewrite hello.ll
     python compiler/tests/run/run_lane.py NAME...    # just these programs
+    python compiler/tests/run/run_lane.py --bench    # the timing report over bench/
 
 `compiler/tests/run.py` runs `run()`. Each `NAME.saw` is one case:
 
@@ -38,6 +39,10 @@ exit status compared.
   a renamed symbolic link on `PATH` from another directory, prints its
   binary's real path.
 
+`--bench` runs none of that: it times each kernel of `bench/` under sawc2 at
+-O2 and under Stage 0 and prints the report, which gates nothing. The runner
+never runs it.
+
 Stage 0 is the oracle; a difference is a sawc2 bug until shown otherwise
 (SL:architecture §5).
 """
@@ -48,6 +53,7 @@ import re
 import shutil
 import subprocess
 import sys
+import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 TESTS = os.path.dirname(HERE)
@@ -59,6 +65,7 @@ import build  # noqa: E402
 
 OUT = os.path.join(REPO, ".build", "run-lane")
 RUN_TIMEOUT = 20
+BENCH_REPS = 5
 BUILD_TIMEOUT = 600
 
 _DUE = re.compile(r"^// due: (.+)$")
@@ -434,7 +441,48 @@ def run(names=None, write=False):
     return failures, counts, dues
 
 
+def best_time(binary, reps=BENCH_REPS):
+    """The best wall time of `reps` runs after one warm-up, and the output."""
+    execute(binary)
+    best = None
+    out = b""
+    for _ in range(reps):
+        start = time.perf_counter()
+        _, out = execute(binary)
+        took = time.perf_counter() - start
+        best = took if best is None or took < best else best
+    return best, out
+
+
+def bench():
+    """The timing report: each kernel of `bench/` built by sawc2 at -O2 and
+    by Stage 0, both run, their best times printed beside the ratio. Only a
+    build that fails, or two outputs that differ, fails the report; a time
+    never does, since it is only as good as the machine is quiet."""
+    os.makedirs(OUT, exist_ok=True)
+    failures = []
+    print("%-12s %10s %10s %7s" % ("kernel", "Stage 0", "sawc2 -O2", "ratio"))
+    for src in sorted(glob.glob(os.path.join(HERE, "bench", "*.saw"))):
+        name = os.path.splitext(os.path.basename(src))[0]
+        ok_new, new, new_log = build_new(src, "-O2")
+        ok_old, old, old_log = build_old(src)
+        if not ok_new or not ok_old:
+            failures.append("bench %s: %s does not build it: %s"
+                            % (name, "sawc2" if not ok_new else "Stage 0", (new_log if not ok_new else old_log)[:300]))
+            continue
+        t_old, out_old = best_time(old)
+        t_new, out_new = best_time(new)
+        if out_new != out_old:
+            failures.append("bench %s: output differs: %s" % (name, first_difference(out_new, out_old)))
+        print("%-12s %9.4fs %9.4fs %6.2fx" % (name, t_old, t_new, t_new / t_old))
+    for failure in failures:
+        print(failure)
+    return 1 if failures else 0
+
+
 def main():
+    if "--bench" in sys.argv[1:]:
+        return bench()
     names = [a for a in sys.argv[1:] if not a.startswith("-")]
     failures, counts, dues = run(names, "--write" in sys.argv[1:])
     for failure in failures:
