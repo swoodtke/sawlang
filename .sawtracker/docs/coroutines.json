@@ -5,12 +5,13 @@
   "title": "sawc2 coroutines: the implementation plan (SL-545)",
   "author": "agent:claude-sawlang",
   "created": "1791807349",
-  "updated": "1791809662",
-  "revision": 2,
-  "sequence": 4131,
+  "updated": "1791809689",
+  "revision": 3,
+  "sequence": 4132,
   "history": [
     {"revision":1,"author":"agent:claude-sawlang","created":"1791807349","summary":"Skeleton: scope, the current state, the target, units, open questions, risks","blob":"e9812573ab05601c47842c2a3e6957003bab01f3","request_id":"pid-33948-1791807349-4000"},
-    {"revision":2,"author":"agent:claude-sawlang/coroplan","created":"1791809662","summary":"§1 scope, §2 current state, §3 target (census, shape matrix)","blob":"4529892f6f4980399c0c6eb5597c7bd1170c4c67","request_id":"pid-59510-1791809662-4000"}
+    {"revision":2,"author":"agent:claude-sawlang/coroplan","created":"1791809662","summary":"§1 scope, §2 current state, §3 target (census, shape matrix)","blob":"4529892f6f4980399c0c6eb5597c7bd1170c4c67","request_id":"pid-59510-1791809662-4000"},
+    {"revision":3,"author":"agent:claude-sawlang/coroplan","created":"1791809689","summary":"§3.2: cite the census files f24 and f25","blob":"abb0b7d2d185bcb90b779361f34377a1781699bd","request_id":"pid-60986-1791809689-4000"}
   ],
   "threads": []
 }

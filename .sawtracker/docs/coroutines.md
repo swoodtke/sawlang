@@ -226,7 +226,7 @@ This is the shape every unit in §4 builds toward. Where it fixes a detail §3.9
 - Stage 0's `--emit-frame-ledger` ran over its `examples/` twin;
 - `sawc2-stage2 build --std-root std --emit-ll` ran over the corpus file.
 
-**A program needs coroutines when Stage 0 frames at least one function for it.** The full list is the chat attachment `coro_programs.txt` (named in the chat note for this section), with each program's first sawc2 refusal.
+**A program needs coroutines when Stage 0 frames at least one function for it.** The full list is chat file **f24** (`coro_programs.txt`), with each program's first sawc2 refusal.
 
 | | top level | `conformance/` | `errors/` | total |
 |---|---|---|---|---|
@@ -281,7 +281,7 @@ Stage 0's ledger frames 1 function in 99 of the programs, 2–3 in 162, 4–9 in
 | K37 | 1 |
 | one each | the suspending default, `blocking` agreement (2), the freestanding refusals (2), the tuple-pattern `while let`, the spawn brace's capture rule, the retired `spawn { }`, `dump_tasks` gating (2), `@align` on a frame local |
 
-The list is `coro_refusal_tests.txt`, attached beside the first.
+The list is chat file **f25** (`coro_refusal_tests.txt`).
 
 ### 3.3 The shape matrix
 
