@@ -1,6 +1,6 @@
 # sawc2 coroutines: the implementation plan (SL-545)
 
-**Status: complete draft (r9), all six sections reviewed by the Air, with threads t1–t11 folded in and resolved. §5's questions were RULED by the user on Oct 12 (below and in SL:open-questions, "Q-coro1 to Q-coro7"). The heap-frame word is `frame_alloc`, not the draft's `indirect`.** Nothing here is approved for implementation until the user says so.
+**Status: APPROVED by the user (Oct 12), with §5 ruled (below and in SL:open-questions, "Q-coro1 to Q-coro7"). The heap-frame word is `frame_alloc`, not the draft's `indirect`.** Every §4 unit is filed as a child of SL-545; the unit-to-issue map is on SL-545. The plan text is authoritative over the issues.
 
 The authorities, in order:
 1. LANGUAGE_SPEC §6 (Concurrency) for meaning, and GRAMMAR.md for spelling;
