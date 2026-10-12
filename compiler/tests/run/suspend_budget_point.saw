@@ -1,0 +1,18 @@
+// due: a yield-capable op-budget point has no lowering in the backend slice yet
+// refuses: backend.not-yet at 12:5
+// A loop in a function that suspends keeps its op-budget point live, so the
+// point is refused at the loop, whose body's block comes before the block of
+// the suspending call.
+extern "C" {
+    blocking func usleep(us: UInt32) -> Int32
+}
+
+func main() {
+    var i = 0
+    while i < 3 {
+        i = i + 1
+    }
+    if i == 3 {
+        print("{}", (usleep(1) as Int) + i)
+    }
+}

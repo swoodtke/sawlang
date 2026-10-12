@@ -1,0 +1,49 @@
+// due: a suspending call has no lowering in the backend slice yet
+// refuses: backend.not-yet at 47:32
+// A suspending cycle, and a call whose suspension is a condition over a
+// bound. `run<Fast>` does not suspend at `Fast`, so its call is not refused;
+// `run<Slow>` does, and the first refusal is at that call, the second on the
+// line. The cycle `ping -> pong -> ping` is refused at each of its calls.
+extern "C" {
+    blocking func usleep(us: UInt32) -> Int32
+}
+
+trait Worker {
+    func step(&self) -> Int
+}
+
+struct Fast {
+    n: Int
+}
+
+struct Slow {
+    n: Int
+}
+
+extension Fast: Worker {
+    func step(&self) -> Int { self.n }
+}
+
+extension Slow: Worker {
+    func step(&self) -> Int { (usleep(1) as Int) + self.n }
+}
+
+func run<T: Worker>(w: &T) -> Int {
+    w.step() * 2
+}
+
+func ping(n: Int) -> Int {
+    if n <= 0 {
+        return (usleep(1) as Int) + 1
+    }
+    pong(n - 1) + 1
+}
+
+func pong(n: Int) -> Int { ping(n) * 2 }
+
+func main() {
+    let fast = Fast(n: 1)
+    let slow = Slow(n: 3)
+    print("{} {}", run(&fast), run(&slow))
+    print("{}", ping(1))
+}

@@ -119,8 +119,14 @@ an unsigned integer's rendering and a derived `Equatable` among them, is
 refused as `mono.not-yet`.
 
 **Budget points.** Spawn is not lowered, so no task root exists and every
-op-budget point is inert; the backend writes nothing for one. Coroutine
-lowering decides which stay live (SL:architecture §3.9).
+op-budget point is inert; the backend writes nothing for one, and refuses a
+yield-capable one in an item that suspends. Coroutine lowering decides which
+stay live (SL:architecture §3.9).
+
+**Suspension.** After the worklist, mono marks each item that definitely
+suspends (`suspends.saw`), at its calls' concrete targets; the backend refuses
+what it marks (`compiler/tests/run/README.md`, "Suspension"). The dump still
+prints each call's flag as typecheck gave it.
 
 ## The dump
 

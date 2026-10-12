@@ -189,7 +189,19 @@ description's (`compiler/tests/mono/README.md`, "Layouts").
 
 | rule | refuses | due program |
 |---|---|---|
-| `backend.not-yet` | what the backend does not lower yet: a Float constant, an operator on a Float, or on anything but an integer, a Bool, a String, two raw pointers or the memory values compared part by part, an erasure, a slice, a take capture, a fixed array, a repeat, a `Map` or a `Set` literal, a static that is not an integer or a Bool, an exported static, a conditional borrow, an aggregate crossing the C convention, a pointer cast to or from an integer narrower than a pointer, an unsupported layout, a `main` returning neither `Void` nor `Int`; a constant is refused at its own spelling, inside an aggregate too | `float_field` |
+| `backend.not-yet` | what the backend does not lower yet: a Float constant, an operator on a Float, or on anything but an integer, a Bool, a String, two raw pointers or the memory values compared part by part, an erasure, a slice, a take capture, a fixed array, a repeat, a `Map` or a `Set` literal, a static that is not an integer or a Bool, an exported static, a conditional borrow, an aggregate crossing the C convention, a pointer cast to or from an integer narrower than a pointer, an unsupported layout, a `main` returning neither `Void` nor `Int`; a constant is refused at its own spelling, inside an aggregate too; a call that definitely suspends, and a yield-capable op-budget point in a function that does (below) | `float_field`, `suspend_blocking_main`, `suspend_cycle`, `suspend_budget_point` |
+
+**Suspension.** No suspension is lowered yet (coroutine lowering, SL-545), so
+the backend refuses each one rather than emit a suspending call as a plain
+call that blocks the thread. Which calls suspend is decided after mono, at
+each call's concrete target (`compiler/mono/src/suspends.saw`): a call
+typecheck says may suspend, unconditionally or when a bound's requirement
+does, suspends when the item it reaches suspends, and an item suspends when a
+call in its body does, solved as a least fixpoint from callee to caller. A
+call whose target has no body here, an `extern` among them, keeps typecheck's
+answer, which is how a `blocking` extern is a suspension. So `run<Fast>`,
+whose bound's `step` does not suspend at `Fast`, is emitted, while `run<Slow>`
+and every call of a suspending cycle are refused.
 
 ## The lane
 

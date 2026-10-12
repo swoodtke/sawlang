@@ -1,0 +1,20 @@
+// due: a suspending call has no lowering in the backend slice yet
+// refuses: backend.not-yet at 19:17
+// A `main` that reaches a `blocking` extern through two helpers suspends at
+// each call on the way, so each is refused, `main`'s first, rather than
+// emitted as a plain call that blocks the only thread.
+extern "C" {
+    blocking func usleep(us: UInt32) -> Int32
+}
+
+func nap() -> Int32 {
+    usleep(10)
+}
+
+func caller() -> Int {
+    (nap() as Int) + 41
+}
+
+func main() {
+    print("{}", caller())
+}
