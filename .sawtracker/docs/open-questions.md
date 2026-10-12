@@ -451,6 +451,26 @@ Correction: the lead first wrote "B", which is not a §12 code. The SL-426 agent
 
 ## Resolved
 
+### Q-shiftcount. A constant out-of-range shift count beside a run-time operand is a compile error (Oct 12; the USER's ruling, option b)
+**Ruled:** refuse it at compile time as `constant.shift-range`, since the panic is certain.
+
+**The line (the Air's evidence):** the refusal applies only to an operand that is constant BEFORE generic instantiation (a literal, a `static`, a constant expression over those), independent of every generic parameter. A count that is constant only per instantiation of a const generic may sit behind a guard and never run (`if N > 0 { x << (N - 1) }`), so it stays a run-time check.
+
+**The lead's scope, under the user's acceptance of the lead's recommendations:**
+- it applies regardless of reachability (`if false { x << 64 }` is refused too): a predictable rule needing no flow analysis, like the existing constant faults;
+- the family includes `x / 0` and `x % 0` with a constant zero divisor beside a run-time operand.
+
+**Where it lands:** a new issue for SL-514's area: the spec's constant-fault paragraph extended, the typecheck refusal, and pins, including the Air's guarded const-generic control as ACCEPTED.
+
+### Q-astdiff. The per-patch gate runs astdiff on changed `.saw` files (Oct 12; the USER's ruling, option a)
+**Ruled:** `astdiff.py` gains a per-file mode, and `tools/patch_gate.py` runs it on each changed `.saw` file outside the two new-syntax corpora, as `CHANGED_SAW` does for the grammar corpus. A full run triggers on the Python parser, the dumper and its tools. It lands with SL-542.
+
+### D42 and D43: accepted by the user (Oct 12)
+The user accepted both lead decisions (a conditionally evaluated operand, a bare arm or a block tail is its own temporary scope; `Env.executable_path` in the frozen `sawc/std`).
+
+### Gate speed: the fixpoint lane moves into the server's per-patch gate (Oct 12; the user: "speeding up the agent gates is a good thing — do what you think best")
+**Lead decision:** `tools/patch_gate.py` runs the `fixpoint` lane when a changed path is one of its inputs (`compiler/`, `std/`, `sawc/rt/`, the lane itself and `compiler/tools/build.py`). Agents' local gates drop it: they run `run.py` plus the targeted lanes, per CLAUDE.md's "never duplicate what the server runs". This ends the duplicated hour-long runs serialized on the suite lock. It lands with SL-542, and CLAUDE.md's gate section changes to match.
+
 ### SL-522 (Stage 0 std). The frozen `sawc/std` gains `File.close()` and a blocking `Command.wait()` (Oct 11; the USER's ruling)
 The driver's link code compiles under both stds: Stage 1 is built by Stage 0 against `sawc/std`, and Stage 2 on against `std/`. `sawc/std` had no explicit close, and no sync spawn-and-wait, since its `Command.run()` suspends on the reactor, which the sync-only compiler source can't call.
 
