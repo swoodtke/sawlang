@@ -1,0 +1,8 @@
+// refuses: constant.shift-range at 7:10
+// a count that names a module static is constant before instantiation (SL-543)
+
+static WIDTH: Int = 64
+
+func low(x: Int) -> Int {
+    x >> WIDTH
+}

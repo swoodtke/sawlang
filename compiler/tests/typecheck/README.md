@@ -542,6 +542,34 @@ array-length, repeat-count and const-argument positions are folded by
 `build_const` (SL-457) and do not reach the funnel; it refuses every `sizeof`
 there, of any type, as `slice.not-yet`.
 
+### The certain-fault funnel
+
+A shift whose count, or a division or remainder whose divisor, is constant
+before generic instantiation faults wherever it runs, whatever the other
+operand is, so it is a compile error even where no constant position folds it
+(spec, Compile-Time Evaluation; SL:open-questions Q-shiftcount). One funnel,
+`check_certain_fault`, judges both rules for `<<`, `>>`, `<<=`, `>>=`, `/`,
+`%`, `/=` and `%=`; its docstring names its entry points. "Constant before
+instantiation" is decided once, by `fold_before_instantiation`: the operand
+folds by the fold's grammar and mentions no type or const parameter. A count
+outside the shifted type's width is `constant.shift-range`, and a divisor that
+folds to zero `constant.divide-by-zero`, each at the operand; an operand whose
+own fold faults is refused at that fault, and so is an operation that is
+constant as a whole, as the constant-position funnel refuses it. Reachability
+is not asked: `if false { x << 64 } else { x }` is refused. A count or divisor
+that names a const parameter is constant only per instantiation, and may sit
+behind a guard that keeps it from running (`if N > 0 { x << (N - 1) }`), so
+it stays a run-time check.
+
+| operand | refused | covered by |
+|---|---|---|
+| a literal count beside a run-time value, binary and compound | `constant.shift-range` | .binary, .compound |
+| a count naming a static, a constant expression over one | `constant.shift-range` | .static-count, .expression-count |
+| a count whose own fold faults | `constant.shift-range` | .count-fault |
+| a count in code that never runs | `constant.shift-range` | .unreachable |
+| a zero divisor of `/`, `%`, `/=`, and `%=` over a static | `constant.divide-by-zero` | .division, .remainder, .compound, .compound-remainder |
+| a run-time count or divisor; a constant one that cannot fault; one that names a const parameter | nothing | certain_fault_controls; run programs runtime_count_divisor, const_generic_shift_guard |
+
 ### Layout asserts
 
 A `static_assert` whose condition measures a type with `sizeof` or `alignof`
@@ -563,7 +591,7 @@ Every body construct in the slice, and how it is typed:
 |---|---|---|
 | integer, float, string, `Bool` and `None` literals, `#file`, `#line`, `#function` | `Int` adopting its slot, range-checked, or a suffixed literal's exact type; `Float`, `String`, `Bool`; the slot's Optional, or the Ok payload's `None` at a `Result<T?, E>` slot (spec, Auto-Wrap: "At a declared `Result<T?, E>` it is `Ok(None)`") | funnel, peeling, widening, none_ok |
 | a constant expression: literals, module statics of an integer type and raw-backed cases, under `-`, `~`, arithmetic, shift and bit operators; `fold.saw` also folds a type alias's construction over one, `Byte(65)`, as the identity, for the evaluator's agreement | adopts its slot, or its mixed operator's peer, and folds there by typed arithmetic, every literal and leaf fitting and no operation overflowing; a bare static adopts only as a leaf inside one, and keeps its declared type anywhere else, an operator's peer included (spec, Integer Width Agreement: "a module `static`… may be a leaf"); a combination of cases with no integer slot is the backing integer (spec, Flag enums) | funnel, widening, folding |
-| a shift, `a << n`, and a compound one, `a <<= n` | the left operand's type; each count an integer of any width, no peer ("The shift count is exempt", "The compound forms `<<=` and `>>=` follow"), a constant one an `Int`; only a wholly constant shift folds, so a constant count beside a run-time value is range-checked at run time (spec, Bitwise and Shift Operators) | widening, compound_shifts; operator.undefined.compound-shift-count |
+| a shift, `a << n`, and a compound one, `a <<= n` | the left operand's type; each count an integer of any width, no peer ("The shift count is exempt", "The compound forms `<<=` and `>>=` follow"), a constant one an `Int`; a count constant before instantiation is range-checked against the shifted type's width beside a run-time value too (the certain-fault funnel), and any other count at run time (spec, Bitwise and Shift Operators) | widening, compound_shifts, certain_fault_controls; operator.undefined.compound-shift-count; constant.shift-range.binary, .compound |
 | an interpolation, its segments | `String`; each segment Printable or a primitive, or an erased box `Box<any Trait>` whose trait refines Printable, rendered through the existential; borrowed | format, split_conformance |
 | a local, a parameter, a static, `self` | its type, a place | places |
 | a const parameter, `N` | a value of its declared type, not a place (design 148) | builtin_values |
@@ -1135,7 +1163,7 @@ says what the fixture shows.
 | `deinit.outside-policy` | a `deinit` written in an extension that declares no copy policy, beside the type's policy or on a type with none, where no scope exit would call it (spec, The Deinit trait) |
 | `extension.default-omitted` | an extension head renaming its type's parameters that leaves out a defaulted one, with the head written out (D14) |
 | `type.mismatch` | a value that does not convert to what its position expects, one fixture per funnel position and one per cell of the wrap and erasure matrix a position refuses; a condition that is not a `Bool`; a pattern that does not fit its value; operands that disagree; a bare integer literal, or a constant expression's literal, leaf or cast, that does not fit the type it adopts or converts to; a literal past its signed suffix's range (D6) |
-| `constant.overflow`, `constant.shift-range`, `constant.divide-by-zero` | a constant expression whose typed arithmetic overflows, shifts by a count outside its width, or divides by zero, where it adopts an integer slot and at every constant position (the constant-position funnel) |
+| `constant.overflow`, `constant.shift-range`, `constant.divide-by-zero` | a constant expression whose typed arithmetic overflows, shifts by a count outside its width, or divides by zero, where it adopts an integer slot and at every constant position (the constant-position funnel); a shift count or divisor constant before instantiation that faults whatever the other operand is, reachable or not (the certain-fault funnel) |
 | `type.ambiguous-result` | a value both of a Result slot's payloads could take |
 | `type.not-a-value` | a type, module or trait named where a value is read |
 | `type.not-a-place` | a value where a place is needed: an assignment's target, `move`, `&var` |

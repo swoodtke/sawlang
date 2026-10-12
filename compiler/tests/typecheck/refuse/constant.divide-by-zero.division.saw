@@ -1,0 +1,6 @@
+// refuses: constant.divide-by-zero at 5:9
+// a literal zero divisor beside a run-time dividend is a certain fault, refused at the divisor (SL-543)
+
+func ratio(x: Int) -> Int {
+    x / 0
+}

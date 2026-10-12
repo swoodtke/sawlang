@@ -1,0 +1,27 @@
+// What the certain-fault rule leaves to run time (spec, Compile-Time
+// Evaluation): a count or divisor known only at run time, a constant one
+// that cannot fault, and one constant only per instantiation of a const
+// generic, which a guard may keep from ever running (SL-543).
+
+static STEP: Int = 3
+
+func top_bit<const N: Int>(x: Int) -> Int {
+    if N > 0 { x << (N - 1) } else { x }
+}
+
+func per_instance<const N: Int>(x: Int) -> Int {
+    x / N + x % (N - 1) + (x >> N)
+}
+
+func scaled(x: Int, k: Int, d: Int) -> Int {
+    var y = x << k
+    y /= d
+    y %= d
+    y <<= k
+    y + (x >> 63) + x / STEP + x % (STEP - 1)
+}
+
+func main() {
+    print("{} {}", top_bit<0>(1), top_bit<4>(1))
+    print("{}", scaled(5, 3, 4))
+}

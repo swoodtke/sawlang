@@ -1,0 +1,6 @@
+// refuses: constant.shift-range at 5:21
+// a certain fault is refused whether or not its code can run: no flow analysis decides it (SL-543)
+
+func high(x: Int) -> Int {
+    if false { x << 64 } else { x }
+}

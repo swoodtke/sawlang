@@ -1,0 +1,8 @@
+// refuses: constant.divide-by-zero at 6:10
+// a compound division's constant zero divisor is refused as the binary one is (SL-543)
+
+func main() {
+    var x = 10
+    x /= 0
+    print("{}", x)
+}

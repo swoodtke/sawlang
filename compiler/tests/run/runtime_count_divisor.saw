@@ -1,0 +1,24 @@
+// A count or divisor known only at run time is checked at run time, and a
+// constant one that cannot fault is accepted beside a run-time value
+// (SL-543). The last shift's count reaches the width at run time and panics.
+func scaled(x: Int, k: Int, d: Int) -> Int {
+    (x << k) / d + x % d
+}
+
+func main() {
+    print("{}", scaled(5, 3, 4))
+    var u: UInt8 = 1
+    let k: Int16 = 7
+    u <<= k
+    print("{}", u)
+    var y = 100
+    let d = 7
+    y /= d
+    print("{}", y)
+    y %= d
+    print("{}", y)
+    let x = 3
+    print("{} {} {}", x << 62, x >> 63, x / 2)
+    let wide = 64
+    print("{}", x << wide)
+}

@@ -1,0 +1,6 @@
+// refuses: constant.divide-by-zero at 5:9
+// a remainder by a constant zero is the division's fault (SL-543)
+
+func rest(x: Int) -> Int {
+    x % 0
+}

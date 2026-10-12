@@ -11425,6 +11425,31 @@ one literal, suffixed or not: `-128` fits an `Int8` slot and `-32768` an
 `Int16` one, as `-128_i8` does, though `128` alone fits neither. Division and
 modulo truncate toward zero, matching the runtime semantics above.
 
+Such an operation is also a compile error outside a constant, when the operand
+that makes it fault is constant before generic instantiation, whatever the
+other operand is. A shift count that is a literal, a `static`, or a constant
+expression over those, and is negative or `>=` the shifted type's width, is
+refused beside a run-time value, in `<<`, `>>`, `<<=` and `>>=` alike. So is a
+divisor of `/`, `%`, `/=` or `%=` that is constant zero. The panic is certain
+wherever the operation runs, so it is refused whether or not the code can run:
+`x << 64` on an `Int` is an error inside `if false { … }` too.
+
+A count or divisor that names a const generic parameter is the exception. It is
+constant only once the function is instantiated, and an instance may never
+reach it, so it stays a run-time check:
+
+```saw
+func top_bit<const N: Int>(x: Int) -> Int {
+    if N > 0 { x << (N - 1) } else { x }
+}
+
+func main() {
+    print("{} {}", top_bit<0>(1), top_bit<4>(1))  // prints: 1 8
+}
+```
+
+`top_bit<0>` would shift by `-1`, but its guard keeps the shift from running.
+
 #### Layout in a constant
 
 `sizeof<T>()` and `alignof<T>()` are constants wherever a constant is required —

@@ -1,0 +1,8 @@
+// refuses: constant.shift-range at 7:11
+// a count that is a constant expression over a static and a literal folds, here to the width (SL-543)
+
+static WORD: Int = 8
+
+func high(x: Int) -> Int {
+    x << (WORD * 8)
+}

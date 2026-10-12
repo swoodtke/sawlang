@@ -1,0 +1,7 @@
+// refuses: constant.shift-range at 6:12
+// a constant count whose own fold faults is refused at that fault, a compound shift's included (SL-543)
+
+func main() {
+    var u: UInt8 = 1
+    u <<= (1 << 64)
+}

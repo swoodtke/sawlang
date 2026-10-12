@@ -1,0 +1,7 @@
+// refuses: constant.shift-range at 6:11
+// a compound shift's constant count is held to its target's width, `UInt8`'s here (SL-543)
+
+func main() {
+    var u: UInt8 = 1
+    u <<= 8
+}

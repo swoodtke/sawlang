@@ -1,0 +1,12 @@
+// due: the backend folds a const parameter's value per instance (SL-548)
+// refuses: backend.not-yet at 7:8
+// A shift count that is constant only per instantiation of a const generic
+// is no certain fault: behind its guard, `top_bit<0>` never shifts, so
+// typecheck accepts it and the count stays a run-time check (SL-543).
+func top_bit<const N: Int>(x: Int) -> Int {
+    if N > 0 { x << (N - 1) } else { x }
+}
+
+func main() {
+    print("{} {}", top_bit<0>(1), top_bit<4>(1))
+}

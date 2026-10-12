@@ -1,0 +1,10 @@
+// refuses: constant.divide-by-zero at 8:10
+// a compound remainder's divisor that folds to zero, a constant expression over a static, is refused (SL-543)
+
+static STEP: Int = 4
+
+func main() {
+    var x = 10
+    x %= STEP - 4
+    print("{}", x)
+}

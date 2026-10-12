@@ -31,7 +31,7 @@ import sawtypecheck.conform.{TcSubst, tc_args_subst, tc_copy_ints, tc_extension_
 import sawtypecheck.declarations.{tc_build_signatures}
 import sawtypecheck.arith.{TcFault, tc_arith_literal}
 import sawtypecheck.binders.{TcBinder, tc_binder_of, tc_binder_text}
-import sawtypecheck.fold.{TcFold}
+import sawtypecheck.fold.{TcFold, tc_fold_fault}
 import sawtypecheck.infer.{TcSolve, tc_solve}
 import sawtypecheck.members.{tc_build_members}
 import sawtypecheck.model.{TC_ANY_DEPTH, TC_BIND_DEFAULT, TC_EFFECT_BORROWS, TC_EFFECT_CONSUMES, TC_EFFECT_ESCAPING, TC_FLAG_STATIC, TC_FLAG_SYNTHESIZE_SHARED, TC_FLAG_UNSAFE_VAR, TC_FLAG_VARIADIC,
@@ -938,9 +938,11 @@ extension TcProgram {
         }
         let shift = op.equals("<<=") || op.equals(">>=")
         let arithmetic = op.equals("+=") || op.equals("-=") || op.equals("*=") || op.equals("/=") || op.equals("%=")
+        let integer = self.is_integer(t)
         if shift {
-            self.shift_count(value)
-            if not self.is_integer(t) {
+            let shifted = if integer { t } else { -1 }
+            self.shift_count(value, -1, shifted)
+            if not integer {
                 self.refuse_operator_type(s, op, t)
             }
             return
@@ -948,8 +950,10 @@ extension TcProgram {
         self.check_compound_value(value, t)
         if arithmetic && not self.is_numeric(t) {
             self.refuse_operator_type(s, op, t)
-        } else if not arithmetic && not self.is_integer(t) && not self.is_bool(t) {
+        } else if not arithmetic && not integer && not self.is_bool(t) {
             self.refuse_operator_type(s, op, t)
+        } else if integer && (op.equals("/=") || op.equals("%=")) {
+            self.check_certain_fault(-1, value, t, true)
         }
     }
 
@@ -3335,7 +3339,9 @@ extension TcProgram {
                     continue
                 }
                 if shift && operand > 0 {
-                    self.shift_count(c)
+                    // A wholly constant chain folds where it stands, and the
+                    // fold there reports its faults.
+                    self.shift_count(c, e, -1)
                 } else {
                     self.constant_part(c, cwant)
                     self.consume(c)
@@ -3380,17 +3386,25 @@ extension TcProgram {
         }
         operand = 0
         k = 0
+        let m = self.current
+        var op = ""
         while k < n {
             let c = self.child(e, k)
             k = k + 1
             if self.is_leaf(c) {
+                op = self.text(m, c)
                 continue
             }
             operand = operand + 1
             if shift && operand > 1 {
-                self.shift_count(c)
-            } else if self.is_constant_expr(c) {
+                self.shift_count(c, e, t)
+                continue
+            }
+            if self.is_constant_expr(c) {
                 let _ = self.check_operand(c, t)
+            }
+            if not poisoned && (op.equals("/") || op.equals("%")) {
+                self.check_certain_fault(e, c, t, true)
             }
         }
         if poisoned {
@@ -3467,20 +3481,140 @@ extension TcProgram {
     }
 
     // A shift's count, binary or compound: an integer of any width, a
-    // constant one an `Int`.
-    func shift_count(&var self, c: Int) {
+    // constant one an `Int`. `e` is the shift, -1 for a compound one, and
+    // `shifted` the type the count shifts, or -1 when the whole shift folds
+    // at an integer slot, which reports its faults.
+    func shift_count(&var self, c: Int, e: Int, shifted: Int) {
         if self.is_constant_part(c) {
             let i = self.int_type()
             self.constant_part(c, i)
             self.consume(c)
+        } else {
+            let _ = self.expr(c, TC_WANT_NONE)
+            self.consume(c)
+            let ct = self.through_refs(c)
+            if not self.has_error(ct) && not self.is_integer(ct) {
+                self.refuse_operand(c, "a shift count is an integer", ct)
+                return
+            }
+        }
+        if shifted >= 0 {
+            self.check_certain_fault(e, c, shifted, false)
+        }
+    }
+
+    // The certain-fault funnel (spec, Compile-Time Evaluation, "The faults a
+    // run-time operation would panic with"): count or divisor `c` of
+    // operation `e` faults wherever it runs once `c` is constant before
+    // instantiation, whatever the other operand is, so it is refused: a count
+    // outside the width of `shifted` as `constant.shift-range`, a zero divisor
+    // as `constant.divide-by-zero`. A constant `e` is refused at the fault its
+    // own fold meets, as at a constant position. It serves `<<`, `>>`, `<<=`,
+    // `>>=`, `/`, `%`, `/=` and `%=`, and asks nothing of reachability.
+    //
+    // ENTRY POINTS (check_certain_fault):
+    //     shift_count
+    //     arithmetic_expr
+    //     check_compound
+    func check_certain_fault(&var self, e: Int, c: Int, shifted: Int, divides: Bool) {
+        if c < 0 || shifted < 0 || not self.is_integer(shifted) || self.refused_within(c) {
             return
         }
-        let _ = self.expr(c, TC_WANT_NONE)
-        self.consume(c)
-        let ct = self.through_refs(c)
-        if not self.has_error(ct) && not self.is_integer(ct) {
-            self.refuse_operand(c, "a shift count is an integer", ct)
+        let ct = self.final_type(c)
+        if ct < 0 || self.has_error(ct) {
+            return
         }
+        if e >= 0 {
+            let whole = self.fold_before_instantiation(e)
+            if whole.ok || whole.fault == TcFault.Cycle {
+                return
+            }
+            if whole.fault != TcFault.NotConstant {
+                if not self.refused_within(e) {
+                    self.refuse_fold_fault(&whole, e)
+                }
+                return
+            }
+        }
+        let v = self.fold_before_instantiation(c)
+        if v.fault == TcFault.NotConstant || v.fault == TcFault.Cycle {
+            return
+        }
+        if not v.ok {
+            self.refuse_fold_fault(&v, c)
+            return
+        }
+        var msg = StringBuilder()
+        if divides {
+            if v.bits != 0 {
+                return
+            }
+            try! msg.append("the divisor is the constant 0, so the operation panics wherever it runs")
+            self.refuse(c, "constant.divide-by-zero", msg.build())
+            return
+        }
+        let w = self.int_width(shifted)
+        if v.bits >= 0 && v.bits < w {
+            return
+        }
+        try! msg.append("the shift count is the constant ")
+        try! msg.append(self.fold_text(&v))
+        try! msg.append(", outside the width of `")
+        try! msg.append(self.type_text(shifted))
+        try! msg.append("` (0 to ")
+        try! msg.append((w - 1).to_string())
+        try! msg.append("), so the shift panics wherever it runs")
+        self.refuse(c, "constant.shift-range", msg.build())
+    }
+
+    // Fault `v`, which the fold met inside expression `within`, refused where
+    // it was met.
+    func refuse_fold_fault(&var self, v: &TcFold, within: Int) {
+        if v.at < 0 || not self.node_within(v.at, within) {
+            return
+        }
+        let at = v.at
+        let target = self.fault_target(at)
+        self.refuse_constant_fault(&v, at, target)
+    }
+
+    // Operand `c`'s value when it is constant before generic instantiation:
+    // it folds by the constant grammar and names no type or const parameter.
+    // A value that depends on one is constant only per instantiation, and is
+    // reported as no constant (SL:open-questions Q-shiftcount).
+    func fold_before_instantiation(&var self, c: Int) -> TcFold {
+        if self.mentions_generic_parameter(c) {
+            return tc_fold_fault(TcFault.NotConstant, -1, c)
+        }
+        self.fold_constant(c)
+    }
+
+    // Whether expression `e` names a type or const parameter, or has a part
+    // whose type mentions one.
+    func mentions_generic_parameter(&self, e: Int) -> Bool {
+        if e < 0 {
+            return false
+        }
+        if self.is_leaf(e) {
+            let b = self.binding_at(e)
+            return b.kind == ResBindKind.TypeParam || b.kind == ResBindKind.Projection
+        }
+        if e < self.expr_types.len() {
+            let t = self.expr_types[e]
+            if t >= 0 && self.mentions_param(t) {
+                return true
+            }
+        }
+        let n = self.child_count(e)
+        var k = 0
+        while k < n {
+            let c = self.child(e, k)
+            if self.mentions_generic_parameter(c) {
+                return true
+            }
+            k = k + 1
+        }
+        false
     }
 
     // The operators of a flat chain, in order, separated by spaces.

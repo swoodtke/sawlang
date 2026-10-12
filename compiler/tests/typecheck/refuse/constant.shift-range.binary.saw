@@ -1,0 +1,6 @@
+// refuses: constant.shift-range at 5:10
+// a literal count at the shifted type's width beside a run-time value is a certain fault, refused at the count (SL-543)
+
+func high(x: Int) -> Int {
+    x << 64
+}
