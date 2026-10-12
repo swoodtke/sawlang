@@ -1546,19 +1546,7 @@ Stage 0's own suite pins arm entry deliberately, in `examples/coro_discarded_mat
 
 **Checker:** not needed yet. Neither the compiler source nor `sawc/rt` passes a narrow signed value to a variadic extern; `open` and `fcntl` take `Int32` flags.
 
-### C13. A temporary on a conditionally evaluated operand: dropped uninitialised, twice, or never (SL-541)
-
-**Shape (silent: an uninitialised or double drop, or a leak):** Stage 0 drops a temporary made on an operand that only some paths evaluate at the end of its statement, with no flag:
-- **`??`'s right side** (`maybe(k) ?? mk(30 + k).val()`): when the left is present, the never-made temporary is dropped from garbage; when it is absent, the temporary drops twice;
-- **a value `match` arm** (`case _ -> mk(80 + k).val()`): a garbage drop on a pass that takes another arm;
-- **a plain `match` guard** (`case j if mk(20 + j).ok() ->`): a garbage drop on a pass an earlier arm takes;
-- **the right side of `&&` in a `while` condition**: the temporary is never dropped, a leak.
-
-The right side of `&&`/`||` in an `if` condition or a `let`, a middle operand, and a value `if` arm are right. sawc2 is right everywhere: each such operand is its own temporary scope (SL:open-questions D42). Repros: fe3's `sweep.saw` and `sweep2p.saw` (SL-541).
-
-**Instead:** bind the operand's value to a `let` before the statement, so no temporary sits on a conditional operand.
-
-**Checker:** no. A lead census of the compiler source found no `??` with a call on its right side and no guard with a call. Its 43 `while … && call(…)` conditions can only leak, and only when the call returns an owned temporary (they are mostly `Bool` predicates); Stage 1 tolerates leaks ("Leaks are tolerated in Stage 1" above). The value-`match`-arm face isn't greppable. The evidence it doesn't bite is the fixpoint lane: Stage 1 (Stage 0's build) agrees byte for byte with Stage 2 on every lane invocation.
+(C13 moved to S29, because it has a live instance in the compiler source.)
 
 ## Inventory
 
