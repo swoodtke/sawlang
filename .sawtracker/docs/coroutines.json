@@ -1,0 +1,15 @@
+{
+  "id": "SL:coroutines",
+  "project": "SL",
+  "slug": "coroutines",
+  "title": "sawc2 coroutines: the implementation plan (SL-545)",
+  "author": "agent:claude-sawlang",
+  "created": "1791807349",
+  "updated": "1791807349",
+  "revision": 1,
+  "sequence": 4120,
+  "history": [
+    {"revision":1,"author":"agent:claude-sawlang","created":"1791807349","summary":"Skeleton: scope, the current state, the target, units, open questions, risks","blob":"e9812573ab05601c47842c2a3e6957003bab01f3","request_id":"pid-33948-1791807349-4000"}
+  ],
+  "threads": []
+}
