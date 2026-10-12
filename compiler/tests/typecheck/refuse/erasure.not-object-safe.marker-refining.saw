@@ -1,0 +1,13 @@
+// refuses: erasure.not-object-safe at 7:15
+// a trait with no requirement of its own that refines only a marker trait
+
+trait Shared: Sync {
+}
+
+func take(s: &any Shared) -> Int {
+    1
+}
+
+func main() {
+    print(0)
+}

@@ -1,0 +1,27 @@
+// refuses: erasure.not-object-safe at 20:12
+// a trait with an associated type, erased in a field's `Box`
+
+trait Walk {
+    type Item
+    func step(&var self) -> Int
+}
+
+struct P { n: Int }
+
+extension P: Walk {
+    type Item = Int
+    func step(&var self) -> Int {
+        self.n = self.n + 1
+        self.n
+    }
+}
+
+struct Holder {
+    b: Box<any Walk>
+}
+
+extension Holder: NoCopy {}
+
+func main() {
+    print(0)
+}

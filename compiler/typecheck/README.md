@@ -49,6 +49,7 @@ typecheck/
     exports.saw       `@export`: each export's C symbol, and the export rules
     runtimeabi.saw    the runtime ABI table, written by
                       compiler/tools/runtime_table.py
+    erasure.saw       object safety: the funnel every written `any Trait` reaches
     effects.saw       phase 3: the checks that read the summaries
     exhaust.saw       match exhaustiveness
     arith.saw         typed integer arithmetic, the one rule every constant follows
@@ -56,8 +57,8 @@ typecheck/
                       the MIR evaluator (compiler/eval) agrees with
     lang.saw          the lang items' shapes
     strings.saw       the String positions and their funnel
-    bodychecks.saw    borrowing-struct containment, the body half of `unsafe`,
-                      the `borrows(sync)` window
+    bodychecks.saw    borrowing-struct containment, a static's type, the body
+                      half of `unsafe`, the `borrows(sync)` window
     mutability.saw    the writability funnel: whether each place a body writes
                       or borrows exclusively may be written
     binders.saw       what each binding construct makes of its names, which the
@@ -97,7 +98,10 @@ typecheck/
    source order: a function's parameter defaults and block, a static's
    initializer, a raw case's value, an `@align` argument, then the file's
    `static_assert`s and test cases. Each body is checked against signatures
-   only, so no body reads another.
+   only, so no body reads another. Then **object safety** (`erasure.saw`):
+   every written `any Trait`, a signature's or a body's, is judged by one
+   funnel, `check_object_safety`, and refused where it is written when its
+   trait is not object-safe (spec, "Object safety (v1)").
 8. **Places** (`settle_places`): once every body is checked, each subscript's
    role and each `borrows` accessor's receiver borrow is read off the use its
    position recorded (SL:borrowing §5, design 141), and a plain subscript
@@ -148,9 +152,10 @@ typecheck/
     sync-callable targets, each call site meets its callee's Copy requirement,
     no closure body suspends, and no coercion to `any Trait` dispatches to a
     suspending implementation.
-14. **Body rules** (`bodychecks.saw`): borrowing-struct containment, the body
-    half of `unsafe`, and the `borrows(sync)` window, which reads the
-    summaries. A `consumes` call's `move` and `move self`'s `consumes` body
+14. **Body rules** (`bodychecks.saw`): borrowing-struct containment, a
+    static's type (never optional, and `Sync` unless it is an `unsafe static
+    var`), the body half of `unsafe`, and the `borrows(sync)` window, which
+    reads the summaries. A `consumes` call's `move` and `move self`'s `consumes` body
     are checked as the body is walked.
 15. **Exports** (`exports.saw`, the export funnel `tc_check_exports`): each
     `@export`ed function and static of a module checked in full has its C
@@ -504,7 +509,9 @@ These are the reversible readings this unit made; SL-447's report lists them.
   it, with the conformance's conditions checked against the arguments. Copy
   and ExplicitCopy are answered by the tier; Equatable and Hashable also by
   the automatic conformance of a trivially copyable type; Send and Sync from
-  the members; the numbers, `Bool` and `String` meet the value traits
+  the members, except that the interior cell itself derives no Sync, so a type
+  holding one directly is Sync only by a declared `UnsafeSync` (spec,
+  Interior mutability); the numbers, `Bool` and `String` meet the value traits
   builtin, and the raw pointers only ExplicitCopy and Equatable.
 - A requirement's parents count: a conformance to `Error` is met by a
   `format` written for `Printable`, and a conformance to `NoCopy` or
@@ -711,3 +718,18 @@ These are the reversible readings typecheck batch B2 made for SL-485.
   instance's substituted members; a pointer holds its value behind an
   indirection and owes nothing. A generic declaration holding a type
   parameter derives `NoMove` per instance and owes no declaration.
+
+## Object-safety readings
+
+These are the reversible readings SL-510 made.
+
+- A trait whose only requirement, its parents' included, is `Deinit`'s
+  `deinit` is a marker trait, as `NoCopy` is: a `deinit` is never called by
+  hand (`deinit.manual-call`), so no dispatch reaches it. `any Deinit` is
+  refused the same way.
+- A static requirement makes its trait non-erasable, as the spec's
+  Serialization section says of `Deserialize`, though "Object safety (v1)"
+  does not list it; Stage 0 refuses it too.
+- Each written `any Trait` is refused once, where it is written, and a
+  coercion to it adds no refusal: the spec's "rejected at the point the
+  existential is written". Stage 0 reports once per trait.

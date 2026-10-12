@@ -16,6 +16,7 @@ import sawtypecheck.conform.{tc_collect_conformances, tc_extension_sets,
 import sawtypecheck.declarations.{tc_build_signatures}
 import sawtypecheck.dump.{tc_dump_module}
 import sawtypecheck.effects.{tc_check_effects}
+import sawtypecheck.erasure.{tc_check_object_safety}
 import sawtypecheck.exhaust.{tc_check_exhaustive}
 import sawtypecheck.exports.{tc_check_exports}
 import sawtypecheck.lang.{tc_check_lang_shapes}
@@ -69,6 +70,7 @@ public func typecheck_program(path: String, std_root: String, names: &Vector<Str
     tc_check_inits(&var p)
     tc_check_lang_shapes(&var p)
     tc_check_bodies(&var p)
+    tc_check_object_safety(&var p)
     tc_check_mutability(&var p)
     tc_check_escaping_consumes(&var p)
     tc_check_reference_positions(&var p)

@@ -1,7 +1,7 @@
 // The checks that read a checked program's types, outside the walk that
 // typed it (SL:architecture §3.4, "Other checks that need only types", and
-// "Effects"): borrowing-struct containment, the body half of `unsafe`, and
-// the `borrows(sync)` contract.
+// "Effects"): borrowing-struct containment, a static's type, the body half of
+// `unsafe`, and the `borrows(sync)` contract.
 
 import sawparse.grammar.{Alt}
 import sawresolve.collect.{res_is_top_level}
@@ -11,13 +11,15 @@ import sawresolve.model.{ResBindKind, ResBinding, ResDecl, ResDeclKind, ResModul
 import sawtypecheck.adjust.{TC_FIT_EXACT}
 import sawtypecheck.candidates.{tc_contains}
 import sawtypecheck.checks.{tc_check_unsafe}
-import sawtypecheck.conform.{TcSubst}
+import sawtypecheck.conform.{TcSubst, tc_args_subst}
 import sawtypecheck.model.{TC_EFFECT_BORROWS, TC_EFFECT_BORROWS_SYNC, TC_EFFECT_UNSAFE,
                                TC_FLAG_BORROWS_STRUCT, TC_FLAG_UNSAFE_VAR, TcAdjust, TcAdjustKind,
                                TcCall, TcLend, TcParam, TcSig, TcUse}
 import sawtypecheck.program.{TcProgram}
+import sawtypecheck.signatures.{TcContext}
 import sawtypecheck.spell.{tc_effects_text}
 import sawtypecheck.summaries.{tc_acc}
+import sawtypecheck.tier.{tc_tier}
 import sawtypecheck.typeops.{TcClient}
 import sawtypecheck.types.{TcKind, TcType}
 
@@ -248,7 +250,11 @@ extension TcProgram {
     // is exempt.
     func check_static_type(&var self, d: Int) {
         let s = self.sigs[d]
-        if s.result < 0 || (s.flags & TC_FLAG_UNSAFE_VAR) != 0 || not self.is_optional(s.result) {
+        if s.result < 0 || (s.flags & TC_FLAG_UNSAFE_VAR) != 0 {
+            return
+        }
+        self.check_static_sync(d)
+        if not self.is_optional(s.result) {
             return
         }
         let info = self.res.decls[d]
@@ -260,6 +266,189 @@ extension TcProgram {
         try! msg.append("`, and a static is never optional: it is initialized once and always present, so give it the payload's type, or compute absent state with `Once<T>` or an `unsafe static var`")
         let site = self.decl_site(d)
         self.refuse_in(info.module, site, "static.optional", msg.build())
+    }
+
+    // A static's type is `Sync`, since every thread reaches it (spec,
+    // Module-level statics: "Sync-only"); the caller exempts an
+    // `unsafe static var`, whose declaration is the claim made by hand.
+    func check_static_sync(&var self, d: Int) {
+        let t = self.sigs[d].result
+        if self.has_error(t) {
+            return
+        }
+        let sync = self.known.sync
+        if sync < 0 || self.satisfies(t, sync, -1, -1) {
+            return
+        }
+        let info = self.res.decls[d]
+        var msg = StringBuilder()
+        try! msg.append("the static `")
+        try! msg.append(self.res.decl_path(d))
+        try! msg.append("` has type `")
+        try! msg.append(self.type_text(t))
+        try! msg.append("`, which is not `Sync`, and a static is reachable from every thread")
+        let why = self.sync_blocker_text(t, 0)
+        if why.len() > 0 {
+            try! msg.append(": ")
+            try! msg.append(why)
+            try! msg.append("; or")
+        } else {
+            try! msg.append(";")
+        }
+        try! msg.append(" give the static a `Sync` type, such as `Atomic<Int>` or a `SpinLock`, or declare it an `unsafe static var` and own the argument that serializes it")
+        let site = self.decl_site(d)
+        self.refuse_in(info.module, site, "static.not-sync", msg.build())
+    }
+
+    // Why type `t`, which is not `Sync`, derives none: the member that blocks
+    // the derivation, followed down to the type that must declare
+    // `UnsafeSync` when it holds a cell, or "" when nothing more is known.
+    func sync_blocker_text(&var self, t: Int, depth: Int) -> String {
+        if depth > 16 {
+            return ""
+        }
+        let sync = self.known.sync
+        let info = self.types.ty(t)
+        if info.kind == TcKind.Array {
+            return self.sync_blocker_text(info.b, depth + 1)
+        }
+        if info.kind == TcKind.Tuple {
+            var k = 0
+            while k < info.count {
+                let e = self.types.arg(t, k)
+                if not self.satisfies(e, sync, -1, -1) {
+                    return self.sync_blocker_text(e, depth + 1)
+                }
+                k = k + 1
+            }
+            return ""
+        }
+        if info.kind != TcKind.Nominal {
+            return ""
+        }
+        let d = info.decl
+        if d == self.known.optional {
+            let inner = self.types.arg(t, 0)
+            return self.sync_blocker_text(inner, depth + 1)
+        }
+        let unmet = self.unmet_sync_condition(t, depth)
+        if unmet.len() > 0 {
+            return unmet
+        }
+        let decl = self.res.decls[d]
+        if decl.node < 0 {
+            return ""
+        }
+        let arguments = self.nominal_args(t)
+        let subst = tc_args_subst(d, move arguments)
+        let members = self.members_of(d)
+        var k = 0
+        while k < members.len() {
+            let m = members[k]
+            k = k + 1
+            let mi = self.res.decls[m]
+            let s = self.sigs[m]
+            var blocked = -1
+            if mi.kind == ResDeclKind.Field && s.result >= 0 {
+                let ft = self.subst(s.result, &subst)
+                if not self.satisfies(ft, sync, -1, -1) {
+                    blocked = ft
+                }
+            } else if mi.kind == ResDeclKind.Case {
+                var j = 0
+                while j < s.param_count && blocked < 0 {
+                    let p = self.params[s.param_first + j]
+                    let pt = self.subst(p.ty, &subst)
+                    if not self.satisfies(pt, sync, -1, -1) {
+                        blocked = pt
+                    }
+                    j = j + 1
+                }
+            }
+            if blocked < 0 {
+                continue
+            }
+            var member = StringBuilder()
+            if mi.kind == ResDeclKind.Case {
+                try! member.append("the payload of ")
+            }
+            try! member.append("`")
+            try! member.append(self.res.decl_path(m))
+            try! member.append("`")
+            let member_text = member.build()
+            var out = StringBuilder()
+            let owner = self.res.decl_path(d)
+            let bi = self.types.ty(blocked)
+            if bi.kind == TcKind.Nominal && bi.decl == self.known.interior {
+                try! out.append("`")
+                try! out.append(owner)
+                try! out.append("` holds an interior cell in ")
+                try! out.append(member_text)
+                try! out.append(" (`")
+                try! out.append(self.type_text(blocked))
+                try! out.append("`), so it derives no `Sync`; when its synchronization is real, declare `extension ")
+                try! out.append(owner)
+                try! out.append(": UnsafeSync \{\}` beside the type")
+                return out.build()
+            }
+            try! out.append(member_text)
+            try! out.append(" has type `")
+            try! out.append(self.type_text(blocked))
+            try! out.append("`, which is not `Sync`")
+            let deeper = self.sync_blocker_text(blocked, depth + 1)
+            if deeper.len() > 0 {
+                try! out.append(": ")
+                try! out.append(deeper)
+            }
+            return out.build()
+        }
+        ""
+    }
+
+    // For a type whose `UnsafeSync` conformance is conditional, the bound one
+    // of its arguments fails, and why; "" when it declares none or none fails.
+    func unmet_sync_condition(&var self, t: Int, depth: Int) -> String {
+        let info = self.types.ty(t)
+        let sync = self.known.sync
+        var c = 0
+        while c < self.conformances.len() {
+            let one = self.conformances[c]
+            c = c + 1
+            if one.type_decl != info.decl || not self.trait_refines(one.trait_decl, sync) {
+                continue
+            }
+            self.ensure_generics(one.ext)
+            let s = self.sigs[one.ext]
+            var k = 0
+            while k < s.generic_count && k < info.count {
+                let g = self.generics[s.generic_first + k]
+                let arg = self.types.arg(t, k)
+                var j = 0
+                while j < g.bound_count {
+                    let bound = self.traits[g.bound_first + j]
+                    j = j + 1
+                    if self.satisfies(arg, bound, -1, -1) {
+                        continue
+                    }
+                    var out = StringBuilder()
+                    try! out.append("its `")
+                    try! out.append(self.res.decl_path(one.trait_decl))
+                    try! out.append("` conformance holds only where its argument meets `")
+                    try! out.append(self.res.decl_path(bound))
+                    try! out.append("`, and `")
+                    try! out.append(self.type_text(arg))
+                    try! out.append("` does not")
+                    let deeper = self.sync_blocker_text(arg, depth + 1)
+                    if deeper.len() > 0 {
+                        try! out.append(": ")
+                        try! out.append(deeper)
+                    }
+                    return out.build()
+                }
+                k = k + 1
+            }
+        }
+        ""
     }
 
     func refuse_containment(&var self, m: Int, at: Int, t: Int, how: String) {

@@ -703,6 +703,66 @@ and whether it duplicates the local. A function named is one of
 | a function type's parameter or result | refused | borrowing.containment.function-type |
 | a `for` head, a `borrow` head, a reference parameter | allowed | body_rules |
 
+**Object safety** (spec, "Object safety (v1)"; SL-510). Every existential
+type is interned by `mk_any`, whose one caller is the type funnel's `any
+Trait` arm, so each erasure starts at a written `any Trait` node, and the
+funnel (`check_object_safety`, `compiler/typecheck/src/erasure.saw`) judges
+each one once the requirements are known, refusing it where it is written, as
+the spec's "rejected at the point the existential is written" says. A
+coercion to `&any T`, `&var any T` or `Box<any T>` is refused through the
+written type it converts to, and adds no refusal of its own. The reasons, in
+the order they are asked, over the trait's own requirements and then its
+parents': a marker trait, which has no requirement once `Deinit`'s `deinit`
+is set aside (no dispatch reaches it); an associated type; a static
+requirement, which has no receiver to dispatch on (spec, Serialization:
+"a static requirement has no receiver to dispatch on … rejected at the point
+the existential is written"); and a requirement naming `Self` at any depth of
+its result or a parameter, a default body's signature included. A generic
+requirement is not a reason while SL:open-questions Q23 holds:
+`trait.generic-requirement` refuses it at the requirement, and its erasure
+adds nothing. Under `erasure.not-object-safe`, `o.` abbreviating
+`refuse/erasure.not-object-safe.`:
+
+| reason | coercion | field `Box` | parameter `Box` |
+|---|---|---|---|
+| `Self` in a parameter (`other: &Self`) | `erasure.not-object-safe` (bare), o.exclusive | o.self-param-field | o.self-param-box |
+| `Self` in the result (`-> Self`) | o.self-result | o.self-result-field | o.self-result-box |
+| an associated type | o.associated | o.associated-field | o.associated-box |
+| a marker trait | o.marker | o.marker-field | o.marker-box |
+| a static requirement | o.static | o.static-field | o.static-box |
+
+| row | verdict | covered by |
+|---|---|---|
+| `Self` nested in the result, `-> Result<Self, Int>` | refused | o.self-result-nested |
+| an inherited requirement naming `Self`, `trait Shape: Equatable` | refused, naming `Equatable.equals` | o.inherited |
+| an inherited associated type, `trait Sized: Iterator` | refused, naming `Iterator.Item` | o.associated-inherited |
+| a `Self`-naming requirement with a default body (the spec exempts none) | refused | o.default-body |
+| the Copy family, `any Copy` | refused | o.copy |
+| `Send`, `NoCopy` (whose one inherited requirement is `Deinit`'s), a trait refining only `Sync` | refused | o.marker-send, o.marker-no-copy, o.marker-refining |
+| `any UnsafeSync`, pointing at the conformance header (spec, `UnsafeSync`, "Three fences") | refused | o.unsafe-sync |
+| an enum payload, a function's result, a Result's error box, a `Vector` element, a type alias, a function type's parameter, another trait's requirement, a `let` annotation | refused | o.payload, o.result, o.error-result, o.generic-argument, o.alias, o.function-type, o.requirement, o.let-annotation |
+| a trait with a generic requirement, erased | `trait.generic-requirement` alone | trait.generic-requirement |
+| `&self` and `&var self` requirements, a default body naming no `Self` in its signature, an object-safe parent; `Printable`, `Error`, `Hashable`; at `&any`, `&var any`, a field's and a parameter's `Box`, a `Vector` element, `Result<Int, Box<any Error>>` | allowed | object_safety |
+
+**Statics are `Sync`** (spec, Module-level statics: "Sync-only"; Interior
+mutability; SL-537). Checked with a static's other signature rules
+(`check_static_type`, `compiler/typecheck/src/bodychecks.saw`) by the bound
+check every `Sync` question goes through (`satisfies`), so a declared
+`UnsafeSync` answers first, its conditions held to the static's arguments,
+and the derivation is blocked at the interior cell itself, so only a type
+holding a cell directly owes the declaration. Under `static.not-sync`, `s.`
+abbreviating `refuse/static.not-sync.`; the `calls/` programs of the std lane
+hold the same rows under the new std:
+
+| row | verdict | covered by |
+|---|---|---|
+| a struct holding a cell with no `UnsafeSync` | refused, naming the field and `extension Counter: UnsafeSync {}` | `static.not-sync` (bare); std call `static_not_sync` |
+| a struct holding such a struct, named down to the cell's holder | refused | s.nested |
+| an array of one; an enum whose payload is a cell | refused | s.array, s.payload |
+| a struct holding a raw pointer | refused, naming the field | s.pointer |
+| a conditional `UnsafeSync` at an argument that fails its bound | refused, naming the bound and the argument | s.conditional |
+| `Atomic<Int>`, which declares `UnsafeSync`; a cell holder declaring it; a struct holding those, which derives `Sync`; a conditional `UnsafeSync` met; a scalar; an `unsafe static var` of a type that is not `Sync` | allowed | static_sync; std call `static_sync` |
+
 ## The safety matrices
 
 The rows of the three safety families (SL-462): each row a refusal fixture
@@ -1117,6 +1177,7 @@ says what the fixture shows.
 | `export.suspends` | an `@export`ed function that may suspend, read from its summary: C calls it with no executor to resume it |
 | `operator.undefined` | an operator over a type it is not defined for; a raw pointer takes only `p + n` and `p - n`, an integer offset after it, which steps `n` elements |
 | `static.optional` | a static whose own type is an optional; an `unsafe static var` is exempt (spec, Module-level statics: "Never optional") |
+| `static.not-sync` | a static whose type is not `Sync`, naming the member that blocks the derivation, down to a cell-carrying type and the `UnsafeSync` declaration it owes, or a conditional `UnsafeSync` and the bound its argument fails; an `unsafe static var` is exempt (spec, Module-level statics: "Sync-only"; the static Sync matrix) |
 | `static.not-constant` | a sub-expression outside the constant grammar of a static's initializer, a raw case's value, an `@align` argument or a `static_assert` condition, named (the constant-position funnel) |
 | `static.cycle` | a static whose value depends on itself, through any number of statics, named in order |
 | `static_assert.failed` | a `static_assert` whose condition folds to `false`, at the top of a file or in a body; one over a layout once the layout-assert funnel measures it (Layout asserts) |
@@ -1133,6 +1194,7 @@ says what the fixture shows.
 | `effect.sync` | a call in a `sync` body (a function declared `sync`, a `deinit`, a closure of a `sync` type) of a target that is not sync-callable: one that may suspend, a function value whose type is not `sync`; a call whose type arguments make a requirement a generic `sync` body calls through a bound not sync-callable; a `sync` requirement met by a member that is not sync-callable |
 | `copy.requirement` | a call whose type argument is not on the Copy tier where its callee's body copies that parameter with nothing written (design 219), named with the copy's position, or, for a local one path uses twice, both uses |
 | `effect.closure-suspends` | a call in a closure body that may suspend, or a call whose type arguments make a closure in its callee call a suspending implementation (spec: suspension, "a closure body cannot suspend") |
+| `erasure.not-object-safe` | a written `any Trait` whose trait is not object-safe: a marker trait, one with an associated type, a static requirement, or a requirement naming `Self` in its result or a parameter, its parents' included, naming the trait, the reason and the member (spec, "Object safety (v1)"; the object-safety matrix) |
 | `effect.any-suspends` | a coercion to `any Trait`, or a call whose type arguments make one in its callee, where the implementation of a requirement not declared `sync` may suspend, naming both (spec: suspension) |
 | `slice.not-yet` | a signature or body construct outside the bootstrap slice |
 

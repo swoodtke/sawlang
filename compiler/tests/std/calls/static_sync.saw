@@ -1,0 +1,28 @@
+// The new std's statics under the Sync rule: `Atomic<Int>` declares
+// `UnsafeSync`, so `HITS` is accepted; so is a cell-carrying type that
+// declares it, and an `unsafe static var` of one that does not, which the rule
+// exempts.
+
+struct Counter {
+    cell: UnsafeMutableInterior<Int>
+}
+
+extension Counter: NoCopy {}
+
+extension Counter: UnsafeSync {}
+
+struct Bare {
+    cell: UnsafeMutableInterior<Int>
+}
+
+extension Bare: NoCopy {}
+
+static HITS: Atomic<Int> = Atomic(0)
+
+static COUNTER: Counter
+
+unsafe static var SCRATCH: Bare
+
+func main() {
+    print(HITS.fetch_add(1))
+}

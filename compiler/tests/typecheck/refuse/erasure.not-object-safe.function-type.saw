@@ -1,0 +1,22 @@
+// refuses: erasure.not-object-safe at 16:17
+// erasure in a function type's parameter
+
+trait Same {
+    func same(&self, other: &Self) -> Bool
+}
+
+struct P { n: Int }
+
+extension P: Same {
+    func same(&self, other: &Self) -> Bool {
+        self.n == other.n
+    }
+}
+
+func apply(f: (&any Same) -> Int) -> Int {
+    0
+}
+
+func main() {
+    print(0)
+}

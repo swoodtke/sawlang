@@ -1,0 +1,17 @@
+// refuses: erasure.not-object-safe at 11:18
+// a marker trait, erased in a parameter's `Box`
+
+trait Tag {
+}
+
+struct P { n: Int }
+
+extension P: Tag {}
+
+func take(b: Box<any Tag>) -> Int {
+    1
+}
+
+func main() {
+    print(0)
+}

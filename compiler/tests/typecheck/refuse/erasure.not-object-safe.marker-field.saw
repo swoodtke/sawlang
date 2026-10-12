@@ -1,0 +1,19 @@
+// refuses: erasure.not-object-safe at 12:12
+// a marker trait, erased in a field's `Box`
+
+trait Tag {
+}
+
+struct P { n: Int }
+
+extension P: Tag {}
+
+struct Holder {
+    b: Box<any Tag>
+}
+
+extension Holder: NoCopy {}
+
+func main() {
+    print(0)
+}

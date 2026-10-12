@@ -1,0 +1,24 @@
+// refuses: erasure.not-object-safe at 16:19
+// erasure in a type alias, refused where the alias writes it
+
+trait Same {
+    func same(&self, other: &Self) -> Bool
+}
+
+struct P { n: Int }
+
+extension P: Same {
+    func same(&self, other: &Self) -> Bool {
+        self.n == other.n
+    }
+}
+
+type Erased = Box<any Same>
+
+func take(b: Erased) -> Int {
+    1
+}
+
+func main() {
+    print(0)
+}

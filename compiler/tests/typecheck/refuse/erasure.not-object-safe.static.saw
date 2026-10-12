@@ -1,0 +1,27 @@
+// refuses: erasure.not-object-safe at 20:15
+// a trait with a static requirement, erased by a coercion to `&any`
+
+trait Make {
+    static func make() -> Int
+    func id(&self) -> Int
+}
+
+struct P { n: Int }
+
+extension P: Make {
+    static func make() -> Int {
+        0
+    }
+    func id(&self) -> Int {
+        self.n
+    }
+}
+
+func take(s: &any Make) -> Int {
+    1
+}
+
+func main() {
+    let p = P(n: 1)
+    print(take(&p))
+}

@@ -1,0 +1,24 @@
+// refuses: erasure.not-object-safe at 17:12
+// a trait whose requirement returns `Self`, erased in a field's `Box`
+
+trait Dup {
+    func dup(&self) -> Self
+}
+
+struct P { n: Int }
+
+extension P: Dup {
+    func dup(&self) -> Self {
+        P(n: self.n)
+    }
+}
+
+struct Holder {
+    b: Box<any Dup>
+}
+
+extension Holder: NoCopy {}
+
+func main() {
+    print(0)
+}

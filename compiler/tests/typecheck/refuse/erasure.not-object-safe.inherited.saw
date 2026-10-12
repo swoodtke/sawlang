@@ -1,0 +1,14 @@
+// refuses: erasure.not-object-safe at 8:15
+// a trait refining `Equatable`, whose `equals` names `Self` in its parameter
+
+trait Shape: Equatable {
+    func area(&self) -> Int
+}
+
+func take(s: &any Shape) -> Int {
+    1
+}
+
+func main() {
+    print(0)
+}

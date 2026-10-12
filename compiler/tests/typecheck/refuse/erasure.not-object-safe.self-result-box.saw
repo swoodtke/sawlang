@@ -1,0 +1,22 @@
+// refuses: erasure.not-object-safe at 16:18
+// a trait whose requirement returns `Self`, erased in a parameter's `Box`
+
+trait Dup {
+    func dup(&self) -> Self
+}
+
+struct P { n: Int }
+
+extension P: Dup {
+    func dup(&self) -> Self {
+        P(n: self.n)
+    }
+}
+
+func take(b: Box<any Dup>) -> Int {
+    1
+}
+
+func main() {
+    print(0)
+}

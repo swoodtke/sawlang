@@ -1,0 +1,25 @@
+// refuses: erasure.not-object-safe at 17:22
+// erasure in an enum payload's `Box`
+
+trait Same {
+    func same(&self, other: &Self) -> Bool
+}
+
+struct P { n: Int }
+
+extension P: Same {
+    func same(&self, other: &Self) -> Bool {
+        self.n == other.n
+    }
+}
+
+enum Slot {
+    case Full(b: Box<any Same>),
+    case Empty
+}
+
+extension Slot: NoCopy {}
+
+func main() {
+    print(0)
+}

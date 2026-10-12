@@ -1,0 +1,20 @@
+// refuses: static.not-sync at 16:8
+// a static of a generic cell holder whose `UnsafeSync` is conditional, at an argument that is not `Sync`
+
+struct Guarded<T> {
+    cell: UnsafeMutableInterior<T>
+}
+
+extension Guarded<T>: NoCopy {}
+
+extension Guarded<T: Sync>: UnsafeSync {}
+
+struct Region {
+    base: UnsafePointer<Int>
+}
+
+static GUARD: Guarded<Region>
+
+func main() {
+    print(0)
+}

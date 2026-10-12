@@ -1,0 +1,10 @@
+// refuses: erasure.not-object-safe at 4:15
+// `UnsafeSync`, the declared assertion, written as an existential
+
+func take(s: &any UnsafeSync) -> Int {
+    1
+}
+
+func main() {
+    print(0)
+}

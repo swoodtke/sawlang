@@ -1,0 +1,22 @@
+// refuses: erasure.not-object-safe at 16:27
+// erasure in a generic argument, a `Vector` element
+
+trait Same {
+    func same(&self, other: &Self) -> Bool
+}
+
+struct P { n: Int }
+
+extension P: Same {
+    func same(&self, other: &Self) -> Bool {
+        self.n == other.n
+    }
+}
+
+func count(v: &Vector<Box<any Same>>) -> Int {
+    v.len()
+}
+
+func main() {
+    print(0)
+}

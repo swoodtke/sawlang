@@ -1,0 +1,10 @@
+// refuses: erasure.not-object-safe at 4:15
+// `Copy`, whose `copy` returns `Self`
+
+func take(s: &any Copy) -> Int {
+    1
+}
+
+func main() {
+    print(0)
+}

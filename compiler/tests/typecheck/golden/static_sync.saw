@@ -1,0 +1,51 @@
+// The statics the Sync rule accepts (spec, Module-level statics: "Sync-only";
+// Interior mutability): `Atomic<Int>`, which declares `UnsafeSync`; a
+// cell-carrying type that declares it; a type holding one of those, which
+// derives `Sync` with nothing written; a conditional `UnsafeSync` at an
+// argument that meets its bound; plain scalars; and an `unsafe static var` of
+// a type that is not `Sync`, which the rule exempts.
+
+struct Counter {
+    cell: UnsafeMutableInterior<Int>
+}
+
+extension Counter: NoCopy {}
+
+extension Counter: UnsafeSync {}
+
+struct Stats {
+    hits: Atomic<Int>
+    misses: Counter
+}
+
+extension Stats: NoCopy {}
+
+struct Guarded<T> {
+    cell: UnsafeMutableInterior<T>
+}
+
+extension Guarded<T>: NoCopy {}
+
+extension Guarded<T: Sync>: UnsafeSync {}
+
+struct Bare {
+    cell: UnsafeMutableInterior<Int>
+}
+
+extension Bare: NoCopy {}
+
+static HITS: Atomic<Int> = Atomic(0)
+
+static COUNTER: Counter
+
+static STATS: Stats
+
+static GUARD: Guarded<Int>
+
+static LIMIT: Int = 64
+
+unsafe static var SCRATCH: Bare
+
+func main() {
+    print(HITS.fetch_add(1) + LIMIT)
+}

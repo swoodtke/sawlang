@@ -1,0 +1,22 @@
+// refuses: erasure.not-object-safe at 17:29
+// erasure in another trait's requirement
+
+trait Same {
+    func same(&self, other: &Self) -> Bool
+}
+
+struct P { n: Int }
+
+extension P: Same {
+    func same(&self, other: &Self) -> Bool {
+        self.n == other.n
+    }
+}
+
+trait Pool {
+    func put(&var self, x: &any Same) -> Int
+}
+
+func main() {
+    print(0)
+}

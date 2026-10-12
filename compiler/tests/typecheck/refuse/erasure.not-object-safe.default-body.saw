@@ -1,0 +1,26 @@
+// refuses: erasure.not-object-safe at 19:15
+// a requirement naming `Self` in a parameter is refused with a default body too
+
+trait Near {
+    func n(&self) -> Int
+    func near(&self, other: &Self) -> Bool {
+        self.n() == other.n()
+    }
+}
+
+struct P { n: Int }
+
+extension P: Near {
+    func n(&self) -> Int {
+        self.n
+    }
+}
+
+func take(s: &any Near) -> Int {
+    1
+}
+
+func main() {
+    let p = P(n: 1)
+    print(take(&p))
+}

@@ -1,0 +1,68 @@
+(Module static_sync
+  (declarations
+    (struct Counter 8:8 private)
+    (field Counter.cell 9:5 private UnsafeMutableInterior<Int>)
+    (extension 12:1 (target static_sync.Counter) (conforms NoCopy))
+    (extension 14:1 (target static_sync.Counter) (conforms UnsafeSync))
+    (struct Stats 16:8 private)
+    (field Stats.hits 17:5 private Atomic<Int>)
+    (field Stats.misses 18:5 private static_sync.Counter)
+    (extension 21:1 (target static_sync.Stats) (conforms NoCopy))
+    (struct Guarded 23:8 private (generics (T)))
+    (field Guarded.cell 24:5 private UnsafeMutableInterior<T>)
+    (extension 27:1 (target static_sync.Guarded<T>) (conforms NoCopy))
+    (extension 29:1 (target static_sync.Guarded<T>) (where (T Sync)) (conforms UnsafeSync))
+    (struct Bare 31:8 private)
+    (field Bare.cell 32:5 private UnsafeMutableInterior<Int>)
+    (extension 35:1 (target static_sync.Bare) (conforms NoCopy))
+    (static HITS 37:8 private Atomic<Int>)
+    (static COUNTER 39:8 private static_sync.Counter)
+    (static STATS 41:8 private static_sync.Stats)
+    (static GUARD 43:8 private static_sync.Guarded<Int>)
+    (static LIMIT 45:8 private Int)
+    (static SCRATCH 47:19 private static_sync.Bare unsafe-var)
+    (func main 49:6 private (signature (params) -> Void) (summary body (suspends no) (sync-callable yes))))
+  (members
+    (static_sync.Counter
+      (field cell UnsafeMutableInterior<Int> private declared)
+      (method deinit public (synthesized Deinit)))
+    (static_sync.Stats
+      (field hits Atomic<Int> private declared)
+      (field misses static_sync.Counter private declared)
+      (method deinit public (synthesized Deinit)))
+    (static_sync.Guarded
+      (field cell UnsafeMutableInterior<T> private declared)
+      (method deinit public (synthesized Deinit)))
+    (static_sync.Bare
+      (field cell UnsafeMutableInterior<Int> private declared)
+      (method deinit public (synthesized Deinit))))
+  (views
+    (static_sync.Counter cell deinit)
+    (static_sync.Stats hits misses deinit)
+    (static_sync.Guarded cell deinit)
+    (static_sync.Bare cell deinit))
+  (conformances
+    (static_sync.Counter NoCopy 12:20 (deinit implicit))
+    (static_sync.Counter UnsafeSync 14:20)
+    (static_sync.Stats NoCopy 21:18 (deinit implicit))
+    (static_sync.Guarded NoCopy 27:23 (deinit implicit))
+    (static_sync.Guarded UnsafeSync 29:29)
+    (static_sync.Bare NoCopy 35:17 (deinit implicit)))
+  (copy-tier
+    (static_sync.Counter NoCopy declared)
+    (static_sync.Stats NoCopy declared)
+    (static_sync.Guarded NoCopy declared)
+    (static_sync.Bare NoCopy declared))
+  (bodies
+    (HITS 37:8
+      (37:28-37:37 Call.paren Atomic<Int> value temp (conversion Atomic atomic (owner Atomic<Int>)))
+      (37:35-37:36 IntLit Int value temp))
+    (LIMIT 45:8
+      (45:21-45:23 IntLit Int value temp))
+    (main 49:6
+      (50:5-50:37 Call.paren Void value temp (builtin print))
+      (50:11-50:36 Binary Int value borrow (op +))
+      (50:11-50:28 Call.paren Int value temp (call Atomic.fetch_add(v: T) (owner Atomic<Int>)))
+      (50:11-50:15 Name Atomic<Int> (borrow &Atomic<Int>) place borrow)
+      (50:26-50:27 IntLit Int value temp)
+      (50:31-50:36 Name Int place copy))))

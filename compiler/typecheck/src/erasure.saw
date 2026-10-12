@@ -1,0 +1,185 @@
+// Object safety (spec, "Object safety (v1)"): a trait is erasable to
+// `any Trait` only if every requirement it and its parents declare can be
+// dispatched through a vtable. The refusal stands where the existential is
+// written, the position the spec names ("rejected at the point the
+// existential is written").
+
+import sawresolve.dump.{res_sort_strings}
+import sawresolve.model.{ResDecl, ResDeclKind}
+import sawtypecheck.candidates.{tc_contains}
+import sawtypecheck.checks.{tc_check_unsafe}
+import sawtypecheck.conform.{TcSubst}
+import sawtypecheck.model.{TC_FLAG_STATIC, TcParam, TcSig}
+import sawtypecheck.program.{TcProgram}
+import sawtypecheck.spell.{tc_effects_text}
+import sawtypecheck.types.{TcKind, TcType}
+
+// Every written `any Trait` whose trait is not object-safe, refused at it.
+public func tc_check_object_safety(p: &var TcProgram) {
+    p.check_object_safety()
+}
+
+extension TcProgram {
+    // The object-safety funnel. Every existential type is interned by
+    // `mk_any`, whose one caller is the type funnel's `any Trait` arm, so
+    // each position an existential can reach starts at a written node this
+    // walk judges: a coercion to `&any T`, `&var any T` or `Box<any T>` takes
+    // its target from one, and so does erasure into `Result<_, Box<any E>>`.
+    //
+    // ENTRY POINTS (check_object_safety):
+    //     mk_any
+    func check_object_safety(&var self) {
+        var judged = Vector<Int>()
+        var reasons = Vector<String>()
+        var seen = Vector<Int>()
+        var k = 0
+        while k < self.erased_nodes.len() {
+            let node = self.erased_nodes[k]
+            k = k + 1
+            if tc_contains(&seen, node) {
+                continue
+            }
+            try! seen.push(node)
+            let t = self.node_types[node]
+            if t < 0 || self.types.ty(t).kind != TcKind.Any {
+                continue
+            }
+            let tr = self.types.ty(t).decl
+            var at = 0
+            while at < judged.len() && judged[at] != tr {
+                at = at + 1
+            }
+            if at == judged.len() {
+                try! judged.push(tr)
+                try! reasons.push(self.object_safety_reason(tr))
+            }
+            let reason = reasons.get(at) ?? ""
+            if reason.len() == 0 {
+                continue
+            }
+            let m = self.node_module(node)
+            if m < 0 {
+                continue
+            }
+            var msg = StringBuilder()
+            try! msg.append("cannot form `")
+            try! msg.append(self.type_text(t))
+            try! msg.append("`: ")
+            try! msg.append(reason)
+            try! msg.append("; a trait that is not object-safe is a generic bound (`<T: ")
+            try! msg.append(self.res.decl_path(tr))
+            try! msg.append(">`), never an existential")
+            self.refuse_in(m, node, "erasure.not-object-safe", msg.build())
+        }
+    }
+
+    // Why trait `tr` cannot be erased, or "" when it can: a marker trait,
+    // an associated type, then the first requirement, the trait's own before
+    // its parents', that is static or names `Self` in its result or a
+    // parameter. A generic requirement is not judged here, since
+    // `trait.generic-requirement` refuses it at the requirement.
+    func object_safety_reason(&self, tr: Int) -> String {
+        let traits = self.trait_and_ancestors(tr)
+        var requirements = Vector<Int>()
+        var assoc = -1
+        var t = 0
+        while t < traits.len() {
+            let members = self.members_of(traits[t])
+            var j = 0
+            while j < members.len() {
+                let d = members[j]
+                j = j + 1
+                let kind = self.res.decls[d].kind
+                if kind == ResDeclKind.AssocType && assoc < 0 {
+                    assoc = d
+                } else if kind == ResDeclKind.Requirement && traits[t] != self.known.deinit {
+                    try! requirements.push(d)
+                }
+            }
+            t = t + 1
+        }
+        let name = self.res.decl_path(tr)
+        var out = StringBuilder()
+        if requirements.len() == 0 {
+            try! out.append("`")
+            try! out.append(name)
+            if tr == self.known.unsafe_sync || tr == self.known.unsafe_send {
+                try! out.append("` is a declared thread-safety assertion, written only in a conformance header, and as a marker trait it has no requirement to dispatch")
+            } else {
+                try! out.append("` is a marker trait, with no requirement to dispatch")
+            }
+            return out.build()
+        }
+        if assoc >= 0 {
+            try! out.append("`")
+            try! out.append(name)
+            try! out.append("` has the associated type `")
+            try! out.append(self.res.decl_path(assoc))
+            try! out.append("`, which an erased value cannot name")
+            return out.build()
+        }
+        var k = 0
+        while k < requirements.len() {
+            let r = requirements[k]
+            k = k + 1
+            let s = self.sigs[r]
+            if s.generic_count > 0 {
+                continue
+            }
+            if (s.flags & TC_FLAG_STATIC) != 0 {
+                try! out.append("its requirement `")
+                try! out.append(self.res.decl_path(r))
+                try! out.append("` is static: it is called on the type, so there is no receiver to dispatch on")
+                return out.build()
+            }
+            if s.result >= 0 && self.names_self_type(s.result, 0) {
+                try! out.append("its requirement `")
+                try! out.append(self.res.decl_path(r))
+                try! out.append("` names `Self` in its result (`")
+                try! out.append(self.type_text(s.result))
+                try! out.append("`), whose size an erased value does not know")
+                return out.build()
+            }
+            var j = 0
+            while j < s.param_count {
+                let param = self.params[s.param_first + j]
+                j = j + 1
+                if self.names_self_type(param.ty, 0) {
+                    try! out.append("its requirement `")
+                    try! out.append(self.res.decl_path(r))
+                    try! out.append("` names `Self` in its parameter `")
+                    try! out.append(self.name_text(param.name))
+                    try! out.append("` (`")
+                    try! out.append(self.type_text(param.ty))
+                    try! out.append("`), and two erased values need not share a concrete type")
+                    return out.build()
+                }
+            }
+        }
+        ""
+    }
+
+    // Whether type `t` names `Self` anywhere inside it.
+    func names_self_type(&self, t: Int, depth: Int) -> Bool {
+        if t < 0 || depth > 32 {
+            return false
+        }
+        let info = self.types.ty(t)
+        if info.kind == TcKind.SelfType {
+            return true
+        }
+        let wraps = info.kind == TcKind.Ref || info.kind == TcKind.Slice || info.kind == TcKind.Array || info.kind == TcKind.Func
+        if wraps && self.names_self_type(info.b, depth + 1) {
+            return true
+        }
+        var k = 0
+        while k < info.count {
+            let inner = self.types.arg(t, k)
+            if self.names_self_type(inner, depth + 1) {
+                return true
+            }
+            k = k + 1
+        }
+        false
+    }
+}

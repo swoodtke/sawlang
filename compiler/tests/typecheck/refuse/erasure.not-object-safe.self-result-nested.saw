@@ -1,0 +1,14 @@
+// refuses: erasure.not-object-safe at 8:15
+// a trait whose requirement names `Self` inside its result, `Result<Self, Int>`
+
+trait Rebuild {
+    func rebuild(&self) -> Result<Self, Int>
+}
+
+func take(s: &any Rebuild) -> Int {
+    1
+}
+
+func main() {
+    print(0)
+}

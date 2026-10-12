@@ -1,0 +1,14 @@
+// refuses: erasure.not-object-safe at 8:15
+// a trait refining `Iterator`, whose associated type it inherits
+
+trait Sized: Iterator {
+    func size(&self) -> Int
+}
+
+func take(s: &any Sized) -> Int {
+    1
+}
+
+func main() {
+    print(0)
+}

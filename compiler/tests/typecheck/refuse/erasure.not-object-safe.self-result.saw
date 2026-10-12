@@ -1,0 +1,23 @@
+// refuses: erasure.not-object-safe at 16:15
+// a trait whose requirement returns `Self`, erased by a coercion to `&any`
+
+trait Dup {
+    func dup(&self) -> Self
+}
+
+struct P { n: Int }
+
+extension P: Dup {
+    func dup(&self) -> Self {
+        P(n: self.n)
+    }
+}
+
+func take(s: &any Dup) -> Int {
+    1
+}
+
+func main() {
+    let p = P(n: 1)
+    print(take(&p))
+}

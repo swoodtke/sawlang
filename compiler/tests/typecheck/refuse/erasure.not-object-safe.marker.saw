@@ -1,0 +1,18 @@
+// refuses: erasure.not-object-safe at 11:15
+// a marker trait, erased by a coercion to `&any`
+
+trait Tag {
+}
+
+struct P { n: Int }
+
+extension P: Tag {}
+
+func take(s: &any Tag) -> Int {
+    1
+}
+
+func main() {
+    let p = P(n: 1)
+    print(take(&p))
+}

@@ -1,0 +1,10 @@
+// refuses: erasure.not-object-safe at 4:18
+// `NoCopy`, a marker trait whose one inherited requirement is `Deinit`'s, which no dispatch reaches
+
+func take(b: Box<any NoCopy>) -> Int {
+    1
+}
+
+func main() {
+    print(0)
+}

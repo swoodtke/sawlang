@@ -1,0 +1,14 @@
+// refuses: static.not-sync at 10:8
+// a static of a type holding an interior cell that declares no `UnsafeSync`
+
+struct Counter {
+    cell: UnsafeMutableInterior<Int>
+}
+
+extension Counter: NoCopy {}
+
+static HITS: Counter
+
+func main() {
+    print(0)
+}

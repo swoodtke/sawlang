@@ -1,0 +1,23 @@
+// refuses: erasure.not-object-safe at 16:15
+// a trait whose requirement names `Self` in a parameter, erased by a coercion to `&any`
+
+trait Same {
+    func same(&self, other: &Self) -> Bool
+}
+
+struct P { n: Int }
+
+extension P: Same {
+    func same(&self, other: &Self) -> Bool {
+        self.n == other.n
+    }
+}
+
+func take(s: &any Same) -> Int {
+    1
+}
+
+func main() {
+    let p = P(n: 1)
+    print(take(&p))
+}

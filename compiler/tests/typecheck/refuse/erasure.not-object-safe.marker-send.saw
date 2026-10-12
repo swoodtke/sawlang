@@ -1,0 +1,10 @@
+// refuses: erasure.not-object-safe at 4:15
+// `Send`, a marker trait
+
+func take(s: &any Send) -> Int {
+    1
+}
+
+func main() {
+    print(0)
+}

@@ -337,7 +337,10 @@ extension TcProgram {
         self.types.intern(TcKind.Array, -1, 0, element, &args, &none)
     }
 
-    public func mk_any(&var self, trait_decl: Int) -> Int {
+    // `any Trait`, written at type node `node`. Every existential the program
+    // holds is formed here, so the object-safety funnel sees each one.
+    public func mk_any(&var self, node: Int, trait_decl: Int) -> Int {
+        try! self.erased_nodes.push(node)
         let none = Vector<Int>()
         let unlabeled = Vector<Int>()
         self.types.intern(TcKind.Any, trait_decl, 0, 0, &none, &unlabeled)
@@ -681,7 +684,7 @@ extension TcProgram {
                 if tr < 0 {
                     return self.error_type
                 }
-                self.mk_any(tr)
+                self.mk_any(t, tr)
             },
             case _ -> {
                 self.not_in_slice(t, alt)

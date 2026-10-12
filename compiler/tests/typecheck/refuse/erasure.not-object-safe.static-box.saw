@@ -1,0 +1,26 @@
+// refuses: erasure.not-object-safe at 20:18
+// a trait with a static requirement, erased in a parameter's `Box`
+
+trait Make {
+    static func make() -> Int
+    func id(&self) -> Int
+}
+
+struct P { n: Int }
+
+extension P: Make {
+    static func make() -> Int {
+        0
+    }
+    func id(&self) -> Int {
+        self.n
+    }
+}
+
+func take(b: Box<any Make>) -> Int {
+    1
+}
+
+func main() {
+    print(0)
+}

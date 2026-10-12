@@ -1,0 +1,22 @@
+// refuses: erasure.not-object-safe at 16:20
+// erasure in a function's result
+
+trait Same {
+    func same(&self, other: &Self) -> Bool
+}
+
+struct P { n: Int }
+
+extension P: Same {
+    func same(&self, other: &Self) -> Bool {
+        self.n == other.n
+    }
+}
+
+func give() -> Box<any Same> {
+    panic("none")
+}
+
+func main() {
+    print(0)
+}

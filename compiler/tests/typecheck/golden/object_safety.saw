@@ -1,0 +1,101 @@
+// The erasures object safety accepts (spec, "Object safety (v1)"): a trait
+// whose requirements take `&self` or `&var self` and name no `Self`, a default
+// body whose signature names none, a parent that is object-safe too, and the
+// prelude's `Printable`, `Error` and `Hashable`, at a coercion to `&any` and
+// `&var any`, a field's and a parameter's `Box`, a generic argument, and the
+// error box of an erased `Result`.
+
+trait Shape {
+    func area(&self) -> Int
+    func grow(&var self, by: Int)
+    func twice(&self) -> Int {
+        self.area() * 2
+    }
+}
+
+trait Solid: Shape {
+    func depth(&self) -> Int
+}
+
+struct Square { side: Int }
+
+extension Square: Shape {
+    func area(&self) -> Int {
+        self.side * self.side
+    }
+    func grow(&var self, by: Int) {
+        self.side = self.side + by
+    }
+}
+
+extension Square: Solid {
+    func depth(&self) -> Int {
+        1
+    }
+}
+
+extension Square: Printable {
+    func format(&self, into: &var StringBuilder) {
+        try! into.append(value: self.side)
+    }
+}
+
+extension Square: Hashable {
+    func hash(&self, h: &var Hasher) {
+        h.write_int(self.side)
+    }
+}
+
+struct Broken { code: Int }
+
+extension Broken: Printable {
+    func format(&self, into: &var StringBuilder) {
+        try! into.append(value: self.code)
+    }
+}
+
+extension Broken: Error {}
+
+struct Gallery {
+    pieces: Vector<Box<any Shape>>
+    lead: Box<any Solid>
+}
+
+extension Gallery: NoCopy {}
+
+func show(s: &any Shape) -> Int {
+    1
+}
+
+func reshape(s: &var any Shape) -> Int {
+    2
+}
+
+func measure(s: &any Solid) -> Int {
+    3
+}
+
+func render(p: &any Printable) -> Int {
+    4
+}
+
+func digest(h: &any Hashable) -> Int {
+    5
+}
+
+func keep(b: Box<any Shape>) -> Int {
+    6
+}
+
+func fail(code: Int) -> Result<Int, Box<any Error>> {
+    if code > 0 {
+        return Broken(code: code)
+    }
+    0
+}
+
+func main() {
+    var sq = Square(side: 3)
+    print(show(&sq) + reshape(&var sq) + measure(&sq) + render(&sq) + digest(&sq))
+    let _ = fail(1)
+}

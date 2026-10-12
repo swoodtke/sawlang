@@ -275,6 +275,9 @@ public struct TcProgram {
     // the attribute that says so, or -1 (`check_exports`).
     export_symbols: Vector<String>
     export_nodes: Vector<Int>
+    // Every written `any Trait` node, in the order `mk_any` formed it, which
+    // the object-safety funnel judges once requirements are known.
+    erased_nodes: Vector<Int>
 }
 
 extension TcProgram: NoCopy {}
@@ -351,7 +354,8 @@ public func tc_program(res: ResProgram) -> TcProgram {
                       layout_asserts: Vector<Int>(), layout_assert_messages: Vector<Int>(),
                       layout_assert_decls: Vector<Int>(), layout_assert_generic: Vector<Bool>(),
                       measured_nodes: Vector<Int>(), measured_values: Vector<Int>(), runtime_build: false,
-                      export_symbols: move symbols, export_nodes: move export_nodes)
+                      export_symbols: move symbols, export_nodes: move export_nodes,
+                      erased_nodes: Vector<Int>())
     let empty = Vector<Int>()
     let unlabeled = Vector<Int>()
     p.error_type = p.types.intern(TcKind.Error, -1, 0, 0, &empty, &unlabeled)

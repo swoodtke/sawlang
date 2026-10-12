@@ -47,7 +47,7 @@ _RULE_ID = re.compile(r'"((?:type|conformance|synthesize|copy|unsafe|slice|membe
                       r'transfer|subscript|pattern|format|extension|implicit-member|operator|'
                       r'init|deinit|effect|match|result|borrowing|borrows|consumes|static|'
                       r'capture|escaping|mutability|nomove|constant|static_assert|trait|atomic|'
-                      r'export)\.[a-z-]+)"')
+                      r'export|erasure)\.[a-z-]+)"')
 
 
 def rel(path):

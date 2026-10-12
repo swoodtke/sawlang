@@ -1,0 +1,13 @@
+// refuses: static.not-sync at 9:8
+// a static of a type holding a raw pointer, which is not `Sync`
+
+struct Region {
+    base: UnsafePointer<Int>
+    len: Int
+}
+
+static REGION: Region
+
+func main() {
+    print(0)
+}

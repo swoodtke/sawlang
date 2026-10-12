@@ -1,0 +1,18 @@
+// refuses: static.not-sync at 12:8
+// Under the new std a cell-carrying type that declares no `UnsafeSync` derives
+// no `Sync`, so a static of one is refused, beside an `Atomic<Int>` static,
+// which declares it.
+
+struct Counter {
+    cell: UnsafeMutableInterior<Int>
+}
+
+extension Counter: NoCopy {}
+
+static HITS: Counter
+
+static OK: Atomic<Int> = Atomic(0)
+
+func main() {
+    print(OK.load())
+}

@@ -669,6 +669,12 @@ extension TcProgram {
         if tr == self.known.equatable || tr == self.known.hashable {
             return self.is_trivial(t, 0)
         }
+        // A value mutable through a shared borrow derives no `Sync`: the block
+        // sits at the cell, so only a type holding one directly owes
+        // `UnsafeSync` (spec, Interior mutability).
+        if tr == self.known.sync && d == self.known.interior {
+            return false
+        }
         if tr == self.known.send || tr == self.known.sync {
             return self.members_satisfy(t, tr, env_decl, env_ext)
         }

@@ -1,0 +1,19 @@
+// refuses: erasure.not-object-safe at 17:16
+// erasure in a `let` annotation in a body
+
+trait Same {
+    func same(&self, other: &Self) -> Bool
+}
+
+struct P { n: Int }
+
+extension P: Same {
+    func same(&self, other: &Self) -> Bool {
+        self.n == other.n
+    }
+}
+
+func main() {
+    let b: Box<any Same>? = None
+    print(0)
+}

@@ -1,0 +1,22 @@
+// refuses: erasure.not-object-safe at 16:18
+// a trait whose requirement names `Self` in a parameter, erased in a parameter's `Box`
+
+trait Same {
+    func same(&self, other: &Self) -> Bool
+}
+
+struct P { n: Int }
+
+extension P: Same {
+    func same(&self, other: &Self) -> Bool {
+        self.n == other.n
+    }
+}
+
+func take(b: Box<any Same>) -> Int {
+    1
+}
+
+func main() {
+    print(0)
+}
