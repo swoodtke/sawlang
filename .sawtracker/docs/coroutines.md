@@ -387,7 +387,439 @@ The matrix stays, as the **test plan**: each row is a lowering claim plus the St
 | `Task.spawn` borrows, extents, `NoMove`, must-consume, `Never` body, Send gate, the freestanding `Task.spawn` | spawn-site rules | the K-rows named in §3.2 | A7, A8, A17, A18 |
 
 ## 4. Units
-_(to be written: an ordered list; each unit with scope, dependencies, the stages and files it touches, pins, and open questions)_
+
+Each unit is one patch of about a day, separately testable. Each lists its scope, what it depends on, the files it touches (for overlap planning), its pins, its done-when and an estimate in agent-days.
+
+Pins are named by their `tests/corpus/` program: each becomes a run-lane copy compared with Stage 0's binary, or a `tests/coro/` golden, refusal or injection. "Census +N" means the corpus census lane (A0b) counts N more of the 490 programs building and passing.
+
+**Phases:**
+- **0, groundwork** (1 day);
+- **A, the embedded core:** Stage 0 parity, by by-value frames;
+- **B, the overlay layout:** the user's stack-like frames. These are core units: B1 can start as soon as the verifier (A5) exists, and B runs beside A's std track;
+- **C, heap frames:** after A and B.
+
+**Three tracks**, whose files do not overlap, so two agents can run at once:
+
+| track | units | files |
+|---|---|---|
+| **compiler back half** | A0, A1, A3a, A3b, A4, A5, A6, A9, B1–B4, A16 | `compiler/coro/` (new), `compiler/llvm/`, `compiler/mono/`, `compiler/driver/`, `compiler/tools/build.py`, `compiler/tests/{coro,run,mono}/` |
+| **std and runtime** | A7b, A10, A11, A12a, A12b, A13a, A13b, A15, A17a | `std/`, `sawc/rt/`, plus `sawc/std/taskgroup.saw` in A12a only, and `compiler/tests/{std,run}/` |
+| **front half** | A2, A7a's front part, A8b, A17b, A18 | `compiler/resolve/`, `compiler/typecheck/`, `compiler/borrowck/`, `compiler/drops/`, `compiler/tools/std_suspension.py` |
+
+A unit that crosses tracks says so under its files. Two such units are not dispatched together.
+
+### Phase 0: groundwork
+
+**A0. Refuse a suspending call the backend cannot lower yet (SL-546).**
+- **Scope:**
+  - After mono, evaluate each call's `suspend` flag at its concrete instantiation.
+  - The backend refuses a definitely suspending call, and a yield-capable budget point in a function that suspends, as `backend.not-yet` ("a suspending call is not lowered yet (SL-545)").
+  - Every later unit removes cases from this refusal.
+- **Depends on:** nothing.
+- **Files:** `compiler/llvm/src/bodies.saw`, and a condition evaluator in `compiler/mono/src/` (A1 later takes it over); `compiler/tests/run/`.
+- **Pins:** run-lane `// due:` programs `suspend_blocking_main` (the p02 probe) and `suspend_cycle` (p21).
+- **Done when:** neither builds, each refused at the call, and the run lane is otherwise unchanged.
+- **Estimate:** 0.5.
+
+**A0b. A snapshot of the Stage 0 oracle, and the census lane.**
+- **Scope:** before Stage 0 retires (SL-539, the seed), record for each of §3.2's 490 programs:
+  - Stage 0's stdout and exit status;
+  - its frame sizes from `--emit-frame-layout`;
+  - its backtrace table's frame and state counts.
+
+  These go in `compiler/tests/coro/stage0/`, as a TSV and per-program expectations. The run lane keeps comparing against live Stage 0 while it exists, and falls back to the snapshot after.
+
+  `compiler/tests/coro/census.py` (informational, like `mir/corpus_info.py`) counts how many of the 490 programs and the 93 refusal tests sawc2 builds and passes, by first refusal. It also generates §1's *gated* list: the programs whose missing names include a std module or type outside this plan. The rest is the plan-complete set.
+- **Depends on:** nothing.
+- **Files:** `compiler/tests/coro/` only.
+- **Pins:** the census lane prints today's 0 / 490.
+- **Done when:** the snapshot is checked in, and the census runs in `run.py` as information.
+- **Estimate:** 0.5.
+
+### Phase A: the embedded core
+
+**A1. The `compiler/coro` stage, and the *definitely suspends* fixpoint.**
+- **Scope:**
+  - A new package, `sawcoro`, in `STAGE_PACKAGES`, between mono and the backend, with `sawc2 coro (--dump | --check)`.
+  - A worklist fixpoint over mono's items and their static call edges (principle 6: identity-based cycle detection, no depth bound). An item suspends if it contains a park or calls one that suspends.
+  - Each item's frame decision and its cause chain in the dump, such as `(frame yes (via p21.slow -> usleep))`. `run<Fast>` prints `(frame no)` (this closes SL-526's visible half).
+  - The cycle refusal `coro.suspending-cycle`, naming the cycle (`ping -> pong -> ping`) with Stage 0's pending note citing SL-322.
+  - A0's refusal moves here: an item that needs a frame is refused until A3b.
+- **Depends on:** A0.
+- **Files:** `compiler/coro/src/{api,program,suspends,dump}.saw` (new), `compiler/driver/src/main.saw`, `compiler/tools/build.py`, `compiler/tests/coro/` (new lane: `coro_lane.py`, `golden/`, `refuse/`), `compiler/tests/run.py`.
+- **Pins:**
+  - `refuse/coro.suspending-cycle.*`, from `errors/coro_{mutual,main,method,group_spawn}_suspending_recursion` and the other four recursion tests;
+  - golden `effects.coro` from the p21 probe.
+- **Done when:** the 8 recursion tests refuse with the cycle named, and the dump agrees with typecheck's summaries wherever the arguments are concrete. The lane checks the second point: a disagreement is an invariant failure.
+- **Estimate:** 1.5.
+
+**A2. The task vocabulary and the park intrinsics** (front-half track, plus `std/`).
+- **Scope:**
+  - `std/task.saw` with `yield_now`. `std/duration.saw` with `Duration`. `sleep` and `cancelled` as declared std functions whose bodies call park lang intrinsics (`__saw_park_ready`, `__saw_park_timer`, …; the lang-item table names them).
+  - Typecheck: a call to a park intrinsic is a suspension source in `summarize_declared`, so under the new std suspension comes from bodies, not from the Stage 0 table.
+  - `tools/std_suspension.py`'s derived-set cross-check learns the new std.
+  - The prelude names `sleep` and `Duration`, as Stage 0's does.
+- **Depends on:** nothing (parallel with A1).
+- **Files:** `std/{task,duration,prelude}.saw`, `compiler/resolve/src/{lang,prelude}.saw`, `compiler/typecheck/src/{summaries,effects}.saw`, `compiler/tools/std_suspension.py`, `compiler/tests/typecheck/`.
+- **Pins:**
+  - the 27 sync-context refusal tests reach `effect.sync` (today 4 do);
+  - a typecheck golden where `yield_now` suspends under `--std-root std`.
+- **Done when:** the sync-context rows pass under the new std, and `std.task` resolves.
+- **Estimate:** 1.
+
+**A3a. Frame-resident values and frame-slot places.**
+- **Scope:**
+  - For each framed item, the first-cut storage lifetime of each local: maybe-initialised (`MirInit`) through its scope-end drop. That is conservative, and B1 refines it.
+  - The resident set: the values whose lifetime contains a suspension point.
+  - One layout entry, `assign(values, interference) -> offsets`, here with the *no-sharing* policy, so that B2 changes the policy and nothing else.
+  - A new MIR projection, the frame slot `(*frame).[off: T]`, with its dump spelling and verifier rule.
+  - `sawc2 coro --layouts`.
+
+  The frame has no drop glue (§3.1).
+- **Depends on:** A1.
+- **Files:** `compiler/coro/src/{frames,layout,dump}.saw`. `compiler/mir/src/{model,dump,verify}.saw` take the projection kind only, a small cross-track touch.
+- **Pins:** golden layouts for p01 (`yield` in a loop, a value across it).
+- **Done when:** the layout and resident sets are stable in goldens, and the backend still refuses (A3b lowers).
+- **Estimate:** 1.
+
+**A3b. The resume function, `park(ready)`, and the entry executor: the walking skeleton.**
+- **Scope:**
+  - `resume(frame, cx) -> Poll`. The entry switch on the state word, the `park(ready)` lowering (record the word through `cx`'s root token, set the state, return `Pending`), and `Done`.
+  - The backend: frame-slot places, `Poll`, and the C entry calling std's `__saw_exec_run_main(desc, frame)`. That is a minimal single-root loop in `std/task.saw`, which A7b replaces with the real executor.
+  - The frame descriptor's static record.
+
+  This is the first running suspending program.
+- **Depends on:** A1, A2, A3a.
+- **Files:** `compiler/coro/src/lower.saw`, `compiler/llvm/src/{bodies,places,module}.saw`, `std/task.saw` (a small cross-track touch).
+- **Pins:**
+  - run-lane `yield_main`: a suspending `main` whose loop yields between prints;
+  - corpus `async_main_*` programs without `sleep`.
+- **Done when:** they print as Stage 0 does at -O0 and -O2.
+- **Estimate:** 1.5.
+
+**A4. Driving a child frame, and the test intrinsics.**
+- **Scope:**
+  - Embedded child slots: parameter slots written at the call, the drive block, `Pending` returned as is, and `Ready` with the result moved out (§3.1).
+  - `__saw_drive`, `__saw_drive_steps` and `__saw_suspend` as test lang intrinsics: a sync driver over a stack-allocated frame that never parks, and `steps` counting `Pending`s. Resolve stops refusing the three.
+  - `coro.drive-in-suspending` for a drive site in a body that suspends.
+- **Depends on:** A3b.
+- **Files:** `compiler/coro/src/lower.saw`, `compiler/resolve/src/lookup.saw` (a small cross-track touch), `compiler/llvm/src/calls.saw`.
+- **Pins:** `coro_nested_suspend_two_deep`, `coro_drive_void_body`, `expr_suspend_return`; refusals `drive_site_in_suspending_body` and `drive_site_in_suspending_function`.
+- **Done when:** the pins pass. Census: the programs driven only through the intrinsics, over yields, start passing (expected +100 or more of the 125).
+- **Estimate:** 1.5.
+
+**A5. The post-lowering verifier, first cut.**
+- **Scope:** `compiler/coro/src/verify.saw` checks §3.9's rules on lowered MIR, by recomputing them, not by trusting the lowering's tables:
+  1. a frame slot is only ever addressed in place through the frame pointer, so nothing relocates a frame a loan points into;
+  2. at each suspension state, the maybe-initialised resident values equal what `MirInit` gives for the matching point, and every drop on every edge is one drop elaboration placed. Lowering added none (teardown by state, §3.1);
+  3. every window is closed exactly once on every path, those out of a resumed state included;
+  4. each park's record store dominates its arm.
+
+  Injections go in `tests/coro/inject/`, as `tests/mir/inject/` does: drop a drop, add a second `window_close`, swap a record and its arm. Each must fail naming the rule.
+- **Depends on:** A4.
+- **Files:** `compiler/coro/src/verify.saw`, `compiler/tests/coro/inject/`.
+- **Pins:** the three injections, plus every A3–A4 golden verifying clean.
+- **Done when:** the injections fail and the corpus census shows no verifier failure.
+- **Estimate:** 1.5.
+
+**A6. Control flow, windows and expressions across a suspension.**
+- **Scope:** §3.3's container, head and expression rows, plus the four lifted limits. Most of it is pins over the general CFG A3–A5 already handles. The new parts:
+  - a window's state record resident across a suspension;
+  - an accessor whose prologue or epilogue suspends, which embeds as a child (`window_open … suspends`);
+  - collection `for` with a borrowing iterator.
+- **Depends on:** A5.
+- **Files:** `compiler/coro/src/lower.saw`, `compiler/tests/{coro,run}/`.
+- **Pins:** every A6 row of §3.3; `lend_var_coro_and_forwarding`; the four lifted limits as run programs (`while_let_tuple_over_suspension_refused` and `coro_try_block_two_error_types` flip from refusal to run). Those four are marked `spec-derived expectation (no oracle)`, and their expected outputs are reviewed with the unit (t5). The spec's "Not yet supported" list shrinks in the same patch.
+- **Done when:** all of them pass. This is the last unit before B1, so it should finish while frames are still unshared.
+- **Estimate:** 1.5.
+
+**A7a. Task roots and `Task.spawn`** (back half, with a front part).
+- **Scope:**
+  - Mono adds a task-root item per cooperative spawn site (§3.8), and coro frames it whether or not it suspends, with its budget points live.
+  - Spawn lowering asks std for a task box sized by the root's layout, writes the arguments into the root's parameter slots, and enqueues the box with its descriptor.
+  - Front part: resolve accepts `Task.spawn`; typecheck refuses borrows at the form (K88) and a `Never` task body; drop elaboration's must-consume roles name `Task<T>` and `VoidTask`, so `drop.must-consume`'s due fixture goes live.
+- **Depends on:** A4; A7b for the run pins.
+- **Files:**
+  - `compiler/mono/src/worklist.saw`, `compiler/coro/src/lower.saw`;
+  - cross-track: `compiler/resolve/src/walk.saw`, `compiler/typecheck/src/bodies.saw`, `compiler/drops/src/elaborate.saw`.
+- **Pins:** `background_task_spawn`, `coro_spawn_and_embed`, `conformance/K88_background_spawn_takes_no_borrows`, the `Never`-body tests, K78/K79/K85.
+- **Done when:** all pass.
+- **Estimate:** 1.5.
+
+**A7b. The std executor core** (std track).
+- **Scope:** the run queue; task slots with generations; cells holding the result and the cancel word (design 134); `Task<T>` and `VoidTask` with `join` (driving the scheduler), `detach` and `cancel`; the background group, built on the first `Task.spawn` and closed at `main`'s return (cancel, then join); the freestanding refusal. Ported from `sawc/std/taskgroup.saw` into the bootstrap language, calling frames only through the descriptor. Two invariants come with it (§3.1, t2 and t3):
+  - a nested drive skips every frame that is active on the C stack;
+  - a task box is released only after its root returned `Ready`, asserted.
+- **Depends on:** A2. Testable before A7a against a hand-built descriptor.
+- **Files:** `std/task.saw`, `std/taskgroup.saw` (new), `compiler/tests/std/`.
+- **Pins:** a std-lane program driving two hand-built frames; then, with A7a, `background_task_spawn`.
+- **Done when:** the pins pass.
+- **Estimate:** 1.5.
+
+**A8a. `TaskGroup`.**
+- **Scope:** `group.spawn` (resolve and typecheck stop refusing it); `NoMove`; `Deinit` driving the group's members to completion; a frame-resident group (G1); group handles are not must-consume; `detach` on one panics.
+- **Depends on:** A7a, A7b.
+- **Files:** `std/taskgroup.saw`, `compiler/typecheck/src/{api,bodies}.saw`, `compiler/coro/src/lower.saw`.
+- **Pins:** `taskgroup_two_task_yield`, `taskgroup_eager_teardown`, `taskgroup_nested_groups` (re-entrant join, expects `124`; t2), the four `NoMove` refusal tests.
+- **Done when:** census +200 or so (`TaskGroup` appears in 206 of the 392).
+- **Estimate:** 1.
+
+**A8b. Spawn borrows as extents** (front-half track).
+- **Scope:** a `&`/`&var` argument or a borrow capture at a group spawn opens a loan the handle carries until `join` releases it, or until the group dies (spec: The borrow's extent is the task's life). This brings:
+  - the declared-after-the-group refusal;
+  - the loop-body refusal;
+  - `move` of a borrowed root refused.
+- **Depends on:** A8a.
+- **Files:** `compiler/borrowck/src/{loans,conflicts}.saw`, `compiler/typecheck/src/captures.saw`.
+- **Pins:** `spawn_capture_alias`, `spawn_capture_move_root` and the other spawn-extent tests.
+- **Done when:** the 6 refusal tests pass and `fill(&var buf, 3)` runs.
+- **Estimate:** 1.
+
+**A9. The op budget.**
+- **Scope:**
+  - A live budget point in a framed item lowers to the per-frame counter (128 at frame init), plus `park(ready)` when it runs out.
+  - Charge-only points decrement and never park.
+  - Points in unframed items are deleted.
+- **Depends on:** A3b; A8a for the pin.
+- **Files:** `compiler/coro/src/lower.saw`.
+- **Pins:** `taskgroup_compute_preemption`, and the oracle sweep's `stage0/p5_budget.saw` (127, then 0).
+- **Done when:** both pass.
+- **Estimate:** 0.5.
+
+**A10. Cancellation.**
+- **Scope:** the cancel word is reached through `cx`; `cancelled()` lowers to a read of it; a cancel wakes the parked task (executor); parks report it.
+- **Depends on:** A7b, A3b.
+- **Files:** `std/task.saw`, `std/taskgroup.saw`, `compiler/coro/src/lower.saw` (one read).
+- **Pins:** `taskgroup_cancel_during_sleep` (with A11), the `cancelled()` programs.
+- **Done when:** all pass.
+- **Estimate:** 1.
+
+**A11. Timers.**
+- **Scope:** `park(timer)`; `sleep(d)`; `Instant` (`std/time.saw`); the executor's earliest-deadline timers; the reactor poll as the idle wait, with the earliest deadline as its timeout.
+- **Depends on:** A7b.
+- **Files:** `std/{task,taskgroup,time}.saw`.
+- **Pins:** `taskgroup_sleep_ordering`, `async_main_sleep_yield`.
+- **Done when:** all pass.
+- **Estimate:** 1.5.
+
+**A12a. The fd park and the register funnel.**
+- **Scope:**
+  - `io_wait(fd, dir, deadline)` lowers to `park(fd)`: it records `-1` through the root token, then calls `__saw_exec_io_register`, the one arm funnel.
+  - On a timed-out or cancelled exit it unregisters.
+  - SL-355's R5 runtime half (c20): the atomic wake word, the poll's CAS(-1 → 0) latch, and a `register` that returns a status, a failed arm panicking with the fd and errno. Where it lands is §5 Q7.
+- **Depends on:** A11.
+- **Files:** `std/taskgroup.saw`, `sawc/rt/host_{macos,linux}/reactor.saw`, `sawc/rt/ABI.md`, `compiler/typecheck/src/runtimeabi.saw` (regenerated); by §5 Q7, `sawc/std/taskgroup.saw`.
+- **Pins:** a std-lane program parking on a pipe; SL-355's `parksoak` stress program as a run-lane program, with 0 stalls.
+- **Done when:** the pins pass.
+- **Estimate:** 1.
+
+**A12b. A minimal cooperative `std.net`.**
+- **Scope:** `TcpStream.pair`, `read`, `write` and `TcpListener.listen`/`accept` over `park(fd)`, with 89-c's io budget. The rest of `std.net` is std porting work (§1).
+- **Depends on:** A12a.
+- **Files:** `std/net.saw` (new).
+- **Pins:** `net_precise_wakeup`, `net_budget_fairness`.
+- **Done when:** both pass.
+- **Estimate:** 1.
+
+**A13a. Channels, cooperative half.**
+- **Scope:** `std/channel.saw`: a `Copy` handle with an internal refcount and lock; `send`, `receive`, `close` and `try_receive`; the readiness word; `park(channel)`. `ChannelError` comes from design 230. The thread engine's blocking `recv` is out of scope.
+- **Depends on:** A7b.
+- **Files:** `std/channel.saw` (new).
+- **Pins:** `channel_recv_nested`, `conformance/K63_channel_wait_is_a_park`, `conformance/K47_channel_receive_binding_and_try_heads`.
+- **Done when:** all pass.
+- **Estimate:** 1.
+
+**A13b. The deadlock walk.**
+- **Scope:** quiescence by elimination with §3.3's per-reason classification, read twice with a nap; the panic, then the task dump. The dump has frame lines once A16 lands; before that, its header only.
+- **Depends on:** A13a.
+- **Files:** `std/taskgroup.saw`.
+- **Pins:** `conformance/K67_quiescent_channel_deadlock_is_reported`, and the oracle sweep's `stage0/p4_deadlock.saw`.
+- **Done when:** both pass.
+- **Estimate:** 1.
+
+**A14. Offload.**
+- **Scope:**
+  - A `blocking` extern called in a framed body lowers to `park(offload)`. One C-ABI `word(word)` thunk is synthesized per offloaded extern, reading its frame-resident argument slots.
+  - `__saw_rt_offload_start`, then a park on the job's pipe, then `take` (the join) on every exit, cancel included.
+  - Not offloaded: in a `Thread.spawn` body a `blocking` extern is a plain call. In the freestanding profile it is refused.
+- **Depends on:** A12a.
+- **Files:** `compiler/coro/src/lower.saw`, `compiler/llvm/src/calls.saw`, `std/taskgroup.saw`.
+- **Pins:** `expr_suspend_blocking`, `offload_seam_first_tick`, and A0's `suspend_blocking_main`, now built. Plus a cancel-during-call program (t4): a cancel while the C call is in flight returns only after the call, and the frame's buffer stays valid until the take.
+- **Done when:** all pass.
+- **Estimate:** 1.5.
+
+**A15. The signal watch.**
+- **Scope:** `std/signal.saw`'s `SignalWatch.next` over `park(fd)`, ported.
+- **Depends on:** A12a.
+- **Files:** `std/signal.saw` (new).
+- **Pins:** `conformance/K98_signal_wakes_a_parked_watcher`.
+- **Done when:** it passes.
+- **Estimate:** 1.
+
+**A16. Backtraces.**
+- **Scope:**
+  - `__saw_bt_table` built from the final layouts: per frame, its state word's offset, and per state its line and the offset of the child it drives.
+  - `dump_tasks`; the dump on the panic path; and `sawc2 coro --bt-table` to decode the table.
+  - It keeps Stage 0's blob format, so `tools/lldb_saw.py` keeps working.
+- **Depends on:** B2, since offsets are final only after packing; and A7b.
+- **Files:** `compiler/coro/src/bttable.saw` (new), `compiler/llvm/src/module.saw`, `std/taskgroup.saw`.
+- **Pins:** `task_backtrace_nest`, the oracle sweep's `stage0/p3_dump.saw`, and K67's dump lines.
+- **Done when:** all pass.
+- **Estimate:** 1.5.
+
+**A17a. `TaskGroup(threads: N)`.**
+- **Scope:** the live worker pool; the run-queue lock and condition variable; the per-thread io budget; `cancel_addr` pinning a slot.
+- **Depends on:** A8a, A12a (the reactor wake's broadcast).
+- **Files:** `std/taskgroup.saw`.
+- **Pins:** `taskgroup_threads_parallel_sum`, and the 25 `threads:` programs in the census.
+- **Done when:** the pins pass.
+- **Estimate:** 1.5.
+
+**A17b. The Send-on-frames gate.**
+- **Scope:** for a root spawned into a `threads: N` group, every resident value of it and of its embedded children, plus its result, must be `Send`. The check runs post-mono in coro (`coro.spawn-not-send`), naming the first offender, and refuses reference parameters.
+- **Depends on:** A8a.
+- **Files:** `compiler/coro/src/suspends.saw` (or `send.saw`), with a small cross-track touch to `compiler/typecheck/src/api.saw` for the `threads:` tracking.
+- **Pins:** `conformance/K02_nonsend_across_suspend_local_mt`, `errors/taskgroup_threads_nonsend_reject`, the 7 Send-gate tests.
+- **Done when:** all pass.
+- **Estimate:** 1.
+
+**A18. The remaining refusals.**
+- **Scope:**
+  - the `Thread.spawn` body's sync rule (K83) and the retired `spawn { }`, typecheck rules only;
+  - the suspending default omitted;
+  - `@align` on a frame-resident local (N11);
+  - the freestanding `Task.spawn`;
+  - `dump_tasks`' prelude gating;
+  - `blocking` agreement.
+- **Depends on:** A8a.
+- **Files:** `compiler/typecheck/src/{bodies,effects,captures}.saw`, `compiler/resolve/src/walk.saw`.
+- **Pins:** the remaining rows of the 93 (`coro_refusal_tests.txt`).
+- **Done when:** the census shows every refusal test passing, except phase C's and the out-of-scope thread engine's. With A18, phases A and B close on the census green over §1's plan-complete set.
+- **Estimate:** 1.
+
+### Phase B: the overlay layout (core)
+
+**B1. Storage lifetimes.**
+- **Scope:**
+  - The borrow check publishes each function's loan live ranges as plain data: a side table keyed by MIR ids (§3.0). Drop elaboration and mono carry it unchanged; it is type-independent, so substitution leaves it alone.
+  - Coro computes each value's storage-live point set: maybe-initialised, plus any loan into it, plus its drop and epilogue points (§3.9: "the last thing that needs the bytes").
+    - A child slot is live from its parameter writes through its result's move-out.
+    - A window record is live from `window_open` through `window_close`.
+  - `coro --dump` prints each set by state and transition.
+- **Depends on:** A5.
+- **Files:** `compiler/borrowck/src/{program,loans}.saw`, `compiler/drops/src/program.saw`, `compiler/mono/src/program.saw` (carry only), `compiler/coro/src/lifetimes.saw` (new). It crosses tracks, and it is the one unit that touches borrowck's output contract.
+- **Pins:** golden lifetimes for: a value live across one suspension only; a loan extending a value past its last direct use; a child slot; a window record.
+- **Done when:** the goldens are stable, and A3a's conservative lifetimes are replaced with no layout change yet.
+- **Estimate:** 1.
+
+**B2. Interference and fixed-offset packing.**
+- **Scope:**
+  - The interference graph over resident values, child slots and window records.
+  - A deterministic greedy packing: by decreasing size, then first id; first fit at an aligned offset clear of every interfering value already placed. Callees are packed first, over the acyclic suspending call graph.
+  - `--layouts` prints each value's offset, size and alignment, the total extent, and the lower bound: the largest sum of bytes live at one point (§3.9: the bound, not a formula).
+- **Depends on:** B1.
+- **Files:** `compiler/coro/src/{layout,dump}.saw`.
+- **Pins:** golden layouts for:
+  - sequential `a(); b()`;
+  - exclusive `if` and `match` arms;
+  - values in disjoint ranges;
+  - design 163's synthetic tree (`w2`, `w4`, `w8`, `t1`, `root`), against Stage 0's snapshot sizes (A0b). `root` is 6,768 B there, and the overlay estimate is about 928 B;
+  - the oracle sweep's `stage0/p2_layout.saw`, whose `caller` holds four 80-byte children (432 B in Stage 0).
+- **Done when:**
+  - each pin's extent is at most its sequential-overlay size from design 163's recurrence;
+  - the census still passes;
+  - `irdet`-style determinism holds: two runs give the same bytes.
+- **Estimate:** 1.5.
+
+**B3. The verifier's no-intersecting-lifetimes check.**
+- **Scope:** recompute storage lifetimes *from the lowered MIR's frame-slot accesses*, not from B1's sets, over parked states and the resume transitions. Then check that no two values sharing bytes intersect.
+- **Depends on:** B2.
+- **Files:** `compiler/coro/src/verify.saw`, `compiler/tests/coro/inject/`.
+- **Pins:** an injection that forces two interfering values onto one offset fails, naming both, the point and the state; another that moves a drop past the end of its lifetime fails.
+- **Done when:** both injections fail as described, and the corpus verifies clean.
+- **Estimate:** 1.
+
+**B4. Frame sizes against Stage 0.**
+- **Scope:** a lane over every corpus frame: sawc2's extent against Stage 0's snapshot. It fails on a frame larger than Stage 0's unless an exception with a reason is recorded (such as a resident value Stage 0 got wrong), and it reports the total saving.
+- **Depends on:** B2, A0b.
+- **Files:** `compiler/tests/coro/`.
+- **Pins:** the lane itself.
+- **Done when:** the lane passes with its exceptions reviewed.
+- **Estimate:** 0.5.
+
+### Phase C: heap frames, and what the same ABI unlocks
+
+These units start after A and B. Q1–Q4 in §5 are their rulings.
+
+**C1. Heap edges.**
+- **Scope:** per §5 Q1, the edges into a heap-framed function inside its suspending-call cycle hold a box pointer instead of an embedded child. The child frame is allocated per Q2, driven by a direct call, and freed after `Ready` (its drops have run in its body). `--layouts` reports such a task as unbounded, naming the edge. The cycle refusal's fixit names the spelling.
+- **Depends on:** phases A and B; §5 Q1 and Q2.
+- **Files:** `compiler/coro/src/{suspends,layout,lower}.saw`, plus the spelling's front-half rule (resolve and typecheck).
+- **Pins:** the 8 recursion tests rewritten with the spelling, as run programs; the unmarked ones still refused.
+- **Done when:** all pass.
+- **Estimate:** 1.5.
+
+**C2. The indirect drive.**
+- **Scope:** a heap child reached through the descriptor in its box's header, which C5 and C6 need. The verifier learns that a heap frame is freed exactly once, after `Ready`, and never while a loan into it is live.
+- **Depends on:** C1.
+- **Files:** `compiler/coro/src/{lower,verify}.saw`.
+- **Pins:** an injection that frees a box twice.
+- **Done when:** the injection fails.
+- **Estimate:** 1.
+
+**C3. Recursion depth and cancellation through a heap chain.**
+- **Scope:**
+  - Depth: a 10,000-deep suspending recursion resumes and completes, using native stack in line with its sync twin (§5 Q4).
+  - Cancellation: a task parked 1,000 levels deep is cancelled. It unwinds through the ordinary edges and frees every box. The allocator-count probe shows zero outstanding allocations.
+- **Depends on:** C2.
+- **Files:** `compiler/tests/{coro,run}/`.
+- **Pins:** the two programs above.
+- **Done when:** both pass.
+- **Estimate:** 1.
+
+**C4. Heap frames under `--no-hidden-alloc` and freestanding.**
+- **Scope:** per §5 Q2 and Q3, the profile rules, and the frame-size report for unbounded tasks (a hook for design 152's warning).
+- **Depends on:** C1.
+- **Files:** `compiler/coro/src/suspends.saw`, the driver.
+- **Pins:** a `--no-hidden-alloc` refusal or acceptance per the ruling; a freestanding refusal.
+- **Done when:** both pins pass.
+- **Estimate:** 0.5.
+
+**C5. Suspending `any Trait` dispatch (K37 lifted).**
+- **Scope:** per §5 Q5, a suspending requirement's vtable entry carries a frame descriptor and an init thunk, and the caller's storage is the union slot or a heap box. K37's refusal becomes a run program.
+- **Depends on:** C2. Outside this plan, it needs sawc2 to call methods through `any` at all; today that is `slice.not-yet`.
+- **Files:** `compiler/coro/`, `compiler/mono/src/` (method tables).
+- **Pins:** `conformance/K37_existential_dispatch_suspending_impl_refused`, flipped.
+- **Done when:** it runs.
+- **Estimate:** 1.5.
+
+**C6. Suspending closures.**
+- **Scope:** a closure body that suspends is framed. The closure value carries its descriptor and init thunk, and a call allocates the frame per Q6, then drives it. `effect.closure-suspends` is lifted.
+- **Depends on:** C2.
+- **Files:** `compiler/coro/`, `compiler/typecheck/src/effects.saw`, `compiler/mir/src/lower.saw` (closure calls).
+- **Pins:** the closure-body refusal tests, flipped.
+- **Done when:** they run.
+- **Estimate:** 2.
+
+### Order, parallelism and totals
+
+**The critical path to a running program:** A0 → A1 → A3a → A3b, with A2 alongside A1. That is about 4.5 agent-days, and A3b's `yield_main` is the walking skeleton. A4 then unlocks the intrinsic-driven pins, and A5 freezes the rules before anything widens.
+
+**After A5, two agents at once:**
+- **compiler back half:** A6 → B1 → B2 → B3 → B4 → A16, then A9 and A14's compiler part;
+- **std and runtime:** A7b → A10 → A11 → A12a → {A12b, A13a → A13b, A15} → A17a.
+
+The front-half units (A7a's front part, A8b, A17b, A18) go to whichever agent is between units. A unit that crosses tracks (A3b, A4, A7a, B1) is not dispatched beside another that touches the same directory.
+
+| phase | units | agent-days | wall time with two agents |
+|---|---|---|---|
+| 0, groundwork | A0, A0b | 1 | |
+| A, the embedded core | A1–A18 | 29 | about 3.5 weeks for 0 and A together |
+| B, the overlay | B1–B4 | 4 | inside A's wall time, on the compiler track |
+| C, heap frames | C1–C4 | 4 | 1 week after A and B |
+| C, the follow-ons | C5, C6 | 3.5 | + 0.5 week; C5 also waits on `any` method calls |
+
+For comparison, the lead's guide (SL-545 c2) was 3 weeks for the core, 3–5 days for the overlay and 1–1.5 weeks for heap frames. The core comes out larger mostly because a third of phase A is std porting: the executor, timers, `std.net`'s slice, channels and signals (A7b, A11, A12b, A13, A15, A17a, 8.5 days). Stage 0 had those already.
 
 ## 5. Open questions for the user
 _(to be written)_
