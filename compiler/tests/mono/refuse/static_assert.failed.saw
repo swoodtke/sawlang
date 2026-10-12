@@ -1,0 +1,18 @@
+// refuses: static_assert.failed at 7:19
+// A `static_assert` over a type parameter's layout waits for each
+// instantiation: `wide` instantiated at `Int` holds, at `Int32` it is refused,
+// and `never`, false at every type, is never instantiated and never checked.
+
+func wide<T>(v: T) -> Int {
+    static_assert(sizeof<T>() == 8, "a word")
+    0
+}
+
+func never<T>(v: T) -> Int {
+    static_assert(sizeof<T>() == 3, "no type is three bytes")
+    0
+}
+
+func main() {
+    print(wide(7) + wide(7i32))
+}

@@ -35,6 +35,7 @@
 // exits 1, and so does a file a later stage refuses; a usage or I/O failure
 // prints a message and exits 2.
 
+import sawasserts.layout.{asserts_typecheck_program}
 import sawborrowck.api.{BorrowckOptions, borrowck_record}
 import sawdrops.api.{DropsOptions, drops_record}
 import saweval.api.{EvalOptions, eval_record}
@@ -581,8 +582,8 @@ func driver_resolve(args: &Vector<String>, stage: Int) -> Int {
                 result = mir_record(out: &var out, path: input.path, options: &lowering, names: &names,
                                     dirs: &dirs)
             } else if typecheck {
-                result = typecheck_record(out: &var out, path: input.path, options: &checking,
-                                          names: &names, dirs: &dirs)
+                let checked = asserts_typecheck_program(input.path, checking.std_root, &names, &dirs)
+                result = typecheck_record(out: &var out, p: &checked, options: &checking)
             } else {
                 result = resolve_record(out: &var out, path: input.path, options: &options,
                                         names: &names, dirs: &dirs)

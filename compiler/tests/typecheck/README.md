@@ -538,6 +538,21 @@ array-length, repeat-count and const-argument positions are folded by
 `build_const` (SL-457) and do not reach the funnel; it refuses every `sizeof`
 there, of any type, as `slice.not-yet`.
 
+### Layout asserts
+
+A `static_assert` whose condition measures a type with `sizeof` or `alignof`
+waits for the type's layout, which only `compiler/target` computes
+(SL:open-questions D40). The funnel defers it (`defer_layout_assert`) with its
+message and the function whose body holds it. One over concrete types is
+checked by the layout-assert funnel, `asserts_typecheck_program` in
+`compiler/asserts`, which every mode's typecheck goes through, so it is refused
+as `static_assert.failed` at its condition whether its body is reachable or
+not, under `--check` too (`static_assert.failed.layout`,
+`.layout-body`). One that measures a type parameter is checked by mono at each
+instantiation of its function (`compiler/tests/mono/refuse/static_assert.failed`),
+and one in a body never instantiated is never checked. The evaluator leaves
+every deferred one alone (`compiler/tests/eval/golden/layout_asserts`).
+
 Every body construct in the slice, and how it is typed:
 
 | construct | typed as | covered by |
@@ -595,13 +610,12 @@ Every body construct in the slice, and how it is typed:
 | a specialized extension, and every body in it | `slice.not-yet` |
 | a default of a type parameter's type that is no literal and no `None` | `slice.not-yet` (generic-default) |
 | a `??` whose fallback is wider than the optional's payload | `slice.not-yet` (coalesce-wider) |
-| constructing a builtin type no declaration writes an `init` for: `Atomic(v)`, `UnsafeMutableInterior(v)`, `UnsafeMemory<T, U>(a)` | `slice.not-yet` (builtin-construction) |
+| constructing a builtin type no declaration writes an `init` for, `UnsafeMemory<T, U>(a)`; `Atomic(v)` and `UnsafeMutableInterior(v)` are their lang roles' positional constructions | `slice.not-yet` (builtin-construction) |
 | a method call on `any Trait` | `slice.not-yet` (existential-call) |
 | a method `Box` or `Arc` forwards to its payload | `slice.not-yet` (forwarding) |
 | `TaskGroup.spawn` | `slice.not-yet` (task-group-spawn) |
 | a `borrow` block over a method that lends through a closure parameter, as `borrow var c = m.lock() { ... }` | `slice.not-yet` (lock-borrow) |
 | calling a `FuncPointer`, a function or closure where one is expected | `slice.not-yet` (func-pointer) |
-| pointer arithmetic, `p + i` | `slice.not-yet` (pointer-arithmetic) |
 | the erasing `Box<any Trait>.make` | `slice.not-yet` (box-make-any) |
 | a method of the interior cell, `c.ptr()` | `slice.not-yet` (cell-method) |
 
@@ -1089,11 +1103,12 @@ says what the fixture shows.
 | `format.slot-count` | a format string whose `{}` slots and arguments differ in number, or a formatted message that is no literal |
 | `format.argument` | a format argument or interpolated segment that is neither Printable nor a primitive |
 | `format.mixed` | a format string that interpolates a value beside its `{}` slots or arguments (spec, "Format arguments and the allocation-free path"), judged where the string-position funnel records it as `format` |
-| `operator.undefined` | an operator over a type it is not defined for |
+| `atomic.width` | an `Atomic<X>` at an `X` other than `Int`, written or inferred, once per type, where a position first carries it: v1 atomics are `Atomic<Int>` only (SL:open-questions D38); one only an instantiation forms is mono's |
+| `operator.undefined` | an operator over a type it is not defined for; a raw pointer takes only `p + n` and `p - n`, an integer offset after it, which steps `n` elements |
 | `static.optional` | a static whose own type is an optional; an `unsafe static var` is exempt (spec, Module-level statics: "Never optional") |
 | `static.not-constant` | a sub-expression outside the constant grammar of a static's initializer, a raw case's value, an `@align` argument or a `static_assert` condition, named (the constant-position funnel) |
 | `static.cycle` | a static whose value depends on itself, through any number of statics, named in order |
-| `static_assert.failed` | a `static_assert` whose condition folds to `false`, at the top of a file or in a body |
+| `static_assert.failed` | a `static_assert` whose condition folds to `false`, at the top of a file or in a body; one over a layout once the layout-assert funnel measures it (Layout asserts) |
 | `borrowing.containment` | a borrowing struct (spec, Borrowing structs) bound outside the head of a `borrow` or a `for`, taken as a parameter by value, stored in a field or a payload, erased to an existential, returned by a function that does not lend it with `borrows`, or carried by a function type |
 | `escaping.stored` | a non-escaping function value (a parameter whose function type does not say `escaping`, or a local bound to one) in a position that holds it past the call: a field, a payload, an element, an Optional, a return, an assignment's target, an escaping closure's capture, a type argument, an `escaping` parameter (D35) |
 | `borrowing.sigil-place` | `&` or `&var` on a place reached through a `borrows` call, a subscript accessor or a named one, at any depth of fields, tuple elements and payloads: the place is passed with `borrow` (SL:borrowing §9) |

@@ -75,12 +75,15 @@ description's (`compiler/tests/mono/README.md`, "Layouts").
   an index into a raw pointer scales by the element's size, and a forced
   payload (`o!`, `try!`) checks the case first. A scalar value moves as an SSA
   value, a memory value by `memcpy`; a `copy` of a type with copy glue calls
-  the glue.
+  the glue. An `as` between a raw pointer and an integer of the pointer's
+  width is `inttoptr` or `ptrtoint`, so `0 as UnsafePointer<T>` is null.
 - **Calls.** A scalar parameter passes by value; a memory parameter passes
   the address of a value the callee copies on entry; a memory result comes
   back through a leading `sret` pointer. A function value is called through
   its code pointer with its environment first. An `extern` is called by the C
-  convention the target gives.
+  convention the target gives; a variadic one through its function type, each
+  extra argument by C's default promotions (an integer narrower than 32 bits
+  widened to `i32` by its signedness).
 - **Checks.** `+`, `-` and `*` use `llvm.{s,u}{add,sub,mul}.with.overflow` by
   the operand's signedness, `&+`, `&-` and `&*` wrap; `/` and `%` check a zero
   divisor and the signed `MIN / -1`; a shift checks its count; an `as` that
@@ -130,7 +133,7 @@ description's (`compiler/tests/mono/README.md`, "Layouts").
 
 | rule | refuses | due program |
 |---|---|---|
-| `backend.not-yet` | what the backend does not lower yet: a Float constant, an operator on a Float, or on anything but an integer, a Bool, a String, two raw pointers or the memory values compared part by part, an erasure, a slice, a take capture, a fixed array, a repeat, a `Map` or a `Set` literal, a static that is not an integer or a Bool, a conditional borrow, a variadic extern or an aggregate crossing the C convention, an unsupported layout, a `main` returning neither `Void` nor `Int`; a constant is refused at its own spelling, inside an aggregate too | `float_field` |
+| `backend.not-yet` | what the backend does not lower yet: a Float constant, an operator on a Float, or on anything but an integer, a Bool, a String, two raw pointers or the memory values compared part by part, an erasure, a slice, a take capture, a fixed array, a repeat, a `Map` or a `Set` literal, a static that is not an integer or a Bool, a conditional borrow, an aggregate crossing the C convention, a pointer cast to or from an integer narrower than a pointer, an unsupported layout, a `main` returning neither `Void` nor `Int`; a constant is refused at its own spelling, inside an aggregate too | `float_field` |
 
 ## The lane
 

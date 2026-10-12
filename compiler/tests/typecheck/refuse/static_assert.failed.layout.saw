@@ -1,0 +1,17 @@
+// refuses: static_assert.failed at 13:15
+// a top-level `static_assert` over a struct's layout, checked against the
+// target's layout as soon as typecheck ends: the true ones hold, and the
+// false one is refused under `--check`
+
+struct Pair {
+    a: Int
+    b: Int32
+}
+
+static_assert(sizeof<Pair>() == 16, "two words, the second padded")
+static_assert(alignof<Pair>() == 8, "a word's alignment")
+static_assert(sizeof<Pair>() == 12, "no padding")
+
+func main() {
+    print(0)
+}

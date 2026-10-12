@@ -1,0 +1,12 @@
+// refuses: atomic.width at 5:12
+// an `Atomic` of a width other than `Int`, written as a field's type
+
+struct Flags {
+    ready: Atomic<Bool>
+}
+
+extension Flags: NoCopy {}
+
+func main() {
+    print(0)
+}

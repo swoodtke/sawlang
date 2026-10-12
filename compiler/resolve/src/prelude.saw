@@ -59,6 +59,12 @@ public func res_declare_synthetic_builtins(p: &var ResProgram) {
         p.builtin_function("__saw_atomic_sub_i64_release")
         p.builtin_function("__saw_atomic_fence_acquire")
         p.builtin_function("__saw_atomic_load_i64_relaxed")
+        // The sequentially consistent four `Atomic<Int>`'s operations are
+        // written over (SL:open-questions D39).
+        p.builtin_function("__saw_atomic_load_i64_seq_cst")
+        p.builtin_function("__saw_atomic_store_i64_seq_cst")
+        p.builtin_function("__saw_atomic_add_i64_seq_cst")
+        p.builtin_function("__saw_atomic_cmpxchg_i64_seq_cst")
     }
 }
 

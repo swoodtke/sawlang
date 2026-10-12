@@ -56,6 +56,10 @@ compiler/
                       type's layout and the C convention (tests/mono/README.md,
                       "Layouts")
     src/layout.saw
+  asserts/            the layout-assert funnel, package `sawasserts`: every
+    src/layout.saw    mode's typecheck, then each `static_assert` over a
+                      layout checked against the target's (tests/typecheck/
+                      README.md, "Layout asserts")
   mono/               monomorphization over elaborated MIR, package `sawmono`
                       (tests/mono/README.md has its items, glue, dump and rules)
     src/*.saw
@@ -333,9 +337,10 @@ One lane runs apart from the runner, as the battery's `fixpoint` stage:
 `tools/subset_check.py --std` holds `std/` to the subset with exactly the
 low-level features SL:architecture §4 names: `raw-pointer` (raw memory and
 pointers), `borrows-accessor` (`borrows` and `lend`), `deinit-body` (a type
-owning a buffer frees it), and `box-type` and `generic-extension-init`
-(allocator parameters: `Box<T, A>`, and `Vector<T, A>` built by its `init`)
-are dropped. A bound may be `Allocator`, or a policy trait a container's
+owning a buffer frees it), `box-type` and `generic-extension-init`
+(allocator parameters: `Box<T, A>`, and `Vector<T, A>` built by its `init`),
+and `cell-type` (the prelude's `UnsafeMutableInterior` and the `Atomic` over
+it, SL:open-questions D38) are dropped. A bound may be `Allocator`, or a policy trait a container's
 conditional conformance needs (`Copy`, `ExplicitCopy`, `Send`, `Sync`), and
 nothing else (`bounded-extension`); a fieldless struct may be an allocator
 (`empty-struct`); the prelude may declare the vocabulary's alias `Byte` and

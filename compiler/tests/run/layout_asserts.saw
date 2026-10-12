@@ -1,0 +1,31 @@
+// `static_assert`s over layouts that hold: at the top of the file and in a
+// body, checked once typecheck ends, and in a generic body, checked at its
+// one instantiation; `never`'s is false at every type and, never
+// instantiated, never checked.
+
+struct Pair {
+    a: Int
+    b: Int32
+}
+
+static_assert(sizeof<Pair>() == 16, "Pair is two words")
+static_assert(alignof<Pair>() == 8, "Pair aligns to a word")
+
+func wide<T>(v: T) -> Int {
+    static_assert(sizeof<T>() == 8, "a word")
+    0
+}
+
+func never<T>(v: T) -> Int {
+    static_assert(sizeof<T>() == 3, "no type is three bytes")
+    0
+}
+
+func body() -> Int {
+    static_assert(sizeof<Int32>() + sizeof<Pair>() == 20, "sums")
+    1
+}
+
+func main() {
+    print(wide(7) + body())
+}

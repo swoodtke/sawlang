@@ -4,7 +4,7 @@
 // and that typecheck's fold (`fold.saw`), which computes the same constants
 // from the tree, agrees with every one: the same value at the same type, or
 // the same fault. The only constants it skips are those whose value is an
-// enum case, which the fold has no form for.
+// enum case or an atomic, which the fold has no form for.
 
 import sawmir.dump.{mir_module_functions}
 import sawmir.model.{MirFuncKind}
@@ -37,6 +37,9 @@ extension EvalProgram {
                 self.problem(f, &var out, "a constant position was never evaluated")
                 continue
             }
+            if end == EvalEnd.Deferred {
+                continue
+            }
             if end == EvalEnd.Valued {
                 let want = self.mir.locals[info.local_first].ty
                 if v.kind == EvalKind.Missing || v.ty != want {
@@ -51,7 +54,7 @@ extension EvalProgram {
     // The evaluator and typecheck's fold agree on constant `f`.
     func verify_agreement(&var self, f: Int, out: &var Vector<String>) {
         let v = self.values[f]
-        if v.kind == EvalKind.Case {
+        if v.kind == EvalKind.Case || v.kind == EvalKind.Cell {
             return
         }
         let root = self.mir.funcs[f].root
@@ -92,6 +95,14 @@ extension EvalProgram {
             case Boolean -> if v.bits != 0 { "true" } else { "false" },
             case Case -> self.mir.tc.res.decl_identity(v.decl),
             case Unit -> "()",
+            case Cell -> {
+                var out = StringBuilder()
+                try! out.append(self.mir.tc.type_text(v.ty))
+                try! out.append("(")
+                try! out.append(tc_arith_text(v.bits, 64, true))
+                try! out.append(")")
+                out.build()
+            },
             case Missing -> eval_fault_name(v.fault)
         }
     }
@@ -128,7 +139,9 @@ extension EvalProgram {
             let t = self.mir.locals[info.local_first].ty
             self.mir.append_type(&var out, t)
             let v = self.values[f]
-            if v.kind == EvalKind.Missing {
+            if self.ends[f] == EvalEnd.Deferred {
+                try! out.append(" (checked against the layout)\n")
+            } else if v.kind == EvalKind.Missing {
                 try! out.append(" (no value)\n")
             } else {
                 try! out.append(" = ")

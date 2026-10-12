@@ -1,0 +1,8 @@
+// refuses: atomic.width at 4:15
+// an `Atomic` of a width other than `Int`, written as a static's type
+
+static SMALL: Atomic<Int8>
+
+func main() {
+    print(0)
+}

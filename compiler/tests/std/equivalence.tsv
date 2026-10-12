@@ -127,3 +127,15 @@ Command	std.process init Command.init program:String	SL-522
 .arg	std.process method Command.arg argument:String	SL-522
 .wait	std.process method Command.wait -	SL-522
 (api)	std.process conformance Command NoCopy	SL-522
+(api)	lang UnsafeMutableInterior	SL-522
+(api)	lang Atomic	SL-522
+(api)	vocabulary struct UnsafeMutableInterior -	SL-522
+(api)	vocabulary method UnsafeMutableInterior.ptr -	SL-522
+(api)	vocabulary conformance UnsafeMutableInterior NoCopy	SL-522
+(api)	vocabulary struct Atomic -	SL-522
+(api)	vocabulary method Atomic.load -	SL-522
+(api)	vocabulary method Atomic.store v:T	SL-522
+(api)	vocabulary method Atomic.fetch_add v:T	SL-522
+(api)	vocabulary method Atomic.compare_exchange expected:T,desired:T	SL-522
+(api)	vocabulary conformance Atomic UnsafeSync	SL-522
+(api)	vocabulary conformance Atomic NoCopy	SL-522

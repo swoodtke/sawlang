@@ -32,14 +32,21 @@ import sawtypecheck.types.{TcKind}
 // Every rule monomorphization refuses by.
 public func mono_rules() -> Vector<String> {
     var out = Vector<String>()
+    try! out.push("atomic.width")
     try! out.push("mono.depth")
     try! out.push("mono.not-yet")
+    try! out.push("static_assert.failed")
     move out
 }
 
 // The builtins the backend's slice lowers, by spelling.
 func mono_builtin_supported(name: String) -> Bool {
-    name.equals("print") || name.equals("panic") || name.equals("assert") || name.equals("init") || name.equals("sizeof") || name.equals("alignof") || name.equals("__saw_atomic_add_i64") || name.equals("__saw_atomic_sub_i64_release") || name.equals("__saw_atomic_fence_acquire") || name.equals("__saw_atomic_load_i64_relaxed")
+    name.equals("print") || name.equals("panic") || name.equals("assert") || name.equals("init") || name.equals("sizeof") || name.equals("alignof") || name.equals("__saw_atomic_add_i64") || name.equals("__saw_atomic_sub_i64_release") || name.equals("__saw_atomic_fence_acquire") || name.equals("__saw_atomic_load_i64_relaxed") || mono_seq_cst_atomic(name)
+}
+
+// The sequentially consistent atomic intrinsics (SL:open-questions D39).
+func mono_seq_cst_atomic(name: String) -> Bool {
+    name.equals("__saw_atomic_load_i64_seq_cst") || name.equals("__saw_atomic_store_i64_seq_cst") || name.equals("__saw_atomic_add_i64_seq_cst") || name.equals("__saw_atomic_cmpxchg_i64_seq_cst")
 }
 
 // A resolved call target: the declaration whose body runs, and the `Self`
@@ -293,6 +300,7 @@ extension MonoProgram {
             let s = tc_args_subst(it.func_decl, move inst)
             out = self.dp.bc.mir.tc.subst(out, &s)
         }
+        self.refuse_narrow_atomics(k, out)
         out
     }
 
@@ -317,6 +325,27 @@ extension MonoProgram {
         let body = self.items[k].body
         if body >= 0 {
             self.resolve_function(k, body)
+        }
+    }
+
+    // The atomic role's width rule at an instantiation (SL:open-questions
+    // D38): an `Atomic<X>` at an `X` other than `Int` that item `k`'s
+    // arguments put in concrete type `t`, and that no position typecheck saw
+    // carried, is refused once, where the item was reached.
+    func refuse_narrow_atomics(&var self, k: Int, t: Int) {
+        var j = 0
+        while j < self.dp.bc.mir.tc.narrow_atomics.len() {
+            let narrow = self.dp.bc.mir.tc.narrow_atomics[j]
+            if not self.dp.bc.mir.tc.narrow_reported[j] && self.dp.bc.mir.tc.type_holds(t, narrow, 0) {
+                self.dp.bc.mir.tc.narrow_reported[j] = true
+                var msg = StringBuilder()
+                try! msg.append("`")
+                try! msg.append(self.dp.bc.mir.tc.type_text(narrow))
+                try! msg.append("` is not an atomic this compiler lowers: v1 atomics are `Atomic<Int>` only")
+                let site = self.items[k].origin_node
+                self.refuse(site, "atomic.width", msg.build())
+            }
+            j = j + 1
         }
     }
 

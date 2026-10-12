@@ -55,7 +55,12 @@ public enum ResLang {
     case StringBuilderStruct,
     // How many bytes a String holds, read beside its bytes wherever they
     // are written out.
-    case StringLengthFunction
+    case StringLengthFunction,
+    // The interior-mutability cell (design 186), constructed positionally.
+    case InteriorStruct,
+    // The atomic word over a cell: constructed positionally, a constant in a
+    // static's initializer, and `Atomic<Int>` only (SL:open-questions D38).
+    case AtomicStruct
 }
 
 // One role's row: its index in the table, the name its declaration carries
@@ -102,6 +107,8 @@ public func res_lang_roles() -> Vector<ResLang> {
     try! out.push(ResLang.StringCompareFunction)
     try! out.push(ResLang.StringBuilderStruct)
     try! out.push(ResLang.StringLengthFunction)
+    try! out.push(ResLang.InteriorStruct)
+    try! out.push(ResLang.AtomicStruct)
     move out
 }
 
@@ -151,7 +158,9 @@ public func res_lang_row(role: ResLang) -> ResLangRow {
                                                home: "std.stringbuilder",
                                                builtin_home: "std.stringbuilder",
                                                builtin_name: "StringBuilder"),
-        case StringLengthFunction -> res_lang_string_function(28, "string_length")
+        case StringLengthFunction -> res_lang_string_function(28, "string_length"),
+        case InteriorStruct -> res_lang_type(29, "UnsafeMutableInterior"),
+        case AtomicStruct -> res_lang_type(30, "Atomic")
     }
 }
 

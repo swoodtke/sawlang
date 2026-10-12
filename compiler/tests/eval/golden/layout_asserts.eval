@@ -1,0 +1,4 @@
+module layout_asserts
+static layout_asserts.WORD: Int = 8
+static_assert layout_asserts 11:15: Bool (checked against the layout)
+static_assert layout_asserts 12:15: Bool = true

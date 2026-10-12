@@ -136,7 +136,9 @@ immortal static block; `string_bytes` and `string_length`, which a String
 written out is read through; `string_equals` and `string_compare`,
 which `==`, the ordering operators and string-literal patterns compare with),
 and `StringBuilder`, which interpolation builds through and a format string's
-arguments render into (typecheck/README.md, "The String positions").
+arguments render into (typecheck/README.md, "The String positions"), and the
+interior cell `UnsafeMutableInterior` and the `Atomic` over it, each built
+positionally and `Atomic(<int>)` a static's constant (SL:open-questions D38).
 `lang.saw` holds the table, one declaration per role, bound once the builtin
 and std modules are collected:
 

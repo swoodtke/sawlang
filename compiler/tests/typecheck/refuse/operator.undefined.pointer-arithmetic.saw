@@ -1,0 +1,6 @@
+// refuses: operator.undefined at 5:5
+// a raw pointer takes only an integer offset after it, `p + n` and `p - n`
+
+func scaled(p: UnsafePointer<Int8>) unsafe -> UnsafePointer<Int8> {
+    p * 2
+}

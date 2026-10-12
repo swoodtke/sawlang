@@ -417,9 +417,9 @@ These are the reversible readings U6b3 made; SL-447's report lists them.
 
 The declarations typecheck knows by identity are found once (`find_known`):
 `Optional` (for `T?`, which no name occurrence spells), `Result`, `String`,
-the Copy family, the derivable traits and the panic sink from resolve's
-lang-item table (resolve/README.md), and the primitives, the unsafe pointers
-and the interior cell from the builtin module. That is a table of the stage's
+the Copy family, the derivable traits, the panic sink, the interior cell and
+`Atomic` from resolve's lang-item table (resolve/README.md), and the
+primitives and the unsafe pointers from the builtin module. That is a table of the stage's
 own vocabulary, not a lookup of a name the program wrote. `lang.saw` holds
 each lang item a source declares to its role's shape, its cases and payload
 labels, its requirements and their signatures, its fields, conformances and
@@ -430,7 +430,10 @@ String layer's two types, `String` and `StringBuilder`, carry an API beyond
 what the compiler calls, so their shapes are sets of parts each must hold:
 String's single field, its Copy conformance with the retain and release
 hooks, and its other conformances; the builder's fixed-mode `init`,
-`append(s:)`, `append(value:)`, `build` and its policy. A `lang.shape` refusal
+`append(s:)`, `append(value:)`, `build` and its policy. So are the cell's and
+`Atomic`'s: the type parameter, the one field `value`, and the policies, the
+cell's `NoCopy` and `Atomic`'s `UnsafeSync` and `NoCopy`, whose operations the
+new std writes over the `Int` word where Stage 0's types them over `T`. A `lang.shape` refusal
 is listed before the refusals the checks ahead of it made, since a slip in a
 lang item explains them. An Optional the new std declares writes its own
 `take`, `is_some` and `is_none`, so typecheck answers those names builtin only

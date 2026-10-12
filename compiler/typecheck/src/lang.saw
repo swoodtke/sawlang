@@ -177,6 +177,17 @@ func tc_lang_expected(role: ResLang) -> Vector<String> {
             try! out.push("(method append (signature (receiver exclusive) (params (value Int owned)) -> Result<Void, std.alloc.AllocError>))")
             try! out.push("(method build (signature (receiver shared) (params) (effects unsafe) -> String))")
             try! out.push("(conforms NoCopy)")
+        },
+        case InteriorStruct -> {
+            try! out.push("struct (generics (T))")
+            try! out.push("(field value T private)")
+            try! out.push("(conforms NoCopy)")
+        },
+        case AtomicStruct -> {
+            try! out.push("struct (generics (T))")
+            try! out.push("(field value UnsafeMutableInterior<T> private)")
+            try! out.push("(conforms UnsafeSync)")
+            try! out.push("(conforms NoCopy)")
         }
     }
     move out
@@ -190,6 +201,8 @@ func tc_lang_contains(role: ResLang) -> Bool {
     match role {
         case StringStruct -> true,
         case StringBuilderStruct -> true,
+        case InteriorStruct -> true,
+        case AtomicStruct -> true,
         case _ -> false
     }
 }

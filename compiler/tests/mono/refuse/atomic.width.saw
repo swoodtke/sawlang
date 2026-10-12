@@ -1,0 +1,17 @@
+// refuses: atomic.width at 16:11
+// An `Atomic` whose width only an instantiation decides: no type the program
+// writes or typecheck infers is an `Atomic<Int8>`, so mono refuses it where
+// `count` is instantiated at `Int8`. A body never instantiated at another
+// width is never refused.
+func make<T>(v: T) -> Atomic<T> {
+    Atomic(value: v)
+}
+
+func count<T>(v: T) -> Int {
+    let a = make(v)
+    a.load()
+}
+
+func main() {
+    print(count(5i8))
+}

@@ -140,6 +140,15 @@ extension TcProgram {
     // typecheck already made `x` adopt or convert to, so the construction is
     // the identity. Any other call is no constant.
     func fold_alias_construct(&var self, e: Int, chain: &var Vector<Int>) -> TcFold {
+        // A layout a `static_assert` measures, while its check supplies it
+        // (SL:open-questions D40).
+        var m = 0
+        while m < self.measured_nodes.len() {
+            if self.measured_nodes[m] == e {
+                return tc_folded(self.measured_values[m], self.int_type())
+            }
+            m = m + 1
+        }
         let at = if e < self.call_at.len() { self.call_at[e] } else { -1 }
         if at < 0 {
             return tc_fold_fault(TcFault.NotConstant, -1, e)

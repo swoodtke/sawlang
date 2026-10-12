@@ -193,9 +193,77 @@ extension TcProgram {
 
 // Type constructors: each interns its key.
 extension TcProgram {
+    // THE NOMINAL-TYPE FUNNEL: every nominal type is formed here, written,
+    // inferred or substituted, so an `Atomic<X>` at an `X` other than `Int`
+    // is noted here for the atomic role's refusal (SL:open-questions D38).
+    // ENTRY POINTS:
+    //     void_type
+    //     prim
+    //     mk_result
+    //     uint64_type
+    //     self_type_of
+    //     mk_optional
+    //     apply_nominal
+    //     defaulted
+    //     named_owner
+    //     finish_call
+    //     atomic_intrinsic
+    //     cell_construct
+    //     subst
     public func mk_nominal(&var self, d: Int, args: &Vector<Int>) -> Int {
         let none = Vector<Int>()
-        self.types.intern(TcKind.Nominal, d, 0, 0, &args, &none)
+        let t = self.types.intern(TcKind.Nominal, d, 0, 0, &args, &none)
+        if d >= 0 && d == self.known.atomic && args.len() == 1 && self.narrow_atomic_arg(args[0]) {
+            var k = 0
+            var seen = false
+            while k < self.narrow_atomics.len() {
+                if self.narrow_atomics[k] == t {
+                    seen = true
+                }
+                k = k + 1
+            }
+            if not seen {
+                try! self.narrow_atomics.push(t)
+                try! self.narrow_reported.push(false)
+            }
+        }
+        t
+    }
+
+    // Whether type `outer` holds type `t` anywhere inside it.
+    public func type_holds(&self, outer: Int, t: Int, depth: Int) -> Bool {
+        if outer == t {
+            return true
+        }
+        if outer < 0 || depth > 32 {
+            return false
+        }
+        let info = self.types.ty(outer)
+        let wraps = info.kind == TcKind.Ref || info.kind == TcKind.Slice || info.kind == TcKind.Array || info.kind == TcKind.Func
+        if wraps && self.type_holds(info.b, t, depth + 1) {
+            return true
+        }
+        var k = 0
+        while k < info.count {
+            // Stage 0 workaround (SL:hazards S4): canonical: if self.type_holds(self.types.arg(outer, k), t, depth + 1) {
+            let inner = self.types.arg(outer, k)
+            if self.type_holds(inner, t, depth + 1) {
+                return true
+            }
+            k = k + 1
+        }
+        false
+    }
+
+    // Whether `a`, an `Atomic`'s argument, is a type the v1 atomic is not:
+    // anything concrete but `Int`. A type parameter, `Self`, a projection or
+    // an error decides nothing until it is known.
+    func narrow_atomic_arg(&self, a: Int) -> Bool {
+        let info = self.types.ty(a)
+        if info.kind == TcKind.Param || info.kind == TcKind.SelfType || info.kind == TcKind.Projection || info.kind == TcKind.Error {
+            return false
+        }
+        not (info.kind == TcKind.Nominal && info.decl == self.known.int)
     }
 
     public func mk_param(&var self, owner: Int, index: Int) -> Int {

@@ -1,0 +1,16 @@
+// A `static_assert` over a layout is deferred, not evaluated: the evaluator
+// has no layouts, and the layout-assert funnel checks it once typecheck ends.
+
+struct Pair {
+    a: Int
+    b: Int32
+}
+
+static WORD: Int = 8
+
+static_assert(sizeof<Pair>() == 2 * WORD, "two words")
+static_assert(WORD == 8, "a word is eight bytes")
+
+func main() {
+    print(WORD)
+}

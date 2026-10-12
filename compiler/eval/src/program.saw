@@ -9,12 +9,14 @@ import sawtypecheck.arith.{TcFault}
 import sawtypecheck.program.{TcProgram}
 
 // What an evaluated value is: an integer of type `ty`, a `Bool`, a
-// payload-free case `decl` of an enum, `()`, or no value.
+// payload-free case `decl` of an enum, `()`, an `Atomic(<int>)` of type `ty`
+// whose word is `bits` (SL:open-questions D38), or no value.
 public enum EvalKind {
     case Integer,
     case Boolean,
     case Case,
     case Unit,
+    case Cell,
     case Missing
 }
 
@@ -36,13 +38,15 @@ public func eval_missing(fault: TcFault) -> EvalValue {
 }
 
 // How a function's evaluation ended: with a value, refused with a
-// diagnostic of its own, or with no value because a constant it reads was
-// refused.
+// diagnostic of its own, with no value because a constant it reads was
+// refused, or deferred: a `static_assert` over a layout, which is checked
+// once layouts exist (SL:open-questions D40).
 public enum EvalEnd {
     case Pending,
     case Valued,
     case Refused,
-    case Poisoned
+    case Poisoned,
+    case Deferred
 }
 
 public struct EvalProgram {

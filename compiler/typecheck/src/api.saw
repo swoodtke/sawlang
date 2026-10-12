@@ -10,7 +10,7 @@ import sawtypecheck.bodies.{tc_check_bodies}
 import sawtypecheck.bodychecks.{tc_check_body_rules}
 import sawtypecheck.bodyverify.{tc_verify_bodies}
 import sawtypecheck.captures.{tc_check_escaping_consumes}
-import sawtypecheck.checks.{tc_check_finite_size, tc_check_inits, tc_check_unsafe}
+import sawtypecheck.checks.{tc_check_atomic_widths, tc_check_finite_size, tc_check_inits, tc_check_unsafe}
 import sawtypecheck.conform.{tc_collect_conformances, tc_extension_sets,
                                  tc_settle_conformances}
 import sawtypecheck.declarations.{tc_build_signatures}
@@ -76,6 +76,7 @@ public func typecheck_program(path: String, std_root: String, names: &Vector<Str
     tc_check_effects(&var p)
     tc_check_body_rules(&var p)
     tc_verify_all_summaries(&var p)
+    tc_check_atomic_widths(&var p)
     move p
 }
 
@@ -113,7 +114,8 @@ extension TcProgram {
                         sync: self.res.lang_item(ResLang.SyncTrait),
                         unsafe_send: self.res.lang_item(ResLang.UnsafeSendTrait),
                         unsafe_sync: self.res.lang_item(ResLang.UnsafeSyncTrait),
-                        interior: self.top_decl(b, "UnsafeMutableInterior"),
+                        interior: self.res.lang_item(ResLang.InteriorStruct),
+                        atomic: self.res.lang_item(ResLang.AtomicStruct),
                         serialize: self.top_decl(serde, "Serialize"),
                         deserialize: self.top_decl(serde, "Deserialize"),
                         int: self.top_decl(b, "Int"), uint: self.top_decl(b, "UInt"),
@@ -138,14 +140,13 @@ extension TcProgram {
     }
 }
 
-// The record of one checked program, after its `FILE` line: resolve's
+// The record of checked program `p`, after its `FILE` line: resolve's
 // refusals, then typecheck's, each an `ERROR` line, `NOTE` lines when asked
 // for, an `INVARIANT` line per problem either verifier finds, and each checked
 // module's dump when asked for. Returns 0 when nothing was refused and 1
-// otherwise.
-public func typecheck_record(out: &var StringBuilder, path: String, options: &TypecheckOptions,
-                             names: &Vector<String>, dirs: &Vector<String>) -> Int {
-    let p = typecheck_program(path, options.std_root, &names, &dirs)
+// otherwise. The caller typechecks `p` through the layout-assert funnel
+// (`asserts_typecheck_program`), which this package sits below.
+public func typecheck_record(out: &var StringBuilder, p: &TcProgram, options: &TypecheckOptions) -> Int {
     var k = 0
     while k < p.res.diags.len() {
         let d = p.res.diags[k]

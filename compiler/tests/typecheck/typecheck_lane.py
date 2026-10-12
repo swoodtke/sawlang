@@ -45,7 +45,7 @@ _FLAGS = re.compile(r"^// flags: (.*)$")
 _RULE_ID = re.compile(r'"((?:type|conformance|synthesize|copy|unsafe|slice|member|call|infer|'
                       r'transfer|subscript|pattern|format|extension|implicit-member|operator|'
                       r'init|deinit|effect|match|result|borrowing|borrows|consumes|static|'
-                      r'capture|escaping|mutability|nomove|constant|static_assert|trait)\.[a-z-]+)"')
+                      r'capture|escaping|mutability|nomove|constant|static_assert|trait|atomic)\.[a-z-]+)"')
 
 
 def rel(path):

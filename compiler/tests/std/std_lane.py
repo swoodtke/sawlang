@@ -422,7 +422,8 @@ def check_equivalence(failures, counts):
         _, out = sawc2("typecheck", "--dump", "--interfaces", "--std-root", root, rel(ENTRY))
         records[root] = signature_records(out)
     _, resolved = sawc2("resolve", "--dump", "--std-root", NEW_ROOT, rel(ENTRY))
-    roles = set(re.findall(r"^    \((\w+) [\w.]+\)$", resolved, re.M))
+    # The table's last row also closes the table and its module.
+    roles = set(re.findall(r"^    \((\w+) [\w.]+\)\)*$", resolved, re.M))
     members = read_rows(MEMBERS, 3)
     exceptions = {fields[0]: (lineno, fields[1], fields[2])
                   for lineno, fields in read_rows(EXCEPTIONS, 3)}

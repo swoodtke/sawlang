@@ -1,0 +1,35 @@
+// `Atomic<Int>`: a static constructed as a constant, a local and a field,
+// each operation sequentially consistent, `compare_exchange` swapping only
+// from the value it expects, and a `&Atomic<Int>` reaching the static itself.
+
+static HITS: Atomic<Int> = Atomic(0)
+static SEEDED: Atomic<Int> = Atomic(40)
+
+struct Stats {
+    hits: Atomic<Int>
+}
+
+extension Stats: NoCopy {}
+
+func observed(a: &Atomic<Int>) -> Int {
+    a.load()
+}
+
+func main() {
+    let old = HITS.fetch_add(1)
+    print(old)
+    print(observed(&HITS))
+    HITS.store(7)
+    print(HITS.load())
+    print(HITS.compare_exchange(7, 9))
+    print(HITS.compare_exchange(7, 11))
+    print(HITS.load())
+    print(SEEDED.fetch_add(2))
+    print(SEEDED.load())
+    let local = Atomic(5)
+    print(local.fetch_add(10))
+    print(local.load())
+    let s = Stats(hits: Atomic(3))
+    print(s.hits.fetch_add(1))
+    print(s.hits.load())
+}

@@ -172,6 +172,8 @@ STD_PROFILE_FEATURES = {
     "box-type": "allocator parameters: `Box<T, A>` owns one value through its allocator",
     "generic-extension-init": "allocator parameters: a container generic over its allocator, "
                               "`Vector<T, A>`, is built by its `init`",
+    "cell-type": "interior mutability: the prelude's cell, `UnsafeMutableInterior`, and the atomic "
+                 "word over it (SL:open-questions D38)",
 }
 # Rules that hold the compiler's source to std, which the std profile is
 # checking itself: std declares the std names, imports std and calls std.

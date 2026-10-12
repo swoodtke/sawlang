@@ -55,6 +55,11 @@ extension EvalProgram {
         var f = 0
         while f < n {
             let info = self.mir.funcs[f]
+            if info.kind == MirFuncKind.Assert && self.layout_assert(info.root) {
+                self.ends[f] = EvalEnd.Deferred
+                f = f + 1
+                continue
+            }
             if eval_is_constant_kind(info.kind) && not info.refused {
                 self.steps = 0
                 let _ = self.evaluate(f)
@@ -64,6 +69,19 @@ extension EvalProgram {
             }
             f = f + 1
         }
+    }
+
+    // Whether `cond` is the condition of a `static_assert` that typecheck
+    // deferred because it measures a layout.
+    func layout_assert(&self, cond: Int) -> Bool {
+        var k = 0
+        while k < self.mir.tc.layout_asserts.len() {
+            if self.mir.tc.layout_asserts[k] == cond {
+                return true
+            }
+            k = k + 1
+        }
+        false
     }
 
     // A `static_assert` whose condition evaluated false.
@@ -217,8 +235,12 @@ extension EvalProgram {
             },
             case Ref -> self.not_yet(f, "a reference"),
             case Conversion -> {
-                if self.mir.tc.name_text(rv.op).equals("alias") {
+                let word = self.mir.tc.name_text(rv.op)
+                if word.equals("alias") {
                     return self.converted(f, &rv, &locals)
+                }
+                if word.equals("atomic") {
+                    return self.atomic_word(f, &rv, &locals)
                 }
                 self.not_yet(f, "a conversion")
             },
@@ -419,6 +441,20 @@ extension EvalProgram {
             return self.fault_value(f, v.bits, v.ty, rv.ty)
         }
         eval_value(EvalKind.Integer, r.bits, rv.ty)
+    }
+
+    // `Atomic(<int>)`: the aggregate whose cell holds the integer, the one
+    // construction of a cell that is a constant (SL:open-questions D38).
+    func atomic_word(&var self, f: Int, rv: &MirRvalue, locals: &Vector<EvalValue>) -> EvalValue {
+        let o = self.mir.lists[rv.first]
+        let v = self.operand(f, o, &locals)
+        if v.kind == EvalKind.Missing {
+            return v
+        }
+        if v.kind != EvalKind.Integer {
+            return self.not_yet(f, "an atomic over a value of no integer type")
+        }
+        EvalValue(kind: EvalKind.Cell, bits: v.bits, ty: rv.ty, decl: -1, fault: TcFault.Clean)
     }
 
     // A typed arithmetic result at type `t`, or its fault reported.

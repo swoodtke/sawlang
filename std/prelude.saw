@@ -228,3 +228,81 @@ extension RangeInclusive: Iterator {
         }
     }
 }
+
+/// The interior-mutability cell: a `T` held inline, which a shared borrow
+/// writes through the address `ptr()` hands out.
+///
+/// It occupies exactly its `T`, and is built positionally,
+/// `UnsafeMutableInterior(v)`. A type holding one is cell-carrying: a static
+/// of it is written in place and its receivers are never read-only. A copy
+/// would be a second cell, so it is move-only.
+public unsafe struct UnsafeMutableInterior<T> {
+    private value: T
+}
+
+extension UnsafeMutableInterior<T> {
+    /// Returns the address of the `T` the cell holds, valid while the cell is.
+    public func ptr(&self) unsafe -> UnsafePointer<T> {
+        (&self.value) as UnsafePointer<T>
+    }
+}
+
+extension UnsafeMutableInterior<T>: NoCopy {}
+
+/// A word updated atomically: `static HITS: Atomic<Int> = Atomic(0)`, then
+/// `HITS.fetch_add(1)`.
+///
+/// Every operation is sequentially consistent and takes `&self`, since the
+/// mutation is interior. v1 atomics are `Atomic<Int>` only: another width is
+/// refused wherever its type is formed.
+public struct Atomic<T> {
+    private value: UnsafeMutableInterior<T>
+}
+
+extension Atomic<T> {
+    /// Returns the current value.
+    public func load(&self) -> Int {
+        atomic_load_word(&self)
+    }
+
+    /// Replaces the value with `v`.
+    public func store(&self, v: Int) {
+        atomic_store_word(&self, v)
+    }
+
+    /// Adds `v` to the value, and returns the value before the add.
+    public func fetch_add(&self, v: Int) -> Int {
+        atomic_add_word(&self, v)
+    }
+
+    /// Replaces the value with `desired` when it is `expected`, and returns
+    /// whether it did.
+    public func compare_exchange(&self, expected: Int, desired: Int) -> Bool {
+        atomic_exchange_word(&self, expected, desired)
+    }
+}
+
+// Each operation is the word's intrinsic of its name; the width rule keeps
+// the cell an `Int`, so the word is all of it.
+func atomic_load_word<T>(a: &Atomic<T>) unsafe -> Int {
+    __saw_atomic_load_i64_seq_cst(a.value.ptr() as UnsafePointer<Int>)
+}
+
+func atomic_store_word<T>(a: &Atomic<T>, v: Int) unsafe {
+    __saw_atomic_store_i64_seq_cst(a.value.ptr() as UnsafePointer<Int>, v)
+}
+
+func atomic_add_word<T>(a: &Atomic<T>, v: Int) unsafe -> Int {
+    __saw_atomic_add_i64_seq_cst(a.value.ptr() as UnsafePointer<Int>, v)
+}
+
+func atomic_exchange_word<T>(a: &Atomic<T>, expected: Int, desired: Int) unsafe -> Bool {
+    __saw_atomic_cmpxchg_i64_seq_cst(a.value.ptr() as UnsafePointer<Int>, expected, desired)
+}
+
+// Every operation is a sequentially consistent instruction, which no field
+// shows; a cell-carrying type derives no `Sync`.
+extension Atomic<T>: UnsafeSync {}
+
+// A copy would be a second counter, invisible to the first (design 202).
+extension Atomic<T>: NoCopy {}

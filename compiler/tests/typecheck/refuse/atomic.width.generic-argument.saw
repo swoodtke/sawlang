@@ -1,0 +1,11 @@
+// refuses: atomic.width at 9:19
+// an `Atomic` of a width other than `Int`, written as a generic argument
+
+func first<T>(v: &T) -> Int {
+    0
+}
+
+func main() {
+    let n = first<Atomic<Bool>>(&Atomic(true))
+    print(n)
+}

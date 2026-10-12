@@ -53,11 +53,12 @@ STAGE_PACKAGES = (
     ("sawparse", "compiler/parse/src"),
     ("sawresolve", "compiler/resolve/src"),
     ("sawtypecheck", "compiler/typecheck/src"),
+    ("sawtarget", "compiler/target/src"),
+    ("sawasserts", "compiler/asserts/src"),
     ("sawmir", "compiler/mir/src"),
     ("saweval", "compiler/eval/src"),
     ("sawborrowck", "compiler/borrowck/src"),
     ("sawdrops", "compiler/drops/src"),
-    ("sawtarget", "compiler/target/src"),
     ("sawmono", "compiler/mono/src"),
     ("sawllvm", "compiler/llvm/src"),
 )

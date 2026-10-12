@@ -127,7 +127,7 @@ extension LlEmitter {
 
     // Whether integer type `t` is signed, a raw-backed enum by its backing;
     // `Bool` and pointers compare unsigned.
-    func signed_type(&self, mono: &MonoProgram, t: Int) -> Bool {
+    public func signed_type(&self, mono: &MonoProgram, t: Int) -> Bool {
         let d = mono.dp.bc.mir.tc.nominal_decl(t)
         if d >= 0 && mono.dp.bc.mir.tc.res.decls[d].kind == ResDeclKind.Enum {
             let backing = mono.dp.bc.mir.tc.sigs[d].result
@@ -161,6 +161,11 @@ extension LlEmitter {
         }
         if l.kind != TargetKind.Int && l.kind != TargetKind.Pointer {
             self.refuse_here(&var mono, node, "an operator on this type is not in the backend slice yet")
+            return
+        }
+        let offsetting = op.equals("+") || op.equals("-")
+        if l.kind == TargetKind.Pointer && offsetting && ll_raw_pointer(&mono.dp.bc.mir.tc, left_type) {
+            self.pointer_offset_into(&var mono, &var target, op, a, b, left_type, dest, node)
             return
         }
         // A pointer-sized operand is compared by address only when both are
@@ -710,6 +715,34 @@ extension LlEmitter {
         self.store(ty, v, dest)
     }
 
+    // `p + n` and `p - n` on raw pointer `a`: the address `n` elements on or
+    // back, each the pointee's size. Unchecked, as an index through a raw
+    // pointer is.
+    func pointer_offset_into(&var self, mono: &var MonoProgram, target: &var Target, op: String, a: Int, b: Int,
+                             pointer: Int, dest: String, node: Int) {
+        let pointee = mono.dp.bc.mir.tc.types.arg(pointer, 0)
+        let el = self.lay_at(&var mono, &var target, pointee, node)
+        let count_type = mono.dp.bc.mir.operands[b].ty
+        let cl = self.lay_at(&var mono, &var target, count_type, node)
+        let base = self.operand_value(&var mono, &var target, a, node)
+        let raw = self.operand_value(&var mono, &var target, b, node)
+        let signed = self.signed_type(&mono, count_type)
+        let count = self.int_convert(raw, cl.bits, 64, signed)
+        var size = StringBuilder()
+        try! size.append(el.size)
+        var bytes = self.simple("mul", "i64", count, size.build())
+        if op.equals("-") {
+            bytes = self.simple("sub", "i64", "0", bytes)
+        }
+        var text = StringBuilder()
+        try! text.append("getelementptr i8, ptr ")
+        try! text.append(base)
+        try! text.append(", i64 ")
+        try! text.append(bytes)
+        let v = self.assign(text.build())
+        self.store("ptr", v, dest)
+    }
+
     // The conversions: `as` (`cast`), the implicit `widen` and `adopt`, and
     // the written `from`, `from(truncating:)` and an alias's construction.
     func convert_into(&var self, mono: &var MonoProgram, target: &var Target, rv: &MirRvalue, dest: String,
@@ -740,6 +773,12 @@ extension LlEmitter {
             self.operand_into(&var mono, &var target, a, dest, to, node)
             return
         }
+        if word.equals("interior") || word.equals("atomic") {
+            // A cell is layout-transparent: the value is stored where the
+            // wrapper begins, at its own type.
+            self.operand_into(&var mono, &var target, a, dest, from, node)
+            return
+        }
         if word.equals("adopt") && op.kind == MirOperandKind.Const && ll_is_scalar(&tl) {
             self.operand_into(&var mono, &var target, a, dest, to, node)
             return
@@ -747,6 +786,22 @@ extension LlEmitter {
         if fl.kind == TargetKind.Pointer && tl.kind == TargetKind.Pointer {
             let v = self.operand_value(&var mono, &var target, a, node)
             self.store("ptr", v, dest)
+            return
+        }
+        // An address as a number and back, at the pointer's own width: a
+        // narrower integer would need a range check this slice does not make.
+        let to_pointer = fl.kind == TargetKind.Int && tl.kind == TargetKind.Pointer
+        let to_address = fl.kind == TargetKind.Pointer && tl.kind == TargetKind.Int
+        if word.equals("cast") && (to_pointer || to_address) && fl.bits == tl.bits {
+            let x = self.operand_value(&var mono, &var target, a, node)
+            if to_pointer {
+                let v = self.assign(ll_pointer_cast("inttoptr", ll_value_type(&fl), x, "ptr"))
+                self.store("ptr", v, dest)
+            } else {
+                let ty = ll_value_type(&tl)
+                let v = self.assign(ll_pointer_cast("ptrtoint", "ptr", x, ty))
+                self.store(ty, v, dest)
+            }
             return
         }
         if fl.kind != TargetKind.Int || tl.kind != TargetKind.Int {
@@ -835,6 +890,20 @@ public func ll_lossless(fb: Int, fs: Bool, tb: Int, ts: Bool) -> Bool {
         return tb >= fb
     }
     not fs && ts && tb > fb
+}
+
+// The instruction `word` (`inttoptr` or `ptrtoint`) converting `x` of type
+// `from` to type `to`.
+func ll_pointer_cast(word: String, from: String, x: String, to: String) -> String {
+    var text = StringBuilder()
+    try! text.append(word)
+    try! text.append(" ")
+    try! text.append(from)
+    try! text.append(" ")
+    try! text.append(x)
+    try! text.append(" to ")
+    try! text.append(to)
+    text.build()
 }
 
 func ll_signed_min(bits: Int) -> String {

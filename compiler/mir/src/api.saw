@@ -8,7 +8,8 @@ import sawmir.program.{MirProgram, mir_program}
 import sawmir.verify.{mir_verify_module}
 import sawresolve.api.{append_res_diag}
 import sawresolve.verify.{res_verify_module}
-import sawtypecheck.api.{append_tc_diag, typecheck_program}
+import sawasserts.layout.{asserts_typecheck_program}
+import sawtypecheck.api.{append_tc_diag}
 import sawtypecheck.bodyverify.{tc_verify_bodies}
 import sawtypecheck.verify.{tc_verify_module}
 
@@ -27,7 +28,7 @@ public struct MirOptions {
 // The program whose entry file is `path`, type checked and lowered to MIR.
 public func mir_lower_file(path: String, std_root: String, names: &Vector<String>,
                            dirs: &Vector<String>) -> MirProgram {
-    let tc = typecheck_program(path, std_root, &names, &dirs)
+    let tc = asserts_typecheck_program(path, std_root, &names, &dirs)
     var p = mir_program(move tc)
     mir_lower_program(&var p)
     move p

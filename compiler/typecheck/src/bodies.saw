@@ -1438,6 +1438,13 @@ extension TcProgram {
             self.refuse_not_constant(offender, pos)
             return
         }
+        if pos == TcConstPosition.Assert {
+            let measures = self.layout_measures(e)
+            if measures.len() > 0 {
+                self.defer_layout_assert(e, message, &measures)
+                return
+            }
+        }
         if pos == TcConstPosition.Static && d >= 0 && self.refuse_static_cycle(d, e) {
             return
         }
@@ -1451,6 +1458,65 @@ extension TcProgram {
             }
             self.refuse(e, "static_assert.failed", msg.build())
         }
+    }
+
+    // Every `sizeof` and `alignof` call in constant expression `e`: what a
+    // `static_assert` reads from a layout.
+    public func layout_measures(&self, e: Int) -> Vector<Int> {
+        var out = Vector<Int>()
+        self.collect_measures(e, &var out)
+        move out
+    }
+
+    func collect_measures(&self, e: Int, out: &var Vector<Int>) {
+        if e < 0 || self.is_leaf(e) {
+            return
+        }
+        if self.measured_type(e) >= 0 {
+            try! out.push(e)
+            return
+        }
+        let n = self.child_count(e)
+        var k = 0
+        while k < n {
+            // Stage 0 workaround (SL:hazards S4): canonical: self.collect_measures(self.child(e, k), &var out)
+            let c = self.child(e, k)
+            self.collect_measures(c, &var out)
+            k = k + 1
+        }
+    }
+
+    // Whether layout measurement `e` is a `sizeof`, not an `alignof`.
+    public func measures_size(&self, e: Int) -> Bool {
+        let at = if e < self.call_at.len() { self.call_at[e] } else { -1 }
+        if at < 0 {
+            return false
+        }
+        let c = self.calls[at]
+        c.spelling >= 0 && self.name_text(c.spelling).equals("sizeof")
+    }
+
+    // Defers the `static_assert` whose condition `e` reads layouts through
+    // `measures` (SL:open-questions D40): the layout-assert funnel checks one
+    // over concrete types once typecheck ends, and mono one over a type
+    // parameter, per instantiation.
+    func defer_layout_assert(&var self, e: Int, message: Int, measures: &Vector<Int>) {
+        var generic = false
+        var k = 0
+        while k < measures.len() {
+            // Stage 0 workaround (SL:hazards S4): canonical: if self.mentions_param(self.measured_type(measures[k])) {
+            let measured = self.measured_type(measures[k])
+            if self.mentions_param(measured) {
+                generic = true
+            }
+            k = k + 1
+        }
+        try! self.layout_asserts.push(e)
+        try! self.layout_assert_messages.push(message)
+        // Stage 0 workaround (SL:hazards S4): canonical: try! self.layout_assert_decls.push(self.current_decl)
+        let holder = self.current_decl
+        try! self.layout_assert_decls.push(holder)
+        try! self.layout_assert_generic.push(generic)
     }
 
     // A `static_assert`'s condition, at the top of a file or in a body.
@@ -1493,7 +1559,7 @@ extension TcProgram {
 
     // A `static_assert` message leaf as the refusal quotes it: the string
     // literal's contents.
-    func assert_message_text(&self, e: Int) -> String {
+    public func assert_message_text(&self, e: Int) -> String {
         let m = self.node_module(e)
         let text = self.text(m, e)
         let n = text.len()
@@ -1675,7 +1741,10 @@ extension TcProgram {
         }
         let alias = c.role == TcRole.Conversion && spelling.equals("alias")
         let memberwise = c.role == TcRole.Memberwise && pos == TcConstPosition.Static
-        if not alias && not memberwise {
+        // `Atomic(<int>)` is a static's constant, the form the spec names
+        // (SL:open-questions D38); no other construction of a cell is.
+        let atomic = c.role == TcRole.Conversion && spelling.equals("atomic") && pos == TcConstPosition.Static
+        if not alias && not memberwise && not atomic {
             return e
         }
         let callee = self.res.first_node_child(e)
@@ -1701,7 +1770,7 @@ extension TcProgram {
 
     // The type `sizeof<T>()` or `alignof<T>()` call `e` measures, or -1 when
     // `e` is no such call.
-    func measured_type(&self, e: Int) -> Int {
+    public func measured_type(&self, e: Int) -> Int {
         let at = if e < self.call_at.len() { self.call_at[e] } else { -1 }
         if at < 0 {
             return -1
@@ -3297,9 +3366,7 @@ extension TcProgram {
             let ct = self.through_refs(c)
             let cd = self.nominal_decl(ct)
             if cd >= 0 && (cd == self.known.unsafe_pointer || cd == self.known.unsafe_const_pointer) {
-                self.not_yet(e, "pointer arithmetic, `p + i`,")
-                let bad = self.error_type
-                return self.set_type(e, bad, false)
+                return self.pointer_offset(e, ct, operand, spelling)
             }
             if self.has_error(ct) {
                 poisoned = true
@@ -3344,6 +3411,61 @@ extension TcProgram {
         }
         self.record_builtin(e, -1, TcRole.BuiltinOperator, spelling)
         self.set_type(e, t, false)
+    }
+
+    // `p + n` and `p - n` on a raw pointer `p` of type `pt`: the pointer `n`
+    // elements on, or back, a stride of the pointee's size, at `p`'s type. `n` is an integer of any width, a constant one an
+    // `Int`. Any other chain over a pointer is refused.
+    func pointer_offset(&var self, e: Int, pt: Int, operand: Int, spelling: String) -> Int {
+        var operands = Vector<Int>()
+        let n = self.child_count(e)
+        var k = 0
+        while k < n {
+            let child = self.child(e, k)
+            if not self.is_leaf(child) {
+                try! operands.push(child)
+            }
+            k = k + 1
+        }
+        let offsetting = spelling.equals("+") || spelling.equals("-")
+        if not offsetting || operand != 1 || operands.len() != 2 {
+            self.refuse_operand(e, "a raw pointer takes only `p + n` and `p - n`, an integer offset after the pointer", pt)
+            // Every operand but the pointer is typed still, so none is left
+            // without a type.
+            var j = 0
+            while j < operands.len() {
+                let other = operands[j]
+                if j + 1 != operand {
+                    if self.is_constant_expr(other) {
+                        let i = self.int_type()
+                        self.constant_part(other, i)
+                    } else {
+                        let _ = self.expr(other, TC_WANT_NONE)
+                    }
+                    self.consume(other)
+                }
+                j = j + 1
+            }
+            let bad = self.error_type
+            return self.set_type(e, bad, false)
+        }
+        let count = operands[1]
+        if self.is_constant_expr(count) {
+            let i = self.int_type()
+            self.constant_part(count, i)
+            self.consume(count)
+        } else {
+            let _ = self.expr(count, TC_WANT_NONE)
+            self.consume(count)
+            let ct = self.through_refs(count)
+            if not self.has_error(ct) && not self.is_integer(ct) {
+                self.refuse_operand(count, "a pointer's offset is an integer", ct)
+                let bad = self.error_type
+                return self.set_type(e, bad, false)
+            }
+        }
+        self.record_builtin(e, -1, TcRole.BuiltinOperator, spelling)
+        self.set_type(e, pt, false)
     }
 
     // A shift's count: an integer of any width, a constant one an `Int`.
@@ -6258,6 +6380,49 @@ extension TcProgram {
         self.set_type(e, opt, false)
     }
 
+    // `UnsafeMutableInterior(v)` and `Atomic(v)`: the cell, or the atomic word
+    // over one, built from one value, bare or labeled `value:` (design 186;
+    // SL:open-questions D38). The cell is layout-transparent, so each is a
+    // conversion of `v` at the wrapper's type. The payload's type is the
+    // wanted wrapper's argument when one is wanted, else `v`'s own.
+    func cell_construct(&var self, e: Int, d: Int, args: &TcArgs, want: Int) -> Int {
+        let value_name = self.res.intern("value")
+        if args.values.len() != 1 || (args.labels[0] >= 0 && args.labels[0] != value_name) {
+            self.refuse(e, "call.arity", "a cell is constructed from one value, written bare or as `value:`")
+            self.type_args_alone(&args)
+            let bad = self.error_type
+            return self.set_type(e, bad, false)
+        }
+        let v = args.values[0]
+        var payload = -1
+        if want >= 0 && self.is_nominal_of(want, d) && self.nominal_args(want).len() == 1 {
+            payload = self.arg_of(want, 0)
+        }
+        if payload >= 0 {
+            self.check_argument(v, payload)
+        } else {
+            let _ = self.expr(v, TC_WANT_NONE)
+            self.consume(v)
+            payload = self.through_refs(v)
+        }
+        if self.has_error(payload) {
+            let bad = self.error_type
+            return self.set_type(e, bad, false)
+        }
+        var targs = Vector<Int>()
+        try! targs.push(payload)
+        let t = self.mk_nominal(d, &targs)
+        let none = Vector<Int>()
+        let _ = self.record_call(e, d, TcRole.Conversion, t, &none)
+        let at = self.call_at[e]
+        var c = self.calls[at]
+        // Stage 0 workaround (SL:hazards S4): canonical: c.spelling = self.res.intern(if d == self.known.atomic { "atomic" } else { "interior" })
+        let word = if d == self.known.atomic { "atomic" } else { "interior" }
+        c.spelling = self.res.intern(word)
+        self.calls[at] = c
+        self.set_type(e, t, false)
+    }
+
     // `A(x)` for a distinct alias `A` over `T`: `x` becomes an `A`, which
     // reads as its `T` (design 250 names `Byte(...)` the way in).
     func alias_construct(&var self, e: Int, alias: Int, args: &TcArgs) -> Int {
@@ -6360,6 +6525,10 @@ extension TcProgram {
         if owner >= 0 && self.has_error(owner) {
             self.type_args_alone(&args)
             return self.set_type(e, owner, false)
+        }
+        if d >= 0 && (d == self.known.interior || d == self.known.atomic) {
+            let wanted = if owner >= 0 { owner } else { want }
+            return self.cell_construct(e, d, &args, wanted)
         }
         var cands = Vector<TcCand>()
         let inits = self.inits_of(d, m)
@@ -8111,18 +8280,24 @@ extension TcProgram {
     }
 
     // An atomic intrinsic of the new std's builtin module (SL:open-questions
-    // D23), typed as Stage 0's synthesized helper of its name: the add and the
-    // release subtract take a word pointer and a delta and return the old
-    // value, the relaxed load takes a word pointer and returns the word, and
-    // the acquire fence takes nothing.
+    // D23, D39), typed as Stage 0's synthesized helper of its name: an add or
+    // the release subtract takes a word pointer and a delta and returns the
+    // old value, a load takes a word pointer and returns the word, a store
+    // takes a word pointer and the word, the compare-exchange takes a word
+    // pointer, the expected word and the desired one and returns whether it
+    // swapped, and the acquire fence takes nothing.
     func atomic_intrinsic(&var self, e: Int, d: Int, name: String, args: &TcArgs) -> Int {
         let fence = name.equals("__saw_atomic_fence_acquire")
-        let load = name.equals("__saw_atomic_load_i64_relaxed")
+        let load = name.equals("__saw_atomic_load_i64_relaxed") || name.equals("__saw_atomic_load_i64_seq_cst")
+        let store = name.equals("__saw_atomic_store_i64_seq_cst")
+        let exchange = name.equals("__saw_atomic_cmpxchg_i64_seq_cst")
         var wanted = 2
         if fence {
             wanted = 0
         } else if load {
             wanted = 1
+        } else if exchange {
+            wanted = 3
         }
         if args.values.len() != wanted {
             var msg = StringBuilder()
@@ -8143,10 +8318,17 @@ extension TcProgram {
             if not load {
                 self.check_argument(args.values[1], word)
             }
+            if exchange {
+                self.check_argument(args.values[2], word)
+            }
         }
         self.record_builtin(e, d, TcRole.Builtin, name)
-        if fence {
+        if fence || store {
             let t = self.void_type()
+            return self.set_type(e, t, false)
+        }
+        if exchange {
+            let t = self.bool_type()
             return self.set_type(e, t, false)
         }
         let t = self.int_type()

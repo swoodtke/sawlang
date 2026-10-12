@@ -1,0 +1,12 @@
+// refuses: transfer.implicit-copy at 10:17
+// The new std's `Atomic<Int>` is move-only: a copy would be a second counter
+// (design 202), so a copy is refused, where `HITS`, a static of one, is
+// accepted, since it declares `UnsafeSync`.
+
+static HITS: Atomic<Int> = Atomic(0)
+
+func main() {
+    let local = Atomic(0)
+    let alias = local
+    print(alias.load() + HITS.fetch_add(1))
+}

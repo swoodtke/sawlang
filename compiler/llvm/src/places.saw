@@ -172,6 +172,19 @@ extension LlEmitter {
         }
         let l = self.lay_at(&var mono, &var target, t, node)
         let kind = mono.static_kinds[d]
+        if kind == 3 && l.size == target.word {
+            // An `Atomic(<int>)`: its cell is layout-transparent, so the
+            // static is the word, in writable storage like every static.
+            var cell = StringBuilder()
+            try! cell.append(symbol)
+            try! cell.append(" = internal global i64 ")
+            try! cell.append(mono.static_bits[d])
+            try! cell.append(", align ")
+            try! cell.append(l.align)
+            try! self.globals.append(cell.build())
+            try! self.globals.append("\n")
+            return symbol
+        }
         if not ll_is_scalar(&l) || (kind != 0 && kind != 1) {
             self.refuse_here(&var mono, node, "a static whose value is not an integer or a Bool is not in the backend slice yet")
             return symbol

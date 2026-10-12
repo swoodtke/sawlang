@@ -1,0 +1,39 @@
+// An address as a number and back: a pointer cast to `Int` and the `Int`
+// cast back address the same storage, and `0 as UnsafePointer<T>` is the null
+// pointer, whose address is 0.
+
+struct Pair {
+    left: Int
+    right: Int
+}
+
+func through_address(slot: UnsafePointer<Int>) unsafe -> Int {
+    let address = slot as Int
+    let again = address as UnsafePointer<Int>
+    again[0] = again[0] + 5
+    again[0]
+}
+
+func null_address() unsafe -> Int {
+    let null = 0 as UnsafePointer<Int8>
+    null as Int
+}
+
+func pair_right(address: Int) unsafe -> Int {
+    let p = address as UnsafePointer<Pair>
+    p[0].right
+}
+
+func probe() unsafe {
+    var n = 37
+    print(through_address((&n) as UnsafePointer<Int>))
+    print(n)
+    print(null_address())
+    var pair = Pair(left: 1, right: 2)
+    let address = ((&pair) as UnsafePointer<Pair>) as Int
+    print(pair_right(address))
+}
+
+func main() {
+    probe()
+}

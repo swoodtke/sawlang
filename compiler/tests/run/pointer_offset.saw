@@ -1,0 +1,52 @@
+// `p + n` and `p - n` on a raw pointer step `n` elements of the pointee's
+// size: four bytes for an `Int32`, eight for an `Int`, one for an `Int8`, by
+// an offset of any integer width.
+
+struct Quad {
+    a: Int32
+    b: Int32
+    c: Int32
+    d: Int32
+}
+
+struct Pair {
+    first: Int
+    second: Int
+}
+
+func third(q: UnsafePointer<Int32>) unsafe -> Int32 {
+    let at = q + 2
+    at[0]
+}
+
+func back_one(q: UnsafePointer<Int32>) unsafe -> Int32 {
+    let last = q + 3
+    let before = last - 1
+    before[0]
+}
+
+func second_word(p: UnsafePointer<Int>) unsafe -> Int {
+    let next = p + (1 as Int32)
+    next[0]
+}
+
+func byte_distance(p: UnsafePointer<Int>) unsafe -> Int {
+    let bytes = p as UnsafePointer<Int8>
+    let moved = bytes + 8
+    (moved as Int) - (bytes as Int)
+}
+
+func probe() unsafe {
+    var q = Quad(a: 10, b: 20, c: 30, d: 40)
+    let qp = (&q) as UnsafePointer<Int32>
+    print(third(qp))
+    print(back_one(qp))
+    var pair = Pair(first: 7, second: 9)
+    let pp = (&pair) as UnsafePointer<Int>
+    print(second_word(pp))
+    print(byte_distance(pp))
+}
+
+func main() {
+    probe()
+}

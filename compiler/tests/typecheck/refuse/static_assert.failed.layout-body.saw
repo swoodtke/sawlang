@@ -1,0 +1,20 @@
+// refuses: static_assert.failed at 14:19
+// a `static_assert` over a struct's layout in the body of a function nothing
+// calls: checked all the same, under `--check`, beside a true one
+
+struct Triple {
+    a: Int8
+    b: Int16
+    c: Int32
+}
+
+func unused() -> Int {
+    static_assert(sizeof<Triple>() == 8, "packed into two halves")
+    static_assert(alignof<Triple>() == 4, "an Int32's alignment")
+    static_assert(sizeof<Triple>() == 7, "no padding")
+    0
+}
+
+func main() {
+    print(0)
+}

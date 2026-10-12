@@ -1,0 +1,7 @@
+// refuses: atomic.width at 5:12
+// an `Atomic` of a width other than `Int`, written as a local's type
+
+func main() {
+    let a: Atomic<Int8> = Atomic(0)
+    print(a.load())
+}

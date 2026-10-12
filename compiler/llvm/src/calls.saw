@@ -269,17 +269,17 @@ extension LlEmitter {
     }
 
     // An extern call by the C convention: scalars direct, a nullable pointer
-    // result made an Optional, anything else refused.
+    // result made an Optional, anything else refused. A variadic extern's
+    // extra arguments pass by C's default promotions, an integer narrower
+    // than 32 bits widened to `i32` by its signedness, and the call names the
+    // callee's function type, as LLVM requires of a variadic one.
     func extern_call(&var self, mono: &var MonoProgram, target: &var Target, d: Int, info: &MirCall) {
         let node = info.node
         let s = mono.dp.bc.mir.tc.sigs[d]
         let name_id = mono.dp.bc.mir.tc.res.decls[d].name
         let name = mono.dp.bc.mir.tc.res.name_text(name_id)
-        if (s.flags & TC_FLAG_VARIADIC) != 0 {
-            self.refuse_here(&var mono, node, "a call of a variadic extern is not in the backend slice yet")
-            return
-        }
-        var decl = StringBuilder()
+        let variadic = (s.flags & TC_FLAG_VARIADIC) != 0
+        var types = StringBuilder()
         var args = StringBuilder()
         let result_class = target.c_class(&var mono.dp.bc.mir.tc, s.result, true)
         let rl = self.lay(&var mono, &var target, s.result)
@@ -292,11 +292,6 @@ extension LlEmitter {
             self.refuse_here(&var mono, node, "an extern whose result crosses the C convention as an aggregate is not in the backend slice yet")
             return
         }
-        try! decl.append("declare ")
-        try! decl.append(ret_type)
-        try! decl.append(" @")
-        try! decl.append(name)
-        try! decl.append("(")
         var k = 0
         while k < s.param_count {
             let pt = mono.dp.bc.mir.tc.params[s.param_first + k].ty
@@ -307,10 +302,10 @@ extension LlEmitter {
             }
             let pl = self.lay(&var mono, &var target, pt)
             if k > 0 {
-                try! decl.append(", ")
+                try! types.append(", ")
                 try! args.append(", ")
             }
-            try! decl.append(ll_value_type(&pl))
+            try! types.append(ll_value_type(&pl))
             let o = mono.dp.bc.mir.lists[info.arg_first + k]
             let v = self.operand_value(&var mono, &var target, o, node)
             try! args.append(ll_value_type(&pl))
@@ -318,11 +313,54 @@ extension LlEmitter {
             try! args.append(v)
             k = k + 1
         }
+        if variadic {
+            if k > 0 {
+                try! types.append(", ")
+            }
+            try! types.append("...")
+            while k < info.arg_count {
+                let o = mono.dp.bc.mir.lists[info.arg_first + k]
+                let at = mono.dp.bc.mir.operands[o].ty
+                if target.c_class(&var mono.dp.bc.mir.tc, at, false) != TargetCClass.Direct {
+                    self.refuse_here(&var mono, node, "a variadic argument that crosses the C convention as an aggregate is not in the backend slice yet")
+                    return
+                }
+                let al = self.lay(&var mono, &var target, at)
+                var ty = ll_value_type(&al)
+                var v = self.operand_value(&var mono, &var target, o, node)
+                if al.kind == TargetKind.Int && al.bits < 32 {
+                    // Stage 0 workaround (SL:hazards S4): canonical: v = self.int_convert(v, al.bits, 32, self.signed_type(&mono, at))
+                    let signed = self.signed_type(&mono, at)
+                    v = self.int_convert(v, al.bits, 32, signed)
+                    ty = "i32"
+                }
+                if k > 0 {
+                    try! args.append(", ")
+                }
+                try! args.append(ty)
+                try! args.append(" ")
+                try! args.append(v)
+                k = k + 1
+            }
+        }
+        let params = types.build()
+        var decl = StringBuilder()
+        try! decl.append("declare ")
+        try! decl.append(ret_type)
+        try! decl.append(" @")
+        try! decl.append(name)
+        try! decl.append("(")
+        try! decl.append(params)
         try! decl.append(")")
         self.declare(name, decl.build())
         var call = StringBuilder()
         try! call.append("call ")
         try! call.append(ret_type)
+        if variadic {
+            try! call.append(" (")
+            try! call.append(params)
+            try! call.append(")")
+        }
         try! call.append(" @")
         try! call.append(name)
         try! call.append("(")
@@ -400,8 +438,9 @@ extension LlEmitter {
         }
     }
 
-    // The four atomics the String layer's refcount uses, as LLVM atomics of
-    // the orderings their names state.
+    // The atomic intrinsics, as LLVM atomics of the orderings their names
+    // state: the String layer's refcount's four, and `Atomic<Int>`'s
+    // sequentially consistent four.
     func atomic(&var self, mono: &var MonoProgram, target: &var Target, info: &MirCall, name: &String) {
         let node = info.node
         if name.equals("__saw_atomic_fence_acquire") {
@@ -410,6 +449,11 @@ extension LlEmitter {
         }
         let p = mono.dp.bc.mir.lists[info.arg_first]
         let at = self.operand_value(&var mono, &var target, p, node)
+        let seq_cst = name.equals("__saw_atomic_load_i64_seq_cst") || name.equals("__saw_atomic_store_i64_seq_cst") || name.equals("__saw_atomic_add_i64_seq_cst") || name.equals("__saw_atomic_cmpxchg_i64_seq_cst")
+        if seq_cst {
+            self.seq_cst_atomic(&var mono, &var target, &info, &name, at)
+            return
+        }
         var text = StringBuilder()
         if name.equals("__saw_atomic_load_i64_relaxed") {
             try! text.append("load atomic i64, ptr ")
@@ -436,6 +480,68 @@ extension LlEmitter {
         if info.dest >= 0 {
             let dest = self.place_addr(&var mono, &var target, info.dest, node)
             self.store("i64", result, dest)
+        }
+    }
+
+    // A sequentially consistent load, store, add or compare-exchange of the
+    // word at `at`.
+    func seq_cst_atomic(&var self, mono: &var MonoProgram, target: &var Target, info: &MirCall, name: &String,
+                        at: String) {
+        let node = info.node
+        var text = StringBuilder()
+        if name.equals("__saw_atomic_load_i64_seq_cst") {
+            try! text.append("load atomic i64, ptr ")
+            try! text.append(at)
+            try! text.append(" seq_cst, align 8")
+            let v = self.assign(text.build())
+            self.atomic_result("i64", v, &var mono, &var target, &info)
+            return
+        }
+        let o = mono.dp.bc.mir.lists[info.arg_first + 1]
+        let first = self.operand_value(&var mono, &var target, o, node)
+        if name.equals("__saw_atomic_store_i64_seq_cst") {
+            try! text.append("store atomic i64 ")
+            try! text.append(first)
+            try! text.append(", ptr ")
+            try! text.append(at)
+            try! text.append(" seq_cst, align 8")
+            self.put(text.build())
+            return
+        }
+        if name.equals("__saw_atomic_add_i64_seq_cst") {
+            try! text.append("atomicrmw add ptr ")
+            try! text.append(at)
+            try! text.append(", i64 ")
+            try! text.append(first)
+            try! text.append(" seq_cst")
+            let v = self.assign(text.build())
+            self.atomic_result("i64", v, &var mono, &var target, &info)
+            return
+        }
+        let d = mono.dp.bc.mir.lists[info.arg_first + 2]
+        let desired = self.operand_value(&var mono, &var target, d, node)
+        try! text.append("cmpxchg ptr ")
+        try! text.append(at)
+        try! text.append(", i64 ")
+        try! text.append(first)
+        try! text.append(", i64 ")
+        try! text.append(desired)
+        try! text.append(" seq_cst seq_cst")
+        let pair = self.assign(text.build())
+        var swapped = StringBuilder()
+        try! swapped.append("extractvalue \{ i64, i1 \} ")
+        try! swapped.append(pair)
+        try! swapped.append(", 1")
+        let bit = self.assign(swapped.build())
+        let flag = self.to_bool(bit)
+        self.atomic_result("i8", flag, &var mono, &var target, &info)
+    }
+
+    // An atomic's result `v`, of LLVM type `ty`, stored where the call puts it.
+    func atomic_result(&var self, ty: String, v: String, mono: &var MonoProgram, target: &var Target, info: &MirCall) {
+        if info.dest >= 0 {
+            let dest = self.place_addr(&var mono, &var target, info.dest, info.node)
+            self.store(ty, v, dest)
         }
     }
 

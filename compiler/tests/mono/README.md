@@ -187,6 +187,7 @@ nullable pointer (null is `None`), and an aggregate by value is refused.
 |---|---|---|
 | `mono.not-yet` | what the backend's slice does not lower: a builtin outside it, a format argument or an interpolated part whose rendering the slice does not make, a fixed array, repeat, `Map` or `Set` literal, a requirement no member, default or member glue in the slice meets, a call of a body this program does not lower, a closure capturing an owning value | `mono.not-yet`, `mono.not-yet.format`, `mono.not-yet.std`, `mono.not-yet.unsigned` |
 | `mono.depth` | a concrete argument nested more than 64 deep, once per program, at the first call that met the limit | `mono.depth`, `mono.depth.method` |
+| `atomic.width` | an `Atomic<X>` at an `X` other than `Int` that only an instantiation forms, once per type, where the item was reached; one a written or inferred position carries is typecheck's (SL:open-questions D38) | `atomic.width` |
 
 A refusal whose node lies in std or the builtin module is reported at the
 nearest call the program writes on the chain of items that reached it

@@ -1,0 +1,8 @@
+// refuses: atomic.width at 6:9
+// an `Atomic` of a width other than `Int` that no type names: inferred from
+// the value it is built from
+
+func main() {
+    let a = Atomic(value: 5i8)
+    print(a.load())
+}

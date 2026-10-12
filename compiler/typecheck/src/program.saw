@@ -38,6 +38,7 @@ public struct TcKnown {
     unsafe_send: Int
     unsafe_sync: Int
     interior: Int
+    atomic: Int
     serialize: Int
     deserialize: Int
     // The body half's vocabulary: the numbers, `Bool`, the range types and
@@ -247,6 +248,26 @@ public struct TcProgram {
     // position keeps nothing (`check_plain_subscript_reads`), and a closure's
     // silent by-value capture, `[x]` or implicit, at creation (`add_capture`).
     implied_copies: Vector<Int>
+    // Every `Atomic<X>` type formed at an `X` other than `Int`, whether
+    // written, inferred or substituted (`mk_nominal`), which the atomic role
+    // refuses where a position carries one (SL:open-questions D38).
+    narrow_atomics: Vector<Int>
+    // By entry of `narrow_atomics`: whether its refusal is reported.
+    narrow_reported: Vector<Bool>
+    // The `static_assert`s whose condition measures a layout, deferred from
+    // the fold (SL:open-questions D40), by condition node: its message leaf
+    // or -1, the function whose body holds it or -1, and whether it measures
+    // a type parameter. One over concrete types is checked by the
+    // layout-assert funnel once typecheck ends, one over a parameter by mono
+    // per instantiation.
+    layout_asserts: Vector<Int>
+    layout_assert_messages: Vector<Int>
+    layout_assert_decls: Vector<Int>
+    layout_assert_generic: Vector<Bool>
+    // The measurements a layout assert's fold reads: each `sizeof`/`alignof`
+    // call node, and its value at the layout being checked.
+    measured_nodes: Vector<Int>
+    measured_values: Vector<Int>
 }
 
 extension TcProgram: NoCopy {}
@@ -276,7 +297,7 @@ public func tc_program(res: ResProgram) -> TcProgram {
                         unsafe_pointer: -1, unsafe_const_pointer: -1, copy: -1, explicit_copy: -1,
                         no_copy: -1, deinit: -1, no_move: -1, equatable: -1, comparable: -1,
                         hashable: -1, printable: -1, error: -1, send: -1, sync: -1,
-                        unsafe_send: -1, unsafe_sync: -1, interior: -1, serialize: -1,
+                        unsafe_send: -1, unsafe_sync: -1, interior: -1, atomic: -1, serialize: -1,
                         deserialize: -1, int: -1, uint: -1, int8: -1, int16: -1, int32: -1,
                         int64: -1, uint8: -1, uint16: -1, uint32: -1, uint64: -1, float: -1,
                         bool_type: -1, range: -1, range_inclusive: -1, iterator: -1, box: -1,
@@ -315,7 +336,10 @@ public func tc_program(res: ResProgram) -> TcProgram {
                       closure_decls: Vector<Int>(), capture_first: Vector<Int>(),
                       capture_count: Vector<Int>(), captures: Vector<TcCapture>(),
                       closure_index: res_index(), closure_escaping: Vector<Bool>(),
-                      implied_copies: Vector<Int>())
+                      implied_copies: Vector<Int>(), narrow_atomics: Vector<Int>(), narrow_reported: Vector<Bool>(),
+                      layout_asserts: Vector<Int>(), layout_assert_messages: Vector<Int>(),
+                      layout_assert_decls: Vector<Int>(), layout_assert_generic: Vector<Bool>(),
+                      measured_nodes: Vector<Int>(), measured_values: Vector<Int>())
     let empty = Vector<Int>()
     let unlabeled = Vector<Int>()
     p.error_type = p.types.intern(TcKind.Error, -1, 0, 0, &empty, &unlabeled)

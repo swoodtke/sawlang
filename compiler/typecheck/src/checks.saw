@@ -496,3 +496,58 @@ extension TcProgram {
         return -1
     }
 }
+
+// The atomic role's width rule (SL:open-questions D38): v1 atomics are
+// `Atomic<Int>` only, since their operations are the `i64` intrinsics. Each
+// `Atomic<X>` formed at another `X` (`narrow_atomics`) is refused once, where
+// a position first carries exactly it, or else where one first carries a type
+// holding it. One formed only by monomorphization is mono's to refuse.
+public func tc_check_atomic_widths(p: &var TcProgram) {
+    var k = 0
+    while k < p.narrow_atomics.len() {
+        let t = p.narrow_atomics[k]
+        k = k + 1
+        // A written type first, then an expression; exactly the type
+        // first, then one holding it.
+        var at = tc_first_carrier(&p, false, t, true)
+        if at < 0 {
+            at = tc_first_carrier(&p, true, t, true)
+        }
+        if at < 0 {
+            at = tc_first_carrier(&p, false, t, false)
+        }
+        if at < 0 {
+            at = tc_first_carrier(&p, true, t, false)
+        }
+        if at >= 0 {
+            p.refuse_narrow_atomic(at, t)
+            p.narrow_reported[k - 1] = true
+        }
+    }
+}
+
+// The first node whose written type, or with `expressions` whose
+// expression's type, is `t`, or, unless `exact`, holds it; -1 when none is.
+func tc_first_carrier(p: &TcProgram, expressions: Bool, t: Int, exact: Bool) -> Int {
+    let count = if expressions { p.expr_types.len() } else { p.node_types.len() }
+    var n = 0
+    while n < count {
+        let carried = if expressions { p.expr_types[n] } else { p.node_types[n] }
+        if carried == t || (not exact && carried >= 0 && p.type_holds(carried, t, 0)) {
+            return n
+        }
+        n = n + 1
+    }
+    return -1
+}
+
+extension TcProgram {
+    public func refuse_narrow_atomic(&var self, at: Int, t: Int) {
+        var msg = StringBuilder()
+        try! msg.append("`")
+        try! msg.append(self.type_text(t))
+        try! msg.append("` is not an atomic this compiler lowers: v1 atomics are `Atomic<Int>` only")
+        let m = self.node_module(at)
+        self.refuse_in(m, at, "atomic.width", msg.build())
+    }
+}

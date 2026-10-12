@@ -1,0 +1,107 @@
+// The layout-assert funnel (SL:open-questions D40): a `static_assert` that
+// measures a type with `sizeof` or `alignof` waits for the type's layout, which
+// only the target description computes. Typecheck defers it, and this package,
+// which sits above both, checks each one over concrete types as soon as
+// typecheck ends, in every mode; mono checks one over a type parameter per
+// instantiation (`mono_check_layout_asserts`).
+
+import sawtarget.layout.{Target, target_named}
+import sawtypecheck.api.{typecheck_program}
+import sawtypecheck.bodies.{tc_check_bodies}
+import sawtypecheck.checks.{tc_check_atomic_widths}
+import sawtypecheck.fold.{TcFold}
+import sawtypecheck.program.{TcProgram}
+import sawtypecheck.typeops.{TcClient}
+
+// THE LAYOUT-ASSERT FUNNEL: the program typechecked, then every deferred
+// `static_assert` over concrete types checked against its layout, in every
+// body and at the top of every file, reachable or not, so `--check` refuses a
+// false one as surely as a build does.
+// ENTRY POINTS:
+//     driver_resolve
+//     mir_lower_file
+public func asserts_typecheck_program(path: String, std_root: String, names: &Vector<String>,
+                                      dirs: &Vector<String>) -> TcProgram {
+    var p = typecheck_program(path, std_root, &names, &dirs)
+    asserts_check_concrete(&var p)
+    move p
+}
+
+// Each deferred assertion that measures no type parameter, against the
+// layouts of the types it measures.
+func asserts_check_concrete(p: &var TcProgram) {
+    // Every target sawc2 describes is LP64 with natural alignment, so one
+    // answers for all of them.
+    var target = target_named("arm64-apple-darwin")
+    var k = 0
+    while k < p.layout_asserts.len() {
+        if not p.layout_assert_generic[k] {
+            let cond = p.layout_asserts[k]
+            let message = p.layout_assert_messages[k]
+            let measures = p.layout_measures(cond)
+            var types = Vector<Int>()
+            var j = 0
+            while j < measures.len() {
+                try! types.push(p.measured_type(measures[j]))
+                j = j + 1
+            }
+            let verdict = asserts_verdict(&var p, &var target, cond, message, &measures, &types, "")
+            if verdict.rule.len() > 0 {
+                let m = p.node_module(cond)
+                p.refuse_in(m, cond, verdict.rule, verdict.message)
+            }
+        }
+        k = k + 1
+    }
+}
+
+// A deferred assertion's verdict: the rule it is refused by and why, or an
+// empty rule when it holds.
+public struct AssertsVerdict {
+    rule: String
+    message: String
+}
+
+// Assertion `cond`, its message leaf `message`, measuring `measures` at the
+// concrete `types`: `static_assert.failed` when it folds false, and
+// `slice.not-yet` when a layout it reads is one the target does not give.
+// `instance`, when not empty, names the instantiation that made it concrete.
+public func asserts_verdict(p: &var TcProgram, target: &var Target, cond: Int, message: Int,
+                            measures: &Vector<Int>, types: &Vector<Int>, instance: String) -> AssertsVerdict {
+    p.measured_nodes = Vector<Int>()
+    p.measured_values = Vector<Int>()
+    var j = 0
+    while j < measures.len() {
+        let l = target.layout(&var p, types[j])
+        let why = target.reason_of(&l)
+        if why.len() > 0 {
+            var msg = StringBuilder()
+            try! msg.append("a layout this `static_assert` measures is not in the bootstrap slice yet: ")
+            try! msg.append(why)
+            p.measured_nodes = Vector<Int>()
+            p.measured_values = Vector<Int>()
+            return AssertsVerdict(rule: "slice.not-yet", message: msg.build())
+        }
+        try! p.measured_nodes.push(measures[j])
+        let value = if p.measures_size(measures[j]) { l.size } else { l.align }
+        try! p.measured_values.push(value)
+        j = j + 1
+    }
+    let v = p.fold_constant(cond)
+    p.measured_nodes = Vector<Int>()
+    p.measured_values = Vector<Int>()
+    if v.ok && v.ty >= 0 && p.is_bool(v.ty) && v.bits == 0 {
+        var msg = StringBuilder()
+        try! msg.append("static assertion failed")
+        if message >= 0 {
+            try! msg.append(": ")
+            try! msg.append(p.assert_message_text(message))
+        }
+        if instance.len() > 0 {
+            try! msg.append(", at ")
+            try! msg.append(instance)
+        }
+        return AssertsVerdict(rule: "static_assert.failed", message: msg.build())
+    }
+    AssertsVerdict(rule: "", message: "")
+}

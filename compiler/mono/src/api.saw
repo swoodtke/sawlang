@@ -14,9 +14,11 @@ import saweval.interp.{eval_step_budget}
 import sawmir.api.{mir_append_checks, mir_append_diag, mir_append_invariants, mir_lower_file}
 import sawmir.program.{MirProgram}
 import sawmono.dump.{mono_dump_layouts}
-import sawmono.program.{MonoProgram, mono_program}
+import sawmono.program.{MonoItemKind, MonoProgram, mono_program}
 import sawmono.worklist.{mono_rules}
-import sawtarget.layout.{Target}
+import sawasserts.layout.{AssertsVerdict, asserts_verdict}
+import sawtarget.layout.{Target, target_named}
+import sawtypecheck.bodies.{tc_check_bodies}
 
 // How `sawc2 mono` treats one entry file.
 public struct MonoOptions {
@@ -83,8 +85,62 @@ public func mono_lower_file(out: &var StringBuilder, path: String, std_root: Str
     if not blocked {
         mono_take_statics(&var mono, path, std_root, &names, &dirs)
         mono.run()
+        mono_check_layout_asserts(&var mono)
     }
     move mono
+}
+
+// The deferred `static_assert`s over a type parameter (SL:open-questions
+// D40), each checked at every instantiation of the function whose body holds
+// it, against the layouts its arguments give; one in a body never
+// instantiated is never checked.
+func mono_check_layout_asserts(mono: &var MonoProgram) {
+    if mono.dp.bc.mir.tc.layout_asserts.len() == 0 {
+        return
+    }
+    // Every target sawc2 describes is LP64 with natural alignment, so one
+    // answers for all of them, as the layout-assert funnel's does.
+    var target = target_named("arm64-apple-darwin")
+    var k = 0
+    while k < mono.items.len() {
+        let it = mono.items[k]
+        k = k + 1
+        if it.kind != MonoItemKind.Function || it.decl < 0 {
+            continue
+        }
+        var a = 0
+        while a < mono.dp.bc.mir.tc.layout_asserts.len() {
+            if mono.dp.bc.mir.tc.layout_assert_generic[a] && mono.dp.bc.mir.tc.layout_assert_decls[a] == it.decl {
+                mono_check_instance(&var mono, &var target, k - 1, a)
+            }
+            a = a + 1
+        }
+    }
+}
+
+// Deferred assertion `a` at item `k`'s concrete arguments.
+func mono_check_instance(mono: &var MonoProgram, target: &var Target, k: Int, a: Int) {
+    let cond = mono.dp.bc.mir.tc.layout_asserts[a]
+    let message = mono.dp.bc.mir.tc.layout_assert_messages[a]
+    let measures = mono.dp.bc.mir.tc.layout_measures(cond)
+    var types = Vector<Int>()
+    var j = 0
+    while j < measures.len() {
+        let written = mono.dp.bc.mir.tc.measured_type(measures[j])
+        try! types.push(mono.concrete_type(k, written))
+        j = j + 1
+    }
+    var instance = StringBuilder()
+    try! instance.append("`")
+    try! instance.append(mono.item_name(k))
+    try! instance.append("`")
+    let verdict = asserts_verdict(&var mono.dp.bc.mir.tc, &var target, cond, message, &measures, &types,
+                                  instance.build())
+    if verdict.rule.equals("static_assert.failed") {
+        mono.refuse(cond, "static_assert.failed", verdict.message)
+    } else if verdict.rule.len() > 0 {
+        mono.refuse(cond, "mono.not-yet", verdict.message)
+    }
 }
 
 // Drop elaboration over every module checked in full, its refusals and the
@@ -155,6 +211,10 @@ func mono_take_statics(mono: &var MonoProgram, path: String, std_root: String, n
                 case Case -> {
                     mono.static_kinds[d] = 2
                     mono.static_bits[d] = v.decl
+                },
+                case Cell -> {
+                    mono.static_kinds[d] = 3
+                    mono.static_bits[d] = v.bits
                 },
                 case _ -> {}
             }

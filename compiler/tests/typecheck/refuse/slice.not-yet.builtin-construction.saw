@@ -1,6 +1,11 @@
 // refuses: slice.not-yet at 5:13
 // constructing a builtin type no declaration writes an init for
 
+func region() unsafe -> Int {
+    let m = UnsafeMemory<Int, Normal>(4096)
+    0
+}
+
 func main() {
-    let a = Atomic(5)
+    print(0)
 }
