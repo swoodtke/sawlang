@@ -1,0 +1,36 @@
+// The running executable's path (D44): macOS.
+//
+// Where a host records the executable is the host-specific fact; std frees
+// the result and turns a NULL into its error. Keep in step with
+// host_linux/executable_path.saw.
+
+extern "C" {
+    // The path as dyld(3) recorded it, which may name a symbolic link.
+    func _NSGetExecutablePath(buf: UnsafePointer<Int8>, size: UnsafePointer<UInt32>) -> Int32
+    func realpath(path: UnsafePointer<Int8>, resolved: UnsafePointer<Int8>) -> UnsafePointer<Int8>?
+    func malloc(size: Int) -> UnsafePointer<Int8>?
+    func free(ptr: UnsafePointer<Int8>)
+}
+
+// The executable's absolute path with every symbolic link resolved, in a
+// buffer the caller frees, or NULL. The first call sizes the buffer, so a long
+// path cannot be truncated.
+@export("__saw_rt_executable_path")
+func rt_executable_path() unsafe -> UnsafePointer<Int8> {
+    let none = 0 as UnsafePointer<Int8>
+    var size: UInt32 = 0
+    let _ = _NSGetExecutablePath(none, (&size) as UnsafePointer<UInt32>)
+    guard let buffer = malloc((size as Int) + 1) else {
+        return none
+    }
+    if _NSGetExecutablePath(buffer, (&size) as UnsafePointer<UInt32>) != 0 {
+        free(buffer)
+        return none
+    }
+    guard let resolved = realpath(buffer, none) else {
+        free(buffer)
+        return none
+    }
+    free(buffer)
+    resolved
+}

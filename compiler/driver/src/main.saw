@@ -25,7 +25,7 @@
 //   sawc2 coro --check FILE...      each entry file's program through coroutine lowering, refusals and invariants only
 //   sawc2 build FILE [-o OUT]       the entry file's program compiled and linked by clang
 //   sawc2 build --emit-ll FILE      the entry file's program as one `.ll` on standard output
-//   sawc2 runtime --out DIR         the host's runtime objects built into DIR
+//   sawc2 runtime --out DIR         the host's, or --target's, runtime objects built into DIR
 //   sawc2 runtime --emit-ll FILE    one runtime source as one `.ll` on standard output
 //
 // The lexer's records are its canonical dump (compiler/lex/README.md), the
@@ -90,7 +90,8 @@ func driver_usage() -> Int {
     print("                  [--module-path NAME=DIR]... [FILE | @LIST]...")
     print("       sawc2 build [-O0 | -O1 | -O2 | -Os | -Oz] [--std-root DIR] [--target TRIPLE]")
     print("                   [--module-path NAME=DIR]... (FILE [-o OUT] | --emit-ll FILE)")
-    print("       sawc2 runtime [--std-root DIR] [--rt-root DIR] (--out DIR | --emit-ll FILE)")
+    print("       sawc2 runtime [--std-root DIR] [--rt-root DIR] [--target TRIPLE] [--clang PATH]")
+    print("                     (--out DIR | --emit-ll FILE)")
     DRIVER_EXIT_USAGE
 }
 
@@ -156,22 +157,37 @@ func driver_build(args: &Vector<String>) -> Int {
         print("sawc2: unknown target {}", triple)
         return DRIVER_EXIT_USAGE
     }
+    var objects = Vector<String>()
+    var clang = StringBuilder()
     if emit {
         if triple.len() == 0 {
-            triple = "arm64-apple-darwin"
+            triple = driver_read_runtime("sawc2 build", &var objects, &var clang)
+            if triple.len() == 0 {
+                print("sawc2 build: --emit-ll without --target writes the host's module, which the manifest names")
+                return DRIVER_EXIT_USAGE
+            }
         }
         return driver_emit(path, std_root, triple, speed, &names, &dirs)
     }
-    var objects = Vector<String>()
-    let host = driver_read_runtime(&var objects)
+    let host = driver_read_runtime("sawc2 build", &var objects, &var clang)
     if host.len() == 0 {
         return DRIVER_EXIT_USAGE
     }
     if triple.len() == 0 {
         triple = host
-    } else if not triple.equals(host) {
-        print("sawc2 build: --target {} is not this host ({}): a build links against the host's runtime, so only the host is a build target; `sawc2 mono --layouts --target {}` describes another target's layouts", triple, host, triple)
-        return 1
+    }
+    // Another target links against its own runtime, which a manifest of its
+    // own names once build.py's clang check has passed for it; the host's
+    // objects never reach that link (compiler/tests/run/README.md).
+    let cross = not triple.equals(host)
+    var foreign = Vector<String>()
+    var foreign_clang = StringBuilder()
+    if cross {
+        let configured = driver_read_target_runtime(triple, &var foreign, &var foreign_clang)
+        if not configured.equals(triple) {
+            print("sawc2 build: --target {} is not this host ({}), and no runtime for it is configured: `compiler/tools/build.py --runtime {}` builds one where a clang passes the opaque-pointer check for that target and its C headers compile shim.c; `sawc2 mono --layouts --target {}` describes its layouts", triple, host, triple, triple)
+            return 1
+        }
     }
     if out.len() == 0 {
         out = driver_default_output(path)
@@ -193,7 +209,10 @@ func driver_build(args: &Vector<String>) -> Int {
     if not driver_write_file(ll_path, ir.build()) {
         return 1
     }
-    driver_link(ll_path, out, speed, clang_triple, &objects)
+    if cross {
+        return driver_link(foreign_clang.build(), ll_path, out, speed, clang_triple, &foreign)
+    }
+    driver_link(clang.build(), ll_path, out, speed, clang_triple, &objects)
 }
 
 // `sawc2 build --emit-ll FILE`: the program's `.ll` on standard output, or
@@ -229,18 +248,62 @@ func driver_default_output(path: String) -> String {
     driver_path(".build", driver_stem(path), "")
 }
 
-// The host target the runtime manifest beside this binary names, its objects
-// added to `objects`; "" once the reason it cannot be read is printed. The
-// manifest is `sawc2-runtime.txt` in the directory of the executable this
-// process runs from, its real path, since `argv[0]` names a bare command
-// found through `PATH` or a symbolic link: a `target TRIPLE` line, then an
-// `object PATH` line per runtime object (compiler/tools/build.py writes it).
-func driver_read_runtime(objects: &var Vector<String>) -> String {
+// The host target the runtime manifest beside this binary names, with the
+// clang it names appended to `clang` and its objects added to `objects`; ""
+// once the reason it cannot be read is printed, headed by `command`. This is
+// how sawc2 knows its host. The manifest is `sawc2-runtime.txt` in the
+// directory of the executable this process runs from, its real path, since
+// `argv[0]` names a bare command found through `PATH` or a symbolic link: a
+// `target TRIPLE` line, a `clang PATH` line naming the clang that passed the
+// opaque-pointer check, then an `object PATH` line per runtime object
+// (compiler/tools/build.py writes it).
+func driver_read_runtime(command: String, objects: &var Vector<String>, clang: &var StringBuilder) -> String {
+    let at = driver_beside_binary(command, "sawc2-runtime.txt")
+    if at.len() == 0 {
+        return ""
+    }
+    guard let text = driver_read_source(at) else {
+        print("{}: no runtime manifest beside the binary; compiler/tools/build.py writes it", command)
+        return ""
+    }
+    driver_parse_manifest(command, at, text, &var objects, &var clang)
+}
+
+// The target the runtime manifest of another target `triple` names, read as
+// `driver_read_runtime` reads the host's: `sawc2-runtime-TRIPLE.txt` beside
+// this binary, which `compiler/tools/build.py --runtime TRIPLE` writes only
+// once its clang passes the opaque-pointer check for that target. "" when
+// there is none, which is no error: that target is simply not configured.
+func driver_read_target_runtime(triple: String, objects: &var Vector<String>, clang: &var StringBuilder) -> String {
+    var name = StringBuilder()
+    try! name.append("sawc2-runtime-")
+    try! name.append(triple)
+    try! name.append(".txt")
+    let at = driver_beside_binary("sawc2 build", name.build())
+    if at.len() == 0 {
+        return ""
+    }
+    let opened = File.open(Path(s: at))
+    match opened {
+        case Ok(_) -> {},
+        case Err(_) -> {
+            return ""
+        }
+    }
+    guard let text = driver_read_source(at) else {
+        return ""
+    }
+    driver_parse_manifest("sawc2 build", at, text, &var objects, &var clang)
+}
+
+// The path of the file `name` in the directory of the executable this process
+// runs from, its real path; "" once the reason it cannot be found is printed.
+func driver_beside_binary(command: String, name: String) -> String {
     let found = Env.executable_path()
     let binary = match found {
         case Ok(path) -> path,
         case Err(e) -> {
-            print("sawc2 build: cannot find this executable's path: {}", e)
+            print("{}: cannot find this executable's path: {}", command, e)
             return ""
         }
     }
@@ -258,13 +321,18 @@ func driver_read_runtime(objects: &var Vector<String>) -> String {
     } else {
         try! manifest.append(binary.substring(0, slash))
     }
-    try! manifest.append("/sawc2-runtime.txt")
-    let at = manifest.build()
-    guard let text = driver_read_source(at) else {
-        print("sawc2 build: no runtime manifest beside the binary; compiler/tools/build.py writes it")
-        return ""
-    }
+    try! manifest.append("/")
+    try! manifest.append(name)
+    manifest.build()
+}
+
+// The target a runtime manifest's `text`, read from `at`, names, its clang
+// appended to `clang` and its objects added to `objects`; "" once what is
+// wrong with it is printed.
+func driver_parse_manifest(command: String, at: String, text: String, objects: &var Vector<String>,
+                           clang: &var StringBuilder) -> String {
     var host = ""
+    var named = false
     var start = 0
     var k = 0
     while k <= text.len() {
@@ -273,10 +341,13 @@ func driver_read_runtime(objects: &var Vector<String>) -> String {
                 let line = text.substring(start, k)
                 if line.starts_with("target ") {
                     host = text.substring(start + 7, k)
+                } else if line.starts_with("clang ") {
+                    try! clang.append(text.substring(start + 6, k))
+                    named = true
                 } else if line.starts_with("object ") {
                     try! objects.push(text.substring(start + 7, k))
                 } else {
-                    print("sawc2 build: {}: unknown line `{}`", at, line)
+                    print("{}: {}: unknown line `{}`", command, at, line)
                     return ""
                 }
             }
@@ -285,7 +356,11 @@ func driver_read_runtime(objects: &var Vector<String>) -> String {
         k = k + 1
     }
     if host.len() == 0 || not target_known(host) {
-        print("sawc2 build: {} names no target sawc2 knows", at)
+        print("{}: {} names no target sawc2 knows", command, at)
+        return ""
+    }
+    if not named {
+        print("{}: {} names no clang; compiler/tools/build.py writes the one it chose", command, at)
         return ""
     }
     host
@@ -338,9 +413,10 @@ func driver_write_file(path: String, text: String) -> Bool {
     }
 }
 
-// Runs `clang -target TRIPLE SPEED -x ir LL -x none OBJECTS... -o OUT` and
+// Runs `CLANG -target TRIPLE SPEED -x ir LL -x none OBJECTS... -o OUT` and
 // returns its exit status, or 1 once the reason it could not run is printed.
-func driver_link(ll: String, out: String, speed: String, triple: String, objects: &Vector<String>) -> Int {
+func driver_link(clang: String, ll: String, out: String, speed: String, triple: String,
+                 objects: &Vector<String>) -> Int {
     var arguments = Vector<String>()
     try! arguments.push("-target")
     try! arguments.push(triple)
@@ -357,13 +433,13 @@ func driver_link(ll: String, out: String, speed: String, triple: String, objects
     }
     try! arguments.push("-o")
     try! arguments.push(out)
-    driver_clang("sawc2 build", &arguments)
+    driver_clang("sawc2 build", clang, &arguments)
 }
 
-// Runs clang with `arguments` and returns its exit status, or 1 once the
-// reason it could not run is printed, headed by `command`.
-func driver_clang(command: String, arguments: &Vector<String>) -> Int {
-    var clang = Command(program: "clang")
+// Runs the clang at `program` with `arguments` and returns its exit status,
+// or 1 once the reason it could not run is printed, headed by `command`.
+func driver_clang(command: String, program: String, arguments: &Vector<String>) -> Int {
+    var clang = Command(program: program)
     var i = 0
     while i < arguments.len() {
         try! clang.arg(arguments.get(i) ?? "")
@@ -386,12 +462,14 @@ func driver_clang(command: String, arguments: &Vector<String>) -> Int {
     }
 }
 
-// `sawc2 runtime --out DIR`: each runtime source of the host, as the ABI
+// `sawc2 runtime --out DIR`: each runtime source of the target, as the ABI
 // table lists them under the runtime root, compiled to `DIR/NAME.ll` and by
 // clang to `DIR/NAME.o`, and the C shim to `DIR/shim.o`, all at the module's
 // target; then every runtime seam of the table must be defined by exactly one
 // of them, and nothing else by any. On success the runtime manifest naming
-// the objects is printed. DIR must exist, and nothing is cached here, since
+// the target, the clang and the objects is printed. The target and the clang
+// are `--target` and `--clang`, else the host and the clang the manifest
+// beside this binary names. DIR must exist, and nothing is cached here, since
 // caching would need directory operations std lacks (SL:open-questions D41).
 // With `--emit-ll FILE`, that one source's `.ll` goes to standard output.
 func driver_runtime(args: &Vector<String>) -> Int {
@@ -401,6 +479,8 @@ func driver_runtime(args: &Vector<String>) -> Int {
     var rt_root = "sawc/rt"
     var out_dir = ""
     var emit = ""
+    var host = ""
+    var program = ""
     var i = 2
     while i < args.len() {
         let arg = args.get(i) ?? ""
@@ -416,6 +496,10 @@ func driver_runtime(args: &Vector<String>) -> Int {
             out_dir = value
         } else if arg.equals("--emit-ll") {
             emit = value
+        } else if arg.equals("--target") {
+            host = value
+        } else if arg.equals("--clang") {
+            program = value
         } else {
             return driver_usage()
         }
@@ -424,7 +508,26 @@ func driver_runtime(args: &Vector<String>) -> Int {
     if (out_dir.len() == 0) == (emit.len() == 0) {
         return driver_usage()
     }
-    let host = driver_runtime_host()
+    if host.len() == 0 || (program.len() == 0 && out_dir.len() > 0) {
+        var unused = Vector<String>()
+        var named = StringBuilder()
+        let found = driver_read_runtime("sawc2 runtime", &var unused, &var named)
+        if found.len() == 0 {
+            print("sawc2 runtime: without a manifest, --target and --clang name what it builds for and with")
+            return DRIVER_EXIT_USAGE
+        }
+        if host.len() == 0 {
+            host = found
+        }
+        if program.len() == 0 {
+            program = named.build()
+        }
+    }
+    if not target_known(host) {
+        // Stage 0 workaround (SL:hazards S23): canonical: print("sawc2: unknown target {host}")
+        print("sawc2: unknown target {}", host)
+        return DRIVER_EXIT_USAGE
+    }
     let speed = driver_runtime_speed()
     let options = BuildOptions(std_root: std_root, target: host, speed: speed,
                                module_triple: target_clang_triple(host), runtime: true)
@@ -443,6 +546,10 @@ func driver_runtime(args: &Vector<String>) -> Int {
         return 0
     }
     let sources = tc_runtime_sources(host)
+    if sources.len() == 0 {
+        print("sawc2 runtime: the runtime table lists no sources for {}; compiler/tools/runtime_table.py's HOSTS gives a host its runtime", host)
+        return 1
+    }
     var objects = Vector<String>()
     var seams = Vector<String>()
     var definers = Vector<String>()
@@ -478,7 +585,7 @@ func driver_runtime(args: &Vector<String>) -> Int {
         try! arguments.push(ll)
         try! arguments.push("-o")
         try! arguments.push(object)
-        let compiled = driver_clang("sawc2 runtime", &arguments)
+        let compiled = driver_clang("sawc2 runtime", program, &arguments)
         if compiled != 0 {
             return compiled
         }
@@ -503,7 +610,7 @@ func driver_runtime(args: &Vector<String>) -> Int {
     try! arguments.push(options.module_triple)
     try! arguments.push("-o")
     try! arguments.push(shim)
-    let compiled = driver_clang("sawc2 runtime", &arguments)
+    let compiled = driver_clang("sawc2 runtime", program, &arguments)
     if compiled != 0 {
         return compiled
     }
@@ -519,6 +626,7 @@ func driver_runtime(args: &Vector<String>) -> Int {
         return 1
     }
     print("target {}", host)
+    print("clang {}", program)
     k = 0
     while k < objects.len() {
         // Stage 0 workaround (SL:hazards S23): canonical: print("object {}", objects.get(k) ?? "")
@@ -527,12 +635,6 @@ func driver_runtime(args: &Vector<String>) -> Int {
         k = k + 1
     }
     0
-}
-
-// The host `sawc2 runtime` builds for, whose runtime directory and C shim the
-// ABI table names.
-func driver_runtime_host() -> String {
-    "arm64-apple-darwin"
 }
 
 // The optimisation level a runtime object is built at.

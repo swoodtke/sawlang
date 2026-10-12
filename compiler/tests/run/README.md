@@ -52,37 +52,51 @@ output.
 A hosted build links for the host alone, since the runtime objects are the
 host's. They are named by the runtime manifest, `sawc2-runtime.txt` in the
 directory of the executable that runs: its real path, from
-`Env.executable_path()` (`_NSGetExecutablePath`, then realpath(3)), so a
+`Env.executable_path()` (the runtime's `__saw_rt_executable_path`), so a
 sawc2 run by a bare name through `PATH`, or through a symbolic link, finds the
 manifest beside the file it really is. The manifest is a `target TRIPLE` line
-naming the sawc2 target the objects are built for, then an `object PATH` line
-per object, which is what `sawc2 runtime` prints; `compiler/tools/build.py`
+naming the sawc2 target the objects are built for, a `clang PATH` line naming
+the clang that compiles and links for it, then an `object PATH` line per
+object, which is what `sawc2 runtime` prints; `compiler/tools/build.py`
 writes it beside Stage 1 and Stage 2 from Stage 1's `sawc2 runtime` (below).
-A `--target` naming another target is refused, saying it is not the host,
-before anything is written, rather than link a host binary from a module laid
-out for another target. The runtime is built at the module's own target, so a
+The manifest is how sawc2 knows its host: its `target` is the default of
+`sawc2 build`, of `--emit-ll` and of `sawc2 runtime`, so a sawc2 built on
+Linux aarch64 builds for `aarch64-unknown-linux-gnu`, and the link runs the
+manifest's clang, never a `clang` found on `PATH`.
+A `--target` naming another target links against that target's own runtime,
+named by `sawc2-runtime-TRIPLE.txt` beside the binary, which
+`compiler/tools/build.py --runtime TRIPLE` writes only once its clang passes
+the opaque-pointer check for that target (below) and the runtime, shim.c and
+its C headers included, builds for it. A target with no such
+manifest is refused, saying it is not the host and has no runtime, before
+anything is written: a build never links the host's objects into a module laid
+out for another target. In the Linux VM, `--target x86_64-unknown-linux-gnu`
+is configured that way, and Rosetta runs what it links. The runtime is built at the module's own target, so a
 link prints nothing. The speed flag passes through the driver's one
 `driver_speed_level` funnel (design 265); `-O0` is the default.
 
 ## `sawc2 runtime`
 
 ```sh
-.build/sawc2 runtime [--std-root DIR] [--rt-root DIR] --out DIR
-.build/sawc2 runtime [--std-root DIR] --emit-ll FILE
+.build/sawc2 runtime [--std-root DIR] [--rt-root DIR] [--target TRIPLE] [--clang PATH] --out DIR
+.build/sawc2 runtime [--std-root DIR] [--target TRIPLE] --emit-ll FILE
 ```
 
-`sawc2 runtime --out DIR` builds the host's runtime (designs 113b and 149,
+`sawc2 runtime --out DIR` builds a target's runtime (designs 113b and 149,
 SL:open-questions D41) into `DIR`, which must exist: sawc2 has no API to
-create a directory, so a missing one is refused, saying so. The sources are
-compiled against the new std, `--std-root std` by default, the one std they
-are written for. The ABI table
-(`compiler/typecheck/src/runtimeabi.saw`) lists the host's sources under the
+create a directory, so a missing one is refused, saying so. The target is
+`--target`, else the host the manifest names, and the clang is `--clang`,
+else the manifest's; with neither flag and no manifest the command is
+refused. The sources are compiled against the new std, `--std-root std` by
+default, the one std they are written for. The ABI table
+(`compiler/typecheck/src/runtimeabi.saw`) lists the target's sources under the
 runtime root (`--rt-root`, `sawc/rt` by default): every `.saw` of `common/`,
-then of `host_macos/`. Each is compiled as a runtime source to `DIR/NAME.ll`,
-unbuffered and closed explicitly, and by `clang -c -target TRIPLE -O2 -x ir`
-to `DIR/NAME.o`; then `clang -c shim.c -O2 -fno-strict-aliasing -target
+then of `host_macos/` or `host_linux/`; a target the table has no row for is
+refused. Each is compiled as a runtime source to `DIR/NAME.ll`,
+unbuffered and closed explicitly, and by `CLANG -c -target TRIPLE -O2 -x ir`
+to `DIR/NAME.o`; then `CLANG -c shim.c -O2 -fno-strict-aliasing -target
 TRIPLE` writes `DIR/shim.o`. TRIPLE is the module's (`target_clang_triple`),
-so the objects and the programs they link into name one macOS. A runtime
+so the objects and the programs they link into name one target. A runtime
 source is checked with `runtime_build` set: its exports may be the frozen
 seams it owns, each held to the table's arity and widths (the typecheck
 lane's `export.*` rules), it needs no `main`, and mono roots its exports. The
@@ -95,11 +109,25 @@ table says the shim defines must be the table's runtime seams, each exactly
 once. A seam no object defines, one two objects define, and an export that is
 no runtime seam are each printed, and the command exits 1 with no manifest, so
 a runtime missing a seam never links. Otherwise it prints the runtime
-manifest naming the fourteen objects. A refused source prints its record, as
-`sawc2 build` does; a clang that fails gives its exit status. Nothing is
-cached here: `build.py` keys and caches the directory (D41's ruling). Two
-builds into two directories write the same bytes. With `--emit-ll FILE`, that
-one runtime source's `.ll` goes to standard output.
+manifest naming the target, the clang and the objects. A refused source prints
+its record, as `sawc2 build` does; a clang that fails gives its exit status.
+Nothing is cached here: `build.py` keys and caches the directory (D41's
+ruling). Two builds into two directories write the same bytes. With
+`--emit-ll FILE`, that one runtime source's `.ll` goes to standard output.
+
+## The clang
+
+sawc2's `.ll` uses opaque pointers (`ptr`) throughout, which LLVM 15 made the
+default and Debian 12's own `clang` (14) refuses. `build.py`'s `choose_clang`
+is the one place a clang is chosen: `SAWC2_CLANG` if it is set, else the
+first of `clang-19`, `clang-18`, … `clang-15`, `clang` on `PATH`, and the
+choice must compile the two-line module `define ptr @f(ptr %p) { ret ptr %p }`
+for the target. The capability is tested rather than a version read, since
+Apple's clang numbers its versions apart from LLVM's. A clang that fails it
+is refused by name with the requirement, and none at all stops the build
+before `sawc2 runtime` runs. The chosen clang's absolute path goes into the
+manifest's `clang` line, and its `--version` into the runtime's and Stage 2's
+cache keys.
 
 ## The backend
 
@@ -225,16 +253,20 @@ compares:
   lines come off as the slice grows; every rule of `ll_rules` has one;
 - a build that links prints nothing, standard output or standard error: the
   linker has no object built for another macOS to warn about;
-- `hello.saw`'s `.ll`, as `sawc2 build --emit-ll` writes it for the default
-  target, equals `hello.ll` byte for byte, and `sawc/rt/host_macos/dirent.saw`'s,
-  as `sawc2 runtime --emit-ll` writes it, `runtime_dirent.ll` (`--write`
-  rewrites both);
-- `sawc2 build --target` refuses every target but the host's, saying so, and
-  leaves no binary and no `.ll`;
+- `hello.saw`'s `.ll`, as `sawc2 build --emit-ll --target arm64-apple-darwin`
+  writes it, equals `hello.ll` byte for byte, and `sawc/rt/host_macos/dirent.saw`'s,
+  as `sawc2 runtime --emit-ll` writes it for the same target,
+  `runtime_dirent.ll` (`--write` rewrites both); naming the target keeps the
+  pins one pair of files on every host;
+- `sawc2 build --target` links for the host and every configured target, and
+  refuses every other target, saying so, leaving no binary and no `.ll`;
+- with `--target TRIPLE` (`tools/linux.py run-lane --arch x86_64`), every
+  program's sawc2 side is built for TRIPLE and held to Stage 0's host build:
+  the expected output is the same on every target;
 - `sawc2 runtime --out` writes the same files, byte for byte, into two
   directories, and refuses a copy of `sawc/rt` that leaves a seam undefined
-  (`sleep.saw` without its `@export`) or defines one twice (`dirent.saw`
-  exporting `os_ops.saw`'s `__saw_rt_fs_chdir`), naming the seam and printing
+  (`sleep.saw` without its `@export`) or defines one twice (the host's
+  `dirent.saw` exporting `os_ops.saw`'s `__saw_rt_fs_chdir`), naming the seam and printing
   no manifest;
 - `probes/executable_path.saw`, built by sawc2 and by Stage 0, run by a bare
   name that a renamed relative symbolic link on `PATH` resolves, from another

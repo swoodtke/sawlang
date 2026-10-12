@@ -138,6 +138,8 @@ RUNTIME_ABI_SYMBOLS = frozenset({
     # Program arguments (design 81 CI rider)
     "__saw_rt_get_argc",
     "__saw_rt_get_argv",
+    # The executable's path, OS-divergent and required of every runtime (D44)
+    "__saw_rt_executable_path",
 })
 
 

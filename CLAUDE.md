@@ -78,6 +78,22 @@ Dependencies live in `.venv/` (Python 3.14, llvmlite). ALWAYS use it:
 The Makefile calls bare `python3`, so `make test` needs the venv
 activated first.
 
+## Linux (SL-536)
+Linux builds run in the `sawlang-linux` Lima VM (`tools/lima/sawlang-linux.yaml`:
+Debian 12 aarch64, Rosetta, pinned clang-19 and x86_64 cross toolchain). The
+USER starts it (`limactl start sawlang-linux`); a sandboxed session cannot, and
+`tools/linux.py` never tries. `tools/linux.py sync` clones this checkout's
+HEAD (commits only) into the VM's `~/sawlang/<checkout>` with its own `.venv`;
+`shell CMD...` runs there; `run-lane --arch aarch64|x86_64` builds the stages
+in the VM and runs the run lane, x86_64 cross-built and run under Rosetta. Run
+VM-side git through `tools/linux.py`, never in a hand-written `limactl shell`.
+The battery's `linux` lane (`tools/linux.py lane`) runs both arches and SKIPS
+(passes) only when the VM is known down or Lima is absent; a limactl that
+cannot report Lima's state (exit 4) FAILS it (`tools/test_linux.py`). sawc2 learns its host from the runtime manifest beside it, and
+`build.py`'s `choose_clang` funnel (`SAWC2_CLANG`, else clang-19 … clang) picks
+the clang, which must compile opaque-pointer IR; Debian's default clang 14
+cannot. `build.py --runtime TRIPLE` configures another target's runtime.
+
 ## Compiler usage (dev)
 ```bash
 ./.venv/bin/python sawc/sawc.py <src.saw> [-o out] [-v] [-c]
@@ -224,8 +240,8 @@ objects are built + cached under `.build/rt/` and auto-linked (delete
   an untracked scratch file each session rewrote from this prose:
   ```bash
   SAW_PYTHON=/path/to/main/.venv/bin/python tools/battery.sh   # from a worktree
-  tools/battery.sh --quick        # skips the slow five (reemit/irdet/gmgate/
-                                  # bootstrap/freestanding)
+  tools/battery.sh --quick        # skips the slow six (reemit/irdet/gmgate/
+                                  # bootstrap/freestanding/linux)
   tools/battery.sh suite fuzz     # named stages
   tools/battery.sh --list
   ```
@@ -302,7 +318,8 @@ objects are built + cached under `.build/rt/` and auto-linked (delete
   artifact DF-220a moved and the only one nothing checked),
   `irdet` (`--all`, whole corpus), `gmgate` (both lanes), `bootstrap`,
   `freestanding` (the design-238-unit-1 feature suite under QEMU,
-  both arches; the `sos` stage left with the kernel at 238 unit 5).
+  both arches; the `sos` stage left with the kernel at 238 unit 5), and the
+  opt-in `linux` (the run lane in the Linux VM, both arches; see "Linux").
   Every stage RUNS even after one fails; the exit code is the
   number of failing stages. Adding a lane means editing `STAGES`.
   Coverage map (Aug-10 sweep): blade/tests + libs/*/tests are

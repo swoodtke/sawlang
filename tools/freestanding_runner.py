@@ -16,7 +16,7 @@ inventory design 238 ratified:
     case, three Saw modules and an assembly stub
   * `--no-hidden-alloc`: the refusal surface per construct, plus a green
     control — three rows that must NOT compile and one that must
-  * `--runtime-provider`: a package supplying the four frozen `__saw_rt_*`
+  * `--runtime-provider`: a package supplying the five frozen `__saw_rt_*`
     seams, signature-checked against `sawc/rt/ABI.md`, reached through BOTH of
     the flag's doors (this runner's command line, and `[package] runtime =
     true` in a Blade manifest) — plus the two refusals
@@ -384,10 +384,10 @@ TEST_CASES = [
     },
     # --- the runtime provider -------------------------------------------------
     {
-        # Three of the four seams REACHED by a running program: write (every
-        # line), alloc (the Vectors, which the source names) and dealloc (their
-        # drop). The arena cursor is what turns "it did not crash" into "the
-        # seam answered".
+        # Four of the five seams REACHED by a running program: write (every
+        # line), alloc (the Vectors, which the source names), dealloc (their
+        # drop) and the executable path's NULL stub. The arena cursor is what
+        # turns "it did not crash" into "the seam answered".
         "name": "runtime_seams",
         "src": "runtime_seams.saw",
         "expect_out": ["fs check arena_starts_empty=1",
@@ -396,11 +396,12 @@ TEST_CASES = [
                        "fs check alloc_seam_answered=1",
                        "fs check second_vector_length=1",
                        "fs check alloc_seam_advanced=1",
+                       "fs check executable_path_seam_is_null=1",
                        "fs done runtime_seams ok"],
         "expect_clean_exit": True,
     },
     {
-        # The fourth seam, which ends the machine — so it is its own case. The
+        # The panic seam, which ends the machine — so it is its own case. The
         # STATUS is asserted as well as the message: on the riscv32 board a
         # failing exit that reached the finisher with a zero code would exit 0,
         # which is what the stub's promotion exists to stop.

@@ -1,5 +1,5 @@
 // `--runtime-provider`, the POSITIVE row (design 238 unit 1): a package
-// supplying the four frozen `__saw_rt_*` seams, with every one of them
+// supplying the five frozen `__saw_rt_*` seams, with every one of them
 // REACHED by a running program.
 //
 //   __saw_rt_write    every line this case prints
@@ -9,6 +9,8 @@
 //   __saw_rt_dealloc  the Vector's drop at the end of the scope
 //   __saw_rt_panic    `cases/runtime_panic.saw`, which is a separate case
 //                     because it ends the machine
+//   __saw_rt_executable_path  called below as std's `Env.executable_path`
+//                     calls it; a board has no executable file, so NULL
 //
 // The arena cursor is what turns "the program did not crash" into "the seam
 // answered": `fsrt.arena_used()` reads the same word `__saw_rt_alloc` advances,
@@ -20,6 +22,10 @@
 
 import fscore.*
 import fsrt
+
+extern "C" {
+    func __saw_rt_executable_path() -> UnsafePointer<Int8>?
+}
 
 @export("fs_main")
 func fs_main() unsafe {
@@ -47,6 +53,12 @@ func fs_main() unsafe {
     }
     check_value("second_vector_length", more.len(), 64)
     check("alloc_seam_advanced", fsrt.arena_used() > after_push)
+
+    var no_path = true
+    if let _ = __saw_rt_executable_path() {
+        no_path = false
+    }
+    check("executable_path_seam_is_null", no_path)
 
     finish("runtime_seams")
 }

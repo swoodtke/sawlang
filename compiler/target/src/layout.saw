@@ -99,13 +99,14 @@ public struct Target {
 
 extension Target: NoCopy {}
 
-// The triples this description answers for, the default first. Both are
+// The triples this description answers for, the default first. All are
 // LP64; they differ only in how an aggregate crosses the C convention, which
 // this slice refuses.
 public func target_triples() -> Vector<String> {
     var out = Vector<String>()
     try! out.push("arm64-apple-darwin")
     try! out.push("x86_64-unknown-linux-gnu")
+    try! out.push("aarch64-unknown-linux-gnu")
     move out
 }
 

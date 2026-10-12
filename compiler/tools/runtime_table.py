@@ -41,6 +41,7 @@ PROGRAM_SEAMS = ("__saw_rt_get_argc", "__saw_rt_get_argv")
 HOSTS = (
     ("arm64-apple-darwin", "host_macos", "__APPLE__", "__linux__"),
     ("x86_64-unknown-linux-gnu", "host_linux", "__linux__", "__APPLE__"),
+    ("aarch64-unknown-linux-gnu", "host_linux", "__linux__", "__APPLE__"),
 )
 
 _EXPORT = re.compile(r'^\s*@export\("(__saw_rt_[A-Za-z0-9_]+)"\)')

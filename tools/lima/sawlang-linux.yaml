@@ -1,0 +1,84 @@
+# sawlang's Linux build VM: Debian 12 aarch64 under Apple Virtualization, with
+# Rosetta running x86_64 Linux binaries. `tools/linux.py` drives it and never
+# starts it: `limactl start --name=sawlang-linux tools/lima/sawlang-linux.yaml`
+# creates it once, and `limactl start sawlang-linux` starts it after that.
+#
+# Builds run in a clone on the VM's own disk (`tools/linux.py sync`), since the
+# host checkout is mounted read-only. The image, the apt packages and uv are
+# pinned, so every Mac that creates this VM gets the same toolchain; a pinned
+# apt version that its archive has since replaced fails the provisioning
+# loudly, and the fix is a new pin here, not an unpinned install.
+vmType: vz
+arch: aarch64
+cpus: 8
+memory: "16GiB"
+disk: "20GiB"
+
+images:
+  - location: "https://cloud.debian.org/images/cloud/bookworm/20261006-2623/debian-12-genericcloud-arm64-20261006-2623.qcow2"
+    arch: "aarch64"
+    digest: "sha512:835b929522716de9798d1c0fbe61caae8313ab78858b278f3389a2db922ae42e4619b4a776ecad39583c149fb85334a2f8cdae685bc56987160e5c86a2354375"
+
+rosetta:
+  enabled: true
+  binfmt: true
+
+# tools/linux.py reads this mount back from `limactl list --json` to find the
+# host checkout inside the VM.
+mounts:
+  - location: "~/Projects/sawlang"
+    mountPoint: "/mnt/sawlang"
+    writable: false
+
+containerd:
+  system: false
+  user: false
+
+provision:
+  - mode: system
+    script: |
+      #!/bin/bash
+      set -eux
+      export DEBIAN_FRONTEND=noninteractive
+      # amd64 multiarch provides the x86_64 runtime loader and libc that
+      # Rosetta runs a cross-built binary against (/lib64/ld-linux-x86-64.so.2);
+      # the cross packages alone install only the link-time half.
+      dpkg --add-architecture amd64
+      apt-get update
+      apt-get install -y --no-install-recommends \
+        build-essential=12.9 \
+        git=1:2.39.5-0+deb12u3 \
+        curl=7.88.1-10+deb12u15 \
+        ca-certificates=20250419~deb12u1 \
+        file=1:5.44-3 \
+        clang=1:14.0-55.7~deb12u1 \
+        lld=1:14.0-55.7~deb12u1 \
+        llvm=1:14.0-55.7~deb12u1 \
+        gcc-x86-64-linux-gnu=4:12.2.0-3 \
+        libc6-dev-amd64-cross=2.36-8cross1 \
+        libc6:amd64=2.36-9+deb12u14
+      # sawc2 emits opaque-pointer IR (`ptr`), which needs LLVM 15 or later, and
+      # bookworm's default clang 14 refuses it. Bookworm's own archive carries
+      # clang 19, which a pin can name for as long as Debian keeps it, unlike
+      # apt.llvm.org's rolling snapshots. The default clang stays for Stage 0,
+      # which only links and compiles shim.c.
+      apt-get install -y --no-install-recommends \
+        clang-19=1:19.1.7-3~deb12u1 \
+        lld-19=1:19.1.7-3~deb12u1
+  - mode: user
+    script: |
+      #!/bin/bash
+      set -eux
+      # uv provides the Python the frozen compiler's venv wants (3.14), which
+      # bookworm does not ship; `tools/linux.py sync` makes the venv with it.
+      # The release tarball is checked against its published sha256 before
+      # anything from it runs.
+      if [ ! -x "$HOME/.local/bin/uv" ]; then
+        dir=$(mktemp -d)
+        curl -fsSLo "$dir/uv.tar.gz" https://github.com/astral-sh/uv/releases/download/0.13.0/uv-aarch64-unknown-linux-gnu.tar.gz
+        echo "3ccfb6af6e242433eb552f7d9676abd5412c6595c497e990d9c8cb7b5bd4d2c3  $dir/uv.tar.gz" | sha256sum -c -
+        tar -xzf "$dir/uv.tar.gz" -C "$dir"
+        install -d "$HOME/.local/bin"
+        install -m 0755 "$dir/uv-aarch64-unknown-linux-gnu/uv" "$dir/uv-aarch64-unknown-linux-gnu/uvx" "$HOME/.local/bin/"
+        rm -rf "$dir"
+      fi

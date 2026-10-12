@@ -7,6 +7,7 @@ exit status compared.
     python compiler/tests/run/run_lane.py --write    # rewrite hello.ll
     python compiler/tests/run/run_lane.py NAME...    # just these programs
     python compiler/tests/run/run_lane.py --bench    # the timing report over bench/
+    python compiler/tests/run/run_lane.py --target TRIPLE   # sawc2's side cross-built
 
 `compiler/tests/run.py` runs `run()`. Each `NAME.saw` is one case:
 
@@ -31,8 +32,11 @@ exit status compared.
 - `hello.saw`'s `.ll`, as the compiler binary writes it, equals `hello.ll`
   byte for byte, and `sawc/rt/host_macos/dirent.saw`'s, as `sawc2 runtime`
   writes it, `runtime_dirent.ll`;
-- `sawc2 build --target` refuses every target but the host, and links
-  nothing;
+- `sawc2 build --target` links for the host and every target whose runtime
+  `build.py --runtime` configured, and refuses every other target, linking
+  nothing; with `--target TRIPLE` the lane builds sawc2's side of every
+  program for TRIPLE (its runtime configured first) and holds it to Stage 0's
+  host build, so a cross-built binary meets the host's expectations;
 - `sawc2 runtime` writes the same bytes into two directories, and refuses a
   copy of the runtime that leaves a seam undefined or defines one twice;
 - `probes/executable_path.saw`, built by sawc2 and by Stage 0 and run through
@@ -64,6 +68,22 @@ sys.path.insert(0, os.path.join(COMPILER, "tools"))
 import build  # noqa: E402
 
 OUT = os.path.join(REPO, ".build", "run-lane")
+# The target sawc2 builds the programs for, None for the host. Stage 0 builds
+# its oracle for the host either way: the expected output is the same on
+# every target, which is the claim a cross-built program is held to.
+TARGET = None
+
+
+def target_flags():
+    return ["--target", TARGET] if TARGET else []
+
+
+def set_target(triple):
+    """Build sawc2's side for `triple` (None for the host), into a directory
+    of its own so two targets' binaries never mix."""
+    global TARGET, OUT
+    TARGET = triple
+    OUT = os.path.join(REPO, ".build", "run-lane" + ("-" + triple if triple else ""))
 RUN_TIMEOUT = 20
 BENCH_REPS = 5
 BUILD_TIMEOUT = 600
@@ -77,7 +97,9 @@ _PANIC = re.compile(r"^panic at [^:]+:\d+: ")
 _RULE = re.compile(r'try! out\.push\("([^"]+)"\)')
 RULES_SOURCE = os.path.join(COMPILER, "llvm", "src", "module.saw")
 # The targets compiler/target describes; `sawc2 build` links for the host's.
-TARGETS = ("arm64-apple-darwin", "x86_64-unknown-linux-gnu")
+TARGETS = ("arm64-apple-darwin", "x86_64-unknown-linux-gnu", "aarch64-unknown-linux-gnu")
+# The target the pinned `.ll` files are written for.
+PINNED_TARGET = "arm64-apple-darwin"
 
 
 def rel(path):
@@ -166,8 +188,8 @@ def build_new(src, speed="-O0"):
     so a build that links prints nothing."""
     name = os.path.splitext(os.path.basename(src))[0]
     out = os.path.join(OUT, name + (".new" if speed == "-O0" else ".new" + speed[1:]))
-    r = subprocess.run([build.SAWC2, "build", speed, "--std-root", "std", rel(src), "-o", out], cwd=REPO,
-                       capture_output=True, text=True, timeout=BUILD_TIMEOUT)
+    r = subprocess.run([build.SAWC2, "build", speed, "--std-root", "std"] + target_flags() + [rel(src), "-o", out],
+                       cwd=REPO, capture_output=True, text=True, timeout=BUILD_TIMEOUT)
     return r.returncode == 0, out, (r.stdout + r.stderr).strip()
 
 
@@ -256,14 +278,15 @@ def cases(names=None):
 
 
 def check_pinned_ir(failures, counts, write):
-    """hello.saw's `.ll`, as the compiler binary writes it for the default
-    target, against hello.ll, and one runtime source's, as `sawc2 runtime`
-    writes it, against runtime_dirent.ll."""
+    """hello.saw's `.ll`, as the compiler binary writes it for macOS, against
+    hello.ll, and one runtime source's, as `sawc2 runtime` writes it, against
+    runtime_dirent.ll. The target is named, so the pins hold on every host."""
     check_pinned(failures, counts, write, "hello", os.path.join(HERE, "hello.ll"),
-                 ["build", "--emit-ll", "--std-root", "std", rel(os.path.join(HERE, "hello.saw"))])
+                 ["build", "--emit-ll", "--target", PINNED_TARGET, "--std-root", "std",
+                  rel(os.path.join(HERE, "hello.saw"))])
     check_pinned(failures, counts, write, "runtime dirent", os.path.join(HERE, "runtime_dirent.ll"),
-                 ["runtime", "--std-root", "std", "--emit-ll", os.path.join("sawc", "rt", "host_macos",
-                                                                           "dirent.saw")])
+                 ["runtime", "--target", PINNED_TARGET, "--std-root", "std", "--emit-ll",
+                  os.path.join("sawc", "rt", "host_macos", "dirent.saw")])
 
 
 def check_pinned(failures, counts, write, what, pinned, args):
@@ -295,8 +318,9 @@ def build_runtime(directory, rt_root):
     `directory`: (exit status, what it printed)."""
     shutil.rmtree(directory, ignore_errors=True)
     os.makedirs(directory)
-    r = subprocess.run([build.SAWC2, "runtime", "--std-root", "std", "--rt-root", rel(rt_root), "--out",
-                        rel(directory)], cwd=REPO, capture_output=True, text=True, timeout=BUILD_TIMEOUT)
+    r = subprocess.run([build.SAWC2, "runtime", "--std-root", "std"] + target_flags()
+                       + ["--rt-root", rel(rt_root), "--out", rel(directory)], cwd=REPO, capture_output=True,
+                       text=True, timeout=BUILD_TIMEOUT)
     return r.returncode, (r.stdout + r.stderr).strip()
 
 
@@ -306,7 +330,8 @@ def build_runtime(directory, rt_root):
 RUNTIME_DEFECTS = (
     ("common/sleep.saw", '@export("__saw_rt_sleep_ns")\n', "",
      "sawc2 runtime: no runtime object defines `__saw_rt_sleep_ns`, which sawc/rt/ABI.md lists"),
-    ("host_macos/dirent.saw", '@export("__saw_rt_fs_dirent_name")', '@export("__saw_rt_fs_chdir")',
+    ("%s/dirent.saw" % ("host_macos" if build.host_triple().endswith("-apple-darwin") else "host_linux"),
+     '@export("__saw_rt_fs_dirent_name")', '@export("__saw_rt_fs_chdir")',
      "sawc2 runtime: `__saw_rt_fs_chdir` is defined by both"),
 )
 
@@ -351,11 +376,14 @@ def check_runtime(failures, counts):
 
 
 def check_foreign_targets(failures, counts):
-    """`sawc2 build --target T` for every target but the host is refused
-    before anything links, and leaves no binary: the runtime objects are the
-    host's, so a foreign triple would be linked into a host binary."""
+    """`sawc2 build --target T` links for the host and for every target whose
+    runtime manifest `build.py --runtime T` wrote beside sawc2, and every other
+    target is refused before anything is written, saying it is not the host
+    and has no runtime: a build never falls back to the host's objects."""
     hello = os.path.join(HERE, "hello.saw")
     probe = os.path.join(OUT, "foreign")
+    host = build.host_triple()
+    configured = [t for t in TARGETS if t == host or os.path.exists(build.runtime_manifest(t))]
     refused = 0
     for triple in TARGETS:
         for written in (probe, probe + ".ll"):
@@ -363,16 +391,18 @@ def check_foreign_targets(failures, counts):
                 os.remove(written)
         r = subprocess.run([build.SAWC2, "build", "--std-root", "std", "--target", triple, rel(hello), "-o",
                             probe], cwd=REPO, capture_output=True, text=True, timeout=BUILD_TIMEOUT)
-        if r.returncode == 0:
+        said = (r.stdout + r.stderr).strip()[:300]
+        if triple in configured:
+            if r.returncode != 0 or not os.path.exists(probe):
+                failures.append("run target %s: configured, but sawc2 does not link for it: %s" % (triple, said))
             continue
         refused += 1
-        if "is not this host" not in r.stdout or os.path.exists(probe) or os.path.exists(probe + ".ll"):
-            failures.append("run target %s: refused without saying it is not the host, or a binary was "
-                            "written: %s" % (triple, (r.stdout + r.stderr).strip()[:300]))
-    if refused != len(TARGETS) - 1:
-        failures.append("run target: %d of %d targets refused; every one but the host should be"
-                        % (refused, len(TARGETS)))
+        if (r.returncode == 0 or "is not this host" not in r.stdout or "no runtime for it is configured"
+                not in r.stdout or os.path.exists(probe) or os.path.exists(probe + ".ll")):
+            failures.append("run target %s: not refused as unconfigured, or a file was written: %s"
+                            % (triple, said))
     counts["run foreign targets refused"] = refused
+    counts["run targets configured"] = len(configured)
 
 
 def check_executable_path(failures, counts):
@@ -389,8 +419,8 @@ def check_executable_path(failures, counts):
     os.makedirs(elsewhere, exist_ok=True)
     built = []
     new = os.path.join(OUT, "executable_path.new")
-    r = subprocess.run([build.SAWC2, "build", "--std-root", "std", rel(probe), "-o", new], cwd=REPO,
-                       capture_output=True, text=True, timeout=BUILD_TIMEOUT)
+    r = subprocess.run([build.SAWC2, "build", "--std-root", "std"] + target_flags() + [rel(probe), "-o", new],
+                       cwd=REPO, capture_output=True, text=True, timeout=BUILD_TIMEOUT)
     built.append(("sawc2", r.returncode, new, (r.stdout + r.stderr).strip()))
     old = os.path.join(OUT, "executable_path.old")
     r = subprocess.run([sys.executable, build.FROZEN_SAWC, rel(probe), "-o", old], cwd=REPO,
@@ -481,10 +511,18 @@ def bench():
 
 
 def main():
-    if "--bench" in sys.argv[1:]:
+    args = sys.argv[1:]
+    if "--target" in args:
+        at = args.index("--target")
+        if at + 1 >= len(args) or args[at + 1] not in TARGETS:
+            print("run lane: --target is one of %s" % ", ".join(TARGETS))
+            return 2
+        set_target(args[at + 1])
+        del args[at:at + 2]
+    if "--bench" in args:
         return bench()
-    names = [a for a in sys.argv[1:] if not a.startswith("-")]
-    failures, counts, dues = run(names, "--write" in sys.argv[1:])
+    names = [a for a in args if not a.startswith("-")]
+    failures, counts, dues = run(names, "--write" in args)
     for failure in failures:
         print(failure)
     for due in dues:

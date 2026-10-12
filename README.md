@@ -932,6 +932,24 @@ work either way.
 a user-visible change, because a consumer that pins a toolchain has only this
 string to check an installed compiler against.
 
+### Linux
+
+The self-hosted compiler, `sawc2`, builds and runs on Linux aarch64, and it
+cross-builds for Linux x86_64. On a Mac the Linux builds run in a Debian 12
+Lima VM. `tools/lima/sawlang-linux.yaml` pins its image and toolchain, and
+`tools/linux.py` drives it:
+
+```bash
+limactl start --name=sawlang-linux tools/lima/sawlang-linux.yaml   # once
+./.venv/bin/python tools/linux.py status
+./.venv/bin/python tools/linux.py run-lane --arch aarch64   # or x86_64, under Rosetta
+```
+
+`sawc2`'s LLVM IR needs a clang with opaque pointers (LLVM 15 or later).
+`compiler/tools/build.py` picks `SAWC2_CLANG` if it is set, else the first
+`clang-19` … `clang` that compiles a test module, and refuses by name a clang
+that cannot.
+
 ### Compiler options
 
 ```bash

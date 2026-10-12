@@ -5,7 +5,7 @@
 //! bodies. This module is that environment, for a suite whose environment is
 //! one assembly stub and nothing else.
 //!
-//! It is a miniature of `sos/rt/common` and is meant to be read beside it: four
+//! It is a miniature of `sos/rt/common` and is meant to be read beside it: five
 //! `@export`ed seams over TWO per-side hooks, plus a bump arena behind the
 //! allocating pair. What it deliberately does NOT carry is everything that made
 //! sosrt an operating system's runtime — no console sink trait, no hex helpers,
@@ -159,4 +159,11 @@ func rt_alloc(size: UInt, align: UInt) unsafe -> UnsafePointer<Int8> {
 /// Free a block. A bump arena reclaims nothing, so this is deliberately empty.
 @export("__saw_rt_dealloc")
 func rt_dealloc(ptr: UnsafePointer<Int8>, size: UInt, align: UInt) unsafe {
+}
+
+/// The executable's path: none, since a board runs no executable file. std
+/// reports the NULL as an error (sawc/rt/ABI.md, "The executable's path").
+@export("__saw_rt_executable_path")
+func rt_executable_path() unsafe -> UnsafePointer<Int8> {
+    0 as UnsafePointer<Int8>
 }

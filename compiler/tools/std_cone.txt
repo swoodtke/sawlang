@@ -5,7 +5,7 @@
 # the build's cone differs from this file. `via runtime` marks what only the
 # runtime objects reach; an `instance` line is one type-argument tuple, a type
 # the compiler source declares written as (owning) or (plain).
-# 325 declarations in 23 modules
+# 328 declarations in 24 modules
 
 builtin: 13
   struct Atomic
@@ -86,6 +86,13 @@ rt.host_macos.clock: 4
   struct Timespec  via runtime
   extern clock_gettime  via runtime
   func rt_clock_monotonic_nanos  via runtime
+
+rt.host_macos.executable_path: 5
+  extern _NSGetExecutablePath  via runtime
+  extern free  via runtime
+  extern malloc  via runtime
+  extern realpath  via runtime
+  func rt_executable_path  via runtime
 
 rt.host_macos.net_os: 37
   static EACCES  via runtime
@@ -188,19 +195,17 @@ std.data: 27
   method DataBuf.store
   extern memcpy
 
-std.env: 13
+std.env: 11
   struct Env
   static-method Env.arg
   static-method Env.argc
   static-method Env.args
   static-method Env.executable_path
-  extern _NSGetExecutablePath
+  extern __saw_rt_executable_path
   extern __saw_rt_get_argc
   extern __saw_rt_get_argv
   extern __saw_string_from_bytes
   extern free
-  extern malloc
-  extern realpath
   extern strlen
 
 std.file: 18

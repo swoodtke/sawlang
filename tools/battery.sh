@@ -13,7 +13,7 @@
 # The exit code is the number of failing stages.
 #
 #   tools/battery.sh                    # everything
-#   tools/battery.sh --quick            # skip the slow lanes (freestanding, bootstrap, reemit, irdet, gmgate)
+#   tools/battery.sh --quick            # skip the slow lanes (freestanding, bootstrap, reemit, irdet, gmgate, linux)
 #   tools/battery.sh suite irdet        # named stages only
 #   tools/battery.sh --list             # what the stages are
 #
@@ -93,6 +93,7 @@ STAGES=(
     "gmgate|yes|ownership + concurrency oracles under Guard Malloc (macOS)|$PY tools/gmgate.py"
     "bootstrap|yes|Blade builds and tests Blade, stage0 through stage2|$PY tools/blade_bootstrap.py"
     "freestanding|yes|the freestanding feature suite, booted under QEMU|$PY tools/freestanding_runner.py"
+    "linux|yes|the run lane on Linux aarch64 and x86_64 (Rosetta) in the sawlang-linux VM; skips when it is down|__LINUX__"
 )
 
 usage() {
@@ -180,6 +181,19 @@ run_minivm() {
     "$PY" prototypes/minivm/test_minivm.py --binary .build/minivm-battery/minivm
 }
 
+# The Linux lanes run in the sawlang-linux Lima VM through tools/linux.py, which
+# never starts it (only the user can, from outside a sandboxed session). So the
+# lane is opt-in by the VM's state: down (or no Lima installed), it SKIPS with
+# linux.py's reason and passes; up, both arches must pass against the macOS run
+# lane's expectations. A limactl that cannot report the state FAILS the lane:
+# the skip stands for a VM known not to run, never for one nobody could see.
+# That decision is `tools/linux.py lane`'s, pinned first by tools/test_linux.py
+# against stub limactls, which needs no VM.
+run_linux() {
+    "$PY" tools/test_linux.py || return 1
+    "$PY" tools/linux.py lane
+}
+
 echo "battery: $REPO"
 echo "battery: python $PY"
 started=$(date +%s)
@@ -205,6 +219,8 @@ for entry in "${STAGES[@]}"; do
         run_bench
     elif [ "$cmd" = "__MINIVM__" ]; then
         run_minivm
+    elif [ "$cmd" = "__LINUX__" ]; then
+        run_linux
     else
         $cmd
     fi

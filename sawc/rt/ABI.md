@@ -887,6 +887,25 @@ The `argc` main received.
 ### `__saw_rt_get_argv() -> i8**`
 The `argv` main received.
 
+## The executable's path (D44)
+
+### `__saw_rt_executable_path() -> i8*`
+**OS-divergent**, and required of every runtime: std's `Env.executable_path`
+calls it, so a runtime without it fails to link any program that reaches
+`Env`. It returns the running executable's absolute path with every symbolic
+link resolved, as a NUL-terminated string in a `malloc`ed buffer the caller
+`free`s, or NULL. std turns NULL into `Err(SystemError)` of kind `Unknown` and
+reads no errno.
+
+- host_macos: `_NSGetExecutablePath`, sized by a first call so a long path
+  cannot be truncated, then `realpath`.
+- host_linux: `realpath("/proc/self/exe")`. For a binary deleted while it
+  runs, the link reads `… (deleted)`, `realpath` fails, and the result is
+  NULL, as on macOS.
+- A host with no executable file (sos-hosted, kernel/none): a one-line stub
+  returning NULL. The freestanding suite's runtime
+  (`tests/freestanding/rt/src/lib.saw`) is one.
+
 ---
 
 ## v1 → v2 deprecation table (design 117)
@@ -936,6 +955,7 @@ a flag bit.
 | 242    | `__saw_rt_thread_detach`: `pthread_detach` plus the control block's ownership handshake with the thread's own exit path. One new symbol, no existing signature moved. It takes the control block rather than a handle, and it freezes exactly one word of that block's layout (`state`, at `2 * sizeof(void*)`); see its entry |
 | 272    | `__saw_rt_tcp_listen_with`, `__saw_rt_socket_set_option`      |
 | —      | `__saw_rt_tcp_listen_on`                                       |
+| D44    | `__saw_rt_executable_path`: one new symbol, required of every runtime because std calls it. sawos's runtime owes its NULL stub when that work resumes |
 
 ## The compiler → executor boundary (design 118)
 

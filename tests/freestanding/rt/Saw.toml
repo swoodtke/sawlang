@@ -6,7 +6,7 @@ version = "0.1.0"
 # role-free: reached by every case through `--module-path fsrt=…` and by
 # `tests/freestanding/bladepkg` as a transitive path dependency.
 #
-# It holds the four frozen `__saw_rt_*` seams but does NOT carry
+# It holds the five frozen `__saw_rt_*` seams but does NOT carry
 # `runtime = true` itself — deliberately, and for the reason `sos/rt/common`
 # gives: that key makes Blade pass `--runtime-provider` to a COMPILE, and this
 # package is never compiled on its own. The declaration belongs to the thing
