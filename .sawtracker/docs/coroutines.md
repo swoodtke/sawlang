@@ -903,7 +903,146 @@ None of these puts two agents on one file.
 For comparison, the lead's guide (SL-545 c2) was 3 weeks for the core, 3–5 days for the overlay and 1–1.5 weeks for heap frames. The core comes out larger mostly because about 13 of phase A's 31.5 days are std porting that Stage 0 already had: the executor, `TaskGroup`, timers, the fd park, `std.net`'s slice, channels, the deadlock walk, offload's executor half, signals, the dump and the thread pool (the std track's units). The compiler part alone, about 18.5 days, is close to the guide.
 
 ## 5. Open questions for the user
-_(to be written)_
+
+Q1–Q7 are fundamental, and each one goes to SL:open-questions with its recommendation. Q1–Q6 belong to phase C, so phases A and B do not wait on them. Q7 is needed by A12a. Under them is the list of reversible choices the plan has already made.
+
+### Q1. Heap frames: opt-in or automatic, and how is it spelled?
+Today a cycle in the suspending-call graph is refused, since it has no finite frame.
+- **(a) Automatic.** The compiler heap-allocates the back edges of each cycle and the refusal disappears. Nothing is written, so a reader cannot see which calls allocate, or that a task's size is no longer static.
+- **(b) Opt-in at the declaration.** A marker on the recursive function; calls *into* it from inside its own cycle get a heap frame, and calls from outside embed as usual. An unmarked cycle stays refused, with the marker as the fixit. Two spellings:
+  - an effect-slot word, `func walk(n: &Node) indirect -> Int`, after Swift's `indirect enum`;
+  - an attribute, `@heap_frame`.
+- **(c) Opt-in at the call site:** `indirect walk(n.left)`. That is precise, but every recursive call carries it.
+
+**Recommendation: (b), as the effect-slot word.** The doctrine says reader-visibility trumps inference, and a heap frame changes two things a caller can see: it may allocate (Q2), and a task loses its static size (Q3). The effect slot is where callers read a function's contract, beside `unsafe` and `sync`. Freestanding targets depend on static task sizes, so a silent switch would undercut a guarantee those targets are designed around.
+
+### Q2. What happens when a heap frame cannot be allocated?
+- **(a) A panic,** under the existing panic boundary for compiler-inserted allocations (design 234's list). No new boundary is needed, since this is exactly such an allocation.
+- **(b) Fallible calls:** a call into an `indirect` function returns `Result<T, AllocError>`, and every recursive call site handles it.
+- **(c) A fallible declaration:** the function must return `Result<_, E>` with `E` able to carry an `AllocError`, and a failed allocation surfaces as that `Err`.
+
+Each choice also needs answers for two profiles:
+- **`--no-hidden-alloc`:** the call site names nothing, so it is refused there, the same way an escaping closure's environment is (design 135);
+- **freestanding:** allowed wherever `Box` is, meaning the runtime provides `__saw_rt_alloc`.
+
+**Recommendation: (a),** plus both profile rules. (b) makes recursion unreadable. (c) is defensible, and is the fallback if the user wants allocation failure visible in a signature.
+
+### Q3. A task whose frame tree has a heap edge has no static size. What follows from that?
+- **(a) Report it:** `--emit-frame-layout` says "unbounded: heap edge at `walk`", and design 152's frame-size warning gains a category for it. The program is allowed.
+- **(b) Refuse it in the freestanding profile.**
+- **(c) Let the author state a bound.** Depth is not checkable, so the bound would be a run-time check that panics.
+
+**Recommendation: (a).** Q1 (b) already makes the cost visible at the declaration. (b) would forbid recursion on exactly the targets that might want a bounded form of it later, and that design can come when one asks for it.
+
+### Q4. How is a deep heap chain driven, and cancelled?
+- **(a) Recursively.** Each level's `resume` calls the next, so one poll costs O(depth) time and native stack. That is the same depth a sync twin's recursion would use, and the same SL-313 limit applies to both.
+- **(b) An executor-managed frame stack.** A resume returns "descend into this child" or "return to my parent", so one poll costs O(1). `Poll` grows two variants, and the executor grows the stack.
+
+Cancellation is the same either way: it is cooperative, so each level returns through ordinary edges and frees its child's box after `Ready`. C3 pins a 1,000-deep cancel.
+
+**Recommendation: (a).** It is parity with sync recursion, and it needs no ABI change. (b) can be added later, since the uniform ABI leaves room for it.
+
+### Q5. Suspending dispatch through `any Trait` (K37): which design?
+These are DF-223b's options:
+- **(a) A heap frame per call,** made by the vtable's init thunk;
+- **(b) A union slot.** The caller embeds storage sized to the largest frame among the conformers coerced to that `any`. Mono sees the whole program, so the set is known, and the static size is kept with no allocation;
+- **(c) Keep it refused,** and say a suspending method cannot be reached through `any`.
+
+**Recommendation: (b),** falling back to (a) for a conformer that is itself `indirect`. One caveat: this cannot start before sawc2 calls methods through `any` at all, which today is `slice.not-yet`.
+
+### Q6. Suspending closures: which design?
+- **(a) A heap frame per call,** through the descriptor and init thunk the closure value carries.
+- **(b) Size the slot per function type.** It is not knowable without whole-program flow analysis of function values.
+- **(c) Keep it refused.** Spec: "a closure body cannot suspend".
+
+**Recommendation: (a),** refused under `--no-hidden-alloc` as an escaping environment already is, and allowed elsewhere as Q2 says.
+
+### Q7. Where does SL-355's runtime half (R5) land?
+R5 is the ruled atomic wake word with its CAS(-1 → 0) latch, plus a `register` that returns a status. It is in neither runtime yet, and `sawc/rt/` is shared by both compilers.
+- **(a) Land it at A12a in `sawc/rt/` and both stds.** `sawc/std/taskgroup.saw`'s change is the maintenance fix SL:architecture §4 names for exactly this seam. It breaks the ABI for runtime providers (the 0.12.0 cut the user ruled); sawos follows in SO-18 when it resumes.
+- **(b) sawc2 takes R1–R4 now, on the compiler side, and the runtime half waits for Stage 0's retirement.** Until then, SL-353's lost wake stays latent in `threads: N` groups.
+- **(c) Give sawc2 its own reactor copy.** Two runtimes is what §3.11 avoids.
+
+**Recommendation: (a).** The code is already reviewed (SL-355 c20), and without it A17a's multi-threaded pool inherits a known hang. It needs the user because it touches the frozen tree and sawos's ABI.
+
+### Decided by the planner (reversible)
+Each is recorded where it applies, and the Air reviewed §1–§3's. Reversal is cheap in each case.
+
+| decision | where | reversal |
+|---|---|---|
+| no forced-destroy entry, since every frame leaves through its own code; checked by an executor assertion | §3.1, A7b; t3 | generate one from the per-state live sets |
+| the test intrinsics `__saw_drive`, `__saw_drive_steps`, `__saw_suspend` stay, with Stage 0's meaning | §3.2, A4 | migrate 125 programs |
+| Stage 0's four implementation-limit refusals are lifted, with spec-derived pins | §3.3, A6; t5 | refuse the same four |
+| the op-budget counter is per frame, 128 at frame init, matching Stage 0 | §3.1, A9 | move it into `cx`, per task |
+| `Channel.receive` and the net reads are ordinary suspending methods, with no inline special case | §3.1 | none needed |
+| the walking skeleton is a suspending `main` that yields; the first spawned task arrives in A7a | A3b | none needed |
+| the borrow check publishes loan ranges as data (one owner), and coro does not recompute them | B1 | coro recomputes from the MIR |
+| packing is greedy first fit by decreasing size, deterministic, with the lower bound reported beside it | B2 | another heuristic behind the same `assign` entry |
+| the frame descriptor is emitted by the backend as a constant, not as a Saw `static`, since a non-integer static is `backend.not-yet` | A3b | a Saw static, once the backend lowers one |
 
 ## 6. Risks
-_(to be written)_
+
+Each risk names what could blow up the estimate, then the unit that retires it, and how.
+
+**R1. Frame packing over a general CFG** (B1–B3).
+- **The risk:**
+  - with fixed offsets the interference need not admit a tight packing;
+  - a value live around a loop is live in every state of it;
+  - a greedy packer can land far above the lower bound.
+
+  None of that is incorrect, but it is the user's requirement.
+- **How it is retired:**
+  - B1 computes lifetimes and checks them in goldens *before* B2 packs anything, so a lifetime bug and a packing bug are told apart;
+  - B2 reports the lower bound beside every extent, so quality is measured, not argued;
+  - design 163's synthetic tree is the yardstick (Stage 0 6,768 B; the overlay recurrence about 928 B);
+  - A3a's no-sharing policy stays behind the same `assign` entry, so a packing bug can be bisected by switching policy without touching lowering.
+
+  MIR from structured source has a reducible CFG, so liveness is the ordinary dataflow.
+
+**R2. A storage lifetime that is too short** (B1, B3).
+- **The risk:** this is the one silent failure mode: two values share bytes while one still needs them. A loan that outlives its value's last direct use, a drop flag, a window epilogue reading the record, and a child's result move-out are the four ways to get it wrong.
+- **How it is retired:**
+  - B1 takes loans from the borrow check's own facts, not a second analysis;
+  - B3 recomputes lifetimes from the *lowered* MIR's frame-slot accesses and fails on any intersection, with injections proving it can fail;
+  - the run lane also builds coroutine programs with `-fsanitize=address` at clang (no compiler change), so a missed case shows up as a report rather than a wrong number.
+
+**R3. Cancellation** (A10, A12a, A14b).
+- **The risk:** cancellation is cooperative, so correctness lives in each std park (record, arm, observe the cancel word, unregister on the way out). That is the SL-353 family: a wake lost between arming and recording.
+- **How it is retired:**
+  - every park goes through one MIR terminator, whose lowering records before it arms (verifier rule 4, A5);
+  - A12a brings SL-355's atomic latch (Q7) and its `parksoak` stress program as a run-lane pin;
+  - A10's pins cover cancel during sleep, io and a channel wait.
+
+**R4. The deadlock walk** (A13b).
+- **The risk:** the walk decides by elimination over unsynchronized reads, and a false positive aborts a correct program. Design 127's forced yields look exactly like a permanent wait.
+- **How it is retired:**
+  - A13b ports Stage 0's rules verbatim (`__saw_exec_quiescent_now`: only readiness-word parks count, and the walk reads twice with a nap) rather than re-deriving them, as §3.9 asks;
+  - besides K67 and the oracle sweep's `stage0/p4_deadlock.saw`, a negative pin: a long compute task beside a parked channel waiter must never be reported.
+
+**R5. The re-entrant scheduler** (A7b, A8a).
+- **The risk:** a nested drive that resumes a frame active further up the C stack corrupts it, and no static check sees it (t2).
+- **How it is retired:** A7b ports Stage 0's skip, under the queue lock on a multi-threaded group, and A8a pins `taskgroup_nested_groups`.
+
+**R6. Offload cancel latency is unbounded** (A14a, A14b; t4).
+- **The risk:** a cancelled task parked on an offload waits for its C call to finish (spec, offload "Cancellation"). SL-544 is the instance: `std.process`'s stdout drain is a `blocking` extern, so cancelling `output()` waits for the child.
+- **How it is retired:** A14b pins the behaviour. The std ports this plan unblocks use an fd park (`io_wait`) for any wait with no bound, and keep the offload for calls that finish.
+
+**R7. Stage 0 retires mid-plan** (A0b).
+- **The risk:** the seed ruling retires `sawc/` once a seed bootstraps (SL-539), and the run lane's oracle is Stage 0's live binary.
+- **How it is retired:** A0b snapshots the 490 programs' outputs, frame sizes and table shapes first, so the plan never depends on Stage 0 surviving.
+
+**R8. The std porting volume, and sawc2 gaps met inside it** (A7b, A11–A15, A17a).
+- **The risk:** a third of phase A is std code that Stage 0 already had, written in the bootstrap language. It will meet sawc2 gaps that nobody has needed yet. Two are already known:
+  - a method call through `any` is `slice.not-yet`, so the executor cannot use Stage 0's `Box<any Resumable>`;
+  - a static that is not an integer or a Bool is `backend.not-yet`.
+
+  §3.1 designs around both: a backend-emitted frame descriptor, called through function pointers.
+- **How it is retired:** per agent conduct, a unit that meets a gap stops, files it with its mechanism, and reports. The std track is kept separate from the compiler track, so one waiting does not stall the other.
+
+**R9. Compile time on large frames** (A6, B4).
+- **The risk:** Stage 0's frames drove LLVM into quadratic time and an aggregate limit (SL-230, SL-232, SL-336), because a frame was a first-class aggregate.
+- **How it is retired:** in sawc2 a frame is bytes addressed by `getelementptr`, with no `insertvalue` and no frame-sized SSA values, so that class cannot recur. A resume function's state switch still grows with its state count, so B4's lane records compile time on the largest corpus frames alongside sizes.
+
+**R10. Heap-frame depth** (C3; Q4).
+- **The risk:** recursive driving costs O(depth) native stack per poll.
+- **How it is retired:** C3 measures 10,000 levels against the sync twin, and Q4's option (b) is the fallback, which the uniform ABI leaves room for.
