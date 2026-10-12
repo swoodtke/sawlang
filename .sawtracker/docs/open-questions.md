@@ -8,7 +8,19 @@ Newest first within each section. When the user rules, the entry moves to "Resol
 
 ## Waiting for the user (fundamental)
 
-Nothing is waiting. Q-shiftcount and Q-astdiff were ruled on Oct 12 and are under "Resolved".
+### Q-coro1 to Q-coro7. The coroutine plan's questions (Oct 12; SL-545, SL:coroutines §5)
+The full options and reasoning are in SL:coroutines §5. Phases A and B don't wait on any of them except Q-coro7, which is needed at unit A12a.
+
+| | question | recommendation |
+|---|---|---|
+| Q-coro1 | Heap frames: automatic or opt-in, and how are they spelled? | opt-in at the declaration, with the effect-slot word `indirect` (`func walk(n: &Node) indirect -> Int`); an unmarked suspending cycle stays refused, with the word as its fixit |
+| Q-coro2a | What happens when a heap frame can't be allocated? | a panic, under the existing compiler-inserted-allocation boundary (fallback: the function must return a `Result`) |
+| Q-coro2b | Does `--no-hidden-alloc` accept a heap frame? | yes, since `indirect` in the signature names the allocation |
+| Q-coro3 | A task with a heap edge has no static size. What follows? | report it as unbounded in `--emit-frame-layout`; never refuse it, freestanding included |
+| Q-coro4 | How is a deep heap chain driven and cancelled? | recursively, at parity with sync recursion; an executor-managed stack later if needed, with no ABI change |
+| Q-coro5 | Suspending dispatch through `any Trait`? | a union slot sized to the largest frame among the conformers coerced to that `any`, with a heap fallback for an `indirect` conformer |
+| Q-coro6 | Suspending closures? | a heap frame per call; refused under `--no-hidden-alloc` |
+| Q-coro7 | Where does SL-355's runtime half (the atomic wake latch) land? | at A12a, in `sawc/rt/` and both stds, as a maintenance fix to the frozen tree; breaks the runtime ABI for sawos (SO-18 follows) |
 
 ## Open, for the lead to decide with the Air (reversible)
 
