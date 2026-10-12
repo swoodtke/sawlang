@@ -186,7 +186,7 @@ This is the shape every unit in §4 builds toward. Where it fixes a detail §3.9
     - the root token (the address of the task's park word);
     - the cancel word's address;
     - the task's identity, for the backtrace walk.
-  - An embedded child is resumed by a direct call with the same signature. A heap child, a suspending `any Trait` dispatch and a suspending closure (phase C) are resumed through a *frame descriptor*: a static record of `{resume, size, align, result glue, backtrace index}`. The executor already calls every task root through one of these from unit A7.
+  - An embedded child is resumed by a direct call with the same signature. A heap child, a suspending `any Trait` dispatch and a suspending closure (phase C) are resumed through a *frame descriptor*: a constant record of `{resume, size, align, result glue, backtrace index}`, emitted by the backend (§5, decided). The executor calls `main`'s frame through one from A3b, and every task root through one from A7a.
 
   So phase C adds a second way to reach a child, not a new protocol.
 - **A frame is bytes with a layout, not a struct with glue.**
@@ -337,7 +337,7 @@ The matrix stays, as the **test plan**: each row is a lowering claim plus the St
 | `let x = g()`, bare `g()`, `return g()` (EMBED) | child driving (§3.1) | `coro_nested_suspend_two_deep`, `expr_suspend_return` | A4 |
 | suspend primitive (INLINE) | `park(ready)` or `park(timer)` | `async_main_sleep_yield` | A3b, A11 |
 | `Channel.receive` (INLINE) | an ordinary suspending std method, embedded | `channel_recv_nested` | A13a |
-| blocking extern (INLINE offload) | `park(offload)`: start the job, park on its pipe, take it | `expr_suspend_blocking` | A14 |
+| blocking extern (INLINE offload) | `park(offload)`: start the job, park on its pipe, take it | `expr_suspend_blocking` | A14a, A14b |
 | any operand, argument, receiver, interpolation or short-circuit right side (HOIST, the ANF pass) | MIR temporaries in evaluation order; a short-circuit right side is its own branch (§3.5) | `expr_suspend_{arg,binop,andor,interp,coalesce,chain_head}` | A6 |
 
 **Stage 0's implementation limits, lifted.** The spec's "Not yet supported" list exists because a source rewrite could not express these shapes. In MIR each is ordinary blocks, so sawc2 builds them rather than copy the refusal, and each pin flips from `error` to a run program:
@@ -354,8 +354,8 @@ The matrix stays, as the **test plan**: each row is a lowering claim plus the St
 |---|---|---|---|
 | suspending `main` | an entry executor drives `main`'s frame through the std executor | `async_main_sleep_yield` | A3b |
 | `__saw_drive(f(…))`, `__saw_drive_steps`, `__saw_suspend` | test intrinsics: a sync driver loop over a stack-allocated frame that never parks; `__saw_suspend` is `park(ready)` with no wake | `coro_drive_void_body` | A4 |
-| `Task.spawn(f(…))` | a task-root item; a heap task box sized by the root's layout; enqueue through the frame descriptor; a must-consume handle | `background_task_spawn` | A7 |
-| `group.spawn(f(…))` | the same root into the group's slots; a group handle, not must-consume; spawn borrows are extents carried by the handle | `taskgroup_two_task_yield`, `taskgroup_eager_teardown` | A8a, A8b |
+| `Task.spawn(f(…))` | a task-root item; a heap task box sized by the root's layout; enqueue through the frame descriptor; a must-consume handle | `background_task_spawn` | A7a, A7c |
+| `group.spawn(f(…))` | the same root into the group's slots; a group handle, not must-consume; spawn borrows are extents carried by the handle | `taskgroup_two_task_yield`, `taskgroup_eager_teardown` | A8a, A8b, A8c |
 | a function spawned *and* embedded | two items, a task root and the ordinary framed item; no trampoline (Stage 0's `f$spawnroot`) is needed, since the task root *is* the separate specialization | `coro_spawn_and_embed` | A7a |
 | `TaskGroup(threads: N)` | the live worker pool plus the Send gate over the frame's resident values | `taskgroup_threads_parallel_sum`, `conformance/K02_nonsend_across_suspend_local_mt` | A17 |
 | `Thread.spawn { }` | no frame: a sync item on an OS thread (§3.8). Out of scope (§1), except its body-is-sync refusal | `conformance/K83_thread_spawn_body_is_sync_enforced` | A18 |
@@ -372,7 +372,7 @@ The matrix stays, as the **test plan**: each row is a lowering claim plus the St
 | fd readiness (`io_wait`) | record `-1`, then register through the executor funnel | can run | `net_precise_wakeup` | A12 |
 | io-budget yield (design 89-c) | std's `__saw_rt_op_budget_tick` then `yield_now`; no compiler part | runnable | `net_budget_fairness` | A12b |
 | channel wait | record the channel's readiness-word address | **parked**: the only state the walk counts | `conformance/K63_channel_wait_is_a_park`, `conformance/K67_quiescent_channel_deadlock_is_reported` | A13 |
-| offload job | an fd park on the job's pipe; take (join) before leaving, cancelled or not. Spec, offload "Cancellation": a cancelled task waits for its C call, and its frame keeps the call's storage until the join (t4; risk R6) | can run | `offload_seam_first_tick`, plus A14's cancel-during-call pin | A14 |
+| offload job | an fd park on the job's pipe; take (join) before leaving, cancelled or not. Spec, offload "Cancellation": a cancelled task waits for its C call, and its frame keeps the call's storage until the join (t4; risk R6) | can run | `offload_seam_first_tick`, plus A14b's cancel-during-call pin | A14a, A14b |
 | signal watch | an fd park inside `SignalWatch.next` | can run (it counts as I/O) | `conformance/K98_signal_wakes_a_parked_watcher` | A15 |
 
 **Language refusals Stage 0 makes and sawc2 matches:**
@@ -384,7 +384,7 @@ The matrix stays, as the **test plan**: each row is a lowering claim plus the St
 | a closure body | `effect.closure-suspends` (exists) | `errors/coro_suspending_closure_body_in_a_visitor` | in place |
 | `sync` contexts, `deinit`, `@export` | `effect.sync`, `export.suspends` (exist) | 27 tests | in place, with the vocabulary in A2 |
 | a drive site in a suspending body | `coro.drive-in-suspending` (new) | `drive_site_in_suspending_body` | A4 |
-| `Task.spawn` borrows, extents, `NoMove`, must-consume, `Never` body, Send gate, the freestanding `Task.spawn` | spawn-site rules | the K-rows named in §3.2 | A7, A8, A17, A18 |
+| `Task.spawn` borrows, extents, `NoMove`, must-consume, `Never` body, Send gate, the freestanding `Task.spawn` | spawn-site rules | the K-rows named in §3.2 | A7c, A8c, A17b, A18 |
 
 ## 4. Units
 
@@ -398,15 +398,15 @@ Pins are named by their `tests/corpus/` program: each becomes a run-lane copy co
 - **B, the overlay layout:** the user's stack-like frames. These are core units: B1 can start as soon as the verifier (A5) exists, and B runs beside A's std track;
 - **C, heap frames:** after A and B.
 
-**Three tracks**, whose files do not overlap, so two agents can run at once:
+**Three tracks**, whose files do not overlap, so two agents can run at once. Every unit has a track (revised for t6):
 
-| track | units | files |
-|---|---|---|
-| **compiler back half** | A0, A1, A3a, A3b, A4, A5, A6, A9, B1–B4, A16 | `compiler/coro/` (new), `compiler/llvm/`, `compiler/mono/`, `compiler/driver/`, `compiler/tools/build.py`, `compiler/tests/{coro,run,mono}/` |
-| **std and runtime** | A7b, A10, A11, A12a, A12b, A13a, A13b, A15, A17a | `std/`, `sawc/rt/`, plus `sawc/std/taskgroup.saw` in A12a only, and `compiler/tests/{std,run}/` |
-| **front half** | A2, A7a's front part, A8b, A17b, A18 | `compiler/resolve/`, `compiler/typecheck/`, `compiler/borrowck/`, `compiler/drops/`, `compiler/tools/std_suspension.py` |
+| track | files | units entirely inside it | crossing units, with what they cross into |
+|---|---|---|---|
+| **back:** compiler back half | `compiler/coro/` (new), `compiler/llvm/`, `compiler/mono/`, `compiler/driver/`, `compiler/tools/build.py`, `compiler/tests/{coro,run,mono}/` | A0, A0b, A1, A3c, A5, A6, A7a, A9, A14a, A16a, B2, B3, B4, C2, C3, C4 | A3a (`compiler/mir/`, the projection kind only); A3b (`std/task.saw`, the stub entry); A4 (`compiler/resolve/src/lookup.saw`); A8b (`compiler/typecheck/`); A17b (`compiler/typecheck/src/api.saw`); B1 (`compiler/borrowck/`, `compiler/drops/`); C1, C5, C6 (front half) |
+| **std:** std and runtime | `std/`, `sawc/rt/`, `compiler/tests/std/` | A7b, A8a, A10, A11, A12b, A13a, A13b, A14b, A15, A16b, A17a | A12a (`sawc/std/taskgroup.saw` under §5 Q7, and the regenerated `compiler/typecheck/src/runtimeabi.saw`) |
+| **front:** compiler front half | `compiler/resolve/`, `compiler/typecheck/`, `compiler/borrowck/`, `compiler/drops/`, `compiler/tools/std_suspension.py` | A7c, A8c, A18 | A2 (`std/{task,duration,prelude}.saw`) |
 
-A unit that crosses tracks says so under its files. Two such units are not dispatched together.
+**The dispatch rule:** two units run at once only when neither one's files, crossings included, touch the other's. The two hot files are `compiler/coro/src/lower.saw` (back) and `std/taskgroup.saw` (std), and after the t6 and t7 splits each is touched by one track only.
 
 ### Phase 0: groundwork
 
@@ -428,6 +428,10 @@ A unit that crosses tracks says so under its files. Two such units are not dispa
   - its backtrace table's frame and state counts.
 
   These go in `compiler/tests/coro/stage0/`, as a TSV and per-program expectations. The run lane keeps comparing against live Stage 0 while it exists, and falls back to the snapshot after.
+
+  **Settled with the Air (t9):**
+  - **Each row records its target triple.** Frame sizes and backtrace offsets depend on pointer width and alignment, and SL-536 brings Linux and an x86_64 cross target. B4 compares only rows of the same triple.
+  - **A0b is a hard prerequisite of removing `sawc/`.** Once Stage 0 is gone, nothing can regenerate its outputs, sizes or table shapes, and B4 and every "against Stage 0" pin rest on them. So A0b lands first: it has no dependencies. SL-539's removal checklist should name it (merged, with all 490 snapshotted) as a precondition, which is for the lead to add.
 
   `compiler/tests/coro/census.py` (informational, like `mir/corpus_info.py`) counts how many of the 490 programs and the 93 refusal tests sawc2 builds and passes, by first refusal. It also generates §1's *gated* list: the programs whose missing names include a std module or type outside this plan. The rest is the plan-complete set.
 - **Depends on:** nothing.
@@ -497,15 +501,38 @@ A unit that crosses tracks says so under its files. Two such units are not dispa
 - **Done when:** they print as Stage 0 does at -O0 and -O2.
 - **Estimate:** 1.5.
 
+**A3c. The `park` lowering for every reason** (back track; settled with the Air, t7).
+- **Scope:** §3.9's "one lowering per case": one coro case per reason, each written and reviewed here, so "record before arm" is enforced per reason and A5's rule 4 checks each one.
+  - *timer:* record the deadline;
+  - *fd:* record `-1`, then call the executor's arm funnel `__saw_exec_io_register(fd, dir, token)`;
+  - *channel:* record the readiness word's negated address;
+  - *offload:* record `-1`, then arm the job's pipe through the same funnel;
+  - *signal:* the fd case, reached through `SignalWatch.next`.
+
+  Each case also reads its outcome on resume: ready, timed out, or cancelled. The std intrinsics name the reason and pass its operands; the executor functions each lowering calls are declared in std, and their bodies arrive with the std units (A11, A12a, A13a, A14b, A15). So the std units never touch `compiler/coro/`.
+- **Depends on:** A3b.
+- **Files:** `compiler/coro/src/lower.saw`, `compiler/tests/coro/golden/`.
+- **Pins:** a lowered-MIR golden per reason, in which the record store precedes the arm.
+- **Done when:** the five goldens are stable, and A5's rule 4 accepts them once it lands.
+- **Estimate:** 1.
+
 **A4. Driving a child frame, and the test intrinsics.**
 - **Scope:**
   - Embedded child slots: parameter slots written at the call, the drive block, `Pending` returned as is, and `Ready` with the result moved out (§3.1).
-  - `__saw_drive`, `__saw_drive_steps` and `__saw_suspend` as test lang intrinsics: a sync driver over a stack-allocated frame that never parks, and `steps` counting `Pending`s. Resolve stops refusing the three.
+  - `__saw_drive`, `__saw_drive_steps` and `__saw_suspend` as test lang intrinsics, with `steps` counting `Pending`s. Resolve stops refusing the three. A drive point is a root over a stack-allocated frame, and its rule depends on the reason a `Pending` reports (t8):
+    - **on a ready yield,** it resumes at once;
+    - **on any other reason** (timer, fd, channel, offload, or a group it runs inside), it hands the wait to the executor's sweep and idle wait. That shares the ambient scheduler, as Stage 0's drive points do: "one sweep … shared by every drive point" (`sawc/std/taskgroup.saw`).
+
+    Until A7b provides that sweep, a non-ready `Pending` at a drive point panics, naming the reason, rather than spin. A busy re-resume would mask a lost wake.
   - `coro.drive-in-suspending` for a drive site in a body that suspends.
 - **Depends on:** A3b.
-- **Files:** `compiler/coro/src/lower.saw`, `compiler/resolve/src/lookup.saw` (a small cross-track touch), `compiler/llvm/src/calls.saw`.
-- **Pins:** `coro_nested_suspend_two_deep`, `coro_drive_void_body`, `expr_suspend_return`; refusals `drive_site_in_suspending_body` and `drive_site_in_suspending_function`.
-- **Done when:** the pins pass. Census: the programs driven only through the intrinsics, over yields, start passing (expected +100 or more of the 125).
+- **Files:** `compiler/coro/src/lower.saw`, `compiler/llvm/src/calls.saw`; cross-track, `compiler/resolve/src/lookup.saw`.
+- **Pins:**
+  - `coro_nested_suspend_two_deep`, `coro_drive_void_body`, `expr_suspend_return`;
+  - refusals `drive_site_in_suspending_body` and `drive_site_in_suspending_function`.
+
+  The drive-point programs that sleep or run a group move to the unit that makes them pass: `taskgroup_suspending_parent_sleep` to A11; `taskgroup_nested_groups`, `taskgroup_in_suspending_fn`, `taskgroup_suspending_cancel` and `taskgroup_suspending_deinit_join` to A8a.
+- **Done when:** the pins pass. Census: the intrinsic-driven programs whose parks are all ready yields or `__saw_suspend`s start passing. The census lane reports the exact count, rather than this plan guessing it.
 - **Estimate:** 1.5.
 
 **A5. The post-lowering verifier, first cut.**
@@ -533,18 +560,27 @@ A unit that crosses tracks says so under its files. Two such units are not dispa
 - **Done when:** all of them pass. This is the last unit before B1, so it should finish while frames are still unshared.
 - **Estimate:** 1.5.
 
-**A7a. Task roots and `Task.spawn`** (back half, with a front part).
+**A7a. Task roots and spawn lowering** (back track).
 - **Scope:**
   - Mono adds a task-root item per cooperative spawn site (§3.8), and coro frames it whether or not it suspends, with its budget points live.
   - Spawn lowering asks std for a task box sized by the root's layout, writes the arguments into the root's parameter slots, and enqueues the box with its descriptor.
-  - Front part: resolve accepts `Task.spawn`; typecheck refuses borrows at the form (K88) and a `Never` task body; drop elaboration's must-consume roles name `Task<T>` and `VoidTask`, so `drop.must-consume`'s due fixture goes live.
-- **Depends on:** A4; A7b for the run pins.
-- **Files:**
-  - `compiler/mono/src/worklist.saw`, `compiler/coro/src/lower.saw`;
-  - cross-track: `compiler/resolve/src/walk.saw`, `compiler/typecheck/src/bodies.saw`, `compiler/drops/src/elaborate.saw`.
-- **Pins:** `background_task_spawn`, `coro_spawn_and_embed`, `conformance/K88_background_spawn_takes_no_borrows`, the `Never`-body tests, K78/K79/K85.
-- **Done when:** all pass.
-- **Estimate:** 1.5.
+  - It serves both `Task.spawn` and `group.spawn`; A8b only adds the group's operand.
+- **Depends on:** A4, A7c; A7b for the run pins.
+- **Files:** `compiler/mono/src/worklist.saw`, `compiler/coro/src/lower.saw`.
+- **Pins:** `background_task_spawn`, `coro_spawn_and_embed`.
+- **Done when:** both pass.
+- **Estimate:** 1.
+
+**A7c. The `Task.spawn` form's front half** (front track).
+- **Scope:**
+  - resolve accepts `Task.spawn`;
+  - typecheck refuses borrows at the form (K88) and a `Never` task body;
+  - drop elaboration's must-consume roles name `Task<T>` and `VoidTask`, so `drop.must-consume`'s due fixture goes live.
+- **Depends on:** A2.
+- **Files:** `compiler/resolve/src/walk.saw`, `compiler/typecheck/src/bodies.saw`, `compiler/drops/src/elaborate.saw`.
+- **Pins:** `conformance/K88_background_spawn_takes_no_borrows`, the `Never`-body tests, K78/K79/K85, `refuse/drop.must-consume`.
+- **Done when:** the refusals pass. The accepted forms reach A0's backend refusal until A7a.
+- **Estimate:** 1.
 
 **A7b. The std executor core** (std track).
 - **Scope:** the run queue; task slots with generations; cells holding the result and the cancel word (design 134); `Task<T>` and `VoidTask` with `join` (driving the scheduler), `detach` and `cancel`; the background group, built on the first `Task.spawn` and closed at `main`'s return (cancel, then join); the freestanding refusal. Ported from `sawc/std/taskgroup.saw` into the bootstrap language, calling frames only through the descriptor. Two invariants come with it (§3.1, t2 and t3):
@@ -556,58 +592,71 @@ A unit that crosses tracks says so under its files. Two such units are not dispa
 - **Done when:** the pins pass.
 - **Estimate:** 1.5.
 
-**A8a. `TaskGroup`.**
-- **Scope:** `group.spawn` (resolve and typecheck stop refusing it); `NoMove`; `Deinit` driving the group's members to completion; a frame-resident group (G1); group handles are not must-consume; `detach` on one panics.
-- **Depends on:** A7a, A7b.
-- **Files:** `std/taskgroup.saw`, `compiler/typecheck/src/{api,bodies}.saw`, `compiler/coro/src/lower.saw`.
-- **Pins:** `taskgroup_two_task_yield`, `taskgroup_eager_teardown`, `taskgroup_nested_groups` (re-entrant join, expects `124`; t2), the four `NoMove` refusal tests.
-- **Done when:** census +200 or so (`TaskGroup` appears in 206 of the 392).
+**A8a. `TaskGroup` in std** (std track).
+- **Scope:**
+  - the `TaskGroup` type, `NoMove`;
+  - `Deinit` driving the group's members to completion through the shared sweep;
+  - a frame-resident group (G1);
+  - handles that are not must-consume, with `detach` on one panicking.
+- **Depends on:** A7b.
+- **Files:** `std/taskgroup.saw`.
+- **Pins** (with A8b): `taskgroup_two_task_yield`, `taskgroup_eager_teardown`, `taskgroup_nested_groups` (re-entrant join, expects `124`; t2), `taskgroup_in_suspending_fn`, `taskgroup_suspending_cancel`, `taskgroup_suspending_deinit_join`, the four `NoMove` refusal tests.
+- **Done when:** with A8b, census +200 or so (`TaskGroup` appears in 206 of the 392).
 - **Estimate:** 1.
 
-**A8b. Spawn borrows as extents** (front-half track).
+**A8b. The `group.spawn` form** (back track, crossing into the front).
+- **Scope:** typecheck stops refusing `group.spawn` (`known.task_group` looks in the new std), and A7a's spawn lowering takes the group as its queue.
+- **Depends on:** A7a, A8a.
+- **Files:** `compiler/coro/src/lower.saw`; cross-track, `compiler/typecheck/src/{api,bodies}.saw`.
+- **Pins:** A8a's.
+- **Done when:** they pass.
+- **Estimate:** 0.5.
+
+**A8c. Spawn borrows as extents** (front track).
 - **Scope:** a `&`/`&var` argument or a borrow capture at a group spawn opens a loan the handle carries until `join` releases it, or until the group dies (spec: The borrow's extent is the task's life). This brings:
   - the declared-after-the-group refusal;
   - the loop-body refusal;
   - `move` of a borrowed root refused.
-- **Depends on:** A8a.
+- **Depends on:** A8b.
 - **Files:** `compiler/borrowck/src/{loans,conflicts}.saw`, `compiler/typecheck/src/captures.saw`.
 - **Pins:** `spawn_capture_alias`, `spawn_capture_move_root` and the other spawn-extent tests.
 - **Done when:** the 6 refusal tests pass and `fill(&var buf, 3)` runs.
 - **Estimate:** 1.
 
-**A9. The op budget.**
+**A9. The op budget, and the `cancelled()` read** (back track).
 - **Scope:**
   - A live budget point in a framed item lowers to the per-frame counter (128 at frame init), plus `park(ready)` when it runs out.
   - Charge-only points decrement and never park.
   - Points in unframed items are deleted.
-- **Depends on:** A3b; A8a for the pin.
+  - `cancelled()` lowers to a read of the cancel word through `cx`. Moved here from A10, so that the std track never edits `lower.saw` (t6).
+- **Depends on:** A3b; A8b for the budget pin.
 - **Files:** `compiler/coro/src/lower.saw`.
 - **Pins:** `taskgroup_compute_preemption`, and the oracle sweep's `stage0/p5_budget.saw` (127, then 0).
 - **Done when:** both pass.
 - **Estimate:** 0.5.
 
-**A10. Cancellation.**
-- **Scope:** the cancel word is reached through `cx`; `cancelled()` lowers to a read of it; a cancel wakes the parked task (executor); parks report it.
-- **Depends on:** A7b, A3b.
-- **Files:** `std/task.saw`, `std/taskgroup.saw`, `compiler/coro/src/lower.saw` (one read).
+**A10. Cancellation** (std track).
+- **Scope:** the cancel word lives in the task's cell, and `cx` points at it; a cancel wakes the parked task; each park reports it. The compiler's one read is A9's.
+- **Depends on:** A7b, A9.
+- **Files:** `std/task.saw`, `std/taskgroup.saw`.
 - **Pins:** `taskgroup_cancel_during_sleep` (with A11), the `cancelled()` programs.
 - **Done when:** all pass.
 - **Estimate:** 1.
 
 **A11. Timers.**
-- **Scope:** `park(timer)`; `sleep(d)`; `Instant` (`std/time.saw`); the executor's earliest-deadline timers; the reactor poll as the idle wait, with the earliest deadline as its timeout.
-- **Depends on:** A7b.
+- **Scope:** the executor half of `park(timer)` (A3c lowers it): `sleep(d)`; `Instant` (`std/time.saw`); the earliest-deadline timers; the reactor poll as the idle wait, with the earliest deadline as its timeout. The shared sweep's idle wait serves drive points too (A4, t8).
+- **Depends on:** A7b, A3c.
 - **Files:** `std/{task,taskgroup,time}.saw`.
-- **Pins:** `taskgroup_sleep_ordering`, `async_main_sleep_yield`.
+- **Pins:** `taskgroup_sleep_ordering`, `async_main_sleep_yield`, `taskgroup_suspending_parent_sleep` (a drive point whose frame sleeps).
 - **Done when:** all pass.
 - **Estimate:** 1.5.
 
 **A12a. The fd park and the register funnel.**
 - **Scope:**
-  - `io_wait(fd, dir, deadline)` lowers to `park(fd)`: it records `-1` through the root token, then calls `__saw_exec_io_register`, the one arm funnel.
-  - On a timed-out or cancelled exit it unregisters.
+  - The executor half of `park(fd)` (A3c lowers it): `io_wait(fd, dir, deadline)` in std, and `__saw_exec_io_register`, the one arm funnel the lowering calls after it records `-1`.
+  - On a timed-out or cancelled exit, the park unregisters.
   - SL-355's R5 runtime half (c20): the atomic wake word, the poll's CAS(-1 → 0) latch, and a `register` that returns a status, a failed arm panicking with the fd and errno. Where it lands is §5 Q7.
-- **Depends on:** A11.
+- **Depends on:** A11, A3c.
 - **Files:** `std/taskgroup.saw`, `sawc/rt/host_{macos,linux}/reactor.saw`, `sawc/rt/ABI.md`, `compiler/typecheck/src/runtimeabi.saw` (regenerated); by §5 Q7, `sawc/std/taskgroup.saw`.
 - **Pins:** a std-lane program parking on a pipe; SL-355's `parksoak` stress program as a run-lane program, with 0 stalls.
 - **Done when:** the pins pass.
@@ -622,31 +671,41 @@ A unit that crosses tracks says so under its files. Two such units are not dispa
 - **Estimate:** 1.
 
 **A13a. Channels, cooperative half.**
-- **Scope:** `std/channel.saw`: a `Copy` handle with an internal refcount and lock; `send`, `receive`, `close` and `try_receive`; the readiness word; `park(channel)`. `ChannelError` comes from design 230. The thread engine's blocking `recv` is out of scope.
-- **Depends on:** A7b.
+- **Scope:** `std/channel.saw`: a `Copy` handle with an internal refcount and lock; `send`, `receive`, `close` and `try_receive`; the readiness word that `park(channel)` (A3c) records. `ChannelError` comes from design 230. The thread engine's blocking `recv` is out of scope.
+- **Depends on:** A7b, A3c.
 - **Files:** `std/channel.saw` (new).
 - **Pins:** `channel_recv_nested`, `conformance/K63_channel_wait_is_a_park`, `conformance/K47_channel_receive_binding_and_try_heads`.
 - **Done when:** all pass.
 - **Estimate:** 1.
 
 **A13b. The deadlock walk.**
-- **Scope:** quiescence by elimination with §3.3's per-reason classification, read twice with a nap; the panic, then the task dump. The dump has frame lines once A16 lands; before that, its header only.
+- **Scope:** quiescence by elimination with §3.3's per-reason classification, read twice with a nap; the panic, then the task dump. The dump has frame lines once A16b lands; before that, its header only.
 - **Depends on:** A13a.
 - **Files:** `std/taskgroup.saw`.
 - **Pins:** `conformance/K67_quiescent_channel_deadlock_is_reported`, and the oracle sweep's `stage0/p4_deadlock.saw`.
 - **Done when:** both pass.
 - **Estimate:** 1.
 
-**A14. Offload.**
+**A14a. Offload, the compiler half** (back track).
 - **Scope:**
-  - A `blocking` extern called in a framed body lowers to `park(offload)`. One C-ABI `word(word)` thunk is synthesized per offloaded extern, reading its frame-resident argument slots.
-  - `__saw_rt_offload_start`, then a park on the job's pipe, then `take` (the join) on every exit, cancel included.
+  - A `blocking` extern called in a framed body lowers to the offload sequence: `__saw_rt_offload_start`, then `park(offload)` on the job's pipe (A3c), then `take`, the join, on every exit, cancel included.
+  - One C-ABI `word(word)` thunk is synthesized per offloaded extern, reading its frame-resident argument slots.
   - Not offloaded: in a `Thread.spawn` body a `blocking` extern is a plain call. In the freestanding profile it is refused.
-- **Depends on:** A12a.
-- **Files:** `compiler/coro/src/lower.saw`, `compiler/llvm/src/calls.saw`, `std/taskgroup.saw`.
-- **Pins:** `expr_suspend_blocking`, `offload_seam_first_tick`, and A0's `suspend_blocking_main`, now built. Plus a cancel-during-call program (t4): a cancel while the C call is in flight returns only after the call, and the frame's buffer stays valid until the take.
+- **Depends on:** A3c.
+- **Files:** `compiler/coro/src/lower.saw`, `compiler/llvm/src/calls.saw`.
+- **Pins:** lowered-MIR goldens for the sequence on its completion and cancel exits. The run pins come with A14b.
+- **Done when:** the goldens are stable.
+- **Estimate:** 1.
+
+**A14b. Offload, the executor half** (std track).
+- **Scope:** the job park in the executor, and `take` on a cancelled task's exit (spec, offload "Cancellation"; t4).
+- **Depends on:** A12a, A14a.
+- **Files:** `std/taskgroup.saw`.
+- **Pins:**
+  - `expr_suspend_blocking`, `offload_seam_first_tick`, and A0's `suspend_blocking_main`, now built;
+  - a cancel-during-call program (t4): a cancel while the C call is in flight returns only after the call, and the frame's buffer stays valid until the take.
 - **Done when:** all pass.
-- **Estimate:** 1.5.
+- **Estimate:** 0.5.
 
 **A15. The signal watch.**
 - **Scope:** `std/signal.saw`'s `SignalWatch.next` over `park(fd)`, ported.
@@ -656,16 +715,24 @@ A unit that crosses tracks says so under its files. Two such units are not dispa
 - **Done when:** it passes.
 - **Estimate:** 1.
 
-**A16. Backtraces.**
+**A16a. The backtrace table** (back track).
 - **Scope:**
   - `__saw_bt_table` built from the final layouts: per frame, its state word's offset, and per state its line and the offset of the child it drives.
-  - `dump_tasks`; the dump on the panic path; and `sawc2 coro --bt-table` to decode the table.
+  - `sawc2 coro --bt-table` decodes it.
   - It keeps Stage 0's blob format, so `tools/lldb_saw.py` keeps working.
-- **Depends on:** B2, since offsets are final only after packing; and A7b.
-- **Files:** `compiler/coro/src/bttable.saw` (new), `compiler/llvm/src/module.saw`, `std/taskgroup.saw`.
-- **Pins:** `task_backtrace_nest`, the oracle sweep's `stage0/p3_dump.saw`, and K67's dump lines.
+- **Depends on:** B2, since offsets are final only after packing.
+- **Files:** `compiler/coro/src/bttable.saw` (new), `compiler/llvm/src/module.saw`.
+- **Pins:** decoded-table goldens for `task_backtrace_nest` and the oracle sweep's `stage0/p3_dump.saw`, compared with Stage 0's frame and state counts (A0b).
+- **Done when:** the goldens match.
+- **Estimate:** 1.
+
+**A16b. `dump_tasks` and the panic-path dump** (std track).
+- **Scope:** the walker over task slots and the table; the status words; the dump the panic path prints; and the unsynchronized-snapshot header on a multi-threaded group.
+- **Depends on:** A16a, A7b.
+- **Files:** `std/taskgroup.saw`, `std/task.saw`.
+- **Pins:** `task_backtrace_nest`, `stage0/p3_dump.saw`, and K67's dump lines.
 - **Done when:** all pass.
-- **Estimate:** 1.5.
+- **Estimate:** 1.
 
 **A17a. `TaskGroup(threads: N)`.**
 - **Scope:** the live worker pool; the run-queue lock and condition variable; the per-thread io budget; `cancel_addr` pinning a slot.
@@ -677,7 +744,7 @@ A unit that crosses tracks says so under its files. Two such units are not dispa
 
 **A17b. The Send-on-frames gate.**
 - **Scope:** for a root spawned into a `threads: N` group, every resident value of it and of its embedded children, plus its result, must be `Send`. The check runs post-mono in coro (`coro.spawn-not-send`), naming the first offender, and refuses reference parameters.
-- **Depends on:** A8a.
+- **Depends on:** A8b.
 - **Files:** `compiler/coro/src/suspends.saw` (or `send.saw`), with a small cross-track touch to `compiler/typecheck/src/api.saw` for the `threads:` tracking.
 - **Pins:** `conformance/K02_nonsend_across_suspend_local_mt`, `errors/taskgroup_threads_nonsend_reject`, the 7 Send-gate tests.
 - **Done when:** all pass.
@@ -691,7 +758,7 @@ A unit that crosses tracks says so under its files. Two such units are not dispa
   - the freestanding `Task.spawn`;
   - `dump_tasks`' prelude gating;
   - `blocking` agreement.
-- **Depends on:** A8a.
+- **Depends on:** A8b.
 - **Files:** `compiler/typecheck/src/{bodies,effects,captures}.saw`, `compiler/resolve/src/walk.saw`.
 - **Pins:** the remaining rows of the 93 (`coro_refusal_tests.txt`).
 - **Done when:** the census shows every refusal test passing, except phase C's and the out-of-scope thread engine's. With A18, phases A and B close on the census green over §1's plan-complete set.
@@ -801,25 +868,39 @@ These units start after A and B. Q1–Q4 in §5 are their rulings.
 - **Done when:** they run.
 - **Estimate:** 2.
 
+
 ### Order, parallelism and totals
 
-**The critical path to a running program:** A0 → A1 → A3a → A3b, with A2 alongside A1. That is about 4.5 agent-days, and A3b's `yield_main` is the walking skeleton. A4 then unlocks the intrinsic-driven pins, and A5 freezes the rules before anything widens.
+**The critical path to a running program:** A0 → A1 → A3a → A3b, with A2 alongside A1. That is about 4.5 agent-days, and A3b's `yield_main` is the walking skeleton. A3c and A4 follow on the back track, and A5 freezes the rules before anything widens. A0b goes first of all, since it has no dependencies and gates `sawc/`'s removal (t9).
 
-**After A5, two agents at once:**
-- **compiler back half:** A6 → B1 → B2 → B3 → B4 → A16, then A9 and A14's compiler part;
-- **std and runtime:** A7b → A10 → A11 → A12a → {A12b, A13a → A13b, A15} → A17a.
+**Two agents at once, by track:**
 
-The front-half units (A7a's front part, A8b, A17b, A18) go to whichever agent is between units. A unit that crosses tracks (A3b, A4, A7a, B1) is not dispatched beside another that touches the same directory.
+| agent | sequence |
+|---|---|
+| **1, back** | A0b, A0, A1, A3a, A3b, A3c, A4, A5, A6, B1, B2, B3, B4, A16a; then A7a, A8b, A9, A14a, A17b as their dependencies allow |
+| **2, std, plus the front half between std units** | A2 (alongside A1), A7c, A7b, A8a, A10, A11, A12a, then A12b, A13a, A13b, A14b, A15, A16b, A17a in any order their dependencies allow; A8c and A18 in the gaps |
+
+The sync points are:
+- A3b needs A2;
+- A7a needs A7c;
+- A8b needs A8a;
+- A10 needs A9;
+- A14b needs A14a;
+- A16b needs A16a.
+
+None of these puts two agents on one file.
+
+**Totals:**
 
 | phase | units | agent-days | wall time with two agents |
 |---|---|---|---|
 | 0, groundwork | A0, A0b | 1 | |
-| A, the embedded core | A1–A18 | 29 | about 3.5 weeks for 0 and A together |
-| B, the overlay | B1–B4 | 4 | inside A's wall time, on the compiler track |
+| A, the embedded core | A1–A18, after the t6/t7 splits | 31.5 | about 3.5–4 weeks for 0, A and B together |
+| B, the overlay | B1–B4 | 4 | inside A's wall time, on the back track |
 | C, heap frames | C1–C4 | 4 | 1 week after A and B |
 | C, the follow-ons | C5, C6 | 3.5 | + 0.5 week; C5 also waits on `any` method calls |
 
-For comparison, the lead's guide (SL-545 c2) was 3 weeks for the core, 3–5 days for the overlay and 1–1.5 weeks for heap frames. The core comes out larger mostly because a third of phase A is std porting: the executor, timers, `std.net`'s slice, channels and signals (A7b, A11, A12b, A13, A15, A17a, 8.5 days). Stage 0 had those already.
+For comparison, the lead's guide (SL-545 c2) was 3 weeks for the core, 3–5 days for the overlay and 1–1.5 weeks for heap frames. The core comes out larger mostly because about 13 of phase A's 31.5 days are std porting that Stage 0 already had: the executor, `TaskGroup`, timers, the fd park, `std.net`'s slice, channels, the deadlock walk, offload's executor half, signals, the dump and the thread pool (the std track's units). The compiler part alone, about 18.5 days, is close to the guide.
 
 ## 5. Open questions for the user
 _(to be written)_
