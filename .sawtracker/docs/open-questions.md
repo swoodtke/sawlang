@@ -455,6 +455,18 @@ Correction: the lead first wrote "B", which is not a §12 code. The SL-426 agent
 
 ## Resolved
 
+### Q-coro1 to Q-coro7. The coroutine plan's questions (Oct 12; the USER's rulings; SL-545, SL:coroutines §5)
+| | question | ruling |
+|---|---|---|
+| Q-coro1 | heap frames: automatic or opt-in, and the spelling | **opt-in at the declaration, with the effect-slot word `frame_alloc`**: `func walk(n: &Node) frame_alloc -> Int`, or `func walk(...) frame_alloc { … }`. An unmarked suspending cycle stays refused, with `frame_alloc` as its fixit. The user chose the word over the plan's `indirect`. |
+| Q-coro2a | a heap frame that can't be allocated | **(a) a panic,** under the existing compiler-inserted-allocation panic boundary |
+| Q-coro2b | `--no-hidden-alloc` and heap frames | **(i) accepted,** since `frame_alloc` in the signature names the allocation. **The user added:** a separate flag disables frame allocation, or at least warns about it. **Lead's spelling (reversible):** `--no-frame-alloc` refuses any reachable `frame_alloc` function, naming the function and the call chain, beside `--no-hidden-alloc` in the flag set; and a `-W frame-alloc` warning category (design 150: off by default, never affects the exit code) warns at each call into a `frame_alloc` function. Both belong to unit C4, the profile rules. |
+| Q-coro3 | a task with no static frame size | **(a) report it** (`--emit-frame-layout` shows "unbounded: heap edge at …"); never refuse it, freestanding included |
+| Q-coro4 | driving and cancelling a deep heap chain | **(a) recursively,** at parity with sync recursion. An executor-managed stack may come later, with no ABI change. |
+| Q-coro5 | suspending dispatch through `any Trait` | **(b) a union slot** sized to the largest frame among the conformers coerced to that `any`, with a heap fallback for a `frame_alloc` conformer |
+| Q-coro6 | suspending closures | **(a) a heap frame per call;** refused under `--no-hidden-alloc` (and under `--no-frame-alloc`) |
+| Q-coro7 | where SL-355's runtime half (R5) lands | **(a) at unit A12a,** in `sawc/rt/` and both stds, as a maintenance fix to the frozen tree. It breaks the runtime ABI for providers; sawos follows in SO-18. |
+
 ### Q-shiftcount. A constant out-of-range shift count beside a run-time operand is a compile error (Oct 12; the USER's ruling, option b)
 **Ruled:** refuse it at compile time as `constant.shift-range`, since the panic is certain.
 
