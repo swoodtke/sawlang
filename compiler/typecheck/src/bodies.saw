@@ -129,6 +129,7 @@ extension TcProgram {
             try! self.adj_head.push(-1)
             try! self.adj_tail.push(-1)
             try! self.call_at.push(-1)
+            try! self.spawn_roots.push(false)
             try! self.local_types.push(-1)
             try! self.aliasing_bindings.push(false)
             try! self.lent_bindings.push(false)
@@ -6400,6 +6401,9 @@ extension TcProgram {
         let m = self.current
         let text = self.text(m, leaf)
         let name = self.res.intern(text)
+        if b.decl >= 0 && b.decl == self.known.task && text.equals("spawn") {
+            return self.task_spawn(e, &args)
+        }
         var t = -1
         if b.decl >= 0 {
             let written = self.explicit_type_args(base)
@@ -6449,6 +6453,182 @@ extension TcProgram {
         }
         let explicit = self.explicit_type_args(callee)
         self.resolve_call(e, &cands, &args, &explicit, -1, TC_WANT_NONE)
+    }
+
+    // `Task.spawn(f(x))`, the background spawn form (design 242). Its one
+    // argument is the task's root, a call of a free function that the task
+    // makes; the form hands back `Task<T>` for a root of type `T`, and
+    // `VoidTask` for a `Void` one. The background group has no scope to end
+    // a borrow at, so the root takes none.
+    func task_spawn(&var self, e: Int, args: &TcArgs) -> Int {
+        let form = "Task.spawn"
+        let root = self.spawned_root(e, &args, form)
+        if root < 0 {
+            self.type_args_alone(&args)
+            let poisoned = self.error_type
+            return self.set_type(e, poisoned, false)
+        }
+        let body = self.expr(root, TC_WANT_NONE)
+        self.consume(root)
+        self.spawn_roots[root] = true
+        self.record_builtin(e, -1, TcRole.Spawn, form)
+        let refused = self.refuse_never_task_body(e, root, "the task never completes and `join` on its handle could never return", body)
+        let borrowed = self.refuse_spawn_borrows(root, form)
+        if refused || borrowed || self.has_error(body) {
+            let poisoned = self.error_type
+            return self.set_type(e, poisoned, false)
+        }
+        let handle = self.task_handle(e, body)
+        self.set_type(e, handle, false)
+    }
+
+    // The root call of spawn form `e`, its one positional argument, or -1
+    // once refused: a call of a free function, since a task's frame is built
+    // for a named function.
+    func spawned_root(&var self, e: Int, args: &TcArgs, form: String) -> Int {
+        if args.values.len() != 1 || args.labels[0] >= 0 {
+            var msg = StringBuilder()
+            try! msg.append("`")
+            try! msg.append(form)
+            try! msg.append("(...)` takes exactly one positional argument: a call of the function to run as a task, as in `")
+            try! msg.append(form)
+            try! msg.append("(worker(n))`")
+            self.refuse(e, "spawn.argument", msg.build())
+            return -1
+        }
+        let root = args.values[0]
+        let at = if self.is_call_alt(root) { self.res_call_at[root] } else { -1 }
+        if at < 0 || self.res.calls[at].classification != ResCallClass.Overload {
+            var msg = StringBuilder()
+            try! msg.append("`")
+            try! msg.append(form)
+            try! msg.append("(...)` takes a call of a free function, as in `")
+            try! msg.append(form)
+            try! msg.append("(worker(n))`: a task's frame is built for a named function, so a method, a closure or a value cannot be its root")
+            self.refuse(root, "spawn.argument", msg.build())
+            return -1
+        }
+        root
+    }
+
+    // THE NEVER-BODY FUNNEL: a task body may not be `Never`, since a task is
+    // something to wait for and a `Never` body would give it a result that
+    // cannot exist (design 228). Refuses at `at` when root call `root` has
+    // type `body`, with `consequence` saying what would follow, and returns
+    // whether it refused.
+    // ENTRY POINTS:
+    //     task_spawn
+    func refuse_never_task_body(&var self, at: Int, root: Int, consequence: String, body: Int) -> Bool {
+        if not self.is_never(body) {
+            return false
+        }
+        let callee = self.res.first_node_child(root)
+        let m = self.node_module(root)
+        var msg = StringBuilder()
+        try! msg.append("a task body may not be `Never`: `")
+        try! msg.append(self.text(m, callee))
+        try! msg.append("` never returns, so ")
+        try! msg.append(consequence)
+        try! msg.append(". Write a forever-task as `-> Void` with a loop, `func serve() \{ while \{ ... \} \}`, and end it by cancelling the task or breaking the loop")
+        self.refuse(at, "spawn.never-body", msg.build())
+        true
+    }
+
+    // THE SPAWN-BORROW FUNNEL: each place where root call `root` takes a
+    // borrow of its spawner for the task's life: a `&` or `&var` argument of
+    // the call, then each borrow capture a closure anywhere inside it writes
+    // (`[&x]`, `[&var x]`, `[&self]`, `[&var self]`). A reference that a call
+    // nested in the arguments makes is none: that call runs at the spawn, and
+    // its borrow ends with the statement.
+    // ENTRY POINTS:
+    //     refuse_spawn_borrows
+    func spawn_borrow_sources(&self, root: Int) -> Vector<Int> {
+        var out = Vector<Int>()
+        let callee = self.res.first_node_child(root)
+        let n = self.child_count(root)
+        var k = 0
+        while k < n {
+            var arg = self.child(root, k)
+            k = k + 1
+            if arg == callee || self.is_leaf(arg) {
+                continue
+            }
+            if self.has_alt(arg, Alt.Expr_Argument_Positional) {
+                arg = self.res.first_node_child(arg)
+            } else if self.has_alt(arg, Alt.Expr_Argument_Labelled) {
+                arg = self.res.last_node_child(arg)
+            }
+            if self.has_alt(arg, Alt.Expr_Ref_Shared) || self.has_alt(arg, Alt.Expr_Ref_Exclusive) {
+                try! out.push(arg)
+            }
+        }
+        var stack = Vector<Int>()
+        try! stack.push(root)
+        var top = 1
+        while top > 0 {
+            top = top - 1
+            let id = stack[top]
+            if self.has_alt(id, Alt.Expr_Capture_Borrow) || self.has_alt(id, Alt.Expr_Capture_BorrowExclusive) || self.has_alt(id, Alt.Expr_Capture_Self) || self.has_alt(id, Alt.Expr_Capture_SelfExclusive) {
+                try! out.push(id)
+            }
+            var c = self.child_count(id) - 1
+            while c >= 0 {
+                let child = self.child(id, c)
+                c = c - 1
+                if self.is_leaf(child) {
+                    continue
+                }
+                if top < stack.len() {
+                    stack[top] = child
+                } else {
+                    try! stack.push(child)
+                }
+                top = top + 1
+            }
+        }
+        move out
+    }
+
+    // Refuses each borrow root call `root` of spawn form `form` would take,
+    // and returns whether it refused one.
+    func refuse_spawn_borrows(&var self, root: Int, form: String) -> Bool {
+        let sources = self.spawn_borrow_sources(root)
+        let m = self.node_module(root)
+        var k = 0
+        while k < sources.len() {
+            let at = sources[k]
+            k = k + 1
+            let capture = self.is_capture(at)
+            var msg = StringBuilder()
+            try! msg.append("`")
+            try! msg.append(form)
+            try! msg.append("` accepts no borrows: `")
+            try! msg.append(self.text(m, at))
+            if capture {
+                try! msg.append("` is a capture of the spawned call")
+            } else {
+                try! msg.append("` is an argument of the spawned call")
+            }
+            try! msg.append(". A background task outlives the statement that spawned it and may be detached, so no join ends the borrow: spawn into a `TaskGroup`, since a group's scope is the borrow's extent, or hand the task an owned value, an `Arc` or a `Channel`")
+            self.refuse(at, "spawn.borrow", msg.build())
+        }
+        sources.len() > 0
+    }
+
+    // The handle a spawn form hands back for a root of type `body`.
+    func task_handle(&var self, e: Int, body: Int) -> Int {
+        var args = Vector<Int>()
+        if self.is_void(body) {
+            let d = self.known.void_task
+            if d < 0 {
+                self.not_yet(e, "a `Void` task under a std root that declares no `VoidTask`")
+                return self.error_type
+            }
+            return self.mk_nominal(d, &args)
+        }
+        try! args.push(body)
+        let d = self.known.task
+        self.mk_nominal(d, &args)
     }
 
     // `T.from(x)`, the checked conversion to `T?`, and `T.from(truncating:

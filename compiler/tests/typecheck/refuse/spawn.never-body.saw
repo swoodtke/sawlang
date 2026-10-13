@@ -1,0 +1,16 @@
+// refuses: spawn.never-body at 14:13
+// a `Task.spawn` root that never returns: the handle's result cannot exist,
+// so `join` on it could never return
+
+import std.task.{yield_now}
+
+func halt(n: Int) -> Never {
+    while {
+        yield_now()
+    }
+}
+
+func main() {
+    let h = Task.spawn(halt(1))
+    h.detach()
+}

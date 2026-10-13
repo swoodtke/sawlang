@@ -1,0 +1,11 @@
+// refuses: spawn.argument at 9:13
+// `Task.spawn` given two arguments: the form takes exactly one, the root call
+
+func work(n: Int) -> Int {
+    n
+}
+
+func main() {
+    let h = Task.spawn(work(1), work(2))
+    print(h.join())
+}

@@ -71,6 +71,8 @@ PLAN_RULES = (
     ("inside a CLOSURE BODY", "effect.closure-suspends"),
     ("dispatch through `any ", "effect.any-suspends"),
     ("which itself suspends", "coro.drive-in-suspending"),
+    ("accepts no borrows", "spawn.borrow"),
+    ("a task body may not be `Never`", "spawn.never-body"),
     ("so the task frame cannot cross to a worker thread", "coro.spawn-not-send"),
     ("into a multi-threaded `TaskGroup(threads: ...)`", "coro.spawn-not-send"),
 )

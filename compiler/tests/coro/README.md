@@ -96,7 +96,8 @@ message naming the std position, as mono's are.
 
 The recursion tests themselves reach this stage only once their vocabulary
 does: `yield_now` and `__saw_suspend` (SL:coroutines A2), `__saw_drive` (A4),
-`Task.spawn` (A7c) and `group.spawn` (A8b). Each fixture keeps its test's
+`Task.spawn` (A7c types it, and A7d lowers its site) and `group.spawn`
+(A8b). Each fixture keeps its test's
 shape with a `blocking` extern as the suspension and `main` calling the
 recursive function directly, and says which form it stands in for.
 

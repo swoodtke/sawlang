@@ -67,6 +67,10 @@ public struct TcKnown {
     // refused by name: `Arc`'s forwarding, `TaskGroup.spawn`, `FuncPointer`.
     arc: Int
     task_group: Int
+    // The handles a cooperative spawn form hands back, found in the module
+    // that declares `TaskGroup`; -1 under a std root that declares neither.
+    task: Int
+    void_task: Int
     func_pointer: Int
     ordering: Int
     hasher: Int
@@ -149,6 +153,9 @@ public struct TcProgram {
     call_at: Vector<Int>
     calls: Vector<TcCall>
     insts: Vector<Int>
+    // Whether a call node is a spawn form's root, `f(x)` in `Task.spawn(f(x))`:
+    // the task makes that call, not the body it is written in.
+    spawn_roots: Vector<Bool>
     // The argument bindings of the calls the overload filter resolved: each
     // call's run holds, per parameter, the argument binding it or
     // TC_BIND_DEFAULT.
@@ -315,7 +322,8 @@ public func tc_program(res: ResProgram) -> TcProgram {
                         deserialize: -1, int: -1, uint: -1, int8: -1, int16: -1, int32: -1,
                         int64: -1, uint8: -1, uint16: -1, uint32: -1, uint64: -1, float: -1,
                         bool_type: -1, range: -1, range_inclusive: -1, iterator: -1, box: -1,
-                        vector: -1, map: -1, set: -1, arc: -1, task_group: -1, func_pointer: -1,
+                        vector: -1, map: -1, set: -1, arc: -1, task_group: -1, task: -1, void_task: -1,
+                        func_pointer: -1,
                         ordering: -1, hasher: -1, panic_sink: -1)
     var p = TcProgram(res: move res, types: tc_types(), sigs: move sigs,
                       generics: Vector<TcGeneric>(), traits: Vector<Int>(),
@@ -334,6 +342,7 @@ public func tc_program(res: ResProgram) -> TcProgram {
                       expr_use: Vector<TcUse>(), copy_partner: Vector<Int>(), adj_head: Vector<Int>(),
                       adj_tail: Vector<Int>(), adjusts: Vector<TcAdjust>(),
                       call_at: Vector<Int>(), calls: Vector<TcCall>(), insts: Vector<Int>(),
+                      spawn_roots: Vector<Bool>(),
                       binds: Vector<Int>(),
                       local_types: Vector<Int>(), aliasing_bindings: Vector<Bool>(), lent_bindings: Vector<Bool>(), nonescaping_bindings: Vector<Bool>(),
                       res_call_at: Vector<Int>(),

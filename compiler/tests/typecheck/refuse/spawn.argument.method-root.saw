@@ -1,0 +1,9 @@
+// refuses: spawn.argument at 7:24
+// a method call as a `Task.spawn` root: a task's frame is built for a named
+// free function
+
+func main() {
+    let v: Vector<Int> = []
+    let h = Task.spawn(v.len())
+    print(h.join())
+}

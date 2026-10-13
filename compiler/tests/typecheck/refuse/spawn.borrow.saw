@@ -1,0 +1,14 @@
+// refuses: spawn.borrow at 12:29
+// a `&var` argument of a `Task.spawn` root: a background task has no join
+// that ends the borrow
+
+func fill(v: &var Vector<Int>, n: Int) -> Int {
+    try! v.push(n)
+    v.len()
+}
+
+func main() {
+    var buffer: Vector<Int> = []
+    let h = Task.spawn(fill(&var buffer, 3))
+    print(h.join())
+}

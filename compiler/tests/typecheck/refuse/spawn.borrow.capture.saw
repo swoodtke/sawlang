@@ -1,0 +1,13 @@
+// refuses: spawn.borrow at 11:31
+// a borrow capture written in a closure inside a `Task.spawn` root, the
+// form's second borrow spelling
+
+func run(body: () sync -> Int) -> Int {
+    body()
+}
+
+func main() {
+    var total = 0
+    let h = Task.spawn(run({ [&var total] in total = total + 1; total }))
+    print(h.join())
+}

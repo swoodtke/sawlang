@@ -956,9 +956,9 @@ extension ResProgram {
     func walk_member(&var self, e: Int) -> ResBinding {
         let base = self.first_node_child(e)
         let leaf = self.first_leaf(e)
-        if self.is_spawn_form(base, leaf) {
+        if self.is_thread_spawn(base, leaf) {
             self.refuse(e, "slice.not-yet",
-                        "the `Thread.spawn` and `Task.spawn` forms are not in the bootstrap slice yet")
+                        "the `Thread.spawn` form is not in the bootstrap slice yet")
             try! self.skipped.push(e)
             return self.error_binding()
         }
@@ -975,9 +975,11 @@ extension ResProgram {
         self.member_of(b, leaf)
     }
 
-    // Whether `base.leaf` is `Thread.spawn` or `Task.spawn`: a form, whose
-    // namespace names an engine rather than a declaration (design 242).
-    func is_spawn_form(&self, base: Int, leaf: Int) -> Bool {
+    // Whether `base.leaf` is `Thread.spawn`, the OS-thread engine's form,
+    // whose namespace names an engine rather than a declaration (design 242).
+    // `Task.spawn` resolves as a member of `Task`, and typecheck knows the
+    // form by that declaration.
+    func is_thread_spawn(&self, base: Int, leaf: Int) -> Bool {
         if not self.is_alt(base, Alt.Expr_Name) || leaf < 0 || self.child_count(base) != 1 {
             return false
         }
@@ -985,7 +987,7 @@ extension ResProgram {
         let member = self.text_of(m, leaf)
         let head_leaf = self.first_leaf(base)
         let head = self.text_of(m, head_leaf)
-        member.equals("spawn") && (head.equals("Thread") || head.equals("Task"))
+        member.equals("spawn") && head.equals("Thread")
     }
 
     // What member `leaf` of something bound as `b` denotes, recorded when it

@@ -204,7 +204,7 @@ GRAMMAR.md alternative; the last table lists them.
 | a `$0` parameter | `slice.not-yet` (`syntax.expr.shorthand-param`) |
 | a `module` declaration, in a file or inline | `slice.not-yet` |
 | a `package` or `parent` import path | `slice.not-yet` |
-| the `Thread.spawn` and `Task.spawn` forms | `slice.not-yet` |
+| the `Thread.spawn` form; `Task.spawn` resolves as a member of `Task` | `slice.not-yet` |
 | a frozen-compiler test intrinsic, a name that starts `__saw_` and nothing declares | `slice.not-yet` |
 | a member named through an associated type, `T.Item.Key` | `slice.not-yet` |
 

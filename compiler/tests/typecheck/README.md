@@ -610,6 +610,7 @@ Every body construct in the slice, and how it is typed:
 | a builtin type's method of a trait it conforms to builtin: `n.to_string()`, `7.to_string()`, `equals`, `compare`, `hash` (design 109) | the trait's requirement or default, `Self` the builtin type | builtin_values |
 | a raw pointer's `*p` and `p[i]`, `(&x) as UnsafePointer<T>`, an extern call, a C variadic one, an `unsafe static var`, an allocator parameter's `A()` | the pointee, a pointer, the extern's result, a value of the parameter | lowlevel |
 | `print`, `panic`, `assert` with a message or format arguments; `sizeof`, `alignof` | `Void`, `Never`, `Int` | format, inference |
+| `Task.spawn(f(x))`, under a std root declaring `Task` beside `TaskGroup` | `Task<T>` for a root of type `T`, `VoidTask` for a `Void` one; the root's call is the task's, so its suspension is not the spawner's | task_spawn |
 | a subscript | a getitem, setitem or place accessor call, or an array's builtin | places, funnel |
 | `o!`, `-x`, `not b`, `~x`, `&x`, `&var x`, `move x`, `move o!`, `*p` | the payload place, the operand's type, a reference, the moved value, the payload moved out of the optional place (design 131), the pointee | places, operators, conversions, builtin_values |
 | arithmetic, bit, shift, comparison, logic, `??`, `as`, `a..b` | agreeing operands; builtin or a declared `equals`/`compare` | operators |
@@ -668,6 +669,7 @@ fixture (`refuse/RULE.VARIANT`) that covers it.
 | a call of an extern | its `blocking` | declarations |
 | a call through a bound | a condition over the caller's parameter | summaries; effect.sync.bound |
 | a call through a function value | never suspends; sync-callable when its type says `sync` | summaries; effect.sync.value |
+| a spawn form's root call, `f(x)` in `Task.spawn(f(x))` | the task's call: its suspension and its sync-callability stay in the task, while its instantiation's Copy and refusal conditions bind the spawner (`eval_call`) | task_spawn (the `sync` spawner `start`) |
 | a call in a `sync` function, a `deinit`, a closure of a `sync` type | refused when not sync-callable | effect.sync, effect.sync.deinit, effect.sync.closure |
 | a `sync` requirement met by a member not declared `sync` | the member's summary | effect.sync.requirement |
 | a hand-written `copy()` of a `Copy` or `ExplicitCopy` conformance | refused at the conformance when it suspends | effect.sync.copy-hook |
@@ -1241,6 +1243,9 @@ says what the fixture shows.
 | `effect.closure-suspends` | a call in a closure body that may suspend, or a call whose type arguments make a closure in its callee call a suspending implementation (spec: suspension, "a closure body cannot suspend") |
 | `erasure.not-object-safe` | a written `any Trait` whose trait is not object-safe: a marker trait, one with an associated type, a static requirement, or a requirement naming `Self` in its result or a parameter, its parents' included, naming the trait, the reason and the member (spec, "Object safety (v1)"; the object-safety matrix) |
 | `effect.any-suspends` | a coercion to `any Trait`, or a call whose type arguments make one in its callee, where the implementation of a requirement not declared `sync` may suspend, naming both (spec: suspension) |
+| `spawn.argument` | a `Task.spawn` given anything but one positional argument, or a root that is no call of a free function: a method, a closure, a value (`.method-root`) |
+| `spawn.borrow` | a borrow a `Task.spawn` root takes of its spawner, at both spellings: a `&` or `&var` argument of the root call, and a borrow capture written in a closure anywhere inside it (`.capture`); a reference a call nested in the arguments makes ends at the spawn and is none (golden `task_spawn`; spec, "BORROWS ARE REFUSED AT THE FORM") |
+| `spawn.never-body` | a task root of type `Never`, whose handle's `join` could never return (design 228); the funnel `refuse_never_task_body` names its entry points, the `Task.spawn` form today |
 | `slice.not-yet` | a signature or body construct outside the bootstrap slice |
 
 The traits that derive under `@synthesize` are `Copy`, `ExplicitCopy`,

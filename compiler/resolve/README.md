@@ -222,8 +222,10 @@ These are the reversible readings the unit made; SL-445's report lists them.
   modules write their imports.
 - A function beside a type of its name is a duplicate declaration, since
   types and values share one namespace.
-- The concurrency forms `Thread.spawn` and `Task.spawn`, and the frozen
-  compiler's `__saw_` test intrinsics, are outside the sync-only slice.
+- The concurrency form `Thread.spawn`, and the frozen compiler's `__saw_`
+  test intrinsics, are outside the sync-only slice. `Task.spawn` resolves as
+  a static member of `Task`, and typecheck knows the form by that
+  declaration.
 - A member of a module, and a case of an enum reached through its type, are
   resolved here. A member of any other type, a static method included, and a
   member of a value, are typecheck's: they need the type's members, which

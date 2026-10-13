@@ -1,0 +1,46 @@
+(Module task_spawn
+  (declarations
+    (func work 7:6 private (signature (params (n Int owned)) -> Int) (summary body (suspends yes) (sync-callable no)))
+    (func ping 12:6 private (signature (params) -> Void) (summary body (suspends yes) (sync-callable no)))
+    (func peek 16:6 private (signature (params (v &std.vector.Vector<Int, std.alloc.GlobalAllocator> shared)) -> Int) (summary body (suspends no) (sync-callable yes)))
+    (func start 20:6 private (signature (params) (effects sync) -> Void) (summary body (suspends no) (sync-callable yes)))
+    (func main 27:6 private (signature (params) -> Void) (summary body (suspends no) (sync-callable yes))))
+  (members)
+  (views)
+  (conformances)
+  (copy-tier)
+  (bodies
+    (work 7:6
+      (8:5-8:16 Call.paren Void value temp (call std.task.yield_now()))
+      (9:5-9:6 Name Int place copy))
+    (ping 12:6
+      (13:5-13:16 Call.paren Void value temp (call std.task.yield_now())))
+    (peek 16:6
+      (17:5-17:12 Call.paren Int value temp (call std.vector.Vector.len() (owner std.vector.Vector<Int, std.alloc.GlobalAllocator>)))
+      (17:5-17:6 Name &std.vector.Vector<Int, std.alloc.GlobalAllocator> (deref std.vector.Vector<Int, std.alloc.GlobalAllocator>) (borrow &std.vector.Vector<Int, std.alloc.GlobalAllocator>) place borrow))
+    (start 20:6
+      (21:9-21:10 BindingName std.taskgroup.Task<Int> place temp)
+      (21:13-21:32 Call.paren std.taskgroup.Task<Int> value temp (spawn Task.spawn))
+      (21:24-21:31 Call.paren Int value temp (call task_spawn.work(n: Int)))
+      (21:29-21:30 IntLit Int value temp)
+      (22:5-22:15 Call.paren Void value temp (call std.taskgroup.Task.detach() (owner std.taskgroup.Task<Int>)))
+      (22:5-22:6 Name std.taskgroup.Task<Int> (borrow &std.taskgroup.Task<Int>) place borrow)
+      (23:9-23:10 BindingName std.taskgroup.VoidTask place temp)
+      (23:13-23:31 Call.paren std.taskgroup.VoidTask value temp (spawn Task.spawn))
+      (23:24-23:30 Call.paren Void value temp (call task_spawn.ping()))
+      (24:5-24:15 Call.paren Void value temp (call std.taskgroup.VoidTask.detach() (owner std.taskgroup.VoidTask)))
+      (24:5-24:6 Name std.taskgroup.VoidTask (borrow &std.taskgroup.VoidTask) place borrow))
+    (main 27:6
+      (28:5-28:12 Call.paren Void value temp (call task_spawn.start()))
+      (29:9-29:15 BindingName std.vector.Vector<Int, std.alloc.GlobalAllocator> place temp)
+      (29:31-29:33 Array std.vector.Vector<Int, std.alloc.GlobalAllocator> value temp)
+      (30:9-30:10 BindingName std.taskgroup.Task<Int> place temp)
+      (30:13-30:44 Call.paren std.taskgroup.Task<Int> value temp (spawn Task.spawn))
+      (30:24-30:43 Call.paren Int value temp (call task_spawn.work(n: Int)))
+      (30:29-30:42 Call.paren Int value temp (call task_spawn.peek(v: &std.vector.Vector<Int, std.alloc.GlobalAllocator>)))
+      (30:34-30:41 Ref.shared &std.vector.Vector<Int, std.alloc.GlobalAllocator> value temp)
+      (30:35-30:41 Name std.vector.Vector<Int, std.alloc.GlobalAllocator> place borrow)
+      (31:5-31:26 Call.paren Void value temp (builtin print))
+      (31:11-31:15 Interp String value temp)
+      (31:17-31:25 Call.paren Int value borrow (call std.taskgroup.Task.join() (owner std.taskgroup.Task<Int>)))
+      (31:17-31:18 Name std.taskgroup.Task<Int> (borrow &std.taskgroup.Task<Int>) place borrow))))

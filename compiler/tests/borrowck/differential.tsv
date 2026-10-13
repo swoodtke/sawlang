@@ -2,7 +2,7 @@ path	why the borrow check does not refuse it
 tests/corpus/conformance/C14_comparison_body_cannot_consume_operand.saw	SL-462: moving out of a reference parameter is a source rule
 tests/corpus/conformance/K78_singleton_spawn_discard_is_refused.saw	slice.not-yet: the spawn forms; then §3.7, a handle that must be consumed
 tests/corpus/conformance/K79_unconsumed_thread_handle_is_refused.saw	slice.not-yet: the spawn forms; then §3.7, a handle that must be consumed
-tests/corpus/conformance/K85_background_spawn_handle_must_be_consumed.saw	slice.not-yet: the spawn forms; then §3.7, a handle that must be consumed
+tests/corpus/conformance/K85_background_spawn_handle_must_be_consumed.saw	slice.not-yet: the `Task.spawn` site in MIR (SL-595); then §3.7, a handle that must be consumed
 tests/corpus/conformance/V04_move_out_of_ref.saw	SL-462: moving out of a reference parameter is a source rule
 tests/corpus/conformance/V31_move_out_of_vector_element.saw	SL-462: moving out of an element is a source rule; refused first by result.discarded, a migration artifact
 tests/corpus/conformance/V55_consuming_receiver_needs_move.saw	typecheck: consumes.move, a bare call of a consuming method

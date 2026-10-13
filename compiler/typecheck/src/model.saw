@@ -313,7 +313,12 @@ public enum TcRole {
     // A `for` loop's `next`.
     case Iterator,
     // A function value's call: its type is the target.
-    case Value
+    case Value,
+    // A cooperative spawn form, `Task.spawn(f(x))`. No declaration answers
+    // it, so the record names the form's spelling and no target; its root
+    // call `f(x)` keeps a record of its own, and the task makes that call,
+    // not the body the form is written in (`TcProgram.spawn_roots`).
+    case Spawn
 }
 
 // One call's resolution: the declaration it calls, and at what. A member of a

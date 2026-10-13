@@ -61,7 +61,8 @@ public func tc_role_text(r: TcRole) -> String {
         case Setitem -> "setitem",
         case Place -> "place",
         case Iterator -> "iterator",
-        case Value -> "value"
+        case Value -> "value",
+        case Spawn -> "spawn"
     }
 }
 

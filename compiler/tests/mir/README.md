@@ -475,6 +475,7 @@ slice.not-yet at L:C`.
 | a `match` on a conditional lend | conditional-match |
 | a `borrow` block binding a conditional lend | conditional-block |
 | a `for` over an iterator held in a place | iterator-place |
+| a `Task.spawn` site, as "this call", until its spawn terminator lands (SL-595) | spawn-site |
 | a consuming destructure of a type that writes its own `deinit`, since the spec does not say whether dissolving one skips that body | consuming-deinit |
 | the release of a consumed receiver that moves out whole, or is an enum, when its type writes its own `deinit` | consumes-whole |
 | a write to an owning part of a raw pointer's pointee (`p[i].f = v`, `(*p).f = v`), since the spec makes only a whole pointer slot a placement write | pointer-part |
