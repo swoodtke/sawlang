@@ -63,6 +63,9 @@ compiler/
   mono/               monomorphization over elaborated MIR, package `sawmono`
                       (tests/mono/README.md has its items, glue, dump and rules)
     src/*.saw
+  coro/               coroutine lowering over mono's items, package `sawcoro`
+                      (tests/coro/README.md has its decision, rules and dump)
+    src/*.saw
   llvm/               the textual LLVM IR backend, package `sawllvm`
                       (tests/run/README.md has its translation and `sawc2 build`)
     src/*.saw
@@ -132,6 +135,9 @@ compiler/
                       table's specification (README.md), golden item dumps and
                       layout tables, refusal fixtures, and the layouts against
                       Stage 0's (layout_exceptions.tsv)
+    coro/             the coro lane (coro_lane.py): the dump's specification
+                      (README.md), golden frame decisions, refusal fixtures and
+                      the packages they import (modules/)
     run/              the run lane (run_lane.py): the backend's, `sawc2 build`'s
                       and `sawc2 runtime`'s specification (README.md), and
                       programs built by sawc2 and by Stage 0 whose binaries'
@@ -332,6 +338,11 @@ below that runs sawc2 runs Stage 2. It checks these things.
   (`tests/mono/mono_lane.py`) holds `sawc2 mono` to its golden item dumps and
   layout tables and its refusal fixtures, requires a fixture for every rule it
   refuses by, and compares each layout Stage 0 can name with Stage 0's.
+- **Coroutine lowering** (`tests/coro/README.md`): the coro lane
+  (`tests/coro/coro_lane.py`) holds `sawc2 coro` to its golden frame
+  decisions and its refusal fixtures, requires a fixture for every rule it
+  refuses by, and requires its decisions to agree with typecheck's summaries
+  over the mono lane's and the run lane's programs.
 - **The backend and `sawc2 build`** (`tests/run/README.md`): the run lane
   (`tests/run/run_lane.py`) builds each program of `tests/run/` with
   `sawc2 build` against the new std and with Stage 0, runs both, and requires

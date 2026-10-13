@@ -1,0 +1,19 @@
+// refuses: coro.suspending-cycle at 12:1
+// message: suspending recursion is not allowed
+// message: `loop -> loop`
+// message: SL-322
+// From errors/coro_suspending_recursion: a self-recursive function that
+// suspends has no finite frame. The refusal is at the recursive function's
+// declaration, not at the root that reaches it.
+extern "C" {
+    blocking func usleep(us: UInt32) -> Int32
+}
+
+func loop(n: Int) -> Int {
+    usleep(1)
+    loop(n + 1)
+}
+
+func main() {
+    print("{}", loop(0))
+}

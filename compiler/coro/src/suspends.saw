@@ -1,0 +1,554 @@
+// Which items definitely suspend, decided over mono's items once every
+// statically dispatched call has its concrete target (SL:architecture §3.9);
+// the cycles among them, which have no finite frame; and the refusals the
+// two decisions owe. Typecheck's flag on a call says whether it may suspend,
+// as a condition over the caller's type parameters when the target is
+// reached through a bound; here the item the call reaches answers it.
+//
+// ENTRY POINTS of the one suspension decision:
+//   coro_solve_suspension
+//   coro_call_is_source
+//   coro_call_suspends
+//   coro_item_suspends
+
+import sawborrowck.program.{BorrowckProgram}
+import sawcoro.program.{CoroProgram}
+import sawdrops.program.{DropsProgram}
+import sawmir.model.{MirFuncKind, MirSuspend, MirTermKind}
+import sawmir.program.{MirProgram}
+import sawmono.dump.{mono_dump_layouts}
+import sawmono.program.{MonoItemKind, MonoProgram}
+import sawresolve.dump.{res_sort_strings}
+import sawresolve.program.{ResProgram}
+import sawtypecheck.model.{TC_SUMMARY_BODY, TC_SUMMARY_NONE}
+import sawtypecheck.program.{TcProgram}
+
+// The rules coroutine lowering refuses by.
+public func coro_rules() -> Vector<String> {
+    var out = Vector<String>()
+    try! out.push("coro.not-yet")
+    try! out.push("coro.suspending-cycle")
+    move out
+}
+
+// The suspending-call graph's edges: a call typecheck says may suspend, from
+// the item whose body holds it to the item with a body it reaches. An item's
+// outgoing edges are one run, in block order; `into` lists every edge by its
+// callee, in caller order.
+struct CoroEdges {
+    caller: Vector<Int>
+    callee: Vector<Int>
+    call: Vector<Int>
+    out_first: Vector<Int>
+    out_count: Vector<Int>
+    into_first: Vector<Int>
+    into_count: Vector<Int>
+    into: Vector<Int>
+}
+
+extension CoroEdges: NoCopy {}
+
+// Marks every item that definitely suspends: one whose body holds a call to
+// a suspension source, or a call to an item that suspends. The least
+// fixpoint, solved breadth first from the sources over the edges reversed,
+// so each item is marked once, a cycle suspends only when a call in it
+// reaches a source, and each item's cause chain is a shortest one. Then
+// refuses each cycle among the items that suspend, and, until frames are
+// lowered, each item that needs one.
+public func coro_solve_suspension(coro: &var CoroProgram) {
+    let count = coro.mono.items.len()
+    coro.suspending = Vector<Bool>()
+    coro.cause_call = Vector<Int>()
+    coro.cause_item = Vector<Int>()
+    var k = 0
+    while k < count {
+        try! coro.suspending.push(false)
+        try! coro.cause_call.push(-1)
+        try! coro.cause_item.push(-1)
+        k = k + 1
+    }
+    var edges = coro_edges(&coro)
+    var work = Vector<Int>()
+    k = 0
+    while k < count {
+        let item = k
+        k = k + 1
+        let f = coro.mono.items[item].body
+        if f < 0 {
+            continue
+        }
+        let info = coro.mono.dp.bc.mir.funcs[f]
+        var b = 0
+        while b < info.block_count && not coro.suspending[item] {
+            let block = coro.mono.dp.bc.mir.blocks[info.block_first + b]
+            b = b + 1
+            if block.term == MirTermKind.Call && coro_call_is_source(&coro, block.call) {
+                coro.suspending[item] = true
+                coro.cause_call[item] = block.call
+                try! work.push(item)
+            }
+        }
+    }
+    var at = 0
+    while at < work.len() {
+        let t = work[at]
+        at = at + 1
+        var j = 0
+        while j < edges.into_count[t] {
+            let e = edges.into[edges.into_first[t] + j]
+            j = j + 1
+            let caller = edges.caller[e]
+            if not coro.suspending[caller] {
+                coro.suspending[caller] = true
+                coro.cause_call[caller] = edges.call[e]
+                coro.cause_item[caller] = t
+                try! work.push(caller)
+            }
+        }
+    }
+    coro_check_summaries(&var coro)
+    let cycles = coro_refuse_cycles(&var coro, &edges)
+    if cycles == 0 {
+        coro_refuse_frames(&var coro)
+    }
+}
+
+// Whether item `k` definitely suspends.
+public func coro_item_suspends(coro: &CoroProgram, k: Int) -> Bool {
+    k >= 0 && k < coro.suspending.len() && coro.suspending[k]
+}
+
+// Whether concrete call `c` is a suspension source: typecheck says it may
+// suspend, and its target's suspension is not decided by a body here. That
+// is a target with no body to look into (an `extern`, an interface-only std
+// function, one mono could not make), which keeps typecheck's answer, so an
+// unanswerable condition counts as suspending; or one whose summary comes
+// from its declaration rather than its body, which is how a park intrinsic
+// with a placeholder body is a source. Every seed of the fixpoint is decided
+// here, so a source recognised another way, by a lang role, is one more case
+// of this function.
+public func coro_call_is_source(coro: &CoroProgram, c: Int) -> Bool {
+    if coro.mono.dp.bc.mir.calls[c].suspend == MirSuspend.Never {
+        return false
+    }
+    let t = coro.mono.call_item(c)
+    if t < 0 || coro.mono.items[t].body < 0 {
+        return true
+    }
+    let d = coro.item_decl(t)
+    if d < 0 || d >= coro.mono.dp.bc.mir.tc.summaries.len() {
+        return false
+    }
+    let s = coro.mono.dp.bc.mir.tc.summaries[d]
+    s.state != TC_SUMMARY_BODY && s.state != TC_SUMMARY_NONE && s.suspends
+}
+
+// Whether concrete call `c` definitely suspends: it is a source, or typecheck
+// says it may and the item it reaches suspends.
+public func coro_call_suspends(coro: &CoroProgram, c: Int) -> Bool {
+    if coro_call_is_source(&coro, c) {
+        return true
+    }
+    if coro.mono.dp.bc.mir.calls[c].suspend == MirSuspend.Never {
+        return false
+    }
+    // Stage 0 workaround (SL:hazards S4): canonical: coro_item_suspends(&coro, coro.mono.call_item(c))
+    let t = coro.mono.call_item(c)
+    coro_item_suspends(&coro, t)
+}
+
+// The graph's edges, each a call that may suspend, is not a source, and
+// reaches an item with a body.
+func coro_edges(coro: &CoroProgram) -> CoroEdges {
+    let count = coro.mono.items.len()
+    var edges = CoroEdges(caller: Vector<Int>(), callee: Vector<Int>(), call: Vector<Int>(),
+                          out_first: Vector<Int>(), out_count: Vector<Int>(), into_first: Vector<Int>(),
+                          into_count: Vector<Int>(), into: Vector<Int>())
+    var k = 0
+    while k < count {
+        let item = k
+        k = k + 1
+        // Stage 0 workaround (SL:hazards S4): canonical: try! edges.out_first.push(edges.caller.len())
+        let first = edges.caller.len()
+        try! edges.out_first.push(first)
+        try! edges.into_count.push(0)
+        let f = coro.mono.items[item].body
+        if f < 0 {
+            try! edges.out_count.push(0)
+            continue
+        }
+        let info = coro.mono.dp.bc.mir.funcs[f]
+        var b = 0
+        while b < info.block_count {
+            let block = coro.mono.dp.bc.mir.blocks[info.block_first + b]
+            b = b + 1
+            if block.term != MirTermKind.Call {
+                continue
+            }
+            let c = block.call
+            if coro.mono.dp.bc.mir.calls[c].suspend == MirSuspend.Never || coro_call_is_source(&coro, c) {
+                continue
+            }
+            let t = coro.mono.call_item(c)
+            try! edges.caller.push(item)
+            try! edges.callee.push(t)
+            try! edges.call.push(c)
+        }
+        // Stage 0 workaround (SL:hazards S4): canonical: try! edges.out_count.push(edges.caller.len() - edges.out_first[item])
+        let made = edges.caller.len() - first
+        try! edges.out_count.push(made)
+    }
+    var e = 0
+    while e < edges.callee.len() {
+        let t = edges.callee[e]
+        edges.into_count[t] += 1
+        e = e + 1
+    }
+    var next = Vector<Int>()
+    var sum = 0
+    k = 0
+    while k < count {
+        try! edges.into_first.push(sum)
+        try! next.push(sum)
+        sum = sum + edges.into_count[k]
+        k = k + 1
+    }
+    e = 0
+    while e < edges.callee.len() {
+        try! edges.into.push(-1)
+        e = e + 1
+    }
+    e = 0
+    while e < edges.callee.len() {
+        let t = edges.callee[e]
+        edges.into[next[t]] = e
+        next[t] += 1
+        e = e + 1
+    }
+    move edges
+}
+
+// Every strongly connected component of the items that suspend, over the
+// edges between two of them, that holds a cycle is refused once, naming the
+// shortest cycle through its first item in item order at that item's
+// declaration. Returns how many were refused. Tarjan's algorithm with an
+// explicit stack, since a call graph is not bounded by source nesting.
+func coro_refuse_cycles(coro: &var CoroProgram, edges: &CoroEdges) -> Int {
+    let count = coro.mono.items.len()
+    var index = Vector<Int>()
+    var low = Vector<Int>()
+    var on_stack = Vector<Bool>()
+    var component = Vector<Int>()
+    // Each item enters the component stack and the walk at most once, so
+    // each is an array of `count` slots under its own top.
+    var stack = Vector<Int>()
+    var walk = Vector<Int>()
+    var cursor = Vector<Int>()
+    var k = 0
+    while k < count {
+        try! index.push(-1)
+        try! low.push(0)
+        try! on_stack.push(false)
+        try! component.push(-1)
+        try! stack.push(-1)
+        try! walk.push(-1)
+        try! cursor.push(0)
+        k = k + 1
+    }
+    var height = 0
+    var depth = 0
+    var next_index = 0
+    var components = 0
+    // The first item, in item order, of each component that holds a cycle.
+    var starts = Vector<Int>()
+    var root = 0
+    while root < count {
+        let r = root
+        root = root + 1
+        if not coro.suspending[r] || index[r] >= 0 {
+            continue
+        }
+        index[r] = next_index
+        low[r] = next_index
+        next_index = next_index + 1
+        stack[height] = r
+        height = height + 1
+        on_stack[r] = true
+        walk[depth] = r
+        cursor[depth] = 0
+        depth = depth + 1
+        while depth > 0 {
+            let top = depth - 1
+            let v = walk[top]
+            let j = cursor[top]
+            if j < edges.out_count[v] {
+                cursor[top] = j + 1
+                let w = edges.callee[edges.out_first[v] + j]
+                if not coro.suspending[w] {
+                    continue
+                }
+                if index[w] < 0 {
+                    index[w] = next_index
+                    low[w] = next_index
+                    next_index = next_index + 1
+                    stack[height] = w
+                    height = height + 1
+                    on_stack[w] = true
+                    walk[depth] = w
+                    cursor[depth] = 0
+                    depth = depth + 1
+                } else if on_stack[w] && index[w] < low[v] {
+                    low[v] = index[w]
+                }
+                continue
+            }
+            depth = top
+            if depth > 0 {
+                let u = walk[depth - 1]
+                let reached = low[v]
+                if reached < low[u] {
+                    // Stage 0 workaround (SL:hazards S4): canonical: low[u] = low[v]
+                    low[u] = reached
+                }
+            }
+            if low[v] != index[v] {
+                continue
+            }
+            var first = count
+            var size = 0
+            var taking = true
+            while taking {
+                height = height - 1
+                let w = stack[height]
+                on_stack[w] = false
+                component[w] = components
+                size = size + 1
+                if w < first {
+                    first = w
+                }
+                taking = w != v
+            }
+            if size > 1 || coro_calls_itself(&edges, v) {
+                try! starts.push(first)
+            }
+            components = components + 1
+        }
+    }
+    coro_sort_ints(&var starts)
+    var s = 0
+    while s < starts.len() {
+        let start = starts[s]
+        s = s + 1
+        coro_refuse_cycle(&var coro, &edges, &component, start)
+    }
+    starts.len()
+}
+
+// Whether item `v` has an edge to itself.
+func coro_calls_itself(edges: &CoroEdges, v: Int) -> Bool {
+    var j = 0
+    while j < edges.out_count[v] {
+        if edges.callee[edges.out_first[v] + j] == v {
+            return true
+        }
+        j = j + 1
+    }
+    false
+}
+
+// Sorts `values` ascending, in place.
+func coro_sort_ints(values: &var Vector<Int>) {
+    var i = 1
+    while i < values.len() {
+        let v = values[i]
+        var j = i
+        while j > 0 && values[j - 1] > v {
+            // Stage 0 workaround (SL:hazards S4): canonical: values[j] = values[j - 1]
+            let before = values[j - 1]
+            values[j] = before
+            j = j - 1
+        }
+        values[j] = v
+        i = i + 1
+    }
+}
+
+// Refuses the cycle through `start`: the shortest path from it back to
+// itself inside its component, found breadth first.
+func coro_refuse_cycle(coro: &var CoroProgram, edges: &CoroEdges, component: &Vector<Int>, start: Int) {
+    let count = coro.mono.items.len()
+    var parent = Vector<Int>()
+    var k = 0
+    while k < count {
+        try! parent.push(-1)
+        k = k + 1
+    }
+    let home = component[start]
+    var queue = Vector<Int>()
+    try! queue.push(start)
+    // The last item before `start` on the cycle, once found.
+    var last = -1
+    var at = 0
+    while at < queue.len() && last < 0 {
+        let v = queue[at]
+        at = at + 1
+        var j = 0
+        while j < edges.out_count[v] && last < 0 {
+            let w = edges.callee[edges.out_first[v] + j]
+            j = j + 1
+            if component[w] != home || not coro.suspending[w] {
+                continue
+            }
+            if w == start {
+                last = v
+            } else if parent[w] < 0 {
+                parent[w] = v
+                try! queue.push(w)
+            }
+        }
+    }
+    var path = Vector<Int>()
+    var v = last
+    while v >= 0 && v != start {
+        try! path.push(v)
+        v = parent[v]
+    }
+    var chain = StringBuilder()
+    try! chain.append(coro.item_label(start))
+    var p = path.len() - 1
+    while p >= 0 {
+        try! chain.append(" -> ")
+        try! chain.append(coro.item_label(path[p]))
+        p = p - 1
+    }
+    try! chain.append(" -> ")
+    try! chain.append(coro.item_label(start))
+    var msg = StringBuilder()
+    try! msg.append("suspending recursion is not allowed: the suspending-call cycle `")
+    try! msg.append(chain.build())
+    try! msg.append("` has no compile-time frame size, since a callee's frame is embedded in its caller's by value. ")
+    try! msg.append("Break the cycle or drive the inner call separately. ")
+    try! msg.append("This refusal is PENDING SL-322, the heap-allocated-frame design: an existential dispatch of a ")
+    try! msg.append("suspending body and suspending recursion both need a heap frame with an indirect resume, so the ")
+    try! msg.append("two land together and neither alone.")
+    let node = coro.item_node(start)
+    coro.refuse(start, node, "coro.suspending-cycle", msg.build())
+}
+
+// Refuses each item that needs a frame, since none is lowered yet, at the
+// call its suspension was found through. Only the program's own items are
+// refused, every suspending std item being reached from one of them; a std
+// item is refused only when no item of the program needs a frame.
+func coro_refuse_frames(coro: &var CoroProgram) {
+    var own = false
+    var k = 0
+    while k < coro.suspending.len() {
+        if coro.needs_frame(k) && not coro.std_item(k) {
+            own = true
+        }
+        k = k + 1
+    }
+    k = 0
+    while k < coro.suspending.len() {
+        let item = k
+        k = k + 1
+        if not coro.needs_frame(item) || (own && coro.std_item(item)) {
+            continue
+        }
+        let c = coro.cause_call[item]
+        let node = coro.mono.dp.bc.mir.calls[c].node
+        var msg = StringBuilder()
+        try! msg.append("`")
+        try! msg.append(coro.item_label(item))
+        try! msg.append("` suspends (")
+        try! msg.append(coro_cause_chain(&coro, item))
+        try! msg.append("), so it needs a coroutine frame, which is not lowered yet (SL-545)")
+        coro.refuse(item, node, "coro.not-yet", msg.build())
+    }
+}
+
+// Item `k`'s cause chain: its name, then each item its suspension was found
+// through, then the source (`main -> nap -> usleep`).
+public func coro_cause_chain(coro: &CoroProgram, k: Int) -> String {
+    var out = StringBuilder()
+    try! out.append(coro.item_label(k))
+    var at = k
+    while at >= 0 && coro.cause_call[at] >= 0 {
+        try! out.append(" -> ")
+        let next = coro.cause_item[at]
+        let c = coro.cause_call[at]
+        if next >= 0 {
+            try! out.append(coro.item_label(next))
+        } else {
+            // Stage 0 workaround (SL:hazards S4): canonical: try! out.append(coro_source_label(&coro, coro.cause_call[at]))
+            try! out.append(coro_source_label(&coro, c))
+        }
+        at = next
+    }
+    out.build()
+}
+
+// How a cause chain names the target of source call `c`.
+func coro_source_label(coro: &CoroProgram, c: Int) -> String {
+    let t = coro.mono.call_item(c)
+    if t >= 0 {
+        return coro.item_label(t)
+    }
+    let d = coro.mono.dp.bc.mir.calls[c].target
+    if d < 0 {
+        return "?"
+    }
+    coro.mono.dp.bc.mir.tc.res.decl_path(d)
+}
+
+// The decision agrees with typecheck's summary wherever that summary is
+// unconditional: a body that typecheck says suspends at every
+// instantiation suspends at each, one it says never suspends suspends at
+// none, and a closure never suspends. A disagreement is a broken invariant.
+func coro_check_summaries(coro: &var CoroProgram) {
+    var k = 0
+    while k < coro.mono.items.len() {
+        let item = k
+        k = k + 1
+        let it = coro.mono.items[item]
+        if it.kind != MonoItemKind.Function || it.source < 0 || it.body < 0 {
+            continue
+        }
+        let info = coro.mono.dp.bc.mir.funcs[it.source]
+        let mine = coro.suspending[item]
+        if info.kind == MirFuncKind.Closure {
+            if mine {
+                coro_disagree(&var coro, item, "a closure body cannot suspend")
+            }
+            continue
+        }
+        if info.kind != MirFuncKind.Body || info.decl < 0 || info.decl >= coro.mono.dp.bc.mir.tc.summaries.len() {
+            continue
+        }
+        let s = coro.mono.dp.bc.mir.tc.summaries[info.decl]
+        if s.state != TC_SUMMARY_BODY {
+            continue
+        }
+        if s.suspends && not mine {
+            coro_disagree(&var coro, item, "typecheck's summary says it suspends")
+        } else if not s.suspends && s.suspend_count == 0 && mine {
+            coro_disagree(&var coro, item, "typecheck's summary says it never suspends")
+        }
+    }
+}
+
+func coro_disagree(coro: &var CoroProgram, k: Int, why: String) {
+    var msg = StringBuilder()
+    try! msg.append("item #")
+    try! msg.append(k)
+    try! msg.append(" `")
+    try! msg.append(coro.mono.item_name(k))
+    try! msg.append("`: ")
+    if coro.suspending[k] {
+        try! msg.append("suspends here, but ")
+    } else {
+        try! msg.append("does not suspend here, but ")
+    }
+    try! msg.append(why)
+    try! coro.problems.push(msg.build())
+}

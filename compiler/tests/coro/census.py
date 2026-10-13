@@ -45,7 +45,8 @@ BUILD_TIMEOUT = 600
 RUN_TIMEOUT = 60
 
 # The refusals that say sawc2 lacks something, not that the program is wrong.
-GAP_RULES = ("import.unknown-module", "name.undefined", "member.unknown", "slice.not-yet", "backend.not-yet")
+GAP_RULES = ("import.unknown-module", "name.undefined", "member.unknown", "slice.not-yet", "backend.not-yet",
+             "coro.not-yet")
 
 # The std modules, types and members the plan's units provide (§1 and §4):
 # the task surface, `Duration` and `Instant`, `std.channel`, `std.signal`, and

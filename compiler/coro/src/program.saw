@@ -1,0 +1,150 @@
+// Coroutine lowering's program (SL:architecture §3.9): mono's program, and
+// what this stage decides about each of its items. Every decision is keyed by
+// mono's item ids; the items and their concrete MIR stay mono's.
+
+import sawborrowck.program.{BorrowckProgram}
+import sawdrops.program.{DropsProgram}
+import sawmir.model.{MirDiag}
+import sawmir.program.{MirProgram}
+import sawmono.dump.{mono_dump_layouts}
+import sawmono.program.{MonoItemKind, MonoProgram}
+import sawresolve.dump.{res_sort_strings}
+import sawresolve.model.{ResModuleKind}
+import sawresolve.program.{ResProgram}
+import sawtypecheck.checks.{tc_check_unsafe}
+import sawtypecheck.program.{TcProgram}
+
+public struct CoroProgram {
+    mono: MonoProgram
+    // Whether mono's program came refused or with a broken invariant, so
+    // nothing was decided.
+    blocked: Bool
+    // By item: whether it definitely suspends (`coro_solve_suspension`),
+    // which is whether it needs a frame.
+    suspending: Vector<Bool>
+    // By item that suspends: the call its suspension was found through, and
+    // the item that call reaches, or -1 when the call is itself the source.
+    cause_call: Vector<Int>
+    cause_item: Vector<Int>
+    // Refusals (`coro_rules`) and broken invariants.
+    diags: Vector<MirDiag>
+    problems: Vector<String>
+}
+
+extension CoroProgram: NoCopy {}
+
+public func coro_program(mono: MonoProgram) -> CoroProgram {
+    let blocked = mono.blocked || mono.diags.len() > 0 || mono.problems.len() > 0
+    CoroProgram(mono: move mono, blocked: blocked, suspending: Vector<Bool>(), cause_call: Vector<Int>(),
+                cause_item: Vector<Int>(), diags: Vector<MirDiag>(), problems: Vector<String>())
+}
+
+extension CoroProgram {
+    // Whether item `k` needs a frame. Today that is exactly whether it
+    // suspends; a task root needs one even when it does not (SL:architecture
+    // §3.9), and arrives with spawn lowering.
+    public func needs_frame(&self, k: Int) -> Bool {
+        k >= 0 && k < self.suspending.len() && self.suspending[k]
+    }
+
+    // The declaration whose body item `k` runs, or -1: a function item's
+    // source function's, or an extern's.
+    public func item_decl(&self, k: Int) -> Int {
+        let it = self.mono.items[k]
+        if it.kind == MonoItemKind.Extern {
+            return it.decl
+        }
+        if it.kind != MonoItemKind.Function || it.source < 0 {
+            return -1
+        }
+        self.mono.dp.bc.mir.funcs[it.source].decl
+    }
+
+    // How a cause chain or a cycle names item `k`: its declaration's path
+    // inside its module (`ping`, `Walker.walk`), or the dump's name of an
+    // item that has no declaration.
+    public func item_label(&self, k: Int) -> String {
+        let d = self.item_decl(k)
+        if d < 0 {
+            return self.mono.item_name(k)
+        }
+        self.mono.dp.bc.mir.tc.res.decl_path(d)
+    }
+
+    // The declaration node of item `k`, or -1.
+    public func item_node(&self, k: Int) -> Int {
+        let d = self.item_decl(k)
+        if d < 0 {
+            return -1
+        }
+        self.mono.dp.bc.mir.tc.res.decls[d].node
+    }
+
+    // Whether item `k`'s declaration is in std or the builtin module.
+    public func std_item(&self, k: Int) -> Bool {
+        let node = self.item_node(k)
+        if node < 0 {
+            return true
+        }
+        let m = self.mono.dp.bc.mir.tc.node_module(node)
+        m < 0 || self.std_module(m)
+    }
+
+    func std_module(&self, m: Int) -> Bool {
+        let kind = self.mono.dp.bc.mir.tc.res.module(m).kind
+        kind == ResModuleKind.Std || kind == ResModuleKind.Builtin
+    }
+
+    // Records a refusal at source node `node`, found while deciding item
+    // `k`. A node inside std is reported at the nearest call the program
+    // itself writes on the chain of items that reached `k`, with the std
+    // position named in the message, as mono reports its own.
+    public func refuse(&var self, k: Int, node: Int, rule: String, message: String) {
+        if node < 0 {
+            try! self.problems.push(message)
+            return
+        }
+        let m = self.mono.dp.bc.mir.tc.node_module(node)
+        if m < 0 {
+            try! self.problems.push(message)
+            return
+        }
+        var at = node
+        var text = message
+        if self.std_module(m) {
+            let site = self.user_site(k)
+            if site >= 0 {
+                at = site
+                var msg = StringBuilder()
+                try! msg.append(message)
+                try! msg.append(" (inside ")
+                try! msg.append(self.mono.dp.bc.mir.tc.res.module_file(m))
+                try! msg.append(":")
+                try! msg.append(self.mono.dp.bc.mir.tc.res.node_position(m, node))
+                try! msg.append(")")
+                text = msg.build()
+            }
+        }
+        let am = self.mono.dp.bc.mir.tc.node_module(at)
+        let span = self.mono.dp.bc.mir.tc.res.node(at)
+        try! self.diags.push(MirDiag(module: am, start: span.start, end: span.end, id: rule, message: text))
+    }
+
+    // The node of the nearest program-written call on the chain of items
+    // that reached item `k`, or -1.
+    func user_site(&self, k: Int) -> Int {
+        var at = k
+        while at >= 0 {
+            let it = self.mono.items[at]
+            let n = it.origin_node
+            if n >= 0 {
+                let m = self.mono.dp.bc.mir.tc.node_module(n)
+                if m >= 0 && not self.std_module(m) {
+                    return n
+                }
+            }
+            at = it.origin
+        }
+        return -1
+    }
+}

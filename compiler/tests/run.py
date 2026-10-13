@@ -29,7 +29,9 @@ fold to agreement over tests/corpus/; runs the std lane over `std/`, the
 new std; runs the borrowck lane over `borrowck/`; runs the drops lane over
 `drops/`; runs the mono lane over `mono/`, whose golden item dumps, layout
 tables and refusal fixtures hold `sawc2 mono` and the target description, and
-whose layouts are compared with Stage 0's; and runs the run lane over `run/`,
+whose layouts are compared with Stage 0's; runs the coro lane over `coro/`,
+whose golden frame decisions and refusal fixtures hold `sawc2 coro`, and whose
+decisions must agree with typecheck's summaries; runs the run lane over `run/`,
 which builds each program with `sawc2 build` and with Stage 0 and compares
 the two binaries' output; and checks that the Stage 0 snapshot in
 `coro/stage0/` is whole and prints the coroutine census, which gates nothing.
@@ -93,11 +95,12 @@ import drops_lane  # noqa: E402
 sys.path.insert(0, os.path.join(HERE, "mono"))
 import mono_lane  # noqa: E402
 
-sys.path.insert(0, os.path.join(HERE, "run"))
-import run_lane  # noqa: E402
-
 sys.path.insert(0, os.path.join(HERE, "coro"))
 import census  # noqa: E402
+import coro_lane  # noqa: E402
+
+sys.path.insert(0, os.path.join(HERE, "run"))
+import run_lane  # noqa: E402
 
 UNIT_OUT = os.path.join(REPO, ".build", "compiler-tests")
 LEX_FIXTURES = os.path.join(HERE, "lex")
@@ -112,8 +115,8 @@ EVAL_CORPUS = os.path.join(HERE, "eval")
 BORROWCK_CORPUS = os.path.join(HERE, "borrowck")
 DROPS_CORPUS = os.path.join(HERE, "drops")
 MONO_CORPUS = os.path.join(HERE, "mono")
-RUN_CORPUS = os.path.join(HERE, "run")
 CORO_CORPUS = os.path.join(HERE, "coro")
+RUN_CORPUS = os.path.join(HERE, "run")
 FUNNEL_FIXTURES = os.path.join(HERE, "funnel")
 LEXER_SOURCE = os.path.join(COMPILER, "lex", "src", "lib.saw")
 RUN_TIMEOUT = 60
@@ -220,7 +223,7 @@ def check_fixture_whitespace(run):
         paths += glob.glob(os.path.join(MONO_CORPUS, "**", suffix), recursive=True)
     for suffix in ("*.saw", "*.ll", "*.md"):
         paths += glob.glob(os.path.join(RUN_CORPUS, "**", suffix), recursive=True)
-    for suffix in ("*.tsv", "*.stage0"):
+    for suffix in ("*.saw", "*.coro", "*.md", "*.tsv", "*.stage0"):
         paths += glob.glob(os.path.join(CORO_CORPUS, "**", suffix), recursive=True)
     for path in sorted(paths):
         rel = os.path.relpath(path, REPO)
@@ -561,6 +564,17 @@ def run_mono(run):
         run.count(key, n)
 
 
+def run_coro(run):
+    """The coro lane (compiler/tests/coro/coro_lane.py): the golden frame
+    decisions, the refusal fixtures and their rule coverage, and the
+    decisions' agreement with typecheck's summaries."""
+    failures, counts = coro_lane.run()
+    for failure in failures:
+        run.fail(failure)
+    for key, n in counts.items():
+        run.count(key, n)
+
+
 def run_programs(run):
     """The run lane (compiler/tests/run/run_lane.py): each program built by
     sawc2 and by Stage 0, the two binaries' output and exit status compared,
@@ -618,6 +632,7 @@ def main():
         run_borrowck(run)
         run_drops(run)
         run_mono(run)
+        run_coro(run)
         run_programs(run)
         run_census(run)
     for line in run.inventory:

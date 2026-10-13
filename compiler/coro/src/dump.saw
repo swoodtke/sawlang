@@ -1,0 +1,29 @@
+// Coroutine lowering's dump (compiler/tests/coro/README.md): each item in
+// mono's item order, named as mono's dump names it, with its frame decision
+// and, for one that needs a frame, the chain its suspension was found
+// through.
+
+import sawcoro.program.{CoroProgram}
+import sawcoro.suspends.{coro_cause_chain}
+import sawmono.dump.{mono_dump_layouts}
+import sawmono.program.{MonoProgram}
+
+// `item #K: NAME  (frame yes (via CHAIN))` or `item #K: NAME  (frame no)`,
+// one line per item.
+public func coro_dump_items(coro: &CoroProgram, out: &var StringBuilder) {
+    var k = 0
+    while k < coro.mono.items.len() {
+        try! out.append("item #")
+        try! out.append(k)
+        try! out.append(": ")
+        try! out.append(coro.mono.item_name(k))
+        if coro.needs_frame(k) {
+            try! out.append("  (frame yes (via ")
+            try! out.append(coro_cause_chain(&coro, k))
+            try! out.append("))\n")
+        } else {
+            try! out.append("  (frame no)\n")
+        }
+        k = k + 1
+    }
+}

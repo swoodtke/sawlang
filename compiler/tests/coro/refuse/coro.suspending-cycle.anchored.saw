@@ -1,0 +1,21 @@
+// refuses: coro.suspending-cycle at 10:1
+// message: suspending recursion is not allowed
+// message: `slow -> slow`
+// From errors/coro_reject_anchored: the refusal is anchored in the program's
+// own source, at the function to break.
+extern "C" {
+    blocking func usleep(us: UInt32) -> Int32
+}
+
+func slow(n: Int) -> Int {
+    usleep(1)
+    if n <= 0 {
+        return 0
+    }
+    let r = slow(n - 1)
+    return r + 1
+}
+
+func main() {
+    print("{}", slow(3))
+}

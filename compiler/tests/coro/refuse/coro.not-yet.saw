@@ -1,0 +1,21 @@
+// refuses: coro.not-yet at 20:17
+// message: `main` suspends (main -> caller -> nap -> usleep)
+// A function that suspends needs a frame, and no frame is lowered yet, so
+// each such function is refused at the call its suspension was found
+// through, its cause chain in the message, rather than compiled as a plain
+// call that blocks the thread.
+extern "C" {
+    blocking func usleep(us: UInt32) -> Int32
+}
+
+func nap() -> Int32 {
+    usleep(10)
+}
+
+func caller() -> Int {
+    (nap() as Int) + 41
+}
+
+func main() {
+    print("{}", caller())
+}

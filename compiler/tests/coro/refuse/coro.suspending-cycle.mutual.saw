@@ -1,0 +1,27 @@
+// refuses: coro.suspending-cycle at 12:1
+// message: suspending recursion is not allowed
+// message: `ping -> pong -> ping`
+// From errors/coro_mutual_suspending_recursion: the cycle need not be a
+// self-call, and the message names the whole loop, from the member reached
+// first. The test spawns `ping`; the spawn form arrives with spawn lowering
+// (SL:coroutines A7a), and `main` calls it until then.
+extern "C" {
+    blocking func usleep(us: UInt32) -> Int32
+}
+
+func ping(n: Int) -> Int {
+    usleep(1)
+    if n <= 0 {
+        return 0
+    }
+    return pong(n - 1)
+}
+
+func pong(n: Int) -> Int {
+    usleep(1)
+    return ping(n - 1)
+}
+
+func main() {
+    print("{}", ping(3))
+}

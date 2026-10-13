@@ -12,10 +12,9 @@ import sawllvm.calls.{ll_block}
 import sawllvm.module.{LlEmitter, ll_export_symbol, ll_is_scalar, ll_symbol, ll_value_type}
 import sawllvm.ops.{ll_lossless}
 import sawllvm.places.{ll_local_slot}
-import sawmir.model.{MirBlock, MirStmt, MirStmtKind, MirTermKind}
+import sawmir.model.{MirBlock, MirStmt, MirStmtKind}
 import sawmir.program.{MirProgram}
 import sawmono.program.{MONO_KEY_DROP, MonoItem, MonoProgram}
-import sawmono.suspends.{mono_call_suspends, mono_item_suspends}
 import sawtarget.layout.{Target, TargetKind, TargetLayout}
 import sawtypecheck.program.{TcProgram}
 
@@ -140,10 +139,6 @@ extension LlEmitter {
                 self.statement(&var mono, &var target, &stmt)
                 s = stmt.next
             }
-            if block.term == MirTermKind.Call && mono_call_suspends(&mono, block.call) {
-                let node = mono.dp.bc.mir.calls[block.call].node
-                self.refuse_here(&var mono, node, "a suspending call is not lowered yet (SL-545)")
-            }
             self.terminator(&var mono, &var target, &block)
             b = b + 1
         }
@@ -175,18 +170,11 @@ extension LlEmitter {
 
     // A statement: an assignment writes its rvalue into its place; a drop
     // runs its type's glue when the type has one; a budget point writes
-    // nothing, since nothing is framed, except that a yield-capable one in a
-    // function that suspends is refused, as its suspending calls are.
+    // nothing, since coroutine lowering refuses every item that needs a
+    // frame, and a point outside a frame is inert.
     func statement(&var self, mono: &var MonoProgram, target: &var Target, stmt: &MirStmt) {
         match stmt.kind {
-            case Budget -> {
-                // Stage 0 workaround (SL:hazards S4): canonical: if stmt.yields && mono_item_suspends(&mono, mono.current) {
-                let item = mono.current
-                if stmt.yields && mono_item_suspends(&mono, item) {
-                    self.refuse_here(&var mono, stmt.node,
-                                     "a yield-capable op-budget point in a suspending function is not lowered yet (SL-545)")
-                }
-            },
+            case Budget -> {},
             case Drop -> {
                 let t = mono.dp.bc.mir.places[stmt.place].ty
                 let glue = mono.glue_item(t, MONO_KEY_DROP)

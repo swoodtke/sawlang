@@ -25,7 +25,7 @@ run/
 `sawc2 build FILE` compiles the program, writes its whole `.ll` to `OUT.ll`
 (`-o` defaults to `.build/NAME`), and runs
 `clang -target TRIPLE SPEED -x ir OUT.ll -x none RUNTIME... -o OUT`,
-blocking until clang exits. A refusal prints its record (as `sawc2 mono
+blocking until clang exits. A refusal prints its record (as `sawc2 coro
 --check` prints one), writes nothing and exits 1; a failure to write the
 `.ll` or to start clang prints why and exits 1; otherwise the exit status
 is clang's. The `.ll` is written unbuffered and closed explicitly, and clang
@@ -189,19 +189,15 @@ description's (`compiler/tests/mono/README.md`, "Layouts").
 
 | rule | refuses | due program |
 |---|---|---|
-| `backend.not-yet` | what the backend does not lower yet: a Float constant, an operator on a Float, or on anything but an integer, a Bool, a String, two raw pointers or the memory values compared part by part, an erasure, a slice, a take capture, a fixed array, a repeat, a `Map` or a `Set` literal, a static that is not an integer or a Bool, an exported static, a conditional borrow, an aggregate crossing the C convention, a pointer cast to or from an integer narrower than a pointer, an unsupported layout, a `main` returning neither `Void` nor `Int`; a constant is refused at its own spelling, inside an aggregate too; a call that definitely suspends, and a yield-capable op-budget point in a function that does (below) | `float_field`, `suspend_blocking_main`, `suspend_cycle`, `suspend_budget_point` |
+| `backend.not-yet` | what the backend does not lower yet: a Float constant, an operator on a Float, or on anything but an integer, a Bool, a String, two raw pointers or the memory values compared part by part, an erasure, a slice, a take capture, a fixed array, a repeat, a `Map` or a `Set` literal, a static that is not an integer or a Bool, an exported static, a conditional borrow, an aggregate crossing the C convention, a pointer cast to or from an integer narrower than a pointer, an unsupported layout, a `main` returning neither `Void` nor `Int`; a constant is refused at its own spelling, inside an aggregate too | `float_field` |
 
-**Suspension.** No suspension is lowered yet (coroutine lowering, SL-545), so
-the backend refuses each one rather than emit a suspending call as a plain
-call that blocks the thread. Which calls suspend is decided after mono, at
-each call's concrete target (`compiler/mono/src/suspends.saw`): a call
-typecheck says may suspend, unconditionally or when a bound's requirement
-does, suspends when the item it reaches suspends, and an item suspends when a
-call in its body does, solved as a least fixpoint from callee to caller. A
-call whose target has no body here, an `extern` among them, keeps typecheck's
-answer, which is how a `blocking` extern is a suspension. So `run<Fast>`,
-whose bound's `step` does not suspend at `Fast`, is emitted, while `run<Slow>`
-and every call of a suspending cycle are refused.
+**Suspension.** The backend's input is coroutine lowering's program
+(`compiler/tests/coro/README.md`), which refuses every item that needs a
+frame (`coro.not-yet`) and every suspending cycle (`coro.suspending-cycle`),
+so no suspending call reaches the backend and it never emits one as a plain
+call that blocks the thread. Every op-budget point that reaches it is
+outside a frame, and writes nothing. The due programs `suspend_blocking_main`,
+`suspend_cycle` and `suspend_budget_point` pin the two refusals at a build.
 
 ## The lane
 

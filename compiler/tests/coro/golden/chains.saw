@@ -1,0 +1,48 @@
+// Suspension through each kind of edge: a plain call, a method, a default
+// body under `Self`, and a window whose accessor's prologue suspends; and
+// what never suspends beside them: a sync helper, a closure, and the std
+// items every program reaches.
+extern "C" {
+    blocking func usleep(us: UInt32) -> Int32
+}
+
+trait Napper {
+    func nap(&self) -> Int
+
+    func twice(&self) -> Int {
+        self.nap() + self.nap()
+    }
+}
+
+struct Bed {
+    value: Int
+}
+
+extension Bed: Napper {
+    func nap(&self) -> Int { (usleep(1) as Int) + self.value }
+}
+
+extension Bed {
+    func slot(&var self) borrows -> &var Int {
+        usleep(1)
+        lend self.value
+    }
+}
+
+func helper(x: Int) -> Int {
+    x + 1
+}
+
+func rest(bed: &Bed) -> Int {
+    bed.twice()
+}
+
+func main() {
+    var bed = Bed(value: 2)
+    let add = { x: Int in helper(x) }
+    print("{}", add(1))
+    print("{}", rest(&bed))
+    borrow var v = bed.slot() {
+        v = v + 1
+    }
+}

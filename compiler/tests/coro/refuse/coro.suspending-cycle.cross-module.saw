@@ -1,0 +1,12 @@
+// refuses: coro.suspending-cycle at 7:8
+// message: suspending recursion is not allowed
+// message: `descend -> descend`
+// From errors/coro_cross_module_suspending_recursion: a recursive function in
+// an imported module is refused like one in the entry module. The position
+// is in the module's file, `compiler/tests/coro/modules/cororecursion/lib.saw`,
+// which the lane maps with `--module-path`.
+import cororecursion.{descend}
+
+func main() {
+    print("depth {}", descend(3))
+}

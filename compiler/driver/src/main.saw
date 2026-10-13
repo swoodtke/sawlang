@@ -21,6 +21,8 @@
 //   sawc2 mono --dump FILE...       each entry file's program monomorphized, and its items
 //   sawc2 mono --layouts FILE...    each entry file's program monomorphized, and its types' layouts
 //   sawc2 mono --check FILE...      each entry file's program monomorphized, refusals and invariants only
+//   sawc2 coro --dump FILE...       each entry file's program through coroutine lowering, and each item's frame
+//   sawc2 coro --check FILE...      each entry file's program through coroutine lowering, refusals and invariants only
 //   sawc2 build FILE [-o OUT]       the entry file's program compiled and linked by clang
 //   sawc2 build --emit-ll FILE      the entry file's program as one `.ll` on standard output
 //   sawc2 runtime --out DIR         the host's runtime objects built into DIR
@@ -31,14 +33,16 @@
 // compiler/tests/resolve/README.md, and the type checker's in
 // compiler/tests/typecheck/README.md, the MIR's in compiler/tests/mir/README.md,
 // the evaluator's in compiler/tests/eval/README.md, the borrow check's in
-// compiler/tests/borrowck/README.md, and drop elaboration's in
-// compiler/tests/drops/README.md.
+// compiler/tests/borrowck/README.md, drop elaboration's in
+// compiler/tests/drops/README.md, and coroutine lowering's in
+// compiler/tests/coro/README.md.
 // A lex error prints one ERROR record and
 // exits 1, and so does a file a later stage refuses; a usage or I/O failure
 // prints a message and exits 2.
 
 import sawasserts.layout.{asserts_typecheck_program}
 import sawborrowck.api.{BorrowckOptions, borrowck_record}
+import sawcoro.api.{CoroOptions, coro_record}
 import sawdrops.api.{DropsOptions, drops_record}
 import saweval.api.{EvalOptions, eval_record}
 import sawlex.{LexResult, format_doc, format_error, format_token, kind_name, lex, token_kinds}
@@ -81,6 +85,8 @@ func driver_usage() -> Int {
     print("       sawc2 drops (--dump | --check) [--notes] [--std-root DIR]")
     print("                   [--module-path NAME=DIR]... [FILE | @LIST]...")
     print("       sawc2 mono (--dump | --layouts | --check) [--notes] [--std-root DIR] [--target TRIPLE]")
+    print("                  [--module-path NAME=DIR]... [FILE | @LIST]...")
+    print("       sawc2 coro (--dump | --check) [--notes] [--std-root DIR]")
     print("                  [--module-path NAME=DIR]... [FILE | @LIST]...")
     print("       sawc2 build [-O0 | -O1 | -O2 | -Os | -Oz] [--std-root DIR] [--target TRIPLE]")
     print("                   [--module-path NAME=DIR]... (FILE [-o OUT] | --emit-ll FILE)")
@@ -722,6 +728,73 @@ func driver_mono(args: &Vector<String>) -> Int {
     status
 }
 
+// `sawc2 coro`: one record per entry file, in order, each file the entry of
+// its own program; `--dump` prints each item's frame decision.
+func driver_coro(args: &Vector<String>) -> Int {
+    var dump = false
+    var check = false
+    var notes = false
+    var std_root = "sawc"
+    var names = Vector<String>()
+    var dirs = Vector<String>()
+    var inputs = Vector<DriverInput>()
+    var i = 2
+    while i < args.len() {
+        let arg = args.get(i) ?? ""
+        if arg.equals("--dump") {
+            dump = true
+        } else if arg.equals("--check") {
+            check = true
+        } else if arg.equals("--notes") {
+            notes = true
+        } else if arg.equals("--std-root") || arg.equals("--module-path") {
+            let value = args.get(i + 1) ?? ""
+            if value.len() == 0 {
+                return driver_usage()
+            }
+            if arg.equals("--std-root") {
+                std_root = value
+            } else if not driver_add_mapping(&var names, &var dirs, value) {
+                return driver_usage()
+            }
+            i = i + 1
+        } else if arg.starts_with("--") {
+            return driver_usage()
+        } else if arg.len() > 1 && (arg.byte_at(0) as Int) == DRIVER_AT {
+            // Stage 0 workaround (SL:hazards S4): canonical: let list = arg.substring(1, arg.len())
+            let size = arg.len()
+            let list = arg.substring(1, size)
+            if not driver_add_list(&var inputs, list) {
+                return DRIVER_EXIT_USAGE
+            }
+        } else {
+            try! inputs.push(DriverInput(path: arg, unit: false))
+        }
+        i = i + 1
+    }
+    if dump == check {
+        return driver_usage()
+    }
+    let options = CoroOptions(std_root: std_root, dump: dump, notes: notes)
+    var status = 0
+    var k = 0
+    while k < inputs.len() {
+        if let input = inputs.get(k) {
+            var out = StringBuilder()
+            try! out.append("FILE\t")
+            try! out.append(input.path)
+            try! out.append("\n")
+            let result = coro_record(out: &var out, path: input.path, options: &options, names: &names, dirs: &dirs)
+            print(out.build())
+            if result > status {
+                status = result
+            }
+        }
+        k = k + 1
+    }
+    status
+}
+
 func main() -> Int {
     let args = try! Env.args()
     let command = args.get(1) ?? ""
@@ -751,6 +824,9 @@ func main() -> Int {
     }
     if command.equals("mono") {
         return driver_mono(&args)
+    }
+    if command.equals("coro") {
+        return driver_coro(&args)
     }
     if command.equals("build") {
         return driver_build(&args)

@@ -69,6 +69,7 @@ STAGE_PACKAGES = (
     ("sawborrowck", "compiler/borrowck/src"),
     ("sawdrops", "compiler/drops/src"),
     ("sawmono", "compiler/mono/src"),
+    ("sawcoro", "compiler/coro/src"),
     ("sawllvm", "compiler/llvm/src"),
 )
 

@@ -1,0 +1,73 @@
+// Coroutine lowering's entry points: a program brought through mono, then
+// each item's frame decided; and the record `sawc2 coro` prints for it.
+
+import sawcoro.dump.{coro_dump_items}
+import sawcoro.program.{CoroProgram, coro_program}
+import sawcoro.suspends.{coro_solve_suspension}
+import sawmir.api.{mir_append_diag}
+import sawmir.program.{MirProgram}
+import sawmono.api.{mono_append_findings, mono_lower_file}
+import sawmono.program.{MonoProgram}
+
+// How `sawc2 coro` treats one entry file.
+public struct CoroOptions {
+    std_root: String
+    // Print each item's frame decision.
+    dump: Bool
+    notes: Bool
+}
+
+// The program whose entry file is `path`, brought through mono, then
+// decided. Everything the stages before mono report is appended to `out`, as
+// `mono_lower_file` appends it; mono's own findings and this stage's are
+// `coro_append_findings`'. When mono's program comes refused or with a
+// broken invariant, nothing is decided.
+public func coro_lower_file(out: &var StringBuilder, path: String, std_root: String, notes: Bool,
+                            names: &Vector<String>, dirs: &Vector<String>, runtime: Bool = false) -> CoroProgram {
+    var mono = mono_lower_file(out: &var out, path: path, std_root: std_root, notes: notes, names: &names,
+                               dirs: &dirs, runtime: runtime)
+    var coro = coro_program(move mono)
+    if not coro.blocked {
+        coro_solve_suspension(&var coro)
+    }
+    move coro
+}
+
+// The record of one program, after its `FILE` line: everything
+// `sawc2 mono --check` prints for it, then this stage's refusals, each an
+// `ERROR` line, and an `INVARIANT` line per problem it met; then, with
+// `dump`, each item's frame decision. Returns 0 when nothing was refused and
+// 1 otherwise.
+public func coro_record(out: &var StringBuilder, path: String, options: &CoroOptions, names: &Vector<String>,
+                        dirs: &Vector<String>) -> Int {
+    let coro = coro_lower_file(out: &var out, path: path, std_root: options.std_root, notes: options.notes,
+                               names: &names, dirs: &dirs)
+    coro_append_findings(out: &var out, coro: &coro)
+    var status = 0
+    if coro.blocked || coro.diags.len() > 0 || coro.problems.len() > 0 {
+        status = 1
+    }
+    if options.dump && not coro.blocked {
+        coro_dump_items(&coro, &var out)
+    }
+    status
+}
+
+// Mono's refusals and the invariants it met, then this stage's, each in the
+// order met.
+public func coro_append_findings(out: &var StringBuilder, coro: &CoroProgram) {
+    mono_append_findings(out: &var out, mono: &coro.mono)
+    var k = 0
+    while k < coro.diags.len() {
+        let d = coro.diags[k]
+        mir_append_diag(out: &var out, p: &coro.mono.dp.bc.mir, d: &d)
+        k = k + 1
+    }
+    k = 0
+    while k < coro.problems.len() {
+        try! out.append("INVARIANT\tcoro\t")
+        try! out.append(coro.problems.get(k) ?? "")
+        try! out.append("\n")
+        k = k + 1
+    }
+}

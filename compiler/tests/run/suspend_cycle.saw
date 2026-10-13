@@ -1,9 +1,9 @@
-// due: a suspending call has no lowering in the backend slice yet
-// refuses: backend.not-yet at 47:32
+// due: a suspending cycle has no finite frame (SL-322)
+// refuses: coro.suspending-cycle at 35:1
 // A suspending cycle, and a call whose suspension is a condition over a
-// bound. `run<Fast>` does not suspend at `Fast`, so its call is not refused;
-// `run<Slow>` does, and the first refusal is at that call, the second on the
-// line. The cycle `ping -> pong -> ping` is refused at each of its calls.
+// bound. The cycle `ping -> pong -> ping` is refused at `ping`, the member
+// reached first. Which instantiations of `run` need a frame is pinned by
+// compiler/tests/coro/golden/effects.coro: `run<Fast>` does not.
 extern "C" {
     blocking func usleep(us: UInt32) -> Int32
 }

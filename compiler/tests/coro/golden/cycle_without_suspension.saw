@@ -1,0 +1,39 @@
+// A cycle with no suspension in it is ordinary recursion: it needs no frame
+// and is not refused. `ping` and `pong` call each other plainly; `walk` and
+// `turn` call each other through a bound whose requirement may suspend, so
+// typecheck flags their calls, but at `Fast` nothing on the cycle reaches a
+// suspension, and the least fixpoint leaves it unframed.
+trait Worker {
+    func step(&self) -> Int
+}
+
+struct Fast {
+    n: Int
+}
+
+extension Fast: Worker {
+    func step(&self) -> Int { self.n }
+}
+
+func ping(n: Int) -> Int {
+    if n <= 0 {
+        return 1
+    }
+    pong(n - 1) + 1
+}
+
+func pong(n: Int) -> Int { ping(n) * 2 }
+
+func walk<T: Worker>(w: &T, n: Int) -> Int {
+    if n <= 0 {
+        return w.step()
+    }
+    turn(&w, n - 1) + 1
+}
+
+func turn<T: Worker>(w: &T, n: Int) -> Int { walk(&w, n) * 2 }
+
+func main() {
+    let fast = Fast(n: 3)
+    print("{} {}", ping(3), walk(&fast, 3))
+}

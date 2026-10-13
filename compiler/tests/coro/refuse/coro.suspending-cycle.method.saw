@@ -1,0 +1,29 @@
+// refuses: coro.suspending-cycle at 17:5
+// message: suspending recursion is not allowed
+// message: `Walker.walk -> Walker.walk`
+// From errors/coro_method_suspending_recursion: a recursive method is named
+// by its type and method. The test drives the method with `__saw_drive`,
+// which arrives with the test intrinsics (SL:coroutines A4); `main` calls it
+// until then.
+extern "C" {
+    blocking func usleep(us: UInt32) -> Int32
+}
+
+struct Walker {
+    depth: Int
+}
+
+extension Walker {
+    func walk(&self, n: Int) -> Int {
+        usleep(1)
+        if n <= 0 {
+            return 0
+        }
+        return self.walk(n - 1)
+    }
+}
+
+func main() {
+    let w = Walker(depth: 0)
+    print("{}", w.walk(3))
+}

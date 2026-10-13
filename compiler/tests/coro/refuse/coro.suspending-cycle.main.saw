@@ -1,0 +1,22 @@
+// refuses: coro.suspending-cycle at 11:1
+// message: suspending recursion is not allowed
+// message: `recurse -> recurse`
+// From errors/coro_main_suspending_recursion: a suspending `main` is a root
+// no spelling names, and it owes the same check. Here every item mono
+// reaches is checked, whatever reached it.
+extern "C" {
+    blocking func usleep(us: UInt32) -> Int32
+}
+
+func recurse(n: Int) -> Int {
+    usleep(1)
+    if n <= 0 {
+        return 0
+    }
+    return recurse(n - 1)
+}
+
+func main() {
+    usleep(1)
+    print("{}", recurse(3))
+}

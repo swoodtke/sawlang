@@ -15,7 +15,6 @@ import sawmir.api.{mir_append_checks, mir_append_diag, mir_append_invariants, mi
 import sawmir.program.{MirProgram}
 import sawmono.dump.{mono_dump_layouts}
 import sawmono.program.{MonoItemKind, MonoProgram, mono_program}
-import sawmono.suspends.{mono_solve_suspension}
 import sawmono.worklist.{mono_rules}
 import sawasserts.layout.{AssertsVerdict, asserts_verdict}
 import sawtarget.layout.{Target, target_named}
@@ -88,7 +87,6 @@ public func mono_lower_file(out: &var StringBuilder, path: String, std_root: Str
     if not blocked {
         mono_take_statics(&var mono, path, std_root, &names, &dirs, runtime)
         mono.run()
-        mono_solve_suspension(&var mono)
         mono_check_layout_asserts(&var mono)
     }
     move mono

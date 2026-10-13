@@ -1,10 +1,12 @@
 // `sawc2 build`'s compile half: the program through every stage to one
 // `.ll`, its link manifest heading the IR as comment lines. The driver writes
-// it to a file and runs clang on it (compiler/tests/run/README.md).
+// it to a file and runs clang on it (compiler/tests/run/README.md). The
+// backend's input is coroutine lowering's program.
 
+import sawcoro.api.{coro_append_findings, coro_lower_file}
+import sawcoro.program.{CoroProgram}
 import sawllvm.module.{ll_export_symbol}
 import sawllvm.program.{llvm_emit_program}
-import sawmono.api.{mono_append_findings, mono_lower_file}
 import sawmono.program.{MonoProgram}
 import sawtarget.layout.{Target}
 
@@ -38,26 +40,26 @@ public func llvm_build_exporting(out: &var StringBuilder, ir: &var StringBuilder
                                  path: String, options: &BuildOptions, names: &Vector<String>,
                                  dirs: &Vector<String>) -> Int {
     var front = StringBuilder()
-    var mono = mono_lower_file(out: &var front, path: path, std_root: options.std_root, notes: false,
+    var coro = coro_lower_file(out: &var front, path: path, std_root: options.std_root, notes: false,
                                names: &names, dirs: &dirs, runtime: options.runtime)
     let head = front.build()
-    if mono.blocked || mono.diags.len() > 0 || mono.problems.len() > 0 {
+    if coro.blocked || coro.diags.len() > 0 || coro.problems.len() > 0 {
         try! out.append(head)
-        mono_append_findings(out: &var out, mono: &mono)
+        coro_append_findings(out: &var out, coro: &coro)
         return 1
     }
-    var target = mono.target_for(options.target)
-    let text = llvm_emit_program(&var mono, &var target, options.speed, options.module_triple)
+    var target = coro.mono.target_for(options.target)
+    let text = llvm_emit_program(&var coro.mono, &var target, options.speed, options.module_triple)
     if text.len() == 0 {
         try! out.append(head)
-        mono_append_findings(out: &var out, mono: &mono)
+        coro_append_findings(out: &var out, coro: &coro)
         return 1
     }
     try! ir.append(text)
     var k = 0
-    while k < mono.export_items.len() {
-        let item = mono.export_items[k]
-        try! exports.push(ll_export_symbol(&mono, item))
+    while k < coro.mono.export_items.len() {
+        let item = coro.mono.export_items[k]
+        try! exports.push(ll_export_symbol(&coro.mono, item))
         k = k + 1
     }
     0

@@ -52,7 +52,7 @@ TIMEOUT = 1800
 
 # The lanes of run.py that drive sawc2, in run.py's order.
 LANES = ("golden", "grammar", "parser", "resolver", "typechecker", "mir", "eval", "std", "borrowck", "drops",
-         "mono", "programs")
+         "mono", "coro", "programs")
 
 
 def rel(path):

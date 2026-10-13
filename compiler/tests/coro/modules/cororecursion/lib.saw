@@ -1,0 +1,13 @@
+// The imported half of refuse/coro.suspending-cycle.cross-module.saw: a
+// function that suspends and calls itself.
+extern "C" {
+    blocking func usleep(us: UInt32) -> Int32
+}
+
+public func descend(depth: Int) -> Int {
+    usleep(1)
+    if depth <= 0 {
+        return 0
+    }
+    return 1 + descend(depth - 1)
+}
