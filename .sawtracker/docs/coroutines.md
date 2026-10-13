@@ -924,6 +924,15 @@ The plan holds except where an amendment below says otherwise. Each one is the l
 - **A18 (SL-580):** takes K83 and K112, and settles `runtime_build_suspending_body_error`'s bare `yield_now`.
 - **A6 (SL-559) and A12b (SL-570), from A0b's census (SL-551):** the pins that need `Vector.iter`, `Map`, `std.mutex` or `Arc` stay gated, and the same shapes are pinned with the plan's vocabulary.
 - **A0b:** the census hook in `compiler/tests/run.py` lands with A0b.
+- **A1 (SL-552):** the definitely-suspends fixpoint lives in `compiler/coro/src/suspends.saw`, not mono, and `coro.not-yet` replaces A0's `backend.not-yet`. Every seed is decided in `coro_call_is_source`.
+- **A3a (SL-554 c3):** A3a's files gain one arm in `compiler/llvm/src/places.saw` (`case FrameSlot`, which refuses and names A3b), because the match over `MirProjKind` there is exhaustive.
+- **A3b (SL-555 c2), from the Air's review of A2:** before A3b removes `coro.not-yet`, it refuses, per instantiation in coro, a copy-policy `copy()` item that suspends, with Stage 0's message.
+- **A3c (SL-556 c2):** the timer park's operand becomes `UInt64` nanoseconds, so a 32-bit target doesn't silently shorten a `sleep`.
+- **A7c and the new A7d (SL-561 c4; A7d is SL-595):**
+  - The must-consume obligation follows the spawn FORM, not the `Task<T>` type, since `group.spawn` mints the same type and may be dropped (K80). So it is minted at a MIR spawn-site terminator and checked by drop elaboration through moves, in the new unit A7d, which also owns that terminator and coro's refusal of it.
+  - A7c's files gain `typecheck/src/{api,program,model}.saw`, for the handle types by module lookup and a spawn role. A7c writes the `Never`-body check as one funnel.
+  - A7a now depends on A7d.
+  - K78 and K79 (`Thread.spawn` handles) move to A18.
 
 ## 5. Open questions for the user
 
