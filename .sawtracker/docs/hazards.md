@@ -1705,6 +1705,7 @@ ledger's reading. Where it differs from the sweep, Notes for the lead says why.
 | SL-472 | S25 A write to a by-value capture | silent (a ruling, which sawc2's typecheck refuses) |
 | SL-531 | S27 Bare imports inside a package | silent and loud (found by SL-519) |
 | SL-532 | S27 Bare imports inside a package | silent (found in the Air's SL-519.p1 review) |
+| SL-620 | S30 A prefix operator's operand of `as`: Stage 0 casts first | silent (found in the Air's SL-600 review; no live instance) |
 | SL-621 | L26 A reborrowing argument to a suspending callee that borrows its by-value parameter | loud (found by the sawtracker lead in ST-90; sawtracker's ST-SAW-7) |
 
 No issue is marked "not reachable from the subset". Several entries depend on
