@@ -11,7 +11,6 @@ the rules only its code generator can answer.
     python compiler/tools/subset_check.py FILE...  # each file as a unit program
     python compiler/tools/subset_check.py --std [FILE...]  # the std profile over std/
 """
-import concurrent.futures
 import contextlib
 import dataclasses
 import glob
@@ -25,7 +24,9 @@ import sys
 REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, os.path.join(REPO, "sawc"))
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+sys.path.append(os.path.join(REPO, "tools"))
 
+import gate_jobs  # noqa: E402
 import ast_nodes as A  # noqa: E402
 from lexer import Lexer, TokenType as T  # noqa: E402
 from parser import Parser  # noqa: E402
@@ -2564,9 +2565,7 @@ def check_generated(builds, checked):
     diagnostics name; a site in any other file, std's say, is not reported.
     """
     diags = []
-    workers = min(8, os.cpu_count() or 1)
-    with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as pool:
-        results = list(pool.map(lambda b: generated_build(b[0]), builds))
+    results = gate_jobs.map_ordered(lambda b: generated_build(b[0]), builds)
     for (entry, files), (compiled, output, sites) in zip(builds, results):
         if not compiled:
             diags.append(_refused_build(entry, files, output))

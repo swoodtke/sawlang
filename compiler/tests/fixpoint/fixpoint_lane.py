@@ -19,7 +19,10 @@ The lane requires:
   parse, resolve, typecheck, MIR, eval, std, borrowck, drops, mono and the run
   lane's builds) runs under Stage 1 and Stage 2 through `twin.py`, which hands
   the lane Stage 1's answer and records whether Stage 2's standard output,
-  standard error and exit status are the same bytes.
+  standard error and exit status are the same bytes. The lanes run as
+  run.py's steps do, as many at once as `SAW_GATE_JOBS` allows
+  (`tools/gate_jobs.py`), and the records are judged in a fixed order: by
+  lane, then by arguments.
 
 An invocation whose outputs differ fails unless `mismatches.tsv` lists it
 (`ARGUMENTS<TAB>REASON`, the arguments joined by single spaces) with the
@@ -28,11 +31,13 @@ difference is never absorbed, only explained. A listed mismatch that no
 longer occurs fails as stale. The lanes' own verdicts are run.py's to judge;
 here only agreement counts.
 """
+import glob
 import json
 import os
 import shutil
 import subprocess
 import sys
+import threading
 import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -41,18 +46,20 @@ COMPILER = os.path.dirname(TESTS)
 REPO = os.path.dirname(COMPILER)
 sys.path.insert(0, os.path.join(COMPILER, "tools"))
 sys.path.insert(0, TESTS)
+sys.path.append(os.path.join(REPO, "tools"))
 
 import build  # noqa: E402
+import gate_jobs  # noqa: E402
 
 OUT = os.path.join(REPO, ".build", "fixpoint-lane")
 TWIN = os.path.join(HERE, "twin.py")
 MISMATCHES = os.path.join(HERE, "mismatches.tsv")
-LOG = os.path.join(OUT, "invocations.jsonl")
+LOG = os.path.join(OUT, "invocations")
 TIMEOUT = 1800
 
-# The lanes of run.py that drive sawc2, in run.py's order.
-LANES = ("golden", "grammar", "parser", "resolver", "typechecker", "mir", "eval", "std", "borrowck", "drops",
-         "mono", "coro", "programs")
+# The steps of run.py that drive sawc2, in run.py's order.
+LANES = ("golden", "grammar_lint", "recognizer", "grammar_parse", "parser", "resolver", "typechecker", "mir",
+         "eval", "std", "borrowck", "drops", "mono", "coro", "programs")
 
 
 def rel(path):
@@ -135,34 +142,35 @@ def check_driver_ir(failures, counts):
                         % (": " + why if why else ""))
 
 
-def replay_lanes(failures, counts):
-    """Every sawc2 invocation of run.py's sawc2-driven lanes, under both
-    binaries; returns the records the twin logged."""
-    os.makedirs(OUT, exist_ok=True)
-    if os.path.exists(LOG):
-        os.remove(LOG)
-    twin = os.path.join(OUT, "sawc2-twin")
+def replay_lanes(failures, counts, lanes=LANES, new=None, out=OUT, budget=None):
+    """Every sawc2 invocation of the run.py steps `lanes`, under Stage 1 and
+    `new` (Stage 2 when None), within `budget` workers (run.py's `run_steps`);
+    returns the records the twin logged, in the order `judge` reads them. A
+    lane that does not finish is a failure, since its invocations are then
+    missing."""
+    import run as R
+    log = os.path.join(out, os.path.basename(LOG))
+    shutil.rmtree(log, ignore_errors=True)
+    os.makedirs(log)
+    twin = os.path.join(out, "sawc2-twin")
     with open(twin, "w") as fh:
         fh.write('#!/bin/sh\nexec "%s" "%s" "$@"\n' % (sys.executable, TWIN))
     os.chmod(twin, 0o755)
-    os.environ["FIXPOINT_REF"] = build.STAGE1
-    os.environ["FIXPOINT_NEW"] = build.STAGE2
-    os.environ["FIXPOINT_LOG"] = LOG
-    real = build.SAWC2
-    build.SAWC2 = twin
-    try:
-        import run as R
-        lanes = R.Run()
-        start = time.time()
-        for name in LANES:
-            getattr(R, "run_" + name)(lanes)
-        counts["seconds: the lanes under both binaries"] = round(time.time() - start)
-    finally:
-        build.SAWC2 = real
+    budget = min(budget or gate_jobs.jobs(), gate_jobs.jobs())
+    env = {"FIXPOINT_REF": build.STAGE1, "FIXPOINT_NEW": new or build.STAGE2, "FIXPOINT_LOG": log}
+    start = time.time()
+    _, results = R.run_steps([R.STEP_BY_NAME[name] for name in lanes], sawc2=twin, env=env, budget=budget,
+                             call_tokens=2)
+    counts["seconds: the lanes under both binaries"] = round(time.time() - start)
+    for step, result in results:
+        if result["crashed"]:
+            failures += ["fixpoint: under the twin, %s" % failure for failure in result["failures"]]
     records = []
-    if os.path.exists(LOG):
-        with open(LOG, encoding="utf-8") as fh:
-            records = [json.loads(line) for line in fh if line.strip()]
+    for path in glob.glob(os.path.join(log, "*.json")):
+        with open(path, encoding="utf-8") as fh:
+            records.append(json.loads(fh.read()))
+    order = {name: k for k, name in enumerate(lanes)}
+    records.sort(key=lambda r: (order.get(r["step"], len(order)), r["args"], r["differs"]))
     return records
 
 
@@ -202,11 +210,36 @@ def run():
     failures = []
     counts = {}
     if build_stages(failures, counts):
-        check_driver_ir(failures, counts)
-        check_stage3(failures, counts)
-        records = replay_lanes(failures, counts)
+        # The driver checks and the replay write apart (`elsewhere/`, `stage3/`
+        # and the lanes' own directories), so beside the replay each check runs
+        # on a token of its own; each part keeps its own failures, merged in
+        # this order.
+        parts = [(check_driver_ir, [], {}), (check_stage3, [], {}), (replay_lanes, [], {})]
+        with gate_jobs.budget():
+            if gate_jobs.jobs() >= 2:
+                threads = [threading.Thread(target=_on_token, args=part) for part in parts[:2]]
+                for t in threads:
+                    t.start()
+            else:
+                threads = []
+                for check, part_failures, part_counts in parts[:2]:
+                    check(part_failures, part_counts)
+            records = replay_lanes(parts[2][1], parts[2][2])
+            for t in threads:
+                t.join()
+        for _, part_failures, part_counts in parts:
+            failures += part_failures
+            counts.update(part_counts)
         judge(failures, counts, records)
     return failures, counts
+
+
+def _on_token(check, part_failures, part_counts):
+    token = gate_jobs.acquire()
+    try:
+        check(part_failures, part_counts)
+    finally:
+        gate_jobs.release(token)
 
 
 def main():

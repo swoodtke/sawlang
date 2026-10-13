@@ -12,7 +12,6 @@ stands in for the file's corpus_expected.tsv row. The instrument runs on each
 fixture, and the pipeline's output must match the goldens exactly;
 `test_migrate.py --write` rewrites them for review.
 """
-import concurrent.futures
 import json
 import os
 import re
@@ -27,7 +26,9 @@ FIXTURES = os.path.join(HERE, "fixtures")
 OUT = os.path.join(REPO, ".build", "migrate-tests")
 if TOOL not in sys.path:
     sys.path.insert(0, TOOL)
+sys.path.append(os.path.join(REPO, "tools"))
 
+import gate_jobs  # noqa: E402
 import layout  # noqa: E402
 import manifest  # noqa: E402
 import migrate  # noqa: E402
@@ -361,8 +362,7 @@ def run(write=False):
     fixtures = names()
     # The instrument runs one process per fixture; the pipeline runs here, in
     # order, since the recognizer it checks with is built once per process.
-    with concurrent.futures.ThreadPoolExecutor(max_workers=8) as pool:
-        observed = list(pool.map(observe, fixtures))
+    observed = gate_jobs.map_ordered(observe, fixtures)
     covered = set()
     for name, obs in zip(fixtures, observed):
         failures.extend(check_fixture(name, obs, accessors, write, covered))

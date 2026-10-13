@@ -47,7 +47,6 @@ profile, the lang-item table, and the API equivalence of the two stds.
 - no fixture here ends a line in whitespace or ends in a blank line.
 """
 import collections
-import concurrent.futures
 import glob
 import os
 import re
@@ -60,8 +59,10 @@ TESTS = os.path.dirname(HERE)
 COMPILER = os.path.dirname(TESTS)
 REPO = os.path.dirname(COMPILER)
 sys.path.insert(0, os.path.join(COMPILER, "tools"))
+sys.path.append(os.path.join(REPO, "tools"))
 
 import build  # noqa: E402
+import gate_jobs  # noqa: E402
 import std_cone  # noqa: E402
 import subset_check  # noqa: E402
 
@@ -619,10 +620,9 @@ def build_and_run_pair(path):
 def check_pairs(failures, counts):
     pairs = sorted(glob.glob(os.path.join(PAIRS, "*.saw")))
     write_file_fixtures()
-    with concurrent.futures.ThreadPoolExecutor(max_workers=min(4, os.cpu_count() or 1)) as pool:
-        for failure in pool.map(build_and_run_pair, pairs):
-            if failure:
-                failures.append(failure)
+    for failure in gate_jobs.map_ordered(build_and_run_pair, pairs, most=4):
+        if failure:
+            failures.append(failure)
     for stage in ("typecheck", "mir", "eval"):
         _, out = sawc2(stage, "--check", "--std-root", NEW_ROOT, *[rel(p) for p in pairs])
         for line in problems_of(out):

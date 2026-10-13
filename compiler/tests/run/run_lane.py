@@ -56,7 +56,6 @@ never runs it.
 Stage 0 is the oracle; a difference is a sawc2 bug until shown otherwise
 (SL:architecture §5).
 """
-import concurrent.futures
 import glob
 import os
 import re
@@ -70,8 +69,10 @@ TESTS = os.path.dirname(HERE)
 COMPILER = os.path.dirname(TESTS)
 REPO = os.path.dirname(COMPILER)
 sys.path.insert(0, os.path.join(COMPILER, "tools"))
+sys.path.append(os.path.join(REPO, "tools"))
 
 import build  # noqa: E402
+import gate_jobs  # noqa: E402
 
 OUT = os.path.join(REPO, ".build", "run-lane")
 # The target sawc2 builds the programs for, None for the host. Stage 0 builds
@@ -585,8 +586,7 @@ def run(names=None, write=False):
     failures = []
     counts = {}
     srcs = cases(names)
-    with concurrent.futures.ThreadPoolExecutor(max_workers=8) as pool:
-        results = list(pool.map(check_case, srcs))
+    results = gate_jobs.map_ordered(check_case, srcs)
     dues = []
     covered = set()
     for src, (found, outcome) in zip(srcs, results):

@@ -479,6 +479,35 @@ total wait once it starts; its last line reports that wait apart from the test
 time. From a worktree, point `SAW_PYTHON` at the main checkout's venv rather
 than letting it bootstrap one.
 
+### How many workers the gate uses
+
+One setting sizes every pool the gate runs: `SAW_GATE_JOBS`, read through
+`tools/gate_jobs.py`. By default it is three quarters of the machine's cores,
+rounded down and never less than one (12 on a 16-core machine), and a larger
+value is clamped to that ceiling, so the gate never keeps more than 75% of the
+cores busy. `SAW_GATE_JOBS=1` runs everything serially. The ceiling counts
+everything running at once, in every process: the outermost runner makes the
+budget as tokens (lock files in a temporary directory), every process it
+starts draws on the same tokens, and a pool takes a token for each worker
+beyond its first, so parts running side by side share one budget instead of
+each having its own.
+
+```bash
+SAW_GATE_JOBS=1 ./.venv/bin/python compiler/tests/run.py   # serially
+SAW_GATE_JOBS=4 ./build.sh test --changed-since HEAD^      # at most four at once
+```
+
+`compiler/tests/run.py` runs each of its parts (`STEPS`) in a process of its
+own, as many at once as the budget allows, starting those that need no `sawc2`
+while Stage 1 and Stage 2 build. The fixpoint lane replays the same parts
+through its twin the same way, the twin running Stage 1 and Stage 2 at once
+for a command that writes no files, and judges the twin's records in a fixed
+order: by part, then by arguments. Both merge their output in a fixed order, so it is the same at every
+worker count; `compiler/tests/parallel_order.py`, one of run.py's parts, checks
+that a serial and a parallel run print the same, with an injected failure
+reported in the same place. `test_runner.py` takes its default `-j` from the
+same setting.
+
 ## The Gate Battery
 
 ```bash

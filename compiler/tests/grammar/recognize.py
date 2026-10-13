@@ -22,7 +22,6 @@ parse of its own.
 """
 import argparse
 import collections
-import concurrent.futures
 import itertools
 import json
 import os
@@ -32,8 +31,10 @@ import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
+sys.path.append(os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(HERE))), "tools"))
 
 import contexts  # noqa: E402
+import gate_jobs  # noqa: E402
 import extract  # noqa: E402
 import lexdump  # noqa: E402
 from lexdump import Token  # noqa: E402
@@ -2918,11 +2919,18 @@ def check_paths(paths, grammar_path=extract.GRAMMAR, enable=(), jobs=None):
     return [tuple(r) for r in run_workers(cmd, paths, jobs)]
 
 
+# The paths are split into this many worker processes at any worker count. A
+# worker caches the texts it lexes, so the split decides which `sawc2 lex`
+# calls are made, and the fixpoint lane counts and compares those calls.
+WORKER_SHARES = 24
+
+
 def run_workers(script_args, paths, jobs):
     """Each path's JSON result line from `python SCRIPT_ARGS`, which reads paths
-    on stdin. Plain subprocesses, since a sandbox may refuse the semaphores
+    on stdin, at most `jobs` of the `WORKER_SHARES` workers running at once.
+    Plain subprocesses, since a sandbox may refuse the semaphores
     multiprocessing needs; results come back in the order of `paths`."""
-    jobs = max(1, min(jobs, len(paths)))
+    shares = max(1, min(WORKER_SHARES, len(paths)))
     # Built here, so that workers never race to build it.
     lexdump.ensure_sawc2()
     cmd = [sys.executable] + list(script_args)
@@ -2936,12 +2944,11 @@ def run_workers(script_args, paths, jobs):
                                % (proc.returncode, len(lines), len(share)))
         return [json.loads(line) for line in lines]
 
-    with concurrent.futures.ThreadPoolExecutor(max_workers=jobs) as pool:
-        shares = list(pool.map(work, [paths[k::jobs] for k in range(jobs)]))
+    answers = gate_jobs.map_ordered(work, [paths[k::shares] for k in range(shares)], most=max(1, jobs))
     results = [None] * len(paths)
-    for k, share in enumerate(shares):
+    for k, share in enumerate(answers):
         for n, result in enumerate(share):
-            results[k + n * jobs] = result
+            results[k + n * shares] = result
     return results
 
 
@@ -2953,7 +2960,7 @@ def run_worker(grammar_path, enable):
 
 
 def default_jobs():
-    return min(8, os.cpu_count() or 1)
+    return gate_jobs.jobs()
 
 
 def main(argv=None):

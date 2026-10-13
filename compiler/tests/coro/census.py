@@ -36,8 +36,10 @@ OUT = os.path.join(REPO, ".build", "coro-census")
 sys.path.insert(0, os.path.join(COMPILER, "tools"))
 sys.path.insert(0, HERE)
 sys.path.insert(0, os.path.join(HERE, "stage0"))
+sys.path.append(os.path.join(REPO, "tools"))
 
 import build  # noqa: E402
+import gate_jobs  # noqa: E402
 import expect  # noqa: E402
 import snapshot  # noqa: E402
 
@@ -216,7 +218,7 @@ def census():
     snapshot's order."""
     paths = snapshot.programs()
     refusals = snapshot.read_refusals()
-    with concurrent.futures.ThreadPoolExecutor(max_workers=8) as pool:
+    with concurrent.futures.ThreadPoolExecutor(max_workers=gate_jobs.jobs()) as pool:
         programs = list(pool.map(census_program, paths))
         refused = list(pool.map(census_refusal, refusals))
     return list(zip(paths, programs)), list(zip([r["path"] for r in refusals], refused))

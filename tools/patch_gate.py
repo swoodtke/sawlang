@@ -34,6 +34,7 @@ SUITE_INPUTS = {
         "tests/cbor_vectors/",      # vector files examples read at run time
         "tests/float_vectors/",
         "test_runner.py",
+        "tools/gate_jobs.py",       # its default worker count
     ),
     "freestanding": (
         "sawc/",
@@ -57,6 +58,7 @@ SUITE_INPUTS = {
         "sawc/",                    # Stage 0, which builds Stage 1, and the runtime both link
         "compiler/tests/fixpoint/", # the lane, twin.py and mismatches.tsv
         "compiler/tools/build.py",  # which builds both stages
+        "tools/gate_jobs.py",       # how many invocations run at once
     ),
     "astdiff": (
         "sawc/lexer.py",            # the Python front end whose tree it dumps

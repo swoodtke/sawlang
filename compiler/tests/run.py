@@ -34,24 +34,33 @@ whose golden frame decisions and refusal fixtures hold `sawc2 coro`, and whose
 decisions must agree with typecheck's summaries; runs the run lane over `run/`,
 which builds each program with `sawc2 build` and with Stage 0 and compares
 the two binaries' output; and checks that the Stage 0 snapshot in
-`coro/stage0/` is whole and prints the coroutine census, which gates nothing.
+`coro/stage0/` is whole and prints the coroutine census, which gates nothing;
+and checks that a serial and a parallel run print the same (`parallel_order.py`).
 The inventory of Stage 0 workaround markers prints first, then each failure as
 one line in a fixed order; the summary comes last, and any failure exits 1.
+
+Each of those parts is a step (`STEPS`) run in a process of its own, as many
+at once as `SAW_GATE_JOBS` allows (`tools/gate_jobs.py`, `run_steps`); the
+output is merged in `STEPS` order, so it is the same at every worker count.
 """
 import collections
-import concurrent.futures
 import glob
+import json
 import os
 import re
 import subprocess
 import sys
+import tempfile
+import threading
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 COMPILER = os.path.dirname(HERE)
 REPO = os.path.dirname(COMPILER)
 sys.path.insert(0, os.path.join(COMPILER, "tools"))
 sys.path.insert(0, os.path.join(HERE, "grammar"))
+sys.path.append(os.path.join(REPO, "tools"))
 
+import gate_jobs  # noqa: E402
 import build  # noqa: E402
 import comma_funnel  # noqa: E402
 import depth_funnel  # noqa: E402
@@ -181,9 +190,7 @@ def _first_line(text):
 
 def run_units(run):
     programs = unit_programs()
-    workers = min(8, os.cpu_count() or 1)
-    with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as pool:
-        results = list(pool.map(lambda np: build_and_run_unit(*np), programs))
+    results = gate_jobs.map_ordered(lambda np: build_and_run_unit(*np), programs)
     for _, failure in sorted(results):
         if failure:
             run.fail(failure)
@@ -195,7 +202,7 @@ def sawc2(*args):
     return r.returncode, r.stdout
 
 
-def check_fixture_whitespace(run):
+def run_fixture_whitespace(run):
     """No fixture line ends in whitespace, and no fixture ends in a blank line.
     `git apply --whitespace=fix` (the patch server's setting) and editors strip
     both, which would change a fixture on its way into the tree."""
@@ -438,16 +445,29 @@ def run_runtime_table(run):
         run.count(key, n)
 
 
-def run_grammar(run):
-    """The grammar lint with its fixtures, the recognizer's unit tests, and the
-    parser corpus's checks; the full-corpus recognizer run is the battery's
-    `grammarcorpus` lane."""
-    for module in (test_lint, test_recognize, test_parse):
-        failures, counts = module.run()
-        for failure in failures:
-            run.fail(failure)
-        for key, n in counts.items():
-            run.count(key, n)
+def _run_module(run, module):
+    failures, counts = module.run()
+    for failure in failures:
+        run.fail(failure)
+    for key, n in counts.items():
+        run.count(key, n)
+
+
+# The grammar's three checks are three steps, since each is long enough alone;
+# the full-corpus recognizer run is the battery's `grammarcorpus` lane.
+def run_grammar_lint(run):
+    """The grammar lint with its fixtures."""
+    _run_module(run, test_lint)
+
+
+def run_recognizer(run):
+    """The recognizer's unit tests."""
+    _run_module(run, test_recognize)
+
+
+def run_grammar_parse(run):
+    """The parser corpus's checks."""
+    _run_module(run, test_parse)
 
 
 def run_migrate(run):
@@ -598,50 +618,271 @@ def run_census(run):
     run.inventory += lines
 
 
+def run_parallel_order(run):
+    """The runners print the same at every worker count, an injected failure
+    included (compiler/tests/parallel_order.py)."""
+    import parallel_order
+    _run_module(run, parallel_order)
+
+
+class Step:
+    """One part of the run, `run_<name>(run)`. `when` is "always" (it needs
+    nothing built), "after build" (it waits for the build, whatever the build
+    says) or "built" (it runs only when sawc2 builds). A step holds one token
+    while it runs, and its pools take more as they go
+    (`gate_jobs.map_ordered`), which makes its sawc2 calls overlap
+    (`calls_overlap`); a step with a `width` runs a pool that takes none, so it
+    holds `width` tokens and gets that as its SAW_GATE_JOBS."""
+
+    def __init__(self, name, when, calls_overlap=False, width=None):
+        self.name = name
+        self.when = when
+        self.calls_overlap = calls_overlap
+        self.width = width
+
+    def function(self):
+        return globals()["run_" + self.name]
+
+
+# In output order, which is the order the parts ran in when they ran serially.
+STEPS = (
+    Step("units", "always", calls_overlap=True),
+    Step("fixture_whitespace", "always"),
+    Step("golden", "built"),
+    Step("subset", "always", calls_overlap=True),
+    Step("std_cone", "built", calls_overlap=True),
+    Step("std_suspension", "after build"),
+    Step("runtime_table", "after build"),
+    Step("grammar_lint", "after build"),
+    Step("recognizer", "after build"),
+    Step("grammar_parse", "after build", calls_overlap=True),
+    Step("migrate", "after build", calls_overlap=True),
+    Step("parser", "built", calls_overlap=True),
+    Step("resolver", "built"),
+    Step("typechecker", "built"),
+    Step("mir", "built"),
+    Step("eval", "built"),
+    Step("std", "built", calls_overlap=True),
+    Step("borrowck", "built"),
+    Step("drops", "built"),
+    Step("mono", "built"),
+    Step("coro", "built"),
+    Step("programs", "built", calls_overlap=True),
+    Step("census", "built", calls_overlap=True, width=2),
+    Step("parallel_order", "built", calls_overlap=True),
+)
+STEP_BY_NAME = {step.name: step for step in STEPS}
+
+# The longest steps start first, so that the short ones fill in around them;
+# the rest start in `STEPS` order. Only the wall time depends on this.
+LONG_STEPS = ("units", "subset", "drops", "borrowck", "grammar_parse", "eval", "std_cone", "programs",
+              "std", "typechecker", "parser", "migrate", "parallel_order")
+
+STEP_OUT = os.path.join(REPO, ".build", "compiler-tests-steps")
+
+# What a step's sawc2 call may use, from its environment: the tokens its step
+# holds for each call (`run_steps`).
+CALL_TOKENS = "SAW_GATE_CALL_TOKENS"
+
+
+def run_steps(steps, build_sawc2=None, sawc2=None, env=None, budget=None, call_tokens=1):
+    """Runs each of `steps` in a process of its own and returns (the build's
+    (ok, output), or None without one; [(step, result)] in the order of
+    `steps`). A result is a dict: failures, counts, inventory, stdout, stderr,
+    skipped, true of a "built" step after a failed build, and crashed, true of
+    a step whose process ended without its result.
+
+    `build_sawc2` runs here first, every step but an "always" one waiting for
+    it, and `sawc2` replaces `build.SAWC2` in each step. The build and each
+    step hold their tokens of the gate's budget while they run, the first of
+    them this process's own (`gate_jobs.budget`); a step whose calls do not
+    overlap holds `call_tokens` (two under the fixpoint lane's twin), which
+    SAW_GATE_CALL_TOKENS tells each call it may use. Each step gets `budget`,
+    or `gate_jobs.jobs()` when that is smaller, as its SAW_GATE_JOBS, and
+    SAW_GATE_STEP, its name.
+    """
+    limit = min(budget or gate_jobs.jobs(), gate_jobs.jobs())
+    call_tokens = max(1, min(call_tokens, limit))
+    os.makedirs(STEP_OUT, exist_ok=True)
+    cond = threading.Condition()
+    state = {"own": True, "running": 0, "built": build_sawc2 is None, "ok": build_sawc2 is None,
+             "build": None}
+    results = {}
+
+    def cost(step):
+        if step.width:
+            return min(step.width, limit)
+        return 1 if step.calls_overlap else call_tokens
+
+    def take(count):
+        """`count` tokens, the own one first, or None when they are not free."""
+        held = []
+        if state["own"]:
+            state["own"] = False
+            held.append("own")
+        while len(held) < count:
+            token = gate_jobs.try_acquire()
+            if token is None:
+                give_back(held)
+                return None
+            held.append(token)
+        return held
+
+    def give_back(held):
+        for token in held:
+            if token == "own":
+                state["own"] = True
+            else:
+                gate_jobs.release(token)
+
+    def finish(name, result, held):
+        with cond:
+            if name is not None:
+                results[name] = result
+            give_back(held)
+            state["running"] -= 1
+            cond.notify_all()
+
+    def do_build(held):
+        try:
+            outcome = build_sawc2()
+        except BaseException as e:  # a crash is a failed build, reported as one
+            outcome = (False, "%s: %s" % (type(e).__name__, e))
+        with cond:
+            state["build"] = outcome
+            state["built"] = True
+            state["ok"] = outcome[0]
+        finish(None, None, held)
+
+    def launch(step, held):
+        step_env = dict(env or {})
+        step_env[CALL_TOKENS] = str(1 if step.calls_overlap or step.width else call_tokens)
+
+        def go():
+            try:
+                result = _run_step_process(step, step.width or limit, sawc2, step_env)
+            except BaseException as e:
+                result = _crashed(step, "%s: %s" % (type(e).__name__, e), b"", b"")
+            finish(step.name, result, held)
+        threading.Thread(target=go, daemon=True).start()
+
+    order = [s for name in LONG_STEPS for s in steps if s.name == name]
+    order += [s for s in steps if s not in order]
+    with gate_jobs.budget(), cond:
+        if build_sawc2 is not None:
+            state["running"] += 1
+            threading.Thread(target=do_build, args=(take(1),), daemon=True).start()
+        pending = order
+        while pending:
+            if state["built"] and not state["ok"]:
+                for step in [s for s in pending if s.when == "built"]:
+                    results[step.name] = _result(skipped=True)
+                    pending.remove(step)
+            ready = [s for s in pending if s.when == "always" or state["built"]]
+            held = None
+            if ready and state["running"] < limit:
+                held = take(cost(ready[0]))
+            if held is None:
+                # Tokens free up in other processes too, which notify nobody.
+                cond.wait(timeout=0.05)
+                continue
+            pending.remove(ready[0])
+            state["running"] += 1
+            launch(ready[0], held)
+        while state["running"]:
+            cond.wait()
+    return state["build"], [(step, results[step.name]) for step in steps]
+
+
+def _run_step_process(step, workers, sawc2, env):
+    """`run.py --step NAME` in a child process with `workers` as its budget."""
+    fd, result_path = tempfile.mkstemp(prefix="%s-" % step.name, suffix=".json", dir=STEP_OUT)
+    os.close(fd)
+    try:
+        cmd = [sys.executable, os.path.abspath(__file__), "--step", step.name, "--result", result_path]
+        if sawc2:
+            cmd += ["--sawc2", sawc2]
+        child_env = gate_jobs.child_env(workers)
+        child_env.update(env or {})
+        child_env["SAW_GATE_STEP"] = step.name
+        r = subprocess.run(cmd, capture_output=True, env=child_env)
+        try:
+            with open(result_path, encoding="utf-8") as fh:
+                result = json.load(fh)
+        except (OSError, ValueError):
+            result = None
+        if r.returncode != 0 or result is None:
+            why = _first_line("\n".join(reversed((r.stderr or b"").decode("utf-8", "replace").splitlines())))
+            return _crashed(step, "exit %d: %s" % (r.returncode, why), r.stdout, r.stderr)
+        return _result(result["failures"], result["counts"], result["inventory"], r.stdout, r.stderr)
+    finally:
+        os.remove(result_path)
+
+
+def _result(failures=(), counts=None, inventory=(), stdout=b"", stderr=b"", skipped=False, crashed=False):
+    return {"failures": list(failures), "counts": dict(counts or {}), "inventory": list(inventory),
+            "stdout": stdout, "stderr": stderr, "skipped": skipped, "crashed": crashed}
+
+
+def _crashed(step, why, stdout, stderr):
+    """A step whose process ended without its result: one failure naming it."""
+    return _result(["step %s: did not finish: %s" % (step.name, why)], stdout=stdout, stderr=stderr,
+                   crashed=True)
+
+
+def step_main(name, result_path, sawc2):
+    """One step, in the child process `run_steps` starts: its Run as JSON."""
+    if sawc2:
+        build.SAWC2 = sawc2
+    run = Run()
+    STEP_BY_NAME[name].function()(run)
+    with open(result_path, "w", encoding="utf-8") as fh:
+        json.dump({"failures": run.failures, "counts": run.counts, "inventory": run.inventory}, fh)
+    return 0
+
+
+def merge(build_outcome, results):
+    """One Run of the build's failure, then each step's, in order."""
+    run = Run()
+    if build_outcome is not None and not build_outcome[0]:
+        run.fail("build: sawc2 does not compile: %s" % _first_line(build_outcome[1]))
+    for _, result in results:
+        run.failures += result["failures"]
+        for key, n in result["counts"].items():
+            run.count(key, n)
+        run.inventory += result["inventory"]
+    return run
+
+
+def render(run):
+    """The lines run.py prints after the steps' own output."""
+    lines = list(run.inventory) + list(run.failures)
+    summary = ", ".join("%d %s" % (n, key) for key, n in sorted(run.counts.items()))
+    verdict = "FAIL (%d)" % len(run.failures) if run.failures else "ok"
+    lines.append("compiler tests: %s: %s" % (verdict, summary))
+    return "".join(line + "\n" for line in lines)
+
+
 def main():
     args = sys.argv[1:]
+    if args[:1] == ["--step"] and len(args) in (4, 6) and args[1] in STEP_BY_NAME and args[2] == "--result" \
+            and (len(args) == 4 or args[4] == "--sawc2"):
+        return step_main(args[1], args[3], args[5] if len(args) == 6 else None)
     if args[:1] == ["--stage"] and len(args) == 2 and args[1] in ("1", "2"):
-        # The environment carries the choice to the lanes' own child processes.
+        # The environment carries the choice to the steps and their own child processes.
         os.environ["SAWC2_STAGE"] = args[1]
         build.SAWC2 = build.STAGE1 if args[1] == "1" else build.STAGE2
     elif args:
         print("usage: run.py [--stage 1|2]")
         return 2
-    run = Run()
-    ok, output = build.build_sawc2()
-    if not ok:
-        run.fail("build: sawc2 does not compile: %s" % _first_line(output))
-    run_units(run)
-    check_fixture_whitespace(run)
-    if ok:
-        run_golden(run)
-    run_subset(run)
-    if ok:
-        run_std_cone(run)
-    run_std_suspension(run)
-    run_runtime_table(run)
-    run_grammar(run)
-    run_migrate(run)
-    if ok:
-        run_parser(run)
-        run_resolver(run)
-        run_typechecker(run)
-        run_mir(run)
-        run_eval(run)
-        run_std(run)
-        run_borrowck(run)
-        run_drops(run)
-        run_mono(run)
-        run_coro(run)
-        run_programs(run)
-        run_census(run)
-    for line in run.inventory:
-        print(line)
-    for failure in run.failures:
-        print(failure)
-    summary = ", ".join("%d %s" % (n, key) for key, n in sorted(run.counts.items()))
-    verdict = "FAIL (%d)" % len(run.failures) if run.failures else "ok"
-    print("compiler tests: %s: %s" % (verdict, summary))
+    build_outcome, results = run_steps(STEPS, build_sawc2=build.build_sawc2)
+    for _, result in results:
+        sys.stdout.buffer.write(result["stdout"])
+        sys.stderr.buffer.write(result["stderr"])
+    sys.stdout.flush()
+    sys.stderr.flush()
+    run = merge(build_outcome, results)
+    sys.stdout.write(render(run))
     return 1 if run.failures else 0
 
 

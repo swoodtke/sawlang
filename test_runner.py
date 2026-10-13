@@ -1998,6 +1998,13 @@ def _compile_parallel_in_process(tasks, num_workers, verbose, on_result, run_dir
 REPO_ROOT = Path(__file__).resolve().parent
 
 
+def _gate_jobs() -> int:
+    """The default worker count: the gate's knob (tools/gate_jobs.py)."""
+    sys.path.append(str(REPO_ROOT / 'tools'))
+    import gate_jobs
+    return gate_jobs.jobs()
+
+
 def repo_path(test: TestCase) -> str:
     """A test's path relative to the repo root — `examples/ffi/casting.saw`.
 
@@ -2147,7 +2154,7 @@ def run_tests_locally(tests, args, in_process, compile_fn, jsonl=None,
         prev_manifest = {}
     if manifest_out is None:
         manifest_out = {}
-    num_workers = args.jobs if args.jobs else os.cpu_count()
+    num_workers = args.jobs if args.jobs else _gate_jobs()
     if args.sequential:
         num_workers = 1
 

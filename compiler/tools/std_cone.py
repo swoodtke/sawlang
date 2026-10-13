@@ -17,7 +17,6 @@ over the types and traits those bodies name. SL:architecture §4 ("The bootstrap
 std") says why; `std_cone_review.md` says what the method cannot see.
 """
 import argparse
-import concurrent.futures
 import dataclasses
 import difflib
 import json
@@ -30,8 +29,10 @@ import tempfile
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(os.path.dirname(HERE))
 sys.path.insert(0, HERE)
+sys.path.append(os.path.join(REPO, "tools"))
 
 import build  # noqa: E402
+import gate_jobs  # noqa: E402
 
 CONE_FILE = os.path.join(HERE, "std_cone.txt")
 OUT_DIR = os.path.join(REPO, ".build", "std-cone")
@@ -819,13 +820,11 @@ def cone(entry=None):
     os.makedirs(OUT_DIR, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix="run-", dir=OUT_DIR) as out_dir:
         todo = builds(entry, out_dir)
-        workers = min(len(todo), os.cpu_count() or 1)
         failures = []
-        with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as pool:
-            for b, records, error in pool.map(run_observer, todo):
-                b.records = records
-                if error:
-                    failures.append("std cone: the %s build failed: %s" % (b.name, error))
+        for b, records, error in gate_jobs.map_ordered(run_observer, todo):
+            b.records = records
+            if error:
+                failures.append("std cone: the %s build failed: %s" % (b.name, error))
     if failures:
         return None, failures, None
     c = compute(todo)
