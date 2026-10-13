@@ -7,7 +7,7 @@
 
 import sawborrowck.program.{BorrowckProgram}
 import sawdrops.program.{DropsProgram}
-import sawllvm.attributes.{ll_param_attributes}
+import sawllvm.attributes.{ll_function_attributes, ll_param_attributes}
 import sawllvm.prims.{LL_MESSAGE_LIMIT}
 import sawllvm.calls.{ll_block}
 import sawllvm.module.{LlEmitter, ll_export_symbol, ll_is_scalar, ll_symbol, ll_value_type}
@@ -135,6 +135,7 @@ extension LlEmitter {
             j = j + 1
         }
         try! head.append(")")
+        try! head.append(ll_function_attributes(""))
         var b = 0
         while b < info.block_count {
             let block = mono.dp.bc.mir.blocks[info.block_first + b]

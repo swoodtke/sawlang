@@ -1,8 +1,10 @@
-// The attributes a defined function's parameters carry: what the language
-// guarantees about an argument that LLVM can use, written after its type.
+// The attributes a defined function carries: what the language guarantees
+// about an argument that LLVM can use, written after its parameter's type, and
+// what the target asks of every function, written after the parameter list.
 
 import sawmir.model.{MirFuncKind}
 import sawmono.program.{MonoProgram}
+import sawtarget.layout.{Target}
 // For the extension writing `is_cell_carrying`.
 import sawtypecheck.tier.{tc_max}
 import sawtypecheck.types.{TcKind}
@@ -32,4 +34,45 @@ public func ll_param_attributes(mono: &var MonoProgram, k: Int, j: Int, t: Int) 
         return ""
     }
     "noalias"
+}
+
+// What closes the signature of every function the module defines: the
+// attributes `extra` names, then the module's one attribute group, which
+// carries the target's frame pointer policy. A define that bypasses it keeps
+// no frame pointer; the run lane checks that every define names the group.
+//
+// ENTRY POINTS:
+//   LlEmitter.emit_function
+//   LlEmitter.entry_point
+//   ll_helpers
+//   ll_fail_helpers
+public func ll_function_attributes(extra: String) -> String {
+    var out = StringBuilder()
+    if extra.len() > 0 {
+        try! out.append(" ")
+        try! out.append(extra)
+    }
+    try! out.append(" ")
+    try! out.append(ll_function_group())
+    out.build()
+}
+
+// The attribute group every define names, the module's last line.
+public func ll_function_attribute_group(target: &Target) -> String {
+    let policy = match target.frame_pointer() {
+        case Omitted -> "none",
+        case NonLeaf -> "non-leaf",
+        case All -> "all"
+    }
+    var out = StringBuilder()
+    try! out.append("attributes ")
+    try! out.append(ll_function_group())
+    try! out.append(" = \{ \"frame-pointer\"=\"")
+    try! out.append(policy)
+    try! out.append("\" \}")
+    out.build()
+}
+
+func ll_function_group() -> String {
+    "#0"
 }

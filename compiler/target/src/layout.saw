@@ -81,6 +81,16 @@ public enum TargetCClass {
     case Refused
 }
 
+// Which functions keep a frame pointer: none, every one that calls another,
+// or all. Profilers, debuggers and crash reports walk the frame chain, so a
+// function that calls another without keeping one drops out of every stack
+// they take.
+public enum TargetFramePointer {
+    case Omitted,
+    case NonLeaf,
+    case All
+}
+
 public struct Target {
     triple: String
     word: Int
@@ -577,6 +587,17 @@ extension Target {
     // is at 0.
     public func closure_env_offset(&self) -> Int {
         self.word
+    }
+
+    // Which functions keep a frame pointer on this target, the one answer
+    // the backend's function attributes carry. Darwin's arm64 convention
+    // requires a valid frame record in x29, which clang keeps in every
+    // non-leaf function. Linux requires none, but a hosted program is profiled
+    // there too and the cost is small, so both Linux triples keep the same.
+    // A triple this description does not know would get the conservative
+    // `NonLeaf` as well.
+    public func frame_pointer(&self) -> TargetFramePointer {
+        TargetFramePointer.NonLeaf
     }
 
     // The offset of payload field `k` of case `decl` of `t`, or -1.

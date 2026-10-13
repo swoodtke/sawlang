@@ -5,6 +5,7 @@
 
 import sawborrowck.program.{BorrowckProgram}
 import sawdrops.program.{DropsProgram}
+import sawllvm.attributes.{ll_function_attribute_group, ll_function_attributes}
 import sawllvm.bodies.{ll_param_name}
 import sawllvm.prims.{LL_FAIL_KINDS, LL_FAIL_PART_SIZE, LL_MESSAGE_LIMIT, LL_PART_BOOL, LL_PART_SIGNED,
                           LL_PART_UNSIGNED, ll_fail_reason, ll_fail_symbol}
@@ -102,6 +103,8 @@ public func llvm_emit_program(mono: &var MonoProgram, target: &var Target, speed
         let symbol = ll_symbol(&mono, sink)
         try! out.append(ll_fail_helpers(symbol))
     }
+    try! out.append("\n\n")
+    try! out.append(ll_function_attribute_group(&target))
     out.build()
 }
 
@@ -115,12 +118,19 @@ extension LlEmitter {
         let f = mono.dp.bc.mir.funcs[main.body]
         let result = mono.dp.bc.mir.locals[f.local_first].ty
         let l = self.lay(&var mono, &var target, result)
+        let attributes = ll_function_attributes("")
         var out = StringBuilder()
         try! out.append("@__saw_argc = internal global i32 0\n")
         try! out.append("@__saw_argv = internal global ptr null\n\n")
-        try! out.append("define i32 @__saw_rt_get_argc() \{\n  %v = load i32, ptr @__saw_argc\n  ret i32 %v\n\}\n\n")
-        try! out.append("define ptr @__saw_rt_get_argv() \{\n  %v = load ptr, ptr @__saw_argv\n  ret ptr %v\n\}\n\n")
-        try! out.append("define i32 @main(i32 %argc, ptr %argv) \{\nentry:\n")
+        try! out.append("define i32 @__saw_rt_get_argc()")
+        try! out.append(attributes)
+        try! out.append(" \{\n  %v = load i32, ptr @__saw_argc\n  ret i32 %v\n\}\n\n")
+        try! out.append("define ptr @__saw_rt_get_argv()")
+        try! out.append(attributes)
+        try! out.append(" \{\n  %v = load ptr, ptr @__saw_argv\n  ret ptr %v\n\}\n\n")
+        try! out.append("define i32 @main(i32 %argc, ptr %argv)")
+        try! out.append(attributes)
+        try! out.append(" \{\nentry:\n")
         try! out.append("  store i32 %argc, ptr @__saw_argc\n  store ptr %argv, ptr @__saw_argv\n")
         let main_item = mono.main_item
         let symbol = ll_symbol(&mono, main_item)
@@ -154,8 +164,11 @@ extension LlEmitter {
 // into a panic message's buffer that cuts at its limit, and the end that
 // marks a cut.
 func ll_helpers() -> String {
+    let attributes = ll_function_attributes("")
     var out = StringBuilder()
-    try! out.append("define internal i64 @__saw_render_uint(ptr %out, i64 %v) \{\n")
+    try! out.append("define internal i64 @__saw_render_uint(ptr %out, i64 %v)")
+    try! out.append(attributes)
+    try! out.append(" \{\n")
     try! out.append("entry:\n  %tmp = alloca [24 x i8], align 1\n  br label %loop\n")
     try! out.append("loop:\n  %n = phi i64 [ %v, %entry ], [ %q, %loop ]\n  %i = phi i64 [ 24, %entry ], [ %i1, %loop ]\n")
     try! out.append("  %q = udiv i64 %n, 10\n  %r = urem i64 %n, 10\n  %d = trunc i64 %r to i8\n  %c = add i8 %d, 48\n")
@@ -163,7 +176,9 @@ func ll_helpers() -> String {
     try! out.append("  %more = icmp ne i64 %q, 0\n  br i1 %more, label %loop, label %done\n")
     try! out.append("done:\n  %len = sub i64 24, %i1\n  %src = getelementptr i8, ptr %tmp, i64 %i1\n")
     try! out.append("  call void @llvm.memcpy.p0.p0.i64(ptr %out, ptr %src, i64 %len, i1 false)\n  ret i64 %len\n\}\n\n")
-    try! out.append("define internal i64 @__saw_render_int(ptr %out, i64 %v) \{\n")
+    try! out.append("define internal i64 @__saw_render_int(ptr %out, i64 %v)")
+    try! out.append(attributes)
+    try! out.append(" \{\n")
     try! out.append("entry:\n  %neg = icmp slt i64 %v, 0\n  br i1 %neg, label %minus, label %plain\n")
     try! out.append("minus:\n  store i8 45, ptr %out\n  %mag = sub i64 0, %v\n  %rest = getelementptr i8, ptr %out, i64 1\n")
     try! out.append("  %n = call i64 @__saw_render_uint(ptr %rest, i64 %mag)\n  %len = add i64 %n, 1\n  ret i64 %len\n")
@@ -172,7 +187,9 @@ func ll_helpers() -> String {
     // its text at END, on a UTF-8 boundary, so nothing more is written, and
     // `__saw_finish` stamps the `…` there. The scratch holds the limit's bytes
     // plus the marker and the line break.
-    try! out.append("define internal i64 @__saw_append(ptr %buf, i64 %pos, ptr %src, i64 %len) \{\n")
+    try! out.append("define internal i64 @__saw_append(ptr %buf, i64 %pos, ptr %src, i64 %len)")
+    try! out.append(attributes)
+    try! out.append(" \{\n")
     try! out.append("entry:\n  %closed = icmp slt i64 %pos, 0\n  br i1 %closed, label %keep, label %open\n")
     try! out.append("keep:\n  ret i64 %pos\n")
     try! out.append("open:\n  %room = sub i64 ")
@@ -189,7 +206,9 @@ func ll_helpers() -> String {
     try! out.append("cut:\n  %at2 = getelementptr i8, ptr %buf, i64 %pos\n")
     try! out.append("  call void @llvm.memcpy.p0.p0.i64(ptr %at2, ptr %src, i64 %n, i1 false)\n")
     try! out.append("  %stop = add i64 %pos, %n\n  %shut = sub i64 -1, %stop\n  ret i64 %shut\n\}\n\n")
-    try! out.append("define internal i64 @__saw_finish(ptr %buf, i64 %pos) \{\n")
+    try! out.append("define internal i64 @__saw_finish(ptr %buf, i64 %pos)")
+    try! out.append(attributes)
+    try! out.append(" \{\n")
     try! out.append("entry:\n  %cut = icmp slt i64 %pos, 0\n  br i1 %cut, label %mark, label %line\n")
     try! out.append("mark:\n  %stop = sub i64 -1, %pos\n  %m0 = getelementptr i8, ptr %buf, i64 %stop\n")
     try! out.append("  store i8 -30, ptr %m0\n  %m1 = getelementptr i8, ptr %m0, i64 1\n  store i8 -128, ptr %m1\n")
@@ -198,10 +217,14 @@ func ll_helpers() -> String {
     try! out.append("line:\n  %end = phi i64 [ %marked, %mark ], [ %pos, %entry ]\n")
     try! out.append("  %nl = getelementptr i8, ptr %buf, i64 %end\n  store i8 10, ptr %nl\n")
     try! out.append("  %total = add i64 %end, 1\n  ret i64 %total\n\}\n\n")
-    try! out.append("define internal i64 @__saw_append_int(ptr %buf, i64 %pos, i64 %v) \{\n")
+    try! out.append("define internal i64 @__saw_append_int(ptr %buf, i64 %pos, i64 %v)")
+    try! out.append(attributes)
+    try! out.append(" \{\n")
     try! out.append("entry:\n  %tmp = alloca [24 x i8], align 1\n  %n = call i64 @__saw_render_int(ptr %tmp, i64 %v)\n")
     try! out.append("  %end = call i64 @__saw_append(ptr %buf, i64 %pos, ptr %tmp, i64 %n)\n  ret i64 %end\n\}\n\n")
-    try! out.append("define internal i64 @__saw_append_uint(ptr %buf, i64 %pos, i64 %v) \{\n")
+    try! out.append("define internal i64 @__saw_append_uint(ptr %buf, i64 %pos, i64 %v)")
+    try! out.append(attributes)
+    try! out.append(" \{\n")
     try! out.append("entry:\n  %tmp = alloca [24 x i8], align 1\n  %n = call i64 @__saw_render_uint(ptr %tmp, i64 %v)\n")
     // The last line has no line break of its own: print supplies it.
     try! out.append("  %end = call i64 @__saw_append(ptr %buf, i64 %pos, ptr %tmp, i64 %n)\n  ret i64 %end\n\}")
@@ -218,7 +241,12 @@ func ll_helpers() -> String {
 // branches do (SL-528). A line below zero is a site with no line,
 // rendered as its file alone.
 func ll_fail_helpers(sink: String) -> String {
-    let attributes = ") noinline noreturn \{\nentry:\n  %buf = alloca ["
+    let outlined = ll_function_attributes("noinline noreturn")
+    var opening = StringBuilder()
+    try! opening.append(")")
+    try! opening.append(outlined)
+    try! opening.append(" \{\nentry:\n  %buf = alloca [")
+    let attributes = opening.build()
     var size = StringBuilder()
     try! size.append(LL_MESSAGE_LIMIT + 4)
     let buffer = size.build()
@@ -240,7 +268,9 @@ func ll_fail_helpers(sink: String) -> String {
         try! out.append("\"\n")
         kind = kind + 1
     }
-    try! out.append("\ndefine internal i64 @__saw_fail_head(ptr %buf, ptr %file, i64 %file_len, i64 %line) \{\n")
+    try! out.append("\ndefine internal i64 @__saw_fail_head(ptr %buf, ptr %file, i64 %file_len, i64 %line)")
+    try! out.append(ll_function_attributes(""))
+    try! out.append(" \{\n")
     try! out.append("entry:\n  %at = call i64 @__saw_append(ptr %buf, i64 0, ptr @__saw_fail_at, i64 9)\n")
     try! out.append("  %named = call i64 @__saw_append(ptr %buf, i64 %at, ptr %file, i64 %file_len)\n")
     try! out.append("  %known = icmp sge i64 %line, 0\n  br i1 %known, label %number, label %tail\n")
@@ -333,7 +363,9 @@ func ll_fail_helpers(sink: String) -> String {
         let reason = ll_fail_reason(kind)
         try! out.append("define internal void @")
         try! out.append(symbol)
-        try! out.append("(ptr %file, i64 %file_len, i64 %line) noinline noreturn \{\nentry:\n")
+        try! out.append("(ptr %file, i64 %file_len, i64 %line)")
+        try! out.append(outlined)
+        try! out.append(" \{\nentry:\n")
         try! out.append("  call void @__saw_fail(ptr %file, i64 %file_len, i64 %line, ptr @")
         try! out.append(symbol)
         try! out.append(".reason, i64 ")

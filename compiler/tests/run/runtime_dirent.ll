@@ -11,7 +11,7 @@ target triple = "arm64-apple-macosx11.0.0"
 declare void @llvm.memcpy.p0.p0.i64(ptr, ptr, i64, i1)
 declare void @__saw_rt_panic(ptr, i64)
 
-define ptr @"__saw_rt_fs_dirent_name"(ptr %p1) {
+define ptr @"__saw_rt_fs_dirent_name"(ptr %p1) #0 {
 entry:
   %l0 = alloca ptr, align 8
   %l1 = alloca ptr, align 8
@@ -30,7 +30,7 @@ bb0:
   ret ptr %t5
 }
 
-define internal void @"saw std.panic.panic_sink(message: UnsafePointer<Int8>, length: Int)"(ptr %p1, i64 %p2) {
+define internal void @"saw std.panic.panic_sink(message: UnsafePointer<Int8>, length: Int)"(ptr %p1, i64 %p2) #0 {
 entry:
   %l0 = alloca [0 x i8], align 1
   %l1 = alloca ptr, align 8
@@ -45,7 +45,7 @@ bb0:
   unreachable
 }
 
-define internal void @"saw std.string.string_literal(bytes: UnsafePointer<Int8>)"(ptr %ret, ptr %p1) {
+define internal void @"saw std.string.string_literal(bytes: UnsafePointer<Int8>)"(ptr %ret, ptr %p1) #0 {
 entry:
   %l0 = alloca [8 x i8], align 8
   %l1 = alloca ptr, align 8
@@ -60,7 +60,7 @@ bb0:
   ret void
 }
 
-define internal ptr @"saw std.string.string_bytes(text: &String)"(ptr noalias %p1) {
+define internal ptr @"saw std.string.string_bytes(text: &String)"(ptr noalias %p1) #0 {
 entry:
   %l0 = alloca ptr, align 8
   %l1 = alloca ptr, align 8
@@ -74,7 +74,7 @@ bb0:
   ret ptr %t2
 }
 
-define internal i64 @"saw std.string.string_length(text: &String)"(ptr noalias %p1) {
+define internal i64 @"saw std.string.string_length(text: &String)"(ptr noalias %p1) #0 {
 entry:
   %l0 = alloca i64, align 8
   %l1 = alloca ptr, align 8
@@ -96,7 +96,7 @@ bb1:
   ret i64 %t4
 }
 
-define internal i64 @"saw std.string.String.len()"(ptr noalias %p1) {
+define internal i64 @"saw std.string.String.len()"(ptr noalias %p1) #0 {
 entry:
   %l0 = alloca i64, align 8
   %l1 = alloca ptr, align 8
@@ -123,7 +123,7 @@ bb0:
   ret i64 %t9
 }
 
-define internal i64 @__saw_render_uint(ptr %out, i64 %v) {
+define internal i64 @__saw_render_uint(ptr %out, i64 %v) #0 {
 entry:
   %tmp = alloca [24 x i8], align 1
   br label %loop
@@ -146,7 +146,7 @@ done:
   ret i64 %len
 }
 
-define internal i64 @__saw_render_int(ptr %out, i64 %v) {
+define internal i64 @__saw_render_int(ptr %out, i64 %v) #0 {
 entry:
   %neg = icmp slt i64 %v, 0
   br i1 %neg, label %minus, label %plain
@@ -162,7 +162,7 @@ plain:
   ret i64 %m
 }
 
-define internal i64 @__saw_append(ptr %buf, i64 %pos, ptr %src, i64 %len) {
+define internal i64 @__saw_append(ptr %buf, i64 %pos, ptr %src, i64 %len) #0 {
 entry:
   %closed = icmp slt i64 %pos, 0
   br i1 %closed, label %keep, label %open
@@ -198,7 +198,7 @@ cut:
   ret i64 %shut
 }
 
-define internal i64 @__saw_finish(ptr %buf, i64 %pos) {
+define internal i64 @__saw_finish(ptr %buf, i64 %pos) #0 {
 entry:
   %cut = icmp slt i64 %pos, 0
   br i1 %cut, label %mark, label %line
@@ -220,7 +220,7 @@ line:
   ret i64 %total
 }
 
-define internal i64 @__saw_append_int(ptr %buf, i64 %pos, i64 %v) {
+define internal i64 @__saw_append_int(ptr %buf, i64 %pos, i64 %v) #0 {
 entry:
   %tmp = alloca [24 x i8], align 1
   %n = call i64 @__saw_render_int(ptr %tmp, i64 %v)
@@ -228,7 +228,7 @@ entry:
   ret i64 %end
 }
 
-define internal i64 @__saw_append_uint(ptr %buf, i64 %pos, i64 %v) {
+define internal i64 @__saw_append_uint(ptr %buf, i64 %pos, i64 %v) #0 {
 entry:
   %tmp = alloca [24 x i8], align 1
   %n = call i64 @__saw_render_uint(ptr %tmp, i64 %v)
@@ -246,7 +246,7 @@ entry:
 @__saw_fail_unwrap.reason = private unnamed_addr constant [20 x i8] c"force unwrap of None"
 @__saw_fail_try.reason = private unnamed_addr constant [11 x i8] c"try! failed"
 
-define internal i64 @__saw_fail_head(ptr %buf, ptr %file, i64 %file_len, i64 %line) {
+define internal i64 @__saw_fail_head(ptr %buf, ptr %file, i64 %file_len, i64 %line) #0 {
 entry:
   %at = call i64 @__saw_append(ptr %buf, i64 0, ptr @__saw_fail_at, i64 9)
   %named = call i64 @__saw_append(ptr %buf, i64 %at, ptr %file, i64 %file_len)
@@ -262,7 +262,7 @@ tail:
   ret i64 %end
 }
 
-define internal void @__saw_fail(ptr %file, i64 %file_len, i64 %line, ptr %text, i64 %text_len) noinline noreturn {
+define internal void @__saw_fail(ptr %file, i64 %file_len, i64 %line, ptr %text, i64 %text_len) noinline noreturn #0 {
 entry:
   %buf = alloca [512 x i8], align 1
   %head = call i64 @__saw_fail_head(ptr %buf, ptr %file, i64 %file_len, i64 %line)
@@ -272,7 +272,7 @@ entry:
   unreachable
 }
 
-define internal void @__saw_fail_signed(ptr %file, i64 %file_len, i64 %line, ptr %text, i64 %text_len, i64 %v) noinline noreturn {
+define internal void @__saw_fail_signed(ptr %file, i64 %file_len, i64 %line, ptr %text, i64 %text_len, i64 %v) noinline noreturn #0 {
 entry:
   %buf = alloca [512 x i8], align 1
   %head = call i64 @__saw_fail_head(ptr %buf, ptr %file, i64 %file_len, i64 %line)
@@ -283,7 +283,7 @@ entry:
   unreachable
 }
 
-define internal void @__saw_fail_unsigned(ptr %file, i64 %file_len, i64 %line, ptr %text, i64 %text_len, i64 %v) noinline noreturn {
+define internal void @__saw_fail_unsigned(ptr %file, i64 %file_len, i64 %line, ptr %text, i64 %text_len, i64 %v) noinline noreturn #0 {
 entry:
   %buf = alloca [512 x i8], align 1
   %head = call i64 @__saw_fail_head(ptr %buf, ptr %file, i64 %file_len, i64 %line)
@@ -294,7 +294,7 @@ entry:
   unreachable
 }
 
-define internal void @__saw_fail_parts(ptr %file, i64 %file_len, i64 %line, ptr %text, i64 %text_len, ptr %parts, i64 %count) noinline noreturn {
+define internal void @__saw_fail_parts(ptr %file, i64 %file_len, i64 %line, ptr %text, i64 %text_len, ptr %parts, i64 %count) noinline noreturn #0 {
 entry:
   %buf = alloca [512 x i8], align 1
   %head = call i64 @__saw_fail_head(ptr %buf, ptr %file, i64 %file_len, i64 %line)
@@ -343,32 +343,34 @@ last:
   unreachable
 }
 
-define internal void @__saw_fail_overflow(ptr %file, i64 %file_len, i64 %line) noinline noreturn {
+define internal void @__saw_fail_overflow(ptr %file, i64 %file_len, i64 %line) noinline noreturn #0 {
 entry:
   call void @__saw_fail(ptr %file, i64 %file_len, i64 %line, ptr @__saw_fail_overflow.reason, i64 16)
   unreachable
 }
 
-define internal void @__saw_fail_divide(ptr %file, i64 %file_len, i64 %line) noinline noreturn {
+define internal void @__saw_fail_divide(ptr %file, i64 %file_len, i64 %line) noinline noreturn #0 {
 entry:
   call void @__saw_fail(ptr %file, i64 %file_len, i64 %line, ptr @__saw_fail_divide.reason, i64 16)
   unreachable
 }
 
-define internal void @__saw_fail_shift(ptr %file, i64 %file_len, i64 %line) noinline noreturn {
+define internal void @__saw_fail_shift(ptr %file, i64 %file_len, i64 %line) noinline noreturn #0 {
 entry:
   call void @__saw_fail(ptr %file, i64 %file_len, i64 %line, ptr @__saw_fail_shift.reason, i64 18)
   unreachable
 }
 
-define internal void @__saw_fail_unwrap(ptr %file, i64 %file_len, i64 %line) noinline noreturn {
+define internal void @__saw_fail_unwrap(ptr %file, i64 %file_len, i64 %line) noinline noreturn #0 {
 entry:
   call void @__saw_fail(ptr %file, i64 %file_len, i64 %line, ptr @__saw_fail_unwrap.reason, i64 20)
   unreachable
 }
 
-define internal void @__saw_fail_try(ptr %file, i64 %file_len, i64 %line) noinline noreturn {
+define internal void @__saw_fail_try(ptr %file, i64 %file_len, i64 %line) noinline noreturn #0 {
 entry:
   call void @__saw_fail(ptr %file, i64 %file_len, i64 %line, ptr @__saw_fail_try.reason, i64 11)
   unreachable
 }
+
+attributes #0 = { "frame-pointer"="non-leaf" }

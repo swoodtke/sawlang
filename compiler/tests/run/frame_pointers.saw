@@ -1,0 +1,35 @@
+// One of each kind of function the backend defines, so the lane's define
+// check sees every one name the attribute group that keeps a frame pointer:
+// an exported function, a generic instance, a closure body, a method, drop
+// glue for a struct holding a String, the entry point, and the compiler's
+// formatting and failure helpers that checked arithmetic reaches.
+struct Named {
+    name: String
+    weight: Int
+}
+
+extension Named {
+    func heavier(&self, by: Int) -> Int {
+        self.weight + by
+    }
+}
+
+@export("probe_frame_twice")
+func twice(n: Int) -> Int {
+    n * 2
+}
+
+func first<T>(a: T, b: T) -> T {
+    a
+}
+
+func apply(f: (Int) -> Int, x: Int) -> Int {
+    f(x)
+}
+
+func main() {
+    let base = "frame pointers"
+    let n = Named(name: base.substring(0, 5), weight: 40)
+    let k = 2
+    print("{} {}", n.name, n.heavier(by: apply({ x in x + k }, twice(first(1, 2)))))
+}

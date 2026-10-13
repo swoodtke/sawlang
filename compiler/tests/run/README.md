@@ -12,6 +12,7 @@ run/
   hello.ll       the `.ll` sawc2 writes for hello.saw, pinned
   noalias.defines  the `define` lines sawc2 writes for noalias.saw's own functions, pinned
   runtime_dirent.ll  the `.ll` `sawc2 runtime` writes for sawc/rt/host_macos/dirent.saw, pinned
+  frame_pointers.saw  a program defining one function of each kind, whose defines the lane checks
   probes/        programs the lane runs apart from the comparison
 ```
 
@@ -159,6 +160,17 @@ description's (`compiler/tests/mono/README.md`, "Layouts").
   decision is `ll_param_attributes` in `compiler/llvm/src/attributes.saw`
   (SL-592). Unsafe code reaching a borrowed place around the borrow is what
   the spec rules out (Reference passing).
+- **Frame pointers.** Every function the module defines (an item's, glue,
+  the entry point and accessors, the formatting and failure helpers, and a
+  runtime source's) names the module's one attribute group, `#0`, written
+  last from the target's frame pointer policy (`Target.frame_pointer` in
+  `compiler/target`): `"frame-pointer"="non-leaf"` on every target sawc2
+  knows, so profilers, lldb and crash reports can walk the frame chain.
+  Darwin's arm64 convention requires the frame record, and clang keeps it in
+  every non-leaf C function there; Linux requires none, and keeps the same
+  because a hosted program is profiled there too (SL-594). Every define's
+  closing attributes are `ll_function_attributes` in
+  `compiler/llvm/src/attributes.saw`, whose entry points are named there.
 - **Checks.** `+`, `-` and `*` use `llvm.{s,u}{add,sub,mul}.with.overflow` by
   the operand's signedness, `&+`, `&-` and `&*` wrap; `/` and `%` check a zero
   divisor and the signed `MIN / -1`; a shift checks its count; an `as` that
@@ -268,6 +280,9 @@ compares:
   as `sawc2 runtime --emit-ll` writes it for the same target,
   `runtime_dirent.ll` (`--write` rewrites both); naming the target keeps the
   pins one pair of files on every host;
+- every `define` in those two `.ll` files, and in `frame_pointers.saw`'s
+  (one function of each kind the backend writes), carries
+  `"frame-pointer"="non-leaf"`, itself or through its attribute group;
 - `sawc2 build --target` links for the host and every configured target, and
   refuses every other target, saying so, leaving no binary and no `.ll`;
 - with `--target TRIPLE` (`tools/linux.py run-lane --arch x86_64`), every

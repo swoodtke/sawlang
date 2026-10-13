@@ -35,6 +35,9 @@ exit status compared.
 - `noalias.saw`'s own `define` lines equal `noalias.defines`, and a sawc2
   built from a copy of the backend whose `noalias` funnel skips its
   cell-carrying test fails that comparison at the cell-carrying `&` parameter;
+- every `define` in those two `.ll` files, and in `frame_pointers.saw`'s,
+  carries `"frame-pointer"="non-leaf"`, so a function the backend writes
+  outside its function attribute funnel is caught;
 - `sawc2 build --target` links for the host and every target whose runtime
   `build.py --runtime` configured, and refuses every other target, linking
   nothing; with `--target TRIPLE` the lane builds sawc2's side of every
@@ -283,28 +286,76 @@ def cases(names=None):
 def check_pinned_ir(failures, counts, write):
     """hello.saw's `.ll`, as the compiler binary writes it for macOS, against
     hello.ll, and one runtime source's, as `sawc2 runtime` writes it, against
-    runtime_dirent.ll. The target is named, so the pins hold on every host."""
-    check_pinned(failures, counts, write, "hello", os.path.join(HERE, "hello.ll"),
-                 ["build", "--emit-ll", "--target", PINNED_TARGET, "--std-root", "std",
-                  rel(os.path.join(HERE, "hello.saw"))])
-    check_pinned(failures, counts, write, "runtime dirent", os.path.join(HERE, "runtime_dirent.ll"),
-                 ["runtime", "--target", PINNED_TARGET, "--std-root", "std", "--emit-ll",
-                  os.path.join("sawc", "rt", "host_macos", "dirent.saw")])
+    runtime_dirent.ll. The target is named, so the pins hold on every host.
+    Both, and frame_pointers.saw's, define every function keeping a frame
+    pointer."""
+    hello = check_pinned(failures, counts, write, "hello", os.path.join(HERE, "hello.ll"),
+                         ["build", "--emit-ll", "--target", PINNED_TARGET, "--std-root", "std",
+                          rel(os.path.join(HERE, "hello.saw"))])
+    dirent = check_pinned(failures, counts, write, "runtime dirent", os.path.join(HERE, "runtime_dirent.ll"),
+                          ["runtime", "--target", PINNED_TARGET, "--std-root", "std", "--emit-ll",
+                           os.path.join("sawc", "rt", "host_macos", "dirent.saw")])
+    r = subprocess.run([build.SAWC2, "build", "--emit-ll", "--target", PINNED_TARGET, "--std-root", "std",
+                        rel(os.path.join(HERE, "frame_pointers.saw"))], cwd=REPO, capture_output=True, text=True,
+                       timeout=BUILD_TIMEOUT)
+    if r.returncode != 0:
+        failures.append("run frame pointers: sawc2 wrote no .ll: %s" % r.stdout.strip()[:300])
+    for what, text in (("hello", hello), ("runtime dirent", dirent),
+                       ("frame pointers", r.stdout if r.returncode == 0 else None)):
+        if text is not None:
+            failures.extend(define_problems(what, text))
+            counts["run .ll files whose defines keep frame pointers"] = (
+                counts.get("run .ll files whose defines keep frame pointers", 0) + 1)
+
+
+# The function attribute every define carries on every target sawc2 knows
+# (`Target.frame_pointer` in compiler/target).
+FRAME_POINTER = '"frame-pointer"="non-leaf"'
+_GROUP = re.compile(r"^attributes #(\d+) = \{(.*)\}$")
+
+
+def define_problems(what, text):
+    """A failure per `define` in `text` whose attributes, after its parameter
+    list, carry no `FRAME_POINTER`, itself or through an attribute group."""
+    lines = text.split("\n")
+    groups = {}
+    for line in lines:
+        m = _GROUP.match(line)
+        if m:
+            groups[m.group(1)] = m.group(2)
+    problems = []
+    defines = 0
+    for k, line in enumerate(lines):
+        if not line.startswith("define "):
+            continue
+        defines += 1
+        # A quoted symbol may hold `)` and `#`, but the attributes after the
+        # parameter list hold neither.
+        tail = line[line.rindex(")") + 1:]
+        attributes = tail + " " + " ".join(groups.get(n, "") for n in re.findall(r"#(\d+)", tail))
+        if FRAME_POINTER not in attributes:
+            problems.append("run %s: the define at .ll line %d keeps no frame pointer: %s"
+                            % (what, k + 1, line[:200]))
+    if defines == 0:
+        problems.append("run %s: the .ll defines nothing" % what)
+    return problems
 
 
 def check_pinned(failures, counts, write, what, pinned, args):
+    """Compares the `.ll` sawc2 writes for `args` with `pinned`, or rewrites
+    `pinned` with it; returns the text, or None when sawc2 wrote none."""
     r = subprocess.run([build.SAWC2] + args, cwd=REPO, capture_output=True, text=True, timeout=BUILD_TIMEOUT)
     if r.returncode != 0:
         failures.append("run %s: sawc2 wrote no .ll: %s" % (what, r.stdout.strip()[:300]))
-        return
+        return None
     text = r.stdout
     if write:
         with open(pinned, "w") as fh:
             fh.write(text)
-        return
+        return text
     if not os.path.exists(pinned):
         failures.append("run %s: no pinned %s" % (what, rel(pinned)))
-        return
+        return text
     with open(pinned) as fh:
         expected = fh.read()
     if expected != text:
@@ -314,6 +365,7 @@ def check_pinned(failures, counts, write, what, pinned, args):
                   if (a[i] if i < len(a) else None) != (b[i] if i < len(b) else None)), 0)
         failures.append("run %s: the .ll differs from %s at line %d" % (what, rel(pinned), k + 1))
     counts["run pinned .ll files"] = counts.get("run pinned .ll files", 0) + 1
+    return text
 
 
 NOALIAS_SOURCE = os.path.join(HERE, "noalias.saw")
