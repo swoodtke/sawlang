@@ -857,9 +857,28 @@ The right side of `&&`/`||` in an `if` condition or a `let`, a middle operand, a
 
 **Checker:** yes: `conditional-temporary` (SL-508.p1). In compiler source it refuses a call's result used as the receiver of a method or a field in a bare value-`match` arm, a `match` guard, or the right side of `??`. A block arm, `&&`/`||` in an `if` or a `let`, and a value `if` arm are not refused, since Stage 0 gets them right. Over the compiler source it found exactly the one live site (now braced under an S29 marker), and 0 in the std profile. A syntactic subset rule refuses, in compiler source, an owning-temporary shape (a call whose result is the receiver of another call, field access or method) in a bare value-`match` arm, a guard, or a `??` right side. The `while … && call` face can only leak, which Stage 1 tolerates ("Leaks are tolerated in Stage 1" above), so the rule doesn't cover it.
 
+### S30. A prefix operator's operand of `as`: Stage 0 casts first (SL-620)
+
+**Shape (silent: a different value):** GRAMMAR.md's precedence table puts the prefix operators (`-`, `~`, `not`, …) above `as`, so `-x as T` is `(-x) as T`, as in the spec's Appendix B, Rust and Swift. The frozen parser casts first, reading `-(x as T)`. So one line of compiler source computes one value in Stage 1, built by Stage 0, and another in Stage 2, built by sawc2. The Air's probes (SL-620 c1, c2):
+
+| source | Stage 0 | sawc2 |
+|---|---|---|
+| `~x as UInt16`, `x: UInt8 = 0` | 65535 | 255 |
+| `-x as Int`, `x: Int32 = Int32.min` | 2147483648 | panic: integer overflow |
+| `-128 as Int8` | refused: "`128` is not representable as `Int8`" | -128 |
+| `~(0 as UInt8) as UInt16` (constant) | refused: "constant expression -1 does not fit in `UInt16`" | 255 |
+| `not t as Bool` | false | false |
+
+The fixpoint compares outputs, not intermediate values, so it sees the difference only when it reaches emitted code. No instance exists in `compiler/` today; the one tree difference across the 172 files both parsers read, `sawc/std/file.saw`'s `-1 as Int32`, is a literal, where both readings give one value.
+
+**Instead:** parenthesize the prefix expression whenever it is the operand of `as`: `(-x) as T` for GRAMMAR.md's meaning, or `-(x as T)` for the other. Both parsers read either spelling alike.
+
+**Checker:** due (SL-620): a compiler-profile subset rule refuses an unparenthesized prefix expression with a numeric reading (`-`, `~`) as the operand of `as`, with the parenthesized fix-it. The std profile reads `std/` with sawc2 (SL-600), so it doesn't need the rule.
+
 ## Loud hazards
 
-### L1. Integer literal adoption (SL-13, SL-53, SL-56, SL-70, SL-75, SL-84, SL-194)
+### L1. Integer literal adoption
+ (SL-13, SL-53, SL-56, SL-70, SL-75, SL-84, SL-194)
 
 **Shape:** a bare integer literal is meant to adopt a non-`Int` integer type
 wherever one is expected. The frozen compiler misses these positions, and
