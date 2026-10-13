@@ -91,7 +91,8 @@ func reads_payload(p: &MirProgram, place: Int) -> Bool {
 
 // The fixture lowered and checked clean.
 func lowered(names: &Vector<String>, dirs: &Vector<String>) -> MirProgram {
-    var p = mir_lower_file("compiler/tests/mir/inject/leftovers.saw", "sawc", &names, &dirs)
+    var lowerings = 0
+    var p = mir_lower_file("compiler/tests/mir/inject/leftovers.saw", "sawc", &names, &dirs, &var lowerings)
     let m = module_index(&p, "leftovers")
     assert(m >= 0, "the fixture did not load: run from the repository root")
     assert(p.diags.len() == 0 && p.tc.error_count() == 0, "the fixture is refused")

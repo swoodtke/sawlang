@@ -17,7 +17,9 @@ directory specifies:
   `compiler/mono/src/worklist.saw`) has a fixture;
 - each type of a layout table that Stage 0 can spell has Stage 0's size and
   alignment there, read off a probe program Stage 0 builds and runs, unless
-  `layout_exceptions.tsv` gives the reason the two differ.
+  `layout_exceptions.tsv` gives the reason the two differ;
+- each subcommand `--lowerings` counts for lowers each program's source to
+  MIR as often as it owes: once from `mir` on, never before.
 """
 import glob
 import os
@@ -47,6 +49,15 @@ _RULE = re.compile(r'try! out\.push\("([^"]+)"\)')
 _LAYOUT = re.compile(r"^(.*): size (\d+) align (\d+) ")
 _MODULE_PATH = re.compile(r"\b(?:[a-z_][a-z0-9_]*\.)+(?=[A-Z])")
 _MAIN = re.compile(r"^func main\(\)", re.M)
+# The subcommands `--lowerings` counts for, each with the count it owes.
+LOWERING_COMMANDS = (("resolve", 0), ("typecheck", 0), ("mir", 1), ("eval", 1), ("borrowck", 1),
+                     ("drops", 1), ("mono", 1))
+# Besides the golden programs: statics whose evaluated values mono reads, a
+# layout assertion the evaluator defers, a program mono refuses, and one
+# refused before mono, whose constants are never evaluated there.
+LOWERING_PROGRAMS = [os.path.join(TESTS, "run", "statics.saw"), os.path.join(TESTS, "run", "layout_asserts.saw"),
+                     os.path.join(REFUSE, "mono.depth.saw"),
+                     os.path.join(TESTS, "eval", "refuse", "eval.overflow.saw")]
 
 
 def rel(path):
@@ -214,12 +225,34 @@ def check_layouts(failures, counts):
             failures.append("mono layout %s: the exception for %s is stale" % (rel(EXCEPTIONS), spelled))
 
 
+def check_lowerings(failures, counts):
+    """Each driver subcommand that reads a program lowers its source to MIR
+    the number of times `LOWERINGS` says: once from `mir` on, so the
+    evaluator and the stages after it read one lowering, and never before."""
+    cases = sorted(glob.glob(os.path.join(GOLDEN, "*.saw"))) + LOWERING_PROGRAMS
+    for command, want in LOWERING_COMMANDS:
+        r = subprocess.run([build.SAWC2, command, "--check", "--lowerings", "--std-root", "std"]
+                           + [rel(p) for p in cases], cwd=REPO, capture_output=True, text=True, timeout=TIMEOUT)
+        got = borrowck_lane.records(r.stdout)
+        for path in cases:
+            record = got.get(rel(path))
+            if record is None:
+                failures.append("mono lowerings %s %s: no record" % (command, rel(path)))
+                continue
+            seen = [line for line in record.split("\n") if line.startswith("LOWERINGS\t")]
+            if seen != ["LOWERINGS\t%d" % want]:
+                failures.append("mono lowerings %s %s: expected one `LOWERINGS\t%d` line, got %s"
+                                % (command, rel(path), want, seen or "none"))
+            counts["lowering counts"] = counts.get("lowering counts", 0) + 1
+
+
 def run(write=False):
     failures = []
     counts = {}
     check_golden(failures, counts, write)
     check_refusals(failures, counts)
     check_layouts(failures, counts)
+    check_lowerings(failures, counts)
     return failures, counts
 
 

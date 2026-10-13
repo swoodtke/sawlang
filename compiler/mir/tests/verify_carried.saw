@@ -68,7 +68,8 @@ func carrying_epilogue(p: &MirProgram, m: Int) -> Int {
 
 // The fixture lowered, checked clean, and its carrying epilogue found.
 func lowered_carried(names: &Vector<String>, dirs: &Vector<String>) -> MirProgram {
-    var p = mir_lower_file("compiler/tests/mir/inject/carried.saw", "sawc", &names, &dirs)
+    var lowerings = 0
+    var p = mir_lower_file("compiler/tests/mir/inject/carried.saw", "sawc", &names, &dirs, &var lowerings)
     let m = module_index(&p, "carried")
     assert(m >= 0, "the fixture did not load: run from the repository root")
     assert(p.diags.len() == 0 && p.tc.error_count() == 0, "the fixture is refused")

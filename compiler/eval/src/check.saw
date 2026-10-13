@@ -19,46 +19,48 @@ import sawtypecheck.spell.{tc_effects_text}
 import sawtypecheck.typeops.{TcClient}
 
 extension EvalProgram {
-    // Every problem the verifier finds with module `m`'s constants.
-    public func verify_module(&var self, m: Int) -> Vector<String> {
+    // Every problem the verifier finds with module `m`'s constants. The
+    // program is borrowed exclusively because typecheck's fold, which the
+    // agreement check runs, takes its program so.
+    public func verify_module(&var self, mir: &var MirProgram, m: Int) -> Vector<String> {
         var out = Vector<String>()
-        let order = mir_module_functions(&self.mir, m)
+        let order = mir_module_functions(&mir, m)
         var k = 0
         while k < order.len() {
             let f = order[k]
             k = k + 1
-            let info = self.mir.funcs[f]
+            let info = mir.funcs[f]
             if not eval_is_constant_kind(info.kind) {
                 continue
             }
             let v = self.values[f]
             let end = self.ends[f]
             if end == EvalEnd.Pending {
-                self.problem(f, &var out, "a constant position was never evaluated")
+                self.problem(&mir, f, &var out, "a constant position was never evaluated")
                 continue
             }
             if end == EvalEnd.Deferred {
                 continue
             }
             if end == EvalEnd.Valued {
-                let want = self.mir.locals[info.local_first].ty
+                let want = mir.locals[info.local_first].ty
                 if v.kind == EvalKind.Missing || v.ty != want {
-                    self.problem(f, &var out, "a constant's value is not of its position's type")
+                    self.problem(&mir, f, &var out, "a constant's value is not of its position's type")
                 }
             }
-            self.verify_agreement(f, &var out)
+            self.verify_agreement(&var mir, f, &var out)
         }
         move out
     }
 
     // The evaluator and typecheck's fold agree on constant `f`.
-    func verify_agreement(&var self, f: Int, out: &var Vector<String>) {
+    func verify_agreement(&var self, mir: &var MirProgram, f: Int, out: &var Vector<String>) {
         let v = self.values[f]
         if v.kind == EvalKind.Case || v.kind == EvalKind.Cell {
             return
         }
-        let root = self.mir.funcs[f].root
-        let fold = self.mir.tc.fold_constant(root)
+        let root = mir.funcs[f].root
+        let fold = mir.tc.fold_constant(root)
         var same = false
         if v.kind == EvalKind.Integer || v.kind == EvalKind.Boolean {
             same = fold.ok && fold.ty == v.ty && fold.bits == v.bits
@@ -70,18 +72,18 @@ extension EvalProgram {
         }
         var text = StringBuilder()
         try! text.append("the evaluator and typecheck's fold disagree: the evaluator's ")
-        try! text.append(self.value_text(&v))
+        try! text.append(self.value_text(&mir, &v))
         try! text.append(", the fold's ")
-        try! text.append(self.fold_text_of(&fold))
-        self.problem(f, &var out, text.build())
+        try! text.append(self.fold_text_of(&mir, &fold))
+        self.problem(&mir, f, &var out, text.build())
     }
 
-    func problem(&self, f: Int, out: &var Vector<String>, text: String) {
-        let info = self.mir.funcs[f]
+    func problem(&self, mir: &MirProgram, f: Int, out: &var Vector<String>, text: String) {
+        let info = mir.funcs[f]
         var line = StringBuilder()
-        try! line.append(self.mir.tc.res.node_position(info.module, info.root))
+        try! line.append(mir.tc.res.node_position(info.module, info.root))
         try! line.append(" ")
-        try! line.append(self.mir.func_name(f))
+        try! line.append(mir.func_name(f))
         try! line.append(": ")
         try! line.append(text)
         try! out.push(line.build())
@@ -89,15 +91,15 @@ extension EvalProgram {
 
     // A value as the dump writes it: an integer in decimal, `true`, `false`,
     // a case's identity, or the fault that left none.
-    public func value_text(&self, v: &EvalValue) -> String {
+    public func value_text(&self, mir: &MirProgram, v: &EvalValue) -> String {
         match v.kind {
-            case Integer -> tc_arith_text(v.bits, self.mir.tc.int_width(v.ty), not self.mir.tc.is_unsigned(v.ty)),
+            case Integer -> tc_arith_text(v.bits, mir.tc.int_width(v.ty), not mir.tc.is_unsigned(v.ty)),
             case Boolean -> if v.bits != 0 { "true" } else { "false" },
-            case Case -> self.mir.tc.res.decl_identity(v.decl),
+            case Case -> mir.tc.res.decl_identity(v.decl),
             case Unit -> "()",
             case Cell -> {
                 var out = StringBuilder()
-                try! out.append(self.mir.tc.type_text(v.ty))
+                try! out.append(mir.tc.type_text(v.ty))
                 try! out.append("(")
                 try! out.append(tc_arith_text(v.bits, 64, true))
                 try! out.append(")")
@@ -107,12 +109,12 @@ extension EvalProgram {
         }
     }
 
-    func fold_text_of(&self, fold: &TcFold) -> String {
+    func fold_text_of(&self, mir: &MirProgram, fold: &TcFold) -> String {
         if fold.ok {
             var out = StringBuilder()
-            try! out.append(self.mir.tc.fold_text(&fold))
+            try! out.append(mir.tc.fold_text(&fold))
             try! out.append(": ")
-            try! out.append(self.mir.tc.type_text(fold.ty))
+            try! out.append(mir.tc.type_text(fold.ty))
             return out.build()
         }
         eval_fault_name(fold.fault)
@@ -121,23 +123,23 @@ extension EvalProgram {
     // Module `m`'s constants, one line each: `NAME: TYPE = VALUE`, or
     // `NAME: TYPE (no value)` when its evaluation was refused or read a
     // refused constant.
-    public func dump_module(&self, out: &var StringBuilder, m: Int) {
+    public func dump_module(&self, mir: &MirProgram, out: &var StringBuilder, m: Int) {
         try! out.append("module ")
-        try! out.append(self.mir.tc.res.module_name(m))
+        try! out.append(mir.tc.res.module_name(m))
         try! out.append("\n")
-        let order = mir_module_functions(&self.mir, m)
+        let order = mir_module_functions(&mir, m)
         var k = 0
         while k < order.len() {
             let f = order[k]
             k = k + 1
-            let info = self.mir.funcs[f]
+            let info = mir.funcs[f]
             if not eval_is_constant_kind(info.kind) {
                 continue
             }
-            try! out.append(self.mir.func_name(f))
+            try! out.append(mir.func_name(f))
             try! out.append(": ")
-            let t = self.mir.locals[info.local_first].ty
-            self.mir.append_type(&var out, t)
+            let t = mir.locals[info.local_first].ty
+            mir.append_type(&var out, t)
             let v = self.values[f]
             if self.ends[f] == EvalEnd.Deferred {
                 try! out.append(" (checked against the layout)\n")
@@ -145,7 +147,7 @@ extension EvalProgram {
                 try! out.append(" (no value)\n")
             } else {
                 try! out.append(" = ")
-                try! out.append(self.value_text(&v))
+                try! out.append(self.value_text(&mir, &v))
                 try! out.append("\n")
             }
         }

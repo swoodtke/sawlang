@@ -29,60 +29,60 @@ extension EvalProgram {
     // Constant `f` as a refusal's subject names it: `static m.A` quoted, or
     // the `static_assert` at its condition's position, which has no name of
     // its own.
-    public func constant_subject(&self, f: Int) -> String {
+    public func constant_subject(&self, mir: &MirProgram, f: Int) -> String {
         var out = StringBuilder()
-        let info = self.mir.funcs[f]
+        let info = mir.funcs[f]
         if info.kind == MirFuncKind.Assert {
             try! out.append("the `static_assert` at ")
-            try! out.append(self.mir.tc.res.node_position(info.module, info.root))
+            try! out.append(mir.tc.res.node_position(info.module, info.root))
             return out.build()
         }
         try! out.append("`")
-        try! out.append(self.mir.func_name(f))
+        try! out.append(mir.func_name(f))
         try! out.append("`")
         out.build()
     }
 
     // Constant `f` as a list of the statics an evaluation went through names
     // it: its MIR function's name, or the `static_assert` at its position.
-    public func constant_listed(&self, f: Int) -> String {
-        let info = self.mir.funcs[f]
+    public func constant_listed(&self, mir: &MirProgram, f: Int) -> String {
+        let info = mir.funcs[f]
         if info.kind == MirFuncKind.Assert {
-            return self.constant_subject(f)
+            return self.constant_subject(&mir, f)
         }
-        self.mir.func_name(f)
+        mir.func_name(f)
     }
 
     // A construct outside the evaluator's set, met in function `f`.
-    public func not_yet(&var self, f: Int, what: String) -> EvalValue {
+    public func not_yet(&var self, mir: &MirProgram, f: Int, what: String) -> EvalValue {
         var msg = StringBuilder()
         try! msg.append(what)
         try! msg.append(" in ")
-        try! msg.append(self.constant_subject(f))
+        try! msg.append(self.constant_subject(&mir, f))
         try! msg.append(" is not evaluated as a constant in the bootstrap slice yet")
-        self.report_at(f, "slice.not-yet", msg.build())
+        self.report_at(&mir, f, "slice.not-yet", msg.build())
         self.last_fault = TcFault.NotConstant
         eval_missing(TcFault.NotConstant)
     }
 
     // An arithmetic fault in function `f`, in an operation at type `t`.
-    public func fault(&var self, f: Int, fault: TcFault, bits: Int, t: Int) -> EvalValue {
+    public func fault(&var self, mir: &MirProgram, f: Int, fault: TcFault, bits: Int, t: Int) -> EvalValue {
         if fault == TcFault.NotFit {
-            return self.fault_value(f, bits, -1, t)
+            return self.fault_value(&mir, f, bits, -1, t)
         }
         var msg = StringBuilder()
-        try! msg.append(self.constant_subject(f))
+        try! msg.append(self.constant_subject(&mir, f))
         var rule = "eval.overflow"
         if fault == TcFault.Overflow {
             try! msg.append(" overflows `")
-            try! msg.append(self.mir.tc.type_text(t))
+            try! msg.append(mir.tc.type_text(t))
             try! msg.append("` (range ")
-            try! msg.append(self.range_text(t))
+            try! msg.append(self.range_text(&mir, t))
             try! msg.append(")")
         } else if fault == TcFault.ShiftRange {
             rule = "eval.shift-range"
             try! msg.append(" shifts a value of type `")
-            try! msg.append(self.mir.tc.type_text(t))
+            try! msg.append(mir.tc.type_text(t))
             try! msg.append("` by a count outside its width")
         } else if fault == TcFault.DivideByZero {
             rule = "eval.divide-by-zero"
@@ -91,36 +91,36 @@ extension EvalProgram {
             rule = "slice.not-yet"
             try! msg.append(" is not a constant the bootstrap slice evaluates yet")
         }
-        self.report_at(f, rule, msg.build())
+        self.report_at(&mir, f, rule, msg.build())
         self.last_fault = fault
         eval_missing(fault)
     }
 
     // Value `bits` of type `from` (-1 for a literal's magnitude, read
     // unsigned) that type `to` cannot hold, met in function `f`.
-    public func fault_value(&var self, f: Int, bits: Int, from: Int, to: Int) -> EvalValue {
+    public func fault_value(&var self, mir: &MirProgram, f: Int, bits: Int, from: Int, to: Int) -> EvalValue {
         var msg = StringBuilder()
-        try! msg.append(self.constant_subject(f))
+        try! msg.append(self.constant_subject(&mir, f))
         try! msg.append(": ")
-        if from >= 0 && self.mir.tc.is_integer(from) {
-            try! msg.append(tc_arith_text(bits, self.mir.tc.int_width(from), not self.mir.tc.is_unsigned(from)))
+        if from >= 0 && mir.tc.is_integer(from) {
+            try! msg.append(tc_arith_text(bits, mir.tc.int_width(from), not mir.tc.is_unsigned(from)))
         } else {
             try! msg.append(tc_arith_text(bits, 64, from >= 0))
         }
         try! msg.append(" does not fit in `")
-        try! msg.append(self.mir.tc.type_text(to))
+        try! msg.append(mir.tc.type_text(to))
         try! msg.append("` (range ")
-        try! msg.append(self.range_text(to))
+        try! msg.append(self.range_text(&mir, to))
         try! msg.append(")")
-        self.report_at(f, "eval.not-fit", msg.build())
+        self.report_at(&mir, f, "eval.not-fit", msg.build())
         self.last_fault = TcFault.NotFit
         eval_missing(TcFault.NotFit)
     }
 
     // Integer type `t`'s range.
-    func range_text(&self, t: Int) -> String {
-        let w = self.mir.tc.int_width(t)
-        let signed = not self.mir.tc.is_unsigned(t)
+    func range_text(&self, mir: &MirProgram, t: Int) -> String {
+        let w = mir.tc.int_width(t)
+        let signed = not mir.tc.is_unsigned(t)
         var out = StringBuilder()
         try! out.append(tc_arith_text(tc_arith_min(w, signed), w, signed))
         try! out.append("..=")
@@ -130,9 +130,9 @@ extension EvalProgram {
 
     // Function `f` reached again while it is being evaluated: the statics
     // from its first entry to here, and itself again.
-    public func report_cycle(&var self, f: Int) {
+    public func report_cycle(&var self, mir: &MirProgram, f: Int) {
         var msg = StringBuilder()
-        try! msg.append(self.constant_subject(f))
+        try! msg.append(self.constant_subject(&mir, f))
         try! msg.append(" depends on its own value: ")
         var from = 0
         var k = 0
@@ -145,17 +145,17 @@ extension EvalProgram {
         k = from
         while k < self.stack.len() {
             let g = self.stack[k]
-            try! msg.append(self.constant_listed(g))
+            try! msg.append(self.constant_listed(&mir, g))
             try! msg.append(", ")
             k = k + 1
         }
-        try! msg.append(self.constant_listed(f))
-        self.report_bare(f, "eval.cycle", msg.build())
+        try! msg.append(self.constant_listed(&mir, f))
+        self.report_bare(&mir, f, "eval.cycle", msg.build())
         self.last_fault = TcFault.Cycle
     }
 
     // The step budget's refusal: the statics under way when it ran out.
-    public func budget_text(&self) -> String {
+    public func budget_text(&self, mir: &MirProgram) -> String {
         var msg = StringBuilder()
         try! msg.append("the evaluation runs past its step budget, through ")
         var k = 0
@@ -164,7 +164,7 @@ extension EvalProgram {
                 try! msg.append(", ")
             }
             let g = self.stack[k]
-            try! msg.append(self.constant_listed(g))
+            try! msg.append(self.constant_listed(&mir, g))
             k = k + 1
         }
         msg.build()
@@ -172,7 +172,7 @@ extension EvalProgram {
 
     // A refusal at constant `f`'s expression, with the statics evaluated to
     // reach it, outermost first.
-    public func report_at(&var self, f: Int, rule: String, message: String) {
+    public func report_at(&var self, mir: &MirProgram, f: Int, rule: String, message: String) {
         var msg = StringBuilder()
         try! msg.append(message)
         if self.stack.len() > 1 {
@@ -183,16 +183,16 @@ extension EvalProgram {
                     try! msg.append(", ")
                 }
                 let g = self.stack[k]
-                try! msg.append(self.constant_listed(g))
+                try! msg.append(self.constant_listed(&mir, g))
                 k = k + 1
             }
         }
-        self.report_bare(f, rule, msg.build())
+        self.report_bare(&mir, f, rule, msg.build())
     }
 
-    func report_bare(&var self, f: Int, rule: String, message: String) {
-        let info = self.mir.funcs[f]
-        let n = self.mir.tc.res.nodes[info.root]
+    func report_bare(&var self, mir: &MirProgram, f: Int, rule: String, message: String) {
+        let info = mir.funcs[f]
+        let n = mir.tc.res.nodes[info.root]
         try! self.diags.push(MirDiag(module: info.module, start: n.start, end: n.end, id: rule, message: message))
         self.ends[f] = EvalEnd.Refused
     }

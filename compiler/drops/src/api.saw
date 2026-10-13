@@ -27,10 +27,11 @@ public struct DropsOptions {
 // verifier found a problem, drop elaboration's refusals, each an `ERROR`
 // line, an `INVARIANT` line per problem elaboration met or its verifier
 // finds, and with `dump` each elaborated module's dump. Returns 0 when
-// nothing was refused and 1 otherwise.
+// nothing was refused and 1 otherwise. The lowering is counted in
+// `lowerings`.
 public func drops_record(out: &var StringBuilder, path: String, options: &DropsOptions, names: &Vector<String>,
-                         dirs: &Vector<String>) -> Int {
-    var lowered = mir_lower_file(path, options.std_root, &names, &dirs)
+                         dirs: &Vector<String>, lowerings: &var Int) -> Int {
+    var lowered = mir_lower_file(path, options.std_root, &names, &dirs, &var lowerings)
     var head = StringBuilder()
     var status = mir_append_checks(out: &var head, p: &var lowered, notes: options.notes)
     var bc = borrowck_program(move lowered)

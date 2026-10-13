@@ -124,6 +124,9 @@ public struct MonoProgram {
     // The items of the exported functions, in declaration order, each a root
     // the backend defines under its C symbol.
     export_items: Vector<Int>
+    // How many times the source was lowered to MIR to make this program: 1,
+    // the one lowering the evaluator and every stage after it read.
+    lowerings: Int
 }
 
 extension MonoProgram: NoCopy {}
@@ -159,7 +162,8 @@ public func mono_program(dp: DropsProgram, blocked: Bool) -> MonoProgram {
                 length_item: -1, equals_item: -1, compare_item: -1, builder_new_item: -1, builder_fixed_item: -1,
                 builder_build_item: -1, builder_len_item: -1, literal_inits: Vector<Int>(),
                 literal_pushes: Vector<Int>(), depth_call: -1, depth_glue: -1, current: -1, blocked: blocked,
-                body_of: move bodies, defaults: res_index(), runtime: false, export_items: Vector<Int>())
+                body_of: move bodies, defaults: res_index(), runtime: false, export_items: Vector<Int>(),
+                lowerings: 0)
 }
 
 extension MonoProgram {

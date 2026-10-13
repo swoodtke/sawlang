@@ -1,6 +1,8 @@
-// The constant evaluator's program: the MIR program, unchanged, and the
-// value table it fills, one entry per MIR function, of which the constant
-// positions' are read by later stages (SL:architecture §3.10).
+// The constant evaluator's program: the value table it fills over a MIR
+// program it borrows, one entry per MIR function, of which the constant
+// positions' are read by later stages (SL:architecture §3.10). The MIR
+// program stays its owner's, and the evaluation only reads it, so the one
+// lowering a build makes feeds the evaluator and every stage after it.
 
 import sawmir.model.{MirDiag, MirFuncKind}
 import sawmir.program.{MirProgram}
@@ -50,7 +52,6 @@ public enum EvalEnd {
 }
 
 public struct EvalProgram {
-    mir: MirProgram
     // By MIR function: its value, how its evaluation ended, and whether it is
     // under way.
     values: Vector<EvalValue>
@@ -77,7 +78,8 @@ public func eval_is_constant_kind(kind: MirFuncKind) -> Bool {
     kind == MirFuncKind.Static || kind == MirFuncKind.RawValue || kind == MirFuncKind.Align || kind == MirFuncKind.Assert
 }
 
-public func eval_program(mir: MirProgram) -> EvalProgram {
+// The empty value table over `mir`, every constant position pending.
+public func eval_program(mir: &MirProgram) -> EvalProgram {
     var values = Vector<EvalValue>()
     var ends = Vector<EvalEnd>()
     var active = Vector<Bool>()
@@ -105,7 +107,7 @@ public func eval_program(mir: MirProgram) -> EvalProgram {
         }
         k = k + 1
     }
-    EvalProgram(mir: move mir, values: move values, ends: move ends, active: move active,
+    EvalProgram(values: move values, ends: move ends, active: move active,
                 constant_of: move constant_of, stack: Vector<Int>(), steps: 0, diags: Vector<MirDiag>(),
                 last_fault: TcFault.Clean)
 }

@@ -72,20 +72,20 @@ func driver_usage() -> Int {
     print("       sawc2 lex --kinds")
     print("       sawc2 parse (--dump | --check) [--alternatives] [[--unit] FILE | @LIST]...")
     print("       sawc2 parse --redump [FILE | @LIST]...")
-    print("       sawc2 resolve (--dump | --check) [--notes] [--std-root DIR]")
+    print("       sawc2 resolve (--dump | --check) [--notes] [--lowerings] [--std-root DIR]")
     print("                     [--module-path NAME=DIR]... [FILE | @LIST]...")
     print("       sawc2 typecheck (--dump | --check) [--notes] [--interfaces] [--summaries] [--runtime]")
-    print("                       [--std-root DIR] [--module-path NAME=DIR]... [FILE | @LIST]...")
-    print("       sawc2 mir (--dump | --check) [--notes] [--spans] [--std-root DIR]")
+    print("                       [--lowerings] [--std-root DIR] [--module-path NAME=DIR]... [FILE | @LIST]...")
+    print("       sawc2 mir (--dump | --check) [--notes] [--spans] [--lowerings] [--std-root DIR]")
     print("                 [--module-path NAME=DIR]... [FILE | @LIST]...")
-    print("       sawc2 eval (--dump | --check) [--notes] [--std-root DIR]")
+    print("       sawc2 eval (--dump | --check) [--notes] [--lowerings] [--std-root DIR]")
     print("                  [--module-path NAME=DIR]... [FILE | @LIST]...")
-    print("       sawc2 borrowck (--dump | --check) [--notes] [--std-root DIR]")
+    print("       sawc2 borrowck (--dump | --check) [--notes] [--lowerings] [--std-root DIR]")
     print("                      [--module-path NAME=DIR]... [FILE | @LIST]...")
-    print("       sawc2 drops (--dump | --check) [--notes] [--std-root DIR]")
+    print("       sawc2 drops (--dump | --check) [--notes] [--lowerings] [--std-root DIR]")
     print("                   [--module-path NAME=DIR]... [FILE | @LIST]...")
-    print("       sawc2 mono (--dump | --layouts | --check) [--notes] [--std-root DIR] [--target TRIPLE]")
-    print("                  [--module-path NAME=DIR]... [FILE | @LIST]...")
+    print("       sawc2 mono (--dump | --layouts | --check) [--notes] [--lowerings] [--std-root DIR]")
+    print("                  [--target TRIPLE] [--module-path NAME=DIR]... [FILE | @LIST]...")
     print("       sawc2 coro (--dump | --check) [--notes] [--std-root DIR]")
     print("                  [--module-path NAME=DIR]... [FILE | @LIST]...")
     print("       sawc2 build [-O0 | -O1 | -O2 | -Os | -Oz] [--std-root DIR] [--target TRIPLE]")
@@ -758,6 +758,7 @@ func driver_mono(args: &Vector<String>) -> Int {
     var layouts = false
     var check = false
     var notes = false
+    var counted = false
     var std_root = "sawc"
     var triple = "arm64-apple-darwin"
     var names = Vector<String>()
@@ -774,6 +775,8 @@ func driver_mono(args: &Vector<String>) -> Int {
             check = true
         } else if arg.equals("--notes") {
             notes = true
+        } else if arg.equals("--lowerings") {
+            counted = true
         } else if arg.equals("--std-root") || arg.equals("--module-path") || arg.equals("--target") {
             let value = args.get(i + 1) ?? ""
             if value.len() == 0 {
@@ -819,7 +822,12 @@ func driver_mono(args: &Vector<String>) -> Int {
             try! out.append("FILE\t")
             try! out.append(input.path)
             try! out.append("\n")
-            let result = mono_record(out: &var out, path: input.path, options: &options, names: &names, dirs: &dirs)
+            var lowerings = 0
+            let result = mono_record(out: &var out, path: input.path, options: &options, names: &names, dirs: &dirs,
+                                     lowerings: &var lowerings)
+            if counted {
+                driver_append_lowerings(&var out, lowerings)
+            }
             print(out.build())
             if result > status {
                 status = result
@@ -960,6 +968,7 @@ func driver_resolve(args: &Vector<String>, stage: Int) -> Int {
     var interfaces = false
     var summaries = false
     var runtime = false
+    var counted = false
     var std_root = "sawc"
     var names = Vector<String>()
     var dirs = Vector<String>()
@@ -973,6 +982,8 @@ func driver_resolve(args: &Vector<String>, stage: Int) -> Int {
             check = true
         } else if arg.equals("--notes") {
             notes = true
+        } else if arg.equals("--lowerings") {
+            counted = true
         } else if arg.equals("--interfaces") && typecheck {
             interfaces = true
         } else if arg.equals("--summaries") && typecheck {
@@ -1025,18 +1036,19 @@ func driver_resolve(args: &Vector<String>, stage: Int) -> Int {
             try! out.append(input.path)
             try! out.append("\n")
             var result = 0
+            var lowerings = 0
             if stage == DRIVER_STAGE_DROPS {
                 result = drops_record(out: &var out, path: input.path, options: &elaborating, names: &names,
-                                      dirs: &dirs)
+                                      dirs: &dirs, lowerings: &var lowerings)
             } else if stage == DRIVER_STAGE_BORROWCK {
                 result = borrowck_record(out: &var out, path: input.path, options: &borrowing, names: &names,
-                                         dirs: &dirs)
+                                         dirs: &dirs, lowerings: &var lowerings)
             } else if stage == DRIVER_STAGE_EVAL {
                 result = eval_record(out: &var out, path: input.path, options: &evaluating, names: &names,
-                                     dirs: &dirs)
+                                     dirs: &dirs, lowerings: &var lowerings)
             } else if stage == DRIVER_STAGE_MIR {
                 result = mir_record(out: &var out, path: input.path, options: &lowering, names: &names,
-                                    dirs: &dirs)
+                                    dirs: &dirs, lowerings: &var lowerings)
             } else if typecheck {
                 let checked = asserts_typecheck_program(input.path, checking.std_root, &names, &dirs,
                                                         runtime: runtime)
@@ -1044,6 +1056,9 @@ func driver_resolve(args: &Vector<String>, stage: Int) -> Int {
             } else {
                 result = resolve_record(out: &var out, path: input.path, options: &options,
                                         names: &names, dirs: &dirs)
+            }
+            if counted {
+                driver_append_lowerings(&var out, lowerings)
             }
             print(out.build())
             if result > status {
@@ -1053,6 +1068,15 @@ func driver_resolve(args: &Vector<String>, stage: Int) -> Int {
         k = k + 1
     }
     status
+}
+
+// The `LOWERINGS<TAB>N` line `--lowerings` ends a record with: how many times
+// its program's source was lowered to MIR, which is 1 on every path that
+// lowers and 0 on the two that stop before MIR (SL-523).
+func driver_append_lowerings(out: &var StringBuilder, lowerings: Int) {
+    try! out.append("LOWERINGS\t")
+    try! out.append(lowerings)
+    try! out.append("\n")
 }
 
 // Adds a `NAME=DIR` package mapping; false when the text has no `=`.

@@ -36,12 +36,22 @@ public struct MonoOptions {
 // (as `sawc2 drops --check` prints it) is appended to `out`; when any of it
 // is a refusal or a broken invariant, the program comes back blocked and
 // nothing is instantiated. A `runtime` program is checked and rooted as a
-// runtime: its roots are its exports, and it has no `main`.
+// runtime: its roots are its exports, and it has no `main`. The file is
+// lowered once, and the program's `lowerings` says so.
 public func mono_lower_file(out: &var StringBuilder, path: String, std_root: String, notes: Bool,
                             names: &Vector<String>, dirs: &Vector<String>, runtime: Bool = false) -> MonoProgram {
-    var lowered = mir_lower_file(path, std_root, &names, &dirs, runtime: runtime)
+    var lowerings = 0
+    var lowered = mir_lower_file(path, std_root, &names, &dirs, &var lowerings, runtime: runtime)
     var head = StringBuilder()
     var status = mir_append_checks(out: &var head, p: &var lowered, notes: notes)
+    // The constants are evaluated over the program as lowered, before the
+    // borrow check and drop elaboration rewrite its bodies; the evaluator
+    // only reads it. A program refused here is blocked, and its values
+    // would never be read.
+    var ev = eval_program(&lowered)
+    if status == 0 {
+        ev.evaluate_all(&lowered)
+    }
     var bc = borrowck_program(move lowered)
     var m = 0
     while m < bc.mir.tc.res.module_count() {
@@ -84,8 +94,9 @@ public func mono_lower_file(out: &var StringBuilder, path: String, std_root: Str
     }
     var mono = mono_program(move p, blocked)
     mono.runtime = runtime
+    mono.lowerings = lowerings
     if not blocked {
-        mono_take_statics(&var mono, path, std_root, &names, &dirs, runtime)
+        mono_take_statics(&var mono, &ev)
         mono.run()
         mono_check_layout_asserts(&var mono)
     }
@@ -182,18 +193,13 @@ func mono_elaborate(p: &var DropsProgram, out: &var StringBuilder) {
     }
 }
 
-// Each static's evaluated value, by declaration. The evaluator owns the MIR
-// program it runs over and hands nothing back, so it runs over a second
-// lowering of the same file; both lowerings are functions of the same input,
-// so their declarations are numbered alike, which a count check confirms.
-func mono_take_statics(mono: &var MonoProgram, path: String, std_root: String, names: &Vector<String>,
-                       dirs: &Vector<String>, runtime: Bool) {
-    let lowered = mir_lower_file(path, std_root, &names, &dirs, runtime: runtime)
-    var ev = eval_program(move lowered)
-    ev.evaluate_all()
+// Each static's evaluated value, by declaration, from the evaluation `ev` of
+// this program's own lowering. No stage between declares anything, so the
+// two tables are one length.
+func mono_take_statics(mono: &var MonoProgram, ev: &EvalProgram) {
     let count = ev.constant_of.len()
     if count != mono.static_kinds.len() {
-        try! mono.problems.push("the evaluator's lowering numbers the declarations differently")
+        try! mono.problems.push("the evaluator's table and mono's number the declarations differently")
         return
     }
     var d = 0
@@ -229,11 +235,12 @@ func mono_take_statics(mono: &var MonoProgram, path: String, std_root: String, n
 // `sawc2 drops --check` prints for it, then mono's refusals, each an `ERROR`
 // line, and an `INVARIANT` line per problem it met; then, as asked, each
 // item's dump or the layout table. Returns 0 when nothing was refused and 1
-// otherwise.
+// otherwise. The program's lowerings are added to `lowerings`.
 public func mono_record(out: &var StringBuilder, path: String, options: &MonoOptions, names: &Vector<String>,
-                        dirs: &Vector<String>) -> Int {
+                        dirs: &Vector<String>, lowerings: &var Int) -> Int {
     var mono = mono_lower_file(out: &var out, path: path, std_root: options.std_root, notes: options.notes,
                                names: &names, dirs: &dirs)
+    lowerings = lowerings + mono.lowerings
     var status = 0
     if mono.blocked {
         status = 1

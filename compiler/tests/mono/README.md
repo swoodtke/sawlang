@@ -18,7 +18,7 @@ mono/
 ## `sawc2 mono`
 
 ```sh
-.build/sawc2 mono (--dump | --layouts | --check) [--notes] [--std-root DIR]
+.build/sawc2 mono (--dump | --layouts | --check) [--notes] [--lowerings] [--std-root DIR]
                   [--target TRIPLE] [--module-path NAME=DIR]... [FILE | @LIST]...
 ```
 
@@ -33,10 +33,15 @@ table. The exit code is 1 when any program has a refusal, 2 on a usage
 failure, and 0 otherwise. `--target` names the triple the layouts are for:
 `arm64-apple-darwin` (the default) or `x86_64-unknown-linux-gnu`.
 
-The evaluator owns the MIR program it runs over and hands nothing back, so
-the statics' values come from a second lowering of the same file. Both
-lowerings are functions of the same input, so their declarations are
-numbered alike; mono checks the counts agree.
+The file is lowered to MIR once. The evaluator borrows that program and
+evaluates its constants before the borrow check and drop elaboration rewrite
+its bodies, and mono reads the statics' values from the evaluator's table,
+keyed by declaration; it checks the two tables have one length.
+
+`--lowerings`, which `resolve`, `typecheck`, `mir`, `eval`, `borrowck` and
+`drops` take too, ends each record with a `LOWERINGS<TAB>N` line: how many
+times its source was lowered to MIR. Every subcommand from `mir` on owes 1,
+and the two before it 0.
 
 ## Items
 
@@ -224,3 +229,11 @@ no difference uses fails as stale. A bare `Void` or `Never` is not compared
 (Stage 0's `alignof<Void>()` is an internal error), but every type holding
 one is: golden `voids` reaches them, and `Void?` and the types holding it are
 the exceptions, Stage 0 giving `Void` a byte of its own inside an Optional.
+
+The lane also runs each subcommand `--lowerings` counts for over the golden
+programs, two run-lane programs with constants (`statics`, `layout_asserts`),
+a program mono refuses and one refused before mono, and requires each record's
+count. The paths the driver cannot count, coroutine lowering's (the front half
+of `sawc2 build`) and a runtime source's, are the unit program
+`compiler/mono/tests/one_lowering.saw`, which reads the count off the program
+each returns.

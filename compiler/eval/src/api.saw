@@ -21,34 +21,34 @@ public struct EvalOptions {
 // `sawc2 mir --check` prints, then the evaluator's refusals, each an `ERROR`
 // line, then an `INVARIANT` line per problem its verifier finds, and with
 // `dump` each lowered module's constants. Returns 0 when nothing was refused
-// and 1 otherwise.
+// and 1 otherwise. The lowering is counted in `lowerings`.
 public func eval_record(out: &var StringBuilder, path: String, options: &EvalOptions, names: &Vector<String>,
-                        dirs: &Vector<String>) -> Int {
-    var lowered = mir_lower_file(path, options.std_root, &names, &dirs)
+                        dirs: &Vector<String>, lowerings: &var Int) -> Int {
+    var lowered = mir_lower_file(path, options.std_root, &names, &dirs, &var lowerings)
     var status = mir_append_checks(out: &var out, p: &var lowered, notes: options.notes)
-    var p = eval_program(move lowered)
-    p.evaluate_all()
+    var p = eval_program(&lowered)
+    p.evaluate_all(&lowered)
     var k = 0
     while k < p.diags.len() {
         let d = p.diags[k]
-        mir_append_diag(out: &var out, p: &p.mir, d: &d)
+        mir_append_diag(out: &var out, p: &lowered, d: &d)
         k = k + 1
     }
     if p.diags.len() > 0 {
         status = 1
     }
     var m = 0
-    while m < p.mir.tc.res.module_count() {
-        let found = p.verify_module(m)
-        mir_append_invariants(out: &var out, p: &p.mir, m: m, problems: &found)
+    while m < lowered.tc.res.module_count() {
+        let found = p.verify_module(&var lowered, m)
+        mir_append_invariants(out: &var out, p: &lowered, m: m, problems: &found)
         m = m + 1
     }
     if options.dump {
         m = 0
-        while m < p.mir.tc.res.module_count() {
-            let info = p.mir.tc.res.module(m)
+        while m < lowered.tc.res.module_count() {
+            let info = lowered.tc.res.module(m)
             if info.available && not info.interface_only {
-                p.dump_module(&var out, m)
+                p.dump_module(&lowered, &var out, m)
                 try! out.append("\n")
             }
             m = m + 1

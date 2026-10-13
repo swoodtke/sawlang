@@ -1,0 +1,21 @@
+// The paths `sawc2 mono --lowerings` cannot report lower their program once
+// too: coroutine lowering's, the front half of `sawc2 build` and
+// `sawc2 coro`, and a runtime source's, which `sawc2 runtime` builds (SL-523).
+// Paths are the repository root's, where the runner runs.
+import sawcoro.api.{coro_lower_file}
+import sawmono.api.{mono_lower_file}
+
+func main() {
+    let names = Vector<String>()
+    let dirs = Vector<String>()
+    var front = StringBuilder()
+    let coro = coro_lower_file(out: &var front, path: "compiler/tests/run/statics.saw", std_root: "std",
+                               notes: false, names: &names, dirs: &dirs)
+    assert(not coro.blocked, "the statics program is refused before coroutine lowering")
+    assert(coro.mono.lowerings == 1, "coroutine lowering's program was lowered {} times", coro.mono.lowerings)
+    var head = StringBuilder()
+    let runtime = mono_lower_file(out: &var head, path: "sawc/rt/common/mem.saw", std_root: "std", notes: false,
+                                  names: &names, dirs: &dirs, runtime: true)
+    assert(not runtime.blocked, "the runtime source is refused before mono")
+    assert(runtime.lowerings == 1, "the runtime source was lowered {} times", runtime.lowerings)
+}

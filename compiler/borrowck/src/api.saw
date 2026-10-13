@@ -22,10 +22,10 @@ public struct BorrowckOptions {
 // everything `sawc2 mir --check` prints, then the borrow check's refusals,
 // each an `ERROR` line, then an `INVARIANT` line per problem its verifier
 // finds, and with `dump` each checked module's dump. Returns 0 when nothing
-// was refused and 1 otherwise.
+// was refused and 1 otherwise. The lowering is counted in `lowerings`.
 public func borrowck_record(out: &var StringBuilder, path: String, options: &BorrowckOptions,
-                            names: &Vector<String>, dirs: &Vector<String>) -> Int {
-    var lowered = mir_lower_file(path, options.std_root, &names, &dirs)
+                            names: &Vector<String>, dirs: &Vector<String>, lowerings: &var Int) -> Int {
+    var lowered = mir_lower_file(path, options.std_root, &names, &dirs, &var lowerings)
     var status = mir_append_checks(out: &var out, p: &var lowered, notes: options.notes)
     var p = borrowck_program(move lowered)
     var m = 0

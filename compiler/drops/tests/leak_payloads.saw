@@ -83,7 +83,8 @@ func unlink_payload_drop(p: &var DropsProgram, m: Int) -> Bool {
 func main() {
     let names = Vector<String>()
     let dirs = Vector<String>()
-    let lowered = mir_lower_file("compiler/tests/drops/inject/payloads.saw", "sawc", &names, &dirs)
+    var lowerings = 0
+    let lowered = mir_lower_file("compiler/tests/drops/inject/payloads.saw", "sawc", &names, &dirs, &var lowerings)
     var bc = borrowck_program(move lowered)
     var m = 0
     while m < bc.mir.tc.res.module_count() {

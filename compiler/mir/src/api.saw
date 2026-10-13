@@ -25,12 +25,16 @@ public struct MirOptions {
     spans: Bool
 }
 
-// The program whose entry file is `path`, type checked and lowered to MIR.
+// The program whose entry file is `path`, type checked and lowered to MIR,
+// the lowering counted in `lowerings`. A caller lowers a file once and hands
+// that program to every later stage, the evaluator included, so each driver
+// path's count, which `--lowerings` prints, is 1 (SL-523).
 public func mir_lower_file(path: String, std_root: String, names: &Vector<String>,
-                           dirs: &Vector<String>, runtime: Bool = false) -> MirProgram {
+                           dirs: &Vector<String>, lowerings: &var Int, runtime: Bool = false) -> MirProgram {
     let tc = asserts_typecheck_program(path, std_root, &names, &dirs, runtime: runtime)
     var p = mir_program(move tc)
     mir_lower_program(&var p)
+    lowerings = lowerings + 1
     move p
 }
 
@@ -38,10 +42,11 @@ public func mir_lower_file(path: String, std_root: String, names: &Vector<String
 // typecheck's and the lowering's refusals, each an `ERROR` line, `NOTE` lines
 // when asked for, an `INVARIANT` line per problem any verifier finds or the
 // lowering met, and each lowered module's dump when asked for. Returns 0
-// when nothing was refused and 1 otherwise.
+// when nothing was refused and 1 otherwise. The lowering is counted in
+// `lowerings`.
 public func mir_record(out: &var StringBuilder, path: String, options: &MirOptions, names: &Vector<String>,
-                       dirs: &Vector<String>) -> Int {
-    var p = mir_lower_file(path, options.std_root, &names, &dirs)
+                       dirs: &Vector<String>, lowerings: &var Int) -> Int {
+    var p = mir_lower_file(path, options.std_root, &names, &dirs, &var lowerings)
     let status = mir_append_checks(out: &var out, p: &var p, notes: options.notes)
     if options.dump {
         mir_append_dumps(out: &var out, p: &p, spans: options.spans)

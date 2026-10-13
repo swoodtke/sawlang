@@ -68,7 +68,8 @@ func payload_reads(p: &var MirProgram, m: Int, exclusive: Bool, want: MirOperand
 func main() {
     let names = Vector<String>()
     let dirs = Vector<String>()
-    var p = mir_lower_file("compiler/tests/mir/inject/exclusive_parts.saw", "sawc", &names, &dirs)
+    var lowerings = 0
+    var p = mir_lower_file("compiler/tests/mir/inject/exclusive_parts.saw", "sawc", &names, &dirs, &var lowerings)
     let m = module_index(&p, "exclusive_parts")
     assert(m >= 0, "the fixture did not load: run from the repository root")
     assert(p.diags.len() == 0 && p.tc.error_count() == 0, "the fixture is refused")
