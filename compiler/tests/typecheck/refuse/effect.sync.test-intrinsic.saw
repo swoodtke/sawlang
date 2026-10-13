@@ -1,0 +1,10 @@
+// refuses: effect.sync at 6:5
+// a `sync` body calling a test intrinsic, which suspends with no std module
+// to say so
+
+func handler() sync -> Int {
+    __saw_test_suspend()
+    1
+}
+
+func main() { print(handler()) }

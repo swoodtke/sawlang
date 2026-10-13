@@ -176,6 +176,8 @@ STD_PROFILE_FEATURES = {
                               "`Vector<T, A>`, is built by its `init`",
     "cell-type": "interior mutability: the prelude's cell, `UnsafeMutableInterior`, and the atomic "
                  "word over it (SL:open-questions D38)",
+    "sync-only": "cooperative tasks: `std.task` declares the task vocabulary over its park points, "
+                 "and the std modules a task parks in call it (SL:coroutines)",
 }
 # Rules that hold the compiler's source to std, which the std profile is
 # checking itself: std declares the std names, imports std and calls std.

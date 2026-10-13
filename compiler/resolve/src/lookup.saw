@@ -15,6 +15,7 @@
 
 import sawparse.grammar.{Alt}
 import sawresolve.imports.{res_decl_binding, res_same_binding}
+import sawresolve.prelude.{res_is_test_intrinsic}
 import sawresolve.model.{ResBindKind, ResBinding, ResDecl, ResDeclKind, ResImport,
                              ResImportForm, ResLocal, ResModuleKind, ResName, ResPending,
                              ResPendingKind, ResSymbol, res_unbound}
@@ -231,9 +232,18 @@ extension ResProgram {
                 return res_decl_binding(d, &decl)
             }
         }
+        if res_is_test_intrinsic(text) {
+            let b = self.builtin
+            let intrinsic = self.top.first(b, name)
+            if intrinsic >= 0 {
+                let d = self.top.value(intrinsic)
+                let decl = self.decls[d]
+                return res_decl_binding(d, &decl)
+            }
+        }
         if text.starts_with("__saw_") {
-            // The frozen compiler's test intrinsics (`__saw_drive` and its
-            // kin) drive coroutines, which the slice leaves out.
+            // The frozen compiler's other test intrinsics (`__saw_drive` and
+            // its kin) drive coroutines, which the slice leaves out.
             try! msg.append("the compiler intrinsic `")
             try! msg.append(text)
             try! msg.append("` is not in the bootstrap slice yet")

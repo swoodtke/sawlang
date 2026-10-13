@@ -14,7 +14,9 @@
 import sawparse.grammar.{Alt}
 import sawresolve.dump.{res_sort_strings}
 import sawresolve.model.{ResDecl, ResDeclKind, ResModule}
+import sawresolve.lang.{res_is_park_point}
 import sawresolve.names.{ResIndex, res_index}
+import sawresolve.prelude.{res_is_test_intrinsic}
 import sawtypecheck.conform.{TcSubst, tc_args_subst}
 import sawtypecheck.model.{TC_COPY_COVERED, TC_EFFECT_SYNC, TC_FLAG_BLOCKING, TC_FLAG_DEFAULT_BODY, TC_FORBID_CLOSURE,
                                TC_FORBID_ERASE, TC_FORBID_SYNC, TC_ITEM_CALL, TC_ITEM_COPY, TC_ITEM_ERASE,
@@ -156,7 +158,11 @@ extension TcProgram {
         summary.nonsync_first = self.atoms.len()
         summary.copy_first = self.atoms.len()
         summary.forbid_first = self.atoms.len()
-        if info.kind == ResDeclKind.Extern {
+        if self.is_park_point(d) {
+            summary.state = TC_SUMMARY_DECLARED
+            summary.suspends = true
+            summary.nonsync = true
+        } else if info.kind == ResDeclKind.Extern {
             summary.state = TC_SUMMARY_DECLARED
             let blocking = (s.flags & TC_FLAG_BLOCKING) != 0
             summary.suspends = blocking
@@ -187,6 +193,18 @@ extension TcProgram {
     public func declares_sync(&self, d: Int) -> Bool {
         (self.sigs[d].effects & TC_EFFECT_SYNC) != 0
     }
+
+    // Whether `d` is a park point: a lang item whose calls suspend, which is
+    // summarized from its role, its body read for no unit.
+    public func is_park_point(&self, d: Int) -> Bool {
+        res_is_park_point(&self.res, d)
+    }
+
+    // Whether builtin `d` is a test intrinsic whose calls suspend.
+    public func is_suspending_intrinsic(&self, d: Int) -> Bool {
+        let info = self.res.decls[d]
+        info.kind == ResDeclKind.BuiltinFunc && res_is_test_intrinsic(self.name_text(info.name))
+    }
 }
 
 // The units and their items.
@@ -200,6 +218,9 @@ extension TcProgram {
             let root = self.body_roots[k]
             let d = self.body_decls[k]
             k = k + 1
+            if d >= 0 && self.is_park_point(d) {
+                continue
+            }
             var u = -1
             if d >= 0 && self.decl_unit[d] >= 0 {
                 u = self.decl_unit[d]
@@ -670,6 +691,11 @@ extension TcProgram {
                     acc.nonsync = true
                 }
             }
+            return
+        }
+        if c.role == TcRole.Builtin && c.target >= 0 && self.is_suspending_intrinsic(c.target) {
+            acc.suspends = true
+            acc.nonsync = true
             return
         }
         if c.target < 0 || c.role == TcRole.Builtin || c.role == TcRole.BuiltinOperator || c.role == TcRole.Conversion || c.role == TcRole.Memberwise || c.role == TcRole.Case {

@@ -1,0 +1,20 @@
+// refuses: effect.sync at 9:10
+// a copy-policy `copy()` that suspends, refused at the conformance: the
+// compiler calls it at transfers no source construct names
+
+import std.task.{yield_now}
+
+struct Heavy { name: String, n: Int }
+extension Heavy: Copy {
+    func copy(&self) -> Heavy {
+        yield_now()
+        Heavy(name: self.name, n: self.n + 1)
+    }
+}
+
+func take(h: Heavy) -> Int { h.n }
+
+func main() {
+    let h = Heavy(name: "h", n: 0)
+    print(take(h))
+}

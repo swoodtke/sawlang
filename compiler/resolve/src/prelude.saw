@@ -48,6 +48,13 @@ public func res_declare_synthetic_builtins(p: &var ResProgram) {
     p.builtin_function("assert")
     p.builtin_function("sizeof")
     p.builtin_function("alignof")
+    let tests = res_test_intrinsics()
+    var k = 0
+    while k < tests.len() {
+        let name = tests.get(k) ?? ""
+        p.builtin_function(name)
+        k = k + 1
+    }
     if not p.std_new {
         p.builtin_function("sleep")
         p.builtin_function("cancelled")
@@ -66,6 +73,31 @@ public func res_declare_synthetic_builtins(p: &var ResProgram) {
         p.builtin_function("__saw_atomic_add_i64_seq_cst")
         p.builtin_function("__saw_atomic_cmpxchg_i64_seq_cst")
     }
+}
+
+// The test intrinsics Stage 0's corpus calls with no import and no
+// declaration, which every module sees bare: `__saw_test_suspend`, an
+// effect-only suspension point (design 22), and `__saw_suspend`, a ready park.
+// Both take nothing and return Void, and a call to either suspends.
+public func res_test_intrinsics() -> Vector<String> {
+    var out = Vector<String>()
+    try! out.push("__saw_test_suspend")
+    try! out.push("__saw_suspend")
+    move out
+}
+
+// Whether `text` names one of `res_test_intrinsics`.
+public func res_is_test_intrinsic(text: String) -> Bool {
+    let names = res_test_intrinsics()
+    var k = 0
+    while k < names.len() {
+        let name = names.get(k) ?? ""
+        if name.equals(text) {
+            return true
+        }
+        k = k + 1
+    }
+    false
 }
 
 // Enters the prelude: each name visible bare with no import, and the module
@@ -101,8 +133,15 @@ public func res_declare_prelude(p: &var ResProgram) {
     p.prelude_name("assert", "builtin")
     p.prelude_name("sizeof", "builtin")
     p.prelude_name("alignof", "builtin")
-    p.prelude_name("sleep", "builtin")
-    p.prelude_name("cancelled", "builtin")
+    if p.std_new {
+        // The new std declares the two in `std.task`, over its park points;
+        // Stage 0's compiler synthesizes them.
+        p.prelude_name("sleep", "std.task")
+        p.prelude_name("cancelled", "std.task")
+    } else {
+        p.prelude_name("sleep", "builtin")
+        p.prelude_name("cancelled", "builtin")
+    }
     p.prelude_name("Byte", "builtin")
     p.prelude_name("Deinit", "builtin")
     p.prelude_name("Copy", "builtin")

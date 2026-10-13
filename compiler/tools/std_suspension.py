@@ -24,9 +24,14 @@ stdsuspension.saw` is the same rows compiled into sawc2.
 
 The check also derives, from the source alone, the std modules whose bodies
 spell a parking primitive, closed over the std modules that import them, and
-requires that set to equal the modules holding a `suspends` row.
+requires that set to equal the modules holding a `suspends` row. The new std
+in `std/` needs no table, since sawc2 checks its bodies, and gets the same
+cross-check: the modules spelling one of its park points (`std.task`'s lang
+items), closed over their importers, against the modules holding a function
+sawc2's summaries say suspends.
 """
 import argparse
+import glob
 import json
 import os
 import re
@@ -36,6 +41,9 @@ import tempfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(os.path.dirname(HERE))
+sys.path.insert(0, HERE)
+
+import build  # noqa: E402
 SAWC = os.path.join(REPO, "sawc")
 TABLE_FILE = os.path.join(HERE, "std_suspension.txt")
 SAW_FILE = os.path.join(REPO, "compiler", "typecheck", "src", "stdsuspension.saw")
@@ -50,6 +58,12 @@ PARK_SPELLINGS = re.compile(
     r"\b(?:yield_now|io_wait|io_wait_until|__saw_io_park|__saw_chan_park)\b|\bsleep\(")
 _IMPORT = re.compile(r"^\s*import\s+std\.([a-z_][a-z0-9_.]*?)(?:\.\{|\.\*|\s|$)")
 _IDENTITY_SUFFIX = "$m$"
+# The new std's park points, the lang items `std/task.saw` declares; a
+# body parks by calling one.
+NEW_STD = os.path.join(REPO, "std")
+NEW_PARK_SPELLINGS = re.compile(r"\b__saw_park_\w+\(")
+# The program whose check covers every new-std module, with the summaries.
+NEW_STD_ENTRY = os.path.join(REPO, "compiler", "tests", "std", "entry.saw")
 
 
 def module_of(path):
@@ -203,24 +217,31 @@ def saw_text(rows):
     return "".join(out)
 
 
-def parking_modules():
-    """The std modules whose non-comment source spells a parking primitive,
-    closed over the std modules importing one of them."""
+def new_module_of(path):
+    """`std.task`, `std.compiler.frame`: a module of the new std, by its file."""
+    rel = os.path.relpath(os.path.abspath(path), NEW_STD).replace(os.sep, "/")
+    return "std." + rel[:-len(".saw")].replace("/", ".")
+
+
+def parking_modules(std_dir=None, spellings=PARK_SPELLINGS, module_name=module_of):
+    """The std modules under `std_dir`, Stage 0's by default, whose
+    non-comment source spells a parking primitive, closed over the std
+    modules importing one of them."""
     sources = {}
-    for root, dirs, files in os.walk(os.path.join(SAWC, "std")):
+    for root, dirs, files in os.walk(std_dir or os.path.join(SAWC, "std")):
         dirs.sort()
         for name in sorted(files):
             if name.endswith(".saw"):
                 path = os.path.join(root, name)
                 with open(path) as fh:
-                    sources[module_of(path)] = fh.read().splitlines()
+                    sources[module_name(path)] = fh.read().splitlines()
     parks = set()
     imports = {}
     for module, lines in sources.items():
         imports[module] = set()
         for line in lines:
             code = line.split("//", 1)[0]
-            if PARK_SPELLINGS.search(code):
+            if spellings.search(code):
                 parks.add(module)
             m = _IMPORT.match(code)
             if m:
@@ -279,11 +300,56 @@ def _known_modules():
     return _MODULES
 
 
+def new_std_suspending_modules(sawc2):
+    """The new-std modules holding a function sawc2's summaries say suspends,
+    or None with the reason the check could not run."""
+    if not os.path.exists(sawc2):
+        return None, "%s is not built" % os.path.relpath(sawc2, REPO)
+    r = subprocess.run([sawc2, "typecheck", "--check", "--summaries", "--std-root", NEW_STD,
+                        NEW_STD_ENTRY], capture_output=True, text=True, timeout=TIMEOUT, cwd=REPO)
+    if r.returncode != 0:
+        return None, "sawc2 refuses the new std: %s" % (r.stdout.strip() or r.stderr.strip())
+    modules = {new_module_of(p) for p in glob.glob(os.path.join(NEW_STD, "**", "*.saw"),
+                                                    recursive=True)}
+    holding = set()
+    for line in r.stdout.splitlines():
+        fields = line.split("\t")
+        if len(fields) < 3 or fields[0] != "SUMMARY" or fields[2] != "suspends":
+            continue
+        # The module is the longest leading run of the identity naming one.
+        parts = written_name(fields[1]).split(".")
+        for cut in range(len(parts) - 1, 0, -1):
+            candidate = ".".join(parts[:cut])
+            if candidate in modules:
+                holding.add(candidate)
+                break
+    return holding, None
+
+
+def check_new_std(sawc2):
+    """Failures of the new std's cross-check: the modules spelling a park
+    point, closed over their importers, against the modules sawc2 finds a
+    suspending function in."""
+    holding, problem = new_std_suspending_modules(sawc2)
+    if holding is None:
+        return ["std suspension: the new std's cross-check cannot run: %s" % problem]
+    parks = parking_modules(NEW_STD, NEW_PARK_SPELLINGS, new_module_of)
+    failures = []
+    for module in sorted(holding - parks):
+        failures.append("std suspension: sawc2 finds a suspending function in %s, but no body of "
+                        "it calls a park point or imports a module that does" % module)
+    for module in sorted(parks - holding):
+        failures.append("std suspension: %s calls a park point, or imports a module that does, "
+                        "but sawc2 finds no suspending function in it" % module)
+    return failures
+
+
 def check():
     """(failures, counts): the table and its Saw form against a fresh
-    observation, and the rows' consistency."""
+    observation, the rows' consistency, and the new std's cross-check."""
     rows = observed_rows()
     failures = check_rows(rows)
+    failures += check_new_std(build.SAWC2)
     for path, text in ((TABLE_FILE, table_text(rows)), (SAW_FILE, saw_text(rows))):
         try:
             with open(path) as fh:

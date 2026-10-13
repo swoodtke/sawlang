@@ -188,7 +188,18 @@ func tc_lang_expected(role: ResLang) -> Vector<String> {
             try! out.push("(field value UnsafeMutableInterior<T> private)")
             try! out.push("(conforms UnsafeSync)")
             try! out.push("(conforms NoCopy)")
-        }
+        },
+        case ParkReadyFunction -> try! out.push("func (signature (params) -> Void)"),
+        case ParkTimerFunction -> try! out.push("func (signature (params (nanos Int owned)) -> Void)"),
+        case ParkFdFunction -> {
+            try! out.push("func (signature (params (fd Int owned) (write Int owned)) -> Void)")
+        },
+        case ParkFdUntilFunction -> {
+            try! out.push("func (signature (params (fd Int owned) (write Int owned) (deadline_nanos Int owned)) -> Void)")
+        },
+        case ParkChannelFunction -> try! out.push("func (signature (params (word Int owned)) -> Void)"),
+        case ParkOffloadFunction -> try! out.push("func (signature (params (job Int owned)) -> Void)"),
+        case CancelRequestedFunction -> try! out.push("func (signature (params) -> Bool)")
     }
     move out
 }

@@ -1,0 +1,14 @@
+// due: a park point has no lowering in the coroutine slice yet
+// refuses: coro.not-yet at 11:5
+// `yield_now` and `sleep` park through `std.task`'s park points, whose
+// panicking bodies stand in for the lowering coroutines bring. A park point
+// is summarized from its lang role as declared-suspending, so a call to one
+// suspends whatever that body holds, and each call on the way is refused,
+// `main`'s first, rather than built into a call of the body.
+import std.task.{yield_now}
+
+func main() {
+    yield_now()
+    sleep(Duration.ms(1))
+    print("{}", 1)
+}

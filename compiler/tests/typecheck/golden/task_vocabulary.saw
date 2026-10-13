@@ -1,0 +1,44 @@
+// flags: --std-root std
+// Under the new std, suspension comes from bodies: `yield_now` and `sleep`
+// call `std.task`'s park points, so a caller of either suspends, while
+// `cancelled` parks nothing and stays sync-callable. The test intrinsics
+// suspend under either std.
+import std.task.{yield_now}
+
+func cede() -> Int {
+    yield_now()
+    1
+}
+
+func nap() {
+    sleep(Duration.ms(2))
+}
+
+func through(n: Int) -> Int {
+    cede() + n
+}
+
+func asks() sync -> Bool {
+    cancelled()
+}
+
+func span() sync -> UInt64 {
+    Duration.secs(3).as_millis()
+}
+
+func effect_only() {
+    __saw_test_suspend()
+}
+
+func ready() {
+    __saw_suspend()
+}
+
+func main() {
+    nap()
+    effect_only()
+    ready()
+    if not asks() {
+        print(through(span() as Int))
+    }
+}

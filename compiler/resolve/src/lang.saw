@@ -60,7 +60,19 @@ public enum ResLang {
     case InteriorStruct,
     // The atomic word over a cell: constructed positionally, a constant in a
     // static's initializer, and `Atomic<Int>` only (SL:open-questions D38).
-    case AtomicStruct
+    case AtomicStruct,
+    // The park points `std.task` cedes at, one per reason a task parks: each
+    // call suspends, and the coroutine lowering replaces it with its park
+    // (SL:coroutines §3.1).
+    case ParkReadyFunction,
+    case ParkTimerFunction,
+    case ParkFdFunction,
+    case ParkFdUntilFunction,
+    case ParkChannelFunction,
+    case ParkOffloadFunction,
+    // What `cancelled()` reads: the running task's cancel word inside a
+    // coroutine frame, and `false` outside one. It parks nothing.
+    case CancelRequestedFunction
 }
 
 // One role's row: its index in the table, the name its declaration carries
@@ -109,7 +121,42 @@ public func res_lang_roles() -> Vector<ResLang> {
     try! out.push(ResLang.StringLengthFunction)
     try! out.push(ResLang.InteriorStruct)
     try! out.push(ResLang.AtomicStruct)
+    try! out.push(ResLang.ParkReadyFunction)
+    try! out.push(ResLang.ParkTimerFunction)
+    try! out.push(ResLang.ParkFdFunction)
+    try! out.push(ResLang.ParkFdUntilFunction)
+    try! out.push(ResLang.ParkChannelFunction)
+    try! out.push(ResLang.ParkOffloadFunction)
+    try! out.push(ResLang.CancelRequestedFunction)
     move out
+}
+
+// Whether a call to `role`'s declaration suspends whatever its body says: a
+// park point, which phase 2 of type checking summarizes from its role.
+public func res_lang_suspends(role: ResLang) -> Bool {
+    match role {
+        case ParkReadyFunction -> true,
+        case ParkTimerFunction -> true,
+        case ParkFdFunction -> true,
+        case ParkFdUntilFunction -> true,
+        case ParkChannelFunction -> true,
+        case ParkOffloadFunction -> true,
+        case _ -> false
+    }
+}
+
+// Whether declaration `d` is a park point: bound to a role whose calls
+// suspend.
+public func res_is_park_point(p: &ResProgram, d: Int) -> Bool {
+    let roles = res_lang_roles()
+    var k = 0
+    while k < roles.len() {
+        if res_lang_suspends(roles[k]) && p.lang_item(roles[k]) == d {
+            return true
+        }
+        k = k + 1
+    }
+    false
 }
 
 func res_lang_type(index: Int, name: String) -> ResLangRow {
@@ -120,6 +167,13 @@ func res_lang_type(index: Int, name: String) -> ResLangRow {
 // A function role of `std.string` that Stage 0's compiler synthesizes.
 func res_lang_string_function(index: Int, name: String) -> ResLangRow {
     ResLangRow(index: index, name: name, home: "std.string", builtin_home: "builtin",
+               builtin_name: "")
+}
+
+// A function role of `std.task`. Stage 0's compiler synthesizes its park
+// points as intrinsics no declaration has.
+func res_lang_task_function(index: Int, name: String) -> ResLangRow {
+    ResLangRow(index: index, name: name, home: "std.task", builtin_home: "builtin",
                builtin_name: "")
 }
 
@@ -160,7 +214,14 @@ public func res_lang_row(role: ResLang) -> ResLangRow {
                                                builtin_name: "StringBuilder"),
         case StringLengthFunction -> res_lang_string_function(28, "string_length"),
         case InteriorStruct -> res_lang_type(29, "UnsafeMutableInterior"),
-        case AtomicStruct -> res_lang_type(30, "Atomic")
+        case AtomicStruct -> res_lang_type(30, "Atomic"),
+        case ParkReadyFunction -> res_lang_task_function(31, "__saw_park_ready"),
+        case ParkTimerFunction -> res_lang_task_function(32, "__saw_park_timer"),
+        case ParkFdFunction -> res_lang_task_function(33, "__saw_park_fd"),
+        case ParkFdUntilFunction -> res_lang_task_function(34, "__saw_park_fd_until"),
+        case ParkChannelFunction -> res_lang_task_function(35, "__saw_park_channel"),
+        case ParkOffloadFunction -> res_lang_task_function(36, "__saw_park_offload"),
+        case CancelRequestedFunction -> res_lang_task_function(37, "__saw_cancel_requested")
     }
 }
 
@@ -177,6 +238,7 @@ extension ResProgram {
     //     string_position
     //     dump_string_positions
     //     add_roots
+    //     res_is_park_point
     public func lang_item(&self, role: ResLang) -> Int {
         let row = res_lang_row(role)
         self.lang[row.index]

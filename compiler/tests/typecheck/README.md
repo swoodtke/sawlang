@@ -663,11 +663,14 @@ fixture (`refuse/RULE.VARIANT`) that covers it.
 |---|---|---|
 | a call of a function with a checked body | its summary, at the call's type arguments | summaries |
 | a call of a std function | its row of the std suspension table | summaries (`Vector.map`, `yield_now`) |
+| a call of a new-std function | its summary, its body checked; a park point of `std.task` suspends by its lang role | task_vocabulary |
+| a call of a test intrinsic, `__saw_test_suspend` or `__saw_suspend` | suspends, under either std | task_vocabulary; effect.sync.test-intrinsic |
 | a call of an extern | its `blocking` | declarations |
 | a call through a bound | a condition over the caller's parameter | summaries; effect.sync.bound |
 | a call through a function value | never suspends; sync-callable when its type says `sync` | summaries; effect.sync.value |
 | a call in a `sync` function, a `deinit`, a closure of a `sync` type | refused when not sync-callable | effect.sync, effect.sync.deinit, effect.sync.closure |
 | a `sync` requirement met by a member not declared `sync` | the member's summary | effect.sync.requirement |
+| a hand-written `copy()` of a `Copy` or `ExplicitCopy` conformance | refused at the conformance when it suspends | effect.sync.copy-hook |
 | a call in a closure body | refused when it may suspend, at once or at the instantiation | effect.closure-suspends, effect.closure-suspends.instantiation |
 | a coercion to `any Trait` | refused when an implementation it dispatches to may suspend | effect.any-suspends, effect.any-suspends.instantiation |
 | a call in a `borrows(sync)` window, `borrow` block or `for` | refused when it may suspend | borrows.sync-window; body_rules |
@@ -1233,7 +1236,7 @@ says what the fixture shows.
 | `consumes.move-self` | `move self` or `move` of a part of `self` outside a `consumes` method (SL-414) |
 | `match.non-exhaustive` | a `match` some value of its scrutinee's type reaches no unguarded arm of, each missing value named as a pattern: enums (`Optional` and `Result` included), `Bool`, tuples, split by their constructors at any depth; any other type, matched by literals and ranges, covered only by a wildcard or a binding |
 | `result.discarded` | a `Result` computed where nothing reads it (design 151): a statement, a `Void` body's or a loop body's tail, an arm of a statement-position `if` or `match`, refused at the expression that produced it; `let _ =` is the out |
-| `effect.sync` | a call in a `sync` body (a function declared `sync`, a `deinit`, a closure of a `sync` type) of a target that is not sync-callable: one that may suspend, a function value whose type is not `sync`; a call whose type arguments make a requirement a generic `sync` body calls through a bound not sync-callable; a `sync` requirement met by a member that is not sync-callable |
+| `effect.sync` | a call in a `sync` body (a function declared `sync`, a `deinit`, a closure of a `sync` type) of a target that is not sync-callable: one that may suspend, a function value whose type is not `sync`; a call whose type arguments make a requirement a generic `sync` body calls through a bound not sync-callable; a `sync` requirement met by a member that is not sync-callable; a hand-written `copy()` of a copy-policy conformance that may suspend, refused at the conformance |
 | `copy.requirement` | a call whose type argument is not on the Copy tier where its callee's body copies that parameter with nothing written (design 219), named with the copy's position, or, for a local one path uses twice, both uses |
 | `effect.closure-suspends` | a call in a closure body that may suspend, or a call whose type arguments make a closure in its callee call a suspending implementation (spec: suspension, "a closure body cannot suspend") |
 | `erasure.not-object-safe` | a written `any Trait` whose trait is not object-safe: a marker trait, one with an associated type, a static requirement, or a requirement naming `Self` in its result or a parameter, its parents' included, naming the trait, the reason and the member (spec, "Object safety (v1)"; the object-safety matrix) |
