@@ -226,7 +226,7 @@ whose docstring lists them), each covered by a golden case:
 | a call's arguments, in written order | `call_arguments` | operands, order |
 | a receiver a `consumes` method takes | `receiver_operand` | operands |
 | a struct's, a case's, a tuple's, an array's, a collection's operands | `aggregate_operands` | operands, adjustments |
-| a closure's captures | `closure_captures` | closures |
+| a closure's captures | `closure_captures` | closures, reborrow_captures |
 | a builtin's arguments: `print`, `panic`, `assert`, a builtin method | `builtin_operand` | operands, drops |
 | a format argument, an interpolated segment | `format_operand` | operands, drops |
 | a declared `equals` or `compare` a comparison calls | `operator_call` | operands |
@@ -302,6 +302,7 @@ through a reference to stay a reported move.
 | `x.f(...)` on a `borrows` accessor | a window on a place, or a copy out of it | windows |
 | a receiver or a subscript's base reached through a `borrows` accessor, chained, through `!`, under a key or an index | its windows opened in receiver position, before the arguments, keys or index (`open_receiver_windows`); a plain receiver's borrow taken just before the call; an assignment's target opens its windows after the right side, a compound one's too | receivers |
 | a closure | an aggregate of its captures, its body a function of its own | closures |
+| any capture of a reference parameter or a slice, `[&r]`, `[&var r]`, `[r]`, `[copy r]` or implicit; a slice's `&s` | a reborrow of the referent, `ref(MODE, (*_1))`, typed as the reference in that mode: the word's, or for a copy the reference's own | reborrow_captures |
 | a non-escaping `[move v]` of a value that owns something | `take(_L, _F)` in the environment; in the body, the flag's test, the take and the flag's clear | takes |
 | `print("x = {}", x)`, `panic`'s and `assert`'s format messages | a `format` constant, the arguments after it; `"x = {x}"` an `interpolate` | formats |
 | `lend p` | the end of the accessor's prologue, the start of its epilogue | windows, accessors |
@@ -430,6 +431,19 @@ the environment's value. Typecheck refuses every consuming use of such a
 capture (`capture.escaping-consume`), so no move out of an escaping
 environment is left to lower. Each closure kind and capture kind is a function
 of drops golden `captures`.
+
+Every capture of a binding that is itself a reference, a reference parameter
+or a slice (`reborrow_capture`), is a reborrow of what it refers to,
+`_5 = ref(exclusive, (*_1))`, typed as the reference in the capture's mode
+(`rv_reborrow`), the shape `self`'s capture and a forwarded `&r` have. `[&r]`
+and `[&var r]` take their word's mode; the implicit capture, `[r]` and
+`[copy r]` take the reference's own (`reborrow_exclusive`), and typecheck
+refuses `[copy r]` of a `&var`. The body holds it as the reference parameter
+is held, its name the reference itself. A reference to the reference, or a
+copy of it, would access only the parameter's own local, which the borrow
+check's overlap rule reads as the reference and not its referent, so no loan
+would reach the storage (SL-607). A slice's `&s` and `&var s` lower the same
+way.
 
 **Takes** (`take_capture` in `compiler/mir/src/build.saw`, whose docstring
 lists its entry points). A non-escaping closure's `[move v]` of a value that

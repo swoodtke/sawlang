@@ -1,0 +1,20 @@
+// refuses: loan.window-root at 11:13
+// a shared `[&v]` capture of a `&var` reference parameter inside an
+// exclusive window on `v[0]`: the capture reads what `v` refers to while the
+// window holds it (SL-607)
+
+func run(f: () -> Void) { f() }
+
+func shared_param(v: &var Vector<Int>) -> Int {
+    var n = 0
+    borrow var first = v[0] {
+        run({ [&v, &var n] in n = v.len() })
+        first += 1
+    }
+    n
+}
+
+func main() {
+    var v: Vector<Int> = [1]
+    print(shared_param(&var v))
+}

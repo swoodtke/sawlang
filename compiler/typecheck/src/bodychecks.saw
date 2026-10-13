@@ -146,8 +146,7 @@ extension TcProgram {
             k = k + 1
             // A reference passes a bound place onward (SL:borrowing §2.7),
             // and a function type answers for itself.
-            let inner = self.types.ty(p.ty)
-            if inner.kind == TcKind.Ref || inner.kind == TcKind.Func {
+            if self.is_reference(p.ty) || self.kind_of(p.ty) == TcKind.Func {
                 continue
             }
             let found = self.borrowing_named(p.ty)

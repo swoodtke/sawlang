@@ -643,7 +643,9 @@ extension MirProgram {
             let env_place = self.place_local(env)
             let whole = self.project(env_place, MirProjKind.Deref, -1, -1, env_tuple)
             let part = self.project(whole, MirProjKind.Tuple, -1, j, et)
-            let borrowed = cap.use == TcUse.Borrow || cap.use == TcUse.BorrowVar
+            // A reborrowed reference is held as the reference parameter is,
+            // its name the reference itself.
+            let borrowed = (cap.use == TcUse.Borrow || cap.use == TcUse.BorrowVar) && not self.reborrow_capture(&cap)
             if takes[j] {
                 self.load_take_capture(&cap, part, name)
                 j = j + 1
@@ -758,9 +760,34 @@ extension MirProgram {
         let _ = self.emit_call(call)
     }
 
-    // The type a capture takes in its closure's environment: the value, or a
-    // reference for a borrow of the frame.
+    // Whether capture `cap` names a reference binding, a reference
+    // parameter or a slice among them, by borrow or by copy: it is a
+    // reborrow of what the reference refers to, as `self`'s is. A reference
+    // to the reference, or a copy of it, is an access of the reference's own
+    // local, which no loan on the referent overlaps, so neither would meet a
+    // window or an argument holding the referent (SL-607).
+    func reborrow_capture(&self, cap: &TcCapture) -> Bool {
+        let word = cap.use == TcUse.Borrow || cap.use == TcUse.BorrowVar || cap.use == TcUse.Copy
+        word && self.tc.is_reference(cap.ty)
+    }
+
+    // The mode reborrow capture `cap` takes: its word's for `[&r]` and
+    // `[&var r]`, the reference's own for a copy, which typecheck admits of
+    // an exclusive reference only implicitly or as `[r]`.
+    func reborrow_exclusive(&self, cap: &TcCapture) -> Bool {
+        if cap.use == TcUse.Copy {
+            return self.tc.is_exclusive_ref(cap.ty)
+        }
+        cap.use == TcUse.BorrowVar
+    }
+
+    // The type a capture takes in its closure's environment: the value, a
+    // reference for a borrow of the frame, or a reborrowed reference.
     func capture_type(&var self, cap: &TcCapture) -> Int {
+        if self.reborrow_capture(&cap) {
+            let exclusive = self.reborrow_exclusive(&cap)
+            return self.tc.reborrowed(cap.ty, exclusive)
+        }
         if cap.use == TcUse.Borrow {
             return self.tc.mk_ref(false, cap.ty)
         }
@@ -3527,6 +3554,13 @@ extension MirProgram {
         if steps.len() == 1 && steps[0].fresh {
             self.own_temp(p)
         }
+        // `&s` of a slice reborrows it: typecheck types it the slice in the
+        // sigil's mode, as it types `&r` of a reference `&T`.
+        let pt = self.place_type(p)
+        if self.tc.kind_of(pt) == TcKind.Slice {
+            let reborrow = self.rv_reborrow(exclusive, p)
+            return self.temp_operand(reborrow)
+        }
         let rv = self.rv_ref(exclusive, p)
         self.temp_operand(rv)
     }
@@ -3825,6 +3859,10 @@ extension MirProgram {
                 try! out.push(self.take_operand(p, cap.site))
             } else if cap.use == TcUse.Move {
                 try! out.push(self.op_move(p))
+            } else if self.reborrow_capture(&cap) {
+                let exclusive = self.reborrow_exclusive(&cap)
+                let rv = self.rv_reborrow(exclusive, p)
+                try! out.push(self.temp_operand(rv))
             } else if cap.use == TcUse.Copy {
                 try! out.push(self.capture_copy(p, cap.site))
             } else {

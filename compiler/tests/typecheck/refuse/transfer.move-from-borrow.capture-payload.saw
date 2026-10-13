@@ -1,0 +1,22 @@
+// refuses: transfer.move-from-borrow at 16:36
+// `[move k]` of a payload binding over a scrutinee the match only borrows:
+// the referent keeps the payload, so the move would release it twice
+// (SL-607; Stage 0 refuses it the same way)
+
+struct Res { n: Int }
+extension Res: NoCopy {}
+
+enum Slot { case Empty, case Occupied(key: Res) }
+extension Slot: NoCopy {}
+
+func run(f: () sync -> Int) -> Int { f() }
+
+func take_key(s: &Slot) -> Int {
+    match s {
+        case Occupied(k) -> run({ [move k] in k.n }),
+        case Empty -> 0
+    }
+}
+
+func main() {
+}

@@ -78,7 +78,8 @@ extension TcProgram {
                 return self.unify(pi.b, element, &var s)
             }
         }
-        if pi.kind == TcKind.Ref && ai.kind == TcKind.Ref && pi.a == 0 {
+        // A shared reference parameter takes either mode of the same kind.
+        if self.is_reference(p) && ai.kind == pi.kind && pi.a == 0 {
             return self.unify(pi.b, ai.b, &var s)
         }
         if pi.kind != ai.kind || pi.decl != ai.decl || pi.count != ai.count {

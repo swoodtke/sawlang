@@ -1,0 +1,21 @@
+// refuses: capture.copy at 14:21
+// `[copy r]` of a `&var` reference parameter: a copy of an exclusive
+// reference is a second writer of its referent, here beside the `&var r`
+// argument of the same call, whose `noalias` write the optimizer would keep
+// across the closure's; `[&var r]` is the capture that reborrows it (SL-607)
+
+func both(a: &var Int, body: () -> Void) {
+    a += 1
+    body()
+    a += 1
+}
+
+func twice(r: &var Int) {
+    both(&var r, { [copy r] in r += 10 })
+}
+
+func main() {
+    var n = 0
+    twice(&var n)
+    print(n)
+}

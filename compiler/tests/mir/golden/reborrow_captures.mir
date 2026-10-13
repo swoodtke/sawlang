@@ -1,0 +1,344 @@
+module reborrow_captures
+
+fn reborrow_captures.peek(r: &Int) -> Int {
+    let _0: Int;  // return
+    let _1: &Int;  // param r
+    let _2: &Int;
+    let _3: () -> Int;
+    let _4: Int;
+    let _5: &Int;
+    let _6: () -> Int;
+    let _7: Int;
+    let _8: Int;
+
+    bb0: {
+        _2 = ref(shared, (*_1));
+        _3 = closure#0 of reborrow_captures.peek(r: &Int) [move _2];
+        _4 = call reborrow_captures.run_int(f: () -> Int) [move _3] -> [return: bb1];
+    }
+
+    bb1: {
+        _5 = ref(shared, (*_1));
+        _6 = closure#1 of reborrow_captures.peek(r: &Int) [move _5];
+        _7 = call reborrow_captures.run_int(f: () -> Int) [move _6] -> [return: bb2];
+    }
+
+    bb2: {
+        _8 = Add(move _4, move _7);
+        _0 = move _8;
+        return;
+    }
+}
+
+fn closure#0 of reborrow_captures.peek(r: &Int) -> Int {
+    let _0: Int;  // return
+    let _1: &(&Int,);  // env
+    let _2: &Int;  // r
+    let _3: Int;
+
+    bb0: {
+        _2 = copy (*_1).0;
+        _3 = Add(copy (*_2), const 0: Int);
+        _0 = move _3;
+        return;
+    }
+}
+
+fn closure#1 of reborrow_captures.peek(r: &Int) -> Int {
+    let _0: Int;  // return
+    let _1: &(&Int,);  // env
+    let _2: &Int;  // r
+    let _3: Int;
+
+    bb0: {
+        _2 = copy (*_1).0;
+        _3 = Add(copy (*_2), const 1: Int);
+        _0 = move _3;
+        return;
+    }
+}
+
+fn reborrow_captures.run(f: () -> Void) -> Void {
+    let _0: Void;  // return
+    let _1: () -> Void;  // param f
+
+    bb0: {
+        call value copy _1 [] -> [return: bb1];
+    }
+
+    bb1: {
+        drop(_1);
+        return;
+    }
+}
+
+fn reborrow_captures.run_int(f: () -> Int) -> Int {
+    let _0: Int;  // return
+    let _1: () -> Int;  // param f
+    let _2: Int;
+
+    bb0: {
+        _2 = call value copy _1 [] -> [return: bb1];
+    }
+
+    bb1: {
+        _0 = move _2;
+        drop(_1);
+        return;
+    }
+}
+
+fn reborrow_captures.total(s: &[Int]) -> Int {
+    let _0: Int;  // return
+    let _1: &[Int];  // param s
+    let _2: Int;
+
+    bb0: {
+        _2 = call builtin len [copy _1] -> [return: bb1];
+    }
+
+    bb1: {
+        _0 = move _2;
+        return;
+    }
+}
+
+fn reborrow_captures.grow(v: &var std.vector.Vector<Int, std.alloc.GlobalAllocator>) -> Int {
+    let _0: Int;  // return
+    let _1: &var std.vector.Vector<Int, std.alloc.GlobalAllocator>;  // param v
+    let _2: &var std.vector.Vector<Int, std.alloc.GlobalAllocator>;
+    let _3: () -> Void;
+    let _4: &var std.vector.Vector<Int, std.alloc.GlobalAllocator>;
+    let _5: () -> Void;
+    let _6: &std.vector.Vector<Int, std.alloc.GlobalAllocator>;
+    let _7: () -> Int;
+    let _8: Int;
+
+    bb0: {
+        _2 = ref(exclusive, (*_1));
+        _3 = closure#0 of reborrow_captures.grow(v: &var std.vector.Vector<Int, std.alloc.GlobalAllocator>) [move _2];
+        call reborrow_captures.run(f: () -> Void) [move _3] -> [return: bb1];
+    }
+
+    bb1: {
+        _4 = ref(exclusive, (*_1));
+        _5 = closure#1 of reborrow_captures.grow(v: &var std.vector.Vector<Int, std.alloc.GlobalAllocator>) [move _4];
+        call reborrow_captures.run(f: () -> Void) [move _5] -> [return: bb2];
+    }
+
+    bb2: {
+        _6 = ref(shared, (*_1));
+        _7 = closure#2 of reborrow_captures.grow(v: &var std.vector.Vector<Int, std.alloc.GlobalAllocator>) [move _6];
+        _8 = call reborrow_captures.run_int(f: () -> Int) [move _7] -> [return: bb3];
+    }
+
+    bb3: {
+        _0 = move _8;
+        return;
+    }
+}
+
+fn closure#0 of reborrow_captures.grow(v: &var std.vector.Vector<Int, std.alloc.GlobalAllocator>) -> Void {
+    let _0: Void;  // return
+    let _1: &(&var std.vector.Vector<Int, std.alloc.GlobalAllocator>,);  // env
+    let _2: &var std.vector.Vector<Int, std.alloc.GlobalAllocator>;  // v
+    let _3: &var std.vector.Vector<Int, std.alloc.GlobalAllocator>;
+    let _4: Result<Void, std.alloc.AllocError>;
+    let _5: Void;
+
+    bb0: {
+        _2 = copy (*_1).0;
+        _3 = ref(exclusive, (*_2));
+        _4 = call std.vector.Vector.push(value: T) (owner std.vector.Vector<Int, std.alloc.GlobalAllocator>) [move _3, const 1: Int] -> [return: bb1];
+    }
+
+    bb1: {
+        _5 = copy (_4 as Ok!).0;
+        drop(_4);
+        return;
+    }
+}
+
+fn closure#1 of reborrow_captures.grow(v: &var std.vector.Vector<Int, std.alloc.GlobalAllocator>) -> Void {
+    let _0: Void;  // return
+    let _1: &(&var std.vector.Vector<Int, std.alloc.GlobalAllocator>,);  // env
+    let _2: &var std.vector.Vector<Int, std.alloc.GlobalAllocator>;  // v
+    let _3: &var std.vector.Vector<Int, std.alloc.GlobalAllocator>;
+    let _4: Result<Void, std.alloc.AllocError>;
+    let _5: Void;
+
+    bb0: {
+        _2 = copy (*_1).0;
+        _3 = ref(exclusive, (*_2));
+        _4 = call std.vector.Vector.push(value: T) (owner std.vector.Vector<Int, std.alloc.GlobalAllocator>) [move _3, const 2: Int] -> [return: bb1];
+    }
+
+    bb1: {
+        _5 = copy (_4 as Ok!).0;
+        drop(_4);
+        return;
+    }
+}
+
+fn closure#2 of reborrow_captures.grow(v: &var std.vector.Vector<Int, std.alloc.GlobalAllocator>) -> Int {
+    let _0: Int;  // return
+    let _1: &(&std.vector.Vector<Int, std.alloc.GlobalAllocator>,);  // env
+    let _2: &std.vector.Vector<Int, std.alloc.GlobalAllocator>;  // v
+    let _3: &std.vector.Vector<Int, std.alloc.GlobalAllocator>;
+    let _4: Int;
+
+    bb0: {
+        _2 = copy (*_1).0;
+        _3 = ref(shared, (*_2));
+        _4 = call std.vector.Vector.len() (owner std.vector.Vector<Int, std.alloc.GlobalAllocator>) [move _3] -> [return: bb1];
+    }
+
+    bb1: {
+        _0 = move _4;
+        return;
+    }
+}
+
+fn reborrow_captures.slices(s: &var [Int]) -> Int {
+    let _0: Int;  // return
+    let _1: &var [Int];  // param s
+    let _2: &var [Int];
+    let _3: () -> Void;
+    let _4: &[Int];
+    let _5: () -> Int;
+    let _6: Int;
+    let _7: &[Int];
+    let _8: Int;
+    let _9: Int;
+
+    bb0: {
+        _2 = ref(exclusive, (*_1));
+        _3 = closure#0 of reborrow_captures.slices(s: &var [Int]) [move _2];
+        call reborrow_captures.run(f: () -> Void) [move _3] -> [return: bb1];
+    }
+
+    bb1: {
+        _4 = ref(shared, (*_1));
+        _5 = closure#1 of reborrow_captures.slices(s: &var [Int]) [move _4];
+        _6 = call reborrow_captures.run_int(f: () -> Int) [move _5] -> [return: bb2];
+    }
+
+    bb2: {
+        _7 = ref(shared, (*_1));
+        _8 = call reborrow_captures.total(s: &[Int]) [move _7] -> [return: bb3];
+    }
+
+    bb3: {
+        _9 = Add(move _6, move _8);
+        _0 = move _9;
+        return;
+    }
+}
+
+fn closure#0 of reborrow_captures.slices(s: &var [Int]) -> Void {
+    let _0: Void;  // return
+    let _1: &(&var [Int],);  // env
+    let _2: &var [Int];  // s
+    let _3: Int;
+
+    bb0: {
+        _2 = copy (*_1).0;
+        _3 = const 0: Int;
+        _2[_3] = const 1: Int;
+        return;
+    }
+}
+
+fn closure#1 of reborrow_captures.slices(s: &var [Int]) -> Int {
+    let _0: Int;  // return
+    let _1: &(&[Int],);  // env
+    let _2: &[Int];  // s
+    let _3: Int;
+
+    bb0: {
+        _2 = copy (*_1).0;
+        _3 = const 0: Int;
+        _0 = copy _2[_3];
+        return;
+    }
+}
+
+fn reborrow_captures.Counter.bump() -> Void {
+    let _0: Void;  // return
+    let _1: &var reborrow_captures.Counter;  // self
+    let _2: &var reborrow_captures.Counter;
+    let _3: () -> Void;
+
+    bb0: {
+        _2 = ref(exclusive, (*_1));
+        _3 = closure#0 of reborrow_captures.Counter.bump() [move _2];
+        call reborrow_captures.run(f: () -> Void) [move _3] -> [return: bb1];
+    }
+
+    bb1: {
+        return;
+    }
+}
+
+fn closure#0 of reborrow_captures.Counter.bump() -> Void {
+    let _0: Void;  // return
+    let _1: &(&var reborrow_captures.Counter,);  // env
+    let _2: &var reborrow_captures.Counter;  // ref self
+
+    bb0: {
+        _2 = copy (*_1).0;
+        (*_2).n = Add(copy (*_2).n, const 1: Int);
+        return;
+    }
+}
+
+fn reborrow_captures.main() -> Void {
+    let _0: Void;  // return
+    let _1: std.vector.Vector<Int, std.alloc.GlobalAllocator>;  // v
+    let _2: std.vector.Vector<Int, std.alloc.GlobalAllocator>;
+    let _3: &var std.vector.Vector<Int, std.alloc.GlobalAllocator>;
+    let _4: Int;
+    let _5: &var std.vector.Vector<Int, std.alloc.GlobalAllocator>;
+    let _6: &var [Int];
+    let _7: Int;
+    let _8: reborrow_captures.Counter;  // c
+    let _9: reborrow_captures.Counter;
+    let _10: &var reborrow_captures.Counter;
+
+    bb0: {
+        _2 = vector [const 0: Int]: std.vector.Vector<Int, std.alloc.GlobalAllocator>;
+        _1 = move _2;
+        _3 = ref(exclusive, _1);
+        _4 = call reborrow_captures.grow(v: &var std.vector.Vector<Int, std.alloc.GlobalAllocator>) [move _3] -> [return: bb1];
+    }
+
+    bb1: {
+        call builtin print [copy _4] -> [return: bb2];
+    }
+
+    bb2: {
+        _5 = ref(exclusive, _1);
+        _6 = slice(move _5 as &var [Int]);
+        _7 = call reborrow_captures.slices(s: &var [Int]) [move _6] -> [return: bb3];
+    }
+
+    bb3: {
+        call builtin print [copy _7] -> [return: bb4];
+    }
+
+    bb4: {
+        _9 = reborrow_captures.Counter { n: const 0: Int };
+        _8 = move _9;
+        _10 = ref(exclusive, _8);
+        call reborrow_captures.Counter.bump() (owner reborrow_captures.Counter) [move _10] -> [return: bb5];
+    }
+
+    bb5: {
+        call builtin print [copy _8.n] -> [return: bb6];
+    }
+
+    bb6: {
+        drop(_1);
+        return;
+    }
+}

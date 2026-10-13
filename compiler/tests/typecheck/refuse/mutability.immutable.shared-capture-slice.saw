@@ -1,0 +1,12 @@
+// refuses: mutability.immutable at 8:19
+// `[&s]` of a `&var` slice parameter captures it shared, so an element
+// write through it is refused (SL-607)
+
+func run(f: () -> Void) { f() }
+
+func narrowed(s: &var [Int]) {
+    run({ [&s] in s[0] = 1 })
+}
+
+func main() {
+}

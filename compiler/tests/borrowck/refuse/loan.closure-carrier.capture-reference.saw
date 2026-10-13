@@ -1,0 +1,18 @@
+// refuses: loan.closure-carrier at 12:43
+// a closure capturing `[&var v]` of a reference parameter, then a window on
+// `v[0]` in the same call: the closure carries its reborrow of what `v`
+// refers to until its last call (SL-607)
+
+func later(f: () -> Void, a: &var Int) {
+    f()
+    a = 5
+}
+
+func closure_first(v: &var Vector<Int>) {
+    later({ [&var v] in try! v.push(1) }, borrow var v[0])
+}
+
+func main() {
+    var v: Vector<Int> = [1]
+    closure_first(&var v)
+}

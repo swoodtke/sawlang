@@ -171,9 +171,11 @@ extension TcProgram {
             // reference, whatever declared it.
             var verdict = tc_write_ok()
             let bt = self.local_types[cap.binding]
-            if bt >= 0 && (self.kind_of(bt) == TcKind.Ref || self.kind_of(bt) == TcKind.Slice) {
+            if self.is_reference(bt) {
                 if self.types.ty(bt).a != 1 {
                     verdict = tc_write_refused(TcWriteRefusal.SharedReference, cap.binding)
+                } else {
+                    verdict = self.narrowed_reference(cap.binding, cap.closure, &tables)
                 }
             } else {
                 verdict = self.binding_verdict(cap.binding, cap.closure, &var tables)
@@ -213,7 +215,7 @@ extension TcProgram {
                 continue
             }
             let receiver_type = self.expr_types[receiver]
-            if not self.expr_place[receiver] && self.referent(receiver_type) < 0 {
+            if not self.expr_place[receiver] && not self.is_reference(receiver_type) {
                 continue
             }
             let verdict = self.place_verdict(receiver, &var tables)
@@ -318,14 +320,18 @@ extension TcProgram {
             return tc_write_ok()
         }
         let t = self.expr_types[e]
-        if t >= 0 {
-            let info = self.types.ty(t)
-            if info.kind == TcKind.Ref || info.kind == TcKind.Slice {
-                if info.a == 1 {
-                    return tc_write_ok()
-                }
+        if self.is_reference(t) {
+            if self.types.ty(t).a != 1 {
                 return tc_write_refused(TcWriteRefusal.SharedReference, e)
             }
+            if self.has_alt(e, Alt.Expr_Name) || self.has_alt(e, Alt.Expr_NameRef) {
+                let leaf = self.res.first_leaf(e)
+                let b = self.binding_at(leaf)
+                if b.kind == ResBindKind.Local && b.node >= 0 {
+                    return self.narrowed_reference(b.node, e, &tables)
+                }
+            }
+            return tc_write_ok()
         }
         if self.has_alt(e, Alt.Expr_Paren) {
             let inner = self.res.first_node_child(e)
@@ -400,7 +406,7 @@ extension TcProgram {
             return tc_write_ok()
         }
         let receiver_type = self.expr_types[receiver]
-        if not self.expr_place[receiver] && self.referent(receiver_type) < 0 {
+        if not self.expr_place[receiver] && not self.is_reference(receiver_type) {
             return tc_write_ok()
         }
         self.place_verdict(receiver, &var tables)
@@ -479,6 +485,27 @@ extension TcProgram {
             return tc_write_refused(TcWriteRefusal.Parameter, binding)
         }
         TcWriteVerdict(ok: false, reason: TcWriteRefusal.Immutable, at: binding, binder: kind, closure: -1)
+    }
+
+    // Whether a write through `&var` reference binding `binding` may be made
+    // from `site`: refused when a closure between them captured it `[&x]`,
+    // which narrows it to a shared borrow as `[&self]` narrows a `&var self`
+    // receiver (spec, Capturing `self` and reference parameters). Every other
+    // capture of a reference copies it, mode and all.
+    func narrowed_reference(&self, binding: Int, site: Int, tables: &TcMutTables) -> TcWriteVerdict {
+        let declared = self.res.nodes[binding]
+        var at = site
+        while at >= 0 {
+            if self.closure_index.first(at, 0) >= 0 {
+                let span = self.res.nodes[at]
+                let inside = declared.start >= span.start && declared.end <= span.end
+                if not inside && self.capture_use(at, binding) == TcUse.Borrow {
+                    return tc_capture_refused(TcWriteRefusal.SharedCapture, binding, at)
+                }
+            }
+            at = tables.parents[at]
+        }
+        tc_write_ok()
     }
 
     // How closure `e` captured the binding declared at `binding`.

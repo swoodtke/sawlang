@@ -68,6 +68,7 @@ INDEX.md, or when an owner is not one of the words below.
 | M42 | typecheck | `mutability.immutable`: `compiler/tests/typecheck/refuse/mutability.immutable.shared-receiver-array.saw` |
 | M43 | typecheck | `mutability.immutable`: `compiler/tests/typecheck/refuse/mutability.immutable.optional-payload.saw` |
 | M44 | typecheck | `mutability.immutable`: `compiler/tests/typecheck/refuse/mutability.immutable.array-element-receiver.saw` |
+| M45 | typecheck | `mutability.immutable` (SL-607): `compiler/tests/typecheck/refuse/mutability.immutable.shared-capture-reference.saw`, a slice, `compiler/tests/typecheck/refuse/mutability.immutable.shared-capture-slice.saw` |
 
 ## References are parameters only
 
@@ -117,6 +118,9 @@ INDEX.md, or when an owner is not one of the words below.
 | R42 | parse | `[self]` and `[move self]` are no spellings: `compiler/tests/parse/negative/cells.saw` |
 | R43 | typecheck | `capture.escaping-borrow` (SL-467): `compiler/tests/typecheck/refuse/capture.escaping-borrow.reference-container.saw`; the store positions beside it, `compiler/tests/typecheck/refuse/capture.escaping-borrow.stored-positions.saw`; the migrated file spells `try!` on `push`, so it is refused by the rule it pins |
 | R44 | typecheck | `capture.escaping-borrow` (SL-467): `compiler/tests/typecheck/refuse/capture.escaping-borrow.local-container.saw`; the migrated file spells `try!` on `push`, so it is refused by the rule it pins |
+| R45 | typecheck | `capture.escaping-borrow` (SL-607): `compiler/tests/typecheck/refuse/capture.escaping-borrow.slice.saw` |
+| R46 | typecheck | `capture.escaping-borrow` (SL-607): `compiler/tests/typecheck/refuse/capture.escaping-borrow.copy-reference.saw`; the non-escaping form runs, `compiler/tests/run/capture_reference.saw` |
+| R47 | typecheck | `type.reference-position` (SL-607): `compiler/tests/typecheck/refuse/type.reference-position.closure-slice-result.saw` |
 
 ## The Law of Exclusivity
 
@@ -152,7 +156,11 @@ INDEX.md, or when an owner is not one of the words below.
 | X43 | U6d2 | accepted: a nested reference on a field disjoint from its sibling's, `compiler/tests/borrowck/golden/calls.saw` |
 | X44 | U6d2 | `loan.nested-call`: `compiler/tests/borrowck/refuse/loan.nested-call.receiver.saw` |
 | X45 | U6d2 | `loan.nested-call`: `compiler/tests/borrowck/refuse/loan.nested-call.saw` |
-
+| X46 | U6d2 | `loan.exclusive-twice` (SL-607): `compiler/tests/borrowck/refuse/loan.exclusive-twice.capture-reference.saw` |
+| X47 | U6d2 | `loan.window-root` (SL-607): `compiler/tests/borrowck/refuse/loan.window-root.capture-reference.saw`, `compiler/tests/borrowck/refuse/loan.window-root.shared-capture-reference.saw`, `compiler/tests/borrowck/refuse/loan.window-root.capture-reference-argument.saw`; `loan.closure-carrier`: `compiler/tests/borrowck/refuse/loan.closure-carrier.capture-reference.saw` |
+| X48 | U6d2 | `loan.exclusive-twice` and `loan.write-while-shared` (SL-607): `compiler/tests/borrowck/refuse/loan.exclusive-twice.slice-forward.saw`, `compiler/tests/borrowck/refuse/loan.write-while-shared.slice-forward.saw`, `compiler/tests/borrowck/refuse/loan.exclusive-twice.slice-capture.saw`; the accepted forms, `compiler/tests/borrowck/golden/slices.saw`; the bare forward, typecheck `type.mismatch`, `compiler/tests/typecheck/refuse/type.mismatch.slice-unsigiled.saw` |
+| X49 | U6d2 | `loan.window-root` and `loan.exclusive-twice` (SL-607): `compiler/tests/borrowck/refuse/loan.window-root.implicit-capture-reference.saw`, `compiler/tests/borrowck/refuse/loan.window-root.implicit-capture-read.saw`, `compiler/tests/borrowck/refuse/loan.exclusive-twice.implicit-capture-reference.saw`; a nested re-capture under the outer closure's window, `compiler/tests/borrowck/refuse/loan.window-root.nested-capture.saw`; the legal side runs, `compiler/tests/run/capture_reference.saw` |
+| X50 | typecheck | `capture.copy` (SL-607): `compiler/tests/typecheck/refuse/capture.copy.exclusive-reference.saw` |
 ## Moves and use-after-move
 
 | Row | Owner | Covered by, or why not |
@@ -223,6 +231,7 @@ INDEX.md, or when an owner is not one of the words below.
 | V121 | typecheck | `nomove.undeclared` (SL-485): `compiler/tests/typecheck/refuse/nomove.undeclared.saw`, an enum payload, an optional, a generic instance (`nomove.undeclared.payload`, `.wrapped`, `.instance`); the declared container, a pointer holder and a generic, typecheck golden `no_move.saw` |
 | V122 | typecheck | `nomove.bound` (SL-485): `compiler/tests/typecheck/refuse/nomove.bound.saw`, an extension parameter's, `compiler/tests/typecheck/refuse/nomove.bound.extension.saw` |
 | V123 | typecheck | `nomove.requires-nocopy` (SL-485): `compiler/tests/typecheck/refuse/nomove.requires-nocopy.saw`, beside `ExplicitCopy`, `compiler/tests/typecheck/refuse/nomove.requires-nocopy.explicit.saw` |
+| V124 | typecheck | `transfer.move-from-borrow` (SL-607): `compiler/tests/typecheck/refuse/transfer.move-from-borrow.capture-reference.saw`, `compiler/tests/typecheck/refuse/transfer.move-from-borrow.capture-payload.saw`, `compiler/tests/typecheck/refuse/transfer.move-from-borrow.capture-inner.saw` |
 | V60 | typecheck | `transfer.move-from-borrow`: `compiler/tests/typecheck/refuse/transfer.move-from-borrow.match-payload.saw` |
 | V61 | typecheck | `transfer.move-from-borrow`: `compiler/tests/typecheck/refuse/transfer.move-from-borrow.match-self.saw` |
 | V62 | typecheck | `transfer.move-from-borrow`, a Copy-tier payload: `compiler/tests/typecheck/refuse/transfer.move-from-borrow.match-payload.saw` |

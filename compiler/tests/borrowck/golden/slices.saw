@@ -1,0 +1,30 @@
+// A slice is reference-like (SL:borrowing §6): forwarded by its sigil, which
+// reborrows its elements, and captured as a reference is. Two shared
+// reborrows of one slice share it; a closure capturing a slice, implicitly or
+// `[&var s]`, carries a loan on its elements until its last call, and the
+// slice is free again after it.
+
+func run(f: () -> Void) { f() }
+
+func total(s: &[Int]) -> Int { s.len() }
+
+func both(a: &[Int], b: &[Int]) -> Int { a.len() + b.len() }
+
+func fill(s: &var [Int], k: Int) { s[0] = k }
+
+func forward(s: &var [Int]) -> Int {
+    fill(&var s, 3)
+    both(&s, &s) + total(&s)
+}
+
+func captured(s: &var [Int]) -> Int {
+    run({ s[0] = 4 })
+    run({ [&var s] in s[1] = 5 })
+    s[0] + s[1]
+}
+
+func main() {
+    var v: Vector<Int> = [1, 2]
+    print(forward(&var v))
+    print(captured(&var v))
+}

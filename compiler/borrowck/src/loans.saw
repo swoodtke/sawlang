@@ -726,8 +726,9 @@ extension BorrowckProgram {
         s.receiver == TcReceiver.Exclusive || s.lending_exclusive
     }
 
-    // The loan of each reference a closure copies into its environment: on
-    // the referent, held by the closure.
+    // The loan of each reference a closure copies into its environment, a
+    // slice's included: on the referent, a slice's elements, held by the
+    // closure.
     func capture_loans(&self, facts: &var BorrowckLoans, rv: &MirRvalue, node: Int, closing: Bool,
                        b: Int, s: Int, dest: Int) {
         var k = 0
@@ -738,10 +739,10 @@ extension BorrowckProgram {
                 continue
             }
             let t = self.mir.places[o.place].ty
-            let inner = self.mir.tc.referent(t)
-            if inner < 0 {
+            if not self.mir.tc.is_reference(t) {
                 continue
             }
+            let inner = self.mir.tc.deref_type(t)
             let exclusive = self.mir.tc.is_exclusive_ref(t)
             let base = self.path_of(o.place, &var facts)
             let step = MirProj(kind: MirProjKind.Deref, decl: -1, index: -1, ty: inner)
@@ -1386,7 +1387,12 @@ extension BorrowckProgram {
     // nothing, since a reference reads as what it refers to.
     public func borrowck_path_text(&self, f: Int, p: &BorrowckPath, facts: &BorrowckLoans) -> String {
         var text = StringBuilder()
-        if p.local < 0 {
+        var k = 0
+        let capture = self.env_capture_name(f, &p, &facts)
+        if capture >= 0 {
+            try! text.append(self.mir.tc.name_text(capture))
+            k = 2
+        } else if p.local < 0 {
             if p.static_decl >= 0 {
                 try! text.append(self.mir.decl_name(p.static_decl))
             } else {
@@ -1403,7 +1409,6 @@ extension BorrowckProgram {
                 try! text.append(p.local)
             }
         }
-        var k = 0
         while k < p.count {
             let step = facts.projs[p.first + k]
             k = k + 1
@@ -1427,6 +1432,40 @@ extension BorrowckProgram {
             }
         }
         text.build()
+    }
+
+    // The name of the capture path `p` of closure body `f` reaches through
+    // the environment, `(*_1).K`: the name of the body's local bound to
+    // capture K, which is the name the source writes; -1 for any other path.
+    func env_capture_name(&self, f: Int, p: &BorrowckPath, facts: &BorrowckLoans) -> Int {
+        if p.local < 0 || p.count < 2 || mir_func_local(&self.mir, f, p.local).kind != MirLocalKind.Env {
+            return -1
+        }
+        let deref = facts.projs[p.first]
+        let part = facts.projs[p.first + 1]
+        if deref.kind != MirProjKind.Deref || part.kind != MirProjKind.Tuple {
+            return -1
+        }
+        let root = self.mir.funcs[f].root
+        let at = self.mir.tc.closure_index.first(root, 0)
+        if at < 0 {
+            return -1
+        }
+        let c = self.mir.tc.closure_index.value(at)
+        if part.index < 0 || part.index >= self.mir.tc.capture_count[c] {
+            return -1
+        }
+        let binding = self.mir.tc.captures[self.mir.tc.capture_first[c] + part.index].binding
+        let info = self.mir.funcs[f]
+        var l = 0
+        while l < info.local_count {
+            let local = mir_func_local(&self.mir, f, l)
+            if local.node == binding && local.name >= 0 {
+                return local.name
+            }
+            l = l + 1
+        }
+        return -1
     }
 }
 

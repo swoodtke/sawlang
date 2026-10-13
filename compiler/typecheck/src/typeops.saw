@@ -221,7 +221,38 @@ extension TcProgram {
         false
     }
 
-    // What reference `t` refers to, or -1 when `t` is no reference.
+    // THE answer to "is `t` a borrow of storage someone else owns": `&T`,
+    // `&var T`, or a slice, `&[T]` or `&var [T]`, which is reference-like
+    // (SL:borrowing §6). A site that needs the value a read yields asks
+    // `referent` instead, which answers for `&T` alone: a slice's elements
+    // are no one value.
+    //
+    // ENTRY POINTS (is_reference):
+    //     add_capture
+    //     refuse_escaping_borrow
+    //     move_from_borrow_reason
+    //     closure_typed
+    //     open_return
+    //     ref_expr
+    //     scrutinee_origin
+    //     same_under_self
+    //     unify
+    //     check_function_containment
+    //     check_mutability
+    //     check_exclusive_windows
+    //     place_verdict
+    //     deref_type
+    //     reborrow_capture (compiler/mir/src/lower.saw)
+    //     capture_loans (compiler/borrowck/src/loans.saw)
+    public func is_reference(&self, t: Int) -> Bool {
+        if t < 0 {
+            return false
+        }
+        let kind = self.types.ty(t).kind
+        kind == TcKind.Ref || kind == TcKind.Slice
+    }
+
+    // What reference `t` refers to, or -1 when `t` is no `&T` or `&var T`.
     public func referent(&self, t: Int) -> Int {
         if t < 0 {
             return -1
@@ -231,6 +262,26 @@ extension TcProgram {
             return info.b
         }
         return -1
+    }
+
+    // The type of the place a deref of reference `t` names: a reference's
+    // referent, or a slice's element type, standing for the elements a
+    // slice's loan holds; -1 when `t` is no reference.
+    public func deref_type(&self, t: Int) -> Int {
+        if not self.is_reference(t) {
+            return -1
+        }
+        self.types.ty(t).b
+    }
+
+    // Reference `t` with its mode made `exclusive` or shared: what a
+    // reborrow of it through a `&` or `&var` sigil holds.
+    public func reborrowed(&var self, t: Int, exclusive: Bool) -> Int {
+        let info = self.types.ty(t)
+        if info.kind == TcKind.Slice {
+            return self.mk_slice(exclusive, info.b)
+        }
+        self.mk_ref(exclusive, info.b)
     }
 
     public func is_exclusive_ref(&self, t: Int) -> Bool {

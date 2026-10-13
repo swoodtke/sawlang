@@ -1,0 +1,43 @@
+// Every capture of a reference binding is a reborrow of its referent: in the
+// capture's mode for `[&var v]` and `[&v]` of a `&var` parameter and `[&s]`
+// and `[&var s]` of a slice; in the reference's own mode for the implicit
+// capture and `[copy r]` of a `&T`; beside `[&var self]`, which reborrows the
+// receiver. A slice's `&s` reborrows it the same way.
+
+func peek(r: &Int) -> Int {
+    run_int({ [copy r] in r + 0 }) + run_int({ r + 1 })
+}
+
+struct Counter { n: Int }
+
+func run(f: () -> Void) { f() }
+
+func run_int(f: () -> Int) -> Int { f() }
+
+func total(s: &[Int]) -> Int { s.len() }
+
+func grow(v: &var Vector<Int>) -> Int {
+    run({ [&var v] in try! v.push(1) })
+    run({ try! v.push(2) })
+    run_int({ [&v] in v.len() })
+}
+
+func slices(s: &var [Int]) -> Int {
+    run({ [&var s] in s[0] = 1 })
+    run_int({ [&s] in s[0] }) + total(&s)
+}
+
+extension Counter {
+    func bump(&var self) {
+        run({ [&var self] in self.n += 1 })
+    }
+}
+
+func main() {
+    var v: Vector<Int> = [0]
+    print(grow(&var v))
+    print(slices(&var v))
+    var c = Counter(n: 0)
+    c.bump()
+    print(c.n)
+}

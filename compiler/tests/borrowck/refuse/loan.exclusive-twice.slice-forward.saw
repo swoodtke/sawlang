@@ -1,0 +1,13 @@
+// refuses: loan.exclusive-twice at 9:17
+// a slice parameter forwarded `&var s` twice in one call: each sigil
+// reborrows the slice's elements, so the two are exclusive borrows of one
+// place (SL-607)
+
+func two(a: &var [Int], b: &var [Int]) { a[0] = b[0] }
+
+func forward_twice(s: &var [Int]) {
+    two(&var s, &var s)
+}
+
+func main() {
+}

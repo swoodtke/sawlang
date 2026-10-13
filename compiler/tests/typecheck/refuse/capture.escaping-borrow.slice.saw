@@ -1,0 +1,11 @@
+// refuses: capture.escaping-borrow at 7:7
+// an escaping closure capturing a slice parameter: a slice borrows its
+// elements as a reference borrows its referent, and would outlive the call it
+// borrows for (SL-607)
+
+func leak(s: &[Int]) -> () -> Int {
+    { s.len() }
+}
+
+func main() {
+}

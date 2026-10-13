@@ -1,0 +1,13 @@
+// refuses: capture.escaping-borrow at 9:8
+// `[copy r]` of a reference parameter in an escaping closure: the copy is
+// the reference's, so the environment would hold a pointer into storage the
+// caller owns (SL-607)
+
+struct Res { n: Int }
+
+func make(r: &Res) -> () -> Int {
+    { [copy r] in r.n }
+}
+
+func main() {
+}

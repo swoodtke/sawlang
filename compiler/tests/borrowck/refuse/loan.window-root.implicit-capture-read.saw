@@ -1,0 +1,19 @@
+// refuses: loan.window-root at 12:13
+// a closure that only reads a `&var` reference parameter it names with no
+// capture list, inside an exclusive window on `v[0]`: the implicit capture
+// takes the reference in its own mode, exclusive, so it conflicts with the
+// window as `[&v]` would by reading (SL-607)
+
+func run(f: () -> Void) { f() }
+
+func read_under_window(v: &var Vector<Int>) -> Int {
+    var n = 0
+    borrow var first = v[0] {
+        run({ [&var n] in n = v.len() })
+        first += 1
+    }
+    n
+}
+
+func main() {
+}

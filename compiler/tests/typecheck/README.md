@@ -620,7 +620,7 @@ Every body construct in the slice, and how it is typed:
 | tuples, repeat, `Map` and `Set` literals | from the slot, or the first element | funnel |
 | a bracket literal | a `Vector` where the slot is one; otherwise a fixed array `[T; N]`, `T` from the slot or the first element and `N` its element count (spec, Composite Types: "with no expected type it is a fixed-size array") | arrays, funnel |
 | a closure | parameters written or from the slot's function type, or, as a generic call's argument, from the parameter type once inference has solved its parameters; result from the slot or its tail; with no slot, from its first `return`, which the later `return`s and the tail must agree with, so a body whose every path returns has what it returns (design 213, SL-476): all-`return`, a `return` beside a tail, `return`s in `if`/`match` arms and a loop, a generic parameter's slot, a bare `return`, a nested closure's `return` kept to it | control, closure_inference, closure_returns; type.mismatch.closure-returns, .closure-returns-fall-off, .closure-returns-tail |
-| a closure's captures: a Copy local named with nothing written, `[move x]`, `[copy x]`, `[&x]`, `[&var x]`, a reference parameter, `self`, `[&self]`, `[&var self]` | copied, moved, or borrowed as the word or the receiver says; a borrow of the frame only in a closure passed straight to a parameter whose function type does not say `escaping` | captures; transfer.implicit-copy.capture, capture.copy, capture.escaping-borrow, capture.exclusive-self |
+| a closure's captures: a Copy local named with nothing written, `[move x]`, `[copy x]`, `[&x]`, `[&var x]`, a reference parameter, `self`, `[&self]`, `[&var self]` | copied, moved, or borrowed as the word or the receiver says; a borrow of the frame only in a closure passed straight to a parameter whose function type does not say `escaping`. A reference, a slice's included (`is_reference`), is a borrow of the frame under every word, each a reborrow of its referent: `[r]`, `[copy r]` and the implicit capture in the reference's own mode, `[&r]` and `[&var r]` in theirs; `[copy r]` of a `&var` reference is refused, a second writer (`capture.copy.exclusive-reference`), and `[move r]` moves out of a borrow, as `move r` does, and so does `[move x]` of a borrowed match payload or of an enclosing closure's borrow capture (SL-607) | captures; transfer.implicit-copy.capture, capture.copy, capture.escaping-borrow, capture.escaping-borrow.copy-reference, capture.escaping-borrow.slice, capture.exclusive-self, transfer.move-from-borrow.capture-reference, -capture-payload, -capture-inner |
 | `if`, `match` | the merged branch type, or `Void` as a statement | control, patterns |
 | `while`, `while { }`, `while let`, `for`, `break`, `continue`, `return` | `Void`, or `Never` with no `break` | control, places |
 | `let`, `var`, destructuring, assignment, compound assignment, `guard`, `lend` | statements | funnel, patterns, declarations |
@@ -854,6 +854,7 @@ shared twin, SL-470), and a `[&var x]` capture. Under
 | copies of one escaping closure sharing a counter in a `[move v]` capture's heap buffer | refused | mutability.immutable.capture-shared-environment |
 | a nested `[&var n]` of an outer by-value capture | refused | mutability.immutable.capture-reborrow-of-value |
 | a `[&x]` capture's write | refused | mutability.immutable.shared-capture |
+| a `[&v]` capture's write through a `&var` reference parameter, and through a `&var` slice: the capture narrows it, as `[&self]` narrows `&var self` (SL-607) | refused | mutability.immutable.shared-capture-reference, mutability.immutable.shared-capture-slice |
 | `[&var x]` of a `let` | refused | mutability.immutable.exclusive-capture |
 | a plain `static` | refused | mutability.immutable.static |
 | a `var`, its fields and elements; `&var` of one; a `&var self` method on one | allowed | mutability |
@@ -903,6 +904,8 @@ function type, whose own nodes answer. Under `type.reference-position`:
 | a bare `&` in an array literal, a tuple literal, an operator's operand, a closure's tail, a cast to an integer | refused | type.reference-position.array-literal, type.reference-position.tuple-literal, type.reference-position.operand, type.reference-position.closure-return, type.reference-position.cast-to-integer |
 | a binding whose inferred type names a reference: only a bare `&` builds one, as an argument instantiating a generic | refused | type.reference-position.inferred-binding |
 | a reference binding passed with no sigil to a reference parameter, a function's, a `&var` one's, a method's; and to the reference overload when no by-value one fits | refused, `type.mismatch` with the sigil written out | type.mismatch.unsigiled-reference, type.mismatch.unsigiled-exclusive, type.mismatch.unsigiled-method-argument, type.mismatch.unsigiled-overload |
+| a slice binding passed with no sigil to a slice parameter: a slice is forwarded as a reference is, and `&s`, `&var s` reborrow it in the sigil's mode (SL-607) | refused, `type.mismatch` with the sigil written out | type.mismatch.slice-unsigiled |
+| a closure whose inferred result is a slice binding's value: a slice's elements are no one value to read through to (SL-607) | refused | type.reference-position.closure-slice-result |
 | `&var x` for a `&T` parameter: a free function's, a method's, a static method's, an initializer's, by label, a function value's; `borrow var p` for one (SL-484) | refused, `type.mismatch` naming `&x` or `borrow p` | type.mismatch.sigil-exclusive, -exclusive-method, -exclusive-static, -exclusive-init, -exclusive-labeled, -exclusive-closure, -exclusive-borrow |
 | `&x` or `&var x` for a parameter taken by value: Copy, NoCopy through a reference, ExplicitCopy, a generic method's `T` (SL-484) | refused, `type.mismatch` dropping the sigil | type.mismatch.sigil-to-value, -to-value-exclusive, -to-value-nocopy, -to-value-explicit, -to-value-generic |
 | an operator's reference operand, `a + &b` | refused as a bare `&` operand before any sigil question | type.reference-position.operand |
@@ -936,6 +939,7 @@ the walk meets a `move` (`check_whole_move`):
 | `move r` of a reference binding, `&var` and `&` | refused | transfer.move-from-borrow, transfer.move-from-borrow.shared |
 | `move` of a pattern binding that aliases a borrowed scrutinee's part, through a reference or `self` | refused | transfer.move-from-borrow.match-payload, transfer.move-from-borrow.match-self |
 | `move` of a closure's reference parameter | refused | transfer.move-from-borrow.closure-parameter |
+| a `[move x]` capture of a reference parameter, of a payload binding over a borrowed scrutinee, of an enclosing closure's `[&x]` capture: one rule with `move x` (SL-607) | refused | transfer.move-from-borrow.capture-reference, .capture-payload, .capture-inner |
 | `move` of a payload binding where the scrutinee is a name reading through a borrow: a `borrow let`, a `borrow var`, an `if borrow let` unwrap binding, a payload binding matched again, a `[&s]` capture (SL-478) | refused | transfer.move-from-borrow.borrow-let, .borrow-var, .borrow-unwrap, .borrow-payload, .borrow-capture |
 | `move` of a `borrow let` binding itself, and of a `[&s]` capture (row V69) | refused | transfer.move-from-borrow.borrow-binding |
 | a `match` on such a name reading its payloads in place, a Copy payload copied out | allowed | borrowed_scrutinees |
@@ -1099,7 +1103,7 @@ every copy and outlives each call). Checked once captures are settled
 ## The conformance rows
 
 The rows of `examples/conformance/INDEX.md`'s Mutability and References
-sections, and V03–V05, V31, V49, V60–V62, V68 and V70 of its Moves section, each
+sections, and V03–V05, V31, V49, V60–V62, V68, V70 and V124 of its Moves section, each
 with what covers it here; `compiler/tests/borrowck/CONFORMANCE.md` names the
 same fixtures. `m.` abbreviates `refuse/mutability.immutable.`, `r.`
 `refuse/type.reference-position.`, `p.` `refuse/transfer.partial-move.` and
@@ -1123,6 +1127,7 @@ fixture.
 | M38 | the borrow check (U6d2) |
 | M39, M40 | `slice.not-yet` (`syntax.stmt.optional-assign`) |
 | M42, M43, M44 | `m.shared-receiver-array`, `m.optional-payload`, `m.array-element-receiver` |
+| M45 | `m.shared-capture-reference`, `m.shared-capture-slice` (SL-607) |
 | R01, R02, R03, R04, R05 | `r.return`, `r.method-return`, `r.requirement-return`, `r.extern-return`, `r.function-type-return` |
 | R06, R07, R08, R09, R10 | `r.return-tuple`, `r.return-optional`, `r.return-vector`, `r.field`, `r.payload` |
 | R11, R12, R13, R14, R15 | `r` (bare), `r.exclusive-binding`, `r.type-argument` and `r.local-annotation`, `r.explicit-instantiation`, `r.closure-return` |
@@ -1137,8 +1142,10 @@ fixture.
 | V68, V70 | `b.closure-parameter` |
 | V49 | `capture.escaping-consume` (bare): an escaping closure's consume of its `move` capture is refused (SL-469) |
 | R43, R44 | `capture.escaping-borrow.reference-container`, `capture.escaping-borrow.local-container` (SL-467) |
+| R45, R46, R47 | `capture.escaping-borrow.slice`, `capture.escaping-borrow.copy-reference`, `r.closure-slice-result` (SL-607) |
+| V124 | `b.capture-reference`, `b.capture-payload`, `b.capture-inner` (SL-607) |
 
-That is 44 M rows, 36 R rows and 10 V rows: 78 refused here, 6 accepted
+That is 45 M rows, 39 R rows and 11 V rows: 83 refused here, 6 accepted
 here, 5 answered by `slice.not-yet` and 1 by the borrow check.
 
 ## Refusals
@@ -1205,7 +1212,7 @@ says what the fixture shows.
 | `transfer.no-move` | a `move` of a `NoMove` value, or of one holding it inline (an Optional, a tuple, an array, a generic instance), at every position: a binding, an argument, a consuming receiver, a `[move x]` capture, `take()` out of an optional; a by-value parameter placed by `ptr[i] = move p` before any `&`, `&var` or `borrow` named it is the value reaching its home, and allowed (design 188) |
 | `deinit.manual-call` | a `deinit` called by hand, written or synthesized, through a bound or named as a static (spec, The Deinit trait) |
 | `copy.declared-bound` | a body's inferred Copy requirement on one of its own type parameters that its signature does not cover, or on its type's that its extension does not: a public generic that does not declare it, or a declared `ExplicitCopy` the body exceeds (design 219, SL-501) |
-| `capture.copy` | `[copy x]` of a NoCopy binding, which has no copy; `[copy x]` of a value whose type names a type parameter no bound lets the body copy: `Copy` for every one, or `ExplicitCopy` on a bare parameter (D30) |
+| `capture.copy` | `[copy x]` of a NoCopy binding, which has no copy; `[copy x]` of a value whose type names a type parameter no bound lets the body copy: `Copy` for every one, or `ExplicitCopy` on a bare parameter (D30); `[copy r]` of a `&var` reference, a second writer of its referent (SL-607) |
 | `capture.escaping-consume` | a consuming use of a by-value capture in a closure that escapes, at every copy tier: a `move` of it, a `match` consuming it, an inner closure's `[move x]` of it; a spawn form's brace is exempt (SL-469; the escaping-consume matrix) |
 | `capture.escaping-borrow` | a borrow of the enclosing frame, `[&x]`, `[&var x]`, a reference parameter or `self`, captured by a closure that escapes: anything but one passed straight to a parameter whose function type does not say `escaping` (spec, Capturing `self` and reference parameters) |
 | `capture.exclusive-self` | `[&var self]` in a method whose receiver is `&self` |

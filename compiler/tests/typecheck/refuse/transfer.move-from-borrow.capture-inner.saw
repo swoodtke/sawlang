@@ -1,0 +1,16 @@
+// refuses: transfer.move-from-borrow at 14:16
+// an inner closure's `[move h]` of a binding the outer closure captured
+// `[&h]`: the outer closure only borrows it, so its owner still ends it
+// (SL-607)
+
+struct Res { n: Int }
+extension Res: NoCopy {}
+
+func run(f: () sync -> Int) -> Int { f() }
+
+func main() {
+    let h = Res(n: 1)
+    print(run({ [&h] in
+        run({ [move h] in h.n })
+    }))
+}

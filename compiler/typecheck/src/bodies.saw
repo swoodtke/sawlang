@@ -712,9 +712,10 @@ extension TcProgram {
         inner
     }
 
-    // A reference place read by value where a reference parameter expects
-    // it: the call site spells the parameter's sigil (spec, Reference
-    // forwarding), so the read is refused with the forward written out.
+    // A reference place read by value, or a slice place passed bare, where a
+    // reference parameter expects it: the call site spells the parameter's
+    // sigil (spec, Reference forwarding), so the read is refused with the
+    // forward written out.
     func refuse_unsigiled_reference(&var self, e: Int, slot: Int) {
         let m = self.current
         let sigil = if self.is_exclusive_ref(slot) { "&var " } else { "&" }
@@ -723,7 +724,12 @@ extension TcProgram {
         try! msg.append(self.type_text(slot))
         try! msg.append("`, and `")
         try! msg.append(self.text(m, e))
-        try! msg.append("` read here is its referent's value: forward the reference with its sigil, `")
+        let ft = self.final_type(e)
+        if ft >= 0 && self.kind_of(ft) == TcKind.Slice {
+            try! msg.append("` is a slice, which is forwarded as a reference is: forward it with its sigil, `")
+        } else {
+            try! msg.append("` read here is its referent's value: forward the reference with its sigil, `")
+        }
         try! msg.append(sigil)
         try! msg.append(self.text(m, e))
         try! msg.append("`, as the parameter spells it")
@@ -871,13 +877,13 @@ extension TcProgram {
     // borrowed scrutinee, a `[&x]` or `[&var x]` capture (SL-478).
     func scrutinee_origin(&var self, scrutinee: Int, t: Int) -> TcOrigin {
         let own = self.expr_types[scrutinee]
-        if not self.expr_place[scrutinee] && self.referent(own) < 0 {
+        if not self.expr_place[scrutinee] && not self.is_reference(own) {
             return TcOrigin.Temporary
         }
         if self.is_optional(t) && self.lent_place(scrutinee) {
             return TcOrigin.Lent
         }
-        if self.has_alt(scrutinee, Alt.Expr_Name) && self.referent(own) < 0 {
+        if self.has_alt(scrutinee, Alt.Expr_Name) && not self.is_reference(own) {
             let leaf = self.res.first_leaf(scrutinee)
             let b = self.binding_at(leaf)
             let owned = b.kind == ResBindKind.Local && b.node >= 0 && not self.has_alt(b.node, Alt.Decl_Param_Receiver)
@@ -1033,7 +1039,7 @@ extension TcProgram {
             t = self.final_type(e)
             if self.referent(t) >= 0 && self.expr_place[e] {
                 t = self.read_through_reference(e)
-            } else if self.referent(t) >= 0 && not self.has_alt(e, Alt.Expr_Ref_Shared) && not self.has_alt(e, Alt.Expr_Ref_Exclusive) {
+            } else if self.is_reference(t) && not self.has_alt(e, Alt.Expr_Ref_Shared) && not self.has_alt(e, Alt.Expr_Ref_Exclusive) {
                 self.refuse_reference_result(e, t)
             }
         }
@@ -1265,7 +1271,11 @@ extension TcProgram {
             self.take(e, borrowed)
             return from
         }
-        if read && ref_slot {
+        // A slice place is forwarded as a reference is, by its sigil, which
+        // reborrows it; passed bare it would be a second handle on the same
+        // elements that no loan accounts for (SL-607).
+        let bare_slice = sigiled && from >= 0 && self.expr_place[e] && self.kind_of(from) == TcKind.Slice
+        if (read || bare_slice) && ref_slot {
             self.take(e, true)
             self.refuse_unsigiled_reference(e, slot)
             return from
@@ -4003,12 +4013,18 @@ extension TcProgram {
         if accessor >= 0 {
             self.refuse_sigil_place(e, operand, accessor, exclusive)
         }
+        // Whether a `&var` may reborrow it is the writability funnel's
+        // (mutability.saw).
         let inner = self.referent(ot)
         if inner >= 0 {
-            // Whether a `&var` may reborrow it is the writability funnel's
-            // (mutability.saw).
             self.add_adjust(operand, TcAdjustKind.Deref, inner)
             let t = self.mk_ref(exclusive, inner)
+            return self.set_type(e, t, false)
+        }
+        // A slice's elements are no one value to deref to, so its reborrow
+        // is the slice itself in the sigil's mode.
+        if self.is_reference(ot) {
+            let t = self.reborrowed(ot, exclusive)
             return self.set_type(e, t, false)
         }
         let t = self.mk_ref(exclusive, ot)
@@ -4258,25 +4274,42 @@ extension TcProgram {
         let t = self.expr_types[name]
         let leaf = self.res.first_leaf(name)
         let b = self.binding_at(leaf)
-        var reason = ""
-        if t >= 0 && (self.kind_of(t) == TcKind.Ref || self.kind_of(t) == TcKind.Slice) {
-            reason = "it is a reference, which borrows storage its caller owns and ends"
-        } else if b.kind == ResBindKind.Local && b.node >= 0 && self.aliasing_bindings[b.node] {
-            reason = "it names a place it only borrows, a `borrow` binding or a part of a scrutinee a match borrows, so the place's owner still ends it"
-        } else if b.kind == ResBindKind.Local && b.node >= 0 && tc_contains(&self.borrow_captures, b.node) {
-            reason = "the closure captured it by borrow, so its owner outside the closure still ends it"
+        let local = if b.kind == ResBindKind.Local { b.node } else { -1 }
+        let borrowed = local >= 0 && tc_contains(&self.borrow_captures, local)
+        let reason = self.move_from_borrow_reason(t, local, borrowed)
+        if reason.len() > 0 {
+            let m = self.current
+            let written = self.text(m, name)
+            self.refuse_move_from_borrow(e, written, reason)
         }
-        if reason.len() == 0 {
-            return
+    }
+
+    // Why a value of type `t` bound at `binding` (-1 for none) may not be
+    // moved out, or "" when it may: it is a reference, it aliases a place a
+    // `borrow` or a match only borrows, or, `borrowed`, a closure around the
+    // move captured it by borrow. One rule for `move x` and a `[move x]`
+    // capture (SL-607).
+    func move_from_borrow_reason(&self, t: Int, binding: Int, borrowed: Bool) -> String {
+        if self.is_reference(t) {
+            return "it is a reference, which borrows storage its caller owns and ends"
         }
-        let m = self.current
+        if binding >= 0 && self.aliasing_bindings[binding] {
+            return "it names a place it only borrows, a `borrow` binding or a part of a scrutinee a match borrows, so the place's owner still ends it"
+        }
+        if borrowed {
+            return "the closure captured it by borrow, so its owner outside the closure still ends it"
+        }
+        ""
+    }
+
+    func refuse_move_from_borrow(&var self, at: Int, name: String, reason: String) {
         var msg = StringBuilder()
         try! msg.append("cannot move out of `")
-        try! msg.append(self.text(m, name))
+        try! msg.append(name)
         try! msg.append("`: ")
         try! msg.append(reason)
         try! msg.append("; read or borrow it instead, or give the owner a move-out (`take()` on an optional, `swap_out` on an indexed place)")
-        self.refuse(e, "transfer.move-from-borrow", msg.build())
+        self.refuse(at, "transfer.move-from-borrow", msg.build())
     }
 
     // Expression `e` with its parentheses taken off.
@@ -4746,7 +4779,7 @@ extension TcProgram {
         } else {
             body = self.check_statements(e, TC_WANT_NONE, TcTail.Closure)
             result = body
-            if self.referent(result) >= 0 {
+            if self.is_reference(result) {
                 result = self.closure_result_value(e, result)
             }
             result = self.merge_open_result(e, result)
@@ -4817,8 +4850,9 @@ extension TcProgram {
 
     // A closure whose result is inferred, and whose tail is a reference: a
     // reference binding read there gives its value, as `{ e in e }` over a
-    // `&T` returns a `T`; any other reference would leave the call it
-    // borrows for, and is refused (`{ &x }` at the `&`).
+    // `&T` returns a `T`; any other reference, a slice binding's included,
+    // would leave the call it borrows for, and is refused (`{ &x }` at the
+    // `&`).
     func closure_result_value(&var self, e: Int, result: Int) -> Int {
         var tail = -1
         let n = self.child_count(e)
@@ -4830,7 +4864,7 @@ extension TcProgram {
             }
             k = k + 1
         }
-        if tail >= 0 && self.expr_place[tail] {
+        if tail >= 0 && self.expr_place[tail] && self.referent(result) >= 0 {
             return self.read_through_reference(tail)
         }
         let bare = tail >= 0 && (self.has_alt(tail, Alt.Expr_Ref_Shared) || self.has_alt(tail, Alt.Expr_Ref_Exclusive))
@@ -6341,7 +6375,7 @@ extension TcProgram {
         if ia.kind == TcKind.SelfType {
             return b == t
         }
-        if ia.kind == TcKind.Ref && ib.kind == TcKind.Ref && ia.a == ib.a {
+        if self.is_reference(a) && ia.kind == ib.kind && ia.a == ib.a {
             return self.same_under_self(ia.b, ib.b, t)
         }
         false
@@ -9582,6 +9616,29 @@ extension TcProgram {
         false
     }
 
+    // Whether a closure around closure `e` captured the binding declared at
+    // `binding` by borrow. An enclosing closure's captures are recorded
+    // first, since a closure is listed before the closures its body holds.
+    func borrowed_by_enclosing_capture(&self, e: Int, binding: Int) -> Bool {
+        let inner = self.res.nodes[e]
+        var k = 0
+        while k < self.captures.len() {
+            let cap = self.captures[k]
+            k = k + 1
+            if cap.binding != binding || cap.closure == e {
+                continue
+            }
+            if cap.use != TcUse.Borrow && cap.use != TcUse.BorrowVar {
+                continue
+            }
+            let outer = self.res.nodes[cap.closure]
+            if inner.start >= outer.start && inner.end <= outer.end {
+                return true
+            }
+        }
+        false
+    }
+
     // Records one capture of the binding declared at `binding`, written as
     // capture-list entry `entry` or first named at `site` (`entry` -1).
     func add_capture(&var self, e: Int, d: Int, binding: Int, site: Int, entry: Int, escapes: Bool) {
@@ -9593,16 +9650,30 @@ extension TcProgram {
         }
         let consumes = (s.effects & TC_EFFECT_CONSUMES) != 0
         var u = TcUse.Copy
-        var frame = false
+        // A reference is a borrow of storage the caller owns whichever word
+        // captures it: every capture of one reborrows its referent, in the
+        // reference's own mode for `[r]`, `[copy r]` and the implicit
+        // capture, so the frame rule holds under every word (SL-607).
+        let reference = self.is_reference(t)
+        var frame = reference
         if entry >= 0 && self.has_alt(entry, Alt.Expr_Capture_Move) {
             u = TcUse.Move
-            if t >= 0 && not self.has_error(t) && self.is_no_move(t, 0) {
+            let borrowed = self.borrowed_by_enclosing_capture(e, binding)
+            let reason = self.move_from_borrow_reason(t, binding, borrowed)
+            if reason.len() > 0 {
+                let name = self.capture_name(binding)
+                self.refuse_move_from_borrow(entry, name, reason)
+                frame = false
+            } else if t >= 0 && not self.has_error(t) && self.is_no_move(t, 0) {
                 self.refuse_no_move(entry, binding, t, "`move`", "may not be moved into a closure")
             }
         } else if entry >= 0 && self.has_alt(entry, Alt.Expr_Capture_Copy) {
-            if t >= 0 && not self.has_error(t) && not self.copies_silently(t) && self.tier_word(t).equals("NoCopy") {
+            let value = not reference && t >= 0 && not self.has_error(t)
+            if reference && self.is_exclusive_ref(t) {
+                self.refuse_copy_exclusive_reference(entry, binding, t)
+            } else if value && not self.copies_silently(t) && self.tier_word(t).equals("NoCopy") {
                 self.refuse_capture_copy(entry, binding, t)
-            } else if t >= 0 && not self.has_error(t) && self.mentions_param(t) && not self.capture_copies(t, d) {
+            } else if value && self.mentions_param(t) && not self.capture_copies(t, d) {
                 self.refuse_generic_capture(entry, binding, t)
             }
         } else if entry >= 0 && (self.has_alt(entry, Alt.Expr_Capture_Borrow) || self.has_alt(entry, Alt.Expr_Capture_Self)) {
@@ -9620,18 +9691,17 @@ extension TcProgram {
         } else if receiver && not consumes {
             u = if s.receiver == TcReceiver.Exclusive { TcUse.BorrowVar } else { TcUse.Borrow }
             frame = true
-        } else if t >= 0 && self.kind_of(t) == TcKind.Ref {
-            frame = true
-        } else if t >= 0 && not self.has_error(t) && not self.copies_silently(t) {
+        } else if not reference && t >= 0 && not self.has_error(t) && not self.copies_silently(t) {
             self.refuse_capture_by_value(site, binding, t)
-        } else if t >= 0 && not self.has_error(t) && self.mentions_param(t) {
+        } else if not reference && t >= 0 && not self.has_error(t) && self.mentions_param(t) {
             // A silent by-value capture copies at the closure's creation,
             // design 219's inferred requirement, checked at each call (D30).
             self.implied_copies[site] = t
         }
         // A borrow of the enclosing frame lowers to a pointer into it.
         if frame && escapes {
-            self.refuse_escaping_borrow(site, binding, t, entry >= 0)
+            let sigiled = entry >= 0 && (u == TcUse.Borrow || u == TcUse.BorrowVar)
+            self.refuse_escaping_borrow(site, binding, t, sigiled)
         }
         // A non-escaping closure may capture a non-escaping function value,
         // which keeps its kind in the body (SL:open-questions D35).
@@ -9786,6 +9856,23 @@ extension TcProgram {
         self.refuse(entry, "capture.copy", msg.build())
     }
 
+    // `[copy r]` of a `&var` reference would be a second writer beside `r`;
+    // `[&var r]` is the capture that hands the closure the one writer.
+    func refuse_copy_exclusive_reference(&var self, entry: Int, binding: Int, t: Int) {
+        let name = self.capture_name(binding)
+        var msg = StringBuilder()
+        try! msg.append("`[copy ")
+        try! msg.append(name)
+        try! msg.append("]` copies `")
+        try! msg.append(name)
+        try! msg.append("`, an exclusive reference (`")
+        try! msg.append(self.type_text(t))
+        try! msg.append("`), and a copy would be a second writer of what it refers to: capture it with `[&var ")
+        try! msg.append(name)
+        try! msg.append("]`, which reborrows it for the closure's life")
+        self.refuse(entry, "capture.copy", msg.build())
+    }
+
     func refuse_exclusive_self(&var self, entry: Int, d: Int) {
         var msg = StringBuilder()
         try! msg.append("`[&var self]` needs a `&var self` receiver")
@@ -9798,14 +9885,15 @@ extension TcProgram {
         self.refuse(entry, "capture.exclusive-self", msg.build())
     }
 
-    func refuse_escaping_borrow(&var self, site: Int, binding: Int, t: Int, written: Bool) {
+    // `sigiled`: the capture list spells the borrow, `[&x]` or `[&var x]`.
+    func refuse_escaping_borrow(&var self, site: Int, binding: Int, t: Int, sigiled: Bool) {
         let name = self.capture_name(binding)
         var msg = StringBuilder()
         try! msg.append("an escaping closure cannot capture `")
         try! msg.append(name)
         if self.has_alt(binding, Alt.Decl_Param_Receiver) {
             try! msg.append("`: a method's receiver is a borrow of storage the caller owns")
-        } else if not written && t >= 0 && self.kind_of(t) == TcKind.Ref {
+        } else if not sigiled && self.is_reference(t) {
             try! msg.append("`, a reference (`")
             try! msg.append(self.type_text(t))
             try! msg.append("`)")

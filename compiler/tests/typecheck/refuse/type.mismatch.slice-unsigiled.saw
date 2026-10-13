@@ -1,0 +1,13 @@
+// refuses: type.mismatch at 9:11
+// a slice parameter forwarded bare: a slice is forwarded as a reference is,
+// by its sigil, `&s`, which reborrows it; a bare copy would be a second
+// handle on its elements no loan accounts for (SL-607)
+
+func total(s: &[Int]) -> Int { s.len() }
+
+func pass_on(s: &var [Int]) -> Int {
+    total(s)
+}
+
+func main() {
+}

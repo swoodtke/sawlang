@@ -133,8 +133,15 @@ dump are its clients.
   makes the hop it is nested in exclusive too, transitively (§2.2). Stage
   0's std predates declared modes, so each of its
   accessors serves both from one declaration, the use site choosing. A
-  closure that copies a reference into its environment makes a loan on the
-  referent. A `ref` of an accessor's state record makes none.
+  closure holding a reference in its environment, a slice's included, makes a
+  loan on the referent, `(*_k)`, which for a slice stands for its elements.
+  Every capture of a reference binding, implicit, `[r]`, `[copy r]`, `[&r]` or
+  `[&var r]`, reaches the check as a reborrow, `ref(MODE, (*_k))`, the shape
+  `self`'s capture and `&r` have: an access of the referent, so it meets a
+  window or an argument holding it. A copy of the reference would read only
+  the reference's own local, which no loan on the referent overlaps (SL-607).
+  A slice's `&s` and `&var s` are reborrows of the same shape, typed as the
+  slice. A `ref` of an accessor's state record makes none.
 - **Liveness.** A window's loan is live from its open's present edge to its
   `window_close`, so a conditional lend's absent edge carries none. Any other
   loan is live where a local carrying it is live, by a backward liveness of
@@ -174,12 +181,12 @@ dump are its clients.
 | `move.use-after` | a read, a borrow, a move or a call through a place that may have been moved, or a part of which may have been moved out (`M` or `P`); a write to a part of a place that may have been moved whole | `move.use-after`, `.double`, `.loop`, `.branch`, `.field-init`, `.force`, `.consumed`, `.partial`, `.while-condition`, `.take`, `.retake` |
 | `consumes.some-paths` | a `consumes` method's receiver, or a field of it, moved out on some paths to a `return` and left on others (spec, Moving a field out); a path that diverges reaches no `return`, so it is exempt | `consumes.some-paths` |
 | `loan.read-while-exclusive` | a read or a shared borrow of a place overlapping a live exclusive loan | `loan.read-while-exclusive`, `.tuple-element`, `.forwarded` |
-| `loan.write-while-shared` | a write or an exclusive borrow of a place overlapping a live shared loan | `loan.write-while-shared`, `.receiver` |
-| `loan.exclusive-twice` | a write or an exclusive borrow of a place overlapping a live exclusive loan | `loan.exclusive-twice`, `.dynamic-index` |
+| `loan.write-while-shared` | a write or an exclusive borrow of a place overlapping a live shared loan | `loan.write-while-shared`, `.receiver`; a slice forwarded `&s` beside `&var s`: `.slice-forward` |
+| `loan.exclusive-twice` | a write or an exclusive borrow of a place overlapping a live exclusive loan | `loan.exclusive-twice`, `.dynamic-index`; `&var v` beside a `[&var v]` capture of the same reference parameter: `.capture-reference`; a closure naming the same parameter with no capture list: `.implicit-capture-reference`; a slice forwarded `&var s` twice: `.slice-forward`; a `[&var s]` capture inside a borrow of an element: `.slice-capture` |
 | `loan.move-while-borrowed` | a move of a place overlapping a live loan, a take included | `loan.move-while-borrowed`, `.take` |
 | `loan.drop-while-borrowed` | a drop, at a scope's end or before an assignment, of a place overlapping a live loan | `loan.drop-while-borrowed` |
-| `loan.window-root` | any access but a move or a drop that conflicts with a live window's loan on its whole root | `loan.window-root`, `.receiver-order`, `.two-windows`, `.beside-root`, `.forced`; a chain of hops, each exclusive under an exclusive one: `.chain` (block), `.chain-argument` (statement), `.chain-field`, `.chain-member`, `.chain-method`, `.chain-lend`, `.chain-cell`, and `.chain-for` (due); a window a `borrow` block keeps open across its `lend`, in the epilogue: `.carried` |
-| `loan.closure-carrier` | any access but a move or a drop that conflicts with a loan a live closure carries | `loan.closure-carrier` |
+| `loan.window-root` | any access but a move or a drop that conflicts with a live window's loan on its whole root | `loan.window-root`, `.receiver-order`, `.two-windows`, `.beside-root`, `.forced`; a chain of hops, each exclusive under an exclusive one: `.chain` (block), `.chain-argument` (statement), `.chain-field`, `.chain-member`, `.chain-method`, `.chain-lend`, `.chain-cell`, and `.chain-for` (due); a window a `borrow` block keeps open across its `lend`, in the epilogue: `.carried`; a `[&var v]` or `[&v]` capture of a reference parameter made inside a window on it, and the two as arguments of one call: `.capture-reference`, `.shared-capture-reference`, `.capture-reference-argument`; with no capture list, growing it or reading it: `.implicit-capture-reference`, `.implicit-capture-read`; a nested closure re-capturing it under the outer closure's window: `.nested-capture` |
+| `loan.closure-carrier` | any access but a move or a drop that conflicts with a loan a live closure carries | `loan.closure-carrier`; a window on a reference parameter after a `[&var v]` closure in one call: `.capture-reference` |
 | `loan.nested-call` | in a call's access set (spec, Nested calls), two written references overlapping, one exclusive and one inside a nested call, or a written `&var` inside a nested call overlapping the receiver of a call it is nested in, a shared reservation for the whole call | `loan.nested-call`, `.receiver`, `.sibling` |
 | `loan.sync-suspend` | a suspension point, a call that may suspend or a yield-capable budget point, while a `borrows(sync)` window is open; typecheck's `borrows.sync-window` refuses the block form first | `loan.sync-suspend` |
 | `lend.root` | a `lend` of a place that is not the receiver's own storage (spec, The lent place is rooted in the receiver): the accessor's own local or parameter, a place a reference parameter refers to (`&var` included), or a static. The receiver's storage is a place rooted in `self`, one reached through an indirection whose pointer was read out of the receiver (`lend buf[index]`), and, by tracing, a window opened on either | `lend.root`, `.parameter`, `.reference-parameter` |
@@ -357,4 +364,5 @@ information.
 | a call's access set accepted: `combine(n.get(), bump(&var n))`, disjoint fields, distinct roots | calls |
 | an assignment's right side reading its target, or borrowing a disjoint path | calls |
 | a non-escaping `[&var v]` closure writing `v`, its loan ending at its last call; a captured reference parameter | loan.closure-carrier |
+| a slice forwarded by its sigil, two shared reborrows side by side; a slice captured implicitly and `[&var s]`, each closure's loan on its elements ending at its last call | slices |
 | a `lend` rooted in `self` or forwarding a window on it, the forwarded window closed as the `lend` completes so the epilogue reaches the root again; a `lend` inside a `borrow` block beside a disjoint field; a `borrows(sync)` forward declared so; a conditional lend's absent path | accessors |

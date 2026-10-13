@@ -1,0 +1,26 @@
+// refuses: loan.window-root at 11:13
+// a closure naming a `&var` reference parameter with no capture list, made
+// inside a window on `v[0]`: the implicit capture reborrows what `v` refers
+// to, exclusively, so it conflicts with the window; the pushes would
+// reallocate the buffer `first` points into (SL-607)
+
+func run(f: () -> Void) { f() }
+
+func through_param(v: &var Vector<Int>) {
+    borrow var first = v[0] {
+        run({
+            var k = 0
+            while k < 64 {
+                try! v.push(k)
+                k = k + 1
+            }
+        })
+        first += 100
+    }
+}
+
+func main() {
+    var v: Vector<Int> = [1]
+    through_param(&var v)
+    print(v[0])
+}

@@ -526,6 +526,19 @@ extension MirProgram {
         self.push_rvalue(MirRvalueKind.Ref, t, -1, exclusive, p, first, 0, MirAggregate.Plain, -1)
     }
 
+    // A reborrow of reference place `p`, a `&T` or a slice, in mode
+    // `exclusive`: a `ref` of `(*p)`, so its loan stands on the storage `p`
+    // refers to and traces to whatever `p` was made from. A slice's deref
+    // names its elements, and the reborrow is the slice in the new mode.
+    public func rv_reborrow(&var self, exclusive: Bool, p: Int) -> Int {
+        let t = self.place_type(p)
+        let inner = self.tc.deref_type(t)
+        let d = self.project(p, MirProjKind.Deref, -1, -1, inner)
+        let rt = self.tc.reborrowed(t, exclusive)
+        let first = self.lists.len()
+        self.push_rvalue(MirRvalueKind.Ref, rt, -1, exclusive, d, first, 0, MirAggregate.Plain, -1)
+    }
+
     // An rvalue over operands `ops`: one of kind `kind` whose spelling is
     // `op` ("" for none).
     public func rv_over(&var self, kind: MirRvalueKind, t: Int, op: String, ops: &Vector<Int>) -> Int {

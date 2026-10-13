@@ -1,0 +1,19 @@
+// refuses: loan.exclusive-twice at 12:18
+// `&var v` and a closure capturing `[&var v]` of the same reference parameter
+// in one call: two exclusive borrows of what `v` refers to (SL-607; Stage 0
+// refuses it as an exclusive access violation)
+
+func both(a: &var Vector<Int>, f: () -> Void) {
+    f()
+    try! a.push(2)
+}
+
+func twice(v: &var Vector<Int>) {
+    both(&var v, { [&var v] in try! v.push(1) })
+}
+
+func main() {
+    var v: Vector<Int> = [1]
+    twice(&var v)
+    print(v.len())
+}

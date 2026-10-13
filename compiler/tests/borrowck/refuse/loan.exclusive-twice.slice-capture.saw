@@ -1,0 +1,15 @@
+// refuses: loan.exclusive-twice at 9:13
+// a `[&var s]` capture of a slice parameter inside a `borrow var` of one of
+// its elements: the capture reborrows the elements the borrow holds (SL-607)
+
+func run(f: () -> Void) { f() }
+
+func explicit_under_borrow(s: &var [Int]) {
+    borrow var first = s[0] {
+        run({ [&var s] in s[1] = 5 })
+        first += 1
+    }
+}
+
+func main() {
+}

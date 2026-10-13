@@ -1,0 +1,15 @@
+// refuses: type.reference-position at 9:21
+// a closure whose inferred result is a slice binding's value: a slice is a
+// reference, and one handed out of the closure would outlive the call it
+// borrows for (SL-607)
+
+func run(f: () -> Int) -> Int { f() }
+
+func lens(s: &[Int]) -> Int {
+    run({ let t = { s }
+        0
+    })
+}
+
+func main() {
+}

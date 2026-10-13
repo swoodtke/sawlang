@@ -1,0 +1,15 @@
+// refuses: transfer.move-from-borrow at 11:12
+// `[move r]` of a reference parameter moves out of storage the caller owns,
+// as `move r` does (SL-607; Stage 0: "cannot move out of reference `r`")
+
+struct Res { n: Int }
+extension Res: NoCopy {}
+
+func run(f: () sync -> Int) -> Int { f() }
+
+func take_param(r: &Res) -> Int {
+    run({ [move r] in r.n })
+}
+
+func main() {
+}

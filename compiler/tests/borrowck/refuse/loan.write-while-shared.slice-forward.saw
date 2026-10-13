@@ -1,0 +1,12 @@
+// refuses: loan.write-while-shared at 8:14
+// a slice parameter forwarded `&s` and `&var s` in one call: the shared
+// reborrow and the exclusive one hold the same elements (SL-607)
+
+func pair(a: &[Int], b: &var [Int]) { b[0] = a[0] }
+
+func forward_mixed(s: &var [Int]) {
+    pair(&s, &var s)
+}
+
+func main() {
+}

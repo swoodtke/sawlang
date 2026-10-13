@@ -31,12 +31,13 @@ fn closures.closures(limit: Int, total: &var Int, name: String) -> Int {
     let _10: (Int) -> Int;
     let _11: Int;  // both
     let _12: &var Int;
-    let _13: (Int) -> Int;
-    let _14: Int;
+    let _13: &var Int;
+    let _14: (Int) -> Int;
     let _15: Int;
     let _16: Int;
     let _17: Int;
     let _18: Int;
+    let _19: Int;
 
     bb0: {
         _5 = closures.Handle { name: copy _3 };
@@ -47,23 +48,24 @@ fn closures.closures(limit: Int, total: &var Int, name: String) -> Int {
         _10 = closure#1 of closures.closures(limit: Int, total: &var Int, name: String) [move _4];
         _9 = move _10;
         _12 = ref(exclusive, _6);
-        _13 = closure#2 of closures.closures(limit: Int, total: &var Int, name: String) [move _12, copy _2];
-        _14 = call closures.apply(f: (Int) -> Int, x: Int) [move _13, const 4: Int] -> [return: bb1];
+        _13 = ref(exclusive, (*_2));
+        _14 = closure#2 of closures.closures(limit: Int, total: &var Int, name: String) [move _12, move _13];
+        _15 = call closures.apply(f: (Int) -> Int, x: Int) [move _14, const 4: Int] -> [return: bb1];
     }
 
     bb1: {
-        _11 = move _14;
-        _15 = call value copy _7 [const 1: Int] -> [return: bb2];
+        _11 = move _15;
+        _16 = call value copy _7 [const 1: Int] -> [return: bb2];
     }
 
     bb2: {
-        _16 = call value copy _9 [const 2: Int] -> [return: bb3];
+        _17 = call value copy _9 [const 2: Int] -> [return: bb3];
     }
 
     bb3: {
-        _17 = Add(move _15, move _16);
-        _18 = Add(move _17, copy _11);
-        _0 = move _18;
+        _18 = Add(move _16, move _17);
+        _19 = Add(move _18, copy _11);
+        _0 = move _19;
         drop(_9);
         drop(_7);
         drop(_4);

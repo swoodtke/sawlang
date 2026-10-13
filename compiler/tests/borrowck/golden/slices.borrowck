@@ -1,0 +1,165 @@
+module slices
+
+fn slices.run(f: () -> Void) {
+    place _1: () -> Void;  // f
+
+    bb0: {
+        [W] call value copy _1 [] -> [return: bb1];
+    }
+
+    bb1: {
+        [W] drop(_1);  // static
+        [D] return;
+    }
+}
+
+fn slices.total(s: &[Int]) {
+
+    bb0: {
+        [] _2 = call builtin len [copy _1] -> [return: bb1];
+    }
+
+    bb1: {
+        [] _0 = move _2;
+        [] return;
+    }
+}
+
+fn slices.both(a: &[Int], b: &[Int]) {
+
+    bb0: {
+        [] _3 = call builtin len [copy _1] -> [return: bb1];
+    }
+
+    bb1: {
+        [] _4 = call builtin len [copy _2] -> [return: bb2];
+    }
+
+    bb2: {
+        [] _5 = Add(move _3, move _4);
+        [] _0 = move _5;
+        [] return;
+    }
+}
+
+fn slices.fill(s: &var [Int], k: Int) {
+
+    bb0: {
+        [] _3 = const 0: Int;
+        [] _1[_3] = copy _2;
+        [] return;
+    }
+}
+
+fn slices.forward(s: &var [Int]) {
+    loan L0: exclusive (*_1);  // argument at 16:10
+    loan L1: shared (*_1);  // argument at 17:10
+    loan L2: shared (*_1);  // argument at 17:14
+    loan L3: shared (*_1);  // argument at 17:26
+
+    bb0: {
+        [] {} _2 = ref(exclusive, (*_1));
+        [] {L0} call slices.fill(s: &var [Int], k: Int) [move _2, const 3: Int] -> [return: bb1];
+    }
+
+    bb1: {
+        [] {} _3 = ref(shared, (*_1));
+        [] {L1} _4 = ref(shared, (*_1));
+        [] {L1 L2} _5 = call slices.both(a: &[Int], b: &[Int]) [move _3, move _4] -> [return: bb2];
+    }
+
+    bb2: {
+        [] {} _6 = ref(shared, (*_1));
+        [] {L3} _7 = call slices.total(s: &[Int]) [move _6] -> [return: bb3];
+    }
+
+    bb3: {
+        [] {} _8 = Add(move _5, move _7);
+        [] {} _0 = move _8;
+        [] {} return;
+    }
+}
+
+fn slices.captured(s: &var [Int]) {
+    place _3: () -> Void;  // _3
+    place _5: () -> Void;  // _5
+    loan L0: exclusive (*_1);  // capture at 21:9
+    loan L1: exclusive (*_2);  // capture at 21:9
+    loan L2: exclusive (*_1);  // capture at 22:9
+    loan L3: exclusive (*_4);  // capture at 22:9
+
+    bb0: {
+        [U U] {} _2 = ref(exclusive, (*_1));
+        [U U] {L0} _3 = closure#0 of slices.captured(s: &var [Int]) [move _2];
+        [W U] {L0 L1} call slices.run(f: () -> Void) [move _3] -> [return: bb1];
+    }
+
+    bb1: {
+        [M U] {} _4 = ref(exclusive, (*_1));
+        [M U] {L2} _5 = closure#1 of slices.captured(s: &var [Int]) [move _4];
+        [M W] {L2 L3} call slices.run(f: () -> Void) [move _5] -> [return: bb2];
+    }
+
+    bb2: {
+        [M M] {} _6 = const 0: Int;
+        [M M] {} _7 = copy _1[_6];
+        [M M] {} _8 = const 1: Int;
+        [M M] {} _9 = Add(move _7, copy _1[_8]);
+        [M M] {} _0 = move _9;
+        [M M] {} return;
+    }
+}
+
+fn closure#0 of slices.captured(s: &var [Int]) {
+
+    bb0: {
+        [] _2 = copy (*_1).0;
+        [] _3 = const 0: Int;
+        [] _2[_3] = const 4: Int;
+        [] return;
+    }
+}
+
+fn closure#1 of slices.captured(s: &var [Int]) {
+
+    bb0: {
+        [] _2 = copy (*_1).0;
+        [] _3 = const 1: Int;
+        [] _2[_3] = const 5: Int;
+        [] return;
+    }
+}
+
+fn slices.main() {
+    place _1: std.vector.Vector<Int, std.alloc.GlobalAllocator>;  // v
+    place _2: std.vector.Vector<Int, std.alloc.GlobalAllocator>;  // _2
+    loan L0: exclusive _1;  // ref at 28:19
+    loan L1: exclusive _1;  // ref at 29:20
+
+    bb0: {
+        [U U] {} _2 = vector [const 1: Int, const 2: Int]: std.vector.Vector<Int, std.alloc.GlobalAllocator>;
+        [U W] {} _1 = move _2;
+        [W M] {} _3 = ref(exclusive, _1);
+        [W M] {L0} _4 = slice(move _3 as &var [Int]);
+        [W M] {L0} _5 = call slices.forward(s: &var [Int]) [move _4] -> [return: bb1];
+    }
+
+    bb1: {
+        [W M] {} call builtin print [copy _5] -> [return: bb2];
+    }
+
+    bb2: {
+        [W M] {} _6 = ref(exclusive, _1);
+        [W M] {L1} _7 = slice(move _6 as &var [Int]);
+        [W M] {L1} _8 = call slices.captured(s: &var [Int]) [move _7] -> [return: bb3];
+    }
+
+    bb3: {
+        [W M] {} call builtin print [copy _8] -> [return: bb4];
+    }
+
+    bb4: {
+        [W M] {} drop(_1);  // static
+        [D M] {} return;
+    }
+}

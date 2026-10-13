@@ -1,0 +1,13 @@
+// refuses: mutability.immutable at 9:24
+// `[&v]` of a `&var` reference parameter captures it shared, as `[&self]`
+// narrows a `&var self` receiver, so the body's push is refused (SL-607;
+// Stage 0 refuses it the same way)
+
+func run(f: () -> Void) { f() }
+
+func grow(v: &var Vector<Int>) {
+    run({ [&v] in try! v.push(1) })
+}
+
+func main() {
+}

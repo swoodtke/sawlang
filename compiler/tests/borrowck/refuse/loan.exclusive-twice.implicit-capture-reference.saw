@@ -1,0 +1,21 @@
+// refuses: loan.exclusive-twice at 14:18
+// `&var r` and a closure naming the same `&var` reference parameter with no
+// capture list, in one call: the implicit capture is an exclusive reborrow,
+// so the callee would hold two writers of one referent and `noalias` could
+// drop the closure's write (SL-607)
+
+func both(a: &var Int, body: () -> Void) {
+    a += 1
+    body()
+    a += 1
+}
+
+func twice(r: &var Int) {
+    both(&var r, { r += 10 })
+}
+
+func main() {
+    var n = 0
+    twice(&var n)
+    print(n)
+}
