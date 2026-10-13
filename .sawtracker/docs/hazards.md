@@ -1392,7 +1392,35 @@ the text, or append whole strings, which cut on a boundary.
 
 **Checker:** not needed yet: no `compiler/` source uses fixed mode.
 
+### L26. A reborrowing argument to a suspending callee that borrows its by-value parameter (SL-621)
+
+**Shape:** Stage 0 crashes with an internal compiler error when all three hold:
+- a callee suspends;
+- the callee passes `&param` of one of its by-value parameters to a function;
+- the caller's argument for that parameter reads through one of the caller's own reference parameters, either as a call (`text(&n)`) or as a receiver (`jobs.copy()`).
+
+```saw
+func size(s: &String) -> Int { s.len() }
+func call(body: String) -> Int {
+    sleep(Duration.secs(0))
+    return size(&body)
+}
+func text(n: &Int) -> String { "x" }
+func ask(n: &Int) -> Int {
+    return call(text(&n))
+}
+// internal compiler error: LLVM IR parsing error
+//   ret {i1, i8*} %"autowrap_val"   (value doesn't match function result type 'ptr')
+```
+
+The argument is lowered as a closure over the caller's frame, typed against the callee's presence-tagged frame slot, and auto-wrapped, so it returns `{i1, T}` where `T` is declared. It fails at -O0 and -O2. Sawtracker's SAW_NOTES ST-SAW-7 is the same shape, `handle(jobs.copy())` with `jobs: &Channel<Int>`.
+
+**Instead:** bind the argument to a local, then move it: `let body = text(&n)`, then `return call(move body)`.
+
+**Checker:** not needed: the build fails loudly, and the self-hosted compiler is sync-only.
+
 ## Cases with no issue
+
 
 These four come from codex's review of the parked SL-2.p2 r3 (SL-2 c29, with
 the lead's c30). Two of them are defects of that parked patch rather than of
