@@ -933,6 +933,7 @@ The plan holds except where an amendment below says otherwise. Each one is the l
   - A7c's files gain `typecheck/src/{api,program,model}.saw`, for the handle types by module lookup and a spawn role. A7c writes the `Never`-body check as one funnel.
   - A7a now depends on A7d.
   - K78 and K79 (`Thread.spawn` handles) move to A18.
+- **The run-time half of must-consume (SL-595 c2 and c4, from the Air's review of A7d):** A7b's `Task<T>`/`VoidTask` carry a provenance word, and their destructor panics with Stage 0's message when a singleton handle is dropped unconsumed. A7a writes 'singleton' at a `Task.spawn` site, and A8b writes 'group'. A7d pins both discard spellings, and states which escapes are refused statically and which are left to the panic.
 
 ## 5. Open questions for the user
 
