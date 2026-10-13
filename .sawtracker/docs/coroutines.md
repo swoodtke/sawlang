@@ -933,6 +933,7 @@ The plan holds except where an amendment below says otherwise. Each one is the l
   - A7c's files gain `typecheck/src/{api,program,model}.saw`, for the handle types by module lookup and a spawn role. A7c writes the `Never`-body check as one funnel.
   - A7a now depends on A7d.
   - K78 and K79 (`Thread.spawn` handles) move to A18.
+- **A3b, A4 and A9 (SL-555 c4):** with the ready role on `__saw_park_ready` (A2), `yield_now` is a child frame. So A3b takes A4's smallest drive (a child with no parameters and a `Void` result: the child slot, the state reset, the drive block, `Pending` passed through, `Ready` continuing). A4 extends it with parameter slots, the result move-out and the test intrinsics. A3b's `yield_main` is straight-line, because a suspending `main`'s loop has a live budget point, which is A9's, and A9 adds the loop form. A3b's corpus pins are the four single-yield programs a3b's census found. The plan's "`async_main_*` without `sleep`" pin is void and goes to A11. The funnel deciding which frames are lowered is `coro_frame_lowered`.
 - **The run-time half of must-consume (SL-595 c2 and c4, from the Air's review of A7d):** A7b's `Task<T>`/`VoidTask` carry a provenance word, and their destructor panics with Stage 0's message when a singleton handle is dropped unconsumed. A7a writes 'singleton' at a `Task.spawn` site, and A8b writes 'group'. A7d pins both discard spellings, and states which escapes are refused statically and which are left to the panic.
 
 ## 5. Open questions for the user
