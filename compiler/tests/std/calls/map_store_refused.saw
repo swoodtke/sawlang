@@ -1,0 +1,12 @@
+// refuses: subscript.role at 10:5
+// `m[k] = v` inserts or replaces, a setitem `Map` must declare, and the std
+// profile cannot read a `[]=` declaration yet (SL-600). The place accessor
+// alone would derive a setitem that replaces and panics on a missing key, so
+// `Map.[]` lends read-only and the store is refused rather than given that
+// meaning. `insert` is the spelling that stores.
+
+func main() -> Int {
+    var m = Map<String, Int>()
+    m["a"] = 1
+    m.len()
+}

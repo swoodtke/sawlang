@@ -1,0 +1,56 @@
+// Set's operations over String elements: insert, membership and remove;
+// `Set.of` and `Set(from:)`, where duplicates collapse; the visitor; and the
+// algebra, each answer a new set or a Bool. Only counts and memberships
+// print, since iteration order is unspecified.
+
+func names(n: Int) -> Vector<String> {
+    var v = Vector<String>()
+    var i = 0
+    while i < n {
+        try! v.push("e{i % 10}")
+        i = i + 1
+    }
+    move v
+}
+
+func main() {
+    var s = Set<String>()
+    print("empty {} len {}", s.is_empty(), s.len())
+    let added = try! s.insert("red")
+    let again = try! s.insert("red")
+    print("first insert {} second insert {}", added, again)
+    let _ = try! s.insert("green")
+    let _ = try! s.insert("blue")
+    print("len {} has green {} has pink {}", s.len(), s.contains("green"), s.contains("pink"))
+    print("remove green {} remove green again {}", s.remove("green"), s.remove("green"))
+    print("len after remove {}", s.len())
+
+    let one = try! Set<String>.of("solo")
+    print("of: len {} has solo {}", one.len(), one.contains("solo"))
+    let from = try! Set<String>(from: names(35))
+    print("from 35 names: len {} has e3 {} has e10 {}", from.len(), from.contains("e3"), from.contains("e10"))
+
+    var lengths = 0
+    from.each({ [&var lengths] e: &String in lengths = lengths + e.len() })
+    print("each visited total length {}", lengths)
+
+    var evens = Set<String>()
+    var i = 0
+    while i < 10 {
+        let _ = try! evens.insert("e{i}")
+        i = i + 2
+    }
+    let _ = try! evens.insert("e12")
+    let u = try! from.union(&evens)
+    let n = try! from.intersection(&evens)
+    let d = try! from.difference(&evens)
+    print("union {} intersection {} difference {}", u.len(), n.len(), d.len())
+    print("union has e12 {} intersection has e3 {} difference has e4 {}", u.contains("e12"), n.contains("e3"),
+          d.contains("e4"))
+    let small = try! Set<String>.of("e4")
+    print("subset {} superset {}", try! small.is_subset(&from), try! from.is_superset(&small))
+    print("evens subset of from {} from superset of evens {}", try! evens.is_subset(&from),
+          try! from.is_superset(&evens))
+    let v = try! from.to_vector()
+    print("to_vector {}", v.len())
+}

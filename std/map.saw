@@ -1,0 +1,467 @@
+//! `Map<K, V, A>`: a hash table from `K` to `V`, allocated through `A`,
+//! `GlobalAllocator` by default.
+//!
+//! The table is open addressing with linear probing over a power-of-two
+//! number of slots, and a removal leaves a tombstone so a probe walks past it.
+//! Iteration order is unspecified. Every operation that can run out of memory
+//! reports it as `Err(AllocError)` and leaves the map as it was.
+//! `Map` is ExplicitCopy when both `K` and `V` are: a transfer is `move m` or
+//! `m.copy()`.
+
+import std.mem.{drop_in_place}
+
+static FIRST_TABLE_SLOTS: Int = 8
+
+// Empty and Tombstone own nothing, so a fresh table holds no key or value to
+// destroy, and a placement over either releases nothing.
+enum MapSlot<K, V> {
+    case Empty,
+    case Tombstone,
+    case Occupied(key: K, value: V)
+}
+
+/// A hash table from `K` to `V`, allocated through `A`.
+public struct Map<K: Hashable + Equatable, V, A: Allocator = GlobalAllocator> {
+    private slots: UnsafePointer<MapSlot<K, V>>?
+    // Occupied slots.
+    private live: Int
+    // Occupied and Tombstone slots, kept at most three quarters of
+    // `capacity`, so every probe meets an Empty slot and ends.
+    private used: Int
+    private capacity: Int
+}
+
+// The slot pointer blocks the derivation, but it is the map's own storage:
+// moving or sharing a map is safe exactly when moving or sharing its keys,
+// values and allocator is.
+extension Map<K: Send, V: Send, A: Send>: UnsafeSend {}
+extension Map<K: Sync, V: Sync, A: Sync>: UnsafeSync {}
+
+extension Map<K, V, A: Allocator = GlobalAllocator> {
+    /// Creates an empty map, which allocates nothing until an entry arrives.
+    public init() unsafe -> Map<K, V, A> {
+        Map<K, V, A>(slots: None, live: 0, used: 0, capacity: 0)
+    }
+
+    /// Returns the number of entries.
+    public func len(&self) -> Int {
+        self.live
+    }
+
+    /// Returns whether the map holds no entries.
+    public func is_empty(&self) -> Bool {
+        self.live == 0
+    }
+
+    /// Returns whether an entry for `key` is present.
+    public func contains_key(&self, key: K) -> Bool {
+        self.bucket_of(&key) >= 0
+    }
+
+    /// Stores `value` under `key`, and returns the value it replaces, or
+    /// `None` when the key is new.
+    ///
+    /// Returns `Err(AllocError)` when a new key needs a larger table and `A`
+    /// refuses; the map is then unchanged. Replacing the entry of a present
+    /// key allocates nothing, and the stored key is replaced by `key`. `key`
+    /// and `value` are consumed either way.
+    public func insert(&var self, key: K, value: V) unsafe -> Result<V?, AllocError> {
+        let found = self.bucket_of(&key)
+        if found >= 0 {
+            let buf = self.table()
+            let old = move buf[found]
+            buf[found] = MapSlot<K, V>.Occupied(key: move key, value: move value)
+            return value_of(move old)
+        }
+        if (self.used + 1) * 4 > self.capacity * 3 {
+            let target = self.rehash_target()
+            if not self.rehash(target) {
+                return AllocError(size: target * sizeof<MapSlot<K, V>>(), align: alignof<MapSlot<K, V>>())
+            }
+        }
+        let buf = self.table()
+        let mask = self.capacity - 1
+        let b = open_bucket(buf, self.hash_of(&key) & mask, mask)
+        if not is_tombstone(buf, b) {
+            self.used = self.used + 1
+        }
+        buf[b] = MapSlot<K, V>.Occupied(key: move key, value: move value)
+        self.live = self.live + 1
+        return None
+    }
+
+    /// Removes the entry for `key` and returns its value, or `None` when no
+    /// entry is present. The stored key is destroyed.
+    public func remove(&var self, key: K) unsafe -> V? {
+        let found = self.bucket_of(&key)
+        if found < 0 {
+            return None
+        }
+        let buf = self.table()
+        let old = move buf[found]
+        buf[found] = MapSlot<K, V>.Tombstone
+        self.live = self.live - 1
+        value_of(move old)
+    }
+
+    // Read-only on purpose: a writable `[]` would derive a setitem that
+    // replaces and panics on a missing key, where `m[k] = v` inserts, and the
+    // std profile cannot read the `[]=` that says so (SL-600).
+    /// Lends the value stored under `key` where it sits, read-only.
+    ///
+    /// A read of `m[k]` copies the value out, so the value must be Copy.
+    /// Panics if no entry for `key` is present; `find` is the lend that opens
+    /// no window for an absent key.
+    public func [](&self, key: K) unsafe borrows -> &V {
+        let found = self.bucket_of(&key)
+        if found < 0 {
+            panic("Map.[]: no entry for the key")
+        }
+        let buf = self.table()
+        match buf[found] {
+            case Occupied(_, v) -> { lend v },
+            case Empty -> { panic("Map.[]: the entry's slot is empty") },
+            case Tombstone -> { panic("Map.[]: the entry's slot is removed") }
+        }
+    }
+
+    // Read-only until a slot's payload can be lent writably, which takes a
+    // `borrow var` pattern the std profile cannot read (SL-600).
+    /// Lends the value stored under `key` where it sits, or nothing when no
+    /// entry is present.
+    ///
+    /// The absent path opens no window, so the map is free to use there.
+    public func find(&self, key: &K) unsafe borrows -> &V? {
+        let found = self.bucket_of(&key)
+        if found < 0 {
+            return None
+        }
+        let buf = self.table()
+        match buf[found] {
+            case Occupied(_, v) -> { lend v },
+            case Empty -> { return None },
+            case Tombstone -> { return None }
+        }
+    }
+
+    /// Visits each entry, lending its key and value to `body`.
+    ///
+    /// Nothing is copied, so an entry of any copy tier is visitable. The order
+    /// is unspecified.
+    public func each(&self, body: (&K, &V) -> Void) unsafe {
+        if self.capacity == 0 {
+            return
+        }
+        let buf = self.table()
+        var i = 0
+        while i < self.capacity {
+            match buf[i] {
+                case Occupied(k, v) -> { body(&k, &v) },
+                case Empty -> {},
+                case Tombstone -> {}
+            }
+            i = i + 1
+        }
+    }
+
+    /// Visits each key, lending it to `body`. The order is unspecified.
+    public func each_key(&self, body: (&K) -> Void) unsafe {
+        if self.capacity == 0 {
+            return
+        }
+        let buf = self.table()
+        var i = 0
+        while i < self.capacity {
+            match buf[i] {
+                case Occupied(k, _) -> { body(&k) },
+                case Empty -> {},
+                case Tombstone -> {}
+            }
+            i = i + 1
+        }
+    }
+
+    /// Visits each value, lending it to `body`. The order is unspecified.
+    public func each_value(&self, body: (&V) -> Void) unsafe {
+        if self.capacity == 0 {
+            return
+        }
+        let buf = self.table()
+        var i = 0
+        while i < self.capacity {
+            match buf[i] {
+                case Occupied(_, v) -> { body(&v) },
+                case Empty -> {},
+                case Tombstone -> {}
+            }
+            i = i + 1
+        }
+    }
+
+    // The slots. Every caller has a table: it checks `capacity` first, or
+    // holds a bucket found in the table.
+    func table(&self) unsafe -> UnsafePointer<MapSlot<K, V>> {
+        guard let buf = self.slots else {
+            panic("Map: the table is not allocated")
+        }
+        buf
+    }
+
+    func hash_of(&self, key: &K) -> Int {
+        var h = Hasher()
+        key.hash(&var h)
+        h.finish()
+    }
+
+    // The slot holding `key`, or -1. The walk passes over tombstones and
+    // stops at the first Empty slot, which `used` keeps in the table.
+    func bucket_of(&self, key: &K) unsafe -> Int {
+        if self.capacity == 0 {
+            return -1
+        }
+        let buf = self.table()
+        let mask = self.capacity - 1
+        var b = self.hash_of(&key) & mask
+        var probes = 0
+        while probes < self.capacity {
+            var stop = false
+            match buf[b] {
+                case Empty -> { stop = true },
+                case Tombstone -> {},
+                case Occupied(k, _) -> {
+                    if k == key {
+                        return b
+                    }
+                }
+            }
+            if stop {
+                return -1
+            }
+            b = (b + 1) & mask
+            probes = probes + 1
+        }
+        return -1
+    }
+
+    // The slot count the next rehash moves to: the first table; double when
+    // more than half the slots would be live; otherwise the same count, which
+    // clears the tombstones.
+    func rehash_target(&self) -> Int {
+        if self.capacity == 0 {
+            FIRST_TABLE_SLOTS
+        } else if (self.live + 1) * 2 > self.capacity {
+            self.capacity * 2
+        } else {
+            self.capacity
+        }
+    }
+
+    // Moves every entry into a fresh table of `target` slots, dropping the
+    // tombstones. False means `A` refused and the map is untouched, which
+    // every caller relies on to report all-or-nothing: the new table is
+    // allocated before any entry moves.
+    func rehash(&var self, target: Int) unsafe -> Bool {
+        let bytes = target * sizeof<MapSlot<K, V>>()
+        guard let raw = A().alloc(bytes, alignof<MapSlot<K, V>>()) else {
+            return false
+        }
+        let fresh = raw as UnsafePointer<MapSlot<K, V>>
+        var i = 0
+        while i < target {
+            fresh[i] = MapSlot<K, V>.Empty
+            i = i + 1
+        }
+        let mask = target - 1
+        if self.capacity > 0 {
+            let old = self.table()
+            var j = 0
+            while j < self.capacity {
+                let slot = move old[j]
+                match move slot {
+                    case Occupied(k, v) -> {
+                        let b = open_bucket(fresh, self.hash_of(&k) & mask, mask)
+                        fresh[b] = MapSlot<K, V>.Occupied(key: move k, value: move v)
+                    },
+                    case Empty -> {},
+                    case Tombstone -> {}
+                }
+                j = j + 1
+            }
+            let old_raw = old as UnsafePointer<Int8>
+            A().dealloc(old_raw, self.capacity * sizeof<MapSlot<K, V>>(), alignof<MapSlot<K, V>>())
+        }
+        self.slots = fresh
+        self.capacity = target
+        self.used = self.live
+        true
+    }
+}
+
+// The value of a slot moved out of the table; an Occupied slot's key is
+// destroyed here.
+func value_of<K, V>(slot: MapSlot<K, V>) -> V? {
+    match move slot {
+        case Occupied(_, v) -> { return move v },
+        case Empty -> { return None },
+        case Tombstone -> { return None }
+    }
+}
+
+// The first slot from `home` on that holds no entry. The caller keeps an
+// Empty slot in the table, so the walk ends.
+func open_bucket<K, V>(slots: UnsafePointer<MapSlot<K, V>>, home: Int, mask: Int) unsafe -> Int {
+    var b = home
+    while is_occupied(slots, b) {
+        b = (b + 1) & mask
+    }
+    b
+}
+
+func is_occupied<K, V>(slots: UnsafePointer<MapSlot<K, V>>, b: Int) unsafe -> Bool {
+    match slots[b] {
+        case Occupied(_, _) -> true,
+        case Empty -> false,
+        case Tombstone -> false
+    }
+}
+
+func is_tombstone<K, V>(slots: UnsafePointer<MapSlot<K, V>>, b: Int) unsafe -> Bool {
+    match slots[b] {
+        case Tombstone -> true,
+        case Empty -> false,
+        case Occupied(_, _) -> false
+    }
+}
+
+// `get`, `keys` and `values` copy out of entries that stay in the map, so
+// each bound is declared where a caller reads it.
+extension Map<K, V: Copy, A: Allocator = GlobalAllocator> {
+    /// Returns a copy of the value stored under `key`, or `None` when no
+    /// entry is present.
+    ///
+    /// The value must be Copy; `find` reaches any value where it sits.
+    public func get(&self, key: K) unsafe -> V? {
+        let found = self.bucket_of(&key)
+        if found < 0 {
+            return None
+        }
+        let buf = self.table()
+        match buf[found] {
+            case Occupied(_, v) -> { return v },
+            case Empty -> { return None },
+            case Tombstone -> { return None }
+        }
+    }
+
+    /// Returns a copy of every value, in the map's unspecified order.
+    ///
+    /// Returns `Err(AllocError)` when `A` refuses the vector.
+    public func values(&self) unsafe -> Result<Vector<V, A>, AllocError> {
+        var out = Vector<V, A>()
+        try out.reserve(self.live)
+        if self.capacity == 0 {
+            return move out
+        }
+        let buf = self.table()
+        var i = 0
+        while i < self.capacity {
+            match buf[i] {
+                case Occupied(_, v) -> { try out.push(v) },
+                case Empty -> {},
+                case Tombstone -> {}
+            }
+            i = i + 1
+        }
+        return move out
+    }
+}
+
+extension Map<K: Copy, V, A: Allocator = GlobalAllocator> {
+    /// Returns a copy of every key, in the map's unspecified order.
+    ///
+    /// Returns `Err(AllocError)` when `A` refuses the vector.
+    public func keys(&self) unsafe -> Result<Vector<K, A>, AllocError> {
+        var out = Vector<K, A>()
+        try out.reserve(self.live)
+        if self.capacity == 0 {
+            return move out
+        }
+        let buf = self.table()
+        var i = 0
+        while i < self.capacity {
+            match buf[i] {
+                case Occupied(k, _) -> { try out.push(k) },
+                case Empty -> {},
+                case Tombstone -> {}
+            }
+            i = i + 1
+        }
+        return move out
+    }
+}
+
+extension Map<K: ExplicitCopy, V: ExplicitCopy, A: Allocator = GlobalAllocator>: ExplicitCopy {
+    /// Duplicates the map, copying each key and value at its own tier.
+    ///
+    /// Panics if `A` refuses: `copy()` is the ExplicitCopy hook, whose
+    /// signature has no error channel. `try_copy` reports the refusal.
+    public func copy(&self) unsafe -> Map<K, V, A> {
+        let attempt = self.try_copy()
+        match attempt {
+            case Ok(m) -> { return move m },
+            case Err(e) -> { panic("Map.copy: {}", e) }
+        }
+    }
+
+    // The copy policy is the type's for every `K` and `V`, so this is every
+    // map's destructor though the conformance's `copy()` exists only where
+    // both are ExplicitCopy. An Empty or Tombstone slot drops as nothing.
+    public func deinit(&var self) unsafe {
+        if self.capacity == 0 {
+            return
+        }
+        let buf = self.table()
+        var i = 0
+        while i < self.capacity {
+            drop_in_place((&buf[i]) as UnsafePointer<MapSlot<K, V>>)
+            i = i + 1
+        }
+        let raw = buf as UnsafePointer<Int8>
+        A().dealloc(raw, self.capacity * sizeof<MapSlot<K, V>>(), alignof<MapSlot<K, V>>())
+    }
+}
+
+// The reporting twin of `copy`; its `try_` name awaits DF-257b's ruling.
+extension Map<K: ExplicitCopy, V: ExplicitCopy, A: Allocator = GlobalAllocator> {
+    /// Duplicates the map, copying each key and value at its own tier.
+    ///
+    /// Returns `Err(AllocError)` when `A` refuses the new table. The copy has
+    /// this map's slot count, so filling it allocates nothing more.
+    public func try_copy(&self) unsafe -> Result<Map<K, V, A>, AllocError> {
+        var out = Map<K, V, A>()
+        if self.capacity == 0 {
+            return move out
+        }
+        if not out.rehash(self.capacity) {
+            return AllocError(size: self.capacity * sizeof<MapSlot<K, V>>(), align: alignof<MapSlot<K, V>>())
+        }
+        let from = self.table()
+        let to = out.table()
+        let mask = self.capacity - 1
+        var i = 0
+        while i < self.capacity {
+            match from[i] {
+                case Occupied(k, v) -> {
+                    let b = open_bucket(to, out.hash_of(&k) & mask, mask)
+                    to[b] = MapSlot<K, V>.Occupied(key: k.copy(), value: v.copy())
+                    out.live = out.live + 1
+                    out.used = out.used + 1
+                },
+                case Empty -> {},
+                case Tombstone -> {}
+            }
+            i = i + 1
+        }
+        return move out
+    }
+}

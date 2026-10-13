@@ -1,0 +1,25 @@
+// due: mono lowers no Map or Set literal (SL-599)
+// refuses: mono.not-yet at 8:13
+// Map and Set literals over String keys: an inferred map, an annotated one,
+// the empty `{:}`, a duplicate key whose last value wins, and a set literal
+// whose duplicates collapse.
+
+func main() {
+    var m = {"one": 1, "two": 2, "three": 3}
+    print(m.len())
+    if let v = m.get("two") {
+        print(v)
+    }
+    let scores: Map<String, Int> = {"a": 1, "b": 2}
+    print(scores.len())
+    let empty: Map<String, Int> = {:}
+    print(empty.len())
+    let dup = {"k": 10, "k": 20}
+    if let v = dup.get("k") {
+        print(v)
+    }
+    let s = {"red", "green", "red", "blue"}
+    print(s.len())
+    print(s.contains("green"))
+    print(s.contains("pink"))
+}

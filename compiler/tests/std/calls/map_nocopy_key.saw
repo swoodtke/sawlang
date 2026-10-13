@@ -1,0 +1,33 @@
+// A NoCopy key: the map hashes and compares keys through references and never
+// copies one, so a move-only key is inserted, probed with a fresh equal value,
+// removed, and destroyed with its entry (spec, Map: "A key is any
+// `Hashable + Equatable` type, in any copy tier").
+
+struct Token {
+    id: Int
+}
+
+extension Token: NoCopy {}
+
+extension Token: Equatable {
+    func equals(&self, other: &Token) -> Bool {
+        self.id == other.id
+    }
+}
+
+extension Token: Hashable {
+    func hash(&self, h: &var Hasher) {
+        h.write_int(self.id)
+    }
+}
+
+func main() {
+    var m = Map<Token, String>()
+    let _ = try! m.insert(Token(id: 1), "one")
+    let _ = try! m.insert(Token(id: 2), "two")
+    let _ = try! m.insert(Token(id: 2), "TWO")
+    let present = m.contains_key(Token(id: 2))
+    let absent = m.contains_key(Token(id: 3))
+    let gone = m.remove(Token(id: 1))
+    print("{} {} {} {}", present, absent, gone ?? "none", m.len())
+}

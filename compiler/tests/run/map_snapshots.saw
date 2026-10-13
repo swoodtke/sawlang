@@ -1,0 +1,49 @@
+// Map's walks: the `keys()` and `values()` snapshots and the three visitors.
+// Sums print rather than the walk order, which is unspecified.
+
+func total_lengths(v: &Vector<String>) -> Int {
+    var n = 0
+    var i = 0
+    while i < v.len() {
+        let s = v[i]
+        n = n + s.len()
+        i = i + 1
+    }
+    n
+}
+
+func total(v: &Vector<Int>) -> Int {
+    var n = 0
+    var i = 0
+    while i < v.len() {
+        n = n + v[i]
+        i = i + 1
+    }
+    n
+}
+
+func main() {
+    var m = Map<String, Int>()
+    var i = 0
+    while i < 30 {
+        let _ = try! m.insert("key{i}", i * 3)
+        i = i + 1
+    }
+    let ks = try! m.keys()
+    let vs = try! m.values()
+    print("keys {} of total length {}", ks.len(), total_lengths(&ks))
+    print("values {} summing to {}", vs.len(), total(&vs))
+
+    var visited = 0
+    var value_sum = 0
+    m.each({ [&var visited, &var value_sum] k: &String, v: &Int in
+        visited = visited + k.len()
+        value_sum = value_sum + v
+    })
+    print("each visited key length {} value sum {}", visited, value_sum)
+    var key_count = 0
+    m.each_key({ [&var key_count] k: &String in key_count = key_count + 1 })
+    var doubled = 0
+    m.each_value({ [&var doubled] v: &Int in doubled = doubled + v * 2 })
+    print("each_key {} each_value doubled {}", key_count, doubled)
+}

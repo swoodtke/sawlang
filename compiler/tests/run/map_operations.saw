@@ -1,0 +1,93 @@
+// Map's operations over String keys: insert, lookup, update and remove; growth
+// through five rehashes; and the tombstone path, where removals leave slots a
+// probe walks past and later inserts reuse. Only counts and values print, since
+// iteration order is unspecified and the two stds lay out their tables apart.
+
+func key(n: Int) -> String {
+    "k{n}"
+}
+
+func show(m: &Map<String, Int>, k: String) {
+    if let v = m.get(k) {
+        print("{} = {}", k, v)
+    } else {
+        print("{} absent", k)
+    }
+}
+
+func main() {
+    var m = Map<String, Int>()
+    print("empty {} len {}", m.is_empty(), m.len())
+    show(&m, "one")
+
+    let first = try! m.insert("one", 1)
+    print("new key replaced {}", first.is_some())
+    let _ = try! m.insert("two", 2)
+    print("len {} one {} three {}", m.len(), m.contains_key("one"), m.contains_key("three"))
+
+    let updated = try! m.insert("one", 10)
+    if let old = updated {
+        print("update returned {}", old)
+    }
+    print("len after update {}", m.len())
+    show(&m, "one")
+
+    if let gone = m.remove("two") {
+        print("removed {}", gone)
+    }
+    let again = m.remove("two")
+    print("second remove found {}", again.is_some())
+    print("len after remove {}", m.len())
+
+    var i = 0
+    while i < 150 {
+        let _ = try! m.insert(key(i), i)
+        i = i + 1
+    }
+    var sum = 0
+    var present = 0
+    i = 0
+    while i < 150 {
+        if let v = m.get(key(i)) {
+            sum = sum + v
+            present = present + 1
+        }
+        i = i + 1
+    }
+    print("grown len {} present {} sum {}", m.len(), present, sum)
+
+    i = 0
+    while i < 150 {
+        let _ = m.remove(key(i))
+        i = i + 2
+    }
+    print("after removing the even keys len {}", m.len())
+    var round = 0
+    while round < 20 {
+        i = 0
+        while i < 150 {
+            let _ = try! m.insert(key(i), i + round)
+            i = i + 2
+        }
+        i = 0
+        while i < 150 {
+            let _ = m.remove(key(i))
+            i = i + 2
+        }
+        round = round + 1
+    }
+    sum = 0
+    present = 0
+    i = 1
+    while i < 150 {
+        if let v = m.get(key(i)) {
+            sum = sum + v
+            present = present + 1
+        }
+        i = i + 2
+    }
+    print("after churn len {} odd present {} sum {}", m.len(), present, sum)
+    show(&m, "k0")
+    show(&m, "k149")
+    show(&m, "one")
+}

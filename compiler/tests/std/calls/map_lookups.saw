@@ -1,0 +1,36 @@
+// Map's lookups: `m[k]` is the getitem derived from the read-only `[]`
+// accessor, a copy that panics on a missing key; `get` is the optional copy;
+// `find` is the conditional lend, whose absent path opens no window, so a
+// move-only value is read in place and a `let` map or a `&Map` serves all
+// three.
+
+struct Job {
+    id: Int
+}
+
+extension Job: NoCopy {}
+
+func read_shared(m: &Map<String, Int>) -> Int {
+    let copied = m.get("a") ?? -1
+    let indexed = m["a"]
+    let lent = borrow m.find(&"a")!
+    copied + indexed + lent
+}
+
+func job_id(jobs: &Map<String, Job>, name: String) -> Int {
+    if borrow let j = jobs.find(&name) { j.id } else { -1 }
+}
+
+func main() -> Int {
+    var m = Map<String, Int>()
+    let _ = try! m.insert("a", 1)
+    let missing = m.get("b")
+    let indexed = m["a"]
+    var jobs = Map<String, Job>()
+    let _ = try! jobs.insert("build", Job(id: 4))
+    let absent = if borrow let j = jobs.find(&"test") { j.id } else { 0 }
+    if missing.is_none() && absent == 0 {
+        return indexed + read_shared(&m) + job_id(&jobs, "build")
+    }
+    0
+}

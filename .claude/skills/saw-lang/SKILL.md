@@ -1230,9 +1230,10 @@ var scratch: [Int8; 256] = [0; 256] // REPEAT literal: N copies of one value
   zero-sized binding (no storage; reading the name yields no value), so a
   generic body that type-checks compiles for every instantiation and you never
   get an error at a distance.
-- Map/Set keys: `Hashable + Equatable` and copyable-with-retain
-  (NoCopy keys rejected). A payload-free enum qualifies — it is a bare
-  tag, so `Set<Color>` and `Map<Color, Int>` both work (design 132).
+- Map/Set keys: any `Hashable + Equatable` type, NoCopy included (compared
+  in place; a by-value lookup consumes its key, so probe with `m.find(&k)`). A payload-free enum
+  qualifies — it is a bare tag, so `Set<Color>` and `Map<Color, Int>`
+  both work (design 132).
   Values unrestricted. Iteration order
   unspecified — sort `keys()` for determinism.
 - Iterate: `m.each { k, v in ... }`, `each_key`, `keys()/values()`

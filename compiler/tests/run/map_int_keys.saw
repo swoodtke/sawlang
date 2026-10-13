@@ -1,0 +1,16 @@
+// due: mono synthesizes no Equatable or Hashable body for a primitive (SL-598)
+// refuses: mono.not-yet at 7:18
+// Integer keys, the commonest key there is: a Map<Int, Int> and a Set<Int>.
+
+func main() {
+    var m = Map<Int, Int>()
+    let _ = try! m.insert(1, 10)
+    let _ = try! m.insert(2, 20)
+    if let v = m.get(2) {
+        print(v)
+    }
+    var s = Set<Int>()
+    let _ = try! s.insert(5)
+    print(s.contains(5))
+    print(m.len() + s.len())
+}

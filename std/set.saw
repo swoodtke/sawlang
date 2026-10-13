@@ -1,0 +1,198 @@
+//! `Set<T, A>`: an unordered collection of distinct `T`, allocated through
+//! `A`, `GlobalAllocator` by default.
+//!
+//! A set is a `Map` from its elements to a marker, so the two share one hash
+//! table. Iteration order is unspecified. Every operation that can run out of
+//! memory reports it as `Err(AllocError)` and leaves the set as it was.
+//! `Set` is ExplicitCopy when its element is.
+
+/// An unordered collection of distinct `T`, allocated through `A`.
+public struct Set<T: Hashable + Equatable, A: Allocator = GlobalAllocator> {
+    // The value is a placeholder: membership is the key's presence.
+    private map: Map<T, Bool, A>
+}
+
+extension Set<T, A: Allocator = GlobalAllocator> {
+    /// Creates an empty set, which allocates nothing until an element arrives.
+    public init() -> Set<T, A> {
+        Set<T, A>(map: Map<T, Bool, A>())
+    }
+
+    /// Creates a set holding the elements of `from`, consuming the vector.
+    ///
+    /// Duplicates collapse to one element. Returns `Err(AllocError)` when `A`
+    /// refuses; the elements are then destroyed.
+    public init(from: Vector<T, A>) -> Result<Set<T, A>, AllocError> {
+        var source = move from
+        var out = Set<T, A>()
+        var draining = true
+        while draining {
+            // Stage 0 workaround (SL:hazards S2): canonical: while let e = source.pop() { let _ = try out.insert(move e) }
+            let next = source.pop()
+            if let e = move next {
+                let _ = try out.insert(move e)
+            } else {
+                draining = false
+            }
+        }
+        return move out
+    }
+
+    /// Creates a set holding `value` alone.
+    ///
+    /// Returns `Err(AllocError)` when `A` refuses.
+    public static func of(value: T) -> Result<Set<T, A>, AllocError> {
+        var out = Set<T, A>()
+        let _ = try out.insert(move value)
+        return move out
+    }
+
+    /// Returns the number of elements.
+    public func len(&self) -> Int {
+        self.map.len()
+    }
+
+    /// Returns whether the set holds no elements.
+    public func is_empty(&self) -> Bool {
+        self.map.is_empty()
+    }
+
+    /// Returns whether `value` is an element.
+    public func contains(&self, value: T) -> Bool {
+        self.map.contains_key(move value)
+    }
+
+    /// Adds `value`, and returns whether it was not already an element.
+    ///
+    /// Returns `Err(AllocError)` when a new element needs a larger table and
+    /// `A` refuses; the set is then unchanged. `value` is consumed either way.
+    public func insert(&var self, value: T) -> Result<Bool, AllocError> {
+        let previous = try self.map.insert(move value, true)
+        previous.is_none()
+    }
+
+    /// Removes `value`, and returns whether it was an element.
+    public func remove(&var self, value: T) -> Bool {
+        let previous = self.map.remove(move value)
+        previous.is_some()
+    }
+
+    /// Visits each element, lending it to `body`. The order is unspecified.
+    public func each(&self, body: (&T) -> Void) {
+        self.map.each_key(body)
+    }
+}
+
+// Each operation here copies elements that stay in their sets, so the bound
+// is declared where a caller reads it.
+extension Set<T: Copy, A: Allocator = GlobalAllocator> {
+    /// Returns a copy of every element, in the set's unspecified order.
+    ///
+    /// Returns `Err(AllocError)` when `A` refuses the vector.
+    public func to_vector(&self) -> Result<Vector<T, A>, AllocError> {
+        self.map.keys()
+    }
+
+    /// Returns a new set holding the elements of both sets.
+    ///
+    /// Returns `Err(AllocError)` when `A` refuses.
+    public func union(&self, other: &Set<T, A>) -> Result<Set<T, A>, AllocError> {
+        var out = Set<T, A>()
+        let mine = try self.to_vector()
+        var i = 0
+        while i < mine.len() {
+            let _ = try out.insert(mine[i])
+            i = i + 1
+        }
+        let theirs = try other.to_vector()
+        i = 0
+        while i < theirs.len() {
+            let _ = try out.insert(theirs[i])
+            i = i + 1
+        }
+        return move out
+    }
+
+    /// Returns a new set holding the elements of this set that `other` also
+    /// holds.
+    ///
+    /// Returns `Err(AllocError)` when `A` refuses.
+    public func intersection(&self, other: &Set<T, A>) -> Result<Set<T, A>, AllocError> {
+        var out = Set<T, A>()
+        let mine = try self.to_vector()
+        var i = 0
+        while i < mine.len() {
+            let e = mine[i]
+            if other.contains(e) {
+                let _ = try out.insert(e)
+            }
+            i = i + 1
+        }
+        return move out
+    }
+
+    /// Returns a new set holding the elements of this set that `other` does
+    /// not hold.
+    ///
+    /// Returns `Err(AllocError)` when `A` refuses.
+    public func difference(&self, other: &Set<T, A>) -> Result<Set<T, A>, AllocError> {
+        var out = Set<T, A>()
+        let mine = try self.to_vector()
+        var i = 0
+        while i < mine.len() {
+            let e = mine[i]
+            if not other.contains(e) {
+                let _ = try out.insert(e)
+            }
+            i = i + 1
+        }
+        return move out
+    }
+
+    /// Returns whether `other` holds every element of this set.
+    ///
+    /// Returns `Err(AllocError)` when `A` refuses the snapshot the walk reads.
+    public func is_subset(&self, other: &Set<T, A>) -> Result<Bool, AllocError> {
+        let mine = try self.to_vector()
+        var i = 0
+        while i < mine.len() {
+            if not other.contains(mine[i]) {
+                return false
+            }
+            i = i + 1
+        }
+        return true
+    }
+
+    /// Returns whether this set holds every element of `other`.
+    ///
+    /// Returns `Err(AllocError)` when `A` refuses the snapshot the walk reads.
+    public func is_superset(&self, other: &Set<T, A>) -> Result<Bool, AllocError> {
+        other.is_subset(&self)
+    }
+}
+
+extension Set<T: ExplicitCopy, A: Allocator = GlobalAllocator>: ExplicitCopy {
+    /// Duplicates the set, copying each element at its own tier.
+    ///
+    /// Panics if `A` refuses: `copy()` is the ExplicitCopy hook, whose
+    /// signature has no error channel. `try_copy` reports the refusal.
+    public func copy(&self) -> Set<T, A> {
+        Set<T, A>(map: self.map.copy())
+    }
+
+    // The map holds every element, and its own destructor destroys them.
+    public func deinit(&var self) {
+    }
+}
+
+// The reporting twin of `copy`; its `try_` name awaits DF-257b's ruling.
+extension Set<T: ExplicitCopy, A: Allocator = GlobalAllocator> {
+    /// Duplicates the set, copying each element at its own tier.
+    ///
+    /// Returns `Err(AllocError)` when `A` refuses the new table.
+    public func try_copy(&self) -> Result<Set<T, A>, AllocError> {
+        let map = try self.map.try_copy()
+        return Set<T, A>(map: move map)
+    }
+}

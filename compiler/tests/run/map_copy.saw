@@ -1,0 +1,23 @@
+// due: mono resolves no `ExplicitCopy.copy()` on `String` or `Int`, which Map.copy calls (SL-598)
+// refuses: mono.not-yet at 21:18
+// `copy()` and `try_copy()` build a separate table: a change to the copy
+// leaves the original as it was.
+
+func main() {
+    var m = Map<String, Int>()
+    var i = 0
+    while i < 30 {
+        let _ = try! m.insert("key{i}", i * 3)
+        i = i + 1
+    }
+    var c = m.copy()
+    let _ = c.remove("key0")
+    let _ = try! c.insert("extra", 1000)
+    print("original len {} copy len {}", m.len(), c.len())
+    if let v = m.get("key0") {
+        print("original keeps key0 = {}", v)
+    }
+    print("copy has key0 {} extra {}", c.contains_key("key0"), c.contains_key("extra"))
+    let t = try! m.try_copy()
+    print("try_copy len {} has key29 {}", t.len(), t.contains_key("key29"))
+}

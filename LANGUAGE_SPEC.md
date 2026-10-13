@@ -7807,14 +7807,15 @@ Vector-backed linear-scan `Map` was **retired** in design 54; there is now one
   need a Copy-tier `V`; reach a move-only value through a borrow
   (`borrow m[k].method()`) or take it out with `remove`. `m[k, default: e]`
   supplies a value for a missing key, and `Map` conforms to `KeyedPlace`.
-- **Keys must be copyable-with-retain** (design 65): the container probes keys BY
-  COPY (hash / compare / slot inspection), so a KEY must be trivial/POD,
-  `Copy` (String, `Arc<T>`), or `ExplicitCopy` — a **NoCopy** key, or a
-  `Deinit`-only move-only key, is a clean compile error. VALUES have no such
-  restriction (a NoCopy value is fine — it is moved, never probe-copied). A
-  **payload-free enum is trivial/POD** and so is a legal key: it is a bare tag,
-  owning nothing, which is the same reason it auto-conforms to `Equatable` and
-  `Hashable` in the first place.
+- **A key is any `Hashable + Equatable` type, in any copy tier.** The container
+  never needs a copy of a key: a **NoCopy** key is hashed and compared in place,
+  and a copyable one may be copied by a probe as its tier allows. A key is moved
+  in by `insert` and destroyed with its entry. A lookup that takes its key
+  by value (`contains_key`, `remove`, `m[k]`) consumes that key, so a NoCopy key
+  is probed with a fresh equal value, or through the borrowing `m.find(&k)`.
+  Values are unrestricted too. A **payload-free enum** is a legal key: it is a
+  bare tag that owns nothing, the reason it conforms to `Equatable` and
+  `Hashable` automatically.
 - Slots are an enum `{ Empty, Tombstone, Occupied(key, value) }`, so a fresh
   table is deinit-safe even for owning key/value types; slot updates/removals
   move the old slot out (`Vector.swap_out`, a refcount-neutral move), so nothing

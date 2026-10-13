@@ -1,6 +1,6 @@
 # The cone of compiler/driver/src/main.saw against the new std (std): every std declaration its
 # functions reach, read off sawc2's typecheck dump by compiler/tools/std_cone.py.
-# 137 declarations in 16 modules
+# 155 declarations in 18 modules
 
 std.alloc: 8
   extern __saw_rt_alloc
@@ -64,6 +64,19 @@ std.file: 16
   method File.write
   struct File
 
+std.map: 11
+  enum MapSlot
+  func is_occupied
+  func open_bucket
+  init Map.init
+  method Map.copy
+  method Map.deinit
+  method Map.hash_of
+  method Map.rehash
+  method Map.table
+  method Map.try_copy
+  struct Map
+
 std.mem: 2
   func copy_bytes
   func drop_in_place
@@ -77,12 +90,16 @@ std.path: 3
   method Path.as_string
   struct Path
 
-std.prelude: 5
+std.prelude: 9
   enum Optional
   enum Result
+  init Hasher.init
+  method Hasher.finish
   requirement ExplicitCopy.copy
+  requirement Hashable.hash
   requirement Printable.format
   requirement Printable.to_string
+  struct Hasher
 
 std.process: 11
   extern __saw_rt_proc_spawn
@@ -104,6 +121,11 @@ std.scalar: 6
   method Scalar.format
   method Scalar.value
   struct Scalar
+
+std.set: 3
+  method Set.copy
+  method Set.deinit
+  struct Set
 
 std.string: 22
   extern __saw_rt_alloc

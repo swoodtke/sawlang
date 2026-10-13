@@ -1,0 +1,18 @@
+// refuses: type.bound at 10:21
+// `Map.get` copies the value, so it is declared in an extension bounded
+// `V: Copy`: at a move-only value the member does not exist, and `find`
+// reaches the value in place instead.
+
+struct Job { id: Int }
+extension Job: NoCopy {}
+
+func first_id(jobs: &Map<String, Job>) -> Int {
+    if let j = jobs.get("build") {
+        return j.id
+    }
+    0
+}
+
+func main() -> Int {
+    0
+}

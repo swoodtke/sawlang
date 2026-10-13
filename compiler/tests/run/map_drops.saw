@@ -1,0 +1,92 @@
+// An owning key and an owning value in a Map are each destroyed exactly once:
+// a replaced value comes back to the caller and the replaced key is
+// destroyed, a removed key is destroyed and its value comes back, a rehash
+// moves entries without destroying any, and the map's own destruction
+// destroys what is left. Counts print rather than drop lines, since a map's
+// destruction walks its slots in an order the two stds lay out apart.
+
+static KEYS_MADE: Atomic<Int> = Atomic(0)
+static KEYS_DROPPED: Atomic<Int> = Atomic(0)
+static VALUES_DROPPED: Atomic<Int> = Atomic(0)
+
+struct Name {
+    text: String
+}
+
+extension Name: Copy {
+    func copy(&self) -> Name {
+        let _ = KEYS_MADE.fetch_add(1)
+        Name(text: self.text)
+    }
+
+    func deinit(&var self) {
+        let _ = KEYS_DROPPED.fetch_add(1)
+    }
+}
+
+extension Name: Equatable {
+    func equals(&self, other: &Name) -> Bool {
+        self.text == other.text
+    }
+}
+
+extension Name: Hashable {
+    func hash(&self, h: &var Hasher) {
+        self.text.hash(&var h)
+    }
+}
+
+struct Payload {
+    id: Int
+}
+
+extension Payload: NoCopy {
+    func deinit(&var self) {
+        let _ = VALUES_DROPPED.fetch_add(1)
+    }
+}
+
+func name(n: Int) -> Name {
+    let _ = KEYS_MADE.fetch_add(1)
+    Name(text: "n{n}")
+}
+
+// The key is Copy, as Stage 0's Map needs, so each copy a probe makes counts
+// as one more key made; what must agree is how many are still alive.
+func counts(what: String) {
+    let live = KEYS_MADE.load() - KEYS_DROPPED.load()
+    print("{}: keys alive {}, values dropped {}", what, live, VALUES_DROPPED.load())
+}
+
+func fill() {
+    var m = Map<Name, Payload>()
+    var i = 0
+    while i < 40 {
+        let _ = try! m.insert(name(i), Payload(id: i))
+        i = i + 1
+    }
+    counts("after 40 inserts and four rehashes")
+
+    let replaced = try! m.insert(name(7), Payload(id: 700))
+    if let old = move replaced {
+        print("replaced value {}", old.id)
+    }
+    counts("after the replaced value is destroyed")
+
+    let probe = name(9)
+    if let gone = m.remove(move probe) {
+        print("removed value {}", gone.id)
+    }
+    counts("after the removed value is destroyed")
+
+    let missing = name(99)
+    let none = m.remove(move missing)
+    print("removing an absent key found {}", none.is_some())
+    print("len {}", m.len())
+    counts("before the map is destroyed")
+}
+
+func main() {
+    fill()
+    counts("after the map is destroyed")
+}
