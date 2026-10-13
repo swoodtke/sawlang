@@ -106,6 +106,7 @@ import mono_lane  # noqa: E402
 
 sys.path.insert(0, os.path.join(HERE, "coro"))
 import census  # noqa: E402
+import child_groups  # noqa: E402  (on sys.path through census)
 import coro_lane  # noqa: E402
 
 sys.path.insert(0, os.path.join(HERE, "run"))
@@ -864,6 +865,7 @@ def render(run):
 
 
 def main():
+    child_groups.install()
     args = sys.argv[1:]
     if args[:1] == ["--step"] and len(args) in (4, 6) and args[1] in STEP_BY_NAME and args[2] == "--result" \
             and (len(args) == 4 or args[4] == "--sawc2"):

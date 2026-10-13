@@ -46,13 +46,15 @@ fi
 # gate's summary reports that wait apart from the test time.
 LOCK_START=$(date +%s)
 sh tools/suite_lock.sh acquire --pid $$ "./build.sh test $*"
-SAW_GATE_LOCK_WAIT=$(($(date +%s) - LOCK_START))
-export SAW_GATE_LOCK_WAIT
 # A signal exits with 128 + its number, so the server can tell an interrupted
-# run from a failed one; the exit trap releases the lock either way.
+# run from a failed one; the exit trap releases the lock either way. Until
+# these traps exist a signal would end this shell holding the lock, so nothing
+# runs between the acquire and them (tools/test_suite_lock.py).
 trap 'sh tools/suite_lock.sh release' EXIT
 trap 'exit 129' HUP
 trap 'exit 130' INT
 trap 'exit 143' TERM
+SAW_GATE_LOCK_WAIT=$(($(date +%s) - LOCK_START))
+export SAW_GATE_LOCK_WAIT
 
 "$PY" tools/patch_gate.py "$@"

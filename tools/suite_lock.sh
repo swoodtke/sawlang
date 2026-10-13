@@ -86,6 +86,15 @@ describe() {
     fi
 }
 
+abandon() {
+    if [ "$took" = 1 ]; then
+        rm -f "$HOLDER" "$LOCK/.holder.$$"
+        rmdir "$LOCK" 2>/dev/null
+        say "released at once: a signal arrived before the caller held it"
+    fi
+    exit "$1"
+}
+
 acquire() {
     pid=$PPID
     if [ "${1:-}" = "--pid" ]; then
@@ -103,7 +112,15 @@ acquire() {
     fi
     start=$(date +%s)
     busy=0
-    if ! mkdir "$LOCK" 2>/dev/null; then
+    # A signal between the mkdir and this script's exit lands before the
+    # caller has a trap that would release the lock, so the lock goes with it.
+    took=0
+    trap 'abandon 129' HUP
+    trap 'abandon 130' INT
+    trap 'abandon 143' TERM
+    if mkdir "$LOCK" 2>/dev/null; then
+        took=1
+    else
         busy=1
         say "held by $(describe); waiting"
         beat=$start
@@ -119,6 +136,7 @@ acquire() {
                 say "still waiting after $(duration $((now - start))); held by $(describe)"
             fi
         done
+        took=1
     fi
     now=$(date +%s)
     # Written aside and renamed, so a reader never sees half a holder file.
@@ -130,6 +148,7 @@ acquire() {
     if ! alive "$pid"; then
         rm -f "$HOLDER"
         rmdir "$LOCK"
+        took=0
         say "released at once: pid $pid, which it waited for, is gone"
         exit 1
     fi

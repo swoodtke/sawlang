@@ -305,8 +305,13 @@ objects are built + cached under `.build/rt/` and auto-linked (delete
   `forgetgate`, `ircontract`, `preludegate`, `stdtypes`, `toolchain` (design
   238 unit 4: the sawlang-artifact resolver — four steps, the pin's version
   check, the refusal), `suitelock` (`tools/suite_lock.sh`'s holder line,
-  heartbeat and wait, and build.sh handing the wait to the gate, against
-  a lock directory of its own), `abidoc`, `bttable`,
+  heartbeat and wait, build.sh handing the wait to the gate, and a TERMed
+  gate giving the lock back, against a lock directory of its own),
+  `childgroups` (SL-603: `tools/test_child_groups.py` TERMs each runner over
+  hanging children and requires every one gone; a launch either stays in its
+  runner's process group or starts its own through `tools/child_groups.py`,
+  whose handler ends it, and the lane fails on any tracked source that makes a
+  group some other way), `abidoc`, `bttable`,
   `fuzz` (`sawfuzz --quick`), `corodiff` (`--quick`), `bench` (the warehouse
   benchmark — checksums GATE, timing report-only; devtools/bench/ +
   TESTING.md), `minivm` (the paused prototype builds against compiler/lex

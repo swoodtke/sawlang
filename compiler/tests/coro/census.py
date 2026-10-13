@@ -39,6 +39,7 @@ sys.path.insert(0, os.path.join(HERE, "stage0"))
 sys.path.append(os.path.join(REPO, "tools"))
 
 import build  # noqa: E402
+import child_groups  # noqa: E402
 import gate_jobs  # noqa: E402
 import expect  # noqa: E402
 import snapshot  # noqa: E402
@@ -113,15 +114,17 @@ def build_program(path):
 
 
 def run_binary(binary):
-    proc = subprocess.Popen([binary], cwd=REPO, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
-                            stderr=subprocess.PIPE, start_new_session=True)
+    proc = child_groups.start([binary], cwd=REPO, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                              stderr=subprocess.PIPE)
     try:
         out, err = proc.communicate(timeout=RUN_TIMEOUT)
         return proc.returncode, out, err
     except subprocess.TimeoutExpired:
-        os.killpg(proc.pid, 9)
+        child_groups.kill(proc)
         proc.communicate()
         return None, b"", b""
+    finally:
+        child_groups.forget(proc)
 
 
 def missing_names(errors):
@@ -266,6 +269,7 @@ def run():
 
 
 def main():
+    child_groups.install()
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     parser.add_argument("-v", action="store_true", dest="verbose")
     parser.add_argument("--gated", action="store_true")

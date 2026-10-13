@@ -16,9 +16,10 @@ cannot ask it to run a command. A job says *which tests* to run, never *how*.
 ## What the daemon guarantees
 
 * **It never executes the submitted tree in its own process.** Every job runs
-  as a child process tree the daemon spawns with `start_new_session=True`, so
-  the whole job can be killed as a group and, on the worker machine, that child
-  tree is what the sandbox confines.
+  as a child process tree the daemon spawns in a session of its own
+  (`child_groups.start`), so the whole job can be killed as a group, a TERM to
+  the daemon ends it too, and, on the worker machine, that child tree is what
+  the sandbox confines.
 * **Every job gets a fresh directory, and it is purged when the job ends** —
   ends any way at all: success, failure, timeout, or the client hanging up.
 * **The worker's own venv is what runs jobs.** The snapshot carries no build
@@ -46,7 +47,6 @@ import http.server
 import json
 import os
 import shutil
-import signal
 import socket
 import socketserver
 import subprocess
@@ -57,6 +57,7 @@ import uuid
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import child_groups  # noqa: E402
 import worker_proto as proto  # noqa: E402
 
 MAX_BODY_BYTES = 512 * 1024 * 1024
@@ -287,10 +288,11 @@ class JobRunner:
 
     def _spawn(self, argv, log_path: Path):
         log = open(log_path, "wb")
-        proc = subprocess.Popen(
-            argv, cwd=str(self.tree), env=self._child_env(),
-            stdin=subprocess.DEVNULL, stdout=log, stderr=subprocess.STDOUT,
-            start_new_session=True)
+        # A job is a runner with child groups of its own to end.
+        proc = child_groups.start(
+            argv, grace=child_groups.RUNNER_GRACE_SECONDS, cwd=str(self.tree),
+            env=self._child_env(), stdin=subprocess.DEVNULL, stdout=log,
+            stderr=subprocess.STDOUT)
         proc._saw_log = log  # closed by _await
         return proc
 
@@ -318,13 +320,14 @@ class JobRunner:
             time.sleep(poll_interval)
 
         if killed:
-            _kill_group(proc)
+            child_groups.kill(proc)
             try:
                 proc.wait(timeout=10)
             except subprocess.TimeoutExpired:
                 pass
             self.sink.emit(event="error", message=killed)
             rc = None
+        child_groups.forget(proc)
         if on_poll:
             on_poll()  # drain whatever landed between the last poll and exit
         try:
@@ -467,16 +470,6 @@ class JobRunner:
             if rc is None:
                 break  # killed: deadline or hang-up, nothing more will run
         return all_ok, ran
-
-
-def _kill_group(proc) -> None:
-    try:
-        os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
-    except (ProcessLookupError, PermissionError, OSError):
-        try:
-            proc.kill()
-        except OSError:
-            pass
 
 
 def _read_new_lines(path: Path, seen):
@@ -759,10 +752,9 @@ def main() -> int:
               f"      {args.venv} tools/test_worker.py --bind {args.bind}")
     sys.stdout.flush()
 
+    child_groups.install()
     try:
         server.serve_forever(poll_interval=0.2)
-    except KeyboardInterrupt:
-        print("\nstopping")
     finally:
         server.server_close()
     return 0

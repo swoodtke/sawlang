@@ -18,6 +18,9 @@ import tempfile
 import time
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.join(REPO, "tools"))
+import child_groups  # noqa: E402
+
 LOCK_TOOL = os.path.join(REPO, "tools", "suite_lock.sh")
 # The holder every case scripts acts for this process, which outlives it.
 ME = str(os.getpid())
@@ -161,6 +164,78 @@ def orphaned_waiter(root):
         lock_tool(lock, "release")
 
 
+def shells():
+    """build.sh's `#!/bin/sh` is bash on macOS and dash on Debian; both run it."""
+    return ["sh"] + [s for s in ("/bin/dash",) if os.path.exists(s)]
+
+
+def start_gate(lock, root, shell, gate):
+    """build.sh under `shell`, in a session of its own as sawtracker starts a gate,
+    with `gate` standing in for patch_gate.py."""
+    stub = os.path.join(root, "slow_gate")
+    with open(stub, "w") as fh:
+        fh.write("#!/bin/sh\n" + gate)
+    os.chmod(stub, 0o755)
+    env = env_for(lock)
+    env["SAW_PYTHON"] = stub
+    return child_groups.start([shell, "./build.sh", "test", "--diff", "some.diff"], cwd=REPO,
+                              env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+
+
+def await_path(path, proc, seconds=20):
+    deadline = time.time() + seconds
+    while not os.path.exists(path) and proc.poll() is None and time.time() < deadline:
+        time.sleep(0.05)
+    return os.path.exists(path)
+
+
+def end_group(proc):
+    """KILL whatever of a case's build.sh group outlived it."""
+    child_groups.kill(proc)
+    child_groups.forget(proc)
+
+
+def term_releases(root):
+    """A TERM to a gate's process group ends build.sh with 143 and gives the
+    lock back, which a cancelled server run relies on (SL-603)."""
+    for shell in shells():
+        lock = os.path.join(root, "term-" + os.path.basename(shell))
+        started = lock + ".gate"
+        proc = start_gate(lock, root, shell, 'touch "$SAW_SUITE_LOCK.gate"\nsleep 60\n')
+        try:
+            ran = await_path(started, proc)
+            child_groups.kill(proc, signal.SIGTERM)
+            rc, out = finish(proc)
+        finally:
+            end_group(proc)
+        check(ran, "%s: the gate stub ran" % shell, out)
+        check(rc == 143, "%s: a TERMed build.sh exits 143, not %s" % (shell, rc), out)
+        check(not os.path.exists(lock) and "suite lock: released" in out,
+              "%s: a TERMed build.sh releases the lock" % shell, out)
+        if os.path.exists(lock):
+            lock_tool(lock, "release")
+
+
+def term_while_waiting(root):
+    """A TERM to a gate still waiting for the lock leaves the holder's lock alone."""
+    for shell in shells():
+        lock = os.path.join(root, "term-wait-" + os.path.basename(shell))
+        lock_tool(lock, "acquire", "--pid", ME, "scripted holder")
+        proc = start_gate(lock, root, shell, "exit 0\n")
+        try:
+            time.sleep(1.5)
+            child_groups.kill(proc, signal.SIGTERM)
+            rc, out = finish(proc)
+        finally:
+            end_group(proc)
+        holder = open(os.path.join(lock, "holder")).read() if os.path.exists(lock) else ""
+        check(rc != 0 and "suite lock: held by pid %s" % ME in out,
+              "%s: the TERMed build.sh was waiting, and stopped" % shell, out)
+        check("pid: " + ME in holder and "released" not in out,
+              "%s: a TERMed waiter neither takes nor releases the holder's lock" % shell, out + holder)
+        lock_tool(lock, "release")
+
+
 def dead_owner_at_acquire(root):
     """An owner that dies as the mkdir succeeds gets the lock released at once."""
     lock = os.path.join(root, "dead-owner")
@@ -175,10 +250,11 @@ def dead_owner_at_acquire(root):
 
 
 def main():
+    child_groups.install()
     root = tempfile.mkdtemp(prefix="suite-lock-test-")
     try:
         for case in (free_lock, held_lock, unknown_holder, build_sh, orphaned_waiter,
-                     dead_owner_at_acquire):
+                     term_releases, term_while_waiting, dead_owner_at_acquire):
             case(root)
     finally:
         shutil.rmtree(root, ignore_errors=True)
@@ -186,7 +262,8 @@ def main():
         print("suite lock: FAIL: %s" % f)
     if failures:
         return 1
-    print("suite lock: OK: holder, heartbeat, wait, unknown holder, build.sh, orphaned waiter, dead owner")
+    print("suite lock: OK: holder, heartbeat, wait, unknown holder, build.sh, orphaned waiter, "
+          "TERMed gate, TERMed waiter, dead owner")
     return 0
 
 

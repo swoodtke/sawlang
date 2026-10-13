@@ -479,6 +479,13 @@ total wait once it starts; its last line reports that wait apart from the test
 time. From a worktree, point `SAW_PYTHON` at the main checkout's venv rather
 than letting it bootstrap one.
 
+A TERM, INT or HUP to the gate's process group ends `build.sh` with 128 plus
+the signal's number, and it gives the lock back on the way out; the test
+runners end the test programs they started in sessions of their own first (see
+the execution stage below). A KILL can't be caught, so a gate killed that way
+leaves the lock held. Release it with `tools/suite_lock.sh release` once
+`status` names a holder that is gone.
+
 ### How many workers the gate uses
 
 One setting sizes every pool the gate runs: `SAW_GATE_JOBS`, read through
@@ -1268,6 +1275,19 @@ what they wrote, which covers `EXPECT: success` and `EXPECT: panic`. Each
 binary runs as its own subprocess in its own process group under a 30-second
 cap. On expiry the whole group is killed and the test is recorded as a failure,
 so a test that hangs at runtime cannot wedge the run.
+
+A signal to the runner's own process group doesn't reach a group of the test's
+own, so the runner records each one it starts (`tools/child_groups.py`). On a
+TERM, an INT (Ctrl-C) or a HUP it sends each live group TERM, waits two
+seconds, KILLs what is left, and exits with 128 plus the signal's number: 143
+for a TERM. The coroutine census, the Stage 0 snapshot and the remote worker
+start their children the same way. Every other launch the gate makes, such as
+`compiler/tests/run.py`'s steps, the grammar recognizer's workers and the
+fixpoint twin's two stages, stays in its runner's process group, which the
+TERM reaches directly. The `childgroups` battery lane
+(`tools/test_child_groups.py`) TERMs each of these runners over hanging
+children and requires every one of them gone, and fails on any tracked source
+file that starts a session or group of its own some other way.
 
 A binary does not pass from one stage to the other immediately. It waits five
 seconds. On macOS/arm64 a binary exec'd microseconds after it was written can

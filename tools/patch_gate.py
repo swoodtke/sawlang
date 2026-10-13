@@ -35,6 +35,7 @@ SUITE_INPUTS = {
         "tests/float_vectors/",
         "test_runner.py",
         "tools/gate_jobs.py",       # its default worker count
+        "tools/child_groups.py",    # which starts and ends each test's process group
     ),
     "freestanding": (
         "sawc/",

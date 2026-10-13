@@ -38,6 +38,7 @@ import io
 import json
 import os
 import shutil
+import signal
 import subprocess
 import sys
 import tarfile
@@ -48,11 +49,16 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO / "tools"))
+import child_groups                                       # noqa: E402
 import test_worker                                        # noqa: E402
 import worker_client                                      # noqa: E402
 import worker_proto as proto                              # noqa: E402
 
 TOKEN = "selftest-" + os.urandom(8).hex()
+
+# The daemon gives each job the runner grace to end its own groups, so it
+# needs longer than that before its KILL.
+DAEMON_GRACE_SECONDS = 2 * child_groups.RUNNER_GRACE_SECONDS
 
 # Three error tests (they settle at compile time, no binary) and one success
 # test (compiled, linked and EXECUTED on the worker) — so a round trip covers
@@ -87,7 +93,7 @@ class Worker:
         self.log = open(tmp / "worker.log", "wb")
         if seed_runtime:
             self._seed_runtime()
-        self.proc = subprocess.Popen(
+        self.proc = child_groups.start(
             [sys.executable, str(REPO / "tools" / "test_worker.py"),
              "--bind", "127.0.0.1:0",
              "--token-file", str(self.token_file),
@@ -95,8 +101,8 @@ class Worker:
              "--venv", sys.executable,
              "--print-port-file", str(self.port_file),
              "--job-timeout", "900", "-v"],
-            cwd=str(REPO), stdout=self.log, stderr=subprocess.STDOUT,
-            start_new_session=True)
+            grace=DAEMON_GRACE_SECONDS, cwd=str(REPO), stdout=self.log,
+            stderr=subprocess.STDOUT)
         self.port = self._await_port()
         self.url = f"127.0.0.1:{self.port}"
 
@@ -135,14 +141,17 @@ class Worker:
         return worker_client.RemoteWorker(self.url, token, connect_timeout=5)
 
     def kill(self):
+        # TERM first: a KILL would orphan the job groups the daemon started.
+        child_groups.kill(self.proc, signal.SIGTERM)
         try:
-            os.killpg(os.getpgid(self.proc.pid), 9)
-        except (ProcessLookupError, PermissionError, OSError):
-            self.proc.kill()
-        try:
-            self.proc.wait(timeout=10)
+            self.proc.wait(timeout=DAEMON_GRACE_SECONDS)
         except subprocess.TimeoutExpired:
-            pass
+            child_groups.kill(self.proc)
+            try:
+                self.proc.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                pass
+        child_groups.forget(self.proc)
 
     def __enter__(self):
         return self
@@ -429,6 +438,7 @@ def _await(predicate, timeout, message):
 
 
 def main() -> int:
+    child_groups.install()
     print("remote test worker self-test (design 160)")
     test_sandbox_profile_compiles()
     test_sharding_is_deterministic_and_weighted()

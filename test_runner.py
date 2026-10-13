@@ -104,7 +104,6 @@ import sys
 import json
 import shutil
 import random
-import signal
 import subprocess
 import itertools
 import time
@@ -120,6 +119,9 @@ from typing import List, Optional
 from enum import Enum
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import threading
+
+sys.path.insert(0, str(Path(__file__).resolve().parent / 'tools'))
+import child_groups  # noqa: E402
 
 
 class ExpectType(Enum):
@@ -1058,13 +1060,14 @@ RUN_TIMEOUT_SECS = 30
 def _run_once(exe_path: Path, timeout: float) -> tuple[Optional[int], str, str]:
     """One execution attempt under a hard, process-group-aware timeout.
 
-    The child is launched in its OWN process group (start_new_session=True) so
+    The child is launched in its OWN process group (`child_groups.start`) so
     that on timeout we can SIGKILL the entire group — not just the direct
     child. This matters because a hung test may have spawned OS threads or
     child processes that inherited the stdout/stderr pipes; killing only the
     parent would leave those holding the pipe open and `communicate()` would
     block forever, wedging the runner. Killing the group guarantees the pipes
-    close and the runner moves on.
+    close and the runner moves on. The same record lets a TERM to the runner
+    end the group too.
 
     Returns `(returncode, stdout, stderr)` exactly as the child left them, with
     nothing synthesized — the caller needs to tell a child that died silently
@@ -1073,12 +1076,11 @@ def _run_once(exe_path: Path, timeout: float) -> tuple[Optional[int], str, str]:
     carries the reason.
     """
     try:
-        proc = subprocess.Popen(
+        proc = child_groups.start(
             [str(exe_path)],
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
-            start_new_session=True,  # new process group; enables group kill
         )
     except Exception as e:
         return None, "", f"Failed to run executable: {e}"
@@ -1088,7 +1090,7 @@ def _run_once(exe_path: Path, timeout: float) -> tuple[Optional[int], str, str]:
         return proc.returncode, stdout, stderr
     except subprocess.TimeoutExpired:
         # Hard-kill the whole process group, then reap so no zombie/pipe leaks.
-        _kill_process_group(proc)
+        child_groups.kill(proc)
         try:
             stdout, stderr = proc.communicate(timeout=5)
         except subprocess.TimeoutExpired:
@@ -1097,8 +1099,10 @@ def _run_once(exe_path: Path, timeout: float) -> tuple[Optional[int], str, str]:
             f"Execution timed out after {timeout:.0f}s (killed) — the test HANGS at runtime"
         )
     except Exception as e:
-        _kill_process_group(proc)
+        child_groups.kill(proc)
         return None, "", f"Failed to run executable: {e}"
+    finally:
+        child_groups.forget(proc)
 
 
 def _died_silently_by_signal(rc: Optional[int], stdout: str, stderr: str) -> bool:
@@ -1150,18 +1154,6 @@ def run_executable(exe_path: Path, timeout: float = RUN_TIMEOUT_SECS
                   + " and wrote nothing")
 
     return rc == 0, rc, stdout, stderr, note
-
-
-def _kill_process_group(proc: subprocess.Popen) -> None:
-    """SIGKILL the process group led by `proc` (best-effort), then the proc."""
-    try:
-        os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
-    except (ProcessLookupError, PermissionError, OSError):
-        # Group already gone or not a group leader — fall back to the child.
-        try:
-            proc.kill()
-        except OSError:
-            pass
 
 
 # ===========================================================================
@@ -2502,6 +2494,7 @@ def run_split(tests, args, in_process, compile_fn, jsonl, notes, origins,
 
 
 def main():
+    child_groups.install()
     args = parse_args()
 
     # Default: compile in-process in persistent worker processes (design 115).

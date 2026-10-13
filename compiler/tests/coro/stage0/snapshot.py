@@ -52,7 +52,9 @@ REFUSALS = os.path.join(HERE, "refusals.tsv")
 RAW = os.path.join(REPO, ".build", "coro-stage0")
 FROZEN_SAWC = os.path.join(REPO, "sawc", "sawc.py")
 sys.path.insert(0, CORO)
+sys.path.append(os.path.join(REPO, "tools"))
 
+import child_groups  # noqa: E402
 import expect  # noqa: E402
 
 # compiler/target's names. Stage 0 runs only the host's binary; the others
@@ -313,15 +315,17 @@ def stage0(src, out, args):
 def run_binary(binary):
     """(exit status, or None on a timeout; stdout; stderr), run from the
     repository root as test_runner.py runs a program."""
-    proc = subprocess.Popen([binary], cwd=REPO, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
-                            stderr=subprocess.PIPE, start_new_session=True)
+    proc = child_groups.start([binary], cwd=REPO, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                              stderr=subprocess.PIPE)
     try:
         out, err = proc.communicate(timeout=RUN_TIMEOUT)
         return proc.returncode, out, err
     except subprocess.TimeoutExpired:
-        os.killpg(proc.pid, 9)
+        child_groups.kill(proc)
         out, err = proc.communicate()
         return None, out, err
+    finally:
+        child_groups.forget(proc)
 
 
 def errors(log):
@@ -591,6 +595,7 @@ def write(args):
 
 
 def main():
+    child_groups.install()
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     parser.add_argument("--write", action="store_true")
     parser.add_argument("--programs")
