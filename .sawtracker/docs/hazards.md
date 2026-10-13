@@ -883,7 +883,10 @@ The fixpoint compares outputs, not intermediate values, so it sees the differenc
 
 **Checker:** not needed: the self-hosted compiler's source has no closures (architecture §4).
 
+**The non-escaping face is the same mechanism** (the Air, SL-607 c4): `[copy r]` of a `&var` aliases two exclusive references even when the closure doesn't escape. `both(&var r, { [copy r] in r += 10 })`, with `both(a: &var Int, body:)` doing `a += 1; body(); a += 1`, prints 2 under Stage 0. `a` is a `noalias` `&var` parameter, so the closure's `+= 10` is lost. **Instead:** capture the exclusive reference as `[&var r]`, and never pass it to a call that also takes the reference.
+
 ## Loud hazards
+
 
 ### L1. Integer literal adoption
 
