@@ -109,6 +109,10 @@ extension LlEmitter {
                     self.check_case(&var mono, &var target, addr, current, step.decl, node)
                     let off = target.payload_offset(&var mono.dp.bc.mir.tc, current, step.decl, step.index)
                     addr = self.offset_addr(addr, off)
+                },
+                case FrameSlot -> {
+                    self.refuse_here(&var mono, node, "a coroutine frame slot is not in the backend slice yet (SL-555)")
+                    return addr
                 }
             }
             current = step.ty

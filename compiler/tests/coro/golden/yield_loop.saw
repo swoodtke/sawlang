@@ -1,0 +1,35 @@
+// The p01 probe of SL:coroutines A3a: a suspension inside a loop, with values
+// carried across it. `usleep(1)` stands in for `yield_now()`, which the new
+// std does not have yet (A2). The intended form drops the `extern` block and
+// writes the loop's first statement as
+//
+//         yield_now()
+//
+// which changes nothing about the frames, since both are a call that
+// suspends. The loop's op-budget point is a second suspension.
+//
+// `tally`'s parameter and result live in its frame, and `label`, `total`
+// and `i` live across both suspensions, so each gets a frame slot. So does
+// `step`: it is only ever copied, so the first-cut lifetime (B1 refines it)
+// runs to the function's end. The temporaries each moved before the next
+// suspension stay on the stack.
+extern "C" {
+    blocking func usleep(us: UInt32) -> Int32
+}
+
+func tally(rounds: Int) -> Int {
+    let label = "round"
+    var total = 0
+    var i = 0
+    while i < rounds {
+        usleep(1)
+        let step = i * 2
+        total = total + step + label.len()
+        i = i + 1
+    }
+    total
+}
+
+func main() {
+    print("{}", tally(3))
+}

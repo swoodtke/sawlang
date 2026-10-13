@@ -26,6 +26,17 @@ public struct CoroProgram {
     // the item that call reaches, or -1 when the call is itself the source.
     cause_call: Vector<Int>
     cause_item: Vector<Int>
+    // Whether a cycle among the items that suspend was refused, so no frame
+    // is finite.
+    cyclic: Bool
+    // By item: its frame in `frames`, or -1 (`coro_find_frames`).
+    frame_of: Vector<Int>
+    frames: Vector<CoroFrame>
+    // The frames' runs: their values, their suspension points, and each
+    // value's storage lifetime, one entry per program point of its item.
+    values: Vector<CoroValue>
+    suspends: Vector<CoroSuspend>
+    live: Vector<Bool>
     // Refusals (`coro_rules`) and broken invariants.
     diags: Vector<MirDiag>
     problems: Vector<String>
@@ -36,7 +47,59 @@ extension CoroProgram: NoCopy {}
 public func coro_program(mono: MonoProgram) -> CoroProgram {
     let blocked = mono.blocked || mono.diags.len() > 0 || mono.problems.len() > 0
     CoroProgram(mono: move mono, blocked: blocked, suspending: Vector<Bool>(), cause_call: Vector<Int>(),
-                cause_item: Vector<Int>(), diags: Vector<MirDiag>(), problems: Vector<String>())
+                cause_item: Vector<Int>(), cyclic: false, frame_of: Vector<Int>(), frames: Vector<CoroFrame>(),
+                values: Vector<CoroValue>(), suspends: Vector<CoroSuspend>(), live: Vector<Bool>(),
+                diags: Vector<MirDiag>(), problems: Vector<String>())
+}
+
+// What a frame value is: the state word the resume function switches on,
+// the result the caller moves out after `Ready`, a parameter the caller
+// writes before the first resume, or a local resident across a suspension.
+public enum CoroValueKind {
+    case State,
+    case Result,
+    case Param,
+    case Local
+}
+
+// One value of a frame. `local` is the item body's local, or -1 for the
+// state word; `live_first` starts its lifetime's run of `live`. The offset,
+// size and alignment are the layout's, -1 until it runs.
+public struct CoroValue {
+    kind: CoroValueKind
+    local: Int
+    ty: Int
+    live_first: Int
+    offset: Int
+    size: Int
+    align: Int
+}
+
+// A suspension point of a frame's item: a call that definitely suspends,
+// `call`, at the point after its block's terminator; or a yield-capable
+// op-budget point, `call` -1, at its statement's point. The first is
+// state 1, in block order.
+public struct CoroSuspend {
+    block: Int
+    point: Int
+    call: Int
+}
+
+// One item's frame: runs of the program's values and suspension points,
+// over its body's `points` program points. The size and alignment are the
+// layout's, -1 until it runs; `unsupported` is the value whose type the
+// target cannot lay out, or -1.
+public struct CoroFrame {
+    item: Int
+    body: Int
+    points: Int
+    suspend_first: Int
+    suspend_count: Int
+    value_first: Int
+    value_count: Int
+    size: Int
+    align: Int
+    unsupported: Int
 }
 
 extension CoroProgram {

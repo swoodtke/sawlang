@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
-"""The coro lane: `sawc2 coro` against its golden frame decisions and its
-refusal fixtures, and its decisions against typecheck's summaries.
+"""The coro lane: `sawc2 coro` against its golden frame decisions, frame
+layouts and refusal fixtures, and its decisions against typecheck's
+summaries.
 
     python compiler/tests/coro/coro_lane.py            # check
     python compiler/tests/coro/coro_lane.py --write    # rewrite the golden records
@@ -9,16 +10,17 @@ refusal fixtures, and its decisions against typecheck's summaries.
 directory specifies:
 
 - each golden program, `golden/NAME.saw`, gives exactly the record in
-  `golden/NAME.coro` (`--dump`), with no `INVARIANT` line and no refusal but
-  coroutine lowering's own;
+  `golden/NAME.coro` (`--dump`) and the one in `golden/NAME.layouts`
+  (`--layouts`), with no `INVARIANT` line and no refusal but coroutine
+  lowering's own;
 - each fixture in `refuse/` is refused first at its header's position by the
   rule its name starts with, that refusal's message holds each of its
   `// message:` lines, and every rule coroutine lowering refuses by
   (`coro_rules` in `compiler/coro/src/suspends.saw`) has a fixture;
 - over every program of this lane, of the mono lane's goldens and of the run
   lane, coroutine lowering's frame decisions agree with typecheck's
-  summaries wherever a summary is unconditional: `sawc2 coro --check` reports
-  no `INVARIANT` line.
+  summaries wherever a summary is unconditional, and every frame is laid
+  out: `sawc2 coro --layouts` gives each a record with no `INVARIANT` line.
 """
 import glob
 import os
@@ -92,15 +94,16 @@ def check_invariants(failures, kind, path, record):
             failures.append("coro %s %s: %s" % (kind, rel(path), line))
 
 
-def check_golden(failures, counts, write, rules):
+def check_golden(failures, counts, write, rules, mode, suffix):
+    """Each golden program's `mode` record against its `suffix` file."""
     cases = sorted(glob.glob(os.path.join(GOLDEN, "*.saw")))
-    code, out = sawc2(["--dump", "--std-root", "std"] + module_args() + [rel(s) for s in cases])
+    code, out = sawc2([mode, "--std-root", "std"] + module_args() + [rel(s) for s in cases])
     got = borrowck_lane.records(out)
     for src in cases:
-        exp = os.path.splitext(src)[0] + ".coro"
+        exp = os.path.splitext(src)[0] + suffix
         record = got.get(rel(src))
         if record is None:
-            failures.append("coro golden %s: no --dump record" % rel(src))
+            failures.append("coro golden %s: no %s record" % (rel(src), mode))
             continue
         if write:
             with open(exp, "w") as fh:
@@ -112,14 +115,15 @@ def check_golden(failures, counts, write, rules):
         with open(exp) as fh:
             expected = fh.read()
         if expected != record:
-            failures.append("coro golden %s: the --dump record differs at %s"
-                            % (rel(src), borrowck_lane.first_difference(expected, record)))
+            failures.append("coro golden %s: the %s record differs at %s"
+                            % (rel(src), mode, borrowck_lane.first_difference(expected, record)))
         for rule, where, _ in errors(record):
             if rule not in rules:
                 failures.append("coro golden %s: refused by %s at %s, before coroutine lowering"
                                 % (rel(src), rule, where))
         check_invariants(failures, "golden", src, record)
-        counts["coro golden records"] = counts.get("coro golden records", 0) + 1
+        key = "coro golden records" if mode == "--dump" else "coro layout records"
+        counts[key] = counts.get(key, 0) + 1
 
 
 def check_refusals(failures, counts, rules):
@@ -174,12 +178,12 @@ def check_agreement(failures, counts):
     cases = []
     for directory in AGREEMENT:
         cases += sorted(glob.glob(os.path.join(directory, "*.saw")))
-    code, out = sawc2(["--check", "--std-root", "std"] + [rel(p) for p in cases])
+    code, out = sawc2(["--layouts", "--std-root", "std"] + [rel(p) for p in cases])
     got = borrowck_lane.records(out)
     for path in cases:
         record = got.get(rel(path))
         if record is None:
-            failures.append("coro agreement %s: no --check record" % rel(path))
+            failures.append("coro agreement %s: no --layouts record" % rel(path))
             continue
         check_invariants(failures, "agreement", path, record)
     counts["coro agreement programs"] = len(cases)
@@ -189,7 +193,8 @@ def run(write=False):
     failures = []
     counts = {}
     rules = coro_rules()
-    check_golden(failures, counts, write, rules)
+    check_golden(failures, counts, write, rules, "--dump", ".coro")
+    check_golden(failures, counts, write, rules, "--layouts", ".layouts")
     check_refusals(failures, counts, rules)
     check_agreement(failures, counts)
     return failures, counts

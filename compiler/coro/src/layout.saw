@@ -1,0 +1,143 @@
+// Frame layout: each frame value's offset, from its size and alignment and
+// from which values' storage lifetimes intersect. `coro_assign` is the one
+// place a policy decides which values may share bytes, so a packing policy
+// replaces its body and nothing else (SL:architecture §3.9).
+//
+// ENTRY POINTS of the frame layout:
+//   coro_lay_out_frames
+//   coro_interference
+//   coro_assign
+
+import sawcoro.program.{CoroFrame, CoroProgram, CoroValue}
+import sawtarget.layout.{Target, TargetKind}
+
+// What one frame value needs of its bytes.
+public struct CoroNeed {
+    size: Int
+    align: Int
+}
+
+// Which frame values' storage lifetimes intersect: `pairs[i * count + j]`
+// for values `i` and `j` of one frame, in its value order.
+public struct CoroInterference {
+    count: Int
+    pairs: Vector<Bool>
+}
+
+extension CoroInterference: NoCopy {}
+
+extension CoroInterference {
+    public func interferes(&self, i: Int, j: Int) -> Bool {
+        self.pairs[i * self.count + j]
+    }
+}
+
+// Lays out every frame found for `target`: each value's size, alignment and
+// offset, and the frame's size and alignment. A frame holding a value the
+// target cannot lay out gets no offsets, and names that value.
+public func coro_lay_out_frames(coro: &var CoroProgram, target: &var Target) {
+    var k = 0
+    while k < coro.frames.len() {
+        coro_lay_out_frame(&var coro, &var target, k)
+        k = k + 1
+    }
+}
+
+func coro_lay_out_frame(coro: &var CoroProgram, target: &var Target, k: Int) {
+    var frame = coro.frames[k]
+    var needs = Vector<CoroNeed>()
+    var j = 0
+    while j < frame.value_count {
+        var v = coro.values[frame.value_first + j]
+        let l = target.layout(&var coro.mono.dp.bc.mir.tc, v.ty)
+        if l.kind == TargetKind.Unsupported && frame.unsupported < 0 {
+            frame.unsupported = j
+        }
+        v.size = l.size
+        v.align = if l.align > 0 { l.align } else { 1 }
+        coro.values[frame.value_first + j] = v
+        try! needs.push(CoroNeed(size: v.size, align: v.align))
+        j = j + 1
+    }
+    if frame.unsupported >= 0 {
+        coro.frames[k] = frame
+        return
+    }
+    let interference = coro_interference(&coro, k)
+    let offsets = coro_assign(&needs, &interference)
+    var size = 0
+    var align = 1
+    j = 0
+    while j < frame.value_count {
+        var v = coro.values[frame.value_first + j]
+        v.offset = offsets[j]
+        coro.values[frame.value_first + j] = v
+        if v.offset + v.size > size {
+            size = v.offset + v.size
+        }
+        if v.align > align {
+            align = v.align
+        }
+        j = j + 1
+    }
+    frame.size = coro_align_up(size, align)
+    frame.align = align
+    coro.frames[k] = frame
+}
+
+// Which of frame `k`'s values interfere: two whose storage lifetimes share
+// a program point.
+public func coro_interference(coro: &CoroProgram, k: Int) -> CoroInterference {
+    let frame = coro.frames[k]
+    let n = frame.value_count
+    var out = CoroInterference(count: n, pairs: Vector<Bool>())
+    var i = 0
+    while i < n * n {
+        try! out.pairs.push(false)
+        i = i + 1
+    }
+    i = 0
+    while i < n {
+        let a = coro.values[frame.value_first + i]
+        var j = i
+        while j < n {
+            let b = coro.values[frame.value_first + j]
+            var p = 0
+            var meet = false
+            while p < frame.points && not meet {
+                meet = coro.live[a.live_first + p] && coro.live[b.live_first + p]
+                p = p + 1
+            }
+            out.pairs[i * n + j] = meet
+            out.pairs[j * n + i] = meet
+            j = j + 1
+        }
+        i = i + 1
+    }
+    move out
+}
+
+// Each value's offset, in the order given. The policy is no sharing: each
+// value takes the next offset its alignment allows after the one before,
+// whatever `interference` says, so no two values share a byte.
+public func coro_assign(values: &Vector<CoroNeed>, interference: &CoroInterference) -> Vector<Int> {
+    var out = Vector<Int>()
+    var at = 0
+    var k = 0
+    while k < values.len() {
+        let v = values[k]
+        at = coro_align_up(at, v.align)
+        try! out.push(at)
+        at = at + v.size
+        k = k + 1
+    }
+    move out
+}
+
+func coro_align_up(n: Int, align: Int) -> Int {
+    let over = n % align
+    if over == 0 {
+        return n
+    }
+    n + align - over
+}

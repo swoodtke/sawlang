@@ -22,6 +22,7 @@
 //   sawc2 mono --layouts FILE...    each entry file's program monomorphized, and its types' layouts
 //   sawc2 mono --check FILE...      each entry file's program monomorphized, refusals and invariants only
 //   sawc2 coro --dump FILE...       each entry file's program through coroutine lowering, and each item's frame
+//   sawc2 coro --layouts FILE...    each entry file's program through coroutine lowering, and each frame's layout
 //   sawc2 coro --check FILE...      each entry file's program through coroutine lowering, refusals and invariants only
 //   sawc2 build FILE [-o OUT]       the entry file's program compiled and linked by clang
 //   sawc2 build --emit-ll FILE      the entry file's program as one `.ll` on standard output
@@ -86,7 +87,7 @@ func driver_usage() -> Int {
     print("                   [--module-path NAME=DIR]... [FILE | @LIST]...")
     print("       sawc2 mono (--dump | --layouts | --check) [--notes] [--lowerings] [--std-root DIR]")
     print("                  [--target TRIPLE] [--module-path NAME=DIR]... [FILE | @LIST]...")
-    print("       sawc2 coro (--dump | --check) [--notes] [--std-root DIR]")
+    print("       sawc2 coro (--dump | --layouts | --check) [--notes] [--std-root DIR] [--target TRIPLE]")
     print("                  [--module-path NAME=DIR]... [FILE | @LIST]...")
     print("       sawc2 build [-O0 | -O1 | -O2 | -Os | -Oz] [--std-root DIR] [--target TRIPLE]")
     print("                   [--module-path NAME=DIR]... (FILE [-o OUT] | --emit-ll FILE)")
@@ -839,12 +840,15 @@ func driver_mono(args: &Vector<String>) -> Int {
 }
 
 // `sawc2 coro`: one record per entry file, in order, each file the entry of
-// its own program; `--dump` prints each item's frame decision.
+// its own program; `--dump` prints each item's frame decision, `--layouts`
+// each frame's layout.
 func driver_coro(args: &Vector<String>) -> Int {
     var dump = false
+    var layouts = false
     var check = false
     var notes = false
     var std_root = "sawc"
+    var triple = "arm64-apple-darwin"
     var names = Vector<String>()
     var dirs = Vector<String>()
     var inputs = Vector<DriverInput>()
@@ -853,17 +857,21 @@ func driver_coro(args: &Vector<String>) -> Int {
         let arg = args.get(i) ?? ""
         if arg.equals("--dump") {
             dump = true
+        } else if arg.equals("--layouts") {
+            layouts = true
         } else if arg.equals("--check") {
             check = true
         } else if arg.equals("--notes") {
             notes = true
-        } else if arg.equals("--std-root") || arg.equals("--module-path") {
+        } else if arg.equals("--std-root") || arg.equals("--module-path") || arg.equals("--target") {
             let value = args.get(i + 1) ?? ""
             if value.len() == 0 {
                 return driver_usage()
             }
             if arg.equals("--std-root") {
                 std_root = value
+            } else if arg.equals("--target") {
+                triple = value
             } else if not driver_add_mapping(&var names, &var dirs, value) {
                 return driver_usage()
             }
@@ -882,10 +890,16 @@ func driver_coro(args: &Vector<String>) -> Int {
         }
         i = i + 1
     }
-    if dump == check {
+    let modes = (if dump { 1 } else { 0 }) + (if layouts { 1 } else { 0 }) + (if check { 1 } else { 0 })
+    if modes != 1 {
         return driver_usage()
     }
-    let options = CoroOptions(std_root: std_root, dump: dump, notes: notes)
+    if not target_known(triple) {
+        // Stage 0 workaround (SL:hazards S23): canonical: print("sawc2: unknown target {triple}")
+        print("sawc2: unknown target {}", triple)
+        return DRIVER_EXIT_USAGE
+    }
+    let options = CoroOptions(std_root: std_root, target: triple, dump: dump, layouts: layouts, notes: notes)
     var status = 0
     var k = 0
     while k < inputs.len() {

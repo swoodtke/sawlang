@@ -1,0 +1,41 @@
+ERROR	coro.not-yet	compiler/tests/coro/golden/chains.saw:45:20	`main` suspends (main -> Bed.slot -> usleep), so it needs a coroutine frame, which is not lowered yet (SL-545)
+ERROR	coro.not-yet	compiler/tests/coro/golden/chains.saw:37:5	`rest` suspends (rest -> Napper.twice -> Bed.nap -> usleep), so it needs a coroutine frame, which is not lowered yet (SL-545)
+ERROR	coro.not-yet	compiler/tests/coro/golden/chains.saw:27:9	`Bed.slot` suspends (Bed.slot -> usleep), so it needs a coroutine frame, which is not lowered yet (SL-545)
+ERROR	coro.not-yet	compiler/tests/coro/golden/chains.saw:13:9	`Napper.twice` suspends (Napper.twice -> Bed.nap -> usleep), so it needs a coroutine frame, which is not lowered yet (SL-545)
+ERROR	coro.not-yet	compiler/tests/coro/golden/chains.saw:22:31	`Bed.nap` suspends (Bed.nap -> usleep), so it needs a coroutine frame, which is not lowered yet (SL-545)
+frame #0: chains.main()  (size 48 align 8)
+    suspend 1: bb2 call rest
+    suspend 2: bb4 call Bed.slot
+    (*frame).[0: Int]  size 8 align 8  state
+    (*frame).[8: Void]  size 0 align 1  _0 result
+    (*frame).[8: chains.Bed]  size 8 align 8  _1 bed  (across 1 2)
+    (*frame).[16: (Int) -> Int]  size 16 align 8  _3 add  (across 1 2)
+    (*frame).[32: Int]  size 8 align 8  _5  (across 1 2)
+    (*frame).[40: Int]  size 8 align 8  _7  (across 2)
+    stack: _2 _4 _6 _8 _9 _10 _11
+frame #6: chains.rest(bed: &chains.Bed)  (size 24 align 8)
+    suspend 1: bb0 call Napper.twice
+    (*frame).[0: Int]  size 8 align 8  state
+    (*frame).[8: Int]  size 8 align 8  _0 result
+    (*frame).[16: &chains.Bed]  size 8 align 8  _1 param bed  (across 1)
+    stack: _2 _3
+frame #7: prologue chains.Bed.slot()  (size 24 align 8)
+    suspend 1: bb0 call usleep
+    (*frame).[0: Int]  size 8 align 8  state
+    (*frame).[8: &var Int]  size 8 align 8  _0 result
+    (*frame).[16: &var chains.Bed]  size 8 align 8  _1 self  (across 1)
+    stack: _2 _3
+frame #12: chains.Napper.twice() self chains.Bed  (size 32 align 8)
+    suspend 1: bb0 call Bed.nap
+    suspend 2: bb1 call Bed.nap
+    (*frame).[0: Int]  size 8 align 8  state
+    (*frame).[8: Int]  size 8 align 8  _0 result
+    (*frame).[16: &chains.Bed]  size 8 align 8  _1 self  (across 1 2)
+    (*frame).[24: Int]  size 8 align 8  _3  (across 2)
+    stack: _2 _4 _5 _6
+frame #14: chains.Bed.nap()  (size 24 align 8)
+    suspend 1: bb0 call usleep
+    (*frame).[0: Int]  size 8 align 8  state
+    (*frame).[8: Int]  size 8 align 8  _0 result
+    (*frame).[16: &chains.Bed]  size 8 align 8  _1 self  (across 1)
+    stack: _2 _3 _4

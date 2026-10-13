@@ -405,12 +405,24 @@ extension MirProgram {
                     try! next.append(self.decl_name(step.decl))
                     try! next.append("!).")
                     try! next.append(step.index)
-                }
+                },
+                case FrameSlot -> self.append_frame_slot(&var next, cur, step.index, step.ty)
             }
             cur = next.build()
             k = k + 1
         }
         try! out.append(cur)
+    }
+
+    // A frame slot as a place spells it, `BASE.[OFFSET: T]`: the one
+    // spelling, which coroutine lowering's layout dump shares.
+    public func append_frame_slot(&self, out: &var StringBuilder, base: String, offset: Int, t: Int) {
+        try! out.append(base)
+        try! out.append(".[")
+        try! out.append(offset)
+        try! out.append(": ")
+        self.append_type(&var out, t)
+        try! out.append("]")
     }
 
     public func append_operand(&self, out: &var StringBuilder, o: Int) {

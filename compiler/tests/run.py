@@ -223,7 +223,7 @@ def check_fixture_whitespace(run):
         paths += glob.glob(os.path.join(MONO_CORPUS, "**", suffix), recursive=True)
     for suffix in ("*.saw", "*.ll", "*.md"):
         paths += glob.glob(os.path.join(RUN_CORPUS, "**", suffix), recursive=True)
-    for suffix in ("*.saw", "*.coro", "*.md", "*.tsv", "*.stage0"):
+    for suffix in ("*.saw", "*.coro", "*.layouts", "*.md", "*.tsv", "*.stage0"):
         paths += glob.glob(os.path.join(CORO_CORPUS, "**", suffix), recursive=True)
     for path in sorted(paths):
         rel = os.path.relpath(path, REPO)

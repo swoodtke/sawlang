@@ -91,7 +91,9 @@ fn NAME -> RESULT {
 A **place** is `_K`, or `static IDENTITY`, then its projections: `P.FIELD`, a
 tuple's `P.K`, `P[_K]` indexed by a local, `(*P)`, `(P as CASE).K` for a
 payload a switch has proven, and `(P as CASE!).K` for one that panics on
-another case, as `o!` and `try!` do.
+another case, as `o!` and `try!` do. Coroutine lowering adds one more,
+`(*_K).[OFFSET: T]`, a frame value's slot at a byte offset in the frame `_K`
+points at (`compiler/tests/coro/README.md`); no construct lowers to one.
 
 An **operand** is `copy PLACE`, `move PLACE`, or `const TEXT: TYPE`, TEXT as
 the source spells it: an integer, a string with its quotes, `true`, `()`, a
@@ -497,6 +499,13 @@ nowhere, and checks, from the MIR alone:
 - every place names a local or a static and has a type, every projection a
   type, an index projection a local; every operand is a move or a copy of a
   place, or a constant with a spelling; every rvalue has a type;
+- a frame slot is the second step of its place, right after the dereference
+  of the local holding the frame pointer, at an offset of at least 0, so a
+  frame value is only ever addressed in place. No lowering here makes one, so
+  the unit program `compiler/mir/tests/verify_frame_slots.saw` edits
+  `inject/frame_slots.saw`'s write through `(*_1)` into one, which the dump
+  spells `(*_1).[8: Int]` and the verifier admits, then into a slot on `_1`
+  itself and one at a negative offset, and requires the report each time;
 - no conversion is left implicit: an assignment's rvalue has its place's type,
   a `Use` keeps its operand's, and every call's arguments have the types its
   own target takes at the instantiation and owner the call carries, a

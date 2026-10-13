@@ -50,7 +50,12 @@ public enum MirProjKind {
     case Payload,
     // A payload field of case `decl` that panics when the value holds
     // another case: `o!` and `try!` (`index` 0).
-    case Force
+    case Force,
+    // A frame-resident value's slot, `(*frame).[off: T]`: `index` its byte
+    // offset in the coroutine frame the step before it dereferences, `ty`
+    // the value's type. Only coroutine lowering makes one, as the second
+    // step of a place rooted in the frame pointer (SL:coroutines §3.1).
+    case FrameSlot
 }
 
 public struct MirProj {

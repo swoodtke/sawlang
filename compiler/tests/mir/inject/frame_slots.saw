@@ -1,0 +1,15 @@
+// The program compiler/mir/tests/verify_frame_slots.saw lowers, then edits:
+// `bump`'s write through its reference is a place `(*_1)`, which each edit
+// gives a frame slot, the step coroutine lowering gives a frame value. Only
+// a slot right after the dereference, at an offset of at least 0, is
+// admitted.
+
+func bump(n: &var Int) {
+    n += 1
+}
+
+func main() {
+    var x = 1
+    bump(&var x)
+    print(x)
+}

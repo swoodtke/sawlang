@@ -1,0 +1,220 @@
+// What each framed item's frame holds: the state word, the result `_0`,
+// every parameter, which the caller writes into the frame before the first
+// resume, and every other local whose storage lifetime contains a
+// suspension point. A local whose lifetime holds none stays on the resume
+// function's stack. The frame has no drop glue: every drop stays where drop
+// elaboration placed it.
+//
+// A storage lifetime here is the set of program points where the
+// initialisation analysis says the local may be initialised, whole or in
+// part, which runs through its scope-end drop. A local only ever copied has
+// no such end, so its lifetime runs to the function's end. That is sound
+// but loose: a loan into a value cannot outlive the value's initialisation,
+// and a last use does not end a lifetime here (compiler/tests/coro/README.md).
+//
+// ENTRY POINTS of the frame contents:
+//   coro_find_frames
+//   coro_frame_of
+
+import sawborrowck.program.{BorrowckProgram}
+import sawcoro.program.{CoroFrame, CoroProgram, CoroSuspend, CoroValue, CoroValueKind}
+import sawdrops.program.{DropsProgram}
+import sawcoro.suspends.{coro_call_suspends}
+import sawmir.initialisation.{MIR_INIT_PARTIAL, MIR_INIT_WHOLE, MirAccess, MirAccessKind, MirInit,
+                              mir_init_apply_all}
+import sawmir.model.{MirLocalKind, MirStmtKind, MirTermKind}
+import sawmir.program.{MirProgram}
+import sawmono.program.{MonoProgram}
+import sawtypecheck.program.{TcProgram}
+import sawtypecheck.typeops.{TcClient}
+
+// Finds the frame of every item that needs one: its suspension points, each
+// value it holds, and each value's storage lifetime over the item's program
+// points. Nothing is found for a program whose suspending-call graph has a
+// cycle, since no frame in it is finite.
+public func coro_find_frames(coro: &var CoroProgram) {
+    coro.frame_of = Vector<Int>()
+    var k = 0
+    while k < coro.mono.items.len() {
+        try! coro.frame_of.push(-1)
+        k = k + 1
+    }
+    if coro.cyclic {
+        return
+    }
+    k = 0
+    while k < coro.mono.items.len() {
+        let item = k
+        k = k + 1
+        if coro.needs_frame(item) && coro.mono.items[item].body >= 0 {
+            // Stage 0 workaround (SL:hazards S4): canonical: coro.frame_of[item] = coro.frames.len()
+            let at = coro.frames.len()
+            coro.frame_of[item] = at
+            coro_find_frame(&var coro, item)
+        }
+    }
+}
+
+// The index of item `k`'s frame in `coro.frames`, or -1 when it has none.
+public func coro_frame_of(coro: &CoroProgram, k: Int) -> Int {
+    if k < 0 || k >= coro.frame_of.len() {
+        return -1
+    }
+    coro.frame_of[k]
+}
+
+// The local-by-point liveness of one function: `live[l * points + p]`
+// says local `l` may be initialised just before point `p`.
+struct CoroLiveness {
+    points: Int
+    live: Vector<Bool>
+}
+
+extension CoroLiveness: NoCopy {}
+
+// Item `item`'s frame, appended to `coro.frames`. A program point is each
+// statement and each terminator, in block order, and a suspending call
+// adds one more after its terminator's: the moment it is suspended, with
+// its arguments taken and its destination not yet written.
+func coro_find_frame(coro: &var CoroProgram, item: Int) {
+    let f = coro.mono.items[item].body
+    let info = coro.mono.dp.bc.mir.funcs[f]
+    let facts = coro.mono.dp.bc.mir.init_analysis(f)
+    let suspend_first = coro.suspends.len()
+    let points = coro_count_points(&coro, f)
+    var lv = CoroLiveness(points: points, live: Vector<Bool>())
+    var k = 0
+    while k < info.local_count * points {
+        try! lv.live.push(false)
+        k = k + 1
+    }
+    var p = 0
+    var b = 0
+    while b < info.block_count {
+        let block = coro.mono.dp.bc.mir.blocks[info.block_first + b]
+        var state = facts.entry_state(b)
+        var s = block.first
+        while s >= 0 {
+            let stmt = coro.mono.dp.bc.mir.stmts[s]
+            coro_mark_live(&facts, &state, &var lv, p)
+            if stmt.kind == MirStmtKind.Budget && stmt.yields {
+                try! coro.suspends.push(CoroSuspend(block: b, point: p, call: -1))
+            }
+            let accesses = coro.mono.dp.bc.mir.init_stmt_accesses(f, s, &facts)
+            mir_init_apply_all(&facts, &var state, &accesses)
+            p = p + 1
+            s = stmt.next
+        }
+        coro_mark_live(&facts, &state, &var lv, p)
+        p = p + 1
+        if coro_block_suspends(&coro, f, b) {
+            let accesses = coro.mono.dp.bc.mir.init_term_accesses(f, b, &facts)
+            let dest = coro.mono.dp.bc.mir.calls[block.call].dest
+            var taken = Vector<MirAccess>()
+            var j = 0
+            while j < accesses.len() {
+                let a = accesses[j]
+                j = j + 1
+                if not (a.kind == MirAccessKind.Write && a.place == dest) {
+                    try! taken.push(a)
+                }
+            }
+            mir_init_apply_all(&facts, &var state, &taken)
+            coro_mark_live(&facts, &state, &var lv, p)
+            try! coro.suspends.push(CoroSuspend(block: b, point: p, call: block.call))
+            p = p + 1
+        }
+        b = b + 1
+    }
+    let value_first = coro.values.len()
+    let word = coro.mono.dp.bc.mir.tc.int_type()
+    coro_add_value(&var coro, CoroValueKind.State, -1, word, &lv, true)
+    var l = 0
+    while l < info.local_count {
+        let local = coro.mono.dp.bc.mir.locals[info.local_first + l]
+        var kind = CoroValueKind.Local
+        if l == 0 {
+            kind = CoroValueKind.Result
+        } else if l <= info.param_count {
+            kind = CoroValueKind.Param
+        }
+        if kind != CoroValueKind.Local || coro_resident(&coro, &lv, l, suspend_first) {
+            coro_add_value(&var coro, kind, l, local.ty, &lv, false)
+        }
+        l = l + 1
+    }
+    // Stage 0 workaround (SL:hazards S4): canonical: try! coro.frames.push(CoroFrame(item: item, body: f, points: points, suspend_first: suspend_first, suspend_count: coro.suspends.len() - suspend_first, value_first: value_first, value_count: coro.values.len() - value_first, size: -1, align: -1, unsupported: -1))
+    let suspend_count = coro.suspends.len() - suspend_first
+    let value_count = coro.values.len() - value_first
+    try! coro.frames.push(CoroFrame(item: item, body: f, points: points, suspend_first: suspend_first,
+                                    suspend_count: suspend_count, value_first: value_first, value_count: value_count,
+                                    size: -1, align: -1, unsupported: -1))
+}
+
+// How many program points function `f` has.
+func coro_count_points(coro: &CoroProgram, f: Int) -> Int {
+    let info = coro.mono.dp.bc.mir.funcs[f]
+    var points = 0
+    var b = 0
+    while b < info.block_count {
+        let block = coro.mono.dp.bc.mir.blocks[info.block_first + b]
+        var s = block.first
+        while s >= 0 {
+            points = points + 1
+            s = coro.mono.dp.bc.mir.stmts[s].next
+        }
+        points = points + 1
+        if coro_block_suspends(&coro, f, b) {
+            points = points + 1
+        }
+        b = b + 1
+    }
+    points
+}
+
+// Whether block `b` of function `f` ends in a call that definitely suspends.
+func coro_block_suspends(coro: &CoroProgram, f: Int, b: Int) -> Bool {
+    let info = coro.mono.dp.bc.mir.funcs[f]
+    let block = coro.mono.dp.bc.mir.blocks[info.block_first + b]
+    block.term == MirTermKind.Call && coro_call_suspends(&coro, block.call)
+}
+
+// Marks, at point `p`, each local `state` says may be initialised: some
+// move path inside it may be whole or partial.
+func coro_mark_live(facts: &MirInit, state: &Vector<Int>, lv: &var CoroLiveness, p: Int) {
+    var q = 0
+    while q < facts.path_count() {
+        if (facts.own(&state, q) & (MIR_INIT_WHOLE | MIR_INIT_PARTIAL)) != 0 {
+            let l = facts.path_local[q]
+            lv.live[l * lv.points + p] = true
+        }
+        q = q + 1
+    }
+}
+
+// Whether local `l`'s lifetime contains one of the frame's suspension
+// points, which start at `coro.suspends[first]`.
+func coro_resident(coro: &CoroProgram, lv: &CoroLiveness, l: Int, first: Int) -> Bool {
+    var k = first
+    while k < coro.suspends.len() {
+        if lv.live[l * lv.points + coro.suspends[k].point] {
+            return true
+        }
+        k = k + 1
+    }
+    false
+}
+
+// Appends a frame value, its lifetime local `l`'s, or every point for one
+// `always` live.
+func coro_add_value(coro: &var CoroProgram, kind: CoroValueKind, l: Int, ty: Int, lv: &CoroLiveness,
+                    always: Bool) {
+    let live_first = coro.live.len()
+    var p = 0
+    while p < lv.points {
+        try! coro.live.push(always || lv.live[l * lv.points + p])
+        p = p + 1
+    }
+    try! coro.values.push(CoroValue(kind: kind, local: l, ty: ty, live_first: live_first, offset: -1, size: -1,
+                                    align: -1))
+}

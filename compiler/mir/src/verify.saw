@@ -4,6 +4,9 @@
 //   - every block ends in one terminator, and every edge names a block;
 //   - every place, operand and rvalue is typed and in range, and every
 //     operand is a move, a copy or a constant;
+//   - a frame slot `(*_K).[off: T]` is the second step of its place, right
+//     after the dereference of the local holding the frame pointer, at an
+//     offset of at least 0, so a frame value is only ever addressed in place;
 //   - no conversion is left implicit: an assignment's rvalue has its place's
 //     type, and a call's argument the type its target takes at the call's
 //     own instantiation, synthesized calls and externs included (a builtin
@@ -726,6 +729,15 @@ extension MirProgram {
             }
             if step.kind == MirProjKind.Index && (step.index < 0 || step.index >= info.local_count) {
                 self.problem(f, &var out, "an index projection names no local")
+            }
+            if step.kind == MirProjKind.FrameSlot {
+                let through_frame = k == 1 && place.local >= 0 && self.projs[place.first].kind == MirProjKind.Deref
+                if not through_frame {
+                    self.problem(f, &var out, "a frame slot is not the second step of a place through a frame pointer local")
+                }
+                if step.index < 0 {
+                    self.problem(f, &var out, "a frame slot has a negative offset")
+                }
             }
             k = k + 1
         }

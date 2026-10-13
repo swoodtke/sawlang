@@ -108,6 +108,7 @@ public func coro_solve_suspension(coro: &var CoroProgram) {
     }
     coro_check_summaries(&var coro)
     let cycles = coro_refuse_cycles(&var coro, &edges)
+    coro.cyclic = cycles > 0
     if cycles == 0 {
         coro_refuse_frames(&var coro)
     }
@@ -488,8 +489,9 @@ public func coro_cause_chain(coro: &CoroProgram, k: Int) -> String {
     out.build()
 }
 
-// How a cause chain names the target of source call `c`.
-func coro_source_label(coro: &CoroProgram, c: Int) -> String {
+// How a cause chain or a frame's suspension point names the target of call
+// `c`.
+public func coro_source_label(coro: &CoroProgram, c: Int) -> String {
     let t = coro.mono.call_item(c)
     if t >= 0 {
         return coro.item_label(t)
