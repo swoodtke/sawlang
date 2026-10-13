@@ -52,6 +52,7 @@ import subprocess
 import sys
 import tempfile
 import threading
+import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 COMPILER = os.path.dirname(HERE)
@@ -686,7 +687,8 @@ STEP_OUT = os.path.join(REPO, ".build", "compiler-tests-steps")
 CALL_TOKENS = "SAW_GATE_CALL_TOKENS"
 
 
-def run_steps(steps, build_sawc2=None, sawc2=None, env=None, budget=None, call_tokens=1):
+def run_steps(steps, build_sawc2=None, sawc2=None, env=None, budget=None, call_tokens=1, progress=None,
+              label="run.py"):
     """Runs each of `steps` in a process of its own and returns (the build's
     (ok, output), or None without one; [(step, result)] in the order of
     `steps`). A result is a dict: failures, counts, inventory, stdout, stderr,
@@ -701,6 +703,12 @@ def run_steps(steps, build_sawc2=None, sawc2=None, env=None, budget=None, call_t
     SAW_GATE_CALL_TOKENS tells each call it may use. Each step gets `budget`,
     or `gate_jobs.jobs()` when that is smaller, as its SAW_GATE_JOBS, and
     SAW_GATE_STEP, its name.
+
+    With a `progress` stream, the build and each step write `LABEL: started
+    NAME` when they start and `LABEL: finished NAME (N s)`, or `failed`, when
+    they end, and a skipped step `LABEL: skipped NAME`, in the order they
+    happen. Only this process writes them, never a step, so the steps' own
+    output stays the same at every worker count.
     """
     limit = min(budget or gate_jobs.jobs(), gate_jobs.jobs())
     call_tokens = max(1, min(call_tokens, limit))
@@ -709,6 +717,24 @@ def run_steps(steps, build_sawc2=None, sawc2=None, env=None, budget=None, call_t
     state = {"own": True, "running": 0, "built": build_sawc2 is None, "ok": build_sawc2 is None,
              "build": None}
     results = {}
+    started = {}
+
+    def say(verb, name):
+        if progress is None:
+            return
+        with cond:
+            if verb == "started":
+                started[name] = time.time()
+                line = "%s: started %s" % (label, name)
+            elif verb == "skipped":
+                line = "%s: skipped %s" % (label, name)
+            else:
+                line = "%s: %s %s (%d s)" % (label, verb, name, round(time.time() - started[name]))
+            progress.write(line + "\n")
+            progress.flush()
+
+    def ended(result):
+        return "failed" if result["failures"] or result["crashed"] else "finished"
 
     def cost(step):
         if step.width:
@@ -740,6 +766,7 @@ def run_steps(steps, build_sawc2=None, sawc2=None, env=None, budget=None, call_t
         with cond:
             if name is not None:
                 results[name] = result
+                say(ended(result), name)
             give_back(held)
             state["running"] -= 1
             cond.notify_all()
@@ -753,6 +780,7 @@ def run_steps(steps, build_sawc2=None, sawc2=None, env=None, budget=None, call_t
             state["build"] = outcome
             state["built"] = True
             state["ok"] = outcome[0]
+            say("finished" if outcome[0] else "failed", "build")
         finish(None, None, held)
 
     def launch(step, held):
@@ -772,12 +800,14 @@ def run_steps(steps, build_sawc2=None, sawc2=None, env=None, budget=None, call_t
     with gate_jobs.budget(), cond:
         if build_sawc2 is not None:
             state["running"] += 1
+            say("started", "build")
             threading.Thread(target=do_build, args=(take(1),), daemon=True).start()
         pending = order
         while pending:
             if state["built"] and not state["ok"]:
                 for step in [s for s in pending if s.when == "built"]:
                     results[step.name] = _result(skipped=True)
+                    say("skipped", step.name)
                     pending.remove(step)
             ready = [s for s in pending if s.when == "always" or state["built"]]
             held = None
@@ -789,6 +819,7 @@ def run_steps(steps, build_sawc2=None, sawc2=None, env=None, budget=None, call_t
                 continue
             pending.remove(ready[0])
             state["running"] += 1
+            say("started", ready[0].name)
             launch(ready[0], held)
         while state["running"]:
             cond.wait()
@@ -877,7 +908,7 @@ def main():
     elif args:
         print("usage: run.py [--stage 1|2]")
         return 2
-    build_outcome, results = run_steps(STEPS, build_sawc2=build.build_sawc2)
+    build_outcome, results = run_steps(STEPS, build_sawc2=build.build_sawc2, progress=sys.stderr)
     for _, result in results:
         sys.stdout.buffer.write(result["stdout"])
         sys.stderr.buffer.write(result["stderr"])

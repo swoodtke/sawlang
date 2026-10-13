@@ -512,8 +512,12 @@ for a command that writes no files, and judges the twin's records in a fixed
 order: by part, then by arguments. Both merge their output in a fixed order, so it is the same at every
 worker count; `compiler/tests/parallel_order.py`, one of run.py's parts, checks
 that a serial and a parallel run print the same, with an injected failure
-reported in the same place. `test_runner.py` takes its default `-j` from the
-same setting.
+reported in the same place. While the parts run, `run.py` writes
+`run.py: started PART` and `run.py: finished PART (N s)` (or `failed`) to
+standard error as each part starts and ends, in the order that happens, and the
+fixpoint lane writes the same lines prefixed with `fixpoint: `; standard
+output is unchanged. `test_runner.py` takes its default `-j` from the same
+setting.
 
 ## The Gate Battery
 

@@ -10,13 +10,15 @@
   budget of N tokens never running more than N at once;
 - a few of run.py's steps, run serially (one worker) and in parallel (this
   step's budget), print the same bytes, with a failure injected into one case
-  of the coro lane appearing in both at the same place;
+  of the coro lane appearing in both at the same place, and each writes one
+  progress line as it starts and one as it ends, outside those bytes;
 - a small fixpoint replay, serial and parallel, judges the same, with a
   difference injected into one Stage 2 invocation reported in both.
 
 Each injection goes through a wrapper written under `.build/`, put where the
 lanes expect sawc2 or where the twin expects Stage 2; nothing tracked changes.
 """
+import io
 import os
 import sys
 import threading
@@ -166,18 +168,43 @@ class Injecting:
                 os.environ[k] = v
 
 
-def stage_output(R, wrapper, budget):
-    """Everything run.py would print for STAGE_STEPS at `budget` workers."""
+def stage_output(failures, R, wrapper, budget):
+    """Everything run.py would print for STAGE_STEPS at `budget` workers, its
+    progress lines apart: those are checked, never compared."""
     steps = [R.STEP_BY_NAME[name] for name in STAGE_STEPS]
-    _, results = R.run_steps(steps, sawc2=wrapper, budget=budget)
+    progress = io.StringIO()
+    _, results = R.run_steps(steps, sawc2=wrapper, budget=budget, progress=progress, label="pin")
+    check_progress(failures, budget, progress.getvalue(),
+                   {step.name: bool(r["failures"]) for step, r in results})
     streams = b"".join(r["stdout"] + r["stderr"] for _, r in results)
     return streams.decode("utf-8", "replace") + R.render(R.merge(None, results))
 
 
+def check_progress(failures, budget, text, fails):
+    """Each step in `fails` writes one started line and then one line ending
+    it, `failed` when `fails` says it fails and `finished` otherwise."""
+    lines = text.split("\n")[:-1]
+    for name, failing in sorted(fails.items()):
+        start = [k for k, line in enumerate(lines) if line == "pin: started %s" % name]
+        end_verb = "failed" if failing else "finished"
+        ends = [k for k, line in enumerate(lines) if line.startswith("pin: %s %s (" % (end_verb, name))
+                and line.endswith(" s)")]
+        others = [line for line in lines if line.split(" ")[2:3] == [name]
+                  and not line.startswith(("pin: started ", "pin: %s " % end_verb))]
+        if len(start) != 1 or len(ends) != 1 or start[0] > ends[0] or others:
+            failures.append("parallel order: at %d workers the step %s wrote %d started and %d %s progress lines"
+                            "%s, expected one of each in that order"
+                            % (budget, name, len(start), len(ends), end_verb,
+                               " and %r" % others[0] if others else ""))
+    if len(lines) != 2 * len(fails):
+        failures.append("parallel order: at %d workers the steps wrote %d progress lines, expected %d"
+                        % (budget, len(lines), 2 * len(fails)))
+
+
 def check_stage_steps(failures, R, wrapper, budget):
     with Injecting(R.build.SAWC2, STAGE_INJECTED):
-        serial = stage_output(R, wrapper, 1)
-        parallel = stage_output(R, wrapper, budget)
+        serial = stage_output(failures, R, wrapper, 1)
+        parallel = stage_output(failures, R, wrapper, budget)
     compare(failures, "the steps %s" % ", ".join(STAGE_STEPS), serial, parallel)
     if not any(MARK.split("\t")[0] in line and line.startswith("coro golden ") for line in serial.split("\n")):
         failures.append("parallel order: the failure injected into `sawc2 %s` is not reported"

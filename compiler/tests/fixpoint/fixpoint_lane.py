@@ -142,12 +142,12 @@ def check_driver_ir(failures, counts):
                         % (": " + why if why else ""))
 
 
-def replay_lanes(failures, counts, lanes=LANES, new=None, out=OUT, budget=None):
+def replay_lanes(failures, counts, lanes=LANES, new=None, out=OUT, budget=None, progress=None):
     """Every sawc2 invocation of the run.py steps `lanes`, under Stage 1 and
-    `new` (Stage 2 when None), within `budget` workers (run.py's `run_steps`);
-    returns the records the twin logged, in the order `judge` reads them. A
-    lane that does not finish is a failure, since its invocations are then
-    missing."""
+    `new` (Stage 2 when None), within `budget` workers (run.py's `run_steps`,
+    which writes each lane's start and end to `progress`); returns the records
+    the twin logged, in the order `judge` reads them. A lane that does not
+    finish is a failure, since its invocations are then missing."""
     import run as R
     log = os.path.join(out, os.path.basename(LOG))
     shutil.rmtree(log, ignore_errors=True)
@@ -160,7 +160,7 @@ def replay_lanes(failures, counts, lanes=LANES, new=None, out=OUT, budget=None):
     env = {"FIXPOINT_REF": build.STAGE1, "FIXPOINT_NEW": new or build.STAGE2, "FIXPOINT_LOG": log}
     start = time.time()
     _, results = R.run_steps([R.STEP_BY_NAME[name] for name in lanes], sawc2=twin, env=env, budget=budget,
-                             call_tokens=2)
+                             call_tokens=2, progress=progress, label="fixpoint: run.py")
     counts["seconds: the lanes under both binaries"] = round(time.time() - start)
     for step, result in results:
         if result["crashed"]:
@@ -224,7 +224,7 @@ def run():
                 threads = []
                 for check, part_failures, part_counts in parts[:2]:
                     check(part_failures, part_counts)
-            records = replay_lanes(parts[2][1], parts[2][2])
+            records = replay_lanes(parts[2][1], parts[2][2], progress=sys.stderr)
             for t in threads:
                 t.join()
         for _, part_failures, part_counts in parts:
