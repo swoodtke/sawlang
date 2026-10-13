@@ -506,6 +506,90 @@ extension TcProgram {
     }
 }
 
+// Interior mutability: the cell-carrying property, apart from `Sync`.
+extension TcProgram {
+    // Whether a value of type `t` holds an `UnsafeMutableInterior` in its own
+    // storage: the cell itself, or one inline in a field, a case payload, an
+    // Optional's payload, a tuple's or an array's element, a generic
+    // instance's substituted members included (spec, Interior mutability).
+    // A pointer, a reference, a slice and a closure hold what they reach
+    // behind an indirection, so a cell there leaves `t` cell-free. `Sync` is
+    // no answer: a type declaring `UnsafeSync`, `Atomic` among them, carries
+    // a cell and is `Sync`. A type this cannot see into answers true.
+    public func is_cell_carrying(&var self, t: Int, depth: Int) -> Bool {
+        if t < 0 {
+            return false
+        }
+        if depth > TC_SATISFY_DEPTH {
+            return true
+        }
+        let info = self.types.ty(t)
+        match info.kind {
+            case Tuple -> {
+                var k = 0
+                while k < info.count {
+                    let part = self.types.arg(t, k)
+                    if self.is_cell_carrying(part, depth + 1) {
+                        return true
+                    }
+                    k = k + 1
+                }
+                false
+            },
+            case Array -> self.is_cell_carrying(info.b, depth + 1),
+            case Nominal -> self.nominal_cell_carrying(t, depth),
+            case Ref -> false,
+            case Slice -> false,
+            case Func -> false,
+            case ConstInt -> false,
+            case _ -> true
+        }
+    }
+
+    func nominal_cell_carrying(&var self, t: Int, depth: Int) -> Bool {
+        let info = self.types.ty(t)
+        let d = info.decl
+        let k = self.known
+        if d == k.interior {
+            return true
+        }
+        if d == k.unsafe_pointer || d == k.unsafe_const_pointer || d == k.func_pointer {
+            return false
+        }
+        if d == k.optional {
+            let payload = self.types.arg(t, 0)
+            return self.is_cell_carrying(payload, depth + 1)
+        }
+        let s = tc_args_subst(d, self.nominal_args(t))
+        let members = self.members_of(d)
+        var j = 0
+        while j < members.len() {
+            let m = members[j]
+            let mi = self.res.decls[m]
+            j = j + 1
+            let written = self.sigs[m].result
+            if mi.kind == ResDeclKind.Field && written >= 0 {
+                let ft = self.subst(written, &s)
+                if self.is_cell_carrying(ft, depth + 1) {
+                    return true
+                }
+            } else if mi.kind == ResDeclKind.Case {
+                let cs = self.sigs[m]
+                var p = 0
+                while p < cs.param_count {
+                    let param = self.params[cs.param_first + p]
+                    let pt = self.subst(param.ty, &s)
+                    if self.is_cell_carrying(pt, depth + 1) {
+                        return true
+                    }
+                    p = p + 1
+                }
+            }
+        }
+        false
+    }
+}
+
 // Bound satisfaction.
 extension TcProgram {
     // Every recorded type argument against its parameter's bound.

@@ -7,6 +7,7 @@
 
 import sawborrowck.program.{BorrowckProgram}
 import sawdrops.program.{DropsProgram}
+import sawllvm.attributes.{ll_param_attributes}
 import sawllvm.prims.{LL_MESSAGE_LIMIT}
 import sawllvm.calls.{ll_block}
 import sawllvm.module.{LlEmitter, ll_export_symbol, ll_is_scalar, ll_symbol, ll_value_type}
@@ -122,6 +123,11 @@ extension LlEmitter {
                     try! prelude.append(", i64 ")
                     try! prelude.append(l.size)
                     try! prelude.append(", i1 false)\n")
+                }
+                let attributes = ll_param_attributes(&var mono, k, j, t)
+                if attributes.len() > 0 {
+                    try! head.append(" ")
+                    try! head.append(attributes)
                 }
                 try! head.append(" ")
                 try! head.append(name)

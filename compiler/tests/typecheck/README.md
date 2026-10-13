@@ -14,7 +14,8 @@ typecheck/
   multi/             NAME/main.saw and its modules, and NAME.typecheck
   refuse/            RULE[.VARIANT].saw
   inject/            NAME.saw, a program a unit program checks, then edits, to
-                     prove the body verifier reports a record no check makes
+                     prove the body verifier reports a record no check makes,
+                     or asks a predicate no refusal shows of each row
   frozen_check.py    signatures, Copy tiers, call targets and binding types against
                      the frozen compiler's
   frozen_effects.py  exhaustiveness, discarded-Result and suspension verdicts
@@ -961,6 +962,19 @@ containment rules (`check_no_move_declarations`):
 | `T: NoMove` on a function's and on an extension's parameter | refused | nomove.bound, nomove.bound.extension |
 | `NoMove` with no declared `NoCopy`, beside `ExplicitCopy` | refused | nomove.requires-nocopy, nomove.requires-nocopy.explicit |
 | a container declaring `NoCopy` and `NoMove`; a pointer holder; a generic holding `T` | allowed | no_move |
+
+**Cell-carrying** (spec, Interior mutability). `is_cell_carrying` answers
+whether a type holds an `UnsafeMutableInterior` in its own storage; the
+backend withholds `noalias` from a shared reference to one (SL-592). It
+refuses nothing, so its rows are a unit program's:
+`compiler/typecheck/tests/cell_carrying.saw` asks it of every parameter type
+in `inject/cell_carrying.saw`, which names each row by its function.
+
+| row | answer |
+|---|---|
+| the cell; `Atomic<Int>`; a struct holding an `Atomic`, which derives `Sync`; `Wrap<T>` at a cell, and nested; an Optional, a tuple and an array of one; an enum case's payload, `Result`'s `Ok` and its `Err` | carrying |
+| `Int`; a plain struct; `Wrap<Int>`; an Optional of a plain struct; an enum of plain payloads; `Result` of plain types; `String` | free |
+| a struct holding an `UnsafePointer` to a cell; `Box`, `Vector` of a cell; a reference to one | free: the cell is behind a pointer |
 
 **Copy-policy containment** (spec, The Copy Trait Family, "Containment" and
 "The automatic `Copy` tier"; `check_containment`). The members whose retain

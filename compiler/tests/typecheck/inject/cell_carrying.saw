@@ -1,0 +1,62 @@
+// The rows of the cell-carrying predicate, one function each: a `cell_`
+// function's parameter type carries a cell in its own storage, a `free_` one's
+// does not. `compiler/typecheck/tests/cell_carrying.saw` asks
+// `is_cell_carrying` of every one.
+
+struct Stats {
+    hits: Atomic<Int>
+}
+
+extension Stats: NoCopy {}
+
+struct Wrap<T> {
+    value: T
+}
+
+struct Plain {
+    count: Int
+    seen: Bool
+}
+
+struct Pointing {
+    at: UnsafePointer<Atomic<Int>>
+}
+
+enum Holder {
+    case Held(value: Atomic<Int>),
+    case Empty
+}
+
+extension Holder: NoCopy {}
+
+enum Shape {
+    case Square(side: Int),
+    case Pair(count: Int, seen: Bool),
+    case Nothing
+}
+
+func cell_interior(x: UnsafeMutableInterior<Int>) unsafe {}
+func cell_atomic(x: Atomic<Int>) {}
+// `Sync` by derivation, through `Atomic`'s `UnsafeSync`, and cell-carrying.
+func cell_stats(x: Stats) {}
+func cell_wrap(x: Wrap<Atomic<Int>>) {}
+func cell_wrap_nested(x: Wrap<Wrap<Stats>>) {}
+func cell_optional(x: Atomic<Int>?) {}
+func cell_tuple(x: (Int, Atomic<Int>)) {}
+func cell_array(x: [Atomic<Int>; 2]) {}
+func cell_held(x: Holder) {}
+func cell_result(x: Result<Atomic<Int>, Int>) {}
+func cell_result_error(x: Result<Int, Stats>) {}
+
+func free_int(x: Int) {}
+func free_plain(x: Plain) {}
+func free_wrap(x: Wrap<Int>) {}
+func free_optional(x: Plain?) {}
+func free_shape(x: Shape) {}
+func free_result(x: Result<Int, Bool>) {}
+func free_string(x: String) {}
+// Each of these reaches its cell through a pointer.
+func free_pointing(x: Pointing) {}
+func free_box(x: Box<Atomic<Int>>) {}
+func free_vector(x: Vector<Atomic<Int>>) {}
+func free_reference(x: &Atomic<Int>) {}

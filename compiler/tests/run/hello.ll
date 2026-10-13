@@ -55,7 +55,7 @@ bb0:
   ret void
 }
 
-define internal ptr @"saw std.string.string_bytes(text: &String)"(ptr %p1) {
+define internal ptr @"saw std.string.string_bytes(text: &String)"(ptr noalias %p1) {
 entry:
   %l0 = alloca ptr, align 8
   %l1 = alloca ptr, align 8
@@ -69,7 +69,7 @@ bb0:
   ret ptr %t2
 }
 
-define internal i64 @"saw std.string.string_length(text: &String)"(ptr %p1) {
+define internal i64 @"saw std.string.string_length(text: &String)"(ptr noalias %p1) {
 entry:
   %l0 = alloca i64, align 8
   %l1 = alloca ptr, align 8
@@ -91,7 +91,7 @@ bb1:
   ret i64 %t4
 }
 
-define internal i64 @"saw std.string.String.len()"(ptr %p1) {
+define internal i64 @"saw std.string.String.len()"(ptr noalias %p1) {
 entry:
   %l0 = alloca i64, align 8
   %l1 = alloca ptr, align 8

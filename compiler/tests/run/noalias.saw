@@ -1,0 +1,75 @@
+// `noalias` on reference parameters: an exclusive reference, `&var self`
+// included, and a shared reference to cell-free storage carry it, and a shared
+// reference to cell-carrying storage, a raw pointer, an aggregate passed by
+// value, a closure's environment and the result's address do not.
+// `noalias.defines` pins this module's `define` lines (README.md, "noalias").
+
+struct Tally {
+    total: Int
+    count: Int
+}
+
+struct Gauge {
+    level: Atomic<Int>
+}
+
+extension Gauge: NoCopy {}
+
+extension Tally {
+    func record(&var self, amount: Int) {
+        self.total = self.total + amount
+        self.count = self.count + 1
+    }
+
+    func mean(&self) -> Int {
+        self.total / self.count
+    }
+}
+
+func add_twice(tally: &var Tally, amount: Int) {
+    tally.record(amount)
+    tally.record(amount)
+}
+
+func spread(tally: &Tally) -> Int {
+    tally.total - tally.mean()
+}
+
+// The cell is written through the shared reference, so it carries nothing.
+func bump(gauge: &Gauge) -> Int {
+    gauge.level.fetch_add(1)
+}
+
+func copied(tally: Tally) -> Tally {
+    Tally(total: tally.total * 2, count: tally.count)
+}
+
+func first(p: UnsafePointer<Int>) unsafe -> Int {
+    p[0]
+}
+
+func apply(f: (Int) -> Int, x: Int) -> Int {
+    f(x)
+}
+
+func probe() unsafe {
+    var pair = Tally(total: 3, count: 4)
+    print(first((&pair) as UnsafePointer<Int>))
+}
+
+func main() {
+    var tally = Tally(total: 0, count: 0)
+    add_twice(&var tally, 5)
+    tally.record(20)
+    print(tally.mean())
+    print(spread(&tally))
+    let doubled = copied(tally)
+    print(doubled.total)
+    let gauge = Gauge(level: Atomic(40))
+    print(bump(&gauge))
+    print(bump(&gauge))
+    print(gauge.level.load())
+    probe()
+    let offset = 7
+    print(apply({ x in x + offset }, 35))
+}

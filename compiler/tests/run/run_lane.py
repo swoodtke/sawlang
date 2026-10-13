@@ -4,7 +4,7 @@ Stage 0 against its own, both binaries run, and their standard output and
 exit status compared.
 
     python compiler/tests/run/run_lane.py            # check
-    python compiler/tests/run/run_lane.py --write    # rewrite hello.ll
+    python compiler/tests/run/run_lane.py --write    # rewrite hello.ll and noalias.defines
     python compiler/tests/run/run_lane.py NAME...    # just these programs
     python compiler/tests/run/run_lane.py --bench    # the timing report over bench/
     python compiler/tests/run/run_lane.py --target TRIPLE   # sawc2's side cross-built
@@ -32,6 +32,9 @@ exit status compared.
 - `hello.saw`'s `.ll`, as the compiler binary writes it, equals `hello.ll`
   byte for byte, and `sawc/rt/host_macos/dirent.saw`'s, as `sawc2 runtime`
   writes it, `runtime_dirent.ll`;
+- `noalias.saw`'s own `define` lines equal `noalias.defines`, and a sawc2
+  built from a copy of the backend whose `noalias` funnel skips its
+  cell-carrying test fails that comparison at the cell-carrying `&` parameter;
 - `sawc2 build --target` links for the host and every target whose runtime
   `build.py --runtime` configured, and refuses every other target, linking
   nothing; with `--target TRIPLE` the lane builds sawc2's side of every
@@ -313,6 +316,89 @@ def check_pinned(failures, counts, write, what, pinned, args):
     counts["run pinned .ll files"] = counts.get("run pinned .ll files", 0) + 1
 
 
+NOALIAS_SOURCE = os.path.join(HERE, "noalias.saw")
+NOALIAS_PINNED = os.path.join(HERE, "noalias.defines")
+_NOALIAS_DEFINE = re.compile(r'^define [^@]*@"saw (closure#\d+ of |drop glue )?noalias\.')
+# The funnel's cell-carrying test, and the injection that answers it "no
+# cell" for every shared reference.
+NOALIAS_FUNNEL = "attributes.saw"
+NOALIAS_CELL_TEST = "    if mono.dp.bc.mir.tc.is_cell_carrying(info.b, 0) {\n"
+NOALIAS_INJECTED = "    if false {\n"
+# The parameter only the cell-carrying exemption keeps from `noalias`.
+NOALIAS_CELL_ROW = '@"saw noalias.bump(gauge: &noalias.Gauge)"'
+
+
+def noalias_defines(compiler):
+    """noalias.saw's own `define` lines as `compiler` writes them for the
+    pinned target: (the lines, or None and why). Naming the target keeps the
+    pin one file on every host, and lets the injected copy, which has no
+    runtime manifest beside it, emit at all."""
+    r = subprocess.run([compiler, "build", "--emit-ll", "--target", PINNED_TARGET, "--std-root", "std",
+                        rel(NOALIAS_SOURCE)], cwd=REPO, capture_output=True, text=True, timeout=BUILD_TIMEOUT)
+    if r.returncode != 0:
+        return None, (r.stdout + r.stderr).strip()[:300]
+    return [line for line in r.stdout.split("\n") if _NOALIAS_DEFINE.match(line)], ""
+
+
+def check_noalias(failures, counts, write):
+    """noalias.saw's `define` lines against noalias.defines, then the same
+    check over a sawc2 whose `noalias` funnel ignores the cell-carrying test,
+    which must fail at the cell-carrying shared reference."""
+    lines, why = noalias_defines(build.SAWC2)
+    if lines is None:
+        failures.append("run noalias: sawc2 wrote no .ll: %s" % why)
+        return
+    text = "\n".join(lines) + "\n"
+    if write:
+        with open(NOALIAS_PINNED, "w") as fh:
+            fh.write(text)
+        return
+    with open(NOALIAS_PINNED) as fh:
+        expected = fh.read()
+    if text != expected:
+        changed = [line for line in lines if line + "\n" not in expected]
+        failures.append("run noalias: the define lines differ from %s: %s"
+                        % (rel(NOALIAS_PINNED), (changed or ["a line is missing"])[0][:200]))
+        return
+    counts["run pinned .ll files"] = counts.get("run pinned .ll files", 0) + 1
+    copy = os.path.join(OUT, "noalias-inject")
+    shutil.rmtree(copy, ignore_errors=True)
+    try:
+        llvm = os.path.join(copy, "llvm")
+        shutil.copytree(os.path.join(COMPILER, "llvm", "src"), llvm)
+        funnel = os.path.join(llvm, NOALIAS_FUNNEL)
+        with open(funnel) as fh:
+            source = fh.read()
+        if source.count(NOALIAS_CELL_TEST) != 1:
+            failures.append("run noalias: %s no longer holds the cell-carrying test %r to inject"
+                            % (NOALIAS_FUNNEL, NOALIAS_CELL_TEST.strip()))
+            return
+        with open(funnel, "w") as fh:
+            fh.write(source.replace(NOALIAS_CELL_TEST, NOALIAS_INJECTED))
+        packages = []
+        for name, path in build.STAGE_PACKAGES:
+            packages += ["--module-path", "%s=%s" % (name, llvm if name == "sawllvm" else path)]
+        injected = os.path.join(copy, "sawc2")
+        r = subprocess.run([build.SAWC2, "build", "-O0", "--std-root", "std"] + packages
+                           + [rel(build.DRIVER_ENTRY), "-o", injected], cwd=REPO, capture_output=True, text=True,
+                           timeout=BUILD_TIMEOUT)
+        if r.returncode != 0:
+            failures.append("run noalias: the injected sawc2 does not build: %s"
+                            % (r.stdout + r.stderr).strip()[:300])
+            return
+        lines, why = noalias_defines(injected)
+        if lines is None:
+            failures.append("run noalias: the injected sawc2 wrote no .ll: %s" % why)
+            return
+        caught = [line for line in lines if line + "\n" not in expected]
+        if not any(NOALIAS_CELL_ROW in line and "noalias %p1" in line for line in caught):
+            failures.append("run noalias: a funnel ignoring the cell-carrying test passes %s at %s"
+                            % (rel(NOALIAS_PINNED), NOALIAS_CELL_ROW))
+        counts["run noalias injections caught"] = counts.get("run noalias injections caught", 0) + 1
+    finally:
+        shutil.rmtree(copy, ignore_errors=True)
+
+
 def build_runtime(directory, rt_root):
     """`sawc2 runtime` of the sources under `rt_root` into a fresh
     `directory`: (exit status, what it printed)."""
@@ -465,6 +551,7 @@ def run(names=None, write=False):
             if rule not in covered:
                 failures.append("run rule %s: no due program is refused by it" % rule)
         check_pinned_ir(failures, counts, write)
+        check_noalias(failures, counts, write)
         check_foreign_targets(failures, counts)
         check_runtime(failures, counts)
         check_executable_path(failures, counts)

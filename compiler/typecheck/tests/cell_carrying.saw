@@ -1,0 +1,76 @@
+// The cell-carrying predicate over every row of the fixture
+// `compiler/tests/typecheck/inject/cell_carrying.saw`: each function's
+// parameter type, true for a `cell_` function and false for a `free_` one. The
+// backend's `noalias` on a shared reference rests on this answer (SL-592).
+// `Stats` is the row `Sync` cannot stand in for: it derives `Sync` and still
+// carries a cell. Paths are the repository root's, where the runner runs.
+import sawresolve.model.{ResDeclKind}
+import sawtypecheck.api.{typecheck_program}
+import sawtypecheck.program.{TcProgram}
+// For the extension writing `is_cell_carrying` and `satisfies`.
+import sawtypecheck.tier.{tc_max}
+
+// The index of module `name`, or -1.
+func module_index(p: &TcProgram, name: String) -> Int {
+    var m = 0
+    while m < p.res.module_count() {
+        if p.res.module_name(m).equals(name) {
+            return m
+        }
+        m = m + 1
+    }
+    return -1
+}
+
+// Whether `text` begins with `prefix`.
+func starts(text: &String, prefix: String) -> Bool {
+    let w = prefix.len()
+    if text.len() < w {
+        return false
+    }
+    var k = 0
+    while k < w {
+        if text.byte_at(k) != prefix.byte_at(k) {
+            return false
+        }
+        k = k + 1
+    }
+    true
+}
+
+func main() {
+    let names = Vector<String>()
+    let dirs = Vector<String>()
+    var p = typecheck_program("compiler/tests/typecheck/inject/cell_carrying.saw", "std", &names, &dirs)
+    let m = module_index(&p, "cell_carrying")
+    assert(m >= 0, "the fixture did not load: run from the repository root")
+    assert(p.error_count() == 0, "the fixture is refused")
+    var carrying = 0
+    var free = 0
+    var d = 0
+    while d < p.res.decls.len() {
+        let info = p.res.decls[d]
+        d = d + 1
+        if info.module != m || info.kind != ResDeclKind.Func || info.name < 0 {
+            continue
+        }
+        let name = p.res.name_text(info.name)
+        let s = p.sigs[d - 1]
+        assert(s.param_count == 1, "a fixture row takes one parameter")
+        let t = p.params[s.param_first].ty
+        let answer = p.is_cell_carrying(t, 0)
+        if starts(&name, "cell_") {
+            assert(answer, "a row that carries a cell answers false: {}", name)
+            carrying = carrying + 1
+        } else if starts(&name, "free_") {
+            assert(not answer, "a row with no cell in its storage answers true: {}", name)
+            free = free + 1
+        }
+        if name.equals("cell_stats") {
+            let sync = p.known.sync
+            assert(p.satisfies(t, sync, -1, -1), "`Stats` no longer derives `Sync`, so it no longer shows the predicate is not `Sync`")
+        }
+    }
+    assert(carrying == 11, "the fixture's cell-carrying rows are not all seen: {}", carrying)
+    assert(free == 11, "the fixture's cell-free rows are not all seen: {}", free)
+}

@@ -3899,6 +3899,22 @@ the return. Code written around that — declaring `&var self` purely to obtain 
 real address, as `FixedBuf.ptr` itself once did — keeps working unchanged and
 is no longer necessary.
 
+**While a `&var` borrow is live, unsafe code reaches the place only through
+it.** Until the borrow ends, nothing else may read or write the borrowed
+place: no raw pointer that did not come from the borrow (one taken before it,
+one derived from another binding of the same storage, an address held
+elsewhere), and no other name for the storage, an `unsafe static var` named
+directly included. A pointer built from the borrow itself, such as
+`(&self) as UnsafePointer<T>` inside a `&var self` method, is that borrow and
+may be used while it lasts. A shared borrow has the same rule for writes:
+while a `&` borrow of storage that is not
+[cell-carrying](#interior-mutability) is live, nothing may write that storage
+by any path, a raw pointer or a static's name included. The compiler does not
+check either half; code generation assumes both. An exclusive reference
+parameter tells the optimizer that nothing else touches its referent during
+the call, and a shared one to cell-free storage that nothing writes it, so an
+access that breaks the rule can read a stale value or be reordered.
+
 Reference types (`&T` and `&var T`) allow passing values by reference without copying. References are only valid as function/method parameters and cannot escape. Mutation through a `&var` reference is done with compound assignment (`x += 1`), mutating methods, or — as of design 110 — whole-referent *replacement* assignment `x = v` (the same rule closures already followed; see below). Some example bodies below use planned stdlib methods (`push_str`, `String.from`) and are *(illustrative)*.
 
 ```saw-fragment
@@ -13684,6 +13700,11 @@ allocator needs over a `static` region:
 - `ptr as Int` / `addr as UnsafePointer<T>` round-trip a pointer through its
   integer address (`ptrtoint` / `inttoptr`) — how a slab threads freed-chunk
   addresses through an `Atomic<Int>` free-list.
+
+A pointer made this way does not suspend the Law of Exclusivity: while a
+`&var` borrow of the place is live, only a pointer derived from that borrow
+may reach it, and while a shared borrow of cell-free storage is live, nothing
+may write it ([Reference passing](#reference-passing)).
 
 ### `UnsafeMemory<T, Use>` — typed memory at a fixed address
 

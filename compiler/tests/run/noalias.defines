@@ -1,0 +1,12 @@
+define internal void @"saw noalias.main()"() {
+define internal void @"saw noalias.add_twice(tally: &var noalias.Tally, amount: Int)"(ptr noalias %p1, i64 %p2) {
+define internal void @"saw noalias.Tally.record(amount: Int)"(ptr noalias %p1, i64 %p2) {
+define internal i64 @"saw noalias.Tally.mean()"(ptr noalias %p1) {
+define internal i64 @"saw noalias.spread(tally: &noalias.Tally)"(ptr noalias %p1) {
+define internal void @"saw noalias.copied(tally: noalias.Tally)"(ptr %ret, ptr %p1) {
+define internal i64 @"saw noalias.bump(gauge: &noalias.Gauge)"(ptr %p1) {
+define internal void @"saw noalias.probe()"() {
+define internal i64 @"saw closure#0 of noalias.main()"(ptr %p1, i64 %p2) {
+define internal i64 @"saw noalias.apply(f: (Int) -> Int, x: Int)"(ptr %p1, i64 %p2) {
+define internal void @"saw drop glue noalias.Gauge"(ptr noalias %p1) {
+define internal i64 @"saw noalias.first(p: UnsafePointer<Int>)"(ptr %p1) {

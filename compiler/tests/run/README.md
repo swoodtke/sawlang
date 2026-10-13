@@ -10,6 +10,7 @@ run/
   run_lane.py    the lane compiler/tests/run.py runs
   NAME.saw       a program
   hello.ll       the `.ll` sawc2 writes for hello.saw, pinned
+  noalias.defines  the `define` lines sawc2 writes for noalias.saw's own functions, pinned
   runtime_dirent.ll  the `.ll` `sawc2 runtime` writes for sawc/rt/host_macos/dirent.saw, pinned
   probes/        programs the lane runs apart from the comparison
 ```
@@ -149,6 +150,15 @@ description's (`compiler/tests/mono/README.md`, "Layouts").
   convention the target gives; a variadic one through its function type, each
   extra argument by C's default promotions (an integer narrower than 32 bits
   widened to `i32` by its signedness).
+- **noalias.** A reference parameter is `noalias`: an exclusive one always,
+  `&var self` and a glue's included, by the Law of Exclusivity; a shared one
+  when its referent is not cell-carrying (typecheck's `is_cell_carrying`,
+  spec, Interior mutability), since nothing writes cell-free storage a
+  shared borrow holds. A raw pointer, a memory parameter's address, the
+  `sret` pointer, a slice and a closure's environment carry nothing. Every
+  decision is `ll_param_attributes` in `compiler/llvm/src/attributes.saw`
+  (SL-592). Unsafe code reaching a borrowed place around the borrow is what
+  the spec rules out (Reference passing).
 - **Checks.** `+`, `-` and `*` use `llvm.{s,u}{add,sub,mul}.with.overflow` by
   the operand's signedness, `&+`, `&-` and `&*` wrap; `/` and `%` check a zero
   divisor and the signed `MIN / -1`; a shift checks its count; an `as` that
@@ -263,6 +273,16 @@ compares:
 - with `--target TRIPLE` (`tools/linux.py run-lane --arch x86_64`), every
   program's sawc2 side is built for TRIPLE and held to Stage 0's host build:
   the expected output is the same on every target;
+- `noalias.saw`'s own `define` lines (its functions, its closure and its
+  glue) equal `noalias.defines` (`--write` rewrites it), so each parameter
+  row's attributes are pinned: `&var`, `&var self`, a cell-free `&` and
+  `&self` carry `noalias`, a cell-carrying `&`, a raw pointer, a by-value
+  aggregate, a function value, a closure's environment and `%ret` do not.
+  Then the lane copies `compiler/llvm/src`, replaces the funnel's
+  cell-carrying test with `false`, builds a sawc2 from the copy at -O0 with
+  the selected binary, and requires its `define` lines to fail that
+  comparison at `bump(gauge: &noalias.Gauge)`: the injection proves the pin
+  catches a funnel that drops the exemption;
 - `sawc2 runtime --out` writes the same files, byte for byte, into two
   directories, and refuses a copy of `sawc/rt` that leaves a seam undefined
   (`sleep.saw` without its `@export`) or defines one twice (the host's

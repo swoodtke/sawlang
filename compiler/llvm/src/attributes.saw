@@ -1,0 +1,35 @@
+// The attributes a defined function's parameters carry: what the language
+// guarantees about an argument that LLVM can use, written after its type.
+
+import sawmir.model.{MirFuncKind}
+import sawmono.program.{MonoProgram}
+// For the extension writing `is_cell_carrying`.
+import sawtypecheck.tier.{tc_max}
+import sawtypecheck.types.{TcKind}
+
+// The attributes parameter `j` of item `k`'s function, of type `t`, carries,
+// or "". A reference is `noalias` while the call runs: an exclusive one by the
+// Law of Exclusivity, and a shared one unless its referent carries a cell,
+// since a cell is the one place a shared borrow lets anything write (spec,
+// Reference passing). A raw pointer, an aggregate passed by address, the
+// result's address, a slice and a closure's environment carry nothing.
+//
+// ENTRY POINTS:
+//   LlEmitter.emit_function
+public func ll_param_attributes(mono: &var MonoProgram, k: Int, j: Int, t: Int) -> String {
+    let f = mono.items[k].body
+    if j == 1 && mono.dp.bc.mir.funcs[f].kind == MirFuncKind.Closure {
+        return ""
+    }
+    let info = mono.dp.bc.mir.tc.types.ty(t)
+    if info.kind != TcKind.Ref {
+        return ""
+    }
+    if info.a == 1 {
+        return "noalias"
+    }
+    if mono.dp.bc.mir.tc.is_cell_carrying(info.b, 0) {
+        return ""
+    }
+    "noalias"
+}
