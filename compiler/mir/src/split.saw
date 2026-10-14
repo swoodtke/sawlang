@@ -34,6 +34,15 @@ public struct MirHalf {
 
 extension MirHalf: NoCopy {}
 
+// A function's predecessor lists, packed: block `b`'s predecessors are
+// `blocks[first[b] .. first[b + 1]]`.
+struct MirPreds {
+    first: Vector<Int>
+    blocks: Vector<Int>
+}
+
+extension MirPreds: NoCopy {}
+
 extension MirProgram {
     // Splits accessor function `f`, lowered whole, into its two halves: `f`
     // becomes the prologue and the epilogue follows it. A body whose code
@@ -160,22 +169,16 @@ extension MirProgram {
         var work = Vector<Int>()
         try! work.push(from)
         seen[from] = true
-        while work.len() > 0 {
-            let top = work.len() - 1
-            let at = work[top]
-            var rest = Vector<Int>()
-            var j = 0
-            while j < top {
-                try! rest.push(work[j])
-                j = j + 1
-            }
-            work = move rest
+        var next = 0
+        while next < work.len() {
+            let at = work[next]
+            next = next + 1
             let block = self.blocks[info.block_first + at]
             if stop && block.term == MirTermKind.Call && self.calls[block.call].kind == MirCallKind.Lend {
                 continue
             }
             let succ = self.successors_of(&block)
-            j = 0
+            var j = 0
             while j < succ.len() {
                 let s = succ[j]
                 if not seen[s] {
@@ -217,23 +220,38 @@ extension MirProgram {
     // Backward liveness over `f`'s blocks: `live[b * locals + l]` when local
     // `l` is read on some path from block `b`'s entry before it is written
     // whole. A read is an operand, a reference, a drop, a switch, a call's
-    // arguments, a write into a part, and an index.
+    // arguments, a write into a part, and an index. A worklist swept in
+    // postorder, to the fixpoint: a block is walked again only when a
+    // successor's live set grew.
     public func liveness(&self, f: Int) -> Vector<Bool> {
         let info = self.funcs[f]
         let n = info.local_count
+        let count = info.block_count
         var live = Vector<Bool>()
         var k = 0
-        while k < info.block_count * n {
+        while k < count * n {
             try! live.push(false)
             k = k + 1
         }
-        var changed = true
-        var rounds = 0
-        while changed && rounds < 1000 {
-            changed = false
-            rounds = rounds + 1
-            var b = info.block_count - 1
-            while b >= 0 {
+        let preds = self.predecessor_lists(f)
+        let order = self.init_block_order(f)
+        var pending = Vector<Bool>()
+        k = 0
+        while k < count {
+            try! pending.push(true)
+            k = k + 1
+        }
+        var left = count
+        while left > 0 {
+            var i = order.len() - 1
+            while i >= 0 {
+                let b = order[i]
+                i = i - 1
+                if not pending[b] {
+                    continue
+                }
+                pending[b] = false
+                left = left - 1
                 let block = self.blocks[info.block_first + b]
                 var state = Vector<Bool>()
                 k = 0
@@ -254,18 +272,84 @@ extension MirProgram {
                     j = j + 1
                 }
                 self.block_transfer(&block, &var state)
+                var grew = false
                 k = 0
                 while k < n {
                     if state[k] && not live[b * n + k] {
                         live[b * n + k] = true
-                        changed = true
+                        grew = true
                     }
                     k = k + 1
                 }
-                b = b - 1
+                if grew {
+                    j = preds.first[b]
+                    while j < preds.first[b + 1] {
+                        let p = preds.blocks[j]
+                        if not pending[p] {
+                            pending[p] = true
+                            left = left + 1
+                        }
+                        j = j + 1
+                    }
+                }
             }
         }
         move live
+    }
+
+    // Each block's predecessors in `f`.
+    func predecessor_lists(&self, f: Int) -> MirPreds {
+        let info = self.funcs[f]
+        let count = info.block_count
+        var first = Vector<Int>()
+        var k = 0
+        while k <= count {
+            try! first.push(0)
+            k = k + 1
+        }
+        var b = 0
+        while b < count {
+            let block = self.blocks[info.block_first + b]
+            let succ = self.successors_of(&block)
+            var j = 0
+            while j < succ.len() {
+                first[succ[j] + 1] += 1
+                j = j + 1
+            }
+            b = b + 1
+        }
+        k = 0
+        while k < count {
+            let below = first[k]
+            first[k + 1] += below
+            k = k + 1
+        }
+        var fill = Vector<Int>()
+        var blocks = Vector<Int>()
+        k = 0
+        while k < count {
+            try! fill.push(first[k])
+            k = k + 1
+        }
+        k = 0
+        while k < first[count] {
+            try! blocks.push(0)
+            k = k + 1
+        }
+        b = 0
+        while b < count {
+            let block = self.blocks[info.block_first + b]
+            let succ = self.successors_of(&block)
+            var j = 0
+            while j < succ.len() {
+                let s = succ[j]
+                blocks[fill[s]] = b
+                fill[s] += 1
+                j = j + 1
+            }
+            b = b + 1
+        }
+        MirPreds(first: move first, blocks: move blocks)
     }
 
     // Block `block` run backward over live set `state`: its terminator, then

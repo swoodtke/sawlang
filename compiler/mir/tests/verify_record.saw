@@ -1,0 +1,229 @@
+// The MIR verifier recomputes an accessor epilogue's liveness rather than
+// reuse the split's, so a record that misses a live local is reported however
+// long the body is and whatever loops it holds (SL-610). Each program is
+// lowered, found clean, then edited the same way: an epilogue's load of its
+// last record local and the record's entry for it are dropped, and the
+// verifier must report the read the record no longer gives. The programs are
+// the fixture `compiler/tests/mir/inject/record.saw`; an accessor written
+// here with 1100 `if`s after its `lend`, each a join numbered below its arms,
+// which is the shape a capped or one-block-at-a-time dataflow loses; and the
+// run lane's `probes/accessor_loops.saw`, whose four accessors keep locals
+// live around a backedge, each edited in turn. Paths are the repository
+// root's, where the runner runs.
+import std.file.{File}
+import std.path.{Path}
+import sawmir.api.{mir_lower_file}
+import sawmir.model.{MirFuncKind}
+import sawmir.program.{MirProgram}
+import sawmir.split.{MirHalf}
+import sawmir.verify.{mir_verify_module}
+
+// The index of module `name`, or -1.
+func module_index(p: &MirProgram, name: String) -> Int {
+    var m = 0
+    while m < p.tc.res.module_count() {
+        if p.tc.res.module_name(m).equals(name) {
+            return m
+        }
+        m = m + 1
+    }
+    return -1
+}
+
+// Whether `text` holds `word` at some byte.
+func holds(text: &String, word: String) -> Bool {
+    let n = text.len()
+    let w = word.len()
+    var at = 0
+    while at + w <= n {
+        var k = 0
+        while k < w && text.byte_at(at + k) == word.byte_at(k) {
+            k = k + 1
+        }
+        if k == w {
+            return true
+        }
+        at = at + 1
+    }
+    false
+}
+
+// How many of `found` hold `word`.
+func reported(found: &Vector<String>, word: String) -> Int {
+    var count = 0
+    var k = 0
+    while k < found.len() {
+        let line = found.get(k) ?? ""
+        if holds(&line, word) {
+            count = count + 1
+        }
+        k = k + 1
+    }
+    count
+}
+
+// The accessor with `ifs` sequential `if`s after its `lend`, `a` live across
+// all of them.
+func long_source(ifs: Int) -> String {
+    var text = StringBuilder()
+    try! text.append("struct Grid \{\n    cell: Int\n\}\n\nextension Grid \{\n")
+    try! text.append("    func at(&var self, i: Int) borrows -> &var Int \{\n")
+    try! text.append("        let a = i + 41\n        lend self.cell\n        var t = 0\n")
+    var k = 0
+    while k < ifs {
+        try! text.append("        if t > ")
+        try! text.append(k)
+        try! text.append(" \{\n            t = 1\n        \}\n")
+        k = k + 1
+    }
+    try! text.append("        print(\"\{\}\", a)\n    \}\n\}\n\nfunc main() \{\n    var g = Grid(cell: 0)\n")
+    try! text.append("    borrow var c = g.at(1) \{\n        c = 5\n    \}\n    print(\"\{\}\", g.cell)\n\}\n")
+    text.build()
+}
+
+func write_long(path: String, ifs: Int) {
+    let text = long_source(ifs)
+    let created = File.create(Path(s: path))
+    var file = match created {
+        case Ok(handle) -> move handle,
+        case Err(e) -> {
+            panic("cannot create {}: {}", path, e)
+        }
+    }
+    let converted = text.to_data()
+    let data = match converted {
+        case Ok(bytes) -> bytes,
+        case Err(e) -> {
+            panic("cannot convert the long program: {}", e)
+        }
+    }
+    let written = file.write(data)
+    match written {
+        case Ok(count) -> assert(count == text.len(), "the long program was written short"),
+        case Err(e) -> panic("cannot write {}: {}", path, e)
+    }
+    let closed = file.close()
+    match closed {
+        case Ok(_) -> {},
+        case Err(e) -> panic("cannot close {}: {}", path, e)
+    }
+}
+
+// Module `m`'s `nth` epilogue that has a record local, counted from 0, or -1.
+func epilogue_of(p: &MirProgram, m: Int, nth: Int) -> Int {
+    var seen = 0
+    var f = 0
+    while f < p.funcs.len() {
+        let info = p.funcs[f]
+        if info.module == m && info.kind == MirFuncKind.Epilogue && info.record_count > 0 {
+            if seen == nth {
+                return f
+            }
+            seen = seen + 1
+        }
+        f = f + 1
+    }
+    return -1
+}
+
+// `path`, module `name`, lowered and checked clean.
+func lowered(path: String, name: String, names: &Vector<String>, dirs: &Vector<String>) -> MirProgram {
+    var lowerings = 0
+    var p = mir_lower_file(path, "sawc", &names, &dirs, &var lowerings)
+    let m = module_index(&p, name)
+    assert(m >= 0, "the program did not load: run from the repository root")
+    assert(p.diags.len() == 0 && p.tc.error_count() == 0, "the program is refused")
+    let clean = mir_verify_module(&var p, m)
+    assert(clean.len() == 0, "the program's MIR is not clean before the edit")
+    move p
+}
+
+// Drops epilogue `f`'s load of its last record local from its entry block,
+// and the local from the record.
+func drop_record_local(p: &var MirProgram, f: Int) {
+    var info = p.funcs[f]
+    let l = p.aux[info.record_first + info.record_count - 1]
+    var entry = p.blocks[info.block_first]
+    var prev = -1
+    var s = entry.first
+    var found = false
+    while s >= 0 && not found {
+        let stmt = p.stmts[s]
+        let place = p.places[stmt.place]
+        if place.local == l && place.count == 0 {
+            found = true
+            if prev < 0 {
+                entry.first = stmt.next
+            } else {
+                var before = p.stmts[prev]
+                before.next = stmt.next
+                p.stmts[prev] = before
+            }
+            if entry.last == s {
+                entry.last = prev
+            }
+        } else {
+            prev = s
+            s = stmt.next
+        }
+    }
+    assert(found, "the epilogue's entry does not load its record local")
+    p.blocks[info.block_first] = entry
+    info.record_count = info.record_count - 1
+    p.funcs[f] = info
+}
+
+// The `nth` epilogue of `path`, module `name`, holds `want` record locals (any
+// number but none when `want` is -1); with its last one dropped, the
+// verifier reports the read the record no longer gives.
+func check(path: String, name: String, nth: Int, want: Int, names: &Vector<String>, dirs: &Vector<String>) {
+    var p = lowered(path, name, &names, &dirs)
+    let m = module_index(&p, name)
+    let f = epilogue_of(&p, m, nth)
+    assert(f >= 0, "the program has too few epilogues")
+    let count = p.funcs[f].record_count
+    assert(count > 0 && (want < 0 || count == want), "the record does not hold the locals live across `lend`")
+    drop_record_local(&var p, f)
+    let found = mir_verify_module(&var p, m)
+    assert(reported(&found, "before the record gives it") == 1,
+           "the verifier admits an epilogue whose record misses a live local")
+}
+
+func main() {
+    let names = Vector<String>()
+    let dirs = Vector<String>()
+    check("compiler/tests/mir/inject/record.saw", "record", 0, 1, &names, &dirs)
+    let long = ".build/verify_record_long.saw"
+    write_long(long, 1100)
+    check(long, "verify_record_long", 0, 1, &names, &dirs)
+    // Each accessor of the loop probe: liveness reaches its record locals
+    // around a backedge.
+    let loops = "compiler/tests/run/probes/accessor_loops.saw"
+    var nth = 0
+    while nth < 4 {
+        check(loops, "accessor_loops", nth, -1, &names, &dirs)
+        nth = nth + 1
+    }
+    // The record is read where a lend resumes, outside every loop, so a
+    // backward sweep that never re-walks a block shows only inside a loop:
+    // there the split's liveness must equal the verifier's, block by block.
+    let p = lowered(loops, "accessor_loops", &names, &dirs)
+    let m = module_index(&p, "accessor_loops")
+    var f = 0
+    var compared = 0
+    while f < p.funcs.len() {
+        if p.funcs[f].module == m {
+            let lowering = p.liveness(f)
+            let own = p.recomputed_liveness(f)
+            assert(lowering.len() == own.len(), "the two liveness analyses differ in size")
+            var k = 0
+            while k < lowering.len() {
+                assert(lowering[k] == own[k], "the split's liveness and the verifier's disagree inside a function")
+                k = k + 1
+            }
+            compared = compared + 1
+        }
+        f = f + 1
+    }
+    assert(compared > 0, "the loop probe lowered no functions")
+}

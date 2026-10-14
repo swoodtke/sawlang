@@ -306,7 +306,16 @@ compares:
 - `probes/executable_path.saw`, built by sawc2 and by Stage 0, run by a bare
   name that a renamed relative symbolic link on `PATH` resolves, from another
   working directory, prints its binary's real path: what the manifest lookup
-  rests on.
+  rests on;
+- an accessor the lane writes to `.build/run-lane/long_accessor.saw`, with a
+  local live across its `lend` and 1100 `if`s after it, built by sawc2 at -O0
+  and at -O2 with nothing printed, prints the `42` and `5` it states, and
+  `probes/accessor_loops.saw`, whose accessors keep locals live across their
+  `lend` and around loops (a window inside a loop, a value carried into the
+  next iteration, a loop before the `lend`, two nested loops), prints its
+  `// prints:` lines the same way. Stage 0 cannot parse a `borrow` block, so
+  each program states its own output; the long one's length is past the
+  round count a capped dataflow stops at (SL-610).
 
 Stage 0 is the oracle: a difference is a sawc2 bug until shown otherwise
 (SL:architecture §5).

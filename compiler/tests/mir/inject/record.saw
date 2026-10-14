@@ -1,0 +1,32 @@
+// The program compiler/mir/tests/verify_record.saw lowers, then edits:
+// `Grid.at`'s local `a` is live across its `lend`, so its state record holds
+// `a` and the epilogue loads it on entry. The edit drops that load and the
+// record's local, as a record that missed a live local would be, and the
+// verifier must then report the read of `a` the record no longer gives.
+
+struct Grid {
+    cell: Int
+}
+
+extension Grid {
+    func at(&var self, i: Int) borrows -> &var Int {
+        let a = i + 41
+        lend self.cell
+        var t = 0
+        if t > 0 {
+            t = 1
+        }
+        if t > 1 {
+            t = 1
+        }
+        print("{}", a)
+    }
+}
+
+func main() {
+    var g = Grid(cell: 0)
+    borrow var c = g.at(1) {
+        c = 5
+    }
+    print("{}", g.cell)
+}

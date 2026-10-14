@@ -1,0 +1,109 @@
+// Accessors whose locals stay live across their `lend` and around a loop,
+// so the split's liveness reaches them through a backedge. The run lane
+// builds this at -O0 and -O2 and requires the `// prints:` lines;
+// compiler/mir/tests/verify_record.saw lowers it, checks it clean, and drops
+// an epilogue's record local (SL-610).
+// prints: 42
+// prints: 7 168
+// prints: 1
+// prints: 2
+// prints: 5
+// prints: 12 6
+// prints: 10 11
+// prints: 61 20
+// prints: 0 171
+struct Tally {
+    total: Int
+}
+
+extension Tally {
+    func slot(&var self) borrows -> &var Int {
+        lend self.total
+    }
+}
+
+struct Grid {
+    cell: Int
+    tally: Tally
+}
+
+extension Grid {
+    // `a`, defined before a `while`, is used after it, and a window opens
+    // inside the loop's body.
+    func around(&var self, i: Int) borrows -> &var Int {
+        let a = i + 41
+        lend self.cell
+        var k = 0
+        while k < 4 {
+            borrow var e = self.tally.slot() {
+                e += a
+            }
+            k += 1
+        }
+        print("{}", a)
+    }
+
+    // `x` is written at the bottom of an iteration and read at the top of
+    // the next.
+    func carried(&var self, i: Int) borrows -> &var Int {
+        var x = i
+        lend self.cell
+        var k = 0
+        while k < 3 {
+            print("{}", x)
+            x = x * 2 + k
+            k += 1
+        }
+        print("{} {}", x, self.cell)
+    }
+
+    // A loop before the `lend` whose result is live across it.
+    func before(&var self, i: Int) borrows -> &var Int {
+        var sum = 0
+        var k = 0
+        while k <= i {
+            sum += k
+            k += 1
+        }
+        lend self.cell
+        print("{} {}", sum, self.cell)
+    }
+
+    // A window inside the inner of two loops, `a` live across both.
+    func nested(&var self, i: Int) borrows -> &var Int {
+        let a = i * 10
+        var total = 0
+        lend self.cell
+        var r = 0
+        while r < 3 {
+            var c = 0
+            while c < r {
+                borrow var e = self.tally.slot() {
+                    e += 1
+                }
+                total += a + c
+                c += 1
+            }
+            r += 1
+        }
+        print("{} {}", total, a)
+    }
+}
+
+func main() {
+    var g = Grid(cell: 0, tally: Tally(total: 0))
+    borrow var c = g.around(1) {
+        c = 7
+    }
+    print("{} {}", g.cell, g.tally.total)
+    borrow var d = g.carried(1) {
+        d -= 1
+    }
+    borrow var b = g.before(4) {
+        b += 5
+    }
+    borrow var n = g.nested(2) {
+        n = 0
+    }
+    print("{} {}", g.cell, g.tally.total)
+}

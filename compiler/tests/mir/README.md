@@ -542,7 +542,8 @@ nowhere, and checks, from the MIR alone:
   record its accessor lays out, instantiated, or names none and passes none
   for an accessor whose body is not lowered; the epilogue reads no local the
   record does not give it, and every record local is read after the `lend`,
-  so the record holds exactly the locals live across it; each prologue
+  so the record holds exactly the locals live across it, by a liveness the
+  verifier computes itself, per local, rather than the split's; each prologue
   return writes all of the record's fields but the drop flags, or none; a
   prologue's return may
   leave its record locals live and its carried windows open, which the
@@ -552,7 +553,14 @@ nowhere, and checks, from the MIR alone:
   read the two lists in step (SL-495). The unit program
   `compiler/mir/tests/verify_carried.saw` drops a carried window from a
   lowered epilogue (`inject/carried.saw`) and names one out of range, and
-  requires the report each time;
+  requires the report each time. The unit program
+  `compiler/mir/tests/verify_record.saw` drops the record local from the
+  epilogue of `inject/record.saw`, of an accessor it writes with 1100 `if`s
+  after its `lend`, and of each accessor of the run lane's
+  `probes/accessor_loops.saw`, whose locals stay live around loops, and
+  requires the read the record no longer gives to be reported each time; it
+  also requires the split's liveness and the verifier's to agree on every
+  block of that probe, loop bodies included (SL-610);
 - over the blocks, no owned local may still be live at a `return`, or when it
   is assigned again, so every scope exit drops it; no window may still be
   open at a `return`, or when it opens again, so every path out of its body

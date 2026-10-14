@@ -99,11 +99,26 @@ extension DropsProgram {
             entry[k] = facts.entry[k]
             k = k + 1
         }
-        var changed = true
-        while changed {
-            changed = false
-            var b = 0
-            while b < info.block_count {
+        // A worklist swept in reverse postorder, to the fixpoint: a block is
+        // walked again only when its entry grew.
+        let order = self.bc.mir.init_block_order(f)
+        var pending = Vector<Bool>()
+        k = 0
+        while k < info.block_count {
+            try! pending.push(k == 0)
+            k = k + 1
+        }
+        var left = 1
+        while left > 0 {
+            var i = 0
+            while i < order.len() {
+                let b = order[i]
+                i = i + 1
+                if not pending[b] {
+                    continue
+                }
+                pending[b] = false
+                left = left - 1
                 var state = Vector<Int>()
                 var live = false
                 k = 0
@@ -142,19 +157,23 @@ extension DropsProgram {
                             try! edge.push(c)
                             k = k + 1
                         }
+                        var grew = false
                         k = 0
                         while k < n {
                             let at = target * n + k
                             let joined = entry[at] | edge[k]
                             if joined != entry[at] {
                                 entry[at] = joined
-                                changed = true
+                                grew = true
                             }
                             k = k + 1
                         }
+                        if grew && not pending[target] {
+                            pending[target] = true
+                            left = left + 1
+                        }
                     }
                 }
-                b = b + 1
             }
         }
         move entry

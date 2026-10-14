@@ -250,39 +250,114 @@ extension MirProgram {
             facts.entry[k] = if param { MIR_INIT_WHOLE } else { MIR_INIT_UNASSIGNED }
             k = k + 1
         }
-        var changed = true
-        while changed {
-            changed = false
-            var b = 0
-            while b < info.block_count {
-                if facts.reached[b] {
-                    var state = facts.entry_state(b)
-                    self.init_walk_block(f, b, &facts, &var state)
-                    let succ = self.init_successors(f, b)
-                    var j = 0
-                    while j < succ.len() {
-                        let target = succ[j]
-                        j = j + 1
-                        if not facts.reached[target] {
-                            facts.reached[target] = true
-                            changed = true
+        // A worklist swept in reverse postorder: a block is walked again only
+        // when its entry conditions grew.
+        let order = self.init_block_order(f)
+        var pending = Vector<Bool>()
+        k = 0
+        while k < info.block_count {
+            try! pending.push(k == 0)
+            k = k + 1
+        }
+        var left = 1
+        while left > 0 {
+            var i = 0
+            while i < order.len() {
+                let b = order[i]
+                i = i + 1
+                if not pending[b] {
+                    continue
+                }
+                pending[b] = false
+                left = left - 1
+                var state = facts.entry_state(b)
+                self.init_walk_block(f, b, &facts, &var state)
+                let succ = self.init_successors(f, b)
+                var j = 0
+                while j < succ.len() {
+                    let target = succ[j]
+                    j = j + 1
+                    var grew = false
+                    if not facts.reached[target] {
+                        facts.reached[target] = true
+                        grew = true
+                    }
+                    var q = 0
+                    while q < n {
+                        let at = target * n + q
+                        let joined = facts.entry[at] | state[q]
+                        if joined != facts.entry[at] {
+                            facts.entry[at] = joined
+                            grew = true
                         }
-                        var q = 0
-                        while q < n {
-                            let at = target * n + q
-                            let joined = facts.entry[at] | state[q]
-                            if joined != facts.entry[at] {
-                                facts.entry[at] = joined
-                                changed = true
-                            }
-                            q = q + 1
-                        }
+                        q = q + 1
+                    }
+                    if grew && not pending[target] {
+                        pending[target] = true
+                        left = left + 1
                     }
                 }
-                b = b + 1
             }
         }
         move facts
+    }
+
+    // Function `f`'s blocks in reverse postorder from the entry, then those
+    // the entry does not reach, in index order. A forward dataflow sweeping
+    // this order meets a join after its arms, and a backward one sweeping it
+    // last first meets a join before them, so either settles in a sweep per
+    // loop rather than one per join (the lowering numbers a join below its
+    // arms).
+    public func init_block_order(&self, f: Int) -> Vector<Int> {
+        let count = self.funcs[f].block_count
+        var post = Vector<Int>()
+        var seen = Vector<Bool>()
+        var stack = Vector<Int>()
+        var cursor = Vector<Int>()
+        var k = 0
+        while k < count {
+            try! seen.push(false)
+            try! stack.push(0)
+            try! cursor.push(0)
+            k = k + 1
+        }
+        var depth = 0
+        if count > 0 {
+            seen[0] = true
+            depth = 1
+        }
+        while depth > 0 {
+            let b = stack[depth - 1]
+            let succ = self.init_successors(f, b)
+            let i = cursor[depth - 1]
+            if i < succ.len() {
+                cursor[depth - 1] = i + 1
+                let s = succ[i]
+                if not seen[s] {
+                    seen[s] = true
+                    stack[depth] = s
+                    cursor[depth] = 0
+                    depth = depth + 1
+                }
+            } else {
+                try! post.push(b)
+                depth = depth - 1
+            }
+        }
+        var out = Vector<Int>()
+        k = post.len() - 1
+        while k >= 0 {
+            try! out.push(post[k])
+            k = k - 1
+        }
+        k = 0
+        while k < count {
+            if not seen[k] {
+                try! out.push(k)
+            }
+            k = k + 1
+        }
+        move out
     }
 
     // Applies every access of block `b`, its statements' then its
