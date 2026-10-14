@@ -1,0 +1,88 @@
+// An `init` matching its struct's fields exactly overrides the memberwise
+// construction (SL-648): a call from outside, from another `init`, from a
+// generic body and from another module runs the override, a refused value
+// reaches every caller as the override's `Err`, and the override's own block
+// builds the value from its fields. Stage 0 refuses the override as
+// ambiguous with field initialization, so the run lane builds this at -O0
+// and -O2 and requires the `// prints:` lines.
+// prints: check 3
+// prints: 3
+// prints: check 8
+// prints: 8
+// prints: check 0
+// prints: refused
+// prints: check 0
+// prints: refused
+// prints: wrap
+// prints: 7
+// prints: gate 2
+// prints: 20
+
+import construction_override_gate.{Gate}
+
+enum PortError {
+    case Zero
+}
+
+extension PortError: Printable {
+    func format(&self, into: &var StringBuilder) {
+        try! into.append("zero")
+    }
+}
+
+extension PortError: Error {}
+
+struct Port {
+    value: Int
+}
+
+extension Port {
+    init(value: Int) -> Result<Port, PortError> {
+        print("check {}", value)
+        if value == 0 {
+            return PortError.Zero
+        }
+        Port(value: value)
+    }
+
+    init(doubled: Int) -> Result<Port, PortError> {
+        Port(value: doubled * 2)
+    }
+
+    init(less: Int) -> Result<Port, PortError> {
+        Port(value: less - 5)
+    }
+}
+
+struct Wrap<T> {
+    item: T
+}
+
+extension Wrap<T> {
+    init(item: T) -> Wrap<T> {
+        print("wrap")
+        Wrap(item: item)
+    }
+}
+
+func wrapped<T>(x: T) -> Wrap<T> {
+    Wrap(item: x)
+}
+
+func report(r: Result<Port, PortError>) {
+    match r {
+        case Ok(p) -> print("{}", p.value),
+        case Err(_) -> print("refused")
+    }
+}
+
+func main() {
+    report(Port(value: 3))
+    report(Port(doubled: 4))
+    report(Port(value: 0))
+    report(Port(less: 5))
+    let w = wrapped(7)
+    print("{}", w.item)
+    let g = Gate(width: 2)
+    print("{}", g.width)
+}

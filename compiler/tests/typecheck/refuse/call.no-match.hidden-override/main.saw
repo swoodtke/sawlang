@@ -1,0 +1,9 @@
+// refuses: call.no-match at 7:13
+// a public struct's construction from another module, which a module-private override takes: the call reaches the override, which this module does not see (SL-648)
+
+import ports.{Port}
+
+func main() {
+    let p = Port(value: 1)
+    print(p.value)
+}

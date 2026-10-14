@@ -38,6 +38,7 @@ import sawtypecheck.members.{tc_build_members}
 import sawtypecheck.model.{TC_ANY_DEPTH, TC_BIND_DEFAULT, TC_EFFECT_BORROWS, TC_EFFECT_CONSUMES, TC_EFFECT_ESCAPING, TC_FLAG_STATIC, TC_FLAG_SYNTHESIZE_SHARED, TC_FLAG_UNSAFE_VAR, TC_FLAG_VARIADIC,
                                TC_TIER_EXPLICIT, TC_TIER_NOCOPY, TcAdjust, TcAdjustKind, TcAllowance, TcCall, TcCapture, TcLend, TcMember, TcParam, TcReceiver,
                                TcRole, TcSig, TcSource, TcUse, tc_blank_sig}
+import sawtypecheck.overloads.{tc_check_redeclarations}
 import sawtypecheck.program.{TcProgram}
 import sawtypecheck.signatures.{TcContext}
 import sawtypecheck.spell.{tc_effects_text}
@@ -349,16 +350,21 @@ extension TcProgram {
         let info = self.res.decls[d]
         let s = self.sigs[d]
         let n = self.child_count(info.node)
+        var initialized = false
         var k = 0
         while k < n {
             let c = self.child(info.node, k)
             if not self.is_leaf(c) && not res_is_type_alt(self.node_alt(c)) {
+                initialized = true
                 self.begin_body(d, c)
                 self.body_result = s.result
                 self.check_static_value(c, s.result)
                 self.check_constant_position(c, TcConstPosition.Static, d, -1)
             }
             k = k + 1
+        }
+        if not initialized {
+            self.check_zero_static(d)
         }
     }
 
@@ -5764,6 +5770,15 @@ public struct TcCand {
     owner: Int
 }
 
+// How the body being checked may construct a struct (`construction_route`):
+// the `init` that overrides its memberwise construction, or -1; whether the
+// body is that `init`'s own block; and the first field it does not see, or -1.
+public struct TcRoute {
+    override_init: Int
+    raw: Bool
+    hidden: Int
+}
+
 // The root a hint's proposed write would land in: its node, or -1, whether a
 // write through the place lands, and what declared a root binding.
 struct TcHintRoot {
@@ -6974,8 +6989,8 @@ extension TcProgram {
         self.mk_nominal(d, &args)
     }
 
-    // `T(...)`: the type's `init`s, and a struct's memberwise construction
-    // when every field is visible here. A generic type takes its arguments
+    // `T(...)`: the constructions the funnel, `construction_candidates`,
+    // leaves this call. A generic type takes its arguments
     // from the head, from the expected type (a construction peels it), or
     // from inference.
     func init_call(&var self, e: Int, callee: Int, b: ResBinding, args: &TcArgs, want: Int) -> Int {
@@ -7029,19 +7044,10 @@ extension TcProgram {
             return self.cell_construct(e, d, &args, wanted)
         }
         var cands = Vector<TcCand>()
-        let in_test = self.current_test
-        let inits = self.inits_of(d, m, in_test)
-        var k = 0
-        while k < inits.len() {
-            let at = inits[k]
-            let member = self.members[at]
-            self.build_decl(member.decl)
-            try! cands.push(TcCand(decl: member.decl, kind: TcCandKind.Function, member: at,
-                                   owner: owner))
-            k = k + 1
-        }
-        if self.is_struct_decl(d) && self.memberwise_visible(d, m) {
-            try! cands.push(TcCand(decl: d, kind: TcCandKind.Memberwise, member: -1, owner: owner))
+        if not self.construction_candidates(e, d, owner, &args, &var cands) {
+            self.type_args_alone(&args)
+            let poisoned = self.error_type
+            return self.set_type(e, poisoned, false)
         }
         let builtin_module = self.res.builtin
         if cands.len() == 0 && self.res.decls[d].module == builtin_module {
@@ -7066,6 +7072,226 @@ extension TcProgram {
             return self.set_type(e, poisoned, false)
         }
         self.resolve_call(e, &cands, &args, &pinned, -1, want)
+    }
+
+    // THE CONSTRUCTION FUNNEL: how the body being checked may construct
+    // nominal `d`. An `init` matching a struct's fields exactly overrides its
+    // memberwise construction everywhere but its own block, the one place
+    // the raw construction is reached, and the memberwise construction needs
+    // every field visible (SL-648). A zero-initialized static constructs too.
+    //
+    // ENTRY POINTS:
+    //     construction_candidates
+    //     zero_construction
+    func construction_route(&var self, d: Int) -> TcRoute {
+        if not self.is_struct_decl(d) {
+            return TcRoute(override_init: -1, raw: false, hidden: -1)
+        }
+        let ov = self.construction_override(d)
+        let raw = ov >= 0 && self.in_own_block(ov)
+        let m = self.current
+        let hidden = self.hidden_field(d, m)
+        TcRoute(override_init: ov, raw: raw, hidden: hidden)
+    }
+
+    // The candidates construction `e` of nominal `d` may reach, into `cands`:
+    // the `init`s this code sees, an override in place of the memberwise
+    // construction outside its own block, and no exact match the override
+    // rule refuses. False when it refused the call: one only an override this
+    // code does not see could take.
+    func construction_candidates(&var self, e: Int, d: Int, owner: Int, args: &TcArgs,
+                                 cands: &var Vector<TcCand>) -> Bool {
+        let m = self.current
+        let in_test = self.current_test
+        let route = self.construction_route(d)
+        let ov = route.override_init
+        let raw = route.raw
+        var seen = false
+        let inits = self.inits_of(d, m, in_test)
+        var k = 0
+        while k < inits.len() {
+            let at = inits[k]
+            k = k + 1
+            let member = self.members[at]
+            if member.decl == ov {
+                seen = true
+                if raw {
+                    continue
+                }
+            } else if self.matches_fields(member.decl) {
+                continue
+            }
+            self.build_decl(member.decl)
+            try! cands.push(TcCand(decl: member.decl, kind: TcCandKind.Function, member: at,
+                                   owner: owner))
+        }
+        let memberwise = TcCand(decl: d, kind: TcCandKind.Memberwise, member: -1, owner: owner)
+        if ov >= 0 && not seen && not raw {
+            let shape = self.bind_args(memberwise, &args)
+            if shape.status == TC_BIND_OK {
+                self.refuse_hidden_override(e, d, ov)
+                return false
+            }
+        }
+        if (ov < 0 || raw) && self.is_struct_decl(d) && route.hidden < 0 {
+            try! cands.push(memberwise)
+        }
+        true
+    }
+
+    // Static `d`, which has no initializer: its all-zero value is a
+    // construction, so it is refused where an override, at any depth of the
+    // value, would never check it (SL-648).
+    func check_zero_static(&var self, d: Int) {
+        let t = self.sigs[d].result
+        if t < 0 || self.has_error(t) {
+            return
+        }
+        var walked = Vector<Int>()
+        let _ = self.zero_construction(d, t, &var walked)
+    }
+
+    // Whether the all-zero value of type `t`, static `st`'s or a part of it,
+    // was refused: a struct with an override, whose check zero skips; then
+    // its fields', a cell's payload, a tuple's elements, an array's element,
+    // and the payload of the case an enum's zero tag names. An Optional's
+    // zero is `None`, which holds none.
+    func zero_construction(&var self, st: Int, t: Int, walked: &var Vector<Int>) -> Bool {
+        if tc_contains(&walked, t) {
+            return false
+        }
+        try! walked.push(t)
+        let info = self.types.ty(t)
+        if info.kind == TcKind.Tuple {
+            return self.zero_parts(st, t, &var walked)
+        }
+        if info.kind == TcKind.Array {
+            return self.zero_construction(st, info.b, &var walked)
+        }
+        if info.kind != TcKind.Nominal {
+            return false
+        }
+        let d = info.decl
+        // A cell is built positionally from any module, so its payload is
+        // what the zero constructs.
+        if d == self.known.interior || d == self.known.atomic {
+            return self.zero_parts(st, t, &var walked)
+        }
+        if d == self.known.optional {
+            return false
+        }
+        let sub = self.owner_subst(t)
+        if self.is_enum_decl(d) {
+            let cases = self.members_of(d)
+            var k = 0
+            while k < cases.len() {
+                let c = cases[k]
+                k = k + 1
+                if self.res.decls[c].kind == ResDeclKind.Case {
+                    return self.zero_params(st, c, &sub, &var walked)
+                }
+            }
+            return false
+        }
+        if not self.is_struct_decl(d) {
+            return false
+        }
+        let route = self.construction_route(d)
+        if route.override_init >= 0 {
+            self.refuse_zero_override(st, t, route.override_init)
+            return true
+        }
+        let fields = self.struct_fields(d)
+        var k = 0
+        while k < fields.len() {
+            let f = fields[k]
+            k = k + 1
+            self.build_decl(f)
+            let written = self.sigs[f].result
+            let ft = self.subst(written, &sub)
+            if ft >= 0 && self.zero_construction(st, ft, &var walked) {
+                return true
+            }
+        }
+        false
+    }
+
+    // `zero_construction` over each argument of `t`.
+    func zero_parts(&var self, st: Int, t: Int, walked: &var Vector<Int>) -> Bool {
+        let info = self.types.ty(t)
+        var k = 0
+        while k < info.count {
+            let part = self.types.arg(t, k)
+            k = k + 1
+            if self.zero_construction(st, part, &var walked) {
+                return true
+            }
+        }
+        false
+    }
+
+    // `zero_construction` over case `c`'s payload, instantiated by `sub`.
+    func zero_params(&var self, st: Int, c: Int, sub: &TcSubst, walked: &var Vector<Int>) -> Bool {
+        if self.res.decls[c].node < 0 {
+            return false
+        }
+        self.build_decl(c)
+        let s = self.sigs[c]
+        var k = 0
+        while k < s.param_count {
+            let p = self.params[s.param_first + k]
+            k = k + 1
+            let pt = self.subst(p.ty, &sub)
+            if pt >= 0 && self.zero_construction(st, pt, &var walked) {
+                return true
+            }
+        }
+        false
+    }
+
+    func refuse_zero_override(&var self, st: Int, t: Int, ov: Int) {
+        var msg = StringBuilder()
+        try! msg.append("`")
+        try! msg.append(self.res.decl_path(st))
+        try! msg.append("` has no initializer, so its all-zero value builds a `")
+        try! msg.append(self.type_text(t))
+        try! msg.append("` that `")
+        try! msg.append(self.overload_text(ov))
+        try! msg.append("`, which overrides its construction, never checked; a static's initializer cannot call it either, so hold the value somewhere an `init` builds it")
+        let site = self.decl_site(st)
+        self.refuse(site, "static.zero-init", msg.build())
+    }
+
+    // Whether the body being checked is the block of function `f`, a closure
+    // in it included: its parameters' defaults are not.
+    func in_own_block(&self, f: Int) -> Bool {
+        if self.current_decl != f || self.current_root < 0 {
+            return false
+        }
+        let node = self.res.decls[f].node
+        let n = self.child_count(node)
+        var k = 0
+        while k < n {
+            let c = self.child(node, k)
+            if self.has_alt(c, Alt.Stmt_Block) {
+                return c == self.current_root
+            }
+            k = k + 1
+        }
+        false
+    }
+
+    func refuse_hidden_override(&var self, e: Int, d: Int, ov: Int) {
+        let info = self.res.decls[ov]
+        var msg = StringBuilder()
+        try! msg.append("this call is `")
+        try! msg.append(self.res.decl_path(d))
+        try! msg.append("`'s construction, which `")
+        try! msg.append(self.overload_text(ov))
+        try! msg.append("` overrides, and that `init`, declared in module `")
+        try! msg.append(self.res.module_name(info.module))
+        try! msg.append("`, is not visible here: mark it `public` to make it the type's public construction, or build the value through an `init` this module sees")
+        self.refuse(e, "call.no-match", msg.build())
     }
 
     // Whether the type arguments `written` on generic type `d`'s head are a
@@ -7105,8 +7331,9 @@ extension TcProgram {
         true
     }
 
-    // Whether module `viewer` sees every field of struct `d`.
-    func memberwise_visible(&self, d: Int, viewer: Int) -> Bool {
+    // The first field of struct `d` that module `viewer`, test code when the
+    // body being checked is, does not see, or -1.
+    func hidden_field(&self, d: Int, viewer: Int) -> Int {
         let first = self.member_first[d]
         let count = self.member_count[d]
         let in_test = self.current_test
@@ -7114,11 +7341,11 @@ extension TcProgram {
         while k < first + count {
             let member = self.members[k]
             if member.source == TcSource.Declared && not self.member_seen(k, viewer, in_test) {
-                return false
+                return member.decl
             }
             k = k + 1
         }
-        true
+        return -1
     }
 
     // `E.Case(...)`: the case's payload. A generic enum takes its arguments

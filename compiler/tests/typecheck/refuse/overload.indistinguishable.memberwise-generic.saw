@@ -1,0 +1,17 @@
+// refuses: overload.indistinguishable at 10:5
+// an `init` taking a generic struct's fields with their type parameters swapped: no exact match, so no override, and with every type parameter one placeholder its shape is the memberwise construction's (SL-648)
+
+struct Pair<A, B> {
+    a: A
+    b: B
+}
+
+extension Pair<A, B> {
+    init(a: B, b: A) -> Pair<A, B> {
+        Pair<A, B>(a: b, b: a)
+    }
+}
+
+func main() {
+    print(Pair<Int, Int>(a: 1, b: 2).a)
+}

@@ -148,7 +148,13 @@ final, or for the one call where it is not:
    sharing a call shape with an earlier one: the same labels and types,
    aliases read as their targets and every type parameter as one
    placeholder, a defaulted parameter's shorter calls counted, an `init`'s
-   labels in any order.
+   labels in any order. Beside it, `check_construction_inits` judges each
+   `init` against its struct's memberwise construction: one matching the
+   fields exactly overrides it, where only the struct's module, in
+   production code and an unbounded extension, may write one, and any other
+   sharing its call shape is refused (SL-648). The body half's construction
+   funnel, `construction_route`, reads the same predicates for a call's
+   candidates and for a zero-initialized static's value.
 4. **Member tables** (`members.saw`), one per struct, enum and builtin type.
 5. **Copy tiers** (`tier.saw`), one per nominal type.
 6. **The checks** that need the tables: bounds, Copy-policy containment,

@@ -1,0 +1,9 @@
+public struct Port {
+    value: Int
+}
+
+extension Port {
+    init(value: Int) -> Port {
+        Port(value: value + 1)
+    }
+}

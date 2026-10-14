@@ -78,7 +78,9 @@ exit status compared.
   not perform rather than spin or return early;
 - `probes/requirement_default_bound.saw`, whose calls through a bound leave
   out a bodyless requirement's default, which Stage 0 refuses, prints the
-  lines it states the same way.
+  lines it states the same way;
+- `probes/construction_override.saw`, whose `init`s override the memberwise
+  construction, which Stage 0 refuses, prints the lines it states the same way.
 
 `--bench` runs none of that: it times each kernel of `bench/` under sawc2 at
 -O2 and under Stage 0 and prints the report, which gates nothing. The runner
@@ -812,6 +814,15 @@ def check_requirement_default_bound(failures, counts):
     check_stated(failures, counts, "requirement default bound", src, want)
 
 
+def check_construction_override(failures, counts):
+    """An `init` matching its struct's fields exactly overrides the memberwise
+    construction: `probes/construction_override.saw`, which Stage 0 refuses,
+    prints its `// prints:` lines (SL-648)."""
+    src = os.path.join(HERE, "probes", "construction_override.saw")
+    want = "".join(line + "\n" for line in stated_prints(src)).encode()
+    check_stated(failures, counts, "construction override", src, want)
+
+
 def run(names=None, write=False):
     os.makedirs(OUT, exist_ok=True)
     failures = []
@@ -847,6 +858,7 @@ def run(names=None, write=False):
         check_move_at_borrow(failures, counts)
         check_park_panics(failures, counts)
         check_requirement_default_bound(failures, counts)
+        check_construction_override(failures, counts)
     return failures, counts, dues
 
 

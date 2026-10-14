@@ -1,0 +1,119 @@
+// An `init` matching its struct's fields exactly overrides the memberwise
+// construction (SL-648): every construction outside its own block calls it,
+// a plain, a reordered, a positional and a `Self` call, one in another
+// `init`, a method, a static, a parameter's default, a test, an alias's, an
+// unbounded generic override's, inferred, written and in a generic body, and
+// a test-only type's own override in a test; the raw construction is reached
+// only in the override's block, a closure in it included. An `init` of a
+// subset of the fields, or of other types, leaves the memberwise
+// construction as it is, and a zero-initialized static of such a type is
+// accepted, as is one whose overridden part is an Optional, zero being
+// `None`.
+
+struct Port {
+    value: Int
+    tag: Int
+}
+
+extension Port {
+    init(value: Int, tag: Int) {
+        let check = { v: Int in Port(value: v, tag: 0) }
+        let probe = check(value)
+        Self(value: probe.value, tag: tag + 1)
+    }
+
+    init(doubled: Int) {
+        Port(value: doubled * 2, tag: 0)
+    }
+
+    func renamed(&self) -> Port {
+        Self(tag: self.tag, value: 7)
+    }
+
+    static func origin() -> Port {
+        Port(0, 0)
+    }
+}
+
+type Socket = Port
+
+func pick(p: Port = Port(value: 1, tag: 1)) -> Int {
+    p.tag
+}
+
+func ordinary() -> Int {
+    let a = Port(value: 3, tag: 4)
+    let b = Port(tag: 5, value: 6)
+    let c = Socket(value: 7, tag: 8)
+    a.tag + b.tag + c.tag + pick()
+}
+
+struct Point {
+    x: Int
+    y: Int
+}
+
+extension Point {
+    init(x: Int) {
+        Point(x: x, y: 0)
+    }
+
+    init(x: Float, y: Float) {
+        Point(x: 1, y: 2)
+    }
+}
+
+struct Slot {
+    spare: Port?
+    at: Point
+}
+
+static ZERO_POINT: Point
+
+static ZERO_SLOT: Slot
+
+func points() -> Int {
+    let p = Point(x: 1, y: 2)
+    let q = Point(x: 3)
+    let r = Point(x: 1.5, y: 2.5)
+    p.x + q.x + r.y
+}
+
+struct Wrap<T> {
+    value: T
+}
+
+extension Wrap<U> {
+    init(value: U) -> Wrap<U> {
+        Wrap(value: value)
+    }
+}
+
+func wrapped<T>(x: T) -> Wrap<T> {
+    Wrap(value: x)
+}
+
+func wraps() -> Int {
+    let w = Wrap(value: 1)
+    let s = Wrap<String>(value: "s")
+    let g = wrapped(2)
+    w.value + g.value + s.value.len()
+}
+
+@test
+struct Fake {
+    seed: Int
+}
+
+@test
+extension Fake {
+    init(seed: Int) {
+        Fake(seed: seed + 1)
+    }
+}
+
+@test "a test constructs through the override" {
+    let p = Port(value: 1, tag: 2)
+    let f = Fake(seed: 3)
+    assert(p.tag + f.seed == 7)
+}

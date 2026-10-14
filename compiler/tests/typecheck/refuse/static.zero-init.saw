@@ -1,0 +1,18 @@
+// refuses: static.zero-init at 14:8
+// a static with no initializer of a struct whose construction an `init` overrides: its all-zero value is a construction the override never checks (SL-648)
+
+struct Port {
+    value: Int
+}
+
+extension Port {
+    init(value: Int) -> Port {
+        Port(value: value + 1)
+    }
+}
+
+static ORIGIN: Port
+
+func main() {
+    print(ORIGIN.value)
+}

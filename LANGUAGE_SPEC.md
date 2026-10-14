@@ -485,7 +485,11 @@ The rule holds in every overload set: a module's free functions of one name,
 the methods of one name and the `init`s that one module's extensions give a
 type, across all of those extensions, and a trait's requirements of one name.
 An `init`'s arguments bind by name in any order, so two `init`s taking the
-same labels and types in another order collide. A hand-written `deinit` or
+same labels and types in another order collide. A struct's memberwise
+construction is a member of its `init` set that no declaration writes: an
+`init` matching the fields exactly overrides it (see *An `init` that overrides
+the construction*), and any other `init` sharing its call shape collides with
+it. A hand-written `deinit` or
 `copy()` declared twice for one type is refused the same way, so drop
 elaboration and the copy hook each find one body.
 
@@ -3163,6 +3167,82 @@ other operation.
 Limit: an `init` body may not suspend. A suspending call inside one is an
 internal compiler error today rather than a diagnostic; compute the value in a
 suspending function and hand it to an ordinary `init`.
+
+#### An `init` that overrides the construction
+
+A struct is constructed from its fields with no `init` written. An `init`
+whose labels, in any order, and types are exactly the struct's fields
+**overrides** that construction: every construction of the type that names
+those labels calls the `init` instead, in every module, the type's other
+`init`s and methods included. Inside the overriding `init`'s own body, and
+only there, the same call still builds the value from its fields. So a type
+can validate every value it is built with, and no construction skips the
+check:
+
+```saw-fragment
+enum PortError { case Reserved(number: Int) }
+// ... Printable + Error conformances ...
+
+struct Port { number: Int }
+
+extension Port {
+    init(number: Int) -> Result<Port, PortError> {
+        if number < 1024 { return PortError.Reserved(number: number) }
+        return Port(number: number)          // the fields: only here
+    }
+
+    init(offset: Int) -> Result<Port, PortError> {
+        Port(number: 8000 + offset)          // calls the override
+    }
+}
+
+let web = try Port(number: 8080)             // calls the override
+let ssh = Port(number: 22)                   // Err(Reserved(number: 22))
+```
+
+The override is an ordinary `init` in every other respect: a fallible one
+hands its `Result` to every construction, the type's other `init`s included,
+and a generic struct's override is written in an extension that renames or
+repeats the type's parameters, `extension Wrap<T> { init(value: T) ... }`.
+Because the override is a call, a `static` initializer cannot construct the
+type: only a memberwise construction folds into a constant. A static with no
+initializer is refused too, wherever it is declared, when its all-zero value
+holds the type at any depth (a field, an array element): zero is a
+construction the override never checks. An Optional of the type zeroes to
+`None` and holds none.
+
+An `init` that differs from the fields, one taking a subset of them, an extra
+parameter or other types (a converting `init(x: Float, y: Float)` on `Int`
+fields), is an ordinary overload and leaves the construction as it is. One
+whose call shapes include the fields', through a defaulted parameter or with
+type parameters swapped, is refused where it is declared, since no call could
+tell it from the construction (see [Functions](#functions), *Overloading*).
+
+Three declarations are refused, each where it is written:
+
+- an override outside the struct's own module. An importer cannot change what
+  every module's `Port(number:)` means, on the orphan rule's reasoning;
+- a test-only override of a production struct. Test code cannot change what
+  production code means. A test-only struct may override its own
+  construction;
+- an override in a bounded extension, `extension Wrap<T: Equatable>`. It
+  would reach some instantiations and not others, so one call in a generic
+  body would have two meanings. Write it in `extension Wrap<T>`.
+
+An override carries its own visibility, like any `init`, and a bare one is
+module-private. A bare override on a `public struct` whose fields are public
+therefore makes the construction uncallable from other modules, and the
+refusal names the override. The fields stay readable and writable there: the
+override guards construction, not mutation, and a `private` field is the tool
+for the latter. A `public` override is the type's public construction.
+
+A derived `copy()` duplicates an existing value field by field and calls no
+`init`. A synthesized `Deserialize` constructs through the override (see
+[Serialization](#serialization-serialize-deserialize-encoder-decoder)).
+
+**Status:** the self-hosted compiler implements the override. Stage 0 refuses
+every `init` whose labels are exactly the field names, whatever their types,
+as ambiguous with field initialization.
 
 **Key Features:**
 - Methods use `&self` (shared reference) or `&var self` (exclusive reference).
@@ -7706,6 +7786,15 @@ trait Deserialize {
   carries is data, not a trap — it becomes `UnknownCase` at the byte it was read
   at. An enum with **no** raw backing is refused, naming the backing to declare:
   its cases have no on-the-wire values.
+  A struct whose construction an `init` overrides (see *An `init` that
+  overrides the construction*) is built through that `init`. When the
+  override fails, `deserialize` returns
+  `DecodeError(offset: <where the item started>, fault: .InitFailed)`, the
+  case `InitFailed = 13`, "the type's init refused the decoded fields". It
+  allocates nothing and does not carry the `init`'s own error, which a
+  caller who needs it gets by writing `deserialize` by hand. **Status:**
+  planned, with the self-hosted compiler's serde; Stage 0 refuses the
+  override itself.
   Unlike the Equatable/Comparable/Hashable derivations, which codegen emits from
   the field layout, these two synthesize a real source body and hand it to the
   ordinary front end — a derived body is made of `try`, method calls and a `for`
@@ -10525,6 +10614,9 @@ Statics obey four rules, ratified in design 19:
      a `Once<T>`. Copyability is irrelevant here: a static is never copied,
      so a `NoCopy` type whose storage is scalar throughout still qualifies,
      which is what makes `static LOCK: SpinLock<T>` a legal declaration.
+     A type whose construction an `init` overrides is the exception: zero
+     would skip the override's check, so a value holding one is refused (see
+     *An `init` that overrides the construction*).
   2. **A constant expression, plus memberwise aggregation.** Whatever the
      const evaluator folds — literals, arithmetic and the bitwise operators
      over them, `sizeof`/`alignof` (see
@@ -11780,7 +11872,10 @@ Consequences:
   ALL fields visible, because construction visibility is field visibility. A
   `public struct` whose fields are all bare is therefore memberwise-constructible
   from anywhere with no `init` written; one that marks a field `private` needs a
-  visible `init` instead, which is `Account`'s case above. The same rule governs
+  visible `init` instead, which is `Account`'s case above. An `init` that
+  overrides the construction replaces it everywhere, so its own visibility
+  decides who may construct the type (see *An `init` that overrides the
+  construction*). The same rule governs
   any field access — reads AND writes go through one gate, so a `private` field
   cannot be corrupted from another module (this is what closes the
   `Vector.length`/`capacity` memory-safety hole: those invariants are marked

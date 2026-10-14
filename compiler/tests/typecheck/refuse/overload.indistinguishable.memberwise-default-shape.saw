@@ -1,0 +1,17 @@
+// refuses: overload.indistinguishable at 10:5
+// an `init` whose defaulted parameter leaves a call shape of exactly the fields, which the memberwise construction takes too: no call could tell them apart (SL-648)
+
+struct Point {
+    x: Int
+    y: Int
+}
+
+extension Point {
+    init(x: Int, y: Int, z: Int = 0) -> Point {
+        Point(x: x + z, y: y)
+    }
+}
+
+func main() {
+    print(Point(x: 1, y: 2, z: 3).x)
+}

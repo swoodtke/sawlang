@@ -1,0 +1,10 @@
+// refuses: static.zero-init at 6:8
+// a zero-initialized static, in another module, of a struct whose construction a public `init` overrides: the override is checked wherever the static is (SL-648)
+
+import ports.{Port}
+
+static ORIGIN: Port
+
+func main() {
+    print(ORIGIN.value)
+}

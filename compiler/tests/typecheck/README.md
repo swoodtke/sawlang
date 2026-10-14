@@ -1299,6 +1299,9 @@ says what the fixture shows.
 | `unsafe.function-type` | a function type that names an unsafe type without saying `unsafe`, or says it without naming one |
 | `unsafe.type-name` | an `unsafe struct` not named `Unsafe*` |
 | `init.result` | an `init` returning neither its receiver nor `Result<Receiver, E>`; an optional on its own terms |
+| `init.override-outside-module` | an `init` matching a struct's fields exactly, the shape that overrides its memberwise construction, declared outside the struct's module (SL-648; the override matrix below) |
+| `init.override-test-only` | an override that is test-only on a production struct, with `copy.test-only-policy`'s reasoning (SL:testing; SL-648) |
+| `init.override-bounded` | an override in an extension whose type parameters carry bounds, naming the bound and the unbounded head (SL-648) |
 | `conformance.deinit` | a conformance to `Deinit` itself, which a copy policy carries instead (design 131) |
 | `deinit.outside-policy` | a `deinit` written in an extension that declares no copy policy, beside the type's policy or on a type with none, where no scope exit would call it (spec, The Deinit trait); a plain test-only extension's included (`-test-only`) |
 | `copy.test-only-policy` | a test-only `Copy`, `ExplicitCopy` or `NoCopy` conformance on a production type, a test group's included, and a test-only `copy()` on one (SL:testing, Air t15; SL-630) |
@@ -1317,7 +1320,7 @@ says what the fixture shows.
 | `call.arity` | too many arguments, a missing one, a case built without its payload |
 | `call.label` | a label no parameter has, one naming a parameter behind the last bound, a repeated label |
 | `call.ambiguous` | overloads the arguments fit equally, named; a bare integer literal over integer overloads with no `Int` one, or preferring `Int` in a different overload at each argument (spec, Overloading, tie-break 4: `.literal-no-int`, `.literal-crossed`) |
-| `call.no-match` | no overload the arguments fit, each named |
+| `call.no-match` | no overload the arguments fit, each named; a struct's construction that an override this module does not see takes (`.hidden-override`, SL-648) |
 | `call.not-callable` | a call of a value that is no function |
 | `call.field-method-ambiguous` | `h.f(x)` where `f` names both a field holding a function and a method this module sees, with the fix-it `let g = h.f; g(x)` (D16) |
 | `infer.failed` | a type argument nothing determines or two arguments disagree on; `None` or an empty literal with nothing expected, though not one whose slot holds a type already refused, which adopts the error type |
@@ -1351,6 +1354,7 @@ says what the fixture shows.
 | `static.optional` | a static whose own type is an optional; an `unsafe static var` is exempt (spec, Module-level statics: "Never optional") |
 | `static.not-sync` | a static whose type is not `Sync`, naming the member that blocks the derivation, down to a cell-carrying type and the `UnsafeSync` declaration it owes, or a conditional `UnsafeSync` and the bound its argument fails; an `unsafe static var` is exempt (spec, Module-level statics: "Sync-only"; the static Sync matrix) |
 | `static.not-constant` | a sub-expression outside the constant grammar of a static's initializer, a raw case's value, an `@align` argument or a `static_assert` condition, named (the constant-position funnel) |
+| `static.zero-init` | a static or `unsafe static var` with no initializer whose all-zero value holds, at any depth, a struct whose construction an `init` overrides, naming the override (SL-648; the override matrix below) |
 | `static.cycle` | a static whose value depends on itself, through any number of statics, named in order |
 | `static_assert.failed` | a `static_assert` whose condition folds to `false`, at the top of a file or in a body; one over a layout once the layout-assert funnel measures it (Layout asserts) |
 | `borrowing.containment` | a borrowing struct (spec, Borrowing structs) bound outside the head of a `borrow` or a `for`, taken as a parameter by value, stored in a field or a payload, erased to an existential, returned by a function that does not lend it with `borrows`, or carried by a function type |
@@ -1401,6 +1405,37 @@ docstring names its entry points; `o.` abbreviates
 | a `deinit` or a `copy()` written outside the policy, beside the policy's own | refused by the placement rule alone | `deinit.outside-policy.beside-policy-deinit`, `copy.outside-policy.declared` |
 | other labels, another arity, a concrete function beside a generic one, a method's other labels across extensions, a generic method beside a concrete one, `init`s of other labels or types, an `init` beside a static | allowed | `overload_shapes` |
 | two modules' functions of one shape | allowed: a set is one module's, and a call that sees both refuses the ambiguity | multi/overload_modules; std's `json.encode` and `cbor.encode` |
+| an `init` sharing a call shape with a struct's memberwise construction without matching its fields exactly: through a defaulted parameter, or with type parameters swapped; and two overrides of one construction | refused, in a module that sees every field | `o.memberwise-default-shape`, `o.memberwise-generic`, `o.override-twice` |
+
+The override matrix (SL-648). An `init` whose labels, in any order, and types
+are a struct's fields exactly overrides its memberwise construction. Which
+construction a call reaches is decided by one funnel,
+`construction_route` (`compiler/typecheck/src/bodies.saw`), whose
+docstring names its entry points, a call's candidates and a zero-initialized
+static's value; whether an `init` overrides at all, by
+`matches_fields` and `override_fault` (`candidates.saw`), which the
+declaration-site check (`check_construction_inits`, `overloads.saw`) and the
+funnel share. `golden/construction_override` is abbreviated `g.`:
+
+| row | verdict | covered by |
+|---|---|---|
+| a plain call, a labeled call in another order, a positional call, `Self(...)` in a method, a static's body | the override | `g.` |
+| another `init` of the type, so a fallible override's `Result` reaches it | the override | `g.`; run `probes/construction_override.saw` |
+| a parameter's default value, an alias of the struct, a test case | the override | `g.` |
+| a generic construction, inferred, with written arguments, and in a generic body | the override | `g.`; run `probes/construction_override.saw` |
+| the override's own block, a closure in it and `Self(...)` included | the raw construction | `g.`; run `probes/construction_override.saw` |
+| another module, the override `public` | the override | multi/construction_override_modules; run `probes/construction_override.saw` |
+| another module, the override module-private, the fields public | refused at the call; a field read and write there accepted | `call.no-match.hidden-override`; multi/construction_override_modules |
+| a static's initializer | refused: the override is a call | `static.not-constant.override` |
+| an `init` of a subset of the fields, or of other types | an ordinary overload; the construction is unchanged | `g.` |
+| an override declared outside the struct's module | refused at the declaration | `init.override-outside-module` |
+| a test-only override of a production struct; a test-only struct's own | refused; the control accepted | `init.override-test-only`; `g.` |
+| an override in a bounded extension; in an unbounded generic one | refused; the control accepted | `init.override-bounded`; `g.` |
+| a derived `copy()` | unchanged: it copies field by field and calls no constructor | mono's glue |
+| a synthesized `Deserialize` | lands with the serde port, which sawc2's std does not have yet | none |
+| a zero-initialized `static` or `unsafe static var` of a struct with an override, in its module or another, or holding one at any depth (a field, an array element) | refused: zero is a construction the override never checks | `static.zero-init`, `static.zero-init.override-module`, `static.zero-init.nested` |
+| a zero-initialized `static` of a struct without one, and of one whose overridden part is an Optional, zero being `None` | accepted | `g.` |
+| a zero-initialized `static` of a struct with a field the declaring module does not see, at any depth | open: SL-648 c9 | none |
 
 ## The lane
 

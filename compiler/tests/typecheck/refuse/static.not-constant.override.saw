@@ -1,0 +1,18 @@
+// refuses: static.not-constant at 14:23
+// a static's construction of a struct whose construction an `init` overrides calls that `init`, which runs only at run time; no construction skips the override (SL-648)
+
+struct Port {
+    value: Int
+}
+
+extension Port {
+    init(value: Int) -> Port {
+        Port(value: value + 1)
+    }
+}
+
+static ORIGIN: Port = Port(value: 1)
+
+func main() {
+    print(ORIGIN.value)
+}

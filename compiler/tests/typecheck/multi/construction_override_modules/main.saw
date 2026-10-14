@@ -1,0 +1,18 @@
+// An override carries its own visibility (SL-648). `Gate`'s is `public`, so
+// another module's `Gate(value:)` calls it; `Port`'s is module-private, so
+// its construction is not callable here (refuse/call.no-match.hidden-override),
+// while `Port`'s public fields stay readable and writable and its public
+// `init` of other labels is called as ever.
+
+import ports.{Gate, Port}
+
+func bump(p: &var Port) -> Int {
+    p.value = p.value + 1
+    p.value
+}
+
+func main() {
+    let g = Gate(value: 2)
+    var p = Port(text: "abc")
+    print(g.value + bump(&var p))
+}

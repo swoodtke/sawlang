@@ -1,0 +1,13 @@
+// The module `construction_override.saw` imports: a public struct whose
+// construction a public `init` overrides (SL-648).
+
+public struct Gate {
+    width: Int
+}
+
+extension Gate {
+    public init(width: Int) -> Gate {
+        print("gate {}", width)
+        Gate(width: width * 10)
+    }
+}

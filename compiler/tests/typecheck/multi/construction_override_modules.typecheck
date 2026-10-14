@@ -1,0 +1,76 @@
+(Module main
+  (declarations
+    (func bump 9:6 private (signature (params (p &var ports.Port exclusive)) -> Int) (summary body (suspends no) (sync-callable yes)))
+    (func main 14:6 private (signature (params) -> Void) (summary body (suspends no) (sync-callable yes))))
+  (members)
+  (views
+    (ports.Port value init)
+    (ports.Gate value init))
+  (conformances)
+  (copy-tier)
+  (bodies
+    (bump 9:6
+      (10:5-10:12 Member Int place write)
+      (10:5-10:6 Name &var ports.Port (deref ports.Port) place project)
+      (10:15-10:26 Binary Int value temp (op +))
+      (10:15-10:22 Member Int place copy)
+      (10:15-10:16 Name &var ports.Port (deref ports.Port) place project)
+      (10:25-10:26 IntLit Int value temp)
+      (11:5-11:12 Member Int place copy)
+      (11:5-11:6 Name &var ports.Port (deref ports.Port) place project))
+    (main 14:6
+      (15:9-15:10 BindingName ports.Gate place temp)
+      (15:13-15:27 Call.paren ports.Gate value temp (call ports.Gate.init(value: Int) (owner ports.Gate)))
+      (15:25-15:26 IntLit Int value temp)
+      (16:9-16:10 BindingName ports.Port place temp)
+      (16:13-16:30 Call.paren ports.Port value temp (call ports.Port.init(text: String) (owner ports.Port)))
+      (16:24-16:29 StringLit String value temp)
+      (17:5-17:34 Call.paren Void value temp (builtin print))
+      (17:11-17:33 Binary Int value borrow (op +))
+      (17:11-17:18 Member Int place copy)
+      (17:11-17:12 Name ports.Gate place project)
+      (17:21-17:33 Call.paren Int value temp (call main.bump(p: &var ports.Port)))
+      (17:26-17:32 Ref.exclusive &var ports.Port value temp)
+      (17:31-17:32 Name ports.Port place borrow-var))))
+
+(Module ports
+  (declarations
+    (struct Port 1:15 public)
+    (field Port.value 2:5 public Int)
+    (extension 5:1 (target ports.Port))
+    (init Port.init 6:5 private (signature (params (value Int owned)) -> ports.Port) (summary body (suspends no) (sync-callable yes)))
+    (init Port.init 10:12 public (signature (params (text String owned)) -> ports.Port) (summary body (suspends no) (sync-callable yes)))
+    (struct Gate 15:15 public)
+    (field Gate.value 16:5 public Int)
+    (extension 19:1 (target ports.Gate))
+    (init Gate.init 20:12 public (signature (params (value Int owned)) -> ports.Gate) (summary body (suspends no) (sync-callable yes))))
+  (members
+    (ports.Port
+      (field value Int public declared)
+      (init init private (extension ports))
+      (init init public (extension ports)))
+    (ports.Gate
+      (field value Int public declared)
+      (init init public (extension ports))))
+  (views
+    (ports.Port value init init)
+    (ports.Gate value init))
+  (conformances)
+  (copy-tier
+    (ports.Port Copy)
+    (ports.Gate Copy))
+  (bodies
+    (Port.init 6:5
+      (7:9-7:31 Call.paren ports.Port value temp (memberwise ports.Port (owner ports.Port)))
+      (7:21-7:30 Binary Int value temp (op +))
+      (7:21-7:26 Name Int place copy)
+      (7:29-7:30 IntLit Int value temp))
+    (Port.init 10:12
+      (11:9-11:32 Call.paren ports.Port value temp (call ports.Port.init(value: Int) (owner ports.Port)))
+      (11:21-11:31 Call.paren Int value temp (call std.string.String.len() (owner String)))
+      (11:21-11:25 Name String (borrow &String) place borrow))
+    (Gate.init 20:12
+      (21:9-21:32 Call.paren ports.Gate value temp (memberwise ports.Gate (owner ports.Gate)))
+      (21:21-21:31 Binary Int value temp (op *))
+      (21:21-21:26 Name Int place copy)
+      (21:29-21:31 IntLit Int value temp))))

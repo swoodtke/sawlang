@@ -7,6 +7,7 @@
 import sawresolve.imports.{res_decl_binding}
 import sawresolve.model.{ResBinding, ResBindKind, ResDecl, ResDeclKind}
 import sawtypecheck.conform.{TcSubst, tc_args_subst, tc_copy_ints}
+import sawtypecheck.declarations.{tc_build_signatures}
 import sawtypecheck.members.{tc_build_members}
 import sawtypecheck.model.{TC_FLAG_STATIC, TcMember, TcSig, TcSource, TcUnmetBound}
 import sawtypecheck.program.{TcProgram}
@@ -14,6 +15,18 @@ import sawtypecheck.signatures.{TcContext}
 import sawtypecheck.tier.{tc_tier}
 import sawtypecheck.typeops.{TcClient}
 import sawtypecheck.types.{TcKind, TcType}
+
+// Whether an `init` matching its struct's fields may override the memberwise
+// construction, and why not (`override_fault`).
+public enum TcOverrideFault {
+    case Accepted,
+    // Declared outside the struct's module.
+    case OutsideModule,
+    // Test-only, on a production struct.
+    case TestOnly,
+    // In an extension whose type parameters carry bounds.
+    case Bounded
+}
 
 extension TcProgram {
     // Whether code in module `viewer`, test code when `in_test`, sees member
@@ -183,6 +196,115 @@ extension TcProgram {
             k = k + 1
         }
         move out
+    }
+
+    // The `init` that overrides struct `d`'s memberwise construction, or -1:
+    // one that matches its fields exactly and that the declaration-site rule
+    // accepts (`override_fault`). Two such are `overload.indistinguishable`,
+    // so the first in declaration order is the one.
+    public func construction_override(&var self, d: Int) -> Int {
+        if not self.is_struct_decl(d) {
+            return -1
+        }
+        let exts = self.extensions_in_order(d)
+        var k = 0
+        while k < exts.len() {
+            let listed = self.members_of(exts[k])
+            k = k + 1
+            var j = 0
+            while j < listed.len() {
+                let m = listed[j]
+                j = j + 1
+                if self.matches_fields(m) && self.override_fault(m) == TcOverrideFault.Accepted {
+                    return m
+                }
+            }
+        }
+        return -1
+    }
+
+    // Whether declaration `m` is an `init` whose labels, in any order, and
+    // types are its struct's fields exactly, every parameter one field: the
+    // shape that overrides the memberwise construction (SL-648).
+    public func matches_fields(&var self, m: Int) -> Bool {
+        let info = self.res.decls[m]
+        if info.kind != ResDeclKind.Init || info.parent < 0 {
+            return false
+        }
+        let d = self.ext_target(info.parent)
+        if not self.is_struct_decl(d) {
+            return false
+        }
+        self.build_decl(m)
+        let s = self.sigs[m]
+        let members = self.members_of(d)
+        var fields = 0
+        var k = 0
+        while k < members.len() {
+            let f = members[k]
+            k = k + 1
+            if self.res.decls[f].kind != ResDeclKind.Field {
+                continue
+            }
+            fields = fields + 1
+            self.build_decl(f)
+            if not self.takes_field(&s, f) {
+                return false
+            }
+        }
+        fields == s.param_count
+    }
+
+    // Whether signature `s` has a parameter of field `f`'s label and type.
+    // Labels are distinct within a declaration, so a match is the only one.
+    func takes_field(&self, s: &TcSig, f: Int) -> Bool {
+        let name = self.res.decls[f].name
+        let ty = self.sigs[f].result
+        var k = 0
+        while k < s.param_count {
+            let p = self.params[s.param_first + k]
+            if p.name == name {
+                return ty >= 0 && p.ty == ty && not self.has_error(ty)
+            }
+            k = k + 1
+        }
+        false
+    }
+
+    // Why `init` `m`, which matches its struct's fields, may not override the
+    // construction: an importer's would change what every module's call
+    // means, a test-only one what production code's means (SL:testing), and
+    // a bounded extension's would give one generic call two meanings, chosen
+    // per instantiation where no reader sees it.
+    public func override_fault(&var self, m: Int) -> TcOverrideFault {
+        let info = self.res.decls[m]
+        let d = self.ext_target(info.parent)
+        let owner = self.res.decls[d]
+        if info.module != owner.module {
+            return TcOverrideFault.OutsideModule
+        }
+        if info.test_only && not owner.test_only {
+            return TcOverrideFault.TestOnly
+        }
+        if self.bounded_parameter(info.parent) >= 0 {
+            return TcOverrideFault.Bounded
+        }
+        TcOverrideFault.Accepted
+    }
+
+    // The first of extension `ext`'s type parameters that carries a bound,
+    // or -1.
+    public func bounded_parameter(&var self, ext: Int) -> Int {
+        self.ensure_generics(ext)
+        let s = self.sigs[ext]
+        var k = 0
+        while k < s.generic_count {
+            if self.generics[s.generic_first + k].bound_count > 0 {
+                return k
+            }
+            k = k + 1
+        }
+        return -1
     }
 
     // The functions a free name's binding stands for where it is used: its

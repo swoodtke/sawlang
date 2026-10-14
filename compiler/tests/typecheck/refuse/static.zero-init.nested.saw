@@ -1,0 +1,23 @@
+// refuses: static.zero-init at 19:19
+// a zero-initialized `unsafe static var` whose overridden struct sits in an array inside a field: zero builds every element without the override (SL-648)
+
+struct Port {
+    value: Int
+}
+
+extension Port {
+    init(value: Int) -> Port {
+        Port(value: value + 1)
+    }
+}
+
+struct Table {
+    count: Int
+    ports: [Port; 4]
+}
+
+unsafe static var TABLE: Table
+
+func main() unsafe {
+    print(TABLE.count)
+}

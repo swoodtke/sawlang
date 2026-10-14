@@ -4313,6 +4313,35 @@ construct in the owner and lend `&driver` down.
   spellings used to construct a fresh value and discard the receiver, silently;
   same vintage, same suspicion in older builds. To ask which variant a value
   holds, `match` it.
+- **AN `init` MATCHING THE FIELDS EXACTLY OVERRIDES THE CONSTRUCTION
+  (SL-648, ruled Oct 15).** Labels in any order, types exact: every
+  `Port(number:)` anywhere, the type's other `init`s and methods included,
+  calls the `init`, and only its OWN body reaches the raw field-by-field build.
+  That is the validating-constructor idiom:
+  ```saw-fragment
+  extension Port {
+      init(number: Int) -> Result<Port, PortError> {
+          if number < 1024 { return PortError.Reserved(number: number) }
+          return Port(number: number)      // raw: only inside the override
+      }
+  }
+  ```
+  Four things follow. A fallible override's `Result` reaches every caller. A
+  `static` cannot hold the type: an initializer would call the override (not
+  a constant), and NO initializer is refused too, since zero skips the check
+  (anywhere in the value; an Optional zeroes to `None` and is fine). A bare
+  override is module-private, so on a `public struct` it
+  makes the construction UNCALLABLE from other modules while the fields stay
+  readable and writable: mark it `public` to publish the checked construction,
+  and mark fields `private` to stop mutation. And only the struct's own module
+  may write one, never in test-only code on a production type, never in a
+  bounded extension (`extension Wrap<T: Equatable>`; use `extension Wrap<T>`).
+  An `init` taking a subset, an extra parameter or other types is an ordinary
+  overload; one whose DEFAULTED shape equals the fields is refused as
+  indistinguishable. STAGE 0 refuses every `init` whose labels are the field
+  names ("ambiguous with field initialization"), so code Stage 0 compiles
+  (`compiler/`, `blade/`, `libs/`, `examples/`) cannot use an override yet;
+  sawc2 alone has it.
 - **ENUMS TAKE EXTENSIONS, same as structs** (design 145): instance methods with
   `&self`/`&var self` (`match self` is the idiomatic body, `self = Other` the
   whole-value replacement), `static func` methods, hand-written trait

@@ -1,0 +1,16 @@
+// refuses: init.override-bounded at 9:5
+// an override in a bounded extension would reach some instantiations and not others, one generic call with two meanings: an override is unconditional (SL-648)
+
+struct Wrap<T> {
+    value: T
+}
+
+extension Wrap<T: Equatable> {
+    init(value: T) -> Wrap<T> {
+        Wrap(value: value)
+    }
+}
+
+func main() {
+    print(Wrap(value: 1).value)
+}

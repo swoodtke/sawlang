@@ -1,0 +1,23 @@
+public struct Port {
+    value: Int
+}
+
+extension Port {
+    init(value: Int) -> Port {
+        Port(value: value + 1)
+    }
+
+    public init(text: String) -> Port {
+        Port(value: text.len())
+    }
+}
+
+public struct Gate {
+    value: Int
+}
+
+extension Gate {
+    public init(value: Int) -> Gate {
+        Gate(value: value * 10)
+    }
+}

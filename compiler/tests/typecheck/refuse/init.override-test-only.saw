@@ -1,0 +1,17 @@
+// refuses: init.override-test-only at 10:5
+// a test-only override of a production struct's construction: test code cannot change what production code's `Port(value:)` means (SL:testing; SL-648)
+
+struct Port {
+    value: Int
+}
+
+@test
+extension Port {
+    init(value: Int) -> Port {
+        Port(value: value + 1)
+    }
+}
+
+func main() {
+    print(Port(value: 1).value)
+}

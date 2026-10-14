@@ -425,7 +425,12 @@ compares:
   own default, whose summary the requirement's unit solves. Stage 0 refuses
   leaving out a requirement's default through a bound; the call on a concrete
   receiver, which it runs, is the run program `requirement_default.saw`
-  (SL-638).
+  (SL-638);
+- `probes/construction_override.saw`, whose `init`s override the memberwise
+  construction, called from outside, from another `init`, from a generic body
+  and, through `probes/construction_override_gate.saw`, from another module,
+  prints its `// prints:` lines the same way. Stage 0 refuses an `init`
+  matching the fields as ambiguous with field initialization (SL-648).
 
 Stage 0 is the oracle: a difference is a sawc2 bug until shown otherwise
 (SL:architecture §5).

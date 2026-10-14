@@ -2,9 +2,13 @@
 // apart from an earlier one of its overload set is refused where it is
 // written, so a call never meets two equal candidates and a member no call
 // names, a `deinit` or a policy's `copy()`, has one body (spec, Overloading).
+// A struct's memberwise construction is a member of its `init` set that no
+// declaration writes, so the `init`s that meet it are judged here too.
 
 import sawresolve.dump.{res_sort_strings}
+import sawresolve.imports.{res_decl_binding}
 import sawresolve.model.{ResDeclKind}
+import sawtypecheck.candidates.{TcOverrideFault}
 import sawtypecheck.checks.{tc_check_inits}
 import sawtypecheck.conform.{tc_check_copy_policies}
 import sawtypecheck.declarations.{tc_build_signatures}
@@ -13,6 +17,7 @@ import sawtypecheck.model.{TC_EFFECT_BORROWS, TC_EFFECT_BORROWS_SYNC, TcSig}
 import sawtypecheck.program.{TcProgram}
 import sawtypecheck.spell.{tc_effects_text}
 import sawtypecheck.tier.{tc_max}
+import sawtypecheck.typeops.{TcClient}
 import sawtypecheck.types.{TcKind}
 
 // Every overload set's indistinguishable redeclarations.
@@ -94,6 +99,208 @@ extension TcProgram {
             k = k + 1
         }
         self.refuse_in_sets(&written)
+        if self.is_struct_decl(d) {
+            self.check_construction_inits(d, &written)
+        }
+    }
+
+    // The `init`s among `written` that meet struct `d`'s memberwise
+    // construction, the one member of its set no declaration writes: one
+    // matching the fields exactly overrides it, where the override rule
+    // allows (`override_fault`), and any other sharing a call shape with it
+    // is refused as a redeclaration, in a module that sees every field
+    // (SL-648).
+    func check_construction_inits(&var self, d: Int, written: &Vector<Int>) {
+        var k = 0
+        while k < written.len() {
+            let m = written[k]
+            k = k + 1
+            if self.res.decls[m].kind != ResDeclKind.Init {
+                continue
+            }
+            if self.matches_fields(m) {
+                match self.override_fault(m) {
+                    case Accepted -> {},
+                    case OutsideModule -> self.refuse_override_outside(m, d),
+                    case TestOnly -> self.refuse_override_test_only(m, d),
+                    case Bounded -> self.refuse_override_bounded(m, d)
+                }
+                continue
+            }
+            let viewer = self.res.decls[m].module
+            if self.shares_field_shape(m, d) && self.sees_fields(d, viewer) {
+                self.refuse_beside_memberwise(m, d)
+            }
+        }
+    }
+
+    // Whether one of `init` `m`'s call shapes binds struct `d`'s fields: its
+    // first parameters, as many as the fields, are theirs in some order, each
+    // of the same label and type with every type parameter one placeholder,
+    // and the rest are defaulted.
+    func shares_field_shape(&var self, m: Int, d: Int) -> Bool {
+        self.build_decl(m)
+        let s = self.sigs[m]
+        let fields = self.field_list(d)
+        let arity = fields.len()
+        if arity > s.param_count || self.required_count(&s) > arity {
+            return false
+        }
+        var k = 0
+        while k < arity {
+            let f = fields[k]
+            k = k + 1
+            self.build_decl(f)
+            let name = self.res.decls[f].name
+            let ty = self.sigs[f].result
+            var found = false
+            var j = 0
+            while j < arity && not found {
+                let p = self.params[s.param_first + j]
+                found = p.name == name && self.same_shape_type(p.ty, ty)
+                j = j + 1
+            }
+            if not found {
+                return false
+            }
+        }
+        true
+    }
+
+    // Whether code in module `viewer` sees every field of struct `d`, so that
+    // its memberwise construction is callable there.
+    func sees_fields(&self, d: Int, viewer: Int) -> Bool {
+        let fields = self.field_list(d)
+        let owner = self.res.decls[d].module
+        var k = 0
+        while k < fields.len() {
+            let info = self.res.decls[fields[k]]
+            if not self.res.visible_to(info.vis, owner, viewer) {
+                return false
+            }
+            k = k + 1
+        }
+        true
+    }
+
+    // Struct `d`'s fields, in declaration order.
+    func field_list(&self, d: Int) -> Vector<Int> {
+        let members = self.members_of(d)
+        var out = Vector<Int>()
+        var k = 0
+        while k < members.len() {
+            if self.res.decls[members[k]].kind == ResDeclKind.Field {
+                try! out.push(members[k])
+            }
+            k = k + 1
+        }
+        move out
+    }
+
+    func refuse_override_outside(&var self, m: Int, d: Int) {
+        let info = self.res.decls[m]
+        let owner = self.res.decls[d]
+        var msg = StringBuilder()
+        try! msg.append("`")
+        try! msg.append(self.overload_text(m))
+        try! msg.append("` matches the fields of `")
+        try! msg.append(self.res.decl_path(d))
+        try! msg.append("` exactly, so it would override `")
+        try! msg.append(self.construction_text(d))
+        try! msg.append("` in every module, and only `")
+        try! msg.append(self.res.decl_path(d))
+        try! msg.append("`'s own module `")
+        try! msg.append(self.res.module_name(owner.module))
+        try! msg.append("` may change what its construction means: give this `init` another label, or write the override there")
+        let site = self.decl_site(m)
+        self.refuse_in(info.module, site, "init.override-outside-module", msg.build())
+    }
+
+    func refuse_override_test_only(&var self, m: Int, d: Int) {
+        let info = self.res.decls[m]
+        var msg = StringBuilder()
+        try! msg.append("a test-only override of a production type's construction is refused: test code cannot change what `")
+        try! msg.append(self.construction_text(d))
+        try! msg.append("` means in production code; write it in production code, or make the type test-only too")
+        let site = self.decl_site(m)
+        self.refuse_in(info.module, site, "init.override-test-only", msg.build())
+    }
+
+    func refuse_override_bounded(&var self, m: Int, d: Int) {
+        let info = self.res.decls[m]
+        let ext = info.parent
+        let index = self.bounded_parameter(ext)
+        let s = self.sigs[ext]
+        let g = self.generics[s.generic_first + index]
+        var msg = StringBuilder()
+        try! msg.append("`")
+        try! msg.append(self.overload_text(m))
+        try! msg.append("` matches the fields of `")
+        try! msg.append(self.res.decl_path(d))
+        try! msg.append("` exactly, so it would override `")
+        try! msg.append(self.construction_text(d))
+        try! msg.append("`, but its extension declares it only where `")
+        try! msg.append(self.name_text(g.name))
+        try! msg.append("` is `")
+        let bound = self.traits[g.bound_first]
+        try! msg.append(self.res.decl_path(bound))
+        try! msg.append("`, which would give one generic construction two meanings, chosen per instantiation: write the override in an extension with no bounds, `extension ")
+        try! msg.append(self.unbounded_head(d, ext))
+        try! msg.append("`, or give this `init` another label")
+        let site = self.decl_site(m)
+        self.refuse_in(info.module, site, "init.override-bounded", msg.build())
+    }
+
+    func refuse_beside_memberwise(&var self, m: Int, d: Int) {
+        let info = self.res.decls[m]
+        var msg = StringBuilder()
+        try! msg.append("`")
+        try! msg.append(self.overload_text(m))
+        try! msg.append("` takes the call `")
+        try! msg.append(self.construction_text(d))
+        try! msg.append("`, which is `")
+        try! msg.append(self.res.decl_path(d))
+        try! msg.append("`'s memberwise construction, and no call could tell the two apart: give it another label or a parameter without a default, or write the `init` that takes the fields exactly, which overrides the construction")
+        let site = self.decl_site(m)
+        self.refuse_in(info.module, site, "overload.indistinguishable", msg.build())
+    }
+
+    // Struct `d`'s construction as a call names it: `Port(value:)`.
+    func construction_text(&self, d: Int) -> String {
+        let fields = self.field_list(d)
+        var out = StringBuilder()
+        try! out.append(self.res.decl_path(d))
+        try! out.append("(")
+        var k = 0
+        while k < fields.len() {
+            let name = self.res.decls[fields[k]].name
+            try! out.append(self.name_text(name))
+            try! out.append(":")
+            k = k + 1
+        }
+        try! out.append(")")
+        out.build()
+    }
+
+    // Extension `ext`'s head on type `d` without its bounds: `Wrap<T>`.
+    func unbounded_head(&self, d: Int, ext: Int) -> String {
+        let s = self.sigs[ext]
+        var out = StringBuilder()
+        try! out.append(self.res.decl_path(d))
+        if s.generic_count > 0 {
+            try! out.append("<")
+            var k = 0
+            while k < s.generic_count {
+                if k > 0 {
+                    try! out.append(", ")
+                }
+                let name = self.generics[s.generic_first + k].name
+                try! out.append(self.name_text(name))
+                k = k + 1
+            }
+            try! out.append(">")
+        }
+        out.build()
     }
 
     func check_requirement_sets(&var self) {
@@ -342,7 +549,7 @@ extension TcProgram {
 
     // Declaration `d` as a call would name it: its path and its labeled
     // parameter types.
-    func overload_text(&var self, d: Int) -> String {
+    public func overload_text(&var self, d: Int) -> String {
         let s = self.sigs[d]
         var out = StringBuilder()
         try! out.append(self.res.decl_path(d))

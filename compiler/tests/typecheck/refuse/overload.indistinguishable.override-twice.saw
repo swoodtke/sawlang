@@ -1,0 +1,22 @@
+// refuses: overload.indistinguishable at 15:5
+// two overrides of one construction, in two extensions: a construction has one override (SL-648)
+
+struct Port {
+    value: Int
+}
+
+extension Port {
+    init(value: Int) -> Port {
+        Port(value: value + 1)
+    }
+}
+
+extension Port {
+    init(value: Int) -> Port {
+        Port(value: value + 2)
+    }
+}
+
+func main() {
+    print(Port(value: 1).value)
+}
