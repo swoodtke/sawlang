@@ -59,6 +59,7 @@ SUITE_INPUTS = {
         "sawc/",                    # Stage 0, which builds Stage 1, and the runtime both link
         "compiler/tests/fixpoint/", # the lane, twin.py and mismatches.tsv
         "compiler/tools/build.py",  # which builds both stages
+        "tests/corpus/",            # the programs the replayed lanes run sawc2 over
         "tools/gate_jobs.py",       # how many invocations run at once
     ),
     "astdiff": (

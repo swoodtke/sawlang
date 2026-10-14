@@ -23,7 +23,8 @@ parse` process over every case of `compiler/tests/parse/` and every file of
 - the rest counts as not yet, never as a pass.
 
 Each case's recognizer record is computed once and cached under a hash of the
-case, GRAMMAR.md and the recognizer's own source. The lane also re-renders
+case, GRAMMAR.md, the recognizer's own source, and the lexer it reads tokens
+from (its source and the sawc2 binary). The lane also re-renders
 every expected dump through `sawc2 parse --redump`, which must give it back
 byte for byte, so the renderer is proven apart from the parser.
 """
@@ -32,6 +33,7 @@ import glob
 import hashlib
 import json
 import os
+import shutil
 import subprocess
 import sys
 import time
@@ -55,6 +57,9 @@ PARSE_CORPUS = os.path.join(HERE, "parse")
 CORPUS = os.path.join(REPO, "tests", "corpus")
 WORK = os.path.join(REPO, ".build", "parse-lane")
 RECORDS = os.path.join(WORK, "records.json")
+# The sources of the token dump the recognizer reads: the lexer, and the driver
+# that prints it.
+LEXER_SOURCES = (os.path.join(COMPILER, "lex", "src"), os.path.join(COMPILER, "driver", "src"))
 PARSE_ERROR = cases.PARSE_ERROR
 PARSES_AS = cases.PARSES_AS
 SOURCE_FILE = "source-file"
@@ -214,13 +219,46 @@ def collect(failures):
 
 # ---- the recognizer's records, cached ---------------------------------------------
 
-def salt():
-    """A hash of everything a record depends on besides the case itself."""
+def salt(lexer_roots=LEXER_SOURCES, binary_key=None):
+    """A hash of everything a record depends on besides the case itself: the
+    grammar, the recognizer, and the lexer whose `sawc2 lex` dump the
+    recognizer reads, as the sources under `lexer_roots` and the identity of
+    the binary, `binary_key` (Stage 2's cache key when None). That key is the
+    same under the fixpoint lane's twin, whose answers are Stage 1's, which the
+    fixpoint holds equal to Stage 2's."""
     h = hashlib.sha256()
     for path in [extract.GRAMMAR] + sorted(glob.glob(os.path.join(GRAMMAR_DIR, "*.py"))):
         with open(path, "rb") as fh:
             h.update(path.encode("utf-8") + b"\0" + fh.read() + b"\0")
+    for root in lexer_roots:
+        for directory, subdirs, files in os.walk(root):
+            subdirs.sort()
+            for name in sorted(files):
+                path = os.path.join(directory, name)
+                with open(path, "rb") as fh:
+                    h.update(os.path.relpath(path, root).encode("utf-8") + b"\0" + fh.read() + b"\0")
+    binary_key = build.stage2_key() if binary_key is None else binary_key
+    h.update(b"binary\0" + (binary_key or "unknown, so the records are never reused: %d" % os.getpid()).encode())
     return h.hexdigest()
+
+
+def check_salt(failures):
+    """A change to a lexer source, or to the sawc2 binary's key, changes the
+    salt, so the cached records never outlive the lexer they were read from."""
+    pin = os.path.join(WORK, "salt-pin")
+    shutil.rmtree(pin, ignore_errors=True)
+    copy = os.path.join(pin, "src")
+    shutil.copytree(LEXER_SOURCES[0], copy)
+    before = salt((copy,), "one")
+    with open(os.path.join(copy, "lib.saw"), "a", encoding="utf-8") as fh:
+        fh.write("// a change\n")
+    after_source = salt((copy,), "one")
+    if after_source == before:
+        failures.append("parse lane: a change to the lexer's source leaves the record cache's salt as it was")
+    if salt((copy,), "two") == after_source:
+        failures.append("parse lane: a different sawc2 binary leaves the record cache's salt as it was")
+    shutil.rmtree(pin, ignore_errors=True)
+    return 2
 
 
 def record_key(case):
@@ -486,6 +524,7 @@ def run(verbose=False):
     counts["parse lane cases"] = len(all_cases)
     counts["claims"] = len(claims)
     counts["recognizer records computed"] = computed
+    counts["parse lane salt pins"] = check_salt(failures)
     if verbose:
         for line in not_yet:
             print("not yet: " + line)

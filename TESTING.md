@@ -445,8 +445,9 @@ decision is `tools/patch_gate.py`'s:
 - the freestanding suite runs when a changed path is one of its runner's inputs
   (`sawc/`, `tests/freestanding/`, `blade/`, `libs/`, the runner itself);
 - the fixpoint lane (`compiler/tests/fixpoint/fixpoint_lane.py`) runs when
-  `compiler/` (the lane itself and `compiler/tools/build.py` included), `std/`
-  or `sawc/` changes (Stage 0 builds Stage 1, so a `sawc/` change can move it),
+  `compiler/` (the lane itself and `compiler/tools/build.py` included), `std/`,
+  `sawc/` (Stage 0 builds Stage 1, so a `sawc/` change can move it) or
+  `tests/corpus/` (the programs the replayed lanes run sawc2 over) changes,
   so a local gate never runs it;
 - the full grammar corpus runs when `GRAMMAR.md`, `LANGUAGE_SPEC.md` (whose
   headings `spec=` names), `compiler/tests/grammar/` or `sawc/` (the reference
