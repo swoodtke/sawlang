@@ -1,0 +1,23 @@
+// refuses: overload.indistinguishable at 15:10
+// two `deinit` bodies in a type's copy policy: drop elaboration would run
+// one and the other would be dead, so the second is refused (conformance
+// row V153)
+
+struct Noisy {
+    id: Int
+}
+
+extension Noisy: NoCopy {
+    func deinit(&var self) {
+        print("first deinit {}", self.id)
+    }
+
+    func deinit(&var self) {
+        print("second deinit {}", self.id)
+    }
+}
+
+func main() {
+    let n = Noisy(id: 7)
+    print("made {}", n.id)
+}

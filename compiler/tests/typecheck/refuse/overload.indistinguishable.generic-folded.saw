@@ -1,0 +1,10 @@
+// refuses: overload.indistinguishable at 6:6
+// every type parameter is the one placeholder, so two parameters of one
+// type parameter and two of two are one shape (spec, Overloading)
+
+func h<T, U>(a: T, b: U) -> Int { 1 }
+func h<T>(a: T, b: T) -> Int { 2 }
+
+func main() {
+    print("ok")
+}

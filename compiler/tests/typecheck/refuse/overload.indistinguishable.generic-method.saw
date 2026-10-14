@@ -1,0 +1,18 @@
+// refuses: overload.indistinguishable at 13:10
+// two generic methods differing only in their type parameter's name
+
+struct Account {
+    n: Int
+}
+
+extension Account {
+    func tag<T>(&self, x: T) -> Int { 1 }
+}
+
+extension Account {
+    func tag<U>(&self, x: U) -> Int { 2 }
+}
+
+func main() {
+    print("ok")
+}

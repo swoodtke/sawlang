@@ -1,0 +1,10 @@
+// refuses: overload.indistinguishable at 6:6
+// a type parameter folds to the one placeholder inside another type too, so
+// `h(v: T?)` and `h(v: U?)` are one shape
+
+func h<T>(v: T?) -> Int { 1 }
+func h<U>(v: U?) -> Int { 2 }
+
+func main() {
+    print("ok")
+}

@@ -481,6 +481,14 @@ signature (post-alias, with bare type parameters folded to one placeholder, so
 always legal; so is **same types with different labels** (see labeled
 arguments below — `f(a:b:)` and `f(kind:value:)` coexist).
 
+The rule holds in every overload set: a module's free functions of one name,
+the methods of one name and the `init`s that one module's extensions give a
+type, across all of those extensions, and a trait's requirements of one name.
+An `init`'s arguments bind by name in any order, so two `init`s taking the
+same labels and types in another order collide. A hand-written `deinit` or
+`copy()` declared twice for one type is refused the same way, so drop
+elaboration and the copy hook each find one body.
+
 The declaration-site rule is **per module**. A free function is identified by
 (defining module, name), the way a type is, so two modules may hold same-named
 functions of the same shape; neither module knows the other exists.
@@ -3413,9 +3421,11 @@ collections" claim: the cost of every transfer is readable at the use site.
 
   `T: Deinit` remains legal as a generic bound; only the conformance form is
   gone.
-- **A type declares one of them, not both.** Both traits require the same
-  method, `copy(&self) -> Self`, so a second conformance redeclares a method
-  the type already has:
+- **A type declares one copy policy.** `Copy`, `ExplicitCopy` and `NoCopy`
+  exclude each other, so a type that conforms to one may not conform to
+  another, whatever bounds the extensions carry. A type declaring two would
+  leave a reader asking whether its transfers copy silently, need `.copy()`,
+  or only move. The second conformance is refused:
 
   ```saw-fragment
   @synthesize
@@ -3423,14 +3433,57 @@ collections" claim: the cost of every transfer is readable at the use site.
 
   @synthesize
   extension Ticket: ExplicitCopy {}
-  // error: method `copy` is already defined for struct `Ticket` with an
-  //        indistinguishable signature
-  //   hint: overloads must differ in arity or parameter types
+  // error: `Ticket` conforms to `ExplicitCopy`, a second copy policy beside
+  //        `Copy` at 2:19: a type has one of `Copy`, `ExplicitCopy` and
+  //        `NoCopy`, bounded or not, so a transfer of it copies silently,
+  //        needs `.copy()`, or only moves; keep the one its values need
   ```
 
   Declare `Copy` when transfers are silent. Every `Copy` type already
-  satisfies an `ExplicitCopy` bound, so the second declaration would add
-  nothing even if it compiled.
+  satisfies an `ExplicitCopy` bound, so the second declaration adds nothing.
+  `NoCopy` beside either of the others contradicts it.
+- **A `Copy` or `ExplicitCopy` type's `copy()` is written only inside its
+  policy conformance.** That `copy()` is the one every silent, spelled and
+  generic copy of the type runs. A member named `copy` that a call with no
+  arguments reaches, written in any other extension, is refused where it is
+  declared. This includes a type that is `Copy` by its members and declares
+  no policy: its copy is the member-by-member one, and a stray method would
+  run only when the copy is spelled. To give such a type a copy of its own,
+  write the retain hook, `extension T: Copy { func copy(&self) -> T { … } }`.
+
+  ```saw-fragment
+  struct Money { cents: Int }
+
+  extension Money {
+      func copy(&self) -> Money { Money(cents: self.cents + 100) }
+      // error: `Money` declares no copy policy, so it copies by its members
+      //        at every silent, spelled and generic copy, and this `copy()`
+      //        would run only when spelled: write it as the hook, ...
+  }
+  ```
+
+  A `copy` that takes an argument no default fills, `copy(&self, plus:
+  Int)`, is another method and stays legal.
+- **A `NoCopy` type's `copy()` is an ordinary method.** A `NoCopy` type is
+  never copied silently, so nothing else answers to the name. A spelled
+  `.copy()` calls the method, and the method does not satisfy an
+  `ExplicitCopy` bound, which only a copy policy meets:
+
+  ```saw
+  struct Handle { fd: Int }
+
+  extension Handle: NoCopy {}
+
+  extension Handle {
+      func copy(&self) -> Handle { Handle(fd: self.fd + 100) }
+  }
+
+  func main() {
+      let h = Handle(fd: 1)
+      let g = h.copy()       // calls the method
+      print(g.fd)            // prints: 101
+  }
+  ```
 - **A hand-written `copy()` must be `sync`.** The `copy()` body
   inside a copy-policy conformance is the retain hook: the compiler calls it at
   transfer sites the source never spells, so a suspension inside it would

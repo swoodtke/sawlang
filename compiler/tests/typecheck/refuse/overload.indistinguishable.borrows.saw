@@ -1,0 +1,21 @@
+// refuses: overload.indistinguishable at 14:10
+// two `borrows` accessors of one receiver: only a shared and an exclusive
+// twin are told apart, by `borrow let` and `borrow var` (SL:borrowing §4)
+
+struct Log {
+    slots: [Int; 4]
+}
+
+extension Log {
+    func at(&var self, i: Int) borrows -> &Int {
+        lend self.slots[i]
+    }
+
+    func at(&var self, i: Int) borrows -> &var Int {
+        lend self.slots[i]
+    }
+}
+
+func main() {
+    print("ok")
+}

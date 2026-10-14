@@ -1,16 +1,10 @@
 // A generic body's silent copy runs a type's copy glue, which calls the
 // `copy()` its `Copy` conformance writes (`Counted`) and otherwise rebuilds
-// the value from copies of its parts (`Named`): a `copy` method of an
-// extension that declares no policy is an ordinary method no glue calls.
+// the value from copies of its parts (`Named`), a type that declares no
+// policy and so may write no `copy()` of its own (`copy.outside-policy`).
 
 struct Named {
     s: String
-}
-
-extension Named {
-    func copy(&self) -> Named {
-        Named(s: "other")
-    }
 }
 
 struct Counted {

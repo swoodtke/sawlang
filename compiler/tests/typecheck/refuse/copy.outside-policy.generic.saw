@@ -1,0 +1,19 @@
+// refuses: copy.outside-policy at 11:10
+// a generic type that declares no policy, with a `copy()` in a bounded plain
+// extension: where its argument is Copy the type is too, and its copy is
+// the one every copy runs
+
+struct Wrap<T> {
+    value: T
+}
+
+extension Wrap<T: Copy> {
+    func copy(&self) -> Wrap<T> {
+        Wrap(value: self.value)
+    }
+}
+
+func main() {
+    let w = Wrap(value: 1)
+    print("{}", w.value)
+}

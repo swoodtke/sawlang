@@ -28,6 +28,8 @@ typecheck/
                       agreement; substitution
     tier.saw          the Copy-tier classifier, containment, bound satisfaction
     members.saw       the member tables and a module's view of them
+    overloads.saw     the declaration-site overload rule: a redeclaration no
+                      call could tell apart, refused where it is written
     checks.saw        finite size, the signature half of `unsafe`, what an
                       `init` returns, `Deinit`'s conformances and where a
                       `deinit` is written
@@ -121,7 +123,18 @@ final, or for the one call where it is not:
 3. **The conformance table** (`conform.saw`): each conformance resolve
    recorded, then how each requirement of its trait and the traits it refines
    is met, against the members written in the extensions the conformance's
-   module sees.
+   module sees. A type declares one copy policy, so a conformance to a
+   second of `Copy`, `ExplicitCopy` and `NoCopy` is refused
+   (`check_copy_policies`), and so is a `copy()` a type that is not
+   `NoCopy` writes outside its policy (`check_copy_placement`). Then every
+   overload set, a module's free functions of one name, the methods of one
+   name and the `init`s a module's extensions give a type, and a trait's
+   requirements of one name, goes through one funnel,
+   `refuse_indistinguishable` (`overloads.saw`), which refuses a declaration
+   sharing a call shape with an earlier one: the same labels and types,
+   aliases read as their targets and every type parameter as one
+   placeholder, a defaulted parameter's shorter calls counted, an `init`'s
+   labels in any order.
 4. **Member tables** (`members.saw`), one per struct, enum and builtin type.
 5. **Copy tiers** (`tier.saw`), one per nominal type.
 6. **The checks** that need the tables: bounds, Copy-policy containment,
@@ -616,6 +629,27 @@ These are the reversible readings this unit made; SL-447's report lists them.
   its value checked once the overload is chosen, as for a `Result`'s two
   payloads, so `h(300)` over `h(Int8)`/`h(Int16)` is ambiguous rather than
   `Int16`, as in Stage 0.
+- A redeclaration is judged per overload set and per module (SL-641). A
+  static and an instance method of one name share a set, as in Stage 0, so
+  `total(&self)` beside `static total()` is refused though their call forms
+  differ; a test-only declaration shares its production twin's set; a
+  trait's requirements are a set, where Stage 0 accepts two equal ones. Every
+  type parameter folds to one placeholder at any depth, so `h<T>(v: T?)`
+  beside `h<U>(v: U?)` and two extensions renaming the type's parameter
+  collide, which Stage 0 accepts, since it folds only a bare parameter of the
+  function's own. A function's shapes are the spec's prefixes, so a labeled
+  call skipping a middle defaulted parameter (`f(x:z:)` over `f(x:y:z:)` with
+  defaults beside `f(x:z:)`) stays a call-site ambiguity in both compilers.
+  An `init`'s shapes compare as label sets, since its arguments bind by name;
+  Stage 0 keys an `init` by its labels in order and ignores their types. A
+  `borrows` member never shares a set with a plain one, and two whose
+  receivers differ are the shared and exclusive twins (SL:borrowing §4). The
+  memberwise construction is outside the sets (SL-648).
+- A member named `copy` is a Copy or ExplicitCopy type's stray `copy()`
+  (`copy.outside-policy`) when a call with no arguments reaches it: a static
+  one and one whose parameters all have defaults count, one that takes an
+  argument no default fills does not. A generic type that declares no policy
+  counts as Copy by its members, since some instantiation is.
 
 ## Safety readings
 

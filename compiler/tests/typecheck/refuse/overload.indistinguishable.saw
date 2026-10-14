@@ -1,0 +1,10 @@
+// refuses: overload.indistinguishable at 6:6
+// a free function declared twice with one signature: refused at the second,
+// with no call needed to find it (spec, Overloading)
+
+func h(x: Int8) -> Int { 1 }
+func h(x: Int8) -> Int { 2 }
+
+func main() {
+    print("ok")
+}

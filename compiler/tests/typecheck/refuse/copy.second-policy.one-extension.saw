@@ -1,0 +1,19 @@
+// refuses: copy.second-policy at 9:22
+// two policies in one extension's head, one `copy()` meeting both: the second
+// is refused at its own name
+
+struct Buf {
+    value: Int
+}
+
+extension Buf: Copy, ExplicitCopy {
+    func copy(&self) -> Buf {
+        Buf(value: self.value)
+    }
+}
+
+func main() {
+    let a = Buf(value: 1)
+    let b = a
+    print("{}", b.value)
+}

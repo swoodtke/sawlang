@@ -1,0 +1,22 @@
+// refuses: copy.outside-policy at 14:10
+// a `copy()` in a plain extension beside a `Copy` conformance that derives
+// its own: the derived one is the hook, and a second would run only when
+// spelled
+
+struct Money {
+    cents: Int
+}
+
+@synthesize
+extension Money: Copy {}
+
+extension Money {
+    func copy(&self) -> Money {
+        Money(cents: self.cents + 100)
+    }
+}
+
+func main() {
+    let a = Money(cents: 1)
+    print("{}", a.cents)
+}

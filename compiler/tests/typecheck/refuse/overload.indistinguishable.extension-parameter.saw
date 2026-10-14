@@ -1,0 +1,19 @@
+// refuses: overload.indistinguishable at 14:10
+// two extensions naming the type's parameter differently: `T` and `U` are
+// the one parameter of `Wrap`
+
+struct Wrap<T> {
+    value: T
+}
+
+extension Wrap<T> {
+    func holds(&self, x: T) -> Int { 1 }
+}
+
+extension Wrap<U> {
+    func holds(&self, x: U) -> Int { 2 }
+}
+
+func main() {
+    print("ok")
+}

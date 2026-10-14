@@ -1,0 +1,19 @@
+// refuses: overload.indistinguishable at 14:10
+// the receiver never tells two methods apart: the use site picks shared or
+// exclusive out of one declaration
+
+struct Account {
+    n: Int
+}
+
+extension Account {
+    func total(&self) -> Int { self.n }
+}
+
+extension Account {
+    func total(&var self) -> Int { self.n + 1 }
+}
+
+func main() {
+    print("ok")
+}

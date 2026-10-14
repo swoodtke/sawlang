@@ -1,0 +1,17 @@
+// refuses: copy.second-policy at 12:20
+// a bounded `Copy` and an unbounded `NoCopy` on one generic type: the bounds
+// do not split the type into two, so the second policy is refused
+
+struct Wrap<T> {
+    value: T
+}
+
+@synthesize
+extension Wrap<T: Copy>: Copy {}
+
+extension Wrap<T>: NoCopy {}
+
+func main() {
+    let w = Wrap(value: 1)
+    print("{}", w.value)
+}

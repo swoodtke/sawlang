@@ -1,0 +1,63 @@
+// The `copy` methods a type may write (conformance rows V151, V152). A
+// NoCopy type's `copy()` is an ordinary method, in a plain extension or in
+// its `NoCopy` conformance, and a spelled call runs it. A Copy type's `copy`
+// that no call with no arguments reaches is another method, not its copy.
+// A `Copy` conformance's `copy()` is the hook.
+
+struct Handle {
+    fd: Int
+}
+
+extension Handle: NoCopy {}
+
+extension Handle {
+    func copy(&self) -> Handle {
+        Handle(fd: self.fd + 100)
+    }
+}
+
+struct Socket {
+    fd: Int
+}
+
+extension Socket: NoCopy {
+    func copy(&self) -> Socket {
+        Socket(fd: self.fd + 200)
+    }
+
+    func deinit(&var self) {
+        print("closed {}", self.fd)
+    }
+}
+
+struct Money {
+    cents: Int
+}
+
+extension Money {
+    func copy(&self, plus: Int) -> Money {
+        Money(cents: self.cents + plus)
+    }
+}
+
+struct Counted {
+    n: Int
+}
+
+extension Counted: Copy {
+    func copy(&self) -> Counted {
+        Counted(n: self.n)
+    }
+}
+
+func main() {
+    let h = Handle(fd: 1)
+    let h2 = h.copy()
+    let s = Socket(fd: 2)
+    let s2 = s.copy()
+    let m = Money(cents: 3)
+    let m2 = m.copy(plus: 4)
+    let c = Counted(n: 5)
+    let c2 = c
+    print("{} {} {} {}", h2.fd, s2.fd, m2.cents, c2.n)
+}

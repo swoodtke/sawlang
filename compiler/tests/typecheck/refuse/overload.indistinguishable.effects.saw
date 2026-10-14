@@ -1,0 +1,10 @@
+// refuses: overload.indistinguishable at 6:6
+// an effect never tells two declarations apart: overloads cannot differ by
+// `unsafe`
+
+func h(x: Int) -> Int { 1 }
+func h(x: Int) unsafe -> Int { 2 }
+
+func main() {
+    print("ok")
+}

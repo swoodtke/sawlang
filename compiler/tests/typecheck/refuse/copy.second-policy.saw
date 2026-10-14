@@ -1,0 +1,19 @@
+// refuses: copy.second-policy at 14:19
+// `Copy` and then `ExplicitCopy` on one type: a type has one copy policy, so
+// a reader never has to ask whether its values copy silently or need
+// `.copy()` (conformance row V150)
+
+struct Ticket {
+    n: Int
+}
+
+@synthesize
+extension Ticket: Copy {}
+
+@synthesize
+extension Ticket: ExplicitCopy {}
+
+func main() {
+    let t = Ticket(n: 1)
+    print("{}", t.n)
+}

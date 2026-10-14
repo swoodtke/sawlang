@@ -1,0 +1,16 @@
+// refuses: overload.indistinguishable at 11:5
+// an `init` whose defaulted parameter gives it the call of another
+
+struct Account {
+    n: Int
+}
+
+extension Account {
+    init(opening: Int, bonus: Int = 0) -> Account { Account(n: opening + bonus) }
+
+    init(opening: Int) -> Account { Account(n: opening) }
+}
+
+func main() {
+    print("ok")
+}

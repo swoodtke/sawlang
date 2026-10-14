@@ -1,0 +1,43 @@
+// A NoCopy type's `copy()` is an ordinary method: a spelled call runs it,
+// in a plain extension and in the type's `NoCopy` conformance, and each
+// value is dropped once (conformance row V152).
+struct Handle {
+    fd: Int
+}
+
+extension Handle: NoCopy {
+    func deinit(&var self) {
+        print("closed {}", self.fd)
+    }
+}
+
+extension Handle {
+    func copy(&self) -> Handle {
+        print("Handle.copy")
+        Handle(fd: self.fd + 100)
+    }
+}
+
+struct Socket {
+    fd: Int
+}
+
+extension Socket: NoCopy {
+    func copy(&self) -> Socket {
+        print("Socket.copy")
+        Socket(fd: self.fd + 200)
+    }
+
+    func deinit(&var self) {
+        print("shut {}", self.fd)
+    }
+}
+
+func main() {
+    let h = Handle(fd: 1)
+    let h2 = h.copy()
+    print("spelled {}", h2.fd)
+    let s = Socket(fd: 2)
+    let s2 = s.copy()
+    print("spelled {}", s2.fd)
+}

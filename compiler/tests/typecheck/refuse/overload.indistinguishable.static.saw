@@ -1,0 +1,18 @@
+// refuses: overload.indistinguishable at 13:17
+// one static method written by two extensions
+
+struct Account {
+    n: Int
+}
+
+extension Account {
+    static func opening(n: Int) -> Account { Account(n: n) }
+}
+
+extension Account {
+    static func opening(n: Int) -> Account { Account(n: n + 1) }
+}
+
+func main() {
+    print("ok")
+}

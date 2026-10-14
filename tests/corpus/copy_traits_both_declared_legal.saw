@@ -1,19 +1,19 @@
-// Declaring BOTH copy traits on one type is legal (design 219).
+// Declaring BOTH copy traits on one type is refused (SL-641).
 //
-// It used to be a compile error, and the reason was real while the two words
-// named two TIERS: a type on two tiers has no answer to "what does a transfer
-// cost". After the collapse they name different things — `Copy` is the tier,
-// `ExplicitCopy` is an ordinary trait
-// every Copy-tier type satisfies anyway — so the second declaration is
-// redundant rather than contradictory, and there is nothing left to refuse.
+// A type has one copy policy, and the pair leaves a reader asking whether
+// its values copy silently or need `.copy()`: `Copy` says the first, and
+// `ExplicitCopy` declared alone says the second. The ruling reverses design
+// 219, which read the second declaration as redundant; the frozen compiler
+// keeps that reading, and the examples/ original pins it.
 //
-// This file replaces `errors/explicit_copy_both_traits_error.saw`, whose rule
-// no longer exists.
-// EXPECT: success
-// EXPECT-OUTPUT:
-// 1
-// 1
-// 1
+// The refusal names the second conformance, `ExplicitCopy`, in the head of
+// the extension that declares both. Declaring `Copy` alone keeps every
+// transfer below and runs the hook at each, the silent one and the spelled
+// one, and an `ExplicitCopy` bound still takes the type, since every Copy
+// type meets it.
+//
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: a second copy policy beside `Copy`
 
 struct Buf {
     value: Int

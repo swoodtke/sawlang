@@ -1,0 +1,9 @@
+// refuses: overload.indistinguishable at 5:6
+// two generic declarations differing only in their type parameter's name
+
+func h<T>(x: T) -> Int { 1 }
+func h<U>(x: U) -> Int { 2 }
+
+func main() {
+    print("ok")
+}

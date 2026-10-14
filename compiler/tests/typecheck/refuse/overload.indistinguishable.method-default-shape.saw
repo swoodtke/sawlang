@@ -1,0 +1,19 @@
+// refuses: overload.indistinguishable at 14:10
+// a method whose defaulted parameter gives it the call `a.total()`, beside
+// one that takes no argument
+
+struct Account {
+    n: Int
+}
+
+extension Account {
+    func total(&self, extra: Int = 1) -> Int { self.n + extra }
+}
+
+extension Account {
+    func total(&self) -> Int { self.n }
+}
+
+func main() {
+    print("ok")
+}

@@ -1,0 +1,40 @@
+(Module main
+  (declarations
+    (func main 8:6 private (signature (params) -> Void) (summary body (suspends no) (sync-callable yes))))
+  (members)
+  (views)
+  (conformances)
+  (copy-tier)
+  (bodies
+    (main 8:6
+      (9:5-9:55 Call.paren Void value temp (builtin print))
+      (9:11-9:15 Interp String value temp)
+      (9:17-9:54 Binary Int value borrow (op +))
+      (9:17-9:34 Call.paren Int value temp (call bells.chime(n: Int)))
+      (9:32-9:33 IntLit Int value temp)
+      (9:37-9:54 Call.paren Int value temp (call gongs.chime(n: Int)))
+      (9:52-9:53 IntLit Int value temp))))
+
+(Module bells
+  (declarations
+    (func chime 1:13 public (signature (params (n Int owned)) -> Int) (summary body (suspends no) (sync-callable yes))))
+  (members)
+  (views)
+  (conformances)
+  (copy-tier)
+  (bodies
+    (chime 1:13
+      (2:5-2:6 Name Int place copy))))
+
+(Module gongs
+  (declarations
+    (func chime 1:13 public (signature (params (n Int owned)) -> Int) (summary body (suspends no) (sync-callable yes))))
+  (members)
+  (views)
+  (conformances)
+  (copy-tier)
+  (bodies
+    (chime 1:13
+      (2:5-2:11 Binary Int value temp (op +))
+      (2:5-2:6 Name Int place copy)
+      (2:9-2:11 IntLit Int value temp))))

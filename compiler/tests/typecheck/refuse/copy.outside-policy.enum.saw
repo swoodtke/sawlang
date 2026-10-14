@@ -1,0 +1,19 @@
+// refuses: copy.outside-policy at 10:10
+// an enum that is Copy by its cases, with a `copy()` in a plain extension
+
+enum Light {
+    case Red,
+    case Green
+}
+
+extension Light {
+    func copy(&self) -> Light {
+        Light.Green
+    }
+}
+
+func main() {
+    let l = Light.Red
+    let m = l
+    print("{}", m == Light.Red)
+}

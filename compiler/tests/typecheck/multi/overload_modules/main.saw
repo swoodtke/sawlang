@@ -1,0 +1,10 @@
+// Two modules each declare `chime(n: Int)`: an overload set is one module's,
+// so neither declaration is a redeclaration of the other, and a qualified
+// call takes exactly the named module's (spec, Overloading; SL-641).
+
+import bells
+import gongs
+
+func main() {
+    print("{}", bells.chime(n: 1) + gongs.chime(n: 2))
+}

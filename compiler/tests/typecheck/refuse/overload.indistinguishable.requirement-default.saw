@@ -1,0 +1,11 @@
+// refuses: overload.indistinguishable at 6:10
+// a requirement and a default body of one signature in one trait
+
+trait Ledger {
+    func total(&self) -> Int
+    func total(&self) -> Int { 3 }
+}
+
+func main() {
+    print("ok")
+}

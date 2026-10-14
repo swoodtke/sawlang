@@ -1,0 +1,23 @@
+// refuses: overload.indistinguishable at 14:10
+// two `copy()` hooks in a `Copy` conformance: every copy runs one, so the
+// second is refused (conformance row V153)
+
+struct Ticket {
+    n: Int
+}
+
+extension Ticket: Copy {
+    func copy(&self) -> Ticket {
+        Ticket(n: self.n)
+    }
+
+    func copy(&self) -> Ticket {
+        Ticket(n: self.n + 1)
+    }
+}
+
+func main() {
+    let t = Ticket(n: 1)
+    let u = t
+    print("{}", u.n)
+}

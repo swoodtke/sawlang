@@ -1,0 +1,21 @@
+// refuses: copy.second-policy at 16:16
+// `Copy` with a retain hook and then `NoCopy`: the second policy is refused,
+// whichever of the two would have been read as the tier
+
+struct Tag {
+    n: Int
+}
+
+extension Tag: Copy {
+    func copy(&self) -> Tag {
+        print("copy hook")
+        Tag(n: self.n)
+    }
+}
+
+extension Tag: NoCopy {}
+
+func main() {
+    let a = Tag(n: 1)
+    print("{}", a.n)
+}

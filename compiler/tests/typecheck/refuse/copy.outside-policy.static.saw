@@ -1,0 +1,18 @@
+// refuses: copy.outside-policy at 10:17
+// a static `copy()` on a type that is Copy by its members: a call with no
+// arguments reaches it, as it reaches the type's own copy
+
+struct Money {
+    cents: Int
+}
+
+extension Money {
+    static func copy() -> Money {
+        Money(cents: 5)
+    }
+}
+
+func main() {
+    let a = Money(cents: 1)
+    print("{}", a.cents)
+}

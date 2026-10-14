@@ -1,0 +1,17 @@
+// refuses: overload.indistinguishable at 12:5
+// an `init`'s arguments bind by name in any order, so two `init`s taking
+// the same labels and types in another order share every labeled call
+
+struct Account {
+    n: Int
+}
+
+extension Account {
+    init(opening: Int, open: Bool) -> Account { Account(n: opening) }
+
+    init(open: Bool, opening: Int) -> Account { Account(n: opening + 1) }
+}
+
+func main() {
+    print("ok")
+}

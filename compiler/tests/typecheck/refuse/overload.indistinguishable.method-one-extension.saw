@@ -1,0 +1,16 @@
+// refuses: overload.indistinguishable at 11:10
+// one method written twice in one extension
+
+struct Account {
+    n: Int
+}
+
+extension Account {
+    func total(&self) -> Int { self.n }
+
+    func total(&self) -> Int { self.n + 1 }
+}
+
+func main() {
+    print("ok")
+}

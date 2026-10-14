@@ -1,0 +1,18 @@
+// refuses: copy.second-policy at 13:34
+// `Copy` where the argument is Copy and `ExplicitCopy` where it is
+// ExplicitCopy: one type with two policies, bounded both times
+
+struct Wrap<T> {
+    value: T
+}
+
+@synthesize
+extension Wrap<T: Copy>: Copy {}
+
+@synthesize
+extension Wrap<T: ExplicitCopy>: ExplicitCopy {}
+
+func main() {
+    let w = Wrap(value: 1)
+    print("{}", w.value)
+}

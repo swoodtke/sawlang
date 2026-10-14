@@ -581,7 +581,7 @@ extension TcProgram {
 
     // Whether extension `ext` declares a copy policy, or `Deinit`, which
     // `conformance.deinit` refuses on its own.
-    func declares_policy(&var self, ext: Int) -> Bool {
+    public func declares_policy(&var self, ext: Int) -> Bool {
         let deinit = self.known.deinit
         var k = 0
         while k < self.conformances.len() {

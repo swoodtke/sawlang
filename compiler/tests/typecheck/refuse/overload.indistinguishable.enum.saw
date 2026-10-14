@@ -1,0 +1,19 @@
+// refuses: overload.indistinguishable at 14:10
+// one method written by two extensions of an enum
+
+enum Light {
+    case Red,
+    case Green
+}
+
+extension Light {
+    func code(&self) -> Int { 1 }
+}
+
+extension Light {
+    func code(&self) -> Int { 2 }
+}
+
+func main() {
+    print("ok")
+}

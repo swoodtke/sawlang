@@ -1,0 +1,12 @@
+// refuses: overload.indistinguishable at 8:6
+// two test-only functions with one signature
+
+@test
+func h(x: Int) -> Int { 1 }
+
+@test
+func h(x: Int) -> Int { 2 }
+
+func main() {
+    print("ok")
+}

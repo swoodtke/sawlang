@@ -1,0 +1,19 @@
+// refuses: overload.indistinguishable at 14:10
+// a test-only twin of a production method: test code sees both
+
+struct Account {
+    n: Int
+}
+
+extension Account {
+    func total(&self) -> Int { self.n }
+}
+
+@test
+extension Account {
+    func total(&self) -> Int { 99 }
+}
+
+func main() {
+    print("ok")
+}

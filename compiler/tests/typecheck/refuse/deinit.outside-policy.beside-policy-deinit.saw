@@ -1,0 +1,26 @@
+// refuses: deinit.outside-policy at 18:10
+// a `deinit` in another extension beside the one the policy writes: the
+// placement rule refuses it, and the redeclaration rule leaves it to that
+
+struct Token {
+    id: Int
+}
+
+extension Token: NoCopy {
+    func deinit(&var self) {
+        print("policy {}", self.id)
+    }
+}
+
+extension Token: Equatable {
+    func equals(&self, other: &Token) -> Bool { self.id == other.id }
+
+    func deinit(&var self) {
+        print("other {}", self.id)
+    }
+}
+
+func main() {
+    let t = Token(id: 1)
+    print("{}", t.id)
+}

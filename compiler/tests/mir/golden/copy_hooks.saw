@@ -1,28 +1,16 @@
 // Which `copy()` a copy the lowering inserts runs: the one a `Copy`
 // conformance writes, at a binding, and for a spelled `[copy x]` of an
-// ExplicitCopy type the one its conformance writes. A `copy` method of an
-// extension that declares no policy is an ordinary method: a binding, a
-// tuple and every capture copy the bits, trivial or owning, and only a
-// spelled call runs it (`declared_copy`).
+// ExplicitCopy type the one its conformance writes. A type that declares no
+// policy copies by its members: a binding, a tuple and every capture copy
+// the bits, trivial or owning (`declared_copy`). A `copy()` such a type
+// writes is refused, so it has no other to run (`copy.outside-policy`).
 
 struct Plain {
     n: Int
 }
 
-extension Plain {
-    func copy(&self) -> Plain {
-        Plain(n: self.n + 100)
-    }
-}
-
 struct Owned {
     s: String
-}
-
-extension Owned {
-    func copy(&self) -> Owned {
-        Owned(s: "other")
-    }
 }
 
 struct Hooked {
@@ -53,8 +41,7 @@ func plain(p: Plain) -> Int {
     let a = p
     let t = (p, 1)
     let c = call({ [p] in p.n }) + call({ [copy p] in p.n }) + call({ p.n })
-    let spelled = p.copy()
-    a.n + t.0.n + c + spelled.n
+    a.n + t.0.n + c
 }
 
 func owned(o: Owned) -> Int {

@@ -658,7 +658,7 @@ consumes_receiver_forms.saw	copied	-	-
 consumes_suspending_method.saw	copied	-	-
 copy_bound_generic.saw	copied	-	-
 copy_policy_hook_sync.saw	copied	-	-
-copy_traits_both_declared_legal.saw	copied	-	-
+copy_traits_both_declared_legal.saw	manual	manual.one-policy.companion:15	re-aimed: a type declaring both `Copy` and `ExplicitCopy` is refused, since a type has one copy policy (SL-641, the user's ruling); the examples/ original keeps Stage 0's design-219 reading
 coro_autowrap_argument_in_driven_body.saw	copied	-	-
 coro_bind_id_closure_local.saw	copied	-	-
 coro_bind_id_for_var_derived.saw	copied	-	-
@@ -2429,7 +2429,7 @@ scalar_removed_char_surface.saw	copied,expectation-pending	-	-
 scalar_type.saw	copied	-	-
 section_compose.saw	copied	-	-
 self_receiver_pointer_reaches_caller.saw	copied	-	-
-self_type.saw	copied	-	-
+self_type.saw	manual	manual.copy-placement:3	re-aimed: the trait's method is `duplicate`, since a type that is Copy by its members may write no `copy()` outside a copy policy (SL-641, the user's ruling); the examples/ original keeps Stage 0's reading
 self_type_generic_extension_positions.saw	copied	-	-
 self_type_in_extension_parameter.saw	copied	-	-
 self_type_in_generic_extension.saw	copied	-	-

@@ -1,0 +1,17 @@
+// refuses: overload.indistinguishable at 12:17
+// staticness never tells two methods apart: a static and an instance method
+// of one name take one shape of arguments, as Stage 0 reads them
+
+struct Account {
+    n: Int
+}
+
+extension Account {
+    func total(&self) -> Int { self.n }
+
+    static func total() -> Int { 0 }
+}
+
+func main() {
+    print("ok")
+}

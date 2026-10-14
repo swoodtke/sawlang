@@ -1,0 +1,12 @@
+// refuses: overload.indistinguishable at 7:10
+// a trait requiring one method twice: a conformance's member would meet
+// both, and a call through the trait could pick neither
+
+trait Ledger {
+    func total(&self) -> Int
+    func total(&self) -> Int
+}
+
+func main() {
+    print("ok")
+}

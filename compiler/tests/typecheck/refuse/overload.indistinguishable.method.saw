@@ -1,0 +1,19 @@
+// refuses: overload.indistinguishable at 14:10
+// one method written by two extensions of a type: the type has both, and no
+// call could pick one
+
+struct Account {
+    n: Int
+}
+
+extension Account {
+    func total(&self) -> Int { self.n }
+}
+
+extension Account {
+    func total(&self) -> Int { self.n + 1 }
+}
+
+func main() {
+    print("ok")
+}

@@ -1,0 +1,11 @@
+// refuses: overload.indistinguishable at 7:6
+// an alias is its target, so `h(x: Small)` is `h(x: Int8)` again
+
+type Small = Int8
+
+func h(x: Int8) -> Int { 1 }
+func h(x: Small) -> Int { 2 }
+
+func main() {
+    print("ok")
+}

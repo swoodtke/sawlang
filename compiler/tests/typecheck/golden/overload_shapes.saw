@@ -1,0 +1,63 @@
+// The overloads a call can tell apart, each accepted where it is declared
+// and picked at a call: a free function's other labels and arity, a
+// concrete one beside a generic one, a method's other labels across
+// extensions, a generic method beside a concrete one, `init`s whose labels
+// or types differ, an `init` beside a static (spec, Overloading), and a
+// `borrows` accessor's shared and exclusive twins (SL:borrowing §4).
+
+func h(a: Int) -> Int { 1 }
+func h(b: Int) -> Int { 2 }
+func h(a: Int, b: Int) -> Int { 3 }
+
+func g<T>(x: T) -> Int { 4 }
+func g(x: Int) -> Int { 5 }
+
+struct Account {
+    n: Int
+}
+
+extension Account {
+    func f(&self, a: Int) -> Int { self.n + a }
+
+    func tag<T>(&self, x: T) -> Int { 6 }
+
+    init(a: Int, b: Bool) -> Account { Account(n: a) }
+
+    init(a: Int, c: Bool) -> Account { Account(n: a + 1) }
+
+    init(v: Int) -> Account { Account(n: v) }
+
+    init(v: Bool) -> Account { Account(n: 0) }
+
+    static func opening(v: Int) -> Account { Account(n: v) }
+}
+
+extension Account {
+    func f(&self, b: Int) -> Int { self.n + b + 1 }
+
+    func tag(&self, x: Int) -> Int { 7 }
+}
+
+struct Log {
+    slots: [Int; 4]
+}
+
+extension Log {
+    func at(&self, i: Int) borrows -> &Int {
+        lend self.slots[i]
+    }
+
+    func at(&var self, i: Int) borrows -> &var Int {
+        lend self.slots[i]
+    }
+}
+
+func main() {
+    let one = Account(a: 1, b: true)
+    let two = Account(c: false, a: 2)
+    let three = Account(v: 3)
+    let zero = Account(v: true)
+    let four = Account.opening(v: 4)
+    let sum = h(a: 0) + h(b: 0) + h(1, 2) + g("s") + g(9) + one.f(a: 1) + two.f(b: 1)
+    print("{} {} {} {} {}", sum, three.n, zero.n, four.n, one.tag(true) + one.tag(5))
+}

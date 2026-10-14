@@ -1,0 +1,19 @@
+// refuses: overload.indistinguishable at 14:10
+// one method in a bounded and an unbounded extension: where the argument
+// meets the bound both apply, and no call could pick one
+
+struct Wrap<T> {
+    value: T
+}
+
+extension Wrap<T: Equatable> {
+    func size(&self) -> Int { 1 }
+}
+
+extension Wrap<T> {
+    func size(&self) -> Int { 2 }
+}
+
+func main() {
+    print("ok")
+}

@@ -1,0 +1,18 @@
+// refuses: overload.indistinguishable at 13:5
+// one `init` written by two extensions
+
+struct Account {
+    n: Int
+}
+
+extension Account {
+    init(opening: Int) -> Account { Account(n: opening) }
+}
+
+extension Account {
+    init(opening: Int) -> Account { Account(n: opening + 1) }
+}
+
+func main() {
+    print("ok")
+}

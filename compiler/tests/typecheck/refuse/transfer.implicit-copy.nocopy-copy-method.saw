@@ -1,0 +1,21 @@
+// refuses: transfer.implicit-copy at 19:13
+// a NoCopy type with an ordinary `copy()` is still never copied silently:
+// the method runs only when spelled (conformance row V152)
+
+struct Handle {
+    fd: Int
+}
+
+extension Handle: NoCopy {}
+
+extension Handle {
+    func copy(&self) -> Handle {
+        Handle(fd: self.fd + 100)
+    }
+}
+
+func main() {
+    let h = Handle(fd: 1)
+    let g = h
+    print("{}", g.fd)
+}

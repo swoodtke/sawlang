@@ -1,0 +1,22 @@
+// refuses: copy.outside-policy at 14:10
+// a `copy()` written in another conformance's extension, `Equatable`'s, of a
+// type that is Copy by its members: only a copy policy's extension holds it
+
+struct Money {
+    cents: Int
+}
+
+extension Money: Equatable {
+    func equals(&self, other: &Money) -> Bool {
+        self.cents == other.cents
+    }
+
+    func copy(&self) -> Money {
+        Money(cents: 5)
+    }
+}
+
+func main() {
+    let a = Money(cents: 1)
+    print("{}", a == a)
+}

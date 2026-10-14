@@ -1,31 +1,5 @@
 module copy_hooks
 
-fn copy_hooks.Plain.copy() -> copy_hooks.Plain {
-    let _0: copy_hooks.Plain;  // return
-    let _1: &copy_hooks.Plain;  // self
-    let _2: Int;
-    let _3: copy_hooks.Plain;
-
-    bb0: {
-        _2 = Add(copy (*_1).n, const 100: Int);
-        _3 = copy_hooks.Plain { n: move _2 };
-        _0 = move _3;
-        return;
-    }
-}
-
-fn copy_hooks.Owned.copy() -> copy_hooks.Owned {
-    let _0: copy_hooks.Owned;  // return
-    let _1: &copy_hooks.Owned;  // self
-    let _2: copy_hooks.Owned;
-
-    bb0: {
-        _2 = copy_hooks.Owned { s: const "other": String };
-        _0 = move _2;
-        return;
-    }
-}
-
 fn copy_hooks.Hooked.copy() -> copy_hooks.Hooked {
     let _0: copy_hooks.Hooked;  // return
     let _1: &copy_hooks.Hooked;  // self
@@ -83,12 +57,8 @@ fn copy_hooks.plain(p: copy_hooks.Plain) -> Int {
     let _11: () -> Int;
     let _12: Int;
     let _13: Int;
-    let _14: copy_hooks.Plain;  // spelled
-    let _15: &copy_hooks.Plain;
-    let _16: copy_hooks.Plain;
-    let _17: Int;
-    let _18: Int;
-    let _19: Int;
+    let _14: Int;
+    let _15: Int;
 
     bb0: {
         _2 = copy _1;
@@ -112,16 +82,9 @@ fn copy_hooks.plain(p: copy_hooks.Plain) -> Int {
     bb3: {
         _13 = Add(move _10, move _12);
         _5 = move _13;
-        _15 = ref(shared, _1);
-        _16 = call copy_hooks.Plain.copy() (owner copy_hooks.Plain) [move _15] -> [return: bb4];
-    }
-
-    bb4: {
-        _14 = move _16;
-        _17 = Add(copy _2.n, copy _3.0.n);
-        _18 = Add(move _17, copy _5);
-        _19 = Add(move _18, copy _14.n);
-        _0 = move _19;
+        _14 = Add(copy _2.n, copy _3.0.n);
+        _15 = Add(move _14, copy _5);
+        _0 = move _15;
         return;
     }
 }

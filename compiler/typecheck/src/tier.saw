@@ -86,8 +86,10 @@ extension TcProgram {
         }
     }
 
-    // The policy nominal `d` declares by conformance: NoCopy, which is the
-    // deliberate opt-out, over Copy, over ExplicitCopy; -1 for none.
+    // The policy nominal `d` declares by conformance, or -1 for none. A type
+    // declares one (`copy.second-policy`); the order NoCopy, then Copy, then
+    // ExplicitCopy answers for a type that declares more, so the rest of a
+    // refused program is still checked against one tier.
     public func declared_policy(&self, d: Int) -> Int {
         var found = -1
         var k = 0

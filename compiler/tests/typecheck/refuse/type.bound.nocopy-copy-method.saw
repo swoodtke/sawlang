@@ -1,0 +1,25 @@
+// refuses: type.bound at 23:13
+// a NoCopy type's ordinary `copy()` does not meet an `ExplicitCopy` bound,
+// which only a copy policy does (conformance row V152)
+
+struct Handle {
+    fd: Int
+}
+
+extension Handle: NoCopy {}
+
+extension Handle {
+    func copy(&self) -> Handle {
+        Handle(fd: self.fd + 100)
+    }
+}
+
+func dup<T: ExplicitCopy>(t: &T) -> T {
+    t.copy()
+}
+
+func main() {
+    let h = Handle(fd: 1)
+    let g = dup(&h)
+    print("{}", g.fd)
+}

@@ -1,0 +1,21 @@
+// refuses: copy.outside-policy at 13:10
+// a `copy()` in a plain extension beside an `ExplicitCopy` conformance that
+// derives its own: a spelled `.copy()` and a generic one must run one body
+
+struct Rows {
+    count: Int
+}
+
+@synthesize
+extension Rows: ExplicitCopy {}
+
+extension Rows {
+    func copy(&self) -> Rows {
+        Rows(count: 0)
+    }
+}
+
+func main() {
+    let r = Rows(count: 3)
+    print("{}", r.count)
+}

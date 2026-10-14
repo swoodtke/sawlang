@@ -1,12 +1,14 @@
 // A test-only type declares its copy policy in test code, and its own
 // `copy()` and `deinit` with it; test code copies and drops it. Only a
 // production type's policy and `copy()` must be production code
-// (`copy.test-only-policy`). A production `copy()` outside any policy is an
+// (`copy.test-only-policy`). A production NoCopy type's `copy()` is an
 // ordinary method, called by name.
 
 struct Money {
     cents: Int
 }
+
+extension Money: NoCopy {}
 
 extension Money {
     func copy(&self) -> Money {
@@ -66,7 +68,7 @@ extension Buffer: ExplicitCopy {
 
 func ordinary() -> Int {
     let a = Money(cents: 1)
-    let b = a
     let c = a.copy()
+    let b = move a
     b.cents + c.cents
 }

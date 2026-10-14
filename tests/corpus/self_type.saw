@@ -4,19 +4,19 @@
 // 84
 
 trait Copyable {
-    func copy(&self) -> Self
+    func duplicate(&self) -> Self
 }
 struct Point {
     x: Int
     y: Int
 }
 extension Point: Copyable {
-    func copy(&self) -> Point {
+    func duplicate(&self) -> Point {
         Point(x: self.x, y: self.y)
     }
 }
 func main() {
     let p1 = Point(x: 42, y: 0)
-    let p2 = p1.copy()
+    let p2 = p1.duplicate()
     print(p1.x + p2.x)
 }

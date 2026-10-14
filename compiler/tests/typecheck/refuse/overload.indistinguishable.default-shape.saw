@@ -1,0 +1,10 @@
+// refuses: overload.indistinguishable at 6:6
+// a defaulted parameter makes `h(x:)` a call of the first declaration too,
+// so the second has a call shape the first already takes
+
+func h(x: Int, y: Int = 1) -> Int { 1 }
+func h(x: Int) -> Int { 2 }
+
+func main() {
+    print("ok")
+}

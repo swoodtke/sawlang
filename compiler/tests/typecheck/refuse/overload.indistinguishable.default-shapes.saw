@@ -1,0 +1,10 @@
+// refuses: overload.indistinguishable at 6:6
+// two declarations whose defaulted parameters differ in label still share
+// the shorter call `h(x:)`
+
+func h(x: Int, y: Int = 1) -> Int { 1 }
+func h(x: Int, z: Int = 2) -> Int { 2 }
+
+func main() {
+    print("ok")
+}

@@ -547,11 +547,25 @@ type declaring `ExplicitCopy` and nothing else is move-only: `move v` or
 The two bounds differ: `<T: Copy>` admits only what duplicates silently,
 `<T: ExplicitCopy>` reads "duplicable, possibly with ceremony" and is what
 licenses a spelled `.copy()` on an abstract `T`. An `ExplicitCopy` argument
-does NOT satisfy `T: Copy`. Declaring BOTH on one type is a COMPILE ERROR —
-they require the same `copy(&self) -> Self`, so the second conformance
-redefines it (``method `copy` is already defined for struct `T` with an
-indistinguishable signature``). Declare `Copy`; it already satisfies
-`T: ExplicitCopy`.
+does NOT satisfy `T: Copy`. **A type declares ONE copy policy** (SL-641):
+`Copy`, `ExplicitCopy` and `NoCopy` exclude each other, bounded or not, so any
+two on one type is a COMPILE ERROR at the second (``a second copy policy beside
+`Copy` ``). Declare `Copy`; it already satisfies `T: ExplicitCopy`.
+**A `Copy`/`ExplicitCopy` type's `copy()` goes INSIDE its policy
+conformance** — that one body is what silent, spelled and generic copies all
+run. A `copy()` in a plain extension (or another trait's conformance) is
+refused, a type that is Copy by its members with no policy written included;
+write the hook instead: `extension T: Copy { func copy(&self) -> T { … } }`.
+Need a method of that name on a value type? Pick another name
+(`duplicate()`), or take an argument (`copy(&self, plus: Int)` is legal). A
+**`NoCopy`** type's `copy()` is an ordinary method: `h.copy()` calls it,
+silent copies stay refused, and it does not meet `<T: ExplicitCopy>`.
+Two members no call could tell apart (same labels and types, aliases and
+type parameters folded, defaulted shapes counted; result, receiver and
+`static` never count) are refused at the second declaration, across
+extensions too — so a second `deinit` or `copy()` hook is an error, not a
+dead body. A `borrows` accessor's `&self`/`&var self` pair is the one
+receiver-twin that is legal.
 **`NoMove` is a SEPARATE AXIS (design 188)** — relocation, not duplication. A
 `NoMove` value moves exactly once, INTO ITS HOME: `move x` and
 `Optional.take` of one are compile errors, whole-referent replacement through

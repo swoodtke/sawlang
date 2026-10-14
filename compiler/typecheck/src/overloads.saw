@@ -1,0 +1,364 @@
+// The declaration-site overload rule: a declaration that no call could tell
+// apart from an earlier one of its overload set is refused where it is
+// written, so a call never meets two equal candidates and a member no call
+// names, a `deinit` or a policy's `copy()`, has one body (spec, Overloading).
+
+import sawresolve.dump.{res_sort_strings}
+import sawresolve.model.{ResDeclKind}
+import sawtypecheck.checks.{tc_check_inits}
+import sawtypecheck.conform.{tc_check_copy_policies}
+import sawtypecheck.declarations.{tc_build_signatures}
+import sawtypecheck.members.{tc_build_members}
+import sawtypecheck.model.{TC_EFFECT_BORROWS, TC_EFFECT_BORROWS_SYNC, TcSig}
+import sawtypecheck.program.{TcProgram}
+import sawtypecheck.spell.{tc_effects_text}
+import sawtypecheck.tier.{tc_max}
+import sawtypecheck.types.{TcKind}
+
+// Every overload set's indistinguishable redeclarations.
+public func tc_check_redeclarations(p: &var TcProgram) {
+    p.check_redeclarations()
+}
+
+extension TcProgram {
+    // Every overload set, each handed to the funnel once: a module's free
+    // functions of one name, the methods of one name and the `init`s one
+    // module's extensions give a type, and a trait's requirements of one
+    // name. A set is per module, since two modules' declarations meet only
+    // at a call that sees both, which refuses an ambiguity there.
+    public func check_redeclarations(&var self) {
+        self.check_function_sets()
+        self.check_member_sets()
+        self.check_requirement_sets()
+    }
+
+    func check_function_sets(&var self) {
+        var d = 0
+        while d < self.res.decls.len() {
+            let info = self.res.decls[d]
+            d = d + 1
+            if info.kind != ResDeclKind.Func || info.parent >= 0 {
+                continue
+            }
+            var newest = Vector<Int>()
+            var at = self.res.top.first(info.module, info.name)
+            while at >= 0 {
+                let other = self.res.top.value(at)
+                if self.res.decls[other].kind == ResDeclKind.Func {
+                    try! newest.push(other)
+                }
+                at = self.res.top.following(at)
+            }
+            // The chain is newest first, so a set is checked once, from the
+            // declaration that ends it.
+            if newest.len() < 2 || newest[newest.len() - 1] != d - 1 {
+                continue
+            }
+            var set = Vector<Int>()
+            var k = newest.len() - 1
+            while k >= 0 {
+                try! set.push(newest[k])
+                k = k - 1
+            }
+            self.refuse_indistinguishable(&set)
+        }
+    }
+
+    func check_member_sets(&var self) {
+        var d = 0
+        while d < self.res.decls.len() {
+            if self.is_nominal(d) {
+                self.check_members_of(d)
+            }
+            d = d + 1
+        }
+    }
+
+    // The methods and `init`s every extension of type `d` writes, split into
+    // sets by module, kind and name.
+    func check_members_of(&var self, d: Int) {
+        let exts = self.extensions_in_order(d)
+        var written = Vector<Int>()
+        var k = 0
+        while k < exts.len() {
+            let listed = self.members_of(exts[k])
+            var j = 0
+            while j < listed.len() {
+                let m = listed[j]
+                let kind = self.res.decls[m].kind
+                if kind == ResDeclKind.Method || kind == ResDeclKind.Init {
+                    try! written.push(m)
+                }
+                j = j + 1
+            }
+            k = k + 1
+        }
+        self.refuse_in_sets(&written)
+    }
+
+    func check_requirement_sets(&var self) {
+        var t = 0
+        while t < self.res.decls.len() {
+            if self.res.decls[t].kind == ResDeclKind.Trait {
+                let listed = self.members_of(t)
+                var reqs = Vector<Int>()
+                var k = 0
+                while k < listed.len() {
+                    let m = listed[k]
+                    if self.res.decls[m].kind == ResDeclKind.Requirement {
+                        try! reqs.push(m)
+                    }
+                    k = k + 1
+                }
+                self.refuse_in_sets(&reqs)
+            }
+            t = t + 1
+        }
+    }
+
+    // Declarations `decls`, in declaration order, split into the sets that
+    // share a module, a kind and a name, each set handed to the funnel.
+    func refuse_in_sets(&var self, decls: &Vector<Int>) {
+        var taken = Vector<Bool>()
+        var k = 0
+        while k < decls.len() {
+            try! taken.push(false)
+            k = k + 1
+        }
+        var i = 0
+        while i < decls.len() {
+            if taken[i] {
+                i = i + 1
+                continue
+            }
+            let first = self.res.decls[decls[i]]
+            var set = Vector<Int>()
+            try! set.push(decls[i])
+            var j = i + 1
+            while j < decls.len() {
+                let other = self.res.decls[decls[j]]
+                let same = other.module == first.module && other.kind == first.kind && other.name == first.name
+                if not taken[j] && same {
+                    try! set.push(decls[j])
+                    taken[j] = true
+                }
+                j = j + 1
+            }
+            if set.len() > 1 {
+                self.refuse_indistinguishable(&set)
+            }
+            i = i + 1
+        }
+    }
+
+    // THE REDECLARATION FUNNEL: overload set `set`, in declaration order,
+    // each declaration after the first refused, once, when it is
+    // indistinguishable from an earlier one. A `copy()` or a `deinit` that
+    // its placement rule refuses on its own is left to that rule.
+    //
+    // ENTRY POINTS:
+    //     check_function_sets
+    //     refuse_in_sets
+    func refuse_indistinguishable(&var self, set: &Vector<Int>) {
+        var j = 1
+        while j < set.len() {
+            let later = set[j]
+            j = j + 1
+            if self.placed_elsewhere(later) {
+                continue
+            }
+            var i = 0
+            while i < j - 1 {
+                let earlier = set[i]
+                i = i + 1
+                if not self.placed_elsewhere(earlier) && self.indistinguishable(earlier, later) {
+                    self.refuse_redeclaration(later, earlier)
+                    break
+                }
+            }
+        }
+    }
+
+    // Whether member `d` is a `copy()` or a `deinit` written outside its
+    // type's copy policy, which `copy.outside-policy` or
+    // `deinit.outside-policy` refuses.
+    func placed_elsewhere(&var self, d: Int) -> Bool {
+        let info = self.res.decls[d]
+        if info.kind != ResDeclKind.Method || info.parent < 0 {
+            return false
+        }
+        let deinit_name = self.res.intern("deinit")
+        if info.name == deinit_name {
+            let ext = info.parent
+            return self.res.decls[ext].kind == ResDeclKind.Extension && not self.declares_policy(ext)
+        }
+        self.is_stray_copy(d)
+    }
+
+    // Whether declarations `a` and `b` share a call shape: each declaration's
+    // shapes are its parameter lists from the full one down to the one that
+    // ends before its first defaulted parameter, and two shapes are one when
+    // they bind parameters of the same labels and types, each type parameter
+    // read as one placeholder (spec, Default parameter values). A function's
+    // labels bind in order and an `init`'s by name in any order (spec,
+    // Labeled arguments), so an `init`'s shapes compare as sets. A
+    // signature's aliases are already their targets. A `borrows` member is
+    // called only as a `borrow` head, so it never meets a plain one, and two
+    // whose receivers differ are the shared and exclusive twins `borrow let`
+    // and `borrow var` choose between (SL:borrowing §3, §4). Otherwise the
+    // result, the effects, the receiver and staticness never tell two apart.
+    func indistinguishable(&var self, a: Int, b: Int) -> Bool {
+        self.build_decl(a)
+        self.build_decl(b)
+        let sa = self.sigs[a]
+        let sb = self.sigs[b]
+        let lending = TC_EFFECT_BORROWS | TC_EFFECT_BORROWS_SYNC
+        let lends_a = (sa.effects & lending) != 0
+        let lends_b = (sb.effects & lending) != 0
+        if lends_a != lends_b || (lends_a && sa.receiver != sb.receiver) {
+            return false
+        }
+        let by_name = self.res.decls[a].kind == ResDeclKind.Init
+        var arity = tc_max(self.required_count(&sa), self.required_count(&sb))
+        while arity <= sa.param_count && arity <= sb.param_count {
+            if by_name && self.same_shape_set(&sa, &sb, arity) {
+                return true
+            }
+            if not by_name {
+                return self.same_shape_prefix(&sa, &sb, arity)
+            }
+            arity = arity + 1
+        }
+        false
+    }
+
+    // Whether the first `arity` parameters of `sa` and `sb` agree in order,
+    // label and type. A prefix that agrees is a part of every longer one
+    // that does, so the shortest shared arity decides.
+    func same_shape_prefix(&self, sa: &TcSig, sb: &TcSig, arity: Int) -> Bool {
+        var k = 0
+        while k < arity {
+            let pa = self.params[sa.param_first + k]
+            let pb = self.params[sb.param_first + k]
+            if pa.name != pb.name || not self.same_shape_type(pa.ty, pb.ty) {
+                return false
+            }
+            k = k + 1
+        }
+        true
+    }
+
+    // Whether the first `arity` parameters of `sa` are those of `sb` in some
+    // order, each of the same label and type. Labels are distinct within a
+    // declaration, so one direction of the match is enough.
+    func same_shape_set(&self, sa: &TcSig, sb: &TcSig, arity: Int) -> Bool {
+        var k = 0
+        while k < arity {
+            let p = self.params[sa.param_first + k]
+            var found = false
+            var j = 0
+            while j < arity && not found {
+                let q = self.params[sb.param_first + j]
+                found = q.name == p.name && self.same_shape_type(p.ty, q.ty)
+                j = j + 1
+            }
+            if not found {
+                return false
+            }
+            k = k + 1
+        }
+        true
+    }
+
+    // The parameters of `s` before its first defaulted one.
+    func required_count(&self, s: &TcSig) -> Int {
+        var k = 0
+        while k < s.param_count {
+            let p = self.params[s.param_first + k]
+            if p.has_default {
+                return k
+            }
+            k = k + 1
+        }
+        s.param_count
+    }
+
+    // Whether types `x` and `y` are one type once every type parameter in
+    // them is the same placeholder. A type that could not be formed is
+    // refused elsewhere, and matches nothing here.
+    func same_shape_type(&self, x: Int, y: Int) -> Bool {
+        if x < 0 || y < 0 {
+            return false
+        }
+        let a = self.types.ty(x)
+        let b = self.types.ty(y)
+        if a.kind == TcKind.Error || b.kind == TcKind.Error {
+            return false
+        }
+        if x == y {
+            return true
+        }
+        if a.kind == TcKind.Param && b.kind == TcKind.Param {
+            return true
+        }
+        if a.kind != b.kind || a.decl != b.decl || a.a != b.a || a.count != b.count || a.labeled != b.labeled {
+            return false
+        }
+        if a.b != b.b && not self.same_shape_type(a.b, b.b) {
+            return false
+        }
+        var k = 0
+        while k < a.count {
+            if a.labeled && self.types.label(x, k) != self.types.label(y, k) {
+                return false
+            }
+            let ax = self.types.arg(x, k)
+            let by = self.types.arg(y, k)
+            if not self.same_shape_type(ax, by) {
+                return false
+            }
+            k = k + 1
+        }
+        true
+    }
+
+    func refuse_redeclaration(&var self, later: Int, earlier: Int) {
+        let info = self.res.decls[later]
+        let first = self.res.decls[earlier]
+        let site = self.decl_site(earlier)
+        let node = self.res.nodes[site]
+        let position = self.res.position_text(first.module, node.start)
+        var msg = StringBuilder()
+        try! msg.append("`")
+        try! msg.append(self.overload_text(later))
+        try! msg.append("` is already declared at ")
+        try! msg.append(position)
+        try! msg.append(" as `")
+        try! msg.append(self.overload_text(earlier))
+        try! msg.append("`, and no call could tell the two apart: overloads must differ in a parameter's label or type, or in how many arguments they take, reading aliases as their targets and every type parameter as one, with a defaulted parameter's shorter calls counted; the result, effects, receiver and staticness never tell two apart")
+        let leaf = self.decl_site(later)
+        self.refuse_in(info.module, leaf, "overload.indistinguishable", msg.build())
+    }
+
+    // Declaration `d` as a call would name it: its path and its labeled
+    // parameter types.
+    func overload_text(&var self, d: Int) -> String {
+        let s = self.sigs[d]
+        var out = StringBuilder()
+        try! out.append(self.res.decl_path(d))
+        try! out.append("(")
+        var k = 0
+        while k < s.param_count {
+            if k > 0 {
+                try! out.append(", ")
+            }
+            let p = self.params[s.param_first + k]
+            try! out.append(self.name_text(p.name))
+            try! out.append(": ")
+            try! out.append(self.type_text(p.ty))
+            k = k + 1
+        }
+        try! out.append(")")
+        out.build()
+    }
+}

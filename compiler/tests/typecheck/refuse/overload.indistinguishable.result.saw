@@ -1,0 +1,10 @@
+// refuses: overload.indistinguishable at 6:6
+// the result never tells two declarations apart: a call is resolved from
+// its arguments
+
+func h(x: Int) -> Int { 1 }
+func h(x: Int) -> Bool { true }
+
+func main() {
+    print("ok")
+}

@@ -285,16 +285,22 @@ a type has one tier in a binary. `check_test_only_policies`
 (`compiler/typecheck/src/conform.saw`) refuses, under `copy.test-only-policy`,
 each position a test-only declaration could give a production type a policy
 or a hook (SL-630); which `copy()` a copy runs is read from the policy
-conformance alone (`policy_copy`), so a production `copy()` outside a policy is
-an ordinary method:
+conformance alone (`policy_copy`). A Copy or ExplicitCopy type's `copy()` is
+written only there, and `check_copy_placement` refuses one written anywhere
+else under `copy.outside-policy`, a type that is Copy by its members
+included; a NoCopy type's `copy()` is an ordinary method (SL-641). A member
+named `copy` counts when a call with no arguments reaches it:
 
 | row | verdict | covered by |
 |---|---|---|
 | a test-only `NoCopy`, `Copy` or `ExplicitCopy` conformance on a production type, written with `@test` or in a test group | refused | copy.test-only-policy, copy.test-only-policy.copy, copy.test-only-policy.explicit-copy, copy.test-only-policy.group |
-| a test-only `copy()` on a production type, in a plain test-only extension, alone or beside a production `Copy` conformance that derives its own | refused | copy.test-only-policy.copy-method, copy.test-only-policy.beside-synthesized |
-| a policy's `copy()` written by another extension than the conformance, which is an ordinary method, so the conformance writes none | refused, `synthesize.required` | synthesize.required.copy-outside-policy |
+| a test-only `copy()` on a production type, in a plain test-only extension, alone or beside a production `Copy` conformance that derives its own | refused, and not also `copy.outside-policy` | copy.test-only-policy.copy-method, copy.test-only-policy.beside-synthesized |
+| a policy's `copy()` written by another extension than the conformance, so the conformance writes none | refused, `synthesize.required`, then `copy.outside-policy` | synthesize.required.copy-outside-policy |
+| a `copy()` outside the policy of a type Copy by its members, a struct (bare), an enum or a generic type; beside a derived `Copy` or `ExplicitCopy`; in another conformance's extension; a static one; one whose parameters all have defaults | refused, `copy.outside-policy` | copy.outside-policy, .enum, .generic, .declared, .explicit, .other-conformance, .static, .defaulted |
+| a NoCopy type's `copy()`, in a plain extension or in its `NoCopy` conformance, called by name; a Copy type's `copy` with a parameter no default fills; a `Copy` conformance's hook | allowed | copy_method_shapes |
+| a NoCopy type's `copy()`, copied silently or passed to an `ExplicitCopy` bound | refused, `transfer.implicit-copy`, `type.bound` | transfer.implicit-copy.nocopy-copy-method, type.bound.nocopy-copy-method |
 | a `deinit` in a plain test-only extension | refused, `deinit.outside-policy` | deinit.outside-policy.test-only |
-| a test-only type's policy, `copy()` and `deinit`, with `@test` or in a test group, used by test code; a production `copy()` outside a policy, called by name | allowed | test_only_copy_policy |
+| a test-only type's policy, `copy()` and `deinit`, with `@test` or in a test group, used by test code; a production NoCopy type's `copy()`, called by name | allowed | test_only_copy_policy |
 
 A declaration's attributes are read through one funnel, resolve's
 `decl_attribute`, from the node the declaration records as holding them: its
@@ -1183,7 +1189,7 @@ every copy and outlives each call). Checked once captures are settled
 ## The conformance rows
 
 The rows of `examples/conformance/INDEX.md`'s Mutability and References
-sections, and V03–V05, V31, V49, V60–V62, V68, V70 and V124, V126–V128 and V131 of its Moves section, each
+sections, and V03–V05, V31, V49, V60–V62, V68, V70 and V124, V126–V128, V131 and V150–V153 of its Moves section, each
 with what covers it here; `compiler/tests/borrowck/CONFORMANCE.md` names the
 same fixtures. `m.` abbreviates `refuse/mutability.immutable.`, `r.`
 `refuse/type.reference-position.`, `p.` `refuse/transfer.partial-move.` and
@@ -1227,8 +1233,12 @@ fixture.
 | V126 | `transfer.implicit-copy.repeat-temporary`, `-repeat-explicit`, `-repeat-slot`, `-repeat-place`, `-repeat-move`, `copy.requirement.repeat`; the Copy controls, golden `copy_free_reads` (SL-612) |
 | V127, V128 | `transfer.implicit-copy.coalesce-reference`, `-coalesce-exclusive-reference`, `-coalesce-explicit-reference` (V127), `-cell-reference` (V128); the Copy controls, golden `copy_free_reads` (SL-612) |
 | V131 | accepted: golden `raw_enum_cast`, a raw-backed enum's cast borrowing its place; the same-type cast's refusal beside it, `transfer.implicit-copy.raw-enum-forwarding` (SL-623); a `borrow PLACE` operand, whole or a field of one, run probe `borrow_place_reads` (SL-642) |
+| V150 | `copy.second-policy` (bare), `.no-copy`, `.explicit-no-copy`, `.one-extension`, `.bounded`, `.bounded-both` (SL-641) |
+| V151 | `copy.outside-policy` (bare), `.declared`, `.explicit`, `.enum`, `.generic`, `.other-conformance`, `.static`, `.defaulted`; the other shapes accepted, golden `copy_method_shapes` (SL-641) |
+| V152 | accepted: golden `copy_method_shapes`, a NoCopy type's `copy()` called by name; `transfer.implicit-copy.nocopy-copy-method`, `type.bound.nocopy-copy-method` (SL-641) |
+| V153 | `overload.indistinguishable.deinit`, `.copy`, and the redeclaration matrix under Refusals (SL-641) |
 
-That is 45 M rows, 39 R rows and 15 V rows: 86 refused here, 7 accepted
+That is 45 M rows, 39 R rows and 19 V rows: 89 refused here, 8 accepted
 here, 5 answered by `slice.not-yet` and 1 by the borrow check.
 
 ## Refusals
@@ -1273,6 +1283,9 @@ says what the fixture shows.
 | `conformance.deinit` | a conformance to `Deinit` itself, which a copy policy carries instead (design 131) |
 | `deinit.outside-policy` | a `deinit` written in an extension that declares no copy policy, beside the type's policy or on a type with none, where no scope exit would call it (spec, The Deinit trait); a plain test-only extension's included (`-test-only`) |
 | `copy.test-only-policy` | a test-only `Copy`, `ExplicitCopy` or `NoCopy` conformance on a production type, a test group's included, and a test-only `copy()` on one (SL:testing, Air t15; SL-630) |
+| `copy.outside-policy` | a member named `copy` that a call with no arguments reaches, written outside the `Copy` or `ExplicitCopy` conformance of a type that does not declare `NoCopy`: in a plain extension, another conformance's, beside a derived policy, on a type Copy by its members, static or with every parameter defaulted (spec, The Copy Trait Family; SL-641) |
+| `overload.indistinguishable` | a declaration that shares a call shape with an earlier one of its overload set, at the later one; the matrix below the table lists each position (spec, Overloading; SL-641) |
+| `copy.second-policy` | a second copy policy on one type, at its conformance: `Copy` then `ExplicitCopy` (bare), `Copy` then `NoCopy` (`.no-copy`), `NoCopy` then `ExplicitCopy` (`.explicit-no-copy`), two in one extension's head (`.one-extension`), and bounded extensions, `Copy` beside `NoCopy` (`.bounded`) and `Copy` beside `ExplicitCopy` (`.bounded-both`); a test-only policy on a production type is `copy.test-only-policy`'s and counts for neither (spec, The Copy Trait Family; SL-641) |
 | `extension.default-omitted` | an extension head renaming its type's parameters that leaves out a defaulted one, with the head written out (D14) |
 | `type.mismatch` | a value that does not convert to what its position expects, one fixture per funnel position and one per cell of the wrap and erasure matrix a position refuses; a condition that is not a `Bool`; a pattern that does not fit its value; operands that disagree; a bare integer literal, or a constant expression's literal, leaf or cast, that does not fit the type it adopts or converts to; a literal or range pattern's integer that does not fit the matched type (`.pattern-literal-range`, `.pattern-negative-unsigned`, `.pattern-range-end`); a literal past its signed suffix's range (D6) |
 | `constant.overflow`, `constant.shift-range`, `constant.divide-by-zero` | a constant expression whose typed arithmetic overflows, shifts by a count outside its width, or divides by zero, where it adopts an integer slot and at every constant position (the constant-position funnel); a shift count or divisor constant before instantiation that faults whatever the other operand is, reachable or not (the certain-fault funnel) |
@@ -1346,6 +1359,29 @@ says what the fixture shows.
 The traits that derive under `@synthesize` are `Copy`, `ExplicitCopy`,
 `Equatable`, `Comparable`, `Hashable`, `Serialize` and `Deserialize`. An
 extern has no effect slot, so the unsafe rule asks nothing of it.
+
+The redeclaration matrix (SL-641). Every overload set reaches one funnel,
+`refuse_indistinguishable` (`compiler/typecheck/src/overloads.saw`), whose
+docstring names its entry points; `o.` abbreviates
+`refuse/overload.indistinguishable.`:
+
+| row | verdict | covered by |
+|---|---|---|
+| a free function declared twice, the same after an alias, or sharing a shape through a defaulted parameter, one or both | refused | `o` (bare), `o.alias`, `o.default-shape`, `o.default-shapes` |
+| generic functions differing in a type parameter's name, bare or inside another type, and two type parameters against one | refused | `o.generic`, `o.generic-nested`, `o.generic-folded` |
+| functions differing only in result or in `unsafe` | refused | `o.result`, `o.effects` |
+| a test-only twin of a production function, and two test-only functions | refused | `o.test-only`, `o.test-only-twins` |
+| a method in two extensions or twice in one; through a defaulted parameter; by receiver alone; a static twice; a static beside an instance method | refused | `o.method`, `o.method-one-extension`, `o.method-default-shape`, `o.receiver`, `o.static`, `o.static-instance` |
+| an `init` in two extensions, through a defaulted parameter, and with its labels reordered, since an `init` binds by name | refused | `o.init`, `o.init-default-shape`, `o.init-reordered` |
+| a generic method, a bounded extension's method beside an unbounded one's, and two extensions naming the type's parameter differently | refused | `o.generic-method`, `o.bounded-extension`, `o.extension-parameter` |
+| a test-only twin of a production method; an enum's method in two extensions | refused | `o.test-only-method`, `o.enum` |
+| a trait's requirement twice, and a requirement beside a default body | refused | `o.requirement`, `o.requirement-default` |
+| two `deinit`s, two hooks in one copy policy | refused | `o.deinit`, `o.copy` |
+| two `borrows` accessors of one receiver | refused | `o.borrows` |
+| a `borrows` accessor's shared and exclusive twins, which `borrow let` and `borrow var` choose between (SL:borrowing §4) | allowed | `overload_shapes` |
+| a `deinit` or a `copy()` written outside the policy, beside the policy's own | refused by the placement rule alone | `deinit.outside-policy.beside-policy-deinit`, `copy.outside-policy.declared` |
+| other labels, another arity, a concrete function beside a generic one, a method's other labels across extensions, a generic method beside a concrete one, `init`s of other labels or types, an `init` beside a static | allowed | `overload_shapes` |
+| two modules' functions of one shape | allowed: a set is one module's, and a call that sees both refuses the ambiguity | multi/overload_modules; std's `json.encode` and `cbor.encode` |
 
 ## The lane
 

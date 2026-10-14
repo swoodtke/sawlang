@@ -1,0 +1,18 @@
+// refuses: copy.outside-policy at 10:10
+// a `copy()` whose only parameter has a default, on a type that is Copy by
+// its members: `a.copy()` reaches it, so it is the stray `copy()` too
+
+struct Money {
+    cents: Int
+}
+
+extension Money {
+    func copy(&self, plus: Int = 100) -> Money {
+        Money(cents: self.cents + plus)
+    }
+}
+
+func main() {
+    let a = Money(cents: 1)
+    print("{}", a.cents)
+}

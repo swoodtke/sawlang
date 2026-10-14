@@ -39,6 +39,13 @@ public func tc_check_test_only_policies(p: &var TcProgram) {
     p.check_test_only_policies()
 }
 
+// The refusals of a second copy policy on one type, and of a `copy()` a Copy
+// or ExplicitCopy type writes outside its policy.
+public func tc_check_copy_policies(p: &var TcProgram) {
+    p.check_copy_policies()
+    p.check_copy_placement()
+}
+
 // A substitution: `Self` to a type, a trait's associated types to the types a
 // conformance assigns, one declaration's parameters to another's (a
 // requirement's to its implementation's), and a type's parameters to
@@ -453,9 +460,9 @@ extension TcProgram {
 
     // The `copy()` body type declaration `d`'s `Copy` or `ExplicitCopy`
     // conformance writes, or -1: the hook a copy of the type runs (spec, The
-    // Copy trait). A method named `copy` that meets no such requirement is an
-    // ordinary method, whichever extension writes it, so the answer is read
-    // from the conformance and never found by the name.
+    // Copy trait). A `copy()` any other extension writes is refused
+    // (`copy.outside-policy`), or is a NoCopy type's ordinary method, so the
+    // answer is read from the conformance and never found by the name.
     //
     // ENTRY POINTS (policy_copy):
     //     declared_copy
@@ -525,6 +532,171 @@ extension TcProgram {
             return false
         }
         tr == self.known.copy || tr == self.known.explicit_copy || tr == self.known.no_copy
+    }
+
+    // One copy policy per type: `Copy`, `ExplicitCopy` and `NoCopy` exclude
+    // each other, whatever bounds their extensions carry, so whether a
+    // transfer copies silently, needs a spelled `.copy()` or only moves has
+    // one answer (SL-641). Each conformance after a type's first policy is
+    // refused; `declared_policy` reads the one left.
+    //
+    // ENTRY POINTS (check_copy_policies):
+    //     tc_check_copy_policies
+    public func check_copy_policies(&var self) {
+        var first = Vector<Int>()
+        var d = 0
+        while d < self.res.decls.len() {
+            try! first.push(-1)
+            d = d + 1
+        }
+        var k = 0
+        while k < self.conformances.len() {
+            let c = self.conformances[k]
+            k = k + 1
+            if not self.is_copy_policy_conformance(k - 1) {
+                continue
+            }
+            let earlier = first[c.type_decl]
+            if earlier < 0 {
+                first[c.type_decl] = k - 1
+            } else if self.conformances[earlier].trait_decl != c.trait_decl {
+                self.refuse_second_policy(k - 1, earlier)
+            }
+        }
+    }
+
+    // Whether conformance `at` declares its type's copy policy: one to `Copy`,
+    // `ExplicitCopy` or `NoCopy`, unless it is a test-only one on a production
+    // type, which `copy.test-only-policy` refuses on its own.
+    public func is_copy_policy_conformance(&self, at: Int) -> Bool {
+        let c = self.conformances[at]
+        let tr = c.trait_decl
+        let policy = tr >= 0 && (tr == self.known.copy || tr == self.known.explicit_copy || tr == self.known.no_copy)
+        if not policy || c.type_decl < 0 {
+            return false
+        }
+        not (self.res.decls[c.ext].test_only && not self.res.decls[c.type_decl].test_only)
+    }
+
+    func refuse_second_policy(&var self, at: Int, earlier: Int) {
+        let c = self.conformances[at]
+        let prior = self.conformances[earlier]
+        let node = self.res.nodes[prior.node]
+        let position = self.res.position_text(prior.module, node.start)
+        var msg = StringBuilder()
+        try! msg.append(self.conformance_head(at))
+        try! msg.append(", a second copy policy beside `")
+        try! msg.append(self.res.decl_path(prior.trait_decl))
+        try! msg.append("` at ")
+        try! msg.append(position)
+        try! msg.append(": a type has one of `Copy`, `ExplicitCopy` and `NoCopy`, bounded or not, so a transfer of it copies silently, needs `.copy()`, or only moves; keep the one its values need")
+        self.refuse_in(c.module, c.node, "copy.second-policy", msg.build())
+    }
+
+    // A Copy or ExplicitCopy type's `copy()` is written inside its policy
+    // conformance, as the one copy its silent, spelled and generic copies all
+    // run, so one written anywhere else is refused where it is declared; a
+    // NoCopy type's is an ordinary method (SL-641).
+    public func check_copy_placement(&var self) {
+        var d = 0
+        while d < self.res.decls.len() {
+            if self.is_stray_copy(d) {
+                self.refuse_stray_copy(d)
+            }
+            d = d + 1
+        }
+    }
+
+    // Whether declaration `d` is a `copy()` written outside its type's copy
+    // policy on a type that does not declare `NoCopy`: a method named `copy`
+    // that a call with no arguments reaches, so that `x.copy()` could mean it
+    // or the policy's. A test-only one on a production type is
+    // `copy.test-only-policy`'s.
+    public func is_stray_copy(&var self, d: Int) -> Bool {
+        let info = self.res.decls[d]
+        let name = self.res.intern("copy")
+        if info.kind != ResDeclKind.Method || info.name != name || info.parent < 0 || info.leaf < 0 {
+            return false
+        }
+        let ext = info.parent
+        if self.res.decls[ext].kind != ResDeclKind.Extension {
+            return false
+        }
+        let target = self.ext_target(ext)
+        if target < 0 {
+            return false
+        }
+        if info.test_only && not self.res.decls[target].test_only {
+            return false
+        }
+        if self.declared_copy_policy(target) == self.known.no_copy || self.writes_copy_policy(ext, target) {
+            return false
+        }
+        self.build_decl(d)
+        let s = self.sigs[d]
+        var k = 0
+        while k < s.param_count {
+            let p = self.params[s.param_first + k]
+            if not p.has_default {
+                return false
+            }
+            k = k + 1
+        }
+        true
+    }
+
+    // The trait of type `d`'s first copy-policy conformance, or -1.
+    func declared_copy_policy(&self, d: Int) -> Int {
+        var k = 0
+        while k < self.conformances.len() {
+            let c = self.conformances[k]
+            if c.type_decl == d && self.is_copy_policy_conformance(k) {
+                return c.trait_decl
+            }
+            k = k + 1
+        }
+        return -1
+    }
+
+    // Whether extension `ext` declares type `d`'s `Copy` or `ExplicitCopy`
+    // conformance, the one place its `copy()` is written.
+    func writes_copy_policy(&self, ext: Int, d: Int) -> Bool {
+        var k = 0
+        while k < self.conformances.len() {
+            let c = self.conformances[k]
+            k = k + 1
+            let copying = c.trait_decl == self.known.copy || c.trait_decl == self.known.explicit_copy
+            if c.ext == ext && c.type_decl == d && copying {
+                return true
+            }
+        }
+        false
+    }
+
+    func refuse_stray_copy(&var self, d: Int) {
+        let info = self.res.decls[d]
+        let target = self.ext_target(info.parent)
+        let policy = self.declared_copy_policy(target)
+        let type_name = self.res.decl_path(target)
+        var msg = StringBuilder()
+        if policy >= 0 {
+            try! msg.append("this `copy()` is written outside `")
+            try! msg.append(type_name)
+            try! msg.append("`'s `")
+            try! msg.append(self.res.decl_path(policy))
+            try! msg.append("` conformance, whose `copy()` is the one every silent, spelled and generic copy of it runs: write it inside that conformance, or give this method another name")
+        } else {
+            try! msg.append("`")
+            try! msg.append(type_name)
+            try! msg.append("` declares no copy policy, so it copies by its members at every silent, spelled and generic copy, and this `copy()` would run only when spelled: write it as the hook, `extension ")
+            try! msg.append(type_name)
+            try! msg.append(": Copy \{ func copy(&self) -> ")
+            try! msg.append(type_name)
+            try! msg.append(" \{ ... \} \}`, or declare `")
+            try! msg.append(type_name)
+            try! msg.append("` `NoCopy`, where `copy()` is an ordinary method")
+        }
+        self.refuse_in(info.module, info.leaf, "copy.outside-policy", msg.build())
     }
 
     // Whether test-only extension `ext` declares a copy policy, whose own
@@ -697,8 +869,9 @@ extension TcProgram {
         let name = self.res.decls[req].name
         let owner_module = self.res.decls[c.type_decl].module
         // A copy policy's `copy()` is written inside the conformance, as its
-        // `deinit` is: one another extension writes is an ordinary method,
-        // never the hook every copy runs (spec, The Copy trait).
+        // `deinit` is: one another extension writes is never the hook every
+        // copy runs, and `copy.outside-policy` refuses it (spec, The Copy
+        // trait).
         let trait_decl = self.res.decls[req].parent
         let inside_only = trait_decl == self.known.copy || trait_decl == self.known.explicit_copy
         var first_candidate = -1
