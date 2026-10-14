@@ -916,6 +916,16 @@ A place (`t as UInt8`, `r as UInt8` through a reference) agrees in both compiler
 
 **Checker:** not needed: the compiler's source declares no raw-backed enum with a `deinit`, and its enums are not `NoCopy`, so none of these forms has a deinit to lose.
 
+### S34. A spelled `move` as a comparison operand: Stage 0 never drops the moved value (SL-643)
+
+**Shape (silent: a lost deinit):** a comparison borrows its operands, so `(move a) == b` hands the comparison a value no binding holds, which the spec destroys at the end of the statement (Temporaries). Stage 0 never destroys it, on either side of the operator, so a NoCopy operand with a printing `deinit` prints no `drop`. sawc2 moves the place into a temporary that the comparison borrows and the statement drops, and a later use of `a` is `move.use-after` (SL-643). The positions both compilers agree on, a format argument, an interpolation and a borrowed receiver, are the run program `move_at_borrow.saw`. The comparison rows are the sawc2-only probe `compiler/tests/run/probes/move_at_borrow.saw`.
+
+Stage 0 also refuses `&(move a)` passed to a `&` parameter, which sawc2 accepts and drops at the statement's end. That is a loud difference.
+
+**Instead:** move the value into a binding first, `let x = move a`, then compare `x`, so the binding drops it at its scope's end in both compilers.
+
+**Checker:** not needed: the compiler's source declares no `deinit` with an observable effect (S28), so a lost drop there can only leak, which Stage 1 tolerates.
+
 ## Loud hazards
 
 
