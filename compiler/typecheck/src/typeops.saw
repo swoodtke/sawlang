@@ -8,7 +8,8 @@ import sawtypecheck.model.{TC_TIER_COPY, TcTier}
 import sawtypecheck.program.{TcKnown, TcProgram}
 import sawtypecheck.signatures.{TcContext}
 import sawtypecheck.tier.{tc_tier}
-import sawtypecheck.types.{TcKind, TcType}
+import sawtypecheck.types.{TC_HOLDS_ERROR, TcKind, TcType}
+import sawtypecheck.walks.{TC_WALK_COPIES}
 
 // What asks an expected type to be peeled: each takes some types as they are
 // and looks through the rest (SL:architecture §3.4, "Peeling").
@@ -197,28 +198,13 @@ extension TcProgram {
         info.kind == TcKind.Error
     }
 
-    // Whether `t` holds a type that could not be formed anywhere in it.
+    // Whether `t` holds a type that could not be formed anywhere in it, which
+    // the interner records once per type.
     public func has_error(&self, t: Int) -> Bool {
         if t < 0 {
             return true
         }
-        let info = self.types.ty(t)
-        if info.kind == TcKind.Error {
-            return true
-        }
-        let has_inner = info.kind == TcKind.Func || info.kind == TcKind.Ref || info.kind == TcKind.Slice || info.kind == TcKind.Array
-        if has_inner && info.b >= 0 && self.has_error(info.b) {
-            return true
-        }
-        var k = 0
-        while k < info.count {
-            let a = self.types.arg(t, k)
-            if self.has_error(a) {
-                return true
-            }
-            k = k + 1
-        }
-        false
+        (self.types.ty(t).holds & TC_HOLDS_ERROR) != 0
     }
 
     // THE answer to "is `t` a borrow of storage someone else owns": `&T`,
@@ -297,8 +283,19 @@ extension TcProgram {
     // Whether values of type `t` copy silently: the Copy tier, with a rule's
     // arguments evaluated. A type parameter answers yes here, since whether
     // a generic body duplicates one is the inferred requirement a later
-    // phase checks at each call (design 219).
+    // phase checks at each call (design 219). Every tier is final before a
+    // body asks, so the answer is kept by TypeId.
     public func copies_silently(&var self, t: Int) -> Bool {
+        let known = self.walks.get(t, TC_WALK_COPIES)
+        if known >= 0 {
+            return known == 1
+        }
+        let copies = self.copies_silently_of(t)
+        self.walks.set(t, TC_WALK_COPIES, if copies { 1 } else { 0 })
+        copies
+    }
+
+    func copies_silently_of(&var self, t: Int) -> Bool {
         let info = self.types.ty(t)
         match info.kind {
             case Param -> true,

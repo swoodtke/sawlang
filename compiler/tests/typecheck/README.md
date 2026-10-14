@@ -981,6 +981,7 @@ function type, whose own nodes answer. Under `type.reference-position`:
 | an associated-type assignment, a generic parameter's default | refused | type.reference-position.associated-type, type.reference-position.generic-default |
 | a `let` annotation | refused | type.reference-position.local-annotation |
 | a reference inside a `borrows` lend, `&(Int, &Int)` | refused | type.reference-position.lend-nested |
+| a lend's `&[Int]?` allowed, and the same type held as a vector's element, which its parts' answer, kept by the type, does not excuse (SL-639) | refused | type.reference-position.lent-then-held |
 | `let r = &x`, `var r = &var x`: a bare `&` bound | refused | type.reference-position, type.reference-position.exclusive-binding |
 | a bare `&` in an array literal, a tuple literal, an operator's operand, a closure's tail, a cast to an integer | refused | type.reference-position.array-literal, type.reference-position.tuple-literal, type.reference-position.operand, type.reference-position.closure-return, type.reference-position.cast-to-integer |
 | a binding whose inferred type names a reference: only a bare `&` builds one, as an argument instantiating a generic | refused | type.reference-position.inferred-binding |
@@ -1070,6 +1071,20 @@ in `inject/cell_carrying.saw`, which names each row by its function.
 | `Int`; a plain struct; `Wrap<Int>`; an Optional of a plain struct; an enum of plain payloads; `Result` of plain types; `String` | free |
 | a struct holding an `UnsafePointer` to a cell; `Box`, `Vector` of a cell; a reference to one | free: the cell is behind a pointer |
 | `Wrap` 66 deep at a cell, and at `Int` (SL-627) | carrying, free |
+
+**Shared parts** (SL-639). A type's parts are a DAG: `D{k} = (D{k-1},
+D{k-1})` has 2^k paths over k+1 types, so each walk over parts answers once
+per part. `compiler/typecheck/tests/shared_parts.saw` checks
+`inject/shared_parts.saw`, 40 deep, clean, verifies its bodies, and asks each
+question of a `yes_` row's parameter and of the `no_` row beside it, whose
+paths end at a different part.
+
+| row | question | answer |
+|---|---|---|
+| a written parameter, an `Equatable` bound on it, a written parameter unified with its argument, and a generic body whose inferred types share their parts | checked clean | |
+| a shared tuple of `Int`s, and of a NoCopy struct | `Equatable`, `copies_silently` | holds, fails |
+| a struct reaching itself through 40 nested pairs, and the same reaching a non-`Send` part too | `Send` | holds, fails |
+| a generic struct's shared field, at `Int`, and the same of a non-`Send` part | `Send` | holds, fails |
 
 **Copy-policy containment** (spec, The Copy Trait Family, "Containment" and
 "The automatic `Copy` tier"; `check_containment`). The members whose retain

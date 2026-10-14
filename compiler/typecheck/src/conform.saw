@@ -15,7 +15,7 @@ import sawtypecheck.model.{TC_EFFECT_BORROWS, TC_EFFECT_BORROWS_SYNC, TC_EFFECT_
 import sawtypecheck.program.{TcProgram}
 import sawtypecheck.signatures.{TcContext}
 import sawtypecheck.spell.{tc_effects_text}
-import sawtypecheck.types.{TcKind, TcType}
+import sawtypecheck.types.{TC_HOLDS_PARAM, TcKind, TcType}
 
 // The conformance table's entries.
 public func tc_collect_conformances(p: &var TcProgram) {
@@ -79,9 +79,14 @@ public func tc_args_subst(owner: Int, args: Vector<Int>) -> TcSubst {
 }
 
 extension TcProgram {
-    // Type `t` with substitution `s` applied.
+    // Type `t` with substitution `s` applied. A substitution replaces only
+    // parameters, `Self` and the projections on them, so a type holding
+    // none is its own image, whatever parts it shares.
     public func subst(&var self, t: Int, s: &TcSubst) -> Int {
         let info = self.types.ty(t)
+        if (info.holds & TC_HOLDS_PARAM) == 0 {
+            return t
+        }
         match info.kind {
             case SelfType -> {
                 if s.self_type >= 0 {

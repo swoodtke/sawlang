@@ -9,7 +9,8 @@ import sawtypecheck.conform.{TcSubst, tc_args_subst, tc_copy_ints}
 import sawtypecheck.program.{TcProgram}
 import sawtypecheck.signatures.{TcContext}
 import sawtypecheck.typeops.{TcClient}
-import sawtypecheck.types.{TcKind, TcType}
+import sawtypecheck.types.{TC_HOLDS_PARAM, TcKind, TcType, tc_kind_wraps}
+import sawtypecheck.walks.{TcMemo, tc_memo_empty}
 
 // The solutions for the type parameters of `owner`: -1 where unsolved. The
 // first conflict found is kept for its message.
@@ -39,9 +40,36 @@ extension TcProgram {
     // unknowns, with argument type `a`. False when the two cannot agree; a
     // later conversion check reports why.
     public func unify(&var self, p: Int, a: Int, s: &var TcSolve) -> Bool {
+        var pairs = tc_memo_empty()
+        self.unify_in(p, a, &var s, &var pairs)
+    }
+
+    // One pair of `unify`. A type naming no parameter agrees with itself and
+    // solves nothing. A branching pair's answer is kept for the call: a
+    // solution, once set, changes only from `Never`, so a second walk of the
+    // pair answers as the first did and solves nothing new.
+    func unify_in(&var self, p: Int, a: Int, s: &var TcSolve, pairs: &var TcMemo) -> Bool {
         if p < 0 || a < 0 || self.has_error(a) {
             return true
         }
+        if p == a && (self.types.ty(p).holds & TC_HOLDS_PARAM) == 0 {
+            return true
+        }
+        let branches = self.types.branches(p)
+        if branches {
+            let known = pairs.get(p, a)
+            if known >= 0 {
+                return known == 1
+            }
+        }
+        let answer = self.unify_pair(p, a, &var s, &var pairs)
+        if branches {
+            pairs.set(p, a, if answer { 1 } else { 0 })
+        }
+        answer
+    }
+
+    func unify_pair(&var self, p: Int, a: Int, s: &var TcSolve, pairs: &var TcMemo) -> Bool {
         let pi = self.types.ty(p)
         if pi.kind == TcKind.Param && pi.decl == s.owner && s.owner >= 0 && pi.a < s.sol.len() {
             let current = s.sol[pi.a]
@@ -70,17 +98,17 @@ extension TcProgram {
         let ai = self.types.ty(a)
         if pi.kind == TcKind.Nominal && pi.decl == self.known.optional && not self.is_optional(a) {
             let inner = self.types.arg(p, 0)
-            return self.unify(inner, a, &var s)
+            return self.unify_in(inner, a, &var s, &var pairs)
         }
         if pi.kind == TcKind.Slice && ai.kind == TcKind.Ref {
             let element = self.element_of_sequence(ai.b)
             if element >= 0 {
-                return self.unify(pi.b, element, &var s)
+                return self.unify_in(pi.b, element, &var s, &var pairs)
             }
         }
         // A shared reference parameter takes either mode of the same kind.
         if self.is_reference(p) && ai.kind == pi.kind && pi.a == 0 {
-            return self.unify(pi.b, ai.b, &var s)
+            return self.unify_in(pi.b, ai.b, &var s, &var pairs)
         }
         if pi.kind != ai.kind || pi.decl != ai.decl || pi.count != ai.count {
             return false
@@ -95,14 +123,14 @@ extension TcProgram {
         while k < pi.count {
             let pa = self.types.arg(p, k)
             let aa = self.types.arg(a, k)
-            if not self.unify(pa, aa, &var s) {
+            if not self.unify_in(pa, aa, &var s, &var pairs) {
                 agreed = false
             }
             k = k + 1
         }
         let has_inner = pi.kind == TcKind.Func || pi.kind == TcKind.Ref || pi.kind == TcKind.Slice || pi.kind == TcKind.Array
         if has_inner && pi.b >= 0 && ai.b >= 0 {
-            if not self.unify(pi.b, ai.b, &var s) {
+            if not self.unify_in(pi.b, ai.b, &var s, &var pairs) {
                 agreed = false
             }
         }
@@ -111,24 +139,36 @@ extension TcProgram {
 
     // Whether `t` mentions a parameter of `s.owner` that is not solved yet.
     public func mentions_unsolved(&self, t: Int, s: &TcSolve) -> Bool {
+        var seen = tc_memo_empty()
+        self.unsolved_in(t, &s, &var seen)
+    }
+
+    // One part of `mentions_unsolved`. The walk stops at the first unsolved
+    // parameter, so a branching part it has seen mentions none.
+    func unsolved_in(&self, t: Int, s: &TcSolve, seen: &var TcMemo) -> Bool {
         if t < 0 || s.owner < 0 {
             return false
         }
         let info = self.types.ty(t)
+        if (info.holds & TC_HOLDS_PARAM) == 0 {
+            return false
+        }
         if info.kind == TcKind.Param && info.decl == s.owner {
             if info.a >= s.sol.len() {
                 return true
             }
             return s.sol[info.a] < 0
         }
-        let has_inner = info.kind == TcKind.Func || info.kind == TcKind.Ref || info.kind == TcKind.Slice || info.kind == TcKind.Array
-        if has_inner && info.b >= 0 && self.mentions_unsolved(info.b, &s) {
+        if self.types.branches(t) && not seen.mark(t, 0) {
+            return false
+        }
+        if tc_kind_wraps(info.kind) && info.b >= 0 && self.unsolved_in(info.b, &s, &var seen) {
             return true
         }
         var k = 0
         while k < info.count {
             let a = self.types.arg(t, k)
-            if self.mentions_unsolved(a, &s) {
+            if self.unsolved_in(a, &s, &var seen) {
                 return true
             }
             k = k + 1

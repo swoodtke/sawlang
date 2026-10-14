@@ -44,8 +44,8 @@ import sawtypecheck.spell.{tc_effects_text}
 import sawtypecheck.strings.{TcStringPosition}
 import sawtypecheck.tier.{tc_tier}
 import sawtypecheck.typeops.{TcClient}
-import sawtypecheck.types.{TcKind, TcType}
-import sawtypecheck.walks.{TcMemo, tc_memo}
+import sawtypecheck.types.{TC_HOLDS_PARAM, TcKind, TcType, tc_kind_wraps}
+import sawtypecheck.walks.{TcMemo, tc_memo, tc_memo_empty}
 
 // Checks every body of every module checked in full.
 public func tc_check_bodies(p: &var TcProgram) {
@@ -8008,18 +8008,30 @@ extension TcProgram {
 
     // Whether `t` mentions a parameter of declaration `owner`.
     func mentions_owner(&self, t: Int, owner: Int) -> Bool {
+        var seen = tc_memo_empty()
+        self.mentions_owner_in(t, owner, &var seen)
+    }
+
+    // One part of `mentions_owner`. The walk stops at the first such
+    // parameter, so a branching part it has seen mentions none.
+    func mentions_owner_in(&self, t: Int, owner: Int, seen: &var TcMemo) -> Bool {
         let info = self.types.ty(t)
+        if (info.holds & TC_HOLDS_PARAM) == 0 {
+            return false
+        }
         if info.kind == TcKind.Param && info.decl == owner {
             return true
         }
-        let has_inner = info.kind == TcKind.Func || info.kind == TcKind.Ref || info.kind == TcKind.Slice || info.kind == TcKind.Array
-        if has_inner && info.b >= 0 && self.mentions_owner(info.b, owner) {
+        if self.types.branches(t) && not seen.mark(t, 0) {
+            return false
+        }
+        if tc_kind_wraps(info.kind) && info.b >= 0 && self.mentions_owner_in(info.b, owner, &var seen) {
             return true
         }
         var k = 0
         while k < info.count {
             let a = self.types.arg(t, k)
-            if self.mentions_owner(a, owner) {
+            if self.mentions_owner_in(a, owner, &var seen) {
                 return true
             }
             k = k + 1
@@ -10299,21 +10311,35 @@ extension TcProgram {
 
     // Whether `t` mentions a type parameter, `Self` or a projection.
     func open_tier(&self, t: Int) -> Bool {
+        var seen = tc_memo_empty()
+        self.open_tier_in(t, &var seen)
+    }
+
+    // One part of `open_tier`. A projection holds the parameter it projects
+    // from, so a type holding none is closed; the walk stops at the first
+    // open part, so a branching part it has seen is closed.
+    func open_tier_in(&self, t: Int, seen: &var TcMemo) -> Bool {
         if t < 0 {
             return false
         }
         let info = self.types.ty(t)
+        if (info.holds & TC_HOLDS_PARAM) == 0 {
+            return false
+        }
         if info.kind == TcKind.Param || info.kind == TcKind.SelfType || info.kind == TcKind.Projection {
             return true
         }
-        if info.b >= 0 && (info.kind == TcKind.Ref || info.kind == TcKind.Slice || info.kind == TcKind.Array) && self.open_tier(info.b) {
+        if self.types.branches(t) && not seen.mark(t, 0) {
+            return false
+        }
+        if info.b >= 0 && (info.kind == TcKind.Ref || info.kind == TcKind.Slice || info.kind == TcKind.Array) && self.open_tier_in(info.b, &var seen) {
             return true
         }
         if info.kind == TcKind.Nominal || info.kind == TcKind.Tuple {
             var k = 0
             while k < info.count {
                 let a = self.types.arg(t, k)
-                if self.open_tier(a) {
+                if self.open_tier_in(a, &var seen) {
                     return true
                 }
                 k = k + 1

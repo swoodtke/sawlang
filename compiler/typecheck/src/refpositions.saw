@@ -20,6 +20,7 @@ import sawtypecheck.program.{TcProgram}
 import sawtypecheck.spell.{tc_effects_text}
 import sawtypecheck.typeops.{TcClient}
 import sawtypecheck.types.{TcKind, TcType}
+import sawtypecheck.walks.{TC_WALK_REFERENCE}
 
 // Runs every reference-position check over the modules checked in full.
 public func tc_check_reference_positions(p: &var TcProgram) {
@@ -156,7 +157,7 @@ extension TcProgram {
             if pos == TcRefPosition.Inner {
                 continue
             }
-            let hit = self.reference_in(t, tc_ref_allow(pos), true, TcRefWithin.Top)
+            let hit = self.reference_in(t, tc_ref_allow(pos))
             if hit.ty < 0 {
                 continue
             }
@@ -244,53 +245,64 @@ extension TcProgram {
 
     // The first reference type `t` names, `allow` saying what may stand at
     // its top. A function type answers for itself.
-    func reference_in(&self, t: Int, allow: TcRefAllow, top: Bool, within: TcRefWithin) -> TcRefHit {
+    func reference_in(&var self, t: Int, allow: TcRefAllow) -> TcRefHit {
         if t < 0 {
             return tc_no_reference()
         }
         let info = self.types.ty(t)
         if info.kind == TcKind.Ref || info.kind == TcKind.Slice {
             let shared = info.a == 0
-            let allowed = top && (allow == TcRefAllow.AnyReference || allow == TcRefAllow.Lend || (allow == TcRefAllow.SharedReference && shared && info.kind == TcKind.Ref))
+            let allowed = allow == TcRefAllow.AnyReference || allow == TcRefAllow.Lend || (allow == TcRefAllow.SharedReference && shared && info.kind == TcKind.Ref)
             if allowed {
-                return self.reference_in(info.b, TcRefAllow.Nothing, false, TcRefWithin.Referent)
+                return self.reference_part(info.b, TcRefWithin.Referent)
             }
+            return TcRefHit(ty: t, within: TcRefWithin.Top)
+        }
+        if allow == TcRefAllow.Lend && info.kind == TcKind.Nominal && info.decl == self.known.optional {
+            let arg = self.types.arg(t, 0)
+            let lent = self.types.ty(arg)
+            if lent.kind == TcKind.Slice {
+                return self.reference_part(lent.b, TcRefWithin.Referent)
+            }
+        }
+        self.reference_part(t, TcRefWithin.Top)
+    }
+
+    // The first reference part `t` of a type names, where nothing may stand:
+    // `t` itself, standing as `within`, or else the first its own parts name.
+    // That answer depends on `t` alone, so it is kept by TypeId; a type's parts
+    // are interned before it, so the walk ends.
+    func reference_part(&var self, t: Int, within: TcRefWithin) -> TcRefHit {
+        if t < 0 {
+            return tc_no_reference()
+        }
+        let info = self.types.ty(t)
+        if info.kind == TcKind.Ref || info.kind == TcKind.Slice {
             return TcRefHit(ty: t, within: within)
         }
-        if info.kind == TcKind.Func || info.kind == TcKind.Error {
-            return tc_no_reference()
+        let known = self.walks.get(t, TC_WALK_REFERENCE)
+        if known >= 0 {
+            return tc_ref_hit_decoded(known)
         }
+        var hit = tc_no_reference()
         if info.kind == TcKind.Array {
-            return self.reference_in(info.b, TcRefAllow.Nothing, false, TcRefWithin.ArrayElement)
-        }
-        if info.kind != TcKind.Nominal && info.kind != TcKind.Tuple {
-            return tc_no_reference()
-        }
-        let optional = info.kind == TcKind.Nominal && info.decl == self.known.optional
-        var k = 0
-        while k < info.count {
-            let arg = self.types.arg(t, k)
-            k = k + 1
-            if optional && top && allow == TcRefAllow.Lend && self.kind_of(arg) == TcKind.Slice {
-                let lent = self.types.ty(arg)
-                let inner = self.reference_in(lent.b, TcRefAllow.Nothing, false, TcRefWithin.Referent)
-                if inner.ty >= 0 {
-                    return inner
-                }
-                continue
-            }
+            hit = self.reference_part(info.b, TcRefWithin.ArrayElement)
+        } else if info.kind == TcKind.Nominal || info.kind == TcKind.Tuple {
             var part = TcRefWithin.TypeArgument
-            if optional {
+            if info.kind == TcKind.Nominal && info.decl == self.known.optional {
                 part = TcRefWithin.OptionalPayload
             } else if info.kind == TcKind.Tuple {
                 part = TcRefWithin.TupleElement
             }
-            let hit = self.reference_in(arg, TcRefAllow.Nothing, false, part)
-            if hit.ty >= 0 {
-                return hit
+            var k = 0
+            while k < info.count && hit.ty < 0 {
+                let arg = self.types.arg(t, k)
+                hit = self.reference_part(arg, part)
+                k = k + 1
             }
         }
-        tc_no_reference()
+        self.walks.set(t, TC_WALK_REFERENCE, tc_ref_hit_encoded(hit))
+        hit
     }
 
     // A bare `&` or `&var` is a call argument, or the operand of a cast to a
@@ -367,7 +379,7 @@ extension TcProgram {
             if t < 0 || u == TcUse.Borrow || u == TcUse.BorrowVar {
                 continue
             }
-            let hit = self.reference_in(t, TcRefAllow.Nothing, true, TcRefWithin.Top)
+            let hit = self.reference_in(t, TcRefAllow.Nothing)
             if hit.ty < 0 || self.bound_from_reference_expression(at, &parents) {
                 continue
             }
@@ -417,14 +429,14 @@ extension TcProgram {
             var j = 0
             while j < c.inst_count && found < 0 {
                 let arg = self.insts[c.inst_first + j]
-                let hit = self.reference_in(arg, TcRefAllow.Nothing, true, TcRefWithin.Top)
+                let hit = self.reference_in(arg, TcRefAllow.Nothing)
                 found = hit.ty
                 j = j + 1
             }
             if found < 0 && c.owner >= 0 {
                 let owner = self.types.ty(c.owner)
                 if owner.kind == TcKind.Nominal {
-                    let hit = self.reference_in(c.owner, TcRefAllow.Nothing, false, TcRefWithin.TypeArgument)
+                    let hit = self.reference_part(c.owner, TcRefWithin.TypeArgument)
                     found = hit.ty
                 }
             }
@@ -480,6 +492,43 @@ extension TcProgram {
 
 func tc_no_reference() -> TcRefHit {
     TcRefHit(ty: -1, within: TcRefWithin.Top)
+}
+
+// A hit as `TcProgram.walks` keeps it: 0 for none, else the type and the part
+// it stands in packed above 0.
+func tc_ref_hit_encoded(hit: TcRefHit) -> Int {
+    if hit.ty < 0 {
+        return 0
+    }
+    let part = match hit.within {
+        case Top -> 0,
+        case Referent -> 1,
+        case TypeArgument -> 2,
+        case OptionalPayload -> 3,
+        case TupleElement -> 4,
+        case ArrayElement -> 5
+    }
+    hit.ty * 8 + part + 1
+}
+
+func tc_ref_hit_decoded(value: Int) -> TcRefHit {
+    if value == 0 {
+        return tc_no_reference()
+    }
+    let part = (value - 1) % 8
+    var within = TcRefWithin.Top
+    if part == 1 {
+        within = TcRefWithin.Referent
+    } else if part == 2 {
+        within = TcRefWithin.TypeArgument
+    } else if part == 3 {
+        within = TcRefWithin.OptionalPayload
+    } else if part == 4 {
+        within = TcRefWithin.TupleElement
+    } else if part == 5 {
+        within = TcRefWithin.ArrayElement
+    }
+    TcRefHit(ty: (value - 1) / 8, within: within)
 }
 
 // What may stand at the top of position `pos`'s type.

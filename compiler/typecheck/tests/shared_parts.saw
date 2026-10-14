@@ -1,0 +1,78 @@
+// The semantic walks over a type's parts answer once per part, not once per
+// path to it: `compiler/tests/typecheck/inject/shared_parts.saw` holds types
+// with 2^40 paths over 41 types, which a walk keyed by anything but identity
+// never finishes. The fixture checks clean, its bodies verify, and each
+// question asked of a `yes_` row's parameter holds where the same question of
+// the `no_` row beside it fails, because of the part every path ends at
+// (SL-639). Paths are the repository root's, where the runner runs.
+import sawresolve.model.{ResDeclKind}
+import sawtypecheck.api.{typecheck_program}
+import sawtypecheck.bodyverify.{tc_verify_bodies}
+import sawtypecheck.program.{TcProgram}
+// For the extensions writing `satisfies`, and `copies_silently` and
+// `has_error`.
+import sawtypecheck.tier.{tc_max}
+import sawtypecheck.typeops.{TcClient}
+import sawtypecheck.types.{TcKind}
+
+// The index of module `name`, or -1.
+func module_index(p: &TcProgram, name: String) -> Int {
+    var m = 0
+    while m < p.res.module_count() {
+        if p.res.module_name(m).equals(name) {
+            return m
+        }
+        m = m + 1
+    }
+    return -1
+}
+
+// The type function `name` of module `m` takes by reference, its one
+// parameter's referent.
+func row(p: &TcProgram, m: Int, name: String) -> Int {
+    var d = 0
+    while d < p.res.decls.len() {
+        let info = p.res.decls[d]
+        if info.module == m && info.kind == ResDeclKind.Func && info.name >= 0 && p.res.name_text(info.name).equals(name) {
+            let s = p.sigs[d]
+            assert(s.param_count == 1, "a fixture row takes one parameter: {}", name)
+            let t = p.params[s.param_first].ty
+            assert(p.ty(t).kind == TcKind.Ref, "a fixture row takes its parameter by reference: {}", name)
+            return p.ty(t).b
+        }
+        d = d + 1
+    }
+    assert(false, "the fixture lacks its row {}", name)
+    return -1
+}
+
+func main() {
+    let names = Vector<String>()
+    let dirs = Vector<String>()
+    var p = typecheck_program("compiler/tests/typecheck/inject/shared_parts.saw", "std", &names, &dirs)
+    let m = module_index(&p, "shared_parts")
+    assert(m >= 0, "the fixture did not load: run from the repository root")
+    assert(p.error_count() == 0, "the fixture is refused")
+    let problems = tc_verify_bodies(&p, m)
+    assert(problems.len() == 0, "the fixture's bodies do not verify")
+
+    let equatable = p.known.equatable
+    let send = p.known.send
+    let shared = row(&p, m, "yes_eq")
+    let plain = row(&p, m, "no_eq")
+    assert(p.satisfies(shared, equatable, -1, -1), "a shared tuple of `Int`s does not meet `Equatable`")
+    assert(not p.satisfies(plain, equatable, -1, -1), "a shared tuple of a NoCopy struct meets `Equatable`")
+    assert(p.copies_silently(shared), "a shared tuple of `Int`s does not copy silently")
+    assert(not p.copies_silently(plain), "a shared tuple of a NoCopy struct copies silently")
+    assert(not p.has_error(shared), "a shared tuple of `Int`s holds an error type")
+
+    let cycle = row(&p, m, "yes_send_cycle")
+    let unsent = row(&p, m, "no_send_cycle")
+    assert(p.satisfies(cycle, send, -1, -1), "a type reaching itself through shared parts is not `Send`")
+    assert(not p.satisfies(unsent, send, -1, -1), "a type reaching itself and a non-`Send` part is `Send`")
+
+    let field = row(&p, m, "yes_send_field")
+    let unsent_field = row(&p, m, "no_send_field")
+    assert(p.satisfies(field, send, -1, -1), "a generic struct's shared field is not `Send`")
+    assert(not p.satisfies(unsent_field, send, -1, -1), "a generic struct's shared non-`Send` field is `Send`")
+}

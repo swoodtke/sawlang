@@ -91,8 +91,11 @@ final, or for the one call where it is not:
 - **Bound satisfaction** (`satisfies`): one run per question, each (type,
   trait) pair once. A derivation that reaches back to a pair it is still
   deciding holds there, as a recursive type's `Send` does through its
-  `Vector`; a false answer is final and a true one is kept once no cycle it
-  leaned on is open. Deriving `Send` or `Sync` from the members of a type
+  `Vector`. A false answer is final. A true one that leaned on an open frame
+  below its own is reused while that frame is open, and every pair decided
+  inside a frame settles when it does: final once the cycle's root holds,
+  forgotten when a frame they may have leaned on fails, else leaning on the
+  lowest frame reached. Deriving `Send` or `Sync` from the members of a type
   nested past the instantiation depth, which only a type that holds itself at
   ever larger arguments reaches, is refused as `type.instantiation-depth`.
 - **Finite size** (`checks.saw`): each struct and enum's inline mask, the
@@ -101,9 +104,20 @@ final, or for the one call where it is not:
   edges. A declaration on a cycle is refused, with the shortest path from its
   storage to an instance of itself.
 - **Structural questions**: `names_self_type`, `type_holds`, `nesting_depth`,
-  `unsafe_named`, `type_tier`, `decl_owns`, `export_data_ok`, and a
-  condition's evaluation (`eval_condition`), which follows each (receiver,
-  requirement) pair once.
+  `unsafe_named`, `type_tier`, `decl_owns`, `export_data_ok`, what a type's
+  parts name for the reference-position funnel (`reference_part`),
+  `copies_silently`, and a condition's evaluation (`eval_condition`), which
+  follows each (receiver, requirement) pair once.
+- **What a type holds** (`types.saw`): the interner records, per type, whether
+  an error type or a type parameter or `Self` stands anywhere in it, joined
+  from its parts once. `has_error` and `mentions_param` read it, `subst`
+  returns a type holding no parameter unchanged, and the walks below skip
+  such a type.
+- **One call's walks**: `mentions_owner`, `mentions_unsolved`, `open_tier`,
+  `mentions_unseen_param`, `borrowing_named`, `copy_needs`, `unify` and
+  `peel` depend on more than the type, so each keeps, for its one call, the
+  answer for each branching part it has finished (`TcTypes.branches`): only a
+  type with two parts or more multiplies the paths to its parts.
 
 ## Phases
 

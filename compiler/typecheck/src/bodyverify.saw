@@ -27,7 +27,8 @@ import sawtypecheck.program.{TcProgram}
 import sawtypecheck.signatures.{TcContext}
 import sawtypecheck.strings.{TcStringPosition}
 import sawtypecheck.typeops.{TcClient}
-import sawtypecheck.types.{TcKind, TcType}
+import sawtypecheck.types.{TC_HOLDS_PARAM, TcKind, TcType, tc_kind_wraps}
+import sawtypecheck.walks.{TcMemo, tc_memo_empty}
 
 // Every problem the body verifier finds in module `m`, one line each.
 public func tc_verify_bodies(p: &TcProgram, m: Int) -> Vector<String> {
@@ -290,7 +291,7 @@ extension TcProgram {
         if self.type_builds[id] != 1 {
             self.body_problem(&var problems, m, id, "a type written in a body was built more than once")
         }
-        if not refused && self.type_has_error(t) {
+        if not refused && self.has_error(t) {
             self.body_problem(&var problems, m, id, "a type written in a body is unresolved, but the module has no refusal")
         }
         if self.has_alt(id, Alt.Type_Named) {
@@ -421,7 +422,7 @@ extension TcProgram {
         if self.typed_count[id] != 1 {
             self.body_problem(&var problems, m, id, "an expression was typed more than once")
         }
-        if not refused && self.type_has_error(t) {
+        if not refused && self.has_error(t) {
             self.body_problem(&var problems, m, id, "an expression's type is unresolved, but the module has no refusal")
         }
         let u = self.expr_use[id]
@@ -447,27 +448,6 @@ extension TcProgram {
 
     func is_binding_node(&self, id: Int) -> Bool {
         self.has_alt(id, Alt.Stmt_BindingName) || self.has_alt(id, Alt.Pat_Name)
-    }
-
-    // Whether `t` holds an error type anywhere.
-    func type_has_error(&self, t: Int) -> Bool {
-        let info = self.types.ty(t)
-        if info.kind == TcKind.Error {
-            return true
-        }
-        let has_inner = info.kind == TcKind.Func || info.kind == TcKind.Ref || info.kind == TcKind.Slice || info.kind == TcKind.Array
-        if has_inner && info.b >= 0 && self.type_has_error(info.b) {
-            return true
-        }
-        var k = 0
-        while k < info.count {
-            let part = self.types.arg(t, k)
-            if self.type_has_error(part) {
-                return true
-            }
-            k = k + 1
-        }
-        false
     }
 
     // Whether `t` is a raw-backed enum, whose case adopts an integer slot as
@@ -537,7 +517,7 @@ extension TcProgram {
         var k = 0
         while k < c.inst_count {
             let arg = self.insts[c.inst_first + k]
-            if not refused && self.type_has_error(arg) {
+            if not refused && self.has_error(arg) {
                 self.body_problem(&var problems, m, id, "a call's instantiation is unresolved")
             }
             // A recursive call names its own parameters legitimately; a
@@ -547,7 +527,7 @@ extension TcProgram {
             }
             k = k + 1
         }
-        if c.owner >= 0 && not refused && self.type_has_error(c.owner) {
+        if c.owner >= 0 && not refused && self.has_error(c.owner) {
             self.body_problem(&var problems, m, id, "a call's owner is unresolved")
         }
         if c.role == TcRole.Call || c.role == TcRole.Memberwise || c.role == TcRole.Case {
@@ -649,18 +629,30 @@ extension TcProgram {
     // Whether `t` names a type parameter a body of declaration `d` cannot
     // see.
     func mentions_unseen_param(&self, t: Int, d: Int) -> Bool {
+        var seen = tc_memo_empty()
+        self.unseen_param_in(t, d, &var seen)
+    }
+
+    // One part of `mentions_unseen_param`. The walk stops at the first such
+    // parameter, so a branching part it has seen names none.
+    func unseen_param_in(&self, t: Int, d: Int, seen: &var TcMemo) -> Bool {
         let info = self.types.ty(t)
+        if (info.holds & TC_HOLDS_PARAM) == 0 {
+            return false
+        }
         if info.kind == TcKind.Param && not self.param_visible(info.decl, d) {
             return true
         }
-        let has_inner = info.kind == TcKind.Func || info.kind == TcKind.Ref || info.kind == TcKind.Slice || info.kind == TcKind.Array
-        if has_inner && info.b >= 0 && self.mentions_unseen_param(info.b, d) {
+        if self.types.branches(t) && not seen.mark(t, 0) {
+            return false
+        }
+        if tc_kind_wraps(info.kind) && info.b >= 0 && self.unseen_param_in(info.b, d, &var seen) {
             return true
         }
         var k = 0
         while k < info.count {
             let part = self.types.arg(t, k)
-            if self.mentions_unseen_param(part, d) {
+            if self.unseen_param_in(part, d, &var seen) {
                 return true
             }
             k = k + 1

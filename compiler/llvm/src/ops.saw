@@ -236,7 +236,7 @@ extension LlEmitter {
     func memory_comparison(&var self, mono: &var MonoProgram, target: &var Target, op: String, a: Int, b: Int,
                            t: Int, dest: String, node: Int) {
         let equality = op.equals("==") || op.equals("!=")
-        if not equality || not self.comparable_bits(&var mono, &var target, t, 0) {
+        if not equality || not self.comparable_bits(&var mono, &var target, t) {
             var msg = StringBuilder()
             try! msg.append("the operator `")
             try! msg.append(op)
@@ -258,9 +258,11 @@ extension LlEmitter {
     }
 
     // Whether a value of `t` is equal to another exactly when its parts are,
-    // part by part, as `equal_at` compares them.
-    func comparable_bits(&var self, mono: &var MonoProgram, target: &var Target, t: Int, depth: Int) -> Bool {
-        if depth > 16 || mono.dp.bc.mir.tc.is_string(t) {
+    // part by part, as `equal_at` compares them. Its parts are the inline
+    // members of a finite type, so the walk ends, and it follows the paths
+    // `equal_at` emits a comparison along.
+    func comparable_bits(&var self, mono: &var MonoProgram, target: &var Target, t: Int) -> Bool {
+        if mono.dp.bc.mir.tc.is_string(t) {
             return false
         }
         let d = mono.dp.bc.mir.tc.nominal_decl(t)
@@ -285,13 +287,13 @@ extension LlEmitter {
         }
         if l.shape == TargetShape.Flagged {
             let payload = mono.dp.bc.mir.tc.types.arg(t, 0)
-            return self.comparable_bits(&var mono, &var target, payload, depth + 1)
+            return self.comparable_bits(&var mono, &var target, payload)
         }
         if l.shape == TargetShape.Record {
             let parts = self.record_parts(&var mono, t)
             var k = 0
             while k < parts.len() {
-                if not self.comparable_bits(&var mono, &var target, parts[k], depth + 1) {
+                if not self.comparable_bits(&var mono, &var target, parts[k]) {
                     return false
                 }
                 k = k + 1

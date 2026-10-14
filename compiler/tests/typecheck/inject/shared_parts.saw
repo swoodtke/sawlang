@@ -1,0 +1,258 @@
+// The rows `compiler/typecheck/tests/shared_parts.saw` asks of. Each type
+// shares its parts, `D{k} = (D{k-1}, D{k-1})`, so it has 2^40 paths over 41
+// types, and a walk that reaches a part once per path to it never ends. A
+// `yes_` row's parameter meets the row's question and a `no_` row's does
+// not, because of the part the paths end at (SL-639).
+
+struct Plain {
+    n: Int
+}
+
+extension Plain: NoCopy {}
+
+// A type `Send` derives nothing for.
+struct Unsent {
+    p: Box<any Printable>
+}
+
+extension Unsent: NoCopy {}
+
+type D0 = Int
+type D1 = (D0, D0)
+type D2 = (D1, D1)
+type D3 = (D2, D2)
+type D4 = (D3, D3)
+type D5 = (D4, D4)
+type D6 = (D5, D5)
+type D7 = (D6, D6)
+type D8 = (D7, D7)
+type D9 = (D8, D8)
+type D10 = (D9, D9)
+type D11 = (D10, D10)
+type D12 = (D11, D11)
+type D13 = (D12, D12)
+type D14 = (D13, D13)
+type D15 = (D14, D14)
+type D16 = (D15, D15)
+type D17 = (D16, D16)
+type D18 = (D17, D17)
+type D19 = (D18, D18)
+type D20 = (D19, D19)
+type D21 = (D20, D20)
+type D22 = (D21, D21)
+type D23 = (D22, D22)
+type D24 = (D23, D23)
+type D25 = (D24, D24)
+type D26 = (D25, D25)
+type D27 = (D26, D26)
+type D28 = (D27, D27)
+type D29 = (D28, D28)
+type D30 = (D29, D29)
+type D31 = (D30, D30)
+type D32 = (D31, D31)
+type D33 = (D32, D32)
+type D34 = (D33, D33)
+type D35 = (D34, D34)
+type D36 = (D35, D35)
+type D37 = (D36, D36)
+type D38 = (D37, D37)
+type D39 = (D38, D38)
+type D40 = (D39, D39)
+
+type N0 = Plain
+type N1 = (N0, N0)
+type N2 = (N1, N1)
+type N3 = (N2, N2)
+type N4 = (N3, N3)
+type N5 = (N4, N4)
+type N6 = (N5, N5)
+type N7 = (N6, N6)
+type N8 = (N7, N7)
+type N9 = (N8, N8)
+type N10 = (N9, N9)
+type N11 = (N10, N10)
+type N12 = (N11, N11)
+type N13 = (N12, N12)
+type N14 = (N13, N13)
+type N15 = (N14, N14)
+type N16 = (N15, N15)
+type N17 = (N16, N16)
+type N18 = (N17, N17)
+type N19 = (N18, N18)
+type N20 = (N19, N19)
+type N21 = (N20, N20)
+type N22 = (N21, N21)
+type N23 = (N22, N22)
+type N24 = (N23, N23)
+type N25 = (N24, N24)
+type N26 = (N25, N25)
+type N27 = (N26, N26)
+type N28 = (N27, N27)
+type N29 = (N28, N28)
+type N30 = (N29, N29)
+type N31 = (N30, N30)
+type N32 = (N31, N31)
+type N33 = (N32, N32)
+type N34 = (N33, N33)
+type N35 = (N34, N34)
+type N36 = (N35, N35)
+type N37 = (N36, N36)
+type N38 = (N37, N37)
+type N39 = (N38, N38)
+type N40 = (N39, N39)
+
+type U0 = Unsent
+type U1 = (U0, U0)
+type U2 = (U1, U1)
+type U3 = (U2, U2)
+type U4 = (U3, U3)
+type U5 = (U4, U4)
+type U6 = (U5, U5)
+type U7 = (U6, U6)
+type U8 = (U7, U7)
+type U9 = (U8, U8)
+type U10 = (U9, U9)
+type U11 = (U10, U10)
+type U12 = (U11, U11)
+type U13 = (U12, U12)
+type U14 = (U13, U13)
+type U15 = (U14, U14)
+type U16 = (U15, U15)
+type U17 = (U16, U16)
+type U18 = (U17, U17)
+type U19 = (U18, U18)
+type U20 = (U19, U19)
+type U21 = (U20, U20)
+type U22 = (U21, U21)
+type U23 = (U22, U22)
+type U24 = (U23, U23)
+type U25 = (U24, U24)
+type U26 = (U25, U25)
+type U27 = (U26, U26)
+type U28 = (U27, U27)
+type U29 = (U28, U28)
+type U30 = (U29, U29)
+type U31 = (U30, U30)
+type U32 = (U31, U31)
+type U33 = (U32, U32)
+type U34 = (U33, U33)
+type U35 = (U34, U34)
+type U36 = (U35, U35)
+type U37 = (U36, U36)
+type U38 = (U37, U37)
+type U39 = (U38, U38)
+type U40 = (U39, U39)
+
+struct P<T> {
+    a: T
+    b: T
+}
+
+// A cycle: deciding `A`'s `Send` reaches `A` again on every path.
+struct A {
+    x: P<P<P<P<P<P<P<P<P<P<P<P<P<P<P<P<P<P<P<P<P<P<P<P<P<P<P<P<P<P<P<P<P<P<P<P<P<P<P<P<Vector<A>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+}
+
+extension A: NoCopy {}
+
+struct B {
+    x: P<P<P<P<P<P<P<P<P<P<P<P<P<P<P<P<P<P<P<P<P<P<P<P<P<P<P<P<P<P<P<P<P<P<P<P<P<P<P<P<Vector<(B, Unsent)>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+}
+
+extension B: NoCopy {}
+
+// A generic declaration's field: substituting its arguments maps every part.
+struct S<T> {
+    f: D40
+    t: T
+}
+
+extension S: NoCopy {}
+
+struct SU<T> {
+    f: U40
+    t: T
+}
+
+extension SU: NoCopy {}
+
+func need_eq<T: Equatable>(v: &T) {}
+
+func need_send<T: Send>(v: &T) {}
+
+// A written parameter type unified with its argument part by part.
+func solve<T>(x: &D40, v: T) -> T {
+    v
+}
+
+func yes_eq(v: &D40) {
+    need_eq(&v)
+}
+
+func no_eq(v: &N40) {}
+
+func yes_send_cycle(v: &A) {
+    need_send(&v)
+}
+
+func no_send_cycle(v: &B) {}
+
+func yes_send_field(v: &S<Int>) {
+    need_send(&v)
+}
+
+func no_send_field(v: &SU<Int>) {}
+
+func yes_solve(v: &D40) {
+    let r: Int = solve(&v, 1)
+    let _ = r
+}
+
+// A body whose inferred types share their parts, a type parameter's
+// among them.
+func yes_body<T: Copy>(v: T) {
+    let a0 = v
+    let a1 = (a0, a0)
+    let a2 = (a1, a1)
+    let a3 = (a2, a2)
+    let a4 = (a3, a3)
+    let a5 = (a4, a4)
+    let a6 = (a5, a5)
+    let a7 = (a6, a6)
+    let a8 = (a7, a7)
+    let a9 = (a8, a8)
+    let a10 = (a9, a9)
+    let a11 = (a10, a10)
+    let a12 = (a11, a11)
+    let a13 = (a12, a12)
+    let a14 = (a13, a13)
+    let a15 = (a14, a14)
+    let a16 = (a15, a15)
+    let a17 = (a16, a16)
+    let a18 = (a17, a17)
+    let a19 = (a18, a18)
+    let a20 = (a19, a19)
+    let a21 = (a20, a20)
+    let a22 = (a21, a21)
+    let a23 = (a22, a22)
+    let a24 = (a23, a23)
+    let a25 = (a24, a24)
+    let a26 = (a25, a25)
+    let a27 = (a26, a26)
+    let a28 = (a27, a27)
+    let a29 = (a28, a28)
+    let a30 = (a29, a29)
+    let a31 = (a30, a30)
+    let a32 = (a31, a31)
+    let a33 = (a32, a32)
+    let a34 = (a33, a33)
+    let a35 = (a34, a34)
+    let a36 = (a35, a35)
+    let a37 = (a36, a36)
+    let a38 = (a37, a37)
+    let a39 = (a38, a38)
+    let a40 = (a39, a39)
+    let _ = a40
+}
+
+func main() {}

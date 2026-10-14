@@ -33,7 +33,7 @@ import sawtypecheck.model.{TC_EFFECT_BORROWS, TC_EFFECT_BORROWS_SYNC, TC_EFFECT_
                                TC_FLAG_VARIADIC, TC_FLAG_WRITTEN_RETURN, TcGeneric, TcLend,
                                TcObligation, TcParam, TcReceiver, TcSig}
 import sawtypecheck.program.{TcProgram}
-import sawtypecheck.types.{TcKind, TcType}
+import sawtypecheck.types.{TC_HOLDS_PARAM, TcKind, TcType}
 import sawtypecheck.walks.{TC_WALK_NESTING}
 
 // The generic parameters of every declaration, keyed by where each is declared.
@@ -629,26 +629,10 @@ extension TcProgram {
                                                 env_decl: env_decl, env_ext: env_ext))
     }
 
-    // Whether type `t` mentions a type parameter anywhere.
+    // Whether type `t` mentions a type parameter or `Self` anywhere, which
+    // the interner records once per type.
     public func mentions_param(&self, t: Int) -> Bool {
-        let info = self.types.ty(t)
-        if info.kind == TcKind.Param || info.kind == TcKind.SelfType {
-            return true
-        }
-        if info.b >= 0 && (info.kind == TcKind.Func || info.kind == TcKind.Ref || info.kind == TcKind.Slice || info.kind == TcKind.Array) {
-            if self.mentions_param(info.b) {
-                return true
-            }
-        }
-        var k = 0
-        while k < info.count {
-            let a = self.types.arg(t, k)
-            if self.mentions_param(a) {
-                return true
-            }
-            k = k + 1
-        }
-        false
+        (self.types.ty(t).holds & TC_HOLDS_PARAM) != 0
     }
 }
 

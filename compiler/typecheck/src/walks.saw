@@ -12,13 +12,17 @@ public static TC_WALK_NAMES_SELF: Int = 6
 public static TC_WALK_NESTING: Int = 7
 public static TC_WALK_OWNS: Int = 8
 public static TC_WALK_DEPTH_REFUSED: Int = 9
+public static TC_WALK_REFERENCE: Int = 10
+public static TC_WALK_COPIES: Int = 11
 
 // How deeply a type that a derivation reaches may nest before it is refused
 // (spec, "Instantiation depth is bounded").
 public static TC_INSTANTIATION_DEPTH: Int = 64
 
 static TC_MEMO_FIRST_SLOTS: Int = 16
-static TC_MEMO_HASH_MASK: Int = 0xFFFF_FFFF_FFFF
+// Each key is masked to 32 bits before it is multiplied, so a key of any
+// size hashes inside an `Int`.
+static TC_MEMO_HASH_MASK: Int = 0xFFFF_FFFF
 
 // A map from a pair of non-negative Ints to an Int, by open addressing. A
 // pair never set reads as -1, so -1 is no value a walk stores.
@@ -45,6 +49,12 @@ public func tc_memo() -> TcMemo {
     TcMemo(keys_a: move a, keys_b: move b, values: move v, used: 0)
 }
 
+// A memo with no slots yet, which costs nothing until a walk sets a pair: a
+// walk that marks only the branching types it finishes takes one per call.
+public func tc_memo_empty() -> TcMemo {
+    TcMemo(keys_a: Vector<Int>(), keys_b: Vector<Int>(), values: Vector<Int>(), used: 0)
+}
+
 func tc_memo_slot(a: Int, b: Int, slots: Int) -> Int {
     let h = (((a & TC_MEMO_HASH_MASK) * 1000003) ^ ((b & TC_MEMO_HASH_MASK) * 92821)) & TC_MEMO_HASH_MASK
     h & (slots - 1)
@@ -54,6 +64,9 @@ extension TcMemo {
     // The value stored for (a, b), or -1.
     public func get(&self, a: Int, b: Int) -> Int {
         let slots = self.keys_a.len()
+        if slots == 0 {
+            return -1
+        }
         var at = tc_memo_slot(a, b, slots)
         while self.keys_a[at] >= 0 {
             if self.keys_a[at] == a && self.keys_b[at] == b {
@@ -93,7 +106,10 @@ extension TcMemo {
     }
 
     func grow(&var self) {
-        let slots = self.keys_a.len() * 2
+        var slots = self.keys_a.len() * 2
+        if slots == 0 {
+            slots = TC_MEMO_FIRST_SLOTS
+        }
         var a = Vector<Int>()
         var b = Vector<Int>()
         var v = Vector<Int>()

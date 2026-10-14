@@ -23,7 +23,7 @@ import sawtypecheck.summaries.{tc_acc}
 import sawtypecheck.tier.{tc_tier}
 import sawtypecheck.typeops.{TcClient}
 import sawtypecheck.types.{TcKind, TcType}
-import sawtypecheck.walks.{TC_INSTANTIATION_DEPTH, TcMemo, tc_memo}
+import sawtypecheck.walks.{TC_INSTANTIATION_DEPTH, TcMemo, tc_memo, tc_memo_empty}
 
 // Runs every check of this file.
 public func tc_check_body_rules(p: &var TcProgram) {
@@ -45,6 +45,13 @@ extension TcProgram {
     // argument, an element, a payload, a reference or a function type; -1
     // for none.
     public func borrowing_named(&self, t: Int) -> Int {
+        var seen = tc_memo_empty()
+        self.borrowing_named_in(t, &var seen)
+    }
+
+    // One part of `borrowing_named`. The walk stops at the first borrowing
+    // struct, so a branching part it has seen holds none.
+    func borrowing_named_in(&self, t: Int, seen: &var TcMemo) -> Int {
         if t < 0 {
             return -1
         }
@@ -52,8 +59,11 @@ extension TcProgram {
         if info.kind == TcKind.Nominal && self.is_borrowing_struct(info.decl) {
             return t
         }
+        if self.types.branches(t) && not seen.mark(t, 0) {
+            return -1
+        }
         if info.kind == TcKind.Ref || info.kind == TcKind.Slice || info.kind == TcKind.Array || info.kind == TcKind.Func {
-            let inner = self.borrowing_named(info.b)
+            let inner = self.borrowing_named_in(info.b, &var seen)
             if inner >= 0 {
                 return inner
             }
@@ -62,7 +72,7 @@ extension TcProgram {
             var k = 0
             while k < info.count {
                 let arg = self.types.arg(t, k)
-                let found = self.borrowing_named(arg)
+                let found = self.borrowing_named_in(arg, &var seen)
                 if found >= 0 {
                     return found
                 }

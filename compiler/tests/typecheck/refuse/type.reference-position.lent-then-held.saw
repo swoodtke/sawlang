@@ -1,0 +1,16 @@
+// refuses: type.reference-position at 16:11
+// what a type's parts name is kept by the type, and what its top may be is
+// asked again at each position: the lend `&[Int]?` is allowed, and the same
+// type held as a vector's element is not (SL-639)
+
+struct Pair {
+    a: Int
+}
+
+extension Pair {
+    func at(&self) borrows -> &[Int]? {
+        panic("nothing to lend")
+    }
+}
+
+func f(v: Vector<&[Int]?>) {}

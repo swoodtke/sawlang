@@ -10,6 +10,11 @@ static TC_TYPE_BASIS: Int = 2166136261
 static TC_TYPE_PRIME: Int = 16777619
 static TC_TYPE_MASK: Int = 0xFFFF_FFFF
 
+// The kinds a type holds anywhere in it, itself and every part: an error
+// type, and a type parameter or `Self`, whose projections hold their base.
+public static TC_HOLDS_ERROR: Int = 1
+public static TC_HOLDS_PARAM: Int = 2
+
 public enum TcKind {
     // A struct, enum or builtin type applied to arguments: `decl`, the args.
     case Nominal,
@@ -52,6 +57,9 @@ public struct TcType {
     count: Int
     labeled: Bool
     hash: Int
+    // The TC_HOLDS_ bits of the type. Its parts are interned before it, so
+    // these are their bits joined once, and asking never walks the parts.
+    holds: Int
 }
 
 public struct TcTypes {
@@ -80,6 +88,12 @@ func tc_mix(h: Int, x: Int) -> Int {
     ((h ^ (x & TC_TYPE_MASK)) * TC_TYPE_PRIME) & TC_TYPE_MASK
 }
 
+// Whether a type of `kind` has a part in `b`, beside its arguments: a
+// function's result, a reference's referent, a slice's or an array's element.
+public func tc_kind_wraps(kind: TcKind) -> Bool {
+    kind == TcKind.Func || kind == TcKind.Ref || kind == TcKind.Slice || kind == TcKind.Array
+}
+
 public func tc_kind_code(kind: TcKind) -> Int {
     match kind {
         case Nominal -> 1,
@@ -101,6 +115,19 @@ extension TcTypes {
     public func count(&self) -> Int { self.types.len() }
 
     public func ty(&self, t: Int) -> TcType { self.types[t] }
+
+    // Whether type `t` has two parts or more. A walk over a type's parts
+    // reaches a part once per path to it, and only a branching type
+    // multiplies the paths, so a walk that marks the types it has finished
+    // marks these alone.
+    public func branches(&self, t: Int) -> Bool {
+        let info = self.types[t]
+        var parts = info.count
+        if tc_kind_wraps(info.kind) && info.b >= 0 {
+            parts = parts + 1
+        }
+        parts >= 2
+    }
 
     // Argument `k` of type `t`.
     public func arg(&self, t: Int, k: Int) -> Int {
@@ -145,8 +172,22 @@ extension TcTypes {
         }
         let id = self.types.len()
         let first = self.args.len()
+        var holds = 0
+        if kind == TcKind.Error {
+            holds = TC_HOLDS_ERROR
+        } else if kind == TcKind.Param || kind == TcKind.SelfType {
+            holds = TC_HOLDS_PARAM
+        }
+        if tc_kind_wraps(kind) && b >= 0 {
+            holds = holds | self.types[b].holds
+        }
         k = 0
         while k < args.len() {
+            if args[k] < 0 {
+                holds = holds | TC_HOLDS_ERROR
+            } else {
+                holds = holds | self.types[args[k]].holds
+            }
             try! self.args.push(args[k])
             if labels.len() > 0 {
                 try! self.labels.push(labels[k])
@@ -156,7 +197,8 @@ extension TcTypes {
             k = k + 1
         }
         try! self.types.push(TcType(kind: kind, decl: decl, a: a, b: b, first: first,
-                                    count: args.len(), labeled: labels.len() > 0, hash: h))
+                                    count: args.len(), labeled: labels.len() > 0, hash: h,
+                                    holds: holds))
         let head = self.heads[bucket]
         try! self.next.push(head)
         self.heads[bucket] = id

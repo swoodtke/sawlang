@@ -1,0 +1,202 @@
+// `==` on a trivially comparable type is decided by its parts however deep
+// it nests: a chain of structs 18 deep, and structs whose two fields are
+// one type, 10 deep, each compared equal and unequal (SL-635).
+
+struct L0 {
+    n: Int
+}
+
+struct L1 {
+    next: L0
+    n: Int
+}
+
+struct L2 {
+    next: L1
+    n: Int
+}
+
+struct L3 {
+    next: L2
+    n: Int
+}
+
+struct L4 {
+    next: L3
+    n: Int
+}
+
+struct L5 {
+    next: L4
+    n: Int
+}
+
+struct L6 {
+    next: L5
+    n: Int
+}
+
+struct L7 {
+    next: L6
+    n: Int
+}
+
+struct L8 {
+    next: L7
+    n: Int
+}
+
+struct L9 {
+    next: L8
+    n: Int
+}
+
+struct L10 {
+    next: L9
+    n: Int
+}
+
+struct L11 {
+    next: L10
+    n: Int
+}
+
+struct L12 {
+    next: L11
+    n: Int
+}
+
+struct L13 {
+    next: L12
+    n: Int
+}
+
+struct L14 {
+    next: L13
+    n: Int
+}
+
+struct L15 {
+    next: L14
+    n: Int
+}
+
+struct L16 {
+    next: L15
+    n: Int
+}
+
+struct L17 {
+    next: L16
+    n: Int
+}
+
+struct L18 {
+    next: L17
+    n: Int
+}
+
+struct P0 {
+    n: Int
+}
+
+struct P1 {
+    a: P0
+    b: P0
+}
+
+struct P2 {
+    a: P1
+    b: P1
+}
+
+struct P3 {
+    a: P2
+    b: P2
+}
+
+struct P4 {
+    a: P3
+    b: P3
+}
+
+struct P5 {
+    a: P4
+    b: P4
+}
+
+struct P6 {
+    a: P5
+    b: P5
+}
+
+struct P7 {
+    a: P6
+    b: P6
+}
+
+struct P8 {
+    a: P7
+    b: P7
+}
+
+struct P9 {
+    a: P8
+    b: P8
+}
+
+struct P10 {
+    a: P9
+    b: P9
+}
+
+func chain(leaf: Int) -> L18 {
+    let l0 = L0(n: leaf)
+    let l1 = L1(next: l0, n: 1)
+    let l2 = L2(next: l1, n: 2)
+    let l3 = L3(next: l2, n: 3)
+    let l4 = L4(next: l3, n: 4)
+    let l5 = L5(next: l4, n: 5)
+    let l6 = L6(next: l5, n: 6)
+    let l7 = L7(next: l6, n: 7)
+    let l8 = L8(next: l7, n: 8)
+    let l9 = L9(next: l8, n: 9)
+    let l10 = L10(next: l9, n: 10)
+    let l11 = L11(next: l10, n: 11)
+    let l12 = L12(next: l11, n: 12)
+    let l13 = L13(next: l12, n: 13)
+    let l14 = L14(next: l13, n: 14)
+    let l15 = L15(next: l14, n: 15)
+    let l16 = L16(next: l15, n: 16)
+    let l17 = L17(next: l16, n: 17)
+    let l18 = L18(next: l17, n: 18)
+    l18
+}
+
+func pairs(leaf: Int) -> P10 {
+    let p0 = P0(n: leaf)
+    let p1 = P1(a: p0, b: p0)
+    let p2 = P2(a: p1, b: p1)
+    let p3 = P3(a: p2, b: p2)
+    let p4 = P4(a: p3, b: p3)
+    let p5 = P5(a: p4, b: p4)
+    let p6 = P6(a: p5, b: p5)
+    let p7 = P7(a: p6, b: p6)
+    let p8 = P8(a: p7, b: p7)
+    let p9 = P9(a: p8, b: p8)
+    let p10 = P10(a: p9, b: p9)
+    p10
+}
+
+func main() {
+    let one = chain(1)
+    let same = chain(1)
+    let other = chain(2)
+    print(one == same)
+    print(one == other)
+    let p = pairs(1)
+    let q = pairs(1)
+    let r = pairs(2)
+    print(p == q)
+    print(p != r)
+}

@@ -12,6 +12,7 @@ import sawtypecheck.signatures.{TcContext}
 import sawtypecheck.tier.{tc_tier}
 import sawtypecheck.typeops.{TcClient}
 import sawtypecheck.types.{TcKind, TcType}
+import sawtypecheck.walks.{TcMemo, tc_memo_empty}
 
 // How a conversion fits: not at all, through an adjustment, or exactly.
 public static TC_FIT_NONE: Int = 0
@@ -240,6 +241,13 @@ extension TcProgram {
     // that takes it. An abstract generic peels nothing. TC_PEEL_NONE when no
     // layer takes it, TC_PEEL_AMBIGUOUS when both of a Result's do.
     public func peel(&self, slot: Int, kind: TcClient, name: Int, d: Int) -> Int {
+        var results = tc_memo_empty()
+        self.peel_in(slot, kind, name, d, &var results)
+    }
+
+    // One layer of `peel`. A Result's answer is kept for the call, since its
+    // two payloads, and theirs, may be one type.
+    func peel_in(&self, slot: Int, kind: TcClient, name: Int, d: Int, results: &var TcMemo) -> Int {
         if slot < 0 || self.has_error(slot) {
             return TC_PEEL_NONE
         }
@@ -248,25 +256,36 @@ extension TcProgram {
         }
         if self.is_optional(slot) {
             let inner = self.arg_of(slot, 0)
-            return self.peel(inner, kind, name, d)
+            return self.peel_in(inner, kind, name, d, &var results)
         }
         if self.is_result(slot) {
-            let ok = self.arg_of(slot, 0)
-            let err = self.arg_of(slot, 1)
-            let a = self.peel(ok, kind, name, d)
-            let b = self.peel(err, kind, name, d)
-            if a >= 0 && b >= 0 {
-                return TC_PEEL_AMBIGUOUS
+            let known = results.get(slot, 0)
+            if known >= 0 {
+                return known + TC_PEEL_AMBIGUOUS
             }
-            if a >= 0 {
-                return a
-            }
-            if b >= 0 {
-                return b
-            }
-            if a == TC_PEEL_AMBIGUOUS || b == TC_PEEL_AMBIGUOUS {
-                return TC_PEEL_AMBIGUOUS
-            }
+            let peeled = self.peel_result(slot, kind, name, d, &var results)
+            results.set(slot, 0, peeled - TC_PEEL_AMBIGUOUS)
+            return peeled
+        }
+        TC_PEEL_NONE
+    }
+
+    func peel_result(&self, slot: Int, kind: TcClient, name: Int, d: Int, results: &var TcMemo) -> Int {
+        let ok = self.arg_of(slot, 0)
+        let err = self.arg_of(slot, 1)
+        let a = self.peel_in(ok, kind, name, d, &var results)
+        let b = self.peel_in(err, kind, name, d, &var results)
+        if a >= 0 && b >= 0 {
+            return TC_PEEL_AMBIGUOUS
+        }
+        if a >= 0 {
+            return a
+        }
+        if b >= 0 {
+            return b
+        }
+        if a == TC_PEEL_AMBIGUOUS || b == TC_PEEL_AMBIGUOUS {
+            return TC_PEEL_AMBIGUOUS
         }
         TC_PEEL_NONE
     }

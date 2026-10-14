@@ -30,8 +30,8 @@ import sawtypecheck.spell.{tc_effects_text}
 import sawtypecheck.stdsuspension.{TC_STD_NONSYNC, TC_STD_SUSPENDS, tc_std_suspension_rows}
 import sawtypecheck.tier.{tc_bit}
 import sawtypecheck.typeops.{TcClient}
-import sawtypecheck.types.{TcKind, TcType}
-import sawtypecheck.walks.{TcMemo, tc_memo}
+import sawtypecheck.types.{TC_HOLDS_PARAM, TcKind, TcType}
+import sawtypecheck.walks.{TcMemo, tc_memo, tc_memo_empty}
 
 // What evaluating a body's items gathers.
 public struct TcAcc {
@@ -1009,9 +1009,36 @@ extension TcProgram {
     // is not, whatever they are. `site` is the node that needs it, `origin`
     // the copy that started the requirement.
     public func copy_needs(&var self, t: Int, site: Int, origin: Int, acc: &var TcAcc) -> Bool {
+        var seen = tc_memo_empty()
+        self.copy_needs_in(t, site, origin, &var acc, &var seen)
+    }
+
+    // One part of `copy_needs`. A type naming no parameter adds nothing to
+    // the requirement, so it answers as `copies_silently` does; a branching
+    // one is walked once per call, `seen` keeping its answer, since a second
+    // walk would add the atoms the first did.
+    func copy_needs_in(&var self, t: Int, site: Int, origin: Int, acc: &var TcAcc, seen: &var TcMemo) -> Bool {
         if t < 0 {
             return true
         }
+        if (self.types.ty(t).holds & TC_HOLDS_PARAM) == 0 {
+            return self.copies_silently(t)
+        }
+        let branches = self.types.branches(t)
+        if branches {
+            let known = seen.get(t, 0)
+            if known >= 0 {
+                return known == 1
+            }
+        }
+        let needs = self.copy_needs_of(t, site, origin, &var acc, &var seen)
+        if branches {
+            seen.set(t, 0, if needs { 1 } else { 0 })
+        }
+        needs
+    }
+
+    func copy_needs_of(&var self, t: Int, site: Int, origin: Int, acc: &var TcAcc, seen: &var TcMemo) -> Bool {
         let info = self.types.ty(t)
         match info.kind {
             case Param -> {
@@ -1030,7 +1057,7 @@ extension TcProgram {
                 while k < info.count {
                     if (rule.mask & tc_bit(k)) != 0 {
                         let a = self.types.arg(t, k)
-                        if not self.copy_needs(a, site, origin, &var acc) {
+                        if not self.copy_needs_in(a, site, origin, &var acc, &var seen) {
                             ok = false
                         }
                     }
@@ -1043,14 +1070,14 @@ extension TcProgram {
                 var k = 0
                 while k < info.count {
                     let a = self.types.arg(t, k)
-                    if not self.copy_needs(a, site, origin, &var acc) {
+                    if not self.copy_needs_in(a, site, origin, &var acc, &var seen) {
                         ok = false
                     }
                     k = k + 1
                 }
                 ok
             },
-            case Array -> self.copy_needs(info.b, site, origin, &var acc),
+            case Array -> self.copy_needs_in(info.b, site, origin, &var acc, &var seen),
             case Any -> false,
             case Projection -> false,
             case _ -> true

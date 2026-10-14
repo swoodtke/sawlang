@@ -43,9 +43,12 @@ static TC_TIER_DONE: Int = 2
 static TC_MASK_BITS: Int = 62
 // A declaration's inline rule while it is being built.
 static TC_RULE_BUILDING: Int = -2
-// A `satisfies` pair's state past the frame indices: decided, either way.
+// A `satisfies` pair's state past the frame indices: decided, either way,
+// or true while a frame it leaned on is open, that frame's index below
+// TC_SATISFY_LEANING.
 static TC_SATISFY_FALSE: Int = -2
 static TC_SATISFY_TRUE: Int = -3
+static TC_SATISFY_LEANING: Int = -4
 // A run's lowest frame reached back to, when no cycle has reached any.
 static TC_SATISFY_NO_LOW: Int = 0x7FFF_FFFF_FFFF
 
@@ -667,10 +670,15 @@ func tc_summary_join(a: Int, b: Int, any_part: Bool) -> Int {
 }
 
 // One `satisfies` question: each (type, trait) pair it asks, its answer or the
-// frame asking it; the lowest frame a cycle reached back to; and the type
+// frame asking it; the pairs that hold while a frame they leaned on is open,
+// the first `leaning` of `leaning_types` and `leaning_traits`, in the order
+// they were decided; the lowest frame a cycle reached back to; and the type
 // whose derivation from its members nested past the instantiation depth.
 struct TcSatisfyRun {
     states: TcMemo
+    leaning_types: Vector<Int>
+    leaning_traits: Vector<Int>
+    leaning: Int
     frames: Int
     low: Int
     overflow: Int
@@ -680,7 +688,45 @@ struct TcSatisfyRun {
 extension TcSatisfyRun: NoCopy {}
 
 func tc_satisfy_run() -> TcSatisfyRun {
-    TcSatisfyRun(states: tc_memo(), frames: 0, low: TC_SATISFY_NO_LOW, overflow: -1, overflow_trait: -1)
+    TcSatisfyRun(states: tc_memo(), leaning_types: Vector<Int>(), leaning_traits: Vector<Int>(), leaning: 0,
+                 frames: 0, low: TC_SATISFY_NO_LOW, overflow: -1, overflow_trait: -1)
+}
+
+extension TcSatisfyRun {
+    // Lowers the frame the pair being decided leans on to `frame`.
+    func lean(&var self, frame: Int) {
+        if frame < self.low {
+            self.low = frame
+        }
+    }
+
+    // Records that (t, tr) holds while frame `low` is open.
+    func add_leaning(&var self, t: Int, tr: Int, low: Int) {
+        self.states.set(t, tr, TC_SATISFY_LEANING - low)
+        if self.leaning < self.leaning_types.len() {
+            self.leaning_types[self.leaning] = t
+            self.leaning_traits[self.leaning] = tr
+        } else {
+            try! self.leaning_types.push(t)
+            try! self.leaning_traits.push(tr)
+        }
+        self.leaning = self.leaning + 1
+    }
+
+    // Settles the leaning pairs decided since `mark` to `state`, dropping them
+    // from the leaning list unless they still lean on an open frame.
+    func settle_leaning(&var self, mark: Int, state: Int, still_leaning: Bool) {
+        var k = mark
+        while k < self.leaning {
+            let t = self.leaning_types[k]
+            let tr = self.leaning_traits[k]
+            self.states.set(t, tr, state)
+            k = k + 1
+        }
+        if not still_leaning {
+            self.leaning = mark
+        }
+    }
 }
 
 // Bound satisfaction.
@@ -727,8 +773,13 @@ extension TcProgram {
     }
 
     // One pair of a run. A false answer is final, since a cycle assumes
-    // only that a pair holds; a true one is kept only when no cycle it
-    // leaned on reaches below its own frame.
+    // only that a pair holds. A true one that leaned on a frame below its own
+    // holds while that frame is open, and every pair decided inside a frame
+    // settles when the frame does: final when it holds and leaned on nothing
+    // below it, forgotten when it fails, else leaning on the lowest frame it
+    // reached. So no leaning pair outlives the frame it names, and a frame's
+    // index, reused after it closes, never answers for a pair decided
+    // before.
     func satisfies_in(&var self, t: Int, tr: Int, env_decl: Int, env_ext: Int, run: &var TcSatisfyRun) -> Bool {
         let state = run.states.get(t, tr)
         if state == TC_SATISFY_FALSE {
@@ -738,29 +789,33 @@ extension TcProgram {
             return true
         }
         if state >= 0 {
-            if state < run.low {
-                run.low = state
-            }
+            run.lean(state)
+            return true
+        }
+        if state <= TC_SATISFY_LEANING {
+            run.lean(TC_SATISFY_LEANING - state)
             return true
         }
         let frame = run.frames
         run.frames = frame + 1
         run.states.set(t, tr, frame)
+        let mark = run.leaning
         let outer_low = run.low
         run.low = TC_SATISFY_NO_LOW
         let answer = self.satisfies_at(t, tr, env_decl, env_ext, &var run)
         run.frames = frame
         let low = run.low
         if not answer {
+            run.settle_leaning(mark, -1, false)
             run.states.set(t, tr, TC_SATISFY_FALSE)
         } else if low >= frame {
+            run.settle_leaning(mark, TC_SATISFY_TRUE, false)
             run.states.set(t, tr, TC_SATISFY_TRUE)
         } else {
-            run.states.set(t, tr, -1)
+            run.settle_leaning(mark, TC_SATISFY_LEANING - low, true)
+            run.add_leaning(t, tr, low)
         }
-        if outer_low < low {
-            run.low = outer_low
-        }
+        run.lean(outer_low)
         answer
     }
 
