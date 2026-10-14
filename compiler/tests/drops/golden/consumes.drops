@@ -76,6 +76,26 @@ fn consumes.Triple.diverging(n: Int) -> consumes.Res {
     glue consumes.Res: structural
 }
 
+fn consumes.Triple.refill() -> consumes.Res {
+    let _0: consumes.Res;  // return
+    let _1: consumes.Triple;  // self
+    let _2: consumes.Res;  // old
+    let _3: consumes.Res;
+
+    bb0: {
+        _2 = move _1.b;
+        _3 = consumes.Res { id: const 4: Int };
+        _1.b = move _3;
+        _0 = move _2;
+        drop(_1.c);
+        drop(_1.b);
+        drop(_1.a);
+        return;
+    }
+
+    glue consumes.Res: structural
+}
+
 fn consumes.make() -> consumes.Triple {
     let _0: consumes.Triple;  // return
     let _1: consumes.Res;
@@ -101,12 +121,16 @@ fn consumes.main() -> Void {
     let _4: consumes.Triple;
     let _5: consumes.Triple;  // r
     let _6: consumes.Triple;
-    let _7: consumes.Res;
-    let _8: Int;
-    let _9: Int;
+    let _7: consumes.Triple;  // s
+    let _8: consumes.Triple;
+    let _9: consumes.Res;
     let _10: Int;
-    let _11: consumes.Res;
+    let _11: Int;
     let _12: Int;
+    let _13: consumes.Res;
+    let _14: Int;
+    let _15: consumes.Res;
+    let _16: Int;
 
     bb0: {
         _2 = call consumes.make() [] -> [return: bb1];
@@ -124,27 +148,38 @@ fn consumes.main() -> Void {
 
     bb3: {
         _5 = move _6;
-        _7 = call consumes.Triple.middle(hot: Bool) (owner consumes.Triple) [move _1, const true: Bool] -> [return: bb4];
+        _8 = call consumes.make() [] -> [return: bb4];
     }
 
     bb4: {
-        _8 = copy _7.id;
-        _9 = call consumes.Triple.none() (owner consumes.Triple) [move _3] -> [return: bb5];
+        _7 = move _8;
+        _9 = call consumes.Triple.middle(hot: Bool) (owner consumes.Triple) [move _1, const true: Bool] -> [return: bb5];
     }
 
     bb5: {
-        _10 = Add(move _8, move _9);
-        _11 = call consumes.Triple.diverging(n: Int) (owner consumes.Triple) [move _5, const 1: Int] -> [return: bb6];
+        _10 = copy _9.id;
+        _11 = call consumes.Triple.none() (owner consumes.Triple) [move _3] -> [return: bb6];
     }
 
     bb6: {
-        _12 = Add(move _10, copy _11.id);
-        call builtin print [move _12] -> [return: bb7];
+        _12 = Add(move _10, move _11);
+        _13 = call consumes.Triple.diverging(n: Int) (owner consumes.Triple) [move _5, const 1: Int] -> [return: bb7];
     }
 
     bb7: {
-        drop(_11);
-        drop(_7);
+        _14 = Add(move _12, copy _13.id);
+        _15 = call consumes.Triple.refill() (owner consumes.Triple) [move _7] -> [return: bb8];
+    }
+
+    bb8: {
+        _16 = Add(move _14, copy _15.id);
+        call builtin print [move _16] -> [return: bb9];
+    }
+
+    bb9: {
+        drop(_15);
+        drop(_13);
+        drop(_9);
         return;
     }
 

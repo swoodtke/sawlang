@@ -342,7 +342,13 @@ compares:
   next iteration, a loop before the `lend`, two nested loops), prints its
   `// prints:` lines the same way. Stage 0 cannot parse a `borrow` block, so
   each program states its own output; the long one's length is past the
-  round count a capped dataflow stops at (SL-610).
+  round count a capped dataflow stops at (SL-610);
+- `probes/consumes_refill.saw`, whose `consumes` bodies move a field out and
+  assign it again (straight-line, on both arms, before an early return, then
+  out again, on a type that writes its own `deinit`, and on a generic
+  receiver), prints its `// prints:` lines the same way: each refilled value
+  is released with the rest of the receiver. Stage 0 refuses the assignment
+  as a use after the move (SL-611).
 
 Stage 0 is the oracle: a difference is a sawc2 bug until shown otherwise
 (SL:architecture §5).

@@ -84,8 +84,8 @@ like any other, at its own place among the locals.
 
 **Partial paths.** The MIR already decomposes a value whose parts left: a
 consuming destructure drops each owned part it does not move (`leftovers`),
-and a `consumes` body's release drops the fields that stayed
-(`compiler/tests/mir/README.md`). So elaboration sees drops of parts, each
+and a `consumes` body's release drops each field, a drop the borrow check
+elides where the field left (`compiler/tests/mir/README.md`). So elaboration sees drops of parts, each
 elaborated by its own label, and never a whole drop of a partly moved place
 in valid MIR; a flagged drop of one is reported as an `INVARIANT` and
 elaborated to nothing. The every-path-or-none rule (`consumes.some-paths`)
@@ -174,7 +174,10 @@ that fact sound. It fails, naming the function and the block, on:
   edge does not alone enter;
 - a switch reading a flag some path has not set;
 - a `return` where an owned local, or an owning field or element of a
-  partly moved one, may still be whole;
+  partly moved one, may still be whole, or where an owning field of a
+  `consumes` body's receiver may: its fields are read from its type, so a
+  field the release names nowhere is seen too, whole wherever the receiver
+  is whole or partly moved;
 - a flag not starting as its path's entry conditions give, a statement that
   changes its path not followed by the matching update before the path is
   touched again, a terminator whose update does not stand before it, or a
@@ -187,7 +190,9 @@ that fact sound. It fails, naming the function and the block, on:
 The verifier reads no text, so each rejection that matters is pinned by a unit
 program that elaborates a fixture of `inject/`, edits it, and requires the
 report: `compiler/drops/tests/verify_flags.saw` turns the move a flag's clear
-stands for into a copy.
+stands for into a copy, and `compiler/drops/tests/verify_consumed.saw`
+removes a consumed receiver's drop of a refilled field, then of a field only
+that drop names.
 
 **A limit: the leak check does not follow enum payloads.** At a `return` it
 follows a partly moved value's fields and tuple elements, never a payload
@@ -224,7 +229,7 @@ there. It counts the drop flags over the sawc2 build and over tests/corpus.
 | early exits: `return`, `break`, `continue`, `try` | exits |
 | a dissolve under each consuming form: part drops | dissolves |
 | what a `match`, `if let` or `while let` leaves over, static, on each exit of its body: the arm's end, a `return`, across a suspension, per iteration and on `break` | leftovers |
-| a `consumes` body: field release, no flag | consumes |
+| a `consumes` body: field release, a field moved out and assigned again released with it, no flag | consumes |
 | statement temporaries in reverse creation order; one on a short circuit's right side, or `??`'s, dropped on that side before the sides join, unflagged, in a loop too | temporaries |
 | drops inside a window's body before its close; a `for` over a borrowing struct | windows |
 | glue: `deinit`, structural, closure environment, builtin, per instantiation | glue |

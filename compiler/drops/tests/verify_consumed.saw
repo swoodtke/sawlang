@@ -1,0 +1,134 @@
+// The drops verifier's leak check covers a `consumes` body's receiver, which
+// is released field by field (SL-611). The fixture
+// `compiler/tests/drops/inject/consumed.saw` is elaborated, found clean, then
+// edited: the release's drop of one field is unlinked, once for the refilled
+// `first`, which accesses name, and once for `second`, which only that drop
+// names. Each edit must be reported. Paths are the repository root's, where
+// the runner runs.
+import sawborrowck.check.{borrowck_rules}
+import sawborrowck.program.{borrowck_program}
+import sawdrops.elaborate.{drops_rules}
+import sawdrops.program.{DropsProgram, drops_program}
+import sawdrops.verify.{drops_verify_module}
+import sawmir.api.{mir_lower_file}
+import sawmir.dump.{mir_module_functions}
+import sawmir.model.{MirProjKind, MirStmtKind}
+
+// The index of module `name`, or -1.
+func module_index(p: &DropsProgram, name: String) -> Int {
+    var m = 0
+    while m < p.bc.mir.tc.res.module_count() {
+        if p.bc.mir.tc.res.module_name(m).equals(name) {
+            return m
+        }
+        m = m + 1
+    }
+    return -1
+}
+
+// Whether statement `s` drops the receiver's field named `field`.
+func drops_field(p: &DropsProgram, s: Int, field: String) -> Bool {
+    let stmt = p.bc.mir.stmts[s]
+    if stmt.kind != MirStmtKind.Drop || stmt.place < 0 {
+        return false
+    }
+    let place = p.bc.mir.places[stmt.place]
+    if place.local != 1 || place.count != 1 {
+        return false
+    }
+    let proj = p.bc.mir.projs[place.first]
+    proj.kind == MirProjKind.Field && p.bc.mir.decl_name(proj.decl).equals(field)
+}
+
+// Unlinks the first statement of module `m`'s functions that drops the
+// receiver's field `field`; whether one was found.
+func unlink_field_drop(p: &var DropsProgram, m: Int, field: String) -> Bool {
+    var f = 0
+    while f < p.bc.mir.funcs.len() {
+        let info = p.bc.mir.funcs[f]
+        f = f + 1
+        if info.module != m {
+            continue
+        }
+        var b = 0
+        while b < info.block_count {
+            let at = info.block_first + b
+            b = b + 1
+            var block = p.bc.mir.blocks[at]
+            var prev = -1
+            var s = block.first
+            while s >= 0 {
+                let next = p.bc.mir.stmts[s].next
+                if drops_field(&p, s, field) {
+                    if prev < 0 {
+                        block.first = next
+                    } else {
+                        var before = p.bc.mir.stmts[prev]
+                        before.next = next
+                        p.bc.mir.stmts[prev] = before
+                    }
+                    if block.last == s {
+                        block.last = prev
+                    }
+                    p.bc.mir.blocks[at] = block
+                    return true
+                }
+                prev = s
+                s = next
+            }
+        }
+    }
+    false
+}
+
+// The fixture elaborated, checked clean, with the release's drop of `field`
+// unlinked; the verifier's report.
+func verify_without(field: String) -> Vector<String> {
+    let names = Vector<String>()
+    let dirs = Vector<String>()
+    var lowerings = 0
+    let lowered = mir_lower_file("compiler/tests/drops/inject/consumed.saw", "sawc", &names, &dirs, &var lowerings)
+    var bc = borrowck_program(move lowered)
+    var m = 0
+    while m < bc.mir.tc.res.module_count() {
+        let info = bc.mir.tc.res.module(m)
+        if info.available && not info.interface_only {
+            bc.check_module(m)
+        }
+        m = m + 1
+    }
+    assert(bc.diags.len() == 0 && bc.mir.diags.len() == 0, "the fixture is refused")
+    var p = drops_program(move bc)
+    let entry = module_index(&p, "consumed")
+    assert(entry >= 0, "the fixture did not load: run from the repository root")
+    p.elaborate_module(entry)
+    assert(p.problems.len() == 0, "elaborating the fixture meets a problem")
+    let before = drops_verify_module(&var p, entry)
+    assert(before.len() == 0, "the fixture's elaborated MIR is not clean before the edit")
+    assert(unlink_field_drop(&var p, entry, field), "the fixture's release drops no such field")
+    drops_verify_module(&var p, entry)
+}
+
+// Whether some line of `report` says the receiver may still hold a value.
+func reports_receiver(report: &Vector<String>) -> Bool {
+    let part = "returns while owned local _1,"
+    var k = 0
+    while k < report.len() {
+        var at = 0
+        while at + part.len() <= report[k].len() {
+            if report[k].substring(at, at + part.len()).equals(part) {
+                return true
+            }
+            at = at + 1
+        }
+        k = k + 1
+    }
+    false
+}
+
+func main() {
+    let refilled = verify_without("first")
+    assert(reports_receiver(&refilled), "the verifier misses a refilled field the release leaves behind")
+    let untouched = verify_without("second")
+    assert(reports_receiver(&untouched), "the verifier misses a field no access but its drop names")
+}

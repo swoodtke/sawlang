@@ -51,7 +51,10 @@ exit status compared.
 - a generated accessor with a local live across its `lend` and 1100 `if`s
   after it, and `probes/accessor_loops.saw`, whose accessors keep locals live
   around loops, neither of which Stage 0 can parse, built by sawc2 at -O0
-  and at -O2 with nothing printed, print the lines they state.
+  and at -O2 with nothing printed, print the lines they state;
+- `probes/consumes_refill.saw`, whose `consumes` bodies assign a field again
+  after moving it out, which Stage 0 refuses, prints the lines it states the
+  same way.
 
 `--bench` runs none of that: it times each kernel of `bench/` under sawc2 at
 -O2 and under Stage 0 and prints the report, which gates nothing. The runner
@@ -605,7 +608,7 @@ def long_accessor_source(ifs):
 
 
 def check_stated(failures, counts, what, src, want):
-    """`src`, which Stage 0 cannot parse, built by sawc2 at -O0 and at -O2
+    """`src`, which Stage 0 cannot build, built by sawc2 at -O0 and at -O2
     with nothing printed (so no INVARIANT), prints exactly `want` and exits
     0 under both: a read of an uninitialised local can pass at one level and
     not the other."""
@@ -622,8 +625,7 @@ def check_stated(failures, counts, what, src, want):
             failures.append("run %s %s: exit %s, prints %r, not %r" % (what, speed, code, out[:300], want))
             passed = False
     if passed:
-        counts["run accessor programs stating their output"] = counts.get(
-            "run accessor programs stating their output", 0) + 1
+        counts["run programs stating their output"] = counts.get("run programs stating their output", 0) + 1
 
 
 def check_long_accessor(failures, counts):
@@ -638,6 +640,15 @@ def check_long_accessor(failures, counts):
     loops = os.path.join(HERE, "probes", "accessor_loops.saw")
     want = "".join(line + "\n" for line in stated_prints(loops)).encode()
     check_stated(failures, counts, "accessor loops", loops, want)
+
+
+def check_consumes_refill(failures, counts):
+    """A `consumes` body's field moved out and assigned again is released
+    with the rest of the receiver: `probes/consumes_refill.saw`, which Stage 0
+    refuses, prints its `// prints:` lines (SL-611)."""
+    src = os.path.join(HERE, "probes", "consumes_refill.saw")
+    want = "".join(line + "\n" for line in stated_prints(src)).encode()
+    check_stated(failures, counts, "consumes refill", src, want)
 
 
 def run(names=None, write=False):
@@ -667,6 +678,7 @@ def run(names=None, write=False):
         check_runtime(failures, counts)
         check_executable_path(failures, counts)
         check_long_accessor(failures, counts)
+        check_consumes_refill(failures, counts)
     return failures, counts, dues
 
 

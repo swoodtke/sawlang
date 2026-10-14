@@ -1,6 +1,9 @@
 // `consumes` field moves: a field moved on every path to a return, a field
-// moved on none, and a field moved on all but a path that diverges, which is
-// exempt since it reaches no return. The release drops the fields that stay.
+// moved on none, a field moved on all but a path that diverges, which is
+// exempt since it reaches no return, and a field moved out then assigned
+// again on every path. The release drops every field, by the conditions at
+// the return: a field that left is elided, one that stays or came back is
+// static.
 
 struct Res { id: Int }
 extension Res: NoCopy {}
@@ -26,6 +29,16 @@ extension Pair {
         }
         move self.b
     }
+
+    func refilled(&var self, hot: Bool) consumes -> Res {
+        let old = move self.a
+        if hot {
+            self.a = Res(id: 3)
+        } else {
+            self.a = Res(id: 4)
+        }
+        move old
+    }
 }
 
 func make() -> Pair { Pair(a: Res(id: 1), b: Res(id: 2)) }
@@ -34,5 +47,6 @@ func main() {
     let p = make()
     let q = make()
     let r = make()
-    print((move p).every(true).id + (move q).none() + (move r).diverging(1).id)
+    let s = make()
+    print((move p).every(true).id + (move q).none() + (move r).diverging(1).id + (move s).refilled(true).id)
 }

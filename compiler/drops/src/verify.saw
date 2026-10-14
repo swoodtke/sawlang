@@ -9,9 +9,10 @@
 //     only on its flag's true edge;
 //   - every flag is set before a guard reads it, on every path (the flag
 //     local itself is definitely whole at the switch);
-//   - no owned local is still whole, or partly moved, at a `return`, so
-//     every value is destroyed exactly once on every path to a return; a
-//     path that diverges reaches no return, and a panic does not unwind;
+//   - no owned local is still whole, or partly moved, at a `return`, nor a
+//     field of a `consumes` body's receiver, so every value is destroyed
+//     exactly once on every path to a return; a path that diverges reaches
+//     no return, and a panic does not unwind;
 //   - each flag follows its path: set in bb0 from the entry's conditions,
 //     then updated after every statement, and before every terminator, whose
 //     accesses change whether the path is whole, and nowhere else;
@@ -28,6 +29,8 @@ import sawmir.initialisation.{MIR_INIT_DROPPED, MIR_INIT_PARTIAL, MIR_INIT_WHOLE
 import sawmir.model.{MirFuncKind, MirOperandKind, MirProjKind, MirRvalueKind, MirStmt, MirStmtKind,
                          MirSwitchKind, MirTermKind}
 import sawmir.program.{MirProgram}
+import sawresolve.model.{ResDeclKind}
+import sawtypecheck.typeops.{TcClient}
 
 // Every problem the verifier finds in module `m`'s elaborated functions.
 public func drops_verify_module(p: &var DropsProgram, m: Int) -> Vector<String> {
@@ -234,10 +237,15 @@ extension DropsProgram {
                 let term = self.bc.mir.init_term_accesses(f, b, &facts)
                 mir_init_apply_all(&facts, &var state, &term)
                 if block.term == MirTermKind.Return {
+                    let receiver = self.consumed_receiver(f)
                     k = 0
                     while k < info.local_count {
                         let l = mir_func_local(&self.bc.mir, f, k)
-                        if l.owned && self.still_whole(&facts, &state, k) {
+                        var leaks = l.owned && self.still_whole(&facts, &state, k)
+                        if receiver && k == 1 {
+                            leaks = self.receiver_leaks(&facts, &state)
+                        }
+                        if leaks {
                             var text = StringBuilder()
                             try! text.append("returns while owned local _")
                             try! text.append(k)
@@ -250,6 +258,51 @@ extension DropsProgram {
             }
             b = b + 1
         }
+    }
+
+    // Whether a `consumes` body's receiver, local 1, may still hold an owning
+    // field at a return. Its fields are read from its type, not from the
+    // release MIR lowering chose, so a field no drop names is seen: it is
+    // whole wherever the receiver is whole or only partly moved. A struct
+    // released field by field stays whole itself, so only an enum is judged
+    // by the receiver's own conditions.
+    func receiver_leaks(&var self, facts: &MirInit, state: &Vector<Int>) -> Bool {
+        let t = facts.path_ty[1]
+        let d = self.bc.mir.tc.nominal_decl(t)
+        if d < 0 || self.bc.mir.tc.res.decls[d].kind != ResDeclKind.Struct {
+            return self.bc.mir.owns(t) && self.still_whole(&facts, &state, 1)
+        }
+        var fields = Vector<Int>()
+        var types = Vector<Int>()
+        self.bc.mir.struct_fields(t, &var fields, &var types)
+        let present = (state[1] & (MIR_INIT_WHOLE | MIR_INIT_PARTIAL)) != 0
+        var k = 0
+        while k < fields.len() {
+            let ft = types[k]
+            if self.bc.mir.owns(ft) {
+                let q = self.field_path(&facts, fields[k])
+                if q >= 0 && self.still_whole(&facts, &state, q) {
+                    return true
+                }
+                if q < 0 && present {
+                    return true
+                }
+            }
+            k = k + 1
+        }
+        false
+    }
+
+    // The path of the receiver's field `field`, or -1 when no access names it.
+    func field_path(&self, facts: &MirInit, field: Int) -> Int {
+        var c = facts.path_child[1]
+        while c >= 0 {
+            if facts.path_kind[c] == MirProjKind.Field && facts.path_decl[c] == field {
+                return c
+            }
+            c = facts.path_sibling[c]
+        }
+        return -1
     }
 
     // Whether path `q`, or an owning field or element inside it, may still

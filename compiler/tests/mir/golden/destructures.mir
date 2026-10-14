@@ -867,6 +867,7 @@ fn destructures.Holder.take_kept() -> destructures.Res {
     bb0: {
         _0 = move _1.kept;
         drop(_1.other);
+        drop(_1.kept);
         return;
     }
 }

@@ -27,8 +27,8 @@ import sawresolve.program.{ResProgram}
 import sawtypecheck.adjust.{TC_FIT_NONE}
 import sawtypecheck.bodies.{TcCand, TcCandKind, tc_check_bodies}
 import sawtypecheck.bodydump.{tc_dump_bodies}
-import sawtypecheck.candidates.{tc_contains}
 import sawtypecheck.checks.{tc_check_unsafe}
+import sawtypecheck.candidates.{tc_contains}
 import sawtypecheck.conform.{TcSubst, tc_args_subst, tc_extension_sets}
 import sawtypecheck.declarations.{tc_build_signatures}
 import sawtypecheck.fold.{TcSameTest}
@@ -396,20 +396,22 @@ extension MirProgram {
     }
 
     // A `consumes` method's receiver, which its body owns and ends. Once the
-    // body moves fields out of it with `move self.f`, or its type writes its
-    // own `deinit`, it is released field by field at every exit: the fields
-    // that stayed, never the whole value, and never that `deinit` body (spec,
-    // Consuming method receivers; SL:architecture §3.7).
+    // body moves a field out with `move self.f`, or its type writes its own
+    // `deinit`, it is released field by field at every exit, never whole and
+    // never through that `deinit` body. Every field gets its drop: which
+    // fields remain is the borrow check's to say from the conditions at the
+    // exit, so a field that left is elided and one assigned again is released
+    // (spec, Consuming method receivers; SL:architecture §3.7).
     func bind_consumed_receiver(&var self, root: Int, l: Int) {
         self.release_fields = Vector<Int>()
         self.release_types = Vector<Int>()
         let t = self.local_type(l)
         let d = self.tc.nominal_decl(t)
-        var moved = Vector<Int>()
+        var moves = false
         var whole = false
-        self.fields_moved_from_self(root, d, &var moved, &var whole)
+        self.moves_out_of_self(root, d, &var moves, &var whole)
         let deinit = self.writes_deinit(t)
-        if moved.len() == 0 && not deinit && not whole {
+        if not moves && not deinit && not whole {
             self.scope_owned(l)
             return
         }
@@ -419,29 +421,20 @@ extension MirProgram {
             self.scope_owned(l)
             return
         }
-        let sub = tc_args_subst(d, self.tc.nominal_args(t))
-        let members = self.tc.members_of(d)
-        var k = 0
-        while k < members.len() {
-            let f = members[k]
-            k = k + 1
-            if self.tc.res.decls[f].kind != ResDeclKind.Field || tc_contains(&moved, f) {
-                continue
-            }
-            let written = self.tc.sigs[f].result
-            let ft = self.tc.subst(written, &sub)
-            try! self.release_fields.push(f)
-            try! self.release_types.push(ft)
-        }
+        var fields = Vector<Int>()
+        var types = Vector<Int>()
+        self.struct_fields(t, &var fields, &var types)
+        self.release_fields = move fields
+        self.release_types = move types
         self.scope_fieldwise(l)
     }
 
-    // The fields of struct `d` that `move self.f` moves out anywhere under
-    // node `id`, each once; `whole` set by a `move self` of all of it. A move
-    // deeper into `self` is typecheck's to refuse, so meeting one here is an
-    // invariant. A trivially copyable field is read as a
-    // copy (`op_move`), which leaves `self` whole, so it is never one.
-    func fields_moved_from_self(&var self, id: Int, d: Int, moved: &var Vector<Int>, whole: &var Bool) {
+    // Whether `move self.f` moves a field of struct `d` out anywhere under
+    // node `id` (`moves`), or `move self` all of it (`whole`). A move deeper
+    // into `self` is typecheck's to refuse, so meeting one here is an
+    // invariant. A trivially copyable field is read as a copy (`op_move`),
+    // which leaves `self` whole, so it is never one.
+    func moves_out_of_self(&var self, id: Int, d: Int, moves: &var Bool, whole: &var Bool) {
         let n = self.tc.child_count(id)
         var k = 0
         while k < n {
@@ -459,14 +452,14 @@ extension MirProgram {
                     let f = self.self_field(operand, d)
                     let ft = self.tc.expr_types[operand]
                     let trivial = ft >= 0 && self.tc.is_trivial(ft, 0)
-                    if f >= 0 && not trivial && not tc_contains(&moved, f) {
-                        try! moved.push(f)
+                    if f >= 0 && not trivial {
+                        moves = true
                     }
                 } else if self.rooted_in_self(operand) {
                     self.missing(c, "a move out of `self` deeper than one field, which typecheck refuses as transfer.partial-move")
                 }
             }
-            self.fields_moved_from_self(c, d, &var moved, &var whole)
+            self.moves_out_of_self(c, d, &var moves, &var whole)
         }
     }
 

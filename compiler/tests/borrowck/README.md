@@ -179,7 +179,7 @@ dump are its clients.
 | rule | refuses | fixtures |
 |---|---|---|
 | `move.use-after` | a read, a borrow, a move or a call through a place that may have been moved, or a part of which may have been moved out (`M` or `P`); a write to a part of a place that may have been moved whole | `move.use-after`, `.double`, `.loop`, `.branch`, `.field-init`, `.force`, `.consumed`, `.partial`, `.while-condition`, `.take`, `.retake` |
-| `consumes.some-paths` | a `consumes` method's receiver, or a field of it, moved out on some paths to a `return` and left on others (spec, Moving a field out); a path that diverges reaches no `return`, so it is exempt | `consumes.some-paths` |
+| `consumes.some-paths` | a `consumes` method's receiver, or a field of it, left moved out on some paths to a `return` and in place on others, judged before the receiver's release (spec, Moving a field out); a path that diverges reaches no `return`, so it is exempt | `consumes.some-paths`; a field assigned again on one path only, `.refill` |
 | `loan.read-while-exclusive` | a read or a shared borrow of a place overlapping a live exclusive loan | `loan.read-while-exclusive`, `.tuple-element`, `.forwarded` |
 | `loan.write-while-shared` | a write or an exclusive borrow of a place overlapping a live shared loan | `loan.write-while-shared`, `.receiver`; a slice forwarded `&s` beside `&var s`: `.slice-forward` |
 | `loan.exclusive-twice` | a write or an exclusive borrow of a place overlapping a live exclusive loan | `loan.exclusive-twice`, `.dynamic-index`; `&var v` beside a `[&var v]` capture of the same reference parameter: `.capture-reference`; a closure naming the same parameter with no capture list: `.implicit-capture-reference`; a slice forwarded `&var s` twice: `.slice-forward`; a `[&var s]` capture inside a borrow of an element: `.slice-capture` |
@@ -216,9 +216,13 @@ source node.
 
 A `consumes` body with a field moved on some paths only is the user's error,
 not the lowering's, so the MIR verifier does not check its move paths
-(`init_consumes_partial`). Its release, the fields no path moves out, is
-then short on the paths that keep a field; the refusal is what stops that
-from reaching code.
+(`init_consumes_partial`). Each return is judged by the conditions the body
+leaves there, before the receiver's release: the release drops every field,
+so its drops say nothing about what the body moved. Its drop of a field so
+moved would be `flagged`, which a consumed receiver may not carry; the
+refusal is what stops that from reaching code. A field moved out and
+assigned again on every path is whole at the return, and its drop is
+`static`.
 
 ### Who refuses a partial move
 

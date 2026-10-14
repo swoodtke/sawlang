@@ -1,0 +1,188 @@
+// A `consumes` body that moves a field out and assigns it again releases the
+// new value with what remains of the receiver (spec, The callee is the
+// release point). Stage 0 refuses the assignment as a use after the move, so
+// the run lane builds this at -O0 and -O2 and requires the `// prints:` lines
+// (SL-611).
+// prints: drop 2
+// prints: drop 11
+// prints: r1 got 1
+// prints: drop 1
+// prints: drop 2
+// prints: drop 21
+// prints: r2 got 1
+// prints: drop 1
+// prints: drop 2
+// prints: drop 22
+// prints: r2 got 1
+// prints: drop 1
+// prints: drop 2
+// prints: r3 got 1 31
+// prints: drop 31
+// prints: drop 1
+// prints: drop 2
+// prints: drop 41
+// prints: r4 got 1
+// prints: drop 1
+// prints: drop 2
+// prints: drop 42
+// prints: r4 got 1
+// prints: drop 1
+// prints: drop 51
+// prints: r5 got 1 2
+// prints: drop 2
+// prints: drop 1
+// prints: drop 2
+// prints: drop 61
+// prints: r6 got 1
+// prints: drop 1
+// prints: drop 2
+// prints: drop 71
+// prints: r7 got 1
+// prints: drop 1
+struct Tag {
+    id: Int
+}
+
+extension Tag: NoCopy {
+    func deinit(&var self) {
+        print("drop {}", self.id)
+    }
+}
+
+struct Conn {
+    first: Tag,
+    second: Tag
+}
+
+extension Conn: NoCopy {}
+
+// A type that writes its own `deinit`, which a consumed receiver skips.
+struct Owned {
+    first: Tag,
+    second: Tag
+}
+
+extension Owned: NoCopy {
+    func deinit(&var self) {
+        print("Owned body")
+    }
+}
+
+struct Holder<T> {
+    first: T,
+    second: Tag
+}
+
+extension Holder<T>: NoCopy {}
+
+extension Conn {
+    func refill(&var self) consumes -> Tag {
+        let old = move self.first
+        self.first = Tag(id: 11)
+        move old
+    }
+
+    func refill_both(&var self, c: Bool) consumes -> Tag {
+        let old = move self.first
+        if c {
+            self.first = Tag(id: 21)
+        } else {
+            self.first = Tag(id: 22)
+        }
+        move old
+    }
+
+    // The refilled field leaves again, so the release has nothing of it.
+    func refill_again(&var self) consumes -> (Tag, Tag) {
+        let old = move self.first
+        self.first = Tag(id: 31)
+        (move old, move self.first)
+    }
+
+    func refill_early(&var self, c: Bool) consumes -> Tag {
+        let old = move self.first
+        if c {
+            self.first = Tag(id: 41)
+            return move old
+        }
+        self.first = Tag(id: 42)
+        move old
+    }
+
+    func refill_one_of_two(&var self) consumes -> (Tag, Tag) {
+        let a = move self.first
+        let b = move self.second
+        self.second = Tag(id: 51)
+        (move a, move b)
+    }
+}
+
+extension Owned {
+    func refill(&var self) consumes -> Tag {
+        let old = move self.first
+        self.first = Tag(id: 61)
+        move old
+    }
+}
+
+extension Holder<T> {
+    func refill(&var self, v: T) consumes -> T {
+        let old = move self.first
+        self.first = move v
+        move old
+    }
+}
+
+func one() {
+    let c = Conn(first: Tag(id: 1), second: Tag(id: 2))
+    let t = (move c).refill()
+    print("r1 got {}", t.id)
+}
+
+func both(c: Bool) {
+    let conn = Conn(first: Tag(id: 1), second: Tag(id: 2))
+    let t = (move conn).refill_both(c: c)
+    print("r2 got {}", t.id)
+}
+
+func again() {
+    let c = Conn(first: Tag(id: 1), second: Tag(id: 2))
+    let t = (move c).refill_again()
+    print("r3 got {} {}", t.0.id, t.1.id)
+}
+
+func early(c: Bool) {
+    let conn = Conn(first: Tag(id: 1), second: Tag(id: 2))
+    let t = (move conn).refill_early(c: c)
+    print("r4 got {}", t.id)
+}
+
+func one_of_two() {
+    let c = Conn(first: Tag(id: 1), second: Tag(id: 2))
+    let t = (move c).refill_one_of_two()
+    print("r5 got {} {}", t.0.id, t.1.id)
+}
+
+func owned() {
+    let c = Owned(first: Tag(id: 1), second: Tag(id: 2))
+    let t = (move c).refill()
+    print("r6 got {}", t.id)
+}
+
+func generic() {
+    let c = Holder<Tag>(first: Tag(id: 1), second: Tag(id: 2))
+    let t = (move c).refill(v: Tag(id: 71))
+    print("r7 got {}", t.id)
+}
+
+func main() {
+    one()
+    both(c: true)
+    both(c: false)
+    again()
+    early(c: true)
+    early(c: false)
+    one_of_two()
+    owned()
+    generic()
+}

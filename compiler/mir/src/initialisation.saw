@@ -730,7 +730,9 @@ extension MirProgram {
     // The paths of a `consumes` method's receiver, the receiver itself or
     // one of its fields, that some path to a `return` moves and another
     // leaves in place (spec, Moving a field out: every path or no path). A
-    // path that diverges reaches no `return`, so it is exempt.
+    // path that diverges reaches no `return`, so it is exempt. Each return is
+    // judged by what the body leaves there, before the receiver's release,
+    // which drops every field and is elided where one has left.
     public func init_consumes_partial(&self, f: Int, facts: &MirInit) -> Vector<Int> {
         var out = Vector<Int>()
         let info = self.funcs[f]
@@ -763,7 +765,7 @@ extension MirProgram {
             let block = self.blocks[info.block_first + b]
             if facts.reached[b] && block.term == MirTermKind.Return {
                 var state = facts.entry_state(b)
-                self.init_walk_block(f, b, &facts, &var state)
+                self.init_walk_body_exit(f, b, &facts, &var state)
                 k = 0
                 while k < watched.len() {
                     seen[k] |= state[watched[k]]
@@ -782,6 +784,33 @@ extension MirProgram {
             k = k + 1
         }
         move out
+    }
+
+    // Return block `b` of a `consumes` body walked as `init_walk_block` does,
+    // but for its drops of the receiver, local 1. The receiver's release
+    // stands there, after everything the body does, and a drop of a field
+    // that left would read as the field staying. Any other drop of the
+    // receiver comes just before an assignment to the same place, which
+    // decides its conditions alone.
+    func init_walk_body_exit(&self, f: Int, b: Int, facts: &MirInit, state: &var Vector<Int>) {
+        let info = self.funcs[f]
+        let block = self.blocks[info.block_first + b]
+        var s = block.first
+        while s >= 0 {
+            let accesses = self.init_stmt_accesses(f, s, &facts)
+            var k = 0
+            while k < accesses.len() {
+                let a = accesses[k]
+                k = k + 1
+                let release = a.kind == MirAccessKind.Drop && a.path >= 0 && facts.path_local[a.path] == 1
+                if not release {
+                    facts.apply(&var state, &a)
+                }
+            }
+            s = self.stmts[s].next
+        }
+        let accesses = self.init_term_accesses(f, b, &facts)
+        mir_init_apply_all(&facts, &var state, &accesses)
     }
 }
 

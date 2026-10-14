@@ -376,7 +376,7 @@ value the same way. Golden `leftovers` covers each.
 | a destructuring `let` | after its bindings | destructures `destructured`; leftovers `guarded_let` |
 | a borrowed scrutinee | nowhere: nothing is consumed | leftovers `borrowed`; Scrutinees read through a reference, below |
 | `for`'s `next()` Optional | each item, after the binding; an item nothing binds drops there | destructures `iterated` |
-| `move self.f` in a `consumes` body | every exit: the fields the body moves out nowhere, never the whole receiver nor its `deinit` body; a field moved on some paths to a return only is borrowck's `consumes.some-paths` | destructures `Holder.take_kept` |
+| `move self.f` in a `consumes` body | every exit: a drop of each owning field, which the borrow check labels by the conditions there, elided where the field has left and static where it stayed or was assigned again; never the whole receiver nor its `deinit` body; a field left moved on some paths to a return only is borrowck's `consumes.some-paths` | destructures `Holder.take_kept` |
 
 **Scrutinees read through a reference** (SL-475). A pattern-matching head
 whose scrutinee's place reaches through a `Deref` of a reference matches the

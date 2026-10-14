@@ -175,7 +175,8 @@ extension BorrowckProgram {
     }
 
     // A `consumes` body's path `q`, the receiver or a field of it, that some
-    // path to a return moves and another does not: refused at its first move.
+    // path to a return leaves moved and another does not: refused at its
+    // first move.
     func report_some_paths(&var self, f: Int, facts: &MirInit, q: Int) {
         let info = self.mir.funcs[f]
         var node = info.root
@@ -203,9 +204,9 @@ extension BorrowckProgram {
             b = b + 1
         }
         var msg = StringBuilder()
-        try! msg.append("a `consumes` body moves `")
+        try! msg.append("a `consumes` body leaves `")
         try! msg.append(self.path_name(f, &facts, q))
-        try! msg.append("` out on some paths to a return and not on others; move it on every path or on none, since the receiver's release is decided statically")
+        try! msg.append("` moved out on some paths to a return and not on others; move it on every path or on none, or assign it again where it stays out, since the receiver's release is decided statically")
         self.report(f, node, "consumes.some-paths", msg.build())
     }
 

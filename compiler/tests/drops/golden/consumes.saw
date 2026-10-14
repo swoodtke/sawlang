@@ -1,9 +1,10 @@
 // A `consumes` body: after it moves fields out of `self`, its end-of-body
 // release drops exactly the fields that stayed, statically, in reverse
-// declaration order. A field moved on every path, or on all but a path that
-// diverges, needs no flag: the every-path-or-none rule decides each field's
-// release at compile time, and no flag is ever created for a receiver's
-// field. A body moving nothing drops the receiver whole.
+// declaration order; a field moved out and assigned again stayed. A field
+// moved on every path, or on all but a path that diverges, needs no flag: the
+// every-path-or-none rule decides each field's release at compile time, and
+// no flag is ever created for a receiver's field. A body moving nothing drops
+// the receiver whole.
 
 struct Res { id: Int }
 extension Res: NoCopy {}
@@ -29,6 +30,12 @@ extension Triple {
         }
         move self.a
     }
+
+    func refill(&var self) consumes -> Res {
+        let old = move self.b
+        self.b = Res(id: 4)
+        move old
+    }
 }
 
 func make() -> Triple { Triple(a: Res(id: 1), b: Res(id: 2), c: Res(id: 3)) }
@@ -37,5 +44,6 @@ func main() {
     let p = make()
     let q = make()
     let r = make()
-    print((move p).middle(true).id + (move q).none() + (move r).diverging(1).id)
+    let s = make()
+    print((move p).middle(true).id + (move q).none() + (move r).diverging(1).id + (move s).refill().id)
 }

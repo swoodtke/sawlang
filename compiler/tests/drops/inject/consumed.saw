@@ -1,0 +1,26 @@
+// The program compiler/drops/tests/verify_consumed.saw elaborates, then edits:
+// `refill` moves `self.first` out and assigns it again, so its release drops
+// both fields, the refilled `first` and the untouched `second`. Each edit
+// removes one of those drops, and the drops verifier must report the field
+// left in the receiver, whether an access names it or none does.
+
+struct Res {
+    id: Int
+}
+
+extension Res: NoCopy {}
+
+struct Conn {
+    first: Res,
+    second: Res
+}
+
+extension Conn: NoCopy {}
+
+extension Conn {
+    func refill(&var self) consumes -> Res {
+        let old = move self.first
+        self.first = Res(id: 9)
+        move old
+    }
+}

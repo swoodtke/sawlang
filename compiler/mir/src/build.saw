@@ -14,6 +14,7 @@ import sawresolve.dump.{res_sort_strings}
 import sawresolve.model.{ResDeclKind}
 import sawresolve.program.{ResProgram}
 import sawtypecheck.checks.{tc_check_unsafe}
+import sawtypecheck.conform.{tc_args_subst}
 import sawtypecheck.model.{TcSource, TcUse}
 import sawtypecheck.program.{TcProgram}
 import sawtypecheck.signatures.{TcContext}
@@ -96,6 +97,25 @@ extension MirProgram {
             return self.owns(payload)
         }
         true
+    }
+
+    // The fields of struct type `t`, in declaration order, with their types
+    // at `t`'s arguments.
+    public func struct_fields(&var self, t: Int, fields: &var Vector<Int>, types: &var Vector<Int>) {
+        let d = self.tc.nominal_decl(t)
+        let sub = tc_args_subst(d, self.tc.nominal_args(t))
+        let members = self.tc.members_of(d)
+        var k = 0
+        while k < members.len() {
+            let f = members[k]
+            k = k + 1
+            if self.tc.res.decls[f].kind != ResDeclKind.Field {
+                continue
+            }
+            let written = self.tc.sigs[f].result
+            try! fields.push(f)
+            try! types.push(self.tc.subst(written, &sub))
+        }
     }
 
     // The member index of type declaration `d`'s hand-written `deinit`, which
@@ -1041,9 +1061,10 @@ extension MirProgram {
         }
     }
 
-    // A consumed receiver's release: each field its body leaves in it, in
-    // reverse declaration order; its own `deinit` body does not run (spec,
-    // Consuming method receivers).
+    // A consumed receiver's release: a drop of each owning field, in reverse
+    // declaration order, which the borrow check elides where the field has
+    // left; its own `deinit` body does not run (spec, Consuming method
+    // receivers).
     func release_fields_of(&var self, l: Int) {
         var k = self.release_fields.len() - 1
         while k >= 0 {

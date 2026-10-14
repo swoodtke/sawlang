@@ -1,0 +1,20 @@
+// refuses: consumes.some-paths at 14:19
+// a `consumes` body that moves a field out of `self` on every path and
+// assigns it again on only one: at the returns it is out on one path and in
+// place on the other, so one release cannot fit both (conformance V54, V129)
+
+struct Res { id: Int }
+extension Res: NoCopy {}
+
+struct Pair { a: Res, b: Res }
+extension Pair: NoCopy {}
+
+extension Pair {
+    func first(&var self, hot: Bool) consumes -> Res {
+        let old = move self.a
+        if hot {
+            self.a = Res(id: 0)
+        }
+        move old
+    }
+}
