@@ -1,0 +1,69 @@
+// Loops the loan analysis's dataflows reach their fixpoints around: a block
+// a sweep meets before its loop's backedge is walked again once the backedge
+// brings it more (SL-619). `compiler/borrowck/tests/loan_fixpoint.saw` holds
+// each function's facts to a round-robin recomputation.
+
+struct Cell {
+    value: Int
+}
+
+extension Cell {
+    func me(&var self) borrows -> &var Cell {
+        lend self
+    }
+}
+
+func bump(c: &var Cell) {
+    c.value = c.value + 1
+}
+
+// A local read only by the loop's condition is live through the body, and
+// the reference made in the body reaches the head around the backedge.
+func counted(n: Int) -> Int {
+    var c = Cell(value: 0)
+    var k = 0
+    while k < n {
+        bump(&var c)
+        k = k + 1
+    }
+    c.value
+}
+
+// A window opened and closed in each iteration, with a local carried into
+// the next one.
+func windowed(n: Int) -> Int {
+    var c = Cell(value: 1)
+    var carried = 0
+    var k = 0
+    while k < n {
+        borrow var w = c.me() {
+            w.value = w.value + carried
+        }
+        carried = c.value
+        k = k + 1
+    }
+    carried
+}
+
+// A window open across a whole loop, and loops nested in it.
+func across(n: Int) -> Int {
+    var c = Cell(value: 2)
+    var total = 0
+    borrow var w = c.me() {
+        var i = 0
+        while i < n {
+            var j = 0
+            while j < i {
+                w.value = w.value + j
+                j = j + 1
+            }
+            total = total + w.value
+            i = i + 1
+        }
+    }
+    total + c.value
+}
+
+func main() {
+    print("{} {} {}", counted(3), windowed(3), across(3))
+}

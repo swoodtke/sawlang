@@ -758,7 +758,8 @@ extension BorrowckProgram {
             let pointer_deref = step.kind == MirProjKind.Deref && kind != TcKind.Ref && kind != TcKind.Slice
             let pointer_index = step.kind == MirProjKind.Index && kind != TcKind.Array
             if pointer_deref || pointer_index {
-                return self.from_receiver(f, p.local, &var facts, 0)
+                var seen = borrowck_zeros(facts.local_count)
+                return self.from_receiver(f, p.local, &var facts, &var seen)
             }
             base = step.ty
         }
@@ -767,11 +768,14 @@ extension BorrowckProgram {
 
     // Whether local `l` of prologue `f` holds a value read out of the
     // receiver: the receiver itself, or a local assigned once from a place
-    // tracing to it, or from a call one of whose arguments does.
-    func from_receiver(&self, f: Int, l: Int, facts: &var BorrowckLoans, depth: Int) -> Bool {
-        if l < 0 || depth > 32 {
+    // tracing to it, or from a call one of whose arguments does. A search of
+    // the definitions reaching `l`: `seen` marks each local visited, so the
+    // search visits each once, and a local already marked adds nothing.
+    func from_receiver(&self, f: Int, l: Int, facts: &var BorrowckLoans, seen: &var Vector<Int>) -> Bool {
+        if l < 0 || seen[l] != 0 {
             return false
         }
+        seen[l] = 1
         if mir_func_local(&self.mir, f, l).kind == MirLocalKind.Receiver {
             return true
         }
@@ -790,7 +794,7 @@ extension BorrowckProgram {
             if rv.kind == MirRvalueKind.Ref && rv.place >= 0 {
                 let raw = self.path_of(rv.place, &var facts)
                 let traced = self.borrowck_trace(f, &raw, &var facts)
-                return self.from_receiver(f, traced.local, &var facts, depth + 1)
+                return self.from_receiver(f, traced.local, &var facts, &var seen)
             }
             first = rv.first
             count = rv.count
@@ -809,7 +813,7 @@ extension BorrowckProgram {
             }
             let raw = self.path_of(o.place, &var facts)
             let traced = self.borrowck_trace(f, &raw, &var facts)
-            if self.from_receiver(f, traced.local, &var facts, depth + 1) {
+            if self.from_receiver(f, traced.local, &var facts, &var seen) {
                 return true
             }
         }

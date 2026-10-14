@@ -173,7 +173,17 @@ dump are its clients.
 - **Tracing.** `borrowck_trace` follows a deref of a reference back to the
   place the reference was made from: a `ref`'s place, the local it was copied
   or moved from, or a window's receiver. It stops at a parameter or a local
-  assigned more than once.
+  assigned more than once, however long the chain; a local reached twice is
+  a cycle of definitions, and it stops there too. `lend.root`'s question,
+  whether a pointer was read out of the receiver, searches the definitions
+  the same way, each local once.
+- **Fixpoints.** The liveness is a worklist swept in postorder, and the
+  created-loan and open-window dataflow one swept in reverse postorder
+  (`init_block_order`), each to its fixpoint with no round limit; a block is
+  walked again only when a successor's set, or its own entry, grew. An
+  exclusive hop marks the hops it is nested in once each.
+  `compiler/borrowck/tests/loan_fixpoint.saw` holds every function of the
+  loop and window goldens to a round-robin recomputation.
 
 ## Rules
 
@@ -343,7 +353,12 @@ mir`, and that every rule has a fixture; that a due fixture is still refused
 by what stands in its way; that each premise program is refused first by the
 earlier stage's rule its header names; that the compiler's own source, the
 sawc2 build and each unit program, and the new std's entry under `--std-root
-std`, check with no refusal and no invariant; and the two differentials.
+std`, check with no refusal and no invariant; that each generated program
+of `LONG_PROGRAMS`, deeper than any fixed budget would reach (a lend through
+33 nested windows, a pointer copied through 32 locals, from the receiver
+and from a parameter, a cell accessor under 40 shared hops and the same
+chain without it, a window open across 1100 sequential `if`s), is refused
+first by its rule or by none, with no invariant; and the two differentials.
 Every tests/corpus program whose expected diagnostic names a move is refused
 by a borrow-check rule, or `differential.tsv` says why not. Every program
 whose expected diagnostic names an exclusivity or loan error is refused by a
@@ -387,3 +402,4 @@ information.
 | a non-escaping `[&var v]` closure writing `v`, its loan ending at its last call; a captured reference parameter | loan.closure-carrier |
 | a slice forwarded by its sigil, two shared reborrows side by side; a slice captured implicitly and `[&var s]`, each closure's loan on its elements ending at its last call | slices |
 | a `lend` rooted in `self` or forwarding a window on it, the forwarded window closed as the `lend` completes so the epilogue reaches the root again; a `lend` inside a `borrow` block beside a disjoint field; a `borrows(sync)` forward declared so; a conditional lend's absent path | accessors |
+| a reference live around a loop's backedge; a window opened in each iteration, with a local carried into the next; a window open across nested loops | fixpoints |

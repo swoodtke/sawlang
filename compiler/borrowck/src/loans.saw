@@ -134,9 +134,20 @@ public struct BorrowckLoans {
     created_in: Vector<Int>
     open_in: Vector<Int>
     reached: Vector<Bool>
+    // Per local: the last `borrowck_trace` walk that reached it, by
+    // `trace_walks`, so a walk needs no set of its own.
+    trace_mark: Vector<Int>
+    trace_walks: Int
 }
 
 extension BorrowckLoans: NoCopy {}
+
+struct BorrowckPreds {
+    first: Vector<Int>
+    blocks: Vector<Int>
+}
+
+extension BorrowckPreds: NoCopy {}
 
 public func borrowck_words(n: Int) -> Int {
     (n + BORROWCK_WORD_BITS - 1) / BORROWCK_WORD_BITS
@@ -321,7 +332,8 @@ extension BorrowckProgram {
                                   window_exclusive: Vector<Bool>(), local_words: borrowck_words(info.local_count),
                                   loan_words: 0, window_words: borrowck_words(info.window_count),
                                   live_out: Vector<Int>(), created_in: Vector<Int>(), open_in: Vector<Int>(),
-                                  reached: Vector<Bool>())
+                                  reached: Vector<Bool>(), trace_mark: borrowck_zeros(info.local_count),
+                                  trace_walks: 0)
         self.loan_defs(f, &var facts)
         self.loan_windows(f, &var facts)
         self.loan_collect(f, &var facts)
@@ -471,17 +483,24 @@ extension BorrowckProgram {
             try! facts.window_exclusive.push(self.window_charges_exclusively(f, w))
             w = w + 1
         }
-        var changed = true
-        while changed {
-            changed = false
-            w = 0
-            while w < info.window_count {
-                let outer = self.enclosing_window(f, w, &facts)
-                if outer >= 0 && facts.window_exclusive[w] && not facts.window_exclusive[outer] {
-                    facts.window_exclusive[outer] = true
-                    changed = true
-                }
-                w = w + 1
+        // Each exclusive window marks the chain of windows it is nested in,
+        // stopping at one already marked: a window is marked at most once.
+        var work = Vector<Int>()
+        w = 0
+        while w < info.window_count {
+            if facts.window_exclusive[w] {
+                try! work.push(w)
+            }
+            w = w + 1
+        }
+        var at = 0
+        while at < work.len() {
+            let inner = work[at]
+            at = at + 1
+            let outer = self.enclosing_window(f, inner, &facts)
+            if outer >= 0 && not facts.window_exclusive[outer] {
+                facts.window_exclusive[outer] = true
+                try! work.push(outer)
             }
         }
     }
@@ -965,17 +984,34 @@ extension BorrowckProgram {
 
     // The locals live at each block's end: read, moved, borrowed or reached
     // through later on some path before a whole assignment. A drop reads
-    // nothing a loan protects, and a `return` reads the return place.
+    // nothing a loan protects, and a `return` reads the return place. A
+    // worklist swept in postorder, to the fixpoint: a block is walked again
+    // only when a successor's live set grew.
     func loan_liveness(&self, f: Int, facts: &var BorrowckLoans) {
         let info = self.mir.funcs[f]
         let words = facts.local_words
-        facts.live_out = borrowck_zeros(info.block_count * words)
-        var live_in = borrowck_zeros(info.block_count * words)
-        var changed = true
-        while changed {
-            changed = false
-            var b = info.block_count - 1
-            while b >= 0 {
+        let count = info.block_count
+        facts.live_out = borrowck_zeros(count * words)
+        var live_in = borrowck_zeros(count * words)
+        let order = self.mir.init_block_order(f)
+        let preds = self.borrowck_predecessors(f)
+        var pending = Vector<Bool>()
+        var k = 0
+        while k < count {
+            try! pending.push(true)
+            k = k + 1
+        }
+        var left = count
+        while left > 0 {
+            var i = order.len() - 1
+            while i >= 0 {
+                let b = order[i]
+                i = i - 1
+                if not pending[b] {
+                    continue
+                }
+                pending[b] = false
+                left = left - 1
                 let succ = self.mir.init_successors(f, b)
                 var out = borrowck_zeros(words)
                 var j = 0
@@ -984,16 +1020,58 @@ extension BorrowckProgram {
                     let _ = borrowck_join(&var out, 0, &entry)
                     j = j + 1
                 }
-                if borrowck_join(&var facts.live_out, b * words, &out) {
-                    changed = true
-                }
+                let _ = borrowck_join(&var facts.live_out, b * words, &out)
                 let start = self.block_live_in(f, b, &var facts, &out)
                 if borrowck_join(&var live_in, b * words, &start) {
-                    changed = true
+                    j = preds.first[b]
+                    while j < preds.first[b + 1] {
+                        let p = preds.blocks[j]
+                        if not pending[p] {
+                            pending[p] = true
+                            left = left + 1
+                        }
+                        j = j + 1
+                    }
                 }
-                b = b - 1
             }
         }
+    }
+
+    // Each block's predecessors in `f`: block `b`'s are `blocks[first[b]]`
+    // up to `blocks[first[b + 1]]`.
+    func borrowck_predecessors(&self, f: Int) -> BorrowckPreds {
+        let count = self.mir.funcs[f].block_count
+        var first = borrowck_zeros(count + 1)
+        var b = 0
+        while b < count {
+            let succ = self.mir.init_successors(f, b)
+            var j = 0
+            while j < succ.len() {
+                first[succ[j] + 1] += 1
+                j = j + 1
+            }
+            b = b + 1
+        }
+        b = 0
+        while b < count {
+            first[b + 1] += first[b]
+            b = b + 1
+        }
+        var blocks = borrowck_zeros(first[count])
+        var at = borrowck_slice(&first, 0, count)
+        b = 0
+        while b < count {
+            let succ = self.mir.init_successors(f, b)
+            var j = 0
+            while j < succ.len() {
+                let s = succ[j]
+                blocks[at[s]] = b
+                at[s] += 1
+                j = j + 1
+            }
+            b = b + 1
+        }
+        BorrowckPreds(first: move first, blocks: move blocks)
     }
 
     // The locals live before block `b` runs, from `out`, those live at its
@@ -1211,46 +1289,63 @@ extension BorrowckProgram {
             }
             k = k + 1
         }
-        var changed = true
-        while changed {
-            changed = false
-            var b = 0
-            while b < info.block_count {
-                if facts.reached[b] {
-                    var created = borrowck_slice(&facts.created_in, b * lw, lw)
-                    var open = borrowck_slice(&facts.open_in, b * ww, ww)
-                    let count = self.instruction_count(f, b)
-                    var i = 0
-                    while i < count {
-                        self.step_forward(&facts, f, b, i, &var created, &var open)
-                        i = i + 1
+        // A worklist swept in reverse postorder, to the fixpoint: a block is
+        // walked again only when its entry grew.
+        let order = self.mir.init_block_order(f)
+        var pending = Vector<Bool>()
+        k = 0
+        while k < info.block_count {
+            try! pending.push(k == 0)
+            k = k + 1
+        }
+        var left = 1
+        while left > 0 {
+            var at = 0
+            while at < order.len() {
+                let b = order[at]
+                at = at + 1
+                if not pending[b] {
+                    continue
+                }
+                pending[b] = false
+                left = left - 1
+                var created = borrowck_slice(&facts.created_in, b * lw, lw)
+                var open = borrowck_slice(&facts.open_in, b * ww, ww)
+                let count = self.instruction_count(f, b)
+                var i = 0
+                while i < count {
+                    self.step_forward(&facts, f, b, i, &var created, &var open)
+                    i = i + 1
+                }
+                let block = self.mir.blocks[info.block_first + b]
+                let succ = self.mir.init_successors(f, b)
+                var j = 0
+                while j < succ.len() {
+                    let target = succ[j]
+                    j = j + 1
+                    var leaving = borrowck_slice(&open, 0, ww)
+                    if block.term == MirTermKind.Call {
+                        let c = self.mir.calls[block.call]
+                        if c.kind == MirCallKind.WindowOpen && c.window >= 0 && target == c.next {
+                            borrowck_set_bit(&var leaving, 0, c.window)
+                        }
                     }
-                    let block = self.mir.blocks[info.block_first + b]
-                    let succ = self.mir.init_successors(f, b)
-                    var j = 0
-                    while j < succ.len() {
-                        let target = succ[j]
-                        j = j + 1
-                        var leaving = borrowck_slice(&open, 0, ww)
-                        if block.term == MirTermKind.Call {
-                            let c = self.mir.calls[block.call]
-                            if c.kind == MirCallKind.WindowOpen && c.window >= 0 && target == c.next {
-                                borrowck_set_bit(&var leaving, 0, c.window)
-                            }
-                        }
-                        if not facts.reached[target] {
-                            facts.reached[target] = true
-                            changed = true
-                        }
-                        if borrowck_join(&var facts.created_in, target * lw, &created) {
-                            changed = true
-                        }
-                        if borrowck_join(&var facts.open_in, target * ww, &leaving) {
-                            changed = true
-                        }
+                    var grew = false
+                    if not facts.reached[target] {
+                        facts.reached[target] = true
+                        grew = true
+                    }
+                    if borrowck_join(&var facts.created_in, target * lw, &created) {
+                        grew = true
+                    }
+                    if borrowck_join(&var facts.open_in, target * ww, &leaving) {
+                        grew = true
+                    }
+                    if grew && not pending[target] {
+                        pending[target] = true
+                        left = left + 1
                     }
                 }
-                b = b + 1
             }
         }
     }
@@ -1303,12 +1398,17 @@ extension BorrowckProgram {
     // copied or moved from another local names that local's, and a window's
     // lent reference names the window's receiver, whole, since a window
     // charges its whole root. A parameter, or a local assigned more than
-    // once, is where tracing stops.
+    // once, is where tracing stops. Each step leaves a local by its one
+    // definition, so reaching a local twice is a cycle of definitions, which
+    // no initialised program has; the walk stops there rather than loop.
     public func borrowck_trace(&self, f: Int, p: &BorrowckPath, facts: &var BorrowckLoans) -> BorrowckPath {
+        facts.trace_walks = facts.trace_walks + 1
+        let walk = facts.trace_walks
         var at = p
-        var rounds = 0
-        while rounds < 64 {
-            rounds = rounds + 1
+        while at.local < 0 || facts.trace_mark[at.local] != walk {
+            if at.local >= 0 {
+                facts.trace_mark[at.local] = walk
+            }
             let next = self.trace_once(f, &at, &var facts)
             if next.count < 0 {
                 return at

@@ -1,0 +1,196 @@
+// The loan analysis's block dataflows reach their fixpoints (SL-619). Each
+// function of the borrow check's loop and window goldens has its facts,
+// `live_out`, `reached`, `created_in` and `open_in`, recomputed here by
+// round-robin sweeps in index order until a sweep changes nothing, and the
+// two must agree on every block. A worklist that fails to walk a block again
+// when a backedge brings it more disagrees inside a loop. Paths are the
+// repository root's, where the runner runs.
+import sawborrowck.loans.{BorrowckLoans, borrowck_join, borrowck_set_bit, borrowck_slice, borrowck_zeros}
+import sawborrowck.program.{BorrowckProgram, borrowck_program}
+import sawmir.api.{mir_lower_file}
+import sawmir.initialisation.{MirInit}
+import sawmir.model.{MirCallKind, MirFuncKind, MirTermKind}
+import sawmir.program.{MirProgram}
+import sawresolve.program.{ResProgram}
+import sawtypecheck.program.{TcProgram}
+
+// The index of module `name`, or -1.
+func module_index(p: &BorrowckProgram, name: String) -> Int {
+    var m = 0
+    while m < p.mir.tc.res.module_count() {
+        if p.mir.tc.res.module_name(m).equals(name) {
+            return m
+        }
+        m = m + 1
+    }
+    return -1
+}
+
+// Whether `a` and `b` hold the same words.
+func same(a: &Vector<Int>, b: &Vector<Int>) -> Bool {
+    if a.len() != b.len() {
+        return false
+    }
+    var k = 0
+    while k < a.len() {
+        if a[k] != b[k] {
+            return false
+        }
+        k = k + 1
+    }
+    true
+}
+
+// The locals live at each block's end of function `f`.
+func recomputed_live_out(p: &BorrowckProgram, f: Int, facts: &var BorrowckLoans) -> Vector<Int> {
+    let count = p.mir.funcs[f].block_count
+    let words = facts.local_words
+    var live_out = borrowck_zeros(count * words)
+    var live_in = borrowck_zeros(count * words)
+    var changed = true
+    while changed {
+        changed = false
+        var b = 0
+        while b < count {
+            let succ = p.mir.init_successors(f, b)
+            var live = borrowck_zeros(words)
+            var j = 0
+            while j < succ.len() {
+                let entry = borrowck_slice(&live_in, succ[j] * words, words)
+                let _ = borrowck_join(&var live, 0, &entry)
+                j = j + 1
+            }
+            if borrowck_join(&var live_out, b * words, &live) {
+                changed = true
+            }
+            var i = p.instruction_count(f, b) - 1
+            while i >= 0 {
+                let accesses = p.instruction_accesses(f, b, i, &var facts)
+                p.step_live(f, b, i, &accesses, &var live)
+                i = i - 1
+            }
+            if borrowck_join(&var live_in, b * words, &live) {
+                changed = true
+            }
+            b = b + 1
+        }
+    }
+    move live_out
+}
+
+// Function `f`'s forward facts recomputed: they must equal `facts`'.
+func check_forward(p: &BorrowckProgram, f: Int, facts: &BorrowckLoans) {
+    let info = p.mir.funcs[f]
+    let count = info.block_count
+    let lw = facts.loan_words
+    let ww = facts.window_words
+    var created_in = borrowck_zeros(count * lw)
+    var open_in = borrowck_zeros(count * ww)
+    var reached = Vector<Bool>()
+    var k = 0
+    while k < count {
+        try! reached.push(k == 0)
+        k = k + 1
+    }
+    if count == 0 {
+        return
+    }
+    k = 0
+    while k < info.carried_count && info.kind == MirFuncKind.Epilogue {
+        let w = p.mir.aux[info.carried_first + k]
+        if w >= 0 && w < info.window_count {
+            borrowck_set_bit(&var open_in, 0, w)
+        }
+        k = k + 1
+    }
+    var changed = true
+    while changed {
+        changed = false
+        var b = 0
+        while b < count {
+            let at = b
+            b = b + 1
+            if not reached[at] {
+                continue
+            }
+            var created = borrowck_slice(&created_in, at * lw, lw)
+            var open = borrowck_slice(&open_in, at * ww, ww)
+            var i = 0
+            while i < p.instruction_count(f, at) {
+                p.step_forward(&facts, f, at, i, &var created, &var open)
+                i = i + 1
+            }
+            let block = p.mir.blocks[info.block_first + at]
+            let succ = p.mir.init_successors(f, at)
+            var j = 0
+            while j < succ.len() {
+                let target = succ[j]
+                j = j + 1
+                var leaving = borrowck_slice(&open, 0, ww)
+                if block.term == MirTermKind.Call {
+                    let c = p.mir.calls[block.call]
+                    if c.kind == MirCallKind.WindowOpen && c.window >= 0 && target == c.next {
+                        borrowck_set_bit(&var leaving, 0, c.window)
+                    }
+                }
+                if not reached[target] {
+                    reached[target] = true
+                    changed = true
+                }
+                if borrowck_join(&var created_in, target * lw, &created) {
+                    changed = true
+                }
+                if borrowck_join(&var open_in, target * ww, &leaving) {
+                    changed = true
+                }
+            }
+        }
+    }
+    k = 0
+    while k < count {
+        assert(reached[k] == facts.reached[k], "the loan analysis and the recomputation disagree on a reached block")
+        k = k + 1
+    }
+    assert(same(&created_in, &facts.created_in), "the loans created on some path disagree with the recomputation")
+    assert(same(&open_in, &facts.open_in), "the windows open at a block's entry disagree with the recomputation")
+}
+
+// Every function of `path`, module `name`, has the facts the recomputation
+// gives; returns how many functions held a loop or a window.
+func check(path: String, name: String, names: &Vector<String>, dirs: &Vector<String>) -> Int {
+    var lowerings = 0
+    let lowered = mir_lower_file(path, "sawc", &names, &dirs, &var lowerings)
+    assert(lowered.diags.len() == 0 && lowered.tc.error_count() == 0, "a golden is refused")
+    let p = borrowck_program(move lowered)
+    let m = module_index(&p, name)
+    assert(m >= 0, "the golden did not load: run from the repository root")
+    var interesting = 0
+    var f = 0
+    while f < p.mir.funcs.len() {
+        let info = p.mir.funcs[f]
+        if info.module == m {
+            var facts = p.borrowck_loans(f)
+            let live_out = recomputed_live_out(&p, f, &var facts)
+            assert(same(&live_out, &facts.live_out), "the live locals disagree with the recomputation")
+            check_forward(&p, f, &facts)
+            if info.window_count > 0 || info.block_count > 4 {
+                interesting = interesting + 1
+            }
+        }
+        f = f + 1
+    }
+    interesting
+}
+
+func main() {
+    let names = Vector<String>()
+    let dirs = Vector<String>()
+    var interesting = 0
+    interesting += check("compiler/tests/borrowck/golden/fixpoints.saw", "fixpoints", &names, &dirs)
+    interesting += check("compiler/tests/borrowck/golden/loops.saw", "loops", &names, &dirs)
+    interesting += check("compiler/tests/borrowck/golden/windows.saw", "windows", &names, &dirs)
+    interesting += check("compiler/tests/borrowck/golden/chains.saw", "chains", &names, &dirs)
+    interesting += check("compiler/tests/borrowck/golden/accessors.saw", "accessors", &names, &dirs)
+    interesting += check("compiler/tests/borrowck/golden/exits.saw", "exits", &names, &dirs)
+    assert(interesting > 0, "no golden held a loop or a window")
+}

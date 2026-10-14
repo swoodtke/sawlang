@@ -28,6 +28,8 @@ directory specifies:
   stage's rule its header names;
 - the compiler's own source, the sawc2 build and each unit program, and the
   new std under `--std-root std`, check with no refusal and no `INVARIANT`;
+- each generated program of `LONG_PROGRAMS`, deeper than any fixed budget of
+  the loan analysis would reach, is refused first by its rule, or by none;
 - every tests/corpus program that expects a move error is refused by a
   borrow-check rule, or `differential.tsv` says why not, and no line there
   names a program the borrow check does refuse;
@@ -472,6 +474,107 @@ def check_acceptance(failures, counts):
             failures.append("borrowck acceptance std: %s" % line)
 
 
+def window_chain_source(n):
+    """An accessor lending through `n` nested windows, each opened on the
+    lent reference before it; legal, since every hop traces to `self`, two
+    trace steps per window."""
+    pad = "        "
+    lines = ["struct Cell {", "    value: Int", "}", "", "extension Cell {",
+             "    func me(&var self) borrows -> &var Cell {", "        lend self", "    }", "}", "",
+             "struct Grid {", "    cell: Cell", "}", "", "extension Grid {",
+             "    func deep(&var self) borrows -> &var Int {", pad + "borrow var c1 = self.cell.me() {"]
+    for k in range(2, n + 1):
+        lines.append(pad + "    " * (k - 1) + "borrow var c%d = c%d.me() {" % (k, k - 1))
+    lines.append(pad + "    " * n + "lend c%d.value" % n)
+    lines += [pad + "    " * (k - 1) + "}" for k in range(n, 0, -1)]
+    lines += ["    }", "}", "", "func main() {", "    var g = Grid(cell: Cell(value: 0))",
+              "    borrow var v = g.deep() {", "        v = 5", "    }", '    print("{}", g.cell.value)', "}"]
+    return "\n".join(lines) + "\n"
+
+
+def pointer_chain_source(n, from_receiver):
+    """An accessor lending through a pointer copied through `n` locals: read
+    out of the receiver it is legal, and taken from a parameter it is
+    `lend.root`."""
+    params = "" if from_receiver else ", q: UnsafePointer<Int>"
+    lines = ["struct Holder {", "    ptr: UnsafePointer<Int>", "}", "", "extension Holder {",
+             "    func at(&var self%s) unsafe borrows -> &var Int {" % params,
+             "        let p0 = %s" % ("self.ptr" if from_receiver else "q")]
+    lines += ["        let p%d = p%d" % (k, k - 1) for k in range(1, n + 1)]
+    lines += ["        lend p%d[0]" % n, "    }", "}", "", "func main() {", "}"]
+    return "\n".join(lines) + "\n"
+
+
+def cell_chain_source(n, cell):
+    """`n` shared hops under a second shared window on the root: ending in a
+    cell accessor, every hop charges the root exclusively and the second
+    window is `loan.window-root`; ending in a shared hop, it is legal."""
+    last = ".lock()" if cell else ".me()"
+    use = "a + 1" if cell else "a.at[0] + 1"
+    lines = ["struct Node {", "    at: UnsafePointer<Int>", "}", "", "extension Node {",
+             "    func me(&self) borrows -> &Node {", "        lend self", "    }", "",
+             "    func lock(&self) unsafe borrows -> &var Int {", "        lend self.at[0]", "    }", "}", "",
+             "func twice(n: &Node) unsafe -> Int {", "    borrow let a = n%s%s {" % (".me()" * n, last),
+             "        borrow let b = n.me() {", "            %s" % use, "        }", "    }", "}", "",
+             "func main() {", "}"]
+    return "\n".join(lines) + "\n"
+
+
+def long_ifs_source(n):
+    """A window open across `n` sequential `if`s: each `if`'s join is
+    numbered below its arms, which a dataflow swept in index order pays a
+    round for."""
+    lines = ["func main() {", "    var v = [1, 2, 3]", "    var t = 0", "    borrow var c = v[1] {"]
+    for k in range(n):
+        lines += ["        if t > %d {" % k, "            t = 1", "        }"]
+    lines += ["        c = 7", "    }", '    print("{} {}", t, v[1])', "}"]
+    return "\n".join(lines) + "\n"
+
+
+# Generated programs deeper than any fixed budget of the loan analysis would
+# reach, each with the rule it is refused by first, or None (SL-619):
+# `borrowck_trace` and `from_receiver` walk definitions to the end, and the
+# block dataflows and the window-exclusivity propagation run to their
+# fixpoints.
+LONG_PROGRAMS = (
+    ("window_chain_33", window_chain_source(33), None),
+    ("pointer_chain_32", pointer_chain_source(32, True), None),
+    ("pointer_parameter_chain_32", pointer_chain_source(32, False), "lend.root"),
+    ("cell_chain_40", cell_chain_source(40, True), "loan.window-root"),
+    ("shared_chain_40", cell_chain_source(40, False), None),
+    ("long_ifs_1100", long_ifs_source(1100), None),
+)
+
+
+def check_long_programs(failures, counts):
+    """Each of `LONG_PROGRAMS` is refused first by its rule, or by none, with
+    no `INVARIANT`."""
+    directory = os.path.join(REPO, ".build", "borrowck_long")
+    os.makedirs(directory, exist_ok=True)
+    paths = []
+    for name, source, _ in LONG_PROGRAMS:
+        path = os.path.join(directory, name + ".saw")
+        with open(path, "w") as fh:
+            fh.write(source)
+        paths.append(rel(path))
+    code, out = sawc2(["--check", "--std-root", "std"] + paths)
+    got = records(out)
+    for path, (name, _, rule) in zip(paths, LONG_PROGRAMS):
+        record = got.get(path)
+        if record is None:
+            failures.append("borrowck long program %s: no record" % name)
+            continue
+        for line in record.split("\n"):
+            if line.startswith("INVARIANT\t"):
+                failures.append("borrowck long program %s: %s" % (name, line))
+        found = first_error(record)
+        found_rule = found[0] if found else None
+        if found_rule != rule:
+            failures.append("borrowck long program %s: expected %s, refused as %s"
+                            % (name, rule or "no refusal", found_rule or "nothing"))
+        counts["long programs"] = counts.get("long programs", 0) + 1
+
+
 def corpus_programs():
     skip = ("/modules/", "/module_tests/", "/module_matrix/")
     return sorted(rel(p) for p in glob.glob(os.path.join(CORPUS, "**", "*.saw"), recursive=True)
@@ -629,6 +732,7 @@ def run(write=False, fill=False):
     check_refusals(failures, counts, fill)
     check_premise(failures, counts)
     check_acceptance(failures, counts)
+    check_long_programs(failures, counts)
     check_corpus(failures, counts)
     return failures, counts
 
