@@ -1481,6 +1481,19 @@ The argument is lowered as a closure over the caller's frame, typed against the 
 
 **Checker:** not needed: the build fails loudly, and the self-hosted compiler is sync-only.
 
+### L27. Copy policies, a stray `copy()` and redeclarations that Stage 0 accepts and sawc2 refuses (SL-641)
+
+**Shape:** the user's Oct 15 ruling (SL-641) made sawc2 refuse these at the declaration, and Stage 0 accepts every one:
+- **two copy policies on one type:** `Copy` + `NoCopy`, `ExplicitCopy` + `NoCopy`, and a bounded `Copy` beside a `NoCopy` (`copy.second-policy`). Stage 0 does refuse two `@synthesize`d `Copy` + `ExplicitCopy` conformances, but only as a duplicate `copy`;
+- **a `copy()` outside a `Copy` or `ExplicitCopy` conformance** on a type that isn't `NoCopy`, a user trait's `copy()` on a Copy type included (`copy.outside-policy`). Stage 0 runs such a method by name (S32);
+- **redeclarations that differ only in how they are written** (`overload.indistinguishable`): two overloads whose type parameters are renamed at any depth (`h<T>(v: T?)` beside `h<U>(v: U?)`), two extensions that name the type's parameter differently, duplicate trait requirements, and `init`s whose labels are reordered.
+
+It is loud: sawc2 refuses each one where it's declared, and a program Stage 0 builds simply fails to build under sawc2.
+
+**Instead:** one policy per type; write a Copy or ExplicitCopy type's `copy()` inside its conformance, and give any other duplicating method another name; don't redeclare an overload under renamed type parameters or reordered labels.
+
+**Checker:** not needed: the fixpoint lane builds the compiler's source with sawc2, which refuses every one, and SL-641's sweep found none in the compiler, std, blade or libs.
+
 ## Cases with no issue
 
 
