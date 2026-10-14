@@ -188,9 +188,10 @@ let b = move x                                  // first error has that ID
   - a test-only `copy()` on a production type is refused the same way
     (`copy.test-only-policy`, SL-630): how a production type copies, silently
     or with a spelled `.copy()`, is production code's alone. A copy policy's
-    hook is the `copy()` written inside its conformance, so a `copy()` in any
-    other extension, test-only or not, is an ordinary method that no transfer
-    runs.
+    hook is the `copy()` written inside its conformance. A `copy()` anywhere
+    else on a `Copy` or `ExplicitCopy` type is refused (`copy.outside-policy`,
+    SL-641); on a `NoCopy` type it is an ordinary method, which no transfer
+    runs and which meets no `ExplicitCopy` bound.
 - **Each test runs in its own process.** A Saw panic aborts the process (there
   is no unwinding), so isolation is what lets one failing test fail alone.
   Tests run in parallel, and `@test(panics)` works because of it.
