@@ -901,6 +901,21 @@ No instance exists: every `copy()` in `std/` sits inside its type's own `Copy` o
 
 **Checker:** not needed today, because no compiler-source type declares a `copy()`. If one ever does, a rule would refuse a `copy` member outside a `Copy`/`ExplicitCopy` conformance's extension.
 
+### S33. A raw-backed enum's cast to its integer, from a value no binding holds: Stage 0 never drops it (SL-623)
+
+**Shape (silent: a lost deinit):** a cast from a raw-backed enum to its integer reads only the tag. When its operand is a value no binding holds, the spec destroys that value at the end of the statement (Temporaries). Stage 0 never does, for any of these three forms:
+- a call's result, `make() as UInt8`;
+- a case literal, `Tag.A as Int`;
+- a spelled move, `(move t) as UInt8`.
+
+So a `NoCopy` raw enum with a printing `deinit` prints no `drop` for any of the three. c623cast's probe (SL-623, `.build/scratch/c623/faces_b.saw` in the main root) prints `moved 2 / moved end / case 1 / case end / temp 2 / temp end`. sawc2 prints `drop` after `moved 2`, after `case 1` and after `temp 2`, as the spec requires. The run lane compares against Stage 0, so these forms are pinned by sawc2's MIR golden `raw_enum_casts` and the sawc2-only probe `compiler/tests/run/probes/raw_enum_cast_handoff.saw`.
+
+A place (`t as UInt8`, `r as UInt8` through a reference) agrees in both compilers: the value stays its binding's to drop, and it drops once. Stage 0 also loops forever in an `ExplicitCopy` raw enum's hand-written `copy()` reached this way, which is why the handoff probe is sawc2-only.
+
+**Instead:** bind the value first and cast the binding, `let t = make()` then `t as UInt8`, so the binding drops it at its scope's end in both compilers.
+
+**Checker:** not needed: the compiler's source declares no raw-backed enum with a `deinit`, and its enums are not `NoCopy`, so none of these forms has a deinit to lose.
+
 ## Loud hazards
 
 
