@@ -79,6 +79,7 @@ RULES = {
     "inline-module": "SL:hazards S22",
     "owned-operand": "SL:hazards S23",
     "conditional-temporary": "SL:hazards S29",
+    "prefix-cast": "SL:hazards S30",
     "from-raw-literal": "SL:hazards L1",
     "closure-syntax": "SL:hazards L2",
     "default-value-literal": "SL:hazards L3",
@@ -933,6 +934,7 @@ class FileChecker:
             self.report(line, "new-feature",
                         "%s belongs to the new language, and the std profile names no such "
                         "feature" % what)
+        self.check_prefix_casts(src.program, src.tokens, 0)
         for prog in programs(src.program):
             self.check_declarations(prog)
         self.check_types()
@@ -1026,6 +1028,15 @@ class FileChecker:
             # A broken segment is refused above; the other token rules read it as
             # one line, so a `-` or `*` after the break is not taken for a prefix.
             self.check_tokens([t for t in inner if t.type != T.NEWLINE], line - 1)
+            if not self.std_profile:
+                # Parsed again here, as the frozen parser parses a segment, so the
+                # tree's positions are those of `inner`. A segment that does not
+                # parse fails the file's parse, which `parse` refuses.
+                try:
+                    tree = Parser(inner, source_file=self.src.path).parse_expression()
+                except Exception:
+                    continue
+                self.check_prefix_casts(tree, inner, line - 1)
 
     def check_name_token(self, tok, prev, nxt, line):
         # A member, an enum case or a label is not the std name it spells.
@@ -1093,6 +1104,37 @@ class FileChecker:
         if j < len(toks) and toks[j].type in (T.QUESTION, T.DOUBLE_QUESTION):
             self.report(toks[j].line + line_base, "cast-then-optional",
                         "coalesce first, then convert: `(n ?? 9) as Int`")
+
+    def check_prefix_casts(self, tree, toks, line_base):
+        """A `-` or `~` whose operand is an `as` cast the source leaves
+        unparenthesized: the frozen parser casts first, and GRAMMAR.md applies
+        the prefix first (SL:hazards S30). `tree` is the frozen parser's reading
+        of `toks`, whose line 1 is the file's line `line_base + 1`.
+
+        The frozen tree is `UnaryOp(CastExpr)` for `-x as T`, `-(x) as T` and
+        `-(x as T)` alike; only the last is unambiguous, and the tokens tell it
+        apart: its `as` sits inside the parenthesis that follows the operator.
+        The std profile is exempt, since only sawc2 reads `std/`."""
+        if self.std_profile:
+            return
+        index = None
+        stack = [tree]
+        while stack:
+            n = stack.pop()
+            if isinstance(n, A.StringInterpolation):
+                # Its segments are checked against their own tokens.
+                continue
+            if isinstance(n, A.UnaryOp) and n.op in ("-", "~") \
+                    and isinstance(n.operand, A.CastExpr):
+                if index is None:
+                    index = {(t.line, t.column): i for i, t in enumerate(toks)}
+                if not _cast_in_operand_parens(toks, index, n, n.operand):
+                    op = n.op
+                    self.report(n.line + line_base, "prefix-cast",
+                                "Stage 0 reads `%sx as T` as `%s(x as T)`, GRAMMAR.md as "
+                                "`(%sx) as T`; write `(%sx) as T`, or `%s(x as T)` to cast first"
+                                % (op, op, op, op, op))
+            stack.extend(children(n))
 
     def previous_token(self, line, column):
         """The token before the one at `line:column`, newlines skipped."""
@@ -1365,6 +1407,30 @@ def _type_depth(t):
     kids = [k for k in (t.type_args or []) + (t.element_types or []) + (t.param_types or [])
             + [t.inner_type, t.array_element_type, t.func_return_type] if k is not None]
     return 1 + max((_type_depth(k) for k in kids), default=0)
+
+
+def _cast_in_operand_parens(toks, index, unary, cast):
+    """Whether `cast`'s `as` token sits inside a parenthesis opened directly
+    after `unary`'s operator token. A position that names no token answers
+    False, so the rule refuses rather than passes what it cannot place."""
+    op = index.get((unary.line, unary.column))
+    at = index.get((cast.line, cast.column))
+    if op is None or at is None or toks[at].type != T.AS:
+        return False
+    j = op + 1
+    while j < len(toks) and toks[j].type == T.NEWLINE:
+        j += 1
+    if j >= len(toks) or toks[j].type != T.LPAREN:
+        return False
+    depth = 0
+    for k in range(j, len(toks)):
+        if toks[k].type in (T.LPAREN, T.LBRACKET, T.LBRACE):
+            depth += 1
+        elif toks[k].type in (T.RPAREN, T.RBRACKET, T.RBRACE):
+            depth -= 1
+            if depth == 0:
+                return j < at < k
+    return False
 
 
 def _skip_group(toks, j):

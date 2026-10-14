@@ -1,0 +1,9 @@
+// A `~` whose operand is an unparenthesized `as` cast: `~x as UInt16` is 65535
+// under Stage 0 and 255 under GRAMMAR.md for `x: UInt8 = 0`.
+func complement_fixture(x: UInt8) -> UInt16 {
+    let a = ~x as UInt16   // refuses: prefix-cast
+    let b = ~(x) as UInt16   // refuses: prefix-cast
+    let c = - ~x as Int   // refuses: prefix-cast
+    print("mask {~x as UInt16}")   // refuses: prefix-cast
+    a + b + (c as UInt16)
+}

@@ -384,6 +384,8 @@ no other (`type-alias`); and a std module imports only std modules
 (`import-allowlist`). `prelude-type-name` and `std-api` hold the compiler to
 std, so the profile drops them too, and `compile` and `owned-operand`, which
 ask Stage 0's code generator, never run: sawc2's check of `std/` stands in.
+`prefix-cast` guards how the frozen parser reads a prefix over `as`, which
+sawc2's reading makes moot, so it never runs either.
 `move buf[i]` through a binding is the raw-memory feature's move out of a
 pointer place, not `borrowed-match-payload`.
 
@@ -494,6 +496,7 @@ so it is compiled by itself, without the source rules.
 | `inline-module` | every inline `module name { }` | S22 |
 | `owned-operand` | an operand Stage 0's `_is_owned_temporary` calls an owned temporary, as a comparison operand, an interpolation segment, a format argument of `print`, `panic` or `assert`, or the operand of an `as` cast that builds a new value rather than forwarding it, a string literal exempt; any interpolation segment codegen renders through a synthesized `to_string()` (a type off its builtin fast path, such as a user `Printable`), a named place included | S23 |
 | `conditional-temporary` | a call's result read through a method, a field, an index or a tuple element in a bare value-`match` arm, a `match` guard or the right side of `??`, an operand only some paths evaluate | S29 |
+| `prefix-cast` | a `-` or `~` whose operand is an `as` cast, unless the cast sits inside a parenthesis directly after the operator, as `-(x as T)`: `-x as T`, `-(x) as T` and `~(x as A) as B` are refused, and `(-x) as T` is the spelling for GRAMMAR.md's meaning; interpolations included | S30 |
 | `from-raw-literal` | `from(raw:)` with a bare literal | L1 |
 | `closure-syntax` | an unannotated closure parameter, `$0`, a trailing closure, a function type under `?` | L2 |
 | `default-value-literal` | a default parameter value that is not a literal | L3 |
