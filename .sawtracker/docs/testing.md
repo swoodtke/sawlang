@@ -181,6 +181,12 @@ let b = move x                                  // first error has that ID
     production type is refused outright (Air t15). Every type already has a
     tier, so one would give a single type two tiers in one binary once a value
     crossed from test code into a production generic.
+  - a test-only `copy()` on a production type is refused the same way
+    (`copy.test-only-policy`, SL-630): how a production type copies, silently
+    or with a spelled `.copy()`, is production code's alone. A copy policy's
+    hook is the `copy()` written inside its conformance, so a `copy()` in any
+    other extension, test-only or not, is an ordinary method that no transfer
+    runs.
 - **Each test runs in its own process.** A Saw panic aborts the process (there
   is no unwinding), so isolation is what lets one failing test fail alone.
   Tests run in parallel, and `@test(panics)` works because of it.
