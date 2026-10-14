@@ -3961,7 +3961,6 @@ extension TcProgram {
         let operand = self.res.first_node_child(e)
         let target_node = self.res.last_node_child(e)
         let _ = self.expr(operand, TC_WANT_NONE)
-        self.consume(operand)
         let to = self.build_type(target_node)
         // A reference cast to a raw pointer is the one crossing into the
         // unsafe tier, and takes the reference's address, not its referent.
@@ -3969,7 +3968,23 @@ extension TcProgram {
         let to_decl = self.nominal_decl(to)
         let to_pointer = to_decl == self.known.unsafe_pointer || to_decl == self.known.unsafe_const_pointer
         if to_pointer && self.kind_of(own) == TcKind.Ref {
+            self.consume(operand)
             return self.set_type(e, to, false)
+        }
+        // A raw-backed enum is its tag, so its cast borrows a place, read
+        // through a reference or not, and copies nothing, whatever the enum's
+        // copy policy. An owned value, a temporary or a spelled `move`, is
+        // still handed off, and MIR keeps it for its statement to drop, and a
+        // `borrow PLACE` is read by value (`lent_by_borrow_place`). Every
+        // other arm reads a trivial value or, at the same type, forwards the
+        // operand.
+        let referent = self.referent(own)
+        let read = if referent >= 0 { referent } else { own }
+        let borrowed = referent >= 0 || self.by_value_use(operand) == TcUse.Copy
+        if borrowed && self.casts_backing(read, to) && not self.lent_by_borrow_place(operand) {
+            self.set_use(operand, TcUse.Borrow)
+        } else {
+            self.consume(operand)
         }
         let from = self.through_refs(operand)
         if self.has_error(from) || self.has_error(to) {
@@ -3994,11 +4009,11 @@ extension TcProgram {
         if self.is_numeric(from) && self.is_numeric(to) {
             return true
         }
-        let fd = self.nominal_decl(from)
-        let td = self.nominal_decl(to)
-        if self.is_enum_decl(fd) && self.sigs[fd].result >= 0 && self.is_integer(to) {
+        if self.casts_backing(from, to) {
             return true
         }
+        let fd = self.nominal_decl(from)
+        let td = self.nominal_decl(to)
         if self.is_bool(from) && self.is_integer(to) {
             return true
         }
@@ -4009,6 +4024,33 @@ extension TcProgram {
         }
         if to_pointer && self.is_integer(from) {
             return true
+        }
+        false
+    }
+
+    // Whether `x as to` converts raw-backed enum type `from` to an integer:
+    // the cast reads only the enum's backing (spec, Raw-backed enums).
+    public func casts_backing(&self, from: Int, to: Int) -> Bool {
+        let fd = self.nominal_decl(from)
+        self.is_enum_decl(fd) && self.sigs[fd].result >= 0 && self.is_integer(to)
+    }
+
+    // Whether place `e` is a `borrow PLACE` or a part of one. Such a place
+    // read at a Borrow position is a copy out of its window that the
+    // statement then drops, so a cast reads it by value until that read goes
+    // through the window instead; the refusal is pinned by
+    // `transfer.implicit-copy.raw-enum-cast-borrow` (SL-642).
+    func lent_by_borrow_place(&self, e: Int) -> Bool {
+        var at = e
+        while at >= 0 {
+            if self.has_alt(at, Alt.Borrow_Place_Shared) || self.has_alt(at, Alt.Borrow_Place_Var) {
+                return true
+            }
+            let projected = self.has_alt(at, Alt.Expr_Member) || self.has_alt(at, Alt.Expr_TupleIndex) || self.has_alt(at, Alt.Expr_Force) || self.has_alt(at, Alt.Expr_Paren)
+            if not projected {
+                return false
+            }
+            at = self.res.first_node_child(at)
         }
         false
     }

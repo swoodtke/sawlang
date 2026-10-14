@@ -1,0 +1,42 @@
+// A NoCopy raw-backed enum's cast to an integer reads only the tag: a place
+// read directly, through `&` and `&var`, as a field, a force and a receiver
+// duplicates nothing, so each value deinits exactly once (SL-623).
+
+enum Tag: UInt8 {
+    case A = 1,
+    case B = 2,
+    case C = 3
+}
+
+extension Tag: NoCopy {
+    func deinit(&var self) {
+        print("drop {}", self as UInt8)
+    }
+}
+
+struct Holder {
+    tag: Tag
+}
+
+extension Holder: NoCopy {}
+
+func shared(t: &Tag) -> UInt8 {
+    t as UInt8
+}
+
+func exclusive(t: &var Tag) -> Int {
+    t as Int
+}
+
+func main() {
+    let t = Tag.A
+    print("place {}", t as UInt8)
+    print("shared {}", shared(&t))
+    var v = Tag.B
+    print("exclusive {}", exclusive(&var v))
+    let h = Holder(tag: Tag.C)
+    print("field {}", h.tag as Int)
+    let o: Tag? = Tag.B
+    print("force {}", o! as UInt16)
+    print("end")
+}

@@ -1,0 +1,146 @@
+module raw_enum_casts
+
+fn raw raw_enum_casts.Tag.A -> UInt8 {
+    let _0: UInt8;  // return
+
+    bb0: {
+        _0 = const 1: UInt8;
+        return;
+    }
+}
+
+fn raw raw_enum_casts.Tag.B -> UInt8 {
+    let _0: UInt8;  // return
+
+    bb0: {
+        _0 = const 2: UInt8;
+        return;
+    }
+}
+
+fn raw_enum_casts.Tag.deinit() -> Void {
+    let _0: Void;  // return
+    let _1: &var raw_enum_casts.Tag;  // self
+
+    bb0: {
+        return;
+    }
+}
+
+fn raw raw_enum_casts.Plain.X -> UInt8 {
+    let _0: UInt8;  // return
+
+    bb0: {
+        _0 = const 9: UInt8;
+        return;
+    }
+}
+
+fn raw_enum_casts.make() -> raw_enum_casts.Tag {
+    let _0: raw_enum_casts.Tag;  // return
+    let _1: raw_enum_casts.Tag;
+
+    bb0: {
+        _1 = raw_enum_casts.Tag::B;
+        _0 = move _1;
+        return;
+    }
+}
+
+fn raw_enum_casts.shared(t: &raw_enum_casts.Tag) -> UInt8 {
+    let _0: UInt8;  // return
+    let _1: &raw_enum_casts.Tag;  // param t
+    let _2: &raw_enum_casts.Tag;
+    let _3: UInt8;
+
+    bb0: {
+        _2 = ref(shared, (*_1));
+        _3 = cast(copy (*_2) as UInt8);
+        _0 = move _3;
+        return;
+    }
+}
+
+fn raw_enum_casts.place() -> Int {
+    let _0: Int;  // return
+    let _1: raw_enum_casts.Tag;  // t
+    let _2: raw_enum_casts.Tag;
+    let _3: raw_enum_casts.Plain;  // p
+    let _4: raw_enum_casts.Plain;
+    let _5: &raw_enum_casts.Tag;
+    let _6: Int;
+    let _7: Int;
+    let _8: Int;
+
+    bb0: {
+        _2 = raw_enum_casts.Tag::A;
+        _1 = move _2;
+        _4 = raw_enum_casts.Plain::X;
+        _3 = move _4;
+        _5 = ref(shared, _1);
+        _6 = cast(copy (*_5) as Int);
+        _7 = cast(copy _3 as Int);
+        _8 = Add(move _6, move _7);
+        _0 = move _8;
+        drop(_1);
+        return;
+    }
+}
+
+fn raw_enum_casts.temporary() -> Int {
+    let _0: Int;  // return
+    let _1: raw_enum_casts.Tag;
+    let _2: Int;
+
+    bb0: {
+        _1 = call raw_enum_casts.make() [] -> [return: bb1];
+    }
+
+    bb1: {
+        _2 = cast(copy _1 as Int);
+        _0 = move _2;
+        drop(_1);
+        return;
+    }
+}
+
+fn raw_enum_casts.literal() -> Int {
+    let _0: Int;  // return
+    let _1: raw_enum_casts.Tag;
+    let _2: Int;
+
+    bb0: {
+        _1 = raw_enum_casts.Tag::A;
+        _2 = cast(copy _1 as Int);
+        _0 = move _2;
+        drop(_1);
+        return;
+    }
+}
+
+fn raw_enum_casts.moved() -> Int {
+    let _0: Int;  // return
+    let _1: raw_enum_casts.Tag;  // t
+    let _2: raw_enum_casts.Tag;
+    let _3: raw_enum_casts.Tag;
+    let _4: Int;
+
+    bb0: {
+        _2 = raw_enum_casts.Tag::B;
+        _1 = move _2;
+        _3 = move _1;
+        _4 = cast(copy _3 as Int);
+        _0 = move _4;
+        drop(_3);
+        drop(_1);
+        return;
+    }
+}
+
+fn raw_enum_casts.main() -> Void {
+    let _0: Void;  // return
+
+    bb0: {
+        return;
+    }
+}

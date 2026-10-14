@@ -1,0 +1,49 @@
+// A cast from a raw-backed enum reads only its tag, copied out of a value
+// that stays with its owner: a NoCopy place through the shared reference its
+// borrow takes, a reference parameter through its referent, a trivial enum
+// by a plain copy, and a temporary, a case and a moved value from a
+// temporary its statement drops (SL-623).
+
+enum Tag: UInt8 {
+    case A = 1,
+    case B = 2
+}
+
+extension Tag: NoCopy {
+    func deinit(&var self) {
+    }
+}
+
+enum Plain: UInt8 {
+    case X = 9
+}
+
+func make() -> Tag {
+    Tag.B
+}
+
+func shared(t: &Tag) -> UInt8 {
+    t as UInt8
+}
+
+func place() -> Int {
+    let t = Tag.A
+    let p = Plain.X
+    t as Int + p as Int
+}
+
+func temporary() -> Int {
+    make() as Int
+}
+
+func literal() -> Int {
+    Tag.A as Int
+}
+
+func moved() -> Int {
+    let t = Tag.B
+    (move t) as Int
+}
+
+func main() {
+}

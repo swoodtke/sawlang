@@ -648,6 +648,7 @@ Every body construct in the slice, and how it is typed:
 | a subscript | a getitem, setitem or place accessor call, or an array's builtin | places, funnel |
 | `o!`, `-x`, `not b`, `~x`, `&x`, `&var x`, `move x`, `move o!`, `*p` | the payload place, the operand's type, a reference, the moved value, the payload moved out of the optional place (design 131), the pointee | places, operators, conversions, builtin_values |
 | arithmetic, bit, shift, comparison, logic, `??`, `as`, `a..b` | agreeing operands; builtin or a declared `equals`/`compare` | operators |
+| a raw-backed enum's `as` to an integer | a borrow of a place, through a reference too, at every copy tier, since the enum is its tag (spec, Raw-backed enums); a temporary or a `move` handed off; the same-type cast a by-value read (SL-623); a `borrow PLACE` or a part of one a by-value read until SL-642 | raw_enum_cast; transfer.implicit-copy.raw-enum-forwarding, -raw-enum-cast-borrow, -raw-enum-cast-borrow-projected |
 | `==` on an undeclared generic POD struct, `Pair<Int> == Pair<Int>` | the automatic `Equatable`, judged per instantiation (SL:open-questions D18) | partial_arguments |
 | `==`, `<` on a type parameter, a trivially copyable struct, a tuple | a bound's `equals` or `compare` ("A `T: Equatable` generic bound grants `==`"); the structural comparison of the automatic `Equatable` ("trivial (POD) structs"), and of a tuple whose elements all are ("Tuples are Equatable iff every element is") | comparisons |
 | `try`, `try!`, `try?` | the `Ok` type, its error propagating into the body's Result | carried |
@@ -1166,7 +1167,7 @@ every copy and outlives each call). Checked once captures are settled
 ## The conformance rows
 
 The rows of `examples/conformance/INDEX.md`'s Mutability and References
-sections, and V03–V05, V31, V49, V60–V62, V68, V70 and V124 and V126–V128 of its Moves section, each
+sections, and V03–V05, V31, V49, V60–V62, V68, V70 and V124, V126–V128 and V131 of its Moves section, each
 with what covers it here; `compiler/tests/borrowck/CONFORMANCE.md` names the
 same fixtures. `m.` abbreviates `refuse/mutability.immutable.`, `r.`
 `refuse/type.reference-position.`, `p.` `refuse/transfer.partial-move.` and
@@ -1209,8 +1210,9 @@ fixture.
 | V124 | `b.capture-reference`, `b.capture-payload`, `b.capture-inner` (SL-607) |
 | V126 | `transfer.implicit-copy.repeat-temporary`, `-repeat-explicit`, `-repeat-slot`, `-repeat-place`, `-repeat-move`, `copy.requirement.repeat`; the Copy controls, golden `copy_free_reads` (SL-612) |
 | V127, V128 | `transfer.implicit-copy.coalesce-reference`, `-coalesce-exclusive-reference`, `-coalesce-explicit-reference` (V127), `-cell-reference` (V128); the Copy controls, golden `copy_free_reads` (SL-612) |
+| V131 | accepted: golden `raw_enum_cast`, a raw-backed enum's cast borrowing its place; the same-type cast's refusal beside it, `transfer.implicit-copy.raw-enum-forwarding`, and a `borrow PLACE` operand's until SL-642, `-raw-enum-cast-borrow`, `-raw-enum-cast-borrow-projected` (SL-623) |
 
-That is 45 M rows, 39 R rows and 14 V rows: 86 refused here, 6 accepted
+That is 45 M rows, 39 R rows and 15 V rows: 86 refused here, 7 accepted
 here, 5 answered by `slice.not-yet` and 1 by the borrow check.
 
 ## Refusals

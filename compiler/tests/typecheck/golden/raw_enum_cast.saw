@@ -1,0 +1,78 @@
+// A cast from a raw-backed enum to an integer reads only the tag, so it
+// borrows a place at every copy tier: a NoCopy and an ExplicitCopy enum's
+// place, read directly, through `&` or `&var`, as a field, a force or a
+// receiver, beside a Copy enum's. A temporary and a spelled `move` are still
+// handed off. The same-type cast forwards its operand, and its refusal is
+// `transfer.implicit-copy.raw-enum-forwarding` (SL-623).
+
+enum Tag: UInt8 {
+    case A = 1,
+    case B = 2
+}
+
+extension Tag: NoCopy {
+    func deinit(&var self) {
+        print("drop {}", self as UInt8)
+    }
+}
+
+enum Level: UInt16 {
+    case Low = 7,
+    case High = 300
+}
+
+extension Level: ExplicitCopy {
+    func copy(&self) -> Level {
+        Level.Low
+    }
+
+    func deinit(&var self) {
+    }
+}
+
+enum Plain: UInt8 {
+    case X = 9
+}
+
+struct Holder {
+    tag: Tag
+}
+
+extension Holder: NoCopy {}
+
+func make() -> Tag {
+    Tag.B
+}
+
+func shared(t: &Tag) -> UInt8 {
+    t as UInt8
+}
+
+func exclusive(t: &var Tag) -> Int {
+    t as Int
+}
+
+func places() -> Int {
+    let t = Tag.A
+    let h = Holder(tag: Tag.B)
+    let o: Tag? = Tag.A
+    let l = Level.High
+    let p = Plain.X
+    let a = t as Int
+    let b = h.tag as Int
+    let c = o! as Int
+    let d = l as Int + (l as UInt8) as Int
+    let e = p as Int
+    a + b + c + d + e
+}
+
+func handed() -> Int {
+    let t = Tag.B
+    let a = make() as Int
+    let b = Tag.A as Int
+    let c = (move t) as Int
+    a + b + c
+}
+
+func main() {
+}

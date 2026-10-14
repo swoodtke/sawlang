@@ -55,7 +55,10 @@ exit status compared.
 - `probes/consumes_refill.saw`, whose `consumes` bodies assign a field again
   after moving it out, which Stage 0 refuses, prints the lines it states the
   same way, and so does `probes/consumes_replace.saw`, whose `consumes` bodies
-  replace `self` where no field has left it.
+  replace `self` where no field has left it;
+- `probes/raw_enum_cast_handoff.saw`, whose raw-backed enum casts run no
+  `copy()` and leave each temporary they read to its statement, which Stage 0
+  loses the deinit of, prints the lines it states the same way.
 
 `--bench` runs none of that: it times each kernel of `bench/` under sawc2 at
 -O2 and under Stage 0 and prints the report, which gates nothing. The runner
@@ -661,6 +664,16 @@ def check_consumes_replace(failures, counts):
     check_stated(failures, counts, "consumes replace", src, want)
 
 
+def check_raw_enum_cast_handoff(failures, counts):
+    """A raw-backed enum's cast reads only its tag, so it runs no `copy()` and
+    a temporary it reads is destroyed at the end of its statement:
+    `probes/raw_enum_cast_handoff.saw`, whose temporaries Stage 0 never
+    destroys, prints its `// prints:` lines (SL-623)."""
+    src = os.path.join(HERE, "probes", "raw_enum_cast_handoff.saw")
+    want = "".join(line + "\n" for line in stated_prints(src)).encode()
+    check_stated(failures, counts, "raw enum cast handoff", src, want)
+
+
 def run(names=None, write=False):
     os.makedirs(OUT, exist_ok=True)
     failures = []
@@ -690,6 +703,7 @@ def run(names=None, write=False):
         check_long_accessor(failures, counts)
         check_consumes_refill(failures, counts)
         check_consumes_replace(failures, counts)
+        check_raw_enum_cast_handoff(failures, counts)
     return failures, counts, dues
 
 

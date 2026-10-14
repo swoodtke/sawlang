@@ -1,0 +1,114 @@
+// A raw-backed enum's cast reads only the tag, so it runs no `copy()`, and a
+// value handed to it is still a temporary its statement destroys (spec,
+// Raw-backed enums, and Temporaries): a call's result, a case, a moved local
+// and a generic enum's case each print their drop right after their line.
+// A `borrow` block's binding and a payload's `borrow let` read the lent tag
+// in place. Stage 0 loses the temporaries' deinits, recurses in the
+// ExplicitCopy enum's `copy()` and cannot parse a `borrow` block, so the run
+// lane builds this with sawc2 alone, at -O0 and -O2, and requires the
+// `// prints:` lines (SL-623).
+// prints: explicit 300
+// prints: explicit as byte 7
+// prints: explicit end
+// prints: drop level
+// prints: drop level
+// prints: temporary 2
+// prints: drop 2
+// prints: case 1
+// prints: drop 1
+// prints: moved 3
+// prints: drop 3
+// prints: moved end
+// prints: generic 4
+// prints: drop code
+// prints: generic end
+// prints: block 2
+// prints: payload 1
+// prints: lent end
+// prints: drop 1
+// prints: drop 2
+
+enum Tag: UInt8 {
+    case A = 1,
+    case B = 2,
+    case C = 3
+}
+
+extension Tag: NoCopy {
+    func deinit(&var self) {
+        print("drop {}", self as UInt8)
+    }
+}
+
+enum Level: UInt16 {
+    case Low = 7,
+    case High = 300
+}
+
+extension Level: ExplicitCopy {
+    func copy(&self) -> Level {
+        print("copy")
+        Level.Low
+    }
+
+    func deinit(&var self) {
+        print("drop level")
+    }
+}
+
+enum Code<T>: UInt8 {
+    case Ok = 0,
+    case Warn = 4
+}
+
+extension Code: NoCopy {
+    func deinit(&var self) {
+        print("drop code")
+    }
+}
+
+func make() -> Tag {
+    Tag.B
+}
+
+func explicit() {
+    let l = Level.High
+    print("explicit {}", l as UInt16)
+    let k = Level.Low
+    print("explicit as byte {}", k as UInt8)
+    print("explicit end")
+}
+
+func moved() {
+    let t = Tag.C
+    print("moved {}", (move t) as UInt8)
+    print("moved end")
+}
+
+func payload(o: &Tag?) {
+    match o {
+        case Some(borrow let t) -> print("payload {}", t as UInt8),
+        case None -> print("none")
+    }
+}
+
+func lent() {
+    var v = Vector<Tag>()
+    try! v.push(Tag.B)
+    borrow let slot = v[0] {
+        print("block {}", slot as UInt8)
+    }
+    let o: Tag? = Tag.A
+    payload(&o)
+    print("lent end")
+}
+
+func main() {
+    explicit()
+    print("temporary {}", make() as UInt8)
+    print("case {}", Tag.A as Int)
+    moved()
+    print("generic {}", Code<String>.Warn as UInt8)
+    print("generic end")
+    lent()
+}

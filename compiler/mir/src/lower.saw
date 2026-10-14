@@ -3544,8 +3544,30 @@ extension MirProgram {
         let inner = self.tc.res.first_node_child(e)
         let o = self.conversion_operand(inner)
         let t = self.tc.expr_types[e]
-        let rv = self.rv_one(MirRvalueKind.Cast, t, "", o)
+        let read = self.tag_read(o, inner, t)
+        let rv = self.rv_one(MirRvalueKind.Cast, t, "", read)
         self.temp_operand(rv)
+    }
+
+    // What a cast from a raw-backed enum reads: only the tag, copied out of
+    // the value, which stays with its owner. A borrowed place arrives as a
+    // shared reference unless the enum is trivial, and an owned value handed
+    // off is kept in a temporary its statement drops (SL-623).
+    func tag_read(&var self, o: Int, e: Int, to: Int) -> Int {
+        let ot = self.operands[o].ty
+        let u = self.tc.expr_use[e]
+        let referent = self.tc.referent(ot)
+        if u == TcUse.Borrow && referent >= 0 && self.tc.casts_backing(referent, to) {
+            let r = self.as_place(mir_operand_val(o), e)
+            let tag = self.project(r, MirProjKind.Deref, -1, -1, referent)
+            return self.op_copy(tag)
+        }
+        let handed = u == TcUse.Move || u == TcUse.Temp
+        if handed && self.owns(ot) && self.tc.casts_backing(ot, to) {
+            let p = self.as_place(mir_operand_val(o), e)
+            return self.op_copy(p)
+        }
+        o
     }
 
     // `&x`, `&var x`: a reference to a place, or to a temporary that lives to

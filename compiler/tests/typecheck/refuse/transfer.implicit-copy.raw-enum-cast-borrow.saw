@@ -1,0 +1,21 @@
+// refuses: transfer.implicit-copy at 20:26
+// a `borrow PLACE` operand of a NoCopy raw-backed enum's cast is read by
+// value, so it is refused as any by-value read is; the program is refused
+// until SL-642 makes a `borrow PLACE` at a Borrow position read through its
+// window, when the cast reads the tag `2` and the element drops once.
+
+enum Tag: UInt8 {
+    case A = 1,
+    case B = 2
+}
+
+extension Tag: NoCopy {
+    func deinit(&var self) {
+    }
+}
+
+func main() {
+    var v = Vector<Tag>()
+    try! v.push(Tag.B)
+    print("element {}", (borrow v[0]) as UInt8)
+}

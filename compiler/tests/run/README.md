@@ -357,7 +357,13 @@ compares:
   out again, on a type that writes its own `deinit`, and on a generic
   receiver), prints its `// prints:` lines the same way: each refilled value
   is released with the rest of the receiver. Stage 0 refuses the assignment
-  as a use after the move (SL-611).
+  as a use after the move (SL-611);
+- `probes/raw_enum_cast_handoff.saw`, whose raw-backed enum casts read an
+  ExplicitCopy enum's place, a call's result, a case, a moved local and a
+  generic enum's case, and a `borrow` block's and a payload's lent binding,
+  prints its `// prints:` lines the same way: no `copy()` runs, each
+  temporary is destroyed at the end of its statement, and a lent binding
+  reads its tag in place. Stage 0 never destroys those temporaries (SL-623).
 
 Stage 0 is the oracle: a difference is a sawc2 bug until shown otherwise
 (SL:architecture §5).

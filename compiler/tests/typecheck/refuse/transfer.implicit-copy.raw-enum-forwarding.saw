@@ -1,0 +1,19 @@
+// refuses: transfer.implicit-copy at 16:13
+// a cast of a NoCopy raw-backed enum to its own type forwards the operand, a
+// by-value read of the place, where a cast to its backing only reads the tag
+// (SL-623)
+
+enum Tag: UInt8 {
+    case A = 1,
+    case B = 2
+}
+
+extension Tag: NoCopy {}
+
+func main() {
+    let t = Tag.A
+    let r = t as UInt8
+    let u = t as Tag
+    print(r)
+    print(u as UInt8)
+}
