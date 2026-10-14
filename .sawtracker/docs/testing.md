@@ -180,7 +180,10 @@ let b = move x                                  // first error has that ID
   - a test may instantiate production generics with test-only types (a
     `FakeClock` passed to `func f<T: Clock>`), and that instantiation belongs to
     the test build;
-  - a test-only conformance that overlaps a production conformance is refused;
+  - a test-only conformance that overlaps a production conformance is refused. An automatic conformance (`Equatable`/`Hashable` of a trivially copyable struct or a payload-free enum) and a production refinement both count as production conformances (`conformance.test-only-overlap`, SL-640);
+  - a production conformance's requirements are met as if no test-only declaration existed. A test-only conformance that reaches a requirement a production conformance also reaches takes the production answer, and an associated type it assigns must agree with the production one. None of this depends on declaration order (SL-640);
+  - a test-only member whose signature meets a requirement that a production conformance of its type already meets is refused at its declaration (`conformance.test-only-shadow`), whether production meets it with a written member (`overload.indistinguishable`), the trait's default, or `@synthesize`. Nothing called through the trait would ever run it. A fake is a test-only type passed to the production generic (the user's ruling on SL-640);
+  - a member written to meet a requirement follows its trait's visibility only through a production conformance;
   - a test-only copy-family conformance (`Copy`, `ExplicitCopy`, `NoCopy`) on a
     production type is refused outright (Air t15). Every type already has a
     tier, so one would give a single type two tiers in one binary once a value
