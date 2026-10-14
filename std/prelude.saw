@@ -175,6 +175,15 @@ public trait UnsafeSync: Sync {
 public trait UnsafeSend: Send {
 }
 
+/// The declared assertion that all-zero is a valid value of a type.
+///
+/// It entitles any module to a `static` of the type with no initializer,
+/// fields it cannot see included. The compiler checks the declaration: every
+/// field must be valid at zero, and a type whose construction an `init`
+/// overrides cannot declare it.
+public trait ZeroInit {
+}
+
 /// A source of values a `for` loop consumes one `next()` at a time.
 public trait Iterator {
     type Item

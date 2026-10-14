@@ -1,0 +1,16 @@
+// refuses: zeroinit.invalid at 12:20
+// flags: --std-root std
+// a `ZeroInit` declaration over a field of another module's struct whose field is private: the declaration vouches for its own type's fields, not for `Port`'s, while `Gauge`, which declares `ZeroInit` itself, is accepted (SL-660)
+
+import ports.{Port, Gauge}
+
+struct Station {
+    level: Gauge
+    uplink: Port
+}
+
+extension Station: ZeroInit {}
+
+func main() {
+    print("station")
+}

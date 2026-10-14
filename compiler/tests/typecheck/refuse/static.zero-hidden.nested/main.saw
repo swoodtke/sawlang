@@ -1,0 +1,15 @@
+// refuses: static.zero-hidden at 11:8
+// a zero-initialized static of this module's struct holding another module's struct with a private field: the hidden field is refused at any depth (SL-660)
+
+import ports.{Port}
+
+struct Route {
+    hops: Int
+    exit: Port
+}
+
+static ROUTE: Route
+
+func main() {
+    print(ROUTE.hops)
+}

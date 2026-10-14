@@ -1,0 +1,33 @@
+// flags: --std-root std
+// The bare statics of another module's types the zero-init funnel accepts
+// (SL-660). `Gauge`'s field is private and its module declares `ZeroInit`;
+// `Wrapper` declares it over a field `locks` sees, `Port`'s private one;
+// `Lock<T: ZeroInit>` vouches for its own private fields and leaves its
+// argument to the funnel, so `Counters`, a struct this module builds field
+// by field, needs no declaration; and an Optional of `Port`, whose fields
+// this module does not see, zeroes to `None`.
+
+import locks.{Port, Gauge, Lock, Wrapper}
+
+struct Counters {
+    hits: Int
+    misses: Int
+}
+
+struct Registry {
+    lock: Lock<Counters>
+    spare: Port?
+}
+
+extension Registry: NoCopy {}
+
+static GAUGE: Gauge
+static WRAPPED: Wrapper
+static LOCK: Lock<Counters>
+static LOCK_INT: Lock<Int>
+static LOCK_GAUGE: Lock<Gauge>
+static REGISTRY: Registry
+
+func main() {
+    print("ok")
+}

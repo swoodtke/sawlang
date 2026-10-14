@@ -1,0 +1,89 @@
+(Module main
+  (declarations
+    (struct Counters 12:8 private)
+    (field Counters.hits 13:5 private Int)
+    (field Counters.misses 14:5 private Int)
+    (struct Registry 17:8 private)
+    (field Registry.lock 18:5 private locks.Lock<main.Counters>)
+    (field Registry.spare 19:5 private locks.Port?)
+    (extension 22:1 (target main.Registry) (conforms NoCopy))
+    (static GAUGE 24:8 private locks.Gauge)
+    (static WRAPPED 25:8 private locks.Wrapper)
+    (static LOCK 26:8 private locks.Lock<main.Counters>)
+    (static LOCK_INT 27:8 private locks.Lock<Int>)
+    (static LOCK_GAUGE 28:8 private locks.Lock<locks.Gauge>)
+    (static REGISTRY 29:8 private main.Registry)
+    (func main 31:6 private (signature (params) -> Void) (summary body (suspends no) (sync-callable yes))))
+  (members
+    (main.Counters
+      (field hits Int private declared)
+      (field misses Int private declared))
+    (main.Registry
+      (field lock locks.Lock<main.Counters> private declared)
+      (field spare locks.Port? private declared)
+      (method deinit public (synthesized Deinit))))
+  (views
+    (main.Counters hits misses)
+    (main.Registry lock spare deinit)
+    (locks.Port)
+    (locks.Gauge)
+    (locks.Lock deinit)
+    (locks.Wrapper))
+  (conformances
+    (main.Registry NoCopy 22:21 (deinit implicit)))
+  (copy-tier
+    (main.Counters Copy)
+    (main.Registry NoCopy declared))
+  (bodies
+    (main 31:6
+      (32:5-32:16 Call.paren Void value temp (builtin print))
+      (32:11-32:15 StringLit String value temp)))
+  (string-positions
+    (32:11 message std.string.string_literal)))
+
+(Module locks
+  (declarations
+    (struct Port 1:15 public)
+    (field Port.number 2:13 private Int)
+    (struct Gauge 5:15 public)
+    (field Gauge.level 6:13 private Int)
+    (extension 9:1 (target locks.Gauge) (conforms ZeroInit))
+    (struct Lock 11:15 public (generics (T)))
+    (field Lock.state 12:13 private Atomic<Int>)
+    (field Lock.value 13:13 private UnsafeMutableInterior<T>)
+    (extension 16:1 (target locks.Lock<T>) (conforms NoCopy))
+    (extension 18:1 (target locks.Lock<T>) (where (T Send)) (conforms UnsafeSync))
+    (extension 20:1 (target locks.Lock<T>) (where (T ZeroInit)) (conforms ZeroInit))
+    (struct Wrapper 22:15 public)
+    (field Wrapper.inner 23:13 private locks.Port)
+    (extension 26:1 (target locks.Wrapper) (conforms ZeroInit)))
+  (members
+    (locks.Port
+      (field number Int private declared))
+    (locks.Gauge
+      (field level Int private declared))
+    (locks.Lock
+      (field state Atomic<Int> private declared)
+      (field value UnsafeMutableInterior<T> private declared)
+      (method deinit public (synthesized Deinit)))
+    (locks.Wrapper
+      (field inner locks.Port private declared)))
+  (views
+    (main.Counters)
+    (main.Registry deinit)
+    (locks.Port number)
+    (locks.Gauge level)
+    (locks.Lock state value deinit)
+    (locks.Wrapper inner))
+  (conformances
+    (locks.Gauge ZeroInit 9:18)
+    (locks.Lock NoCopy 16:20 (deinit implicit))
+    (locks.Lock UnsafeSync 18:26)
+    (locks.Lock ZeroInit 20:30)
+    (locks.Wrapper ZeroInit 26:20))
+  (copy-tier
+    (locks.Port Copy)
+    (locks.Gauge Copy)
+    (locks.Lock NoCopy declared)
+    (locks.Wrapper Copy))
+  (bodies))

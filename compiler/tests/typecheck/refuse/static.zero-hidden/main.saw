@@ -1,0 +1,10 @@
+// refuses: static.zero-hidden at 6:8
+// a zero-initialized static of another module's struct whose field is private: zero builds a `Port` no construction this module may write would produce, past the `init` that keeps its number above 1023 (SL-660)
+
+import ports.{Port}
+
+static PORT: Port
+
+func main() {
+    print(PORT.number())
+}

@@ -1,0 +1,13 @@
+// refuses: zeroinit.invalid at 9:22
+// flags: --std-root std
+// an unconditional `ZeroInit` declaration on a generic struct holding its parameter: nothing bounds `T` by `ZeroInit`, so the conformance must be conditional, `extension Holder<T: ZeroInit>: ZeroInit {}` (SL-660)
+
+struct Holder<T> {
+    value: T
+}
+
+extension Holder<T>: ZeroInit {}
+
+func main() {
+    print("holder")
+}

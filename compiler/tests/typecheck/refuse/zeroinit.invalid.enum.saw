@@ -1,0 +1,14 @@
+// refuses: zeroinit.invalid at 10:18
+// flags: --std-root std
+// a `ZeroInit` declaration on a raw-backed enum with no case of value 0: zero would be a value no case names (SL-660)
+
+enum Level: UInt8 {
+    case Low = 1,
+    case High = 2
+}
+
+extension Level: ZeroInit {}
+
+func main() {
+    print("level")
+}

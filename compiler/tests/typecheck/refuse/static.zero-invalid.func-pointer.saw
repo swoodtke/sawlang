@@ -1,0 +1,8 @@
+// refuses: static.zero-invalid at 4:19
+// a zero-initialized `unsafe static var` of a `FuncPointer`, under Stage 0's std, which declares it: no expression builds a null one, so zero is not a valid value of it (SL-660)
+
+unsafe static var ENTRY: FuncPointer<(Int) -> Int>
+
+func main() {
+    print("entry")
+}

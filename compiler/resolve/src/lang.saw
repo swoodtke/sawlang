@@ -75,7 +75,11 @@ public enum ResLang {
     case CancelRequestedFunction,
     // The entry executor the C entry hands a suspending `main`'s frame to,
     // with that frame's descriptor (SL:coroutines §3.1).
-    case ExecRunMainFunction
+    case ExecRunMainFunction,
+    // The marker a type's author declares when its all-zero value is valid,
+    // which entitles any module to a bare static of it. Stage 0's vocabulary
+    // has none, so the role is unbound under its root (SL-660).
+    case ZeroInitTrait
 }
 
 // One role's row: its index in the table, the name its declaration carries
@@ -132,6 +136,7 @@ public func res_lang_roles() -> Vector<ResLang> {
     try! out.push(ResLang.ParkOffloadFunction)
     try! out.push(ResLang.CancelRequestedFunction)
     try! out.push(ResLang.ExecRunMainFunction)
+    try! out.push(ResLang.ZeroInitTrait)
     move out
 }
 
@@ -226,7 +231,9 @@ public func res_lang_row(role: ResLang) -> ResLangRow {
         case ParkChannelFunction -> res_lang_task_function(35, "__saw_park_channel"),
         case ParkOffloadFunction -> res_lang_task_function(36, "__saw_park_offload"),
         case CancelRequestedFunction -> res_lang_task_function(37, "__saw_cancel_requested"),
-        case ExecRunMainFunction -> res_lang_task_function(38, "__saw_exec_run_main")
+        case ExecRunMainFunction -> res_lang_task_function(38, "__saw_exec_run_main"),
+        case ZeroInitTrait -> ResLangRow(index: 39, name: "ZeroInit", home: "std.prelude",
+                                         builtin_home: "builtin", builtin_name: "")
     }
 }
 

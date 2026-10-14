@@ -78,6 +78,9 @@ public struct TcKnown {
     // The function every panic calls once its message is formatted: the new
     // std's panic sink, or the builtin `panic` under Stage 0's std.
     panic_sink: Int
+    // The marker that vouches for a type's all-zero value; -1 under Stage 0's
+    // std, which has none.
+    zero_init: Int
 }
 
 public struct TcProgram {
@@ -338,7 +341,7 @@ public func tc_program(res: ResProgram) -> TcProgram {
                         bool_type: -1, range: -1, range_inclusive: -1, iterator: -1, box: -1,
                         vector: -1, map: -1, set: -1, arc: -1, task_group: -1, task: -1, void_task: -1,
                         func_pointer: -1,
-                        ordering: -1, hasher: -1, panic_sink: -1)
+                        ordering: -1, hasher: -1, panic_sink: -1, zero_init: -1)
     var p = TcProgram(res: move res, types: tc_types(), sigs: move sigs,
                       generics: Vector<TcGeneric>(), traits: Vector<Int>(),
                       params: Vector<TcParam>(), node_types: move node_types,

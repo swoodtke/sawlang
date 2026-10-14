@@ -158,6 +158,7 @@ extension TcProgram {
             }
             m = m + 1
         }
+        self.check_zero_inits()
         self.settle_places()
         self.settle_captures()
     }
@@ -345,26 +346,17 @@ extension TcProgram {
         }
     }
 
-    // A static's initializer, which expects the static's type.
+    // A static's initializer, which expects the static's type. One with none
+    // is zero-initialized, which `check_zero_inits` checks once every body
+    // is typed.
     func check_static_body(&var self, d: Int) {
-        let info = self.res.decls[d]
         let s = self.sigs[d]
-        let n = self.child_count(info.node)
-        var initialized = false
-        var k = 0
-        while k < n {
-            let c = self.child(info.node, k)
-            if not self.is_leaf(c) && not res_is_type_alt(self.node_alt(c)) {
-                initialized = true
-                self.begin_body(d, c)
-                self.body_result = s.result
-                self.check_static_value(c, s.result)
-                self.check_constant_position(c, TcConstPosition.Static, d, -1)
-            }
-            k = k + 1
-        }
-        if not initialized {
-            self.check_zero_static(d)
+        let c = self.static_initializer(d)
+        if c >= 0 {
+            self.begin_body(d, c)
+            self.body_result = s.result
+            self.check_static_value(c, s.result)
+            self.check_constant_position(c, TcConstPosition.Static, d, -1)
         }
     }
 
@@ -5784,6 +5776,27 @@ public struct TcRoute {
     hidden: Int
 }
 
+// What refuses an all-zero value (`zero_fault`): nothing, an override the
+// zero would skip, a field the code cannot see, or a part with no valid zero.
+public enum TcZeroFault {
+    case Valid,
+    case Override,
+    case Hidden,
+    case Invalid
+}
+
+// One verdict of the zero-init walk: its fault, the type at fault, and the
+// override or the hidden field it names, else -1.
+public struct TcZero {
+    fault: TcZeroFault
+    ty: Int
+    decl: Int
+}
+
+func tc_zero(fault: TcZeroFault, ty: Int, decl: Int) -> TcZero {
+    TcZero(fault: fault, ty: ty, decl: decl)
+}
+
 // The root a hint's proposed write would land in: its node, or -1, whether a
 // write through the place lands, and what declared a root binding.
 struct TcHintRoot {
@@ -7091,7 +7104,7 @@ extension TcProgram {
     //
     // ENTRY POINTS:
     //     construction_candidates
-    //     zero_construction
+    //     zero_fault
     func construction_route(&var self, d: Int) -> TcRoute {
         if not self.is_struct_decl(d) {
             return TcRoute(override_init: -1, raw: false, hidden: -1)
@@ -7148,68 +7161,213 @@ extension TcProgram {
         true
     }
 
+    // Every zero-initialized value the program writes, after every body is
+    // typed, so a raw-backed case's value has been folded wherever its enum
+    // sits: each `ZeroInit` declaration, then each static with no
+    // initializer, in modules checked in full.
+    func check_zero_inits(&var self) {
+        let zi = self.known.zero_init
+        var k = 0
+        while zi >= 0 && k < self.conformances.len() {
+            let c = self.conformances[k]
+            k = k + 1
+            let available = self.res.modules[c.module].available
+            if c.trait_decl == zi && c.type_decl >= 0 && available && not self.is_interface(c.module) {
+                let saved = self.save_context()
+                self.enter_decl(c.ext)
+                self.check_zero_init_declaration(k - 1)
+                self.restore_context(saved)
+            }
+        }
+        var m = 0
+        while m < self.res.modules.len() {
+            let info = self.res.modules[m]
+            m = m + 1
+            if not info.available || info.interface_only {
+                continue
+            }
+            var d = info.decl_first
+            while d < info.decl_first + info.decl_count {
+                let decl = self.res.decls[d]
+                if decl.kind == ResDeclKind.Static && decl.node >= 0 && self.static_initializer(d) < 0 {
+                    let saved = self.save_context()
+                    self.enter_decl(d)
+                    self.check_zero_static(d)
+                    self.restore_context(saved)
+                }
+                d = d + 1
+            }
+        }
+    }
+
     // Static `d`, which has no initializer: its all-zero value is a
-    // construction, so it is refused where an override, at any depth of the
-    // value, would never check it (SL-648).
+    // construction, legal where this module could build it field by field or
+    // a `ZeroInit` declaration vouches for it (SL-660).
     func check_zero_static(&var self, d: Int) {
         let t = self.sigs[d].result
         if t < 0 || self.has_error(t) {
             return
         }
         var walked = Vector<Int>()
-        let _ = self.zero_construction(d, t, &var walked)
+        let z = self.zero_fault(t, -1, &var walked)
+        if z.fault == TcZeroFault.Valid {
+            return
+        }
+        var msg = StringBuilder()
+        try! msg.append("`")
+        try! msg.append(self.res.decl_path(d))
+        try! msg.append("` has no initializer, so its all-zero value builds a `")
+        try! msg.append(self.type_text(z.ty))
+        let site = self.decl_site(d)
+        match z.fault {
+            case Override -> {
+                try! msg.append("` that `")
+                try! msg.append(self.overload_text(z.decl))
+                try! msg.append("`, which overrides its construction, never checked; a static's initializer cannot call it either, so hold the value somewhere an `init` builds it")
+                self.refuse(site, "static.zero-init", msg.build())
+            },
+            case Hidden -> {
+                try! msg.append("` field by field, and this module cannot see its field `")
+                let field_name = self.res.decls[z.decl].name
+                try! msg.append(self.name_text(field_name))
+                try! msg.append("`: only code that sees every field may make that construction. Give the static an initializer, or, if zero is a valid `")
+                try! msg.append(self.type_text(z.ty))
+                try! msg.append("`, its own module may declare `ZeroInit` for it")
+                self.refuse(site, "static.zero-hidden", msg.build())
+            },
+            case Invalid -> {
+                try! msg.append("`, and ")
+                let why = self.zero_invalid_reason(z.ty)
+                try! msg.append(why)
+                try! msg.append(": give the static an initializer")
+                self.refuse(site, "static.zero-invalid", msg.build())
+            },
+            case Valid -> {}
+        }
     }
 
-    // Whether the all-zero value of type `t`, static `st`'s or a part of it,
-    // was refused: a struct with an override, whose check zero skips; then
-    // its fields', a cell's payload, a tuple's elements, an array's element,
-    // and the payload of the case an enum's zero tag names. An Optional's
-    // zero is `None`, which holds none.
-    func zero_construction(&var self, st: Int, t: Int, walked: &var Vector<Int>) -> Bool {
-        if tc_contains(&walked, t) {
-            return false
+    // The declaration-site check of `ZeroInit` conformance `at`, which the
+    // caller entered: a struct with no override whose every field is valid at
+    // zero, its parameters taken as the conformance's bounds give them, or an
+    // enum whose zero is one of its cases (SL-660).
+    func check_zero_init_declaration(&var self, at: Int) {
+        let c = self.conformances[at]
+        let d = c.type_decl
+        var msg = StringBuilder()
+        try! msg.append("`")
+        try! msg.append(self.res.decl_path(d))
+        try! msg.append("` declares `ZeroInit`, ")
+        if self.is_struct_decl(d) {
+            let ov = self.construction_override(d)
+            if ov >= 0 {
+                try! msg.append("but `")
+                try! msg.append(self.overload_text(ov))
+                try! msg.append("` overrides its construction, and a zero value would skip that check: drop the declaration, or the override")
+                self.refuse_in(c.module, c.node, "zeroinit.override", msg.build())
+                return
+            }
+            let fields = self.struct_fields(d)
+            var walked = Vector<Int>()
+            var k = 0
+            while k < fields.len() {
+                let f = fields[k]
+                k = k + 1
+                self.build_decl(f)
+                let written = self.sigs[f].result
+                let z = self.zero_fault(written, c.ext, &var walked)
+                if z.fault != TcZeroFault.Valid {
+                    try! msg.append("but its field `")
+                    let field_name = self.res.decls[f].name
+                    try! msg.append(self.name_text(field_name))
+                    try! msg.append("` has no valid zero: ")
+                    let why = self.zero_fault_text(z)
+                    try! msg.append(why)
+                    self.refuse_in(c.module, c.node, "zeroinit.invalid", msg.build())
+                    return
+                }
+            }
+            return
+        }
+        if self.is_enum_decl(d) && not self.enum_zero_valid(d) {
+            let self_type = self.self_type_of(d)
+            try! msg.append("but ")
+            let why = self.zero_invalid_reason(self_type)
+            try! msg.append(why)
+            self.refuse_in(c.module, c.node, "zeroinit.invalid", msg.build())
+        }
+    }
+
+    // THE ZERO-INIT FUNNEL: whether the all-zero value of type `t` is one the
+    // code being checked may make, or the first part that refuses it. A part
+    // is valid when it is a scalar, a raw pointer, an Optional (zero is
+    // `None`), an enum whose zero is a case, a cell, tuple or array of valid
+    // parts, a type parameter `env_ext` or its declaration bounds by
+    // `ZeroInit`, a struct declaring `ZeroInit` with its conditions met, or a
+    // struct with no override whose fields this code sees and are all valid
+    // (SL-660). A type `walked` holds was found valid or is being walked.
+    //
+    // ENTRY POINTS:
+    //     check_zero_static
+    //     check_zero_init_declaration
+    func zero_fault(&var self, t: Int, env_ext: Int, walked: &var Vector<Int>) -> TcZero {
+        if t < 0 || tc_contains(&walked, t) {
+            return tc_zero(TcZeroFault.Valid, t, -1)
         }
         try! walked.push(t)
         let info = self.types.ty(t)
+        // A reference is refused wherever a static or a field names one
+        // (`type.reference-position`), so its zero is no second fault.
+        if info.kind == TcKind.Error || info.kind == TcKind.Ref || info.kind == TcKind.Slice {
+            return tc_zero(TcZeroFault.Valid, t, -1)
+        }
         if info.kind == TcKind.Tuple {
-            return self.zero_parts(st, t, &var walked)
+            return self.zero_parts(t, env_ext, &var walked)
         }
         if info.kind == TcKind.Array {
-            return self.zero_construction(st, info.b, &var walked)
+            return self.zero_fault(info.b, env_ext, &var walked)
+        }
+        if info.kind == TcKind.Param && self.param_zero_init(info.decl, info.a, env_ext) {
+            return tc_zero(TcZeroFault.Valid, t, -1)
         }
         if info.kind != TcKind.Nominal {
-            return false
+            return tc_zero(TcZeroFault.Invalid, t, -1)
         }
         let d = info.decl
+        if d == self.known.string || d == self.known.never || d == self.known.func_pointer {
+            return tc_zero(TcZeroFault.Invalid, t, -1)
+        }
+        if self.is_primitive_decl(d) || d == self.known.optional {
+            return tc_zero(TcZeroFault.Valid, t, -1)
+        }
         // A cell is built positionally from any module, so its payload is
         // what the zero constructs.
         if d == self.known.interior || d == self.known.atomic {
-            return self.zero_parts(st, t, &var walked)
+            return self.zero_parts(t, env_ext, &var walked)
         }
-        if d == self.known.optional {
-            return false
-        }
-        let sub = self.owner_subst(t)
         if self.is_enum_decl(d) {
-            let cases = self.members_of(d)
-            var k = 0
-            while k < cases.len() {
-                let c = cases[k]
-                k = k + 1
-                if self.res.decls[c].kind == ResDeclKind.Case {
-                    return self.zero_params(st, c, &sub, &var walked)
-                }
+            if self.enum_zero_valid(d) {
+                return tc_zero(TcZeroFault.Valid, t, -1)
             }
-            return false
+            return tc_zero(TcZeroFault.Invalid, t, -1)
         }
         if not self.is_struct_decl(d) {
-            return false
+            return tc_zero(TcZeroFault.Invalid, t, -1)
         }
         let route = self.construction_route(d)
         if route.override_init >= 0 {
-            self.refuse_zero_override(st, t, route.override_init)
-            return true
+            return tc_zero(TcZeroFault.Override, t, route.override_init)
         }
+        let vouched = self.zero_init_vouches(t, env_ext, &var walked)
+        if vouched.fault != TcZeroFault.Valid {
+            return vouched
+        }
+        if vouched.decl >= 0 {
+            return tc_zero(TcZeroFault.Valid, t, -1)
+        }
+        if route.hidden >= 0 {
+            return tc_zero(TcZeroFault.Hidden, t, route.hidden)
+        }
+        let sub = self.owner_subst(t)
         let fields = self.struct_fields(d)
         var k = 0
         while k < fields.len() {
@@ -7218,57 +7376,201 @@ extension TcProgram {
             self.build_decl(f)
             let written = self.sigs[f].result
             let ft = self.subst(written, &sub)
-            if ft >= 0 && self.zero_construction(st, ft, &var walked) {
-                return true
+            let z = self.zero_fault(ft, env_ext, &var walked)
+            if z.fault != TcZeroFault.Valid {
+                return z
             }
         }
-        false
+        tc_zero(TcZeroFault.Valid, t, -1)
     }
 
-    // `zero_construction` over each argument of `t`.
-    func zero_parts(&var self, st: Int, t: Int, walked: &var Vector<Int>) -> Bool {
+    // `zero_fault` over each argument of `t`, the first fault.
+    func zero_parts(&var self, t: Int, env_ext: Int, walked: &var Vector<Int>) -> TcZero {
         let info = self.types.ty(t)
         var k = 0
         while k < info.count {
             let part = self.types.arg(t, k)
             k = k + 1
-            if self.zero_construction(st, part, &var walked) {
-                return true
+            let z = self.zero_fault(part, env_ext, &var walked)
+            if z.fault != TcZeroFault.Valid {
+                return z
             }
         }
-        false
+        tc_zero(TcZeroFault.Valid, t, -1)
     }
 
-    // `zero_construction` over case `c`'s payload, instantiated by `sub`.
-    func zero_params(&var self, st: Int, c: Int, sub: &TcSubst, walked: &var Vector<Int>) -> Bool {
-        if self.res.decls[c].node < 0 {
+    // Whether a `ZeroInit` conformance the code being checked may use vouches
+    // for struct type `t`: valid with `decl` 0 when one does, valid with
+    // `decl` -1 when none applies, and the first fault of a `ZeroInit`
+    // condition's argument when that is what stops one. A condition of
+    // another trait is met as any bound is.
+    func zero_init_vouches(&var self, t: Int, env_ext: Int, walked: &var Vector<Int>) -> TcZero {
+        let zi = self.known.zero_init
+        let info = self.types.ty(t)
+        let viewer = self.current
+        let in_test = self.current_test
+        var k = 0
+        while zi >= 0 && k < self.conformances.len() {
+            let c = self.conformances[k]
+            k = k + 1
+            if c.type_decl != info.decl || c.trait_decl != zi || not self.conformance_visible(k - 1, viewer, in_test) {
+                continue
+            }
+            self.ensure_generics(c.ext)
+            let s = self.sigs[c.ext]
+            var met = true
+            var j = 0
+            while met && j < s.generic_count && j < info.count {
+                let g = self.generics[s.generic_first + j]
+                let arg = self.types.arg(t, j)
+                j = j + 1
+                var b = 0
+                while met && b < g.bound_count {
+                    let bound = self.traits[g.bound_first + b]
+                    b = b + 1
+                    if bound == zi {
+                        let z = self.zero_fault(arg, env_ext, &var walked)
+                        if z.fault != TcZeroFault.Valid {
+                            return z
+                        }
+                    } else if not self.satisfies(arg, bound, -1, env_ext, viewer, in_test) {
+                        met = false
+                    }
+                }
+            }
+            if met {
+                return tc_zero(TcZeroFault.Valid, t, 0)
+            }
+        }
+        tc_zero(TcZeroFault.Valid, t, -1)
+    }
+
+    // Whether parameter `index` of `owner` is bound by `ZeroInit`: by its
+    // declaration, or by extension `env_ext` of `owner`.
+    func param_zero_init(&var self, owner: Int, index: Int, env_ext: Int) -> Bool {
+        let zi = self.known.zero_init
+        if zi < 0 {
             return false
         }
-        self.build_decl(c)
-        let s = self.sigs[c]
+        if self.generic_grants(owner, index, zi) {
+            return true
+        }
+        env_ext >= 0 && self.ext_target(env_ext) == owner && self.generic_grants(env_ext, index, zi)
+    }
+
+    // Whether enum `d`'s all-zero value is one of its cases: the first case
+    // of a payload-free enum, or the case whose raw value is 0.
+    func enum_zero_valid(&var self, d: Int) -> Bool {
+        let backing = self.sigs[d].result
+        let raw = backing >= 0 && self.is_integer(backing)
+        let members = self.members_of(d)
+        var cases = 0
         var k = 0
-        while k < s.param_count {
-            let p = self.params[s.param_first + k]
+        while k < members.len() {
+            let c = members[k]
             k = k + 1
-            let pt = self.subst(p.ty, &sub)
-            if pt >= 0 && self.zero_construction(st, pt, &var walked) {
-                return true
+            if self.res.decls[c].kind != ResDeclKind.Case {
+                continue
+            }
+            cases = cases + 1
+            self.build_decl(c)
+            if self.sigs[c].param_count > 0 {
+                return false
+            }
+            if raw {
+                let node = self.raw_value_node(c)
+                if node >= 0 {
+                    let v = self.fold_constant(node)
+                    if v.ok && v.bits == 0 {
+                        return true
+                    }
+                }
+            }
+        }
+        not raw && cases > 0
+    }
+
+    // What a fault of the zero-init walk says, for a refusal's message.
+    func zero_fault_text(&var self, z: TcZero) -> String {
+        var out = StringBuilder()
+        match z.fault {
+            case Override -> {
+                try! out.append("it builds a `")
+                try! out.append(self.type_text(z.ty))
+                try! out.append("` that `")
+                try! out.append(self.overload_text(z.decl))
+                try! out.append("`, which overrides its construction, never checked")
+            },
+            case Hidden -> {
+                try! out.append("it builds a `")
+                try! out.append(self.type_text(z.ty))
+                try! out.append("` whose field `")
+                let field_name = self.res.decls[z.decl].name
+                try! out.append(self.name_text(field_name))
+                try! out.append("` this module cannot see, and `")
+                try! out.append(self.type_text(z.ty))
+                try! out.append("` does not declare `ZeroInit`")
+            },
+            case Invalid -> {
+                let why = self.zero_invalid_reason(z.ty)
+                try! out.append(why)
+            },
+            case Valid -> {}
+        }
+        out.build()
+    }
+
+    // Why all-zero is not a valid value of `t`, a part the walk refused.
+    func zero_invalid_reason(&var self, t: Int) -> String {
+        var out = StringBuilder()
+        let info = self.types.ty(t)
+        try! out.append("`")
+        try! out.append(self.type_text(t))
+        if info.kind == TcKind.Param {
+            try! out.append("` is a type parameter that is not bound by `ZeroInit`")
+            return out.build()
+        }
+        if info.kind != TcKind.Nominal {
+            try! out.append("` has no all-zero value")
+            return out.build()
+        }
+        let d = info.decl
+        if d == self.known.string {
+            try! out.append("` owns its bytes, so all-zero is not a valid `String`")
+        } else if d == self.known.never {
+            try! out.append("` has no value")
+        } else if d == self.known.func_pointer {
+            try! out.append("` is never null: a zero one would name no function")
+        } else if self.is_enum_decl(d) {
+            let backing = self.sigs[d].result
+            if backing >= 0 && self.is_integer(backing) {
+                try! out.append("` has no case whose raw value is 0, so zero would be a value no case names")
+            } else if self.enum_has_payload(d) {
+                try! out.append("` has a case with a payload, so zero is not a valid value of it")
+            } else {
+                try! out.append("` has no case")
+            }
+        } else {
+            try! out.append("` has no all-zero value")
+        }
+        out.build()
+    }
+
+    // Whether enum `d` has a case that carries a payload.
+    func enum_has_payload(&var self, d: Int) -> Bool {
+        let members = self.members_of(d)
+        var k = 0
+        while k < members.len() {
+            let c = members[k]
+            k = k + 1
+            if self.res.decls[c].kind == ResDeclKind.Case {
+                self.build_decl(c)
+                if self.sigs[c].param_count > 0 {
+                    return true
+                }
             }
         }
         false
-    }
-
-    func refuse_zero_override(&var self, st: Int, t: Int, ov: Int) {
-        var msg = StringBuilder()
-        try! msg.append("`")
-        try! msg.append(self.res.decl_path(st))
-        try! msg.append("` has no initializer, so its all-zero value builds a `")
-        try! msg.append(self.type_text(t))
-        try! msg.append("` that `")
-        try! msg.append(self.overload_text(ov))
-        try! msg.append("`, which overrides its construction, never checked; a static's initializer cannot call it either, so hold the value somewhere an `init` builds it")
-        let site = self.decl_site(st)
-        self.refuse(site, "static.zero-init", msg.build())
     }
 
     // Whether the body being checked is the block of function `f`, a closure

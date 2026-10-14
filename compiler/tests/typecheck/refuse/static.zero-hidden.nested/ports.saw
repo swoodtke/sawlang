@@ -1,0 +1,13 @@
+public struct Port {
+    private number: Int
+}
+
+extension Port {
+    public init(offset: Int) -> Port {
+        Port(number: 1024 + offset)
+    }
+
+    public func number(&self) -> Int {
+        self.number
+    }
+}

@@ -1,0 +1,16 @@
+// refuses: static.zero-invalid at 9:8
+// a zero-initialized static of an enum with a payload case: zero is not a valid value of it (SL-660)
+
+enum Shape {
+    case Dot,
+    case Circle(radius: Int)
+}
+
+static SHAPE: Shape
+
+func main() {
+    match SHAPE {
+        case Dot -> print("dot"),
+        case Circle(radius) -> print(radius)
+    }
+}

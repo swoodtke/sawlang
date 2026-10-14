@@ -1,0 +1,14 @@
+// refuses: static.zero-hidden at 10:8
+// a zero-initialized static of a generic struct this module sees whole, at an argument with a private field: the walk follows the field's instantiated type (SL-660)
+
+import ports.{Port}
+
+struct Holder<T> {
+    value: T
+}
+
+static HELD: Holder<Port>
+
+func main() {
+    print(HELD.value.number())
+}

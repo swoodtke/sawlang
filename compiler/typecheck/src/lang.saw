@@ -202,7 +202,8 @@ func tc_lang_expected(role: ResLang) -> Vector<String> {
         case CancelRequestedFunction -> try! out.push("func (signature (params) -> Bool)"),
         case ExecRunMainFunction -> {
             try! out.push("func (signature (params (descriptor UnsafePointer<std.taskgroup.FrameDescriptor> owned) (frame UnsafePointer<UInt8> owned)) (effects unsafe) -> Void)")
-        }
+        },
+        case ZeroInitTrait -> try! out.push("trait")
     }
     move out
 }

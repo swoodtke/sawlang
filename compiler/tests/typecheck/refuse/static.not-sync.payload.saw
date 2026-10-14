@@ -1,5 +1,5 @@
-// refuses: static.not-sync at 11:8
-// a static of an enum whose payload is an interior cell, and which declares no `UnsafeSync`
+// refuses: static.not-sync at 17:8
+// a static holding an enum whose payload is an interior cell, and which declares no `UnsafeSync`; the enum sits in an Optional, whose zero is `None`, so the static's zero is valid
 
 enum Slot {
     case Held(cell: UnsafeMutableInterior<Int>),
@@ -8,7 +8,13 @@ enum Slot {
 
 extension Slot: NoCopy {}
 
-static SLOT: Slot
+struct Bay {
+    slot: Slot?
+}
+
+extension Bay: NoCopy {}
+
+static BAY: Bay
 
 func main() {
     print(0)

@@ -1,0 +1,26 @@
+public struct Port {
+    private number: Int
+}
+
+public struct Gauge {
+    private level: Int
+}
+
+extension Gauge: ZeroInit {}
+
+public struct Lock<T> {
+    private state: Atomic<Int>
+    private value: UnsafeMutableInterior<T>
+}
+
+extension Lock<T>: NoCopy {}
+
+extension Lock<T: Send>: UnsafeSync {}
+
+extension Lock<T: ZeroInit>: ZeroInit {}
+
+public struct Wrapper {
+    private inner: Port
+}
+
+extension Wrapper: ZeroInit {}

@@ -927,7 +927,7 @@ hold the same rows under the new std:
 |---|---|---|
 | a struct holding a cell with no `UnsafeSync` | refused, naming the field and `extension Counter: UnsafeSync {}` | `static.not-sync` (bare); std call `static_not_sync` |
 | a struct holding such a struct, named down to the cell's holder | refused | s.nested |
-| an array of one; an enum whose payload is a cell | refused | s.array, s.payload |
+| an array of one; an enum whose payload is a cell, held in an Optional so the static's zero is valid | refused | s.array, s.payload |
 | a struct holding a raw pointer | refused, naming the field | s.pointer |
 | a conditional `UnsafeSync` at an argument that fails its bound | refused, naming the bound and the argument | s.conditional |
 | `Atomic<Int>`, which declares `UnsafeSync`; a cell holder declaring it; a struct holding those, which derives `Sync`; a conditional `UnsafeSync` met; a scalar; an `unsafe static var` of a type that is not `Sync` | allowed | static_sync; std call `static_sync` |
@@ -1346,6 +1346,8 @@ says what the fixture shows.
 | `nomove.undeclared` | a struct or enum holding a `NoMove` value inline, a field, a payload, through an optional, a tuple, an array or a generic instance, that does not declare `NoMove` itself (design 188) |
 | `nomove.bound` | `NoMove` written as a generic parameter's bound |
 | `nomove.requires-nocopy` | a `NoMove` conformance on a type whose policy is not a declared `NoCopy` |
+| `zeroinit.override` | a `ZeroInit` conformance on a struct whose construction an `init` overrides, naming the override (SL-660) |
+| `zeroinit.invalid` | a `ZeroInit` conformance on a struct with a field whose zero is not valid, at any depth: a part with no valid zero, a type parameter the conformance does not bound by `ZeroInit`, a field of another module's type it cannot see, or an override; or on an enum whose zero is no case (SL-660) |
 | `copy.undeclared-policy` | a struct or enum with no policy holding an ExplicitCopy or NoCopy member, or a struct with a field of a declared Copy type, which `String` is not even where std declares its Copy (spec, "The automatic `Copy` tier") |
 | `unsafe.undeclared` | a function whose parameters, result or receiver name an unsafe type, or whose body (its closures included) names, binds, receives or returns a value of one or names an `unsafe static var`, and which is not declared `unsafe` (designs 130, 136 and 149) |
 | `unsafe.function-type` | a function type that names an unsafe type without saying `unsafe`, or says it without naming one |
@@ -1406,7 +1408,9 @@ says what the fixture shows.
 | `static.optional` | a static whose own type is an optional; an `unsafe static var` is exempt (spec, Module-level statics: "Never optional") |
 | `static.not-sync` | a static whose type is not `Sync`, naming the member that blocks the derivation, down to a cell-carrying type and the `UnsafeSync` declaration it owes, or a conditional `UnsafeSync` and the bound its argument fails; an `unsafe static var` is exempt (spec, Module-level statics: "Sync-only"; the static Sync matrix) |
 | `static.not-constant` | a sub-expression outside the constant grammar of a static's initializer, a raw case's value, an `@align` argument or a `static_assert` condition, named (the constant-position funnel) |
-| `static.zero-init` | a static or `unsafe static var` with no initializer whose all-zero value holds, at any depth, a struct whose construction an `init` overrides, naming the override (SL-648; the override matrix below) |
+| `static.zero-init` | a static or `unsafe static var` with no initializer whose all-zero value holds, at any depth, a struct whose construction an `init` overrides, naming the override (SL-648; the override matrix and the zero-init matrix below) |
+| `static.zero-hidden` | a static or `unsafe static var` with no initializer whose all-zero value holds, at any depth, a struct with a field the declaring module does not see and no `ZeroInit` conformance vouching for it, naming the field (SL-660; the zero-init matrix below) |
+| `static.zero-invalid` | a static or `unsafe static var` with no initializer whose all-zero value holds, at any depth, a part with no valid zero: a `String`, an enum with a payload, a raw-backed enum with no case of value 0, a function, a `FuncPointer`, `Never`, naming it (SL-660; the zero-init matrix below) |
 | `static.cycle` | a static whose value depends on itself, through any number of statics, named in order |
 | `static_assert.failed` | a `static_assert` whose condition folds to `false`, at the top of a file or in a body; one over a layout once the layout-assert funnel measures it (Layout asserts) |
 | `borrowing.containment` | a borrowing struct (spec, Borrowing structs) bound outside the head of a `borrow` or a `for`, taken as a parameter by value, stored in a field or a payload, erased to an existential, returned by a function that does not lend it with `borrows`, or carried by a function type |
@@ -1487,7 +1491,43 @@ funnel share. `golden/construction_override` is abbreviated `g.`:
 | a synthesized `Deserialize` | lands with the serde port, which sawc2's std does not have yet | none |
 | a zero-initialized `static` or `unsafe static var` of a struct with an override, in its module or another, or holding one at any depth (a field, an array element) | refused: zero is a construction the override never checks | `static.zero-init`, `static.zero-init.override-module`, `static.zero-init.nested` |
 | a zero-initialized `static` of a struct without one, and of one whose overridden part is an Optional, zero being `None` | accepted | `g.` |
-| a zero-initialized `static` of a struct with a field the declaring module does not see, at any depth | open: SL-648 c9 | none |
+| a zero-initialized `static` of a struct with a field the declaring module does not see, at any depth | refused unless a `ZeroInit` conformance vouches for it (SL-660) | the zero-init matrix below |
+
+The zero-init matrix (SL-660). A static or `unsafe static var` with no
+initializer is zero-initialized, and that value is a construction. It is
+legal when every part of it is valid at zero: a part the declaring module
+could build field by field (every field visible, no override, every field
+valid), or a type declaring `ZeroInit`. One funnel answers it, `zero_fault`
+(`compiler/typecheck/src/bodies.saw`), whose docstring names its two entry
+points, a bare static and a `ZeroInit` declaration; both run in
+`check_zero_inits`, once every body is typed, so a raw-backed case's value is
+folded wherever its enum sits. `ZeroInit` is a lang item of the new std's
+prelude and unbound under Stage 0's, so a row that declares it runs with
+`--std-root std`. `golden/zero_init` is abbreviated `z.` and
+`multi/zero_init_modules` `zm.`:
+
+| row | verdict | covered by |
+|---|---|---|
+| a scalar, `Bool`, `Float`, a raw pointer, a tuple, an array, `Atomic<Int>` | accepted | `z.` |
+| a payload-free enum, zero being its first case; a raw-backed enum with a case of value 0, written in any position | accepted | `z.` |
+| an Optional of any type, its payload's fields hidden included: zero is `None` | accepted | `z.`, `zm.` |
+| a struct of this module with private fields, at the top, in a field, behind a generic argument | accepted: the module sees them | `z.` |
+| a struct declaring `ZeroInit` in its own module, its fields private, from another module | accepted | `zm.` |
+| a `ZeroInit` struct holding another struct of its module whose fields are private | accepted: the declaring module sees them | `zm.` |
+| a conditional `ZeroInit` (`Lock<T: ZeroInit>`) at a scalar, at a `ZeroInit` type, and at a struct of the static's module with no declaration | accepted: the condition's argument is walked by the same rule, at the static's module | `zm.` |
+| another module's struct with a private field: at the top, in a field, in an array, behind a generic argument | refused, naming the field | `static.zero-hidden`, `.nested`, `.array`, `.generic` |
+| a conditional `ZeroInit` at an argument with a hidden field | refused, naming the argument's field | `static.zero-hidden.conditional` |
+| a struct whose only `ZeroInit` is test-only, in production code | refused, as if the declaration did not exist (SL:testing) | `static.zero-hidden.test-only-conformance` |
+| Stage 0's `SpinLock`, `Mutex` or `Once` under Stage 0's root, whose std cannot declare `ZeroInit` | refused, naming the private field | `static.zero-hidden.frozen-std` |
+| a `String`, directly or as a conditional `ZeroInit`'s argument | refused: a `String` owns its bytes | `static.zero-invalid`, `static.zero-invalid.conditional` |
+| an enum with a payload case | refused | `static.zero-invalid.payload-enum` |
+| a raw-backed enum with no case of value 0 | refused: zero is a value no case names | `static.zero-invalid.raw-enum` |
+| a function value; a `FuncPointer` (Stage 0's root, the std that declares it) | refused: a zero one names no function | `static.zero-invalid.function`, `static.zero-invalid.func-pointer` |
+| a struct with an override, at any depth | refused, naming the override | the override matrix above |
+| a reference | refused where it is written, never a second time | `type.reference-position.static` |
+| `ZeroInit` on a struct with an override | refused at the declaration | `zeroinit.override` |
+| `ZeroInit` on a struct with a field of no valid zero; with a field of its unbounded type parameter; with a field of another module's type it cannot see; on a raw-backed enum with no case of value 0 | refused at the declaration, naming the field | `zeroinit.invalid`, `.param`, `.hidden`, `.enum` |
+| `ZeroInit` on another module's type | refused by resolve's orphan rule: only the type's module, or the prelude, may declare it | `conformance.orphan` (resolve) |
 
 ## The lane
 

@@ -1,0 +1,13 @@
+// refuses: static.zero-invalid at 9:8
+// a zero-initialized static of a struct holding a `String`: its fields are visible, but a `String` owns its bytes and has no valid zero (SL-660)
+
+struct Banner {
+    width: Int
+    text: String
+}
+
+static BANNER: Banner
+
+func main() {
+    print(BANNER.width)
+}

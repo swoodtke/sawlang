@@ -1,0 +1,19 @@
+// refuses: zeroinit.override at 15:17
+// flags: --std-root std
+// a `ZeroInit` declaration on a struct whose construction an `init` overrides: zero would skip the override's check, so the two cannot stand together (SL-660)
+
+struct Port {
+    number: Int
+}
+
+extension Port {
+    init(number: Int) -> Port {
+        Port(number: number + 1024)
+    }
+}
+
+extension Port: ZeroInit {}
+
+func main() {
+    print(Port(number: 80).number)
+}

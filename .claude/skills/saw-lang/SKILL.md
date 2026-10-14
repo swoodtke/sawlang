@@ -3779,6 +3779,22 @@ slab in std/slab.saw; `UnsafeMemory<T, Device|Normal>` for MMIO
 - **A ZERO static costs no image bytes** (design 149): a bare declaration
   or an all-zero initializer (`static ARENA: [UInt8; 65536] = [0; 65536]`)
   is zerofill in BOTH profiles. Declare the region at its real size.
+- **A BARE STATIC IS A CONSTRUCTION, so the module must be ENTITLED to it
+  (SL-660, sawc2).** Every part of the zero value must be valid at zero (a
+  scalar, a raw pointer, an Optional = `None`, a payload-free enum = its first
+  case, a raw-backed enum WITH A `= 0` CASE, tuples/arrays/`Atomic` of those)
+  and either buildable field by field HERE (every field visible at any depth,
+  no `init` override) or a type declaring `ZeroInit`. Refused: another
+  module's struct with a `private` field, `String`, a payload enum, a raw enum
+  with no zero case (Stage 0 accepts that one and an exhaustive `match` reads
+  garbage), a closure field, `FuncPointer`. A type whose zero is meaningful
+  says so in ITS OWN module, `extension Gauge: ZeroInit {}`, checked like a
+  static (no override allowed; a generic one is conditional,
+  `extension Lock<T: ZeroInit>: ZeroInit {}`, and the argument is then checked
+  at the static from the static's module, so `static STATS:
+  SpinLock<Counters>` needs no line on a local `Counters`). STAGE 0 has no
+  `ZeroInit`: code it compiles can't declare one, and under its std sawc2
+  refuses a bare `SpinLock`/`Mutex`/`Once` static (their fields are private).
 - **A STATIC INITIALIZER IS A CONSTANT EXPRESSION (design 186).** Three
   tiers and no others: (1) zero-init, the bare declaration; (2) whatever
   the const evaluator folds — arithmetic, the bitwise operators,
@@ -4330,7 +4346,8 @@ construct in the owner and lend `&driver` down.
   Four things follow. A fallible override's `Result` reaches every caller. A
   `static` cannot hold the type: an initializer would call the override (not
   a constant), and NO initializer is refused too, since zero skips the check
-  (anywhere in the value; an Optional zeroes to `None` and is fine). A bare
+  (anywhere in the value; an Optional zeroes to `None` and is fine), and the
+  type cannot declare `ZeroInit`. A bare
   override is module-private, so on a `public struct` it
   makes the construction UNCALLABLE from other modules while the fields stay
   readable and writable: mark it `public` to publish the checked construction,

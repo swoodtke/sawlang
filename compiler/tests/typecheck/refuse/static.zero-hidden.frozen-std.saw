@@ -1,0 +1,10 @@
+// refuses: static.zero-hidden at 6:8
+// a zero-initialized static of Stage 0's `SpinLock`, whose fields are private: Stage 0's std cannot declare `ZeroInit`, so under its root the lock is refused like any type with hidden fields (SL:hazards; SL-660)
+
+import std.spinlock.{SpinLock}
+
+static COUNT: SpinLock<Int>
+
+func main() {
+    print("count")
+}

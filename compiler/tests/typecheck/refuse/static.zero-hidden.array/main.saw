@@ -1,0 +1,10 @@
+// refuses: static.zero-hidden at 6:19
+// a zero-initialized `unsafe static var` of an array of another module's struct with a private field: zero builds each element field by field (SL-660)
+
+import ports.{Port}
+
+unsafe static var PORTS: [Port; 4]
+
+func main() unsafe {
+    print(PORTS[0].number())
+}

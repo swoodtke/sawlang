@@ -149,7 +149,8 @@ extension TcProgram {
                         func_pointer: self.top_decl(b, "FuncPointer"),
                         ordering: self.res.lang_item(ResLang.OrderingEnum),
                         hasher: self.res.lang_item(ResLang.HasherStruct),
-                        panic_sink: self.res.lang_item(ResLang.PanicSinkFunction))
+                        panic_sink: self.res.lang_item(ResLang.PanicSinkFunction),
+                        zero_init: self.res.lang_item(ResLang.ZeroInitTrait))
         self.known = k
     }
 }

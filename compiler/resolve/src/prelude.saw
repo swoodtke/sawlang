@@ -183,6 +183,10 @@ public func res_declare_prelude(p: &var ResProgram) {
     p.prelude_name("Sync", "builtin")
     p.prelude_name("UnsafeSync", "builtin")
     p.prelude_name("UnsafeSend", "builtin")
+    if p.std_new {
+        // Stage 0's vocabulary has no `ZeroInit` (SL-660).
+        p.prelude_name("ZeroInit", "builtin")
+    }
     p.prelude_name("UnsafeMutableInterior", "builtin")
     p.prelude_name("Atomic", "builtin")
     p.prelude_name("UnsafeMemory", "builtin")

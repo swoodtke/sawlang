@@ -1,0 +1,22 @@
+// refuses: static.zero-hidden at 18:8
+// flags: --std-root std
+// a zero-initialized static of a conditionally `ZeroInit` lock at an argument with a private field: the conformance vouches for the lock's own fields, and its `T: ZeroInit` condition walks the argument here, where `Port`'s field is hidden (SL-660)
+
+import ports.{Port}
+
+struct Lock<T> {
+    private state: Atomic<Int>
+    private value: UnsafeMutableInterior<T>
+}
+
+extension Lock<T>: NoCopy {}
+
+extension Lock<T: Send>: UnsafeSync {}
+
+extension Lock<T: ZeroInit>: ZeroInit {}
+
+static LOCK: Lock<Port>
+
+func main() {
+    print("locked")
+}

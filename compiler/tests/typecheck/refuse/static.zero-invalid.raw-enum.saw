@@ -1,0 +1,20 @@
+// refuses: static.zero-invalid at 13:8
+// a zero-initialized static holding a raw-backed enum none of whose cases has the raw value 0: zero would be a value no case names, which an exhaustive `match` cannot route (SL-660)
+
+enum Level: UInt8 {
+    case Low = 1,
+    case High = 2
+}
+
+struct Meter {
+    level: Level
+}
+
+static METER: Meter
+
+func main() {
+    match METER.level {
+        case Low -> print("low"),
+        case High -> print("high")
+    }
+}

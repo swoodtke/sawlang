@@ -1,0 +1,20 @@
+// refuses: static.zero-invalid at 16:8
+// flags: --std-root std
+// a zero-initialized static of a conditionally `ZeroInit` lock at a `String` argument: the condition walks the argument, and a `String` has no valid zero (SL-660)
+
+struct Lock<T> {
+    private state: Atomic<Int>
+    private value: UnsafeMutableInterior<T>
+}
+
+extension Lock<T>: NoCopy {}
+
+extension Lock<T: Send>: UnsafeSync {}
+
+extension Lock<T: ZeroInit>: ZeroInit {}
+
+static LOCK: Lock<String>
+
+func main() {
+    print("locked")
+}

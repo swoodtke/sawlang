@@ -3212,7 +3212,8 @@ type: only a memberwise construction folds into a constant. A static with no
 initializer is refused too, wherever it is declared, when its all-zero value
 holds the type at any depth (a field, an array element): zero is a
 construction the override never checks. An Optional of the type zeroes to
-`None` and holds none.
+`None` and holds none. For the same reason the type cannot declare `ZeroInit`
+(see [Module-level statics](#module-level-statics)).
 
 An `init` that differs from the fields, one taking a subset of them, an extra
 parameter or other types (a converting `init(x: Float, y: Float)` on `Int`
@@ -5921,7 +5922,10 @@ parameter or a static, while the root charge is still exclusive for the window
 (see [Receiver access](#receiver-access-is-a-second-fact)).
 
 **A `static` holds one with no initializer.** Zero is unlocked, so the whole
-value is zerofill and an idle mutex costs no image bytes:
+value is zerofill and an idle mutex costs no image bytes. `Mutex` declares
+`extension Mutex<T: ZeroInit>: ZeroInit {}`, which vouches for its private
+fields, and the payload is checked at the static like any other part (see
+[Module-level statics](#module-level-statics), *Zero-init*):
 
 ```saw-fragment
 import std.mutex.{Mutex}
@@ -10608,15 +10612,51 @@ Statics obey four rules, ratified in design 19:
   is fixed at compile time. There are exactly THREE tiers, and the third one
   is a refusal:
 
-  1. **Zero-init.** A bare declaration with no initializer, legal when
-     all-zero is a valid value of the type — every scalar, a struct of them,
-     a fixed array of them, an `Atomic<Int>`, a `SpinLock<T>`, a `Mutex<T>`,
-     a `Once<T>`. Copyability is irrelevant here: a static is never copied,
-     so a `NoCopy` type whose storage is scalar throughout still qualifies,
-     which is what makes `static LOCK: SpinLock<T>` a legal declaration.
-     A type whose construction an `init` overrides is the exception: zero
-     would skip the override's check, so a value holding one is refused (see
-     *An `init` that overrides the construction*).
+  1. **Zero-init.** A bare declaration with no initializer, a `static` or an
+     `unsafe static var`. Its all-zero value is a construction, so it is
+     legal only when every part of that value is valid at zero and the
+     declaring module may build it. A part qualifies when it is:
+
+     - a scalar, `Bool`, `Float` or raw pointer; an Optional, whose zero is
+       `None`; a payload-free enum, whose zero is its first case; a
+       raw-backed enum with a case whose value is 0; or a tuple, a fixed
+       array or an `Atomic` of qualifying parts;
+     - a struct the declaring module could build field by field: it sees
+       every field, at any depth, no `init` overrides the struct's
+       construction (see *An `init` that overrides the construction*), and
+       every field qualifies;
+     - a type that declares `ZeroInit`, which vouches for its own fields,
+       private ones included.
+
+     Anything else is refused, and the error names the part: a field the
+     module cannot see, an override, or a part with no valid zero, such as a
+     `String`, an enum with a payload, a raw-backed enum with no case of value
+     0, a function, or a `FuncPointer`. Copyability is irrelevant: a static
+     is never copied, so a `NoCopy` type qualifies, which is what makes
+     `static LOCK: SpinLock<T>` legal.
+
+     A type's author declares `ZeroInit` in the type's own module when zero
+     is a meaningful value of it. `SpinLock<T>`, `Mutex<T>` and `Once<T>`
+     declare it on the condition that `T` does too, since their fields are
+     private:
+
+     ```saw-fragment
+     public struct Gauge {
+         private level: Int
+     }
+
+     extension Gauge: ZeroInit {}                    // zero is an empty gauge
+
+     extension SpinLock<T: ZeroInit>: ZeroInit {}    // std.spinlock's own line
+     ```
+
+     The declaration is checked the way a static is: every field must be
+     valid at zero, a field of a type parameter counts only when the
+     conformance bounds the parameter by `ZeroInit`, and a type whose
+     construction an `init` overrides cannot declare it. A `T: ZeroInit`
+     condition is checked at each static by the same rule, from the static's
+     module, so `static STATS: SpinLock<Counters>` needs no declaration on a
+     `Counters` whose fields that module sees.
   2. **A constant expression, plus memberwise aggregation.** Whatever the
      const evaluator folds — literals, arithmetic and the bitwise operators
      over them, `sizeof`/`alignof` (see
@@ -11031,6 +11071,14 @@ interior cell, so its `Sync` is DECLARED — `extension SpinLock<T: Send>:
 UnsafeSync {}` — on the same terms as `Mutex`: handing out a `&var T` under
 mutual exclusion is safe to share exactly when moving a `T` between threads is.
 
+A bare `static` of one is legal because `SpinLock` declares `extension
+SpinLock<T: ZeroInit>: ZeroInit {}`: zero is unlocked, the conformance vouches
+for the private lock word, and the payload is checked at the static from the
+static's module. `Counters` above needs no declaration, since that module sees
+its fields; a payload of another module's type with private fields needs that
+type's own `ZeroInit` (see [Module-level statics](#module-level-statics),
+*Zero-init*).
+
 **A spin lock is not reentrant, and re-entry never spins forever.** A
 re-entrant lock would hand out two live `&var T` to one payload.
 
@@ -11156,8 +11204,12 @@ program run on the wrong configuration instead.
 `UnsafeSync` at `T: Send + Sync` — `get` hands a COPY to whichever thread asked,
 and two readers copy the stored value concurrently. It is DECLARED rather than
 constructed: the unset state is the zero pattern, so a bare `static` is the only
-spelling it needs. Design 149's immortality rule applies as it does to every
-static, so `T` must be trivially destructible.
+spelling it needs. It declares `extension Once<T: ZeroInit>: ZeroInit {}`, which
+vouches for its private state word, and the payload is checked at the static
+from the static's module, so `Limits` above needs no declaration (see
+[Module-level statics](#module-level-statics), *Zero-init*). Design 149's
+immortality rule applies as it does to every static, so `T` must be trivially
+destructible.
 
 It does not block. A `get` racing the `set` that would satisfy it takes the
 not-yet-initialized panic; spin on `try_get` if a wait is what you want.
@@ -12186,7 +12238,7 @@ Not all of std is auto-visible. The **prelude** — the names usable without an
   `Void`, `Never`), core containers (`Vector`, `Map`, `Set`), core wrappers
   (`Optional`, `Result`, `Box`, `Arc`, `Allocator`, `GlobalAllocator`);
 - core traits (the Copy family, `Deinit`, `Iterator`, `Equatable`, `Comparable`,
-  `Hashable`, `Printable`, `Error`, `Send`, `Sync`);
+  `Hashable`, `Printable`, `Error`, `Send`, `Sync`, `ZeroInit`);
 - the builtins (`print`/`panic`/`assert`/`sizeof`/`alignof`/`static_assert`) and
   the concurrency primitives (`TaskGroup`, `sleep`, `spawn`, `cancelled`);
   `StringBuilder` (common enough to stay bare); `Duration`, because `sleep` is

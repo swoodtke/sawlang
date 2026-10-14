@@ -1,0 +1,13 @@
+// refuses: static.zero-invalid at 9:19
+// a zero-initialized `unsafe static var` holding a function value: a zero one would call nothing (SL-660)
+
+struct Hook {
+    calls: Int
+    run: (Int) -> Int
+}
+
+unsafe static var HOOK: Hook
+
+func main() unsafe {
+    print(HOOK.calls)
+}

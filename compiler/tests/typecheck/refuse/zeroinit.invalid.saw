@@ -1,0 +1,14 @@
+// refuses: zeroinit.invalid at 10:19
+// flags: --std-root std
+// a `ZeroInit` declaration on a struct with a `String` field: the declaration is checked structurally, and a `String` has no valid zero (SL-660)
+
+struct Banner {
+    width: Int
+    text: String
+}
+
+extension Banner: ZeroInit {}
+
+func main() {
+    print("banner")
+}
