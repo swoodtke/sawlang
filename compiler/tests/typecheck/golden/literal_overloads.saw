@@ -1,0 +1,82 @@
+// A bare integer literal at an overloaded call prefers an `Int` parameter
+// (spec, Overloading, tie-break 4): over another width, over an unsigned
+// width, over a labeled `UInt8` sibling, at every argument and on a method;
+// a folded and a negative literal alike. With no `Int` overload a lone
+// fitting integer overload takes it, and an exact width beats an optional
+// wrap. The ambiguous rows are `refuse/call.ambiguous.literal-*`.
+
+struct Gauge {
+    level: Int
+}
+
+extension Gauge {
+    func set(&self, x: Int) -> Int {
+        1
+    }
+
+    func set(&self, x: Int8) -> Int {
+        2
+    }
+}
+
+func h(x: Int) -> Int {
+    1
+}
+
+func h(x: Int8) -> Int {
+    2
+}
+
+func wide(x: Int) -> Int {
+    1
+}
+
+func wide(x: UInt) -> Int {
+    2
+}
+
+func report(value: Int) -> Int {
+    1
+}
+
+func report(byte: UInt8) -> Int {
+    2
+}
+
+func pair(x: Int, y: Int) -> Int {
+    1
+}
+
+func pair(x: Int8, y: Int8) -> Int {
+    2
+}
+
+func narrow(x: Int8) -> Int {
+    1
+}
+
+func narrow(x: String) -> Int {
+    2
+}
+
+func wrap(x: Int?) -> Int {
+    1
+}
+
+func wrap(x: Int8) -> Int {
+    2
+}
+
+func literals(g: Gauge) -> Int {
+    let a = h(5)
+    let b = h(-5)
+    let c = h(2 + 3)
+    let d = wide(5)
+    let e = report(65)
+    let f = report(byte: 65)
+    let p = pair(1, 2)
+    let m = g.set(5)
+    let n = narrow(5)
+    let w = wrap(5)
+    a + b + c + d + e + f + p + m + n + w
+}

@@ -1,0 +1,106 @@
+(Module literal_overloads
+  (declarations
+    (struct Gauge 8:8 private)
+    (field Gauge.level 9:5 private Int)
+    (extension 12:1 (target literal_overloads.Gauge))
+    (method Gauge.set 13:10 private (signature (receiver shared) (params (x Int owned)) -> Int) (summary body (suspends no) (sync-callable yes)))
+    (method Gauge.set 17:10 private (signature (receiver shared) (params (x Int8 owned)) -> Int) (summary body (suspends no) (sync-callable yes)))
+    (func h 22:6 private (signature (params (x Int owned)) -> Int) (summary body (suspends no) (sync-callable yes)))
+    (func h 26:6 private (signature (params (x Int8 owned)) -> Int) (summary body (suspends no) (sync-callable yes)))
+    (func wide 30:6 private (signature (params (x Int owned)) -> Int) (summary body (suspends no) (sync-callable yes)))
+    (func wide 34:6 private (signature (params (x UInt owned)) -> Int) (summary body (suspends no) (sync-callable yes)))
+    (func report 38:6 private (signature (params (value Int owned)) -> Int) (summary body (suspends no) (sync-callable yes)))
+    (func report 42:6 private (signature (params (byte UInt8 owned)) -> Int) (summary body (suspends no) (sync-callable yes)))
+    (func pair 46:6 private (signature (params (x Int owned) (y Int owned)) -> Int) (summary body (suspends no) (sync-callable yes)))
+    (func pair 50:6 private (signature (params (x Int8 owned) (y Int8 owned)) -> Int) (summary body (suspends no) (sync-callable yes)))
+    (func narrow 54:6 private (signature (params (x Int8 owned)) -> Int) (summary body (suspends no) (sync-callable yes)))
+    (func narrow 58:6 private (signature (params (x String owned)) -> Int) (summary body (suspends no) (sync-callable yes)))
+    (func wrap 62:6 private (signature (params (x Int? owned)) -> Int) (summary body (suspends no) (sync-callable yes)))
+    (func wrap 66:6 private (signature (params (x Int8 owned)) -> Int) (summary body (suspends no) (sync-callable yes)))
+    (func literals 70:6 private (signature (params (g literal_overloads.Gauge owned)) -> Int) (summary body (suspends no) (sync-callable yes))))
+  (members
+    (literal_overloads.Gauge
+      (field level Int private declared)
+      (method set private (extension literal_overloads))
+      (method set private (extension literal_overloads))))
+  (views
+    (literal_overloads.Gauge level set set))
+  (conformances)
+  (copy-tier
+    (literal_overloads.Gauge Copy))
+  (bodies
+    (Gauge.set 13:10
+      (14:9-14:10 IntLit Int value temp))
+    (Gauge.set 17:10
+      (18:9-18:10 IntLit Int value temp))
+    (h 22:6
+      (23:5-23:6 IntLit Int value temp))
+    (h 26:6
+      (27:5-27:6 IntLit Int value temp))
+    (wide 30:6
+      (31:5-31:6 IntLit Int value temp))
+    (wide 34:6
+      (35:5-35:6 IntLit Int value temp))
+    (report 38:6
+      (39:5-39:6 IntLit Int value temp))
+    (report 42:6
+      (43:5-43:6 IntLit Int value temp))
+    (pair 46:6
+      (47:5-47:6 IntLit Int value temp))
+    (pair 50:6
+      (51:5-51:6 IntLit Int value temp))
+    (narrow 54:6
+      (55:5-55:6 IntLit Int value temp))
+    (narrow 58:6
+      (59:5-59:6 IntLit Int value temp))
+    (wrap 62:6
+      (63:5-63:6 IntLit Int value temp))
+    (wrap 66:6
+      (67:5-67:6 IntLit Int value temp))
+    (literals 70:6
+      (71:9-71:10 BindingName Int place temp)
+      (71:13-71:17 Call.paren Int value temp (call literal_overloads.h(x: Int)))
+      (71:15-71:16 IntLit Int value temp)
+      (72:9-72:10 BindingName Int place temp)
+      (72:13-72:18 Call.paren Int value temp (call literal_overloads.h(x: Int)))
+      (72:15-72:17 Unary.negate Int value temp (op -))
+      (72:16-72:17 IntLit Int value temp)
+      (73:9-73:10 BindingName Int place temp)
+      (73:13-73:21 Call.paren Int value temp (call literal_overloads.h(x: Int)))
+      (73:15-73:20 Binary Int value temp (op +))
+      (73:15-73:16 IntLit Int value temp)
+      (73:19-73:20 IntLit Int value temp)
+      (74:9-74:10 BindingName Int place temp)
+      (74:13-74:20 Call.paren Int value temp (call literal_overloads.wide(x: Int)))
+      (74:18-74:19 IntLit Int value temp)
+      (75:9-75:10 BindingName Int place temp)
+      (75:13-75:23 Call.paren Int value temp (call literal_overloads.report(value: Int)))
+      (75:20-75:22 IntLit Int value temp)
+      (76:9-76:10 BindingName Int place temp)
+      (76:13-76:29 Call.paren Int value temp (call literal_overloads.report(byte: UInt8)))
+      (76:26-76:28 IntLit Int (adopt UInt8) value temp)
+      (77:9-77:10 BindingName Int place temp)
+      (77:13-77:23 Call.paren Int value temp (call literal_overloads.pair(x: Int, y: Int)))
+      (77:18-77:19 IntLit Int value temp)
+      (77:21-77:22 IntLit Int value temp)
+      (78:9-78:10 BindingName Int place temp)
+      (78:13-78:21 Call.paren Int value temp (call literal_overloads.Gauge.set(x: Int) (owner literal_overloads.Gauge)))
+      (78:13-78:14 Name literal_overloads.Gauge (borrow &literal_overloads.Gauge) place borrow)
+      (78:19-78:20 IntLit Int value temp)
+      (79:9-79:10 BindingName Int place temp)
+      (79:13-79:22 Call.paren Int value temp (call literal_overloads.narrow(x: Int8)))
+      (79:20-79:21 IntLit Int (adopt Int8) value temp)
+      (80:9-80:10 BindingName Int place temp)
+      (80:13-80:20 Call.paren Int value temp (call literal_overloads.wrap(x: Int8)))
+      (80:18-80:19 IntLit Int (adopt Int8) value temp)
+      (81:5-81:42 Binary Int value temp (op + + + + + + + + +))
+      (81:5-81:6 Name Int place copy)
+      (81:9-81:10 Name Int place copy)
+      (81:13-81:14 Name Int place copy)
+      (81:17-81:18 Name Int place copy)
+      (81:21-81:22 Name Int place copy)
+      (81:25-81:26 Name Int place copy)
+      (81:29-81:30 Name Int place copy)
+      (81:33-81:34 Name Int place copy)
+      (81:37-81:38 Name Int place copy)
+      (81:41-81:42 Name Int place copy))))

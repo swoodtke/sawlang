@@ -1,0 +1,15 @@
+// refuses: call.ambiguous at 14:13
+// a bare literal over integer overloads none of which is `Int`: it fits both
+// widths, and only an `Int` parameter is preferred (spec, Overloading)
+
+func h(x: Int8) -> Int {
+    1
+}
+
+func h(x: UInt8) -> Int {
+    2
+}
+
+func main() {
+    let _ = h(5)
+}

@@ -618,7 +618,7 @@ Every body construct in the slice, and how it is typed:
 | a field, a named tuple's element, a tuple index | the member's type through any reference, a place when the base is | places, funnel |
 | `E.Case`, `.Case`, `E.Case(...)`, `.Case(...)` | the enum, its arguments from its head (`Maybe<Int>.Nothing`), the slot or the payload | peeling, calls, builtin_values |
 | `Int.max`, `T.from(x)`, `T.from(truncating: x)`, `E.from(raw: x)`, `A(x)` | the conversions no declaration writes | carried |
-| a free function, method, static method, `init` or memberwise call | the overload filter's choice, instantiated | calls, inference |
+| a free function, method, static method, `init` or memberwise call | the overload filter's choice, instantiated; a bare integer literal prefers an `Int` parameter | calls, inference, literal_overloads |
 | a requirement called through a type parameter whose signature names an associated type, `s.take(v)` with `take(v: Self.Item)`; a call instantiating a signature that names `T.Item` | the receiver's projection, `S.Item`, which takes no concrete type and copies silently under no bound; at the call, the conformance's assignment | associated_types; type.mismatch.projection, type.mismatch.projection-concrete, transfer.implicit-copy.projection |
 | a call's arguments: positional, a label skipping a default, a default left out, a construction's or payload's labels out of order, a C variadic tail | the binding of each parameter to its argument or its default | arguments, lowlevel |
 | a construction whose head writes a prefix of its type's arguments, `Two<Int>(a: 1, b: true)` | the prefix pins the leading parameters, inference solves the rest (spec, Generics) | partial_arguments |
@@ -1249,7 +1249,7 @@ says what the fixture shows.
 | `member.unknown` | a field or method the type does not have, or this module does not see; the builtin `copy()` on a NoCopy value |
 | `call.arity` | too many arguments, a missing one, a case built without its payload |
 | `call.label` | a label no parameter has, one naming a parameter behind the last bound, a repeated label |
-| `call.ambiguous` | overloads the arguments fit equally, named |
+| `call.ambiguous` | overloads the arguments fit equally, named; a bare integer literal over integer overloads with no `Int` one, or preferring `Int` in a different overload at each argument (spec, Overloading, tie-break 4: `.literal-no-int`, `.literal-crossed`) |
 | `call.no-match` | no overload the arguments fit, each named |
 | `call.not-callable` | a call of a value that is no function |
 | `call.field-method-ambiguous` | `h.f(x)` where `f` names both a field holding a function and a method this module sees, with the fix-it `let g = h.f; g(x)` (D16) |

@@ -602,6 +602,20 @@ These are the reversible readings this unit made; SL-447's report lists them.
   an unsigned type are refused as not fitting it, the spec's rule for every
   literal. Stage 0 accepts both and truncates at run time, so `case 300`
   matches 44 there (SL-609).
+- A bare integer literal at an overloaded call prefers a parameter of type
+  `Int`, and is otherwise ambiguous among the integer overloads it fits
+  (spec, Overloading, tie-break 4; SL-615): `h(5)` over `h(Int)`/`h(Int8)`
+  and `report(65)` over `report(value: Int)`/`report(byte: UInt8)` pick
+  `Int`, and `h(5)` over `h(Int8)`/`h(UInt8)` is `call.ambiguous`. Stage 0
+  refuses the first two as ambiguous. The preference is judged per argument,
+  so `h(1, 2)` over `h(Int, Int8)`/`h(Int8, Int)` is ambiguous too. An
+  optional parameter is a wrap, not an `Int` overload: `h(5)` over
+  `h(Int?)`/`h(Int8)` picks `Int8` by tie-break 1, and over
+  `h(Int?)`/`h(Int8?)` is ambiguous, where Stage 0 types the literal `Int`
+  before choosing and picks `Int?`. A literal fits an integer type by type,
+  its value checked once the overload is chosen, as for a `Result`'s two
+  payloads, so `h(300)` over `h(Int8)`/`h(Int16)` is ambiguous rather than
+  `Int16`, as in Stage 0.
 
 ## Safety readings
 

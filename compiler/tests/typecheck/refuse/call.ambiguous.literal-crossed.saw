@@ -1,0 +1,15 @@
+// refuses: call.ambiguous at 14:13
+// two bare literals, each preferring `Int` in a different overload: the
+// preference is per argument, so neither overload is better at both
+
+func h(x: Int, y: Int8) -> Int {
+    1
+}
+
+func h(x: Int8, y: Int) -> Int {
+    2
+}
+
+func main() {
+    let _ = h(1, 2)
+}

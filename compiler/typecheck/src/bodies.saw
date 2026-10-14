@@ -7864,6 +7864,9 @@ extension TcProgram {
             return 1
         }
         if self.is_constant_expr(v) {
+            // Only an `Int` parameter outranks the other integer widths a
+            // literal adopts; between two of those it ties, and an optional's
+            // wrap ranks below both (spec, Overloading, tie-break 4).
             let peeled = self.peel(p, TcClient.Integer, -1, -1)
             if self.peeled_fits(peeled, p) {
                 let i = self.int_type()

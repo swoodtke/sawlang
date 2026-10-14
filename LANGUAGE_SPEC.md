@@ -463,6 +463,10 @@ Tie-breaks apply in order, then the result must be unique:
    solved type args (`give explicit type arguments or labels`). A concrete
    candidate that matches always wins over any generic one, so an inferred
    overload never changes the meaning of a call that already resolved.
+4. **A bare integer literal prefers `Int`** — a bare integer literal prefers
+   an `Int` overload, and is otherwise ambiguous among the integer overloads
+   it fits, so `f(5)` over `f(Int)`/`f(Int8)` is the `Int` one and over
+   `f(Int8)`/`f(UInt8)` is an ambiguity error.
 
 After the rules there must be exactly one survivor, else a call-site ambiguity
 error listing the candidates; a no-match lists them too. **Closure arguments**
