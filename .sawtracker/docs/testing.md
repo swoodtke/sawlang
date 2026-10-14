@@ -159,7 +159,11 @@ let b = move x                                  // first error has that ID
   module would not do: it gets no private access.)
 - **No rot.** Ordinary cases and test-only declarations are typechecked in every
   build, whether they are in the implementation file or its test sidecar (above),
-  so they cannot silently decay. They are emitted only in test builds. The only
+  so they cannot silently decay. They are emitted only in test builds, a
+  test-only `@export` included: in either spelling, `@test @export func` or an
+  `@export` inside an `@test { … }` group, it exports its symbol from a test
+  build alone, so production code cannot reach test code through `extern "C"`
+  (Ruled, SL-644: "both are fine"). The only
   source set that omits sidecars is the bootstrap's Stage 0, which is a
   bootstrap step, not an ordinary build.
 - **Test-only means test-only.** A reference to a test-only declaration from
