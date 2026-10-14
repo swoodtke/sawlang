@@ -1,0 +1,39 @@
+// tests/corpus/lend_var_coro_and_forwarding's `tally`, with fields in place of
+// its array and no shared accessor beside the exclusive one (SL-671): borrow
+// windows opened in a suspending body, on either side of a suspension, each one
+// statement long, through an accessor that keeps a record across its `lend`.
+// The record's halves run inside the frame's resume function.
+import std.task.*
+
+struct Grid { a: Int, b: Int, gates: Int }
+
+extension Grid {
+    func run_gate(&var self) { self.gates = self.gates + 1 }
+
+    public func [](&var self, i: Int) borrows -> &var Int {
+        let before = self.gates
+        self.run_gate()
+        if i == 0 {
+            lend self.a
+        } else {
+            lend self.b
+        }
+        self.gates = before + 10
+    }
+
+    public func gates_seen(&self) -> Int { self.gates }
+}
+
+func tally(n: Int) -> Int {
+    var g = Grid(a: 1, b: 2, gates: 0)
+    yield_now()
+    g[0] += n
+    yield_now()
+    g[1] += g[0]
+    g[1] * 100 + g.gates_seen()
+}
+
+func main() {
+    print(__saw_drive(tally(10)))
+    print(__saw_drive_steps(tally(1)))
+}

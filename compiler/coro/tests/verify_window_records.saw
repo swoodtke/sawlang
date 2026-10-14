@@ -1,0 +1,97 @@
+// The post-lowering verifier's rule 2 (compiler/tests/coro/README.md, "The
+// verifier"): the state record of a window open at a suspension lives in the
+// frame. The fixture `compiler/tests/coro/inject/window_records.saw` is
+// lowered and found clean; then every place naming `held`'s window record is
+// put back as the body named it, on the resume function's stack, and the
+// verifier must report the record under rule 2. The initialisation analysis
+// never sees a record written, since the accessor's halves write it through a
+// reference, so this check is the only one that can. Paths are the
+// repository root's, where the runner runs.
+import sawcoro.api.{coro_lower_file, coro_lower_for}
+import sawcoro.program.{CoroBeforeBody, CoroProgram}
+import sawcoro.verify.{coro_verify_lowering}
+import sawmono.dump.{mono_dump_layouts}
+
+// Whether `text` holds `word` at some byte.
+func holds(text: &String, word: String) -> Bool {
+    let n = text.len()
+    let w = word.len()
+    var at = 0
+    while at + w <= n {
+        var k = 0
+        while k < w && text.byte_at(at + k) == word.byte_at(k) {
+            k = k + 1
+        }
+        if k == w {
+            return true
+        }
+        at = at + 1
+    }
+    false
+}
+
+// The index in `coro.before.bodies` of the verified body whose item's name
+// holds `name`, or -1.
+func body_of(coro: &CoroProgram, name: String) -> Int {
+    var k = 0
+    while k < coro.before.bodies.len() {
+        let b = coro.before.bodies[k]
+        let item = coro.mono.item_name(b.item)
+        if holds(&item, name) {
+            return k
+        }
+        k = k + 1
+    }
+    return -1
+}
+
+// The local holding function `f`'s first window's state record, or -1.
+func first_record(coro: &CoroProgram, f: Int) -> Int {
+    let info = coro.mono.dp.bc.mir.funcs[f]
+    if info.window_count == 0 {
+        return -1
+    }
+    let window = coro.mono.dp.bc.mir.windows[info.window_first]
+    window.record
+}
+
+// Puts every place of body `b` rooted in its first window's record back as
+// the body named it; returns how many it put back.
+func unslot_record(coro: &var CoroProgram, b: &CoroBeforeBody) -> Int {
+    let holder = first_record(&coro, b.body)
+    var count = 0
+    var k = 0
+    while k < b.place_count {
+        let p = coro.before.place_ids[b.place_first + k]
+        let pre = coro.before.places[b.place_first + k]
+        k = k + 1
+        if holder >= 0 && pre.local == holder {
+            coro.mono.dp.bc.mir.places[p] = pre
+            count = count + 1
+        }
+    }
+    count
+}
+
+func main() {
+    let names = Vector<String>()
+    let dirs = Vector<String>()
+    var front = StringBuilder()
+    var coro = coro_lower_file(out: &var front, path: "compiler/tests/coro/inject/window_records.saw",
+                               std_root: "std", notes: false, names: &names, dirs: &dirs)
+    assert(not coro.blocked && coro.diags.len() == 0, "the fixture is refused: run from the repository root")
+    var target = coro.mono.target_for("arm64-apple-darwin")
+    coro_lower_for(&var coro, &var target)
+    // Stage 0 workaround (SL:hazards S23): canonical: assert(coro.problems.len() == 0, "the fixture's lowering is not clean: {}", coro.problems.get(0) ?? "")
+    let first = coro.problems.get(0) ?? ""
+    assert(coro.problems.len() == 0, "the fixture's lowering is not clean: {}", first)
+    let at = body_of(&coro, "held")
+    assert(at >= 0, "the verifier records no body for `held`")
+    let b = coro.before.bodies[at]
+    assert(unslot_record(&var coro, &b) > 0, "`held` names no window record, or none in the frame")
+    coro_verify_lowering(&var coro)
+    assert(coro.problems.len() == 1, "the verifier reports {} problems, not one", coro.problems.len())
+    let found = coro.problems.get(0) ?? ""
+    assert(holds(&found, "verify rule 2 (teardown by state)"), "the report does not name rule 2: {}", found)
+    assert(holds(&found, "stays on the resume function's stack"), "the report does not name the record: {}", found)
+}

@@ -1,0 +1,36 @@
+// An index projection whose index lives in the frame: `p[i] = slow(10)`
+// computes its index before the suspending right side, so the index is live
+// across the suspension and the store after it indexes by the frame's copy
+// (SL:coroutines A6). Reads after a suspension index the same way.
+import std.task.*
+
+struct Quad {
+    a: Int
+    b: Int
+    c: Int
+    d: Int
+}
+
+func slow(v: Int) -> Int {
+    yield_now()
+    v
+}
+
+func store(p: UnsafePointer<Int>, i: Int) unsafe -> Int {
+    p[i] = slow(10)
+    p[i + 1] = slow(5)
+    let t = (p[i], slow(1))
+    p[i] + p[i + 1] + t.0 + t.1
+}
+
+func run() unsafe {
+    var q = Quad(a: 1, b: 2, c: 3, d: 4)
+    let qp = (&q) as UnsafePointer<Int>
+    print(__saw_drive(store(qp, 1)))
+    print("{} {} {} {}", q.a, q.b, q.c, q.d)
+    print(__saw_drive_steps(store(qp, 2)))
+}
+
+func main() {
+    run()
+}

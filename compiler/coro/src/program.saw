@@ -181,10 +181,8 @@ public enum CoroUnloweredKind {
     case Child,
     // An op-budget point.
     case Budget,
-    // A borrow window in the body.
-    case Window,
-    // A frame-resident local an index projection reads.
-    case Index
+    // A conditional window whose open suspends.
+    case Window
 }
 
 // What a resume function does at a suspension point (SL:coroutines §3.1).

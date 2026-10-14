@@ -469,7 +469,7 @@ Claim source: spec 4 *Places (`borrows` and `lend`)*; designs 141, 146, 179, 188
 | P05 | `lend` of a value the accessor just built | `lend_accessor_local.saw` | 188 u3 — was a DEVIATION (accepted; writes vanished); refused now |
 | P06 | `#lend_var` anywhere is refused by the grammar | `compiler/tests/parse/negative/removed.saw` (`syntax.expr.refused-lend-var`) | language changed: SL:borrowing §4 and §9 remove the mode test, and a body that differs by mode is two accessors; the covering case is in the parser's negative corpus, outside this directory |
 | P07 | `#lend_var` in a `&var self`-declared accessor | `errors/lend_var_in_var_self_accessor.saw` |  |
-| P08 | a `borrows` body that suspends (v1 fence: bodies are sync) | `P08_borrows_body_suspends.saw` |  |
+| P08 | a `borrows` body that suspends: its prologue and epilogue run as child frames of the window's open and close | `compiler/tests/run/probes/coro_windows_held.saw` | language changed: a `borrows` body may suspend unless it is `borrows(sync)`, so the v1 fence `P08_borrows_body_suspends.saw` pins is gone; sawc2 lowers the halves as drives (SL-559), and the covering program is in the run lane, outside this directory |
 | P09 | assignment target that is a non-`borrows` method call | `errors/place_target_not_a_place.saw` |  |
 | P10 | conditional lend: the absent path opens no window and runs no epilogue | `place_conditional_lend_uses.saw` |  |
 | P11 | a shared window on a `let` root reads fine | `place_shared_window_readonly.saw` |  |

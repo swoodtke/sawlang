@@ -395,6 +395,11 @@ compares:
   bound, an accessor's `lend`), prints its `// prints:` lines the same way:
   each element is read in place and deinits once. Stage 0 cannot parse a
   `borrow` expression (SL-642);
+- `probes/coro_windows_held.saw` (a `borrow` block held across a suspension,
+  its accessor's record in the frame, and an accessor whose halves suspend)
+  and `probes/coro_tuple_unwrap.saw` (a tuple-pattern `if let` and `guard
+  let` over a suspension), which Stage 0 refuses, print their `// prints:`
+  lines the same way; each expectation is spec-derived (SL-559);
 - a normal build emits no test-only declaration (SL:testing), so a test-only
   `@export` defines no symbol, in either spelling (SL-631).
   `probes/test_only_export_group.saw` (the export inside an `@test { }` group)

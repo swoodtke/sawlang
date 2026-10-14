@@ -1,0 +1,31 @@
+// The program compiler/coro/tests/verify_window_records.saw lowers, then
+// edits: `held` keeps a `borrow` window open across its one suspension, and
+// the window's accessor keeps a state record across its `lend`, so the record
+// lives in the frame. The edit puts the record's places back on the resume
+// function's stack, and the verifier must report the record left there.
+struct Cell {
+    value: Int
+    reads: Int
+}
+
+extension Cell {
+    func counted(&var self, k: Int) borrows -> &var Int {
+        let before = self.reads + k
+        lend self.value
+        self.reads = before
+    }
+}
+
+func held(n: Int) -> Int {
+    var c = Cell(value: 1, reads: 0)
+    borrow var v = c.counted(2) {
+        v += n
+        __saw_suspend()
+        v += 1
+    }
+    c.value + c.reads
+}
+
+func main() {
+    print("{}", __saw_drive(held(3)))
+}

@@ -62,6 +62,8 @@ exit status compared.
 - `probes/borrow_place_reads.saw`, whose `borrow` subscripts are read where
   each position borrows the value, which Stage 0 cannot parse, prints the
   lines it states the same way: each NoCopy element deinits once;
+- `probes/coro_windows_held.saw` and `probes/coro_tuple_unwrap.saw`, coroutine
+  shapes Stage 0 refuses, print the lines they state the same way;
 - a normal build emits no test-only declaration: `probes/test_only_export_group.saw`
   and `probes/test_only_export_item.saw`, whose `main` calls a test-only
   `@export` through `extern "C"`, fail to link with its symbol undefined, and
@@ -716,6 +718,16 @@ def check_borrow_place_reads(failures, counts):
     check_stated(failures, counts, "borrow place reads", src, want)
 
 
+def check_coro_stated(failures, counts):
+    """Coroutine shapes Stage 0 refuses, so their expectations are
+    spec-derived: `probes/coro_windows_held.saw` and
+    `probes/coro_tuple_unwrap.saw` print their `// prints:` lines (SL-559)."""
+    for name in ("coro_windows_held", "coro_tuple_unwrap"):
+        src = os.path.join(HERE, "probes", name + ".saw")
+        want = "".join(line + "\n" for line in stated_prints(src)).encode()
+        check_stated(failures, counts, name.replace("_", " "), src, want)
+
+
 TEST_ONLY_LEAK_SYMBOL = "c631_leak"
 TEST_ONLY_UNUSED_SYMBOLS = ("c631_unused_item", "c631_unused_group")
 TEST_ONLY_KEPT_SYMBOL = "c631_kept"
@@ -880,6 +892,7 @@ def run(names=None, write=False):
         check_consumes_replace(failures, counts)
         check_raw_enum_cast_handoff(failures, counts)
         check_borrow_place_reads(failures, counts)
+        check_coro_stated(failures, counts)
         check_test_only_exports(failures, counts)
         check_move_at_borrow(failures, counts)
         check_park_panics(failures, counts)

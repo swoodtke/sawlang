@@ -1,0 +1,31 @@
+// refuses: coro.not-yet at 22:23
+// message: and a conditional borrow whose accessor suspends is not lowered yet
+// A conditional window whose prologue suspends: its open is a drive, and a
+// drive continues to one edge, where the window has two.
+
+struct Slot {
+    value: Int
+    full: Bool
+}
+
+extension Slot {
+    func find(&var self) borrows -> &var Int? {
+        __saw_suspend()
+        if not self.full {
+            return None
+        }
+        lend self.value
+    }
+}
+
+func poke(s: &var Slot) -> Int {
+    if borrow var v = s.find() {
+        v += 1
+    }
+    s.value
+}
+
+func main() {
+    var s = Slot(value: 1, full: true)
+    print("{}", __saw_drive(poke(&var s)))
+}

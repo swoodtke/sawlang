@@ -1,0 +1,48 @@
+// tests/corpus/conformance/K40_suspending_match_scrutinee_head, with
+// `__saw_drive` in place of its `TaskGroup` and `Channel` (SL-551 c2): a
+// suspension in a `match` scrutinee, a free function's and a method's, embeds
+// as a child frame. The step counts show each scrutinee suspended; K40's
+// interleaving of two tasks waits on a group.
+import std.task.*
+
+struct Src { v: Int }
+
+extension Src {
+    func next(&self) -> Int {
+        yield_now()
+        self.v
+    }
+}
+
+func gate(tag: String) -> Int {
+    print("{tag}1")
+    yield_now()
+    print("{tag}2")
+    return 3
+}
+
+func work(tag: String) -> Int {
+    var seen = 0
+    match gate(tag) {
+        case 3 -> { seen = 3 },
+        case _ -> { seen = 0 }
+    }
+    return seen
+}
+
+func method_scrut(src: Src) -> Int {
+    var seen = 0
+    match src.next() {
+        case 9 -> { seen = 9 },
+        case _ -> { seen = 0 }
+    }
+    return seen
+}
+
+func main() {
+    let a = __saw_drive(work("A"))
+    let m = __saw_drive(method_scrut(Src(v: 9)))
+    print("scrutinee {}", a + m)
+    print(__saw_drive_steps(work("B")))
+    print(__saw_drive_steps(method_scrut(Src(v: 1))))
+}

@@ -1,0 +1,30 @@
+// Design 120 positive control (already supported via the design-62 condition
+// hoist): a suspending call as the SCRUTINEE of `if let` / `guard let`. Lands
+// WITHOUT an XFAIL marker — it must keep passing as the general hoist subsumes
+// the special case.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 9
+// 7
+
+func maybe(n: Int) -> Int? {
+    __saw_suspend()
+    n
+}
+
+func use_iflet() -> Int {
+    if let v = maybe(9) {
+        return v
+    }
+    return 0
+}
+
+func use_guardlet() -> Int {
+    guard let v = maybe(7) else { return 0 }
+    return v
+}
+
+func main() {
+    print(__saw_drive(use_iflet()))     // 9
+    print(__saw_drive(use_guardlet()))  // 7
+}

@@ -8,9 +8,9 @@
 //   1, frame in place: a frame value is reached only in its slot through the
 //      frame pointer, and the frame never as a whole, so nothing relocates it;
 //   2, teardown by state: at each suspension state the frame's values are
-//      initialised as the analysis says the body's were, every drop is one
-//      drop elaboration placed, and each transfer a rewritten call made
-//      happens once;
+//      initialised as the analysis says the body's were, the record of each
+//      window open there is in the frame, every drop is one drop elaboration
+//      placed, and each transfer a rewritten call made happens once;
 //   3, windows close once: on every path, resumed states included;
 //   4, record before arm: a park's record reaches its arm and its park.
 //
@@ -319,7 +319,7 @@ func coro_verify_body(coro: &var CoroProgram, cx: &CoroContext, b: &CoroBeforeBo
     }
     coro_verify_drops(&var coro, &b)
     coro_verify_transfers(&var coro, &b, frame, &slots, &places)
-    coro_verify_windows(&var coro, &b)
+    coro_verify_windows(&var coro, &b, &slots)
     if b.framed {
         coro_verify_records(&var coro, &cx, &b)
     }
@@ -563,13 +563,13 @@ func coro_verify_residents(coro: &var CoroProgram, b: &CoroBeforeBody, frame: In
         let pre = coro.before.places[b.place_first + k]
         k = k + 1
         let post = coro.mono.dp.bc.mir.places[p]
-        if coro_verify_same_place(&coro, &pre, &post) {
+        if coro_verify_same_place(&coro, &b, frame, &pre, &post) {
             if pre.local >= 0 && pre.local < b.local_count {
                 stack[pre.local] = true
             }
             continue
         }
-        let offset = coro_verify_slot_of(&coro, b.body, &pre, &post, frame)
+        let offset = coro_verify_slot_of(&coro, &b, &pre, &post, frame)
         if pre.local < 0 || pre.local >= b.local_count || offset < 0 {
             var what = StringBuilder()
             try! what.append("a place the body names is rewritten into something other than its local's frame slot: ")
@@ -638,32 +638,124 @@ func coro_verify_residents(coro: &var CoroProgram, b: &CoroBeforeBody, frame: In
     move slots
 }
 
-// Whether places `a` and `b` are the same: one root and equal steps.
-func coro_verify_same_place(coro: &CoroProgram, a: &MirPlace, b: &MirPlace) -> Bool {
-    if a.local != b.local || a.static_decl != b.static_decl || a.count != b.count || a.ty != b.ty {
+// Whether places `pre` and `post` of body `body` are the same: one root and
+// equal steps, an index by a frame value's local and one by its index
+// temporary counting as equal.
+func coro_verify_same_place(coro: &CoroProgram, body: &CoroBeforeBody, frame: Int, pre: &MirPlace,
+                            post: &MirPlace) -> Bool {
+    if pre.local != post.local || pre.static_decl != post.static_decl || pre.count != post.count || pre.ty != post.ty {
         return false
     }
-    coro_verify_same_steps(&coro, a.first, b.first, a.count)
+    coro_verify_same_steps(&coro, &body, frame, pre.first, post.first, pre.count)
 }
 
-// Whether the `count` steps from `a` and from `b` are equal.
-func coro_verify_same_steps(coro: &CoroProgram, a: Int, b: Int, count: Int) -> Bool {
+// Whether the `count` steps from `a`, as body `body` named them, and from
+// `b`, as lowering left them, are equal. An index by local `_x` may become an
+// index by a temporary lowering added that only ever copies `_x`'s frame
+// slot (`coro_verify_index_source`), since a projection cannot name a slot.
+func coro_verify_same_steps(coro: &CoroProgram, body: &CoroBeforeBody, frame: Int, a: Int, b: Int,
+                            count: Int) -> Bool {
     var j = 0
     while j < count {
         let x = coro.mono.dp.bc.mir.projs[a + j]
         let y = coro.mono.dp.bc.mir.projs[b + j]
-        if x.kind != y.kind || x.decl != y.decl || x.index != y.index || x.ty != y.ty {
+        j = j + 1
+        if x.kind != y.kind || x.decl != y.decl || x.ty != y.ty {
             return false
         }
-        j = j + 1
+        if x.index != y.index {
+            let loaded = x.kind == MirProjKind.Index && coro_verify_index_source(&coro, &body, frame, y.index) == x.index
+            if not loaded {
+                return false
+            }
+        }
     }
     true
+}
+
+// The local of body `b` whose frame slot local `t` holds a copy of, when `t`
+// is a local lowering added whose every write is `_t = copy (*_F).[OFFSET:
+// T]` through frame pointer `frame` at that local's one offset; else -1.
+func coro_verify_index_source(coro: &CoroProgram, b: &CoroBeforeBody, frame: Int, t: Int) -> Int {
+    if t < b.local_count || frame < 0 {
+        return -1
+    }
+    let info = coro.mono.dp.bc.mir.funcs[b.body]
+    var source = -1
+    var bb = 0
+    while bb < info.block_count {
+        let block = coro.mono.dp.bc.mir.blocks[info.block_first + bb]
+        bb = bb + 1
+        if block.term == MirTermKind.Call {
+            let dest = coro.mono.dp.bc.mir.calls[block.call].dest
+            if coro_verify_writes_local(&coro, dest, t) {
+                return -1
+            }
+        }
+        var s = block.first
+        while s >= 0 {
+            let stmt = coro.mono.dp.bc.mir.stmts[s]
+            s = stmt.next
+            if stmt.kind != MirStmtKind.Assign || not coro_verify_writes_local(&coro, stmt.place, t) {
+                continue
+            }
+            let from = coro_verify_copied_slot(&coro, stmt.rvalue, frame)
+            let l = coro_verify_local_at(&coro, b.item, from)
+            if l < 0 || (source >= 0 && source != l) {
+                return -1
+            }
+            source = l
+        }
+    }
+    source
+}
+
+// Whether place `p` names local `l` at all, whole or in part.
+func coro_verify_writes_local(coro: &CoroProgram, p: Int, l: Int) -> Bool {
+    p >= 0 && coro.mono.dp.bc.mir.places[p].local == l
+}
+
+// The offset of the frame slot rvalue `rv` copies whole, `copy (*_F).[OFFSET:
+// T]` through `frame`, or -1.
+func coro_verify_copied_slot(coro: &CoroProgram, rv: Int, frame: Int) -> Int {
+    if rv < 0 {
+        return -1
+    }
+    let r = coro.mono.dp.bc.mir.rvalues[rv]
+    if r.kind != MirRvalueKind.Use || r.count != 1 {
+        return -1
+    }
+    let o = coro.mono.dp.bc.mir.operands[coro.mono.dp.bc.mir.lists[r.first]]
+    if o.kind != MirOperandKind.Copy {
+        return -1
+    }
+    coro_verify_slot_offset(&coro, o.place, frame)
+}
+
+// The local whose value item `item`'s frame layout puts at `offset`, or -1.
+func coro_verify_local_at(coro: &CoroProgram, item: Int, offset: Int) -> Int {
+    let fr = coro_frame_of(&coro, item)
+    if fr < 0 || offset < 0 {
+        return -1
+    }
+    let frame = coro.frames[fr]
+    var k = 0
+    while k < frame.value_count {
+        let v = coro.values[frame.value_first + k]
+        k = k + 1
+        if v.offset == offset && v.local >= 0 && v.kind != CoroValueKind.Child && v.kind != CoroValueKind.State {
+            return v.local
+        }
+    }
+    return -1
 }
 
 // The offset of the slot `post` reaches local `pre.local`'s value at, when
 // `post` is `pre` rewritten into it through frame pointer `frame`: the
 // dereference, a slot of the local's type, then `pre`'s own steps; else -1.
-func coro_verify_slot_of(coro: &CoroProgram, f: Int, pre: &MirPlace, post: &MirPlace, frame: Int) -> Int {
+func coro_verify_slot_of(coro: &CoroProgram, b: &CoroBeforeBody, pre: &MirPlace, post: &MirPlace,
+                         frame: Int) -> Int {
+    let f = b.body
     if frame < 0 || pre.local < 0 || post.local != frame || post.count != pre.count + 2 || post.ty != pre.ty {
         return -1
     }
@@ -676,7 +768,7 @@ func coro_verify_slot_of(coro: &CoroProgram, f: Int, pre: &MirPlace, post: &MirP
     if slot.ty != coro.mono.dp.bc.mir.locals[info.local_first + pre.local].ty {
         return -1
     }
-    if not coro_verify_same_steps(&coro, pre.first, post.first + 2, pre.count) {
+    if not coro_verify_same_steps(&coro, &b, frame, pre.first, post.first + 2, pre.count) {
         return -1
     }
     slot.index
@@ -1410,6 +1502,9 @@ func coro_verify_regions(coro: &var CoroProgram, b: &CoroBeforeBody, frame: Int,
             }
             continue
         }
+        if coro_verify_index_load(&coro, &b, frame, p) {
+            continue
+        }
         var l = 0
         while l < slots.len() {
             if slots[l] == offset {
@@ -1423,6 +1518,50 @@ func coro_verify_regions(coro: &var CoroProgram, b: &CoroBeforeBody, frame: Int,
             l = l + 1
         }
     }
+}
+
+// Whether place `p` is only read by an index temporary's load, `_t = copy p`
+// for a `_t` whose every write copies one frame value
+// (`coro_verify_index_source`): a copy of an index, which no ownership
+// operation is.
+func coro_verify_index_load(coro: &CoroProgram, b: &CoroBeforeBody, frame: Int, p: Int) -> Bool {
+    let info = coro.mono.dp.bc.mir.funcs[b.body]
+    var found = false
+    var bb = 0
+    while bb < info.block_count {
+        let block = coro.mono.dp.bc.mir.blocks[info.block_first + bb]
+        bb = bb + 1
+        var s = block.first
+        while s >= 0 {
+            let stmt = coro.mono.dp.bc.mir.stmts[s]
+            s = stmt.next
+            if stmt.rvalue < 0 {
+                continue
+            }
+            let rv = coro.mono.dp.bc.mir.rvalues[stmt.rvalue]
+            var k = 0
+            var reads = rv.place == p
+            while k < rv.count {
+                let o = coro.mono.dp.bc.mir.lists[rv.first + k]
+                k = k + 1
+                if o >= 0 && coro.mono.dp.bc.mir.operands[o].place == p {
+                    reads = true
+                }
+            }
+            if not reads {
+                continue
+            }
+            if stmt.kind != MirStmtKind.Assign || stmt.place < 0 {
+                return false
+            }
+            let target = coro.mono.dp.bc.mir.places[stmt.place]
+            if target.count != 0 || coro_verify_index_source(&coro, &b, frame, target.local) < 0 {
+                return false
+            }
+            found = true
+        }
+    }
+    found
 }
 
 // Whether body `b` named place `p` before lowering.
@@ -1443,7 +1582,9 @@ func coro_verify_named_before(coro: &CoroProgram, b: &CoroBeforeBody, p: Int) ->
 // open, none closes while it may already be closed (closed twice, or never
 // opened), and none may be open at a `return`. An accessor's epilogue starts
 // with the windows its prologue carries, which the prologue may leave open.
-func coro_verify_windows(coro: &var CoroProgram, b: &CoroBeforeBody) {
+// The same dataflow serves rule 2's check of window records
+// (`coro_verify_window_records`).
+func coro_verify_windows(coro: &var CoroProgram, b: &CoroBeforeBody, slots: &Vector<Int>) {
     let info = coro.mono.dp.bc.mir.funcs[b.body]
     let width = info.window_count
     if width == 0 || info.block_count == 0 {
@@ -1529,6 +1670,9 @@ func coro_verify_windows(coro: &var CoroProgram, b: &CoroBeforeBody) {
         if not coro_verify_window_reached(&entry, here, width) {
             continue
         }
+        if b.framed {
+            coro_verify_window_records(&var coro, &b, &slots, &entry, here)
+        }
         if block.term == MirTermKind.Call {
             let c = coro.mono.dp.bc.mir.calls[block.call]
             if c.window >= 0 && c.window < width {
@@ -1551,6 +1695,81 @@ func coro_verify_windows(coro: &var CoroProgram, b: &CoroBeforeBody) {
                 k = k + 1
             }
         }
+    }
+}
+
+// Rule 2 at each suspension point in block `here` of framed body `b`: the
+// state record of every window that may be open there, or that the
+// suspending call opens, lives in a frame slot. The accessor's halves write
+// and read a record through a reference, which the initialisation analysis
+// never sees, so the conditions rule 2 compares cannot show one left on the
+// stack. `entry` is rule 3's windows by block; `slots` is rule 1's offsets.
+func coro_verify_window_records(coro: &var CoroProgram, b: &CoroBeforeBody, slots: &Vector<Int>,
+                                entry: &Vector<Int>, here: Int) {
+    let info = coro.mono.dp.bc.mir.funcs[b.body]
+    let width = info.window_count
+    let block = coro.mono.dp.bc.mir.blocks[info.block_first + here]
+    var s = block.first
+    while s >= 0 {
+        let state = coro_verify_point_state(&coro, &b, -1, s)
+        if state > 0 {
+            coro_verify_records_resident(&var coro, &b, &slots, &entry, here, -1, state)
+        }
+        s = coro.mono.dp.bc.mir.stmts[s].next
+    }
+    if block.term != MirTermKind.Call {
+        return
+    }
+    let state = coro_verify_point_state(&coro, &b, block.call, -1)
+    if state > 0 {
+        let c = coro.mono.dp.bc.mir.calls[block.call]
+        var opening = -1
+        if c.kind == MirCallKind.WindowOpen && c.window >= 0 && c.window < width {
+            opening = c.window
+        }
+        coro_verify_records_resident(&var coro, &b, &slots, &entry, here, opening, state)
+    }
+}
+
+// The state of body `b`'s suspension point at call `c` or statement `s`, as
+// the snapshot numbered it, or 0 when neither is one.
+func coro_verify_point_state(coro: &CoroProgram, b: &CoroBeforeBody, c: Int, s: Int) -> Int {
+    var k = 0
+    while k < b.point_count {
+        let point = coro.before.points[b.point_first + k]
+        k = k + 1
+        if (c >= 0 && point.call == c) || (s >= 0 && point.stmt == s) {
+            return point.state
+        }
+    }
+    0
+}
+
+func coro_verify_records_resident(coro: &var CoroProgram, b: &CoroBeforeBody, slots: &Vector<Int>,
+                                  entry: &Vector<Int>, here: Int, opening: Int, state: Int) {
+    let info = coro.mono.dp.bc.mir.funcs[b.body]
+    let width = info.window_count
+    var w = 0
+    while w < width {
+        let window = w
+        w = w + 1
+        let open = (entry[here * width + window] & CORO_WINDOW_OPEN) != 0
+        if not open && window != opening {
+            continue
+        }
+        let record = coro.mono.dp.bc.mir.windows[info.window_first + window].record
+        if record < 0 || record >= slots.len() || slots[record] >= 0 {
+            continue
+        }
+        var what = StringBuilder()
+        try! what.append("window w")
+        try! what.append(window)
+        try! what.append("'s state record _")
+        try! what.append(record)
+        try! what.append(" stays on the resume function's stack at state ")
+        try! what.append(state)
+        try! what.append(", inside its window, where the suspension loses it")
+        coro_verify_problem(&var coro, 2, b.item, what.build())
     }
 }
 

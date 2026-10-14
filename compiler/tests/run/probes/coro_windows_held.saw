@@ -1,0 +1,76 @@
+// prints: 71010
+// prints: 1
+// prints: 6101
+// prints: 2
+// prints: 2
+// Borrow windows across a suspension (SL:coroutines A6), which Stage 0 cannot
+// write: a `borrow` block held open across a `yield_now`, whose accessor keeps
+// a state record across its `lend` (`self` and `before`), so the record lives
+// in the frame while the window is open; and an accessor whose prologue and
+// epilogue each suspend, driven as child frames at the window's open and
+// close. Stage 0 refuses a suspension in a `borrows` body (its design 141 v1
+// fence, `examples/conformance/P08_borrows_body_suspends`); the spec now
+// allows one unless the accessor is `borrows(sync)`, so this is a language
+// change with no oracle. Spec-derived expectation (no oracle): `held` adds
+// 5 + 1 to `a` and its epilogue sets `gates` to 7 + 3 + 1000; `halves` adds 5
+// to `a` between a prologue that runs one gate and an epilogue that adds 100;
+// the step counts are one per `yield_now` reached.
+import std.task.*
+
+struct Grid { a: Int, b: Int, gates: Int }
+
+extension Grid {
+    func run_gate(&var self) { self.gates = self.gates + 1 }
+
+    public func counted(&var self, k: Int) borrows -> &var Int {
+        let before = self.gates + k
+        lend self.a
+        self.gates = before + 1000
+    }
+
+    public func slow(&var self) borrows -> &var Int {
+        yield_now()
+        self.run_gate()
+        lend self.a
+        yield_now()
+        self.gates = self.gates + 100
+    }
+}
+
+func held(n: Int) -> Int {
+    var g = Grid(a: 1, b: 2, gates: 7)
+    borrow var c = g.counted(3) {
+        c += n
+        yield_now()
+        c += 1
+    }
+    g.a * 10000 + g.gates
+}
+
+func halves(n: Int) -> Int {
+    var g = Grid(a: 1, b: 2, gates: 0)
+    borrow var c = g.slow() {
+        c += n
+    }
+    g.a * 1000 + g.gates
+}
+
+func main() {
+    print(__saw_drive(held(5)))
+    print(__saw_drive_steps(held(5)))
+    print(__saw_drive(halves(5)))
+    print(__saw_drive_steps(halves(5)))
+    // Both at once: the record of `counted` is open across `slow`'s halves.
+    print(__saw_drive_steps(both()))
+}
+
+func both() -> Int {
+    var g = Grid(a: 1, b: 2, gates: 0)
+    var h = Grid(a: 1, b: 2, gates: 0)
+    borrow var c = g.counted(1) {
+        borrow var d = h.slow() {
+            c += d
+        }
+    }
+    g.a + h.gates
+}

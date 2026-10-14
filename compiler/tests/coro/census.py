@@ -55,6 +55,14 @@ PLAN_TYPES = ("Task", "VoidTask", "TaskGroup", "Duration", "Instant", "Channel",
 # A plan type not named here has every member in the plan.
 PLAN_MEMBERS = {"TcpStream": ("pair", "read", "write"), "TcpListener": ("listen", "accept")}
 
+# The refusal tests the language no longer refuses, which sawc2 accepts by
+# design (SL:architecture §5, "language changed"): each is counted as
+# `changed` while sawc2 accepts it, and as `accepted` would be otherwise.
+LANGUAGE_CHANGED = {
+    "conformance/P08_borrows_body_suspends.saw":
+        "a `borrows` body may suspend unless it is `borrows(sync)` (SL-559; run lane probes/coro_windows_held)",
+}
+
 _MODULE = re.compile(r"^no module `([^`]+)`")
 _NAME = re.compile(r"^cannot find `([^`]+)` in scope$")
 _MEMBER = re.compile(r"^`([^`]+)` has no (?:member|method) `([^`]+)`")
@@ -133,9 +141,12 @@ def census_program(path):
 
 def census_refusal(row):
     """(outcome, detail) for one refusal test: `pass`, `accepted`,
+    `changed` (accepted, as `LANGUAGE_CHANGED` says the language now does),
     `blocked` (a gap rule refuses it), `other` (refused, not by the rule the
     plan names) or `crash`."""
     code, errors, _ = build_program(row["path"])
+    if code == 0 and row["path"] in LANGUAGE_CHANGED:
+        return "changed", LANGUAGE_CHANGED[row["path"]]
     return oracle.judge_refusal(row["error"], code, errors)
 
 

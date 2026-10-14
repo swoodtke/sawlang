@@ -1,0 +1,41 @@
+// prints: 9
+// prints: -1
+// prints: 32
+// prints: -1
+// prints: 2
+// A tuple pattern in an `if let` and a `guard let` whose subject suspends, with
+// a suspension inside the bound scope too: one of the spec's "Not yet
+// supported" limits, which Stage 0 refuses and sawc2 lowers as ordinary blocks
+// (SL:coroutines §3.3, A6). Spec-derived expectation (no oracle): `pair(n)`
+// is `(n, 2n)` for a positive `n` and `None` otherwise, so `tuple_iflet(3)`
+// is 3 + 6, `tuple_guardlet(4)` is 4 * 8, a zero takes the fallback, and
+// `tuple_iflet(3)` reaches two `yield_now`s.
+import std.task.*
+
+func pair(n: Int) -> (Int, Int)? {
+    yield_now()
+    if n > 0 { return (n, n * 2) }
+    None
+}
+
+func tuple_iflet(n: Int) -> Int {
+    if let (a, b) = pair(n) {
+        yield_now()
+        return a + b
+    }
+    -1
+}
+
+func tuple_guardlet(n: Int) -> Int {
+    guard let (a, b) = pair(n) else { return -1 }
+    yield_now()
+    a * b
+}
+
+func main() {
+    print(__saw_drive(tuple_iflet(3)))
+    print(__saw_drive(tuple_iflet(0)))
+    print(__saw_drive(tuple_guardlet(4)))
+    print(__saw_drive(tuple_guardlet(0)))
+    print(__saw_drive_steps(tuple_iflet(3)))
+}

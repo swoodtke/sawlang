@@ -53,10 +53,11 @@ public static CORO_PARK_FD: Int = -1
 
 // Decides, for every item, whether its frame is lowered: every suspension
 // point of the frame is a shape this compiler lowers, a park of any reason,
-// an effect-only suspension or the drive of a lowered child, and the frame
-// holds nothing else it does not (an op-budget point, a borrow window, a
-// frame value an index projection reads). Children are decided before their
-// callers; once frames are found the suspending call graph is acyclic.
+// an effect-only suspension or the drive of a lowered child (a window's open
+// or close among them, driving the accessor half that suspends), and none is
+// an op-budget point or the open of a conditional window. Children are
+// decided before their callers; once frames are found the suspending call
+// graph is acyclic.
 public func coro_decide_lowering(coro: &var CoroProgram) {
     coro.lowered = Vector<Bool>()
     coro.unlowered = Vector<CoroUnlowered>()
@@ -114,8 +115,8 @@ func coro_children_decided(coro: &CoroProgram, decided: &Vector<Bool>, f: Int) -
 }
 
 // Frame `f`'s decision: its first suspending call this compiler does not
-// lower, else its first op-budget point, else a shape of the frame as a
-// whole.
+// lower, else its first op-budget point, else its first suspending open of a
+// conditional window.
 func coro_decide_frame(coro: &var CoroProgram, f: Int) {
     let frame = coro.frames[f]
     var why = CoroUnlowered(suspend: -1, what: CoroUnloweredKind.Lowered)
@@ -139,11 +140,14 @@ func coro_decide_frame(coro: &var CoroProgram, f: Int) {
             why = CoroUnlowered(suspend: s, what: CoroUnloweredKind.Budget)
         }
     }
-    if why.what == CoroUnloweredKind.Lowered && coro.mono.dp.bc.mir.funcs[frame.body].window_count > 0 {
-        why = CoroUnlowered(suspend: -1, what: CoroUnloweredKind.Window)
-    }
-    if why.what == CoroUnloweredKind.Lowered && coro_indexes_frame_value(&coro, f) {
-        why = CoroUnlowered(suspend: -1, what: CoroUnloweredKind.Index)
+    j = 0
+    while j < frame.suspend_count && why.what == CoroUnloweredKind.Lowered {
+        let s = frame.suspend_first + j
+        j = j + 1
+        let call = coro.suspends[s].call
+        if coro_conditional_open(&coro, call) {
+            why = CoroUnlowered(suspend: s, what: CoroUnloweredKind.Window)
+        }
     }
     coro.unlowered[frame.item] = why
     coro.lowered[frame.item] = why.what == CoroUnloweredKind.Lowered
@@ -216,6 +220,16 @@ func coro_call_decl(coro: &CoroProgram, c: Int) -> Int {
     coro.item_decl(t)
 }
 
+// Whether call `c` opens a conditional window, one with an absent edge: its
+// drive would continue to the present edge alone, so it is not lowered.
+func coro_conditional_open(coro: &CoroProgram, c: Int) -> Bool {
+    if c < 0 {
+        return false
+    }
+    let info = coro.mono.dp.bc.mir.calls[c]
+    info.kind == MirCallKind.WindowOpen && info.absent >= 0
+}
+
 // Whether call `c` is the test intrinsic `__saw_test_suspend`, a suspension
 // for the effects alone (design 22): it makes its caller suspend, and runs as
 // nothing, never pending.
@@ -232,12 +246,121 @@ func coro_calls_builtin(coro: &CoroProgram, c: Int, name: String) -> Bool {
     info.kind == MirCallKind.Builtin && info.spelling >= 0 && coro.mono.dp.bc.mir.tc.name_text(info.spelling).equals(name)
 }
 
-// Whether an index projection in frame `f`'s body reads a frame-resident
-// local, which a place cannot name as a frame slot.
-func coro_indexes_frame_value(coro: &CoroProgram, f: Int) -> Bool {
-    let frame = coro.frames[f]
-    let resident = coro_resident_locals(&coro, &frame)
-    let places = coro_body_places(&coro, frame.body)
+// The index temporaries of one lowered body: parallel runs, each a stack
+// local and the frame-resident index local it is loaded from.
+struct CoroIndexTemps {
+    temps: Vector<Int>
+    sources: Vector<Int>
+}
+
+extension CoroIndexTemps: NoCopy {}
+
+// Lowers each index projection of function `f` whose index is a frame value
+// (`resident` by local, `frame_local` the frame pointer). A projection names
+// its index by local, and a frame value is no local any more, so the place
+// indexes by a stack temporary instead, one per index local, which is loaded
+// from the index's slot, `_t = copy (*_F).[OFFSET: T]`, right before each
+// statement or terminator naming the place. The load copies an integer and
+// no suspension falls between it and its use, so it adds no ownership
+// operation and the index is the one the body computed.
+func coro_lower_index_reads(coro: &var CoroProgram, f: Int, resident: &Vector<Int>, frame_local: Int) {
+    var t = CoroIndexTemps(temps: Vector<Int>(), sources: Vector<Int>())
+    let places = coro_body_places(&coro, f)
+    var k = 0
+    while k < places.len() {
+        let p = places[k]
+        k = k + 1
+        let pl = coro.mono.dp.bc.mir.places[p]
+        var hit = false
+        var j = 0
+        while j < pl.count {
+            let step = coro.mono.dp.bc.mir.projs[pl.first + j]
+            j = j + 1
+            if coro_index_is_resident(&step, &resident) {
+                hit = true
+            }
+        }
+        if not hit {
+            continue
+        }
+        // A fresh run of steps, so the place as the body named it stays as
+        // it was for the verifier.
+        let first = coro.mono.dp.bc.mir.projs.len()
+        j = 0
+        while j < pl.count {
+            var step = coro.mono.dp.bc.mir.projs[pl.first + j]
+            j = j + 1
+            if coro_index_is_resident(&step, &resident) {
+                step.index = coro_index_temp(&var coro, f, &var t, step.index)
+            }
+            try! coro.mono.dp.bc.mir.projs.push(step)
+        }
+        coro.mono.dp.bc.mir.places[p] = MirPlace(local: pl.local, static_decl: pl.static_decl, first: first,
+                                                  count: pl.count, ty: pl.ty)
+    }
+    if t.temps.len() == 0 {
+        return
+    }
+    let info = coro.mono.dp.bc.mir.funcs[f]
+    var b = 0
+    while b < info.block_count {
+        let block = coro.mono.dp.bc.mir.blocks[info.block_first + b]
+        var prev = -1
+        var s = block.first
+        while s >= 0 {
+            let stmt = coro.mono.dp.bc.mir.stmts[s]
+            var named = Vector<Int>()
+            coro_add_stmt_places(&coro, &var named, s)
+            var q = 0
+            while q < t.temps.len() {
+                if coro_places_index_by(&coro, &named, t.temps[q]) {
+                    let load = coro_index_load(&var coro, f, frame_local, &resident, &t, q, stmt.node)
+                    prev = coro_insert_stmt(&var coro, f, b, prev, load, s)
+                }
+                q = q + 1
+            }
+            prev = s
+            s = stmt.next
+        }
+        var named = Vector<Int>()
+        coro_add_term_places(&coro, &var named, &block)
+        var q = 0
+        while q < t.temps.len() {
+            if coro_places_index_by(&coro, &named, t.temps[q]) {
+                let load = coro_index_load(&var coro, f, frame_local, &resident, &t, q, block.term_node)
+                let last = coro.mono.dp.bc.mir.blocks[info.block_first + b].last
+                coro_insert_stmt(&var coro, f, b, last, load, -1)
+            }
+            q = q + 1
+        }
+        b = b + 1
+    }
+}
+
+// Whether `step` is an index projection whose index is a frame value.
+func coro_index_is_resident(step: &MirProj, resident: &Vector<Int>) -> Bool {
+    step.kind == MirProjKind.Index && step.index >= 0 && step.index < resident.len() && resident[step.index] >= 0
+}
+
+// The stack temporary of function `f` that stands for index local `l`, made
+// on first use.
+func coro_index_temp(coro: &var CoroProgram, f: Int, t: &var CoroIndexTemps, l: Int) -> Int {
+    var k = 0
+    while k < t.sources.len() {
+        if t.sources[k] == l {
+            return t.temps[k]
+        }
+        k = k + 1
+    }
+    let ty = coro.mono.dp.bc.mir.locals[coro.mono.dp.bc.mir.funcs[f].local_first + l].ty
+    let made = coro_add_local(&var coro, f, ty)
+    try! t.temps.push(made)
+    try! t.sources.push(l)
+    made
+}
+
+// Whether a place among `places` has an index projection by local `l`.
+func coro_places_index_by(coro: &CoroProgram, places: &Vector<Int>, l: Int) -> Bool {
     var k = 0
     while k < places.len() {
         let pl = coro.mono.dp.bc.mir.places[places[k]]
@@ -246,12 +369,55 @@ func coro_indexes_frame_value(coro: &CoroProgram, f: Int) -> Bool {
         while j < pl.count {
             let step = coro.mono.dp.bc.mir.projs[pl.first + j]
             j = j + 1
-            if step.kind == MirProjKind.Index && step.index >= 0 && step.index < resident.len() && resident[step.index] >= 0 {
+            if step.kind == MirProjKind.Index && step.index == l {
                 return true
             }
         }
     }
     false
+}
+
+// A new statement loading index temporary `q` of `t` from its source's frame
+// slot, `_t = copy (*_F).[OFFSET: T]`, linked to nothing yet.
+func coro_index_load(coro: &var CoroProgram, f: Int, frame_local: Int, resident: &Vector<Int>, t: &CoroIndexTemps,
+                     q: Int, node: Int) -> Int {
+    let temp = t.temps[q]
+    let source = t.sources[q]
+    let ty = coro.mono.dp.bc.mir.locals[coro.mono.dp.bc.mir.funcs[f].local_first + temp].ty
+    let offset = coro.values[resident[source]].offset
+    let from = coro_frame_place(&var coro, frame_local, offset, ty)
+    let o = coro.mono.dp.bc.mir.operands.len()
+    try! coro.mono.dp.bc.mir.operands.push(MirOperand(kind: MirOperandKind.Copy, place: from, ty: ty,
+                                                      const_kind: MirConstKind.Unit, text: -1))
+    let rv = coro_operand_rvalue(&var coro, ty, o)
+    let place = coro_whole_place(&var coro, temp, ty)
+    let s = coro.mono.dp.bc.mir.stmts.len()
+    try! coro.mono.dp.bc.mir.stmts.push(MirStmt(kind: MirStmtKind.Assign, place: place, rvalue: rv, yields: false,
+                                                next: -1, node: node, closing: false))
+    s
+}
+
+// Links statement `s` into block `b` of function `f` after statement `prev`,
+// or first when `prev` is -1, before statement `next`, or last when `next`
+// is -1; returns `s`.
+func coro_insert_stmt(coro: &var CoroProgram, f: Int, b: Int, prev: Int, s: Int, next: Int) -> Int {
+    let at = coro.mono.dp.bc.mir.funcs[f].block_first + b
+    var block = coro.mono.dp.bc.mir.blocks[at]
+    var stmt = coro.mono.dp.bc.mir.stmts[s]
+    stmt.next = next
+    coro.mono.dp.bc.mir.stmts[s] = stmt
+    if prev < 0 {
+        block.first = s
+    } else {
+        var before = coro.mono.dp.bc.mir.stmts[prev]
+        before.next = s
+        coro.mono.dp.bc.mir.stmts[prev] = before
+    }
+    if next < 0 {
+        block.last = s
+    }
+    coro.mono.dp.bc.mir.blocks[at] = block
+    s
 }
 
 // By local of frame `frame`'s body: the frame value holding it, an index of
@@ -288,27 +454,39 @@ func coro_body_places(coro: &CoroProgram, f: Int) -> Vector<Int> {
         b = b + 1
         var s = block.first
         while s >= 0 {
-            let stmt = coro.mono.dp.bc.mir.stmts[s]
-            s = stmt.next
-            coro_add_place(&var out, stmt.place)
-            if stmt.rvalue >= 0 {
-                let rv = coro.mono.dp.bc.mir.rvalues[stmt.rvalue]
-                coro_add_place(&var out, rv.place)
-                coro_add_place(&var out, rv.flag)
-                coro_add_operands(&coro, &var out, rv.first, rv.count)
-            }
+            coro_add_stmt_places(&coro, &var out, s)
+            s = coro.mono.dp.bc.mir.stmts[s].next
         }
-        if block.term == MirTermKind.Switch {
-            coro_add_operand(&coro, &var out, block.operand)
-            coro_add_place(&var out, block.place)
-        } else if block.term == MirTermKind.Call {
-            let call = coro.mono.dp.bc.mir.calls[block.call]
-            coro_add_operands(&coro, &var out, call.arg_first, call.arg_count)
-            coro_add_operand(&coro, &var out, call.callee)
-            coro_add_place(&var out, call.dest)
-        }
+        coro_add_term_places(&coro, &var out, &block)
     }
     move out
+}
+
+// Adds the places statement `s` names: its place, and its rvalue's place,
+// flag and operands.
+func coro_add_stmt_places(coro: &CoroProgram, out: &var Vector<Int>, s: Int) {
+    let stmt = coro.mono.dp.bc.mir.stmts[s]
+    coro_add_place(&var out, stmt.place)
+    if stmt.rvalue >= 0 {
+        let rv = coro.mono.dp.bc.mir.rvalues[stmt.rvalue]
+        coro_add_place(&var out, rv.place)
+        coro_add_place(&var out, rv.flag)
+        coro_add_operands(&coro, &var out, rv.first, rv.count)
+    }
+}
+
+// Adds the places `block`'s terminator names: a switch's operand or place, a
+// call's arguments, callee and destination.
+func coro_add_term_places(coro: &CoroProgram, out: &var Vector<Int>, block: &MirBlock) {
+    if block.term == MirTermKind.Switch {
+        coro_add_operand(&coro, &var out, block.operand)
+        coro_add_place(&var out, block.place)
+    } else if block.term == MirTermKind.Call {
+        let call = coro.mono.dp.bc.mir.calls[block.call]
+        coro_add_operands(&coro, &var out, call.arg_first, call.arg_count)
+        coro_add_operand(&coro, &var out, call.callee)
+        coro_add_place(&var out, call.dest)
+    }
 }
 
 func coro_add_place(out: &var Vector<Int>, p: Int) {
@@ -395,8 +573,7 @@ func coro_refuse_item(coro: &var CoroProgram, item: Int) {
     }
     match why.what {
         case Budget -> try! msg.append("and its op-budget point is not lowered yet (SL-545)"),
-        case Window -> try! msg.append("and a borrow window in it is not lowered yet (SL-545)"),
-        case Index -> try! msg.append("and an index read from its frame is not lowered yet (SL-545)"),
+        case Window -> try! msg.append("and a conditional borrow whose accessor suspends is not lowered yet (SL-545)"),
         case _ -> try! msg.append("which is not lowered yet (SL-545)")
     }
     var node = coro.mono.items[item].origin_node
@@ -524,6 +701,7 @@ func coro_lower_frame(coro: &var CoroProgram, context: &CoroContext, f: Int) {
                                             result_block: drive.result_block))
         }
     }
+    coro_lower_index_reads(&var coro, frame.body, &resident, frame_local)
     let resident_first = coro.resident.len()
     var l = 0
     var result = -1

@@ -873,7 +873,7 @@ Binding rules are `if let`'s, applied once per iteration:
   shadowed name is a derived shadow and is allowed: `while let c = c.next()`.
 - The same pattern surface. A tuple pattern over an optional tuple works
   (`while let (key, value) = pairs.pop()`), and over a *suspending* scrutinee it
-  is rejected with the same diagnostic `if let` gives, naming the way out.
+  is rejected with a diagnostic naming the way out.
 - The same payload-read tier. A `Copy` payload retains; an `ExplicitCopy` or
   `NoCopy` one needs `move`, `.copy()` or `take()` exactly where `if let` needs
   it.
@@ -8819,8 +8819,7 @@ Observable rules:
   loop it names. The transform rewrites the inline form into the block form it
   means, so both spellings take the same CFG split.
 - **Not yet supported** (rejected with a diagnostic anchored at the user's source
-  line, not miscompiled): a
-  suspension-spanning `if let`/`guard let` with a *tuple pattern*; a value-producing `break` out of a suspension-spanning
+  line, not miscompiled): a value-producing `break` out of a suspension-spanning
   loop; a chained assignment through MORE THAN ONE optional hop whose RHS
   suspends (`a?.b?.c = stream.read()` — the single-hop form works; bind the inner
   optional with `if let` first); and a suspending `try { … } catch { … }` block
@@ -9195,9 +9194,7 @@ Now-closed gaps (design 62), each landed with tests:
   reachable.
 
 Remaining limits (rejected cleanly / documented, not miscompiled): the
-design-104-era list in the Suspension section above, of which a
-suspension-spanning `if let`/`guard let`/`while let` with a tuple pattern is the
-head. Earlier restrictions
+design-104-era list in the Suspension section above. Earlier restrictions
 — a spawned function had to be non-`Void`, a nested suspending *method* was not
 embeddable, an `if let`/`guard let` body could not span a suspension, a suspending
 call could not sit in a larger expression, such a body could not re-bind the

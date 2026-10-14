@@ -128,7 +128,11 @@ initialised, whole or in part (`compiler/mir/src/initialisation.saw`), so it
 runs through its scope-end drop, and a local that is moved is dead until it
 is assigned again. A local only ever copied never stops being initialised, so
 its lifetime runs to the end. That is conservative: unit B1 replaces it with
-lifetimes that end at a last use and cover every loan into a value.
+lifetimes that end at a last use and cover every loan into a value. A
+window's state record is the exception, since its accessor's halves write and
+read it through a reference the analysis never sees: its lifetime is every
+point at which its window may be open, its open and its close included, the
+time a suspending half runs among them (golden `windows`).
 
 **What a frame holds**, in this order:
 
@@ -146,8 +150,9 @@ lifetimes that end at a last use and cover every loan into a value.
 Every other local stays on the resume function's stack. A resident local is
 reached through a frame slot, `(*frame).[OFFSET: T]`, a MIR projection
 (`compiler/tests/mir/README.md`). The frame has no drop glue: every drop stays
-where drop elaboration placed it, at its MIR position. Window records join
-the frame with the unit that lowers them (SL:coroutines A6).
+where drop elaboration placed it, at its MIR position. So a window held open
+across a suspension keeps its record in the frame, and a one-statement window
+between two suspensions keeps it on the stack.
 
 **Layout.** Each value's size and alignment are the target's
 (`compiler/target`), and a child slot's are its child's frame's, so frames
@@ -196,18 +201,25 @@ lowers:
   the test intrinsic `__saw_suspend`, a ready park;
 - a call of the test intrinsic `__saw_test_suspend`, a suspension for the
   effects alone (design 22): it frames its caller and runs as nothing;
-- a call driving a child whose frame is lowered.
+- a call driving a child whose frame is lowered, a window's open or close
+  among them when the accessor's prologue or epilogue suspends: the half is
+  the child, and the window's record is in the caller's frame while it runs.
 
-and it holds no op-budget point (A9), no borrow window (A6), and no
-frame-resident local that an index projection reads, which a place cannot
-name as a frame slot. Children are decided before their callers. Every other
+and none is an op-budget point (A9) or the open of a conditional window, one
+with an absent edge, whose drive would continue on one edge where the window
+has two. Children are decided before their callers. Every other
 item that needs a frame keeps `coro.not-yet` (Rules, below), so the backend
 only meets lowered frames.
 
 A lowered item's concrete body is rewritten in place: it gains one local,
 the frame pointer `_F`, a `&var Int` pointing at the frame's state word, and
 each place rooted in a frame-resident local `_L` becomes `(*_F).[OFFSET:
-T]` followed by the place's own steps. A drive's call `dest = g(args)` in
+T]` followed by the place's own steps. A projection names its index by local,
+and a frame value is no local any more, so an index by a frame-resident `_L`
+becomes an index by a new stack local `_t`, one per such `_L`, loaded `_t =
+copy (*_F).[OFFSET: T]` just before each statement or terminator naming the
+place, with no suspension between (golden `index_reads`; the run lane's
+`coro_index_read_from_frame`). A drive's call `dest = g(args)` in
 block `bbB`, whose child slot is at offset S, is rewritten too (SL:coroutines
 §3.1):
 
@@ -406,13 +418,17 @@ against four rules, and a broken one is an `INVARIANT` line,
    its own steps, at one offset for all of the local's places, the offset its
    frame's layout gives it. No local is reached both in its slot and on the
    stack, the result and the parameters never stay on the stack, and no index
-   reads a frame value's local. So nothing relocates a frame a loan points
-   into.
+   reads a frame value's local: an index by one is an index by a local the
+   lowering added whose every write copies that value's slot. So nothing
+   relocates a frame a loan points into.
 2. **teardown by state.** At each suspension state, the conditions of each
    local, recomputed over the lowered body read with every place put back as
    it was, equal the ones recorded, and a local that may be initialised there
    lives in the frame, since a suspension loses the resume function's stack.
-   Only an effect-only suspension (`__saw_test_suspend`) may leave the body.
+   So does the state record of each window that may be open there, or that
+   the suspending call opens: the analysis never sees a record written, since
+   its accessor's halves write it through a reference, so this is the check
+   that can. Only an effect-only suspension (`__saw_test_suspend`) may leave the body.
    The drops are exactly drop elaboration's, each once, in the block it was
    placed in. A call that loses its arguments or destination is a child's
    drive, a park, a spawn site or a drive site; each operand it passed is used
@@ -421,7 +437,8 @@ against four rules, and a broken one is an `INVARIANT` line,
    past. A drive's result is moved out of the child's result slot once, on its
    return edge, into the call's destination. Nothing else reaches into a
    child's frame, and no place lowering adds reaches a frame value of the body
-   itself. So lowering adds no ownership operation, and teardown at each state
+   itself but an index's load into its stack local. So lowering adds no
+   ownership operation, and teardown at each state
    is the body's own.
 3. **windows close once.** Every window a body opens is closed exactly once on
    every path, a resumed state's included: none opens while it may be open,
@@ -445,6 +462,7 @@ verifier's report naming the rule:
 |---|---|---|---|
 | 1 | `compiler/coro/tests/verify_frame_slots` | `teardown` | a drop's place loses its slot step, so it names the whole frame |
 | 2 | `compiler/coro/tests/verify_teardown` | `teardown` | a drop of a frame-resident `String` is unlinked |
+| 2 | `compiler/coro/tests/verify_window_records` | `window_records` | a window record open across a suspension is put back on the stack |
 | 3 | `compiler/coro/tests/verify_windows` | `windows` | a window close returns to a second close of its window |
 | 4 | `parks/verify_records` | `records` | a descriptor park's record moves past its arm |
 
@@ -461,7 +479,7 @@ their lowering is verified with every build.
 |---|---|---|
 | `coro.drive-in-suspending` | a drive site (`__saw_drive` or `__saw_drive_steps`) in an item that has a frame: one that suspends, as Stage 0 refuses it (DF-218n), or a task root, which runs inside an executor too; at the site, with Stage 0's message naming the root to call directly, where it embeds | `coro.drive-in-suspending`, from `tests/corpus/drive_site_in_suspending_body`; `function`, from `drive_site_in_suspending_function`; and `task-root`, a spawned body that never suspends |
 | `coro.suspending-cycle` | a cycle of items that suspend, which has no finite frame since a callee's frame is embedded in its caller's by value; once per strongly connected component, naming the shortest cycle through its first item in item order, at that item's declaration, with the note that the refusal is pending SL-322's heap frames | `coro.suspending-cycle` and its variants, one from each of the eight recursion tests of `tests/corpus/errors/`, and `generic`, a cycle that suspends at one instantiation only |
-| `coro.not-yet` | an item that needs a frame this compiler does not lower (Lowering, above), at its first suspending call that is not lowered, the chain through it in the message: each child it drives that is not lowered, then the source or the child that ends it, a child refused for a budget point, a window or an index among them, so a frame holding a lowered park beside one that is not names the one that is not; failing a call, at the call its suspension was found through, naming the budget point, window or index that is not lowered; a task root that does not suspend, at the spawn or drive site that made it; only when no cycle is refused, and only the program's own items when any of them is refused, every std item that suspends being reached from one | `coro.not-yet`, `beside-a-lowered-park`, `task-root`, a root that never suspends whose loop's budget point is live, and `budget-child`, a caller of a child refused for its budget point, where the chain ends at the child |
+| `coro.not-yet` | an item that needs a frame this compiler does not lower (Lowering, above), at its first suspending call that is not lowered, the chain through it in the message: each child it drives that is not lowered, then the source or the child that ends it, a child refused for a budget point or a conditional window among them, so a frame holding a lowered park beside one that is not names the one that is not; failing a call, at the call its suspension was found through, naming the budget point or the conditional window that is not lowered; a task root that does not suspend, at the spawn or drive site that made it; only when no cycle is refused, and only the program's own items when any of them is refused, every std item that suspends being reached from one | `coro.not-yet`, `beside-a-lowered-park`, `task-root`, a root that never suspends whose loop's budget point is live, `budget-child`, a caller of a child refused for its budget point, where the chain ends at the child, and `conditional-window`, a conditional window whose prologue suspends |
 | `effect.sync` | a copy-policy `copy()` (`Copy` or `ExplicitCopy`, a written member) that suspends at its instantiation, at its declaration, naming its chain as Stage 0 does (`method Wrap.copy calls Slow.step → blocking extern usleep`): the compiler calls it at transfer sites no source names. Typecheck refuses one that suspends at every instantiation; this is the instantiation's half, decided per item | `effect.sync.copy-hook`, beside the run lane's `copy_hook_per_instantiation`, the same program built at `Fast` |
 
 A refusal whose node lies in std or the builtin module is reported at the
@@ -511,7 +529,14 @@ and both forms over a result with a destructor; the run lane's
 `coro_unconsumed_result`, `coro_driven_match_move_out_releases_once`,
 `drive_shapes`, `drive_ownership` and
 `drive_sync_root` run them, and std's lane's `exec/drive_timer_park` pins the
-panic on a non-ready park.
+panic on a non-ready park. Golden `windows` is borrow windows in lowered
+frames: one held open across a suspension, its record a frame value across
+that state; one on an accessor whose prologue and epilogue suspend, driven as
+children at the open and the close; and one-statement windows between
+suspensions, whose record stays on the stack. The run lane's
+`coro_windows_beside_suspension` and `probes/coro_windows_held` run those
+shapes. Golden `index_reads` is an index by a frame value, through its stack
+local, which the run lane's `coro_index_read_from_frame` runs.
 
 The park goldens, `park_timer`, `park_fd`, `park_channel`, `park_offload`
 and `park_signal`, are one park reason each (the ready park is

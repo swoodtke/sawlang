@@ -11,6 +11,10 @@
 // no such end, so its lifetime runs to the function's end. That is sound
 // but loose: a loan into a value cannot outlive the value's initialisation,
 // and a last use does not end a lifetime here (compiler/tests/coro/README.md).
+// A window's state record is the exception: the accessor's halves write and
+// read it through a reference, which the analysis never sees, so its
+// lifetime is every point inside its window instead, from its open through
+// its close, the time its halves run included.
 //
 // ENTRY POINTS of the frame contents:
 //   coro_find_frames
@@ -23,7 +27,7 @@ import sawdrops.program.{DropsProgram}
 import sawcoro.suspends.{coro_call_suspends}
 import sawmir.initialisation.{MIR_INIT_PARTIAL, MIR_INIT_WHOLE, MirAccess, MirAccessKind, MirInit,
                               mir_init_apply_all}
-import sawmir.model.{MirLocalKind, MirStmtKind, MirTermKind}
+import sawmir.model.{MirCallKind, MirFuncKind, MirLocalKind, MirStmtKind, MirTermKind}
 import sawmir.program.{MirProgram}
 import sawmono.program.{MonoProgram}
 import sawtypecheck.program.{TcProgram}
@@ -89,15 +93,27 @@ func coro_find_frame(coro: &var CoroProgram, item: Int) {
         try! lv.live.push(false)
         k = k + 1
     }
+    let open = coro_windows_open(&coro, f)
+    let width = info.window_count
     var p = 0
     var b = 0
     while b < info.block_count {
         let block = coro.mono.dp.bc.mir.blocks[info.block_first + b]
         var state = facts.entry_state(b)
+        // The window this block's terminator opens, whose record its prologue
+        // writes from the terminator on.
+        var opening = -1
+        if block.term == MirTermKind.Call {
+            let call = coro.mono.dp.bc.mir.calls[block.call]
+            if call.kind == MirCallKind.WindowOpen {
+                opening = call.window
+            }
+        }
         var s = block.first
         while s >= 0 {
             let stmt = coro.mono.dp.bc.mir.stmts[s]
             coro_mark_live(&facts, &state, &var lv, p)
+            coro_mark_records(&coro, f, &open, b * width, -1, &var lv, p)
             if stmt.kind == MirStmtKind.Budget && stmt.yields {
                 try! coro.suspends.push(CoroSuspend(block: b, point: p, call: -1))
             }
@@ -107,8 +123,10 @@ func coro_find_frame(coro: &var CoroProgram, item: Int) {
             s = stmt.next
         }
         coro_mark_live(&facts, &state, &var lv, p)
+        coro_mark_records(&coro, f, &open, b * width, opening, &var lv, p)
         p = p + 1
         if coro_block_suspends(&coro, f, b) {
+            coro_mark_records(&coro, f, &open, b * width, opening, &var lv, p)
             let accesses = coro.mono.dp.bc.mir.init_term_accesses(f, b, &facts)
             let dest = coro.mono.dp.bc.mir.calls[block.call].dest
             var taken = Vector<MirAccess>()
@@ -209,6 +227,103 @@ func coro_mark_live(facts: &MirInit, state: &Vector<Int>, lv: &var CoroLiveness,
             lv.live[l * lv.points + p] = true
         }
         q = q + 1
+    }
+}
+
+// The windows of function `f` that may be open on entry to each block:
+// `open[b * window_count + w]`. A window opens on its open's present edge and
+// closes on its close's; an accessor's epilogue starts with the windows its
+// prologue carries open.
+func coro_windows_open(coro: &CoroProgram, f: Int) -> Vector<Bool> {
+    let info = coro.mono.dp.bc.mir.funcs[f]
+    let width = info.window_count
+    var open = Vector<Bool>()
+    var reached = Vector<Bool>()
+    var k = 0
+    while k < info.block_count * width {
+        try! open.push(false)
+        k = k + 1
+    }
+    k = 0
+    while k < info.block_count {
+        try! reached.push(k == 0)
+        k = k + 1
+    }
+    if width == 0 || info.block_count == 0 {
+        return move open
+    }
+    if info.kind == MirFuncKind.Epilogue {
+        k = 0
+        while k < info.carried_count {
+            let w = coro.mono.dp.bc.mir.aux[info.carried_first + k]
+            if w >= 0 && w < width {
+                open[w] = true
+            }
+            k = k + 1
+        }
+    }
+    let order = coro.mono.dp.bc.mir.init_block_order(f)
+    var changed = true
+    while changed {
+        changed = false
+        var i = 0
+        while i < order.len() {
+            let bb = order[i]
+            i = i + 1
+            if not reached[bb] {
+                continue
+            }
+            let block = coro.mono.dp.bc.mir.blocks[info.block_first + bb]
+            var opened = -1
+            var closed = -1
+            var absent = -1
+            if block.term == MirTermKind.Call {
+                let c = coro.mono.dp.bc.mir.calls[block.call]
+                if c.kind == MirCallKind.WindowOpen {
+                    opened = c.window
+                    absent = c.absent
+                } else if c.kind == MirCallKind.WindowClose {
+                    closed = c.window
+                }
+            }
+            let succ = coro.mono.dp.bc.mir.init_successors(f, bb)
+            var j = 0
+            while j < succ.len() {
+                let target = succ[j]
+                j = j + 1
+                if not reached[target] {
+                    reached[target] = true
+                    changed = true
+                }
+                var w = 0
+                while w < width {
+                    let here = (open[bb * width + w] && w != closed) || (w == opened && target != absent)
+                    if here && not open[target * width + w] {
+                        open[target * width + w] = true
+                        changed = true
+                    }
+                    w = w + 1
+                }
+            }
+        }
+    }
+    move open
+}
+
+// Marks, at point `p`, the record of each window `open` holds from `at` on,
+// and of window `opening` when it is not -1.
+func coro_mark_records(coro: &CoroProgram, f: Int, open: &Vector<Bool>, at: Int, opening: Int,
+                       lv: &var CoroLiveness, p: Int) {
+    let info = coro.mono.dp.bc.mir.funcs[f]
+    var w = 0
+    while w < info.window_count {
+        if open[at + w] || w == opening {
+            let record = coro.mono.dp.bc.mir.windows[info.window_first + w].record
+            if record >= 0 {
+                lv.live[record * lv.points + p] = true
+            }
+        }
+        w = w + 1
     }
 }
 

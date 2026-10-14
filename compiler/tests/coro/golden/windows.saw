@@ -1,0 +1,60 @@
+// Borrow windows in lowered frames (SL:coroutines A6): `held` keeps a window
+// open across a suspension, so its accessor's state record `_6` is a frame
+// value across that state; `halves` opens a window on an accessor whose
+// prologue and epilogue suspend, so the open and the close drive them as child
+// frames; `beside` opens one-statement windows on either side of a
+// suspension, whose record lives only between two suspensions and stays on
+// the stack.
+import std.task.*
+
+struct Grid { a: Int, b: Int, gates: Int }
+
+extension Grid {
+    func run_gate(&var self) { self.gates = self.gates + 1 }
+
+    public func counted(&var self, k: Int) borrows -> &var Int {
+        let before = self.gates + k
+        lend self.a
+        self.gates = before + 1000
+    }
+
+    public func slow(&var self) borrows -> &var Int {
+        yield_now()
+        self.run_gate()
+        lend self.a
+        yield_now()
+        self.gates = self.gates + 100
+    }
+}
+
+func held(n: Int) -> Int {
+    var g = Grid(a: 1, b: 2, gates: 7)
+    borrow var c = g.counted(3) {
+        c += n
+        yield_now()
+        c += 1
+    }
+    g.a * 10000 + g.gates
+}
+
+func halves(n: Int) -> Int {
+    var g = Grid(a: 1, b: 2, gates: 0)
+    borrow var c = g.slow() {
+        c += n
+    }
+    g.a * 1000 + g.gates
+}
+
+func beside(n: Int) -> Int {
+    var g = Grid(a: 1, b: 2, gates: 0)
+    yield_now()
+    borrow var c = g.counted(n) { c += 1 }
+    yield_now()
+    g.gates
+}
+
+func main() {
+    print(__saw_drive(held(5)))
+    print(__saw_drive(halves(5)))
+    print(__saw_drive(beside(2)))
+}

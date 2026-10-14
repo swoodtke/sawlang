@@ -1,0 +1,28 @@
+// tests/corpus/coro_guardlet_over_suspending, with `__saw_drive` in place of
+// its `TaskGroup` (SL-551 c2): a `guard let` whose subject suspends binds past
+// the guard, and its `else` returns from the frame. The step counts show the
+// subject really suspended.
+import std.task.*
+
+func maybe_get(n: Int) -> Int? {
+    yield_now()
+    if n > 0 {
+        return n * 10
+    }
+    return None
+}
+
+func worker(n: Int) -> Int {
+    guard let v = maybe_get(n) else {
+        return -1
+    }
+    yield_now()
+    return v + 2
+}
+
+func main() {
+    print(__saw_drive(worker(5)))
+    print(__saw_drive(worker(0)))
+    print(__saw_drive_steps(worker(5)))
+    print(__saw_drive_steps(worker(0)))
+}

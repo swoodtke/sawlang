@@ -1,0 +1,28 @@
+// An index projection whose index is a frame value (SL:coroutines A6):
+// `p[i] = slow(10)` copies its index before the suspending right side, so the
+// index lives in the frame across the suspension, and the place after it
+// indexes by a stack temporary loaded from that slot just before the
+// statement naming it.
+import std.task.*
+
+func slow(v: Int) -> Int {
+    yield_now()
+    v
+}
+
+func store(p: UnsafePointer<Int>, i: Int) unsafe -> Int {
+    p[i] = slow(10)
+    p[i] + slow(1)
+}
+
+struct Pair { a: Int, b: Int }
+
+func run() unsafe {
+    var q = Pair(a: 1, b: 2)
+    let qp = (&q) as UnsafePointer<Int>
+    print(__saw_drive(store(qp, 1)))
+}
+
+func main() {
+    run()
+}

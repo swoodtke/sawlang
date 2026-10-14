@@ -1,0 +1,290 @@
+resume #5: windows.held(n: Int) task root  (frame size 88 align 8, pointer _12)
+    state 0: bb0
+    state 1: bb1 drive #12 std.task.yield_now() at (*frame).[80]
+fn windows.held(n: Int) -> Int {
+    let _0: Int;  // return
+    let _1: Int;  // param n
+    let _2: windows.Grid;  // g
+    let _3: windows.Grid;
+    let _4: &var Int;
+    let _5: &var windows.Grid;
+    let _6: (&var windows.Grid, Int);  // record
+    let _7: &var (&var windows.Grid, Int);
+    let _8: &var Int;  // ref c
+    let _9: &var (&var windows.Grid, Int);
+    let _10: Int;
+    let _11: Int;
+    let _12: &var Int;
+    window w0: windows.Grid.counted(k: Int) exclusive record _6;
+
+    bb0: {
+        _3 = windows.Grid { a: const 1: Int, b: const 2: Int, gates: const 7: Int };
+        (*_12).[24: windows.Grid] = move _3;
+        _5 = ref(exclusive, (*_12).[24: windows.Grid]);
+        _7 = ref(exclusive, (*_12).[56: (&var windows.Grid, Int)]);
+        (*_12).[48: &var Int] = window_open w0 prologue windows.Grid.counted(k: Int) (owner windows.Grid) [move _7, move _5, const 3: Int] -> [present: bb1];
+    }
+
+    bb1: {
+        (*_12).[72: &var Int] = ref(exclusive, (*(*_12).[48: &var Int]));
+        (*(*_12).[72: &var Int]) = Add(copy (*(*_12).[72: &var Int]), copy (*_12).[16: Int]);
+        call std.task.yield_now() [] -> [return: bb2] suspends;
+    }
+
+    bb2: {
+        (*(*_12).[72: &var Int]) = Add(copy (*(*_12).[72: &var Int]), const 1: Int);
+        _9 = ref(exclusive, (*_12).[56: (&var windows.Grid, Int)]);
+        window_close w0 epilogue windows.Grid.counted(k: Int) (owner windows.Grid) [move _9] -> [return: bb3];
+    }
+
+    bb3: {
+        _10 = Mul(copy (*_12).[24: windows.Grid].a, const 10000: Int);
+        _11 = Add(move _10, copy (*_12).[24: windows.Grid].gates);
+        (*_12).[8: Int] = move _11;
+        return;
+    }
+}
+resume #7: windows.halves(n: Int) task root  (frame size 144 align 8, pointer _12)
+    state 0: bb0
+    state 1: bb0 drive #16 prologue windows.Grid.slow() at (*frame).[72]
+    state 2: bb1 drive #17 epilogue windows.Grid.slow() at (*frame).[112]
+fn windows.halves(n: Int) -> Int {
+    let _0: Int;  // return
+    let _1: Int;  // param n
+    let _2: windows.Grid;  // g
+    let _3: windows.Grid;
+    let _4: &var Int;
+    let _5: &var windows.Grid;
+    let _6: (&var windows.Grid,);  // record
+    let _7: &var (&var windows.Grid,);
+    let _8: &var Int;  // ref c
+    let _9: &var (&var windows.Grid,);
+    let _10: Int;
+    let _11: Int;
+    let _12: &var Int;
+    window w0: windows.Grid.slow() exclusive record _6;
+
+    bb0: {
+        _3 = windows.Grid { a: const 1: Int, b: const 2: Int, gates: const 0: Int };
+        (*_12).[24: windows.Grid] = move _3;
+        _5 = ref(exclusive, (*_12).[24: windows.Grid]);
+        _7 = ref(exclusive, (*_12).[56: (&var windows.Grid,)]);
+        (*_12).[88: &var (&var windows.Grid,)] = move _7;
+        (*_12).[96: &var windows.Grid] = move _5;
+        window_open w0 prologue windows.Grid.slow() (owner windows.Grid) [] -> [present: bb3] suspends;
+    }
+
+    bb1: {
+        (*_12).[64: &var Int] = ref(exclusive, (*(*_12).[48: &var Int]));
+        (*(*_12).[64: &var Int]) = Add(copy (*(*_12).[64: &var Int]), copy (*_12).[16: Int]);
+        _9 = ref(exclusive, (*_12).[56: (&var windows.Grid,)]);
+        (*_12).[120: &var (&var windows.Grid,)] = move _9;
+        window_close w0 epilogue windows.Grid.slow() (owner windows.Grid) -> [return: bb2] suspends;
+    }
+
+    bb2: {
+        _10 = Mul(copy (*_12).[24: windows.Grid].a, const 1000: Int);
+        _11 = Add(move _10, copy (*_12).[24: windows.Grid].gates);
+        (*_12).[8: Int] = move _11;
+        return;
+    }
+
+    bb3: {
+        (*_12).[48: &var Int] = move (*_12).[80: &var Int];
+        goto -> bb1;
+    }
+}
+resume #8: windows.beside(n: Int) task root  (frame size 80 align 8, pointer _11)
+    state 0: bb0
+    state 1: bb0 drive #12 std.task.yield_now() at (*frame).[64]
+    state 2: bb3 drive #12 std.task.yield_now() at (*frame).[72]
+fn windows.beside(n: Int) -> Int {
+    let _0: Int;  // return
+    let _1: Int;  // param n
+    let _2: windows.Grid;  // g
+    let _3: windows.Grid;
+    let _4: Int;
+    let _5: &var Int;
+    let _6: &var windows.Grid;
+    let _7: (&var windows.Grid, Int);  // record
+    let _8: &var (&var windows.Grid, Int);
+    let _9: &var Int;  // ref c
+    let _10: &var (&var windows.Grid, Int);
+    let _11: &var Int;
+    window w0: windows.Grid.counted(k: Int) exclusive record _7;
+
+    bb0: {
+        _3 = windows.Grid { a: const 1: Int, b: const 2: Int, gates: const 0: Int };
+        (*_11).[24: windows.Grid] = move _3;
+        call std.task.yield_now() [] -> [return: bb1] suspends;
+    }
+
+    bb1: {
+        _4 = copy (*_11).[16: Int];
+        _6 = ref(exclusive, (*_11).[24: windows.Grid]);
+        _8 = ref(exclusive, _7);
+        (*_11).[48: &var Int] = window_open w0 prologue windows.Grid.counted(k: Int) (owner windows.Grid) [move _8, move _6, move _4] -> [present: bb2];
+    }
+
+    bb2: {
+        (*_11).[56: &var Int] = ref(exclusive, (*(*_11).[48: &var Int]));
+        (*(*_11).[56: &var Int]) = Add(copy (*(*_11).[56: &var Int]), const 1: Int);
+        _10 = ref(exclusive, _7);
+        window_close w0 epilogue windows.Grid.counted(k: Int) (owner windows.Grid) [move _10] -> [return: bb3];
+    }
+
+    bb3: {
+        call std.task.yield_now() [] -> [return: bb4] suspends;
+    }
+
+    bb4: {
+        (*_11).[8: Int] = copy (*_11).[24: windows.Grid].gates;
+        return;
+    }
+}
+resume #12: std.task.yield_now()  (frame size 8 align 8, pointer _1, context _2)
+    state 0: bb0
+    state 1: bb0 park ready
+fn std.task.yield_now() -> Void {
+    let _0: Void;  // return
+    let _1: &var Int;
+    let _2: &var std.taskgroup.TaskContext;
+
+    bb0: {
+        (*(*_2).park) = const 0: Int;
+        call std.task.__saw_park_ready() [] -> [return: bb1] suspends;
+    }
+
+    bb1: {
+        return;
+    }
+}
+resume #16: prologue windows.Grid.slow()  (frame size 40 align 8, pointer _5)
+    state 0: bb0
+    state 1: bb0 drive #12 std.task.yield_now() at (*frame).[32]
+fn prologue windows.Grid.slow() -> &var Int {
+    let _0: &var Int;  // return
+    let _1: &var (&var windows.Grid,);  // record
+    let _2: &var windows.Grid;  // self
+    let _3: &var windows.Grid;
+    let _4: &var Int;
+    let _5: &var Int;
+
+    bb0: {
+        call std.task.yield_now() [] -> [return: bb1] suspends;
+    }
+
+    bb1: {
+        _3 = ref(exclusive, (*(*_5).[24: &var windows.Grid]));
+        call windows.Grid.run_gate() (owner windows.Grid) [move _3] -> [return: bb2];
+    }
+
+    bb2: {
+        _4 = ref(exclusive, (*(*_5).[24: &var windows.Grid]).a);
+        (*_5).[8: &var Int] = move _4;
+        (*(*_5).[16: &var (&var windows.Grid,)]).0 = move (*_5).[24: &var windows.Grid];
+        return;
+    }
+}
+resume #17: epilogue windows.Grid.slow()  (frame size 32 align 8, pointer _4)
+    state 0: bb0
+    state 1: bb1 drive #12 std.task.yield_now() at (*frame).[24]
+fn epilogue windows.Grid.slow() -> Void {
+    let _0: Void;  // return
+    let _1: &var (&var windows.Grid,);  // record
+    let _2: &var windows.Grid;  // self
+    let _3: Int;
+    let _4: &var Int;
+
+    bb0: {
+        (*_4).[16: &var windows.Grid] = move (*(*_4).[8: &var (&var windows.Grid,)]).0;
+        goto -> bb1;
+    }
+
+    bb1: {
+        call std.task.yield_now() [] -> [return: bb2] suspends;
+    }
+
+    bb2: {
+        _3 = Add(copy (*(*_4).[16: &var windows.Grid]).gates, const 100: Int);
+        (*(*_4).[16: &var windows.Grid]).gates = move _3;
+        return;
+    }
+}
+driver #0: windows.main()
+    drive bb0 task root #5 windows.held(n: Int) task root, descriptor _4, frame _5
+    drive bb2 task root #7 windows.halves(n: Int) task root, descriptor _6, frame _7
+    drive bb4 task root #8 windows.beside(n: Int) task root, descriptor _8, frame _9
+fn windows.main() -> Void {
+    let _0: Void;  // return
+    let _1: Int;
+    let _2: Int;
+    let _3: Int;
+    let _4: UnsafePointer<std.taskgroup.FrameDescriptor>;
+    let _5: UnsafePointer<UInt8>;
+    let _6: UnsafePointer<std.taskgroup.FrameDescriptor>;
+    let _7: UnsafePointer<UInt8>;
+    let _8: UnsafePointer<std.taskgroup.FrameDescriptor>;
+    let _9: UnsafePointer<UInt8>;
+
+    bb0: {
+        (*_5).[0: Int] = const 0: Int;
+        (*_5).[16: Int] = const 5: Int;
+        _4 = drive result windows.held(n: Int) [] -> [return: bb7];
+    }
+
+    bb1: {
+        call builtin print [copy _1] -> [return: bb2];
+    }
+
+    bb2: {
+        (*_7).[0: Int] = const 0: Int;
+        (*_7).[16: Int] = const 5: Int;
+        _6 = drive result windows.halves(n: Int) [] -> [return: bb9];
+    }
+
+    bb3: {
+        call builtin print [copy _2] -> [return: bb4];
+    }
+
+    bb4: {
+        (*_9).[0: Int] = const 0: Int;
+        (*_9).[16: Int] = const 2: Int;
+        _8 = drive result windows.beside(n: Int) [] -> [return: bb11];
+    }
+
+    bb5: {
+        call builtin print [copy _3] -> [return: bb6];
+    }
+
+    bb6: {
+        return;
+    }
+
+    bb7: {
+        call std.taskgroup.__saw_exec_drive(descriptor: UnsafePointer<std.taskgroup.FrameDescriptor>, frame: UnsafePointer<UInt8>, site: String) [copy _4, copy _5, const "`__saw_drive(...)` at compiler/tests/coro/golden/windows.saw:57:11": String] -> [return: bb8];
+    }
+
+    bb8: {
+        _1 = move (*_5).[8: Int];
+        goto -> bb1;
+    }
+
+    bb9: {
+        call std.taskgroup.__saw_exec_drive(descriptor: UnsafePointer<std.taskgroup.FrameDescriptor>, frame: UnsafePointer<UInt8>, site: String) [copy _6, copy _7, const "`__saw_drive(...)` at compiler/tests/coro/golden/windows.saw:58:11": String] -> [return: bb10];
+    }
+
+    bb10: {
+        _2 = move (*_7).[8: Int];
+        goto -> bb3;
+    }
+
+    bb11: {
+        call std.taskgroup.__saw_exec_drive(descriptor: UnsafePointer<std.taskgroup.FrameDescriptor>, frame: UnsafePointer<UInt8>, site: String) [copy _8, copy _9, const "`__saw_drive(...)` at compiler/tests/coro/golden/windows.saw:59:11": String] -> [return: bb12];
+    }
+
+    bb12: {
+        _3 = move (*_9).[8: Int];
+        goto -> bb5;
+    }
+}
