@@ -7,7 +7,10 @@ hands the wait to the gate.
 Every case runs against a lock directory of its own (SAW_SUITE_LOCK), so this
 never touches, or waits on, the machine-wide lock. The build.sh case points
 SAW_PYTHON at a stub that stands in for patch_gate.py and reports what it saw.
+The --yield-to-gate cases point SAW_GATE_STATUS_CMD at a scripted tracker, so
+no case ever asks the real one.
 """
+import json
 import os
 import re
 import shutil
@@ -108,7 +111,11 @@ def unknown_holder(root):
 def build_sh(root):
     lock = os.path.join(root, "build")
     lock_tool(lock, "acquire", "--pid", ME, "scripted holder")
-    env = env_for(lock)
+    # The gate is what local runs yield to, so a busy gate report must not
+    # hold build.sh back.
+    tracker = Tracker(root, "build")
+    tracker.answer(gate_report(running="SL-1.p1", queued=["SL-2.p1"]))
+    env = tracker.env(lock)
     env["SAW_PYTHON"] = gate_stub(root)
     proc = subprocess.Popen(["./build.sh", "test", "--diff", "some.diff"], cwd=REPO, env=env,
                             stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
@@ -125,6 +132,215 @@ def build_sh(root):
     check(rc == 3, "build.sh exits with the gate's status, %d here" % rc, out)
     check(not os.path.exists(lock) and "suite lock: released" in out,
           "build.sh releases the lock when the gate ends", out)
+    check("yielding" not in out and not os.path.exists(os.path.join(tracker.dir, "count")),
+          "build.sh never yields, or asks the tracker", out)
+
+
+def gate_report(running=None, queued=(), held=(), superseded=()):
+    """A `sawtracker gate --json` report with one SL runner, plus another
+    project's busy runner that a yielding acquire must ignore. Held and
+    superseded entries follow the runnable ones in the same queue, with no
+    position, as the tracker lists them."""
+    sl = {"runner": 0, "projects": ["SL"], "queued": [
+        {"patch": p, "project": "SL", "position": i + 1} for i, p in enumerate(queued)]}
+    sl["queued"] += [{"patch": p, "project": "SL", "held": "changes requested", "position": None,
+                      "eta": None} for p in held]
+    sl["queued"] += [{"patch": p, "project": "SL", "superseded": "revised", "position": None,
+                      "eta": None} for p in superseded]
+    if running:
+        sl["running"] = {"patch": running, "project": "SL", "elapsed": 30}
+    other = {"runner": 1, "projects": ["SO"], "running": {"patch": "SO-9.p1", "project": "SO"},
+             "queued": [{"patch": "SO-10.p1", "project": "SO", "position": 1}]}
+    return json.dumps({"runners": [sl, other], "totals": {}})
+
+
+class Tracker:
+    """A stand-in for `sawtracker gate`, through SAW_GATE_STATUS_CMD: call N
+    answers with the file N in its directory, or `default`, and a `fail` file
+    makes every call fail the way an unreachable server does."""
+
+    def __init__(self, root, name):
+        self.dir = os.path.join(root, "tracker-" + name)
+        os.mkdir(self.dir)
+        self.script = os.path.join(self.dir, "sawtracker")
+        with open(self.script, "w") as fh:
+            fh.write('#!/bin/sh\nd=$(dirname "$0")\n'
+                     'n=$(($(cat "$d/count" 2>/dev/null || echo 0) + 1))\necho "$n" > "$d/count"\n'
+                     'if [ -f "$d/fail" ]; then\n'
+                     '    echo "sawtracker: Connect: io error: connect failed (connection refused)" >&2\n'
+                     '    exit 1\nfi\n'
+                     'if [ -f "$d/$n" ]; then cat "$d/$n"; else cat "$d/default"; fi\n')
+        os.chmod(self.script, 0o755)
+
+    def answer(self, text, call="default"):
+        # Renamed into place, so a call never reads half an answer.
+        path = os.path.join(self.dir, str(call))
+        with open(path + ".new", "w") as fh:
+            fh.write(text)
+        os.replace(path + ".new", path)
+
+    def fail(self):
+        open(os.path.join(self.dir, "fail"), "w").close()
+
+    def calls(self):
+        with open(os.path.join(self.dir, "count")) as fh:
+            return int(fh.read())
+
+    def env(self, lock):
+        return dict(env_for(lock), SAW_GATE_STATUS_CMD=self.script)
+
+
+def yielder(lock, tracker, command):
+    return subprocess.Popen(["sh", LOCK_TOOL, "acquire", "--yield-to-gate", "--pid", ME, command],
+                            cwd=REPO, env=tracker.env(lock), stdout=subprocess.PIPE,
+                            stderr=subprocess.STDOUT, text=True)
+
+
+def yield_idle(root):
+    """An idle SL gate lets a yielding acquire take a free lock at once; another
+    project's runs are not its business."""
+    lock = os.path.join(root, "yield-idle")
+    tracker = Tracker(root, "idle")
+    tracker.answer(gate_report())
+    rc, out = finish(yielder(lock, tracker, "idle gate"))
+    check(rc == 0 and out == "suite lock: acquired; it was free\n",
+          "an idle gate lets a yielding acquire take a free lock", out)
+    check(tracker.calls() == 2, "it asks the gate before and just after taking the lock", out)
+    lock_tool(lock, "release")
+
+
+def yield_queued(root):
+    """A queued gate run keeps a yielding acquire off a free lock until the
+    gate is idle."""
+    lock = os.path.join(root, "yield-queued")
+    tracker = Tracker(root, "queued")
+    tracker.answer(gate_report(queued=["SL-612.p1", "SL-626.p1"]))
+    proc = yielder(lock, tracker, "queued gate")
+    time.sleep(2.5)
+    taken_while_queued = os.path.exists(lock)
+    tracker.answer(gate_report())
+    rc, out = finish(proc)
+    check(not taken_while_queued, "a yielding acquire leaves a free lock alone while a gate run is queued", out)
+    check(out.startswith("suite lock: yielding to the server's SL gate "
+                         "(2 queued: SL-612.p1, SL-626.p1); waiting\n"),
+          "a yielding acquire names the gate runs it waits for", out)
+    check("suite lock: still waiting after " in out and "; yielding to the server's SL gate (" in out,
+          "the yielding wait prints a heartbeat naming the gate", out)
+    check(rc == 0 and re.search(r"suite lock: acquired after waiting [1-9]\d*s", out),
+          "once the gate is idle it takes the lock and prints the total wait", out)
+    holder = open(os.path.join(lock, "holder")).read() if os.path.exists(lock) else ""
+    check("command: queued gate" in holder, "the lock is then held in the caller's name", holder)
+    lock_tool(lock, "release")
+
+
+def yield_held(root):
+    """Held and superseded entries will not run as they stand, so they alone
+    leave the gate idle; a runnable entry beside a held one still makes it busy."""
+    lock = os.path.join(root, "yield-held-only")
+    tracker = Tracker(root, "held-only")
+    tracker.answer(gate_report(held=["SL-660.p1"], superseded=["SL-661.p1"]))
+    rc, out = finish(yielder(lock, tracker, "held entries"))
+    check(rc == 0 and out == "suite lock: acquired; it was free\n",
+          "held and superseded entries with nothing running let a yielding acquire take the lock",
+          out)
+    lock_tool(lock, "release")
+    lock = os.path.join(root, "yield-held-beside")
+    tracker = Tracker(root, "held-beside")
+    tracker.answer(gate_report(queued=["SL-662.p1"], held=["SL-660.p1"]))
+    proc = yielder(lock, tracker, "held beside runnable")
+    time.sleep(1.5)
+    taken = os.path.exists(lock)
+    tracker.answer(gate_report())
+    rc, out = finish(proc)
+    check(not taken and out.startswith("suite lock: yielding to the server's SL gate "
+                                       "(1 queued: SL-662.p1); waiting\n")
+          and rc == 0 and "acquired after waiting" in out,
+          "a runnable entry beside a held one is waited for, and only it is named", out)
+    lock_tool(lock, "release")
+
+
+def yield_running(root):
+    """A running gate run is waited for too, even while the lock is free."""
+    lock = os.path.join(root, "yield-running")
+    tracker = Tracker(root, "running")
+    tracker.answer(gate_report(running="SL-611.p1"))
+    proc = yielder(lock, tracker, "running gate")
+    time.sleep(1.5)
+    taken = os.path.exists(lock)
+    tracker.answer(gate_report())
+    rc, out = finish(proc)
+    check(not taken and "yielding to the server's SL gate (SL-611.p1 running); waiting" in out
+          and rc == 0 and "acquired after waiting" in out,
+          "a running gate run makes a yielding acquire wait", out)
+    lock_tool(lock, "release")
+
+
+def yield_gives_back(root):
+    """A gate run that appears between the check and the take gets the lock
+    handed back before any holder file is written."""
+    lock = os.path.join(root, "yield-back")
+    tracker = Tracker(root, "back")
+    tracker.answer(gate_report(), call=1)
+    tracker.answer(gate_report(queued=["SL-640.p1"]), call=2)
+    tracker.answer(gate_report(running="SL-640.p1"), call=3)
+    tracker.answer(gate_report())
+    rc, out = finish(yielder(lock, tracker, "raced gate"))
+    check(out.startswith("suite lock: a gate run appeared as it took the lock "
+                         "(1 queued: SL-640.p1); gave it back\n"
+                         "suite lock: yielding to the server's SL gate (1 queued: SL-640.p1); waiting\n"),
+          "a gate run that appears as it takes the lock makes it give the lock back", out)
+    check(rc == 0 and "acquired after waiting" in out and tracker.calls() >= 5,
+          "it takes the lock once the gate is idle on both checks", out)
+    lock_tool(lock, "release")
+
+
+def yield_behind_holder(root):
+    """While the lock is held a yielding acquire waits on the holder, asks the
+    gate only once the lock could be taken, and says when it turns to waiting
+    on the gate instead."""
+    lock = os.path.join(root, "yield-held")
+    lock_tool(lock, "acquire", "--pid", ME, "scripted holder")
+    tracker = Tracker(root, "held")
+    tracker.answer(gate_report(queued=["SL-650.p1"]))
+    proc = yielder(lock, tracker, "behind a holder")
+    time.sleep(2.5)
+    asked = os.path.exists(os.path.join(tracker.dir, "count"))
+    lock_tool(lock, "release")
+    time.sleep(1.5)
+    tracker.answer(gate_report())
+    rc, out = finish(proc)
+    check(out.startswith("suite lock: held by pid %s (scripted holder" % ME)
+          and "still waiting after" in out and "; held by pid " + ME in out,
+          "a yielding acquire behind a holder names the holder", out)
+    check(not asked, "the gate is not asked while the lock is held", out)
+    check("suite lock: now yielding to the server's SL gate (1 queued: SL-650.p1); waiting" in out,
+          "a turn from the holder to the gate is reported", out)
+    check(rc == 0 and "acquired after waiting" in out, "it takes the lock once released", out)
+    lock_tool(lock, "release")
+
+
+def yield_fallback(root):
+    """An unreachable tracker, or a report that cannot say, falls back to the
+    plain acquire and says so."""
+    lock = os.path.join(root, "yield-unreachable")
+    tracker = Tracker(root, "unreachable")
+    tracker.fail()
+    rc, out = finish(yielder(lock, tracker, "no tracker"))
+    check(out == "suite lock: cannot read the server's SL gate (sawtracker: Connect: io error: "
+                 "connect failed (connection refused)); falling back to the plain acquire\n"
+                 "suite lock: acquired; it was free\n" and rc == 0,
+          "an unreachable tracker falls back to the plain acquire, with the message", out)
+    check(tracker.calls() == 1, "a fallen-back acquire stops asking the tracker", out)
+    lock_tool(lock, "release")
+    lock = os.path.join(root, "yield-unreadable")
+    tracker = Tracker(root, "unreadable")
+    tracker.answer('{"merge_queue": {}}')
+    rc, out = finish(yielder(lock, tracker, "odd report"))
+    check(rc == 0 and "cannot read the server's SL gate (unreadable gate report: the gate "
+                      "report has no runners list); falling back" in out
+          and "acquired; it was free" in out,
+          "a report without the runners falls back too", out)
+    lock_tool(lock, "release")
 
 
 def gate_stub(root):
@@ -254,7 +470,9 @@ def main():
     root = tempfile.mkdtemp(prefix="suite-lock-test-")
     try:
         for case in (free_lock, held_lock, unknown_holder, build_sh, orphaned_waiter,
-                     term_releases, term_while_waiting, dead_owner_at_acquire):
+                     term_releases, term_while_waiting, dead_owner_at_acquire, yield_idle,
+                     yield_queued, yield_held, yield_running, yield_gives_back, yield_behind_holder,
+                     yield_fallback):
             case(root)
     finally:
         shutil.rmtree(root, ignore_errors=True)
@@ -263,7 +481,8 @@ def main():
     if failures:
         return 1
     print("suite lock: OK: holder, heartbeat, wait, unknown holder, build.sh, orphaned waiter, "
-          "TERMed gate, TERMed waiter, dead owner")
+          "TERMed gate, TERMed waiter, dead owner, yield to an idle/queued/held/running gate, "
+          "give back on a race, yield behind a holder, fallback")
     return 0
 
 

@@ -486,6 +486,22 @@ total wait once it starts; its last line reports that wait apart from the test
 time. From a worktree, point `SAW_PYTHON` at the main checkout's venv rather
 than letting it bootstrap one.
 
+A local run that wants the lock should let the server's gate go first, since a
+patch waiting on a local run holds up its merge:
+
+```bash
+tools/suite_lock.sh acquire --yield-to-gate 'test_runner.py -f conformance/'
+```
+
+With `--yield-to-gate`, the acquire also waits while `sawtracker gate --project
+SL --json` reports an SL gate run in progress or queued, and says which runs it
+is waiting for. A queued entry held for changes requested, or superseded, does
+not count, since it won't run as it stands. It asks again just after taking the
+lock and gives the lock back if a gate run appeared in between. If the tracker
+can't be reached or its report can't be read, the acquire says so and carries
+on as a plain acquire.
+The gate's own acquire in `build.sh` never yields.
+
 A TERM, INT or HUP to the gate's process group ends `build.sh` with 128 plus
 the signal's number, and it gives the lock back on the way out; the test
 runners end the test programs they started in sessions of their own first (see

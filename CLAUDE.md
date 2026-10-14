@@ -507,7 +507,11 @@ given back with `tools/suite_lock.sh`. `acquire '<what>'` waits for the
 directory, then writes a `holder` file into it (pid, command, cwd, start
 time); while it waits it names the holder and since when, prints a
 heartbeat every five minutes, and prints the total wait once it holds the
-lock. It waits for a process (`--pid`, by default the calling shell), and
+lock. Local agent runs acquire with `--yield-to-gate`, which also waits
+while the server's SL gate is running or has a run queued, gives the lock
+back if a gate run appears as it takes it, and falls back to the plain
+acquire, saying so, when the tracker cannot be read; `build.sh`'s own
+acquire never yields. It waits for a process (`--pid`, by default the calling shell), and
 stops waiting WITHOUT the lock once that process is gone, so a signal that
 kills only the waiter's parent never leaves it to take the lock for
 nobody. `release` removes the holder file and the directory; `status`

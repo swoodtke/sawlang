@@ -123,7 +123,9 @@ def drive(runner, work, pidfile):
     if runner == "recognizer_workers":
         sys.path.insert(0, os.path.join(REPO, "compiler", "tests", "grammar"))
         import recognize
-        recognize.lexdump.ensure_sawc2 = lambda: None  # the hanging workers lex nothing
+        # The hanging workers lex nothing, but the binary is handed down to them
+        # through the environment, so it must be a path.
+        recognize.lexdump.ensure_sawc2 = lambda: "/usr/bin/false"
         recognize.run_workers([os.path.join(work, "hang.py")], ["a", "b"], 2)
         return
     if runner == "fixpoint_twin":
