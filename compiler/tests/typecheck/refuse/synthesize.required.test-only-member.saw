@@ -1,0 +1,21 @@
+// refuses: synthesize.required at 8:18
+// a production `Equatable` whose only `equals` is a test-only extension's
+
+struct Money {
+    cents: Int
+}
+
+extension Money: Equatable {}
+
+@test
+extension Money {
+    func equals(&self, other: &Money) -> Bool {
+        true
+    }
+}
+
+func main() {
+    let a = Money(cents: 1)
+    let b = Money(cents: 2)
+    print("{}", a == b)
+}

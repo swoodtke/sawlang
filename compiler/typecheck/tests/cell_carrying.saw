@@ -68,7 +68,7 @@ func main() {
         }
         if name.equals("cell_stats") {
             let sync = p.known.sync
-            assert(p.satisfies(t, sync, -1, -1), "`Stats` no longer derives `Sync`, so it no longer shows the predicate is not `Sync`")
+            assert(p.satisfies(t, sync, -1, -1, m, false), "`Stats` no longer derives `Sync`, so it no longer shows the predicate is not `Sync`")
         }
     }
     assert(carrying == 12, "the fixture's cell-carrying rows are not all seen: {}", carrying)

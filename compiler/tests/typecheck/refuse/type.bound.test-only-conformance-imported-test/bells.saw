@@ -1,0 +1,21 @@
+public struct Money {
+    cents: Int
+    tag: String
+}
+
+public func money(cents: Int) -> Money {
+    Money(cents: cents, tag: "a")
+}
+
+@test
+extension Money: Equatable {
+    func equals(&self, other: &Money) -> Bool {
+        self.cents == other.cents
+    }
+}
+
+@test "the module's own test code sees its test-only conformance" {
+    let a = money(cents: 1)
+    let b = money(cents: 1)
+    assert(a == b)
+}

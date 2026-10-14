@@ -1,0 +1,21 @@
+// refuses: type.bound at 16:5
+// ordinary code's `Sync` bound met only by a test-only `UnsafeSync`
+
+struct Counter {
+    cell: UnsafeMutableInterior<Int>
+}
+
+extension Counter: NoCopy {}
+
+@test
+extension Counter: UnsafeSync {}
+
+func share<T: Sync>(x: &T) {}
+
+func relay(c: &Counter) {
+    share(&c)
+}
+
+func main() {
+    print("ok")
+}

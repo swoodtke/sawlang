@@ -1,0 +1,24 @@
+// refuses: conformance.test-only-overlap at 10:18
+// a test-only `Equatable` on a trivially copyable production type, which
+// meets it automatically: one instance of a production generic runs for both
+
+struct Money {
+    cents: Int
+}
+
+@test
+extension Money: Equatable {
+    func equals(&self, other: &Money) -> Bool {
+        true
+    }
+}
+
+func same<T: Equatable>(a: &T, b: &T) -> Bool {
+    a == b
+}
+
+func main() {
+    let a = Money(cents: 1)
+    let b = Money(cents: 2)
+    print("{} {}", same(&a, &b), a == b)
+}

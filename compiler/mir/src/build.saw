@@ -188,17 +188,21 @@ extension MirProgram {
 
     // Whether type `t` satisfies trait `tr` where the function being lowered
     // stands: its declaration's parameters and its extension's conditions in
-    // scope.
+    // scope, and the conformances its module's code, test code when the
+    // declaration is test-only, may use.
     public func satisfies_here(&var self, t: Int, tr: Int) -> Bool {
         let d = self.funcs[self.cur].decl
+        let viewer = self.funcs[self.cur].module
         var ext = -1
+        var in_test = false
         if d >= 0 {
+            in_test = self.tc.res.decls[d].test_only
             let parent = self.tc.res.decls[d].parent
             if parent >= 0 && self.tc.res.decls[parent].kind == ResDeclKind.Extension {
                 ext = parent
             }
         }
-        self.tc.satisfies(t, tr, d, ext)
+        self.tc.satisfies(t, tr, d, ext, viewer, in_test)
     }
 
     // Whether place `p` reaches its storage through a `Deref` of a reference:

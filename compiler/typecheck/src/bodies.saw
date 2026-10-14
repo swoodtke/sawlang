@@ -2868,14 +2868,16 @@ extension TcProgram {
         let printable = self.known.printable
         let env = self.current_decl
         let ext = self.current_ext
-        if self.satisfies(t, printable, env, ext) {
+        let viewer = self.current
+        let in_test = self.current_test
+        if self.satisfies(t, printable, env, ext, viewer, in_test) {
             return
         }
         // An erased box, `Box<any Error>` above all, renders its payload
         // through the existential's vtable.
         if self.is_box(t) {
             let payload = self.arg_of(t, 0)
-            if self.kind_of(payload) == TcKind.Any && self.satisfies(payload, printable, env, ext) {
+            if self.kind_of(payload) == TcKind.Any && self.satisfies(payload, printable, env, ext, viewer, in_test) {
                 return
             }
         }
@@ -3807,7 +3809,7 @@ extension TcProgram {
             let equatable = self.known.equatable
             let env = self.current_decl
             let ext = self.current_ext
-            if self.satisfies(t, equatable, env, ext) {
+            if self.satisfies(t, equatable, env, ext, m, in_test) {
                 self.record_builtin(e, -1, TcRole.BuiltinOperator, spelling)
                 return
             }
@@ -3863,12 +3865,15 @@ extension TcProgram {
         false
     }
 
-    // Whether nominal `d` declares a conformance to trait `tr`.
+    // Whether nominal `d` declares a conformance to trait `tr` that the code
+    // being checked may use.
     func has_conformance(&self, d: Int, tr: Int) -> Bool {
+        let viewer = self.current
+        let in_test = self.current_test
         var k = 0
         while k < self.conformances.len() {
             let c = self.conformances[k]
-            if c.type_decl == d && c.trait_decl == tr {
+            if c.type_decl == d && c.trait_decl == tr && self.conformance_visible(k, viewer, in_test) {
                 return true
             }
             k = k + 1
@@ -6261,7 +6266,9 @@ extension TcProgram {
         let ec = self.known.explicit_copy
         let env = self.current_decl
         let ext = self.current_ext
-        if ec < 0 || self.satisfies(t, ec, env, ext) {
+        let viewer = self.current
+        let in_test = self.current_test
+        if ec < 0 || self.satisfies(t, ec, env, ext, viewer, in_test) {
             return
         }
         let blocker = self.unbounded_part(t, ec)
@@ -6304,7 +6311,9 @@ extension TcProgram {
         if info.kind == TcKind.Param {
             let env = self.current_decl
             let ext = self.current_ext
-            if self.satisfies(t, tr, env, ext) {
+            let viewer = self.current
+            let in_test = self.current_test
+            if self.satisfies(t, tr, env, ext, viewer, in_test) {
                 return -1
             }
             return t
@@ -8721,7 +8730,9 @@ extension TcProgram {
                 let bound = self.traits[g.bound_first + j]
                 let env = self.current_decl
                 let ext = self.current_ext
-                if not self.satisfies(arg, bound, env, ext) {
+                let viewer = self.current
+                let in_test = self.current_test
+                if not self.satisfies(arg, bound, env, ext, viewer, in_test) {
                     var msg = StringBuilder()
                     try! msg.append("`")
                     try! msg.append(self.type_text(arg))
@@ -10155,11 +10166,13 @@ extension TcProgram {
         self.enter_decl(d)
         let env_decl = self.current_decl
         let env_ext = self.current_ext
+        let viewer = self.current
+        let in_test = self.current_test
         let copy = self.known.copy
         let explicit_copy = self.known.explicit_copy
-        var met = copy >= 0 && self.satisfies(t, copy, env_decl, env_ext)
+        var met = copy >= 0 && self.satisfies(t, copy, env_decl, env_ext, viewer, in_test)
         if not met && self.kind_of(t) == TcKind.Param && explicit_copy >= 0 {
-            met = self.satisfies(t, explicit_copy, env_decl, env_ext)
+            met = self.satisfies(t, explicit_copy, env_decl, env_ext, viewer, in_test)
         }
         self.restore_context(saved)
         met
@@ -10513,7 +10526,9 @@ extension TcProgram {
         let ec = self.known.explicit_copy
         let env = self.current_decl
         let ext = self.current_ext
-        if ec >= 0 && not self.open_tier(t) && self.satisfies(t, ec, env, ext) {
+        let viewer = self.current
+        let in_test = self.current_test
+        if ec >= 0 && not self.open_tier(t) && self.satisfies(t, ec, env, ext, viewer, in_test) {
             try! out.append("bind its `.copy()`, ")
         }
         try! out.append("or borrow it")
@@ -10614,7 +10629,9 @@ extension TcProgram {
         let ec = self.known.explicit_copy
         let env = self.current_decl
         let ext = self.current_ext
-        let copies = ec >= 0 && not self.open_tier(t) && self.satisfies(t, ec, env, ext)
+        let viewer = self.current
+        let in_test = self.current_test
+        let copies = ec >= 0 && not self.open_tier(t) && self.satisfies(t, ec, env, ext, viewer, in_test)
         if part.len() > 0 {
             try! out.append(part)
             try! out.append(" is not moved out on its own")

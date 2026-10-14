@@ -1,0 +1,25 @@
+// refuses: conformance.test-only-overlap at 19:18
+// a test-only conformance to a trait a production conformance to its
+// refinement already meets
+
+trait Greet {
+    func hi(&self) -> Int {
+        1
+    }
+}
+
+trait Loud: Greet {
+}
+
+struct Money {
+    cents: Int
+}
+
+@test
+extension Money: Greet {}
+
+extension Money: Loud {}
+
+func main() {
+    print("ok")
+}

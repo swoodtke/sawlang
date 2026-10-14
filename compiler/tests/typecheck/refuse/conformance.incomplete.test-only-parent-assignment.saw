@@ -1,0 +1,30 @@
+// refuses: conformance.incomplete at 17:18
+// a production conformance to a refining trait whose parent's `Item` only a
+// test-only conformance to the parent assigns
+
+trait Source {
+    type Item
+    func first(&self) -> Int
+}
+
+trait Deep: Source {
+}
+
+struct Money {
+    cents: Int
+}
+
+extension Money: Deep {
+    func first(&self) -> Int {
+        1
+    }
+}
+
+@test
+extension Money: Source {
+    type Item = Int
+}
+
+func main() {
+    print("ok")
+}

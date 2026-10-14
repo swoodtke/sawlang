@@ -1,0 +1,15 @@
+// refuses: conformance.test-only-overlap at 9:18
+// a test-only `Hashable` on a trivially copyable production type
+
+struct Money {
+    cents: Int
+}
+
+@test
+extension Money: Hashable {
+    func hash(&self, h: &var Hasher) {}
+}
+
+func main() {
+    print("ok")
+}

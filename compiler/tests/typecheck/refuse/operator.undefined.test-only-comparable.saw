@@ -1,0 +1,20 @@
+// refuses: operator.undefined at 19:17
+// ordinary code's `<` on a type only a test-only conformance makes `Comparable`
+
+struct Money {
+    cents: Int
+    tag: String
+}
+
+@test
+extension Money: Comparable {
+    func compare(&self, other: &Money) -> Ordering {
+        Ordering.Equal
+    }
+}
+
+func main() {
+    let a = Money(cents: 1, tag: "a")
+    let b = Money(cents: 2, tag: "b")
+    print("{}", a < b)
+}

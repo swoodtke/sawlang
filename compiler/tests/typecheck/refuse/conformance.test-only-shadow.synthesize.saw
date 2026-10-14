@@ -1,0 +1,22 @@
+// refuses: conformance.test-only-shadow at 15:10
+// a test-only `equals` beside a production `Equatable` that `@synthesize`
+// derives
+
+struct Money {
+    cents: Int
+    tag: String
+}
+
+@synthesize
+extension Money: Equatable {}
+
+@test
+extension Money {
+    func equals(&self, other: &Money) -> Bool {
+        true
+    }
+}
+
+func main() {
+    print("ok")
+}

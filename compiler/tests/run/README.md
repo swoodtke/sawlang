@@ -430,7 +430,13 @@ compares:
   construction, called from outside, from another `init`, from a generic body
   and, through `probes/construction_override_gate.saw`, from another module,
   prints its `// prints:` lines the same way. Stage 0 refuses an `init`
-  matching the fields as ambiguous with field initialization (SL-648).
+  matching the fields as ambiguous with field initialization (SL-648);
+- `probes/test_only_members.saw`, a production conformance beside a
+  test-only method of another name, and two a test-only refinement also
+  reaches, declared before one and after the other, prints its `// prints:`
+  lines the same way: the production generic's instance at each type and
+  ordinary code's direct call both run the trait's default, whatever the
+  declaration order. Stage 0 cannot parse `@test` (SL-640, SL-629).
 
 Stage 0 is the oracle: a difference is a sawc2 bug until shown otherwise
 (SL:architecture §5).

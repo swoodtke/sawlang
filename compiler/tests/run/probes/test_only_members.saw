@@ -1,0 +1,68 @@
+// Production code runs what production code declares (SL:testing): a
+// production conformance meets its requirements as if no test-only member
+// existed, and a test-only refinement of it, declared before it or after it,
+// answers the same and hides nothing it brings, so a production generic's one
+// instance at the type, and a direct call, both run the trait's default. The
+// run lane builds this at -O0 and -O2 and requires the `// prints:` lines.
+// prints: plain 1
+// prints: plain direct 1
+// prints: shared 1
+// prints: shared direct 1
+// prints: late 1
+// prints: late direct 1
+trait Greet {
+    func hi(&self) -> Int {
+        1
+    }
+}
+
+trait Loud: Greet {
+}
+
+struct Plain {
+    n: Int
+}
+
+extension Plain: Greet {}
+
+@test
+extension Plain {
+    func hello(&self) -> Int {
+        print("test-only hello")
+        2
+    }
+}
+
+struct Shared {
+    n: Int
+}
+
+@test
+extension Shared: Loud {}
+
+extension Shared: Greet {}
+
+struct Late {
+    n: Int
+}
+
+extension Late: Greet {}
+
+@test
+extension Late: Loud {}
+
+func greet<T: Greet>(x: &T) -> Int {
+    x.hi()
+}
+
+func main() {
+    let p = Plain(n: 7)
+    let s = Shared(n: 3)
+    let l = Late(n: 5)
+    print("plain {}", greet(&p))
+    print("plain direct {}", p.hi())
+    print("shared {}", greet(&s))
+    print("shared direct {}", s.hi())
+    print("late {}", greet(&l))
+    print("late direct {}", l.hi())
+}

@@ -203,6 +203,9 @@ public struct TcObligation {
     // parameters' bounds are in scope there.
     env_decl: Int
     env_ext: Int
+    // Whether it is written in test code, which may use the module's
+    // test-only conformances.
+    test: Bool
 }
 
 // How a body's expression is read where it stands (SL:architecture §3.4,

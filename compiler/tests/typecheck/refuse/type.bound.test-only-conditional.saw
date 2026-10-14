@@ -1,0 +1,35 @@
+// refuses: type.bound at 34:17
+// a production conditional conformance whose condition only a test-only
+// conformance meets
+
+struct Money {
+    cents: Int
+    tag: String
+}
+
+@test
+extension Money: Equatable {
+    func equals(&self, other: &Money) -> Bool {
+        self.cents == other.cents
+    }
+}
+
+struct Wrap<T> {
+    t: T
+}
+
+extension Wrap<T: Equatable>: Equatable {
+    func equals(&self, other: &Wrap<T>) -> Bool {
+        self.t == other.t
+    }
+}
+
+func same<T: Equatable>(a: &T, b: &T) -> Bool {
+    a == b
+}
+
+func main() {
+    let a = Wrap(t: Money(cents: 1, tag: "a"))
+    let b = Wrap(t: Money(cents: 1, tag: "a"))
+    print("{}", same(&a, &b))
+}

@@ -31,8 +31,9 @@ typecheck/
     overloads.saw     the declaration-site overload rule: a redeclaration no
                       call could tell apart, refused where it is written
     checks.saw        finite size, the signature half of `unsafe`, what an
-                      `init` returns, `Deinit`'s conformances and where a
-                      `deinit` is written
+                      `init` returns, `Deinit`'s conformances, where a
+                      `deinit` is written, and a test-only conformance or
+                      member overlapping what production code meets
     typeops.saw       the type questions a body asks: numbers, Optionals, Results
     adjust.saw        adjustment chains, conversions, and peeling
     candidates.saw    what a name or selector can mean: overload sets, members,
@@ -98,6 +99,9 @@ final, or for the one call where it is not:
   lowest frame reached. Deriving `Send` or `Sync` from the members of a type
   nested past the instantiation depth, which only a type that holds itself at
   ever larger arguments reaches, is refused as `type.instantiation-depth`.
+  A run is asked by some code, its module and whether it is test code, and
+  reads only the conformances that code may use (`conformance_visible`): a
+  test-only one exists for its own module's test code alone (SL:testing).
 - **Finite size** (`checks.saw`): each struct and enum's inline mask, the
   parameters it holds inline, solved to a fixpoint; an edge to each
   declaration it holds inline; and the strongly connected components of those
@@ -137,7 +141,13 @@ final, or for the one call where it is not:
 3. **The conformance table** (`conform.saw`): each conformance resolve
    recorded, then how each requirement of its trait and the traits it refines
    is met, against the members written in the extensions the conformance's
-   module sees. A type declares one copy policy, so a conformance to a
+   module sees. A production conformance is met as if no test-only
+   declaration existed; the test-only ones are settled after, and take a
+   production conformance's answer for each requirement it also reaches. A
+   test-only conformance's associated type agrees with a production
+   conformance's that reaches the same trait, and `project` reads a
+   production conformance's first.
+   A type declares one copy policy, so a conformance to a
    second of `Copy`, `ExplicitCopy` and `NoCopy` is refused
    (`check_copy_policies`), and so is a `copy()` a type that is not
    `NoCopy` writes outside its policy (`check_copy_placement`). Then every
@@ -156,8 +166,12 @@ final, or for the one call where it is not:
    funnel, `construction_route`, reads the same predicates for a call's
    candidates and for a zero-initialized static's value.
 4. **Member tables** (`members.saw`), one per struct, enum and builtin type.
+   What production conformances bring joins a table before what test-only
+   ones do, so ordinary code sees it whatever the declaration order.
 5. **Copy tiers** (`tier.saw`), one per nominal type.
-6. **The checks** that need the tables: bounds, Copy-policy containment,
+6. **The checks** that need the tables: a test-only conformance overlapping
+   a production one, a test-only member meeting a requirement a production
+   conformance meets, bounds, Copy-policy containment,
    `NoMove`'s declared containment and the `NoCopy` it requires, finite size, the signature half of `unsafe`, what an `init` returns, the
    conformances `Deinit` refuses, and a `deinit` written outside the copy
    policy.

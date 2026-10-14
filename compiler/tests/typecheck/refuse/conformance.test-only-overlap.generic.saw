@@ -1,0 +1,19 @@
+// refuses: conformance.test-only-overlap at 11:31
+// a test-only `Equatable` on a generic production type that is trivially
+// copyable for trivially copyable arguments
+
+struct Pair<T> {
+    a: T
+    b: T
+}
+
+@test
+extension Pair<T: Equatable>: Equatable {
+    func equals(&self, other: &Pair<T>) -> Bool {
+        true
+    }
+}
+
+func main() {
+    print("ok")
+}

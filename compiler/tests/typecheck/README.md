@@ -317,6 +317,56 @@ Each fixture holds the group form beside it as its control:
 | a test-only `@export` of a production export's symbol, though a normal build emits no test-only export | refused | export.duplicate.test-only |
 | `@align` after `@test` with a `Bool` argument | refused | type.mismatch.test-only-align |
 
+Nor can test code change which conformances production code sees (SL-629)
+or what meets a production conformance's requirements (SL-640). One funnel,
+`conformance_visible` (`compiler/typecheck/src/conform.saw`), answers whether
+a conformance exists for the code asking: one a test-only extension declares
+exists for its own module's test code alone, by resolve's `may_use`.
+`satisfies` takes the code asking as its viewer and answers every pair of its
+run with it, so a bound, a conditional conformance's condition, an operator
+through `Equatable` or `Comparable`, a format argument, an erasure and `Send`
+and `Sync` all read the one answer. A production conformance is settled with
+the members a production conformance may use (`meets_from`) and a parent
+conformance it may see (`assignment_for`), so a test-only member never meets
+it. A test-only conformance that reaches a trait a production conformance
+covers takes that one's answer for each of its requirements
+(`production_status`), so a production generic's one instance at the type
+runs one body whichever conformance monomorphization reads; the members a
+production conformance brings, a default or a derivation, join the member
+table before a test-only one's, and an associated type ordinary code projects
+is a production conformance's, so neither depends on declaration order. A
+test-only member that meets a requirement a production conformance already
+meets, with a written member, the trait's default or a derivation, is refused
+where it is declared (`check_test_only_shadows`), since nothing through the
+trait would run it; a fake is a test-only type passed to the production
+generic. A member written to meet a requirement follows its trait's
+visibility only for a production conformance. A Copy tier is
+answered without the funnel: `check_test_only_policies` refuses every
+test-only copy policy on a production type, the one conformance the funnel
+would hide, so a type has one tier for every viewer.
+
+| row | verdict | covered by |
+|---|---|---|
+| a production conformance whose requirement only a test-only member meets: a plain test-only extension's, a test group's, a static, or a parent's requirement or associated type only a test-only conformance to the parent writes | refused, as missing | conformance.incomplete.test-only-member, -group, -static, -parent-member, -parent-assignment, synthesize.required.test-only-member |
+| a production refinement assigning a parent's associated type as another type than a test-only conformance to the parent does, or a test-only refinement assigning it as another type than a production sibling refinement does, in either declaration order | refused | conformance.associated-conflict.test-only-parent, -test-only-sibling |
+| a test-only member whose signature meets a requirement a production conformance meets: with the trait's default, through a refinement, a static, a member written in a test-only refinement's own extension, with `@synthesize` | refused, `conformance.test-only-shadow` | conformance.test-only-shadow, .refinement, .static, .test-only-conformance, .synthesize |
+| the same, met in production by a written member | refused, `overload.indistinguishable` | overload.indistinguishable.test-only-requirement |
+| a test-only member of a requirement's name with another signature, or of another name | allowed | test_only_conformances |
+| ordinary code's direct call of what a production conformance brings, a default or a derivation, beside a test-only refinement declared before it or after it | allowed | test_only_conformances (`Early`, `Late`, `EarlyKey`, `LateKey`, `EarlyFault`, `LateFault`), run probes/test_only_members |
+| ordinary code in another module calling a private method that meets a public trait's requirement only for a test-only conformance | refused, `member.unknown` | member.unknown.test-only-conformance-visibility |
+| ordinary code's bound met only by a test-only conformance: inferred, explicit, a generic struct's argument in a signature, a field or an inferred construction, a conditional conformance's condition, `Comparable`, `Iterator`, a refining trait's, `Hashable`, `UnsafeSend`, `UnsafeSync` | refused, `type.bound` | type.bound.test-only-conformance, -explicit, -struct, -field, -struct-inferred, type.bound.test-only-conditional, -comparable, -iterator, -refinement, -hashable, -unsafe-send, -unsafe-sync |
+| ordinary code's `==`, `!=` and `<` through a test-only `Equatable` or `Comparable` | refused, `operator.undefined` | operator.undefined.test-only-equatable, -equatable-ne, -comparable |
+| ordinary code formatting or interpolating a type only a test-only `Printable` covers | refused, `format.argument` | format.argument.test-only-printable, -printable-interpolation |
+| ordinary code erasing a type to `any Trait` that only a test-only conformance meets | refused, `type.mismatch` | type.mismatch.test-only-erasure |
+| a production static of a type only a test-only `UnsafeSync`, conditional or not, makes `Sync` | refused, `static.not-sync` | static.not-sync.test-only-unsafe-sync, -condition |
+| another module's test code using a module's test-only conformance | refused, `type.bound` | type.bound.test-only-conformance-imported-test |
+| a test-only conformance to a trait a production type meets through a production refinement, or automatically: `Equatable` or `Hashable` of a trivially copyable struct, a generic one or a payload-free enum | refused, `conformance.test-only-overlap` | conformance.test-only-overlap, .hashable, .enum, .generic, .refinement |
+| a `for` over a production `next` beside a test-only `Iterator` conformance | allowed: the loop reads the member, not the conformance | test_only_conformances |
+| the module's test code at every position above, a test-only conformance met by a test-only member, and a test-only refinement of a production conformance, which takes its statuses | allowed | test_only_conformances |
+
+A type argument written inside a body is not bound-checked at all yet
+(SL-654), so that position has no row of its own here.
+
 A third filter belongs to the receiver, not the module: a member declared in
 a bounded extension, `extension Cell<T: Equatable> { ... }`, or brought by a
 bounded conformance, exists only on an instantiation whose arguments meet
@@ -1285,8 +1335,10 @@ says what the fixture shows.
 | `type.raw-value` | a case of a raw-backed enum that states no value (`.missing`), and two cases sharing one, compared by their folded values, so `0x01` is `1` and `1 << 0` is too (`.folded`) (spec, Raw-backed enums, rule 2; SL-609) |
 | `type.infinite-size` | a struct or enum on a cycle of the by-value containment graph: its storage contains an instance of itself inline, through fields, payloads, tuples, optionals, arrays and the generic declarations they instantiate, the same instance, a fixed other one (`.fixed-argument`) or an ever larger one (`.growing`); golden `containment_cycles` holds every declaration of a component and the finite controls (SL-627) |
 | `type.instantiation-depth` | deriving `Send` or `Sync` from the members of a type nested past the instantiation depth limit (64), which a type holding itself at ever larger arguments behind a pointer reaches (spec, "Instantiation depth is bounded"; SL-627) |
-| `conformance.incomplete` | a requirement of a trait, or of a trait it refines, that nothing meets: no member written, no default, no derivation; an associated type no type assignment gives, the conformance's own or, for a parent trait's, the type's conformance to that trait (refined_assignments) |
-| `conformance.associated-conflict` | a refining trait's conformance restating a parent trait's associated type as another type than the type's conformance to the parent assigns |
+| `conformance.incomplete` | a requirement of a trait, or of a trait it refines, that nothing meets: no member written, no default, no derivation; an associated type no type assignment gives, the conformance's own or, for a parent trait's, the type's conformance to that trait (refined_assignments); for a production conformance, what a test-only extension writes or a test-only parent conformance assigns meets nothing (SL-640: `-test-only-member`, `-test-only-group`, `-test-only-static`, `-test-only-parent-member`, `-test-only-parent-assignment`) |
+| `conformance.test-only-overlap` | a test-only conformance to a trait a production type already meets in production code, through a production conformance to a trait refining it, or automatically as a trivially copyable type (`Equatable`, `Hashable`); the same pair twice is resolve's `conformance.duplicate` (SL:testing; SL-629) |
+| `conformance.test-only-shadow` | a test-only method, static or `init` of a production type whose signature meets a requirement a production conformance of the type meets with the trait's default or with `@synthesize`, directly or through a refinement (`.refinement`, `.static`, `.test-only-conformance`, `.synthesize`); one met by a written member is `overload.indistinguishable`'s (`.test-only-requirement`), a copy policy's `copy()` `copy.test-only-policy`'s and a `deinit` `deinit.outside-policy`'s (SL:testing; SL-640) |
+| `conformance.associated-conflict` | a refining trait's conformance restating a parent trait's associated type as another type than the type's conformance to the parent assigns; a test-only conformance assigning it as another type than a production conformance reaching the parent through a sibling refinement does (`.test-only-sibling`, SL-640) |
 | `conformance.signature` | a written member that disagrees with its requirement: receiver, staticness, type parameters, parameters, result, an `unsafe` the requirement declares, `consumes`, or `borrows` (a `borrows(sync)` member never meets a plain `borrows` requirement, SL:borrowing §2.5); a parameter that says `escaping` where the requirement's does not, though the narrowing is met (SL-504: `conformance.signature.escaping`, `-escaping-default`; a function-typed parameter's own parameters are compared exactly, `-escaping-nested`; golden `escaping_values`) |
 | `trait.generic-requirement` | a trait requirement declaring generic parameters of its own, which the grammar parses and type checking refuses for now (GRAMMAR §3.4), once, at the requirement: with a default body (`.default-body`), met by a generic method in a conformance (`.conformance`), called through a bound (`.bound`), and its trait erased (bare), none adds a second refusal; golden `generic_methods` holds the accepted control, a generic method in an ordinary extension |
 | `synthesize.required` | a declared conformance to a derivable trait whose method is neither written nor asked for with `@synthesize` (design 128); a copy policy's `copy()` counts as written only inside the conformance (`-copy-outside-policy`) |

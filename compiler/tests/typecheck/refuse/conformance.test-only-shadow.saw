@@ -1,0 +1,26 @@
+// refuses: conformance.test-only-shadow at 19:10
+// a test-only method meeting a requirement a production conformance meets
+// with the trait's default
+
+trait Greet {
+    func hi(&self) -> Int {
+        1
+    }
+}
+
+struct Money {
+    cents: Int
+}
+
+extension Money: Greet {}
+
+@test
+extension Money {
+    func hi(&self) -> Int {
+        2
+    }
+}
+
+func main() {
+    print("ok")
+}

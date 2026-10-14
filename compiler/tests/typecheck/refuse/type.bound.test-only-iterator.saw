@@ -1,0 +1,35 @@
+// refuses: type.bound at 34:17
+// ordinary code's `Iterator` bound met only by a test-only conformance, the
+// `next` it names written in production code
+
+struct Count {
+    n: Int
+}
+
+extension Count {
+    func next(&var self) -> Int? {
+        if self.n == 0 {
+            return None
+        }
+        self.n = self.n - 1
+        self.n
+    }
+}
+
+@test
+extension Count: Iterator {
+    type Item = Int
+}
+
+func drain<I: Iterator>(it: I) -> Int {
+    var i = move it
+    var k = 0
+    while let _ = i.next() {
+        k = k + 1
+    }
+    k
+}
+
+func main() {
+    print("{}", drain(Count(n: 3)))
+}

@@ -1,0 +1,19 @@
+// refuses: type.bound at 14:5
+// ordinary code's `Send` bound met only by a test-only `UnsafeSend`
+
+struct Handle {
+    p: UnsafePointer<Int>
+}
+
+@test
+extension Handle: UnsafeSend {}
+
+func ship<T: Send>(x: &T) {}
+
+func relay(h: &Handle) {
+    ship(&h)
+}
+
+func main() {
+    print("ok")
+}

@@ -1,0 +1,29 @@
+// refuses: overload.indistinguishable at 22:10
+// a test-only method meeting a requirement a production conformance meets
+// with a written member: the declaration-site overload rule refuses the twin,
+// so `conformance.test-only-shadow` adds nothing
+
+trait Named {
+    func name(&self) -> Int
+}
+
+struct Money {
+    cents: Int
+}
+
+extension Money: Named {
+    func name(&self) -> Int {
+        1
+    }
+}
+
+@test
+extension Money {
+    func name(&self) -> Int {
+        2
+    }
+}
+
+func main() {
+    print("ok")
+}

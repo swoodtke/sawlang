@@ -80,7 +80,11 @@ exit status compared.
   out a bodyless requirement's default, which Stage 0 refuses, prints the
   lines it states the same way;
 - `probes/construction_override.saw`, whose `init`s override the memberwise
-  construction, which Stage 0 refuses, prints the lines it states the same way.
+  construction, which Stage 0 refuses, prints the lines it states the same way;
+- `probes/test_only_members.saw`, whose `@test` declarations Stage 0 cannot
+  parse, prints the lines it states the same way: a production generic's
+  instance at a production type, and ordinary code's direct call, run what
+  production code declares whatever order a test-only refinement is declared in.
 
 `--bench` runs none of that: it times each kernel of `bench/` under sawc2 at
 -O2 and under Stage 0 and prints the report, which gates nothing. The runner
@@ -823,6 +827,16 @@ def check_construction_override(failures, counts):
     check_stated(failures, counts, "construction override", src, want)
 
 
+def check_test_only_members(failures, counts):
+    """A production generic's one instance at a production type runs what
+    production code declares, never a test-only member:
+    `probes/test_only_members.saw`, whose `@test` Stage 0 cannot parse,
+    prints its `// prints:` lines (SL-640, SL-629)."""
+    src = os.path.join(HERE, "probes", "test_only_members.saw")
+    want = "".join(line + "\n" for line in stated_prints(src)).encode()
+    check_stated(failures, counts, "test-only members", src, want)
+
+
 def run(names=None, write=False):
     os.makedirs(OUT, exist_ok=True)
     failures = []
@@ -859,6 +873,7 @@ def run(names=None, write=False):
         check_park_panics(failures, counts)
         check_requirement_default_bound(failures, counts)
         check_construction_override(failures, counts)
+        check_test_only_members(failures, counts)
     return failures, counts, dues
 
 

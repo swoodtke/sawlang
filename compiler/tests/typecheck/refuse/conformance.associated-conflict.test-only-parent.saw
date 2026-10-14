@@ -1,0 +1,31 @@
+// refuses: conformance.associated-conflict at 23:10
+// a production refinement assigning the parent's `Item` as another type than
+// a test-only conformance to the parent does: a binary has one `Item`
+
+trait Source {
+    type Item
+    func first(&self) -> Int
+}
+
+trait Deep: Source {
+}
+
+struct Money {
+    cents: Int
+}
+
+@test
+extension Money: Source {
+    type Item = String
+}
+
+extension Money: Deep {
+    type Item = Int
+    func first(&self) -> Int {
+        1
+    }
+}
+
+func main() {
+    print("ok")
+}

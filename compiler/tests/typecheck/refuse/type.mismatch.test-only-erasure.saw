@@ -1,0 +1,25 @@
+// refuses: type.mismatch at 24:10
+// ordinary code erasing a type to `any Named`, which only a test-only
+// conformance meets
+
+trait Named {
+    func name(&self) -> Int
+}
+struct Money {
+    cents: Int
+    tag: String
+}
+
+@test
+extension Money: Named {
+    func name(&self) -> Int {
+        99
+    }
+}
+
+func show(x: &any Named) {}
+
+func main() {
+    let a = Money(cents: 1, tag: "a")
+    show(&a)
+}

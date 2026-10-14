@@ -1,0 +1,18 @@
+// refuses: type.bound at 13:12
+// test code using another module's test-only conformance, which exists only
+// for that module's test code
+
+import bells.{Money, money}
+
+func same<T: Equatable>(a: &T, b: &T) -> Bool {
+    a == b
+}
+
+@test "another module's test-only conformance" {
+    let a = money(cents: 1)
+    assert(same(&a, &a))
+}
+
+func main() {
+    print("ok")
+}

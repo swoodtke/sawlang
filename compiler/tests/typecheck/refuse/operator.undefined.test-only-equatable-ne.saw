@@ -1,0 +1,20 @@
+// refuses: operator.undefined at 19:17
+// ordinary code's `!=` on a type only a test-only conformance makes `Equatable`
+
+struct Money {
+    cents: Int
+    tag: String
+}
+
+@test
+extension Money: Equatable {
+    func equals(&self, other: &Money) -> Bool {
+        self.cents == other.cents
+    }
+}
+
+func main() {
+    let a = Money(cents: 1, tag: "a")
+    let b = Money(cents: 2, tag: "b")
+    print("{}", a != b)
+}

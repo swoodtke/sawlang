@@ -624,9 +624,10 @@ extension TcProgram {
         let m = self.current
         let env_decl = self.current_decl
         let env_ext = self.current_ext
+        let test = self.current_test
         try! self.obligations.push(TcObligation(module: m, node: node, arg: arg,
                                                 trait_decl: trait_decl, owner: owner, index: index,
-                                                env_decl: env_decl, env_ext: env_ext))
+                                                env_decl: env_decl, env_ext: env_ext, test: test))
     }
 
     // Whether type `t` mentions a type parameter or `Self` anywhere, which

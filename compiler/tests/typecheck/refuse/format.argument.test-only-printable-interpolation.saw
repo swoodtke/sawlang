@@ -1,0 +1,21 @@
+// refuses: format.argument at 19:15
+// ordinary code interpolating a type only a test-only conformance makes
+// `Printable`
+
+struct Money {
+    cents: Int
+    tag: String
+}
+
+@test
+extension Money: Printable {
+    func format(&self, into: &var StringBuilder) {
+        try! into.append("money")
+    }
+}
+
+func main() {
+    let a = Money(cents: 1, tag: "a")
+    let s = "{a}"
+    print("{}", s.len())
+}

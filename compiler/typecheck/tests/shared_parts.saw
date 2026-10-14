@@ -60,19 +60,19 @@ func main() {
     let send = p.known.send
     let shared = row(&p, m, "yes_eq")
     let plain = row(&p, m, "no_eq")
-    assert(p.satisfies(shared, equatable, -1, -1), "a shared tuple of `Int`s does not meet `Equatable`")
-    assert(not p.satisfies(plain, equatable, -1, -1), "a shared tuple of a NoCopy struct meets `Equatable`")
+    assert(p.satisfies(shared, equatable, -1, -1, m, false), "a shared tuple of `Int`s does not meet `Equatable`")
+    assert(not p.satisfies(plain, equatable, -1, -1, m, false), "a shared tuple of a NoCopy struct meets `Equatable`")
     assert(p.copies_silently(shared), "a shared tuple of `Int`s does not copy silently")
     assert(not p.copies_silently(plain), "a shared tuple of a NoCopy struct copies silently")
     assert(not p.has_error(shared), "a shared tuple of `Int`s holds an error type")
 
     let cycle = row(&p, m, "yes_send_cycle")
     let unsent = row(&p, m, "no_send_cycle")
-    assert(p.satisfies(cycle, send, -1, -1), "a type reaching itself through shared parts is not `Send`")
-    assert(not p.satisfies(unsent, send, -1, -1), "a type reaching itself and a non-`Send` part is `Send`")
+    assert(p.satisfies(cycle, send, -1, -1, m, false), "a type reaching itself through shared parts is not `Send`")
+    assert(not p.satisfies(unsent, send, -1, -1, m, false), "a type reaching itself and a non-`Send` part is `Send`")
 
     let field = row(&p, m, "yes_send_field")
     let unsent_field = row(&p, m, "no_send_field")
-    assert(p.satisfies(field, send, -1, -1), "a generic struct's shared field is not `Send`")
-    assert(not p.satisfies(unsent_field, send, -1, -1), "a generic struct's shared non-`Send` field is `Send`")
+    assert(p.satisfies(field, send, -1, -1, m, false), "a generic struct's shared field is not `Send`")
+    assert(not p.satisfies(unsent_field, send, -1, -1, m, false), "a generic struct's shared non-`Send` field is `Send`")
 }

@@ -1,0 +1,267 @@
+// Test-only conformances (SL:testing, "Test code cannot change what
+// production code means"): the module's test code uses them at every
+// position a conformance answers, a production conformance's requirements
+// are met as if no test-only member existed, and a test-only conformance
+// reaching a trait a production one covers answers as that one does. Ordinary
+// code sees what a production conformance brings whether a test-only
+// refinement of it is declared before or after it (`Early`, `Late`). A
+// test-only member meeting a requirement production code meets is refused
+// (refuse/conformance.test-only-shadow), so `Money`'s differ in name or
+// signature.
+
+trait Named {
+    func name(&self) -> Int
+}
+
+trait Greet {
+    func hi(&self) -> Int {
+        1
+    }
+}
+
+trait Loud: Greet {
+}
+
+struct Money {
+    cents: Int
+    tag: String
+}
+
+@test
+extension Money: Equatable {
+    func equals(&self, other: &Money) -> Bool {
+        self.cents == other.cents
+    }
+}
+
+@test
+extension Money: Comparable {
+    func compare(&self, other: &Money) -> Ordering {
+        Ordering.Equal
+    }
+}
+
+@test
+extension Money: Printable {
+    func format(&self, into: &var StringBuilder) {
+        try! into.append("money")
+    }
+}
+
+@test
+extension Money: Named {}
+
+@test
+extension Money {
+    func name(&self) -> Int {
+        99
+    }
+}
+
+extension Money: Greet {}
+
+@test
+extension Money: Loud {}
+
+@test
+extension Money {
+    func hi(&self, times: Int) -> Int {
+        times
+    }
+
+    func hello(&self) -> Int {
+        2
+    }
+}
+
+struct Early {
+    n: Int
+}
+
+@test
+extension Early: Loud {}
+
+extension Early: Greet {}
+
+struct Late {
+    n: Int
+}
+
+extension Late: Greet {}
+
+@test
+extension Late: Loud {}
+
+trait Keyed: Equatable {
+}
+
+struct EarlyKey {
+    n: Int
+    tag: String
+}
+
+@test
+@synthesize
+extension EarlyKey: Keyed {}
+
+@synthesize
+extension EarlyKey: Equatable {}
+
+struct LateKey {
+    n: Int
+    tag: String
+}
+
+@synthesize
+extension LateKey: Equatable {}
+
+@test
+@synthesize
+extension LateKey: Keyed {}
+
+struct EarlyFault {
+    code: Int
+}
+
+@test
+extension EarlyFault: Error {}
+
+extension EarlyFault: Printable {
+    func format(&self, into: &var StringBuilder) {
+        try! into.append("fault")
+    }
+}
+
+struct LateFault {
+    code: Int
+}
+
+extension LateFault: Printable {
+    func format(&self, into: &var StringBuilder) {
+        try! into.append("fault")
+    }
+}
+
+@test
+extension LateFault: Error {}
+
+struct Counter {
+    cell: UnsafeMutableInterior<Int>
+}
+
+extension Counter: NoCopy {}
+
+@test
+extension Counter: UnsafeSync {}
+
+struct Count {
+    n: Int
+}
+
+extension Count {
+    func next(&var self) -> Int? {
+        if self.n == 0 {
+            return None
+        }
+        self.n = self.n - 1
+        self.n
+    }
+}
+
+@test
+extension Count: Iterator {
+    type Item = Int
+}
+
+struct Holder<T: Equatable> {
+    t: T
+}
+
+struct Wrap<T> {
+    t: T
+}
+
+extension Wrap<T: Equatable>: Equatable {
+    func equals(&self, other: &Wrap<T>) -> Bool {
+        self.t == other.t
+    }
+}
+
+func same<T: Equatable>(a: &T, b: &T) -> Bool {
+    a == b
+}
+
+func less<T: Comparable>(a: &T, b: &T) -> Bool {
+    a < b
+}
+
+func get<T: Named>(x: &T) -> Int {
+    x.name()
+}
+
+func greet<T: Greet>(x: &T) -> Int {
+    x.hi()
+}
+
+func share<T: Sync>(x: &T) {}
+
+func show(x: &any Named) {}
+
+func walk<I: Iterator>(it: I) -> Int {
+    var i = move it
+    var k = 0
+    while let _ = i.next() {
+        k = k + 1
+    }
+    k
+}
+
+@test
+static COUNTER: Counter
+
+@test
+func peek(h: &Holder<Money>) -> Int {
+    h.t.cents
+}
+
+@test
+func sample(c: &Counter) -> Bool {
+    let a = Money(cents: 1, tag: "a")
+    let b = Money(cents: 1, tag: "b")
+    let h = Holder(t: Money(cents: 1, tag: "c"))
+    let w = Wrap(t: Money(cents: 1, tag: "d"))
+    let v = Wrap(t: Money(cents: 1, tag: "e"))
+    share(&c)
+    show(&a)
+    print("{}", a)
+    let s = "{a}"
+    let n = walk(Count(n: 3))
+    let shapes = a.hi() + a.hi(times: 3) + a.hello()
+    same(&a, &b) && same<Money>(&a, &b) && a == b && a != b && a < b && less(&a, &b) && same(&w, &v) && peek(&h) == get(&a) && greet(&a) == s.len() + n + shapes
+}
+
+@test "test code sees the module's test-only conformances" {
+    let a = Money(cents: 1, tag: "a")
+    let b = Money(cents: 1, tag: "b")
+    assert(same(&a, &b) && a == b && get(&a) == 99)
+}
+
+func ordinary() -> Int {
+    let a = Money(cents: 1, tag: "a")
+    var k = 0
+    for x in Count(n: 3) {
+        k = k + x
+    }
+    let early = Early(n: 1)
+    let late = Late(n: 2)
+    let early_key = EarlyKey(n: 1, tag: "a")
+    let late_key = LateKey(n: 1, tag: "a")
+    let early_fault = EarlyFault(code: 1)
+    let late_fault = LateFault(code: 2)
+    let keys = early_key.equals(&early_key) && late_key.equals(&late_key)
+    let faults = early_fault.to_string().len() + late_fault.to_string().len()
+    if keys {
+        k = k + faults
+    }
+    greet(&a) + k + early.hi() + late.hi() + greet(&early) + greet(&late)
+}

@@ -30,8 +30,10 @@ extension TcProgram {
         }
     }
 
-    // Each written member that meets a requirement, to the requirement's
-    // trait: such a member follows the trait's visibility, not its own.
+    // Each written member that meets a production conformance's requirement,
+    // to the requirement's trait: such a member follows the trait's
+    // visibility, not its own. A test-only conformance widens nothing, since
+    // `follows_trait` answers ordinary code too, which never sees it.
     func index_conformance_members(&var self) {
         var d = 0
         while d < self.res.decls.len() {
@@ -42,6 +44,9 @@ extension TcProgram {
         while k < self.conformances.len() {
             let c = self.conformances[k]
             k = k + 1
+            if self.is_test_only_conformance(k - 1) {
+                continue
+            }
             var j = 0
             while j < c.status_count {
                 let s = self.statuses[c.status_first + j]
@@ -114,13 +119,21 @@ extension TcProgram {
             }
             k = k + 1
         }
-        k = 0
-        while k < self.conformances.len() {
-            let c = self.conformances[k]
-            if c.type_decl == d {
-                self.add_conformance_members(d, &c, first)
+        // Production conformances bring their members first, so a requirement
+        // a production and a test-only conformance both reach is tagged with
+        // the production extension, whichever is declared first, and ordinary
+        // code sees it (pinned by run/probes/test_only_members.saw).
+        var pass = 0
+        while pass < 2 {
+            k = 0
+            while k < self.conformances.len() {
+                let c = self.conformances[k]
+                if c.type_decl == d && self.is_test_only_conformance(k) == (pass == 1) {
+                    self.add_conformance_members(d, &c, first)
+                }
+                k = k + 1
             }
-            k = k + 1
+            pass = pass + 1
         }
         self.add_synthesized_deinit(d, first)
         self.member_first[d] = first
@@ -131,8 +144,9 @@ extension TcProgram {
     // The members a conformance brings: each requirement a trait's default
     // body fills, and each one `@synthesize` derives. A requirement reaches
     // the table once, however many conformances reach its trait: `E:
-    // Printable` and `E: Error`, which refines it, bring one `to_string`.
-    // The table of `d` starts at `first`.
+    // Printable` and `E: Error`, which refines it, bring one `to_string`,
+    // the first conformance's to bring it. The table of `d` starts at
+    // `first`.
     func add_conformance_members(&var self, d: Int, c: &TcConformance, first: Int) {
         var k = 0
         while k < c.status_count {
@@ -319,11 +333,11 @@ extension TcProgram {
         false
     }
 
-    // For a member `d` written to meet a requirement: 1 when the trait's
-    // visibility reaches module `viewer`, 0 when it does not; -1 for any
-    // other member (spec, Member visibility: "Trait-conformance methods
-    // follow the trait"). The trait only widens: a member visible on its own
-    // terms stays visible.
+    // For a member `d` written to meet a production conformance's
+    // requirement: 1 when the trait's visibility reaches module `viewer`, 0
+    // when it does not; -1 for any other member (spec, Member visibility:
+    // "Trait-conformance methods follow the trait"). The trait only widens: a
+    // member visible on its own terms stays visible.
     public func follows_trait(&self, d: Int, viewer: Int) -> Int {
         if d < 0 || d >= self.meets_trait.len() {
             return -1

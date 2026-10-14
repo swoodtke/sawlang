@@ -1,0 +1,29 @@
+// refuses: conformance.incomplete at 13:18
+// a production conformance whose only `name` is a test-only extension's: ordinary
+// code calling through it would run test code
+
+trait Named {
+    func name(&self) -> Int
+}
+
+struct Money {
+    cents: Int
+}
+
+extension Money: Named {}
+
+@test
+extension Money {
+    func name(&self) -> Int {
+        99
+    }
+}
+
+func get<T: Named>(x: &T) -> Int {
+    x.name()
+}
+
+func main() {
+    let a = Money(cents: 1)
+    print("{}", get(&a))
+}

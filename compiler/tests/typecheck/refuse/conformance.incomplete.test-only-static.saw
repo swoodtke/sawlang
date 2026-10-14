@@ -1,0 +1,28 @@
+// refuses: conformance.incomplete at 12:18
+// a production conformance whose only static `make` is a test-only extension's
+
+trait Make {
+    static func make() -> Self
+}
+
+struct Money {
+    cents: Int
+}
+
+extension Money: Make {}
+
+@test
+extension Money {
+    static func make() -> Money {
+        Money(cents: 5)
+    }
+}
+
+func build<T: Make>() -> T {
+    T.make()
+}
+
+func main() {
+    let m = build<Money>()
+    print("{}", m.cents)
+}

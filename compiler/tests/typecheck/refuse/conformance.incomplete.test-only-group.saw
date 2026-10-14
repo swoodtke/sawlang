@@ -1,0 +1,24 @@
+// refuses: conformance.incomplete at 12:18
+// a production conformance whose only `name` is written in a test group
+
+trait Named {
+    func name(&self) -> Int
+}
+
+struct Money {
+    cents: Int
+}
+
+extension Money: Named {}
+
+@test {
+    extension Money {
+        func name(&self) -> Int {
+            99
+        }
+    }
+}
+
+func main() {
+    print("ok")
+}

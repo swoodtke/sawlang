@@ -1,0 +1,29 @@
+// refuses: conformance.test-only-shadow at 22:10
+// a method written in a test-only refinement's own extension, meeting a
+// requirement a production conformance meets with the trait's default
+
+trait Greet {
+    func hi(&self) -> Int {
+        1
+    }
+}
+
+trait Loud: Greet {
+}
+
+struct Money {
+    cents: Int
+}
+
+extension Money: Greet {}
+
+@test
+extension Money: Loud {
+    func hi(&self) -> Int {
+        2
+    }
+}
+
+func main() {
+    print("ok")
+}

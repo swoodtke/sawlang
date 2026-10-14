@@ -1,0 +1,27 @@
+// refuses: type.bound at 22:15
+// a generic struct's argument in a production field met only by a test-only
+// conformance
+
+struct Money {
+    cents: Int
+    tag: String
+}
+
+@test
+extension Money: Equatable {
+    func equals(&self, other: &Money) -> Bool {
+        self.cents == other.cents
+    }
+}
+
+struct Holder<T: Equatable> {
+    t: T
+}
+
+struct Outer {
+    h: Holder<Money>
+}
+
+func main() {
+    print("ok")
+}

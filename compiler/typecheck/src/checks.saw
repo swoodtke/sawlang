@@ -1,13 +1,14 @@
 // The signature-only checks that need every signature first: finite struct
 // size, which is a cycle in the by-value containment graph (spec, Recursive
-// types), and the signature half of `unsafe` (designs 130 and 136).
+// types), the signature half of `unsafe` (designs 130 and 136), and a
+// test-only conformance or member overlapping what production code meets.
 
 import sawresolve.dump.{res_sort_strings}
 import sawresolve.model.{ResDecl, ResDeclKind}
 import sawtypecheck.conform.{TcSubst, tc_args_subst}
 import sawtypecheck.declarations.{tc_build_signatures}
 import sawtypecheck.model.{TC_EFFECT_UNSAFE, TC_FLAG_UNSAFE_STRUCT, TC_FLAG_WRITTEN_RETURN, TcParam,
-                               TcReceiver, TcSig}
+                               TcReceiver, TcSig, TcStatus, TcStatusKind}
 import sawtypecheck.program.{TcProgram}
 import sawtypecheck.signatures.{TcContext}
 import sawtypecheck.spell.{tc_effects_text}
@@ -814,5 +815,178 @@ extension TcProgram {
         try! msg.append("` is not an atomic this compiler lowers: v1 atomics are `Atomic<Int>` only")
         let m = self.node_module(at)
         self.refuse_in(m, at, "atomic.width", msg.build())
+    }
+}
+
+// The refusals of a test-only conformance to a trait a production type already
+// meets in production code, and of a test-only member meeting a requirement a
+// production conformance already meets.
+public func tc_check_test_only_overlaps(p: &var TcProgram) {
+    p.check_test_only_overlaps()
+    p.check_test_only_shadows()
+}
+
+// Test-only conformances beside production ones.
+extension TcProgram {
+    // A test-only conformance to a trait a production type already meets in
+    // production code is refused (SL:testing): a production generic has one
+    // instance at the type, which production code runs, so it cannot also
+    // run the test-only members. The type meets the trait through another
+    // conformance that refines it, or, for `Equatable` and `Hashable`,
+    // automatically as a trivially copyable type. The same pair twice is
+    // resolve's `conformance.duplicate`.
+    public func check_test_only_overlaps(&var self) {
+        var k = 0
+        while k < self.conformances.len() {
+            let c = self.conformances[k]
+            k = k + 1
+            if c.type_decl < 0 || not self.is_test_only_conformance(k - 1) || self.res.decls[c.type_decl].test_only {
+                continue
+            }
+            let through = self.production_refinement(k - 1)
+            if through >= 0 {
+                self.refuse_test_only_overlap(k - 1, through)
+            } else if self.meets_automatically(c.type_decl, c.trait_decl) {
+                self.refuse_test_only_overlap(k - 1, -1)
+            }
+        }
+    }
+
+    // A production conformance of conformance `at`'s type to a trait that
+    // refines `at`'s own, or -1.
+    func production_refinement(&self, at: Int) -> Int {
+        let c = self.conformances[at]
+        var k = 0
+        while k < self.conformances.len() {
+            let other = self.conformances[k]
+            k = k + 1
+            if other.type_decl != c.type_decl || other.trait_decl == c.trait_decl || self.is_test_only_conformance(k - 1) {
+                continue
+            }
+            if self.trait_refines(other.trait_decl, c.trait_decl) {
+                return k - 1
+            }
+        }
+        return -1
+    }
+
+    // Whether nominal `d` meets `Equatable` or `Hashable` with no conformance
+    // written, as a trivially copyable type, for some arguments of its
+    // parameters.
+    func meets_automatically(&var self, d: Int, tr: Int) -> Bool {
+        if tr != self.known.equatable && tr != self.known.hashable {
+            return false
+        }
+        let t = self.self_type_of(d)
+        self.may_be_trivial(t)
+    }
+
+    func refuse_test_only_overlap(&var self, at: Int, through: Int) {
+        let c = self.conformances[at]
+        let type_name = self.res.decl_path(c.type_decl)
+        var msg = StringBuilder()
+        try! msg.append("a test-only conformance that overlaps a production one is refused: `")
+        try! msg.append(type_name)
+        try! msg.append("` already meets `")
+        try! msg.append(self.res.decl_path(c.trait_decl))
+        if through >= 0 {
+            let other = self.conformances[through]
+            try! msg.append("` in production code, through its conformance to `")
+            try! msg.append(self.res.decl_path(other.trait_decl))
+            try! msg.append("` at ")
+            try! msg.append(self.res.node_position(other.module, other.node))
+        } else {
+            try! msg.append("` in production code, as a trivially copyable type")
+        }
+        try! msg.append(", and test code cannot change what a production generic runs for it; drop this conformance, or make the type test-only too")
+        self.refuse_in(c.module, c.node, "conformance.test-only-overlap", msg.build())
+    }
+
+    // A test-only member of a production type whose signature meets a
+    // requirement a production conformance of the type meets with the
+    // trait's default or a derivation is refused where it is declared
+    // (SL:testing): no call through the trait ever runs it, and test code's
+    // direct call could not choose between the two. One met by a written
+    // member is `overload.indistinguishable`'s, a copy policy's `copy()`
+    // `copy.test-only-policy`'s and a `deinit` `deinit.outside-policy`'s.
+    public func check_test_only_shadows(&var self) {
+        var d = 0
+        while d < self.res.decls.len() {
+            let info = self.res.decls[d]
+            d = d + 1
+            let callable = info.kind == ResDeclKind.Method || info.kind == ResDeclKind.Init
+            if not callable || not info.test_only || info.parent < 0 || info.leaf < 0 {
+                continue
+            }
+            let ext = info.parent
+            if self.res.decls[ext].kind != ResDeclKind.Extension {
+                continue
+            }
+            let target = self.ext_target(ext)
+            if target >= 0 && not self.res.decls[target].test_only {
+                self.check_test_only_shadow(d - 1, target)
+            }
+        }
+    }
+
+    // The refusal of test-only member `d` of production type `target`, when
+    // it meets a requirement a production conformance of `target` meets with
+    // a default or a derivation.
+    func check_test_only_shadow(&var self, d: Int, target: Int) {
+        let name = self.res.decls[d].name
+        var k = 0
+        while k < self.conformances.len() {
+            let c = self.conformances[k]
+            k = k + 1
+            if c.type_decl != target || self.is_test_only_conformance(k - 1) {
+                continue
+            }
+            let s = self.conformance_subst(k - 1)
+            var j = 0
+            while j < c.status_count {
+                let st = self.statuses[c.status_first + j]
+                j = j + 1
+                let filled = st.kind == TcStatusKind.Default || st.kind == TcStatusKind.Synthesized
+                let req = self.res.decls[st.requirement]
+                let tr = req.parent
+                let owned = tr == self.known.copy || tr == self.known.explicit_copy || tr == self.known.deinit
+                if not filled || owned || req.name != name {
+                    continue
+                }
+                self.build_decl(d)
+                if self.agrees(st.requirement, d, &s) {
+                    self.refuse_test_only_shadow(d, k - 1, st)
+                    return
+                }
+            }
+        }
+    }
+
+    func refuse_test_only_shadow(&var self, d: Int, at: Int, st: TcStatus) {
+        let info = self.res.decls[d]
+        let c = self.conformances[at]
+        let type_name = self.res.decl_path(c.type_decl)
+        var msg = StringBuilder()
+        try! msg.append("a test-only member that meets a requirement production code already meets is refused: `")
+        try! msg.append(self.res.decl_path(d))
+        try! msg.append("` meets `")
+        try! msg.append(self.res.decl_path(st.requirement))
+        try! msg.append("`, which `")
+        try! msg.append(type_name)
+        try! msg.append("`'s conformance to `")
+        try! msg.append(self.res.decl_path(c.trait_decl))
+        try! msg.append("` at ")
+        try! msg.append(self.res.node_position(c.module, c.node))
+        if st.kind == TcStatusKind.Synthesized {
+            try! msg.append(" derives with `@synthesize`")
+        } else {
+            try! msg.append(" meets with the trait's default")
+        }
+        try! msg.append(", so no call through the trait runs it; to fake `")
+        // Stage 0 workaround (SL:hazards S4): canonical: try! msg.append(self.res.decl_path(self.res.decls[st.requirement].parent))
+        let trait_decl = self.res.decls[st.requirement].parent
+        try! msg.append(self.res.decl_path(trait_decl))
+        try! msg.append("`, pass a test-only type that conforms to it to the production generic, or give this member another name")
+        self.refuse_in(info.module, info.leaf, "conformance.test-only-shadow", msg.build())
     }
 }

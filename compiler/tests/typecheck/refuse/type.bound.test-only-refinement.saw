@@ -1,0 +1,32 @@
+// refuses: type.bound at 31:17
+// ordinary code's bound met only through a test-only conformance to a trait
+// refining it
+
+trait Greet {
+    func hi(&self) -> Int
+}
+
+trait Loud: Greet {
+}
+
+struct Money {
+    cents: Int
+}
+
+extension Money {
+    func hi(&self) -> Int {
+        1
+    }
+}
+
+@test
+extension Money: Loud {}
+
+func g<T: Greet>(x: &T) -> Int {
+    x.hi()
+}
+
+func main() {
+    let a = Money(cents: 1)
+    print("{}", g(&a))
+}

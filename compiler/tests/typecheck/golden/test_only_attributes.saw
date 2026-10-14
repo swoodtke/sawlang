@@ -11,10 +11,10 @@ struct Price {
 }
 
 @test
-@synthesize extension Money: Equatable {}
+@synthesize extension Money: Comparable {}
 
 @test {
-    @synthesize extension Price: Equatable {}
+    @synthesize extension Price: Comparable {}
 }
 
 @test
@@ -36,6 +36,6 @@ struct Price {
 }
 
 @test "a synthesized conformance under @test compares" {
-    assert(Money(cents: 3) == Money(cents: 3))
-    assert(Price(cents: 3) == Price(cents: 3))
+    assert(Money(cents: 3) <= Money(cents: 3))
+    assert(Price(cents: 3) <= Price(cents: 3))
 }

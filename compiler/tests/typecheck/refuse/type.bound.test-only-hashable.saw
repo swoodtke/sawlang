@@ -1,0 +1,19 @@
+// refuses: type.bound at 18:5
+// ordinary code's `Hashable` bound met only by a test-only conformance
+
+struct Money {
+    cents: Int
+    tag: String
+}
+
+@test
+extension Money: Hashable {
+    func hash(&self, h: &var Hasher) {}
+}
+
+func need<T: Hashable>(x: &T) {}
+
+func main() {
+    let a = Money(cents: 1, tag: "a")
+    need(&a)
+}

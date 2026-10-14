@@ -344,17 +344,17 @@ extension TcProgram {
             return
         }
         let sync = self.known.sync
-        if sync < 0 || self.satisfies(t, sync, -1, -1) {
+        let info = self.res.decls[d]
+        if sync < 0 || self.satisfies(t, sync, -1, -1, info.module, info.test_only) {
             return
         }
-        let info = self.res.decls[d]
         var msg = StringBuilder()
         try! msg.append("the static `")
         try! msg.append(self.res.decl_path(d))
         try! msg.append("` has type `")
         try! msg.append(self.type_text(t))
         try! msg.append("`, which is not `Sync`, and a static is reachable from every thread")
-        let why = self.sync_blocker_text(t)
+        let why = self.sync_blocker_text(t, info.module, info.test_only)
         if why.len() > 0 {
             try! msg.append(": ")
             try! msg.append(why)
@@ -369,30 +369,33 @@ extension TcProgram {
 
     // Why type `t`, which is not `Sync`, derives none: the member that blocks
     // the derivation, followed down to the type that must declare
-    // `UnsafeSync` when it holds a cell, or "" when nothing more is known.
-    func sync_blocker_text(&var self, t: Int) -> String {
+    // `UnsafeSync` when it holds a cell, or "" when nothing more is known;
+    // the conformances are those code in module `viewer`, test code when
+    // `in_test`, may use.
+    func sync_blocker_text(&var self, t: Int, viewer: Int, in_test: Bool) -> String {
         var explained = tc_memo()
-        self.sync_blocker_in(t, &var explained)
+        self.sync_blocker_in(t, &var explained, viewer, in_test)
     }
 
     // One step of `sync_blocker_text`. A type already explained on the way
     // down adds nothing; past the instantiation depth, `satisfies` refuses
     // the derivation with its own diagnostic, so the explanation stops.
-    func sync_blocker_in(&var self, t: Int, explained: &var TcMemo) -> String {
+    func sync_blocker_in(&var self, t: Int, explained: &var TcMemo, viewer: Int,
+                       in_test: Bool) -> String {
         if not explained.mark(t, 0) || self.nesting_depth(t) > TC_INSTANTIATION_DEPTH {
             return ""
         }
         let sync = self.known.sync
         let info = self.types.ty(t)
         if info.kind == TcKind.Array {
-            return self.sync_blocker_in(info.b, &var explained)
+            return self.sync_blocker_in(info.b, &var explained, viewer, in_test)
         }
         if info.kind == TcKind.Tuple {
             var k = 0
             while k < info.count {
                 let e = self.types.arg(t, k)
-                if not self.satisfies(e, sync, -1, -1) {
-                    return self.sync_blocker_in(e, &var explained)
+                if not self.satisfies(e, sync, -1, -1, viewer, in_test) {
+                    return self.sync_blocker_in(e, &var explained, viewer, in_test)
                 }
                 k = k + 1
             }
@@ -404,9 +407,9 @@ extension TcProgram {
         let d = info.decl
         if d == self.known.optional {
             let inner = self.types.arg(t, 0)
-            return self.sync_blocker_in(inner, &var explained)
+            return self.sync_blocker_in(inner, &var explained, viewer, in_test)
         }
-        let unmet = self.unmet_sync_condition(t, &var explained)
+        let unmet = self.unmet_sync_condition(t, &var explained, viewer, in_test)
         if unmet.len() > 0 {
             return unmet
         }
@@ -426,7 +429,7 @@ extension TcProgram {
             var blocked = -1
             if mi.kind == ResDeclKind.Field && s.result >= 0 {
                 let ft = self.subst(s.result, &subst)
-                if not self.satisfies(ft, sync, -1, -1) {
+                if not self.satisfies(ft, sync, -1, -1, viewer, in_test) {
                     blocked = ft
                 }
             } else if mi.kind == ResDeclKind.Case {
@@ -434,7 +437,7 @@ extension TcProgram {
                 while j < s.param_count && blocked < 0 {
                     let p = self.params[s.param_first + j]
                     let pt = self.subst(p.ty, &subst)
-                    if not self.satisfies(pt, sync, -1, -1) {
+                    if not self.satisfies(pt, sync, -1, -1, viewer, in_test) {
                         blocked = pt
                     }
                     j = j + 1
@@ -470,7 +473,7 @@ extension TcProgram {
             try! out.append(" has type `")
             try! out.append(self.type_text(blocked))
             try! out.append("`, which is not `Sync`")
-            let deeper = self.sync_blocker_in(blocked, &var explained)
+            let deeper = self.sync_blocker_in(blocked, &var explained, viewer, in_test)
             if deeper.len() > 0 {
                 try! out.append(": ")
                 try! out.append(deeper)
@@ -482,7 +485,8 @@ extension TcProgram {
 
     // For a type whose `UnsafeSync` conformance is conditional, the bound one
     // of its arguments fails, and why; "" when it declares none or none fails.
-    func unmet_sync_condition(&var self, t: Int, explained: &var TcMemo) -> String {
+    func unmet_sync_condition(&var self, t: Int, explained: &var TcMemo, viewer: Int,
+                              in_test: Bool) -> String {
         let info = self.types.ty(t)
         let sync = self.known.sync
         var c = 0
@@ -490,6 +494,9 @@ extension TcProgram {
             let one = self.conformances[c]
             c = c + 1
             if one.type_decl != info.decl || not self.trait_refines(one.trait_decl, sync) {
+                continue
+            }
+            if not self.conformance_visible(c - 1, viewer, in_test) {
                 continue
             }
             self.ensure_generics(one.ext)
@@ -502,7 +509,7 @@ extension TcProgram {
                 while j < g.bound_count {
                     let bound = self.traits[g.bound_first + j]
                     j = j + 1
-                    if self.satisfies(arg, bound, -1, -1) {
+                    if self.satisfies(arg, bound, -1, -1, viewer, in_test) {
                         continue
                     }
                     var out = StringBuilder()
@@ -513,7 +520,7 @@ extension TcProgram {
                     try! out.append("`, and `")
                     try! out.append(self.type_text(arg))
                     try! out.append("` does not")
-                    let deeper = self.sync_blocker_in(arg, &var explained)
+                    let deeper = self.sync_blocker_in(arg, &var explained, viewer, in_test)
                     if deeper.len() > 0 {
                         try! out.append(": ")
                         try! out.append(deeper)

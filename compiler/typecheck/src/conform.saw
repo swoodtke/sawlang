@@ -5,8 +5,9 @@
 
 import sawparse.grammar.{Alt}
 import sawresolve.dump.{res_sort_strings}
+import sawresolve.imports.{res_decl_binding}
 import sawresolve.model.{ResBindKind, ResConformance, ResDecl, ResDeclKind, ResModule,
-                             ResModuleKind}
+                             ResModuleKind, ResVis}
 import sawtypecheck.declarations.{tc_build_signatures}
 import sawtypecheck.model.{TC_EFFECT_BORROWS, TC_EFFECT_BORROWS_SYNC, TC_EFFECT_CONSUMES,
                                TC_EFFECT_UNSAFE, TC_FLAG_DEFAULT_BODY, TC_FLAG_STATIC,
@@ -157,9 +158,10 @@ extension TcProgram {
     }
 
     // `base.Item` for associated type `d`: a projection while `base` is
-    // still generic, else the type `base`'s conformance assigns. A base that
-    // assigns none fails a bound, which is refused where it is written, so
-    // the projection is an error type there.
+    // still generic, else the type `base`'s conformance assigns, a production
+    // one's before a test-only one's. A base that assigns none fails a bound,
+    // which is refused where it is written, so the projection is an error
+    // type there.
     public func project(&var self, base: Int, d: Int) -> Int {
         let info = self.types.ty(base)
         let generic = info.kind == TcKind.Param || info.kind == TcKind.Projection || info.kind == TcKind.SelfType
@@ -176,21 +178,25 @@ extension TcProgram {
             j = j + 1
         }
         let by_args = tc_args_subst(info.decl, move args)
-        var c = 0
-        while c < self.conformances.len() {
-            let one = self.conformances[c]
-            c = c + 1
-            if one.type_decl != info.decl {
-                continue
-            }
-            let s = self.conformance_subst(c - 1)
-            var k = 0
-            while k < s.assoc_decls.len() {
-                if s.assoc_decls[k] == d {
-                    return self.subst(s.assoc_types[k], &by_args)
+        var pass = 0
+        while pass < 2 {
+            var c = 0
+            while c < self.conformances.len() {
+                let one = self.conformances[c]
+                c = c + 1
+                if one.type_decl != info.decl || self.is_test_only_conformance(c - 1) != (pass == 1) {
+                    continue
                 }
-                k = k + 1
+                let s = self.conformance_subst(c - 1)
+                var k = 0
+                while k < s.assoc_decls.len() {
+                    if s.assoc_decls[k] == d {
+                        return self.subst(s.assoc_types[k], &by_args)
+                    }
+                    k = k + 1
+                }
             }
+            pass = pass + 1
         }
         self.error_type
     }
@@ -377,12 +383,83 @@ extension TcProgram {
 
     // How each requirement of each conformance is met, and the refusals for
     // the ones that are not: missing, disagreeing, or derivable but unasked.
+    // The production conformances are settled first, since a test-only one
+    // takes their answers (`production_status`).
     public func settle_conformances(&var self, visible: &Vector<Bool>) {
+        var pass = 0
+        while pass < 2 {
+            var k = 0
+            while k < self.conformances.len() {
+                if self.is_test_only_conformance(k) == (pass == 1) {
+                    self.settle_conformance(k, &visible)
+                }
+                k = k + 1
+            }
+            pass = pass + 1
+        }
+    }
+
+    // Whether conformance `at` exists for code in module `viewer`, test code
+    // when `in_test`. One a test-only extension declares exists for its own
+    // module's test code alone (resolve's `may_use`), so ordinary code is
+    // checked as if it did not (SL:testing). A Copy tier is read without
+    // it: `check_test_only_policies` refuses every copy policy it would hide.
+    //
+    // ENTRY POINTS (conformance_visible):
+    //     declares_conformance
+    //     has_conformance
+    //     unmet_sync_condition
+    //     assignment_for
+    public func conformance_visible(&self, at: Int, viewer: Int, in_test: Bool) -> Bool {
+        let c = self.conformances[at]
+        let ext = self.res.decls[c.ext]
+        self.res.may_use(ResVis.Public, ext.module, ext.test_only, viewer, in_test)
+    }
+
+    // Whether conformance `at` is declared by a test-only extension.
+    public func is_test_only_conformance(&self, at: Int) -> Bool {
+        let c = self.conformances[at]
+        self.res.decls[c.ext].test_only
+    }
+
+    // Whether the members extension `ext` writes may meet conformance `at`'s
+    // requirements: those a conformance's own code may use, so a test-only
+    // extension's meet only a test-only conformance of its module, and a
+    // production conformance is met as if no test-only declaration existed.
+    func meets_from(&self, at: Int, ext: Int) -> Bool {
+        let c = self.conformances[at]
+        let other = self.res.decls[ext]
+        let in_test = self.is_test_only_conformance(at)
+        self.res.may_use(ResVis.Public, other.module, other.test_only, c.module, in_test)
+    }
+
+    // For test-only conformance `at`, the status a production conformance of
+    // its type gives requirement `req`, when one reaches `req`'s trait; else
+    // -1. A production generic has one instance at a production type, which
+    // production code runs, so every conformance reaching the trait answers
+    // as the production one does, which sees no test-only member.
+    func production_status(&self, at: Int, req: Int) -> Int {
+        if not self.is_test_only_conformance(at) {
+            return -1
+        }
+        let c = self.conformances[at]
+        let tr = self.res.decls[req].parent
         var k = 0
         while k < self.conformances.len() {
-            self.settle_conformance(k, &visible)
+            let other = self.conformances[k]
             k = k + 1
+            if other.type_decl != c.type_decl || self.is_test_only_conformance(k - 1) || not self.trait_refines(other.trait_decl, tr) {
+                continue
+            }
+            var j = 0
+            while j < other.status_count {
+                if self.statuses[other.status_first + j].requirement == req {
+                    return other.status_first + j
+                }
+                j = j + 1
+            }
         }
+        return -1
     }
 
     func settle_conformance(&var self, at: Int, visible: &Vector<Bool>) {
@@ -419,6 +496,18 @@ extension TcProgram {
                         refused = true
                     }
                 } else if info.kind == ResDeclKind.Requirement {
+                    let inherited = self.production_status(at, req)
+                    if inherited >= 0 {
+                        let st = self.statuses[inherited]
+                        try! self.statuses.push(st)
+                        if st.kind == TcStatusKind.Synthesized {
+                            derived = true
+                        } else if st.kind == TcStatusKind.Missing {
+                            refused = true
+                        }
+                        r = r + 1
+                        continue
+                    }
                     let found = self.written_member(at, req, &s, &visible)
                     if found >= 0 {
                         try! self.statuses.push(TcStatus(requirement: req, kind: TcStatusKind.Written,
@@ -775,7 +864,9 @@ extension TcProgram {
     // the conforming type's conformance to the trait that declares `req`. A
     // refining trait's conformance inherits its parent's associated types
     // from that one conformance, as it inherits the parent's methods from
-    // any extension, so a parent's `Item` is never restated to be met.
+    // any extension, so a parent's `Item` is never restated to be met. A
+    // parent conformance its own code may not use, a test-only one for a
+    // production conformance, assigns nothing to it.
     public func assignment_for(&self, at: Int, req: Int) -> Int {
         let c = self.conformances[at]
         let name = self.res.decls[req].name
@@ -784,7 +875,8 @@ extension TcProgram {
             return own
         }
         let parent = self.parent_conformance(at, req)
-        if parent < 0 {
+        let in_test = self.is_test_only_conformance(at)
+        if parent < 0 || not self.conformance_visible(parent, c.module, in_test) {
             return -1
         }
         let ext = self.conformances[parent].ext
@@ -795,14 +887,49 @@ extension TcProgram {
     // `req` names another type than the parent conformance's assignment does,
     // which is refused: a type has one `Item` per trait that declares it, or a
     // call through the parent and one through the refinement would disagree.
+    // A test-only parent is compared too, since a binary has one `Item`. A
+    // test-only conformance is also compared with each production one that
+    // reaches `req` through a sibling refinement, so the `Item` ordinary code
+    // projects never depends on where a test-only conformance is declared.
     func restates_differently(&var self, at: Int, req: Int, assigned: Int) -> Bool {
         let parent = self.parent_conformance(at, req)
-        if parent < 0 {
+        if parent >= 0 {
+            let p = self.conformances[parent]
+            let name = self.res.decls[req].name
+            let theirs = self.assigned_type(p.ext, name)
+            if self.assigns_differently(at, req, assigned, theirs, parent) {
+                return true
+            }
+        }
+        if not self.is_test_only_conformance(at) {
             return false
         }
-        let p = self.conformances[parent]
-        let name = self.res.decls[req].name
-        let theirs = self.assigned_type(p.ext, name)
+        let c = self.conformances[at]
+        let declaring = self.res.decls[req].parent
+        var k = 0
+        while k < self.conformances.len() {
+            let other = self.conformances[k]
+            k = k + 1
+            let reaches = other.type_decl == c.type_decl && self.trait_refines(other.trait_decl, declaring)
+            // A production refinement of `at`'s own trait is
+            // `conformance.test-only-overlap`'s to refuse.
+            let overlap = self.trait_refines(other.trait_decl, c.trait_decl)
+            if k - 1 == parent || not reaches || overlap || self.is_test_only_conformance(k - 1) {
+                continue
+            }
+            let theirs = self.assignment_for(k - 1, req)
+            if self.assigns_differently(at, req, assigned, theirs, k - 1) {
+                return true
+            }
+        }
+        false
+    }
+
+    // Whether assignment `theirs`, which conformance `other` gives associated
+    // type `req`, names another type than conformance `at`'s `assigned`; the
+    // refusal when it does.
+    func assigns_differently(&var self, at: Int, req: Int, assigned: Int, theirs: Int, other: Int) -> Bool {
+        let p = self.conformances[other]
         if theirs < 0 || theirs == assigned {
             return false
         }
@@ -866,9 +993,10 @@ extension TcProgram {
     }
 
     // The member of the conforming type, written in an extension the
-    // conformance's module sees, that meets requirement `req`: its
-    // declaration, -1 when none is written, or -2 when every candidate of
-    // that name disagrees with the requirement, which is refused here.
+    // conformance's module sees and whose members may meet it (`meets_from`),
+    // that meets requirement `req`: its declaration, -1 when none is written,
+    // or -2 when every candidate of that name disagrees with the requirement,
+    // which is refused here.
     func written_member(&var self, at: Int, req: Int, s: &TcSubst, visible: &Vector<Bool>) -> Int {
         let c = self.conformances[at]
         let name = self.res.decls[req].name
@@ -894,7 +1022,7 @@ extension TcProgram {
             if inside_only && ext != c.ext {
                 continue
             }
-            if not self.sees_extensions_of(c.module, ext_module, owner_module, &visible) {
+            if not self.meets_from(at, ext) || not self.sees_extensions_of(c.module, ext_module, owner_module, &visible) {
                 continue
             }
             let members = self.members_of(ext)

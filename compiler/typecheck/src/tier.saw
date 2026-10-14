@@ -672,8 +672,9 @@ func tc_summary_join(a: Int, b: Int, any_part: Bool) -> Int {
 // One `satisfies` question: each (type, trait) pair it asks, its answer or the
 // frame asking it; the pairs that hold while a frame they leaned on is open,
 // the first `leaning` of `leaning_types` and `leaning_traits`, in the order
-// they were decided; the lowest frame a cycle reached back to; and the type
-// whose derivation from its members nested past the instantiation depth.
+// they were decided; the lowest frame a cycle reached back to; the type whose
+// derivation from its members nested past the instantiation depth; and the
+// code asking, whose conformances every pair is answered by.
 struct TcSatisfyRun {
     states: TcMemo
     leaning_types: Vector<Int>
@@ -683,13 +684,16 @@ struct TcSatisfyRun {
     low: Int
     overflow: Int
     overflow_trait: Int
+    viewer: Int
+    in_test: Bool
 }
 
 extension TcSatisfyRun: NoCopy {}
 
-func tc_satisfy_run() -> TcSatisfyRun {
+func tc_satisfy_run(viewer: Int, in_test: Bool) -> TcSatisfyRun {
     TcSatisfyRun(states: tc_memo(), leaning_types: Vector<Int>(), leaning_traits: Vector<Int>(), leaning: 0,
-                 frames: 0, low: TC_SATISFY_NO_LOW, overflow: -1, overflow_trait: -1)
+                 frames: 0, low: TC_SATISFY_NO_LOW, overflow: -1, overflow_trait: -1,
+                 viewer: viewer, in_test: in_test)
 }
 
 extension TcSatisfyRun {
@@ -736,7 +740,7 @@ extension TcProgram {
         var k = 0
         while k < self.obligations.len() {
             let o = self.obligations[k]
-            if not self.satisfies(o.arg, o.trait_decl, o.env_decl, o.env_ext) {
+            if not self.satisfies(o.arg, o.trait_decl, o.env_decl, o.env_ext, o.module, o.test) {
                 self.refuse_bound(&o)
             }
             k = k + 1
@@ -762,9 +766,12 @@ extension TcProgram {
     // `env_decl` and the conditions of extension `env_ext` are in scope. A
     // derivation from members that reaches back to a pair it is still
     // deciding holds there, as a recursive type's `Send` does through its
-    // `Box`; one that nests past the instantiation depth is refused.
-    public func satisfies(&var self, t: Int, tr: Int, env_decl: Int, env_ext: Int) -> Bool {
-        var run = tc_satisfy_run()
+    // `Box`; one that nests past the instantiation depth is refused. The
+    // conformances are those code in module `viewer`, test code when
+    // `in_test`, may use (`conformance_visible`).
+    public func satisfies(&var self, t: Int, tr: Int, env_decl: Int, env_ext: Int, viewer: Int,
+                          in_test: Bool) -> Bool {
+        var run = tc_satisfy_run(viewer, in_test)
         let answer = self.satisfies_in(t, tr, env_decl, env_ext, &var run)
         if run.overflow >= 0 {
             self.refuse_instantiation_depth(run.overflow, run.overflow_trait)
@@ -974,7 +981,7 @@ extension TcProgram {
     }
 
     // Whether a conformance of `t`'s declaration to `tr`, or to a trait that
-    // refines it, holds for `t`'s arguments.
+    // refines it, that the run's code may use holds for `t`'s arguments.
     func declares_conformance(&var self, t: Int, tr: Int, env_decl: Int, env_ext: Int, run: &var TcSatisfyRun) -> Bool {
         let info = self.types.ty(t)
         var k = 0
@@ -982,6 +989,9 @@ extension TcProgram {
             let c = self.conformances[k]
             k = k + 1
             if c.type_decl != info.decl || not self.trait_refines(c.trait_decl, tr) {
+                continue
+            }
+            if not self.conformance_visible(k - 1, run.viewer, run.in_test) {
                 continue
             }
             if self.conditions_hold(c.ext, t, env_decl, env_ext, &var run) {
@@ -1041,6 +1051,15 @@ extension TcProgram {
         }
         let s = self.inline_summary(t, TC_WALK_TRIVIAL)
         tc_summary_holds(s) && tc_summary_mask(s) == 0
+    }
+
+    // Whether `t` is trivially copyable for some arguments of the type
+    // parameters it names: `is_trivial` once each of them is.
+    public func may_be_trivial(&var self, t: Int) -> Bool {
+        if t < 0 {
+            return false
+        }
+        tc_summary_holds(self.inline_summary(t, TC_WALK_TRIVIAL))
     }
 
     // Send and Sync, derived from the members, with each argument in place.

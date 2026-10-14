@@ -1,0 +1,26 @@
+// refuses: conformance.test-only-shadow at 19:17
+// a test-only static meeting a static requirement a production conformance
+// meets with the trait's default
+
+trait Origin {
+    static func zero() -> Int {
+        0
+    }
+}
+
+struct Money {
+    cents: Int
+}
+
+extension Money: Origin {}
+
+@test
+extension Money {
+    static func zero() -> Int {
+        7
+    }
+}
+
+func main() {
+    print("ok")
+}

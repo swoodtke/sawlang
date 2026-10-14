@@ -1,0 +1,43 @@
+// refuses: conformance.associated-conflict at 29:10
+// a test-only refinement, declared first, assigning a parent's associated
+// type as another type than a production sibling refinement does: the `Item`
+// ordinary code projects would otherwise be the test-only one's
+
+trait Source {
+    type Item
+    func take(&self) -> Item
+}
+
+trait Left: Source {
+}
+
+trait Right: Source {
+}
+
+struct Pile {
+    n: Int
+}
+
+extension Pile {
+    func take(&self) -> Int {
+        self.n
+    }
+}
+
+@test
+extension Pile: Right {
+    type Item = String
+}
+
+extension Pile: Left {
+    type Item = Int
+}
+
+func first<T: Source>(x: &T) -> T.Item {
+    x.take()
+}
+
+func main() {
+    let p = Pile(n: 3)
+    print("{}", first(&p) + 1)
+}

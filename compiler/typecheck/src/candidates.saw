@@ -144,6 +144,8 @@ extension TcProgram {
         let s = self.sigs[ext]
         let env = self.current_decl
         let env_ext = self.current_ext
+        let viewer = self.current
+        let in_test = self.current_test
         var i = 0
         while i < s.generic_count && i < info.count {
             let g = self.generics[s.generic_first + i]
@@ -151,7 +153,7 @@ extension TcProgram {
             var j = 0
             while j < g.bound_count {
                 let bound = self.traits[g.bound_first + j]
-                if not self.satisfies(arg, bound, env, env_ext) {
+                if not self.satisfies(arg, bound, env, env_ext, viewer, in_test) {
                     return TcUnmetBound(index: i, trait_decl: bound)
                 }
                 j = j + 1

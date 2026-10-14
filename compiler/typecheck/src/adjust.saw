@@ -203,7 +203,9 @@ extension TcProgram {
         }
         let env = self.current_decl
         let ext = self.current_ext
-        self.satisfies(from, tr, env, ext)
+        let viewer = self.current
+        let in_test = self.current_test
+        self.satisfies(from, tr, env, ext, viewer, in_test)
     }
 
     public func is_box(&self, t: Int) -> Bool {

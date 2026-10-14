@@ -1,0 +1,20 @@
+public struct Bell {
+    n: Int
+}
+
+public func bell() -> Bell {
+    Bell(n: 5)
+}
+
+public trait Named {
+    func name(&self) -> Int
+}
+
+extension Bell {
+    func name(&self) -> Int {
+        self.n
+    }
+}
+
+@test
+extension Bell: Named {}

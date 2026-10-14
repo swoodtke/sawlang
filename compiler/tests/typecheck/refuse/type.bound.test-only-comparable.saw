@@ -1,0 +1,31 @@
+// refuses: type.bound at 30:17
+// ordinary code's `Comparable` bound met only by a test-only conformance,
+// beside a production `Equatable`
+
+struct Money {
+    cents: Int
+    tag: String
+}
+
+extension Money: Equatable {
+    func equals(&self, other: &Money) -> Bool {
+        self.cents == other.cents
+    }
+}
+
+@test
+extension Money: Comparable {
+    func compare(&self, other: &Money) -> Ordering {
+        Ordering.Equal
+    }
+}
+
+func less<T: Comparable>(a: &T, b: &T) -> Bool {
+    a < b
+}
+
+func main() {
+    let a = Money(cents: 1, tag: "a")
+    let b = Money(cents: 2, tag: "b")
+    print("{}", less(&a, &b))
+}

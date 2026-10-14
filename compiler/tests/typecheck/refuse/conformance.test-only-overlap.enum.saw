@@ -1,0 +1,18 @@
+// refuses: conformance.test-only-overlap at 10:18
+// a test-only `Equatable` on a payload-free production enum
+
+enum Light {
+    case Red
+    case Green
+}
+
+@test
+extension Light: Equatable {
+    func equals(&self, other: &Light) -> Bool {
+        true
+    }
+}
+
+func main() {
+    print("{}", Light.Red == Light.Green)
+}

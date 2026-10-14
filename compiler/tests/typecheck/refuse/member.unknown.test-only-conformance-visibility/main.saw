@@ -1,0 +1,11 @@
+// refuses: member.unknown at 10:24
+// ordinary code calling another module's private method, which meets a public
+// trait's requirement only through a test-only conformance: a member follows
+// its trait's visibility only for a production conformance
+
+import bells.{Bell, bell}
+
+func main() {
+    let b = bell()
+    print("name {}", b.name())
+}
