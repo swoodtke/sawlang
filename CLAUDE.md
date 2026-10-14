@@ -663,8 +663,11 @@ erased `&var any Trait` excluded, Box payload-swap works); std.net
 owning TcpListener/TcpStream (failable ops return Result, EOF distinct
 from error — 84-92). Freestanding toolkit: allocator type params +
 Box/slab + statics/Atomic + UnsafeMemory + `@export`/`@section`.
-Member visibility (design 80): struct fields + extension methods are
-private-by-default outside the defining module (std under the gate
+Member visibility (design 80): a struct field inherits its struct's
+tier, so a `public struct`'s bare fields are readable and
+memberwise-constructible from anywhere and only a field marked
+`private` is narrowed to its module; an extension member carries its
+own visibility, and a bare one is module-private (std under the gate
 too — design 82 makes each std FILE its own module). Prelude
 discipline (design 82): only a curated core is auto-visible
 (primitives, Vector/Map/Set, Optional/Result/Box/Arc/Allocator, the
