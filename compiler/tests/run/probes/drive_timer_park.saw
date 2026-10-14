@@ -1,0 +1,18 @@
+// prints: before
+// panics: the driven frame is parked on a timer, which a drive point does not wait on yet
+// A driven frame that sleeps reaches the drive point's refusal of a non-ready
+// park (SL-645): the timer park is lowered, so `nap`'s frame records its
+// deadline and the timer marker and returns `Pending`, and the driver, which
+// waits on a ready yield alone until the timers' executor half arrives
+// (SL:coroutines A11), panics naming the reason and the site rather than
+// spin. Stage 0's driver sleeps here, so this pins the reachable path, not
+// Stage 0's output.
+func nap() {
+    print("before")
+    sleep(Duration.ms(1))
+    print("after")
+}
+
+func main() {
+    __saw_drive(nap())
+}

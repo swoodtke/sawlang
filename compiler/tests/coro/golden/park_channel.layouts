@@ -1,0 +1,12 @@
+frame #0: park_channel.main()  (size 24 align 8)
+    suspend 1: bb0 call channel_wait
+    (*frame).[0: Int]  size 8 align 8  state
+    (*frame).[8: Void]  size 0 align 1  _0 result
+    (*frame).[8: frame std.task.channel_wait(word: Int)]  size 16 align 8  child  (across 1)
+    stack: _1
+frame #5: std.task.channel_wait(word: Int)  (size 16 align 8)
+    suspend 1: bb0 call __saw_park_channel
+    (*frame).[0: Int]  size 8 align 8  state
+    (*frame).[8: Void]  size 0 align 1  _0 result
+    (*frame).[8: Int]  size 8 align 8  _1 param word  (across 1)
+    stack: none

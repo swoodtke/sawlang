@@ -1,0 +1,23 @@
+frame #0: park_fd.main()  (size 64 align 8)
+    suspend 1: bb0 call fd_wait
+    suspend 2: bb1 call fd_wait_until
+    (*frame).[0: Int]  size 8 align 8  state
+    (*frame).[8: Void]  size 0 align 1  _0 result
+    (*frame).[8: frame std.task.fd_wait(fd: Int, write: Int)]  size 24 align 8  child  (across 1)
+    (*frame).[32: frame std.task.fd_wait_until(fd: Int, write: Int, deadline: UInt64)]  size 32 align 8  child  (across 2)
+    stack: none
+frame #5: std.task.fd_wait(fd: Int, write: Int)  (size 24 align 8)
+    suspend 1: bb0 call __saw_park_fd
+    (*frame).[0: Int]  size 8 align 8  state
+    (*frame).[8: Void]  size 0 align 1  _0 result
+    (*frame).[8: Int]  size 8 align 8  _1 param fd  (across 1)
+    (*frame).[16: Int]  size 8 align 8  _2 param write  (across 1)
+    stack: none
+frame #6: std.task.fd_wait_until(fd: Int, write: Int, deadline: UInt64)  (size 32 align 8)
+    suspend 1: bb0 call __saw_park_fd_until
+    (*frame).[0: Int]  size 8 align 8  state
+    (*frame).[8: Void]  size 0 align 1  _0 result
+    (*frame).[8: Int]  size 8 align 8  _1 param fd  (across 1)
+    (*frame).[16: Int]  size 8 align 8  _2 param write  (across 1)
+    (*frame).[24: UInt64]  size 8 align 8  _3 param deadline  (across 1)
+    stack: none

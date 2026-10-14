@@ -1,0 +1,14 @@
+// The timer park (SL:coroutines A3c), under `sleep`: its lowered frame asks
+// the executor for the deadline, records that in the task's context, then
+// records the timer marker in the park word, and returns `Pending`. A timer
+// arms nothing, since the executor reads the deadline once it sees the
+// marker. `nap` drives `sleep` as any child.
+func nap(span: Duration) {
+    print("before")
+    sleep(span)
+    print("after")
+}
+
+func main() {
+    nap(Duration.ms(5))
+}

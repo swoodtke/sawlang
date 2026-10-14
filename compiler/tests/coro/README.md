@@ -17,6 +17,7 @@ coro/
                           lowered frames' resume functions
   refuse/                 RULE.saw or RULE.VARIANT.saw, a program refused
   modules/                packages a fixture imports, one directory each
+  parks/task_tail.saw     what the park goldens' copy of std adds to task.saw
 ```
 
 ## `sawc2 coro`
@@ -179,9 +180,11 @@ docstring names its entry points (SL:coroutines §3.1). A frame is
 **lowered** when every suspension point in it is a shape this compiler
 lowers:
 
-- a ready park: a call of the ready park point (`std.task`'s
-  `__saw_park_ready`, by its lang role), which `yield_now`'s body is, or of
-  the test intrinsic `__saw_suspend`;
+- a park, of any reason: a call of one of `std.task`'s park points, by its
+  lang role (`__saw_park_ready`, which `yield_now`'s body is;
+  `__saw_park_timer`, which `sleep`'s is; `__saw_park_fd` and
+  `__saw_park_fd_until`; `__saw_park_channel`; `__saw_park_offload`), or of
+  the test intrinsic `__saw_suspend`, a ready park;
 - a call of the test intrinsic `__saw_test_suspend`, a suspension for the
   effects alone (design 22): it frames its caller and runs as nothing;
 - a call driving a child whose frame is lowered.
@@ -209,6 +212,39 @@ block `bbB`, whose child slot is at offset S, is rewritten too (SL:coroutines
   bbN`, which moves the child's result out once it is `Ready` and continues
   where the call returned.
 
+A park's call `__saw_park_R(args)` in block `bbB` is rewritten so that the
+park records itself in the task's context before it arms anything
+(SL:architecture §3.9, SL-355's R1). The frame gains a second local, the
+context pointer `_C`, a `&var std.taskgroup.TaskContext` the resume function
+points at its `cx`; the park word is `(*(*_C).park)`, an `Int`, and the
+deadline `(*_C).deadline`, a `UInt64`, each reached by its field. The park
+word's values are std's vocabulary (`std/taskgroup.saw`): 0 ready, 1 a timer,
+-1 a descriptor, below -1 a channel's readiness word by its negated address.
+Each argument moves or copies as the call passed it, and the call, its
+arguments taken, ends the last block the rewrite leaves: it is the park.
+
+| reason | the park's blocks |
+|---|---|
+| ready | `bbB` gains `(*(*_C).park) = const 0` |
+| channel | `bbB` gains `(*(*_C).park) = WORD` |
+| timer | `bbB` ends in `_d = __saw_exec_timer_deadline(NANOS)`, then a new block records `(*_C).deadline = move _d` and `(*(*_C).park) = const 1` and parks |
+| fd | `bbB` gains `(*_C).deadline = DEADLINE`, or `const 0` for `__saw_park_fd`, `(*(*_C).park) = const -1` and the token `_t = cast(copy (*_C).park as Int)`, and ends in the arm `__saw_exec_io_register(FD, WRITE, move _t)`; a new block parks |
+| offload | `bbB` gains `(*_C).deadline = const 0`, `(*(*_C).park) = const -1` and the token, and ends in `_p = __saw_exec_offload_pipe(JOB)`; a new block ends in the arm `__saw_exec_io_register(move _p, const 0, move _t)`; another parks |
+
+A signal watch parks as a descriptor does. So in every reason the record
+dominates the arm, and an arm's token is the park word's address, which
+lives as long as the task. The executor functions each lowering calls are
+`std.taskgroup`'s; mono reaches them from the park's call. A park this
+executor does not wait on yet panics, never returns early: the arm of a
+descriptor and of an offload park panics naming the unit that brings its
+executor half (SL:coroutines A12a, A14b), and a timer or channel park, which
+arms nothing, reaches the executor's refusal of a wait it does not perform,
+at a drive point (SL-645) and in the entry executor alike (the run lane's
+`probes/drive_timer_park.saw` and `probes/main_timer_park.saw`). What a park
+reads on resume, ready, timed out or cancelled, comes with the units whose
+executor can tell them apart (A10, A11); until then every park returns
+nothing.
+
 A call of `__saw_test_suspend` becomes a goto where it returned. Nothing else
 changes: no drop and no window close is added, since teardown is the body's
 own, and the writes and the move-out are the transfers the call made. After
@@ -224,9 +260,9 @@ and the done state (-1) traps, since a driver that resumes a done frame has
 lost track of it. A return records the done state and returns `Ready`. At a
 suspension point, in place of its call:
 
-- **a ready park** stores 0, the ready yield of the park word vocabulary,
-  through the root token (`cx`'s first word), records its state and returns
-  `Pending`; re-entered, it continues to the call's return block;
+- **a park**, of any reason, records its state and returns `Pending`, its
+  record and arm having run in its blocks; re-entered, it continues to the
+  call's return block;
 - **a drive** starts the child at state 0 in its slot, then resumes it
   directly; while the child returns `Pending`, the frame records its state
   and returns `Pending` too, since the child's park wrote the root's word;
@@ -317,8 +353,9 @@ site that fails its check, per lowered frame, in item order:
 
 ```
 resume #K: NAME  (frame size S align A, pointer _F)
+resume #K: NAME  (frame size S align A, pointer _F, context _C)
     state 0: bb0
-    state N: bbB park ready
+    state N: bbB park ready | timer | fd | channel | offload
     state N: bbB drive #J CHILD at (*frame).[OFFSET]
     spawn bbB task root #J ROOT, descriptor _D, box _B
 fn NAME -> T { ... }
@@ -386,3 +423,14 @@ and both forms over a result with a destructor; the run lane's
 `drive_shapes`, `drive_ownership` and
 `drive_sync_root` run them, and std's lane's `exec/drive_timer_park` pins the
 panic on a non-ready park.
+
+The park goldens, `park_timer`, `park_fd`, `park_channel`, `park_offload`
+and `park_signal`, are one park reason each (the ready park is
+`drive_and_park`'s and the drive goldens'), with the record before the arm in
+each lowered body; `park_fd` holds
+both descriptor parks, and `park_signal` reaches its park through a watch's
+`next`. A program cannot name a park point, and the std modules that will
+call them are not ported yet, so every `park_NAME.saw` program is brought
+under a copy of std, `.build/coro-lane/std/`, whose `task.saw` ends in
+`parks/task_tail.saw`: public entry points to the park points, and a
+`SignalWatch`. `park_timer` needs none of them and is brought the same way.

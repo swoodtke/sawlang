@@ -148,7 +148,12 @@ root's task root the same way, since a driven root is framed whether or not
 it suspends, and its first site of each form reaches std's
 `__saw_exec_drive` or `__saw_exec_drive_steps` (`compiler/tests/coro/README.md`,
 "Drive sites"). A task root reaches its result type's drop glue, which its
-frame descriptor runs on a result nobody takes.
+frame descriptor runs on a result nobody takes. A call of a park point
+reaches what its lowering calls besides the park (`compiler/tests/coro/README.md`,
+"Lowering"): the first timer park std's `__saw_exec_timer_deadline`, the
+first descriptor or offload park `__saw_exec_io_register`, and the first
+offload park `__saw_exec_offload_pipe`; a std root that declares none of them
+is refused as `mono.not-yet`.
 
 **Budget points.** Mono keeps every op-budget point; the backend writes
 nothing for one. Coroutine lowering decides which stay live (SL:architecture

@@ -1,0 +1,13 @@
+// The descriptor park (SL:coroutines A3c), unbounded and bounded: each
+// records its deadline in the task's context, 0 for none, then `-1` in the
+// park word, and only then arms the reactor through
+// `__saw_exec_io_register`, passing the park word's address as the token,
+// so a readiness event that fires during the arm finds the record.
+// `fd_wait` and `fd_wait_until` are the lane's additions to `std.task`
+// (compiler/tests/coro/README.md, "The lane").
+import std.task.{fd_wait, fd_wait_until}
+
+func main() {
+    fd_wait(0, 0)
+    fd_wait_until(1, 1, 5000000)
+}

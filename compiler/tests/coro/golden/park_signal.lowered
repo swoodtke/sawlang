@@ -1,0 +1,50 @@
+resume #0: park_signal.main()  (frame size 32 align 8, pointer _4)
+    state 0: bb0
+    state 1: bb1 drive #6 std.task.SignalWatch.next() at (*frame).[16]
+fn park_signal.main() -> Void {
+    let _0: Void;  // return
+    let _1: std.task.SignalWatch;  // watch
+    let _2: std.task.SignalWatch;
+    let _3: &std.task.SignalWatch;
+    let _4: &var Int;
+
+    bb0: {
+        _2 = call std.task.SignalWatch.watching(fd: Int) (owner std.task.SignalWatch) [const 9: Int] -> [return: bb1];
+    }
+
+    bb1: {
+        (*_4).[8: std.task.SignalWatch] = move _2;
+        _3 = ref(shared, (*_4).[8: std.task.SignalWatch]);
+        (*_4).[24: &std.task.SignalWatch] = move _3;
+        call std.task.SignalWatch.next() (owner std.task.SignalWatch) [] -> [return: bb2] suspends;
+    }
+
+    bb2: {
+        return;
+    }
+}
+resume #6: std.task.SignalWatch.next()  (frame size 16 align 8, pointer _2, context _3)
+    state 0: bb0
+    state 1: bb2 park fd
+fn std.task.SignalWatch.next() -> Void {
+    let _0: Void;  // return
+    let _1: &std.task.SignalWatch;  // self
+    let _2: &var Int;
+    let _3: &var std.taskgroup.TaskContext;
+    let _4: Int;
+
+    bb0: {
+        (*_3).deadline = const 0: UInt64;
+        (*(*_3).park) = const -1: Int;
+        _4 = cast(copy (*_3).park as Int);
+        call std.taskgroup.__saw_exec_io_register(fd: Int, dir: Int, token: Int) [copy (*(*_2).[8: &std.task.SignalWatch]).fd, const 0: Int, move _4] -> [return: bb2];
+    }
+
+    bb1: {
+        return;
+    }
+
+    bb2: {
+        call std.task.__saw_park_fd(fd: Int, write: Int) [] -> [return: bb1] suspends;
+    }
+}

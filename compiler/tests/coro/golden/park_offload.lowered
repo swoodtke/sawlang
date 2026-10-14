@@ -1,0 +1,46 @@
+resume #0: park_offload.main()  (frame size 24 align 8, pointer _1)
+    state 0: bb0
+    state 1: bb0 drive #5 std.task.offload_wait(job: Int) at (*frame).[8]
+fn park_offload.main() -> Void {
+    let _0: Void;  // return
+    let _1: &var Int;
+
+    bb0: {
+        (*_1).[16: Int] = const 7: Int;
+        call std.task.offload_wait(job: Int) [] -> [return: bb1] suspends;
+    }
+
+    bb1: {
+        return;
+    }
+}
+resume #5: std.task.offload_wait(job: Int)  (frame size 16 align 8, pointer _2, context _3)
+    state 0: bb0
+    state 1: bb2 park offload
+fn std.task.offload_wait(job: Int) -> Void {
+    let _0: Void;  // return
+    let _1: Int;  // param job
+    let _2: &var Int;
+    let _3: &var std.taskgroup.TaskContext;
+    let _4: Int;
+    let _5: Int;
+
+    bb0: {
+        (*_3).deadline = const 0: UInt64;
+        (*(*_3).park) = const -1: Int;
+        _4 = cast(copy (*_3).park as Int);
+        _5 = call std.taskgroup.__saw_exec_offload_pipe(job: Int) [copy (*_2).[8: Int]] -> [return: bb3];
+    }
+
+    bb1: {
+        return;
+    }
+
+    bb2: {
+        call std.task.__saw_park_offload(job: Int) [] -> [return: bb1] suspends;
+    }
+
+    bb3: {
+        call std.taskgroup.__saw_exec_io_register(fd: Int, dir: Int, token: Int) [move _5, const 0: Int, move _4] -> [return: bb2];
+    }
+}

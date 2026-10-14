@@ -1,0 +1,78 @@
+resume #0: park_fd.main()  (frame size 64 align 8, pointer _1)
+    state 0: bb0
+    state 1: bb0 drive #5 std.task.fd_wait(fd: Int, write: Int) at (*frame).[8]
+    state 2: bb1 drive #6 std.task.fd_wait_until(fd: Int, write: Int, deadline: UInt64) at (*frame).[32]
+fn park_fd.main() -> Void {
+    let _0: Void;  // return
+    let _1: &var Int;
+
+    bb0: {
+        (*_1).[16: Int] = const 0: Int;
+        (*_1).[24: Int] = const 0: Int;
+        call std.task.fd_wait(fd: Int, write: Int) [] -> [return: bb1] suspends;
+    }
+
+    bb1: {
+        (*_1).[40: Int] = const 1: Int;
+        (*_1).[48: Int] = const 1: Int;
+        (*_1).[56: UInt64] = const 5000000: UInt64;
+        call std.task.fd_wait_until(fd: Int, write: Int, deadline: UInt64) [] -> [return: bb2] suspends;
+    }
+
+    bb2: {
+        return;
+    }
+}
+resume #5: std.task.fd_wait(fd: Int, write: Int)  (frame size 24 align 8, pointer _3, context _4)
+    state 0: bb0
+    state 1: bb2 park fd
+fn std.task.fd_wait(fd: Int, write: Int) -> Void {
+    let _0: Void;  // return
+    let _1: Int;  // param fd
+    let _2: Int;  // param write
+    let _3: &var Int;
+    let _4: &var std.taskgroup.TaskContext;
+    let _5: Int;
+
+    bb0: {
+        (*_4).deadline = const 0: UInt64;
+        (*(*_4).park) = const -1: Int;
+        _5 = cast(copy (*_4).park as Int);
+        call std.taskgroup.__saw_exec_io_register(fd: Int, dir: Int, token: Int) [copy (*_3).[8: Int], copy (*_3).[16: Int], move _5] -> [return: bb2];
+    }
+
+    bb1: {
+        return;
+    }
+
+    bb2: {
+        call std.task.__saw_park_fd(fd: Int, write: Int) [] -> [return: bb1] suspends;
+    }
+}
+resume #6: std.task.fd_wait_until(fd: Int, write: Int, deadline: UInt64)  (frame size 32 align 8, pointer _4, context _5)
+    state 0: bb0
+    state 1: bb2 park fd
+fn std.task.fd_wait_until(fd: Int, write: Int, deadline: UInt64) -> Void {
+    let _0: Void;  // return
+    let _1: Int;  // param fd
+    let _2: Int;  // param write
+    let _3: UInt64;  // param deadline
+    let _4: &var Int;
+    let _5: &var std.taskgroup.TaskContext;
+    let _6: Int;
+
+    bb0: {
+        (*_5).deadline = copy (*_4).[24: UInt64];
+        (*(*_5).park) = const -1: Int;
+        _6 = cast(copy (*_5).park as Int);
+        call std.taskgroup.__saw_exec_io_register(fd: Int, dir: Int, token: Int) [copy (*_4).[8: Int], copy (*_4).[16: Int], move _6] -> [return: bb2];
+    }
+
+    bb1: {
+        return;
+    }
+
+    bb2: {
+        call std.task.__saw_park_fd_until(fd: Int, write: Int, deadline_nanos: UInt64) [] -> [return: bb1] suspends;
+    }
+}

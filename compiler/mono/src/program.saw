@@ -109,6 +109,13 @@ public struct MonoProgram {
     // and drops the result.
     drive_item: Int
     drive_steps_item: Int
+    // What a park's lowering calls besides the park (SL:coroutines A3c),
+    // made at the first park of each reason that needs it; -1 until then:
+    // the timer's deadline, the reactor arm a descriptor or offload park
+    // makes, and the offload job's pipe.
+    park_deadline_item: Int
+    park_register_item: Int
+    park_pipe_item: Int
     // The String comparison roles, made when a comparison of Strings is
     // reached; -1 until then.
     equals_item: Int
@@ -182,7 +189,8 @@ public func mono_program(dp: DropsProgram, blocked: Bool) -> MonoProgram {
                 static_bits: move bits, main_item: -1, panic_item: -1, literal_item: -1, bytes_item: -1,
                 length_item: -1, exec_item: -1, spawn_box_item: -1, spawn_background_item: -1,
                 spawn_close_item: -1, spawn_singleton: -1, spawn_handle_items: Vector<Int>(), drive_item: -1,
-                drive_steps_item: -1, equals_item: -1, compare_item: -1, builder_new_item: -1, builder_fixed_item: -1,
+                drive_steps_item: -1, park_deadline_item: -1, park_register_item: -1, park_pipe_item: -1,
+                equals_item: -1, compare_item: -1, builder_new_item: -1, builder_fixed_item: -1,
                 builder_build_item: -1, builder_len_item: -1, literal_inits: Vector<Int>(),
                 literal_pushes: Vector<Int>(), depth_call: -1, depth_glue: -1, current: -1, blocked: blocked,
                 body_of: move bodies, defaults: res_index(), runtime: false, export_items: Vector<Int>(),

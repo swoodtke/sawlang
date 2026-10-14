@@ -408,7 +408,15 @@ compares:
   operand and a shared `&` argument, prints its `// prints:` lines the same
   way: each moved value deinits at the end of its statement. Stage 0 loses
   the deinit of a moved comparison operand and refuses `&(move a)`; the
-  positions it agrees on are the run program `move_at_borrow.saw` (SL-643).
+  positions it agrees on are the run program `move_at_borrow.saw` (SL-643);
+- `probes/drive_timer_park.saw`, a `__saw_drive` of a frame that sleeps, and
+  `probes/main_timer_park.saw`, a suspending `main` that yields and then
+  sleeps, built by sawc2 at -O0 and at -O2 with nothing printed, print their
+  `// prints:` lines and then panic with the text of their `// panics:` line:
+  the timer park is lowered, and the drive point (SL-645) and the entry
+  executor, which wait on a ready park alone until the timers' executor half
+  arrives (SL:coroutines A11), refuse it loudly, naming the reason. Stage 0
+  sleeps there, so each program states its own outcome.
 
 Stage 0 is the oracle: a difference is a sawc2 bug until shown otherwise
 (SL:architecture §5).

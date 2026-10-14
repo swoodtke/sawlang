@@ -1,0 +1,19 @@
+frame #0: park_timer.main()  (size 40 align 8)
+    suspend 1: bb1 call nap
+    (*frame).[0: Int]  size 8 align 8  state
+    (*frame).[8: Void]  size 0 align 1  _0 result
+    (*frame).[8: frame park_timer.nap(span: std.duration.Duration)]  size 32 align 8  child  (across 1)
+    stack: _1
+frame #6: park_timer.nap(span: std.duration.Duration)  (size 32 align 8)
+    suspend 1: bb1 call sleep
+    (*frame).[0: Int]  size 8 align 8  state
+    (*frame).[8: Void]  size 0 align 1  _0 result
+    (*frame).[8: std.duration.Duration]  size 8 align 8  _1 param span  (across 1)
+    (*frame).[16: frame std.task.sleep(duration: std.duration.Duration)]  size 16 align 8  child  (across 1)
+    stack: none
+frame #9: std.task.sleep(duration: std.duration.Duration)  (size 16 align 8)
+    suspend 1: bb1 call __saw_park_timer
+    (*frame).[0: Int]  size 8 align 8  state
+    (*frame).[8: Void]  size 0 align 1  _0 result
+    (*frame).[8: std.duration.Duration]  size 8 align 8  _1 param duration  (across 1)
+    stack: _2 _3

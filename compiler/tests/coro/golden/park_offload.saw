@@ -1,0 +1,10 @@
+// The offload park (SL:coroutines A3c): it records no deadline and `-1` in
+// the park word, as a descriptor park does, then reads the job's completion
+// pipe and arms the reactor on it through the same funnel,
+// `__saw_exec_io_register`. `offload_wait` is the lane's addition to
+// `std.task` (compiler/tests/coro/README.md, "The lane").
+import std.task.{offload_wait}
+
+func main() {
+    offload_wait(7)
+}

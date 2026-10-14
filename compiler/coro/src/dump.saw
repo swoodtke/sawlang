@@ -309,6 +309,10 @@ func coro_dump_resumes(coro: &CoroProgram, out: &var StringBuilder) {
         try! out.append(frame.align)
         try! out.append(", pointer _")
         try! out.append(r.frame_local)
+        if r.context_local >= 0 {
+            try! out.append(", context _")
+            try! out.append(r.context_local)
+        }
         try! out.append(")\n    state 0: bb0\n")
         var j = 0
         while j < r.point_count {
@@ -320,6 +324,10 @@ func coro_dump_resumes(coro: &CoroProgram, out: &var StringBuilder) {
             try! out.append(point.block)
             match point.kind {
                 case ParkReady -> try! out.append(" park ready\n"),
+                case ParkTimer -> try! out.append(" park timer\n"),
+                case ParkFd -> try! out.append(" park fd\n"),
+                case ParkChannel -> try! out.append(" park channel\n"),
+                case ParkOffload -> try! out.append(" park offload\n"),
                 case Drive -> {
                     try! out.append(" drive #")
                     try! out.append(point.child)

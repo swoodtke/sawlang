@@ -1,0 +1,77 @@
+resume #0: park_timer.main()  (frame size 40 align 8, pointer _2)
+    state 0: bb0
+    state 1: bb1 drive #6 park_timer.nap(span: std.duration.Duration) at (*frame).[8]
+fn park_timer.main() -> Void {
+    let _0: Void;  // return
+    let _1: std.duration.Duration;
+    let _2: &var Int;
+
+    bb0: {
+        _1 = call std.duration.Duration.ms(n: UInt64) (owner std.duration.Duration) [const 5: UInt64] -> [return: bb1];
+    }
+
+    bb1: {
+        (*_2).[16: std.duration.Duration] = move _1;
+        call park_timer.nap(span: std.duration.Duration) [] -> [return: bb2] suspends;
+    }
+
+    bb2: {
+        return;
+    }
+}
+resume #6: park_timer.nap(span: std.duration.Duration)  (frame size 32 align 8, pointer _2)
+    state 0: bb0
+    state 1: bb1 drive #9 std.task.sleep(duration: std.duration.Duration) at (*frame).[16]
+fn park_timer.nap(span: std.duration.Duration) -> Void {
+    let _0: Void;  // return
+    let _1: std.duration.Duration;  // param span
+    let _2: &var Int;
+
+    bb0: {
+        call builtin print [const "before": String] -> [return: bb1];
+    }
+
+    bb1: {
+        (*_2).[24: std.duration.Duration] = copy (*_2).[8: std.duration.Duration];
+        call std.task.sleep(duration: std.duration.Duration) [] -> [return: bb2] suspends;
+    }
+
+    bb2: {
+        call builtin print [const "after": String] -> [return: bb3];
+    }
+
+    bb3: {
+        return;
+    }
+}
+resume #9: std.task.sleep(duration: std.duration.Duration)  (frame size 16 align 8, pointer _4, context _5)
+    state 0: bb0
+    state 1: bb3 park timer
+fn std.task.sleep(duration: std.duration.Duration) -> Void {
+    let _0: Void;  // return
+    let _1: std.duration.Duration;  // param duration
+    let _2: &std.duration.Duration;
+    let _3: UInt64;
+    let _4: &var Int;
+    let _5: &var std.taskgroup.TaskContext;
+    let _6: UInt64;
+
+    bb0: {
+        _2 = ref(shared, (*_4).[8: std.duration.Duration]);
+        _3 = call std.duration.Duration.as_nanos() (owner std.duration.Duration) [move _2] -> [return: bb1];
+    }
+
+    bb1: {
+        _6 = call std.taskgroup.__saw_exec_timer_deadline(nanos: UInt64) [move _3] -> [return: bb3];
+    }
+
+    bb2: {
+        return;
+    }
+
+    bb3: {
+        (*_5).deadline = move _6;
+        (*(*_5).park) = const 1: Int;
+        call std.task.__saw_park_timer(nanos: UInt64) [] -> [return: bb2] suspends;
+    }
+}

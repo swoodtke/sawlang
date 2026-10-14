@@ -1,0 +1,11 @@
+// The signal watch (SL:coroutines A3c) is a descriptor park reached through
+// `SignalWatch.next`, a method whose descriptor is its receiver's field: its
+// frame records and arms as `fd_wait`'s does. This `SignalWatch` is the
+// lane's stand-in for `std.signal`'s, added to `std.task`
+// (compiler/tests/coro/README.md, "The lane").
+import std.task.{SignalWatch}
+
+func main() {
+    let watch = SignalWatch.watching(fd: 9)
+    watch.next()
+}

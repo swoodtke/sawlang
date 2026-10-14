@@ -58,7 +58,7 @@ fn drive_arguments.main() -> Void {
         goto -> bb4;
     }
 }
-resume #5: drive_arguments.inner(a: Int)  (frame size 32 align 8, pointer _5)
+resume #5: drive_arguments.inner(a: Int)  (frame size 32 align 8, pointer _5, context _6)
     state 0: bb0
     state 1: bb0 park ready
 fn drive_arguments.inner(a: Int) -> Int {
@@ -68,10 +68,12 @@ fn drive_arguments.inner(a: Int) -> Int {
     let _3: Int;
     let _4: Int;
     let _5: &var Int;
+    let _6: &var std.taskgroup.TaskContext;
 
     bb0: {
         _3 = Add(copy (*_5).[16: Int], const 1: Int);
         (*_5).[24: Int] = move _3;
+        (*(*_6).park) = const 0: Int;
         call builtin __saw_suspend [] -> [return: bb1] suspends;
     }
 
@@ -81,7 +83,7 @@ fn drive_arguments.inner(a: Int) -> Int {
         return;
     }
 }
-resume #6: drive_arguments.label(prefix: String, p: drive_arguments.Point)  (frame size 40 align 8, pointer _5)
+resume #6: drive_arguments.label(prefix: String, p: drive_arguments.Point)  (frame size 40 align 8, pointer _5, context _6)
     state 0: bb0
     state 1: bb0 park ready
 fn drive_arguments.label(prefix: String, p: drive_arguments.Point) -> String {
@@ -91,8 +93,10 @@ fn drive_arguments.label(prefix: String, p: drive_arguments.Point) -> String {
     let _3: &String;
     let _4: String;
     let _5: &var Int;
+    let _6: &var std.taskgroup.TaskContext;
 
     bb0: {
+        (*(*_6).park) = const 0: Int;
         call builtin __saw_suspend [] -> [return: bb1] suspends;
     }
 

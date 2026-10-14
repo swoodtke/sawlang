@@ -1,0 +1,44 @@
+// Entry points to `std.task`'s park points for the coro lane's park goldens
+// (compiler/tests/coro/README.md, "The lane"). The lane appends this text to
+// `task.saw` in a copy of std, since a program cannot name a park point,
+// and the std modules that will call them (descriptors, channels, offload,
+// signals) are not ported yet.
+
+/// Parks until descriptor `fd` is readable, when `write` is 0, or writable,
+/// when it is 1.
+public func fd_wait(fd: Int, write: Int) {
+    __saw_park_fd(fd, write)
+}
+
+/// Parks as `fd_wait` does, or until the monotonic instant `deadline`.
+public func fd_wait_until(fd: Int, write: Int, deadline: UInt64) {
+    __saw_park_fd_until(fd, write, deadline)
+}
+
+/// Parks until the readiness word whose negated address is `word` is set.
+public func channel_wait(word: Int) {
+    __saw_park_channel(word)
+}
+
+/// Parks until offload job `job` completes.
+public func offload_wait(job: Int) {
+    __saw_park_offload(job)
+}
+
+/// A signal watch: `next` parks on the watch's descriptor, as `std.signal`'s
+/// does.
+public struct SignalWatch {
+    fd: Int
+}
+
+extension SignalWatch {
+    /// A watch over descriptor `fd`.
+    public static func watching(fd: Int) -> SignalWatch {
+        SignalWatch(fd: fd)
+    }
+
+    /// Parks until the next signal arrives.
+    public func next(&self) {
+        __saw_park_fd(self.fd, 0)
+    }
+}

@@ -22,7 +22,8 @@ import sawcoro.program.{CoroFrame, CoroPoint, CoroPointKind, CoroProgram, CoroRe
                         CoroUnloweredKind, CoroValue, CoroValueKind}
 import sawcoro.suspends.{coro_cause_chain, coro_source_label}
 import sawdrops.program.{DropsProgram}
-import sawmir.model.{MirAggregate, MirBlock, MirCallKind, MirConstKind, MirLocal, MirLocalKind, MirOperand,
+import sawmir.build.{mir_func_local}
+import sawmir.model.{MirAggregate, MirBlock, MirCall, MirCallKind, MirConstKind, MirLocal, MirLocalKind, MirOperand,
                      MirOperandKind, MirPlace, MirProj, MirProjKind, MirRvalue, MirRvalueKind, MirStmt, MirStmtKind,
                      MirSwitchKind, MirTermKind}
 import sawmir.program.{MirProgram}
@@ -43,13 +44,16 @@ public static CORO_STATE_DONE: Int = -1
 public static CORO_POLL_READY: Int = 0
 public static CORO_POLL_PENDING: Int = 1
 
-// What a ready park records in the root's park word: the park word
-// vocabulary's ready yield (sawc/std/taskgroup.saw).
+// What a park records in the root's park word, by reason: the park word
+// vocabulary of std/taskgroup.saw. A channel park records its operand, the
+// readiness word's negated address.
 public static CORO_PARK_READY: Int = 0
+public static CORO_PARK_TIMER: Int = 1
+public static CORO_PARK_FD: Int = -1
 
 // Decides, for every item, whether its frame is lowered: every suspension
-// point of the frame is a shape this compiler lowers, a ready park, an
-// effect-only suspension or the drive of a lowered child, and the frame
+// point of the frame is a shape this compiler lowers, a park of any reason,
+// an effect-only suspension or the drive of a lowered child, and the frame
 // holds nothing else it does not (an op-budget point, a borrow window, a
 // frame value an index projection reads). Children are decided before their
 // callers; once frames are found the suspending call graph is acyclic.
@@ -145,10 +149,13 @@ func coro_decide_frame(coro: &var CoroProgram, f: Int) {
     coro.lowered[frame.item] = why.what == CoroUnloweredKind.Lowered
 }
 
-// What is not lowered about suspending call `c`, or `Lowered`: a ready park,
-// an effect-only suspension and the drive of a lowered child are.
+// What is not lowered about suspending call `c`, or `Lowered`: a park, an
+// effect-only suspension and the drive of a lowered child are.
 func coro_call_unlowered(coro: &CoroProgram, c: Int) -> CoroUnloweredKind {
-    if coro_parks_ready(&coro, c) || coro_effect_only(&coro, c) {
+    if let _kind = coro_park_kind(&coro, c) {
+        return CoroUnloweredKind.Lowered
+    }
+    if coro_effect_only(&coro, c) {
         return CoroUnloweredKind.Lowered
     }
     let child = coro_driven_child(&coro, c)
@@ -161,14 +168,52 @@ func coro_call_unlowered(coro: &CoroProgram, c: Int) -> CoroUnloweredKind {
     CoroUnloweredKind.Lowered
 }
 
-// Whether call `c` is a ready park: a call of std's ready park point, by its
-// lang role, or of the test intrinsic `__saw_suspend`.
-func coro_parks_ready(coro: &CoroProgram, c: Int) -> Bool {
+// The point park call `c` lowers to, by the lang role of the std park point
+// it calls, or `None` for a call that parks nothing; the test intrinsic
+// `__saw_suspend` is a ready park. A descriptor park with a deadline is a
+// descriptor park (`coro_parks_until`).
+func coro_park_kind(coro: &CoroProgram, c: Int) -> CoroPointKind? {
     if coro_calls_builtin(&coro, c, "__saw_suspend") {
-        return true
+        return CoroPointKind.ParkReady
+    }
+    let d = coro_call_decl(&coro, c)
+    if d < 0 {
+        return None
+    }
+    if d == coro.mono.dp.bc.mir.tc.res.lang_item(ResLang.ParkReadyFunction) {
+        return CoroPointKind.ParkReady
+    }
+    if d == coro.mono.dp.bc.mir.tc.res.lang_item(ResLang.ParkTimerFunction) {
+        return CoroPointKind.ParkTimer
+    }
+    if d == coro.mono.dp.bc.mir.tc.res.lang_item(ResLang.ParkFdFunction) || coro_parks_until(&coro, c) {
+        return CoroPointKind.ParkFd
+    }
+    if d == coro.mono.dp.bc.mir.tc.res.lang_item(ResLang.ParkChannelFunction) {
+        return CoroPointKind.ParkChannel
+    }
+    if d == coro.mono.dp.bc.mir.tc.res.lang_item(ResLang.ParkOffloadFunction) {
+        return CoroPointKind.ParkOffload
+    }
+    None
+}
+
+// Whether call `c` is a descriptor park bounded by a deadline.
+func coro_parks_until(coro: &CoroProgram, c: Int) -> Bool {
+    let d = coro_call_decl(&coro, c)
+    d >= 0 && d == coro.mono.dp.bc.mir.tc.res.lang_item(ResLang.ParkFdUntilFunction)
+}
+
+// The declaration call `c`'s item runs, or -1.
+func coro_call_decl(coro: &CoroProgram, c: Int) -> Int {
+    if c < 0 {
+        return -1
     }
     let t = coro.mono.call_item(c)
-    t >= 0 && coro.item_decl(t) >= 0 && coro.item_decl(t) == coro.mono.dp.bc.mir.tc.res.lang_item(ResLang.ParkReadyFunction)
+    if t < 0 {
+        return -1
+    }
+    coro.item_decl(t)
 }
 
 // Whether call `c` is the test intrinsic `__saw_test_suspend`, a suspension
@@ -406,22 +451,25 @@ public func coro_lower_frames(coro: &var CoroProgram) {
         try! coro.resume_of.push(-1)
         k = k + 1
     }
+    let context = coro_context_shape(&var coro)
     var f = 0
     while f < coro.frames.len() {
         let frame = coro.frames[f]
         if coro_frame_lowered(&coro, frame.item) && frame.unsupported < 0 && frame.size >= 0 {
-            coro_lower_frame(&var coro, f)
+            coro_lower_frame(&var coro, &context, f)
         }
         f = f + 1
     }
     coro_check_drives(&var coro)
 }
 
-func coro_lower_frame(coro: &var CoroProgram, f: Int) {
+func coro_lower_frame(coro: &var CoroProgram, context: &CoroContext, f: Int) {
     let frame = coro.frames[f]
     let resident = coro_resident_locals(&coro, &frame)
     let places = coro_body_places(&coro, frame.body)
     let frame_local = coro_add_frame_local(&var coro, frame.body)
+    // The context pointer, a local only a frame that parks gains.
+    var context_local = -1
     let word = coro.mono.dp.bc.mir.tc.int_type()
     var k = 0
     while k < places.len() {
@@ -455,11 +503,16 @@ func coro_lower_frame(coro: &var CoroProgram, f: Int) {
         let point = coro.suspends[frame.suspend_first + s]
         s = s + 1
         let block = point.block
+        let park = coro_park_kind(&coro, point.call)
         if coro_effect_only(&coro, point.call) {
             coro_skip_call(&var coro, frame.body, block)
-        } else if coro_parks_ready(&coro, point.call) {
-            try! coro.points.push(CoroPoint(kind: CoroPointKind.ParkReady, state: s, block: block, call: point.call,
-                                            child: -1, slot: -1, dest: -1, result_block: -1))
+        } else if let kind = park {
+            if context_local < 0 {
+                context_local = coro_add_local(&var coro, frame.body, context.pointer)
+            }
+            let at = coro_lower_park(&var coro, &context, frame.body, context_local, block, kind)
+            try! coro.points.push(CoroPoint(kind: kind, state: s, block: at, call: point.call, child: -1, slot: -1,
+                                            dest: -1, result_block: -1))
         } else {
             let child = coro_driven_child(&coro, point.call)
             slot_at = coro_next_child_slot(&coro, &frame, slot_at)
@@ -481,14 +534,318 @@ func coro_lower_frame(coro: &var CoroProgram, f: Int) {
         }
         l = l + 1
     }
-    // The frame pointer is the resume function's own stack local.
-    try! coro.resident.push(false)
+    // The frame and context pointers, and the temporaries a park's lowering
+    // added, are the resume function's own stack locals.
+    while l < coro.mono.dp.bc.mir.funcs[frame.body].local_count {
+        try! coro.resident.push(false)
+        l = l + 1
+    }
     let at = coro.resumes.len()
     coro.resume_of[frame.item] = at
     let point_count = coro.points.len() - point_first
-    try! coro.resumes.push(CoroResume(item: frame.item, frame: f, frame_local: frame_local, point_first: point_first,
+    try! coro.resumes.push(CoroResume(item: frame.item, frame: f, frame_local: frame_local,
+                                      context_local: context_local, point_first: point_first,
                                       point_count: point_count, resident_first: resident_first, size: frame.size,
                                       align: frame.align, result: result))
+}
+
+// The task context's shape, as std declares `TaskContext`: its type, the
+// type of the local a parking frame holds it through (`&var TaskContext`,
+// which the backend points at the resume function's `cx`), and its park word
+// and deadline fields with their types; each -1 when std declares none.
+struct CoroContext {
+    ty: Int
+    pointer: Int
+    park: Int
+    park_ty: Int
+    deadline: Int
+    deadline_ty: Int
+}
+
+func coro_context_shape(coro: &var CoroProgram) -> CoroContext {
+    var out = CoroContext(ty: -1, pointer: -1, park: -1, park_ty: -1, deadline: -1, deadline_ty: -1)
+    let m = coro.mono.dp.bc.mir.tc.module_named("std.taskgroup")
+    let d = if m >= 0 { coro.mono.dp.bc.mir.tc.top_decl(m, "TaskContext") } else { -1 }
+    if d < 0 {
+        return out
+    }
+    let none = Vector<Int>()
+    out.ty = coro.mono.dp.bc.mir.tc.mk_nominal(d, &none)
+    out.pointer = coro.mono.dp.bc.mir.tc.mk_ref(true, out.ty)
+    let park_name = coro.mono.dp.bc.mir.tc.res.intern("park")
+    let deadline_name = coro.mono.dp.bc.mir.tc.res.intern("deadline")
+    out.park = coro.mono.dp.bc.mir.tc.field_named(d, park_name)
+    out.deadline = coro.mono.dp.bc.mir.tc.field_named(d, deadline_name)
+    if out.park >= 0 {
+        out.park_ty = coro.mono.dp.bc.mir.tc.sigs[out.park].result
+    }
+    if out.deadline >= 0 {
+        out.deadline_ty = coro.mono.dp.bc.mir.tc.sigs[out.deadline].result
+    }
+    out
+}
+
+// Lowers the park call of kind `kind` ending block `b` of function `f`
+// (SL:coroutines §3.1, A3c). The park's record goes into the task's context
+// through local `ctx` before anything arms: its deadline, when its reason
+// has one, then its park word. An arm, and a value a record needs, is an
+// ordinary call; the park's call, its arguments taken, ends the last block
+// and is the suspension point, whose block this returns.
+//
+//   ready     (*(*_C).park) = const 0
+//   channel   (*(*_C).park) = WORD
+//   timer     _d = __saw_exec_timer_deadline(NANOS)
+//             (*_C).deadline = move _d; (*(*_C).park) = const 1
+//   fd        (*_C).deadline = DEADLINE, or const 0; (*(*_C).park) = const -1
+//             _t = copy (*_C).park as Int; __saw_exec_io_register(FD, WRITE, move _t)
+//   offload   (*_C).deadline = const 0; (*(*_C).park) = const -1
+//             _p = __saw_exec_offload_pipe(JOB)
+//             _t = copy (*_C).park as Int; __saw_exec_io_register(move _p, const 0, move _t)
+//
+// Each operand moves or copies as the park's call passed it, so the rewrite
+// adds no ownership operation. The token an arm passes is the park word's
+// address, which lives as long as the task.
+func coro_lower_park(coro: &var CoroProgram, cx: &CoroContext, f: Int, ctx: Int, b: Int, kind: CoroPointKind) -> Int {
+    let at = coro.mono.dp.bc.mir.funcs[f].block_first + b
+    let c = coro.mono.dp.bc.mir.blocks[at].call
+    var park = coro.mono.dp.bc.mir.calls[c]
+    let node = park.node
+    if cx.park < 0 || cx.deadline < 0 {
+        try! coro.problems.push("a frame parks under a std root whose `TaskContext` has no `park` and `deadline` fields")
+        return b
+    }
+    var args = Vector<Int>()
+    var j = 0
+    while j < park.arg_count {
+        try! args.push(coro.mono.dp.bc.mir.lists[park.arg_first + j])
+        j = j + 1
+    }
+    park.arg_count = 0
+    coro.mono.dp.bc.mir.calls[c] = park
+    let word = coro.mono.dp.bc.mir.tc.int_type()
+    match kind {
+        case ParkReady -> {
+            let ready = coro_int_operand(&var coro, word, CORO_PARK_READY)
+            coro_record_word(&var coro, &cx, f, b, ctx, ready, node)
+            b
+        },
+        case ParkChannel -> {
+            coro_record_word(&var coro, &cx, f, b, ctx, args[0], node)
+            b
+        },
+        case ParkTimer -> {
+            let item = coro.mono.park_deadline_item
+            let deadline = coro_add_local(&var coro, f, cx.deadline_ty)
+            var call = coro_exec_call(&var coro, item, node)
+            coro_push_arg(&var coro, &var call, args[0])
+            call.dest = coro_whole_place(&var coro, deadline, cx.deadline_ty)
+            let parked = coro_move_call(&var coro, f, b, c)
+            call.next = parked
+            coro_end_in_call(&var coro, f, b, call, item)
+            let moved = coro_whole_operand(&var coro, deadline, cx.deadline_ty, true)
+            coro_record_deadline(&var coro, &cx, f, parked, ctx, moved, node)
+            let marker = coro_int_operand(&var coro, word, CORO_PARK_TIMER)
+            coro_record_word(&var coro, &cx, f, parked, ctx, marker, node)
+            parked
+        },
+        case ParkFd -> {
+            var bound = -1
+            if args.len() == 3 {
+                bound = args[2]
+            } else {
+                bound = coro_int_operand(&var coro, cx.deadline_ty, 0)
+            }
+            coro_record_deadline(&var coro, &cx, f, b, ctx, bound, node)
+            let marker = coro_int_operand(&var coro, word, CORO_PARK_FD)
+            coro_record_word(&var coro, &cx, f, b, ctx, marker, node)
+            let token = coro_token(&var coro, &cx, f, b, ctx, node)
+            let token_arg = coro_whole_operand(&var coro, token, word, true)
+            let item = coro.mono.park_register_item
+            var call = coro_exec_call(&var coro, item, node)
+            coro_push_arg(&var coro, &var call, args[0])
+            coro_push_arg(&var coro, &var call, args[1])
+            coro_push_arg(&var coro, &var call, token_arg)
+            let parked = coro_move_call(&var coro, f, b, c)
+            call.next = parked
+            coro_end_in_call(&var coro, f, b, call, item)
+            parked
+        },
+        case ParkOffload -> {
+            let unbounded = coro_int_operand(&var coro, cx.deadline_ty, 0)
+            coro_record_deadline(&var coro, &cx, f, b, ctx, unbounded, node)
+            let marker = coro_int_operand(&var coro, word, CORO_PARK_FD)
+            coro_record_word(&var coro, &cx, f, b, ctx, marker, node)
+            let token = coro_token(&var coro, &cx, f, b, ctx, node)
+            let pipe_item = coro.mono.park_pipe_item
+            let pipe = coro_add_local(&var coro, f, word)
+            var pipe_call = coro_exec_call(&var coro, pipe_item, node)
+            coro_push_arg(&var coro, &var pipe_call, args[0])
+            pipe_call.dest = coro_whole_place(&var coro, pipe, word)
+            let pipe_arg = coro_whole_operand(&var coro, pipe, word, true)
+            let read = coro_int_operand(&var coro, word, 0)
+            let token_arg = coro_whole_operand(&var coro, token, word, true)
+            let item = coro.mono.park_register_item
+            var call = coro_exec_call(&var coro, item, node)
+            coro_push_arg(&var coro, &var call, pipe_arg)
+            coro_push_arg(&var coro, &var call, read)
+            coro_push_arg(&var coro, &var call, token_arg)
+            let parked = coro_move_call(&var coro, f, b, c)
+            call.next = parked
+            let arm = coro_add_exec_block(&var coro, f, call, item, node)
+            pipe_call.next = arm
+            coro_end_in_call(&var coro, f, b, pipe_call, pipe_item)
+            parked
+        },
+        case Drive -> {
+            try! coro.problems.push("a drive reached the park lowering")
+            b
+        }
+    }
+}
+
+// Appends to block `b` of function `f` the park word's record, `(*(*_C).park)
+// = VALUE`, an `Int` at the target's width, from operand `value`.
+func coro_record_word(coro: &var CoroProgram, cx: &CoroContext, f: Int, b: Int, ctx: Int, value: Int, node: Int) {
+    let place = coro_context_place(&var coro, ctx, cx.ty, cx.park, cx.park_ty, true)
+    let ty = coro.mono.dp.bc.mir.places[place].ty
+    let rv = coro_operand_rvalue(&var coro, ty, value)
+    coro_append_stmt(&var coro, f, b, place, rv, node)
+}
+
+// Appends to block `b` of function `f` the deadline's record, `(*_C).deadline
+// = VALUE`, from operand `value`.
+func coro_record_deadline(coro: &var CoroProgram, cx: &CoroContext, f: Int, b: Int, ctx: Int, value: Int, node: Int) {
+    let place = coro_context_place(&var coro, ctx, cx.ty, cx.deadline, cx.deadline_ty, false)
+    let rv = coro_operand_rvalue(&var coro, cx.deadline_ty, value)
+    coro_append_stmt(&var coro, f, b, place, rv, node)
+}
+
+// Appends to block `b` of function `f` the arm's token, `_t = copy (*_C).park
+// as Int`, the park word's address, and returns the new local `_t`.
+func coro_token(coro: &var CoroProgram, cx: &CoroContext, f: Int, b: Int, ctx: Int, node: Int) -> Int {
+    let word = coro.mono.dp.bc.mir.tc.int_type()
+    let token = coro_add_local(&var coro, f, word)
+    let from = coro_context_place(&var coro, ctx, cx.ty, cx.park, cx.park_ty, false)
+    let o = coro.mono.dp.bc.mir.operands.len()
+    try! coro.mono.dp.bc.mir.operands.push(MirOperand(kind: MirOperandKind.Copy, place: from, ty: cx.park_ty,
+                                                      const_kind: MirConstKind.Unit, text: -1))
+    let rv = coro.mono.dp.bc.mir.rv_one(MirRvalueKind.Cast, word, "", o)
+    let place = coro_whole_place(&var coro, token, word)
+    coro_append_stmt(&var coro, f, b, place, rv, node)
+    token
+}
+
+// A new place in the task's context, of type `context_ty`, through local
+// `ctx`: field `field`, of type `field_ty`, as `(*_C).FIELD`, or with
+// `through` the word that field points at, `(*(*_C).FIELD)`. Each step is by
+// field, so the backend reaches a field by its offset in the target's layout.
+func coro_context_place(coro: &var CoroProgram, ctx: Int, context_ty: Int, field: Int, field_ty: Int,
+                        through: Bool) -> Int {
+    let first = coro.mono.dp.bc.mir.projs.len()
+    try! coro.mono.dp.bc.mir.projs.push(MirProj(kind: MirProjKind.Deref, decl: -1, index: -1, ty: context_ty))
+    try! coro.mono.dp.bc.mir.projs.push(MirProj(kind: MirProjKind.Field, decl: field, index: -1, ty: field_ty))
+    var ty = field_ty
+    var count = 2
+    if through {
+        ty = coro.mono.dp.bc.mir.tc.int_type()
+        try! coro.mono.dp.bc.mir.projs.push(MirProj(kind: MirProjKind.Deref, decl: -1, index: -1, ty: ty))
+        count = 3
+    }
+    let at = coro.mono.dp.bc.mir.places.len()
+    try! coro.mono.dp.bc.mir.places.push(MirPlace(local: ctx, static_decl: -1, first: first, count: count, ty: ty))
+    at
+}
+
+// A new constant operand, the integer `value` of type `ty`.
+func coro_int_operand(coro: &var CoroProgram, ty: Int, value: Int) -> Int {
+    var spelled = StringBuilder()
+    try! spelled.append(value)
+    let text = coro.mono.dp.bc.mir.tc.res.intern(spelled.build())
+    let at = coro.mono.dp.bc.mir.operands.len()
+    try! coro.mono.dp.bc.mir.operands.push(MirOperand(kind: MirOperandKind.Const, place: -1, ty: ty,
+                                                      const_kind: MirConstKind.Int, text: text))
+    at
+}
+
+// A new rvalue using operand `o`, of type `ty`.
+func coro_operand_rvalue(coro: &var CoroProgram, ty: Int, o: Int) -> Int {
+    let first = coro.mono.dp.bc.mir.lists.len()
+    try! coro.mono.dp.bc.mir.lists.push(o)
+    coro_use_rvalue(&var coro, ty, first)
+}
+
+// A new place, local `l` whole, of type `ty`.
+func coro_whole_place(coro: &var CoroProgram, l: Int, ty: Int) -> Int {
+    let at = coro.mono.dp.bc.mir.places.len()
+    let first = coro.mono.dp.bc.mir.projs.len()
+    try! coro.mono.dp.bc.mir.places.push(MirPlace(local: l, static_decl: -1, first: first, count: 0, ty: ty))
+    at
+}
+
+// A new operand, a copy of local `l` whole, or with `moved` a move.
+func coro_whole_operand(coro: &var CoroProgram, l: Int, ty: Int, moved: Bool) -> Int {
+    let place = coro_whole_place(&var coro, l, ty)
+    let kind = if moved { MirOperandKind.Move } else { MirOperandKind.Copy }
+    let at = coro.mono.dp.bc.mir.operands.len()
+    try! coro.mono.dp.bc.mir.operands.push(MirOperand(kind: kind, place: place, ty: ty,
+                                                      const_kind: MirConstKind.Unit, text: -1))
+    at
+}
+
+// A call of item `k`, an executor half a park calls, with no arguments yet,
+// at `node`; -1 for an item mono did not make is a broken invariant.
+func coro_exec_call(coro: &var CoroProgram, k: Int, node: Int) -> MirCall {
+    var call = coro.mono.dp.bc.mir.blank_call(MirCallKind.Function, node)
+    if k < 0 {
+        try! coro.problems.push("a park reached coroutine lowering without the executor function its lowering calls")
+        return call
+    }
+    call.target = coro.mono.items[k].decl
+    call
+}
+
+// Appends operand `o` to `call`'s arguments, which are the last run of the
+// operand lists.
+func coro_push_arg(coro: &var CoroProgram, call: &var MirCall, o: Int) {
+    if call.arg_count == 0 {
+        call.arg_first = coro.mono.dp.bc.mir.lists.len()
+    }
+    try! coro.mono.dp.bc.mir.lists.push(o)
+    call.arg_count = call.arg_count + 1
+}
+
+// Gives function `f` a new block ending in call `c`, which block `b` ended
+// in, and returns its number; block `b` is left to end in another call.
+func coro_move_call(coro: &var CoroProgram, f: Int, b: Int, c: Int) -> Int {
+    let old = coro.mono.dp.bc.mir.blocks[coro.mono.dp.bc.mir.funcs[f].block_first + b]
+    let block = MirBlock(first: -1, last: -1, term: MirTermKind.Call, target: -1, switch_kind: MirSwitchKind.Bool,
+                         operand: -1, place: -1, arm_first: 0, arm_count: 0, otherwise: -1, call: c,
+                         term_node: old.term_node, term_closing: old.term_closing)
+    coro_add_block(&var coro, f, block)
+}
+
+// Ends block `b` of function `f` in `call`, which reaches item `k`.
+func coro_end_in_call(coro: &var CoroProgram, f: Int, b: Int, call: MirCall, k: Int) {
+    let c = coro.mono.dp.bc.mir.calls.len()
+    try! coro.mono.dp.bc.mir.calls.push(call)
+    coro.mono.set_call_item(c, k)
+    let at = coro.mono.dp.bc.mir.funcs[f].block_first + b
+    var block = coro.mono.dp.bc.mir.blocks[at]
+    block.term = MirTermKind.Call
+    block.call = c
+    coro.mono.dp.bc.mir.blocks[at] = block
+}
+
+// Gives function `f` a new block ending in `call`, which reaches item `k`,
+// and returns its number.
+func coro_add_exec_block(coro: &var CoroProgram, f: Int, call: MirCall, k: Int, node: Int) -> Int {
+    let c = coro.mono.dp.bc.mir.calls.len()
+    try! coro.mono.dp.bc.mir.calls.push(call)
+    coro.mono.set_call_item(c, k)
+    let block = MirBlock(first: -1, last: -1, term: MirTermKind.Call, target: -1, switch_kind: MirSwitchKind.Bool,
+                         operand: -1, place: -1, arm_first: 0, arm_count: 0, otherwise: -1, call: c,
+                         term_node: node, term_closing: false)
+    coro_add_block(&var coro, f, block)
 }
 
 // Where a drive's lowering left the call's result: the place the call wrote,

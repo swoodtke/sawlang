@@ -1,0 +1,10 @@
+// The channel park (SL:coroutines A3c): it records the readiness word's
+// negated address, its operand, in the park word and arms nothing, since a
+// send or a close on the channel sets the word the executor reads.
+// `channel_wait` is the lane's addition to `std.task`
+// (compiler/tests/coro/README.md, "The lane").
+import std.task.{channel_wait}
+
+func main() {
+    channel_wait(-4096)
+}

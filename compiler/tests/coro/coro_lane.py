@@ -12,7 +12,9 @@ directory specifies:
 - each golden program, `golden/NAME.saw`, gives exactly the record in
   `golden/NAME.coro` (`--dump`), the one in `golden/NAME.layouts`
   (`--layouts`) and the one in `golden/NAME.lowered` (`--lowered`), with no
-  `INVARIANT` line and no refusal but coroutine lowering's own;
+  `INVARIANT` line and no refusal but coroutine lowering's own; a
+  `golden/park_NAME.saw` program is brought under a copy of std whose
+  `task.saw` ends in `parks/task_tail.saw`;
 - each fixture in `refuse/` is refused first at its header's position by the
   rule its name starts with, that refusal's message holds each of its
   `// message:` lines, and every rule coroutine lowering refuses by
@@ -25,6 +27,7 @@ directory specifies:
 import glob
 import os
 import re
+import shutil
 import subprocess
 import sys
 
@@ -41,6 +44,8 @@ import borrowck_lane  # noqa: E402
 GOLDEN = os.path.join(HERE, "golden")
 REFUSE = os.path.join(HERE, "refuse")
 MODULES = os.path.join(HERE, "modules")
+PARKS_TAIL = os.path.join(HERE, "parks", "task_tail.saw")
+PARK_STD = os.path.join(REPO, ".build", "coro-lane", "std")
 RULES_SOURCE = os.path.join(COMPILER, "coro", "src", "suspends.saw")
 AGREEMENT = (os.path.join(TESTS, "mono", "golden"), os.path.join(TESTS, "run"))
 TIMEOUT = 600
@@ -94,11 +99,29 @@ def check_invariants(failures, kind, path, record):
             failures.append("coro %s %s: %s" % (kind, rel(path), line))
 
 
-def check_golden(failures, counts, write, rules, mode, suffix):
-    """Each golden program's `mode` record against its `suffix` file."""
+def park_std():
+    """A copy of std whose `task.saw` ends in `parks/task_tail.saw`, the entry
+    points to the park points no program can name and no ported std module
+    calls yet, for the park goldens; returns its root."""
+    shutil.rmtree(PARK_STD, ignore_errors=True)
+    shutil.copytree(os.path.join(REPO, "std"), PARK_STD)
+    with open(PARKS_TAIL) as fh:
+        tail = fh.read()
+    with open(os.path.join(PARK_STD, "task.saw"), "a") as fh:
+        fh.write("\n" + tail)
+    return rel(PARK_STD)
+
+
+def check_golden(failures, counts, write, rules, mode, suffix, park_root):
+    """Each golden program's `mode` record against its `suffix` file: a
+    `park_` program's under the park std (`park_std`), the rest under std."""
     cases = sorted(glob.glob(os.path.join(GOLDEN, "*.saw")))
-    code, out = sawc2([mode, "--std-root", "std"] + module_args() + [rel(s) for s in cases])
+    parks = [s for s in cases if os.path.basename(s).startswith("park_")]
+    plain = [s for s in cases if s not in parks]
+    code, out = sawc2([mode, "--std-root", "std"] + module_args() + [rel(s) for s in plain])
     got = borrowck_lane.records(out)
+    code, out = sawc2([mode, "--std-root", park_root] + module_args() + [rel(s) for s in parks])
+    got.update(borrowck_lane.records(out))
     for src in cases:
         exp = os.path.splitext(src)[0] + suffix
         record = got.get(rel(src))
@@ -193,9 +216,10 @@ def run(write=False):
     failures = []
     counts = {}
     rules = coro_rules()
-    check_golden(failures, counts, write, rules, "--dump", ".coro")
-    check_golden(failures, counts, write, rules, "--layouts", ".layouts")
-    check_golden(failures, counts, write, rules, "--lowered", ".lowered")
+    park_root = park_std()
+    check_golden(failures, counts, write, rules, "--dump", ".coro", park_root)
+    check_golden(failures, counts, write, rules, "--layouts", ".layouts", park_root)
+    check_golden(failures, counts, write, rules, "--lowered", ".lowered", park_root)
     check_refusals(failures, counts, rules)
     check_agreement(failures, counts)
     return failures, counts

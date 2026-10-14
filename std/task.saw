@@ -17,7 +17,7 @@ public func yield_now() {
 
 /// Parks the running task for at least `duration`.
 public func sleep(duration: Duration) {
-    __saw_park_timer(timer_nanos(duration))
+    __saw_park_timer(duration.as_nanos())
 }
 
 /// Returns whether the running task has been asked to stop.
@@ -28,28 +28,20 @@ public func cancelled() -> Bool {
     __saw_cancel_requested()
 }
 
-// A span past `Int.max` nanoseconds (about 292 years on a 64-bit host)
-// saturates: no observer can tell the two apart, and refusing would make
-// `sleep` panic on a valid `Duration`.
-func timer_nanos(duration: Duration) -> Int {
-    let ns = duration.as_nanos()
-    if ns >= (Int.max as UInt64) {
-        return Int.max
-    }
-    ns as Int
-}
-
 // The park points (SL:coroutines §3.1). Each is a lang item whose calls
-// suspend, and the coroutine lowering replaces each call with its park, so a
-// body here runs only when a call reached code generation unlowered.
+// suspend, and the coroutine lowering replaces each call with its park: it
+// records the park in the task's context (`TaskContext`), arms what wakes it,
+// and returns `Pending`. So a body here runs only when a call reached code
+// generation unlowered.
 
 // A ready yield: the task stays runnable and resumes at its next turn.
 public(package) func __saw_park_ready() {
     panic("std.task: a ready park reached code generation unlowered")
 }
 
-// A timer: the task resumes once `nanos` nanoseconds have passed.
-public(package) func __saw_park_timer(nanos: Int) {
+// A timer: the task resumes once `nanos` nanoseconds have passed. The span
+// is 64 bits on every target, as the deadline the park records is.
+public(package) func __saw_park_timer(nanos: UInt64) {
     panic("std.task: a timer park reached code generation unlowered")
 }
 
@@ -61,7 +53,7 @@ public(package) func __saw_park_fd(fd: Int, write: Int) {
 
 // Readiness of descriptor `fd`, as `__saw_park_fd`, or the monotonic instant
 // `deadline_nanos`, whichever comes first.
-public(package) func __saw_park_fd_until(fd: Int, write: Int, deadline_nanos: Int) {
+public(package) func __saw_park_fd_until(fd: Int, write: Int, deadline_nanos: UInt64) {
     panic("std.task: a descriptor park reached code generation unlowered")
 }
 

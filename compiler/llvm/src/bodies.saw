@@ -10,7 +10,7 @@ import sawdrops.program.{DropsProgram}
 import sawllvm.attributes.{ll_function_attributes, ll_param_attributes}
 import sawllvm.prims.{LL_MESSAGE_LIMIT}
 import sawllvm.calls.{ll_block}
-import sawcoro.lower.{CORO_PARK_READY, CORO_POLL_PENDING, CORO_POLL_READY, CORO_STATE_DONE, CORO_STATE_START}
+import sawcoro.lower.{CORO_POLL_PENDING, CORO_POLL_READY, CORO_STATE_DONE, CORO_STATE_START}
 import sawcoro.program.{CoroPoint, CoroPointKind, CoroResume}
 import sawllvm.module.{LlEmitter, ll_descriptor_symbol, ll_export_symbol, ll_is_scalar, ll_resume_symbol, ll_symbol,
                            ll_value_type}
@@ -259,6 +259,10 @@ extension LlEmitter {
         var entry = StringBuilder()
         try! entry.append("  store ptr %frame, ptr ")
         try! entry.append(ll_local_slot(resume.frame_local))
+        if resume.context_local >= 0 {
+            try! entry.append("\n  store ptr %cx, ptr ")
+            try! entry.append(ll_local_slot(resume.context_local))
+        }
         try! entry.append("\n  %state = load i64, ptr %frame\n  switch i64 %state, label %coro.done [ i64 ")
         try! entry.append(CORO_STATE_START)
         try! entry.append(", label %bb0")
@@ -298,9 +302,11 @@ extension LlEmitter {
     }
 
     // THE POINT FUNNEL: what a lowered frame does at a suspension point, in
-    // place of the call there, and where its state re-enters. A ready park
-    // records the ready yield through the root token, cx's first word, then
-    // the state, and returns `Pending`; re-entered, it continues. A drive
+    // place of the call there, and where its state re-enters. A park, of any
+    // reason, records the state and returns `Pending`; re-entered, it
+    // continues. Its record in the task's context and its arm are MIR its
+    // block already ran, through the context local the entry points at `%cx`
+    // (compiler/tests/coro/README.md, "Lowering"). A drive
     // starts the child's frame in its slot at state 0, then resumes it,
     // returning `Pending` with the state recorded while the child pends, and
     // continuing once it is `Ready`; re-entered, it resumes the child again.
@@ -315,16 +321,6 @@ extension LlEmitter {
             next = ll_block(info.next)
         }
         match point.kind {
-            case ParkReady -> {
-                let root = self.load("ptr", "%cx")
-                var word = StringBuilder()
-                try! word.append(CORO_PARK_READY)
-                self.store("i64", word.build(), root)
-                self.put_state(point.state)
-                self.put_poll(CORO_POLL_PENDING)
-                self.put_label(state)
-                self.continue_to(next)
-            },
             case Drive -> {
                 let drive = ll_state_label("coro.drive", point.state)
                 let pend = ll_state_label("coro.pend", point.state)
@@ -361,6 +357,12 @@ extension LlEmitter {
                 self.put_poll(CORO_POLL_PENDING)
                 self.put_label(state)
                 self.jump(drive)
+            },
+            case _ -> {
+                self.put_state(point.state)
+                self.put_poll(CORO_POLL_PENDING)
+                self.put_label(state)
+                self.continue_to(next)
             }
         }
     }

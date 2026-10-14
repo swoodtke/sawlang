@@ -813,6 +813,7 @@ extension MonoProgram {
                 let body = self.body_of[target.decl]
                 let item = self.call_item_of(k, body, target.decl, target.self_type, &info, MONO_KEY_FUNCTION)
                 self.set_call_item(c, item)
+                self.resolve_park(k, target.decl, info.node)
             },
             case Default -> {
                 let at = self.defaults.first(info.target, info.param)
@@ -916,6 +917,32 @@ extension MonoProgram {
             }
         } else if self.drive_item < 0 {
             self.drive_item = self.exec_entry(k, m, "__saw_exec_drive", info.node, "a drive site")
+        }
+    }
+
+    // A call of a park point, declaration `d`, reaches what its lowering
+    // calls besides the park (SL:coroutines A3c): a timer park the deadline it
+    // records, a descriptor park the reactor arm, and an offload park the arm
+    // and its job's pipe. The other parks only record.
+    func resolve_park(&var self, k: Int, d: Int, node: Int) {
+        if d < 0 {
+            return
+        }
+        let timer = d == self.dp.bc.mir.tc.res.lang_item(ResLang.ParkTimerFunction)
+        let offload = d == self.dp.bc.mir.tc.res.lang_item(ResLang.ParkOffloadFunction)
+        let fd = d == self.dp.bc.mir.tc.res.lang_item(ResLang.ParkFdFunction) || d == self.dp.bc.mir.tc.res.lang_item(ResLang.ParkFdUntilFunction)
+        if not (timer || offload || fd) {
+            return
+        }
+        let m = self.dp.bc.mir.tc.module_named("std.taskgroup")
+        if timer && self.park_deadline_item < 0 {
+            self.park_deadline_item = self.exec_entry(k, m, "__saw_exec_timer_deadline", node, "a timer park")
+        }
+        if (fd || offload) && self.park_register_item < 0 {
+            self.park_register_item = self.exec_entry(k, m, "__saw_exec_io_register", node, "a descriptor park")
+        }
+        if offload && self.park_pipe_item < 0 {
+            self.park_pipe_item = self.exec_entry(k, m, "__saw_exec_offload_pipe", node, "an offload park")
         }
     }
 

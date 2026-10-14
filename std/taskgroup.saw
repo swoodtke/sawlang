@@ -10,15 +10,21 @@
 
 import std.mem.{copy_bytes, drop_in_place}
 
+extern "C" {
+    func __saw_rt_clock_monotonic_nanos() -> Int64
+}
+
 // The park word vocabulary: what a frame records through `TaskContext.park`
 // before it returns `Pending`, and what a slot is decided by between resumes.
 //
-//    > 0    a timer
+//   == 1    a timer, whose deadline is the context's `deadline` word
 //   == 0    ready: resume on the next sweep (`yield_now`, a budget yield)
-//   == -1   a descriptor's readiness
+//   == -1   a descriptor's readiness, armed through `__saw_exec_io_register`,
+//           and bounded by the context's `deadline` when that is nonzero
 //    < -1   a channel's readiness word, by its negated address
 //
-// The executor waits on a ready park alone; each other reason has its own
+// Every value above 1 is reserved for the timers' executor half. The
+// executor waits on a ready park alone; each other reason has its own
 // lowering and its own executor half. `PARK_UNSET` is written before every
 // resume, so a frame that reports `Pending` without recording a park is caught
 // rather than read as stale (SL:coroutines §3.3).
@@ -46,6 +52,13 @@ public struct TaskContext {
     cancel: UnsafePointer<Bool>
     /// The task's identity, for the task backtrace.
     task: Int
+    /// The monotonic instant, in nanoseconds, that the task's timer park, or
+    /// its bounded descriptor park, waits until; 0 when its park has none.
+    ///
+    /// It is 64 bits on every target, so a deadline never narrows to fit the
+    /// park word. The backend reaches each field by its offset, so the order
+    /// is free.
+    deadline: UInt64
 }
 
 /// The constant record the compiler emits for each frame type, through which
@@ -193,7 +206,7 @@ func new_cell(descriptor: UnsafePointer<FrameDescriptor>) unsafe -> UnsafePointe
     let cell = raw as UnsafePointer<TaskCell>
     let result = (raw as Int + header) as UnsafePointer<UInt8>
     let context = TaskContext(park: 0 as UnsafePointer<Int>, cancel: 0 as UnsafePointer<Bool>,
-                              task: raw as Int)
+                              task: raw as Int, deadline: 0)
     cell[0] = TaskCell(context: context, park: PARK_READY, cancel: false, detached: false,
                        holding: false, descriptor: descriptor, result: result, bytes: bytes,
                        align: align)
@@ -565,6 +578,43 @@ func park_reason(park: Int) -> String {
     "a channel's readiness word"
 }
 
+// The executor halves the park lowerings call (SL:coroutines §3.1). Each park
+// records its park word, and a deadline when it has one, before it calls
+// anything here, so a wake that arrives during an arm finds the record.
+
+/// The monotonic instant `nanos` nanoseconds from now, in nanoseconds: the
+/// deadline a timer park records in its context. A span past the clock's end
+/// saturates there, since no clock reaches it.
+public func __saw_exec_timer_deadline(nanos: UInt64) -> UInt64 {
+    let now = __saw_rt_clock_monotonic_nanos() as UInt64
+    if nanos > UInt64.max - now {
+        return UInt64.max
+    }
+    now + nanos
+}
+
+/// Arms the reactor for descriptor `fd`'s readiness, for reading when `dir`
+/// is 0 and for writing when it is 1, so that it wakes the task whose park
+/// word is at address `token`: the arm of a descriptor park and of an offload
+/// park, made after the park records its word.
+///
+/// Panics: the descriptor park's executor half is not here yet.
+public func __saw_exec_io_register(fd: Int, dir: Int, token: Int) {
+    // `token` is a task cell's park word, which lives as long as the task, so
+    // the executor half withdraws a registration before that cell is freed,
+    // when the task ends or is cancelled; otherwise the reactor writes a wake
+    // into freed memory (SL:coroutines A12a, and A13a for its channel waits).
+    panic("executor: a descriptor park needs the reactor's arm, which arrives with SL:coroutines A12a")
+}
+
+/// The read end of offload job `job`'s completion pipe, which an offload park
+/// arms through `__saw_exec_io_register` after it records its word.
+///
+/// Panics: the offload park's executor half is not here yet.
+public func __saw_exec_offload_pipe(job: Int) -> Int {
+    panic("executor: an offload park needs its job's pipe, which arrives with SL:coroutines A14b")
+}
+
 /// The process-wide group `Task.spawn` spawns into, built on the first call.
 ///
 /// Panics if the group cannot be allocated.
@@ -666,7 +716,7 @@ func drive_frame(descriptor: UnsafePointer<FrameDescriptor>, frame: UnsafePointe
     var park = PARK_UNSET
     var cancel = false
     var context = TaskContext(park: (&park) as UnsafePointer<Int>, cancel: (&cancel) as UnsafePointer<Bool>,
-                              task: frame as Int)
+                              task: frame as Int, deadline: 0)
     let cx = (&context) as UnsafePointer<TaskContext>
     let word = cx[0].park
     var steps = 0

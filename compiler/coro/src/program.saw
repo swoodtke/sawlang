@@ -110,8 +110,8 @@ public struct CoroUnlowered {
 public enum CoroUnloweredKind {
     // Lowered, or never framed.
     case Lowered,
-    // A call that is a suspension source other than a ready park: another
-    // park reason, or an extern.
+    // A call that is a suspension source other than a park, such as a
+    // `blocking` extern, whose offload is not lowered yet.
     case Source,
     // A call driving a child whose frame is not lowered.
     case Child,
@@ -124,10 +124,21 @@ public enum CoroUnloweredKind {
 }
 
 // What a resume function does at a suspension point (SL:coroutines §3.1).
+// A park, of each reason, records the state and returns `Pending`; on
+// resume, it continues. Its record in the task's context, and its arm, are
+// MIR the lowering wrote before the park's call (`coro_lower_park`).
 public enum CoroPointKind {
-    // `park(ready)`: records a ready yield through the root token, records
-    // the state, and returns `Pending`; on resume, continues.
+    // A ready yield, `yield_now`, or the test intrinsic `__saw_suspend`.
     case ParkReady,
+    // A timer: `sleep`.
+    case ParkTimer,
+    // A descriptor's readiness, with a deadline or without; a signal watch
+    // parks this way too.
+    case ParkFd,
+    // A channel's readiness word.
+    case ParkChannel,
+    // An offload job's completion, through its pipe.
+    case ParkOffload,
     // Drives an embedded child: starts it at state 0, then resumes it,
     // returning `Pending` while it pends and continuing once it is `Ready`.
     // The call's own block has already written the child's parameter slots,
@@ -152,7 +163,8 @@ public struct CoroPoint {
 }
 
 // A lowered frame's resume function: its item, its frame, the body's local
-// holding the frame pointer, its points, `points[point_first ..]`, and by
+// holding the frame pointer, the one holding the task's context pointer when
+// the frame parks (else -1), its points, `points[point_first ..]`, and by
 // local of its body whether the frame holds it, `resident[resident_first
 // ..]`. The frame's size and alignment and the result's offset are the
 // layout's.
@@ -160,6 +172,7 @@ public struct CoroResume {
     item: Int
     frame: Int
     frame_local: Int
+    context_local: Int
     point_first: Int
     point_count: Int
     resident_first: Int

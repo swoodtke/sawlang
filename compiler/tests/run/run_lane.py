@@ -69,7 +69,13 @@ exit status compared.
   defining its production export and neither test-only one;
 - `probes/move_at_borrow.saw`, whose spelled `move`s are comparison operands
   and a shared `&` argument, which Stage 0 loses the deinit of or refuses,
-  prints the lines it states the same way.
+  prints the lines it states the same way;
+- `probes/drive_timer_park.saw` and `probes/main_timer_park.saw`, whose
+  timer park is lowered and whose executor does not wait on a timer yet,
+  built by sawc2 at -O0 and at -O2 with nothing printed, print the lines
+  they state, then panic with the text their `// panics:` line states, and
+  abort: a drive point and the entry executor each refuse a wait they do
+  not perform rather than spin or return early.
 
 `--bench` runs none of that: it times each kernel of `bench/` under sawc2 at
 -O2 and under Stage 0 and prints the report, which gates nothing. The runner
@@ -122,6 +128,9 @@ _REFUSES = re.compile(r"^// refuses: (\S+) at (\d+:\d+)$")
 _DIFFERS = re.compile(r"^// differs: (.+)$")
 _HAZARD = re.compile(r"\bSL:hazards C\d+\b")
 _PRINTS = re.compile(r"^// prints: (.*)$")
+_PANICS = re.compile(r"^// panics: (.+)$")
+# The probes whose park the executor cannot wait on yet (`check_park_panics`).
+PARK_PANICS = ("drive_timer_park.saw", "main_timer_park.saw")
 _PANIC = re.compile(r"^panic at [^:]+:\d+: ")
 _RULE = re.compile(r'try! out\.push\("([^"]+)"\)')
 RULES_SOURCE = os.path.join(COMPILER, "llvm", "src", "module.saw")
@@ -749,6 +758,48 @@ def check_move_at_borrow(failures, counts):
     check_stated(failures, counts, "move at borrow", src, want)
 
 
+def check_park_panics(failures, counts):
+    """A park this compiler lowers whose wait the executor does not perform
+    yet panics, naming the reason, rather than spin or return early (SL-645,
+    SL:coroutines A3c): each of `PARK_PANICS`, built by sawc2 at -O0 and at
+    -O2 with nothing printed, prints its `// prints:` lines, then a panic
+    holding its `// panics:` line, and aborts. Stage 0 performs those waits,
+    so its output is no oracle here."""
+    for name in PARK_PANICS:
+        src = os.path.join(HERE, "probes", name)
+        want = stated_prints(src)
+        panic = stated_panic(src)
+        passed = True
+        for speed in ("-O0", "-O2"):
+            ok, binary, log = build_new(src, speed)
+            if not ok or log:
+                failures.append("run %s %s: sawc2 %s: %s" % (name, speed, "builds it but prints" if ok
+                                                             else "does not build it", log[:300]))
+                passed = False
+                continue
+            code, out = execute(binary)
+            lines = masked(out).rstrip("\n").split("\n")
+            if code in (0, None) or lines[:-1] != want or not lines[-1].startswith("panic at ?: ") \
+                    or panic not in lines[-1]:
+                failures.append("run %s %s: exit %s, prints %r, not %r then a panic holding %r"
+                                % (name, speed, code, out[:300], want, panic))
+                passed = False
+        if passed:
+            counts["run programs stating their panic"] = counts.get("run programs stating their panic", 0) + 1
+
+
+def stated_panic(path):
+    """The text a program's `// panics:` header says its panic holds."""
+    with open(path) as fh:
+        for line in fh:
+            if not line.startswith("//"):
+                break
+            m = _PANICS.match(line.rstrip("\n"))
+            if m:
+                return m.group(1)
+    return None
+
+
 def run(names=None, write=False):
     os.makedirs(OUT, exist_ok=True)
     failures = []
@@ -782,6 +833,7 @@ def run(names=None, write=False):
         check_borrow_place_reads(failures, counts)
         check_test_only_exports(failures, counts)
         check_move_at_borrow(failures, counts)
+        check_park_panics(failures, counts)
     return failures, counts, dues
 
 

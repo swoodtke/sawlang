@@ -1,0 +1,13 @@
+frame #0: park_signal.main()  (size 32 align 8)
+    suspend 1: bb1 call SignalWatch.next
+    (*frame).[0: Int]  size 8 align 8  state
+    (*frame).[8: Void]  size 0 align 1  _0 result
+    (*frame).[8: std.task.SignalWatch]  size 8 align 8  _1 watch  (across 1)
+    (*frame).[16: frame std.task.SignalWatch.next()]  size 16 align 8  child  (across 1)
+    stack: _2 _3
+frame #6: std.task.SignalWatch.next()  (size 16 align 8)
+    suspend 1: bb0 call __saw_park_fd
+    (*frame).[0: Int]  size 8 align 8  state
+    (*frame).[8: Void]  size 0 align 1  _0 result
+    (*frame).[8: &std.task.SignalWatch]  size 8 align 8  _1 self  (across 1)
+    stack: none

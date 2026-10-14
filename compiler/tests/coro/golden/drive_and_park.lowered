@@ -66,14 +66,16 @@ fn drive_and_park.outer() -> Void {
         return;
     }
 }
-resume #6: std.task.yield_now()  (frame size 8 align 8, pointer _1)
+resume #6: std.task.yield_now()  (frame size 8 align 8, pointer _1, context _2)
     state 0: bb0
     state 1: bb0 park ready
 fn std.task.yield_now() -> Void {
     let _0: Void;  // return
     let _1: &var Int;
+    let _2: &var std.taskgroup.TaskContext;
 
     bb0: {
+        (*(*_2).park) = const 0: Int;
         call std.task.__saw_park_ready() [] -> [return: bb1] suspends;
     }
 

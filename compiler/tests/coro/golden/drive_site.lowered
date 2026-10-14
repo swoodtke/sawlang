@@ -1,4 +1,4 @@
-resume #5: drive_site.work(n: Int, label: String) task root  (frame size 32 align 8, pointer _7)
+resume #5: drive_site.work(n: Int, label: String) task root  (frame size 32 align 8, pointer _7, context _8)
     state 0: bb0
     state 1: bb0 park ready
 fn drive_site.work(n: Int, label: String) -> Int {
@@ -10,8 +10,10 @@ fn drive_site.work(n: Int, label: String) -> Int {
     let _5: Int;
     let _6: Int;
     let _7: &var Int;
+    let _8: &var std.taskgroup.TaskContext;
 
     bb0: {
+        (*(*_8).park) = const 0: Int;
         call builtin __saw_suspend [] -> [return: bb1] suspends;
     }
 
@@ -82,7 +84,7 @@ fn drive_site.plain(n: Int) -> Int {
         return;
     }
 }
-resume #9: drive_site.made(id: Int) task root  (frame size 24 align 8, pointer _3)
+resume #9: drive_site.made(id: Int) task root  (frame size 24 align 8, pointer _3, context _4)
     state 0: bb0
     state 1: bb0 park ready
 fn drive_site.made(id: Int) -> drive_site.Token {
@@ -90,8 +92,10 @@ fn drive_site.made(id: Int) -> drive_site.Token {
     let _1: Int;  // param id
     let _2: drive_site.Token;
     let _3: &var Int;
+    let _4: &var std.taskgroup.TaskContext;
 
     bb0: {
+        (*(*_4).park) = const 0: Int;
         call builtin __saw_suspend [] -> [return: bb1] suspends;
     }
 
@@ -101,7 +105,7 @@ fn drive_site.made(id: Int) -> drive_site.Token {
         return;
     }
 }
-resume #16: drive_site.work(n: Int, label: String)  (frame size 32 align 8, pointer _7)
+resume #16: drive_site.work(n: Int, label: String)  (frame size 32 align 8, pointer _7, context _8)
     state 0: bb0
     state 1: bb0 park ready
 fn drive_site.work(n: Int, label: String) -> Int {
@@ -113,8 +117,10 @@ fn drive_site.work(n: Int, label: String) -> Int {
     let _5: Int;
     let _6: Int;
     let _7: &var Int;
+    let _8: &var std.taskgroup.TaskContext;
 
     bb0: {
+        (*(*_8).park) = const 0: Int;
         call builtin __saw_suspend [] -> [return: bb1] suspends;
     }
 

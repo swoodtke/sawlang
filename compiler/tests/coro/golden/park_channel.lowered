@@ -1,0 +1,36 @@
+resume #0: park_channel.main()  (frame size 24 align 8, pointer _2)
+    state 0: bb0
+    state 1: bb0 drive #5 std.task.channel_wait(word: Int) at (*frame).[8]
+fn park_channel.main() -> Void {
+    let _0: Void;  // return
+    let _1: Int;
+    let _2: &var Int;
+
+    bb0: {
+        _1 = Neg(const 4096: Int);
+        (*_2).[16: Int] = move _1;
+        call std.task.channel_wait(word: Int) [] -> [return: bb1] suspends;
+    }
+
+    bb1: {
+        return;
+    }
+}
+resume #5: std.task.channel_wait(word: Int)  (frame size 16 align 8, pointer _2, context _3)
+    state 0: bb0
+    state 1: bb0 park channel
+fn std.task.channel_wait(word: Int) -> Void {
+    let _0: Void;  // return
+    let _1: Int;  // param word
+    let _2: &var Int;
+    let _3: &var std.taskgroup.TaskContext;
+
+    bb0: {
+        (*(*_3).park) = copy (*_2).[8: Int];
+        call std.task.__saw_park_channel(word: Int) [] -> [return: bb1] suspends;
+    }
+
+    bb1: {
+        return;
+    }
+}
