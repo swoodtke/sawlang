@@ -43,7 +43,10 @@ public func ll_param_attributes(mono: &var MonoProgram, k: Int, j: Int, t: Int) 
 //
 // ENTRY POINTS:
 //   LlEmitter.emit_function
+//   LlEmitter.emit_resume
 //   LlEmitter.entry_point
+//   LlEmitter.descriptor
+//   ll_frame_resume_helper
 //   ll_helpers
 //   ll_fail_helpers
 public func ll_function_attributes(extra: String) -> String {

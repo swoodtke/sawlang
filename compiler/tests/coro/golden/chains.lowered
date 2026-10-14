@@ -1,0 +1,6 @@
+ERROR	coro.not-yet	compiler/tests/coro/golden/chains.saw:44:17	`main` suspends (main -> rest -> Napper.twice -> Bed.nap -> usleep), so it needs a coroutine frame, which is not lowered yet (SL-545)
+ERROR	coro.not-yet	compiler/tests/coro/golden/chains.saw:37:5	`rest` suspends (rest -> Napper.twice -> Bed.nap -> usleep), so it needs a coroutine frame, which is not lowered yet (SL-545)
+ERROR	coro.not-yet	compiler/tests/coro/golden/chains.saw:27:9	`Bed.slot` suspends (Bed.slot -> usleep), so it needs a coroutine frame, which is not lowered yet (SL-545)
+ERROR	coro.not-yet	compiler/tests/coro/golden/chains.saw:13:9	`Napper.twice` suspends (Napper.twice -> Bed.nap -> usleep), so it needs a coroutine frame, which is not lowered yet (SL-545)
+ERROR	coro.not-yet	compiler/tests/coro/golden/chains.saw:22:31	`Bed.nap` suspends (Bed.nap -> usleep), so it needs a coroutine frame, which is not lowered yet (SL-545)
+no lowered frame

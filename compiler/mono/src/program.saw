@@ -89,6 +89,10 @@ public struct MonoProgram {
     literal_item: Int
     bytes_item: Int
     length_item: Int
+    // The entry executor a suspending `main`'s frame is handed to, rooted
+    // only once coroutine lowering lowers that frame (`root_entry_executor`);
+    // -1 until then.
+    exec_item: Int
     // The String comparison roles, made when a comparison of Strings is
     // reached; -1 until then.
     equals_item: Int
@@ -159,7 +163,7 @@ public func mono_program(dp: DropsProgram, blocked: Bool) -> MonoProgram {
                 call_items: Vector<Int>(), closure_items: Vector<Int>(), concrete_first: first,
                 diags: Vector<MirDiag>(), problems: Vector<String>(), static_kinds: move kinds,
                 static_bits: move bits, main_item: -1, panic_item: -1, literal_item: -1, bytes_item: -1,
-                length_item: -1, equals_item: -1, compare_item: -1, builder_new_item: -1, builder_fixed_item: -1,
+                length_item: -1, exec_item: -1, equals_item: -1, compare_item: -1, builder_new_item: -1, builder_fixed_item: -1,
                 builder_build_item: -1, builder_len_item: -1, literal_inits: Vector<Int>(),
                 literal_pushes: Vector<Int>(), depth_call: -1, depth_glue: -1, current: -1, blocked: blocked,
                 body_of: move bodies, defaults: res_index(), runtime: false, export_items: Vector<Int>(),

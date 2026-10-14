@@ -1,0 +1,26 @@
+// The walking skeleton (SL:coroutines A3b): a suspending `main` whose
+// frame the entry executor drives. Each `yield_now` is a child frame `main`
+// drives, whose ready park returns `Pending` up through `main` to the
+// executor, which resumes `main` at the state after it. The values that live
+// across the yields are in `main`'s frame, a String among them, so they
+// survive each return to the executor; `main`'s result is read from its
+// frame. A loop's op-budget point is a later unit's (A9), so the yields are
+// straight-line.
+import std.task.{yield_now}
+
+func greet(name: String) -> String {
+    "hello, {name}"
+}
+
+func main() -> Int {
+    let kept = greet("frame")
+    var count = 1
+    print("{} {}", count, kept)
+    yield_now()
+    count = count + 1
+    print("{} {}", count, kept)
+    yield_now()
+    count = count + 1
+    print("{} {}", count, kept)
+    count
+}

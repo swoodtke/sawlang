@@ -1,0 +1,21 @@
+// refuses: coro.not-yet at 19:17
+// message: `main` suspends (main -> usleep), so it needs a coroutine frame
+// A frame is lowered only when every suspension in it is: here `yield_now`
+// is a ready park this compiler lowers, and the `blocking` extern beside it
+// is not (its offload is SL:coroutines A14). So `main` is refused, and the
+// cause chain names the suspension that is not lowered, not the one that is
+// (`main -> yield_now -> __saw_park_ready`), which is where its suspension
+// was first found. A decision that asked only whether a frame held a ready
+// park would let this half-lowered frame reach the backend.
+import std.task.{yield_now}
+
+extern "C" {
+    blocking func usleep(us: UInt32) -> Int32
+}
+
+func main() {
+    yield_now()
+    print("between")
+    let slept = usleep(1)
+    print("{}", slept)
+}

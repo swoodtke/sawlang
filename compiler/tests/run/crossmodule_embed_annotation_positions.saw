@@ -1,0 +1,35 @@
+// The DF-212b position matrix: one row per type-annotation position that a
+// cross-module embed carries into the entry module's AST (obligation 1).
+//
+// `main` transitively suspends, so design 84 splices each provider method's
+// body into THIS module and re-checks it here. A declaration annotation is
+// stored RAW — the parser defaults a bare capitalized name to
+// `TypeKind.STRUCT` — and nothing used to correct that, so an enum-typed
+// field, payload, generic argument or optional compared STRUCT against ENUM
+// and reported the same name on both sides. `_stamp_annotation_kind` settles
+// the kind in the DECLARING module's view, where the answer is known.
+//
+// Rows 1-4 are the ones that used to fail; 7-9 already passed (those slots go
+// through `_resolve_type`) and ride along as regression rows.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// field 11
+// generic 21
+// optional 31
+// payload 41
+// return 71
+// signature 81
+// local 91
+import std.task
+import modules.embed_annotations as ann
+
+func main() {
+    print("field {ann.Anchor.field_type()}")
+    print("generic {ann.Anchor.generic_arg()}")
+    print("optional {ann.Anchor.optional_field()}")
+    print("payload {ann.Anchor.enum_payload()}")
+    print("return {ann.Anchor.fn_return()}")
+    print("signature {ann.Anchor.method_signature()}")
+    print("local {ann.Anchor.local_annotation()}")
+    task.yield_now()
+}

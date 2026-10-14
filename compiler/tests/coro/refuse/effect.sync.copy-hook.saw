@@ -1,0 +1,53 @@
+// refuses: effect.sync at 43:5
+// message: cannot suspend in the `ExplicitCopy` `copy()` of `Wrap`: method `Wrap.copy` calls `Slow.step` → blocking extern `usleep`
+// A copy-policy `copy()` runs at transfer sites no source construct names,
+// so it must not suspend (spec: a hand-written `copy()` must be `sync`).
+// This one suspends only where its bound's `step` does, so typecheck, which
+// refuses one that suspends at every instantiation, passes it, and it is
+// refused here at `Wrap<Slow>`, the instantiation that suspends. At `Fast`
+// it builds (the run lane's `copy_hook_per_instantiation`).
+extern "C" {
+    blocking func usleep(us: UInt32) -> Int32
+}
+
+trait Worker {
+    func step(&self) -> Int
+}
+
+struct Slow {
+    n: Int
+}
+
+extension Slow: Worker {
+    func step(&self) -> Int {
+        (usleep(1) as Int) + self.n
+    }
+}
+
+struct Fast {
+    n: Int
+}
+
+extension Fast: Worker {
+    func step(&self) -> Int {
+        self.n
+    }
+}
+
+struct Wrap<T: Worker> {
+    n: Int
+    w: T
+}
+
+extension Wrap<T: Worker>: ExplicitCopy {
+    func copy(&self) -> Wrap<T> {
+        let bump = self.w.step()
+        Wrap(n: self.n + bump, w: self.w)
+    }
+}
+
+func main() {
+    let a = Wrap(n: 1, w: Slow(n: 2))
+    let b = a.copy()
+    print("{}", b.n)
+}

@@ -1,0 +1,487 @@
+// Which frames this compiler lowers, and the lowering (SL:coroutines §3.1):
+// a lowered item's concrete body has every frame value's place rewritten in
+// place to its slot, `(*_F).[OFFSET: T]` through the frame pointer `_F`, and
+// each suspension point becomes a point of its resume function, a park or a
+// child's drive, which the backend emits around the body's own blocks. An
+// item that needs a frame and is not lowered is refused (`coro.not-yet`),
+// naming the suspension that is not, so nothing half lowered reaches the
+// backend.
+//
+// ENTRY POINTS of the lowering decision:
+//   coro_decide_lowering
+//   coro_frame_lowered
+//   coro_refuse_unlowered
+//   coro_lower_frames
+
+import sawborrowck.program.{BorrowckProgram}
+import sawcoro.frames.{coro_driven_child, coro_frame_of}
+import sawcoro.program.{CoroFrame, CoroPoint, CoroPointKind, CoroProgram, CoroResume, CoroSuspend, CoroUnlowered,
+                        CoroUnloweredKind, CoroValue, CoroValueKind}
+import sawcoro.suspends.{coro_cause_chain, coro_source_label}
+import sawdrops.program.{DropsProgram}
+import sawmir.model.{MirLocal, MirLocalKind, MirPlace, MirProj, MirProjKind, MirStmtKind, MirTermKind}
+import sawmir.program.{MirProgram}
+import sawmono.program.{MonoProgram}
+import sawresolve.lang.{ResLang}
+import sawresolve.program.{ResProgram}
+import sawtypecheck.program.{TcProgram}
+import sawtypecheck.signatures.{TcContext}
+import sawtypecheck.typeops.{TcClient}
+
+// The state word: a frame not yet resumed, and one that has returned. Each
+// suspension point is its own state, numbered from 1.
+public static CORO_STATE_START: Int = 0
+public static CORO_STATE_DONE: Int = -1
+
+// What a resume function returns.
+public static CORO_POLL_READY: Int = 0
+public static CORO_POLL_PENDING: Int = 1
+
+// What a ready park records in the root's park word: the park word
+// vocabulary's ready yield (sawc/std/taskgroup.saw).
+public static CORO_PARK_READY: Int = 0
+
+// Decides, for every item, whether its frame is lowered: every suspension
+// point of the frame is a shape this compiler lowers, a ready park or the
+// drive of a lowered child with no parameters and no result, and the frame
+// holds nothing else it does not (an op-budget point, a borrow window, a
+// frame value an index projection reads). Children are decided before their
+// callers; once frames are found the suspending call graph is acyclic.
+public func coro_decide_lowering(coro: &var CoroProgram) {
+    coro.lowered = Vector<Bool>()
+    coro.unlowered = Vector<CoroUnlowered>()
+    var k = 0
+    while k < coro.mono.items.len() {
+        try! coro.lowered.push(false)
+        try! coro.unlowered.push(CoroUnlowered(suspend: -1, what: CoroUnloweredKind.Lowered))
+        k = k + 1
+    }
+    var decided = Vector<Bool>()
+    k = 0
+    while k < coro.frames.len() {
+        try! decided.push(false)
+        k = k + 1
+    }
+    var left = coro.frames.len()
+    var progress = true
+    while left > 0 && progress {
+        progress = false
+        k = 0
+        while k < coro.frames.len() {
+            if not decided[k] && coro_children_decided(&coro, &decided, k) {
+                coro_decide_frame(&var coro, k)
+                decided[k] = true
+                left = left - 1
+                progress = true
+            }
+            k = k + 1
+        }
+    }
+    if left > 0 {
+        try! coro.problems.push("a frame's children were never decided: the suspending call graph has a cycle")
+    }
+}
+
+// Whether item `k` has a frame and it is lowered.
+public func coro_frame_lowered(coro: &CoroProgram, k: Int) -> Bool {
+    k >= 0 && k < coro.lowered.len() && coro.lowered[k]
+}
+
+func coro_children_decided(coro: &CoroProgram, decided: &Vector<Bool>, f: Int) -> Bool {
+    let frame = coro.frames[f]
+    var j = 0
+    while j < frame.suspend_count {
+        // Stage 0 workaround (SL:hazards S4): canonical: let child = coro_driven_child(&coro, coro.suspends[frame.suspend_first + j].call)
+        let call = coro.suspends[frame.suspend_first + j].call
+        let child = coro_driven_child(&coro, call)
+        j = j + 1
+        let c = coro_frame_of(&coro, child)
+        if child >= 0 && (c < 0 || not decided[c]) {
+            return false
+        }
+    }
+    true
+}
+
+// Frame `f`'s decision: its first suspending call this compiler does not
+// lower, else its first op-budget point, else a shape of the frame as a
+// whole.
+func coro_decide_frame(coro: &var CoroProgram, f: Int) {
+    let frame = coro.frames[f]
+    var why = CoroUnlowered(suspend: -1, what: CoroUnloweredKind.Lowered)
+    var j = 0
+    while j < frame.suspend_count && why.what == CoroUnloweredKind.Lowered {
+        let s = frame.suspend_first + j
+        j = j + 1
+        let call = coro.suspends[s].call
+        if call >= 0 {
+            let what = coro_call_unlowered(&coro, call)
+            if what != CoroUnloweredKind.Lowered {
+                why = CoroUnlowered(suspend: s, what: what)
+            }
+        }
+    }
+    j = 0
+    while j < frame.suspend_count && why.what == CoroUnloweredKind.Lowered {
+        let s = frame.suspend_first + j
+        j = j + 1
+        if coro.suspends[s].call < 0 {
+            why = CoroUnlowered(suspend: s, what: CoroUnloweredKind.Budget)
+        }
+    }
+    if why.what == CoroUnloweredKind.Lowered && coro.mono.dp.bc.mir.funcs[frame.body].window_count > 0 {
+        why = CoroUnlowered(suspend: -1, what: CoroUnloweredKind.Window)
+    }
+    if why.what == CoroUnloweredKind.Lowered && coro_indexes_frame_value(&coro, f) {
+        why = CoroUnlowered(suspend: -1, what: CoroUnloweredKind.Index)
+    }
+    coro.unlowered[frame.item] = why
+    coro.lowered[frame.item] = why.what == CoroUnloweredKind.Lowered
+}
+
+// What is not lowered about suspending call `c`, or `Lowered`: a ready park and
+// the drive of a lowered child that takes nothing and returns nothing are.
+func coro_call_unlowered(coro: &CoroProgram, c: Int) -> CoroUnloweredKind {
+    if coro_parks_ready(&coro, c) {
+        return CoroUnloweredKind.Lowered
+    }
+    let child = coro_driven_child(&coro, c)
+    if child < 0 {
+        return CoroUnloweredKind.Source
+    }
+    if not coro_frame_lowered(&coro, child) {
+        return CoroUnloweredKind.Child
+    }
+    let body = coro.mono.items[child].body
+    let info = coro.mono.dp.bc.mir.funcs[body]
+    let result = coro.mono.dp.bc.mir.locals[info.local_first].ty
+    if info.param_count > 0 || not coro.mono.dp.bc.mir.tc.is_void(result) {
+        return CoroUnloweredKind.Arguments
+    }
+    CoroUnloweredKind.Lowered
+}
+
+// Whether call `c` reaches the ready park point.
+func coro_parks_ready(coro: &CoroProgram, c: Int) -> Bool {
+    let t = coro.mono.call_item(c)
+    t >= 0 && coro.item_decl(t) >= 0 && coro.item_decl(t) == coro.mono.dp.bc.mir.tc.res.lang_item(ResLang.ParkReadyFunction)
+}
+
+// Whether an index projection in frame `f`'s body reads a frame-resident
+// local, which a place cannot name as a frame slot.
+func coro_indexes_frame_value(coro: &CoroProgram, f: Int) -> Bool {
+    let frame = coro.frames[f]
+    let resident = coro_resident_locals(&coro, &frame)
+    let places = coro_body_places(&coro, frame.body)
+    var k = 0
+    while k < places.len() {
+        let pl = coro.mono.dp.bc.mir.places[places[k]]
+        k = k + 1
+        var j = 0
+        while j < pl.count {
+            let step = coro.mono.dp.bc.mir.projs[pl.first + j]
+            j = j + 1
+            if step.kind == MirProjKind.Index && step.index >= 0 && step.index < resident.len() && resident[step.index] >= 0 {
+                return true
+            }
+        }
+    }
+    false
+}
+
+// By local of frame `frame`'s body: the frame value holding it, an index of
+// `coro.values`, or -1 for a local on the resume function's stack.
+func coro_resident_locals(coro: &CoroProgram, frame: &CoroFrame) -> Vector<Int> {
+    let info = coro.mono.dp.bc.mir.funcs[frame.body]
+    var out = Vector<Int>()
+    var l = 0
+    while l < info.local_count {
+        try! out.push(-1)
+        l = l + 1
+    }
+    var j = 0
+    while j < frame.value_count {
+        let v = coro.values[frame.value_first + j]
+        if v.local >= 0 {
+            out[v.local] = frame.value_first + j
+        }
+        j = j + 1
+    }
+    move out
+}
+
+// Every place function `f`'s statements and terminators name, each once, in
+// block order: a statement's place and its rvalue's, every operand's, and a
+// terminator's switch operand or place, call arguments, callee and
+// destination.
+func coro_body_places(coro: &CoroProgram, f: Int) -> Vector<Int> {
+    var out = Vector<Int>()
+    let info = coro.mono.dp.bc.mir.funcs[f]
+    var b = 0
+    while b < info.block_count {
+        let block = coro.mono.dp.bc.mir.blocks[info.block_first + b]
+        b = b + 1
+        var s = block.first
+        while s >= 0 {
+            let stmt = coro.mono.dp.bc.mir.stmts[s]
+            s = stmt.next
+            coro_add_place(&var out, stmt.place)
+            if stmt.rvalue >= 0 {
+                let rv = coro.mono.dp.bc.mir.rvalues[stmt.rvalue]
+                coro_add_place(&var out, rv.place)
+                coro_add_place(&var out, rv.flag)
+                coro_add_operands(&coro, &var out, rv.first, rv.count)
+            }
+        }
+        if block.term == MirTermKind.Switch {
+            coro_add_operand(&coro, &var out, block.operand)
+            coro_add_place(&var out, block.place)
+        } else if block.term == MirTermKind.Call {
+            let call = coro.mono.dp.bc.mir.calls[block.call]
+            coro_add_operands(&coro, &var out, call.arg_first, call.arg_count)
+            coro_add_operand(&coro, &var out, call.callee)
+            coro_add_place(&var out, call.dest)
+        }
+    }
+    move out
+}
+
+func coro_add_place(out: &var Vector<Int>, p: Int) {
+    if p < 0 {
+        return
+    }
+    var k = 0
+    while k < out.len() {
+        if out[k] == p {
+            return
+        }
+        k = k + 1
+    }
+    try! out.push(p)
+}
+
+func coro_add_operand(coro: &CoroProgram, out: &var Vector<Int>, o: Int) {
+    if o >= 0 {
+        coro_add_place(&var out, coro.mono.dp.bc.mir.operands[o].place)
+    }
+}
+
+func coro_add_operands(coro: &CoroProgram, out: &var Vector<Int>, first: Int, count: Int) {
+    var k = 0
+    while k < count {
+        let o = coro.mono.dp.bc.mir.lists[first + k]
+        coro_add_operand(&coro, &var out, o)
+        k = k + 1
+    }
+}
+
+// Refuses each item that needs a frame and whose frame is not lowered, at
+// the call or point that is not, naming it: the cause chain through that
+// suspension, so a frame that also holds a lowered park names the one it
+// cannot. Only the program's own items are refused when any of them is,
+// since every std item that suspends is reached from one; nothing is
+// refused here when a cycle was.
+public func coro_refuse_unlowered(coro: &var CoroProgram) {
+    if coro.cyclic {
+        return
+    }
+    var own = false
+    var k = 0
+    while k < coro.lowered.len() {
+        if coro.needs_frame(k) && not coro.lowered[k] && not coro.std_item(k) {
+            own = true
+        }
+        k = k + 1
+    }
+    k = 0
+    while k < coro.lowered.len() {
+        let item = k
+        k = k + 1
+        if not coro.needs_frame(item) || coro.lowered[item] || (own && coro.std_item(item)) {
+            continue
+        }
+        coro_refuse_item(&var coro, item)
+    }
+}
+
+func coro_refuse_item(coro: &var CoroProgram, item: Int) {
+    let why = coro.unlowered[item]
+    var call = coro.cause_call[item]
+    if why.suspend >= 0 && coro.suspends[why.suspend].call >= 0 {
+        call = coro.suspends[why.suspend].call
+    }
+    var msg = StringBuilder()
+    try! msg.append("`")
+    try! msg.append(coro.item_label(item))
+    try! msg.append("` suspends (")
+    let calls = why.what == CoroUnloweredKind.Source || why.what == CoroUnloweredKind.Child || why.what == CoroUnloweredKind.Arguments
+    if calls {
+        try! msg.append(coro_unlowered_chain(&coro, item))
+    } else {
+        try! msg.append(coro_cause_chain(&coro, item))
+    }
+    try! msg.append("), so it needs a coroutine frame, ")
+    match why.what {
+        case Arguments -> try! msg.append("and driving a child frame that takes arguments or returns a value is not lowered yet (SL-545)"),
+        case Budget -> try! msg.append("and its op-budget point is not lowered yet (SL-545)"),
+        case Window -> try! msg.append("and a borrow window in it is not lowered yet (SL-545)"),
+        case Index -> try! msg.append("and an index read from its frame is not lowered yet (SL-545)"),
+        case _ -> try! msg.append("which is not lowered yet (SL-545)")
+    }
+    let node = coro.mono.dp.bc.mir.calls[call].node
+    coro.refuse(item, node, "coro.not-yet", msg.build())
+}
+
+// Item `item`'s chain through the suspensions that are not lowered: each
+// child driven at one, then the source or the child that ends it.
+func coro_unlowered_chain(coro: &CoroProgram, item: Int) -> String {
+    var out = StringBuilder()
+    try! out.append(coro.item_label(item))
+    var at = item
+    while at >= 0 {
+        let why = coro.unlowered[at]
+        if why.suspend < 0 {
+            return out.build()
+        }
+        let c = coro.suspends[why.suspend].call
+        try! out.append(" -> ")
+        if why.what == CoroUnloweredKind.Source {
+            // Stage 0 workaround (SL:hazards S4): canonical: try! out.append(coro_source_label(&coro, coro.suspends[why.suspend].call))
+            try! out.append(coro_source_label(&coro, c))
+            return out.build()
+        }
+        let child = coro_driven_child(&coro, c)
+        try! out.append(coro.item_label(child))
+        if why.what != CoroUnloweredKind.Child {
+            return out.build()
+        }
+        at = child
+    }
+    out.build()
+}
+
+// Lowers every lowered frame, once the frames are laid out: rewrites its
+// body's places to frame slots through a new frame-pointer local, and
+// records its resume function's points. A frame the target cannot lay out is
+// left for the backend, which refuses the type.
+public func coro_lower_frames(coro: &var CoroProgram) {
+    coro.resume_of = Vector<Int>()
+    coro.resumes = Vector<CoroResume>()
+    coro.points = Vector<CoroPoint>()
+    coro.resident = Vector<Bool>()
+    var k = 0
+    while k < coro.mono.items.len() {
+        try! coro.resume_of.push(-1)
+        k = k + 1
+    }
+    var f = 0
+    while f < coro.frames.len() {
+        let frame = coro.frames[f]
+        if coro_frame_lowered(&coro, frame.item) && frame.unsupported < 0 && frame.size >= 0 {
+            coro_lower_frame(&var coro, f)
+        }
+        f = f + 1
+    }
+}
+
+func coro_lower_frame(coro: &var CoroProgram, f: Int) {
+    let frame = coro.frames[f]
+    let resident = coro_resident_locals(&coro, &frame)
+    let places = coro_body_places(&coro, frame.body)
+    let frame_local = coro_add_frame_local(&var coro, frame.body)
+    let word = coro.mono.dp.bc.mir.tc.int_type()
+    var k = 0
+    while k < places.len() {
+        let p = places[k]
+        k = k + 1
+        let pl = coro.mono.dp.bc.mir.places[p]
+        if pl.local < 0 || pl.local >= resident.len() || resident[pl.local] < 0 {
+            continue
+        }
+        let v = coro.values[resident[pl.local]]
+        let local_ty = coro.mono.dp.bc.mir.locals[coro.mono.dp.bc.mir.funcs[frame.body].local_first + pl.local].ty
+        let first = coro.mono.dp.bc.mir.projs.len()
+        try! coro.mono.dp.bc.mir.projs.push(MirProj(kind: MirProjKind.Deref, decl: -1, index: -1, ty: word))
+        try! coro.mono.dp.bc.mir.projs.push(MirProj(kind: MirProjKind.FrameSlot, decl: -1, index: v.offset,
+                                                    ty: local_ty))
+        var j = 0
+        while j < pl.count {
+            let step = coro.mono.dp.bc.mir.projs[pl.first + j]
+            try! coro.mono.dp.bc.mir.projs.push(step)
+            j = j + 1
+        }
+        coro.mono.dp.bc.mir.places[p] = MirPlace(local: frame_local, static_decl: -1, first: first,
+                                                  count: pl.count + 2, ty: pl.ty)
+    }
+    let point_first = coro.points.len()
+    // The frame's child slots are in the order of the suspensions that
+    // drive them, one each.
+    var slot_at = 0
+    var s = 0
+    while s < frame.suspend_count {
+        let point = coro.suspends[frame.suspend_first + s]
+        s = s + 1
+        let block = point.block
+        if coro_parks_ready(&coro, point.call) {
+            try! coro.points.push(CoroPoint(kind: CoroPointKind.ParkReady, state: s, block: block, call: point.call,
+                                            child: -1, slot: -1))
+        } else {
+            let child = coro_driven_child(&coro, point.call)
+            slot_at = coro_next_child_slot(&coro, &frame, slot_at)
+            let slot = coro.values[frame.value_first + slot_at].offset
+            slot_at = slot_at + 1
+            try! coro.points.push(CoroPoint(kind: CoroPointKind.Drive, state: s, block: block, call: point.call,
+                                            child: child, slot: slot))
+        }
+    }
+    let resident_first = coro.resident.len()
+    var l = 0
+    var result = -1
+    while l < resident.len() {
+        try! coro.resident.push(resident[l] >= 0)
+        if l == 0 && resident[l] >= 0 {
+            result = coro.values[resident[l]].offset
+        }
+        l = l + 1
+    }
+    // The frame pointer is the resume function's own stack local.
+    try! coro.resident.push(false)
+    let at = coro.resumes.len()
+    coro.resume_of[frame.item] = at
+    let point_count = coro.points.len() - point_first
+    try! coro.resumes.push(CoroResume(item: frame.item, frame: f, frame_local: frame_local, point_first: point_first,
+                                      point_count: point_count, resident_first: resident_first, size: frame.size,
+                                      align: frame.align, result: result))
+}
+
+// The index in `frame`'s values of its first child slot from `from` on.
+func coro_next_child_slot(coro: &CoroProgram, frame: &CoroFrame, from: Int) -> Int {
+    var j = from
+    while j < frame.value_count && coro.values[frame.value_first + j].kind != CoroValueKind.Child {
+        j = j + 1
+    }
+    j
+}
+
+// Gives function `f` one more local, the frame pointer, a `&var Int` that
+// points at the frame's state word; its locals move to a fresh run of the
+// arena, numbered as before, since the run after them is another function's.
+func coro_add_frame_local(coro: &var CoroProgram, f: Int) -> Int {
+    var info = coro.mono.dp.bc.mir.funcs[f]
+    let first = coro.mono.dp.bc.mir.locals.len()
+    var l = 0
+    while l < info.local_count {
+        let local = coro.mono.dp.bc.mir.locals[info.local_first + l]
+        try! coro.mono.dp.bc.mir.locals.push(local)
+        l = l + 1
+    }
+    let word = coro.mono.dp.bc.mir.tc.int_type()
+    let pointer = coro.mono.dp.bc.mir.tc.mk_ref(true, word)
+    try! coro.mono.dp.bc.mir.locals.push(MirLocal(ty: pointer, kind: MirLocalKind.Temp, name: -1, node: -1,
+                                                  owned: false, reference: false))
+    let frame_local = info.local_count
+    info.local_first = first
+    info.local_count = info.local_count + 1
+    coro.mono.dp.bc.mir.funcs[f] = info
+    frame_local
+}

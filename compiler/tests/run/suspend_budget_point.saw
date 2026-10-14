@@ -1,11 +1,10 @@
-// due: a function that suspends needs a coroutine frame, and none is lowered yet
-// refuses: coro.not-yet at 16:22
+// due: an op-budget point in a frame is not lowered yet (SL:coroutines A9)
+// refuses: coro.not-yet at 16:9
 // A loop in a function that suspends keeps its op-budget point live, so the
-// point needs the frame the function is refused for; the refusal is at the
-// call its suspension was found through.
-extern "C" {
-    blocking func usleep(us: UInt32) -> Int32
-}
+// point is a suspension of the function's frame. The ready park under
+// `yield_now` is lowered and the budget point is not, so `main` is refused,
+// at the call its suspension was found through, naming the budget point.
+import std.task.{yield_now}
 
 func main() {
     var i = 0
@@ -13,6 +12,7 @@ func main() {
         i = i + 1
     }
     if i == 3 {
-        print("{}", (usleep(1) as Int) + i)
+        print("{}", i)
+        yield_now()
     }
 }

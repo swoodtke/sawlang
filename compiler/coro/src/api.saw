@@ -1,15 +1,17 @@
 // Coroutine lowering's entry points: a program brought through mono, then
 // each item's frame decided; and the record `sawc2 coro` prints for it.
 
-import sawcoro.dump.{coro_dump_items, coro_dump_layouts}
+import sawcoro.dump.{coro_dump_items, coro_dump_layouts, coro_dump_lowered}
 import sawcoro.frames.{coro_find_frames}
 import sawcoro.layout.{coro_lay_out_frames}
+import sawcoro.lower.{coro_decide_lowering, coro_frame_lowered, coro_lower_frames, coro_refuse_unlowered}
 import sawcoro.program.{CoroProgram, coro_program}
 import sawcoro.suspends.{coro_solve_suspension}
 import sawmir.api.{mir_append_diag}
 import sawmir.program.{MirProgram}
 import sawmono.api.{mono_append_findings, mono_lower_file}
 import sawmono.program.{MonoProgram}
+import sawmono.worklist.{mono_rules}
 import sawtarget.layout.{Target}
 
 // How `sawc2 coro` treats one entry file.
@@ -21,11 +23,13 @@ public struct CoroOptions {
     dump: Bool
     // Print each frame's layout.
     layouts: Bool
+    // Print each lowered frame's resume function.
+    lowered: Bool
     notes: Bool
 }
 
 // The program whose entry file is `path`, brought through mono, then
-// decided, and each frame's contents found. Everything the stages before
+// decided, each frame's contents found, and which frames are lowered. Everything the stages before
 // mono report is appended to `out`, as `mono_lower_file` appends it; mono's
 // own findings and this stage's are `coro_append_findings`'. When mono's
 // program comes refused or with a broken invariant, nothing is decided.
@@ -37,16 +41,40 @@ public func coro_lower_file(out: &var StringBuilder, path: String, std_root: Str
     if not coro.blocked {
         coro_solve_suspension(&var coro)
         coro_find_frames(&var coro)
+        coro_decide_lowering(&var coro)
+        coro_refuse_unlowered(&var coro)
+        coro_root_entry_executor(&var coro)
     }
     move coro
+}
+
+// A program whose `main` has a lowered frame is handed to the entry
+// executor, which is rooted for it; std declaring none is a broken
+// invariant, since the ready park it lowers is std's too.
+func coro_root_entry_executor(coro: &var CoroProgram) {
+    // Stage 0 workaround (SL:hazards S4): canonical: if not coro_frame_lowered(&coro, coro.mono.main_item) || coro.diags.len() > 0 {
+    let main = coro.mono.main_item
+    if not coro_frame_lowered(&coro, main) || coro.diags.len() > 0 {
+        return
+    }
+    if coro.mono.root_entry_executor() < 0 {
+        try! coro.problems.push("`main` has a lowered frame, and std declares no entry executor")
+    }
+}
+
+// Lays out every frame for `target`, then lowers each lowered one: what the
+// backend consumes, and what `--lowered` prints.
+public func coro_lower_for(coro: &var CoroProgram, target: &var Target) {
+    coro_lay_out_frames(&var coro, &var target)
+    coro_lower_frames(&var coro)
 }
 
 // The record of one program, after its `FILE` line: everything
 // `sawc2 mono --check` prints for it, then this stage's refusals, each an
 // `ERROR` line, and an `INVARIANT` line per problem it met; then, with
-// `dump`, each item's frame decision, or with `layouts`, each frame laid out
-// for the options' target. Returns 0 when nothing was refused and 1
-// otherwise.
+// `dump`, each item's frame decision, with `layouts`, each frame laid out
+// for the options' target, or with `lowered`, each lowered frame's resume
+// function for it. Returns 0 when nothing was refused and 1 otherwise.
 public func coro_record(out: &var StringBuilder, path: String, options: &CoroOptions, names: &Vector<String>,
                         dirs: &Vector<String>) -> Int {
     var coro = coro_lower_file(out: &var out, path: path, std_root: options.std_root, notes: options.notes,
@@ -63,6 +91,11 @@ public func coro_record(out: &var StringBuilder, path: String, options: &CoroOpt
         var target = coro.mono.target_for(options.target)
         coro_lay_out_frames(&var coro, &var target)
         coro_dump_layouts(&coro, &var out)
+    }
+    if options.lowered && not coro.blocked {
+        var target = coro.mono.target_for(options.target)
+        coro_lower_for(&var coro, &var target)
+        coro_dump_lowered(&coro, &var out)
     }
     status
 }

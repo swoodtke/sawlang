@@ -72,7 +72,10 @@ public enum ResLang {
     case ParkOffloadFunction,
     // What `cancelled()` reads: the running task's cancel word inside a
     // coroutine frame, and `false` outside one. It parks nothing.
-    case CancelRequestedFunction
+    case CancelRequestedFunction,
+    // The entry executor the C entry hands a suspending `main`'s frame to,
+    // with that frame's descriptor (SL:coroutines §3.1).
+    case ExecRunMainFunction
 }
 
 // One role's row: its index in the table, the name its declaration carries
@@ -128,6 +131,7 @@ public func res_lang_roles() -> Vector<ResLang> {
     try! out.push(ResLang.ParkChannelFunction)
     try! out.push(ResLang.ParkOffloadFunction)
     try! out.push(ResLang.CancelRequestedFunction)
+    try! out.push(ResLang.ExecRunMainFunction)
     move out
 }
 
@@ -221,7 +225,8 @@ public func res_lang_row(role: ResLang) -> ResLangRow {
         case ParkFdUntilFunction -> res_lang_task_function(34, "__saw_park_fd_until"),
         case ParkChannelFunction -> res_lang_task_function(35, "__saw_park_channel"),
         case ParkOffloadFunction -> res_lang_task_function(36, "__saw_park_offload"),
-        case CancelRequestedFunction -> res_lang_task_function(37, "__saw_cancel_requested")
+        case CancelRequestedFunction -> res_lang_task_function(37, "__saw_cancel_requested"),
+        case ExecRunMainFunction -> res_lang_task_function(38, "__saw_exec_run_main")
     }
 }
 

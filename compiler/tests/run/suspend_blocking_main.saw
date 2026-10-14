@@ -1,4 +1,4 @@
-// due: a function that suspends needs a coroutine frame, and none is lowered yet
+// due: a blocking extern's offload is not lowered yet (SL:coroutines A14)
 // refuses: coro.not-yet at 19:17
 // A `main` that reaches a `blocking` extern through two helpers suspends, and
 // so does each helper, so each is refused, `main` first, rather than

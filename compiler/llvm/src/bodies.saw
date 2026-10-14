@@ -10,14 +10,25 @@ import sawdrops.program.{DropsProgram}
 import sawllvm.attributes.{ll_function_attributes, ll_param_attributes}
 import sawllvm.prims.{LL_MESSAGE_LIMIT}
 import sawllvm.calls.{ll_block}
-import sawllvm.module.{LlEmitter, ll_export_symbol, ll_is_scalar, ll_symbol, ll_value_type}
+import sawcoro.lower.{CORO_PARK_READY, CORO_POLL_PENDING, CORO_POLL_READY, CORO_STATE_DONE, CORO_STATE_START}
+import sawcoro.program.{CoroPoint, CoroPointKind, CoroResume}
+import sawllvm.module.{LlEmitter, ll_export_symbol, ll_is_scalar, ll_resume_symbol, ll_symbol, ll_value_type}
 import sawllvm.ops.{ll_lossless}
 import sawllvm.places.{ll_local_slot}
-import sawmir.model.{MirBlock, MirStmt, MirStmtKind}
+import sawmir.model.{MirBlock, MirStmt, MirStmtKind, MirTermKind}
 import sawmir.program.{MirProgram}
 import sawmono.program.{MONO_KEY_DROP, MonoItem, MonoProgram}
 import sawtarget.layout.{Target, TargetKind, TargetLayout}
 import sawtypecheck.program.{TcProgram}
+
+// Label `word.STATE` of a resume function's state `state`.
+func ll_state_label(word: String, state: Int) -> String {
+    var out = StringBuilder()
+    try! out.append(word)
+    try! out.append(".")
+    try! out.append(state)
+    out.build()
+}
 
 // The name a function's parameter `j` arrives in, before its entry copy into
 // the parameter's slot.
@@ -32,6 +43,11 @@ extension LlEmitter {
     // Item `k`'s concrete function, written into the definitions unless the
     // backend refused something in it.
     public func emit_function(&var self, mono: &var MonoProgram, target: &var Target, k: Int) {
+        let r = self.resume_of(k)
+        if r >= 0 {
+            self.emit_resume(&var mono, &var target, k, r)
+            return
+        }
         let it = mono.items[k]
         let f = it.body
         let info = mono.dp.bc.mir.funcs[f]
@@ -42,6 +58,7 @@ extension LlEmitter {
         self.temps = 0
         self.labels = 0
         self.refused = false
+        self.resume = -1
         let ret_type = self.local_type(&mono, 0)
         let ret = self.lay_at(&var mono, &var target, ret_type, -1)
         self.sret = ret.kind == TargetKind.Memory
@@ -163,6 +180,213 @@ extension LlEmitter {
         try! self.defs.append("\}\n\n")
     }
 
+    // Item `k`'s resume function, `i32 (ptr %frame, ptr %cx)` (SL:coroutines
+    // §3.1): an entry switch on the frame's state word, then the body's
+    // blocks as coroutine lowering left them, every frame value reached
+    // through the frame pointer. Each suspension point's block ends in its
+    // point (`point_term`) instead of its call, and a return records the done
+    // state and returns `Ready`. Resuming a done frame traps: the driver that
+    // does it has lost track of the frame.
+    func emit_resume(&var self, mono: &var MonoProgram, target: &var Target, k: Int, r: Int) {
+        let it = mono.items[k]
+        let f = it.body
+        let info = mono.dp.bc.mir.funcs[f]
+        let resume = self.lowering.resumes[r]
+        self.current = f
+        mono.current = k
+        self.body = StringBuilder()
+        self.allocas = StringBuilder()
+        self.temps = 0
+        self.labels = 0
+        self.refused = false
+        self.sret = false
+        self.resume = r
+        var j = 0
+        while j < info.local_count {
+            if self.lowering.resident[resume.resident_first + j] {
+                j = j + 1
+                continue
+            }
+            let t = self.local_type(&mono, j)
+            let node = mono.dp.bc.mir.locals[info.local_first + j].node
+            let l = self.lay_at(&var mono, &var target, t, node)
+            try! self.allocas.append("  ")
+            try! self.allocas.append(ll_local_slot(j))
+            try! self.allocas.append(" = alloca ")
+            if ll_is_scalar(&l) {
+                try! self.allocas.append(ll_value_type(&l))
+            } else {
+                try! self.allocas.append("[")
+                try! self.allocas.append(l.size)
+                try! self.allocas.append(" x i8]")
+            }
+            try! self.allocas.append(", align ")
+            try! self.allocas.append(l.align)
+            try! self.allocas.append("\n")
+            j = j + 1
+        }
+        var b = 0
+        while b < info.block_count {
+            let block = mono.dp.bc.mir.blocks[info.block_first + b]
+            self.put_label(ll_block(b))
+            var s = block.first
+            while s >= 0 {
+                let stmt = mono.dp.bc.mir.stmts[s]
+                self.statement(&var mono, &var target, &stmt)
+                s = stmt.next
+            }
+            let p = self.point_at(&resume, b)
+            if p >= 0 {
+                let point = self.lowering.points[p]
+                self.point_term(&var mono, &var target, &point)
+            } else if block.term == MirTermKind.Return {
+                self.put_state(CORO_STATE_DONE)
+                self.put_poll(CORO_POLL_READY)
+            } else {
+                self.terminator(&var mono, &var target, &block)
+            }
+            b = b + 1
+        }
+        self.put_label("coro.done")
+        self.declare("llvm.trap", "declare void @llvm.trap()")
+        self.put("call void @llvm.trap()")
+        self.put("unreachable")
+        if self.refused {
+            return
+        }
+        var entry = StringBuilder()
+        try! entry.append("  store ptr %frame, ptr ")
+        try! entry.append(ll_local_slot(resume.frame_local))
+        try! entry.append("\n  %state = load i64, ptr %frame\n  switch i64 %state, label %coro.done [ i64 ")
+        try! entry.append(CORO_STATE_START)
+        try! entry.append(", label %bb0")
+        j = 0
+        while j < resume.point_count {
+            let point = self.lowering.points[resume.point_first + j]
+            try! entry.append(" i64 ")
+            try! entry.append(point.state)
+            try! entry.append(", label %")
+            try! entry.append(ll_state_label("coro.state", point.state))
+            j = j + 1
+        }
+        try! entry.append(" ]\n")
+        try! self.defs.append("define internal i32 ")
+        try! self.defs.append(ll_resume_symbol(&mono, k))
+        try! self.defs.append("(ptr %frame, ptr %cx)")
+        try! self.defs.append(ll_function_attributes(""))
+        try! self.defs.append(" \{\nentry:\n")
+        let slots = self.allocas.build()
+        try! self.defs.append(slots)
+        try! self.defs.append(entry.build())
+        let blocks = self.body.build()
+        try! self.defs.append(blocks)
+        try! self.defs.append("\}\n\n")
+    }
+
+    // The index of the point resume `resume` has at block `b`, or -1.
+    func point_at(&self, resume: &CoroResume, b: Int) -> Int {
+        var j = 0
+        while j < resume.point_count {
+            if self.lowering.points[resume.point_first + j].block == b {
+                return resume.point_first + j
+            }
+            j = j + 1
+        }
+        return -1
+    }
+
+    // THE POINT FUNNEL: what a lowered frame does at a suspension point, in
+    // place of the call there, and where its state re-enters. A ready park
+    // records the ready yield through the root token, cx's first word, then
+    // the state, and returns `Pending`; re-entered, it continues. A drive
+    // starts the child's frame in its slot at state 0, then resumes it,
+    // returning `Pending` with the state recorded while the child pends, and
+    // continuing once it is `Ready`; re-entered, it resumes the child again.
+    // The child's park records the root's word, so a pend passes up as it is.
+    // ENTRY POINTS:
+    //     emit_resume
+    func point_term(&var self, mono: &var MonoProgram, target: &var Target, point: &CoroPoint) {
+        let info = mono.dp.bc.mir.calls[point.call]
+        let state = ll_state_label("coro.state", point.state)
+        var next = ""
+        if info.next >= 0 {
+            next = ll_block(info.next)
+        }
+        match point.kind {
+            case ParkReady -> {
+                let root = self.load("ptr", "%cx")
+                var word = StringBuilder()
+                try! word.append(CORO_PARK_READY)
+                self.store("i64", word.build(), root)
+                self.put_state(point.state)
+                self.put_poll(CORO_POLL_PENDING)
+                self.put_label(state)
+                self.continue_to(next)
+            },
+            case Drive -> {
+                let drive = ll_state_label("coro.drive", point.state)
+                let pend = ll_state_label("coro.pend", point.state)
+                let start = self.offset_addr("%frame", point.slot)
+                var zero = StringBuilder()
+                try! zero.append(CORO_STATE_START)
+                self.store("i64", zero.build(), start)
+                self.jump(drive)
+                self.put_label(drive)
+                let child = self.offset_addr("%frame", point.slot)
+                var call = StringBuilder()
+                try! call.append("call i32 ")
+                try! call.append(ll_resume_symbol(&mono, point.child))
+                try! call.append("(ptr ")
+                try! call.append(child)
+                try! call.append(", ptr %cx)")
+                let poll = self.assign(call.build())
+                var test = StringBuilder()
+                try! test.append("icmp eq i32 ")
+                try! test.append(poll)
+                try! test.append(", ")
+                try! test.append(CORO_POLL_PENDING)
+                let pending = self.assign(test.build())
+                if next.len() == 0 {
+                    next = self.new_label("coro.never")
+                    self.branch(pending, pend, next)
+                    self.put_label(next)
+                    self.put("unreachable")
+                } else {
+                    self.branch(pending, pend, next)
+                }
+                self.put_label(pend)
+                self.put_state(point.state)
+                self.put_poll(CORO_POLL_PENDING)
+                self.put_label(state)
+                self.jump(drive)
+            }
+        }
+    }
+
+    // A jump to `label`, or `unreachable` for a call that never returns.
+    func continue_to(&var self, label: String) {
+        if label.len() == 0 {
+            self.put("unreachable")
+        } else {
+            self.jump(label)
+        }
+    }
+
+    // Records `state` in the frame's state word.
+    func put_state(&var self, state: Int) {
+        var v = StringBuilder()
+        try! v.append(state)
+        self.store("i64", v.build(), "%frame")
+    }
+
+    // Returns `poll` from the resume function.
+    func put_poll(&var self, poll: Int) {
+        var line = StringBuilder()
+        try! line.append("ret i32 ")
+        try! line.append(poll)
+        self.put(line.build())
+    }
+
     // The attribute a C signature gives an integer narrower than 32 bits of
     // type `t`, extended by its signedness, or "" for any other value.
     func c_extension(&self, mono: &MonoProgram, t: Int, l: &TargetLayout) -> String {
@@ -177,8 +401,8 @@ extension LlEmitter {
 
     // A statement: an assignment writes its rvalue into its place; a drop
     // runs its type's glue when the type has one; a budget point writes
-    // nothing, since coroutine lowering refuses every item that needs a
-    // frame, and a point outside a frame is inert.
+    // nothing, since coroutine lowering lowers no frame that holds one, and a
+    // point outside a frame is inert.
     func statement(&var self, mono: &var MonoProgram, target: &var Target, stmt: &MirStmt) {
         match stmt.kind {
             case Budget -> {},

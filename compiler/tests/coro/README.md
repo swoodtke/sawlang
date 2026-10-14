@@ -3,17 +3,18 @@
 Coroutine lowering (`compiler/coro`, package `sawcoro`, SL:coroutines §3.1)
 is the stage between mono and the backend. This file specifies `sawc2 coro`'s
 records, the suspension decision, what a frame holds and how it is laid
-out, the rules it refuses by, and the lane. The stage decides, per item,
-whether it needs a frame, and what that frame holds; the resume function and
-`park` arrive with the units after it (SL:coroutines §4), and until then
-every item that needs a frame is refused.
+out, which frames are lowered and how, the rules it refuses by, and the lane.
+The stage decides, per item, whether it needs a frame, what that frame holds,
+and whether this compiler lowers it; an item that needs a frame it does not
+lower is refused.
 
 ```
 coro/
   README.md               this specification
   coro_lane.py            the lane compiler/tests/run.py runs
   golden/                 NAME.saw, a program; NAME.coro, its frame decisions;
-                          NAME.layouts, its frames' layouts
+                          NAME.layouts, its frames' layouts; NAME.lowered, its
+                          lowered frames' resume functions
   refuse/                 RULE.saw or RULE.VARIANT.saw, a program refused
   modules/                packages a fixture imports, one directory each
 ```
@@ -21,7 +22,7 @@ coro/
 ## `sawc2 coro`
 
 ```sh
-.build/sawc2 coro (--dump | --layouts | --check) [--notes] [--std-root DIR]
+.build/sawc2 coro (--dump | --layouts | --lowered | --check) [--notes] [--std-root DIR]
                   [--target TRIPLE] [--module-path NAME=DIR]... [FILE | @LIST]...
 ```
 
@@ -45,7 +46,9 @@ instantiations of a generic function name it alike, and an accessor's
 prologue and epilogue both name the accessor. With `--layouts`, the record
 holds instead each frame laid out for `--target` (`arm64-apple-darwin` by
 default), in item order (see "Frames", below), or the line `no frame` when
-the program has none. The exit code is 1 when any program has a refusal or an
+the program has none; with `--lowered`, each lowered frame's resume function
+for `--target`, in item order (see "Lowering"), or the line `no lowered
+frame`. The exit code is 1 when any program has a refusal or an
 invariant, 2 on a usage failure, and 0 otherwise. `sawc2 build` runs this
 stage, and prints its record when it refuses (`compiler/tests/run/README.md`).
 
@@ -119,23 +122,28 @@ lifetimes that end at a last use and cover every loan into a value.
 - every parameter, the receiver and an environment included, which the
   caller writes into the frame before the first resume;
 - every other local whose storage lifetime contains a suspension point, in
-  local order.
+  local order;
+- a child slot per suspending call to an item that needs a frame, in the
+  order of the calls: the child's frame, embedded by value, live from the
+  call, where the child starts, through its suspension point, where it is
+  driven to `Ready`. Two calls of one function have a slot each.
 
 Every other local stays on the resume function's stack. A resident local is
 reached through a frame slot, `(*frame).[OFFSET: T]`, a MIR projection
 (`compiler/tests/mir/README.md`). The frame has no drop glue: every drop stays
-where drop elaboration placed it, at its MIR position. Embedded child frames
-and window records join the frame with the units that lower them
-(SL:coroutines A4, A6).
+where drop elaboration placed it, at its MIR position. Window records join
+the frame with the unit that lowers them (SL:coroutines A6).
 
 **Layout.** Each value's size and alignment are the target's
-(`compiler/target`). Two values interfere when their storage lifetimes share
-a point. `coro_assign` takes the values and their interference and gives
-each an offset; its policy is no sharing, each value at the next offset its
-alignment allows after the one before, so packing (SL:coroutines B2)
-changes that policy and nothing else. The frame's alignment is its values'
-largest, and its size the end of its last value rounded up to it. A frame
-holding a value the target cannot lay out gets no offsets.
+(`compiler/target`), and a child slot's are its child's frame's, so frames
+are laid out callees first. Two values interfere when their storage
+lifetimes share a point. `coro_assign` takes the values and their
+interference and gives each an offset; its policy is no sharing, each value
+at the next offset its alignment allows after the one before, so packing
+(SL:coroutines B2) changes that policy and nothing else. The frame's
+alignment is its values' largest, and its size the end of its last value
+rounded up to it. A frame holding a value the target cannot lay out, a child
+frame that cannot be among them, gets no offsets.
 
 **The `--layouts` record**, per frame, in item order:
 
@@ -145,11 +153,13 @@ frame #K: NAME  (size S align A)
     suspend N: bbB budget
     (*frame).[OFFSET: T]  size S align A  state
     (*frame).[OFFSET: T]  size S align A  _L WHAT  (across N...)
+    (*frame).[OFFSET: frame NAME]  size S align A  child  (across N)
     stack: _L...
 ```
 
 The header's parenthesis is `(unsupported: T)` for a frame holding a value
-of type T the target cannot lay out, and each OFFSET is then `?`. LABEL names
+of type T the target cannot lay out, and each OFFSET is then `?`; a child
+slot's type is `frame NAME`, its child item's frame. LABEL names
 the call's target as a cause chain does. WHAT is the local's note, as mono's
 dump writes it: `result`, `param NAME`, `self`, `env`, `record`, `flag NAME`,
 the binding's name (`ref NAME` for a borrow binding), or nothing for a
@@ -157,12 +167,72 @@ temporary. The across list is each state the value's lifetime contains, left
 out when it has none. `stack:` lists the locals after `_0` the frame does not
 hold, or says `none`.
 
+## Lowering
+
+Which frames are lowered is one funnel, `compiler/coro/src/lower.saw`, whose
+docstring names its entry points (SL:coroutines §3.1). A frame is
+**lowered** when every suspension point in it is a shape this compiler
+lowers:
+
+- a call of the ready park point (`std.task`'s `__saw_park_ready`, by its
+  lang role), which `yield_now`'s body is;
+- a call driving a child whose frame is lowered, when the child takes no
+  parameters and returns `Void` (SL:coroutines A4 adds the parameter slots and
+  the result's move-out).
+
+and it holds no op-budget point (A9), no borrow window (A6), and no
+frame-resident local that an index projection reads, which a place cannot
+name as a frame slot. Children are decided before their callers. Every other
+item that needs a frame keeps `coro.not-yet` (Rules, below), so the backend
+only meets lowered frames.
+
+A lowered item's concrete body is rewritten in place: it gains one local,
+the frame pointer `_F`, a `&var Int` pointing at the frame's state word, and
+each place rooted in a frame-resident local `_L` becomes `(*_F).[OFFSET:
+T]` followed by the place's own steps. Nothing else in the body changes: no
+drop, no window close, no statement is added, since teardown is the body's
+own. The resume function, `resume(frame, cx) -> Poll` (rt/ABI.md, "The
+compiler → executor boundary"), is the body's blocks behind a switch on the
+state word: state 0 enters at `bb0`, state N re-enters suspension point N,
+and the done state (-1) traps, since a driver that resumes a done frame has
+lost track of it. A return records the done state and returns `Ready`. At a
+suspension point, in place of its call:
+
+- **a ready park** stores 0, the ready yield of the park word vocabulary,
+  through the root token (`cx`'s first word), records its state and returns
+  `Pending`; re-entered, it continues to the call's return block;
+- **a drive** starts the child at state 0 in its slot, then resumes it
+  directly; while the child returns `Pending`, the frame records its state
+  and returns `Pending` too, since the child's park wrote the root's word;
+  once it is `Ready`, the call's return block follows. Re-entered, it resumes
+  the child again.
+
+A suspending `main`'s frame is driven by std's entry executor,
+`__saw_exec_run_main(descriptor, frame)`, which the stage roots (mono's one
+root after the worklist) only when `main` is lowered. The C entry puts the
+frame on its own stack at state 0, hands it over with its descriptor, and
+reads `main`'s result from the frame once the executor returns.
+
+**The `--lowered` record**, per lowered frame, in item order:
+
+```
+resume #K: NAME  (frame size S align A, pointer _F)
+    state 0: bb0
+    state N: bbB park ready
+    state N: bbB drive #J CHILD at (*frame).[OFFSET]
+fn NAME -> T { ... }
+```
+
+then the lowered body as `sawc2 mir --dump` spells a function, frame slots
+included.
+
 ## Rules
 
 | rule | refuses | fixture |
 |---|---|---|
 | `coro.suspending-cycle` | a cycle of items that suspend, which has no finite frame since a callee's frame is embedded in its caller's by value; once per strongly connected component, naming the shortest cycle through its first item in item order, at that item's declaration, with the note that the refusal is pending SL-322's heap frames | `coro.suspending-cycle` and its variants, one from each of the eight recursion tests of `tests/corpus/errors/`, and `generic`, a cycle that suspends at one instantiation only |
-| `coro.not-yet` | an item that needs a frame, since no frame is lowered yet, at the call its suspension was found through, its cause chain in the message; only when no cycle is refused, and only the program's own items when any of them needs a frame, every std item that suspends being reached from one | `coro.not-yet` |
+| `coro.not-yet` | an item that needs a frame this compiler does not lower (Lowering, above), at its first suspending call that is not lowered, the chain through it in the message: each child it drives that is not lowered, then the source or the child that ends it, so a frame holding a lowered park beside one that is not names the one that is not; failing a call, at the call its suspension was found through, naming the budget point, window or index that is not lowered; only when no cycle is refused, and only the program's own items when any of them is refused, every std item that suspends being reached from one | `coro.not-yet` and `beside-a-lowered-park` |
+| `effect.sync` | a copy-policy `copy()` (`Copy` or `ExplicitCopy`, a written member) that suspends at its instantiation, at its declaration, naming its chain as Stage 0 does (`method Wrap.copy calls Slow.step → blocking extern usleep`): the compiler calls it at transfer sites no source names. Typecheck refuses one that suspends at every instantiation; this is the instantiation's half, decided per item | `effect.sync.copy-hook`, beside the run lane's `copy_hook_per_instantiation`, the same program built at `Fast` |
 
 A refusal whose node lies in std or the builtin module is reported at the
 nearest call the program writes on the chain of items that reached it, its
@@ -178,8 +248,9 @@ recursive function directly, and says which form it stands in for.
 ## The lane
 
 `coro_lane.py` checks that each golden program's `--dump` record equals its
-`.coro` file and its `--layouts` record its `.layouts` file, byte for byte
-(`--write` rewrites them, for review), with no `INVARIANT` line and no
+`.coro` file, its `--layouts` record its `.layouts` file and its `--lowered`
+record its `.lowered` file, byte for byte (`--write` rewrites them, for
+review), with no `INVARIANT` line and no
 refusal but this stage's; that each fixture in `refuse/` is refused first at
 its header's position by the rule its name starts with, the refusal's
 message holding each `// message:` line of its header, and every rule has a
@@ -191,4 +262,7 @@ directory's name.
 
 The layout goldens' frames are the first cut's (golden `yield_loop`, a loop
 whose suspension carries values across it): the values each frame holds, and
-offsets with no sharing.
+offsets with no sharing. Golden `drive_and_park` is the lowered shapes: drives
+of children, two of one function among them, ready parks, and values across
+both, reached through frame slots; the run lane builds and runs the same
+shapes (`yield_main`).

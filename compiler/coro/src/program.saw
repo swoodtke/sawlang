@@ -37,6 +37,16 @@ public struct CoroProgram {
     values: Vector<CoroValue>
     suspends: Vector<CoroSuspend>
     live: Vector<Bool>
+    // By item: whether its frame is lowered (`coro_decide_lowering`), and
+    // when it is not, what is not: a `CoroUnlowered`.
+    lowered: Vector<Bool>
+    unlowered: Vector<CoroUnlowered>
+    // The lowered frames' resume functions (`coro_lower_frames`), by item
+    // their index or -1, and the runs of their points.
+    resume_of: Vector<Int>
+    resumes: Vector<CoroResume>
+    points: Vector<CoroPoint>
+    resident: Vector<Bool>
     // Refusals (`coro_rules`) and broken invariants.
     diags: Vector<MirDiag>
     problems: Vector<String>
@@ -49,30 +59,103 @@ public func coro_program(mono: MonoProgram) -> CoroProgram {
     CoroProgram(mono: move mono, blocked: blocked, suspending: Vector<Bool>(), cause_call: Vector<Int>(),
                 cause_item: Vector<Int>(), cyclic: false, frame_of: Vector<Int>(), frames: Vector<CoroFrame>(),
                 values: Vector<CoroValue>(), suspends: Vector<CoroSuspend>(), live: Vector<Bool>(),
-                diags: Vector<MirDiag>(), problems: Vector<String>())
+                lowered: Vector<Bool>(), unlowered: Vector<CoroUnlowered>(), resume_of: Vector<Int>(),
+                resumes: Vector<CoroResume>(), points: Vector<CoroPoint>(), resident: Vector<Bool>(),
+                diags: Vector<MirDiag>(),
+                problems: Vector<String>())
 }
 
 // What a frame value is: the state word the resume function switches on,
 // the result the caller moves out after `Ready`, a parameter the caller
-// writes before the first resume, or a local resident across a suspension.
+// writes before the first resume, a local resident across a suspension, or
+// the embedded frame of a child the item drives.
 public enum CoroValueKind {
     case State,
     case Result,
     case Param,
-    case Local
+    case Local,
+    case Child
 }
 
 // One value of a frame. `local` is the item body's local, or -1 for the
-// state word; `live_first` starts its lifetime's run of `live`. The offset,
-// size and alignment are the layout's, -1 until it runs.
+// state word and a child; `child` is the item a child slot's frame is, or
+// -1; `ty` is -1 for a child, whose bytes are its frame's. `live_first`
+// starts its lifetime's run of `live`. The offset, size and alignment are
+// the layout's, -1 until it runs.
 public struct CoroValue {
     kind: CoroValueKind
     local: Int
+    child: Int
     ty: Int
     live_first: Int
     offset: Int
     size: Int
     align: Int
+}
+
+// Why a frame is not lowered: the first of its suspension points this
+// compiler does not lower (`suspend`, an index of `suspends`), or a shape of
+// the frame as a whole (`suspend` -1), with what it is.
+public struct CoroUnlowered {
+    suspend: Int
+    what: CoroUnloweredKind
+}
+
+public enum CoroUnloweredKind {
+    // Lowered, or never framed.
+    case Lowered,
+    // A call that is a suspension source other than a ready park: another
+    // park reason, or an extern.
+    case Source,
+    // A call driving a child whose frame is not lowered.
+    case Child,
+    // A call driving a child with parameters or a result.
+    case Arguments,
+    // An op-budget point.
+    case Budget,
+    // A borrow window in the body.
+    case Window,
+    // A frame-resident local an index projection reads.
+    case Index
+}
+
+// What a resume function does at a suspension point (SL:coroutines §3.1).
+public enum CoroPointKind {
+    // `park(ready)`: records a ready yield through the root token, records
+    // the state, and returns `Pending`; on resume, continues.
+    case ParkReady,
+    // Drives an embedded child: starts it at state 0, then resumes it,
+    // returning `Pending` while it pends and continuing once it is `Ready`.
+    case Drive
+}
+
+// One suspension point of a lowered frame: the state the frame records when
+// it pends there, the block whose call terminator the point replaces, and
+// for a drive the child item and its slot's offset in the frame.
+public struct CoroPoint {
+    kind: CoroPointKind
+    state: Int
+    block: Int
+    call: Int
+    child: Int
+    slot: Int
+}
+
+// A lowered frame's resume function: its item, its frame, the body's local
+// holding the frame pointer, its points, `points[point_first ..]`, and by
+// local of its body whether the frame holds it, `resident[resident_first
+// ..]`. The frame's size and alignment and the result's offset are the
+// layout's.
+public struct CoroResume {
+    item: Int
+    frame: Int
+    frame_local: Int
+    point_first: Int
+    point_count: Int
+    resident_first: Int
+    size: Int
+    align: Int
+    result: Int
 }
 
 // A suspension point of a frame's item: a call that definitely suspends,

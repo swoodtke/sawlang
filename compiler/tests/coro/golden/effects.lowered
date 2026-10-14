@@ -1,0 +1,2 @@
+ERROR	coro.suspending-cycle	compiler/tests/coro/golden/effects.saw:34:1	suspending recursion is not allowed: the suspending-call cycle `ping -> pong -> ping` has no compile-time frame size, since a callee's frame is embedded in its caller's by value. Break the cycle or drive the inner call separately. This refusal is PENDING SL-322, the heap-allocated-frame design: an existential dispatch of a suspending body and suspending recursion both need a heap frame with an indirect resume, so the two land together and neither alone.
+no lowered frame

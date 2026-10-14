@@ -14,6 +14,7 @@ run/
   runtime_dirent.ll  the `.ll` `sawc2 runtime` writes for sawc/rt/host_macos/dirent.saw, pinned
   frame_pointers.saw  a program defining one function of each kind, whose defines the lane checks
   probes/        programs the lane runs apart from the comparison
+  modules/       packages a program imports as `modules.NAME`, never run alone
 ```
 
 ## `sawc2 build`
@@ -228,7 +229,20 @@ description's (`compiler/tests/mono/README.md`, "Layouts").
 - **The entry.** The C `main(argc, argv)` keeps both for the argument
   accessors the compiler emits into every program (rt/ABI.md, "Program
   arguments"), calls the program's `main`, and exits with its `Int`, or 0
-  for a `Void` main. A runtime source has no entry and no accessors.
+  for a `Void` main. A `main` with a lowered frame is not called: its frame
+  goes on the C entry's stack at state 0 and is handed, with its frame
+  descriptor, to std's entry executor `__saw_exec_run_main`, and the exit
+  status is read from the frame's result once the executor returns. Such a
+  program also gets the frame descriptor, a constant laid out as std's
+  `FrameDescriptor`, whose `resume` and `drop_result` are function values
+  over two thunks, and `__saw_frame_resume`, one resume through a descriptor
+  (rt/ABI.md, "The compiler → executor boundary"). A runtime source has no entry and no accessors.
+- **Resume functions.** A lowered frame's item is emitted as its resume
+  function, `i32 @"saw resume NAME"(ptr %frame, ptr %cx)`, and never as a
+  plain function: an entry switch on the state word, then the body's
+  blocks, a frame slot one `getelementptr` off the frame pointer, and at each
+  suspension point its park or its child's drive
+  (`compiler/tests/coro/README.md`, "Lowering").
 - **Exports.** Each `@export`ed function is a root, defined under its C
   symbol with external linkage, an integer narrower than 32 bits taken and
   returned `signext` or `zeroext` as C does; an `extern` naming the symbol is
@@ -242,12 +256,19 @@ description's (`compiler/tests/mono/README.md`, "Layouts").
 | `backend.not-yet` | what the backend does not lower yet: a Float constant, an operator on a Float, or on anything but an integer, a Bool, a String, two raw pointers or the memory values compared part by part, an erasure, a slice, a take capture, a fixed array, a repeat, a `Map` or a `Set` literal, a static that is not an integer or a Bool, an exported static, a conditional borrow, an aggregate crossing the C convention, a pointer cast to or from an integer narrower than a pointer, an unsupported layout, a `main` returning neither `Void` nor `Int`; a constant is refused at its own spelling, inside an aggregate too | `float_field` |
 
 **Suspension.** The backend's input is coroutine lowering's program
-(`compiler/tests/coro/README.md`), which refuses every item that needs a
-frame (`coro.not-yet`) and every suspending cycle (`coro.suspending-cycle`),
-so no suspending call reaches the backend and it never emits one as a plain
-call that blocks the thread. Every op-budget point that reaches it is
-outside a frame, and writes nothing. The due programs `suspend_blocking_main`,
-`suspend_cycle` and `suspend_budget_point` pin the two refusals at a build.
+(`compiler/tests/coro/README.md`), which lowers the frames whose every
+suspension is a ready park or the drive of a lowered child, and refuses every
+other item that needs a frame (`coro.not-yet`) and every suspending cycle
+(`coro.suspending-cycle`), so every suspending call that reaches the backend
+is a lowered point, and none is emitted as a plain call that blocks the
+thread. Every op-budget point that reaches it is outside a frame, and writes
+nothing. `yield_main` is the walking skeleton, a suspending `main` the entry
+executor drives; `coro_conservative_generic_instance_not_promoted`,
+`crossmodule_embed_annotation_positions` and `crossmodule_embed_type_identity`
+are corpus programs whose `main` yields (the last two with their packages
+under `modules/`). The due programs `suspend_blocking_main`, `suspend_cycle`,
+`suspend_budget_point` and `suspend_park_point` pin the refusals at a build:
+a `blocking` extern's offload, a cycle, a budget point and a timer park.
 
 **Closures.** A closure's environment is a slot of the frame that builds it,
 which is sound only for a closure that does not escape; mono refuses an

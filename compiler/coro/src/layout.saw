@@ -8,7 +8,8 @@
 //   coro_interference
 //   coro_assign
 
-import sawcoro.program.{CoroFrame, CoroProgram, CoroValue}
+import sawcoro.frames.{coro_frame_of}
+import sawcoro.program.{CoroFrame, CoroProgram, CoroValue, CoroValueKind}
 import sawtarget.layout.{Target, TargetKind}
 
 // What one frame value needs of its bytes.
@@ -33,14 +34,53 @@ extension CoroInterference {
 }
 
 // Lays out every frame found for `target`: each value's size, alignment and
-// offset, and the frame's size and alignment. A frame holding a value the
-// target cannot lay out gets no offsets, and names that value.
+// offset, and the frame's size and alignment. A child's slot is its frame's
+// bytes, so frames are laid out callees first; the suspending call graph is
+// acyclic once frames are found, so each pass lays out at least one. A frame
+// holding a value the target cannot lay out, a child's frame among them,
+// gets no offsets, and names that value.
 public func coro_lay_out_frames(coro: &var CoroProgram, target: &var Target) {
+    var done = Vector<Bool>()
     var k = 0
     while k < coro.frames.len() {
-        coro_lay_out_frame(&var coro, &var target, k)
+        try! done.push(false)
         k = k + 1
     }
+    var left = coro.frames.len()
+    var progress = true
+    while left > 0 && progress {
+        progress = false
+        k = 0
+        while k < coro.frames.len() {
+            if not done[k] && coro_children_laid_out(&coro, &done, k) {
+                coro_lay_out_frame(&var coro, &var target, k)
+                done[k] = true
+                left = left - 1
+                progress = true
+            }
+            k = k + 1
+        }
+    }
+    if left > 0 {
+        try! coro.problems.push("a frame's children never finished laying out: the suspending call graph has a cycle")
+    }
+}
+
+// Whether every child frame `k` embeds is laid out.
+func coro_children_laid_out(coro: &CoroProgram, done: &Vector<Bool>, k: Int) -> Bool {
+    let frame = coro.frames[k]
+    var j = 0
+    while j < frame.value_count {
+        let v = coro.values[frame.value_first + j]
+        j = j + 1
+        if v.kind == CoroValueKind.Child {
+            let c = coro_frame_of(&coro, v.child)
+            if c < 0 || not done[c] {
+                return false
+            }
+        }
+    }
+    true
 }
 
 func coro_lay_out_frame(coro: &var CoroProgram, target: &var Target, k: Int) {
@@ -49,12 +89,21 @@ func coro_lay_out_frame(coro: &var CoroProgram, target: &var Target, k: Int) {
     var j = 0
     while j < frame.value_count {
         var v = coro.values[frame.value_first + j]
-        let l = target.layout(&var coro.mono.dp.bc.mir.tc, v.ty)
-        if l.kind == TargetKind.Unsupported && frame.unsupported < 0 {
-            frame.unsupported = j
+        if v.kind == CoroValueKind.Child {
+            let child = coro.frames[coro_frame_of(&coro, v.child)]
+            if child.unsupported >= 0 && frame.unsupported < 0 {
+                frame.unsupported = j
+            }
+            v.size = if child.size > 0 { child.size } else { 0 }
+            v.align = if child.align > 0 { child.align } else { 1 }
+        } else {
+            let l = target.layout(&var coro.mono.dp.bc.mir.tc, v.ty)
+            if l.kind == TargetKind.Unsupported && frame.unsupported < 0 {
+                frame.unsupported = j
+            }
+            v.size = l.size
+            v.align = if l.align > 0 { l.align } else { 1 }
         }
-        v.size = l.size
-        v.align = if l.align > 0 { l.align } else { 1 }
         coro.values[frame.value_first + j] = v
         try! needs.push(CoroNeed(size: v.size, align: v.align))
         j = j + 1

@@ -3,7 +3,7 @@
 // and, for one that needs a frame, the chain its suspension was found
 // through; and each frame's layout.
 
-import sawcoro.program.{CoroFrame, CoroProgram, CoroValue, CoroValueKind}
+import sawcoro.program.{CoroFrame, CoroPoint, CoroPointKind, CoroProgram, CoroResume, CoroValue, CoroValueKind}
 import sawcoro.suspends.{coro_cause_chain, coro_source_label}
 import sawmir.dump.{mir_dump_module}
 import sawmir.model.{MirLocal}
@@ -54,7 +54,7 @@ func coro_dump_frame(coro: &CoroProgram, out: &var StringBuilder, k: Int) {
     if frame.unsupported >= 0 {
         let v = coro.values[frame.value_first + frame.unsupported]
         try! out.append("  (unsupported: ")
-        coro.mono.dp.bc.mir.append_type(&var out, v.ty)
+        coro_append_value_type(&coro, &var out, &v)
         try! out.append(")\n")
     } else {
         try! out.append("  (size ")
@@ -116,11 +116,17 @@ func coro_dump_frame(coro: &CoroProgram, out: &var StringBuilder, k: Int) {
 // across list naming each suspension state the value's lifetime contains.
 func coro_dump_value(coro: &CoroProgram, out: &var StringBuilder, frame: &CoroFrame, v: &CoroValue) {
     try! out.append("    ")
-    if v.offset >= 0 {
+    if v.offset >= 0 && v.kind != CoroValueKind.Child {
         coro.mono.dp.bc.mir.append_frame_slot(&var out, "(*frame)", v.offset, v.ty)
     } else {
-        try! out.append("(*frame).[?: ")
-        coro.mono.dp.bc.mir.append_type(&var out, v.ty)
+        try! out.append("(*frame).[")
+        if v.offset >= 0 {
+            try! out.append(v.offset)
+        } else {
+            try! out.append("?")
+        }
+        try! out.append(": ")
+        coro_append_value_type(&coro, &var out, &v)
         try! out.append("]")
     }
     try! out.append("  size ")
@@ -132,10 +138,14 @@ func coro_dump_value(coro: &CoroProgram, out: &var StringBuilder, frame: &CoroFr
         try! out.append("state\n")
         return
     }
-    try! out.append("_")
-    try! out.append(v.local)
-    let local = coro.mono.dp.bc.mir.locals[coro.mono.dp.bc.mir.funcs[frame.body].local_first + v.local]
-    coro_append_local_note(&coro, &var out, &local)
+    if v.kind == CoroValueKind.Child {
+        try! out.append("child")
+    } else {
+        try! out.append("_")
+        try! out.append(v.local)
+        let local = coro.mono.dp.bc.mir.locals[coro.mono.dp.bc.mir.funcs[frame.body].local_first + v.local]
+        coro_append_local_note(&coro, &var out, &local)
+    }
     var across = StringBuilder()
     var s = 0
     while s < frame.suspend_count {
@@ -153,6 +163,67 @@ func coro_dump_value(coro: &CoroProgram, out: &var StringBuilder, frame: &CoroFr
         try! out.append(")")
     }
     try! out.append("\n")
+}
+
+// A frame value's type: its local's, or for a child slot `frame NAME`, the
+// child item's frame.
+func coro_append_value_type(coro: &CoroProgram, out: &var StringBuilder, v: &CoroValue) {
+    if v.kind == CoroValueKind.Child {
+        try! out.append("frame ")
+        try! out.append(coro.mono.item_name(v.child))
+        return
+    }
+    coro.mono.dp.bc.mir.append_type(&var out, v.ty)
+}
+
+// Each lowered frame's resume function, in item order: a header naming its
+// item, its frame and the local holding the frame pointer, a line per state,
+// then its body as lowered, every frame value reached through a frame slot;
+// or `no lowered frame` for a program with none.
+public func coro_dump_lowered(coro: &CoroProgram, out: &var StringBuilder) {
+    if coro.resumes.len() == 0 {
+        try! out.append("no lowered frame\n")
+        return
+    }
+    var k = 0
+    while k < coro.resumes.len() {
+        let r = coro.resumes[k]
+        let frame = coro.frames[r.frame]
+        try! out.append("resume #")
+        try! out.append(r.item)
+        try! out.append(": ")
+        try! out.append(coro.mono.item_name(r.item))
+        try! out.append("  (frame size ")
+        try! out.append(frame.size)
+        try! out.append(" align ")
+        try! out.append(frame.align)
+        try! out.append(", pointer _")
+        try! out.append(r.frame_local)
+        try! out.append(")\n    state 0: bb0\n")
+        var j = 0
+        while j < r.point_count {
+            let point = coro.points[r.point_first + j]
+            j = j + 1
+            try! out.append("    state ")
+            try! out.append(point.state)
+            try! out.append(": bb")
+            try! out.append(point.block)
+            match point.kind {
+                case ParkReady -> try! out.append(" park ready\n"),
+                case Drive -> {
+                    try! out.append(" drive #")
+                    try! out.append(point.child)
+                    try! out.append(" ")
+                    try! out.append(coro.mono.item_name(point.child))
+                    try! out.append(" at (*frame).[")
+                    try! out.append(point.slot)
+                    try! out.append("]\n")
+                }
+            }
+        }
+        coro.mono.dp.bc.mir.dump_func(&var out, frame.body, false)
+        k = k + 1
+    }
 }
 
 // What a frame value's local is, as mono's dump notes it.

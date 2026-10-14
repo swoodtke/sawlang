@@ -4,6 +4,8 @@
 //! `cancelled` reads whether the running task has been asked to stop. `sleep`
 //! and `cancelled` are in the prelude; `yield_now` needs `import std.task`.
 
+import std.taskgroup.{FrameDescriptor, Poll, TaskContext}
+
 /// Cedes to the other ready tasks; the caller resumes once they have had a
 /// turn.
 ///
@@ -78,4 +80,61 @@ public(package) func __saw_park_offload(job: Int) {
 // running, so the answer is this body's.
 public(package) func __saw_cancel_requested() -> Bool {
     false
+}
+
+// The entry executor (SL:coroutines §3.1, sawc/rt/ABI.md "The compiler →
+// executor boundary"): a suspending `main`'s frame and its descriptor, from
+// the C entry. It resumes the one root until it is done, which is the whole
+// scheduler while a program has no other task. A park that reports anything
+// but a ready yield has no executor to wait on here, so it panics naming the
+// park word rather than resuming a task that cannot be ready.
+public(package) func __saw_exec_run_main(descriptor: UnsafePointer<FrameDescriptor>,
+                                         frame: UnsafePointer<UInt8>) unsafe {
+    var word = 0
+    var cancel = false
+    var context = TaskContext(park: (&var word) as UnsafePointer<Int>, cancel: (&var cancel) as UnsafePointer<Bool>,
+                              task: 0)
+    let cx = (&var context) as UnsafePointer<TaskContext>
+    var done = false
+    while not done {
+        match exec_resume(descriptor, frame, cx) {
+            case Ready -> {
+                done = true
+            },
+            case Pending -> {
+                if word != 0 {
+                    panic("std.task: the entry executor resumes only ready yields, and a park recorded word {}", word)
+                }
+            }
+        }
+    }
+}
+
+// One resume of `frame`. A resume reports a park as `Pending` rather than
+// suspending its caller, so it is `sync`, as every call on the executor's
+// paths must be for a join to stay callable from `sync` code.
+func exec_resume(descriptor: UnsafePointer<FrameDescriptor>, frame: UnsafePointer<UInt8>,
+                 cx: UnsafePointer<TaskContext>) unsafe sync -> Poll {
+    let poll = __saw_frame_resume(descriptor, frame, cx)
+    if poll == EXEC_POLL_READY {
+        return Poll.Ready
+    }
+    if poll != EXEC_POLL_PENDING {
+        panic("std.task: a resume reported {}, which is no Poll", poll)
+    }
+    Poll.Pending
+}
+
+// `Poll`'s tags, which a resume returns: an enum does not cross the C
+// convention, so the helper's result is its tag.
+static EXEC_POLL_READY: Int32 = 0
+static EXEC_POLL_PENDING: Int32 = 1
+
+// The compiler defines it in every program whose `main` it hands here: one
+// resume of `frame` through its descriptor's `resume` (sawc/rt/ABI.md, "The
+// compiler → executor boundary"). It is no `blocking` extern, so it is
+// callable from `sync` code.
+extern "C" {
+    func __saw_frame_resume(descriptor: UnsafePointer<FrameDescriptor>, frame: UnsafePointer<UInt8>,
+                            context: UnsafePointer<TaskContext>) -> Int32
 }

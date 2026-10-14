@@ -1017,6 +1017,48 @@ white-box reactor tests (`net_precise_*` and the `io_wait` echo examples)
 exercise the `(fd, direction, token)` semantics `SystemReactor` wraps, so they
 are the `Reactor` contract's tests.
 
+### The self-hosted compiler's frames (SL:coroutines §3.1)
+
+sawc2 lowers a coroutine to a frame of bytes and a resume function, with no
+`Resumable` conformance and no `Box<any Resumable>`, and its std's executor
+(`std/task.saw`) reaches a frame only through the records and the one call
+below. Both sides are written against this section, so none of it may change
+on one side alone.
+
+- **The resume function**: `i32 resume(ptr frame, ptr cx)`, returning the
+  tag of std's `Poll`: 0 (`Ready`: the frame returned, and its result is in
+  its slot) or 1 (`Pending`: it parked). The frame's first word is its
+  state: 0 before the first resume, -1 once it returned. Resuming a returned
+  frame traps. A frame drives an embedded child by calling the child's
+  resume function directly.
+- **The frame descriptor**, a constant the compiler emits for each frame
+  the executor drives, laid out as std's `FrameDescriptor`: `{ resume, size,
+  align, result_offset, result_size, result_align, drop_result, backtrace
+  }`. `resume` and `drop_result` are function values, a code pointer then a
+  null environment, word by word, each called as a Saw function value is:
+  `resume` as `void (ptr poll_out, ptr env, ptr frame, ptr cx)`, since a
+  `Poll` is returned through `sret` ahead of the environment and the code
+  writes its `i32` tag there, and `drop_result` as `void (ptr env, ptr
+  result)`, which drops a result in place. The other six are words;
+  `backtrace` is -1 until there is a backtrace table.
+- **The context record** `cx`, which the executor owns: three words, the
+  address of the task's park word (the root token), the address of its
+  cancel word, and the task's identity, as std's `TaskContext`. A park
+  records its reason in the park word, in the park word vocabulary of
+  `sawc/std/taskgroup.saw` (0 is a ready yield), before it returns
+  `Pending`.
+- **`__saw_frame_resume(descriptor: ptr, frame: ptr, cx: ptr) -> i32`**: one
+  resume of `frame` through `descriptor`'s `resume`, returning the `Poll`
+  tag. The compiler defines it in every program whose `main` has a lowered
+  frame; std declares it in an `extern "C"` block, as it does
+  `__saw_rt_get_argc`, with an `Int32` result, since an enum does not cross
+  the C convention, and no `blocking`, so the executor's `sync` paths may
+  call it. It is not a runtime seam, and no runtime defines it.
+- **`__saw_exec_run_main(descriptor: ptr, frame: ptr)`**, std's entry
+  executor, the lang role `ExecRunMainFunction` of `std.task`: the C entry
+  puts `main`'s frame on its own stack at state 0, calls it, and reads
+  `main`'s result from the frame once it returns.
+
 ## The four intended implementations
 
 1. **host_macos** — kqueue reactor, libSystem pthreads, macOS errno/clock ids,

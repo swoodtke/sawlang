@@ -126,6 +126,33 @@ extension MonoProgram {
         self.length_item = self.root_item(length, &none)
     }
 
+    // The entry executor's item, rooted after the worklist ran and run to
+    // its end like any root, or -1 when std declares none. Only a program
+    // whose `main` has a lowered frame is handed to the executor, which
+    // coroutine lowering decides after mono, so a program with a plain
+    // `main` reaches no executor item at all.
+    public func root_entry_executor(&var self) -> Int {
+        if self.exec_item >= 0 || self.blocked {
+            return self.exec_item
+        }
+        let none = Vector<Int>()
+        let d = self.dp.bc.mir.tc.res.lang_item(ResLang.ExecRunMainFunction)
+        // The worklist's run already made its one depth refusal, if any.
+        let reported = self.depth_call >= 0 || self.depth_glue >= 0
+        var k = self.items.len()
+        self.exec_item = self.root_item(d, &none)
+        while k < self.items.len() {
+            self.current = k
+            self.instantiate(k)
+            k = k + 1
+        }
+        self.current = -1
+        if not reported {
+            self.report_depth()
+        }
+        self.exec_item
+    }
+
     // The module of the file the program was named by.
     public func entry_module(&self) -> Int {
         var m = 0

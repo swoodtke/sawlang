@@ -1,9 +1,9 @@
 // What each framed item's frame holds: the state word, the result `_0`,
 // every parameter, which the caller writes into the frame before the first
-// resume, and every other local whose storage lifetime contains a
-// suspension point. A local whose lifetime holds none stays on the resume
-// function's stack. The frame has no drop glue: every drop stays where drop
-// elaboration placed it.
+// resume, every other local whose storage lifetime contains a suspension
+// point, and the embedded frame of each child it drives. A local whose
+// lifetime holds none stays on the resume function's stack. The frame has no
+// drop glue: every drop stays where drop elaboration placed it.
 //
 // A storage lifetime here is the set of program points where the
 // initialisation analysis says the local may be initialised, whole or in
@@ -15,6 +15,7 @@
 // ENTRY POINTS of the frame contents:
 //   coro_find_frames
 //   coro_frame_of
+//   coro_driven_child
 
 import sawborrowck.program.{BorrowckProgram}
 import sawcoro.program.{CoroFrame, CoroProgram, CoroSuspend, CoroValue, CoroValueKind}
@@ -143,6 +144,25 @@ func coro_find_frame(coro: &var CoroProgram, item: Int) {
         }
         l = l + 1
     }
+    // A child's slot holds its frame from the call, where the child starts,
+    // through its suspension, where it is driven to `Ready`.
+    var j = suspend_first
+    while j < coro.suspends.len() {
+        let point = coro.suspends[j]
+        j = j + 1
+        let child = coro_driven_child(&coro, point.call)
+        if child < 0 {
+            continue
+        }
+        let live_first = coro.live.len()
+        var q = 0
+        while q < points {
+            try! coro.live.push(q == point.point - 1 || q == point.point)
+            q = q + 1
+        }
+        try! coro.values.push(CoroValue(kind: CoroValueKind.Child, local: -1, child: child, ty: -1,
+                                        live_first: live_first, offset: -1, size: -1, align: -1))
+    }
     // Stage 0 workaround (SL:hazards S4): canonical: try! coro.frames.push(CoroFrame(item: item, body: f, points: points, suspend_first: suspend_first, suspend_count: coro.suspends.len() - suspend_first, value_first: value_first, value_count: coro.values.len() - value_first, size: -1, align: -1, unsupported: -1))
     let suspend_count = coro.suspends.len() - suspend_first
     let value_count = coro.values.len() - value_first
@@ -215,6 +235,19 @@ func coro_add_value(coro: &var CoroProgram, kind: CoroValueKind, l: Int, ty: Int
         try! coro.live.push(always || lv.live[l * lv.points + p])
         p = p + 1
     }
-    try! coro.values.push(CoroValue(kind: kind, local: l, ty: ty, live_first: live_first, offset: -1, size: -1,
-                                    align: -1))
+    try! coro.values.push(CoroValue(kind: kind, local: l, child: -1, ty: ty, live_first: live_first, offset: -1,
+                                    size: -1, align: -1))
+}
+
+// The item a suspending call `c` drives as an embedded child, or -1: the
+// call's target needs a frame of its own. A source has none to drive.
+public func coro_driven_child(coro: &CoroProgram, c: Int) -> Int {
+    if c < 0 {
+        return -1
+    }
+    let t = coro.mono.call_item(c)
+    if t < 0 || not coro.needs_frame(t) || coro.mono.items[t].body < 0 {
+        return -1
+    }
+    t
 }

@@ -72,7 +72,11 @@ comparison of Strings reaches the String layer's `string_equals` (`==`,
 such comparison is found. Items are
 instantiated first in, first out, in the order they are found; within an item
 blocks are walked in order, and statements and terminators in order, so the
-item numbering is a function of the program alone.
+item numbering is a function of the program alone. One root comes after the
+worklist's end: std's entry executor, `__saw_exec_run_main` (its lang role),
+which coroutine lowering roots, and runs the worklist on to its end for,
+only when `main` has a lowered frame (`compiler/tests/coro/README.md`), so a
+program with a plain `main` reaches none of it.
 
 **Rendering** goes through the builder role (design 137). A format argument
 of `print`, `panic` or `assert` that is not an integer, a `Bool` or a String

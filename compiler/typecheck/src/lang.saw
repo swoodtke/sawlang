@@ -199,7 +199,10 @@ func tc_lang_expected(role: ResLang) -> Vector<String> {
         },
         case ParkChannelFunction -> try! out.push("func (signature (params (word Int owned)) -> Void)"),
         case ParkOffloadFunction -> try! out.push("func (signature (params (job Int owned)) -> Void)"),
-        case CancelRequestedFunction -> try! out.push("func (signature (params) -> Bool)")
+        case CancelRequestedFunction -> try! out.push("func (signature (params) -> Bool)"),
+        case ExecRunMainFunction -> {
+            try! out.push("func (signature (params (descriptor UnsafePointer<std.taskgroup.FrameDescriptor> owned) (frame UnsafePointer<UInt8> owned)) (effects unsafe) -> Void)")
+        }
     }
     move out
 }

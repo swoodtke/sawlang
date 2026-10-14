@@ -9,11 +9,14 @@ import sawllvm.attributes.{ll_function_attribute_group, ll_function_attributes}
 import sawllvm.bodies.{ll_param_name}
 import sawllvm.prims.{LL_FAIL_KINDS, LL_FAIL_PART_SIZE, LL_MESSAGE_LIMIT, LL_PART_BOOL, LL_PART_SIGNED,
                           LL_PART_UNSIGNED, ll_fail_reason, ll_fail_symbol}
-import sawllvm.module.{LlEmitter, ll_emitter, ll_export_symbol, ll_is_scalar, ll_symbol, ll_value_type}
+import sawcoro.lower.{CORO_STATE_START}
+import sawllvm.module.{LlEmitter, LlLowering, ll_descriptor_symbol, ll_emitter, ll_export_symbol, ll_is_scalar,
+                           ll_resume_symbol, ll_symbol, ll_value_type}
+import sawllvm.text.{ll_quoted}
 import sawresolve.model.{ResDeclKind}
 import sawmir.program.{MirProgram}
 import sawmono.dump.{mono_dump_layouts}
-import sawmono.program.{MonoItem, MonoItemKind, MonoProgram}
+import sawmono.program.{MONO_KEY_DROP, MonoItem, MonoItemKind, MonoProgram}
 import sawtarget.layout.{Target, TargetKind, TargetLayout}
 import sawtypecheck.program.{TcProgram}
 import sawtypecheck.typeops.{TcClient}
@@ -22,17 +25,23 @@ import sawtypecheck.typeops.{TcClient}
 // refusals in `mono.diags` say. `speed` is the optimisation flag the link
 // manifest carries to clang; `module_triple`, when not empty, is the triple
 // the module names, which the driver passes clang as `-target`.
-public func llvm_emit_program(mono: &var MonoProgram, target: &var Target, speed: String,
+public func llvm_emit_program(mono: &var MonoProgram, target: &var Target, lowering: LlLowering, speed: String,
                               module_triple: String) -> String {
-    var e = ll_emitter()
+    var e = ll_emitter(move lowering)
     // The helpers copy with it whether or not any function does.
     e.declare("llvm.memcpy.p0.p0.i64", "declare void @llvm.memcpy.p0.p0.i64(ptr, ptr, i64, i1)")
     // A program's entry point defines the argument accessors (rt/ABI.md,
-    // "Program arguments"), which std's `extern` declarations name. A runtime
-    // has no entry point: those belong to the program it is linked into.
+    // "Program arguments"), which std's `extern` declarations name, and,
+    // when it hands `main`'s frame to the entry executor, the descriptor call
+    // the executor resumes a frame through (rt/ABI.md, "The compiler →
+    // executor boundary"). A runtime has no entry point: those belong to the
+    // program it is linked into.
     if not mono.runtime {
         e.defines("__saw_rt_get_argc")
         e.defines("__saw_rt_get_argv")
+        if mono.exec_item >= 0 {
+            e.defines("__saw_frame_resume")
+        }
         if mono.main_item < 0 {
             try! mono.problems.push("the entry module declares no `main` with a body")
             return ""
@@ -111,8 +120,11 @@ public func llvm_emit_program(mono: &var MonoProgram, target: &var Target, speed
 extension LlEmitter {
     // The C entry point: `main(argc, argv)` keeps both for the argument
     // accessors the compiler emits into every program (rt/ABI.md, "Program
-    // arguments"), calls the program's `main`, and exits with its `Int`, or
-    // 0 for a `Void` main.
+    // arguments"), runs the program's `main`, and exits with its `Int`, or 0
+    // for a `Void` main. A plain `main` is called; one with a lowered frame
+    // gets that frame on this function's stack, at state 0, and is handed
+    // to the entry executor with its descriptor, its result read from the
+    // frame once the executor returns.
     func entry_point(&var self, mono: &var MonoProgram, target: &var Target) -> String {
         let main = mono.items[mono.main_item]
         let f = mono.dp.bc.mir.funcs[main.body]
@@ -128,35 +140,161 @@ extension LlEmitter {
         try! out.append("define ptr @__saw_rt_get_argv()")
         try! out.append(attributes)
         try! out.append(" \{\n  %v = load ptr, ptr @__saw_argv\n  ret ptr %v\n\}\n\n")
+        let main_item = mono.main_item
+        let r = self.resume_of(main_item)
+        if r >= 0 {
+            try! out.append(self.descriptor(&var mono, &var target, main_item))
+            try! out.append(ll_frame_resume_helper(target.closure_env_offset()))
+        }
         try! out.append("define i32 @main(i32 %argc, ptr %argv)")
         try! out.append(attributes)
         try! out.append(" \{\nentry:\n")
+        if r >= 0 {
+            let resume = self.lowering.resumes[r]
+            try! out.append("  %frame = alloca [")
+            try! out.append(resume.size)
+            try! out.append(" x i8], align ")
+            try! out.append(resume.align)
+            try! out.append("\n")
+        }
         try! out.append("  store i32 %argc, ptr @__saw_argc\n  store ptr %argv, ptr @__saw_argv\n")
-        let main_item = mono.main_item
-        let symbol = ll_symbol(&mono, main_item)
-        if l.kind == TargetKind.Zero {
-            try! out.append("  call void ")
-            try! out.append(symbol)
-            try! out.append("()\n  ret i32 0\n")
-        } else if l.kind == TargetKind.Int && mono.dp.bc.mir.tc.is_integer(result) {
-            try! out.append("  %status = call ")
-            try! out.append(ll_value_type(&l))
-            try! out.append(" ")
-            try! out.append(symbol)
-            try! out.append("()\n")
-            if l.bits > 32 {
-                try! out.append("  %code = trunc ")
+        let returns_int = l.kind == TargetKind.Int && mono.dp.bc.mir.tc.is_integer(result)
+        if l.kind != TargetKind.Zero && not returns_int {
+            mono.refuse(-1, "backend.not-yet", "a `main` returning anything but Void or Int is not in the backend slice yet")
+        } else if r >= 0 {
+            let resume = self.lowering.resumes[r]
+            try! out.append("  store i64 ")
+            try! out.append(CORO_STATE_START)
+            try! out.append(", ptr %frame\n  call void ")
+            // Stage 0 workaround (SL:hazards S4): canonical: try! out.append(ll_symbol(&mono, mono.exec_item))
+            let executor = mono.exec_item
+            try! out.append(ll_symbol(&mono, executor))
+            try! out.append("(ptr ")
+            try! out.append(ll_descriptor_symbol(&mono, main_item))
+            try! out.append(", ptr %frame)\n")
+            if returns_int {
+                try! out.append("  %result = getelementptr i8, ptr %frame, i64 ")
+                try! out.append(resume.result)
+                try! out.append("\n  %status = load ")
                 try! out.append(ll_value_type(&l))
-                try! out.append(" %status to i32\n  ret i32 %code\n")
-            } else {
-                try! out.append("  ret i32 %status\n")
+                try! out.append(", ptr %result\n")
             }
         } else {
-            mono.refuse(-1, "backend.not-yet", "a `main` returning anything but Void or Int is not in the backend slice yet")
+            let symbol = ll_symbol(&mono, main_item)
+            if returns_int {
+                try! out.append("  %status = call ")
+                try! out.append(ll_value_type(&l))
+                try! out.append(" ")
+            } else {
+                try! out.append("  call void ")
+            }
+            try! out.append(symbol)
+            try! out.append("()\n")
+        }
+        if not returns_int {
+            try! out.append("  ret i32 0\n")
+        } else if l.bits > 32 {
+            try! out.append("  %code = trunc ")
+            try! out.append(ll_value_type(&l))
+            try! out.append(" %status to i32\n  ret i32 %code\n")
+        } else {
+            try! out.append("  ret i32 %status\n")
         }
         try! out.append("\}\n\n")
         out.build()
     }
+
+    // Item `k`'s frame descriptor, the constant record the executor reaches
+    // its frame through, laid out as std's `FrameDescriptor` (sawc/rt/ABI.md,
+    // "The compiler → executor boundary"): its resume function, the frame's
+    // size and alignment, the result's offset, size and alignment, a drop of
+    // a result in place, and the backtrace index, -1 while there is no
+    // backtrace table. The two functions are function values, a code
+    // pointer and a null environment, so each code pointer is a thunk that
+    // takes the environment first, as a function value's call passes it: the
+    // resume's calls the resume function, and the drop's runs the result
+    // type's drop glue, or nothing for a type that has none.
+    func descriptor(&var self, mono: &var MonoProgram, target: &var Target, k: Int) -> String {
+        let resume = self.lowering.resumes[self.resume_of(k)]
+        let f = mono.dp.bc.mir.funcs[mono.items[k].body]
+        let result = mono.dp.bc.mir.locals[f.local_first].ty
+        let l = self.lay(&var mono, &var target, result)
+        let glue = mono.glue_item(result, MONO_KEY_DROP)
+        var out = StringBuilder()
+        // A `Poll` is a memory value, so the function value returns it
+        // through `sret`, ahead of the environment: its tag, an `i32`.
+        try! out.append("define internal void ")
+        try! out.append(ll_resume_value_symbol(&mono, k))
+        try! out.append("(ptr %ret, ptr %env, ptr %frame, ptr %cx)")
+        try! out.append(ll_function_attributes(""))
+        try! out.append(" \{\nentry:\n  %poll = call i32 ")
+        try! out.append(ll_resume_symbol(&mono, k))
+        try! out.append("(ptr %frame, ptr %cx)\n  store i32 %poll, ptr %ret\n  ret void\n\}\n\n")
+        try! out.append("define internal void ")
+        try! out.append(ll_result_drop_symbol(&mono, k))
+        try! out.append("(ptr %env, ptr %result)")
+        try! out.append(ll_function_attributes(""))
+        try! out.append(" \{\nentry:\n")
+        if glue >= 0 {
+            try! out.append("  call void ")
+            try! out.append(ll_symbol(&mono, glue))
+            try! out.append("(ptr %result)\n")
+        }
+        try! out.append("  ret void\n\}\n\n")
+        try! out.append(ll_descriptor_symbol(&mono, k))
+        try! out.append(" = private unnamed_addr constant \{ ptr, ptr, i64, i64, i64, i64, i64, ptr, ptr, i64 \} \{ ptr ")
+        try! out.append(ll_resume_value_symbol(&mono, k))
+        try! out.append(", ptr null, i64 ")
+        try! out.append(resume.size)
+        try! out.append(", i64 ")
+        try! out.append(resume.align)
+        try! out.append(", i64 ")
+        try! out.append(resume.result)
+        try! out.append(", i64 ")
+        try! out.append(l.size)
+        try! out.append(", i64 ")
+        try! out.append(if l.align > 0 { l.align } else { 1 })
+        try! out.append(", ptr ")
+        try! out.append(ll_result_drop_symbol(&mono, k))
+        try! out.append(", ptr null, i64 -1 \}\n\n")
+        out.build()
+    }
+}
+
+// The symbol of item `k`'s descriptor's resume, the function value's code.
+func ll_resume_value_symbol(mono: &MonoProgram, k: Int) -> String {
+    var out = StringBuilder()
+    try! out.append("@\"saw resume value ")
+    try! out.append(ll_quoted(mono.item_name(k)))
+    try! out.append("\"")
+    out.build()
+}
+
+// The symbol of item `k`'s descriptor's result drop.
+func ll_result_drop_symbol(mono: &MonoProgram, k: Int) -> String {
+    var out = StringBuilder()
+    try! out.append("@\"saw drop result ")
+    try! out.append(ll_quoted(mono.item_name(k)))
+    try! out.append("\"")
+    out.build()
+}
+
+// `__saw_frame_resume(descriptor, frame, cx) -> Int32`, one resume of a frame
+// through its descriptor's `resume` function value, called as a function
+// value returning a `Poll` is (`sret`, then the environment), with the
+// `Poll`'s tag as its result (sawc/rt/ABI.md, "The compiler → executor
+// boundary").
+func ll_frame_resume_helper(env_offset: Int) -> String {
+    var out = StringBuilder()
+    try! out.append("define internal i32 @__saw_frame_resume(ptr %descriptor, ptr %frame, ptr %cx)")
+    try! out.append(ll_function_attributes(""))
+    try! out.append(" \{\nentry:\n  %poll.at = alloca i32, align 4\n  %resume = load ptr, ptr %descriptor\n")
+    try! out.append("  %env.at = getelementptr i8, ptr %descriptor, i64 ")
+    try! out.append(env_offset)
+    try! out.append("\n  %env = load ptr, ptr %env.at\n")
+    try! out.append("  call void %resume(ptr %poll.at, ptr %env, ptr %frame, ptr %cx)\n")
+    try! out.append("  %poll = load i32, ptr %poll.at\n  ret i32 %poll\n\}\n\n")
+    out.build()
 }
 
 // The compiler's own helpers (rt/ABI.md's `__saw_*` tier, never a runtime

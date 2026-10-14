@@ -2,7 +2,11 @@
 // check sees every one name the attribute group that keeps a frame pointer:
 // an exported function, a generic instance, a closure body, a method, drop
 // glue for a struct holding a String, the entry point, and the compiler's
-// formatting and failure helpers that checked arithmetic reaches.
+// formatting and failure helpers that checked arithmetic reaches. `main`
+// yields, so it is a lowered frame: its resume function and `yield_now`'s,
+// the descriptor's two thunks and `__saw_frame_resume` are defined too.
+import std.task.{yield_now}
+
 struct Named {
     name: String
     weight: Int
@@ -31,5 +35,6 @@ func main() {
     let base = "frame pointers"
     let n = Named(name: base.substring(0, 5), weight: 40)
     let k = 2
+    yield_now()
     print("{} {}", n.name, n.heavier(by: apply({ x in x + k }, twice(first(1, 2)))))
 }

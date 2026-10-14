@@ -10,9 +10,9 @@ summaries.
 directory specifies:
 
 - each golden program, `golden/NAME.saw`, gives exactly the record in
-  `golden/NAME.coro` (`--dump`) and the one in `golden/NAME.layouts`
-  (`--layouts`), with no `INVARIANT` line and no refusal but coroutine
-  lowering's own;
+  `golden/NAME.coro` (`--dump`), the one in `golden/NAME.layouts`
+  (`--layouts`) and the one in `golden/NAME.lowered` (`--lowered`), with no
+  `INVARIANT` line and no refusal but coroutine lowering's own;
 - each fixture in `refuse/` is refused first at its header's position by the
   rule its name starts with, that refusal's message holds each of its
   `// message:` lines, and every rule coroutine lowering refuses by
@@ -122,7 +122,7 @@ def check_golden(failures, counts, write, rules, mode, suffix):
                 failures.append("coro golden %s: refused by %s at %s, before coroutine lowering"
                                 % (rel(src), rule, where))
         check_invariants(failures, "golden", src, record)
-        key = "coro golden records" if mode == "--dump" else "coro layout records"
+        key = {"--dump": "coro golden records", "--layouts": "coro layout records"}.get(mode, "coro lowered records")
         counts[key] = counts.get(key, 0) + 1
 
 
@@ -195,6 +195,7 @@ def run(write=False):
     rules = coro_rules()
     check_golden(failures, counts, write, rules, "--dump", ".coro")
     check_golden(failures, counts, write, rules, "--layouts", ".layouts")
+    check_golden(failures, counts, write, rules, "--lowered", ".lowered")
     check_refusals(failures, counts, rules)
     check_agreement(failures, counts)
     return failures, counts

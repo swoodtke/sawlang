@@ -111,8 +111,7 @@ extension LlEmitter {
                     addr = self.offset_addr(addr, off)
                 },
                 case FrameSlot -> {
-                    self.refuse_here(&var mono, node, "a coroutine frame slot is not in the backend slice yet (SL-555)")
-                    return addr
+                    addr = self.offset_addr(addr, step.index)
                 }
             }
             current = step.ty

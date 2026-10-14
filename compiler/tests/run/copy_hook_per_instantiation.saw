@@ -1,0 +1,49 @@
+// A copy-policy `copy()` that suspends only at some instantiations, through
+// a bound's method, is refused at those (the coro fixture
+// `effect.sync.copy-hook`, where `T` is `Slow`) and builds at the rest: at
+// `Fast`, `step` does not suspend, so neither does `Wrap.copy`.
+extern "C" {
+    blocking func usleep(us: UInt32) -> Int32
+}
+
+trait Worker {
+    func step(&self) -> Int
+}
+
+struct Slow {
+    n: Int
+}
+
+extension Slow: Worker {
+    func step(&self) -> Int {
+        (usleep(1) as Int) + self.n
+    }
+}
+
+struct Fast {
+    n: Int
+}
+
+extension Fast: Worker {
+    func step(&self) -> Int {
+        self.n
+    }
+}
+
+struct Wrap<T: Worker> {
+    n: Int
+    w: T
+}
+
+extension Wrap<T: Worker>: ExplicitCopy {
+    func copy(&self) -> Wrap<T> {
+        let bump = self.w.step()
+        Wrap(n: self.n + bump, w: self.w)
+    }
+}
+
+func main() {
+    let a = Wrap(n: 1, w: Fast(n: 2))
+    let b = a.copy()
+    print("{}", b.n)
+}

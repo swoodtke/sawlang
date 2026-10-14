@@ -1,9 +1,10 @@
 ERROR	coro.not-yet	compiler/tests/coro/golden/yield_loop.saw:34:17	`main` suspends (main -> tally -> usleep), so it needs a coroutine frame, which is not lowered yet (SL-545)
 ERROR	coro.not-yet	compiler/tests/coro/golden/yield_loop.saw:25:9	`tally` suspends (tally -> usleep), so it needs a coroutine frame, which is not lowered yet (SL-545)
-frame #0: yield_loop.main()  (size 8 align 8)
+frame #0: yield_loop.main()  (size 72 align 8)
     suspend 1: bb0 call tally
     (*frame).[0: Int]  size 8 align 8  state
     (*frame).[8: Void]  size 0 align 1  _0 result
+    (*frame).[8: frame yield_loop.tally(rounds: Int)]  size 64 align 8  child  (across 1)
     stack: _1
 frame #5: yield_loop.tally(rounds: Int)  (size 64 align 8)
     suspend 1: bb3 call usleep

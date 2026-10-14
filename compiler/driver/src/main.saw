@@ -23,6 +23,7 @@
 //   sawc2 mono --check FILE...      each entry file's program monomorphized, refusals and invariants only
 //   sawc2 coro --dump FILE...       each entry file's program through coroutine lowering, and each item's frame
 //   sawc2 coro --layouts FILE...    each entry file's program through coroutine lowering, and each frame's layout
+//   sawc2 coro --lowered FILE...    each entry file's program through coroutine lowering, and each lowered frame's resume function
 //   sawc2 coro --check FILE...      each entry file's program through coroutine lowering, refusals and invariants only
 //   sawc2 build FILE [-o OUT]       the entry file's program compiled and linked by clang
 //   sawc2 build --emit-ll FILE      the entry file's program as one `.ll` on standard output
@@ -87,7 +88,7 @@ func driver_usage() -> Int {
     print("                   [--module-path NAME=DIR]... [FILE | @LIST]...")
     print("       sawc2 mono (--dump | --layouts | --check) [--notes] [--lowerings] [--std-root DIR]")
     print("                  [--target TRIPLE] [--module-path NAME=DIR]... [FILE | @LIST]...")
-    print("       sawc2 coro (--dump | --layouts | --check) [--notes] [--std-root DIR] [--target TRIPLE]")
+    print("       sawc2 coro (--dump | --layouts | --lowered | --check) [--notes] [--std-root DIR] [--target TRIPLE]")
     print("                  [--module-path NAME=DIR]... [FILE | @LIST]...")
     print("       sawc2 build [-O0 | -O1 | -O2 | -Os | -Oz] [--std-root DIR] [--target TRIPLE]")
     print("                   [--module-path NAME=DIR]... (FILE [-o OUT] | --emit-ll FILE)")
@@ -845,6 +846,7 @@ func driver_mono(args: &Vector<String>) -> Int {
 func driver_coro(args: &Vector<String>) -> Int {
     var dump = false
     var layouts = false
+    var lowered = false
     var check = false
     var notes = false
     var std_root = "sawc"
@@ -859,6 +861,8 @@ func driver_coro(args: &Vector<String>) -> Int {
             dump = true
         } else if arg.equals("--layouts") {
             layouts = true
+        } else if arg.equals("--lowered") {
+            lowered = true
         } else if arg.equals("--check") {
             check = true
         } else if arg.equals("--notes") {
@@ -890,7 +894,7 @@ func driver_coro(args: &Vector<String>) -> Int {
         }
         i = i + 1
     }
-    let modes = (if dump { 1 } else { 0 }) + (if layouts { 1 } else { 0 }) + (if check { 1 } else { 0 })
+    let modes = (if dump { 1 } else { 0 }) + (if layouts { 1 } else { 0 }) + (if lowered { 1 } else { 0 }) + (if check { 1 } else { 0 })
     if modes != 1 {
         return driver_usage()
     }
@@ -899,7 +903,8 @@ func driver_coro(args: &Vector<String>) -> Int {
         print("sawc2: unknown target {}", triple)
         return DRIVER_EXIT_USAGE
     }
-    let options = CoroOptions(std_root: std_root, target: triple, dump: dump, layouts: layouts, notes: notes)
+    let options = CoroOptions(std_root: std_root, target: triple, dump: dump, layouts: layouts, lowered: lowered,
+                              notes: notes)
     var status = 0
     var k = 0
     while k < inputs.len() {

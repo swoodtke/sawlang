@@ -1,0 +1,3 @@
+ERROR	coro.not-yet	compiler/tests/coro/golden/yield_loop.saw:34:17	`main` suspends (main -> tally -> usleep), so it needs a coroutine frame, which is not lowered yet (SL-545)
+ERROR	coro.not-yet	compiler/tests/coro/golden/yield_loop.saw:25:9	`tally` suspends (tally -> usleep), so it needs a coroutine frame, which is not lowered yet (SL-545)
+no lowered frame

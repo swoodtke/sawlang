@@ -1,0 +1,38 @@
+// The frames SL:coroutines A3b lowers: `main` drives `outer`, which drives
+// `inner` and `yield_now`, whose body is the ready park. Each driven call
+// has a child slot of its own in its caller's frame, even two calls of one
+// function, and the values live across a suspension (`n`, `label`, `p`, `s`)
+// are reached through frame slots in the lowered bodies. `main`'s result is
+// its frame's, which the C entry reads once the executor returns.
+import std.task.{yield_now}
+
+struct Pair {
+    left: Int
+    right: String
+}
+
+func inner() {
+    let label = "inner"
+    print("{} before", label)
+    yield_now()
+    print("{} between", label)
+    yield_now()
+    print("{} after", label)
+}
+
+func outer() {
+    var n = 40
+    inner()
+    n = n + 1
+    yield_now()
+    print("outer {}", n + 1)
+}
+
+func main() -> Int {
+    let p = Pair(left: 3, right: "kept")
+    let s = "a string across"
+    outer()
+    yield_now()
+    print("{} {} {}", p.left, p.right, s)
+    7
+}

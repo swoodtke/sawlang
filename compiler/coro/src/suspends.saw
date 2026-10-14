@@ -20,7 +20,7 @@ import sawmono.dump.{mono_dump_layouts}
 import sawmono.program.{MonoItemKind, MonoProgram}
 import sawresolve.dump.{res_sort_strings}
 import sawresolve.program.{ResProgram}
-import sawtypecheck.model.{TC_SUMMARY_BODY, TC_SUMMARY_NONE}
+import sawtypecheck.model.{TC_FLAG_BLOCKING, TC_SUMMARY_BODY, TC_SUMMARY_NONE, TcStatusKind}
 import sawtypecheck.program.{TcProgram}
 
 // The rules coroutine lowering refuses by.
@@ -28,6 +28,7 @@ public func coro_rules() -> Vector<String> {
     var out = Vector<String>()
     try! out.push("coro.not-yet")
     try! out.push("coro.suspending-cycle")
+    try! out.push("effect.sync")
     move out
 }
 
@@ -53,8 +54,8 @@ extension CoroEdges: NoCopy {}
 // fixpoint, solved breadth first from the sources over the edges reversed,
 // so each item is marked once, a cycle suspends only when a call in it
 // reaches a source, and each item's cause chain is a shortest one. Then
-// refuses each cycle among the items that suspend, and, until frames are
-// lowered, each item that needs one.
+// refuses each cycle among the items that suspend, and each copy-policy
+// `copy()` that suspends at its instantiation.
 public func coro_solve_suspension(coro: &var CoroProgram) {
     let count = coro.mono.items.len()
     coro.suspending = Vector<Bool>()
@@ -109,9 +110,7 @@ public func coro_solve_suspension(coro: &var CoroProgram) {
     coro_check_summaries(&var coro)
     let cycles = coro_refuse_cycles(&var coro, &edges)
     coro.cyclic = cycles > 0
-    if cycles == 0 {
-        coro_refuse_frames(&var coro)
-    }
+    coro_refuse_copy_hooks(&var coro)
 }
 
 // Whether item `k` definitely suspends.
@@ -436,36 +435,99 @@ func coro_refuse_cycle(coro: &var CoroProgram, edges: &CoroEdges, component: &Ve
     coro.refuse(start, node, "coro.suspending-cycle", msg.build())
 }
 
-// Refuses each item that needs a frame, since none is lowered yet, at the
-// call its suspension was found through. Only the program's own items are
-// refused, every suspending std item being reached from one of them; a std
-// item is refused only when no item of the program needs a frame.
-func coro_refuse_frames(coro: &var CoroProgram) {
-    var own = false
+// Refuses each item that is the hand-written `copy()` of a `Copy` or
+// `ExplicitCopy` conformance and suspends at its instantiation, at its
+// declaration (spec: a hand-written `copy()` must be `sync`), since the
+// compiler calls it at transfer sites no source construct names. Typecheck
+// refuses one that suspends at every instantiation; one that suspends only
+// at some, through a bound, is decided here, item by item.
+func coro_refuse_copy_hooks(coro: &var CoroProgram) {
     var k = 0
-    while k < coro.suspending.len() {
-        if coro.needs_frame(k) && not coro.std_item(k) {
-            own = true
-        }
-        k = k + 1
-    }
-    k = 0
     while k < coro.suspending.len() {
         let item = k
         k = k + 1
-        if not coro.needs_frame(item) || (own && coro.std_item(item)) {
+        if not coro.suspending[item] {
             continue
         }
-        let c = coro.cause_call[item]
-        let node = coro.mono.dp.bc.mir.calls[c].node
+        // Stage 0 workaround (SL:hazards S4): canonical: let c = coro_copy_conformance(&coro, coro.item_decl(item))
+        let d = coro.item_decl(item)
+        let c = coro_copy_conformance(&coro, d)
+        if c < 0 {
+            continue
+        }
+        let conformance = coro.mono.dp.bc.mir.tc.conformances[c]
         var msg = StringBuilder()
-        try! msg.append("`")
+        try! msg.append("cannot suspend in the `")
+        try! msg.append(coro.mono.dp.bc.mir.tc.res.decl_path(conformance.trait_decl))
+        try! msg.append("` `copy()` of `")
+        try! msg.append(coro.mono.dp.bc.mir.tc.res.decl_path(conformance.type_decl))
+        try! msg.append("`: method `")
         try! msg.append(coro.item_label(item))
-        try! msg.append("` suspends (")
-        try! msg.append(coro_cause_chain(&coro, item))
-        try! msg.append("), so it needs a coroutine frame, which is not lowered yet (SL-545)")
-        coro.refuse(item, node, "coro.not-yet", msg.build())
+        try! msg.append("` calls ")
+        var at = item
+        var first = true
+        while at >= 0 && coro.cause_call[at] >= 0 {
+            if not first {
+                try! msg.append(" → ")
+            }
+            first = false
+            let next = coro.cause_item[at]
+            if next >= 0 {
+                try! msg.append("`")
+                try! msg.append(coro.item_label(next))
+                try! msg.append("`")
+            } else {
+                // Stage 0 workaround (SL:hazards S4): canonical: try! msg.append(coro_source_text(&coro, coro.cause_call[at]))
+                let call = coro.cause_call[at]
+                try! msg.append(coro_source_text(&coro, call))
+            }
+            at = next
+        }
+        // Stage 0 workaround (SL:hazards S4): canonical: coro.refuse(item, coro.item_node(item), "effect.sync", msg.build())
+        let node = coro.item_node(item)
+        coro.refuse(item, node, "effect.sync", msg.build())
     }
+}
+
+// The conformance whose written `copy()` declaration `d` is, of the `Copy`
+// or `ExplicitCopy` trait, or -1.
+func coro_copy_conformance(coro: &CoroProgram, d: Int) -> Int {
+    if d < 0 {
+        return -1
+    }
+    let copy = coro.mono.dp.bc.mir.tc.known.copy
+    let explicit = coro.mono.dp.bc.mir.tc.known.explicit_copy
+    var k = 0
+    while k < coro.mono.dp.bc.mir.tc.conformances.len() {
+        let c = coro.mono.dp.bc.mir.tc.conformances[k]
+        if c.trait_decl >= 0 && (c.trait_decl == copy || c.trait_decl == explicit) {
+            var j = 0
+            while j < c.status_count {
+                let st = coro.mono.dp.bc.mir.tc.statuses[c.status_first + j]
+                if st.kind == TcStatusKind.Written && st.member == d {
+                    return k
+                }
+                j = j + 1
+            }
+        }
+        k = k + 1
+    }
+    return -1
+}
+
+// How a sync-context message names the source call `c` reaches: a
+// `blocking` extern as one, anything else by its label.
+func coro_source_text(coro: &CoroProgram, c: Int) -> String {
+    var out = StringBuilder()
+    let d = coro.mono.dp.bc.mir.calls[c].target
+    let blocking = d >= 0 && d < coro.mono.dp.bc.mir.tc.sigs.len() && (coro.mono.dp.bc.mir.tc.sigs[d].flags & TC_FLAG_BLOCKING) != 0
+    if blocking {
+        try! out.append("blocking extern ")
+    }
+    try! out.append("`")
+    try! out.append(coro_source_label(&coro, c))
+    try! out.append("`")
+    out.build()
 }
 
 // Item `k`'s cause chain: its name, then each item its suspension was found

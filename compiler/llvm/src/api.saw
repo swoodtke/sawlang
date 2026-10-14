@@ -3,9 +3,9 @@
 // it to a file and runs clang on it (compiler/tests/run/README.md). The
 // backend's input is coroutine lowering's program.
 
-import sawcoro.api.{coro_append_findings, coro_lower_file}
+import sawcoro.api.{coro_append_findings, coro_lower_file, coro_lower_for}
 import sawcoro.program.{CoroProgram}
-import sawllvm.module.{ll_export_symbol}
+import sawllvm.module.{LlLowering, ll_export_symbol, ll_lowering}
 import sawllvm.program.{llvm_emit_program}
 import sawmono.program.{MonoProgram}
 import sawtarget.layout.{Target}
@@ -49,7 +49,14 @@ public func llvm_build_exporting(out: &var StringBuilder, ir: &var StringBuilder
         return 1
     }
     var target = coro.mono.target_for(options.target)
-    let text = llvm_emit_program(&var coro.mono, &var target, options.speed, options.module_triple)
+    coro_lower_for(&var coro, &var target)
+    if coro.problems.len() > 0 {
+        try! out.append(head)
+        coro_append_findings(out: &var out, coro: &coro)
+        return 1
+    }
+    let lowering = ll_lowering(&coro)
+    let text = llvm_emit_program(&var coro.mono, &var target, move lowering, options.speed, options.module_triple)
     if text.len() == 0 {
         try! out.append(head)
         coro_append_findings(out: &var out, coro: &coro)
