@@ -951,6 +951,9 @@ The plan holds except where an amendment below says otherwise. Each one is the l
   - `__saw_exec_io_register(fd, dir, token)` takes the task's park-word address as its `token`. A12a and A13a must withdraw a registration before its cell is freed.
   - An executor half that hasn't landed panics, naming its unit; none is a no-op.
   - Its pins are the five per-reason goldens (`park_timer`, `park_fd`, `park_channel`, `park_offload`, `park_signal`) and the run probes `drive_timer_park` and `main_timer_park`, which panic with SL-645's message.
+- **A6's scope (SL-559 c7, the lead's ruling after a6flow's stop; landed):**
+  - A6 is: a borrow window's state record resident in the frame whenever a suspension falls inside its window (its open and close included), with rule 2 of the verifier checking it; the window refusal lifted (a suspending accessor half lowers as a drive of its child frame), except a conditional window whose open suspends (`coro.not-yet.conditional-window`); an index read from a frame value, through a stack temporary loaded just before its statement (the Air's c8); the control-flow and expression rows that pass, pinned; and the tuple-pattern `if let`/`guard let` lifted limit.
+  - Rows moved out, and gated in §3.3 from here: to A9, `while`, range `for`, K42, K43, `while_let_tuple_over_suspension_refused`, the value-producing `break`, and K41's condition inside a `for` body; to SL-670, `coro_try_catch_suspending`, `coro_suspending_call_in_inline_catch`, `coro_try_block_two_error_types` and the multi-hop `?.` limit; to SL-601 and SL-461, the collection `for` row and K149; to SL-671 and A8a, `lend_var_coro_and_forwarding`; to A8a/A13a, K40's and K41's two-task interleaving (pinned meanwhile by `__saw_drive` stand-ins).
 
 ## 5. Open questions for the user
 
