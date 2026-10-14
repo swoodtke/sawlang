@@ -5,7 +5,7 @@
 // diverging expression leaves nothing behind.
 
 import sawmir.model.{MirAccessor, MirAggregate, MirArm, MirBlock, MirCall, MirCallKind, MirConstKind, MirDiag,
-                         MirLocal, MirLocalKind, MirOperand, MirOperandKind, MirPlace, MirProj,
+                         MirDriveForm, MirLocal, MirLocalKind, MirOperand, MirOperandKind, MirPlace, MirProj,
                          MirProjKind, MirRvalue, MirRvalueKind, MirSpawnForm, MirStmt, MirStmtKind, MirSuspend,
                          MirSwitchKind, MirTermKind, MirWindow}
 import sawmir.program.{MirLoop, MirProgram, MirScopeEntry}
@@ -851,7 +851,8 @@ extension MirProgram {
         MirCall(kind: kind, target: -1, param: -1, owner: -1, inst_first: self.types.len(), inst_count: 0,
                 spelling: -1, callee: -1, arg_first: self.lists.len(), arg_count: 0, dest: -1, next: -1,
                 absent: -1, window: -1, suspend: MirSuspend.Never, cond_first: self.conds.len(),
-                cond_count: 0, node: node, half: -1, spawn: MirSpawnForm.Absent)
+                cond_count: 0, node: node, half: -1, spawn: MirSpawnForm.Absent,
+                drive: MirDriveForm.Absent)
     }
 
     // Ends the current block in call `c` and continues in a new block on its

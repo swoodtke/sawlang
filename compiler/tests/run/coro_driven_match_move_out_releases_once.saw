@@ -1,0 +1,213 @@
+// Conformance row V50 — a payload moved OUT of a driven `match` arm over a
+// suspending scrutinee deinitializes exactly once, at every DESTINATION the
+// move can have (design 247 / DF-215f).
+//
+// The 215f pin next door varies what happens to the value AFTER the arm hands
+// it over (returned, bound-then-returned, used locally). This file varies where
+// the arm hands it TO, which is the axis the sweep found the finding was really
+// keyed on — the filed "the moved value crosses the function return" leg was
+// falsified, and every one of these rows double-released before design 247.
+//
+// ROWS. Four destinations, an enum that is neither `Result` nor `Optional`, and
+// three controls that were clean before the fix and must stay clean:
+//
+//   let_initializer  — `let h = match … { case Ok(p) -> move p, … }`
+//   outer_local      — the arm assigns an outer `var out: Res?`. The first of
+//                      the two releases landed BEFORE the assignment was read
+//   consuming_call   — the arm passes the payload to a by-value parameter
+//   into_vector      — the arm pushes it into a `Vector<Res>`, so the second
+//                      release reached storage a live container owned
+//   user_enum        — the scrutinee is a user enum, so nothing about this is
+//                      special to the `Result` the finding was reported on
+//   sync_control     — the identical match over a NON-suspending callee. The
+//                      oracle: the sync lowering was always right, so every
+//                      driven row above must read exactly like this one
+//   non_moving_arm   — the arm READS the binding and hands it nowhere. The
+//                      payload dies at the arm's end on both twins
+//   arm_suspends     — the moving arm spans a suspension, so the match is
+//                      CFG-SPLIT and the binding is frame-resident. Clean
+//                      before the fix (the split path stored the payload into
+//                      the binding's own slot and disarmed the temp), which is
+//                      what made the in-place lowering the whole finding
+//   sibling_suspends — the match is split by ANOTHER arm, while the moving arm
+//                      itself does not suspend
+// EXPECT: success
+// EXPECT-OUTPUT:
+// -- let_initializer
+// NEW t1
+// bound t1
+// DEINIT t1
+// -- outer_local
+// NEW t2
+// assigned
+// DEINIT t2
+// -- consuming_call
+// NEW t3
+// held t3
+// DEINIT t3
+// after call
+// -- into_vector
+// NEW t4
+// len 1
+// DEINIT t4
+// -- user_enum
+// NEW t5
+// held t5
+// DEINIT t5
+// after enum
+// -- sync_control
+// NEW t6
+// held t6
+// DEINIT t6
+// after sync
+// -- non_moving_arm
+// NEW t7
+// read t7
+// DEINIT t7
+// after nomove
+// -- arm_suspends
+// NEW t8
+// held t8
+// DEINIT t8
+// after arm suspends
+// -- sibling_suspends
+// NEW t9
+// held t9
+// DEINIT t9
+// after sibling
+
+import std.task.{yield_now}
+
+struct MyErr { message: String }
+extension MyErr: Printable {
+    func format(&self, into: &var StringBuilder) { try! into.append(self.message) }
+}
+extension MyErr: Error {}
+
+struct Res { name: String }
+extension Res: NoCopy {
+    func deinit(&var self) { print("DEINIT {self.name}") }
+}
+
+enum Cell { case Full(r: Res), case Empty }
+extension Cell: NoCopy {}
+
+func make(name: String) -> Result<Res, MyErr> {
+    yield_now()
+    print("NEW {name}")
+    return Res(name: name)
+}
+
+func make_sync(name: String) -> Result<Res, MyErr> {
+    print("NEW {name}")
+    return Res(name: name)
+}
+
+func fill(name: String) -> Cell {
+    yield_now()
+    print("NEW {name}")
+    return Cell.Full(r: Res(name: name))
+}
+
+func hold(r: Res) { print("held {r.name}") }
+
+func row_let() {
+    let h = match make("t1") {
+        case Ok(p) -> move p,
+        case Err(e) -> Res(name: "fallback")
+    }
+    print("bound {h.name}")
+}
+
+func row_outer() {
+    var out: Res? = None
+    match make("t2") {
+        case Ok(p) -> { out = move p },
+        case Err(e) -> { print("err") }
+    }
+    print("assigned")
+}
+
+func row_call() {
+    match make("t3") {
+        case Ok(p) -> { hold(move p) },
+        case Err(e) -> { print("err") }
+    }
+    print("after call")
+}
+
+func row_vector() {
+    var sink = Vector<Res>()
+    match make("t4") {
+        case Ok(p) -> { try! sink.push(move p) },
+        case Err(e) -> { print("err") }
+    }
+    print("len {sink.len()}")
+}
+
+func row_user_enum() {
+    match fill("t5") {
+        case Full(r) -> { hold(move r) },
+        case Empty -> { print("empty") }
+    }
+    print("after enum")
+}
+
+func row_sync() {
+    match make_sync("t6") {
+        case Ok(p) -> { hold(move p) },
+        case Err(e) -> { print("err") }
+    }
+    print("after sync")
+}
+
+func row_nomove() {
+    match make("t7") {
+        case Ok(p) -> { print("read {p.name}") },
+        case Err(e) -> { print("err") }
+    }
+    print("after nomove")
+}
+
+func row_arm_suspends() {
+    match make("t8") {
+        case Ok(p) -> {
+            yield_now()
+            hold(move p)
+        },
+        case Err(e) -> { print("err") }
+    }
+    print("after arm suspends")
+}
+
+func row_sibling_suspends() {
+    match make("t9") {
+        case Ok(p) -> { hold(move p) },
+        case Err(e) -> {
+            yield_now()
+            print("err")
+        }
+    }
+    print("after sibling")
+}
+
+func main() {
+    print("-- let_initializer")
+    __saw_drive(row_let())
+    print("-- outer_local")
+    __saw_drive(row_outer())
+    print("-- consuming_call")
+    __saw_drive(row_call())
+    print("-- into_vector")
+    __saw_drive(row_vector())
+    print("-- user_enum")
+    __saw_drive(row_user_enum())
+    print("-- sync_control")
+    row_sync()
+    print("-- non_moving_arm")
+    __saw_drive(row_nomove())
+    print("-- arm_suspends")
+    __saw_drive(row_arm_suspends())
+    print("-- sibling_suspends")
+    __saw_drive(row_sibling_suspends())
+}

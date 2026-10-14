@@ -2,6 +2,7 @@
 // each item's frame decided; and the record `sawc2 coro` prints for it.
 
 import sawcoro.dump.{coro_dump_items, coro_dump_layouts, coro_dump_lowered}
+import sawcoro.drive.{coro_check_drive_sites, coro_lower_drive_sites, coro_refuse_drive_sites}
 import sawcoro.frames.{coro_find_frames}
 import sawcoro.layout.{coro_lay_out_frames}
 import sawcoro.lower.{coro_decide_lowering, coro_frame_lowered, coro_lower_frames, coro_refuse_unlowered}
@@ -41,6 +42,7 @@ public func coro_lower_file(out: &var StringBuilder, path: String, std_root: Str
     var coro = coro_program(move mono)
     if not coro.blocked {
         coro_solve_suspension(&var coro)
+        coro_refuse_drive_sites(&var coro)
         coro_find_frames(&var coro)
         coro_decide_lowering(&var coro)
         coro_refuse_unlowered(&var coro)
@@ -63,15 +65,18 @@ func coro_root_entry_executor(coro: &var CoroProgram) {
     }
 }
 
-// Lays out every frame for `target`, then lowers every spawn site, then each
-// lowered frame: what the backend consumes, and what `--lowered` prints. A
-// spawn site is lowered first, so the locals and blocks it adds to a framed
-// spawner are in that frame's body when the frame is lowered.
+// Lays out every frame for `target`, then lowers every spawn site and every
+// drive site, then each lowered frame: what the backend consumes, and what
+// `--lowered` prints. A spawn site is lowered first, so the locals and blocks
+// it adds to a framed spawner are in that frame's body when the frame is
+// lowered; a drive site is only ever in an item with no frame.
 public func coro_lower_for(coro: &var CoroProgram, target: &var Target) {
     coro_lay_out_frames(&var coro, &var target)
     coro_lower_spawn_sites(&var coro)
+    coro_lower_drive_sites(&var coro)
     coro_lower_frames(&var coro)
     coro_check_spawns(&var coro)
+    coro_check_drive_sites(&var coro)
 }
 
 // The record of one program, after its `FILE` line: everything

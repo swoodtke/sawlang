@@ -55,6 +55,13 @@ public func res_declare_synthetic_builtins(p: &var ResProgram) {
         p.builtin_function(name)
         k = k + 1
     }
+    let drivers = res_test_drivers()
+    k = 0
+    while k < drivers.len() {
+        let name = drivers.get(k) ?? ""
+        p.builtin_function(name)
+        k = k + 1
+    }
     if not p.std_new {
         p.builtin_function("sleep")
         p.builtin_function("cancelled")
@@ -98,6 +105,23 @@ public func res_is_test_intrinsic(text: String) -> Bool {
         k = k + 1
     }
     false
+}
+
+// The test drivers Stage 0's corpus calls bare, as the test intrinsics are:
+// `__saw_drive(f(args))` runs the root call `f(args)` to its end over a frame
+// on the caller's stack and gives its result, and `__saw_drive_steps(f(args))`
+// does the same and gives how many times the root reported `Pending`. A
+// drive site is sync from outside: the root's suspensions are the driver's.
+public func res_test_drivers() -> Vector<String> {
+    var out = Vector<String>()
+    try! out.push("__saw_drive")
+    try! out.push("__saw_drive_steps")
+    move out
+}
+
+// Whether `text` names one of `res_test_drivers`.
+public func res_is_test_driver(text: String) -> Bool {
+    text.equals("__saw_drive") || text.equals("__saw_drive_steps")
 }
 
 // Enters the prelude: each name visible bare with no import, and the module
@@ -274,3 +298,4 @@ extension ResProgram {
         self.refuse_at(b, 0, "resolve.prelude-table", msg.build(), true)
     }
 }
+

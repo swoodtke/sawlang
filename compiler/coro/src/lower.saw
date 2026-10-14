@@ -325,8 +325,8 @@ public func coro_refuse_unlowered(coro: &var CoroProgram) {
 }
 
 // Refuses item `item`, at its first suspension that is not lowered; a task
-// root that does not suspend has none, so it is refused at the spawn site
-// that made it.
+// root that does not suspend has none, so it is refused at the spawn or drive
+// site that made it.
 func coro_refuse_item(coro: &var CoroProgram, item: Int) {
     let why = coro.unlowered[item]
     var call = coro.cause_call[item]
@@ -346,7 +346,7 @@ func coro_refuse_item(coro: &var CoroProgram, item: Int) {
         }
         try! msg.append("), so it needs a coroutine frame, ")
     } else {
-        try! msg.append("` is spawned as a task, so it needs a coroutine frame, ")
+        try! msg.append("` runs as a task root, spawned or driven, so it needs a coroutine frame, ")
     }
     match why.what {
         case Budget -> try! msg.append("and its op-budget point is not lowered yet (SL-545)"),
@@ -362,14 +362,16 @@ func coro_refuse_item(coro: &var CoroProgram, item: Int) {
 }
 
 // Item `item`'s chain through the suspensions that are not lowered: each
-// child driven at one, then the source or the child that ends it.
+// child driven at one, then the source or the child that ends it. A child
+// refused for a shape of its own, or for an op-budget point, which is no
+// call, ends the chain (fixture `coro.not-yet.budget-child`).
 func coro_unlowered_chain(coro: &CoroProgram, item: Int) -> String {
     var out = StringBuilder()
     try! out.append(coro.item_label(item))
     var at = item
     while at >= 0 {
         let why = coro.unlowered[at]
-        if why.suspend < 0 {
+        if why.suspend < 0 || coro.suspends[why.suspend].call < 0 {
             return out.build()
         }
         let c = coro.suspends[why.suspend].call

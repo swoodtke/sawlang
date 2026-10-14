@@ -1,0 +1,55 @@
+// Owning values through a drive site (SL:coroutines A4b): the root's
+// arguments travel into its frame as the site passed them, and its result
+// leaves it once. A parameter the root owns drops at the root's end; one
+// moved onward comes back as the result; a result moved out of the frame
+// drops where its binding does, and a discarded one at once;
+// `__saw_drive_steps`'s driver drops the result nobody takes, after a
+// suspension or with none.
+
+struct Tracker {
+    id: Int
+}
+
+extension Tracker: NoCopy {
+    func deinit(&var self) {
+        print("drop {}", self.id)
+    }
+}
+
+func keep(t: Tracker) -> Int {
+    __saw_suspend()
+    t.id
+}
+
+func relay(t: Tracker) -> Tracker {
+    __saw_suspend()
+    move t
+}
+
+func made(n: Int) -> Tracker {
+    __saw_suspend()
+    Tracker(id: n)
+}
+
+func ignore(t: Tracker, n: Int) -> Int {
+    __saw_suspend()
+    n
+}
+
+func plain(n: Int) -> Tracker {
+    Tracker(id: n)
+}
+
+func main() {
+    print("keep {}", __saw_drive(keep(Tracker(id: 1))))
+    let r = __saw_drive(relay(Tracker(id: 2)))
+    print("relayed {}", r.id)
+    let m = __saw_drive(made(3))
+    print("made {}", m.id)
+    __saw_drive(made(4))
+    print("after discard")
+    print("steps {}", __saw_drive_steps(made(5)))
+    print("ignore {}", __saw_drive(ignore(Tracker(id: 6), 7)))
+    print("plain steps {}", __saw_drive_steps(plain(8)))
+    print("end")
+}

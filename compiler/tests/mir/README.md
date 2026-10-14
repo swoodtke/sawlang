@@ -162,6 +162,18 @@ call:
   must reach a written fate, which drop elaboration checks
   (`compiler/tests/drops/README.md`, "Fates"); coroutine lowering refuses
   every spawn site until it lowers task roots (`compiler/tests/coro/README.md`).
+- A **drive site**, `[PLACE = ] drive FORM TARGET [(owner T)] [(inst T...)]
+  [ARGS] -> [return: bbK];`, is a test driver's call (`__saw_drive(f(x))`,
+  FORM `result`, or `__saw_drive_steps(f(x))`, FORM `steps`). ARGS are the
+  root call's operands, evaluated before it as a call of the root evaluates
+  them, a receiver first; TARGET, the root, a function or a method, is not
+  called here, since the driver runs it to its end (golden `drive_site`).
+  PLACE is what the form gives: the root's result, or an `Int` counting the
+  times it reported `Pending`. The site is no suspension point: a drive is
+  sync from outside. The verifier checks that a drive site names a form,
+  returns unless its root is `Never`, passes arguments of its root's
+  parameter types, and leaves what its form gives, and that no other call
+  carries a form.
 - SUSPENSION is ` suspends` for a call that may suspend whatever its type
   arguments, or ` suspends when T.Trait.req ...` for one that may when the
   conditions over the function's own type parameters hold (typecheck's

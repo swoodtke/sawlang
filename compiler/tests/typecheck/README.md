@@ -706,6 +706,7 @@ fixture (`refuse/RULE.VARIANT`) that covers it.
 | a call through a bound | a condition over the caller's parameter | summaries; effect.sync.bound |
 | a call through a function value | never suspends; sync-callable when its type says `sync` | summaries; effect.sync.value |
 | a spawn form's root call, `f(x)` in `Task.spawn(f(x))` | the task's call: its suspension and its sync-callability stay in the task, while its instantiation's Copy and refusal conditions bind the spawner (`eval_call`) | task_spawn (the `sync` spawner `start`) |
+| a drive site's root call, `f(x)` in `__saw_drive(f(x))` | the driver's call, as a spawn root is the task's (`eval_call`): a body whose only suspending call is a drive root does not suspend | drive_site (the `sync` driver `start`) |
 | a call in a `sync` function, a `deinit`, a closure of a `sync` type | refused when not sync-callable | effect.sync, effect.sync.deinit, effect.sync.closure |
 | a `sync` requirement met by a member not declared `sync` | the member's summary | effect.sync.requirement |
 | a hand-written `copy()` of a `Copy` or `ExplicitCopy` conformance | refused at the conformance when it suspends | effect.sync.copy-hook |
@@ -1321,6 +1322,7 @@ says what the fixture shows.
 | `effect.closure-suspends` | a call in a closure body that may suspend, or a call whose type arguments make a closure in its callee call a suspending implementation (spec: suspension, "a closure body cannot suspend") |
 | `erasure.not-object-safe` | a written `any Trait` whose trait is not object-safe: a marker trait, one with an associated type, a static requirement, or a requirement naming `Self` in its result or a parameter, its parents' included, naming the trait, the reason and the member (spec, "Object safety (v1)"; the object-safety matrix) |
 | `effect.any-suspends` | a coercion to `any Trait`, or a call whose type arguments make one in its callee, where the implementation of a requirement not declared `sync` may suspend, naming both (spec: suspension) |
+| `drive.argument` | a test driver (`__saw_drive`, `__saw_drive_steps`) given anything but one positional argument (bare), or a root that is no call of a function or a method: a function value, a closure (`.value-root`) |
 | `spawn.argument` | a `Task.spawn` given anything but one positional argument, or a root that is no call of a free function: a method, a closure, a value (`.method-root`) |
 | `spawn.borrow` | a borrow a `Task.spawn` root takes of its spawner, at both spellings: a `&` or `&var` argument of the root call, and a borrow capture written in a closure anywhere inside it (`.capture`); a reference a call nested in the arguments makes ends at the spawn and is none (golden `task_spawn`; spec, "BORROWS ARE REFUSED AT THE FORM") |
 | `spawn.never-body` | a task root of type `Never`, whose handle's `join` could never return (design 228); the funnel `refuse_never_task_body` names its entry points, the `Task.spawn` form today |

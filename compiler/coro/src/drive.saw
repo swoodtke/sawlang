@@ -1,0 +1,328 @@
+// Drive sites (SL:coroutines §4 A4b, compiler/tests/coro/README.md "Drive
+// sites"): `dest = drive FORM f(args)`, a test driver's site, runs its root to
+// its end over a frame of its own on the caller's stack. The root is its task
+// root, framed whether or not it suspends, as a spawn site's is. The site is
+// rewritten into MIR over std's drivers: its block writes the root's state
+// word and each argument into the frame, each argument moving or copying as
+// the site passed it; the drive terminator leaves the root's frame
+// descriptor in a new local; std's driver runs the frame, and either the
+// root's result is moved out of the frame into `dest` (`__saw_drive`) or the
+// driver gives its count of `Pending`s and drops the result itself
+// (`__saw_drive_steps`). So the rewrite adds no ownership operation.
+//
+// A drive site in an item that has a frame of its own is refused
+// (`coro.drive-in-suspending`): that body already runs inside an executor,
+// where the call embeds.
+//
+// ENTRY POINTS of the drive-site lowering:
+//   coro_refuse_drive_sites
+//   coro_lower_drive_sites
+//   coro_check_drive_sites
+
+import sawborrowck.program.{BorrowckProgram}
+import sawcoro.frames.{coro_frame_of}
+import sawcoro.lower.{coro_add_block, coro_add_local, coro_append_stmt, coro_child_offset, coro_frame_lowered,
+                      coro_frame_place, coro_is_frame_slot, coro_use_rvalue}
+import sawcoro.program.{CoroDriveSite, CoroFrame, CoroProgram, CoroValueKind}
+import sawcoro.spawn.{coro_add_call_block, coro_local_place, coro_new_call, coro_param_type, coro_push_local_arg,
+                      coro_set_next, coro_write_frame}
+import sawdrops.program.{DropsProgram}
+import sawmir.model.{MirBlock, MirCall, MirCallKind, MirConstKind, MirDriveForm, MirOperand, MirOperandKind,
+                     MirRvalueKind, MirStmtKind, MirSwitchKind, MirTermKind}
+import sawmir.program.{MirProgram}
+import sawmono.dump.{mono_dump_layouts}
+import sawmono.program.{MonoProgram}
+import sawresolve.dump.{res_sort_strings}
+import sawresolve.program.{ResProgram}
+import sawtypecheck.checks.{tc_check_unsafe}
+import sawtypecheck.program.{TcProgram}
+import sawtypecheck.typeops.{TcClient}
+
+// Refuses each drive site in an item that has a frame: one that suspends,
+// or a task root, which runs inside an executor already. Stage 0 refuses it
+// in every body it frames, and the call needs no drive there: it embeds.
+public func coro_refuse_drive_sites(coro: &var CoroProgram) {
+    var k = 0
+    while k < coro.mono.items.len() {
+        let item = k
+        k = k + 1
+        let f = coro.mono.items[item].body
+        if f < 0 || not coro.needs_frame(item) {
+            continue
+        }
+        let info = coro.mono.dp.bc.mir.funcs[f]
+        var b = 0
+        while b < info.block_count {
+            let block = coro.mono.dp.bc.mir.blocks[info.block_first + b]
+            b = b + 1
+            if block.term == MirTermKind.Call && coro.mono.dp.bc.mir.calls[block.call].kind == MirCallKind.Drive {
+                coro_refuse_drive_site(&var coro, item, block.call)
+            }
+        }
+    }
+}
+
+func coro_refuse_drive_site(coro: &var CoroProgram, item: Int, c: Int) {
+    let site = coro.mono.dp.bc.mir.calls[c]
+    var msg = StringBuilder()
+    try! msg.append("`")
+    try! msg.append(coro_driver_name(site.drive))
+    try! msg.append("` may not appear in `")
+    try! msg.append(coro.item_label(item))
+    if coro.suspending[item] {
+        try! msg.append("`, which itself suspends. ")
+    } else {
+        try! msg.append("`, which runs as a task root. ")
+    }
+    try! msg.append("This body already runs inside an executor, so `")
+    try! msg.append(coro.mono.dp.bc.mir.tc.res.decl_path(site.target))
+    try! msg.append("(...)` needs no drive site: call it directly and the suspending call embeds here (design 120)")
+    coro.refuse(item, site.node, "coro.drive-in-suspending", msg.build())
+}
+
+// The test driver a drive site of form `form` is written with.
+func coro_driver_name(form: MirDriveForm) -> String {
+    if form == MirDriveForm.Steps {
+        return "__saw_drive_steps"
+    }
+    "__saw_drive"
+}
+
+// Lowers every drive site of every item with no frame, in item and block
+// order, whose root's task root has a lowered frame the target lays out. Any
+// other site is left as it is, for the backend to refuse: its root's frame is
+// refused here, or it cannot be laid out, or its item's is.
+public func coro_lower_drive_sites(coro: &var CoroProgram) {
+    coro.drives = Vector<CoroDriveSite>()
+    var k = 0
+    while k < coro.mono.items.len() {
+        let item = k
+        k = k + 1
+        let f = coro.mono.items[item].body
+        if f < 0 || coro.needs_frame(item) {
+            continue
+        }
+        let count = coro.mono.dp.bc.mir.funcs[f].block_count
+        var b = 0
+        while b < count {
+            let at = coro.mono.dp.bc.mir.funcs[f].block_first + b
+            let block = coro.mono.dp.bc.mir.blocks[at]
+            if block.term == MirTermKind.Call && coro.mono.dp.bc.mir.calls[block.call].kind == MirCallKind.Drive {
+                coro_lower_drive_site(&var coro, item, f, b)
+            }
+            b = b + 1
+        }
+    }
+}
+
+func coro_lower_drive_site(coro: &var CoroProgram, item: Int, f: Int, b: Int) {
+    let c = coro.mono.dp.bc.mir.blocks[coro.mono.dp.bc.mir.funcs[f].block_first + b].call
+    let site = coro.mono.dp.bc.mir.calls[c]
+    let root = coro.mono.call_item(c)
+    let rf = coro_frame_of(&coro, root)
+    if rf < 0 || not coro_frame_lowered(&coro, root) {
+        return
+    }
+    let frame = coro.frames[rf]
+    if frame.unsupported >= 0 || frame.size < 0 {
+        return
+    }
+    let steps = site.drive == MirDriveForm.Steps
+    let driver = if steps { coro.mono.drive_steps_item } else { coro.mono.drive_item }
+    if driver < 0 {
+        try! coro.problems.push("a drive site reached coroutine lowering without the std driver it calls")
+        return
+    }
+    let descriptor_ty = coro_param_type(&coro, driver, 1)
+    let frame_ty = coro_param_type(&coro, driver, 2)
+    let site_ty = coro_param_type(&coro, driver, 3)
+    let descriptor = coro_add_local(&var coro, f, descriptor_ty)
+    let storage = coro_add_local(&var coro, f, frame_ty)
+    let node = site.node
+    // The writes, at the end of the site's own block, into the storage the
+    // backend points `_R` at from the item's entry.
+    coro_write_frame(&var coro, f, b, storage, &frame, &site, node)
+    // The driver: `[dest =] call DRIVER(copy _D, copy _R, const SITE)`.
+    var drive_call = coro_new_call(&var coro, driver, node)
+    coro_push_local_arg(&var coro, &var drive_call, descriptor, descriptor_ty, false)
+    coro_push_local_arg(&var coro, &var drive_call, storage, frame_ty, false)
+    let text = coro_site_text(&var coro, site.drive, node)
+    let site_operand = coro.mono.dp.bc.mir.operands.len()
+    try! coro.mono.dp.bc.mir.operands.push(MirOperand(kind: MirOperandKind.Const, place: -1, ty: site_ty,
+                                                      const_kind: MirConstKind.String, text: text))
+    try! coro.mono.dp.bc.mir.lists.push(site_operand)
+    drive_call.arg_count = drive_call.arg_count + 1
+    if steps {
+        drive_call.dest = site.dest
+    }
+    drive_call.next = site.next
+    let drive_block = coro_add_call_block(&var coro, f, drive_call, driver, node)
+    var result_block = -1
+    if not steps && site.dest >= 0 && site.next >= 0 {
+        // The move-out: `dest = move (*_R).[R: T]`, then where the site
+        // returned.
+        let root_info = coro.mono.dp.bc.mir.funcs[frame.body]
+        let ty = coro.mono.dp.bc.mir.locals[root_info.local_first].ty
+        let off = coro_child_offset(&coro, &frame, CoroValueKind.Result, 0)
+        let from = coro_frame_place(&var coro, storage, off, ty)
+        let o = coro.mono.dp.bc.mir.operands.len()
+        try! coro.mono.dp.bc.mir.operands.push(MirOperand(kind: MirOperandKind.Move, place: from, ty: ty,
+                                                          const_kind: MirConstKind.Unit, text: -1))
+        let first = coro.mono.dp.bc.mir.lists.len()
+        try! coro.mono.dp.bc.mir.lists.push(o)
+        let rv = coro_use_rvalue(&var coro, ty, first)
+        let goto = MirBlock(first: -1, last: -1, term: MirTermKind.Goto, target: site.next,
+                            switch_kind: MirSwitchKind.Bool, operand: -1, place: -1, arm_first: 0, arm_count: 0,
+                            otherwise: -1, call: -1, term_node: node, term_closing: false)
+        result_block = coro_add_block(&var coro, f, goto)
+        coro_append_stmt(&var coro, f, result_block, site.dest, rv, node)
+        coro_set_next(&var coro, f, drive_block, result_block)
+    }
+    // The site itself: `_D = drive FORM f()`, the descriptor.
+    var lowered = site
+    lowered.arg_count = 0
+    lowered.dest = coro_local_place(&var coro, descriptor, descriptor_ty)
+    lowered.next = drive_block
+    coro.mono.dp.bc.mir.calls[c] = lowered
+    try! coro.drives.push(CoroDriveSite(item: item, block: b, call: c, root: root, descriptor: descriptor,
+                                        frame: storage, drive_block: drive_block, result_block: result_block))
+}
+
+// The text a drive site's driver names it by when it panics, as a String
+// literal: the driver and the root, then the site's position.
+func coro_site_text(coro: &var CoroProgram, form: MirDriveForm, node: Int) -> Int {
+    var out = StringBuilder()
+    try! out.append("\"`")
+    try! out.append(coro_driver_name(form))
+    try! out.append("(...)` at ")
+    let m = coro.mono.dp.bc.mir.tc.node_module(node)
+    if m >= 0 {
+        try! out.append(coro_escaped(coro.mono.dp.bc.mir.tc.res.module_file(m)))
+        try! out.append(":")
+        try! out.append(coro.mono.dp.bc.mir.tc.res.node_position(m, node))
+    } else {
+        try! out.append("an unknown position")
+    }
+    try! out.append("\"")
+    let text = out.build()
+    coro.mono.dp.bc.mir.tc.res.intern(text)
+}
+
+// `text` with each `"` and `\` escaped, for a String literal's spelling.
+func coro_escaped(text: String) -> String {
+    var out = StringBuilder()
+    var k = 0
+    while k < text.len() {
+        let b = text.byte_at(k) as Int
+        if b == 34 || b == 92 {
+            try! out.append("\\")
+        }
+        try! out.append(text.substring(k, k + 1))
+        k = k + 1
+    }
+    out.build()
+}
+
+// The structural invariant of every lowered drive site: its drive call
+// carries no arguments and returns to the driver's call; the site's block
+// writes the task root's state word and each of its parameter slots exactly
+// once, `(*_R).[P: T] = ...`; and a `__saw_drive` whose root gives a value
+// returns from the driver to the move-out, `dest = move (*_R).[R: T]` then a
+// goto. The slots are read from the root's frame, not from the lowering. A
+// broken one is an `INVARIANT` line.
+public func coro_check_drive_sites(coro: &var CoroProgram) {
+    var k = 0
+    while k < coro.drives.len() {
+        let d = coro.drives[k]
+        k = k + 1
+        let f = coro.mono.items[d.item].body
+        let info = coro.mono.dp.bc.mir.funcs[f]
+        let call = coro.mono.dp.bc.mir.calls[d.call]
+        if call.arg_count != 0 || call.next != d.drive_block {
+            coro_drive_site_problem(&var coro, &d, "its drive call still carries arguments, or does not return to the driver")
+        }
+        let frame = coro.frames[coro_frame_of(&coro, d.root)]
+        let root_info = coro.mono.dp.bc.mir.funcs[frame.body]
+        let block = coro.mono.dp.bc.mir.blocks[info.block_first + d.block]
+        var l = 0
+        while l <= root_info.param_count {
+            var off = coro_child_offset(&coro, &frame, CoroValueKind.Param, l)
+            if l == 0 {
+                off = coro_child_offset(&coro, &frame, CoroValueKind.State, -1)
+            }
+            var writes = 0
+            var st = block.first
+            while st >= 0 {
+                let stmt = coro.mono.dp.bc.mir.stmts[st]
+                st = stmt.next
+                if stmt.kind == MirStmtKind.Assign && coro_is_frame_slot(&coro, stmt.place, d.frame, off) {
+                    writes = writes + 1
+                }
+            }
+            if writes != 1 {
+                var what = StringBuilder()
+                if l == 0 {
+                    try! what.append("the state word's slot")
+                } else {
+                    try! what.append("parameter _")
+                    try! what.append(l)
+                    try! what.append("'s slot")
+                }
+                try! what.append(" (*frame).[")
+                try! what.append(off)
+                try! what.append("] is written ")
+                try! what.append(writes)
+                try! what.append(" times in bb")
+                try! what.append(d.block)
+                try! what.append(", not once")
+                coro_drive_site_problem(&var coro, &d, what.build())
+            }
+            l = l + 1
+        }
+        if d.result_block >= 0 {
+            coro_check_move_out(&var coro, &d, &frame)
+        }
+    }
+}
+
+// The move-out of drive site `d`: the driver returns to it, and it is one
+// statement moving the root's result slot into a place, then a goto.
+func coro_check_move_out(coro: &var CoroProgram, d: &CoroDriveSite, frame: &CoroFrame) {
+    let f = coro.mono.items[d.item].body
+    let info = coro.mono.dp.bc.mir.funcs[f]
+    let driver = coro.mono.dp.bc.mir.blocks[info.block_first + d.drive_block]
+    let off = coro_child_offset(&coro, &frame, CoroValueKind.Result, 0)
+    var moves = driver.term == MirTermKind.Call && coro.mono.dp.bc.mir.calls[driver.call].next == d.result_block
+    if moves {
+        let after = coro.mono.dp.bc.mir.blocks[info.block_first + d.result_block]
+        moves = after.term == MirTermKind.Goto && after.first >= 0 && after.first == after.last
+        if moves {
+            let stmt = coro.mono.dp.bc.mir.stmts[after.first]
+            moves = stmt.kind == MirStmtKind.Assign && stmt.rvalue >= 0
+            if moves {
+                let rv = coro.mono.dp.bc.mir.rvalues[stmt.rvalue]
+                moves = rv.kind == MirRvalueKind.Use && rv.count == 1
+                if moves {
+                    let o = coro.mono.dp.bc.mir.operands[coro.mono.dp.bc.mir.lists[rv.first]]
+                    moves = o.kind == MirOperandKind.Move && coro_is_frame_slot(&coro, o.place, d.frame, off)
+                }
+            }
+        }
+    }
+    if not moves {
+        coro_drive_site_problem(&var coro, &d, "the block its driver returns to does not move the root's result out of the frame")
+    }
+}
+
+func coro_drive_site_problem(coro: &var CoroProgram, d: &CoroDriveSite, what: String) {
+    var msg = StringBuilder()
+    try! msg.append("`")
+    try! msg.append(coro.mono.item_name(d.item))
+    try! msg.append("`'s drive of `")
+    try! msg.append(coro.mono.item_name(d.root))
+    try! msg.append("` in bb")
+    try! msg.append(d.block)
+    try! msg.append(": ")
+    try! msg.append(what)
+    try! coro.problems.push(msg.build())
+}

@@ -1,0 +1,38 @@
+// Drive sites: the root call's operands evaluated where the driver is
+// written, left to right, a nested call and a receiver among them; then one
+// drive terminator naming its form and root, which is no call of the root
+// and no suspension point; what the form gives in a temporary, the root's
+// result for `__saw_drive` and an `Int` for `__saw_drive_steps`.
+
+struct Counter {
+    total: Int
+}
+
+extension Counter {
+    func add(&var self, n: Int) -> Int {
+        __saw_suspend()
+        self.total = self.total + n
+        self.total
+    }
+}
+
+func work(n: Int, label: String) -> Int {
+    __saw_suspend()
+    n
+}
+
+func scale(n: Int) -> Int {
+    n * 3
+}
+
+func idle() {
+    __saw_suspend()
+}
+
+func main() {
+    var c = Counter(total: 1)
+    print("{}", __saw_drive(work(scale(2), label: "first")))
+    print("{}", __saw_drive(c.add(4)))
+    __saw_drive(idle())
+    print("{}", __saw_drive_steps(work(5, label: "second")))
+}

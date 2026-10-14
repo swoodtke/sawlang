@@ -273,7 +273,22 @@ public enum MirCallKind {
     // arguments its root call takes, evaluated here, and `dest` the handle.
     // The root's body does not run here: the task makes that call
     // (SL:architecture §3.8, task roots), so this is no call of `target`.
-    case Spawn
+    case Spawn,
+    // A test driver's drive site (design 44): `target` the root function,
+    // the arguments its root call takes, evaluated here, and `dest` what the
+    // form gives, the root's result or its count of `Pending`s. The root runs
+    // to its end over a frame of the site's own, so the site is sync from
+    // outside: no suspension point, and no call of `target` here.
+    case Drive
+}
+
+// The test driver a drive site was written with: `__saw_drive`, which gives
+// the root's result, or `__saw_drive_steps`, which gives how many times the
+// root reported `Pending` and drops its result.
+public enum MirDriveForm {
+    case Absent,
+    case Result,
+    case Steps
 }
 
 // The form a spawn site was written in, which decides whether its handle
@@ -343,6 +358,8 @@ public struct MirCall {
     half: Int
     // A spawn site's form; `Absent` for every other call.
     spawn: MirSpawnForm
+    // A drive site's form; `Absent` for every other call.
+    drive: MirDriveForm
 }
 
 // A window a body opens: the accessor, whether it lends exclusively, and

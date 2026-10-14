@@ -1,0 +1,11 @@
+// refuses: drive.argument at 6:23
+// a function value as a `__saw_drive_steps` root: a frame is built for a
+// named function
+
+func run(f: (Int) -> Int) -> Int {
+    __saw_drive_steps(f(1))
+}
+
+func main() {
+    print(run({ n in n + 1 }))
+}

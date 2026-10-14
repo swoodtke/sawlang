@@ -630,6 +630,61 @@ public func __saw_exec_drive_main(descriptor: UnsafePointer<FrameDescriptor>,
     __saw_exec_close_background()
 }
 
+/// Runs the frame at `frame`, whose root `descriptor` describes, to its end
+/// on this thread, leaving the root's result in the frame: the lowering of
+/// the test driver `__saw_drive`, written at `site`, which then moves the
+/// result out.
+///
+/// Panics if the frame parks on anything but a ready yield (`drive_frame`).
+public func __saw_exec_drive(descriptor: UnsafePointer<FrameDescriptor>, frame: UnsafePointer<UInt8>,
+                             site: String) unsafe {
+    drive_frame(descriptor, frame, &site)
+}
+
+/// Runs the frame at `frame` to its end as `__saw_exec_drive` does, then
+/// destroys the root's result in place, and returns how many times the frame
+/// reported `Pending`: the lowering of the test driver `__saw_drive_steps`,
+/// written at `site`, whose result nobody takes.
+///
+/// Panics if the frame parks on anything but a ready yield (`drive_frame`).
+public func __saw_exec_drive_steps(descriptor: UnsafePointer<FrameDescriptor>, frame: UnsafePointer<UInt8>,
+                                   site: String) unsafe -> Int {
+    let steps = drive_frame(descriptor, frame, &site)
+    let drop = descriptor[0].drop_result
+    drop((frame as Int + descriptor[0].result_offset) as UnsafePointer<UInt8>)
+    steps
+}
+
+// A drive point's loop (SL:coroutines §4, A4b): the frame is resumed with a
+// context of its own until its root returns, and each `Pending` is counted. A
+// ready yield is resumed at once, so a drive point never cedes to the run
+// queue. Any other park is a wait this executor performs for nobody yet, so
+// it panics naming the reason and the site rather than spin, which would mask
+// a lost wake (SL-645).
+func drive_frame(descriptor: UnsafePointer<FrameDescriptor>, frame: UnsafePointer<UInt8>,
+                 site: &String) unsafe -> Int {
+    var park = PARK_UNSET
+    var cancel = false
+    var context = TaskContext(park: (&park) as UnsafePointer<Int>, cancel: (&cancel) as UnsafePointer<Bool>,
+                              task: frame as Int)
+    let cx = (&context) as UnsafePointer<TaskContext>
+    let word = cx[0].park
+    var steps = 0
+    while resume_frame(descriptor, frame, cx) == Poll.Pending {
+        steps = steps + 1
+        let parked = word[0]
+        if parked == PARK_UNSET {
+            panic("{}: the driven frame reported Pending without recording a park", site)
+        }
+        if parked != PARK_READY {
+            panic("{}: the driven frame is parked on {}, which a drive point does not wait on yet",
+                  site, park_reason(parked))
+        }
+        word[0] = PARK_UNSET
+    }
+    steps
+}
+
 /// A handle to a spawned task that returns a value.
 ///
 /// `join` waits for the task and takes its result. A handle from `Task.spawn`

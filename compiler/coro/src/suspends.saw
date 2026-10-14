@@ -26,6 +26,7 @@ import sawtypecheck.program.{TcProgram}
 // The rules coroutine lowering refuses by.
 public func coro_rules() -> Vector<String> {
     var out = Vector<String>()
+    try! out.push("coro.drive-in-suspending")
     try! out.push("coro.not-yet")
     try! out.push("coro.suspending-cycle")
     try! out.push("effect.sync")

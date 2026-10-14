@@ -1,0 +1,11 @@
+// refuses: drive.argument at 10:11
+// `__saw_drive` given two arguments: a driver takes exactly one, the root call
+
+func work(n: Int) -> Int {
+    __saw_suspend()
+    n
+}
+
+func main() {
+    print(__saw_drive(work(1), work(2)))
+}

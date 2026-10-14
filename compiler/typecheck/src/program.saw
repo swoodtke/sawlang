@@ -162,6 +162,10 @@ public struct TcProgram {
     // Whether a call node is a spawn form's root, `f(x)` in `Task.spawn(f(x))`:
     // the task makes that call, not the body it is written in.
     spawn_roots: Vector<Bool>
+    // Whether a call node is a drive site's root, `f(x)` in
+    // `__saw_drive(f(x))`: the driver runs it to its end, so its suspensions
+    // are not the body's it is written in.
+    drive_roots: Vector<Bool>
     // The argument bindings of the calls the overload filter resolved: each
     // call's run holds, per parameter, the argument binding it or
     // TC_BIND_DEFAULT.
@@ -350,7 +354,7 @@ public func tc_program(res: ResProgram) -> TcProgram {
                       expr_use: Vector<TcUse>(), copy_partner: Vector<Int>(), adj_head: Vector<Int>(),
                       adj_tail: Vector<Int>(), adjusts: Vector<TcAdjust>(),
                       call_at: Vector<Int>(), calls: Vector<TcCall>(), insts: Vector<Int>(),
-                      spawn_roots: Vector<Bool>(),
+                      spawn_roots: Vector<Bool>(), drive_roots: Vector<Bool>(),
                       binds: Vector<Int>(),
                       local_types: Vector<Int>(), aliasing_bindings: Vector<Bool>(), lent_bindings: Vector<Bool>(), nonescaping_bindings: Vector<Bool>(),
                       res_call_at: Vector<Int>(),

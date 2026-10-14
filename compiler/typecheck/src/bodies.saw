@@ -21,7 +21,7 @@ import sawresolve.collect.{res_is_top_level}
 import sawresolve.dump.{res_sort_strings}
 import sawresolve.imports.{res_decl_binding}
 import sawresolve.kinds.{res_is_statement_alt, res_is_type_alt}
-import sawresolve.prelude.{res_is_test_intrinsic}
+import sawresolve.prelude.{res_is_test_driver, res_is_test_intrinsic}
 import sawresolve.model.{ResBindKind, ResBinding, ResCall, ResCallClass, ResDecl, ResDeclKind,
                              ResModule, ResModuleKind}
 import sawtypecheck.adjust.{TC_FIT_AMBIGUOUS, TC_FIT_CONVERTED, TC_FIT_EXACT, TC_FIT_NONE,
@@ -131,6 +131,7 @@ extension TcProgram {
             try! self.adj_tail.push(-1)
             try! self.call_at.push(-1)
             try! self.spawn_roots.push(false)
+            try! self.drive_roots.push(false)
             try! self.local_types.push(-1)
             try! self.aliasing_bindings.push(false)
             try! self.lent_bindings.push(false)
@@ -6633,6 +6634,66 @@ extension TcProgram {
         self.set_type(e, handle, false)
     }
 
+    // `__saw_drive(f(x))` and `__saw_drive_steps(f(x))`, the test drivers
+    // (design 44). The one argument is the root, a call of a function or a
+    // method that the driver runs to its end over a frame of its own;
+    // `__saw_drive` gives the root's result and `__saw_drive_steps` how many
+    // times it reported `Pending`. The root's suspensions are the driver's,
+    // so the site is sync from outside (`TcProgram.drive_roots`).
+    func test_drive(&var self, e: Int, d: Int, name: String, args: &TcArgs) -> Int {
+        let root = self.driven_root(e, &args, name)
+        if root < 0 {
+            self.type_args_alone(&args)
+            let poisoned = self.error_type
+            return self.set_type(e, poisoned, false)
+        }
+        let body = self.expr(root, TC_WANT_NONE)
+        self.consume(root)
+        self.drive_roots[root] = true
+        self.record_builtin(e, d, TcRole.Builtin, name)
+        let at = self.call_at[root]
+        let called = at >= 0 && self.calls[at].role == TcRole.Call
+        if not self.has_error(body) && not called {
+            self.refuse_driven_root(root, name)
+        }
+        if self.has_error(body) || not called {
+            let poisoned = self.error_type
+            return self.set_type(e, poisoned, false)
+        }
+        if name.equals("__saw_drive_steps") {
+            let t = self.int_type()
+            return self.set_type(e, t, false)
+        }
+        self.set_type(e, body, false)
+    }
+
+    // The root call of drive site `e`, its one positional argument, or -1
+    // once refused.
+    func driven_root(&var self, e: Int, args: &TcArgs, name: String) -> Int {
+        if args.values.len() != 1 || args.labels[0] >= 0 {
+            self.refuse_driven_root(e, name)
+            return -1
+        }
+        let root = args.values[0]
+        let at = if self.is_call_alt(root) { self.res_call_at[root] } else { -1 }
+        let class = if at >= 0 { self.res.calls[at].classification } else { ResCallClass.Value }
+        if class != ResCallClass.Overload && class != ResCallClass.Method && class != ResCallClass.StaticMethod {
+            self.refuse_driven_root(root, name)
+            return -1
+        }
+        root
+    }
+
+    func refuse_driven_root(&var self, at: Int, name: String) {
+        var msg = StringBuilder()
+        try! msg.append("`")
+        try! msg.append(name)
+        try! msg.append("(...)` takes exactly one positional argument, a call of a function or a method to drive, as in `")
+        try! msg.append(name)
+        try! msg.append("(worker(n))`: a frame is built for a named function, so a closure or a value cannot be the root")
+        self.refuse(at, "drive.argument", msg.build())
+    }
+
     // The root call of spawn form `e`, its one positional argument, or -1
     // once refused: a call of a free function, since a task's frame is built
     // for a named function.
@@ -8619,7 +8680,8 @@ extension TcProgram {
     // A builtin function (SL:open-questions D12): `print`, `panic` and
     // `assert` with a message, or a format string whose `{}` slots its
     // arguments fill, each borrowed (design 137); `sizeof` and `alignof`;
-    // and the test intrinsics, which take nothing and return Void.
+    // the test intrinsics, which take nothing and return Void; and the test
+    // drivers (`test_drive`).
     func builtin_call(&var self, e: Int, callee: Int, d: Int, args: &TcArgs) -> Int {
         let name_id = self.res.decls[d].name
         let name = self.name_text(name_id)
@@ -8658,6 +8720,9 @@ extension TcProgram {
             self.record_builtin(e, d, TcRole.Builtin, name)
             let t = self.void_type()
             return self.set_type(e, t, false)
+        }
+        if res_is_test_driver(name) {
+            return self.test_drive(e, d, name, &args)
         }
         if not (name.equals("print") || name.equals("panic") || name.equals("assert")) {
             var msg = StringBuilder()

@@ -1,0 +1,30 @@
+// flags: --std-root std
+// The test drivers typed: `__saw_drive` gives its root's result and
+// `__saw_drive_steps` an `Int`. The root is the driver's call, so a body
+// whose only suspending call is a drive site's root never suspends itself
+// and stays sync-callable, `sync` included.
+func work(n: Int) -> Int {
+    __saw_suspend()
+    n
+}
+
+struct Counter {
+    total: Int
+}
+
+extension Counter {
+    func add(&var self, n: Int) -> Int {
+        __saw_suspend()
+        self.total = self.total + n
+        self.total
+    }
+}
+
+func start() sync -> Int {
+    __saw_drive(work(1))
+}
+
+func main() {
+    var c = Counter(total: 0)
+    print("{}", start() + __saw_drive(c.add(2)) + __saw_drive_steps(work(3)))
+}

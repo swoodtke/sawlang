@@ -1,0 +1,255 @@
+resume #5: drive_site.work(n: Int, label: String) task root  (frame size 32 align 8, pointer _7)
+    state 0: bb0
+    state 1: bb0 park ready
+fn drive_site.work(n: Int, label: String) -> Int {
+    let _0: Int;  // return
+    let _1: Int;  // param n
+    let _2: String;  // param label
+    let _3: Int;
+    let _4: &String;
+    let _5: Int;
+    let _6: Int;
+    let _7: &var Int;
+
+    bb0: {
+        call builtin __saw_suspend [] -> [return: bb1] suspends;
+    }
+
+    bb1: {
+        _3 = copy (*_7).[16: Int];
+        _4 = ref(shared, (*_7).[24: String]);
+        _5 = call std.string.String.len() (owner String) [move _4] -> [return: bb2];
+    }
+
+    bb2: {
+        _6 = Add(move _3, move _5);
+        (*_7).[8: Int] = move _6;
+        drop((*_7).[24: String]);
+        return;
+    }
+}
+resume #7: drive_site.twice(n: Int) task root  (frame size 96 align 8, pointer _5)
+    state 0: bb0
+    state 1: bb0 drive #16 drive_site.work(n: Int, label: String) at (*frame).[32]
+    state 2: bb1 drive #16 drive_site.work(n: Int, label: String) at (*frame).[64]
+fn drive_site.twice(n: Int) -> Int {
+    let _0: Int;  // return
+    let _1: Int;  // param n
+    let _2: Int;
+    let _3: Int;
+    let _4: Int;
+    let _5: &var Int;
+
+    bb0: {
+        (*_5).[48: Int] = copy (*_5).[16: Int];
+        (*_5).[56: String] = const "a": String;
+        call drive_site.work(n: Int, label: String) [] -> [return: bb3] suspends;
+    }
+
+    bb1: {
+        (*_5).[80: Int] = copy (*_5).[16: Int];
+        (*_5).[88: String] = const "bc": String;
+        call drive_site.work(n: Int, label: String) [] -> [return: bb4] suspends;
+    }
+
+    bb2: {
+        _4 = Add(move (*_5).[24: Int], move _3);
+        (*_5).[8: Int] = move _4;
+        return;
+    }
+
+    bb3: {
+        (*_5).[24: Int] = move (*_5).[40: Int];
+        goto -> bb1;
+    }
+
+    bb4: {
+        _3 = move (*_5).[72: Int];
+        goto -> bb2;
+    }
+}
+resume #8: drive_site.plain(n: Int) task root  (frame size 24 align 8, pointer _3)
+    state 0: bb0
+fn drive_site.plain(n: Int) -> Int {
+    let _0: Int;  // return
+    let _1: Int;  // param n
+    let _2: Int;
+    let _3: &var Int;
+
+    bb0: {
+        _2 = Mul(copy (*_3).[16: Int], const 2: Int);
+        (*_3).[8: Int] = move _2;
+        return;
+    }
+}
+resume #9: drive_site.made(id: Int) task root  (frame size 24 align 8, pointer _3)
+    state 0: bb0
+    state 1: bb0 park ready
+fn drive_site.made(id: Int) -> drive_site.Token {
+    let _0: drive_site.Token;  // return
+    let _1: Int;  // param id
+    let _2: drive_site.Token;
+    let _3: &var Int;
+
+    bb0: {
+        call builtin __saw_suspend [] -> [return: bb1] suspends;
+    }
+
+    bb1: {
+        _2 = drive_site.Token { id: copy (*_3).[16: Int] };
+        (*_3).[8: drive_site.Token] = move _2;
+        return;
+    }
+}
+resume #16: drive_site.work(n: Int, label: String)  (frame size 32 align 8, pointer _7)
+    state 0: bb0
+    state 1: bb0 park ready
+fn drive_site.work(n: Int, label: String) -> Int {
+    let _0: Int;  // return
+    let _1: Int;  // param n
+    let _2: String;  // param label
+    let _3: Int;
+    let _4: &String;
+    let _5: Int;
+    let _6: Int;
+    let _7: &var Int;
+
+    bb0: {
+        call builtin __saw_suspend [] -> [return: bb1] suspends;
+    }
+
+    bb1: {
+        _3 = copy (*_7).[16: Int];
+        _4 = ref(shared, (*_7).[24: String]);
+        _5 = call std.string.String.len() (owner String) [move _4] -> [return: bb2];
+    }
+
+    bb2: {
+        _6 = Add(move _3, move _5);
+        (*_7).[8: Int] = move _6;
+        drop((*_7).[24: String]);
+        return;
+    }
+}
+driver #0: drive_site.main()
+    drive bb0 task root #5 drive_site.work(n: Int, label: String) task root, descriptor _7, frame _8
+    drive bb2 task root #7 drive_site.twice(n: Int) task root, descriptor _9, frame _10
+    drive bb4 task root #8 drive_site.plain(n: Int) task root, descriptor _11, frame _12
+    drive bb6 task root #9 drive_site.made(id: Int) task root, descriptor _13, frame _14
+    drive bb8 task root #9 drive_site.made(id: Int) task root, descriptor _15, frame _16
+fn drive_site.main() -> Void {
+    let _0: Void;  // return
+    let _1: Int;
+    let _2: Int;
+    let _3: Int;
+    let _4: Int;
+    let _5: drive_site.Token;  // t
+    let _6: drive_site.Token;
+    let _7: UnsafePointer<std.taskgroup.FrameDescriptor>;
+    let _8: UnsafePointer<UInt8>;
+    let _9: UnsafePointer<std.taskgroup.FrameDescriptor>;
+    let _10: UnsafePointer<UInt8>;
+    let _11: UnsafePointer<std.taskgroup.FrameDescriptor>;
+    let _12: UnsafePointer<UInt8>;
+    let _13: UnsafePointer<std.taskgroup.FrameDescriptor>;
+    let _14: UnsafePointer<UInt8>;
+    let _15: UnsafePointer<std.taskgroup.FrameDescriptor>;
+    let _16: UnsafePointer<UInt8>;
+
+    bb0: {
+        (*_8).[0: Int] = const 0: Int;
+        (*_8).[16: Int] = const 1: Int;
+        (*_8).[24: String] = const "xyz": String;
+        _7 = drive result drive_site.work(n: Int, label: String) [] -> [return: bb11];
+    }
+
+    bb1: {
+        call builtin print [format "{}", copy _1] -> [return: bb2];
+    }
+
+    bb2: {
+        (*_10).[0: Int] = const 0: Int;
+        (*_10).[16: Int] = const 2: Int;
+        _9 = drive result drive_site.twice(n: Int) [] -> [return: bb13];
+    }
+
+    bb3: {
+        call builtin print [format "{}", copy _2] -> [return: bb4];
+    }
+
+    bb4: {
+        (*_12).[0: Int] = const 0: Int;
+        (*_12).[16: Int] = const 3: Int;
+        _11 = drive result drive_site.plain(n: Int) [] -> [return: bb15];
+    }
+
+    bb5: {
+        call builtin print [format "{}", copy _3] -> [return: bb6];
+    }
+
+    bb6: {
+        (*_14).[0: Int] = const 0: Int;
+        (*_14).[16: Int] = const 4: Int;
+        _13 = drive steps drive_site.made(id: Int) [] -> [return: bb17];
+    }
+
+    bb7: {
+        call builtin print [format "{}", copy _4] -> [return: bb8];
+    }
+
+    bb8: {
+        (*_16).[0: Int] = const 0: Int;
+        (*_16).[16: Int] = const 5: Int;
+        _15 = drive result drive_site.made(id: Int) [] -> [return: bb18];
+    }
+
+    bb9: {
+        _5 = move _6;
+        call builtin print [format "{}", copy _5.id] -> [return: bb10];
+    }
+
+    bb10: {
+        drop(_5);
+        return;
+    }
+
+    bb11: {
+        call std.taskgroup.__saw_exec_drive(descriptor: UnsafePointer<std.taskgroup.FrameDescriptor>, frame: UnsafePointer<UInt8>, site: String) [copy _7, copy _8, const "`__saw_drive(...)` at compiler/tests/coro/golden/drive_site.saw:39:17": String] -> [return: bb12];
+    }
+
+    bb12: {
+        _1 = move (*_8).[8: Int];
+        goto -> bb1;
+    }
+
+    bb13: {
+        call std.taskgroup.__saw_exec_drive(descriptor: UnsafePointer<std.taskgroup.FrameDescriptor>, frame: UnsafePointer<UInt8>, site: String) [copy _9, copy _10, const "`__saw_drive(...)` at compiler/tests/coro/golden/drive_site.saw:40:17": String] -> [return: bb14];
+    }
+
+    bb14: {
+        _2 = move (*_10).[8: Int];
+        goto -> bb3;
+    }
+
+    bb15: {
+        call std.taskgroup.__saw_exec_drive(descriptor: UnsafePointer<std.taskgroup.FrameDescriptor>, frame: UnsafePointer<UInt8>, site: String) [copy _11, copy _12, const "`__saw_drive(...)` at compiler/tests/coro/golden/drive_site.saw:41:17": String] -> [return: bb16];
+    }
+
+    bb16: {
+        _3 = move (*_12).[8: Int];
+        goto -> bb5;
+    }
+
+    bb17: {
+        _4 = call std.taskgroup.__saw_exec_drive_steps(descriptor: UnsafePointer<std.taskgroup.FrameDescriptor>, frame: UnsafePointer<UInt8>, site: String) [copy _13, copy _14, const "`__saw_drive_steps(...)` at compiler/tests/coro/golden/drive_site.saw:42:17": String] -> [return: bb7];
+    }
+
+    bb18: {
+        call std.taskgroup.__saw_exec_drive(descriptor: UnsafePointer<std.taskgroup.FrameDescriptor>, frame: UnsafePointer<UInt8>, site: String) [copy _15, copy _16, const "`__saw_drive(...)` at compiler/tests/coro/golden/drive_site.saw:43:13": String] -> [return: bb19];
+    }
+
+    bb19: {
+        _6 = move (*_16).[8: drive_site.Token];
+        goto -> bb9;
+    }
+}

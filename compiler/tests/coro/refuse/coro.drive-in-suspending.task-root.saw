@@ -1,0 +1,22 @@
+// refuses: coro.drive-in-suspending at 15:5
+// message: `__saw_drive` may not appear in `runner`, which runs as a task root
+// message: call it directly and the suspending call embeds here
+// A body that never suspends still has a frame when it is spawned, and runs
+// inside an executor as its task root, so the drive site in it is refused
+// there as in a body that suspends. Its ordinary item, driven from `main`,
+// keeps the site.
+
+func s() -> Int {
+    __saw_suspend()
+    7
+}
+
+func runner() -> Int {
+    __saw_drive(s())
+}
+
+func main() {
+    print("{}", runner())
+    let h = Task.spawn(runner())
+    print("{}", h.join())
+}

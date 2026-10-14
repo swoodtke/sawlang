@@ -152,6 +152,7 @@ extension LlEmitter {
             }
             j = j + 1
         }
+        self.drive_storage(&var mono, k, &var prelude)
         try! head.append(")")
         try! head.append(ll_function_attributes(""))
         var b = 0
@@ -364,21 +365,60 @@ extension LlEmitter {
         }
     }
 
-    // A block's terminator. A spawn terminator is what coroutine lowering left
-    // of a spawn site: its destination receives the address of the task
-    // root's frame descriptor, which no MIR operand names, and the rest of
-    // the site is ordinary MIR (compiler/tests/coro/README.md, "Spawn
-    // sites"). One whose root has no lowered frame was not lowered, and
-    // calling the root here would run the task's body in the spawner.
+    // The storage of the root frame of each lowered drive site in item `k`,
+    // which the item's entry points the site's frame local at: an `alloca` of
+    // the frame's size and alignment, so a drive costs no allocation
+    // (compiler/tests/coro/README.md, "Drive sites").
+    func drive_storage(&var self, mono: &var MonoProgram, k: Int, prelude: &var StringBuilder) {
+        var j = 0
+        while j < self.lowering.drives.len() {
+            let d = self.lowering.drives[j]
+            j = j + 1
+            let r = self.resume_of(d.root)
+            if d.item != k || r < 0 {
+                continue
+            }
+            let resume = self.lowering.resumes[r]
+            var name = StringBuilder()
+            try! name.append("%drive.")
+            try! name.append(d.frame)
+            let storage = name.build()
+            try! self.allocas.append("  ")
+            try! self.allocas.append(storage)
+            try! self.allocas.append(" = alloca [")
+            try! self.allocas.append(resume.size)
+            try! self.allocas.append(" x i8], align ")
+            try! self.allocas.append(resume.align)
+            try! self.allocas.append("\n")
+            try! prelude.append("  store ptr ")
+            try! prelude.append(storage)
+            try! prelude.append(", ptr ")
+            try! prelude.append(ll_local_slot(d.frame))
+            try! prelude.append("\n")
+        }
+    }
+
+    // A block's terminator. A spawn or drive terminator is what coroutine
+    // lowering left of a spawn or drive site: its destination receives the
+    // address of the task root's frame descriptor, which no MIR operand
+    // names, and the rest of the site is ordinary MIR
+    // (compiler/tests/coro/README.md, "Spawn sites" and "Drive sites"). One
+    // whose root has no lowered frame was not lowered, and calling the root
+    // here would run its body outside a frame.
     func block_end(&var self, mono: &var MonoProgram, target: &var Target, block: &MirBlock) {
-        if block.term != MirTermKind.Call || mono.dp.bc.mir.calls[block.call].kind != MirCallKind.Spawn {
+        let rooted = block.term == MirTermKind.Call && (mono.dp.bc.mir.calls[block.call].kind == MirCallKind.Spawn || mono.dp.bc.mir.calls[block.call].kind == MirCallKind.Drive)
+        if not rooted {
             self.terminator(&var mono, &var target, &block)
             return
         }
         let info = mono.dp.bc.mir.calls[block.call]
         let root = mono.call_item(block.call)
         if self.resume_of(root) < 0 || info.arg_count != 0 || info.dest < 0 || info.next < 0 {
-            self.refuse_here(&var mono, info.node, "a spawn site whose task root has no lowered frame")
+            if info.kind == MirCallKind.Drive {
+                self.refuse_here(&var mono, info.node, "a drive site whose task root has no lowered frame")
+            } else {
+                self.refuse_here(&var mono, info.node, "a spawn site whose task root has no lowered frame")
+            }
             return
         }
         let dest = self.place_addr(&var mono, &var target, info.dest, info.node)

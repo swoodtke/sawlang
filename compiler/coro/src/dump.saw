@@ -191,31 +191,82 @@ func coro_append_value_type(coro: &CoroProgram, out: &var StringBuilder, v: &Cor
 // item, its frame and the local holding the frame pointer, a line per state,
 // a line per lowered spawn site, then its body as lowered, every frame value
 // reached through a frame slot; or `no lowered frame` for a program with
-// none. Then each item with no lowered frame that holds a lowered spawn site:
-// a header, a line per site, then its body.
+// none. Then each item with no lowered frame that holds a lowered spawn or
+// drive site, in item order: a header, `spawner` for one that spawns and
+// `driver` otherwise, a line per site, then its body.
 public func coro_dump_lowered(coro: &CoroProgram, out: &var StringBuilder) {
     if coro.resumes.len() == 0 {
         try! out.append("no lowered frame\n")
     }
     coro_dump_resumes(&coro, &var out)
-    var k = 0
-    var last = -1
-    while k < coro.spawns.len() {
-        let item = coro.spawns[k].item
-        k = k + 1
-        if item == last || coro.resume_of[item] >= 0 {
+    var item = 0
+    while item < coro.mono.items.len() {
+        let k = item
+        item = item + 1
+        let spawns = coro_holds_spawn(&coro, k)
+        if coro.resume_of[k] >= 0 || not (spawns || coro_holds_drive(&coro, k)) {
             continue
         }
-        last = item
-        try! out.append("spawner #")
-        try! out.append(item)
+        if spawns {
+            try! out.append("spawner #")
+        } else {
+            try! out.append("driver #")
+        }
+        try! out.append(k)
         try! out.append(": ")
-        try! out.append(coro.mono.item_name(item))
+        try! out.append(coro.mono.item_name(k))
         try! out.append("\n")
-        coro_dump_spawns(&coro, &var out, item)
-        // Stage 0 workaround (SL:hazards S4): canonical: coro.mono.dp.bc.mir.dump_func(&var out, coro.mono.items[item].body, false)
-        let body = coro.mono.items[item].body
+        coro_dump_spawns(&coro, &var out, k)
+        coro_dump_drives(&coro, &var out, k)
+        // Stage 0 workaround (SL:hazards S4): canonical: coro.mono.dp.bc.mir.dump_func(&var out, coro.mono.items[k].body, false)
+        let body = coro.mono.items[k].body
         coro.mono.dp.bc.mir.dump_func(&var out, body, false)
+    }
+}
+
+func coro_holds_spawn(coro: &CoroProgram, item: Int) -> Bool {
+    var k = 0
+    while k < coro.spawns.len() {
+        if coro.spawns[k].item == item {
+            return true
+        }
+        k = k + 1
+    }
+    false
+}
+
+func coro_holds_drive(coro: &CoroProgram, item: Int) -> Bool {
+    var k = 0
+    while k < coro.drives.len() {
+        if coro.drives[k].item == item {
+            return true
+        }
+        k = k + 1
+    }
+    false
+}
+
+// `    drive bbB task root #J NAME, descriptor _D, frame _R`, one line per
+// lowered drive site of item `item`, in block order.
+func coro_dump_drives(coro: &CoroProgram, out: &var StringBuilder, item: Int) {
+    var k = 0
+    while k < coro.drives.len() {
+        let d = coro.drives[k]
+        k = k + 1
+        if d.item != item {
+            continue
+        }
+        try! out.append("    drive bb")
+        try! out.append(d.block)
+        try! out.append(" task root #")
+        try! out.append(d.root)
+        try! out.append(" ")
+        try! out.append(coro.mono.item_name(d.root))
+        try! out.append(", descriptor _")
+        try! out.append(d.descriptor)
+        try! out.append(", frame _")
+        try! out.append(d.frame)
+        try! out.append("\n")
     }
 }
 

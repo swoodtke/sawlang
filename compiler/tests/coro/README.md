@@ -271,6 +271,47 @@ box returns to the writes, and the writes set the state word and each of the
 root's parameter slots (read from the root's frame) exactly once. A broken one
 is an `INVARIANT` line.
 
+### Drive sites
+
+A drive site `[dest =] drive FORM f(args)` (`compiler/tests/mir/README.md`),
+a test driver's call, runs its root to its end over a frame on the caller's
+stack (`compiler/coro/src/drive.saw`, whose docstring names its entry
+points). Its root is the root's task root, as a spawn site's is: mono keys it
+apart from the ordinary item, and it is framed whether or not it suspends,
+with its op-budget points live, as Stage 0 frames a driven root. A drive site
+in an item that has a frame is refused (`coro.drive-in-suspending`, Rules,
+below), so a lowered site is always in an item with none. It is lowered,
+after the spawn sites, when its task root's frame is lowered, and the
+site's call loses its arguments:
+
+- the site's block gains, after its statements, the root's frame started in
+  the storage a new local `_R` points at, `(*_R).[0: Int] = const 0` for its
+  state word and `(*_R).[P: T] = arg` per argument into its parameter slot,
+  each moving or copying as the site passed it. The storage is the
+  backend's: an `alloca` of the root frame's size and alignment in the
+  item's entry, whose address the entry stores into `_R`, so a drive
+  allocates nothing;
+- the drive terminator now leaves the address of the task root's frame
+  descriptor in a new local `_D`, as a lowered spawn terminator does;
+- a new block calls std's driver, `__saw_exec_drive(copy _D, copy _R, const
+  SITE)` for `__saw_drive` and `dest = __saw_exec_drive_steps(copy _D, copy
+  _R, const SITE)` for `__saw_drive_steps`, SITE naming the driver and the
+  site's position;
+- for `__saw_drive` with a destination, one more block moves the root's
+  result out, `dest = move (*_R).[R: T]; goto -> bbN`, where the site
+  returned. `__saw_drive_steps`'s driver drops the result through the
+  descriptor's `drop_result`, since nothing takes it.
+
+The driver resumes the frame with a context of its own, its park and cancel
+words its locals, until the root returns, counting each `Pending`. A ready
+yield is resumed at once, so a drive point never cedes to the run queue
+(SL:coroutines §4, A4, t8); any other park panics, naming the reason and
+SITE, until A11 hands that wait to the executor's sweep (SL-645). Every
+lowered site is checked: its drive call carries no arguments and returns to
+the driver's call, its block writes the state word and each of the root's
+parameter slots (read from the root's frame) exactly once, and a move-out
+follows the driver when there is one. A broken one is an `INVARIANT` line.
+
 **The `--lowered` record**, after an `INVARIANT` line per drive or spawn
 site that fails its check, per lowered frame, in item order:
 
@@ -284,16 +325,18 @@ fn NAME -> T { ... }
 ```
 
 then the lowered body as `sawc2 mir --dump` spells a function, frame slots
-included. Then each item with no lowered frame that holds a lowered spawn
-site, in item order: a `spawner #K: NAME` line, its `spawn` lines, and its
-body.
+included. Then each item with no lowered frame that holds a lowered spawn or
+drive site, in item order: a `spawner #K: NAME` line for one that spawns, a
+`driver #K: NAME` line otherwise, its `spawn` lines, its `drive bbB task root
+#J ROOT, descriptor _D, frame _R` lines, and its body.
 
 ## Rules
 
 | rule | refuses | fixture |
 |---|---|---|
+| `coro.drive-in-suspending` | a drive site (`__saw_drive` or `__saw_drive_steps`) in an item that has a frame: one that suspends, as Stage 0 refuses it (DF-218n), or a task root, which runs inside an executor too; at the site, with Stage 0's message naming the root to call directly, where it embeds | `coro.drive-in-suspending`, from `tests/corpus/drive_site_in_suspending_body`; `function`, from `drive_site_in_suspending_function`; and `task-root`, a spawned body that never suspends |
 | `coro.suspending-cycle` | a cycle of items that suspend, which has no finite frame since a callee's frame is embedded in its caller's by value; once per strongly connected component, naming the shortest cycle through its first item in item order, at that item's declaration, with the note that the refusal is pending SL-322's heap frames | `coro.suspending-cycle` and its variants, one from each of the eight recursion tests of `tests/corpus/errors/`, and `generic`, a cycle that suspends at one instantiation only |
-| `coro.not-yet` | an item that needs a frame this compiler does not lower (Lowering, above), at its first suspending call that is not lowered, the chain through it in the message: each child it drives that is not lowered, then the source or the child that ends it, so a frame holding a lowered park beside one that is not names the one that is not; failing a call, at the call its suspension was found through, naming the budget point, window or index that is not lowered; a task root that does not suspend, at the spawn site that made it; only when no cycle is refused, and only the program's own items when any of them is refused, every std item that suspends being reached from one | `coro.not-yet`, `beside-a-lowered-park`, and `task-root`, a root that never suspends whose loop's budget point is live |
+| `coro.not-yet` | an item that needs a frame this compiler does not lower (Lowering, above), at its first suspending call that is not lowered, the chain through it in the message: each child it drives that is not lowered, then the source or the child that ends it, a child refused for a budget point, a window or an index among them, so a frame holding a lowered park beside one that is not names the one that is not; failing a call, at the call its suspension was found through, naming the budget point, window or index that is not lowered; a task root that does not suspend, at the spawn or drive site that made it; only when no cycle is refused, and only the program's own items when any of them is refused, every std item that suspends being reached from one | `coro.not-yet`, `beside-a-lowered-park`, `task-root`, a root that never suspends whose loop's budget point is live, and `budget-child`, a caller of a child refused for its budget point, where the chain ends at the child |
 | `effect.sync` | a copy-policy `copy()` (`Copy` or `ExplicitCopy`, a written member) that suspends at its instantiation, at its declaration, naming its chain as Stage 0 does (`method Wrap.copy calls Slow.step → blocking extern usleep`): the compiler calls it at transfer sites no source names. Typecheck refuses one that suspends at every instantiation; this is the instantiation's half, decided per item | `effect.sync.copy-hook`, beside the run lane's `copy_hook_per_instantiation`, the same program built at `Fast` |
 
 A refusal whose node lies in std or the builtin module is reported at the
@@ -301,7 +344,7 @@ nearest call the program writes on the chain of items that reached it, its
 message naming the std position, as mono's are.
 
 The recursion tests themselves reach this stage only once their vocabulary
-does: `yield_now` and `__saw_suspend` (SL:coroutines A2), `__saw_drive` (A4),
+does: `yield_now` and `__saw_suspend` (SL:coroutines A2), `__saw_drive` (A4b),
 `Task.spawn` (A7a) and `group.spawn` (A8b). `spawn` has its test's own
 shape; each other fixture keeps its test's shape with a `blocking` extern as
 the suspension and `main` calling the recursive function directly, and says
@@ -335,4 +378,11 @@ value, and the two test intrinsics, `__saw_suspend` parking and
 roots and the lowered spawn sites: a root that never suspends, a root that
 does, and a function both spawned and driven, which is two items, spawned
 from a plain `main`; the run lane's `task_spawn`, `task_spawn_and_embed` and
-`task_handle_escaped` run spawned tasks.
+`task_handle_escaped` run spawned tasks. Golden `drive_site` is the lowered
+drive sites: a root that suspends, one that never does, one also embedded,
+and both forms over a result with a destructor; the run lane's
+`coro_nested_suspend_two_deep`, `coro_drive_void_body`, `expr_suspend_return`,
+`coro_unconsumed_result`, `coro_driven_match_move_out_releases_once`,
+`drive_shapes`, `drive_ownership` and
+`drive_sync_root` run them, and std's lane's `exec/drive_timer_park` pins the
+panic on a non-ready park.

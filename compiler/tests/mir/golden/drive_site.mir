@@ -1,0 +1,109 @@
+module drive_site
+
+fn drive_site.Counter.add(n: Int) -> Int {
+    let _0: Int;  // return
+    let _1: &var drive_site.Counter;  // self
+    let _2: Int;  // param n
+    let _3: Int;
+
+    bb0: {
+        call builtin __saw_suspend [] -> [return: bb1] suspends;
+    }
+
+    bb1: {
+        _3 = Add(copy (*_1).total, copy _2);
+        (*_1).total = move _3;
+        _0 = copy (*_1).total;
+        return;
+    }
+}
+
+fn drive_site.work(n: Int, label: String) -> Int {
+    let _0: Int;  // return
+    let _1: Int;  // param n
+    let _2: String;  // param label
+
+    bb0: {
+        call builtin __saw_suspend [] -> [return: bb1] suspends;
+    }
+
+    bb1: {
+        _0 = copy _1;
+        drop(_2);
+        return;
+    }
+}
+
+fn drive_site.scale(n: Int) -> Int {
+    let _0: Int;  // return
+    let _1: Int;  // param n
+    let _2: Int;
+
+    bb0: {
+        _2 = Mul(copy _1, const 3: Int);
+        _0 = move _2;
+        return;
+    }
+}
+
+fn drive_site.idle() -> Void {
+    let _0: Void;  // return
+
+    bb0: {
+        call builtin __saw_suspend [] -> [return: bb1] suspends;
+    }
+
+    bb1: {
+        return;
+    }
+}
+
+fn drive_site.main() -> Void {
+    let _0: Void;  // return
+    let _1: drive_site.Counter;  // c
+    let _2: drive_site.Counter;
+    let _3: Int;
+    let _4: Int;
+    let _5: &var drive_site.Counter;
+    let _6: Int;
+    let _7: Int;
+
+    bb0: {
+        _2 = drive_site.Counter { total: const 1: Int };
+        _1 = move _2;
+        _3 = call drive_site.scale(n: Int) [const 2: Int] -> [return: bb1];
+    }
+
+    bb1: {
+        _4 = drive result drive_site.work(n: Int, label: String) [move _3, const "first": String] -> [return: bb2];
+    }
+
+    bb2: {
+        call builtin print [format "{}", copy _4] -> [return: bb3];
+    }
+
+    bb3: {
+        _5 = ref(exclusive, _1);
+        _6 = drive result drive_site.Counter.add(n: Int) (owner drive_site.Counter) [move _5, const 4: Int] -> [return: bb4];
+    }
+
+    bb4: {
+        call builtin print [format "{}", copy _6] -> [return: bb5];
+    }
+
+    bb5: {
+        drive result drive_site.idle() [] -> [return: bb6];
+    }
+
+    bb6: {
+        _7 = drive steps drive_site.work(n: Int, label: String) [const 5: Int, const "second": String] -> [return: bb7];
+    }
+
+    bb7: {
+        call builtin print [format "{}", copy _7] -> [return: bb8];
+    }
+
+    bb8: {
+        return;
+    }
+}

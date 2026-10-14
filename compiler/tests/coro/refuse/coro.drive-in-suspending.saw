@@ -1,0 +1,23 @@
+// refuses: coro.drive-in-suspending at 21:11
+// message: `__saw_drive` may not appear in `main`, which itself suspends
+// message: `s(...)` needs no drive site
+// message: call it directly and the suspending call embeds here
+// From tests/corpus/drive_site_in_suspending_body.saw: `main` drives `s()`
+// and also calls the suspending `t()` itself, so it has a frame and runs
+// inside an executor already, where `s()` embeds.
+import std.task
+
+func s() -> Int {
+    task.yield_now()
+    7
+}
+
+func t() -> Int {
+    task.yield_now()
+    8
+}
+
+func main() {
+    print(__saw_drive(s()))
+    print(t())
+}

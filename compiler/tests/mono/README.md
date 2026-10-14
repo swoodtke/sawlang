@@ -99,7 +99,7 @@ source's local and block numbering. Then each call is resolved to its item:
 | a trait requirement on a concrete owner | the owner's conformance: the member it writes, or the trait's default body under `Self`; a requirement met with neither, by a derivation or by a builtin type's own conformance, is its member glue (`resolve_requirement`, the one funnel) |
 | a parameter's default value | the default's function |
 | a window's open or close | the accessor's prologue or epilogue |
-| a spawn site | its root's task root (below) |
+| a spawn site, a drive site | its root's task root (below) |
 | an `extern` | its extern item |
 | a builtin | itself, when the backend's slice lowers it |
 
@@ -144,6 +144,12 @@ lowering calls (`compiler/tests/coro/README.md`, "Spawn sites"): std's
 `__saw_exec_task_box`, `__saw_exec_background` and
 `__saw_exec_close_background`, and per site its handle type's `__saw_spawn`;
 a std root that declares none of them is refused as `mono.not-yet`.
+A drive site (`__saw_drive(f(x))`, `__saw_drive_steps(f(x))`) reaches its
+root's task root the same way, since a driven root is framed whether or not
+it suspends, and its first site of each form reaches std's
+`__saw_exec_drive` or `__saw_exec_drive_steps` (`compiler/tests/coro/README.md`,
+"Drive sites"). A task root reaches its result type's drop glue, which its
+frame descriptor runs on a result nobody takes.
 
 **Budget points.** Mono keeps every op-budget point; the backend writes
 nothing for one. Coroutine lowering decides which stay live (SL:architecture

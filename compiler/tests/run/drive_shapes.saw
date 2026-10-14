@@ -1,0 +1,74 @@
+// The roots a test driver drives (SL:coroutines A4b): a method taking
+// `&var self` and one taking `&self`, a static method, a generic function at
+// two types, a function taking an exclusive reference and one taking an
+// owned `String` and returning one; a drive in a loop, whose frame storage is
+// the same `alloca` each time; a drive in a sync helper; and one in a `sync`
+// function, since a drive point is sync from outside.
+import std.task.{yield_now}
+
+struct Counter {
+    total: Int
+}
+
+extension Counter {
+    func add(&var self, n: Int) -> Int {
+        yield_now()
+        self.total = self.total + n
+        self.total
+    }
+
+    func peek(&self) -> Int {
+        __saw_suspend()
+        self.total
+    }
+
+    static func make(n: Int) -> Counter {
+        yield_now()
+        Counter(total: n)
+    }
+}
+
+func same<T>(value: T) -> T {
+    yield_now()
+    value
+}
+
+func bump(c: &var Counter, by: Int) {
+    yield_now()
+    c.total = c.total + by
+}
+
+func label(name: String, n: Int) -> String {
+    yield_now()
+    "{name}-{n}"
+}
+
+func helper() -> Int {
+    __saw_drive(same(40)) + 2
+}
+
+func held() sync -> Int {
+    __saw_drive(same(5)) * 3
+}
+
+func main() {
+    var c = Counter(total: 1)
+    print(__saw_drive(c.add(4)))
+    print(__saw_drive(c.peek()))
+    print(__saw_drive(Counter.make(9)).total)
+    print(__saw_drive(same(7)))
+    print(__saw_drive(same("text")))
+    __saw_drive(bump(&var c, 10))
+    print(c.total)
+    print(__saw_drive_steps(bump(&var c, 1)))
+    print(__saw_drive(label("x", 3)))
+    var i = 0
+    var sum = 0
+    while i < 3 {
+        sum = sum + __saw_drive_steps(same(i))
+        i = i + 1
+    }
+    print(sum)
+    print(helper())
+    print(held())
+}

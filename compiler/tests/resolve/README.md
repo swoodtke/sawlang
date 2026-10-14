@@ -206,11 +206,11 @@ GRAMMAR.md alternative; the last table lists them.
 | a `module` declaration, in a file or inline | `slice.not-yet` |
 | a `package` or `parent` import path | `slice.not-yet` |
 | the `Thread.spawn` form; `Task.spawn` resolves as a member of `Task` | `slice.not-yet` |
-| a frozen-compiler test intrinsic, a name that starts `__saw_` and nothing declares | `slice.not-yet` |
+| a frozen-compiler intrinsic, a name that starts `__saw_` that nothing declares and that is none of the test intrinsics and drivers the builtin module declares (`__saw_suspend`, `__saw_test_suspend`, `__saw_drive`, `__saw_drive_steps`) | `slice.not-yet` |
 | a member named through an associated type, `T.Item.Key` | `slice.not-yet` |
 
-The slice is sync-only (SL:architecture §4), so the concurrency forms and the
-intrinsics that drive coroutines are outside it; nothing under a refused
+The slice is sync-only (SL:architecture §4), so the concurrency forms the
+coroutine plan has not reached are outside it; nothing under a refused
 construct is resolved, and the verifier asks nothing of it. An associated type
 declares no bound, so `T.Item.Key` names nothing today; it is refused as
 unbuilt rather than as undefined.

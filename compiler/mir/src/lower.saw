@@ -11,7 +11,7 @@
 // height, which the parser's depth funnel bounds.
 
 import sawmir.build.{mir_func_local}
-import sawmir.model.{MirAggregate, MirArm, MirBlock, MirCall, MirCallKind, MirConstKind, MirFunc,
+import sawmir.model.{MirAggregate, MirArm, MirBlock, MirCall, MirCallKind, MirConstKind, MirDriveForm, MirFunc,
                          MirFuncKind, MirLocal, MirLocalKind, MirOperand, MirOperandKind, MirPlace,
                          MirProj, MirProjKind, MirRvalue, MirRvalueKind, MirSpawnForm, MirStmt, MirStmtKind,
                          MirSuspend, MirTermKind, MirWindow, mir_mint_obligation}
@@ -2772,6 +2772,20 @@ extension MirProgram {
     // by value is an operand like an argument.
     func function_call(&var self, e: Int, c: &TcCall) -> MirVal {
         let t = self.tc.expr_types[e]
+        let all = self.call_operands(e, &c)
+        var call = self.blank_call(MirCallKind.Function, e)
+        call.target = c.target
+        call.owner = c.owner
+        self.instantiate(&var call, &c)
+        call.arg_first = self.push_args(&all)
+        call.arg_count = all.len()
+        self.suspension(e, &var call)
+        self.finish_call(call, t)
+    }
+
+    // The operands call `e` of a function, method, requirement or `init`
+    // passes, in its target's parameter order, the receiver first.
+    func call_operands(&var self, e: Int, c: &TcCall) -> Vector<Int> {
         let callee = self.tc.res.first_node_child(e)
         let s = self.tc.sigs[c.target]
         var base = -1
@@ -2808,14 +2822,7 @@ extension MirProgram {
             try! all.push(args[k])
             k = k + 1
         }
-        var call = self.blank_call(MirCallKind.Function, e)
-        call.target = c.target
-        call.owner = c.owner
-        self.instantiate(&var call, &c)
-        call.arg_first = self.push_args(&all)
-        call.arg_count = all.len()
-        self.suspension(e, &var call)
-        self.finish_call(call, t)
+        move all
     }
 
     // Spawn form `e` of form `form`: its root call's arguments evaluated
@@ -2842,6 +2849,37 @@ extension MirProgram {
         call.arg_first = self.push_args(&args)
         call.arg_count = args.len()
         mir_mint_obligation(&var call, form)
+        self.finish_call(call, t)
+    }
+
+    // Drive site `e` of form `form`: its root call's operands evaluated here,
+    // as a call of the root evaluates them, then a drive terminator that runs
+    // the root to its end and leaves what the form gives in a temporary. The
+    // root is no call here and no suspension point: the driver makes it.
+    func drive_site(&var self, e: Int, form: MirDriveForm) -> MirVal {
+        let t = self.tc.expr_types[e]
+        let written = self.written_arguments(e)
+        let root = if written.len() == 1 { written[0] } else { -1 }
+        let at = if root >= 0 { self.tc.call_at[root] } else { -1 }
+        if at < 0 || self.tc.calls[at].role != TcRole.Call {
+            self.missing(e, "a drive site has no root call recorded")
+            return mir_operand_val(self.dead_operand(t))
+        }
+        let rc = self.tc.calls[at]
+        if (self.tc.sigs[rc.target].effects & TC_EFFECT_BORROWS) != 0 {
+            self.not_yet(e, "a drive site whose root is a `borrows` accessor")
+            return mir_operand_val(self.dead_operand(t))
+        }
+        let saved = self.source_at(root)
+        let all = self.call_operands(root, &rc)
+        self.source_restore(saved)
+        var call = self.blank_call(MirCallKind.Drive, e)
+        call.target = rc.target
+        call.owner = rc.owner
+        self.instantiate(&var call, &rc)
+        call.arg_first = self.push_args(&all)
+        call.arg_count = all.len()
+        call.drive = form
         self.finish_call(call, t)
     }
 
@@ -3047,6 +3085,12 @@ extension MirProgram {
     func builtin_call(&var self, e: Int, c: &TcCall) -> MirVal {
         let t = self.tc.expr_types[e]
         let name = self.tc.name_text(c.spelling)
+        if name.equals("__saw_drive") {
+            return self.drive_site(e, MirDriveForm.Result)
+        }
+        if name.equals("__saw_drive_steps") {
+            return self.drive_site(e, MirDriveForm.Steps)
+        }
         let callee = self.tc.res.first_node_child(e)
         var all = Vector<Int>()
         var call = self.blank_call(MirCallKind.Builtin, e)

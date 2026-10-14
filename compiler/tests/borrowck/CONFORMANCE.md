@@ -214,7 +214,7 @@ INDEX.md, or when an owner is not one of the words below.
 | V47 | typecheck | accepted: returning a whole binding out of a generic body is a move |
 | V48 | slice.not-yet | `syntax.expr.optional-member` (then §3.7: a non-escaping `move` capture transfers when the body runs) |
 | V49 | typecheck | `capture.escaping-consume`, an escaping closure may not consume a capture (SL-469): `compiler/tests/typecheck/refuse/capture.escaping-consume.saw`, and the matrix `capture.escaping-consume.*` (returned, stored, bound, `escaping` parameter × each consuming use); the non-escaping consume is accepted, typecheck golden `capture_rules.saw` |
-| V50 | slice.not-yet | the intrinsic `__saw_drive` (then §3.9 and §3.7) |
+| V50 | §3.9 | a payload moved out of a driven `match` arm releases once: run lane `coro_driven_match_move_out_releases_once` (SL-636). `coro_iflet_move_out_releases_once` builds and runs, and differs from Stage 0 only in its `if let _` rows, where a discarded payload dies when the construct completes, as SL-513 ruled, not before the branch; `coro_match_moved_payload_survives_return`'s `main` returns neither `Void` nor `Int`; the loop, `try` and task file is refused `slice.not-yet` at its `try` block |
 | V51 | U6d1 | `move.use-after`, the rule a second consuming call meets: `compiler/tests/borrowck/refuse/move.use-after.double.saw` |
 | V52 | U6d1 | `move.use-after`: `compiler/tests/borrowck/refuse/move.use-after.consumed.saw` |
 | V53 | typecheck | `transfer.no-move` (SL-467): `compiler/tests/typecheck/refuse/transfer.no-move.saw`; a move into a binding, a closure, out by `take()`, and of a wrapper holding one, `transfer.no-move.binding`, `.capture`, `.take` |

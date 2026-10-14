@@ -21,6 +21,5 @@ tests/corpus/errors/partial_move_index.saw	SL-462: moving out of an element is a
 tests/corpus/errors/partial_move_nested_field.saw	SL-462: moving out of a field is a source rule
 tests/corpus/errors/spawn_handle_may_not_escape_the_function.saw	slice.not-yet: the spawn forms; then §3.7, a handle that must be consumed
 tests/corpus/errors/use_after_move_shadow_outer.saw	resolve: name.shadowing refuses the program first
-tests/corpus/expr_suspend_move_error.saw	slice.not-yet: a construct in the file outside the bootstrap slice
 tests/corpus/reference_move_error.saw	SL-462: moving out of a reference parameter is a source rule; refused first by type.mismatch
 tests/corpus/set_from_vector_use_after_move_error.saw	refused first by result.discarded, a migration artifact

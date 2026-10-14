@@ -674,10 +674,11 @@ extension TcProgram {
 extension TcProgram {
     // What the call at node `e` adds: its target's summary, instantiated at
     // the call's type arguments, or what a call through a function value, an
-    // existential or a bound says; for a spawn form's root, only what
-    // `join_spawned` keeps of it.
+    // existential or a bound says; for a spawn form's root and a drive site's,
+    // only what `join_spawned` keeps of it, since the task or the driver
+    // makes that call.
     public func eval_call(&var self, e: Int, acc: &var TcAcc) {
-        if self.spawn_roots[e] {
+        if self.spawn_roots[e] || self.drive_roots[e] {
             var task = tc_acc(acc.owner, acc.unit)
             self.eval_made_call(e, &var task)
             self.join_spawned(&var acc, &var task)
@@ -686,9 +687,10 @@ extension TcProgram {
         self.eval_made_call(e, &var acc)
     }
 
-    // A spawn form's root, evaluated into `task`: the task makes the call, so
-    // whether it suspends or is sync-callable is the task's, while what its
-    // instantiation requires of the types still binds the spawner.
+    // A spawn form's or a drive site's root, evaluated into `task`: the task or
+    // the driver makes the call, so whether it suspends or is sync-callable is
+    // theirs, while what its instantiation requires of the types still binds
+    // the body the site is written in.
     func join_spawned(&var self, acc: &var TcAcc, task: &var TcAcc) {
         var k = 0
         while k < task.copies.len() {

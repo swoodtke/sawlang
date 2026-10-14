@@ -1,0 +1,51 @@
+// expect-panic: `__saw_drive(...)` at the site: the driven frame is parked on a timer, which a drive point does not wait on yet
+// A drive point resumes a ready yield at once, and counts it; a frame that
+// parks on anything else, a timer here, is a wait no drive point performs
+// yet, so the driver panics naming the reason and the site, rather than spin
+// (SL-645).
+
+import std.taskgroup.{FrameDescriptor, Poll, TaskContext}
+import std.taskgroup.{__saw_exec_drive, __saw_exec_drive_steps}
+
+struct Sleeper {
+    state: Int
+}
+
+// Yields twice, then is done; then, started again, parks on a timer.
+func sleeper_resume(frame: UnsafePointer<UInt8>, cx: UnsafePointer<TaskContext>) unsafe -> Poll {
+    let f = frame as UnsafePointer<Sleeper>
+    let state = f[0].state
+    f[0].state = state + 1
+    if state < 2 {
+        print("sleeper yields")
+        cx[0].park[0] = 0
+        return Poll.Pending
+    }
+    if state == 2 {
+        print("sleeper is done")
+        return Poll.Ready
+    }
+    print("sleeper parks")
+    cx[0].park[0] = 1000000
+    Poll.Pending
+}
+
+func drop_nothing(at: UnsafePointer<UInt8>) unsafe {
+}
+
+func run() unsafe {
+    let sleeper = FrameDescriptor(resume: { f, c in sleeper_resume(f, c) },
+                                  size: sizeof<Sleeper>(), align: alignof<Sleeper>(),
+                                  result_offset: 0, result_size: 0, result_align: 1,
+                                  drop_result: { p in drop_nothing(p) }, backtrace: -1)
+    let d = (&sleeper) as UnsafePointer<FrameDescriptor>
+    var storage = Sleeper(state: 0)
+    let frame = (&storage) as UnsafePointer<UInt8>
+    print("{} steps", __saw_exec_drive_steps(d, frame, "`__saw_drive_steps(...)` at the site"))
+    __saw_exec_drive(d, frame, "`__saw_drive(...)` at the site")
+    print("drove")
+}
+
+func main() {
+    run()
+}

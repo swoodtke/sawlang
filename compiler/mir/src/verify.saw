@@ -38,7 +38,8 @@ import sawmir.initialisation.{MIR_INIT_DROPPED, MIR_INIT_MOVED, MIR_INIT_PARTIAL
                         MirInit}
 import sawmir.model.{MirAccessor, MirArm, MirBlock, MirCall, MirCallKind, MirFunc, MirFuncKind, MirLocal, MirLocalKind,
                          MirOperand, MirOperandKind, MirPlace, MirProj, MirProjKind, MirRvalue, MirRvalueKind,
-                         MirSpawnForm, MirStmt, MirStmtKind, MirSuspend, MirSwitchKind, MirTermKind}
+                         MirDriveForm, MirSpawnForm, MirStmt, MirStmtKind, MirSuspend, MirSwitchKind,
+                         MirTermKind}
 import sawmir.program.{MirProgram}
 import sawmir.split.{MirHalf}
 import sawresolve.dump.{res_sort_strings}
@@ -1096,6 +1097,53 @@ extension MirProgram {
         self.verify_arguments(f, &c, &var out)
         self.verify_suspension(f, &c, &var out)
         self.verify_spawn(f, &c, &var out)
+        self.verify_drive(f, &c, &var out)
+    }
+
+    // A drive site names its form, returns, and leaves what its form gives:
+    // the root's result for `__saw_drive`, an `Int` for `__saw_drive_steps`.
+    // Only a drive site carries a form.
+    func verify_drive(&var self, f: Int, c: &MirCall, out: &var Vector<String>) {
+        if c.kind != MirCallKind.Drive {
+            if c.drive != MirDriveForm.Absent {
+                self.problem(f, &var out, "a call that is no drive site carries a drive form")
+            }
+            return
+        }
+        if c.drive == MirDriveForm.Absent {
+            self.problem(f, &var out, "a drive site carries no form")
+        }
+        if c.target < 0 {
+            return
+        }
+        let s = self.tc.sigs[c.target]
+        let body = if s.result < 0 { -1 } else { self.call_type(s.result, &c) }
+        if c.next < 0 {
+            if body < 0 || not self.tc.is_never(body) || c.drive == MirDriveForm.Steps {
+                self.problem(f, &var out, "a drive site does not return")
+            }
+            return
+        }
+        var want = body
+        if c.drive == MirDriveForm.Steps {
+            want = self.tc.int_type()
+        }
+        if c.dest < 0 {
+            if want >= 0 && not self.tc.is_void(want) {
+                self.problem(f, &var out, "a drive site leaves nothing of a root that gives a value")
+            }
+            return
+        }
+        let have = self.places[c.dest].ty
+        if want < 0 || have != want {
+            var text = StringBuilder()
+            try! text.append("a drive site leaves a `")
+            try! text.append(self.tc.type_text(have))
+            try! text.append("` where its form gives `")
+            try! text.append(if want < 0 { "Void" } else { self.tc.type_text(want) })
+            try! text.append("`")
+            self.problem(f, &var out, text.build())
+        }
     }
 
     // A spawn site names its form and a free function as its root, returns,
@@ -1173,6 +1221,7 @@ extension MirProgram {
         match c.kind {
             case Function -> self.verify_declared_arguments(f, &c, false, &var out),
             case Spawn -> self.verify_declared_arguments(f, &c, false, &var out),
+            case Drive -> self.verify_declared_arguments(f, &c, false, &var out),
             case WindowOpen -> {
                 let info = self.funcs[f]
                 let exclusive = c.window >= 0 && self.windows[info.window_first + c.window].exclusive

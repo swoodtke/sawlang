@@ -1,5 +1,5 @@
 // refuses: coro.not-yet at 18:13
-// message: `count` is spawned as a task, so it needs a coroutine frame
+// message: `count` runs as a task root, spawned or driven, so it needs a coroutine frame
 // message: its op-budget point is not lowered yet
 // A task root that never suspends still has a frame, with its loop's budget
 // point live (SL:architecture §3.9), which is not lowered yet (SL:coroutines

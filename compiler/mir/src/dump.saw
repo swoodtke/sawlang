@@ -3,7 +3,7 @@
 // its statements and its one terminator. Types print in their canonical
 // spelling, so no dump depends on interning order.
 
-import sawmir.model.{MirAggregate, MirArm, MirBlock, MirCall, MirCallKind, MirConstKind, MirFunc,
+import sawmir.model.{MirAggregate, MirArm, MirBlock, MirCall, MirCallKind, MirConstKind, MirDriveForm, MirFunc,
                          MirFuncKind, MirLocal, MirLocalKind, MirOperand, MirOperandKind, MirPlace,
                          MirProj, MirProjKind, MirRvalue, MirRvalueKind, MirSpawnForm, MirStmt, MirStmtKind,
                          MirSuspend, MirSwitchKind, MirTermKind, MirWindow}
@@ -70,6 +70,16 @@ public func mir_spawn_form_text(form: MirSpawnForm) -> String {
     match form {
         case Absent -> "absent",
         case Singleton -> "singleton"
+    }
+}
+
+// How a drive site's form prints: `result` for `__saw_drive`, `steps` for
+// `__saw_drive_steps`.
+public func mir_drive_form_text(form: MirDriveForm) -> String {
+    match form {
+        case Absent -> "absent",
+        case Result -> "result",
+        case Steps -> "steps"
     }
 }
 
@@ -735,6 +745,12 @@ extension MirProgram {
             case Spawn -> {
                 try! out.append("spawn ")
                 try! out.append(mir_spawn_form_text(c.spawn))
+                try! out.append(" ")
+                try! out.append(self.tc.target_text(c.target))
+            },
+            case Drive -> {
+                try! out.append("drive ")
+                try! out.append(mir_drive_form_text(c.drive))
                 try! out.append(" ")
                 try! out.append(self.tc.target_text(c.target))
             }

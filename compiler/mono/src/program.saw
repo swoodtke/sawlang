@@ -103,6 +103,12 @@ public struct MonoProgram {
     spawn_close_item: Int
     spawn_singleton: Int
     spawn_handle_items: Vector<Int>
+    // What a drive site's lowering calls (SL:coroutines A4b), made at the
+    // first drive site of each form; -1 until then: std's driver that leaves
+    // the root's result in its frame, and the one that counts its `Pending`s
+    // and drops the result.
+    drive_item: Int
+    drive_steps_item: Int
     // The String comparison roles, made when a comparison of Strings is
     // reached; -1 until then.
     equals_item: Int
@@ -175,7 +181,8 @@ public func mono_program(dp: DropsProgram, blocked: Bool) -> MonoProgram {
                 diags: Vector<MirDiag>(), problems: Vector<String>(), static_kinds: move kinds,
                 static_bits: move bits, main_item: -1, panic_item: -1, literal_item: -1, bytes_item: -1,
                 length_item: -1, exec_item: -1, spawn_box_item: -1, spawn_background_item: -1,
-                spawn_close_item: -1, spawn_singleton: -1, spawn_handle_items: Vector<Int>(), equals_item: -1, compare_item: -1, builder_new_item: -1, builder_fixed_item: -1,
+                spawn_close_item: -1, spawn_singleton: -1, spawn_handle_items: Vector<Int>(), drive_item: -1,
+                drive_steps_item: -1, equals_item: -1, compare_item: -1, builder_new_item: -1, builder_fixed_item: -1,
                 builder_build_item: -1, builder_len_item: -1, literal_inits: Vector<Int>(),
                 literal_pushes: Vector<Int>(), depth_call: -1, depth_glue: -1, current: -1, blocked: blocked,
                 body_of: move bodies, defaults: res_index(), runtime: false, export_items: Vector<Int>(),
@@ -271,8 +278,8 @@ extension MonoProgram {
     }
 
     // Whether item `k` is a task root: the specialization a cooperative spawn
-    // site runs its root in, a separate item from the root's ordinary one
-    // (SL:architecture §3.8).
+    // site or a drive site runs its root in, a separate item from the root's
+    // ordinary one (SL:architecture §3.8).
     public func is_task_root(&self, k: Int) -> Bool {
         if k < 0 || k >= self.items.len() || self.items[k].kind != MonoItemKind.Function {
             return false

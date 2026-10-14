@@ -1,0 +1,53 @@
+(Module drive_site
+  (declarations
+    (func work 6:6 private (signature (params (n Int owned)) -> Int) (summary body (suspends yes) (sync-callable no)))
+    (struct Counter 11:8 private)
+    (field Counter.total 12:5 private Int)
+    (extension 15:1 (target drive_site.Counter))
+    (method Counter.add 16:10 private (signature (receiver exclusive) (params (n Int owned)) -> Int) (summary body (suspends yes) (sync-callable no)))
+    (func start 23:6 private (signature (params) (effects sync) -> Int) (summary body (suspends no) (sync-callable yes)))
+    (func main 27:6 private (signature (params) -> Void) (summary body (suspends no) (sync-callable yes))))
+  (members
+    (drive_site.Counter
+      (field total Int private declared)
+      (method add private (extension drive_site))))
+  (views
+    (drive_site.Counter total add))
+  (conformances)
+  (copy-tier
+    (drive_site.Counter Copy))
+  (bodies
+    (work 6:6
+      (7:5-7:20 Call.paren Void value temp (builtin __saw_suspend))
+      (8:5-8:6 Name Int place copy))
+    (Counter.add 16:10
+      (17:9-17:24 Call.paren Void value temp (builtin __saw_suspend))
+      (18:9-18:19 Member Int place write)
+      (18:9-18:13 SelfExpr drive_site.Counter place project)
+      (18:22-18:36 Binary Int value temp (op +))
+      (18:22-18:32 Member Int place copy)
+      (18:22-18:26 SelfExpr drive_site.Counter place project)
+      (18:35-18:36 Name Int place copy)
+      (19:9-19:19 Member Int place copy)
+      (19:9-19:13 SelfExpr drive_site.Counter place project))
+    (start 23:6
+      (24:5-24:25 Call.paren Int value temp (builtin __saw_drive))
+      (24:17-24:24 Call.paren Int value temp (call drive_site.work(n: Int)))
+      (24:22-24:23 IntLit Int value temp))
+    (main 27:6
+      (28:9-28:10 BindingName drive_site.Counter place temp)
+      (28:13-28:30 Call.paren drive_site.Counter value temp (memberwise drive_site.Counter (owner drive_site.Counter)))
+      (28:28-28:29 IntLit Int value temp)
+      (29:5-29:78 Call.paren Void value temp (builtin print))
+      (29:11-29:15 Interp String value temp)
+      (29:17-29:77 Binary Int value borrow (op + +))
+      (29:17-29:24 Call.paren Int value temp (call drive_site.start()))
+      (29:27-29:48 Call.paren Int value temp (builtin __saw_drive))
+      (29:39-29:47 Call.paren Int value temp (call drive_site.Counter.add(n: Int) (owner drive_site.Counter)))
+      (29:39-29:40 Name drive_site.Counter (borrow-var &var drive_site.Counter) place borrow-var)
+      (29:45-29:46 IntLit Int value temp)
+      (29:51-29:77 Call.paren Int value temp (builtin __saw_drive_steps))
+      (29:69-29:76 Call.paren Int value temp (call drive_site.work(n: Int)))
+      (29:74-29:75 IntLit Int value temp)))
+  (string-positions
+    (29:11 format std.stringbuilder.StringBuilder)))

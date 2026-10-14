@@ -1,0 +1,45 @@
+// Lowered drive sites (SL:coroutines A4b). Each drive site's root is a task
+// root, an item with a frame even when it never suspends, as `plain`'s does
+// not; `work` is driven and also embedded by `twice`, so it is two items, its
+// task root and its ordinary item. The plain `main` keeps its drive sites as
+// MIR over std's drivers: the site's block writes the root's state word and
+// parameter slots into the frame storage `_R` points at, the drive
+// terminator leaves the root's descriptor, and either the root's result is
+// moved out of the frame, or `__saw_drive_steps`'s driver drops it.
+
+struct Token {
+    id: Int
+}
+
+extension Token: NoCopy {
+    func deinit(&var self) {
+        print("drop {}", self.id)
+    }
+}
+
+func work(n: Int, label: String) -> Int {
+    __saw_suspend()
+    n + label.len()
+}
+
+func twice(n: Int) -> Int {
+    work(n, "a") + work(n, "bc")
+}
+
+func plain(n: Int) -> Int {
+    n * 2
+}
+
+func made(id: Int) -> Token {
+    __saw_suspend()
+    Token(id: id)
+}
+
+func main() {
+    print("{}", __saw_drive(work(1, "xyz")))
+    print("{}", __saw_drive(twice(2)))
+    print("{}", __saw_drive(plain(3)))
+    print("{}", __saw_drive_steps(made(4)))
+    let t = __saw_drive(made(5))
+    print("{}", t.id)
+}

@@ -50,6 +50,9 @@ public struct CoroProgram {
     // The lowered spawn sites (`coro_lower_spawn_sites`), in item and block
     // order.
     spawns: Vector<CoroSpawn>
+    // The lowered drive sites (`coro_lower_drive_sites`), in item and block
+    // order.
+    drives: Vector<CoroDriveSite>
     // Refusals (`coro_rules`) and broken invariants.
     diags: Vector<MirDiag>
     problems: Vector<String>
@@ -64,7 +67,7 @@ public func coro_program(mono: MonoProgram) -> CoroProgram {
                 values: Vector<CoroValue>(), suspends: Vector<CoroSuspend>(), live: Vector<Bool>(),
                 lowered: Vector<Bool>(), unlowered: Vector<CoroUnlowered>(), resume_of: Vector<Int>(),
                 resumes: Vector<CoroResume>(), points: Vector<CoroPoint>(), resident: Vector<Bool>(),
-                spawns: Vector<CoroSpawn>(), diags: Vector<MirDiag>(),
+                spawns: Vector<CoroSpawn>(), drives: Vector<CoroDriveSite>(), diags: Vector<MirDiag>(),
                 problems: Vector<String>())
 }
 
@@ -180,6 +183,24 @@ public struct CoroSpawn {
     box_block: Int
     write_block: Int
     handle_block: Int
+}
+
+// One lowered drive site (compiler/tests/coro/README.md, "Drive sites"): the
+// item holding it, the block whose drive terminator now leaves the root's
+// frame descriptor in local `descriptor`, the root item, its task root, and
+// local `frame`, which points at the storage for the root's frame the
+// backend reserves on the item's stack and whose writes the site's block
+// ends with; then the blocks the lowering added: the driver's call, and for
+// a result moved out of the frame, the move-out, else -1.
+public struct CoroDriveSite {
+    item: Int
+    block: Int
+    call: Int
+    root: Int
+    descriptor: Int
+    frame: Int
+    drive_block: Int
+    result_block: Int
 }
 
 // A suspension point of a frame's item: a call that definitely suspends,

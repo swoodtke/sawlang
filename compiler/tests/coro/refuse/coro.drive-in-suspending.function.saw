@@ -1,0 +1,26 @@
+// refuses: coro.drive-in-suspending at 20:13
+// message: `__saw_drive_steps` may not appear in `runner`, which itself suspends
+// message: call it directly and the suspending call embeds here
+// From tests/corpus/drive_site_in_suspending_function.saw: the body holding
+// the site is a suspending function rather than `main`, and the site spells
+// `__saw_drive_steps`.
+import std.task
+
+func s() -> Int {
+    task.yield_now()
+    7
+}
+
+func t() -> Int {
+    task.yield_now()
+    8
+}
+
+func runner() -> Int {
+    let a = __saw_drive_steps(s())
+    return a + t()
+}
+
+func main() {
+    print(__saw_drive(runner()))
+}

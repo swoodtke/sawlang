@@ -1,10 +1,11 @@
-// refuses: slice.not-yet at 9:13
-// a frozen-compiler test intrinsic, which drives a coroutine: not in the bootstrap slice yet
+// refuses: slice.not-yet at 10:13
+// a frozen-compiler intrinsic no program writes, a driver it synthesizes: not
+// in the bootstrap slice
 
 func work() -> Int {
     7
 }
 
 func main() {
-    let n = __saw_drive(work())
+    let n = __saw_drive_work()
 }

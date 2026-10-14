@@ -252,6 +252,13 @@ description's (`compiler/tests/mono/README.md`, "Layouts").
   sites"). A spawn site whose task root has no lowered frame is refused as
   `backend.not-yet`: calling the root would run the task's body in the
   spawner.
+- **Drive sites.** A lowered drive site's terminator stores its task
+  root's descriptor into its destination, as a spawn site's does, and the
+  item's entry points the site's frame local at an `alloca` of the root
+  frame's size and alignment; the rest of the site is ordinary MIR over
+  std's drivers (`compiler/tests/coro/README.md`, "Drive sites"). A drive
+  site whose task root has no lowered frame is refused as
+  `backend.not-yet`.
 - **Exports.** Each `@export`ed function is a root, defined under its C
   symbol with external linkage, an integer narrower than 32 bits taken and
   returned `signext` or `zeroext` as C does; an `extern` naming the symbol is
@@ -284,7 +291,13 @@ return values, and `drive_test_suspensions` parks through `__saw_suspend`
 and `__saw_test_suspend`; `coro_conservative_generic_instance_not_promoted`,
 `crossmodule_embed_annotation_positions` and `crossmodule_embed_type_identity`
 are corpus programs whose `main` yields (the last two with their packages
-under `modules/`). The due programs `suspend_blocking_main`, `suspend_cycle`,
+under `modules/`). The test drivers run over a plain `main`:
+`coro_nested_suspend_two_deep`, `coro_drive_void_body`, `expr_suspend_return`,
+`coro_unconsumed_result` and `coro_driven_match_move_out_releases_once` are
+corpus programs, `drive_shapes` drives
+methods, a static method, generic roots, references, a loop, a sync helper
+and a `sync` function, `drive_ownership` owning arguments and results, and
+`drive_sync_root` roots that never suspend. The due programs `suspend_blocking_main`, `suspend_cycle`,
 `suspend_budget_point` and `suspend_park_point` pin the refusals at a build:
 a `blocking` extern's offload, a cycle, a budget point and a timer park.
 

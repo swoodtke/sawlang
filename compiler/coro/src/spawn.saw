@@ -132,10 +132,10 @@ func coro_lower_spawn(coro: &var CoroProgram, item: Int, f: Int, b: Int) {
 }
 
 // Appends to block `wb` of function `f` the writes that start the task root
-// frame `frame` in the box local `boxed` points at: its state word, then each
-// argument of spawn call `site` into its parameter slot.
-func coro_write_frame(coro: &var CoroProgram, f: Int, wb: Int, boxed: Int, frame: &CoroFrame, site: &MirCall,
-                      node: Int) {
+// frame `frame` in the storage local `boxed` points at: its state word, then
+// each argument of spawn or drive call `site` into its parameter slot.
+public func coro_write_frame(coro: &var CoroProgram, f: Int, wb: Int, boxed: Int, frame: &CoroFrame,
+                             site: &MirCall, node: Int) {
     let word = coro.mono.dp.bc.mir.tc.int_type()
     let state = coro_child_offset(&coro, &frame, CoroValueKind.State, -1)
     let start = coro_frame_place(&var coro, boxed, state, word)
@@ -149,7 +149,7 @@ func coro_write_frame(coro: &var CoroProgram, f: Int, wb: Int, boxed: Int, frame
     coro_append_stmt(&var coro, f, wb, start, rv, node)
     let root_info = coro.mono.dp.bc.mir.funcs[frame.body]
     if site.arg_count != root_info.param_count {
-        try! coro.problems.push("a spawn site passes another number of arguments than its task root has parameters")
+        try! coro.problems.push("a spawn or drive site passes another number of arguments than its task root has parameters")
     }
     var j = 0
     while j < site.arg_count && j < root_info.param_count {
@@ -168,13 +168,13 @@ func coro_write_frame(coro: &var CoroProgram, f: Int, wb: Int, boxed: Int, frame
 
 // The type of local `l` of item `k`'s body: its result for 0, a parameter
 // from 1.
-func coro_param_type(coro: &CoroProgram, k: Int, l: Int) -> Int {
+public func coro_param_type(coro: &CoroProgram, k: Int, l: Int) -> Int {
     let info = coro.mono.dp.bc.mir.funcs[coro.mono.items[k].body]
     coro.mono.dp.bc.mir.locals[info.local_first + l].ty
 }
 
 // A call of item `k`'s declaration, with no arguments yet, at `node`.
-func coro_new_call(coro: &var CoroProgram, k: Int, node: Int) -> MirCall {
+public func coro_new_call(coro: &var CoroProgram, k: Int, node: Int) -> MirCall {
     var call = coro.mono.dp.bc.mir.blank_call(MirCallKind.Function, node)
     call.target = coro.mono.items[k].decl
     call
@@ -182,7 +182,7 @@ func coro_new_call(coro: &var CoroProgram, k: Int, node: Int) -> MirCall {
 
 // Appends a copy, or with `moved` a move, of local `l` whole to `call`'s
 // arguments, which are the last run of the operand lists.
-func coro_push_local_arg(coro: &var CoroProgram, call: &var MirCall, l: Int, ty: Int, moved: Bool) {
+public func coro_push_local_arg(coro: &var CoroProgram, call: &var MirCall, l: Int, ty: Int, moved: Bool) {
     let o = coro_local_operand(&var coro, l, ty, moved)
     if call.arg_count == 0 {
         call.arg_first = coro.mono.dp.bc.mir.lists.len()
@@ -192,7 +192,7 @@ func coro_push_local_arg(coro: &var CoroProgram, call: &var MirCall, l: Int, ty:
 }
 
 // A new place, local `l` whole, of type `ty`.
-func coro_local_place(coro: &var CoroProgram, l: Int, ty: Int) -> Int {
+public func coro_local_place(coro: &var CoroProgram, l: Int, ty: Int) -> Int {
     let at = coro.mono.dp.bc.mir.places.len()
     let first = coro.mono.dp.bc.mir.projs.len()
     try! coro.mono.dp.bc.mir.places.push(MirPlace(local: l, static_decl: -1, first: first, count: 0, ty: ty))
@@ -221,7 +221,7 @@ func coro_case_rvalue(coro: &var CoroProgram, case_decl: Int, ty: Int) -> Int {
 
 // Gives function `f` a new block ending in `call`, which reaches item `k`,
 // and returns its number.
-func coro_add_call_block(coro: &var CoroProgram, f: Int, call: MirCall, k: Int, node: Int) -> Int {
+public func coro_add_call_block(coro: &var CoroProgram, f: Int, call: MirCall, k: Int, node: Int) -> Int {
     let c = coro.mono.dp.bc.mir.calls.len()
     try! coro.mono.dp.bc.mir.calls.push(call)
     coro.mono.set_call_item(c, k)
@@ -232,7 +232,7 @@ func coro_add_call_block(coro: &var CoroProgram, f: Int, call: MirCall, k: Int, 
 }
 
 // Points the call ending block `b` of function `f` at block `next`.
-func coro_set_next(coro: &var CoroProgram, f: Int, b: Int, next: Int) {
+public func coro_set_next(coro: &var CoroProgram, f: Int, b: Int, next: Int) {
     let c = coro.mono.dp.bc.mir.blocks[coro.mono.dp.bc.mir.funcs[f].block_first + b].call
     var call = coro.mono.dp.bc.mir.calls[c]
     call.next = next
