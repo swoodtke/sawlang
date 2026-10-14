@@ -1,0 +1,262 @@
+module escaping_environment
+
+fn escaping_environment.make(r: &escaping_environment.Res) -> () -> Int {
+    let _0: () -> Int;  // return
+    let _1: &escaping_environment.Res;  // param r
+    let _2: Int;  // n
+    let _3: () -> Int;
+
+    bb0: {
+        _2 = copy (*_1).n;
+        _3 = closure#0 of escaping_environment.make(r: &escaping_environment.Res) [copy _2];
+        _0 = move _3;
+        return;
+    }
+}
+
+fn closure#0 of escaping_environment.make(r: &escaping_environment.Res) -> Int {
+    let _0: Int;  // return
+    let _1: &(Int,);  // env
+    let _2: Int;  // n
+
+    bb0: {
+        _2 = copy (*_1).0;
+        _0 = copy _2;
+        return;
+    }
+}
+
+fn escaping_environment.held(n: Int) -> escaping_environment.Holder {
+    let _0: escaping_environment.Holder;  // return
+    let _1: Int;  // param n
+    let _2: () -> Int;
+    let _3: escaping_environment.Holder;
+
+    bb0: {
+        _2 = closure#0 of escaping_environment.held(n: Int) [copy _1];
+        _3 = escaping_environment.Holder { f: move _2 };
+        _0 = move _3;
+        return;
+    }
+}
+
+fn closure#0 of escaping_environment.held(n: Int) -> Int {
+    let _0: Int;  // return
+    let _1: &(Int,);  // env
+    let _2: Int;  // n
+
+    bb0: {
+        _2 = copy (*_1).0;
+        _0 = copy _2;
+        return;
+    }
+}
+
+fn escaping_environment.fill(v: &var std.vector.Vector<() -> Int, std.alloc.GlobalAllocator>, seed: Int) -> Void {
+    let _0: Void;  // return
+    let _1: &var std.vector.Vector<() -> Int, std.alloc.GlobalAllocator>;  // param v
+    let _2: Int;  // param seed
+    let _3: Int;  // n
+    let _4: () -> Int;
+    let _5: &var std.vector.Vector<() -> Int, std.alloc.GlobalAllocator>;
+    let _6: Result<Void, std.alloc.AllocError>;
+    let _7: Void;
+
+    bb0: {
+        _3 = copy _2;
+        _4 = closure#0 of escaping_environment.fill(v: &var std.vector.Vector<() -> Int, std.alloc.GlobalAllocator>, seed: Int) [copy _3];
+        _5 = ref(exclusive, (*_1));
+        _6 = call std.vector.Vector.push(value: T) (owner std.vector.Vector<() -> Int, std.alloc.GlobalAllocator>) [move _5, move _4] -> [return: bb1];
+    }
+
+    bb1: {
+        _7 = copy (_6 as Ok!).0;
+        drop(_6);
+        return;
+    }
+
+    glue Result<Void, std.alloc.AllocError>: structural
+}
+
+fn closure#0 of escaping_environment.fill(v: &var std.vector.Vector<() -> Int, std.alloc.GlobalAllocator>, seed: Int) -> Int {
+    let _0: Int;  // return
+    let _1: &(Int,);  // env
+    let _2: Int;  // n
+
+    bb0: {
+        _2 = copy (*_1).0;
+        _0 = copy _2;
+        return;
+    }
+}
+
+fn escaping_environment.maybe(seed: Int) -> (() -> Int)? {
+    let _0: (() -> Int)?;  // return
+    let _1: Int;  // param seed
+    let _2: Int;  // n
+    let _3: () -> Int;
+    let _4: (() -> Int)?;
+
+    bb0: {
+        _2 = copy _1;
+        _3 = closure#0 of escaping_environment.maybe(seed: Int) [copy _2];
+        _4 = (() -> Int)?::Some(move _3);
+        _0 = move _4;
+        return;
+    }
+}
+
+fn closure#0 of escaping_environment.maybe(seed: Int) -> Int {
+    let _0: Int;  // return
+    let _1: &(Int,);  // env
+    let _2: Int;  // n
+
+    bb0: {
+        _2 = copy (*_1).0;
+        _0 = copy _2;
+        return;
+    }
+}
+
+fn escaping_environment.generic(x: T) -> () -> T {
+    let _0: () -> T;  // return
+    let _1: T;  // param x
+    let _2: () -> T;
+
+    bb0: {
+        _2 = closure#0 of escaping_environment.generic(x: T) [copy _1];
+        _0 = move _2;
+        drop(_1);
+        return;
+    }
+
+    glue T: per instantiation
+}
+
+fn closure#0 of escaping_environment.generic(x: T) -> T {
+    let _0: T;  // return
+    let _1: &(T,);  // env
+    let _2: T;  // x
+
+    bb0: {
+        _2 = copy (*_1).0;
+        _0 = copy _2;
+        drop(_2);
+        return;
+    }
+
+    glue T: per instantiation
+}
+
+fn escaping_environment.main() -> Void {
+    let _0: Void;  // return
+    let _1: escaping_environment.Res;  // x
+    let _2: escaping_environment.Res;
+    let _3: () -> Int;  // f
+    let _4: &escaping_environment.Res;
+    let _5: () -> Int;
+    let _6: escaping_environment.Holder;  // h
+    let _7: escaping_environment.Holder;
+    let _8: std.vector.Vector<() -> Int, std.alloc.GlobalAllocator>;  // v
+    let _9: std.vector.Vector<() -> Int, std.alloc.GlobalAllocator>;
+    let _10: &var std.vector.Vector<() -> Int, std.alloc.GlobalAllocator>;
+    let _11: () -> Int;  // g
+    let _12: () -> Int;
+    let _13: Int;
+    let _14: Int;
+    let _15: &std.vector.Vector<() -> Int, std.alloc.GlobalAllocator>;
+    let _16: Int;
+    let _17: Int;
+    let _18: (() -> Int)?;
+    let _19: () -> Int;  // m
+    let _20: Int;
+
+    bb0: {
+        _2 = escaping_environment.Res { n: const 42: Int };
+        _1 = move _2;
+        _4 = ref(shared, _1);
+        _5 = call escaping_environment.make(r: &escaping_environment.Res) [move _4] -> [return: bb1];
+    }
+
+    bb1: {
+        _3 = move _5;
+        _7 = call escaping_environment.held(n: Int) [const 42: Int] -> [return: bb2];
+    }
+
+    bb2: {
+        _6 = move _7;
+        _9 = call std.vector.Vector.init() (owner std.vector.Vector<() -> Int, std.alloc.GlobalAllocator>) [] -> [return: bb3];
+    }
+
+    bb3: {
+        _8 = move _9;
+        _10 = ref(exclusive, _8);
+        call escaping_environment.fill(v: &var std.vector.Vector<() -> Int, std.alloc.GlobalAllocator>, seed: Int) [move _10, const 42: Int] -> [return: bb4];
+    }
+
+    bb4: {
+        _12 = call escaping_environment.generic(x: T) (inst Int) [const 42: Int] -> [return: bb5];
+    }
+
+    bb5: {
+        _11 = move _12;
+        _13 = call value copy _3 [] -> [return: bb6];
+    }
+
+    bb6: {
+        _14 = call value copy _6.f [] -> [return: bb7];
+    }
+
+    bb7: {
+        _15 = ref(shared, _8);
+        _16 = call std.vector.Vector.len() (owner std.vector.Vector<() -> Int, std.alloc.GlobalAllocator>) [move _15] -> [return: bb8];
+    }
+
+    bb8: {
+        _17 = call value copy _11 [] -> [return: bb9];
+    }
+
+    bb9: {
+        call builtin print [format "{} {} {} {}", copy _13, copy _14, copy _16, copy _17] -> [return: bb10];
+    }
+
+    bb10: {
+        _18 = call escaping_environment.maybe(seed: Int) [const 42: Int] -> [return: bb12];
+    }
+
+    bb11: {
+        drop(_11);
+        drop(_8);
+        drop(_6);
+        drop(_3);
+        return;
+    }
+
+    bb12: {
+        switch discriminant(_18) -> [Some: bb13, None: bb14];
+    }
+
+    bb13: {
+        _19 = move (_18 as Some).0;
+        _20 = call value copy _19 [] -> [return: bb15];
+    }
+
+    bb14: {
+        drop(_18);
+        goto -> bb11;
+    }
+
+    bb15: {
+        call builtin print [format "{}", copy _20] -> [return: bb16];
+    }
+
+    bb16: {
+        drop(_19);
+        goto -> bb11;
+    }
+
+    glue (() -> Int)?: structural
+    glue () -> Int: closure environment
+    glue escaping_environment.Holder: structural
+    glue std.vector.Vector<() -> Int, std.alloc.GlobalAllocator>: deinit std.vector.Vector.deinit(), then structural
+}

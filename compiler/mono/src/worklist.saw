@@ -685,7 +685,10 @@ extension MonoProgram {
     // A closure construction's body is an item under its parent's arguments.
     // A capture that owns something would need the environment's release when
     // the closure value drops, which this slice does not make, so it is
-    // refused rather than leaked.
+    // refused rather than leaked. The backend builds every environment in the
+    // frame that creates the closure, so an escaping closure that captures
+    // anything is refused too: its environment would be read after that frame
+    // is gone (SL-525).
     func resolve_closure(&var self, k: Int, r: Int, node: Int) {
         let rv = self.dp.bc.mir.rvalues[r]
         var j = 0
@@ -697,6 +700,10 @@ extension MonoProgram {
                 return
             }
             j = j + 1
+        }
+        if rv.count > 0 && self.closure_escapes(rv.decl) {
+            self.refuse(node, "mono.not-yet", "an escaping closure that captures a value is not in the backend slice yet: its environment would live in the frame that builds it, and heap environments are unbuilt (SL-525)")
+            return
         }
         let at = self.dp.bc.mir.func_of.first(rv.decl, 0)
         if at < 0 {
@@ -719,6 +726,21 @@ extension MonoProgram {
         }
         let item = self.function_item(body, it.type_decl, &args, it.func_decl, &inst, it.self_type, k, node)
         self.set_closure_item(r, item)
+    }
+
+    // Whether the closure written at node `e` escapes, as typecheck's
+    // `closure_escapes` decided it. That decision is by elimination: the one
+    // non-escaping position is a direct argument whose parameter is a
+    // function type that does not say `escaping`, so a field, a payload, an
+    // element, a return, a binding or a type argument escapes without a rule
+    // of its own. A closure with no capture table is taken to escape.
+    func closure_escapes(&self, e: Int) -> Bool {
+        let at = self.dp.bc.mir.tc.closure_index.first(e, 0)
+        if at < 0 {
+            return true
+        }
+        let ordinal = self.dp.bc.mir.tc.closure_index.value(at)
+        ordinal >= self.dp.bc.mir.tc.closure_escaping.len() || self.dp.bc.mir.tc.closure_escaping[ordinal]
     }
 
     func resolve_call(&var self, k: Int, c: Int) {

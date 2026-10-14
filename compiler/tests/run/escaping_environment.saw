@@ -1,0 +1,30 @@
+// due: SL-525 builds escaping closures' environments on the heap
+// refuses: mono.not-yet at 12:12
+// A returned closure's environment must outlive the frame that built it:
+// `clobber` reuses that stack before `f()` reads it, and Stage 0, whose
+// environment is on the heap, prints 42. sawc2's backend builds every
+// environment in the frame that creates the closure, so mono refuses this
+// one until SL-525 (SL-608).
+struct Res { n: Int }
+
+func make(r: &Res) -> () -> Int {
+    let n = r.n
+    return { [n] in n }
+}
+
+func build() -> () -> Int {
+    let x = Res(n: 42)
+    make(&x)
+}
+
+func clobber(a: Int, b: Int, c: Int, d: Int) -> Int {
+    let y = Res(n: a * b + c * d)
+    let z = Res(n: y.n + 7)
+    z.n + y.n
+}
+
+func main() {
+    let f = build()
+    let _ = clobber(1000, 1000, 1000, 1000)
+    print("{}", f())
+}

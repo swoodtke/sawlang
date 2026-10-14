@@ -9751,7 +9751,10 @@ extension TcProgram {
     }
 
     // Whether closure `e` escapes: anything but a direct argument of a call
-    // whose parameter is a function type that does not say `escaping`.
+    // whose parameter is a function type that does not say `escaping`. A new
+    // storage position therefore escapes with no change here. Every reader
+    // takes the answer from `closure_escaping`, mono's environment refusal
+    // among them (SL-608).
     func closure_escapes(&var self, e: Int, parents: &Vector<Int>) -> Bool {
         let up = parents[e]
         if up < 0 {

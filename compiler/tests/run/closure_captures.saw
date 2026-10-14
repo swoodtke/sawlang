@@ -1,0 +1,43 @@
+// Non-escaping closures that capture values keep their environment in the
+// frame that builds them, which outlives the call they are passed to: an
+// explicit and an implicit capture, `[copy p]` of a Copy struct, a method's
+// and a generic function's parameter, a labelled argument, and a closure
+// built inside another (SL-608). Escaping ones are refused by mono, as
+// `escaping_environment.saw` shows.
+struct Point { x: Int, y: Int }
+
+struct Runner { base: Int }
+
+extension Runner {
+    func run(&self, f: (Int) -> Int) -> Int { f(self.base) }
+}
+
+func call(f: () -> Int) -> Int { f() }
+
+func twice(f: (Int) -> Int, x: Int) -> Int { f(f(x)) }
+
+func apply<T: Copy>(x: T, f: (T) -> T) -> T { f(x) }
+
+func fold(over: Int, step: (Int, Int) -> Int, from: Int) -> Int {
+    var acc = from
+    var k = 0
+    while k < over {
+        acc = step(acc, k)
+        k = k + 1
+    }
+    acc
+}
+
+func main() {
+    let n = 40
+    let p = Point(x: 3, y: 4)
+    print("{}", call({ [n] in n + 2 }))
+    print("{}", call({ n + 1 }))
+    print("{}", call({ [copy p] in p.x * p.y }))
+    let r = Runner(base: 2)
+    print("{}", r.run({ v: Int in v + n }))
+    print("{}", twice({ v: Int in v + n }, 1))
+    print("{}", apply(2, { v: Int in v * n }))
+    print("{}", fold(over: 4, step: { a: Int, k: Int in a + k + n }, from: 0))
+    print("{}", call({ [n] in call({ [n] in n * 2 }) }))
+}

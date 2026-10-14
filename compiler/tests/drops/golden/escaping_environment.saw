@@ -1,0 +1,46 @@
+// Escaping closures that capture a value, at each position a closure escapes
+// through: a return, a struct field, a vector element, an optional's payload
+// and a generic's result. Typecheck through drop elaboration accept them;
+// only mono refuses them, until the backend builds heap environments
+// (SL-608; compiler/tests/mono/refuse/mono.not-yet.escaping-*).
+struct Res { n: Int }
+
+struct Holder {
+    f: () -> Int
+}
+
+func make(r: &Res) -> () -> Int {
+    let n = r.n
+    return { [n] in n }
+}
+
+func held(n: Int) -> Holder {
+    Holder(f: { [n] in n })
+}
+
+func fill(v: &var Vector<() -> Int>, seed: Int) {
+    let n = seed
+    try! v.push({ [n] in n })
+}
+
+func maybe(seed: Int) -> (() -> Int)? {
+    let n = seed
+    return { [n] in n }
+}
+
+func generic<T: Copy>(x: T) -> () -> T {
+    { [x] in x }
+}
+
+func main() {
+    let x = Res(n: 42)
+    let f = make(&x)
+    let h = held(42)
+    var v = Vector<() -> Int>()
+    fill(&var v, 42)
+    let g = generic(42)
+    print("{} {} {} {}", f(), h.f(), v.len(), g())
+    if let m = maybe(42) {
+        print("{}", m())
+    }
+}

@@ -114,6 +114,10 @@ statement and a copy operand:
 
 A type that owns nothing has no glue, and neither does a function value: a
 closure capturing a value that owns something is refused where it is built.
+So is an escaping closure, by typecheck's `closure_escaping`, that captures
+anything: the backend builds every environment in the frame that creates the
+closure, and a heap environment is unbuilt (SL-525). Typecheck through drop
+elaboration accept such a closure; only mono refuses it.
 
 **Member glue** is made once per (requirement, concrete type) by its own
 funnel (`member_glue_of`), the body a conformance has with nothing written:
@@ -197,7 +201,7 @@ nullable pointer (null is `None`), and an aggregate by value is refused.
 
 | rule | refuses | fixture |
 |---|---|---|
-| `mono.not-yet` | what the backend's slice does not lower: a builtin outside it, a format argument or an interpolated part whose rendering the slice does not make, a fixed array, repeat, `Map` or `Set` literal, a requirement no member, default or member glue in the slice meets, a call of a body this program does not lower, a closure capturing an owning value | `mono.not-yet`, `mono.not-yet.format`, `mono.not-yet.std`, `mono.not-yet.unsigned` |
+| `mono.not-yet` | what the backend's slice does not lower: a builtin outside it, a format argument or an interpolated part whose rendering the slice does not make, a fixed array, repeat, `Map` or `Set` literal, a requirement no member, default or member glue in the slice meets, a call of a body this program does not lower, a closure capturing an owning value, an escaping closure that captures anything | `mono.not-yet`, `mono.not-yet.format`, `mono.not-yet.std`, `mono.not-yet.unsigned`, and the escaping closure at each position it escapes through, `mono.not-yet.escaping-*` |
 | `mono.depth` | a concrete argument nested more than 64 deep, once per program, at the first call that met the limit | `mono.depth`, `mono.depth.method`, `mono.depth.recursive` |
 | `atomic.width` | an `Atomic<X>` at an `X` other than `Int` that only an instantiation forms, once per type, where the item was reached; one a written or inferred position carries is typecheck's (SL:open-questions D38) | `atomic.width` |
 

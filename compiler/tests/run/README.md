@@ -249,6 +249,12 @@ call that blocks the thread. Every op-budget point that reaches it is
 outside a frame, and writes nothing. The due programs `suspend_blocking_main`,
 `suspend_cycle` and `suspend_budget_point` pin the two refusals at a build.
 
+**Closures.** A closure's environment is a slot of the frame that builds it,
+which is sound only for a closure that does not escape; mono refuses an
+escaping closure that captures anything (`compiler/tests/mono/README.md`).
+`closure_captures` runs the non-escaping forms, and the due program
+`escaping_environment` pins the refusal at a build until SL-525.
+
 ## The lane
 
 `run_lane.py` builds every program both ways, eight at a time, under

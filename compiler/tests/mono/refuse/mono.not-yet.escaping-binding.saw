@@ -1,0 +1,10 @@
+// refuses: mono.not-yet at 8:13
+// A capturing closure bound to a local escapes too: the binding is a value
+// that could be returned or stored, and the refusal does not trace where it
+// goes. Pass the closure straight to its call to keep its environment on the
+// stack (SL-608).
+func main() {
+    let n = 42
+    let f = { n }
+    print("{}", f())
+}

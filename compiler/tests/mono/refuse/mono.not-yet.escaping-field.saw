@@ -1,0 +1,15 @@
+// refuses: mono.not-yet at 9:15
+// A capturing closure stored in a struct field escapes with the struct, so
+// its environment cannot live in `make`'s frame (SL-608).
+struct Holder {
+    f: () -> Int
+}
+
+func make(n: Int) -> Holder {
+    Holder(f: { [n] in n })
+}
+
+func main() {
+    let h = make(42)
+    print("{}", h.f())
+}
