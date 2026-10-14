@@ -1766,6 +1766,7 @@ ledger's reading. Where it differs from the sweep, Notes for the lead says why.
 | SL-630 | S32 A plain `copy()` method that Stage 0 runs as a type's copy hook | silent (found by SL-630's sweep; no live instance) |
 | SL-623 | S33 A raw-backed enum's cast to its integer, from a value no binding holds: Stage 0 never drops it | silent, a lost deinit (found by SL-623's sweep; no live instance) |
 | SL-621 | L26 A reborrowing argument to a suspending callee that borrows its by-value parameter | loud (found by the sawtracker lead in ST-90; sawtracker's ST-SAW-7) |
+| SL-641 | L27 Copy policies, a stray `copy()` and redeclarations that Stage 0 accepts and sawc2 refuses | loud (a ruling, which sawc2's typecheck refuses; no live instance) |
 
 No issue is marked "not reachable from the subset". Several entries depend on
 features the subset does not list (`any`, `Box`, cells, pointers, fixed arrays,
