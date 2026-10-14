@@ -248,12 +248,18 @@ description's (`compiler/tests/mono/README.md`, "Layouts").
   returned `signext` or `zeroext` as C does; an `extern` naming the symbol is
   called with no declaration beside it. An exported static is refused as
   `backend.not-yet`.
+- **Placement.** The backend emits no `section` and no alignment past a
+  type's own, so every `@section` and `@align` is refused as
+  `backend.not-yet` at the attribute, whatever carries it, rather than
+  dropped. The due programs `section_static`, `section_function`,
+  `align_static`, `align_local` (a `var`) and `align_local_let` pin each
+  position the parser admits.
 - **Determinism.** Functions are written in item order and globals in first
   use; every symbol is derived from what the item is (`@"saw NAME"`).
 
 | rule | refuses | due program |
 |---|---|---|
-| `backend.not-yet` | what the backend does not lower yet: a Float constant, an operator on a Float, or on anything but an integer, a Bool, a String, two raw pointers or the memory values compared part by part, an erasure, a slice, a take capture, a fixed array, a repeat, a `Map` or a `Set` literal, a static that is not an integer or a Bool, an exported static, a conditional borrow, an aggregate crossing the C convention, a pointer cast to or from an integer narrower than a pointer, an unsupported layout, a `main` returning neither `Void` nor `Int`; a constant is refused at its own spelling, inside an aggregate too | `float_field` |
+| `backend.not-yet` | what the backend does not lower yet: a Float constant, an operator on a Float, or on anything but an integer, a Bool, a String, two raw pointers or the memory values compared part by part, an erasure, a slice, a take capture, a fixed array, a repeat, a `Map` or a `Set` literal, a static that is not an integer or a Bool, an exported static, a `@section` on a static or a function, an `@align` on a static or a local, a conditional borrow, an aggregate crossing the C convention, a pointer cast to or from an integer narrower than a pointer, an unsupported layout, a `main` returning neither `Void` nor `Int`; a constant is refused at its own spelling, inside an aggregate too | `float_field` |
 
 **Suspension.** The backend's input is coroutine lowering's program
 (`compiler/tests/coro/README.md`), which lowers the frames whose every

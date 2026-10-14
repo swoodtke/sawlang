@@ -1,0 +1,9 @@
+// due: the backend aligns a local only as its type asks yet
+// refuses: backend.not-yet at 6:5
+// The `let` twin of align_local.saw: a `let` local's `@align` is refused at
+// the attribute as well, rather than dropped.
+func main() {
+    @align(64)
+    let b = 1
+    print("{}", b)
+}

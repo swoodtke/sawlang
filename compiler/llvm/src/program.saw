@@ -13,6 +13,7 @@ import sawcoro.lower.{CORO_STATE_START}
 import sawllvm.module.{LlEmitter, LlLowering, ll_descriptor_symbol, ll_emitter, ll_export_symbol, ll_is_scalar,
                            ll_resume_symbol, ll_symbol, ll_value_type}
 import sawllvm.text.{ll_quoted}
+import sawparse.grammar.{Alt}
 import sawresolve.model.{ResDeclKind}
 import sawmir.program.{MirProgram}
 import sawmono.dump.{mono_dump_layouts}
@@ -65,6 +66,9 @@ public func llvm_emit_program(mono: &var MonoProgram, target: &var Target, lower
             return ""
         }
         s = s + 1
+    }
+    if ll_refuse_placement(&var mono) {
+        return ""
     }
     var k = 0
     while k < mono.items.len() {
@@ -262,6 +266,34 @@ extension LlEmitter {
 }
 
 // The symbol of item `k`'s descriptor's resume, the function value's code.
+// Refuses every `@section` and `@align` the program writes, and says whether
+// it refused one. The backend emits neither, and a kernel image that relies
+// on where a static or function is placed, or how a static or local is
+// aligned, would otherwise build and be wrong. Every attribute node is
+// visited, whatever declaration or statement carries it, so no position the
+// parser admits can reach emission with its attribute dropped.
+//
+// ENTRY POINTS:
+//   llvm_emit_program
+func ll_refuse_placement(mono: &var MonoProgram) -> Bool {
+    var refused = false
+    let count = mono.dp.bc.mir.tc.res.nodes.len()
+    var id = 0
+    while id < count {
+        if mono.dp.bc.mir.tc.has_alt(id, Alt.Attr_Attribute_Section) {
+            mono.refuse(id, "backend.not-yet",
+                        "`@section` is not in the backend slice yet: nothing is placed in a named section, so the attribute would be dropped")
+            refused = true
+        } else if mono.dp.bc.mir.tc.has_alt(id, Alt.Attr_Attribute_Align) {
+            mono.refuse(id, "backend.not-yet",
+                        "`@align` is not in the backend slice yet: a static or a local is aligned only as its type asks, so the attribute would be dropped")
+            refused = true
+        }
+        id = id + 1
+    }
+    refused
+}
+
 func ll_resume_value_symbol(mono: &MonoProgram, k: Int) -> String {
     var out = StringBuilder()
     try! out.append("@\"saw resume value ")

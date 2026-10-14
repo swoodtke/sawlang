@@ -1,0 +1,11 @@
+// due: the backend places nothing in a named section yet
+// refuses: backend.not-yet at 6:1
+// A static's `@section` is refused at the attribute rather than dropped: an
+// image that relies on the placement would otherwise build and be wrong.
+
+@section("__DATA,__sawtag")
+static TAGGED: Int = 7
+
+func main() {
+    print("{}", TAGGED)
+}

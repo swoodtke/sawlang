@@ -1,0 +1,13 @@
+// due: the backend places nothing in a named section yet
+// refuses: backend.not-yet at 6:1
+// A function's `@section` is refused at the attribute rather than dropped: an
+// image that relies on the placement would otherwise build and be wrong.
+
+@section("__TEXT,__sawfn")
+func placed() -> Int {
+    7
+}
+
+func main() {
+    print("{}", placed())
+}

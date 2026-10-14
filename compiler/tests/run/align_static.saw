@@ -1,0 +1,11 @@
+// due: the backend aligns a static only as its type asks yet
+// refuses: backend.not-yet at 6:1
+// A static's `@align` is refused at the attribute rather than dropped: the
+// global would otherwise be aligned to its type's 8 bytes, not to 64.
+
+@align(64)
+static WIDE: Int = 3
+
+func main() {
+    print("{}", WIDE)
+}
