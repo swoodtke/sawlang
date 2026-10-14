@@ -1492,7 +1492,7 @@ The argument is lowered as a closure over the caller's frame, typed against the 
 ### L27. Copy policies, a stray `copy()` and redeclarations that Stage 0 accepts and sawc2 refuses (SL-641)
 
 **Shape:** the user's Oct 15 ruling (SL-641) made sawc2 refuse these at the declaration, and Stage 0 accepts every one:
-- **two copy policies on one type:** `Copy` + `NoCopy`, `ExplicitCopy` + `NoCopy`, and a bounded `Copy` beside a `NoCopy` (`copy.second-policy`). Stage 0 does refuse two `@synthesize`d `Copy` + `ExplicitCopy` conformances, but only as a duplicate `copy`;
+- **two copy policies on one type:** `Copy` + `ExplicitCopy`, in one extension or two, with one `copy()` body (Stage 0's `examples/copy_traits_both_declared_legal.saw`, `EXPECT: success` there); `Copy` + `NoCopy`; `ExplicitCopy` + `NoCopy`; and a bounded `Copy` beside a `NoCopy` (`copy.second-policy`). Stage 0 does refuse two `@synthesize`d `Copy` + `ExplicitCopy` conformances, but only as a duplicate `copy`;
 - **a `copy()` outside a `Copy` or `ExplicitCopy` conformance** on a type that isn't `NoCopy`, a user trait's `copy()` on a Copy type included (`copy.outside-policy`). Stage 0 runs such a method by name (S32);
 - **redeclarations that differ only in how they are written** (`overload.indistinguishable`): two overloads whose type parameters are renamed at any depth (`h<T>(v: T?)` beside `h<U>(v: U?)`), two extensions that name the type's parameter differently, duplicate trait requirements, and `init`s whose labels are reordered.
 
