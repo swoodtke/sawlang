@@ -40,6 +40,13 @@ extension a { static init () { } }
 // case: syntax.decl.extension-member.refused-private
 extension a { private static func b() }
 
+// case: syntax.test.item.refused-unterminated
+@test (refuses: "C") "C"
+x
+
+// case: syntax.test.item.refused-stray-end
+@test (end: refuses)
+
 // case: syntax.type.type.refused-func-consumes
 type a = () consumes -> b
 
@@ -295,3 +302,10 @@ func a() { match b { case c.d -> e } }
 
 // case: syntax.pat.refused-dot-variant
 func a() { match b { case.c -> d } }
+
+// case: syntax.test.refused-unterminated
+@test (refuses: "C") "C"
+x
+
+// case: syntax.test.refused-stray-end
+@test (end: refuses)

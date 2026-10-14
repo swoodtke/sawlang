@@ -636,7 +636,8 @@ NAMED_LEXICAL = ("syntax.lex.ascii-identifier", "syntax.lex.doc-attach", "syntax
 # between readings, shapes the tree, or leaves its refusals to a later stage
 # or to the productions, so no negative case can show a refusing side.
 CHOOSING_RULES = (
-    "syntax.lex.double-question", "syntax.lex.longest-match", "syntax.lex.tuple-index",
+    "syntax.lex.double-question", "syntax.lex.longest-match", "syntax.lex.refusal-text",
+    "syntax.lex.tuple-index",
     "syntax.rule.arm-statement-end", "syntax.rule.borrow-extent",
     "syntax.rule.coalesce-grouping", "syntax.rule.continuation-keywords",
     "syntax.rule.deref-or-multiply", "syntax.rule.flat-chains", "syntax.rule.flat-else-if",

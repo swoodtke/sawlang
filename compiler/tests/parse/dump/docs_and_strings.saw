@@ -27,6 +27,6 @@ extension Grid {
     }
 }
 
-@test(refuses: "syntax.stmt.refused-var-discard") "a refusal" {
+@test(refuses: "syntax.stmt.refused-var-discard") "a refusal"
     var _ = f( { 1 } )
-}
+@test(end: refuses)

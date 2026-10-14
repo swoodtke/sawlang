@@ -53,7 +53,7 @@
         (Subscript.single (Name v) (IntLit 2)))))
   (TestCase.warns warns "shadowed-qualifier" "warns" (Block))
   (TestCase.warns warns none "warns nothing" (Block))
-  (TestCase.refuses refuses "syntax.rule.juxtaposition" text "two statements" at 2 "refused" (RefusalBody \x0a x = 1 y \x0a)))
+  (TestCase.refuses refuses "syntax.rule.juxtaposition" text "two statements" at 2 "refused" "    x = 1 y\x0a"))
 
 // case: syntax.rule.test-form/documented-test-only-declaration
 (File
@@ -69,13 +69,11 @@
       (Attribute.export)
       (Func f (Block)))))
 
-// case: syntax.rule.refusal-body/body-is-matched-by-braces
-(File
-  (TestCase.refuses refuses "syntax.rule.statement-separator" "a stray semicolon" (RefusalBody \x0a let x = 1 ; \x0a { nested { } } \x0a)))
+// case: syntax.rule.refusal-body/body-is-one-token
+(File (TestCase.refuses refuses "syntax.rule.statement-separator" "a stray semicolon" "    let x = 1;\x0a    { nested { } }\x0a"))
 
 // case: syntax.rule.refusal-body/shifts-and-brackets-as-written
-(File
-  (TestCase.refuses refuses "syntax.lex.shift-adjacent" at 2 "shifts" (RefusalBody \x0a a << b < < c >> d > > e <<= f \x0a g \( a , b \) \x0a)))
+(File (TestCase.refuses refuses "syntax.lex.shift-adjacent" at 2 "shifts" "    a << b < < c >> d > > e <<= f\x0a    g\(a,\x0a      b\)\x0a"))
 
 // case: syntax.rule.test-form/groups-nest
 (File

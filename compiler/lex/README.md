@@ -96,6 +96,26 @@ consecutive `E:` fields. No token carries both a suffix and segments, so the
 tail is unambiguous. The segments are what a parser consumes: nothing is encoded
 into the token's bytes.
 
+### A refusal case's body is one `REFUSAL_TEXT` record
+
+When the last tokens of a line are a refusal case's header, `@test(refuses: …)`
+and the case's name, the lexer reads the lines after it as text, up to the
+first line whose first tokens are the end marker `@test(end: refuses)`
+(GRAMMAR.md §2.7, syntax.lex.refusal-text). Nothing in those lines is lexed,
+so a body may hold unbalanced brackets or an unterminated string. They are
+one record, placed at the body's first byte, whose text is the lines as
+written, each line break included:
+
+```
+REFUSAL_TEXT<TAB>4:1<TAB>    let x = (1\n
+```
+
+The header's line break belongs to no token, so no `NEWLINE` record stands
+between the case's name and its body. The end marker's line is lexed as
+tokens again. A body with no end marker runs to the end of input, and a header
+on the last line with no line break after it has an empty body there; the
+parser refuses either case at its header.
+
 On a lex error the CLI emits a single record and exits 1:
 
 ```
@@ -180,8 +200,9 @@ comments.
 | `Plus` … `Tilde` | `PLUS` … `TILDE` | `Colon` | `COLON` |
 | `HashDirective` | `HASH_DIRECTIVE` | `Semicolon` | `SEMICOLON` |
 | `DollarParam` | `DOLLAR_PARAM` | `Arrow` | `ARROW` |
-| `Newline` | `NEWLINE` | `Dot` | `DOT` |
-| `Eof` | `EOF` | `At` | `AT` |
+| `RefusalText` | `REFUSAL_TEXT` | `Dot` | `DOT` |
+| `Newline` | `NEWLINE` | `At` | `AT` |
+| `Eof` | `EOF` | | |
 
 The remaining single-character operators map by uppercasing:
 `Minus`→`MINUS`, `Star`→`STAR`, `Slash`→`SLASH`, `Percent`→`PERCENT`,

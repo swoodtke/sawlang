@@ -23,6 +23,8 @@ public enum NodeShape {
     case Placeholder,
     // One doc comment line's text, printed quoted.
     case DocLine,
+    // A refusal case's body, its text as written, printed quoted.
+    case RefusalText,
     // A function's, method's, `init`'s or requirement's body that an interface
     // parse passed over unread, from its `{` to its `}`.
     case SkippedBody,
@@ -59,6 +61,7 @@ public func is_leaf_shape(shape: NodeShape) -> Bool {
         case Segment -> true,
         case Placeholder -> true,
         case DocLine -> true,
+        case RefusalText -> true,
         case _ -> is_skipped_shape(shape)
     }
 }

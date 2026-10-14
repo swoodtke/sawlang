@@ -81,6 +81,7 @@ compiler/tests/lex/lexer_unterminated_interpolation.saw	LEXERR	a-error: 11:22 re
 compiler/tests/lex/literals.saw	FAIL	a-error: 2:1 near INT '42'
 compiler/tests/lex/operators.saw	FAIL	a-error: 2:1 near PLUS_ASSIGN '+='
 compiler/tests/lex/ranges.saw	FAIL	a-error: 2:1 near INT '0'
+compiler/tests/lex/refusal_text.saw	FAIL	a-error: 10:7 near IDENT 'end'
 compiler/tests/lex/unicode_escape_malformed_error.saw	LEXERR	a-error: 7:12 refused by syntax.lex.escape: Unicode escape must contain 1-6 hexadecimal digits
 compiler/tests/lex/unicode_escape_oversized_error.saw	LEXERR	a-error: 8:12 refused by syntax.lex.escape: Unicode escape is greater than the maximum scalar 0x10FFFF
 compiler/tests/lex/unicode_escape_surrogate_error.saw	LEXERR	a-error: 8:12 refused by syntax.lex.escape: Unicode escape is a surrogate code point

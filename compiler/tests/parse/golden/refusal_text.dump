@@ -1,0 +1,37 @@
+// case: syntax.lex.refusal-text/unclosed-paren-in-a-body
+(File (TestCase.refuses refuses "syntax.lex.unclosed-bracket" "an unclosed paren" "    let x = \(1\x0a"))
+
+// case: syntax.lex.refusal-text/unbalanced-brace-in-a-body
+(File (TestCase.refuses refuses "parse-error" "a stray brace" "    let x = 1\x0a}\x0a"))
+
+// case: syntax.lex.refusal-text/unterminated-string-in-a-body
+(File (TestCase.refuses refuses "syntax.lex.unterminated-string" "an open string" "    let s = \"abc\x0a"))
+
+// case: syntax.lex.refusal-text/empty-body
+(File (TestCase.refuses refuses "x" "empty" ""))
+
+// case: syntax.lex.refusal-text/a-comment-after-the-header
+(File (TestCase.refuses refuses "x" "with a comment" "    let a = 1\x0a"))
+
+// case: syntax.lex.refusal-text/indented-marker-in-a-group
+(File
+  (TestGroup (TestCase.refuses refuses "x" text "t" at 1 "in a group" "        let a = 1\x0a")))
+
+// case: syntax.lex.refusal-text/marker-inside-a-line-is-text
+(File (TestCase.refuses refuses "x" "a marker inside a line" "    let s = \"@test\(end: refuses\)\"\x0a"))
+
+// case: syntax.lex.refusal-text/a-near-miss-marker-is-text
+(File (TestCase.refuses refuses "x" "near misses" "@test\(end: refusal\)\x0a@tests\(end: refuses\)\x0a@test\(ends: refuses\)\x0a"))
+
+// case: syntax.lex.refusal-text/a-header-inside-a-body-is-text
+(File (TestCase.refuses refuses "x" "outer" "@test\(refuses: \"y\"\) \"inner\"\x0a    let a = 1\x0a"))
+
+// case: syntax.lex.refusal-text/a-body-holds-the-old-braces
+(File (TestCase.refuses refuses "x" "braces" "{\x0a    let a = \(1\x0a}}\x0a"))
+
+// case: syntax.lex.refusal-text/cases-side-by-side
+(File
+  (TestCase.refuses refuses "x" "one" "    let a = 1\x0a")
+  (TestCase.refuses refuses "y" "two" "    let b = [\x0a")
+  (Declaration.func
+    (Func f (Block))))

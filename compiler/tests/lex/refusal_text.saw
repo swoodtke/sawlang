@@ -1,0 +1,11 @@
+// Fixture: a refusal case's body is one REFUSAL_TEXT token, whatever it holds,
+// up to the line its end marker starts (GRAMMAR.md §2.7, syntax.lex.refusal-text).
+@test(refuses: "syntax.lex.unclosed-bracket", text: "never closed", at: 1) "a body"  // trivia
+    let x = (1 }
+    let s = "open
+@test(end: refusal)
+  @test ( end : refuses )
+@test(refuses: "x") "empty"
+@test(end: refuses)
+@test(end: refuses)
+@test(refuses: "x") "at the end"

@@ -161,20 +161,9 @@ extension a { @synthesize (shared)
 { }
 
 // case: syntax.test.case.refuses/alt
-@test (refuses: "C") "C" { }
-
-// case: syntax.test.case.refuses/rep:6:NEWLINE*=0
-@test (refuses: "C") "C" { }
-
-// case: syntax.test.case.refuses/rep:6:NEWLINE*=1
 @test (refuses: "C") "C"
-{ }
-
-// case: syntax.test.case.refuses/rep:6:NEWLINE*=many
-@test (refuses: "C") "C"
-
-
-{ }
+x
+@test (end: refuses)
 
 // case: syntax.test.panics.rule/alt
 @test (panics: "C") "C" { }
@@ -204,25 +193,37 @@ extension a { @synthesize (shared)
 @test (warns: none) "C" { }
 
 // case: syntax.test.refuses/alt
-@test (refuses: "C") "C" { }
+@test (refuses: "C") "C"
+x
+@test (end: refuses)
 
 // case: syntax.test.refuses/opt:3:test-text?=absent
-@test (refuses: "C") "C" { }
+@test (refuses: "C") "C"
+x
+@test (end: refuses)
 
 // case: syntax.test.refuses/opt:3:test-text?=present
-@test (refuses: "C", text: "C") "C" { }
+@test (refuses: "C", text: "C") "C"
+x
+@test (end: refuses)
 
 // case: syntax.test.refuses/opt:4:test-at?=absent
-@test (refuses: "C") "C" { }
+@test (refuses: "C") "C"
+x
+@test (end: refuses)
 
 // case: syntax.test.refuses/opt:4:test-at?=present
-@test (refuses: "C", at: 1) "C" { }
+@test (refuses: "C", at: 1) "C"
+x
+@test (end: refuses)
 
 // case: syntax.test.refuses/pair:3:test-text?=present,4:test-at?=present
-@test (refuses: "C", text: "C", at: 1) "C" { }
+@test (refuses: "C", text: "C", at: 1) "C"
+x
+@test (end: refuses)
 
 // case: syntax.test.text/alt
-@test (refuses: "C", text: "C") "C" { }
+@test (panics: "C", text: "C") "C" { }
 
 // case: syntax.test.at/alt
 @test (panics: "C", at: 1) "C" { }
@@ -314,30 +315,3 @@ import a
 
 
 import a
-
-// case: syntax.test.refusal-body/alt
-@test (refuses: "C") "C" { }
-
-// case: syntax.test.refusal-body/rep:1:refusal-token*=0
-@test (refuses: "C") "C" { }
-
-// case: syntax.test.refusal-body/rep:1:refusal-token*=1
-@test (refuses: "C") "C" { x }
-
-// case: syntax.test.refusal-body/rep:1:refusal-token*=many
-@test (refuses: "C") "C" { x x x }
-
-// case: syntax.test.refusal-token.nested/alt
-@test (refuses: "C") "C" { { } }
-
-// case: syntax.test.refusal-token.nested/rep:1:refusal-token*=0
-@test (refuses: "C") "C" { { } }
-
-// case: syntax.test.refusal-token.nested/rep:1:refusal-token*=1
-@test (refuses: "C") "C" { { x } }
-
-// case: syntax.test.refusal-token.nested/rep:1:refusal-token*=many
-@test (refuses: "C") "C" { { x x x } }
-
-// case: syntax.test.refusal-token.other/alt
-@test (refuses: "C") "C" { x }

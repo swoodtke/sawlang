@@ -1,0 +1,66 @@
+// case: syntax.lex.refusal-text/unclosed-paren-in-a-body
+@test(refuses: "syntax.lex.unclosed-bracket") "an unclosed paren"
+    let x = (1
+@test(end: refuses)
+
+// case: syntax.lex.refusal-text/unbalanced-brace-in-a-body
+@test(refuses: "parse-error") "a stray brace"
+    let x = 1
+}
+@test(end: refuses)
+
+// case: syntax.lex.refusal-text/unterminated-string-in-a-body
+@test(refuses: "syntax.lex.unterminated-string") "an open string"
+    let s = "abc
+@test(end: refuses)
+
+// case: syntax.lex.refusal-text/empty-body
+@test(refuses: "x") "empty"
+@test(end: refuses)
+
+// case: syntax.lex.refusal-text/a-comment-after-the-header
+@test(refuses: "x") "with a comment" // the comment is not the body
+    let a = 1
+@test(end: refuses)
+
+// case: syntax.lex.refusal-text/indented-marker-in-a-group
+@test {
+    @test(refuses: "x", text: "t", at: 1) "in a group"
+        let a = 1
+    @test ( end : refuses )
+}
+
+// case: syntax.lex.refusal-text/marker-inside-a-line-is-text
+@test(refuses: "x") "a marker inside a line"
+    let s = "@test(end: refuses)"
+@test(end: refuses)
+
+// case: syntax.lex.refusal-text/a-near-miss-marker-is-text
+@test(refuses: "x") "near misses"
+@test(end: refusal)
+@tests(end: refuses)
+@test(ends: refuses)
+@test(end: refuses)
+
+// case: syntax.lex.refusal-text/a-header-inside-a-body-is-text
+@test(refuses: "x") "outer"
+@test(refuses: "y") "inner"
+    let a = 1
+@test(end: refuses)
+
+// case: syntax.lex.refusal-text/a-body-holds-the-old-braces
+@test(refuses: "x") "braces"
+{
+    let a = (1
+}}
+@test(end: refuses)
+
+// case: syntax.lex.refusal-text/cases-side-by-side
+@test(refuses: "x") "one"
+    let a = 1
+@test(end: refuses)
+@test(refuses: "y") "two"
+    let b = [
+@test(end: refuses)
+func f() {
+}

@@ -128,14 +128,13 @@ A leaf is a token. Which tokens print:
    | `import-target` | `import m.*` and `import m.{}` against `import m` |
    | `method-name`, `setitem-name` | `func []` and `func []=` |
    | `payload-decl` | `case A()` against `case A` |
-   | `refusal-token` | the nested braces of a refusal case's body |
 
-   A refusal case's body is a list of raw tokens, so each of its tokens, line
-   breaks included, prints.
-4. A shift, two `<` or two `>` tokens, is the one leaf `<<` or `>>`. In a
-   refusal case's body, which no production reads, two `<` or two `>` tokens
-   with nothing between them are the one leaf too, so there `a << b` prints
-   `<<` and `a < < b` prints `< <` (syntax.lex.shift-adjacent).
+4. A shift, two `<` or two `>` tokens, is the one leaf `<<` or `>>`.
+5. A refusal case's body is one REFUSAL_TEXT token, its lines as written
+   (syntax.lex.refusal-text), and prints as one quoted leaf. Since its text
+   is not a literal's spelling, a backslash and a quote in it are escaped as
+   `\\` and `\"`, beside the escapes every leaf takes below:
+   `"    let s = \"a\(\x0a"`. The end marker after it prints nothing.
 
 Leaves are spelled as written. A literal prints its source spelling, with its
 underscores, base prefix, suffix and escapes: `1_000`, `0xFF`, `0xFF_FF`,

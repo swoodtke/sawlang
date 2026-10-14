@@ -78,6 +78,12 @@ def quote_doc(text):
     return '"%s"' % "".join(_escape_char(c) if c in LINE_BREAKING else c for c in body)
 
 
+def quote_refusal(text):
+    """A refusal case's body as a quoted leaf: escaped as a token is, and its
+    quotes and backslashes too, since the leaf is quoted."""
+    return '"%s"' % escape_leaf(text.replace("\\", "\\\\").replace('"', '\\"'))
+
+
 class Builder:
     """Turns recognizer trees into S-expression lists: [label, child...] for a
     node and a str for a leaf."""
@@ -112,6 +118,8 @@ class Builder:
         tok = tokens[t[2]]
         if tok.kind == "INTERP_STRING":
             return self._interpolation(unit, tok)
+        if tok.kind == "REFUSAL_TEXT":
+            return [quote_refusal(tok.value)]
         if tok.kind in LITERALS:
             after = tokens[t[2] + 1] if t[2] + 1 < len(tokens) else None
             return [escape_leaf(lexdump.raw_spelling(unit.source, unit.starts, tok, after))]

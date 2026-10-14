@@ -13263,6 +13263,32 @@ Destruction is not on this list. A `deinit` is synthesized for every type that
 owns something, with no marker and no declaration; see
 [Synthesized destruction](#synthesized-destruction).
 
+#### Tests (`@test`)
+
+`@test` is a compiler directive, not one of the attributes above: it decides
+whether a declaration exists in a given build. A string after it makes a test
+case, `{` makes a group of test-only declarations, and a declaration after it
+becomes test-only. A case may carry one clause, `panics:`, `warns:` or
+`refuses:`, naming the rule it expects (SL:testing has the full rules).
+
+A refusal case's body is text, not a block. The case's header, the clause and
+the case's name, ends its line; the body is the lines after it, up to a line
+that starts with the end marker `@test(end: refuses)`:
+
+```saw-fragment
+@test(refuses: "type.mismatch") "a String is not an Int"
+let x: Int = "a"
+@test(end: refuses)
+```
+
+A normal build reads nothing in the body. A test build lexes and parses it on
+its own and checks it as a unit, so its first error must carry the named rule.
+Because the body's extent never depends on what it holds, a body may leave a
+bracket unclosed, hold an unterminated string, or close a `}` it never opened,
+and each is that case's own refusal. A header with no end marker after it is a
+compile error at the header, and so is an end marker where no body is open.
+Every other test case's body is an ordinary block in braces.
+
 ### Unsafe Code — unsafe types, and the functions that touch them
 
 **Status: implemented (design 130, superseding design 81's marking rules).**

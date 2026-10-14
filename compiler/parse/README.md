@@ -187,9 +187,15 @@ exclusive one whose optional run is open at the end writes through the chain.
 After `@test`, a string or `(` makes a case, `{` a group and anything else
 makes the declaration after it test-only (syntax.rule.test-form). A case's
 clause is one of `panics:`, `warns:` and `refuses:`, with an optional
-`text:` and `at:` in that order. A `refuses:` case's body is matched by its
-braces only, each token between them a leaf, line breaks included; a test
-build parses it apart, from `refusal-unit` (`--unit`). A group holds items,
+`text:` and `at:` in that order. A `refuses:` case's body is the one
+REFUSAL_TEXT token the lexer makes of the lines after its header, followed by
+the end marker `@test(end: refuses)` (syntax.lex.refusal-text); it is one
+leaf, and a test build parses its text apart, from `refusal-unit` (`--unit`).
+A body with no end marker after it, and an end marker where no body is open,
+are refused at the `@` (syntax.test.refused-unterminated,
+syntax.test.refused-stray-end). In a refusal unit a `}` that recovery stops
+at closes nothing, since only the end of input ends a unit, so it is skipped
+and the unit's loop goes on past it (`skip_unit_closer`). A group holds items,
 as an inline module does, and takes its level at its `{`. A `///` run before
 the `@test` of a test-only declaration documents the declaration.
 

@@ -34,9 +34,9 @@ func helper() -> Int {
 @test(warns: none) "warns nothing" {
 }
 
-@test(refuses: "syntax.rule.juxtaposition", text: "two statements", at: 2) "refused" {
+@test(refuses: "syntax.rule.juxtaposition", text: "two statements", at: 2) "refused"
     x = 1 y
-}
+@test(end: refuses)
 
 // case: syntax.rule.test-form/documented-test-only-declaration
 /// A test-only helper.
@@ -50,18 +50,18 @@ func helper() {
 func f() {
 }
 
-// case: syntax.rule.refusal-body/body-is-matched-by-braces
-@test(refuses: "syntax.rule.statement-separator") "a stray semicolon" {
+// case: syntax.rule.refusal-body/body-is-one-token
+@test(refuses: "syntax.rule.statement-separator") "a stray semicolon"
     let x = 1;
     { nested { } }
-}
+@test(end: refuses)
 
 // case: syntax.rule.refusal-body/shifts-and-brackets-as-written
-@test(refuses: "syntax.lex.shift-adjacent", at: 2) "shifts" {
+@test(refuses: "syntax.lex.shift-adjacent", at: 2) "shifts"
     a << b < < c >> d > > e <<= f
     g(a,
       b)
-}
+@test(end: refuses)
 
 // case: syntax.rule.test-form/groups-nest
 @test {

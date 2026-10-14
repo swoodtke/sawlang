@@ -104,8 +104,8 @@ alternative-name    ::= production-name
 
 **Start symbols.** `source-file` is a source file. `interp-segment` is the text
 of one interpolation inside a string literal, parsed on its own (§2.5).
-`refusal-unit` is the body of an `@test(refuses: …)` case, parsed on its own in
-a test build (§4).
+`refusal-unit` is the text of an `@test(refuses: …)` case's body, its
+REFUSAL_TEXT token, parsed on its own in a test build (§4).
 
 ## 2. Lexical layer
 
@@ -128,7 +128,7 @@ whitespace, so CRLF files lex like LF files.
 | EOF | end of input | |
 | SHL | two `<` tokens with nothing between them, in expression position | Formed by the parser, not the lexer (§2.7). |
 | SHR | two `>` tokens with nothing between them, in expression position | Formed by the parser, not the lexer (§2.7). |
-| NON_BRACE | any token except `{`, `}` and EOF | Used only by the brace matcher of a refusal case body (§4). |
+| REFUSAL_TEXT | the lines of a refusal case's body, as written | One token, whatever the lines hold (syntax.lex.refusal-text, §4). |
 
 In a number, a `_` is a single separator between two digits, in an integer and
 in each of a float's two digit runs alike. So `1_000`, `0xFF_FF` and `1_0.5`
@@ -200,7 +200,7 @@ everywhere else:
 | `_` | a pattern or a discarded binding | syntax.pat.wildcard, syntax.stmt.refused-var-discard |
 | `export` `section` `synthesize` `align` `test` | after `@` | syntax.attr.attribute, syntax.test.case |
 | `shared` | inside `@synthesize(…)` | syntax.attr.synthesize-shared |
-| `panics` `refuses` `warns` `text` `at` `none` | inside `@test(…)` | syntax.test.panics, syntax.test.refuses, syntax.test.warns, syntax.test.text, syntax.test.at |
+| `panics` `refuses` `warns` `text` `at` `none` `end` | inside `@test(…)` | syntax.test.panics, syntax.test.refuses, syntax.test.warns, syntax.test.text, syntax.test.at, syntax.test.case |
 
 `deinit`, `Self`, `Void`, `Never` and the primitive type names are ordinary
 identifiers. The planned reservations `and`, `defer`, `do`, `generic`, `macro`,
@@ -231,7 +231,8 @@ Newlines are tokens. Whether one ends a statement is the parser's decision:
 1. A `NEWLINE` whose innermost enclosing bracket is `(` or `[` is
    insignificant. A `{` inside the brackets restores significance, so a closure
    passed as an argument still separates its statements with newlines. The
-   bracket structure is computed over the whole token stream.
+   bracket structure is computed over the whole token stream, where a refusal
+   case's body is one token, so no bracket in a body counts.
 2. Inside a generic list the parser has committed to (§13,
    syntax.rule.generic-or-less), every `NEWLINE` is insignificant.
 3. A `NEWLINE` directly after an infix operator of the expression tiers is
@@ -297,7 +298,8 @@ the same line are ordinary comments.
 | syntax.lex.escape | An unknown escape, or a `\u{…}` that is a surrogate, exceeds 0x10FFFF or has no digits, is an error at the escape. | String |
 | syntax.lex.unterminated-string | An unterminated string is reported at its opening quote. When an interpolation inside it holds an odd number of unescaped quotes outside comments, so that the brace swallowed the literal's closing quote, the stray `{` is reported instead. | String |
 | syntax.lex.directive | `#` must be followed by `file`, `line`, `function` or `lend_var`. | Source-location literals |
-| syntax.lex.unclosed-bracket | An unclosed `(`, `[` or `{` is reported at its opener. | Layout |
+| syntax.lex.unclosed-bracket | An unclosed `(`, `[` or `{` is reported at its opener. A refusal case's body is one token, so its brackets are not counted. | Layout |
+| syntax.lex.refusal-text | A line whose last tokens are a refusal case's header, `@test(refuses: …)` and the case's name, is a header line. Its line break belongs to no token, and the text after it, up to the first line whose first tokens are the end marker `@test(end: refuses)`, is one REFUSAL_TEXT token, so a body may hold unbalanced brackets, an unterminated string or any other lexical error. The marker's line is lexed as tokens again, so the marker may be indented. With no such line the token runs to the end of input, and the case is refused at its header (syntax.test.refused-unterminated). | Attributes (design 58); SL-614 |
 | syntax.lex.doc-attach | A doc comment attaches to the next documentable declaration, and one that documents nothing is an error (§2.6). | Doc comments |
 | syntax.lex.module-doc | `//!` is legal only before the first token. | Doc comments |
 
@@ -640,12 +642,14 @@ panic's rule, and a user `panic("…")` has a rule of its own. An optional
 test-item ::= test-case  @syntax.test.item.case
     | test-group  @syntax.test.item.group
     | test-only-decl  @syntax.test.item.declaration
+    | refused-unterminated-case  @syntax.test.item.refused-unterminated
+    | refused-stray-end  @syntax.test.item.refused-stray-end
 
 # syntax.test.case  status=lockdown  spec="Attributes (design 58)"  node=TestCase  ref="SL:testing §2"
 test-case ::= "@" 'test' STRING NEWLINE* block  @syntax.test.case.run
     | "@" 'test' "(" test-panics ")" STRING NEWLINE* block  @syntax.test.case.panics
     | "@" 'test' "(" test-warns ")" STRING NEWLINE* block  @syntax.test.case.warns
-    | "@" 'test' "(" test-refuses ")" STRING NEWLINE* refusal-body  @syntax.test.case.refuses
+    | "@" 'test' "(" test-refuses ")" STRING REFUSAL_TEXT "@" 'test' "(" 'end' ":" 'refuses' ")"  @syntax.test.case.refuses
 
 # syntax.test.panics  status=lockdown  spec="Attributes (design 58)"  node=-  ref="SL:testing §4"
 test-panics ::= 'panics' ":" STRING test-at?  @syntax.test.panics.rule
@@ -675,19 +679,21 @@ test-only-decl ::= "@" 'test' NEWLINE* declaration-item  @syntax.test.declaratio
     | "@" 'test' NEWLINE* import-decl  @syntax.test.declaration.import
 ```
 
-A refusal case is checked on its own. In a normal build only its braces are
-matched, so its body may hold a syntax error. In a test build, the tokens
-between its braces are parsed with the start symbol `refusal-unit`, which takes
-declarations and statements alike.
+A refusal case is checked on its own, and its body is text rather than tokens.
+The case's header, `@test(refuses: …)` and the case's name, ends its line. The
+body is the lines after it, up to the end marker `@test(end: refuses)`, which
+starts a line of its own. The lexer makes those lines one REFUSAL_TEXT token
+(syntax.lex.refusal-text), so the body's extent never depends on what it holds,
+and a normal build reads nothing in it. In a test build the body's text is
+lexed and parsed on its own with the start symbol `refusal-unit`, which takes
+declarations and statements alike. Any error is then testable in a case: a
+lexical error and an unbalanced bracket are the case's own refusal, as a parse
+error is. A header with no end marker after it is refused at the header
+(syntax.test.refused-unterminated), and so is an end marker where no body is
+open (syntax.test.refused-stray-end). Only a refusal case's body is text: every
+other test case's body is a block.
 
 ```ebnf
-# syntax.test.refusal-body  status=lockdown  spec="Attributes (design 58)"  node=RefusalBody  ref="SL:testing §5"
-refusal-body ::= "{" refusal-token* "}"
-
-# syntax.test.refusal-token  status=lockdown  spec="Attributes (design 58)"  node=-  ref="SL:testing §5"
-refusal-token ::= "{" refusal-token* "}"  @syntax.test.refusal-token.nested
-    | NON_BRACE  @syntax.test.refusal-token.other
-
 # syntax.test.refusal-unit  status=lockdown  spec="Attributes (design 58)"  node=RefusalUnit  ref="SL:testing §5"
 refusal-unit ::= NEWLINE* ( refusal-unit-item ( stmt-sep refusal-unit-item )* NEWLINE* )? EOF
 
@@ -1821,6 +1827,12 @@ refused-qualified-variant-pattern ::= IDENT ( "." IDENT )+ ( "(" ( payload-patte
 
 # syntax.pat.refused-dot-variant  status=removed  spec="Enums (Algebraic Data Types)"  node=Error  ref="SL-400 c8"
 refused-dot-variant-pattern ::= "." IDENT ( "(" ( payload-pattern ( "," payload-pattern )* ","? )? ")" )?
+
+# syntax.test.refused-unterminated  status=removed  spec="Attributes (design 58)"  node=Error  ref="SL-614"
+refused-unterminated-case ::= "@" 'test' "(" test-refuses ")" STRING REFUSAL_TEXT
+
+# syntax.test.refused-stray-end  status=removed  spec="Attributes (design 58)"  node=Error  ref="SL-614"
+refused-stray-end ::= "@" 'test' "(" 'end' ":" 'refuses' ")"
 ```
 
 Each refused form, why it is refused, and what its diagnostic suggests:
@@ -1866,6 +1878,8 @@ Each refused form, why it is refused, and what its diagnostic suggests:
 | syntax.pat.refused-paren | A pattern has no grouping parentheses, and a one-element tuple pattern is written with its comma, as in expressions and types. | write `(p,)` |
 | syntax.pat.refused-qualified-variant | A variant pattern names the case alone, and the scrutinee's type supplies the enum. | `case Red` |
 | syntax.pat.refused-dot-variant | A variant pattern names the case bare; the `.` of an implicit member belongs to expressions. | `case North` |
+| syntax.test.refused-unterminated | A refusal case's body runs to its end marker, so without one it takes the rest of the file. | `@test(end: refuses)` on the line after the body |
+| syntax.test.refused-stray-end | The end marker ends a refusal case's body, and no body is open where it stands. | delete it, or write the case's header on the line before the body |
 
 ### 10.1 Retired shapes
 
@@ -2164,7 +2178,7 @@ decides. The constructs column names the productions a rule governs.
 | syntax.rule.try-block | syntax.expr.try-block, syntax.expr.try | `try` directly followed by `{` is a try block, never a `try` applied to a closure. | Block Try-Catch | current |
 | syntax.rule.infinite-loop | syntax.expr.while, syntax.expr.refused-brace-condition | A `{` right after `while` begins the infinite loop's body, never a condition, so a condition that starts with a closure, map or set literal is the refused form syntax.expr.refused-brace-condition. A token on the line after the loop's `}` is refused at that token, wherever the loop stands, when the refused form, reading on through it, reaches a body: `while { check() }() { step() }` is refused at its `(`, `while { a } { }` at its second `{`, and `while { a }.x { }`, `while { a }[0] { }` and `while { a } + b { }` at the `.`, the `[` and the `+`. Write `while ({ check() }()) { step() }`. A loop after which the refused form reaches no body is an operand as before, as in `let n = while { break 1 } + 2`. A line break after the `}` ends the loop, so `while { a }` followed by a line break and `{ }` is the loop and then a closure statement. | Control Flow; SL-440 | current |
 | syntax.rule.test-form | syntax.test.item, syntax.test.case, syntax.test.group, syntax.test.declaration | After `@test`, a string makes a case, `{` makes a group, and anything else makes the declaration that follows test-only. `refuses:`, `panics:` and `warns:` go only on a case. A group holds declarations and cases, never statements. `@test` items stand at top level or in a group, never in an ordinary extension. On a declaration, `@test` comes before its other attributes, and a later stage refuses a combination that means nothing. | Attributes (design 58); SL:testing §2 | lockdown |
-| syntax.rule.refusal-body | syntax.test.refusal-body, syntax.test.refusal-unit | In a normal build a refusal case's body is matched by braces only. In a test build its tokens are parsed as a unit of their own, and its errors belong to the case. | Attributes (design 58); SL:testing §5 | lockdown |
+| syntax.rule.refusal-body | syntax.test.case, syntax.test.refusal-unit | A refusal case's body is one REFUSAL_TEXT token (syntax.lex.refusal-text), and a normal build reads nothing in it. In a test build its text is lexed and parsed as a unit of its own, and its errors belong to the case. | Attributes (design 58); SL:testing §5; SL-614 | lockdown |
 | syntax.rule.requirement-borrows | syntax.decl.requirement, syntax.decl.borrows-effect | A trait requirement may be `borrows` or `borrows(sync)`. It may not be `consumes`. | Traits; SL:borrowing §5.4 | lockdown |
 | syntax.rule.reference-position | syntax.expr.ref | `&x` and `&var x` stand only as a call argument, or as the operand of a cast to a pointer type. | Reference passing | current |
 | syntax.rule.discard-binding | syntax.stmt.let, syntax.stmt.refused-var-discard | `let _ = e` discards the value. `var _ = e` matches the refused form, never a binding. | Variables and Mutability | current |

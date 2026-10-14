@@ -60,18 +60,20 @@ func append_line_break(out: &var StringBuilder, text: &String, i: Int, width: In
     }
 }
 
-// A leaf's text on one line: a line-breaking character escaped, and a
-// parenthesis, which would read as the S-expression's own, as `\(` or `\)`.
-// With `doc`, a backslash and a quote are escaped instead of a parenthesis,
-// which is how a doc comment line, whose text is not source spelling, prints.
-func append_escaped(out: &var StringBuilder, text: &String, start: Int, end: Int, doc: Bool) {
+// A leaf's text on one line: a line-breaking character escaped, with
+// `brackets` a parenthesis, which would read as the S-expression's own, as
+// `\(` or `\)`, and with `quotes` a backslash and a quote, as a quoted leaf
+// whose text is not source spelling prints: a doc comment line has `quotes`
+// alone, and a refusal case's body both.
+func append_escaped(out: &var StringBuilder, text: &String, start: Int, end: Int, brackets: Bool,
+                    quotes: Bool) {
     var run = start
     var i = start
     while i < end {
         let b = text.byte_at(i) as Int
         let width = line_break_width(&text, i, end)
-        let bracket = not doc && (b == RENDER_LPAREN || b == RENDER_RPAREN)
-        let quoted = doc && (b == RENDER_BACKSLASH || b == RENDER_QUOTE)
+        let bracket = brackets && (b == RENDER_LPAREN || b == RENDER_RPAREN)
+        let quoted = quotes && (b == RENDER_BACKSLASH || b == RENDER_QUOTE)
         if width > 0 || bracket || quoted {
             if run < i {
                 try! out.append(text.substring(run, i))
@@ -99,18 +101,24 @@ func append_leaf(out: &var StringBuilder, tree: &AstTree, node: &AstNode) {
         case Segment -> {
             try! out.append("\"")
             append_escaped(out: &var out, text: &tree.source.text, start: node.start,
-                           end: node.end, doc: false)
+                           end: node.end, brackets: true, quotes: false)
             try! out.append("\"")
         },
         case Placeholder -> try! out.append("\{\}"),
         case DocLine -> {
             try! out.append("\"")
             append_escaped(out: &var out, text: &tree.source.text, start: node.start,
-                           end: node.end, doc: true)
+                           end: node.end, brackets: false, quotes: true)
+            try! out.append("\"")
+        },
+        case RefusalText -> {
+            try! out.append("\"")
+            append_escaped(out: &var out, text: &tree.source.text, start: node.start,
+                           end: node.end, brackets: true, quotes: true)
             try! out.append("\"")
         },
         case _ -> append_escaped(out: &var out, text: &tree.source.text, start: node.start,
-                                 end: node.end, doc: false)
+                                 end: node.end, brackets: true, quotes: false)
     }
 }
 

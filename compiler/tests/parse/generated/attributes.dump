@@ -250,20 +250,7 @@
   (TestCase.warns warns none "C" (Block)))
 
 // case: syntax.test.case.refuses/alt
-(File
-  (TestCase.refuses refuses "C" "C" (RefusalBody)))
-
-// case: syntax.test.case.refuses/rep:6:NEWLINE*=0
-(File
-  (TestCase.refuses refuses "C" "C" (RefusalBody)))
-
-// case: syntax.test.case.refuses/rep:6:NEWLINE*=1
-(File
-  (TestCase.refuses refuses "C" "C" (RefusalBody)))
-
-// case: syntax.test.case.refuses/rep:6:NEWLINE*=many
-(File
-  (TestCase.refuses refuses "C" "C" (RefusalBody)))
+(File (TestCase.refuses refuses "C" "C" "x\x0a"))
 
 // case: syntax.test.panics.rule/alt
 (File
@@ -302,32 +289,26 @@
   (TestCase.warns warns none "C" (Block)))
 
 // case: syntax.test.refuses/alt
-(File
-  (TestCase.refuses refuses "C" "C" (RefusalBody)))
+(File (TestCase.refuses refuses "C" "C" "x\x0a"))
 
 // case: syntax.test.refuses/opt:3:test-text?=absent
-(File
-  (TestCase.refuses refuses "C" "C" (RefusalBody)))
+(File (TestCase.refuses refuses "C" "C" "x\x0a"))
 
 // case: syntax.test.refuses/opt:3:test-text?=present
-(File
-  (TestCase.refuses refuses "C" text "C" "C" (RefusalBody)))
+(File (TestCase.refuses refuses "C" text "C" "C" "x\x0a"))
 
 // case: syntax.test.refuses/opt:4:test-at?=absent
-(File
-  (TestCase.refuses refuses "C" "C" (RefusalBody)))
+(File (TestCase.refuses refuses "C" "C" "x\x0a"))
 
 // case: syntax.test.refuses/opt:4:test-at?=present
-(File
-  (TestCase.refuses refuses "C" at 1 "C" (RefusalBody)))
+(File (TestCase.refuses refuses "C" at 1 "C" "x\x0a"))
 
 // case: syntax.test.refuses/pair:3:test-text?=present,4:test-at?=present
-(File
-  (TestCase.refuses refuses "C" text "C" at 1 "C" (RefusalBody)))
+(File (TestCase.refuses refuses "C" text "C" at 1 "C" "x\x0a"))
 
 // case: syntax.test.text/alt
 (File
-  (TestCase.refuses refuses "C" text "C" "C" (RefusalBody)))
+  (TestCase.panics panics "C" text "C" "C" (Block)))
 
 // case: syntax.test.at/alt
 (File
@@ -419,39 +400,3 @@
 (File
   (TestOnly.import
     (Import.private (Path a))))
-
-// case: syntax.test.refusal-body/alt
-(File
-  (TestCase.refuses refuses "C" "C" (RefusalBody)))
-
-// case: syntax.test.refusal-body/rep:1:refusal-token*=0
-(File
-  (TestCase.refuses refuses "C" "C" (RefusalBody)))
-
-// case: syntax.test.refusal-body/rep:1:refusal-token*=1
-(File
-  (TestCase.refuses refuses "C" "C" (RefusalBody x)))
-
-// case: syntax.test.refusal-body/rep:1:refusal-token*=many
-(File
-  (TestCase.refuses refuses "C" "C" (RefusalBody x x x)))
-
-// case: syntax.test.refusal-token.nested/alt
-(File
-  (TestCase.refuses refuses "C" "C" (RefusalBody { })))
-
-// case: syntax.test.refusal-token.nested/rep:1:refusal-token*=0
-(File
-  (TestCase.refuses refuses "C" "C" (RefusalBody { })))
-
-// case: syntax.test.refusal-token.nested/rep:1:refusal-token*=1
-(File
-  (TestCase.refuses refuses "C" "C" (RefusalBody { x })))
-
-// case: syntax.test.refusal-token.nested/rep:1:refusal-token*=many
-(File
-  (TestCase.refuses refuses "C" "C" (RefusalBody { x x x })))
-
-// case: syntax.test.refusal-token.other/alt
-(File
-  (TestCase.refuses refuses "C" "C" (RefusalBody x)))

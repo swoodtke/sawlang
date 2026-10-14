@@ -1,0 +1,43 @@
+// case: syntax.test.refused-stray-end/end-marker-with-no-body
+@test(end: refuses)
+
+// case: syntax.test.refused-stray-end/a-second-end-marker
+@test(refuses: "x") "one"
+    let a = 1
+@test(end: refuses)
+@test(end: refuses)
+
+// case: syntax.test.case.refuses/a-brace-body-is-not-a-body
+@test(refuses: "x") "old form" {
+    let a = 1
+}
+
+// case: syntax.test.case.refuses/the-body-starts-on-the-next-line
+@test(refuses: "x") "same line" let a = 1
+@test(end: refuses)
+
+// case from refusal-unit: syntax.rule.refusal-body/unclosed-paren-in-a-test-build
+// an unclosed bracket, refused at its opener
+let x = (1
+
+// case from refusal-unit: syntax.rule.refusal-body/stray-brace-after-a-statement
+let x = 1
+}
+
+// case from refusal-unit: syntax.rule.refusal-body/stray-brace-first
+}
+
+// case from refusal-unit: syntax.rule.refusal-body/stray-brace-in-a-map
+// an unclosed bracket, refused at its opener
+let a = {1: (2}
+let b = 2
+
+// case from refusal-unit: syntax.rule.refusal-body/unterminated-string-in-a-test-build
+let s = "abc
+
+// case: syntax.test.refused-unterminated/missing-end-marker
+@test(refuses: "x") "no end"
+    let a = 1
+
+// case: syntax.test.refused-unterminated/header-at-the-end-of-input
+@test(refuses: "x") "nothing after"

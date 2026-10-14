@@ -40,6 +40,12 @@ refuses syntax.decl.refused-member-static
 // case: syntax.decl.extension-member.refused-private
 refuses syntax.decl.refused-member-private
 
+// case: syntax.test.item.refused-unterminated
+refuses syntax.test.refused-unterminated
+
+// case: syntax.test.item.refused-stray-end
+refuses syntax.test.refused-stray-end
+
 // case: syntax.type.type.refused-func-consumes
 refuses syntax.type.refused-func-consumes
 
@@ -291,3 +297,9 @@ refuses syntax.pat.refused-qualified-variant
 
 // case: syntax.pat.refused-dot-variant
 refuses syntax.pat.refused-dot-variant
+
+// case: syntax.test.refused-unterminated
+refuses syntax.test.refused-unterminated
+
+// case: syntax.test.refused-stray-end
+refuses syntax.test.refused-stray-end

@@ -13,4 +13,4 @@
           (NamedType (Path Int)))
         \))
       (Case D)))
-  (TestCase.refuses refuses "syntax.lex.shift-adjacent" "a spaced shift" (RefusalBody \x0a let s = a << b \x0a let t = a < < b \x0a let u : V < V < Int >> = w \x0a)))
+  (TestCase.refuses refuses "syntax.lex.shift-adjacent" "a spaced shift" "    let s = a << b\x0a    let t = a < < b\x0a    let u: V<V<Int>> = w\x0a"))

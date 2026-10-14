@@ -1,0 +1,62 @@
+NEWLINE	1:80	\n
+NEWLINE	2:84	\n
+AT	3:1	@
+IDENT	3:2	test
+LPAREN	3:6	(
+IDENT	3:7	refuses
+COLON	3:14	:
+STRING	3:16	syntax.lex.unclosed-bracket
+COMMA	3:45	,
+IDENT	3:47	text
+COLON	3:51	:
+STRING	3:53	never closed
+COMMA	3:67	,
+IDENT	3:69	at
+COLON	3:71	:
+INT	3:73	1
+RPAREN	3:74	)
+STRING	3:76	a body
+REFUSAL_TEXT	4:1	    let x = (1 }\n    let s = "open\n@test(end: refusal)\n
+AT	7:3	@
+IDENT	7:4	test
+LPAREN	7:9	(
+IDENT	7:11	end
+COLON	7:15	:
+IDENT	7:17	refuses
+RPAREN	7:25	)
+NEWLINE	7:26	\n
+AT	8:1	@
+IDENT	8:2	test
+LPAREN	8:6	(
+IDENT	8:7	refuses
+COLON	8:14	:
+STRING	8:16	x
+RPAREN	8:19	)
+STRING	8:21	empty
+REFUSAL_TEXT	9:1
+AT	9:1	@
+IDENT	9:2	test
+LPAREN	9:6	(
+IDENT	9:7	end
+COLON	9:10	:
+IDENT	9:12	refuses
+RPAREN	9:19	)
+NEWLINE	9:20	\n
+AT	10:1	@
+IDENT	10:2	test
+LPAREN	10:6	(
+IDENT	10:7	end
+COLON	10:10	:
+IDENT	10:12	refuses
+RPAREN	10:19	)
+NEWLINE	10:20	\n
+AT	11:1	@
+IDENT	11:2	test
+LPAREN	11:6	(
+IDENT	11:7	refuses
+COLON	11:14	:
+STRING	11:16	x
+RPAREN	11:19	)
+STRING	11:21	at the end
+REFUSAL_TEXT	11:33
+EOF	11:33

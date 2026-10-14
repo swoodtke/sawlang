@@ -30,6 +30,8 @@ static PARSE_DIGIT_0: Int = 48
 static PARSE_DIGIT_9: Int = 57
 
 static PARSE_LETTER_C: Int = 67
+// The tokens of a refusal case's end marker, `@ test ( end : refuses )`.
+static END_MARKER_TOKENS: Int = 7
 
 func is_decimal_byte(b: Int) -> Bool { b >= PARSE_DIGIT_0 && b <= PARSE_DIGIT_9 }
 
@@ -1731,8 +1733,15 @@ extension Parser {
 
     // `test-item ::= test-case | test-group | test-only-decl`: after `@test`, a
     // string or `(` makes a case, `{` a group, and anything else makes the
-    // declaration after it test-only (syntax.rule.test-form).
+    // declaration after it test-only (syntax.rule.test-form). An end marker
+    // here closes no body (syntax.test.refused-stray-end).
     func parse_test_item(&var self) -> Bool {
+        if self.at_end_marker(0) {
+            let at = self.pos
+            return self.refuse(Rule.Test_RefusedStrayEnd, at,
+                               "`@test(end: refuses)` ends a refusal case's body, and no body is open here",
+                               "delete it, or write the case's header, `@test(refuses: \"rule\") \"name\"`, on the line before the body")
+        }
         let next = self.kind_at(2)
         if next == TokenKind.StringLit || next == TokenKind.LParen {
             self.see(Alt.Test_Item_Case)
@@ -1749,11 +1758,12 @@ extension Parser {
 
     // `test-case`: `@test`, a clause in parentheses when it `panics:`, `warns:`
     // or `refuses:`, the case's name, and its body: a block, or for
-    // `refuses:` a refusal body, matched by its braces only
+    // `refuses:` the body's text, which nothing here reads
     // (syntax.rule.refusal-body). The clause's words print, being the leaves
     // of productions that build no node.
     func parse_test_case(&var self) -> Bool {
         let start = self.here()
+        let head = self.pos
         let mark = self.builder.mark()
         self.advance()
         self.advance()
@@ -1781,20 +1791,57 @@ extension Parser {
             return self.error("expected the test case's name, a string")
         }
         self.take_leaf()
+        if alt == Alt.Test_Case_Refuses {
+            return self.parse_refusal_case(mark, start, head)
+        }
         self.skip_newlines()
         self.see(alt)
         if self.kind() != TokenKind.LBrace {
             return self.error("expected `\{` to open the test case's body")
         }
-        if alt == Alt.Test_Case_Refuses {
-            if not self.parse_refusal_body() {
-                return false
-            }
-        } else if not self.parse_block() {
+        if not self.parse_block() {
             return false
         }
         self.close(mark, alt, start)
         true
+    }
+
+    // The rest of a refusal case after its name: the body, one REFUSAL_TEXT
+    // token, and the end marker (syntax.lex.refusal-text). The lexer ends a
+    // body only at a marker or at the end of input, so a body with no marker
+    // after it is the case with none (syntax.test.refused-unterminated),
+    // refused at the case's `@`.
+    func parse_refusal_case(&var self, mark: Int, start: Int, head: Int) -> Bool {
+        if self.kind() != TokenKind.RefusalText {
+            let at = self.pos
+            self.report(None, at, "expected the refusal case's body on the line after its header",
+                        "the header ends its line, and the body runs to `@test(end: refuses)` at the start of a line")
+            return false
+        }
+        if not self.at_end_marker(1) {
+            return self.refuse(Rule.Test_RefusedUnterminated, head,
+                               "this refusal case's body has no end marker, so it runs to the end of the file",
+                               "end the body with `@test(end: refuses)` at the start of the line after it")
+        }
+        self.see(Alt.Test_Case_Refuses)
+        let body = self.current()
+        let _ = self.builder.leaf(NodeShape.RefusalText, body.start, body.end)
+        self.advance()
+        var k = 0
+        while k < END_MARKER_TOKENS {
+            self.advance()
+            k = k + 1
+        }
+        self.close(mark, Alt.Test_Case_Refuses, start)
+        true
+    }
+
+    // Whether the tokens from `offset` on are the end marker `@test(end: refuses)`.
+    func at_end_marker(&self, offset: Int) -> Bool {
+        let opens = self.kind_at(offset) == TokenKind.At && self.word_at(offset + 1, "test")
+        let paren = self.kind_at(offset + 2) == TokenKind.LParen && self.word_at(offset + 3, "end")
+        let colon = self.kind_at(offset + 4) == TokenKind.Colon && self.word_at(offset + 5, "refuses")
+        opens && paren && colon && self.kind_at(offset + 6) == TokenKind.RParen
     }
 
     // The clause of a test case, from its first word: `panics:`, `warns:` or
@@ -1864,45 +1911,6 @@ extension Parser {
         self.take_leaf()
         self.advance()
         self.take_leaf()
-    }
-
-    // `refusal-body ::= "{" refusal-token* "}"`: every token between its braces
-    // a leaf, line breaks and nested braces included, and two `<` or two `>`
-    // written together the one leaf a shift is (syntax.lex.shift-adjacent).
-    func parse_refusal_body(&var self) -> Bool {
-        self.see(Alt.Test_RefusalBody)
-        let start = self.here()
-        let mark = self.builder.mark()
-        let open = self.pos
-        self.advance()
-        var depth = 0
-        while depth > 0 || self.kind() != TokenKind.RBrace {
-            let kind = self.kind()
-            if kind == TokenKind.Eof {
-                return self.refuse_unclosed(open)
-            }
-            if kind == TokenKind.LBrace {
-                self.see(Alt.Test_RefusalToken_Nested)
-                depth = depth + 1
-            } else if kind == TokenKind.RBrace {
-                depth = depth - 1
-            } else {
-                self.see(Alt.Test_RefusalToken_Other)
-            }
-            let t = self.current()
-            let paired = kind == TokenKind.Lt || kind == TokenKind.Gt
-            if paired && self.kind_at(1) == kind && self.tokens[self.pos + 1].start == t.end {
-                self.advance()
-                let end = self.current().end
-                let _ = self.builder.leaf(NodeShape.Token, t.start, end)
-                self.advance()
-            } else {
-                self.take_leaf()
-            }
-        }
-        self.advance()
-        self.close(mark, Alt.Test_RefusalBody, start)
-        true
     }
 
     // `test-group ::= "@" 'test' NEWLINE* "{" NEWLINE* top-level-list? "}"`,
@@ -3910,7 +3918,19 @@ extension Parser {
             if not ok {
                 self.resume(&point)
                 self.recover(from)
+                self.skip_unit_closer()
             }
+        }
+    }
+
+    // Skips a `}` where recovery stopped at the level of a refusal unit's
+    // items. Nothing holds a unit's items but the unit, which ends only at the
+    // end of input, so such a `}` closes nothing, and the error that started
+    // the recovery already covers it. Without the skip the unit's loop meets
+    // the same `}` again and never ends (`parse_unit_items` and `next_item`).
+    func skip_unit_closer(&var self) {
+        if self.kind() == TokenKind.RBrace {
+            self.advance()
         }
     }
 
@@ -3950,10 +3970,14 @@ extension Parser {
                 list.need = true
                 continue
             }
-            if list.any && not list.need && self.tokens[self.pos - 1].kind != TokenKind.Newline {
+            let after_break = self.pos > 0 && self.tokens[self.pos - 1].kind == TokenKind.Newline
+            if list.any && not list.need && not after_break {
                 let from_here = self.pos
                 let _ = self.refuse_juxtaposed(unit)
                 self.recover(from_here)
+                if unit {
+                    self.skip_unit_closer()
+                }
                 continue
             }
             list.need = false

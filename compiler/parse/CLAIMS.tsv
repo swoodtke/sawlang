@@ -607,9 +607,11 @@ syntax.test.at	U4h
 syntax.test.group	U4h
 syntax.test.declaration.item	U4h
 syntax.test.declaration.import	U4h
-syntax.test.refusal-body	U4h
-syntax.test.refusal-token.nested	U4h
-syntax.test.refusal-token.other	U4h
+syntax.test.item.refused-unterminated	SL-614
+syntax.test.item.refused-stray-end	SL-614
+syntax.test.refused-unterminated	SL-614
+syntax.test.refused-stray-end	SL-614
+syntax.lex.refusal-text	SL-614
 syntax.rule.test-form	U4h
 syntax.rule.refusal-body	U4h
 syntax.file.item.refused-export	U4i

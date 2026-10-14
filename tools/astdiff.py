@@ -50,13 +50,17 @@ def tracked_saw_files() -> list:
 # The new compiler's corpora, as repository-relative prefixes: the migrated
 # corpus (SL-418) and the parse corpus derived from GRAMMAR.md.
 NEW_COMPILER_CORPORA = ("tests/corpus/", "compiler/tests/parse/")
+# Single files outside those corpora that hold a refusal case, whose body is
+# text the frozen lexer would read as tokens (SL-614).
+NEW_COMPILER_FILES = ("compiler/tests/resolve/golden/tests.saw",)
 
 
 def owned_elsewhere(path: str) -> bool:
     """Whether the file is the new compiler's input rather than the frozen
-    parser's: both corpora are written in the syntax GRAMMAR.md rules, which
-    this parser never learns, and the grammar lanes check them."""
-    return path.startswith(NEW_COMPILER_CORPORA)
+    parser's: both corpora and the files beside them are written in the syntax
+    GRAMMAR.md rules, which this parser never learns, and the grammar lanes
+    check them."""
+    return path.startswith(NEW_COMPILER_CORPORA) or path in NEW_COMPILER_FILES
 
 
 def given_files(paths: list) -> list:

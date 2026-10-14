@@ -43,4 +43,4 @@
           (Param.plain value
             (NamedType (Path Int)))
           (Block)))))
-  (TestCase.refuses refuses "syntax.stmt.refused-var-discard" "a refusal" (RefusalBody \x0a var _ = f \( { 1 } \) \x0a)))
+  (TestCase.refuses refuses "syntax.stmt.refused-var-discard" "a refusal" "    var _ = f\( { 1 } \)\x0a"))

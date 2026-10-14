@@ -120,7 +120,9 @@ extension DumpReader {
     // Unescapes [start, end) of the dump text into the buffer. A leaf's own
     // escapes are `\xHH`, `\uHHHH` and, outside a doc line, `\(` and `\)`;
     // a doc line also escapes `\\` and `\"`. Any other backslash starts one of
-    // a literal's escapes, which stays as written, both of its characters.
+    // a literal's escapes, which stays as written, both of its characters; a
+    // refusal case's quoted body keeps its `\\` and `\"` that way too, and is
+    // read as a token whose spelling renders the same bytes again.
     func unescape(&var self, start: Int, end: Int, doc: Bool) {
         var i = start
         while i < end {

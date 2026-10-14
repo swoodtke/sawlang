@@ -992,18 +992,6 @@ extension a { @synthesize (shared) static func b() { }
 // case: syntax.test.case.warns/alt/close:7
 @test (warns: none  "C" { }
 
-// case: syntax.test.case.refuses/alt/drop:8
-@test (refuses: "C")   { }
-
-// case: syntax.test.case.refuses/alt/dup:5
-@test (refuses: : "C") "C" { }
-
-// case: syntax.test.case.refuses/alt/swap:7
-@test (refuses: "C" "C"   )  { }
-
-// case: syntax.test.case.refuses/alt/close:10
-@test (refuses: "C") "C" {
-
 // case: syntax.test.panics.rule/alt/drop:6
 @test (panics:  ) "C" { }
 
@@ -1052,26 +1040,11 @@ extension a { @synthesize (shared) static func b() { }
 // case: syntax.test.warns.none/alt/dup:10
 @test (warns: none) "C" { } }
 
-// case: syntax.test.refuses/alt/drop:4
-@test ( : "C") "C" { }
-
-// case: syntax.test.refuses/alt/dup:7
-@test (refuses: "C") ) "C" { }
-
-// case: syntax.test.refuses/alt/swap:5
-@test (refuses "C"   : ) "C" { }
-
 // case: syntax.test.text/alt/drop:1
- test (refuses: "C", text: "C") "C" { }
-
-// case: syntax.test.text/alt/dup:11
-@test (refuses: "C", text: "C") ) "C" { }
+ test (panics: "C", text: "C") "C" { }
 
 // case: syntax.test.text/alt/swap:3
-@test  refuses  ( : "C", text: "C") "C" { }
-
-// case: syntax.test.text/alt/close:11
-@test (refuses: "C", text: "C"  "C" { }
+@test  panics  ( : "C", text: "C") "C" { }
 
 // case: syntax.test.at/alt/drop:7
 @test (panics: "C"  at: 1) "C" { }
@@ -1108,36 +1081,6 @@ extension a { @synthesize (shared) static func b() { }
 
 // case: syntax.test.declaration.import/alt/dup:2
 @test test import a
-
-// case: syntax.test.refusal-body/alt/drop:1
- test (refuses: "C") "C" { }
-
-// case: syntax.test.refusal-body/alt/dup:4
-@test (refuses refuses: "C") "C" { }
-
-// case: syntax.test.refusal-body/alt/close:7
-@test (refuses: "C"  "C" { }
-
-// case: syntax.test.refusal-token.nested/alt/drop:12
-@test (refuses: "C") "C" { { }
-
-// case: syntax.test.refusal-token.nested/alt/dup:8
-@test (refuses: "C") "C" "C" { { } }
-
-// case: syntax.test.refusal-token.nested/alt/swap:2
-@ (   test refuses: "C") "C" { { } }
-
-// case: syntax.test.refusal-token.other/alt/drop:1
- test (refuses: "C") "C" { x }
-
-// case: syntax.test.refusal-token.other/alt/dup:9
-@test (refuses: "C") "C" { { x }
-
-// case: syntax.test.refusal-token.other/alt/swap:4
-@test ( :  refuses  "C") "C" { x }
-
-// case: syntax.test.refusal-token.other/alt/close:11
-@test (refuses: "C") "C" { x
 
 // case: syntax.type.type.ref/alt/drop:1
   a = & b

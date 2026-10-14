@@ -224,6 +224,7 @@ public enum TokenKind {
     case At,
     case HashDirective,
     case DollarParam,
+    case RefusalText,
     case Newline,
     case Eof
 }
@@ -263,7 +264,8 @@ public struct StringSegment {
 
 // A lexed token. `value` holds the token's canonical text (decoded, for a plain
 // string; the RAW source spelling between the quotes, for an InterpString,
-// whose parse input is its SEGMENTS; underscores stripped, for numbers).
+// whose parse input is its SEGMENTS; underscores stripped, for numbers; the
+// body's bytes as written, for a refusal case's REFUSAL_TEXT).
 // `suffix` is the fixed-width integer suffix (one of i8/i16/i32/i64/u8/u16/u32/
 // u64) when the literal was written `255u8` / `0xFF_u8`; None for every
 // non-suffixed token.
@@ -466,6 +468,7 @@ public func kind_name(k: TokenKind) -> String {
         case At -> "AT",
         case HashDirective -> "HASH_DIRECTIVE",
         case DollarParam -> "DOLLAR_PARAM",
+        case RefusalText -> "REFUSAL_TEXT",
         case Newline -> "NEWLINE",
         case Eof -> "EOF"
     }
@@ -497,8 +500,8 @@ public func token_kinds() -> Vector<TokenKind> {
         TokenKind.DotDotEq, TokenKind.Ellipsis, TokenKind.LParen, TokenKind.RParen,
         TokenKind.LBrace, TokenKind.RBrace, TokenKind.LBracket, TokenKind.RBracket,
         TokenKind.Comma, TokenKind.Colon, TokenKind.Semicolon, TokenKind.Arrow, TokenKind.Dot,
-        TokenKind.At, TokenKind.HashDirective, TokenKind.DollarParam, TokenKind.Newline,
-        TokenKind.Eof,
+        TokenKind.At, TokenKind.HashDirective, TokenKind.DollarParam, TokenKind.RefusalText,
+        TokenKind.Newline, TokenKind.Eof,
     ]
 }
 
@@ -862,6 +865,52 @@ func odd_quotes(raw: &String) -> Bool {
         i = i + 1
     }
     in_string
+}
+
+// =============================================================================
+// Refusal case bodies (GRAMMAR.md §2.7, syntax.lex.refusal-text)
+// =============================================================================
+
+func kind_at(tokens: &Vector<Token>, k: Int, kind: TokenKind) -> Bool {
+    k >= 0 && k < tokens.len() && tokens[k].kind == kind
+}
+
+func word_at(tokens: &Vector<Token>, k: Int, word: String) -> Bool {
+    if not kind_at(&tokens, k, TokenKind.Ident) {
+        return false
+    }
+    let t = tokens[k]
+    t.value.equals(word)
+}
+
+// Whether the tokens ending at `k` are a test clause's `, WORD: VALUE`.
+func clause_ends_at(tokens: &Vector<Token>, k: Int, value: TokenKind, word: String) -> Bool {
+    let pair = kind_at(&tokens, k, value) && kind_at(&tokens, k - 1, TokenKind.Colon)
+    pair && word_at(&tokens, k - 2, word) && kind_at(&tokens, k - 3, TokenKind.Comma)
+}
+
+// The index of the `@` when the last tokens are a refusal case's header,
+// `@test(refuses: "rule", text: "…", at: N) "name"` with the two optional
+// slots in that order, or -1. The parser reads the same header, so a token
+// sequence it would not take as one never starts a body.
+func refusal_header_at(tokens: &Vector<Token>) -> Int {
+    var k = tokens.len() - 1
+    if not kind_at(&tokens, k, TokenKind.StringLit) || not kind_at(&tokens, k - 1, TokenKind.RParen) {
+        return -1
+    }
+    k = k - 2
+    if clause_ends_at(&tokens, k, TokenKind.IntLit, "at") {
+        k = k - 4
+    }
+    if clause_ends_at(&tokens, k, TokenKind.StringLit, "text") {
+        k = k - 4
+    }
+    let rule = kind_at(&tokens, k, TokenKind.StringLit) && kind_at(&tokens, k - 1, TokenKind.Colon)
+    let opens = word_at(&tokens, k - 2, "refuses") && kind_at(&tokens, k - 3, TokenKind.LParen)
+    if rule && opens && word_at(&tokens, k - 4, "test") && kind_at(&tokens, k - 5, TokenKind.At) {
+        return k - 5
+    }
+    return -1
 }
 
 // =============================================================================
@@ -1401,6 +1450,75 @@ extension Lexer {
               seg_start: 0, seg_count: 0)
     }
 
+    // The byte after the spaces and tabs from byte `at`.
+    func skip_blank_from(&self, at: Int) -> Int {
+        var k = at
+        while ubyte(&self.src, k) == B_SPACE || ubyte(&self.src, k) == B_TAB {
+            k = k + 1
+        }
+        k
+    }
+
+    // Where `word` ends when its bytes start at byte `at`, then the blanks
+    // after it skipped; -1 when they do not, or when `at` is -1 already.
+    func spelled_at(&self, at: Int, word: String) -> Int {
+        if at < 0 {
+            return -1
+        }
+        var k = 0
+        while k < word.len() {
+            if ubyte(&self.src, at + k) != (word.byte_at(k) as Int) {
+                return -1
+            }
+            k = k + 1
+        }
+        self.skip_blank_from(at + word.len())
+    }
+
+    // Whether the line starting at byte `at` begins, after its indentation,
+    // with the tokens of the end marker `@test(end: refuses)`. Each piece is
+    // followed by blanks and then the next piece's punctuation, so `tests` or
+    // `ends` never passes for a word of the marker.
+    func end_marker_at(&self, at: Int) -> Bool {
+        // Stage 0 workaround (SL:hazards S4): canonical: var k = self.spelled_at(self.skip_blank_from(at), "@")
+        let indent = self.skip_blank_from(at)
+        var k = self.spelled_at(indent, "@")
+        k = self.spelled_at(k, "test")
+        k = self.spelled_at(k, "(")
+        k = self.spelled_at(k, "end")
+        k = self.spelled_at(k, ":")
+        k = self.spelled_at(k, "refuses")
+        self.spelled_at(k, ")") >= 0
+    }
+
+    // A refusal case's body, `pos` at the start of the line after its
+    // header: every line up to the one the end marker starts, or to the end
+    // of input when no line does (syntax.lex.refusal-text). Nothing in it is
+    // lexed, so the body's extent never depends on what it holds.
+    func read_refusal_text(&var self) -> Token {
+        let start = self.pos
+        let line = self.line
+        let col = self.col
+        while self.pos < self.slen {
+            // Stage 0 workaround (SL:hazards S4): canonical: while self.pos < self.slen && not self.end_marker_at(self.pos) {
+            let here = self.pos
+            if self.end_marker_at(here) {
+                break
+            }
+            while self.pos < self.slen && self.peek() != B_NL {
+                let _ = self.advance()
+            }
+            if self.pos < self.slen {
+                let _ = self.advance()
+            }
+        }
+        // Stage 0 workaround (SL:hazards S4): canonical: let body = self.src.substring(start, self.pos)
+        let end = self.pos
+        let body = self.src.substring(start, end)
+        Token(kind: TokenKind.RefusalText, value: body, line: line, col: col, suffix: None,
+              seg_start: 0, seg_count: 0)
+    }
+
     // Run the lexer to EOF. Doc-comment trivia is appended to `docs` (design 121),
     // every interpolated string's typed segments to `segments` (design 268), and
     // each token's byte offset to `offsets`, index for index with the result.
@@ -1414,11 +1532,17 @@ extension Lexer {
                 break
             }
             let ch = self.peek()
-            // Each branch below emits at most one token, and it starts here;
-            // the lexer's unit program `offsets` holds every kind to that.
+            // Each branch below emits at most one token, and it starts here,
+            // but for a refusal case's body, which starts after the line break
+            // that ends its header; the lexer's unit program `offsets` holds
+            // every kind to that.
             let at = self.pos
 
-            if ch == B_NL {
+            if ch == B_NL && refusal_header_at(&tokens) >= 0 {
+                let _ = self.advance()
+                try! offsets.push(self.pos)
+                try! tokens.push(self.read_refusal_text())
+            } else if ch == B_NL {
                 try! tokens.push(self.tok(TokenKind.Newline, "\n"))
                 let _ = self.advance()
             } else if ch == B_QUOTE {
@@ -1639,6 +1763,12 @@ extension Lexer {
             if offsets.len() < tokens.len() {
                 try! offsets.push(at)
             }
+        }
+        // A header on the last line, with no line break after it, has an
+        // empty body.
+        if refusal_header_at(&tokens) >= 0 {
+            try! offsets.push(self.pos)
+            try! tokens.push(self.tok(TokenKind.RefusalText, ""))
         }
         try! tokens.push(self.tok(TokenKind.Eof, ""))
         try! offsets.push(self.pos)

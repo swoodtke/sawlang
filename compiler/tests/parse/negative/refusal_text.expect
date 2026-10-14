@@ -1,0 +1,32 @@
+// case: syntax.test.refused-stray-end/end-marker-with-no-body
+refuses syntax.test.refused-stray-end
+
+// case: syntax.test.refused-stray-end/a-second-end-marker
+refuses syntax.test.refused-stray-end
+
+// case: syntax.test.case.refuses/a-brace-body-is-not-a-body
+refuses parse-error at 1:32
+
+// case: syntax.test.case.refuses/the-body-starts-on-the-next-line
+refuses parse-error at 1:33
+
+// case from refusal-unit: syntax.rule.refusal-body/unclosed-paren-in-a-test-build
+refuses syntax.lex.unclosed-bracket at 2:9
+
+// case from refusal-unit: syntax.rule.refusal-body/stray-brace-after-a-statement
+refuses parse-error at 2:1
+
+// case from refusal-unit: syntax.rule.refusal-body/stray-brace-first
+refuses parse-error at 1:1
+
+// case from refusal-unit: syntax.rule.refusal-body/stray-brace-in-a-map
+refuses syntax.lex.unclosed-bracket at 2:13
+
+// case from refusal-unit: syntax.rule.refusal-body/unterminated-string-in-a-test-build
+refuses syntax.lex.unterminated-string at 1:9
+
+// case: syntax.test.refused-unterminated/missing-end-marker
+refuses syntax.test.refused-unterminated
+
+// case: syntax.test.refused-unterminated/header-at-the-end-of-input
+refuses syntax.test.refused-unterminated

@@ -607,7 +607,7 @@ class Grammar:
 # The token kinds a grammar terminal of the same name matches; every other
 # token matches its quoted spelling.
 KIND_TERMINALS = ("IDENT", "INT", "FLOAT", "STRING", "INTERP_STRING", "DOLLAR_PARAM",
-                  "NEWLINE", "EOF")
+                  "REFUSAL_TEXT", "NEWLINE", "EOF")
 
 
 SHIFT_HALF = {"SHL": '"<"', "SHR": '">"'}
@@ -643,8 +643,6 @@ def token_terms(tok):
         terms.add('"#' + tok.value + '"')
     elif tok.kind not in KIND_TERMINALS:
         terms.add('"' + tok.value + '"')
-    if tok.kind not in ("LBRACE", "RBRACE", "EOF"):
-        terms.add("NON_BRACE")
     return terms
 
 
@@ -1481,8 +1479,6 @@ class Forest:
             return base
         if nt in HOP_CHAINS and flat:
             return nest(flat, g.run_opens, g.run_closes)
-        if nt == REFUSAL_BODY:
-            flat = self._shifts_joined(flat)
         nodes = [c for c in flat if not is_tok(c)]
         toks = [c for c in flat if is_tok(c)]
         if node == "-":
@@ -1502,25 +1498,10 @@ class Forest:
             return ("node", node, tuple([toks[0], chain] + toks[1:]), suffix)
         return ("node", node, tuple(flat), suffix)
 
-    def _shifts_joined(self, flat):
-        """A refusal body's tokens, each `<` or `>` touching one of its own kind
-        joined with it into one leaf: no production reads the body, so the leaf
-        keeps the adjacency syntax.lex.shift-adjacent decides by."""
-        out = []
-        for c in flat:
-            prev = out[-1] if out else None
-            if prev is not None and is_tok(c) and is_tok(prev) and c[1] in ("<", ">") \
-                    and prev[1] == c[1] and adjacent(self.c.tokens[prev[2]], self.c.tokens[c[2]]):
-                out[-1] = ("tok", c[1] * 2, prev[2], True)
-                continue
-            out.append(c)
-        return out
-
 
 # Hop chains written as a base and its hops, whose nodes nest one per hop.
 HOP_CHAINS = ("postfix-expr", "projection-target", "call-target", "optional-chain-target")
 SHIFT_AUX = ("__shl", "__shr")
-REFUSAL_BODY = "refusal-body"
 # The hops that open a run of an optional chain, and those that close an open
 # one; the end of the chain closes it too (syntax.rule.optional-chain-run).
 RUN_OPENS = ("syntax.expr.optional-member",)

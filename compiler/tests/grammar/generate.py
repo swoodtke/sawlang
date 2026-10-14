@@ -69,15 +69,19 @@ AREAS = {"3": "declarations", "4": "attributes", "5": "types", "6": "statements"
 # afresh: a selective import must not bind a name twice
 # (syntax.rule.import-names).
 IDENT = "\x00ident"
+# A refusal case's body until a case is formatted, which ends the header's line
+# with it and writes REFUSAL_LINE as the body's one line (syntax.lex.refusal-text).
+REFUSAL_TEXT = "\x00refusal"
+REFUSAL_LINE = "x"
 # How a token-kind terminal is written in a case.
 SPELLINGS = {
     "IDENT": IDENT, "INT": "1", "FLOAT": "1.5", "STRING": '"C"', "INTERP_STRING": '"{x}"',
-    "DOLLAR_PARAM": "$0", "NON_BRACE": "x", "EOF": "", "NEWLINE": "\n",
+    "DOLLAR_PARAM": "$0", "REFUSAL_TEXT": REFUSAL_TEXT, "EOF": "", "NEWLINE": "\n",
 }
 # A token's cost when choosing the shortest expansion. An identifier is the
 # cheapest operand, so a name rather than `1` or `..` stands for an expression.
 COSTS = {"IDENT": 0.9, "INT": 1.05, "FLOAT": 1.1, "STRING": 1.1, "INTERP_STRING": 1.2,
-         "DOLLAR_PARAM": 1.2, "NON_BRACE": 1.0, "EOF": 0.0, "NEWLINE": 1.0}
+         "DOLLAR_PARAM": 1.2, "REFUSAL_TEXT": 1.0, "EOF": 0.0, "NEWLINE": 1.0}
 # The program each start symbol other than source-file is parsed in; HOLE is
 # where the start symbol's text goes.
 HOLE = "\x00hole"
@@ -973,7 +977,8 @@ def names():
 def format_tokens(tokens):
     """Source text for a token list: one space between tokens, none inside
     brackets, around a member `.` or before a call's `(`, a line break with
-    indentation for each `\\n`, and each identifier named afresh. Line breaks
+    indentation for each `\\n`, a refusal case's body on lines of its own,
+    and each identifier named afresh. Line breaks
     before the first token and after the last stay, since a case may be about
     them; a text whose tokens end in none ends in one line break."""
     fresh = names()
@@ -987,6 +992,13 @@ def format_tokens(tokens):
             continue
         if tok == "\n":
             out.append(line.rstrip())
+            line = ""
+            prev = None
+            continue
+        if tok == REFUSAL_TEXT:
+            out.append(line.rstrip())
+            out.append(REFUSAL_LINE)
+            spelled.append(REFUSAL_LINE + "\n")
             line = ""
             prev = None
             continue

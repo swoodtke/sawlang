@@ -70,5 +70,6 @@ func main() {
     n = n + check("a == b != c < d > e <= f >= g; a | b ^ c & d; a -> b; [a]; a, b: c; a / b % c\n")
     n = n + check("  \"é\{x\}ü\{f(\"\{y\}\")\}\" \t\"plain \\u\{E9\}\" \"\\\{\"\r\nlet q = \"\{\}\"")
     n = n + check("f(\"é\", \"é\", x)\n    g(\"ü\", y)\nh()")
+    n = n + check("@test(refuses: \"r\") \"é\"\n  é \{\n@test(end: refuses)\n@test(refuses: \"r\") \"n\"")
     assert(n > 0, "no tokens were checked")
 }

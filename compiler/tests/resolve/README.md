@@ -214,8 +214,8 @@ construct is resolved, and the verifier asks nothing of it. An associated type
 declares no bound, so `T.Item.Key` names nothing today; it is refused as
 unbuilt rather than as undefined.
 
-A refusal case's body is never resolved: a normal build matches only its
-braces (SL:testing §5).
+A refusal case's body is never resolved: in a normal build it is one token,
+read by nothing (SL:testing §5).
 
 ### Imports
 
