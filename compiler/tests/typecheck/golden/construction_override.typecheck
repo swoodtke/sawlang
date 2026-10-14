@@ -9,7 +9,7 @@
     (method Port.renamed 29:10 private (signature (receiver shared) (params) -> construction_override.Port) (summary body (suspends no) (sync-callable no)))
     (method Port.origin 33:17 private (signature (params) -> construction_override.Port static) (summary body (suspends no) (sync-callable no)))
     (alias Socket 38:6 private construction_override.Port)
-    (func pick 40:6 private (signature (params (p construction_override.Port owned default)) -> Int) (summary body (suspends no) (sync-callable no)))
+    (func pick 40:6 private (signature (params (p construction_override.Port owned default)) -> Int) (summary body (suspends no) (sync-callable yes)))
     (func ordinary 44:6 private (signature (params) -> Int) (summary body (suspends no) (sync-callable no)))
     (struct Point 51:8 private)
     (field Point.x 52:5 private Int)

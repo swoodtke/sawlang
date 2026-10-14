@@ -124,7 +124,7 @@ fn default_suspension.fills() -> Int {
     }
 
     bb1: {
-        _2 = call default_suspension.with_slow(n: Int) [move _1] -> [return: bb2] suspends;
+        _2 = call default_suspension.with_slow(n: Int) [move _1] -> [return: bb2];
     }
 
     bb2: {
@@ -138,7 +138,7 @@ fn default_suspension.explicit() -> Int {
     let _1: Int;
 
     bb0: {
-        _1 = call default_suspension.with_slow(n: Int) [const 2: Int] -> [return: bb1] suspends;
+        _1 = call default_suspension.with_slow(n: Int) [const 2: Int] -> [return: bb1];
     }
 
     bb1: {

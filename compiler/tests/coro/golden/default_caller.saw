@@ -1,0 +1,27 @@
+// A suspending default is evaluated by the caller (LANGUAGE_SPEC, "Default
+// parameter values"). The default's own item suspends and needs a frame, and
+// so does `fills`, which leaves the argument out and drives it; `f` needs
+// none, since nothing in its body suspends, and neither does `explicit`,
+// which passes the argument.
+import std.task.{yield_now}
+
+func slow() -> Int {
+    yield_now()
+    4
+}
+
+func f(n: Int = slow()) -> Int {
+    n + 1
+}
+
+func fills() -> Int {
+    f()
+}
+
+func explicit() -> Int {
+    f(n: 2)
+}
+
+func main() {
+    print("{}", fills() + explicit())
+}

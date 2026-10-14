@@ -537,10 +537,31 @@ extension TcProgram {
     }
 
     // What top unit `u`'s items make of its summary, with every summary as
-    // it stands.
+    // it stands. Each default value's run is left out: the call that leaves
+    // the argument out evaluates it, so its effect is that caller's.
     public func summarize_unit(&var self, u: Int) -> TcAcc {
         let unit = self.units[u]
-        self.summarize_items(u, unit.item_first, unit.item_end, u)
+        var acc = tc_acc(unit.decl, u)
+        var k = unit.item_first
+        if unit.decl >= 0 {
+            let d = unit.decl
+            var j = 0
+            while j < self.sigs[d].param_count {
+                let at = self.default_at.first(d, j)
+                j = j + 1
+                if at < 0 {
+                    continue
+                }
+                let info = self.defaults[self.default_at.value(at)]
+                if info.unit != u {
+                    continue
+                }
+                self.gather_items(u, k, info.item_first, &var acc)
+                k = info.item_end
+            }
+        }
+        self.gather_items(u, k, unit.item_end, &var acc)
+        move acc
     }
 
     // What the run of top unit `u`'s items from `first` to `end` makes, each
@@ -548,6 +569,15 @@ extension TcProgram {
     func summarize_items(&var self, u: Int, first: Int, end: Int, reader: Int) -> TcAcc {
         let unit = self.units[u]
         var acc = tc_acc(unit.decl, reader)
+        self.gather_items(u, first, end, &var acc)
+        move acc
+    }
+
+    // The run of top unit `u`'s items from `first` to `end`, gathered into
+    // `acc`.
+    func gather_items(&var self, u: Int, first: Int, end: Int, acc: &var TcAcc) {
+        let unit = self.units[u]
+        let reader = acc.unit
         var k = first
         while k < end {
             let item = self.items[k]
@@ -578,7 +608,6 @@ extension TcProgram {
                 self.erase_conditions(item.node, &var acc)
             }
         }
-        move acc
     }
 
     // A call in a `sync` body, evaluated into `inner`: what would make it
@@ -775,18 +804,37 @@ extension TcProgram {
 
 // Evaluating calls and conditions.
 extension TcProgram {
-    // What the call at node `e` adds: its target's summary, instantiated at
-    // the call's type arguments, or what a call through a function value, an
-    // existential or a bound says. For a spawn form's root and a drive site's
-    // it is only what `join_spawned` keeps of that, since the task or the
-    // driver makes the call, and all of each default the call fills, which
-    // the site evaluates.
+    // What the call at node `e` costs the body it is written in: its
+    // target's call (`eval_target`) and each default it leaves out, which the
+    // caller evaluates (LANGUAGE_SPEC, "Default parameter values").
+    //
+    // ENTRY POINTS:
+    //   gather_items
+    //   check_sync_call
+    //   check_closure_call
+    //   check_window_calls
+    //   verify_unit_suspensions
     public func eval_call(&var self, e: Int, acc: &var TcAcc) {
+        self.eval_target(e, &var acc)
+        self.eval_filled_defaults(e, &var acc)
+    }
+
+    // What the call of its target at node `e` adds, without the defaults it
+    // leaves out: the target's summary, instantiated at the call's type
+    // arguments, or what a call through a function value, an existential or
+    // a bound says. For a spawn form's root and a drive site's it is only what
+    // `join_spawned` keeps of that, since the task or the driver makes the
+    // call.
+    //
+    // ENTRY POINTS:
+    //   eval_call
+    //   blamed_call_text
+    //   MirProgram.call_effect
+    public func eval_target(&var self, e: Int, acc: &var TcAcc) {
         if self.spawn_roots[e] || self.drive_roots[e] {
             var task = tc_acc(acc.owner, acc.unit)
             self.eval_made_call(e, &var task)
             self.join_spawned(&var acc, &var task)
-            self.eval_filled_defaults(e, &var acc)
             return
         }
         self.eval_made_call(e, &var acc)
@@ -879,9 +927,10 @@ extension TcProgram {
     }
 
     // What the call at node `e` adds by filling parameter `j`'s default: the
-    // default's own summary, at the call's type arguments. A default no
-    // checked body holds answers with its function's summary, which includes
-    // it.
+    // default's own summary, at the call's type arguments. A default that is
+    // never checked, an interface function's, answers with its function's
+    // summary: the std table's verdict, which Stage 0 decides counting the
+    // function's defaults.
     public func eval_default(&var self, e: Int, j: Int, acc: &var TcAcc) {
         let at = self.call_at[e]
         if at < 0 {

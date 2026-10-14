@@ -436,7 +436,15 @@ compares:
   reaches, declared before one and after the other, prints its `// prints:`
   lines the same way: the production generic's instance at each type and
   ordinary code's direct call both run the trait's default, whatever the
-  declaration order. Stage 0 cannot parse `@test` (SL-640, SL-629).
+  declaration order. Stage 0 cannot parse `@test` (SL-640, SL-629);
+- `probes/default_caller_suspends.saw`, whose calls leave out a suspending
+  default (a free function, a method, a generic function, a spawn root, and a
+  requirement's through a bound whose implementation does not suspend) or
+  pass the argument, in a `sync` body too, prints its `// prints:` lines the
+  same way: the caller evaluates the default, so the call that leaves it out
+  suspends in the caller and the function needs no frame. Stage 0 refuses
+  every call that leaves out a suspending default, and a `sync` caller that
+  passes the argument (SL-656).
 
 Stage 0 is the oracle: a difference is a sawc2 bug until shown otherwise
 (SL:architecture §5).

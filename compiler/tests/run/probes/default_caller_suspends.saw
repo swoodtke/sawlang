@@ -1,0 +1,129 @@
+// A suspending default is evaluated by the caller, so a call that leaves it
+// out suspends in the caller and the function itself does not: `f`, `add`
+// and `run` need no frame, `f(n: 2)` runs in a `sync` body, and a call
+// through a bound that leaves out a requirement's suspending default
+// suspends its caller though the implementation does not. Stage 0 refuses
+// every call that leaves out a suspending default, and a `sync` caller that
+// passes the argument. A default whose suspension is a condition over the
+// function's type parameter suspends only where the caller's type argument
+// makes it, so a `sync` body may leave it out at `Fast`.
+// prints: free 5
+// prints: free explicit 3
+// prints: sync explicit 3
+// prints: method 14
+// prints: method explicit 12
+// prints: generic 104
+// prints: generic explicit 102
+// prints: spawned 5
+// prints: bound 14
+// prints: counted sync 11
+// prints: counted 12
+import std.task.{yield_now}
+
+func slow() -> Int {
+    yield_now()
+    4
+}
+
+func f(n: Int = slow()) -> Int {
+    n + 1
+}
+
+func explicit_in_sync() sync -> Int {
+    f(n: 2)
+}
+
+struct Counter {
+    base: Int
+}
+
+extension Counter {
+    func add(&self, n: Int = slow()) -> Int {
+        self.base + n
+    }
+}
+
+trait Worker {
+    func step(&self) -> Int
+}
+
+struct Plain {
+    k: Int
+}
+
+extension Plain: Worker {
+    func step(&self) -> Int {
+        self.k
+    }
+}
+
+func run<T: Worker>(t: &T, n: Int = slow()) -> Int {
+    t.step() + n
+}
+
+trait Tally {
+    static func count() -> Int
+}
+
+struct Fast {}
+
+extension Fast: Tally {
+    static func count() -> Int {
+        1
+    }
+}
+
+struct Slow {}
+
+extension Slow: Tally {
+    static func count() -> Int {
+        yield_now()
+        2
+    }
+}
+
+func counted<T: Tally>(t: &T, n: Int = T.count()) -> Int {
+    n + 10
+}
+
+func counted_in_sync() sync -> Int {
+    let fast = Fast()
+    counted(t: &fast)
+}
+
+trait P {
+    func m(&self, n: Int = slow()) -> Int
+}
+
+struct S {
+    k: Int
+}
+
+extension S: P {
+    func m(&self, n: Int = 3) -> Int {
+        n + self.k
+    }
+}
+
+func bound<T: P>(t: &T) -> Int {
+    t.m()
+}
+
+func main() {
+    print("free {}", f())
+    print("free explicit {}", f(n: 2))
+    print("sync explicit {}", explicit_in_sync())
+    let c = Counter(base: 10)
+    print("method {}", c.add())
+    print("method explicit {}", c.add(n: 2))
+    let p = Plain(k: 100)
+    print("generic {}", run(t: &p))
+    print("generic explicit {}", run(t: &p, n: 2))
+    let t = Task.spawn(f())
+    print("spawned {}", t.join())
+    let s = S(k: 10)
+    print("bound {}", bound(t: &s))
+    print("counted sync {}", counted_in_sync())
+    let slow_counter = Slow()
+    print("counted {}", counted(t: &slow_counter))
+}

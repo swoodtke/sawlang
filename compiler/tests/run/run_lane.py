@@ -84,7 +84,10 @@ exit status compared.
 - `probes/test_only_members.saw`, whose `@test` declarations Stage 0 cannot
   parse, prints the lines it states the same way: a production generic's
   instance at a production type, and ordinary code's direct call, run what
-  production code declares whatever order a test-only refinement is declared in.
+  production code declares whatever order a test-only refinement is declared in;
+- `probes/default_caller_suspends.saw`, whose calls leave out suspending
+  defaults and pass them, a `sync` body's among them, which Stage 0 refuses,
+  prints the lines it states the same way.
 
 `--bench` runs none of that: it times each kernel of `bench/` under sawc2 at
 -O2 and under Stage 0 and prints the report, which gates nothing. The runner
@@ -837,6 +840,15 @@ def check_test_only_members(failures, counts):
     check_stated(failures, counts, "test-only members", src, want)
 
 
+def check_default_caller_suspends(failures, counts):
+    """The caller evaluates a suspending default, so a call that leaves it out
+    suspends there and its function does not: `probes/default_caller_suspends.saw`,
+    which Stage 0 refuses, prints its `// prints:` lines (SL-656)."""
+    src = os.path.join(HERE, "probes", "default_caller_suspends.saw")
+    want = "".join(line + "\n" for line in stated_prints(src)).encode()
+    check_stated(failures, counts, "default caller suspends", src, want)
+
+
 def run(names=None, write=False):
     os.makedirs(OUT, exist_ok=True)
     failures = []
@@ -874,6 +886,7 @@ def run(names=None, write=False):
         check_requirement_default_bound(failures, counts)
         check_construction_override(failures, counts)
         check_test_only_members(failures, counts)
+        check_default_caller_suspends(failures, counts)
     return failures, counts, dues
 
 

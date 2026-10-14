@@ -1,12 +1,12 @@
 // A call that leaves out a defaulted argument is two calls at one node: the
 // default's own body, then the function. Each is a suspension point as its
-// own summary makes it. A suspending default makes its function suspending
-// (LANGUAGE_SPEC, "Default parameter values"), so both of `fills()`'s calls
-// suspend, and so does `explicit()`'s, which passes the argument. A literal
-// default never suspends, whether its function does (`body_fills`) or not
-// (`control`), and in a generic body only the function's call carries the
-// condition. A spawn root's default is evaluated by the spawner, so its call
-// is the spawner's suspension point.
+// own summary makes it. The caller evaluates a default (LANGUAGE_SPEC,
+// "Default parameter values"), so in `fills()` only the default's call
+// suspends, and `explicit()`'s call, which passes the argument, does not. A
+// literal default never suspends, whether its function does (`body_fills`)
+// or not (`control`), and in a generic body only the function's call carries
+// the condition. A spawn root's default is evaluated by the spawner, so its
+// call is the spawner's suspension point.
 
 import std.task.{yield_now}
 

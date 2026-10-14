@@ -1,0 +1,20 @@
+// refuses: effect.closure-suspends at 17:9
+// a closure body that leaves out a suspending default: the closure body
+// evaluates the default, so it would suspend
+import std.task.{yield_now}
+
+func slow() -> Int {
+    yield_now()
+    4
+}
+
+func f(n: Int = slow()) -> Int {
+    n + 1
+}
+
+func main() {
+    let g = { x: Int in
+        f() + x
+    }
+    print(g(1))
+}

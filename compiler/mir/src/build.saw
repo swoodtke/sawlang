@@ -895,8 +895,9 @@ extension MirProgram {
     }
 
     // What typecheck's summaries say call `c` at source node `e` adds. A
-    // default's call shares its node with its function's call, which the
-    // node's summary answers for, so it takes its default's own summary.
+    // call that leaves out a default is two calls at one node, so each takes
+    // its own part: a default's call its default's summary, the target's
+    // call the target's alone.
     //
     // ENTRY POINTS:
     //   suspension
@@ -906,7 +907,7 @@ extension MirProgram {
             self.tc.eval_default(e, c.param, &var acc)
             return
         }
-        self.tc.eval_call(e, &var acc)
+        self.tc.eval_target(e, &var acc)
     }
 
     // Whether the call at source node `e` is a suspension point, from

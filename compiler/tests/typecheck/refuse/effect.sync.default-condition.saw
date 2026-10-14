@@ -1,0 +1,26 @@
+// refuses: effect.sync at 25:5
+// a `sync` body leaving out a default whose suspension is a condition over
+// the function's type parameter, at a type argument that makes it suspend
+import std.task.{yield_now}
+
+trait Counter {
+    static func count() -> Int
+}
+
+struct Slow {}
+
+extension Slow: Counter {
+    static func count() -> Int {
+        yield_now()
+        2
+    }
+}
+
+func counted<T: Counter>(t: &T, n: Int = T.count()) -> Int {
+    n + 10
+}
+
+func quick() sync -> Int {
+    let slow = Slow()
+    counted(t: &slow)
+}

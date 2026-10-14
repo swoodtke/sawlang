@@ -293,7 +293,12 @@ to an existential. A function's summary (the dump's `(summary ...)`) is:
   call site that makes one true is refused.
 
 A closure's calls are not its function's: they add nothing to its suspension,
-and what would make one suspend becomes a `refuses-when` condition. Every
+and what would make one suspend becomes a `refuses-when` condition. Nor are a
+parameter's default's: the caller evaluates a default (LANGUAGE_SPEC,
+"Default parameter values"), so each default value has a summary of its own,
+solved beside its function's, which a call that leaves the argument out adds
+to the body it is in (`eval_call`), and the function's summary leaves it out.
+A bodyless requirement's unit holds only its defaults. Every
 summary starts at the bottom and only grows, so the worklist, in declaration
 order, reaches the least fixpoint however recursion cycles.
 

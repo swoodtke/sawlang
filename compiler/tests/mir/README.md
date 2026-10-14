@@ -341,7 +341,7 @@ through a reference to stay a reported move.
 | `print("x = {}", x)`, `panic`'s and `assert`'s format messages | a `format` constant, the arguments after it; `"x = {x}"` an `interpolate` | formats |
 | `lend p` | the end of the accessor's prologue, the start of its epilogue | windows, accessors |
 | a call of a function that may suspend | a suspension point, conditional in a generic body | points |
-| a call that leaves out a default, `f()` for `f(n: Int = slow())` | two calls at one node, each a suspension point as its own summary makes it: the default's by the default's (`call_effect`), the function's by the function's, which includes the default's | default_suspension |
+| a call that leaves out a default, `f()` for `f(n: Int = slow())` | two calls at one node, each a suspension point as its own summary makes it: the default's by the default's (`call_effect`), the function's by the function's, which leaves its defaults out, since the caller evaluates them | default_suspension |
 | a call through a bound that leaves out a bodyless requirement's default, `t.m()`; a call that leaves out an interface-only std function's default | the requirement's default's call by that default's own summary, the requirement's call by its condition over the bound; the interface default's call by its function's summary | default_requirement |
 | a call of a test intrinsic that suspends, `__saw_suspend` or `__saw_test_suspend` | a builtin call that is a suspension point, as typecheck's summaries make it | test_intrinsics |
 
@@ -571,7 +571,8 @@ nowhere, and checks, from the MIR alone:
   and an instantiation as long as its target's generic list;
 - every call is a suspension point exactly as typecheck's summaries,
   evaluated at its source node, make it (a default's call by its default's
-  own summary), and a conditional one carries its conditions; a window call
+  own summary, its target's call by its target's alone), and a conditional
+  one carries its conditions; a window call
   whose half holds no call that may suspend is none;
 - no accessor that lends a place is lowered whole; each half belongs to its
   accessor; every window call names its accessor's half and passes the

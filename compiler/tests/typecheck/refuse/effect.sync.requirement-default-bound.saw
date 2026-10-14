@@ -1,0 +1,18 @@
+// refuses: effect.sync at 17:5
+// a `sync` generic body that leaves out a requirement's suspending default
+// through a bound: the caller evaluates the requirement's default, whatever
+// the implementation's summary says
+import std.task.{yield_now}
+
+func slow() -> Int {
+    yield_now()
+    4
+}
+
+trait P {
+    func m(&self, n: Int = slow()) -> Int
+}
+
+func start<T: P>(t: &T) sync -> Int {
+    t.m()
+}

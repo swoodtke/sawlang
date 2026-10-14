@@ -90,6 +90,10 @@ that reaches no source is ordinary recursion, unframed and never refused, even
 when typecheck flags its calls (golden `cycle_without_suspension`, which the
 run lane also builds and runs).
 
+A default value's item is a call of its own in the caller, so a suspending
+default makes the caller suspend and leaves its function unframed (golden
+`default_caller`).
+
 An item **needs a frame** when it suspends, and a task root (mono's
 specialization of a spawn site's root) needs one even when it does not
 (SL:architecture §3.9). A spawn site is no call of its root, so it is no

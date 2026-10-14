@@ -16,8 +16,8 @@ import sawtypecheck.checks.{tc_check_unsafe}
 import sawtypecheck.conform.{TcSubst}
 import sawtypecheck.spell.{tc_effects_text}
 import sawtypecheck.typeops.{TcClient}
-import sawtypecheck.model.{TC_EFFECT_SYNC, TC_FLAG_DEFAULT_BODY, TC_FORBID_CLOSURE, TC_FORBID_ERASE,
-                               TC_FORBID_SYNC,
+import sawtypecheck.model.{TC_BIND_DEFAULT, TC_EFFECT_SYNC, TC_FLAG_DEFAULT_BODY, TC_FORBID_CLOSURE,
+                               TC_FORBID_ERASE, TC_FORBID_SYNC,
                                TC_ITEM_CALL, TC_ITEM_ERASE, TC_SUMMARY_BODY, TC_SUMMARY_UNTABLED,
                                TcAtom, TcCall, TcConformance, TcItem, TcRole, TcStatus, TcStatusKind,
                                TcSummary, TcUnit, TcUse}
@@ -225,13 +225,46 @@ extension TcProgram {
                 try! msg.append("` is declared `sync`, and it calls ")
             }
         }
-        try! msg.append(self.callee_text(e))
-        if acc.suspends {
-            try! msg.append(", which may suspend")
-        } else {
-            try! msg.append(", which is not sync-callable")
-        }
+        try! msg.append(self.blamed_call_text(e, owner, acc.suspends))
         self.refuse_at(e, "effect.sync", msg.build())
+    }
+
+    // What the call at `e` does that suspends, or, when `suspends` is false,
+    // that is not sync-callable: its target, or else a default it leaves
+    // out, which the caller evaluates. `` `f`, which may suspend `` or
+    // `` `f` leaving out `n`, whose default value may suspend ``.
+    func blamed_call_text(&var self, e: Int, owner: Int, suspends: Bool) -> String {
+        let effect = if suspends { "may suspend" } else { "is not sync-callable" }
+        var out = StringBuilder()
+        try! out.append(self.callee_text(e))
+        var target = tc_acc(owner, -1)
+        self.eval_target(e, &var target)
+        let at = self.call_at[e]
+        if (target.suspends || (not suspends && target.nonsync)) || at < 0 {
+            try! out.append(", which ")
+            try! out.append(effect)
+            return out.build()
+        }
+        let c = self.calls[at]
+        var j = 0
+        while j < c.bind_count && c.bind_first >= 0 {
+            if self.binds[c.bind_first + j] == TC_BIND_DEFAULT {
+                var one = tc_acc(owner, -1)
+                self.eval_default(e, j, &var one)
+                if one.suspends || (not suspends && one.nonsync) {
+                    let param = self.params[self.sigs[c.target].param_first + j]
+                    try! out.append(" leaving out `")
+                    try! out.append(self.name_text(param.name))
+                    try! out.append("`, whose default value ")
+                    try! out.append(effect)
+                    return out.build()
+                }
+            }
+            j = j + 1
+        }
+        try! out.append(", which ")
+        try! out.append(effect)
+        out.build()
     }
 
     // A call inside a closure body must not suspend (spec: suspension, "a
@@ -245,24 +278,44 @@ extension TcProgram {
         }
         var msg = StringBuilder()
         try! msg.append("a closure body cannot suspend, and this calls ")
-        try! msg.append(self.callee_text(e))
-        try! msg.append(", which may: call it outside the closure")
+        try! msg.append(self.blamed_call_text(e, owner, true))
+        try! msg.append(": call it outside the closure")
         self.refuse_at(e, "effect.closure-suspends", msg.build())
     }
 
     // The call at `e`, where its callee's Copy requirement and forbidden
-    // conditions meet the call's type arguments.
+    // conditions meet the call's type arguments, and so do those of each
+    // default it leaves out, which the caller evaluates.
     func check_call_site(&var self, e: Int, owner: Int) {
         let at = self.call_at[e]
         if at < 0 {
             return
         }
         let c = self.calls[at]
-        if c.target < 0 || not self.is_function_decl(c.target) {
+        if c.target < 0 {
             return
         }
         let d = c.target
-        let s = self.summaries[d]
+        if self.is_function_decl(d) {
+            let s = self.summaries[d]
+            self.check_summary_at(e, owner, d, &s, &c)
+        }
+        var j = 0
+        while j < c.bind_count && c.bind_first >= 0 {
+            let filled = self.binds[c.bind_first + j] == TC_BIND_DEFAULT
+            let k = if filled { self.default_at.first(d, j) } else { -1 }
+            j = j + 1
+            if k >= 0 {
+                let s = self.defaults[self.default_at.value(k)].summary
+                self.check_summary_at(e, owner, d, &s, &c)
+            }
+        }
+    }
+
+    // Summary `s`, of function `d` or one of its defaults, at call `c` at
+    // `e`: each Copy requirement and forbidden condition at the call's type
+    // arguments.
+    func check_summary_at(&var self, e: Int, owner: Int, d: Int, s: &TcSummary, c: &TcCall) {
         var k = 0
         while k < s.copy_count {
             let a = self.atoms[s.copy_first + k]

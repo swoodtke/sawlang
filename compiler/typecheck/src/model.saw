@@ -452,9 +452,9 @@ public struct TcUnit {
 
 // Parameter `param`'s default value of function or requirement `decl`: its
 // items, a run of the declaration's top unit `unit`, and the summary they make
-// on their own. A function's summary includes the default's (LANGUAGE_SPEC,
-// "Default parameter values"); a call that fills the default is a call of the
-// default alone, so it evaluates this one (`eval_default`).
+// on their own. The caller evaluates a default, so a call that leaves the
+// argument out owes this summary (`eval_default`), and the function's own
+// summary leaves it out (LANGUAGE_SPEC, "Default parameter values").
 public struct TcDefault {
     decl: Int
     param: Int

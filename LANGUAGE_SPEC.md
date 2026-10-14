@@ -532,8 +532,11 @@ free functions, methods, and inits. Rules:
 - **Arbitrary expressions, no self/other-param refs.** A default may be any
   expression (including calls) but may reference only module-level items — never
   another parameter or `self`.
-- **Effects flow through.** A suspending default makes the callee suspending, so
-  a `sync` context that fills it is diagnosed.
+- **Effects belong to the caller.** The caller evaluates a default, so a
+  suspending default makes the call that fills it suspend, in the caller, and a
+  `sync` context that fills it is diagnosed. The function is unaffected: its
+  own body decides whether it suspends, and a call that passes the argument
+  explicitly suspends only if the function does.
 - **Overload interaction.** A defaulted declaration expands into its reachable
   call *shapes* (full arity down to the first defaulted arity). Any shape
   colliding with another overload's shape is a declaration-site ambiguity error
