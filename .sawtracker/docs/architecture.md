@@ -1181,7 +1181,7 @@ When that cannot be determined, everything runs.
 | Stage | Test surface |
 |---|---|
 | Lexer | golden token dumps |
-| Parser | golden AST dumps; `@test(refuses:)` for parse errors in a brace-balanced body. Only lexer errors and unbalanced braces stay as corpus files (SL:testing §5) |
+| Parser | golden AST dumps; `@test(refuses:)` for every parse and lexer error, since a refusal body is text whatever it holds, so no parser refusal needs a corpus file (SL:testing §5) |
 | Resolution | resolution-table dumps; `@test(refuses:)` for name rules (shadowing, visibility, test-only names); multi-file refusals as corpus files |
 | Typecheck | `@test` and `@test(refuses:)` by aspect; typed-IR dumps |
 | MIR and its checks | MIR dumps, plus refusal matrices for borrow, move and exclusivity rules |
