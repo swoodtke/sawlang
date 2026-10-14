@@ -1,0 +1,20 @@
+// refuses: copy.test-only-policy at 11:18
+// a test-only `NoCopy` conformance on a production type, whose `deinit` would
+// run in a production build: test code cannot give a type a second tier
+// (SL:testing, "Test code cannot change what production code means")
+
+struct Noisy {
+    id: Int
+}
+
+@test
+extension Noisy: NoCopy {
+    func deinit(&var self) {
+        print("test-only deinit {}", self.id)
+    }
+}
+
+func main() {
+    let n = Noisy(id: 7)
+    print("made {}", n.id)
+}

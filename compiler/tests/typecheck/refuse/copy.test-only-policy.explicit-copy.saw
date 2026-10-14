@@ -1,0 +1,19 @@
+// refuses: copy.test-only-policy at 10:18
+// a test-only `ExplicitCopy` conformance on a production type, which would
+// make the type's silent copies in production code a refusal in test code
+
+struct Money {
+    cents: Int
+}
+
+@test
+extension Money: ExplicitCopy {
+    func copy(&self) -> Money {
+        Money(cents: self.cents)
+    }
+}
+
+func main() {
+    let a = Money(cents: 1)
+    print("{}", a.cents)
+}

@@ -19,7 +19,6 @@ import sawresolve.lang.{ResLang}
 import sawresolve.model.{ResDeclKind}
 import sawresolve.program.{ResProgram}
 import sawtarget.layout.{target_enum_cases, target_member_type, target_struct_fields}
-import sawtypecheck.model.{TcSource}
 import sawtypecheck.program.{TcProgram}
 import sawtypecheck.spell.{tc_effects_text}
 import sawtypecheck.signatures.{TcContext}
@@ -356,24 +355,6 @@ extension MonoProgram {
 
     // The `copy()` type `t`'s copy-policy conformance writes, or -1.
     func copy_member(&var self, t: Int) -> Int {
-        let d = self.dp.bc.mir.tc.nominal_decl(t)
-        if d < 0 || d >= self.dp.bc.mir.tc.member_first.len() {
-            return -1
-        }
-        let first = self.dp.bc.mir.tc.member_first[d]
-        if first < 0 {
-            return -1
-        }
-        let count = self.dp.bc.mir.tc.member_count[d]
-        let name = self.dp.bc.mir.tc.res.intern("copy")
-        var j = first
-        while j < first + count {
-            let member = self.dp.bc.mir.tc.members[j]
-            if member.name == name && member.source == TcSource.Extension {
-                return member.decl
-            }
-            j = j + 1
-        }
-        return -1
+        self.dp.bc.mir.declared_copy(t)
     }
 }

@@ -1,0 +1,23 @@
+// refuses: synthesize.required at 10:18
+// a `Copy` conformance whose `copy()` another extension writes: the hook is
+// written inside the conformance, so the other is an ordinary method and the
+// conformance writes none (spec, The Copy trait), as Stage 0 refuses it
+
+struct Money {
+    cents: Int
+}
+
+extension Money: Copy {}
+
+extension Money {
+    func copy(&self) -> Money {
+        print("hook")
+        Money(cents: self.cents + 100)
+    }
+}
+
+func main() {
+    let a = Money(cents: 1)
+    let b = a
+    print("{}", b.cents)
+}

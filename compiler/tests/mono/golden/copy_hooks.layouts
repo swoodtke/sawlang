@@ -1,0 +1,16 @@
+&Int: size 8 align 8 pointer
+&String: size 8 align 8 pointer
+&copy_hooks.Counted: size 8 align 8 pointer
+&copy_hooks.Named: size 8 align 8 pointer
+&var String: size 8 align 8 pointer
+&var copy_hooks.Counted: size 8 align 8 pointer
+&var copy_hooks.Named: size 8 align 8 pointer
+Bool: size 1 align 1 int
+Int: size 8 align 8 int
+Never: size 0 align 1 zero
+String: size 8 align 8 record offsets 0
+UnsafePointer<Int8>: size 8 align 8 pointer
+UnsafePointer<Int>: size 8 align 8 pointer
+Void: size 0 align 1 zero
+copy_hooks.Counted: size 8 align 8 record offsets 0
+copy_hooks.Named: size 8 align 8 record offsets 0

@@ -1,0 +1,37 @@
+// A generic body's silent copy runs a type's copy glue, which calls the
+// `copy()` its `Copy` conformance writes (`Counted`) and otherwise rebuilds
+// the value from copies of its parts (`Named`): a `copy` method of an
+// extension that declares no policy is an ordinary method no glue calls.
+
+struct Named {
+    s: String
+}
+
+extension Named {
+    func copy(&self) -> Named {
+        Named(s: "other")
+    }
+}
+
+struct Counted {
+    s: String
+}
+
+extension Counted: Copy {
+    func copy(&self) -> Counted {
+        Counted(s: self.s)
+    }
+}
+
+func dup<T: Copy>(x: &T) -> T {
+    let y = x
+    y
+}
+
+func main() {
+    let n = Named(s: "n")
+    let c = Counted(s: "c")
+    let m = dup(&n)
+    let d = dup(&c)
+    print("{} {}", m.s, d.s)
+}

@@ -146,6 +146,23 @@ extension MirProgram {
         return -1
     }
 
+    // The `copy()` nominal type `t`'s `Copy` or `ExplicitCopy` conformance
+    // writes, or -1: the one answer to which body a copy the compiler inserts
+    // runs. A `copy` method of any other extension is an ordinary method,
+    // which no transfer runs.
+    //
+    // ENTRY POINTS (declared_copy):
+    //     copy_hook
+    //     capture_copy
+    //     copy_member
+    public func declared_copy(&var self, t: Int) -> Int {
+        let d = self.tc.nominal_decl(t)
+        if d < 0 || self.tc.is_primitive_decl(d) {
+            return -1
+        }
+        self.tc.policy_copy(d)
+    }
+
     // Whether a value of type `t` copies silently in the function being
     // lowered: typecheck's tier, except that a type parameter copies only
     // where a bound grants `Copy`. Typecheck answers yes for every parameter,

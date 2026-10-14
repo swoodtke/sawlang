@@ -1,0 +1,253 @@
+module copy_hooks
+
+fn copy_hooks.Plain.copy() -> copy_hooks.Plain {
+    let _0: copy_hooks.Plain;  // return
+    let _1: &copy_hooks.Plain;  // self
+    let _2: Int;
+    let _3: copy_hooks.Plain;
+
+    bb0: {
+        _2 = Add(copy (*_1).n, const 100: Int);
+        _3 = copy_hooks.Plain { n: move _2 };
+        _0 = move _3;
+        return;
+    }
+}
+
+fn copy_hooks.Owned.copy() -> copy_hooks.Owned {
+    let _0: copy_hooks.Owned;  // return
+    let _1: &copy_hooks.Owned;  // self
+    let _2: copy_hooks.Owned;
+
+    bb0: {
+        _2 = copy_hooks.Owned { s: const "other": String };
+        _0 = move _2;
+        return;
+    }
+}
+
+fn copy_hooks.Hooked.copy() -> copy_hooks.Hooked {
+    let _0: copy_hooks.Hooked;  // return
+    let _1: &copy_hooks.Hooked;  // self
+    let _2: Int;
+    let _3: copy_hooks.Hooked;
+
+    bb0: {
+        _2 = Add(copy (*_1).n, const 1: Int);
+        _3 = copy_hooks.Hooked { n: move _2 };
+        _0 = move _3;
+        return;
+    }
+}
+
+fn copy_hooks.Dup.copy() -> copy_hooks.Dup {
+    let _0: copy_hooks.Dup;  // return
+    let _1: &copy_hooks.Dup;  // self
+    let _2: copy_hooks.Dup;
+
+    bb0: {
+        _2 = copy_hooks.Dup { n: copy (*_1).n };
+        _0 = move _2;
+        return;
+    }
+}
+
+fn copy_hooks.call(f: () -> Int) -> Int {
+    let _0: Int;  // return
+    let _1: () -> Int;  // param f
+    let _2: Int;
+
+    bb0: {
+        _2 = call value copy _1 [] -> [return: bb1];
+    }
+
+    bb1: {
+        _0 = move _2;
+        drop(_1);
+        return;
+    }
+}
+
+fn copy_hooks.plain(p: copy_hooks.Plain) -> Int {
+    let _0: Int;  // return
+    let _1: copy_hooks.Plain;  // param p
+    let _2: copy_hooks.Plain;  // a
+    let _3: (copy_hooks.Plain, Int);  // t
+    let _4: (copy_hooks.Plain, Int);
+    let _5: Int;  // c
+    let _6: () -> Int;
+    let _7: Int;
+    let _8: () -> Int;
+    let _9: Int;
+    let _10: Int;
+    let _11: () -> Int;
+    let _12: Int;
+    let _13: Int;
+    let _14: copy_hooks.Plain;  // spelled
+    let _15: &copy_hooks.Plain;
+    let _16: copy_hooks.Plain;
+    let _17: Int;
+    let _18: Int;
+    let _19: Int;
+
+    bb0: {
+        _2 = copy _1;
+        _4 = (copy _1, const 1: Int);
+        _3 = move _4;
+        _6 = closure#0 of copy_hooks.plain(p: copy_hooks.Plain) [copy _1];
+        _7 = call copy_hooks.call(f: () -> Int) [move _6] -> [return: bb1];
+    }
+
+    bb1: {
+        _8 = closure#1 of copy_hooks.plain(p: copy_hooks.Plain) [copy _1];
+        _9 = call copy_hooks.call(f: () -> Int) [move _8] -> [return: bb2];
+    }
+
+    bb2: {
+        _10 = Add(move _7, move _9);
+        _11 = closure#2 of copy_hooks.plain(p: copy_hooks.Plain) [copy _1];
+        _12 = call copy_hooks.call(f: () -> Int) [move _11] -> [return: bb3];
+    }
+
+    bb3: {
+        _13 = Add(move _10, move _12);
+        _5 = move _13;
+        _15 = ref(shared, _1);
+        _16 = call copy_hooks.Plain.copy() (owner copy_hooks.Plain) [move _15] -> [return: bb4];
+    }
+
+    bb4: {
+        _14 = move _16;
+        _17 = Add(copy _2.n, copy _3.0.n);
+        _18 = Add(move _17, copy _5);
+        _19 = Add(move _18, copy _14.n);
+        _0 = move _19;
+        return;
+    }
+}
+
+fn closure#0 of copy_hooks.plain(p: copy_hooks.Plain) -> Int {
+    let _0: Int;  // return
+    let _1: &(copy_hooks.Plain,);  // env
+    let _2: copy_hooks.Plain;  // p
+
+    bb0: {
+        _2 = copy (*_1).0;
+        _0 = copy _2.n;
+        return;
+    }
+}
+
+fn closure#1 of copy_hooks.plain(p: copy_hooks.Plain) -> Int {
+    let _0: Int;  // return
+    let _1: &(copy_hooks.Plain,);  // env
+    let _2: copy_hooks.Plain;  // p
+
+    bb0: {
+        _2 = copy (*_1).0;
+        _0 = copy _2.n;
+        return;
+    }
+}
+
+fn closure#2 of copy_hooks.plain(p: copy_hooks.Plain) -> Int {
+    let _0: Int;  // return
+    let _1: &(copy_hooks.Plain,);  // env
+    let _2: copy_hooks.Plain;  // p
+
+    bb0: {
+        _2 = copy (*_1).0;
+        _0 = copy _2.n;
+        return;
+    }
+}
+
+fn copy_hooks.owned(o: copy_hooks.Owned) -> Int {
+    let _0: Int;  // return
+    let _1: copy_hooks.Owned;  // param o
+    let _2: copy_hooks.Owned;  // a
+    let _3: &String;
+    let _4: Int;
+    let _5: &String;
+    let _6: Int;
+    let _7: Int;
+
+    bb0: {
+        _2 = copy _1;
+        _3 = ref(shared, _2.s);
+        _4 = call std.string.String.len() (owner String) [move _3] -> [return: bb1];
+    }
+
+    bb1: {
+        _5 = ref(shared, _1.s);
+        _6 = call std.string.String.len() (owner String) [move _5] -> [return: bb2];
+    }
+
+    bb2: {
+        _7 = Add(move _4, move _6);
+        _0 = move _7;
+        drop(_2);
+        drop(_1);
+        return;
+    }
+}
+
+fn copy_hooks.hooked(h: copy_hooks.Hooked) -> Int {
+    let _0: Int;  // return
+    let _1: copy_hooks.Hooked;  // param h
+    let _2: copy_hooks.Hooked;  // a
+    let _3: &copy_hooks.Hooked;
+    let _4: copy_hooks.Hooked;
+    let _5: Int;
+
+    bb0: {
+        _3 = ref(shared, _1);
+        _4 = call copy_hooks.Hooked.copy() (owner copy_hooks.Hooked) [move _3] -> [return: bb1];
+    }
+
+    bb1: {
+        _2 = move _4;
+        _5 = Add(copy _2.n, copy _1.n);
+        _0 = move _5;
+        drop(_2);
+        drop(_1);
+        return;
+    }
+}
+
+fn copy_hooks.dup(d: copy_hooks.Dup) -> Int {
+    let _0: Int;  // return
+    let _1: copy_hooks.Dup;  // param d
+    let _2: &copy_hooks.Dup;
+    let _3: copy_hooks.Dup;
+    let _4: () -> Int;
+    let _5: Int;
+
+    bb0: {
+        _2 = ref(shared, _1);
+        _3 = call copy_hooks.Dup.copy() (owner copy_hooks.Dup) [move _2] -> [return: bb1];
+    }
+
+    bb1: {
+        _4 = closure#0 of copy_hooks.dup(d: copy_hooks.Dup) [move _3];
+        _5 = call copy_hooks.call(f: () -> Int) [move _4] -> [return: bb2];
+    }
+
+    bb2: {
+        _0 = move _5;
+        drop(_1);
+        return;
+    }
+}
+
+fn closure#0 of copy_hooks.dup(d: copy_hooks.Dup) -> Int {
+    let _0: Int;  // return
+    let _1: &(copy_hooks.Dup,);  // env
+    let _2: &copy_hooks.Dup;  // ref d
+
+    bb0: {
+        _2 = ref(shared, (*_1).0);
+        _0 = copy (*_2).n;
+        return;
+    }
+}

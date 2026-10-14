@@ -1,0 +1,21 @@
+// refuses: deinit.outside-policy at 13:10
+// a `deinit` in a plain test-only extension, which declares no copy policy:
+// refused as any extension's is, so a test-only `deinit` reaches a production
+// type through no extension but a test-only policy, which
+// `copy.test-only-policy` refuses
+
+struct Noisy {
+    id: Int
+}
+
+@test
+extension Noisy {
+    func deinit(&var self) {
+        print("test-only deinit {}", self.id)
+    }
+}
+
+func main() {
+    let n = Noisy(id: 7)
+    print("made {}", n.id)
+}

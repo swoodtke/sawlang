@@ -110,11 +110,13 @@ statement and a copy operand:
   `deinit`, then its owning fields in reverse declaration order, an enum's
   active payload under a switch on its case, a tuple's elements;
 - **copy glue** runs where a value of a type that is not trivially copyable
-  is copied, read from typecheck's tier: the type's written `copy()` when its
-  conformance writes one, else a memberwise rebuild whose parts copy by their
-  own glue. Concrete MIR spells a String's copy as a call of `String.copy()`,
-  so copy glue appears only where a generic body's `copy` lands on such a
-  type.
+  is copied, read from typecheck's tier: the `copy()` its `Copy` conformance
+  writes when it writes one, else a memberwise rebuild whose parts copy by
+  their own glue. A `copy` method of an extension that declares no policy is
+  an ordinary method no glue calls (golden `copy_hooks`; MIR's
+  `declared_copy` answers for both stages). Concrete MIR spells a String's
+  copy as a call of `String.copy()`, so copy glue appears only where a
+  generic body's `copy` lands on such a type.
 
 A type that owns nothing has no glue, and neither does a function value: a
 closure capturing a value that owns something is refused where it is built.

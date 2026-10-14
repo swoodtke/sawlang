@@ -280,6 +280,22 @@ The per-declaration filter, by position (SL-626):
 | ordinary code calling, or naming as a value, the ordinary overload of a set with a test-only one; test code using every overload and member | allowed | test_only_overloads |
 | an importer naming as a value the one overload it sees; a set whose first declaration is narrower than a later public one, imported; the module calling its own private overloads | allowed | multi/overload_visibility |
 
+Test code cannot change how a production type copies (SL:testing, Air t15):
+a type has one tier in a binary. `check_test_only_policies`
+(`compiler/typecheck/src/conform.saw`) refuses, under `copy.test-only-policy`,
+each position a test-only declaration could give a production type a policy
+or a hook (SL-630); which `copy()` a copy runs is read from the policy
+conformance alone (`policy_copy`), so a production `copy()` outside a policy is
+an ordinary method:
+
+| row | verdict | covered by |
+|---|---|---|
+| a test-only `NoCopy`, `Copy` or `ExplicitCopy` conformance on a production type, written with `@test` or in a test group | refused | copy.test-only-policy, copy.test-only-policy.copy, copy.test-only-policy.explicit-copy, copy.test-only-policy.group |
+| a test-only `copy()` on a production type, in a plain test-only extension, alone or beside a production `Copy` conformance that derives its own | refused | copy.test-only-policy.copy-method, copy.test-only-policy.beside-synthesized |
+| a policy's `copy()` written by another extension than the conformance, which is an ordinary method, so the conformance writes none | refused, `synthesize.required` | synthesize.required.copy-outside-policy |
+| a `deinit` in a plain test-only extension | refused, `deinit.outside-policy` | deinit.outside-policy.test-only |
+| a test-only type's policy, `copy()` and `deinit`, with `@test` or in a test group, used by test code; a production `copy()` outside a policy, called by name | allowed | test_only_copy_policy |
+
 A third filter belongs to the receiver, not the module: a member declared in
 a bounded extension, `extension Cell<T: Equatable> { ... }`, or brought by a
 bounded conformance, exists only on an instantiation whose arguments meet
@@ -1226,7 +1242,7 @@ says what the fixture shows.
 | `conformance.associated-conflict` | a refining trait's conformance restating a parent trait's associated type as another type than the type's conformance to the parent assigns |
 | `conformance.signature` | a written member that disagrees with its requirement: receiver, staticness, type parameters, parameters, result, an `unsafe` the requirement declares, `consumes`, or `borrows` (a `borrows(sync)` member never meets a plain `borrows` requirement, SL:borrowing §2.5); a parameter that says `escaping` where the requirement's does not, though the narrowing is met (SL-504: `conformance.signature.escaping`, `-escaping-default`; a function-typed parameter's own parameters are compared exactly, `-escaping-nested`; golden `escaping_values`) |
 | `trait.generic-requirement` | a trait requirement declaring generic parameters of its own, which the grammar parses and type checking refuses for now (GRAMMAR §3.4), once, at the requirement: with a default body (`.default-body`), met by a generic method in a conformance (`.conformance`), called through a bound (`.bound`), and its trait erased (bare), none adds a second refusal; golden `generic_methods` holds the accepted control, a generic method in an ordinary extension |
-| `synthesize.required` | a declared conformance to a derivable trait whose method is neither written nor asked for with `@synthesize` (design 128) |
+| `synthesize.required` | a declared conformance to a derivable trait whose method is neither written nor asked for with `@synthesize` (design 128); a copy policy's `copy()` counts as written only inside the conformance (`-copy-outside-policy`) |
 | `synthesize.inert` | `@synthesize` on a conformance that derives nothing |
 | `nomove.undeclared` | a struct or enum holding a `NoMove` value inline, a field, a payload, through an optional, a tuple, an array or a generic instance, that does not declare `NoMove` itself (design 188) |
 | `nomove.bound` | `NoMove` written as a generic parameter's bound |
@@ -1237,7 +1253,8 @@ says what the fixture shows.
 | `unsafe.type-name` | an `unsafe struct` not named `Unsafe*` |
 | `init.result` | an `init` returning neither its receiver nor `Result<Receiver, E>`; an optional on its own terms |
 | `conformance.deinit` | a conformance to `Deinit` itself, which a copy policy carries instead (design 131) |
-| `deinit.outside-policy` | a `deinit` written in an extension that declares no copy policy, beside the type's policy or on a type with none, where no scope exit would call it (spec, The Deinit trait) |
+| `deinit.outside-policy` | a `deinit` written in an extension that declares no copy policy, beside the type's policy or on a type with none, where no scope exit would call it (spec, The Deinit trait); a plain test-only extension's included (`-test-only`) |
+| `copy.test-only-policy` | a test-only `Copy`, `ExplicitCopy` or `NoCopy` conformance on a production type, a test group's included, and a test-only `copy()` on one (SL:testing, Air t15; SL-630) |
 | `extension.default-omitted` | an extension head renaming its type's parameters that leaves out a defaulted one, with the head written out (D14) |
 | `type.mismatch` | a value that does not convert to what its position expects, one fixture per funnel position and one per cell of the wrap and erasure matrix a position refuses; a condition that is not a `Bool`; a pattern that does not fit its value; operands that disagree; a bare integer literal, or a constant expression's literal, leaf or cast, that does not fit the type it adopts or converts to; a literal or range pattern's integer that does not fit the matched type (`.pattern-literal-range`, `.pattern-negative-unsigned`, `.pattern-range-end`); a literal past its signed suffix's range (D6) |
 | `constant.overflow`, `constant.shift-range`, `constant.divide-by-zero` | a constant expression whose typed arithmetic overflows, shifts by a count outside its width, or divides by zero, where it adopts an integer slot and at every constant position (the constant-position funnel); a shift count or divisor constant before instantiation that faults whatever the other operand is, reachable or not (the certain-fault funnel) |

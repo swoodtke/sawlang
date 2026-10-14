@@ -33,6 +33,12 @@ public func tc_extension_sets(p: &TcProgram) -> Vector<Bool> {
     p.extension_sets()
 }
 
+// The refusal of a test-only copy policy, or a test-only `copy()`, on a
+// production type.
+public func tc_check_test_only_policies(p: &var TcProgram) {
+    p.check_test_only_policies()
+}
+
 // A substitution: `Self` to a type, a trait's associated types to the types a
 // conformance assigns, one declaration's parameters to another's (a
 // requirement's to its implementation's), and a type's parameters to
@@ -445,6 +451,116 @@ extension TcProgram {
         self.restore_context(saved)
     }
 
+    // The `copy()` body type declaration `d`'s `Copy` or `ExplicitCopy`
+    // conformance writes, or -1: the hook a copy of the type runs (spec, The
+    // Copy trait). A method named `copy` that meets no such requirement is an
+    // ordinary method, whichever extension writes it, so the answer is read
+    // from the conformance and never found by the name.
+    //
+    // ENTRY POINTS (policy_copy):
+    //     declared_copy
+    public func policy_copy(&self, d: Int) -> Int {
+        if d < 0 {
+            return -1
+        }
+        var k = 0
+        while k < self.conformances.len() {
+            let c = self.conformances[k]
+            k = k + 1
+            let policy = c.trait_decl >= 0 && (c.trait_decl == self.known.copy || c.trait_decl == self.known.explicit_copy)
+            if c.type_decl != d || not policy {
+                continue
+            }
+            var j = 0
+            while j < c.status_count {
+                let st = self.statuses[c.status_first + j]
+                j = j + 1
+                let own = self.res.decls[st.requirement].parent == c.trait_decl
+                if own && st.kind == TcStatusKind.Written && st.member >= 0 {
+                    return st.member
+                }
+            }
+        }
+        return -1
+    }
+
+    // Test code cannot change how a production type copies (SL:testing, Air
+    // t15): a type has one tier in a binary, and a value crossing from test
+    // code into a production generic would carry the other. So a test-only
+    // `Copy`, `ExplicitCopy` or `NoCopy` conformance on a production type is
+    // refused, and so is a test-only `copy()` on one, so that how such a type
+    // copies, silently or spelled, is production code's alone.
+    public func check_test_only_policies(&var self) {
+        var k = 0
+        while k < self.conformances.len() {
+            let c = self.conformances[k]
+            k = k + 1
+            if self.is_test_only_policy(c.ext, c.trait_decl) && not self.res.decls[c.type_decl].test_only {
+                self.refuse_test_only_policy(k - 1)
+            }
+        }
+        let name = self.res.intern("copy")
+        var d = 0
+        while d < self.res.decls.len() {
+            let info = self.res.decls[d]
+            d = d + 1
+            if info.kind != ResDeclKind.Method || info.name != name || not info.test_only || info.parent < 0 || info.leaf < 0 {
+                continue
+            }
+            let ext = info.parent
+            if self.res.decls[ext].kind != ResDeclKind.Extension || self.declares_test_only_policy(ext) {
+                continue
+            }
+            let target = self.ext_target(ext)
+            if target >= 0 && not self.res.decls[target].test_only {
+                self.refuse_test_only_copy(d - 1, target)
+            }
+        }
+    }
+
+    // Whether extension `ext` is test-only and conformance trait `tr` a copy
+    // policy, the three traits a type's tier is declared by.
+    func is_test_only_policy(&self, ext: Int, tr: Int) -> Bool {
+        if ext < 0 || tr < 0 || not self.res.decls[ext].test_only {
+            return false
+        }
+        tr == self.known.copy || tr == self.known.explicit_copy || tr == self.known.no_copy
+    }
+
+    // Whether test-only extension `ext` declares a copy policy, whose own
+    // refusal covers the `copy()` written inside it.
+    func declares_test_only_policy(&self, ext: Int) -> Bool {
+        var k = 0
+        while k < self.conformances.len() {
+            let c = self.conformances[k]
+            k = k + 1
+            if c.ext == ext && self.is_test_only_policy(c.ext, c.trait_decl) {
+                return true
+            }
+        }
+        false
+    }
+
+    func refuse_test_only_policy(&var self, at: Int) {
+        let c = self.conformances[at]
+        var msg = StringBuilder()
+        try! msg.append("a test-only copy policy on a production type is refused: ")
+        try! msg.append(self.conformance_head(at))
+        try! msg.append(" in test code alone, which would give `")
+        try! msg.append(self.res.decl_path(c.type_decl))
+        try! msg.append("` a second copy tier in one binary once a value crossed from test code into production code; declare the policy in production code, or make the type test-only too")
+        self.refuse_in(c.module, c.node, "copy.test-only-policy", msg.build())
+    }
+
+    func refuse_test_only_copy(&var self, d: Int, target: Int) {
+        let info = self.res.decls[d]
+        var msg = StringBuilder()
+        try! msg.append("a test-only `copy()` on a production type is refused: test code cannot change how `")
+        try! msg.append(self.res.decl_path(target))
+        try! msg.append("` copies; write it in production code, or make the type test-only too")
+        self.refuse_in(info.module, info.leaf, "copy.test-only-policy", msg.build())
+    }
+
     // The substitution from a trait's view to conformance `at`'s: `Self` the
     // conforming type, each associated type the extension assigns.
     public func conformance_subst(&var self, at: Int) -> TcSubst {
@@ -580,6 +696,11 @@ extension TcProgram {
         let c = self.conformances[at]
         let name = self.res.decls[req].name
         let owner_module = self.res.decls[c.type_decl].module
+        // A copy policy's `copy()` is written inside the conformance, as its
+        // `deinit` is: one another extension writes is an ordinary method,
+        // never the hook every copy runs (spec, The Copy trait).
+        let trait_decl = self.res.decls[req].parent
+        let inside_only = trait_decl == self.known.copy || trait_decl == self.known.explicit_copy
         var first_candidate = -1
         var chain = self.extensions_of.first(c.type_decl, 0)
         var exts = Vector<Int>()
@@ -592,6 +713,9 @@ extension TcProgram {
             let ext = exts[e]
             e = e - 1
             let ext_module = self.res.decls[ext].module
+            if inside_only && ext != c.ext {
+                continue
+            }
             if not self.sees_extensions_of(c.module, ext_module, owner_module, &visible) {
                 continue
             }

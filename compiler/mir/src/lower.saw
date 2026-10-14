@@ -39,7 +39,7 @@ import sawtypecheck.tier.{tc_compute_tiers}
 import sawtypecheck.typeops.{TcClient}
 import sawtypecheck.model.{TC_BIND_DEFAULT, TC_EFFECT_BORROWS, TC_EFFECT_BORROWS_SYNC,
                                TC_EFFECT_CONSUMES, TC_TIER_COPY, TcAdjust, TcAdjustKind, TcCall,
-                               TcCapture, TcLend, TcParam, TcReceiver, TcRole, TcSig, TcSource, TcUse}
+                               TcCapture, TcLend, TcParam, TcReceiver, TcRole, TcSig, TcUse}
 import sawtypecheck.summaries.{tc_solve_summaries}
 import sawtypecheck.types.{TcKind, TcType}
 
@@ -1597,32 +1597,13 @@ extension MirProgram {
         self.op_move(q)
     }
 
-    // The `copy()` a Copy-tier type `t` writes for itself, or -1.
+    // The retain hook of Copy-tier type `t`, the `copy()` its `Copy`
+    // conformance writes, or -1.
     func copy_hook(&var self, t: Int) -> Int {
         if not self.tc.copies_silently(t) {
             return -1
         }
         self.declared_copy(t)
-    }
-
-    // The `copy()` nominal type `t`'s own extensions declare, or -1.
-    func declared_copy(&var self, t: Int) -> Int {
-        let d = self.tc.nominal_decl(t)
-        if d < 0 || self.tc.is_primitive_decl(d) {
-            return -1
-        }
-        let name = self.tc.res.intern("copy")
-        let m = self.funcs[self.cur].module
-        let found = self.tc.members_named(d, name, m)
-        var k = 0
-        while k < found.len() {
-            let member = self.tc.members[found[k]]
-            if member.source == TcSource.Extension && self.tc.is_method_member(found[k], false) {
-                return member.decl
-            }
-            k = k + 1
-        }
-        return -1
     }
 
     // A lowered value as a place: an operand is held in a temporary first,

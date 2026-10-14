@@ -247,9 +247,12 @@ whose docstring lists them), each covered by a golden case:
 
 **Transfers**: a spelled `move` and a generic local's single-path read moves
 (operands, `forward`); an owned temporary is handed off; a named place of the
-Copy tier copies, through its type's written `copy()` when it has one
-(operands, `Retained`); a borrowed operand is copied or referenced as the
-rvalue table says. A part of a trivially copyable type (a field, an element,
+Copy tier copies, through the `copy()` its type's `Copy` conformance writes
+when it writes one (operands, `Retained`), and never through a `copy` method
+of an extension that declares no policy, which only a spelled call runs: one
+funnel, `declared_copy`, reads the conformance (copy_hooks, at a binding, a
+tuple, each capture, a trivial and an owning type); a borrowed operand is
+copied or referenced as the rvalue table says. A part of a trivially copyable type (a field, an element,
 a payload) is read as `copy` wherever its position takes it by value: the
 bits are the same, and the value it lies in stays whole, so that value's one
 drop is still right (destructures `relayed`). So is a part holding a shared

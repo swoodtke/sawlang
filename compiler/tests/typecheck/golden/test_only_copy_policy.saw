@@ -1,0 +1,72 @@
+// A test-only type declares its copy policy in test code, and its own
+// `copy()` and `deinit` with it; test code copies and drops it. Only a
+// production type's policy and `copy()` must be production code
+// (`copy.test-only-policy`). A production `copy()` outside any policy is an
+// ordinary method, called by name.
+
+struct Money {
+    cents: Int
+}
+
+extension Money {
+    func copy(&self) -> Money {
+        Money(cents: self.cents + 100)
+    }
+}
+
+@test
+struct Ticket {
+    id: Int
+}
+
+@test
+extension Ticket: Copy {
+    func copy(&self) -> Ticket {
+        Ticket(id: self.id)
+    }
+}
+
+@test
+struct Buffer {
+    size: Int
+}
+
+@test
+extension Buffer: ExplicitCopy {
+    func copy(&self) -> Buffer {
+        Buffer(size: self.size)
+    }
+
+    func deinit(&var self) {
+        print("freed {}", self.size)
+    }
+}
+
+@test {
+    struct Handle {
+        fd: Int
+    }
+
+    extension Handle: NoCopy {
+        func deinit(&var self) {
+            print("closed {}", self.fd)
+        }
+    }
+}
+
+@test "a test-only type's policy, copy() and deinit are its own" {
+    let t = Ticket(id: 1)
+    let u = t
+    let b = Buffer(size: 2)
+    let c = b.copy()
+    let h = Handle(fd: 3)
+    let g = move h
+    assert(u.id + c.size + g.fd == 6)
+}
+
+func ordinary() -> Int {
+    let a = Money(cents: 1)
+    let b = a
+    let c = a.copy()
+    b.cents + c.cents
+}
