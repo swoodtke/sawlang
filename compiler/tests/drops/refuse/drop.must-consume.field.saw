@@ -1,0 +1,20 @@
+// refuses: drop.must-consume at 17:13
+// A handle moved into a struct the check follows it into: the struct is
+// dropped with the handle inside, and a fate written through a field,
+// `k.held.join()`, is not one the check can see on the handle.
+
+func work(n: Int) -> Int {
+    n
+}
+
+struct Keeper {
+    held: Task<Int>
+}
+
+extension Keeper: NoCopy {}
+
+func main() {
+    let t = Task.spawn(work(1))
+    let k = Keeper(held: move t)
+    print("{}", k.held.join())
+}

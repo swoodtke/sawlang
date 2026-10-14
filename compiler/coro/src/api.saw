@@ -6,6 +6,7 @@ import sawcoro.frames.{coro_find_frames}
 import sawcoro.layout.{coro_lay_out_frames}
 import sawcoro.lower.{coro_decide_lowering, coro_frame_lowered, coro_lower_frames, coro_refuse_unlowered}
 import sawcoro.program.{CoroProgram, coro_program}
+import sawcoro.spawn.{coro_refuse_spawn_sites}
 import sawcoro.suspends.{coro_solve_suspension}
 import sawmir.api.{mir_append_diag}
 import sawmir.program.{MirProgram}
@@ -39,6 +40,7 @@ public func coro_lower_file(out: &var StringBuilder, path: String, std_root: Str
                                dirs: &dirs, runtime: runtime)
     var coro = coro_program(move mono)
     if not coro.blocked {
+        coro_refuse_spawn_sites(&var coro)
         coro_solve_suspension(&var coro)
         coro_find_frames(&var coro)
         coro_decide_lowering(&var coro)

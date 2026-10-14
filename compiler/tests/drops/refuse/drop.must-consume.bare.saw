@@ -1,0 +1,11 @@
+// refuses: drop.must-consume at 10:5
+// The bare statement, the first discard spelling: the handle is a temporary
+// its statement's end drops, so it is discarded where it is made.
+
+func work(n: Int) -> Int {
+    n
+}
+
+func main() {
+    Task.spawn(work(1))
+}

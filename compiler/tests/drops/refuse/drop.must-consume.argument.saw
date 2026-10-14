@@ -1,0 +1,17 @@
+// refuses: drop.must-consume at 15:13
+// A handle moved into a call's argument leaves the function's check, and the
+// argument is no storage whose owner declares a `deinit`, so it writes no
+// fate.
+
+func work(n: Int) -> Int {
+    n
+}
+
+func finish(t: Task<Int>) {
+    print("{}", t.join())
+}
+
+func main() {
+    let t = Task.spawn(work(1))
+    finish(move t)
+}

@@ -1,0 +1,16 @@
+// refuses: drop.must-consume at 10:13
+// A handle returned unconsumed: the obligation is function-local, and a
+// `return` is an exit like any other, so the handle may not leave by one.
+
+func work(n: Int) -> Int {
+    n
+}
+
+func start() -> Task<Int> {
+    let t = Task.spawn(work(1))
+    return move t
+}
+
+func main() {
+    print("{}", start().join())
+}

@@ -831,7 +831,18 @@ extension MonoProgram {
                 self.set_call_item(c, item)
             },
             case WindowOpen -> self.resolve_window(k, c, &info),
-            case WindowClose -> self.resolve_window(k, c, &info)
+            case WindowClose -> self.resolve_window(k, c, &info),
+            // The root's ordinary item, so its body is instantiated and
+            // checked. The spawn site is no call of it: coroutine lowering
+            // refuses the site, and spawn lowering replaces this item with
+            // the task-root item (SL:coroutines A7a).
+            case Spawn -> {
+                let root = info.target
+                let body = self.body_of[root]
+                // Stage 0 workaround (SL:hazards S4): canonical: let item = self.call_item_of(k, body, info.target, -1, &info)
+                let item = self.call_item_of(k, body, root, -1, &info)
+                self.set_call_item(c, item)
+            }
         }
     }
 

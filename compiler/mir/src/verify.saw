@@ -38,7 +38,7 @@ import sawmir.initialisation.{MIR_INIT_DROPPED, MIR_INIT_MOVED, MIR_INIT_PARTIAL
                         MirInit}
 import sawmir.model.{MirAccessor, MirArm, MirBlock, MirCall, MirCallKind, MirFunc, MirFuncKind, MirLocal, MirLocalKind,
                          MirOperand, MirOperandKind, MirPlace, MirProj, MirProjKind, MirRvalue, MirRvalueKind,
-                         MirStmt, MirStmtKind, MirSuspend, MirSwitchKind, MirTermKind}
+                         MirSpawnForm, MirStmt, MirStmtKind, MirSuspend, MirSwitchKind, MirTermKind}
 import sawmir.program.{MirProgram}
 import sawmir.split.{MirHalf}
 import sawresolve.dump.{res_sort_strings}
@@ -1095,6 +1095,52 @@ extension MirProgram {
         }
         self.verify_arguments(f, &c, &var out)
         self.verify_suspension(f, &c, &var out)
+        self.verify_spawn(f, &c, &var out)
+    }
+
+    // A spawn site names its form and a free function as its root, returns,
+    // and leaves the handle its form gives for the root's result: `Task<T>`,
+    // or `VoidTask` for a `Void` root. Only a spawn site carries a form.
+    func verify_spawn(&var self, f: Int, c: &MirCall, out: &var Vector<String>) {
+        if c.kind != MirCallKind.Spawn {
+            if c.spawn != MirSpawnForm.Absent {
+                self.problem(f, &var out, "a call that is no spawn site carries a spawn form")
+            }
+            return
+        }
+        if c.spawn == MirSpawnForm.Absent {
+            self.problem(f, &var out, "a spawn site carries no form")
+        }
+        if c.target < 0 {
+            return
+        }
+        let s = self.tc.sigs[c.target]
+        if s.receiver != TcReceiver.Absent {
+            self.problem(f, &var out, "a spawn site's root is a method")
+        }
+        if c.next < 0 || c.dest < 0 {
+            self.problem(f, &var out, "a spawn site does not return its handle")
+            return
+        }
+        let body = if s.result < 0 { -1 } else { self.call_type(s.result, &c) }
+        let have = self.places[c.dest].ty
+        let d = self.tc.nominal_decl(have)
+        var typed = false
+        if body < 0 || self.tc.is_void(body) {
+            typed = d >= 0 && d == self.tc.known.void_task
+        } else {
+            typed = d >= 0 && d == self.tc.known.task && self.tc.types.ty(have).count == 1
+            typed = typed && self.tc.types.arg(have, 0) == body
+        }
+        if not typed {
+            var text = StringBuilder()
+            try! text.append("a spawn site's handle is a `")
+            try! text.append(self.tc.type_text(have))
+            try! text.append("` for a root of type `")
+            try! text.append(if body < 0 { "Void" } else { self.tc.type_text(body) })
+            try! text.append("`")
+            self.problem(f, &var out, text.build())
+        }
     }
 
     // Type `t`, over call `c`'s target's own type parameters and its owner's,
@@ -1126,6 +1172,7 @@ extension MirProgram {
     func verify_arguments(&var self, f: Int, c: &MirCall, out: &var Vector<String>) {
         match c.kind {
             case Function -> self.verify_declared_arguments(f, &c, false, &var out),
+            case Spawn -> self.verify_declared_arguments(f, &c, false, &var out),
             case WindowOpen -> {
                 let info = self.funcs[f]
                 let exclusive = c.window >= 0 && self.windows[info.window_first + c.window].exclusive

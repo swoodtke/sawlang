@@ -1,0 +1,14 @@
+// refuses: drop.must-consume at 11:13
+// A handle moved into a closure's capture goes with the closure value, which
+// is dropped with the handle inside: a fate the closure body writes is not
+// one the spawner's check can see.
+
+func work(n: Int) -> Int {
+    n
+}
+
+func main() {
+    let t = Task.spawn(work(1))
+    let finish = { [move t] in print("{}", t.join()) }
+    finish()
+}

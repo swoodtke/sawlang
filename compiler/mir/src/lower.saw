@@ -13,8 +13,8 @@
 import sawmir.build.{mir_func_local}
 import sawmir.model.{MirAggregate, MirArm, MirBlock, MirCall, MirCallKind, MirConstKind, MirFunc,
                          MirFuncKind, MirLocal, MirLocalKind, MirOperand, MirOperandKind, MirPlace,
-                         MirProj, MirProjKind, MirRvalue, MirRvalueKind, MirStmt, MirStmtKind,
-                         MirSuspend, MirTermKind, MirWindow}
+                         MirProj, MirProjKind, MirRvalue, MirRvalueKind, MirSpawnForm, MirStmt, MirStmtKind,
+                         MirSuspend, MirTermKind, MirWindow, mir_mint_obligation}
 import sawmir.program.{MirLoop, MirProgram, MirScopeEntry}
 import sawmir.split.{MirHalf}
 import sawparse.grammar.{Alt, alt_name}
@@ -2742,6 +2742,7 @@ extension MirProgram {
             case Memberwise -> mir_operand_val(self.construction(e, &c, MirAggregate.Struct)),
             case Case -> mir_operand_val(self.construction(e, &c, MirAggregate.Case)),
             case Value -> self.value_call(e, &c),
+            case Spawn -> self.spawn_site(e, MirSpawnForm.Singleton),
             case Call -> {
                 let s = self.tc.sigs[c.target]
                 if (s.effects & TC_EFFECT_BORROWS) == 0 {
@@ -2833,6 +2834,33 @@ extension MirProgram {
         call.arg_first = self.push_args(&all)
         call.arg_count = all.len()
         self.suspension(e, &var call)
+        self.finish_call(call, t)
+    }
+
+    // Spawn form `e` of form `form`: its root call's arguments evaluated
+    // here, in the spawner, then a spawn terminator that hands the task those
+    // values and leaves the handle in a temporary. The root's body is the
+    // task's, so the root is no call here and no suspension point.
+    func spawn_site(&var self, e: Int, form: MirSpawnForm) -> MirVal {
+        let t = self.tc.expr_types[e]
+        let written = self.written_arguments(e)
+        let root = if written.len() == 1 { written[0] } else { -1 }
+        let at = if root >= 0 { self.tc.call_at[root] } else { -1 }
+        if at < 0 || self.tc.calls[at].role != TcRole.Call {
+            self.missing(e, "a spawn form has no root call recorded")
+            return mir_operand_val(self.dead_operand(t))
+        }
+        let rc = self.tc.calls[at]
+        let saved = self.source_at(root)
+        let args = self.call_arguments(root, &rc, false)
+        self.source_restore(saved)
+        var call = self.blank_call(MirCallKind.Spawn, e)
+        call.target = rc.target
+        call.owner = rc.owner
+        self.instantiate(&var call, &rc)
+        call.arg_first = self.push_args(&args)
+        call.arg_count = args.len()
+        mir_mint_obligation(&var call, form)
         self.finish_call(call, t)
     }
 

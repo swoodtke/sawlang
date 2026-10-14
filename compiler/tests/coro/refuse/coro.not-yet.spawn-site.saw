@@ -1,0 +1,16 @@
+// refuses: coro.not-yet at 14:13
+// message: this spawn site (singleton, root `work`) is not lowered yet
+// message: (SL-545 A7a, SL-560)
+// A spawn site reaches coroutine lowering, which refuses it: its task root is
+// an item with a frame of its own, and lowering the site as a call of its
+// root would run the task's body in the spawner. The root here never
+// suspends, so the refusal is the site's alone.
+
+func work(n: Int) -> Int {
+    n
+}
+
+func main() {
+    let h = Task.spawn(work(1))
+    print("{}", h.join())
+}

@@ -98,7 +98,7 @@ REFUSED_PAIRED = ("missing_case",)
 # The programs of `lang/` whose MIR the bootstrap slice cannot lower yet, by
 # the one rule each is refused at there: typed like any other, their MIR
 # refusals must agree under the two roots, and nothing else may be refused.
-MIR_DUE = {"sync_spawn": "slice.not-yet"}
+MIR_DUE = {}
 USER_OPTIONAL = "user_optional"
 OPTIONAL_METHODS = ("take", "is_some", "is_none")
 # The cones that must reach no allocator: a program using only Optional and

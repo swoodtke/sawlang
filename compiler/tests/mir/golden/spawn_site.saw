@@ -1,0 +1,28 @@
+// A spawn site: the root call's arguments evaluated in the spawner, left to
+// right, a nested call among them; then one spawn terminator naming its
+// form and root, which is no call of the root; the handle in a temporary,
+// `Task<T>` or `VoidTask`, bound or consumed like any value.
+
+func work(n: Int, label: String) -> Int {
+    n
+}
+
+func scale(n: Int) -> Int {
+    n * 3
+}
+
+func idle() {
+}
+
+func same<T>(value: T) -> T {
+    value
+}
+
+func main() {
+    let t = Task.spawn(work(scale(2), label: "first"))
+    print("{}", t.join())
+    let v = Task.spawn(idle())
+    v.detach()
+    let g = Task.spawn(same(7))
+    g.cancel()
+}

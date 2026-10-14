@@ -1,0 +1,391 @@
+module fates
+
+fn fates.work(n: Int) -> Int {
+    let _0: Int;  // return
+    let _1: Int;  // param n
+
+    bb0: {
+        _0 = copy _1;
+        return;
+    }
+}
+
+fn fates.nap() -> Void {
+    let _0: Void;  // return
+
+    bb0: {
+        return;
+    }
+}
+
+fn fates.Keeper.deinit() -> Void {
+    let _0: Void;  // return
+    let _1: &var fates.Keeper;  // self
+    let _2: &std.vector.Vector<std.taskgroup.Task<Int>, std.alloc.GlobalAllocator>;
+    let _3: Int;
+    let _4: Bool;
+    let _5: &var std.vector.Vector<std.taskgroup.Task<Int>, std.alloc.GlobalAllocator>;
+    let _6: std.taskgroup.Task<Int>?;
+    let _7: std.taskgroup.Task<Int>;  // h
+    let _8: std.taskgroup.Task<Int>;  // t
+    let _9: &std.taskgroup.Task<Int>;
+
+    bb0: {
+        goto -> bb1;
+    }
+
+    bb1: {
+        _2 = ref(shared, (*_1).held);
+        _3 = call std.vector.Vector.len() (owner std.vector.Vector<std.taskgroup.Task<Int>, std.alloc.GlobalAllocator>) [move _2] -> [return: bb3];
+    }
+
+    bb2: {
+        return;
+    }
+
+    bb3: {
+        _4 = Gt(copy _3, const 0: Int);
+        switch move _4 -> [true: bb4, false: bb2];
+    }
+
+    bb4: {
+        _5 = ref(exclusive, (*_1).held);
+        _6 = call std.vector.Vector.pop() (owner std.vector.Vector<std.taskgroup.Task<Int>, std.alloc.GlobalAllocator>) [move _5] -> [return: bb6];
+    }
+
+    bb5: {
+        budget(yield-capable);
+        goto -> bb1;
+    }
+
+    bb6: {
+        switch discriminant(_6) -> [Some: bb7, None: bb8];
+    }
+
+    bb7: {
+        _7 = move (_6 as Some).0;
+        _8 = move _7;
+        _9 = ref(shared, _8);
+        call std.taskgroup.Task.detach() (owner std.taskgroup.Task<Int>) [move _9] -> [return: bb9];
+    }
+
+    bb8: {
+        drop(_6);
+        goto -> bb5;
+    }
+
+    bb9: {
+        drop(_8);
+        goto -> bb5;
+    }
+
+    glue std.taskgroup.Task<Int>: deinit std.taskgroup.Task.deinit() in the NoCopy conformance, then structural
+    glue std.taskgroup.Task<Int>?: structural
+}
+
+fn fates.cancelled_only() -> Void {
+    let _0: Void;  // return
+    let _1: std.taskgroup.Task<Int>;  // t
+    let _2: std.taskgroup.Task<Int>;
+    let _3: &std.taskgroup.Task<Int>;
+
+    bb0: {
+        _2 = spawn singleton fates.work(n: Int) [const 1: Int] -> [return: bb1];
+    }
+
+    bb1: {
+        _1 = move _2;
+        _3 = ref(shared, _1);
+        call std.taskgroup.Task.cancel() (owner std.taskgroup.Task<Int>) [move _3] -> [return: bb2];
+    }
+
+    bb2: {
+        drop(_1);
+        return;
+    }
+
+    glue std.taskgroup.Task<Int>: deinit std.taskgroup.Task.deinit() in the NoCopy conformance, then structural
+}
+
+fn fates.moved_then_detached() -> Void {
+    let _0: Void;  // return
+    let _1: std.taskgroup.Task<Int>;  // t
+    let _2: std.taskgroup.Task<Int>;
+    let _3: std.taskgroup.Task<Int>;  // u
+    let _4: &std.taskgroup.Task<Int>;
+
+    bb0: {
+        _2 = spawn singleton fates.work(n: Int) [const 2: Int] -> [return: bb1];
+    }
+
+    bb1: {
+        _1 = move _2;
+        _3 = move _1;
+        _4 = ref(shared, _3);
+        call std.taskgroup.Task.detach() (owner std.taskgroup.Task<Int>) [move _4] -> [return: bb2];
+    }
+
+    bb2: {
+        drop(_3);
+        return;
+    }
+
+    glue std.taskgroup.Task<Int>: deinit std.taskgroup.Task.deinit() in the NoCopy conformance, then structural
+}
+
+fn fates.cancelled_then_moved() -> Void {
+    let _0: Void;  // return
+    let _1: std.taskgroup.Task<Int>;  // t
+    let _2: std.taskgroup.Task<Int>;
+    let _3: &std.taskgroup.Task<Int>;
+    let _4: std.taskgroup.Task<Int>;  // u
+
+    bb0: {
+        _2 = spawn singleton fates.work(n: Int) [const 3: Int] -> [return: bb1];
+    }
+
+    bb1: {
+        _1 = move _2;
+        _3 = ref(shared, _1);
+        call std.taskgroup.Task.cancel() (owner std.taskgroup.Task<Int>) [move _3] -> [return: bb2];
+    }
+
+    bb2: {
+        _4 = move _1;
+        call builtin print [const "moved": String] -> [return: bb3];
+    }
+
+    bb3: {
+        drop(_4);
+        return;
+    }
+
+    glue std.taskgroup.Task<Int>: deinit std.taskgroup.Task.deinit() in the NoCopy conformance, then structural
+}
+
+fn fates.both_arms(c: Bool) -> Void {
+    let _0: Void;  // return
+    let _1: Bool;  // param c
+    let _2: std.taskgroup.VoidTask;  // t
+    let _3: std.taskgroup.VoidTask;
+    let _4: &std.taskgroup.VoidTask;
+    let _5: &std.taskgroup.VoidTask;
+
+    bb0: {
+        _3 = spawn singleton fates.nap() [] -> [return: bb1];
+    }
+
+    bb1: {
+        _2 = move _3;
+        switch copy _1 -> [true: bb3, false: bb4];
+    }
+
+    bb2: {
+        drop(_2);
+        return;
+    }
+
+    bb3: {
+        _4 = ref(shared, _2);
+        call std.taskgroup.VoidTask.join() (owner std.taskgroup.VoidTask) [move _4] -> [return: bb5];
+    }
+
+    bb4: {
+        _5 = ref(shared, _2);
+        call std.taskgroup.VoidTask.detach() (owner std.taskgroup.VoidTask) [move _5] -> [return: bb6];
+    }
+
+    bb5: {
+        goto -> bb2;
+    }
+
+    bb6: {
+        goto -> bb2;
+    }
+
+    glue std.taskgroup.VoidTask: deinit std.taskgroup.VoidTask.deinit() in the NoCopy conformance, then structural
+}
+
+fn fates.chained() -> Void {
+    let _0: Void;  // return
+    let _1: std.taskgroup.Task<Int>;
+    let _2: &std.taskgroup.Task<Int>;
+    let _3: Int;
+
+    bb0: {
+        _1 = spawn singleton fates.work(n: Int) [const 4: Int] -> [return: bb1];
+    }
+
+    bb1: {
+        _2 = ref(shared, _1);
+        _3 = call std.taskgroup.Task.join() (owner std.taskgroup.Task<Int>) [move _2] -> [return: bb2];
+    }
+
+    bb2: {
+        call builtin print [format "{}", copy _3] -> [return: bb3];
+    }
+
+    bb3: {
+        drop(_1);
+        return;
+    }
+
+    glue std.taskgroup.Task<Int>: deinit std.taskgroup.Task.deinit() in the NoCopy conformance, then structural
+}
+
+fn fates.per_iteration() -> Void {
+    let _0: Void;  // return
+    let _1: Int;  // i
+    let _2: Bool;
+    let _3: std.taskgroup.Task<Int>;  // t
+    let _4: std.taskgroup.Task<Int>;
+    let _5: &std.taskgroup.Task<Int>;
+    let _6: Int;
+    let _7: Int;
+
+    bb0: {
+        _1 = const 0: Int;
+        goto -> bb1;
+    }
+
+    bb1: {
+        _2 = Lt(copy _1, const 3: Int);
+        switch move _2 -> [true: bb3, false: bb2];
+    }
+
+    bb2: {
+        return;
+    }
+
+    bb3: {
+        _4 = spawn singleton fates.work(n: Int) [copy _1] -> [return: bb4];
+    }
+
+    bb4: {
+        _3 = move _4;
+        _5 = ref(shared, _3);
+        _6 = call std.taskgroup.Task.join() (owner std.taskgroup.Task<Int>) [move _5] -> [return: bb5];
+    }
+
+    bb5: {
+        call builtin print [format "{}", copy _6] -> [return: bb6];
+    }
+
+    bb6: {
+        _7 = Add(copy _1, const 1: Int);
+        _1 = move _7;
+        drop(_3);
+        budget(yield-capable);
+        goto -> bb1;
+    }
+
+    glue std.taskgroup.Task<Int>: deinit std.taskgroup.Task.deinit() in the NoCopy conformance, then structural
+}
+
+fn fates.stored(keeper: &var fates.Keeper) -> Void {
+    let _0: Void;  // return
+    let _1: &var fates.Keeper;  // param keeper
+    let _2: std.vector.Vector<std.taskgroup.Task<Int>, std.alloc.GlobalAllocator>;  // v
+    let _3: std.vector.Vector<std.taskgroup.Task<Int>, std.alloc.GlobalAllocator>;
+    let _4: std.taskgroup.Task<Int>;  // t
+    let _5: std.taskgroup.Task<Int>;
+    let _6: std.taskgroup.Task<Int>;
+    let _7: &var std.vector.Vector<std.taskgroup.Task<Int>, std.alloc.GlobalAllocator>;
+    let _8: Result<Void, std.alloc.AllocError>;
+    let _9: Void;
+    let _10: std.taskgroup.Task<Int>;  // s
+    let _11: std.taskgroup.Task<Int>;
+    let _12: std.taskgroup.Task<Int>;
+    let _13: &var std.vector.Vector<std.taskgroup.Task<Int>, std.alloc.GlobalAllocator>;
+    let _14: Result<Void, std.alloc.AllocError>;
+    let _15: Void;
+
+    bb0: {
+        _3 = call std.vector.Vector.init() (owner std.vector.Vector<std.taskgroup.Task<Int>, std.alloc.GlobalAllocator>) [] -> [return: bb1];
+    }
+
+    bb1: {
+        _2 = move _3;
+        _5 = spawn singleton fates.work(n: Int) [const 5: Int] -> [return: bb2];
+    }
+
+    bb2: {
+        _4 = move _5;
+        _6 = move _4;
+        _7 = ref(exclusive, _2);
+        _8 = call std.vector.Vector.push(value: T) (owner std.vector.Vector<std.taskgroup.Task<Int>, std.alloc.GlobalAllocator>) [move _7, move _6] -> [return: bb3];
+    }
+
+    bb3: {
+        _9 = copy (_8 as Ok!).0;
+        drop(_8);
+        _11 = spawn singleton fates.work(n: Int) [const 6: Int] -> [return: bb4];
+    }
+
+    bb4: {
+        _10 = move _11;
+        _12 = move _10;
+        _13 = ref(exclusive, (*_1).held);
+        _14 = call std.vector.Vector.push(value: T) (owner std.vector.Vector<std.taskgroup.Task<Int>, std.alloc.GlobalAllocator>) [move _13, move _12] -> [return: bb5];
+    }
+
+    bb5: {
+        _15 = copy (_14 as Ok!).0;
+        drop(_14);
+        drop(_2);
+        return;
+    }
+
+    glue Result<Void, std.alloc.AllocError>: structural
+    glue std.vector.Vector<std.taskgroup.Task<Int>, std.alloc.GlobalAllocator>: deinit std.vector.Vector.deinit(), then structural
+}
+
+fn fates.main() -> Void {
+    let _0: Void;  // return
+    let _1: fates.Keeper;  // keeper
+    let _2: std.vector.Vector<std.taskgroup.Task<Int>, std.alloc.GlobalAllocator>;
+    let _3: fates.Keeper;
+    let _4: &var fates.Keeper;
+
+    bb0: {
+        call fates.cancelled_only() [] -> [return: bb1];
+    }
+
+    bb1: {
+        call fates.moved_then_detached() [] -> [return: bb2];
+    }
+
+    bb2: {
+        call fates.cancelled_then_moved() [] -> [return: bb3];
+    }
+
+    bb3: {
+        call fates.both_arms(c: Bool) [const true: Bool] -> [return: bb4];
+    }
+
+    bb4: {
+        call fates.chained() [] -> [return: bb5];
+    }
+
+    bb5: {
+        call fates.per_iteration() [] -> [return: bb6];
+    }
+
+    bb6: {
+        _2 = call std.vector.Vector.init() (owner std.vector.Vector<std.taskgroup.Task<Int>, std.alloc.GlobalAllocator>) [] -> [return: bb7];
+    }
+
+    bb7: {
+        _3 = fates.Keeper { held: move _2 };
+        _1 = move _3;
+        _4 = ref(exclusive, _1);
+        call fates.stored(keeper: &var fates.Keeper) [move _4] -> [return: bb8];
+    }
+
+    bb8: {
+        drop(_1);
+        return;
+    }
+
+    glue fates.Keeper: deinit fates.Keeper.deinit() in the NoCopy conformance, then structural
+}

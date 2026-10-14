@@ -1,0 +1,11 @@
+// refuses: drop.must-consume at 10:13
+// `let _ =`, the second discard spelling, which a `Result` may use and a
+// spawn handle may not: it drops the handle at its statement's end.
+
+func work(n: Int) -> Int {
+    n
+}
+
+func main() {
+    let _ = Task.spawn(work(1))
+}

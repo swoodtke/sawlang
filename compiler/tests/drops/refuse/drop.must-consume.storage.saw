@@ -1,0 +1,20 @@
+// refuses: drop.must-consume at 18:13
+// A handle stored into a field of a value whose type declares no `deinit`:
+// only an owner that declares one may take the fate over (spec: No implicit
+// fates), so this store writes none.
+
+func work(n: Int) -> Int {
+    n
+}
+
+struct Slot {
+    held: Task<Int>?
+}
+
+extension Slot: NoCopy {}
+
+func main() {
+    var slot = Slot(held: None)
+    let t = Task.spawn(work(1))
+    slot.held = move t
+}

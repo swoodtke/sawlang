@@ -5,7 +5,7 @@
 
 import sawmir.model.{MirAggregate, MirArm, MirBlock, MirCall, MirCallKind, MirConstKind, MirFunc,
                          MirFuncKind, MirLocal, MirLocalKind, MirOperand, MirOperandKind, MirPlace,
-                         MirProj, MirProjKind, MirRvalue, MirRvalueKind, MirStmt, MirStmtKind,
+                         MirProj, MirProjKind, MirRvalue, MirRvalueKind, MirSpawnForm, MirStmt, MirStmtKind,
                          MirSuspend, MirSwitchKind, MirTermKind, MirWindow}
 import sawmir.program.{MirProgram}
 import sawresolve.dump.{res_sort_strings}
@@ -63,6 +63,14 @@ public func mir_module_functions(p: &MirProgram, m: Int) -> Vector<Int> {
         f = f + 1
     }
     move out
+}
+
+// How a spawn site's form prints: `singleton` for `Task.spawn`.
+public func mir_spawn_form_text(form: MirSpawnForm) -> String {
+    match form {
+        case Absent -> "absent",
+        case Singleton -> "singleton"
+    }
 }
 
 // The spelling a builtin binary or unary operator prints as.
@@ -723,7 +731,13 @@ extension MirProgram {
                 try! out.append(" epilogue ")
                 try! out.append(self.tc.target_text(c.target))
             },
-            case Lend -> try! out.append("lend")
+            case Lend -> try! out.append("lend"),
+            case Spawn -> {
+                try! out.append("spawn ")
+                try! out.append(mir_spawn_form_text(c.spawn))
+                try! out.append(" ")
+                try! out.append(self.tc.target_text(c.target))
+            }
         }
         if c.owner >= 0 && c.kind != MirCallKind.Value {
             try! out.append(" (owner ")

@@ -135,18 +135,70 @@ type's glue, generated once per concrete type at monomorphization
 | `per instantiation` | a type mentioning a type parameter, never guessed |
 | `trivial` | a type that owns nothing (no drop names one) |
 
+## Fates
+
+A handle a singleton spawn form mints must reach `join()`, `detach()` or
+`cancel()` on every path (spec, *No implicit fates*). The obligation follows
+the FORM, not the type: `group.spawn` mints the same `Task<T>`, and its
+handle may be dropped. So it is the spawn site that owes it, `mir_owes_fate`
+over the MIR's spawn terminator (`compiler/tests/mir/README.md`), and no type
+or lang role carries it. Where a site owes one is decided by one funnel,
+`mir_mint_obligation` (`compiler/mir/src/model.saw`), whose docstring names
+its entry points: `Task.spawn`'s lowering now, and `Thread.spawn`'s with
+SL:coroutines A18.
+
+The check, `check_fates` (`compiler/drops/src/elaborate.saw`), follows each
+handle's VALUE rather than a binding's name, forward over the borrow-checked
+MIR to a fixpoint, before elaboration rewrites it. Per local it holds the
+site whose handle the local may hold, on some path, with no fate written:
+
+- a call of `join`, `detach` or `cancel` of `Task` or `VoidTask` whose
+  receiver borrows the local whole writes the fate;
+- a move into another local carries the handle, whole or as a part of what
+  the assignment builds: a struct, a case, a tuple, a closure's environment;
+- a move into storage whose owner declares a hand-written `deinit` (an
+  assignment into a field, an element or a referent of it, or an argument of
+  a method whose receiver borrows it) discharges the obligation: that
+  `deinit` is the fate, and the handle's run-time panic backstops one that
+  forgets (spec: *No implicit fates*; `conformance/K86`).
+
+Every other way out is refused, once per site, at the site: an implicit
+drop (a scope's end, a statement's end, an overwrite), a move into the return
+place, into storage whose owner declares no `deinit`, into a call's
+argument, or a take capture. A handle no binding ever held is reported as
+discarded where it is made. The check reads and adds nothing, so a program it
+accepts elaborates exactly as before (golden `fates`).
+
+**The escape matrix**, each row against Stage 0's spawn-obligation funnel
+(`sawc/typechecker/types.py`), each cell probed with both compilers:
+
+| route | sawc2 | Stage 0 |
+|---|---|---|
+| a bare statement, `let _ =` | refused, discarded | refused, discarded |
+| bound, dropped on some path (a branch, a loop iteration, an early `return`) | refused | refused |
+| `return` of a bound handle, or of a spawn as a tail | refused | refused |
+| moved into a struct literal, a tuple, an `Optional`, a capture | refused at the carrier's drop | refused |
+| assigned into a field of a type with no `deinit` | refused | refused |
+| assigned into a field of a type that declares a `deinit` | discharged, the run-time panic backstops | discharged |
+| pushed into a `Vector` (which declares a `deinit`) or a `deinit`-owning field's collection | discharged | discharged |
+| moved into a function's argument | refused | refused |
+| a struct literal of a type that declares a `deinit` | refused at the carrier's drop | refused |
+| moved into another local, then given a fate there | accepted | **refused**: Stage 0 keys the obligation on the first binding's name |
+| a fate on each arm of an `if` | accepted | **refused**: Stage 0 undoes a consume made inside a nested block on the way out, though every arm consumed |
+| a fate written, then the handle moved and dropped | accepted | accepted |
+| `Task.spawn(f()).join()` | accepted | accepted |
+
+The two divergences are both cases sawc2 accepts and Stage 0 refuses; each
+follows from the check being per path and per value, as the spec states it.
+A handle reached through a reference (`let r = &t; r.join()`) or a field
+(`k.held.join()`) writes no fate the check sees, so the handle's local, or
+its carrier, is refused at its drop: conservative, as Stage 0 is.
+
 ## Rules
 
 | rule | refuses | fixture |
 |---|---|---|
-| `drop.must-consume` | a value of a type whose fate must be written reaching an implicit drop | `drop.must-consume`, due when spawn enters the slice |
-
-The types are those bound to a lang role in `drops_must_consume_roles`
-(`compiler/drops/src/elaborate.saw`), never a type name. The std declares no
-`Thread` role until spawn is lowered, so the list is empty and the rule
-refuses nothing yet. A `Task` handle's obligation follows its spawn form, not
-its type (spec, "A spawned unit's fate is written"), so a role cannot carry
-it; that is for the spawn lowering to settle.
+| `drop.must-consume` | a spawn handle that leaves the check with no fate written (above) | `drop.must-consume`, a bound handle never consumed, and its variants: `branch` (consumed on one branch), `bare` and `let-underscore` (the two discard spellings), `return`, `argument`, `field` (into a struct the check follows), `storage` (into a field of a type with no `deinit`), `capture` |
 
 A **due row** starts `// due: NAME when CONDITION`, then `// refuses: RULE
 at L:C`, the refusal standing in its way today. The lane holds it to that
@@ -239,6 +291,7 @@ there. It counts the drop flags over the sawc2 build and over tests/corpus.
 | a flag across an accessor's split (the Air's probe) | accessor |
 | a flagged drop across a suspending call | suspension |
 | a take: its take flag adopted, kept at the take, guarding the scope-end drop; a parameter taken, one local taken twice under one flag | takes |
+| spawn handles the must-consume check accepts: `cancel()` alone, a move then a fate, a fate then a move, a fate on each arm, the chained `join()`, one per loop iteration, storage a declared `deinit` owns | fates |
 
 ## The flag counts
 

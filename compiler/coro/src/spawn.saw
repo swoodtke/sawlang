@@ -1,0 +1,49 @@
+// Spawn sites, which coroutine lowering refuses until it lowers them: a task
+// root is a separate item with a frame of its own (SL:architecture §3.9), and
+// lowering a spawn site as a call of its root would run the task's whole
+// body in the spawner, synchronously.
+
+import sawborrowck.program.{BorrowckProgram}
+import sawcoro.program.{CoroProgram}
+import sawdrops.program.{DropsProgram}
+import sawmir.dump.{mir_spawn_form_text}
+import sawmir.model.{MirCallKind, MirTermKind}
+import sawmir.program.{MirProgram}
+import sawmono.program.{MonoProgram}
+import sawresolve.dump.{res_sort_strings}
+import sawresolve.program.{ResProgram}
+import sawtypecheck.program.{TcProgram}
+
+// Refuses each spawn site of every item, at its form, in item and block
+// order.
+public func coro_refuse_spawn_sites(coro: &var CoroProgram) {
+    var k = 0
+    while k < coro.mono.items.len() {
+        let item = k
+        k = k + 1
+        let body = coro.mono.items[item].body
+        if body < 0 {
+            continue
+        }
+        let info = coro.mono.dp.bc.mir.funcs[body]
+        var b = 0
+        while b < info.block_count {
+            let block = coro.mono.dp.bc.mir.blocks[info.block_first + b]
+            b = b + 1
+            if block.term != MirTermKind.Call {
+                continue
+            }
+            let c = coro.mono.dp.bc.mir.calls[block.call]
+            if c.kind != MirCallKind.Spawn {
+                continue
+            }
+            var msg = StringBuilder()
+            try! msg.append("this spawn site (")
+            try! msg.append(mir_spawn_form_text(c.spawn))
+            try! msg.append(", root `")
+            try! msg.append(coro.mono.dp.bc.mir.tc.res.decl_path(c.target))
+            try! msg.append("`) is not lowered yet: its task root, an item with a frame of its own, arrives with spawn lowering (SL-545 A7a, SL-560)")
+            coro.refuse(item, c.node, "coro.not-yet", msg.build())
+        }
+    }
+}

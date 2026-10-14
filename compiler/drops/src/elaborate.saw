@@ -25,15 +25,17 @@ import sawmir.build.{mir_func_local}
 import sawmir.dump.{mir_module_functions}
 import sawmir.initialisation.{MIR_INIT_PARTIAL, MIR_INIT_WHOLE, MirAccess, MirAccessKind, MirInit,
                                   mir_init_apply_all}
-import sawmir.model.{MirBlock, MirConstKind, MirDiag, MirFuncKind, MirLocal, MirLocalKind, MirProjKind,
-                         MirRvalueKind, MirStmt, MirStmtKind}
+import sawmir.model.{MirBlock, MirCall, MirCallKind, MirConstKind, MirDiag, MirFuncKind, MirLocal, MirLocalKind,
+                         MirOperandKind, MirProjKind, MirRvalueKind, MirStmt, MirStmtKind, MirTermKind, mir_owes_fate}
 import sawmir.program.{MirProgram}
-import sawresolve.lang.{ResLang}
+import sawmir.split.{MirHalf}
+import sawresolve.dump.{res_sort_strings}
 import sawresolve.program.{ResProgram}
 import sawtypecheck.checks.{tc_check_unsafe}
-import sawtypecheck.model.{TC_EFFECT_CONSUMES}
+import sawtypecheck.model.{TC_EFFECT_CONSUMES, TcReceiver}
 import sawtypecheck.program.{TcProgram}
 import sawtypecheck.spell.{tc_effects_text}
+import sawtypecheck.summaries.{tc_acc}
 import sawtypecheck.typeops.{TcClient}
 
 // Every rule drop elaboration refuses by.
@@ -43,13 +45,21 @@ public func drops_rules() -> Vector<String> {
     move out
 }
 
-// The lang roles whose types must reach a written fate rather than an
-// implicit drop: a `Thread` handle's `join` or `detach` (spec, "every
-// non-group handle's fate is written"). The std declares no such role until
-// spawn enters the bootstrap slice, so the list is empty and the rule refuses
-// nothing yet.
-public func drops_must_consume_roles() -> Vector<ResLang> {
-    Vector<ResLang>()
+// How a handle that owes a fate leaves the locals the check follows it
+// through, other than by a written fate or into storage a declared `deinit`
+// owns.
+enum DropsEscape {
+    // An implicit drop: a scope's end, a statement's end, an overwrite.
+    case Dropped,
+    // A move into the return place.
+    case Returned,
+    // A move into a field, an element or a referent, of storage whose owner
+    // declares no `deinit`.
+    case Stored,
+    // A move into a call's argument.
+    case Argument,
+    // A take capture of a non-escaping closure.
+    case Captured
 }
 
 extension DropsProgram {
@@ -65,6 +75,7 @@ extension DropsProgram {
 
     func elaborate_func(&var self, f: Int) {
         let facts = self.bc.mir.init_analysis(f)
+        self.check_fates(f, &facts)
         self.collect_flags(f, &facts)
         let relocated = self.flag_count[f] > 0
         if relocated {
@@ -413,13 +424,8 @@ extension DropsProgram {
         return -1
     }
 
-    // An output drop of place `p`, guarded by `by`; a type whose fate must
-    // be written is refused at it.
+    // An output drop of place `p`, guarded by `by`.
     func emit_drop(&var self, f: Int, s: Int, p: Int, by: Int) {
-        let t = self.bc.mir.places[p].ty
-        if self.must_consume(t) {
-            self.refuse_must_consume(f, s, t)
-        }
         let at = self.bc.mir.stmts.len()
         self.bc.mir.emit_drop(p)
         self.set_guard(at, by)
@@ -550,35 +556,440 @@ extension DropsProgram {
         self.bc.mir.current = -1
     }
 
-    // Whether a value of type `t` must reach a written fate.
-    func must_consume(&var self, t: Int) -> Bool {
-        let d = self.bc.mir.tc.nominal_decl(t)
-        if d < 0 {
-            return false
+    // THE MUST-CONSUME CHECK (spec: No implicit fates): the handle a spawn
+    // site mints when `mir_owes_fate` holds must reach `join()`, `detach()`
+    // or `cancel()` on every path. It follows the handle's value, not a name:
+    // forward over `f`'s blocks to a fixpoint, each local holds the site whose
+    // handle it may hold on some path with no fate written, or -1. A fate
+    // call on the local clears it, a whole move into another local carries
+    // it, and a move into storage whose owner declares a `deinit` discharges
+    // it, that `deinit` being the fate the handle's run-time panic backstops.
+    // Every other way out is refused once, at the site (`DropsEscape`).
+    func check_fates(&var self, f: Int, facts: &MirInit) {
+        let info = self.bc.mir.funcs[f]
+        if not self.mints_fates(f) {
+            return
         }
-        let roles = drops_must_consume_roles()
-        var k = 0
-        while k < roles.len() {
-            if self.bc.mir.tc.res.lang_item(roles[k]) == d {
-                return true
+        let n = info.local_count
+        let refs = self.ref_places(f)
+        var entry = Vector<Int>()
+        var seen = Vector<Bool>()
+        var queued = Vector<Bool>()
+        var b = 0
+        while b < info.block_count {
+            try! seen.push(false)
+            try! queued.push(false)
+            var l = 0
+            while l < n {
+                try! entry.push(-1)
+                l = l + 1
             }
-            k = k + 1
+            b = b + 1
+        }
+        var reported = Vector<Int>()
+        var state = Vector<Int>()
+        var l = 0
+        while l < n {
+            try! state.push(-1)
+            l = l + 1
+        }
+        var work = Vector<Int>()
+        seen[0] = true
+        queued[0] = true
+        try! work.push(0)
+        var next = 0
+        while next < work.len() {
+            let at = work[next]
+            next = next + 1
+            queued[at] = false
+            self.load_fates(&entry, at, n, &var state)
+            self.fate_block(f, at, &var state, &refs, false, &var reported)
+            let block = self.bc.mir.blocks[info.block_first + at]
+            let succ = self.bc.mir.successors_of(&block)
+            var k = 0
+            while k < succ.len() {
+                let s = succ[k]
+                k = k + 1
+                var changed = not seen[s]
+                seen[s] = true
+                var j = 0
+                while j < n {
+                    if state[j] >= 0 && entry[s * n + j] < 0 {
+                        entry[s * n + j] = state[j]
+                        changed = true
+                    }
+                    j = j + 1
+                }
+                if changed && not queued[s] {
+                    queued[s] = true
+                    try! work.push(s)
+                }
+            }
+        }
+        b = 0
+        while b < info.block_count {
+            if seen[b] && facts.reached[b] {
+                self.load_fates(&entry, b, n, &var state)
+                self.fate_block(f, b, &var state, &refs, true, &var reported)
+            }
+            b = b + 1
+        }
+    }
+
+    // Whether some call of `f` mints a handle that owes a fate.
+    func mints_fates(&self, f: Int) -> Bool {
+        let info = self.bc.mir.funcs[f]
+        var b = 0
+        while b < info.block_count {
+            let block = self.bc.mir.blocks[info.block_first + b]
+            b = b + 1
+            if block.term == MirTermKind.Call {
+                let c = self.bc.mir.calls[block.call]
+                if mir_owes_fate(&c) {
+                    return true
+                }
+            }
         }
         false
     }
 
-    func refuse_must_consume(&var self, f: Int, s: Int, t: Int) {
-        var node = self.bc.mir.stmts[s].node
+    // By local of `f`: the place a `ref` assigned to it whole borrows, or -1,
+    // which is how a method's receiver operand names the local it borrows.
+    func ref_places(&self, f: Int) -> Vector<Int> {
+        let info = self.bc.mir.funcs[f]
+        var out = Vector<Int>()
+        var l = 0
+        while l < info.local_count {
+            try! out.push(-1)
+            l = l + 1
+        }
+        var b = 0
+        while b < info.block_count {
+            let block = self.bc.mir.blocks[info.block_first + b]
+            b = b + 1
+            var s = block.first
+            while s >= 0 {
+                let stmt = self.bc.mir.stmts[s]
+                s = stmt.next
+                if stmt.kind != MirStmtKind.Assign || stmt.rvalue < 0 {
+                    continue
+                }
+                let rv = self.bc.mir.rvalues[stmt.rvalue]
+                let dest = self.bc.mir.bare_local(stmt.place)
+                if rv.kind == MirRvalueKind.Ref && dest >= 0 && rv.place >= 0 {
+                    out[dest] = rv.place
+                }
+            }
+        }
+        move out
+    }
+
+    func load_fates(&self, entry: &Vector<Int>, b: Int, n: Int, state: &var Vector<Int>) {
+        var j = 0
+        while j < n {
+            state[j] = entry[b * n + j]
+            j = j + 1
+        }
+    }
+
+    // Block `b`'s statements and terminator applied to `state`; with
+    // `report`, each escape refused.
+    func fate_block(&var self, f: Int, b: Int, state: &var Vector<Int>, refs: &Vector<Int>, report: Bool,
+                    reported: &var Vector<Int>) {
+        let info = self.bc.mir.funcs[f]
+        let block = self.bc.mir.blocks[info.block_first + b]
+        var s = block.first
+        while s >= 0 {
+            let stmt = self.bc.mir.stmts[s]
+            if stmt.kind == MirStmtKind.Drop {
+                let l = self.bc.mir.bare_local(stmt.place)
+                if l >= 0 && state[l] >= 0 && self.bc.labels[s] != BORROWCK_LABEL_ELIDED && report {
+                    self.refuse_fate(f, state[l], l, DropsEscape.Dropped, -1, &var reported)
+                }
+                if l >= 0 {
+                    state[l] = -1
+                }
+            } else if stmt.kind == MirStmtKind.Assign && stmt.rvalue >= 0 {
+                self.fate_assign(f, &stmt, &var state, report, &var reported)
+            }
+            s = stmt.next
+        }
+        if block.term == MirTermKind.Call {
+            self.fate_call(f, block.call, &var state, &refs, report, &var reported)
+        }
+    }
+
+    // An assignment. A value moved in, whole or as a part of what the
+    // rvalue builds (a struct, a case, a tuple, a closure's environment),
+    // goes with the destination: a local carries it, the return place and
+    // storage whose owner declares no `deinit` are escapes, and other storage
+    // discharges it. A local a take capture names escapes into the closure.
+    // Whatever the destination held before is gone, since an owning
+    // overwrite drops it first.
+    func fate_assign(&var self, f: Int, stmt: &MirStmt, state: &var Vector<Int>, report: Bool,
+                     reported: &var Vector<Int>) {
+        let rv = self.bc.mir.rvalues[stmt.rvalue]
+        let dest = self.bc.mir.bare_local(stmt.place)
+        if rv.kind == MirRvalueKind.Take && rv.place >= 0 {
+            let m = self.bc.mir.bare_local(rv.place)
+            if m >= 0 && state[m] >= 0 {
+                if report {
+                    self.refuse_fate(f, state[m], m, DropsEscape.Captured, -1, &var reported)
+                }
+                state[m] = -1
+            }
+        }
+        var site = -1
+        var from = -1
+        var k = 0
+        while k < rv.count {
+            let m = self.moved_local(rv.first + k)
+            k = k + 1
+            if m >= 0 && state[m] >= 0 {
+                if site < 0 {
+                    site = state[m]
+                    from = m
+                }
+                state[m] = -1
+            }
+        }
+        if dest >= 0 {
+            state[dest] = -1
+        }
+        if site < 0 {
+            return
+        }
+        if dest > 0 {
+            state[dest] = site
+        } else if dest == 0 {
+            if report {
+                self.refuse_fate(f, site, from, DropsEscape.Returned, -1, &var reported)
+            }
+        } else if not self.owner_declares_deinit(f, stmt.place) && report {
+            self.refuse_fate(f, site, from, DropsEscape.Stored, -1, &var reported)
+        }
+    }
+
+    // A call: a fate method on a local writes its fate; an argument moved
+    // in discharges into storage a declared `deinit` owns, or escapes; the
+    // destination holds what a site mints, or nothing that owes.
+    func fate_call(&var self, f: Int, at: Int, state: &var Vector<Int>, refs: &Vector<Int>, report: Bool,
+                   reported: &var Vector<Int>) {
+        let c = self.bc.mir.calls[at]
+        let receiver = self.receiver_place(&c, &refs)
+        if receiver >= 0 && self.is_fate_method(&c) {
+            let l = self.bc.mir.bare_local(receiver)
+            if l >= 0 {
+                state[l] = -1
+            }
+        }
+        var k = 0
+        while k < c.arg_count {
+            let m = self.moved_local(c.arg_first + k)
+            k = k + 1
+            if m < 0 || state[m] < 0 {
+                continue
+            }
+            let site = state[m]
+            state[m] = -1
+            let stored = receiver >= 0 && self.owner_declares_deinit(f, receiver)
+            if not stored && report {
+                self.refuse_fate(f, site, m, DropsEscape.Argument, at, &var reported)
+            }
+        }
+        if c.dest < 0 {
+            return
+        }
+        let d = self.bc.mir.bare_local(c.dest)
+        if not mir_owes_fate(&c) {
+            if d >= 0 {
+                state[d] = -1
+            }
+            return
+        }
+        if d > 0 {
+            state[d] = at
+        } else if report {
+            let why = if d == 0 { DropsEscape.Returned } else { DropsEscape.Stored }
+            self.refuse_fate(f, at, -1, why, -1, &var reported)
+        }
+    }
+
+    // The local the operand at operand-list index `at` moves out of whole,
+    // or -1.
+    func moved_local(&self, at: Int) -> Int {
+        let o = self.bc.mir.lists[at]
+        if o < 0 {
+            return -1
+        }
+        let info = self.bc.mir.operands[o]
+        if info.kind != MirOperandKind.Move || info.place < 0 {
+            return -1
+        }
+        self.bc.mir.bare_local(info.place)
+    }
+
+    // The place call `c` borrows its receiver from: a method of a declaration
+    // whose first argument moves out of a local a `ref` made; or -1.
+    func receiver_place(&self, c: &MirCall, refs: &Vector<Int>) -> Int {
+        if c.kind != MirCallKind.Function || c.target < 0 || c.arg_count < 1 {
+            return -1
+        }
+        if self.bc.mir.tc.sigs[c.target].receiver == TcReceiver.Absent {
+            return -1
+        }
+        let r = self.moved_local(c.arg_first)
+        if r < 0 {
+            return -1
+        }
+        refs[r]
+    }
+
+    // Whether call `c` is `join`, `detach` or `cancel` of a handle a
+    // cooperative spawn form mints.
+    func is_fate_method(&self, c: &MirCall) -> Bool {
+        if c.owner < 0 {
+            return false
+        }
+        // Stage 0 workaround (SL:hazards S4): canonical: let d = self.bc.mir.tc.nominal_decl(self.bc.mir.tc.strip_refs(c.owner))
+        let owner = self.bc.mir.tc.strip_refs(c.owner)
+        let d = self.bc.mir.tc.nominal_decl(owner)
+        if d < 0 || (d != self.bc.mir.tc.known.task && d != self.bc.mir.tc.known.void_task) {
+            return false
+        }
+        // Stage 0 workaround (SL:hazards S4): canonical: let name = self.bc.mir.tc.name_text(self.bc.mir.tc.res.decls[c.target].name)
+        let interned = self.bc.mir.tc.res.decls[c.target].name
+        let name = self.bc.mir.tc.name_text(interned)
+        name.equals("join") || name.equals("detach") || name.equals("cancel")
+    }
+
+    // Whether the value place `p` is rooted in has a type that declares a
+    // hand-written `deinit`, reached through any reference to it.
+    func owner_declares_deinit(&var self, f: Int, p: Int) -> Bool {
+        let l = self.bc.mir.places[p].local
+        if l < 0 {
+            return false
+        }
+        let t = mir_func_local(&self.bc.mir, f, l).ty
+        // Stage 0 workaround (SL:hazards S4): canonical: let d = self.bc.mir.tc.nominal_decl(self.bc.mir.tc.strip_refs(t))
+        let owner = self.bc.mir.tc.strip_refs(t)
+        let d = self.bc.mir.tc.nominal_decl(owner)
+        d >= 0 && self.bc.mir.deinit_member(d) >= 0
+    }
+
+    // Refuses the handle site `site` minted, once per site, for leaving by
+    // `why` from local `l` (-1 for the site's own destination); `call` names
+    // the call an argument escapes into.
+    func refuse_fate(&var self, f: Int, site: Int, l: Int, why: DropsEscape, call: Int, reported: &var Vector<Int>) {
+        var k = 0
+        while k < reported.len() {
+            if reported[k] == site {
+                return
+            }
+            k = k + 1
+        }
+        try! reported.push(site)
+        let c = self.bc.mir.calls[site]
+        var node = c.node
         if node < 0 {
             node = self.bc.mir.funcs[f].root
         }
-        let m = self.bc.mir.tc.node_module(node)
-        let n = self.bc.mir.tc.res.nodes[node]
+        // Stage 0 workaround (SL:hazards S4): canonical: let handle = self.bc.mir.tc.type_text(self.bc.mir.places[c.dest].ty)
+        let handle_type = self.bc.mir.places[c.dest].ty
+        let handle = self.bc.mir.tc.type_text(handle_type)
+        var name = -1
+        if l >= 0 {
+            let local = mir_func_local(&self.bc.mir, f, l)
+            if local.kind == MirLocalKind.User {
+                name = local.name
+            }
+        }
+        if name < 0 {
+            name = self.binding_of(f, c.dest)
+        }
         var msg = StringBuilder()
-        try! msg.append("a value of type `")
-        try! msg.append(self.bc.mir.tc.type_text(t))
-        try! msg.append("` reaches an implicit drop here, but its fate must be written: consume it on every path")
-        try! self.diags.push(MirDiag(module: m, start: n.start, end: n.end, id: "drop.must-consume", message: msg.build()))
+        if name < 0 {
+            try! msg.append("`Task.spawn` hands back a `")
+            try! msg.append(handle)
+            try! msg.append("` that must be consumed, and this one is discarded. Bind it and consume it on every path: ")
+        } else {
+            let binding = self.bc.mir.tc.name_text(name)
+            try! msg.append("`")
+            try! msg.append(binding)
+            try! msg.append("` holds the `")
+            try! msg.append(handle)
+            try! msg.append("` spawned here, which is never consumed: `")
+            try! msg.append(binding)
+            try! msg.append("` ")
+            match why {
+                case Dropped -> try! msg.append("is dropped with no `join()`, `detach()` or `cancel()` of it on some path"),
+                case Returned -> try! msg.append("leaves the function by a `return` without consuming it"),
+                case Stored -> try! msg.append("moves into storage whose owner declares no `deinit`, which writes no fate"),
+                case Argument -> {
+                    try! msg.append("moves into an argument of `")
+                    try! msg.append(self.call_label(call))
+                    try! msg.append("`, which writes no fate")
+                },
+                case Captured -> try! msg.append("is taken by a closure's capture, which writes no fate")
+            }
+            try! msg.append(". ")
+        }
+        try! msg.append("`join()` waits for it and takes its result, `detach()` hands it to the process (its result is dropped at completion), and `cancel()` asks it to stop. To manage a dynamic set of tasks, spawn them into a `TaskGroup`: a group is a declared consumer, so its handles may be dropped freely")
+        if name >= 0 {
+            try! msg.append(". Moving it into storage writes its fate only when the storing type declares a `deinit` of its own")
+        }
+        let m = self.bc.mir.tc.node_module(node)
+        let span = self.bc.mir.tc.res.nodes[node]
+        try! self.diags.push(MirDiag(module: m, start: span.start, end: span.end, id: "drop.must-consume",
+                                     message: msg.build()))
+    }
+
+    // The name of the binding of `f` a site's destination `dest` is moved
+    // into whole, as `let t = Task.spawn(...)` binds it, or -1.
+    func binding_of(&self, f: Int, dest: Int) -> Int {
+        let d = self.bc.mir.bare_local(dest)
+        if d < 0 {
+            return -1
+        }
+        let info = self.bc.mir.funcs[f]
+        var b = 0
+        while b < info.block_count {
+            let block = self.bc.mir.blocks[info.block_first + b]
+            b = b + 1
+            var s = block.first
+            while s >= 0 {
+                let stmt = self.bc.mir.stmts[s]
+                s = stmt.next
+                if stmt.kind != MirStmtKind.Assign || stmt.rvalue < 0 {
+                    continue
+                }
+                let rv = self.bc.mir.rvalues[stmt.rvalue]
+                let to = self.bc.mir.bare_local(stmt.place)
+                if rv.kind != MirRvalueKind.Use || rv.count != 1 || to < 0 {
+                    continue
+                }
+                if self.moved_local(rv.first) != d {
+                    continue
+                }
+                let local = mir_func_local(&self.bc.mir, f, to)
+                if local.kind == MirLocalKind.User {
+                    return local.name
+                }
+            }
+        }
+        return -1
+    }
+
+    // How a refusal names the target of call `c`.
+    func call_label(&self, c: Int) -> String {
+        if c < 0 {
+            return "a call"
+        }
+        let info = self.bc.mir.calls[c]
+        if info.target < 0 {
+            return "a function value"
+        }
+        self.bc.mir.tc.res.decl_path(info.target)
     }
 
     // A broken invariant in function `f`, at statement `s` or the function.

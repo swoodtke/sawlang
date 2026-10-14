@@ -1,0 +1,94 @@
+// The must-consume check's accepted shapes: every handle `Task.spawn` mints
+// reaches a written fate on every path, follows its value through moves, or
+// moves into storage whose owner declares a `deinit`. None is refused, and
+// elaboration adds nothing for the check: it only reads.
+
+func work(n: Int) -> Int {
+    n
+}
+
+func nap() {
+}
+
+struct Keeper {
+    held: Vector<Task<Int>>
+}
+
+extension Keeper: NoCopy {
+    func deinit(&var self) {
+        while self.held.len() > 0 {
+            if let h = self.held.pop() {
+                let t = move h
+                t.detach()
+            }
+        }
+    }
+}
+
+// `cancel()` alone is a fate.
+func cancelled_only() {
+    let t = Task.spawn(work(1))
+    t.cancel()
+}
+
+// A move into another local carries the obligation, and the fate written
+// there settles it.
+func moved_then_detached() {
+    let t = Task.spawn(work(2))
+    let u = move t
+    u.detach()
+}
+
+// A fate written, then the handle moved: it arrives consumed.
+func cancelled_then_moved() {
+    let t = Task.spawn(work(3))
+    t.cancel()
+    let u = move t
+    print("moved")
+}
+
+// Each arm writes a fate of its own, on a `VoidTask`.
+func both_arms(c: Bool) {
+    let t = Task.spawn(nap())
+    if c {
+        t.join()
+    } else {
+        t.detach()
+    }
+}
+
+// The wait-here spelling: consumed where it is made.
+func chained() {
+    print("{}", Task.spawn(work(4)).join())
+}
+
+// Each iteration's handle joined in that iteration.
+func per_iteration() {
+    var i = 0
+    while i < 3 {
+        let t = Task.spawn(work(i))
+        print("{}", t.join())
+        i = i + 1
+    }
+}
+
+// Storage whose owner declares a `deinit` takes the fate over: a local
+// `Vector`, and a field of `Keeper`.
+func stored(keeper: &var Keeper) {
+    var v = Vector<Task<Int>>()
+    let t = Task.spawn(work(5))
+    try! v.push(move t)
+    let s = Task.spawn(work(6))
+    try! keeper.held.push(move s)
+}
+
+func main() {
+    cancelled_only()
+    moved_then_detached()
+    cancelled_then_moved()
+    both_arms(true)
+    chained()
+    per_iteration()
+    var keeper = Keeper(held: Vector<Task<Int>>())
+    stored(&var keeper)
+}

@@ -149,6 +149,19 @@ call:
   record first when it holds one, and its close passes only that record. A
   `lend` stands only in an accessor's body before it is split, so no dump
   shows one.
+- A **spawn site**, `PLACE = spawn FORM TARGET [(inst T...)] [ARGS] ->
+  [return: bbK];`, is a cooperative spawn form (`Task.spawn(f(x))`, FORM
+  `singleton`). ARGS are the root call's arguments, evaluated before it in
+  the spawner as any call's are, a nested call among them included; TARGET,
+  the root, is not called here, since the task makes that call (golden
+  `spawn_site`). PLACE is the handle, `Task<T>` for a root of type `T` or
+  `VoidTask` for a `Void` one. The site is no suspension point. The verifier
+  checks that a spawn site names a form and a free function, returns, passes
+  arguments of its root's parameter types, and leaves the handle its form
+  gives, and that no other call carries a form. A singleton site's handle
+  must reach a written fate, which drop elaboration checks
+  (`compiler/tests/drops/README.md`, "Fates"); coroutine lowering refuses
+  every spawn site until it lowers task roots (`compiler/tests/coro/README.md`).
 - SUSPENSION is ` suspends` for a call that may suspend whatever its type
   arguments, or ` suspends when T.Trait.req ...` for one that may when the
   conditions over the function's own type parameters hold (typecheck's
@@ -491,7 +504,6 @@ slice.not-yet at L:C`.
 | a `match` on a conditional lend | conditional-match |
 | a `borrow` block binding a conditional lend | conditional-block |
 | a `for` over an iterator held in a place | iterator-place |
-| a `Task.spawn` site, as "this call", until its spawn terminator lands (SL-595) | spawn-site |
 | a consuming destructure of a type that writes its own `deinit`, since the spec does not say whether dissolving one skips that body | consuming-deinit |
 | the release of a consumed receiver that moves out whole, or is an enum, when its type writes its own `deinit` | consumes-whole |
 | a write to an owning part of a raw pointer's pointee (`p[i].f = v`, `(*p).f = v`), since the spec makes only a whole pointer slot a placement write | pointer-part |

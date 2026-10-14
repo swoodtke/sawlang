@@ -1,0 +1,15 @@
+// refuses: drop.must-consume at 11:13
+// A handle consumed on one branch and dropped on the other: the check is per
+// path, and the path that skips `join()` drops the handle unconsumed.
+
+func work(n: Int) -> Int {
+    n
+}
+
+func main() {
+    let urgent = true
+    let t = Task.spawn(work(1))
+    if urgent {
+        print("{}", t.join())
+    }
+}
