@@ -1,0 +1,41 @@
+// expect-panic: executor: a task reported Pending without recording a park
+// Every `Pending` a frame reports follows the park it recorded through its
+// context. One that records none is caught at the resume that reported it,
+// not read as the park word a previous resume left behind.
+
+import std.taskgroup.{FrameDescriptor, Poll, TaskContext, TaskProvenance}
+import std.taskgroup.{__saw_exec_background, __saw_exec_task_box}
+
+struct Stuck {
+    turns: Int
+}
+
+func stuck_resume(frame: UnsafePointer<UInt8>, cx: UnsafePointer<TaskContext>) unsafe -> Poll {
+    let f = frame as UnsafePointer<Stuck>
+    f[0].turns = f[0].turns + 1
+    print("turn {}", f[0].turns)
+    if f[0].turns == 1 {
+        cx[0].park[0] = 0
+    }
+    Poll.Pending
+}
+
+func drop_nothing(at: UnsafePointer<UInt8>) unsafe {
+}
+
+func run() unsafe {
+    let stuck = FrameDescriptor(resume: { f, c in stuck_resume(f, c) }, size: sizeof<Stuck>(),
+                                align: alignof<Stuck>(), result_offset: 0, result_size: 0,
+                                result_align: 1, drop_result: { p in drop_nothing(p) },
+                                backtrace: -1)
+    let d = (&stuck) as UnsafePointer<FrameDescriptor>
+    let frame = __saw_exec_task_box(d)
+    let f = frame as UnsafePointer<Stuck>
+    f[0] = Stuck(turns: 0)
+    let task = VoidTask.__saw_spawn(__saw_exec_background(), d, frame, TaskProvenance.Singleton)
+    task.join()
+}
+
+func main() {
+    run()
+}

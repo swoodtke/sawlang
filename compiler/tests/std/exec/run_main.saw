@@ -1,0 +1,87 @@
+// A hand-built `main` frame run by the executor's driver for a suspending
+// `main`, the body of `std.task`'s `__saw_exec_run_main`: the frame spawns a
+// background task, detaches it and yields; the two take turns until `main`
+// returns, and then the background group is closed, cancel first, so the
+// task that would loop forever sees its cancel word and finishes. `main`'s
+// result stays in the caller's frame.
+
+import std.taskgroup.{FrameDescriptor, Poll, TaskContext, TaskProvenance}
+import std.taskgroup.{__saw_exec_background, __saw_exec_drive_main, __saw_exec_task_box}
+
+struct MainFrame {
+    state: Int
+    looper: UnsafePointer<FrameDescriptor>
+    result: Int
+}
+
+struct Looper {
+    turns: Int
+}
+
+func park_ready(cx: UnsafePointer<TaskContext>) unsafe -> Poll {
+    cx[0].park[0] = 0
+    Poll.Pending
+}
+
+func main_resume(frame: UnsafePointer<UInt8>, cx: UnsafePointer<TaskContext>) unsafe -> Poll {
+    let f = frame as UnsafePointer<MainFrame>
+    let state = f[0].state
+    f[0].state = state + 1
+    if state == 0 {
+        let lframe = __saw_exec_task_box(f[0].looper)
+        let lf = lframe as UnsafePointer<Looper>
+        lf[0] = Looper(turns: 0)
+        let looper = VoidTask.__saw_spawn(__saw_exec_background(), f[0].looper, lframe,
+                                          TaskProvenance.Singleton)
+        looper.detach()
+        print("main spawned")
+        return park_ready(cx)
+    }
+    if state == 1 {
+        print("main step")
+        return park_ready(cx)
+    }
+    print("main returns")
+    f[0].result = 7
+    Poll.Ready
+}
+
+func looper_resume(frame: UnsafePointer<UInt8>, cx: UnsafePointer<TaskContext>) unsafe -> Poll {
+    let f = frame as UnsafePointer<Looper>
+    if cx[0].cancel[0] {
+        print("looper cancelled after {} turns", f[0].turns)
+        return Poll.Ready
+    }
+    f[0].turns = f[0].turns + 1
+    print("looper turn {}", f[0].turns)
+    park_ready(cx)
+}
+
+func drop_nothing(at: UnsafePointer<UInt8>) unsafe {
+}
+
+func result_offset() unsafe -> Int {
+    var probe = MainFrame(state: 0, looper: 0 as UnsafePointer<FrameDescriptor>, result: 0)
+    let base = (&probe) as UnsafePointer<MainFrame>
+    let field = (&probe.result) as UnsafePointer<Int>
+    field as Int - base as Int
+}
+
+func run() unsafe {
+    let looper = FrameDescriptor(resume: { f, c in looper_resume(f, c) }, size: sizeof<Looper>(),
+                                 align: alignof<Looper>(), result_offset: 0, result_size: 0,
+                                 result_align: 1, drop_result: { p in drop_nothing(p) },
+                                 backtrace: -1)
+    let entry = FrameDescriptor(resume: { f, c in main_resume(f, c) }, size: sizeof<MainFrame>(),
+                                align: alignof<MainFrame>(), result_offset: result_offset(),
+                                result_size: sizeof<Int>(), result_align: alignof<Int>(),
+                                drop_result: { p in drop_nothing(p) }, backtrace: -1)
+    var frame = MainFrame(state: 0, looper: (&looper) as UnsafePointer<FrameDescriptor>, result: 0)
+    let at = (&frame) as UnsafePointer<MainFrame>
+    __saw_exec_drive_main((&entry) as UnsafePointer<FrameDescriptor>, at as UnsafePointer<UInt8>)
+    print("main's result {}", at[0].result)
+}
+
+func main() {
+    run()
+}

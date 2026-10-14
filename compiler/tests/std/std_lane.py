@@ -15,8 +15,9 @@ profile, the lang-item table, and the API equivalence of the two stds.
   module's typecheck dump is byte-equal under the two roots, but for the
   new std's `(string-positions ...)` section, and to `NAME.typecheck`, and its
   MIR is equal under the two, a refusal's records too. `optional_methods` and
-  `string_positions` are checked against `std/` alone, and `user_optional` is
-  refused as a prelude name while `Optional` stays the prelude's;
+  `string_positions` are checked against `std/` alone, `user_optional` is
+  refused as a prelude name while `Optional` stays the prelude's, and a
+  program on `MIR_DUE` may be refused in MIR by its one rule alone;
 - the std prelude's Optional has one `take`, `is_some` and `is_none` each;
 - each `shape/NAME.fixture` edit of a copy of `std/` is refused first by the
   rule the fixture names, with its message;
@@ -31,6 +32,10 @@ profile, the lang-item table, and the API equivalence of the two stds.
 - each `calls/` program, which only the new std's API can type, checks clean
   through drop elaboration against `std/`, or, headed `// refuses: RULE at
   L:C`, is refused first there by that rule;
+- each `exec/` program, which builds coroutine frames by hand with their
+  descriptors and drives them through the executor's entries, builds with
+  sawc2 against `std/` at -O0 and -O2 and prints exactly its `NAME.out`,
+  exiting 0, or, headed `// expect-panic: TEXT`, panicking with that text;
 - each `mir/NAME.mir` holds its functions' MIR as sawc2 lowers them against
   `std/`, and String's retain and release read the count with a relaxed
   atomic load and compare it with the immortal sentinel before any atomic
@@ -74,6 +79,7 @@ SHAPE = os.path.join(HERE, "shape")
 SUBSET = os.path.join(HERE, "subset")
 PAIRS = os.path.join(HERE, "pairs")
 CALLS = os.path.join(HERE, "calls")
+EXEC = os.path.join(HERE, "exec")
 CONE = os.path.join(HERE, "cone")
 MIR = os.path.join(HERE, "mir")
 MEMBERS = os.path.join(HERE, "equivalence.tsv")
@@ -89,6 +95,10 @@ LANDED_UNITS = ("U5b1", "U5b2", "U5b3", "SL-522")
 # The programs of `lang/` checked against the new std only, or refused.
 NEW_ONLY = ("optional_methods", "string_positions")
 REFUSED_PAIRED = ("missing_case",)
+# The programs of `lang/` whose MIR the bootstrap slice cannot lower yet, by
+# the one rule each is refused at there: typed like any other, their MIR
+# refusals must agree under the two roots, and nothing else may be refused.
+MIR_DUE = {"sync_spawn": "slice.not-yet"}
 USER_OPTIONAL = "user_optional"
 OPTIONAL_METHODS = ("take", "is_some", "is_none")
 # The cones that must reach no allocator: a program using only Optional and
@@ -126,6 +136,9 @@ ACQUIRE_FENCE = "call builtin __saw_atomic_fence_acquire"
 _MARKER = re.compile(r"//\s*refuses:\s*(.+)$")
 _EXPECT_PANIC = re.compile(r"^//\s*expect-panic:\s*(.+)$")
 _ARGUMENTS = re.compile(r"^//\s*arguments:\s*(.+)$")
+# A panic's location, which an executor program's expected output leaves out:
+# it names a line of std, which moves with every edit there.
+_PANIC_AT = re.compile(r"panic at [^ ]+:\d+: ")
 # The files a pair's `{files}` argument names the directory of, written fresh
 # before the pairs run: the bytes are exact here, where a committed fixture
 # holding invalid UTF-8 would not survive the patch's text transport.
@@ -242,9 +255,19 @@ def check_lang(failures, counts, write):
                 failures.append("std lang %s: the two roots refuse it differently" % rel(path))
             counts["lang cases"] = counts.get("lang cases", 0) + 1
             continue
+        refusals = {}
         for root in roots:
+            due = [l for l in problems_of(lowered[root])
+                   if name in MIR_DUE and l.split("\t")[1] == MIR_DUE[name]]
+            refusals[root] = due
+            if name in MIR_DUE and not due:
+                failures.append("std lang %s (%s): its MIR lowers; take it off MIR_DUE"
+                                % (rel(path), root))
             for line in problems_of(dumps[root]) + problems_of(lowered[root]):
-                failures.append("std lang %s (%s): %s" % (rel(path), root, line))
+                if line not in due:
+                    failures.append("std lang %s (%s): %s" % (rel(path), root, line))
+        if len(roots) == 2 and refusals[STAGE0_ROOT] != refusals[NEW_ROOT]:
+            failures.append("std lang %s: the two roots refuse its MIR differently" % rel(path))
         texts = {root: section(dumps[root], name) for root in roots}
         if len(roots) == 2:
             if texts[STAGE0_ROOT] != without_string_positions(texts[NEW_ROOT]):
@@ -894,6 +917,57 @@ def check_mir_pins(failures, counts, write):
         counts["std mir pins"] = counts.get("std mir pins", 0) + 1
 
 
+# ------------------------------------------------------------ the executor
+
+def build_and_run_exec(path, speed):
+    """sawc2's build of executor program `path` against `std/` at `speed`,
+    run: None when it prints its `NAME.out`, each panic's location masked, and
+    exits as its header says, or the failure. The output file is the oracle
+    because no Stage 0 build can run these: they drive frames the new std's
+    executor defines."""
+    name = module_name(path)
+    exe = os.path.join(OUT, "exec", name + speed)
+    os.makedirs(os.path.dirname(exe), exist_ok=True)
+    r = subprocess.run([build.SAWC2, "build", speed, "--std-root", NEW_ROOT, rel(path), "-o", exe],
+                       cwd=REPO, capture_output=True, text=True, timeout=TIMEOUT)
+    if r.returncode != 0:
+        return "std exec %s (%s): sawc2 does not build it: %s" \
+            % (rel(path), speed, (r.stdout + r.stderr).strip().split("\n")[-1])
+    try:
+        ran = subprocess.run([exe], capture_output=True, text=True, timeout=RUN_TIMEOUT)
+    except subprocess.TimeoutExpired:
+        return "std exec %s (%s): timed out" % (rel(path), speed)
+    expected_out = os.path.splitext(path)[0] + ".out"
+    if not os.path.exists(expected_out):
+        return "std exec %s: no %s" % (rel(path), rel(expected_out))
+    with open(expected_out, encoding="utf-8") as fh:
+        want = fh.read()
+    got = _PANIC_AT.sub("panic at ?: ", ran.stdout)
+    if got != want:
+        return "std exec %s (%s): its output differs from %s:\n%s" \
+            % (rel(path), speed, rel(expected_out), got)
+    panic = expected_panic(path)
+    if panic is not None:
+        if ran.returncode == 0 or panic not in ran.stdout + ran.stderr:
+            return "std exec %s (%s): expected a panic saying `%s`, got exit %d: %s" \
+                % (rel(path), speed, panic, ran.returncode, ran.stderr.strip())
+    elif ran.returncode != 0:
+        return "std exec %s (%s): exit %d: %s" % (rel(path), speed, ran.returncode,
+                                                  ran.stderr.strip())
+    return None
+
+
+def check_exec(failures, counts):
+    """Each `exec/` program, which builds frames by hand and drives them
+    through the executor's entries, built by sawc2 at -O0 and -O2 and run."""
+    programs = sorted(glob.glob(os.path.join(EXEC, "*.saw")))
+    jobs = [(p, speed) for p in programs for speed in ("-O0", "-O2")]
+    for failure in gate_jobs.map_ordered(lambda job: build_and_run_exec(*job), jobs, most=4):
+        if failure:
+            failures.append(failure)
+    counts["executor programs"] = len(programs)
+
+
 def check_whitespace(failures):
     """No fixture line ends in whitespace and no fixture ends in a blank line,
     which the patch server's `git apply --whitespace=fix` would strip."""
@@ -921,6 +995,7 @@ def run(write=False):
     check_equivalence(failures, counts)
     check_pairs(failures, counts)
     check_calls(failures, counts)
+    check_exec(failures, counts)
     check_mir_pins(failures, counts, write)
     check_cones(failures, counts, write)
     check_driver(failures, counts, write)

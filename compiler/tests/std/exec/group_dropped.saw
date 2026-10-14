@@ -1,0 +1,67 @@
+// A handle whose provenance is a group drops silently, unconsumed, even when
+// it escapes into a struct field: the provenance word decides, not the type,
+// so the singleton twin of this program (`singleton_dropped`) panics. The
+// group's own teardown, here the background group's close, releases the
+// result nobody took.
+
+import std.taskgroup.{FrameDescriptor, Poll, TaskContext, TaskProvenance, VoidTask}
+import std.taskgroup.{__saw_exec_background, __saw_exec_close_background, __saw_exec_task_box}
+
+struct Answer {
+    result: Int
+}
+
+struct Holder {
+    task: Task<Int>
+    other: VoidTask
+}
+
+extension Holder: NoCopy {}
+
+func answer_resume(frame: UnsafePointer<UInt8>, cx: UnsafePointer<TaskContext>) unsafe -> Poll {
+    let f = frame as UnsafePointer<Answer>
+    f[0].result = 42
+    Poll.Ready
+}
+
+func drop_int(at: UnsafePointer<UInt8>) unsafe {
+    let p = at as UnsafePointer<Int>
+    print("released result {}", p[0])
+}
+
+func drop_nothing(at: UnsafePointer<UInt8>) unsafe {
+}
+
+// Spawns the two tasks and drops their handles, unconsumed, with `Holder`.
+func hold(d: UnsafePointer<FrameDescriptor>, v: UnsafePointer<FrameDescriptor>) unsafe {
+    let frame = __saw_exec_task_box(d)
+    let f = frame as UnsafePointer<Answer>
+    f[0] = Answer(result: 0)
+    let task = Task<Int>.__saw_spawn(__saw_exec_background(), d, frame, TaskProvenance.Group)
+    let vframe = __saw_exec_task_box(v)
+    let vf = vframe as UnsafePointer<Answer>
+    vf[0] = Answer(result: 0)
+    let other = VoidTask.__saw_spawn(__saw_exec_background(), v, vframe, TaskProvenance.Group)
+    let holder = Holder(task: move task, other: move other)
+    print("holding")
+}
+
+// The descriptors outlive every task of theirs, as the compiler's constants do.
+func run() unsafe {
+    let answer = FrameDescriptor(resume: { f, c in answer_resume(f, c) }, size: sizeof<Answer>(),
+                                 align: alignof<Answer>(), result_offset: 0,
+                                 result_size: sizeof<Int>(), result_align: alignof<Int>(),
+                                 drop_result: { p in drop_int(p) }, backtrace: -1)
+    let empty = FrameDescriptor(resume: { f, c in answer_resume(f, c) }, size: sizeof<Answer>(),
+                                align: alignof<Answer>(), result_offset: 0, result_size: 0,
+                                result_align: 1, drop_result: { p in drop_nothing(p) },
+                                backtrace: -1)
+    hold((&answer) as UnsafePointer<FrameDescriptor>, (&empty) as UnsafePointer<FrameDescriptor>)
+    print("dropped")
+    __saw_exec_close_background()
+    print("closed")
+}
+
+func main() {
+    run()
+}

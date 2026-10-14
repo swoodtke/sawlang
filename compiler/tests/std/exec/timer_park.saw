@@ -1,0 +1,38 @@
+// expect-panic: executor: a task is parked on a timer, which this executor does not wait on yet
+// A frame that parks on a timer, a wait the executor does not perform yet,
+// ends the join that needs it with a panic naming the reason, rather than a
+// sweep that spins or returns with the task unfinished.
+
+import std.taskgroup.{FrameDescriptor, Poll, TaskContext, TaskProvenance}
+import std.taskgroup.{__saw_exec_background, __saw_exec_task_box}
+
+struct Sleeper {
+    state: Int
+}
+
+func sleeper_resume(frame: UnsafePointer<UInt8>, cx: UnsafePointer<TaskContext>) unsafe -> Poll {
+    print("sleeper parks")
+    cx[0].park[0] = 1000000
+    Poll.Pending
+}
+
+func drop_nothing(at: UnsafePointer<UInt8>) unsafe {
+}
+
+func run() unsafe {
+    let sleeper = FrameDescriptor(resume: { f, c in sleeper_resume(f, c) },
+                                  size: sizeof<Sleeper>(), align: alignof<Sleeper>(),
+                                  result_offset: 0, result_size: 0, result_align: 1,
+                                  drop_result: { p in drop_nothing(p) }, backtrace: -1)
+    let d = (&sleeper) as UnsafePointer<FrameDescriptor>
+    let frame = __saw_exec_task_box(d)
+    let f = frame as UnsafePointer<Sleeper>
+    f[0] = Sleeper(state: 0)
+    let task = VoidTask.__saw_spawn(__saw_exec_background(), d, frame, TaskProvenance.Singleton)
+    task.join()
+    print("joined")
+}
+
+func main() {
+    run()
+}

@@ -1,0 +1,25 @@
+task 1 step 1
+task 2 step 1
+task 1 step 2
+task 2 step 2
+task 1 step 3
+joined 103
+joined 202
+task 4 step 1
+joiner waits
+task 4 step 2
+task 3 step 1
+task 4 step 3
+task 3 step 2
+joiner got 302
+joined 303
+joined 403
+task 5 step 1
+task 5 step 2
+joined 502
+looper cancelled after 2 turns
+looper joined
+closing
+task 6 step 1
+dropped result 601
+closed

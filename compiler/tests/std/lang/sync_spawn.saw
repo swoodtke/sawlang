@@ -1,0 +1,55 @@
+// A `sync` function may spawn a background task and give it a fate: the
+// spawn form runs nothing of the task, and `join`, `detach` and `cancel` on
+// either handle are sync-callable under both stds, as Stage 0 builds and runs
+// this program. The new std's handles reach frames only through their
+// descriptors' function values, so those are `sync` too.
+import std.task.*
+
+func work(n: Int) {
+    yield_now()
+    print("{}", n)
+}
+
+func value(n: Int) -> Int {
+    yield_now()
+    n
+}
+
+func start_detached() sync {
+    let t = Task.spawn(work(1))
+    t.detach()
+}
+
+func start_cancelled() sync {
+    let t = Task.spawn(work(2))
+    t.cancel()
+}
+
+func start_joined() sync {
+    let t = Task.spawn(work(3))
+    t.join()
+}
+
+func value_detached() sync {
+    let t = Task.spawn(value(4))
+    t.detach()
+}
+
+func value_cancelled() sync {
+    let t = Task.spawn(value(5))
+    t.cancel()
+}
+
+func value_joined() sync -> Int {
+    let t = Task.spawn(value(6))
+    t.join()
+}
+
+func main() {
+    start_detached()
+    start_cancelled()
+    start_joined()
+    value_detached()
+    value_cancelled()
+    print("{}", value_joined())
+}

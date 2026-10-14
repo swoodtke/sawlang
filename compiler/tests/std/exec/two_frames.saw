@@ -1,0 +1,153 @@
+// Two hand-built frames driven by the executor through their descriptors.
+// Each yields between steps, so one join's sweep interleaves them. A third
+// frame joins a task from inside its own resume: that nested sweep runs the
+// other ready tasks and must skip the frame doing the joining. A cancelled
+// task sees its cancel word through its context, and a detached task's
+// result is dropped where it finishes.
+
+import std.taskgroup.{FrameDescriptor, Poll, TaskContext, TaskProvenance, VoidTask}
+import std.taskgroup.{__saw_exec_background, __saw_exec_close_background, __saw_exec_task_box}
+
+// A frame that counts to `steps`, yielding after every step but its last.
+struct Counter {
+    state: Int
+    name: Int
+    steps: Int
+    result: Int
+}
+
+// A frame that joins a counter task from inside its first resume.
+struct Joiner {
+    state: Int
+    inside: Bool
+    counter: UnsafePointer<FrameDescriptor>
+    result: Int
+}
+
+// A frame that yields until its task is cancelled.
+struct Looper {
+    turns: Int
+}
+
+func park_ready(cx: UnsafePointer<TaskContext>) unsafe -> Poll {
+    cx[0].park[0] = 0
+    Poll.Pending
+}
+
+func counter_resume(frame: UnsafePointer<UInt8>, cx: UnsafePointer<TaskContext>) unsafe -> Poll {
+    let f = frame as UnsafePointer<Counter>
+    let step = f[0].state + 1
+    f[0].state = step
+    print("task {} step {}", f[0].name, step)
+    if step < f[0].steps {
+        return park_ready(cx)
+    }
+    f[0].result = f[0].name * 100 + step
+    Poll.Ready
+}
+
+func joiner_resume(frame: UnsafePointer<UInt8>, cx: UnsafePointer<TaskContext>) unsafe -> Poll {
+    let f = frame as UnsafePointer<Joiner>
+    if f[0].inside {
+        print("the joiner was re-entered")
+    }
+    f[0].inside = true
+    let worker = spawn_counter(f[0].counter, 3, 2)
+    print("joiner waits")
+    let got = worker.join()
+    print("joiner got {}", got)
+    f[0].inside = false
+    f[0].result = got + 1
+    Poll.Ready
+}
+
+func looper_resume(frame: UnsafePointer<UInt8>, cx: UnsafePointer<TaskContext>) unsafe -> Poll {
+    let f = frame as UnsafePointer<Looper>
+    if cx[0].cancel[0] {
+        print("looper cancelled after {} turns", f[0].turns)
+        return Poll.Ready
+    }
+    f[0].turns = f[0].turns + 1
+    park_ready(cx)
+}
+
+func drop_int(at: UnsafePointer<UInt8>) unsafe {
+    let p = at as UnsafePointer<Int>
+    print("dropped result {}", p[0])
+}
+
+func drop_nothing(at: UnsafePointer<UInt8>) unsafe {
+}
+
+func counter_offset() unsafe -> Int {
+    var probe = Counter(state: 0, name: 0, steps: 0, result: 0)
+    let base = (&probe) as UnsafePointer<Counter>
+    let field = (&probe.result) as UnsafePointer<Int>
+    field as Int - base as Int
+}
+
+func joiner_offset() unsafe -> Int {
+    var probe = Joiner(state: 0, inside: false, counter: 0 as UnsafePointer<FrameDescriptor>,
+                       result: 0)
+    let base = (&probe) as UnsafePointer<Joiner>
+    let field = (&probe.result) as UnsafePointer<Int>
+    field as Int - base as Int
+}
+
+func spawn_counter(d: UnsafePointer<FrameDescriptor>, name: Int, steps: Int) unsafe -> Task<Int> {
+    let frame = __saw_exec_task_box(d)
+    let f = frame as UnsafePointer<Counter>
+    f[0] = Counter(state: 0, name: name, steps: steps, result: 0)
+    Task<Int>.__saw_spawn(__saw_exec_background(), d, frame, TaskProvenance.Singleton)
+}
+
+func run() unsafe {
+    let counter = FrameDescriptor(resume: { f, c in counter_resume(f, c) }, size: sizeof<Counter>(),
+                                  align: alignof<Counter>(), result_offset: counter_offset(),
+                                  result_size: sizeof<Int>(), result_align: alignof<Int>(),
+                                  drop_result: { p in drop_int(p) }, backtrace: -1)
+    let joiner = FrameDescriptor(resume: { f, c in joiner_resume(f, c) }, size: sizeof<Joiner>(),
+                                 align: alignof<Joiner>(), result_offset: joiner_offset(),
+                                 result_size: sizeof<Int>(), result_align: alignof<Int>(),
+                                 drop_result: { p in drop_int(p) }, backtrace: -1)
+    let looper = FrameDescriptor(resume: { f, c in looper_resume(f, c) }, size: sizeof<Looper>(),
+                                 align: alignof<Looper>(), result_offset: 0, result_size: 0,
+                                 result_align: 1, drop_result: { p in drop_nothing(p) },
+                                 backtrace: -1)
+    let cd = (&counter) as UnsafePointer<FrameDescriptor>
+    let jd = (&joiner) as UnsafePointer<FrameDescriptor>
+    let ld = (&looper) as UnsafePointer<FrameDescriptor>
+
+    let a = spawn_counter(cd, 1, 3)
+    let b = spawn_counter(cd, 2, 2)
+    print("joined {}", a.join())
+    print("joined {}", b.join())
+
+    let jframe = __saw_exec_task_box(jd)
+    let jf = jframe as UnsafePointer<Joiner>
+    jf[0] = Joiner(state: 0, inside: false, counter: cd, result: 0)
+    let j = Task<Int>.__saw_spawn(__saw_exec_background(), jd, jframe, TaskProvenance.Singleton)
+    let c = spawn_counter(cd, 4, 3)
+    print("joined {}", j.join())
+    print("joined {}", c.join())
+
+    let lframe = __saw_exec_task_box(ld)
+    let lf = lframe as UnsafePointer<Looper>
+    lf[0] = Looper(turns: 0)
+    let l = VoidTask.__saw_spawn(__saw_exec_background(), ld, lframe, TaskProvenance.Singleton)
+    let d = spawn_counter(cd, 5, 2)
+    print("joined {}", d.join())
+    l.cancel()
+    l.join()
+    print("looper joined")
+
+    let e = spawn_counter(cd, 6, 1)
+    e.detach()
+    print("closing")
+    __saw_exec_close_background()
+    print("closed")
+}
+
+func main() {
+    run()
+}

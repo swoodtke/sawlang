@@ -432,6 +432,7 @@ extension ResProgram {
         self.std_module("map")
         self.std_module("set")
         self.std_module("task")
+        self.std_module("taskgroup")
     }
 
     // Stage 0's std modules, each `std.X` at `<std root>/std/X.saw`.

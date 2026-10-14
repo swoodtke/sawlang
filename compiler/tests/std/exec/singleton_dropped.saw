@@ -1,0 +1,44 @@
+// expect-panic: Task was dropped without being joined, detached or cancelled — `join()` waits for it and takes its result, `detach()` hands it to the process, `cancel()` asks it to stop
+// A `Task.spawn` handle that escapes into a struct field and is dropped
+// unconsumed with it panics in the handle's destructor: the run-time half of
+// the must-consume guarantee, keyed on the handle's provenance.
+
+import std.taskgroup.{FrameDescriptor, Poll, TaskContext, TaskProvenance}
+import std.taskgroup.{__saw_exec_background, __saw_exec_task_box}
+
+struct Answer {
+    result: Int
+}
+
+struct Holder {
+    task: Task<Int>
+}
+
+extension Holder: NoCopy {}
+
+func answer_resume(frame: UnsafePointer<UInt8>, cx: UnsafePointer<TaskContext>) unsafe -> Poll {
+    let f = frame as UnsafePointer<Answer>
+    f[0].result = 42
+    Poll.Ready
+}
+
+func drop_nothing(at: UnsafePointer<UInt8>) unsafe {
+}
+
+func run() unsafe {
+    let answer = FrameDescriptor(resume: { f, c in answer_resume(f, c) }, size: sizeof<Answer>(),
+                                 align: alignof<Answer>(), result_offset: 0,
+                                 result_size: sizeof<Int>(), result_align: alignof<Int>(),
+                                 drop_result: { p in drop_nothing(p) }, backtrace: -1)
+    let d = (&answer) as UnsafePointer<FrameDescriptor>
+    let frame = __saw_exec_task_box(d)
+    let f = frame as UnsafePointer<Answer>
+    f[0] = Answer(result: 0)
+    let task = Task<Int>.__saw_spawn(__saw_exec_background(), d, frame, TaskProvenance.Singleton)
+    let holder = Holder(task: move task)
+    print("dropping the holder")
+}
+
+func main() {
+    run()
+}

@@ -1,0 +1,818 @@
+//! The cooperative executor: the run queue tasks are resumed from, the handles
+//! a spawn returns, and the background group `Task.spawn` spawns into.
+//!
+//! A task is a coroutine frame the compiler lays out. The executor reaches a
+//! frame only through its `FrameDescriptor`: it resumes the frame, reads the
+//! park word the frame recorded through its `TaskContext`, and releases the
+//! frame's storage once its root returns `Poll.Ready`. The result and the
+//! cancel word live in the task's cell, which outlives the frame, so a handle
+//! never addresses the frame itself.
+
+import std.mem.{copy_bytes, drop_in_place}
+
+// The park word vocabulary: what a frame records through `TaskContext.park`
+// before it returns `Pending`, and what a slot is decided by between resumes.
+//
+//    > 0    a timer
+//   == 0    ready: resume on the next sweep (`yield_now`, a budget yield)
+//   == -1   a descriptor's readiness
+//    < -1   a channel's readiness word, by its negated address
+//
+// The executor waits on a ready park alone; each other reason has its own
+// lowering and its own executor half. `PARK_UNSET` is written before every
+// resume, so a frame that reports `Pending` without recording a park is caught
+// rather than read as stale (SL:coroutines §3.3).
+static PARK_READY: Int = 0
+static PARK_FD: Int = -1
+static PARK_UNSET: Int = Int.min
+
+/// What one resume of a frame reports.
+public enum Poll {
+    /// The frame's root returned, and its result is in the result slot.
+    case Ready,
+    /// The frame parked, and recorded why through its context's park word.
+    case Pending
+}
+
+/// The record every resume of a task's frames is handed: where the task
+/// parks, where its cancel word is, and which task it is.
+///
+/// A frame driving a child passes the same context down, so a park anywhere
+/// in the task records the root's word.
+public struct TaskContext {
+    /// The task's park word.
+    park: UnsafePointer<Int>
+    /// The task's cancel word, which `cancelled()` reads.
+    cancel: UnsafePointer<Bool>
+    /// The task's identity, for the task backtrace.
+    task: Int
+}
+
+/// The constant record the compiler emits for each frame type, through which
+/// the executor reaches a frame of that type.
+///
+/// `resume` runs the frame to its next park or its end; it stands in for the
+/// backend's `__saw_frame_resume` helper, which takes the same operands, until
+/// frames are lowered. A task's storage is `size` bytes at alignment `align`,
+/// and its root's result, `result_size` bytes at alignment `result_align`,
+/// sits `result_offset` bytes in; `drop_result` destroys a result in place.
+/// `backtrace` is the frame type's index in the backtrace table.
+///
+/// Both function values are `sync`: a resume reports a park as `Pending`
+/// rather than suspending its caller, and a drop never suspends, so the
+/// handles that reach them stay callable from `sync` code.
+public struct FrameDescriptor {
+    resume: (UnsafePointer<UInt8>, UnsafePointer<TaskContext>) unsafe sync -> Poll
+    size: Int
+    align: Int
+    result_offset: Int
+    result_size: Int
+    result_align: Int
+    drop_result: (UnsafePointer<UInt8>) unsafe sync -> Void
+    backtrace: Int
+}
+
+/// Where a handle came from, which decides whether dropping it is a fate.
+///
+/// A `Task.spawn` handle is the task's only consumer, so it must be joined,
+/// detached or cancelled; a `group.spawn` handle may be dropped, because its
+/// group is a declared consumer.
+public enum TaskProvenance {
+    /// Minted by `Task.spawn`.
+    case Singleton,
+    /// Minted by `group.spawn`.
+    case Group
+}
+
+// A spawned task's cell: its context, park and cancel words, and the storage
+// its result is moved into when the frame finishes. One heap block holds the
+// cell and, at `result`, its result bytes, so every address the context hands
+// out is stable for the task's life (design 134).
+struct TaskCell {
+    context: TaskContext
+    park: Int
+    cancel: Bool
+    detached: Bool
+    // A result was moved in and is neither taken nor dropped yet.
+    holding: Bool
+    descriptor: UnsafePointer<FrameDescriptor>
+    result: UnsafePointer<UInt8>
+    bytes: Int
+    align: Int
+}
+
+// One run-queue entry. `generation` is half of the (slot, generation) pair a
+// handle records, so a handle to a task whose slot was reused is recognisably
+// stale. `active` marks a frame being resumed on this thread's stack: a
+// nested sweep skips it, since resuming it would re-enter a live coroutine.
+struct TaskSlot {
+    frame: UnsafePointer<UInt8>?
+    cell: UnsafePointer<TaskCell>?
+    generation: Int
+    done: Bool
+    active: Bool
+    // A frame the executor allocated and frees; `main`'s frame is the
+    // entry's own.
+    owned: Bool
+}
+
+// The (slot, generation) pair an enqueue hands back.
+struct TaskTicket {
+    slot: Int
+    generation: Int
+}
+
+/// A scope for spawned tasks over the shared cooperative scheduler.
+public struct TaskGroup {
+    private slots: Vector<TaskSlot>
+    private free: Vector<Int>
+    // The ambient list link: the next registered group's address, 0 at the
+    // end, and whether this group is in the list.
+    private next: Int
+    private registered: Bool
+}
+
+extension TaskGroup: NoCopy {}
+
+// The ambient scheduler's list of every group with tasks, threaded through
+// each group's `next`; the head group's address, or 0.
+static EXEC_HEAD: Atomic<Int> = Atomic(0)
+
+// The background group's address once the first `Task.spawn` built it, or 0.
+static BACKGROUND: Atomic<Int> = Atomic(0)
+
+// The executor's side of the hidden-allocation boundary (design 234): a spawn
+// is a form, with no expression a `try` could sit on, so a refused allocation
+// of the executor's panics, naming the operation the author wrote.
+//
+// ENTRY POINTS:
+//   `exec_alloc`
+//   `alloc_or_fault`
+func exec_fault(what: String, e: AllocError) -> Never {
+    panic("{}: {}", what, e)
+}
+
+// `size` bytes at `align`, for operation `what`.
+func exec_alloc(size: Int, align: Int, what: String) unsafe -> UnsafePointer<Int8> {
+    if let raw = GlobalAllocator().alloc(size, align) {
+        return raw
+    }
+    exec_fault(what, AllocError(size: size, align: align))
+}
+
+// A growth of the executor's bookkeeping, for operation `what`.
+func alloc_or_fault(r: Result<Void, AllocError>, what: String) {
+    match r {
+        case Ok(_) -> {},
+        case Err(e) -> exec_fault(what, e)
+    }
+}
+
+func round_up(n: Int, align: Int) -> Int {
+    (n + align - 1) / align * align
+}
+
+/// Allocates the storage of a task whose root frame `descriptor` describes,
+/// for the compiler's spawn lowering to write the root's arguments into.
+///
+/// Panics if the allocation is refused.
+public func __saw_exec_task_box(descriptor: UnsafePointer<FrameDescriptor>) unsafe -> UnsafePointer<UInt8> {
+    exec_alloc(descriptor[0].size, descriptor[0].align, "Task.spawn") as UnsafePointer<UInt8>
+}
+
+// A fresh cell for a task of `descriptor`, ready to run.
+func new_cell(descriptor: UnsafePointer<FrameDescriptor>) unsafe -> UnsafePointer<TaskCell> {
+    var align = alignof<TaskCell>()
+    let result_align = descriptor[0].result_align
+    if result_align > align {
+        align = result_align
+    }
+    let header = round_up(sizeof<TaskCell>(), align)
+    let bytes = header + descriptor[0].result_size
+    let raw = exec_alloc(bytes, align, "Task.spawn")
+    let cell = raw as UnsafePointer<TaskCell>
+    let result = (raw as Int + header) as UnsafePointer<UInt8>
+    let context = TaskContext(park: 0 as UnsafePointer<Int>, cancel: 0 as UnsafePointer<Bool>,
+                              task: raw as Int)
+    cell[0] = TaskCell(context: context, park: PARK_READY, cancel: false, detached: false,
+                       holding: false, descriptor: descriptor, result: result, bytes: bytes,
+                       align: align)
+    let park = (&cell[0].park) as UnsafePointer<Int>
+    let cancel = (&cell[0].cancel) as UnsafePointer<Bool>
+    cell[0].context.park = park
+    cell[0].context.cancel = cancel
+    cell
+}
+
+// Destroys the result `cell` holds, if any.
+func drop_held_result(cell: UnsafePointer<TaskCell>) unsafe {
+    if cell[0].holding {
+        cell[0].holding = false
+        let drop = cell[0].descriptor[0].drop_result
+        drop(cell[0].result)
+    }
+}
+
+func free_cell(cell: UnsafePointer<TaskCell>) unsafe {
+    drop_held_result(cell)
+    let bytes = cell[0].bytes
+    let align = cell[0].align
+    GlobalAllocator().dealloc(cell as UnsafePointer<Int8>, bytes, align)
+}
+
+extension TaskGroup {
+    // An empty group, linked into nothing.
+    static func empty() -> TaskGroup {
+        TaskGroup(slots: Vector<TaskSlot>(), free: Vector<Int>(), next: 0, registered: false)
+    }
+
+    // Whether (`slot`, `generation`) no longer names the task it was minted
+    // for. Every handle operation asks first, so a stale handle never reaches
+    // a successor's state.
+    func stale(&self, slot: Int, generation: Int) -> Bool {
+        if slot < 0 || slot >= self.slots.len() {
+            return true
+        }
+        self.slots[slot].generation != generation
+    }
+
+    func is_done(&self, slot: Int) -> Bool {
+        self.slots[slot].done
+    }
+
+    // The cell of live slot `slot`.
+    func cell_at(&self, slot: Int) unsafe -> UnsafePointer<TaskCell> {
+        if let cell = self.slots[slot].cell {
+            return cell
+        }
+        panic("TaskGroup: slot {} holds no task", slot)
+    }
+
+    // Whether `slot` can be resumed now: live, not on this thread's stack,
+    // and parked ready.
+    func runnable(&self, slot: Int) unsafe -> Bool {
+        let s = self.slots[slot]
+        if s.done || s.active {
+            return false
+        }
+        self.cell_at(slot)[0].park == PARK_READY
+    }
+
+    func has_live(&self) -> Bool {
+        var i = 0
+        while i < self.slots.len() {
+            if not self.slots[i].done {
+                return true
+            }
+            i = i + 1
+        }
+        false
+    }
+
+    // The park word of the first live frame not on this thread's stack, or
+    // `PARK_UNSET` when there is none.
+    func first_parked(&self) unsafe -> Int {
+        var i = 0
+        while i < self.slots.len() {
+            let s = self.slots[i]
+            if not s.done && not s.active {
+                return self.cell_at(i)[0].park
+            }
+            i = i + 1
+        }
+        PARK_UNSET
+    }
+}
+
+// The run queue's writes are free functions over `&var TaskGroup`, so a group
+// reached through its address is written through one argument, `&var g[0]`,
+// and never through a method call on an indexed receiver. None is called
+// across a resume: the frame being resumed may reach the same group through
+// its address (SL:hazards S15).
+
+// Puts the frame at `frame` on `group`'s run queue with a fresh cell. `owned`
+// says the executor frees the frame when its root finishes. `group` is the
+// group's final storage: the ambient list records its address until
+// `unregister`.
+func enqueue(group: &var TaskGroup, descriptor: UnsafePointer<FrameDescriptor>,
+             frame: UnsafePointer<UInt8>, owned: Bool) unsafe -> TaskTicket {
+    register(&var group)
+    let cell = new_cell(descriptor)
+    place(&var group, frame, cell, owned)
+}
+
+// Claims a reclaimed slot, or grows by one. A reused slot keeps the
+// generation its recycle advanced to.
+func place(group: &var TaskGroup, frame: UnsafePointer<UInt8>, cell: UnsafePointer<TaskCell>,
+           owned: Bool) unsafe -> TaskTicket {
+    var slot = -1
+    if let reused = group.free.pop() {
+        slot = reused
+    }
+    if slot < 0 {
+        slot = group.slots.len()
+        // The free list never outgrows the slots, so reserving here is what
+        // keeps `recycle` from needing to allocate.
+        alloc_or_fault(group.free.reserve(slot + 1), "Task.spawn")
+        let fresh = TaskSlot(frame: None, cell: None, generation: 1, done: true, active: false,
+                             owned: false)
+        alloc_or_fault(group.slots.push(fresh), "Task.spawn")
+    }
+    let generation = group.slots[slot].generation
+    let entry = TaskSlot(frame: frame, cell: cell, generation: generation, done: false,
+                         active: false, owned: owned)
+    group.slots[slot] = entry
+    TaskTicket(slot: slot, generation: generation)
+}
+
+// Retires `slot`: its generation advances, so every handle to the task that
+// left goes stale, and its cell is freed for the next spawn.
+func recycle(group: &var TaskGroup, slot: Int) unsafe {
+    let cell = group.cell_at(slot)
+    free_cell(cell)
+    let next = group.slots[slot].generation + 1
+    group.slots[slot].cell = None
+    group.slots[slot].generation = next
+    alloc_or_fault(group.free.push(slot), "Task.spawn")
+}
+
+// The root of `slot` returned `Ready`. Its result moves into the cell and the
+// frame's storage is released, the one place a frame is, and a slot left with
+// nothing to hold is recycled. A frame has no drop glue, so only a frame whose
+// own code reached its end holds nothing that still needs destroying
+// (SL:coroutines §3.1).
+func complete(group: &var TaskGroup, slot: Int) unsafe {
+    let s = group.slots[slot]
+    let cell = group.cell_at(slot)
+    let descriptor = cell[0].descriptor
+    if let frame = s.frame {
+        if s.owned {
+            let size = descriptor[0].result_size
+            if size > 0 {
+                let from = (frame as Int + descriptor[0].result_offset) as UnsafePointer<Int8>
+                copy_bytes(from, cell[0].result as UnsafePointer<Int8>, size)
+                cell[0].holding = true
+            }
+            GlobalAllocator().dealloc(frame as UnsafePointer<Int8>, descriptor[0].size,
+                                      descriptor[0].align)
+        }
+    }
+    group.slots[slot].frame = None
+    group.slots[slot].done = true
+    if cell[0].detached {
+        drop_held_result(cell)
+    }
+    if not cell[0].holding {
+        recycle(&var group, slot)
+    }
+}
+
+// Marks `slot` detached; a task that has finished already drops the result it
+// was holding for a join and gives up its slot.
+func detach_slot(group: &var TaskGroup, slot: Int, generation: Int) unsafe {
+    if group.stale(slot, generation) {
+        return
+    }
+    let cell = group.cell_at(slot)
+    cell[0].detached = true
+    if group.slots[slot].done {
+        recycle(&var group, slot)
+    }
+}
+
+// Asks every live task in `group` to stop.
+func cancel_every_live(group: &var TaskGroup) unsafe {
+    var i = 0
+    while i < group.slots.len() {
+        if not group.slots[i].done {
+            let cell = group.cell_at(i)
+            cell[0].cancel = true
+        }
+        i = i + 1
+    }
+}
+
+// Releases every slot's cell, dropping any result nobody took. A slot still
+// holding a frame means a frame would be released before its root returned
+// `Ready`, which would lose that frame's live values unseen.
+func release_slots(group: &var TaskGroup) unsafe {
+    var i = 0
+    while i < group.slots.len() {
+        if group.slots[i].frame.is_some() {
+            panic("TaskGroup: a task's frame was released before its root returned Ready")
+        }
+        if let cell = group.slots[i].cell {
+            free_cell(cell)
+            let next = group.slots[i].generation + 1
+            group.slots[i].cell = None
+            group.slots[i].generation = next
+        }
+        i = i + 1
+    }
+}
+
+// Links `group` into the ambient list, once.
+func register(group: &var TaskGroup) unsafe {
+    if group.registered {
+        return
+    }
+    group.next = EXEC_HEAD.load()
+    EXEC_HEAD.store((&group) as UnsafePointer<TaskGroup> as Int)
+    group.registered = true
+}
+
+// Unlinks `group` from the ambient list, fixing its predecessor's `next`.
+func unregister(group: &var TaskGroup) unsafe {
+    if not group.registered {
+        return
+    }
+    group.registered = false
+    let me = (&group) as UnsafePointer<TaskGroup> as Int
+    let after_me = group.next
+    let head = EXEC_HEAD.load()
+    if head == me {
+        EXEC_HEAD.store(after_me)
+        return
+    }
+    var cur = head
+    while cur != 0 {
+        let g = cur as UnsafePointer<TaskGroup>
+        let after = g[0].next
+        if after == me {
+            g[0].next = after_me
+            return
+        }
+        cur = after
+    }
+}
+
+// Runs the frame at `frame` to its next park or its end: the one place the
+// executor calls into a frame. Its body is the descriptor's `resume` stand-in
+// until the backend's `__saw_frame_resume(descriptor, frame, context)`
+// exists; the call then becomes that helper's, with the same three operands,
+// since Saw code cannot call a raw code pointer (SL:coroutines §3.1).
+func resume_frame(descriptor: UnsafePointer<FrameDescriptor>, frame: UnsafePointer<UInt8>,
+                  context: UnsafePointer<TaskContext>) unsafe -> Poll {
+    let resume = descriptor[0].resume
+    resume(frame, context)
+}
+
+// Resumes `slot` of the group at `g` once, then records what it reported.
+//
+// Nothing is borrowed from the group across the resume: the frame may spawn,
+// which grows `slots`, and a join inside it runs a nested sweep over this
+// same group. `active` keeps that sweep off this frame.
+func resume_slot(at: UnsafePointer<TaskGroup>, slot: Int) unsafe {
+    var g = at
+    let s = g[0].slots[slot]
+    let cell = g[0].cell_at(slot)
+    if let frame = s.frame {
+        g[0].slots[slot].active = true
+        cell[0].park = PARK_UNSET
+        let context = (&cell[0].context) as UnsafePointer<TaskContext>
+        let poll = resume_frame(cell[0].descriptor, frame, context)
+        g[0].slots[slot].active = false
+        match poll {
+            // Stage 0 workaround (SL:hazards S15): canonical: g[0].complete(slot)
+            case Ready -> complete(&var g[0], slot),
+            case Pending -> {
+                if cell[0].park == PARK_UNSET {
+                    panic("executor: a task reported Pending without recording a park")
+                }
+            }
+        }
+    }
+}
+
+// Whether the sweep `exec_run` was asked for is finished: with `term_group`
+// 0, when no group has a live task; with `term_slot` negative, when that
+// group has none; otherwise when that task is done, or its slot has moved on
+// to a successor.
+func should_stop(term_group: Int, term_slot: Int, term_gen: Int) unsafe -> Bool {
+    if term_group != 0 {
+        let g = term_group as UnsafePointer<TaskGroup>
+        if term_slot >= 0 {
+            return g[0].stale(term_slot, term_gen) || g[0].is_done(term_slot)
+        }
+        return not g[0].has_live()
+    }
+    var cur = EXEC_HEAD.load()
+    while cur != 0 {
+        let g = cur as UnsafePointer<TaskGroup>
+        if g[0].has_live() {
+            return false
+        }
+        cur = g[0].next
+    }
+    true
+}
+
+// The scheduler sweep: resumes ready frames round-robin across every group in
+// the ambient list until `should_stop` says the sweep is finished.
+//
+// A nested sweep (a task joins a task) skips every frame active on this
+// thread's stack, and returns when every live frame is one of those, ceding
+// to the sweep further up. A frame parked on anything but a ready park is a
+// wait this executor does not perform yet, so it panics rather than spin.
+func exec_run(term_group: Int, term_slot: Int, term_gen: Int) unsafe {
+    while not should_stop(term_group, term_slot, term_gen) {
+        var resumed = false
+        var cur = EXEC_HEAD.load()
+        while cur != 0 {
+            let g = cur as UnsafePointer<TaskGroup>
+            var i = 0
+            while i < g[0].slots.len() {
+                if g[0].runnable(i) {
+                    resume_slot(g, i)
+                    resumed = true
+                    if should_stop(term_group, term_slot, term_gen) {
+                        return
+                    }
+                }
+                i = i + 1
+            }
+            cur = g[0].next
+        }
+        if not resumed {
+            refuse_parked()
+            return
+        }
+    }
+}
+
+// Nothing was ready. When some live frame off this thread's stack is parked,
+// that wait is one the executor cannot perform yet.
+func refuse_parked() unsafe {
+    var cur = EXEC_HEAD.load()
+    while cur != 0 {
+        let g = cur as UnsafePointer<TaskGroup>
+        let park = g[0].first_parked()
+        if park != PARK_UNSET {
+            panic("executor: a task is parked on {}, which this executor does not wait on yet",
+                  park_reason(park))
+        }
+        cur = g[0].next
+    }
+}
+
+func park_reason(park: Int) -> String {
+    if park > 0 {
+        return "a timer"
+    }
+    if park == PARK_FD {
+        return "a descriptor's readiness"
+    }
+    "a channel's readiness word"
+}
+
+/// The process-wide group `Task.spawn` spawns into, built on the first call.
+///
+/// Panics if the group cannot be allocated.
+public func __saw_exec_background() unsafe -> UnsafePointer<TaskGroup> {
+    let current = BACKGROUND.load()
+    if current != 0 {
+        return current as UnsafePointer<TaskGroup>
+    }
+    let size = sizeof<TaskGroup>()
+    let align = alignof<TaskGroup>()
+    let raw = exec_alloc(size, align, "Task.spawn")
+    let g = raw as UnsafePointer<TaskGroup>
+    g[0] = TaskGroup.empty()
+    if BACKGROUND.compare_exchange(0, raw as Int) {
+        return g
+    }
+    // A peer published first; nothing was enqueued into this one.
+    drop_in_place(g)
+    GlobalAllocator().dealloc(raw, size, align)
+    BACKGROUND.load() as UnsafePointer<TaskGroup>
+}
+
+/// Closes the background group at `main`'s return: every live member is
+/// cancelled, then joined, then released.
+///
+/// Cancel first, because a background task may loop until asked to stop;
+/// join after, because a cancelled task still finishes through its own code,
+/// which is where its values are destroyed. Does nothing when no task was
+/// ever spawned into the group.
+public func __saw_exec_close_background() unsafe {
+    let addr = BACKGROUND.load()
+    if addr == 0 {
+        return
+    }
+    var g = addr as UnsafePointer<TaskGroup>
+    // Stage 0 workaround (SL:hazards S15): canonical: g[0].cancel_every_live()
+    cancel_every_live(&var g[0])
+    exec_run(addr, -1, 0)
+    // Stage 0 workaround (SL:hazards S15): canonical: g[0].release_slots()
+    release_slots(&var g[0])
+    // Stage 0 workaround (SL:hazards S15): canonical: g[0].unregister()
+    unregister(&var g[0])
+}
+
+/// Runs a suspending `main` whose frame is at `frame`: its root and every task
+/// it spawns are driven until `main` returns, and then the background group
+/// is closed.
+///
+/// The frame is the caller's, and keeps `main`'s result where the frame's
+/// descriptor says. This is the body of `std.task`'s `__saw_exec_run_main`,
+/// the entry the compiler calls.
+public func __saw_exec_drive_main(descriptor: UnsafePointer<FrameDescriptor>,
+                                  frame: UnsafePointer<UInt8>) unsafe {
+    var root = TaskGroup.empty()
+    let ticket = enqueue(&var root, descriptor, frame, false)
+    let at = (&root) as UnsafePointer<TaskGroup> as Int
+    exec_run(at, ticket.slot, ticket.generation)
+    if not root.is_done(ticket.slot) {
+        panic("executor: `main` cannot finish: every live task is waiting")
+    }
+    release_slots(&var root)
+    unregister(&var root)
+    __saw_exec_close_background()
+}
+
+/// A handle to a spawned task that returns a value.
+///
+/// `join` waits for the task and takes its result. A handle from `Task.spawn`
+/// must be joined, detached or cancelled before it is dropped; a handle from
+/// `group.spawn` may be dropped, and the result is released with the group.
+public struct Task<T> {
+    private group: UnsafePointer<TaskGroup>
+    private slot: Int
+    private generation: Int
+    private provenance: TaskProvenance
+    // Whether `join`, `detach` or `cancel` has run, which the destructor of a
+    // `Task.spawn` handle reads.
+    private consumed: UnsafeMutableInterior<Bool>
+}
+
+extension Task<T> {
+    // The compiler's spawn lowering: puts the frame at `frame`, its arguments
+    // written, on `group`'s run queue, and hands back its handle.
+    public static func __saw_spawn(group: UnsafePointer<TaskGroup>,
+                                   descriptor: UnsafePointer<FrameDescriptor>,
+                                   frame: UnsafePointer<UInt8>,
+                                   provenance: TaskProvenance) unsafe -> Task<T> {
+        if descriptor[0].result_size != sizeof<T>() {
+            panic("Task.spawn: the frame's result is {} bytes, and the task's is {}",
+                  descriptor[0].result_size, sizeof<T>())
+        }
+        var g = group
+        // Stage 0 workaround (SL:hazards S15): canonical: group[0].enqueue(descriptor, frame, true)
+        let ticket = enqueue(&var g[0], descriptor, frame, true)
+        Task<T>(group: group, slot: ticket.slot, generation: ticket.generation,
+                provenance: provenance, consumed: UnsafeMutableInterior(false))
+    }
+
+    func consume(&self) unsafe {
+        self.consumed.ptr()[0] = true
+    }
+
+    /// Waits for the task to finish and returns its result, moving it out of
+    /// the task.
+    ///
+    /// The scheduler runs on this thread meanwhile, so other tasks advance.
+    /// Panics on a second join, or after `detach`, since the result is gone.
+    public func join(&self) unsafe -> T {
+        self.consume()
+        var g = self.group
+        if g[0].stale(self.slot, self.generation) {
+            panic("Task.join: this task's result is gone: it was already joined, or detached")
+        }
+        exec_run(g as Int, self.slot, self.generation)
+        if g[0].stale(self.slot, self.generation) {
+            panic("Task.join: this task's result is gone: it was already joined, or detached")
+        }
+        if not g[0].is_done(self.slot) {
+            panic("Task.join: the task cannot finish while this join waits for it")
+        }
+        let cell = g[0].cell_at(self.slot)
+        cell[0].holding = false
+        let at = cell[0].result as UnsafePointer<T>
+        let value = move at[0]
+        // Stage 0 workaround (SL:hazards S15): canonical: g[0].recycle(self.slot)
+        recycle(&var g[0], self.slot)
+        move value
+    }
+
+    /// Asks the task to stop.
+    ///
+    /// Cancellation is cooperative: the task observes it through `cancelled()`
+    /// and returns through its own code. Cancelling a finished task does
+    /// nothing.
+    public func cancel(&self) unsafe {
+        self.consume()
+        let g = self.group
+        if g[0].stale(self.slot, self.generation) {
+            return
+        }
+        let cell = g[0].cell_at(self.slot)
+        cell[0].cancel = true
+    }
+
+    /// Hands the task to the process and gives up its result.
+    ///
+    /// The task keeps running, and its result is dropped when it finishes.
+    /// Panics on a `group.spawn` handle, whose task ends with its group.
+    public func detach(&self) unsafe {
+        if self.provenance == TaskProvenance.Group {
+            panic("Task.detach: this handle came from `group.spawn`, and a group task's fate is its group's scope — drop the handle instead, or use `Task.spawn` for a detachable task")
+        }
+        self.consume()
+        var g = self.group
+        // Stage 0 workaround (SL:hazards S15): canonical: self.group[0].detach_slot(self.slot, self.generation)
+        detach_slot(&var g[0], self.slot, self.generation)
+    }
+}
+
+extension Task<T>: NoCopy {
+    /// Panics if a `Task.spawn` handle was neither joined, detached nor
+    /// cancelled. A `group.spawn` handle drops silently.
+    public func deinit(&var self) unsafe {
+        if self.provenance == TaskProvenance.Singleton && not self.consumed.ptr()[0] {
+            panic("Task was dropped without being joined, detached or cancelled — `join()` waits for it and takes its result, `detach()` hands it to the process, `cancel()` asks it to stop")
+        }
+    }
+}
+
+/// A handle to a spawned task that returns `Void`.
+///
+/// `join` waits for the task to finish. Cancellation and dropping behave as
+/// they do for `Task<T>`.
+public struct VoidTask {
+    private group: UnsafePointer<TaskGroup>
+    private slot: Int
+    private generation: Int
+    private provenance: TaskProvenance
+    private consumed: UnsafeMutableInterior<Bool>
+}
+
+extension VoidTask {
+    // The compiler's spawn lowering for a `Void` root; see `Task.__saw_spawn`.
+    public static func __saw_spawn(group: UnsafePointer<TaskGroup>,
+                                   descriptor: UnsafePointer<FrameDescriptor>,
+                                   frame: UnsafePointer<UInt8>,
+                                   provenance: TaskProvenance) unsafe -> VoidTask {
+        if descriptor[0].result_size != 0 {
+            panic("Task.spawn: the frame's result is {} bytes, and a Void task has none",
+                  descriptor[0].result_size)
+        }
+        var g = group
+        // Stage 0 workaround (SL:hazards S15): canonical: group[0].enqueue(descriptor, frame, true)
+        let ticket = enqueue(&var g[0], descriptor, frame, true)
+        VoidTask(group: group, slot: ticket.slot, generation: ticket.generation,
+                 provenance: provenance, consumed: UnsafeMutableInterior(false))
+    }
+
+    func consume(&self) unsafe {
+        self.consumed.ptr()[0] = true
+    }
+
+    /// Waits until the task is done. Joining one that has already finished
+    /// returns at once.
+    public func join(&self) unsafe {
+        self.consume()
+        let g = self.group
+        if g[0].stale(self.slot, self.generation) {
+            return
+        }
+        exec_run(g as Int, self.slot, self.generation)
+        if not g[0].stale(self.slot, self.generation) && not g[0].is_done(self.slot) {
+            panic("VoidTask.join: the task cannot finish while this join waits for it")
+        }
+    }
+
+    /// Asks the task to stop, cooperatively, as `Task.cancel` does.
+    /// Cancelling a finished task does nothing.
+    public func cancel(&self) unsafe {
+        self.consume()
+        let g = self.group
+        if g[0].stale(self.slot, self.generation) {
+            return
+        }
+        let cell = g[0].cell_at(self.slot)
+        cell[0].cancel = true
+    }
+
+    /// Hands the task to the process. The task keeps running.
+    ///
+    /// Panics on a `group.spawn` handle, as `Task.detach` does.
+    public func detach(&self) unsafe {
+        if self.provenance == TaskProvenance.Group {
+            panic("VoidTask.detach: this handle came from `group.spawn`, and a group task's fate is its group's scope — drop the handle instead, or use `Task.spawn` for a detachable task")
+        }
+        self.consume()
+        var g = self.group
+        // Stage 0 workaround (SL:hazards S15): canonical: self.group[0].detach_slot(self.slot, self.generation)
+        detach_slot(&var g[0], self.slot, self.generation)
+    }
+}
+
+extension VoidTask: NoCopy {
+    /// Panics if a `Task.spawn` handle was neither joined, detached nor
+    /// cancelled, as `Task.deinit` does. A `group.spawn` handle drops silently.
+    public func deinit(&var self) unsafe {
+        if self.provenance == TaskProvenance.Singleton && not self.consumed.ptr()[0] {
+            panic("VoidTask was dropped without being joined, detached or cancelled — `join()` waits for it, `detach()` hands it to the process, `cancel()` asks it to stop")
+        }
+    }
+}

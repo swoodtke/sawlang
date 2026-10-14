@@ -1,0 +1,72 @@
+// `sync` functions that spawn a task and give its handle a fate: a join, a
+// cancel and a detach each run no suspension, so each is callable from a
+// `sync` body, and the tasks still run, the joined one at its join and the
+// others when the background group closes. `lang/sync_spawn` holds the
+// `Task.spawn` form to the same answer at type checking.
+
+import std.taskgroup.{FrameDescriptor, Poll, TaskContext, TaskProvenance, VoidTask}
+import std.taskgroup.{__saw_exec_background, __saw_exec_close_background, __saw_exec_task_box}
+
+struct Counter {
+    state: Int
+    name: Int
+}
+
+func counter_resume(frame: UnsafePointer<UInt8>, cx: UnsafePointer<TaskContext>) unsafe sync -> Poll {
+    let f = frame as UnsafePointer<Counter>
+    let step = f[0].state + 1
+    f[0].state = step
+    if cx[0].cancel[0] {
+        print("task {} cancelled at step {}", f[0].name, step)
+        return Poll.Ready
+    }
+    print("task {} step {}", f[0].name, step)
+    if step < 2 {
+        cx[0].park[0] = 0
+        return Poll.Pending
+    }
+    Poll.Ready
+}
+
+func drop_nothing(at: UnsafePointer<UInt8>) unsafe sync {
+}
+
+func spawn_counter(d: UnsafePointer<FrameDescriptor>, name: Int) unsafe sync -> VoidTask {
+    let frame = __saw_exec_task_box(d)
+    let f = frame as UnsafePointer<Counter>
+    f[0] = Counter(state: 0, name: name)
+    VoidTask.__saw_spawn(__saw_exec_background(), d, frame, TaskProvenance.Singleton)
+}
+
+func start_joined(d: UnsafePointer<FrameDescriptor>) unsafe sync {
+    let t = spawn_counter(d, 1)
+    t.join()
+}
+
+func start_cancelled(d: UnsafePointer<FrameDescriptor>) unsafe sync {
+    let t = spawn_counter(d, 2)
+    t.cancel()
+}
+
+func start_detached(d: UnsafePointer<FrameDescriptor>) unsafe sync {
+    let t = spawn_counter(d, 3)
+    t.detach()
+}
+
+func run() unsafe {
+    let counter = FrameDescriptor(resume: { f, c in counter_resume(f, c) }, size: sizeof<Counter>(),
+                                  align: alignof<Counter>(), result_offset: 0, result_size: 0,
+                                  result_align: 1, drop_result: { p in drop_nothing(p) },
+                                  backtrace: -1)
+    let d = (&counter) as UnsafePointer<FrameDescriptor>
+    start_joined(d)
+    start_cancelled(d)
+    start_detached(d)
+    print("closing")
+    __saw_exec_close_background()
+    print("closed")
+}
+
+func main() {
+    run()
+}
