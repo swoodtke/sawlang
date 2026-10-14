@@ -1,0 +1,59 @@
+// Test-only declarations apply per declaration, not per name (SL:testing,
+// "Test-only means test-only"): ordinary code sees an overload set, or a
+// type's members, as if no test-only declaration existed, and the module's
+// test code sees them all.
+
+func helper() -> Int {
+    1
+}
+
+@test
+func helper(x: Int) -> Int {
+    x
+}
+
+struct Clock {
+    n: Int
+}
+
+extension Clock {
+    func read(&self) -> Int {
+        self.n
+    }
+}
+
+@test
+extension Clock {
+    init(fixed: Bool) {
+        Clock(n: 7)
+    }
+
+    static func fixed() -> Clock {
+        Clock(n: 7)
+    }
+
+    func fake(&self) -> Int {
+        self.n
+    }
+
+    func read(&self, x: Int) -> Int {
+        x
+    }
+}
+
+@test
+func sample() -> Int {
+    let c = Clock(fixed: true)
+    c.fake() + Clock.fixed().read() + c.read(x: 1) + helper(x: 2)
+}
+
+@test "test code sees every overload and member" {
+    let c = Clock(fixed: true)
+    assert(helper() + helper(x: 2) + c.fake() + Clock.fixed().read() + c.read(x: 1) > 0)
+}
+
+func ordinary() -> Int {
+    let f = helper
+    let c = Clock(n: 1)
+    f() + helper() + c.read()
+}

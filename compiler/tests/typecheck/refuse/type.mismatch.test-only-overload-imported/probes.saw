@@ -1,0 +1,8 @@
+public func probe(x: Int) -> Int {
+    x
+}
+
+@test
+public func probe(x: Bool) -> Int {
+    97
+}

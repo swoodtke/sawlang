@@ -346,6 +346,9 @@ public struct TcCall {
     bind_count: Int
     // The first written argument a C variadic tail takes, or -1.
     variadic_from: Int
+    // Whether the call is in test code, which the settling of its role
+    // chooses an accessor for as its body's check did.
+    test: Bool
 }
 
 // A parameter no written argument binds, which its default fills.

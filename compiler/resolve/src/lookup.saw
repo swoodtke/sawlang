@@ -14,7 +14,7 @@
 //     walk_catch_block
 
 import sawparse.grammar.{Alt}
-import sawresolve.imports.{res_decl_binding, res_same_binding}
+import sawresolve.imports.{res_decl_binding, res_is_function, res_same_binding}
 import sawresolve.prelude.{res_is_test_intrinsic}
 import sawresolve.model.{ResBindKind, ResBinding, ResDecl, ResDeclKind, ResImport,
                              ResImportForm, ResLocal, ResModuleKind, ResName, ResPending,
@@ -170,7 +170,15 @@ extension ResProgram {
         if own >= 0 {
             let d = self.top.value(own)
             let decl = self.decls[d]
-            if decl.test_only && not self.in_test {
+            // A test-only declaration is refused in ordinary code; for an
+            // overload set, only when every overload is test-only, and
+            // typecheck's expansion leaves the test-only ones out of the rest.
+            var test_only = decl.test_only
+            if res_is_function(&decl) {
+                let in_test = self.in_test
+                test_only = self.overload_decls(m, name, m, in_test).len() == 0
+            }
+            if test_only && not self.in_test {
                 self.refuse_test_only(leaf, name)
                 return self.error_binding()
             }

@@ -1,0 +1,9 @@
+// refuses: type.mismatch at 7:18
+// an importer calling the private overload of a set it imports bare: it sees `pick(x: Int)` alone
+
+import util.{pick}
+
+func main() {
+    let n = pick(true)
+    print("{}", n)
+}

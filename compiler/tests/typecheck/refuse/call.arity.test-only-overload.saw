@@ -1,0 +1,16 @@
+// refuses: call.arity at 14:13
+// ordinary code calling an overload only test code has: its set holds `helper()` alone
+
+@test
+func helper(x: Int) -> Int {
+    x
+}
+
+func helper() -> Int {
+    1
+}
+
+func main() {
+    let a = helper(3)
+    print("{}", a)
+}

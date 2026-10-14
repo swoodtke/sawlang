@@ -1,0 +1,18 @@
+// refuses: member.unknown at 17:19
+// ordinary code calling a method a test-only extension declares
+
+struct Clock {
+    n: Int
+}
+
+@test
+extension Clock {
+    func fake(&self) -> Int {
+        self.n
+    }
+}
+
+func main() {
+    let c = Clock(n: 1)
+    print("{}", c.fake())
+}

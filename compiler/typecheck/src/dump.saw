@@ -477,7 +477,7 @@ extension TcProgram {
                 let first = self.member_first[d]
                 var k = 0
                 while k < self.member_count[d] {
-                    if self.member_visible(first + k, m, &visible) {
+                    if self.member_visible(first + k, m, false, &visible) {
                         let member = self.members[first + k]
                         try! out.append(" ")
                         try! out.append(self.name_text(member.name))

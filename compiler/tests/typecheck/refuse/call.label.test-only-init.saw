@@ -1,0 +1,18 @@
+// refuses: call.label at 16:13
+// ordinary code calling an init a test-only extension declares: the type's own initializer is the one left
+
+struct Clock {
+    n: Int
+}
+
+@test
+extension Clock {
+    init(fixed: Bool) {
+        Clock(n: 7)
+    }
+}
+
+func main() {
+    let c = Clock(fixed: true)
+    print("{}", c.n)
+}

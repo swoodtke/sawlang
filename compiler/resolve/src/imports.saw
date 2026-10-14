@@ -59,11 +59,17 @@ public func res_same_binding(a: &ResBinding, b: &ResBinding) -> Bool {
     a.module == b.module && a.decl == b.decl && a.name == b.name && a.node == b.node
 }
 
+// Whether a declaration belongs to an overload set: a function, an extern or a
+// builtin function.
+public func res_is_function(decl: &ResDecl) -> Bool {
+    let function = decl.kind == ResDeclKind.Func || decl.kind == ResDeclKind.Extern
+    function || decl.kind == ResDeclKind.BuiltinFunc
+}
+
 // What a declaration is bound as where it is named: its overload set for a
 // function, an extern included, else the declaration itself.
 public func res_decl_binding(d: Int, decl: &ResDecl) -> ResBinding {
-    let function = decl.kind == ResDeclKind.Func || decl.kind == ResDeclKind.Extern
-    if function || decl.kind == ResDeclKind.BuiltinFunc {
+    if res_is_function(&decl) {
         return ResBinding(kind: ResBindKind.Overload, module: decl.module, decl: -1,
                           name: decl.name, node: -1)
     }
@@ -559,14 +565,16 @@ extension ResProgram {
         }
     }
 
-    // Adds a surface entry unless one with that name and binding is there.
-    // Returns whether it was new.
+    // Adds a surface entry unless one with that name, binding and tier is
+    // there. Returns whether it was new. An overload set's declarations may
+    // differ in tier, so the set has an entry per tier, and each viewer sees
+    // the set when any of them reaches it.
     func add_export(&var self, m: Int, name: Int, binding: ResBinding, vis: ResVis,
                     owner: Int) -> Bool {
         var at = self.surface.first(m, name)
         while at >= 0 {
             let e = self.exports[self.surface.value(at)]
-            if res_same_binding(&e.binding, &binding) {
+            if res_same_binding(&e.binding, &binding) && e.vis == vis {
                 return false
             }
             at = self.surface.following(at)
@@ -662,6 +670,52 @@ extension ResProgram {
             },
             case Parent -> self.shares_parent(owner, viewer)
         }
+    }
+
+    // THE DECLARATION FILTER: whether code in module `viewer`, test code when
+    // `in_test`, may use a declaration of tier `vis` from module `owner`. The
+    // tier must reach the viewer, and a test-only declaration is used only by
+    // its own module's test code, so ordinary code is checked as if none
+    // existed (SL:testing). A binding names a whole overload set, so the
+    // filter applies wherever a set is expanded into its declarations.
+    //
+    // ENTRY POINTS:
+    //     overload_decls
+    //     extension_usable (typecheck)
+    public func may_use(&self, vis: ResVis, owner: Int, test_only: Bool, viewer: Int,
+                        in_test: Bool) -> Bool {
+        if test_only && (owner != viewer || not in_test) {
+            return false
+        }
+        self.visible_to(vis, owner, viewer)
+    }
+
+    // The functions of module `m`'s overload set `name` that code in module
+    // `viewer` may call, test code when `in_test`, in declaration order.
+    //
+    // ENTRY POINTS:
+    //     lookup_outside
+    //     free_candidates (typecheck)
+    public func overload_decls(&self, m: Int, name: Int, viewer: Int, in_test: Bool) -> Vector<Int> {
+        var newest = Vector<Int>()
+        var at = self.top.first(m, name)
+        while at >= 0 {
+            let d = self.top.value(at)
+            let decl = self.decls[d]
+            if res_is_function(&decl) && self.may_use(decl.vis, decl.module, decl.test_only, viewer,
+                                                      in_test) {
+                try! newest.push(d)
+            }
+            at = self.top.following(at)
+        }
+        // The index hands entries back newest first.
+        var out = Vector<Int>()
+        var k = newest.len() - 1
+        while k >= 0 {
+            try! out.push(newest[k])
+            k = k - 1
+        }
+        move out
     }
 
     // Whether `viewer` lies under `owner`'s parent module: its identity starts

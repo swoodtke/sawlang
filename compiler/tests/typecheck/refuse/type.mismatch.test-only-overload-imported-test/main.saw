@@ -1,0 +1,12 @@
+// refuses: type.mismatch at 7:21
+// test code calling another module's test-only overload, which never leaves its module
+
+import probes.{probe}
+
+@test "another module's test-only overload" {
+    assert(probe(x: true) == 97)
+}
+
+func main() {
+    print("{}", probe(x: 1))
+}

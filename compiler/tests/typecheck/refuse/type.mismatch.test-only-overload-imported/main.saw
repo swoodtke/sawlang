@@ -1,0 +1,8 @@
+// refuses: type.mismatch at 7:26
+// ordinary code calling another module's test-only overload
+
+import probes.{probe}
+
+func main() {
+    print("{}", probe(x: true))
+}

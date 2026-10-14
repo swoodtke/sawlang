@@ -635,9 +635,14 @@ extension ResProgram {
         try! out.append("\n  (surface")
         k = 0
         while k < texts.len() {
-            try! out.append("\n    (")
-            try! out.append(texts.get(k) ?? "")
-            try! out.append(")")
+            // An overload set has an entry per tier its declarations have,
+            // and the dump names the set once.
+            let text = texts.get(k) ?? ""
+            if k == 0 || not text.equals(texts.get(k - 1) ?? "") {
+                try! out.append("\n    (")
+                try! out.append(text)
+                try! out.append(")")
+            }
             k = k + 1
         }
         try! out.append(")")

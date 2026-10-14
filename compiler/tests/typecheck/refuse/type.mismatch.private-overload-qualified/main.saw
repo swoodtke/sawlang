@@ -1,0 +1,9 @@
+// refuses: type.mismatch at 7:23
+// an importer calling a private overload through the qualifier, which Stage 0 accepts
+
+import util
+
+func main() {
+    let n = util.pick(true)
+    print("{}", n)
+}

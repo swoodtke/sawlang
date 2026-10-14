@@ -1,0 +1,91 @@
+(Module test_only_overloads
+  (declarations
+    (func helper 6:6 private (signature (params) -> Int) (summary body (suspends no) (sync-callable yes)))
+    (func helper 11:6 private (signature (params (x Int owned)) -> Int) (summary body (suspends no) (sync-callable yes)))
+    (struct Clock 15:8 private)
+    (field Clock.n 16:5 private Int)
+    (extension 19:1 (target test_only_overloads.Clock))
+    (method Clock.read 20:10 private (signature (receiver shared) (params) -> Int) (summary body (suspends no) (sync-callable yes)))
+    (extension 26:1 (target test_only_overloads.Clock))
+    (init Clock.init 27:5 private (signature (params (fixed Bool owned)) -> test_only_overloads.Clock) (summary body (suspends no) (sync-callable yes)))
+    (method Clock.fixed 31:17 private (signature (params) -> test_only_overloads.Clock static) (summary body (suspends no) (sync-callable yes)))
+    (method Clock.fake 35:10 private (signature (receiver shared) (params) -> Int) (summary body (suspends no) (sync-callable yes)))
+    (method Clock.read 39:10 private (signature (receiver shared) (params (x Int owned)) -> Int) (summary body (suspends no) (sync-callable yes)))
+    (func sample 45:6 private (signature (params) -> Int) (summary body (suspends no) (sync-callable yes)))
+    (func ordinary 55:6 private (signature (params) -> Int) (summary body (suspends no) (sync-callable no))))
+  (members
+    (test_only_overloads.Clock
+      (field n Int private declared)
+      (method read private (extension test_only_overloads))
+      (init init private (extension test_only_overloads))
+      (static fixed private (extension test_only_overloads))
+      (method fake private (extension test_only_overloads))
+      (method read private (extension test_only_overloads))))
+  (views
+    (test_only_overloads.Clock n read))
+  (conformances)
+  (copy-tier
+    (test_only_overloads.Clock Copy))
+  (bodies
+    (helper 6:6
+      (7:5-7:6 IntLit Int value temp))
+    (helper 11:6
+      (12:5-12:6 Name Int place copy))
+    (Clock.read 20:10
+      (21:9-21:15 Member Int place copy)
+      (21:9-21:13 SelfExpr test_only_overloads.Clock place project))
+    (Clock.init 27:5
+      (28:9-28:20 Call.paren test_only_overloads.Clock value temp (memberwise test_only_overloads.Clock (owner test_only_overloads.Clock)))
+      (28:18-28:19 IntLit Int value temp))
+    (Clock.fixed 31:17
+      (32:9-32:20 Call.paren test_only_overloads.Clock value temp (memberwise test_only_overloads.Clock (owner test_only_overloads.Clock)))
+      (32:18-32:19 IntLit Int value temp))
+    (Clock.fake 35:10
+      (36:9-36:15 Member Int place copy)
+      (36:9-36:13 SelfExpr test_only_overloads.Clock place project))
+    (Clock.read 39:10
+      (40:9-40:10 Name Int place copy))
+    (sample 45:6
+      (46:9-46:10 BindingName test_only_overloads.Clock place temp)
+      (46:13-46:31 Call.paren test_only_overloads.Clock value temp (call test_only_overloads.Clock.init(fixed: Bool) (owner test_only_overloads.Clock)))
+      (46:26-46:30 BoolLit.true Bool value temp)
+      (47:5-47:66 Binary Int value temp (op + + +))
+      (47:5-47:13 Call.paren Int value temp (call test_only_overloads.Clock.fake() (owner test_only_overloads.Clock)))
+      (47:5-47:6 Name test_only_overloads.Clock (borrow &test_only_overloads.Clock) place borrow)
+      (47:16-47:36 Call.paren Int value temp (call test_only_overloads.Clock.read() (owner test_only_overloads.Clock)))
+      (47:16-47:29 Call.paren test_only_overloads.Clock (borrow &test_only_overloads.Clock) value borrow (call test_only_overloads.Clock.fixed() (owner test_only_overloads.Clock)))
+      (47:39-47:51 Call.paren Int value temp (call test_only_overloads.Clock.read(x: Int) (owner test_only_overloads.Clock)))
+      (47:39-47:40 Name test_only_overloads.Clock (borrow &test_only_overloads.Clock) place borrow)
+      (47:49-47:50 IntLit Int value temp)
+      (47:54-47:66 Call.paren Int value temp (call test_only_overloads.helper(x: Int)))
+      (47:64-47:65 IntLit Int value temp))
+    (ordinary 55:6
+      (56:9-56:10 BindingName () -> Int place temp)
+      (56:13-56:19 Name () -> Int value temp (value test_only_overloads.helper()))
+      (57:9-57:10 BindingName test_only_overloads.Clock place temp)
+      (57:13-57:24 Call.paren test_only_overloads.Clock value temp (memberwise test_only_overloads.Clock (owner test_only_overloads.Clock)))
+      (57:22-57:23 IntLit Int value temp)
+      (58:5-58:30 Binary Int value temp (op + +))
+      (58:5-58:8 Call.paren Int value temp (value (owner () -> Int)))
+      (58:5-58:6 Name () -> Int place borrow)
+      (58:11-58:19 Call.paren Int value temp (call test_only_overloads.helper()))
+      (58:22-58:30 Call.paren Int value temp (call test_only_overloads.Clock.read() (owner test_only_overloads.Clock)))
+      (58:22-58:23 Name test_only_overloads.Clock (borrow &test_only_overloads.Clock) place borrow))
+    (item 50:50
+      (51:9-51:10 BindingName test_only_overloads.Clock place temp)
+      (51:13-51:31 Call.paren test_only_overloads.Clock value temp (call test_only_overloads.Clock.init(fixed: Bool) (owner test_only_overloads.Clock)))
+      (51:26-51:30 BoolLit.true Bool value temp)
+      (52:5-52:89 Call.paren Void value temp (builtin assert))
+      (52:12-52:88 Binary.pair Bool value temp (op >))
+      (52:12-52:84 Binary Int value borrow (op + + + +))
+      (52:12-52:20 Call.paren Int value temp (call test_only_overloads.helper()))
+      (52:23-52:35 Call.paren Int value temp (call test_only_overloads.helper(x: Int)))
+      (52:33-52:34 IntLit Int value temp)
+      (52:38-52:46 Call.paren Int value temp (call test_only_overloads.Clock.fake() (owner test_only_overloads.Clock)))
+      (52:38-52:39 Name test_only_overloads.Clock (borrow &test_only_overloads.Clock) place borrow)
+      (52:49-52:69 Call.paren Int value temp (call test_only_overloads.Clock.read() (owner test_only_overloads.Clock)))
+      (52:49-52:62 Call.paren test_only_overloads.Clock (borrow &test_only_overloads.Clock) value borrow (call test_only_overloads.Clock.fixed() (owner test_only_overloads.Clock)))
+      (52:72-52:84 Call.paren Int value temp (call test_only_overloads.Clock.read(x: Int) (owner test_only_overloads.Clock)))
+      (52:72-52:73 Name test_only_overloads.Clock (borrow &test_only_overloads.Clock) place borrow)
+      (52:82-52:83 IntLit Int value temp)
+      (52:87-52:88 IntLit Int value borrow))))

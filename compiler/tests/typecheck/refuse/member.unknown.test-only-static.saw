@@ -1,0 +1,18 @@
+// refuses: member.unknown at 16:19
+// ordinary code calling a static a test-only extension declares
+
+struct Clock {
+    n: Int
+}
+
+@test
+extension Clock {
+    static func fixed() -> Clock {
+        Clock(n: 7)
+    }
+}
+
+func main() {
+    let c = Clock.fixed()
+    print("{}", c.n)
+}

@@ -16,11 +16,15 @@ import sawtypecheck.typeops.{TcClient}
 import sawtypecheck.types.{TcKind, TcType}
 
 extension TcProgram {
-    // Whether module `viewer` sees member `k` of the member tables, through
-    // the extension sets the body half keeps (members.saw, `member_visible`).
-    public func member_seen(&self, k: Int, viewer: Int) -> Bool {
+    // Whether code in module `viewer`, test code when `in_test`, sees member
+    // `k` of the member tables, through the extension sets the body half
+    // keeps (members.saw, `member_visible`).
+    public func member_seen(&self, k: Int, viewer: Int, in_test: Bool) -> Bool {
         let member = self.members[k]
         let owner = self.res.decls[member.type_decl]
+        if not self.extension_usable(k, viewer, in_test) {
+            return false
+        }
         match member.source {
             case Declared -> self.res.visible_to(member.vis, member.module, viewer),
             case Extension -> {
@@ -43,8 +47,15 @@ extension TcProgram {
     }
 
     // The member-table entries of nominal `d` named `name` that module
-    // `viewer` sees.
+    // `viewer`'s test code sees: a later stage re-finds a member typecheck
+    // chose by name, and test code sees every member ordinary code does.
     public func members_named(&self, d: Int, name: Int, viewer: Int) -> Vector<Int> {
+        self.visible_members(d, name, viewer, true)
+    }
+
+    // The member-table entries of nominal `d` named `name` that code in
+    // module `viewer`, test code when `in_test`, sees.
+    public func visible_members(&self, d: Int, name: Int, viewer: Int, in_test: Bool) -> Vector<Int> {
         var out = Vector<Int>()
         if d < 0 || d >= self.member_first.len() {
             return move out
@@ -57,7 +68,7 @@ extension TcProgram {
         var k = first
         while k < first + count {
             let member = self.members[k]
-            if member.name == name && self.member_seen(k, viewer) {
+            if member.name == name && self.member_seen(k, viewer, in_test) {
                 try! out.push(k)
             }
             k = k + 1
@@ -65,9 +76,10 @@ extension TcProgram {
         move out
     }
 
-    // The members named `name` a value of nominal type `owner` has, as
-    // module `viewer` sees them: `members_named`, less each entry whose
-    // declaring extension's bounds `owner`'s arguments do not meet. The
+    // The members named `name` a value of nominal type `owner` has, as code
+    // in module `viewer`, test code when `in_test`, sees them:
+    // `visible_members`, less each entry whose declaring extension's bounds
+    // `owner`'s arguments do not meet. The
     // first entry dropped is kept in `unmet_member` for the refusal
     // (`refuse_unmet_member`), so a member that exists only under a bound
     // is never chosen and never mistaken for an absent one (SL-463).
@@ -77,11 +89,11 @@ extension TcProgram {
     // - resolve_comparison (`==`, `!=`, `<` through `equals`, `compare`)
     // - iterator_item (a `for` loop's `next`)
     // - finish_call (an `init`, once inference solves its type's arguments)
-    public func members_for(&var self, owner: Int, name: Int, viewer: Int) -> Vector<Int> {
+    public func members_for(&var self, owner: Int, name: Int, viewer: Int, in_test: Bool) -> Vector<Int> {
         self.unmet_member = -1
         self.unmet_owner = -1
         let d = self.nominal_decl(owner)
-        let found = self.members_named(d, name, viewer)
+        let found = self.visible_members(d, name, viewer, in_test)
         var out = Vector<Int>()
         var k = 0
         while k < found.len() {
@@ -149,8 +161,9 @@ extension TcProgram {
         is_static == statics
     }
 
-    // Every `init` of nominal `d` that module `viewer` sees.
-    public func inits_of(&self, d: Int, viewer: Int) -> Vector<Int> {
+    // Every `init` of nominal `d` that code in module `viewer`, test code
+    // when `in_test`, sees.
+    public func inits_of(&self, d: Int, viewer: Int, in_test: Bool) -> Vector<Int> {
         var out = Vector<Int>()
         if d < 0 || d >= self.member_first.len() {
             return move out
@@ -164,7 +177,7 @@ extension TcProgram {
         while k < first + count {
             let member = self.members[k]
             let info = self.res.decls[member.decl]
-            if info.kind == ResDeclKind.Init && self.member_seen(k, viewer) {
+            if info.kind == ResDeclKind.Init && self.member_seen(k, viewer, in_test) {
                 try! out.push(k)
             }
             k = k + 1
@@ -172,9 +185,10 @@ extension TcProgram {
         move out
     }
 
-    // The functions a free name's binding stands for: its module's overload
-    // set, or a merged set's (design 249), externs and builtin functions
-    // included.
+    // The functions a free name's binding stands for where it is used: its
+    // module's overload set, or a merged set's (design 249), externs and
+    // builtin functions included, less each declaration the code being
+    // checked may not use (resolve's `overload_decls`).
     public func free_candidates(&self, b: ResBinding) -> Vector<Int> {
         var out = Vector<Int>()
         if b.kind == ResBindKind.Overload {
@@ -192,21 +206,13 @@ extension TcProgram {
     }
 
     func push_functions(&self, out: &var Vector<Int>, m: Int, name: Int) {
-        var newest = Vector<Int>()
-        var at = self.res.top.first(m, name)
-        while at >= 0 {
-            let d = self.res.top.value(at)
-            let info = self.res.decls[d]
-            if info.kind == ResDeclKind.Func || info.kind == ResDeclKind.Extern || info.kind == ResDeclKind.BuiltinFunc {
-                try! newest.push(d)
-            }
-            at = self.res.top.following(at)
-        }
-        // The index hands entries back newest first.
-        var k = newest.len() - 1
-        while k >= 0 {
-            try! out.push(newest[k])
-            k = k - 1
+        let viewer = self.current
+        let in_test = self.current_test
+        let found = self.res.overload_decls(m, name, viewer, in_test)
+        var k = 0
+        while k < found.len() {
+            try! out.push(found[k])
+            k = k + 1
         }
     }
 

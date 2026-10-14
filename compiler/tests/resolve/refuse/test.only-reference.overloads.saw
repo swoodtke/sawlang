@@ -1,0 +1,16 @@
+// refuses: test.only-reference at 15:5
+// ordinary code naming an overload set whose every overload is test-only
+
+@test
+func sample() -> Int {
+    5
+}
+
+@test
+func sample(x: Int) -> Int {
+    x
+}
+
+func f() -> Int {
+    sample()
+}

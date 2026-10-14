@@ -1,0 +1,7 @@
+public func pick(x: Int) -> Int {
+    x
+}
+
+func pick(x: Bool) -> Int {
+    99
+}

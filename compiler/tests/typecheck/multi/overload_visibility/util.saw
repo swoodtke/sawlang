@@ -1,0 +1,19 @@
+public func pick(x: Int) -> Int {
+    x
+}
+
+func pick(x: Bool) -> Int {
+    99
+}
+
+public(parent) func early(x: Bool) -> Int {
+    98
+}
+
+public func early(x: Int) -> Int {
+    x
+}
+
+func inside() -> Int {
+    pick(true) + early(true)
+}

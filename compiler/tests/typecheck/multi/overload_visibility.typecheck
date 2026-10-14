@@ -1,0 +1,50 @@
+(Module main
+  (declarations
+    (func main 9:6 private (signature (params) -> Void) (summary body (suspends no) (sync-callable no))))
+  (members)
+  (views)
+  (conformances)
+  (copy-tier)
+  (bodies
+    (main 9:6
+      (10:9-10:10 BindingName (Int) -> Int place temp)
+      (10:13-10:17 Name (Int) -> Int value temp (value util.pick(x: Int)))
+      (11:5-11:61 Call.paren Void value temp (builtin print))
+      (11:11-11:15 Interp String value temp)
+      (11:17-11:60 Binary Int value borrow (op + + +))
+      (11:17-11:21 Call.paren Int value temp (value (owner (Int) -> Int)))
+      (11:17-11:18 Name (Int) -> Int place borrow)
+      (11:19-11:20 IntLit Int value temp)
+      (11:24-11:31 Call.paren Int value temp (call util.pick(x: Int)))
+      (11:29-11:30 IntLit Int value temp)
+      (11:34-11:46 Call.paren Int value temp (call util.pick(x: Int)))
+      (11:44-11:45 IntLit Int value temp)
+      (11:49-11:60 Call.paren Int value temp (call util.early(x: Int)))
+      (11:58-11:59 IntLit Int value temp))))
+
+(Module util
+  (declarations
+    (func pick 1:13 public (signature (params (x Int owned)) -> Int) (summary body (suspends no) (sync-callable yes)))
+    (func pick 5:6 private (signature (params (x Bool owned)) -> Int) (summary body (suspends no) (sync-callable yes)))
+    (func early 9:21 parent (signature (params (x Bool owned)) -> Int) (summary body (suspends no) (sync-callable yes)))
+    (func early 13:13 public (signature (params (x Int owned)) -> Int) (summary body (suspends no) (sync-callable yes)))
+    (func inside 17:6 private (signature (params) -> Int) (summary body (suspends no) (sync-callable yes))))
+  (members)
+  (views)
+  (conformances)
+  (copy-tier)
+  (bodies
+    (pick 1:13
+      (2:5-2:6 Name Int place copy))
+    (pick 5:6
+      (6:5-6:7 IntLit Int value temp))
+    (early 9:21
+      (10:5-10:7 IntLit Int value temp))
+    (early 13:13
+      (14:5-14:6 Name Int place copy))
+    (inside 17:6
+      (18:5-18:29 Binary Int value temp (op +))
+      (18:5-18:15 Call.paren Int value temp (call util.pick(x: Bool)))
+      (18:10-18:14 BoolLit.true Bool value temp)
+      (18:18-18:29 Call.paren Int value temp (call util.early(x: Bool)))
+      (18:24-18:28 BoolLit.true Bool value temp))))

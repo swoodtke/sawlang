@@ -1,0 +1,24 @@
+// refuses: call.label at 23:17
+// ordinary code calling a method overload only a test-only extension declares
+
+struct Clock {
+    n: Int
+}
+
+extension Clock {
+    func read(&self) -> Int {
+        self.n
+    }
+}
+
+@test
+extension Clock {
+    func read(&self, x: Int) -> Int {
+        x
+    }
+}
+
+func main() {
+    let c = Clock(n: 1)
+    print("{}", c.read(x: 5))
+}

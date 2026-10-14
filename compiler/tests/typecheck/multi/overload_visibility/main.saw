@@ -1,0 +1,12 @@
+// Visibility applies per overload, not per name (design 80): `main` sees
+// `pick(x: Int)` and `early(x: Int)` alone, so a function value names the one
+// it sees, and a set whose first declaration is narrower than a later public
+// one is still importable. `util` sees its whole sets.
+
+import util
+import util.{early, pick}
+
+func main() {
+    let f = pick
+    print("{}", f(1) + pick(2) + util.pick(3) + early(x: 4))
+}

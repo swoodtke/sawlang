@@ -49,13 +49,14 @@ static TC_SIG_BUILDING: Int = 3
 static TC_SIG_BUILT: Int = 4
 
 // Where a signature is being built: its module and declaration, the trait or
-// extension around it, and what `Self` is there.
+// extension around it, what `Self` is there, and whether it is test code.
 public struct TcContext {
     module: Int
     decl: Int
     trait_decl: Int
     ext: Int
     self_type: Int
+    test: Bool
 }
 
 extension TcProgram {
@@ -124,7 +125,7 @@ extension TcProgram {
 
     public func save_context(&self) -> TcContext {
         TcContext(module: self.current, decl: self.current_decl, trait_decl: self.current_trait,
-                  ext: self.current_ext, self_type: self.current_self)
+                  ext: self.current_ext, self_type: self.current_self, test: self.current_test)
     }
 
     public func restore_context(&var self, c: TcContext) {
@@ -133,14 +134,16 @@ extension TcProgram {
         self.current_trait = c.trait_decl
         self.current_ext = c.ext
         self.current_self = c.self_type
+        self.current_test = c.test
     }
 
-    // Enters declaration `d`: its module, and the type, trait or extension
-    // whose `Self` its signature sees.
+    // Enters declaration `d`: its module, the type, trait or extension whose
+    // `Self` its signature sees, and whether it is test-only.
     public func enter_decl(&var self, d: Int) {
         let info = self.res.decls[d]
         self.current = info.module
         self.current_decl = d
+        self.current_test = info.test_only
         self.current_trait = -1
         self.current_ext = -1
         self.current_self = -1

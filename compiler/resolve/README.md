@@ -171,6 +171,14 @@ then qualifiers. Functions of one name
 merge across the module and its bare imports into one overload set (design
 249); any other two imports of one name that bind two declarations are refused
 at the use (design 255).
+An overload set is bound by module and name, so visibility and test-only
+apply per declaration where a set is expanded: `overload_decls` in
+`imports.saw` gives the functions a use may call, through the declaration
+filter `may_use` (the tier reaches the viewer; a test-only declaration is used
+by its own module's test code only). Ordinary code naming a set whose every
+overload is test-only is refused `test.only-reference`; typecheck expands the
+rest with `overload_decls`. A module's surface has an entry per tier its
+set's declarations have, so a set is importable wherever one overload is.
 A type position sees type-level locals only. `bind_local` applies the
 shadowing rule of designs 100 and 107. Their docstrings name their entry
 points.

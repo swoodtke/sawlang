@@ -94,7 +94,7 @@ positions do.
 | `(local NAME L:C)` | a local, a parameter, a pattern, loop or optional binding, a capture, a receiver (`self`), or a catch block's `error`, by where it is declared |
 | `(type-param NAME L:C)` | a type or const generic parameter, by where it is declared |
 | `(KIND MODULE PATH)` | a declaration: KIND is `struct`, `enum`, `trait`, `alias`, `static`, `type` (a builtin type), `assoc-type` or `type-assign` |
-| `(overload MODULE NAME)` | a function name: the module's whole overload set of that name, externs and builtin functions included |
+| `(overload MODULE NAME)` | a function name: the module's overload set of that name, externs and builtin functions included, of which typecheck takes the declarations the use may call (`overload_decls`) |
 | `(overloads NAME MODULE...)` | a bare function name several modules supply: the module's own functions of that name and those its imports bind bare, merged into one overload set (design 249) |
 | `(case MODULE ENUM.CASE)` | one enum case |
 | `(cases NAME CANDIDATE...)` | a case selector: a variant pattern's head, a lone name pattern that names a case, or an implicit member; each candidate is a `MODULE.ENUM.CASE` identity of an enum in the module's import closure (its own module, `builtin`, the prelude's modules, and every module those import, transitively), and typecheck chooses one by the scrutinee's or the expected type. A lone name pattern names a case only when the closure declares a payload-free case of that name. A variant pattern's head no enum in the closure declares as a case is looked up as a type instead: an arm of a `try` block's error union names an error type |
@@ -193,6 +193,7 @@ GRAMMAR.md alternative; the last table lists them.
 | pattern: wildcard, literal, range, tuple, variant, name, `None`, borrow binding | bindings and case selectors | patterns, optionals, lockdown |
 | a lone name pattern, by the enums of the module's import closure | a case when the closure declares one of that name, else a binding | multi/closure |
 | test-only declaration, test group, test case | collected test-only; named from test code only | tests |
+| an overload set every overload of which is test-only, named from ordinary code | refused | test.only-reference.overloads |
 | prelude names | the prelude table | prelude |
 | every import form, re-exports through a facade | Imports, below | multi/imports |
 | a package's own modules: bare from inside its `src/`, by its name through its own `--module-path`, and from its tests by name; one module whichever spelling | the module, its identity `NAME.path` | package/shelf |

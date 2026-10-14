@@ -1,0 +1,12 @@
+// refuses: call.no-match at 11:17
+// a private overload reached through a merged set, the module's own `pick` and the glob-imported one
+
+import util.*
+
+func pick(x: String) -> Int {
+    0
+}
+
+func main() {
+    print("{}", pick(true))
+}

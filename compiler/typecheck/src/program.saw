@@ -123,6 +123,9 @@ public struct TcProgram {
     current_trait: Int
     current_ext: Int
     current_self: Int
+    // Whether the code being checked is test code: a test-only declaration's
+    // or a test case's, which may use the module's test-only declarations.
+    current_test: Bool
     error_type: Int
     // How deeply `satisfies` is nested, which bounds its recursion.
     satisfy_depth: Int
@@ -335,7 +338,8 @@ public func tc_program(res: ResProgram) -> TcProgram {
                       member_count: move counts, tiers: Vector<TcTier>(),
                       obligations: Vector<TcObligation>(), func_nodes: Vector<Int>(), keep_escaping: false,
                       diags: Vector<TcDiag>(), known: known, current: -1, current_decl: -1,
-                      current_trait: -1, current_ext: -1, current_self: -1, error_type: -1,
+                      current_trait: -1, current_ext: -1, current_self: -1, current_test: false,
+                      error_type: -1,
                       satisfy_depth: 0, skipped: Vector<Int>(), string_positions: Vector<Int>(),
                       expr_types: Vector<Int>(),
                       typed_count: Vector<Int>(), expr_place: Vector<Bool>(),

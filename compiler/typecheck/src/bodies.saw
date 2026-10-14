@@ -189,6 +189,7 @@ extension TcProgram {
             self.check_static_assert(item)
         } else if alt == Alt.Test_Case_Run || alt == Alt.Test_Case_Panics || alt == Alt.Test_Case_Warns {
             self.enter_module(m)
+            self.current_test = true
             let body = self.res.last_node_child(item)
             self.begin_body(-1, body)
             self.body_result = self.void_type()
@@ -204,13 +205,14 @@ extension TcProgram {
         }
     }
 
-    // Enters module `m` outside any declaration.
+    // Enters module `m` outside any declaration, in ordinary code.
     func enter_module(&var self, m: Int) {
         self.current = m
         self.current_decl = -1
         self.current_trait = -1
         self.current_ext = -1
         self.current_self = -1
+        self.current_test = false
     }
 
     // Records `root` as a body of declaration `d`, for the dump and the
@@ -447,9 +449,11 @@ extension TcProgram {
             k = k + 1
         }
         let at = self.calls.len()
+        let in_test = self.current_test
         try! self.calls.push(TcCall(node: e, target: target, role: role, derived: false, owner: owner,
                                     inst_first: first, inst_count: inst.len(), spelling: -1, twin: -1,
-                                    bind_first: -1, bind_count: 0, variadic_from: -1))
+                                    bind_first: -1, bind_count: 0, variadic_from: -1,
+                                    test: in_test))
         self.call_at[e] = at
         at
     }
@@ -3083,7 +3087,8 @@ extension TcProgram {
             return self.set_type(e, poisoned, place)
         }
         let d = self.nominal_decl(t)
-        let found = self.members_named(d, name, m)
+        let in_test = self.current_test
+        let found = self.visible_members(d, name, m, in_test)
         var k = 0
         while k < found.len() {
             let member = self.members[found[k]]
@@ -3160,7 +3165,8 @@ extension TcProgram {
             return self.set_type(e, t, false)
         }
         let name = self.res.intern(text)
-        let found = self.members_named(d, name, m)
+        let in_test = self.current_test
+        let found = self.visible_members(d, name, m, in_test)
         if found.len() > 0 {
             self.not_in_slice(e, Alt.Expr_Member)
         } else {
@@ -3771,7 +3777,8 @@ extension TcProgram {
                 return
             }
         }
-        let found = self.members_for(t, name, m)
+        let in_test = self.current_test
+        let found = self.members_for(t, name, m, in_test)
         var k = 0
         while k < found.len() {
             let member = self.members[found[k]]
@@ -5553,7 +5560,8 @@ extension TcProgram {
         }
         let next_name = self.res.intern("next")
         let m = self.current
-        let found = self.members_for(t, next_name, m)
+        let in_test = self.current_test
+        let found = self.members_for(t, next_name, m, in_test)
         var k = 0
         while k < found.len() {
             let at = found[k]
@@ -6024,7 +6032,8 @@ extension TcProgram {
             return -1
         }
         let m = self.current
-        let found = self.members_named(d, name, m)
+        let in_test = self.current_test
+        let found = self.visible_members(d, name, m, in_test)
         var k = 0
         while k < found.len() {
             let member = self.members[found[k]]
@@ -6273,7 +6282,8 @@ extension TcProgram {
         let m = self.current
         self.unmet_member = -1
         if info.kind == TcKind.Nominal {
-            let found = self.members_for(t, name, m)
+            let in_test = self.current_test
+            let found = self.members_for(t, name, m, in_test)
             var k = 0
             while k < found.len() {
                 let at = found[k]
@@ -6879,7 +6889,8 @@ extension TcProgram {
             return self.cell_construct(e, d, &args, wanted)
         }
         var cands = Vector<TcCand>()
-        let inits = self.inits_of(d, m)
+        let in_test = self.current_test
+        let inits = self.inits_of(d, m, in_test)
         var k = 0
         while k < inits.len() {
             let at = inits[k]
@@ -6940,7 +6951,8 @@ extension TcProgram {
         if not undefaulted {
             return false
         }
-        let inits = self.inits_of(d, viewer)
+        let in_test = self.current_test
+        let inits = self.inits_of(d, viewer, in_test)
         k = 0
         while k < inits.len() {
             let member = self.members[inits[k]]
@@ -6957,10 +6969,11 @@ extension TcProgram {
     func memberwise_visible(&self, d: Int, viewer: Int) -> Bool {
         let first = self.member_first[d]
         let count = self.member_count[d]
+        let in_test = self.current_test
         var k = first
         while k < first + count {
             let member = self.members[k]
-            if member.source == TcSource.Declared && not self.member_seen(k, viewer) {
+            if member.source == TcSource.Declared && not self.member_seen(k, viewer, in_test) {
                 return false
             }
             k = k + 1
@@ -9374,6 +9387,7 @@ extension TcProgram {
         let c = self.calls[at]
         let e = c.node
         self.current = self.node_module(e)
+        self.current_test = c.test
         if c.target < 0 || c.role == TcRole.Case || c.role == TcRole.Memberwise || c.role == TcRole.Builtin {
             return
         }
@@ -9515,7 +9529,8 @@ extension TcProgram {
         }
         let name = self.res.intern("[]=")
         let m = self.current
-        let found = self.members_named(d, name, m)
+        let in_test = self.current_test
+        let found = self.visible_members(d, name, m, in_test)
         var k = 0
         while k < found.len() {
             if self.is_method_member(found[k], false) {

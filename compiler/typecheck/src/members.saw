@@ -327,6 +327,20 @@ extension TcProgram {
         0
     }
 
+    // Whether the extension that brings member `k`, by declaring it or a
+    // conformance, may be used there: a test-only one only by its own
+    // module's test code (resolve's `may_use`). A field, a case or a raw
+    // conversion has no extension; it belongs to its type, whose own name is
+    // already filtered.
+    public func extension_usable(&self, k: Int, viewer: Int, in_test: Bool) -> Bool {
+        let member = self.members[k]
+        if member.ext < 0 {
+            return true
+        }
+        let ext = self.res.decls[member.ext]
+        self.res.may_use(ResVis.Public, ext.module, ext.test_only, viewer, in_test)
+    }
+
     // Whether module `viewer` sees member `k` of the table. A member of an
     // extension needs the extension's module in the viewer's extension set,
     // or the type's own module; every member needs its visibility tier to
@@ -334,9 +348,14 @@ extension TcProgram {
     // conformance, which the orphan rule makes global, and a member written
     // to meet a requirement follows its trait: callable wherever the
     // conformance is visible, when the trait's visibility reaches the viewer.
-    public func member_visible(&self, k: Int, viewer: Int, visible: &Vector<Bool>) -> Bool {
+    // What a test-only extension brings is seen by its own module's test code
+    // alone, which `in_test` says the viewer is.
+    public func member_visible(&self, k: Int, viewer: Int, in_test: Bool, visible: &Vector<Bool>) -> Bool {
         let member = self.members[k]
         let owner = self.res.decls[member.type_decl]
+        if not self.extension_usable(k, viewer, in_test) {
+            return false
+        }
         match member.source {
             case Declared -> self.res.visible_to(member.vis, member.module, viewer),
             case Extension -> {

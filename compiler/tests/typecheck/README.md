@@ -259,10 +259,26 @@ to reach the module (design 80: a member of another module is seen when it is
 as visible as the conformance, which the orphan rule makes global, and so is
 a member written to meet a requirement, whatever its own visibility, when the
 trait's visibility reaches the module (spec, Member visibility:
-"Trait-conformance methods follow the trait"; multi/conformance_views). A
+"Trait-conformance methods follow the trait"; multi/conformance_views). What
+a test-only extension declares or brings is seen by its own module's test code
+alone (SL:testing, "Test-only means test-only"), through resolve's declaration
+filter `may_use`; a free function's overload set is expanded by resolve's
+`overload_decls` under the same filter, so ordinary code sees an overload set
+or a type's members as if no test-only declaration existed, and an importer
+never sees a private overload. A
 requirement's default or derivation reaches the table once, however many of
 the type's conformances reach its trait: `E: Printable` and `E: Error`, which
 refines it, bring one `to_string`.
+
+The per-declaration filter, by position (SL-626):
+
+| row | verdict | covered by |
+|---|---|---|
+| an importer calling a private overload, bare, qualified (which Stage 0 accepts) or through a merged set | refused | type.mismatch.private-overload, type.mismatch.private-overload-qualified, call.no-match.private-overload-merged |
+| ordinary code calling a test-only overload, of its own module or another's; test code calling another module's | refused | call.arity.test-only-overload, type.mismatch.test-only-overload-imported, type.mismatch.test-only-overload-imported-test |
+| ordinary code calling a test-only extension's method, static, `init` or method overload | refused | member.unknown.test-only-method, member.unknown.test-only-static, call.label.test-only-init, call.label.test-only-method-overload |
+| ordinary code calling, or naming as a value, the ordinary overload of a set with a test-only one; test code using every overload and member | allowed | test_only_overloads |
+| an importer naming as a value the one overload it sees; a set whose first declaration is narrower than a later public one, imported; the module calling its own private overloads | allowed | multi/overload_visibility |
 
 A third filter belongs to the receiver, not the module: a member declared in
 a bounded extension, `extension Cell<T: Equatable> { ... }`, or brought by a
