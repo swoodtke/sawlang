@@ -943,6 +943,14 @@ The plan holds except where an amendment below says otherwise. Each one is the l
   - A7a's files gain `compiler/llvm/src/{program,bodies}.saw` (a descriptor per task root, the spawn point, and the background close in `entry_point`), `compiler/mono/src/{program,dump}.saw` (the task-root key, and its distinct item name) and `std/task.saw` (`__saw_exec_run_main` calls `__saw_exec_drive_main`, so a framed `main` runs the tasks it spawns).
   - A lowered spawn site keeps its spawn terminator, and the backend stores the root's descriptor address into its destination. No MIR operand kind names an item.
   - Its pins are `task_spawn`, `task_spawn_and_embed` and `task_handle_escaped`, and the coro golden `task_root`. `background_task_spawn` moves to A9 (budget points, the `cancelled()` read), and `coro_spawn_and_embed` to A8b.
+- **A3c's scope (SL-556 c4, the lead's ruling after a3cpark's stop; landed):**
+  - A3c's files gain `compiler/coro/src/{program,dump}.saw` (a point kind per park reason), `compiler/llvm/src/bodies.saw`, `compiler/mono/src/{worklist,program}.saw` (the arms and the clock read, rooted through `exec_entry`), `std/task.saw`, `std/taskgroup.saw` and `compiler/typecheck/src/lang.saw`.
+  - Every park, the ready one included, is lowered in MIR: it records its park in the task's context, then arms, then parks. The backend's park point only records the state and returns `Pending`. A frame that parks gains one context local, filled from `%cx` at the resume entry.
+  - The outcome on resume is deferred to A10 (cancelled) and A11 (timed out), the first units whose executor can produce one. Until then, every park returns nothing.
+  - `TaskContext` gains `deadline: UInt64` (monotonic nanoseconds; 0 when the park has none), set at every construction. The timer's park word is 1, and every value above 1 is reserved for A11. The park word stays `Int`.
+  - `__saw_exec_io_register(fd, dir, token)` takes the task's park-word address as its `token`. A12a and A13a must withdraw a registration before its cell is freed.
+  - An executor half that hasn't landed panics, naming its unit; none is a no-op.
+  - Its pins are the five per-reason goldens (`park_timer`, `park_fd`, `park_channel`, `park_offload`, `park_signal`) and the run probes `drive_timer_park` and `main_timer_park`, which panic with SL-645's message.
 
 ## 5. Open questions for the user
 
