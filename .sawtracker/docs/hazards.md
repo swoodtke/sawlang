@@ -887,6 +887,20 @@ The fixpoint compares outputs, not intermediate values, so it sees the differenc
 
 **The non-escaping face is the same mechanism** (the Air, SL-607 c4): `[copy r]` of a `&var` aliases two exclusive references even when the closure doesn't escape. `both(&var r, { [copy r] in r += 10 })`, with `both(a: &var Int, body:)` doing `a += 1; body(); a += 1`, prints 2 under Stage 0. `a` is a `noalias` `&var` parameter, so the closure's `+= 10` is lost. **Instead:** capture the exclusive reference as `[&var r]`, and never pass it to a call that also takes the reference.
 
+### S32. A plain `copy()` method that Stage 0 runs as a type's copy hook (SL-630)
+
+**Shape (silent: a different value):** Stage 0 finds a type's copy hook by name, so a `copy()` written in an extension that is not the type's `Copy` or `ExplicitCopy` conformance runs on implicit copies anyway. c630hook's probes (SL-630) show two cases:
+- **a type that owns something** (a `String` field, say), copied at a binding or through mono's copy glue: Stage 0 runs the plain method where the spec copies member by member;
+- **a trivial type captured by a closure**, `[a]`, `[copy a]` or implicitly: Stage 0 runs the plain method where the spec copies the bits.
+
+A plain `copy()` on a Copy-tier type at a binding, in a tuple, an Optional, a field or a payload agrees in both compilers. That is the run lane's `copy_hook_plain_method`. sawc2 takes a policy's hook only from the conformance's own extension (`policy_copy`), so both cases above are pinned in sawc2's mir and mono goldens `copy_hooks` instead, since the run lane compares against Stage 0.
+
+No instance exists: every `copy()` in `std/` sits inside its type's own `Copy` or `ExplicitCopy` conformance, and the compiler's source declares none.
+
+**Instead:** write a type's `copy()` only inside its copy-policy conformance, and give any other duplicating method another name.
+
+**Checker:** not needed today, because no compiler-source type declares a `copy()`. If one ever does, a rule would refuse a `copy` member outside a `Copy`/`ExplicitCopy` conformance's extension.
+
 ## Loud hazards
 
 
