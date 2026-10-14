@@ -78,6 +78,16 @@ public func llvm_emit_program(mono: &var MonoProgram, target: &var Target, lower
         }
         k = k + 1
     }
+    // A lowered spawn site names its task root's frame descriptor, which the
+    // executor reaches the task's frame through.
+    k = 0
+    while k < mono.items.len() {
+        if mono.is_task_root(k) && e.resume_of(k) >= 0 {
+            let descriptor = e.descriptor(&var mono, &var target, k)
+            try! e.defs.append(descriptor)
+        }
+        k = k + 1
+    }
     mono.current = -1
     var entry = ""
     if not mono.runtime {
@@ -125,10 +135,12 @@ extension LlEmitter {
     // The C entry point: `main(argc, argv)` keeps both for the argument
     // accessors the compiler emits into every program (rt/ABI.md, "Program
     // arguments"), runs the program's `main`, and exits with its `Int`, or 0
-    // for a `Void` main. A plain `main` is called; one with a lowered frame
-    // gets that frame on this function's stack, at state 0, and is handed
-    // to the entry executor with its descriptor, its result read from the
-    // frame once the executor returns.
+    // for a `Void` main. A plain `main` is called, then the background group
+    // closed when the program spawns, since a task may still be running; one
+    // with a lowered frame gets that frame on this function's stack, at state
+    // 0, and is handed to the entry executor with its descriptor, its result
+    // read from the frame once the executor returns, which has closed the
+    // group itself.
     func entry_point(&var self, mono: &var MonoProgram, target: &var Target) -> String {
         let main = mono.items[mono.main_item]
         let f = mono.dp.bc.mir.funcs[main.body]
@@ -194,6 +206,13 @@ extension LlEmitter {
             }
             try! out.append(symbol)
             try! out.append("()\n")
+            if mono.spawn_close_item >= 0 {
+                // Stage 0 workaround (SL:hazards S4): canonical: try! out.append(ll_symbol(&mono, mono.spawn_close_item))
+                let close = mono.spawn_close_item
+                try! out.append("  call void ")
+                try! out.append(ll_symbol(&mono, close))
+                try! out.append("()\n")
+            }
         }
         if not returns_int {
             try! out.append("  ret i32 0\n")

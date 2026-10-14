@@ -1,0 +1,53 @@
+// Task roots and spawn lowering (SL:coroutines A7a): each `Task.spawn` runs
+// its root in a task root, a frame of its own in a task box the background
+// group runs, the root's arguments written into the box's parameter slots.
+// A valued root that yields, joined; a `Void` root that yields between two
+// prints, with a String argument it owns; a root that never suspends, which
+// is framed anyway; a task cancelled and then joined, which still finishes
+// through its own code; and a detached task, which the close of the
+// background group at `main`'s return runs to its end.
+import std.task.{yield_now}
+
+func square(n: Int) -> Int {
+    yield_now()
+    n * n
+}
+
+func greet(name: String) {
+    print("hello, {}", name)
+    yield_now()
+    print("bye, {}", name)
+}
+
+func plain(a: Int, b: Int) -> Int {
+    a + b
+}
+
+func noisy(n: Int) {
+    yield_now()
+    print("noisy {}", n)
+}
+
+func late() {
+    yield_now()
+    print("the detached task finished at the close")
+}
+
+func main() {
+    let squared = Task.spawn(square(6))
+    print("{}", squared.join())
+
+    let greeting = Task.spawn(greet("task"))
+    greeting.join()
+
+    let summed = Task.spawn(plain(2, 3))
+    print("{}", summed.join())
+
+    let stopped = Task.spawn(noisy(7))
+    stopped.cancel()
+    stopped.join()
+
+    let detached = Task.spawn(late())
+    detached.detach()
+    print("main returns")
+}

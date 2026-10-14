@@ -66,8 +66,8 @@ public struct MonoProgram {
     items: Vector<MonoItem>
     item_types: Vector<Int>
     // (source function, 0), (type, 1) for drop glue, (type, 2) for copy glue,
-    // (C name, 3) for an extern, (type, 4) for member glue -> the items with
-    // that key.
+    // (C name, 3) for an extern, (type, 4) for member glue, (source function,
+    // 6) for a task root -> the items with that key.
     by_key: ResIndex
     // By concrete call: the item it calls, or -1 for a builtin.
     call_items: Vector<Int>
@@ -93,6 +93,16 @@ public struct MonoProgram {
     // only once coroutine lowering lowers that frame (`root_entry_executor`);
     // -1 until then.
     exec_item: Int
+    // What a spawn site's lowering calls (SL:coroutines A7a), made at the
+    // first spawn site; -1 until then: std's task box, the background group,
+    // and its close, which the C entry runs at a plain `main`'s return; and
+    // the provenance case a singleton handle records. By concrete spawn
+    // call, its handle type's `__saw_spawn` item, or -1.
+    spawn_box_item: Int
+    spawn_background_item: Int
+    spawn_close_item: Int
+    spawn_singleton: Int
+    spawn_handle_items: Vector<Int>
     // The String comparison roles, made when a comparison of Strings is
     // reached; -1 until then.
     equals_item: Int
@@ -142,6 +152,7 @@ public static MONO_KEY_COPY: Int = 2
 public static MONO_KEY_EXTERN: Int = 3
 public static MONO_KEY_MEMBER: Int = 4
 public static MONO_KEY_RENDER: Int = 5
+public static MONO_KEY_TASK_ROOT: Int = 6
 
 // How deeply a concrete argument may nest before mono refuses it: unbounded
 // instantiation has no identity cycle to detect (SL-507).
@@ -163,7 +174,8 @@ public func mono_program(dp: DropsProgram, blocked: Bool) -> MonoProgram {
                 call_items: Vector<Int>(), closure_items: Vector<Int>(), concrete_first: first,
                 diags: Vector<MirDiag>(), problems: Vector<String>(), static_kinds: move kinds,
                 static_bits: move bits, main_item: -1, panic_item: -1, literal_item: -1, bytes_item: -1,
-                length_item: -1, exec_item: -1, equals_item: -1, compare_item: -1, builder_new_item: -1, builder_fixed_item: -1,
+                length_item: -1, exec_item: -1, spawn_box_item: -1, spawn_background_item: -1,
+                spawn_close_item: -1, spawn_singleton: -1, spawn_handle_items: Vector<Int>(), equals_item: -1, compare_item: -1, builder_new_item: -1, builder_fixed_item: -1,
                 builder_build_item: -1, builder_len_item: -1, literal_inits: Vector<Int>(),
                 literal_pushes: Vector<Int>(), depth_call: -1, depth_glue: -1, current: -1, blocked: blocked,
                 body_of: move bodies, defaults: res_index(), runtime: false, export_items: Vector<Int>(),
@@ -256,6 +268,41 @@ extension MonoProgram {
             return -1
         }
         self.by_key.value(at)
+    }
+
+    // Whether item `k` is a task root: the specialization a cooperative spawn
+    // site runs its root in, a separate item from the root's ordinary one
+    // (SL:architecture §3.8).
+    public func is_task_root(&self, k: Int) -> Bool {
+        if k < 0 || k >= self.items.len() || self.items[k].kind != MonoItemKind.Function {
+            return false
+        }
+        // Stage 0 workaround (SL:hazards S4): canonical: var at = self.by_key.first(self.items[k].source, MONO_KEY_TASK_ROOT)
+        let source = self.items[k].source
+        var at = self.by_key.first(source, MONO_KEY_TASK_ROOT)
+        while at >= 0 {
+            if self.by_key.value(at) == k {
+                return true
+            }
+            at = self.by_key.following(at)
+        }
+        false
+    }
+
+    // The `__saw_spawn` item concrete spawn call `c` hands its frame to, or
+    // -1.
+    public func spawn_handle_item(&self, c: Int) -> Int {
+        if c < 0 || c >= self.spawn_handle_items.len() {
+            return -1
+        }
+        self.spawn_handle_items[c]
+    }
+
+    public func set_spawn_handle_item(&var self, c: Int, item: Int) {
+        while self.spawn_handle_items.len() <= c {
+            try! self.spawn_handle_items.push(-1)
+        }
+        self.spawn_handle_items[c] = item
     }
 
     public func set_call_item(&var self, c: Int, item: Int) {

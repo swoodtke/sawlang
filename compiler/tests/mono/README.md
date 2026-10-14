@@ -99,6 +99,7 @@ source's local and block numbering. Then each call is resolved to its item:
 | a trait requirement on a concrete owner | the owner's conformance: the member it writes, or the trait's default body under `Self`; a requirement met with neither, by a derivation or by a builtin type's own conformance, is its member glue (`resolve_requirement`, the one funnel) |
 | a parameter's default value | the default's function |
 | a window's open or close | the accessor's prologue or epilogue |
+| a spawn site | its root's task root (below) |
 | an `extern` | its extern item |
 | a builtin | itself, when the backend's slice lowers it |
 
@@ -133,9 +134,20 @@ panics as `try!` does if a growable builder cannot grow. Every other one,
 an unsigned integer's rendering and a derived `Equatable` among them, is
 refused as `mono.not-yet`.
 
-**Budget points.** Spawn is not lowered, so no task root exists and every
-op-budget point is inert; the backend writes nothing for one. Coroutine
-lowering decides which stay live (SL:architecture §3.9).
+**Task roots.** A cooperative spawn site (`Task.spawn(f(x))`) is no call of
+its root: the task runs the root in a *task root*, a separate specialization
+of it (SL:architecture §3.8). That is an item of its own, keyed apart from
+the root's ordinary item, so a function both spawned and called directly is
+two items, and the dump names the task root `NAME task root`. The site makes
+no ordinary item of its root. The first spawn site also reaches what its
+lowering calls (`compiler/tests/coro/README.md`, "Spawn sites"): std's
+`__saw_exec_task_box`, `__saw_exec_background` and
+`__saw_exec_close_background`, and per site its handle type's `__saw_spawn`;
+a std root that declares none of them is refused as `mono.not-yet`.
+
+**Budget points.** Mono keeps every op-budget point; the backend writes
+nothing for one. Coroutine lowering decides which stay live (SL:architecture
+§3.9).
 
 **Suspension.** Mono decides nothing about suspension: the dump prints each
 call's flag as typecheck gave it, and coroutine lowering, the next stage,

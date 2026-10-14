@@ -1,0 +1,29 @@
+// A function spawned and embedded (SL:coroutines §3.3, `coro_spawn_and_embed`
+// with `Task.spawn`): a task root is a specialization of its own, so `leaf`
+// runs as a root, and as `mid`'s embedded child, and `mid` as a root, as
+// `caller`'s child, and called directly from `main`, which makes `main` a
+// frame the executor drives beside the tasks it spawns.
+import std.task.{yield_now}
+
+func leaf(n: Int) -> Int {
+    yield_now()
+    n * 10
+}
+
+func mid(n: Int) -> Int {
+    return leaf(n)
+}
+
+func caller() -> Int {
+    return mid(3)
+}
+
+func main() {
+    let a = Task.spawn(leaf(1))
+    let b = Task.spawn(mid(2))
+    let c = Task.spawn(caller())
+    print("{}", a.join())
+    print("{}", b.join())
+    print("{}", c.join())
+    print("{}", mid(4))
+}

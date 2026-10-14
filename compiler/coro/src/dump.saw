@@ -11,7 +11,8 @@ import sawmono.dump.{mono_dump_layouts}
 import sawmono.program.{MonoProgram}
 
 // `item #K: NAME  (frame yes (via CHAIN))` or `item #K: NAME  (frame no)`,
-// one line per item.
+// one line per item; a task root says so, before its chain when it also
+// suspends.
 public func coro_dump_items(coro: &CoroProgram, out: &var StringBuilder) {
     var k = 0
     while k < coro.mono.items.len() {
@@ -20,8 +21,18 @@ public func coro_dump_items(coro: &CoroProgram, out: &var StringBuilder) {
         try! out.append(": ")
         try! out.append(coro.mono.item_name(k))
         if coro.needs_frame(k) {
-            try! out.append("  (frame yes (via ")
-            try! out.append(coro_cause_chain(&coro, k))
+            try! out.append("  (frame yes (")
+            let root = coro.mono.is_task_root(k)
+            if root {
+                try! out.append("task root")
+            }
+            if coro.suspending[k] {
+                if root {
+                    try! out.append(", ")
+                }
+                try! out.append("via ")
+                try! out.append(coro_cause_chain(&coro, k))
+            }
             try! out.append("))\n")
         } else {
             try! out.append("  (frame no)\n")
@@ -178,13 +189,61 @@ func coro_append_value_type(coro: &CoroProgram, out: &var StringBuilder, v: &Cor
 
 // Each lowered frame's resume function, in item order: a header naming its
 // item, its frame and the local holding the frame pointer, a line per state,
-// then its body as lowered, every frame value reached through a frame slot;
-// or `no lowered frame` for a program with none.
+// a line per lowered spawn site, then its body as lowered, every frame value
+// reached through a frame slot; or `no lowered frame` for a program with
+// none. Then each item with no lowered frame that holds a lowered spawn site:
+// a header, a line per site, then its body.
 public func coro_dump_lowered(coro: &CoroProgram, out: &var StringBuilder) {
     if coro.resumes.len() == 0 {
         try! out.append("no lowered frame\n")
-        return
     }
+    coro_dump_resumes(&coro, &var out)
+    var k = 0
+    var last = -1
+    while k < coro.spawns.len() {
+        let item = coro.spawns[k].item
+        k = k + 1
+        if item == last || coro.resume_of[item] >= 0 {
+            continue
+        }
+        last = item
+        try! out.append("spawner #")
+        try! out.append(item)
+        try! out.append(": ")
+        try! out.append(coro.mono.item_name(item))
+        try! out.append("\n")
+        coro_dump_spawns(&coro, &var out, item)
+        // Stage 0 workaround (SL:hazards S4): canonical: coro.mono.dp.bc.mir.dump_func(&var out, coro.mono.items[item].body, false)
+        let body = coro.mono.items[item].body
+        coro.mono.dp.bc.mir.dump_func(&var out, body, false)
+    }
+}
+
+// `    spawn bbB task root #J NAME, descriptor _D, box _B`, one line per
+// lowered spawn site of item `item`, in block order.
+func coro_dump_spawns(coro: &CoroProgram, out: &var StringBuilder, item: Int) {
+    var k = 0
+    while k < coro.spawns.len() {
+        let s = coro.spawns[k]
+        k = k + 1
+        if s.item != item {
+            continue
+        }
+        try! out.append("    spawn bb")
+        try! out.append(s.block)
+        try! out.append(" task root #")
+        try! out.append(s.root)
+        try! out.append(" ")
+        try! out.append(coro.mono.item_name(s.root))
+        try! out.append(", descriptor _")
+        try! out.append(s.descriptor)
+        try! out.append(", box _")
+        try! out.append(s.frame)
+        try! out.append("\n")
+    }
+}
+
+func coro_dump_resumes(coro: &CoroProgram, out: &var StringBuilder) {
     var k = 0
     while k < coro.resumes.len() {
         let r = coro.resumes[k]
@@ -221,6 +280,7 @@ public func coro_dump_lowered(coro: &CoroProgram, out: &var StringBuilder) {
                 }
             }
         }
+        coro_dump_spawns(&coro, &var out, r.item)
         coro.mono.dp.bc.mir.dump_func(&var out, frame.body, false)
         k = k + 1
     }

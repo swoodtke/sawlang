@@ -1,49 +1,315 @@
-// Spawn sites, which coroutine lowering refuses until it lowers them: a task
-// root is a separate item with a frame of its own (SL:architecture §3.9), and
-// lowering a spawn site as a call of its root would run the task's whole
-// body in the spawner, synchronously.
+// Spawn sites (SL:coroutines §3.1, compiler/tests/coro/README.md "Spawn
+// sites"): `dest = spawn FORM f(args)` hands its arguments to a task whose
+// frame is its task root's, never running `f` in the spawner. The site is
+// rewritten into MIR over std's executor: the spawn terminator leaves the
+// task root's frame descriptor in a new local, which only the backend can
+// name; a task box of the descriptor's size is allocated; the state word and
+// each argument are written into the box, at the root's state and parameter
+// slots, each argument moving or copying as the site passed it; and the
+// handle type's `__saw_spawn` enqueues the box into the background group and
+// mints the handle, recording the form's provenance. So the rewrite adds no
+// ownership operation.
+//
+// ENTRY POINTS of the spawn lowering:
+//   coro_lower_spawn_sites
+//   coro_check_spawns
 
 import sawborrowck.program.{BorrowckProgram}
-import sawcoro.program.{CoroProgram}
+import sawcoro.frames.{coro_frame_of}
+import sawcoro.lower.{coro_add_block, coro_add_local, coro_append_stmt, coro_child_offset, coro_frame_lowered,
+                      coro_frame_place, coro_is_frame_slot, coro_use_rvalue}
+import sawcoro.program.{CoroFrame, CoroProgram, CoroSpawn, CoroValueKind}
 import sawdrops.program.{DropsProgram}
-import sawmir.dump.{mir_spawn_form_text}
-import sawmir.model.{MirCallKind, MirTermKind}
+import sawmir.model.{MirAggregate, MirBlock, MirCall, MirCallKind, MirConstKind, MirOperand, MirOperandKind,
+                     MirPlace, MirRvalue, MirRvalueKind, MirSpawnForm, MirStmtKind, MirSwitchKind, MirTermKind}
 import sawmir.program.{MirProgram}
+import sawmir.build.{mir_func_local}
+import sawmono.dump.{mono_dump_layouts}
 import sawmono.program.{MonoProgram}
-import sawresolve.dump.{res_sort_strings}
 import sawresolve.program.{ResProgram}
 import sawtypecheck.program.{TcProgram}
+import sawtypecheck.typeops.{TcClient}
 
-// Refuses each spawn site of every item, at its form, in item and block
-// order.
-public func coro_refuse_spawn_sites(coro: &var CoroProgram) {
+// Lowers every spawn site of every item, in item and block order, whose task
+// root has a lowered frame the target lays out. Any other site is left as it
+// is, for the backend to refuse: its root's frame is refused here, or it
+// cannot be laid out.
+public func coro_lower_spawn_sites(coro: &var CoroProgram) {
+    coro.spawns = Vector<CoroSpawn>()
     var k = 0
     while k < coro.mono.items.len() {
         let item = k
         k = k + 1
-        let body = coro.mono.items[item].body
-        if body < 0 {
+        let f = coro.mono.items[item].body
+        if f < 0 {
             continue
         }
-        let info = coro.mono.dp.bc.mir.funcs[body]
+        let count = coro.mono.dp.bc.mir.funcs[f].block_count
         var b = 0
-        while b < info.block_count {
-            let block = coro.mono.dp.bc.mir.blocks[info.block_first + b]
+        while b < count {
+            let at = coro.mono.dp.bc.mir.funcs[f].block_first + b
+            let block = coro.mono.dp.bc.mir.blocks[at]
+            if block.term == MirTermKind.Call && coro.mono.dp.bc.mir.calls[block.call].kind == MirCallKind.Spawn {
+                coro_lower_spawn(&var coro, item, f, b)
+            }
             b = b + 1
-            if block.term != MirTermKind.Call {
-                continue
-            }
-            let c = coro.mono.dp.bc.mir.calls[block.call]
-            if c.kind != MirCallKind.Spawn {
-                continue
-            }
-            var msg = StringBuilder()
-            try! msg.append("this spawn site (")
-            try! msg.append(mir_spawn_form_text(c.spawn))
-            try! msg.append(", root `")
-            try! msg.append(coro.mono.dp.bc.mir.tc.res.decl_path(c.target))
-            try! msg.append("`) is not lowered yet: its task root, an item with a frame of its own, arrives with spawn lowering (SL-545 A7a, SL-560)")
-            coro.refuse(item, c.node, "coro.not-yet", msg.build())
         }
     }
+}
+
+// The types a spawn site's lowering gives its new locals, read from the
+// std functions it calls, as mono instantiated them.
+struct CoroSpawnTypes {
+    descriptor: Int
+    frame: Int
+    group: Int
+    provenance: Int
+}
+
+func coro_lower_spawn(coro: &var CoroProgram, item: Int, f: Int, b: Int) {
+    let c = coro.mono.dp.bc.mir.blocks[coro.mono.dp.bc.mir.funcs[f].block_first + b].call
+    let site = coro.mono.dp.bc.mir.calls[c]
+    let root = coro.mono.call_item(c)
+    let rf = coro_frame_of(&coro, root)
+    if rf < 0 || not coro_frame_lowered(&coro, root) {
+        return
+    }
+    let frame = coro.frames[rf]
+    if frame.unsupported >= 0 || frame.size < 0 {
+        return
+    }
+    let box_item = coro.mono.spawn_box_item
+    let group_item = coro.mono.spawn_background_item
+    let handle_item = coro.mono.spawn_handle_item(c)
+    if box_item < 0 || group_item < 0 || handle_item < 0 || coro.mono.spawn_singleton < 0 {
+        try! coro.problems.push("a spawn site reached coroutine lowering without the std functions it calls")
+        return
+    }
+    let types = CoroSpawnTypes(descriptor: coro_param_type(&coro, box_item, 1),
+                               frame: coro_param_type(&coro, box_item, 0),
+                               group: coro_param_type(&coro, group_item, 0),
+                               provenance: coro_param_type(&coro, handle_item, 4))
+    let descriptor = coro_add_local(&var coro, f, types.descriptor)
+    let boxed = coro_add_local(&var coro, f, types.frame)
+    let group = coro_add_local(&var coro, f, types.group)
+    let provenance = coro_add_local(&var coro, f, types.provenance)
+    let node = site.node
+    // The box: `_B = __saw_exec_task_box(copy _D)`.
+    var box_call = coro_new_call(&var coro, box_item, node)
+    coro_push_local_arg(&var coro, &var box_call, descriptor, types.descriptor, false)
+    box_call.dest = coro_local_place(&var coro, boxed, types.frame)
+    let box_block = coro_add_call_block(&var coro, f, box_call, box_item, node)
+    // The writes, then the group: `_G = __saw_exec_background()`.
+    var group_call = coro_new_call(&var coro, group_item, node)
+    group_call.dest = coro_local_place(&var coro, group, types.group)
+    let write_block = coro_add_call_block(&var coro, f, group_call, group_item, node)
+    coro_write_frame(&var coro, f, write_block, boxed, &frame, &site, node)
+    let singleton = coro.mono.spawn_singleton
+    let case_rv = coro_case_rvalue(&var coro, singleton, types.provenance)
+    let p = coro_local_place(&var coro, provenance, types.provenance)
+    coro_append_stmt(&var coro, f, write_block, p, case_rv, node)
+    // The handle: `dest = H.__saw_spawn(copy _G, copy _D, copy _B, move _P)`.
+    var handle_call = coro_new_call(&var coro, handle_item, node)
+    handle_call.owner = coro.mono.dp.bc.mir.places[site.dest].ty
+    coro_push_local_arg(&var coro, &var handle_call, group, types.group, false)
+    coro_push_local_arg(&var coro, &var handle_call, descriptor, types.descriptor, false)
+    coro_push_local_arg(&var coro, &var handle_call, boxed, types.frame, false)
+    coro_push_local_arg(&var coro, &var handle_call, provenance, types.provenance, true)
+    handle_call.dest = site.dest
+    handle_call.next = site.next
+    let handle_block = coro_add_call_block(&var coro, f, handle_call, handle_item, node)
+    coro_set_next(&var coro, f, box_block, write_block)
+    coro_set_next(&var coro, f, write_block, handle_block)
+    // The site itself: `_D = spawn FORM f()`, the descriptor.
+    var lowered = site
+    lowered.arg_count = 0
+    lowered.dest = coro_local_place(&var coro, descriptor, types.descriptor)
+    lowered.next = box_block
+    coro.mono.dp.bc.mir.calls[c] = lowered
+    try! coro.spawns.push(CoroSpawn(item: item, block: b, call: c, root: root, descriptor: descriptor,
+                                    frame: boxed, box_block: box_block, write_block: write_block,
+                                    handle_block: handle_block))
+}
+
+// Appends to block `wb` of function `f` the writes that start the task root
+// frame `frame` in the box local `boxed` points at: its state word, then each
+// argument of spawn call `site` into its parameter slot.
+func coro_write_frame(coro: &var CoroProgram, f: Int, wb: Int, boxed: Int, frame: &CoroFrame, site: &MirCall,
+                      node: Int) {
+    let word = coro.mono.dp.bc.mir.tc.int_type()
+    let state = coro_child_offset(&coro, &frame, CoroValueKind.State, -1)
+    let start = coro_frame_place(&var coro, boxed, state, word)
+    let zero = coro.mono.dp.bc.mir.operands.len()
+    let text = coro.mono.dp.bc.mir.tc.res.intern("0")
+    try! coro.mono.dp.bc.mir.operands.push(MirOperand(kind: MirOperandKind.Const, place: -1, ty: word,
+                                                      const_kind: MirConstKind.Int, text: text))
+    let first = coro.mono.dp.bc.mir.lists.len()
+    try! coro.mono.dp.bc.mir.lists.push(zero)
+    let rv = coro_use_rvalue(&var coro, word, first)
+    coro_append_stmt(&var coro, f, wb, start, rv, node)
+    let root_info = coro.mono.dp.bc.mir.funcs[frame.body]
+    if site.arg_count != root_info.param_count {
+        try! coro.problems.push("a spawn site passes another number of arguments than its task root has parameters")
+    }
+    var j = 0
+    while j < site.arg_count && j < root_info.param_count {
+        let o = coro.mono.dp.bc.mir.lists[site.arg_first + j]
+        j = j + 1
+        let off = coro_child_offset(&coro, &frame, CoroValueKind.Param, j)
+        let ty = coro.mono.dp.bc.mir.locals[root_info.local_first + j].ty
+        let place = coro_frame_place(&var coro, boxed, off, ty)
+        let at = coro.mono.dp.bc.mir.lists.len()
+        try! coro.mono.dp.bc.mir.lists.push(o)
+        let arg_ty = coro.mono.dp.bc.mir.operands[o].ty
+        let write = coro_use_rvalue(&var coro, arg_ty, at)
+        coro_append_stmt(&var coro, f, wb, place, write, node)
+    }
+}
+
+// The type of local `l` of item `k`'s body: its result for 0, a parameter
+// from 1.
+func coro_param_type(coro: &CoroProgram, k: Int, l: Int) -> Int {
+    let info = coro.mono.dp.bc.mir.funcs[coro.mono.items[k].body]
+    coro.mono.dp.bc.mir.locals[info.local_first + l].ty
+}
+
+// A call of item `k`'s declaration, with no arguments yet, at `node`.
+func coro_new_call(coro: &var CoroProgram, k: Int, node: Int) -> MirCall {
+    var call = coro.mono.dp.bc.mir.blank_call(MirCallKind.Function, node)
+    call.target = coro.mono.items[k].decl
+    call
+}
+
+// Appends a copy, or with `moved` a move, of local `l` whole to `call`'s
+// arguments, which are the last run of the operand lists.
+func coro_push_local_arg(coro: &var CoroProgram, call: &var MirCall, l: Int, ty: Int, moved: Bool) {
+    let o = coro_local_operand(&var coro, l, ty, moved)
+    if call.arg_count == 0 {
+        call.arg_first = coro.mono.dp.bc.mir.lists.len()
+    }
+    try! coro.mono.dp.bc.mir.lists.push(o)
+    call.arg_count = call.arg_count + 1
+}
+
+// A new place, local `l` whole, of type `ty`.
+func coro_local_place(coro: &var CoroProgram, l: Int, ty: Int) -> Int {
+    let at = coro.mono.dp.bc.mir.places.len()
+    let first = coro.mono.dp.bc.mir.projs.len()
+    try! coro.mono.dp.bc.mir.places.push(MirPlace(local: l, static_decl: -1, first: first, count: 0, ty: ty))
+    at
+}
+
+// A copy, or with `moved` a move, of local `l` whole.
+func coro_local_operand(coro: &var CoroProgram, l: Int, ty: Int, moved: Bool) -> Int {
+    let place = coro_local_place(&var coro, l, ty)
+    let kind = if moved { MirOperandKind.Move } else { MirOperandKind.Copy }
+    let at = coro.mono.dp.bc.mir.operands.len()
+    try! coro.mono.dp.bc.mir.operands.push(MirOperand(kind: kind, place: place, ty: ty,
+                                                      const_kind: MirConstKind.Unit, text: -1))
+    at
+}
+
+// A new rvalue, payload-free case `case_decl` of type `ty`.
+func coro_case_rvalue(coro: &var CoroProgram, case_decl: Int, ty: Int) -> Int {
+    let at = coro.mono.dp.bc.mir.rvalues.len()
+    let first = coro.mono.dp.bc.mir.lists.len()
+    try! coro.mono.dp.bc.mir.rvalues.push(MirRvalue(kind: MirRvalueKind.Aggregate, ty: ty, op: -1, exclusive: false,
+                                                    place: -1, first: first, count: 0,
+                                                    aggregate: MirAggregate.Case, decl: case_decl, flag: -1))
+    at
+}
+
+// Gives function `f` a new block ending in `call`, which reaches item `k`,
+// and returns its number.
+func coro_add_call_block(coro: &var CoroProgram, f: Int, call: MirCall, k: Int, node: Int) -> Int {
+    let c = coro.mono.dp.bc.mir.calls.len()
+    try! coro.mono.dp.bc.mir.calls.push(call)
+    coro.mono.set_call_item(c, k)
+    let block = MirBlock(first: -1, last: -1, term: MirTermKind.Call, target: -1, switch_kind: MirSwitchKind.Bool,
+                         operand: -1, place: -1, arm_first: 0, arm_count: 0, otherwise: -1, call: c,
+                         term_node: node, term_closing: false)
+    coro_add_block(&var coro, f, block)
+}
+
+// Points the call ending block `b` of function `f` at block `next`.
+func coro_set_next(coro: &var CoroProgram, f: Int, b: Int, next: Int) {
+    let c = coro.mono.dp.bc.mir.blocks[coro.mono.dp.bc.mir.funcs[f].block_first + b].call
+    var call = coro.mono.dp.bc.mir.calls[c]
+    call.next = next
+    coro.mono.dp.bc.mir.calls[c] = call
+}
+
+// The structural invariant of every lowered spawn site: its spawn call
+// carries no arguments and returns to the box's allocation, which returns to
+// the writes; and the writes set the task root's state word and each of its
+// parameter slots exactly once, `(*_B).[P: T] = ...`. The slots are read
+// from the root's frame, not from the lowering. A broken one is an
+// `INVARIANT` line.
+public func coro_check_spawns(coro: &var CoroProgram) {
+    var k = 0
+    while k < coro.spawns.len() {
+        let s = coro.spawns[k]
+        k = k + 1
+        let f = coro.mono.items[s.item].body
+        let info = coro.mono.dp.bc.mir.funcs[f]
+        let call = coro.mono.dp.bc.mir.calls[s.call]
+        if call.arg_count != 0 || call.next != s.box_block {
+            coro_spawn_problem(&var coro, &s, "its spawn call still carries arguments, or does not return to the task box")
+        }
+        let boxed = coro.mono.dp.bc.mir.blocks[info.block_first + s.box_block]
+        if boxed.term != MirTermKind.Call || coro.mono.dp.bc.mir.calls[boxed.call].next != s.write_block {
+            coro_spawn_problem(&var coro, &s, "its task box does not return to the writes")
+        }
+        let frame = coro.frames[coro_frame_of(&coro, s.root)]
+        let root_info = coro.mono.dp.bc.mir.funcs[frame.body]
+        let block = coro.mono.dp.bc.mir.blocks[info.block_first + s.write_block]
+        var l = 0
+        while l <= root_info.param_count {
+            var off = coro_child_offset(&coro, &frame, CoroValueKind.Param, l)
+            if l == 0 {
+                off = coro_child_offset(&coro, &frame, CoroValueKind.State, -1)
+            }
+            var writes = 0
+            var st = block.first
+            while st >= 0 {
+                let stmt = coro.mono.dp.bc.mir.stmts[st]
+                st = stmt.next
+                if stmt.kind == MirStmtKind.Assign && coro_is_frame_slot(&coro, stmt.place, s.frame, off) {
+                    writes = writes + 1
+                }
+            }
+            if writes != 1 {
+                var what = StringBuilder()
+                if l == 0 {
+                    try! what.append("the state word's slot")
+                } else {
+                    try! what.append("parameter _")
+                    try! what.append(l)
+                    try! what.append("'s slot")
+                }
+                try! what.append(" (*box).[")
+                try! what.append(off)
+                try! what.append("] is written ")
+                try! what.append(writes)
+                try! what.append(" times in bb")
+                try! what.append(s.write_block)
+                try! what.append(", not once")
+                coro_spawn_problem(&var coro, &s, what.build())
+            }
+            l = l + 1
+        }
+    }
+}
+
+func coro_spawn_problem(coro: &var CoroProgram, s: &CoroSpawn, what: String) {
+    var msg = StringBuilder()
+    try! msg.append("`")
+    try! msg.append(coro.mono.item_name(s.item))
+    try! msg.append("`'s spawn of `")
+    try! msg.append(coro.mono.item_name(s.root))
+    try! msg.append("` in bb")
+    try! msg.append(s.block)
+    try! msg.append(": ")
+    try! msg.append(what)
+    try! coro.problems.push(msg.build())
 }

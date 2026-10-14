@@ -324,6 +324,9 @@ public func coro_refuse_unlowered(coro: &var CoroProgram) {
     }
 }
 
+// Refuses item `item`, at its first suspension that is not lowered; a task
+// root that does not suspend has none, so it is refused at the spawn site
+// that made it.
 func coro_refuse_item(coro: &var CoroProgram, item: Int) {
     let why = coro.unlowered[item]
     var call = coro.cause_call[item]
@@ -333,21 +336,28 @@ func coro_refuse_item(coro: &var CoroProgram, item: Int) {
     var msg = StringBuilder()
     try! msg.append("`")
     try! msg.append(coro.item_label(item))
-    try! msg.append("` suspends (")
-    let calls = why.what == CoroUnloweredKind.Source || why.what == CoroUnloweredKind.Child
-    if calls {
-        try! msg.append(coro_unlowered_chain(&coro, item))
+    if coro.suspending[item] {
+        try! msg.append("` suspends (")
+        let calls = why.what == CoroUnloweredKind.Source || why.what == CoroUnloweredKind.Child
+        if calls {
+            try! msg.append(coro_unlowered_chain(&coro, item))
+        } else {
+            try! msg.append(coro_cause_chain(&coro, item))
+        }
+        try! msg.append("), so it needs a coroutine frame, ")
     } else {
-        try! msg.append(coro_cause_chain(&coro, item))
+        try! msg.append("` is spawned as a task, so it needs a coroutine frame, ")
     }
-    try! msg.append("), so it needs a coroutine frame, ")
     match why.what {
         case Budget -> try! msg.append("and its op-budget point is not lowered yet (SL-545)"),
         case Window -> try! msg.append("and a borrow window in it is not lowered yet (SL-545)"),
         case Index -> try! msg.append("and an index read from its frame is not lowered yet (SL-545)"),
         case _ -> try! msg.append("which is not lowered yet (SL-545)")
     }
-    let node = coro.mono.dp.bc.mir.calls[call].node
+    var node = coro.mono.items[item].origin_node
+    if call >= 0 {
+        node = coro.mono.dp.bc.mir.calls[call].node
+    }
     coro.refuse(item, node, "coro.not-yet", msg.build())
 }
 
@@ -556,7 +566,7 @@ func coro_skip_call(coro: &var CoroProgram, f: Int, b: Int) {
 }
 
 // The offset in child frame `cf` of its value of kind `kind` for local `l`.
-func coro_child_offset(coro: &CoroProgram, cf: &CoroFrame, kind: CoroValueKind, l: Int) -> Int {
+public func coro_child_offset(coro: &CoroProgram, cf: &CoroFrame, kind: CoroValueKind, l: Int) -> Int {
     var k = 0
     while k < cf.value_count {
         let v = coro.values[cf.value_first + k]
@@ -570,7 +580,7 @@ func coro_child_offset(coro: &CoroProgram, cf: &CoroFrame, kind: CoroValueKind, 
 
 // A new place, the frame slot `(*_F).[offset: T]` through local
 // `frame_local`.
-func coro_frame_place(coro: &var CoroProgram, frame_local: Int, offset: Int, ty: Int) -> Int {
+public func coro_frame_place(coro: &var CoroProgram, frame_local: Int, offset: Int, ty: Int) -> Int {
     let word = coro.mono.dp.bc.mir.tc.int_type()
     let first = coro.mono.dp.bc.mir.projs.len()
     try! coro.mono.dp.bc.mir.projs.push(MirProj(kind: MirProjKind.Deref, decl: -1, index: -1, ty: word))
@@ -582,7 +592,7 @@ func coro_frame_place(coro: &var CoroProgram, frame_local: Int, offset: Int, ty:
 }
 
 // A new rvalue using the one operand at `lists[first]`, of type `ty`.
-func coro_use_rvalue(coro: &var CoroProgram, ty: Int, first: Int) -> Int {
+public func coro_use_rvalue(coro: &var CoroProgram, ty: Int, first: Int) -> Int {
     let at = coro.mono.dp.bc.mir.rvalues.len()
     try! coro.mono.dp.bc.mir.rvalues.push(MirRvalue(kind: MirRvalueKind.Use, ty: ty, op: -1, exclusive: false,
                                                     place: -1, first: first, count: 1,
@@ -592,7 +602,7 @@ func coro_use_rvalue(coro: &var CoroProgram, ty: Int, first: Int) -> Int {
 
 // Appends `place = rvalue` to block `b` of function `f`, carrying source node
 // `node`.
-func coro_append_stmt(coro: &var CoroProgram, f: Int, b: Int, place: Int, rv: Int, node: Int) {
+public func coro_append_stmt(coro: &var CoroProgram, f: Int, b: Int, place: Int, rv: Int, node: Int) {
     let s = coro.mono.dp.bc.mir.stmts.len()
     try! coro.mono.dp.bc.mir.stmts.push(MirStmt(kind: MirStmtKind.Assign, place: place, rvalue: rv, yields: false,
                                                 next: -1, node: node, closing: false))
@@ -610,22 +620,27 @@ func coro_append_stmt(coro: &var CoroProgram, f: Int, b: Int, place: Int, rv: In
 }
 
 // Gives function `f` one more block, empty and ending in a goto to block
-// `target`, and returns its number; its blocks move to a fresh run of the
-// arena, numbered as before, since the run after them is another
-// function's.
+// `target`, and returns its number.
 func coro_add_goto_block(coro: &var CoroProgram, f: Int, target: Int, node: Int) -> Int {
+    let block = MirBlock(first: -1, last: -1, term: MirTermKind.Goto, target: target,
+                         switch_kind: MirSwitchKind.Bool, operand: -1, place: -1, arm_first: 0, arm_count: 0,
+                         otherwise: -1, call: -1, term_node: node, term_closing: false)
+    coro_add_block(&var coro, f, block)
+}
+
+// Gives function `f` one more block, `block`, empty of statements, and
+// returns its number; its blocks move to a fresh run of the arena, numbered
+// as before, since the run after them is another function's.
+public func coro_add_block(coro: &var CoroProgram, f: Int, block: MirBlock) -> Int {
     var info = coro.mono.dp.bc.mir.funcs[f]
     let first = coro.mono.dp.bc.mir.blocks.len()
     var b = 0
     while b < info.block_count {
-        let block = coro.mono.dp.bc.mir.blocks[info.block_first + b]
-        try! coro.mono.dp.bc.mir.blocks.push(block)
+        let old = coro.mono.dp.bc.mir.blocks[info.block_first + b]
+        try! coro.mono.dp.bc.mir.blocks.push(old)
         b = b + 1
     }
-    try! coro.mono.dp.bc.mir.blocks.push(MirBlock(first: -1, last: -1, term: MirTermKind.Goto, target: target,
-                                                  switch_kind: MirSwitchKind.Bool, operand: -1, place: -1,
-                                                  arm_first: 0, arm_count: 0, otherwise: -1, call: -1,
-                                                  term_node: node, term_closing: false))
+    try! coro.mono.dp.bc.mir.blocks.push(block)
     let made = info.block_count
     info.block_first = first
     info.block_count = info.block_count + 1
@@ -720,7 +735,7 @@ func coro_check_drive(coro: &var CoroProgram, item: Int, f: Int, frame_local: In
 
 // Whether place `p` is the frame slot `(*_F).[offset: T]` through local
 // `frame_local`, with no step after it.
-func coro_is_frame_slot(coro: &CoroProgram, p: Int, frame_local: Int, offset: Int) -> Bool {
+public func coro_is_frame_slot(coro: &CoroProgram, p: Int, frame_local: Int, offset: Int) -> Bool {
     if p < 0 {
         return false
     }
@@ -756,9 +771,17 @@ func coro_next_child_slot(coro: &CoroProgram, frame: &CoroFrame, from: Int) -> I
 }
 
 // Gives function `f` one more local, the frame pointer, a `&var Int` that
-// points at the frame's state word; its locals move to a fresh run of the
-// arena, numbered as before, since the run after them is another function's.
+// points at the frame's state word.
 func coro_add_frame_local(coro: &var CoroProgram, f: Int) -> Int {
+    let word = coro.mono.dp.bc.mir.tc.int_type()
+    let pointer = coro.mono.dp.bc.mir.tc.mk_ref(true, word)
+    coro_add_local(&var coro, f, pointer)
+}
+
+// Gives function `f` one more local, a temporary of type `ty` no scope
+// drops, and returns its number; its locals move to a fresh run of the
+// arena, numbered as before, since the run after them is another function's.
+public func coro_add_local(coro: &var CoroProgram, f: Int, ty: Int) -> Int {
     var info = coro.mono.dp.bc.mir.funcs[f]
     let first = coro.mono.dp.bc.mir.locals.len()
     var l = 0
@@ -767,13 +790,11 @@ func coro_add_frame_local(coro: &var CoroProgram, f: Int) -> Int {
         try! coro.mono.dp.bc.mir.locals.push(local)
         l = l + 1
     }
-    let word = coro.mono.dp.bc.mir.tc.int_type()
-    let pointer = coro.mono.dp.bc.mir.tc.mk_ref(true, word)
-    try! coro.mono.dp.bc.mir.locals.push(MirLocal(ty: pointer, kind: MirLocalKind.Temp, name: -1, node: -1,
+    try! coro.mono.dp.bc.mir.locals.push(MirLocal(ty: ty, kind: MirLocalKind.Temp, name: -1, node: -1,
                                                   owned: false, reference: false))
-    let frame_local = info.local_count
+    let made = info.local_count
     info.local_first = first
     info.local_count = info.local_count + 1
     coro.mono.dp.bc.mir.funcs[f] = info
-    frame_local
+    made
 }

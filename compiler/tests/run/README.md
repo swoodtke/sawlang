@@ -229,7 +229,9 @@ description's (`compiler/tests/mono/README.md`, "Layouts").
 - **The entry.** The C `main(argc, argv)` keeps both for the argument
   accessors the compiler emits into every program (rt/ABI.md, "Program
   arguments"), calls the program's `main`, and exits with its `Int`, or 0
-  for a `Void` main. A `main` with a lowered frame is not called: its frame
+  for a `Void` main. A plain `main` of a program that spawns is followed by
+  std's `__saw_exec_close_background`, which cancels and then finishes every
+  task still in the background group. A `main` with a lowered frame is not called: its frame
   goes on the C entry's stack at state 0 and is handed, with its frame
   descriptor, to std's entry executor `__saw_exec_run_main`, and the exit
   status is read from the frame's result once the executor returns. Such a
@@ -243,6 +245,13 @@ description's (`compiler/tests/mono/README.md`, "Layouts").
   blocks, a frame slot one `getelementptr` off the frame pointer, and at each
   suspension point its park or its child's drive
   (`compiler/tests/coro/README.md`, "Lowering").
+- **Spawn sites.** Each task root with a lowered frame gets its frame
+  descriptor, as `main`'s does, and a lowered spawn site's spawn terminator
+  stores that descriptor's address into its destination and continues; the
+  rest of the site is ordinary MIR (`compiler/tests/coro/README.md`, "Spawn
+  sites"). A spawn site whose task root has no lowered frame is refused as
+  `backend.not-yet`: calling the root would run the task's body in the
+  spawner.
 - **Exports.** Each `@export`ed function is a root, defined under its C
   symbol with external linkage, an integer narrower than 32 bits taken and
   returned `signext` or `zeroext` as C does; an `extern` naming the symbol is

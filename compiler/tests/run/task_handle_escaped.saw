@@ -1,0 +1,32 @@
+// differs: the panic is raised inside std, and each compiler's std is its own file
+// The run-time half of a `Task.spawn` handle's fate (spec: No implicit
+// fates; conformance/K86): a handle moved into storage whose owner declares a
+// `deinit` leaves the static check, and the handle the spawn lowering minted
+// records its singleton provenance, so dropping it unconsumed panics.
+import std.task.{yield_now}
+
+func work(n: Int) -> Int {
+    yield_now()
+    n
+}
+
+struct Keeper {
+    held: Vector<Task<Int>>
+}
+
+extension Keeper: NoCopy {
+    func deinit(&var self) {
+        print("the keeper forgot to join")
+    }
+}
+
+func main() {
+    var keeper = Keeper(held: Vector<Task<Int>>())
+    let escaped = Task.spawn(work(2))
+    try! keeper.held.push(move escaped)
+    // The join's sweep runs the escaped task to its end too, so no task is
+    // live when the keeper's drop panics.
+    let other = Task.spawn(work(3))
+    print("{}", other.join())
+    print("about to drop the keeper")
+}

@@ -1,0 +1,20 @@
+// refuses: coro.not-yet at 18:13
+// message: `count` is spawned as a task, so it needs a coroutine frame
+// message: its op-budget point is not lowered yet
+// A task root that never suspends still has a frame, with its loop's budget
+// point live (SL:architecture §3.9), which is not lowered yet (SL:coroutines
+// A9). It has no suspension to name, so it is refused at the spawn site
+// that made it.
+
+func count(n: Int) -> Int {
+    var i = 0
+    while i < n {
+        i = i + 1
+    }
+    i
+}
+
+func main() {
+    let h = Task.spawn(count(3))
+    print("{}", h.join())
+}

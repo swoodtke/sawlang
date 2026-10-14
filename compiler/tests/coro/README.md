@@ -35,11 +35,14 @@ invariant, and with `--dump` one line per item:
 
 ```
 item #K: NAME  (frame yes (via CHAIN))
+item #K: NAME  (frame yes (task root))
+item #K: NAME  (frame yes (task root, via CHAIN))
 item #K: NAME  (frame no)
 ```
 
 NAME is mono's dump name for the item (`compiler/tests/mono/README.md`), in
-mono's item order. CHAIN is the item, then each item its suspension was found
+mono's item order; a task root's ends in `task root`, and its line says so,
+then its chain when it also suspends. CHAIN is the item, then each item its suspension was found
 through, then the source: `main -> caller -> nap -> usleep`. Each link is the
 declaration's path inside its module (`ping`, `Walker.walk`), so the two
 instantiations of a generic function name it alike, and an accessor's
@@ -81,8 +84,10 @@ that reaches no source is ordinary recursion, unframed and never refused, even
 when typecheck flags its calls (golden `cycle_without_suspension`, which the
 run lane also builds and runs).
 
-An item **needs a frame** when it suspends; a task root will need one even
-when it does not, and arrives with spawn lowering.
+An item **needs a frame** when it suspends, and a task root (mono's
+specialization of a spawn site's root) needs one even when it does not
+(SL:architecture §3.9). A spawn site is no call of its root, so it is no
+edge of the graph, and a task root suspends exactly when its function does.
 
 **Agreement with typecheck.** Where typecheck's summary of a body is
 unconditional, the decision must agree with it at every instantiation: a
@@ -232,28 +237,63 @@ A suspending `main`'s frame is driven by std's entry executor,
 `__saw_exec_run_main(descriptor, frame)`, which the stage roots (mono's one
 root after the worklist) only when `main` is lowered. The C entry puts the
 frame on its own stack at state 0, hands it over with its descriptor, and
-reads `main`'s result from the frame once the executor returns.
+reads `main`'s result from the frame once the executor returns. The executor
+runs every task `main` spawns beside it and closes the background group
+before it returns; for a plain `main` that spawns, the C entry closes the
+group after `main` returns.
 
-**The `--lowered` record**, after an `INVARIANT` line per drive that fails
-its check, per lowered frame, in item order:
+### Spawn sites
+
+A spawn site `dest = spawn FORM f(args)` (`compiler/tests/mir/README.md`) is
+lowered, once every frame is laid out and before the frames are lowered, in
+every item that holds one, framed or not, when its task root's frame is
+lowered (`compiler/coro/src/spawn.saw`, whose docstring names its entry
+points). The site's block keeps its spawn terminator, which loses its
+arguments and now leaves the address of the task root's frame descriptor in
+a new local `_D`: the descriptor is an item's, which no MIR operand names, so
+the backend writes it there. Three new blocks, numbered after the body's own,
+follow it:
+
+- `_B = call __saw_exec_task_box(copy _D)`, the task's storage, sized and
+  aligned by the descriptor;
+- the task root's frame started in the box, `(*_B).[0: Int] = const 0` for
+  its state word and `(*_B).[P: T] = arg` per argument into its parameter
+  slot, each moving or copying as the site passed it; the form's provenance,
+  `_P = TaskProvenance::Singleton`; then `_G = call __saw_exec_background()`;
+- `dest = call H.__saw_spawn(copy _G, copy _D, copy _B, move _P)`, for the
+  handle type H, which enqueues the box and mints the handle, then the
+  site's own return edge.
+
+So the rewrite adds no ownership operation: the arguments travel as the site
+passed them, and the handle lands where the site put it. Every lowered site
+is checked: its spawn call carries no arguments and returns to the box, the
+box returns to the writes, and the writes set the state word and each of the
+root's parameter slots (read from the root's frame) exactly once. A broken one
+is an `INVARIANT` line.
+
+**The `--lowered` record**, after an `INVARIANT` line per drive or spawn
+site that fails its check, per lowered frame, in item order:
 
 ```
 resume #K: NAME  (frame size S align A, pointer _F)
     state 0: bb0
     state N: bbB park ready
     state N: bbB drive #J CHILD at (*frame).[OFFSET]
+    spawn bbB task root #J ROOT, descriptor _D, box _B
 fn NAME -> T { ... }
 ```
 
 then the lowered body as `sawc2 mir --dump` spells a function, frame slots
-included.
+included. Then each item with no lowered frame that holds a lowered spawn
+site, in item order: a `spawner #K: NAME` line, its `spawn` lines, and its
+body.
 
 ## Rules
 
 | rule | refuses | fixture |
 |---|---|---|
 | `coro.suspending-cycle` | a cycle of items that suspend, which has no finite frame since a callee's frame is embedded in its caller's by value; once per strongly connected component, naming the shortest cycle through its first item in item order, at that item's declaration, with the note that the refusal is pending SL-322's heap frames | `coro.suspending-cycle` and its variants, one from each of the eight recursion tests of `tests/corpus/errors/`, and `generic`, a cycle that suspends at one instantiation only |
-| `coro.not-yet` | an item that needs a frame this compiler does not lower (Lowering, above), at its first suspending call that is not lowered, the chain through it in the message: each child it drives that is not lowered, then the source or the child that ends it, so a frame holding a lowered park beside one that is not names the one that is not; failing a call, at the call its suspension was found through, naming the budget point, window or index that is not lowered; only when no cycle is refused, and only the program's own items when any of them is refused, every std item that suspends being reached from one. And every spawn site (`compiler/tests/mir/README.md`), at its form, whatever its root does, until spawn lowering gives each its task root (SL:coroutines A7a): lowering one as a call of its root would run the task's body in the spawner | `coro.not-yet`, `beside-a-lowered-park`, and `spawn-site`, whose root never suspends |
+| `coro.not-yet` | an item that needs a frame this compiler does not lower (Lowering, above), at its first suspending call that is not lowered, the chain through it in the message: each child it drives that is not lowered, then the source or the child that ends it, so a frame holding a lowered park beside one that is not names the one that is not; failing a call, at the call its suspension was found through, naming the budget point, window or index that is not lowered; a task root that does not suspend, at the spawn site that made it; only when no cycle is refused, and only the program's own items when any of them is refused, every std item that suspends being reached from one | `coro.not-yet`, `beside-a-lowered-park`, and `task-root`, a root that never suspends whose loop's budget point is live |
 | `effect.sync` | a copy-policy `copy()` (`Copy` or `ExplicitCopy`, a written member) that suspends at its instantiation, at its declaration, naming its chain as Stage 0 does (`method Wrap.copy calls Slow.step → blocking extern usleep`): the compiler calls it at transfer sites no source names. Typecheck refuses one that suspends at every instantiation; this is the instantiation's half, decided per item | `effect.sync.copy-hook`, beside the run lane's `copy_hook_per_instantiation`, the same program built at `Fast` |
 
 A refusal whose node lies in std or the builtin module is reported at the
@@ -262,10 +302,10 @@ message naming the std position, as mono's are.
 
 The recursion tests themselves reach this stage only once their vocabulary
 does: `yield_now` and `__saw_suspend` (SL:coroutines A2), `__saw_drive` (A4),
-`Task.spawn` (A7c types it, and A7d lowers its site) and `group.spawn`
-(A8b). Each fixture keeps its test's
-shape with a `blocking` extern as the suspension and `main` calling the
-recursive function directly, and says which form it stands in for.
+`Task.spawn` (A7a) and `group.spawn` (A8b). `spawn` has its test's own
+shape; each other fixture keeps its test's shape with a `blocking` extern as
+the suspension and `main` calling the recursive function directly, and says
+which form it stands in for.
 
 ## The lane
 
@@ -291,4 +331,8 @@ shapes (`yield_main`). Golden `drive_arguments` is the drive of a child that
 takes arguments, an `Int`, a `String` and a struct by value, and returns a
 value, and the two test intrinsics, `__saw_suspend` parking and
 `__saw_test_suspend` a goto; the run lane's `drive_arguments` and
-`drive_test_suspensions` run those shapes.
+`drive_test_suspensions` run those shapes. Golden `task_root` is the task
+roots and the lowered spawn sites: a root that never suspends, a root that
+does, and a function both spawned and driven, which is two items, spawned
+from a plain `main`; the run lane's `task_spawn`, `task_spawn_and_embed` and
+`task_handle_escaped` run spawned tasks.

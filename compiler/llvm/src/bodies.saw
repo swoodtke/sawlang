@@ -12,10 +12,11 @@ import sawllvm.prims.{LL_MESSAGE_LIMIT}
 import sawllvm.calls.{ll_block}
 import sawcoro.lower.{CORO_PARK_READY, CORO_POLL_PENDING, CORO_POLL_READY, CORO_STATE_DONE, CORO_STATE_START}
 import sawcoro.program.{CoroPoint, CoroPointKind, CoroResume}
-import sawllvm.module.{LlEmitter, ll_export_symbol, ll_is_scalar, ll_resume_symbol, ll_symbol, ll_value_type}
+import sawllvm.module.{LlEmitter, ll_descriptor_symbol, ll_export_symbol, ll_is_scalar, ll_resume_symbol, ll_symbol,
+                           ll_value_type}
 import sawllvm.ops.{ll_lossless}
 import sawllvm.places.{ll_local_slot}
-import sawmir.model.{MirBlock, MirStmt, MirStmtKind, MirTermKind}
+import sawmir.model.{MirBlock, MirCallKind, MirStmt, MirStmtKind, MirTermKind}
 import sawmir.program.{MirProgram}
 import sawmono.program.{MONO_KEY_DROP, MonoItem, MonoProgram}
 import sawtarget.layout.{Target, TargetKind, TargetLayout}
@@ -163,7 +164,7 @@ extension LlEmitter {
                 self.statement(&var mono, &var target, &stmt)
                 s = stmt.next
             }
-            self.terminator(&var mono, &var target, &block)
+            self.block_end(&var mono, &var target, &block)
             b = b + 1
         }
         if self.refused {
@@ -243,7 +244,7 @@ extension LlEmitter {
                 self.put_state(CORO_STATE_DONE)
                 self.put_poll(CORO_POLL_READY)
             } else {
-                self.terminator(&var mono, &var target, &block)
+                self.block_end(&var mono, &var target, &block)
             }
             b = b + 1
         }
@@ -361,6 +362,28 @@ extension LlEmitter {
                 self.jump(drive)
             }
         }
+    }
+
+    // A block's terminator. A spawn terminator is what coroutine lowering left
+    // of a spawn site: its destination receives the address of the task
+    // root's frame descriptor, which no MIR operand names, and the rest of
+    // the site is ordinary MIR (compiler/tests/coro/README.md, "Spawn
+    // sites"). One whose root has no lowered frame was not lowered, and
+    // calling the root here would run the task's body in the spawner.
+    func block_end(&var self, mono: &var MonoProgram, target: &var Target, block: &MirBlock) {
+        if block.term != MirTermKind.Call || mono.dp.bc.mir.calls[block.call].kind != MirCallKind.Spawn {
+            self.terminator(&var mono, &var target, &block)
+            return
+        }
+        let info = mono.dp.bc.mir.calls[block.call]
+        let root = mono.call_item(block.call)
+        if self.resume_of(root) < 0 || info.arg_count != 0 || info.dest < 0 || info.next < 0 {
+            self.refuse_here(&var mono, info.node, "a spawn site whose task root has no lowered frame")
+            return
+        }
+        let dest = self.place_addr(&var mono, &var target, info.dest, info.node)
+        self.store("ptr", ll_descriptor_symbol(&mono, root), dest)
+        self.jump(ll_block(info.next))
     }
 
     // A jump to `label`, or `unreachable` for a call that never returns.

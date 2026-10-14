@@ -1,0 +1,31 @@
+// Task roots and lowered spawn sites (SL:coroutines A7a). Each spawn site's
+// root is a task root, an item of its own with a frame even when it never
+// suspends, as `double`'s does not; `hello` is spawned and also driven by
+// `twice`, so it is two items, its task root and its ordinary item. The
+// plain `main` keeps its spawn sites as MIR over std's executor: the spawn
+// terminator leaves the root's descriptor, the box is allocated, its state
+// word and the root's parameter slots are written, and `__saw_spawn` mints
+// the handle with the singleton provenance.
+import std.task.{yield_now}
+
+func double(n: Int) -> Int {
+    n * 2
+}
+
+func hello(name: String) {
+    yield_now()
+    print("{}", name)
+}
+
+func twice() {
+    hello("embedded")
+}
+
+func main() {
+    let a = Task.spawn(double(4))
+    print("{}", a.join())
+    let b = Task.spawn(hello("root"))
+    b.join()
+    let c = Task.spawn(twice())
+    c.join()
+}

@@ -47,6 +47,9 @@ public struct CoroProgram {
     resumes: Vector<CoroResume>
     points: Vector<CoroPoint>
     resident: Vector<Bool>
+    // The lowered spawn sites (`coro_lower_spawn_sites`), in item and block
+    // order.
+    spawns: Vector<CoroSpawn>
     // Refusals (`coro_rules`) and broken invariants.
     diags: Vector<MirDiag>
     problems: Vector<String>
@@ -61,7 +64,7 @@ public func coro_program(mono: MonoProgram) -> CoroProgram {
                 values: Vector<CoroValue>(), suspends: Vector<CoroSuspend>(), live: Vector<Bool>(),
                 lowered: Vector<Bool>(), unlowered: Vector<CoroUnlowered>(), resume_of: Vector<Int>(),
                 resumes: Vector<CoroResume>(), points: Vector<CoroPoint>(), resident: Vector<Bool>(),
-                diags: Vector<MirDiag>(),
+                spawns: Vector<CoroSpawn>(), diags: Vector<MirDiag>(),
                 problems: Vector<String>())
 }
 
@@ -162,6 +165,23 @@ public struct CoroResume {
     result: Int
 }
 
+// One lowered spawn site (compiler/tests/coro/README.md, "Spawn sites"): the
+// spawner item, the block whose spawn terminator now leaves the task root's
+// frame descriptor in local `descriptor`, the root item, the local holding
+// the task box, and the three blocks the lowering added: the box's
+// allocation, the writes into it, and the handle's minting.
+public struct CoroSpawn {
+    item: Int
+    block: Int
+    call: Int
+    root: Int
+    descriptor: Int
+    frame: Int
+    box_block: Int
+    write_block: Int
+    handle_block: Int
+}
+
 // A suspension point of a frame's item: a call that definitely suspends,
 // `call`, at the point after its block's terminator; or a yield-capable
 // op-budget point, `call` -1, at its statement's point. The first is
@@ -190,11 +210,13 @@ public struct CoroFrame {
 }
 
 extension CoroProgram {
-    // Whether item `k` needs a frame. Today that is exactly whether it
-    // suspends; a task root needs one even when it does not (SL:architecture
-    // §3.9), and arrives with spawn lowering.
+    // Whether item `k` needs a frame: it suspends, or it is a task root, which
+    // has one even when it does not (SL:architecture §3.9).
     public func needs_frame(&self, k: Int) -> Bool {
-        k >= 0 && k < self.suspending.len() && self.suspending[k]
+        if k < 0 || k >= self.suspending.len() {
+            return false
+        }
+        self.suspending[k] || self.mono.is_task_root(k)
     }
 
     // The declaration whose body item `k` runs, or -1: a function item's

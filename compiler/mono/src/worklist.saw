@@ -15,7 +15,8 @@ import sawmir.build.{mir_func_local}
 import sawmono.glue.{mono_copies_bitwise}
 import sawtarget.layout.{target_struct_fields}
 import sawmono.program.{MONO_DEPTH_LIMIT, MONO_KEY_COPY, MONO_KEY_DROP, MONO_KEY_EXTERN, MONO_KEY_FUNCTION,
-                            MONO_KEY_MEMBER, MONO_KEY_RENDER, MonoItem, MonoItemKind, MonoProgram}
+                            MONO_KEY_MEMBER, MONO_KEY_RENDER, MONO_KEY_TASK_ROOT, MonoItem, MonoItemKind,
+                            MonoProgram}
 import sawtypecheck.bodydump.{tc_dump_bodies}
 import sawtypecheck.signatures.{TcContext}
 import sawtypecheck.spell.{tc_effects_text}
@@ -181,20 +182,23 @@ extension MonoProgram {
         }
         let f = self.body_of[d]
         let no_inst = Vector<Int>()
-        self.function_item(f, -1, &none, -1, &no_inst, -1, -1, -1)
+        self.function_item(f, -1, &none, -1, &no_inst, -1, -1, -1, MONO_KEY_FUNCTION)
     }
 
     // THE ITEM FUNNEL for functions: the item of source function `source` at
     // owner arguments `args` (for `type_decl`'s parameters), its own type
     // arguments `inst` (for `func_decl`'s) and `self_type`, made when new.
+    // `key` is MONO_KEY_FUNCTION for the ordinary item and MONO_KEY_TASK_ROOT
+    // for a task root, so the two specializations of one function are two
+    // items.
     // ENTRY POINTS:
     //     root_item
     //     role_item
     //     call_item_of
     //     resolve_closure
     func function_item(&var self, source: Int, type_decl: Int, args: &Vector<Int>, func_decl: Int, inst: &Vector<Int>,
-                       self_type: Int, origin: Int, node: Int) -> Int {
-        var at = self.by_key.first(source, MONO_KEY_FUNCTION)
+                       self_type: Int, origin: Int, node: Int, key: Int) -> Int {
+        var at = self.by_key.first(source, key)
         while at >= 0 {
             let k = self.by_key.value(at)
             if self.same_arguments(k, &args, &inst, self_type) {
@@ -234,7 +238,7 @@ extension MonoProgram {
                                       func_decl: func_decl, args_first: args_first, args_count: args.len(),
                                       inst_first: inst_first, inst_count: inst.len(), self_type: self_type,
                                       glue_type: -1, decl: decl, body: -1, origin: origin, origin_node: node))
-        self.by_key.add(source, MONO_KEY_FUNCTION, k)
+        self.by_key.add(source, key, k)
         k
     }
 
@@ -690,7 +694,7 @@ extension MonoProgram {
         let source = self.body_of[d]
         let none = Vector<Int>()
         let no_inst = Vector<Int>()
-        self.function_item(source, -1, &none, -1, &no_inst, -1, k, node)
+        self.function_item(source, -1, &none, -1, &no_inst, -1, k, node, MONO_KEY_FUNCTION)
     }
 
     // A closure construction's body is an item under its parent's arguments.
@@ -735,7 +739,8 @@ extension MonoProgram {
             try! inst.push(self.item_types[it.inst_first + j])
             j = j + 1
         }
-        let item = self.function_item(body, it.type_decl, &args, it.func_decl, &inst, it.self_type, k, node)
+        let item = self.function_item(body, it.type_decl, &args, it.func_decl, &inst, it.self_type, k, node,
+                                      MONO_KEY_FUNCTION)
         self.set_closure_item(r, item)
     }
 
@@ -800,7 +805,7 @@ extension MonoProgram {
                     }
                 }
                 let body = self.body_of[target.decl]
-                let item = self.call_item_of(k, body, target.decl, target.self_type, &info)
+                let item = self.call_item_of(k, body, target.decl, target.self_type, &info, MONO_KEY_FUNCTION)
                 self.set_call_item(c, item)
             },
             case Default -> {
@@ -811,22 +816,12 @@ extension MonoProgram {
                 }
                 let body = self.defaults.value(at)
                 let decl = info.target
-                let item = self.call_item_of(k, body, decl, -1, &info)
+                let item = self.call_item_of(k, body, decl, -1, &info, MONO_KEY_FUNCTION)
                 self.set_call_item(c, item)
             },
             case WindowOpen -> self.resolve_window(k, c, &info),
             case WindowClose -> self.resolve_window(k, c, &info),
-            // The root's ordinary item, so its body is instantiated and
-            // checked. The spawn site is no call of it: coroutine lowering
-            // refuses the site, and spawn lowering replaces this item with
-            // the task-root item (SL:coroutines A7a).
-            case Spawn -> {
-                let root = info.target
-                let body = self.body_of[root]
-                // Stage 0 workaround (SL:hazards S4): canonical: let item = self.call_item_of(k, body, info.target, -1, &info)
-                let item = self.call_item_of(k, body, root, -1, &info)
-                self.set_call_item(c, item)
-            }
+            case Spawn -> self.resolve_spawn(k, c, &info)
         }
     }
 
@@ -840,14 +835,100 @@ extension MonoProgram {
         }
         let half = info.half
         let decl = info.target
-        let item = self.call_item_of(k, half, decl, -1, &info)
+        let item = self.call_item_of(k, half, decl, -1, &info, MONO_KEY_FUNCTION)
         self.set_call_item(c, item)
+    }
+
+    // A spawn site reaches its task root, the specialization the task runs,
+    // keyed apart from the root's ordinary item (SL:architecture §3.8): the
+    // site is no call of the root, so it needs no ordinary item. It also
+    // reaches what its lowering calls (SL:coroutines A7a): std's task box,
+    // the background group and its close, and the handle type's
+    // `__saw_spawn`, which the site's own handle type instantiates.
+    func resolve_spawn(&var self, k: Int, c: Int, info: &MirCall) {
+        let target = info.target
+        let body = self.body_of[target]
+        // Stage 0 workaround (SL:hazards S4): canonical: let root = self.call_item_of(k, body, info.target, -1, &info, MONO_KEY_TASK_ROOT)
+        let root = self.call_item_of(k, body, target, -1, &info, MONO_KEY_TASK_ROOT)
+        self.set_call_item(c, root)
+        if root < 0 {
+            return
+        }
+        let m = self.dp.bc.mir.tc.module_named("std.taskgroup")
+        if self.spawn_box_item < 0 {
+            self.spawn_box_item = self.spawn_entry(k, m, "__saw_exec_task_box", info.node)
+        }
+        if self.spawn_background_item < 0 {
+            self.spawn_background_item = self.spawn_entry(k, m, "__saw_exec_background", info.node)
+        }
+        if self.spawn_close_item < 0 {
+            self.spawn_close_item = self.spawn_entry(k, m, "__saw_exec_close_background", info.node)
+        }
+        if self.spawn_singleton < 0 {
+            let provenance = self.dp.bc.mir.tc.top_decl(m, "TaskProvenance")
+            let name = self.dp.bc.mir.tc.res.intern("Singleton")
+            if provenance >= 0 {
+                self.spawn_singleton = self.dp.bc.mir.tc.case_named(provenance, name)
+            }
+            if self.spawn_singleton < 0 {
+                self.refuse(info.node, "mono.not-yet", "a spawn site under a std root that declares no `TaskProvenance.Singleton`")
+            }
+        }
+        if info.dest < 0 {
+            try! self.problems.push("a spawn site has no handle destination")
+            return
+        }
+        let handle = self.dp.bc.mir.places[info.dest].ty
+        let d = self.dp.bc.mir.tc.nominal_decl(handle)
+        let minting = self.named_member(d, "__saw_spawn")
+        if minting < 0 {
+            self.refuse(info.node, "mono.not-yet", "a spawn site whose handle type declares no `__saw_spawn`")
+            return
+        }
+        let item = self.member_item(k, minting, handle, info.node)
+        self.set_spawn_handle_item(c, item)
+    }
+
+    // The item of top-level function `name` of module `m`, a spawn site's
+    // lowering calls, first reached from item `k` at `node`; refused when the
+    // std root declares none.
+    func spawn_entry(&var self, k: Int, m: Int, name: String, node: Int) -> Int {
+        let d = self.dp.bc.mir.tc.top_decl(m, name)
+        let item = self.role_item(d, k, node)
+        if item < 0 {
+            var msg = StringBuilder()
+            try! msg.append("a spawn site under a std root that declares no `")
+            try! msg.append(name)
+            try! msg.append("`")
+            self.refuse(node, "mono.not-yet", msg.build())
+        }
+        item
+    }
+
+    // The member named `name` of type declaration `d`, or -1.
+    func named_member(&self, d: Int, name: String) -> Int {
+        if d < 0 || d >= self.dp.bc.mir.tc.member_first.len() || self.dp.bc.mir.tc.member_first[d] < 0 {
+            return -1
+        }
+        let id = self.dp.bc.mir.tc.res.names.find(name)
+        let first = self.dp.bc.mir.tc.member_first[d]
+        let count = self.dp.bc.mir.tc.member_count[d]
+        var j = first
+        while j < first + count {
+            let member = self.dp.bc.mir.tc.members[j]
+            if id >= 0 && member.name == id {
+                return member.decl
+            }
+            j = j + 1
+        }
+        return -1
     }
 
     // The item a call of declaration `decl`, whose body is `body`, reaches:
     // the receiver type's arguments for the parameters of the type an
-    // extension method extends, the call's own type arguments for `decl`'s.
-    func call_item_of(&var self, k: Int, body: Int, decl: Int, self_type: Int, info: &MirCall) -> Int {
+    // extension method extends, the call's own type arguments for `decl`'s;
+    // the item of `key`'s kind (`function_item`).
+    func call_item_of(&var self, k: Int, body: Int, decl: Int, self_type: Int, info: &MirCall, key: Int) -> Int {
         if body < 0 || not self.dp.elaborated[body] {
             var msg = StringBuilder()
             try! msg.append("a call of `")
@@ -878,7 +959,7 @@ extension MonoProgram {
             try! inst.push(self.dp.bc.mir.types[info.inst_first + j])
             j = j + 1
         }
-        self.function_item(body, type_decl, &args, decl, &inst, self_type, k, info.node)
+        self.function_item(body, type_decl, &args, decl, &inst, self_type, k, info.node, key)
     }
 
     // The type declaration whose parameters a member's body names: the type
@@ -1198,7 +1279,7 @@ extension MonoProgram {
         info.target = decl
         info.owner = owner
         let body = self.body_of[decl]
-        self.call_item_of(k, body, decl, self_type, &info)
+        self.call_item_of(k, body, decl, self_type, &info, MONO_KEY_FUNCTION)
     }
 
     // `Printable`'s `format` requirement, or -1.

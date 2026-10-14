@@ -43,6 +43,9 @@ extension MonoProgram {
                     try! out.append(" self ")
                     try! out.append(self.dp.bc.mir.tc.type_text(it.self_type))
                 }
+                if self.is_task_root(k) {
+                    try! out.append(" task root")
+                }
             },
             case DropGlue -> {
                 try! out.append("drop glue ")
