@@ -1538,6 +1538,14 @@ So code using a suspending default builds under sawc2 and fails under Stage 0. I
 
 **Checker:** not needed: Stage 0 refuses loudly.
 
+### L30. `ZeroInit`: Stage 0 has none (SL-660)
+
+**Shape (loud):** `extension T: ZeroInit {}` is an unknown name to Stage 0, so code Stage 0 builds can't declare it. Under Stage 0's std root, sawc2 refuses a bare `SpinLock`, `Mutex` or `Once` static with `static.zero-hidden`, because that std keeps their fields private and can't declare `ZeroInit` (pin `static.zero-hidden.frozen-std`). The corpus's lock and once programs are refused there.
+
+**Instead:** in Stage 0-built code, keep zero-initialized statics to types the module sees whole. The new std's lock and once types declare `ZeroInit` once they are ported.
+
+**Checker:** not needed.
+
 ## Cases with no issue
 
 
