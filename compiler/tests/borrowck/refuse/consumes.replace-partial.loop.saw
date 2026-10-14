@@ -1,0 +1,27 @@
+// refuses: consumes.replace-partial at 16:13
+// a replacement inside a loop after a field moved out before it: every
+// iteration's replacement may meet the partial receiver (conformance V130)
+
+struct Res { id: Int }
+extension Res: NoCopy {}
+
+struct Pair { a: Res, b: Res }
+extension Pair: NoCopy {}
+
+extension Pair {
+    func swap(&var self, k: Int) consumes -> Res {
+        let old = move self.a
+        var i = 0
+        while i < k {
+            self = Pair(a: Res(id: i), b: Res(id: i + 1))
+            i = i + 1
+        }
+        self.a = Res(id: 9)
+        move old
+    }
+}
+
+func main() {
+    let p = Pair(a: Res(id: 1), b: Res(id: 2))
+    print((move p).swap(2).id)
+}

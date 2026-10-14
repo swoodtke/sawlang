@@ -1,0 +1,27 @@
+// refuses: consumes.replace-partial at 19:9
+// a `consumes` body replaces `self` after moving a field out: the
+// replacement deinits the old referent whole, its hand-written body
+// included, and the field it would release has left (conformance V130)
+
+struct Res { id: Int }
+extension Res: NoCopy {}
+
+struct Conn { a: Res, b: Res }
+extension Conn: NoCopy {
+    func deinit(&var self) {
+        print("closing {}", self.a.id)
+    }
+}
+
+extension Conn {
+    func swap(&var self) consumes -> Res {
+        let old = move self.a
+        self = Conn(a: Res(id: 3), b: Res(id: 4))
+        move old
+    }
+}
+
+func main() {
+    let c = Conn(a: Res(id: 1), b: Res(id: 2))
+    print((move c).swap().id)
+}

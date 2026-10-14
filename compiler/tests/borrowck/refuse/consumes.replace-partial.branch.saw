@@ -1,0 +1,30 @@
+// refuses: consumes.replace-partial at 22:9
+// a field moved out on one arm only: at the replacement after the join the
+// receiver may be partial, which is enough to refuse it (conformance V130)
+
+struct Res { id: Int }
+extension Res: NoCopy {}
+
+struct Pair { a: Res, b: Res }
+extension Pair: NoCopy {}
+
+func sink(r: Res) -> Int {
+    r.id
+}
+
+extension Pair {
+    func swap(&var self, hot: Bool) consumes -> Int {
+        var n = 0
+        if hot {
+            n = sink(move self.a)
+            self.a = Res(id: 5)
+        }
+        self = Pair(a: Res(id: 3), b: Res(id: 4))
+        n + self.a.id
+    }
+}
+
+func main() {
+    let p = Pair(a: Res(id: 1), b: Res(id: 2))
+    print((move p).swap(true))
+}

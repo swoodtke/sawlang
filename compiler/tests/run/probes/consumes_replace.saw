@@ -1,0 +1,65 @@
+// `self = v` in a `consumes` body where no field has left `self`: the old
+// referent deinits whole, its hand-written body first, and the new one is
+// released with what remains of it. Stage 0 refuses a replacement anywhere in
+// a body that also moves a field out, so the run lane builds this at -O0 and
+// -O2 and requires the `// prints:` lines (conformance V130).
+// prints: closing 1 2
+// prints: drop 2
+// prints: drop 1
+// prints: drop 20
+// prints: r1 got 10
+// prints: closing 1 2
+// prints: drop 2
+// prints: drop 1
+// prints: drop 40
+// prints: drop 30
+// prints: r2 got 7
+// prints: drop 10
+struct Tag {
+    id: Int
+}
+
+extension Tag: NoCopy {
+    func deinit(&var self) {
+        print("drop {}", self.id)
+    }
+}
+
+struct Conn {
+    first: Tag,
+    second: Tag,
+    n: Int
+}
+
+extension Conn: NoCopy {
+    func deinit(&var self) {
+        print("closing {} {}", self.first.id, self.second.id)
+    }
+}
+
+extension Conn {
+    // The move comes after the replacement, so it takes the new field.
+    func replaced_then_moved(&var self) consumes -> Tag {
+        self = Conn(first: Tag(id: 10), second: Tag(id: 20), n: 0)
+        move self.first
+    }
+
+    // A trivially copyable field's `move` reads it, leaving `self` whole.
+    func copied_then_replaced(&var self) consumes -> Int {
+        let n = move self.n
+        self = Conn(first: Tag(id: 30), second: Tag(id: 40), n: 0)
+        n + self.n
+    }
+}
+
+func fresh() -> Conn {
+    Conn(first: Tag(id: 1), second: Tag(id: 2), n: 7)
+}
+
+func main() {
+    let a = fresh()
+    let t = (move a).replaced_then_moved()
+    print("r1 got {}", t.id)
+    let b = fresh()
+    print("r2 got {}", (move b).copied_then_replaced())
+}

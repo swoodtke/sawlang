@@ -179,8 +179,9 @@ dump are its clients.
 
 | rule | refuses | fixtures |
 |---|---|---|
-| `move.use-after` | a read, a borrow, a move or a call through a place that may have been moved, or a part of which may have been moved out (`M` or `P`); a write to a part of a place that may have been moved whole | `move.use-after`, `.double`, `.loop`, `.branch`, `.field-init`, `.force`, `.consumed`, `.partial`, `.while-condition`, `.take`, `.retake` |
+| `move.use-after` | a read, a borrow, a move or a call through a place that may have been moved, or a part of which may have been moved out (`M` or `P`); a write to a part of a place that may have been moved whole | `move.use-after`, `.double`, `.loop`, `.branch`, `.field-init`, `.force`, `.consumed`, `.partial`, `.while-condition`, `.take`, `.retake`; a whole use of the receiver after a field moved out and was assigned again, `.refilled` |
 | `consumes.some-paths` | a `consumes` method's receiver, or a field of it, left moved out on some paths to a `return` and in place on others, judged before the receiver's release (spec, Moving a field out); a path that diverges reaches no `return`, so it is exempt | `consumes.some-paths`; a field assigned again on one path only, `.refill` |
+| `consumes.replace-partial` | a `self = v` in a `consumes` body where the receiver may be `P`: the replacement deinits the old referent whole, hand-written `deinit` included, and a field of it has left. A field assigned again leaves the receiver `P`, so it is refused too. The drops are `init_consumes_replacements`'s, which the MIR verifier also reads to skip the move-path checks of a body refused here; a replacement before any move, or after a trivially copyable field's, is accepted (golden `replace`) | `consumes.replace-partial`, assigned again first `.refill`, on one arm `.branch`, in a loop `.loop`, a generic receiver `.generic` |
 | `loan.read-while-exclusive` | a read or a shared borrow of a place overlapping a live exclusive loan | `loan.read-while-exclusive`, `.tuple-element`, `.forwarded` |
 | `loan.write-while-shared` | a write or an exclusive borrow of a place overlapping a live shared loan | `loan.write-while-shared`, `.receiver`; a slice forwarded `&s` beside `&var s`: `.slice-forward` |
 | `loan.exclusive-twice` | a write or an exclusive borrow of a place overlapping a live exclusive loan | `loan.exclusive-twice`, `.dynamic-index`; `&var v` beside a `[&var v]` capture of the same reference parameter: `.capture-reference`; a closure naming the same parameter with no capture list: `.implicit-capture-reference`; a slice forwarded `&var s` twice: `.slice-forward`; a `[&var s]` capture inside a borrow of an element: `.slice-capture` |
@@ -225,6 +226,13 @@ refusal is what stops that from reaching code. A field moved out and
 assigned again on every path is whole at the return, and its drop is
 `static`.
 
+A `self = v` in a `consumes` body drops the old referent whole before it
+writes the new one. Where the receiver may be `P` there, that drop is the
+user's error, `consumes.replace-partial`, and the MIR verifier does not check
+the body's move paths either (`init_consumes_replacements`). The receiver's
+own release never drops it whole once a field can leave, so the drops that
+list holds are exactly the replacements'.
+
 ### Who refuses a partial move
 
 The borrow check works on MIR, where a consuming destructure moves parts out
@@ -242,6 +250,7 @@ leaving on every path or on none.
 | `move self` whole in a `consumes` body | MIR lowering, `slice.not-yet` (`consumes-whole`) |
 | a `consumes` field moved on some paths to a return only | the borrow check, `consumes.some-paths` |
 | a use of `self` after `move self.f` | the borrow check, `move.use-after` |
+| `self = v` after `move self.f` | the borrow check, `consumes.replace-partial` |
 
 Typecheck refuses a user's `move p.f` before MIR exists, so the MIR
 verifier's whole-drop-after-a-part check and the copy a trivially copyable

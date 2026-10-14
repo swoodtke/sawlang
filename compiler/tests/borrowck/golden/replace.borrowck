@@ -1,0 +1,111 @@
+module replace
+
+fn replace.Conn.deinit() {
+
+    bb0: {
+        [] call builtin print [format "closing {}", copy (*_1).a.id] -> [return: bb1];
+    }
+
+    bb1: {
+        [] return;
+    }
+}
+
+fn replace.Conn.replaced_then_moved() {
+    place _0: replace.Res;  // _0
+    place _1: replace.Conn;  // self
+    place _2: replace.Res;  // _2
+    place _3: replace.Res;  // _3
+    place _4: replace.Conn;  // _4
+    place _1.a: replace.Res;  // self.a
+    place _1.b: replace.Res;  // self.b
+
+    bb0: {
+        [U W U U U W W] _2 = replace.Res { id: const 3: Int };
+        [U W W U U W W] _3 = replace.Res { id: const 4: Int };
+        [U W W W U W W] _4 = replace.Conn { a: move _2, b: move _3, n: const 0: Int };
+        [U W M M W W W] drop(_1);  // static
+        [U D M M W D D] _1 = move _4;
+        [U W M M M W W] _0 = move _1.a;
+        [W P M M M M W] drop(_1.b);  // static
+        [W P M M M M D] drop(_1.a);  // elided
+        [W P M M M D D] return;
+    }
+}
+
+fn replace.Conn.copied_then_replaced() {
+    place _1: replace.Conn;  // self
+    place _3: replace.Res;  // _3
+    place _4: replace.Res;  // _4
+    place _5: replace.Conn;  // _5
+    place _1.b: replace.Res;  // self.b
+    place _1.a: replace.Res;  // self.a
+
+    bb0: {
+        [W U U U W W] _2 = copy _1.n;
+        [W U U U W W] _3 = replace.Res { id: const 5: Int };
+        [W W U U W W] _4 = replace.Res { id: const 6: Int };
+        [W W W U W W] _5 = replace.Conn { a: move _3, b: move _4, n: const 1: Int };
+        [W M M W W W] drop(_1);  // static
+        [D M M W D D] _1 = move _5;
+        [W M M M W W] _6 = Add(copy _2, copy _1.n);
+        [W M M M W W] _0 = move _6;
+        [W M M M W W] drop(_1.b);  // static
+        [W M M M D W] drop(_1.a);  // static
+        [W M M M D D] return;
+    }
+}
+
+fn replace.make() {
+    place _0: replace.Conn;  // _0
+    place _1: replace.Res;  // _1
+    place _2: replace.Res;  // _2
+    place _3: replace.Conn;  // _3
+
+    bb0: {
+        [U U U U] _1 = replace.Res { id: const 1: Int };
+        [U W U U] _2 = replace.Res { id: const 2: Int };
+        [U W W U] _3 = replace.Conn { a: move _1, b: move _2, n: const 7: Int };
+        [U M M W] _0 = move _3;
+        [W M M M] return;
+    }
+}
+
+fn replace.main() {
+    place _1: replace.Conn;  // c
+    place _2: replace.Conn;  // _2
+    place _3: replace.Conn;  // d
+    place _4: replace.Conn;  // _4
+    place _5: replace.Res;  // _5
+
+    bb0: {
+        [U U U U U] _2 = call replace.make() [] -> [return: bb1];
+    }
+
+    bb1: {
+        [U W U U U] _1 = move _2;
+        [W M U U U] _4 = call replace.make() [] -> [return: bb2];
+    }
+
+    bb2: {
+        [W M U W U] _3 = move _4;
+        [W M W M U] _5 = call replace.Conn.replaced_then_moved() (owner replace.Conn) [move _1] -> [return: bb3];
+    }
+
+    bb3: {
+        [M M W M W] _6 = copy _5.id;
+        [M M W M W] _7 = call replace.Conn.copied_then_replaced() (owner replace.Conn) [move _3] -> [return: bb4];
+    }
+
+    bb4: {
+        [M M M M W] _8 = Add(move _6, move _7);
+        [M M M M W] call builtin print [move _8] -> [return: bb5];
+    }
+
+    bb5: {
+        [M M M M W] drop(_5);  // static
+        [M M M M D] drop(_3);  // elided
+        [M M D M D] drop(_1);  // elided
+        [D M D M D] return;
+    }
+}

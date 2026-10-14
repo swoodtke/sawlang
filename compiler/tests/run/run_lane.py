@@ -54,7 +54,8 @@ exit status compared.
   and at -O2 with nothing printed, print the lines they state;
 - `probes/consumes_refill.saw`, whose `consumes` bodies assign a field again
   after moving it out, which Stage 0 refuses, prints the lines it states the
-  same way.
+  same way, and so does `probes/consumes_replace.saw`, whose `consumes` bodies
+  replace `self` where no field has left it.
 
 `--bench` runs none of that: it times each kernel of `bench/` under sawc2 at
 -O2 and under Stage 0 and prints the report, which gates nothing. The runner
@@ -651,6 +652,15 @@ def check_consumes_refill(failures, counts):
     check_stated(failures, counts, "consumes refill", src, want)
 
 
+def check_consumes_replace(failures, counts):
+    """A `consumes` body's `self = v` where no field has left deinits the old
+    referent whole and releases the new one: `probes/consumes_replace.saw`,
+    which Stage 0 refuses, prints its `// prints:` lines (SL-625)."""
+    src = os.path.join(HERE, "probes", "consumes_replace.saw")
+    want = "".join(line + "\n" for line in stated_prints(src)).encode()
+    check_stated(failures, counts, "consumes replace", src, want)
+
+
 def run(names=None, write=False):
     os.makedirs(OUT, exist_ok=True)
     failures = []
@@ -679,6 +689,7 @@ def run(names=None, write=False):
         check_executable_path(failures, counts)
         check_long_accessor(failures, counts)
         check_consumes_refill(failures, counts)
+        check_consumes_replace(failures, counts)
     return failures, counts, dues
 
 

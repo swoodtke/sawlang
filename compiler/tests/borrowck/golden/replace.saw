@@ -1,0 +1,36 @@
+// `self = v` in a `consumes` body where no field of `self` has left: before
+// any move, so the old referent is whole and its drop static, and after a
+// trivially copyable field's `move`, which reads it and leaves `self` whole.
+// The field the new referent hands out is elided from the release
+// (conformance V130).
+
+struct Res { id: Int }
+extension Res: NoCopy {}
+
+struct Conn { a: Res, b: Res, n: Int }
+extension Conn: NoCopy {
+    func deinit(&var self) {
+        print("closing {}", self.a.id)
+    }
+}
+
+extension Conn {
+    func replaced_then_moved(&var self) consumes -> Res {
+        self = Conn(a: Res(id: 3), b: Res(id: 4), n: 0)
+        move self.a
+    }
+
+    func copied_then_replaced(&var self) consumes -> Int {
+        let n = move self.n
+        self = Conn(a: Res(id: 5), b: Res(id: 6), n: 1)
+        n + self.n
+    }
+}
+
+func make() -> Conn { Conn(a: Res(id: 1), b: Res(id: 2), n: 7) }
+
+func main() {
+    let c = make()
+    let d = make()
+    print((move c).replaced_then_moved().id + (move d).copied_then_replaced())
+}

@@ -1,0 +1,28 @@
+// refuses: consumes.replace-partial at 20:9
+// a `consumes` body moves a field out, assigns it again, then replaces
+// `self`: the field assigned again leaves the receiver partial, so the
+// replacement is refused as if it had stayed out (conformance V130)
+
+struct Res { id: Int }
+extension Res: NoCopy {}
+
+struct Conn { a: Res, b: Res }
+extension Conn: NoCopy {
+    func deinit(&var self) {
+        print("closing {}", self.a.id)
+    }
+}
+
+extension Conn {
+    func swap(&var self) consumes -> Res {
+        let old = move self.a
+        self.a = Res(id: 5)
+        self = Conn(a: Res(id: 3), b: Res(id: 4))
+        move old
+    }
+}
+
+func main() {
+    let c = Conn(a: Res(id: 1), b: Res(id: 2))
+    print((move c).swap().id)
+}

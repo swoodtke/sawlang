@@ -1,8 +1,9 @@
 // The borrow check's initialisation half (SL:architecture §3.6): one
 // function at a time, a client of the MIR's initialisation analysis
 // (compiler/mir/src/initialisation.saw). It refuses a use of a place that may
-// have been moved, and a `consumes` body moving a field out on some paths to
-// a return and not others, and labels each reached drop for drop
+// have been moved, a `consumes` body moving a field out on some paths to a
+// return and not others, and one replacing `self` after a field may have
+// left, and labels each reached drop for drop
 // elaboration: static, elided or flagged. Each function's loans are checked
 // after it (conflicts.saw).
 
@@ -22,6 +23,7 @@ import sawtypecheck.program.{TcProgram}
 public func borrowck_rules() -> Vector<String> {
     var out = Vector<String>()
     try! out.push("assign.rhs-borrow")
+    try! out.push("consumes.replace-partial")
     try! out.push("consumes.some-paths")
     try! out.push("lend.missing")
     try! out.push("lend.root")
@@ -85,6 +87,7 @@ extension BorrowckProgram {
             self.report_some_paths(f, &facts, partial[k])
             k = k + 1
         }
+        let replaced = self.mir.init_consumes_replacements(f, &facts)
         var reported = Vector<Int>()
         var b = 0
         while b < info.block_count {
@@ -94,6 +97,9 @@ extension BorrowckProgram {
                 var s = block.first
                 while s >= 0 {
                     let accesses = self.mir.init_stmt_accesses(f, s, &facts)
+                    if borrowck_contains(&replaced, s) {
+                        self.report_replacement(f, b, &facts, &accesses)
+                    }
                     self.check_accesses(f, b, &facts, &var state, &accesses, &var reported)
                     s = self.mir.stmts[s].next
                 }
@@ -103,6 +109,27 @@ extension BorrowckProgram {
             b = b + 1
         }
         self.check_loans(f, &facts)
+    }
+
+    // A `self = v` in a `consumes` body, at the drop of the old referent its
+    // statement's `accesses` hold, where a field of `self` may have left.
+    func report_replacement(&var self, f: Int, b: Int, facts: &MirInit, accesses: &Vector<MirAccess>) {
+        var k = 0
+        while accesses[k].kind != MirAccessKind.Drop {
+            k = k + 1
+        }
+        let a = accesses[k]
+        let site = self.move_site(f, b, &facts, &a)
+        var msg = StringBuilder()
+        try! msg.append("`self = ...` may not follow a `move self.<field>` in one consuming body")
+        if site >= 0 {
+            try! msg.append(" (moved at ")
+            try! msg.append(self.mir.span_text(site, false))
+            try! msg.append(")")
+        }
+        try! msg.append(": the replacement releases the OLD referent whole, including the field the move handed away, even one assigned again since; replace the whole receiver, or extract fields, not both")
+        let node = self.access_node(f, b, &a)
+        self.report(f, node, "consumes.replace-partial", msg.build())
     }
 
     // Each of `accesses` checked against `state`, then applied to it: a read,
@@ -393,6 +420,17 @@ extension BorrowckProgram {
         let n = self.mir.tc.res.nodes[at]
         try! self.diags.push(MirDiag(module: m, start: n.start, end: n.end, id: id, message: message))
     }
+}
+
+func borrowck_contains(items: &Vector<Int>, x: Int) -> Bool {
+    var k = 0
+    while k < items.len() {
+        if items[k] == x {
+            return true
+        }
+        k = k + 1
+    }
+    false
 }
 
 // Whether path `inner` is path `outer` or lies inside it.

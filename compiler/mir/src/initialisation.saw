@@ -15,7 +15,8 @@
 // CLIENTS (init_analysis):
 //     verify_flow (compiler/mir/src/verify.saw: compiler bugs, as invariants)
 //     sawborrowck (compiler/borrowck: use after move, `consumes.some-paths`,
-//     and each drop's label for drop elaboration)
+//     `consumes.replace-partial`, and each drop's label for drop
+//     elaboration)
 //     record_flag_slots (compiler/mir/src/split.saw: which record locals
 //     carry a drop flag across an accessor's split)
 //     sawdrops (compiler/drops: each flag's updates, and the verifier after
@@ -727,6 +728,19 @@ extension MirProgram {
         text.build()
     }
 
+    // Whether function `f` is a `consumes` method's body, whose local 1 is
+    // the receiver it owns and ends.
+    public func init_consumes_receiver(&self, f: Int) -> Bool {
+        let info = self.funcs[f]
+        if info.kind != MirFuncKind.Body || info.decl < 0 || info.param_count < 1 {
+            return false
+        }
+        if (self.tc.sigs[info.decl].effects & TC_EFFECT_CONSUMES) == 0 {
+            return false
+        }
+        mir_func_local(&self, f, 1).kind == MirLocalKind.Receiver
+    }
+
     // The paths of a `consumes` method's receiver, the receiver itself or
     // one of its fields, that some path to a `return` moves and another
     // leaves in place (spec, Moving a field out: every path or no path). A
@@ -736,13 +750,7 @@ extension MirProgram {
     public func init_consumes_partial(&self, f: Int, facts: &MirInit) -> Vector<Int> {
         var out = Vector<Int>()
         let info = self.funcs[f]
-        if info.kind != MirFuncKind.Body || info.decl < 0 || info.param_count < 1 {
-            return move out
-        }
-        if (self.tc.sigs[info.decl].effects & TC_EFFECT_CONSUMES) == 0 {
-            return move out
-        }
-        if mir_func_local(&self, f, 1).kind != MirLocalKind.Receiver {
+        if not self.init_consumes_receiver(f) {
             return move out
         }
         var watched = Vector<Int>()
@@ -782,6 +790,49 @@ extension MirProgram {
                 try! out.push(watched[k])
             }
             k = k + 1
+        }
+        move out
+    }
+
+    // The statements of a `consumes` body that drop its whole receiver where a
+    // part of it may have been moved out: each is the drop of the old referent
+    // before a `self = v`, which releases that referent whole, hand-written
+    // `deinit` included, so it cannot follow a field's move. A field assigned
+    // again leaves the receiver partial, so it does not lift the refusal. The
+    // body's own release never drops the receiver whole once a field can
+    // leave (bind_consumed_receiver), so no other drop is caught (design 260).
+    //
+    // CLIENTS:
+    //     check_func (compiler/borrowck/src/check.saw: the refusal)
+    //     verify_flow (compiler/mir/src/verify.saw: skips the body's move paths)
+    public func init_consumes_replacements(&self, f: Int, facts: &MirInit) -> Vector<Int> {
+        var out = Vector<Int>()
+        let info = self.funcs[f]
+        if not self.init_consumes_receiver(f) {
+            return move out
+        }
+        var b = 0
+        while b < info.block_count {
+            if facts.reached[b] {
+                var state = facts.entry_state(b)
+                let block = self.blocks[info.block_first + b]
+                var s = block.first
+                while s >= 0 {
+                    let accesses = self.init_stmt_accesses(f, s, &facts)
+                    var k = 0
+                    while k < accesses.len() {
+                        let a = accesses[k]
+                        k = k + 1
+                        let whole = a.kind == MirAccessKind.Drop && a.path == 1 && not a.cut
+                        if whole && (state[1] & MIR_INIT_PARTIAL) != 0 {
+                            try! out.push(s)
+                        }
+                        facts.apply(&var state, &a)
+                    }
+                    s = self.stmts[s].next
+                }
+            }
+            b = b + 1
         }
         move out
     }

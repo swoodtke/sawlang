@@ -1364,13 +1364,15 @@ extension MirProgram {
     // The flow checks: the move-path invariants, each a question the
     // initialisation analysis (initialisation.saw) answers, and which windows
     // are open.
-    // A `consumes` body that moves a field on some paths only is a user's
-    // error borrowck reports, so its move paths are not checked here.
+    // A `consumes` body that moves a field on some paths only, or replaces
+    // `self` after a field may have left, is a user's error borrowck reports,
+    // so its move paths are not checked here.
     func verify_flow(&var self, f: Int, out: &var Vector<String>) {
         let info = self.funcs[f]
         let facts = self.init_analysis(f)
         let partial = self.init_consumes_partial(f, &facts)
-        let moves = partial.len() == 0
+        let replaced = self.init_consumes_replacements(f, &facts)
+        let moves = partial.len() == 0 && replaced.len() == 0
         let open = self.window_entries(f)
         var b = 0
         while b < info.block_count {

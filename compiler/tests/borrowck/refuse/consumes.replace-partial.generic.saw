@@ -1,0 +1,22 @@
+// refuses: consumes.replace-partial at 14:9
+// a generic receiver's replacement after a field of type `T` moved out,
+// refused in the generic body, before any instance (conformance V130)
+
+struct Res { id: Int }
+extension Res: NoCopy {}
+
+struct Holder<T> { item: T, tag: Res }
+extension Holder<T>: NoCopy {}
+
+extension Holder<T> {
+    func swap(&var self, next: T) consumes -> T {
+        let old = move self.item
+        self = Holder<T>(item: move next, tag: Res(id: 7))
+        move old
+    }
+}
+
+func main() {
+    let h = Holder<Res>(item: Res(id: 1), tag: Res(id: 2))
+    print((move h).swap(Res(id: 3)).id)
+}
