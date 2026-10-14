@@ -1735,6 +1735,7 @@ ledger's reading. Where it differs from the sweep, Notes for the lead says why.
 | SL-532 | S27 Bare imports inside a package | silent (found in the Air's SL-519.p1 review) |
 | SL-607 | S31 An escaping closure that captures a reference with `[copy r]` | silent (found by SL-607's sweep; unreachable from the subset) |
 | SL-620 | S30 A prefix operator's operand of `as`: Stage 0 casts first | silent (found in the Air's SL-600 review; no live instance) |
+| SL-630 | S32 A plain `copy()` method that Stage 0 runs as a type's copy hook | silent (found by SL-630's sweep; no live instance) |
 | SL-621 | L26 A reborrowing argument to a suspending callee that borrows its by-value parameter | loud (found by the sawtracker lead in ST-90; sawtracker's ST-SAW-7) |
 
 No issue is marked "not reachable from the subset". Several entries depend on
