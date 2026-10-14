@@ -31,11 +31,11 @@ What follows `@test` decides the form:
     let x = v[10]                               // with that panic
 }
 
-@test(refuses: "move.use-after-move") "a moved value cannot be used again" {
-    let x = Res()                               // passes only if the compiler
-    let a = move x                              // refuses this block, and its
-    let b = move x                              // first error has that ID
-}
+@test(refuses: "move.use-after-move") "a moved value cannot be used again"
+let x = Res()                                   // passes only if the compiler
+let a = move x                                  // refuses these lines, and their
+let b = move x                                  // first error has that ID
+@test(end: refuses)
 
 @test(warns: "default.ignored-on-store") "a pure store ignores the default" {
     var counts: Map<String, Int> = {:}          // passes only if the block compiles
@@ -52,6 +52,16 @@ What follows `@test` decides the form:
 ```
 
 - **A string makes a case.** Its body is statements, and it runs.
+- **A refusal case's body is text** (Ruled: "let's make this ruling 2", and on
+  the spelling, "let's go with end: refuses"; SL-614). Its header, the
+  `refuses:` clause and the case's name, ends its line. The body is the lines
+  after it, up to the first line that starts with the end marker
+  `@test(end: refuses)`; the marker may be indented. The lexer makes those
+  lines one token, so the body's extent never depends on what it holds: a
+  brace, a bracket or a quote inside it ends nothing and opens nothing. A
+  header with no end marker after it is refused at the header, and an end
+  marker where no body is open is refused too. Every other case's body is a
+  block in braces, as above.
 - **`{` makes a group.** Its body is declarations. Functions inside a group are
   helpers and are never run as tests.
 - **A declaration makes that one declaration test-only:** `@test func`,
@@ -63,7 +73,7 @@ What follows `@test` decides the form:
 |---|---|---|
 | `@test "name" { … }` | typechecked, not emitted | compiled and run in its own process |
 | `@test(panics: ID) "name" { … }` | typechecked, not emitted | passes only if the body panics with that panic |
-| `@test(refuses: ID) "name" { … }` | skipped; only its braces are matched | checked on its own; passes only if its first error has that ID |
+| `@test(refuses: ID) "name"` + body + `@test(end: refuses)` | skipped; its body is one token, read by nothing | checked on its own; passes only if its first error has that ID |
 | `@test(warns: ID) "name" { … }` | typechecked, not emitted, like an ordinary case (no rot; warnings are off by default) | checked on its own with the category enabled; passes only if it compiles and emits that warning |
 | `@test(warns: none) "name" { … }` | typechecked, not emitted | passes only if it compiles with every category enabled and emits no warning |
 | `@test func` / `@test { … }` | typechecked, not emitted | compiled; visible only to test code |
@@ -256,13 +266,14 @@ What follows `@test` decides the form:
 
 ## 5. Refusal tests (`@test(refuses: …)`)
 
-- A refusing block is checked **on its own, as a unit**, like a small inline
-  module. It may contain declarations, because many refusals are about
-  declarations:
+- A refusal body is checked **on its own, as a unit**, like a small inline
+  module. A test build lexes and parses its text from the start symbol
+  `refusal-unit` (GRAMMAR.md §4), so it may contain declarations, because many
+  refusals are about declarations:
   ```saw
-  @test(refuses: "field.no-reference") "a struct field cannot hold a reference" {
-      struct Holder { r: &Int }
-  }
+  @test(refuses: "field.no-reference") "a struct field cannot hold a reference"
+  struct Holder { r: &Int }
+  @test(end: refuses)
   ```
 - Its errors are expected and contained. They never fail the build or leak into
   the rest of the file.
@@ -273,7 +284,7 @@ What follows `@test` decides the form:
 - **Matching is on a stable diagnostic ID** (Ruled: yes, provided the expected
   errors form a finite, enumerable set, which they do). The ID is the rule's
   name (§4, "One key per diagnostic"), for example
-  `@test(refuses: "closure.exclusive-capture") "…" { … }`. **The ID is required**
+  `@test(refuses: "closure.exclusive-capture") "…"`, a body, and `@test(end: refuses)`. **The ID is required**
   (Air t9). An optional `text:` argument adds a substring check on the message.
   A text alone is not accepted, since it would bring back the churn that IDs
   remove. The block must produce errors, and its *first* error must carry that
@@ -290,12 +301,11 @@ What follows `@test` decides the form:
     catalog is exactly the set of refusing rules.
 - **What cannot live in a file**, and so stays as corpus files with an
   EXPECT-ERROR header (which also names the diagnostic ID), one refusal per
-  file:
-  - refusals the token-level brace match cannot delimit (Air t15): lexer errors,
-    such as an unterminated string or comment, and unbalanced braces. Any other
-    parse error sits in a brace-balanced body, so it can be tested in-file,
-    because a test build parses the block as its own unit;
-  - multi-file refusals: imports and module layout.
+  file: multi-file refusals, that is imports and module layout. A body's
+  extent is found without lexing it (§2), so every single-file refusal is
+  testable in a case: a lexer error such as an unterminated string, an
+  unbalanced bracket or brace, and any parse error are the case's own
+  refusal, reported when the test build lexes and parses the body.
 - **Warnings are tested in-file too** (Air t11; Ruled), with `warns:` (§3).
   Unlike a refusal, a `warns:` case is valid code, so a normal build
   typechecks it like an ordinary case (no rot), and adds no noise, since
