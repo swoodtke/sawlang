@@ -875,6 +875,8 @@ The fixpoint compares outputs, not intermediate values, so it sees the differenc
 
 **Checker:** due (SL-620): a compiler-profile subset rule refuses an unparenthesized prefix expression with a numeric reading (`-`, `~`) as the operand of `as`, with the parenthesized fix-it. The std profile reads `std/` with sawc2 (SL-600), so it doesn't need the rule.
 
+**The loud face of the same mechanism** (found by SL-620's sweep): Stage 0 parses the operand of `try`, `try?` and `try!` as a whole expression, where GRAMMAR.md gives `try` the prefix tier. So `try! f() as Int`, `try? f() ?? 3`, `try! f() + 1` and `try! f() == 7` compile under sawc2, which reads `(try! f()) as Int`, but Stage 0 refuses each with a type error. Stage 0 never accepts the differing reading, so no checker is needed. **Instead:** parenthesize, `(try! f()) as Int`.
+
 ### S31. An escaping closure that captures a reference with `[copy r]` (SL-607)
 
 **Shape (silent: a read of a dead frame):** Stage 0 accepts `{ [copy r] in r.n }` over `r: &Res` in an escaping closure, a returned one for example. The closure copies the reference, not the referent, so once the function returns it points into the dead frame. a1cap's probe (SL-607) confirmed the closure reads that storage. `[r]` and an implicit capture of `r` are refused there, as `capture.escaping-borrow`. sawc2 refuses all three: a reference is a frame borrow under every capture word (SL-607).
