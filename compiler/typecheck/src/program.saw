@@ -6,8 +6,8 @@ import sawparse.grammar.{Alt}
 import sawresolve.model.{ResBindKind, ResBinding, ResDecl, ResDeclKind, ResModule}
 import sawresolve.names.{ResIndex, res_index}
 import sawresolve.program.{ResProgram}
-import sawtypecheck.model.{TcAdjust, TcAllowance, TcAtom, TcCall, TcCapture, TcConformance, TcDiag, TcGeneric,
-                               TcItem, TcMember, TcObligation, TcParam, TcSig, TcStatus, TcSummary,
+import sawtypecheck.model.{TcAdjust, TcAllowance, TcAtom, TcCall, TcCapture, TcConformance, TcDefault, TcDiag,
+                               TcGeneric, TcItem, TcMember, TcObligation, TcParam, TcSig, TcStatus, TcSummary,
                                TcTier, TcUnit, TcUse, tc_blank_sig}
 import sawtypecheck.types.{TcKind, TcType, TcTypes, tc_types}
 import sawtypecheck.walks.{TcMemo, tc_memo}
@@ -233,6 +233,9 @@ public struct TcProgram {
     decl_unit: Vector<Int>
     // (declaration, 0) -> each unit whose summary read that declaration's.
     summary_deps: ResIndex
+    // Each checked default value, and (function, parameter) -> its index.
+    defaults: Vector<TcDefault>
+    default_at: ResIndex
     // The std suspension table: (key's name id, 0) -> its verdict, and the
     // keys in row order.
     std_verdicts: ResIndex
@@ -365,6 +368,7 @@ public func tc_program(res: ResProgram) -> TcProgram {
                       placement_value: -1, borrow_captures: Vector<Int>(), param_leaves: Vector<Int>(), referenced_params: Vector<Int>(), current_root: -1, poisoned: Vector<Int>(), borrow_head: -1,
                       summaries: Vector<TcSummary>(), atoms: Vector<TcAtom>(), units: Vector<TcUnit>(),
                       items: Vector<TcItem>(), decl_unit: Vector<Int>(), summary_deps: res_index(),
+                      defaults: Vector<TcDefault>(), default_at: res_index(),
                       std_verdicts: res_index(), std_keys: Vector<Int>(), untabled: Vector<Int>(),
                       summary_problems: Vector<String>(), summary_problem_modules: Vector<Int>(),
                       negated_literal: -1, meets_trait: Vector<Int>(), closures: Vector<Int>(),

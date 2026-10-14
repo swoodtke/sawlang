@@ -1,0 +1,192 @@
+module default_requirement
+
+fn default_requirement.slow() -> Int {
+    let _0: Int;  // return
+
+    bb0: {
+        call std.task.yield_now() [] -> [return: bb1] suspends;
+    }
+
+    bb1: {
+        _0 = const 4: Int;
+        return;
+    }
+}
+
+fn default_requirement.tick() -> Int {
+    let _0: Int;  // return
+
+    bb0: {
+        _0 = const 1: Int;
+        return;
+    }
+}
+
+fn default default_requirement.P.m(n: Int).n -> Int {
+    let _0: Int;  // return
+    let _1: Int;
+
+    bb0: {
+        _1 = call default_requirement.slow() [] -> [return: bb1] suspends;
+    }
+
+    bb1: {
+        _0 = move _1;
+        return;
+    }
+}
+
+fn default default_requirement.P.q(n: Int).n -> Int {
+    let _0: Int;  // return
+    let _1: Int;
+
+    bb0: {
+        _1 = call default_requirement.tick() [] -> [return: bb1];
+    }
+
+    bb1: {
+        _0 = move _1;
+        return;
+    }
+}
+
+fn default default_requirement.P.make(n: Int).n -> Int {
+    let _0: Int;  // return
+    let _1: Int;
+
+    bb0: {
+        _1 = call default_requirement.slow() [] -> [return: bb1] suspends;
+    }
+
+    bb1: {
+        _0 = move _1;
+        return;
+    }
+}
+
+fn default_requirement.bound_fills(t: &T) -> Int {
+    let _0: Int;  // return
+    let _1: &T;  // param t
+    let _2: Int;
+    let _3: &T;
+    let _4: Int;
+
+    bb0: {
+        _2 = call default default_requirement.P.m(n: Int).n (owner T) [] -> [return: bb1] suspends;
+    }
+
+    bb1: {
+        _3 = ref(shared, (*_1));
+        _4 = call default_requirement.P.m(n: Int) (owner T) [move _3, move _2] -> [return: bb2] suspends when T.P.m;
+    }
+
+    bb2: {
+        _0 = move _4;
+        return;
+    }
+}
+
+fn default_requirement.bound_explicit(t: &T) -> Int {
+    let _0: Int;  // return
+    let _1: &T;  // param t
+    let _2: &T;
+    let _3: Int;
+
+    bb0: {
+        _2 = ref(shared, (*_1));
+        _3 = call default_requirement.P.m(n: Int) (owner T) [move _2, const 2: Int] -> [return: bb1] suspends when T.P.m;
+    }
+
+    bb1: {
+        _0 = move _3;
+        return;
+    }
+}
+
+fn default_requirement.bound_quiet(t: &T) -> Int {
+    let _0: Int;  // return
+    let _1: &T;  // param t
+    let _2: Int;
+    let _3: &T;
+    let _4: Int;
+
+    bb0: {
+        _2 = call default default_requirement.P.q(n: Int).n (owner T) [] -> [return: bb1];
+    }
+
+    bb1: {
+        _3 = ref(shared, (*_1));
+        _4 = call default_requirement.P.q(n: Int) (owner T) [move _3, move _2] -> [return: bb2] suspends when T.P.q;
+    }
+
+    bb2: {
+        _0 = move _4;
+        return;
+    }
+}
+
+fn default_requirement.bound_static() -> Int {
+    let _0: Int;  // return
+    let _1: Int;
+    let _2: Int;
+
+    bb0: {
+        _1 = call default default_requirement.P.make(n: Int).n (owner T) [] -> [return: bb1] suspends;
+    }
+
+    bb1: {
+        _2 = call default_requirement.P.make(n: Int) (owner T) [move _1] -> [return: bb2] suspends when T.P.make;
+    }
+
+    bb2: {
+        _0 = move _2;
+        return;
+    }
+}
+
+fn default_requirement.interface_fills() -> Bool {
+    let _0: Bool;  // return
+    let _1: Int;
+    let _2: Int;
+    let _3: Result<std.json.JsonValue, std.serde.DecodeError>;
+
+    bb0: {
+        _1 = call default std.json.JsonValue.parse(text: String, max_depth: Int, max_size: Int).max_depth (owner std.json.JsonValue) [] -> [return: bb1];
+    }
+
+    bb1: {
+        _2 = call default std.json.JsonValue.parse(text: String, max_depth: Int, max_size: Int).max_size (owner std.json.JsonValue) [] -> [return: bb2];
+    }
+
+    bb2: {
+        _3 = call std.json.JsonValue.parse(text: String, max_depth: Int, max_size: Int) (owner std.json.JsonValue) [const "7": String, move _1, move _2] -> [return: bb3];
+    }
+
+    bb3: {
+        switch discriminant(_3) -> [Ok: bb5, Err: bb6];
+    }
+
+    bb4: {
+        return;
+    }
+
+    bb5: {
+        goto -> bb7;
+    }
+
+    bb6: {
+        goto -> bb8;
+    }
+
+    bb7: {
+        _0 = const true: Bool;
+        drop(_3);
+        goto -> bb4;
+    }
+
+    bb8: {
+        _0 = const false: Bool;
+        drop(_3);
+        goto -> bb4;
+    }
+}

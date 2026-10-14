@@ -1,0 +1,17 @@
+// refuses: effect.sync at 12:28
+// a `sync` requirement with no body whose default suspends: the default is
+// checked in its requirement's `sync` context, as a function's is
+import std.task.{yield_now}
+
+func slow() -> Int {
+    yield_now()
+    4
+}
+
+trait P {
+    func m(&self, n: Int = slow()) sync -> Int
+}
+
+func g<T: P>(t: &T) -> Int {
+    t.m()
+}

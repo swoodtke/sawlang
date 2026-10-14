@@ -1,0 +1,44 @@
+// prints: 11
+// prints: 21
+// A call through a bound that leaves out a requirement's default evaluates
+// the requirement's own default, which a bodyless requirement's unit solves.
+// Each implementation writes the same default as its requirement, since
+// which of the two applies on a concrete receiver is not ruled. Stage 0
+// refuses leaving out a requirement's default through a bound.
+
+func tick() -> Int {
+    1
+}
+
+trait P {
+    func m(&self, n: Int = tick()) -> Int
+    static func make(n: Int = tick()) -> Int
+}
+
+struct S {
+    k: Int
+}
+
+extension S: P {
+    func m(&self, n: Int = tick()) -> Int {
+        n + self.k
+    }
+
+    static func make(n: Int = tick()) -> Int {
+        n + 20
+    }
+}
+
+func bound<T: P>(t: &T) -> Int {
+    t.m()
+}
+
+func bound_static<T: P>(t: &T) -> Int {
+    T.make()
+}
+
+func main() {
+    let s = S(k: 10)
+    print("{}", bound(t: &s))
+    print("{}", bound_static(t: &s))
+}

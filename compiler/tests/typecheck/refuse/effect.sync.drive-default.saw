@@ -1,0 +1,19 @@
+// refuses: effect.sync at 16:17
+// a `sync` driver whose root call leaves out a suspending default: the drive
+// site evaluates the default, so its suspension is the driver's
+import std.task.{yield_now}
+
+func slow() -> Int {
+    yield_now()
+    4
+}
+
+func f(n: Int = slow()) -> Int {
+    n + 1
+}
+
+func g() sync -> Int {
+    __saw_drive(f())
+}
+
+func main() { print(g()) }

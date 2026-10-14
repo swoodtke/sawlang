@@ -890,6 +890,21 @@ extension MirProgram {
         first
     }
 
+    // What typecheck's summaries say call `c` at source node `e` adds. A
+    // default's call shares its node with its function's call, which the
+    // node's summary answers for, so it takes its default's own summary.
+    //
+    // ENTRY POINTS:
+    //   suspension
+    //   verify_suspension
+    public func call_effect(&var self, e: Int, c: &MirCall, acc: &var TcAcc) {
+        if c.kind == MirCallKind.Default {
+            self.tc.eval_default(e, c.param, &var acc)
+            return
+        }
+        self.tc.eval_call(e, &var acc)
+    }
+
     // Whether the call at source node `e` is a suspension point, from
     // typecheck's summaries evaluated at its type arguments: never, always,
     // or when conditions over the function's own type parameters hold.
@@ -899,7 +914,7 @@ extension MirProgram {
         }
         let owner = self.funcs[self.cur].owner
         var acc = tc_acc(owner, -1)
-        self.tc.eval_call(e, &var acc)
+        self.call_effect(e, &c, &var acc)
         if acc.suspends {
             c.suspend = MirSuspend.Always
             return

@@ -447,6 +447,20 @@ public struct TcUnit {
     item_end: Int
 }
 
+// Parameter `param`'s default value of function or requirement `decl`: its
+// items, a run of the declaration's top unit `unit`, and the summary they make
+// on their own. A function's summary includes the default's (LANGUAGE_SPEC,
+// "Default parameter values"); a call that fills the default is a call of the
+// default alone, so it evaluates this one (`eval_default`).
+public struct TcDefault {
+    decl: Int
+    param: Int
+    unit: Int
+    item_first: Int
+    item_end: Int
+    summary: TcSummary
+}
+
 public struct TcItem {
     kind: Int
     node: Int

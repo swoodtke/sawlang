@@ -726,9 +726,13 @@ fixture (`refuse/RULE.VARIANT`) that covers it.
 | a call of an extern | its `blocking` | declarations |
 | a call through a bound | a condition over the caller's parameter | summaries; effect.sync.bound |
 | a call through a function value | never suspends; sync-callable when its type says `sync` | summaries; effect.sync.value |
-| a spawn form's root call, `f(x)` in `Task.spawn(f(x))` | the task's call: its suspension and its sync-callability stay in the task, while its instantiation's Copy and refusal conditions bind the spawner (`eval_call`) | task_spawn (the `sync` spawner `start`) |
-| a drive site's root call, `f(x)` in `__saw_drive(f(x))` | the driver's call, as a spawn root is the task's (`eval_call`): a body whose only suspending call is a drive root does not suspend | drive_site (the `sync` driver `start`) |
-| a call in a `sync` function, a `deinit`, a closure of a `sync` type | refused when not sync-callable | effect.sync, effect.sync.deinit, effect.sync.closure |
+| a call of a function with a default value | its summary, which includes each default's: a suspending default makes the function suspending, whichever argument the call passes (LANGUAGE_SPEC, "Default parameter values") | effect.sync.default-explicit |
+| the call of a default a call leaves out, `f.n` in `f()` | the default's own summary, at the call's type arguments (`eval_default`) | mir golden default_suspension |
+| the call of a bodyless requirement's default a call through a bound leaves out, `P.m.n` in `t.m()` | the requirement's default's own summary, solved in the worklist with the requirement's unit, which holds only its defaults | mir golden default_requirement; run requirement_default, probe requirement_default_bound |
+| the call of an interface-only std function's default | the function's summary, since no default of an interface is checked | mir golden default_requirement |
+| a spawn form's root call, `f(x)` in `Task.spawn(f(x))` | the task's call: its suspension and its sync-callability stay in the task, while its instantiation's Copy and refusal conditions bind the spawner (`eval_call`); each default it leaves out is the spawner's, whole | task_spawn (the `sync` spawner `start`); effect.sync.spawn-default |
+| a drive site's root call, `f(x)` in `__saw_drive(f(x))` | the driver's call, as a spawn root is the task's (`eval_call`): a body whose only suspending call is a drive root does not suspend; each default it leaves out is the driver's, whole | drive_site (the `sync` driver `start`); effect.sync.drive-default |
+| a call in a `sync` function, a `deinit`, a closure of a `sync` type, a `sync` bodyless requirement's default | refused when not sync-callable | effect.sync, effect.sync.deinit, effect.sync.closure, effect.sync.requirement-default |
 | a `sync` requirement met by a member not declared `sync` | the member's summary | effect.sync.requirement |
 | a hand-written `copy()` of a `Copy` or `ExplicitCopy` conformance | refused at the conformance when it suspends | effect.sync.copy-hook |
 | a call in a closure body | refused when it may suspend, at once or at the instantiation | effect.closure-suspends, effect.closure-suspends.instantiation |
@@ -1464,7 +1468,8 @@ every step's source the step before's result.
 
 The summary verifier (`summaries.saw`) checks that every function has its
 three summaries, that each checked body's summary is a fixpoint (one more step
-over its items changes nothing), that every condition is over the function's
+over its items changes nothing), and so is each checked default value's,
+a bodyless requirement's included, that every condition is over the function's
 own type parameters, and, in a module with no refusal, that no call in a
 closure body and no coercion to `any` may suspend: `compiler/` is sync-only,
 so only the refusal fixtures and this invariant show those two checks exist.

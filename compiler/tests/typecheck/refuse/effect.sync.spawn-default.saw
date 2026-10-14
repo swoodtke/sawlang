@@ -1,0 +1,21 @@
+// refuses: effect.sync at 17:24
+// a `sync` body spawning a root call that leaves out a suspending default:
+// the spawner evaluates the default, so its suspension is the spawner's,
+// though the root's own call is the task's
+import std.task.{yield_now}
+
+func slow() -> Int {
+    yield_now()
+    4
+}
+
+func f(n: Int = slow()) -> Int {
+    n + 1
+}
+
+func g() sync -> Int {
+    let t = Task.spawn(f())
+    t.join()
+}
+
+func main() { print(g()) }

@@ -2976,7 +2976,8 @@ extension MirProgram {
     }
 
     // The default value parameter `j` of call `c`'s target takes: a call of
-    // the default's own body, instantiated as the call is.
+    // the default's own body, instantiated as the call is, and a suspension
+    // point as that default's summary makes it (`call_effect`).
     func default_argument(&var self, e: Int, c: &TcCall, j: Int) -> Int {
         let s = self.tc.sigs[c.target]
         let param = self.tc.params[s.param_first + j]
@@ -2989,6 +2990,7 @@ extension MirProgram {
         call.owner = c.owner
         self.instantiate(&var call, &c)
         call.dest = self.place_local(l)
+        self.suspension(e, &var call)
         let _ = self.call_and_continue(call)
         let p = self.place_local(l)
         self.op_move(p)

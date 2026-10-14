@@ -18,11 +18,11 @@ import sawresolve.lang.{res_is_park_point}
 import sawresolve.names.{ResIndex, res_index}
 import sawresolve.prelude.{res_is_test_intrinsic}
 import sawtypecheck.conform.{TcSubst, tc_args_subst}
-import sawtypecheck.model.{TC_COPY_COVERED, TC_EFFECT_SYNC, TC_FLAG_BLOCKING, TC_FLAG_DEFAULT_BODY, TC_FORBID_CLOSURE,
-                               TC_FORBID_ERASE, TC_FORBID_SYNC, TC_ITEM_CALL, TC_ITEM_COPY, TC_ITEM_ERASE,
-                               TC_SUMMARY_BODY, TC_SUMMARY_DECLARED, TC_SUMMARY_NONE, TC_SUMMARY_TABLE,
+import sawtypecheck.model.{TC_BIND_DEFAULT, TC_COPY_COVERED, TC_EFFECT_SYNC, TC_FLAG_BLOCKING, TC_FLAG_DEFAULT_BODY,
+                               TC_FORBID_CLOSURE, TC_FORBID_ERASE, TC_FORBID_SYNC, TC_ITEM_CALL, TC_ITEM_COPY,
+                               TC_ITEM_ERASE, TC_SUMMARY_BODY, TC_SUMMARY_DECLARED, TC_SUMMARY_NONE, TC_SUMMARY_TABLE,
                                TC_SUMMARY_UNTABLED, TC_TIER_COPY, TcAdjust, TcAdjustKind, TcAtom,
-                               TcCall, TcConformance, TcItem, TcParam, TcRole, TcSig, TcStatus,
+                               TcCall, TcConformance, TcDefault, TcItem, TcParam, TcRole, TcSig, TcStatus,
                                TcStatusKind, TcSummary, TcTier, TcUnit, TcUse, tc_blank_summary}
 import sawtypecheck.program.{TcProgram}
 import sawtypecheck.signatures.{TcContext}
@@ -231,7 +231,16 @@ extension TcProgram {
                     self.decl_unit[d] = u
                 }
             }
+            let run_first = self.items.len()
             self.collect_items(root, u, u)
+            let param = if d >= 0 { self.default_param(d, root) } else { -1 }
+            if param >= 0 {
+                let at = self.defaults.len()
+                let end = self.items.len()
+                self.default_at.add(d, param, at)
+                try! self.defaults.push(TcDefault(decl: d, param: param, unit: u, item_first: run_first,
+                                                  item_end: end, summary: tc_blank_summary()))
+            }
             var top = self.units[u]
             top.item_end = self.items.len()
             self.units[u] = top
@@ -250,6 +259,44 @@ extension TcProgram {
         }
         let name = self.name_text(info.name)
         info.kind == ResDeclKind.Method && name.equals("deinit")
+    }
+
+    // Which parameter of declaration `d` body `root` is the default value of,
+    // counted as a signature counts them, or -1 for any other body.
+    func default_param(&self, d: Int, root: Int) -> Int {
+        let node = self.res.decls[d].node
+        if node < 0 {
+            return -1
+        }
+        var index = 0
+        let n = self.child_count(node)
+        var k = 0
+        while k < n {
+            let c = self.child(node, k)
+            k = k + 1
+            let defaulted = self.has_alt(c, Alt.Decl_Param_Default)
+            if not defaulted && not self.has_alt(c, Alt.Decl_Param_Plain) {
+                continue
+            }
+            if defaulted && self.last_node_of(c) == root {
+                return index
+            }
+            index = index + 1
+        }
+        return -1
+    }
+
+    // The last child of node `id` that is a node, or -1.
+    func last_node_of(&self, id: Int) -> Int {
+        var k = self.child_count(id) - 1
+        while k >= 0 {
+            let c = self.child(id, k)
+            if not self.is_leaf(c) {
+                return c
+            }
+            k = k - 1
+        }
+        return -1
     }
 
     // The items under `root`, which belongs to unit `u` of top unit `top`: a
@@ -378,10 +425,12 @@ extension TcProgram {
 
 // The fixpoint.
 extension TcProgram {
-    // Every top unit of a function is summarized, in declaration order, and
+    // Every top unit of a function, and of a requirement with no body whose
+    // parameters have default values, is summarized in declaration order and
     // resummarized whenever a summary it read changes, until nothing does:
     // the least fixpoint, since every summary starts at the bottom and only
-    // grows.
+    // grows. A requirement's unit solves only its defaults, since a call of
+    // the requirement itself answers through its receiver.
     func run_worklist(&var self) {
         let n = self.units.len()
         var dirty = Vector<Bool>()
@@ -389,10 +438,14 @@ extension TcProgram {
         var k = 0
         while k < n {
             let unit = self.units[k]
-            let live = unit.top == k && unit.decl >= 0 && self.is_function_decl(unit.decl)
+            let top = unit.top == k && unit.decl >= 0
+            let function = top && self.is_function_decl(unit.decl)
+            let live = function || (top && self.has_default_values(unit.decl))
             try! dirty.push(live)
             if live {
                 pending = pending + 1
+            }
+            if function {
                 var blank = tc_blank_summary()
                 blank.state = TC_SUMMARY_BODY
                 blank.suspend_first = self.atoms.len()
@@ -415,14 +468,20 @@ extension TcProgram {
             dirty[i] = false
             pending = pending - 1
             let d = self.units[i].decl
-            var acc = self.summarize_unit(i)
-            let old = self.summaries[d]
-            let fresh = self.summary_from(d, &var acc)
-            if self.same_summary(&old, &fresh) {
+            var changed = self.summarize_defaults(d, i)
+            if self.is_function_decl(d) {
+                var acc = self.summarize_unit(i)
+                let old = self.summaries[d]
+                let fresh = self.summary_from(d, &var acc)
+                if not self.same_summary(&old, &fresh) {
+                    self.summaries[d] = fresh
+                    changed = true
+                }
+            }
+            if not changed {
                 i = i + 1
                 continue
             }
-            self.summaries[d] = fresh
             var next = i + 1
             var at = self.summary_deps.first(d, 0)
             while at >= 0 {
@@ -440,13 +499,57 @@ extension TcProgram {
         }
     }
 
+    // Resummarizes each default value of function `d`, whose top unit `u`
+    // holds their items, and says whether any changed. A unit that reads one
+    // depends on `d` (`default_summary_for`), so it is redone when one does.
+    func summarize_defaults(&var self, d: Int, u: Int) -> Bool {
+        var changed = false
+        var j = 0
+        while j < self.sigs[d].param_count {
+            let at = self.default_at.first(d, j)
+            j = j + 1
+            if at < 0 {
+                continue
+            }
+            let k = self.default_at.value(at)
+            var info = self.defaults[k]
+            var acc = self.summarize_items(info.unit, info.item_first, info.item_end, u)
+            let fresh = self.summary_from(d, &var acc)
+            if not self.same_summary(&info.summary, &fresh) {
+                changed = true
+                info.summary = fresh
+                self.defaults[k] = info
+            }
+        }
+        changed
+    }
+
+    // Whether any parameter of declaration `d` has a checked default value.
+    func has_default_values(&self, d: Int) -> Bool {
+        var j = 0
+        while j < self.sigs[d].param_count {
+            if self.default_at.first(d, j) >= 0 {
+                return true
+            }
+            j = j + 1
+        }
+        false
+    }
+
     // What top unit `u`'s items make of its summary, with every summary as
     // it stands.
     public func summarize_unit(&var self, u: Int) -> TcAcc {
         let unit = self.units[u]
-        var acc = tc_acc(unit.decl, u)
-        var k = unit.item_first
-        while k < unit.item_end {
+        self.summarize_items(u, unit.item_first, unit.item_end, u)
+    }
+
+    // What the run of top unit `u`'s items from `first` to `end` makes, each
+    // summary read on behalf of unit `reader`, or of none when it is -1.
+    func summarize_items(&var self, u: Int, first: Int, end: Int, reader: Int) -> TcAcc {
+        let unit = self.units[u]
+        var acc = tc_acc(unit.decl, reader)
+        var k = first
+        while k < end {
             let item = self.items[k]
             k = k + 1
             let own = item.unit == u
@@ -456,7 +559,7 @@ extension TcProgram {
                 if own && not in_sync {
                     self.eval_call(item.node, &var acc)
                 } else {
-                    var inner = tc_acc(unit.decl, u)
+                    var inner = tc_acc(unit.decl, reader)
                     self.eval_call(item.node, &var inner)
                     if in_sync {
                         self.join_sync(&var acc, &var inner, item.node)
@@ -674,17 +777,38 @@ extension TcProgram {
 extension TcProgram {
     // What the call at node `e` adds: its target's summary, instantiated at
     // the call's type arguments, or what a call through a function value, an
-    // existential or a bound says; for a spawn form's root and a drive site's,
-    // only what `join_spawned` keeps of it, since the task or the driver
-    // makes that call.
+    // existential or a bound says. For a spawn form's root and a drive site's
+    // it is only what `join_spawned` keeps of that, since the task or the
+    // driver makes the call, and all of each default the call fills, which
+    // the site evaluates.
     public func eval_call(&var self, e: Int, acc: &var TcAcc) {
         if self.spawn_roots[e] || self.drive_roots[e] {
             var task = tc_acc(acc.owner, acc.unit)
             self.eval_made_call(e, &var task)
             self.join_spawned(&var acc, &var task)
+            self.eval_filled_defaults(e, &var acc)
             return
         }
         self.eval_made_call(e, &var acc)
+    }
+
+    // Each default the call at node `e` fills, evaluated into `acc`.
+    func eval_filled_defaults(&var self, e: Int, acc: &var TcAcc) {
+        let at = self.call_at[e]
+        if at < 0 {
+            return
+        }
+        let c = self.calls[at]
+        if c.bind_first < 0 {
+            return
+        }
+        var j = 0
+        while j < c.bind_count {
+            if self.binds[c.bind_first + j] == TC_BIND_DEFAULT {
+                self.eval_default(e, j, &var acc)
+            }
+            j = j + 1
+        }
     }
 
     // A spawn form's or a drive site's root, evaluated into `task`: the task or
@@ -751,6 +875,46 @@ extension TcProgram {
     // over `d`'s parameters rewritten at the call's type arguments.
     func eval_instance(&var self, d: Int, c: &TcCall, e: Int, acc: &var TcAcc) {
         let s = self.summary_for(d, &acc)
+        self.eval_summary(&s, d, &c, e, &var acc)
+    }
+
+    // What the call at node `e` adds by filling parameter `j`'s default: the
+    // default's own summary, at the call's type arguments. A default no
+    // checked body holds answers with its function's summary, which includes
+    // it.
+    public func eval_default(&var self, e: Int, j: Int, acc: &var TcAcc) {
+        let at = self.call_at[e]
+        if at < 0 {
+            return
+        }
+        let c = self.calls[at]
+        let d = c.target
+        if d < 0 {
+            return
+        }
+        let k = self.default_at.first(d, j)
+        if k < 0 {
+            self.eval_made_call(e, &var acc)
+            return
+        }
+        let at_default = self.default_at.value(k)
+        let s = self.default_summary_for(d, at_default, &acc)
+        self.eval_summary(&s, d, &c, e, &var acc)
+    }
+
+    // Default `k` of function `d`'s summary, read on behalf of the unit `acc`
+    // gathers for, which is resummarized when `d`'s unit changes it.
+    func default_summary_for(&var self, d: Int, k: Int, acc: &TcAcc) -> TcSummary {
+        if acc.unit >= 0 {
+            let u = acc.unit
+            self.note_dependency(d, u)
+        }
+        self.defaults[k].summary
+    }
+
+    // Summary `s`, of function `d` or one of its defaults, evaluated at call
+    // record `c`.
+    func eval_summary(&var self, s: &TcSummary, d: Int, c: &TcCall, e: Int, acc: &var TcAcc) {
         if s.suspends {
             acc.suspends = true
         }
@@ -1246,9 +1410,10 @@ extension TcProgram {
 // The summary verifier (compiler/tests/typecheck/README.md, "The verifier").
 extension TcProgram {
     // Every problem the summaries of module `m`'s declarations and bodies
-    // have: a function with no summary, one that is no fixpoint, a condition
-    // over another declaration's parameters, and, where the module has no
-    // refusal, a closure body or a coercion to `any` that may suspend.
+    // have: a function with no summary, one or one of its default values that
+    // is no fixpoint, a condition over another declaration's parameters, and,
+    // where the module has no refusal, a closure body or a coercion to `any`
+    // that may suspend.
     public func verify_summaries(&var self, m: Int) -> Vector<String> {
         var out = Vector<String>()
         let info = self.res.modules[m]
@@ -1287,6 +1452,20 @@ extension TcProgram {
             }
             if not refused {
                 self.verify_unit_suspensions(top, &var out)
+            }
+        }
+        var k = 0
+        while k < self.defaults.len() {
+            let dv = self.defaults[k]
+            k = k + 1
+            if self.res.decls[dv.decl].module != m {
+                continue
+            }
+            var acc = self.summarize_items(dv.unit, dv.item_first, dv.item_end, -1)
+            let fresh = self.summary_from(dv.decl, &var acc)
+            if not self.same_summary(&dv.summary, &fresh) {
+                let what = "has a default value that is not a fixpoint: one more step changes it"
+                try! out.push(self.summary_problem(dv.decl, what))
             }
         }
         // The table describes Stage 0's std, whose bodies sawc2 never reads;

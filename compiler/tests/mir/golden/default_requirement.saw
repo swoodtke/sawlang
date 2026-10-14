@@ -1,0 +1,48 @@
+// The defaults of declarations with no body unit of their own. A requirement
+// with no body has a unit only for its defaults, which the worklist solves, so
+// a call through a bound that leaves one out marks the default's call by that
+// default's summary: `slow()` suspends, `tick()` never does, an instance and
+// a static requirement alike, and the requirement's own call keeps its
+// condition over the bound. An interface-only std function's defaults are not
+// checked, so their calls answer with the function's summary.
+
+import std.task.{yield_now}
+import std.json.{JsonValue}
+
+func slow() -> Int {
+    yield_now()
+    4
+}
+
+func tick() -> Int {
+    1
+}
+
+trait P {
+    func m(&self, n: Int = slow()) -> Int
+    func q(&self, n: Int = tick()) -> Int
+    static func make(n: Int = slow()) -> Int
+}
+
+func bound_fills<T: P>(t: &T) -> Int {
+    t.m()
+}
+
+func bound_explicit<T: P>(t: &T) -> Int {
+    t.m(n: 2)
+}
+
+func bound_quiet<T: P>(t: &T) -> Int {
+    t.q()
+}
+
+func bound_static<T: P>() -> Int {
+    T.make()
+}
+
+func interface_fills() -> Bool {
+    match JsonValue.parse(text: "7") {
+        case Ok(_) -> true,
+        case Err(_) -> false
+    }
+}

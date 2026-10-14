@@ -75,7 +75,10 @@ exit status compared.
   built by sawc2 at -O0 and at -O2 with nothing printed, print the lines
   they state, then panic with the text their `// panics:` line states, and
   abort: a drive point and the entry executor each refuse a wait they do
-  not perform rather than spin or return early.
+  not perform rather than spin or return early;
+- `probes/requirement_default_bound.saw`, whose calls through a bound leave
+  out a bodyless requirement's default, which Stage 0 refuses, prints the
+  lines it states the same way.
 
 `--bench` runs none of that: it times each kernel of `bench/` under sawc2 at
 -O2 and under Stage 0 and prints the report, which gates nothing. The runner
@@ -800,6 +803,15 @@ def stated_panic(path):
     return None
 
 
+def check_requirement_default_bound(failures, counts):
+    """A call through a bound that leaves out a bodyless requirement's default
+    evaluates the requirement's own default: `probes/requirement_default_bound.saw`,
+    which Stage 0 refuses, prints its `// prints:` lines (SL-638)."""
+    src = os.path.join(HERE, "probes", "requirement_default_bound.saw")
+    want = "".join(line + "\n" for line in stated_prints(src)).encode()
+    check_stated(failures, counts, "requirement default bound", src, want)
+
+
 def run(names=None, write=False):
     os.makedirs(OUT, exist_ok=True)
     failures = []
@@ -834,6 +846,7 @@ def run(names=None, write=False):
         check_test_only_exports(failures, counts)
         check_move_at_borrow(failures, counts)
         check_park_panics(failures, counts)
+        check_requirement_default_bound(failures, counts)
     return failures, counts, dues
 
 

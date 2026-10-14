@@ -1,0 +1,237 @@
+module default_suspension
+
+fn default_suspension.slow() -> Int {
+    let _0: Int;  // return
+
+    bb0: {
+        call std.task.yield_now() [] -> [return: bb1] suspends;
+    }
+
+    bb1: {
+        _0 = const 4: Int;
+        return;
+    }
+}
+
+fn default default_suspension.with_slow(n: Int).n -> Int {
+    let _0: Int;  // return
+    let _1: Int;
+
+    bb0: {
+        _1 = call default_suspension.slow() [] -> [return: bb1] suspends;
+    }
+
+    bb1: {
+        _0 = move _1;
+        return;
+    }
+}
+
+fn default_suspension.with_slow(n: Int) -> Int {
+    let _0: Int;  // return
+    let _1: Int;  // param n
+    let _2: Int;
+
+    bb0: {
+        _2 = Add(copy _1, const 1: Int);
+        _0 = move _2;
+        return;
+    }
+}
+
+fn default default_suspension.with_literal(n: Int).n -> Int {
+    let _0: Int;  // return
+
+    bb0: {
+        _0 = const 3: Int;
+        return;
+    }
+}
+
+fn default_suspension.with_literal(n: Int) -> Int {
+    let _0: Int;  // return
+    let _1: Int;  // param n
+    let _2: Int;
+
+    bb0: {
+        call std.task.yield_now() [] -> [return: bb1] suspends;
+    }
+
+    bb1: {
+        _2 = Add(copy _1, const 1: Int);
+        _0 = move _2;
+        return;
+    }
+}
+
+fn default default_suspension.quiet(n: Int).n -> Int {
+    let _0: Int;  // return
+
+    bb0: {
+        _0 = const 3: Int;
+        return;
+    }
+}
+
+fn default_suspension.quiet(n: Int) -> Int {
+    let _0: Int;  // return
+    let _1: Int;  // param n
+    let _2: Int;
+
+    bb0: {
+        _2 = Add(copy _1, const 1: Int);
+        _0 = move _2;
+        return;
+    }
+}
+
+fn default default_suspension.run(t: &T, n: Int).n -> Int {
+    let _0: Int;  // return
+
+    bb0: {
+        _0 = const 3: Int;
+        return;
+    }
+}
+
+fn default_suspension.run(t: &T, n: Int) -> Int {
+    let _0: Int;  // return
+    let _1: &T;  // param t
+    let _2: Int;  // param n
+    let _3: &T;
+    let _4: Int;
+    let _5: Int;
+
+    bb0: {
+        _3 = ref(shared, (*_1));
+        _4 = call default_suspension.Worker.step() (owner T) [move _3] -> [return: bb1] suspends when T.Worker.step;
+    }
+
+    bb1: {
+        _5 = Add(move _4, copy _2);
+        _0 = move _5;
+        return;
+    }
+}
+
+fn default_suspension.fills() -> Int {
+    let _0: Int;  // return
+    let _1: Int;
+    let _2: Int;
+
+    bb0: {
+        _1 = call default default_suspension.with_slow(n: Int).n [] -> [return: bb1] suspends;
+    }
+
+    bb1: {
+        _2 = call default_suspension.with_slow(n: Int) [move _1] -> [return: bb2] suspends;
+    }
+
+    bb2: {
+        _0 = move _2;
+        return;
+    }
+}
+
+fn default_suspension.explicit() -> Int {
+    let _0: Int;  // return
+    let _1: Int;
+
+    bb0: {
+        _1 = call default_suspension.with_slow(n: Int) [const 2: Int] -> [return: bb1] suspends;
+    }
+
+    bb1: {
+        _0 = move _1;
+        return;
+    }
+}
+
+fn default_suspension.body_fills() -> Int {
+    let _0: Int;  // return
+    let _1: Int;
+    let _2: Int;
+
+    bb0: {
+        _1 = call default default_suspension.with_literal(n: Int).n [] -> [return: bb1];
+    }
+
+    bb1: {
+        _2 = call default_suspension.with_literal(n: Int) [move _1] -> [return: bb2] suspends;
+    }
+
+    bb2: {
+        _0 = move _2;
+        return;
+    }
+}
+
+fn default_suspension.control() -> Int {
+    let _0: Int;  // return
+    let _1: Int;
+    let _2: Int;
+
+    bb0: {
+        _1 = call default default_suspension.quiet(n: Int).n [] -> [return: bb1];
+    }
+
+    bb1: {
+        _2 = call default_suspension.quiet(n: Int) [move _1] -> [return: bb2];
+    }
+
+    bb2: {
+        _0 = move _2;
+        return;
+    }
+}
+
+fn default_suspension.generic(t: &T) -> Int {
+    let _0: Int;  // return
+    let _1: &T;  // param t
+    let _2: &T;
+    let _3: Int;
+    let _4: Int;
+
+    bb0: {
+        _2 = ref(shared, (*_1));
+        _3 = call default default_suspension.run(t: &T, n: Int).n (inst T) [] -> [return: bb1];
+    }
+
+    bb1: {
+        _4 = call default_suspension.run(t: &T, n: Int) (inst T) [move _2, move _3] -> [return: bb2] suspends when T.Worker.step;
+    }
+
+    bb2: {
+        _0 = move _4;
+        return;
+    }
+}
+
+fn default_suspension.spawner() -> Int {
+    let _0: Int;  // return
+    let _1: std.taskgroup.Task<Int>;  // t
+    let _2: Int;
+    let _3: std.taskgroup.Task<Int>;
+    let _4: &std.taskgroup.Task<Int>;
+    let _5: Int;
+
+    bb0: {
+        _2 = call default default_suspension.with_slow(n: Int).n [] -> [return: bb1] suspends;
+    }
+
+    bb1: {
+        _3 = spawn singleton default_suspension.with_slow(n: Int) [move _2] -> [return: bb2];
+    }
+
+    bb2: {
+        _1 = move _3;
+        _4 = ref(shared, _1);
+        _5 = call std.taskgroup.Task.join() (owner std.taskgroup.Task<Int>) [move _4] -> [return: bb3];
+    }
+
+    bb3: {
+        _0 = move _5;
+        drop(_1);
+        return;
+    }
+}

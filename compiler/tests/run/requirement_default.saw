@@ -1,0 +1,25 @@
+// A requirement with no body whose parameter's default calls a function: the
+// default's summary is solved in the worklist with its requirement's unit, so
+// the summary verifier holds and the program builds.
+func tick() -> Int {
+    1
+}
+
+trait P {
+    func m(&self, n: Int = tick()) -> Int
+}
+
+struct S {
+    k: Int
+}
+
+extension S: P {
+    func m(&self, n: Int = tick()) -> Int {
+        n + self.k
+    }
+}
+
+func main() {
+    let s = S(k: 10)
+    print("{}", s.m())
+}

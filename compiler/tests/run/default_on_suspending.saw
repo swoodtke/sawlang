@@ -1,0 +1,76 @@
+// Literal defaults left out at calls of functions that suspend: a free
+// function, a method, a static, a generic function whose step suspends for
+// one type argument, a spawn root and a drive root. Each default's call is
+// no suspension point, and each function's call is one as the function's
+// summary makes it.
+import std.task.{yield_now}
+
+func bump(n: Int = 3) -> Int {
+    yield_now()
+    n + 1
+}
+
+struct Counter {
+    base: Int
+}
+
+extension Counter {
+    func add(&self, n: Int = 3) -> Int {
+        yield_now()
+        self.base + n
+    }
+
+    static func make(base: Int = 7) -> Counter {
+        yield_now()
+        Counter(base: base)
+    }
+}
+
+trait Stepper {
+    func step(&self) -> Int
+}
+
+struct Quick {
+    v: Int
+}
+
+struct Lazy {
+    v: Int
+}
+
+extension Quick: Stepper {
+    func step(&self) -> Int {
+        self.v
+    }
+}
+
+extension Lazy: Stepper {
+    func step(&self) -> Int {
+        yield_now()
+        self.v
+    }
+}
+
+func run<T: Stepper>(t: &T, n: Int = 3) -> Int {
+    t.step() + n
+}
+
+func driven() -> Int {
+    __saw_drive(bump())
+}
+
+func main() {
+    print("{}", bump())
+    print("{}", bump(n: 10))
+    let c = Counter(base: 1)
+    print("{}", c.add())
+    let d = Counter.make()
+    print("{}", d.add(n: 20))
+    let q = Quick(v: 10)
+    let l = Lazy(v: 20)
+    print("{}", run(&q))
+    print("{}", run(&l))
+    let t = Task.spawn(bump())
+    print("{}", t.join())
+    print("{}", driven())
+}

@@ -1431,7 +1431,8 @@ extension MirProgram {
         }
         let owner = self.funcs[f].owner
         var acc = tc_acc(owner, -1)
-        self.tc.eval_call(c.node, &var acc)
+        let node = c.node
+        self.call_effect(node, &c, &var acc)
         var want = MirSuspend.Never
         if acc.suspends {
             want = MirSuspend.Always

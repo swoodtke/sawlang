@@ -287,8 +287,10 @@ is a lowered point, and none is emitted as a plain call that blocks the
 thread. Every op-budget point that reaches it is outside a frame, and writes
 nothing. `yield_main` is the walking skeleton, a suspending `main` the entry
 executor drives; `drive_arguments` drives children that take arguments and
-return values, and `drive_test_suspensions` parks through `__saw_suspend`
-and `__saw_test_suspend`; `coro_conservative_generic_instance_not_promoted`,
+return values, `drive_test_suspensions` parks through `__saw_suspend`
+and `__saw_test_suspend`, and `default_on_suspending` leaves literal defaults
+out at calls of suspending functions, methods, generic, spawn and drive
+roots; `coro_conservative_generic_instance_not_promoted`,
 `crossmodule_embed_annotation_positions` and `crossmodule_embed_type_identity`
 are corpus programs whose `main` yields (the last two with their packages
 under `modules/`). The test drivers run over a plain `main`:
@@ -416,7 +418,14 @@ compares:
   the timer park is lowered, and the drive point (SL-645) and the entry
   executor, which wait on a ready park alone until the timers' executor half
   arrives (SL:coroutines A11), refuse it loudly, naming the reason. Stage 0
-  sleeps there, so each program states its own outcome.
+  sleeps there, so each program states its own outcome;
+- `probes/requirement_default_bound.saw`, whose calls through a bound leave
+  out a bodyless requirement's default, an instance and a static one, prints
+  its `// prints:` lines the same way: the caller evaluates the requirement's
+  own default, whose summary the requirement's unit solves. Stage 0 refuses
+  leaving out a requirement's default through a bound; the call on a concrete
+  receiver, which it runs, is the run program `requirement_default.saw`
+  (SL-638).
 
 Stage 0 is the oracle: a difference is a sawc2 bug until shown otherwise
 (SL:architecture §5).
