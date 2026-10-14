@@ -66,7 +66,10 @@ exit status compared.
   and `probes/test_only_export_item.saw`, whose `main` calls a test-only
   `@export` through `extern "C"`, fail to link with its symbol undefined, and
   `probes/test_only_export_unused.saw` prints the lines it states, its `.ll`
-  defining its production export and neither test-only one.
+  defining its production export and neither test-only one;
+- `probes/move_at_borrow.saw`, whose spelled `move`s are comparison operands
+  and a shared `&` argument, which Stage 0 loses the deinit of or refuses,
+  prints the lines it states the same way.
 
 `--bench` runs none of that: it times each kernel of `bench/` under sawc2 at
 -O2 and under Stage 0 and prints the report, which gates nothing. The runner
@@ -736,6 +739,16 @@ def check_test_only_exports(failures, counts):
                             % symbol)
 
 
+def check_move_at_borrow(failures, counts):
+    """A spelled `move` where its position borrows the value moves it into a
+    temporary its statement drops: `probes/move_at_borrow.saw`, whose
+    comparison operands Stage 0 never destroys, prints its `// prints:` lines
+    (SL-643)."""
+    src = os.path.join(HERE, "probes", "move_at_borrow.saw")
+    want = "".join(line + "\n" for line in stated_prints(src)).encode()
+    check_stated(failures, counts, "move at borrow", src, want)
+
+
 def run(names=None, write=False):
     os.makedirs(OUT, exist_ok=True)
     failures = []
@@ -768,6 +781,7 @@ def run(names=None, write=False):
         check_raw_enum_cast_handoff(failures, counts)
         check_borrow_place_reads(failures, counts)
         check_test_only_exports(failures, counts)
+        check_move_at_borrow(failures, counts)
     return failures, counts, dues
 
 

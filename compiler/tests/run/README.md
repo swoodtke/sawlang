@@ -403,7 +403,12 @@ compares:
   way beside a test-only export of each spelling that nothing calls, prints
   its `// prints:` lines the same way as the accessor probes, and its `.ll`
   defines the production export and names neither test-only one. Stage 0
-  cannot parse `@test`.
+  cannot parse `@test`;
+- `probes/move_at_borrow.saw`, whose spelled `move`s are either comparison
+  operand and a shared `&` argument, prints its `// prints:` lines the same
+  way: each moved value deinits at the end of its statement. Stage 0 loses
+  the deinit of a moved comparison operand and refuses `&(move a)`; the
+  positions it agrees on are the run program `move_at_borrow.saw` (SL-643).
 
 Stage 0 is the oracle: a difference is a sawc2 bug until shown otherwise
 (SL:architecture §5).

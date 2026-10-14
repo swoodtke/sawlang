@@ -258,7 +258,12 @@ whose docstring lists them), each covered by a golden case:
 | a conversion's argument, `as` | `conversion_operand` | operands |
 
 **Transfers**: a spelled `move` and a generic local's single-path read moves
-(operands, `forward`); an owned temporary is handed off; a named place of the
+(operands, `forward`); a spelled `move` where its position borrows the value
+(a format argument, an interpolation, a comparison operand, a borrowed
+receiver, a shared `&` argument) moves into a temporary the position borrows
+and its statement drops (`moved_to_temporary`; borrowck's
+`move.use-after.format-argument` and its siblings, SL-643); an owned
+temporary is handed off; a named place of the
 Copy tier copies, through the `copy()` its type's `Copy` conformance writes
 when it writes one (operands, `Retained`), and otherwise by its members, since
 typecheck refuses a `copy()` written outside a policy: one funnel,

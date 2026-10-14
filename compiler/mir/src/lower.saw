@@ -1972,6 +1972,9 @@ extension MirProgram {
         self.prepare_base(inner, &var steps)
         let p = self.realize_all(&steps)
         if last < 0 || not self.tc.text(m, last).equals("!") {
+            if self.tc.expr_use[e] == TcUse.Borrow {
+                return self.moved_to_temporary(p)
+            }
             return mir_place_val(p, false)
         }
         // `move o!` retires the whole binding: the Optional moves out whole,
@@ -1986,6 +1989,18 @@ extension MirProgram {
         let value = self.project(wp, MirProjKind.Force, some, 0, t)
         let moved = self.take_payload(wp, value, e)
         mir_place_val(self.operands[moved].place, true)
+    }
+
+    // A spelled `move` where its position borrows the value, a format
+    // argument, a comparison operand or a receiver: the place still moves,
+    // into a temporary the position borrows and its statement drops (spec,
+    // Temporaries), so the binding ends there as the reader wrote.
+    func moved_to_temporary(&var self, p: Int) -> MirVal {
+        let pt = self.place_type(p)
+        let t = self.new_temp(pt)
+        let rv = self.rv_move(p)
+        self.assign_local(t, rv)
+        mir_place_val(self.place_local(t), true)
     }
 }
 

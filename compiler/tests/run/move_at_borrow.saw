@@ -1,0 +1,69 @@
+// A spelled `move` where its position borrows the value, a format argument,
+// an interpolation or a borrowed receiver, moves the value into a temporary
+// the statement drops, so it deinits before the next statement runs; a
+// consuming `match` on a `move` is the control (SL-643).
+
+struct Res {
+    n: Int
+}
+
+extension Res: NoCopy {
+    func deinit(&var self) {
+        print("drop {}", self.n)
+    }
+}
+
+extension Res: Printable {
+    func format(&self, into: &var StringBuilder) {
+        try! into.append("res ")
+        try! into.append(value: self.n)
+    }
+}
+
+extension Res {
+    func look(&self) -> Int {
+        self.n
+    }
+}
+
+enum Kind {
+    case A(r: Res),
+    case B
+}
+
+extension Kind: NoCopy {}
+
+func format_argument() {
+    let a = Res(n: 1)
+    print("format {}", move a)
+    print("after format")
+}
+
+func interpolated() {
+    let a = Res(n: 2)
+    print("interpolated {move a}")
+    print("after interpolated")
+}
+
+func receiver() {
+    let a = Res(n: 3)
+    let n = (move a).look()
+    print("receiver {}", n)
+}
+
+func scrutinee() {
+    let k = Kind.A(r: Res(n: 4))
+    match move k {
+        case A(r) -> print("scrutinee {}", r.n),
+        case B -> print("scrutinee B")
+    }
+    print("after scrutinee")
+}
+
+func main() {
+    format_argument()
+    interpolated()
+    receiver()
+    scrutinee()
+    print("end")
+}

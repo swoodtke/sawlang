@@ -1,0 +1,62 @@
+// A spelled `move` as either comparison operand, or under a shared `&`
+// argument, moves the value into a temporary the statement drops, so it
+// deinits before the next statement runs. Stage 0 loses the deinit of a
+// moved comparison operand and refuses `&(move a)`, so the run lane builds
+// this at -O0 and -O2 and requires the `// prints:` lines (conformance V141).
+// prints: drop 1
+// prints: compared false
+// prints: drop 10
+// prints: drop 20
+// prints: compared right false
+// prints: drop 2
+// prints: reference 3
+// prints: drop 3
+// prints: after reference
+// prints: end
+
+struct Res {
+    n: Int
+}
+
+extension Res: NoCopy {
+    func deinit(&var self) {
+        print("drop {}", self.n)
+    }
+}
+
+extension Res: Equatable {
+    func equals(&self, other: &Res) -> Bool {
+        self.n == other.n
+    }
+}
+
+func show(r: &Res) {
+    print("reference {}", r.n)
+}
+
+func compared() {
+    let a = Res(n: 1)
+    let b = Res(n: 10)
+    let same = move a == b
+    print("compared {}", same)
+}
+
+func compared_right() {
+    let a = Res(n: 2)
+    let b = Res(n: 20)
+    let same = a == move b
+    print("compared right {}", same)
+}
+
+func reference() {
+    let a = Res(n: 3)
+    show(&(move a))
+    print("after reference")
+}
+
+func main() {
+    compared()
+    compared_right()
+    reference()
+    print("end")
+}

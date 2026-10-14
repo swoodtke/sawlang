@@ -1,0 +1,14 @@
+// refuses: move.use-after at 13:5
+// a spelled `move` as a borrowed receiver moves the value into a temporary
+// the statement drops, so a later use of the binding is a use after the move
+// (conformance V141)
+
+struct Res { n: Int }
+extension Res: NoCopy {}
+extension Res { func look(&self) -> Int { self.n } }
+
+func main() {
+    let a = Res(n: 1)
+    let n = (move a).look()
+    print("{} {}", n, a.n)
+}

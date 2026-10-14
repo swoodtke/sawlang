@@ -1,0 +1,15 @@
+// refuses: move.use-after at 14:5
+// a spelled `move` as a comparison operand moves the value into a temporary
+// the statement drops, so a later use of the binding is a use after the move
+// (conformance V141)
+
+struct Res { n: Int }
+extension Res: NoCopy {}
+extension Res: Equatable { func equals(&self, other: &Res) -> Bool { self.n == other.n } }
+
+func main() {
+    let a = Res(n: 1)
+    let b = Res(n: 1)
+    let same = move a == b
+    print("{} {}", same, a.n)
+}

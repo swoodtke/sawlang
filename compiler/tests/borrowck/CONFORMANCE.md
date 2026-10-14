@@ -245,6 +245,7 @@ INDEX.md, or when an owner is not one of the words below.
 | V151 | typecheck | `copy.outside-policy` (SL-641): `compiler/tests/typecheck/refuse/copy.outside-policy.saw`, `.declared`, `.explicit`, `.enum`, `.generic`, `.other-conformance`, `.static`, `.defaulted`; the other shapes, accepted, typecheck golden `copy_method_shapes.saw` |
 | V152 | typecheck | accepted, a `NoCopy` type's `copy()` an ordinary method (SL-641): typecheck golden `copy_method_shapes.saw`; `compiler/tests/typecheck/refuse/transfer.implicit-copy.nocopy-copy-method.saw`, `compiler/tests/typecheck/refuse/type.bound.nocopy-copy-method.saw`; run, `compiler/tests/run/nocopy_copy_method.saw` |
 | V153 | typecheck | `overload.indistinguishable` (SL-641): `compiler/tests/typecheck/refuse/overload.indistinguishable.deinit.saw`, `.copy` |
+| V141 | U6d1 | `move.use-after` after a spelled `move` where its position borrows the value (SL-643): `compiler/tests/borrowck/refuse/move.use-after.format-argument.saw`, `.interpolation`, `.comparison`, `.receiver`; run, `compiler/tests/run/move_at_borrow.saw` against Stage 0 and `compiler/tests/run/probes/move_at_borrow.saw` |
 | V60 | typecheck | `transfer.move-from-borrow`: `compiler/tests/typecheck/refuse/transfer.move-from-borrow.match-payload.saw` |
 | V61 | typecheck | `transfer.move-from-borrow`: `compiler/tests/typecheck/refuse/transfer.move-from-borrow.match-self.saw` |
 | V62 | typecheck | `transfer.move-from-borrow`, a Copy-tier payload: `compiler/tests/typecheck/refuse/transfer.move-from-borrow.match-payload.saw` |

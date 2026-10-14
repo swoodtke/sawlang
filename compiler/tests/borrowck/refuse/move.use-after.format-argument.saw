@@ -1,0 +1,14 @@
+// refuses: move.use-after at 13:5
+// a spelled `move` as a format argument moves the value into a temporary the
+// statement drops, so a later use of the binding is a use after the move
+// (conformance V141)
+
+struct Res { n: Int }
+extension Res: NoCopy {}
+extension Res: Printable { func format(&self, into: &var StringBuilder) { try! into.append(value: self.n) } }
+
+func main() {
+    let a = Res(n: 1)
+    print("format {}", move a)
+    print("{}", a.n)
+}
