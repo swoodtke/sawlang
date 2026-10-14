@@ -109,8 +109,6 @@ public enum CoroUnloweredKind {
     case Source,
     // A call driving a child whose frame is not lowered.
     case Child,
-    // A call driving a child with parameters or a result.
-    case Arguments,
     // An op-budget point.
     case Budget,
     // A borrow window in the body.
@@ -126,12 +124,16 @@ public enum CoroPointKind {
     case ParkReady,
     // Drives an embedded child: starts it at state 0, then resumes it,
     // returning `Pending` while it pends and continuing once it is `Ready`.
+    // The call's own block has already written the child's parameter slots,
+    // and the block it continues to moves the child's result out.
     case Drive
 }
 
 // One suspension point of a lowered frame: the state the frame records when
 // it pends there, the block whose call terminator the point replaces, and
-// for a drive the child item and its slot's offset in the frame.
+// for a drive the child item, its slot's offset in the frame, and the place
+// the call wrote its result to and the block that moves it there from the
+// child's result slot, each -1 for a call with no destination.
 public struct CoroPoint {
     kind: CoroPointKind
     state: Int
@@ -139,6 +141,8 @@ public struct CoroPoint {
     call: Int
     child: Int
     slot: Int
+    dest: Int
+    result_block: Int
 }
 
 // A lowered frame's resume function: its item, its frame, the body's local

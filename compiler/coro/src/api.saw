@@ -75,8 +75,9 @@ public func coro_lower_for(coro: &var CoroProgram, target: &var Target) {
 // `sawc2 mono --check` prints for it, then this stage's refusals, each an
 // `ERROR` line, and an `INVARIANT` line per problem it met; then, with
 // `dump`, each item's frame decision, with `layouts`, each frame laid out
-// for the options' target, or with `lowered`, each lowered frame's resume
-// function for it. Returns 0 when nothing was refused and 1 otherwise.
+// for the options' target, or with `lowered`, an `INVARIANT` line per problem
+// the lowering meets, then each lowered frame's resume function for it.
+// Returns 0 when nothing was refused or broken and 1 otherwise.
 public func coro_record(out: &var StringBuilder, path: String, options: &CoroOptions, names: &Vector<String>,
                         dirs: &Vector<String>) -> Int {
     var coro = coro_lower_file(out: &var out, path: path, std_root: options.std_root, notes: options.notes,
@@ -96,7 +97,18 @@ public func coro_record(out: &var StringBuilder, path: String, options: &CoroOpt
     }
     if options.lowered && not coro.blocked {
         var target = coro.mono.target_for(options.target)
+        let before = coro.problems.len()
         coro_lower_for(&var coro, &var target)
+        var k = before
+        while k < coro.problems.len() {
+            try! out.append("INVARIANT\tcoro\t")
+            try! out.append(coro.problems.get(k) ?? "")
+            try! out.append("\n")
+            k = k + 1
+        }
+        if coro.problems.len() > before {
+            status = 1
+        }
         coro_dump_lowered(&coro, &var out)
     }
     status

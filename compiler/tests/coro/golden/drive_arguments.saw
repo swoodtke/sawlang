@@ -1,0 +1,34 @@
+// The drives SL:coroutines A4a lowers: a child that takes arguments and
+// returns a value. Each argument is written into the child's parameter slot
+// in the call's own block, the call is left with no arguments and no
+// destination, and a new block on its return edge moves the result out of
+// the child's result slot into the call's destination. `__saw_suspend` is a
+// ready park, and `__saw_test_suspend` becomes a goto, so `effect_only` has
+// no state but its start.
+struct Point {
+    x: Int
+    y: Int
+}
+
+func inner(a: Int) -> Int {
+    let x = a + 1
+    __saw_suspend()
+    x + 1
+}
+
+func label(prefix: String, p: Point) -> String {
+    __saw_suspend()
+    "{prefix}-{p.x}"
+}
+
+func effect_only(n: Int) -> Int {
+    __saw_test_suspend()
+    n * 2
+}
+
+func main() {
+    let n = inner(3)
+    let s = label("tag", Point(x: n, y: 1))
+    print("{}", s)
+    effect_only(n)
+}

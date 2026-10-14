@@ -3112,6 +3112,7 @@ extension MirProgram {
         }
         call.arg_first = self.push_args(&all)
         call.arg_count = all.len()
+        self.suspension(e, &var call)
         self.finish_call(call, t)
     }
 

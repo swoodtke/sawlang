@@ -1,0 +1,66 @@
+// Driving children that take arguments and return values (SL:coroutines
+// §3.1): a suspending `main` drives each child through its frame slot, its
+// arguments written into the child's parameter slots at the call and its
+// result moved out of the child's result slot once it is `Ready`. The
+// children take an `Int`, a `String` they own and drop, a struct by value, a
+// receiver and an exclusive reference into the caller's frame; one returns a
+// `String`, one result is discarded, and a child drives a child of its own.
+import std.task.{yield_now}
+
+struct Point {
+    x: Int
+    y: Int
+}
+
+struct Counter {
+    total: Int
+}
+
+extension Counter {
+    func add(&var self, n: Int) -> Int {
+        yield_now()
+        self.total = self.total + n
+        self.total
+    }
+}
+
+func inner(a: Int) -> Int {
+    let x = a + 1
+    yield_now()
+    x + 1
+}
+
+func mid(b: Int) -> Int {
+    let y = inner(b)
+    yield_now()
+    y + 1
+}
+
+func label(prefix: String, n: Int) -> String {
+    yield_now()
+    "{prefix}-{n}"
+}
+
+func spread(p: Point, scale: Int) -> Int {
+    yield_now()
+    (p.x + p.y) * scale
+}
+
+func bump(n: &var Int) {
+    yield_now()
+    n += 5
+}
+
+func main() -> Int {
+    print("{}", mid(3))
+    let s = label("tag", 4)
+    print("{}", s)
+    print("{}", spread(Point(x: 2, y: 5), 3))
+    var c = Counter(total: 10)
+    print("{}", c.add(7))
+    var held = 1
+    bump(&var held)
+    print("{}", held)
+    mid(10)
+    held
+}

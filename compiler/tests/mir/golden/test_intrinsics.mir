@@ -1,0 +1,25 @@
+module test_intrinsics
+
+fn test_intrinsics.park() -> Void {
+    let _0: Void;  // return
+
+    bb0: {
+        call builtin __saw_suspend [] -> [return: bb1] suspends;
+    }
+
+    bb1: {
+        return;
+    }
+}
+
+fn test_intrinsics.effect_only() -> Void {
+    let _0: Void;  // return
+
+    bb0: {
+        call builtin __saw_test_suspend [] -> [return: bb1] suspends;
+    }
+
+    bb1: {
+        return;
+    }
+}

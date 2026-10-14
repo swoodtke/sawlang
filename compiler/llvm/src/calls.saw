@@ -433,6 +433,10 @@ extension LlEmitter {
             }
         } else if name.equals("init") {
             return
+        } else if name.equals("__saw_suspend") || name.equals("__saw_test_suspend") {
+            // Coroutine lowering replaces every call of either in a lowered
+            // frame, and refuses the frames it does not lower.
+            self.refuse_here(&var mono, node, "a test suspension outside a lowered frame")
         } else {
             self.atomic(&var mono, &var target, &info, &name)
         }

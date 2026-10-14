@@ -174,11 +174,12 @@ docstring names its entry points (SL:coroutines §3.1). A frame is
 **lowered** when every suspension point in it is a shape this compiler
 lowers:
 
-- a call of the ready park point (`std.task`'s `__saw_park_ready`, by its
-  lang role), which `yield_now`'s body is;
-- a call driving a child whose frame is lowered, when the child takes no
-  parameters and returns `Void` (SL:coroutines A4 adds the parameter slots and
-  the result's move-out).
+- a ready park: a call of the ready park point (`std.task`'s
+  `__saw_park_ready`, by its lang role), which `yield_now`'s body is, or of
+  the test intrinsic `__saw_suspend`;
+- a call of the test intrinsic `__saw_test_suspend`, a suspension for the
+  effects alone (design 22): it frames its caller and runs as nothing;
+- a call driving a child whose frame is lowered.
 
 and it holds no op-budget point (A9), no borrow window (A6), and no
 frame-resident local that an index projection reads, which a place cannot
@@ -189,9 +190,29 @@ only meets lowered frames.
 A lowered item's concrete body is rewritten in place: it gains one local,
 the frame pointer `_F`, a `&var Int` pointing at the frame's state word, and
 each place rooted in a frame-resident local `_L` becomes `(*_F).[OFFSET:
-T]` followed by the place's own steps. Nothing else in the body changes: no
-drop, no window close, no statement is added, since teardown is the body's
-own. The resume function, `resume(frame, cx) -> Poll` (rt/ABI.md, "The
+T]` followed by the place's own steps. A drive's call `dest = g(args)` in
+block `bbB`, whose child slot is at offset S, is rewritten too (SL:coroutines
+§3.1):
+
+- `bbB` gains, after its statements, one write per argument into the child's
+  parameter slot, `(*_F).[S + P: T] = arg`, the argument moving or copying
+  as the call passed it;
+- the call keeps its target and loses its arguments and its destination: it
+  is the drive, which passes nothing;
+- when the call has a destination, its return edge goes to a new block,
+  numbered after the body's own, `dest = move (*_F).[S + R: T]; goto ->
+  bbN`, which moves the child's result out once it is `Ready` and continues
+  where the call returned.
+
+A call of `__saw_test_suspend` becomes a goto where it returned. Nothing else
+changes: no drop and no window close is added, since teardown is the body's
+own, and the writes and the move-out are the transfers the call made. After
+lowering, every drive is checked: its call carries no arguments and no
+destination, its block writes each of the child's parameter slots (read from
+the child's frame) exactly once, and a call with a destination returns to its
+move-out. A broken one is an `INVARIANT` line, which the unit program
+`compiler/coro/tests/drive_invariant.saw` provokes by unlinking a write. The
+resume function, `resume(frame, cx) -> Poll` (rt/ABI.md, "The
 compiler → executor boundary"), is the body's blocks behind a switch on the
 state word: state 0 enters at `bb0`, state N re-enters suspension point N,
 and the done state (-1) traps, since a driver that resumes a done frame has
@@ -204,8 +225,8 @@ suspension point, in place of its call:
 - **a drive** starts the child at state 0 in its slot, then resumes it
   directly; while the child returns `Pending`, the frame records its state
   and returns `Pending` too, since the child's park wrote the root's word;
-  once it is `Ready`, the call's return block follows. Re-entered, it resumes
-  the child again.
+  once it is `Ready`, the call's return block follows, the move-out for a
+  call with a destination. Re-entered, it resumes the child again.
 
 A suspending `main`'s frame is driven by std's entry executor,
 `__saw_exec_run_main(descriptor, frame)`, which the stage roots (mono's one
@@ -213,7 +234,8 @@ root after the worklist) only when `main` is lowered. The C entry puts the
 frame on its own stack at state 0, hands it over with its descriptor, and
 reads `main`'s result from the frame once the executor returns.
 
-**The `--lowered` record**, per lowered frame, in item order:
+**The `--lowered` record**, after an `INVARIANT` line per drive that fails
+its check, per lowered frame, in item order:
 
 ```
 resume #K: NAME  (frame size S align A, pointer _F)
@@ -265,4 +287,8 @@ whose suspension carries values across it): the values each frame holds, and
 offsets with no sharing. Golden `drive_and_park` is the lowered shapes: drives
 of children, two of one function among them, ready parks, and values across
 both, reached through frame slots; the run lane builds and runs the same
-shapes (`yield_main`).
+shapes (`yield_main`). Golden `drive_arguments` is the drive of a child that
+takes arguments, an `Int`, a `String` and a struct by value, and returns a
+value, and the two test intrinsics, `__saw_suspend` parking and
+`__saw_test_suspend` a goto; the run lane's `drive_arguments` and
+`drive_test_suspensions` run those shapes.

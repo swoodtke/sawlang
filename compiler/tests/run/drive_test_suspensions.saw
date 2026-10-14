@@ -1,0 +1,36 @@
+// The test intrinsics in lowered frames: `__saw_suspend` is a ready park,
+// which returns `Pending` up to the entry executor and resumes at the state
+// after it, and `__saw_test_suspend` suspends for the effects alone, so it
+// frames its caller and runs as nothing. A suspending `main` drives `outer`,
+// which drives `mid`, which drives `inner`: values cross each park in the
+// frames, and each result is moved out of its child's slot.
+
+func inner(a: Int) -> Int {
+    let x = a + 1
+    __saw_suspend()
+    x + 1
+}
+
+func mid(b: Int) -> Int {
+    let y = inner(b)
+    __saw_test_suspend()
+    __saw_suspend()
+    y + 1
+}
+
+func outer() -> Int {
+    let z = mid(3)
+    __saw_suspend()
+    z
+}
+
+func effect_only(n: Int) -> Int {
+    __saw_test_suspend()
+    n * 2
+}
+
+func main() {
+    print("{}", outer())
+    print("{}", mid(10))
+    print("{}", effect_only(21))
+}

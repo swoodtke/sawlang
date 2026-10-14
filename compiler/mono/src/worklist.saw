@@ -39,9 +39,17 @@ public func mono_rules() -> Vector<String> {
     move out
 }
 
-// The builtins the backend's slice lowers, by spelling.
+// The builtins the backend's slice lowers, or coroutine lowering lowers
+// away, by spelling.
 func mono_builtin_supported(name: String) -> Bool {
-    name.equals("print") || name.equals("panic") || name.equals("assert") || name.equals("init") || name.equals("sizeof") || name.equals("alignof") || name.equals("__saw_atomic_add_i64") || name.equals("__saw_atomic_sub_i64_release") || name.equals("__saw_atomic_fence_acquire") || name.equals("__saw_atomic_load_i64_relaxed") || mono_seq_cst_atomic(name)
+    name.equals("print") || name.equals("panic") || name.equals("assert") || name.equals("init") || name.equals("sizeof") || name.equals("alignof") || name.equals("__saw_atomic_add_i64") || name.equals("__saw_atomic_sub_i64_release") || name.equals("__saw_atomic_fence_acquire") || name.equals("__saw_atomic_load_i64_relaxed") || mono_seq_cst_atomic(name) || mono_test_suspension(name)
+}
+
+// The test intrinsics that suspend, `__saw_suspend` and `__saw_test_suspend`.
+// The backend never meets a call of either: coroutine lowering replaces each
+// with a ready park or a goto.
+func mono_test_suspension(name: String) -> Bool {
+    name.equals("__saw_suspend") || name.equals("__saw_test_suspend")
 }
 
 // The sequentially consistent atomic intrinsics (SL:open-questions D39).

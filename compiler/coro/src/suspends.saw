@@ -14,7 +14,7 @@
 import sawborrowck.program.{BorrowckProgram}
 import sawcoro.program.{CoroProgram}
 import sawdrops.program.{DropsProgram}
-import sawmir.model.{MirFuncKind, MirSuspend, MirTermKind}
+import sawmir.model.{MirCallKind, MirFuncKind, MirSuspend, MirTermKind}
 import sawmir.program.{MirProgram}
 import sawmono.dump.{mono_dump_layouts}
 import sawmono.program.{MonoItemKind, MonoProgram}
@@ -552,11 +552,15 @@ public func coro_cause_chain(coro: &CoroProgram, k: Int) -> String {
 }
 
 // How a cause chain or a frame's suspension point names the target of call
-// `c`.
+// `c`: a builtin, a test intrinsic among them, by its spelling.
 public func coro_source_label(coro: &CoroProgram, c: Int) -> String {
     let t = coro.mono.call_item(c)
     if t >= 0 {
         return coro.item_label(t)
+    }
+    let info = coro.mono.dp.bc.mir.calls[c]
+    if info.kind == MirCallKind.Builtin && info.spelling >= 0 {
+        return coro.mono.dp.bc.mir.tc.name_text(info.spelling)
     }
     let d = coro.mono.dp.bc.mir.calls[c].target
     if d < 0 {

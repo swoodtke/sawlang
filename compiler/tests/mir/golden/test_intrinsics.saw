@@ -1,0 +1,12 @@
+// The test intrinsics a builtin call reaches: `__saw_suspend`, a ready park,
+// and `__saw_test_suspend`, an effect-only suspension. Typecheck summarizes
+// both as suspending, so each call is a suspension point, as a call of a
+// declared function that may suspend is.
+
+func park() {
+    __saw_suspend()
+}
+
+func effect_only() {
+    __saw_test_suspend()
+}

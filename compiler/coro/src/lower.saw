@@ -2,7 +2,9 @@
 // a lowered item's concrete body has every frame value's place rewritten in
 // place to its slot, `(*_F).[OFFSET: T]` through the frame pointer `_F`, and
 // each suspension point becomes a point of its resume function, a park or a
-// child's drive, which the backend emits around the body's own blocks. An
+// child's drive, which the backend emits around the body's own blocks. A
+// drive's arguments and result travel through the child's slots by ordinary
+// MIR statements, so the backend's drive passes nothing. An
 // item that needs a frame and is not lowered is refused (`coro.not-yet`),
 // naming the suspension that is not, so nothing half lowered reaches the
 // backend.
@@ -12,6 +14,7 @@
 //   coro_frame_lowered
 //   coro_refuse_unlowered
 //   coro_lower_frames
+//   coro_check_drives
 
 import sawborrowck.program.{BorrowckProgram}
 import sawcoro.frames.{coro_driven_child, coro_frame_of}
@@ -19,8 +22,11 @@ import sawcoro.program.{CoroFrame, CoroPoint, CoroPointKind, CoroProgram, CoroRe
                         CoroUnloweredKind, CoroValue, CoroValueKind}
 import sawcoro.suspends.{coro_cause_chain, coro_source_label}
 import sawdrops.program.{DropsProgram}
-import sawmir.model.{MirLocal, MirLocalKind, MirPlace, MirProj, MirProjKind, MirStmtKind, MirTermKind}
+import sawmir.model.{MirAggregate, MirBlock, MirCallKind, MirConstKind, MirLocal, MirLocalKind, MirOperand,
+                     MirOperandKind, MirPlace, MirProj, MirProjKind, MirRvalue, MirRvalueKind, MirStmt, MirStmtKind,
+                     MirSwitchKind, MirTermKind}
 import sawmir.program.{MirProgram}
+import sawmono.dump.{mono_dump_layouts}
 import sawmono.program.{MonoProgram}
 import sawresolve.lang.{ResLang}
 import sawresolve.program.{ResProgram}
@@ -42,8 +48,8 @@ public static CORO_POLL_PENDING: Int = 1
 public static CORO_PARK_READY: Int = 0
 
 // Decides, for every item, whether its frame is lowered: every suspension
-// point of the frame is a shape this compiler lowers, a ready park or the
-// drive of a lowered child with no parameters and no result, and the frame
+// point of the frame is a shape this compiler lowers, a ready park, an
+// effect-only suspension or the drive of a lowered child, and the frame
 // holds nothing else it does not (an op-budget point, a borrow window, a
 // frame value an index projection reads). Children are decided before their
 // callers; once frames are found the suspending call graph is acyclic.
@@ -139,10 +145,10 @@ func coro_decide_frame(coro: &var CoroProgram, f: Int) {
     coro.lowered[frame.item] = why.what == CoroUnloweredKind.Lowered
 }
 
-// What is not lowered about suspending call `c`, or `Lowered`: a ready park and
-// the drive of a lowered child that takes nothing and returns nothing are.
+// What is not lowered about suspending call `c`, or `Lowered`: a ready park,
+// an effect-only suspension and the drive of a lowered child are.
 func coro_call_unlowered(coro: &CoroProgram, c: Int) -> CoroUnloweredKind {
-    if coro_parks_ready(&coro, c) {
+    if coro_parks_ready(&coro, c) || coro_effect_only(&coro, c) {
         return CoroUnloweredKind.Lowered
     }
     let child = coro_driven_child(&coro, c)
@@ -152,19 +158,33 @@ func coro_call_unlowered(coro: &CoroProgram, c: Int) -> CoroUnloweredKind {
     if not coro_frame_lowered(&coro, child) {
         return CoroUnloweredKind.Child
     }
-    let body = coro.mono.items[child].body
-    let info = coro.mono.dp.bc.mir.funcs[body]
-    let result = coro.mono.dp.bc.mir.locals[info.local_first].ty
-    if info.param_count > 0 || not coro.mono.dp.bc.mir.tc.is_void(result) {
-        return CoroUnloweredKind.Arguments
-    }
     CoroUnloweredKind.Lowered
 }
 
-// Whether call `c` reaches the ready park point.
+// Whether call `c` is a ready park: a call of std's ready park point, by its
+// lang role, or of the test intrinsic `__saw_suspend`.
 func coro_parks_ready(coro: &CoroProgram, c: Int) -> Bool {
+    if coro_calls_builtin(&coro, c, "__saw_suspend") {
+        return true
+    }
     let t = coro.mono.call_item(c)
     t >= 0 && coro.item_decl(t) >= 0 && coro.item_decl(t) == coro.mono.dp.bc.mir.tc.res.lang_item(ResLang.ParkReadyFunction)
+}
+
+// Whether call `c` is the test intrinsic `__saw_test_suspend`, a suspension
+// for the effects alone (design 22): it makes its caller suspend, and runs as
+// nothing, never pending.
+func coro_effect_only(coro: &CoroProgram, c: Int) -> Bool {
+    coro_calls_builtin(&coro, c, "__saw_test_suspend")
+}
+
+// Whether call `c` is a call of the builtin spelled `name`.
+func coro_calls_builtin(coro: &CoroProgram, c: Int, name: String) -> Bool {
+    if c < 0 {
+        return false
+    }
+    let info = coro.mono.dp.bc.mir.calls[c]
+    info.kind == MirCallKind.Builtin && info.spelling >= 0 && coro.mono.dp.bc.mir.tc.name_text(info.spelling).equals(name)
 }
 
 // Whether an index projection in frame `f`'s body reads a frame-resident
@@ -314,7 +334,7 @@ func coro_refuse_item(coro: &var CoroProgram, item: Int) {
     try! msg.append("`")
     try! msg.append(coro.item_label(item))
     try! msg.append("` suspends (")
-    let calls = why.what == CoroUnloweredKind.Source || why.what == CoroUnloweredKind.Child || why.what == CoroUnloweredKind.Arguments
+    let calls = why.what == CoroUnloweredKind.Source || why.what == CoroUnloweredKind.Child
     if calls {
         try! msg.append(coro_unlowered_chain(&coro, item))
     } else {
@@ -322,7 +342,6 @@ func coro_refuse_item(coro: &var CoroProgram, item: Int) {
     }
     try! msg.append("), so it needs a coroutine frame, ")
     match why.what {
-        case Arguments -> try! msg.append("and driving a child frame that takes arguments or returns a value is not lowered yet (SL-545)"),
         case Budget -> try! msg.append("and its op-budget point is not lowered yet (SL-545)"),
         case Window -> try! msg.append("and a borrow window in it is not lowered yet (SL-545)"),
         case Index -> try! msg.append("and an index read from its frame is not lowered yet (SL-545)"),
@@ -361,9 +380,10 @@ func coro_unlowered_chain(coro: &CoroProgram, item: Int) -> String {
 }
 
 // Lowers every lowered frame, once the frames are laid out: rewrites its
-// body's places to frame slots through a new frame-pointer local, and
-// records its resume function's points. A frame the target cannot lay out is
-// left for the backend, which refuses the type.
+// body's places to frame slots through a new frame-pointer local, lowers each
+// drive's arguments and result into its child's slots, and records its resume
+// function's points; then checks every drive's invariant. A frame the target
+// cannot lay out is left for the backend, which refuses the type.
 public func coro_lower_frames(coro: &var CoroProgram) {
     coro.resume_of = Vector<Int>()
     coro.resumes = Vector<CoroResume>()
@@ -382,6 +402,7 @@ public func coro_lower_frames(coro: &var CoroProgram) {
         }
         f = f + 1
     }
+    coro_check_drives(&var coro)
 }
 
 func coro_lower_frame(coro: &var CoroProgram, f: Int) {
@@ -422,16 +443,20 @@ func coro_lower_frame(coro: &var CoroProgram, f: Int) {
         let point = coro.suspends[frame.suspend_first + s]
         s = s + 1
         let block = point.block
-        if coro_parks_ready(&coro, point.call) {
+        if coro_effect_only(&coro, point.call) {
+            coro_skip_call(&var coro, frame.body, block)
+        } else if coro_parks_ready(&coro, point.call) {
             try! coro.points.push(CoroPoint(kind: CoroPointKind.ParkReady, state: s, block: block, call: point.call,
-                                            child: -1, slot: -1))
+                                            child: -1, slot: -1, dest: -1, result_block: -1))
         } else {
             let child = coro_driven_child(&coro, point.call)
             slot_at = coro_next_child_slot(&coro, &frame, slot_at)
             let slot = coro.values[frame.value_first + slot_at].offset
             slot_at = slot_at + 1
+            let drive = coro_lower_drive(&var coro, frame.body, frame_local, block, child, slot)
             try! coro.points.push(CoroPoint(kind: CoroPointKind.Drive, state: s, block: block, call: point.call,
-                                            child: child, slot: slot))
+                                            child: child, slot: slot, dest: drive.dest,
+                                            result_block: drive.result_block))
         }
     }
     let resident_first = coro.resident.len()
@@ -452,6 +477,273 @@ func coro_lower_frame(coro: &var CoroProgram, f: Int) {
     try! coro.resumes.push(CoroResume(item: frame.item, frame: f, frame_local: frame_local, point_first: point_first,
                                       point_count: point_count, resident_first: resident_first, size: frame.size,
                                       align: frame.align, result: result))
+}
+
+// Where a drive's lowering left the call's result: the place the call wrote,
+// and the block that moves it there, each -1 for a call with no destination.
+struct CoroDrive {
+    dest: Int
+    result_block: Int
+}
+
+// Lowers the call ending block `b` of function `f` into a drive of `child`,
+// whose frame is the slot at offset `slot` of the frame `_F` (local
+// `frame_local`) points at (SL:coroutines §3.1). `dest = g(args)` becomes the
+// block's statements writing each argument into its parameter slot,
+// `(*_F).[slot + P: T] = arg`, then the call, with no arguments and no
+// destination, which the drive resumes; and, on its return edge, a new block
+// `dest = move (*_F).[slot + R: T]`, the child's result moved out, then a
+// goto where the call returned. Each argument moves or copies as the call
+// passed it, so the rewrite adds no ownership operation.
+func coro_lower_drive(coro: &var CoroProgram, f: Int, frame_local: Int, b: Int, child: Int, slot: Int) -> CoroDrive {
+    let block = coro.mono.dp.bc.mir.blocks[coro.mono.dp.bc.mir.funcs[f].block_first + b]
+    let c = block.call
+    var call = coro.mono.dp.bc.mir.calls[c]
+    let cf = coro.frames[coro_frame_of(&coro, child)]
+    let child_info = coro.mono.dp.bc.mir.funcs[cf.body]
+    if call.arg_count != child_info.param_count {
+        try! coro.problems.push("a drive's call passes another number of arguments than its child has parameters")
+    }
+    var j = 0
+    while j < call.arg_count && j < child_info.param_count {
+        let o = coro.mono.dp.bc.mir.lists[call.arg_first + j]
+        j = j + 1
+        let off = coro_child_offset(&coro, &cf, CoroValueKind.Param, j)
+        let ty = coro.mono.dp.bc.mir.locals[child_info.local_first + j].ty
+        let place = coro_frame_place(&var coro, frame_local, slot + off, ty)
+        let first = coro.mono.dp.bc.mir.lists.len()
+        try! coro.mono.dp.bc.mir.lists.push(o)
+        let arg_ty = coro.mono.dp.bc.mir.operands[o].ty
+        let rv = coro_use_rvalue(&var coro, arg_ty, first)
+        coro_append_stmt(&var coro, f, b, place, rv, call.node)
+    }
+    var out = CoroDrive(dest: call.dest, result_block: -1)
+    if call.dest >= 0 && call.next >= 0 {
+        let off = coro_child_offset(&coro, &cf, CoroValueKind.Result, 0)
+        let ty = coro.mono.dp.bc.mir.locals[child_info.local_first].ty
+        let from = coro_frame_place(&var coro, frame_local, slot + off, ty)
+        let o = coro.mono.dp.bc.mir.operands.len()
+        try! coro.mono.dp.bc.mir.operands.push(MirOperand(kind: MirOperandKind.Move, place: from, ty: ty,
+                                                          const_kind: MirConstKind.Unit, text: -1))
+        let first = coro.mono.dp.bc.mir.lists.len()
+        try! coro.mono.dp.bc.mir.lists.push(o)
+        let rv = coro_use_rvalue(&var coro, ty, first)
+        let moved = coro_add_goto_block(&var coro, f, call.next, call.node)
+        coro_append_stmt(&var coro, f, moved, call.dest, rv, call.node)
+        call.next = moved
+        out.result_block = moved
+    }
+    call.arg_count = 0
+    call.dest = -1
+    coro.mono.dp.bc.mir.calls[c] = call
+    out
+}
+
+// Ends block `b` of function `f`, whose call is an effect-only suspension,
+// in a goto where the call returns, so nothing runs in its place.
+func coro_skip_call(coro: &var CoroProgram, f: Int, b: Int) {
+    let at = coro.mono.dp.bc.mir.funcs[f].block_first + b
+    var block = coro.mono.dp.bc.mir.blocks[at]
+    let next = coro.mono.dp.bc.mir.calls[block.call].next
+    if next < 0 {
+        block.term = MirTermKind.Unreachable
+    } else {
+        block.term = MirTermKind.Goto
+        block.target = next
+    }
+    block.call = -1
+    coro.mono.dp.bc.mir.blocks[at] = block
+}
+
+// The offset in child frame `cf` of its value of kind `kind` for local `l`.
+func coro_child_offset(coro: &CoroProgram, cf: &CoroFrame, kind: CoroValueKind, l: Int) -> Int {
+    var k = 0
+    while k < cf.value_count {
+        let v = coro.values[cf.value_first + k]
+        if v.kind == kind && v.local == l {
+            return v.offset
+        }
+        k = k + 1
+    }
+    return -1
+}
+
+// A new place, the frame slot `(*_F).[offset: T]` through local
+// `frame_local`.
+func coro_frame_place(coro: &var CoroProgram, frame_local: Int, offset: Int, ty: Int) -> Int {
+    let word = coro.mono.dp.bc.mir.tc.int_type()
+    let first = coro.mono.dp.bc.mir.projs.len()
+    try! coro.mono.dp.bc.mir.projs.push(MirProj(kind: MirProjKind.Deref, decl: -1, index: -1, ty: word))
+    try! coro.mono.dp.bc.mir.projs.push(MirProj(kind: MirProjKind.FrameSlot, decl: -1, index: offset, ty: ty))
+    let at = coro.mono.dp.bc.mir.places.len()
+    try! coro.mono.dp.bc.mir.places.push(MirPlace(local: frame_local, static_decl: -1, first: first, count: 2,
+                                                  ty: ty))
+    at
+}
+
+// A new rvalue using the one operand at `lists[first]`, of type `ty`.
+func coro_use_rvalue(coro: &var CoroProgram, ty: Int, first: Int) -> Int {
+    let at = coro.mono.dp.bc.mir.rvalues.len()
+    try! coro.mono.dp.bc.mir.rvalues.push(MirRvalue(kind: MirRvalueKind.Use, ty: ty, op: -1, exclusive: false,
+                                                    place: -1, first: first, count: 1,
+                                                    aggregate: MirAggregate.Plain, decl: -1, flag: -1))
+    at
+}
+
+// Appends `place = rvalue` to block `b` of function `f`, carrying source node
+// `node`.
+func coro_append_stmt(coro: &var CoroProgram, f: Int, b: Int, place: Int, rv: Int, node: Int) {
+    let s = coro.mono.dp.bc.mir.stmts.len()
+    try! coro.mono.dp.bc.mir.stmts.push(MirStmt(kind: MirStmtKind.Assign, place: place, rvalue: rv, yields: false,
+                                                next: -1, node: node, closing: false))
+    let at = coro.mono.dp.bc.mir.funcs[f].block_first + b
+    var block = coro.mono.dp.bc.mir.blocks[at]
+    if block.first < 0 {
+        block.first = s
+    } else {
+        var prev = coro.mono.dp.bc.mir.stmts[block.last]
+        prev.next = s
+        coro.mono.dp.bc.mir.stmts[block.last] = prev
+    }
+    block.last = s
+    coro.mono.dp.bc.mir.blocks[at] = block
+}
+
+// Gives function `f` one more block, empty and ending in a goto to block
+// `target`, and returns its number; its blocks move to a fresh run of the
+// arena, numbered as before, since the run after them is another
+// function's.
+func coro_add_goto_block(coro: &var CoroProgram, f: Int, target: Int, node: Int) -> Int {
+    var info = coro.mono.dp.bc.mir.funcs[f]
+    let first = coro.mono.dp.bc.mir.blocks.len()
+    var b = 0
+    while b < info.block_count {
+        let block = coro.mono.dp.bc.mir.blocks[info.block_first + b]
+        try! coro.mono.dp.bc.mir.blocks.push(block)
+        b = b + 1
+    }
+    try! coro.mono.dp.bc.mir.blocks.push(MirBlock(first: -1, last: -1, term: MirTermKind.Goto, target: target,
+                                                  switch_kind: MirSwitchKind.Bool, operand: -1, place: -1,
+                                                  arm_first: 0, arm_count: 0, otherwise: -1, call: -1,
+                                                  term_node: node, term_closing: false))
+    let made = info.block_count
+    info.block_first = first
+    info.block_count = info.block_count + 1
+    coro.mono.dp.bc.mir.funcs[f] = info
+    made
+}
+
+// The structural invariant of every lowered drive: its call carries no
+// arguments and no destination; its block writes each of the child's
+// parameter slots exactly once, `(*_F).[slot + P: T] = ...`; and when the
+// call had a destination, the block it returns to is the move-out, `dest =
+// move (*_F).[slot + R: T]` then a goto. The slots are read from the child's
+// frame, not from the lowering. A broken one is an `INVARIANT` line.
+public func coro_check_drives(coro: &var CoroProgram) {
+    var r = 0
+    while r < coro.resumes.len() {
+        let resume = coro.resumes[r]
+        r = r + 1
+        let frame = coro.frames[resume.frame]
+        var j = 0
+        while j < resume.point_count {
+            let point = coro.points[resume.point_first + j]
+            j = j + 1
+            if point.kind == CoroPointKind.Drive {
+                coro_check_drive(&var coro, frame.item, frame.body, resume.frame_local, &point)
+            }
+        }
+    }
+}
+
+func coro_check_drive(coro: &var CoroProgram, item: Int, f: Int, frame_local: Int, point: &CoroPoint) {
+    let info = coro.mono.dp.bc.mir.funcs[f]
+    let block = coro.mono.dp.bc.mir.blocks[info.block_first + point.block]
+    let call = coro.mono.dp.bc.mir.calls[point.call]
+    let cf = coro.frames[coro_frame_of(&coro, point.child)]
+    let child_info = coro.mono.dp.bc.mir.funcs[cf.body]
+    if call.arg_count != 0 || call.dest >= 0 {
+        coro_drive_problem(&var coro, item, &point, "its call still carries arguments or a destination")
+    }
+    var l = 1
+    while l <= child_info.param_count {
+        let off = point.slot + coro_child_offset(&coro, &cf, CoroValueKind.Param, l)
+        var writes = 0
+        var s = block.first
+        while s >= 0 {
+            let stmt = coro.mono.dp.bc.mir.stmts[s]
+            s = stmt.next
+            if stmt.kind == MirStmtKind.Assign && coro_is_frame_slot(&coro, stmt.place, frame_local, off) {
+                writes = writes + 1
+            }
+        }
+        if writes != 1 {
+            var what = StringBuilder()
+            try! what.append("parameter _")
+            try! what.append(l)
+            try! what.append("'s slot (*frame).[")
+            try! what.append(off)
+            try! what.append("] is written ")
+            try! what.append(writes)
+            try! what.append(" times in bb")
+            try! what.append(point.block)
+            try! what.append(", not once")
+            coro_drive_problem(&var coro, item, &point, what.build())
+        }
+        l = l + 1
+    }
+    if point.dest < 0 {
+        return
+    }
+    let off = point.slot + coro_child_offset(&coro, &cf, CoroValueKind.Result, 0)
+    var moves = point.result_block >= 0 && call.next == point.result_block
+    if moves {
+        let after = coro.mono.dp.bc.mir.blocks[info.block_first + point.result_block]
+        moves = after.term == MirTermKind.Goto && after.first >= 0 && after.first == after.last
+        if moves {
+            let stmt = coro.mono.dp.bc.mir.stmts[after.first]
+            moves = stmt.kind == MirStmtKind.Assign && stmt.place == point.dest && stmt.rvalue >= 0
+            if moves {
+                let rv = coro.mono.dp.bc.mir.rvalues[stmt.rvalue]
+                moves = rv.kind == MirRvalueKind.Use && rv.count == 1
+                if moves {
+                    let o = coro.mono.dp.bc.mir.operands[coro.mono.dp.bc.mir.lists[rv.first]]
+                    moves = o.kind == MirOperandKind.Move && coro_is_frame_slot(&coro, o.place, frame_local, off)
+                }
+            }
+        }
+    }
+    if not moves {
+        coro_drive_problem(&var coro, item, &point, "the block its call returns to does not move the child's result out into the call's destination")
+    }
+}
+
+// Whether place `p` is the frame slot `(*_F).[offset: T]` through local
+// `frame_local`, with no step after it.
+func coro_is_frame_slot(coro: &CoroProgram, p: Int, frame_local: Int, offset: Int) -> Bool {
+    if p < 0 {
+        return false
+    }
+    let place = coro.mono.dp.bc.mir.places[p]
+    if place.local != frame_local || place.count != 2 {
+        return false
+    }
+    let deref = coro.mono.dp.bc.mir.projs[place.first]
+    let step = coro.mono.dp.bc.mir.projs[place.first + 1]
+    deref.kind == MirProjKind.Deref && step.kind == MirProjKind.FrameSlot && step.index == offset
+}
+
+func coro_drive_problem(coro: &var CoroProgram, item: Int, point: &CoroPoint, what: String) {
+    var msg = StringBuilder()
+    try! msg.append("`")
+    try! msg.append(coro.mono.item_name(item))
+    try! msg.append("`'s drive of `")
+    try! msg.append(coro.mono.item_name(point.child))
+    try! msg.append("` at state ")
+    try! msg.append(point.state)
+    try! msg.append(": ")
+    try! msg.append(what)
+    try! coro.problems.push(msg.build())
 }
 
 // The index in `frame`'s values of its first child slot from `from` on.

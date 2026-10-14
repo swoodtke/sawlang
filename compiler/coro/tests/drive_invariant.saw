@@ -1,0 +1,118 @@
+// Each lowered drive writes every one of its child's parameter slots exactly
+// once in the call's block (compiler/tests/coro/README.md, "Lowering"). The
+// golden `drive_arguments` is lowered and found clean; then the write of one
+// parameter slot is unlinked from its block, and the drive check must report
+// that slot as written no times. Paths are the repository root's, where the
+// runner runs.
+import sawcoro.api.{coro_lower_file, coro_lower_for}
+import sawcoro.lower.{coro_check_drives}
+import sawcoro.program.{CoroPointKind, CoroProgram}
+import sawmir.model.{MirProjKind}
+import sawmono.dump.{mono_dump_layouts}
+
+// Whether `text` holds `word` at some byte.
+func holds(text: &String, word: String) -> Bool {
+    let n = text.len()
+    let w = word.len()
+    var at = 0
+    while at + w <= n {
+        var k = 0
+        while k < w && text.byte_at(at + k) == word.byte_at(k) {
+            k = k + 1
+        }
+        if k == w {
+            return true
+        }
+        at = at + 1
+    }
+    false
+}
+
+// The index of the lowered drive point whose child's name holds `name`, or -1.
+func drive_of(coro: &CoroProgram, name: String) -> Int {
+    var k = 0
+    while k < coro.points.len() {
+        let point = coro.points[k]
+        if point.kind == CoroPointKind.Drive {
+            let child = coro.mono.item_name(point.child)
+            if holds(&child, name) {
+                return k
+            }
+        }
+        k = k + 1
+    }
+    return -1
+}
+
+// Unlinks from point `k`'s block the first statement writing a slot inside
+// the child's frame, its first parameter's, and returns whether one was
+// found.
+func unlink_first_slot_write(coro: &var CoroProgram, k: Int) -> Bool {
+    let point = coro.points[k]
+    let owner = owner_of(&coro, k)
+    let r = coro.resume_of[owner]
+    let resume = coro.resumes[r]
+    let f = coro.frames[resume.frame].body
+    let at = coro.mono.dp.bc.mir.funcs[f].block_first + point.block
+    var block = coro.mono.dp.bc.mir.blocks[at]
+    var prev = -1
+    var s = block.first
+    while s >= 0 {
+        let stmt = coro.mono.dp.bc.mir.stmts[s]
+        let place = coro.mono.dp.bc.mir.places[stmt.place]
+        let step = coro.mono.dp.bc.mir.projs[place.first + place.count - 1]
+        let slot = place.local == resume.frame_local && place.count == 2 && step.kind == MirProjKind.FrameSlot
+        if slot && step.index >= point.slot {
+            if prev < 0 {
+                block.first = stmt.next
+            } else {
+                var before = coro.mono.dp.bc.mir.stmts[prev]
+                before.next = stmt.next
+                coro.mono.dp.bc.mir.stmts[prev] = before
+            }
+            if block.last == s {
+                block.last = prev
+            }
+            coro.mono.dp.bc.mir.blocks[at] = block
+            return true
+        }
+        prev = s
+        s = stmt.next
+    }
+    false
+}
+
+// The item whose resume function holds point `k`.
+func owner_of(coro: &CoroProgram, k: Int) -> Int {
+    var r = 0
+    while r < coro.resumes.len() {
+        let resume = coro.resumes[r]
+        if k >= resume.point_first && k < resume.point_first + resume.point_count {
+            return resume.item
+        }
+        r = r + 1
+    }
+    return -1
+}
+
+func main() {
+    let names = Vector<String>()
+    let dirs = Vector<String>()
+    var front = StringBuilder()
+    var coro = coro_lower_file(out: &var front, path: "compiler/tests/coro/golden/drive_arguments.saw",
+                               std_root: "std", notes: false, names: &names, dirs: &dirs)
+    assert(not coro.blocked && coro.diags.len() == 0, "the golden is refused: run from the repository root")
+    var target = coro.mono.target_for("arm64-apple-darwin")
+    coro_lower_for(&var coro, &var target)
+    // Stage 0 workaround (SL:hazards S23): canonical: assert(coro.problems.len() == 0, "the golden's lowering is not clean: {}", coro.problems.get(0) ?? "")
+    let first = coro.problems.get(0) ?? ""
+    assert(coro.problems.len() == 0, "the golden's lowering is not clean: {}", first)
+    let k = drive_of(&coro, "label")
+    assert(k >= 0, "the golden has no drive of `label`")
+    assert(unlink_first_slot_write(&var coro, k), "the drive of `label` writes no frame slot in its block")
+    coro_check_drives(&var coro)
+    assert(coro.problems.len() == 1, "the drive check reports {} problems, not one", coro.problems.len())
+    let found = coro.problems.get(0) ?? ""
+    assert(holds(&found, "parameter _1's slot"), "the drive check does not name the slot: {}", found)
+    assert(holds(&found, "is written 0 times"), "the drive check does not say the slot is unwritten: {}", found)
+}

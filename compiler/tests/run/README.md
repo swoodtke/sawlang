@@ -263,13 +263,16 @@ description's (`compiler/tests/mono/README.md`, "Layouts").
 
 **Suspension.** The backend's input is coroutine lowering's program
 (`compiler/tests/coro/README.md`), which lowers the frames whose every
-suspension is a ready park or the drive of a lowered child, and refuses every
+suspension is a ready park, an effect-only test suspension or the drive of a
+lowered child, and refuses every
 other item that needs a frame (`coro.not-yet`) and every suspending cycle
 (`coro.suspending-cycle`), so every suspending call that reaches the backend
 is a lowered point, and none is emitted as a plain call that blocks the
 thread. Every op-budget point that reaches it is outside a frame, and writes
 nothing. `yield_main` is the walking skeleton, a suspending `main` the entry
-executor drives; `coro_conservative_generic_instance_not_promoted`,
+executor drives; `drive_arguments` drives children that take arguments and
+return values, and `drive_test_suspensions` parks through `__saw_suspend`
+and `__saw_test_suspend`; `coro_conservative_generic_instance_not_promoted`,
 `crossmodule_embed_annotation_positions` and `crossmodule_embed_type_identity`
 are corpus programs whose `main` yields (the last two with their packages
 under `modules/`). The due programs `suspend_blocking_main`, `suspend_cycle`,

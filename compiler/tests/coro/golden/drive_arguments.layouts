@@ -1,0 +1,32 @@
+frame #0: drive_arguments.main()  (size 120 align 8)
+    suspend 1: bb0 call inner
+    suspend 2: bb1 call label
+    suspend 3: bb3 call effect_only
+    (*frame).[0: Int]  size 8 align 8  state
+    (*frame).[8: Void]  size 0 align 1  _0 result
+    (*frame).[8: Int]  size 8 align 8  _1 n  (across 2 3)
+    (*frame).[16: String]  size 8 align 8  _3 s  (across 3)
+    (*frame).[24: frame drive_arguments.inner(a: Int)]  size 32 align 8  child  (across 1)
+    (*frame).[56: frame drive_arguments.label(prefix: String, p: drive_arguments.Point)]  size 40 align 8  child  (across 2)
+    (*frame).[96: frame drive_arguments.effect_only(n: Int)]  size 24 align 8  child  (across 3)
+    stack: _2 _4 _5 _6 _7
+frame #5: drive_arguments.inner(a: Int)  (size 32 align 8)
+    suspend 1: bb0 call __saw_suspend
+    (*frame).[0: Int]  size 8 align 8  state
+    (*frame).[8: Int]  size 8 align 8  _0 result
+    (*frame).[16: Int]  size 8 align 8  _1 param a  (across 1)
+    (*frame).[24: Int]  size 8 align 8  _2 x  (across 1)
+    stack: _3 _4
+frame #6: drive_arguments.label(prefix: String, p: drive_arguments.Point)  (size 40 align 8)
+    suspend 1: bb0 call __saw_suspend
+    (*frame).[0: Int]  size 8 align 8  state
+    (*frame).[8: String]  size 8 align 8  _0 result
+    (*frame).[16: String]  size 8 align 8  _1 param prefix  (across 1)
+    (*frame).[24: drive_arguments.Point]  size 16 align 8  _2 param p  (across 1)
+    stack: _3 _4
+frame #7: drive_arguments.effect_only(n: Int)  (size 24 align 8)
+    suspend 1: bb0 call __saw_test_suspend
+    (*frame).[0: Int]  size 8 align 8  state
+    (*frame).[8: Int]  size 8 align 8  _0 result
+    (*frame).[16: Int]  size 8 align 8  _1 param n  (across 1)
+    stack: _2

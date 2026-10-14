@@ -320,6 +320,7 @@ through a reference to stay a reported move.
 | `print("x = {}", x)`, `panic`'s and `assert`'s format messages | a `format` constant, the arguments after it; `"x = {x}"` an `interpolate` | formats |
 | `lend p` | the end of the accessor's prologue, the start of its epilogue | windows, accessors |
 | a call of a function that may suspend | a suspension point, conditional in a generic body | points |
+| a call of a test intrinsic that suspends, `__saw_suspend` or `__saw_test_suspend` | a builtin call that is a suspension point, as typecheck's summaries make it | test_intrinsics |
 
 **Optional heads** (`open_head` in `compiler/mir/src/lower.saw`, whose
 docstring lists its entry points: `if let`, `guard let`, `while let`). The
