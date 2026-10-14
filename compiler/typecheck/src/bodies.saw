@@ -136,6 +136,7 @@ extension TcProgram {
             try! self.nonescaping_bindings.push(false)
             try! self.res_call_at.push(-1)
             try! self.string_positions.push(-1)
+            try! self.implied_copies.push(-1)
             k = k + 1
         }
         k = 0
@@ -704,6 +705,8 @@ extension TcProgram {
     //     arg_value_type (an argument's type, as inference reads it)
     //     tuple_expr, array_expr, repeat_expr, map_expr, set_expr (an element
     //         with nothing expected)
+    //     coalesce_expr (a `??`'s left operand)
+    //     cell_construct (a cell's value with nothing expected)
     //     check_tail, arm_body (a block's or an arm's value with nothing
     //         expected: a value `if`'s or `match`'s arm)
     public func read_value(&var self, e: Int) -> Int {
@@ -1226,6 +1229,7 @@ extension TcProgram {
     //     check_payload
     //     check_compound_value
     //     check_element
+    //     repeat_expr
     //     check_closure_tail
     //     check_operand
     //     check_compared
@@ -2361,19 +2365,27 @@ extension TcProgram {
         if e < 0 || self.expr_use[e] != TcUse.Unused {
             return
         }
-        if self.has_alt(e, Alt.Expr_Move_Place) || self.has_alt(e, Alt.Expr_MoveDeref_Name) || self.has_alt(e, Alt.Expr_MoveDeref_Self) {
-            self.set_use(e, TcUse.Move)
+        let u = self.by_value_use(e)
+        self.set_use(e, u)
+        if u != TcUse.Copy {
             return
         }
-        if not self.expr_place[e] {
-            self.set_use(e, TcUse.Temp)
-            return
-        }
-        self.set_use(e, TcUse.Copy)
         let t = self.read_type(e)
         if not self.copies_silently(t) {
             self.refuse_implicit_copy(e, t)
         }
+    }
+
+    // The use a by-value read of expression `e` records: a `Move`, a `Temp`
+    // or a `Copy` of a place.
+    func by_value_use(&self, e: Int) -> TcUse {
+        if self.has_alt(e, Alt.Expr_Move_Place) || self.has_alt(e, Alt.Expr_MoveDeref_Name) || self.has_alt(e, Alt.Expr_MoveDeref_Self) {
+            return TcUse.Move
+        }
+        if not self.expr_place[e] {
+            return TcUse.Temp
+        }
+        TcUse.Copy
     }
 
     // The type a copy of place `e` duplicates: its own, read through each
@@ -3881,8 +3893,10 @@ extension TcProgram {
         }
         let first = operands[0]
         let _ = self.expr(first, TC_WANT_NONE)
+        // Read through a reference before the copy check, which must see the
+        // referent's tier, not the reference's.
+        let ft = self.read_value(first)
         self.consume(first)
-        let ft = self.through_refs(first)
         if self.has_error(ft) || not self.is_optional(ft) {
             if not self.has_error(ft) {
                 self.refuse_operand(first, "`??` takes an Optional on its left", ft)
@@ -4568,7 +4582,11 @@ extension TcProgram {
         self.set_type(e, result, false)
     }
 
-    // `[v; N]`: a fixed array of `N` copies of `v`.
+    // `[v; N]`: a fixed array of `N` copies of `v`. The copies are made with
+    // nowhere to write a `.copy()`, so the element must copy silently
+    // whatever `v` is, a temporary included (spec, Composite Types). Once
+    // that is refused, the read of `v` is recorded unchecked, since a place
+    // read's own refusal would offer a `move` the repeat still refuses.
     func repeat_expr(&var self, e: Int, want: Int) -> Int {
         let value = self.res.first_node_child(e)
         let count = self.res.last_node_child(e)
@@ -4580,11 +4598,21 @@ extension TcProgram {
             }
         }
         if element >= 0 {
-            self.check_element(value, element)
+            let refused = self.check_repeat_element(e, value, element)
+            let _ = self.expect(value, element, TcPosition.Element, refused)
+            if refused {
+                let u = self.by_value_use(value)
+                self.set_use(value, u)
+            }
         } else {
             let _ = self.expr(value, TC_WANT_NONE)
             element = self.read_value(value)
-            self.consume(value)
+            if self.check_repeat_element(e, value, element) {
+                let u = self.by_value_use(value)
+                self.set_use(value, u)
+            } else {
+                self.consume(value)
+            }
         }
         // The count is an `Int` expression of the body, and a constant the
         // array's type folds.
@@ -4594,6 +4622,35 @@ extension TcProgram {
         let length = self.build_const(count)
         let t = self.mk_array(element, length)
         self.set_type(e, t, false)
+    }
+
+    // Whether repeat literal `e`'s element type `t`, read from `value`, is
+    // refused: it is unless it copies silently. In a generic body a type
+    // parameter's copy is design 219's inferred requirement, an implied copy
+    // at the literal, since the value's one read alone would settle as a move.
+    func check_repeat_element(&var self, e: Int, value: Int, t: Int) -> Bool {
+        if t < 0 || self.has_error(t) {
+            return false
+        }
+        if self.copies_silently(t) {
+            if self.mentions_param(t) {
+                self.implied_copies[e] = t
+            }
+            return false
+        }
+        var msg = StringBuilder()
+        try! msg.append("a repeat literal needs a freely copyable element, and `")
+        try! msg.append(self.type_text(t))
+        try! msg.append("` is ")
+        let tier = self.established_tier(t)
+        if tier.len() > 0 {
+            try! msg.append(tier)
+        } else {
+            try! msg.append("made `Copy` by no bound in scope")
+        }
+        try! msg.append(": write the elements out, or build the array from a Copy value")
+        self.refuse(value, "transfer.implicit-copy", msg.build())
+        true
     }
 
     // A map literal, `{k: v}` or `{:}`: a `Map`'s keys and values.
@@ -6760,8 +6817,10 @@ extension TcProgram {
             self.check_argument(v, payload)
         } else {
             let _ = self.expr(v, TC_WANT_NONE)
+            // Read through a reference before the copy check, which must see
+            // the referent's tier, not the reference's.
+            payload = self.read_value(v)
             self.consume(v)
-            payload = self.through_refs(v)
         }
         if self.has_error(payload) {
             let bad = self.error_type
@@ -9201,14 +9260,8 @@ extension TcProgram {
     // accessor's place is `borrowing.sigil-place`.
     func check_plain_subscript_reads(&var self, parents: &Vector<Int>) {
         let n = self.res.nodes.len()
-        self.implied_copies = Vector<Int>()
-        var k = 0
-        while k < n {
-            try! self.implied_copies.push(-1)
-            k = k + 1
-        }
         let skipped = self.outside_slice_marks(n)
-        k = 0
+        var k = 0
         while k < self.calls.len() {
             let c = self.calls[k]
             k = k + 1

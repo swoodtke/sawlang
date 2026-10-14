@@ -1,0 +1,18 @@
+// refuses: transfer.implicit-copy at 16:28
+// a repeat literal of a NoCopy temporary at an annotated array, the element
+// taken from the slot (SL-612)
+
+struct Handle {
+    n: Int
+}
+
+extension Handle: NoCopy {}
+
+func make() -> Handle {
+    Handle(n: 1)
+}
+
+func main() {
+    let hs: [Handle; 3] = [make(); 3]
+    print(hs[0].n)
+}

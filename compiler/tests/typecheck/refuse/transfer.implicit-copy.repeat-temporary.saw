@@ -1,0 +1,19 @@
+// refuses: transfer.implicit-copy at 17:15
+// a repeat literal of a NoCopy temporary: the literal makes its copies with
+// nowhere to write a `.copy()`, so its element must copy silently (spec,
+// Composite Types; SL-612)
+
+struct Handle {
+    n: Int
+}
+
+extension Handle: NoCopy {}
+
+func make() -> Handle {
+    Handle(n: 1)
+}
+
+func main() {
+    let hs = [make(); 3]
+    print(hs[0].n)
+}

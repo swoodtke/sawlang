@@ -1,0 +1,21 @@
+// refuses: transfer.implicit-copy at 16:35
+// a cell constructed from a reference to a NoCopy value copies the referent
+// into the cell (SL-612)
+
+struct Handle {
+    n: Int
+}
+
+extension Handle: NoCopy {}
+
+func make() -> Handle {
+    Handle(n: 1)
+}
+
+func wrap(r: &Handle) unsafe -> UnsafeMutableInterior<Handle> {
+    let c = UnsafeMutableInterior(r)
+    move c
+}
+
+func main() {
+}

@@ -1,0 +1,51 @@
+// The copies a repeat literal, a `??` and a cell constructor make, accepted
+// where the element, the optional or the referent copies silently: a Copy
+// struct, an integer and a `String`, a type parameter at `Int`, read through
+// a reference where one is given. The refusals beside it are
+// `transfer.implicit-copy.repeat-*`, `-coalesce-*`, `-cell-reference` and
+// `copy.requirement.repeat` (SL-612).
+
+struct Point {
+    x: Int
+}
+
+func three<T>(f: () -> T) -> [T; 3] {
+    [f(); 3]
+}
+
+func twice<T>(x: T) -> [T; 2] {
+    [x; 2]
+}
+
+func repeats() -> Int {
+    let a = [Point(x: 1); 3]
+    let b = [0; 4]
+    let p = Point(x: 2)
+    let c = [p; 2]
+    let d: [Point; 2] = [p; 2]
+    let s = ["a"; 2]
+    let e = three(f: { 5 })
+    let f = twice(x: p)
+    a[0].x + b[0] + c[1].x + d[0].x + s[1].len() + e[2] + f[1].x
+}
+
+func pick(o: &Int?) -> Int {
+    o ?? 5
+}
+
+func pick_point(o: &var Point?) -> Point {
+    o ?? Point(x: 0)
+}
+
+func wrap(r: &Int) unsafe -> UnsafeMutableInterior<Int> {
+    let c = UnsafeMutableInterior(r)
+    move c
+}
+
+func counter(r: &Int) -> Atomic<Int> {
+    let a = Atomic(r)
+    move a
+}
+
+func main() {
+}

@@ -1,0 +1,9 @@
+// refuses: transfer.implicit-copy at 5:5
+// `??` through a reference to an optional of an ExplicitCopy payload (SL-612)
+
+func pick(o: &Vector<Int>?) -> Vector<Int> {
+    o ?? Vector<Int>()
+}
+
+func main() {
+}

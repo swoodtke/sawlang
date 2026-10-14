@@ -1,0 +1,20 @@
+// refuses: transfer.implicit-copy at 16:5
+// `??` through an exclusive reference to an optional copies the referent
+// all the same; `take()` is the way to move its payload out (SL-612)
+
+struct Handle {
+    n: Int
+}
+
+extension Handle: NoCopy {}
+
+func make() -> Handle {
+    Handle(n: 1)
+}
+
+func pick(o: &var Handle?) -> Handle {
+    o ?? make()
+}
+
+func main() {
+}

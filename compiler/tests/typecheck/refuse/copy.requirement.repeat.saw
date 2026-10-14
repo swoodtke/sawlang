@@ -1,0 +1,23 @@
+// refuses: copy.requirement at 21:14
+// a repeat literal of a type parameter's value copies it, design 219's
+// inferred Copy requirement, so a call at a NoCopy type is refused, though
+// the body reads the value once (SL-612)
+
+struct Handle {
+    n: Int
+}
+
+extension Handle: NoCopy {}
+
+func make() -> Handle {
+    Handle(n: 1)
+}
+
+func three<T>(f: () -> T) -> [T; 3] {
+    [f(); 3]
+}
+
+func main() {
+    let hs = three(f: { make() })
+    print(hs[0].n)
+}

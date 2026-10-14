@@ -1,0 +1,20 @@
+// refuses: transfer.implicit-copy at 16:5
+// `??` through a shared reference to an optional copies the referent, which
+// the copy check sees once the read is through the reference (SL-612)
+
+struct Handle {
+    n: Int
+}
+
+extension Handle: NoCopy {}
+
+func make() -> Handle {
+    Handle(n: 1)
+}
+
+func pick(o: &Handle?) -> Handle {
+    o ?? make()
+}
+
+func main() {
+}

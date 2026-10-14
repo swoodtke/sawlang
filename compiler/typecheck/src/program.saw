@@ -255,8 +255,9 @@ public struct TcProgram {
     // Keyed by node id: the type a position copies though no transfer
     // records the copy, or -1; in a generic body it owes design 219's
     // inferred Copy requirement (D27): a plain subscript read where its
-    // position keeps nothing (`check_plain_subscript_reads`), and a closure's
-    // silent by-value capture, `[x]` or implicit, at creation (`add_capture`).
+    // position keeps nothing (`check_plain_subscript_reads`), a closure's
+    // silent by-value capture, `[x]` or implicit, at creation (`add_capture`),
+    // and a repeat literal's copies of its element (`check_repeat_element`).
     implied_copies: Vector<Int>
     // Every `Atomic<X>` type formed at an `X` other than `Int`, whether
     // written, inferred or substituted (`mk_nominal`), which the atomic role

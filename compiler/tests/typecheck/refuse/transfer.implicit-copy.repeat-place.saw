@@ -1,0 +1,19 @@
+// refuses: transfer.implicit-copy at 17:15
+// a repeat literal of a NoCopy place, refused once, as the repeat: a `move`
+// of the place would be refused all the same (SL-612)
+
+struct Handle {
+    n: Int
+}
+
+extension Handle: NoCopy {}
+
+func make() -> Handle {
+    Handle(n: 1)
+}
+
+func main() {
+    let h = make()
+    let hs = [h; 2]
+    print(hs[0].n)
+}

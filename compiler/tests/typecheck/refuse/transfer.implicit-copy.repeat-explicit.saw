@@ -1,0 +1,8 @@
+// refuses: transfer.implicit-copy at 6:15
+// a repeat literal of an ExplicitCopy temporary, the spec's own example
+// (spec, Composite Types; SL-612)
+
+func main() {
+    let vs = [Vector<Int>(); 2]
+    print(vs[0].len())
+}
