@@ -42,11 +42,11 @@ extension ResProgram {
         if alt == Alt.Decl_Import_Private || alt == Alt.Decl_Import_Reexport {
             self.collect_import(item, test_only)
         } else if res_is_decl_item(alt) {
-            self.collect_declaration(item, item, test_only)
+            self.collect_declaration(item, test_only)
         } else if alt == Alt.Test_Declaration_Item {
             let inner = self.last_node_child(item)
             if inner >= 0 {
-                self.collect_declaration(inner, item, true)
+                self.collect_declaration(inner, true)
             }
         } else if alt == Alt.Test_Declaration_Import {
             let inner = self.last_node_child(item)
@@ -212,9 +212,11 @@ extension ResProgram {
         d
     }
 
-    // A Declaration node (or a test-only one), whose own declaration is its
-    // last child.
-    func collect_declaration(&var self, outer: Int, holder: Int, test_only: Bool) {
+    // A Declaration node, whose own declaration is its last child. The
+    // Declaration is recorded as `outer` under `@test` too, never the TestOnly
+    // item around it, since its attributes are the Declaration's children
+    // (`decl_attribute`).
+    func collect_declaration(&var self, outer: Int, test_only: Bool) {
         let inner = self.last_node_child(outer)
         if inner < 0 {
             return
@@ -227,22 +229,22 @@ extension ResProgram {
         // declaration's first leaf.
         let name_leaf = if alt == Alt.Decl_Struct { self.leading_name_leaf(inner) } else { self.first_leaf(inner) }
         if alt == Alt.Decl_Func {
-            let _ = self.add_top(ResDeclKind.Func, name_leaf, inner, holder, vis, test_only)
+            let _ = self.add_top(ResDeclKind.Func, name_leaf, inner, outer, vis, test_only)
         } else if alt == Alt.Decl_Static_Immutable || alt == Alt.Decl_Static_UnsafeVar {
-            let _ = self.add_top(ResDeclKind.Static, name_leaf, inner, holder, vis, test_only)
+            let _ = self.add_top(ResDeclKind.Static, name_leaf, inner, outer, vis, test_only)
         } else if alt == Alt.Decl_TypeAlias {
-            let _ = self.add_top(ResDeclKind.Alias, name_leaf, inner, holder, vis, test_only)
+            let _ = self.add_top(ResDeclKind.Alias, name_leaf, inner, outer, vis, test_only)
         } else if alt == Alt.Decl_Struct {
-            let d = self.add_top(ResDeclKind.Struct, name_leaf, inner, holder, vis, test_only)
+            let d = self.add_top(ResDeclKind.Struct, name_leaf, inner, outer, vis, test_only)
             self.collect_fields(inner, d, vis, test_only)
         } else if alt == Alt.Decl_Enum {
-            let d = self.add_top(ResDeclKind.Enum, name_leaf, inner, holder, vis, test_only)
+            let d = self.add_top(ResDeclKind.Enum, name_leaf, inner, outer, vis, test_only)
             self.collect_cases(inner, d, vis, test_only)
         } else if alt == Alt.Decl_Trait {
-            let d = self.add_top(ResDeclKind.Trait, name_leaf, inner, holder, vis, test_only)
+            let d = self.add_top(ResDeclKind.Trait, name_leaf, inner, outer, vis, test_only)
             self.collect_trait_members(inner, d, vis, test_only)
         } else if alt == Alt.Decl_Extension {
-            let d = self.add_decl(ResDeclKind.Extension, -1, inner, holder, inner, ResVis.Private,
+            let d = self.add_decl(ResDeclKind.Extension, -1, inner, outer, inner, ResVis.Private,
                                   -1, test_only, false)
             self.collect_extension_members(inner, d, test_only)
         } else if alt == Alt.Decl_ExternBlock {

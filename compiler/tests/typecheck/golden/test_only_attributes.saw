@@ -1,0 +1,41 @@
+// A declaration written after `@test` keeps its attributes (SL-631): each one
+// here is read as it is read on the same declaration inside an `@test { }`
+// group, its control beside it.
+
+struct Money {
+    cents: Int
+}
+
+struct Price {
+    cents: Int
+}
+
+@test
+@synthesize extension Money: Equatable {}
+
+@test {
+    @synthesize extension Price: Equatable {}
+}
+
+@test
+@export("sl631_alone") func alone() -> Int32 {
+    7
+}
+
+@test {
+    @export("sl631_grouped") func grouped() -> Int32 {
+        8
+    }
+}
+
+@test
+@align(64) static ALONE: Int = 1
+
+@test {
+    @align(32) static GROUPED: Int = 2
+}
+
+@test "a synthesized conformance under @test compares" {
+    assert(Money(cents: 3) == Money(cents: 3))
+    assert(Price(cents: 3) == Price(cents: 3))
+}

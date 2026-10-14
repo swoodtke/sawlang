@@ -1,0 +1,52 @@
+(Module test_only_attributes
+  (declarations
+    (struct Money 5:8 private)
+    (field Money.cents 6:5 private Int)
+    (struct Price 9:8 private)
+    (field Price.cents 10:5 private Int)
+    (extension 14:13 (target test_only_attributes.Money) (conforms Equatable) synthesize)
+    (extension 17:17 (target test_only_attributes.Price) (conforms Equatable) synthesize)
+    (func alone 21:29 private (signature (params) -> Int32) (summary body (suspends no) (sync-callable yes)))
+    (func grouped 26:35 private (signature (params) -> Int32) (summary body (suspends no) (sync-callable yes)))
+    (static ALONE 32:19 private Int)
+    (static GROUPED 35:23 private Int))
+  (members
+    (test_only_attributes.Money
+      (field cents Int private declared)
+      (method equals public (synthesized Equatable)))
+    (test_only_attributes.Price
+      (field cents Int private declared)
+      (method equals public (synthesized Equatable))))
+  (views
+    (test_only_attributes.Money cents)
+    (test_only_attributes.Price cents))
+  (conformances
+    (test_only_attributes.Money Equatable 14:30 (equals synthesized))
+    (test_only_attributes.Price Equatable 17:34 (equals synthesized)))
+  (copy-tier
+    (test_only_attributes.Money Copy)
+    (test_only_attributes.Price Copy))
+  (bodies
+    (alone 21:29
+      (22:5-22:6 IntLit Int (adopt Int32) value temp))
+    (grouped 26:35
+      (27:9-27:10 IntLit Int (adopt Int32) value temp))
+    (ALONE 32:19
+      (32:32-32:33 IntLit Int value temp)
+      (32:8-32:10 IntLit Int value temp))
+    (GROUPED 35:23
+      (35:38-35:39 IntLit Int value temp)
+      (35:12-35:14 IntLit Int value temp))
+    (item 38:56
+      (39:5-39:47 Call.paren Void value temp (builtin assert))
+      (39:12-39:46 Binary.pair Bool value temp (operator Equatable.equals(other: &Self) == (owner test_only_attributes.Money)))
+      (39:12-39:27 Call.paren test_only_attributes.Money value borrow (memberwise test_only_attributes.Money (owner test_only_attributes.Money)))
+      (39:25-39:26 IntLit Int value temp)
+      (39:31-39:46 Call.paren test_only_attributes.Money value borrow (memberwise test_only_attributes.Money (owner test_only_attributes.Money)))
+      (39:44-39:45 IntLit Int value temp)
+      (40:5-40:47 Call.paren Void value temp (builtin assert))
+      (40:12-40:46 Binary.pair Bool value temp (operator Equatable.equals(other: &Self) == (owner test_only_attributes.Price)))
+      (40:12-40:27 Call.paren test_only_attributes.Price value borrow (memberwise test_only_attributes.Price (owner test_only_attributes.Price)))
+      (40:25-40:26 IntLit Int value temp)
+      (40:31-40:46 Call.paren test_only_attributes.Price value borrow (memberwise test_only_attributes.Price (owner test_only_attributes.Price)))
+      (40:44-40:45 IntLit Int value temp))))

@@ -392,7 +392,18 @@ compares:
   a receiver, a `borrow var`, a nested chain, an ExplicitCopy element, a range
   bound, an accessor's `lend`), prints its `// prints:` lines the same way:
   each element is read in place and deinits once. Stage 0 cannot parse a
-  `borrow` expression (SL-642).
+  `borrow` expression (SL-642);
+- a normal build emits no test-only declaration (SL:testing), so a test-only
+  `@export` defines no symbol, in either spelling (SL-631).
+  `probes/test_only_export_group.saw` (the export inside an `@test { }` group)
+  and `probes/test_only_export_item.saw` (`@test` written before it), whose
+  `main` calls the export through `extern "C"`, are built by sawc2 and must
+  fail to link with `c631_leak` undefined and no refusal printed.
+  `probes/test_only_export_unused.saw`, a production export called the same
+  way beside a test-only export of each spelling that nothing calls, prints
+  its `// prints:` lines the same way as the accessor probes, and its `.ll`
+  defines the production export and names neither test-only one. Stage 0
+  cannot parse `@test`.
 
 Stage 0 is the oracle: a difference is a sawc2 bug until shown otherwise
 (SL:architecture §5).

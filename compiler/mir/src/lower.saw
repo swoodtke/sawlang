@@ -202,20 +202,8 @@ extension MirProgram {
 
     // Whether `root` is the argument of an `@align` attribute of `d`.
     func is_align_argument(&self, d: Int, root: Int) -> Bool {
-        let outer = self.tc.res.decls[d].outer
-        if outer < 0 {
-            return false
-        }
-        let n = self.tc.child_count(outer)
-        var k = 0
-        while k < n {
-            let c = self.tc.child(outer, k)
-            k = k + 1
-            if self.tc.has_alt(c, Alt.Attr_Attribute_Align) && self.tc.res.first_node_child(c) == root {
-                return true
-            }
-        }
-        false
+        let c = self.tc.res.decl_attribute(d, Alt.Attr_Attribute_Align)
+        c >= 0 && self.tc.res.first_node_child(c) == root
     }
 
     // Which parameter of function `d` default value `root` fills.

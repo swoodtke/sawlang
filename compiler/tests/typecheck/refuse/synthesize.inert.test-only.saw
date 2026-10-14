@@ -1,0 +1,23 @@
+// refuses: synthesize.inert at 19:18
+// `@synthesize` written after `@test` is read (SL-631): the marker derives
+// nothing here, beside a group's derivation, which it does
+
+struct Size {
+    n: Int
+}
+
+@test {
+    @synthesize extension Size: Equatable {}
+}
+
+struct Point {
+    x: Int
+}
+
+@test
+@synthesize
+extension Point: Printable {
+    func format(&self, into: &var StringBuilder) {
+        try! into.append("point")
+    }
+}

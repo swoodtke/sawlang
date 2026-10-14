@@ -1,8 +1,8 @@
 """The twin the fixpoint lane puts where the lanes expect sawc2: it runs Stage 1
 and Stage 2 on the same arguments, hands the lane Stage 1's answer, and writes
 one record per invocation into the log directory: the arguments, the step that
-made the call, and whether the two agree on standard output, standard error and
-exit status. Configured by FIXPOINT_REF (Stage 1), FIXPOINT_NEW (Stage 2) and
+made the call, and whether the two agree on standard output, standard error (a
+build's clang temporary object names aside) and exit status. Configured by FIXPOINT_REF (Stage 1), FIXPOINT_NEW (Stage 2) and
 FIXPOINT_LOG (the directory). The two stages run at once when the step holds a
 second token for the call (SAW_GATE_CALL_TOKENS, compiler/tests/run.py) or one
 of the gate's budget is free (`tools/gate_jobs.py`), except for a command that
@@ -16,6 +16,7 @@ for a token.
 """
 import json
 import os
+import re
 import subprocess
 import sys
 import threading
@@ -25,6 +26,19 @@ TOOLS = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dir
 
 # The sawc2 commands that write files at paths their arguments name.
 WRITERS = ("build", "runtime")
+
+# clang names the object it links through `STEM-XXXXXX.o` with a random
+# suffix, and a link failure's message quotes it, so the two stages' stderr
+# can differ there and nowhere that means anything (run lane's
+# `check_test_only_exports`).
+CLANG_TEMP_OBJECT = re.compile(rb"-[0-9a-f]{6}\.o\b")
+
+
+def comparable_stderr(args, err):
+    """`err` with clang's temporary object names made equal, for a build."""
+    if args[:1] != ["build"]:
+        return err
+    return CLANG_TEMP_OBJECT.sub(b"-XXXXXX.o", err)
 
 
 def first_difference(a, b):
@@ -98,8 +112,9 @@ def main():
                     files.append({"path": path, "differs": ["stdout " + first_difference(x, y)]})
         if not files:
             differs.append("stdout " + first_difference(ref.stdout, new.stdout))
-    if ref.stderr != new.stderr:
-        differs.append("stderr " + first_difference(ref.stderr, new.stderr))
+    ref_err, new_err = comparable_stderr(args, ref.stderr), comparable_stderr(args, new.stderr)
+    if ref_err != new_err:
+        differs.append("stderr " + first_difference(ref_err, new_err))
     record = {"args": args, "differs": differs, "files": files, "step": os.environ.get("SAW_GATE_STEP", ""),
               "listed": len(split_frames(ref.stdout)) if listed(args) else 0}
     # The pid and the thread's id are unique among live writers, and O_EXCL

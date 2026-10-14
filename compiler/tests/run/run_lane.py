@@ -61,7 +61,12 @@ exit status compared.
   loses the deinit of, prints the lines it states the same way;
 - `probes/borrow_place_reads.saw`, whose `borrow` subscripts are read where
   each position borrows the value, which Stage 0 cannot parse, prints the
-  lines it states the same way: each NoCopy element deinits once.
+  lines it states the same way: each NoCopy element deinits once;
+- a normal build emits no test-only declaration: `probes/test_only_export_group.saw`
+  and `probes/test_only_export_item.saw`, whose `main` calls a test-only
+  `@export` through `extern "C"`, fail to link with its symbol undefined, and
+  `probes/test_only_export_unused.saw` prints the lines it states, its `.ll`
+  defining its production export and neither test-only one.
 
 `--bench` runs none of that: it times each kernel of `bench/` under sawc2 at
 -O2 and under Stage 0 and prints the report, which gates nothing. The runner
@@ -687,6 +692,50 @@ def check_borrow_place_reads(failures, counts):
     check_stated(failures, counts, "borrow place reads", src, want)
 
 
+TEST_ONLY_LEAK_SYMBOL = "c631_leak"
+TEST_ONLY_UNUSED_SYMBOLS = ("c631_unused_item", "c631_unused_group")
+TEST_ONLY_KEPT_SYMBOL = "c631_kept"
+
+
+def check_test_only_exports(failures, counts):
+    """A normal build emits no test-only declaration (SL:testing), so a
+    test-only `@export` defines no symbol in either spelling (SL-631):
+    `probes/test_only_export_{group,item}.saw`, whose `main` calls one through
+    `extern "C"`, fail to link with the symbol undefined and no refusal, and
+    `probes/test_only_export_unused.saw` prints its `// prints:` lines, its
+    `.ll` defining the production export and neither test-only one. Stage 0
+    cannot parse `@test`, so sawc2 alone is held to these."""
+    for spelling in ("group", "item"):
+        src = os.path.join(HERE, "probes", "test_only_export_%s.saw" % spelling)
+        ok, _, log = build_new(src)
+        undefined = TEST_ONLY_LEAK_SYMBOL in log and "ndefined" in log
+        if ok or first_error(log) is not None or not undefined:
+            failures.append("run test-only export (%s): sawc2 %s, not a link failure naming `%s` undefined: %s"
+                            % (spelling, "links it" if ok else "fails otherwise", TEST_ONLY_LEAK_SYMBOL, log[:300]))
+            continue
+        counts["run test-only exports left undefined"] = counts.get("run test-only exports left undefined", 0) + 1
+    src = os.path.join(HERE, "probes", "test_only_export_unused.saw")
+    want = "".join(line + "\n" for line in stated_prints(src)).encode()
+    check_stated(failures, counts, "test-only export unused", src, want)
+    # check_stated's -O0 build wrote this `.ll` (build_new's naming).
+    ll = os.path.join(OUT, "test_only_export_unused.new.ll")
+    try:
+        with open(ll) as fh:
+            text = fh.read()
+    except OSError as e:
+        failures.append("run test-only export unused: no `.ll` beside the binary: %s" % e)
+        return
+    defines = [line for line in text.split("\n") if line.startswith("define ")]
+    kept = ('@%s(' % TEST_ONLY_KEPT_SYMBOL, '@"%s"(' % TEST_ONLY_KEPT_SYMBOL)
+    if not any(spelled in line for line in defines for spelled in kept):
+        failures.append("run test-only export unused: the production export `%s` is not defined"
+                        % TEST_ONLY_KEPT_SYMBOL)
+    for symbol in TEST_ONLY_UNUSED_SYMBOLS:
+        if symbol in text:
+            failures.append("run test-only export unused: the normal build's `.ll` names the test-only export `%s`"
+                            % symbol)
+
+
 def run(names=None, write=False):
     os.makedirs(OUT, exist_ok=True)
     failures = []
@@ -718,6 +767,7 @@ def run(names=None, write=False):
         check_consumes_replace(failures, counts)
         check_raw_enum_cast_handoff(failures, counts)
         check_borrow_place_reads(failures, counts)
+        check_test_only_exports(failures, counts)
     return failures, counts, dues
 
 

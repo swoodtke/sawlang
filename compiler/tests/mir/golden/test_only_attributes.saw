@@ -1,0 +1,10 @@
+// A declaration written after `@test` keeps its attributes (SL-631): its
+// `@align` argument lowers to an align body, as the same declaration's does
+// inside an `@test { }` group.
+
+@test
+@align(64) static ALONE: Int = 1
+
+@test {
+    @align(32) static GROUPED: Int = 2
+}

@@ -1,0 +1,15 @@
+// A normal build emits no test-only declaration (SL:testing), so an `@export`
+// inside an `@test { }` group defines no symbol, and production code calling
+// it through `extern "C"` fails to link with `c631_leak` undefined.
+
+extern "C" {
+    func c631_leak() -> Int32
+}
+
+@test {
+    @export("c631_leak") func leak() -> Int32 { 7 }
+}
+
+func main() {
+    print("{}", c631_leak())
+}

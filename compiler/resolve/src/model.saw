@@ -84,8 +84,10 @@ public struct ResDecl {
     name: Int
     // The declaration's own node (Func, Struct, Case, ...); -1 when synthetic.
     node: Int
-    // The node that holds its modifiers: a Declaration, ExtensionMember or
-    // TestOnly node, else the declaration's own node.
+    // The node that holds its modifiers: a Declaration or ExtensionMember
+    // node, else the declaration's own node. Under `@test` it is still the
+    // Declaration, never the TestOnly item; read attributes through
+    // `decl_attribute`.
     outer: Int
     // The leaf of its name, where it is reported; -1 when synthetic.
     leaf: Int

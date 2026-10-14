@@ -1,0 +1,12 @@
+// refuses: type.mismatch at 11:8
+// `@align` written after `@test` is read (SL-631): its argument must be an
+// Int, beside a group's `@align(16)`, which is accepted
+
+@test {
+    @align(16)
+    static GROUPED: Int = 1
+}
+
+@test
+@align(true)
+static ALONE: Int = 2

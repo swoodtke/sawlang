@@ -7,7 +7,8 @@
 //     parameter exists, and is of the kind the binding says;
 //   - no lookup by spelling is left over: no record is unbound or a member
 //     selector, and a record refused as an error comes with a refusal;
-//   - every declaration is collected under its name token as written;
+//   - every declaration is collected under its name token as written, with
+//     the node holding its attributes, never a TestOnly item;
 //   - no module but an interface holds a skipped node.
 
 import sawparse.grammar.{Alt}
@@ -138,7 +139,9 @@ extension ResProgram {
     // Every name a declaration of module `m` was collected under is its name
     // token as written, spelled as GRAMMAR's names are: an identifier, or a
     // subscript role's `[]` or `[]=` (syntax.decl.method-name). A name that
-    // joined other tokens would miss every lookup of the declaration.
+    // joined other tokens would miss every lookup of the declaration. The node
+    // it records as `outer` is never a TestOnly item, whose children hold none
+    // of its attributes (`decl_attribute`).
     func verify_names(&self, problems: &var Vector<String>, m: Int) {
         let info = self.modules[m]
         var d = info.decl_first
@@ -146,6 +149,10 @@ extension ResProgram {
             let decl = self.decls[d]
             if decl.name >= 0 && decl.node >= 0 && decl.leaf < 0 && decl.kind != ResDeclKind.Init {
                 self.problem(&var problems, m, decl.node, "a declaration is collected with no name token")
+            }
+            if decl.outer >= 0 && self.is_alt(decl.outer, Alt.Test_Declaration_Item) {
+                self.problem(&var problems, m, decl.outer,
+                             "a declaration records a TestOnly item as the node holding its attributes")
             }
             if decl.name >= 0 && decl.leaf >= 0 && decl.kind != ResDeclKind.Init {
                 let text = self.name_text(decl.name)

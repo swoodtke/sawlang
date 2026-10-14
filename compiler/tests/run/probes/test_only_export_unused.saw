@@ -1,0 +1,21 @@
+// A production export is defined under its symbol and reached through
+// `extern "C"`; test-only exports nothing calls, in both spellings, build and
+// define no symbol (SL:testing: test-only code is emitted only in test builds).
+// prints: 7
+
+extern "C" {
+    func c631_kept() -> Int32
+}
+
+@export("c631_kept") func kept() -> Int32 { 7 }
+
+@test
+@export("c631_unused_item") func unused_item() -> Int32 { 8 }
+
+@test {
+    @export("c631_unused_group") func unused_group() -> Int32 { 9 }
+}
+
+func main() {
+    print("{}", c631_kept())
+}

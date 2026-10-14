@@ -1,0 +1,16 @@
+// refuses: export.generic at 14:6
+// `@export` written after `@test` is read (SL-631): a generic export is
+// refused, beside a group's concrete export, which is accepted
+
+@test {
+    @export("sl631_count")
+    func count() -> Int32 {
+        3
+    }
+}
+
+@test
+@export("sl631_first_of")
+func first_of<T>(value: T) -> T {
+    value
+}

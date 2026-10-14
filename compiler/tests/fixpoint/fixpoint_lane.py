@@ -234,9 +234,32 @@ def judge(failures, counts, records):
         failures.append("fixpoint: the annotated mismatch `%s` no longer occurs; remove its line" % key[:300])
 
 
+def check_twin_stderr(failures, counts):
+    """The twin makes a build's clang temporary object names equal, and only
+    those: two link failures naming one stem with different random suffixes
+    agree, and different stems, or a non-build command, still differ."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("fixpoint_twin", TWIN)
+    twin = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(twin)
+    a = b"_saw p.main() in p-a69531.o\n"
+    cases = [
+        (["build"], a, b"_saw p.main() in p-2e4a88.o\n", True),
+        (["build"], a, b"_saw p.main() in q-a69531.o\n", False),
+        (["typecheck"], a, b"_saw p.main() in p-2e4a88.o\n", False),
+    ]
+    for args, x, y, same in cases:
+        if (twin.comparable_stderr(args, x) == twin.comparable_stderr(args, y)) != same:
+            failures.append("fixpoint: the twin %s %r and %r under `%s`"
+                            % ("tells apart" if same else "equates", x, y, args[0]))
+            continue
+        counts["fixpoint twin stderr cases"] = counts.get("fixpoint twin stderr cases", 0) + 1
+
+
 def run():
     failures = []
     counts = {}
+    check_twin_stderr(failures, counts)
     if build_stages(failures, counts):
         # The driver checks and the replay write apart (`elsewhere/`, `stage3/`
         # and the lanes' own directories), so beside the replay each check runs

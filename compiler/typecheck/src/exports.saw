@@ -37,10 +37,12 @@ struct TcAbiTable {
 extension TcAbiTable: NoCopy {}
 
 // THE EXPORT FUNNEL: each function and static of a module checked in full
-// that carries `@export` has its C symbol recorded in `export_symbols` and
-// meets the export rules. It runs after the summaries, which say whether an
-// export may suspend; mono roots the exports and the backend defines each
-// under its symbol, both reading the record this writes.
+// that carries `@export` meets the export rules, and has its C symbol recorded
+// in `export_symbols` unless it is test-only. It runs after the summaries,
+// which say whether an export may suspend; mono roots the exports and the
+// backend defines each under its symbol, both reading the record this writes,
+// so the record is what the build emits. sawc2 has only the normal build,
+// which emits no test-only declaration (SL:testing).
 // ENTRY POINTS:
 //     typecheck_program
 public func tc_check_exports(p: &var TcProgram) {
@@ -64,26 +66,27 @@ public func tc_check_exports(p: &var TcProgram) {
         }
         d = d + 1
     }
+    // A test-only export leaves the record only now, once every export is
+    // checked, so it still collides with a production export of its symbol:
+    // a test build holds both.
+    d = 0
+    while d < p.res.decls.len() {
+        if p.res.decls[d].test_only {
+            p.export_symbols[d] = ""
+            p.export_nodes[d] = -1
+        }
+        d = d + 1
+    }
 }
 
 extension TcProgram {
     // The `@export` attribute declaration `d` carries, or -1.
     func export_attribute(&self, d: Int) -> Int {
-        let info = self.res.decls[d]
-        let outer = info.outer
-        if outer < 0 || outer == info.node {
-            return -1
+        let bare = self.res.decl_attribute(d, Alt.Attr_Attribute_Export)
+        if bare >= 0 {
+            return bare
         }
-        let n = self.child_count(outer)
-        var k = 0
-        while k < n {
-            let c = self.child(outer, k)
-            if self.has_alt(c, Alt.Attr_Attribute_Export) || self.has_alt(c, Alt.Attr_Attribute_ExportSymbol) {
-                return c
-            }
-            k = k + 1
-        }
-        return -1
+        self.res.decl_attribute(d, Alt.Attr_Attribute_ExportSymbol)
     }
 
     // The C symbol attribute `attr` names: its string, or the declaration's

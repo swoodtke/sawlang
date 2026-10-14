@@ -115,23 +115,6 @@ extension TcProgram {
         move out
     }
 
-    // Whether the Declaration node `outer` carries attribute `alt`.
-    public func has_attribute(&self, outer: Int, alt: Alt) -> Bool {
-        if outer < 0 {
-            return false
-        }
-        let n = self.child_count(outer)
-        var k = 0
-        while k < n {
-            let c = self.child(outer, k)
-            if self.has_alt(c, alt) {
-                return true
-            }
-            k = k + 1
-        }
-        false
-    }
-
     func build_struct(&var self, d: Int) {
         let info = self.res.decls[d]
         let words = self.leading_words(info.module, info.node)
@@ -538,7 +521,7 @@ extension TcProgram {
         s.trait_first = first
         s.trait_count = self.traits.len() - first
         s.result = if target >= 0 { self.current_self } else { self.error_type }
-        if self.has_attribute(info.outer, Alt.Attr_Attribute_Synthesize) {
+        if self.res.decl_attribute(d, Alt.Attr_Attribute_Synthesize) >= 0 {
             s.flags = s.flags | TC_FLAG_SYNTHESIZE
         }
         self.sigs[d] = s

@@ -296,6 +296,21 @@ an ordinary method:
 | a `deinit` in a plain test-only extension | refused, `deinit.outside-policy` | deinit.outside-policy.test-only |
 | a test-only type's policy, `copy()` and `deinit`, with `@test` or in a test group, used by test code; a production `copy()` outside a policy, called by name | allowed | test_only_copy_policy |
 
+A declaration's attributes are read through one funnel, resolve's
+`decl_attribute`, from the node the declaration records as holding them: its
+Declaration or ExtensionMember node. Under `@test` that is still the
+Declaration, never the TestOnly item around it, so a declaration written after
+`@test` keeps its attributes as one inside an `@test { }` group does (SL-631).
+Each fixture holds the group form beside it as its control:
+
+| row | verdict | covered by |
+|---|---|---|
+| `@synthesize`, `@export` and `@align` after `@test`, and inside a group | allowed | test_only_attributes; MIR golden `test_only_attributes` |
+| `@synthesize` after `@test` on a conformance that derives nothing | refused | synthesize.inert.test-only |
+| `@export` after `@test` on a generic function | refused | export.generic.test-only |
+| a test-only `@export` of a production export's symbol, though a normal build emits no test-only export | refused | export.duplicate.test-only |
+| `@align` after `@test` with a `Bool` argument | refused | type.mismatch.test-only-align |
+
 A third filter belongs to the receiver, not the module: a member declared in
 a bounded extension, `extension Cell<T: Equatable> { ... }`, or brought by a
 bounded conformance, exists only on an instantiation whose arguments meet

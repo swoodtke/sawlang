@@ -1,0 +1,14 @@
+// refuses: export.duplicate at 11:1
+// a test-only export is checked against every other export though a normal
+// build emits none (SL-631): a test build would hold both symbols
+
+@export("sl631_twice")
+func production() -> Int32 {
+    1
+}
+
+@test
+@export("sl631_twice")
+func fake() -> Int32 {
+    2
+}
