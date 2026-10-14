@@ -561,6 +561,27 @@ trust obligation, as SL:hazards describes:
   instantiation produces.
 - SL:hazards S16 and L15 have no check.
 
+## Constructors
+
+A function whose body only builds a value of a type is that type's `init`, called
+as `Type(label: …)`: `TcValue(fault: f)`, not a free `tc_fault(f)`. A named
+alternative with no argument to label is a `static func` on the type,
+`ResBinding.unbound()`. A constructor whose parameters are exactly the struct's
+fields is the memberwise construction itself, so it is not written. A function
+that computes something and returns it as a struct stays a function named for
+what it computes, `coro_edges(coro)` or `parse_source(path, text, unit)`, and so
+do the stage entry points such as `mir_program(tc)`.
+
+Two limits apply in this source:
+- no `init` in an extension with type parameters (`generic-extension-init`,
+  SL:hazards S1);
+- no `init` whose labels and types are exactly the fields'. Under SL-648 that
+  is an override of the memberwise construction, which Stage 0 refuses, so it
+  waits until the compiler builds itself.
+
+Some older factory functions predate this rule. SL-652 converts them, and new
+code doesn't copy them.
+
 ## Stage 0 workarounds
 
 Some code in `compiler/` is shaped around a frozen-compiler bug rather than

@@ -33,6 +33,10 @@ extension Point { static func origin() -> Point { Point(x: 0, y: 0) } }
                            // self-less `func` is a DECLARATION error with a
                            // two-way fixit; `static func f(&self)` is the
                            // mirror; `static init` is an error (init is exempt)
+                           // A function that only BUILDS a value is an `init`
+                           // (`Point(m: 3)`), and a named no-argument variant is
+                           // a `static func` (`Point.origin()`), never a free
+                           // `make_point(...)`; one that computes stays a function
 enum Msg { case Quit, case Move(x: Int, y: Int) }
 extension Msg { func is_quit(&self) -> Bool { match self { case Quit -> true,
                                                            case _ -> false } } }
