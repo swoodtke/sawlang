@@ -162,8 +162,9 @@ caching.
   - error recovery: on an error, record the diagnostic, skip to the next
     statement or declaration boundary at the same bracket depth, and continue,
     so one run reports every independent error in a file;
-  - a `@test(refuses:)` block has only its braces matched in a normal build. In
-    a test build its token range is parsed as a unit of its own (SL:testing §5).
+  - a `@test(refuses:)` body is one token, the lines up to its end marker
+    `@test(end: refuses)`, so a normal build reads nothing in it. In a test
+    build its text is lexed and parsed as a unit of its own (SL:testing §5).
 - **Invariants:**
   - nesting beyond 256 is a clean refusal at the opener, through one depth
     funnel;
