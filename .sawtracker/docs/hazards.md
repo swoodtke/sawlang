@@ -873,7 +873,7 @@ The fixpoint compares outputs, not intermediate values, so it sees the differenc
 
 **Instead:** parenthesize the prefix expression whenever it is the operand of `as`: `(-x) as T` for GRAMMAR.md's meaning, or `-(x as T)` for the other. Both parsers read either spelling alike.
 
-**Checker:** due (SL-620): a compiler-profile subset rule refuses an unparenthesized prefix expression with a numeric reading (`-`, `~`) as the operand of `as`, with the parenthesized fix-it. The std profile reads `std/` with sawc2 (SL-600), so it doesn't need the rule.
+**Checker:** yes: `prefix-cast` (SL-620). In compiler source it refuses a `-` or `~` whose operand, as the frozen parser reads it, is an `as` cast, unless the `as` sits inside a parenthesis directly after the operator (`-(x as T)`). So `-x as T`, `-(x) as T`, `-(-x) as T` and `~(x as A) as B` are refused, interpolation segments included. `(-x) as T` is the spelling for GRAMMAR.md's meaning. `not` is exempt, since its cast to `Bool` agrees. The rule found 0 live sites in the compiler source. The std profile reads `std/` with sawc2 (SL-600) and does not run it.
 
 **The loud face of the same mechanism** (found by SL-620's sweep): Stage 0 parses the operand of `try`, `try?` and `try!` as a whole expression, where GRAMMAR.md gives `try` the prefix tier. So `try! f() as Int`, `try? f() ?? 3`, `try! f() + 1` and `try! f() == 7` compile under sawc2, which reads `(try! f()) as Int`, but Stage 0 refuses each with a type error. Stage 0 never accepts the differing reading, so no checker is needed. **Instead:** parenthesize, `(try! f()) as Int`.
 
