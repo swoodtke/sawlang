@@ -28,6 +28,8 @@
 //   - no operand moves an owning value out through a reference, but for an
 //     epilogue's record load and a closure body's take of a take capture,
 //     each in its one shape;
+//   - no operand copies an owning value whose type does not copy silently,
+//     which would give a NoCopy or ExplicitCopy value a second owner;
 //   - every proven payload `(P as CASE)` is used only where every path has
 //     switched `P` to CASE with nothing writing `P` since, which is what lets
 //     a construct drop its leftovers when its body completes.
@@ -45,6 +47,8 @@ import sawmir.split.{MirHalf}
 import sawresolve.dump.{res_sort_strings}
 import sawresolve.model.{ResDeclKind}
 import sawresolve.program.{ResProgram}
+// For the extension writing `casts_backing`.
+import sawtypecheck.bodies.{tc_check_bodies}
 import sawtypecheck.bodydump.{tc_dump_bodies}
 import sawtypecheck.conform.{TcSubst, tc_args_subst}
 import sawtypecheck.model.{TC_EFFECT_BORROWS, TC_EFFECT_CONSUMES, TcLend, TcReceiver}
@@ -87,13 +91,14 @@ extension MirProgram {
         self.verify_payloads(f, &var out)
     }
 
-    // No operand moves an owning value out through a reference. Storage
-    // reached through a `Deref` of a reference belongs to someone else, who
-    // drops it again, so such a move is a double free once code exists
-    // (SL-475). A value that owns nothing, a reference part among them, may
-    // move. Two shapes are admitted: an epilogue's load from its accessor's
-    // state record, which the accessor owns across its split, and a closure
-    // body's take of a take capture (`take_shape`).
+    // No operand moves an owning value out through a reference, and none
+    // copies one that does not copy silently. Storage reached through a
+    // `Deref` of a reference belongs to someone else, who drops it again, so
+    // such a move is a double free once code exists (SL-475). A value that
+    // owns nothing, a reference part among them, may move. Two shapes are
+    // admitted: an epilogue's load from its accessor's state record, which
+    // the accessor owns across its split, and a closure body's take of a
+    // take capture (`take_shape`).
     func verify_moves(&var self, f: Int, out: &var Vector<String>) {
         let info = self.funcs[f]
         var b = 0
@@ -110,21 +115,27 @@ extension MirProgram {
                     while k < rv.count {
                         let o = self.lists[rv.first + k]
                         self.check_move(f, b, at, o, &var out)
+                        if not self.reads_tag(&rv, o) {
+                            self.check_copy(f, b, o, &var out)
+                        }
                         k = k + 1
                     }
                 }
             }
             if block.term == MirTermKind.Switch && block.switch_kind == MirSwitchKind.Bool {
                 self.check_move(f, b, -1, block.operand, &var out)
+                self.check_copy(f, b, block.operand, &var out)
             } else if block.term == MirTermKind.Call && block.call >= 0 {
                 let c = self.calls[block.call]
                 if c.callee >= 0 {
                     self.check_move(f, b, -1, c.callee, &var out)
+                    self.check_copy(f, b, c.callee, &var out)
                 }
                 var k = 0
                 while k < c.arg_count {
                     let o = self.lists[c.arg_first + k]
                     self.check_move(f, b, -1, o, &var out)
+                    self.check_copy(f, b, o, &var out)
                     k = k + 1
                 }
             }
@@ -154,6 +165,38 @@ extension MirProgram {
         self.append_place(&var text, operand.place)
         try! text.append("`: the referent's owner drops it again")
         self.problem(f, &var out, text.build())
+    }
+
+    // Operand `o` of block `b` copied: a bitwise copy of a value that does
+    // not copy silently gives it a second owner, so it is dropped twice or
+    // its copy's storage leaks. Typecheck refuses every such copy the source
+    // spells, and a `copy()` hook runs as a call, so one here is the
+    // lowering's (pinned by compiler/mir/tests/verify_copies.saw).
+    func check_copy(&var self, f: Int, b: Int, o: Int, out: &var Vector<String>) {
+        if o < 0 || o >= self.operands.len() {
+            return
+        }
+        let operand = self.operands[o]
+        if operand.kind != MirOperandKind.Copy || not self.owns(operand.ty) || self.tc.copies_silently(operand.ty) {
+            return
+        }
+        var text = StringBuilder()
+        try! text.append("bb")
+        try! text.append(b)
+        try! text.append(" copies a `")
+        try! text.append(self.tc.type_text(operand.ty))
+        try! text.append("`, which does not copy silently, `")
+        self.append_place(&var text, operand.place)
+        try! text.append("`: the copy is a second owner of the value")
+        self.problem(f, &var out, text.build())
+    }
+
+    // Whether operand `o` of rvalue `rv` is a raw-backed enum a cast to an
+    // integer reads: the enum is its tag, so the cast reads the tag and the
+    // value stays with its one owner (spec, Raw-backed enums).
+    func reads_tag(&self, rv: &MirRvalue, o: Int) -> Bool {
+        let t = self.operands[o].ty
+        rv.kind == MirRvalueKind.Cast && self.tc.casts_backing(t, rv.ty)
     }
 
     // Whether place `p` of `f` is an epilogue's load of record local K, the

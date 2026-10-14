@@ -325,6 +325,7 @@ through a reference to stay a reported move.
 | `match` | a decision tree; a literal test settles a later row testing the same value, however spelled (`pattern_value`), sends one testing a different value down its false edge, and sends a range down both | matches, run match_literal_values |
 | `borrow let x = p { }` | a window, closed on every edge out of the body | windows |
 | `borrow var p += v`, `borrow p` | a window closed at the statement's end, or once the value is copied out | windows |
+| `borrow v[i]` where its position borrows (a format argument, an interpolation, a comparison operand, a scrutinee, a field read), whole or projected | the place accessor's window, read in place and closed at the statement's end, or once a part is copied out; never a getitem's copy | borrow_reads |
 | `v[i]` read, `v[i] = x` | a derived getitem or setitem around the place accessor's window, or the declared `[]`, `[]=` | windows, order |
 | `p[i] = x`, `*p = x` through a raw pointer | a placement store, no drop of the slot first (spec, Placement writes); a fixed array's `a[i] = x` and a `&var` referent's `r = x` drop what they held | placements |
 | `x.f(...)` on a `borrows` accessor | a window on a place, or a copy out of it | windows |
@@ -630,6 +631,16 @@ nowhere, and checks, from the MIR alone:
   reference into a move, and edits a take (`inject/takes.saw`) by unlinking
   its flag's clear and by swapping its switch's arms, and requires the report
   each time;
+- no operand copies an owning value whose type does not copy silently, by
+  typecheck's tier (SL-642): a NoCopy or ExplicitCopy value copied bitwise
+  has a second owner, so it is dropped twice or the copy's storage leaks. The
+  source spells no such copy past typecheck, and a declared `copy()` runs as
+  a call, so the check is on the lowering's own copies. One shape is
+  admitted: the operand of a cast from a raw-backed enum to an integer, which
+  reads only the tag (`reads_tag`). The unit program
+  `compiler/mir/tests/verify_copies.saw` lowers `inject/copies.saw`, finds its
+  `String` copy and its tag cast clean, then edits its move of a NoCopy value
+  into a copy and requires the one report;
 - every `take(_L, _F)` names a whole local and a take flag, and is typed
   `(&var T, &var Bool)`;
 - every proven payload `(P as CASE)` a statement or terminator uses (read,

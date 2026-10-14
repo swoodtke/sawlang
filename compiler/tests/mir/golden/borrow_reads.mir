@@ -1,0 +1,316 @@
+module borrow_reads
+
+fn borrow_reads.Res.format(into: &var std.stringbuilder.StringBuilder) -> Void {
+    let _0: Void;  // return
+    let _1: &borrow_reads.Res;  // self
+    let _2: &var std.stringbuilder.StringBuilder;  // param into
+    let _3: Int;
+    let _4: &var std.stringbuilder.StringBuilder;
+    let _5: Result<Void, std.alloc.AllocError>;
+    let _6: Void;
+
+    bb0: {
+        _3 = copy (*_1).n;
+        _4 = ref(exclusive, (*_2));
+        _5 = call std.stringbuilder.StringBuilder.append(value: Int) (owner std.stringbuilder.StringBuilder) [move _4, move _3] -> [return: bb1];
+    }
+
+    bb1: {
+        _6 = copy (_5 as Ok!).0;
+        drop(_5);
+        return;
+    }
+}
+
+fn borrow_reads.Res.equals(other: &borrow_reads.Res) -> Bool {
+    let _0: Bool;  // return
+    let _1: &borrow_reads.Res;  // self
+    let _2: &borrow_reads.Res;  // param other
+    let _3: Bool;
+
+    bb0: {
+        _3 = Eq(copy (*_1).n, copy (*_2).n);
+        _0 = move _3;
+        return;
+    }
+}
+
+fn prologue borrow_reads.Shelf.[](i: Int) -> &borrow_reads.Res {
+    let _0: &borrow_reads.Res;  // return
+    let _1: &var (Int,);  // record
+    let _2: &borrow_reads.Shelf;  // self
+    let _3: Int;  // param i
+    let _4: Bool;
+    let _5: &borrow_reads.Res;
+    let _6: &borrow_reads.Res;
+
+    bb0: {
+        _4 = Eq(copy _3, const 0: Int);
+        switch move _4 -> [true: bb1, false: bb2];
+    }
+
+    bb1: {
+        _5 = ref(shared, (*_2).first);
+        _0 = move _5;
+        (*_1).0 = const 0: Int;
+        return;
+    }
+
+    bb2: {
+        _6 = ref(shared, (*_2).second);
+        _0 = move _6;
+        (*_1).0 = const 1: Int;
+        return;
+    }
+}
+
+fn epilogue borrow_reads.Shelf.[](i: Int) -> Void {
+    let _0: Void;  // return
+    let _1: &var (Int,);  // record
+    let _2: Bool;
+
+    bb0: {
+        _2 = Eq(copy (*_1).0, const 0: Int);
+        switch move _2 -> [true: bb2, false: bb4];
+    }
+
+    bb1: {
+        return;
+    }
+
+    bb2: {
+        goto -> bb1;
+    }
+
+    bb3: {
+        goto -> bb1;
+    }
+
+    bb4: {
+        goto -> bb3;
+    }
+}
+
+fn prologue borrow_reads.Tags.[](i: Int) -> &borrow_reads.Kind {
+    let _0: &borrow_reads.Kind;  // return
+    let _1: &borrow_reads.Tags;  // self
+    let _2: Int;  // param i
+    let _3: &borrow_reads.Kind;
+
+    bb0: {
+        _3 = ref(shared, (*_1).kind);
+        _0 = move _3;
+        return;
+    }
+}
+
+fn epilogue borrow_reads.Tags.[](i: Int) -> Void {
+    let _0: Void;  // return
+
+    bb0: {
+        goto -> bb1;
+    }
+
+    bb1: {
+        return;
+    }
+}
+
+fn borrow_reads.format_argument(s: &borrow_reads.Shelf) -> Void {
+    let _0: Void;  // return
+    let _1: &borrow_reads.Shelf;  // param s
+    let _2: &borrow_reads.Res;
+    let _3: &borrow_reads.Shelf;
+    let _4: (Int,);  // record
+    let _5: &var (Int,);
+    let _6: &borrow_reads.Res;
+    let _7: &var (Int,);
+    window w0: borrow_reads.Shelf.[](i: Int) shared record _4;
+
+    bb0: {
+        _3 = ref(shared, (*_1));
+        _5 = ref(exclusive, _4);
+        _2 = window_open w0 prologue borrow_reads.Shelf.[](i: Int) (owner borrow_reads.Shelf) [move _5, move _3, const 0: Int] -> [present: bb1];
+    }
+
+    bb1: {
+        _6 = ref(shared, (*_2));
+        call builtin print [format "element {}", move _6] -> [return: bb2];
+    }
+
+    bb2: {
+        _7 = ref(exclusive, _4);
+        window_close w0 epilogue borrow_reads.Shelf.[](i: Int) (owner borrow_reads.Shelf) [move _7] -> [return: bb3];
+    }
+
+    bb3: {
+        return;
+    }
+}
+
+fn borrow_reads.interpolated(s: &borrow_reads.Shelf) -> Void {
+    let _0: Void;  // return
+    let _1: &borrow_reads.Shelf;  // param s
+    let _2: &borrow_reads.Res;
+    let _3: &borrow_reads.Shelf;
+    let _4: (Int,);  // record
+    let _5: &var (Int,);
+    let _6: &borrow_reads.Res;
+    let _7: String;
+    let _8: &var (Int,);
+    window w0: borrow_reads.Shelf.[](i: Int) shared record _4;
+
+    bb0: {
+        _3 = ref(shared, (*_1));
+        _5 = ref(exclusive, _4);
+        _2 = window_open w0 prologue borrow_reads.Shelf.[](i: Int) (owner borrow_reads.Shelf) [move _5, move _3, const 1: Int] -> [present: bb1];
+    }
+
+    bb1: {
+        _6 = ref(shared, (*_2));
+        _7 = interpolate [const "element ": String, move _6];
+        call builtin print [move _7] -> [return: bb2];
+    }
+
+    bb2: {
+        _8 = ref(exclusive, _4);
+        window_close w0 epilogue borrow_reads.Shelf.[](i: Int) (owner borrow_reads.Shelf) [move _8] -> [return: bb3];
+    }
+
+    bb3: {
+        return;
+    }
+}
+
+fn borrow_reads.compared(s: &borrow_reads.Shelf) -> Bool {
+    let _0: Bool;  // return
+    let _1: &borrow_reads.Shelf;  // param s
+    let _2: &borrow_reads.Res;
+    let _3: &borrow_reads.Shelf;
+    let _4: (Int,);  // record
+    let _5: &var (Int,);
+    let _6: &borrow_reads.Res;
+    let _7: &borrow_reads.Res;
+    let _8: &borrow_reads.Shelf;
+    let _9: (Int,);  // record
+    let _10: &var (Int,);
+    let _11: &borrow_reads.Res;
+    let _12: Bool;
+    let _13: &var (Int,);
+    let _14: &var (Int,);
+    window w0: borrow_reads.Shelf.[](i: Int) shared record _4;
+    window w1: borrow_reads.Shelf.[](i: Int) shared record _9;
+
+    bb0: {
+        _3 = ref(shared, (*_1));
+        _5 = ref(exclusive, _4);
+        _2 = window_open w0 prologue borrow_reads.Shelf.[](i: Int) (owner borrow_reads.Shelf) [move _5, move _3, const 0: Int] -> [present: bb1];
+    }
+
+    bb1: {
+        _6 = ref(shared, (*_2));
+        _8 = ref(shared, (*_1));
+        _10 = ref(exclusive, _9);
+        _7 = window_open w1 prologue borrow_reads.Shelf.[](i: Int) (owner borrow_reads.Shelf) [move _10, move _8, const 1: Int] -> [present: bb2];
+    }
+
+    bb2: {
+        _11 = ref(shared, (*_7));
+        _12 = call borrow_reads.Res.equals(other: &borrow_reads.Res) (owner borrow_reads.Res) [move _6, move _11] -> [return: bb3];
+    }
+
+    bb3: {
+        _0 = move _12;
+        _13 = ref(exclusive, _9);
+        window_close w1 epilogue borrow_reads.Shelf.[](i: Int) (owner borrow_reads.Shelf) [move _13] -> [return: bb4];
+    }
+
+    bb4: {
+        _14 = ref(exclusive, _4);
+        window_close w0 epilogue borrow_reads.Shelf.[](i: Int) (owner borrow_reads.Shelf) [move _14] -> [return: bb5];
+    }
+
+    bb5: {
+        return;
+    }
+}
+
+fn borrow_reads.field_read(s: &borrow_reads.Shelf) -> Int {
+    let _0: Int;  // return
+    let _1: &borrow_reads.Shelf;  // param s
+    let _2: Int;  // n
+    let _3: &borrow_reads.Res;
+    let _4: &borrow_reads.Shelf;
+    let _5: (Int,);  // record
+    let _6: &var (Int,);
+    let _7: Int;
+    let _8: &var (Int,);
+    let _9: Int;
+    window w0: borrow_reads.Shelf.[](i: Int) shared record _5;
+
+    bb0: {
+        _4 = ref(shared, (*_1));
+        _6 = ref(exclusive, _5);
+        _3 = window_open w0 prologue borrow_reads.Shelf.[](i: Int) (owner borrow_reads.Shelf) [move _6, move _4, const 0: Int] -> [present: bb1];
+    }
+
+    bb1: {
+        _7 = copy (*_3).n;
+        _8 = ref(exclusive, _5);
+        window_close w0 epilogue borrow_reads.Shelf.[](i: Int) (owner borrow_reads.Shelf) [move _8] -> [return: bb2];
+    }
+
+    bb2: {
+        _2 = move _7;
+        _9 = Add(copy _2, const 1: Int);
+        _0 = move _9;
+        return;
+    }
+}
+
+fn borrow_reads.scrutinee(t: &borrow_reads.Tags) -> Int {
+    let _0: Int;  // return
+    let _1: &borrow_reads.Tags;  // param t
+    let _2: &borrow_reads.Kind;
+    let _3: &borrow_reads.Tags;
+    window w0: borrow_reads.Tags.[](i: Int) shared;
+
+    bb0: {
+        _3 = ref(shared, (*_1));
+        _2 = window_open w0 prologue borrow_reads.Tags.[](i: Int) (owner borrow_reads.Tags) [move _3, const 0: Int] -> [present: bb1];
+    }
+
+    bb1: {
+        switch discriminant((*_2)) -> [A: bb3, B: bb4];
+    }
+
+    bb2: {
+        return;
+    }
+
+    bb3: {
+        goto -> bb5;
+    }
+
+    bb4: {
+        goto -> bb6;
+    }
+
+    bb5: {
+        _0 = const 1: Int;
+        window_close w0 epilogue borrow_reads.Tags.[](i: Int) (owner borrow_reads.Tags) -> [return: bb7];
+    }
+
+    bb6: {
+        _0 = const 2: Int;
+        window_close w0 epilogue borrow_reads.Tags.[](i: Int) (owner borrow_reads.Tags) -> [return: bb8];
+    }
+
+    bb7: {
+        goto -> bb2;
+    }
+
+    bb8: {
+        goto -> bb2;
+    }
+}

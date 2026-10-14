@@ -58,7 +58,10 @@ exit status compared.
   replace `self` where no field has left it;
 - `probes/raw_enum_cast_handoff.saw`, whose raw-backed enum casts run no
   `copy()` and leave each temporary they read to its statement, which Stage 0
-  loses the deinit of, prints the lines it states the same way.
+  loses the deinit of, prints the lines it states the same way;
+- `probes/borrow_place_reads.saw`, whose `borrow` subscripts are read where
+  each position borrows the value, which Stage 0 cannot parse, prints the
+  lines it states the same way: each NoCopy element deinits once.
 
 `--bench` runs none of that: it times each kernel of `bench/` under sawc2 at
 -O2 and under Stage 0 and prints the report, which gates nothing. The runner
@@ -674,6 +677,16 @@ def check_raw_enum_cast_handoff(failures, counts):
     check_stated(failures, counts, "raw enum cast handoff", src, want)
 
 
+def check_borrow_place_reads(failures, counts):
+    """A `borrow` subscript read where its position borrows the value reads
+    the element in place, so a NoCopy element deinits once:
+    `probes/borrow_place_reads.saw`, which Stage 0 cannot parse, prints its
+    `// prints:` lines (SL-642)."""
+    src = os.path.join(HERE, "probes", "borrow_place_reads.saw")
+    want = "".join(line + "\n" for line in stated_prints(src)).encode()
+    check_stated(failures, counts, "borrow place reads", src, want)
+
+
 def run(names=None, write=False):
     os.makedirs(OUT, exist_ok=True)
     failures = []
@@ -704,6 +717,7 @@ def run(names=None, write=False):
         check_consumes_refill(failures, counts)
         check_consumes_replace(failures, counts)
         check_raw_enum_cast_handoff(failures, counts)
+        check_borrow_place_reads(failures, counts)
     return failures, counts, dues
 
 

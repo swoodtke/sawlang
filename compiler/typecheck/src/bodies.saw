@@ -3975,14 +3975,13 @@ extension TcProgram {
         // A raw-backed enum is its tag, so its cast borrows a place, read
         // through a reference or not, and copies nothing, whatever the enum's
         // copy policy. An owned value, a temporary or a spelled `move`, is
-        // still handed off, and MIR keeps it for its statement to drop, and a
-        // `borrow PLACE` is read by value (`lent_by_borrow_place`). Every
+        // still handed off, and MIR keeps it for its statement to drop. Every
         // other arm reads a trivial value or, at the same type, forwards the
         // operand.
         let referent = self.referent(own)
         let read = if referent >= 0 { referent } else { own }
         let borrowed = referent >= 0 || self.by_value_use(operand) == TcUse.Copy
-        if borrowed && self.casts_backing(read, to) && not self.lent_by_borrow_place(operand) {
+        if borrowed && self.casts_backing(read, to) {
             self.set_use(operand, TcUse.Borrow)
         } else {
             self.consume(operand)
@@ -4034,26 +4033,6 @@ extension TcProgram {
     public func casts_backing(&self, from: Int, to: Int) -> Bool {
         let fd = self.nominal_decl(from)
         self.is_enum_decl(fd) && self.sigs[fd].result >= 0 && self.is_integer(to)
-    }
-
-    // Whether place `e` is a `borrow PLACE` or a part of one. Such a place
-    // read at a Borrow position is a copy out of its window that the
-    // statement then drops, so a cast reads it by value until that read goes
-    // through the window instead; the refusal is pinned by
-    // `transfer.implicit-copy.raw-enum-cast-borrow` (SL-642).
-    func lent_by_borrow_place(&self, e: Int) -> Bool {
-        var at = e
-        while at >= 0 {
-            if self.has_alt(at, Alt.Borrow_Place_Shared) || self.has_alt(at, Alt.Borrow_Place_Var) {
-                return true
-            }
-            let projected = self.has_alt(at, Alt.Expr_Member) || self.has_alt(at, Alt.Expr_TupleIndex) || self.has_alt(at, Alt.Expr_Force) || self.has_alt(at, Alt.Expr_Paren)
-            if not projected {
-                return false
-            }
-            at = self.res.first_node_child(at)
-        }
-        false
     }
 
     // `&x`, `&var x`: a reference to a place, or, shared, to a temporary.
@@ -9374,7 +9353,7 @@ extension TcProgram {
     // one, and `borrow` reads either in place; an element that copies only
     // by inference owes design 219's requirement (`implied_copies`).
     // The positions that lend a place, and so exempt it, are the `borrow`
-    // forms, `lend` and a `for` head (`lends_in_place`); a sigil on an
+    // forms, `lend` and a `for` head (`lent_in_place`); a sigil on an
     // accessor's place is `borrowing.sigil-place`.
     func check_plain_subscript_reads(&var self, parents: &Vector<Int>) {
         let n = self.res.nodes.len()
@@ -9399,7 +9378,7 @@ extension TcProgram {
                 continue
             }
             let top = self.projection_top(e, &parents)
-            if self.lends_in_place(parents[top]) || self.spells_copy(e, &parents) {
+            if self.lent_in_place(e, &parents) || self.spells_copy(e, &parents) {
                 continue
             }
             let t = self.expr_types[e]
@@ -9489,6 +9468,16 @@ extension TcProgram {
             steps = steps + 1
         }
         return node
+    }
+
+    // Whether the projection subscript `e` heads ends where its place is
+    // lent, so the subscript is a place there and never a getitem's copy
+    // (SL:borrowing §5.1). Its entry points:
+    //     settle_call
+    //     check_plain_subscript_reads
+    func lent_in_place(&self, e: Int, parents: &Vector<Int>) -> Bool {
+        let top = self.projection_top(e, &parents)
+        self.lends_in_place(parents[top])
     }
 
     // Whether node `p`, holding a projection, lends the place it names
@@ -9595,7 +9584,7 @@ extension TcProgram {
                 role = TcRole.Setitem
             } else if direct == TcUse.Copy || direct == TcUse.Temp || direct == TcUse.Move || direct == TcUse.Test {
                 role = TcRole.Getitem
-            } else if direct == TcUse.Project && not writes {
+            } else if direct == TcUse.Project && not writes && not self.lent_in_place(e, &parents) {
                 role = TcRole.Getitem
             }
             self.settle_subscript(at, role, writes, lending)

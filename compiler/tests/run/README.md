@@ -385,7 +385,14 @@ compares:
   generic enum's case, and a `borrow` block's and a payload's lent binding,
   prints its `// prints:` lines the same way: no `copy()` runs, each
   temporary is destroyed at the end of its statement, and a lent binding
-  reads its tag in place. Stage 0 never destroys those temporaries (SL-623).
+  reads its tag in place. Stage 0 never destroys those temporaries (SL-623);
+- `probes/borrow_place_reads.saw`, whose `borrow` subscripts are read where
+  each position borrows the value (a format argument, an interpolation, a
+  comparison operand, a scrutinee with and without a payload binding, a field,
+  a receiver, a `borrow var`, a nested chain, an ExplicitCopy element, a range
+  bound, an accessor's `lend`), prints its `// prints:` lines the same way:
+  each element is read in place and deinits once. Stage 0 cannot parse a
+  `borrow` expression (SL-642).
 
 Stage 0 is the oracle: a difference is a sawc2 bug until shown otherwise
 (SL:architecture §5).

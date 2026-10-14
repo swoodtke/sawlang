@@ -109,22 +109,21 @@ fn windows.nested(b: &var std.vector.Vector<std.vector.Vector<windows.Cell, std.
     }
 
     bb5: {
-        [] {L4 L5} _10 = ref(shared, (*_6));
-        [] {L4 L5 L6} _9 = window_open w3 prologue std.vector.Vector.[](index: Int) (owner std.vector.Vector<windows.Cell, std.alloc.GlobalAllocator>) [move _10, const 1: Int] -> [present: bb6];
+        [] {L4 L5} _9 = ref(shared, (*_6));
+        [] {L4 L5 L6} _8 = window_open w3 prologue std.vector.Vector.[](index: Int) (owner std.vector.Vector<windows.Cell, std.alloc.GlobalAllocator>) [move _9, const 1: Int] -> [present: bb6];
     }
 
     bb6: {
-        [] {L4 L5 L6 L7} _8 = copy (*_9);
+        [] {L4 L5 L6 L7} _10 = copy (*_8).n;
         [] {L4 L5 L6 L7} window_close w3 epilogue std.vector.Vector.[](index: Int) (owner std.vector.Vector<windows.Cell, std.alloc.GlobalAllocator>) -> [return: bb7];
     }
 
     bb7: {
-        [] {L4 L5} _11 = copy _8.n;
         [] {L4 L5} window_close w2 epilogue std.vector.Vector.[](index: Int) (owner std.vector.Vector<std.vector.Vector<windows.Cell, std.alloc.GlobalAllocator>, std.alloc.GlobalAllocator>) -> [return: bb8];
     }
 
     bb8: {
-        [] {} _0 = move _11;
+        [] {} _0 = move _10;
         [] {} return;
     }
 }
@@ -235,7 +234,7 @@ fn windows.across(r: &var windows.Row, n: &var Int) {
 fn windows.let_root() {
     place _1: std.vector.Vector<Int, std.alloc.GlobalAllocator>;  // v
     place _2: std.vector.Vector<Int, std.alloc.GlobalAllocator>;  // _2
-    place _14: String;  // _14
+    place _12: String;  // _12
     loan L0: shared _1;  // ref at 66:5
     loan L1: shared _1;  // window w0 at 66:5
     loan L2: shared (*_4);  // ref at 66:16
@@ -264,33 +263,31 @@ fn windows.let_root() {
     }
 
     bb2: {
-        [W M U] {} _10 = ref(shared, _1);
-        [W M U] {L3} _9 = window_open w1 prologue std.vector.Vector.[](index: Int) (owner std.vector.Vector<Int, std.alloc.GlobalAllocator>) [move _10, const 0: Int] -> [present: bb3];
+        [W M U] {} _9 = ref(shared, _1);
+        [W M U] {L3} _8 = window_open w1 prologue std.vector.Vector.[](index: Int) (owner std.vector.Vector<Int, std.alloc.GlobalAllocator>) [move _9, const 0: Int] -> [present: bb3];
     }
 
     bb3: {
-        [W M U] {L3 L4} _8 = copy (*_9);
-        [W M U] {L3 L4} window_close w1 epilogue std.vector.Vector.[](index: Int) (owner std.vector.Vector<Int, std.alloc.GlobalAllocator>) -> [return: bb4];
+        [W M U] {L3 L4} _11 = ref(shared, _1);
+        [W M U] {L3 L4 L5} _10 = window_open w2 prologue std.vector.Vector.[](index: Int) (owner std.vector.Vector<Int, std.alloc.GlobalAllocator>) [move _11, const 1: Int] -> [present: bb4];
     }
 
     bb4: {
-        [W M U] {} _13 = ref(shared, _1);
-        [W M U] {L5} _12 = window_open w2 prologue std.vector.Vector.[](index: Int) (owner std.vector.Vector<Int, std.alloc.GlobalAllocator>) [move _13, const 1: Int] -> [present: bb5];
+        [W M U] {L3 L4 L5 L6} _12 = interpolate [copy (*_8), const " ": String, copy (*_10)];
+        [W M W] {L3 L4 L5 L6} call builtin print [move _12] -> [return: bb5];
     }
 
     bb5: {
-        [W M U] {L5 L6} _11 = copy (*_12);
-        [W M U] {L5 L6} window_close w2 epilogue std.vector.Vector.[](index: Int) (owner std.vector.Vector<Int, std.alloc.GlobalAllocator>) -> [return: bb6];
+        [W M M] {L3 L4 L5 L6} window_close w2 epilogue std.vector.Vector.[](index: Int) (owner std.vector.Vector<Int, std.alloc.GlobalAllocator>) -> [return: bb6];
     }
 
     bb6: {
-        [W M U] {} _14 = interpolate [copy _8, const " ": String, copy _11];
-        [W M W] {} call builtin print [move _14] -> [return: bb7];
+        [W M M] {L3 L4} window_close w1 epilogue std.vector.Vector.[](index: Int) (owner std.vector.Vector<Int, std.alloc.GlobalAllocator>) -> [return: bb7];
     }
 
     bb7: {
-        [W M M] {} _17 = ref(shared, _1);
-        [W M M] {L7} _16 = window_open w3 prologue std.vector.Vector.[](index: Int) (owner std.vector.Vector<Int, std.alloc.GlobalAllocator>) [move _17, const 0: Int] -> [present: bb9];
+        [W M M] {} _14 = ref(shared, _1);
+        [W M M] {L7} _13 = window_open w3 prologue std.vector.Vector.[](index: Int) (owner std.vector.Vector<Int, std.alloc.GlobalAllocator>) [move _14, const 0: Int] -> [present: bb9];
     }
 
     bb8: {
@@ -300,28 +297,28 @@ fn windows.let_root() {
     }
 
     bb9: {
-        [W M M] {L7 L8} _15 = copy (*_16);
-        [W M M] {L7 L8} window_close w3 epilogue std.vector.Vector.[](index: Int) (owner std.vector.Vector<Int, std.alloc.GlobalAllocator>) -> [return: bb10];
+        [W M M] {L7 L8} _15 = copy (*_13);
+        [W M M] {L7 L8} _17 = ref(shared, _1);
+        [W M M] {L7 L8 L9} _16 = window_open w4 prologue std.vector.Vector.[](index: Int) (owner std.vector.Vector<Int, std.alloc.GlobalAllocator>) [move _17, const 1: Int] -> [present: bb10];
     }
 
     bb10: {
-        [W M M] {} _20 = ref(shared, _1);
-        [W M M] {L9} _19 = window_open w4 prologue std.vector.Vector.[](index: Int) (owner std.vector.Vector<Int, std.alloc.GlobalAllocator>) [move _20, const 1: Int] -> [present: bb11];
+        [W M M] {L7 L8 L9 L10} _18 = Eq(move _15, copy (*_16));
+        [W M M] {L7 L8 L9 L10} _19 = move _18;
+        [W M M] {L7 L8 L9 L10} window_close w4 epilogue std.vector.Vector.[](index: Int) (owner std.vector.Vector<Int, std.alloc.GlobalAllocator>) -> [return: bb11];
     }
 
     bb11: {
-        [W M M] {L9 L10} _18 = copy (*_19);
-        [W M M] {L9 L10} window_close w4 epilogue std.vector.Vector.[](index: Int) (owner std.vector.Vector<Int, std.alloc.GlobalAllocator>) -> [return: bb12];
+        [W M M] {L7 L8} window_close w3 epilogue std.vector.Vector.[](index: Int) (owner std.vector.Vector<Int, std.alloc.GlobalAllocator>) -> [return: bb12];
     }
 
     bb12: {
-        [W M M] {} _21 = Eq(copy _15, copy _18);
-        [W M M] {} switch move _21 -> [true: bb13, false: bb14];
+        [W M M] {} switch move _19 -> [true: bb13, false: bb14];
     }
 
     bb13: {
-        [W M M] {} _22 = Add(copy _3, const 1: Int);
-        [W M M] {} _3 = move _22;
+        [W M M] {} _20 = Add(copy _3, const 1: Int);
+        [W M M] {} _3 = move _20;
         [W M M] {} goto -> bb8;
     }
 

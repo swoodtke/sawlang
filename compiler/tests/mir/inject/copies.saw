@@ -1,0 +1,34 @@
+// The program compiler/mir/tests/verify_copies.saw lowers, then edits: `keep`
+// moves a NoCopy value, which the edit turns into the bitwise copy the MIR
+// verifier must refuse. `name_of` copies a `String`, an owning value that
+// copies silently, and `tag_of` reads a NoCopy raw-backed enum's tag through
+// a cast, which reads only the tag; both stay clean.
+
+struct Res {
+    n: Int
+}
+
+extension Res: NoCopy {}
+
+struct Tag {
+    name: String
+}
+
+enum Code: UInt8 {
+    case A = 1,
+    case B = 2
+}
+
+extension Code: NoCopy {}
+
+func keep(r: Res) -> Res {
+    move r
+}
+
+func name_of(t: &Tag) -> String {
+    t.name
+}
+
+func tag_of(c: &Code) -> UInt8 {
+    c as UInt8
+}

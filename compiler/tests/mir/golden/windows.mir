@@ -161,11 +161,11 @@ fn windows.statement_form(r: &var windows.Row) -> Int {
     let _2: &var Int;
     let _3: &var windows.Row;
     let _4: Int;  // copied
-    let _5: Int;
-    let _6: &Int;
-    let _7: &windows.Row;
+    let _5: &var Int;
+    let _6: &var windows.Row;
+    let _7: Int;
     window w0: windows.Row.[](i: Int) exclusive;
-    window w1: windows.Row.[](i: Int) shared;
+    window w1: windows.Row.[](i: Int) exclusive;
 
     bb0: {
         _3 = ref(exclusive, (*_1));
@@ -178,17 +178,17 @@ fn windows.statement_form(r: &var windows.Row) -> Int {
     }
 
     bb2: {
-        _7 = ref(shared, (*_1));
-        _6 = window_open w1 prologue windows.Row.[](i: Int) (owner windows.Row) [move _7, const 2: Int] -> [present: bb3];
+        _6 = ref(exclusive, (*_1));
+        _5 = window_open w1 prologue windows.Row.[](i: Int) (owner windows.Row) [move _6, const 2: Int] -> [present: bb3];
     }
 
     bb3: {
-        _5 = copy (*_6);
+        _7 = copy (*_5);
         window_close w1 epilogue windows.Row.[](i: Int) (owner windows.Row) -> [return: bb4];
     }
 
     bb4: {
-        _4 = move _5;
+        _4 = move _7;
         _0 = copy _4;
         return;
     }

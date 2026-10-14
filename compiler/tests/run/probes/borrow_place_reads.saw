@@ -1,0 +1,293 @@
+// A `borrow` subscript read where its position borrows the value, a format
+// argument, an interpolation, a comparison operand, a scrutinee, a field, a
+// receiver, a `borrow var`, a nested chain, an ExplicitCopy element, a range
+// bound, an accessor's `lend`, and a raw-backed enum's cast of an element, a
+// field or a lent place, reads it in place: nothing copies it, so each value
+// deinits once and a cast prints the real tag. Stage 0 cannot parse a
+// `borrow` expression, so the run lane builds this at -O0 and -O2 and
+// requires the `// prints:` lines (conformance V140).
+// prints: format res 1
+// prints: drop 1
+// prints: interpolated res 2
+// prints: drop 2
+// prints: compared false
+// prints: drop 3
+// prints: drop 4
+// prints: compared field true
+// prints: drop 50
+// prints: drop 5
+// prints: field 6
+// prints: drop 6
+// prints: field copied 8
+// prints: drop 7
+// prints: scrutinee B
+// prints: drop kind
+// prints: payload 8
+// prints: drop 8
+// prints: exclusive res 9
+// prints: drop 9
+// prints: explicit label
+// prints: explicit field label
+// prints: nested res 11
+// prints: drop bag
+// prints: drop 10
+// prints: drop 11
+// prints: receiver 2
+// prints: drop bag
+// prints: drop 12
+// prints: drop 13
+// prints: range 0
+// prints: range 1
+// prints: drop bag
+// prints: drop 14
+// prints: drop 2
+// prints: lent 15
+// prints: drop bag
+// prints: drop 15
+// prints: drop 16
+// prints: cast 2
+// prints: drop tag 2
+// prints: cast field 1
+// prints: cast field again 1
+// prints: cast lent 2
+// prints: drop tag 2
+// prints: drop tag 1
+// prints: end
+
+struct Res {
+    n: Int
+}
+
+extension Res: NoCopy {
+    func deinit(&var self) {
+        print("drop {}", self.n)
+    }
+}
+
+extension Res: Printable {
+    func format(&self, into: &var StringBuilder) {
+        try! into.append("res ")
+        try! into.append(value: self.n)
+    }
+}
+
+extension Res: Equatable {
+    func equals(&self, other: &Res) -> Bool {
+        self.n == other.n
+    }
+}
+
+struct Label {
+    text: String
+}
+
+@synthesize
+extension Label: ExplicitCopy {}
+
+extension Label: Printable {
+    func format(&self, into: &var StringBuilder) {
+        try! into.append(self.text)
+    }
+}
+
+struct Bag {
+    items: Vector<Res>
+}
+
+extension Bag: NoCopy {
+    func deinit(&var self) {
+        print("drop bag")
+    }
+}
+
+struct Shelf {
+    bags: Vector<Bag>
+}
+
+extension Shelf: NoCopy {}
+
+extension Shelf {
+    func first_count(&self) borrows -> &Int {
+        lend self.bags[0].items[0].n
+    }
+}
+
+enum Kind {
+    case A,
+    case B
+}
+
+extension Kind: NoCopy {
+    func deinit(&var self) {
+        print("drop kind")
+    }
+}
+
+enum Shape {
+    case Dot(r: Res),
+    case Empty
+}
+
+extension Shape: NoCopy {}
+
+enum Tag: UInt8 {
+    case A = 1,
+    case B = 2
+}
+
+extension Tag: NoCopy {
+    func deinit(&var self) {
+        print("drop tag {}", self as UInt8)
+    }
+}
+
+struct Holder {
+    tag: Tag
+}
+
+extension Holder: NoCopy {}
+
+extension Holder {
+    func at(&self) borrows -> &Tag {
+        lend self.tag
+    }
+}
+
+func one(n: Int) -> Vector<Res> {
+    var v = Vector<Res>()
+    try! v.push(Res(n: n))
+    move v
+}
+
+func two(a: Int, b: Int) -> Vector<Res> {
+    var v = Vector<Res>()
+    try! v.push(Res(n: a))
+    try! v.push(Res(n: b))
+    move v
+}
+
+func bag_of(a: Int, b: Int) -> Vector<Bag> {
+    var bags = Vector<Bag>()
+    try! bags.push(Bag(items: two(a, b)))
+    move bags
+}
+
+func format_argument() {
+    let v = one(1)
+    print("format {}", borrow v[0])
+}
+
+func interpolated() {
+    let v = one(2)
+    print("interpolated {borrow v[0]}")
+}
+
+func compared() {
+    let v = two(3, 4)
+    let same = borrow v[0] == borrow v[1]
+    print("compared {}", same)
+}
+
+func compared_field() {
+    let v = one(5)
+    let r = Res(n: 50)
+    print("compared field {}", borrow v[0].n * 10 == r.n)
+}
+
+func field_format() {
+    let v = one(6)
+    print("field {}", borrow v[0].n)
+}
+
+func field_copied() {
+    let v = one(7)
+    let n = borrow v[0].n + 1
+    print("field copied {}", n)
+}
+
+func scrutinee() {
+    var k = Vector<Kind>()
+    try! k.push(Kind.B)
+    match borrow k[0] {
+        case A -> print("scrutinee A"),
+        case B -> print("scrutinee B")
+    }
+}
+
+func payload_scrutinee() {
+    var v = Vector<Shape>()
+    try! v.push(Shape.Dot(r: Res(n: 8)))
+    match borrow v[0] {
+        case Dot(r) -> print("payload {}", r.n),
+        case Empty -> print("payload empty")
+    }
+}
+
+func exclusive_format() {
+    var v = one(9)
+    print("exclusive {}", borrow var v[0])
+}
+
+func explicit_copy_format() {
+    var v = Vector<Label>()
+    try! v.push(Label(text: "label"))
+    print("explicit {}", borrow v[0])
+    print("explicit field {}", borrow v[0].text)
+}
+
+func nested() {
+    let bags = bag_of(10, 11)
+    print("nested {}", borrow bags[0].items[1])
+}
+
+func receiver() {
+    let bags = bag_of(12, 13)
+    print("receiver {}", borrow bags[0].items.len())
+}
+
+func range_bound() {
+    let bags = bag_of(14, 2)
+    for k in 0..borrow bags[0].items[1].n {
+        print("range {}", k)
+    }
+}
+
+func lent_projection() {
+    let s = Shelf(bags: bag_of(15, 16))
+    print("lent {}", borrow s.first_count())
+}
+
+func cast_whole() {
+    var v = Vector<Tag>()
+    try! v.push(Tag.B)
+    print("cast {}", (borrow v[0]) as UInt8)
+}
+
+func cast_projected() {
+    var hs = Vector<Holder>()
+    try! hs.push(Holder(tag: Tag.A))
+    print("cast field {}", (borrow hs[0]).tag as UInt8)
+    print("cast field again {}", borrow hs[0].tag as UInt8)
+    let h = Holder(tag: Tag.B)
+    print("cast lent {}", borrow h.at() as UInt8)
+}
+
+func main() {
+    format_argument()
+    interpolated()
+    compared()
+    compared_field()
+    field_format()
+    field_copied()
+    scrutinee()
+    payload_scrutinee()
+    exclusive_format()
+    explicit_copy_format()
+    nested()
+    receiver()
+    range_bound()
+    lent_projection()
+    cast_whole()
+    cast_projected()
+    print("end")
+}

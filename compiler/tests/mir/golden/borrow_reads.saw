@@ -1,0 +1,85 @@
+// A `borrow` subscript is a place wherever its position reads it, never a
+// getitem (SL:borrowing §5.1). Where the position borrows its value, a format
+// argument, an interpolation, each comparison operand, a scrutinee, the lent
+// element is read in place, `ref(shared, (*_K))`, its window open to the
+// statement's end; where a part is copied out, the window closes once it is
+// read. Nothing copies the NoCopy element, which the run lane's
+// `probes/borrow_place_reads.saw` shows as one drop per value (SL-642).
+
+struct Res {
+    n: Int
+}
+
+extension Res: NoCopy {}
+
+extension Res: Printable {
+    func format(&self, into: &var StringBuilder) {
+        try! into.append(value: self.n)
+    }
+}
+
+extension Res: Equatable {
+    func equals(&self, other: &Res) -> Bool {
+        self.n == other.n
+    }
+}
+
+enum Kind {
+    case A,
+    case B
+}
+
+extension Kind: NoCopy {}
+
+struct Shelf {
+    first: Res
+    second: Res
+}
+
+extension Shelf: NoCopy {}
+
+struct Tags {
+    kind: Kind
+}
+
+extension Tags: NoCopy {}
+
+extension Shelf {
+    func [](&self, i: Int) borrows -> &Res {
+        if i == 0 {
+            lend self.first
+        } else {
+            lend self.second
+        }
+    }
+}
+
+extension Tags {
+    func [](&self, i: Int) borrows -> &Kind {
+        lend self.kind
+    }
+}
+
+func format_argument(s: &Shelf) {
+    print("element {}", borrow s[0])
+}
+
+func interpolated(s: &Shelf) {
+    print("element {borrow s[1]}")
+}
+
+func compared(s: &Shelf) -> Bool {
+    borrow s[0] == borrow s[1]
+}
+
+func field_read(s: &Shelf) -> Int {
+    let n = borrow s[0].n
+    n + 1
+}
+
+func scrutinee(t: &Tags) -> Int {
+    match borrow t[0] {
+        case A -> 1,
+        case B -> 2
+    }
+}
