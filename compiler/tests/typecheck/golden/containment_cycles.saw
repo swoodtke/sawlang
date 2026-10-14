@@ -1,0 +1,111 @@
+// The finite-size check, one declaration per cycle of the by-value
+// containment graph (spec, Recursive types): `Grow` holds itself at an ever
+// larger argument; `Fixed` holds one fixed instance of itself, which holds
+// itself in turn; `A` and `B` hold each other, and `C`, which only `A` reaches,
+// is on a second cycle through `B` and is refused too; `Chain` holds itself
+// through a generic's inline field. `Outer` holds the infinite `Grow` but is on
+// no cycle, and neither is `Finite`, 66 instances of `Wrap` deep (SL-627).
+
+struct Grow<T> {
+    x: Grow<(T,)>?
+}
+
+struct Fixed<T> {
+    u: Fixed<Int>?
+}
+
+struct A {
+    b: B
+    c: C
+}
+
+struct B {
+    a: A?
+}
+
+struct C {
+    b: B
+}
+
+struct Wrap<T> {
+    held: T
+}
+
+struct Chain {
+    next: Wrap<Chain>
+}
+
+struct Outer {
+    g: Grow<Int>
+}
+
+type F1 = Wrap<Int>
+type F2 = Wrap<F1>
+type F3 = Wrap<F2>
+type F4 = Wrap<F3>
+type F5 = Wrap<F4>
+type F6 = Wrap<F5>
+type F7 = Wrap<F6>
+type F8 = Wrap<F7>
+type F9 = Wrap<F8>
+type F10 = Wrap<F9>
+type F11 = Wrap<F10>
+type F12 = Wrap<F11>
+type F13 = Wrap<F12>
+type F14 = Wrap<F13>
+type F15 = Wrap<F14>
+type F16 = Wrap<F15>
+type F17 = Wrap<F16>
+type F18 = Wrap<F17>
+type F19 = Wrap<F18>
+type F20 = Wrap<F19>
+type F21 = Wrap<F20>
+type F22 = Wrap<F21>
+type F23 = Wrap<F22>
+type F24 = Wrap<F23>
+type F25 = Wrap<F24>
+type F26 = Wrap<F25>
+type F27 = Wrap<F26>
+type F28 = Wrap<F27>
+type F29 = Wrap<F28>
+type F30 = Wrap<F29>
+type F31 = Wrap<F30>
+type F32 = Wrap<F31>
+type F33 = Wrap<F32>
+type F34 = Wrap<F33>
+type F35 = Wrap<F34>
+type F36 = Wrap<F35>
+type F37 = Wrap<F36>
+type F38 = Wrap<F37>
+type F39 = Wrap<F38>
+type F40 = Wrap<F39>
+type F41 = Wrap<F40>
+type F42 = Wrap<F41>
+type F43 = Wrap<F42>
+type F44 = Wrap<F43>
+type F45 = Wrap<F44>
+type F46 = Wrap<F45>
+type F47 = Wrap<F46>
+type F48 = Wrap<F47>
+type F49 = Wrap<F48>
+type F50 = Wrap<F49>
+type F51 = Wrap<F50>
+type F52 = Wrap<F51>
+type F53 = Wrap<F52>
+type F54 = Wrap<F53>
+type F55 = Wrap<F54>
+type F56 = Wrap<F55>
+type F57 = Wrap<F56>
+type F58 = Wrap<F57>
+type F59 = Wrap<F58>
+type F60 = Wrap<F59>
+type F61 = Wrap<F60>
+type F62 = Wrap<F61>
+type F63 = Wrap<F62>
+type F64 = Wrap<F63>
+type F65 = Wrap<F64>
+type F66 = Wrap<F65>
+
+struct Finite {
+    deep: F66
+}

@@ -1,0 +1,879 @@
+// The semantic walks answer by identity, never by how deep a type nests: a
+// chain of 66 structs has a finite layout, a `sync` call through 18 wrappers
+// never suspends, a chain of 35 plain structs meets `Equatable` with no
+// declaration, a recursive type is `Send` through its `Vector`, and two default
+// bodies calling each other through `Self` never suspend (SL-627).
+
+struct S66 {
+    n: Int
+}
+
+struct S65 {
+    next: S66
+}
+
+struct S64 {
+    next: S65
+}
+
+struct S63 {
+    next: S64
+}
+
+struct S62 {
+    next: S63
+}
+
+struct S61 {
+    next: S62
+}
+
+struct S60 {
+    next: S61
+}
+
+struct S59 {
+    next: S60
+}
+
+struct S58 {
+    next: S59
+}
+
+struct S57 {
+    next: S58
+}
+
+struct S56 {
+    next: S57
+}
+
+struct S55 {
+    next: S56
+}
+
+struct S54 {
+    next: S55
+}
+
+struct S53 {
+    next: S54
+}
+
+struct S52 {
+    next: S53
+}
+
+struct S51 {
+    next: S52
+}
+
+struct S50 {
+    next: S51
+}
+
+struct S49 {
+    next: S50
+}
+
+struct S48 {
+    next: S49
+}
+
+struct S47 {
+    next: S48
+}
+
+struct S46 {
+    next: S47
+}
+
+struct S45 {
+    next: S46
+}
+
+struct S44 {
+    next: S45
+}
+
+struct S43 {
+    next: S44
+}
+
+struct S42 {
+    next: S43
+}
+
+struct S41 {
+    next: S42
+}
+
+struct S40 {
+    next: S41
+}
+
+struct S39 {
+    next: S40
+}
+
+struct S38 {
+    next: S39
+}
+
+struct S37 {
+    next: S38
+}
+
+struct S36 {
+    next: S37
+}
+
+struct S35 {
+    next: S36
+}
+
+struct S34 {
+    next: S35
+}
+
+struct S33 {
+    next: S34
+}
+
+struct S32 {
+    next: S33
+}
+
+struct S31 {
+    next: S32
+}
+
+struct S30 {
+    next: S31
+}
+
+struct S29 {
+    next: S30
+}
+
+struct S28 {
+    next: S29
+}
+
+struct S27 {
+    next: S28
+}
+
+struct S26 {
+    next: S27
+}
+
+struct S25 {
+    next: S26
+}
+
+struct S24 {
+    next: S25
+}
+
+struct S23 {
+    next: S24
+}
+
+struct S22 {
+    next: S23
+}
+
+struct S21 {
+    next: S22
+}
+
+struct S20 {
+    next: S21
+}
+
+struct S19 {
+    next: S20
+}
+
+struct S18 {
+    next: S19
+}
+
+struct S17 {
+    next: S18
+}
+
+struct S16 {
+    next: S17
+}
+
+struct S15 {
+    next: S16
+}
+
+struct S14 {
+    next: S15
+}
+
+struct S13 {
+    next: S14
+}
+
+struct S12 {
+    next: S13
+}
+
+struct S11 {
+    next: S12
+}
+
+struct S10 {
+    next: S11
+}
+
+struct S9 {
+    next: S10
+}
+
+struct S8 {
+    next: S9
+}
+
+struct S7 {
+    next: S8
+}
+
+struct S6 {
+    next: S7
+}
+
+struct S5 {
+    next: S6
+}
+
+struct S4 {
+    next: S5
+}
+
+struct S3 {
+    next: S4
+}
+
+struct S2 {
+    next: S3
+}
+
+struct S1 {
+    next: S2
+}
+
+struct S0 {
+    next: S1
+}
+
+func read66(s: &S66) -> Int {
+    s.n
+}
+
+func read65(s: &S65) -> Int {
+    read66(&s.next)
+}
+
+func read64(s: &S64) -> Int {
+    read65(&s.next)
+}
+
+func read63(s: &S63) -> Int {
+    read64(&s.next)
+}
+
+func read62(s: &S62) -> Int {
+    read63(&s.next)
+}
+
+func read61(s: &S61) -> Int {
+    read62(&s.next)
+}
+
+func read60(s: &S60) -> Int {
+    read61(&s.next)
+}
+
+func read59(s: &S59) -> Int {
+    read60(&s.next)
+}
+
+func read58(s: &S58) -> Int {
+    read59(&s.next)
+}
+
+func read57(s: &S57) -> Int {
+    read58(&s.next)
+}
+
+func read56(s: &S56) -> Int {
+    read57(&s.next)
+}
+
+func read55(s: &S55) -> Int {
+    read56(&s.next)
+}
+
+func read54(s: &S54) -> Int {
+    read55(&s.next)
+}
+
+func read53(s: &S53) -> Int {
+    read54(&s.next)
+}
+
+func read52(s: &S52) -> Int {
+    read53(&s.next)
+}
+
+func read51(s: &S51) -> Int {
+    read52(&s.next)
+}
+
+func read50(s: &S50) -> Int {
+    read51(&s.next)
+}
+
+func read49(s: &S49) -> Int {
+    read50(&s.next)
+}
+
+func read48(s: &S48) -> Int {
+    read49(&s.next)
+}
+
+func read47(s: &S47) -> Int {
+    read48(&s.next)
+}
+
+func read46(s: &S46) -> Int {
+    read47(&s.next)
+}
+
+func read45(s: &S45) -> Int {
+    read46(&s.next)
+}
+
+func read44(s: &S44) -> Int {
+    read45(&s.next)
+}
+
+func read43(s: &S43) -> Int {
+    read44(&s.next)
+}
+
+func read42(s: &S42) -> Int {
+    read43(&s.next)
+}
+
+func read41(s: &S41) -> Int {
+    read42(&s.next)
+}
+
+func read40(s: &S40) -> Int {
+    read41(&s.next)
+}
+
+func read39(s: &S39) -> Int {
+    read40(&s.next)
+}
+
+func read38(s: &S38) -> Int {
+    read39(&s.next)
+}
+
+func read37(s: &S37) -> Int {
+    read38(&s.next)
+}
+
+func read36(s: &S36) -> Int {
+    read37(&s.next)
+}
+
+func read35(s: &S35) -> Int {
+    read36(&s.next)
+}
+
+func read34(s: &S34) -> Int {
+    read35(&s.next)
+}
+
+func read33(s: &S33) -> Int {
+    read34(&s.next)
+}
+
+func read32(s: &S32) -> Int {
+    read33(&s.next)
+}
+
+func read31(s: &S31) -> Int {
+    read32(&s.next)
+}
+
+func read30(s: &S30) -> Int {
+    read31(&s.next)
+}
+
+func read29(s: &S29) -> Int {
+    read30(&s.next)
+}
+
+func read28(s: &S28) -> Int {
+    read29(&s.next)
+}
+
+func read27(s: &S27) -> Int {
+    read28(&s.next)
+}
+
+func read26(s: &S26) -> Int {
+    read27(&s.next)
+}
+
+func read25(s: &S25) -> Int {
+    read26(&s.next)
+}
+
+func read24(s: &S24) -> Int {
+    read25(&s.next)
+}
+
+func read23(s: &S23) -> Int {
+    read24(&s.next)
+}
+
+func read22(s: &S22) -> Int {
+    read23(&s.next)
+}
+
+func read21(s: &S21) -> Int {
+    read22(&s.next)
+}
+
+func read20(s: &S20) -> Int {
+    read21(&s.next)
+}
+
+func read19(s: &S19) -> Int {
+    read20(&s.next)
+}
+
+func read18(s: &S18) -> Int {
+    read19(&s.next)
+}
+
+func read17(s: &S17) -> Int {
+    read18(&s.next)
+}
+
+func read16(s: &S16) -> Int {
+    read17(&s.next)
+}
+
+func read15(s: &S15) -> Int {
+    read16(&s.next)
+}
+
+func read14(s: &S14) -> Int {
+    read15(&s.next)
+}
+
+func read13(s: &S13) -> Int {
+    read14(&s.next)
+}
+
+func read12(s: &S12) -> Int {
+    read13(&s.next)
+}
+
+func read11(s: &S11) -> Int {
+    read12(&s.next)
+}
+
+func read10(s: &S10) -> Int {
+    read11(&s.next)
+}
+
+func read9(s: &S9) -> Int {
+    read10(&s.next)
+}
+
+func read8(s: &S8) -> Int {
+    read9(&s.next)
+}
+
+func read7(s: &S7) -> Int {
+    read8(&s.next)
+}
+
+func read6(s: &S6) -> Int {
+    read7(&s.next)
+}
+
+func read5(s: &S5) -> Int {
+    read6(&s.next)
+}
+
+func read4(s: &S4) -> Int {
+    read5(&s.next)
+}
+
+func read3(s: &S3) -> Int {
+    read4(&s.next)
+}
+
+func read2(s: &S2) -> Int {
+    read3(&s.next)
+}
+
+func read1(s: &S1) -> Int {
+    read2(&s.next)
+}
+
+func read0(s: &S0) -> Int {
+    read1(&s.next)
+}
+
+trait Worker {
+    func step(&self) -> Int
+}
+
+struct Fast {
+    n: Int
+}
+
+extension Fast: Worker {
+    func step(&self) -> Int {
+        self.n
+    }
+}
+
+struct Wrap<T> {
+    inner: T
+}
+
+extension Wrap<T: Worker>: Worker {
+    func step(&self) -> Int {
+        self.inner.step() + 1
+    }
+}
+
+func deep_step(w: &Wrap<Wrap<Wrap<Wrap<Wrap<Wrap<Wrap<Wrap<Wrap<Wrap<Wrap<Wrap<Wrap<Wrap<Wrap<Wrap<Wrap<Wrap<Fast>>>>>>>>>>>>>>>>>>) sync -> Int {
+    w.step()
+}
+
+struct P34 {
+    n: Int
+}
+
+struct P33 {
+    next: P34
+}
+
+struct P32 {
+    next: P33
+}
+
+struct P31 {
+    next: P32
+}
+
+struct P30 {
+    next: P31
+}
+
+struct P29 {
+    next: P30
+}
+
+struct P28 {
+    next: P29
+}
+
+struct P27 {
+    next: P28
+}
+
+struct P26 {
+    next: P27
+}
+
+struct P25 {
+    next: P26
+}
+
+struct P24 {
+    next: P25
+}
+
+struct P23 {
+    next: P24
+}
+
+struct P22 {
+    next: P23
+}
+
+struct P21 {
+    next: P22
+}
+
+struct P20 {
+    next: P21
+}
+
+struct P19 {
+    next: P20
+}
+
+struct P18 {
+    next: P19
+}
+
+struct P17 {
+    next: P18
+}
+
+struct P16 {
+    next: P17
+}
+
+struct P15 {
+    next: P16
+}
+
+struct P14 {
+    next: P15
+}
+
+struct P13 {
+    next: P14
+}
+
+struct P12 {
+    next: P13
+}
+
+struct P11 {
+    next: P12
+}
+
+struct P10 {
+    next: P11
+}
+
+struct P9 {
+    next: P10
+}
+
+struct P8 {
+    next: P9
+}
+
+struct P7 {
+    next: P8
+}
+
+struct P6 {
+    next: P7
+}
+
+struct P5 {
+    next: P6
+}
+
+struct P4 {
+    next: P5
+}
+
+struct P3 {
+    next: P4
+}
+
+struct P2 {
+    next: P3
+}
+
+struct P1 {
+    next: P2
+}
+
+struct P0 {
+    next: P1
+}
+
+func equatable<T: Equatable>(x: &T) -> Int {
+    1
+}
+
+struct Node {
+    value: Int
+    children: Vector<Node>
+}
+
+extension Node: NoCopy {}
+
+func sendable<T: Send>(x: &T) -> Int {
+    1
+}
+
+trait Ping {
+    func ping(&self, n: Int) -> Int {
+        if n <= 0 {
+            return 0
+        }
+        self.pong(n - 1) + 1
+    }
+
+    func pong(&self, n: Int) -> Int {
+        self.ping(n)
+    }
+}
+
+struct Ball {
+    n: Int
+}
+
+extension Ball: Ping {}
+
+func bounce(b: &Ball) sync -> Int {
+    b.ping(3)
+}
+
+func main() {
+    let s66 = S66(n: 7)
+    let s65 = S65(next: move s66)
+    let s64 = S64(next: move s65)
+    let s63 = S63(next: move s64)
+    let s62 = S62(next: move s63)
+    let s61 = S61(next: move s62)
+    let s60 = S60(next: move s61)
+    let s59 = S59(next: move s60)
+    let s58 = S58(next: move s59)
+    let s57 = S57(next: move s58)
+    let s56 = S56(next: move s57)
+    let s55 = S55(next: move s56)
+    let s54 = S54(next: move s55)
+    let s53 = S53(next: move s54)
+    let s52 = S52(next: move s53)
+    let s51 = S51(next: move s52)
+    let s50 = S50(next: move s51)
+    let s49 = S49(next: move s50)
+    let s48 = S48(next: move s49)
+    let s47 = S47(next: move s48)
+    let s46 = S46(next: move s47)
+    let s45 = S45(next: move s46)
+    let s44 = S44(next: move s45)
+    let s43 = S43(next: move s44)
+    let s42 = S42(next: move s43)
+    let s41 = S41(next: move s42)
+    let s40 = S40(next: move s41)
+    let s39 = S39(next: move s40)
+    let s38 = S38(next: move s39)
+    let s37 = S37(next: move s38)
+    let s36 = S36(next: move s37)
+    let s35 = S35(next: move s36)
+    let s34 = S34(next: move s35)
+    let s33 = S33(next: move s34)
+    let s32 = S32(next: move s33)
+    let s31 = S31(next: move s32)
+    let s30 = S30(next: move s31)
+    let s29 = S29(next: move s30)
+    let s28 = S28(next: move s29)
+    let s27 = S27(next: move s28)
+    let s26 = S26(next: move s27)
+    let s25 = S25(next: move s26)
+    let s24 = S24(next: move s25)
+    let s23 = S23(next: move s24)
+    let s22 = S22(next: move s23)
+    let s21 = S21(next: move s22)
+    let s20 = S20(next: move s21)
+    let s19 = S19(next: move s20)
+    let s18 = S18(next: move s19)
+    let s17 = S17(next: move s18)
+    let s16 = S16(next: move s17)
+    let s15 = S15(next: move s16)
+    let s14 = S14(next: move s15)
+    let s13 = S13(next: move s14)
+    let s12 = S12(next: move s13)
+    let s11 = S11(next: move s12)
+    let s10 = S10(next: move s11)
+    let s9 = S9(next: move s10)
+    let s8 = S8(next: move s9)
+    let s7 = S7(next: move s8)
+    let s6 = S6(next: move s7)
+    let s5 = S5(next: move s6)
+    let s4 = S4(next: move s5)
+    let s3 = S3(next: move s4)
+    let s2 = S2(next: move s3)
+    let s1 = S1(next: move s2)
+    let s0 = S0(next: move s1)
+    print("{}", read0(&s0))
+    let w0 = Fast(n: 2)
+    let w1 = Wrap(inner: move w0)
+    let w2 = Wrap(inner: move w1)
+    let w3 = Wrap(inner: move w2)
+    let w4 = Wrap(inner: move w3)
+    let w5 = Wrap(inner: move w4)
+    let w6 = Wrap(inner: move w5)
+    let w7 = Wrap(inner: move w6)
+    let w8 = Wrap(inner: move w7)
+    let w9 = Wrap(inner: move w8)
+    let w10 = Wrap(inner: move w9)
+    let w11 = Wrap(inner: move w10)
+    let w12 = Wrap(inner: move w11)
+    let w13 = Wrap(inner: move w12)
+    let w14 = Wrap(inner: move w13)
+    let w15 = Wrap(inner: move w14)
+    let w16 = Wrap(inner: move w15)
+    let w17 = Wrap(inner: move w16)
+    let w18 = Wrap(inner: move w17)
+    print("{}", deep_step(&w18))
+    let p34 = P34(n: 5)
+    let p33 = P33(next: p34)
+    let p32 = P32(next: p33)
+    let p31 = P31(next: p32)
+    let p30 = P30(next: p31)
+    let p29 = P29(next: p30)
+    let p28 = P28(next: p29)
+    let p27 = P27(next: p28)
+    let p26 = P26(next: p27)
+    let p25 = P25(next: p26)
+    let p24 = P24(next: p25)
+    let p23 = P23(next: p24)
+    let p22 = P22(next: p23)
+    let p21 = P21(next: p22)
+    let p20 = P20(next: p21)
+    let p19 = P19(next: p20)
+    let p18 = P18(next: p19)
+    let p17 = P17(next: p18)
+    let p16 = P16(next: p17)
+    let p15 = P15(next: p16)
+    let p14 = P14(next: p15)
+    let p13 = P13(next: p14)
+    let p12 = P12(next: p13)
+    let p11 = P11(next: p12)
+    let p10 = P10(next: p11)
+    let p9 = P9(next: p10)
+    let p8 = P8(next: p9)
+    let p7 = P7(next: p8)
+    let p6 = P6(next: p7)
+    let p5 = P5(next: p6)
+    let p4 = P4(next: p5)
+    let p3 = P3(next: p4)
+    let p2 = P2(next: p3)
+    let p1 = P1(next: p2)
+    let p0 = P0(next: p1)
+    print("{}", equatable(&p0))
+    var root = Node(value: 1, children: Vector<Node>())
+    try! root.children.push(Node(value: 2, children: Vector<Node>()))
+    print("{}", sendable(&root) + root.children.len())
+    let b = Ball(n: 0)
+    print("{}", bounce(&b))
+}

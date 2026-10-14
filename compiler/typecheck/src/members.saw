@@ -9,6 +9,8 @@ import sawresolve.model.{ResDecl, ResDeclKind, ResVis}
 import sawtypecheck.conform.{TcSubst}
 import sawtypecheck.model.{TcConformance, TcMember, TcSource, TcStatus, TcStatusKind}
 import sawtypecheck.program.{TcProgram}
+import sawtypecheck.types.{TcKind}
+import sawtypecheck.walks.{TC_WALK_OWNS, tc_memo}
 
 // Every nominal type's member table.
 public func tc_build_members(p: &var TcProgram) {
@@ -173,7 +175,7 @@ extension TcProgram {
             }
             k = k + 1
         }
-        if not self.decl_owns(d, 0) {
+        if not self.decl_owns(d) {
             return
         }
         let reqs = self.members_of(deinit_trait)
@@ -186,11 +188,74 @@ extension TcProgram {
     }
 
     // Whether struct or enum `d` owns something a drop releases: a field or
-    // payload that does, or a `deinit` written for it.
-    func decl_owns(&var self, d: Int, depth: Int) -> Bool {
-        if depth > 16 {
-            return true
+    // payload that does. A value owns through a `String`, a type parameter,
+    // a function value's captures, an existential, the arguments of a
+    // builtin type other than a raw pointer, or a struct or enum that writes
+    // a `deinit` or owns in turn. One walk to every type and declaration `d`
+    // reaches, each once, so a cycle ends it; when nothing owns, nothing it
+    // reached does either.
+    func decl_owns(&var self, d: Int) -> Bool {
+        let known = self.walks.get(d, TC_WALK_OWNS)
+        if known >= 0 {
+            return known == 1
         }
+        let deinit_name = self.res.intern("deinit")
+        var reached = Vector<Int>()
+        var seen = tc_memo()
+        var pending = Vector<Int>()
+        let _ = seen.mark(d, 0)
+        try! reached.push(d)
+        self.push_member_types(d, &var pending)
+        var head = 0
+        while head < pending.len() {
+            let t = pending[head]
+            head = head + 1
+            if t < 0 || not seen.mark(t, 1) {
+                continue
+            }
+            let info = self.types.ty(t)
+            let kind = info.kind
+            if kind == TcKind.Param || kind == TcKind.Func || kind == TcKind.Any || kind == TcKind.SelfType || kind == TcKind.Projection {
+                return self.owns_found(d)
+            }
+            if kind == TcKind.Tuple {
+                self.push_args(t, &var pending)
+            } else if kind == TcKind.Array {
+                try! pending.push(info.b)
+            } else if kind == TcKind.Nominal {
+                if info.decl == self.known.string {
+                    return self.owns_found(d)
+                }
+                let pointer = info.decl == self.known.unsafe_pointer || info.decl == self.known.unsafe_const_pointer
+                let decl = self.res.decls[info.decl]
+                if pointer {
+                    continue
+                }
+                if decl.kind == ResDeclKind.Primitive || decl.node < 0 {
+                    self.push_args(t, &var pending)
+                } else if self.has_written_deinit(info.decl, deinit_name) {
+                    return self.owns_found(d)
+                } else if seen.mark(info.decl, 0) {
+                    try! reached.push(info.decl)
+                    self.push_member_types(info.decl, &var pending)
+                }
+            }
+        }
+        var k = 0
+        while k < reached.len() {
+            self.walks.set(reached[k], TC_WALK_OWNS, 0)
+            k = k + 1
+        }
+        false
+    }
+
+    func owns_found(&var self, d: Int) -> Bool {
+        self.walks.set(d, TC_WALK_OWNS, 1)
+        true
+    }
+
+    // The types struct or enum `d` holds: its fields', its payloads'.
+    func push_member_types(&self, d: Int, pending: &var Vector<Int>) {
         let members = self.members_of(d)
         var k = 0
         while k < members.len() {
@@ -198,77 +263,24 @@ extension TcProgram {
             let info = self.res.decls[m]
             k = k + 1
             if info.kind == ResDeclKind.Field {
-                let field_type = self.sigs[m].result
-                if self.type_owns(field_type, depth + 1) {
-                    return true
-                }
+                try! pending.push(self.sigs[m].result)
             } else if info.kind == ResDeclKind.Case {
                 let s = self.sigs[m]
                 var j = 0
                 while j < s.param_count {
-                    let p = self.params[s.param_first + j]
-                    if self.type_owns(p.ty, depth + 1) {
-                        return true
-                    }
+                    try! pending.push(self.params[s.param_first + j].ty)
                     j = j + 1
                 }
             }
         }
-        false
     }
 
-    // Whether a value of type `t` owns something a drop releases: a
-    // `String`, a type parameter, a function value's captures, an
-    // existential, or an owning struct or enum.
-    func type_owns(&var self, t: Int, depth: Int) -> Bool {
-        if t < 0 {
-            return false
-        }
+    func push_args(&self, t: Int, pending: &var Vector<Int>) {
         let info = self.types.ty(t)
-        match info.kind {
-            case Nominal -> {
-                if info.decl == self.known.string {
-                    return true
-                }
-                if info.decl == self.known.unsafe_pointer || info.decl == self.known.unsafe_const_pointer {
-                    return false
-                }
-                let decl = self.res.decls[info.decl]
-                if decl.kind == ResDeclKind.Primitive || decl.node < 0 {
-                    var k = 0
-                    while k < info.count {
-                        let a = self.types.arg(t, k)
-                        if self.type_owns(a, depth + 1) {
-                            return true
-                        }
-                        k = k + 1
-                    }
-                    return false
-                }
-                let name = self.res.intern("deinit")
-                if self.has_written_deinit(info.decl, name) {
-                    return true
-                }
-                self.decl_owns(info.decl, depth + 1)
-            },
-            case Tuple -> {
-                var k = 0
-                while k < info.count {
-                    let a = self.types.arg(t, k)
-                    if self.type_owns(a, depth + 1) {
-                        return true
-                    }
-                    k = k + 1
-                }
-                false
-            },
-            case Array -> self.type_owns(info.b, depth + 1),
-            case Param -> true,
-            case Func -> true,
-            case Any -> true,
-            case SelfType -> true,
-            case Projection -> true,
-            case _ -> false
+        var k = 0
+        while k < info.count {
+            try! pending.push(self.types.arg(t, k))
+            k = k + 1
         }
     }
 

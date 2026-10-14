@@ -1,0 +1,83 @@
+// refuses: type.bound at 82:5
+// a tuple 66 deep over a NoCopy struct meets no `Equatable` bound: a bound
+// question answers by identity, never by assuming past a depth
+
+struct Plain {
+    n: Int
+}
+
+extension Plain: NoCopy {}
+
+type B1 = (Plain,)
+type B2 = (B1,)
+type B3 = (B2,)
+type B4 = (B3,)
+type B5 = (B4,)
+type B6 = (B5,)
+type B7 = (B6,)
+type B8 = (B7,)
+type B9 = (B8,)
+type B10 = (B9,)
+type B11 = (B10,)
+type B12 = (B11,)
+type B13 = (B12,)
+type B14 = (B13,)
+type B15 = (B14,)
+type B16 = (B15,)
+type B17 = (B16,)
+type B18 = (B17,)
+type B19 = (B18,)
+type B20 = (B19,)
+type B21 = (B20,)
+type B22 = (B21,)
+type B23 = (B22,)
+type B24 = (B23,)
+type B25 = (B24,)
+type B26 = (B25,)
+type B27 = (B26,)
+type B28 = (B27,)
+type B29 = (B28,)
+type B30 = (B29,)
+type B31 = (B30,)
+type B32 = (B31,)
+type B33 = (B32,)
+type B34 = (B33,)
+type B35 = (B34,)
+type B36 = (B35,)
+type B37 = (B36,)
+type B38 = (B37,)
+type B39 = (B38,)
+type B40 = (B39,)
+type B41 = (B40,)
+type B42 = (B41,)
+type B43 = (B42,)
+type B44 = (B43,)
+type B45 = (B44,)
+type B46 = (B45,)
+type B47 = (B46,)
+type B48 = (B47,)
+type B49 = (B48,)
+type B50 = (B49,)
+type B51 = (B50,)
+type B52 = (B51,)
+type B53 = (B52,)
+type B54 = (B53,)
+type B55 = (B54,)
+type B56 = (B55,)
+type B57 = (B56,)
+type B58 = (B57,)
+type B59 = (B58,)
+type B60 = (B59,)
+type B61 = (B60,)
+type B62 = (B61,)
+type B63 = (B62,)
+type B64 = (B63,)
+type B65 = (B64,)
+type B66 = (B65,)
+
+func need<T: Equatable>(x: &T) {
+}
+
+func deep(v: &B66) {
+    need(&v)
+}

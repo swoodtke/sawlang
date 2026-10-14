@@ -73,7 +73,7 @@ extension MirProgram {
         if kind == TcKind.Ref || kind == TcKind.Slice || kind == TcKind.Error {
             return false
         }
-        if self.tc.is_trivial(t, 0) {
+        if self.tc.is_trivial(t) {
             return false
         }
         if kind == TcKind.Tuple {
@@ -465,7 +465,7 @@ extension MirProgram {
         if kind == TcKind.Ref || kind == TcKind.Slice {
             return self.tc.types.ty(t).a != 1
         }
-        self.tc.is_trivial(t, 0)
+        self.tc.is_trivial(t)
     }
 
     // Whether place `p` is a part of a local or a static, reached through no

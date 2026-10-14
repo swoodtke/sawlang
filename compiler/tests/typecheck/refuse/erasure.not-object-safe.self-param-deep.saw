@@ -1,0 +1,9 @@
+// refuses: erasure.not-object-safe at 8:12
+// a requirement whose parameter names `Self` 34 tuples deep is not object-safe
+
+trait Deep {
+    func same(&self, other: ((((((((((((((((((((((((((((((((((Self,),),),),),),),),),),),),),),),),),),),),),),),),),),),),),),),),),)) -> Bool
+}
+
+func b(x: &any Deep) {
+}

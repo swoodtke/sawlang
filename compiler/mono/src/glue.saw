@@ -37,7 +37,7 @@ public func mono_copies_bitwise(tc: &var TcProgram, t: Int) -> Bool {
     if kind == TcKind.Ref || kind == TcKind.Slice || kind == TcKind.Func {
         return true
     }
-    tc.is_trivial(t, 0)
+    tc.is_trivial(t)
 }
 
 extension MonoProgram {

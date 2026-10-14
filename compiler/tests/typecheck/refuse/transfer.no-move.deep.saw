@@ -1,0 +1,33 @@
+// refuses: transfer.no-move at 32:13
+// a value holding a NoMove value 18 tuples deep may not be moved
+
+struct Anchor {
+    n: Int
+}
+
+extension Anchor: NoCopy {}
+
+extension Anchor: NoMove {}
+
+type A1 = (Anchor,)
+type A2 = (A1,)
+type A3 = (A2,)
+type A4 = (A3,)
+type A5 = (A4,)
+type A6 = (A5,)
+type A7 = (A6,)
+type A8 = (A7,)
+type A9 = (A8,)
+type A10 = (A9,)
+type A11 = (A10,)
+type A12 = (A11,)
+type A13 = (A12,)
+type A14 = (A13,)
+type A15 = (A14,)
+type A16 = (A15,)
+type A17 = (A16,)
+type A18 = (A17,)
+
+func deep(a: A18) {
+    let b = move a
+}

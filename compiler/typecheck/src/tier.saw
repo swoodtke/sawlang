@@ -16,6 +16,8 @@ import sawtypecheck.program.{TcProgram}
 import sawtypecheck.signatures.{TcContext}
 import sawtypecheck.spell.{tc_effects_text}
 import sawtypecheck.types.{TcKind, TcType}
+import sawtypecheck.walks.{TC_INSTANTIATION_DEPTH, TC_WALK_CELL, TC_WALK_DEPTH_REFUSED, TC_WALK_NO_MOVE,
+                           TC_WALK_TRIVIAL, TcMemo, tc_memo}
 
 // Every nominal type's Copy tier.
 public func tc_compute_tiers(p: &var TcProgram) {
@@ -39,8 +41,13 @@ static TC_TIER_COMPUTING: Int = 1
 static TC_TIER_DONE: Int = 2
 // A tier rule's mask holds one bit per parameter index below this.
 static TC_MASK_BITS: Int = 62
-// How deep one bound question may nest through conditional conformances.
-static TC_SATISFY_DEPTH: Int = 64
+// A declaration's inline rule while it is being built.
+static TC_RULE_BUILDING: Int = -2
+// A `satisfies` pair's state past the frame indices: decided, either way.
+static TC_SATISFY_FALSE: Int = -2
+static TC_SATISFY_TRUE: Int = -3
+// A run's lowest frame reached back to, when no cycle has reached any.
+static TC_SATISFY_NO_LOW: Int = 0x7FFF_FFFF_FFFF
 
 public func tc_tier(base: Int, mask: Int, declared: Bool) -> TcTier {
     TcTier(state: TC_TIER_DONE, base: base, mask: mask, declared: declared)
@@ -169,6 +176,24 @@ extension TcProgram {
     // The tier type `t` contributes to type `cls`, whose parameters it may
     // name: a rule over `cls`'s parameters, joined with every part's.
     public func type_tier(&var self, t: Int, cls: Int) -> TcTier {
+        var parts = tc_memo()
+        self.type_tier_in(t, cls, &var parts)
+    }
+
+    // One part of `type_tier`. Each part's tier is kept for the one call,
+    // since a tier read while its declaration is classified is not final.
+    func type_tier_in(&var self, t: Int, cls: Int, parts: &var TcMemo) -> TcTier {
+        let known = parts.get(t, 0)
+        if known >= 0 {
+            return tc_tier(known, parts.get(t, 1), false)
+        }
+        let tier = self.type_tier_of(t, cls, &var parts)
+        parts.set(t, 0, tier.base)
+        parts.set(t, 1, tier.mask)
+        tier
+    }
+
+    func type_tier_of(&var self, t: Int, cls: Int, parts: &var TcMemo) -> TcTier {
         let info = self.types.ty(t)
         match info.kind {
             case Nominal -> {
@@ -179,7 +204,7 @@ extension TcProgram {
                 while k < info.count {
                     if (rule.mask & tc_bit(k)) != 0 {
                         let arg = self.types.arg(t, k)
-                        let part = self.type_tier(arg, cls)
+                        let part = self.type_tier_in(arg, cls, &var parts)
                         base = tc_max(base, part.base)
                         mask = mask | part.mask
                     }
@@ -199,14 +224,14 @@ extension TcProgram {
                 var k = 0
                 while k < info.count {
                     let arg = self.types.arg(t, k)
-                    let part = self.type_tier(arg, cls)
+                    let part = self.type_tier_in(arg, cls, &var parts)
                     base = tc_max(base, part.base)
                     mask = mask | part.mask
                     k = k + 1
                 }
                 tc_tier(base, mask, false)
             },
-            case Array -> self.type_tier(info.b, cls),
+            case Array -> self.type_tier_in(info.b, cls, &var parts),
             case Any -> tc_tier(TC_TIER_NOCOPY, 0, false),
             case SelfType -> tc_tier(TC_TIER_NOCOPY, 0, false),
             case Projection -> tc_tier(TC_TIER_NOCOPY, 0, false),
@@ -393,7 +418,7 @@ extension TcProgram {
             while j < types.len() {
                 let t = types[j]
                 j = j + 1
-                if self.is_no_move(t, 0) {
+                if self.is_no_move(t) {
                     self.refuse_undeclared_no_move(d, m, t)
                     return
                 }
@@ -431,78 +456,16 @@ extension TcProgram {
 
     // Whether a value of type `t` may not be relocated: its type declares
     // `NoMove`, or holds such a value inline, an Optional's payload, a tuple's
-    // or an array's element, or a generic instance's substituted field or
-    // payload included (design 188). A pointer, and so a `Box`, holds its
+    // or an array's element, or a generic instance's field or payload at its
+    // arguments included (design 188). A pointer, and so a `Box`, holds its
     // value behind an indirection, which moving the pointer leaves in place.
-    public func is_no_move(&var self, t: Int, depth: Int) -> Bool {
-        let tr = self.known.no_move
-        if t < 0 || tr < 0 || depth > 16 {
+    // A non-generic type that holds one without declaring it answers no,
+    // since `nomove.undeclared` refuses it.
+    public func is_no_move(&var self, t: Int) -> Bool {
+        if t < 0 || self.known.no_move < 0 {
             return false
         }
-        let info = self.types.ty(t)
-        match info.kind {
-            case Tuple -> {
-                var k = 0
-                while k < info.count {
-                    let part = self.types.arg(t, k)
-                    if self.is_no_move(part, depth + 1) {
-                        return true
-                    }
-                    k = k + 1
-                }
-                false
-            },
-            case Array -> self.is_no_move(info.b, depth + 1),
-            case Nominal -> self.nominal_no_move(t, depth),
-            case _ -> false
-        }
-    }
-
-    func nominal_no_move(&var self, t: Int, depth: Int) -> Bool {
-        let info = self.types.ty(t)
-        let d = info.decl
-        var k = 0
-        while k < self.conformances.len() {
-            let c = self.conformances[k]
-            k = k + 1
-            if c.type_decl == d && c.trait_decl == self.known.no_move {
-                return true
-            }
-        }
-        if info.count == 0 || d == self.known.unsafe_pointer || d == self.known.unsafe_const_pointer {
-            return false
-        }
-        if d == self.known.optional {
-            let payload = self.types.arg(t, 0)
-            return self.is_no_move(payload, depth + 1)
-        }
-        let s = tc_args_subst(d, self.nominal_args(t))
-        let members = self.members_of(d)
-        k = 0
-        while k < members.len() {
-            let m = members[k]
-            let mi = self.res.decls[m]
-            k = k + 1
-            if mi.kind == ResDeclKind.Field {
-                let written = self.sigs[m].result
-                let ft = self.subst(written, &s)
-                if self.is_no_move(ft, depth + 1) {
-                    return true
-                }
-            } else if mi.kind == ResDeclKind.Case {
-                let cs = self.sigs[m]
-                var j = 0
-                while j < cs.param_count {
-                    let p = self.params[cs.param_first + j]
-                    let pt = self.subst(p.ty, &s)
-                    if self.is_no_move(pt, depth + 1) {
-                        return true
-                    }
-                    j = j + 1
-                }
-            }
-        }
-        false
+        tc_summary_holds(self.inline_summary(t, TC_WALK_NO_MOVE))
     }
 }
 
@@ -511,83 +474,211 @@ extension TcProgram {
     // Whether a value of type `t` holds an `UnsafeMutableInterior` in its own
     // storage: the cell itself, or one inline in a field, a case payload, an
     // Optional's payload, a tuple's or an array's element, a generic
-    // instance's substituted members included (spec, Interior mutability).
-    // A pointer, a reference, a slice and a closure hold what they reach
-    // behind an indirection, so a cell there leaves `t` cell-free. `Sync` is
-    // no answer: a type declaring `UnsafeSync`, `Atomic` among them, carries
-    // a cell and is `Sync`. A type this cannot see into answers true.
-    public func is_cell_carrying(&var self, t: Int, depth: Int) -> Bool {
+    // instance's members at its arguments included (spec, Interior
+    // mutability). A pointer, a reference, a slice and a closure hold what
+    // they reach behind an indirection, so a cell there leaves `t` cell-free.
+    // `Sync` is no answer: a type declaring `UnsafeSync`, `Atomic` among
+    // them, carries a cell and is `Sync`. A type this cannot see into, a type
+    // parameter among them, answers true.
+    public func is_cell_carrying(&var self, t: Int) -> Bool {
         if t < 0 {
             return false
         }
-        if depth > TC_SATISFY_DEPTH {
-            return true
+        let s = self.inline_summary(t, TC_WALK_CELL)
+        tc_summary_holds(s) || tc_summary_mask(s) != 0
+    }
+}
+
+// The inline walks: `is_no_move`, `is_cell_carrying` and `is_trivial`, one
+// memoized walk keyed by TypeId over what a value holds inline. A type's
+// summary is (holds, mask): for NoMove and the cell, whether it holds one and
+// which type parameters it holds inline, through which it might; for
+// triviality, whether it can be trivial and which parameters must be. A
+// generic declaration's rule is its members' summary over its own
+// parameters, so an instance is its declaration's rule with its arguments'
+// summaries in place, and the walk never substitutes into a member. A
+// declaration met while its own rule is being built holds itself inline,
+// which `check_finite_size` refuses, so that meeting adds nothing.
+extension TcProgram {
+    func inline_summary(&var self, t: Int, q: Int) -> Int {
+        if t < 0 {
+            return tc_summary(false, 0)
         }
+        let known = self.walks.get(t, q)
+        if known >= 0 {
+            return known
+        }
+        let s = self.inline_summary_of(t, q)
+        self.walks.set(t, q, s)
+        s
+    }
+
+    func inline_summary_of(&var self, t: Int, q: Int) -> Int {
+        let any_part = q != TC_WALK_TRIVIAL
         let info = self.types.ty(t)
         match info.kind {
             case Tuple -> {
+                var s = tc_summary(not any_part, 0)
                 var k = 0
                 while k < info.count {
                     let part = self.types.arg(t, k)
-                    if self.is_cell_carrying(part, depth + 1) {
-                        return true
-                    }
+                    s = tc_summary_join(s, self.inline_summary(part, q), any_part)
                     k = k + 1
                 }
-                false
+                s
             },
-            case Array -> self.is_cell_carrying(info.b, depth + 1),
-            case Nominal -> self.nominal_cell_carrying(t, depth),
-            case Ref -> false,
-            case Slice -> false,
-            case Func -> false,
-            case ConstInt -> false,
-            case _ -> true
+            case Array -> self.inline_summary(info.b, q),
+            case Nominal -> self.nominal_summary(t, q),
+            case Param -> {
+                let bit = tc_bit(info.a)
+                if bit == 0 {
+                    // Past the mask's width a parameter cannot be named, so
+                    // it answers the refusing side.
+                    return tc_summary(any_part, 0)
+                }
+                tc_summary(not any_part, bit)
+            },
+            case Ref -> tc_summary(false, 0),
+            case Slice -> tc_summary(false, 0),
+            case Func -> tc_summary(false, 0),
+            case ConstInt -> tc_summary(false, 0),
+            case _ -> tc_summary(q == TC_WALK_CELL, 0)
         }
     }
 
-    func nominal_cell_carrying(&var self, t: Int, depth: Int) -> Bool {
+    func nominal_summary(&var self, t: Int, q: Int) -> Int {
         let info = self.types.ty(t)
         let d = info.decl
         let k = self.known
-        if d == k.interior {
-            return true
-        }
-        if d == k.unsafe_pointer || d == k.unsafe_const_pointer || d == k.func_pointer {
-            return false
+        let pointer = d == k.unsafe_pointer || d == k.unsafe_const_pointer
+        if q == TC_WALK_NO_MOVE {
+            if self.declares_no_move(d) {
+                return tc_summary(true, 0)
+            }
+            if info.count == 0 || pointer {
+                return tc_summary(false, 0)
+            }
+        } else if q == TC_WALK_CELL {
+            if d == k.interior {
+                return tc_summary(true, 0)
+            }
+            if pointer || d == k.func_pointer {
+                return tc_summary(false, 0)
+            }
+        } else {
+            if d == k.string {
+                return tc_summary(false, 0)
+            }
+            if self.res.decls[d].kind == ResDeclKind.Primitive {
+                return tc_summary(true, 0)
+            }
         }
         if d == k.optional {
             let payload = self.types.arg(t, 0)
-            return self.is_cell_carrying(payload, depth + 1)
+            return self.inline_summary(payload, q)
         }
-        let s = tc_args_subst(d, self.nominal_args(t))
-        let members = self.members_of(d)
+        if q == TC_WALK_TRIVIAL && (self.declared_policy(d) >= 0 || self.res.decls[d].node < 0) {
+            return tc_summary(false, 0)
+        }
+        let rule = self.inline_rule(d, q)
+        let any_part = q != TC_WALK_TRIVIAL
+        var s = tc_summary(tc_summary_holds(rule), 0)
         var j = 0
-        while j < members.len() {
-            let m = members[j]
-            let mi = self.res.decls[m]
+        while j < info.count {
+            if (tc_summary_mask(rule) & tc_bit(j)) != 0 {
+                let arg = self.types.arg(t, j)
+                s = tc_summary_join(s, self.inline_summary(arg, q), any_part)
+            }
             j = j + 1
-            let written = self.sigs[m].result
-            if mi.kind == ResDeclKind.Field && written >= 0 {
-                let ft = self.subst(written, &s)
-                if self.is_cell_carrying(ft, depth + 1) {
-                    return true
+        }
+        s
+    }
+
+    // Declaration `d`'s rule for question `q`: its fields' and payloads'
+    // summaries joined, over its own parameters.
+    func inline_rule(&var self, d: Int, q: Int) -> Int {
+        let key = q + 1
+        let known = self.walks.get(d, key)
+        if known == TC_RULE_BUILDING {
+            return tc_summary(false, 0)
+        }
+        if known >= 0 {
+            return known
+        }
+        self.walks.set(d, key, TC_RULE_BUILDING)
+        let any_part = q != TC_WALK_TRIVIAL
+        var s = tc_summary(not any_part, 0)
+        let members = self.members_of(d)
+        var k = 0
+        while k < members.len() {
+            let m = members[k]
+            k = k + 1
+            let mi = self.res.decls[m]
+            let ms = self.sigs[m]
+            if mi.kind == ResDeclKind.Field && ms.result >= 0 {
+                var ft = ms.result
+                if q == TC_WALK_TRIVIAL {
+                    ft = self.member_type(ft)
                 }
+                s = tc_summary_join(s, self.inline_summary(ft, q), any_part)
             } else if mi.kind == ResDeclKind.Case {
-                let cs = self.sigs[m]
-                var p = 0
-                while p < cs.param_count {
-                    let param = self.params[cs.param_first + p]
-                    let pt = self.subst(param.ty, &s)
-                    if self.is_cell_carrying(pt, depth + 1) {
-                        return true
-                    }
-                    p = p + 1
+                if q == TC_WALK_TRIVIAL && ms.param_count > 0 {
+                    s = tc_summary_join(s, tc_summary(false, 0), false)
+                }
+                var j = 0
+                while j < ms.param_count && any_part {
+                    let p = self.params[ms.param_first + j]
+                    s = tc_summary_join(s, self.inline_summary(p.ty, q), true)
+                    j = j + 1
                 }
             }
         }
-        false
+        self.walks.set(d, key, s)
+        s
     }
+}
+
+// A summary packed in one Int: bit 0 whether it holds, the mask above it.
+func tc_summary(holds: Bool, mask: Int) -> Int {
+    if holds {
+        return (mask << 1) | 1
+    }
+    mask << 1
+}
+
+func tc_summary_holds(s: Int) -> Bool {
+    (s & 1) != 0
+}
+
+func tc_summary_mask(s: Int) -> Int {
+    s >> 1
+}
+
+// Two summaries joined: an existence question holds when either part does,
+// a question over every part when both do.
+func tc_summary_join(a: Int, b: Int, any_part: Bool) -> Int {
+    let mask = tc_summary_mask(a) | tc_summary_mask(b)
+    if any_part {
+        return tc_summary(tc_summary_holds(a) || tc_summary_holds(b), mask)
+    }
+    tc_summary(tc_summary_holds(a) && tc_summary_holds(b), mask)
+}
+
+// One `satisfies` question: each (type, trait) pair it asks, its answer or the
+// frame asking it; the lowest frame a cycle reached back to; and the type
+// whose derivation from its members nested past the instantiation depth.
+struct TcSatisfyRun {
+    states: TcMemo
+    frames: Int
+    low: Int
+    overflow: Int
+    overflow_trait: Int
+}
+
+extension TcSatisfyRun: NoCopy {}
+
+func tc_satisfy_run() -> TcSatisfyRun {
+    TcSatisfyRun(states: tc_memo(), frames: 0, low: TC_SATISFY_NO_LOW, overflow: -1, overflow_trait: -1)
 }
 
 // Bound satisfaction.
@@ -620,20 +711,58 @@ extension TcProgram {
     }
 
     // Whether type `t` satisfies trait `tr`, where the parameters of
-    // `env_decl` and the conditions of extension `env_ext` are in scope.
+    // `env_decl` and the conditions of extension `env_ext` are in scope. A
+    // derivation from members that reaches back to a pair it is still
+    // deciding holds there, as a recursive type's `Send` does through its
+    // `Box`; one that nests past the instantiation depth is refused.
     public func satisfies(&var self, t: Int, tr: Int, env_decl: Int, env_ext: Int) -> Bool {
-        if self.satisfy_depth > TC_SATISFY_DEPTH {
-            // A conditional conformance over a recursive type asks its own
-            // question again; the deepest answer assumes the bound holds.
-            return true
+        var run = tc_satisfy_run()
+        let answer = self.satisfies_in(t, tr, env_decl, env_ext, &var run)
+        if run.overflow >= 0 {
+            self.refuse_instantiation_depth(run.overflow, run.overflow_trait)
         }
-        self.satisfy_depth = self.satisfy_depth + 1
-        let answer = self.satisfies_at(t, tr, env_decl, env_ext)
-        self.satisfy_depth = self.satisfy_depth - 1
         answer
     }
 
-    func satisfies_at(&var self, t: Int, tr: Int, env_decl: Int, env_ext: Int) -> Bool {
+    // One pair of a run. A false answer is final, since a cycle assumes
+    // only that a pair holds; a true one is kept only when no cycle it
+    // leaned on reaches below its own frame.
+    func satisfies_in(&var self, t: Int, tr: Int, env_decl: Int, env_ext: Int, run: &var TcSatisfyRun) -> Bool {
+        let state = run.states.get(t, tr)
+        if state == TC_SATISFY_FALSE {
+            return false
+        }
+        if state == TC_SATISFY_TRUE {
+            return true
+        }
+        if state >= 0 {
+            if state < run.low {
+                run.low = state
+            }
+            return true
+        }
+        let frame = run.frames
+        run.frames = frame + 1
+        run.states.set(t, tr, frame)
+        let outer_low = run.low
+        run.low = TC_SATISFY_NO_LOW
+        let answer = self.satisfies_at(t, tr, env_decl, env_ext, &var run)
+        run.frames = frame
+        let low = run.low
+        if not answer {
+            run.states.set(t, tr, TC_SATISFY_FALSE)
+        } else if low >= frame {
+            run.states.set(t, tr, TC_SATISFY_TRUE)
+        } else {
+            run.states.set(t, tr, -1)
+        }
+        if outer_low < low {
+            run.low = outer_low
+        }
+        answer
+    }
+
+    func satisfies_at(&var self, t: Int, tr: Int, env_decl: Int, env_ext: Int, run: &var TcSatisfyRun) -> Bool {
         let info = self.types.ty(t)
         match info.kind {
             case Error -> true,
@@ -643,7 +772,7 @@ extension TcProgram {
             case Param -> self.param_satisfies(info.decl, info.a, tr, env_decl, env_ext),
             case SelfType -> self.trait_refines(info.decl, tr),
             case Any -> self.trait_refines(info.decl, tr),
-            case Nominal -> self.nominal_satisfies(t, tr, env_decl, env_ext),
+            case Nominal -> self.nominal_satisfies(t, tr, env_decl, env_ext, &var run),
             case Tuple -> {
                 if not self.structural_trait(tr) {
                     return false
@@ -651,7 +780,7 @@ extension TcProgram {
                 var k = 0
                 while k < info.count {
                     let arg = self.types.arg(t, k)
-                    if not self.satisfies(arg, tr, env_decl, env_ext) {
+                    if not self.satisfies_in(arg, tr, env_decl, env_ext, &var run) {
                         return false
                     }
                     k = k + 1
@@ -662,7 +791,7 @@ extension TcProgram {
                 if not self.structural_trait(tr) {
                     return false
                 }
-                self.satisfies(info.b, tr, env_decl, env_ext)
+                self.satisfies_in(info.b, tr, env_decl, env_ext, &var run)
             },
             case Func -> tr == self.known.copy || tr == self.known.explicit_copy,
             case Ref -> {
@@ -671,7 +800,7 @@ extension TcProgram {
                 }
                 if tr == self.known.send || tr == self.known.sync {
                     let s = self.known.sync
-                    return self.satisfies(info.b, s, env_decl, env_ext)
+                    return self.satisfies_in(info.b, s, env_decl, env_ext, &var run)
                 }
                 false
             },
@@ -726,21 +855,21 @@ extension TcProgram {
         false
     }
 
-    func nominal_satisfies(&var self, t: Int, tr: Int, env_decl: Int, env_ext: Int) -> Bool {
+    func nominal_satisfies(&var self, t: Int, tr: Int, env_decl: Int, env_ext: Int, run: &var TcSatisfyRun) -> Bool {
         let info = self.types.ty(t)
         let d = info.decl
         if d == self.known.never {
             return true
         }
         if tr == self.known.copy {
-            return self.tier_is_copy(t, env_decl, env_ext)
+            return self.tier_is_copy(t, env_decl, env_ext, &var run)
         }
         if tr == self.known.explicit_copy {
-            if self.tier_is_copy(t, env_decl, env_ext) {
+            if self.tier_is_copy(t, env_decl, env_ext, &var run) {
                 return true
             }
         }
-        if self.declares_conformance(t, tr, env_decl, env_ext) {
+        if self.declares_conformance(t, tr, env_decl, env_ext, &var run) {
             return true
         }
         if self.primitive_grants(d, tr) {
@@ -748,10 +877,10 @@ extension TcProgram {
         }
         if d == self.known.optional && self.structural_trait(tr) {
             let inner = self.types.arg(t, 0)
-            return self.satisfies(inner, tr, env_decl, env_ext)
+            return self.satisfies_in(inner, tr, env_decl, env_ext, &var run)
         }
         if tr == self.known.equatable || tr == self.known.hashable {
-            return self.is_trivial(t, 0)
+            return self.is_trivial(t)
         }
         // A value mutable through a shared borrow derives no `Sync`: the block
         // sits at the cell, so only a type holding one directly owes
@@ -760,14 +889,14 @@ extension TcProgram {
             return false
         }
         if tr == self.known.send || tr == self.known.sync {
-            return self.members_satisfy(t, tr, env_decl, env_ext)
+            return self.members_satisfy(t, tr, env_decl, env_ext, &var run)
         }
         false
     }
 
     // Whether `t`'s tier is Copy, its rule's parameters evaluated with its
     // arguments.
-    func tier_is_copy(&var self, t: Int, env_decl: Int, env_ext: Int) -> Bool {
+    func tier_is_copy(&var self, t: Int, env_decl: Int, env_ext: Int, run: &var TcSatisfyRun) -> Bool {
         let info = self.types.ty(t)
         let rule = self.tier_of_decl(info.decl)
         if rule.base != TC_TIER_COPY {
@@ -778,7 +907,7 @@ extension TcProgram {
             if (rule.mask & tc_bit(k)) != 0 {
                 let arg = self.types.arg(t, k)
                 let c = self.known.copy
-                if not self.satisfies(arg, c, env_decl, env_ext) {
+                if not self.satisfies_in(arg, c, env_decl, env_ext, &var run) {
                     return false
                 }
             }
@@ -789,7 +918,7 @@ extension TcProgram {
 
     // Whether a conformance of `t`'s declaration to `tr`, or to a trait that
     // refines it, holds for `t`'s arguments.
-    func declares_conformance(&var self, t: Int, tr: Int, env_decl: Int, env_ext: Int) -> Bool {
+    func declares_conformance(&var self, t: Int, tr: Int, env_decl: Int, env_ext: Int, run: &var TcSatisfyRun) -> Bool {
         let info = self.types.ty(t)
         var k = 0
         while k < self.conformances.len() {
@@ -798,7 +927,7 @@ extension TcProgram {
             if c.type_decl != info.decl || not self.trait_refines(c.trait_decl, tr) {
                 continue
             }
-            if self.conditions_hold(c.ext, t, env_decl, env_ext) {
+            if self.conditions_hold(c.ext, t, env_decl, env_ext, &var run) {
                 return true
             }
         }
@@ -807,7 +936,7 @@ extension TcProgram {
 
     // Whether `t`'s arguments meet the bounds extension `ext` puts on the
     // parameters they fill.
-    func conditions_hold(&var self, ext: Int, t: Int, env_decl: Int, env_ext: Int) -> Bool {
+    func conditions_hold(&var self, ext: Int, t: Int, env_decl: Int, env_ext: Int, run: &var TcSatisfyRun) -> Bool {
         self.ensure_generics(ext)
         let s = self.sigs[ext]
         let info = self.types.ty(t)
@@ -818,7 +947,7 @@ extension TcProgram {
             var j = 0
             while j < g.bound_count {
                 let bound = self.traits[g.bound_first + j]
-                if not self.satisfies(arg, bound, env_decl, env_ext) {
+                if not self.satisfies_in(arg, bound, env_decl, env_ext, &var run) {
                     return false
                 }
                 j = j + 1
@@ -849,80 +978,43 @@ extension TcProgram {
     // Whether `t` is trivially copyable: a number, `Bool`, a pointer, or a
     // type declaring no policy whose members all are. Such a struct, and a
     // payload-free enum, meets Equatable and Hashable with no declaration.
-    public func is_trivial(&var self, t: Int, depth: Int) -> Bool {
-        if depth > 32 {
+    public func is_trivial(&var self, t: Int) -> Bool {
+        if t < 0 {
             return false
         }
-        let info = self.types.ty(t)
-        if info.kind == TcKind.Tuple {
-            var k = 0
-            while k < info.count {
-                let arg = self.types.arg(t, k)
-                if not self.is_trivial(arg, depth + 1) {
-                    return false
-                }
-                k = k + 1
-            }
-            return true
-        }
-        if info.kind == TcKind.Array {
-            return self.is_trivial(info.b, depth + 1)
-        }
-        if info.kind != TcKind.Nominal {
-            return false
-        }
-        let d = info.decl
-        if d == self.known.string {
-            return false
-        }
-        let decl = self.res.decls[d]
-        if decl.kind == ResDeclKind.Primitive {
-            return true
-        }
-        if d == self.known.optional {
-            let inner = self.types.arg(t, 0)
-            return self.is_trivial(inner, depth + 1)
-        }
-        if self.declared_policy(d) >= 0 || decl.node < 0 {
-            return false
-        }
-        let arguments = self.nominal_args(t)
-        let subst = tc_args_subst(d, move arguments)
-        let members = self.members_of(d)
-        var k = 0
-        while k < members.len() {
-            let m = members[k]
-            let mi = self.res.decls[m]
-            let s = self.sigs[m]
-            if mi.kind == ResDeclKind.Field && s.result >= 0 {
-                let written = self.member_type(s.result)
-                let ft = self.subst(written, &subst)
-                if not self.is_trivial(ft, depth + 1) {
-                    return false
-                }
-            } else if mi.kind == ResDeclKind.Case && s.param_count > 0 {
-                return false
-            }
-            k = k + 1
-        }
-        true
+        let s = self.inline_summary(t, TC_WALK_TRIVIAL)
+        tc_summary_holds(s) && tc_summary_mask(s) == 0
     }
 
     // Send and Sync, derived from the members, with each argument in place.
-    func members_satisfy(&var self, t: Int, tr: Int, env_decl: Int, env_ext: Int) -> Bool {
+    // A primitive derives neither: a raw pointer is `Send` only through a
+    // type that asserts it.
+    func members_satisfy(&var self, t: Int, tr: Int, env_decl: Int, env_ext: Int, run: &var TcSatisfyRun) -> Bool {
         let info = self.types.ty(t)
         let d = info.decl
         let decl = self.res.decls[d]
+        if decl.kind == ResDeclKind.Primitive {
+            return false
+        }
         if decl.node < 0 {
             var k = 0
             while k < info.count {
                 let arg = self.types.arg(t, k)
-                if not self.satisfies(arg, tr, env_decl, env_ext) {
+                if not self.satisfies_in(arg, tr, env_decl, env_ext, &var run) {
                     return false
                 }
                 k = k + 1
             }
-            return decl.kind != ResDeclKind.Primitive
+            return true
+        }
+        // A member deriving from a growing instance of its own type nests
+        // without bound, which the instantiation depth limit refuses.
+        if self.nesting_depth(t) > TC_INSTANTIATION_DEPTH {
+            if run.overflow < 0 {
+                run.overflow = t
+                run.overflow_trait = tr
+            }
+            return false
         }
         let arguments = self.nominal_args(t)
         let subst = tc_args_subst(d, move arguments)
@@ -934,7 +1026,7 @@ extension TcProgram {
             let s = self.sigs[m]
             if mi.kind == ResDeclKind.Field && s.result >= 0 {
                 let ft = self.subst(s.result, &subst)
-                if ft == t || not self.satisfies(ft, tr, env_decl, env_ext) {
+                if ft == t || not self.satisfies_in(ft, tr, env_decl, env_ext, &var run) {
                     return false
                 }
             } else if mi.kind == ResDeclKind.Case {
@@ -942,7 +1034,7 @@ extension TcProgram {
                 while j < s.param_count {
                     let p = self.params[s.param_first + j]
                     let pt = self.subst(p.ty, &subst)
-                    if pt == t || not self.satisfies(pt, tr, env_decl, env_ext) {
+                    if pt == t || not self.satisfies_in(pt, tr, env_decl, env_ext, &var run) {
                         return false
                     }
                     j = j + 1
@@ -951,6 +1043,28 @@ extension TcProgram {
             k = k + 1
         }
         true
+    }
+
+    // The instantiation depth limit's refusal (spec, "Instantiation depth is
+    // bounded"), once per declaration, where the growing type is declared.
+    func refuse_instantiation_depth(&var self, t: Int, tr: Int) {
+        let d = self.types.ty(t).decl
+        if not self.walks.mark(d, TC_WALK_DEPTH_REFUSED) {
+            return
+        }
+        let info = self.res.decls[d]
+        var msg = StringBuilder()
+        try! msg.append("deriving `")
+        try! msg.append(self.res.decl_path(tr))
+        try! msg.append("` for `")
+        try! msg.append(self.res.decl_path(d))
+        try! msg.append("` from its members reaches `")
+        try! msg.append(self.type_text(t))
+        try! msg.append("`, a type nested more than ")
+        try! msg.append(TC_INSTANTIATION_DEPTH)
+        try! msg.append(" deep: a type whose members instantiate it at ever larger arguments has no finite set of instances; hold the growing argument behind a type that does not instantiate it, or stop the growth")
+        let site = self.decl_site(d)
+        self.refuse_in(info.module, site, "type.instantiation-depth", msg.build())
     }
 
     // A nominal type's arguments.

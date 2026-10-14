@@ -13,6 +13,7 @@ import sawtypecheck.model.{TC_FLAG_STATIC, TcParam, TcSig}
 import sawtypecheck.program.{TcProgram}
 import sawtypecheck.spell.{tc_effects_text}
 import sawtypecheck.types.{TcKind, TcType}
+import sawtypecheck.walks.{TC_WALK_NAMES_SELF}
 
 // Every written `any Trait` whose trait is not object-safe, refused at it.
 public func tc_check_object_safety(p: &var TcProgram) {
@@ -78,7 +79,7 @@ extension TcProgram {
     // its parents', that is static or names `Self` in its result or a
     // parameter. A generic requirement is not judged here, since
     // `trait.generic-requirement` refuses it at the requirement.
-    func object_safety_reason(&self, tr: Int) -> String {
+    func object_safety_reason(&var self, tr: Int) -> String {
         let traits = self.trait_and_ancestors(tr)
         var requirements = Vector<Int>()
         var assoc = -1
@@ -132,7 +133,7 @@ extension TcProgram {
                 try! out.append("` is static: it is called on the type, so there is no receiver to dispatch on")
                 return out.build()
             }
-            if s.result >= 0 && self.names_self_type(s.result, 0) {
+            if s.result >= 0 && self.names_self_type(s.result) {
                 try! out.append("its requirement `")
                 try! out.append(self.res.decl_path(r))
                 try! out.append("` names `Self` in its result (`")
@@ -144,7 +145,7 @@ extension TcProgram {
             while j < s.param_count {
                 let param = self.params[s.param_first + j]
                 j = j + 1
-                if self.names_self_type(param.ty, 0) {
+                if self.names_self_type(param.ty) {
                     try! out.append("its requirement `")
                     try! out.append(self.res.decl_path(r))
                     try! out.append("` names `Self` in its parameter `")
@@ -160,26 +161,27 @@ extension TcProgram {
     }
 
     // Whether type `t` names `Self` anywhere inside it.
-    func names_self_type(&self, t: Int, depth: Int) -> Bool {
-        if t < 0 || depth > 32 {
+    func names_self_type(&var self, t: Int) -> Bool {
+        if t < 0 {
             return false
         }
-        let info = self.types.ty(t)
-        if info.kind == TcKind.SelfType {
-            return true
+        let known = self.walks.get(t, TC_WALK_NAMES_SELF)
+        if known >= 0 {
+            return known == 1
         }
+        let info = self.types.ty(t)
+        var found = info.kind == TcKind.SelfType
         let wraps = info.kind == TcKind.Ref || info.kind == TcKind.Slice || info.kind == TcKind.Array || info.kind == TcKind.Func
-        if wraps && self.names_self_type(info.b, depth + 1) {
-            return true
+        if not found && wraps {
+            found = self.names_self_type(info.b)
         }
         var k = 0
-        while k < info.count {
+        while k < info.count && not found {
             let inner = self.types.arg(t, k)
-            if self.names_self_type(inner, depth + 1) {
-                return true
-            }
+            found = self.names_self_type(inner)
             k = k + 1
         }
-        false
+        self.walks.set(t, TC_WALK_NAMES_SELF, if found { 1 } else { 0 })
+        found
     }
 }

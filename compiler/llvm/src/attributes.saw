@@ -30,7 +30,7 @@ public func ll_param_attributes(mono: &var MonoProgram, k: Int, j: Int, t: Int) 
     if info.a == 1 {
         return "noalias"
     }
-    if mono.dp.bc.mir.tc.is_cell_carrying(info.b, 0) {
+    if mono.dp.bc.mir.tc.is_cell_carrying(info.b) {
         return ""
     }
     "noalias"

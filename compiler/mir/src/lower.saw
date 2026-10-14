@@ -451,7 +451,7 @@ extension MirProgram {
                 } else if self.tc.has_alt(operand, Alt.Expr_Member) && base >= 0 && self.tc.has_alt(base, Alt.Expr_Self) {
                     let f = self.self_field(operand, d)
                     let ft = self.tc.expr_types[operand]
-                    let trivial = ft >= 0 && self.tc.is_trivial(ft, 0)
+                    let trivial = ft >= 0 && self.tc.is_trivial(ft)
                     if f >= 0 && not trivial {
                         moves = true
                     }
@@ -1555,7 +1555,7 @@ extension MirProgram {
     func borrowed_value(&var self, p: Int) -> Int {
         let t = self.place_type(p)
         let kind = self.tc.kind_of(t)
-        if kind == TcKind.Ref || kind == TcKind.Slice || kind == TcKind.Func || self.tc.is_trivial(t, 0) {
+        if kind == TcKind.Ref || kind == TcKind.Slice || kind == TcKind.Func || self.tc.is_trivial(t) {
             return self.op_copy(p)
         }
         self.shared_ref(p)

@@ -383,7 +383,7 @@ _NOALIAS_DEFINE = re.compile(r'^define [^@]*@"saw (closure#\d+ of |drop glue )?n
 # The funnel's cell-carrying test, and the injection that answers it "no
 # cell" for every shared reference.
 NOALIAS_FUNNEL = "attributes.saw"
-NOALIAS_CELL_TEST = "    if mono.dp.bc.mir.tc.is_cell_carrying(info.b, 0) {\n"
+NOALIAS_CELL_TEST = "    if mono.dp.bc.mir.tc.is_cell_carrying(info.b) {\n"
 NOALIAS_INJECTED = "    if false {\n"
 # The parameter only the cell-carrying exemption keeps from `noalias`.
 NOALIAS_CELL_ROW = '@"saw noalias.bump(gauge: &noalias.Gauge)"'

@@ -45,6 +45,7 @@ import sawtypecheck.strings.{TcStringPosition}
 import sawtypecheck.tier.{tc_tier}
 import sawtypecheck.typeops.{TcClient}
 import sawtypecheck.types.{TcKind, TcType}
+import sawtypecheck.walks.{TcMemo, tc_memo}
 
 // Checks every body of every module checked in full.
 public func tc_check_bodies(p: &var TcProgram) {
@@ -4233,7 +4234,7 @@ extension TcProgram {
     // bound one, so the parameter is a temporary on its way home (design 188).
     func check_no_move(&var self, e: Int, operand: Int) {
         let t = self.final_type(operand)
-        if self.has_error(t) || not self.is_no_move(t, 0) {
+        if self.has_error(t) || not self.is_no_move(t) {
             return
         }
         let place = self.unparen(operand)
@@ -5993,7 +5994,7 @@ extension TcProgram {
         // moves the payload out as the builtin one does.
         if text.equals("take") && self.is_optional(t) {
             let payload = self.arg_of(t, 0)
-            if self.is_no_move(payload, 0) {
+            if self.is_no_move(payload) {
                 self.refuse_no_move(e, base, payload, "`take()` the payload of", "may not be moved out of its optional")
             }
         }
@@ -6211,7 +6212,7 @@ extension TcProgram {
         self.calls[at] = c
         if text.equals("take") {
             let payload = self.arg_of(t, 0)
-            if self.is_no_move(payload, 0) {
+            if self.is_no_move(payload) {
                 self.refuse_no_move(e, base, payload, "`take()` the payload of", "may not be moved out of its optional")
             }
             return self.set_type(e, t, false)
@@ -6235,7 +6236,7 @@ extension TcProgram {
         if ec < 0 || self.satisfies(t, ec, env, ext) {
             return
         }
-        let blocker = self.unbounded_part(t, ec, 0)
+        let blocker = self.unbounded_part(t, ec)
         var msg = StringBuilder()
         try! msg.append("`")
         try! msg.append(self.type_text(t))
@@ -6260,8 +6261,15 @@ extension TcProgram {
     }
 
     // The first type parameter in `t` that does not meet trait `tr`, or -1.
-    func unbounded_part(&var self, t: Int, tr: Int, depth: Int) -> Int {
-        if t < 0 || depth > 16 {
+    func unbounded_part(&var self, t: Int, tr: Int) -> Int {
+        var seen = tc_memo()
+        self.unbounded_part_in(t, tr, &var seen)
+    }
+
+    // One part of `unbounded_part`'s walk. A part met again was searched in
+    // full the first time and found nothing.
+    func unbounded_part_in(&var self, t: Int, tr: Int, seen: &var TcMemo) -> Int {
+        if t < 0 || not seen.mark(t, 0) {
             return -1
         }
         let info = self.types.ty(t)
@@ -6274,13 +6282,13 @@ extension TcProgram {
             return t
         }
         if info.kind == TcKind.Array {
-            return self.unbounded_part(info.b, tr, depth + 1)
+            return self.unbounded_part_in(info.b, tr, &var seen)
         }
         if info.kind == TcKind.Tuple || info.kind == TcKind.Nominal {
             var k = 0
             while k < info.count {
                 let part = self.types.arg(t, k)
-                let found = self.unbounded_part(part, tr, depth + 1)
+                let found = self.unbounded_part_in(part, tr, &var seen)
                 if found >= 0 {
                     return found
                 }
@@ -6470,7 +6478,7 @@ extension TcProgram {
             if primitive {
                 granted = self.primitive_grants(d, tr)
             } else if tr == self.known.equatable || tr == self.known.hashable {
-                granted = not self.has_conformance(d, tr) && self.is_trivial(t, 0)
+                granted = not self.has_conformance(d, tr) && self.is_trivial(t)
             }
             if not granted {
                 continue
@@ -9757,7 +9765,7 @@ extension TcProgram {
                 let name = self.capture_name(binding)
                 self.refuse_move_from_borrow(entry, name, reason)
                 frame = false
-            } else if t >= 0 && not self.has_error(t) && self.is_no_move(t, 0) {
+            } else if t >= 0 && not self.has_error(t) && self.is_no_move(t) {
                 self.refuse_no_move(entry, binding, t, "`move`", "may not be moved into a closure")
             }
         } else if entry >= 0 && self.has_alt(entry, Alt.Expr_Capture_Copy) {
@@ -10452,17 +10460,16 @@ extension TcProgram {
         Vector<Int>()
     }
 
-    // Expression `e` with its parentheses taken off.
+    // Expression `e` with its parentheses taken off. Each step goes to a
+    // child, so the walk ends at the tree's depth.
     func unparenthesized(&self, e: Int) -> Int {
         var at = e
-        var rounds = 0
-        while rounds < 64 && self.has_alt(at, Alt.Expr_Paren) {
+        while self.has_alt(at, Alt.Expr_Paren) {
             let inner = self.res.first_node_child(at)
             if inner < 0 {
                 return at
             }
             at = inner
-            rounds = rounds + 1
         }
         at
     }

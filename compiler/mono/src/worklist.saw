@@ -258,7 +258,7 @@ extension MonoProgram {
     // the first drop or copy otherwise, for the one refusal `report_depth`
     // makes: one growing chain meets the limit at every item it reaches.
     func depth_exceeded(&var self, t: Int, node: Int, call: Bool) -> Bool {
-        if self.type_depth(t, 0) <= MONO_DEPTH_LIMIT {
+        if self.dp.bc.mir.tc.nesting_depth(t) <= MONO_DEPTH_LIMIT {
             return false
         }
         if call && self.depth_call < 0 {
@@ -287,30 +287,6 @@ extension MonoProgram {
         try! msg.append(MONO_DEPTH_LIMIT)
         try! msg.append(" deep: a generic that instantiates itself at a growing type has no finite set of instances (polymorphic recursion, SL-507)")
         self.refuse(node, "mono.depth", msg.build())
-    }
-
-    func type_depth(&self, t: Int, depth: Int) -> Int {
-        if t < 0 || depth > MONO_DEPTH_LIMIT {
-            return depth
-        }
-        let info = self.dp.bc.mir.tc.types.ty(t)
-        var deepest = depth
-        if info.b >= 0 && (info.kind == TcKind.Func || info.kind == TcKind.Ref || info.kind == TcKind.Slice || info.kind == TcKind.Array) {
-            let inner = self.type_depth(info.b, depth + 1)
-            if inner > deepest {
-                deepest = inner
-            }
-        }
-        var k = 0
-        while k < info.count {
-            let arg = self.dp.bc.mir.tc.types.arg(t, k)
-            let inner = self.type_depth(arg, depth + 1)
-            if inner > deepest {
-                deepest = inner
-            }
-            k = k + 1
-        }
-        deepest
     }
 
     // Type `t` with item `k`'s concrete arguments in place of its parameters.
@@ -377,7 +353,7 @@ extension MonoProgram {
         var j = 0
         while j < self.dp.bc.mir.tc.narrow_atomics.len() {
             let narrow = self.dp.bc.mir.tc.narrow_atomics[j]
-            if not self.dp.bc.mir.tc.narrow_reported[j] && self.dp.bc.mir.tc.type_holds(t, narrow, 0) {
+            if not self.dp.bc.mir.tc.narrow_reported[j] && self.dp.bc.mir.tc.type_holds(t, narrow) {
                 self.dp.bc.mir.tc.narrow_reported[j] = true
                 var msg = StringBuilder()
                 try! msg.append("`")

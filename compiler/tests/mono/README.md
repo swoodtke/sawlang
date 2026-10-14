@@ -206,7 +206,7 @@ nullable pointer (null is `None`), and an aggregate by value is refused.
 | rule | refuses | fixture |
 |---|---|---|
 | `mono.not-yet` | what the backend's slice does not lower: a builtin outside it, a format argument or an interpolated part whose rendering the slice does not make, a fixed array, repeat, `Map` or `Set` literal, a requirement no member, default or member glue in the slice meets, a call of a body this program does not lower, a closure capturing an owning value, an escaping closure that captures anything | `mono.not-yet`, `mono.not-yet.format`, `mono.not-yet.std`, `mono.not-yet.unsigned`, and the escaping closure at each position it escapes through, `mono.not-yet.escaping-*` |
-| `mono.depth` | a concrete argument nested more than 64 deep, once per program, at the first call that met the limit | `mono.depth`, `mono.depth.method`, `mono.depth.recursive` |
+| `mono.depth` | a concrete argument nested more than 64 deep, once per program, at the first call that met the limit | `mono.depth`, `mono.depth.method`, `mono.depth.recursive`, and `mono.depth.branching`, whose argument doubles its parts at each step |
 | `atomic.width` | an `Atomic<X>` at an `X` other than `Int` that only an instantiation forms, once per type, where the item was reached; one a written or inferred position carries is typecheck's (SL:open-questions D38) | `atomic.width` |
 
 A refusal whose node lies in std or the builtin module is reported at the
@@ -219,7 +219,10 @@ Unbounded instantiation (polymorphic recursion) is ruled to be refused before
 mono, by a check on the generic call graph (SL:architecture §3.8); that check
 is SL-507. `mono.depth` is mono's backstop, so mono never loops: until that
 check lands, polymorphic recursion passes typecheck and reaches the limit
-here (`mono.depth.recursive`), as a written type does (`mono.depth`).
+here (`mono.depth.recursive`), as a written type does (`mono.depth`). The
+depth is typecheck's `nesting_depth`, memoized by type, and the copy glue's
+triviality is its memoized `is_trivial`, so the limit is met in time linear in
+the depth however a type shares its parts (`mono.depth.branching`).
 
 ## The lane
 

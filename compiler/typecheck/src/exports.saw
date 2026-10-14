@@ -11,6 +11,7 @@ import sawtypecheck.runtimeabi.{tc_runtime_abi_rows}
 import sawtypecheck.spell.{tc_effects_text}
 import sawtypecheck.typeops.{TcClient}
 import sawtypecheck.types.{TcKind}
+import sawtypecheck.walks.{tc_memo}
 
 // Every rule the export funnel refuses by.
 public func tc_export_rules() -> Vector<String> {
@@ -126,7 +127,7 @@ extension TcProgram {
             if not self.export_signature_ok(d) {
                 return
             }
-        } else if not self.export_data_ok(s.result, 0) {
+        } else if not self.export_data_ok(s.result) {
             var msg = StringBuilder()
             try! msg.append("`@export` static `")
             try! msg.append(name)
@@ -232,36 +233,48 @@ extension TcProgram {
     }
 
     // Whether an exported static's type has a fixed C data layout: a C scalar,
-    // or an array or a non-generic struct of them.
-    func export_data_ok(&self, t: Int, depth: Int) -> Bool {
-        if depth > TC_EXPORT_DATA_DEPTH || t < 0 {
-            return false
-        }
-        let machine = self.export_class(t, false)
-        if machine.len() > 0 {
-            return true
-        }
-        let shape = self.types.ty(t)
-        if shape.kind == TcKind.Array {
-            return self.export_data_ok(shape.b, depth + 1)
-        }
-        let d = self.nominal_decl(t)
-        if d < 0 || not self.is_struct_decl(d) {
-            return false
-        }
-        let own = self.sigs[d]
-        if own.generic_count > 0 {
-            return false
-        }
-        let members = self.members_of(d)
-        var k = 0
-        while k < members.len() {
-            let f = members[k]
-            let field = self.sigs[f]
-            if self.res.decls[f].kind == ResDeclKind.Field && not self.export_data_ok(field.result, depth + 1) {
+    // or an array or a non-generic struct of them. Each type is judged once,
+    // so a struct reached twice, or through itself, adds nothing more.
+    func export_data_ok(&self, t: Int) -> Bool {
+        var pending = Vector<Int>()
+        var seen = tc_memo()
+        try! pending.push(t)
+        var head = 0
+        while head < pending.len() {
+            let at = pending[head]
+            head = head + 1
+            if at < 0 {
                 return false
             }
-            k = k + 1
+            if not seen.mark(at, 0) {
+                continue
+            }
+            let machine = self.export_class(at, false)
+            if machine.len() > 0 {
+                continue
+            }
+            let shape = self.types.ty(at)
+            if shape.kind == TcKind.Array {
+                try! pending.push(shape.b)
+                continue
+            }
+            let d = self.nominal_decl(at)
+            if d < 0 || not self.is_struct_decl(d) {
+                return false
+            }
+            let own = self.sigs[d]
+            if own.generic_count > 0 {
+                return false
+            }
+            let members = self.members_of(d)
+            var k = 0
+            while k < members.len() {
+                let f = members[k]
+                if self.res.decls[f].kind == ResDeclKind.Field {
+                    try! pending.push(self.sigs[f].result)
+                }
+                k = k + 1
+            }
         }
         true
     }
@@ -377,7 +390,3 @@ func tc_abi_row_of(table: &TcAbiTable, symbol: String) -> Int {
     }
     return -1
 }
-
-// How deeply an exported static's arrays and structs may nest before the
-// walk gives up on it.
-static TC_EXPORT_DATA_DEPTH: Int = 16

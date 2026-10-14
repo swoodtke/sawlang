@@ -1,0 +1,7 @@
+// refuses: type.infinite-size at 5:8
+// a generic struct holding one fixed instance of itself inline: that instance
+// holds itself in turn
+
+struct Fixed<T> {
+    u: Fixed<Int>?
+}

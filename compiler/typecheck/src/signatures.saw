@@ -34,6 +34,7 @@ import sawtypecheck.model.{TC_EFFECT_BORROWS, TC_EFFECT_BORROWS_SYNC, TC_EFFECT_
                                TcObligation, TcParam, TcReceiver, TcSig}
 import sawtypecheck.program.{TcProgram}
 import sawtypecheck.types.{TcKind, TcType}
+import sawtypecheck.walks.{TC_WALK_NESTING}
 
 // The generic parameters of every declaration, keyed by where each is declared.
 public func tc_index_generics(p: &var TcProgram) {
@@ -233,29 +234,62 @@ extension TcProgram {
         t
     }
 
-    // Whether type `outer` holds type `t` anywhere inside it.
-    public func type_holds(&self, outer: Int, t: Int, depth: Int) -> Bool {
+    // Whether type `outer` holds type `t` anywhere inside it. A type's parts
+    // are interned before it, so a part with a lower id than `t` cannot
+    // hold it.
+    public func type_holds(&var self, outer: Int, t: Int) -> Bool {
         if outer == t {
             return true
         }
-        if outer < 0 || depth > 32 {
+        if outer < 0 || t < 0 || outer < t {
             return false
+        }
+        let known = self.holds.get(outer, t)
+        if known >= 0 {
+            return known == 1
         }
         let info = self.types.ty(outer)
         let wraps = info.kind == TcKind.Ref || info.kind == TcKind.Slice || info.kind == TcKind.Array || info.kind == TcKind.Func
-        if wraps && self.type_holds(info.b, t, depth + 1) {
-            return true
+        var found = wraps && self.type_holds(info.b, t)
+        var k = 0
+        while k < info.count && not found {
+            // Stage 0 workaround (SL:hazards S4): canonical: found = self.type_holds(self.types.arg(outer, k), t)
+            let inner = self.types.arg(outer, k)
+            found = self.type_holds(inner, t)
+            k = k + 1
+        }
+        self.holds.set(outer, t, if found { 1 } else { 0 })
+        found
+    }
+
+    // How deeply type `t` nests: 0 for a type with no parts, else one more
+    // than its deepest part, a function's result and a reference's, slice's
+    // or array's element among them.
+    public func nesting_depth(&var self, t: Int) -> Int {
+        if t < 0 {
+            return 0
+        }
+        let known = self.walks.get(t, TC_WALK_NESTING)
+        if known >= 0 {
+            return known
+        }
+        let info = self.types.ty(t)
+        var deepest = 0
+        let wraps = info.kind == TcKind.Ref || info.kind == TcKind.Slice || info.kind == TcKind.Array || info.kind == TcKind.Func
+        if wraps && info.b >= 0 {
+            deepest = self.nesting_depth(info.b) + 1
         }
         var k = 0
         while k < info.count {
-            // Stage 0 workaround (SL:hazards S4): canonical: if self.type_holds(self.types.arg(outer, k), t, depth + 1) {
-            let inner = self.types.arg(outer, k)
-            if self.type_holds(inner, t, depth + 1) {
-                return true
+            let arg = self.types.arg(t, k)
+            let inner = self.nesting_depth(arg) + 1
+            if inner > deepest {
+                deepest = inner
             }
             k = k + 1
         }
-        false
+        self.walks.set(t, TC_WALK_NESTING, deepest)
+        deepest
     }
 
     // Whether `a`, an `Atomic`'s argument, is a type the v1 atomic is not:

@@ -1,0 +1,19 @@
+// refuses: mono.depth at 14:5
+// polymorphic recursion that doubles its argument's parts at each step meets
+// the depth limit in time linear in the depth, never in the parts
+
+struct Two<T> {
+    a: T
+    b: T
+}
+
+func widen<T: Copy>(x: T, n: Int) -> Int {
+    if n <= 0 {
+        return 0
+    }
+    widen(Two<T>(a: x, b: x), n - 1)
+}
+
+func main() {
+    print("{}", widen(1, 3))
+}

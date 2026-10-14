@@ -1,0 +1,133 @@
+// The table the semantic walks memoize in. A walk over types or declarations
+// keys its answers by interned TypeId or by declaration index, and stops at a
+// cycle by an in-progress mark, never by a count of how deep it went
+// (SL:architecture principle 6).
+
+// The questions `TcProgram.walks` keys its answers by, beside a TypeId or a
+// declaration. An inline question's declaration rules are its tag plus one.
+public static TC_WALK_NO_MOVE: Int = 0
+public static TC_WALK_CELL: Int = 2
+public static TC_WALK_TRIVIAL: Int = 4
+public static TC_WALK_NAMES_SELF: Int = 6
+public static TC_WALK_NESTING: Int = 7
+public static TC_WALK_OWNS: Int = 8
+public static TC_WALK_DEPTH_REFUSED: Int = 9
+
+// How deeply a type that a derivation reaches may nest before it is refused
+// (spec, "Instantiation depth is bounded").
+public static TC_INSTANTIATION_DEPTH: Int = 64
+
+static TC_MEMO_FIRST_SLOTS: Int = 16
+static TC_MEMO_HASH_MASK: Int = 0xFFFF_FFFF_FFFF
+
+// A map from a pair of non-negative Ints to an Int, by open addressing. A
+// pair never set reads as -1, so -1 is no value a walk stores.
+public struct TcMemo {
+    keys_a: Vector<Int>
+    keys_b: Vector<Int>
+    values: Vector<Int>
+    used: Int
+}
+
+extension TcMemo: NoCopy {}
+
+public func tc_memo() -> TcMemo {
+    var a = Vector<Int>()
+    var b = Vector<Int>()
+    var v = Vector<Int>()
+    var k = 0
+    while k < TC_MEMO_FIRST_SLOTS {
+        try! a.push(-1)
+        try! b.push(-1)
+        try! v.push(-1)
+        k = k + 1
+    }
+    TcMemo(keys_a: move a, keys_b: move b, values: move v, used: 0)
+}
+
+func tc_memo_slot(a: Int, b: Int, slots: Int) -> Int {
+    let h = (((a & TC_MEMO_HASH_MASK) * 1000003) ^ ((b & TC_MEMO_HASH_MASK) * 92821)) & TC_MEMO_HASH_MASK
+    h & (slots - 1)
+}
+
+extension TcMemo {
+    // The value stored for (a, b), or -1.
+    public func get(&self, a: Int, b: Int) -> Int {
+        let slots = self.keys_a.len()
+        var at = tc_memo_slot(a, b, slots)
+        while self.keys_a[at] >= 0 {
+            if self.keys_a[at] == a && self.keys_b[at] == b {
+                return self.values[at]
+            }
+            at = (at + 1) & (slots - 1)
+        }
+        return -1
+    }
+
+    public func set(&var self, a: Int, b: Int, value: Int) {
+        if (self.used + 1) * 2 > self.keys_a.len() {
+            self.grow()
+        }
+        let slots = self.keys_a.len()
+        var at = tc_memo_slot(a, b, slots)
+        while self.keys_a[at] >= 0 {
+            if self.keys_a[at] == a && self.keys_b[at] == b {
+                self.values[at] = value
+                return
+            }
+            at = (at + 1) & (slots - 1)
+        }
+        self.keys_a[at] = a
+        self.keys_b[at] = b
+        self.values[at] = value
+        self.used = self.used + 1
+    }
+
+    // Marks (a, b) as seen, giving whether it was new.
+    public func mark(&var self, a: Int, b: Int) -> Bool {
+        if self.get(a, b) >= 0 {
+            return false
+        }
+        self.set(a, b, 1)
+        true
+    }
+
+    func grow(&var self) {
+        let slots = self.keys_a.len() * 2
+        var a = Vector<Int>()
+        var b = Vector<Int>()
+        var v = Vector<Int>()
+        var k = 0
+        while k < slots {
+            try! a.push(-1)
+            try! b.push(-1)
+            try! v.push(-1)
+            k = k + 1
+        }
+        k = 0
+        while k < self.keys_a.len() {
+            let key = self.keys_a[k]
+            if key >= 0 {
+                tc_memo_put(&var a, &var b, &var v, key, self.keys_b[k], self.values[k])
+            }
+            k = k + 1
+        }
+        self.keys_a = move a
+        self.keys_b = move b
+        self.values = move v
+    }
+}
+
+// Stores `value` for a pair not yet in the slots, as `grow` moves each one
+// over; the slots it is given are never full.
+func tc_memo_put(keys_a: &var Vector<Int>, keys_b: &var Vector<Int>, values: &var Vector<Int>, a: Int, b: Int,
+                 value: Int) {
+    let slots = keys_a.len()
+    var at = tc_memo_slot(a, b, slots)
+    while keys_a[at] >= 0 {
+        at = (at + 1) & (slots - 1)
+    }
+    keys_a[at] = a
+    keys_b[at] = b
+    values[at] = value
+}

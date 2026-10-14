@@ -10,6 +10,7 @@ import sawtypecheck.model.{TcAdjust, TcAllowance, TcAtom, TcCall, TcCapture, TcC
                                TcItem, TcMember, TcObligation, TcParam, TcSig, TcStatus, TcSummary,
                                TcTier, TcUnit, TcUse, tc_blank_sig}
 import sawtypecheck.types.{TcKind, TcType, TcTypes, tc_types}
+import sawtypecheck.walks.{TcMemo, tc_memo}
 
 // The declarations typecheck knows by identity, found once: `T?` names
 // `Optional` with no name occurrence, and the Copy family, the derivable
@@ -127,8 +128,10 @@ public struct TcProgram {
     // or a test case's, which may use the module's test-only declarations.
     current_test: Bool
     error_type: Int
-    // How deeply `satisfies` is nested, which bounds its recursion.
-    satisfy_depth: Int
+    // The semantic walks' answers, keyed by (TypeId or declaration, the
+    // walk's question), and `type_holds`'s, keyed by (outer, inner).
+    walks: TcMemo
+    holds: TcMemo
     // The nodes refused as outside the bootstrap slice; the verifier asks
     // nothing of what lies under one.
     skipped: Vector<Int>
@@ -341,7 +344,7 @@ public func tc_program(res: ResProgram) -> TcProgram {
                       diags: Vector<TcDiag>(), known: known, current: -1, current_decl: -1,
                       current_trait: -1, current_ext: -1, current_self: -1, current_test: false,
                       error_type: -1,
-                      satisfy_depth: 0, skipped: Vector<Int>(), string_positions: Vector<Int>(),
+                      walks: tc_memo(), holds: tc_memo(), skipped: Vector<Int>(), string_positions: Vector<Int>(),
                       expr_types: Vector<Int>(),
                       typed_count: Vector<Int>(), expr_place: Vector<Bool>(),
                       expr_use: Vector<TcUse>(), copy_partner: Vector<Int>(), adj_head: Vector<Int>(),

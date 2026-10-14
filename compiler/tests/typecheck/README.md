@@ -301,6 +301,8 @@ Optional. Under `type.bound` unless a cell says otherwise:
 | a subscript, a `for` loop's `next`, an `init` whose type inference solves | refused | type.bound.subscript, type.bound.iterator, type.bound.init |
 | std's `copy()` on `Vector<T>` where `T` is not ExplicitCopy | refused | type.bound.vector-copy |
 | the builtin `copy()` reaching an unbounded type parameter, through a tuple, an Optional or an array (row V43) | refused | type.bound.copy-wrapper |
+| the same parameter 18 tuples deep (SL-627) | refused | type.bound.copy-deep-parameter |
+| a bound over a tuple 66 deep of a NoCopy struct, answered by identity at any depth (SL-627) | refused | type.bound.deep-tuple |
 | the builtin `copy()` on a NoCopy value, a tuple holding one included (rows V11, V22) | refused, `member.unknown` | member.unknown.copy-nocopy |
 | each where the bound holds: a concrete argument, a generic body's own bound, `copy()` under `T: ExplicitCopy` | allowed | extension_bounds |
 
@@ -807,6 +809,7 @@ adds nothing. Under `erasure.not-object-safe`, `o.` abbreviating
 | row | verdict | covered by |
 |---|---|---|
 | `Self` nested in the result, `-> Result<Self, Int>` | refused | o.self-result-nested |
+| `Self` 34 tuples deep in a parameter (SL-627) | refused | o.self-param-deep |
 | an inherited requirement naming `Self`, `trait Shape: Equatable` | refused, naming `Equatable.equals` | o.inherited |
 | an inherited associated type, `trait Sized: Iterator` | refused, naming `Iterator.Item` | o.associated-inherited |
 | a `Self`-naming requirement with a default body (the spec exempts none) | refused | o.default-body |
@@ -1001,6 +1004,7 @@ Checked as the walk meets a `move` (`check_no_move`), a `[move x]` capture and
 | a by-value parameter placed after a `&` named it (row V58) | refused | n.placement-after-borrow |
 | a move into a binding, of a generic instance holding one | refused | n.binding |
 | a `[move a]` capture; `take()` out of an optional; a tuple holding one | refused | n.capture, n.take |
+| a value holding one 18 tuples deep (SL-627) | refused | n.deep |
 | a fresh by-value parameter placed by `ptr[0] = move value`; lending by `&var`; replacing a referent whole | allowed | no_move |
 
 The declaration side (SL-485; rows V121-V123), checked with the
@@ -1009,6 +1013,7 @@ containment rules (`check_no_move_declarations`):
 | row | verdict | covered by |
 |---|---|---|
 | a struct's `NoMove` field, an enum's payload, one in an optional, a generic instance at a `NoMove` argument, undeclared | refused | nomove.undeclared, .payload, .wrapped, .instance |
+| one 18 tuples deep, undeclared (SL-627) | refused | nomove.undeclared.deep |
 | `T: NoMove` on a function's and on an extension's parameter | refused | nomove.bound, nomove.bound.extension |
 | `NoMove` with no declared `NoCopy`, beside `ExplicitCopy` | refused | nomove.requires-nocopy, nomove.requires-nocopy.explicit |
 | a container declaring `NoCopy` and `NoMove`; a pointer holder; a generic holding `T` | allowed | no_move |
@@ -1025,6 +1030,7 @@ in `inject/cell_carrying.saw`, which names each row by its function.
 | the cell; `Atomic<Int>`; a struct holding an `Atomic`, which derives `Sync`; `Wrap<T>` at a cell, and nested; an Optional, a tuple and an array of one; an enum case's payload, `Result`'s `Ok` and its `Err` | carrying |
 | `Int`; a plain struct; `Wrap<Int>`; an Optional of a plain struct; an enum of plain payloads; `Result` of plain types; `String` | free |
 | a struct holding an `UnsafePointer` to a cell; `Box`, `Vector` of a cell; a reference to one | free: the cell is behind a pointer |
+| `Wrap` 66 deep at a cell, and at `Int` (SL-627) | carrying, free |
 
 **Copy-policy containment** (spec, The Copy Trait Family, "Containment" and
 "The automatic `Copy` tier"; `check_containment`). The members whose retain
@@ -1214,7 +1220,8 @@ says what the fixture shows.
 | `type.alias-cycle` | type aliases that stand for each other |
 | `type.raw-backing` | an enum's raw backing written as a type alias, `Byte`, an alias of it and a user alias alike, since an alias is a distinct type and the backing is a fixed-width or platform integer written as itself; a backing that is not an integer type; a backing on an enum whose case carries a payload (spec, Raw-backed enums; SL-498: `type.raw-backing`, `.user-alias`, `.alias-of-byte`, `.not-integer`, `.payload`; golden `constant_positions` holds the `UInt8` control) |
 | `type.raw-value` | a case of a raw-backed enum that states no value (`.missing`), and two cases sharing one, compared by their folded values, so `0x01` is `1` and `1 << 0` is too (`.folded`) (spec, Raw-backed enums, rule 2; SL-609) |
-| `type.infinite-size` | a struct or enum whose storage contains its own inline, through fields, payloads, tuples, optionals, arrays and the generic declarations they instantiate, or through ever larger instantiations |
+| `type.infinite-size` | a struct or enum on a cycle of the by-value containment graph: its storage contains an instance of itself inline, through fields, payloads, tuples, optionals, arrays and the generic declarations they instantiate, the same instance, a fixed other one (`.fixed-argument`) or an ever larger one (`.growing`); golden `containment_cycles` holds every declaration of a component and the finite controls (SL-627) |
+| `type.instantiation-depth` | deriving `Send` or `Sync` from the members of a type nested past the instantiation depth limit (64), which a type holding itself at ever larger arguments behind a pointer reaches (spec, "Instantiation depth is bounded"; SL-627) |
 | `conformance.incomplete` | a requirement of a trait, or of a trait it refines, that nothing meets: no member written, no default, no derivation; an associated type no type assignment gives, the conformance's own or, for a parent trait's, the type's conformance to that trait (refined_assignments) |
 | `conformance.associated-conflict` | a refining trait's conformance restating a parent trait's associated type as another type than the type's conformance to the parent assigns |
 | `conformance.signature` | a written member that disagrees with its requirement: receiver, staticness, type parameters, parameters, result, an `unsafe` the requirement declares, `consumes`, or `borrows` (a `borrows(sync)` member never meets a plain `borrows` requirement, SL:borrowing §2.5); a parameter that says `escaping` where the requirement's does not, though the narrowing is met (SL-504: `conformance.signature.escaping`, `-escaping-default`; a function-typed parameter's own parameters are compared exactly, `-escaping-nested`; golden `escaping_values`) |

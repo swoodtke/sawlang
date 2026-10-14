@@ -1,0 +1,82 @@
+// A chain of 18 structs that owns nothing gets no synthesized `deinit`, and
+// an exported static of it has a C data layout: each walk over the chain
+// answers at its end, however long it is (SL-627).
+
+struct E18 {
+    n: Int
+}
+
+struct E17 {
+    next: E18
+}
+
+struct E16 {
+    next: E17
+}
+
+struct E15 {
+    next: E16
+}
+
+struct E14 {
+    next: E15
+}
+
+struct E13 {
+    next: E14
+}
+
+struct E12 {
+    next: E13
+}
+
+struct E11 {
+    next: E12
+}
+
+struct E10 {
+    next: E11
+}
+
+struct E9 {
+    next: E10
+}
+
+struct E8 {
+    next: E9
+}
+
+struct E7 {
+    next: E8
+}
+
+struct E6 {
+    next: E7
+}
+
+struct E5 {
+    next: E6
+}
+
+struct E4 {
+    next: E5
+}
+
+struct E3 {
+    next: E4
+}
+
+struct E2 {
+    next: E3
+}
+
+struct E1 {
+    next: E2
+}
+
+struct E0 {
+    next: E1
+}
+
+@export
+static DEEP: E0 = E0(next: E1(next: E2(next: E3(next: E4(next: E5(next: E6(next: E7(next: E8(next: E9(next: E10(next: E11(next: E12(next: E13(next: E14(next: E15(next: E16(next: E17(next: E18(n: 1)))))))))))))))))))

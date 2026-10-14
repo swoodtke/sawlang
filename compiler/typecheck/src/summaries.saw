@@ -31,10 +31,7 @@ import sawtypecheck.stdsuspension.{TC_STD_NONSYNC, TC_STD_SUSPENDS, tc_std_suspe
 import sawtypecheck.tier.{tc_bit}
 import sawtypecheck.typeops.{TcClient}
 import sawtypecheck.types.{TcKind, TcType}
-
-// How deeply a condition's evaluation follows implementations before it gives
-// the conservative answer.
-static TC_EVAL_DEPTH: Int = 16
+import sawtypecheck.walks.{TcMemo, tc_memo}
 
 // What evaluating a body's items gathers.
 public struct TcAcc {
@@ -730,14 +727,14 @@ extension TcProgram {
         }
         let info = self.res.decls[c.target]
         if info.kind == ResDeclKind.Requirement && (self.sigs[c.target].flags & TC_FLAG_DEFAULT_BODY) == 0 {
-            self.eval_requirement(c.target, c.owner, e, &var acc,0)
+            self.eval_requirement(c.target, c.owner, e, &var acc)
             return
         }
         if info.kind == ResDeclKind.Requirement && c.owner >= 0 {
             let recv = self.strip_refs(c.owner)
             let rk = self.kind_of(recv)
             if rk == TcKind.Param || rk == TcKind.SelfType || rk == TcKind.Any {
-                self.eval_requirement(c.target, c.owner, e, &var acc,0)
+                self.eval_requirement(c.target, c.owner, e, &var acc)
                 return
             }
         }
@@ -745,12 +742,12 @@ extension TcProgram {
             return
         }
         let target = c.target
-        self.eval_instance(target, &c, e, &var acc, 0)
+        self.eval_instance(target, &c, e, &var acc)
     }
 
     // A call of function `d` at call record `c`: its summary, each condition
     // over `d`'s parameters rewritten at the call's type arguments.
-    func eval_instance(&var self, d: Int, c: &TcCall, e: Int, acc: &var TcAcc, depth: Int) {
+    func eval_instance(&var self, d: Int, c: &TcCall, e: Int, acc: &var TcAcc) {
         let s = self.summary_for(d, &acc)
         if s.suspends {
             acc.suspends = true
@@ -765,14 +762,14 @@ extension TcProgram {
         while k < s.suspend_count {
             let a = self.atoms[s.suspend_first + k]
             let t = self.call_subst(a.ty, d, &c)
-            self.eval_condition(t, a.req, e, true, &var acc,depth + 1)
+            self.eval_condition(t, a.req, e, true, &var acc)
             k = k + 1
         }
         k = 0
         while k < s.nonsync_count {
             let a = self.atoms[s.nonsync_first + k]
             let t = self.call_subst(a.ty, d, &c)
-            self.eval_condition(t, a.req, e, false, &var acc,depth + 1)
+            self.eval_condition(t, a.req, e, false, &var acc)
             k = k + 1
         }
         k = 0
@@ -796,7 +793,7 @@ extension TcProgram {
     // A requirement `req` called through `owner`: a condition over the
     // caller's own parameter, nothing through an existential but a lost
     // guarantee, or a concrete implementation's summary.
-    func eval_requirement(&var self, req: Int, owner: Int, e: Int, acc: &var TcAcc, depth: Int) {
+    func eval_requirement(&var self, req: Int, owner: Int, e: Int, acc: &var TcAcc) {
         if self.declares_sync(req) {
             return
         }
@@ -810,15 +807,24 @@ extension TcProgram {
             acc.nonsync = true
             return
         }
-        self.eval_condition(recv, req, e, true, &var acc,depth)
-        self.eval_condition(recv, req, e, false, &var acc,depth)
+        self.eval_condition(recv, req, e, true, &var acc)
+        self.eval_condition(recv, req, e, false, &var acc)
     }
 
     // Whether `req` through type `t` may suspend (`suspension`) or is not
     // sync-callable: a condition kept when `t` is the caller's own
     // parameter, else the implementation's summary.
-    public func eval_condition(&var self, t: Int, req: Int, e: Int, suspension: Bool, acc: &var TcAcc,
-                               depth: Int) {
+    public func eval_condition(&var self, t: Int, req: Int, e: Int, suspension: Bool, acc: &var TcAcc) {
+        var followed = tc_memo()
+        self.eval_condition_in(t, req, e, suspension, &var acc, &var followed)
+    }
+
+    // One condition of an evaluation. An implementation's conditions name
+    // its own parameters, which the receiver's arguments fill, or `Self`,
+    // which the receiver does, so each (receiver, requirement) pair is
+    // followed once and a cycle through `Self` adds nothing more.
+    func eval_condition_in(&var self, t: Int, req: Int, e: Int, suspension: Bool, acc: &var TcAcc,
+                           followed: &var TcMemo) {
         if self.declares_sync(req) {
             return
         }
@@ -846,8 +852,8 @@ extension TcProgram {
         if kind == TcKind.Error {
             return
         }
-        if depth > TC_EVAL_DEPTH {
-            self.conservative(suspension, &var acc)
+        let side = if suspension { 1 } else { 0 }
+        if not followed.mark(recv, req * 2 + side) {
             return
         }
         let impl = self.impl_of(recv, req)
@@ -867,7 +873,7 @@ extension TcProgram {
         while k < count {
             let a = self.atoms[first + k]
             let inner = self.impl_subst(a.ty, impl, recv)
-            self.eval_condition(inner, a.req, e, suspension, &var acc,depth + 1)
+            self.eval_condition_in(inner, a.req, e, suspension, &var acc, &var followed)
             k = k + 1
         }
     }
@@ -1347,7 +1353,7 @@ extension TcProgram {
                     while j < reqs.len() {
                         var acc = tc_acc(top.decl, -1)
                         let req = reqs[j]
-                        self.eval_condition(from, req, item.node, true, &var acc, 0)
+                        self.eval_condition(from, req, item.node, true, &var acc)
                         if acc.suspends {
                             try! out.push(self.node_problem(item.node, "a coercion to `any` dispatches to an implementation that may suspend, and nothing refused it"))
                         }

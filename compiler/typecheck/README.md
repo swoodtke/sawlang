@@ -68,7 +68,40 @@ typecheck/
                       type positions, and the inferred ones
     dump.saw          the dump
     verify.saw        the verifier
+    walks.saw         the memo table the semantic walks key by TypeId or
+                      declaration, and their question tags
 ```
+
+## The semantic walks
+
+A question about a type or a declaration is answered by a walk keyed by
+identity, never by a count of how deep it went (SL:architecture principle 6):
+a type is interned before every type that holds it, so a walk over a type's
+parts ends, and one over declarations ends by an in-progress mark. Each walk
+memoizes by TypeId, program-wide in `TcProgram.walks` where the answer is
+final, or for the one call where it is not:
+
+- **The inline walks** (`tier.saw`): `is_no_move`, `is_cell_carrying` and
+  `is_trivial` share one summary per type, a declaration's rule over its own
+  parameters joined with its arguments', so no walk substitutes into a member.
+  A declaration met while its own rule is built holds itself inline, which the
+  finite-size check refuses.
+- **Bound satisfaction** (`satisfies`): one run per question, each (type,
+  trait) pair once. A derivation that reaches back to a pair it is still
+  deciding holds there, as a recursive type's `Send` does through its
+  `Vector`; a false answer is final and a true one is kept once no cycle it
+  leaned on is open. Deriving `Send` or `Sync` from the members of a type
+  nested past the instantiation depth, which only a type that holds itself at
+  ever larger arguments reaches, is refused as `type.instantiation-depth`.
+- **Finite size** (`checks.saw`): each struct and enum's inline mask, the
+  parameters it holds inline, solved to a fixpoint; an edge to each
+  declaration it holds inline; and the strongly connected components of those
+  edges. A declaration on a cycle is refused, with the shortest path from its
+  storage to an instance of itself.
+- **Structural questions**: `names_self_type`, `type_holds`, `nesting_depth`,
+  `unsafe_named`, `type_tier`, `decl_owns`, `export_data_ok`, and a
+  condition's evaluation (`eval_condition`), which follows each (receiver,
+  requirement) pair once.
 
 ## Phases
 

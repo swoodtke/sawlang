@@ -11,8 +11,9 @@ import sawtypecheck.model.{TC_EFFECT_UNSAFE, TC_FLAG_UNSAFE_STRUCT, TC_FLAG_WRIT
 import sawtypecheck.program.{TcProgram}
 import sawtypecheck.signatures.{TcContext}
 import sawtypecheck.spell.{tc_effects_text}
-import sawtypecheck.tier.{tc_tier}
+import sawtypecheck.tier.{tc_bit, tc_tier}
 import sawtypecheck.types.{TcKind, TcType}
+import sawtypecheck.walks.{TcMemo, tc_memo}
 
 // Finite struct size.
 public func tc_check_finite_size(p: &var TcProgram) {
@@ -31,13 +32,62 @@ public func tc_check_inits(p: &var TcProgram) {
     p.check_deinit_placement()
 }
 
-// How many distinct instantiations one containment path may cross. A path
-// that keeps growing its arguments through inline positions has no finite
-// layout either.
-static TC_CONTAINMENT_DEPTH: Int = 64
-static TC_WALK_FINITE: Int = 0
-static TC_WALK_CYCLE: Int = 1
-static TC_WALK_UNBOUNDED: Int = 2
+static TC_MASK_UNSEEN: Int = 0
+static TC_MASK_BUILDING: Int = 1
+static TC_MASK_BUILT: Int = 2
+
+// The by-value containment graph over declarations. A struct or enum's mask
+// names the type parameters it holds inline; an edge runs to each
+// declaration it holds inline, written there or reached through an inline
+// parameter of another. A cycle in this graph is the whole test: a
+// declaration on one holds an instance of itself inline, whatever the
+// arguments, and a declaration on none has finitely many inline instances
+// below it.
+struct TcContainment {
+    masks: Vector<Int>
+    states: Vector<Int>
+    // Whether a mask was read while it was being built, which only a cycle
+    // does, so the masks are then solved to their fixpoint.
+    met_building: Bool
+    edge_first: Vector<Int>
+    edge_count: Vector<Int>
+    edges: Vector<Int>
+}
+
+extension TcContainment: NoCopy {}
+
+// Tarjan's strongly connected components over the containment graph.
+struct TcComponents {
+    index: Vector<Int>
+    low: Vector<Int>
+    on_stack: Vector<Bool>
+    stack: Vector<Int>
+    depth: Int
+    next: Int
+    on_cycle: Vector<Bool>
+}
+
+extension TcComponents: NoCopy {}
+
+func tc_ints(n: Int, value: Int) -> Vector<Int> {
+    var out = Vector<Int>()
+    var k = 0
+    while k < n {
+        try! out.push(value)
+        k = k + 1
+    }
+    move out
+}
+
+func tc_bools(n: Int) -> Vector<Bool> {
+    var out = Vector<Bool>()
+    var k = 0
+    while k < n {
+        try! out.push(false)
+        k = k + 1
+    }
+    move out
+}
 
 extension TcProgram {
     // Every struct and enum whose storage contains its own storage inline:
@@ -46,112 +96,247 @@ extension TcProgram {
     // member instantiates. A pointer, a reference, a function value and an
     // `any` embed nothing. One refusal per cycle, at its first declaration.
     public func check_finite_size(&var self) {
-        var reported = Vector<Bool>()
-        var k = 0
-        while k < self.res.decls.len() {
-            try! reported.push(false)
-            k = k + 1
-        }
+        let n = self.res.decls.len()
+        var c = TcContainment(masks: tc_ints(n, 0), states: tc_ints(n, TC_MASK_UNSEEN), met_building: false,
+                              edge_first: tc_ints(n, 0), edge_count: tc_ints(n, 0), edges: Vector<Int>())
         var d = 0
-        while d < self.res.decls.len() {
-            let info = self.res.decls[d]
-            let own = info.kind == ResDeclKind.Struct || info.kind == ResDeclKind.Enum
-            if own && info.node >= 0 && not reported[d] {
-                let start = self.self_type_of(d)
-                var path = Vector<Int>()
-                var visited = Vector<Int>()
-                let outcome = self.walk_inline(start, start, 0, &var path, &var visited)
-                if outcome != TC_WALK_FINITE {
-                    self.refuse_infinite(d, &path, outcome)
+        while d < n {
+            if self.res.decls[d].node >= 0 && c.states[d] == TC_MASK_UNSEEN {
+                self.build_inline_mask(d, &var c)
+            }
+            d = d + 1
+        }
+        if c.met_building {
+            self.solve_inline_masks(&var c)
+        }
+        d = 0
+        while d < n {
+            // Stage 0 workaround (SL:hazards S4): canonical: c.edge_first[d] = c.edges.len()
+            let first = c.edges.len()
+            c.edge_first[d] = first
+            if self.res.decls[d].node >= 0 {
+                var seen = tc_memo()
+                let members = self.members_of(d)
+                var k = 0
+                while k < members.len() {
+                    let parts = self.inline_parts(members[k])
                     var j = 0
-                    while j < path.len() {
-                        let parent = self.res.decls[path[j]].parent
-                        if parent >= 0 {
-                            reported[parent] = true
-                        }
+                    while j < parts.len() {
+                        self.collect_inline_edges(parts[j], &var c, &var seen)
                         j = j + 1
                     }
-                    reported[d] = true
+                    k = k + 1
                 }
+            }
+            // Stage 0 workaround (SL:hazards S4): canonical: c.edge_count[d] = c.edges.len() - c.edge_first[d]
+            let count = c.edges.len() - first
+            c.edge_count[d] = count
+            d = d + 1
+        }
+        var g = TcComponents(index: tc_ints(n, -1), low: tc_ints(n, 0), on_stack: tc_bools(n),
+                             stack: tc_ints(n, -1), depth: 0, next: 0, on_cycle: tc_bools(n))
+        d = 0
+        while d < n {
+            if g.index[d] < 0 && c.edge_count[d] > 0 {
+                self.containment_component(d, &c, &var g)
+            }
+            d = d + 1
+        }
+        var reported = tc_bools(n)
+        d = 0
+        while d < n {
+            let info = self.res.decls[d]
+            let own = info.kind == ResDeclKind.Struct || info.kind == ResDeclKind.Enum
+            if own && g.on_cycle[d] && not reported[d] {
+                self.refuse_infinite(d, &var reported)
             }
             d = d + 1
         }
     }
 
-    // Walks what type `t` holds inline, looking for `start` again. `path`
-    // holds the members crossed on the way to a cycle.
-    func walk_inline(&var self, t: Int, start: Int, depth: Int, path: &var Vector<Int>,
-                     visited: &var Vector<Int>) -> Int {
-        let info = self.types.ty(t)
-        if info.kind == TcKind.Tuple {
-            var k = 0
-            while k < info.count {
-                let arg = self.types.arg(t, k)
-                let outcome = self.walk_inline(arg, start, depth, &var path, &var visited)
-                if outcome != TC_WALK_FINITE {
-                    return outcome
+    func build_inline_mask(&var self, d: Int, c: &var TcContainment) {
+        c.states[d] = TC_MASK_BUILDING
+        var memo = tc_memo()
+        let mask = self.inline_mask_of(d, &var c, true, &var memo)
+        c.masks[d] = mask
+        c.states[d] = TC_MASK_BUILT
+    }
+
+    // The masks of a graph with a cycle, each recomputed from the last
+    // round's until none changes. A mask only grows, so this ends.
+    func solve_inline_masks(&var self, c: &var TcContainment) {
+        var changed = true
+        while changed {
+            changed = false
+            var memo = tc_memo()
+            var next = Vector<Int>()
+            var d = 0
+            while d < c.masks.len() {
+                if self.res.decls[d].node >= 0 {
+                    try! next.push(self.inline_mask_of(d, &var c, false, &var memo))
+                } else {
+                    try! next.push(0)
                 }
-                k = k + 1
+                d = d + 1
             }
-            return TC_WALK_FINITE
-        }
-        if info.kind == TcKind.Array {
-            return self.walk_inline(info.b, start, depth, &var path, &var visited)
-        }
-        if info.kind != TcKind.Nominal {
-            return TC_WALK_FINITE
-        }
-        if t == start && depth > 0 {
-            return TC_WALK_CYCLE
-        }
-        if depth > TC_CONTAINMENT_DEPTH {
-            return TC_WALK_UNBOUNDED
-        }
-        var k = 0
-        while k < visited.len() {
-            if visited[k] == t {
-                return TC_WALK_FINITE
-            }
-            k = k + 1
-        }
-        try! visited.push(t)
-        let d = info.decl
-        let decl = self.res.decls[d]
-        if decl.node < 0 {
-            if d == self.known.optional || d == self.known.result {
-                k = 0
-                while k < info.count {
-                    let arg = self.types.arg(t, k)
-                    let outcome = self.walk_inline(arg, start, depth + 1, &var path, &var visited)
-                    if outcome != TC_WALK_FINITE {
-                        return outcome
-                    }
-                    k = k + 1
+            d = 0
+            while d < next.len() {
+                if next[d] != c.masks[d] {
+                    c.masks[d] = next[d]
+                    changed = true
                 }
+                d = d + 1
             }
-            return TC_WALK_FINITE
         }
-        let arguments = self.nominal_args(t)
-        let subst = tc_args_subst(d, move arguments)
+    }
+
+    func inline_mask_of(&var self, d: Int, c: &var TcContainment, build: Bool, memo: &var TcMemo) -> Int {
+        var mask = 0
         let members = self.members_of(d)
-        k = 0
+        var k = 0
         while k < members.len() {
-            let m = members[k]
-            let parts = self.inline_parts(m)
+            let parts = self.inline_parts(members[k])
             var j = 0
             while j < parts.len() {
-                let part = self.subst(parts[j], &subst)
-                try! path.push(m)
-                let outcome = self.walk_inline(part, start, depth + 1, &var path, &var visited)
-                if outcome != TC_WALK_FINITE {
-                    return outcome
-                }
-                self.drop_last(&var path)
+                mask = mask | self.inline_mask_walk(parts[j], &var c, build, &var memo)
                 j = j + 1
             }
             k = k + 1
         }
-        TC_WALK_FINITE
+        mask
+    }
+
+    // The parameters type `t` holds inline, as bits. With `build`, a
+    // declaration whose mask is not built yet is built first. A mask read
+    // while it is built is short, and the fixpoint that follows corrects
+    // it, so an answer kept from it is never the last word.
+    func inline_mask_walk(&var self, t: Int, c: &var TcContainment, build: Bool, memo: &var TcMemo) -> Int {
+        if t < 0 {
+            return 0
+        }
+        let known = memo.get(t, 0)
+        if known >= 0 {
+            return known
+        }
+        let info = self.types.ty(t)
+        var mask = 0
+        if info.kind == TcKind.Param {
+            mask = tc_bit(info.a)
+        } else if info.kind == TcKind.Array {
+            mask = self.inline_mask_walk(info.b, &var c, build, &var memo)
+        } else if info.kind == TcKind.Tuple || info.kind == TcKind.Nominal {
+            var held = -1
+            if info.kind == TcKind.Nominal {
+                let e = info.decl
+                if self.res.decls[e].node >= 0 {
+                    if build && c.states[e] == TC_MASK_UNSEEN {
+                        self.build_inline_mask(e, &var c)
+                    }
+                    if c.states[e] == TC_MASK_BUILDING {
+                        c.met_building = true
+                    }
+                    held = c.masks[e]
+                } else if e != self.known.optional && e != self.known.result {
+                    held = 0
+                }
+            }
+            var k = 0
+            while k < info.count {
+                if held < 0 || (held & tc_bit(k)) != 0 {
+                    let arg = self.types.arg(t, k)
+                    mask = mask | self.inline_mask_walk(arg, &var c, build, &var memo)
+                }
+                k = k + 1
+            }
+        }
+        memo.set(t, 0, mask)
+        mask
+    }
+
+    // The edges from the declaration whose part `t` is: each declaration `t`
+    // holds inline. A type met twice adds nothing more.
+    func collect_inline_edges(&var self, t: Int, c: &var TcContainment, seen: &var TcMemo) {
+        if t < 0 || not seen.mark(t, 0) {
+            return
+        }
+        let info = self.types.ty(t)
+        if info.kind == TcKind.Array {
+            self.collect_inline_edges(info.b, &var c, &var seen)
+            return
+        }
+        if info.kind != TcKind.Tuple && info.kind != TcKind.Nominal {
+            return
+        }
+        var held = -1
+        if info.kind == TcKind.Nominal {
+            let e = info.decl
+            if self.res.decls[e].node >= 0 {
+                try! c.edges.push(e)
+                held = c.masks[e]
+            } else if e != self.known.optional && e != self.known.result {
+                return
+            }
+        }
+        var k = 0
+        while k < info.count {
+            if held < 0 || (held & tc_bit(k)) != 0 {
+                let arg = self.types.arg(t, k)
+                self.collect_inline_edges(arg, &var c, &var seen)
+            }
+            k = k + 1
+        }
+    }
+
+    // Tarjan's visit of declaration `v`: every declaration of a component
+    // with more than one, or with an edge to itself, is on a cycle.
+    func containment_component(&self, v: Int, c: &TcContainment, g: &var TcComponents) {
+        let order = g.next
+        // Stage 0 workaround (SL:hazards S4): canonical: g.index[v] = g.next
+        g.index[v] = order
+        // Stage 0 workaround (SL:hazards S4): canonical: g.low[v] = g.next
+        g.low[v] = order
+        g.next = order + 1
+        g.stack[g.depth] = v
+        g.depth = g.depth + 1
+        g.on_stack[v] = true
+        var k = 0
+        while k < c.edge_count[v] {
+            let w = c.edges[c.edge_first[v] + k]
+            k = k + 1
+            if w == v {
+                g.on_cycle[v] = true
+            }
+            if g.index[w] < 0 {
+                self.containment_component(w, &c, &var g)
+                let reached = g.low[w]
+                if reached < g.low[v] {
+                    // Stage 0 workaround (SL:hazards S4): canonical: g.low[v] = g.low[w]
+                    g.low[v] = reached
+                }
+            } else if g.on_stack[w] && g.index[w] < g.low[v] {
+                let reached = g.index[w]
+                // Stage 0 workaround (SL:hazards S4): canonical: g.low[v] = g.index[w]
+                g.low[v] = reached
+            }
+        }
+        if g.low[v] != g.index[v] {
+            return
+        }
+        var first = g.depth - 1
+        while g.stack[first] != v {
+            first = first - 1
+        }
+        let size = g.depth - first
+        var j = first
+        while j < g.depth {
+            let w = g.stack[j]
+            g.on_stack[w] = false
+            if size > 1 {
+                g.on_cycle[w] = true
+            }
+            j = j + 1
+        }
+        g.depth = first
     }
 
     // The types member `m` holds inline: a field's type, a case's payloads.
@@ -172,37 +357,107 @@ extension TcProgram {
         move out
     }
 
-    // `v` without its last element.
-    func drop_last(&self, v: &var Vector<Int>) {
-        var kept = Vector<Int>()
-        var k = 0
-        while k + 1 < v.len() {
-            try! kept.push(v[k])
-            k = k + 1
+    // Declaration `d`, which is on a containment cycle, refused with the
+    // members that lead from its storage to an instance of itself: the
+    // shortest such path, so the search ends however the graph branches. The
+    // declarations the path crosses are reported with it.
+    func refuse_infinite(&var self, d: Int, reported: &var Vector<Bool>) {
+        let start = self.self_type_of(d)
+        var types = Vector<Int>()
+        var parents = Vector<Int>()
+        var crossed = Vector<Int>()
+        var seen = tc_memo()
+        try! types.push(start)
+        try! parents.push(-1)
+        try! crossed.push(-1)
+        let _ = seen.mark(start, 0)
+        var found = -1
+        var head = 0
+        while head < types.len() && found < 0 {
+            let at = head
+            head = head + 1
+            let t = types[at]
+            let info = self.types.ty(t)
+            var parts = Vector<Int>()
+            var through = Vector<Int>()
+            if info.kind == TcKind.Array {
+                try! parts.push(info.b)
+                try! through.push(-1)
+            } else if info.kind == TcKind.Tuple || (info.kind == TcKind.Nominal && (info.decl == self.known.optional || info.decl == self.known.result) && self.res.decls[info.decl].node < 0) {
+                var k = 0
+                while k < info.count {
+                    try! parts.push(self.types.arg(t, k))
+                    try! through.push(-1)
+                    k = k + 1
+                }
+            } else if info.kind == TcKind.Nominal && self.res.decls[info.decl].node >= 0 {
+                let arguments = self.nominal_args(t)
+                let subst = tc_args_subst(info.decl, move arguments)
+                let members = self.members_of(info.decl)
+                var k = 0
+                while k < members.len() {
+                    let m = members[k]
+                    let inline = self.inline_parts(m)
+                    var j = 0
+                    while j < inline.len() {
+                        try! parts.push(self.subst(inline[j], &subst))
+                        try! through.push(m)
+                        j = j + 1
+                    }
+                    k = k + 1
+                }
+            }
+            var k = 0
+            while k < parts.len() && found < 0 {
+                let part = parts[k]
+                let pi = self.types.ty(part)
+                if pi.kind == TcKind.Nominal && pi.decl == d {
+                    found = types.len()
+                }
+                if found >= 0 || seen.mark(part, 0) {
+                    try! types.push(part)
+                    try! parents.push(at)
+                    try! crossed.push(through[k])
+                }
+                k = k + 1
+            }
         }
-        v = move kept
-    }
-
-    func refuse_infinite(&var self, d: Int, path: &Vector<Int>, outcome: Int) {
+        var path = Vector<Int>()
+        var at = found
+        while at > 0 {
+            if crossed[at] >= 0 {
+                try! path.push(crossed[at])
+            }
+            at = parents[at]
+        }
         let info = self.res.decls[d]
         var msg = StringBuilder()
         try! msg.append("recursive type `")
         try! msg.append(self.res.decl_path(d))
-        if outcome == TC_WALK_CYCLE {
-            try! msg.append("` has infinite size: its storage contains its own storage inline, through ")
-            var k = 0
-            while k < path.len() {
-                if k > 0 {
-                    try! msg.append(" -> ")
-                }
-                try! msg.append(self.res.decl_path(path[k]))
-                k = k + 1
-            }
-            try! msg.append(" -> ")
-            try! msg.append(self.res.decl_path(d))
+        if found >= 0 && types[found] == start {
+            try! msg.append("` has infinite size: its storage contains its own storage inline")
+        } else if found >= 0 {
+            try! msg.append("` has infinite size: its inline storage instantiates it again, as `")
+            try! msg.append(self.type_text(types[found]))
+            try! msg.append("`, and so on without end")
         } else {
-            try! msg.append("` has infinite size: its inline storage instantiates it with ever larger arguments")
+            try! msg.append("` has infinite size: its storage contains an instance of itself inline")
         }
+        if path.len() > 0 {
+            try! msg.append(", through ")
+            var k = path.len() - 1
+            while k >= 0 {
+                try! msg.append(self.res.decl_path(path[k]))
+                try! msg.append(" -> ")
+                let parent = self.res.decls[path[k]].parent
+                if parent >= 0 {
+                    reported[parent] = true
+                }
+                k = k - 1
+            }
+            try! msg.append(self.res.decl_path(d))
+        }
+        reported[d] = true
         try! msg.append("; hold the recursive member behind a heap indirection, such as `Box` or `Vector`")
         let site = self.decl_site(d)
         self.refuse_in(info.module, site, "type.infinite-size", msg.build())
@@ -369,12 +624,22 @@ extension TcProgram {
     // referent, parameters or result; -1 for none. A type is never unsafe for
     // what its own fields hold.
     public func unsafe_named(&self, t: Int) -> Int {
+        var seen = tc_memo()
+        self.unsafe_named_in(t, &var seen)
+    }
+
+    // One part of `unsafe_named`'s walk. A part met again was searched in
+    // full the first time and named nothing.
+    func unsafe_named_in(&self, t: Int, seen: &var TcMemo) -> Int {
+        if t < 0 || not seen.mark(t, 0) {
+            return -1
+        }
         let info = self.types.ty(t)
         if info.kind == TcKind.Nominal && self.is_unsafe_decl(info.decl) {
             return t
         }
         if info.kind == TcKind.Ref || info.kind == TcKind.Slice || info.kind == TcKind.Array || info.kind == TcKind.Func {
-            let inner = self.unsafe_named(info.b)
+            let inner = self.unsafe_named_in(info.b, &var seen)
             if inner >= 0 {
                 return inner
             }
@@ -383,7 +648,7 @@ extension TcProgram {
             var k = 0
             while k < info.count {
                 let arg = self.types.arg(t, k)
-                let found = self.unsafe_named(arg)
+                let found = self.unsafe_named_in(arg, &var seen)
                 if found >= 0 {
                     return found
                 }
@@ -509,15 +774,15 @@ public func tc_check_atomic_widths(p: &var TcProgram) {
         k = k + 1
         // A written type first, then an expression; exactly the type
         // first, then one holding it.
-        var at = tc_first_carrier(&p, false, t, true)
+        var at = tc_first_carrier(&var p, false, t, true)
         if at < 0 {
-            at = tc_first_carrier(&p, true, t, true)
+            at = tc_first_carrier(&var p, true, t, true)
         }
         if at < 0 {
-            at = tc_first_carrier(&p, false, t, false)
+            at = tc_first_carrier(&var p, false, t, false)
         }
         if at < 0 {
-            at = tc_first_carrier(&p, true, t, false)
+            at = tc_first_carrier(&var p, true, t, false)
         }
         if at >= 0 {
             p.refuse_narrow_atomic(at, t)
@@ -528,12 +793,12 @@ public func tc_check_atomic_widths(p: &var TcProgram) {
 
 // The first node whose written type, or with `expressions` whose
 // expression's type, is `t`, or, unless `exact`, holds it; -1 when none is.
-func tc_first_carrier(p: &TcProgram, expressions: Bool, t: Int, exact: Bool) -> Int {
+func tc_first_carrier(p: &var TcProgram, expressions: Bool, t: Int, exact: Bool) -> Int {
     let count = if expressions { p.expr_types.len() } else { p.node_types.len() }
     var n = 0
     while n < count {
         let carried = if expressions { p.expr_types[n] } else { p.node_types[n] }
-        if carried == t || (not exact && carried >= 0 && p.type_holds(carried, t, 0)) {
+        if carried == t || (not exact && carried >= 0 && p.type_holds(carried, t)) {
             return n
         }
         n = n + 1

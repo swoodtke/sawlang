@@ -284,7 +284,7 @@ extension TcProgram {
             }
             var acc = tc_acc(owner, -1)
             let sync_kind = a.kind == TC_FORBID_SYNC
-            self.eval_condition(recv, a.req, e, not sync_kind, &var acc, 0)
+            self.eval_condition(recv, a.req, e, not sync_kind, &var acc)
             if (sync_kind && acc.nonsync) || (not sync_kind && acc.suspends) {
                 self.refuse_forbidden(e, d, &a, recv)
             }
@@ -308,7 +308,7 @@ extension TcProgram {
             let req = reqs[k]
             k = k + 1
             var acc = tc_acc(owner, -1)
-            self.eval_condition(from, req, id, true, &var acc, 0)
+            self.eval_condition(from, req, id, true, &var acc)
             if acc.suspends {
                 self.refuse_suspending_dispatch(id, from, tr, req)
                 return

@@ -1,0 +1,18 @@
+// refuses: type.instantiation-depth at 5:8
+// deriving `Send` from the members of a type that holds itself at an ever
+// larger argument, behind a `Vector`, nests without bound
+
+struct Grows<T> {
+    value: T
+    more: Vector<Grows<(T,)>>
+}
+
+extension Grows<T>: NoCopy {}
+
+func sendable<T: Send>(x: &T) -> Int {
+    1
+}
+
+func check(g: &Grows<Int>) -> Int {
+    sendable(&g)
+}

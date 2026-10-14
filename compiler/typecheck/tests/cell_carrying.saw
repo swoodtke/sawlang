@@ -58,7 +58,7 @@ func main() {
         let s = p.sigs[d - 1]
         assert(s.param_count == 1, "a fixture row takes one parameter")
         let t = p.params[s.param_first].ty
-        let answer = p.is_cell_carrying(t, 0)
+        let answer = p.is_cell_carrying(t)
         if starts(&name, "cell_") {
             assert(answer, "a row that carries a cell answers false: {}", name)
             carrying = carrying + 1
@@ -71,6 +71,6 @@ func main() {
             assert(p.satisfies(t, sync, -1, -1), "`Stats` no longer derives `Sync`, so it no longer shows the predicate is not `Sync`")
         }
     }
-    assert(carrying == 11, "the fixture's cell-carrying rows are not all seen: {}", carrying)
-    assert(free == 11, "the fixture's cell-free rows are not all seen: {}", free)
+    assert(carrying == 12, "the fixture's cell-carrying rows are not all seen: {}", carrying)
+    assert(free == 12, "the fixture's cell-free rows are not all seen: {}", free)
 }

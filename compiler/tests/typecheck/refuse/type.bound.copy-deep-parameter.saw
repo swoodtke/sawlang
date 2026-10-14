@@ -1,0 +1,7 @@
+// refuses: type.bound at 6:13
+// `copy()` of a tuple holding a type parameter 18 deep names the parameter no
+// bound makes ExplicitCopy, as it does at any depth
+
+func f<T>(x: &((((((((((((((((((T,),),),),),),),),),),),),),),),),),)) {
+    let y = x.copy()
+}
