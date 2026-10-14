@@ -1,0 +1,13 @@
+program	errors/optional_presence_takes_no_arguments.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	`is_some()` takes no arguments, got 1
+meets_expect	yes
+log	"error: `is_some()` takes no arguments, got 1"
+log	"  --> examples/errors/optional_presence_takes_no_arguments.saw:8:14"
+log	"    |"
+log	" 8 |     print(\"{o.is_some(1)}\")"
+log	"    |              ^"
+log	""
+log	"1 error(s) generated"

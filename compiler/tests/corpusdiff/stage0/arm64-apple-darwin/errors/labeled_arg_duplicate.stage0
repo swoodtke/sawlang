@@ -1,0 +1,13 @@
+program	errors/labeled_arg_duplicate.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	argument `a` specified more than once
+meets_expect	yes
+log	"error: argument `a` specified more than once"
+log	"  --> examples/errors/labeled_arg_duplicate.saw:10:24"
+log	"     |"
+log	" 10 |     print(sub(a: 1, a: 2))"
+log	"     |                        ^"
+log	""
+log	"1 error(s) generated"

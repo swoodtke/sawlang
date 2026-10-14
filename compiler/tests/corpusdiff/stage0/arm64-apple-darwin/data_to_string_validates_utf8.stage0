@@ -1,0 +1,11 @@
+program	data_to_string_validates_utf8.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"hi 2 2"
+stdout	"err at 1"
+stdout	"invalid UTF-8 at byte offset 1"
+stdout	""
+meets_expect	yes

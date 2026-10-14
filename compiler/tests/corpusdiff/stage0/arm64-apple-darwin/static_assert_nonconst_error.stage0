@@ -1,0 +1,7 @@
+program	static_assert_nonconst_error.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	static_assert condition is not a compile-time constant: call to `side` is not allowed here
+meets_expect	yes
+log	"error: static_assert condition is not a compile-time constant: call to `side` is not allowed here"

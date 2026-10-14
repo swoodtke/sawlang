@@ -1,0 +1,19 @@
+program	sizeof_missing_type_arg_error.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	`sizeof` requires exactly one type argument: sizeof<T>()
+meets_expect	yes
+log	"error: `sizeof` requires exactly one type argument: sizeof<T>()"
+log	"  --> examples/sizeof_missing_type_arg_error.saw:9:13"
+log	"    |"
+log	" 9 |     let n = sizeof()"
+log	"    |             ^"
+log	""
+log	"error: undefined variable `n`"
+log	"  --> examples/sizeof_missing_type_arg_error.saw:10:11"
+log	"     |"
+log	" 10 |     print(n)"
+log	"     |           ^"
+log	""
+log	"2 error(s) generated"

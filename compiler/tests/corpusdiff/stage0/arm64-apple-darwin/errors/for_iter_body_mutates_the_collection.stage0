@@ -1,0 +1,14 @@
+program	errors/for_iter_body_mutates_the_collection.saw
+triple	arm64-apple-darwin
+twin	differs
+expect	error
+build	refused	exclusive access violation: `v` cannot be accessed by reference here — the window opened at line 22 borrows `v` for the whole of the `for` statement that iterates it
+meets_expect	yes
+log	"error: exclusive access violation: `v` cannot be accessed by reference here — the window opened at line 22 borrows `v` for the whole of the `for` statement that iterates it"
+log	"  --> examples/errors/for_iter_body_mutates_the_collection.saw:26:21"
+log	"     |"
+log	" 26 |             let _ = v.push(100 + k)"
+log	"     |                     ^"
+log	"   hint: a `for` over a borrowed iterator holds the collection for the whole loop, exactly as a `with_ref` window does — collect what you need first, or index the collection with a `while` loop if you must mutate it while walking it"
+log	""
+log	"1 error(s) generated"

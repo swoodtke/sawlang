@@ -1,0 +1,9 @@
+program	conformance/G17_early_return_from_main.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	3
+stdout	"early"
+stdout	""
+meets_expect	yes

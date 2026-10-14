@@ -1,0 +1,14 @@
+program	move_out_then_reassign.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"pushed 2"
+stdout	"deinit a"
+stdout	"deinit b0"
+stdout	"sink gone"
+stdout	"done"
+stdout	"deinit b1"
+stdout	""
+meets_expect	yes

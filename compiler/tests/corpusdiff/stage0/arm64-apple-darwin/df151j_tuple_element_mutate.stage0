@@ -1,0 +1,17 @@
+program	df151j_tuple_element_mutate.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"filed_repro 2"
+stdout	"named_tuple_spelling 2"
+stdout	"nested_tuple 3"
+stdout	"struct_method_receiver 2"
+stdout	"tuple_field_of_struct 2"
+stdout	"tuple_through_self 3"
+stdout	"tuple_in_array 12"
+stdout	"across_suspend 3"
+stdout	"destructuring_unchanged 32"
+stdout	""
+meets_expect	yes

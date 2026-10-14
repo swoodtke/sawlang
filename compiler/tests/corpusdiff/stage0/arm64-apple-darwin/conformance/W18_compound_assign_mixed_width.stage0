@@ -1,0 +1,14 @@
+program	conformance/W18_compound_assign_mixed_width.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	operator `+=` requires both operands to have the same type, but the target is `Int` and the value is `Int16`
+meets_expect	yes
+log	"error: operator `+=` requires both operands to have the same type, but the target is `Int` and the value is `Int16`"
+log	"  --> examples/conformance/W18_compound_assign_mixed_width.saw:18:5"
+log	"     |"
+log	" 18 |     a += b"
+log	"     |     ^"
+log	"   hint: convert one operand — `x as Int` panics out of range, `Int.from(x)` answers `None`, `Int.from(truncating: x)` keeps the low bits"
+log	""
+log	"1 error(s) generated"

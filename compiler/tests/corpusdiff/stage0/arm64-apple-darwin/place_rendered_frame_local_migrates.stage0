@@ -1,0 +1,13 @@
+program	place_rendered_frame_local_migrates.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"interpolated Res(1)"
+stdout	"printed Res(1)"
+stdout	"boxed: bad input"
+stdout	"deinit 1"
+stdout	"done"
+stdout	""
+meets_expect	yes

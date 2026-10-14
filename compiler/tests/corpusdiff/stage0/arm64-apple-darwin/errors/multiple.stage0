@@ -1,0 +1,26 @@
+program	errors/multiple.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	undefined variable `y`
+meets_expect	yes
+log	"error: undefined variable `y`"
+log	"  --> examples/errors/multiple.saw:9:11"
+log	"    |"
+log	" 9 |     print(y)"
+log	"    |           ^"
+log	""
+log	"error: cannot assign to immutable variable `x`"
+log	"  --> examples/errors/multiple.saw:10:5"
+log	"     |"
+log	" 10 |     x = 20"
+log	"     |     ^"
+log	"   hint: consider using `var` instead of `let` to make it mutable"
+log	""
+log	"error: undefined function `undefined_func`"
+log	"  --> examples/errors/multiple.saw:11:11"
+log	"     |"
+log	" 11 |     print(undefined_func())"
+log	"     |           ^"
+log	""
+log	"3 error(s) generated"

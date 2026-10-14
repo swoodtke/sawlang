@@ -1,0 +1,13 @@
+program	errors/undefined_variant.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	enum `Status` has no variant `Unknown`
+meets_expect	yes
+log	"error: enum `Status` has no variant `Unknown`"
+log	"  --> examples/errors/undefined_variant.saw:11:19"
+log	"     |"
+log	" 11 |     let x = Status.Unknown"
+log	"     |                   ^"
+log	""
+log	"1 error(s) generated"

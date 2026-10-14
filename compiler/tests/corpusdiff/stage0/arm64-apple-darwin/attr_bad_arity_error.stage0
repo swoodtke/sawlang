@@ -1,0 +1,7 @@
+program	attr_bad_arity_error.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	Parse error at 5:9: attribute `@section` requires exactly one string-literal argument, e.g. `@section(".text.boot")`
+meets_expect	yes
+log	"error: Parse error at 5:9: attribute `@section` requires exactly one string-literal argument, e.g. `@section(\".text.boot\")`"

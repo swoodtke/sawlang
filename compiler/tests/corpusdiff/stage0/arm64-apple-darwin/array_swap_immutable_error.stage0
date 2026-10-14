@@ -1,0 +1,14 @@
+program	array_swap_immutable_error.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	cannot call `swap` on immutable array `a`
+meets_expect	yes
+log	"error: cannot call `swap` on immutable array `a`"
+log	"  --> examples/array_swap_immutable_error.saw:7:6"
+log	"    |"
+log	" 7 |     a.swap(0, 2)"
+log	"    |      ^"
+log	"   hint: consider using `var` instead of `let` to make it mutable"
+log	""
+log	"1 error(s) generated"

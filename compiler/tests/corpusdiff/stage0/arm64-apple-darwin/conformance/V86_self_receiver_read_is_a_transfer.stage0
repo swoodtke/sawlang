@@ -1,0 +1,28 @@
+program	conformance/V86_self_receiver_read_is_a_transfer.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	cannot copy value of type `Res` which implements NoCopy
+meets_expect	yes
+log	"error: cannot copy value of type `Res` which implements NoCopy"
+log	"  --> examples/conformance/V86_self_receiver_read_is_a_transfer.saw:52:39"
+log	"     |"
+log	" 52 |     func hand_on(&self) -> Int { sink(self) }"
+log	"     |                                       ^"
+log	"   hint: a `self` receiver borrows storage the CALLER owns, so there is nothing here to move — declare the method `consumes` to end the caller's value (design 260), or give the type a duplicable policy and spell `self.copy()`"
+log	""
+log	"error: cannot copy value of type `Res` which implements NoCopy"
+log	"  --> examples/conformance/V86_self_receiver_read_is_a_transfer.saw:54:35"
+log	"     |"
+log	" 54 |     func to_local(&self) -> Int { let b = self; b.w }"
+log	"     |                                   ^"
+log	"   hint: a `self` receiver borrows storage the CALLER owns, so there is nothing here to move — declare the method `consumes` to end the caller's value (design 260), or give the type a duplicable policy and spell `self.copy()`"
+log	""
+log	"error: cannot copy value of type `Res` which implements NoCopy"
+log	"  --> examples/conformance/V86_self_receiver_read_is_a_transfer.saw:56:53"
+log	"     |"
+log	" 56 |     func to_field(&self) -> Int { let h = Holder(r: self); h.r.w }"
+log	"     |                                                     ^"
+log	"   hint: a `self` receiver borrows storage the CALLER owns, so there is nothing here to move — declare the method `consumes` to end the caller's value (design 260), or give the type a duplicable policy and spell `self.copy()`"
+log	""
+log	"3 error(s) generated"

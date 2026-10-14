@@ -1,0 +1,14 @@
+program	nocopy_call_arg_requires_move.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	cannot copy value of type `FileHandle` which implements NoCopy
+meets_expect	yes
+log	"error: cannot copy value of type `FileHandle` which implements NoCopy"
+log	"  --> examples/nocopy_call_arg_requires_move.saw:24:13"
+log	"     |"
+log	" 24 |     consume(f)      // should require `move f`"
+log	"     |             ^"
+log	"   hint: use `move` to transfer ownership instead"
+log	""
+log	"1 error(s) generated"

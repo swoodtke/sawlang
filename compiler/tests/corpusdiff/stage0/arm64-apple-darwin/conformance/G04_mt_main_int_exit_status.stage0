@@ -1,0 +1,9 @@
+program	conformance/G04_mt_main_int_exit_status.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	7
+stdout	"joined 1"
+stdout	""
+meets_expect	yes

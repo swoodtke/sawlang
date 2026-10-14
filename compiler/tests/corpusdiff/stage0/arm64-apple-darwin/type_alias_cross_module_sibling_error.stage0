@@ -1,0 +1,13 @@
+program	type_alias_cross_module_sibling_error.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	argument `h` expects `SystemHandle` but got `ChannelHandle`
+meets_expect	yes
+log	"error: argument `h` expects `SystemHandle` but got `ChannelHandle`"
+log	"  --> examples/type_alias_cross_module_sibling_error.saw:13:21"
+log	"     |"
+log	" 13 |     print(system_op(ch))"
+log	"     |                     ^"
+log	""
+log	"1 error(s) generated"

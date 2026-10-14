@@ -1,0 +1,14 @@
+program	match_owned_enum_double_consume.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	use of moved variable `s`
+meets_expect	yes
+log	"error: use of moved variable `s`"
+log	"  --> examples/match_owned_enum_double_consume.saw:34:11"
+log	"     |"
+log	" 34 |     match s {"
+log	"     |           ^"
+log	"   hint: value was moved at line 30 and can no longer be used"
+log	""
+log	"1 error(s) generated"

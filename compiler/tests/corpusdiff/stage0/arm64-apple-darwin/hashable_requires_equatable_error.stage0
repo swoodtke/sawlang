@@ -1,0 +1,14 @@
+program	hashable_requires_equatable_error.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	`Keyed` conforms to `Hashable` but not to `Equatable`: `Hashable` requires `Equatable`
+meets_expect	yes
+log	"error: `Keyed` conforms to `Hashable` but not to `Equatable`: `Hashable` requires `Equatable`"
+log	"  --> examples/hashable_requires_equatable_error.saw:7:1"
+log	"    |"
+log	" 7 | struct Keyed {"
+log	"    | ^"
+log	"   hint: add `@synthesize extension Keyed: Equatable {}`"
+log	""
+log	"1 error(s) generated"

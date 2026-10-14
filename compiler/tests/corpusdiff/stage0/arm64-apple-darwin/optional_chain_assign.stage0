@@ -1,0 +1,16 @@
+program	optional_chain_assign.saw
+triple	arm64-apple-darwin
+twin	differs
+expect	success
+build	ok
+exit	0
+stdout	"99"
+stdout	"77"
+stdout	"0"
+stdout	"42"
+stdout	"1"
+stdout	"wrote"
+stdout	"skipped"
+stdout	"55"
+stdout	""
+meets_expect	yes

@@ -1,0 +1,12 @@
+program	fixedbuf_get_out_of_range_none.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"65"
+stdout	"none"
+stdout	"none"
+stdout	"8"
+stdout	""
+meets_expect	yes

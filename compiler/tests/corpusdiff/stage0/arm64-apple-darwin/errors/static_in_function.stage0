@@ -1,0 +1,7 @@
+program	errors/static_in_function.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	Parse error at 7:5: Unexpected token: STATIC
+meets_expect	yes
+log	"error: Parse error at 7:5: Unexpected token: STATIC"

@@ -1,0 +1,13 @@
+program	errors/borrows_bare_return_type.saw
+triple	arm64-apple-darwin
+twin	differs
+expect	error
+build	refused	a `borrows` declaration names the LENT REFERENCE and its mode, not a returned value: write `borrows -> &Cell` if a use site may only READ through the place, or `borrows -> &var Cell` if it may also WRITE through it. `borrows -> Cell` says neither
+meets_expect	yes
+log	"error: a `borrows` declaration names the LENT REFERENCE and its mode, not a returned value: write `borrows -> &Cell` if a use site may only READ through the place, or `borrows -> &var Cell` if it may also WRITE through it. `borrows -> Cell` says neither"
+log	"  --> examples/errors/borrows_bare_return_type.saw:22:12"
+log	"     |"
+log	" 22 |     public func at(&self, i: Int) borrows -> Cell {"
+log	"     |            ^"
+log	""
+log	"1 error(s) generated"

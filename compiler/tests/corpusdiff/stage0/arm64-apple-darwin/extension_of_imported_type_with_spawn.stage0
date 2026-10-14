@@ -1,0 +1,16 @@
+program	extension_of_imported_type_with_spawn.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"doubled 42"
+stdout	"origin 0"
+stdout	"square 9"
+stdout	"described 31"
+stdout	"carried 2"
+stdout	"band 2"
+stdout	"total 6"
+stdout	"spun 22"
+stdout	""
+meets_expect	yes

@@ -1,0 +1,11 @@
+program	coro_hoisted_call_arg_consumed_once.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"sink r3"
+stdout	"DEINIT r3"
+stdout	"done"
+stdout	""
+meets_expect	yes

@@ -1,0 +1,14 @@
+program	errors/unsafe_sync_already_derives.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	`Plain` already derives `Sync`, so `UnsafeSync` asserts nothing
+meets_expect	yes
+log	"error: `Plain` already derives `Sync`, so `UnsafeSync` asserts nothing"
+log	"  --> examples/errors/unsafe_sync_already_derives.saw:12:1"
+log	"     |"
+log	" 12 | extension Plain: UnsafeSync {}"
+log	"     | ^"
+log	"   hint: delete the declaration — an assertion is only legal where the structural derivation FAILED, and reading one beside a type that derives cleanly would teach the next reader the wrong thing"
+log	""
+log	"1 error(s) generated"

@@ -1,0 +1,13 @@
+program	array_swap_const_oob_error.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	`swap` index 5 out of range for array with 3 elements
+meets_expect	yes
+log	"error: `swap` index 5 out of range for array with 3 elements"
+log	"  --> examples/array_swap_const_oob_error.saw:7:6"
+log	"    |"
+log	" 7 |     a.swap(0, 5)"
+log	"    |      ^"
+log	""
+log	"1 error(s) generated"

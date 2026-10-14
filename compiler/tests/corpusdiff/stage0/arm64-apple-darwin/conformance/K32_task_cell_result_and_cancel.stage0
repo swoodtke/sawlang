@@ -1,0 +1,21 @@
+program	conformance/K32_task_cell_result_and_cancel.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"joined r1"
+stdout	"live 1"
+stdout	"deinit r1"
+stdout	"live 0"
+stdout	"arc count 1"
+stdout	"live 1"
+stdout	"deinit a1"
+stdout	"live 0"
+stdout	"unjoined live 1"
+stdout	"deinit r2"
+stdout	"live 0"
+stdout	"cancelled 101"
+stdout	"void task cancelled"
+stdout	""
+meets_expect	yes

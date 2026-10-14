@@ -1,0 +1,7 @@
+program	errors/subscript_must_be_borrows.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	Parse error at 12:35: a `[]` subscript must be `borrows` — `v[i]` names a PLACE in the container, not a value read out of it. Write `func [](&var self, ...) borrows -> &var T`; a value-returning lookup is an ordinary named method
+meets_expect	yes
+log	"error: Parse error at 12:35: a `[]` subscript must be `borrows` — `v[i]` names a PLACE in the container, not a value read out of it. Write `func [](&var self, ...) borrows -> &var T`; a value-returning lookup is an ordinary named method"

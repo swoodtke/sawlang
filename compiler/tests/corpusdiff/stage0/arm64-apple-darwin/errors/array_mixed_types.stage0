@@ -1,0 +1,13 @@
+program	errors/array_mixed_types.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	array element 1 has type `String`, expected `Int`
+meets_expect	yes
+log	"error: array element 1 has type `String`, expected `Int`"
+log	"  --> examples/errors/array_mixed_types.saw:4:19"
+log	"    |"
+log	" 4 |     let arr = [1, \"two\", 3]  // Error: mixed types"
+log	"    |                   ^"
+log	""
+log	"1 error(s) generated"

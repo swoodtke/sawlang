@@ -1,0 +1,28 @@
+program	result_discard_try_payload_error.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	this expression's result is `Result<Int, ParseError>` and is silently discarded
+meets_expect	yes
+log	"error: this expression's result is `Result<Int, ParseError>` and is silently discarded"
+log	"  --> examples/result_discard_try_payload_error.saw:33:5"
+log	"     |"
+log	" 33 |     try! staged(might(3))"
+log	"     |     ^"
+log	"   hint: handle it — `match` it, `try`/`try!`/`try?` it, or return it — or write `let _ = ...` to discard it explicitly"
+log	""
+log	"error: result of `append` is `Result<Void, AllocError>` and is silently discarded"
+log	"  --> examples/result_discard_try_payload_error.saw:13:13"
+log	"     |"
+log	" 13 |         into.append(\"bad input at \")"
+log	"     |             ^"
+log	"   hint: handle it — `match` it, `try`/`try!`/`try?` it, or return it — or write `let _ = ...` to discard it explicitly"
+log	""
+log	"error: result of `append` is `Result<Void, AllocError>` and is silently discarded"
+log	"  --> examples/result_discard_try_payload_error.saw:14:13"
+log	"     |"
+log	" 14 |         into.append(self.at)"
+log	"     |             ^"
+log	"   hint: handle it — `match` it, `try`/`try!`/`try?` it, or return it — or write `let _ = ...` to discard it explicitly"
+log	""
+log	"3 error(s) generated"

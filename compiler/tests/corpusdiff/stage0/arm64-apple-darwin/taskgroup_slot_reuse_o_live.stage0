@@ -1,0 +1,11 @@
+program	taskgroup_slot_reuse_o_live.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"peak 3"
+stdout	"final 0"
+stdout	"live 0"
+stdout	""
+meets_expect	yes

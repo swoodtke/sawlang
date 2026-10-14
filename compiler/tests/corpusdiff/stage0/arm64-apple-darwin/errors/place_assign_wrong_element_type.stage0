@@ -1,0 +1,20 @@
+program	errors/place_assign_wrong_element_type.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	cannot assign `String` to element of type `Int?`
+meets_expect	yes
+log	"error: result of `push` is `Result<Void, AllocError>` and is silently discarded"
+log	"  --> examples/errors/place_assign_wrong_element_type.saw:12:6"
+log	"     |"
+log	" 12 |     v.push(one)"
+log	"     |      ^"
+log	"   hint: handle it — `match` it, `try`/`try!`/`try?` it, or return it — or write `let _ = ...` to discard it explicitly"
+log	""
+log	"error: cannot assign `String` to element of type `Int?`"
+log	"  --> examples/errors/place_assign_wrong_element_type.saw:13:6"
+log	"     |"
+log	" 13 |     v[0] = \"not an int\""
+log	"     |      ^"
+log	""
+log	"2 error(s) generated"

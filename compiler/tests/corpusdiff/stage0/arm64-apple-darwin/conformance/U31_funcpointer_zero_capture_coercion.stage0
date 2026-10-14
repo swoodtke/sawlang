@@ -1,0 +1,9 @@
+program	conformance/U31_funcpointer_zero_capture_coercion.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"coerced"
+stdout	""
+meets_expect	yes

@@ -1,0 +1,14 @@
+program	literal_suffix_basic.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"255"
+stdout	"1000"
+stdout	"255"
+stdout	"10"
+stdout	"15"
+stdout	"200"
+stdout	""
+meets_expect	yes

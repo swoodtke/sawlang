@@ -1,0 +1,23 @@
+program	conformance/V85_closure_tail_fence_is_narrow.saw
+triple	arm64-apple-darwin
+twin	differs
+expect	success
+build	ok
+exit	0
+stdout	"drop 7"
+stdout	"move 7"
+stdout	"drop 5"
+stdout	"capture 5"
+stdout	"drop 7"
+stdout	"drop 1"
+stdout	"fresh 1"
+stdout	"drop 2"
+stdout	"drop 2"
+stdout	"copied 2"
+stdout	"window 3"
+stdout	"generic 4"
+stdout	"end"
+stdout	"drop 4"
+stdout	"drop 3"
+stdout	""
+meets_expect	yes

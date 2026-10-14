@@ -1,0 +1,42 @@
+program	conformance/V104_unbound_value_is_released.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"-- sync"
+stdout	"call 1"
+stdout	"drop 1"
+stdout	"try 2"
+stdout	"drop 2"
+stdout	"unwrap 3"
+stdout	"drop 3"
+stdout	"move 4"
+stdout	"drop 4"
+stdout	"if 5"
+stdout	"drop 5"
+stdout	"match 6"
+stdout	"drop 6"
+stdout	"coalesce 7"
+stdout	"drop 7"
+stdout	"init 8"
+stdout	"drop 8"
+stdout	"-- driven"
+stdout	"call 11"
+stdout	"drop 11"
+stdout	"try 12"
+stdout	"drop 12"
+stdout	"unwrap 13"
+stdout	"drop 13"
+stdout	"if 14"
+stdout	"drop 14"
+stdout	"match 15"
+stdout	"drop 15"
+stdout	"-- borrows"
+stdout	"ident 21"
+stdout	"field 22"
+stdout	"drop 22"
+stdout	"drop 21"
+stdout	"end"
+stdout	""
+meets_expect	yes

@@ -1,0 +1,14 @@
+program	errors/array_immutable.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	cannot assign to element of immutable array `arr`
+meets_expect	yes
+log	"error: cannot assign to element of immutable array `arr`"
+log	"  --> examples/errors/array_immutable.saw:5:8"
+log	"    |"
+log	" 5 |     arr[0] = 10  // Error: arr is immutable"
+log	"    |        ^"
+log	"   hint: consider using `var` instead of `let` to make it mutable"
+log	""
+log	"1 error(s) generated"

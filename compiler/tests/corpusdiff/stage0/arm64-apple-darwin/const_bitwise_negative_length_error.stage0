@@ -1,0 +1,20 @@
+program	const_bitwise_negative_length_error.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	repeat count is negative (`-9223372036854775808`)
+meets_expect	yes
+log	"error: repeat count is negative (`-9223372036854775808`)"
+log	"  --> examples/const_bitwise_negative_length_error.saw:12:24"
+log	"     |"
+log	" 12 |     let sneaky = [0; 1 << 63]"
+log	"     |                        ^"
+log	"   hint: an array length counts elements, so it starts at 0"
+log	""
+log	"error: undefined variable `sneaky`"
+log	"  --> examples/const_bitwise_negative_length_error.saw:13:11"
+log	"     |"
+log	" 13 |     print(sneaky.len())"
+log	"     |           ^"
+log	""
+log	"2 error(s) generated"

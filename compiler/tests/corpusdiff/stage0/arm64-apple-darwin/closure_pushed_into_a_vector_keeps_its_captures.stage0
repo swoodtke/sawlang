@@ -1,0 +1,10 @@
+program	closure_pushed_into_a_vector_keeps_its_captures.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"built elsewhere: 41 42 43"
+stdout	"built in main:   41 42 43"
+stdout	""
+meets_expect	yes

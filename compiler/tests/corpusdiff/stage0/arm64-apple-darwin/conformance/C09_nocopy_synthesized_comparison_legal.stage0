@@ -1,0 +1,13 @@
+program	conformance/C09_nocopy_synthesized_comparison_legal.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"ne"
+stdout	"gt"
+stdout	"le"
+stdout	"drop 3"
+stdout	"drop 9"
+stdout	""
+meets_expect	yes

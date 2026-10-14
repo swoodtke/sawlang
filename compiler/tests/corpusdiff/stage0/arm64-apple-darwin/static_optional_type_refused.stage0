@@ -1,0 +1,14 @@
+program	static_optional_type_refused.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	static `SLOT` may not have an optional type (`Int?`): a static is initialized once at compile time and never changes, so it is always present
+meets_expect	yes
+log	"error: static `SLOT` may not have an optional type (`Int?`): a static is initialized once at compile time and never changes, so it is always present"
+log	"  --> examples/static_optional_type_refused.saw:27:1"
+log	"     |"
+log	" 27 | static SLOT: Int? = 7"
+log	"     | ^"
+log	"   hint: declare it as the payload type and give it a real value (`static SLOT: Int = 7`); if absence is genuinely part of the state, that state has to be COMPUTED — use `static X: Once<T>` (set once) or `unsafe static var`"
+log	""
+log	"1 error(s) generated"

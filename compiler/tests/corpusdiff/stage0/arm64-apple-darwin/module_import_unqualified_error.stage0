@@ -1,0 +1,20 @@
+program	module_import_unqualified_error.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	function `double` is not directly accessible
+meets_expect	yes
+log	"error: function `double` is not directly accessible"
+log	"  --> examples/module_import_unqualified_error.saw:9:18"
+log	"    |"
+log	" 9 |     let result = double(21)"
+log	"    |                  ^"
+log	"   hint: use qualified access (`utils.double`), or select it with `import utils.{double}`"
+log	""
+log	"error: undefined variable `result`"
+log	"  --> examples/module_import_unqualified_error.saw:10:11"
+log	"     |"
+log	" 10 |     print(result)"
+log	"     |           ^"
+log	""
+log	"2 error(s) generated"

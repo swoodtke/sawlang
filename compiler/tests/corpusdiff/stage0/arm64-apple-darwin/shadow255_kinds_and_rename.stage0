@@ -1,0 +1,11 @@
+program	shadow255_kinds_and_rename.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"7"
+stdout	"1"
+stdout	"9"
+stdout	""
+meets_expect	yes

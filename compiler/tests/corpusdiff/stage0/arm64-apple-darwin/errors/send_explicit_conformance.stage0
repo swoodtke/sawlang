@@ -1,0 +1,14 @@
+program	errors/send_explicit_conformance.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	cannot explicitly implement `Send`: it is a marker trait derived structurally by the compiler
+meets_expect	yes
+log	"error: cannot explicitly implement `Send`: it is a marker trait derived structurally by the compiler"
+log	"  --> examples/errors/send_explicit_conformance.saw:10:1"
+log	"     |"
+log	" 10 | extension Foo: Send {"
+log	"     | ^"
+log	"   hint: remove `: Send` - a type is Send automatically iff all its fields are; to ASSERT it where the derivation cannot see why it holds, declare `UnsafeSend` (design 186)"
+log	""
+log	"1 error(s) generated"

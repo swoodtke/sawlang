@@ -1,0 +1,12 @@
+program	conformance/V101_copy_family_carries_the_tier.saw
+triple	arm64-apple-darwin
+twin	differs
+expect	success
+build	ok
+exit	0
+stdout	"vector try_copy: alpha-built"
+stdout	"map copy: key-built value-built"
+stdout	"map try_copy: key-built value-built"
+stdout	"user generic: generic-built"
+stdout	""
+meets_expect	yes

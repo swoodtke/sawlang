@@ -1,0 +1,12 @@
+program	taskgroup_result_joined_once.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"7"
+stdout	"77"
+stdout	"999"
+stdout	"977"
+stdout	""
+meets_expect	yes

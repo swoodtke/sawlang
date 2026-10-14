@@ -1,0 +1,11 @@
+program	unsafe_conformance_effects.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"raw 41"
+stdout	"erased 41"
+stdout	"redundant 9"
+stdout	""
+meets_expect	yes

@@ -1,0 +1,15 @@
+program	array_explicit_copy_dotcopy.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"d-1"
+stdout	"99"
+stdout	"1"
+stdout	"d-2"
+stdout	"d-1"
+stdout	"d-2"
+stdout	"d-99"
+stdout	""
+meets_expect	yes

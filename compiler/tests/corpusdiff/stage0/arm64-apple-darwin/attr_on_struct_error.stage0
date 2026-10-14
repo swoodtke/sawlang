@@ -1,0 +1,7 @@
+program	attr_on_struct_error.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	Parse error at 7:1: attributes are not supported on struct declarations
+meets_expect	yes
+log	"error: Parse error at 7:1: attributes are not supported on struct declarations"

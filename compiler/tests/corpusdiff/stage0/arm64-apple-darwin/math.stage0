@@ -1,0 +1,17 @@
+program	math.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"Basic math:"
+stdout	"30"
+stdout	"200"
+stdout	"Factorial of 5:"
+stdout	"120"
+stdout	"Comparisons:"
+stdout	"true"
+stdout	"false"
+stdout	"true"
+stdout	""
+meets_expect	yes

@@ -1,0 +1,13 @@
+program	for_loop_simple.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"0"
+stdout	"1"
+stdout	"2"
+stdout	"3"
+stdout	"4"
+stdout	""
+meets_expect	yes

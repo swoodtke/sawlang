@@ -1,0 +1,10 @@
+program	self_type_in_extension_parameter.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"sum 3"
+stdout	"bumped 2"
+stdout	""
+meets_expect	yes

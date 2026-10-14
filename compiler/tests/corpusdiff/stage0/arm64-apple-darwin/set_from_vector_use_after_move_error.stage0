@@ -1,0 +1,21 @@
+program	set_from_vector_use_after_move_error.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	use of moved variable `src`
+meets_expect	yes
+log	"error: result of `push` is `Result<Void, AllocError>` and is silently discarded"
+log	"  --> examples/set_from_vector_use_after_move_error.saw:8:8"
+log	"    |"
+log	" 8 |     src.push(1)"
+log	"    |        ^"
+log	"   hint: handle it — `match` it, `try`/`try!`/`try?` it, or return it — or write `let _ = ...` to discard it explicitly"
+log	""
+log	"error: use of moved variable `src`"
+log	"  --> examples/set_from_vector_use_after_move_error.saw:10:11"
+log	"     |"
+log	" 10 |     print(src.len())   // src was moved into the set — rejected"
+log	"     |           ^"
+log	"   hint: value was moved at line 9 and can no longer be used"
+log	""
+log	"2 error(s) generated"

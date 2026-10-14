@@ -1,0 +1,11 @@
+program	vector_literal_nocopy_move.saw
+triple	arm64-apple-darwin
+twin	differs
+expect	success
+build	ok
+exit	0
+stdout	"2"
+stdout	"7"
+stdout	"9"
+stdout	""
+meets_expect	yes

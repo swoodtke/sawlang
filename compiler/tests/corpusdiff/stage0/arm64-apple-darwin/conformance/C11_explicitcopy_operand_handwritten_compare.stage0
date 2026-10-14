@@ -1,0 +1,10 @@
+program	conformance/C11_explicitcopy_operand_handwritten_compare.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"longer"
+stdout	"3 and 1"
+stdout	""
+meets_expect	yes

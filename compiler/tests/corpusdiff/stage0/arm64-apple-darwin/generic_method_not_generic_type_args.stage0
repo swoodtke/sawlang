@@ -1,0 +1,13 @@
+program	generic_method_not_generic_type_args.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	method `get` is not generic but was called with type arguments
+meets_expect	yes
+log	"error: method `get` is not generic but was called with type arguments"
+log	"  --> examples/generic_method_not_generic_type_args.saw:14:12"
+log	"     |"
+log	" 14 |     print(b.get<Int>())  // get takes no method type params"
+log	"     |            ^"
+log	""
+log	"1 error(s) generated"

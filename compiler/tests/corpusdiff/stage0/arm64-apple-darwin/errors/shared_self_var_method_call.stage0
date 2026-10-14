@@ -1,0 +1,14 @@
+program	errors/shared_self_var_method_call.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	cannot call `&var self` method `bump` on a `&self` receiver: `self` is borrowed SHARED here, and a `&var self` method takes the whole receiver exclusively
+meets_expect	yes
+log	"error: cannot call `&var self` method `bump` on a `&self` receiver: `self` is borrowed SHARED here, and a `&var self` method takes the whole receiver exclusively"
+log	"  --> examples/errors/shared_self_var_method_call.saw:27:13"
+log	"     |"
+log	" 27 |         self.bump()"
+log	"     |             ^"
+log	"   hint: declare the method `&var self` to mutate through the receiver, or `&var self ... borrows -> &var T` to lend the place and let each use site choose the window's flavor"
+log	""
+log	"1 error(s) generated"

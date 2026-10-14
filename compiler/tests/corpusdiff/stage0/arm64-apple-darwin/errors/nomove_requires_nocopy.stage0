@@ -1,0 +1,14 @@
+program	errors/nomove_requires_nocopy.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	`Loose` declares `NoMove` without declaring `NoCopy`: relocation and duplication are separate properties, and `NoMove` requires the other to be stated rather than implying it
+meets_expect	yes
+log	"error: `Loose` declares `NoMove` without declaring `NoCopy`: relocation and duplication are separate properties, and `NoMove` requires the other to be stated rather than implying it"
+log	"  --> examples/errors/nomove_requires_nocopy.saw:15:1"
+log	"     |"
+log	" 15 | struct Loose {"
+log	"     | ^"
+log	"   hint: add `extension Loose: NoCopy {}` beside the `NoMove` conformance — a value that may not move and may be freely duplicated is not a shape v1 supports"
+log	""
+log	"1 error(s) generated"

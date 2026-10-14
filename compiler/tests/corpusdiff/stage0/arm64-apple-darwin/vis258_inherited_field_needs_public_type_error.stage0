@@ -1,0 +1,14 @@
+program	vis258_inherited_field_needs_public_type_error.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	field `hidden` of `Shipment` is public, but its type names `Ledger`, which is private — a public API needs public types
+meets_expect	yes
+log	"error: field `hidden` of `Shipment` is public, but its type names `Ledger`, which is private — a public API needs public types"
+log	"  --> examples/vis258_inherited_field_needs_public_type_error.saw:24:5"
+log	"     |"
+log	" 24 |     hidden: Ledger,"
+log	"     |     ^"
+log	"   hint: either widen the type — mark the struct `Ledger` `public` — or mark the field `private`, which takes it off the type's surface, where `Ledger` can be named. A caller that can reach a declaration must be able to name every type in its signature"
+log	""
+log	"1 error(s) generated"

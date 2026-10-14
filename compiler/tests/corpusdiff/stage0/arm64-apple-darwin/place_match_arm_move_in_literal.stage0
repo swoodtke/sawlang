@@ -1,0 +1,14 @@
+program	place_match_arm_move_in_literal.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	`v[…]` lends a place of type `Slot`, which is move-only — reading it out as a value would alias storage the container still owns
+meets_expect	yes
+log	"error: `v[…]` lends a place of type `Slot`, which is move-only — reading it out as a value would alias storage the container still owns"
+log	"  --> examples/place_match_arm_move_in_literal.saw:42:20"
+log	"     |"
+log	" 42 |     let h = match v[0] {"
+log	"     |                    ^"
+log	"   hint: `v[…].method()` borrows through the window without taking the value out, `v.with_ref(…)` borrows it for a whole scope, `v.swap_out(…)` moves it out"
+log	""
+log	"1 error(s) generated"

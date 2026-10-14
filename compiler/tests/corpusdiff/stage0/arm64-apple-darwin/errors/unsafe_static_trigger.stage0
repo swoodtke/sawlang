@@ -1,0 +1,14 @@
+program	errors/unsafe_static_trigger.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	function `peek_owner` is not declared `unsafe`, but its body names an unsafe static (`TABLE`)
+meets_expect	yes
+log	"error: function `peek_owner` is not declared `unsafe`, but its body names an unsafe static (`TABLE`)"
+log	"  --> examples/errors/unsafe_static_trigger.saw:19:5"
+log	"     |"
+log	" 19 |     TABLE[i].owner"
+log	"     |     ^"
+log	"   hint: write `func peek_owner(...) unsafe` — the unsafety belongs in the signature where every caller can see it; if the operation is sound for every input, keep the wrapper unsafe and expose a safe one that checks its arguments"
+log	""
+log	"1 error(s) generated"

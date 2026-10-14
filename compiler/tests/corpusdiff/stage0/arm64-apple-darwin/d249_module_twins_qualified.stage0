@@ -1,0 +1,11 @@
+program	d249_module_twins_qualified.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"A<7>"
+stdout	"B<7>"
+stdout	"A<hi>"
+stdout	""
+meets_expect	yes

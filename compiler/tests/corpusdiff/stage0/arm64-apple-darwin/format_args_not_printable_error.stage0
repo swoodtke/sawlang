@@ -1,0 +1,14 @@
+program	format_args_not_printable_error.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	cannot format value of type `Opaque`: it is not `Printable`
+meets_expect	yes
+log	"error: cannot format value of type `Opaque`: it is not `Printable`"
+log	"  --> examples/format_args_not_printable_error.saw:11:24"
+log	"     |"
+log	" 11 |     print(\"value: {}\", o)"
+log	"     |                        ^"
+log	"   hint: conform it with `extension Opaque: Printable { ... }`"
+log	""
+log	"1 error(s) generated"

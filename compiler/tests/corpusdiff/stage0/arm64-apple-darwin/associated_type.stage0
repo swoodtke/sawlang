@@ -1,0 +1,10 @@
+program	associated_type.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"42"
+stdout	"hello"
+stdout	""
+meets_expect	yes

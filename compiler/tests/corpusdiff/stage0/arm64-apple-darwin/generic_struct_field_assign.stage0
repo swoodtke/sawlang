@@ -1,0 +1,15 @@
+program	generic_struct_field_assign.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"-1"
+stdout	"5"
+stdout	"7"
+stdout	"2"
+stdout	"ab"
+stdout	"901"
+stdout	"900"
+stdout	""
+meets_expect	yes

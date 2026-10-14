@@ -1,0 +1,11 @@
+program	else_if_test.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"medium"
+stdout	"2"
+stdout	"three"
+stdout	""
+meets_expect	yes

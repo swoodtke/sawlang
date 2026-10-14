@@ -1,0 +1,27 @@
+program	errors/unsafe_mem_missing_use.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	`UnsafeMemory` takes exactly two type arguments: the viewed type and the intent marker `Device` or `Normal`
+meets_expect	yes
+log	"error: `UnsafeMemory` takes exactly two type arguments: the viewed type and the intent marker `Device` or `Normal`"
+log	"  --> examples/errors/unsafe_mem_missing_use.saw:6:1"
+log	"    |"
+log	" 6 | static DEV: UnsafeMemory<Int> = UnsafeMemory(0x40000000)"
+log	"    | ^"
+log	"   hint: the intent marker is EXPLICIT — write `UnsafeMemory<T, Device>` or `UnsafeMemory<T, Normal>`"
+log	""
+log	"error: cannot access an under-specified `UnsafeMemory` value"
+log	"  --> examples/errors/unsafe_mem_missing_use.saw:8:24"
+log	"    |"
+log	" 8 | func main() { print(DEV.read()) }"
+log	"    |                        ^"
+log	""
+log	"error: function `main` is not declared `unsafe`, but its body names a value of unsafe type (`UnsafeMemory<Int>`)"
+log	"  --> examples/errors/unsafe_mem_missing_use.saw:8:21"
+log	"    |"
+log	" 8 | func main() { print(DEV.read()) }"
+log	"    |                     ^"
+log	"   hint: write `func main(...) unsafe` — the unsafety belongs in the signature where every caller can see it; if the operation is sound for every input, keep the wrapper unsafe and expose a safe one that checks its arguments"
+log	""
+log	"3 error(s) generated"

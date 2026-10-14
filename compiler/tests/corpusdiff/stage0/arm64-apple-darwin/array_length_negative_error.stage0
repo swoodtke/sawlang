@@ -1,0 +1,14 @@
+program	array_length_negative_error.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	array length is negative (`-1`)
+meets_expect	yes
+log	"error: array length is negative (`-1`)"
+log	"  --> examples/array_length_negative_error.saw:11:31"
+log	"     |"
+log	" 11 | struct Bad { bytes: [UInt8; 2 - 3] }"
+log	"     |                               ^"
+log	"   hint: an array length counts elements, so it starts at 0"
+log	""
+log	"1 error(s) generated"

@@ -1,0 +1,13 @@
+program	named_tuple_different_names_error.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	cannot assign `(a: Int, b: Int)` to variable of type `(x: Int, y: Int)`
+meets_expect	yes
+log	"error: cannot assign `(a: Int, b: Int)` to variable of type `(x: Int, y: Int)`"
+log	"  --> examples/named_tuple_different_names_error.saw:9:5"
+log	"    |"
+log	" 9 |     let bad: (x: Int, y: Int) = (a: 1, b: 2)"
+log	"    |     ^"
+log	""
+log	"1 error(s) generated"

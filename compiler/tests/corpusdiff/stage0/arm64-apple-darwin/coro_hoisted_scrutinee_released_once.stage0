@@ -1,0 +1,11 @@
+program	coro_hoisted_scrutinee_released_once.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"guard 2"
+stdout	"match 3"
+stdout	"done"
+stdout	""
+meets_expect	yes

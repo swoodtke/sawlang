@@ -1,0 +1,14 @@
+program	aggregate_copy_is_one_memcpy.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"let-copy equal: true"
+stdout	"source after writing the copy: 1 true 7 100"
+stdout	"copy after writing the source: 2 false 9 200"
+stdout	"assign-copy equal: true"
+stdout	"assign source after: 1 true 7 100"
+stdout	"nested copy independent: 5 then 5"
+stdout	""
+meets_expect	yes

@@ -1,0 +1,15 @@
+program	path_simple.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"Path: /home/user/docs/file.txt"
+stdout	"Parent: /home/user/docs"
+stdout	"File name: file.txt"
+stdout	"Stem: file"
+stdout	"Extension: txt"
+stdout	"Is absolute: true"
+stdout	"Joined: /home/user/docs/subdir"
+stdout	""
+meets_expect	yes

@@ -1,0 +1,25 @@
+program	conformance/K118_every_shape_splits_hoists_or_refuses.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"if 1"
+stdout	"while 1"
+stdout	"for 1"
+stdout	"match 1"
+stdout	"iflet 1"
+stdout	"guardlet 1"
+stdout	"trycatch 1"
+stdout	"if-head 1"
+stdout	"while-head 1"
+stdout	"for-head 1"
+stdout	"match-head 1"
+stdout	"iflet-head 1"
+stdout	"guardlet-head 1"
+stdout	"argument 1"
+stdout	"interpolation 1"
+stdout	"operand 1"
+stdout	"return 1"
+stdout	""
+meets_expect	yes

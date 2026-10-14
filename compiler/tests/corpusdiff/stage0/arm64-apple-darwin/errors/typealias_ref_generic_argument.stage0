@@ -1,0 +1,14 @@
+program	errors/typealias_ref_generic_argument.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	the annotation of `v` may not be a reference: `Vector<R, GlobalAllocator>` names a reference (`&Int`), and references in Saw are PARAMETERS ONLY — a reference borrows storage for the duration of one call and may not escape it (designs 88/106). A `type` alias is not a way past that rule: the walk resolves it
+meets_expect	yes
+log	"error: the annotation of `v` may not be a reference: `Vector<R, GlobalAllocator>` names a reference (`&Int`), and references in Saw are PARAMETERS ONLY — a reference borrows storage for the duration of one call and may not escape it (designs 88/106). A `type` alias is not a way past that rule: the walk resolves it"
+log	"  --> examples/errors/typealias_ref_generic_argument.saw:17:5"
+log	"     |"
+log	" 17 |     let v: Vector<R> = []"
+log	"     |     ^"
+log	"   hint: use the value type (`Int`), or — to hand out storage a type already owns — declare a `borrows` accessor (`... borrows -> &var Int` with `lend`, design 141)"
+log	""
+log	"1 error(s) generated"

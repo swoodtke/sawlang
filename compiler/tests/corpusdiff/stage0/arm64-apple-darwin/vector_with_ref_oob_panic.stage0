@@ -1,0 +1,10 @@
+program	vector_with_ref_oob_panic.saw
+triple	arm64-apple-darwin
+twin	differs
+expect	panic
+build	ok
+exit	-6
+stdout	"20"
+stdout	"panic at vector.saw:147: Vector.with_ref: index out of range: 99 (len 2)"
+stdout	""
+meets_expect	yes

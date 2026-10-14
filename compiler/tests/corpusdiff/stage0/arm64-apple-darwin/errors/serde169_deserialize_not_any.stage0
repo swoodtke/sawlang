@@ -1,0 +1,14 @@
+program	errors/serde169_deserialize_not_any.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	cannot form `any Deserialize`: method `deserialize` is static — it is called on the type, so there is no receiver to dispatch on
+meets_expect	yes
+log	"error: cannot form `any Deserialize`: method `deserialize` is static — it is called on the type, so there is no receiver to dispatch on"
+log	"  --> examples/errors/serde169_deserialize_not_any.saw:19:1"
+log	"     |"
+log	" 19 | func read_one(d: &any Deserialize) -> Int {"
+log	"     | ^"
+log	"   hint: a trait with a static requirement is a generic bound (`<T: Deserialize>`), never an existential"
+log	""
+log	"1 error(s) generated"

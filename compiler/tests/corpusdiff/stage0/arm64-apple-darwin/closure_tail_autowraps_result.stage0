@@ -1,0 +1,16 @@
+program	closure_tail_autowraps_result.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"ok_literal = 12"
+stdout	"ok_nonliteral = 14"
+stdout	"err = -1"
+stdout	"erased = boxed"
+stdout	"ok_optional = 5"
+stdout	"explicit = 1"
+stdout	"returned = 12"
+stdout	"value_if = 3"
+stdout	""
+meets_expect	yes

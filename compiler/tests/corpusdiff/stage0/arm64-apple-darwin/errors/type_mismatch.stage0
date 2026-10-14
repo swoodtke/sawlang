@@ -1,0 +1,13 @@
+program	errors/type_mismatch.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	argument `a` expects `Int` but got `String`
+meets_expect	yes
+log	"error: argument `a` expects `Int` but got `String`"
+log	"  --> examples/errors/type_mismatch.saw:10:22"
+log	"     |"
+log	" 10 |     let result = add(\"hello\", 42)"
+log	"     |                      ^"
+log	""
+log	"1 error(s) generated"

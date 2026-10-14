@@ -1,0 +1,13 @@
+program	coercion/qualname_arr_elem_field.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"read = 5"
+stdout	"assign = 9"
+stdout	"compound = 12"
+stdout	"ref = 20"
+stdout	"place window = 41"
+stdout	""
+meets_expect	yes

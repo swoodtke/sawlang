@@ -1,0 +1,13 @@
+program	errors/trait_inheritance_missing_method.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	type `Number` does not implement required method `getValue` from trait `Child`
+meets_expect	yes
+log	"error: type `Number` does not implement required method `getValue` from trait `Child`"
+log	"  --> examples/errors/trait_inheritance_missing_method.saw:18:1"
+log	"     |"
+log	" 18 | extension Number: Child {"
+log	"     | ^"
+log	""
+log	"1 error(s) generated"

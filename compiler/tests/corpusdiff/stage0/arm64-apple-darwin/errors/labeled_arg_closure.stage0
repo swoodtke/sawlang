@@ -1,0 +1,13 @@
+program	errors/labeled_arg_closure.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	labeled arguments are not allowed when calling through the closure value `f` (closure types are structural)
+meets_expect	yes
+log	"error: labeled arguments are not allowed when calling through the closure value `f` (closure types are structural)"
+log	"  --> examples/errors/labeled_arg_closure.saw:8:11"
+log	"    |"
+log	" 8 |     print(f(a: 5))"
+log	"    |           ^"
+log	""
+log	"1 error(s) generated"

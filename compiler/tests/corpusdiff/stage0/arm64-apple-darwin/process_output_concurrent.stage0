@@ -1,0 +1,11 @@
+program	process_output_concurrent.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"sibling: concurrent"
+stdout	"captured: done"
+stdout	"-- done"
+stdout	""
+meets_expect	yes

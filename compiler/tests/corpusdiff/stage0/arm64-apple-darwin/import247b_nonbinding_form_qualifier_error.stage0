@@ -1,0 +1,28 @@
+program	import247b_nonbinding_form_qualifier_error.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	`data` is not a module qualifier here
+meets_expect	yes
+log	"error: `data` is not a module qualifier here"
+log	"  --> examples/import247b_nonbinding_form_qualifier_error.saw:32:12"
+log	"     |"
+log	" 32 |     var d: data.Data = Data()"
+log	"     |            ^"
+log	"   hint: `import std.data.{...}` binds the names it takes and no qualifier — add `import std.data` to write `data.<name>`"
+log	""
+log	"error: `pair247b` is not a module qualifier here"
+log	"  --> examples/import247b_nonbinding_form_qualifier_error.saw:38:12"
+log	"     |"
+log	" 38 |     let w: pair247b.Widget = Widget(count: 1)"
+log	"     |            ^"
+log	"   hint: `import pair247b.*` binds the names it takes and no qualifier — add `import pair247b` to write `pair247b.<name>`"
+log	""
+log	"error: undefined variable `path`"
+log	"  --> examples/import247b_nonbinding_form_qualifier_error.saw:45:5"
+log	"     |"
+log	" 45 |     path.Path(s: \"/tmp\").is_absolute()"
+log	"     |     ^"
+log	"   hint: `import std.path.{...}` binds the names it takes and no qualifier — add `import std.path` to write `path.<name>`"
+log	""
+log	"3 error(s) generated"

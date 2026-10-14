@@ -1,0 +1,18 @@
+program	conformance/V81_value_arm_fence_is_narrow.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"moved 7"
+stdout	"fresh 1"
+stdout	"mixed 3"
+stdout	"copied 3 3"
+stdout	"drop 10"
+stdout	"generic 9"
+stdout	"drop 9"
+stdout	"drop 3"
+stdout	"drop 1"
+stdout	"drop 7"
+stdout	""
+meets_expect	yes

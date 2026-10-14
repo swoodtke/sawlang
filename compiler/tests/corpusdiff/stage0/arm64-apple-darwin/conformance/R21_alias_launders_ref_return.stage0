@@ -1,0 +1,27 @@
+program	conformance/R21_alias_launders_ref_return.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	the return type of `f` may not be a reference: `R` names a reference (`&Int`), and references in Saw are PARAMETERS ONLY — a reference borrows storage for the duration of one call and may not escape it (designs 88/106). A `type` alias is not a way past that rule: the walk resolves it
+meets_expect	yes
+log	"error: the return type of `f` may not be a reference: `R` names a reference (`&Int`), and references in Saw are PARAMETERS ONLY — a reference borrows storage for the duration of one call and may not escape it (designs 88/106). A `type` alias is not a way past that rule: the walk resolves it"
+log	"  --> examples/conformance/R21_alias_launders_ref_return.saw:11:1"
+log	"     |"
+log	" 11 | func f(x: &Int) -> R { x }"
+log	"     | ^"
+log	"   hint: use the value type (`Int`), or — to hand out storage a type already owns — declare a `borrows` accessor (`... borrows -> &var Int` with `lend`, design 141)"
+log	""
+log	"error: function `f` should return `R` but returns `Int`"
+log	"  --> examples/conformance/R21_alias_launders_ref_return.saw:11:1"
+log	"     |"
+log	" 11 | func f(x: &Int) -> R { x }"
+log	"     | ^"
+log	""
+log	"error: cannot print value of type `R`: it is not `Printable`"
+log	"  --> examples/conformance/R21_alias_launders_ref_return.saw:14:11"
+log	"     |"
+log	" 14 |     print(f(&a))"
+log	"     |           ^"
+log	"   hint: conform it with `extension R: Printable { ... }`"
+log	""
+log	"3 error(s) generated"

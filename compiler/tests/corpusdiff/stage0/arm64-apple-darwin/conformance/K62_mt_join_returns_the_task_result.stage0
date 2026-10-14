@@ -1,0 +1,9 @@
+program	conformance/K62_mt_join_returns_the_task_result.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"total 30"
+stdout	""
+meets_expect	yes

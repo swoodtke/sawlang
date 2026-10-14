@@ -1,0 +1,28 @@
+program	conformance/V54_consumes_field_move_all_paths.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	field `a` is moved out of `self` on some paths of `pick` but not others — a consuming body decides each field on EVERY path or NO path
+meets_expect	yes
+log	"error: field `a` is moved out of `self` on some paths of `pick` but not others — a consuming body decides each field on EVERY path or NO path"
+log	"  --> examples/conformance/V54_consumes_field_move_all_paths.saw:26:5"
+log	"     |"
+log	" 26 |     func pick(&var self, hot: Bool) consumes -> Tag {"
+log	"     |     ^"
+log	"   hint: move `a` on every path that returns (a diverging path is exempt), or on none — the conditional shape is the one that would need runtime drop flags, which design 260 v1 excludes"
+log	""
+log	"error: field `a` is moved out of `self` on some paths of `split` but not others — a consuming body decides each field on EVERY path or NO path"
+log	"  --> examples/conformance/V54_consumes_field_move_all_paths.saw:29:5"
+log	"     |"
+log	" 29 |     func split(&var self, hot: Bool) consumes -> Tag {"
+log	"     |     ^"
+log	"   hint: move `a` on every path that returns (a diverging path is exempt), or on none — the conditional shape is the one that would need runtime drop flags, which design 260 v1 excludes"
+log	""
+log	"error: field `b` is moved out of `self` on some paths of `split` but not others — a consuming body decides each field on EVERY path or NO path"
+log	"  --> examples/conformance/V54_consumes_field_move_all_paths.saw:29:5"
+log	"     |"
+log	" 29 |     func split(&var self, hot: Bool) consumes -> Tag {"
+log	"     |     ^"
+log	"   hint: move `b` on every path that returns (a diverging path is exempt), or on none — the conditional shape is the one that would need runtime drop flags, which design 260 v1 excludes"
+log	""
+log	"3 error(s) generated"

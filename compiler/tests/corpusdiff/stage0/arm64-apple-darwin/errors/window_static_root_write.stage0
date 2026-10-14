@@ -1,0 +1,14 @@
+program	errors/window_static_root_write.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	exclusive access violation: `ROOT` cannot be written here — the window opened at line 38 borrows `ROOT` for the whole of the `for` statement that iterates it
+meets_expect	yes
+log	"error: exclusive access violation: `ROOT` cannot be written here — the window opened at line 38 borrows `ROOT` for the whole of the `for` statement that iterates it"
+log	"  --> examples/errors/window_static_root_write.saw:39:13"
+log	"     |"
+log	" 39 |         ROOT.value = ROOT.value + n        // ROW: the STATIC itself, inside its window"
+log	"     |             ^"
+log	"   hint: a `for` over a borrowed iterator holds the collection for the whole loop, exactly as a `with_ref` window does — collect what you need first, or index the collection with a `while` loop if you must mutate it while walking it"
+log	""
+log	"1 error(s) generated"

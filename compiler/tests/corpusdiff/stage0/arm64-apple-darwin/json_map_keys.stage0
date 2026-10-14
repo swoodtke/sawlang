@@ -1,0 +1,12 @@
+program	json_map_keys.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"bag text: {\"a\":1,\"b\":2}"
+stdout	"bag back: a=1 b=2 len=2"
+stdout	"int_key_map: encode error: the value has no representation in this format"
+stdout	"non_string_key_wire: decode error at byte 1: the bytes are not a well-formed item"
+stdout	""
+meets_expect	yes

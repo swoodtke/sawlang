@@ -1,0 +1,16 @@
+program	static236_declared_static.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"origin 0"
+stdout	"at 18"
+stdout	"mag 25"
+stdout	"scaled 10"
+stdout	"flipped Right"
+stdout	"pick 12"
+stdout	"holder 7"
+stdout	"made 4"
+stdout	""
+meets_expect	yes

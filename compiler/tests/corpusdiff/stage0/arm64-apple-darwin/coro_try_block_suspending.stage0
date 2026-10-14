@@ -1,0 +1,9 @@
+program	coro_try_block_suspending.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"worker 41"
+stdout	""
+meets_expect	yes

@@ -1,0 +1,12 @@
+program	coro_generic_struct_and_method.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"11"
+stdout	"12"
+stdout	"21"
+stdout	"22"
+stdout	""
+meets_expect	yes

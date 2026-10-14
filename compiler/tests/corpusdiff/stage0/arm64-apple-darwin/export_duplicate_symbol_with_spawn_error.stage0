@@ -1,0 +1,14 @@
+program	export_duplicate_symbol_with_spawn_error.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	duplicate `@export` symbol `shared_c_hook` (already exported by `first_hook` at line 16)
+meets_expect	yes
+log	"error: duplicate `@export` symbol `shared_c_hook` (already exported by `first_hook` at line 16)"
+log	"  --> examples/export_duplicate_symbol_with_spawn_error.saw:19:1"
+log	"     |"
+log	" 19 | func second_hook() -> Int { 2 }"
+log	"     | ^"
+log	"   hint: an unmangled C symbol must be unique across the program; give one an explicit `@export(\"other_name\")`"
+log	""
+log	"1 error(s) generated"

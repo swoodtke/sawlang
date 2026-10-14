@@ -1,0 +1,9 @@
+program	conformance/K48_mt_group_task_runs_before_join.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"main got 3"
+stdout	""
+meets_expect	yes

@@ -1,0 +1,34 @@
+program	spawn_body_same_scope_redefinition.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"-- plain"
+stdout	"NEW t1"
+stdout	"val t1"
+stdout	"NEW dt1"
+stdout	"DEINIT t1"
+stdout	"val dt1"
+stdout	"scope closed"
+stdout	"DEINIT dt1"
+stdout	"-- spawned, no suspension"
+stdout	"NEW t1"
+stdout	"val t1"
+stdout	"NEW dt1"
+stdout	"DEINIT t1"
+stdout	"val dt1"
+stdout	"scope closed"
+stdout	"DEINIT dt1"
+stdout	"joined 0"
+stdout	"-- spawned, suspending"
+stdout	"NEW t1"
+stdout	"val t1"
+stdout	"NEW dt1"
+stdout	"DEINIT t1"
+stdout	"val dt1"
+stdout	"scope closed"
+stdout	"DEINIT dt1"
+stdout	"joined 0"
+stdout	""
+meets_expect	yes

@@ -1,0 +1,15 @@
+program	spinlock_basic.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"hits 2 misses 1"
+stdout	"doubled 10"
+stdout	"after 15"
+stdout	"try got 15"
+stdout	"locked? false"
+stdout	"nested try refused"
+stdout	"held during body? true"
+stdout	""
+meets_expect	yes

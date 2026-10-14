@@ -1,0 +1,9 @@
+program	int_pow_negative_panics.saw
+triple	arm64-apple-darwin
+twin	same
+expect	panic
+build	ok
+exit	-6
+stdout	"panic at numeric.saw:59: negative exponent"
+stdout	""
+meets_expect	yes

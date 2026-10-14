@@ -1,0 +1,11 @@
+program	conformance/V42_copy_argument_to_duplicating_body_runs.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"2"
+stdout	"hi hi"
+stdout	"bag bag"
+stdout	""
+meets_expect	yes

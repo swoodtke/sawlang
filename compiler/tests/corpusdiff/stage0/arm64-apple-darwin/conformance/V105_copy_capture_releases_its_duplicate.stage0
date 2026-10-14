@@ -1,0 +1,40 @@
+program	conformance/V105_copy_capture_releases_its_duplicate.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"-- P1 tail"
+stdout	"copy 10 -> 11"
+stdout	"drop 11"
+stdout	"drop 10"
+stdout	"= 11"
+stdout	"-- P2 let"
+stdout	"copy 20 -> 21"
+stdout	"drop 21"
+stdout	"drop 20"
+stdout	"= 21"
+stdout	"-- P3 assignment"
+stdout	"copy 30 -> 31"
+stdout	"drop 31"
+stdout	"drop 30"
+stdout	"= 31"
+stdout	"-- P4 argument"
+stdout	"copy 40 -> 41"
+stdout	"drop 41"
+stdout	"drop 40"
+stdout	"= 41"
+stdout	"-- C1 escaping control"
+stdout	"copy 50 -> 51"
+stdout	"drop 51"
+stdout	"drop 50"
+stdout	"= 51"
+stdout	"-- C2 move control, duplicable tier"
+stdout	"drop 60"
+stdout	"= 60"
+stdout	"-- C3 move control, NoCopy"
+stdout	"drop res 70"
+stdout	"= 70"
+stdout	"end"
+stdout	""
+meets_expect	yes

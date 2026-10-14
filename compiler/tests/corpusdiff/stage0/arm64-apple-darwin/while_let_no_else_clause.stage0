@@ -1,0 +1,7 @@
+program	while_let_no_else_clause.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	Parse error at 15:40: `while let` has no `else` clause — the loop exits when the binding fails, so there is nothing for an `else` to mean. Use `if let ... else` for a one-shot branch, or put the exhausted case after the loop
+meets_expect	yes
+log	"error: Parse error at 15:40: `while let` has no `else` clause — the loop exits when the binding fails, so there is nothing for an `else` to mean. Use `if let ... else` for a one-shot branch, or put the exhausted case after the loop"

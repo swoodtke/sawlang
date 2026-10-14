@@ -1,0 +1,27 @@
+program	enum_field_drop_glue.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"-- struct field"
+stdout	"deinit direct"
+stdout	"-- optional enum field"
+stdout	"deinit optional"
+stdout	"-- two structs deep"
+stdout	"deinit nested"
+stdout	"-- generic enum field"
+stdout	"deinit generic"
+stdout	"-- struct-with-enum in a vector"
+stdout	"deinit in-vector"
+stdout	"-- no declared conformance anywhere"
+stdout	"structural payload alive"
+stdout	"-- fixed-array field"
+stdout	"deinit array1"
+stdout	"deinit array0"
+stdout	"-- controls: already worked"
+stdout	"deinit bare-local"
+stdout	"deinit vector-element"
+stdout	"-- done"
+stdout	""
+meets_expect	yes

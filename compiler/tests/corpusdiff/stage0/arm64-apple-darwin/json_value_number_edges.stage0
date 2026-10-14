@@ -1,0 +1,30 @@
+program	json_value_number_edges.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"int_max: int 9223372036854775807"
+stdout	"int_min: int -9223372036854775808"
+stdout	"int_overflow: float 9.223372036854776e+18"
+stdout	"frac_form: float 1.5"
+stdout	"exp_form: float 100.0"
+stdout	"zero: int 0"
+stdout	"negative_zero: int 0"
+stdout	"tiny: float 5e-324"
+stdout	"huge: float 1.7976931348623157e+308"
+stdout	"precise: float 0.30000000000000004"
+stdout	"-- round trips through parse and serialize"
+stdout	"[1,-1,9223372036854775807] -> [1,-1,9223372036854775807]"
+stdout	"[1.5,-0.25,100.0] -> [1.5,-0.25,100.0]"
+stdout	"1e2 -> 100.0"
+stdout	"1.0 -> 1.0"
+stdout	"0.1 -> 0.1"
+stdout	"1e400 -> encode error: the value has no representation in this format"
+stdout	"-- what JSON still refuses"
+stdout	"nan_token: decode error at byte 0: the bytes are not a well-formed item"
+stdout	"inf_token: decode error at byte 0: the bytes are not a well-formed item"
+stdout	"leading_plus: decode error at byte 0: the bytes are not a well-formed item"
+stdout	"bare_fraction: decode error at byte 0: the bytes are not a well-formed item"
+stdout	""
+meets_expect	yes

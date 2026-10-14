@@ -1,0 +1,13 @@
+program	shadow_redef_nested_owning.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"deinit 1001"
+stdout	"mid 2001"
+stdout	"deinit 2001"
+stdout	"after block"
+stdout	"deinit 1"
+stdout	""
+meets_expect	yes

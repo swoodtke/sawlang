@@ -1,0 +1,14 @@
+program	overload_int_uint_exact.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"int"
+stdout	"uint"
+stdout	"m-int"
+stdout	"m-uint"
+stdout	"int"
+stdout	"18446744073709551615"
+stdout	""
+meets_expect	yes

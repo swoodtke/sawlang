@@ -1,0 +1,16 @@
+program	backed_enum_extension_param.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"1"
+stdout	"2"
+stdout	"true"
+stdout	"false"
+stdout	"true"
+stdout	"3"
+stdout	"ok"
+stdout	"2"
+stdout	""
+meets_expect	yes

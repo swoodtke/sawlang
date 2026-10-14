@@ -1,0 +1,12 @@
+program	funcpointer226_type.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"forged"
+stdout	"copied"
+stdout	"held"
+stdout	"sent"
+stdout	""
+meets_expect	yes

@@ -1,0 +1,14 @@
+program	errors/synthesize_required_comparable.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	`Point` declares `Comparable` with no `compare`: a derived body must be requested explicitly
+meets_expect	yes
+log	"error: `Point` declares `Comparable` with no `compare`: a derived body must be requested explicitly"
+log	"  --> examples/errors/synthesize_required_comparable.saw:14:1"
+log	"     |"
+log	" 14 | extension Point: Comparable {}"
+log	"     | ^"
+log	"   hint: mark the extension `@synthesize` to derive `compare` memberwise, or write `compare` by hand"
+log	""
+log	"1 error(s) generated"

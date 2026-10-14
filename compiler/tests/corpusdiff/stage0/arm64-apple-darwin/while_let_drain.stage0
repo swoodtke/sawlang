@@ -1,0 +1,23 @@
+program	while_let_drain.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"pop total 6"
+stdout	"empty iterations 0"
+stdout	"break/continue seen 8"
+stdout	"derived 6"
+stdout	"tuple 66"
+stdout	"nested 36"
+stdout	"whilevar 306"
+stdout	"tryq acc=3 stopped at 3"
+stdout	"wildcard rounds 3"
+stdout	"nocopy ids 3"
+stdout	"take 9"
+stdout	"closure 6"
+stdout	"generic 6"
+stdout	"generic 6"
+stdout	"after the loop 99"
+stdout	""
+meets_expect	yes

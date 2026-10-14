@@ -22,15 +22,12 @@
 //   non_moving_branch — the branch READS the binding; the payload dies at the
 //                       branch's end on both twins
 //   discard_binding   — `if let _ = <suspending>`, the presence test that binds
-//                       NOTHING, as a twin PAIR. Sync drops the unwrapped
-//                       payload immediately (the source handed it over and no
-//                       binding names it); the driven twin used to hold it to
-//                       the end of the statement, because the release it got
-//                       was the hoisted temp's. It is the same divergence
-//                       DF-218w filed on a `match` arm, at the optional-binding
-//                       spelling, and it closes for the same reason: the
-//                       take-read subject is an owned temporary, so ONE rule
-//                       decides both twins
+//                       NOTHING, as a twin PAIR. Both twins drop the unwrapped
+//                       payload when the `if let` completes, after its body
+//                       (SL-513 ruling B): the take-read subject is an owned
+//                       temporary, so ONE rule decides both twins. The
+//                       `examples/` twin pins Stage 0, which drops it before
+//                       the body (SL:hazards C11)
 // EXPECT: success
 // EXPECT-OUTPUT:
 // -- if_let_local
@@ -65,13 +62,13 @@
 // after nomove
 // -- discard_binding sync
 // NEW t7
-// DEINIT t7
 // present
+// DEINIT t7
 // after discard
 // -- discard_binding driven
 // NEW t8
-// DEINIT t8
 // present
+// DEINIT t8
 // after discard
 
 import std.task.{yield_now}

@@ -1,0 +1,30 @@
+program	conformance/V56_consuming_body_replaces_deinit_body.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"1 consumed whole:"
+stdout	"tag 2 dropped"
+stdout	"tag 1 dropped"
+stdout	"-> 42"
+stdout	"2 field moved out:"
+stdout	"steal: manual teardown"
+stdout	"tag 20 dropped"
+stdout	"kept tag 10"
+stdout	"3 ordinary drop:"
+stdout	"made"
+stdout	"Conn.deinit body ran"
+stdout	"tag 40 dropped"
+stdout	"tag 30 dropped"
+stdout	"4 self = v inside a consuming body:"
+stdout	"Conn.deinit body ran"
+stdout	"tag 51 dropped"
+stdout	"tag 50 dropped"
+stdout	"tag 91 dropped"
+stdout	"tag 90 dropped"
+stdout	"-> 7"
+stdout	"end"
+stdout	"tag 10 dropped"
+stdout	""
+meets_expect	yes

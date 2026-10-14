@@ -1,0 +1,7 @@
+program	module_path_shadow.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	mapped package `mpshadow` shadows a local module file `examples/mpshadow.saw`; rename the local module or the dependency
+meets_expect	yes
+log	"error: mapped package `mpshadow` shadows a local module file `examples/mpshadow.saw`; rename the local module or the dependency"

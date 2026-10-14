@@ -1,0 +1,14 @@
+program	equatable_field_not_equatable_error.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	cannot derive `==` for `Outer`: field `inner` of type `Inner` does not conform to `Equatable`
+meets_expect	yes
+log	"error: cannot derive `==` for `Outer`: field `inner` of type `Inner` does not conform to `Equatable`"
+log	"  --> examples/equatable_field_not_equatable_error.saw:11:1"
+log	"     |"
+log	" 11 | struct Outer {"
+log	"     | ^"
+log	"   hint: give the field an Equatable type, or write `equals` by hand"
+log	""
+log	"1 error(s) generated"

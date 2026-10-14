@@ -1,0 +1,10 @@
+program	coro_nested_yield_wrapper.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"worker rounds 8"
+stdout	"witness saw worker alive: true"
+stdout	""
+meets_expect	yes

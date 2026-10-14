@@ -1,0 +1,14 @@
+program	conformance/K26_closure_capture_of_frame_local_not_a_user_copy.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"nocopy r"
+stdout	"live 0"
+stdout	"autoimplicit tag"
+stdout	"arc inside 2"
+stdout	"arc outside 2"
+stdout	"live 0"
+stdout	""
+meets_expect	yes

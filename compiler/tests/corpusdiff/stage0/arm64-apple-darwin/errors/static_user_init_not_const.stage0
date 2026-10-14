@@ -1,0 +1,14 @@
+program	errors/static_user_init_not_const.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	static `COMPUTED` must be initialized by a compile-time constant
+meets_expect	yes
+log	"error: static `COMPUTED` must be initialized by a compile-time constant"
+log	"  --> examples/errors/static_user_init_not_const.saw:33:1"
+log	"     |"
+log	" 33 | static COMPUTED: Region = Region(pages: 1)"
+log	"     | ^"
+log	"   hint: a static initializer is a CONSTANT EXPRESSION plus memberwise aggregation: literals, arithmetic and bitwise over them, `sizeof`/`alignof` of a primitive or pointer type, the integer limits, a raw-backed enum case, an earlier module `static` of ANY type, and struct / fixed-array literals built out of those. A user `init` BODY never runs at compile time, and neither does a function call, a String or any heap type — state that has to be COMPUTED wants `static X: Once<T>` (set once) or `unsafe static var` (mutated throughout)"
+log	""
+log	"1 error(s) generated"

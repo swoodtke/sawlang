@@ -1,0 +1,21 @@
+program	errors/spawn_capture_unjoined_handle.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	exclusive access violation: `n` cannot be read here — the task spawned at line 31 holds `&var n` until its group `group` is torn down at the end of this scope (nothing joins its handle)
+meets_expect	yes
+log	"error: exclusive access violation: `n` cannot be read here — the task spawned at line 31 holds `&var n` until its group `group` is torn down at the end of this scope (nothing joins its handle)"
+log	"  --> examples/errors/spawn_capture_unjoined_handle.saw:32:18"
+log	"     |"
+log	" 32 |     print(\"n is {n}\")"
+log	"     |                  ^"
+log	"   hint: join the task first — joining the task's handle ends the borrow, and the spawn-join-use order stays legal. To watch the value WHILE the task runs, share it through an `Arc<Mutex<T>>` or a `Channel`, where the synchronization is visible in the types"
+log	""
+log	"error: exclusive access violation: `m` cannot be written here — the task spawned at line 38 holds `&var m` until `h.join()` releases it"
+log	"  --> examples/errors/spawn_capture_unjoined_handle.saw:42:5"
+log	"     |"
+log	" 42 |     m = 5"
+log	"     |     ^"
+log	"   hint: join the task first — `h.join()` ends the borrow, and the spawn-join-use order stays legal. To watch the value WHILE the task runs, share it through an `Arc<Mutex<T>>` or a `Channel`, where the synchronization is visible in the types"
+log	""
+log	"2 error(s) generated"

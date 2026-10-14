@@ -1,0 +1,7 @@
+program	errors/borrows_function_type_rejected.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	Parse error at 10:21: a function TYPE may not be `borrows` (design 141 v1): a borrows call yields a place for a window, and a place is never a value, so there is nothing to bind, store or erase. Call the borrows method at the use site instead
+meets_expect	yes
+log	"error: Parse error at 10:21: a function TYPE may not be `borrows` (design 141 v1): a borrows call yields a place for a window, and a place is never a value, so there is nothing to bind, store or erase. Call the borrows method at the use site instead"

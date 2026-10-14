@@ -1,0 +1,21 @@
+program	conformance/V94_driven_body_keeps_the_sync_decision.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"-- sync"
+stdout	"copy 5"
+stdout	"copy 5"
+stdout	"copied 15"
+stdout	"drop 9"
+stdout	"moved 9"
+stdout	"-- driven"
+stdout	"copy 5"
+stdout	"copy 5"
+stdout	"copied 15"
+stdout	"drop 9"
+stdout	"moved 9"
+stdout	"end"
+stdout	""
+meets_expect	yes

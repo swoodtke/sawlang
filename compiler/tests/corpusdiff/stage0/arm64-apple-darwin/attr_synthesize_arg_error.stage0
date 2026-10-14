@@ -1,0 +1,7 @@
+program	attr_synthesize_arg_error.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	Parse error at 7:20: attribute `@synthesize` takes no argument
+meets_expect	yes
+log	"error: Parse error at 7:20: attribute `@synthesize` takes no argument"

@@ -1,0 +1,9 @@
+program	recursive_enum_through_user_generic_wrapper.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"sum 12"
+stdout	""
+meets_expect	yes

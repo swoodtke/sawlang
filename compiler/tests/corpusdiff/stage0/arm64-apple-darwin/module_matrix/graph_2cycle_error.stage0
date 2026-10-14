@@ -1,0 +1,14 @@
+program	module_matrix/graph_2cycle_error.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	import cycle: modules.graphcyc2.a -> modules.graphcyc2.b -> modules.graphcyc2.a
+meets_expect	yes
+log	"error: import cycle: modules.graphcyc2.a -> modules.graphcyc2.b -> modules.graphcyc2.a"
+log	"  --> examples/module_matrix/modules/graphcyc2/a.saw:5:1"
+log	"    |"
+log	" 5 | import modules.graphcyc2.b.{beta}"
+log	"    | ^"
+log	"   hint: `modules.graphcyc2.a` imports `modules.graphcyc2.b` (line 5); `modules.graphcyc2.b` imports `modules.graphcyc2.a` (line 4) — break the loop by moving the shared declarations into a module both sides import"
+log	""
+log	"1 error(s) generated"

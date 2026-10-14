@@ -1,0 +1,14 @@
+program	string_raw_control_byte_before_brace.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"raw-then-escaped-open 2 1 123"
+stdout	"raw-then-escaped-close 2 1 125"
+stdout	"raw-then-bare-close 2 1 125"
+stdout	"raw-then-interp 2 1 55"
+stdout	"raw-inside-interp-text 3 97 1 55"
+stdout	"raw-alone 1 1"
+stdout	""
+meets_expect	yes

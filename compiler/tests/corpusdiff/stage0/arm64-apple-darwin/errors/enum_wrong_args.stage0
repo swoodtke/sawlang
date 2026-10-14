@@ -1,0 +1,19 @@
+program	errors/enum_wrong_args.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	variant `Success` expects 1 arguments, got 0
+meets_expect	yes
+log	"error: variant `Success` expects 1 arguments, got 0"
+log	"  --> examples/errors/enum_wrong_args.saw:13:29"
+log	"     |"
+log	" 13 |     let r1 = OperationResult.Success()"
+log	"     |                             ^"
+log	""
+log	"error: variant `Error` expects 1 arguments, got 2"
+log	"  --> examples/errors/enum_wrong_args.saw:16:29"
+log	"     |"
+log	" 16 |     let r2 = OperationResult.Error(code: 404, extra: 123)"
+log	"     |                             ^"
+log	""
+log	"2 error(s) generated"

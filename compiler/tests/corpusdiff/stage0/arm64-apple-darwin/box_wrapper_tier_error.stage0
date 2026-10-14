@@ -1,0 +1,14 @@
+program	box_wrapper_tier_error.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	cannot copy value of type `Result<Box<Int, GlobalAllocator>, AllocError>` which implements NoCopy
+meets_expect	yes
+log	"error: cannot copy value of type `Result<Box<Int, GlobalAllocator>, AllocError>` which implements NoCopy"
+log	"  --> examples/box_wrapper_tier_error.saw:13:5"
+log	"     |"
+log	" 13 |     let c = b"
+log	"     |     ^"
+log	"   hint: use `move` to transfer ownership instead"
+log	""
+log	"1 error(s) generated"

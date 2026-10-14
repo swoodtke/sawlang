@@ -1,0 +1,11 @@
+program	directory_list_names_exact.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"wrote the test file"
+stdout	"entries: 1"
+stdout	"name: needle_file.txt"
+stdout	""
+meets_expect	yes

@@ -1,0 +1,15 @@
+program	closure_propagates_to_its_own_result_not_the_enclosing_catch.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"closure err 7"
+stdout	"outer continued"
+stdout	"tail err 8"
+stdout	"inner caught 9"
+stdout	"inner ok 0"
+stdout	"outer caught 10"
+stdout	"after catch"
+stdout	""
+meets_expect	yes

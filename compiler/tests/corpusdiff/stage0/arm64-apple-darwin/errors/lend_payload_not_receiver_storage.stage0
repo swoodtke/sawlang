@@ -1,0 +1,13 @@
+program	errors/lend_payload_not_receiver_storage.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	`lend n` names the payload of a `match` on something other than the receiver's own storage, so the window would open onto a value that dies with this accessor. Match on a field, an element, or another place reached through `self` — the payload is then lent where it sits
+meets_expect	yes
+log	"error: `lend n` names the payload of a `match` on something other than the receiver's own storage, so the window would open onto a value that dies with this accessor. Match on a field, an element, or another place reached through `self` — the payload is then lent where it sits"
+log	"  --> examples/errors/lend_payload_not_receiver_storage.saw:20:38"
+log	"     |"
+log	" 20 |             case Filled(n) -> { lend n },"
+log	"     |                                      ^"
+log	""
+log	"1 error(s) generated"

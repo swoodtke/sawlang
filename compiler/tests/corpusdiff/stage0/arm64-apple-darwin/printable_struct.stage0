@@ -1,0 +1,14 @@
+program	printable_struct.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"(3, 4)"
+stdout	"point = (3, 4)"
+stdout	"(3, 4)"
+stdout	"(3, 4)"
+stdout	"42"
+stdout	"n=42 b=true"
+stdout	""
+meets_expect	yes

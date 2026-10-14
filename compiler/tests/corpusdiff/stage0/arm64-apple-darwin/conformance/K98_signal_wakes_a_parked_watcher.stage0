@@ -1,0 +1,11 @@
+program	conformance/K98_signal_wakes_a_parked_watcher.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"watcher parked"
+stdout	"signal arrived"
+stdout	"main still running"
+stdout	""
+meets_expect	yes

@@ -1,0 +1,23 @@
+program	df151i_tuple_copy.saw
+triple	arm64-apple-darwin
+twin	differs
+expect	success
+build	ok
+exit	0
+stdout	"start 0"
+stdout	"deep_copy_is_independent 23 live 0"
+stdout	"element_deep_copy_retains 122 live 0"
+stdout	"arc_element_retains 2 live 0"
+stdout	"string_element_retains 5 live 0"
+stdout	"nested_tuple_copy 12 live 0"
+stdout	"mixed_tier_copy 3 live 0"
+stdout	"trivial_tuple_copy 9 live 0"
+stdout	"destructured_copy 2 live 0"
+stdout	"copy_of_named_tuple 2 live 0"
+stdout	"optional_tuple_copy 3 live 0"
+stdout	"generic_tuple 10 live 0"
+stdout	"tuple_in_vector_copy 1 live 0"
+stdout	"copy_across_suspend 2 live 0"
+stdout	"done 0"
+stdout	""
+meets_expect	yes

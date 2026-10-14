@@ -1,0 +1,10 @@
+program	string_interpolation_escaped_braces.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"Hello, Alice!"
+stdout	"Code: func foo() { return 1 }"
+stdout	""
+meets_expect	yes

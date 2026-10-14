@@ -1,0 +1,13 @@
+program	panic_non_string_error.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	`panic` expects a String message, got `Int`
+meets_expect	yes
+log	"error: `panic` expects a String message, got `Int`"
+log	"  --> examples/panic_non_string_error.saw:5:11"
+log	"    |"
+log	" 5 |     panic(42)"
+log	"    |           ^"
+log	""
+log	"1 error(s) generated"

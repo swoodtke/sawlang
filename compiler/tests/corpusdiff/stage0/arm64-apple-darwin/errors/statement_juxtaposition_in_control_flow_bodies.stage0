@@ -1,0 +1,14 @@
+program	errors/statement_juxtaposition_in_control_flow_bodies.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	Parse error at 20:28: two statements on one line need a `;` between them: the first begins with `var`, the second with `sum` — write `;` where they meet
+meets_expect	yes
+log	"error: Parse error at 20:28: two statements on one line need a `;` between them: the first begins with `var`, the second with `sum` — write `;` where they meet"
+log	"Parse error at 21:1: Expected import, export, module, struct, enum, trait, extension, type, extern, or function declaration, got RBRACE"
+log	"Parse error at 25:37: two statements on one line need a `;` between them: the first begins with `let`, the second with `return` — write `;` where they meet"
+log	"Parse error at 26:1: Expected import, export, module, struct, enum, trait, extension, type, extern, or function declaration, got RBRACE"
+log	"Parse error at 31:26: two statements on one line need a `;` between them: the first begins with `i`, the second with `break` — write `;` where they meet"
+log	"Parse error at 32:1: Expected import, export, module, struct, enum, trait, extension, type, extern, or function declaration, got RBRACE"
+log	"Parse error at 37:32: two statements on one line need a `;` between them: the first begins with `total`, the second with `continue` — write `;` where they meet"
+log	"Parse error at 38:1: Expected import, export, module, struct, enum, trait, extension, type, extern, or function declaration, got RBRACE"

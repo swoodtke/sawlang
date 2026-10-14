@@ -1,0 +1,9 @@
+program	taskgroup_compute_preemption_mt.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"39999800000"
+stdout	""
+meets_expect	yes

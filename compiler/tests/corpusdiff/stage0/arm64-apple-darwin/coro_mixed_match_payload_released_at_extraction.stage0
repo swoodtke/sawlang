@@ -1,0 +1,22 @@
+program	coro_mixed_match_payload_released_at_extraction.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"-- sync"
+stdout	"NEW t1"
+stdout	"NEW t2"
+stdout	"DEINIT t2"
+stdout	"arm"
+stdout	"DEINIT t1"
+stdout	"scope closed"
+stdout	"-- driven"
+stdout	"NEW t1"
+stdout	"NEW t2"
+stdout	"DEINIT t2"
+stdout	"arm"
+stdout	"DEINIT t1"
+stdout	"scope closed"
+stdout	""
+meets_expect	yes

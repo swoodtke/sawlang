@@ -1,0 +1,14 @@
+program	optional_nocopy_whole_read_error.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	cannot copy value of type `Res?` which implements NoCopy
+meets_expect	yes
+log	"error: cannot copy value of type `Res?` which implements NoCopy"
+log	"  --> examples/optional_nocopy_whole_read_error.saw:23:5"
+log	"     |"
+log	" 23 |     let p = o"
+log	"     |     ^"
+log	"   hint: use `move o` to transfer the whole binding, or `o.take()` to move the payload out in place"
+log	""
+log	"1 error(s) generated"

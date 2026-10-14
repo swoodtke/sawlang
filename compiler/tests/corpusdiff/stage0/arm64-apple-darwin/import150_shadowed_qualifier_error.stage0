@@ -1,0 +1,20 @@
+program	import150_shadowed_qualifier_error.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	type `Int` has no method `Data`
+meets_expect	yes
+log	"error: type `Int` has no method `Data`"
+log	"  --> examples/import150_shadowed_qualifier_error.saw:17:17"
+log	"     |"
+log	" 17 |     var d = data.Data()"
+log	"     |                 ^"
+log	"   hint: `data` here is the binding declared on line 16, which shadows the module qualifier bound by `import std.data` — rename the binding, import the module as another name (`import std.data as <name>`), or select `Data` directly (`import std.data.{Data}`)"
+log	""
+log	"error: undefined variable `d`"
+log	"  --> examples/import150_shadowed_qualifier_error.saw:18:13"
+log	"     |"
+log	" 18 |     print(\"{d.len()}\")"
+log	"     |             ^"
+log	""
+log	"2 error(s) generated"

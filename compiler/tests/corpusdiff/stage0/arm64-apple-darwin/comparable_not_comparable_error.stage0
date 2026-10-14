@@ -1,0 +1,14 @@
+program	comparable_not_comparable_error.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	cannot order values of type `P` with `<`: `P` does not conform to `Comparable`
+meets_expect	yes
+log	"error: cannot order values of type `P` with `<`: `P` does not conform to `Comparable`"
+log	"  --> examples/comparable_not_comparable_error.saw:14:10"
+log	"     |"
+log	" 14 |     if a < b {"
+log	"     |          ^"
+log	"   hint: add `extension P: Comparable {}`"
+log	""
+log	"1 error(s) generated"

@@ -1,0 +1,17 @@
+program	optional_chain_multihop.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"21"
+stdout	"7"
+stdout	"-99"
+stdout	"-88"
+stdout	"here"
+stdout	"none"
+stdout	"none"
+stdout	"1"
+stdout	"0"
+stdout	""
+meets_expect	yes

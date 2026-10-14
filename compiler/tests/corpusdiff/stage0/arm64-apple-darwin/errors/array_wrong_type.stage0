@@ -1,0 +1,13 @@
+program	errors/array_wrong_type.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	cannot assign `String` to element of type `Int`
+meets_expect	yes
+log	"error: cannot assign `String` to element of type `Int`"
+log	"  --> examples/errors/array_wrong_type.saw:5:8"
+log	"    |"
+log	" 5 |     arr[0] = \"hello\"  // Error: expected Int, got String"
+log	"    |        ^"
+log	""
+log	"1 error(s) generated"

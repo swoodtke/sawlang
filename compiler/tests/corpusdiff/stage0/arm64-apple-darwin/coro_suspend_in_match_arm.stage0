@@ -1,0 +1,12 @@
+program	coro_suspend_in_match_arm.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"43"
+stdout	"1"
+stdout	"8"
+stdout	"2"
+stdout	""
+meets_expect	yes

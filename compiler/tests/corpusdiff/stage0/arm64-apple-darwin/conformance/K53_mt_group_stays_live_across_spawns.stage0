@@ -1,0 +1,9 @@
+program	conformance/K53_mt_group_stays_live_across_spawns.saw
+triple	arm64-apple-darwin
+twin	differs
+expect	success
+build	ok
+exit	0
+stdout	"finished before any join: 4"
+stdout	""
+meets_expect	yes

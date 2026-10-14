@@ -1,0 +1,9 @@
+program	conformance/T25_data_index_oob.saw
+triple	arm64-apple-darwin
+twin	same
+expect	panic
+build	ok
+exit	-6
+stdout	"panic at data.saw:187: Data.[]: index out of range: 9 (len 1)"
+stdout	""
+meets_expect	yes

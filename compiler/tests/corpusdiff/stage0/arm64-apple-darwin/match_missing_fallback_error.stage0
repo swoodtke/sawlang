@@ -1,0 +1,14 @@
+program	match_missing_fallback_error.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	match is not exhaustive: literal, range, and guarded arms do not prove exhaustiveness
+meets_expect	yes
+log	"error: match is not exhaustive: literal, range, and guarded arms do not prove exhaustiveness"
+log	"  --> examples/match_missing_fallback_error.saw:7:5"
+log	"    |"
+log	" 7 |     match n {"
+log	"    |     ^"
+log	"   hint: add a `case _ ->` (or a bare-binding) fallback arm"
+log	""
+log	"1 error(s) generated"

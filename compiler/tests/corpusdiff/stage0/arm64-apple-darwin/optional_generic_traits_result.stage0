@@ -1,0 +1,19 @@
+program	optional_generic_traits_result.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"some==some true"
+stdout	"none==none true"
+stdout	"some==none false"
+stdout	"operator eq true"
+stdout	"push none ok"
+stdout	"push some ok"
+stdout	"len 2"
+stdout	"try! 7"
+stdout	"try! none -1"
+stdout	"err bad"
+stdout	"-- done"
+stdout	""
+meets_expect	yes

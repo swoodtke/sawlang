@@ -1,0 +1,6 @@
+program	conformance/U22_derivation_does_not_propagate.saw
+triple	arm64-apple-darwin
+twin	same
+expect	compiles
+build	ok
+meets_expect	yes

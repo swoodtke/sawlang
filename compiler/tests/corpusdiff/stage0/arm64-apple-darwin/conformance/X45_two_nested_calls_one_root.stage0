@@ -1,0 +1,14 @@
+program	conformance/X45_two_nested_calls_one_root.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	exclusive access violation: `n` is borrowed by a nested call in this argument list while `n` is also accessed by reference in the same call — both reach `n`
+meets_expect	yes
+log	"error: exclusive access violation: `n` is borrowed by a nested call in this argument list while `n` is also accessed by reference in the same call — both reach `n`"
+log	"  --> examples/conformance/X45_two_nested_calls_one_root.saw:28:39"
+log	"     |"
+log	" 28 |     print(combine(bump(&var n), scale(&var n)))"
+log	"     |                                       ^"
+log	"   hint: an argument's borrow extends over the whole call expression, nested calls included, so the two overlap and which one the program observes is argument evaluation order. Hoist the nested call into its own `let` so the borrows are in separate statements; disjoint paths need no change (`f(&var x, g(&y))` is fine)"
+log	""
+log	"1 error(s) generated"

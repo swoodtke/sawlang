@@ -1,0 +1,18 @@
+program	json_number_edges.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"int_max: 9223372036854775807"
+stdout	"int_min: -9223372036854775808"
+stdout	"uint_max: 18446744073709551615"
+stdout	"int_overflow: decode error at byte 0: the value does not fit the destination type"
+stdout	"uint_overflow: decode error at byte 0: the value does not fit the destination type"
+stdout	"negative_into_uint: decode error at byte 0: the value does not fit the destination type"
+stdout	"exp_form_as_int: decode error at byte 0: the item is not of the expected type"
+stdout	"frac_form_as_int: decode error at byte 0: the item is not of the expected type"
+stdout	"leading_zero_in_array: decode error at byte 2: the bytes are not a well-formed item"
+stdout	"exponent_forms_ok: 5000 -5 500000000"
+stdout	""
+meets_expect	yes

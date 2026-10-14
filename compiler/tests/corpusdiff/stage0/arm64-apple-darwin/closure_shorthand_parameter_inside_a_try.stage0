@@ -1,0 +1,31 @@
+program	closure_shorthand_parameter_inside_a_try.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	refused	undefined variable `$0`
+meets_expect	no: Stage 0 does not build it
+log	"error: undefined variable `$0`"
+log	"  --> examples/closure_shorthand_parameter_inside_a_try.saw:36:40"
+log	"     |"
+log	" 36 |     run({ print(\"forced {try! fallible($0)}\") })"
+log	"     |                                        ^"
+log	""
+log	"error: argument `body` expects `(Int) -> Void` but got `() -> Void`"
+log	"  --> examples/closure_shorthand_parameter_inside_a_try.saw:36:9"
+log	"     |"
+log	" 36 |     run({ print(\"forced {try! fallible($0)}\") })"
+log	"     |         ^"
+log	""
+log	"error: undefined variable `$0`"
+log	"  --> examples/closure_shorthand_parameter_inside_a_try.saw:38:33"
+log	"     |"
+log	" 38 |     run({ let v = try! fallible($0); print(\"bound {v}\") })"
+log	"     |                                 ^"
+log	""
+log	"error: argument `body` expects `(Int) -> Void` but got `() -> Void`"
+log	"  --> examples/closure_shorthand_parameter_inside_a_try.saw:38:9"
+log	"     |"
+log	" 38 |     run({ let v = try! fallible($0); print(\"bound {v}\") })"
+log	"     |         ^"
+log	""
+log	"4 error(s) generated"

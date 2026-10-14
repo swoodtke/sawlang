@@ -1,0 +1,13 @@
+program	map_literal_key_out_of_range_error.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	integer literal 300 does not fit in `Int8` (range -128..=127)
+meets_expect	yes
+log	"error: integer literal 300 does not fit in `Int8` (range -128..=127)"
+log	"  --> examples/map_literal_key_out_of_range_error.saw:7:32"
+log	"    |"
+log	" 7 |     let m: Map<Int8, Int16> = {300: 1}"
+log	"    |                                ^"
+log	""
+log	"1 error(s) generated"

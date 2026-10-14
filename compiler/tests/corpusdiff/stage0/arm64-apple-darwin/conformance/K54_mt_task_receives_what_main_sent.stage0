@@ -1,0 +1,9 @@
+program	conformance/K54_mt_task_receives_what_main_sent.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"task got 5"
+stdout	""
+meets_expect	yes

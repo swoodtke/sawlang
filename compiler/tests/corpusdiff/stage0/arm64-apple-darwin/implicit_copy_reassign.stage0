@@ -1,0 +1,16 @@
+program	implicit_copy_reassign.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"deinit"
+stdout	"10"
+stdout	"copy called"
+stdout	"42"
+stdout	"deinit"
+stdout	"42"
+stdout	"deinit"
+stdout	"42"
+stdout	""
+meets_expect	yes

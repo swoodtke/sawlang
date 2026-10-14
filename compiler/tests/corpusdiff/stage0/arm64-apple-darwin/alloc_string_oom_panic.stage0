@@ -1,0 +1,9 @@
+program	alloc_string_oom_panic.saw
+triple	arm64-apple-darwin
+twin	same
+expect	panic
+build	ok
+exit	-6
+stdout	"panic: string allocation failed"
+stdout	""
+meets_expect	yes

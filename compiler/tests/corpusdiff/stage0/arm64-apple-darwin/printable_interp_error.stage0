@@ -1,0 +1,14 @@
+program	printable_interp_error.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	cannot interpolate value of type `Bare` in a string: it is not `Printable`
+meets_expect	yes
+log	"error: cannot interpolate value of type `Bare` in a string: it is not `Printable`"
+log	"  --> examples/printable_interp_error.saw:10:13"
+log	"     |"
+log	" 10 |     print(\"{b}\")"
+log	"     |             ^"
+log	"   hint: conform it with `extension Bare: Printable { ... }`"
+log	""
+log	"1 error(s) generated"

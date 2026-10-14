@@ -1,0 +1,14 @@
+program	errors/copy_policy_hook_suspends_in_sync_fn.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	cannot suspend in the `Copy` `copy()` of `Heavy`: method `Heavy.copy` calls yield_now (`Heavy.copy` suspends at line 19)
+meets_expect	yes
+log	"error: cannot suspend in the `Copy` `copy()` of `Heavy`: method `Heavy.copy` calls yield_now (`Heavy.copy` suspends at line 19)"
+log	"  --> examples/errors/copy_policy_hook_suspends_in_sync_fn.saw:18:5"
+log	"     |"
+log	" 18 |     func copy(&self) -> Heavy {"
+log	"     |     ^"
+log	"   hint: a copy-policy `copy()` runs at compiler-inserted call sites and must be `sync` (design 219): the compiler calls it at every silent transfer, where no source construct names a call, so a suspension here would break the `sync` guarantee of whatever function the transfer sits in. Keep the body the retain shape — cheap, infallible, suspension-free"
+log	""
+log	"1 error(s) generated"

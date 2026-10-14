@@ -1,0 +1,14 @@
+program	conformance/O13_wildcard_optional_binding_releases_moved_payload.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"if let plain 0"
+stdout	"if let driven 0"
+stdout	"guard let plain 0"
+stdout	"guard let driven 0"
+stdout	"control temporary 0"
+stdout	"control named 0"
+stdout	""
+meets_expect	yes

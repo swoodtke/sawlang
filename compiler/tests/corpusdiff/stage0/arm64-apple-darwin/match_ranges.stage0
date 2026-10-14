@@ -1,0 +1,13 @@
+program	match_ranges.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"low"
+stdout	"mid"
+stdout	"mid"
+stdout	"high"
+stdout	"exact9"
+stdout	""
+meets_expect	yes

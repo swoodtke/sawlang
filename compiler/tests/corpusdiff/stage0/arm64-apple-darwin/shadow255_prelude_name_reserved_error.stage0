@@ -1,0 +1,21 @@
+program	shadow255_prelude_name_reserved_error.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	no matching initializer for `Duration` with parameters: tag
+meets_expect	yes
+log	"error: no matching initializer for `Duration` with parameters: tag"
+log	"  --> examples/shadow255_prelude_name_reserved_error.saw:17:13"
+log	"     |"
+log	" 17 |     let d = Duration(tag: 7)"
+log	"     |             ^"
+log	"   hint: field init expects: nanos"
+log	""
+log	"error: struct `Duration` has no field `tag`"
+log	"  --> examples/shadow255_prelude_name_reserved_error.saw:18:12"
+log	"     |"
+log	" 18 |     print(d.tag)"
+log	"     |            ^"
+log	"   hint: available fields: nanos"
+log	""
+log	"2 error(s) generated"

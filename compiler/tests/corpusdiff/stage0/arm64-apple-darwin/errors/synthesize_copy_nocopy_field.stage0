@@ -1,0 +1,21 @@
+program	errors/synthesize_copy_nocopy_field.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	cannot derive copy() for `Holder`: field `f` of type `File` implements NoCopy and cannot be copied
+meets_expect	yes
+log	"error: struct `Holder` contains NoCopy field `f` of type `File` but does not implement NoCopy"
+log	"  --> examples/errors/synthesize_copy_nocopy_field.saw:9:1"
+log	"    |"
+log	" 9 | struct Holder {"
+log	"    | ^"
+log	"   hint: add `extension Holder: NoCopy {}` — a NoCopy field makes `Holder` move-only, and its `deinit` is synthesized"
+log	""
+log	"error: cannot derive copy() for `Holder`: field `f` of type `File` implements NoCopy and cannot be copied"
+log	"  --> examples/errors/synthesize_copy_nocopy_field.saw:9:1"
+log	"    |"
+log	" 9 | struct Holder {"
+log	"    | ^"
+log	"   hint: give the field a copyable type, or write copy() by hand"
+log	""
+log	"2 error(s) generated"

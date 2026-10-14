@@ -1,0 +1,19 @@
+program	unsaferef_deref_places.saw
+triple	arm64-apple-darwin
+twin	differs
+expect	success
+build	ok
+exit	0
+stdout	"read a 1"
+stdout	"read method 1"
+stdout	"read nested 5"
+stdout	"write a 7"
+stdout	"compound a 8"
+stdout	"method bump 9"
+stdout	"nested write 42"
+stdout	"caller sees 9 42"
+stdout	"second handle sees 9"
+stdout	"through second handle 30"
+stdout	"original sees 30"
+stdout	""
+meets_expect	yes

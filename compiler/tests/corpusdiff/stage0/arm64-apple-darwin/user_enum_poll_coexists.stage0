@@ -1,0 +1,12 @@
+program	user_enum_poll_coexists.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"waiting: pending"
+stdout	"settled: ready"
+stdout	"task: 36"
+stdout	"after: ready"
+stdout	""
+meets_expect	yes

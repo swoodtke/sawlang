@@ -1,0 +1,12 @@
+program	method_overload_static_first_param.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"first-label 12 21"
+stdout	"first-type 1 2"
+stdout	"arity 0 7"
+stdout	"second-label 30 12"
+stdout	""
+meets_expect	yes

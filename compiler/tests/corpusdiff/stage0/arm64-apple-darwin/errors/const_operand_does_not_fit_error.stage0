@@ -1,0 +1,20 @@
+program	errors/const_operand_does_not_fit_error.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	constant expression 1048576 does not fit in `UInt8` (range 0..=255)
+meets_expect	yes
+log	"error: constant expression 1048576 does not fit in `UInt8` (range 0..=255)"
+log	"  --> examples/errors/const_operand_does_not_fit_error.saw:15:23"
+log	"     |"
+log	" 15 |     print(small >= (1 << 20))"
+log	"     |                       ^"
+log	""
+log	"error: operator `>=` requires both operands to have the same type, but the left is `UInt8` and the right is `Int32`"
+log	"  --> examples/errors/const_operand_does_not_fit_error.saw:18:17"
+log	"     |"
+log	" 18 |     print(small >= wide)"
+log	"     |                 ^"
+log	"   hint: convert one operand — `x as UInt8` panics out of range, `UInt8.from(x)` answers `None`, `UInt8.from(truncating: x)` keeps the low bits"
+log	""
+log	"2 error(s) generated"

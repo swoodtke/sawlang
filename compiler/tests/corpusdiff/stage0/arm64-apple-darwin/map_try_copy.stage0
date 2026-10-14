@@ -1,0 +1,11 @@
+program	map_try_copy.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"ok"
+stdout	"2"
+stdout	"3"
+stdout	""
+meets_expect	yes

@@ -1,0 +1,8 @@
+program	errors/freestanding_macho_target_rejected.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	`--freestanding` cannot target the Mach-O triple `arm64-apple-darwin`
+meets_expect	yes
+log	"error: `--freestanding` cannot target the Mach-O triple `arm64-apple-darwin`"
+log	"   hint: the freestanding profile emits per-function `.text.<name>` sections for `--gc-sections`, which Mach-O does not support. Cross-compile to an ELF target, e.g. `--target riscv32-unknown-none-elf` (also `aarch64-unknown-none-elf`, `x86_64-unknown-none-elf`)."

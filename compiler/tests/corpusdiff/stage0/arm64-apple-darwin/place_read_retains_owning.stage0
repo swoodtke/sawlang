@@ -1,0 +1,16 @@
+program	place_read_retains_owning.saw
+triple	arm64-apple-darwin
+twin	differs
+expect	success
+build	ok
+exit	0
+stdout	"-- read out, vector still owns"
+stdout	"alpha"
+stdout	"beta"
+stdout	"-- copies dropped"
+stdout	"-- vector dropped"
+stdout	"bye alpha"
+stdout	"bye beta"
+stdout	"-- done"
+stdout	""
+meets_expect	yes

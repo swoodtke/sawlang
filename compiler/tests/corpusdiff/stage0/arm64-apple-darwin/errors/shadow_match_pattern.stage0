@@ -1,0 +1,14 @@
+program	errors/shadow_match_pattern.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	`x` shadows the binding declared at shadow_match_pattern.saw:12:5
+meets_expect	yes
+log	"error: `x` shadows the binding declared at shadow_match_pattern.saw:12:5"
+log	"  --> examples/errors/shadow_match_pattern.saw:15:9"
+log	"     |"
+log	" 15 |         case Move(x, y) -> print(\"{x} {y}\"),"
+log	"     |         ^"
+log	"   hint: patterns bind new variables, they do not compare against `x` — rename the binding"
+log	""
+log	"1 error(s) generated"

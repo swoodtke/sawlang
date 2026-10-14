@@ -1,0 +1,10 @@
+program	coro_conservative_generic_instance_not_promoted.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"20"
+stdout	"10"
+stdout	""
+meets_expect	yes

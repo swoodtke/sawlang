@@ -1,0 +1,18 @@
+program	renamed_extension_type_param.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"agree true"
+stdout	"me y"
+stdout	"maybe false"
+stdout	"firstval x"
+stdout	"mapped 7"
+stdout	"build n"
+stdout	"swapped 3"
+stdout	"leftval 3"
+stdout	"label rec-9"
+stdout	"slot 1"
+stdout	""
+meets_expect	yes

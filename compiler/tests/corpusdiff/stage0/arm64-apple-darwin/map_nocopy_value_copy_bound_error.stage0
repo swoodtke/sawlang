@@ -1,0 +1,14 @@
+program	map_nocopy_value_copy_bound_error.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	type `Map<String, File, GlobalAllocator>` has no method `copy`: requires `V: ExplicitCopy`, and `File` does not conform
+meets_expect	yes
+log	"error: type `Map<String, File, GlobalAllocator>` has no method `copy`: requires `V: ExplicitCopy`, and `File` does not conform"
+log	"  --> examples/map_nocopy_value_copy_bound_error.saw:11:14"
+log	"     |"
+log	" 11 |     let w = m.copy()"
+log	"     |              ^"
+log	"   hint: `copy` is only available when `V` satisfies `ExplicitCopy`"
+log	""
+log	"1 error(s) generated"

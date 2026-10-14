@@ -1,0 +1,14 @@
+program	consumes_is_a_contextual_word.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"field 21"
+stdout	"call 6"
+stdout	"local 9"
+stdout	"label 4"
+stdout	"interp 21"
+stdout	"method 12"
+stdout	""
+meets_expect	yes

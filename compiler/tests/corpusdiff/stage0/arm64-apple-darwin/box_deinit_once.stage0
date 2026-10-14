@@ -1,0 +1,11 @@
+program	box_deinit_once.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"made"
+stdout	"5"
+stdout	"gone 5"
+stdout	""
+meets_expect	yes

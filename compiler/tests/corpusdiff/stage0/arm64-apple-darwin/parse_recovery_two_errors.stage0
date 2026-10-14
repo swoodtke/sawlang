@@ -1,0 +1,8 @@
+program	parse_recovery_two_errors.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	Parse error at 10:7: Expected type, got NEWLINE
+meets_expect	yes
+log	"error: Parse error at 10:7: Expected type, got NEWLINE"
+log	"Parse error at 17:11: Expected type name after 'extension'"

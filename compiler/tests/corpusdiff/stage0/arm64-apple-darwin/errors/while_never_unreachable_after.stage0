@@ -1,0 +1,13 @@
+program	errors/while_never_unreachable_after.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	function `halt` should return `Never` but returns `Void`
+meets_expect	yes
+log	"error: function `halt` should return `Never` but returns `Void`"
+log	"  --> examples/errors/while_never_unreachable_after.saw:10:1"
+log	"     |"
+log	" 10 | func halt() -> Never {"
+log	"     | ^"
+log	""
+log	"1 error(s) generated"

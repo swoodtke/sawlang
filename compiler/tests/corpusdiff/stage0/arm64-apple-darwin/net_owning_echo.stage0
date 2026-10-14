@@ -1,0 +1,10 @@
+program	net_owning_echo.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"5"
+stdout	"5"
+stdout	""
+meets_expect	yes

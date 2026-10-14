@@ -1,0 +1,14 @@
+program	errors/shadow_param.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	`count` shadows the binding declared at shadow_param.saw:9:1
+meets_expect	yes
+log	"error: `count` shadows the binding declared at shadow_param.saw:9:1"
+log	"  --> examples/errors/shadow_param.saw:11:1"
+log	"     |"
+log	" 11 | func bump(count: Int) -> Int { count + 1 }"
+log	"     | ^"
+log	"   hint: rename the parameter — a parameter cannot derive from the binding it would shadow"
+log	""
+log	"1 error(s) generated"

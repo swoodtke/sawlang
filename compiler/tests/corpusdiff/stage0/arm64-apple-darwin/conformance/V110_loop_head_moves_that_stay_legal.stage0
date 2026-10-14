@@ -1,0 +1,17 @@
+program	conformance/V110_loop_head_moves_that_stay_legal.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"drop revived-old"
+stdout	"drop fresh"
+stdout	"drop fresh"
+stdout	"drop fresh"
+stdout	"reassigned 3"
+stdout	"drop counted"
+stdout	"for-iterable 2"
+stdout	"drop tested"
+stdout	"if-cond 1"
+stdout	""
+meets_expect	yes

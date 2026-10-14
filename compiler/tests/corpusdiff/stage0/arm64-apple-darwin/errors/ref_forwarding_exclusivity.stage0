@@ -1,0 +1,14 @@
+program	errors/ref_forwarding_exclusivity.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	exclusive access violation: `r` is passed as `&var` while also being accessed in the same call
+meets_expect	yes
+log	"error: exclusive access violation: `r` is passed as `&var` while also being accessed in the same call"
+log	"  --> examples/errors/ref_forwarding_exclusivity.saw:14:10"
+log	"     |"
+log	" 14 |     both(&var r, &r)     // &var r overlaps &r (same root) — rejected"
+log	"     |          ^"
+log	"   hint: disjoint access paths are allowed (e.g. `&var p.x` with `&p.y`); give the mutable reference exclusive access"
+log	""
+log	"1 error(s) generated"

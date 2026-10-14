@@ -1,0 +1,14 @@
+program	errors/generic_default_value_bound.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	type `Widget` does not implement trait `Fooable`
+meets_expect	yes
+log	"error: type `Widget` does not implement trait `Fooable`"
+log	"  --> examples/errors/generic_default_value_bound.saw:14:11"
+log	"     |"
+log	" 14 |     print(f(1))"
+log	"     |           ^"
+log	"   hint: add `extension Widget: Fooable { ... }`"
+log	""
+log	"1 error(s) generated"

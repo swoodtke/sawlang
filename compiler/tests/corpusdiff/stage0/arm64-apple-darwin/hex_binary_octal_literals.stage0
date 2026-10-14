@@ -1,0 +1,15 @@
+program	hex_binary_octal_literals.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"255"
+stdout	"10"
+stdout	"493"
+stdout	"3735928559"
+stdout	"1000000"
+stdout	"65535"
+stdout	"43981"
+stdout	""
+meets_expect	yes

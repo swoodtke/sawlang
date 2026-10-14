@@ -1,0 +1,14 @@
+program	df151e_optional_element_repeat_error.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	a repeat literal needs a freely copyable element, and `Handle?` is NoCopy
+meets_expect	yes
+log	"error: a repeat literal needs a freely copyable element, and `Handle?` is NoCopy"
+log	"  --> examples/df151e_optional_element_repeat_error.saw:15:32"
+log	"     |"
+log	" 15 |     let slots: [Handle?; 4] = [Handle(id: 1); 4]"
+log	"     |                                ^"
+log	"   hint: a NoCopy value has exactly one owner, so there is nothing to repeat — build the array element by element, moving a separate value into each slot"
+log	""
+log	"1 error(s) generated"

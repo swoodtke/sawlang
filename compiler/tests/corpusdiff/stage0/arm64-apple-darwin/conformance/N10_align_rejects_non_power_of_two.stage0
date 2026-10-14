@@ -1,0 +1,14 @@
+program	conformance/N10_align_rejects_non_power_of_two.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	`@align` on the local `body` must be a power of two, but is `24`
+meets_expect	yes
+log	"error: `@align` on the local `body` must be a power of two, but is `24`"
+log	"  --> examples/conformance/N10_align_rejects_non_power_of_two.saw:12:12"
+log	"     |"
+log	" 12 |     @align(24)"
+log	"     |            ^"
+log	"   hint: an address is aligned to a power of two — the nearest are `16` and `32`"
+log	""
+log	"1 error(s) generated"

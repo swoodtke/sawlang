@@ -1,0 +1,14 @@
+program	enum145_init_rejected.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	enum `Color` cannot declare an `init`: an enum's cases are its constructors
+meets_expect	yes
+log	"error: enum `Color` cannot declare an `init`: an enum's cases are its constructors"
+log	"  --> examples/enum145_init_rejected.saw:15:5"
+log	"     |"
+log	" 15 |     init(bright: Bool) -> Color {"
+log	"     |     ^"
+log	"   hint: construct it by naming a case (`Color.SomeCase`), or add a static method returning `Color` if it needs to compute which case to build"
+log	""
+log	"1 error(s) generated"

@@ -1,0 +1,21 @@
+program	export229_transitive_qualified_error.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	`Widget` is not part of `export229_wall`'s surface
+meets_expect	yes
+log	"error: `Widget` is not part of `export229_wall`'s surface"
+log	"  --> examples/export229_transitive_qualified_error.saw:10:18"
+log	"     |"
+log	" 10 | func size_of(w: &export229_wall.Widget) -> Int {"
+log	"     |                  ^"
+log	"   hint: `Widget` is imported by `export229_wall` but not re-exported — add `public import` in `export229_wall`, or import `modules.export229_leaf` directly"
+log	""
+log	"error: type `export229_wall.Widget` in parameter `w` does not resolve"
+log	"  --> examples/export229_transitive_qualified_error.saw:10:1"
+log	"     |"
+log	" 10 | func size_of(w: &export229_wall.Widget) -> Int {"
+log	"     | ^"
+log	"   hint: `export229_wall` must be an imported module exporting a public `Widget` — check the import and that `Widget` is `public`"
+log	""
+log	"2 error(s) generated"

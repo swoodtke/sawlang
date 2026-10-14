@@ -1,0 +1,12 @@
+program	synthesize_across_coro_reentry.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"true"
+stdout	"false"
+stdout	"true"
+stdout	"6"
+stdout	""
+meets_expect	yes

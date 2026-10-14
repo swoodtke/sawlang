@@ -1,0 +1,21 @@
+program	errors/borrowing_field_alias_exclusive.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	field `source` of `borrows struct It` may not be an EXCLUSIVE reference: `OwnerVarRef` is `&var`, and a borrowing struct holds SHARED references only. A window is shared, and an exclusive field would let this type reallocate the very storage another reader is walking through its own field — which recording the root alone would not catch
+meets_expect	yes
+log	"error: field `source` of `borrows struct It` may not be an EXCLUSIVE reference: `OwnerVarRef` is `&var`, and a borrowing struct holds SHARED references only. A window is shared, and an exclusive field would let this type reallocate the very storage another reader is walking through its own field — which recording the root alone would not catch"
+log	"  --> examples/errors/borrowing_field_alias_exclusive.saw:26:5"
+log	"     |"
+log	" 26 |     source: OwnerVarRef                    // ROW: an alias to `&var`"
+log	"     |     ^"
+log	"   hint: lend it shared (`source: &Owner`); mutating this type's OWN state stays ordinary `&var self` on its methods"
+log	""
+log	"error: cannot assign through `self.source`: it is a shared reference field (`&Owner`) of a `borrows struct`, and a borrowing struct's reference field lends its referent READ-ONLY for the whole window — a `for` window is shared, so no write reaches the collection through the iterator, whatever the receiver's own mode (`&var self` is permission to write the iterator's OWN state, not what it borrows)"
+log	"  --> examples/errors/borrowing_field_alias_exclusive.saw:37:20"
+log	"     |"
+log	" 37 |         self.source.value = 7              // ROW: a write through the alias-spelled shared field"
+log	"     |                    ^"
+log	"   hint: mutate the iterator's own fields (`self.index`), never the referent; a write to the collection belongs after the loop, outside the window"
+log	""
+log	"2 error(s) generated"

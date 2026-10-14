@@ -1,0 +1,13 @@
+program	errors/coro_let_init_move_beside_early_exit.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	coroutine transform: `move` of a frame local in the initializer of `v` of driven `run` whose expression also `return`s, `break`s or `continue`s is not supported; bind the moving call to its own `let` first, then use the binding
+meets_expect	yes
+log	"error: coroutine transform: `move` of a frame local in the initializer of `v` of driven `run` whose expression also `return`s, `break`s or `continue`s is not supported; bind the moving call to its own `let` first, then use the binding"
+log	"  --> examples/errors/coro_let_init_move_beside_early_exit.saw:46:9"
+log	"     |"
+log	" 46 |         let v = if consume_bool(move r) { return 4 } else { 0 }"
+log	"     |         ^"
+log	""
+log	"1 error(s) generated"

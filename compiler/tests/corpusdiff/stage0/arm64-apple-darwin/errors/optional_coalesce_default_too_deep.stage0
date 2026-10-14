@@ -1,0 +1,14 @@
+program	errors/optional_coalesce_default_too_deep.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	`??` peels one optional layer, so the default owes `Int?`, but this default is `Int??`
+meets_expect	yes
+log	"error: `??` peels one optional layer, so the default owes `Int?`, but this default is `Int??`"
+log	"  --> examples/errors/optional_coalesce_default_too_deep.saw:17:28"
+log	"     |"
+log	" 17 |     let got = v.get(9) ?? v.get(0)"
+log	"     |                            ^"
+log	"   hint: peel the default too, or bind the outer layer with `if let` before coalescing"
+log	""
+log	"1 error(s) generated"

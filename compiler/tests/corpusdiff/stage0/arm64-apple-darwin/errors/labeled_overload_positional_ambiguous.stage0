@@ -1,0 +1,14 @@
+program	errors/labeled_overload_positional_ambiguous.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	ambiguous call to `f`: multiple overloads match the argument types (Int, Int)
+meets_expect	yes
+log	"error: ambiguous call to `f`: multiple overloads match the argument types (Int, Int)"
+log	"  --> examples/errors/labeled_overload_positional_ambiguous.saw:11:11"
+log	"     |"
+log	" 11 |     print(f(1, 2))"
+log	"     |           ^"
+log	"   hint: matching candidates: f(a: Int, b: Int); f(kind: Int, value: Int)"
+log	""
+log	"1 error(s) generated"

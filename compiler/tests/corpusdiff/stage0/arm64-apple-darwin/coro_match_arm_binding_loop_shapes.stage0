@@ -1,0 +1,15 @@
+program	coro_match_arm_binding_loop_shapes.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"while-break 1 1"
+stdout	"while-continue 4 4"
+stdout	"bare-while-break 1 1"
+stdout	"for-break 1 1"
+stdout	"for-continue 4 4"
+stdout	"whilelet-break 1 1"
+stdout	"whilelet-continue 4 4"
+stdout	""
+meets_expect	yes

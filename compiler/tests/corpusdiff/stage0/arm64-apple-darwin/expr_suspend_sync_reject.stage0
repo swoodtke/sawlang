@@ -1,0 +1,14 @@
+program	expr_suspend_sync_reject.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	cannot suspend in `sync func` declaration: `sync func pure` calls `s` → __saw_suspend (`s` suspends at line 9)
+meets_expect	yes
+log	"error: cannot suspend in `sync func` declaration: `sync func pure` calls `s` → __saw_suspend (`s` suspends at line 9)"
+log	"  --> examples/expr_suspend_sync_reject.saw:13:1"
+log	"     |"
+log	" 13 | func pure() sync -> Int {"
+log	"     | ^"
+log	"   hint: a `sync` context must be transitively suspension-free: remove the suspending call or hoist it out of the sync region"
+log	""
+log	"1 error(s) generated"

@@ -1,0 +1,16 @@
+program	string_split_join.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"Split by comma:"
+stdout	"apple"
+stdout	"banana"
+stdout	"cherry"
+stdout	"Joined with dash:"
+stdout	"apple-banana-cherry"
+stdout	"Round trip:"
+stdout	"one,two,three"
+stdout	""
+meets_expect	yes

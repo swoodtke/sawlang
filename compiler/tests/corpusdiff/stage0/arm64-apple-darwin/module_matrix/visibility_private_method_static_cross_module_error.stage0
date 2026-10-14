@@ -1,0 +1,21 @@
+program	module_matrix/visibility_private_method_static_cross_module_error.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	static method `secret_make` of `Crate` is private and not accessible from this module
+meets_expect	yes
+log	"error: static method `secret_make` of `Crate` is private and not accessible from this module"
+log	"  --> examples/module_matrix/visibility_private_method_static_cross_module_error.saw:18:22"
+log	"     |"
+log	" 18 |     let c = lib.Crate.secret_make()"
+log	"     |                      ^"
+log	"   hint: mark it `public` in the extension of `Crate` to expose it"
+log	""
+log	"error: method `secret_method` of `Crate` is private and not accessible from this module"
+log	"  --> examples/module_matrix/visibility_private_method_static_cross_module_error.saw:19:14"
+log	"     |"
+log	" 19 |     print(\"{c.secret_method()}\")"
+log	"     |              ^"
+log	"   hint: mark it `public` in the extension of `Crate` to expose it"
+log	""
+log	"2 error(s) generated"

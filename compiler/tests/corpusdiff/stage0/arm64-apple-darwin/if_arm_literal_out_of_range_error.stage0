@@ -1,0 +1,13 @@
+program	if_arm_literal_out_of_range_error.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	integer literal 300 does not fit in `Int8` (range -128..=127)
+meets_expect	yes
+log	"error: integer literal 300 does not fit in `Int8` (range -128..=127)"
+log	"  --> examples/if_arm_literal_out_of_range_error.saw:9:29"
+log	"    |"
+log	" 9 |     let x: Int8 = if cond { 300 } else { 2 }"
+log	"    |                             ^"
+log	""
+log	"1 error(s) generated"

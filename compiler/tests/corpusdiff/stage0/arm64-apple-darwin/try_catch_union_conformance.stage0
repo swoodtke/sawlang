@@ -1,0 +1,11 @@
+program	try_catch_union_conformance.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"7"
+stdout	"404"
+stdout	"7"
+stdout	""
+meets_expect	yes

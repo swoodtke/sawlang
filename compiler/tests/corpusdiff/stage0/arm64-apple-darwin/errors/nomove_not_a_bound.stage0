@@ -1,0 +1,21 @@
+program	errors/nomove_not_a_bound.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	`NoMove` is not a generic bound, so it cannot bound the type parameter `T`
+meets_expect	yes
+log	"error: `NoMove` is not a generic bound, so it cannot bound the type parameter `T`"
+log	"  --> examples/errors/nomove_not_a_bound.saw:17:11"
+log	"     |"
+log	" 17 | func hold<T: NoMove>(x: T) -> Int {"
+log	"     |           ^"
+log	"   hint: `NoMove` is declared at the CONFORMANCE position (`extension T: NoMove {}`, beside the required `extension T: NoCopy {}`) and says where a value may live, not what a generic body may do with it"
+log	""
+log	"error: cannot `take()` a `TaskGroup` payload: it is `NoMove`, so it lives where its constructor built it and may not be moved out of the optional. A `TaskGroup` is a SCOPE (design 124): its `Deinit` structured-joins its children where the group was born, and every spawned frame holds the group's address — so a group that moved would join in one place and be driven from another. Keep it in the frame that opened it and pass `&var group` down, or spawn into a group the caller owns."
+log	"  --> examples/errors/nomove_not_a_bound.saw:23:18"
+log	"     |"
+log	" 23 |     let taken = g.take()"
+log	"     |                  ^"
+log	"   hint: reach the payload through a borrow (`o!.method()`), or keep the value in the binding it was built in"
+log	""
+log	"2 error(s) generated"

@@ -1,0 +1,20 @@
+program	coro_closure_capture_positions.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"7"
+stdout	"9"
+stdout	"11"
+stdout	"13"
+stdout	"15"
+stdout	"17"
+stdout	"yes 19"
+stdout	"21"
+stdout	"46"
+stdout	"25"
+stdout	"27"
+stdout	"64"
+stdout	""
+meets_expect	yes

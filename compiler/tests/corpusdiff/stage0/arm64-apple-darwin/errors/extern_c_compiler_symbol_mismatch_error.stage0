@@ -1,0 +1,9 @@
+program	errors/extern_c_compiler_symbol_mismatch_error.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	`printf` is declared `extern "C"` here with a signature the compiler's own declaration of that symbol does not have
+meets_expect	yes
+log	"error: `printf` is declared `extern \"C\"` here with a signature the compiler's own declaration of that symbol does not have"
+log	"  --> examples/errors/extern_c_compiler_symbol_mismatch_error.saw:16:5"
+log	"   hint: the compiler declares `printf` for its own string, format and panic lowering, as `i32 (i8*, ...)` — declare it the same way to share the symbol, or give your declaration a different name"

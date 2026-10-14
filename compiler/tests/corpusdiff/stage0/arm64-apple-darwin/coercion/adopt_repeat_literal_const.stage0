@@ -1,0 +1,10 @@
+program	coercion/adopt_repeat_literal_const.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"repeat elem = 24"
+stdout	"repeat len = 4"
+stdout	""
+meets_expect	yes

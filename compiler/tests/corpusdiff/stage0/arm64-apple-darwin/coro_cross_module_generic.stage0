@@ -1,0 +1,11 @@
+program	coro_cross_module_generic.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"211"
+stdout	"207"
+stdout	"208"
+stdout	""
+meets_expect	yes

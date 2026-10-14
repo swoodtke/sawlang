@@ -1,0 +1,21 @@
+program	expr_suspend_move_error.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	use of moved variable `data`
+meets_expect	yes
+log	"error: use of moved variable `data`"
+log	"  --> examples/expr_suspend_move_error.saw:19:30"
+log	"     |"
+log	" 19 |     combine(move data, slen(&data))"
+log	"     |                              ^"
+log	"   hint: value was moved at line 19 and can no longer be used"
+log	""
+log	"error: cannot `move` `data` while it is also passed by reference in the same call"
+log	"  --> examples/expr_suspend_move_error.saw:19:13"
+log	"     |"
+log	" 19 |     combine(move data, slen(&data))"
+log	"     |             ^"
+log	"   hint: a moved value cannot alias a reference argument in the same call"
+log	""
+log	"2 error(s) generated"

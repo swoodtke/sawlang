@@ -1,0 +1,20 @@
+program	visibility_private_struct_error.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	`InternalData` is private in `modules.utils`
+meets_expect	yes
+log	"error: `InternalData` is private in `modules.utils`"
+log	"  --> examples/visibility_private_struct_error.saw:12:21"
+log	"     |"
+log	" 12 |     let data = utils.InternalData(secret: 42)"
+log	"     |                     ^"
+log	"   hint: mark it `public` in `modules.utils` to expose it — a `public import` re-export hands on the name and its module's extension scope, never a wider tier"
+log	""
+log	"error: undefined variable `data`"
+log	"  --> examples/visibility_private_struct_error.saw:13:11"
+log	"     |"
+log	" 13 |     print(data.secret)"
+log	"     |           ^"
+log	""
+log	"2 error(s) generated"

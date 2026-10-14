@@ -1,0 +1,9 @@
+program	conformance/K49_mt_worker_feeds_st_group_task.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"consumer got 7"
+stdout	""
+meets_expect	yes

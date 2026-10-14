@@ -1,0 +1,11 @@
+program	coro_qualified_generic_call_embeds.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"qualified generic 112 1"
+stdout	"bare generic 112 1"
+stdout	"qualified plain 8 1"
+stdout	""
+meets_expect	yes

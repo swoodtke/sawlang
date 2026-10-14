@@ -1,0 +1,27 @@
+program	errors/builtin_redefinition_rejected.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	`assert` is a compiler built-in and cannot be redefined
+meets_expect	yes
+log	"error: `assert` is a compiler built-in and cannot be redefined"
+log	"  --> examples/errors/builtin_redefinition_rejected.saw:10:1"
+log	"     |"
+log	" 10 | func assert(a: Int) -> Int { a * 2 }"
+log	"     | ^"
+log	"   hint: every `assert(...)` call resolves to the built-in, so this function could never be called — give it a different name"
+log	""
+log	"error: `assert` takes a Bool condition and a String message, optionally followed by format arguments for its `{}` placeholders"
+log	"  --> examples/errors/builtin_redefinition_rejected.saw:13:11"
+log	"     |"
+log	" 13 |     print(assert(21))"
+log	"     |           ^"
+log	""
+log	"error: cannot print value of type `Void`: it is not `Printable`"
+log	"  --> examples/errors/builtin_redefinition_rejected.saw:13:11"
+log	"     |"
+log	" 13 |     print(assert(21))"
+log	"     |           ^"
+log	"   hint: conform it with `extension Void: Printable { ... }`"
+log	""
+log	"3 error(s) generated"

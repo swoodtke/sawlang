@@ -1,0 +1,10 @@
+program	process_simple.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"stdout: hello"
+stdout	"success: true"
+stdout	""
+meets_expect	yes

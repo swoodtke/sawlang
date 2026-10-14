@@ -1,0 +1,7 @@
+program	const_generic_specialized_extension_unsupported.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	Parse error at 30:16: Expected type parameter name
+meets_expect	yes
+log	"error: Parse error at 30:16: Expected type parameter name"

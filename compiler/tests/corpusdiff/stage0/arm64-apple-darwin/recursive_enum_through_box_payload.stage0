@@ -1,0 +1,12 @@
+program	recursive_enum_through_box_payload.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"head is a link: true"
+stdout	"DEINIT c"
+stdout	"DEINIT b"
+stdout	"DEINIT a"
+stdout	""
+meets_expect	yes

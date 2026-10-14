@@ -1,0 +1,10 @@
+program	optional_generic_return_tail.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"plain 7"
+stdout	"nested 5"
+stdout	""
+meets_expect	yes

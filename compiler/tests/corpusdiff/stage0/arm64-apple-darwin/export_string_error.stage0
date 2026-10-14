@@ -1,0 +1,14 @@
+program	export_string_error.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	`@export` function `greeting`: return type `String` is not C-ABI-safe
+meets_expect	yes
+log	"error: `@export` function `greeting`: return type `String` is not C-ABI-safe"
+log	"  --> examples/export_string_error.saw:6:1"
+log	"    |"
+log	" 6 | func greeting() -> String { \"hi\" }"
+log	"    | ^"
+log	"   hint: exported returns allow fixed-width integers, Int/UInt, Float, UnsafePointer<T>, Void, or Never (noreturn)"
+log	""
+log	"1 error(s) generated"

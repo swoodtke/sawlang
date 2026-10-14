@@ -1,0 +1,15 @@
+program	optional_take.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"took 3"
+stdout	"local is None"
+stdout	"took 5"
+stdout	"field is None"
+stdout	"take of None gives None"
+stdout	"drop res 5"
+stdout	"drop res 3"
+stdout	""
+meets_expect	yes

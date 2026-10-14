@@ -1,0 +1,21 @@
+program	set_each_mutate_error.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	exclusive access violation: `s` is passed as `&var` while also being accessed in the same call
+meets_expect	yes
+log	"error: result of `insert` is `Result<Bool, AllocError>` and is silently discarded"
+log	"  --> examples/set_each_mutate_error.saw:9:6"
+log	"    |"
+log	" 9 |     s.insert(1)"
+log	"    |      ^"
+log	"   hint: handle it — `match` it, `try`/`try!`/`try?` it, or return it — or write `let _ = ...` to discard it explicitly"
+log	""
+log	"error: exclusive access violation: `s` is passed as `&var` while also being accessed in the same call"
+log	"  --> examples/set_each_mutate_error.saw:10:15"
+log	"     |"
+log	" 10 |     s.each { [&var s] e in"
+log	"     |               ^"
+log	"   hint: disjoint access paths are allowed (e.g. `&var p.x` with `&p.y`); give the mutable reference exclusive access"
+log	""
+log	"2 error(s) generated"

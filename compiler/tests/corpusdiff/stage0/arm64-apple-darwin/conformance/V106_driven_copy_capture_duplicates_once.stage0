@@ -1,0 +1,25 @@
+program	conformance/V106_driven_copy_capture_duplicates_once.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"-- sync"
+stdout	"copy 70 -> 71"
+stdout	"drop 71"
+stdout	"drop 70"
+stdout	"body saw 71"
+stdout	"-- driven"
+stdout	"copy 70 -> 71"
+stdout	"drop 70"
+stdout	"drop 71"
+stdout	"body saw 71"
+stdout	"-- sync, silent tier"
+stdout	"copy 5"
+stdout	"quiet 5"
+stdout	"-- driven, silent tier"
+stdout	"copy 5"
+stdout	"quiet 5"
+stdout	"end"
+stdout	""
+meets_expect	yes

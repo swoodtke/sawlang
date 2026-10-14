@@ -1,0 +1,9 @@
+program	overload_set_reaches_unnamed_receiver.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"8"
+stdout	""
+meets_expect	yes

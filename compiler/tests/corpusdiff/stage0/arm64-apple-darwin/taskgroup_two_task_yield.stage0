@@ -1,0 +1,15 @@
+program	taskgroup_two_task_yield.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"10"
+stdout	"20"
+stdout	"11"
+stdout	"21"
+stdout	"12"
+stdout	"22"
+stdout	"30"
+stdout	""
+meets_expect	yes

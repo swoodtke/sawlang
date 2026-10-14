@@ -1,0 +1,21 @@
+program	ext142_orphan_conformance_error.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	`Reading` cannot be conformed to `Printable` here: this module defines neither the type nor the trait
+meets_expect	yes
+log	"error: `Reading` cannot be conformed to `Printable` here: this module defines neither the type nor the trait"
+log	"  --> examples/ext142_orphan_conformance_error.saw:12:1"
+log	"     |"
+log	" 12 | extension Reading: Printable {"
+log	"     | ^"
+log	"   hint: declare the conformance in `modules.ext142_base` (which defines `Reading`) or `std.builtin` (which defines `Printable`). A conformance is program-wide — two modules minting one for the same (type, trait) pair would disagree about what `Printable` means for `Reading`"
+log	""
+log	"error: result of `append` is `Result<Void, AllocError>` and is silently discarded"
+log	"  --> examples/ext142_orphan_conformance_error.saw:14:13"
+log	"     |"
+log	" 14 |         into.append(\"mine\")"
+log	"     |             ^"
+log	"   hint: handle it — `match` it, `try`/`try!`/`try?` it, or return it — or write `let _ = ...` to discard it explicitly"
+log	""
+log	"2 error(s) generated"

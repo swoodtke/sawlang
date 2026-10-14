@@ -1,0 +1,10 @@
+program	conformance/K141_mutex_guarded_for_is_sync.saw
+triple	arm64-apple-darwin
+twin	differs
+expect	success
+build	ok
+exit	0
+stdout	"guarded sum 10"
+stdout	"guarded sum after a push 2334101988974884223"
+stdout	""
+meets_expect	no: output line 1 is 'guarded sum 10', expected 'guarded sum 6'

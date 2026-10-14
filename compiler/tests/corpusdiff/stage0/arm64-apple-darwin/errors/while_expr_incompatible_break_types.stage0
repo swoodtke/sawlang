@@ -1,0 +1,13 @@
+program	errors/while_expr_incompatible_break_types.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	break value type `String` incompatible with expected type `Int`
+meets_expect	yes
+log	"error: break value type `String` incompatible with expected type `Int`"
+log	"  --> examples/errors/while_expr_incompatible_break_types.saw:12:13"
+log	"     |"
+log	" 12 |             break \"hello\"  // Error: String incompatible with Int"
+log	"     |             ^"
+log	""
+log	"1 error(s) generated"

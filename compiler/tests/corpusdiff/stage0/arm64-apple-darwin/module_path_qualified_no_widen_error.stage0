@@ -1,0 +1,14 @@
+program	module_path_qualified_no_widen_error.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	`pkg_secret` is public(package) in `pkgvis.secret`
+meets_expect	yes
+log	"error: `pkg_secret` is public(package) in `pkgvis.secret`"
+log	"  --> examples/module_path_qualified_no_widen_error.saw:21:17"
+log	"     |"
+log	" 21 |     print(secret.pkg_secret())"
+log	"     |                 ^"
+log	"   hint: mark it `public` in `pkgvis.secret` to expose it — a `public import` re-export hands on the name and its module's extension scope, never a wider tier"
+log	""
+log	"1 error(s) generated"

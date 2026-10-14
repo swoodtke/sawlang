@@ -1,0 +1,7 @@
+program	errors/static236_static_init.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	Parse error at 13:12: `init` may not be declared `static` — an initializer takes no receiver by construction, and `Type(...)` is how it is called. Remove the `static`
+meets_expect	yes
+log	"error: Parse error at 13:12: `init` may not be declared `static` — an initializer takes no receiver by construction, and `Type(...)` is how it is called. Remove the `static`"

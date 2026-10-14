@@ -1,0 +1,26 @@
+program	map_subscript_retain_oracle.saw
+triple	arm64-apple-darwin
+twin	differs
+expect	success
+build	ok
+exit	0
+stdout	"copy 1"
+stdout	"-- ready"
+stdout	"-- force unwrap"
+stdout	"copy 1"
+stdout	"1"
+stdout	"-- nil coalesce, present"
+stdout	"copy 1"
+stdout	"1"
+stdout	"-- nil coalesce, absent"
+stdout	"9"
+stdout	"-- if let"
+stdout	"copy 1"
+stdout	"1"
+stdout	"-- borrow, no retain"
+stdout	"1"
+stdout	"-- presence test, no retain"
+stdout	"present"
+stdout	"-- done"
+stdout	""
+meets_expect	yes

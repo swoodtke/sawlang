@@ -1,0 +1,14 @@
+program	errors/forwarding_capture_escaping.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	cannot capture non-escaping closure `f` in an escaping closure
+meets_expect	yes
+log	"error: cannot capture non-escaping closure `f` in an escaping closure"
+log	"  --> examples/errors/forwarding_capture_escaping.saw:8:5"
+log	"    |"
+log	" 8 |     { x: Int in f(x) }"
+log	"    |     ^"
+log	"   hint: an escaping closure outlives the frame; only call a non-escaping closure or forward it as a non-escaping argument"
+log	""
+log	"1 error(s) generated"

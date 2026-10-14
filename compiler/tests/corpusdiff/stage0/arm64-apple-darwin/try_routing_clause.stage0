@@ -1,0 +1,38 @@
+program	try_routing_clause.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"statement ok 1"
+stdout	"statement err alloc/A30"
+stdout	"let_init ok 6"
+stdout	"let_init err alloc/A30"
+stdout	"argument ok 12"
+stdout	"argument err alloc/A30"
+stdout	"interpolation ok v=6"
+stdout	"interpolation err alloc/A30"
+stdout	"match_subject ok 600"
+stdout	"match_subject err alloc/A30"
+stdout	"coalesce ok 6"
+stdout	"coalesce err alloc/A30"
+stdout	"returned ok 4"
+stdout	"returned err parse/P-3"
+stdout	"tail ok 4"
+stdout	"tail err parse/P-3"
+stdout	"two_sources ok 1"
+stdout	"two_sources err alloc/A30"
+stdout	"two_sources err parse/P-12"
+stdout	"in_catch 6"
+stdout	"in_catch caught"
+stdout	"qualified ok 9"
+stdout	"qualified err dep/dep alloc 30"
+stdout	"suspending ok 6"
+stdout	"suspending err alloc/A30"
+stdout	"susp_two ok 1"
+stdout	"susp_two err alloc/A30"
+stdout	"susp_two err parse/P-12"
+stdout	"cast_still_a_cast 12"
+stdout	"paren_after_try 6"
+stdout	""
+meets_expect	yes

@@ -1,0 +1,14 @@
+program	errors/background_spawn_needs_a_hosted_entry.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	freestanding profile: `Task.spawn` needs the process-wide background task group, which is closed at `main`'s return — a freestanding image has no such entry point
+meets_expect	yes
+log	"error: freestanding profile: `Task.spawn` needs the process-wide background task group, which is closed at `main`'s return — a freestanding image has no such entry point"
+log	"  --> examples/errors/background_spawn_needs_a_hosted_entry.saw:19:17"
+log	"     |"
+log	" 19 |     let h = Task.spawn(work(n))"
+log	"     |                 ^"
+log	"   hint: declare a `TaskGroup` and spawn into it with `group.spawn(work(...))`: the group is the scope that says where the tasks end"
+log	""
+log	"1 error(s) generated"

@@ -1,0 +1,11 @@
+program	coro_optbind_split_in_try.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"iflet in try: 30"
+stdout	"guardlet in try: 40"
+stdout	"caught: 0"
+stdout	""
+meets_expect	yes

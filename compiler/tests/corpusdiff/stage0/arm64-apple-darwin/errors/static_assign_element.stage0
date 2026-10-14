@@ -1,0 +1,14 @@
+program	errors/static_assign_element.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	cannot assign to static `TABLE`: statics are immutable
+meets_expect	yes
+log	"error: cannot assign to static `TABLE`: statics are immutable"
+log	"  --> examples/errors/static_assign_element.saw:8:20"
+log	"    |"
+log	" 8 | func main() { TABLE[0] = 9 }"
+log	"    |                    ^"
+log	"   hint: use an interior-synchronized type (`Atomic<Int>`, `SpinLock<T>`) and mutate through its methods, or declare it `unsafe static var` and own the serialization argument"
+log	""
+log	"1 error(s) generated"

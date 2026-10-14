@@ -1,0 +1,7 @@
+program	vis258_private_on_a_function_error.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	Parse error at 9:1: `private` is not a declaration modifier — a declaration with no modifier is already module-private. Delete it; `private` narrows a struct FIELD back down when its type is `public`, and that is the only place it is written
+meets_expect	yes
+log	"error: Parse error at 9:1: `private` is not a declaration modifier — a declaration with no modifier is already module-private. Delete it; `private` narrows a struct FIELD back down when its type is `public`, and that is the only place it is written"

@@ -1,0 +1,10 @@
+program	coercion/adopt_struct_literal_field.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"bare = 100"
+stdout	"const = 24"
+stdout	""
+meets_expect	yes

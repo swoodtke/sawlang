@@ -1,0 +1,14 @@
+program	errors/shadow_for_nonderived.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	`x` shadows the binding declared at shadow_for_nonderived.saw:10:5
+meets_expect	yes
+log	"error: `x` shadows the binding declared at shadow_for_nonderived.saw:10:5"
+log	"  --> examples/errors/shadow_for_nonderived.saw:12:5"
+log	"     |"
+log	" 12 |     for x in ys.iter() {   // shadows outer x, sequence never mentions it -> error"
+log	"     |     ^"
+log	"   hint: rename it, or derive it from the original (e.g. `let x = parse(move x)`) to make the redefinition explicit"
+log	""
+log	"1 error(s) generated"

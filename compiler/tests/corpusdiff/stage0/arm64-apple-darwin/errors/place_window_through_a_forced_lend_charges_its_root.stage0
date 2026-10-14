@@ -1,0 +1,21 @@
+program	errors/place_window_through_a_forced_lend_charges_its_root.saw
+triple	arm64-apple-darwin
+twin	differs
+expect	error
+build	refused	exclusive access violation: the place `b.opt(…)` borrows `b` for the whole window, and `b` is accessed by reference a second time in the same call
+meets_expect	yes
+log	"error: exclusive access violation: the place `b.opt(…)` borrows `b` for the whole window, and `b` is accessed by reference a second time in the same call"
+log	"  --> examples/errors/place_window_through_a_forced_lend_charges_its_root.saw:35:13"
+log	"     |"
+log	" 35 |     setboth(&var b.opt(0)!, &var b.opt(1)!)"
+log	"     |             ^"
+log	"   hint: a place borrow charges its ROOT, so two windows onto one receiver — or a window beside a `&var` of it — cannot both be open. Open them in SEPARATE statements, or reach for the method that does both at once (`v.swap(i, j)`)"
+log	""
+log	"error: exclusive access violation: the place `b.opt(…)` borrows `b` for the whole window, and `b` is accessed by reference a second time in the same call"
+log	"  --> examples/errors/place_window_through_a_forced_lend_charges_its_root.saw:36:13"
+log	"     |"
+log	" 36 |     setroot(&var b.opt(0)!, &var b)"
+log	"     |             ^"
+log	"   hint: a place borrow charges its ROOT, so two windows onto one receiver — or a window beside a `&var` of it — cannot both be open. Open them in SEPARATE statements, or reach for the method that does both at once (`v.swap(i, j)`)"
+log	""
+log	"2 error(s) generated"

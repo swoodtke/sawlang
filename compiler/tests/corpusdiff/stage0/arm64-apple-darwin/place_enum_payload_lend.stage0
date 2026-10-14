@@ -1,0 +1,30 @@
+program	place_enum_payload_lend.saw
+triple	arm64-apple-darwin
+twin	differs
+expect	success
+build	ok
+exit	0
+stdout	"-- borrow through the payload place"
+stdout	"a"
+stdout	"a"
+stdout	"-- write through the payload place"
+stdout	"b"
+stdout	"-- the absent path"
+stdout	"absent"
+stdout	"out of range"
+stdout	"-- a Copy payload reads out as a value"
+stdout	"hello"
+stdout	"hello"
+stdout	"hello"
+stdout	"none"
+stdout	"-- a diverging arm beside a lending one"
+stdout	"7"
+stdout	"-- an epilogue inside the lending arm"
+stdout	"epilogue ran"
+stdout	"8"
+stdout	"-- teardown"
+stdout	"deinit 8"
+stdout	"deinit 7"
+stdout	"deinit b"
+stdout	""
+meets_expect	yes

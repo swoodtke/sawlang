@@ -1,0 +1,11 @@
+program	df140b_import_wrap.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"data 0"
+stdout	"dur 5"
+stdout	"closure body still ends at end-of-line"
+stdout	""
+meets_expect	yes

@@ -1,0 +1,9 @@
+program	extension_method_tie_break_distinguishes_nested_module_paths.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"entry 2"
+stdout	""
+meets_expect	yes

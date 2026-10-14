@@ -1,0 +1,11 @@
+program	value_branch_valueless_arm_preserved.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"stmt-then"
+stdout	"early-2"
+stdout	"panic-side-11"
+stdout	""
+meets_expect	yes

@@ -1,0 +1,10 @@
+program	try_force_panic_names_the_error.saw
+triple	arm64-apple-darwin
+twin	same
+expect	panic
+build	ok
+exit	-6
+stdout	"reserving"
+stdout	"panic at try_force_panic_names_the_error.saw:39: try! failed: allocation of 64 bytes (align 8) failed"
+stdout	""
+meets_expect	yes

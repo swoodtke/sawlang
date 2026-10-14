@@ -1,0 +1,9 @@
+program	never_extern_module_abi.saw
+triple	arm64-apple-darwin
+twin	same
+expect	panic
+build	ok
+exit	-6
+stdout	"panic at never_extern_module_abi.saw:25: stopped at 7"
+stdout	""
+meets_expect	yes

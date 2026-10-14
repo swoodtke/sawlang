@@ -1,0 +1,7 @@
+program	errors/semicolon_between_declarations.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	Parse error at 11:24: declarations are not joined by `;` — put each declaration on its own line
+meets_expect	yes
+log	"error: Parse error at 11:24: declarations are not joined by `;` — put each declaration on its own line"

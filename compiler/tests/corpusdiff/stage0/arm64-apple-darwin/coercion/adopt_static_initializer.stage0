@@ -1,0 +1,11 @@
+program	coercion/adopt_static_initializer.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"bare = 100"
+stdout	"const = 24"
+stdout	"neg = -8"
+stdout	""
+meets_expect	yes

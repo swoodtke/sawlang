@@ -1,0 +1,14 @@
+program	errors/ref_associated_type_assignment.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	associated type `Item` of `Cell` may not be a reference: `&Int` is a reference, and references in Saw are PARAMETERS ONLY — a reference borrows storage for the duration of one call and may not escape it (designs 88/106)
+meets_expect	yes
+log	"error: associated type `Item` of `Cell` may not be a reference: `&Int` is a reference, and references in Saw are PARAMETERS ONLY — a reference borrows storage for the duration of one call and may not escape it (designs 88/106)"
+log	"  --> examples/errors/ref_associated_type_assignment.saw:22:5"
+log	"     |"
+log	" 22 |     type Item = &Int"
+log	"     |     ^"
+log	"   hint: use the value type (`Int`), or — to hand out storage a type already owns — declare a `borrows` accessor (`... borrows -> &var Int` with `lend`, design 141)"
+log	""
+log	"1 error(s) generated"

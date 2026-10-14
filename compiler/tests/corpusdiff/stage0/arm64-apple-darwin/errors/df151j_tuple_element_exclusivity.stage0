@@ -1,0 +1,14 @@
+program	errors/df151j_tuple_element_exclusivity.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	exclusive access violation: `t.0` is passed as `&var` while also being accessed in the same call
+meets_expect	yes
+log	"error: exclusive access violation: `t.0` is passed as `&var` while also being accessed in the same call"
+log	"  --> examples/errors/df151j_tuple_element_exclusivity.saw:20:22"
+log	"     |"
+log	" 20 |     print(\"{add_into(&var t.0, &t.0)}\")"
+log	"     |                      ^"
+log	"   hint: disjoint access paths are allowed (e.g. `&var p.x` with `&p.y`); give the mutable reference exclusive access"
+log	""
+log	"1 error(s) generated"

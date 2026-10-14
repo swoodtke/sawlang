@@ -1,0 +1,16 @@
+program	arc_forward_generic_method.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"42"
+stdout	"v21"
+stdout	"5"
+stdout	"HELLO"
+stdout	"3"
+stdout	"tag=saw"
+stdout	"22"
+stdout	"n21"
+stdout	""
+meets_expect	yes

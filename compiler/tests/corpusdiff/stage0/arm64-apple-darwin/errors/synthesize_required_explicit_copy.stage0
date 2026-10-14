@@ -1,0 +1,14 @@
+program	errors/synthesize_required_explicit_copy.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	`Holder` declares `ExplicitCopy` with no `copy`: a derived body must be requested explicitly
+meets_expect	yes
+log	"error: `Holder` declares `ExplicitCopy` with no `copy`: a derived body must be requested explicitly"
+log	"  --> examples/errors/synthesize_required_explicit_copy.saw:12:1"
+log	"     |"
+log	" 12 | extension Holder: ExplicitCopy {}"
+log	"     | ^"
+log	"   hint: mark the extension `@synthesize` to derive `copy` memberwise, or write `copy` by hand"
+log	""
+log	"1 error(s) generated"

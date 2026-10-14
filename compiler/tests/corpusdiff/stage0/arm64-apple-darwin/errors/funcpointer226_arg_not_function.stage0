@@ -1,0 +1,14 @@
+program	errors/funcpointer226_arg_not_function.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	`FuncPointer`'s type argument must be a function type, but `Int` is not
+meets_expect	yes
+log	"error: `FuncPointer`'s type argument must be a function type, but `Int` is not"
+log	"  --> examples/errors/funcpointer226_arg_not_function.saw:9:15"
+log	"    |"
+log	" 9 | func takes(p: FuncPointer<Int>) { }"
+log	"    |               ^"
+log	"   hint: write the signature the address has — e.g. `FuncPointer<(Int) sync -> Int>`"
+log	""
+log	"1 error(s) generated"

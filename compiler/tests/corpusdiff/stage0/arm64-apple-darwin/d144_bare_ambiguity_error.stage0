@@ -1,0 +1,14 @@
+program	d144_bare_ambiguity_error.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	ambiguous struct `Widget`: defined in both `modules.d144_pub_a` and `modules.d144_pub_b`
+meets_expect	yes
+log	"error: ambiguous struct `Widget`: defined in both `modules.d144_pub_a` and `modules.d144_pub_b`"
+log	"  --> examples/d144_bare_ambiguity_error.saw:11:13"
+log	"     |"
+log	" 11 |     let w = Widget(size: 7)"
+log	"     |             ^"
+log	"   hint: qualify the use (e.g. `modules.d144_pub_a.Widget`), or import `Widget` from a single module"
+log	""
+log	"1 error(s) generated"

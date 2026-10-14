@@ -1,0 +1,28 @@
+program	coro_match_moved_payload_survives_return.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"-- returned_tail"
+stdout	"NEW t1"
+stdout	"held t1"
+stdout	"DEINIT t1"
+stdout	"-- returned_bound"
+stdout	"NEW t2"
+stdout	"held t2"
+stdout	"DEINIT t2"
+stdout	"-- local_use"
+stdout	"NEW t3"
+stdout	"held t3"
+stdout	"DEINIT t3"
+stdout	"-- try_instead"
+stdout	"NEW t4"
+stdout	"held t4"
+stdout	"DEINIT t4"
+stdout	"-- sync_control"
+stdout	"NEW t5"
+stdout	"held t5"
+stdout	"DEINIT t5"
+stdout	""
+meets_expect	yes

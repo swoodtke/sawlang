@@ -1,0 +1,10 @@
+program	indexed_read_addresses_the_live_array.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"99"
+stdout	"7"
+stdout	""
+meets_expect	yes

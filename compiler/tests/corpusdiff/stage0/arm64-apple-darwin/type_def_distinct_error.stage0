@@ -1,0 +1,13 @@
+program	type_def_distinct_error.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	argument `x` expects `MyInt` but got `Int`
+meets_expect	yes
+log	"error: argument `x` expects `MyInt` but got `Int`"
+log	"  --> examples/type_def_distinct_error.saw:14:18"
+log	"     |"
+log	" 14 |     print(double(x))"
+log	"     |                  ^"
+log	""
+log	"1 error(s) generated"

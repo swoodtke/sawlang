@@ -1,0 +1,7 @@
+program	conformance/R33_borrows_lends_ref_type.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	Parse error at 24:26: method `plain` may not return a reference: the return type `&Int` is a reference, and references in Saw are PARAMETERS ONLY — a reference borrows storage for the duration of one call and may not escape it (designs 88/106; the Law of Exclusivity is statically sound only because every live reference belongs to a call still on the stack). Returning one hands back a pointer into the frame that just died. Return the value instead (`-> Int`), or — to hand out storage the receiver already owns — declare a `borrows` accessor (`... borrows -> &var Int` with `lend`, design 141), which lends the place for a window rather than letting a pointer out
+meets_expect	yes
+log	"error: Parse error at 24:26: method `plain` may not return a reference: the return type `&Int` is a reference, and references in Saw are PARAMETERS ONLY — a reference borrows storage for the duration of one call and may not escape it (designs 88/106; the Law of Exclusivity is statically sound only because every live reference belongs to a call still on the stack). Returning one hands back a pointer into the frame that just died. Return the value instead (`-> Int`), or — to hand out storage the receiver already owns — declare a `borrows` accessor (`... borrows -> &var Int` with `lend`, design 141), which lends the place for a window rather than letting a pointer out"

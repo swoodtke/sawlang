@@ -1,0 +1,16 @@
+program	match_arm_overlap_legal.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"digit"
+stdout	"digit"
+stdout	"neg"
+stdout	"zero"
+stdout	"big"
+stdout	"small"
+stdout	"zero payload"
+stdout	"7"
+stdout	""
+meets_expect	yes

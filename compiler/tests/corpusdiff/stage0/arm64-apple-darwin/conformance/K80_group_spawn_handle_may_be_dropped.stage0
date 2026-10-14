@@ -1,0 +1,9 @@
+program	conformance/K80_group_spawn_handle_may_be_dropped.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"served 15"
+stdout	""
+meets_expect	yes

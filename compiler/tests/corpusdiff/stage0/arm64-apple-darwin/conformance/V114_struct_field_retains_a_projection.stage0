@@ -1,0 +1,28 @@
+program	conformance/V114_struct_field_retains_a_projection.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"-- sync"
+stdout	"identifier 2 -> 3"
+stdout	"member 4 -> 5"
+stdout	"tuple 6 -> 7"
+stdout	"array 9 -> 10"
+stdout	"trivial 41"
+stdout	"self 11"
+stdout	"bytes 169"
+stdout	"scalars 170"
+stdout	"move-once 7"
+stdout	"live 11 11 11 11 11"
+stdout	"held 7"
+stdout	"drop 7"
+stdout	"-- driven"
+stdout	"identifier 2 -> 3"
+stdout	"member 4 -> 5"
+stdout	"tuple 6 -> 7"
+stdout	"live 7"
+stdout	"keep 7 7 7"
+stdout	"end"
+stdout	""
+meets_expect	yes

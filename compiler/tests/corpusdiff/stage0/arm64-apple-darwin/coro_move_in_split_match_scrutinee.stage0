@@ -1,0 +1,11 @@
+program	coro_move_in_split_match_scrutinee.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"drop old"
+stdout	"drop old"
+stdout	"6"
+stdout	""
+meets_expect	yes

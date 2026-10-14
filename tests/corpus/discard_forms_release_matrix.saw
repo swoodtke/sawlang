@@ -2,11 +2,12 @@
 // discards an OWNED value releases it exactly once. One row per form:
 //   1. `let _ = <owned>`             — immediate release (always worked)
 //   2. `match ... case Two(_, _)`    — both unclaimed fields drop (DF-217n)
-//   3. `match ... case Two(v, _)`    — mixed: `_` drops inline, `v` at arm end
+//   3. `match ... case Two(v, _)`    — mixed: `v` at arm end, `_` after it
 //   4. `if let _ = move opt`         — the blessed consume (DF-217l)
-// A `_` payload drops INLINE at extraction (before the arm body) — a deferred
-// drop would be skipped by break/return/continue inside the arm; a named
-// binding drops at arm end. The oracle is a NoCopy deinit that prints.
+// A part no binding takes dies when the construct that took it completes,
+// after the body (SL-513 ruling B); a named binding drops at its arm's end.
+// This file's twin in `examples/` pins Stage 0, which drops a `_` part at arm
+// entry instead (SL:hazards C11). The oracle is a NoCopy deinit that prints.
 //
 // Row 2's ORDER is reverse-declaration — `B` then `A` — since DF-218y (ruled
 // Aug 22: discard order is reverse-declaration everywhere). It read forward
@@ -21,14 +22,14 @@
 // before let _
 // DEINIT L1
 // after let _
+// two discarded
 // DEINIT B
 // DEINIT A
-// two discarded
-// DEINIT D
 // kept C
 // DEINIT C
-// DEINIT O1
+// DEINIT D
 // if let _ ran
+// DEINIT O1
 // done
 
 struct Res { name: String }

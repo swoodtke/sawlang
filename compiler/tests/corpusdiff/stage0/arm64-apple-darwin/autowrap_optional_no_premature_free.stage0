@@ -1,0 +1,10 @@
+program	autowrap_optional_no_premature_free.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"optional payload 4 with padding wwwwwwwwwwwwwwww"
+stdout	"GGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGG"
+stdout	""
+meets_expect	yes

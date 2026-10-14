@@ -1,0 +1,14 @@
+program	export_bool_error.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	`@export` function `flag`: parameter `b` has type `Bool`, which is not C-ABI-safe
+meets_expect	yes
+log	"error: `@export` function `flag`: parameter `b` has type `Bool`, which is not C-ABI-safe"
+log	"  --> examples/export_bool_error.saw:7:1"
+log	"    |"
+log	" 7 | func flag(b: Bool) -> Int { 1 }"
+log	"    | ^"
+log	"   hint: exported signatures allow fixed-width integers, Int/UInt, Float, and UnsafePointer<T>; pass an aggregate by `UnsafePointer<S>`"
+log	""
+log	"1 error(s) generated"

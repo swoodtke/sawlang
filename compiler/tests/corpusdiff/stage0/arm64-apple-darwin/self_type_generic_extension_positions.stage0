@@ -1,0 +1,14 @@
+program	self_type_generic_extension_positions.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"ref 9"
+stdout	"value 3"
+stdout	"optional 4"
+stdout	"bumped 5"
+stdout	"twin 7"
+stdout	"enum 6"
+stdout	""
+meets_expect	yes

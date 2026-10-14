@@ -1,0 +1,7 @@
+program	unicode_escape_surrogate_error.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	Lexer error at 7:20: `\u{D800}` is a surrogate code point, which is not a valid Unicode scalar
+meets_expect	yes
+log	"error: Lexer error at 7:20: `\\u{D800}` is a surrogate code point, which is not a valid Unicode scalar"

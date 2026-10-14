@@ -1,0 +1,30 @@
+program	autowrap_diverging_arm.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"1 ok"
+stdout	"1 err bad"
+stdout	"2 ok 14"
+stdout	"2 err bad"
+stdout	"3 ok"
+stdout	"3 err bad"
+stdout	"4 none"
+stdout	"4 some 5"
+stdout	"5 ok"
+stdout	"5 err bad"
+stdout	"6 ok"
+stdout	"6 err bad"
+stdout	"7 err bad"
+stdout	"8 ok-7"
+stdout	"8 ok"
+stdout	"8 err bad"
+stdout	"9 ok 1"
+stdout	"9 err x"
+stdout	"10 err x"
+stdout	"10 ok 2"
+stdout	"11 ok 17"
+stdout	"11 err bad"
+stdout	""
+meets_expect	yes

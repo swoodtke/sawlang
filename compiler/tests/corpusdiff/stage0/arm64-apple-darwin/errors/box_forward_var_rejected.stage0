@@ -1,0 +1,14 @@
+program	errors/box_forward_var_rejected.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	cannot call `&var self` method `bump` through `Box` — aliased mutation of a shared value is not allowed
+meets_expect	yes
+log	"error: cannot call `&var self` method `bump` through `Box` — aliased mutation of a shared value is not allowed"
+log	"  --> examples/errors/box_forward_var_rejected.saw:14:6"
+log	"     |"
+log	" 14 |     b.bump()   // rejected: &var self forwarding through Box"
+log	"     |      ^"
+log	"   hint: wrap the payload in a `Mutex` and mutate it inside `lock`"
+log	""
+log	"1 error(s) generated"

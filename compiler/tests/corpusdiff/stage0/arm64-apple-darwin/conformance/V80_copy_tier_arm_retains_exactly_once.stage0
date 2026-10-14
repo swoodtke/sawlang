@@ -1,0 +1,15 @@
+program	conformance/V80_copy_tier_arm_retains_exactly_once.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"start 1"
+stdout	"branch 2 2"
+stdout	"stored 4"
+stdout	"place 5 5"
+stdout	"string 5 5"
+stdout	"trivial 5 5"
+stdout	"drop 7"
+stdout	""
+meets_expect	yes

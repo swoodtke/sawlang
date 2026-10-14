@@ -1,0 +1,13 @@
+program	conformance/N11_align_refuses_frame_resident_local.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	`@align` is not supported on `scratch`: it lives in this function's coroutine frame, not on the stack, and a frame field cannot carry an alignment yet — move the aligned buffer into a `sync` helper that does not suspend, or hold it in an `@align`ed `static`
+meets_expect	yes
+log	"error: `@align` is not supported on `scratch`: it lives in this function's coroutine frame, not on the stack, and a frame field cannot carry an alignment yet — move the aligned buffer into a `sync` helper that does not suspend, or hold it in an `@align`ed `static`"
+log	"  --> examples/conformance/N11_align_refuses_frame_resident_local.saw:24:5"
+log	"     |"
+log	" 24 |     var scratch: [UInt8; 32] = [0; 32]"
+log	"     |     ^"
+log	""
+log	"1 error(s) generated"

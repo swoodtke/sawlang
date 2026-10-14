@@ -1,0 +1,11 @@
+program	match_int_literals.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"100"
+stdout	"200"
+stdout	"300"
+stdout	""
+meets_expect	yes

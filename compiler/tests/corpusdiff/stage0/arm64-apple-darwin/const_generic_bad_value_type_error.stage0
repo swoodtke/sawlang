@@ -1,0 +1,14 @@
+program	const_generic_bad_value_type_error.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	a const parameter is `Int` or `UInt`, and `Name` is declared `String`
+meets_expect	yes
+log	"error: a const parameter is `Int` or `UInt`, and `Name` is declared `String`"
+log	"  --> examples/const_generic_bad_value_type_error.saw:7:17"
+log	"    |"
+log	" 7 | struct Labelled<const Name: String> {"
+log	"    |                 ^"
+log	"   hint: const generics carry integer values in v1 — a parameter of a user type is not supported"
+log	""
+log	"1 error(s) generated"

@@ -1,0 +1,12 @@
+program	consumes_cross_module_call.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"closed 3"
+stdout	"ordinary drop:"
+stdout	"Handle 9 deinit body"
+stdout	"end"
+stdout	""
+meets_expect	yes

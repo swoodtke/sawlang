@@ -1,0 +1,9 @@
+program	conformance/K57_main_receives_prefilled_with_mt_group_live.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"main got 2"
+stdout	""
+meets_expect	yes

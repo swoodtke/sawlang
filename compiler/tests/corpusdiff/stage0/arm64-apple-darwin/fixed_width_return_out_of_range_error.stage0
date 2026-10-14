@@ -1,0 +1,13 @@
+program	fixed_width_return_out_of_range_error.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	integer literal 999 does not fit in `Int8` (range -128..=127)
+meets_expect	yes
+log	"error: integer literal 999 does not fit in `Int8` (range -128..=127)"
+log	"  --> examples/fixed_width_return_out_of_range_error.saw:6:20"
+log	"    |"
+log	" 6 | func g() -> Int8 { 999 }"
+log	"    |                    ^"
+log	""
+log	"1 error(s) generated"

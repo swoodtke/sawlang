@@ -1,0 +1,15 @@
+program	once_static_set_get.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"false"
+stdout	"not yet"
+stdout	"true"
+stdout	"8"
+stdout	"512"
+stdout	"8"
+stdout	"4096"
+stdout	""
+meets_expect	yes

@@ -1,0 +1,14 @@
+program	conformance/V51_consuming_call_double_consume.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	use of moved variable `b`
+meets_expect	yes
+log	"error: use of moved variable `b`"
+log	"  --> examples/conformance/V51_consuming_call_double_consume.saw:25:18"
+log	"     |"
+log	" 25 |     print(\"{}\", (move b).finish())"
+log	"     |                  ^"
+log	"   hint: value was already moved at line 24 and can no longer be used"
+log	""
+log	"1 error(s) generated"

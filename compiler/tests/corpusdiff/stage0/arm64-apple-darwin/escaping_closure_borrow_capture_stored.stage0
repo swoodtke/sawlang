@@ -1,0 +1,21 @@
+program	escaping_closure_borrow_capture_stored.saw
+triple	arm64-apple-darwin
+twin	differs
+expect	error
+build	refused	an escaping closure cannot capture `n`, a reference (`&Int`) — a reference borrows storage for the duration of one call and may not outlive the frame it points into
+meets_expect	yes
+log	"error: an escaping closure cannot capture `n`, a reference (`&Int`) — a reference borrows storage for the duration of one call and may not outlive the frame it points into"
+log	"  --> examples/escaping_closure_borrow_capture_stored.saw:24:14"
+log	"     |"
+log	" 24 |     out.push({ n * 2 })"
+log	"     |              ^"
+log	"   hint: pass the closure straight to the call that runs it (a non-escaping closure keeps its environment on the stack, so borrowing the frame is sound), or copy the values it needs out of the referent into locals ahead of the closure and capture those"
+log	""
+log	"error: result of `push` is `Result<Void, AllocError>` and is silently discarded"
+log	"  --> examples/escaping_closure_borrow_capture_stored.saw:24:8"
+log	"     |"
+log	" 24 |     out.push({ n * 2 })"
+log	"     |        ^"
+log	"   hint: handle it — `match` it, `try`/`try!`/`try?` it, or return it — or write `let _ = ...` to discard it explicitly"
+log	""
+log	"2 error(s) generated"

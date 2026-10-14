@@ -1,0 +1,12 @@
+program	shared_self_field_call_exemption.saw
+triple	arm64-apple-darwin
+twin	differs
+expect	success
+build	ok
+exit	0
+stdout	"counter 2"
+stdout	"spinlock held false, sum 4"
+stdout	"row width 3"
+stdout	"bag size 3"
+stdout	""
+meets_expect	yes

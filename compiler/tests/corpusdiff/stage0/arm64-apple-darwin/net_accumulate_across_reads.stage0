@@ -1,0 +1,10 @@
+program	net_accumulate_across_reads.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"15"
+stdout	"1"
+stdout	""
+meets_expect	yes

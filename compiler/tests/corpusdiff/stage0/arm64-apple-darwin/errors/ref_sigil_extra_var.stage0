@@ -1,0 +1,14 @@
+program	errors/ref_sigil_extra_var.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	parameter `x` is `&Int`; write `&a`
+meets_expect	yes
+log	"error: parameter `x` is `&Int`; write `&a`"
+log	"  --> examples/errors/ref_sigil_extra_var.saw:12:18"
+log	"     |"
+log	" 12 |     print(readIt(&var a))"
+log	"     |                  ^"
+log	"   hint: call sites mirror the parameter's reference spelling"
+log	""
+log	"1 error(s) generated"

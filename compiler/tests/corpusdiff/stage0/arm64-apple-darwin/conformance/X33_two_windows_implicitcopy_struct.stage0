@@ -1,0 +1,14 @@
+program	conformance/X33_two_windows_implicitcopy_struct.saw
+triple	arm64-apple-darwin
+twin	differs
+expect	error
+build	refused	exclusive access violation: the place `r.at(…)` borrows `r` for the whole window, and `r` is accessed by reference a second time in the same call
+meets_expect	yes
+log	"error: exclusive access violation: the place `r.at(…)` borrows `r` for the whole window, and `r` is accessed by reference a second time in the same call"
+log	"  --> examples/conformance/X33_two_windows_implicitcopy_struct.saw:27:11"
+log	"     |"
+log	" 27 |     swap2(&var r.at(0), &var r.at(1))"
+log	"     |           ^"
+log	"   hint: a place borrow charges its ROOT, so two windows onto one receiver — or a window beside a `&var` of it — cannot both be open. Open them in SEPARATE statements, or reach for the method that does both at once (`v.swap(i, j)`)"
+log	""
+log	"1 error(s) generated"

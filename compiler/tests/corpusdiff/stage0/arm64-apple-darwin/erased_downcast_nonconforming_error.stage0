@@ -1,0 +1,14 @@
+program	erased_downcast_nonconforming_error.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	`NotShape` is not a concrete type conforming to `Shape`, so it cannot be a downcast target for `is<T>()`
+meets_expect	yes
+log	"error: `NotShape` is not a concrete type conforming to `Shape`, so it cannot be a downcast target for `is<T>()`"
+log	"  --> examples/erased_downcast_nonconforming_error.saw:12:9"
+log	"     |"
+log	" 12 |     if b.is<NotShape>() {"
+log	"     |         ^"
+log	"   hint: the type argument must be a concrete conforming type"
+log	""
+log	"1 error(s) generated"

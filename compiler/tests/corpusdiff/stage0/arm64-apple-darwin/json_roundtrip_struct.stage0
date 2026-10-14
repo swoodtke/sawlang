@@ -1,0 +1,14 @@
+program	json_roundtrip_struct.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"endpoint text: [443,true,\"api\",null,[1,2,3],[\"h\",80]]"
+stdout	"endpoint back: port=443 secure=true name=api tag=none nums=1,2,3 inner=h:80"
+stdout	"empty vector text: [[]]"
+stdout	"empty vector back len: 0"
+stdout	"track debug -> 0 -> Debug"
+stdout	"track release -> 7 -> Release"
+stdout	""
+meets_expect	yes

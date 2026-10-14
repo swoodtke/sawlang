@@ -1,0 +1,7 @@
+program	errors/semicolon_at_line_start.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	Parse error at 13:5: a `;` joins two statements on one line; it does not end one — remove it
+meets_expect	yes
+log	"error: Parse error at 13:5: a `;` joins two statements on one line; it does not end one — remove it"

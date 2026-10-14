@@ -1,0 +1,21 @@
+program	funcpointer_call_in_a_driven_body.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	refused	`yield_now` is a stdlib-internal cooperative-yield intrinsic and cannot be called bare
+meets_expect	no: Stage 0 does not build it
+log	"error: `yield_now` is a stdlib-internal cooperative-yield intrinsic and cannot be called bare"
+log	"  --> examples/funcpointer_call_in_a_driven_body.saw:25:5"
+log	"     |"
+log	" 25 |     yield_now()"
+log	"     |     ^"
+log	"   hint: add `import std.task` and call its public `yield_now()`"
+log	""
+log	"error: `yield_now` is a stdlib-internal cooperative-yield intrinsic and cannot be called bare"
+log	"  --> examples/funcpointer_call_in_a_driven_body.saw:27:5"
+log	"     |"
+log	" 27 |     yield_now()"
+log	"     |     ^"
+log	"   hint: add `import std.task` and call its public `yield_now()`"
+log	""
+log	"2 error(s) generated"

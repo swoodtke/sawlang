@@ -1,0 +1,14 @@
+program	ext254_facade_visibility_error.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	method `hidden` of `Panel` is private and not accessible from this module
+meets_expect	yes
+log	"error: method `hidden` of `Panel` is private and not accessible from this module"
+log	"  --> examples/ext254_facade_visibility_error.saw:12:12"
+log	"     |"
+log	" 12 |     print(p.hidden())"
+log	"     |            ^"
+log	"   hint: mark it `public` in the extension of `Panel` to expose it"
+log	""
+log	"1 error(s) generated"

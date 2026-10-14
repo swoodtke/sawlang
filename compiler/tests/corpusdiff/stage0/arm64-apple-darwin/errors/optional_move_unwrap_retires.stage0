@@ -1,0 +1,14 @@
+program	errors/optional_move_unwrap_retires.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	use of moved variable `o`
+meets_expect	yes
+log	"error: use of moved variable `o`"
+log	"  --> examples/errors/optional_move_unwrap_retires.saw:17:16"
+log	"     |"
+log	" 17 |     if let _ = o {"
+log	"     |                ^"
+log	"   hint: value was moved at line 15 and can no longer be used"
+log	""
+log	"1 error(s) generated"

@@ -1,0 +1,9 @@
+program	force_unwrap_panic.saw
+triple	arm64-apple-darwin
+twin	same
+expect	panic
+build	ok
+exit	-6
+stdout	"panic at force_unwrap_panic.saw:9: force unwrap of None"
+stdout	""
+meets_expect	yes

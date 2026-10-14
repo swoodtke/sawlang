@@ -1,0 +1,11 @@
+program	taskgroup_slot_reuse_mt.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"peak 4"
+stdout	"final 0"
+stdout	"ran 32"
+stdout	""
+meets_expect	yes

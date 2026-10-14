@@ -1,0 +1,20 @@
+program	vis258_field_inherits_parent_error.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	`ParentOnlyReading` is public(parent) in `modules.nested.child`
+meets_expect	yes
+log	"error: `ParentOnlyReading` is public(parent) in `modules.nested.child`"
+log	"  --> examples/vis258_field_inherits_parent_error.saw:11:18"
+log	"     |"
+log	" 11 |     let r = child.ParentOnlyReading.make(4)"
+log	"     |                  ^"
+log	"   hint: mark it `public` in `modules.nested.child` to expose it — a `public import` re-export hands on the name and its module's extension scope, never a wider tier"
+log	""
+log	"error: undefined variable `r`"
+log	"  --> examples/vis258_field_inherits_parent_error.saw:12:11"
+log	"     |"
+log	" 12 |     print(r.reading)"
+log	"     |           ^"
+log	""
+log	"2 error(s) generated"

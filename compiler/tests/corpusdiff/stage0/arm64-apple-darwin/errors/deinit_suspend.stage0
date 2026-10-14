@@ -1,0 +1,14 @@
+program	errors/deinit_suspend.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	cannot suspend in `deinit` context: `deinit` of `Resource` calls __saw_test_suspend (`Resource.deinit` suspends at line 13)
+meets_expect	yes
+log	"error: cannot suspend in `deinit` context: `deinit` of `Resource` calls __saw_test_suspend (`Resource.deinit` suspends at line 13)"
+log	"  --> examples/errors/deinit_suspend.saw:12:5"
+log	"     |"
+log	" 12 |     func deinit(&var self) {"
+log	"     |     ^"
+log	"   hint: a `sync` context must be transitively suspension-free: remove the suspending call or hoist it out of the sync region"
+log	""
+log	"1 error(s) generated"

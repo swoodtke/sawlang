@@ -1,0 +1,10 @@
+program	expr_suspend_iflet_scrutinee.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"9"
+stdout	"7"
+stdout	""
+meets_expect	yes

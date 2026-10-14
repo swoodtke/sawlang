@@ -1,0 +1,13 @@
+program	struct_fixed_width_field_out_of_range_error.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	integer literal 999 does not fit in `Int8` (range -128..=127)
+meets_expect	yes
+log	"error: integer literal 999 does not fit in `Int8` (range -128..=127)"
+log	"  --> examples/struct_fixed_width_field_out_of_range_error.saw:10:22"
+log	"     |"
+log	" 10 |     let r = Rec(tag: 999)"
+log	"     |                      ^"
+log	""
+log	"1 error(s) generated"

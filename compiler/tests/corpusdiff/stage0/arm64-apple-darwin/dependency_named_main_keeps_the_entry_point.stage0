@@ -1,0 +1,10 @@
+program	dependency_named_main_keeps_the_entry_point.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"worker 2"
+stdout	"dep main 8"
+stdout	""
+meets_expect	yes

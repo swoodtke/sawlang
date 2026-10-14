@@ -1,0 +1,11 @@
+program	import247b_glob_pair_one_identity.saw
+triple	arm64-apple-darwin
+twin	differs
+expect	success
+build	ok
+exit	0
+stdout	"std 3"
+stdout	"emitted 7"
+stdout	"user 11"
+stdout	""
+meets_expect	yes

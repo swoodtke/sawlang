@@ -1,0 +1,13 @@
+program	errors/window_in_a_threaded_group.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	cannot spawn `sum_vector` into a multi-threaded `TaskGroup(threads: ...)`: local `__saw_iter0` of type `VectorIterator<Int, GlobalAllocator>` is held across a suspension but is not `Send`, so the task frame cannot cross to a worker thread.
+meets_expect	yes
+log	"error: cannot spawn `sum_vector` into a multi-threaded `TaskGroup(threads: ...)`: local `__saw_iter0` of type `VectorIterator<Int, GlobalAllocator>` is held across a suspension but is not `Send`, so the task frame cannot cross to a worker thread."
+log	"  --> examples/errors/window_in_a_threaded_group.saw:19:1"
+log	"     |"
+log	" 19 | func sum_vector(v: Vector<Int>) -> Int {"
+log	"     | ^"
+log	""
+log	"1 error(s) generated"

@@ -1,0 +1,12 @@
+program	process_merge_stderr.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"[]"
+stdout	"[diagnostic]"
+stdout	"[out then diagnostic]"
+stdout	""
+stderr	"diagnostic"
+meets_expect	yes

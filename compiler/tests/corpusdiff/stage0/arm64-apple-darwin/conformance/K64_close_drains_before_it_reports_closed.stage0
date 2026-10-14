@@ -1,0 +1,13 @@
+program	conformance/K64_close_drains_before_it_reports_closed.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"got 1"
+stdout	"got 2"
+stdout	"got 3"
+stdout	"closed"
+stdout	"drained 3"
+stdout	""
+meets_expect	yes

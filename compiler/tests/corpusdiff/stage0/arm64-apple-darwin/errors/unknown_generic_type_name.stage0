@@ -1,0 +1,27 @@
+program	errors/unknown_generic_type_name.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	undefined type `Frobnicate`
+meets_expect	yes
+log	"error: undefined type `Frobnicate`"
+log	"  --> examples/errors/unknown_generic_type_name.saw:17:12"
+log	"     |"
+log	" 17 |     let a: Frobnicate<Int> = 5"
+log	"     |            ^"
+log	"   hint: check the spelling, and that the module defining it is imported"
+log	""
+log	"error: cannot assign `Int` to variable of type `Frobnicate<Int>`"
+log	"  --> examples/errors/unknown_generic_type_name.saw:17:5"
+log	"     |"
+log	" 17 |     let a: Frobnicate<Int> = 5"
+log	"     |     ^"
+log	""
+log	"error: cannot interpolate value of type `Frobnicate<Int>` in a string: it is not `Printable`"
+log	"  --> examples/errors/unknown_generic_type_name.saw:18:13"
+log	"     |"
+log	" 18 |     print(\"{a}\")"
+log	"     |             ^"
+log	"   hint: conform it with `extension Frobnicate: Printable { ... }`"
+log	""
+log	"3 error(s) generated"

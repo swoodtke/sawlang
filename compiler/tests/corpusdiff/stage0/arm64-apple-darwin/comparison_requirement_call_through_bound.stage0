@@ -1,0 +1,16 @@
+program	comparison_requirement_call_through_bound.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"int eq false"
+stdout	"int lt true"
+stdout	"str eq false"
+stdout	"str lt true"
+stdout	"tag eq false"
+stdout	"tag lt false"
+stdout	"plain eq false"
+stdout	"plain lt true"
+stdout	""
+meets_expect	yes

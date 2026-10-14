@@ -1,0 +1,9 @@
+program	errors/capture_self_requires_borrow_sigil.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	Parse error at 13:42: `self` may be captured only as a borrow — write `[&self]`, or `[&var self]` in a `&var self` method
+meets_expect	yes
+log	"error: Parse error at 13:42: `self` may be captured only as a borrow — write `[&self]`, or `[&var self]` in a `&var self` method"
+log	"Parse error at 13:63: Expected import, export, module, struct, enum, trait, extension, type, extern, or function declaration, got RPAREN"
+log	"Parse error at 14:1: Expected import, export, module, struct, enum, trait, extension, type, extern, or function declaration, got RBRACE"

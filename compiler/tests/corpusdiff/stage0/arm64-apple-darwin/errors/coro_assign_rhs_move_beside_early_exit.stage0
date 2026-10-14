@@ -1,0 +1,13 @@
+program	errors/coro_assign_rhs_move_beside_early_exit.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	coroutine transform: `move` of a frame local in the right-hand side of the assignment to `acc` of driven `run` whose expression also `return`s, `break`s or `continue`s is not supported; bind the moving call to its own `let` first, then use the binding
+meets_expect	yes
+log	"error: coroutine transform: `move` of a frame local in the right-hand side of the assignment to `acc` of driven `run` whose expression also `return`s, `break`s or `continue`s is not supported; bind the moving call to its own `let` first, then use the binding"
+log	"  --> examples/errors/coro_assign_rhs_move_beside_early_exit.saw:34:9"
+log	"     |"
+log	" 34 |         acc = if consume_bool(move r) { return 5 } else { 0 }"
+log	"     |         ^"
+log	""
+log	"1 error(s) generated"

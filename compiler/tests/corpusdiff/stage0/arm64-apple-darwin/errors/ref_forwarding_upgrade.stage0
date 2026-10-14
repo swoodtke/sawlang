@@ -1,0 +1,14 @@
+program	errors/ref_forwarding_upgrade.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	cannot forward `&` reference `r` as `&var`: a shared `&` reference cannot be upgraded to `&var`
+meets_expect	yes
+log	"error: cannot forward `&` reference `r` as `&var`: a shared `&` reference cannot be upgraded to `&var`"
+log	"  --> examples/errors/ref_forwarding_upgrade.saw:14:10"
+log	"     |"
+log	" 14 |     bump(&var r)          // upgrade a `&` param to `&var` — rejected"
+log	"     |          ^"
+log	"   hint: take the parameter as `&var T` to forward it mutably, or forward it as `&r`"
+log	""
+log	"1 error(s) generated"

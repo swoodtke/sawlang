@@ -1,0 +1,17 @@
+program	conformance/E12_autowrap_at_the_argument_position.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"positional ok=5 some=5"
+stdout	"labeled ok=6 some=6"
+stdout	"method ok=7 some=7"
+stdout	"field ok=3 some=3"
+stdout	"element ok=9 some=9"
+stdout	"default ok=1 some=1"
+stdout	"err side=oops"
+stdout	"double wrap=4"
+stdout	"owned payload=held"
+stdout	""
+meets_expect	yes

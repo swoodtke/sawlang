@@ -1,0 +1,11 @@
+program	conformance/K113_test_suspend_is_a_frame_boundary_not_an_executor.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"before"
+stdout	"driven 12"
+stdout	"after"
+stdout	""
+meets_expect	yes

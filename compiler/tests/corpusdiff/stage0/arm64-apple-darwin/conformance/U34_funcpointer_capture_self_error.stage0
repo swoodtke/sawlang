@@ -1,0 +1,14 @@
+program	conformance/U34_funcpointer_capture_self_error.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	a closure coerced to `FuncPointer` may capture nothing, but this one captures `self`
+meets_expect	yes
+log	"error: a closure coerced to `FuncPointer` may capture nothing, but this one captures `self`"
+log	"  --> examples/conformance/U34_funcpointer_capture_self_error.saw:19:9"
+log	"     |"
+log	" 19 |         { x in x + self.n }"
+log	"     |         ^"
+log	"   hint: a function pointer is a code address and carries no environment, so there is nowhere for captured state to travel — pass the state through the argument parameter instead, or keep it in a `static` the body reads"
+log	""
+log	"1 error(s) generated"

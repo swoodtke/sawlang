@@ -1,0 +1,9 @@
+program	coercion/const_expression_unary_adopts.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"-128 255 -18 4294967295"
+stdout	""
+meets_expect	yes

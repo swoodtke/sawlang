@@ -1,0 +1,10 @@
+program	hashable_synth_struct.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"1"
+stdout	"2"
+stdout	""
+meets_expect	yes

@@ -1,0 +1,13 @@
+program	errors/funcpointer226_call_arity.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	function pointer takes 1 argument(s), but 2 were given
+meets_expect	yes
+log	"error: function pointer takes 1 argument(s), but 2 were given"
+log	"  --> examples/errors/funcpointer226_call_arity.saw:11:13"
+log	"     |"
+log	" 11 |     print(\"{p(1, 2)}\")"
+log	"     |             ^"
+log	""
+log	"1 error(s) generated"

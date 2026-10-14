@@ -1,0 +1,11 @@
+program	newline_braces_stay_significant.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"20"
+stdout	"6"
+stdout	"2"
+stdout	""
+meets_expect	yes

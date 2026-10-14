@@ -1,0 +1,11 @@
+program	ref_no_escape_alias_boundary.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"handle 7"
+stdout	"applied 21"
+stdout	"total 21"
+stdout	""
+meets_expect	yes

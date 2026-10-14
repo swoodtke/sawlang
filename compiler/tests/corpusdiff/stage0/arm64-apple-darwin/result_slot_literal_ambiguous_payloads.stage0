@@ -1,0 +1,13 @@
+program	result_slot_literal_ambiguous_payloads.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	ambiguous Result auto-wrap: a function returns `Int`, but `Result<Int32, Int8>` accepts it as BOTH its Ok type `Int32` and its Err type `Int8`, so a bare `return` can't tell which variant you mean; write the explicit `Result<Int32, Int8>.Ok(value: ...)` or `Result<Int32, Int8>.Err(error: ...)`
+meets_expect	yes
+log	"error: ambiguous Result auto-wrap: a function returns `Int`, but `Result<Int32, Int8>` accepts it as BOTH its Ok type `Int32` and its Err type `Int8`, so a bare `return` can't tell which variant you mean; write the explicit `Result<Int32, Int8>.Ok(value: ...)` or `Result<Int32, Int8>.Err(error: ...)`"
+log	"  --> examples/result_slot_literal_ambiguous_payloads.saw:21:38"
+log	"     |"
+log	" 21 | func both() -> Result<Int32, Int8> { return 4 }"
+log	"     |                                      ^"
+log	""
+log	"1 error(s) generated"

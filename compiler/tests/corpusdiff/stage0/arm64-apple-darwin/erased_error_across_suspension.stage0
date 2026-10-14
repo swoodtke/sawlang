@@ -1,0 +1,9 @@
+program	erased_error_across_suspension.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"err MyErr(7)"
+stdout	""
+meets_expect	yes

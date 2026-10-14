@@ -1,0 +1,14 @@
+program	no_hidden_alloc_interpolation.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	string interpolation allocates a String — `--no-hidden-alloc` forbids allocations the source does not name
+meets_expect	yes
+log	"error: string interpolation allocates a String — `--no-hidden-alloc` forbids allocations the source does not name"
+log	"  --> examples/no_hidden_alloc_interpolation.saw:13:17"
+log	"     |"
+log	" 13 |     let label = \"count: {n}\""
+log	"     |                 ^"
+log	"   hint: pass the values as format arguments instead — `print(\"x = {}\", x)`, `panic(\"out of {}\", what)` — or assemble the text in a fixed-capacity `StringBuilder`; a message with nothing interpolated into it is an interned literal and costs nothing"
+log	""
+log	"1 error(s) generated"

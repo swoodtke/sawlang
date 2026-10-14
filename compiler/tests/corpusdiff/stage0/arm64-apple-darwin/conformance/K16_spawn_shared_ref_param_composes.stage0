@@ -1,0 +1,11 @@
+program	conformance/K16_spawn_shared_ref_param_composes.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"caller reads base while shared: 7"
+stdout	"doubled 14 tripled 21"
+stdout	"base after both joins: 7"
+stdout	""
+meets_expect	yes

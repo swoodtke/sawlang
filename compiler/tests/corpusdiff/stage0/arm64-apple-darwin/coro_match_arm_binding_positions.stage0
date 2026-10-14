@@ -1,0 +1,15 @@
+program	coro_match_arm_binding_positions.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"before-no-exit 6 6"
+stdout	"after 1 1"
+stdout	"inside-arm 1 1"
+stdout	"scrutinee 1 1"
+stdout	"inner-loop-owns-break 2 2"
+stdout	"outer-break-past-inner-loop 1 1"
+stdout	"nested-match 3 3"
+stdout	""
+meets_expect	yes

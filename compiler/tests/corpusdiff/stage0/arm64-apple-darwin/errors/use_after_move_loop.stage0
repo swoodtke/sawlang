@@ -1,0 +1,14 @@
+program	errors/use_after_move_loop.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	use of moved variable `f` across loop iterations
+meets_expect	yes
+log	"error: use of moved variable `f` across loop iterations"
+log	"  --> examples/errors/use_after_move_loop.saw:22:17"
+log	"     |"
+log	" 22 |         consume(move f)   // error: moved-from on the next iteration"
+log	"     |                 ^"
+log	"   hint: a binding moved inside a loop is moved-from on the next iteration; reassign it before the loop body ends, or move a fresh value"
+log	""
+log	"1 error(s) generated"

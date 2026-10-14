@@ -1,0 +1,18 @@
+program	optional_presence_unconditional_lend.saw
+triple	arm64-apple-darwin
+twin	differs
+expect	success
+build	ok
+exit	0
+stdout	"nocopy occupied: iflet=true guard=true"
+stdout	"nocopy empty: iflet=false guard=false"
+stdout	"explicit occupied: iflet=true guard=true"
+stdout	"implicit occupied: iflet=true guard=true"
+stdout	"implicit empty: iflet=false guard=false"
+stdout	"trivial occupied: iflet=true guard=true"
+stdout	"trivial empty: iflet=false guard=false"
+stdout	"done"
+stdout	"drop res 2"
+stdout	"drop res 1"
+stdout	""
+meets_expect	yes

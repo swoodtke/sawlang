@@ -1,0 +1,12 @@
+program	unsafe_declarations_accepted.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"2"
+stdout	"26"
+stdout	"16"
+stdout	"3"
+stdout	""
+meets_expect	yes

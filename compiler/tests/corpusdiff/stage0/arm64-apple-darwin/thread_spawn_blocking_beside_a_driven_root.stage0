@@ -1,0 +1,10 @@
+program	thread_spawn_blocking_beside_a_driven_root.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"napped"
+stdout	"1"
+stdout	""
+meets_expect	yes

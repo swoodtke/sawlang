@@ -1,0 +1,14 @@
+program	default_param_nontrailing_error.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	function `f`: parameter `y` has no default value but follows a parameter that does — defaulted parameters must be trailing
+meets_expect	yes
+log	"error: function `f`: parameter `y` has no default value but follows a parameter that does — defaulted parameters must be trailing"
+log	"  --> examples/default_param_nontrailing_error.saw:6:1"
+log	"    |"
+log	" 6 | func f(x: Int = 5, y: Int) -> Int { x + y }"
+log	"    | ^"
+log	"   hint: move all defaulted parameters to the end of the parameter list"
+log	""
+log	"1 error(s) generated"

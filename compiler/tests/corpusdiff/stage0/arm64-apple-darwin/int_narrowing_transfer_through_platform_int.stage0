@@ -1,0 +1,14 @@
+program	int_narrowing_transfer_through_platform_int.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	cannot assign `Int` to variable of type `Int8`
+meets_expect	yes
+log	"error: cannot assign `Int` to variable of type `Int8`"
+log	"  --> examples/int_narrowing_transfer_through_platform_int.saw:32:5"
+log	"     |"
+log	" 32 |     let b: Int8 = n"
+log	"     |     ^"
+log	"   hint: write the conversion: `as Int8` panics out of range, `Int8.from(...)` answers `None`, `Int8.from(truncating: ...)` keeps the low bits"
+log	""
+log	"1 error(s) generated"

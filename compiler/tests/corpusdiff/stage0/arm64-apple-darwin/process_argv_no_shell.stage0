@@ -1,0 +1,13 @@
+program	process_argv_no_shell.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"[a  b]"
+stdout	"[; echo INJECTED]"
+stdout	"[*]"
+stdout	"[$HOME]"
+stdout	"[one]"
+stdout	""
+meets_expect	yes

@@ -1,0 +1,14 @@
+program	coro_move_scrutinee_span.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"id: 7"
+stdout	"guarded: 5"
+stdout	"absent: -2"
+stdout	"explicit: 12"
+stdout	"implicit: 4"
+stdout	"deinits=2"
+stdout	""
+meets_expect	yes

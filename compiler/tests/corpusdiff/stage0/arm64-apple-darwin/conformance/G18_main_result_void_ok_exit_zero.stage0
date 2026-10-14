@@ -1,0 +1,9 @@
+program	conformance/G18_main_result_void_ok_exit_zero.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"wrote it"
+stdout	""
+meets_expect	yes

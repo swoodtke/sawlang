@@ -1,0 +1,13 @@
+program	conformance/K44_suspending_condition_shortcircuit_rhs.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"A1"
+stdout	"B1"
+stdout	"A2"
+stdout	"B2"
+stdout	"shortcircuit 27"
+stdout	""
+meets_expect	yes

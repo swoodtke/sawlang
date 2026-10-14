@@ -1,0 +1,11 @@
+program	taskgroup_suspending_main.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"1"
+stdout	"42"
+stdout	"2"
+stdout	""
+meets_expect	yes

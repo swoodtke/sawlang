@@ -1,0 +1,18 @@
+program	nested_optional_tail_branch_arms.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"if-none outer"
+stdout	"if-value 5"
+stdout	"if-value-none inner"
+stdout	"nested outer"
+stdout	"nested-value 9"
+stdout	"match-none outer"
+stdout	"match-value 3"
+stdout	"method 7"
+stdout	"closure 4"
+stdout	"-- done"
+stdout	""
+meets_expect	yes

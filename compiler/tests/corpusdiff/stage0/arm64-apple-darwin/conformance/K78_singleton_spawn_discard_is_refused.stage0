@@ -1,0 +1,21 @@
+program	conformance/K78_singleton_spawn_discard_is_refused.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	`Thread.spawn` hands back a `VoidThread` that must be consumed, and this one is discarded
+meets_expect	yes
+log	"error: `Thread.spawn` hands back a `VoidThread` that must be consumed, and this one is discarded"
+log	"  --> examples/conformance/K78_singleton_spawn_discard_is_refused.saw:21:11"
+log	"     |"
+log	" 21 |     Thread.spawn { work() }"
+log	"     |           ^"
+log	"   hint: bind it and consume it on every path — `join()` waits for it and takes its result — `Thread.spawn { ... }.join()` is the wait-here spelling — and `detach()` gives the thread to the process. To manage a dynamic set of workers, spawn them into a `TaskGroup` — a group is a declared consumer, so its handles may be dropped freely"
+log	""
+log	"error: `Thread.spawn` hands back a `VoidThread` that must be consumed, and this one is discarded"
+log	"  --> examples/conformance/K78_singleton_spawn_discard_is_refused.saw:22:19"
+log	"     |"
+log	" 22 |     let _ = Thread.spawn { work() }"
+log	"     |                   ^"
+log	"   hint: bind it and consume it on every path — `join()` waits for it and takes its result — `Thread.spawn { ... }.join()` is the wait-here spelling — and `detach()` gives the thread to the process. To manage a dynamic set of workers, spawn them into a `TaskGroup` — a group is a declared consumer, so its handles may be dropped freely"
+log	""
+log	"2 error(s) generated"

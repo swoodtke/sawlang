@@ -1,0 +1,18 @@
+program	alloc_data_reports_oom.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"3"
+stdout	"push denied: allocation of 32 bytes (align 1) failed"
+stdout	"3"
+stdout	"3"
+stdout	"append denied"
+stdout	"3"
+stdout	"detach denied"
+stdout	"capacity denied"
+stdout	"9"
+stdout	"preflight denied, nothing written"
+stdout	""
+meets_expect	yes

@@ -1,0 +1,20 @@
+program	module_import_selective_error.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	function `triple` is not directly accessible
+meets_expect	yes
+log	"error: function `triple` is not directly accessible"
+log	"  --> examples/module_import_selective_error.saw:12:13"
+log	"     |"
+log	" 12 |     let t = triple(10)"
+log	"     |             ^"
+log	"   hint: select it with `import modules.utils.{triple}`, or add `import modules.utils` to write `utils.triple`"
+log	""
+log	"error: undefined variable `t`"
+log	"  --> examples/module_import_selective_error.saw:13:11"
+log	"     |"
+log	" 13 |     print(t)"
+log	"     |           ^"
+log	""
+log	"2 error(s) generated"

@@ -1,0 +1,27 @@
+program	map_subscript_place.saw
+triple	arm64-apple-darwin
+twin	differs
+expect	success
+build	ok
+exit	0
+stdout	"-- a move-only value, borrowed"
+stdout	"1"
+stdout	"1"
+stdout	"2"
+stdout	"absent"
+stdout	"-- a struct value, written in place"
+stdout	"15"
+stdout	"-1"
+stdout	"-- a Copy value, read out as a value"
+stdout	"hello"
+stdout	"hello"
+stdout	"hello"
+stdout	"none"
+stdout	"-- a Vector value, grown in place"
+stdout	"3"
+stdout	"6"
+stdout	"-- teardown"
+stdout	"deinit 2"
+stdout	"-- done"
+stdout	""
+meets_expect	yes

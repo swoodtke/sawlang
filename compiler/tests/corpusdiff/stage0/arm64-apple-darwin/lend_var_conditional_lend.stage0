@@ -1,0 +1,17 @@
+program	lend_var_conditional_lend.saw
+triple	arm64-apple-darwin
+twin	differs
+expect	success
+build	ok
+exit	0
+stdout	"eager prologue"
+stdout	"present 20"
+stdout	"eager prologue"
+stdout	"absent, gates 0"
+stdout	"after write 25, gates 1"
+stdout	"late: present 25"
+stdout	"late: absent, gates 1"
+stdout	"late: after write 25, gates 2"
+stdout	"-- done"
+stdout	""
+meets_expect	yes

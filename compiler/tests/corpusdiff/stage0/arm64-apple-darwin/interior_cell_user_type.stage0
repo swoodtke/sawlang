@@ -1,0 +1,13 @@
+program	interior_cell_user_type.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"0"
+stdout	"3"
+stdout	"3"
+stdout	"30"
+stdout	"1"
+stdout	""
+meets_expect	yes

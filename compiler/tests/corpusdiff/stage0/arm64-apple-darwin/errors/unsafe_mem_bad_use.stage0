@@ -1,0 +1,14 @@
+program	errors/unsafe_mem_bad_use.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	the intent marker of `UnsafeMemory` must be `Device` or `Normal`, got `Foo`
+meets_expect	yes
+log	"error: the intent marker of `UnsafeMemory` must be `Device` or `Normal`, got `Foo`"
+log	"  --> examples/errors/unsafe_mem_bad_use.saw:7:1"
+log	"    |"
+log	" 7 | static DEV: UnsafeMemory<Int, Foo> = UnsafeMemory(0x40000000)"
+log	"    | ^"
+log	"   hint: `Device` = volatile register block; `Normal` = plain RAM region"
+log	""
+log	"1 error(s) generated"

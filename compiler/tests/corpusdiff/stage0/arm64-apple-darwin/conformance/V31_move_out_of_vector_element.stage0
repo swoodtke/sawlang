@@ -1,0 +1,27 @@
+program	conformance/V31_move_out_of_vector_element.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	cannot move out of element `[0]` of `v`
+meets_expect	yes
+log	"error: result of `push` is `Result<Void, AllocError>` and is silently discarded"
+log	"  --> examples/conformance/V31_move_out_of_vector_element.saw:18:6"
+log	"     |"
+log	" 18 |     v.push(Res(name: \"a\"))"
+log	"     |      ^"
+log	"   hint: handle it — `match` it, `try`/`try!`/`try?` it, or return it — or write `let _ = ...` to discard it explicitly"
+log	""
+log	"error: cannot move out of element `[0]` of `v`"
+log	"  --> examples/conformance/V31_move_out_of_vector_element.saw:19:17"
+log	"     |"
+log	" 19 |     let taken = move v[0]"
+log	"     |                 ^"
+log	"   hint: move the whole value (`move v`) or restructure so the piece is its own binding; an indexed place moves out with `swap_out` instead"
+log	""
+log	"error: undefined variable `taken`"
+log	"  --> examples/conformance/V31_move_out_of_vector_element.saw:20:11"
+log	"     |"
+log	" 20 |     print(taken.name)"
+log	"     |           ^"
+log	""
+log	"3 error(s) generated"

@@ -1,0 +1,21 @@
+program	errors/result_none_tail_needs_an_optional_ok.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	cannot return `None` from function `poll` returning `Result<Int, Stop>`: its Ok type `Int` is not an optional
+meets_expect	yes
+log	"error: cannot return `None` from function `poll` returning `Result<Int, Stop>`: its Ok type `Int` is not an optional"
+log	"  --> examples/errors/result_none_tail_needs_an_optional_ok.saw:26:1"
+log	"     |"
+log	" 26 | func poll() -> Result<Int, Stop> {"
+log	"     | ^"
+log	"   hint: return an `Err(...)` for the failure case, or declare the Ok type as an optional"
+log	""
+log	"error: result of `append` is `Result<Void, AllocError>` and is silently discarded"
+log	"  --> examples/errors/result_none_tail_needs_an_optional_ok.saw:21:56"
+log	"     |"
+log	" 21 |     func format(&self, into: &var StringBuilder) { into.append(self.describe()) }"
+log	"     |                                                        ^"
+log	"   hint: handle it — `match` it, `try`/`try!`/`try?` it, or return it — or write `let _ = ...` to discard it explicitly"
+log	""
+log	"2 error(s) generated"

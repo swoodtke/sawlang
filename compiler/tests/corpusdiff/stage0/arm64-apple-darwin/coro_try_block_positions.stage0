@@ -1,0 +1,27 @@
+program	coro_try_block_positions.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"caught flaky boom/4"
+stdout	"100"
+stdout	"2"
+stdout	"7"
+stdout	"1135"
+stdout	"7"
+stdout	"-1"
+stdout	"8"
+stdout	"55"
+stdout	"3"
+stdout	"3"
+stdout	"99"
+stdout	"8"
+stdout	"101"
+stdout	"6"
+stdout	"11"
+stdout	"-1"
+stdout	"21"
+stdout	"-2"
+stdout	""
+meets_expect	yes

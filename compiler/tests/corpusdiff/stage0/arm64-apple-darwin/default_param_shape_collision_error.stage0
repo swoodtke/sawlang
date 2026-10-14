@@ -1,0 +1,14 @@
+program	default_param_shape_collision_error.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	function `g` is already defined with an indistinguishable signature (a default-parameter call shape collides with another overload)
+meets_expect	yes
+log	"error: function `g` is already defined with an indistinguishable signature (a default-parameter call shape collides with another overload)"
+log	"  --> examples/default_param_shape_collision_error.saw:8:1"
+log	"    |"
+log	" 8 | func g(x: Int) -> Int { x }"
+log	"    | ^"
+log	"   hint: overloads must differ in arity or parameter types (distinct types, not just type aliases of the same underlying type); expanded default-value shapes count"
+log	""
+log	"1 error(s) generated"

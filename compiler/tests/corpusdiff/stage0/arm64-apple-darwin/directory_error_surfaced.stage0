@@ -1,0 +1,10 @@
+program	directory_error_surfaced.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"remove missing: surfaced"
+stdout	"create bad parent: surfaced"
+stdout	""
+meets_expect	yes

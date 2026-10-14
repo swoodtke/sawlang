@@ -1,0 +1,28 @@
+program	export_generic_error.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	cannot `@export` the generic function `ident` — a C symbol has no type parameters
+meets_expect	yes
+log	"error: cannot `@export` the generic function `ident` — a C symbol has no type parameters"
+log	"  --> examples/export_generic_error.saw:7:1"
+log	"    |"
+log	" 7 | func ident<T>(x: T) -> T { x }"
+log	"    | ^"
+log	"   hint: export a concrete, non-generic wrapper instead"
+log	""
+log	"error: `@export` function `ident`: parameter `x` has type the by-value struct `T`, which is not C-ABI-safe"
+log	"  --> examples/export_generic_error.saw:7:1"
+log	"    |"
+log	" 7 | func ident<T>(x: T) -> T { x }"
+log	"    | ^"
+log	"   hint: exported signatures allow fixed-width integers, Int/UInt, Float, and UnsafePointer<T>; pass an aggregate by `UnsafePointer<S>`"
+log	""
+log	"error: `@export` function `ident`: return type the by-value struct `T` is not C-ABI-safe"
+log	"  --> examples/export_generic_error.saw:7:1"
+log	"    |"
+log	" 7 | func ident<T>(x: T) -> T { x }"
+log	"    | ^"
+log	"   hint: exported returns allow fixed-width integers, Int/UInt, Float, UnsafePointer<T>, Void, or Never (noreturn)"
+log	""
+log	"3 error(s) generated"

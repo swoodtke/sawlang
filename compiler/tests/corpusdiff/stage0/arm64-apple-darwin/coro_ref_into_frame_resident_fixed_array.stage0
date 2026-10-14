@@ -1,0 +1,15 @@
+program	coro_ref_into_frame_resident_fixed_array.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"direct    8 8"
+stdout	"forwarded 8 8"
+stdout	"scalar    8 8"
+stdout	"nested    8 8"
+stdout	"receiver  8 8"
+stdout	"shared    5 5"
+stdout	"field     8 8"
+stdout	""
+meets_expect	yes

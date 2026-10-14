@@ -1,0 +1,10 @@
+program	generic_bound_call_decidable_param_conversions.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"6"
+stdout	"8"
+stdout	""
+meets_expect	yes

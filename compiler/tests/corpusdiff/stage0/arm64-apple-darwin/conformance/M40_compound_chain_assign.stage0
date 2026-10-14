@@ -1,0 +1,10 @@
+program	conformance/M40_compound_chain_assign.saw
+triple	arm64-apple-darwin
+twin	differs
+expect	success
+build	ok
+exit	0
+stdout	"some 6 calls 1"
+stdout	"empty calls 1"
+stdout	""
+meets_expect	yes

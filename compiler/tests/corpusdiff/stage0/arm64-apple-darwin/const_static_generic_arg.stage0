@@ -1,0 +1,13 @@
+program	const_static_generic_arg.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"16"
+stdout	"16"
+stdout	"16"
+stdout	"32"
+stdout	"16"
+stdout	""
+meets_expect	yes

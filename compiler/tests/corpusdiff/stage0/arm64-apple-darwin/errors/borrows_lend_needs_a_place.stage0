@@ -1,0 +1,13 @@
+program	errors/borrows_lend_needs_a_place.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	`lend` needs a PLACE — storage that already exists, such as a field, an element or a deref. This expression builds a temporary, which would be gone before the caller's window opened
+meets_expect	yes
+log	"error: `lend` needs a PLACE — storage that already exists, such as a field, an element or a deref. This expression builds a temporary, which would be gone before the caller's window opened"
+log	"  --> examples/errors/borrows_lend_needs_a_place.saw:13:28"
+log	"     |"
+log	" 13 |         lend self.items[i] + 1"
+log	"     |                            ^"
+log	""
+log	"1 error(s) generated"

@@ -1,0 +1,11 @@
+program	coro_frame_byte_local_across_suspend.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"104"
+stdout	"66"
+stdout	"104"
+stdout	""
+meets_expect	yes

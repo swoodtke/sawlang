@@ -1,0 +1,11 @@
+program	conformance/K82_forgotten_thread_handle_panics_in_deinit.saw
+triple	arm64-apple-darwin
+twin	same
+expect	panic
+build	ok
+exit	-6
+stdout	"stored"
+stdout	"panic at task.saw:210: VoidThread was dropped without being joined or detached — `join()` waits for it, `detach()` gives the thread to the process"
+stdout	"worked"
+stdout	""
+meets_expect	yes

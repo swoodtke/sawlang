@@ -1,0 +1,10 @@
+program	coro_closure_taskgroup.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"34"
+stdout	"56"
+stdout	""
+meets_expect	yes

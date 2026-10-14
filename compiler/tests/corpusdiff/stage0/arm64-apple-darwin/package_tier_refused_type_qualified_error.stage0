@@ -1,0 +1,21 @@
+program	package_tier_refused_type_qualified_error.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	`PkgBox` is public(package) in `module_tests.pkg232n.src.lib`
+meets_expect	yes
+log	"error: `PkgBox` is public(package) in `module_tests.pkg232n.src.lib`"
+log	"  --> examples/package_tier_refused_type_qualified_error.saw:15:1"
+log	"     |"
+log	" 15 | func take(b: lib.PkgBox) -> Int {"
+log	"     | ^"
+log	"   hint: mark it `public` in `module_tests.pkg232n.src.lib` to expose it — a `public import` re-export hands on the name and its module's extension scope, never a wider tier"
+log	""
+log	"error: `make_box` is public(package) in `module_tests.pkg232n.src.lib`"
+log	"  --> examples/package_tier_refused_type_qualified_error.saw:20:19"
+log	"     |"
+log	" 20 |     print(take(lib.make_box()))"
+log	"     |                   ^"
+log	"   hint: mark it `public` in `module_tests.pkg232n.src.lib` to expose it — a `public import` re-export hands on the name and its module's extension scope, never a wider tier"
+log	""
+log	"2 error(s) generated"

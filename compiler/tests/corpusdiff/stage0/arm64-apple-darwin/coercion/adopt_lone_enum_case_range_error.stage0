@@ -1,0 +1,13 @@
+program	coercion/adopt_lone_enum_case_range_error.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	constant expression 300 does not fit in `UInt8` (range 0..=255)
+meets_expect	yes
+log	"error: constant expression 300 does not fit in `UInt8` (range 0..=255)"
+log	"  --> examples/coercion/adopt_lone_enum_case_range_error.saw:10:28"
+log	"     |"
+log	" 10 | static NARROW: UInt8 = Perm.Wide"
+log	"     |                            ^"
+log	""
+log	"1 error(s) generated"

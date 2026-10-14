@@ -1,0 +1,25 @@
+program	optional_generic_ownership.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"-- vector of Res?"
+stdout	"len 3"
+stdout	"-- dropping vector"
+stdout	"deinit 1"
+stdout	"deinit 2"
+stdout	"-- vector gone"
+stdout	"-- map of Res?"
+stdout	"map len 2"
+stdout	"-- dropping map"
+stdout	"deinit 3"
+stdout	"-- map gone"
+stdout	"r1 alpha"
+stdout	"r2 alpha"
+stdout	"after drop r1 alpha"
+stdout	"after drop r2 alpha"
+stdout	"held beta"
+stdout	"-- done"
+stdout	""
+meets_expect	yes

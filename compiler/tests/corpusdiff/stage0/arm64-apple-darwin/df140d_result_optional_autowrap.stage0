@@ -1,0 +1,17 @@
+program	df140d_result_optional_autowrap.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"load absent"
+stdout	"load found 1"
+stdout	"load failed nope"
+stdout	"tail absent"
+stdout	"tail found 7"
+stdout	"erased absent"
+stdout	"erased found 2"
+stdout	"method absent"
+stdout	"method found 3"
+stdout	""
+meets_expect	yes

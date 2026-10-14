@@ -1,0 +1,13 @@
+program	enum_raw_hex_values.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"256"
+stdout	"10"
+stdout	"493"
+stdout	"65535"
+stdout	"-16"
+stdout	""
+meets_expect	yes

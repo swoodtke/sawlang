@@ -1,0 +1,12 @@
+program	conformance/C01_order_operator_nocopy_handwritten_compare.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"gt"
+stdout	"ge"
+stdout	"drop 3"
+stdout	"drop 9"
+stdout	""
+meets_expect	yes

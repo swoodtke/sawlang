@@ -1,0 +1,21 @@
+program	package_tier_refused_argument_reported_error.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	`pkg_scale` is public(package) in `module_tests.pkg232n.src.lib`
+meets_expect	yes
+log	"error: `pkg_scale` is public(package) in `module_tests.pkg232n.src.lib`"
+log	"  --> examples/package_tier_refused_argument_reported_error.saw:17:14"
+log	"     |"
+log	" 17 |     print(lib.pkg_scale(lib.pkg_secret()))"
+log	"     |              ^"
+log	"   hint: mark it `public` in `module_tests.pkg232n.src.lib` to expose it — a `public import` re-export hands on the name and its module's extension scope, never a wider tier"
+log	""
+log	"error: `pkg_secret` is public(package) in `module_tests.pkg232n.src.lib`"
+log	"  --> examples/package_tier_refused_argument_reported_error.saw:17:28"
+log	"     |"
+log	" 17 |     print(lib.pkg_scale(lib.pkg_secret()))"
+log	"     |                            ^"
+log	"   hint: mark it `public` in `module_tests.pkg232n.src.lib` to expose it — a `public import` re-export hands on the name and its module's extension scope, never a wider tier"
+log	""
+log	"2 error(s) generated"

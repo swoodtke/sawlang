@@ -1,0 +1,21 @@
+program	conformance/V99_every_payload_read_retains_once.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"copy 1"
+stdout	"force 1"
+stdout	"copy 2"
+stdout	"coalesce 2"
+stdout	"copy 3"
+stdout	"iflet 3"
+stdout	"copy 4"
+stdout	"guardlet 4"
+stdout	"copy 5"
+stdout	"transfer 5"
+stdout	"copy 6"
+stdout	"tryok 6"
+stdout	"end"
+stdout	""
+meets_expect	yes

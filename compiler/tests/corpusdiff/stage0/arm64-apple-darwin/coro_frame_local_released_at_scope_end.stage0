@@ -1,0 +1,17 @@
+program	coro_frame_local_released_at_scope_end.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"iter a0"
+stdout	"DEINIT a0"
+stdout	"iter a1"
+stdout	"DEINIT a1"
+stdout	"after loop"
+stdout	"DEINIT s1"
+stdout	"now s1-2"
+stdout	"DEINIT s1-2"
+stdout	"done"
+stdout	""
+meets_expect	yes

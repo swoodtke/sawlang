@@ -1,0 +1,14 @@
+program	errors/alloc_try_twins_are_retired.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	type `Vector` has no method `try_push`
+meets_expect	yes
+log	"error: type `Vector` has no method `try_push`"
+log	"  --> examples/errors/alloc_try_twins_are_retired.saw:16:14"
+log	"     |"
+log	" 16 |     let _ = v.try_push(1)"
+log	"     |              ^"
+log	"   hint: available methods: [], __lend_var_[], __lend_var_get, _greater_at, _grow_target, _reserve, clear, copy, deinit, each, each_indexed, enumerated, fold, get, is_empty, iter, len, map, pop, push, reserve, set, sort, sort_by, swap, swap_out, try_copy, with_ref, with_var_ref"
+log	""
+log	"1 error(s) generated"

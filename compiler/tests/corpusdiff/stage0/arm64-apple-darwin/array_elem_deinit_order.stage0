@@ -1,0 +1,12 @@
+program	array_elem_deinit_order.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"live"
+stdout	"d3"
+stdout	"d2"
+stdout	"d1"
+stdout	""
+meets_expect	yes

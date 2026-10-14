@@ -1,0 +1,12 @@
+program	conformance/U29_pointer_place_move_out.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"got a"
+stdout	"DEINIT a"
+stdout	"got b"
+stdout	"DEINIT b"
+stdout	""
+meets_expect	yes

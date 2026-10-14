@@ -1,0 +1,6 @@
+program	runtime_provider_seams.saw
+triple	arm64-apple-darwin
+twin	same
+expect	object
+build	ok
+meets_expect	yes

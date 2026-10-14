@@ -1,0 +1,14 @@
+program	errors/manual_deinit.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	cannot call `deinit` manually; it is called automatically when the value goes out of scope
+meets_expect	yes
+log	"error: cannot call `deinit` manually; it is called automatically when the value goes out of scope"
+log	"  --> examples/errors/manual_deinit.saw:17:6"
+log	"     |"
+log	" 17 |     r.deinit()  // Error: manual deinit not allowed"
+log	"     |      ^"
+log	"   hint: use a nested scope or `move` to transfer ownership if you need early cleanup"
+log	""
+log	"1 error(s) generated"

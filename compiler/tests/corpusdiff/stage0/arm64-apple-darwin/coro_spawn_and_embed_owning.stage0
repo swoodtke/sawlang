@@ -1,0 +1,12 @@
+program	coro_spawn_and_embed_owning.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"token-3"
+stdout	"token-7"
+stdout	"3"
+stdout	"0"
+stdout	""
+meets_expect	yes

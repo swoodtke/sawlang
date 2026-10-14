@@ -1,0 +1,21 @@
+program	errors/consumes_receiver_through_a_field_or_place.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	cannot move out of field `b` of `h`
+meets_expect	yes
+log	"error: cannot move out of field `b` of `h`"
+log	"  --> examples/errors/consumes_receiver_through_a_field_or_place.saw:27:18"
+log	"     |"
+log	" 27 |     print(\"{}\", (move h.b).finish())"
+log	"     |                  ^"
+log	"   hint: move the whole value (`move h`) or restructure so the piece is its own binding; a field moves out with `h.b.take()`, which leaves a valid value behind"
+log	""
+log	"error: cannot move out of element `[0]` of `v`"
+log	"  --> examples/errors/consumes_receiver_through_a_field_or_place.saw:29:18"
+log	"     |"
+log	" 29 |     print(\"{}\", (move v[0]).finish())"
+log	"     |                  ^"
+log	"   hint: move the whole value (`move v`) or restructure so the piece is its own binding; an indexed place moves out with `swap_out` instead"
+log	""
+log	"2 error(s) generated"

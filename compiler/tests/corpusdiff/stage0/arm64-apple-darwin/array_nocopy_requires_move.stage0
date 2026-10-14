@@ -1,0 +1,14 @@
+program	array_nocopy_requires_move.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	cannot copy value of type `[F; 2]` which implements NoCopy
+meets_expect	yes
+log	"error: cannot copy value of type `[F; 2]` which implements NoCopy"
+log	"  --> examples/array_nocopy_requires_move.saw:14:5"
+log	"     |"
+log	" 14 |     let b = a          // NoCopy array: move-only"
+log	"     |     ^"
+log	"   hint: use `move` to transfer ownership instead"
+log	""
+log	"1 error(s) generated"

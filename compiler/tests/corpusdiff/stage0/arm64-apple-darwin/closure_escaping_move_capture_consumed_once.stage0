@@ -1,0 +1,6 @@
+program	closure_escaping_move_capture_consumed_once.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	ok
+meets_expect	no: Stage 0 builds it

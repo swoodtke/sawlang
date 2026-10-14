@@ -1,0 +1,14 @@
+program	errors/optional_chain_assign_exclusivity.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	exclusive access violation: `oh` is written by this optional-chain assignment while also being accessed in the right-hand side
+meets_expect	yes
+log	"error: exclusive access violation: `oh` is written by this optional-chain assignment while also being accessed in the right-hand side"
+log	"  --> examples/errors/optional_chain_assign_exclusivity.saw:14:7"
+log	"     |"
+log	" 14 |     oh?.n = bump(&var oh)"
+log	"     |       ^"
+log	"   hint: the right-hand side is evaluated first, so its writes through that borrow are overwritten by this assignment. Bind the value in its own statement, or borrow a disjoint path"
+log	""
+log	"1 error(s) generated"

@@ -1,0 +1,14 @@
+program	errors/unsafe_send_not_erasable.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	cannot form `any UnsafeSend`: `UnsafeSend` is a declared assertion, not an erasable interface
+meets_expect	yes
+log	"error: cannot form `any UnsafeSend`: `UnsafeSend` is a declared assertion, not an erasable interface"
+log	"  --> examples/errors/unsafe_send_not_erasable.saw:7:1"
+log	"    |"
+log	" 7 | func send(x: &any UnsafeSend) -> Int {"
+log	"    | ^"
+log	"   hint: `UnsafeSend` appears in exactly one position, the conformance header. Neither `UnsafeSend` nor `Send` can be erased — a marker trait has no methods to dispatch"
+log	""
+log	"1 error(s) generated"

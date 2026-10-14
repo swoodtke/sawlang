@@ -1,0 +1,14 @@
+program	errors/any_unsized_container.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	`any Shape` is unsized and cannot be used by value here
+meets_expect	yes
+log	"error: `any Shape` is unsized and cannot be used by value here"
+log	"  --> examples/errors/any_unsized_container.saw:11:1"
+log	"     |"
+log	" 11 | func use(v: Vector<any Shape>) {"
+log	"     | ^"
+log	"   hint: an erased value is legal only behind explicit ownership: `&any Shape` (borrowed) or `Box<any Shape>` (owned) — design 51"
+log	""
+log	"1 error(s) generated"

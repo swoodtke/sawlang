@@ -1,0 +1,10 @@
+program	structs_advanced.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"150"
+stdout	"35"
+stdout	""
+meets_expect	yes

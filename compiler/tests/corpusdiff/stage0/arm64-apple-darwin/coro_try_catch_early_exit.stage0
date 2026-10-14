@@ -1,0 +1,15 @@
+program	coro_try_catch_early_exit.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"break-in-try 1 1"
+stdout	"-- break-in-catch, sync"
+stdout	"err nope"
+stdout	"total 3"
+stdout	"-- break-in-catch, driven"
+stdout	"err nope"
+stdout	"total 3"
+stdout	""
+meets_expect	yes

@@ -1,0 +1,12 @@
+program	any_box_slab.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"700"
+stdout	"gone 7"
+stdout	"800"
+stdout	"gone 8"
+stdout	""
+meets_expect	yes

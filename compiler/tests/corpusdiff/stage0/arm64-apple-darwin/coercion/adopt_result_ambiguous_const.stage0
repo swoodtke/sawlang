@@ -1,0 +1,13 @@
+program	coercion/adopt_result_ambiguous_const.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	ambiguous Result auto-wrap: a function returns `Int`, but `Result<Int32, Int8>` accepts it as BOTH its Ok type `Int32` and its Err type `Int8`, so a bare `return` can't tell which variant you mean; write the explicit `Result<Int32, Int8>.Ok(value: ...)` or `Result<Int32, Int8>.Err(error: ...)`
+meets_expect	yes
+log	"error: ambiguous Result auto-wrap: a function returns `Int`, but `Result<Int32, Int8>` accepts it as BOTH its Ok type `Int32` and its Err type `Int8`, so a bare `return` can't tell which variant you mean; write the explicit `Result<Int32, Int8>.Ok(value: ...)` or `Result<Int32, Int8>.Err(error: ...)`"
+log	"  --> examples/coercion/adopt_result_ambiguous_const.saw:15:38"
+log	"     |"
+log	" 15 | func give() -> Result<Int32, Int8> { return 1 << 3 }"
+log	"     |                                      ^"
+log	""
+log	"1 error(s) generated"

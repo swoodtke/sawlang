@@ -1,0 +1,9 @@
+program	errors/section_macho_specifier_error.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	`@section(".vector_table")` is not a valid section on this target: mach-O names a section by SEGMENT and section, separated by a comma
+meets_expect	yes
+log	"error: `@section(\".vector_table\")` is not a valid section on this target: mach-O names a section by SEGMENT and section, separated by a comma"
+log	"  --> examples/errors/section_macho_specifier_error.saw:21:1"
+log	"   hint: write the two-part form — `@section(\"__TEXT,vector_table\")` for code, `@section(\"__DATA,vector_table\")` for data. The bare `.vector_table` spelling is the ELF one, which the freestanding targets take."

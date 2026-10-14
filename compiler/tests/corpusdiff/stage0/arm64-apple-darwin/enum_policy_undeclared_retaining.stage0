@@ -1,0 +1,11 @@
+program	enum_policy_undeclared_retaining.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"Path(cfg.toml)"
+stdout	"Path(cfg.toml)"
+stdout	"Ver(3)"
+stdout	""
+meets_expect	yes

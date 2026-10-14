@@ -1,0 +1,28 @@
+program	conformance/B20_private_type_in_public_signature_error.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	function `take` is public, but parameter `h` names `Hidden`, which is private — a public API needs public types
+meets_expect	yes
+log	"error: function `take` is public, but parameter `h` names `Hidden`, which is private — a public API needs public types"
+log	"  --> examples/conformance/B20_private_type_in_public_signature_error.saw:24:8"
+log	"     |"
+log	" 24 | public func take(h: Hidden) -> Int {"
+log	"     |        ^"
+log	"   hint: either widen the type — mark the struct `Hidden` `public` — or narrow the declaration, so its signature stays where `Hidden` can be named. A caller that can reach a declaration must be able to name every type in its signature"
+log	""
+log	"error: function `give` is public, but the return type names `Hidden`, which is private — a public API needs public types"
+log	"  --> examples/conformance/B20_private_type_in_public_signature_error.saw:28:8"
+log	"     |"
+log	" 28 | public func give() -> Hidden {"
+log	"     |        ^"
+log	"   hint: either widen the type — mark the struct `Hidden` `public` — or narrow the declaration, so its signature stays where `Hidden` can be named. A caller that can reach a declaration must be able to name every type in its signature"
+log	""
+log	"error: field `slot` of `Exposed` is public, but its type names `Hidden`, which is private — a public API needs public types"
+log	"  --> examples/conformance/B20_private_type_in_public_signature_error.saw:21:12"
+log	"     |"
+log	" 21 |     public slot: Hidden"
+log	"     |            ^"
+log	"   hint: either widen the type — mark the struct `Hidden` `public` — or mark the field `private`, which takes it off the type's surface, where `Hidden` can be named. A caller that can reach a declaration must be able to name every type in its signature"
+log	""
+log	"3 error(s) generated"

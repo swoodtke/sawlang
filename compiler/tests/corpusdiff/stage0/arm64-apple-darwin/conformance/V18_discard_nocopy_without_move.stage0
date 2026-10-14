@@ -1,0 +1,14 @@
+program	conformance/V18_discard_nocopy_without_move.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	cannot copy value of type `Box<Int, GlobalAllocator>` which implements NoCopy
+meets_expect	yes
+log	"error: cannot copy value of type `Box<Int, GlobalAllocator>` which implements NoCopy"
+log	"  --> examples/conformance/V18_discard_nocopy_without_move.saw:10:5"
+log	"     |"
+log	" 10 |     let _ = b"
+log	"     |     ^"
+log	"   hint: use `move` to transfer ownership instead"
+log	""
+log	"1 error(s) generated"

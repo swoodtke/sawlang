@@ -1,0 +1,20 @@
+program	guard_let_no_exit_error.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	'guard' else block must exit the scope (return, break, or continue)
+meets_expect	yes
+log	"error: 'guard' else block must exit the scope (return, break, or continue)"
+log	"  --> examples/guard_let_no_exit_error.saw:5:5"
+log	"    |"
+log	" 5 |     guard let value = x else {"
+log	"    |     ^"
+log	"   hint: add 'return', 'break', or 'continue' to the else block"
+log	""
+log	"error: undefined function `Some`"
+log	"  --> examples/guard_let_no_exit_error.saw:13:16"
+log	"     |"
+log	" 13 |     print(test(Some(42)))"
+log	"     |                ^"
+log	""
+log	"2 error(s) generated"

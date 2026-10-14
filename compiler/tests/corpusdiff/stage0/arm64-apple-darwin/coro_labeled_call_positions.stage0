@@ -1,0 +1,13 @@
+program	coro_labeled_call_positions.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"step first 1"
+stdout	"step second 2"
+stdout	"task 20"
+stdout	"spawned 41"
+stdout	"main 3"
+stdout	""
+meets_expect	yes

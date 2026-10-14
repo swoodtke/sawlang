@@ -1,0 +1,10 @@
+program	thread_assertion_survives_a_glob_import.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"0"
+stdout	"5"
+stdout	""
+meets_expect	yes

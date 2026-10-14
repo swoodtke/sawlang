@@ -1,0 +1,12 @@
+program	conformance/V102_derived_copy_duplicates_every_field.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"struct field: inner-built"
+stdout	"enum field: payload-built"
+stdout	"array field: zero-built one-built"
+stdout	"tuple field: tuple-built 7"
+stdout	""
+meets_expect	yes

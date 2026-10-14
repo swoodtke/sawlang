@@ -1,0 +1,7 @@
+program	type_alias_in_function_body_refused.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	Parse error at 18:5: a type alias may only be declared at module level, or as an associated type in a trait or extension body — not inside a function
+meets_expect	yes
+log	"error: Parse error at 18:5: a type alias may only be declared at module level, or as an associated type in a trait or extension body — not inside a function"

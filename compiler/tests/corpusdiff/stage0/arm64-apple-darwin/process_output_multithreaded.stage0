@@ -1,0 +1,10 @@
+program	process_output_multithreaded.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"first: alpha"
+stdout	"second: beta"
+stdout	""
+meets_expect	yes

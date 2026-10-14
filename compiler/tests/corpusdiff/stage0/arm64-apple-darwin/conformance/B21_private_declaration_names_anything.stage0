@@ -1,0 +1,11 @@
+program	conformance/B21_private_declaration_names_anything.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"4"
+stdout	"9"
+stdout	"21"
+stdout	""
+meets_expect	yes

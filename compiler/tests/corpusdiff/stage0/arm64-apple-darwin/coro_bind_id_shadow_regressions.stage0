@@ -1,0 +1,13 @@
+program	coro_bind_id_shadow_regressions.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"r1: 8"
+stdout	"r2: 10"
+stdout	"r3: 112"
+stdout	"r4: 8"
+stdout	"r5: 9"
+stdout	""
+meets_expect	yes

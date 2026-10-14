@@ -1,0 +1,9 @@
+program	doc_comment_unattached_error.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	Parse error at 10:1: doc comment is not followed by a documentable declaration
+meets_expect	yes
+log	"error: Parse error at 10:1: doc comment is not followed by a documentable declaration"
+log	"Parse error at 13:1: doc comment is not followed by a documentable declaration"
+log	"Parse error at 20:1: doc comment is not followed by a documentable declaration"

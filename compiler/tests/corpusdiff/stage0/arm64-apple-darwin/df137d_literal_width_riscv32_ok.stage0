@@ -1,0 +1,6 @@
+program	df137d_literal_width_riscv32_ok.saw
+triple	arm64-apple-darwin
+twin	same
+expect	object
+build	ok
+meets_expect	yes

@@ -1,0 +1,14 @@
+program	conformance/V26_copy_atomic_local.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	cannot copy value of type `Atomic<Int>` which implements NoCopy
+meets_expect	yes
+log	"error: cannot copy value of type `Atomic<Int>` which implements NoCopy"
+log	"  --> examples/conformance/V26_copy_atomic_local.saw:14:5"
+log	"     |"
+log	" 14 |     let b = a"
+log	"     |     ^"
+log	"   hint: use `move` to transfer ownership instead"
+log	""
+log	"1 error(s) generated"

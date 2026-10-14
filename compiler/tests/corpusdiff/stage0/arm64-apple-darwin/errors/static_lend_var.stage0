@@ -1,0 +1,14 @@
+program	errors/static_lend_var.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	cannot take mutable reference `&var` to static `X`: statics are immutable
+meets_expect	yes
+log	"error: cannot take mutable reference `&var` to static `X`: statics are immutable"
+log	"  --> examples/errors/static_lend_var.saw:10:20"
+log	"     |"
+log	" 10 | func main() { bump(&var X) }"
+log	"     |                    ^"
+log	"   hint: pass `&X` for a shared read, use an interior-synchronized type (`Atomic<Int>`, `SpinLock<T>`), or declare it `unsafe static var`"
+log	""
+log	"1 error(s) generated"

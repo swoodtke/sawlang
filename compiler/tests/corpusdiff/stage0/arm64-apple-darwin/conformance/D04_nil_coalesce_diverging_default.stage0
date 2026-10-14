@@ -1,0 +1,9 @@
+program	conformance/D04_nil_coalesce_diverging_default.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"1 2 3 4 5 6"
+stdout	""
+meets_expect	yes

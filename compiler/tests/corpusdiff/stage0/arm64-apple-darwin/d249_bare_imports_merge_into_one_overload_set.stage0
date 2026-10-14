@@ -1,0 +1,10 @@
+program	d249_bare_imports_merge_into_one_overload_set.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"A:4"
+stdout	"B:x"
+stdout	""
+meets_expect	yes

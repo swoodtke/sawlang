@@ -1,0 +1,12 @@
+program	mutex_basic.saw
+triple	arm64-apple-darwin
+twin	differs
+expect	success
+build	ok
+exit	0
+stdout	"5"
+stdout	"50"
+stdout	"true"
+stdout	"false"
+stdout	""
+meets_expect	yes

@@ -1,0 +1,12 @@
+program	recursive_enum_through_vector_payload.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"leaves 3"
+stdout	"DEINIT a"
+stdout	"DEINIT b"
+stdout	"DEINIT c"
+stdout	""
+meets_expect	yes

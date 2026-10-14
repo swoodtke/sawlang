@@ -1,0 +1,9 @@
+program	net_cancel_parked_mt.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"cancelled"
+stdout	""
+meets_expect	yes

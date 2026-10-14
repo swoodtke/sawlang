@@ -1,0 +1,10 @@
+program	for_loop_expr.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"3"
+stdout	"not found"
+stdout	""
+meets_expect	yes

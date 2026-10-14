@@ -1,0 +1,9 @@
+program	conformance/G06_panic_in_suspending_main_aborts.saw
+triple	arm64-apple-darwin
+twin	same
+expect	panic
+build	ok
+exit	-6
+stdout	"panic at G06_panic_in_suspending_main_aborts.saw:13: main panicked"
+stdout	""
+meets_expect	yes

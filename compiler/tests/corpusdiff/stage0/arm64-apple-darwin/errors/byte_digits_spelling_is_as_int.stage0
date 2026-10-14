@@ -1,0 +1,14 @@
+program	errors/byte_digits_spelling_is_as_int.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	ambiguous call to `StringBuilder.append`: multiple overloads match the argument types (UInt8)
+meets_expect	yes
+log	"error: ambiguous call to `StringBuilder.append`: multiple overloads match the argument types (UInt8)"
+log	"  --> examples/errors/byte_digits_spelling_is_as_int.saw:18:12"
+log	"     |"
+log	" 18 |     try! sb.append(b as UInt8)"
+log	"     |            ^"
+log	"   hint: matching candidates: StringBuilder.append(value: Int); StringBuilder.append(value: UInt)"
+log	""
+log	"1 error(s) generated"

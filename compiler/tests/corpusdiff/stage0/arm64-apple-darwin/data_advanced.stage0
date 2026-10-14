@@ -1,0 +1,18 @@
+program	data_advanced.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"Original: 5 bytes"
+stdout	"Byte 0: 72"
+stdout	"Slice length: 3"
+stdout	"Slice byte 0: 101"
+stdout	"After set: 88"
+stdout	"Copy length: 5"
+stdout	"Copy byte 0: 72"
+stdout	"Iterator: 72"
+stdout	"Iterator: 101"
+stdout	"Iterator: 108"
+stdout	""
+meets_expect	yes

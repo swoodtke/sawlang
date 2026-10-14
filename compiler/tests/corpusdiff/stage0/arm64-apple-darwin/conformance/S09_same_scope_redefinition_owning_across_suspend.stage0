@@ -1,0 +1,18 @@
+program	conformance/S09_same_scope_redefinition_owning_across_suspend.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"plain p1"
+stdout	"DEINIT p1"
+stdout	"plain p12"
+stdout	"DEINIT p12"
+stdout	"driven d1"
+stdout	"DEINIT d1"
+stdout	"driven d12"
+stdout	"DEINIT d12"
+stdout	"plain 2 3"
+stdout	"driven 2 3"
+stdout	""
+meets_expect	yes

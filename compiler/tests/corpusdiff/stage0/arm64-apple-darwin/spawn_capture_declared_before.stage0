@@ -1,0 +1,12 @@
+program	spawn_capture_declared_before.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"task saw 8"
+stdout	"n is now 8"
+stdout	"doubled 24"
+stdout	"base still 12"
+stdout	""
+meets_expect	yes

@@ -1,0 +1,12 @@
+program	kernel_slab_idiom.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"1"
+stdout	"4"
+stdout	"999"
+stdout	"6"
+stdout	""
+meets_expect	yes

@@ -1,0 +1,24 @@
+program	df151c_optional_dest_copy.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"sync-arm one-7"
+stdout	"suspending-arm one-7"
+stdout	"local loc-7 loc-7"
+stdout	"field fld-7 fld-7"
+stdout	"method-field mth-7 mth-7"
+stdout	"init ini-7 ini-7"
+stdout	"ref ref-7 ref-7"
+stdout	"self-replace slf-7 slf-7"
+stdout	"chain chn-7 chn-7"
+stdout	"discard dsc-7"
+stdout	"balance-field 1 2 1"
+stdout	"deinit 1"
+stdout	"balance-init 1 3 1"
+stdout	"deinit 2"
+stdout	"balance-suspending-arm 1 4 1"
+stdout	"deinit 3"
+stdout	""
+meets_expect	yes

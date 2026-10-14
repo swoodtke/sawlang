@@ -1,0 +1,7 @@
+program	errors/unsafe_expression_marker_removed.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	Parse error at 13:13: `unsafe` is not an expression prefix — mark the enclosing declaration instead (`func f(...) unsafe`), and delete the marker here
+meets_expect	yes
+log	"error: Parse error at 13:13: `unsafe` is not an expression prefix — mark the enclosing declaration instead (`func f(...) unsafe`), and delete the marker here"

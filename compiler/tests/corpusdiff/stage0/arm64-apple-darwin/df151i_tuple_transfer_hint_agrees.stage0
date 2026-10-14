@@ -1,0 +1,21 @@
+program	df151i_tuple_transfer_hint_agrees.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	cannot copy value of type `(Vector<Int, GlobalAllocator>, Int)` which implements ExplicitCopy
+meets_expect	yes
+log	"error: result of `push` is `Result<Void, AllocError>` and is silently discarded"
+log	"  --> examples/df151i_tuple_transfer_hint_agrees.saw:25:6"
+log	"     |"
+log	" 25 |     v.push(1)"
+log	"     |      ^"
+log	"   hint: handle it — `match` it, `try`/`try!`/`try?` it, or return it — or write `let _ = ...` to discard it explicitly"
+log	""
+log	"error: cannot copy value of type `(Vector<Int, GlobalAllocator>, Int)` which implements ExplicitCopy"
+log	"  --> examples/df151i_tuple_transfer_hint_agrees.saw:27:5"
+log	"     |"
+log	" 27 |     let u = t"
+log	"     |     ^"
+log	"   hint: use .copy() for an explicit deep copy, or `move` to transfer ownership"
+log	""
+log	"2 error(s) generated"

@@ -1,0 +1,14 @@
+program	errors/deinit_needs_copy_policy.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	`Res` declares a deinit but no copy policy
+meets_expect	yes
+log	"error: `Res` declares a deinit but no copy policy"
+log	"  --> examples/errors/deinit_needs_copy_policy.saw:14:1"
+log	"     |"
+log	" 14 | extension Res: Deinit {"
+log	"     | ^"
+log	"   hint: declare one of `extension Res: NoCopy {}` (move-only), `ExplicitCopy`, or `Copy`, and put the `deinit` body inside it — every copy policy already requires `Deinit`"
+log	""
+log	"1 error(s) generated"

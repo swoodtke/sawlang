@@ -1,0 +1,7 @@
+program	discard_var_error.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	Parse error at 6:11: `var _` is not allowed: `_` is a discard binding and has nothing to mutate (use `let _` to evaluate and drop)
+meets_expect	yes
+log	"error: Parse error at 6:11: `var _` is not allowed: `_` is a discard binding and has nothing to mutate (use `let _` to evaluate and drop)"

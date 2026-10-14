@@ -1,0 +1,9 @@
+program	env_error_surfaced.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"set empty name: surfaced"
+stdout	""
+meets_expect	yes

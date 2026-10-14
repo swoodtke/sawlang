@@ -1,0 +1,28 @@
+program	errors/place_window_data_corruption.saw
+triple	arm64-apple-darwin
+twin	differs
+expect	error
+build	refused	exclusive access violation: the place `d[0]` borrows `d` for the whole window, and `d` is accessed by reference a second time in the same call
+meets_expect	yes
+log	"error: result of `push` is `Result<Void, AllocError>` and is silently discarded"
+log	"  --> examples/errors/place_window_data_corruption.saw:28:6"
+log	"     |"
+log	" 28 |     d.push(1)"
+log	"     |      ^"
+log	"   hint: handle it — `match` it, `try`/`try!`/`try?` it, or return it — or write `let _ = ...` to discard it explicitly"
+log	""
+log	"error: result of `push` is `Result<Void, AllocError>` and is silently discarded"
+log	"  --> examples/errors/place_window_data_corruption.saw:29:6"
+log	"     |"
+log	" 29 |     d.push(2)"
+log	"     |      ^"
+log	"   hint: handle it — `match` it, `try`/`try!`/`try?` it, or return it — or write `let _ = ...` to discard it explicitly"
+log	""
+log	"error: exclusive access violation: the place `d[0]` borrows `d` for the whole window, and `d` is accessed by reference a second time in the same call"
+log	"  --> examples/errors/place_window_data_corruption.saw:30:11"
+log	"     |"
+log	" 30 |     swap2(&var d[0], &var d[1])"
+log	"     |           ^"
+log	"   hint: a place borrow charges its ROOT, so two windows onto one receiver — or a window beside a `&var` of it — cannot both be open. Open them in SEPARATE statements, or reach for the method that does both at once (`v.swap(i, j)`)"
+log	""
+log	"3 error(s) generated"

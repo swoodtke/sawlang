@@ -1,0 +1,7 @@
+program	attr_synthesize_on_func_error.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	Parse error at 7:1: attribute `@synthesize` is not supported on function declarations (legal here: @export, @section)
+meets_expect	yes
+log	"error: Parse error at 7:1: attribute `@synthesize` is not supported on function declarations (legal here: @export, @section)"

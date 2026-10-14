@@ -1,0 +1,14 @@
+program	errors/compound_assign_immutable.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	cannot use compound assignment on immutable variable `x`
+meets_expect	yes
+log	"error: cannot use compound assignment on immutable variable `x`"
+log	"  --> examples/errors/compound_assign_immutable.saw:6:5"
+log	"    |"
+log	" 6 |     x += 5  // Error: x is immutable"
+log	"    |     ^"
+log	"   hint: consider using `var` instead of `let` to make it mutable"
+log	""
+log	"1 error(s) generated"

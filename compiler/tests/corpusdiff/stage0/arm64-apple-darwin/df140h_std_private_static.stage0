@@ -1,0 +1,11 @@
+program	df140h_std_private_static.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"999"
+stdout	"4207"
+stdout	"90210"
+stdout	""
+meets_expect	yes

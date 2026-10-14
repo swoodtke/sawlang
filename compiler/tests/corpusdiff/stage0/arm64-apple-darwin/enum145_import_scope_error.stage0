@@ -1,0 +1,14 @@
+program	enum145_import_scope_error.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	type `Level` has no method `shout` in scope here
+meets_expect	yes
+log	"error: type `Level` has no method `shout` in scope here"
+log	"  --> examples/enum145_import_scope_error.saw:13:12"
+log	"     |"
+log	" 13 |     print(l.shout())"
+log	"     |            ^"
+log	"   hint: `modules.enum145_far` extends `Level` with `shout`, but this file does not import it — add `import modules.enum145_far`"
+log	""
+log	"1 error(s) generated"

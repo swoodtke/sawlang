@@ -1,0 +1,15 @@
+program	crossmodule_embed_annotation_positions.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"field 11"
+stdout	"generic 21"
+stdout	"optional 31"
+stdout	"payload 41"
+stdout	"return 71"
+stdout	"signature 81"
+stdout	"local 91"
+stdout	""
+meets_expect	yes

@@ -1,0 +1,16 @@
+program	lend_var_both_branches.saw
+triple	arm64-apple-darwin
+twin	differs
+expect	success
+build	ok
+exit	0
+stdout	"shared path"
+stdout	"read 3, gates 0"
+stdout	"shared path"
+stdout	"read through a ref 1, gates 0"
+stdout	"wrote, gates 1"
+stdout	"shared path"
+stdout	"read back 42, gates 1"
+stdout	"-- done"
+stdout	""
+meets_expect	yes

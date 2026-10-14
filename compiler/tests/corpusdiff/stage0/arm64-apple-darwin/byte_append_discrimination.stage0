@@ -1,0 +1,17 @@
+program	byte_append_discrimination.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"literal      65"
+stdout	"string       txt"
+stdout	"int var      65"
+stdout	"uint var     65"
+stdout	"byte ctor    A"
+stdout	"byte value   h"
+stdout	"byte digits  104"
+stdout	"scalar       é"
+stdout	"fixed        65A"
+stdout	""
+meets_expect	yes

@@ -1,0 +1,15 @@
+program	coro_move_in_split_while_head.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"while-exit driven"
+stdout	"drop old"
+stdout	"-> 3"
+stdout	"while-reinit driven"
+stdout	"drop old"
+stdout	"drop new"
+stdout	"-> 6"
+stdout	""
+meets_expect	yes

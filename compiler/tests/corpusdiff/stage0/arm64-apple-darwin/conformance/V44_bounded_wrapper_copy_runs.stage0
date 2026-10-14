@@ -1,0 +1,12 @@
+program	conformance/V44_bounded_wrapper_copy_runs.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"12"
+stdout	"2"
+stdout	"2"
+stdout	"2"
+stdout	""
+meets_expect	yes

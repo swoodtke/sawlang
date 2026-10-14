@@ -1,0 +1,11 @@
+program	format_args_assert.saw
+triple	arm64-apple-darwin
+twin	same
+expect	panic
+build	ok
+exit	-6
+stdout	"passed"
+stdout	"also passed"
+stdout	"panic at format_args_assert.saw:17: assertion failed: want 1 got 2 (at step 3)"
+stdout	""
+meets_expect	yes

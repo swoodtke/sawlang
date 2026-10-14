@@ -1,0 +1,19 @@
+program	payload_derived_binding_fills_default_type_args.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"iflet-field 2"
+stdout	"tuple-local 2 3"
+stdout	"for-field 1"
+stdout	"for-field 1"
+stdout	"iflet 2"
+stdout	"guardlet 2"
+stdout	"whilelet 2"
+stdout	"closure 2"
+stdout	"tuple 2 3"
+stdout	"for 1"
+stdout	"for 1"
+stdout	""
+meets_expect	yes

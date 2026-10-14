@@ -1,0 +1,15 @@
+program	match_payload_binding_fills_default_type_args.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"field 2"
+stdout	"param 2"
+stdout	"classic 2"
+stdout	"guarded 2"
+stdout	"nested 2"
+stdout	"tuple 2 7"
+stdout	"generic 2"
+stdout	""
+meets_expect	yes

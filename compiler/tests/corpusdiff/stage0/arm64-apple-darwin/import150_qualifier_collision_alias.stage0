@@ -1,0 +1,10 @@
+program	import150_qualifier_collision_alias.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"std 2"
+stdout	"user 42"
+stdout	""
+meets_expect	yes

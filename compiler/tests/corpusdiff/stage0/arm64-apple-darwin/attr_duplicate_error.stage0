@@ -1,0 +1,7 @@
+program	attr_duplicate_error.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	Parse error at 6:8: duplicate attribute `@export`
+meets_expect	yes
+log	"error: Parse error at 6:8: duplicate attribute `@export`"

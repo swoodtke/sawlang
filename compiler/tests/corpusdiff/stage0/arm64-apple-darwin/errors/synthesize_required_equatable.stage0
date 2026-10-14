@@ -1,0 +1,14 @@
+program	errors/synthesize_required_equatable.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	`Named` declares `Equatable` with no `equals`: a derived body must be requested explicitly
+meets_expect	yes
+log	"error: `Named` declares `Equatable` with no `equals`: a derived body must be requested explicitly"
+log	"  --> examples/errors/synthesize_required_equatable.saw:11:1"
+log	"     |"
+log	" 11 | extension Named: Equatable {}"
+log	"     | ^"
+log	"   hint: mark the extension `@synthesize` to derive `equals` memberwise, or write `equals` by hand"
+log	""
+log	"1 error(s) generated"

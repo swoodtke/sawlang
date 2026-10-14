@@ -1,0 +1,13 @@
+program	coercion/const_expression_range_checked_narrow.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	constant expression 1048576 does not fit in `UInt16` (range 0..=65535)
+meets_expect	yes
+log	"error: constant expression 1048576 does not fit in `UInt16` (range 0..=65535)"
+log	"  --> examples/coercion/const_expression_range_checked_narrow.saw:19:23"
+log	"     |"
+log	" 19 |     let e: UInt16 = 1 << 20"
+log	"     |                       ^"
+log	""
+log	"1 error(s) generated"

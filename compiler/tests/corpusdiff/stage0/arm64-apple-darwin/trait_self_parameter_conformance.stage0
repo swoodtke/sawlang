@@ -1,0 +1,10 @@
+program	trait_self_parameter_conformance.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"self-spelled 5"
+stdout	"concrete 6"
+stdout	""
+meets_expect	yes

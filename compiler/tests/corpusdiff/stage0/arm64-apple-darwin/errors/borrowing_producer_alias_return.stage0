@@ -1,0 +1,21 @@
+program	errors/borrowing_producer_alias_return.saw
+triple	arm64-apple-darwin
+twin	differs
+expect	error
+build	refused	U3 admits the receiver as the only borrow origin: every returning path of `bad` must construct `Alias` with `lends self` in every reference field — the path ending at line 31 yields the call `.iter()`, another producer's result rather than a construction of `It` written in this body
+meets_expect	yes
+log	"error: U3 admits the receiver as the only borrow origin: every returning path of `bad` must construct `Alias` with `lends self` in every reference field — the path ending at line 31 yields the call `.iter()`, another producer's result rather than a construction of `It` written in this body"
+log	"  --> examples/errors/borrowing_producer_alias_return.saw:30:5"
+log	"     |"
+log	" 30 |     func bad(&self, other: &Owner) borrows -> Alias {"
+log	"     |     ^"
+log	"   hint: a path that constructs the struct any other way, lends a non-receiver place, a projection of `self`, another reference parameter or a local has no root the call site can charge"
+log	""
+log	"error: U3 admits the receiver as the only borrow origin: every returning path of `bad_arm` must construct `Alias` with `lends self` in every reference field — the path ending at line 35 yields the call `.iter()`, another producer's result rather than a construction of `It` written in this body"
+log	"  --> examples/errors/borrowing_producer_alias_return.saw:33:5"
+log	"     |"
+log	" 33 |     func bad_arm(&self, other: &Owner, flag: Bool) borrows -> Alias {"
+log	"     |     ^"
+log	"   hint: a path that constructs the struct any other way, lends a non-receiver place, a projection of `self`, another reference parameter or a local has no root the call site can charge"
+log	""
+log	"2 error(s) generated"

@@ -1,0 +1,12 @@
+program	channel_receive_through_helper.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"in 0"
+stdout	"out 0"
+stdout	"in 1"
+stdout	"out 1"
+stdout	""
+meets_expect	yes

@@ -1,0 +1,21 @@
+program	conformance/V82_closure_tail_takes_the_transfer_checkpoint.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	cannot return NoCopy type `Res` without `move` in closure
+meets_expect	yes
+log	"error: cannot return NoCopy type `Res` without `move` in closure"
+log	"  --> examples/conformance/V82_closure_tail_takes_the_transfer_checkpoint.saw:35:33"
+log	"     |"
+log	" 35 |     print(\"tail {}\", run({ r in r }))            // error: the tail"
+log	"     |                                 ^"
+log	"   hint: use `move` to transfer ownership instead"
+log	""
+log	"error: cannot return NoCopy type `Res` without `move` in closure"
+log	"  --> examples/conformance/V82_closure_tail_takes_the_transfer_checkpoint.saw:36:35"
+log	"     |"
+log	" 36 |     print(\"return {}\", run({ r in return r }))   // error: and always was"
+log	"     |                                   ^"
+log	"   hint: use `move` to transfer ownership instead"
+log	""
+log	"2 error(s) generated"

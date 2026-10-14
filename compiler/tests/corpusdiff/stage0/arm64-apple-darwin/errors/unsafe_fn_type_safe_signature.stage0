@@ -1,0 +1,14 @@
+program	errors/unsafe_fn_type_safe_signature.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	the function type `(Int) unsafe sync -> Int` declares `unsafe` but its signature names no unsafe type
+meets_expect	yes
+log	"error: the function type `(Int) unsafe sync -> Int` declares `unsafe` but its signature names no unsafe type"
+log	"  --> examples/errors/unsafe_fn_type_safe_signature.saw:10:1"
+log	"     |"
+log	" 10 | func apply(body: (Int) unsafe sync -> Int) -> Int { body(1) }"
+log	"     | ^"
+log	"   hint: a function taking only safe types must be sound for every input; unsafety enters a signature only through its types — drop the `unsafe`, or state the precondition by taking a parameter of unsafe type"
+log	""
+log	"1 error(s) generated"

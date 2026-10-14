@@ -1,0 +1,14 @@
+program	trait_bound_error.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	type `Point` does not implement trait `Describable`
+meets_expect	yes
+log	"error: type `Point` does not implement trait `Describable`"
+log	"  --> examples/trait_bound_error.saw:22:5"
+log	"     |"
+log	" 22 |     printDescription<Point>(p)  // Error: Point doesn't implement Describable"
+log	"     |     ^"
+log	"   hint: add `extension Point: Describable { ... }`"
+log	""
+log	"1 error(s) generated"

@@ -1,0 +1,14 @@
+program	format_args_too_many_error.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	`panic` format string has 1 placeholder but 2 arguments were given
+meets_expect	yes
+log	"error: `panic` format string has 1 placeholder but 2 arguments were given"
+log	"  --> examples/format_args_too_many_error.saw:7:5"
+log	"    |"
+log	" 7 |     panic(\"out of {}\", 1, 2)"
+log	"    |     ^"
+log	"   hint: every `{}` takes exactly one argument, by position"
+log	""
+log	"1 error(s) generated"

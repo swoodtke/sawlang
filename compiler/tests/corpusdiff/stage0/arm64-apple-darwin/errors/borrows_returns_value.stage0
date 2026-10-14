@@ -1,0 +1,13 @@
+program	errors/borrows_returns_value.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	a `borrows` body returns no value — it LENDS a place. Write `lend <place>` instead of `return <value>`: `-> T` names the type of the place, not of a returned value
+meets_expect	yes
+log	"error: a `borrows` body returns no value — it LENDS a place. Write `lend <place>` instead of `return <value>`: `-> T` names the type of the place, not of a returned value"
+log	"  --> examples/errors/borrows_returns_value.saw:14:9"
+log	"     |"
+log	" 14 |         return self.items[i]"
+log	"     |         ^"
+log	""
+log	"1 error(s) generated"

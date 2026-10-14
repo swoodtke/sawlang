@@ -1,0 +1,10 @@
+program	cast170_narrowing_panics.saw
+triple	arm64-apple-darwin
+twin	same
+expect	panic
+build	ok
+exit	-6
+stdout	"200"
+stdout	"panic at cast170_narrowing_panics.saw:19: cast to UInt8 out of range: 1000"
+stdout	""
+meets_expect	yes

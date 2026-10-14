@@ -1,0 +1,20 @@
+program	set_nocopy_key_error.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	set element type `Counted` must be copyable (trivial, Copy, or ExplicitCopy with retain semantics): `Counted` is NoCopy
+meets_expect	yes
+log	"error: set element type `Counted` must be copyable (trivial, Copy, or ExplicitCopy with retain semantics): `Counted` is NoCopy"
+log	"  --> examples/set_nocopy_key_error.saw:16:13"
+log	"     |"
+log	" 16 |     var s = Set<Counted>()"
+log	"     |             ^"
+log	""
+log	"error: `Set.insert` requires `T` to be `Copy` — it forwards `T` to ``Map.insert``, which needs it to be `Copy`; `Counted` is move-only"
+log	"  --> examples/set_nocopy_key_error.saw:17:14"
+log	"     |"
+log	" 17 |     let _ = s.insert(Counted(id: 1))"
+log	"     |              ^"
+log	"   hint: pass a type on the `Copy` tier, or rewrite the body to move `T` instead of duplicating it. A body that means to duplicate declares `<T: ExplicitCopy>` and spells `.copy()`"
+log	""
+log	"2 error(s) generated"

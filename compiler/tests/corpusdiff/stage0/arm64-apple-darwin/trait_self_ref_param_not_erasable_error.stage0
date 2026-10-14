@@ -1,0 +1,19 @@
+program	trait_self_ref_param_not_erasable_error.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	cannot form `any Merges`: method `merge` takes parameter `other` of type `&Self` — a `Self`-typed parameter is not object-safe, by reference or by value
+meets_expect	yes
+log	"error: cannot form `any Merges`: method `merge` takes parameter `other` of type `&Self` — a `Self`-typed parameter is not object-safe, by reference or by value"
+log	"  --> examples/trait_self_ref_param_not_erasable_error.saw:20:1"
+log	"     |"
+log	" 20 | func total(a: &any Merges, b: &any Merges) -> Int {"
+log	"     | ^"
+log	""
+log	"error: argument 1 expects `&Self` but got `any Merges`"
+log	"  --> examples/trait_self_ref_param_not_erasable_error.saw:21:13"
+log	"     |"
+log	" 21 |     a.merge(b)"
+log	"     |             ^"
+log	""
+log	"2 error(s) generated"

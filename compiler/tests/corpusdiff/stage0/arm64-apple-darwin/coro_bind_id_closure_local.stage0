@@ -1,0 +1,12 @@
+program	coro_bind_id_closure_local.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"1000"
+stdout	"call: 11"
+stdout	"capture: 12"
+stdout	"control: 11"
+stdout	""
+meets_expect	yes

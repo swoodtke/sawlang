@@ -1,0 +1,14 @@
+program	errors/match_non_exhaustive.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	match is not exhaustive, missing variants: `Pending`
+meets_expect	yes
+log	"error: match is not exhaustive, missing variants: `Pending`"
+log	"  --> examples/errors/match_non_exhaustive.saw:16:5"
+log	"     |"
+log	" 16 |     match s {"
+log	"     |     ^"
+log	"   hint: add missing cases or use `case _ ->` as a default"
+log	""
+log	"1 error(s) generated"

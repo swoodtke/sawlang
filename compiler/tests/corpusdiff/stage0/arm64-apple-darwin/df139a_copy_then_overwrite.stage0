@@ -1,0 +1,22 @@
+program	df139a_copy_then_overwrite.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"A c=val-1 h=val-2"
+stdout	"B c=val-1 s=val-2"
+stdout	"C c=val-1 h=val-2"
+stdout	"D e=val-1 d=ver3"
+stdout	"E c=val-1 t=val-2"
+stdout	"F c=val-1 arr=val-2"
+stdout	"G c=val-1 h=val-2"
+stdout	"oracle start"
+stdout	"oracle copy 1"
+stdout	"oracle drop 1"
+stdout	"oracle c=1 h=2"
+stdout	"oracle drop 1"
+stdout	"oracle drop 2"
+stdout	"churn ok"
+stdout	""
+meets_expect	yes

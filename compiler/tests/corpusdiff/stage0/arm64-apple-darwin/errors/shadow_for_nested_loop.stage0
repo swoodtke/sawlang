@@ -1,0 +1,14 @@
+program	errors/shadow_for_nested_loop.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	`x` shadows the binding declared at shadow_for_nested_loop.saw:9:5
+meets_expect	yes
+log	"error: `x` shadows the binding declared at shadow_for_nested_loop.saw:9:5"
+log	"  --> examples/errors/shadow_for_nested_loop.saw:10:9"
+log	"     |"
+log	" 10 |         for x in 4..6 {       // inner sequence 4..6 never mentions outer loop var x"
+log	"     |         ^"
+log	"   hint: rename it, or derive it from the original (e.g. `let x = parse(move x)`) to make the redefinition explicit"
+log	""
+log	"1 error(s) generated"

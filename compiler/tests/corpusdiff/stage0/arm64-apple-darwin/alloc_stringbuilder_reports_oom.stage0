@@ -1,0 +1,16 @@
+program	alloc_stringbuilder_reports_oom.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"saw"
+stdout	"append denied: allocation of 32 bytes (align 1) failed"
+stdout	"3"
+stdout	"saw"
+stdout	"char denied"
+stdout	"3"
+stdout	"capacity denied"
+stdout	"saw and more"
+stdout	""
+meets_expect	yes

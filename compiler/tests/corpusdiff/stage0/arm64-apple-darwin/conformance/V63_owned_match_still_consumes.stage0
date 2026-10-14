@@ -1,0 +1,17 @@
+program	conformance/V63_owned_match_still_consumes.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"owned 7"
+stdout	"drop 7"
+stdout	"temp 5"
+stdout	"drop 5"
+stdout	"moved hello"
+stdout	"kept hello"
+stdout	"occupied true"
+stdout	"width 3"
+stdout	"drop 3"
+stdout	""
+meets_expect	yes

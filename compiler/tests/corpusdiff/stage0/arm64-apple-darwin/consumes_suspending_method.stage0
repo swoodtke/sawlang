@@ -1,0 +1,22 @@
+program	consumes_suspending_method.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"spawned:"
+stdout	"tag 2 dropped"
+stdout	"tag 1 dropped"
+stdout	"-> 3"
+stdout	"driven:"
+stdout	"tag 20 dropped"
+stdout	"tag 10 dropped"
+stdout	"-> 30"
+stdout	"generic:"
+stdout	"tag 200 dropped"
+stdout	"tag 100 dropped"
+stdout	"-> 300"
+stdout	"sync instance -> 7"
+stdout	"end"
+stdout	""
+meets_expect	yes

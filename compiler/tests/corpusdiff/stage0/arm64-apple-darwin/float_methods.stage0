@@ -1,0 +1,16 @@
+program	float_methods.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"2.5"
+stdout	"2.0"
+stdout	"3.0"
+stdout	"3.0"
+stdout	"4.0"
+stdout	"1.0"
+stdout	"5.0"
+stdout	"true"
+stdout	""
+meets_expect	yes

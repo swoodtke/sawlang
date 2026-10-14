@@ -1,0 +1,10 @@
+program	taskgroup_threads_producer_consumer.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"10"
+stdout	"55"
+stdout	""
+meets_expect	yes

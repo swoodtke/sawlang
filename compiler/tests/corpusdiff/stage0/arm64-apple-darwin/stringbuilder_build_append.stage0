@@ -1,0 +1,12 @@
+program	stringbuilder_build_append.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"13"
+stdout	"count=42 done"
+stdout	"190"
+stdout	"4950"
+stdout	""
+meets_expect	yes

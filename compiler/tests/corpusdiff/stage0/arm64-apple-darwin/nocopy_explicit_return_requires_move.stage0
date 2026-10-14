@@ -1,0 +1,14 @@
+program	nocopy_explicit_return_requires_move.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	cannot return NoCopy type `FileHandle` without `move` in function `passthrough`
+meets_expect	yes
+log	"error: cannot return NoCopy type `FileHandle` without `move` in function `passthrough`"
+log	"  --> examples/nocopy_explicit_return_requires_move.saw:21:5"
+log	"     |"
+log	" 21 |     return f        // should require `move f`"
+log	"     |     ^"
+log	"   hint: use `move` to transfer ownership instead"
+log	""
+log	"1 error(s) generated"

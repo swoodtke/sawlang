@@ -1,0 +1,11 @@
+program	coro_reassign_owning_local.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"ok 4"
+stdout	"ok 4 then more"
+stdout	"2 and 9"
+stdout	""
+meets_expect	yes

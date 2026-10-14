@@ -1,0 +1,10 @@
+program	unsafe_fn_type_generic_slot.saw
+triple	arm64-apple-darwin
+twin	differs
+expect	success
+build	ok
+exit	0
+stdout	"3"
+stdout	"1"
+stdout	""
+meets_expect	yes

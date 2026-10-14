@@ -1,0 +1,11 @@
+program	closure_nested_ref_param_capture.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"explicit borrow capture: root 42"
+stdout	"argument face: root 1"
+stdout	"shared read: root 1 saw 1"
+stdout	""
+meets_expect	no: output line 2 is 'argument face: root 1', expected 'argument face: root 42'

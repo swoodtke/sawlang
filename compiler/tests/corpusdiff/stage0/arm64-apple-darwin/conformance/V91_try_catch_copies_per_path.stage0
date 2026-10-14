@@ -1,0 +1,35 @@
+program	conformance/V91_try_catch_copies_per_path.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"-- ok/alias/alias"
+stdout	"copy 1"
+stdout	"= 1"
+stdout	"-- ok/alias/fresh"
+stdout	"copy 2"
+stdout	"= 2"
+stdout	"-- ok/fresh/alias"
+stdout	"= 3"
+stdout	"-- ok/fresh/fresh"
+stdout	"= 4"
+stdout	"-- err/alias/alias"
+stdout	"copy 95"
+stdout	"= 95"
+stdout	"-- err/alias/fresh"
+stdout	"= 96"
+stdout	"-- err/fresh/alias"
+stdout	"copy 97"
+stdout	"= 97"
+stdout	"-- err/fresh/fresh"
+stdout	"= 98"
+stdout	"-- driven err/alias/alias"
+stdout	"copy 5"
+stdout	"= 5"
+stdout	"-- driven ok/alias/alias"
+stdout	"copy 6"
+stdout	"= 6"
+stdout	"end"
+stdout	""
+meets_expect	yes

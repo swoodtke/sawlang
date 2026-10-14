@@ -1,0 +1,14 @@
+program	collection_literal_move_error.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	use of moved variable `r`
+meets_expect	yes
+log	"error: use of moved variable `r`"
+log	"  --> examples/collection_literal_move_error.saw:19:11"
+log	"     |"
+log	" 19 |     print(r.id)            // r was moved — rejected"
+log	"     |           ^"
+log	"   hint: value was moved at line 18 and can no longer be used"
+log	""
+log	"1 error(s) generated"

@@ -1,0 +1,7 @@
+program	export229_scoped_import_error.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	Parse error at 5:17: `public import` is the only re-export form — a scoped visibility is not supported on an import
+meets_expect	yes
+log	"error: Parse error at 5:17: `public import` is the only re-export form — a scoped visibility is not supported on an import"

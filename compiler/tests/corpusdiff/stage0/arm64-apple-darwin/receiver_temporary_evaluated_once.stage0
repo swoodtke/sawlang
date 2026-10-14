@@ -1,0 +1,14 @@
+program	receiver_temporary_evaluated_once.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"field of temporary: tick=1 calls=1"
+stdout	"element of temporary: tick=1 calls=1"
+stdout	"tuple element of temporary: tick=1 calls=1"
+stdout	"force-unwrapped temporary: tick=1 calls=1"
+stdout	"lvalue field: tick=1 then 2, calls=0"
+stdout	"lvalue element: tick=1 then 2"
+stdout	""
+meets_expect	yes

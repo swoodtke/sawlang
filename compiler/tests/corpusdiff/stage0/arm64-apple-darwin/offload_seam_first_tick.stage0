@@ -1,0 +1,10 @@
+program	offload_seam_first_tick.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"sibling first tick: prompt"
+stdout	"300"
+stdout	""
+meets_expect	yes

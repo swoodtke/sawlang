@@ -1,0 +1,19 @@
+program	conformance/K111_suspension_causes_decide_framing.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"really_free 11"
+stdout	"boundary 21"
+stdout	"closure_only_free 30"
+stdout	"plain_free 40"
+stdout	"tick 6"
+stdout	"fold 15"
+stdout	"hop 61"
+stdout	"pass 70"
+stdout	"imported really 81 82"
+stdout	"imported closure_call 91 91"
+stdout	"done"
+stdout	""
+meets_expect	yes

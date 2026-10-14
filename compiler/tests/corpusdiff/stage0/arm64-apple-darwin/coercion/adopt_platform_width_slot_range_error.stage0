@@ -1,0 +1,13 @@
+program	coercion/adopt_platform_width_slot_range_error.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	constant expression -2 does not fit in `UInt` (range 0..=18446744073709551615)
+meets_expect	yes
+log	"error: constant expression -2 does not fit in `UInt` (range 0..=18446744073709551615)"
+log	"  --> examples/coercion/adopt_platform_width_slot_range_error.saw:12:22"
+log	"     |"
+log	" 12 | static NEG: UInt = 3 - 5"
+log	"     |                      ^"
+log	""
+log	"1 error(s) generated"

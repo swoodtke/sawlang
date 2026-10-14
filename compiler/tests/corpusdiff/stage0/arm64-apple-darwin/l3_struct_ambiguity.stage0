@@ -1,0 +1,14 @@
+program	l3_struct_ambiguity.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	ambiguous struct `Shape`: defined in both `modules.l3_shape_a` and `modules.l3_shape_b`
+meets_expect	yes
+log	"error: ambiguous struct `Shape`: defined in both `modules.l3_shape_a` and `modules.l3_shape_b`"
+log	"  --> examples/l3_struct_ambiguity.saw:10:13"
+log	"     |"
+log	" 10 |     let s = Shape(sides: 3)"
+log	"     |             ^"
+log	"   hint: qualify the use (e.g. `modules.l3_shape_a.Shape`), or import `Shape` from a single module"
+log	""
+log	"1 error(s) generated"

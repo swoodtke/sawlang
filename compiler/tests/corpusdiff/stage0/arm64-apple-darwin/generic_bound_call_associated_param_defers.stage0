@@ -1,0 +1,10 @@
+program	generic_bound_call_associated_param_defers.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"7"
+stdout	"19"
+stdout	""
+meets_expect	yes

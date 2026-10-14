@@ -1,0 +1,12 @@
+program	ref_pointer_cast_blessed.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"5"
+stdout	"5"
+stdout	"9"
+stdout	"true"
+stdout	""
+meets_expect	yes

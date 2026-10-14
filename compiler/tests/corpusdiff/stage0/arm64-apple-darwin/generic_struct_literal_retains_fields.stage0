@@ -1,0 +1,24 @@
+program	generic_struct_literal_retains_fields.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"arc cell: 1 2 2"
+stdout	"arc cell: 1"
+stdout	"deinit 1"
+stdout	"text cell: hello 2 2"
+stdout	"text cell: hello 2"
+stdout	"enum payload: 1 2 2"
+stdout	"enum payload: 1"
+stdout	"deinit 3"
+stdout	"nested: 1 2 2"
+stdout	"nested: 1"
+stdout	"deinit 4"
+stdout	"driven: 3"
+stdout	"driven: 1"
+stdout	"explicit copy: 1 1"
+stdout	"deinit 6"
+stdout	"deinit 5"
+stdout	""
+meets_expect	yes

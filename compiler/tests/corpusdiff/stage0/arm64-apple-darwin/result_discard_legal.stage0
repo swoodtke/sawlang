@@ -1,0 +1,14 @@
+program	result_discard_legal.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"explicit discard is fine"
+stdout	"handled: 6"
+stdout	"consumed: 8"
+stdout	"map had: 2"
+stdout	"chain wrote: 5"
+stdout	"done"
+stdout	""
+meets_expect	yes

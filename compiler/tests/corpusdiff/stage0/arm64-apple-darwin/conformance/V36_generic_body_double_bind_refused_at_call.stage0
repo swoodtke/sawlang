@@ -1,0 +1,14 @@
+program	conformance/V36_generic_body_double_bind_refused_at_call.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	`twice` requires `T` to be `Copy` — it binds `x` twice, at lines 25 and 26; `Res` is move-only
+meets_expect	yes
+log	"error: `twice` requires `T` to be `Copy` — it binds `x` twice, at lines 25 and 26; `Res` is move-only"
+log	"  --> examples/conformance/V36_generic_body_double_bind_refused_at_call.saw:32:15"
+log	"     |"
+log	" 32 |     print(\"n {twice(move r)}\")"
+log	"     |               ^"
+log	"   hint: pass a type on the `Copy` tier, or rewrite the body to move `T` instead of duplicating it. A body that means to duplicate declares `<T: ExplicitCopy>` and spells `.copy()`"
+log	""
+log	"1 error(s) generated"

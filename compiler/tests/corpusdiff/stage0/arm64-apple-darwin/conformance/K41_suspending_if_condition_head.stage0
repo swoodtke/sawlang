@@ -1,0 +1,13 @@
+program	conformance/K41_suspending_if_condition_head.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"A1"
+stdout	"B1"
+stdout	"A2"
+stdout	"B2"
+stdout	"condition 25"
+stdout	""
+meets_expect	yes

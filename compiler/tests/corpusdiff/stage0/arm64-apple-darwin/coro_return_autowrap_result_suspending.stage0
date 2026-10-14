@@ -1,0 +1,14 @@
+program	coro_return_autowrap_result_suspending.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"ok 5"
+stdout	"err bad 7"
+stdout	"erased bad 9"
+stdout	"tail 11"
+stdout	"nested 26"
+stdout	"double 13"
+stdout	""
+meets_expect	yes

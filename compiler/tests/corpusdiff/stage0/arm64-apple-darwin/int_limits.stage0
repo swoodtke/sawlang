@@ -1,0 +1,17 @@
+program	int_limits.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"9223372036854775807"
+stdout	"-9223372036854775808"
+stdout	"0"
+stdout	"127"
+stdout	"-128"
+stdout	"255"
+stdout	"2147483647"
+stdout	"-2147483648"
+stdout	"65535"
+stdout	""
+meets_expect	yes

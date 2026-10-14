@@ -1,0 +1,12 @@
+program	conformance/K36_suspending_conformance_method_embedded.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"A1"
+stdout	"B1"
+stdout	"A2 A dark"
+stdout	"B2 B dark"
+stdout	""
+meets_expect	yes

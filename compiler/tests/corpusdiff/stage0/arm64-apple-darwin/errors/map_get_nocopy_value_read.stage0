@@ -1,0 +1,14 @@
+program	errors/map_get_nocopy_value_read.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	`m.get(…)` lends a place of type `Res`, which is move-only — reading it out as a value would alias storage the container still owns
+meets_expect	yes
+log	"error: `m.get(…)` lends a place of type `Res`, which is move-only — reading it out as a value would alias storage the container still owns"
+log	"  --> examples/errors/map_get_nocopy_value_read.saw:15:21"
+log	"     |"
+log	" 15 |     if let taken = m.get(\"only\") {"
+log	"     |                     ^"
+log	"   hint: `m.get(…)!.method()` borrows through the window without taking the value out"
+log	""
+log	"1 error(s) generated"

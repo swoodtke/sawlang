@@ -1,0 +1,14 @@
+program	vis258_extension_members_do_not_inherit_error.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	method `helper` of `Crate` is private and not accessible from this module
+meets_expect	yes
+log	"error: method `helper` of `Crate` is private and not accessible from this module"
+log	"  --> examples/vis258_extension_members_do_not_inherit_error.saw:18:12"
+log	"     |"
+log	" 18 |     print(c.helper())     // the METHOD does not: refused"
+log	"     |            ^"
+log	"   hint: mark it `public` in the extension of `Crate` to expose it"
+log	""
+log	"1 error(s) generated"

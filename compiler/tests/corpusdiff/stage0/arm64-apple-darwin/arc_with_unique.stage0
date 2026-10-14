@@ -1,0 +1,14 @@
+program	arc_with_unique.saw
+triple	arm64-apple-darwin
+twin	differs
+expect	success
+build	ok
+exit	0
+stdout	"unique -> 1"
+stdout	"void arm ran, n = 2"
+stdout	"shared -> None (body did not run)"
+stdout	"clone-and-write: mine 3, theirs 2"
+stdout	"no double count: strong 1"
+stdout	"res deinit 7"
+stdout	""
+meets_expect	yes

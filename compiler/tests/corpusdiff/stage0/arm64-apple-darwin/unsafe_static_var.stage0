@@ -1,0 +1,15 @@
+program	unsafe_static_var.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"claimed 0 and 1"
+stdout	"owners 11 22, live 2"
+stdout	"table full, no slot handed out"
+stdout	"released 0, live 3"
+stdout	"arena 200 at the top, 0 at the bottom"
+stdout	"counted to 4"
+stdout	"table generation 4"
+stdout	""
+meets_expect	yes

@@ -1,0 +1,12 @@
+program	implicit_copy_nested.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"original count:"
+stdout	"1"
+stdout	"copied count:"
+stdout	"2"
+stdout	""
+meets_expect	yes

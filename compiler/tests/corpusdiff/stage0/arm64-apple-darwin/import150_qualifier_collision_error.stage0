@@ -1,0 +1,20 @@
+program	import150_qualifier_collision_error.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	two imports bind the qualifier `data`: `std.data` and `data`
+meets_expect	yes
+log	"error: two imports bind the qualifier `data`: `std.data` and `data`"
+log	"  --> examples/import150_qualifier_collision_error.saw:11:1"
+log	"     |"
+log	" 11 | import data"
+log	"     | ^"
+log	"   hint: rename one with `as`, e.g. `import data as <name>`"
+log	""
+log	"error: module `data` has no function `tripled`"
+log	"  --> examples/import150_qualifier_collision_error.saw:14:17"
+log	"     |"
+log	" 14 |     print(\"{data.tripled(14)}\")"
+log	"     |                 ^"
+log	""
+log	"2 error(s) generated"

@@ -1,0 +1,14 @@
+program	struct_optional_cascade_error.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	struct `Keeper` contains NoCopy field `handle` of type `File?` but does not implement NoCopy
+meets_expect	yes
+log	"error: struct `Keeper` contains NoCopy field `handle` of type `File?` but does not implement NoCopy"
+log	"  --> examples/struct_optional_cascade_error.saw:15:1"
+log	"     |"
+log	" 15 | struct Keeper {"
+log	"     | ^"
+log	"   hint: add `extension Keeper: NoCopy {}` — a NoCopy field makes `Keeper` move-only, and its `deinit` is synthesized"
+log	""
+log	"1 error(s) generated"

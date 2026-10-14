@@ -1,0 +1,17 @@
+program	map_grow_collision.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"50"
+stdout	"0"
+stdout	"2500"
+stdout	"4900"
+stdout	"-1"
+stdout	"0"
+stdout	"2400"
+stdout	"2600"
+stdout	"49"
+stdout	""
+meets_expect	yes

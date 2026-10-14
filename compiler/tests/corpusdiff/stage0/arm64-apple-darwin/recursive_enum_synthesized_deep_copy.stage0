@@ -1,0 +1,12 @@
+program	recursive_enum_synthesized_deep_copy.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"original leaves 2"
+stdout	"clone leaves 2"
+stdout	"DEINIT top"
+stdout	"DEINIT deep"
+stdout	""
+meets_expect	yes

@@ -1,0 +1,14 @@
+program	d249_bare_import_tie_names_both_origins_error.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	ambiguous call to `chime`: multiple overloads match the argument types (Int)
+meets_expect	yes
+log	"error: ambiguous call to `chime`: multiple overloads match the argument types (Int)"
+log	"  --> examples/d249_bare_import_tie_names_both_origins_error.saw:13:11"
+log	"     |"
+log	" 13 |     print(chime(1))"
+log	"     |           ^"
+log	"   hint: matching candidates: chime(n: Int) [modules.d249_tie_a]; chime(n: Int) [modules.d249_tie_b]"
+log	""
+log	"1 error(s) generated"

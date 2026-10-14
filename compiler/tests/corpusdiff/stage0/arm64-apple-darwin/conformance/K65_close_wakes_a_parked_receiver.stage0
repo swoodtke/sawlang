@@ -1,0 +1,9 @@
+program	conformance/K65_close_wakes_a_parked_receiver.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"waiter -1"
+stdout	""
+meets_expect	yes

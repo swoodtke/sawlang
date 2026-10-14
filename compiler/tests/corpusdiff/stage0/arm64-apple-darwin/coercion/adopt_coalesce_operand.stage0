@@ -1,0 +1,11 @@
+program	coercion/adopt_coalesce_operand.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"bare = 9"
+stdout	"bare present = 5"
+stdout	"const = 24"
+stdout	""
+meets_expect	yes

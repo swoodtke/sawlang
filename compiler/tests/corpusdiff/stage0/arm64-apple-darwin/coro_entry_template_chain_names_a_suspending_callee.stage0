@@ -1,0 +1,11 @@
+program	coro_entry_template_chain_names_a_suspending_callee.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"two hops 112 1"
+stdout	"three hops 1112 1"
+stdout	"sync twin 112"
+stdout	""
+meets_expect	yes

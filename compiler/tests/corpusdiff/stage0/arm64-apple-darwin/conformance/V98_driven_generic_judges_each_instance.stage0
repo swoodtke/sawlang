@@ -1,0 +1,13 @@
+program	conformance/V98_driven_generic_judges_each_instance.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"copy 5"
+stdout	"copy 5"
+stdout	"counted 10"
+stdout	"trivial 14"
+stdout	"end"
+stdout	""
+meets_expect	yes

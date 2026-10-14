@@ -1,0 +1,14 @@
+program	errors/unsafe_closure_in_safe_function.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	function `read_byte` is not declared `unsafe`, but its body names a value of unsafe type (`UnsafePointer<Int8>`)
+meets_expect	yes
+log	"error: function `read_byte` is not declared `unsafe`, but its body names a value of unsafe type (`UnsafePointer<Int8>`)"
+log	"  --> examples/errors/unsafe_closure_in_safe_function.saw:16:39"
+log	"     |"
+log	" 16 |         if let buf = GlobalAllocator().alloc(BLOCK_BYTES, BLOCK_ALIGN) {"
+log	"     |                                       ^"
+log	"   hint: write `func read_byte(...) unsafe` — the unsafety belongs in the signature where every caller can see it; if the operation is sound for every input, keep the wrapper unsafe and expose a safe one that checks its arguments"
+log	""
+log	"1 error(s) generated"

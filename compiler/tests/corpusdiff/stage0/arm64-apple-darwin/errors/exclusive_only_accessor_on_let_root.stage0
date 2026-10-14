@@ -1,0 +1,14 @@
+program	errors/exclusive_only_accessor_on_let_root.saw
+triple	arm64-apple-darwin
+twin	differs
+expect	error
+build	refused	cannot read through the place window `tally` opens on immutable variable `frozen`: the accessor borrows its receiver exclusively at every use site, because its body mutates `self` — a write into receiver storage at line 24
+meets_expect	yes
+log	"error: cannot read through the place window `tally` opens on immutable variable `frozen`: the accessor borrows its receiver exclusively at every use site, because its body mutates `self` — a write into receiver storage at line 24"
+log	"  --> examples/errors/exclusive_only_accessor_on_let_root.saw:30:19"
+log	"     |"
+log	" 30 |     print(\"{frozen.tally(0)}\")"
+log	"     |                   ^"
+log	"   hint: consider using `var` instead of `let` to make it mutable"
+log	""
+log	"1 error(s) generated"

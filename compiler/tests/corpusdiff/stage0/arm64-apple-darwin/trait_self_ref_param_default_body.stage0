@@ -1,0 +1,9 @@
+program	trait_self_ref_param_default_body.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"14"
+stdout	""
+meets_expect	yes

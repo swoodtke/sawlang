@@ -1,0 +1,23 @@
+program	two_copy_captures.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"-- sync"
+stdout	"copy 20 -> 21"
+stdout	"copy 20 -> 21"
+stdout	"drop 21"
+stdout	"drop 21"
+stdout	"drop 20"
+stdout	"= 42"
+stdout	"-- driven"
+stdout	"copy 20 -> 21"
+stdout	"copy 20 -> 21"
+stdout	"drop 20"
+stdout	"drop 21"
+stdout	"drop 21"
+stdout	"= 42"
+stdout	"end"
+stdout	""
+meets_expect	yes

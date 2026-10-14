@@ -1,0 +1,14 @@
+program	errors/shared_self_field_write.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	cannot assign to storage reached through a `&self` receiver: `self` is borrowed SHARED here, so the write would reach storage this method may only read
+meets_expect	yes
+log	"error: cannot assign to storage reached through a `&self` receiver: `self` is borrowed SHARED here, so the write would reach storage this method may only read"
+log	"  --> examples/errors/shared_self_field_write.saw:17:13"
+log	"     |"
+log	" 17 |         self.hits = self.hits + 1"
+log	"     |             ^"
+log	"   hint: declare the method `&var self` to mutate through the receiver, or `&var self ... borrows -> &var T` to lend the place and let each use site choose the window's flavor"
+log	""
+log	"1 error(s) generated"

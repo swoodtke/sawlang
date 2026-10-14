@@ -1,0 +1,13 @@
+program	coro_destructure_nocopy_into_frame.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"pair 8 live 2"
+stdout	"after pair 0"
+stdout	"wildcard 5 live 1"
+stdout	"after wildcard 0"
+stdout	"done 0"
+stdout	""
+meets_expect	yes

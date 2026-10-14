@@ -1,0 +1,9 @@
+program	coro_json_encode_in_task.saw
+triple	arm64-apple-darwin
+twin	differs
+expect	success
+build	ok
+exit	0
+stdout	"{\"a\":1}"
+stdout	""
+meets_expect	yes

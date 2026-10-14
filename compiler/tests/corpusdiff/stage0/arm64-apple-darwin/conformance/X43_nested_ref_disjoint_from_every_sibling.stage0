@@ -1,0 +1,10 @@
+program	conformance/X43_nested_ref_disjoint_from_every_sibling.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"12 2 9"
+stdout	"9 27"
+stdout	""
+meets_expect	yes

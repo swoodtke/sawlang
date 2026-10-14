@@ -1,0 +1,13 @@
+program	coro_value_inline_catch_hosts_a_move.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	refused	coroutine transform: `move` of a frame local in a nested tail-expression of driven `run` whose value is used is not supported; bind it first (`let r = <expr>`) and make `r` the tail
+meets_expect	no: Stage 0 does not build it
+log	"error: coroutine transform: `move` of a frame local in a nested tail-expression of driven `run` whose value is used is not supported; bind it first (`let r = <expr>`) and make `r` the tail"
+log	"  --> examples/coro_value_inline_catch_hosts_a_move.saw:45:1"
+log	"     |"
+log	" 45 | func run(items: Vector<Int>) -> Int {"
+log	"     | ^"
+log	""
+log	"1 error(s) generated"

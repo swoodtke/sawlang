@@ -1,0 +1,9 @@
+program	import150_warn_shadowed_qualifier.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"ok 2"
+stdout	""
+meets_expect	yes

@@ -1,0 +1,14 @@
+program	optional_generic_none_generic_arg.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	cannot infer type argument `T` for function `idn`
+meets_expect	yes
+log	"error: cannot infer type argument `T` for function `idn`"
+log	"  --> examples/optional_generic_none_generic_arg.saw:22:13"
+log	"     |"
+log	" 22 |     let r = idn(None)"
+log	"     |             ^"
+log	"   hint: give the type argument(s) explicitly, e.g. `idn<T=...>`"
+log	""
+log	"1 error(s) generated"

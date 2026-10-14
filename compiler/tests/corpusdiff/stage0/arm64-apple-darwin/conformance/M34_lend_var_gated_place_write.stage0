@@ -1,0 +1,11 @@
+program	conformance/M34_lend_var_gated_place_write.saw
+triple	arm64-apple-darwin
+twin	differs
+expect	success
+build	ok
+exit	0
+stdout	"read 8"
+stdout	"read 99"
+stdout	"writes 1"
+stdout	""
+meets_expect	yes

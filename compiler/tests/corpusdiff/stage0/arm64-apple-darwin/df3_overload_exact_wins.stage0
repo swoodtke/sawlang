@@ -1,0 +1,10 @@
+program	df3_overload_exact_wins.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"1000"
+stdout	"2000"
+stdout	""
+meets_expect	yes

@@ -1,0 +1,7 @@
+program	unicode_escape_oversized_error.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	Lexer error at 7:22: `\u{110000}` is greater than the maximum Unicode scalar 0x10FFFF
+meets_expect	yes
+log	"error: Lexer error at 7:22: `\\u{110000}` is greater than the maximum Unicode scalar 0x10FFFF"

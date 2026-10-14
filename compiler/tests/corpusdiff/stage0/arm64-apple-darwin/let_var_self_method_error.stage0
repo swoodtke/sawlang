@@ -1,0 +1,14 @@
+program	let_var_self_method_error.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	cannot call `&var self` method `bump` on immutable variable `c`
+meets_expect	yes
+log	"error: cannot call `&var self` method `bump` on immutable variable `c`"
+log	"  --> examples/let_var_self_method_error.saw:18:6"
+log	"     |"
+log	" 18 |     c.bump()"
+log	"     |      ^"
+log	"   hint: consider using `var` instead of `let` to make it mutable"
+log	""
+log	"1 error(s) generated"

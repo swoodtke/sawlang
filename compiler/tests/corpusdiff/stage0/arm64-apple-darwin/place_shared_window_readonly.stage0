@@ -1,0 +1,13 @@
+program	place_shared_window_readonly.saw
+triple	arm64-apple-darwin
+twin	differs
+expect	success
+build	ok
+exit	0
+stdout	"flipped green"
+stdout	"frozen red"
+stdout	"nested read 2"
+stdout	"nested write 12"
+stdout	"-- done"
+stdout	""
+meets_expect	yes

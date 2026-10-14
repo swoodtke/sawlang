@@ -1,0 +1,15 @@
+program	optional_nested_type_sugar.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"param some 7"
+stdout	"return inner-absent"
+stdout	"generic arg some 7"
+stdout	"field outer-absent"
+stdout	"reference param some 7"
+stdout	"coalesce in a nested annotation some 7"
+stdout	"operator after a nested type some 7"
+stdout	""
+meets_expect	yes

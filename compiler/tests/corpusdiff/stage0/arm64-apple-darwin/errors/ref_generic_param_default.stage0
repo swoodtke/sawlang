@@ -1,0 +1,21 @@
+program	errors/ref_generic_param_default.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	the default of type parameter `T` may not be a reference: `&Int` is a reference, and references in Saw are PARAMETERS ONLY — a reference borrows storage for the duration of one call and may not escape it (designs 88/106)
+meets_expect	yes
+log	"error: the default of type parameter `T` may not be a reference: `&Int` is a reference, and references in Saw are PARAMETERS ONLY — a reference borrows storage for the duration of one call and may not escape it (designs 88/106)"
+log	"  --> examples/errors/ref_generic_param_default.saw:13:15"
+log	"     |"
+log	" 13 | struct Holder<T = &Int> {"
+log	"     |               ^"
+log	"   hint: use the value type (`Int`), or — to hand out storage a type already owns — declare a `borrows` accessor (`... borrows -> &var Int` with `lend`, design 141)"
+log	""
+log	"error: `&` here is not a call argument, and references in Saw are PARAMETERS ONLY — a reference borrows storage for the duration of one call and may not escape it (designs 88/106; the Law of Exclusivity is statically sound only because every live reference belongs to a call still on the stack)"
+log	"  --> examples/errors/ref_generic_param_default.saw:19:26"
+log	"     |"
+log	" 19 |     let h = Holder(item: &x)"
+log	"     |                          ^"
+log	"   hint: a reference cannot be stored or bound: pass it straight to a `&` parameter, or — to hand out storage a value already owns — declare a `borrows` accessor (`... borrows -> &var T` with `lend`, design 141), which lends the place for a window rather than letting a pointer out"
+log	""
+log	"2 error(s) generated"

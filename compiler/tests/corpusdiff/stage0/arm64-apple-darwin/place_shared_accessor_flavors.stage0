@@ -1,0 +1,15 @@
+program	place_shared_accessor_flavors.saw
+triple	arm64-apple-darwin
+twin	differs
+expect	success
+build	ok
+exit	0
+stdout	"2"
+stdout	"12"
+stdout	"b"
+stdout	"42"
+stdout	"1"
+stdout	"closings 2"
+stdout	"deep 7"
+stdout	""
+meets_expect	yes

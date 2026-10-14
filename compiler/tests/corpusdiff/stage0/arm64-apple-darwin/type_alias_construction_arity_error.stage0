@@ -1,0 +1,20 @@
+program	type_alias_construction_arity_error.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	`UserId` is a type alias and is constructed from exactly one value, but 2 were given
+meets_expect	yes
+log	"error: `UserId` is a type alias and is constructed from exactly one value, but 2 were given"
+log	"  --> examples/type_alias_construction_arity_error.saw:10:15"
+log	"     |"
+log	" 10 |     let bad = UserId(1, 2)"
+log	"     |               ^"
+log	"   hint: write `UserId(<Int>)`"
+log	""
+log	"error: undefined variable `bad`"
+log	"  --> examples/type_alias_construction_arity_error.saw:11:11"
+log	"     |"
+log	" 11 |     print(bad as Int)"
+log	"     |           ^"
+log	""
+log	"2 error(s) generated"

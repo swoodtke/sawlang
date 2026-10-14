@@ -1,0 +1,21 @@
+program	private_in_public_extension_surface_error.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	extension `Wrap`'s surface is public, but the bound on type parameter `T` names `HiddenTrait`, which is private — a public API needs public types
+meets_expect	yes
+log	"error: extension `Wrap`'s surface is public, but the bound on type parameter `T` names `HiddenTrait`, which is private — a public API needs public types"
+log	"  --> examples/private_in_public_extension_surface_error.saw:33:16"
+log	"     |"
+log	" 33 | extension Wrap<T: HiddenTrait> {"
+log	"     |                ^"
+log	"   hint: either widen the type — mark the trait `HiddenTrait` `public` — or narrow the declaration, so its signature stays where `HiddenTrait` can be named. A caller that can reach a declaration must be able to name every type in its signature"
+log	""
+log	"error: extension `Keeper`'s surface is public, but associated type `Item` names `Hidden`, which is private — a public API needs public types"
+log	"  --> examples/private_in_public_extension_surface_error.saw:44:5"
+log	"     |"
+log	" 44 |     type Item = Hidden"
+log	"     |     ^"
+log	"   hint: either widen the type — mark the struct `Hidden` `public` — or narrow the declaration, so its signature stays where `Hidden` can be named. A caller that can reach a declaration must be able to name every type in its signature"
+log	""
+log	"2 error(s) generated"

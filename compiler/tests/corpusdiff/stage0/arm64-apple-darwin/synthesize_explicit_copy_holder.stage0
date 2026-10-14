@@ -1,0 +1,15 @@
+program	synthesize_explicit_copy_holder.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"3"
+stdout	"3"
+stdout	"99"
+stdout	"1"
+stdout	"label"
+stdout	"two"
+stdout	"survived"
+stdout	""
+meets_expect	yes

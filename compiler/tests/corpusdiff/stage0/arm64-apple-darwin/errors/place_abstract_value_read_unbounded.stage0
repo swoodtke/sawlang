@@ -1,0 +1,14 @@
+program	errors/place_abstract_value_read_unbounded.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	`self.slots[…]` lends a place of type `Slot<K>`, whose copy policy depends on the type parameter `K` — reading it out as a value would be a copy for some instantiations and an alias for others
+meets_expect	yes
+log	"error: `self.slots[…]` lends a place of type `Slot<K>`, whose copy policy depends on the type parameter `K` — reading it out as a value would be a copy for some instantiations and an alias for others"
+log	"  --> examples/errors/place_abstract_value_read_unbounded.saw:28:27"
+log	"     |"
+log	" 28 |         let s = self.slots[i]"
+log	"     |                           ^"
+log	"   hint: bound the parameter so every instantiation can be copied (`K: Copy`), or reach the place through a borrow — `self.slots[…].method()` reads it in place, and a pattern that binds nothing (`case Empty`, `if let _ = …`) tests it without reading it at all"
+log	""
+log	"1 error(s) generated"

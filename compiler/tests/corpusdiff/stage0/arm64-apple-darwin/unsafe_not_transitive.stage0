@@ -1,0 +1,12 @@
+program	unsafe_not_transitive.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"2"
+stdout	"false"
+stdout	"32"
+stdout	"held"
+stdout	""
+meets_expect	yes

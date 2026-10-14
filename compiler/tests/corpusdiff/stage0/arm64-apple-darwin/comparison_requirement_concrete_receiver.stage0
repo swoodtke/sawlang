@@ -1,0 +1,15 @@
+program	comparison_requirement_concrete_receiver.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"u8   op=false req=false bound=false"
+stdout	"uint op=false req=false bound=false"
+stdout	"int  op=true req=true bound=true"
+stdout	"f    op=true req=true bound=true"
+stdout	"eq   op=false req=false bound=false"
+stdout	"str  op=true req=true bound=true"
+stdout	"enum op=false req=false"
+stdout	""
+meets_expect	yes

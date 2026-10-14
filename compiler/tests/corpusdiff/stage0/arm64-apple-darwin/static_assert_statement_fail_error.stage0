@@ -1,0 +1,7 @@
+program	static_assert_statement_fail_error.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	static assertion failed: statement-position check
+meets_expect	yes
+log	"error: static assertion failed: statement-position check"

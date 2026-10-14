@@ -1,0 +1,19 @@
+program	errors/optional_chain_non_optional.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	cannot use optional chaining on non-optional type `P`
+meets_expect	yes
+log	"error: cannot use optional chaining on non-optional type `P`"
+log	"  --> examples/errors/optional_chain_non_optional.saw:10:14"
+log	"     |"
+log	" 10 |     let y = p?.x"
+log	"     |              ^"
+log	""
+log	"error: undefined variable `y`"
+log	"  --> examples/errors/optional_chain_non_optional.saw:11:11"
+log	"     |"
+log	" 11 |     print(y ?? 0)"
+log	"     |           ^"
+log	""
+log	"2 error(s) generated"

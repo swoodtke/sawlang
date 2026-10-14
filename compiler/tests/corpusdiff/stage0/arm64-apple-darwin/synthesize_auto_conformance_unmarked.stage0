@@ -1,0 +1,13 @@
+program	synthesize_auto_conformance_unmarked.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"true"
+stdout	"false"
+stdout	"true"
+stdout	"false"
+stdout	"2"
+stdout	""
+meets_expect	yes

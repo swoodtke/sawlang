@@ -1,0 +1,17 @@
+program	place_abstract_value_read.saw
+triple	arm64-apple-darwin
+twin	differs
+expect	success
+build	ok
+exit	0
+stdout	"-- value read: one copy, one drop"
+stdout	"copy a"
+stdout	"deinit a"
+stdout	"1"
+stdout	"-- borrow: neither"
+stdout	"1"
+stdout	"1"
+stdout	"-- done"
+stdout	"deinit a"
+stdout	""
+meets_expect	yes

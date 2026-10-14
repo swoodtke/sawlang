@@ -1,0 +1,14 @@
+program	errors/nomove_bound_value_into_argument.saw
+triple	arm64-apple-darwin
+twin	differs
+expect	error
+build	refused	cannot `move` `a`: `Anchor` is `NoMove`, so it lives where its constructor built it and may not be relocated.
+meets_expect	yes
+log	"error: cannot `move` `a`: `Anchor` is `NoMove`, so it lives where its constructor built it and may not be relocated."
+log	"  --> examples/errors/nomove_bound_value_into_argument.saw:25:39"
+log	"     |"
+log	" 25 |     let boxed = try! Box<Anchor>.make(move a)"
+log	"     |                                       ^"
+log	"   hint: pass `&var a` to lend it, or build the value where it has to live. Replacing a referent whole through a `&var` stays legal — that destroys and constructs at one address rather than moving"
+log	""
+log	"1 error(s) generated"

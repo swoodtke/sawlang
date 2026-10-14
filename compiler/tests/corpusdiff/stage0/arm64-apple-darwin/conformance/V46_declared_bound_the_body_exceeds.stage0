@@ -1,0 +1,14 @@
+program	conformance/V46_declared_bound_the_body_exceeds.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	function `exceeds` declares `<T: ExplicitCopy>`, but its body needs `T` to be `Copy`: it binds `x` twice, at lines 27 and 28
+meets_expect	yes
+log	"error: function `exceeds` declares `<T: ExplicitCopy>`, but its body needs `T` to be `Copy`: it binds `x` twice, at lines 27 and 28"
+log	"  --> examples/conformance/V46_declared_bound_the_body_exceeds.saw:27:1"
+log	"     |"
+log	" 27 |     let a = x"
+log	"     | ^"
+log	"   hint: an `ExplicitCopy` bound licenses a SPELLED `.copy()` and nothing else — reading the value out unwritten would be a copy for some instantiations and an alias for others. Write `<T: Copy>`, or spell the duplicate `.copy()`"
+log	""
+log	"1 error(s) generated"

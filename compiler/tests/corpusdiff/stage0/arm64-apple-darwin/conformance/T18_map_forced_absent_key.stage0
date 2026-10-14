@@ -1,0 +1,9 @@
+program	conformance/T18_map_forced_absent_key.saw
+triple	arm64-apple-darwin
+twin	differs
+expect	panic
+build	ok
+exit	-6
+stdout	"panic at T18_map_forced_absent_key.saw:10: Map.[]: no place to lend"
+stdout	""
+meets_expect	yes

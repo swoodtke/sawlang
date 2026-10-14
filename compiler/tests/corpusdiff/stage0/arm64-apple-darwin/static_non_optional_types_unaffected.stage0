@@ -1,0 +1,13 @@
+program	static_non_optional_types_unaffected.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"plain = 7"
+stdout	"wide = 9"
+stdout	"nested field absent = yes"
+stdout	"arr = 2"
+stdout	"mut = 5"
+stdout	""
+meets_expect	yes

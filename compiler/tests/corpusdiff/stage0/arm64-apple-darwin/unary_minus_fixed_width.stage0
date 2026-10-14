@@ -1,0 +1,13 @@
+program	unary_minus_fixed_width.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"-5"
+stdout	"-100"
+stdout	"-2000000000"
+stdout	"-128"
+stdout	"21"
+stdout	""
+meets_expect	yes

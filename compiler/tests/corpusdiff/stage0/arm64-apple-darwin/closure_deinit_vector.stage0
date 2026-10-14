@@ -1,0 +1,13 @@
+program	closure_deinit_vector.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"pushed"
+stdout	"deinit 1"
+stdout	"deinit 2"
+stdout	"vector is gone"
+stdout	"main ends"
+stdout	""
+meets_expect	yes

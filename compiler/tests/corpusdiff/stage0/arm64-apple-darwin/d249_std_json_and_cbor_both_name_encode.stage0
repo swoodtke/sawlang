@@ -1,0 +1,10 @@
+program	d249_std_json_and_cbor_both_name_encode.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"json: [443,true,\"api\"]"
+stdout	"cbor: 9 bytes"
+stdout	""
+meets_expect	yes

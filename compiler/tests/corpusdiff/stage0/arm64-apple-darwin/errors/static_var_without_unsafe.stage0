@@ -1,0 +1,7 @@
+program	errors/static_var_without_unsafe.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	Parse error at 8:12: a mutable static is declared `unsafe static var` — write `unsafe static var` here, or drop `var` for an immutable static (single-word state that several tasks update independently wants `Atomic`, not this)
+meets_expect	yes
+log	"error: Parse error at 8:12: a mutable static is declared `unsafe static var` — write `unsafe static var` here, or drop `var` for an immutable static (single-word state that several tasks update independently wants `Atomic`, not this)"

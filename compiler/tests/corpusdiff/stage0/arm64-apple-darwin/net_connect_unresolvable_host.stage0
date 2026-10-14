@@ -1,0 +1,12 @@
+program	net_connect_unresolvable_host.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"empty: io error: resolve \"\" failed (not found)"
+stdout	"over-long: refused"
+stdout	"localhost: connected"
+stdout	"127.0.0.1: connected"
+stdout	""
+meets_expect	yes

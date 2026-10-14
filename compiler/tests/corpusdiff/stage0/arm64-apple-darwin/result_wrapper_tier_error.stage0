@@ -1,0 +1,28 @@
+program	result_wrapper_tier_error.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	cannot copy value of type `Result<Vector<Int, GlobalAllocator>, LoadError>` which implements ExplicitCopy
+meets_expect	yes
+log	"error: cannot copy value of type `Result<Vector<Int, GlobalAllocator>, LoadError>` which implements ExplicitCopy"
+log	"  --> examples/result_wrapper_tier_error.saw:27:5"
+log	"     |"
+log	" 27 |     let b = a"
+log	"     |     ^"
+log	"   hint: use .copy() for an explicit deep copy, or `move` to transfer ownership"
+log	""
+log	"error: result of `append` is `Result<Void, AllocError>` and is silently discarded"
+log	"  --> examples/result_wrapper_tier_error.saw:15:13"
+log	"     |"
+log	" 15 |         into.append(\"load failed: \")"
+log	"     |             ^"
+log	"   hint: handle it — `match` it, `try`/`try!`/`try?` it, or return it — or write `let _ = ...` to discard it explicitly"
+log	""
+log	"error: result of `append` is `Result<Void, AllocError>` and is silently discarded"
+log	"  --> examples/result_wrapper_tier_error.saw:16:13"
+log	"     |"
+log	" 16 |         into.append(self.code)"
+log	"     |             ^"
+log	"   hint: handle it — `match` it, `try`/`try!`/`try?` it, or return it — or write `let _ = ...` to discard it explicitly"
+log	""
+log	"3 error(s) generated"

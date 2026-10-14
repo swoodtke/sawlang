@@ -1,0 +1,14 @@
+program	errors/consumes_conformance_method.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	method `finish` is declared `consumes`, so it may not satisfy a requirement of trait `Ender` (design 260 v1): a call through the requirement cannot spell the `(move x).finish()` that transfers the receiver
+meets_expect	yes
+log	"error: method `finish` is declared `consumes`, so it may not satisfy a requirement of trait `Ender` (design 260 v1): a call through the requirement cannot spell the `(move x).finish()` that transfers the receiver"
+log	"  --> examples/errors/consumes_conformance_method.saw:19:1"
+log	"     |"
+log	" 19 | extension Builder: Ender {"
+log	"     | ^"
+log	"   hint: drop `consumes` from `finish`, or give the consuming operation its own name outside the conformance"
+log	""
+log	"1 error(s) generated"

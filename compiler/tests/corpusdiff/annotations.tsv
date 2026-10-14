@@ -1,0 +1,4 @@
+path	kind	reason
+coro_iflet_move_out_releases_once.saw	stage0-wrong	SL-513 ruling (B), SL:hazards C11: an unbound part dies when its construct completes; Stage 0 releases it at arm entry. This file's EXPECT-OUTPUT states the ruled order
+discard_forms_release_matrix.saw	stage0-wrong	SL-513 ruling (B), SL:hazards C11: an unbound part dies when its construct completes; Stage 0 releases it at arm entry. This file's EXPECT-OUTPUT states the ruled order
+match_wildcard_payload_released.saw	stage0-wrong	SL-513 ruling (B), SL:hazards C11: an unbound part dies when its construct completes; Stage 0 releases it at arm entry. This file's EXPECT-OUTPUT states the ruled order

@@ -1,0 +1,13 @@
+program	errors/borrows_return_none_needs_optional.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	`return None` needs an optional place — declare the accessor `borrows -> &T?` (or `-> &var T?`) and this becomes the absent path of a conditional lend, where no window opens and no epilogue runs. As declared, every path must lend
+meets_expect	yes
+log	"error: `return None` needs an optional place — declare the accessor `borrows -> &T?` (or `-> &var T?`) and this becomes the absent path of a conditional lend, where no window opens and no epilogue runs. As declared, every path must lend"
+log	"  --> examples/errors/borrows_return_none_needs_optional.saw:15:13"
+log	"     |"
+log	" 15 |             return None"
+log	"     |             ^"
+log	""
+log	"1 error(s) generated"

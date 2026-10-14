@@ -1,0 +1,9 @@
+program	declared_length_error_names_its_file_error.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	array length is not a compile-time constant: the mutable static `MUT` is not allowed here
+meets_expect	yes
+log	"error: array length is not a compile-time constant: the mutable static `MUT` is not allowed here"
+log	"  --> examples/modules/lengthdep/lib.saw:9:27"
+log	"   hint: a length is fixed at compile time — use an integer literal, a const generic parameter, a module `static` of type `Int` or `UInt` whose own initializer folds, the integer limits, a raw-backed enum case, `sizeof`/`alignof` of a primitive or pointer type, or arithmetic and bitwise operators over any of those"

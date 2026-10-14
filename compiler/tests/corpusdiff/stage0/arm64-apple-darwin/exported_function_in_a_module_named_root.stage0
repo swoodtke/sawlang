@@ -1,0 +1,10 @@
+program	exported_function_in_a_module_named_root.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"saw 11 22"
+stdout	"c 11 22"
+stdout	""
+meets_expect	yes

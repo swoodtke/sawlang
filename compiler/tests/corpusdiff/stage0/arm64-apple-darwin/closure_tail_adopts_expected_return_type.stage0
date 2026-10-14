@@ -1,0 +1,15 @@
+program	closure_tail_adopts_expected_return_type.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"bare = 1"
+stdout	"arms = 7"
+stdout	"match arms = 9"
+stdout	"returned = 5"
+stdout	"shaped = 3"
+stdout	"none = -1"
+stdout	"never arm = 2"
+stdout	""
+meets_expect	yes

@@ -1,0 +1,18 @@
+program	conformance/V76_fold_threads_its_accumulator.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"before 1"
+stdout	"after 2"
+stdout	"carried 2"
+stdout	"sum 6"
+stdout	"ids 6"
+stdout	"end of main"
+stdout	"drop 1"
+stdout	"drop 2"
+stdout	"drop 3"
+stdout	"drop 7"
+stdout	""
+meets_expect	yes

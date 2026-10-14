@@ -1,0 +1,14 @@
+program	errors/offload_freestanding_reject.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	`extern blocking func slow` is not available in the freestanding profile: blocking-call offload needs the hosted thread pool, which the freestanding runtime does not provide
+meets_expect	yes
+log	"error: `extern blocking func slow` is not available in the freestanding profile: blocking-call offload needs the hosted thread pool, which the freestanding runtime does not provide"
+log	"  --> examples/errors/offload_freestanding_reject.saw:13:5"
+log	"     |"
+log	" 13 |     blocking func slow(x: Int) -> Int"
+log	"     |     ^"
+log	"   hint: drop `blocking` (an unannotated extern promises promptness) or gate this module out of the freestanding build"
+log	""
+log	"1 error(s) generated"

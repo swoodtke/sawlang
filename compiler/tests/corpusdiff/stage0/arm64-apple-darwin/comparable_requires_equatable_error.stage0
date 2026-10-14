@@ -1,0 +1,14 @@
+program	comparable_requires_equatable_error.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	`Tagged` conforms to `Comparable` but not to `Equatable`: `Comparable` requires `Equatable`
+meets_expect	yes
+log	"error: `Tagged` conforms to `Comparable` but not to `Equatable`: `Comparable` requires `Equatable`"
+log	"  --> examples/comparable_requires_equatable_error.saw:7:1"
+log	"    |"
+log	" 7 | struct Tagged {"
+log	"    | ^"
+log	"   hint: add `@synthesize extension Tagged: Equatable {}`"
+log	""
+log	"1 error(s) generated"

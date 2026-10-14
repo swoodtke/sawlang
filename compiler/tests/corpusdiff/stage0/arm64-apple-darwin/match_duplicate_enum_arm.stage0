@@ -1,0 +1,21 @@
+program	match_duplicate_enum_arm.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	duplicate match arm: `Green` is already matched by the arm at line 24
+meets_expect	yes
+log	"error: duplicate match arm: `Green` is already matched by the arm at line 24"
+log	"  --> examples/match_duplicate_enum_arm.saw:25:9"
+log	"     |"
+log	" 25 |         case Green -> \"green again\","
+log	"     |         ^"
+log	"   hint: the first matching arm wins, so this one can never run — delete it. Overlapping RANGES and GUARDED arms are not duplicates and stay legal"
+log	""
+log	"error: duplicate match arm: `1` is already matched by the arm at line 34"
+log	"  --> examples/match_duplicate_enum_arm.saw:35:9"
+log	"     |"
+log	" 35 |         case 1 -> \"one again\","
+log	"     |         ^"
+log	"   hint: the first matching arm wins, so this one can never run — delete it. Overlapping RANGES and GUARDED arms are not duplicates and stay legal"
+log	""
+log	"2 error(s) generated"

@@ -1,0 +1,14 @@
+program	errors/optional_take_immutable.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	cannot call `take()` on immutable variable `o`: it writes `None` back into the place
+meets_expect	yes
+log	"error: cannot call `take()` on immutable variable `o`: it writes `None` back into the place"
+log	"  --> examples/errors/optional_take_immutable.saw:14:14"
+log	"     |"
+log	" 14 |     let g = o.take()!"
+log	"     |              ^"
+log	"   hint: consider using `var` instead of `let` to make it mutable"
+log	""
+log	"1 error(s) generated"

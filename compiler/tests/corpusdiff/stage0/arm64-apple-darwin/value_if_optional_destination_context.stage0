@@ -1,0 +1,12 @@
+program	value_if_optional_destination_context.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"then-optional: none"
+stdout	"else-optional: hi"
+stdout	"iflet then-optional: none"
+stdout	"iflet else-optional: yo"
+stdout	""
+meets_expect	yes

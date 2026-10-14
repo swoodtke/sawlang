@@ -1,0 +1,12 @@
+program	taskgroup_compute_preemption.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"spin start"
+stdout	"sibling ran"
+stdout	"spin end"
+stdout	"499999500000"
+stdout	""
+meets_expect	yes

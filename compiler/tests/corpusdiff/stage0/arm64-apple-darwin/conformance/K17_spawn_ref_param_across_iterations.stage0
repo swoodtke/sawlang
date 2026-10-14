@@ -1,0 +1,21 @@
+program	conformance/K17_spawn_ref_param_across_iterations.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	exclusive access violation: this task's `&var total` argument is still live when the loop body ends, so the next iteration would open a second exclusive borrow of the same root: the task spawned at line 28 holds `&var total` until its group `group` is torn down at the end of this scope (nothing joins its handle)
+meets_expect	yes
+log	"error: exclusive access violation: this task's `&var total` argument is still live when the loop body ends, so the next iteration would open a second exclusive borrow of the same root: the task spawned at line 28 holds `&var total` until its group `group` is torn down at the end of this scope (nothing joins its handle)"
+log	"  --> examples/conformance/K17_spawn_ref_param_across_iterations.saw:28:34"
+log	"     |"
+log	" 28 |         let h = group.spawn(bump(&var total, i))"
+log	"     |                                  ^"
+log	"   hint: join this task's handle before the body ends (spawn, join, then loop), or give each iteration its own root. To fan out over ONE piece of shared state, share it through an `Arc<Mutex<T>>` or a `Channel`"
+log	""
+log	"error: exclusive access violation: `total` cannot be read here — the task spawned at line 28 holds `&var total` until its group `group` is torn down at the end of this scope (nothing joins its handle)"
+log	"  --> examples/conformance/K17_spawn_ref_param_across_iterations.saw:30:19"
+log	"     |"
+log	" 30 |     print(\"total {total}\")"
+log	"     |                   ^"
+log	"   hint: join the task first — joining the task's handle ends the borrow, and the spawn-join-use order stays legal. To watch the value WHILE the task runs, share it through an `Arc<Mutex<T>>` or a `Channel`, where the synchronization is visible in the types"
+log	""
+log	"2 error(s) generated"

@@ -1,0 +1,18 @@
+program	format_args_print.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"p=(3, -4) s=hello b=true u=18446744073709551615 f=1.5"
+stdout	"p=(3, -4) s=hello b=true u=18446744073709551615 f=1.5"
+stdout	"(3, -4)"
+stdout	"(3, -4)"
+stdout	"erased: (3, -4)"
+stdout	"-9223372036854775808 9223372036854775807 0"
+stdout	"-9223372036854775808 9223372036854775807 0"
+stdout	"literal {} then 7"
+stdout	"{}"
+stdout	"no slots"
+stdout	""
+meets_expect	yes

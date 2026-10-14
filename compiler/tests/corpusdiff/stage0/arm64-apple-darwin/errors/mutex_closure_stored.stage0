@@ -1,0 +1,14 @@
+program	errors/mutex_closure_stored.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	a closure with reference (`&`/`&var`) parameters may only be passed directly as a call argument; it cannot be bound, returned, or captured
+meets_expect	yes
+log	"error: a closure with reference (`&`/`&var`) parameters may only be passed directly as a call argument; it cannot be bound, returned, or captured"
+log	"  --> examples/errors/mutex_closure_stored.saw:8:13"
+log	"    |"
+log	" 8 |     let f = { &var n: Int in"
+log	"    |             ^"
+log	"   hint: call the function that takes it inline, e.g. `m.lock { &var x in ... }`"
+log	""
+log	"1 error(s) generated"

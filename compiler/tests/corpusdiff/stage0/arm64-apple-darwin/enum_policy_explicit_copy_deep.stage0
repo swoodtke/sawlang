@@ -1,0 +1,11 @@
+program	enum_policy_explicit_copy_deep.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"source len 3"
+stdout	"duplicate outlives source, len 3"
+stdout	"empty variant copies as itself, len 0"
+stdout	""
+meets_expect	yes

@@ -1,0 +1,20 @@
+program	df229c_parent_selection_error.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	`parent_only_ration` is public(parent) in `modules.df229c_pkg`
+meets_expect	yes
+log	"error: `parent_only_ration` is public(parent) in `modules.df229c_pkg`"
+log	"  --> examples/df229c_parent_selection_error.saw:10:1"
+log	"     |"
+log	" 10 | import modules.df229c_pkg.{parent_only_ration}"
+log	"     | ^"
+log	"   hint: mark it `public` in `modules.df229c_pkg` to expose it; available: Grams, Portion, RATION_MAX, Ration, ration_make"
+log	""
+log	"error: undefined function `parent_only_ration`"
+log	"  --> examples/df229c_parent_selection_error.saw:13:13"
+log	"     |"
+log	" 13 |     print(\"{parent_only_ration()}\")"
+log	"     |             ^"
+log	""
+log	"2 error(s) generated"

@@ -1,0 +1,14 @@
+program	ref_replace_bare_trait_shared_error.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	`&Shape` names a trait, which is unsized
+meets_expect	yes
+log	"error: `&Shape` names a trait, which is unsized"
+log	"  --> examples/ref_replace_bare_trait_shared_error.saw:10:1"
+log	"     |"
+log	" 10 | func takes_shared(p: &Shape) { print(\"{p.area()}\") }"
+log	"     | ^"
+log	"   hint: a trait can only be borrowed as an existential: write `&any Shape`"
+log	""
+log	"1 error(s) generated"

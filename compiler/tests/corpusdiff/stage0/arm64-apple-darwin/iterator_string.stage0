@@ -1,0 +1,10 @@
+program	iterator_string.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"hello"
+stdout	"world"
+stdout	""
+meets_expect	yes

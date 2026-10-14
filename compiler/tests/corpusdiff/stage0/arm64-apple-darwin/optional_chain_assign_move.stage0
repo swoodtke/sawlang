@@ -1,0 +1,10 @@
+program	optional_chain_assign_move.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"3"
+stdout	"wrote-if"
+stdout	""
+meets_expect	yes

@@ -1,0 +1,14 @@
+program	coercion/qualname_mod_static_immutable_error.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	cannot assign to static `qualname_static_dep.K`: statics are immutable
+meets_expect	yes
+log	"error: cannot assign to static `qualname_static_dep.K`: statics are immutable"
+log	"  --> examples/coercion/qualname_mod_static_immutable_error.saw:19:24"
+log	"     |"
+log	" 19 |     qualname_static_dep.K = 5"
+log	"     |                        ^"
+log	"   hint: use an interior-synchronized type (`Atomic<Int>`, `SpinLock<T>`) and mutate through its methods, or declare it `unsafe static var` and own the serialization argument"
+log	""
+log	"1 error(s) generated"

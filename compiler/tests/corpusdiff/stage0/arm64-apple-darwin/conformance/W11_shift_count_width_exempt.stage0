@@ -1,0 +1,11 @@
+program	conformance/W11_shift_count_width_exempt.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"24"
+stdout	"12"
+stdout	"3"
+stdout	""
+meets_expect	yes

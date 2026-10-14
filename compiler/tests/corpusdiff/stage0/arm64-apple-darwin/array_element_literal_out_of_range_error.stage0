@@ -1,0 +1,13 @@
+program	array_element_literal_out_of_range_error.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	integer literal 300 does not fit in `Int8` (range -128..=127)
+meets_expect	yes
+log	"error: integer literal 300 does not fit in `Int8` (range -128..=127)"
+log	"  --> examples/array_element_literal_out_of_range_error.saw:8:31"
+log	"    |"
+log	" 8 |     let a: [Int8; 3] = [1, 2, 300]"
+log	"    |                               ^"
+log	""
+log	"1 error(s) generated"

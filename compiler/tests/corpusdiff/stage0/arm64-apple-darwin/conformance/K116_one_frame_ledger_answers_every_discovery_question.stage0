@@ -1,0 +1,16 @@
+program	conformance/K116_one_frame_ledger_answers_every_discovery_question.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"same_name_entry 1 1"
+stdout	"same_name_inline 100 1"
+stdout	"same_name_imported 1000 1"
+stdout	"flat_vs_nested 11 21"
+stdout	"generic_via_helper 7 1"
+stdout	"closure_caller 6 0"
+stdout	"imported_private_by_reference 6 1"
+stdout	"spliced_mono_clone 15 1"
+stdout	""
+meets_expect	yes

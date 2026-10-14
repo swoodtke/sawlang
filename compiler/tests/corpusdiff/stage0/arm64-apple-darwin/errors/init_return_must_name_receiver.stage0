@@ -1,0 +1,14 @@
+program	errors/init_return_must_name_receiver.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	`init` returns `Int`, which is neither the receiver `Other` nor `Result<Other, E>` — an `init` may declare only those two
+meets_expect	yes
+log	"error: `init` returns `Int`, which is neither the receiver `Other` nor `Result<Other, E>` — an `init` may declare only those two"
+log	"  --> examples/errors/init_return_must_name_receiver.saw:23:5"
+log	"     |"
+log	" 23 |     init(seed: Int) -> Int { seed }"
+log	"     |     ^"
+log	"   hint: write `-> Other` (or `-> Self`) for an initializer that cannot fail, or `-> Result<Other, E>` for one that can"
+log	""
+log	"1 error(s) generated"

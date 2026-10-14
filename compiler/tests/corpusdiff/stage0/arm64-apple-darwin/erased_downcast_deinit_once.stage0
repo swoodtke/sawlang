@@ -1,0 +1,14 @@
+program	erased_downcast_deinit_once.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"got 1"
+stdout	"gone 1"
+stdout	"after hit"
+stdout	"gone 2"
+stdout	"miss"
+stdout	"after miss"
+stdout	""
+meets_expect	yes

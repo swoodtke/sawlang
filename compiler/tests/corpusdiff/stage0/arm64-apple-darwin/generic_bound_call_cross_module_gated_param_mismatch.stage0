@@ -1,0 +1,13 @@
+program	generic_bound_call_cross_module_gated_param_mismatch.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	argument `bytes` expects `&Data` but got `&String`
+meets_expect	yes
+log	"error: argument `bytes` expects `&Data` but got `&String`"
+log	"  --> examples/generic_bound_call_cross_module_gated_param_mismatch.saw:16:12"
+log	"     |"
+log	" 16 |     s.take(&text)"
+log	"     |            ^"
+log	""
+log	"1 error(s) generated"

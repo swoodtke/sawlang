@@ -1,0 +1,16 @@
+program	import247b_pair_one_identity.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"annotation 3"
+stdout	"construction 30"
+stdout	"generic 7"
+stdout	"erasure widget widget"
+stdout	"extension 13"
+stdout	"bound widget widget"
+stdout	"slots 41 2"
+stdout	"alias 9"
+stdout	""
+meets_expect	yes

@@ -1,0 +1,14 @@
+program	consumes_foreign_module_declaration_error.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	`leak` cannot be declared `consumes` here: a consuming method replaces `Handle`'s teardown, and this module does not define `Handle`
+meets_expect	yes
+log	"error: `leak` cannot be declared `consumes` here: a consuming method replaces `Handle`'s teardown, and this module does not define `Handle`"
+log	"  --> examples/consumes_foreign_module_declaration_error.saw:26:5"
+log	"     |"
+log	" 26 |     func leak(&var self) consumes {}"
+log	"     |     ^"
+log	"   hint: declare it in `consumes260` (which defines `Handle`) — overriding a type's teardown is the type author's privilege, the same containment its `deinit` has. From here, take the value by value in a free function instead (`consume(move obj)`)"
+log	""
+log	"1 error(s) generated"

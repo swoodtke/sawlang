@@ -1,0 +1,14 @@
+program	errors/no_hidden_alloc_closure_pushed_into_a_vector.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	an escaping closure heap-allocates its captured environment — `--no-hidden-alloc` forbids allocations the source does not name
+meets_expect	yes
+log	"error: an escaping closure heap-allocates its captured environment — `--no-hidden-alloc` forbids allocations the source does not name"
+log	"  --> examples/errors/no_hidden_alloc_closure_pushed_into_a_vector.saw:21:17"
+log	"     |"
+log	" 21 |     try! v.push({ base + 5 })"
+log	"     |                 ^"
+log	"   hint: pass the closure straight to the call that runs it (a non-escaping closure keeps its environment on the stack), drop the captures and take the values as parameters, or hold the shared state in an explicit `Box`/`Arc` so the allocation is written down"
+log	""
+log	"1 error(s) generated"

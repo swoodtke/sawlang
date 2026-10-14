@@ -1,0 +1,12 @@
+program	conformance/K74_send_bound_licenses_a_generic_spawn_capture.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"bare 1"
+stdout	"arc 3"
+stdout	"vector 3"
+stdout	"optional 4"
+stdout	""
+meets_expect	yes

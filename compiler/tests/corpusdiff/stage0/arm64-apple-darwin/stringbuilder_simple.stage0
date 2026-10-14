@@ -1,0 +1,13 @@
+program	stringbuilder_simple.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"0"
+stdout	"5"
+stdout	"Hello"
+stdout	"13"
+stdout	"Hello, World!"
+stdout	""
+meets_expect	yes

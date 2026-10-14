@@ -1,0 +1,9 @@
+program	net_fd_leak.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"600"
+stdout	""
+meets_expect	yes

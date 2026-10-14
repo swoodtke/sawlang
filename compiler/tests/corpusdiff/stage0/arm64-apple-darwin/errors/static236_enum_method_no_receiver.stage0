@@ -1,0 +1,7 @@
+program	errors/static236_enum_method_no_receiver.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	Parse error at 12:5: method `widest` has no receiver — add `&self`/`&var self`, or declare it `static func` if a static was intended
+meets_expect	yes
+log	"error: Parse error at 12:5: method `widest` has no receiver — add `&self`/`&var self`, or declare it `static func` if a static was intended"

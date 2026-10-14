@@ -1,0 +1,10 @@
+program	expr_suspend_deinit_once.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"42"
+stdout	"143"
+stdout	""
+meets_expect	yes

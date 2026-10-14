@@ -1,0 +1,14 @@
+program	int_sign_flip_transfer_through_platform_int.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	cannot assign `UInt` to variable of type `Int`
+meets_expect	yes
+log	"error: cannot assign `UInt` to variable of type `Int`"
+log	"  --> examples/int_sign_flip_transfer_through_platform_int.saw:24:5"
+log	"     |"
+log	" 24 |     let i: Int = u"
+log	"     |     ^"
+log	"   hint: write the conversion: `as Int` panics out of range, `Int.from(...)` answers `None`, `Int.from(truncating: ...)` keeps the low bits"
+log	""
+log	"1 error(s) generated"

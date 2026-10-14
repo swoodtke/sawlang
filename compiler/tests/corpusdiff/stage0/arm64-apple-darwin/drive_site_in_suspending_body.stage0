@@ -1,0 +1,13 @@
+program	drive_site_in_suspending_body.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	coroutine transform: `__saw_drive` may not appear in `main`, which itself suspends. This body already runs inside an executor, so `s(...)` needs no drive site — call it directly and the suspending call embeds here (design 120).
+meets_expect	yes
+log	"error: coroutine transform: `__saw_drive` may not appear in `main`, which itself suspends. This body already runs inside an executor, so `s(...)` needs no drive site — call it directly and the suspending call embeds here (design 120)."
+log	"  --> examples/drive_site_in_suspending_body.saw:38:11"
+log	"     |"
+log	" 38 |     print(__saw_drive(s()))"
+log	"     |           ^"
+log	""
+log	"1 error(s) generated"

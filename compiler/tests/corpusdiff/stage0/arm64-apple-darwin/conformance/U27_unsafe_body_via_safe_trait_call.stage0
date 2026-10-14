@@ -1,0 +1,14 @@
+program	conformance/U27_unsafe_body_via_safe_trait_call.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	method `S.peek` is not declared `unsafe`, but its body names a value of unsafe type (`UnsafePointer<Int>`)
+meets_expect	yes
+log	"error: method `S.peek` is not declared `unsafe`, but its body names a value of unsafe type (`UnsafePointer<Int>`)"
+log	"  --> examples/conformance/U27_unsafe_body_via_safe_trait_call.saw:12:35"
+log	"     |"
+log	" 12 |     func peek(&self) -> Int { self.p[0] }"
+log	"     |                                   ^"
+log	"   hint: write `func peek(...) unsafe` — the unsafety belongs in the signature where every caller can see it; if the operation is sound for every input, keep the wrapper unsafe and expose a safe one that checks its arguments"
+log	""
+log	"1 error(s) generated"

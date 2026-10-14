@@ -1,0 +1,14 @@
+program	static_methods.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"Hello from static method!"
+stdout	"5"
+stdout	"x="
+stdout	"10"
+stdout	"y="
+stdout	"20"
+stdout	""
+meets_expect	yes

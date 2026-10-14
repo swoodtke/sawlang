@@ -1,0 +1,9 @@
+program	conformance/K94b_timed_park_times_out_in_a_single_frame_drive.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"drive timed out, waited long enough"
+stdout	""
+meets_expect	yes

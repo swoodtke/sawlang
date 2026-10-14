@@ -1,0 +1,16 @@
+program	errors/never_emitted_instance_reports.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	cannot `move` `old`: `Anchor` is `NoMove`, so it lives where its constructor built it and may not be relocated.
+meets_expect	yes
+log	"error: cannot `move` `old`: `Anchor` is `NoMove`, so it lives where its constructor built it and may not be relocated."
+log	"  --> sawc/std/vector.saw:277:13"
+log	"   note: in the instantiation `Vector<Anchor, GlobalAllocator>.swap_out`"
+log	"   hint: pass `&var old` to lend it, or build the value where it has to live. Replacing a referent whole through a `&var` stays legal — that destroys and constructs at one address rather than moving"
+log	""
+log	"error: method `swap_out` should return `Anchor` but body has no value"
+log	"  --> sawc/std/vector.saw:269:12"
+log	"   note: in the instantiation `Vector<Anchor, GlobalAllocator>.swap_out`"
+log	""
+log	"2 error(s) generated"

@@ -1,0 +1,20 @@
+program	while_let_value_position_refused.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	a `while let` loop produces no value and cannot be used as an expression
+meets_expect	yes
+log	"error: a `while let` loop produces no value and cannot be used as an expression"
+log	"  --> examples/while_let_value_position_refused.saw:18:13"
+log	"     |"
+log	" 18 |     let r = while let x = opt(n) { n = n + 1 }"
+log	"     |             ^"
+log	"   hint: drain into a binding declared before the loop (`var out = ...` / `out.push(x)`), or use `for x in ...` when the source is an iterator"
+log	""
+log	"error: undefined variable `r`"
+log	"  --> examples/while_let_value_position_refused.saw:19:13"
+log	"     |"
+log	" 19 |     print(\"{r}\")"
+log	"     |             ^"
+log	""
+log	"2 error(s) generated"

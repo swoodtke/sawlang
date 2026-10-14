@@ -1,0 +1,21 @@
+program	errors/static_forward_reference.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	static `LATER` is declared after this point
+meets_expect	yes
+log	"error: static `LATER` is declared after this point"
+log	"  --> examples/errors/static_forward_reference.saw:12:21"
+log	"     |"
+log	" 12 | static EARLY: Int = LATER * 2"
+log	"     |                     ^"
+log	"   hint: static initializers fold in DECLARATION ORDER, so one may name only the statics above it — which is also what makes a cycle impossible. Move the declaration up"
+log	""
+log	"error: static `EARLY` must be initialized by a compile-time constant"
+log	"  --> examples/errors/static_forward_reference.saw:12:1"
+log	"     |"
+log	" 12 | static EARLY: Int = LATER * 2"
+log	"     | ^"
+log	"   hint: a static initializer is a CONSTANT EXPRESSION plus memberwise aggregation: literals, arithmetic and bitwise over them, `sizeof`/`alignof` of a primitive or pointer type, the integer limits, a raw-backed enum case, an earlier module `static` of ANY type, and struct / fixed-array literals built out of those. A user `init` BODY never runs at compile time, and neither does a function call, a String or any heap type — state that has to be COMPUTED wants `static X: Once<T>` (set once) or `unsafe static var` (mutated throughout)"
+log	""
+log	"2 error(s) generated"

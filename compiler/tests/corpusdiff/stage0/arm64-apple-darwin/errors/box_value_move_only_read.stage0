@@ -1,0 +1,14 @@
+program	errors/box_value_move_only_read.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	`b.value(…)` lends a place of type `Res`, which is move-only — reading it out as a value would alias storage the container still owns
+meets_expect	yes
+log	"error: `b.value(…)` lends a place of type `Res`, which is move-only — reading it out as a value would alias storage the container still owns"
+log	"  --> examples/errors/box_value_move_only_read.saw:19:18"
+log	"     |"
+log	" 19 |     let taken = b.value()"
+log	"     |                  ^"
+log	"   hint: `b.value(…).method()` borrows through the window without taking the value out"
+log	""
+log	"1 error(s) generated"

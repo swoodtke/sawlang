@@ -1,0 +1,13 @@
+program	errors/while_true_not_never.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	function `spin` should return `Never` but body has no value
+meets_expect	yes
+log	"error: function `spin` should return `Never` but body has no value"
+log	"  --> examples/errors/while_true_not_never.saw:11:1"
+log	"     |"
+log	" 11 | func spin() -> Never {"
+log	"     | ^"
+log	""
+log	"1 error(s) generated"

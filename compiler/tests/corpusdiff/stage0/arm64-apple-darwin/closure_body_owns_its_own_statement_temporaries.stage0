@@ -1,0 +1,25 @@
+program	closure_body_owns_its_own_statement_temporaries.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"not invoked"
+stdout	"made 2"
+stdout	"made 3"
+stdout	"drop 3"
+stdout	"drop 2"
+stdout	"beside 5"
+stdout	"made 4"
+stdout	"drop 4"
+stdout	"after 8"
+stdout	"made 5"
+stdout	"made 6"
+stdout	"drop 6"
+stdout	"drop 5"
+stdout	"nested 11"
+stdout	"made 7"
+stdout	"drop 7"
+stdout	"tail 9"
+stdout	""
+meets_expect	yes

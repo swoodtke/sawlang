@@ -1,0 +1,11 @@
+program	conformance/V47_generic_return_of_a_local_is_a_move.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"r1"
+stdout	"7"
+stdout	"DEINIT r1"
+stdout	""
+meets_expect	yes

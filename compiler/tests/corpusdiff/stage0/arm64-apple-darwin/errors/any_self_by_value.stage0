@@ -1,0 +1,13 @@
+program	errors/any_self_by_value.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	cannot form `any Clone`: method `clone` returns `Self` by value (Self-by-value signatures, including the Copy family, are not object-safe)
+meets_expect	yes
+log	"error: cannot form `any Clone`: method `clone` returns `Self` by value (Self-by-value signatures, including the Copy family, are not object-safe)"
+log	"  --> examples/errors/any_self_by_value.saw:10:1"
+log	"     |"
+log	" 10 | func use(x: &any Clone) {"
+log	"     | ^"
+log	""
+log	"1 error(s) generated"

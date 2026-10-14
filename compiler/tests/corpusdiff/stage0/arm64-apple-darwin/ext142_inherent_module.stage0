@@ -1,0 +1,10 @@
+program	ext142_inherent_module.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"3"
+stdout	"18"
+stdout	""
+meets_expect	yes

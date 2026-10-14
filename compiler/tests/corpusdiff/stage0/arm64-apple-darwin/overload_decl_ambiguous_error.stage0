@@ -1,0 +1,14 @@
+program	overload_decl_ambiguous_error.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	function `f` is already defined with an indistinguishable signature (a default-parameter call shape collides with another overload)
+meets_expect	yes
+log	"error: function `f` is already defined with an indistinguishable signature (a default-parameter call shape collides with another overload)"
+log	"  --> examples/overload_decl_ambiguous_error.saw:8:1"
+log	"    |"
+log	" 8 | func f<U>(x: U) -> Int { 2 }"
+log	"    | ^"
+log	"   hint: overloads must differ in arity or parameter types (distinct types, not just type aliases of the same underlying type); expanded default-value shapes count"
+log	""
+log	"1 error(s) generated"

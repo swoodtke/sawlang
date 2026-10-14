@@ -1,0 +1,20 @@
+program	module_path_package_visibility_error.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	`pkg_secret` is public(package) in `pkgvis.secret`
+meets_expect	yes
+log	"error: `pkg_secret` is public(package) in `pkgvis.secret`"
+log	"  --> examples/module_path_package_visibility_error.saw:19:1"
+log	"     |"
+log	" 19 | import pkgvis.secret.{pkg_secret, secret_is_reachable}"
+log	"     | ^"
+log	"   hint: mark it `public` in `pkgvis.secret` to expose it; available: secret_is_reachable"
+log	""
+log	"error: undefined function `pkg_secret`"
+log	"  --> examples/module_path_package_visibility_error.saw:22:11"
+log	"     |"
+log	" 22 |     print(pkg_secret() + secret_is_reachable())"
+log	"     |           ^"
+log	""
+log	"2 error(s) generated"

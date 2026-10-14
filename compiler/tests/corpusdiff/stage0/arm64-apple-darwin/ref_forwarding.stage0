@@ -1,0 +1,13 @@
+program	ref_forwarding.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"imm1=11"
+stdout	"imm2=11"
+stdout	"var2=101"
+stdout	"downgrade=101"
+stdout	"selffwd=106"
+stdout	""
+meets_expect	yes

@@ -1,0 +1,11 @@
+program	optional_generic_map_force_assign.saw
+triple	arm64-apple-darwin
+twin	differs
+expect	success
+build	ok
+exit	0
+stdout	"before 1"
+stdout	"after 5"
+stdout	"-- done"
+stdout	""
+meets_expect	yes

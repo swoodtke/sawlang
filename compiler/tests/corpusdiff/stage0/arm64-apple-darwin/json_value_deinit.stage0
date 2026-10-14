@@ -1,0 +1,11 @@
+program	json_value_deinit.saw
+triple	arm64-apple-darwin
+twin	differs
+expect	success
+build	ok
+exit	0
+stdout	"built depth 40"
+stdout	"nodes counted: 41"
+stdout	"dropped cleanly"
+stdout	""
+meets_expect	yes

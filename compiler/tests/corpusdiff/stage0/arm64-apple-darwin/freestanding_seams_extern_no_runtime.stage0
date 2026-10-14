@@ -1,0 +1,6 @@
+program	freestanding_seams_extern_no_runtime.saw
+triple	arm64-apple-darwin
+twin	same
+expect	object
+build	ok
+meets_expect	yes

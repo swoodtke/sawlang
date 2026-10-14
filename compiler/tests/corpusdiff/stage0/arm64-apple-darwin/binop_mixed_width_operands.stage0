@@ -1,0 +1,20 @@
+program	binop_mixed_width_operands.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	operator `*` requires both operands to have the same type, but the left is `Int` and the right is `Int16`
+meets_expect	yes
+log	"error: operator `*` requires both operands to have the same type, but the left is `Int` and the right is `Int16`"
+log	"  --> examples/binop_mixed_width_operands.saw:25:7"
+log	"     |"
+log	" 25 |     n * 2i16"
+log	"     |       ^"
+log	"   hint: drop the `i16` suffix so the literal adopts `Int`, or convert one operand — `x as Int` panics out of range, `Int.from(x)` answers `None`, `Int.from(truncating: x)` keeps the low bits"
+log	""
+log	"error: function `doubling` should return `Int` but body has no value"
+log	"  --> examples/binop_mixed_width_operands.saw:24:1"
+log	"     |"
+log	" 24 | func doubling(n: Int) -> Int {"
+log	"     | ^"
+log	""
+log	"2 error(s) generated"

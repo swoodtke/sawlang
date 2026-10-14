@@ -1,0 +1,19 @@
+program	optional_generic_nested_reads.saw
+triple	arm64-apple-darwin
+twin	differs
+expect	success
+build	ok
+exit	0
+stdout	"vector present-some 1"
+stdout	"vector present-none inner-absent"
+stdout	"vector out-of-range outer-absent"
+stdout	"map present-some 1"
+stdout	"map present-none inner-absent"
+stdout	"map missing-key outer-absent"
+stdout	"pop present-none inner-absent"
+stdout	"remove present-none inner-absent"
+stdout	"generic return present-some 5"
+stdout	"generic return present-none inner-absent"
+stdout	"-- done"
+stdout	""
+meets_expect	yes

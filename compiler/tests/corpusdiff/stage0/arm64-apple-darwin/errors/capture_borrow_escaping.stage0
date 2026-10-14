@@ -1,0 +1,21 @@
+program	errors/capture_borrow_escaping.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	borrow capture `&var sum` is legal only in a closure passed directly to a non-escaping parameter
+meets_expect	yes
+log	"error: borrow capture `&var sum` is legal only in a closure passed directly to a non-escaping parameter"
+log	"  --> examples/errors/capture_borrow_escaping.saw:11:32"
+log	"     |"
+log	" 11 |     let task = Thread.spawn { [&var sum] in"
+log	"     |                                ^"
+log	"   hint: an escaping closure outlives the frame, so it cannot borrow it — capture by value (`move`/`copy`) instead"
+log	""
+log	"error: cannot call `&var self` method `join` on immutable variable `task`"
+log	"  --> examples/errors/capture_borrow_escaping.saw:15:9"
+log	"     |"
+log	" 15 |     task.join()"
+log	"     |         ^"
+log	"   hint: consider using `var` instead of `let` to make it mutable"
+log	""
+log	"2 error(s) generated"

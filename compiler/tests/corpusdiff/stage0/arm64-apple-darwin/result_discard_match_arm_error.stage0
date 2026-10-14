@@ -1,0 +1,35 @@
+program	result_discard_match_arm_error.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	result of `might` is `Result<Int, ParseError>` and is silently discarded
+meets_expect	yes
+log	"error: result of `might` is `Result<Int, ParseError>` and is silently discarded"
+log	"  --> examples/result_discard_match_arm_error.saw:25:19"
+log	"     |"
+log	" 25 |         case 0 -> might(0),"
+log	"     |                   ^"
+log	"   hint: handle it — `match` it, `try`/`try!`/`try?` it, or return it — or write `let _ = ...` to discard it explicitly"
+log	""
+log	"error: result of `might` is `Result<Int, ParseError>` and is silently discarded"
+log	"  --> examples/result_discard_match_arm_error.saw:26:19"
+log	"     |"
+log	" 26 |         case _ -> might(k)"
+log	"     |                   ^"
+log	"   hint: handle it — `match` it, `try`/`try!`/`try?` it, or return it — or write `let _ = ...` to discard it explicitly"
+log	""
+log	"error: result of `append` is `Result<Void, AllocError>` and is silently discarded"
+log	"  --> examples/result_discard_match_arm_error.saw:11:13"
+log	"     |"
+log	" 11 |         into.append(\"bad input at \")"
+log	"     |             ^"
+log	"   hint: handle it — `match` it, `try`/`try!`/`try?` it, or return it — or write `let _ = ...` to discard it explicitly"
+log	""
+log	"error: result of `append` is `Result<Void, AllocError>` and is silently discarded"
+log	"  --> examples/result_discard_match_arm_error.saw:12:13"
+log	"     |"
+log	" 12 |         into.append(self.at)"
+log	"     |             ^"
+log	"   hint: handle it — `match` it, `try`/`try!`/`try?` it, or return it — or write `let _ = ...` to discard it explicitly"
+log	""
+log	"4 error(s) generated"

@@ -1,0 +1,11 @@
+program	env_simple.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"SAW_TEST_VAR:"
+stdout	"hello from saw"
+stdout	"unset successfully"
+stdout	""
+meets_expect	yes

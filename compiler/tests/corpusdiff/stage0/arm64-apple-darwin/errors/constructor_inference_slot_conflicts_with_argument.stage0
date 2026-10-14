@@ -1,0 +1,20 @@
+program	errors/constructor_inference_slot_conflicts_with_argument.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	cannot infer type argument `T` for struct `Wrap`: it is required to be both `Int` and `String`
+meets_expect	yes
+log	"error: cannot infer type argument `T` for struct `Wrap`: it is required to be both `Int` and `String`"
+log	"  --> examples/errors/constructor_inference_slot_conflicts_with_argument.saw:12:24"
+log	"     |"
+log	" 12 |     let w: Wrap<Int> = Wrap(value: \"x\")"
+log	"     |                        ^"
+log	"   hint: give the type argument(s) explicitly"
+log	""
+log	"error: field `value` expects type `T` but got `String`"
+log	"  --> examples/errors/constructor_inference_slot_conflicts_with_argument.saw:12:24"
+log	"     |"
+log	" 12 |     let w: Wrap<Int> = Wrap(value: \"x\")"
+log	"     |                        ^"
+log	""
+log	"2 error(s) generated"

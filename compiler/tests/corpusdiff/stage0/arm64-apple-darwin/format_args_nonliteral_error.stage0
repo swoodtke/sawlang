@@ -1,0 +1,34 @@
+program	format_args_nonliteral_error.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	`print` with format arguments needs a literal format string
+meets_expect	yes
+log	"error: `{}` is a format placeholder and needs an argument to fill it"
+log	"  --> examples/format_args_nonliteral_error.saw:8:26"
+log	"    |"
+log	" 8 |     if n > 0 { \"positive {}\" } else { \"other {}\" }"
+log	"    |                          ^"
+log	"   hint: pass a value for it — `print(\"x = {}\", x)` — or name the value in the braces (`\"x = {x}\"`); write `\\{\\}` for literal braces"
+log	""
+log	"error: `{}` is a format placeholder and needs an argument to fill it"
+log	"  --> examples/format_args_nonliteral_error.saw:8:46"
+log	"    |"
+log	" 8 |     if n > 0 { \"positive {}\" } else { \"other {}\" }"
+log	"    |                                              ^"
+log	"   hint: pass a value for it — `print(\"x = {}\", x)` — or name the value in the braces (`\"x = {x}\"`); write `\\{\\}` for literal braces"
+log	""
+log	"error: function `fmt_for` should return `String` but body has no value"
+log	"  --> examples/format_args_nonliteral_error.saw:7:1"
+log	"    |"
+log	" 7 | func fmt_for(n: Int) -> String {"
+log	"    | ^"
+log	""
+log	"error: `print` with format arguments needs a literal format string"
+log	"  --> examples/format_args_nonliteral_error.saw:12:11"
+log	"     |"
+log	" 12 |     print(fmt_for(1), 3)"
+log	"     |           ^"
+log	"   hint: the `{}` slots are counted at compile time, so the format string cannot be a variable"
+log	""
+log	"4 error(s) generated"

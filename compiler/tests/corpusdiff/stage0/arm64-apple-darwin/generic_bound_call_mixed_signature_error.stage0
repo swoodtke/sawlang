@@ -1,0 +1,19 @@
+program	generic_bound_call_mixed_signature_error.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	argument `index` expects `Int` but got `String`
+meets_expect	yes
+log	"error: argument `peer` expects `&T` but got `&Ledger`"
+log	"  --> examples/generic_bound_call_mixed_signature_error.saw:45:16"
+log	"     |"
+log	" 45 |     r.at(peer: &wrong, index: \"nope\", item: \"text\")"
+log	"     |                ^"
+log	""
+log	"error: argument `index` expects `Int` but got `String`"
+log	"  --> examples/generic_bound_call_mixed_signature_error.saw:45:31"
+log	"     |"
+log	" 45 |     r.at(peer: &wrong, index: \"nope\", item: \"text\")"
+log	"     |                               ^"
+log	""
+log	"2 error(s) generated"

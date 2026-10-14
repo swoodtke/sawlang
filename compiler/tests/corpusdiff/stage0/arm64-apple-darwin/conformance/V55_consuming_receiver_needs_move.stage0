@@ -1,0 +1,14 @@
+program	conformance/V55_consuming_receiver_needs_move.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	`finish` consumes its receiver — write `(move b).finish()`
+meets_expect	yes
+log	"error: `finish` consumes its receiver — write `(move b).finish()`"
+log	"  --> examples/conformance/V55_consuming_receiver_needs_move.saw:27:18"
+log	"     |"
+log	" 27 |     print(\"{}\", b.finish())"
+log	"     |                  ^"
+log	"   hint: a consuming method ends the value it is called on, so the transfer is spelled at the call. `b` is moved-from afterwards (a `var` revives on reassignment)"
+log	""
+log	"1 error(s) generated"

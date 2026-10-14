@@ -1,0 +1,12 @@
+program	taskgroup_nested_ambient.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"10"
+stdout	"11"
+stdout	"20"
+stdout	"21"
+stdout	""
+meets_expect	yes

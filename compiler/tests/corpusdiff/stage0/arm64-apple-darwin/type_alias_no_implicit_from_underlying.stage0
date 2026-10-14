@@ -1,0 +1,13 @@
+program	type_alias_no_implicit_from_underlying.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	argument `x` expects `MyInt` but got `Int`
+meets_expect	yes
+log	"error: argument `x` expects `MyInt` but got `Int`"
+log	"  --> examples/type_alias_no_implicit_from_underlying.saw:15:19"
+log	"     |"
+log	" 15 |     print(process(x))"
+log	"     |                   ^"
+log	""
+log	"1 error(s) generated"

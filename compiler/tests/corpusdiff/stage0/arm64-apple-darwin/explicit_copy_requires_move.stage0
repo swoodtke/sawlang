@@ -1,0 +1,14 @@
+program	explicit_copy_requires_move.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	cannot copy value of type `Buf` which implements ExplicitCopy
+meets_expect	yes
+log	"error: cannot copy value of type `Buf` which implements ExplicitCopy"
+log	"  --> examples/explicit_copy_requires_move.saw:20:5"
+log	"     |"
+log	" 20 |     let b = a          // ERROR: implicit copy of an ExplicitCopy value"
+log	"     |     ^"
+log	"   hint: use .copy() for an explicit deep copy, or `move` to transfer ownership"
+log	""
+log	"1 error(s) generated"

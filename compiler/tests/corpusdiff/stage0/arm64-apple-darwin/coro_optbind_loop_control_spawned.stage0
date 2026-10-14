@@ -1,0 +1,10 @@
+program	coro_optbind_loop_control_spawned.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"spawned 1 total=6"
+stdout	"spawned 2 total=6"
+stdout	""
+meets_expect	yes

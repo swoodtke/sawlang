@@ -1,0 +1,15 @@
+program	enum145_methods.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"bad handle"
+stdout	"true"
+stdout	"ok"
+stdout	"false"
+stdout	"other"
+stdout	"ok"
+stdout	"3"
+stdout	""
+meets_expect	yes

@@ -1,0 +1,14 @@
+program	errors/static_assign_field.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	cannot assign to static `ORIGIN`: statics are immutable
+meets_expect	yes
+log	"error: cannot assign to static `ORIGIN`: statics are immutable"
+log	"  --> examples/errors/static_assign_field.saw:9:21"
+log	"    |"
+log	" 9 | func main() { ORIGIN.x = 3 }"
+log	"    |                     ^"
+log	"   hint: use an interior-synchronized type (`Atomic<Int>`, `SpinLock<T>`) and mutate through its methods, or declare it `unsafe static var` and own the serialization argument"
+log	""
+log	"1 error(s) generated"

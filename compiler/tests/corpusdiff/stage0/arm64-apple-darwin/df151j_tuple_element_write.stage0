@@ -1,0 +1,22 @@
+program	df151j_tuple_element_write.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"start 0"
+stdout	"whole_element_replace 1 live 0"
+stdout	"replace_frees_the_buffer 3 live 0"
+stdout	"element_field_write 42 live 0"
+stdout	"element_compound 44 live 0"
+stdout	"tuple_element_compound 8 live 0"
+stdout	"named_element_write 9 live 0"
+stdout	"nested_element_write 7 live 0"
+stdout	"string_element_replace second live 0"
+stdout	"optional_element_write 5 live 0"
+stdout	"element_of_array_of_tuples 12 live 0"
+stdout	"implicit_copy_rhs_retains 2 live 0"
+stdout	"across_suspend 40 live 0"
+stdout	"done 0"
+stdout	""
+meets_expect	yes

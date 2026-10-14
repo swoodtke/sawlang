@@ -1,0 +1,19 @@
+program	tuple_index_member_access.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"ada"
+stdout	"ada"
+stdout	"3"
+stdout	"2"
+stdout	"hopper"
+stdout	"10"
+stdout	"20"
+stdout	"ada is 3 bytes"
+stdout	"1.5"
+stdout	"6"
+stdout	"255"
+stdout	""
+meets_expect	yes

@@ -1,0 +1,21 @@
+program	conformance/V64_forwarding_cast_takes_the_move_checkpoint.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	cannot copy value of type `Res` which implements NoCopy
+meets_expect	yes
+log	"error: cannot copy value of type `Res` which implements NoCopy"
+log	"  --> examples/conformance/V64_forwarding_cast_takes_the_move_checkpoint.saw:32:5"
+log	"     |"
+log	" 32 |     let s = r as Res            // error: NoCopy — `r` still owns the value"
+log	"     |     ^"
+log	"   hint: use `move` to transfer ownership instead"
+log	""
+log	"error: cannot copy value of type `Vector<Int, GlobalAllocator>` which implements ExplicitCopy"
+log	"  --> examples/conformance/V64_forwarding_cast_takes_the_move_checkpoint.saw:39:5"
+log	"     |"
+log	" 39 |     let w = v as Vector<Int>    // error: ExplicitCopy — one buffer, two owners"
+log	"     |     ^"
+log	"   hint: use .copy() for an explicit deep copy, or `move` to transfer ownership"
+log	""
+log	"2 error(s) generated"

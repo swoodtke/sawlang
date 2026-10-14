@@ -1,0 +1,9 @@
+program	erased_result_catch.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"caught: io#8"
+stdout	""
+meets_expect	yes

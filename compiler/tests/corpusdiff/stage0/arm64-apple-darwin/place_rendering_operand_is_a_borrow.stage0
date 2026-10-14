@@ -1,0 +1,19 @@
+program	place_rendering_operand_is_a_borrow.saw
+triple	arm64-apple-darwin
+twin	differs
+expect	success
+build	ok
+exit	0
+stdout	"field 1"
+stdout	"method 2"
+stdout	"interpolated Res(1)"
+stdout	"bound Res(1)"
+stdout	"printed:"
+stdout	"Res(1)"
+stdout	"format arg Res(1)"
+stdout	"asserted Res(1)"
+stdout	"forced Res(1)"
+stdout	"explicit Bag(7)"
+stdout	"explicit arg Bag(7)"
+stdout	""
+meets_expect	yes

@@ -1,0 +1,11 @@
+program	nocopy_explicit_return_with_move.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"7"
+stdout	"deinit"
+stdout	"7"
+stdout	""
+meets_expect	yes

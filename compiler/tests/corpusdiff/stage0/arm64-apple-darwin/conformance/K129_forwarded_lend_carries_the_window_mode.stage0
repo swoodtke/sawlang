@@ -1,0 +1,13 @@
+program	conformance/K129_forwarded_lend_carries_the_window_mode.saw
+triple	arm64-apple-darwin
+twin	differs
+expect	success
+build	ok
+exit	0
+stdout	"shared forward reads 3, inner gates 0"
+stdout	"exclusive forward writes 4, inner gates 1"
+stdout	"shared forward reads again 4, inner gates 1"
+stdout	"nested CoW: outer read 7, partner still 7"
+stdout	"-- done"
+stdout	""
+meets_expect	yes

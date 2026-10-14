@@ -1,0 +1,19 @@
+program	closure_leaves_enclosing_void_local_visible.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"hi"
+stdout	"6"
+stdout	"two"
+stdout	"8"
+stdout	"between"
+stdout	"33"
+stdout	"method"
+stdout	"14"
+stdout	"drive"
+stdout	"driven: 5"
+stdout	"5"
+stdout	""
+meets_expect	yes

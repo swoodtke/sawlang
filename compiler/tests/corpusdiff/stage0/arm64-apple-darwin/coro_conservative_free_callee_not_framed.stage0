@@ -1,0 +1,12 @@
+program	coro_conservative_free_callee_not_framed.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"at 7 -> 10"
+stdout	"at 8 -> 10"
+stdout	"12"
+stdout	"done"
+stdout	""
+meets_expect	yes

@@ -1,0 +1,29 @@
+program	unsigned_comparable_compare.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"bound compare u8 255 vs 127: Greater"
+stdout	"bound compare u16 65535 vs 1: Greater"
+stdout	"bound compare u32 4000000000 vs 1: Greater"
+stdout	"bound compare u64 max vs 1: Greater"
+stdout	"bound compare uint max vs 1: Greater"
+stdout	"bound compare u8 1 vs 255: Less"
+stdout	"bound compare u8 255 vs 255: Equal"
+stdout	"bound compare int -5 vs 3: Less"
+stdout	"bound compare i8 -128 vs 127: Less"
+stdout	"generic min of uint max and 1: 1"
+stdout	"generic min of u8 255 and 128: 128"
+stdout	"struct with unsigned fields: Greater"
+stdout	"enum payload u8 255 vs 1: Greater"
+stdout	"raw-backed UInt8 Low(1) vs High(200): Less"
+stdout	"raw-backed UInt8 High > Low: true"
+stdout	"raw-backed UInt8 Mid(100) vs High(200): Less"
+stdout	"raw-backed Int8 Neg(-5) vs Pos(5): Less"
+stdout	"raw-backed Int8 Neg < Zero: true"
+stdout	"unbacked enum A vs C: Less"
+stdout	"sorted uint: 1 7 9223372036854775808 18446744073709551615"
+stdout	"sorted u8: 1 7 128 255"
+stdout	""
+meets_expect	yes

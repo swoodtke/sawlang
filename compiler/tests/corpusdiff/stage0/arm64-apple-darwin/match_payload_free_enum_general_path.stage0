@@ -1,0 +1,17 @@
+program	match_payload_free_enum_general_path.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"warm"
+stdout	"cool"
+stdout	"other"
+stdout	"tuple red-zero"
+stdout	"tuple other"
+stdout	"backed high"
+stdout	"nested first"
+stdout	"wildcard guarded"
+stdout	"payload big"
+stdout	""
+meets_expect	yes

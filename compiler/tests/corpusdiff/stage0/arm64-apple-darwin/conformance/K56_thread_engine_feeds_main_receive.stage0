@@ -1,0 +1,9 @@
+program	conformance/K56_thread_engine_feeds_main_receive.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"main got 4"
+stdout	""
+meets_expect	yes

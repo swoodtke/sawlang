@@ -1,0 +1,14 @@
+program	unsafe_trait_requirement_effect.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	method `peek` must declare `unsafe` to conform to trait `Raw`, whose requirement declares it: a caller reaching this through the requirement is promised an unsafe contract, so the implementation says so too
+meets_expect	yes
+log	"error: method `peek` must declare `unsafe` to conform to trait `Raw`, whose requirement declares it: a caller reaching this through the requirement is promised an unsafe contract, so the implementation says so too"
+log	"  --> examples/unsafe_trait_requirement_effect.saw:19:1"
+log	"     |"
+log	" 19 | extension Plain: Raw {"
+log	"     | ^"
+log	"   hint: write the effect in the post-parameter slot — `func peek(&self) unsafe -> ...` (design 136). The reverse is fine: an `unsafe` implementation of a SAFE requirement is allowed, and says something about the body only"
+log	""
+log	"1 error(s) generated"

@@ -1,0 +1,14 @@
+program	errors/generic_default_value_float.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	default value for parameter `b` has type `Int` but the parameter is instantiated as `Float` at this call
+meets_expect	yes
+log	"error: default value for parameter `b` has type `Int` but the parameter is instantiated as `Float` at this call"
+log	"  --> examples/errors/generic_default_value_float.saw:11:11"
+log	"     |"
+log	" 11 |     print(f<Float>(1))"
+log	"     |           ^"
+log	"   hint: a bare integer literal does not adopt a non-integer type; pass the argument explicitly here"
+log	""
+log	"1 error(s) generated"

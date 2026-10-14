@@ -1,0 +1,9 @@
+program	crossmodule_embed_type_identity.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"build"
+stdout	""
+meets_expect	yes

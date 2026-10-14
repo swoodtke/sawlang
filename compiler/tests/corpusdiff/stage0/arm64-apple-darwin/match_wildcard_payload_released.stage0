@@ -1,0 +1,13 @@
+program	match_wildcard_payload_released.saw
+triple	arm64-apple-darwin
+twin	differs
+expect	success
+build	ok
+exit	0
+stdout	"bound r1"
+stdout	"DEINIT r1"
+stdout	"DEINIT r2"
+stdout	"wildcard"
+stdout	"done"
+stdout	""
+meets_expect	yes

@@ -1,0 +1,16 @@
+program	place_assignment_targets.saw
+triple	arm64-apple-darwin
+twin	differs
+expect	success
+build	ok
+exit	0
+stdout	"forced 5"
+stdout	"named 99"
+stdout	"named field 7"
+stdout	"chain 42"
+stdout	"chain absent skipped"
+stdout	"named chain 8"
+stdout	"rhs not evaluated"
+stdout	"-- done"
+stdout	""
+meets_expect	yes

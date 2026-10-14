@@ -1,0 +1,13 @@
+program	const_bitwise_fold.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"8"
+stdout	"16"
+stdout	"4"
+stdout	"12"
+stdout	"4"
+stdout	""
+meets_expect	yes

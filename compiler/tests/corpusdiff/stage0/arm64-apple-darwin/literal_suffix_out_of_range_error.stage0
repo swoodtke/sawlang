@@ -1,0 +1,7 @@
+program	literal_suffix_out_of_range_error.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	Lexer error at 7:13: integer literal 256u8 is out of range for `u8` (max 255)
+meets_expect	yes
+log	"error: Lexer error at 7:13: integer literal 256u8 is out of range for `u8` (max 255)"

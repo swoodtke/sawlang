@@ -1,0 +1,7 @@
+program	int_literal_out_of_range.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	Lexer error at 8:19: integer literal 18446744073709551616 is out of range for a 64-bit integer (max 18446744073709551615)
+meets_expect	yes
+log	"error: Lexer error at 8:19: integer literal 18446744073709551616 is out of range for a 64-bit integer (max 18446744073709551615)"

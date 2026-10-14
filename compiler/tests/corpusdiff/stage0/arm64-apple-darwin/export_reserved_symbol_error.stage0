@@ -1,0 +1,14 @@
+program	export_reserved_symbol_error.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	`@export` symbol `saw_thing` collides with a reserved runtime symbol (`main`, `saw_*`, `__saw_*`)
+meets_expect	yes
+log	"error: `@export` symbol `saw_thing` collides with a reserved runtime symbol (`main`, `saw_*`, `__saw_*`)"
+log	"  --> examples/export_reserved_symbol_error.saw:7:1"
+log	"    |"
+log	" 7 | func t() -> Int { 1 }"
+log	"    | ^"
+log	"   hint: choose a different exported symbol name via `@export(\"other_name\")`"
+log	""
+log	"1 error(s) generated"

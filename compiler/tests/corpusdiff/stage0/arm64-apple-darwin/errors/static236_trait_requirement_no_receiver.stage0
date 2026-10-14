@@ -1,0 +1,7 @@
+program	errors/static236_trait_requirement_no_receiver.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	Parse error at 11:5: trait requirement `make` has no receiver — add `&self`/`&var self`, or declare it `static func` if a static was intended
+meets_expect	yes
+log	"error: Parse error at 11:5: trait requirement `make` has no receiver — add `&self`/`&var self`, or declare it `static func` if a static was intended"

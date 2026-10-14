@@ -1,0 +1,20 @@
+program	errors/partial_move_nested_field.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	cannot move out of field `v` of `o.inner`
+meets_expect	yes
+log	"error: cannot move out of field `v` of `o.inner`"
+log	"  --> examples/errors/partial_move_nested_field.saw:16:13"
+log	"     |"
+log	" 16 |     let z = move o.inner.v"
+log	"     |             ^"
+log	"   hint: move the whole value (`move o`) or restructure so the piece is its own binding; a field moves out with `o.inner.v.take()`, which leaves a valid value behind"
+log	""
+log	"error: undefined variable `z`"
+log	"  --> examples/errors/partial_move_nested_field.saw:17:11"
+log	"     |"
+log	" 17 |     print(z)"
+log	"     |           ^"
+log	""
+log	"2 error(s) generated"

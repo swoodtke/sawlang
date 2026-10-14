@@ -1,0 +1,14 @@
+program	exclusivity_dynamic_index.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	exclusive access violation: `arr[i]` is passed as `&var` while also being accessed in the same call
+meets_expect	yes
+log	"error: exclusive access violation: `arr[i]` is passed as `&var` while also being accessed in the same call"
+log	"  --> examples/exclusivity_dynamic_index.saw:15:7"
+log	"     |"
+log	" 15 |     f(&var arr[i], &arr[j])"
+log	"     |       ^"
+log	"   hint: disjoint access paths are allowed (e.g. `&var p.x` with `&p.y`); give the mutable reference exclusive access"
+log	""
+log	"1 error(s) generated"

@@ -1,0 +1,22 @@
+program	conformance/V111_discard_let_retains_a_projection.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"-- sync"
+stdout	"identifier 2 -> 2"
+stdout	"member 3 -> 3"
+stdout	"tuple 4 -> 4"
+stdout	"array 6 -> 6"
+stdout	"trivial 41"
+stdout	"move-once 7"
+stdout	"drop 7"
+stdout	"-- driven"
+stdout	"identifier 2 -> 2"
+stdout	"member 3 -> 3"
+stdout	"tuple 4 -> 4"
+stdout	"live 4 4 4"
+stdout	"end"
+stdout	""
+meets_expect	yes

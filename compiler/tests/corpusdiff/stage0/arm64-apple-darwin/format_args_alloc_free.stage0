@@ -1,0 +1,14 @@
+program	format_args_alloc_free.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"armed"
+stdout	"p = (1, 2) n = -42 s = text b = false u = 18446744073709551615"
+stdout	"counter 0"
+stdout	"counter 1"
+stdout	"counter 2"
+stdout	"disarmed, heap works again"
+stdout	""
+meets_expect	yes

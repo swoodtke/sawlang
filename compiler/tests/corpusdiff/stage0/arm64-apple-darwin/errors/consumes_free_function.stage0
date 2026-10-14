@@ -1,0 +1,7 @@
+program	errors/consumes_free_function.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	Parse error at 12:30: `consumes` may only appear on a method with a `&var self` receiver — a free function has no receiver to consume. To take ownership of an argument, declare the parameter by value and `move` at the call site
+meets_expect	yes
+log	"error: Parse error at 12:30: `consumes` may only appear on a method with a `&var self` receiver — a free function has no receiver to consume. To take ownership of an argument, declare the parameter by value and `move` at the call site"

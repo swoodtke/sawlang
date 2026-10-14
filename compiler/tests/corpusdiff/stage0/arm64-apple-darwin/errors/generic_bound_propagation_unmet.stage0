@@ -1,0 +1,14 @@
+program	errors/generic_bound_propagation_unmet.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	type parameter `T` does not satisfy the `Seed` bound
+meets_expect	yes
+log	"error: type parameter `T` does not satisfy the `Seed` bound"
+log	"  --> examples/errors/generic_bound_propagation_unmet.saw:17:5"
+log	"     |"
+log	" 17 |     inner<T>(w)"
+log	"     |     ^"
+log	"   hint: add the bound to the enclosing signature: `<T: Seed>`"
+log	""
+log	"1 error(s) generated"

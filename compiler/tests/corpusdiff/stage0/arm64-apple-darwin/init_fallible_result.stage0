@@ -1,0 +1,16 @@
+program	init_fallible_result.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"try!: 12"
+stdout	"match Ok: 6"
+stdout	"match Err: reading 400 is out of range"
+stdout	"propagating try: 20"
+stdout	"routed: range: reading -1 is out of range"
+stdout	"try?: absent"
+stdout	"bare tail Ok: 2"
+stdout	"moved-out NoCopy receiver: 3"
+stdout	""
+meets_expect	yes

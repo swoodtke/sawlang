@@ -1,0 +1,12 @@
+program	nomove_placement_into_its_home.saw
+triple	arm64-apple-darwin
+twin	differs
+expect	success
+build	ok
+exit	0
+stdout	"boxed 5"
+stdout	"pinned 12"
+stdout	"DROP 12"
+stdout	"DROP 5"
+stdout	""
+meets_expect	yes

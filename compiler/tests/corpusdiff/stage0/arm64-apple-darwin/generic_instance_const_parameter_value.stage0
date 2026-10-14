@@ -1,0 +1,11 @@
+program	generic_instance_const_parameter_value.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"4 16"
+stdout	"9 81"
+stdout	"4 9"
+stdout	""
+meets_expect	yes

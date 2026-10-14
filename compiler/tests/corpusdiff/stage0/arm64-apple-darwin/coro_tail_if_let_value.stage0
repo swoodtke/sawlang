@@ -1,0 +1,12 @@
+program	coro_tail_if_let_value.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"both: 12"
+stdout	"second missing: 1"
+stdout	"first missing: -1"
+stdout	"-- done"
+stdout	""
+meets_expect	yes

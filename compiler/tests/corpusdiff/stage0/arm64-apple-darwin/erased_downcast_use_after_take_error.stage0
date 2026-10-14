@@ -1,0 +1,14 @@
+program	erased_downcast_use_after_take_error.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	use of moved variable `b`
+meets_expect	yes
+log	"error: use of moved variable `b`"
+log	"  --> examples/erased_downcast_use_after_take_error.saw:13:18"
+log	"     |"
+log	" 13 |     let second = b.take<Circle>()   // b already consumed"
+log	"     |                  ^"
+log	"   hint: value was moved at line 12 and can no longer be used"
+log	""
+log	"1 error(s) generated"

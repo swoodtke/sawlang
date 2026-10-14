@@ -1,0 +1,18 @@
+program	conformance/V115_stored_closure_owns_its_captures.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"vector live=2 dead=1"
+stdout	"map live=2 dead=1"
+stdout	"escaping-param live=2 dead=1"
+stdout	"struct-in-vector live=2 dead=1"
+stdout	"returned live=2 held=2"
+stdout	"struct-field live=3 held=3"
+stdout	"array live=4 held=4"
+stdout	"tuple live=5 held=5"
+stdout	"result live=6 held=6"
+stdout	"end 6"
+stdout	""
+meets_expect	yes

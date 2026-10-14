@@ -1,0 +1,12 @@
+program	conformance/V100_bounded_copy_at_the_auto_tier_retains.saw
+triple	arm64-apple-darwin
+twin	differs
+expect	success
+build	ok
+exit	0
+stdout	"struct: alpha-built beta-built"
+stdout	"enum: named-built"
+stdout	"arc after the duplicate dies: 2"
+stdout	"arc after the original dies: 1"
+stdout	""
+meets_expect	yes

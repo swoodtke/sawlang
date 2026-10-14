@@ -1,0 +1,13 @@
+program	conformance/V41_branch_exclusive_uses_stay_move_only.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"7"
+stdout	"b"
+stdout	"DEINIT r1"
+stdout	"kept r2"
+stdout	"DEINIT r2"
+stdout	""
+meets_expect	yes

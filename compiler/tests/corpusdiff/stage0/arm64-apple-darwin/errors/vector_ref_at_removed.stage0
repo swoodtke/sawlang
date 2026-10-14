@@ -1,0 +1,20 @@
+program	errors/vector_ref_at_removed.saw
+triple	arm64-apple-darwin
+twin	differs
+expect	error
+build	refused	type `Vector` has no method `ref_at`
+meets_expect	yes
+log	"error: type `Vector` has no method `ref_at`"
+log	"  --> examples/errors/vector_ref_at_removed.saw:8:14"
+log	"    |"
+log	" 8 |     let p = v.ref_at(0)"
+log	"    |              ^"
+log	"   hint: available methods: [], __lend_var_[], __lend_var_get, _greater_at, _grow_target, _reserve, clear, copy, deinit, each, each_indexed, enumerated, fold, get, is_empty, iter, len, map, pop, push, reserve, set, sort, sort_by, swap, swap_out, try_copy, with_ref, with_var_ref"
+log	""
+log	"error: undefined variable `p`"
+log	"  --> examples/errors/vector_ref_at_removed.saw:9:11"
+log	"    |"
+log	" 9 |     print(p[0])"
+log	"    |           ^"
+log	""
+log	"2 error(s) generated"

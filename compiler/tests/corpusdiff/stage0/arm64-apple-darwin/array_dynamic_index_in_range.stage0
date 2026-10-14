@@ -1,0 +1,13 @@
+program	array_dynamic_index_in_range.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"10"
+stdout	"20"
+stdout	"30"
+stdout	"40"
+stdout	"50"
+stdout	""
+meets_expect	yes

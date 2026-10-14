@@ -1,0 +1,13 @@
+program	conformance/K40_suspending_match_scrutinee_head.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"A1"
+stdout	"B1"
+stdout	"A2"
+stdout	"B2"
+stdout	"scrutinee 22"
+stdout	""
+meets_expect	yes

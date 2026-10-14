@@ -1,0 +1,9 @@
+program	shadow255_qualified_escape.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"103"
+stdout	""
+meets_expect	yes

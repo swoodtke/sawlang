@@ -1,0 +1,12 @@
+program	enum145_import_scope.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"9"
+stdout	"high water"
+stdout	"Level(9)"
+stdout	"HIGH"
+stdout	""
+meets_expect	yes

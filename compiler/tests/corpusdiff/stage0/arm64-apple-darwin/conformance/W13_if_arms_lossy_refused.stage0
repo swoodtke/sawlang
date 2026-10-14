@@ -1,0 +1,28 @@
+program	conformance/W13_if_arms_lossy_refused.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	the `if` and `else` branches have no common type: `Int` and `UInt64` — neither widens into the other without losing a value
+meets_expect	yes
+log	"error: the `if` and `else` branches have no common type: `Int` and `UInt64` — neither widens into the other without losing a value"
+log	"  --> examples/conformance/W13_if_arms_lossy_refused.saw:19:5"
+log	"     |"
+log	" 19 |     if a > 0 { 11 } else { 7u64 }"
+log	"     |     ^"
+log	"   hint: a narrowing or a same-width sign change has to be written: `x as T` panics out of range, `T.from(x)` answers `None`, `T.from(truncating: x)` keeps the low bits"
+log	""
+log	"error: the match arms have no common type: `Int` and `UInt64` — neither widens into the other without losing a value"
+log	"  --> examples/conformance/W13_if_arms_lossy_refused.saw:23:5"
+log	"     |"
+log	" 23 |     match a {"
+log	"     |     ^"
+log	"   hint: a narrowing or a same-width sign change has to be written: `x as T` panics out of range, `T.from(x)` answers `None`, `T.from(truncating: x)` keeps the low bits"
+log	""
+log	"error: the `??` payload and its default have no common type: `Int` and `UInt64` — neither widens into the other without losing a value"
+log	"  --> examples/conformance/W13_if_arms_lossy_refused.saw:30:7"
+log	"     |"
+log	" 30 |     o ?? 7u64"
+log	"     |       ^"
+log	"   hint: a narrowing or a same-width sign change has to be written: `x as T` panics out of range, `T.from(x)` answers `None`, `T.from(truncating: x)` keeps the low bits"
+log	""
+log	"3 error(s) generated"

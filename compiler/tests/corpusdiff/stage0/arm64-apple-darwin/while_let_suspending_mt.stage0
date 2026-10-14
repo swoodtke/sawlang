@@ -1,0 +1,11 @@
+program	while_let_suspending_mt.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"6"
+stdout	"12"
+stdout	"18"
+stdout	""
+meets_expect	yes

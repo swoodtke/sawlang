@@ -1,0 +1,9 @@
+program	hello.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"Hello, Saw!"
+stdout	""
+meets_expect	yes

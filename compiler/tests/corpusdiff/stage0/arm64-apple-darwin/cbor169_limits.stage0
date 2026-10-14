@@ -1,0 +1,16 @@
+program	cbor169_limits.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"nested 4 under max_depth 4: opened"
+stdout	"nested 5 under max_depth 4: decode error at byte 4: nesting is deeper than the decoder allows"
+stdout	"nested 100000 under the default: decode error at byte 64: nesting is deeper than the decoder allows"
+stdout	"11 bytes under max_size 4: decode error at byte 0: the input is larger than the decoder allows"
+stdout	"array of 5 under max_items 3: decode error at byte 0: the input holds more items than the decoder allows"
+stdout	"5 bytes declaring 4294967295 items: decode error at byte 0: the input holds more items than the decoder allows"
+stdout	"bytes item read back: 4 bytes, first de"
+stdout	"skip past the head: read 2 after skipping 1"
+stdout	""
+meets_expect	yes

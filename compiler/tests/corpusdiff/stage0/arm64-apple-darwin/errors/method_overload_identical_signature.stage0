@@ -1,0 +1,14 @@
+program	errors/method_overload_identical_signature.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	method `at` is already defined for struct `Bag` with an indistinguishable signature
+meets_expect	yes
+log	"error: method `at` is already defined for struct `Bag` with an indistinguishable signature"
+log	"  --> examples/errors/method_overload_identical_signature.saw:15:12"
+log	"     |"
+log	" 15 |     static func at(index: Int) -> Int { index * 10 }"
+log	"     |            ^"
+log	"   hint: overloads must differ in arity or parameter types"
+log	""
+log	"1 error(s) generated"

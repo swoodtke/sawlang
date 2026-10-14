@@ -1,0 +1,12 @@
+program	erased_result_return.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"42"
+stdout	"parse error 7"
+stdout	"sync ok 1"
+stdout	"bad parse error 3"
+stdout	""
+meets_expect	yes

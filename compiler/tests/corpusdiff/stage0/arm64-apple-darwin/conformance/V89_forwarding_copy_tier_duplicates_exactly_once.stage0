@@ -1,0 +1,22 @@
+program	conformance/V89_forwarding_copy_tier_duplicates_exactly_once.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"copy 1"
+stdout	"self-return 1"
+stdout	"copy 2"
+stdout	"self-binding 2"
+stdout	"copy 3"
+stdout	"try-binding 3"
+stdout	"copy 4"
+stdout	"try-field 4"
+stdout	"copy 5"
+stdout	"wrap-optional 5"
+stdout	"copy 6"
+stdout	"wrap-result 6"
+stdout	"trivial 7"
+stdout	"end"
+stdout	""
+meets_expect	yes

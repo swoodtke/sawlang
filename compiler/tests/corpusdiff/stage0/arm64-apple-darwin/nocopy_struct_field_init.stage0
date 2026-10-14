@@ -1,0 +1,14 @@
+program	nocopy_struct_field_init.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	cannot copy value of type `FileHandle` which implements NoCopy
+meets_expect	yes
+log	"error: cannot copy value of type `FileHandle` which implements NoCopy"
+log	"  --> examples/nocopy_struct_field_init.saw:30:29"
+log	"     |"
+log	" 30 |     let w = Wrapper(handle: f)   // should require `move f`"
+log	"     |                             ^"
+log	"   hint: use `move` to transfer ownership instead"
+log	""
+log	"1 error(s) generated"

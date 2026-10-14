@@ -1,0 +1,14 @@
+program	taskgroup_send_containers.saw
+triple	arm64-apple-darwin
+twin	differs
+expect	success
+build	ok
+exit	0
+stdout	"vector 6"
+stdout	"map 3"
+stdout	"set 3"
+stdout	"data 4"
+stdout	"builder 5"
+stdout	"nested 6"
+stdout	""
+meets_expect	yes

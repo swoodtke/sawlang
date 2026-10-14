@@ -1,0 +1,20 @@
+program	errors/unsafe_mem_ro_write.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	cannot `write()` a `ReadOnly` register
+meets_expect	yes
+log	"error: cannot `write()` a `ReadOnly` register"
+log	"  --> examples/errors/unsafe_mem_ro_write.saw:8:25"
+log	"    |"
+log	" 8 | func main() { DEV.status.write(1) }"
+log	"    |                         ^"
+log	""
+log	"error: function `main` is not declared `unsafe`, but its body names a value of unsafe type (`UnsafeMemory<Regs, Device>`)"
+log	"  --> examples/errors/unsafe_mem_ro_write.saw:8:15"
+log	"    |"
+log	" 8 | func main() { DEV.status.write(1) }"
+log	"    |               ^"
+log	"   hint: write `func main(...) unsafe` — the unsafety belongs in the signature where every caller can see it; if the operation is sound for every input, keep the wrapper unsafe and expose a safe one that checks its arguments"
+log	""
+log	"2 error(s) generated"

@@ -1,0 +1,21 @@
+program	conformance/M06_push_on_let_vector.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	cannot call `&var self` method `push` on immutable variable `v`
+meets_expect	yes
+log	"error: cannot call `&var self` method `push` on immutable variable `v`"
+log	"  --> examples/conformance/M06_push_on_let_vector.saw:11:6"
+log	"     |"
+log	" 11 |     v.push(4)"
+log	"     |      ^"
+log	"   hint: consider using `var` instead of `let` to make it mutable"
+log	""
+log	"error: result of `push` is `Result<Void, AllocError>` and is silently discarded"
+log	"  --> examples/conformance/M06_push_on_let_vector.saw:11:6"
+log	"     |"
+log	" 11 |     v.push(4)"
+log	"     |      ^"
+log	"   hint: handle it — `match` it, `try`/`try!`/`try?` it, or return it — or write `let _ = ...` to discard it explicitly"
+log	""
+log	"2 error(s) generated"

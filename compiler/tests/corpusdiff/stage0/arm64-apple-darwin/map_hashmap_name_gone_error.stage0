@@ -1,0 +1,19 @@
+program	map_hashmap_name_gone_error.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	undefined function `HashMap`
+meets_expect	yes
+log	"error: undefined function `HashMap`"
+log	"  --> examples/map_hashmap_name_gone_error.saw:8:13"
+log	"    |"
+log	" 8 |     var m = HashMap<Int, Int>()"
+log	"    |             ^"
+log	""
+log	"error: undefined variable `m`"
+log	"  --> examples/map_hashmap_name_gone_error.saw:9:11"
+log	"    |"
+log	" 9 |     print(m.len())"
+log	"    |           ^"
+log	""
+log	"2 error(s) generated"

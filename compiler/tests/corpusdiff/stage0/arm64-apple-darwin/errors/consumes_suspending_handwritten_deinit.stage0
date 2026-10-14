@@ -1,0 +1,14 @@
+program	errors/consumes_suspending_handwritten_deinit.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	`close` is `consumes` on `Conn`, which has a hand-written `deinit`, and it SUSPENDS — design 260 v1 does not support that combination
+meets_expect	yes
+log	"error: `close` is `consumes` on `Conn`, which has a hand-written `deinit`, and it SUSPENDS — design 260 v1 does not support that combination"
+log	"  --> examples/errors/consumes_suspending_handwritten_deinit.saw:29:5"
+log	"     |"
+log	" 29 |     func close(&var self) consumes -> Int {"
+log	"     |     ^"
+log	"   hint: a consuming body replaces the hand-written `deinit` body for its endpoint, and a suspending receiver is released by the caller's coroutine frame, which runs the full deinit instead. Make the consuming method `sync`, or drop the hand-written `deinit`"
+log	""
+log	"1 error(s) generated"

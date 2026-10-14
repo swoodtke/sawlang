@@ -1,0 +1,19 @@
+program	vector_field_drop_glue.saw
+triple	arm64-apple-darwin
+twin	differs
+expect	success
+build	ok
+exit	0
+stdout	"-- built"
+stdout	"2"
+stdout	"-- reading in place"
+stdout	"one"
+stdout	"41"
+stdout	"-- holder goes"
+stdout	"Item.deinit one"
+stdout	"Item.deinit two"
+stdout	"-- box field goes"
+stdout	"Item.deinit boxed"
+stdout	"-- done"
+stdout	""
+meets_expect	yes

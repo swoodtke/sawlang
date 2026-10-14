@@ -1,0 +1,11 @@
+program	optional_generic_spawn_result.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"joined 6"
+stdout	"joined none -1"
+stdout	"-- done"
+stdout	""
+meets_expect	yes

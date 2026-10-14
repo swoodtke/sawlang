@@ -1,0 +1,14 @@
+program	conformance/U33_funcpointer_capture_list_error.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	a closure coerced to `FuncPointer` may capture nothing, but this one captures `bias`
+meets_expect	yes
+log	"error: a closure coerced to `FuncPointer` may capture nothing, but this one captures `bias`"
+log	"  --> examples/conformance/U33_funcpointer_capture_list_error.saw:14:5"
+log	"     |"
+log	" 14 |     { [bias] n in n + bias }"
+log	"     |     ^"
+log	"   hint: a function pointer is a code address and carries no environment, so there is nowhere for captured state to travel — pass the state through the argument parameter instead, or keep it in a `static` the body reads"
+log	""
+log	"1 error(s) generated"

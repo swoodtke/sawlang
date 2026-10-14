@@ -1,0 +1,10 @@
+program	expr_suspend_channel_recv.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"0"
+stdout	"31"
+stdout	""
+meets_expect	yes

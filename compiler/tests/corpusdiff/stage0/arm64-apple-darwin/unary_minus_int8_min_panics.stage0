@@ -1,0 +1,9 @@
+program	unary_minus_int8_min_panics.saw
+triple	arm64-apple-darwin
+twin	same
+expect	panic
+build	ok
+exit	-6
+stdout	"panic at unary_minus_int8_min_panics.saw:8: integer overflow"
+stdout	""
+meets_expect	yes

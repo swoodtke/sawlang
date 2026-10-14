@@ -1,0 +1,14 @@
+program	literal_suffix_type_mismatch_error.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	cannot assign `UInt16` to variable of type `Int8`
+meets_expect	yes
+log	"error: cannot assign `UInt16` to variable of type `Int8`"
+log	"  --> examples/literal_suffix_type_mismatch_error.saw:8:5"
+log	"    |"
+log	" 8 |     let x: Int8 = 5u16"
+log	"    |     ^"
+log	"   hint: write the conversion: `as Int8` panics out of range, `Int8.from(...)` answers `None`, `Int8.from(truncating: ...)` keeps the low bits"
+log	""
+log	"1 error(s) generated"

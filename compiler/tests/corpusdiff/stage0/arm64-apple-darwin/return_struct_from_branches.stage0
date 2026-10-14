@@ -1,0 +1,14 @@
+program	return_struct_from_branches.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"3"
+stdout	"4"
+stdout	"1"
+stdout	"2"
+stdout	"7"
+stdout	"9"
+stdout	""
+meets_expect	yes

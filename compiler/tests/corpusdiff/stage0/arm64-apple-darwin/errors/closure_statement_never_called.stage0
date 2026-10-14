@@ -1,0 +1,14 @@
+program	errors/closure_statement_never_called.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	closure literal is never called: `{ ... }` in statement position builds a closure and discards it, so its body does not run
+meets_expect	yes
+log	"error: closure literal is never called: `{ ... }` in statement position builds a closure and discards it, so its body does not run"
+log	"  --> examples/errors/closure_statement_never_called.saw:12:5"
+log	"     |"
+log	" 12 |     {"
+log	"     |     ^"
+log	"   hint: call it — `{ ... }()` — or bind it (`let f = { ... }`). `{ ... }` is always a closure in Saw; there is no bare block statement"
+log	""
+log	"1 error(s) generated"

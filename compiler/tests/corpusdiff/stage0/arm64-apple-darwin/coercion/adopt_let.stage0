@@ -1,0 +1,16 @@
+program	coercion/adopt_let.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"bare i8 = 100"
+stdout	"bare u16 = 500"
+stdout	"bare i32 = -70000"
+stdout	"bare u64 = 9000000000"
+stdout	"const shift = 256"
+stdout	"const arith = 30"
+stdout	"const mixed = 24"
+stdout	"neg const = -8"
+stdout	""
+meets_expect	yes

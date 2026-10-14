@@ -1,0 +1,18 @@
+program	coercion/adopt_typed_source_sweep.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"let local = 7"
+stdout	"let field = 9"
+stdout	"let static = 11"
+stdout	"let call = 13"
+stdout	"let place = 5"
+stdout	"arg local = 7"
+stdout	"arg call = 13"
+stdout	"return local = 7"
+stdout	"field local = 7"
+stdout	"array local = 7"
+stdout	""
+meets_expect	yes

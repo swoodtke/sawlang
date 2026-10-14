@@ -1,0 +1,21 @@
+program	errors/serde169_underivable_field.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	cannot derive `serialize` for `Config`: field `limits` of type `Map<String, Int>` does not conform to `Serialize`
+meets_expect	yes
+log	"error: cannot derive `serialize` for `Config`: field `limits` of type `Map<String, Int>` does not conform to `Serialize`"
+log	"  --> examples/errors/serde169_underivable_field.saw:14:1"
+log	"     |"
+log	" 14 | extension Config: Serialize {}"
+log	"     | ^"
+log	"   hint: write `serialize` by hand, or give the member a type that conforms to `Serialize`"
+log	""
+log	"error: result of `insert` is `Result<Int?, AllocError>` and is silently discarded"
+log	"  --> examples/errors/serde169_underivable_field.saw:20:6"
+log	"     |"
+log	" 20 |     m.insert(\"depth\", 8)"
+log	"     |      ^"
+log	"   hint: handle it — `match` it, `try`/`try!`/`try?` it, or return it — or write `let _ = ...` to discard it explicitly"
+log	""
+log	"2 error(s) generated"

@@ -1,0 +1,27 @@
+program	errors/vector_iter_requires_copy.saw
+triple	arm64-apple-darwin
+twin	differs
+expect	error
+build	refused	type `Vector<Res, GlobalAllocator>` has no method `iter`: requires `T: Copy`, and `Res` does not conform
+meets_expect	yes
+log	"error: result of `push` is `Result<Void, AllocError>` and is silently discarded"
+log	"  --> examples/errors/vector_iter_requires_copy.saw:17:6"
+log	"     |"
+log	" 17 |     v.push(Res(name: \"a\"))"
+log	"     |      ^"
+log	"   hint: handle it — `match` it, `try`/`try!`/`try?` it, or return it — or write `let _ = ...` to discard it explicitly"
+log	""
+log	"error: type `Vector<Res, GlobalAllocator>` has no method `iter`: requires `T: Copy`, and `Res` does not conform"
+log	"  --> examples/errors/vector_iter_requires_copy.saw:18:15"
+log	"     |"
+log	" 18 |     for r in v.iter() {"
+log	"     |               ^"
+log	"   hint: `iter` is only available when `T` satisfies `Copy`"
+log	""
+log	"error: cannot access member of non-struct type `Int`"
+log	"  --> examples/errors/vector_iter_requires_copy.saw:19:16"
+log	"     |"
+log	" 19 |         print(r.name)"
+log	"     |                ^"
+log	""
+log	"3 error(s) generated"

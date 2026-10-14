@@ -1,0 +1,7 @@
+program	doc_comment_module_placement_error.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	Parse error at 11:1: module doc comment (`//!`) must appear before the first declaration in the file
+meets_expect	yes
+log	"error: Parse error at 11:1: module doc comment (`//!`) must appear before the first declaration in the file"

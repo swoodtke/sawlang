@@ -1,0 +1,12 @@
+program	taskgroup_mt_join_then_respawn.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"round 1: 9"
+stdout	"round 2: 18"
+stdout	"round 3: 27"
+stdout	"slots held after three rounds: 0"
+stdout	""
+meets_expect	yes

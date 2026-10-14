@@ -1,0 +1,11 @@
+program	funcpointer226_composites.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"through a generic 42"
+stdout	"through an optional 8"
+stdout	"out of a vector 2 101"
+stdout	""
+meets_expect	yes

@@ -1,0 +1,21 @@
+program	vector_file_copy_bound_error.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	type `Vector<File, GlobalAllocator>` has no method `copy`: requires `T: ExplicitCopy`, and `File` does not conform
+meets_expect	yes
+log	"error: `File` is not in the prelude and must be imported"
+log	"  --> examples/vector_file_copy_bound_error.saw:12:20"
+log	"     |"
+log	" 12 |     var v = Vector<File>()"
+log	"     |                    ^"
+log	"   hint: `import std.file.{File}` selects it, `import std.file.*` takes the module's whole vocabulary bare, and `import std.file` lets you write `file.File`"
+log	""
+log	"error: type `Vector<File, GlobalAllocator>` has no method `copy`: requires `T: ExplicitCopy`, and `File` does not conform"
+log	"  --> examples/vector_file_copy_bound_error.saw:13:14"
+log	"     |"
+log	" 13 |     let w = v.copy()"
+log	"     |              ^"
+log	"   hint: `copy` is only available when `T` satisfies `ExplicitCopy`"
+log	""
+log	"2 error(s) generated"

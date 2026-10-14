@@ -1,0 +1,14 @@
+program	conformance/V93_specialization_judges_the_instance.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"copy 1"
+stdout	"counted 1"
+stdout	"trivial 7"
+stdout	"copy 2"
+stdout	"nested 2"
+stdout	"end"
+stdout	""
+meets_expect	yes

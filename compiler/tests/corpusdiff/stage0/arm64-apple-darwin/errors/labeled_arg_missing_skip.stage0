@@ -1,0 +1,13 @@
+program	errors/labeled_arg_missing_skip.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	missing argument for parameter `b`
+meets_expect	yes
+log	"error: missing argument for parameter `b`"
+log	"  --> examples/errors/labeled_arg_missing_skip.saw:11:26"
+log	"     |"
+log	" 11 |     print(three(a: 1, c: 3))"
+log	"     |                          ^"
+log	""
+log	"1 error(s) generated"

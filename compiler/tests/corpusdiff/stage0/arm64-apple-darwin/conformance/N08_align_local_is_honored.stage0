@@ -1,0 +1,12 @@
+program	conformance/N08_align_local_is_honored.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"0"
+stdout	"0"
+stdout	"0"
+stdout	"65"
+stdout	""
+meets_expect	yes

@@ -1,0 +1,12 @@
+program	declaration_lists_take_a_line_each.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"inline module 3"
+stdout	"extension 7 and 7"
+stdout	"trait label 3"
+stdout	"extern abs 3"
+stdout	""
+meets_expect	yes

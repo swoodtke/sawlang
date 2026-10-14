@@ -1,0 +1,14 @@
+program	vector_map_fold.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"120"
+stdout	"n=10"
+stdout	"n=30"
+stdout	"60"
+stdout	"60"
+stdout	"3"
+stdout	""
+meets_expect	yes

@@ -1,0 +1,13 @@
+program	map_literal_empty_no_annotation_error.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	cannot infer the type of the empty map literal `{:}`; add a type annotation (e.g. `let m: Map<String, Int> = {:}`)
+meets_expect	yes
+log	"error: cannot infer the type of the empty map literal `{:}`; add a type annotation (e.g. `let m: Map<String, Int> = {:}`)"
+log	"  --> examples/map_literal_empty_no_annotation_error.saw:7:13"
+log	"    |"
+log	" 7 |     let m = {:}"
+log	"    |             ^"
+log	""
+log	"1 error(s) generated"

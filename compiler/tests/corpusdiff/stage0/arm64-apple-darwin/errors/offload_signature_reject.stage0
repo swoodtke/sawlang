@@ -1,0 +1,28 @@
+program	errors/offload_signature_reject.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	`extern blocking func slow_named`: parameter `s` has type `String`, which is not C-ABI-safe
+meets_expect	yes
+log	"error: `extern blocking func slow_named`: parameter `s` has type `String`, which is not C-ABI-safe"
+log	"  --> examples/errors/offload_signature_reject.saw:12:5"
+log	"     |"
+log	" 12 |     blocking func slow_named(s: String) -> Int"
+log	"     |     ^"
+log	"   hint: an offloaded signature allows fixed-width integers, Int/UInt, Float, and UnsafePointer<T>; pass an aggregate by `UnsafePointer<S>`, and keep what it points at in frame-owned or heap storage so it outlives the park"
+log	""
+log	"error: `extern blocking func slow_flagged`: parameter `flag` has type `Bool`, which is not C-ABI-safe"
+log	"  --> examples/errors/offload_signature_reject.saw:13:5"
+log	"     |"
+log	" 13 |     blocking func slow_flagged(flag: Bool) -> Int"
+log	"     |     ^"
+log	"   hint: an offloaded signature allows fixed-width integers, Int/UInt, Float, and UnsafePointer<T>; pass an aggregate by `UnsafePointer<S>`, and keep what it points at in frame-owned or heap storage so it outlives the park"
+log	""
+log	"error: `extern blocking func slow_maybe`: return type an optional (`T?`) is not C-ABI-safe"
+log	"  --> examples/errors/offload_signature_reject.saw:14:5"
+log	"     |"
+log	" 14 |     blocking func slow_maybe(x: Int) -> Int?"
+log	"     |     ^"
+log	"   hint: an offloaded return allows fixed-width integers, Int/UInt, Float, UnsafePointer<T>, Void, or Never (noreturn) — one value, marshalled back through the job"
+log	""
+log	"3 error(s) generated"

@@ -1,0 +1,17 @@
+program	conformance/O14_presence_test_is_tier_independent.saw
+triple	arm64-apple-darwin
+twin	differs
+expect	success
+build	ok
+exit	0
+stdout	"value nocopy=true explicit=true implicit=true trivial=true"
+stdout	"value absent nocopy=false trivial=false"
+stdout	"uncond nocopy=true explicit=true implicit=true trivial=true"
+stdout	"uncond absent nocopy=false trivial=false"
+stdout	"cond nocopy=true explicit=true implicit=true trivial=true"
+stdout	"cond absent nocopy=false trivial=false"
+stdout	"drop res 3"
+stdout	"drop res 2"
+stdout	"drop res 1"
+stdout	""
+meets_expect	yes

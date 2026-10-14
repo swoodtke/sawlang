@@ -1,0 +1,14 @@
+program	conformance/M23_write_through_shared_borrow.saw
+triple	arm64-apple-darwin
+twin	differs
+expect	error
+build	refused	cannot assign through immutable reference `e`
+meets_expect	yes
+log	"error: cannot assign through immutable reference `e`"
+log	"  --> examples/conformance/M23_write_through_shared_borrow.saw:10:34"
+log	"     |"
+log	" 10 |     let r = v.with_ref(0, { e in e = 9; e })"
+log	"     |                                  ^"
+log	"   hint: an immutable `&` reference is read-only; take `&var` to replace the referent, or use a mutating method"
+log	""
+log	"1 error(s) generated"

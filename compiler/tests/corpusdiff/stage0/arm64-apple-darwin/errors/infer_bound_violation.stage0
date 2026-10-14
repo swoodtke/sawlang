@@ -1,0 +1,13 @@
+program	errors/infer_bound_violation.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	type `Int` does not satisfy the `Tagged` bound
+meets_expect	yes
+log	"error: type `Int` does not satisfy the `Tagged` bound"
+log	"  --> examples/errors/infer_bound_violation.saw:17:14"
+log	"     |"
+log	" 17 |     let r = b.stash(7)"
+log	"     |              ^"
+log	""
+log	"1 error(s) generated"

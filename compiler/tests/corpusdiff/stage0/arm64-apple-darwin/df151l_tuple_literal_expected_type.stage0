@@ -1,0 +1,18 @@
+program	df151l_tuple_literal_expected_type.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"payload_wraps 1"
+stdout	"bare_none_types 99"
+stdout	"rest_element_survives 7"
+stdout	"fixed_width_element 5"
+stdout	"call_argument 7"
+stdout	"nested_annotation 42"
+stdout	"string_payload hi"
+stdout	"string_cleared none"
+stdout	"named_annotation 3"
+stdout	"inference_unchanged 8"
+stdout	""
+meets_expect	yes

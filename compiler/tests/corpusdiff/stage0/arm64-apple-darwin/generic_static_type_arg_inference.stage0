@@ -1,0 +1,12 @@
+program	generic_static_type_arg_inference.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"labeled 5"
+stdout	"positional 5"
+stdout	"explicit 5"
+stdout	"two-param 5"
+stdout	""
+meets_expect	yes

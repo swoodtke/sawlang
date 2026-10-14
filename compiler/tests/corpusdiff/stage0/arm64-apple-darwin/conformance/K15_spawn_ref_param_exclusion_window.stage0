@@ -1,0 +1,21 @@
+program	conformance/K15_spawn_ref_param_exclusion_window.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	exclusive access violation: `n` cannot be read here — the task spawned at line 28 holds `&var n` until `h.join()` releases it
+meets_expect	yes
+log	"error: exclusive access violation: `n` cannot be read here — the task spawned at line 28 holds `&var n` until `h.join()` releases it"
+log	"  --> examples/conformance/K15_spawn_ref_param_exclusion_window.saw:29:16"
+log	"     |"
+log	" 29 |     let seen = n             // refused: the task holds `&var n`"
+log	"     |                ^"
+log	"   hint: join the task first — `h.join()` ends the borrow, and the spawn-join-use order stays legal. To watch the value WHILE the task runs, share it through an `Arc<Mutex<T>>` or a `Channel`, where the synchronization is visible in the types"
+log	""
+log	"error: exclusive access violation: `n` cannot be written here — the task spawned at line 28 holds `&var n` until `h.join()` releases it"
+log	"  --> examples/conformance/K15_spawn_ref_param_exclusion_window.saw:30:5"
+log	"     |"
+log	" 30 |     n = 5                    // refused: same borrow, the write half"
+log	"     |     ^"
+log	"   hint: join the task first — `h.join()` ends the borrow, and the spawn-join-use order stays legal. To watch the value WHILE the task runs, share it through an `Arc<Mutex<T>>` or a `Channel`, where the synchronization is visible in the types"
+log	""
+log	"2 error(s) generated"

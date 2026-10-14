@@ -1,0 +1,12 @@
+program	copy_policy_hook_sync.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"counted 2"
+stdout	"marked 2"
+stdout	"deep 3"
+stdout	"deep copy 3"
+stdout	""
+meets_expect	yes

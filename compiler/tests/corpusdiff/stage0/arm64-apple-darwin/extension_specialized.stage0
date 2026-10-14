@@ -1,0 +1,9 @@
+program	extension_specialized.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"hello,world,test"
+stdout	""
+meets_expect	yes

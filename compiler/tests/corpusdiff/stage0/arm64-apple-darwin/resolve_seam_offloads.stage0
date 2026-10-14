@@ -1,0 +1,10 @@
+program	resolve_seam_offloads.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"sibling: ran while the resolve was in flight"
+stdout	"resolver: localhost -> 127.0.0.1 (1 address)"
+stdout	""
+meets_expect	yes

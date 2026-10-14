@@ -1,0 +1,11 @@
+program	data_simple.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"Data length: 5"
+stdout	"Byte 0: 72"
+stdout	"Byte 1: 101"
+stdout	""
+meets_expect	yes

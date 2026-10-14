@@ -1,0 +1,43 @@
+program	conformance/V112_destructuring_let_retains_a_projection.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"-- sync named"
+stdout	"identifier 3 -> 5"
+stdout	"member 7 -> 9"
+stdout	"trivial 11 12"
+stdout	"move-once 21 22"
+stdout	"keep 9 9 9 9 21 22"
+stdout	"drop 22"
+stdout	"drop 21"
+stdout	"-- sync wildcard"
+stdout	"W1 named+wildcard  borrowed 6 -> 7"
+stdout	"W2 all-wildcard    borrowed 7 -> 7"
+stdout	"W3 nested-wildcard borrowed 7 -> 8"
+stdout	"W4 named+wildcard  fresh    8 -> 9"
+stdout	"W5 all-wildcard    fresh    9 -> 9"
+stdout	"W6 nested-wildcard fresh    9 -> 10"
+stdout	"W7 all-named       borrowed 10 -> 12"
+stdout	"drop 32"
+stdout	"W8 move-once 31"
+stdout	"hold 12 12 12 12 12 12"
+stdout	"drop 31"
+stdout	"-- entry points"
+stdout	"E1 if-let all-named    inside 5 after 3"
+stdout	"E2 if-let named+wild   inside 4 after 3"
+stdout	"E3 guard-let all-named inside 5 after 3"
+stdout	"E4 if-let fresh        inside 4 after 3"
+stdout	"-- driven"
+stdout	"identifier 3 -> 5"
+stdout	"member 7 -> 9"
+stdout	"D1 named+wildcard  borrowed 12 -> 13"
+stdout	"D2 all-wildcard    borrowed 13 -> 13"
+stdout	"D3 nested-wildcard borrowed 13 -> 14"
+stdout	"D4 named+wildcard  fresh    14 -> 15"
+stdout	"keep 15 15 15 15"
+stdout	"hold 15 15 15"
+stdout	"end"
+stdout	""
+meets_expect	yes

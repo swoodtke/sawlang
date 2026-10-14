@@ -1,0 +1,21 @@
+program	errors/optional_payload_read_explicit_copy.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	cannot read the payload out of `v` in let binding: `Vector<Int, GlobalAllocator>` implements ExplicitCopy
+meets_expect	yes
+log	"error: result of `push` is `Result<Void, AllocError>` and is silently discarded"
+log	"  --> examples/errors/optional_payload_read_explicit_copy.saw:13:6"
+log	"     |"
+log	" 13 |     b.push(1)"
+log	"     |      ^"
+log	"   hint: handle it — `match` it, `try`/`try!`/`try?` it, or return it — or write `let _ = ...` to discard it explicitly"
+log	""
+log	"error: cannot read the payload out of `v` in let binding: `Vector<Int, GlobalAllocator>` implements ExplicitCopy"
+log	"  --> examples/errors/optional_payload_read_explicit_copy.saw:19:5"
+log	"     |"
+log	" 19 |     let x = v!"
+log	"     |     ^"
+log	"   hint: use `v!.copy()` for an explicit deep copy, `move v!` to transfer the whole binding, or `v.take()` to move the payload out in place"
+log	""
+log	"2 error(s) generated"

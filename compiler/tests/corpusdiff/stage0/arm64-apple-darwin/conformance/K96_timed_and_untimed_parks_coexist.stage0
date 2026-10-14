@@ -1,0 +1,10 @@
+program	conformance/K96_timed_and_untimed_parks_coexist.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"idle timed out"
+stdout	"patient got 4 bytes"
+stdout	""
+meets_expect	yes

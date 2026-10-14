@@ -1,0 +1,10 @@
+program	assert_fail.saw
+triple	arm64-apple-darwin
+twin	same
+expect	panic
+build	ok
+exit	-6
+stdout	"checking"
+stdout	"panic at assert_fail.saw:9: assertion failed: x must equal 42"
+stdout	""
+meets_expect	yes

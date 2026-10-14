@@ -1,0 +1,21 @@
+program	errors/generic_bound_call_borrow_spelling.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	argument `other` expects `&T`, but the borrow is not written
+meets_expect	yes
+log	"error: argument `other` expects `&T`, but the borrow is not written"
+log	"  --> examples/errors/generic_bound_call_borrow_spelling.saw:44:13"
+log	"     |"
+log	" 44 |     a.merge(b)"
+log	"     |             ^"
+log	"   hint: call sites mirror the parameter's reference spelling — write `&b`"
+log	""
+log	"error: argument `other` expects `T` by value, but a reference is written"
+log	"  --> examples/errors/generic_bound_call_borrow_spelling.saw:49:14"
+log	"     |"
+log	" 49 |     a.absorb(&b)"
+log	"     |              ^"
+log	"   hint: drop the `&` — the parameter takes ownership of its argument"
+log	""
+log	"2 error(s) generated"

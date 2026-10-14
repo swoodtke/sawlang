@@ -1,0 +1,13 @@
+program	errors/undefined_var.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	undefined variable `x`
+meets_expect	yes
+log	"error: undefined variable `x`"
+log	"  --> examples/errors/undefined_var.saw:6:11"
+log	"    |"
+log	" 6 |     print(x)"
+log	"    |           ^"
+log	""
+log	"1 error(s) generated"

@@ -1,0 +1,9 @@
+program	errors/match_on_suspending_call_in_a_loop.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"err nope"
+stdout	""
+meets_expect	yes

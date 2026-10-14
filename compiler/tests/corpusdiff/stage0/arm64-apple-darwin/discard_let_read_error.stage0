@@ -1,0 +1,13 @@
+program	discard_let_read_error.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	undefined variable `_`
+meets_expect	yes
+log	"error: undefined variable `_`"
+log	"  --> examples/discard_let_read_error.saw:7:11"
+log	"    |"
+log	" 7 |     print(_)"
+log	"    |           ^"
+log	""
+log	"1 error(s) generated"

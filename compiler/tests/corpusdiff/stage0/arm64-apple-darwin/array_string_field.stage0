@@ -1,0 +1,11 @@
+program	array_string_field.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"a"
+stdout	"b"
+stdout	"a"
+stdout	""
+meets_expect	yes

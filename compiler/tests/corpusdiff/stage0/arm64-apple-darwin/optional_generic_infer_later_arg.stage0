@@ -1,0 +1,11 @@
+program	optional_generic_infer_later_arg.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"later 3"
+stdout	"earlier inner-absent"
+stdout	"-- done"
+stdout	""
+meets_expect	yes

@@ -1,0 +1,10 @@
+program	module_tests/test_bare_import_user_module_named_after_std.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"user 42"
+stdout	"std 2"
+stdout	""
+meets_expect	yes

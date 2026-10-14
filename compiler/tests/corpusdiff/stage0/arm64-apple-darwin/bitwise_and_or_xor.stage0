@@ -1,0 +1,16 @@
+program	bitwise_and_or_xor.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"0"
+stdout	"255"
+stdout	"6"
+stdout	"48"
+stdout	"21845"
+stdout	"4294967295"
+stdout	"3735928559"
+stdout	"0"
+stdout	""
+meets_expect	yes

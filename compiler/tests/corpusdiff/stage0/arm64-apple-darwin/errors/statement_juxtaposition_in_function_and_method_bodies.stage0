@@ -1,0 +1,11 @@
+program	errors/statement_juxtaposition_in_function_and_method_bodies.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	Parse error at 28:15: two statements on one line need a `;` between them: the first begins with `let`, the second with `print` — write `;` where they meet
+meets_expect	yes
+log	"error: Parse error at 28:15: two statements on one line need a `;` between them: the first begins with `let`, the second with `print` — write `;` where they meet"
+log	"Parse error at 35:39: two statements on one line need a `;` between them: the first begins with `self`, the second with `print` — write `;` where they meet"
+log	"Parse error at 36:1: Expected import, export, module, struct, enum, trait, extension, type, extern, or function declaration, got RBRACE"
+log	"Parse error at 42:64: two statements on one line need a `;` between them: the first begins with `let`, the second with `lend` — write `;` where they meet"
+log	"Parse error at 43:1: Expected import, export, module, struct, enum, trait, extension, type, extern, or function declaration, got RBRACE"

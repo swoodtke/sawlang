@@ -1,0 +1,17 @@
+program	conformance/K127_conditional_lend_modes.saw
+triple	arm64-apple-darwin
+twin	differs
+expect	success
+build	ok
+exit	0
+stdout	"writable present, shared 5"
+stdout	"writable present, exclusive 6"
+stdout	"writable absent: none, epilogues 0"
+stdout	"readable present, shared 5"
+stdout	"readable absent: none"
+stdout	"presence test on a writable lend: yes"
+stdout	"presence test on a readable lend: yes"
+stdout	"epilogues after four present lends: 4"
+stdout	"-- done"
+stdout	""
+meets_expect	yes

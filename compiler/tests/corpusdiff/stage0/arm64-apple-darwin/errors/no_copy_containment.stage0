@@ -1,0 +1,14 @@
+program	errors/no_copy_containment.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	struct `Connection` contains NoCopy field `handle` of type `FileHandle` but does not implement NoCopy
+meets_expect	yes
+log	"error: struct `Connection` contains NoCopy field `handle` of type `FileHandle` but does not implement NoCopy"
+log	"  --> examples/errors/no_copy_containment.saw:15:1"
+log	"     |"
+log	" 15 | struct Connection {"
+log	"     | ^"
+log	"   hint: add `extension Connection: NoCopy {}` — a NoCopy field makes `Connection` move-only, and its `deinit` is synthesized"
+log	""
+log	"1 error(s) generated"

@@ -1,0 +1,20 @@
+program	conformance/V04_move_out_of_ref.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	cannot move out of reference `x`
+meets_expect	yes
+log	"error: cannot move out of reference `x`"
+log	"  --> examples/conformance/V04_move_out_of_ref.saw:8:46"
+log	"    |"
+log	" 8 | func steal(x: &Vector<Int>) -> Vector<Int> { move x }"
+log	"    |                                              ^"
+log	"   hint: references cannot have their contents moved out"
+log	""
+log	"error: function `steal` should return `Vector<Int, GlobalAllocator>` but body has no value"
+log	"  --> examples/conformance/V04_move_out_of_ref.saw:8:1"
+log	"    |"
+log	" 8 | func steal(x: &Vector<Int>) -> Vector<Int> { move x }"
+log	"    | ^"
+log	""
+log	"2 error(s) generated"

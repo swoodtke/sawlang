@@ -1,0 +1,14 @@
+program	coro_bind_id_for_var_derived.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"elem: 3"
+stdout	"elem: 4"
+stdout	"after: 3"
+stdout	"sync elem: 3"
+stdout	"sync elem: 4"
+stdout	"sync after: 3"
+stdout	""
+meets_expect	yes

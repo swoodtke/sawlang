@@ -1,0 +1,19 @@
+program	errors/byte_never_adopts_a_literal.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	argument `b` expects `Byte` but got `UInt8`
+meets_expect	yes
+log	"error: argument `b` expects `Byte` but got `UInt8`"
+log	"  --> examples/errors/byte_never_adopts_a_literal.saw:17:27"
+log	"     |"
+log	" 17 |     print(\"{}\", only_byte(65))"
+log	"     |                           ^"
+log	""
+log	"error: cannot assign `UInt8` to variable of type `Byte`"
+log	"  --> examples/errors/byte_never_adopts_a_literal.saw:18:5"
+log	"     |"
+log	" 18 |     let annotated: Byte = 4"
+log	"     |     ^"
+log	""
+log	"2 error(s) generated"

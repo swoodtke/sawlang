@@ -1,0 +1,11 @@
+program	place_nocopy_arg_in_window.saw
+triple	arm64-apple-darwin
+twin	differs
+expect	success
+build	ok
+exit	0
+stdout	"forwarded param: 1"
+stdout	"place receiver: 2"
+stdout	"value receiver: 3"
+stdout	""
+meets_expect	yes

@@ -1,0 +1,20 @@
+program	package_tier_foreign_relative_selection_error.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	`pkg_secret` is public(package) in `module_tests.pkg232n.src.lib`
+meets_expect	yes
+log	"error: `pkg_secret` is public(package) in `module_tests.pkg232n.src.lib`"
+log	"  --> examples/package_tier_foreign_relative_selection_error.saw:10:1"
+log	"     |"
+log	" 10 | import module_tests.pkg232n.src.lib.{pkg_secret, pkg_open}"
+log	"     | ^"
+log	"   hint: mark it `public` in `module_tests.pkg232n.src.lib` to expose it; available: pkg_open"
+log	""
+log	"error: undefined function `pkg_secret`"
+log	"  --> examples/package_tier_foreign_relative_selection_error.saw:13:24"
+log	"     |"
+log	" 13 |     print(pkg_open() + pkg_secret())"
+log	"     |                        ^"
+log	""
+log	"2 error(s) generated"

@@ -1,0 +1,23 @@
+program	df151e_optional_element_array.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"list -1 -1"
+stdout	"repeat -1 -1"
+stdout	"list 1 2"
+stdout	"repeat 7 7"
+stdout	"strings s0 s1"
+stdout	"repeat-string x1 x1"
+stdout	"mixed 1 -1 3"
+stdout	"nested 1 -1 4"
+stdout	"written w2 -"
+stdout	"arc base 1"
+stdout	"arc inside 3"
+stdout	"arc after 1"
+stdout	"suspending 5 -1"
+stdout	"suspending arc after 1"
+stdout	"done"
+stdout	""
+meets_expect	yes

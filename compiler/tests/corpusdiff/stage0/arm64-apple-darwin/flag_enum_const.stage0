@@ -1,0 +1,14 @@
+program	flag_enum_const.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"3"
+stdout	"7"
+stdout	"15"
+stdout	"5"
+stdout	"16"
+stdout	"6"
+stdout	""
+meets_expect	yes

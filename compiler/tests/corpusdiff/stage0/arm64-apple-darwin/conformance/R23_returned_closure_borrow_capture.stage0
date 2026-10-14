@@ -1,0 +1,14 @@
+program	conformance/R23_returned_closure_borrow_capture.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	borrow capture `&var x` is legal only in a closure passed directly to a non-escaping parameter
+meets_expect	yes
+log	"error: borrow capture `&var x` is legal only in a closure passed directly to a non-escaping parameter"
+log	"  --> examples/conformance/R23_returned_closure_borrow_capture.saw:10:8"
+log	"     |"
+log	" 10 |     { [&var x] in"
+log	"     |        ^"
+log	"   hint: an escaping closure outlives the frame, so it cannot borrow it — capture by value (`move`/`copy`) instead"
+log	""
+log	"1 error(s) generated"

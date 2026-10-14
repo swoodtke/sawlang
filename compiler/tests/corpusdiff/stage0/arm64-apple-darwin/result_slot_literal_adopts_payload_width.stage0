@@ -1,0 +1,17 @@
+program	result_slot_literal_adopts_payload_width.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"ok return = 4"
+stdout	"ok tail = 5"
+stdout	"err return = 7"
+stdout	"neg = -8"
+stdout	"opt ok = 9"
+stdout	"plain = 10"
+stdout	"method tail = 11"
+stdout	"closure return = 13"
+stdout	"generic = 20"
+stdout	""
+meets_expect	yes

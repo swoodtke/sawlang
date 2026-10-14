@@ -1,0 +1,12 @@
+program	taskgroup_eager_teardown_mt.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"15"
+stdout	"0"
+stdout	"240"
+stdout	"0"
+stdout	""
+meets_expect	yes

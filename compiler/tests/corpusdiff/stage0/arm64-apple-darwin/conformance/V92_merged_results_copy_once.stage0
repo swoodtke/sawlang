@@ -1,0 +1,32 @@
+program	conformance/V92_merged_results_copy_once.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"-- value if"
+stdout	"copy 1"
+stdout	"= 1"
+stdout	"-- value match"
+stdout	"copy 2"
+stdout	"= 2"
+stdout	"-- try-block, try path"
+stdout	"copy 3"
+stdout	"= 3"
+stdout	"-- try-block, catch path"
+stdout	"copy 4"
+stdout	"= 4"
+stdout	"-- try? ok"
+stdout	"copy 5"
+stdout	"= 5"
+stdout	"-- try? err"
+stdout	"= absent"
+stdout	"-- ?? present"
+stdout	"copy 7"
+stdout	"= 7"
+stdout	"-- ?? absent"
+stdout	"copy 8"
+stdout	"= 8"
+stdout	"end"
+stdout	""
+meets_expect	yes

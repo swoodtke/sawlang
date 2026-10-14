@@ -1,0 +1,20 @@
+program	coro_move_in_a_while_condition_driven.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"-- sync"
+stdout	"drop seed"
+stdout	"drop step"
+stdout	"drop step"
+stdout	"drop step"
+stdout	"n 3"
+stdout	"-- driven"
+stdout	"drop seed"
+stdout	"drop step"
+stdout	"drop step"
+stdout	"drop step"
+stdout	"n 3"
+stdout	""
+meets_expect	yes

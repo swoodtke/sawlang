@@ -1,0 +1,9 @@
+program	df229a_selection_covers_every_category.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"3 1 12 7"
+stdout	""
+meets_expect	yes

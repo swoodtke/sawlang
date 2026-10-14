@@ -1,0 +1,35 @@
+program	errors/exclusive_window_in_a_shared_lend_accessor.saw
+triple	arm64-apple-darwin
+twin	differs
+expect	error
+build	refused	cannot read through the place window `arg` opens on immutable variable `o`: the accessor borrows its receiver exclusively at every use site, because its body mutates `self` — the `&var self.…` projection at line 49
+meets_expect	yes
+log	"error: cannot read through the place window `arg` opens on immutable variable `o`: the accessor borrows its receiver exclusively at every use site, because its body mutates `self` — the `&var self.…` projection at line 49"
+log	"  --> examples/errors/exclusive_window_in_a_shared_lend_accessor.saw:71:14"
+log	"     |"
+log	" 71 |     print(\"{o.arg()}\")"
+log	"     |              ^"
+log	"   hint: consider using `var` instead of `let` to make it mutable"
+log	""
+log	"error: cannot read through the place window `forced` opens on immutable variable `o`: the accessor borrows its receiver exclusively at every use site, because its body mutates `self` — the `&var self.…` projection at line 54"
+log	"  --> examples/errors/exclusive_window_in_a_shared_lend_accessor.saw:72:14"
+log	"     |"
+log	" 72 |     print(\"{o.forced()}\")"
+log	"     |              ^"
+log	"   hint: consider using `var` instead of `let` to make it mutable"
+log	""
+log	"error: cannot read through the place window `written` opens on immutable variable `o`: the accessor borrows its receiver exclusively at every use site, because its body mutates `self` — the exclusive window on `Inner.plain` at line 59"
+log	"  --> examples/errors/exclusive_window_in_a_shared_lend_accessor.saw:73:14"
+log	"     |"
+log	" 73 |     print(\"{o.written()}\")"
+log	"     |              ^"
+log	"   hint: consider using `var` instead of `let` to make it mutable"
+log	""
+log	"error: cannot read through the place window `bumped` opens on immutable variable `o`: the accessor borrows its receiver exclusively at every use site, because its body mutates `self` — the exclusive window on `Inner.plain` at line 64"
+log	"  --> examples/errors/exclusive_window_in_a_shared_lend_accessor.saw:74:14"
+log	"     |"
+log	" 74 |     print(\"{o.bumped()}\")"
+log	"     |              ^"
+log	"   hint: consider using `var` instead of `let` to make it mutable"
+log	""
+log	"4 error(s) generated"

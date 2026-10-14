@@ -1,0 +1,12 @@
+program	optional_generic_insert_autowrap.saw
+triple	arm64-apple-darwin
+twin	differs
+expect	success
+build	ok
+exit	0
+stdout	"len 2"
+stdout	"y 7"
+stdout	"v 3"
+stdout	"-- done"
+stdout	""
+meets_expect	yes

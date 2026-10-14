@@ -1,0 +1,15 @@
+program	ref_into_array_element_addresses_real_storage.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"optional 8"
+stdout	"tuple    8"
+stdout	"var-ref  8"
+stdout	"shared-ref 8"
+stdout	"member   8"
+stdout	"element  8"
+stdout	"write    8"
+stdout	""
+meets_expect	yes

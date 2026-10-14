@@ -1,0 +1,11 @@
+program	coro_bind_id_param_shadow.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"driven: 15"
+stdout	"spawned: 15"
+stdout	"sync: 15"
+stdout	""
+meets_expect	yes

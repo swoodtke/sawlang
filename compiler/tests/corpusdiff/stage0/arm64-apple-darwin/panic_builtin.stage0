@@ -1,0 +1,10 @@
+program	panic_builtin.saw
+triple	arm64-apple-darwin
+twin	same
+expect	panic
+build	ok
+exit	-6
+stdout	"before panic"
+stdout	"panic at panic_builtin.saw:8: something went wrong"
+stdout	""
+meets_expect	yes

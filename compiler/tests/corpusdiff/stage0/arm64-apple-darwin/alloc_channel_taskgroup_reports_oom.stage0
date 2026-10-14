@@ -1,0 +1,16 @@
+program	alloc_channel_taskgroup_reports_oom.saw
+triple	arm64-apple-darwin
+twin	differs
+expect	success
+build	ok
+exit	0
+stdout	"1"
+stdout	"arc denied"
+stdout	"1"
+stdout	"true"
+stdout	"true"
+stdout	"channel denied"
+stdout	"group denied"
+stdout	"42"
+stdout	""
+meets_expect	yes

@@ -1,0 +1,12 @@
+program	conformance/V34_explicitcopy_bound_is_the_copyable_family.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"int 7 7"
+stdout	"str hi hi"
+stdout	"vec 2 2"
+stdout	"bag b b"
+stdout	""
+meets_expect	yes

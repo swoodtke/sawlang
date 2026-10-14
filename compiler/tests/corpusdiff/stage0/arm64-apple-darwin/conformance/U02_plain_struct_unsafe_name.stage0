@@ -1,0 +1,6 @@
+program	conformance/U02_plain_struct_unsafe_name.saw
+triple	arm64-apple-darwin
+twin	same
+expect	compiles
+build	ok
+meets_expect	yes

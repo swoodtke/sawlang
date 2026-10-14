@@ -1,0 +1,14 @@
+program	vis80_method_private_error.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	method `bump` of `Gadget` is private and not accessible from this module
+meets_expect	yes
+log	"error: method `bump` of `Gadget` is private and not accessible from this module"
+log	"  --> examples/vis80_method_private_error.saw:8:12"
+log	"    |"
+log	" 8 |     print(g.bump())   // private method — rejected"
+log	"    |            ^"
+log	"   hint: mark it `public` in the extension of `Gadget` to expose it"
+log	""
+log	"1 error(s) generated"

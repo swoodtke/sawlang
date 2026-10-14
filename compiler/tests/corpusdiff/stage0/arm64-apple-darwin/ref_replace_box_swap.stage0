@@ -1,0 +1,10 @@
+program	ref_replace_box_swap.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"before 25"
+stdout	"after 12"
+stdout	""
+meets_expect	yes

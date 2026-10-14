@@ -1,0 +1,19 @@
+program	errors/lend_accessor_param.saw
+triple	arm64-apple-darwin
+twin	differs
+expect	error
+build	refused	`lend fallback` is not rooted in the receiver: `fallback` is this accessor's own local or parameter, so the window would open onto storage that dies when the accessor resumes. A read through it would work and a WRITE would silently go nowhere. A `borrows` accessor lends storage the receiver already owns — lend a field, an element, or another place reached through `self` (an indirection the receiver holds counts: `if let buf = self.buffer { lend buf[i] }` lends the heap storage `self` points at). To hand back a computed value, return it from an ordinary method instead
+meets_expect	yes
+log	"error: `lend fallback` is not rooted in the receiver: `fallback` is this accessor's own local or parameter, so the window would open onto storage that dies when the accessor resumes. A read through it would work and a WRITE would silently go nowhere. A `borrows` accessor lends storage the receiver already owns — lend a field, an element, or another place reached through `self` (an indirection the receiver holds counts: `if let buf = self.buffer { lend buf[i] }` lends the heap storage `self` points at). To hand back a computed value, return it from an ordinary method instead"
+log	"  --> examples/errors/lend_accessor_param.saw:23:14"
+log	"     |"
+log	" 23 |         lend fallback"
+log	"     |              ^"
+log	""
+log	"error: `lend other` is not rooted in the receiver: `other` is this accessor's own local or parameter, so the window would open onto storage that dies when the accessor resumes. A read through it would work and a WRITE would silently go nowhere. A `borrows` accessor lends storage the receiver already owns — lend a field, an element, or another place reached through `self` (an indirection the receiver holds counts: `if let buf = self.buffer { lend buf[i] }` lends the heap storage `self` points at). To hand back a computed value, return it from an ordinary method instead"
+log	"  --> examples/errors/lend_accessor_param.saw:27:14"
+log	"     |"
+log	" 27 |         lend other"
+log	"     |              ^"
+log	""
+log	"2 error(s) generated"

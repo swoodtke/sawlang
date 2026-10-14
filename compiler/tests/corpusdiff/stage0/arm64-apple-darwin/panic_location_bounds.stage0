@@ -1,0 +1,9 @@
+program	panic_location_bounds.saw
+triple	arm64-apple-darwin
+twin	same
+expect	panic
+build	ok
+exit	-6
+stdout	"panic at panic_location_bounds.saw:11: array: index out of range: 7 (len 3)"
+stdout	""
+meets_expect	yes

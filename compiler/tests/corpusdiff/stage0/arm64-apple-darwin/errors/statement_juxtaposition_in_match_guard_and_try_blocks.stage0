@@ -1,0 +1,15 @@
+program	errors/statement_juxtaposition_in_match_guard_and_try_blocks.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	Parse error at 23:29: two statements on one line need a `;` between them: the first begins with `tag`, the second with `print` — write `;` where they meet
+meets_expect	yes
+log	"error: Parse error at 23:29: two statements on one line need a `;` between them: the first begins with `tag`, the second with `print` — write `;` where they meet"
+log	"Parse error at 23:47: Expected import, export, module, struct, enum, trait, extension, type, extern, or function declaration, got COMMA"
+log	"Parse error at 26:1: Expected import, export, module, struct, enum, trait, extension, type, extern, or function declaration, got RBRACE"
+log	"Parse error at 49:51: two statements on one line need a `;` between them: the first begins with `print`, the second with `return` — write `;` where they meet"
+log	"Parse error at 50:5: Expected import, export, module, struct, enum, trait, extension, type, extern, or function declaration, got IDENT"
+log	"Parse error at 55:21: two statements on one line need a `;` between them: the first begins with `let`, the second with `a` — write `;` where they meet"
+log	"Parse error at 55:25: Expected import, export, module, struct, enum, trait, extension, type, extern, or function declaration, got CATCH"
+log	"Parse error at 60:34: two statements on one line need a `;` between them: the first begins with `print`, the second with `let` — write `;` where they meet"
+log	"Parse error at 61:1: Expected import, export, module, struct, enum, trait, extension, type, extern, or function declaration, got RBRACE"

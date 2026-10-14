@@ -1,0 +1,13 @@
+program	errors/undefined_enum.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	undefined variable `Undefined`
+meets_expect	yes
+log	"error: undefined variable `Undefined`"
+log	"  --> examples/errors/undefined_enum.saw:6:13"
+log	"    |"
+log	" 6 |     let x = Undefined.Variant"
+log	"    |             ^"
+log	""
+log	"1 error(s) generated"

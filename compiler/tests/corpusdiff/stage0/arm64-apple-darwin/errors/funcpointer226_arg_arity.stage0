@@ -1,0 +1,20 @@
+program	errors/funcpointer226_arg_arity.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	`FuncPointer` takes exactly one type argument, but 2 were given
+meets_expect	yes
+log	"error: `FuncPointer` takes exactly one type argument, but 2 were given"
+log	"  --> examples/errors/funcpointer226_arg_arity.saw:8:12"
+log	"    |"
+log	" 8 |     let p: FuncPointer<(Int) sync -> Int, Int> = one_arg()"
+log	"    |            ^"
+log	"   hint: write `FuncPointer<F>`, where `F` is a function type — e.g. `FuncPointer<(Int) sync -> Int>`"
+log	""
+log	"error: cannot assign `Int` to variable of type `FuncPointer<(Int) sync -> Int, Int>`"
+log	"  --> examples/errors/funcpointer226_arg_arity.saw:8:5"
+log	"    |"
+log	" 8 |     let p: FuncPointer<(Int) sync -> Int, Int> = one_arg()"
+log	"    |     ^"
+log	""
+log	"2 error(s) generated"

@@ -1,0 +1,10 @@
+program	conformance/C08_implicitcopy_operand_handwritten_equals_legal.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"same code"
+stdout	"different code"
+stdout	""
+meets_expect	yes

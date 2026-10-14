@@ -1,0 +1,10 @@
+program	conformance/G16_try_propagates_out_of_main.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	1
+stdout	"a = 10"
+stdout	"error: no such shelf: 9"
+stdout	""
+meets_expect	yes

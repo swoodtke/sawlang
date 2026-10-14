@@ -1,0 +1,14 @@
+program	module_tests/test_static_collision.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	ambiguous static `SHARED`: defined in both `static_dup_a` and `static_dup_b`
+meets_expect	yes
+log	"error: ambiguous static `SHARED`: defined in both `static_dup_a` and `static_dup_b`"
+log	"  --> examples/module_tests/test_static_collision.saw:1:1"
+log	"    |"
+log	" 1 | // Cross-module static collision (design 41 hazard / design 26 identity rules):"
+log	"    | ^"
+log	"   hint: rename one definition, or import `SHARED` from a single module"
+log	""
+log	"1 error(s) generated"

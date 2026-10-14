@@ -1,0 +1,13 @@
+program	errors/constructor_inference_bound_violated.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	type argument `Res` does not satisfy bound `T: Copy` on struct `NeedsCopy`
+meets_expect	yes
+log	"error: type argument `Res` does not satisfy bound `T: Copy` on struct `NeedsCopy`"
+log	"  --> examples/errors/constructor_inference_bound_violated.saw:13:13"
+log	"     |"
+log	" 13 |     let n = NeedsCopy(v: Res(id: 1))"
+log	"     |             ^"
+log	""
+log	"1 error(s) generated"

@@ -1,0 +1,10 @@
+program	conformance/W04_import_gate_bare_import_forms.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"/tmp"
+stdout	"2"
+stdout	""
+meets_expect	yes

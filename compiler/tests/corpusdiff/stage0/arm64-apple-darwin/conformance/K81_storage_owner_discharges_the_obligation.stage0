@@ -1,0 +1,10 @@
+program	conformance/K81_storage_owner_discharges_the_obligation.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"pool of 3"
+stdout	"worked 3"
+stdout	""
+meets_expect	yes

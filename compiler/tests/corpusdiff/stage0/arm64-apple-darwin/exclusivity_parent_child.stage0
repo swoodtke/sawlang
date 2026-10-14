@@ -1,0 +1,21 @@
+program	exclusivity_parent_child.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	exclusive access violation: `p` is passed as `&var` while also being accessed in the same call
+meets_expect	yes
+log	"error: exclusive access violation: `p` is passed as `&var` while also being accessed in the same call"
+log	"  --> examples/exclusivity_parent_child.saw:21:7"
+log	"     |"
+log	" 21 |     f(&var p, &p.x)     // whole `p` overlaps its field `p.x`"
+log	"     |       ^"
+log	"   hint: disjoint access paths are allowed (e.g. `&var p.x` with `&p.y`); give the mutable reference exclusive access"
+log	""
+log	"error: exclusive access violation: `p` is passed as `&var` while also being accessed in the same call"
+log	"  --> examples/exclusivity_parent_child.saw:22:13"
+log	"     |"
+log	" 22 |     g(&p.x, &var p)     // reverse order still overlaps"
+log	"     |             ^"
+log	"   hint: disjoint access paths are allowed (e.g. `&var p.x` with `&p.y`); give the mutable reference exclusive access"
+log	""
+log	"2 error(s) generated"

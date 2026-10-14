@@ -1,0 +1,18 @@
+program	optional_presence_tag_only.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"nocopy some=true none=false"
+stdout	"drop res 1"
+stdout	"nocopy cleared some=false none=true"
+stdout	"explicit some=true none=false"
+stdout	"implicit some=true none=false"
+stdout	"trivial some=false none=true"
+stdout	"temp some=true"
+stdout	"drop res 99"
+stdout	"after temp"
+stdout	"drop vec 2"
+stdout	""
+meets_expect	yes

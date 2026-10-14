@@ -1,0 +1,13 @@
+program	conformance/K67_quiescent_channel_deadlock_is_reported.saw
+triple	arm64-apple-darwin
+twin	same
+expect	panic
+build	ok
+exit	-6
+stdout	"waiting"
+stdout	"panic at taskgroup.saw:2379: deadlock: every task is waiting to receive from a channel, and nothing in this program can send. A channel has no sender count — every handle is the same handle — so a producer that is finished must say so with close(), and a receive on a closed, drained channel returns Err(Closed) instead of waiting"
+stdout	"saw tasks: 1 live (as-of panic, unsynchronized)"
+stdout	"  task group 1 slot 0 gen 1 channel-parked"
+stdout	"    at K67_quiescent_channel_deadlock_is_reported.saw:30 in consume"
+stdout	""
+meets_expect	yes

@@ -1,0 +1,14 @@
+program	file_open_modes.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"long write: 30"
+stdout	"create truncates: 3"
+stdout	"create truncates content: BBB"
+stdout	"append created the file: yes"
+stdout	"append does not truncate: 6"
+stdout	"append content: BBBCCC"
+stdout	""
+meets_expect	yes

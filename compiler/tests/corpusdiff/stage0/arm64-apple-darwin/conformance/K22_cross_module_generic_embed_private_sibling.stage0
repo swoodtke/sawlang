@@ -1,0 +1,10 @@
+program	conformance/K22_cross_module_generic_embed_private_sibling.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"105"
+stdout	"114"
+stdout	""
+meets_expect	yes

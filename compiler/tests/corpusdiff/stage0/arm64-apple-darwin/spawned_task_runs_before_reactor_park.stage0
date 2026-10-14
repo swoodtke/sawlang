@@ -1,0 +1,12 @@
+program	spawned_task_runs_before_reactor_park.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"worker connecting"
+stdout	"worker done"
+stdout	"accepted"
+stdout	"done"
+stdout	""
+meets_expect	yes

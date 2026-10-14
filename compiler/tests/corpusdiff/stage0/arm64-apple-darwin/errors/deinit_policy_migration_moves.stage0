@@ -1,0 +1,21 @@
+program	errors/deinit_policy_migration_moves.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	cannot copy value of type `Res` which implements NoCopy
+meets_expect	yes
+log	"error: struct `Pair` contains NoCopy field `a` of type `Res` but does not implement NoCopy"
+log	"  --> examples/errors/deinit_policy_migration_moves.saw:15:1"
+log	"     |"
+log	" 15 | struct Pair { a: Res }"
+log	"     | ^"
+log	"   hint: add `extension Pair: NoCopy {}` — a NoCopy field makes `Pair` move-only, and its `deinit` is synthesized"
+log	""
+log	"error: cannot copy value of type `Res` which implements NoCopy"
+log	"  --> examples/errors/deinit_policy_migration_moves.saw:19:5"
+log	"     |"
+log	" 19 |     let s = r"
+log	"     |     ^"
+log	"   hint: use `move` to transfer ownership instead"
+log	""
+log	"2 error(s) generated"

@@ -1,0 +1,15 @@
+program	short_circuit_skipped_operand_temp_cleanup.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"and_skip drops=0"
+stdout	"and_eval drops=1"
+stdout	"or_skip drops=0"
+stdout	"or_eval drops=1"
+stdout	"lhs_temp drops=1"
+stdout	"nested_skip drops=0"
+stdout	"nested_eval drops=1"
+stdout	""
+meets_expect	yes

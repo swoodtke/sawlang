@@ -1,0 +1,14 @@
+program	ext142_transitive_leak_error.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	type `Reading` has no method `scaled` in scope here
+meets_expect	yes
+log	"error: type `Reading` has no method `scaled` in scope here"
+log	"  --> examples/ext142_transitive_leak_error.saw:15:12"
+log	"     |"
+log	" 15 |     print(r.scaled(by: 2))"
+log	"     |            ^"
+log	"   hint: `modules.ext142_far` extends `Reading` with `scaled`, but this file does not import it — add `import modules.ext142_far`"
+log	""
+log	"1 error(s) generated"

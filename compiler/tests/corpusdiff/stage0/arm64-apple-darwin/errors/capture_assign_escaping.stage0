@@ -1,0 +1,14 @@
+program	errors/capture_assign_escaping.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	cannot assign to `n`: it is captured by value, so the write would be discarded when the closure returns
+meets_expect	yes
+log	"error: cannot assign to `n`: it is captured by value, so the write would be discarded when the closure returns"
+log	"  --> examples/errors/capture_assign_escaping.saw:15:9"
+log	"     |"
+log	" 15 |         n = n + 1"
+log	"     |         ^"
+log	"   hint: capture it by borrow — `{ [&var n] ... }`, legal in a closure passed directly to a non-escaping parameter — or, for a closure that outlives the frame, share the state through an `Arc<Mutex<T>>`"
+log	""
+log	"1 error(s) generated"

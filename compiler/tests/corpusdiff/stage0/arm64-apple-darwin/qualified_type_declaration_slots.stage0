@@ -1,0 +1,17 @@
+program	qualified_type_declaration_slots.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"field 7"
+stdout	"enum field 1"
+stdout	"optional field 8"
+stdout	"generic field 2"
+stdout	"tuple field 3 4"
+stdout	"payload 9"
+stdout	"enum payload 0"
+stdout	"alias 5"
+stdout	"constructor arg 6"
+stdout	""
+meets_expect	yes

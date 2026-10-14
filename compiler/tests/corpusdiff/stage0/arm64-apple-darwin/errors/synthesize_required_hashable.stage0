@@ -1,0 +1,27 @@
+program	errors/synthesize_required_hashable.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	`Keyed` declares `Hashable` with no `hash`: a derived body must be requested explicitly
+meets_expect	yes
+log	"error: `Keyed` declares `Hashable` with no `hash`: a derived body must be requested explicitly"
+log	"  --> examples/errors/synthesize_required_hashable.saw:12:1"
+log	"     |"
+log	" 12 | extension Keyed: Hashable {}"
+log	"     | ^"
+log	"   hint: mark the extension `@synthesize` to derive `hash` memberwise, or write `hash` by hand"
+log	""
+log	"error: map key type `Keyed` must be copyable (trivial, Copy, or ExplicitCopy with retain semantics): `Keyed` owns a Deinit without a copy (it is move-only, not retainable)"
+log	"  --> examples/errors/synthesize_required_hashable.saw:15:30"
+log	"     |"
+log	" 15 |     var m: Map<Keyed, Int> = {:}"
+log	"     |                              ^"
+log	""
+log	"error: result of `insert` is `Result<Int?, AllocError>` and is silently discarded"
+log	"  --> examples/errors/synthesize_required_hashable.saw:16:6"
+log	"     |"
+log	" 16 |     m.insert(Keyed(label: \"a\"), 1)"
+log	"     |      ^"
+log	"   hint: handle it — `match` it, `try`/`try!`/`try?` it, or return it — or write `let _ = ...` to discard it explicitly"
+log	""
+log	"3 error(s) generated"

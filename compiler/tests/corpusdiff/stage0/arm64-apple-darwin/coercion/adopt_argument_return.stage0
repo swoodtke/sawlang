@@ -1,0 +1,16 @@
+program	coercion/adopt_argument_return.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"positional = 100"
+stdout	"labeled = 500"
+stdout	"positional const = 30"
+stdout	"labeled const = 30"
+stdout	"return = -70000"
+stdout	"tail = 9000000000"
+stdout	"return const = 24"
+stdout	"tail const = -8"
+stdout	""
+meets_expect	yes

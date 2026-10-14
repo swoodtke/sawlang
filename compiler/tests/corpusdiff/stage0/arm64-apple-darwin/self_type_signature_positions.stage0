@@ -1,0 +1,20 @@
+program	self_type_signature_positions.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"ref 3"
+stdout	"varref 5"
+stdout	"value 3"
+stdout	"optional 2"
+stdout	"generic 3"
+stdout	"tuple 4"
+stdout	"array 3"
+stdout	"bumped 2"
+stdout	"maybe 4"
+stdout	"pair 1 1"
+stdout	"static 7"
+stdout	"enum 1"
+stdout	""
+meets_expect	yes

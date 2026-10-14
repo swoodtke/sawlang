@@ -1,0 +1,19 @@
+program	errors/unary_minus_literal_out_of_range.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	integer literal -200 does not fit in `Int8` (range -128..=127)
+meets_expect	yes
+log	"error: integer literal -200 does not fit in `Int8` (range -128..=127)"
+log	"  --> examples/errors/unary_minus_literal_out_of_range.saw:7:13"
+log	"    |"
+log	" 7 |     let c = -200i8"
+log	"    |             ^"
+log	""
+log	"error: undefined variable `c`"
+log	"  --> examples/errors/unary_minus_literal_out_of_range.saw:8:11"
+log	"    |"
+log	" 8 |     print(c as Int)"
+log	"    |           ^"
+log	""
+log	"2 error(s) generated"

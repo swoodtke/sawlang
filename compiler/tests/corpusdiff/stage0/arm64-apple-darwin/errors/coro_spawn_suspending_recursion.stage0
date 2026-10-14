@@ -1,0 +1,13 @@
+program	errors/coro_spawn_suspending_recursion.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	suspending recursion is not allowed: the suspending-call cycle `recurse -> recurse` has no compile-time frame size (design 44 embeds callee frames by value). Break the cycle or drive the inner call separately. This refusal is PENDING SL-322, the heap-allocated-frame design: an existential dispatch of a suspending body and suspending recursion both need a heap frame with an indirect resume, so the two land together and neither alone.
+meets_expect	yes
+log	"error: suspending recursion is not allowed: the suspending-call cycle `recurse -> recurse` has no compile-time frame size (design 44 embeds callee frames by value). Break the cycle or drive the inner call separately. This refusal is PENDING SL-322, the heap-allocated-frame design: an existential dispatch of a suspending body and suspending recursion both need a heap frame with an indirect resume, so the two land together and neither alone."
+log	"  --> examples/errors/coro_spawn_suspending_recursion.saw:22:1"
+log	"     |"
+log	" 22 | func recurse(n: Int) -> Int {"
+log	"     | ^"
+log	""
+log	"1 error(s) generated"

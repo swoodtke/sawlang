@@ -1,0 +1,27 @@
+program	reference_move_error.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	cannot move out of reference `r`
+meets_expect	yes
+log	"error: cannot move out of reference `r`"
+log	"  --> examples/reference_move_error.saw:9:5"
+log	"    |"
+log	" 9 |     move r  // Error: cannot move out of reference"
+log	"    |     ^"
+log	"   hint: references cannot have their contents moved out"
+log	""
+log	"error: function `steal` should return `Resource` but body has no value"
+log	"  --> examples/reference_move_error.saw:8:1"
+log	"    |"
+log	" 8 | func steal(r: &var Resource) -> Resource {"
+log	"    | ^"
+log	""
+log	"error: parameter `r` is `&var Resource`; write `&var res`"
+log	"  --> examples/reference_move_error.saw:14:24"
+log	"     |"
+log	" 14 |     let stolen = steal(&res)"
+log	"     |                        ^"
+log	"   hint: call sites mirror the parameter's reference spelling"
+log	""
+log	"3 error(s) generated"

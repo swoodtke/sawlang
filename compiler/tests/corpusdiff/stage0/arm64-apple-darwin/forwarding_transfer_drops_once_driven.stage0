@@ -1,0 +1,21 @@
+program	forwarding_transfer_drops_once_driven.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"drop 1"
+stdout	"sync-try 1"
+stdout	"sync-opt 2"
+stdout	"drop 2"
+stdout	"sync-res 3"
+stdout	"drop 11"
+stdout	"driven-try 11"
+stdout	"driven-opt 12"
+stdout	"drop 12"
+stdout	"driven-res 13"
+stdout	"end"
+stdout	"drop 13"
+stdout	"drop 3"
+stdout	""
+meets_expect	yes

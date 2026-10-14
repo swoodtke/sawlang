@@ -1,0 +1,15 @@
+program	number_literal_member_access.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"7"
+stdout	"7.5"
+stdout	"1"
+stdout	"255"
+stdout	"3.5"
+stdout	"12"
+stdout	"0"
+stdout	""
+meets_expect	yes

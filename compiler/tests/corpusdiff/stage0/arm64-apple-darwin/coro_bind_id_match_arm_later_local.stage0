@@ -1,0 +1,12 @@
+program	coro_bind_id_match_arm_later_local.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"arm sees: 6"
+stdout	"later: 8"
+stdout	"sync arm sees: 6"
+stdout	"sync later: 8"
+stdout	""
+meets_expect	yes

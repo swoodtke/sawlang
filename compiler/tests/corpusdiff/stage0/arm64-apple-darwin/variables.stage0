@@ -1,0 +1,18 @@
+program	variables.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"Pi:"
+stdout	"3.14159"
+stdout	"Counter:"
+stdout	"2"
+stdout	"Absolute value of -42:"
+stdout	"42"
+stdout	"Max of 10 and 25:"
+stdout	"25"
+stdout	"10 > 0:"
+stdout	"true"
+stdout	""
+meets_expect	yes

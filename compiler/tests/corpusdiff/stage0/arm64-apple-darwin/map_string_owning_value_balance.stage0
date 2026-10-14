@@ -1,0 +1,15 @@
+program	map_string_owning_value_balance.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"3"
+stdout	"4"
+stdout	"3"
+stdout	"3"
+stdout	"3"
+stdout	"2"
+stdout	"1"
+stdout	""
+meets_expect	yes

@@ -1,0 +1,17 @@
+program	json_structural_reject.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"trailing_bytes: decode error at byte 2: bytes remain after the top-level item"
+stdout	"trailing_comma_array: decode error at byte 5: the bytes are not a well-formed item"
+stdout	"trailing_comma_object: decode error at byte 7: the bytes are not a well-formed item"
+stdout	"unterminated_string: decode error at byte 0: the input ended in the middle of an item"
+stdout	"unterminated_array: decode error at byte 4: the input ended in the middle of an item"
+stdout	"unterminated_object: decode error at byte 6: the input ended in the middle of an item"
+stdout	"depth_ok_at_limit: opened"
+stdout	"depth_exceeds_limit: decode error at byte 3: nesting is deeper than the decoder allows"
+stdout	"duplicate_key_last_wins: a=2"
+stdout	""
+meets_expect	yes

@@ -1,0 +1,11 @@
+program	export229_facade.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"selective 2 1"
+stdout	"whole 2"
+stdout	"glob 3 9"
+stdout	""
+meets_expect	yes

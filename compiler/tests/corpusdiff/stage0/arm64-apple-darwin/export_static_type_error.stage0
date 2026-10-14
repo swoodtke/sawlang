@@ -1,0 +1,27 @@
+program	export_static_type_error.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	`@export` static `NAME`: type `String` is not a C-ABI-safe data layout
+meets_expect	yes
+log	"error: static `NAME` must be initialized by a compile-time constant"
+log	"  --> examples/export_static_type_error.saw:8:1"
+log	"    |"
+log	" 8 | static NAME: String = \"saw\""
+log	"    | ^"
+log	"   hint: a static initializer is a CONSTANT EXPRESSION plus memberwise aggregation: literals, arithmetic and bitwise over them, `sizeof`/`alignof` of a primitive or pointer type, the integer limits, a raw-backed enum case, an earlier module `static` of ANY type, and struct / fixed-array literals built out of those. A user `init` BODY never runs at compile time, and neither does a function call, a String or any heap type — state that has to be COMPUTED wants `static X: Once<T>` (set once) or `unsafe static var` (mutated throughout)"
+log	""
+log	"error: static `NAME` has type `String`, which owns a resource (Deinit); statics are immortal and never run deinit"
+log	"  --> examples/export_static_type_error.saw:8:1"
+log	"    |"
+log	" 8 | static NAME: String = \"saw\""
+log	"    | ^"
+log	""
+log	"error: `@export` static `NAME`: type `String` is not a C-ABI-safe data layout"
+log	"  --> examples/export_static_type_error.saw:8:1"
+log	"    |"
+log	" 8 | static NAME: String = \"saw\""
+log	"    | ^"
+log	"   hint: exported statics allow fixed-width integers, Int/UInt, Float, arrays thereof, and structs of such fields"
+log	""
+log	"3 error(s) generated"

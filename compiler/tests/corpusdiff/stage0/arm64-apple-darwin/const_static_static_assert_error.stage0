@@ -1,0 +1,7 @@
+program	const_static_static_assert_error.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	static assertion failed: the region must be page-aligned
+meets_expect	yes
+log	"error: static assertion failed: the region must be page-aligned"

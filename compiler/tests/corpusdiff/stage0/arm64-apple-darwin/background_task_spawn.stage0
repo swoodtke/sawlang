@@ -1,0 +1,11 @@
+program	background_task_spawn.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"36"
+stdout	"counter ran"
+stdout	"cancelled early"
+stdout	""
+meets_expect	yes

@@ -1,0 +1,20 @@
+program	errors/default_type_param_too_few.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	cannot infer type argument `B` for struct `Pair`
+meets_expect	yes
+log	"error: cannot infer type argument `B` for struct `Pair`"
+log	"  --> examples/errors/default_type_param_too_few.saw:17:13"
+log	"     |"
+log	" 17 |     let p = Pair<Int>(a: 1)"
+log	"     |             ^"
+log	"   hint: give the type argument(s) explicitly, e.g. `Pair<A, B>(...)`"
+log	""
+log	"error: field `a` expects type `A` but got `Int`"
+log	"  --> examples/errors/default_type_param_too_few.saw:17:13"
+log	"     |"
+log	" 17 |     let p = Pair<Int>(a: 1)"
+log	"     |             ^"
+log	""
+log	"2 error(s) generated"

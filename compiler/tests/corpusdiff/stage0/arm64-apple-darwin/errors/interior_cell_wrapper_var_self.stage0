@@ -1,0 +1,14 @@
+program	errors/interior_cell_wrapper_var_self.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	cannot call `&var self` method `reset` on storage reached through a `&self` receiver: `self` is borrowed SHARED here, and a `&var self` method takes the whole receiver exclusively
+meets_expect	yes
+log	"error: cannot call `&var self` method `reset` on storage reached through a `&self` receiver: `self` is borrowed SHARED here, and a `&var self` method takes the whole receiver exclusively"
+log	"  --> examples/errors/interior_cell_wrapper_var_self.saw:24:34"
+log	"     |"
+log	" 24 |     func clear(&self) { self.hits.reset() }"
+log	"     |                                  ^"
+log	"   hint: declare the method `&var self` to mutate through the receiver, or `&var self ... borrows -> &var T` to lend the place and let each use site choose the window's flavor"
+log	""
+log	"1 error(s) generated"

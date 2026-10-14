@@ -1,0 +1,9 @@
+program	conformance/B08_direct_import_extension_visible.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"1007"
+stdout	""
+meets_expect	yes

@@ -1,0 +1,9 @@
+program	array_dynamic_compound_oob_panic.saw
+triple	arm64-apple-darwin
+twin	same
+expect	panic
+build	ok
+exit	-6
+stdout	"panic at array_dynamic_compound_oob_panic.saw:9: array: index out of range: 4 (len 3)"
+stdout	""
+meets_expect	yes

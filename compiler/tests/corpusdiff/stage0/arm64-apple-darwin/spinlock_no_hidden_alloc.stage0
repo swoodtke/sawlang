@@ -1,0 +1,11 @@
+program	spinlock_no_hidden_alloc.saw
+triple	arm64-apple-darwin
+twin	differs
+expect	success
+build	ok
+exit	0
+stdout	"hits 2"
+stdout	"misses 1"
+stdout	"stage 1"
+stdout	""
+meets_expect	yes

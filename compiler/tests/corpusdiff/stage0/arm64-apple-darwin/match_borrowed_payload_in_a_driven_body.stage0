@@ -1,0 +1,12 @@
+program	match_borrowed_payload_in_a_driven_body.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"ran 2 args"
+stdout	"still holding 2"
+stdout	"idle"
+stdout	"0"
+stdout	""
+meets_expect	yes

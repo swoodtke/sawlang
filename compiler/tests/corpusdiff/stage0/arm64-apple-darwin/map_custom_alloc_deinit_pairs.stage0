@@ -1,0 +1,11 @@
+program	map_custom_alloc_deinit_pairs.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"30"
+stdout	"true"
+stdout	"true"
+stdout	""
+meets_expect	yes

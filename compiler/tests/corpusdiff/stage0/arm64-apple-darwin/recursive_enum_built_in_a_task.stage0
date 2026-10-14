@@ -1,0 +1,11 @@
+program	recursive_enum_built_in_a_task.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"DEINIT a"
+stdout	"DEINIT b"
+stdout	"leaves 2"
+stdout	""
+meets_expect	yes

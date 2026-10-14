@@ -1,0 +1,33 @@
+program	conformance/V68_closure_reference_parameter_is_a_borrow.saw
+triple	arm64-apple-darwin
+twin	differs
+expect	error
+build	refused	cannot move out of `e`: it is a closure PARAMETER declared `&var e`, which names storage the CALLER still owns for the length of the call, so the move would release a value its owner still holds
+meets_expect	yes
+log	"error: cannot move out of `e`: it is a closure PARAMETER declared `&var e`, which names storage the CALLER still owns for the length of the call, so the move would release a value its owner still holds"
+log	"  --> examples/conformance/V68_closure_reference_parameter_is_a_borrow.saw:34:35"
+log	"     |"
+log	" 34 |     v.with_var_ref(0, { &var e in move e })    // error: `e` only borrows"
+log	"     |                                   ^"
+log	"   hint: to take the value OUT, use the move-out its owner publishes — `swap_out(i, replacement)` on a vector element, `take()` on an `Optional` field — called on the receiver, outside this body"
+log	""
+log	"error: function `exclusive_face` should return `Owned` but returns `Void`"
+log	"  --> examples/conformance/V68_closure_reference_parameter_is_a_borrow.saw:31:1"
+log	"     |"
+log	" 31 | func exclusive_face() -> Owned {"
+log	"     | ^"
+log	""
+log	"error: cannot move out of `e`: it is a closure PARAMETER declared `&e`, which names storage the CALLER still owns for the length of the call, so the move would release a value its owner still holds"
+log	"  --> examples/conformance/V68_closure_reference_parameter_is_a_borrow.saw:40:27"
+log	"     |"
+log	" 40 |     v.with_ref(0, { &e in move e })            // error: theft through a `&`"
+log	"     |                           ^"
+log	"   hint: to take the value OUT, use the move-out its owner publishes — `swap_out(i, replacement)` on a vector element, `take()` on an `Optional` field — called on the receiver, outside this body"
+log	""
+log	"error: function `shared_face` should return `Owned` but returns `Void`"
+log	"  --> examples/conformance/V68_closure_reference_parameter_is_a_borrow.saw:37:1"
+log	"     |"
+log	" 37 | func shared_face() -> Owned {"
+log	"     | ^"
+log	""
+log	"4 error(s) generated"

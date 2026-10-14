@@ -1,0 +1,14 @@
+program	conformance/V40_generic_coroutine_body_honors_copy_tier.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	`launder_s` requires `T` to be `Copy` — it binds `x` twice, at lines 26 and 28; `Res` is move-only
+meets_expect	yes
+log	"error: `launder_s` requires `T` to be `Copy` — it binds `x` twice, at lines 26 and 28; `Res` is move-only"
+log	"  --> examples/conformance/V40_generic_coroutine_body_honors_copy_tier.saw:34:21"
+log	"     |"
+log	" 34 |     let h = g.spawn(launder_s(Res(name: \"r1\")))"
+log	"     |                     ^"
+log	"   hint: pass a type on the `Copy` tier, or rewrite the body to move `T` instead of duplicating it. A body that means to duplicate declares `<T: ExplicitCopy>` and spells `.copy()`"
+log	""
+log	"1 error(s) generated"

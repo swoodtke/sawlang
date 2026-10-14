@@ -1,0 +1,15 @@
+program	taskgroup_spawn_and_loop.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"0"
+stdout	"100"
+stdout	"101"
+stdout	"1"
+stdout	"102"
+stdout	"2"
+stdout	"7"
+stdout	""
+meets_expect	yes

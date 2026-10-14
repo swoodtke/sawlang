@@ -1,0 +1,20 @@
+program	format_args_placeholder_error.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	`{}` is a format placeholder and needs an argument to fill it
+meets_expect	yes
+log	"error: `{}` is a format placeholder and needs an argument to fill it"
+log	"  --> examples/format_args_placeholder_error.saw:9:21"
+log	"    |"
+log	" 9 |     let s = \"value: {}\""
+log	"    |                     ^"
+log	"   hint: pass a value for it — `print(\"x = {}\", x)` — or name the value in the braces (`\"x = {x}\"`); write `\\{\\}` for literal braces"
+log	""
+log	"error: undefined variable `s`"
+log	"  --> examples/format_args_placeholder_error.saw:10:11"
+log	"     |"
+log	" 10 |     print(s)"
+log	"     |           ^"
+log	""
+log	"2 error(s) generated"

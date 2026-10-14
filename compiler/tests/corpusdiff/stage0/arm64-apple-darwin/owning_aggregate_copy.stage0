@@ -1,0 +1,13 @@
+program	owning_aggregate_copy.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"5 5"
+stdout	"path/a"
+stdout	"path/b"
+stdout	"6 200"
+stdout	"done"
+stdout	""
+meets_expect	yes

@@ -1,0 +1,17 @@
+program	funcpointer226_call.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"literal 15"
+stdout	"named 10"
+stdout	"static 4"
+stdout	"field 35"
+stdout	"field direct 35"
+stdout	"parameter 15"
+stdout	"nullary 99"
+stdout	"void side effect"
+stdout	"shorthand 42"
+stdout	""
+meets_expect	yes

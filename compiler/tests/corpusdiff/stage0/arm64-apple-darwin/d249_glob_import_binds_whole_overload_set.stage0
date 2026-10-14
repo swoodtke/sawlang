@@ -1,0 +1,11 @@
+program	d249_glob_import_binds_whole_overload_set.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"str s"
+stdout	"int 3"
+stdout	"u8 9"
+stdout	""
+meets_expect	yes

@@ -1,0 +1,9 @@
+program	conformance/G02_suspending_main_int_exit_status.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	7
+stdout	"susp-int"
+stdout	""
+meets_expect	yes

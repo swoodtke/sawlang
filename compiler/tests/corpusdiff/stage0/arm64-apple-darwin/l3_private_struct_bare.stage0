@@ -1,0 +1,19 @@
+program	l3_private_struct_bare.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	undefined struct `Secret`
+meets_expect	yes
+log	"error: undefined struct `Secret`"
+log	"  --> examples/l3_private_struct_bare.saw:10:13"
+log	"     |"
+log	" 10 |     let s = Secret(code: 42)"
+log	"     |             ^"
+log	""
+log	"error: undefined variable `s`"
+log	"  --> examples/l3_private_struct_bare.saw:11:11"
+log	"     |"
+log	" 11 |     print(s.code)"
+log	"     |           ^"
+log	""
+log	"2 error(s) generated"

@@ -1,0 +1,14 @@
+program	errors/sync_via_function_value.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	cannot suspend in `sync func` declaration: `sync func run` calls a call through a non-`sync` function value (`run` suspends at line 10)
+meets_expect	yes
+log	"error: cannot suspend in `sync func` declaration: `sync func run` calls a call through a non-`sync` function value (`run` suspends at line 10)"
+log	"  --> examples/errors/sync_via_function_value.saw:9:1"
+log	"    |"
+log	" 9 | func run(action: (Int) -> Int) sync -> Int {"
+log	"    | ^"
+log	"   hint: a `sync` context must be transitively suspension-free: remove the suspending call or hoist it out of the sync region"
+log	""
+log	"1 error(s) generated"

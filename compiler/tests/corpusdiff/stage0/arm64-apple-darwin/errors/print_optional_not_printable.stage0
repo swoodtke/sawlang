@@ -1,0 +1,28 @@
+program	errors/print_optional_not_printable.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	cannot print value of type `Int?`: it is not `Printable`
+meets_expect	yes
+log	"error: cannot print value of type `Int?`: it is not `Printable`"
+log	"  --> examples/errors/print_optional_not_printable.saw:19:11"
+log	"     |"
+log	" 19 |     print(o)"
+log	"     |           ^"
+log	"   hint: unwrap it first — `if let v = o` / `o ?? <fallback>` — since an optional cannot be given a `Printable` conformance of its own"
+log	""
+log	"error: cannot print value of type `Int?`: it is not `Printable`"
+log	"  --> examples/errors/print_optional_not_printable.saw:22:12"
+log	"     |"
+log	" 22 |     print(v.get(0))"
+log	"     |            ^"
+log	"   hint: unwrap it first — `if let v = o` / `o ?? <fallback>` — since an optional cannot be given a `Printable` conformance of its own"
+log	""
+log	"error: cannot interpolate value of type `Int?` in a string: it is not `Printable`"
+log	"  --> examples/errors/print_optional_not_printable.saw:23:14"
+log	"     |"
+log	" 23 |     print(\"{v.get(0)}\")"
+log	"     |              ^"
+log	"   hint: unwrap it first — `if let v = o` / `o ?? <fallback>` — since an optional cannot be given a `Printable` conformance of its own"
+log	""
+log	"3 error(s) generated"

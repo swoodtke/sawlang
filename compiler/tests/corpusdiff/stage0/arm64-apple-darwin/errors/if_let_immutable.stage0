@@ -1,0 +1,14 @@
+program	errors/if_let_immutable.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	cannot assign to immutable variable `value`
+meets_expect	yes
+log	"error: cannot assign to immutable variable `value`"
+log	"  --> examples/errors/if_let_immutable.saw:8:9"
+log	"    |"
+log	" 8 |         value = 20  // ERROR: cannot assign to immutable variable"
+log	"    |         ^"
+log	"   hint: consider using `var` instead of `let` to make it mutable"
+log	""
+log	"1 error(s) generated"

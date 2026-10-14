@@ -1,0 +1,19 @@
+program	wrapping_requires_integers.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	wrapping operator `&+` requires integer operands, got `Float` and `Float`
+meets_expect	yes
+log	"error: wrapping operator `&+` requires integer operands, got `Float` and `Float`"
+log	"  --> examples/wrapping_requires_integers.saw:7:17"
+log	"    |"
+log	" 7 |     let a = 1.5 &+ 2.5"
+log	"    |                 ^"
+log	""
+log	"error: undefined variable `a`"
+log	"  --> examples/wrapping_requires_integers.saw:8:11"
+log	"    |"
+log	" 8 |     print(a)"
+log	"    |           ^"
+log	""
+log	"2 error(s) generated"

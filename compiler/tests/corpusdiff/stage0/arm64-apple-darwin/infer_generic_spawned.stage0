@@ -1,0 +1,10 @@
+program	infer_generic_spawned.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"20"
+stdout	"40"
+stdout	""
+meets_expect	yes

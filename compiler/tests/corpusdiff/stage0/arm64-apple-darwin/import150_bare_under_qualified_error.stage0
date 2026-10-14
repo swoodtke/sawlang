@@ -1,0 +1,26 @@
+program	import150_bare_under_qualified_error.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	`Data` is not in the prelude and must be imported
+meets_expect	yes
+log	"error: `Data` is not in the prelude and must be imported"
+log	"  --> examples/import150_bare_under_qualified_error.saw:13:13"
+log	"     |"
+log	" 13 |     var d = Data()"
+log	"     |             ^"
+log	"   hint: `import std.data.{Data}` selects it, `import std.data.*` takes the module's whole vocabulary bare, and `import std.data` lets you write `data.Data`"
+log	""
+log	"error: undefined variable `d`"
+log	"  --> examples/import150_bare_under_qualified_error.saw:14:5"
+log	"     |"
+log	" 14 |     d.push(1)"
+log	"     |     ^"
+log	""
+log	"error: undefined variable `d`"
+log	"  --> examples/import150_bare_under_qualified_error.saw:15:13"
+log	"     |"
+log	" 15 |     print(\"{d.len()}\")"
+log	"     |             ^"
+log	""
+log	"3 error(s) generated"

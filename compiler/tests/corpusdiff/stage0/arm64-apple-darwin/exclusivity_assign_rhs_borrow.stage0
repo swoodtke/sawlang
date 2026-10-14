@@ -1,0 +1,14 @@
+program	exclusivity_assign_rhs_borrow.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	exclusive access violation: `p` is written by this assignment while also being accessed in the right-hand side
+meets_expect	yes
+log	"error: exclusive access violation: `p` is written by this assignment while also being accessed in the right-hand side"
+log	"  --> examples/exclusivity_assign_rhs_borrow.saw:28:6"
+log	"     |"
+log	" 28 |     p.x = bump(&var p)"
+log	"     |      ^"
+log	"   hint: the right-hand side is evaluated first, so its writes through that borrow are overwritten by this assignment. Bind the value in its own statement, or borrow a disjoint path"
+log	""
+log	"1 error(s) generated"

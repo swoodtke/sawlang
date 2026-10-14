@@ -1,0 +1,20 @@
+program	df229a_missing_selection_error.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	`NoSuchThing` is not defined in `modules.df229a_leaf`
+meets_expect	yes
+log	"error: `NoSuchThing` is not defined in `modules.df229a_leaf`"
+log	"  --> examples/df229a_missing_selection_error.saw:8:1"
+log	"    |"
+log	" 8 | import modules.df229a_leaf.{Gauge, NoSuchThing}"
+log	"    | ^"
+log	"   hint: available: GAUGE_LIMIT, Gauge, Measured, Meters, Scale, gauge_make"
+log	""
+log	"error: undefined struct `gauge_make`"
+log	"  --> examples/df229a_missing_selection_error.saw:11:13"
+log	"     |"
+log	" 11 |     print(\"{gauge_make(reading: 1).reading}\")"
+log	"     |             ^"
+log	""
+log	"2 error(s) generated"

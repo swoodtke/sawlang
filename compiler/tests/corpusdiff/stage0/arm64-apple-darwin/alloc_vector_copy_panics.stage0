@@ -1,0 +1,10 @@
+program	alloc_vector_copy_panics.saw
+triple	arm64-apple-darwin
+twin	same
+expect	panic
+build	ok
+exit	-6
+stdout	"2"
+stdout	"panic at vector.saw:365: Vector.copy: allocation of 32 bytes (align 8) failed"
+stdout	""
+meets_expect	yes

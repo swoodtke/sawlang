@@ -1,0 +1,7 @@
+program	errors/consumes_needs_var_self.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	Parse error at 13:33: a consuming method needs an exclusive receiver — write `&var self`. `consumes` ends the borrow in the value's death, and a shared `&self` promises the caller the opposite
+meets_expect	yes
+log	"error: Parse error at 13:33: a consuming method needs an exclusive receiver — write `&var self`. `consumes` ends the borrow in the value's death, and a shared `&self` promises the caller the opposite"

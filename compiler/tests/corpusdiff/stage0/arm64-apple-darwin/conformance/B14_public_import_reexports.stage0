@@ -1,0 +1,21 @@
+program	conformance/B14_public_import_reexports.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	`wire229` is not part of `facade229`'s surface
+meets_expect	yes
+log	"error: `wire229` is not part of `facade229`'s surface"
+log	"  --> examples/conformance/B14_public_import_reexports.saw:21:18"
+log	"     |"
+log	" 21 | func through(h: &facade229.wire229.Header) -> Int { 0 }"
+log	"     |                  ^"
+log	"   hint: `wire229` is imported by `facade229` but not re-exported — add `public import` in `facade229`, or import `wire229` directly"
+log	""
+log	"error: type `facade229.wire229.Header` in parameter `h` does not resolve"
+log	"  --> examples/conformance/B14_public_import_reexports.saw:21:1"
+log	"     |"
+log	" 21 | func through(h: &facade229.wire229.Header) -> Int { 0 }"
+log	"     | ^"
+log	"   hint: `facade229.wire229` must be an imported module exporting a public `Header` — check the import and that `Header` is `public`"
+log	""
+log	"2 error(s) generated"

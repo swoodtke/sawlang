@@ -1,0 +1,12 @@
+program	duration_prelude.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"200ms"
+stdout	"200"
+stdout	"true"
+stdout	"1.50s"
+stdout	""
+meets_expect	yes

@@ -1,0 +1,14 @@
+program	errors/unsafe_sync_cell_static_undeclared.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	static `SHARED` has non-Sync type `Cell`; statics must be Sync (shared across all tasks)
+meets_expect	yes
+log	"error: static `SHARED` has non-Sync type `Cell`; statics must be Sync (shared across all tasks)"
+log	"  --> examples/errors/unsafe_sync_cell_static_undeclared.saw:13:1"
+log	"     |"
+log	" 13 | static SHARED: Cell"
+log	"     | ^"
+log	"   hint: use a Sync type — mutation of global state flows only through interior-synchronized types like `Atomic<Int>` and `SpinLock<T>`, or declare an `unsafe static var` and own the serialization argument. `Cell` carries an interior cell (design 186), so it derives no `Sync`: field `slot` of type `UnsafeMutableInterior<Int>` is mutable through a shared borrow, which the derivation cannot reason about. If the synchronization is real but invisible to the compiler, say so — `extension Cell: UnsafeSync {}`, beside the type, where it can be audited."
+log	""
+log	"1 error(s) generated"

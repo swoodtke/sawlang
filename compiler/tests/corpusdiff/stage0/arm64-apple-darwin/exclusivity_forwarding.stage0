@@ -1,0 +1,14 @@
+program	exclusivity_forwarding.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	exclusive access violation: `x` is passed as `&var` while also being accessed in the same call
+meets_expect	yes
+log	"error: exclusive access violation: `x` is passed as `&var` while also being accessed in the same call"
+log	"  --> examples/exclusivity_forwarding.saw:18:11"
+log	"     |"
+log	" 18 |     outer(&var x, &var x)   // aliasing arrives here -> rejected"
+log	"     |           ^"
+log	"   hint: disjoint access paths are allowed (e.g. `&var p.x` with `&p.y`); give the mutable reference exclusive access"
+log	""
+log	"1 error(s) generated"

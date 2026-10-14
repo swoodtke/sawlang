@@ -1,0 +1,12 @@
+program	destructuring_wildcard_over_a_borrowed_projection.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"before 3"
+stdout	"after 4 4 4"
+stdout	"repeat 5 5 5"
+stdout	"end 4"
+stdout	""
+meets_expect	yes

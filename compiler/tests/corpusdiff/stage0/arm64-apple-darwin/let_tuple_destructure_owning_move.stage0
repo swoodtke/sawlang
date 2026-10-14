@@ -1,0 +1,11 @@
+program	let_tuple_destructure_owning_move.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"100"
+stdout	"2"
+stdout	"1"
+stdout	""
+meets_expect	yes

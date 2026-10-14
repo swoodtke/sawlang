@@ -1,0 +1,15 @@
+program	conformance/V97_frame_read_retains_once.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"-- sync"
+stdout	"inside 3"
+stdout	"after 1"
+stdout	"-- driven"
+stdout	"inside 3"
+stdout	"after 1"
+stdout	"end"
+stdout	""
+meets_expect	yes

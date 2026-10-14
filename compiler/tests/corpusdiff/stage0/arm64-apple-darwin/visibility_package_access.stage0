@@ -1,0 +1,9 @@
+program	visibility_package_access.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"142"
+stdout	""
+meets_expect	yes

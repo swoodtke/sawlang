@@ -1,0 +1,14 @@
+program	net_cancel_unregisters_token.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"reader-cancelled"
+stdout	"churn 55 210 465"
+stdout	"poked 5"
+stdout	"after 55 210 465"
+stdout	"echo 4"
+stdout	"done"
+stdout	""
+meets_expect	yes

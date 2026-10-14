@@ -1,0 +1,10 @@
+program	serde169_hand_written.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"encoded 11 bytes"
+stdout	"port=443 secure=true name=api"
+stdout	""
+meets_expect	yes

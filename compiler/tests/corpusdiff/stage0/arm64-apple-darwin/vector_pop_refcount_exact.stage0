@@ -1,0 +1,14 @@
+program	vector_pop_refcount_exact.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"after push 2"
+stdout	"after pop 2"
+stdout	"popped 2"
+stdout	"after popped drops 1"
+stdout	"DEINIT 1"
+stdout	"end"
+stdout	""
+meets_expect	yes

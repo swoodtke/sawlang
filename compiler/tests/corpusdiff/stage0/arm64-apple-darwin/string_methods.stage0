@@ -1,0 +1,21 @@
+program	string_methods.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"13"
+stdout	"false"
+stdout	"true"
+stdout	"false"
+stdout	"true"
+stdout	"false"
+stdout	"true"
+stdout	"true"
+stdout	"false"
+stdout	"hello"
+stdout	"HELLO"
+stdout	"hello"
+stdout	"Hellx, Wxrld!"
+stdout	""
+meets_expect	yes

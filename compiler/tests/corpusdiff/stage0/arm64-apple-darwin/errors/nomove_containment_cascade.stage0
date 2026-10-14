@@ -1,0 +1,14 @@
+program	errors/nomove_containment_cascade.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	`Server` contains NoMove member `group` of type `TaskGroup` but does not declare `NoMove`: a value that cannot be relocated cannot be relocated inside something else either
+meets_expect	yes
+log	"error: `Server` contains NoMove member `group` of type `TaskGroup` but does not declare `NoMove`: a value that cannot be relocated cannot be relocated inside something else either"
+log	"  --> examples/errors/nomove_containment_cascade.saw:19:1"
+log	"     |"
+log	" 19 | struct Server {"
+log	"     | ^"
+log	"   hint: declare the cascade — `extension Server: NoCopy {}` and `extension Server: NoMove {}` — or hold the pinned value behind a heap indirection (a `Box`), which gives `Server` a movable handle over storage that stays put"
+log	""
+log	"1 error(s) generated"

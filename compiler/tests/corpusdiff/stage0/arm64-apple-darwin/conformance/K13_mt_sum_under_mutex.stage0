@@ -1,0 +1,9 @@
+program	conformance/K13_mt_sum_under_mutex.saw
+triple	arm64-apple-darwin
+twin	differs
+expect	success
+build	ok
+exit	0
+stdout	"total 10"
+stdout	""
+meets_expect	yes

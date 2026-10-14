@@ -1,0 +1,21 @@
+program	optional_generic_map.saw
+triple	arm64-apple-darwin
+twin	differs
+expect	success
+build	ok
+exit	0
+stdout	"len 2"
+stdout	"a 1"
+stdout	"n -1"
+stdout	"zz absent"
+stdout	"get n -1"
+stdout	"contains n true"
+stdout	"outer coalesce 42"
+stdout	"values len 2"
+stdout	"each_value 1001"
+stdout	"each pairs 2"
+stdout	"removed -1"
+stdout	"len 1"
+stdout	"-- done"
+stdout	""
+meets_expect	yes

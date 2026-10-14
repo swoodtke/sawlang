@@ -1,0 +1,10 @@
+program	map_literal_dup_key_no_leak.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"2"
+stdout	"1"
+stdout	""
+meets_expect	yes

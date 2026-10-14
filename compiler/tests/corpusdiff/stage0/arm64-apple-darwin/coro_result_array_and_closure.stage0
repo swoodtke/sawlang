@@ -1,0 +1,12 @@
+program	coro_result_array_and_closure.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"24"
+stdout	"24"
+stdout	"42"
+stdout	"42"
+stdout	""
+meets_expect	yes

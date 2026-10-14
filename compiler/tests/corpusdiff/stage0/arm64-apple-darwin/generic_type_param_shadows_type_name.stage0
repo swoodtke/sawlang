@@ -1,0 +1,13 @@
+program	generic_type_param_shadows_type_name.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"holder 7"
+stdout	"holder s"
+stdout	"slot 3"
+stdout	"idn 9"
+stdout	"cmd ok"
+stdout	""
+meets_expect	yes

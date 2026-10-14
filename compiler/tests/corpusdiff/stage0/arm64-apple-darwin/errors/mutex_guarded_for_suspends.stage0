@@ -1,0 +1,14 @@
+program	errors/mutex_guarded_for_suspends.saw
+triple	arm64-apple-darwin
+twin	differs
+expect	error
+build	refused	cannot suspend in a `sync` closure context: closure calls `step` → yield_now (`step` suspends at line 16)
+meets_expect	yes
+log	"error: cannot suspend in a `sync` closure context: closure calls `step` → yield_now (`step` suspends at line 16)"
+log	"  --> examples/errors/mutex_guarded_for_suspends.saw:23:26"
+log	"     |"
+log	" 23 |     let a = guarded.lock({ items in"
+log	"     |                          ^"
+log	"   hint: a `sync` context must be transitively suspension-free: remove the suspending call or hoist it out of the sync region"
+log	""
+log	"1 error(s) generated"

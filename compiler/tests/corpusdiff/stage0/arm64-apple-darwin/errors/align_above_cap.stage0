@@ -1,0 +1,14 @@
+program	errors/align_above_cap.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	`@align` on the local `body` is `8192`, above the largest alignment Saw will request (`4096`)
+meets_expect	yes
+log	"error: `@align` on the local `body` is `8192`, above the largest alignment Saw will request (`4096`)"
+log	"  --> examples/errors/align_above_cap.saw:7:12"
+log	"    |"
+log	" 7 |     @align(8192)"
+log	"    |            ^"
+log	"   hint: `4096` is one page on every target Saw builds for; a stack slot or an ordinary global cannot honour more"
+log	""
+log	"1 error(s) generated"

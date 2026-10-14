@@ -1,0 +1,9 @@
+program	conformance/D08_never_closure_vtable_default.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"7 7 7 7"
+stdout	""
+meets_expect	yes

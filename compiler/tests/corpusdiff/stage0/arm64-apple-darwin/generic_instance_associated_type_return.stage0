@@ -1,0 +1,11 @@
+program	generic_instance_associated_type_return.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"42"
+stdout	"hello"
+stdout	"42 hello"
+stdout	""
+meets_expect	yes

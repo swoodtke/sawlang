@@ -1,0 +1,15 @@
+program	const_length_grammar_unified.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"64"
+stdout	"15"
+stdout	"17"
+stdout	"8"
+stdout	"64"
+stdout	"4096"
+stdout	"8"
+stdout	""
+meets_expect	yes

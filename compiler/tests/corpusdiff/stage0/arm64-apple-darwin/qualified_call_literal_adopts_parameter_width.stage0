@@ -1,0 +1,13 @@
+program	qualified_call_literal_adopts_parameter_width.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	integer literal 300 does not fit in `UInt8` (range 0..=255)
+meets_expect	yes
+log	"error: integer literal 300 does not fit in `UInt8` (range 0..=255)"
+log	"  --> examples/qualified_call_literal_adopts_parameter_width.saw:30:30"
+log	"     |"
+log	" 30 |     print(qualcall.take_byte(300))"
+log	"     |                              ^"
+log	""
+log	"1 error(s) generated"

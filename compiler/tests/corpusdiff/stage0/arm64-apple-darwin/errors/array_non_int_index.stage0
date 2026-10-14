@@ -1,0 +1,13 @@
+program	errors/array_non_int_index.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	index must be Int, got `String`
+meets_expect	yes
+log	"error: index must be Int, got `String`"
+log	"  --> examples/errors/array_non_int_index.saw:5:15"
+log	"    |"
+log	" 5 |     print(arr[\"zero\"])  // Error: index must be Int"
+log	"    |               ^"
+log	""
+log	"1 error(s) generated"

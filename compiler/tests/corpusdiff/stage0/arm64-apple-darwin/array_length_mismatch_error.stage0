@@ -1,0 +1,13 @@
+program	array_length_mismatch_error.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	argument `xs` expects `[Int; 5]` but got `[Int; 3]`
+meets_expect	yes
+log	"error: argument `xs` expects `[Int; 5]` but got `[Int; 3]`"
+log	"  --> examples/array_length_mismatch_error.saw:16:16"
+log	"     |"
+log	" 16 |     print(take(short))"
+log	"     |                ^"
+log	""
+log	"1 error(s) generated"

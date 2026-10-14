@@ -1,0 +1,11 @@
+program	conformance/M32_shared_self_place_window_heap_field.saw
+triple	arm64-apple-darwin
+twin	differs
+expect	success
+build	ok
+exit	0
+stdout	"width 3"
+stdout	"head 101"
+stdout	"tail 55"
+stdout	""
+meets_expect	yes

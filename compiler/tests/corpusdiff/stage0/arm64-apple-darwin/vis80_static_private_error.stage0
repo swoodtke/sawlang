@@ -1,0 +1,14 @@
+program	vis80_static_private_error.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	static method `secret_make` of `Gadget` is private and not accessible from this module
+meets_expect	yes
+log	"error: static method `secret_make` of `Gadget` is private and not accessible from this module"
+log	"  --> examples/vis80_static_private_error.saw:7:29"
+log	"    |"
+log	" 7 |     let g = members80.Gadget.secret_make(5)   // private static — rejected"
+log	"    |                             ^"
+log	"   hint: mark it `public` in the extension of `Gadget` to expose it"
+log	""
+log	"1 error(s) generated"

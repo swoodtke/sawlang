@@ -1,0 +1,13 @@
+program	conformance/V74_closure_parameter_moved_into_a_new_owner.saw
+triple	arm64-apple-darwin
+twin	differs
+expect	success
+build	ok
+exit	0
+stdout	"kept 3"
+stdout	"stored 4"
+stdout	"end of main"
+stdout	"drop 4"
+stdout	"drop 3"
+stdout	""
+meets_expect	yes

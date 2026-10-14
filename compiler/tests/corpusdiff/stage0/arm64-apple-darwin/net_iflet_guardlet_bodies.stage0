@@ -1,0 +1,12 @@
+program	net_iflet_guardlet_bodies.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"iflet_body 4"
+stdout	"guardlet_cont 4"
+stdout	"guardlet_else 2"
+stdout	"iflet_shadow 4"
+stdout	""
+meets_expect	yes

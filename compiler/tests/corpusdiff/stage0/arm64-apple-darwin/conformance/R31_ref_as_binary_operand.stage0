@@ -1,0 +1,27 @@
+program	conformance/R31_ref_as_binary_operand.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	`&` here is not a call argument, and references in Saw are PARAMETERS ONLY — a reference borrows storage for the duration of one call and may not escape it (designs 88/106; the Law of Exclusivity is statically sound only because every live reference belongs to a call still on the stack)
+meets_expect	yes
+log	"error: `&` here is not a call argument, and references in Saw are PARAMETERS ONLY — a reference borrows storage for the duration of one call and may not escape it (designs 88/106; the Law of Exclusivity is statically sound only because every live reference belongs to a call still on the stack)"
+log	"  --> examples/conformance/R31_ref_as_binary_operand.saw:11:14"
+log	"     |"
+log	" 11 |     let c = (&a) == (&b)"
+log	"     |              ^"
+log	"   hint: a reference cannot be stored or bound: pass it straight to a `&` parameter, or — to hand out storage a value already owns — declare a `borrows` accessor (`... borrows -> &var T` with `lend`, design 141), which lends the place for a window rather than letting a pointer out"
+log	""
+log	"error: `&` here is not a call argument, and references in Saw are PARAMETERS ONLY — a reference borrows storage for the duration of one call and may not escape it (designs 88/106; the Law of Exclusivity is statically sound only because every live reference belongs to a call still on the stack)"
+log	"  --> examples/conformance/R31_ref_as_binary_operand.saw:11:22"
+log	"     |"
+log	" 11 |     let c = (&a) == (&b)"
+log	"     |                      ^"
+log	"   hint: a reference cannot be stored or bound: pass it straight to a `&` parameter, or — to hand out storage a value already owns — declare a `borrows` accessor (`... borrows -> &var T` with `lend`, design 141), which lends the place for a window rather than letting a pointer out"
+log	""
+log	"error: cannot compare values of type `&Int` with `==`: `&Int` does not conform to `Equatable`"
+log	"  --> examples/conformance/R31_ref_as_binary_operand.saw:11:18"
+log	"     |"
+log	" 11 |     let c = (&a) == (&b)"
+log	"     |                  ^"
+log	""
+log	"3 error(s) generated"

@@ -1,0 +1,14 @@
+program	place_reentry_idempotent.saw
+triple	arm64-apple-darwin
+twin	differs
+expect	success
+build	ok
+exit	0
+stdout	"10"
+stdout	"21"
+stdout	"100"
+stdout	"7"
+stdout	"ok"
+stdout	"4"
+stdout	""
+meets_expect	yes

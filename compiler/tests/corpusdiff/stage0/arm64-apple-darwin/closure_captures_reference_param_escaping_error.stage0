@@ -1,0 +1,21 @@
+program	closure_captures_reference_param_escaping_error.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	an escaping closure cannot capture `r`, a reference (`&Thing`) — a reference borrows storage for the duration of one call and may not outlive the frame it points into
+meets_expect	yes
+log	"error: an escaping closure cannot capture `r`, a reference (`&Thing`) — a reference borrows storage for the duration of one call and may not outlive the frame it points into"
+log	"  --> examples/closure_captures_reference_param_escaping_error.saw:20:12"
+log	"     |"
+log	" 20 |     return { r.x + 1 }"
+log	"     |            ^"
+log	"   hint: pass the closure straight to the call that runs it (a non-escaping closure keeps its environment on the stack, so borrowing the frame is sound), or copy the values it needs out of the referent into locals ahead of the closure and capture those"
+log	""
+log	"error: an escaping closure cannot capture `m`, a reference (`&var Thing`) — a reference borrows storage for the duration of one call and may not outlive the frame it points into"
+log	"  --> examples/closure_captures_reference_param_escaping_error.saw:25:13"
+log	"     |"
+log	" 25 |     let f = { m.x + 1 }"
+log	"     |             ^"
+log	"   hint: pass the closure straight to the call that runs it (a non-escaping closure keeps its environment on the stack, so borrowing the frame is sound), or copy the values it needs out of the referent into locals ahead of the closure and capture those"
+log	""
+log	"2 error(s) generated"

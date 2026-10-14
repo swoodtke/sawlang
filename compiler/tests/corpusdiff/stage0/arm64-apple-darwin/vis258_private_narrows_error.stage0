@@ -1,0 +1,14 @@
+program	vis258_private_narrows_error.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	field `seal` of struct `Crate` is private and not accessible from this module
+meets_expect	yes
+log	"error: field `seal` of struct `Crate` is private and not accessible from this module"
+log	"  --> examples/vis258_private_narrows_error.saw:12:12"
+log	"     |"
+log	" 12 |     print(c.seal)     // refused: marked `private`"
+log	"     |            ^"
+log	"   hint: mark it `public` in the declaration of `Crate` to expose it"
+log	""
+log	"1 error(s) generated"

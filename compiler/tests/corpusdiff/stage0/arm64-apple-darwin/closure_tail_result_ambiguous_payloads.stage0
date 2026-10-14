@@ -1,0 +1,19 @@
+program	closure_tail_result_ambiguous_payloads.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	ambiguous Result auto-wrap: closure returns `Int32`, but `Result<Int32, Int32>` has the same Ok and Err type, so a bare `return` can't tell which variant you mean; write the explicit `Result<Int32, Int32>.Ok(value: ...)` or `Result<Int32, Int32>.Err(error: ...)`
+meets_expect	yes
+log	"error: ambiguous Result auto-wrap: closure returns `Int32`, but `Result<Int32, Int32>` has the same Ok and Err type, so a bare `return` can't tell which variant you mean; write the explicit `Result<Int32, Int32>.Ok(value: ...)` or `Result<Int32, Int32>.Err(error: ...)`"
+log	"  --> examples/closure_tail_result_ambiguous_payloads.saw:22:27"
+log	"     |"
+log	" 22 |     print(\"{run(f: { x in k })}\")"
+log	"     |                           ^"
+log	""
+log	"error: argument `f` expects `(Int) sync -> Result<Int32, Int32>` but got `(Int) -> Int32`"
+log	"  --> examples/closure_tail_result_ambiguous_payloads.saw:22:20"
+log	"     |"
+log	" 22 |     print(\"{run(f: { x in k })}\")"
+log	"     |                    ^"
+log	""
+log	"2 error(s) generated"

@@ -1,0 +1,17 @@
+program	place_two_windows_one_nocopy_root.saw
+triple	arm64-apple-darwin
+twin	differs
+expect	success
+build	ok
+exit	0
+stdout	"named accessor: 11"
+stdout	"one window: 11"
+stdout	"copy root: 11"
+stdout	"subscript: 2"
+stdout	"compound: 3"
+stdout	"forced lend: 12"
+stdout	"chain assign: 12"
+stdout	"disjoint roots: 4"
+stdout	"two roots one call: 50 60"
+stdout	""
+meets_expect	yes

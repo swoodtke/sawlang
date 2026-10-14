@@ -1,0 +1,11 @@
+program	reactor_cross_thread_wake.saw
+triple	arm64-apple-darwin
+twin	differs
+expect	success
+build	ok
+exit	0
+stdout	"parked 3"
+stdout	"one wake released 3"
+stdout	"a wake with nobody parked is not lost: true"
+stdout	""
+meets_expect	yes

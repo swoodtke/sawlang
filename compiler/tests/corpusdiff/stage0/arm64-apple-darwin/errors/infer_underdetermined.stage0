@@ -1,0 +1,14 @@
+program	errors/infer_underdetermined.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	cannot infer type argument `T` for function `make`
+meets_expect	yes
+log	"error: cannot infer type argument `T` for function `make`"
+log	"  --> examples/errors/infer_underdetermined.saw:10:13"
+log	"     |"
+log	" 10 |     let x = make()"
+log	"     |             ^"
+log	"   hint: give the type argument(s) explicitly, e.g. `make<T=...>`"
+log	""
+log	"1 error(s) generated"

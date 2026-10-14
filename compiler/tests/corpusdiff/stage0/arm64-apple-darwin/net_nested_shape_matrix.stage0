@@ -1,0 +1,14 @@
+program	net_nested_shape_matrix.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"baseline_stmt 6"
+stdout	"trailing_if 4"
+stdout	"trailing_else 4"
+stdout	"trailing_match 4"
+stdout	"depth2_if 4"
+stdout	"if_in_while 3"
+stdout	""
+meets_expect	yes

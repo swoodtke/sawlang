@@ -1,0 +1,10 @@
+program	conformance/K149_sawtracker_loop_shape.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"sync 3 entries, 6 bytes"
+stdout	"driven 3 entries, 6 bytes"
+stdout	""
+meets_expect	yes

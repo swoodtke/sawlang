@@ -1,0 +1,9 @@
+program	overflow_sub_panics.saw
+triple	arm64-apple-darwin
+twin	same
+expect	panic
+build	ok
+exit	-6
+stdout	"panic at overflow_sub_panics.saw:7: integer overflow"
+stdout	""
+meets_expect	yes

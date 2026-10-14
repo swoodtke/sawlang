@@ -1,0 +1,12 @@
+program	export_in_entry_module_with_spawn.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"bare 3"
+stdout	"renamed 4"
+stdout	"slot 41"
+stdout	"spun 22"
+stdout	""
+meets_expect	yes

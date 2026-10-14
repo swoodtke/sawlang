@@ -1,0 +1,14 @@
+program	recursive_types_mutual_inline_refused.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	recursive type `Frame` has infinite size: its storage contains its own storage inline, through Frame.head -> Header.owner -> Frame
+meets_expect	yes
+log	"error: recursive type `Frame` has infinite size: its storage contains its own storage inline, through Frame.head -> Header.owner -> Frame"
+log	"  --> examples/recursive_types_mutual_inline_refused.saw:10:1"
+log	"     |"
+log	" 10 | struct Frame {"
+log	"     | ^"
+log	"   hint: hold the recursive member behind a heap indirection — `Box<Frame>`, `Vector<Frame>` or a `Map` value — so the cycle crosses a pointer and the layout is finite"
+log	""
+log	"1 error(s) generated"

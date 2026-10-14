@@ -1,0 +1,14 @@
+program	conformance/V52_use_after_consume.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	use of moved variable `b`
+meets_expect	yes
+log	"error: use of moved variable `b`"
+log	"  --> examples/conformance/V52_use_after_consume.saw:22:17"
+log	"     |"
+log	" 22 |     print(\"{}\", b.count)"
+log	"     |                 ^"
+log	"   hint: value was moved at line 21 and can no longer be used"
+log	""
+log	"1 error(s) generated"

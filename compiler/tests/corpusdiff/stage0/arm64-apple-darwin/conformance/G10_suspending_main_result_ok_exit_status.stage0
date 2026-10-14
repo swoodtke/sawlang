@@ -1,0 +1,9 @@
+program	conformance/G10_suspending_main_result_ok_exit_status.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	5
+stdout	"susp-res-ok"
+stdout	""
+meets_expect	yes

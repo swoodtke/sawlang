@@ -1,0 +1,15 @@
+program	optional_nested_wrap_depth.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"three x"
+stdout	"two 5"
+stdout	"lifted 9"
+stdout	"field 9"
+stdout	"absent <none>"
+stdout	"via get 7"
+stdout	"none stays none"
+stdout	""
+meets_expect	yes

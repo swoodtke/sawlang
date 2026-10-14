@@ -1,0 +1,14 @@
+program	coercion/adopt_enum_raw_value_non_constant_refused.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	raw value for case `A` of enum `E` is not a compile-time constant
+meets_expect	yes
+log	"error: raw value for case `A` of enum `E` is not a compile-time constant"
+log	"  --> examples/coercion/adopt_enum_raw_value_non_constant_refused.saw:21:12"
+log	"     |"
+log	" 21 |     case A = N,"
+log	"     |            ^"
+log	"   hint: a case's raw value is an integer CONSTANT EXPRESSION: literals (`0x100`, `0b1010`) and arithmetic, bitwise and shift operators over them, so a flag is spelled `1 << 8`. It may not name a `static` or another enum's case — an enum's cases are fixed by its own declaration, before any of those are known"
+log	""
+log	"1 error(s) generated"

@@ -1,0 +1,33 @@
+program	conformance/V66_alias_projection_cast_forwards.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	cannot copy value of type `Res` which implements NoCopy
+meets_expect	yes
+log	"error: cannot copy value of type `Res` which implements NoCopy"
+log	"  --> examples/conformance/V66_alias_projection_cast_forwards.saw:36:5"
+log	"     |"
+log	" 36 |     let b = a as Res            // error: NoCopy — the alias renames, it does"
+log	"     |     ^"
+log	"   hint: use `move` to transfer ownership instead"
+log	""
+log	"error: function `full_projection` should return `Int` but body has no value"
+log	"  --> examples/conformance/V66_alias_projection_cast_forwards.saw:34:1"
+log	"     |"
+log	" 34 | func full_projection() -> Int {"
+log	"     | ^"
+log	""
+log	"error: cannot copy value of type `Inner` which implements NoCopy"
+log	"  --> examples/conformance/V66_alias_projection_cast_forwards.saw:42:5"
+log	"     |"
+log	" 42 |     let b = a as Inner          // error: NoCopy — same rule, one chain link up"
+log	"     |     ^"
+log	"   hint: use `move` to transfer ownership instead"
+log	""
+log	"error: function `partial_projection` should return `Int` but body has no value"
+log	"  --> examples/conformance/V66_alias_projection_cast_forwards.saw:40:1"
+log	"     |"
+log	" 40 | func partial_projection() -> Int {"
+log	"     | ^"
+log	""
+log	"4 error(s) generated"

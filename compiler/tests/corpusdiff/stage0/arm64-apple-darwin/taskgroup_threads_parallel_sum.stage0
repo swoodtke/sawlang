@@ -1,0 +1,9 @@
+program	taskgroup_threads_parallel_sum.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"4950"
+stdout	""
+meets_expect	yes

@@ -1,0 +1,14 @@
+program	overload_call_ambiguous_error.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	ambiguous call to `h`: multiple overloads match the argument types (Int)
+meets_expect	yes
+log	"error: ambiguous call to `h`: multiple overloads match the argument types (Int)"
+log	"  --> examples/overload_call_ambiguous_error.saw:11:11"
+log	"     |"
+log	" 11 |     print(h(5))"
+log	"     |           ^"
+log	"   hint: matching candidates: h(x: Int); h(x: Int8)"
+log	""
+log	"1 error(s) generated"

@@ -1,0 +1,32 @@
+program	closure_move_capture_transfers_when_body_runs.saw
+triple	arm64-apple-darwin
+twin	differs
+expect	success
+build	ok
+exit	0
+stdout	"sank 1"
+stdout	"deinit 1"
+stdout	"direct done"
+stdout	"kept 2"
+stdout	"deinit 2"
+stdout	"held done"
+stdout	"absent done"
+stdout	"deinit 3"
+stdout	"with_var_ref 1"
+stdout	"deinit 4"
+stdout	"sank 5"
+stdout	"deinit 5"
+stdout	"with_ref 0"
+stdout	"window len 1"
+stdout	"deinit 6"
+stdout	"deinit 7"
+stdout	"present 7"
+stdout	"absent 7"
+stdout	"lend done"
+stdout	"deinit 8"
+stdout	"explicit 1"
+stdout	"drop deep 9"
+stdout	"copy tier 1"
+stdout	"drop shallow 10"
+stdout	""
+meets_expect	yes

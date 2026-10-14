@@ -1,0 +1,14 @@
+program	existential_arg_method.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"11"
+stdout	"12"
+stdout	"13"
+stdout	"14"
+stdout	"15"
+stdout	"16"
+stdout	""
+meets_expect	yes

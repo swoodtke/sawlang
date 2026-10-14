@@ -1,0 +1,11 @@
+program	labeled_overload_same_type_diff_label.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"102"
+stdout	"2001"
+stdout	"4000"
+stdout	""
+meets_expect	yes

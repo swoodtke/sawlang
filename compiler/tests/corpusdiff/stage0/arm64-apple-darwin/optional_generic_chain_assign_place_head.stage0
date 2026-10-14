@@ -1,0 +1,11 @@
+program	optional_generic_chain_assign_place_head.saw
+triple	arm64-apple-darwin
+twin	differs
+expect	success
+build	ok
+exit	0
+stdout	"present 42"
+stdout	"absent skipped"
+stdout	"-- done"
+stdout	""
+meets_expect	yes

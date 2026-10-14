@@ -1,0 +1,10 @@
+program	net_write_to_closed_peer_is_an_error.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"write refused: broken pipe"
+stdout	"still running"
+stdout	""
+meets_expect	yes

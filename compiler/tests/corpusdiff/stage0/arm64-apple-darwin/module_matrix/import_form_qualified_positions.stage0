@@ -1,0 +1,15 @@
+program	module_matrix/import_form_qualified_positions.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"annotation = 5"
+stdout	"expression = 6"
+stdout	"generic bound = widget"
+stdout	"existential = widget"
+stdout	"interpolation = 8"
+stdout	"default param = 7"
+stdout	"default param override = 2"
+stdout	""
+meets_expect	yes

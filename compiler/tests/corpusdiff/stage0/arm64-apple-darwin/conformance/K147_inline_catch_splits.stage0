@@ -1,0 +1,19 @@
+program	conformance/K147_inline_catch_splits.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"suspending catch sync 0"
+stdout	"suspending catch driven 0"
+stdout	"error binding sync stop"
+stdout	"error binding driven stop"
+stdout	"variants sync 12"
+stdout	"variants driven 12"
+stdout	"routed beside an inline catch 7"
+stdout	"catch breaks the loop sync 1"
+stdout	"catch breaks the loop driven 1"
+stdout	"catch continues the loop sync 6"
+stdout	"catch continues the loop driven 6"
+stdout	""
+meets_expect	yes

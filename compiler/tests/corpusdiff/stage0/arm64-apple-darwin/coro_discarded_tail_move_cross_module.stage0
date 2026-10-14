@@ -1,0 +1,12 @@
+program	coro_discarded_tail_move_cross_module.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"15"
+stdout	"15"
+stdout	"1"
+stdout	"1"
+stdout	""
+meets_expect	yes

@@ -1,0 +1,16 @@
+program	spawn_capture_join_releases.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"left 2 right 11"
+stdout	"roots after join: 2 11"
+stdout	"caller reads base while shared: 7"
+stdout	"doubled 14 tripled 21"
+stdout	"iteration 0 len 1"
+stdout	"iteration 1 len 2"
+stdout	"iteration 2 len 3"
+stdout	"log len 3"
+stdout	""
+meets_expect	yes

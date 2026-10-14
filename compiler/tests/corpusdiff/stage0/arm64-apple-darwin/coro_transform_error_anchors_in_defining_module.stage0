@@ -1,0 +1,13 @@
+program	coro_transform_error_anchors_in_defining_module.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	coroutine transform: this closure body suspends, and a closure body is not driven — it is called through a function value, so its suspension has no frame to park in. Move the suspending work into a named function `spin` calls directly, or call it outside the closure and pass the result in.
+meets_expect	yes
+log	"error: coroutine transform: this closure body suspends, and a closure body is not driven — it is called through a function value, so its suspension has no frame to park in. Move the suspending work into a named function `spin` calls directly, or call it outside the closure and pass the result in."
+log	"  --> examples/modules/sl224_anchor.saw:16:12"
+log	"     |"
+log	" 16 |     v.each { [&var total] x in"
+log	"     |            ^"
+log	""
+log	"1 error(s) generated"

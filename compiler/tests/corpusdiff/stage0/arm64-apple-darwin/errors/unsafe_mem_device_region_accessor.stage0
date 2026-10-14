@@ -1,0 +1,21 @@
+program	errors/unsafe_mem_device_region_accessor.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	`ptr()` is a `Normal` region accessor; it is not available on `Device` memory
+meets_expect	yes
+log	"error: `ptr()` is a `Normal` region accessor; it is not available on `Device` memory"
+log	"  --> examples/errors/unsafe_mem_device_region_accessor.saw:9:26"
+log	"    |"
+log	" 9 | func main() { let p = DEV.ptr() }"
+log	"    |                          ^"
+log	"   hint: Device registers are accessed with `read()`/`write()`"
+log	""
+log	"error: function `main` is not declared `unsafe`, but its body names a value of unsafe type (`UnsafeMemory<Regs, Device>`)"
+log	"  --> examples/errors/unsafe_mem_device_region_accessor.saw:9:23"
+log	"    |"
+log	" 9 | func main() { let p = DEV.ptr() }"
+log	"    |                       ^"
+log	"   hint: write `func main(...) unsafe` — the unsafety belongs in the signature where every caller can see it; if the operation is sound for every input, keep the wrapper unsafe and expose a safe one that checks its arguments"
+log	""
+log	"2 error(s) generated"

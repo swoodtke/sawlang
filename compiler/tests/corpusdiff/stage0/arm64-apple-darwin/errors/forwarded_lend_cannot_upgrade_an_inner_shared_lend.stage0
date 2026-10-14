@@ -1,0 +1,14 @@
+program	errors/forwarded_lend_cannot_upgrade_an_inner_shared_lend.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	cannot write through `self.inner[…]`: `Inner.[]` is declared `borrows -> &Int`, which lends the place READ-ONLY — a use site may narrow a declared window mode, never widen it
+meets_expect	yes
+log	"error: cannot write through `self.inner[…]`: `Inner.[]` is declared `borrows -> &Int`, which lends the place READ-ONLY — a use site may narrow a declared window mode, never widen it"
+log	"  --> examples/errors/forwarded_lend_cannot_upgrade_an_inner_shared_lend.saw:29:24"
+log	"     |"
+log	" 29 |         lend self.inner[i]"
+log	"     |                        ^"
+log	"   hint: declare the accessor `borrows -> &var Int` to let a use site write through the place it lends (its receiver must then be `&var self`), or reach the storage through a `&var self` method of `Inner`"
+log	""
+log	"1 error(s) generated"

@@ -1,0 +1,23 @@
+program	primitive_conformances.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"direct int u8 bool"
+stdout	"bound int"
+stdout	"bound uint"
+stdout	"bound i8"
+stdout	"bound i16"
+stdout	"bound i32"
+stdout	"bound i64"
+stdout	"bound u8"
+stdout	"bound u16"
+stdout	"bound u32"
+stdout	"bound u64"
+stdout	"bound bool"
+stdout	"bound float"
+stdout	"bound string"
+stdout	"-- done"
+stdout	""
+meets_expect	yes

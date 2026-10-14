@@ -1,0 +1,9 @@
+program	coro_existential_only_body_is_not_framed.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"6"
+stdout	""
+meets_expect	yes

@@ -1,0 +1,14 @@
+program	conformance/k74_refused_at_the_call.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	type `Cell` does not satisfy the `Sync` bound
+meets_expect	yes
+log	"error: type `Cell` does not satisfy the `Sync` bound"
+log	"  --> examples/conformance/k74_refused_at_the_call.saw:29:19"
+log	"     |"
+log	" 29 |     print(\"count {fan_arc(move c)}\")"
+log	"     |                   ^"
+log	"   hint: Send/Sync are derived structurally; a field or payload of this type is not Sync"
+log	""
+log	"1 error(s) generated"

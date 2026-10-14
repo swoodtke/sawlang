@@ -1,0 +1,22 @@
+program	conformance/V96_driven_capture_duplicates_once.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"-- sync"
+stdout	"copy 1"
+stdout	"nonescaping 1"
+stdout	"copy 2"
+stdout	"copy 2"
+stdout	"escaping 2"
+stdout	"-- driven"
+stdout	"copy 1"
+stdout	"copy 1"
+stdout	"nonescaping 1"
+stdout	"copy 2"
+stdout	"copy 2"
+stdout	"escaping 2"
+stdout	"end"
+stdout	""
+meets_expect	no: output line 9 is 'copy 1', expected 'nonescaping 1'

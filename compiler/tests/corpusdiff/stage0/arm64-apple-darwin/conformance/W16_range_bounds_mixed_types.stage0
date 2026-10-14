@@ -1,0 +1,14 @@
+program	conformance/W16_range_bounds_mixed_types.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	a range requires both operands to have the same type, but the start is `Int` and the end is `Int16`
+meets_expect	yes
+log	"error: a range requires both operands to have the same type, but the start is `Int` and the end is `Int16`"
+log	"  --> examples/conformance/W16_range_bounds_mixed_types.saw:19:15"
+log	"     |"
+log	" 19 |     for i in a..b {"
+log	"     |               ^"
+log	"   hint: convert one operand — `x as Int` panics out of range, `Int.from(x)` answers `None`, `Int.from(truncating: x)` keeps the low bits"
+log	""
+log	"1 error(s) generated"

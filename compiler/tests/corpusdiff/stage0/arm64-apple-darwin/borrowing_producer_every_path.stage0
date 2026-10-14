@@ -1,0 +1,13 @@
+program	borrowing_producer_every_path.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"return path 6"
+stdout	"match arm 6"
+stdout	"nested if 5"
+stdout	"total 17"
+stdout	"callable controls 3 12"
+stdout	""
+meets_expect	yes

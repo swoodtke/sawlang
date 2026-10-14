@@ -1,0 +1,6 @@
+program	const_bitwise_width_riscv32.saw
+triple	arm64-apple-darwin
+twin	same
+expect	object
+build	ok
+meets_expect	yes

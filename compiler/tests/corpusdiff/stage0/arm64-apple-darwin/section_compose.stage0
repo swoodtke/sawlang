@@ -1,0 +1,10 @@
+program	section_compose.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"84"
+stdout	"43"
+stdout	""
+meets_expect	yes

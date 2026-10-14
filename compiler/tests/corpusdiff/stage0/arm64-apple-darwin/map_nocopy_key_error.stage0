@@ -1,0 +1,20 @@
+program	map_nocopy_key_error.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	map key type `Counted` must be copyable (trivial, Copy, or ExplicitCopy with retain semantics): `Counted` is NoCopy
+meets_expect	yes
+log	"error: map key type `Counted` must be copyable (trivial, Copy, or ExplicitCopy with retain semantics): `Counted` is NoCopy"
+log	"  --> examples/map_nocopy_key_error.saw:18:13"
+log	"     |"
+log	" 18 |     var m = Map<Counted, Int>()"
+log	"     |             ^"
+log	""
+log	"error: `Map.insert` requires `K` to be `Copy` — it binds `key` twice, at lines 200 and 208; `Counted` is move-only"
+log	"  --> examples/map_nocopy_key_error.saw:19:14"
+log	"     |"
+log	" 19 |     let _ = m.insert(Counted(id: 1), 100)"
+log	"     |              ^"
+log	"   hint: pass a type on the `Copy` tier, or rewrite the body to move `K` instead of duplicating it. A body that means to duplicate declares `<K: ExplicitCopy>` and spells `.copy()`"
+log	""
+log	"2 error(s) generated"

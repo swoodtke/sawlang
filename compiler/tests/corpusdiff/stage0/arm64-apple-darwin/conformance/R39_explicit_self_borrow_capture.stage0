@@ -1,0 +1,14 @@
+program	conformance/R39_explicit_self_borrow_capture.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"6"
+stdout	"15"
+stdout	"15"
+stdout	"16"
+stdout	"15"
+stdout	"15"
+stdout	""
+meets_expect	yes

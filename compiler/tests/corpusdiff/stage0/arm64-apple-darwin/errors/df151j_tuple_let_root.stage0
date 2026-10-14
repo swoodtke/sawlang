@@ -1,0 +1,28 @@
+program	errors/df151j_tuple_let_root.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	cannot call `&var self` method `push` on immutable variable `t`
+meets_expect	yes
+log	"error: result of `push` is `Result<Void, AllocError>` and is silently discarded"
+log	"  --> examples/errors/df151j_tuple_let_root.saw:11:6"
+log	"     |"
+log	" 11 |     v.push(1)"
+log	"     |      ^"
+log	"   hint: handle it — `match` it, `try`/`try!`/`try?` it, or return it — or write `let _ = ...` to discard it explicitly"
+log	""
+log	"error: cannot call `&var self` method `push` on immutable variable `t`"
+log	"  --> examples/errors/df151j_tuple_let_root.saw:13:8"
+log	"     |"
+log	" 13 |     t.0.push(99)"
+log	"     |        ^"
+log	"   hint: consider using `var` instead of `let` to make it mutable"
+log	""
+log	"error: result of `push` is `Result<Void, AllocError>` and is silently discarded"
+log	"  --> examples/errors/df151j_tuple_let_root.saw:13:8"
+log	"     |"
+log	" 13 |     t.0.push(99)"
+log	"     |        ^"
+log	"   hint: handle it — `match` it, `try`/`try!`/`try?` it, or return it — or write `let _ = ...` to discard it explicitly"
+log	""
+log	"3 error(s) generated"

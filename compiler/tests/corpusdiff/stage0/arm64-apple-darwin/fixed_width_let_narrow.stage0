@@ -1,0 +1,12 @@
+program	fixed_width_let_narrow.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"200"
+stdout	"8080"
+stdout	"2130706433"
+stdout	"127"
+stdout	""
+meets_expect	yes

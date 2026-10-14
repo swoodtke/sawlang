@@ -1,0 +1,14 @@
+program	recursive_struct_inline_field_refused.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	recursive type `Node` has infinite size: its storage contains its own storage inline, through Node.next -> Node
+meets_expect	yes
+log	"error: recursive type `Node` has infinite size: its storage contains its own storage inline, through Node.next -> Node"
+log	"  --> examples/recursive_struct_inline_field_refused.saw:10:1"
+log	"     |"
+log	" 10 | struct Node {"
+log	"     | ^"
+log	"   hint: hold the recursive member behind a heap indirection — `Box<Node>`, `Vector<Node>` or a `Map` value — so the cycle crosses a pointer and the layout is finite"
+log	""
+log	"1 error(s) generated"

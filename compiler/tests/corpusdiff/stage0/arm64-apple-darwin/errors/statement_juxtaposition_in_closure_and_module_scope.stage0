@@ -1,0 +1,9 @@
+program	errors/statement_juxtaposition_in_closure_and_module_scope.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	Parse error at 20:26: two statements on one line need a `;` between them: the first begins with `c`, the second with `c` — write `;` where they meet
+meets_expect	yes
+log	"error: Parse error at 20:26: two statements on one line need a `;` between them: the first begins with `c`, the second with `c` — write `;` where they meet"
+log	"Parse error at 20:29: Expected import, export, module, struct, enum, trait, extension, type, extern, or function declaration, got RPAREN"
+log	"Parse error at 24:23: two declarations on one line: the first begins with `static`, the second with `static` — declarations are not joined by `;` — put each declaration on its own line"

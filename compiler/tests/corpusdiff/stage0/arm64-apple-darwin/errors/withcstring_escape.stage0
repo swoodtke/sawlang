@@ -1,0 +1,14 @@
+program	errors/withcstring_escape.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	cannot store or forward a non-escaping closure into an escaping `(UnsafePointer<Int8>) unsafe escaping -> Void` slot (struct field)
+meets_expect	yes
+log	"error: cannot store or forward a non-escaping closure into an escaping `(UnsafePointer<Int8>) unsafe escaping -> Void` slot (struct field)"
+log	"  --> examples/errors/withcstring_escape.saw:15:18"
+log	"     |"
+log	" 15 |     PtrKeeper(f: body)          // escape: storing a non-escaping closure"
+log	"     |                  ^"
+log	"   hint: a non-escaping closure's captures may borrow the enclosing frame; only call it or pass it as another non-escaping argument"
+log	""
+log	"1 error(s) generated"

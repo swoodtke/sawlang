@@ -1,0 +1,13 @@
+program	coro_conservative_callee_in_spawned_task.saw
+triple	arm64-apple-darwin
+twin	differs
+expect	success
+build	ok
+exit	0
+stdout	"json {\"a\":1} {\"a\":1}"
+stdout	"fold 42 42"
+stdout	"tick 0"
+stdout	"tick 1"
+stdout	"real 2 2 42"
+stdout	""
+meets_expect	yes

@@ -1,0 +1,29 @@
+program	consumes_field_extraction.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"multi field:"
+stdout	"tag 3 dropped"
+stdout	"kept 1 and 2"
+stdout	"all paths:"
+stdout	"tag 30 dropped"
+stdout	"tag 20 dropped"
+stdout	"kept 10"
+stdout	"no path:"
+stdout	"tag 300 dropped"
+stdout	"tag 200 dropped"
+stdout	"tag 100 dropped"
+stdout	"swept 3"
+stdout	"diverging:"
+stdout	"tag 3000 dropped"
+stdout	"tag 2000 dropped"
+stdout	"kept 1000"
+stdout	"end"
+stdout	"tag 1000 dropped"
+stdout	"tag 10 dropped"
+stdout	"tag 2 dropped"
+stdout	"tag 1 dropped"
+stdout	""
+meets_expect	yes

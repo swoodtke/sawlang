@@ -1,0 +1,13 @@
+program	df140c_qualified_type_position.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"ref 5"
+stdout	"varref hello"
+stdout	"value 3"
+stdout	"local 4"
+stdout	"opt 5"
+stdout	""
+meets_expect	yes

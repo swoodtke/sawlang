@@ -1,0 +1,14 @@
+program	conformance/W12_if_arms_widen_losslessly.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"11"
+stdout	"7"
+stdout	"11"
+stdout	"-7"
+stdout	"11"
+stdout	"4000000000"
+stdout	""
+meets_expect	yes

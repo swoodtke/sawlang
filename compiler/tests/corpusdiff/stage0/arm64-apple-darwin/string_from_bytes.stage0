@@ -1,0 +1,15 @@
+program	string_from_bytes.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"2"
+stdout	"Hi"
+stdout	"5"
+stdout	"99"
+stdout	"97"
+stdout	"102"
+stdout	"233"
+stdout	""
+meets_expect	yes

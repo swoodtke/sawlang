@@ -1,0 +1,14 @@
+program	enum145_raw_missing_value_error.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	case `B` of enum `Missing` needs an explicit value: every case of an enum with a backing type declares its own
+meets_expect	yes
+log	"error: case `B` of enum `Missing` needs an explicit value: every case of an enum with a backing type declares its own"
+log	"  --> examples/enum145_raw_missing_value_error.saw:8:1"
+log	"    |"
+log	" 8 | enum Missing: UInt8 {"
+log	"    | ^"
+log	"   hint: write `case B = <int>`; declaring a backing type says the numbers are ABI, so none is assigned for you"
+log	""
+log	"1 error(s) generated"

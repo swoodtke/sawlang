@@ -1,0 +1,14 @@
+program	enum145_raw_payload_error.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	case `Detail` of enum `WithPayload` carries a payload, so the enum cannot declare a backing type: an enum with payloads has no integer identity
+meets_expect	yes
+log	"error: case `Detail` of enum `WithPayload` carries a payload, so the enum cannot declare a backing type: an enum with payloads has no integer identity"
+log	"  --> examples/enum145_raw_payload_error.saw:8:1"
+log	"    |"
+log	" 8 | enum WithPayload: UInt8 {"
+log	"    | ^"
+log	"   hint: drop the `: UInt8` backing, or move the payload case to a separate type"
+log	""
+log	"1 error(s) generated"

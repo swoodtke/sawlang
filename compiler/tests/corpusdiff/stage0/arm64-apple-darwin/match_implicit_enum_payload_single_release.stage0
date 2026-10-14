@@ -1,0 +1,12 @@
+program	match_implicit_enum_payload_single_release.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"first"
+stdout	"second"
+stdout	"done"
+stdout	"deinit 9"
+stdout	""
+meets_expect	yes

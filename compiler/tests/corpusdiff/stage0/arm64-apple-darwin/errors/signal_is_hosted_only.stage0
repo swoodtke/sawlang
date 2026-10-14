@@ -1,0 +1,7 @@
+program	errors/signal_is_hosted_only.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	module `std.signal` is hosted-only and cannot be imported in the freestanding profile
+meets_expect	yes
+log	"error: module `std.signal` is hosted-only and cannot be imported in the freestanding profile"

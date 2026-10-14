@@ -1,0 +1,14 @@
+program	channel_receive_in_main.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"waiting"
+stdout	"producing 7"
+stdout	"got 7"
+stdout	"waiting again"
+stdout	"producing 9"
+stdout	"got 9 through helper"
+stdout	""
+meets_expect	yes

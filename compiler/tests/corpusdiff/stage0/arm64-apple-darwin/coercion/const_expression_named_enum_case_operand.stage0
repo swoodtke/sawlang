@@ -1,0 +1,13 @@
+program	coercion/const_expression_named_enum_case_operand.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"3"
+stdout	"7"
+stdout	"4096"
+stdout	"2"
+stdout	"6"
+stdout	""
+meets_expect	yes

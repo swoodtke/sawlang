@@ -1,0 +1,17 @@
+program	generic_default_value.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"0"
+stdout	"7"
+stdout	"0"
+stdout	"3:0"
+stdout	"3:8"
+stdout	"g1:0"
+stdout	"g1:9"
+stdout	"g1:0"
+stdout	"g2:hi"
+stdout	""
+meets_expect	yes

@@ -1,0 +1,14 @@
+program	while_let_move_scrutinee.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	use of moved variable `slot` across loop iterations
+meets_expect	yes
+log	"error: use of moved variable `slot` across loop iterations"
+log	"  --> examples/while_let_move_scrutinee.saw:16:19"
+log	"     |"
+log	" 16 |     while let t = move slot {"
+log	"     |                   ^"
+log	"   hint: a binding moved inside a loop is moved-from on the next iteration; reassign it before the loop body ends, or move a fresh value"
+log	""
+log	"1 error(s) generated"

@@ -1,0 +1,26 @@
+program	conformance/C14_comparison_body_cannot_consume_operand.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	cannot move out of reference `other`
+meets_expect	yes
+log	"error: cannot move out of reference `other`"
+log	"  --> examples/conformance/C14_comparison_body_cannot_consume_operand.saw:19:21"
+log	"     |"
+log	" 19 |         let taken = move other"
+log	"     |                     ^"
+log	"   hint: references cannot have their contents moved out"
+log	""
+log	"error: undefined variable `taken`"
+log	"  --> examples/conformance/C14_comparison_body_cannot_consume_operand.saw:20:20"
+log	"     |"
+log	" 20 |         self.id == taken.id"
+log	"     |                    ^"
+log	""
+log	"error: method `equals` should return `Bool` but body has no value"
+log	"  --> examples/conformance/C14_comparison_body_cannot_consume_operand.saw:18:5"
+log	"     |"
+log	" 18 |     func equals(&self, other: &Self) -> Bool {"
+log	"     |     ^"
+log	""
+log	"3 error(s) generated"

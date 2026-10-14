@@ -1,0 +1,28 @@
+program	errors/implicitcopy_renamed_to_copy.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	unknown trait `ImplicitCopy`
+meets_expect	yes
+log	"error: unknown trait `ImplicitCopy`"
+log	"  --> examples/errors/implicitcopy_renamed_to_copy.saw:14:1"
+log	"     |"
+log	" 14 | extension Ticket: ImplicitCopy {}"
+log	"     | ^"
+log	"   hint: `ImplicitCopy` was merged into `Copy` (design 219) — write `Copy`"
+log	""
+log	"error: unknown trait `ImplicitCopy` in the bound on type parameter `T`"
+log	"  --> examples/errors/implicitcopy_renamed_to_copy.saw:16:11"
+log	"     |"
+log	" 16 | func keep<T: ImplicitCopy>(x: T) -> T {"
+log	"     |           ^"
+log	"   hint: `ImplicitCopy` was merged into `Copy` (design 219) — write `Copy`"
+log	""
+log	"error: unknown trait `ImplicitCopy` in type parameter bound"
+log	"  --> examples/errors/implicitcopy_renamed_to_copy.saw:23:11"
+log	"     |"
+log	" 23 |     print(keep<Ticket>(t).code)"
+log	"     |           ^"
+log	"   hint: `ImplicitCopy` was merged into `Copy` (design 219) — write `Copy`"
+log	""
+log	"3 error(s) generated"

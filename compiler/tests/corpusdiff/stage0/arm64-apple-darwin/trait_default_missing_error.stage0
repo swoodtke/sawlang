@@ -1,0 +1,13 @@
+program	trait_default_missing_error.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	type `S` does not implement required method `required` from trait `T`
+meets_expect	yes
+log	"error: type `S` does not implement required method `required` from trait `T`"
+log	"  --> examples/trait_default_missing_error.saw:12:1"
+log	"     |"
+log	" 12 | extension S: T {"
+log	"     | ^"
+log	""
+log	"1 error(s) generated"

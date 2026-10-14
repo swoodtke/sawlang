@@ -1,0 +1,36 @@
+program	float_text_format.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"-- every position agrees"
+stdout	"0.30000000000000004"
+stdout	"0.30000000000000004"
+stdout	"0.30000000000000004"
+stdout	"0.30000000000000004"
+stdout	"0.30000000000000004"
+stdout	"tag=0.30000000000000004"
+stdout	"-- round trip"
+stdout	"true"
+stdout	"true"
+stdout	"-- special values"
+stdout	"0.0"
+stdout	"-0.0"
+stdout	"inf"
+stdout	"-inf"
+stdout	"nan"
+stdout	"nan"
+stdout	"-- the layout switch"
+stdout	"1000000000000000.0"
+stdout	"1e+16"
+stdout	"0.0001"
+stdout	"1e-05"
+stdout	"5e-324"
+stdout	"1.7976931348623157e+308"
+stdout	"-- integral values keep a point"
+stdout	"1.0"
+stdout	"100.0"
+stdout	"-2.5"
+stdout	""
+meets_expect	yes

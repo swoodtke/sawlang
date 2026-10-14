@@ -1,0 +1,14 @@
+program	ref_replace_self_immutable_error.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	cannot assign to `self`: the receiver is immutable
+meets_expect	yes
+log	"error: cannot assign to `self`: the receiver is immutable"
+log	"  --> examples/ref_replace_self_immutable_error.saw:8:36"
+log	"    |"
+log	" 8 |     func bad(&self, other: Cell) { self = other }"
+log	"    |                                    ^"
+log	"   hint: use `&var self` in the method signature to replace `self`"
+log	""
+log	"1 error(s) generated"

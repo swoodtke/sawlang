@@ -1,0 +1,41 @@
+program	coro_same_scope_redefinition_owning_slots.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"D a1"
+stdout	"r1 a12"
+stdout	"D a12"
+stdout	"D b1"
+stdout	"D b12"
+stdout	"r2 b123"
+stdout	"D b123"
+stdout	"D c1"
+stdout	"r3 c12"
+stdout	"D c12"
+stdout	"D d1"
+stdout	"r4 d12"
+stdout	"D d12"
+stdout	"r5 e1 e12"
+stdout	"D e12"
+stdout	"D e1"
+stdout	"r6 f12"
+stdout	"D f12"
+stdout	"D f1"
+stdout	"r7 41 52"
+stdout	"r8 2 3"
+stdout	"r9 g1"
+stdout	"D g1"
+stdout	"r9 g12"
+stdout	"D g12"
+stdout	"r10 h1"
+stdout	"D h1"
+stdout	"r10 h12"
+stdout	"D h12"
+stdout	"r10 h1"
+stdout	"D h1"
+stdout	"r10 h12"
+stdout	"D h12"
+stdout	""
+meets_expect	yes

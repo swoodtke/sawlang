@@ -1,0 +1,9 @@
+program	conformance/G05_suspending_main_void_exit_zero.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"susp-void"
+stdout	""
+meets_expect	yes

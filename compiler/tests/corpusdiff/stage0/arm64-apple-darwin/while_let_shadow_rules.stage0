@@ -1,0 +1,14 @@
+program	while_let_shadow_rules.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	`x` shadows the binding declared at while_let_shadow_rules.saw:14:5
+meets_expect	yes
+log	"error: `x` shadows the binding declared at while_let_shadow_rules.saw:14:5"
+log	"  --> examples/while_let_shadow_rules.saw:16:5"
+log	"     |"
+log	" 16 |     while let x = opt(n) {"
+log	"     |     ^"
+log	"   hint: rename it, or derive it from the original (e.g. `let x = parse(move x)`) to make the redefinition explicit"
+log	""
+log	"1 error(s) generated"

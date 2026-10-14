@@ -1,0 +1,14 @@
+program	array_unknown_method_error.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	fixed array `[Int; 3]` has no method `push`
+meets_expect	yes
+log	"error: fixed array `[Int; 3]` has no method `push`"
+log	"  --> examples/array_unknown_method_error.saw:7:6"
+log	"    |"
+log	" 7 |     a.push(4)"
+log	"    |      ^"
+log	"   hint: only `.len()` and `.swap(i, j)` are available on arrays; user extensions on array types are not supported"
+log	""
+log	"1 error(s) generated"

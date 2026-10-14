@@ -1,0 +1,13 @@
+program	const_generic_infer_length.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"10"
+stdout	"4"
+stdout	"30"
+stdout	"2"
+stdout	"10"
+stdout	""
+meets_expect	yes

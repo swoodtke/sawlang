@@ -1,0 +1,13 @@
+program	errors/generic_tuple_bound_violation.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	type `(Int, Int)` does not satisfy the `Fooable` bound
+meets_expect	yes
+log	"error: type `(Int, Int)` does not satisfy the `Fooable` bound"
+log	"  --> examples/errors/generic_tuple_bound_violation.saw:12:11"
+log	"     |"
+log	" 12 |     print(run<(Int, Int)>((1, 2)))"
+log	"     |           ^"
+log	""
+log	"1 error(s) generated"

@@ -1,0 +1,21 @@
+program	errors/consumes_field_move_in_a_loop.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	`move self.a` is not supported in a loop body (design 260 v1): a loop runs its body more than once, so a field could be moved twice
+meets_expect	yes
+log	"error: `move self.a` is not supported in a loop body (design 260 v1): a loop runs its body more than once, so a field could be moved twice"
+log	"  --> examples/errors/consumes_field_move_in_a_loop.saw:26:33"
+log	"     |"
+log	" 26 |         for i in 0..2 { let t = move self.a; print(\"{}\", t.id) }"
+log	"     |                                 ^"
+log	"   hint: write the field move in the body's straight-line statements, an `if`/`else`, or a `match` arm — or use `self.a.take()`, which needs no all-paths rule"
+log	""
+log	"error: use of `self.a` after it was moved out"
+log	"  --> examples/errors/consumes_field_move_in_a_loop.saw:31:13"
+log	"     |"
+log	" 31 |         self.a.id"
+log	"     |             ^"
+log	"   hint: the field's value left with the move; read it before moving, or bind it to a local first"
+log	""
+log	"2 error(s) generated"

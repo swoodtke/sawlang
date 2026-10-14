@@ -1,0 +1,7 @@
+program	errors/consumes_trait_requirement.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	Parse error at 13:37: `consumes` may not appear on a trait requirement (design 260 v1): the transfer is spelled at the CALL (`(move x).m()`), and an erased `any Trait` receiver has no binding to retire. Declare the consuming method on the concrete type instead
+meets_expect	yes
+log	"error: Parse error at 13:37: `consumes` may not appear on a trait requirement (design 260 v1): the transfer is spelled at the CALL (`(move x).m()`), and an erased `any Trait` receiver has no binding to retire. Declare the consuming method on the concrete type instead"

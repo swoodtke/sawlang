@@ -1,0 +1,27 @@
+program	map_key_not_hashable_error.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	type `Map<NoHash, Int, GlobalAllocator>` has no method `insert`: requires `K: Hashable`, and `NoHash` does not conform
+meets_expect	yes
+log	"error: map key type `NoHash` must be copyable (trivial, Copy, or ExplicitCopy with retain semantics): `NoHash` owns a Deinit without a copy (it is move-only, not retainable)"
+log	"  --> examples/map_key_not_hashable_error.saw:12:13"
+log	"     |"
+log	" 12 |     var m = Map<NoHash, Int>()"
+log	"     |             ^"
+log	""
+log	"error: type `Map<NoHash, Int, GlobalAllocator>` has no method `insert`: requires `K: Hashable`, and `NoHash` does not conform"
+log	"  --> examples/map_key_not_hashable_error.saw:13:6"
+log	"     |"
+log	" 13 |     m.insert(NoHash(label: \"x\"), 1)"
+log	"     |      ^"
+log	"   hint: `insert` is only available when `K` satisfies `Hashable`"
+log	""
+log	"error: type `Map<NoHash, Int, GlobalAllocator>` has no method `len`: requires `K: Hashable`, and `NoHash` does not conform"
+log	"  --> examples/map_key_not_hashable_error.saw:14:12"
+log	"     |"
+log	" 14 |     print(m.len())"
+log	"     |            ^"
+log	"   hint: `len` is only available when `K` satisfies `Hashable`"
+log	""
+log	"3 error(s) generated"

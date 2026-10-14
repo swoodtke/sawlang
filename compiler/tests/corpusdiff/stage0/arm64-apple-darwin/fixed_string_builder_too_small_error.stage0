@@ -1,0 +1,7 @@
+program	fixed_string_builder_too_small_error.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	static assertion failed: FixedStringBuilder needs at least 5 bytes: the truncation marker and terminator take four
+meets_expect	yes
+log	"error: static assertion failed: FixedStringBuilder needs at least 5 bytes: the truncation marker and terminator take four"

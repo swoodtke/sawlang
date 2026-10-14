@@ -1,0 +1,14 @@
+program	errors/sync_field_call.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	cannot suspend in `sync func` declaration: `sync func invoke` calls a call through a non-`sync` function value (`invoke` suspends at line 14)
+meets_expect	yes
+log	"error: cannot suspend in `sync func` declaration: `sync func invoke` calls a call through a non-`sync` function value (`invoke` suspends at line 14)"
+log	"  --> examples/errors/sync_field_call.saw:13:1"
+log	"     |"
+log	" 13 | func invoke(t: Callback) sync -> Int {"
+log	"     | ^"
+log	"   hint: a `sync` context must be transitively suspension-free: remove the suspending call or hoist it out of the sync region"
+log	""
+log	"1 error(s) generated"

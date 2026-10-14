@@ -1,0 +1,13 @@
+program	string_literal_immortal.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"2"
+stdout	"2"
+stdout	"hi"
+stdout	"hi"
+stdout	"hi"
+stdout	""
+meets_expect	yes

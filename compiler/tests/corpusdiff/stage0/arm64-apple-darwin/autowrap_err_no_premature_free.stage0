@@ -1,0 +1,9 @@
+program	autowrap_err_no_premature_free.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"negative input -3 not allowed here padding zzzzzz"
+stdout	""
+meets_expect	yes

@@ -1,0 +1,12 @@
+program	no_hidden_alloc_off_by_default.saw
+triple	arm64-apple-darwin
+twin	same
+expect	panic
+build	ok
+exit	-6
+stdout	"count: 3"
+stdout	"shifted 15"
+stdout	"(1, 2)"
+stdout	"panic at no_hidden_alloc_off_by_default.saw:26: out of frames: 0 left"
+stdout	""
+meets_expect	yes

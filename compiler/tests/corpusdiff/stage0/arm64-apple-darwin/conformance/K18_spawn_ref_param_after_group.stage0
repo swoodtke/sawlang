@@ -1,0 +1,21 @@
+program	conformance/K18_spawn_ref_param_after_group.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	cannot pass `&var buf` into a task: `buf` is declared AFTER the group `group` it is spawned into (line 30 against line 29), and destruction is LIFO — `buf` is torn down BEFORE `group` joins its children, so the task would reach it after it is gone
+meets_expect	yes
+log	"error: result of `push` is `Result<Void, AllocError>` and is silently discarded"
+log	"  --> examples/conformance/K18_spawn_ref_param_after_group.saw:21:10"
+log	"     |"
+log	" 21 |         v.push(i)"
+log	"     |          ^"
+log	"   hint: handle it — `match` it, `try`/`try!`/`try?` it, or return it — or write `let _ = ...` to discard it explicitly"
+log	""
+log	"error: cannot pass `&var buf` into a task: `buf` is declared AFTER the group `group` it is spawned into (line 30 against line 29), and destruction is LIFO — `buf` is torn down BEFORE `group` joins its children, so the task would reach it after it is gone"
+log	"  --> examples/conformance/K18_spawn_ref_param_after_group.saw:31:30"
+log	"     |"
+log	" 31 |     let h = group.spawn(fill(&var buf, 3))"
+log	"     |                              ^"
+log	"   hint: declare `buf` BEFORE `group` — the group opens the scope it governs, so everything the tasks borrow outlives the join. Or pass the value in by value / through an `Arc` instead of borrowing it"
+log	""
+log	"2 error(s) generated"

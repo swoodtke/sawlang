@@ -1,0 +1,26 @@
+program	generic_container_nomove_cascade.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	cannot `move` `w`: `Wrap<TaskGroup>` is `NoMove`, so it lives where its constructor built it and may not be relocated.
+meets_expect	yes
+log	"error: cannot `move` `w`: `Wrap<TaskGroup>` is `NoMove`, so it lives where its constructor built it and may not be relocated."
+log	"  --> examples/generic_container_nomove_cascade.saw:32:14"
+log	"     |"
+log	" 32 |     var w2 = move w"
+log	"     |              ^"
+log	"   hint: pass `&var w` to lend it, or build the value where it has to live. Replacing a referent whole through a `&var` stays legal — that destroys and constructs at one address rather than moving"
+log	""
+log	"error: undefined variable `w2`"
+log	"  --> examples/generic_container_nomove_cascade.saw:33:14"
+log	"     |"
+log	" 33 |     let h2 = w2.v.spawn(work(10))"
+log	"     |              ^"
+log	""
+log	"error: undefined variable `h2`"
+log	"  --> examples/generic_container_nomove_cascade.saw:34:32"
+log	"     |"
+log	" 34 |     print(\"got {h.join()} and {h2.join()}\")"
+log	"     |                                ^"
+log	""
+log	"3 error(s) generated"

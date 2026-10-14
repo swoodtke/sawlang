@@ -1,0 +1,12 @@
+program	coro_return_in_expression_block.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"let-match ok: 4"
+stdout	"let-match err: none"
+stdout	"value-if: none"
+stdout	"assign-rhs: 11"
+stdout	""
+meets_expect	yes

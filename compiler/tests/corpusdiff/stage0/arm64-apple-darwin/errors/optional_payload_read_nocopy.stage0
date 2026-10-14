@@ -1,0 +1,14 @@
+program	errors/optional_payload_read_nocopy.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	cannot read the payload out of `o` in let binding: `Res` implements NoCopy
+meets_expect	yes
+log	"error: cannot read the payload out of `o` in let binding: `Res` implements NoCopy"
+log	"  --> examples/errors/optional_payload_read_nocopy.saw:18:5"
+log	"     |"
+log	" 18 |     let g = o!"
+log	"     |     ^"
+log	"   hint: use `move o!` to transfer the whole binding, or `o.take()` to move the payload out in place"
+log	""
+log	"1 error(s) generated"

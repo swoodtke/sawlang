@@ -1,0 +1,14 @@
+program	errors/explicit_copy_containment.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	struct `Container` contains ExplicitCopy field `data` of type `Buf` but does not implement ExplicitCopy
+meets_expect	yes
+log	"error: struct `Container` contains ExplicitCopy field `data` of type `Buf` but does not implement ExplicitCopy"
+log	"  --> examples/errors/explicit_copy_containment.saw:19:1"
+log	"     |"
+log	" 19 | struct Container {"
+log	"     | ^"
+log	"   hint: pick a copy policy: `@synthesize extension Container: ExplicitCopy {}` for a memberwise deep copy, `func copy(&self) -> Container` by hand, or `extension Container: NoCopy {}` to make it move-only"
+log	""
+log	"1 error(s) generated"

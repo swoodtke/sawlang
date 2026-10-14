@@ -1,0 +1,14 @@
+program	errors/nomove_placement_after_borrow.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	cannot `move` `value`: `Anchor` is `NoMove`, so it lives where its constructor built it and may not be relocated.
+meets_expect	yes
+log	"error: cannot `move` `value`: `Anchor` is `NoMove`, so it lives where its constructor built it and may not be relocated."
+log	"  --> examples/errors/nomove_placement_after_borrow.saw:27:18"
+log	"     |"
+log	" 27 |         ptr[0] = move value"
+log	"     |                  ^"
+log	"   hint: pass `&var value` to lend it, or build the value where it has to live. Replacing a referent whole through a `&var` stays legal — that destroys and constructs at one address rather than moving"
+log	""
+log	"1 error(s) generated"

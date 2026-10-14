@@ -1,0 +1,18 @@
+program	file_open_read_write_surfaced.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"open missing: surfaced"
+stdout	"create in missing dir: surfaced"
+stdout	"append in missing dir: surfaced"
+stdout	"list missing dir: surfaced"
+stdout	"wrote 5 bytes"
+stdout	"read back: hello"
+stdout	"read at eof: 0 bytes"
+stdout	"position: 5"
+stdout	"seek_start: 0"
+stdout	"cleaned up"
+stdout	""
+meets_expect	yes

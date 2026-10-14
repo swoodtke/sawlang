@@ -1,0 +1,14 @@
+program	errors/funcpointer226_named_generic.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	`idn` is a generic function, and a generic function has no single address to point at
+meets_expect	yes
+log	"error: `idn` is a generic function, and a generic function has no single address to point at"
+log	"  --> examples/errors/funcpointer226_named_generic.saw:12:45"
+log	"     |"
+log	" 12 |     let p: FuncPointer<(Int) sync -> Int> = idn"
+log	"     |                                             ^"
+log	"   hint: a `FuncPointer` names ONE compiled body; write a non-generic wrapper that calls the instantiation you want, and point at that"
+log	""
+log	"1 error(s) generated"

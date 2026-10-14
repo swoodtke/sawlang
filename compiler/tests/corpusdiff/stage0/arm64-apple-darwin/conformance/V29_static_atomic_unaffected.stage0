@@ -1,0 +1,12 @@
+program	conformance/V29_static_atomic_unaffected.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"prev 0"
+stdout	"now 5"
+stdout	"lent 5"
+stdout	"swapped true 7"
+stdout	""
+meets_expect	yes

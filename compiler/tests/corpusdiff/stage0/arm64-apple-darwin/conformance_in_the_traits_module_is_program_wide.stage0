@@ -1,0 +1,14 @@
+program	conformance_in_the_traits_module_is_program_wide.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"14"
+stdout	"7"
+stdout	"7"
+stdout	"14"
+stdout	"21"
+stdout	"28"
+stdout	""
+meets_expect	yes

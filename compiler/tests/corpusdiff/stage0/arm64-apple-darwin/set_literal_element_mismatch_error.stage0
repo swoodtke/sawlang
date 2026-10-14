@@ -1,0 +1,19 @@
+program	set_literal_element_mismatch_error.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	set element 2 has type `String`, expected `Int` (all elements in a set literal must share one type)
+meets_expect	yes
+log	"error: set element 2 has type `String`, expected `Int` (all elements in a set literal must share one type)"
+log	"  --> examples/set_literal_element_mismatch_error.saw:6:20"
+log	"    |"
+log	" 6 |     var s = {1, 2, \"three\"}"
+log	"    |                    ^"
+log	""
+log	"error: undefined variable `s`"
+log	"  --> examples/set_literal_element_mismatch_error.saw:7:11"
+log	"    |"
+log	" 7 |     print(s.len())"
+log	"    |           ^"
+log	""
+log	"2 error(s) generated"

@@ -1,0 +1,24 @@
+program	move_in_a_while_condition_back_edge.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"drop returns"
+stdout	"always-returns 3"
+stdout	"drop breaks"
+stdout	"always-breaks 1"
+stdout	"drop both-diverge"
+stdout	"if-else-both-diverge 0"
+stdout	"drop nested-continue"
+stdout	"continue-captured-by-nested-loop 2"
+stdout	"drop inner-body"
+stdout	"inner-body-continue-only 2"
+stdout	"drop nested-while-cond"
+stdout	"nested-while-condition-continue 1"
+stdout	"drop nested-while-let"
+stdout	"nested-while-let-scrutinee-continue 1"
+stdout	"drop doubly-nested"
+stdout	"doubly-nested-for-iterable 10"
+stdout	""
+meets_expect	yes

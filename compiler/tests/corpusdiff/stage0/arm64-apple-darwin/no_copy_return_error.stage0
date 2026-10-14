@@ -1,0 +1,14 @@
+program	no_copy_return_error.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	cannot return NoCopy type `Resource` without `move` in method `init`
+meets_expect	yes
+log	"error: cannot return NoCopy type `Resource` without `move` in method `init`"
+log	"  --> examples/no_copy_return_error.saw:18:5"
+log	"     |"
+log	" 18 |     init(v: Int) -> Resource {"
+log	"     |     ^"
+log	"   hint: use `move` to transfer ownership instead"
+log	""
+log	"1 error(s) generated"

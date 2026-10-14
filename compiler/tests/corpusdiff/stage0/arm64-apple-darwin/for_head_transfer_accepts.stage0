@@ -1,0 +1,27 @@
+program	for_head_transfer_accepts.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"7"
+stdout	"drop counter"
+stdout	"after move sync"
+stdout	"drop counter"
+stdout	"after move driven"
+stdout	"walk 7"
+stdout	"drop counter"
+stdout	"7"
+stdout	"after move value sync"
+stdout	"copy tier sync 30 abc 5 0"
+stdout	"copy tier driven 30 abc 5 0"
+stdout	"arc sync 6 0 3"
+stdout	"arc driven 6 0 3"
+stdout	"closure sync 120 0"
+stdout	"closure driven 120 0"
+stdout	"explicit copy 9 0 2"
+stdout	"explicit copy value 4 0 2"
+stdout	"drop res 2"
+stdout	"drop res 1"
+stdout	""
+meets_expect	yes

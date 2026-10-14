@@ -1,0 +1,20 @@
+program	reexport_import_error.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	module `lib_with_import` has no symbol `utils`
+meets_expect	yes
+log	"error: module `lib_with_import` has no symbol `utils`"
+log	"  --> examples/reexport_import_error.saw:13:28"
+log	"     |"
+log	" 13 |     let y = lib_with_import.utils.double(10)"
+log	"     |                            ^"
+log	"   hint: `utils` is imported by `lib_with_import` but not re-exported — add `public import` in `lib_with_import`, or import `modules.utils` directly"
+log	""
+log	"error: undefined variable `y`"
+log	"  --> examples/reexport_import_error.saw:14:11"
+log	"     |"
+log	" 14 |     print(y)"
+log	"     |           ^"
+log	""
+log	"2 error(s) generated"

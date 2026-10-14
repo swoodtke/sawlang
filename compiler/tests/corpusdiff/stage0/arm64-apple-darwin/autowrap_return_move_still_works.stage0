@@ -1,0 +1,10 @@
+program	autowrap_return_move_still_works.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"moved payload 9 with trailing padding qqqqqqqqqq"
+stdout	"FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF"
+stdout	""
+meets_expect	yes

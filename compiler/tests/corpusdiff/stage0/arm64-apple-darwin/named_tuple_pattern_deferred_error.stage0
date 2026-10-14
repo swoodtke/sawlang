@@ -1,0 +1,7 @@
+program	named_tuple_pattern_deferred_error.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	Parse error at 8:10: named tuple patterns (`(x: a)`) are not supported yet; use positional destructuring (`(a, b)`)
+meets_expect	yes
+log	"error: Parse error at 8:10: named tuple patterns (`(x: a)`) are not supported yet; use positional destructuring (`(a, b)`)"

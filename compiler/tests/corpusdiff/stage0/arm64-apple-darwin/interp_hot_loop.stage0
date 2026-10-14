@@ -1,0 +1,9 @@
+program	interp_hot_loop.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"999999"
+stdout	""
+meets_expect	yes

@@ -1,0 +1,14 @@
+program	export_struct_byvalue_error.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	`@export` function `consume`: parameter `p` has type the by-value struct `Point`, which is not C-ABI-safe
+meets_expect	yes
+log	"error: `@export` function `consume`: parameter `p` has type the by-value struct `Point`, which is not C-ABI-safe"
+log	"  --> examples/export_struct_byvalue_error.saw:11:1"
+log	"     |"
+log	" 11 | func consume(p: Point) -> Int { p.x }"
+log	"     | ^"
+log	"   hint: exported signatures allow fixed-width integers, Int/UInt, Float, and UnsafePointer<T>; pass an aggregate by `UnsafePointer<S>`"
+log	""
+log	"1 error(s) generated"

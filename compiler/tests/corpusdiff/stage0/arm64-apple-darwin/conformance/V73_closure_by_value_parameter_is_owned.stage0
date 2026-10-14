@@ -1,0 +1,18 @@
+program	conformance/V73_closure_by_value_parameter_is_owned.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"used 1"
+stdout	"drop 1"
+stdout	"after used"
+stdout	"ignored"
+stdout	"drop 2"
+stdout	"after ignored"
+stdout	"arc before 1"
+stdout	"arc inside 2"
+stdout	"arc after 1"
+stdout	"drop 9"
+stdout	""
+meets_expect	yes

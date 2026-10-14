@@ -1,0 +1,19 @@
+program	errors/unary_minus_unsigned.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	operator `-` cannot be applied to unsigned `UInt8` (an unsigned integer has no negation)
+meets_expect	yes
+log	"error: operator `-` cannot be applied to unsigned `UInt8` (an unsigned integer has no negation)"
+log	"  --> examples/errors/unary_minus_unsigned.saw:8:13"
+log	"    |"
+log	" 8 |     let x = -u"
+log	"    |             ^"
+log	""
+log	"error: undefined variable `x`"
+log	"  --> examples/errors/unary_minus_unsigned.saw:9:11"
+log	"    |"
+log	" 9 |     print(x as Int)"
+log	"    |           ^"
+log	""
+log	"2 error(s) generated"

@@ -1,0 +1,20 @@
+program	df151i_tuple_copy_nocopy_error.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	type `(Res, Int)` is not Copy; element 0 of type `Res` is NoCopy
+meets_expect	yes
+log	"error: type `(Res, Int)` is not Copy; element 0 of type `Res` is NoCopy"
+log	"  --> examples/df151i_tuple_copy_nocopy_error.saw:34:14"
+log	"     |"
+log	" 34 |     let u = t.copy()"
+log	"     |              ^"
+log	"   hint: use `move` to transfer the tuple, which a destructuring `let (a, b) = move t` can then take apart"
+log	""
+log	"error: undefined variable `u`"
+log	"  --> examples/df151i_tuple_copy_nocopy_error.saw:35:13"
+log	"     |"
+log	" 35 |     print(\"{u.1}\")"
+log	"     |             ^"
+log	""
+log	"2 error(s) generated"

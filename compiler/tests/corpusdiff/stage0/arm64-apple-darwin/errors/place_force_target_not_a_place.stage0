@@ -1,0 +1,14 @@
+program	errors/place_force_target_not_a_place.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	`!` is an assignment target only on a place — a `borrows` accessor's conditional lend, such as `m[k]! = v`
+meets_expect	yes
+log	"error: `!` is an assignment target only on a place — a `borrows` accessor's conditional lend, such as `m[k]! = v`"
+log	"  --> examples/errors/place_force_target_not_a_place.saw:10:6"
+log	"     |"
+log	" 10 |     o! = 5"
+log	"     |      ^"
+log	"   hint: to replace the payload of an ordinary optional, assign the optional itself (`o = v` wraps)"
+log	""
+log	"1 error(s) generated"

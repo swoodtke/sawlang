@@ -1,0 +1,14 @@
+program	reference_assign_error.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	cannot assign through immutable reference `y`
+meets_expect	yes
+log	"error: cannot assign through immutable reference `y`"
+log	"  --> examples/reference_assign_error.saw:7:5"
+log	"    |"
+log	" 7 |     y = 42  // Error: `&Int` is read-only, cannot replace the referent"
+log	"    |     ^"
+log	"   hint: an immutable `&` reference is read-only; take `&var` to replace the referent, or use a mutating method"
+log	""
+log	"1 error(s) generated"

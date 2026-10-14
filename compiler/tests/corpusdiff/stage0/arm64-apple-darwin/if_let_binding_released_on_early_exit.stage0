@@ -1,0 +1,38 @@
+program	if_let_binding_released_on_early_exit.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"-- sync"
+stdout	"in branch"
+stdout	"DEINIT s-return"
+stdout	"DEINIT s-break"
+stdout	"after break loop"
+stdout	"DEINIT s-continue1"
+stdout	"DEINIT s-continue2"
+stdout	"after continue loop"
+stdout	"in branch"
+stdout	"DEINIT s-fall"
+stdout	"after fall"
+stdout	"DEINIT s-ifvar"
+stdout	"DEINIT s-whilelet"
+stdout	"after while let 1"
+stdout	"DEINIT s-tuple"
+stdout	"sank"
+stdout	"DEINIT s-move"
+stdout	"-- controls"
+stdout	"after guard"
+stdout	"DEINIT c-guard"
+stdout	"DEINIT c-match"
+stdout	"-- driven"
+stdout	"DEINIT d-return"
+stdout	"DEINIT d-break"
+stdout	"after driven break"
+stdout	"DEINIT d-continue1"
+stdout	"DEINIT d-continue2"
+stdout	"after driven continue"
+stdout	"DEINIT d-fall"
+stdout	"after driven fall"
+stdout	""
+meets_expect	yes

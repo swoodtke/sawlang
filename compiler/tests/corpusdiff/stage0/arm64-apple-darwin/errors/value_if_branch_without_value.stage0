@@ -1,0 +1,13 @@
+program	errors/value_if_branch_without_value.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	function `choose` should return `Int` but returns `Void`
+meets_expect	yes
+log	"error: function `choose` should return `Int` but returns `Void`"
+log	"  --> examples/errors/value_if_branch_without_value.saw:7:1"
+log	"    |"
+log	" 7 | func choose(flag: Bool) -> Int {"
+log	"    | ^"
+log	""
+log	"1 error(s) generated"

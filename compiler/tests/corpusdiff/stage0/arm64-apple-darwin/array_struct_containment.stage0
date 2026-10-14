@@ -1,0 +1,14 @@
+program	array_struct_containment.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	struct `Holder` contains NoCopy field `files` of type `[F; 2]` but does not implement NoCopy
+meets_expect	yes
+log	"error: struct `Holder` contains NoCopy field `files` of type `[F; 2]` but does not implement NoCopy"
+log	"  --> examples/array_struct_containment.saw:12:1"
+log	"     |"
+log	" 12 | struct Holder {"
+log	"     | ^"
+log	"   hint: add `extension Holder: NoCopy {}` — a NoCopy field makes `Holder` move-only, and its `deinit` is synthesized"
+log	""
+log	"1 error(s) generated"

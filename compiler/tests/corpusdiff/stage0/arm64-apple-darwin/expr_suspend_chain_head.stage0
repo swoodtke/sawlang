@@ -1,0 +1,10 @@
+program	expr_suspend_chain_head.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"10"
+stdout	"6"
+stdout	""
+meets_expect	yes

@@ -1,0 +1,7 @@
+program	errors/unsafe_prefix_on_init.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	Parse error at 11:12: `unsafe` goes after the parameter list, not before `init` — write `init(...) unsafe -> T` (the effect slot, before `sync`)
+meets_expect	yes
+log	"error: Parse error at 11:12: `unsafe` goes after the parameter list, not before `init` — write `init(...) unsafe -> T` (the effect slot, before `sync`)"

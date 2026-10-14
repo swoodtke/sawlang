@@ -1,0 +1,10 @@
+program	coercion/adopt_assign_field_const.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"field = 24"
+stdout	"elem field = 40"
+stdout	""
+meets_expect	yes

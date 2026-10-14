@@ -1,0 +1,9 @@
+program	l3_qualified_still_works.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"3"
+stdout	""
+meets_expect	yes

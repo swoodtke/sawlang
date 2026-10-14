@@ -1,0 +1,36 @@
+program	coro_iflet_move_scrutinee_releases_payload.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"t1 in t1p"
+stdout	"t1 plain 0"
+stdout	"t1 in t1d"
+stdout	"t1 driven 0"
+stdout	"t2 in 1"
+stdout	"t2 plain 0"
+stdout	"t2 in 1"
+stdout	"t2 driven 0"
+stdout	"t3 in t3p"
+stdout	"t3 plain 0"
+stdout	"t3 in t3d"
+stdout	"t3 driven 0"
+stdout	"t4 in t4p"
+stdout	"t4 plain 0"
+stdout	"t4 in t4d"
+stdout	"t4 driven 0"
+stdout	"t5 in t5p"
+stdout	"t5 plain 0"
+stdout	"t5 in t5d"
+stdout	"t5 driven 0"
+stdout	"t6 in 2"
+stdout	"t6 plain 0"
+stdout	"t6 in 2"
+stdout	"t6 driven 0"
+stdout	"t7 in t7p"
+stdout	"t7 plain 0"
+stdout	"t7 in t7d"
+stdout	"t7 driven 0"
+stdout	""
+meets_expect	yes

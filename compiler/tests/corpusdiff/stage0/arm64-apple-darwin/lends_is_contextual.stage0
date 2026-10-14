@@ -1,0 +1,15 @@
+program	lends_is_contextual.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"local: 7"
+stdout	"operand: 8"
+stdout	"call: 6"
+stdout	"field: 4"
+stdout	"label: 6"
+stdout	"assigned: 9"
+stdout	"origin: 5"
+stdout	""
+meets_expect	yes

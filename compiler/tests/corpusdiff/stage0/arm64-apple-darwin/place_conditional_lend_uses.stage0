@@ -1,0 +1,15 @@
+program	place_conditional_lend_uses.saw
+triple	arm64-apple-darwin
+twin	differs
+expect	success
+build	ok
+exit	0
+stdout	"2"
+stdout	"12"
+stdout	"b"
+stdout	"42"
+stdout	"none"
+stdout	"closed 1"
+stdout	"closed 2"
+stdout	""
+meets_expect	yes

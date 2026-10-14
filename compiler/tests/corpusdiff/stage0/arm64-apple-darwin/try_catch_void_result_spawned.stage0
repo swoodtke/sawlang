@@ -1,0 +1,11 @@
+program	try_catch_void_result_spawned.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"1"
+stdout	"worker: refused"
+stdout	"-1"
+stdout	""
+meets_expect	yes

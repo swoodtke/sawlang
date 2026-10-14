@@ -1,0 +1,14 @@
+program	conformance/V21_optional_explicitcopy_transfer.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	cannot copy value of type `Vector<Int, GlobalAllocator>?` which implements ExplicitCopy
+meets_expect	yes
+log	"error: cannot copy value of type `Vector<Int, GlobalAllocator>?` which implements ExplicitCopy"
+log	"  --> examples/conformance/V21_optional_explicitcopy_transfer.saw:13:16"
+log	"     |"
+log	" 13 |     print(take(o))"
+log	"     |                ^"
+log	"   hint: use `o.copy()` for an explicit deep copy, `move o` to transfer the whole binding, or `o.take()` to move the payload out in place"
+log	""
+log	"1 error(s) generated"

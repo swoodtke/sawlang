@@ -1,0 +1,20 @@
+program	conformance/V70_borrowed_closure_binding_refusal_is_tier_blind.saw
+triple	arm64-apple-darwin
+twin	differs
+expect	error
+build	refused	cannot move out of `e`: it is a closure PARAMETER declared `&var e`, which names storage the CALLER still owns for the length of the call, so the move would release a value its owner still holds
+meets_expect	yes
+log	"error: cannot move out of `e`: it is a closure PARAMETER declared `&var e`, which names storage the CALLER still owns for the length of the call, so the move would release a value its owner still holds"
+log	"  --> examples/conformance/V70_borrowed_closure_binding_refusal_is_tier_blind.saw:23:35"
+log	"     |"
+log	" 23 |     v.with_var_ref(0, { &var e in move e })"
+log	"     |                                   ^"
+log	"   hint: to take the value OUT, use the move-out its owner publishes — `swap_out(i, replacement)` on a vector element, `take()` on an `Optional` field — called on the receiver, outside this body"
+log	""
+log	"error: function `copy_tier_face` should return `Arc<Res>` but returns `Void`"
+log	"  --> examples/conformance/V70_borrowed_closure_binding_refusal_is_tier_blind.saw:18:1"
+log	"     |"
+log	" 18 | func copy_tier_face() -> Arc<Res> {"
+log	"     | ^"
+log	""
+log	"2 error(s) generated"

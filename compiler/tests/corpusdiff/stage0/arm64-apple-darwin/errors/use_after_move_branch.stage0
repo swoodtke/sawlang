@@ -1,0 +1,14 @@
+program	errors/use_after_move_branch.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	use of moved variable `f`
+meets_expect	yes
+log	"error: use of moved variable `f`"
+log	"  --> examples/errors/use_after_move_branch.saw:24:11"
+log	"     |"
+log	" 24 |     print(f.fd)           // error: f is may-moved after the merge"
+log	"     |           ^"
+log	"   hint: value was moved at line 22 and can no longer be used"
+log	""
+log	"1 error(s) generated"

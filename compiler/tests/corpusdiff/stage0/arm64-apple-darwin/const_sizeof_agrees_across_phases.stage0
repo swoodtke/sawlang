@@ -1,0 +1,9 @@
+program	const_sizeof_agrees_across_phases.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"agreed"
+stdout	""
+meets_expect	yes

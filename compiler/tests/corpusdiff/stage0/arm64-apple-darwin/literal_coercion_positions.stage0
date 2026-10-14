@@ -1,0 +1,15 @@
+program	literal_coercion_positions.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"60"
+stdout	"6"
+stdout	"5"
+stdout	"11"
+stdout	"200"
+stdout	"700"
+stdout	"1"
+stdout	""
+meets_expect	yes

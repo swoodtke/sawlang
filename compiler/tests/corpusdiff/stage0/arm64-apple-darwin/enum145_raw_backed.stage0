@@ -1,0 +1,14 @@
+program	enum145_raw_backed.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"12"
+stdout	"1"
+stdout	"round trip: out of memory"
+stdout	"unknown byte -> None"
+stdout	"zero is ok"
+stdout	"bad handle"
+stdout	""
+meets_expect	yes

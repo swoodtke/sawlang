@@ -1,0 +1,20 @@
+program	float_integer_operand_mix.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	operator `+` requires both operands to have the same type, but the left is `Int` and the right is `Float`
+meets_expect	yes
+log	"error: operator `+` requires both operands to have the same type, but the left is `Int` and the right is `Float`"
+log	"  --> examples/float_integer_operand_mix.saw:23:7"
+log	"     |"
+log	" 23 |     a + f"
+log	"     |       ^"
+log	"   hint: `Float` and the integer types never convert implicitly — write a float literal (`1.0`), or convert the operand explicitly"
+log	""
+log	"error: function `mix` should return `Float` but body has no value"
+log	"  --> examples/float_integer_operand_mix.saw:22:1"
+log	"     |"
+log	" 22 | func mix(a: Int, f: Float) -> Float {"
+log	"     | ^"
+log	""
+log	"2 error(s) generated"

@@ -1,0 +1,27 @@
+program	vector_each_indexed_exclusivity_error.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	exclusive access violation: `v` is passed as `&var` while also being accessed in the same call
+meets_expect	yes
+log	"error: result of `push` is `Result<Void, AllocError>` and is silently discarded"
+log	"  --> examples/vector_each_indexed_exclusivity_error.saw:9:6"
+log	"    |"
+log	" 9 |     v.push(1)"
+log	"    |      ^"
+log	"   hint: handle it — `match` it, `try`/`try!`/`try?` it, or return it — or write `let _ = ...` to discard it explicitly"
+log	""
+log	"error: argument `body` expects `(Int, &Int) -> Void` but got `(Int, &Int) -> Result<Void, AllocError>`"
+log	"  --> examples/vector_each_indexed_exclusivity_error.saw:10:20"
+log	"     |"
+log	" 10 |     v.each_indexed { [&var v] i, x in"
+log	"     |                    ^"
+log	""
+log	"error: exclusive access violation: `v` is passed as `&var` while also being accessed in the same call"
+log	"  --> examples/vector_each_indexed_exclusivity_error.saw:10:23"
+log	"     |"
+log	" 10 |     v.each_indexed { [&var v] i, x in"
+log	"     |                       ^"
+log	"   hint: disjoint access paths are allowed (e.g. `&var p.x` with `&p.y`); give the mutable reference exclusive access"
+log	""
+log	"3 error(s) generated"

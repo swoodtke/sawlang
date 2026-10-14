@@ -1,0 +1,14 @@
+program	errors/funcpointer226_named_signature_mismatch.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	no declaration of `wrong` has signature `(Int) sync -> Int` (found `(Int) sync -> Bool`)
+meets_expect	yes
+log	"error: no declaration of `wrong` has signature `(Int) sync -> Int` (found `(Int) sync -> Bool`)"
+log	"  --> examples/errors/funcpointer226_named_signature_mismatch.saw:12:45"
+log	"     |"
+log	" 12 |     let p: FuncPointer<(Int) sync -> Int> = wrong"
+log	"     |                                             ^"
+log	"   hint: a function pointer's signature must match the declaration exactly — parameter types and return type, with no conversions"
+log	""
+log	"1 error(s) generated"

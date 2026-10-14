@@ -1,0 +1,21 @@
+program	errors/use_after_move_shadow_outer.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	use of moved variable `f`
+meets_expect	yes
+log	"error: `f` shadows the binding declared at use_after_move_shadow_outer.saw:18:5"
+log	"  --> examples/errors/use_after_move_shadow_outer.saw:22:9"
+log	"     |"
+log	" 22 |         let f = FileHandle(fd: 2)   // shadows outer f"
+log	"     |         ^"
+log	"   hint: rename it, or derive it from the original (e.g. `let f = parse(move f)`) to make the redefinition explicit"
+log	""
+log	"error: use of moved variable `f`"
+log	"  --> examples/errors/use_after_move_shadow_outer.saw:25:11"
+log	"     |"
+log	" 25 |     print(f.fd)              // error: outer f is still moved"
+log	"     |           ^"
+log	"   hint: value was moved at line 19 and can no longer be used"
+log	""
+log	"2 error(s) generated"

@@ -1,0 +1,14 @@
+program	conformance/V53_consuming_call_nomove_receiver.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	cannot `move` `p`: `Pinned` is `NoMove`, so it lives where its constructor built it and may not be relocated.
+meets_expect	yes
+log	"error: cannot `move` `p`: `Pinned` is `NoMove`, so it lives where its constructor built it and may not be relocated."
+log	"  --> examples/conformance/V53_consuming_call_nomove_receiver.saw:24:18"
+log	"     |"
+log	" 24 |     print(\"{}\", (move p).finish())"
+log	"     |                  ^"
+log	"   hint: pass `&var p` to lend it, or build the value where it has to live. Replacing a referent whole through a `&var` stays legal — that destroys and constructs at one address rather than moving"
+log	""
+log	"1 error(s) generated"

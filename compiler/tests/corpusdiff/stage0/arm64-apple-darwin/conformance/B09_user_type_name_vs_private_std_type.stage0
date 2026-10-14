@@ -1,0 +1,9 @@
+program	conformance/B09_user_type_name_vs_private_std_type.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"1 7 2"
+stdout	""
+meets_expect	yes

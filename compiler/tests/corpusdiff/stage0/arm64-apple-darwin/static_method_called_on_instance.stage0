@@ -1,0 +1,21 @@
+program	static_method_called_on_instance.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	`solo` is a static method of `Bag` and cannot be called on a value
+meets_expect	yes
+log	"error: `solo` is a static method of `Bag` and cannot be called on a value"
+log	"  --> examples/static_method_called_on_instance.saw:43:23"
+log	"     |"
+log	" 43 |     print(\"instance {b.solo(index: 4)}\")"
+log	"     |                       ^"
+log	"   hint: call it on the type: `Bag.solo(...)`. A static method has no `self`, so there is nothing for the receiver to become"
+log	""
+log	"error: `of` is a static method of `Side` and cannot be called on a value"
+log	"  --> examples/static_method_called_on_instance.saw:45:28"
+log	"     |"
+log	" 45 |     print(\"enum instance {s.of(raw: 9)}\")"
+log	"     |                            ^"
+log	"   hint: call it on the type: `Side.of(...)`. A static method has no `self`, so there is nothing for the receiver to become"
+log	""
+log	"2 error(s) generated"

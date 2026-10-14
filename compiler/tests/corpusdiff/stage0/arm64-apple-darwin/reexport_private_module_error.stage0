@@ -1,0 +1,20 @@
+program	reexport_private_module_error.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	`internal` is private in `modules.lib_with_private_module`
+meets_expect	yes
+log	"error: `internal` is private in `modules.lib_with_private_module`"
+log	"  --> examples/reexport_private_module_error.saw:19:36"
+log	"     |"
+log	" 19 |     let y = lib_with_private_module.internal.helper()"
+log	"     |                                    ^"
+log	"   hint: mark it `public` in `modules.lib_with_private_module` to expose it — a `public import` re-export hands on the name and its module's extension scope, never a wider tier"
+log	""
+log	"error: undefined variable `y`"
+log	"  --> examples/reexport_private_module_error.saw:20:11"
+log	"     |"
+log	" 20 |     print(y)"
+log	"     |           ^"
+log	""
+log	"2 error(s) generated"

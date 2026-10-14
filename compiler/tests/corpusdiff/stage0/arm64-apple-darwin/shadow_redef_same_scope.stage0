@@ -1,0 +1,15 @@
+program	shadow_redef_same_scope.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"deinit 1"
+stdout	"after copy-redef"
+stdout	"5"
+stdout	"60"
+stdout	"8"
+stdout	"hello world"
+stdout	"deinit 101"
+stdout	""
+meets_expect	yes

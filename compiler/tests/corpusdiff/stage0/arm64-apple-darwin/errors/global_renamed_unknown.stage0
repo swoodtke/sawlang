@@ -1,0 +1,13 @@
+program	errors/global_renamed_unknown.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	undefined function `Global`
+meets_expect	yes
+log	"error: undefined function `Global`"
+log	"  --> examples/errors/global_renamed_unknown.saw:8:13"
+log	"    |"
+log	" 8 |     let g = Global()"
+log	"    |             ^"
+log	""
+log	"1 error(s) generated"

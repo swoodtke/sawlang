@@ -1,0 +1,13 @@
+program	enum_raw_value_const_expression_out_of_range.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	raw value 512 for case `Over` is out of range for backing type `UInt8`
+meets_expect	yes
+log	"error: raw value 512 for case `Over` is out of range for backing type `UInt8`"
+log	"  --> examples/enum_raw_value_const_expression_out_of_range.saw:16:15"
+log	"     |"
+log	" 16 |     case Over = 1 << 9,"
+log	"     |               ^"
+log	""
+log	"1 error(s) generated"

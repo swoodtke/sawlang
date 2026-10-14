@@ -1,0 +1,16 @@
+program	place_window_move_arg_consumes_local.saw
+triple	arm64-apple-darwin
+twin	differs
+expect	success
+build	ok
+exit	0
+stdout	"deinit 5"
+stdout	"deinit 4"
+stdout	"driven len 2"
+stdout	"direct len 1"
+stdout	"deinit 1"
+stdout	"binding len 2"
+stdout	"deinit 3"
+stdout	"deinit 2"
+stdout	""
+meets_expect	yes

@@ -1,0 +1,20 @@
+program	conformance/W19_bitwise_mixed_width.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	operator `&` requires both operands to have the same type, but the left is `Int` and the right is `Int16`
+meets_expect	yes
+log	"error: operator `&` requires both operands to have the same type, but the left is `Int` and the right is `Int16`"
+log	"  --> examples/conformance/W19_bitwise_mixed_width.saw:19:7"
+log	"     |"
+log	" 19 |     a & b"
+log	"     |       ^"
+log	"   hint: convert one operand — `x as Int` panics out of range, `Int.from(x)` answers `None`, `Int.from(truncating: x)` keeps the low bits"
+log	""
+log	"error: function `mask` should return `Int` but body has no value"
+log	"  --> examples/conformance/W19_bitwise_mixed_width.saw:18:1"
+log	"     |"
+log	" 18 | func mask(a: Int, b: Int16) -> Int {"
+log	"     | ^"
+log	""
+log	"2 error(s) generated"

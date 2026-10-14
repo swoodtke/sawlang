@@ -1,0 +1,9 @@
+program	conformance/K25_cross_module_embed_private_static_const_position.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"8"
+stdout	""
+meets_expect	yes

@@ -1,0 +1,14 @@
+program	pointer_prefix_deref.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"read 41"
+stdout	"after store 7"
+stdout	"field 3"
+stdout	"via ref 8"
+stdout	"moved gamma"
+stdout	"index spelling still 7"
+stdout	""
+meets_expect	yes

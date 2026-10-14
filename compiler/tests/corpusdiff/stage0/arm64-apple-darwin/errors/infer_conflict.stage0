@@ -1,0 +1,14 @@
+program	errors/infer_conflict.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	cannot infer type argument `T` for function `both`: it is required to be both `Int` and `String`
+meets_expect	yes
+log	"error: cannot infer type argument `T` for function `both`: it is required to be both `Int` and `String`"
+log	"  --> examples/errors/infer_conflict.saw:10:13"
+log	"     |"
+log	" 10 |     let x = both((1, \"s\"))"
+log	"     |             ^"
+log	"   hint: give the type argument(s) explicitly"
+log	""
+log	"1 error(s) generated"

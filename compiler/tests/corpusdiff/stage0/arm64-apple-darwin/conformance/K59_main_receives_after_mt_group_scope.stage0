@@ -1,0 +1,9 @@
+program	conformance/K59_main_receives_after_mt_group_scope.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"main got 8"
+stdout	""
+meets_expect	yes

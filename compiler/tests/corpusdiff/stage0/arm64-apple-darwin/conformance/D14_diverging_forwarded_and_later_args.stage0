@@ -1,0 +1,10 @@
+program	conformance/D14_diverging_forwarded_and_later_args.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"7 7 7 5"
+stdout	"0 0"
+stdout	""
+meets_expect	yes

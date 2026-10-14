@@ -1,0 +1,13 @@
+program	deinit_in_place_misuse_error.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	`__saw_deinit_in_place` is a compiler-internal intrinsic usable only inside a `deinit` method body
+meets_expect	yes
+log	"error: `__saw_deinit_in_place` is a compiler-internal intrinsic usable only inside a `deinit` method body"
+log	"  --> examples/deinit_in_place_misuse_error.saw:10:5"
+log	"     |"
+log	" 10 |     __saw_deinit_in_place(0)"
+log	"     |     ^"
+log	""
+log	"1 error(s) generated"

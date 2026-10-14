@@ -1,0 +1,14 @@
+program	conformance/U28_pointer_place_read_needs_move.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	cannot copy value of type `Res` which implements NoCopy
+meets_expect	yes
+log	"error: cannot copy value of type `Res` which implements NoCopy"
+log	"  --> examples/conformance/U28_pointer_place_read_needs_move.saw:18:5"
+log	"     |"
+log	" 18 |     let taken = slot[0]"
+log	"     |     ^"
+log	"   hint: this read transfers ownership — spell it `move slot[0]`"
+log	""
+log	"1 error(s) generated"

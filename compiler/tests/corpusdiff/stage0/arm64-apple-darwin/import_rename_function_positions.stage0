@@ -1,0 +1,14 @@
+program	import_rename_function_positions.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"saw tasks: none live"
+stdout	"yielded"
+stdout	"user 12"
+stdout	"badge 4"
+stdout	"generic 5"
+stdout	"twice 6"
+stdout	""
+meets_expect	yes

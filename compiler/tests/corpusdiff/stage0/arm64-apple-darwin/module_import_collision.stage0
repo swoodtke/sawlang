@@ -1,0 +1,14 @@
+program	module_import_collision.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	ambiguous call to `shared_value`: multiple overloads match the argument types ()
+meets_expect	yes
+log	"error: ambiguous call to `shared_value`: multiple overloads match the argument types ()"
+log	"  --> examples/module_import_collision.saw:18:11"
+log	"     |"
+log	" 18 |     print(shared_value())"
+log	"     |           ^"
+log	"   hint: matching candidates: shared_value() [modules.collide_a]; shared_value() [modules.collide_b]"
+log	""
+log	"1 error(s) generated"

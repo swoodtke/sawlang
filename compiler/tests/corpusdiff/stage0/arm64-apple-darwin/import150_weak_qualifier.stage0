@@ -1,0 +1,13 @@
+program	import150_weak_qualifier.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"qualifier 1"
+stdout	"local 2"
+stdout	"inner 2"
+stdout	"param 4"
+stdout	"qualifier-again 1"
+stdout	""
+meets_expect	yes

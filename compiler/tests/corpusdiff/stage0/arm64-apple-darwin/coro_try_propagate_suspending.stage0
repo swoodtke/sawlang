@@ -1,0 +1,17 @@
+program	coro_try_propagate_suspending.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"ok 1"
+stdout	"err MyErr(7)"
+stdout	"ok 1"
+stdout	"err MyErr(7)"
+stdout	"ok 5"
+stdout	"err MyErr(7)"
+stdout	"ok 2"
+stdout	"err MyErr(3)"
+stdout	"err MyErr(9)"
+stdout	""
+meets_expect	yes

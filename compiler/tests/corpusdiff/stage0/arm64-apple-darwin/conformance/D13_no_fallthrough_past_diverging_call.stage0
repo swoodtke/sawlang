@@ -1,0 +1,11 @@
+program	conformance/D13_no_fallthrough_past_diverging_call.saw
+triple	arm64-apple-darwin
+twin	same
+expect	panic
+build	ok
+exit	-6
+stdout	"before"
+stdout	"stopping: 7"
+stdout	"panic at D13_no_fallthrough_past_diverging_call.saw:33: deliberate"
+stdout	""
+meets_expect	yes

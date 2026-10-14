@@ -1,0 +1,13 @@
+program	conformance/M41_shared_self_indirection_carveout_spellings.saw
+triple	arm64-apple-darwin
+twin	differs
+expect	success
+build	ok
+exit	0
+stdout	"vector 101"
+stdout	"map 101"
+stdout	"named 101"
+stdout	"data 6"
+stdout	"nested 101"
+stdout	""
+meets_expect	yes

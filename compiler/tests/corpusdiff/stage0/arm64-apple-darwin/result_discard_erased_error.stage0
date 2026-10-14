@@ -1,0 +1,28 @@
+program	result_discard_erased_error.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	result of `load` is `Result<Int, Box<any Error, GlobalAllocator>>` and is silently discarded
+meets_expect	yes
+log	"error: result of `load` is `Result<Int, Box<any Error, GlobalAllocator>>` and is silently discarded"
+log	"  --> examples/result_discard_erased_error.saw:22:5"
+log	"     |"
+log	" 22 |     load(1)"
+log	"     |     ^"
+log	"   hint: handle it — `match` it, `try`/`try!`/`try?` it, or return it — or write `let _ = ...` to discard it explicitly"
+log	""
+log	"error: result of `append` is `Result<Void, AllocError>` and is silently discarded"
+log	"  --> examples/result_discard_erased_error.saw:10:13"
+log	"     |"
+log	" 10 |         into.append(\"bad input at \")"
+log	"     |             ^"
+log	"   hint: handle it — `match` it, `try`/`try!`/`try?` it, or return it — or write `let _ = ...` to discard it explicitly"
+log	""
+log	"error: result of `append` is `Result<Void, AllocError>` and is silently discarded"
+log	"  --> examples/result_discard_erased_error.saw:11:13"
+log	"     |"
+log	" 11 |         into.append(self.at)"
+log	"     |             ^"
+log	"   hint: handle it — `match` it, `try`/`try!`/`try?` it, or return it — or write `let _ = ...` to discard it explicitly"
+log	""
+log	"3 error(s) generated"

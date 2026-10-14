@@ -1,0 +1,13 @@
+program	generic_bound_call_self_param_type.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	argument `other` expects `&T` but got `&Sack`
+meets_expect	yes
+log	"error: argument `other` expects `&T` but got `&Sack`"
+log	"  --> examples/generic_bound_call_self_param_type.saw:38:13"
+log	"     |"
+log	" 38 |     a.merge(&s)"
+log	"     |             ^"
+log	""
+log	"1 error(s) generated"

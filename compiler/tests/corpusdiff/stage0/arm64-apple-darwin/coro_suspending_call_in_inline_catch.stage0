@@ -1,0 +1,10 @@
+program	coro_suspending_call_in_inline_catch.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"caught 0"
+stdout	"ok 5"
+stdout	""
+meets_expect	yes

@@ -1,0 +1,10 @@
+program	float_text_parse_vectors.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"round trip: 0 failures over 2897 vectors"
+stdout	"parse: 0 failures over 175 vectors"
+stdout	""
+meets_expect	yes

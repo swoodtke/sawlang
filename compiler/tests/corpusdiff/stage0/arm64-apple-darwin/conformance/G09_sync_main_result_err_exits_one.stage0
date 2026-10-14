@@ -1,0 +1,9 @@
+program	conformance/G09_sync_main_result_err_exits_one.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	1
+stdout	"error: no such shelf: 3"
+stdout	""
+meets_expect	yes

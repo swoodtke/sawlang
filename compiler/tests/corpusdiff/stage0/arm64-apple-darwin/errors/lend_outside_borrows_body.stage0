@@ -1,0 +1,19 @@
+program	errors/lend_outside_borrows_body.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	`lend` is only legal in a `borrows` body — add `borrows` to the effect slot (`func at(&var self, ...) borrows -> &var T`) if this declaration means to yield a place for a window rather than return a value
+meets_expect	yes
+log	"error: `lend` is only legal in a `borrows` body — add `borrows` to the effect slot (`func at(&var self, ...) borrows -> &var T`) if this declaration means to yield a place for a window rather than return a value"
+log	"  --> examples/errors/lend_outside_borrows_body.saw:12:9"
+log	"     |"
+log	" 12 |         lend self.items[i]"
+log	"     |         ^"
+log	""
+log	"error: method `at` should return `Int` but body has no value"
+log	"  --> examples/errors/lend_outside_borrows_body.saw:11:12"
+log	"     |"
+log	" 11 |     public func at(&self, i: Int) -> Int {"
+log	"     |            ^"
+log	""
+log	"2 error(s) generated"

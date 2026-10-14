@@ -1,0 +1,10 @@
+program	coro_static_method_suspends.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"instance: 42"
+stdout	"static: 42"
+stdout	""
+meets_expect	yes

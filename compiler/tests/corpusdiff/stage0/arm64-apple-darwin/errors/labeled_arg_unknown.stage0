@@ -1,0 +1,13 @@
+program	errors/labeled_arg_unknown.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	`sub` has no parameter named `z`
+meets_expect	yes
+log	"error: `sub` has no parameter named `z`"
+log	"  --> examples/errors/labeled_arg_unknown.saw:10:24"
+log	"     |"
+log	" 10 |     print(sub(a: 1, z: 2))"
+log	"     |                        ^"
+log	""
+log	"1 error(s) generated"

@@ -1,0 +1,20 @@
+program	taskgroup_move_live.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	cannot `move` `group`: `TaskGroup` is `NoMove`, so it lives where its constructor built it and may not be relocated. A `TaskGroup` is a SCOPE (design 124): its `Deinit` structured-joins its children where the group was born, and every spawned frame holds the group's address — so a group that moved would join in one place and be driven from another. Keep it in the frame that opened it and pass `&var group` down, or spawn into a group the caller owns.
+meets_expect	yes
+log	"error: cannot `move` `group`: `TaskGroup` is `NoMove`, so it lives where its constructor built it and may not be relocated. A `TaskGroup` is a SCOPE (design 124): its `Deinit` structured-joins its children where the group was born, and every spawned frame holds the group's address — so a group that moved would join in one place and be driven from another. Keep it in the frame that opened it and pass `&var group` down, or spawn into a group the caller owns."
+log	"  --> examples/taskgroup_move_live.saw:22:5"
+log	"     |"
+log	" 22 |     move group"
+log	"     |     ^"
+log	"   hint: pass `&var group` to lend it, or build the value where it has to live. Replacing a referent whole through a `&var` stays legal — that destroys and constructs at one address rather than moving"
+log	""
+log	"error: function `make` should return `TaskGroup` but body has no value"
+log	"  --> examples/taskgroup_move_live.saw:19:1"
+log	"     |"
+log	" 19 | func make() -> TaskGroup {"
+log	"     | ^"
+log	""
+log	"2 error(s) generated"

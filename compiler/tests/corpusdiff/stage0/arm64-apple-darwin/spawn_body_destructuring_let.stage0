@@ -1,0 +1,10 @@
+program	spawn_body_destructuring_let.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"got 3"
+stdout	"done"
+stdout	""
+meets_expect	yes

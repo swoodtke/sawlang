@@ -1,0 +1,14 @@
+program	coro_closure_captures_self_nested.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"33"
+stdout	"hi Ada"
+stdout	"15"
+stdout	"hey Ada"
+stdout	"red!"
+stdout	"12"
+stdout	""
+meets_expect	yes

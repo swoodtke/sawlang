@@ -1,0 +1,14 @@
+program	spinlock_import_gate.saw
+triple	arm64-apple-darwin
+twin	differs
+expect	error
+build	refused	`SpinLock` is not in the prelude and must be imported
+meets_expect	yes
+log	"error: `SpinLock` is not in the prelude and must be imported"
+log	"  --> examples/spinlock_import_gate.saw:11:14"
+log	"     |"
+log	" 11 | static LOCK: SpinLock<Int>"
+log	"     |              ^"
+log	"   hint: `import std.spinlock.{SpinLock}` selects it, `import std.spinlock.*` takes the module's whole vocabulary bare, and `import std.spinlock` lets you write `spinlock.SpinLock`"
+log	""
+log	"1 error(s) generated"

@@ -1,0 +1,14 @@
+program	errors/implicit_copy_containment.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	struct `Container` contains Copy field `data` of type `RefCounted` but does not implement Copy
+meets_expect	yes
+log	"error: struct `Container` contains Copy field `data` of type `RefCounted` but does not implement Copy"
+log	"  --> examples/errors/implicit_copy_containment.saw:18:1"
+log	"     |"
+log	" 18 | struct Container {"
+log	"     | ^"
+log	"   hint: add `@synthesize extension Container: Copy {}` for a memberwise copy, or write `func copy(&self) -> Container` by hand"
+log	""
+log	"1 error(s) generated"

@@ -1,0 +1,7 @@
+program	errors/borrows_trait_requirement_rejected.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	Parse error at 10:40: `borrows` may not appear on a trait requirement (design 141 v1): a place is not a value, so it cannot be yielded through an erased `any Trait` receiver. Declare the borrows method on the concrete type instead
+meets_expect	yes
+log	"error: Parse error at 10:40: `borrows` may not appear on a trait requirement (design 141 v1): a place is not a value, so it cannot be yielded through an erased `any Trait` receiver. Declare the borrows method on the concrete type instead"

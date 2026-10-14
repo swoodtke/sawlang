@@ -1,0 +1,13 @@
+program	enum145_policy_deinit.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"loaded"
+stdout	"empty"
+stdout	"end of main"
+stdout	"reel dropped"
+stdout	"reel dropped"
+stdout	""
+meets_expect	yes

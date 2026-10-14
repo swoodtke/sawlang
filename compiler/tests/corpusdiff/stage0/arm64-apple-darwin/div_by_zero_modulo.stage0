@@ -1,0 +1,9 @@
+program	div_by_zero_modulo.saw
+triple	arm64-apple-darwin
+twin	same
+expect	panic
+build	ok
+exit	-6
+stdout	"panic at div_by_zero_modulo.saw:11: division by zero"
+stdout	""
+meets_expect	yes

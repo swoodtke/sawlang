@@ -1,0 +1,13 @@
+program	errors/while_break_outside_loop.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	`break` can only be used inside a loop
+meets_expect	yes
+log	"error: `break` can only be used inside a loop"
+log	"  --> examples/errors/while_break_outside_loop.saw:7:9"
+log	"    |"
+log	" 7 |         break"
+log	"    |         ^"
+log	""
+log	"1 error(s) generated"

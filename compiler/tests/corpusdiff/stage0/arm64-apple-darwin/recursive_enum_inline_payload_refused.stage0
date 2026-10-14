@@ -1,0 +1,14 @@
+program	recursive_enum_inline_payload_refused.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	recursive type `Tree` has infinite size: its storage contains its own storage inline, through Tree.Node.child -> Tree
+meets_expect	yes
+log	"error: recursive type `Tree` has infinite size: its storage contains its own storage inline, through Tree.Node.child -> Tree"
+log	"  --> examples/recursive_enum_inline_payload_refused.saw:15:1"
+log	"     |"
+log	" 15 | enum Tree {"
+log	"     | ^"
+log	"   hint: hold the recursive member behind a heap indirection — `Box<Tree>`, `Vector<Tree>` or a `Map` value — so the cycle crosses a pointer and the layout is finite"
+log	""
+log	"1 error(s) generated"

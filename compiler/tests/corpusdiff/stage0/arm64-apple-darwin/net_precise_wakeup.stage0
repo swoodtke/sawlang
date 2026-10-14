@@ -1,0 +1,11 @@
+program	net_precise_wakeup.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"65"
+stdout	"66"
+stdout	"0"
+stdout	""
+meets_expect	yes

@@ -1,0 +1,14 @@
+program	conformance/M10_write_through_shared_ref.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	cannot use compound assignment on immutable variable `x`
+meets_expect	yes
+log	"error: cannot use compound assignment on immutable variable `x`"
+log	"  --> examples/conformance/M10_write_through_shared_ref.saw:9:19"
+log	"    |"
+log	" 9 | func f(x: &Int) { x += 1 }"
+log	"    |                   ^"
+log	"   hint: consider using `var` instead of `let` to make it mutable"
+log	""
+log	"1 error(s) generated"

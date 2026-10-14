@@ -1,0 +1,12 @@
+program	format_into_builtin_alloc_free.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"armed"
+stdout	"-42|text|true|18446744073709551615|1.5"
+stdout	"nested: -42|text|true|18446744073709551615|1.5"
+stdout	"disarmed, heap works again"
+stdout	""
+meets_expect	yes

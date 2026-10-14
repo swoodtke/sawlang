@@ -1,0 +1,21 @@
+program	coro_move_in_split_try_body.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"drop old"
+stdout	"2"
+stdout	"drop old"
+stdout	"drop old"
+stdout	"3"
+stdout	"drop blk"
+stdout	"100"
+stdout	"drop let"
+stdout	"200"
+stdout	"drop prop"
+stdout	"prop err fail"
+stdout	"drop ret"
+stdout	"ret err fail"
+stdout	""
+meets_expect	yes

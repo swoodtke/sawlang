@@ -1,0 +1,11 @@
+program	enum_policy_bare_owning_error.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	enum `Reel` carries NoCopy payload `t` of type `Tape` in variant `Loaded` but does not implement NoCopy
+meets_expect	yes
+log	"error: enum `Reel` carries NoCopy payload `t` of type `Tape` in variant `Loaded` but does not implement NoCopy"
+log	"  --> examples/enum_policy_bare_owning_error.saw:0:0"
+log	"   hint: add `extension Reel: NoCopy {}` — a NoCopy payload makes `Reel` move-only, and its `deinit` is synthesized"
+log	""
+log	"1 error(s) generated"

@@ -1,0 +1,14 @@
+program	ext254_plain_import_no_forward_error.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	type `Panel` has no method `kind` in scope here
+meets_expect	yes
+log	"error: type `Panel` has no method `kind` in scope here"
+log	"  --> examples/ext254_plain_import_no_forward_error.saw:17:12"
+log	"     |"
+log	" 17 |     print(p.kind())"
+log	"     |            ^"
+log	"   hint: `modules.ext254_knobs` extends `Panel` with `kind`, but this file does not import it — add `import modules.ext254_knobs`"
+log	""
+log	"1 error(s) generated"

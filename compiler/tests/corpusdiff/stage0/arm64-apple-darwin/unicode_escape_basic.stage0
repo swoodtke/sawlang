@@ -1,0 +1,12 @@
+program	unicode_escape_basic.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"✓"
+stdout	"😀"
+stdout	"A is A"
+stdout	"5 ✓"
+stdout	""
+meets_expect	yes

@@ -1,0 +1,21 @@
+program	errors/unsafe_contact_intake.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	function `peek` is not declared `unsafe`, but its body binds a value of unsafe type (`UnsafeTag`)
+meets_expect	yes
+log	"error: function `peek` is not declared `unsafe`, but its body binds a value of unsafe type (`UnsafeTag`)"
+log	"  --> examples/errors/unsafe_contact_intake.saw:36:9"
+log	"     |"
+log	" 36 |         case Filled(t) -> 1,"
+log	"     |         ^"
+log	"   hint: write `func peek(...) unsafe` — the unsafety belongs in the signature where every caller can see it; if the operation is sound for every input, keep the wrapper unsafe and expose a safe one that checks its arguments"
+log	""
+log	"error: function `defaulted` is not declared `unsafe`, but its body names a value of unsafe type (`UnsafeTag`)"
+log	"  --> examples/errors/unsafe_contact_intake.saw:41:25"
+log	"     |"
+log	" 41 | func defaulted(a: Int = UnsafeTag(n: 3).value()) -> Int {"
+log	"     |                         ^"
+log	"   hint: write `func defaulted(...) unsafe` — the unsafety belongs in the signature where every caller can see it; if the operation is sound for every input, keep the wrapper unsafe and expose a safe one that checks its arguments"
+log	""
+log	"2 error(s) generated"

@@ -1,0 +1,7 @@
+program	errors/consumes_beside_borrows.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	Parse error at 15:49: `consumes` and `borrows` are mutually exclusive — you cannot lend out storage from a receiver you destroyed. Write one or the other
+meets_expect	yes
+log	"error: Parse error at 15:49: `consumes` and `borrows` are mutually exclusive — you cannot lend out storage from a receiver you destroyed. Write one or the other"

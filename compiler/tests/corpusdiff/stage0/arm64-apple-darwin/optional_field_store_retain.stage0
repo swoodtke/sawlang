@@ -1,0 +1,11 @@
+program	optional_field_store_retain.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"local still=[u8]"
+stdout	"suffix=[u8]"
+stdout	"direct=[u32]"
+stdout	""
+meets_expect	yes

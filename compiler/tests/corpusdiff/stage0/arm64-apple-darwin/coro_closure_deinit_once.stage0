@@ -1,0 +1,11 @@
+program	coro_closure_deinit_once.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"deinit 7"
+stdout	"4"
+stdout	"999"
+stdout	""
+meets_expect	yes

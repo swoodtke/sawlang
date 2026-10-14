@@ -1,0 +1,15 @@
+program	result_optional_none_survives_the_transform.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"worker 7"
+stdout	"poll -1"
+stdout	"poll 3"
+stdout	"method -1"
+stdout	"suspending -1"
+stdout	"arms -1"
+stdout	"generic -1"
+stdout	""
+meets_expect	yes

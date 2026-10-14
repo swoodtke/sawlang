@@ -1,0 +1,11 @@
+program	enum_policy_nocopy_move_only.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"built"
+stdout	"moved"
+stdout	"drop 4"
+stdout	""
+meets_expect	yes

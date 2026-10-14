@@ -1,0 +1,14 @@
+program	exclusivity_shared_self_receiver.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	exclusive access violation: `c` is passed as `&var` while also being accessed in the same call
+meets_expect	yes
+log	"error: exclusive access violation: `c` is passed as `&var` while also being accessed in the same call"
+log	"  --> examples/exclusivity_shared_self_receiver.saw:28:20"
+log	"     |"
+log	" 28 |     let x = c.read(&var c)   // receiver `c` (shared) aliases `&var c` (mutable)"
+log	"     |                    ^"
+log	"   hint: disjoint access paths are allowed (e.g. `&var p.x` with `&p.y`); give the mutable reference exclusive access"
+log	""
+log	"1 error(s) generated"

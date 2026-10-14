@@ -1,0 +1,14 @@
+program	conformance/W09_comparison_sign_mix.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	operator `<` requires both operands to have the same type, but the left is `Int` and the right is `UInt`
+meets_expect	yes
+log	"error: operator `<` requires both operands to have the same type, but the left is `Int` and the right is `UInt`"
+log	"  --> examples/conformance/W09_comparison_sign_mix.saw:18:7"
+log	"     |"
+log	" 18 |     i < u"
+log	"     |       ^"
+log	"   hint: convert one operand — `x as Int` panics out of range, `Int.from(x)` answers `None`, `Int.from(truncating: x)` keeps the low bits"
+log	""
+log	"1 error(s) generated"

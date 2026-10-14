@@ -1,0 +1,13 @@
+program	named_tuple_reorder_error.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	cannot assign `(y: Int, x: Int)` to variable of type `(x: Int, y: Int)`
+meets_expect	yes
+log	"error: cannot assign `(y: Int, x: Int)` to variable of type `(x: Int, y: Int)`"
+log	"  --> examples/named_tuple_reorder_error.saw:7:5"
+log	"    |"
+log	" 7 |     let bad: (x: Int, y: Int) = (y: 4, x: 3)"
+log	"    |     ^"
+log	""
+log	"1 error(s) generated"

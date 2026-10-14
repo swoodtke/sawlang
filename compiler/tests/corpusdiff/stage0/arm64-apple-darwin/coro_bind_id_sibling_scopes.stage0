@@ -1,0 +1,12 @@
+program	coro_bind_id_sibling_scopes.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"then: 11"
+stdout	"else: other"
+stdout	"sync then: 11"
+stdout	"sync else: other"
+stdout	""
+meets_expect	yes

@@ -1,0 +1,13 @@
+program	self_receiver_pointer_reaches_caller.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"shared receiver reaches the caller: true"
+stdout	"mutable receiver reaches the caller: true"
+stdout	"field address through &self matches: true"
+stdout	"write through a &var-derived pointer is visible: 99"
+stdout	"primitive receiver stays by value: false"
+stdout	""
+meets_expect	yes

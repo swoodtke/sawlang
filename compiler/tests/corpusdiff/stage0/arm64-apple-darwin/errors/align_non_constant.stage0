@@ -1,0 +1,14 @@
+program	errors/align_non_constant.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	`@align` on the local `body` is not a compile-time constant: `width` is not allowed here
+meets_expect	yes
+log	"error: `@align` on the local `body` is not a compile-time constant: `width` is not allowed here"
+log	"  --> examples/errors/align_non_constant.saw:8:12"
+log	"    |"
+log	" 8 |     @align(width)"
+log	"    |            ^"
+log	"   hint: an alignment is fixed at compile time — use an integer literal, a module `static` of type `Int` or `UInt`, `sizeof`/`alignof` of a primitive or pointer type, or const arithmetic over them"
+log	""
+log	"1 error(s) generated"

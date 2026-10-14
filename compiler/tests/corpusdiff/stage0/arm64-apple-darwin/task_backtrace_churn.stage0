@@ -1,0 +1,16 @@
+program	task_backtrace_churn.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"three short tasks done"
+stdout	"saw tasks: 2 live (unsynchronized snapshot)"
+stdout	"  task group 1 slot 0 gen 4 sleeping"
+stdout	"    at task_backtrace_churn.saw:36 in churn_sleeper"
+stdout	"  task group 1 slot 1 gen 1 running"
+stdout	"    at task_backtrace_churn.saw:41 in churn_watcher"
+stdout	"watcher 0"
+stdout	"sleeper 7"
+stdout	""
+meets_expect	yes

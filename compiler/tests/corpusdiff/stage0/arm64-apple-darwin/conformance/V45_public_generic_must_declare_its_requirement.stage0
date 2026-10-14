@@ -1,0 +1,14 @@
+program	conformance/V45_public_generic_must_declare_its_requirement.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	public function `published` must declare the tier it requires: `T` has to be `Copy`, because it binds `x` twice, at lines 22 and 23
+meets_expect	yes
+log	"error: public function `published` must declare the tier it requires: `T` has to be `Copy`, because it binds `x` twice, at lines 22 and 23"
+log	"  --> examples/conformance/V45_public_generic_must_declare_its_requirement.saw:22:8"
+log	"     |"
+log	" 22 |     let a = x"
+log	"     |        ^"
+log	"   hint: write `<T: Copy>` in the signature. A public generic's requirement is part of its contract, and an inferred one can tighten when the body is edited — which would break callers with no signature change. Private and internal generics infer it"
+log	""
+log	"1 error(s) generated"

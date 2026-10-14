@@ -1,0 +1,38 @@
+program	int_types.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"Int: 100"
+stdout	"UInt: 200"
+stdout	"Int8: 50"
+stdout	"Int16: 1000"
+stdout	"Int32: 50000"
+stdout	"Int64: 1000000"
+stdout	"UInt8: 250"
+stdout	"UInt16: 60000"
+stdout	"UInt32: 3000000000"
+stdout	"UInt64: 10000000000"
+stdout	"Cast Int->UInt: 42"
+stdout	"Cast UInt->Int: 99"
+stdout	"Cast Int->Int8: 127"
+stdout	"Cast Int8->Int: -50"
+stdout	"Cast Int->Int16: 1000"
+stdout	"Cast Int16->Int: -1000"
+stdout	"Cast Int->Int32: 50000"
+stdout	"Cast Int32->Int: -50000"
+stdout	"Cast Int->Int64: 999999"
+stdout	"Cast Int64->Int: -999999"
+stdout	"Cast UInt->UInt8: 255"
+stdout	"Cast UInt8->UInt: 200"
+stdout	"Cast UInt->UInt16: 65000"
+stdout	"Cast UInt16->UInt: 40000"
+stdout	"Cast UInt->UInt32: 3000000"
+stdout	"Cast UInt32->UInt: 2000000"
+stdout	"Cast UInt->UInt64: 5000000000"
+stdout	"Cast UInt64->UInt: 8000000000"
+stdout	"Cross sign Int8->UInt8: 100"
+stdout	"Cross sign UInt8->Int8: 50"
+stdout	""
+meets_expect	yes

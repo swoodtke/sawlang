@@ -1,0 +1,22 @@
+program	type_is_a_contextual_keyword.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"let = 7"
+stdout	"var = 2"
+stdout	"label = 5"
+stdout	"enum label = 1"
+stdout	"field = 3"
+stdout	"method = 3"
+stdout	"interp = 7"
+stdout	"alias = 5 6"
+stdout	"assoc = 42"
+stdout	"loop = 0"
+stdout	"loop = 1"
+stdout	"tuple = 8"
+stdout	"iflet = 11"
+stdout	"closure = 12"
+stdout	""
+meets_expect	yes

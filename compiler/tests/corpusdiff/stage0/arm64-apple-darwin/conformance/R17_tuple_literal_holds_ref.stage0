@@ -1,0 +1,14 @@
+program	conformance/R17_tuple_literal_holds_ref.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	`&` here is not a call argument, and references in Saw are PARAMETERS ONLY — a reference borrows storage for the duration of one call and may not escape it (designs 88/106; the Law of Exclusivity is statically sound only because every live reference belongs to a call still on the stack)
+meets_expect	yes
+log	"error: `&` here is not a call argument, and references in Saw are PARAMETERS ONLY — a reference borrows storage for the duration of one call and may not escape it (designs 88/106; the Law of Exclusivity is statically sound only because every live reference belongs to a call still on the stack)"
+log	"  --> examples/conformance/R17_tuple_literal_holds_ref.saw:10:14"
+log	"     |"
+log	" 10 |     let t = (&a, 1)"
+log	"     |              ^"
+log	"   hint: a reference cannot be stored or bound: pass it straight to a `&` parameter, or — to hand out storage a value already owns — declare a `borrows` accessor (`... borrows -> &var T` with `lend`, design 141), which lends the place for a window rather than letting a pointer out"
+log	""
+log	"1 error(s) generated"

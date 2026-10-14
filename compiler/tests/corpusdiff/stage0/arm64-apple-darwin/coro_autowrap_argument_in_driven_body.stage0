@@ -1,0 +1,18 @@
+program	coro_autowrap_argument_in_driven_body.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"opt call 6"
+stdout	"opt local 7"
+stdout	"result call 8"
+stdout	"result local 9"
+stdout	"result err bad 10"
+stdout	"double 11"
+stdout	"method 12"
+stdout	"enum payload 13"
+stdout	"channel 14"
+stdout	"struct field 15"
+stdout	""
+meets_expect	yes

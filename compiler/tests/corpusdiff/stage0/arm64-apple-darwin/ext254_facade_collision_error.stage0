@@ -1,0 +1,14 @@
+program	ext254_facade_collision_error.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	ambiguous method `kind` on `Panel`: `modules.ext254_kindb` and `modules.ext254_knobs` both extend it with an indistinguishable signature
+meets_expect	yes
+log	"error: ambiguous method `kind` on `Panel`: `modules.ext254_kindb` and `modules.ext254_knobs` both extend it with an indistinguishable signature"
+log	"  --> examples/ext254_facade_collision_error.saw:16:12"
+log	"     |"
+log	" 16 |     print(p.kind())"
+log	"     |            ^"
+log	"   hint: import only one of the two modules here, or move the call into a file that sees a single definition"
+log	""
+log	"1 error(s) generated"

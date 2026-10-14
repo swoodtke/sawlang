@@ -1,0 +1,11 @@
+program	coro_nested_iflet_struct_init.saw
+triple	arm64-apple-darwin
+twin	differs
+expect	success
+build	ok
+exit	0
+stdout	"[6]"
+stdout	"map: 6"
+stdout	"deep: 6"
+stdout	""
+meets_expect	yes

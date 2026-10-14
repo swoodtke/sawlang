@@ -1,0 +1,11 @@
+program	coro_method_root_and_embedded.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"12"
+stdout	"12"
+stdout	"102"
+stdout	""
+meets_expect	yes

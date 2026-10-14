@@ -1,0 +1,13 @@
+program	errors/channel_not_send.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	type argument `Handle` does not satisfy bound `T: Send` on struct `Channel`
+meets_expect	yes
+log	"error: type argument `Handle` does not satisfy bound `T: Send` on struct `Channel`"
+log	"  --> examples/errors/channel_not_send.saw:13:19"
+log	"     |"
+log	" 13 |     let ch = try! Channel<Handle>()"
+log	"     |                   ^"
+log	""
+log	"1 error(s) generated"

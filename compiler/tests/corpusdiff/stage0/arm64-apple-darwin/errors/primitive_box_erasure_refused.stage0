@@ -1,0 +1,14 @@
+program	errors/primitive_box_erasure_refused.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	`String` is a primitive and cannot be erased to `any Tagged`: an existential carries a vtable beside the value, and a primitive has no boxed form to carry one
+meets_expect	yes
+log	"error: `String` is a primitive and cannot be erased to `any Tagged`: an existential carries a vtable beside the value, and a primitive has no boxed form to carry one"
+log	"  --> examples/errors/primitive_box_erasure_refused.saw:12:51"
+log	"     |"
+log	" 12 |     var b: Box<any Tagged> = Box<any Tagged>.make(\"hi\")"
+log	"     |                                                   ^"
+log	"   hint: take it through a generic BOUND instead — `<T: Tagged>` monomorphizes and costs nothing at `T = String` — or wrap it in a struct you own and conform that"
+log	""
+log	"1 error(s) generated"

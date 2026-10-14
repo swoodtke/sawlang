@@ -1,0 +1,14 @@
+program	d249_both_std_encoders_bare_is_a_tie_error.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	ambiguous call to `encode`: type-argument inference matches multiple generic overloads (&Point)
+meets_expect	yes
+log	"error: ambiguous call to `encode`: type-argument inference matches multiple generic overloads (&Point)"
+log	"  --> examples/d249_both_std_encoders_bare_is_a_tie_error.saw:23:16"
+log	"     |"
+log	" 23 |     print(try! encode(&p))"
+log	"     |                ^"
+log	"   hint: give explicit type arguments or labels to select one; matching: <T> encode(value: &T) [<std>.cbor] with <T=Point>; <T> encode(value: &T) [<std>.json] with <T=Point>"
+log	""
+log	"1 error(s) generated"

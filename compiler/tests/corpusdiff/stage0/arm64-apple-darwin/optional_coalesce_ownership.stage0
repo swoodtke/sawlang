@@ -1,0 +1,12 @@
+program	optional_coalesce_ownership.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"some ab"
+stdout	"none zz"
+stdout	"zz"
+stdout	"ab"
+stdout	""
+meets_expect	yes

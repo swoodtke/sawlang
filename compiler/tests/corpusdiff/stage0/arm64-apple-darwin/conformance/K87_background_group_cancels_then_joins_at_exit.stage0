@@ -1,0 +1,13 @@
+program	conformance/K87_background_group_cancels_then_joins_at_exit.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"main is finished"
+stdout	"worker 1 saw the cancel"
+stdout	"resource 1 released"
+stdout	"worker 2 saw the cancel"
+stdout	"resource 2 released"
+stdout	""
+meets_expect	yes

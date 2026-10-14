@@ -1,0 +1,14 @@
+program	equatable_not_equatable_error.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	cannot compare values of type `Holder` with `==`: `Holder` does not conform to `Equatable`
+meets_expect	yes
+log	"error: cannot compare values of type `Holder` with `==`: `Holder` does not conform to `Equatable`"
+log	"  --> examples/equatable_not_equatable_error.saw:13:10"
+log	"     |"
+log	" 13 |     if a == b {"
+log	"     |          ^"
+log	"   hint: add `extension Holder: Equatable {}`"
+log	""
+log	"1 error(s) generated"

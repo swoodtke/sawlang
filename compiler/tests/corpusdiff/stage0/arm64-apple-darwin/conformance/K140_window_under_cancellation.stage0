@@ -1,0 +1,19 @@
+program	conformance/K140_window_under_cancellation.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"-- parked in a nested callee"
+stdout	"iterator deinit"
+stdout	"owner deinit"
+stdout	"iterator deinit"
+stdout	"-- caught and continued: 3 items seen"
+stdout	"owner deinit"
+stdout	"-- cancellation out of the head: 0 iterators built"
+stdout	"owner deinit"
+stdout	"-- cancel at the park then exhaustion"
+stdout	"iterator deinit"
+stdout	"owner deinit"
+stdout	""
+meets_expect	yes

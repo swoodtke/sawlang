@@ -1,0 +1,15 @@
+program	coro_panic_value_position.saw
+triple	arm64-apple-darwin
+twin	same
+expect	panic
+build	ok
+exit	-6
+stdout	"branch 5"
+stdout	"guarded 1"
+stdout	"alive 3"
+stdout	"panic at coro_panic_value_position.saw:49: deliberate"
+stdout	"saw tasks: 1 live (as-of panic, unsynchronized)"
+stdout	"  task group 1 slot 0 gen 4 running"
+stdout	"    at coro_panic_value_position.saw:48 in boom"
+stdout	""
+meets_expect	yes

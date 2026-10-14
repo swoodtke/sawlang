@@ -1,0 +1,13 @@
+program	dependency_error_names_its_own_file_error.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	undefined variable `Widget`
+meets_expect	yes
+log	"error: undefined variable `Widget`"
+log	"  --> examples/modules/depdiag/lib.saw:32:16"
+log	"     |"
+log	" 32 | static_assert((Widget as Int) == 0, \"a nonsense assert\")"
+log	"     |                ^"
+log	""
+log	"1 error(s) generated"

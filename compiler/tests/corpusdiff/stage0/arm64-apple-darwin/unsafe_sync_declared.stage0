@@ -1,0 +1,12 @@
+program	unsafe_sync_declared.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"0"
+stdout	"12"
+stdout	"12"
+stdout	"30"
+stdout	""
+meets_expect	yes

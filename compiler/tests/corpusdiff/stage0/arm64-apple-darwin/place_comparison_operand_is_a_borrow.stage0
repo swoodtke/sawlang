@@ -1,0 +1,19 @@
+program	place_comparison_operand_is_a_borrow.saw
+triple	arm64-apple-darwin
+twin	differs
+expect	success
+build	ok
+exit	0
+stdout	"locals: true"
+stdout	"left place: true"
+stdout	"right place: true"
+stdout	"both places: true"
+stdout	"not equal: true"
+stdout	"less: true"
+stdout	"less-equal: true"
+stdout	"greater: false"
+stdout	"greater-equal: false"
+stdout	"explicit copy tier: true"
+stdout	"copy tier control: true"
+stdout	""
+meets_expect	yes

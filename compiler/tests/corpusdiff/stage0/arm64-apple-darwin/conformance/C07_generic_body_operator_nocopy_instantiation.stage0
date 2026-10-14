@@ -1,0 +1,12 @@
+program	conformance/C07_generic_body_operator_nocopy_instantiation.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"ne"
+stdout	"gt"
+stdout	"drop 3"
+stdout	"drop 9"
+stdout	""
+meets_expect	yes

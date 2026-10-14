@@ -1,0 +1,13 @@
+program	conformance/K53_driven_for_range_iteration_count.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"inclusive 15 15"
+stdout	"single 3 3"
+stdout	"empty 0 0"
+stdout	"exclusive 10 10"
+stdout	"int_max 3 3"
+stdout	""
+meets_expect	yes

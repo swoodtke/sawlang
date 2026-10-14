@@ -1,0 +1,14 @@
+program	conformance/U30_generic_instantiation_unsafe_signature.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	`idn` is not declared `unsafe`, but this instantiation's signature names a value of unsafe type (`UnsafePointer<Int8>`)
+meets_expect	yes
+log	"error: `idn` is not declared `unsafe`, but this instantiation's signature names a value of unsafe type (`UnsafePointer<Int8>`)"
+log	"  --> examples/conformance/U30_generic_instantiation_unsafe_signature.saw:25:13"
+log	"     |"
+log	" 25 |     let p = idn(make_ptr())"
+log	"     |             ^"
+log	"   hint: declare the generic `unsafe` — calling an unsafe function from safe code needs no ceremony, so the marker costs its other instantiations nothing and buys every reader a signature that tells the truth. Or keep the unsafe type out of the type argument"
+log	""
+log	"1 error(s) generated"

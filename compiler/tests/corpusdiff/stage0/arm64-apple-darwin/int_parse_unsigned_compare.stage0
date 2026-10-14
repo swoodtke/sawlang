@@ -1,0 +1,16 @@
+program	int_parse_unsigned_compare.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"max_gt_one: true"
+stdout	"one_lt_max: true"
+stdout	"high_bit_gt_one: true"
+stdout	"max_ge_max: true"
+stdout	"small_le_u8max: true"
+stdout	"over_u8_le_u8max: false"
+stdout	"max_gt_u32max: true"
+stdout	"max_ge_u32max: true"
+stdout	""
+meets_expect	yes

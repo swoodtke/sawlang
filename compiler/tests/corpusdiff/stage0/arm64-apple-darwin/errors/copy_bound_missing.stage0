@@ -1,0 +1,14 @@
+program	errors/copy_bound_missing.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	cannot call `.copy()` on a value of unbounded type parameter `T`
+meets_expect	yes
+log	"error: cannot call `.copy()` on a value of unbounded type parameter `T`"
+log	"  --> examples/errors/copy_bound_missing.saw:7:6"
+log	"    |"
+log	" 7 |     x.copy()"
+log	"    |      ^"
+log	"   hint: add the bound that says a copy exists: `<T: ExplicitCopy>` for the whole duplicable family, or `<T: Copy>` for the silent tier. Without one, `.copy()` here would be a real copy for some instantiations and a double free for others"
+log	""
+log	"1 error(s) generated"

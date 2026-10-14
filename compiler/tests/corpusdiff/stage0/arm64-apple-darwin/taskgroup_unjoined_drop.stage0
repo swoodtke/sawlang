@@ -1,0 +1,10 @@
+program	taskgroup_unjoined_drop.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"0"
+stdout	"200"
+stdout	""
+meets_expect	yes

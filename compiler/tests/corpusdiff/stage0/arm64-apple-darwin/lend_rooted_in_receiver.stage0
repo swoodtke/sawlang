@@ -1,0 +1,13 @@
+program	lend_rooted_in_receiver.saw
+triple	arm64-apple-darwin
+twin	differs
+expect	success
+build	ok
+exit	0
+stdout	"field=8"
+stdout	"element=20"
+stdout	"payload=33"
+stdout	"vector=7"
+stdout	"data=9"
+stdout	""
+meets_expect	yes

@@ -1,0 +1,19 @@
+program	string_interpolation.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"Hello, World!"
+stdout	"The answer is 42"
+stdout	"10 + 20 = 30"
+stdout	"Pi is approximately 3.14159"
+stdout	"Flag is true"
+stdout	"Double: 84"
+stdout	"42"
+stdout	"4242"
+stdout	"Just a plain string"
+stdout	"Point: x=5, y=10"
+stdout	"Length: 3"
+stdout	""
+meets_expect	yes

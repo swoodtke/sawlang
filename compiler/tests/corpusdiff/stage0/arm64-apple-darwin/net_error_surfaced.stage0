@@ -1,0 +1,10 @@
+program	net_error_surfaced.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"connect failed: surfaced"
+stdout	"eof is ok empty"
+stdout	""
+meets_expect	yes

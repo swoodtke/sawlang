@@ -1,0 +1,14 @@
+program	errors/interp_error_position_after_escape.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	cannot interpolate value of type `Blob` in a string: it is not `Printable`
+meets_expect	yes
+log	"error: cannot interpolate value of type `Blob` in a string: it is not `Printable`"
+log	"  --> examples/errors/interp_error_position_after_escape.saw:19:27"
+log	"     |"
+log	" 19 |     print(\"a\\tb\\\\c\\{d\\ne {b}\")"
+log	"     |                           ^"
+log	"   hint: conform it with `extension Blob: Printable { ... }`"
+log	""
+log	"1 error(s) generated"

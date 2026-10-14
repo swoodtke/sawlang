@@ -1,0 +1,12 @@
+program	coro_bind_id_nested_block_shadow.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"inner: 13"
+stdout	"after: 3"
+stdout	"sync inner: 13"
+stdout	"sync after: 3"
+stdout	""
+meets_expect	yes

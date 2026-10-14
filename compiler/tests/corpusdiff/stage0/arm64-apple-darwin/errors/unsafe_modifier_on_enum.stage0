@@ -1,0 +1,7 @@
+program	errors/unsafe_modifier_on_enum.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	Parse error at 10:8: `unsafe` may only precede `struct` or `static var` — every other declaration carries it in the post-parameter effect slot (`func f(...) unsafe -> T`), got ENUM
+meets_expect	yes
+log	"error: Parse error at 10:8: `unsafe` may only precede `struct` or `static var` — every other declaration carries it in the post-parameter effect slot (`func f(...) unsafe -> T`), got ENUM"

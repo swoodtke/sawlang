@@ -1,0 +1,15 @@
+program	optional_guard_let_payload_read.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"copy"
+stdout	"guarded 1"
+stdout	"copy"
+stdout	"slot still holds 1"
+stdout	"drop"
+stdout	"drop"
+stdout	"drop"
+stdout	""
+meets_expect	yes

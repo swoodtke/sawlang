@@ -1,0 +1,10 @@
+program	alloc_taskgroup_threads_forced_panics_named.saw
+triple	arm64-apple-darwin
+twin	same
+expect	panic
+build	ok
+exit	-6
+stdout	"6"
+stdout	"panic at alloc_taskgroup_threads_forced_panics_named.saw:25: try! failed: allocation of 128 bytes (align 16) failed"
+stdout	""
+meets_expect	yes

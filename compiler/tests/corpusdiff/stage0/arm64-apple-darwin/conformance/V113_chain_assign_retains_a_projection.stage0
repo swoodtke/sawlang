@@ -1,0 +1,21 @@
+program	conformance/V113_chain_assign_retains_a_projection.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"-- sync"
+stdout	"identifier 3 -> 3"
+stdout	"member 5 -> 5"
+stdout	"tuple 7 -> 7"
+stdout	"array 10 -> 10"
+stdout	"trivial 41"
+stdout	"none-skips 11 -> 11"
+stdout	"live 11"
+stdout	"-- driven"
+stdout	"identifier 3 -> 3"
+stdout	"member 5 -> 5"
+stdout	"live 5"
+stdout	"end"
+stdout	""
+meets_expect	yes

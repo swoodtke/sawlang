@@ -1,0 +1,21 @@
+program	slot_all_four_tiers.saw
+triple	arm64-apple-darwin
+twin	differs
+expect	success
+build	ok
+exit	0
+stdout	"trivial 41 42"
+stdout	"trivial occupied false"
+stdout	"implicit inside 2"
+stdout	"implicit outside 2"
+stdout	"implicit taken 2"
+stdout	"explicit len 3"
+stdout	"explicit taken 3 first 10"
+stdout	"explicit source still 3"
+stdout	"nocopy borrow n1"
+stdout	"deinit n1"
+stdout	"nocopy took n2"
+stdout	"deinit n2"
+stdout	"live 0"
+stdout	""
+meets_expect	yes

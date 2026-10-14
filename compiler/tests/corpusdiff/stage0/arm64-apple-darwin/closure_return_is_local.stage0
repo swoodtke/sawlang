@@ -1,0 +1,20 @@
+program	closure_return_is_local.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"r=99"
+stdout	"saw 1"
+stdout	"saw 3"
+stdout	"each done"
+stdout	"nested=70"
+stdout	"suspending=42"
+stdout	"inferred=7"
+stdout	"all-returns=99"
+stdout	"if-wrap=ok 10"
+stdout	"match-wrap=err zero"
+stdout	"try-in-closure=ok 8"
+stdout	"closure-owns-its-catch=caught inner"
+stdout	""
+meets_expect	yes

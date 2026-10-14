@@ -1,0 +1,11 @@
+program	void_match_in_closure.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"r"
+stdout	"g"
+stdout	"b"
+stdout	""
+meets_expect	yes

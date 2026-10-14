@@ -1,0 +1,14 @@
+program	conformance/G13_main_returning_bool_refused.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	`main` must return `Void`, `Int`, `Result<Void, E>` or `Result<Int, E>`, but returns `Bool`
+meets_expect	yes
+log	"error: `main` must return `Void`, `Int`, `Result<Void, E>` or `Result<Int, E>`, but returns `Bool`"
+log	"  --> examples/conformance/G13_main_returning_bool_refused.saw:10:1"
+log	"     |"
+log	" 10 | func main() -> Bool {"
+log	"     | ^"
+log	"   hint: the exit status is an integer: return `Int` for the status, `Result<Int, E>` to report a failure as well, `Result<Void, E>` when only the failure matters, and nothing at all when the program cannot fail"
+log	""
+log	"1 error(s) generated"

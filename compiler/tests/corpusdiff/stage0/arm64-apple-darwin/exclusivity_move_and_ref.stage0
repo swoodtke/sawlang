@@ -1,0 +1,21 @@
+program	exclusivity_move_and_ref.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	cannot `move` `x` while it is also passed by reference in the same call
+meets_expect	yes
+log	"error: use of moved variable `x`"
+log	"  --> examples/exclusivity_move_and_ref.saw:16:16"
+log	"     |"
+log	" 16 |     f(move x, &x)"
+log	"     |                ^"
+log	"   hint: value was moved at line 16 and can no longer be used"
+log	""
+log	"error: cannot `move` `x` while it is also passed by reference in the same call"
+log	"  --> examples/exclusivity_move_and_ref.saw:16:7"
+log	"     |"
+log	" 16 |     f(move x, &x)"
+log	"     |       ^"
+log	"   hint: a moved value cannot alias a reference argument in the same call"
+log	""
+log	"2 error(s) generated"

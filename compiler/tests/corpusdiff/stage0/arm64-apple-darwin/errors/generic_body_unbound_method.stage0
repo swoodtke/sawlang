@@ -1,0 +1,20 @@
+program	errors/generic_body_unbound_method.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	type parameter `T` has no method `frobnicate`; its bounds are []
+meets_expect	yes
+log	"error: type parameter `T` has no method `frobnicate`; its bounds are []"
+log	"  --> examples/errors/generic_body_unbound_method.saw:14:6"
+log	"     |"
+log	" 14 |     x.frobnicate()"
+log	"     |      ^"
+log	"   hint: `T` is unbounded; add a trait bound whose trait declares `frobnicate` (e.g. `<T: SomeTrait>`)"
+log	""
+log	"error: function `bad` should return `Int` but body has no value"
+log	"  --> examples/errors/generic_body_unbound_method.saw:13:1"
+log	"     |"
+log	" 13 | func bad<T>(x: T) -> Int {"
+log	"     | ^"
+log	""
+log	"2 error(s) generated"

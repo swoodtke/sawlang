@@ -1,0 +1,16 @@
+program	file_simple.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"Writing to file..."
+stdout	"Write successful: 13 bytes"
+stdout	"Reading file..."
+stdout	"Read 13 bytes"
+stdout	"Byte 0: 72"
+stdout	"File exists: true"
+stdout	"File removed: true"
+stdout	"File exists after remove: false"
+stdout	""
+meets_expect	yes

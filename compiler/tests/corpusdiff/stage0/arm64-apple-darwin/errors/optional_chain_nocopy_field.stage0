@@ -1,0 +1,20 @@
+program	errors/optional_chain_nocopy_field.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	cannot project field `f` of type `F` through an optional chain: it is move-only (NoCopy / owns a resource), and a chain projection copies the value by value
+meets_expect	yes
+log	"error: cannot project field `f` of type `F` through an optional chain: it is move-only (NoCopy / owns a resource), and a chain projection copies the value by value"
+log	"  --> examples/errors/optional_chain_nocopy_field.saw:14:17"
+log	"     |"
+log	" 14 |     let x = mk()?.f"
+log	"     |                 ^"
+log	"   hint: bind the optional first (`if let x = opt`) and move/`.copy()` the field out, or end the chain in a method that returns a value"
+log	""
+log	"error: cannot access member of non-struct type `F?`"
+log	"  --> examples/errors/optional_chain_nocopy_field.saw:15:12"
+log	"     |"
+log	" 15 |     print(x.h)"
+log	"     |            ^"
+log	""
+log	"2 error(s) generated"

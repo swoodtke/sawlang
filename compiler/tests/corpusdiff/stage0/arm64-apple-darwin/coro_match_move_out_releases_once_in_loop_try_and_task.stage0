@@ -1,0 +1,27 @@
+program	coro_match_move_out_releases_once_in_loop_try_and_task.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"-- in_loop"
+stdout	"NEW l0"
+stdout	"held l0"
+stdout	"DEINIT l0"
+stdout	"NEW l1"
+stdout	"held l1"
+stdout	"DEINIT l1"
+stdout	"after loop"
+stdout	"-- in_try_catch"
+stdout	"NEW t2"
+stdout	"held t2"
+stdout	"DEINIT t2"
+stdout	"after try"
+stdout	"-- in_task"
+stdout	"NEW t3"
+stdout	"held t3"
+stdout	"DEINIT t3"
+stdout	"task done"
+stdout	"after task"
+stdout	""
+meets_expect	yes

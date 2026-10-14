@@ -1,0 +1,24 @@
+program	optional_payload_read_once.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"copy"
+stdout	"bang 1"
+stdout	"drop"
+stdout	"drop"
+stdout	"copy"
+stdout	"iflet 2"
+stdout	"drop"
+stdout	"drop"
+stdout	"copy"
+stdout	"coalesce 3"
+stdout	"drop"
+stdout	"drop"
+stdout	"copy"
+stdout	"local 4"
+stdout	"drop"
+stdout	"drop"
+stdout	""
+meets_expect	yes

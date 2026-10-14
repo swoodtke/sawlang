@@ -1,0 +1,13 @@
+program	vector_capacity_reports_oom.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"ok"
+stdout	"3"
+stdout	"err"
+stdout	"8000000000000000000"
+stdout	"8"
+stdout	""
+meets_expect	yes

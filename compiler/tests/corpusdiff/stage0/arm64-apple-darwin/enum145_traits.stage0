@@ -1,0 +1,15 @@
+program	enum145_traits.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"SysError(bad handle)"
+stdout	"as text: SysError(ok)"
+stdout	"5"
+stdout	"failed: SysError(bad handle)"
+stdout	"true"
+stdout	"false"
+stdout	"recovered 0"
+stdout	""
+meets_expect	yes

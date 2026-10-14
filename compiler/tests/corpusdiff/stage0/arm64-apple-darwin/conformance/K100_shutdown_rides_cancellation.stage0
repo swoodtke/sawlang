@@ -1,0 +1,13 @@
+program	conformance/K100_shutdown_rides_cancellation.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"worker parked"
+stdout	"shutdown signalled"
+stdout	"worker unwound"
+stdout	"deinits=1"
+stdout	"main returned normally"
+stdout	""
+meets_expect	yes

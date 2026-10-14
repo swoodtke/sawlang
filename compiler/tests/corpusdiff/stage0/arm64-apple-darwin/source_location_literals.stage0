@@ -1,0 +1,14 @@
+program	source_location_literals.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"source_location_literals.saw:22:here"
+stdout	"top source_location_literals.saw:37:main"
+stdout	"source_location_literals.saw:27:gen=7"
+stdout	"source_location_literals.saw:27:gen=s"
+stdout	"source_location_literals.saw:30:with_default"
+stdout	"source_location_literals.saw:41:main"
+stdout	""
+meets_expect	yes

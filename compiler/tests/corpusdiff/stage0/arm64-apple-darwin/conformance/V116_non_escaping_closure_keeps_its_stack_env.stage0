@@ -1,0 +1,13 @@
+program	conformance/V116_non_escaping_closure_keeps_its_stack_env.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"run-now 15"
+stdout	"each 60"
+stdout	"fold 70"
+stdout	"map-sum 120"
+stdout	"borrow-capture 11"
+stdout	""
+meets_expect	yes

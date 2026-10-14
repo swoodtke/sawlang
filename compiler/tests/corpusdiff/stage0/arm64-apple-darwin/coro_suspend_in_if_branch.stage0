@@ -1,0 +1,12 @@
+program	coro_suspend_in_if_branch.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"11"
+stdout	"1"
+stdout	"22"
+stdout	"2"
+stdout	""
+meets_expect	yes

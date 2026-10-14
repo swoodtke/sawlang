@@ -1,0 +1,10 @@
+program	net_connect_dials_the_host_it_was_given.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"127.0.0.1 -> connected"
+stdout	"255.255.255.255 -> refused"
+stdout	""
+meets_expect	yes

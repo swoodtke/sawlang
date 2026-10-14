@@ -1,0 +1,21 @@
+program	scalar_removed_char_surface.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	type `String` has no method `chars`
+meets_expect	yes
+log	"error: type `String` has no method `chars`"
+log	"  --> examples/scalar_removed_char_surface.saw:13:18"
+log	"     |"
+log	" 13 |     for c in \"hi\".chars() {"
+log	"     |                  ^"
+log	"   hint: available methods: _decode_at, _digit_value, _float_digit, _float_exact, _float_nonfinite, _float_scan, _is_whitespace, _parse_int, _parse_uint, _substring, _ubyte_at, _utf8_error_offset, byte_at, bytes, compare, contains, ends_with, equals, fromBytes, hash, index_of, is_empty, last_index_of, len, matches_at, replace, scalars, split, starts_with, substring, to_data, to_float, to_int, to_lowercase, to_uint, to_uppercase, trim, trim_end, trim_start, withCString"
+log	""
+log	"error: type `StringBuilder` has no method `append_scalar`"
+log	"  --> examples/scalar_removed_char_surface.saw:18:20"
+log	"     |"
+log	" 18 |     let _ = try! sb.append_scalar(scalar: 233)"
+log	"     |                    ^"
+log	"   hint: available methods: _c_char, _grow_target, _is_continuation, _mark_truncated, _overflow, _place, _place_char, _reserve, _scalar_byte, append, as_str, build, clear, deinit, is_empty, is_truncated, len, rebind"
+log	""
+log	"2 error(s) generated"

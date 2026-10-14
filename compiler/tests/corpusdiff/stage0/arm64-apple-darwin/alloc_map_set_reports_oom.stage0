@@ -1,0 +1,17 @@
+program	alloc_map_set_reports_oom.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"3"
+stdout	"insert denied: allocation of 384 bytes (align 8) failed"
+stdout	"30"
+stdout	"20"
+stdout	"true"
+stdout	"set insert denied"
+stdout	"2"
+stdout	"true"
+stdout	"4"
+stdout	""
+meets_expect	yes

@@ -1,0 +1,12 @@
+program	coro_optional_binding_suspending_method.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"first: 10"
+stdout	"guarded: 20"
+stdout	"interleaved: true"
+stdout	"-- done"
+stdout	""
+meets_expect	yes

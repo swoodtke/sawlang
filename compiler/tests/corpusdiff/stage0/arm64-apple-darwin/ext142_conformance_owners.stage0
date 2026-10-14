@@ -1,0 +1,10 @@
+program	ext142_conformance_owners.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"Reading(21)"
+stdout	"reading 21"
+stdout	""
+meets_expect	yes

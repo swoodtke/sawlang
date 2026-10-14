@@ -1,0 +1,11 @@
+program	closure_vector_copy_get.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"11"
+stdout	"13"
+stdout	"12"
+stdout	""
+meets_expect	yes

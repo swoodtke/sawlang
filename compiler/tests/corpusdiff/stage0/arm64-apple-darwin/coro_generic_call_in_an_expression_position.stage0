@@ -1,0 +1,13 @@
+program	coro_generic_call_in_an_expression_position.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"let 10"
+stdout	"interpolation 11"
+stdout	"argument 12"
+stdout	"operand 14"
+stdout	"done"
+stdout	""
+meets_expect	yes

@@ -1,0 +1,19 @@
+program	complement_requires_integer.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	operator `~` requires an integer operand, got `Bool`
+meets_expect	yes
+log	"error: operator `~` requires an integer operand, got `Bool`"
+log	"  --> examples/complement_requires_integer.saw:7:19"
+log	"    |"
+log	" 7 |     let flipped = ~true"
+log	"    |                   ^"
+log	""
+log	"error: undefined variable `flipped`"
+log	"  --> examples/complement_requires_integer.saw:8:11"
+log	"    |"
+log	" 8 |     print(flipped)"
+log	"    |           ^"
+log	""
+log	"2 error(s) generated"

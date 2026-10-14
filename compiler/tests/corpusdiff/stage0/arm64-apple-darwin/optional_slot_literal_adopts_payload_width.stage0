@@ -1,0 +1,20 @@
+program	optional_slot_literal_adopts_payload_width.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"let = 1"
+stdout	"param = 2"
+stdout	"field = 3"
+stdout	"tail = 8"
+stdout	"return = 9"
+stdout	"array element = 4"
+stdout	"vector element = 7"
+stdout	"closure tail = 5"
+stdout	"negative = -6"
+stdout	"nested = 11"
+stdout	"if arms = 1 / -1"
+stdout	"match arms = -1 / 2"
+stdout	""
+meets_expect	yes

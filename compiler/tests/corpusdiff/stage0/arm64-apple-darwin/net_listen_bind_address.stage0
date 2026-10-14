@@ -1,0 +1,17 @@
+program	net_listen_bind_address.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"default true"
+stdout	"wildcard true"
+stdout	"exact conflict refused"
+stdout	"exact conflict refused without reuse"
+stdout	"no-reuse bind true"
+stdout	"backlog bind true"
+stdout	"invalid host"
+stdout	"invalid port"
+stdout	"invalid backlog"
+stdout	""
+meets_expect	yes

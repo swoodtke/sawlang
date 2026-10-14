@@ -1,0 +1,11 @@
+program	collection_literal_custom_allocator.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"alloc 32"
+stdout	"4"
+stdout	"dealloc 32"
+stdout	""
+meets_expect	yes

@@ -1,0 +1,14 @@
+program	errors/send_bound_not_satisfied.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	type `RawHandle` does not satisfy the `Send` bound
+meets_expect	yes
+log	"error: type `RawHandle` does not satisfy the `Send` bound"
+log	"  --> examples/errors/send_bound_not_satisfied.saw:14:5"
+log	"     |"
+log	" 14 |     needs_send<RawHandle>()"
+log	"     |     ^"
+log	"   hint: Send/Sync are derived structurally; a field or payload of this type is not Send"
+log	""
+log	"1 error(s) generated"

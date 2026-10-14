@@ -1,0 +1,14 @@
+program	conformance/M36_shared_self_capture_refuses_write.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	cannot assign to storage reached through a `&self` receiver: `self` is borrowed SHARED here, so the write would reach storage this method may only read
+meets_expect	yes
+log	"error: cannot assign to storage reached through a `&self` receiver: `self` is borrowed SHARED here, so the write would reach storage this method may only read"
+log	"  --> examples/conformance/M36_shared_self_capture_refuses_write.saw:21:62"
+log	"     |"
+log	" 21 |     func narrow(&var self) -> Int { run_int({ [&self] in self.n = 9; self.n }) }"
+log	"     |                                                              ^"
+log	"   hint: the enclosing closure captured the receiver `[&self]`, which is a SHARED borrow — write `[&var self]` to capture it exclusively (the method's own receiver is already `&var self`)"
+log	""
+log	"1 error(s) generated"

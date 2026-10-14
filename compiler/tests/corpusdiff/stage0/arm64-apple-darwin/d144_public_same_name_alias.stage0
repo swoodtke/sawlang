@@ -1,0 +1,11 @@
+program	d144_public_same_name_alias.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"14"
+stdout	"9"
+stdout	"6"
+stdout	""
+meets_expect	yes

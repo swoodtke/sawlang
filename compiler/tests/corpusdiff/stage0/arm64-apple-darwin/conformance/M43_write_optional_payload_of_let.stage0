@@ -1,0 +1,14 @@
+program	conformance/M43_write_optional_payload_of_let.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	cannot assign to field of immutable variable `o`
+meets_expect	yes
+log	"error: cannot assign to field of immutable variable `o`"
+log	"  --> examples/conformance/M43_write_optional_payload_of_let.saw:19:7"
+log	"     |"
+log	" 19 |     o!.n = 5"
+log	"     |       ^"
+log	"   hint: consider using `var` instead of `let` to make it mutable"
+log	""
+log	"1 error(s) generated"

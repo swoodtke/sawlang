@@ -1,0 +1,14 @@
+program	errors/generic_instantiation_depth_limit.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	instantiation of `Wrap<Wrap<Wrap<Wrap<…>>>>` exceeds the instantiation depth limit (64): deepen<Int> → deepen<Wrap<Int>> → … → deepen<Wrap<Wrap<Wrap<…>>>> → Wrap<Wrap<Wrap<Wrap<…>>>>
+meets_expect	yes
+log	"error: instantiation of `Wrap<Wrap<Wrap<Wrap<…>>>>` exceeds the instantiation depth limit (64): deepen<Int> → deepen<Wrap<Int>> → … → deepen<Wrap<Wrap<Wrap<…>>>> → Wrap<Wrap<Wrap<Wrap<…>>>>"
+log	"  --> examples/errors/generic_instantiation_depth_limit.saw:29:5"
+log	"     |"
+log	" 29 |     deepen(Wrap<T>(inner: x), n - 1)"
+log	"     |     ^"
+log	"   hint: a generic that instantiates ITSELF at a bigger type argument has no finite instance set — break the recursion by taking the growing part behind a `Box`, or by making the recursive call non-generic"
+log	""
+log	"1 error(s) generated"

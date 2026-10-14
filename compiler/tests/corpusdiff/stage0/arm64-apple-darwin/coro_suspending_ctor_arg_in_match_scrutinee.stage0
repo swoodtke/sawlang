@@ -1,0 +1,11 @@
+program	coro_suspending_ctor_arg_in_match_scrutinee.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"val 1"
+stdout	"holder 2"
+stdout	"done"
+stdout	""
+meets_expect	yes

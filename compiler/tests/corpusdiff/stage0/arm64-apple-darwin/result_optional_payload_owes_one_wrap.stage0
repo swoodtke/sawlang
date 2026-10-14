@@ -1,0 +1,15 @@
+program	result_optional_payload_owes_one_wrap.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"return 7"
+stdout	"tail 8"
+stdout	"err"
+stdout	"absent"
+stdout	"generic 9"
+stdout	"method 10"
+stdout	"deep 11"
+stdout	""
+meets_expect	yes

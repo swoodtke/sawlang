@@ -1,0 +1,11 @@
+program	directory_simple.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"Current directory exists"
+stdout	"Created test directory"
+stdout	"Removed test directory"
+stdout	""
+meets_expect	yes

@@ -1,0 +1,15 @@
+program	generic_optional_tail_return.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"tail 7"
+stdout	"passthrough 4"
+stdout	"none absent"
+stdout	"arms 1 -1"
+stdout	"method 9"
+stdout	"nested-instantiation 5"
+stdout	"-- done"
+stdout	""
+meets_expect	yes

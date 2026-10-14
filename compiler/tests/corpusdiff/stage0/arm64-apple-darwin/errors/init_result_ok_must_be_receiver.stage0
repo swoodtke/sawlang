@@ -1,0 +1,21 @@
+program	errors/init_result_ok_must_be_receiver.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	the `Ok` payload of an `init`'s `Result` must be the receiver `Third`, but this one is `Foreign`
+meets_expect	yes
+log	"error: the `Ok` payload of an `init`'s `Result` must be the receiver `Third`, but this one is `Foreign`"
+log	"  --> examples/errors/init_result_ok_must_be_receiver.saw:22:5"
+log	"     |"
+log	" 22 |     init(seed: Int) -> Result<Foreign, Bad> { Foreign(k: seed) }"
+log	"     |     ^"
+log	"   hint: an `init` builds its own type — write `-> Third` (or `-> Self`) for an initializer that cannot fail, or `-> Result<Third, E>` for one that can"
+log	""
+log	"error: result of `append` is `Result<Void, AllocError>` and is silently discarded"
+log	"  --> examples/errors/init_result_ok_must_be_receiver.saw:12:56"
+log	"     |"
+log	" 12 |     func format(&self, into: &var StringBuilder) { into.append(\"bad\") }"
+log	"     |                                                        ^"
+log	"   hint: handle it — `match` it, `try`/`try!`/`try?` it, or return it — or write `let _ = ...` to discard it explicitly"
+log	""
+log	"2 error(s) generated"

@@ -1,0 +1,12 @@
+program	conformance/O12_iflet_move_binding_released_in_coroutine.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"in plain"
+stdout	"plain live 0"
+stdout	"in driven"
+stdout	"driven live 0"
+stdout	""
+meets_expect	yes

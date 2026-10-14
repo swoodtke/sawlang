@@ -1,0 +1,14 @@
+program	errors/init_return_optional_encodes_as_result.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	`init` may not return an optional — an optional creation encodes as `Result<Other, E>`, because a `None` names no cause
+meets_expect	yes
+log	"error: `init` may not return an optional — an optional creation encodes as `Result<Other, E>`, because a `None` names no cause"
+log	"  --> examples/errors/init_return_optional_encodes_as_result.saw:18:5"
+log	"     |"
+log	" 18 |     init(seed: Int) -> Other? {"
+log	"     |     ^"
+log	"   hint: write `-> Result<Other, E>` naming the error the absence meant, and return that error where the `None` was"
+log	""
+log	"1 error(s) generated"

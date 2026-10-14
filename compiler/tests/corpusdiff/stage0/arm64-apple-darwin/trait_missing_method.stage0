@@ -1,0 +1,13 @@
+program	trait_missing_method.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	type `Point` does not implement required method `describe` from trait `Describable`
+meets_expect	yes
+log	"error: type `Point` does not implement required method `describe` from trait `Describable`"
+log	"  --> examples/trait_missing_method.saw:15:1"
+log	"     |"
+log	" 15 | extension Point: Describable {"
+log	"     | ^"
+log	""
+log	"1 error(s) generated"

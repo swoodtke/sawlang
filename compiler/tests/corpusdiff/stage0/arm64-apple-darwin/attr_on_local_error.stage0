@@ -1,0 +1,7 @@
+program	attr_on_local_error.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	Parse error at 10:5: attribute `@export` is not supported on local declarations (legal here: @align)
+meets_expect	yes
+log	"error: Parse error at 10:5: attribute `@export` is not supported on local declarations (legal here: @align)"

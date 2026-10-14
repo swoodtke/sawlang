@@ -1,0 +1,12 @@
+program	optimization_level_o0_preserves_semantics.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"3 30"
+stdout	"too big, limit 1000"
+stdout	"empty"
+stdout	"4 sum 48"
+stdout	""
+meets_expect	yes

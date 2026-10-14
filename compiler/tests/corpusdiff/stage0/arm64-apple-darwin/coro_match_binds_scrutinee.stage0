@@ -1,0 +1,11 @@
+program	coro_match_binds_scrutinee.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"5"
+stdout	"30"
+stdout	"alive 8"
+stdout	""
+meets_expect	yes

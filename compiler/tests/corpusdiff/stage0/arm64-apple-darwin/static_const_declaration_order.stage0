@@ -1,0 +1,15 @@
+program	static_const_declaration_order.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"4096"
+stdout	"4095"
+stdout	"12"
+stdout	"8192"
+stdout	"0"
+stdout	"4096"
+stdout	"64"
+stdout	""
+meets_expect	yes

@@ -1,0 +1,7 @@
+program	extension_head_visibility_error.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	Parse error at 26:1: an extension cannot carry a visibility modifier — an extension is not a nameable entity, so it has nothing to be visible. Visibility belongs on members: mark each one instead (`public func`, `public static func`, `public init`), and delete the modifier here
+meets_expect	yes
+log	"error: Parse error at 26:1: an extension cannot carry a visibility modifier — an extension is not a nameable entity, so it has nothing to be visible. Visibility belongs on members: mark each one instead (`public func`, `public static func`, `public init`), and delete the modifier here"

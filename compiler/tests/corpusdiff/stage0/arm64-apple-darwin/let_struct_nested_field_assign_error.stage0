@@ -1,0 +1,14 @@
+program	let_struct_nested_field_assign_error.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	cannot assign to field of immutable variable `o`
+meets_expect	yes
+log	"error: cannot assign to field of immutable variable `o`"
+log	"  --> examples/let_struct_nested_field_assign_error.saw:15:12"
+log	"     |"
+log	" 15 |     o.inner.v = 5"
+log	"     |            ^"
+log	"   hint: consider using `var` instead of `let` to make it mutable"
+log	""
+log	"1 error(s) generated"

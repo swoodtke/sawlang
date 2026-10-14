@@ -1,0 +1,7 @@
+program	errors/static236_static_with_receiver.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	Parse error at 12:12: method `mag` is declared `static` but takes a receiver — remove the `static`, or drop the `&self`/`&var self` parameter if a static was intended
+meets_expect	yes
+log	"error: Parse error at 12:12: method `mag` is declared `static` but takes a receiver — remove the `static`, or drop the `&self`/`&var self` parameter if a static was intended"

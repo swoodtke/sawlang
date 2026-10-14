@@ -1,0 +1,12 @@
+program	recursive_struct_through_optional_box_field.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"head has next: true"
+stdout	"DEINIT c"
+stdout	"DEINIT b"
+stdout	"DEINIT a"
+stdout	""
+meets_expect	yes

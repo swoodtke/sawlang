@@ -1,0 +1,14 @@
+program	conformance/V12_move_capture_out_of_closure.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	cannot copy value of type `Vector<Int, GlobalAllocator>` which implements ExplicitCopy
+meets_expect	yes
+log	"error: cannot copy value of type `Vector<Int, GlobalAllocator>` which implements ExplicitCopy"
+log	"  --> examples/conformance/V12_move_capture_out_of_closure.saw:11:13"
+log	"     |"
+log	" 11 |     let f = {"
+log	"     |             ^"
+log	"   hint: use .copy() for an explicit deep copy, or `move` to transfer ownership"
+log	""
+log	"1 error(s) generated"

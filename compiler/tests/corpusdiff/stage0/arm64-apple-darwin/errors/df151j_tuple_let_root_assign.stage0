@@ -1,0 +1,14 @@
+program	errors/df151j_tuple_let_root_assign.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	cannot assign to element of immutable variable `t`
+meets_expect	yes
+log	"error: cannot assign to element of immutable variable `t`"
+log	"  --> examples/errors/df151j_tuple_let_root_assign.saw:11:6"
+log	"     |"
+log	" 11 |     t.0 = 9"
+log	"     |      ^"
+log	"   hint: consider using `var` instead of `let` to make it mutable"
+log	""
+log	"1 error(s) generated"

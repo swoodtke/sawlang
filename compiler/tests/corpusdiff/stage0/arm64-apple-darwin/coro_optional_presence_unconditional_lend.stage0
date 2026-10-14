@@ -1,0 +1,11 @@
+program	coro_optional_presence_unconditional_lend.saw
+triple	arm64-apple-darwin
+twin	differs
+expect	success
+build	ok
+exit	0
+stdout	"occupied=12 empty=20"
+stdout	"done"
+stdout	"drop res 1"
+stdout	""
+meets_expect	yes

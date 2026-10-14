@@ -1,0 +1,14 @@
+program	errors/static236_conformance_instance_requirement_static_impl.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	method `label` may not be declared `static`: trait `Namer` requires an INSTANCE method, which a caller reaches through a receiver this implementation does not take
+meets_expect	yes
+log	"error: method `label` may not be declared `static`: trait `Namer` requires an INSTANCE method, which a caller reaches through a receiver this implementation does not take"
+log	"  --> examples/errors/static236_conformance_instance_requirement_static_impl.saw:15:1"
+log	"     |"
+log	" 15 | extension Point: Namer {"
+log	"     | ^"
+log	"   hint: remove the `static` and take `&self` — `func label(&self, ...)`"
+log	""
+log	"1 error(s) generated"

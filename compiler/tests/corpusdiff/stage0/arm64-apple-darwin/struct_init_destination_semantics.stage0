@@ -1,0 +1,42 @@
+program	struct_init_destination_semantics.saw
+triple	arm64-apple-darwin
+twin	differs
+expect	success
+build	ok
+exit	0
+stdout	"step 1 let c"
+stdout	"step 2 let a"
+stdout	"step 3 let b"
+stdout	"let 1 2 3"
+stdout	"var 4 5 6"
+stdout	"step 4 assign b"
+stdout	"step 5 assign c"
+stdout	"step 6 assign a"
+stdout	"assign 10 20 30"
+stdout	"step 7 outer tail"
+stdout	"step 8 inner c"
+stdout	"step 9 inner a"
+stdout	"step 10 inner b"
+stdout	"step 11 outer head"
+stdout	"nested 50 60 70 80 90"
+stdout	"step 12 fixed b"
+stdout	"step 13 fixed a"
+stdout	"step 14 fixed c"
+stdout	"fixed 100 110 120"
+stdout	"step 15 vector c"
+stdout	"step 16 vector b"
+stdout	"step 17 vector a"
+stdout	"vector 130 140 150"
+stdout	"step 18 argument b"
+stdout	"step 19 argument c"
+stdout	"step 20 argument a"
+stdout	"argument 160 170 180"
+stdout	"step 21 return b"
+stdout	"step 22 return a"
+stdout	"step 23 return c"
+stdout	"return 190 200 210"
+stdout	"alias 8 9 7"
+stdout	"widths -8 20 30"
+stdout	"wrappers 1 4 6"
+stdout	""
+meets_expect	yes

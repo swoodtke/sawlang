@@ -1,0 +1,13 @@
+program	assert_non_bool_error.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	`assert` expects a Bool condition, got `String`
+meets_expect	yes
+log	"error: `assert` expects a Bool condition, got `String`"
+log	"  --> examples/assert_non_bool_error.saw:5:12"
+log	"    |"
+log	" 5 |     assert(\"not a bool\", \"message\")"
+log	"    |            ^"
+log	""
+log	"1 error(s) generated"

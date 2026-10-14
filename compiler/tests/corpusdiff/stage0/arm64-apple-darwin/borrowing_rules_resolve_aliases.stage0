@@ -1,0 +1,13 @@
+program	borrowing_rules_resolve_aliases.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"3"
+stdout	"jt 10"
+stdout	"jt driven 10"
+stdout	"pt 10"
+stdout	"poked 7"
+stdout	""
+meets_expect	yes

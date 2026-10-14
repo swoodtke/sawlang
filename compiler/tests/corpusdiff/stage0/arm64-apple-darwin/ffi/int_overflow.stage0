@@ -1,0 +1,19 @@
+program	ffi/int_overflow.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	integer literal 1000 out of range for INT8 (-128 to 127)
+meets_expect	yes
+log	"error: integer literal 1000 does not fit in `Int8` (range -128..=127)"
+log	"  --> examples/ffi/int_overflow.saw:6:19"
+log	"    |"
+log	" 6 |     let x: Int8 = 1000"
+log	"    |                   ^"
+log	""
+log	"error: integer literal 1000 out of range for INT8 (-128 to 127)"
+log	"  --> examples/ffi/int_overflow.saw:6:19"
+log	"    |"
+log	" 6 |     let x: Int8 = 1000"
+log	"    |                   ^"
+log	""
+log	"2 error(s) generated"

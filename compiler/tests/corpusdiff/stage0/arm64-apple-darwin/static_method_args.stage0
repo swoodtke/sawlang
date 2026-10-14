@@ -1,0 +1,10 @@
+program	static_method_args.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"5"
+stdout	"test"
+stdout	""
+meets_expect	yes

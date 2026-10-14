@@ -1,0 +1,20 @@
+program	discard_forms_release_matrix.saw
+triple	arm64-apple-darwin
+twin	differs
+expect	success
+build	ok
+exit	0
+stdout	"before let _"
+stdout	"DEINIT L1"
+stdout	"after let _"
+stdout	"DEINIT B"
+stdout	"DEINIT A"
+stdout	"two discarded"
+stdout	"DEINIT D"
+stdout	"kept C"
+stdout	"DEINIT C"
+stdout	"DEINIT O1"
+stdout	"if let _ ran"
+stdout	"done"
+stdout	""
+meets_expect	yes

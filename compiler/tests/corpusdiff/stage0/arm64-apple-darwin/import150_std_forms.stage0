@@ -1,0 +1,13 @@
+program	import150_std_forms.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"qualified 3"
+stdout	"glob true"
+stdout	"selective-bare 5"
+stdout	"both-forms 5"
+stdout	"aliased true"
+stdout	""
+meets_expect	yes

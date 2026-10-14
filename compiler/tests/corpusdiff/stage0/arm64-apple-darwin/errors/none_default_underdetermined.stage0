@@ -1,0 +1,14 @@
+program	errors/none_default_underdetermined.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	cannot infer type argument `T` for function `with_default`
+meets_expect	yes
+log	"error: cannot infer type argument `T` for function `with_default`"
+log	"  --> examples/errors/none_default_underdetermined.saw:16:13"
+log	"     |"
+log	" 16 |     print(\"{with_default(1)}\")"
+log	"     |             ^"
+log	"   hint: give the type argument(s) explicitly, e.g. `with_default<T=...>`"
+log	""
+log	"1 error(s) generated"

@@ -1,0 +1,9 @@
+program	conformance/K55_mt_same_group_send_and_receive.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"relayed 9"
+stdout	""
+meets_expect	yes

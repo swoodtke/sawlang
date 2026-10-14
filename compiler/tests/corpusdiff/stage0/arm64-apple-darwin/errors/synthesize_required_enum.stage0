@@ -1,0 +1,14 @@
+program	errors/synthesize_required_enum.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	`Shape` declares `Equatable` with no `equals`: a derived body must be requested explicitly
+meets_expect	yes
+log	"error: `Shape` declares `Equatable` with no `equals`: a derived body must be requested explicitly"
+log	"  --> examples/errors/synthesize_required_enum.saw:11:1"
+log	"     |"
+log	" 11 | extension Shape: Equatable {}"
+log	"     | ^"
+log	"   hint: mark the extension `@synthesize` to derive `equals` memberwise, or write `equals` by hand"
+log	""
+log	"1 error(s) generated"

@@ -1,0 +1,35 @@
+program	errors/mixed_window_modes_conflict.saw
+triple	arm64-apple-darwin
+twin	differs
+expect	error
+build	refused	exclusive access violation: the place `b.tally(…)` borrows `b` EXCLUSIVELY even though this window only reads — `Bag.tally` mutates `self` outside the place it lends (a write into receiver storage at line 41) — and `b` is accessed by reference a second time in the same call
+meets_expect	yes
+log	"error: exclusive access violation: the place `b.tally(…)` borrows `b` EXCLUSIVELY even though this window only reads — `Bag.tally` mutates `self` outside the place it lends (a write into receiver storage at line 41) — and `b` is accessed by reference a second time in the same call"
+log	"  --> examples/errors/mixed_window_modes_conflict.saw:61:25"
+log	"     |"
+log	" 61 |     print(\"{pair(&b[0], &b.tally(1))}\")        // shared-eligible first"
+log	"     |                         ^"
+log	"   hint: a read-only RESULT is not a shared receiver BORROW: an accessor whose body mutates the receiver takes it exclusively at every use site, so this is the same conflict two `&var` windows would be. Open the accesses in SEPARATE statements, or move the bookkeeping behind `#lend_var` so the shared specialization does not need an exclusive receiver"
+log	""
+log	"error: exclusive access violation: the place `b.tally(…)` borrows `b` EXCLUSIVELY even though this window only reads — `Bag.tally` mutates `self` outside the place it lends (a write into receiver storage at line 41) — and `b` is accessed by reference a second time in the same call"
+log	"  --> examples/errors/mixed_window_modes_conflict.saw:62:18"
+log	"     |"
+log	" 62 |     print(\"{pair(&b.tally(0), &b[1])}\")        // exclusive-only first"
+log	"     |                  ^"
+log	"   hint: a read-only RESULT is not a shared receiver BORROW: an accessor whose body mutates the receiver takes it exclusively at every use site, so this is the same conflict two `&var` windows would be. Open the accesses in SEPARATE statements, or move the bookkeeping behind `#lend_var` so the shared specialization does not need an exclusive receiver"
+log	""
+log	"error: exclusive access violation: the place `b.opt(…)` borrows `b` EXCLUSIVELY even though this window only reads — `Bag.opt` mutates `self` outside the place it lends (a write into receiver storage at line 48) — and `b` is accessed by reference a second time in the same call"
+log	"  --> examples/errors/mixed_window_modes_conflict.saw:63:30"
+log	"     |"
+log	" 63 |     print(\"{pair_cell(&b[0], &b.opt(1)!)}\")    // through a `!` head"
+log	"     |                              ^"
+log	"   hint: a read-only RESULT is not a shared receiver BORROW: an accessor whose body mutates the receiver takes it exclusively at every use site, so this is the same conflict two `&var` windows would be. Open the accesses in SEPARATE statements, or move the bookkeeping behind `#lend_var` so the shared specialization does not need an exclusive receiver"
+log	""
+log	"error: exclusive access violation: the place `b.tally(…)` borrows `b` EXCLUSIVELY even though this window only reads — `Bag.tally` mutates `self` outside the place it lends (a write into receiver storage at line 41) — and `b` is accessed by reference a second time in the same call"
+log	"  --> examples/errors/mixed_window_modes_conflict.saw:64:23"
+log	"     |"
+log	" 64 |     print(\"{with_root(&b.tally(0), &b)}\")      // beside a plain `&root`"
+log	"     |                       ^"
+log	"   hint: a read-only RESULT is not a shared receiver BORROW: an accessor whose body mutates the receiver takes it exclusively at every use site, so this is the same conflict two `&var` windows would be. Open the accesses in SEPARATE statements, or move the bookkeeping behind `#lend_var` so the shared specialization does not need an exclusive receiver"
+log	""
+log	"4 error(s) generated"

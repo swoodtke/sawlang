@@ -1,0 +1,16 @@
+program	lend_var_generic_and_match.saw
+triple	arm64-apple-darwin
+twin	differs
+expect	success
+build	ok
+exit	0
+stdout	"Int read 7, gates 0"
+stdout	"Int write 8, gates 1"
+stdout	"String read ada, gates 0"
+stdout	"String write ada!, gates 1"
+stdout	"slot read 5, gates 0"
+stdout	"slot write 6, gates 1"
+stdout	"empty slot: absent, gates 1"
+stdout	"-- done"
+stdout	""
+meets_expect	yes

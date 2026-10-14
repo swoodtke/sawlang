@@ -1,0 +1,14 @@
+program	enum145_raw_unbacked_cast_error.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	enum `Plain` has no backing type, so it cannot be cast to `UInt8`
+meets_expect	yes
+log	"error: enum `Plain` has no backing type, so it cannot be cast to `UInt8`"
+log	"  --> examples/enum145_raw_unbacked_cast_error.saw:15:13"
+log	"     |"
+log	" 15 |     print(p as UInt8)"
+log	"     |             ^"
+log	"   hint: declare one (`enum Plain: UInt8 { case A = 0, ... }`) to pin the case values; without it the tag values are not part of the type"
+log	""
+log	"1 error(s) generated"

@@ -1,0 +1,13 @@
+program	coro_hoisted_receiver_temp_released_once.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"deinit 10"
+stdout	"x=10"
+stdout	"deinit 44"
+stdout	"n=44"
+stdout	"done"
+stdout	""
+meets_expect	yes

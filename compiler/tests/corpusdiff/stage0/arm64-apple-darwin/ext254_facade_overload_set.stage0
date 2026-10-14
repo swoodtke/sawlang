@@ -1,0 +1,11 @@
+program	ext254_facade_overload_set.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"14"
+stdout	"17"
+stdout	"18"
+stdout	""
+meets_expect	yes

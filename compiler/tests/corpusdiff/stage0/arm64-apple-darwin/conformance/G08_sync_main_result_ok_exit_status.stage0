@@ -1,0 +1,9 @@
+program	conformance/G08_sync_main_result_ok_exit_status.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	5
+stdout	"res-ok"
+stdout	""
+meets_expect	yes

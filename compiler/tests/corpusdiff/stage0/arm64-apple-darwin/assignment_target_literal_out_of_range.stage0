@@ -1,0 +1,13 @@
+program	assignment_target_literal_out_of_range.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	integer literal 999 does not fit in `UInt8` (range 0..=255)
+meets_expect	yes
+log	"error: integer literal 999 does not fit in `UInt8` (range 0..=255)"
+log	"  --> examples/assignment_target_literal_out_of_range.saw:17:9"
+log	"     |"
+log	" 17 |     v = 999"
+log	"     |         ^"
+log	""
+log	"1 error(s) generated"

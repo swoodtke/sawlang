@@ -1,0 +1,9 @@
+program	fixedbuf_set_oob_panic.saw
+triple	arm64-apple-darwin
+twin	same
+expect	panic
+build	ok
+exit	-6
+stdout	"panic at fixedbuf.saw:66: FixedBuf.set: index out of range: 11 (len 8)"
+stdout	""
+meets_expect	yes

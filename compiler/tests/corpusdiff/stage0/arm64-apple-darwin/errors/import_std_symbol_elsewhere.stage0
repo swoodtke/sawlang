@@ -1,0 +1,21 @@
+program	errors/import_std_symbol_elsewhere.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	`Duration` is not defined in `std.time`
+meets_expect	yes
+log	"error: `Duration` is not defined in `std.time`"
+log	"  --> examples/errors/import_std_symbol_elsewhere.saw:16:1"
+log	"     |"
+log	" 16 | import std.time.{Duration}"
+log	"     | ^"
+log	"   hint: it is in the prelude and needs no import — drop it from this list"
+log	""
+log	"error: `Data` is not defined in `std.time`"
+log	"  --> examples/errors/import_std_symbol_elsewhere.saw:17:1"
+log	"     |"
+log	" 17 | import std.time.{Data}"
+log	"     | ^"
+log	"   hint: it is in `std.data` — write `import std.data.{Data}`"
+log	""
+log	"2 error(s) generated"

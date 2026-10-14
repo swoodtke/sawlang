@@ -1,0 +1,21 @@
+program	errors/static_non_sync.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	static `P` has non-Sync type `UnsafePointer<Int>`; statics must be Sync (shared across all tasks)
+meets_expect	yes
+log	"error: static `P` needs an initializer: a static may be declared without one only when all-zero is a valid value of its type"
+log	"  --> examples/errors/static_non_sync.saw:6:1"
+log	"    |"
+log	" 6 | static P: UnsafePointer<Int>"
+log	"    | ^"
+log	"   hint: add `= <constant>`, or use a type whose storage is scalar throughout (a POD struct, `[T; N]`, `Atomic<Int>`, `SpinLock<T>` over one)"
+log	""
+log	"error: static `P` has non-Sync type `UnsafePointer<Int>`; statics must be Sync (shared across all tasks)"
+log	"  --> examples/errors/static_non_sync.saw:6:1"
+log	"    |"
+log	" 6 | static P: UnsafePointer<Int>"
+log	"    | ^"
+log	"   hint: use a Sync type — mutation of global state flows only through interior-synchronized types like `Atomic<Int>` and `SpinLock<T>`, or declare an `unsafe static var` and own the serialization argument."
+log	""
+log	"2 error(s) generated"

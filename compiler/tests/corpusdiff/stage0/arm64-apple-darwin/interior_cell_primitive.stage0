@@ -1,0 +1,13 @@
+program	interior_cell_primitive.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"0"
+stdout	"7"
+stdout	"7"
+stdout	"12"
+stdout	"cell holds a String"
+stdout	""
+meets_expect	yes

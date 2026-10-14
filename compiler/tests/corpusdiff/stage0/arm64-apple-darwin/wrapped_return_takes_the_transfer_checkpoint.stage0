@@ -1,0 +1,14 @@
+program	wrapped_return_takes_the_transfer_checkpoint.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	cannot return NoCopy type `Res` without `move` in closure
+meets_expect	yes
+log	"error: cannot return NoCopy type `Res` without `move` in closure"
+log	"  --> examples/wrapped_return_takes_the_transfer_checkpoint.saw:43:48"
+log	"     |"
+log	" 43 |     print(\"n {}\", run_opt({ [&var o] in return o }))"
+log	"     |                                                ^"
+log	"   hint: use `move` to transfer ownership instead"
+log	""
+log	"1 error(s) generated"

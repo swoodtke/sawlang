@@ -1,0 +1,10 @@
+program	cast_distinct_nonint_underlying.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"true"
+stdout	"false"
+stdout	""
+meets_expect	yes

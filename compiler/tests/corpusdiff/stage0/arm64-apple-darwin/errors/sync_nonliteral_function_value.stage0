@@ -1,0 +1,14 @@
+program	errors/sync_nonliteral_function_value.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	cannot pass a non-`sync` function value where a `(Int) sync -> Int` is expected
+meets_expect	yes
+log	"error: cannot pass a non-`sync` function value where a `(Int) sync -> Int` is expected"
+log	"  --> examples/errors/sync_nonliteral_function_value.saw:14:23"
+log	"     |"
+log	" 14 |     let r = needsSync(g)"
+log	"     |                       ^"
+log	"   hint: pass a `sync`-typed function value or a closure literal that is checked suspension-free"
+log	""
+log	"1 error(s) generated"

@@ -1,0 +1,13 @@
+program	conformance/V103_copy_funnel_duplicates_exactly_once.saw
+triple	arm64-apple-darwin
+twin	differs
+expect	success
+build	ok
+exit	0
+stdout	"copy hook"
+stdout	"copy hook"
+stdout	"hooked: 2"
+stdout	"enum payload independent: 1 2"
+stdout	"vector element independent: 1 2"
+stdout	""
+meets_expect	yes

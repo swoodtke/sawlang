@@ -1,0 +1,12 @@
+program	df3_generic_no_wrap_error.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"wrapped 5"
+stdout	"already 9"
+stdout	"none-arg absent"
+stdout	"-- done"
+stdout	""
+meets_expect	yes

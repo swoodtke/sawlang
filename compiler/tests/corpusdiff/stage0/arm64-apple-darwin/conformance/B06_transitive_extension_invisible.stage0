@@ -1,0 +1,14 @@
+program	conformance/B06_transitive_extension_invisible.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	type `Int` has no method `deep_op` in scope here
+meets_expect	yes
+log	"error: type `Int` has no method `deep_op` in scope here"
+log	"  --> examples/conformance/B06_transitive_extension_invisible.saw:13:12"
+log	"     |"
+log	" 13 |     print(n.deep_op())"
+log	"     |            ^"
+log	"   hint: `deep` extends `Int` with `deep_op`, but this file does not import it — add `import deep`"
+log	""
+log	"1 error(s) generated"

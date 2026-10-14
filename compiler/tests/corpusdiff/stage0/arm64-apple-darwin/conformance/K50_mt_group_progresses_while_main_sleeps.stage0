@@ -1,0 +1,9 @@
+program	conformance/K50_mt_group_progresses_while_main_sleeps.saw
+triple	arm64-apple-darwin
+twin	differs
+expect	success
+build	ok
+exit	0
+stdout	"ran during the nap: 1"
+stdout	""
+meets_expect	yes

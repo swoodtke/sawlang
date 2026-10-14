@@ -1,0 +1,11 @@
+program	visibility_public.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"15"
+stdout	"100"
+stdout	"10"
+stdout	""
+meets_expect	yes

@@ -1,0 +1,10 @@
+program	offload_multi_arg_pipe_read.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"writer: fed the pipe"
+stdout	"reader: n=4 bytes=83,97,119,33"
+stdout	""
+meets_expect	yes

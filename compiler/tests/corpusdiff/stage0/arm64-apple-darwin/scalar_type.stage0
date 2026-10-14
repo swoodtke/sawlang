@@ -1,0 +1,26 @@
+program	scalar_type.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"ascii \" 34"
+stdout	"latin é 233"
+stdout	"euro € 8364"
+stdout	"emoji 😀 128512"
+stdout	"first 0"
+stdout	"last 1114111"
+stdout	"neg: -1 is not a Unicode scalar value: outside 0..0x10FFFF"
+stdout	"over: 1114112 is not a Unicode scalar value: outside 0..0x10FFFF"
+stdout	"surrogate_low: 55296 is not a Unicode scalar value: a UTF-16 surrogate"
+stdout	"surrogate_high: 57343 is not a Unicode scalar value: a UTF-16 surrogate"
+stdout	"just_below 55295"
+stdout	"just_above 57344"
+stdout	"absent: true"
+stdout	"eq: true"
+stdout	"ne: true"
+stdout	"lt: true"
+stdout	"ordered: true"
+stdout	"set: 2"
+stdout	""
+meets_expect	yes

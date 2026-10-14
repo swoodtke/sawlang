@@ -1,0 +1,13 @@
+program	coercion/array_literal_const_element_range_check.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	constant expression 1099511627776 does not fit in `UInt32` (range 0..=4294967295)
+meets_expect	yes
+log	"error: constant expression 1099511627776 does not fit in `UInt32` (range 0..=4294967295)"
+log	"  --> examples/coercion/array_literal_const_element_range_check.saw:13:29"
+log	"     |"
+log	" 13 |     let a: [UInt32; 1] = [1 << 40]"
+log	"     |                             ^"
+log	""
+log	"1 error(s) generated"

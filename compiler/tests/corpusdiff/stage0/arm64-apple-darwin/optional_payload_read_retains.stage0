@@ -1,0 +1,12 @@
+program	optional_payload_read_retains.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"v1"
+stdout	"w2"
+stdout	"x3"
+stdout	"y4"
+stdout	""
+meets_expect	yes

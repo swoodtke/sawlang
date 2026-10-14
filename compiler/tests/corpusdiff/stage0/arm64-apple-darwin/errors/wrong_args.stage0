@@ -1,0 +1,13 @@
+program	errors/wrong_args.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	function `add` takes 2 argument(s), but 3 were given
+meets_expect	yes
+log	"error: function `add` takes 2 argument(s), but 3 were given"
+log	"  --> examples/errors/wrong_args.saw:10:11"
+log	"     |"
+log	" 10 |     print(add(1, 2, 3))"
+log	"     |           ^"
+log	""
+log	"1 error(s) generated"

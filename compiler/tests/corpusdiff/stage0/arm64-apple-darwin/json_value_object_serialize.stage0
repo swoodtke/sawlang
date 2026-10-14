@@ -1,0 +1,21 @@
+program	json_value_object_serialize.saw
+triple	arm64-apple-darwin
+twin	differs
+expect	success
+build	ok
+exit	0
+stdout	"basic: stable=true text={\"ok\":true,\"tag\":null,\"port\":8080,\"name\":\"srv\"}"
+stdout	"empty_object: text={}"
+stdout	"empty_object: reparsed_len=0"
+stdout	"nested_obj: text={\"outer\":{\"inner\":5,\"flag\":false}}"
+stdout	"nested_obj: inner=5"
+stdout	"obj_in_arr_in_obj: text={\"list\":[{\"n\":1},{\"n\":2}]}"
+stdout	"obj_in_arr_in_obj: n0=1 n1=2"
+stdout	"escaped: text={\"a\\\"b\\\\c\":\"line1\\nline2\\ttab\"}"
+stdout	"escaped: roundtrip=true"
+stdout	"dup_key: text={\"a\":2}"
+stdout	"dup_key: reparsed_a=2 len=1"
+stdout	"deep_at_limit: ok len=385"
+stdout	"deep_past_limit: encode error: nesting is deeper than the encoder allows"
+stdout	""
+meets_expect	yes

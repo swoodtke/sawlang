@@ -1,0 +1,13 @@
+program	ref_replace_generic_wrong_type_error.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	cannot assign `Cat` to referent of type `T`
+meets_expect	yes
+log	"error: cannot assign `Cat` to referent of type `T`"
+log	"  --> examples/ref_replace_generic_wrong_type_error.saw:12:5"
+log	"     |"
+log	" 12 |     p = other"
+log	"     |     ^"
+log	""
+log	"1 error(s) generated"

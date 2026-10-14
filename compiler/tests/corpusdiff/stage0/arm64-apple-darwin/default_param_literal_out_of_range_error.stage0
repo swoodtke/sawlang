@@ -1,0 +1,13 @@
+program	default_param_literal_out_of_range_error.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	integer literal 200 does not fit in `Int8` (range -128..=127)
+meets_expect	yes
+log	"error: integer literal 200 does not fit in `Int8` (range -128..=127)"
+log	"  --> examples/default_param_literal_out_of_range_error.saw:7:18"
+log	"    |"
+log	" 7 | func f(x: Int8 = 200) -> Int8 { x }"
+log	"    |                  ^"
+log	""
+log	"1 error(s) generated"

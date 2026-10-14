@@ -1,0 +1,17 @@
+program	compound_assign.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"15"
+stdout	"5"
+stdout	"50"
+stdout	"5"
+stdout	"2"
+stdout	"110"
+stdout	"3.5"
+stdout	"25"
+stdout	"6"
+stdout	""
+meets_expect	yes

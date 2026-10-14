@@ -1,0 +1,12 @@
+program	module_tests/test_match_contexts.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"100"
+stdout	"2"
+stdout	"100"
+stdout	"100"
+stdout	""
+meets_expect	yes

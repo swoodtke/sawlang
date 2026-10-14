@@ -1,0 +1,14 @@
+program	interior_cell_by_pointer_receiver.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"41"
+stdout	"42"
+stdout	"42"
+stdout	"nested cell reached the root"
+stdout	"5"
+stdout	"9"
+stdout	""
+meets_expect	yes

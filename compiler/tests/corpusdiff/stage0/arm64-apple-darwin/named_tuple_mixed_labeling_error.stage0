@@ -1,0 +1,7 @@
+program	named_tuple_mixed_labeling_error.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	Parse error at 7:22: named tuple literal must label every element (all-or-nothing)
+meets_expect	yes
+log	"error: Parse error at 7:22: named tuple literal must label every element (all-or-nothing)"

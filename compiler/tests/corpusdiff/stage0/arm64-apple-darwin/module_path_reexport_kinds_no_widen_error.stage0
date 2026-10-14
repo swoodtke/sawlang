@@ -1,0 +1,27 @@
+program	module_path_reexport_kinds_no_widen_error.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	`PKG_LIMIT` is public(package) in `pkgvis.secret`
+meets_expect	yes
+log	"error: `PKG_LIMIT` is public(package) in `pkgvis.secret`"
+log	"  --> examples/module_path_reexport_kinds_no_widen_error.saw:15:17"
+log	"     |"
+log	" 15 |     print(pkgvis.PKG_LIMIT)"
+log	"     |                 ^"
+log	"   hint: mark it `public` in `pkgvis.secret` to expose it — a `public import` re-export hands on the name and its module's extension scope, never a wider tier"
+log	""
+log	"error: `PkgBox` is public(package) in `pkgvis.secret`"
+log	"  --> examples/module_path_reexport_kinds_no_widen_error.saw:16:19"
+log	"     |"
+log	" 16 |     let b = pkgvis.PkgBox(n: 3)"
+log	"     |                   ^"
+log	"   hint: mark it `public` in `pkgvis.secret` to expose it — a `public import` re-export hands on the name and its module's extension scope, never a wider tier"
+log	""
+log	"error: undefined variable `b`"
+log	"  --> examples/module_path_reexport_kinds_no_widen_error.saw:17:11"
+log	"     |"
+log	" 17 |     print(b.n)"
+log	"     |           ^"
+log	""
+log	"3 error(s) generated"

@@ -1,0 +1,9 @@
+program	panic_location_shift.saw
+triple	arm64-apple-darwin
+twin	same
+expect	panic
+build	ok
+exit	-6
+stdout	"panic at panic_location_shift.saw:10: shift out of range"
+stdout	""
+meets_expect	yes

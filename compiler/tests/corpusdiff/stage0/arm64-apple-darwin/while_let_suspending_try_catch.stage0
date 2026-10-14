@@ -1,0 +1,10 @@
+program	while_let_suspending_try_catch.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"driven 1080"
+stdout	"spawned 1080"
+stdout	""
+meets_expect	yes

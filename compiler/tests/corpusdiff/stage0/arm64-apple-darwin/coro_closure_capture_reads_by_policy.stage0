@@ -1,0 +1,30 @@
+program	coro_closure_capture_reads_by_policy.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"c1 7"
+stdout	"c1 7"
+stdout	"c2 b"
+stdout	"c2 b"
+stdout	"c3 c"
+stdout	"c3 c"
+stdout	"c4 inside 2"
+stdout	"c4 outside 2"
+stdout	"c4 inside 2"
+stdout	"c4 outside 2"
+stdout	"c4 live 0"
+stdout	"c5 3"
+stdout	"c5 3"
+stdout	"c6 r"
+stdout	"c6 r"
+stdout	"c6 live 0"
+stdout	"c7 r"
+stdout	"c7 live 0"
+stdout	"c8 s"
+stdout	"c8 s"
+stdout	"c8 s"
+stdout	"c8 s"
+stdout	""
+meets_expect	yes

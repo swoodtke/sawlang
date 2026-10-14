@@ -1,0 +1,14 @@
+program	errors/unsafe_trigger_undeclared.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	function `leak_it` is not declared `unsafe`, but its body names a value of unsafe type (`UnsafeMmioReg`)
+meets_expect	yes
+log	"error: function `leak_it` is not declared `unsafe`, but its body names a value of unsafe type (`UnsafeMmioReg`)"
+log	"  --> examples/errors/unsafe_trigger_undeclared.saw:13:15"
+log	"     |"
+log	" 13 |     let reg = UnsafeMmioReg(addr: at)"
+log	"     |               ^"
+log	"   hint: write `func leak_it(...) unsafe` — the unsafety belongs in the signature where every caller can see it; if the operation is sound for every input, keep the wrapper unsafe and expose a safe one that checks its arguments"
+log	""
+log	"1 error(s) generated"

@@ -1,0 +1,28 @@
+program	exclusivity_erased_and_generic_receivers.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	exclusive access violation: `p` is passed as `&var` while also being accessed in the same call
+meets_expect	yes
+log	"error: exclusive access violation: `p` is passed as `&var` while also being accessed in the same call"
+log	"  --> examples/exclusivity_erased_and_generic_receivers.saw:31:12"
+log	"     |"
+log	" 31 |     s.pair(&var p, &var p)"
+log	"     |            ^"
+log	"   hint: disjoint access paths are allowed (e.g. `&var p.x` with `&p.y`); give the mutable reference exclusive access"
+log	""
+log	"error: exclusive access violation: `p` is passed as `&var` while also being accessed in the same call"
+log	"  --> examples/exclusivity_erased_and_generic_receivers.saw:35:12"
+log	"     |"
+log	" 35 |     s.pair(&var p, &var p)"
+log	"     |            ^"
+log	"   hint: disjoint access paths are allowed (e.g. `&var p.x` with `&p.y`); give the mutable reference exclusive access"
+log	""
+log	"error: exclusive access violation: `p` is passed as `&var` while also being accessed in the same call"
+log	"  --> examples/exclusivity_erased_and_generic_receivers.saw:39:12"
+log	"     |"
+log	" 39 |     s.pair(&var p, &var p)"
+log	"     |            ^"
+log	"   hint: disjoint access paths are allowed (e.g. `&var p.x` with `&p.y`); give the mutable reference exclusive access"
+log	""
+log	"3 error(s) generated"

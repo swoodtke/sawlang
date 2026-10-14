@@ -1,0 +1,10 @@
+program	align_nonresident_local_in_suspending_function.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"nonresident%64 = 0"
+stdout	"value = 7"
+stdout	""
+meets_expect	yes

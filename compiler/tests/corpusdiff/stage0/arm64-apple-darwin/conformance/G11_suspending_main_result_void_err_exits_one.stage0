@@ -1,0 +1,9 @@
+program	conformance/G11_suspending_main_result_void_err_exits_one.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	1
+stdout	"error: config unreadable"
+stdout	""
+meets_expect	yes

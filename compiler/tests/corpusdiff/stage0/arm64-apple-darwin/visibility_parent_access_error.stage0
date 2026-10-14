@@ -1,0 +1,20 @@
+program	visibility_parent_access_error.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	`parent_only` is public(parent) in `modules.nested.child`
+meets_expect	yes
+log	"error: `parent_only` is public(parent) in `modules.nested.child`"
+log	"  --> examples/visibility_parent_access_error.saw:11:23"
+log	"     |"
+log	" 11 |     let result = child.parent_only(6)"
+log	"     |                       ^"
+log	"   hint: mark it `public` in `modules.nested.child` to expose it — a `public import` re-export hands on the name and its module's extension scope, never a wider tier"
+log	""
+log	"error: undefined variable `result`"
+log	"  --> examples/visibility_parent_access_error.saw:12:11"
+log	"     |"
+log	" 12 |     print(result)"
+log	"     |           ^"
+log	""
+log	"2 error(s) generated"

@@ -1,0 +1,7 @@
+program	attr_export_on_extension_error.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	Parse error at 9:1: attribute `@export` is not supported on extensions (legal here: @synthesize)
+meets_expect	yes
+log	"error: Parse error at 9:1: attribute `@export` is not supported on extensions (legal here: @synthesize)"

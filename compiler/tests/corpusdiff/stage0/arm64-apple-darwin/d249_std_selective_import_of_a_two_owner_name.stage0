@@ -1,0 +1,11 @@
+program	d249_std_selective_import_of_a_two_owner_name.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"selected: [1,2]"
+stdout	"renamed: [1,2]"
+stdout	"glob: [1,2]"
+stdout	""
+meets_expect	yes

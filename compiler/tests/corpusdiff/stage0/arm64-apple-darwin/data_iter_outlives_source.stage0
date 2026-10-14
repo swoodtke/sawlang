@@ -1,0 +1,12 @@
+program	data_iter_outlives_source.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"7 8 9"
+stdout	"1 2 3 4"
+stdout	"20 30"
+stdout	"ok"
+stdout	""
+meets_expect	yes

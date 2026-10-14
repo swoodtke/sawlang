@@ -1,0 +1,11 @@
+program	closures_escaping_heap.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"15"
+stdout	"108"
+stdout	"7"
+stdout	""
+meets_expect	yes

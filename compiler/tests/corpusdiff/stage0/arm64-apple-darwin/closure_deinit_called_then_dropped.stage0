@@ -1,0 +1,11 @@
+program	closure_deinit_called_then_dropped.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"7"
+stdout	"7"
+stdout	"deinit 7"
+stdout	""
+meets_expect	yes

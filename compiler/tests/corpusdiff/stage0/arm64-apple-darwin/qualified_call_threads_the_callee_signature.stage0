@@ -1,0 +1,16 @@
+program	qualified_call_threads_the_callee_signature.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"byte 255"
+stdout	"default 8"
+stdout	"supplied 3"
+stdout	"over rec-4"
+stdout	"ident 9"
+stdout	"pair 5"
+stdout	"explicit 9"
+stdout	"opt 3"
+stdout	""
+meets_expect	yes

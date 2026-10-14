@@ -1,0 +1,11 @@
+program	D21_substituted_never_is_a_value.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"text n7 2"
+stdout	"empty 0"
+stdout	"-- done"
+stdout	""
+meets_expect	yes

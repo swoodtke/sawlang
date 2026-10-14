@@ -1,0 +1,14 @@
+program	coro_bind_id_match_arms_same_name.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"A: 42"
+stdout	"B: 99"
+stdout	"flag A: 42"
+stdout	"flag B: true"
+stdout	"sync A: 42"
+stdout	"sync B: 99"
+stdout	""
+meets_expect	yes

@@ -1,0 +1,10 @@
+program	conformance/C12_implicitcopy_operand_survives_consuming_equals.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"before: a=ALPHA b=BRAVO"
+stdout	"after: a=ALPHA b=BRAVO"
+stdout	""
+meets_expect	yes

@@ -1,0 +1,13 @@
+program	errors/borrows_var_lend_needs_var_self.saw
+triple	arm64-apple-darwin
+twin	differs
+expect	error
+build	refused	`borrows -> &var Cell` lends a place a use site may WRITE through, and an exclusive place cannot be projected out of a shared receiver — declare the accessor `&var self`. (A `&self` accessor may still lend read-only: `borrows -> &Cell`.)
+meets_expect	yes
+log	"error: `borrows -> &var Cell` lends a place a use site may WRITE through, and an exclusive place cannot be projected out of a shared receiver — declare the accessor `&var self`. (A `&self` accessor may still lend read-only: `borrows -> &Cell`.)"
+log	"  --> examples/errors/borrows_var_lend_needs_var_self.saw:19:12"
+log	"     |"
+log	" 19 |     public func at(&self, i: Int) borrows -> &var Cell {"
+log	"     |            ^"
+log	""
+log	"1 error(s) generated"

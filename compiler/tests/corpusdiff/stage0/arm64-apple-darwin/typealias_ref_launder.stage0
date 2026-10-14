@@ -1,0 +1,21 @@
+program	typealias_ref_launder.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	field `r` of `Holder` may not be a reference: `R` names a reference (`&Int`), and references in Saw are PARAMETERS ONLY — a reference borrows storage for the duration of one call and may not escape it (designs 88/106). A `type` alias is not a way past that rule: the walk resolves it
+meets_expect	yes
+log	"error: field `r` of `Holder` may not be a reference: `R` names a reference (`&Int`), and references in Saw are PARAMETERS ONLY — a reference borrows storage for the duration of one call and may not escape it (designs 88/106). A `type` alias is not a way past that rule: the walk resolves it"
+log	"  --> examples/typealias_ref_launder.saw:14:5"
+log	"     |"
+log	" 14 |     r: R"
+log	"     |     ^"
+log	"   hint: use the value type (`Int`), or — to hand out storage a type already owns — declare a `borrows` accessor (`... borrows -> &var Int` with `lend`, design 141)"
+log	""
+log	"error: a value of type `R` may not be a reference: `R` names a reference (`&Int`), and references in Saw are PARAMETERS ONLY — a reference borrows storage for the duration of one call and may not escape it (designs 88/106). A `type` alias is not a way past that rule: the walk resolves it"
+log	"  --> examples/typealias_ref_launder.saw:19:23"
+log	"     |"
+log	" 19 |     let h = Holder(r: R(&x))"
+log	"     |                       ^"
+log	"   hint: use the value type (`Int`), or — to hand out storage a type already owns — declare a `borrows` accessor (`... borrows -> &var Int` with `lend`, design 141)"
+log	""
+log	"2 error(s) generated"

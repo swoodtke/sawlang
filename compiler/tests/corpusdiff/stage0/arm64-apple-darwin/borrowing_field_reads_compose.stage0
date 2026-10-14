@@ -1,0 +1,11 @@
+program	borrowing_field_reads_compose.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"sync 70"
+stdout	"generic 7"
+stdout	"driven 70"
+stdout	""
+meets_expect	yes

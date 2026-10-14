@@ -1,0 +1,20 @@
+program	string_escaped_brace_keeps_control_byte.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"1"
+stdout	"2"
+stdout	"1"
+stdout	"open 1 123"
+stdout	"close 1 125"
+stdout	"unicode-close 2 1 125"
+stdout	"control-then-escaped-open 2 1 123"
+stdout	"control-then-escaped-close 2 1 125"
+stdout	"both-braces 5 97 123 98 125 99"
+stdout	"bare-close 1 125"
+stdout	"control-then-letter 2 1 120"
+stdout	"control-alone 1 1"
+stdout	""
+meets_expect	yes

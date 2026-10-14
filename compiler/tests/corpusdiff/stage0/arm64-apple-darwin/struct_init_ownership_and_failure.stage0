@@ -1,0 +1,40 @@
+program	struct_init_ownership_and_failure.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"copy source held"
+stdout	"copy field held"
+stdout	"moved 1 2"
+stdout	"drop 2"
+stdout	"drop 1"
+stdout	"--- zero repeat"
+stdout	"make 3"
+stdout	"drop 3"
+stdout	"--- failed assignment"
+stdout	"make 30"
+stdout	"make 40"
+stdout	"drop 30"
+stdout	"failed 40"
+stdout	"kept 10 20"
+stdout	"drop 20"
+stdout	"drop 10"
+stdout	"--- failed optional assignment"
+stdout	"make 130"
+stdout	"make 140"
+stdout	"drop 130"
+stdout	"failed 140"
+stdout	"kept 110 120"
+stdout	"drop 120"
+stdout	"drop 110"
+stdout	"--- successful assignment"
+stdout	"make 70"
+stdout	"make 80"
+stdout	"drop 60"
+stdout	"drop 50"
+stdout	"replaced 70 80"
+stdout	"drop 80"
+stdout	"drop 70"
+stdout	""
+meets_expect	yes

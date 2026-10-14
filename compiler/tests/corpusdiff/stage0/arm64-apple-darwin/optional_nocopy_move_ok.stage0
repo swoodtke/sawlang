@@ -1,0 +1,12 @@
+program	optional_nocopy_move_ok.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"moved"
+stdout	"took 2"
+stdout	"drop res 2"
+stdout	"drop res 1"
+stdout	""
+meets_expect	yes

@@ -1,0 +1,13 @@
+program	errors/borrows_lend_coverage_partial.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	one branch here lends and the other falls through without lending. Every path through a `borrows` body lends exactly once or diverges — declare the place `-> &T?` if it can be absent
+meets_expect	yes
+log	"error: one branch here lends and the other falls through without lending. Every path through a `borrows` body lends exactly once or diverges — declare the place `-> &T?` if it can be absent"
+log	"  --> examples/errors/borrows_lend_coverage_partial.saw:13:9"
+log	"     |"
+log	" 13 |         if i >= 0 {"
+log	"     |         ^"
+log	""
+log	"1 error(s) generated"

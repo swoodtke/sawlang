@@ -1,0 +1,12 @@
+program	atomic_nocopy_cell_clause.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"cell wrapper copies: 5 5"
+stdout	"the copy is its own storage: 9 5"
+stdout	"atomic holder moves: 2"
+stdout	"one counter: 2"
+stdout	""
+meets_expect	yes

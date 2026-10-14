@@ -1,0 +1,14 @@
+program	generic_same_named_inits_and_overloads.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"one 1"
+stdout	"pair 4"
+stdout	"tag-int 8"
+stdout	"tag-string 6"
+stdout	"str one"
+stdout	"vec 2"
+stdout	""
+meets_expect	yes

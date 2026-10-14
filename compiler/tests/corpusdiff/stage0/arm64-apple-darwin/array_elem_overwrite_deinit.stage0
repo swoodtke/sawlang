@@ -1,0 +1,11 @@
+program	array_elem_overwrite_deinit.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"deinit 1"
+stdout	"deinit 2"
+stdout	"deinit 3"
+stdout	""
+meets_expect	yes

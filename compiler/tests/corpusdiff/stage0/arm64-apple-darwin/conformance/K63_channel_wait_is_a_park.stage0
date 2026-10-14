@@ -1,0 +1,17 @@
+program	conformance/K63_channel_wait_is_a_park.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"saw tasks: 3 live (unsynchronized snapshot)"
+stdout	"  task group 1 slot 0 gen 1 channel-parked"
+stdout	"    at K63_channel_wait_is_a_park.saw:32 in waiter"
+stdout	"  task group 1 slot 1 gen 1 channel-parked"
+stdout	"    at K63_channel_wait_is_a_park.saw:38 in idle"
+stdout	"  task group 1 slot 2 gen 1 running"
+stdout	"    at K63_channel_wait_is_a_park.saw:42 in watcher"
+stdout	"waiter 7"
+stdout	"idle 9"
+stdout	""
+meets_expect	yes

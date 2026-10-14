@@ -1,0 +1,32 @@
+program	conformance/V107_capture_survives_repeated_invocation.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"-- A non-escaping [copy], sync, 2 calls"
+stdout	"copy 11 -> 12"
+stdout	"drop 12"
+stdout	"drop 11"
+stdout	"= 24"
+stdout	"-- B non-escaping [copy], driven, 2 calls"
+stdout	"copy 11 -> 12"
+stdout	"drop 11"
+stdout	"drop 12"
+stdout	"= 24"
+stdout	"-- C escaping [copy], sync, 2 calls"
+stdout	"copy 11 -> 12"
+stdout	"drop 12"
+stdout	"drop 11"
+stdout	"= 24"
+stdout	"-- D escaping [copy], driven, 2 calls"
+stdout	"copy 11 -> 12"
+stdout	"drop 12"
+stdout	"drop 11"
+stdout	"= 24"
+stdout	"-- E plain + borrow captures, driven, 2 calls each"
+stdout	"plain 22"
+stdout	"borrow 22"
+stdout	"end"
+stdout	""
+meets_expect	yes

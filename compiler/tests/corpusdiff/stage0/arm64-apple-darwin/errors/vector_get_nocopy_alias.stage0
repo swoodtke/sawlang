@@ -1,0 +1,14 @@
+program	errors/vector_get_nocopy_alias.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	`self.items.get(…)` lends a place of type `Item`, which is move-only — reading it out as a value would alias storage the container still owns
+meets_expect	yes
+log	"error: `self.items.get(…)` lends a place of type `Item`, which is move-only — reading it out as a value would alias storage the container still owns"
+log	"  --> examples/errors/vector_get_nocopy_alias.saw:43:34"
+log	"     |"
+log	" 43 |             if let e = self.items.get(i) {"
+log	"     |                                  ^"
+log	"   hint: `self.items.get(…)!.method()` borrows through the window without taking the value out, `self.items.with_ref(…)` borrows it for a whole scope, `self.items.swap_out(…)` moves it out"
+log	""
+log	"1 error(s) generated"

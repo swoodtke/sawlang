@@ -1,0 +1,14 @@
+program	try_catch_union_nonexhaustive_error.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	match is not exhaustive, missing variants: `FileError`
+meets_expect	yes
+log	"error: match is not exhaustive, missing variants: `FileError`"
+log	"  --> examples/try_catch_union_nonexhaustive_error.saw:27:9"
+log	"     |"
+log	" 27 |         match error {"
+log	"     |         ^"
+log	"   hint: add missing cases or use `case _ ->` as a default"
+log	""
+log	"1 error(s) generated"

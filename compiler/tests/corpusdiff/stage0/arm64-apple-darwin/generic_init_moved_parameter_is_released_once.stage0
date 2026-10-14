@@ -1,0 +1,11 @@
+program	generic_init_moved_parameter_is_released_once.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"gone 7"
+stdout	"7"
+stdout	"gone 7"
+stdout	""
+meets_expect	no: output line 1 is 'gone 7', expected '7'

@@ -1,0 +1,14 @@
+program	errors/var_ref_into_shared_self.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	cannot take a mutable reference into a `&self` receiver: `self` is borrowed SHARED here, so `&var self....` would hand out a mutable reference to a copy and the write would be lost
+meets_expect	yes
+log	"error: cannot take a mutable reference into a `&self` receiver: `self` is borrowed SHARED here, so `&var self....` would hand out a mutable reference to a copy and the write would be lost"
+log	"  --> examples/errors/var_ref_into_shared_self.saw:22:14"
+log	"     |"
+log	" 22 |         bump(&var self.slot)"
+log	"     |              ^"
+log	"   hint: declare the method `&var self` to mutate through the receiver, or `&var self ... borrows -> &var T` to lend the place and let each use site choose the window's flavor"
+log	""
+log	"1 error(s) generated"

@@ -1,0 +1,14 @@
+program	ref_replace_existential_error.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	cannot replace the referent of `&var any Shape` `p`: the concrete type behind the erasure is unknown
+meets_expect	yes
+log	"error: cannot replace the referent of `&var any Shape` `p`: the concrete type behind the erasure is unknown"
+log	"  --> examples/ref_replace_existential_error.saw:14:5"
+log	"     |"
+log	" 14 |     p = other"
+log	"     |     ^"
+log	"   hint: a differently-typed value would corrupt the caller's slot — replace at the `Box<any Shape>` level instead (a `&var Box<any Shape>` referent CAN be reassigned)"
+log	""
+log	"1 error(s) generated"

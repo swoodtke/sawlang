@@ -1,0 +1,9 @@
+program	array_dynamic_index_write_sum.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"150"
+stdout	""
+meets_expect	yes

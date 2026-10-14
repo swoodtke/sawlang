@@ -1,0 +1,16 @@
+program	deinit_synth_enum_payload.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"empty built"
+stdout	"one built"
+stdout	"drop r1"
+stdout	"two built"
+stdout	"drop r3"
+stdout	"drop r2"
+stdout	"vec built"
+stdout	"done"
+stdout	""
+meets_expect	yes

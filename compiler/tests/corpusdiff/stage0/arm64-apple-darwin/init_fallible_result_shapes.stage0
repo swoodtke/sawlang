@@ -1,0 +1,17 @@
+program	init_fallible_result_shapes.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"plain: 5"
+stdout	"generic Int: 3 7"
+stdout	"generic String: hi 1"
+stdout	"const generic: 2 of 8"
+stdout	"const generic err: does not fit 8"
+stdout	"default param: 4 7"
+stdout	"overload from: 5"
+stdout	"overload text: 3"
+stdout	"overload err: empty"
+stdout	""
+meets_expect	yes

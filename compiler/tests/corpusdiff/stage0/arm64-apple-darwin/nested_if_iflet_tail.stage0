@@ -1,0 +1,9 @@
+program	nested_if_iflet_tail.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"10"
+stdout	""
+meets_expect	yes

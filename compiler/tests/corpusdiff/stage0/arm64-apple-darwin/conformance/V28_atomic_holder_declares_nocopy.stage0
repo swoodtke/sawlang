@@ -1,0 +1,11 @@
+program	conformance/V28_atomic_holder_declares_nocopy.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"live 2"
+stdout	"lent 2"
+stdout	"moved 3"
+stdout	""
+meets_expect	yes

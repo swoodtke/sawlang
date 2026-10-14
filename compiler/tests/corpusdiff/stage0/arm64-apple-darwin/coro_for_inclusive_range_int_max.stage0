@@ -1,0 +1,10 @@
+program	coro_for_inclusive_range_int_max.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"inclusive 3 3"
+stdout	"exclusive 2 2"
+stdout	""
+meets_expect	yes

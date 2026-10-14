@@ -1,0 +1,10 @@
+program	labeled_args_module.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"23"
+stdout	"5"
+stdout	""
+meets_expect	yes

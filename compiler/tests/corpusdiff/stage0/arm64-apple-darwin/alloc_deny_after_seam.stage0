@@ -1,0 +1,13 @@
+program	alloc_deny_after_seam.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"denied"
+stdout	"allowed"
+stdout	"denied"
+stdout	"denied"
+stdout	"8"
+stdout	""
+meets_expect	yes

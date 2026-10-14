@@ -1,0 +1,21 @@
+program	two_copy_arc.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"-- sync"
+stdout	"inside 3"
+stdout	"inside 3"
+stdout	"root while live 3"
+stdout	"root after 1"
+stdout	"read 7"
+stdout	"-- driven"
+stdout	"inside 3"
+stdout	"inside 3"
+stdout	"root while live 3"
+stdout	"root after 1"
+stdout	"read 7"
+stdout	"end"
+stdout	""
+meets_expect	yes

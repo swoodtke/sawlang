@@ -1,0 +1,11 @@
+program	closure_satisfies_copy_bound.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"6"
+stdout	"6"
+stdout	"6"
+stdout	""
+meets_expect	yes

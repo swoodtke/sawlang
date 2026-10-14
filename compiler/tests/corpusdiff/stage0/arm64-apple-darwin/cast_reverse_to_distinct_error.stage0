@@ -1,0 +1,19 @@
+program	cast_reverse_to_distinct_error.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	cannot cast `Int` to `UserId`
+meets_expect	yes
+log	"error: cannot cast `Int` to `UserId`"
+log	"  --> examples/cast_reverse_to_distinct_error.saw:10:18"
+log	"     |"
+log	" 10 |     let bad = 42 as UserId"
+log	"     |                  ^"
+log	""
+log	"error: undefined variable `bad`"
+log	"  --> examples/cast_reverse_to_distinct_error.saw:11:11"
+log	"     |"
+log	" 11 |     print(bad as Int)"
+log	"     |           ^"
+log	""
+log	"2 error(s) generated"

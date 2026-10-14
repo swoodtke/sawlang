@@ -1,0 +1,21 @@
+program	json_value_roundtrip.saw
+triple	arm64-apple-darwin
+twin	differs
+expect	success
+build	ok
+exit	0
+stdout	"null: is_null=true text=null reparsed_is_null=true"
+stdout	"bool_true: value=true text=true"
+stdout	"bool_false: value=false text=false"
+stdout	"int: value=42 text=42"
+stdout	"negative_int: value=-17 text=-17"
+stdout	"text: value=hi text=\"hi\""
+stdout	"array: len=3 text=[1,2,3] elem1=2"
+stdout	"nested_array: text=[[1,2],[3],[]]"
+stdout	"nested_array_stability: match=true"
+stdout	"array_of_mixed: text=[1,\"two\",true,null,3]"
+stdout	"object: a=1 b=true c_len=2 c0=10 c1=20"
+stdout	"object_serialize: {\"a\":1,\"b\":true,\"c\":[10,20]}"
+stdout	"deep_mixed: x_a0_y=99"
+stdout	""
+meets_expect	yes

@@ -1,0 +1,11 @@
+program	conformance/C03_match_guard_equality_nocopy.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"different"
+stdout	"drop 3"
+stdout	"drop 9"
+stdout	""
+meets_expect	yes

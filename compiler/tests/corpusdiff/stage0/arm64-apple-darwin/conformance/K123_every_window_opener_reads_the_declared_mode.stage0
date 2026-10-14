@@ -1,0 +1,18 @@
+program	conformance/K123_every_window_opener_reads_the_declared_mode.saw
+triple	arm64-apple-darwin
+twin	differs
+expect	success
+build	ok
+exit	0
+stdout	"1 subscript read 10"
+stdout	"2 named read 20"
+stdout	"3 write 11"
+stdout	"4 chain write 21"
+stdout	"5 forced read 11"
+stdout	"6 match sees Filled"
+stdout	"7 ref arg 12"
+stdout	"8 forwarded 12"
+stdout	"read-only: subscript 10, named 10, forced 10, match Filled"
+stdout	"-- done"
+stdout	""
+meets_expect	yes

@@ -1,0 +1,12 @@
+program	init_generic_param_released.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"drop 7"
+stdout	"plain 1"
+stdout	"drop 9"
+stdout	"holder 2"
+stdout	""
+meets_expect	yes

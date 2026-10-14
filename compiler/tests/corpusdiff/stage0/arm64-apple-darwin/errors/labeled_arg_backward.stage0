@@ -1,0 +1,14 @@
+program	errors/labeled_arg_backward.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	labeled argument `b` cannot bind backward; arguments bind left to right
+meets_expect	yes
+log	"error: labeled argument `b` cannot bind backward; arguments bind left to right"
+log	"  --> examples/errors/labeled_arg_backward.saw:11:28"
+log	"     |"
+log	" 11 |     print(f(a: 1, c: 9, b: 5))"
+log	"     |                            ^"
+log	"   hint: labels may skip forward only over parameters with defaults"
+log	""
+log	"1 error(s) generated"

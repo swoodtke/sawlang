@@ -1,0 +1,12 @@
+program	wrapping_operators.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"-9223372036854775808"
+stdout	"9223372036854775807"
+stdout	"-2"
+stdout	"14"
+stdout	""
+meets_expect	yes

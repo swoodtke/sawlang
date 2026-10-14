@@ -1,0 +1,13 @@
+program	conformance/K90_thread_detach_is_a_fate.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"detached"
+stdout	"chained"
+stdout	"ticket released"
+stdout	"ticket released"
+stdout	"main is finished"
+stdout	""
+meets_expect	yes

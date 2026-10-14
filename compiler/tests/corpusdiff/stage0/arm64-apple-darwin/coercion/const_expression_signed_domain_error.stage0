@@ -1,0 +1,13 @@
+program	coercion/const_expression_signed_domain_error.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	constant expression -9223372036854775808 does not fit in `UInt64` (range 0..=18446744073709551615)
+meets_expect	yes
+log	"error: constant expression -9223372036854775808 does not fit in `UInt64` (range 0..=18446744073709551615)"
+log	"  --> examples/coercion/const_expression_signed_domain_error.saw:17:23"
+log	"     |"
+log	" 17 |     let a: UInt64 = 1 << 63"
+log	"     |                       ^"
+log	""
+log	"1 error(s) generated"

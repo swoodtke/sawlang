@@ -1,0 +1,11 @@
+program	taskgroup_cancel_during_sleep.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"canceller: fired"
+stdout	"sleeper: cancelled"
+stdout	"woke promptly: true"
+stdout	""
+meets_expect	yes

@@ -1,0 +1,33 @@
+program	conformance/V61_match_self_payload_move_refused.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	cannot move out of `o`: it binds a payload inside a value this match only BORROWS — matching through a `&`/`&var` binding, a receiver or a place stays a borrow, so the referent keeps the payload and the move would release it twice
+meets_expect	yes
+log	"error: cannot move out of `o`: it binds a payload inside a value this match only BORROWS — matching through a `&`/`&var` binding, a receiver or a place stays a borrow, so the referent keeps the payload and the move would release it twice"
+log	"  --> examples/conformance/V61_match_self_payload_move_refused.saw:32:31"
+log	"     |"
+log	" 32 |             case Full(o) -> { move o },"
+log	"     |                               ^"
+log	"   hint: to move a payload OUT, restructure the storage so it has a move-out: an `Optional` field empties with `take()` and an indexed place with `swap_out`. To consume the whole value, take the scrutinee BY VALUE, where the caller gives it up"
+log	""
+log	"error: method `steal` should return `Owned` but returns `Void`"
+log	"  --> examples/conformance/V61_match_self_payload_move_refused.saw:29:5"
+log	"     |"
+log	" 29 |     func steal(&var self) -> Owned {"
+log	"     |     ^"
+log	""
+log	"error: cannot move out of `c`: it binds a payload inside a value this match only BORROWS — matching through a `&`/`&var` binding, a receiver or a place stays a borrow, so the referent keeps the payload and the move would release it twice"
+log	"  --> examples/conformance/V61_match_self_payload_move_refused.saw:38:31"
+log	"     |"
+log	" 38 |             case Full(c) -> { move c },"
+log	"     |                               ^"
+log	"   hint: to move a payload OUT, restructure the storage so it has a move-out: an `Optional` field empties with `take()` and an indexed place with `swap_out`. To consume the whole value, take the scrutinee BY VALUE, where the caller gives it up"
+log	""
+log	"error: method `into_owned` should return `Owned` but returns `Void`"
+log	"  --> examples/conformance/V61_match_self_payload_move_refused.saw:35:5"
+log	"     |"
+log	" 35 |     func into_owned(&var self) consumes -> Owned {"
+log	"     |     ^"
+log	""
+log	"4 error(s) generated"

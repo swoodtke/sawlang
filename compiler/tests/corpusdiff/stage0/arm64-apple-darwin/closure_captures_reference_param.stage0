@@ -1,0 +1,11 @@
+program	closure_captures_reference_param.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"15"
+stdout	"41"
+stdout	"41"
+stdout	""
+meets_expect	yes

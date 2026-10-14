@@ -1,0 +1,13 @@
+program	conformance/V32_copy_bound_is_tier_derived.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"int 7"
+stdout	"bag hello"
+stdout	"str hi"
+stdout	"arc 1"
+stdout	"tuple 3"
+stdout	""
+meets_expect	yes

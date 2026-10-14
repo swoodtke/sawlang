@@ -1,0 +1,12 @@
+program	nomove_tier.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"bumped 2"
+stdout	"replaced 99"
+stdout	"nested 8"
+stdout	"relocated 5"
+stdout	""
+meets_expect	yes

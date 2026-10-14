@@ -1,0 +1,11 @@
+program	alloc_hosted_no_degradation.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"hello from a child"
+stdout	"0"
+stdout	"true"
+stdout	""
+meets_expect	yes

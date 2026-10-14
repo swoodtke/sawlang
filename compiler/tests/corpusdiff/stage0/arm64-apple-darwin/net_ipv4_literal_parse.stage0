@@ -1,0 +1,26 @@
+program	net_ipv4_literal_parse.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"0.0.0.0 -> 0"
+stdout	"127.0.0.1 -> 16777343"
+stdout	"1.2.3.4 -> 67305985"
+stdout	"12.34.56.78 -> 1312301580"
+stdout	"10.0.0.53 -> 889192458"
+stdout	"255.255.255.255 -> 4294967295"
+stdout	"example.com -> not a literal"
+stdout	"localhost -> not a literal"
+stdout	"127.0.0 -> not a literal"
+stdout	"127.0.0. -> not a literal"
+stdout	".1.2.3 -> not a literal"
+stdout	"1.2.3.4.5 -> not a literal"
+stdout	"127.00.0.1 -> not a literal"
+stdout	"256.0.0.1 -> not a literal"
+stdout	"1234.0.0.1 -> not a literal"
+stdout	"127.0.0.1x -> not a literal"
+stdout	"127.0.0.1  -> not a literal"
+stdout	"12 7.0.0.1 -> not a literal"
+stdout	""
+meets_expect	yes

@@ -1,0 +1,13 @@
+program	errors/escaping_marker_redundant.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	redundant `escaping` — closure types outside parameter position are always escaping
+meets_expect	yes
+log	"error: redundant `escaping` — closure types outside parameter position are always escaping"
+log	"  --> examples/errors/escaping_marker_redundant.saw:9:5"
+log	"    |"
+log	" 9 |     action: (Int) escaping -> Int"
+log	"    |     ^"
+log	""
+log	"1 error(s) generated"

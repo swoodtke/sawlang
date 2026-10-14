@@ -1,0 +1,14 @@
+program	vis80_field_write_error.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	field `secret` of struct `Gadget` is private and not accessible from this module
+meets_expect	yes
+log	"error: field `secret` of struct `Gadget` is private and not accessible from this module"
+log	"  --> examples/vis80_field_write_error.saw:9:6"
+log	"    |"
+log	" 9 |     g.secret = 99   // private field — rejected"
+log	"    |      ^"
+log	"   hint: mark it `public` in the declaration of `Gadget` to expose it"
+log	""
+log	"1 error(s) generated"

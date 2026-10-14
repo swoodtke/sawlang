@@ -1,0 +1,14 @@
+program	recursive_type_through_fixed_array_refused.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	recursive type `Branch` has infinite size: its storage contains its own storage inline, through Branch.kids -> Branch
+meets_expect	yes
+log	"error: recursive type `Branch` has infinite size: its storage contains its own storage inline, through Branch.kids -> Branch"
+log	"  --> examples/recursive_type_through_fixed_array_refused.saw:9:1"
+log	"    |"
+log	" 9 | struct Branch {"
+log	"    | ^"
+log	"   hint: hold the recursive member behind a heap indirection — `Box<Branch>`, `Vector<Branch>` or a `Map` value — so the cycle crosses a pointer and the layout is finite"
+log	""
+log	"1 error(s) generated"

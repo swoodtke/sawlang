@@ -1,0 +1,21 @@
+program	closure_captures_self_escaping_error.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	an escaping closure cannot capture `self`: a method's receiver is a borrow of storage the CALLER owns — a reference borrows storage for the duration of one call and may not outlive the frame it points into
+meets_expect	yes
+log	"error: an escaping closure cannot capture `self`: a method's receiver is a borrow of storage the CALLER owns — a reference borrows storage for the duration of one call and may not outlive the frame it points into"
+log	"  --> examples/closure_captures_self_escaping_error.saw:25:17"
+log	"     |"
+log	" 25 |         let f = { self.n + 2 }"
+log	"     |                 ^"
+log	"   hint: pass the closure straight to the call that runs it (a non-escaping closure keeps its environment on the stack, so borrowing the frame is sound), copy the values it needs into locals ahead of the closure and capture those, or take the receiver as an explicit closure parameter (`body: (&Counter, Int) sync -> R`, called as `self.run({ r, v in r.field + v })`)"
+log	""
+log	"error: an escaping closure cannot capture `self`: a method's receiver is a borrow of storage the CALLER owns — a reference borrows storage for the duration of one call and may not outlive the frame it points into"
+log	"  --> examples/closure_captures_self_escaping_error.saw:31:16"
+log	"     |"
+log	" 31 |         return { self.n + 3 }"
+log	"     |                ^"
+log	"   hint: pass the closure straight to the call that runs it (a non-escaping closure keeps its environment on the stack, so borrowing the frame is sound), copy the values it needs into locals ahead of the closure and capture those, or take the receiver as an explicit closure parameter (`body: (&Counter, Int) sync -> R`, called as `self.run({ r, v in r.field + v })`)"
+log	""
+log	"2 error(s) generated"

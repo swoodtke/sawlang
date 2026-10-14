@@ -1,0 +1,13 @@
+program	errors/unsafe_static_needs_deinit.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	static `HELD` has type `Guard`, which owns a resource (Deinit); statics are immortal and never run deinit
+meets_expect	yes
+log	"error: static `HELD` has type `Guard`, which owns a resource (Deinit); statics are immortal and never run deinit"
+log	"  --> examples/errors/unsafe_static_needs_deinit.saw:19:8"
+log	"     |"
+log	" 19 | unsafe static var HELD: Guard = Guard(id: 1)"
+log	"     |        ^"
+log	""
+log	"1 error(s) generated"

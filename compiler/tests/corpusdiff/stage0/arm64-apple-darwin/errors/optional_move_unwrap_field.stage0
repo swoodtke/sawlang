@@ -1,0 +1,20 @@
+program	errors/optional_move_unwrap_field.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	cannot move out of field `r` of `h`
+meets_expect	yes
+log	"error: cannot move out of field `r` of `h`"
+log	"  --> examples/errors/optional_move_unwrap_field.saw:19:13"
+log	"     |"
+log	" 19 |     let g = move h.r!"
+log	"     |             ^"
+log	"   hint: `move` at an optional projection retires the whole BINDING, which a field cannot do; use `h.r.take()` to move the payload out and leave `None` behind"
+log	""
+log	"error: undefined variable `g`"
+log	"  --> examples/errors/optional_move_unwrap_field.saw:20:15"
+log	"     |"
+log	" 20 |     print(\"g {g.id}\")"
+log	"     |               ^"
+log	""
+log	"2 error(s) generated"

@@ -1,0 +1,15 @@
+program	no_hidden_alloc_named_allocations.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"point = (3, 4)"
+stdout	"pushed 4, literal 3, map 2"
+stdout	"boxed area 25"
+stdout	"shifted 31, doubled 42"
+stdout	"task said 9"
+stdout	"load failed: file not found: cfg.toml"
+stdout	"n = 7 flag = true text = hi"
+stdout	""
+meets_expect	yes

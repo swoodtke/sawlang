@@ -1,0 +1,19 @@
+program	coercion/adopt_lone_enum_case_value_error.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	cannot assign `Perm` to variable of type `UInt8`
+meets_expect	yes
+log	"error: cannot assign `Perm` to variable of type `UInt8`"
+log	"  --> examples/coercion/adopt_lone_enum_case_value_error.saw:17:5"
+log	"     |"
+log	" 17 |     let narrowed: UInt8 = held"
+log	"     |     ^"
+log	""
+log	"error: cannot compare `UInt32` with `Perm`"
+log	"  --> examples/coercion/adopt_lone_enum_case_value_error.saw:20:20"
+log	"     |"
+log	" 20 |     let same = raw == Perm.Read"
+log	"     |                    ^"
+log	""
+log	"2 error(s) generated"

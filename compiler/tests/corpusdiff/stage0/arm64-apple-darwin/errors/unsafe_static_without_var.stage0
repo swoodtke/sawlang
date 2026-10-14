@@ -1,0 +1,7 @@
+program	errors/unsafe_static_without_var.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	Parse error at 8:15: `unsafe` on a static marks a MUTABLE one — write `unsafe static var NAME: T = ...`, or drop `unsafe` for an immutable static, which needs no claim from you
+meets_expect	yes
+log	"error: Parse error at 8:15: `unsafe` on a static marks a MUTABLE one — write `unsafe static var NAME: T = ...`, or drop `unsafe` for an immutable static, which needs no claim from you"

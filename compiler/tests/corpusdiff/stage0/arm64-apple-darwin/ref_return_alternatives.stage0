@@ -1,0 +1,13 @@
+program	ref_return_alternatives.saw
+triple	arm64-apple-darwin
+twin	differs
+expect	success
+build	ok
+exit	0
+stdout	"7"
+stdout	"7"
+stdout	"8"
+stdout	"12"
+stdout	"9"
+stdout	""
+meets_expect	yes

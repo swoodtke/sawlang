@@ -1,0 +1,13 @@
+program	errors/inline_catch_multi_error.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	coroutine transform: a `try { } catch { }` block that spans a suspension in `two_error_types` may raise only ONE error type, and this one raises 2 (`Alpha`, `Beta`); the catch would bind a union the split lowering cannot build. Split it into one `try`/`catch` per error type, or handle each call with an inline `try <call> catch { ... }`.
+meets_expect	yes
+log	"error: coroutine transform: a `try { } catch { }` block that spans a suspension in `two_error_types` may raise only ONE error type, and this one raises 2 (`Alpha`, `Beta`); the catch would bind a union the split lowering cannot build. Split it into one `try`/`catch` per error type, or handle each call with an inline `try <call> catch { ... }`."
+log	"  --> examples/errors/inline_catch_multi_error.saw:40:5"
+log	"     |"
+log	" 40 |     try {"
+log	"     |     ^"
+log	""
+log	"1 error(s) generated"

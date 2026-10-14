@@ -1,0 +1,12 @@
+program	conformance/K66_send_and_close_after_close_report.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"second close: channel is closed"
+stdout	"send after close: channel is closed"
+stdout	"queued 1"
+stdout	"drained, then: channel is closed"
+stdout	""
+meets_expect	yes

@@ -1,0 +1,10 @@
+program	string_byte_at_oob_panic.saw
+triple	arm64-apple-darwin
+twin	same
+expect	panic
+build	ok
+exit	-6
+stdout	"104"
+stdout	"panic at string.saw:49: String.byte_at: index out of range: 99 (len 5)"
+stdout	""
+meets_expect	yes

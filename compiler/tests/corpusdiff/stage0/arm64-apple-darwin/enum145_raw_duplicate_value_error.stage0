@@ -1,0 +1,14 @@
+program	enum145_raw_duplicate_value_error.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	cases `A` and `B` of enum `Dup` both have raw value 1
+meets_expect	yes
+log	"error: cases `A` and `B` of enum `Dup` both have raw value 1"
+log	"  --> examples/enum145_raw_duplicate_value_error.saw:9:12"
+log	"    |"
+log	" 9 |     case B = 1"
+log	"    |            ^"
+log	"   hint: raw values identify the cases on the wire, so they must be distinct"
+log	""
+log	"1 error(s) generated"

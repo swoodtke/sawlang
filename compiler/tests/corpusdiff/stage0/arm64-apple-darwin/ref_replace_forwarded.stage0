@@ -1,0 +1,9 @@
+program	ref_replace_forwarded.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"a=100"
+stdout	""
+meets_expect	yes

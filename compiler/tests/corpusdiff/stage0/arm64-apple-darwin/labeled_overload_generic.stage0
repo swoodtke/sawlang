@@ -1,0 +1,10 @@
+program	labeled_overload_generic.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"7"
+stdout	"999"
+stdout	""
+meets_expect	yes

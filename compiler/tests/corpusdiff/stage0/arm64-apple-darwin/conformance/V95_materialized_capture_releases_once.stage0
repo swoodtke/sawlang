@@ -1,0 +1,19 @@
+program	conformance/V95_materialized_capture_releases_once.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"-- sync"
+stdout	"drop 4"
+stdout	"moved 4"
+stdout	"borrowed 6"
+stdout	"drop 6"
+stdout	"-- driven"
+stdout	"drop 4"
+stdout	"moved 4"
+stdout	"borrowed 6"
+stdout	"drop 6"
+stdout	"end"
+stdout	""
+meets_expect	yes

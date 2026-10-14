@@ -1,0 +1,9 @@
+program	any_sync_effect.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"16"
+stdout	""
+meets_expect	yes

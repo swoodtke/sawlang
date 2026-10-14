@@ -1,0 +1,7 @@
+program	module_tests/test_import_alias_collision_error.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	Parse error at 6:42: imported name `dup` is already bound by this import
+meets_expect	yes
+log	"error: Parse error at 6:42: imported name `dup` is already bound by this import"

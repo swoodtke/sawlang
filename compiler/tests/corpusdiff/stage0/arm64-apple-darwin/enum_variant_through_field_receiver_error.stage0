@@ -1,0 +1,33 @@
+program	enum_variant_through_field_receiver_error.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	`Custom` is a variant of enum `Color` and cannot be constructed through a value
+meets_expect	yes
+log	"error: `Custom` is a variant of enum `Color` and cannot be constructed through a value"
+log	"  --> examples/enum_variant_through_field_receiver_error.saw:31:19"
+log	"     |"
+log	" 31 |     let made = h.c.Custom(r: 3)"
+log	"     |                   ^"
+log	"   hint: construct it on the type: `Color.Custom(...)`. A variant builds a new value, so there is nothing for the receiver to become"
+log	""
+log	"error: `Red` is a variant of enum `Color` and cannot be reached through a value"
+log	"  --> examples/enum_variant_through_field_receiver_error.saw:32:19"
+log	"     |"
+log	" 32 |     let read = h.c.Red"
+log	"     |                   ^"
+log	"   hint: name it on the type: `Color.Red`; to ask which variant a value holds, `match` it"
+log	""
+log	"error: undefined variable `made`"
+log	"  --> examples/enum_variant_through_field_receiver_error.saw:33:11"
+log	"     |"
+log	" 33 |     match made {"
+log	"     |           ^"
+log	""
+log	"error: undefined variable `read`"
+log	"  --> examples/enum_variant_through_field_receiver_error.saw:37:11"
+log	"     |"
+log	" 37 |     match read {"
+log	"     |           ^"
+log	""
+log	"4 error(s) generated"

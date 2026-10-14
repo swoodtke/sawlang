@@ -1,0 +1,13 @@
+program	result_same_type_ambiguous_error.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	ambiguous Result auto-wrap: a function returns `Int`, but `Result<Int, Int>` has the same Ok and Err type, so a bare `return` can't tell which variant you mean; write the explicit `Result<Int, Int>.Ok(value: ...)` or `Result<Int, Int>.Err(error: ...)`
+meets_expect	yes
+log	"error: ambiguous Result auto-wrap: a function returns `Int`, but `Result<Int, Int>` has the same Ok and Err type, so a bare `return` can't tell which variant you mean; write the explicit `Result<Int, Int>.Ok(value: ...)` or `Result<Int, Int>.Err(error: ...)`"
+log	"  --> examples/result_same_type_ambiguous_error.saw:10:5"
+log	"     |"
+log	" 10 |     return x"
+log	"     |     ^"
+log	""
+log	"1 error(s) generated"

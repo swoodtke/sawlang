@@ -1,0 +1,11 @@
+program	match_wildcard.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"1"
+stdout	"99"
+stdout	"999"
+stdout	""
+meets_expect	yes

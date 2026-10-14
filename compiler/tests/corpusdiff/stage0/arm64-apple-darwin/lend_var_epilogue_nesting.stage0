@@ -1,0 +1,13 @@
+program	lend_var_epilogue_nesting.saw
+triple	arm64-apple-darwin
+twin	differs
+expect	success
+build	ok
+exit	0
+stdout	"nested read 7, row gates 0, grid gates 0, closes 0"
+stdout	"nested write: 8, row gates 1, grid gates 1"
+stdout	"epilogues, LIFO: grid closed 1, row closed 1"
+stdout	"direct row write 9, row gates 1"
+stdout	"-- done"
+stdout	""
+meets_expect	yes

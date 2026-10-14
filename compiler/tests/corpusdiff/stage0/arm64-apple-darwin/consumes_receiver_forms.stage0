@@ -1,0 +1,19 @@
+program	consumes_receiver_forms.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"binding 7"
+stdout	"temporary 3"
+stdout	"chained 2"
+stdout	"1"
+stdout	"revived 11"
+stdout	"copy tier 5"
+stdout	"enum fast"
+stdout	"enum slow"
+stdout	"generic 4"
+stdout	"generic 8"
+stdout	"effects 9"
+stdout	""
+meets_expect	yes

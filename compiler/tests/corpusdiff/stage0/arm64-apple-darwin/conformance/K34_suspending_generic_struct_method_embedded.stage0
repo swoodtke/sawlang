@@ -1,0 +1,12 @@
+program	conformance/K34_suspending_generic_struct_method_embedded.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"A1"
+stdout	"B1"
+stdout	"A2 boxed 6"
+stdout	"B2 boxed 6"
+stdout	""
+meets_expect	yes

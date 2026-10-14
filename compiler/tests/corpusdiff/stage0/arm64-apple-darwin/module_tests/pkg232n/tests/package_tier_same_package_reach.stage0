@@ -1,0 +1,11 @@
+program	module_tests/pkg232n/tests/package_tier_same_package_reach.saw
+triple	arm64-apple-darwin
+twin	differs
+expect	success
+build	ok
+exit	0
+stdout	"7"
+stdout	"3"
+stdout	"11"
+stdout	""
+meets_expect	yes

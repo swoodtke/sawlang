@@ -1,0 +1,17 @@
+program	task_backtrace_nest.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"saw tasks: 2 live (unsynchronized snapshot)"
+stdout	"  task group 1 slot 0 gen 1 sleeping"
+stdout	"    at task_backtrace_nest.saw:24 in leaf"
+stdout	"    at task_backtrace_nest.saw:29 in middle"
+stdout	"    at task_backtrace_nest.saw:34 in worker"
+stdout	"  task group 1 slot 1 gen 1 running"
+stdout	"    at task_backtrace_nest.saw:41 in watcher"
+stdout	"watcher 0"
+stdout	"worker 9"
+stdout	""
+meets_expect	yes

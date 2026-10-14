@@ -1,0 +1,11 @@
+program	taskgroup_mt_live_pool_soak.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"produced 15150"
+stdout	"consumed 15150"
+stdout	"main streamed 15150"
+stdout	""
+meets_expect	yes

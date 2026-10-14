@@ -1,0 +1,14 @@
+program	conformance/Z03_replace_container_during_window.saw
+triple	arm64-apple-darwin
+twin	differs
+expect	error
+build	refused	exclusive access violation: the place `v[0]` borrows `v` for the whole window, and `v` is accessed by reference a second time in the same call
+meets_expect	yes
+log	"error: exclusive access violation: the place `v[0]` borrows `v` for the whole window, and `v` is accessed by reference a second time in the same call"
+log	"  --> examples/conformance/Z03_replace_container_during_window.saw:17:10"
+log	"     |"
+log	" 17 |     sink(&var v[0], clobber(&var v))"
+log	"     |          ^"
+log	"   hint: a place borrow charges its ROOT, so two windows onto one receiver — or a window beside a `&var` of it — cannot both be open. Open them in SEPARATE statements, or reach for the method that does both at once (`v.swap(i, j)`)"
+log	""
+log	"1 error(s) generated"

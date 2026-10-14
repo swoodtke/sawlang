@@ -1,0 +1,9 @@
+program	static_atomic_threaded.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"100000"
+stdout	""
+meets_expect	yes

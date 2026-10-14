@@ -1,0 +1,13 @@
+program	atomic_field_self_method.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"local: 2"
+stdout	"static: 3"
+stdout	"nested: 4"
+stdout	"generic: 5"
+stdout	"dynamic: 6"
+stdout	""
+meets_expect	yes

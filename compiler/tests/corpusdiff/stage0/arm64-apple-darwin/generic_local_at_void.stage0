@@ -1,0 +1,23 @@
+program	generic_local_at_void.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"10"
+stdout	"enter"
+stdout	"5"
+stdout	"leave"
+stdout	"21"
+stdout	"around 7"
+stdout	"around 14"
+stdout	"guarded 5"
+stdout	"void body 5"
+stdout	"released guard for 5"
+stdout	"guarded 6"
+stdout	"released guard for 6"
+stdout	"60"
+stdout	"suspended 8"
+stdout	"done"
+stdout	""
+meets_expect	yes

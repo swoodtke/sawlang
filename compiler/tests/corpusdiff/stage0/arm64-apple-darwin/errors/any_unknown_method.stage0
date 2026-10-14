@@ -1,0 +1,19 @@
+program	errors/any_unknown_method.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	trait `Shape` has no method `perimeter` to dispatch through `any Shape`
+meets_expect	yes
+log	"error: trait `Shape` has no method `perimeter` to dispatch through `any Shape`"
+log	"  --> examples/errors/any_unknown_method.saw:16:6"
+log	"     |"
+log	" 16 |     s.perimeter()"
+log	"     |      ^"
+log	""
+log	"error: function `describe` should return `Int` but body has no value"
+log	"  --> examples/errors/any_unknown_method.saw:15:1"
+log	"     |"
+log	" 15 | func describe(s: &any Shape) -> Int {"
+log	"     | ^"
+log	""
+log	"2 error(s) generated"

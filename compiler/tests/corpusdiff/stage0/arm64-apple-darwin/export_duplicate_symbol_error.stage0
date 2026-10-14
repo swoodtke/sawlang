@@ -1,0 +1,14 @@
+program	export_duplicate_symbol_error.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	duplicate `@export` symbol `shared` (already exported by `a` at line 7)
+meets_expect	yes
+log	"error: duplicate `@export` symbol `shared` (already exported by `a` at line 7)"
+log	"  --> examples/export_duplicate_symbol_error.saw:10:1"
+log	"     |"
+log	" 10 | func b() -> Int { 2 }"
+log	"     | ^"
+log	"   hint: an unmangled C symbol must be unique across the program; give one an explicit `@export(\"other_name\")`"
+log	""
+log	"1 error(s) generated"

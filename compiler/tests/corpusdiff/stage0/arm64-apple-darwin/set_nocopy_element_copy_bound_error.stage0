@@ -1,0 +1,27 @@
+program	set_nocopy_element_copy_bound_error.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	type `Set<Tag, GlobalAllocator>` has no method `copy`: requires `T: ExplicitCopy`, and `Tag` does not conform
+meets_expect	yes
+log	"error: set element type `Tag` must be copyable (trivial, Copy, or ExplicitCopy with retain semantics): `Tag` is NoCopy"
+log	"  --> examples/set_nocopy_element_copy_bound_error.saw:18:13"
+log	"     |"
+log	" 18 |     var s = Set<Tag>()"
+log	"     |             ^"
+log	""
+log	"error: type `Set<Tag, GlobalAllocator>` has no method `copy`: requires `T: ExplicitCopy`, and `Tag` does not conform"
+log	"  --> examples/set_nocopy_element_copy_bound_error.saw:19:14"
+log	"     |"
+log	" 19 |     let w = s.copy()"
+log	"     |              ^"
+log	"   hint: `copy` is only available when `T` satisfies `ExplicitCopy`"
+log	""
+log	"error: `Set.copy` requires `T` to be `Copy` — it forwards `T` to ``Map.copy``, which needs it to be `Copy`; `Tag` is move-only"
+log	"  --> examples/set_nocopy_element_copy_bound_error.saw:19:14"
+log	"     |"
+log	" 19 |     let w = s.copy()"
+log	"     |              ^"
+log	"   hint: pass a type on the `Copy` tier, or rewrite the body to move `T` instead of duplicating it. A body that means to duplicate declares `<T: ExplicitCopy>` and spells `.copy()`"
+log	""
+log	"3 error(s) generated"

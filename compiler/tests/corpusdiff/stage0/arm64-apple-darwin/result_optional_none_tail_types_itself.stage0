@@ -1,0 +1,18 @@
+program	result_optional_none_tail_types_itself.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"fn -1"
+stdout	"fn_if -1"
+stdout	"fn_match -1"
+stdout	"method -1"
+stdout	"generic -1"
+stdout	"generic_m -1"
+stdout	"closure -1"
+stdout	"erased -1"
+stdout	"suspending -1"
+stdout	"some 7"
+stdout	""
+meets_expect	yes

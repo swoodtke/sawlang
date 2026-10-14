@@ -1,0 +1,14 @@
+program	vis80_vector_length_invariant.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	field `length` of struct `Vector` is private and not accessible from this module
+meets_expect	yes
+log	"error: field `length` of struct `Vector` is private and not accessible from this module"
+log	"  --> examples/vis80_vector_length_invariant.saw:9:6"
+log	"    |"
+log	" 9 |     v.length = 1000        // corrupting the invariant — now rejected"
+log	"    |      ^"
+log	"   hint: mark it `public` in the declaration of `Vector` to expose it"
+log	""
+log	"1 error(s) generated"

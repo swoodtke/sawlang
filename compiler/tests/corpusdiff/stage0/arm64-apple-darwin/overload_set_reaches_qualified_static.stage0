@@ -1,0 +1,12 @@
+program	overload_set_reaches_qualified_static.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"4"
+stdout	"5"
+stdout	"2"
+stdout	"1"
+stdout	""
+meets_expect	yes

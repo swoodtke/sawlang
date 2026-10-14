@@ -1,0 +1,7 @@
+program	import225e_bare_std_leaf_not_found.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	module `data` not found
+meets_expect	yes
+log	"error: module `data` not found"

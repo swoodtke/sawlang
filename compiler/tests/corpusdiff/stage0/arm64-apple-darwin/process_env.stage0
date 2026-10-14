@@ -1,0 +1,14 @@
+program	process_env.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"[first]"
+stdout	"[last]"
+stdout	"count 1"
+stdout	"[inherited]"
+stdout	"[from the child]"
+stdout	"[a  b; $HOME *]"
+stdout	""
+meets_expect	yes

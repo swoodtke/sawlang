@@ -1,0 +1,11 @@
+program	cast_distinct_chained_and_partial.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"10"
+stdout	"10"
+stdout	"20"
+stdout	""
+meets_expect	yes

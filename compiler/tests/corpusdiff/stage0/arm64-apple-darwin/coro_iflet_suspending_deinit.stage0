@@ -1,0 +1,11 @@
+program	coro_iflet_suspending_deinit.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"907"
+stdout	"7"
+stdout	"-1"
+stdout	""
+meets_expect	yes

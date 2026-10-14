@@ -1,0 +1,13 @@
+program	errors/borrows_lends_twice.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	this path lends twice. A `borrows` body lends exactly once per path: statements after the `lend` are the EPILOGUE, which runs when the caller's window closes
+meets_expect	yes
+log	"error: this path lends twice. A `borrows` body lends exactly once per path: statements after the `lend` are the EPILOGUE, which runs when the caller's window closes"
+log	"  --> examples/errors/borrows_lends_twice.saw:14:9"
+log	"     |"
+log	" 14 |         lend self.items[1]"
+log	"     |         ^"
+log	""
+log	"1 error(s) generated"

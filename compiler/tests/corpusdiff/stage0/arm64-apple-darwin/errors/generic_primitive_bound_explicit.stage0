@@ -1,0 +1,13 @@
+program	errors/generic_primitive_bound_explicit.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	type `Int` does not satisfy the `Fooable` bound
+meets_expect	yes
+log	"error: type `Int` does not satisfy the `Fooable` bound"
+log	"  --> examples/errors/generic_primitive_bound_explicit.saw:13:11"
+log	"     |"
+log	" 13 |     print(run<Int>(5))"
+log	"     |           ^"
+log	""
+log	"1 error(s) generated"

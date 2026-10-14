@@ -732,7 +732,7 @@ coro_hoisted_receiver_temp_released_once.saw	copied	-	-
 coro_hoisted_scrutinee_released_once.saw	copied	-	-
 coro_hoisted_struct_init_arg_consumed_once.saw	copied	-	-
 coro_hoisted_tuple_element_consumed_once.saw	copied	-	-
-coro_iflet_move_out_releases_once.saw	copied	-	-
+coro_iflet_move_out_releases_once.saw	manual	manual.C11:13	re-aimed: EXPECT-OUTPUT states SL-513 ruling (B)'s release order, a part no binding takes dying when its construct completes; the examples/ twin pins Stage 0's arm-entry drop (SL:hazards C11)
 coro_iflet_move_scrutinee_releases_payload.saw	copied	-	-
 coro_iflet_over_suspending.saw	copied	-	-
 coro_iflet_suspending_deinit.saw	copied	-	-
@@ -925,7 +925,7 @@ directory_current_long_path.saw	copied	-	-
 directory_error_surfaced.saw	copied	-	-
 directory_list_names_exact.saw	copied	-	-
 directory_simple.saw	copied	-	-
-discard_forms_release_matrix.saw	copied	-	-
+discard_forms_release_matrix.saw	manual	manual.C11:11	re-aimed: EXPECT-OUTPUT states SL-513 ruling (B)'s release order, a part no binding takes dying when its construct completes; the examples/ twin pins Stage 0's arm-entry drop (SL:hazards C11)
 discard_let_deinit_immediate.saw	copied	-	-
 discard_let_read_error.saw	copied,expectation-pending	-	-
 discard_let_two_same_scope.saw	copied	-	-
@@ -1868,7 +1868,7 @@ match_string_scrutinee_refcount.saw	copied	-	-
 match_suffixed_literal.saw	copied	-	-
 match_tuple_destructure.saw	copied	-	-
 match_wildcard.saw	copied	-	-
-match_wildcard_payload_released.saw	copied	-	-
+match_wildcard_payload_released.saw	manual	manual.C11:2	re-aimed: EXPECT-OUTPUT states SL-513 ruling (B)'s release order, a part no binding takes dying when its construct completes; the examples/ twin pins Stage 0's arm-entry drop (SL:hazards C11)
 math.saw	copied	-	-
 method_overload_static_first_param.saw	copied	-	-
 method_overloads_distinguished_by_labels.saw	copied	-	-

@@ -1,0 +1,11 @@
+program	box_string.saw
+triple	arm64-apple-darwin
+twin	differs
+expect	success
+build	ok
+exit	0
+stdout	"5"
+stdout	"5"
+stdout	"done"
+stdout	""
+meets_expect	yes

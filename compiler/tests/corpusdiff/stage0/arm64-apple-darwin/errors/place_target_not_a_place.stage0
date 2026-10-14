@@ -1,0 +1,21 @@
+program	errors/place_target_not_a_place.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	`len` does not lend a place, so it cannot be assigned to
+meets_expect	yes
+log	"error: result of `push` is `Result<Void, AllocError>` and is silently discarded"
+log	"  --> examples/errors/place_target_not_a_place.saw:10:6"
+log	"     |"
+log	" 10 |     v.push(1)"
+log	"     |      ^"
+log	"   hint: handle it — `match` it, `try`/`try!`/`try?` it, or return it — or write `let _ = ...` to discard it explicitly"
+log	""
+log	"error: `len` does not lend a place, so it cannot be assigned to"
+log	"  --> examples/errors/place_target_not_a_place.saw:11:6"
+log	"     |"
+log	" 11 |     v.len() = 3"
+log	"     |      ^"
+log	"   hint: declare it `borrows -> &var T` to lend storage the caller may write through"
+log	""
+log	"2 error(s) generated"

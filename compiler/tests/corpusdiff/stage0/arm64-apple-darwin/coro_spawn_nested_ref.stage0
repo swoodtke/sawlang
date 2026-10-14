@@ -1,0 +1,9 @@
+program	coro_spawn_nested_ref.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"40"
+stdout	""
+meets_expect	yes

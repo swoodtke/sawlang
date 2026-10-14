@@ -1,0 +1,14 @@
+program	array_length_runtime_local_error.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	array length is not a compile-time constant: `n` is not allowed here
+meets_expect	yes
+log	"error: array length is not a compile-time constant: `n` is not allowed here"
+log	"  --> examples/array_length_runtime_local_error.saw:14:22"
+log	"     |"
+log	" 14 |     var buf: [UInt8; n] = [0; 4]"
+log	"     |                      ^"
+log	"   hint: a length is fixed at compile time — use an integer literal, a const generic parameter, a module `static` of type `Int` or `UInt` whose own initializer folds, the integer limits, a raw-backed enum case, `sizeof`/`alignof` of a primitive or pointer type, or arithmetic and bitwise operators over any of those"
+log	""
+log	"1 error(s) generated"

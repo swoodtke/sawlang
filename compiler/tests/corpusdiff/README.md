@@ -1,0 +1,199 @@
+# compiler/tests/corpusdiff: every corpus program, sawc2 against Stage 0
+
+The whole-corpus behavioural differential (SL-655, SL-398's acceptance item
+4): each `tests/corpus/` program built and run by sawc2, compared with what
+Stage 0 did with its `examples/` twin, and put in one bucket under one key.
+It is the progress meter for removing `sawc/`, and its report is the list of
+what sawc2 cannot do yet. It gates nothing.
+
+```
+corpusdiff/
+  README.md         this specification
+  corpusdiff.py     the tool
+  stage0/           Stage 0's snapshot: index.tsv, and TRIPLE/PATH.stage0 per program
+  corpus_diff.tsv   the baseline: one row per program (path, bucket, key, detail)
+  annotations.tsv   the lane's own annotations (path, kind, reason)
+```
+
+```sh
+python compiler/tests/corpusdiff/corpusdiff.py check
+python compiler/tests/corpusdiff/corpusdiff.py snapshot [--reuse] [--jobs N] [PATH...]
+python compiler/tests/corpusdiff/corpusdiff.py run [--jobs N] [--no-build] [--baseline | --quick] [--report FILE] [PATH...]
+tools/battery.sh corpusdiff
+tools/battery.sh --quick corpusdiff
+```
+
+## The programs
+
+The corpus programs are found as `test_runner.py` finds the suite's under
+`examples/`: every `.saw` below `tests/corpus/` outside a `modules`
+directory, but those marked `EXPECT: skip`. Each is paired with the file of
+the same path below `examples/` (SL:architecture §5), which every program has.
+
+## The Stage 0 snapshot
+
+`snapshot` compiles each twin with Stage 0 (`sawc/sawc.py`, its
+`COMPILE-FLAGS` included) on the host triple and writes one record per
+program to `stage0/TRIPLE/PATH.stage0`, in the format
+`compiler/tests/oracle.py` reads and writes, which the coroutine snapshot
+(`compiler/tests/coro/stage0/`) shares:
+
+- a program whose twin is `EXPECT: success` or `EXPECT: panic` is run twice
+  from the repository root, as `test_runner.py` runs it, and the record holds
+  its exit status, standard output and standard error, a stream that differs
+  between the runs recorded as `varies`;
+- a refusal test, and any build Stage 0 refuses, holds Stage 0's whole
+  diagnostic output as `log` lines, and its `build` line holds the error
+  that holds the first `EXPECT-ERROR-CONTAINS` text, the one a refusal is
+  judged by (SL:coroutines §3.3);
+- an `EXPECT: docs` test holds the documentation Stage 0 wrote; `compiles`
+  and `object` tests hold the build alone;
+- every record says whether Stage 0 met the twin's own directives
+  (`meets_expect`).
+
+`stage0/index.tsv` has one row per program, with the twin's SHA-256 prefix
+and the sizes and hashes of what its record holds. `check` holds the snapshot
+whole: a row and a record for every corpus program and none for anything
+else, each row the summary of its record, and each twin unchanged since its
+record was written. A corpus program added or a twin edited is caught there,
+and `snapshot --reuse PATH...` writes just that record: `--reuse` keeps each
+raw result saved under `.build/corpusdiff/stage0-raw/` whose twin has not
+changed, so an interrupted write resumes where it stopped. The snapshot is
+the oracle that outlives `sawc/`: once Stage 0 is gone nothing can rewrite
+it, only read it.
+
+## The measurement
+
+`run` holds the snapshot whole first and stops if it is not; then it builds
+sawc2 through `compiler/tools/build.py` (unless `--no-build`) and, for each
+program, runs `sawc2 build --std-root std` on the corpus file with its
+`COMPILE-FLAGS`, and runs what it builds the way the snapshot ran Stage 0's.
+Both `snapshot` and `run` take one program at a time unless `--jobs` says
+otherwise, and neither takes the suite lock, so either shares the machine
+with the patch server's gate.
+
+The buckets:
+
+| bucket | means | keys |
+|---|---|---|
+| `pass` | sawc2 does what Stage 0 did | `-` |
+| `refused` | sawc2 refuses a program Stage 0 builds, or a refusal test by a gap rule | the stage and the rule: `resolve name.undefined`, `driver driver.usage` |
+| `crash` | an `INVARIANT` line, sawc2's own panic or signal, a signal in its binary, or a hang | `INVARIANT`, `sawc2 panic`, `sawc2 SIGNAL`, `sawc2 exit N`, `run SIGNAL`, `hang in build`, `hang in run` |
+| `link` | clang or the link fails on sawc2's `.ll` | `clang or the link` |
+| `wrong` | it builds and runs, but the exit status or the output differs; or a refusal test is built, or refused by another rule than the plan's | `exit differs`, `stdout differs`, `stderr differs`, `sawc2's binary panics`, `accepts a refusal test`, `refused by another rule` |
+| `stage0-wrong` | Stage 0's answer is known wrong, or Stage 0 fails the twin's own directives | the annotation's citation, `Stage 0 fails its directives (unannotated)` |
+| `nondeterministic` | the program's output varies, and no annotation says how to judge it | `Stage 0's stdout varies`, `sawc2's two runs differ` |
+| `slow` | a build or a run timed out, then finished at twice the timeout | `slow build`, `slow run` |
+
+Each key's detail is the first refusal's message, the first line that
+differs, or what sawc2 printed. The first of these that applies decides a
+program's bucket:
+
+1. sawc2's build printed an `INVARIANT` line: `crash`.
+2. A refusal test (`EXPECT: error`) is judged as the coroutine census judges
+   one (`oracle.judge_refusal`): `pass` when sawc2 refuses it by the rule the
+   plan names for its Stage 0 error, or by any rule that is no gap when the
+   plan names none; `refused` when a gap rule (`oracle.GAP_RULES`) refuses
+   it; `wrong` when sawc2 builds it or refuses it by another rule.
+3. Any other refusal: `refused`, keyed by its stage and rule. A flag `sawc2
+   build` does not take is the driver's refusal, `driver driver.usage`.
+4. A `compiles`, `object` or `docs` test that builds: `pass`.
+5. A build that fails otherwise: `crash` when sawc2 panicked, died by a
+   signal or printed no error; `link` when clang or the linker printed one.
+6. The binary died by a signal, a panic's abort aside, that Stage 0's did not
+   die by: `crash`.
+7. Stage 0's answer is known wrong (see Annotations): `stage0-wrong`, keyed
+   by the citation, its detail saying whether sawc2 meets the program's own
+   directives, the oracle there.
+8. The corpus file's `EXPECT` is not its twin's, since the language changed
+   on purpose (SL:architecture §5), or `annotations.tsv` marks the program
+   `nondeterministic`: it is judged by its own directives, `pass` or `wrong`.
+9. Stage 0's two runs differed: `nondeterministic`.
+10. Stage 0 did not build the twin or did not meet its directives, and
+    nothing says why: `stage0-wrong`.
+11. The run is compared with Stage 0's (below): `pass` when they agree,
+    else `wrong`, after one more run: a binary whose two runs differ from
+    each other is `nondeterministic` instead.
+
+**Comparing a run.** Both sides' streams are compared after removing what
+neither compiler's program decides: the checkout's root; the corpus root
+(Stage 0 compiled `examples/PATH`, sawc2 `tests/corpus/PATH`); and the
+location of a `panic at FILE:LINE:` outside the program's own file, since each
+compiler's std is its own file. The program's own panic lines are compared
+only when its twin is the same file, since a migration may move them. A stream
+Stage 0 recorded as `varies` is not compared. A link error's text has clang's
+temporary object names made equal by the fixpoint twin's rule
+(`compiler/tests/fixpoint/twin.py`) before it becomes a detail.
+
+**Timeouts.** A build and a run each have a timeout. Since the lane shares
+the machine with the patch server's gate, a timeout is not yet a hang: every
+program that timed out is tried once more at the end of the sweep, at twice
+the timeout, and is a `crash` (`hang in …`) only if it times out again, else
+`slow`, with both times in its detail.
+
+**The stage of a refusal** is the compiler stage whose source spells the
+rule; for a rule several stages spell (`slice.not-yet`), it is the first of
+sawc2's stage commands (`parse`, `resolve`, … `coro`) whose `--check` makes
+the same refusal at the same position, and `llvm` when none before the
+backend does.
+
+## Annotations
+
+The lane reads the corpus file's own annotations, as the other lanes do:
+an `XFAIL:` pin of a filed finding, the run lane's `// differs:` line citing
+SL:hazards with its `// prints:` lines, and SL:architecture §5's `oracle
+known wrong: SL-nnn`. `annotations.tsv` adds the lane's own, one row per
+program, for what a corpus file does not say:
+
+- `stage0-wrong`: Stage 0's answer is known wrong; the reason cites the DF,
+  SL issue or SL:hazards entry;
+- `nondeterministic`: the program's output depends on scheduling, time or
+  hash order, so it is judged by its own directives.
+
+## The report and the baseline
+
+`run` writes `.build/corpusdiff/results.tsv`, one row per program, and
+`report.md`, and prints the report: the commit it measured (HEAD, and the
+newest main commit in its history), the counts per bucket, then each bucket's
+keys ranked by program count with three example paths each and the most
+common details under each key, then the counts by the twin's `EXPECT`. A
+gap rule's details group as written, since the missing name is the point;
+every other key's group by their shape, each name and number made alike.
+
+`corpus_diff.tsv` is the checked-in baseline: `run --baseline` rewrites it
+from a run over the whole corpus, and every other run ends with the programs
+that moved since it, from which bucket and key to which. The numbers move as
+patches land, so a baseline is only as current as the commit its run names.
+
+A run over named PATHs, or the quick form, is partial: it writes
+`results-partial.tsv` and `report-partial.md` beside the whole run's files
+and leaves those alone. `run --quick` checks the whole snapshot, then measures
+the first program under each bucket and key of the baseline, so every verdict
+the baseline holds is reached once.
+
+## How it runs
+
+The whole run is long, Stage 0's snapshot by far the longest part, so it is
+a standalone tool and the battery's `corpusdiff` stage, which runs only when
+named (`tools/battery.sh corpusdiff`), and in its quick form under
+`--quick`. It is not a step of `compiler/tests/run.py` nor of the per-patch
+gate. The stage fails only when the snapshot is not whole or the tool cannot
+run; the buckets are information.
+
+## The coroutine census
+
+`compiler/tests/coro/census.py` measures the same thing over the coroutine
+programs, judging each by its own directives rather than by Stage 0's
+snapshot, and adds the plan's gating; it reads the shared module for the
+build, the run and the refusal judgement, and its snapshot is the same record
+format with frame layouts added.
+
+The two overlap: the census's programs and refusal tests are corpus programs,
+and its snapshot's run and refusal records say what this snapshot's records
+for them say. They merge in three moves. The coroutine snapshot keeps only
+its frame layouts and tables, and reads each program's run from `stage0/`
+here. The census becomes this tool's run over its program list, so a
+coroutine program is judged by Stage 0's output as well as by its own
+directives, which moves the census's counts once. The plan's gating becomes a
+report over that run's refusals, which needs every refusal of a program kept,
+where `corpus_diff.tsv` keeps the first.

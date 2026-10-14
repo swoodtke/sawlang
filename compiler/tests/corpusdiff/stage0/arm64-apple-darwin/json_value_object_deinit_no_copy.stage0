@@ -1,0 +1,12 @@
+program	json_value_object_deinit_no_copy.saw
+triple	arm64-apple-darwin
+twin	differs
+expect	success
+build	ok
+exit	0
+stdout	"serialized twice, stable: true"
+stdout	"tree still usable after serialize: nums_len=2"
+stdout	"about to drop carrier"
+stdout	"DEINIT carrier"
+stdout	""
+meets_expect	yes

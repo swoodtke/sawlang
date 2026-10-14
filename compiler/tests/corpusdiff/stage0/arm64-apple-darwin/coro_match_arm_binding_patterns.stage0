@@ -1,0 +1,16 @@
+program	coro_match_arm_binding_patterns.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"guard-break 1 1"
+stdout	"guard-spanning-arm 1 1"
+stdout	"guard-shared-name 1 1"
+stdout	"guard-reads-frame-local 6 6"
+stdout	"catchall-scrutinee 110 110"
+stdout	"tuple-pattern 3 3"
+stdout	"two-payloads 3 3"
+stdout	"generic-payload 102 102"
+stdout	""
+meets_expect	yes

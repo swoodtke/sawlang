@@ -1,0 +1,15 @@
+program	place_window_root_read_in_assignment_rhs.saw
+triple	arm64-apple-darwin
+twin	differs
+expect	success
+build	ok
+exit	0
+stdout	"subscript 3"
+stdout	"compound 6"
+stdout	"named accessor 2"
+stdout	"chain 1"
+stdout	"field hop 2"
+stdout	"after pop 3 len 2"
+stdout	"disjoint roots 5"
+stdout	""
+meets_expect	yes

@@ -1,0 +1,11 @@
+program	map_owning_value_deinit.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"20"
+stdout	"0"
+stdout	"20"
+stdout	""
+meets_expect	yes

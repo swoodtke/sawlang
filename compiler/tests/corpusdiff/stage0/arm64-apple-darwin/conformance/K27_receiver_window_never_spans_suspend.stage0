@@ -1,0 +1,14 @@
+program	conformance/K27_receiver_window_never_spans_suspend.saw
+triple	arm64-apple-darwin
+twin	differs
+expect	error
+build	refused	cannot suspend in a `sync` closure context: closure calls `slow` → yield_now (`slow` suspends at line 25)
+meets_expect	yes
+log	"error: cannot suspend in a `sync` closure context: closure calls `slow` → yield_now (`slow` suspends at line 25)"
+log	"  --> examples/conformance/K27_receiver_window_never_spans_suspend.saw:37:6"
+log	"     |"
+log	" 37 |     r.deref().a = slow()"
+log	"     |      ^"
+log	"   hint: a `sync` context must be transitively suspension-free: remove the suspending call or hoist it out of the sync region"
+log	""
+log	"1 error(s) generated"

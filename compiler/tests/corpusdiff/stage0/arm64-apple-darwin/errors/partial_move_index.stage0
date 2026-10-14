@@ -1,0 +1,20 @@
+program	errors/partial_move_index.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	cannot move out of element `[1]` of `arr`
+meets_expect	yes
+log	"error: cannot move out of element `[1]` of `arr`"
+log	"  --> examples/errors/partial_move_index.saw:9:13"
+log	"    |"
+log	" 9 |     let z = move arr[1]"
+log	"    |             ^"
+log	"   hint: move the whole value (`move arr`) or restructure so the piece is its own binding; an indexed place moves out with `swap_out` instead"
+log	""
+log	"error: undefined variable `z`"
+log	"  --> examples/errors/partial_move_index.saw:10:11"
+log	"     |"
+log	" 10 |     print(z)"
+log	"     |           ^"
+log	""
+log	"2 error(s) generated"

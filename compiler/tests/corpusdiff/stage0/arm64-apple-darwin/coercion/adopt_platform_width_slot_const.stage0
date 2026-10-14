@@ -1,0 +1,16 @@
+program	coercion/adopt_platform_width_slot_const.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"255"
+stdout	"255"
+stdout	"255"
+stdout	"255"
+stdout	"255"
+stdout	"255"
+stdout	"255"
+stdout	"255"
+stdout	""
+meets_expect	yes

@@ -74,8 +74,10 @@ STEP_OUT = os.path.join(REPO, ".build", "compiler-tests-steps")
 # handler must report, or None)
 RUNNERS = {
     "test_runner": (child_groups.GRACE_SECONDS, "saw", "driver.log"),
-    "census": (child_groups.GRACE_SECONDS, "script", None),
-    "snapshot": (child_groups.GRACE_SECONDS, "script", None),
+    # compiler/tests/oracle.py: the run and the sawc2 build the coroutine
+    # census, its Stage 0 snapshot and the corpus differential all launch.
+    "oracle_run": (child_groups.GRACE_SECONDS, "script", None),
+    "oracle_build": (child_groups.GRACE_SECONDS, "script", None),
     "test_worker": (child_groups.RUNNER_GRACE_SECONDS, "script", None),
     # The daemon's own main installs the handler that ends its job groups.
     "remote_worker_selftest": (2 * child_groups.RUNNER_GRACE_SECONDS, "line", "worker/worker.log"),
@@ -136,14 +138,14 @@ def drive(runner, work, pidfile):
         twin.run_both(["lex"])
         return
     child_groups.install()
-    if runner == "census":
-        sys.path.insert(0, os.path.join(REPO, "compiler", "tests", "coro"))
-        import census
-        census.run_binary(hang)
-    elif runner == "snapshot":
-        sys.path.insert(0, os.path.join(REPO, "compiler", "tests", "coro", "stage0"))
-        import snapshot
-        snapshot.run_binary(hang)
+    if runner in ("oracle_run", "oracle_build"):
+        sys.path.insert(0, os.path.join(REPO, "compiler", "tests"))
+        import oracle
+        if runner == "oracle_run":
+            oracle.run_binary(hang)
+        else:
+            oracle.build.SAWC2 = hang
+            oracle.sawc2_build(os.path.join(REPO, "examples", "hello.saw"), os.path.join(work, "hello"), [])
     elif runner == "test_worker":
         import test_worker
         config = argparse.Namespace(job_root=os.path.join(work, "jobs"), job_timeout=600.0,

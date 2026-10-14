@@ -1,0 +1,15 @@
+program	shadow_for_derived.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"3"
+stdout	"3"
+stdout	"60"
+stdout	"3"
+stdout	"1"
+stdout	"2"
+stdout	"3"
+stdout	""
+meets_expect	yes

@@ -1,0 +1,21 @@
+program	conformance/B22_private_type_escapes_module_error.saw
+triple	arm64-apple-darwin
+twin	differs
+expect	error
+build	refused	method `Carrier.get` is public, but the return type names `Hidden`, which is private — a public API needs public types
+meets_expect	yes
+log	"error: method `Carrier.get` is public, but the return type names `Hidden`, which is private — a public API needs public types"
+log	"  --> examples/conformance/modules/hidden232o/lib.saw:35:12"
+log	"     |"
+log	" 35 |     public func get(&self) -> Hidden {"
+log	"     |            ^"
+log	"   hint: either widen the type — mark the struct `Hidden` `public` — or narrow the declaration, so its signature stays where `Hidden` can be named. A caller that can reach a declaration must be able to name every type in its signature"
+log	""
+log	"error: method `Carrier.at` is public, but the type it lends names `Hidden`, which is private — a public API needs public types"
+log	"  --> examples/conformance/modules/hidden232o/lib.saw:39:12"
+log	"     |"
+log	" 39 |     public func at(&self, index: Int) borrows -> &Hidden {"
+log	"     |            ^"
+log	"   hint: either widen the type — mark the struct `Hidden` `public` — or narrow the declaration, so its signature stays where `Hidden` can be named. A caller that can reach a declaration must be able to name every type in its signature"
+log	""
+log	"2 error(s) generated"

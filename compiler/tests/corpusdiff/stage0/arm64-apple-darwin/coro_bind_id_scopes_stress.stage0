@@ -1,0 +1,13 @@
+program	coro_bind_id_scopes_stress.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"stress: 109"
+stdout	"pre: 1"
+stdout	"caught: boom"
+stdout	"catches: 1005"
+stdout	"sync stress: 109"
+stdout	""
+meets_expect	yes

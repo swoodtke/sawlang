@@ -1,0 +1,19 @@
+program	errors/borrows_lend_in_loop.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	`lend` may not appear inside a loop — a loop would lend more than once, and the first window's epilogue would have to interleave with the second window's prologue. Lend once, after the loop has chosen the place
+meets_expect	yes
+log	"error: `lend` may not appear inside a loop — a loop would lend more than once, and the first window's epilogue would have to interleave with the second window's prologue. Lend once, after the loop has chosen the place"
+log	"  --> examples/errors/borrows_lend_in_loop.saw:15:17"
+log	"     |"
+log	" 15 |                 lend self.items[i]"
+log	"     |                 ^"
+log	""
+log	"error: one branch here lends and the other falls through without lending. Every path through a `borrows` body lends exactly once or diverges — declare the place `-> &T?` if it can be absent"
+log	"  --> examples/errors/borrows_lend_in_loop.saw:14:13"
+log	"     |"
+log	" 14 |             if self.items[i] == want {"
+log	"     |             ^"
+log	""
+log	"2 error(s) generated"

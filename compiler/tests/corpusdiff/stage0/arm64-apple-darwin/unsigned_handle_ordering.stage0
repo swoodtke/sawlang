@@ -1,0 +1,14 @@
+program	unsigned_handle_ordering.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"high handle valid against limit 64: false"
+stdout	"low handle valid against limit 64: true"
+stdout	"max handle valid against limit 64: false"
+stdout	"high handle sorts after low: true"
+stdout	"handles in range 16..=48: false true false"
+stdout	"ordering of high vs low: Greater"
+stdout	""
+meets_expect	yes

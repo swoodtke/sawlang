@@ -1,0 +1,12 @@
+program	vector_swap.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"30"
+stdout	"20"
+stdout	"10"
+stdout	"20"
+stdout	""
+meets_expect	yes

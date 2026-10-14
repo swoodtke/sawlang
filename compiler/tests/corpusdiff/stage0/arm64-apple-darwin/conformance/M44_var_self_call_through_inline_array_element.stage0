@@ -1,0 +1,14 @@
+program	conformance/M44_var_self_call_through_inline_array_element.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	cannot call `&var self` method `bump` on immutable variable `h`
+meets_expect	yes
+log	"error: cannot call `&var self` method `bump` on immutable variable `h`"
+log	"  --> examples/conformance/M44_var_self_call_through_inline_array_element.saw:27:15"
+log	"     |"
+log	" 27 |     h.cells[0].bump()"
+log	"     |               ^"
+log	"   hint: consider using `var` instead of `let` to make it mutable"
+log	""
+log	"1 error(s) generated"

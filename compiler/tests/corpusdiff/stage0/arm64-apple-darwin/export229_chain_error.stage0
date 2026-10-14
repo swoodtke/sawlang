@@ -1,0 +1,21 @@
+program	export229_chain_error.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	`export229_leaf` is not part of `export229_wall`'s surface
+meets_expect	yes
+log	"error: `export229_leaf` is not part of `export229_wall`'s surface"
+log	"  --> examples/export229_chain_error.saw:9:18"
+log	"    |"
+log	" 9 | func size_of(w: &export229_wall.export229_leaf.Widget) -> Int {"
+log	"    |                  ^"
+log	"   hint: `export229_leaf` is imported by `export229_wall` but not re-exported — add `public import` in `export229_wall`, or import `modules.export229_leaf` directly"
+log	""
+log	"error: type `export229_wall.export229_leaf.Widget` in parameter `w` does not resolve"
+log	"  --> examples/export229_chain_error.saw:9:1"
+log	"    |"
+log	" 9 | func size_of(w: &export229_wall.export229_leaf.Widget) -> Int {"
+log	"    | ^"
+log	"   hint: `export229_wall.export229_leaf` must be an imported module exporting a public `Widget` — check the import and that `Widget` is `public`"
+log	""
+log	"2 error(s) generated"

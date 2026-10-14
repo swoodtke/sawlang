@@ -1,0 +1,12 @@
+program	serde169_derived.saw
+triple	arm64-apple-darwin
+twin	differs
+expect	success
+build	ok
+exit	0
+stdout	"kind=Release port=443 name=api tag=none"
+stdout	"deps=2 first=toml/0.1.0"
+stdout	"narrow=-7/200"
+stdout	"unknown enum case rejected: 3"
+stdout	""
+meets_expect	yes

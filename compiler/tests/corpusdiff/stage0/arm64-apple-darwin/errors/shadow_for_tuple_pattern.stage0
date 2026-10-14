@@ -1,0 +1,7 @@
+program	errors/shadow_for_tuple_pattern.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	Parse error at 13:9: Expected variable name after 'for'
+meets_expect	yes
+log	"error: Parse error at 13:9: Expected variable name after 'for'"

@@ -1,0 +1,11 @@
+program	closure_deinit_conditional_move.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"moved: 4"
+stdout	"deinit 4"
+stdout	"end"
+stdout	""
+meets_expect	yes

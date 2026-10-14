@@ -1,0 +1,10 @@
+program	sleep_seam_multi_chunk.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"slept at least the whole span: true"
+stdout	"no wrap: true"
+stdout	""
+meets_expect	yes

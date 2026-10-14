@@ -1,0 +1,21 @@
+program	errors/synthesize_derives_nothing.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	`@synthesize` on `extension Point` derives nothing
+meets_expect	yes
+log	"error: `@synthesize` on `extension Point` derives nothing"
+log	"  --> examples/errors/synthesize_derives_nothing.saw:11:1"
+log	"     |"
+log	" 11 | extension Point: Printable {"
+log	"     | ^"
+log	"   hint: the derivable conformances are Copy/ExplicitCopy (`copy`), Equatable (`equals`), Comparable (`compare`), Hashable (`hash`), Serialize (`serialize`) and Deserialize (`deserialize`), each with no hand-written body"
+log	""
+log	"error: result of `append` is `Result<Void, AllocError>` and is silently discarded"
+log	"  --> examples/errors/synthesize_derives_nothing.saw:13:13"
+log	"     |"
+log	" 13 |         into.append(self.x)"
+log	"     |             ^"
+log	"   hint: handle it — `match` it, `try`/`try!`/`try?` it, or return it — or write `let _ = ...` to discard it explicitly"
+log	""
+log	"2 error(s) generated"

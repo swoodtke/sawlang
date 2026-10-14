@@ -1,0 +1,13 @@
+program	ref_replace_self.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"before 10"
+stdout	"deinit 10"
+stdout	"after 20"
+stdout	"end"
+stdout	"deinit 20"
+stdout	""
+meets_expect	yes

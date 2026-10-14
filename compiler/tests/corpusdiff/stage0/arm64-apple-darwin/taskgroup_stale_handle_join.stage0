@@ -1,0 +1,10 @@
+program	taskgroup_stale_handle_join.saw
+triple	arm64-apple-darwin
+twin	same
+expect	panic
+build	ok
+exit	-6
+stdout	"42"
+stdout	"panic at taskgroup.saw:1788: Task.join: this task's result was already joined"
+stdout	""
+meets_expect	yes

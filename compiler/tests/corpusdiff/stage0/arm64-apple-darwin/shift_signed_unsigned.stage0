@@ -1,0 +1,14 @@
+program	shift_signed_unsigned.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"16"
+stdout	"64"
+stdout	"-4"
+stdout	"-1"
+stdout	"4"
+stdout	"1"
+stdout	""
+meets_expect	yes

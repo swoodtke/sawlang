@@ -1,0 +1,13 @@
+program	errors/coro_value_while_suspending_condition.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	coroutine transform: suspending call to `gate` in `worker` appears in a nested/expression position; only a top-level `let x = gate(...)` or `gate(...)` statement is supported
+meets_expect	yes
+log	"error: coroutine transform: suspending call to `gate` in `worker` appears in a nested/expression position; only a top-level `let x = gate(...)` or `gate(...)` statement is supported"
+log	"  --> examples/errors/coro_value_while_suspending_condition.saw:25:21"
+log	"     |"
+log	" 25 |     let out = while gate(i) < 3 {"
+log	"     |                     ^"
+log	""
+log	"1 error(s) generated"

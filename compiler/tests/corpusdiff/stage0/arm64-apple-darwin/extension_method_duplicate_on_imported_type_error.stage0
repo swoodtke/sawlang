@@ -1,0 +1,14 @@
+program	extension_method_duplicate_on_imported_type_error.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	method `doubled` is already defined for struct `Reading` with an indistinguishable signature
+meets_expect	yes
+log	"error: method `doubled` is already defined for struct `Reading` with an indistinguishable signature"
+log	"  --> examples/extension_method_duplicate_on_imported_type_error.saw:21:5"
+log	"     |"
+log	" 21 |     func doubled(&self) -> Int { self.scale * 2 }"
+log	"     |     ^"
+log	"   hint: overloads must differ in arity or parameter types"
+log	""
+log	"1 error(s) generated"

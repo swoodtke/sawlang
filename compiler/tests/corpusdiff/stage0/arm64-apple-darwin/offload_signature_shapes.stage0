@@ -1,0 +1,12 @@
+program	offload_signature_shapes.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"usleep -> 0"
+stdout	"ppid positive: true"
+stdout	"srand: returned"
+stdout	"pow(2, 10) == 1024: true"
+stdout	""
+meets_expect	yes

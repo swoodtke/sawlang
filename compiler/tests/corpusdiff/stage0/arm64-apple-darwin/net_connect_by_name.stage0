@@ -1,0 +1,11 @@
+program	net_connect_by_name.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"sibling: ran while the resolve was in flight"
+stdout	"localhost: connected"
+stdout	"empty host: io error: resolve \"\" failed (not found)"
+stdout	""
+meets_expect	yes

@@ -1,0 +1,13 @@
+program	conformance/V11_copy_on_nocopy.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	type `Result<Box<Int, GlobalAllocator>, AllocError>` is not Copy; `.copy()` requires a trivially-copyable, Copy, or ExplicitCopy type
+meets_expect	yes
+log	"error: type `Result<Box<Int, GlobalAllocator>, AllocError>` is not Copy; `.copy()` requires a trivially-copyable, Copy, or ExplicitCopy type"
+log	"  --> examples/conformance/V11_copy_on_nocopy.saw:11:14"
+log	"     |"
+log	" 11 |     let c = b.copy()"
+log	"     |              ^"
+log	""
+log	"1 error(s) generated"

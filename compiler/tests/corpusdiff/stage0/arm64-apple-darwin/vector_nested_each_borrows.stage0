@@ -1,0 +1,13 @@
+program	vector_nested_each_borrows.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"row: 1 2 3"
+stdout	"row: 4 5"
+stdout	"row:"
+stdout	"grand total 15"
+stdout	"rows 3"
+stdout	""
+meets_expect	yes

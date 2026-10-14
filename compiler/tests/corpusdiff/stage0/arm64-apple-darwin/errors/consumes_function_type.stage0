@@ -1,0 +1,7 @@
+program	errors/consumes_function_type.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	Parse error at 13:22: a function TYPE may not be `consumes` (design 260 v1): `consumes` describes what happens to a method's RECEIVER, and a function type has no receiver. Methods are not first-class values — call the consuming method at the use site instead
+meets_expect	yes
+log	"error: Parse error at 13:22: a function TYPE may not be `consumes` (design 260 v1): `consumes` describes what happens to a method's RECEIVER, and a function type has no receiver. Methods are not first-class values — call the consuming method at the use site instead"

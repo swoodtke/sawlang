@@ -1,0 +1,29 @@
+program	nested_closure_captures_frame_local.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"-- both implicit, sync"
+stdout	"= 30"
+stdout	"-- both implicit, driven"
+stdout	"= 30"
+stdout	"-- outer [copy] over an implicit inner, driven"
+stdout	"= 30"
+stdout	"-- both [copy], sync"
+stdout	"copy 20 -> 21"
+stdout	"copy 21 -> 22"
+stdout	"drop 22"
+stdout	"drop 21"
+stdout	"drop 20"
+stdout	"= 22"
+stdout	"-- both [copy], driven"
+stdout	"copy 20 -> 21"
+stdout	"copy 21 -> 22"
+stdout	"drop 22"
+stdout	"drop 20"
+stdout	"drop 21"
+stdout	"= 22"
+stdout	"end"
+stdout	""
+meets_expect	yes

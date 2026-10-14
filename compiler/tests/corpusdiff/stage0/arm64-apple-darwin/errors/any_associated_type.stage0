@@ -1,0 +1,13 @@
+program	errors/any_associated_type.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	cannot form `any Producer`: `Producer` has an associated type `Item` — `any` over a trait with associated types is not yet supported
+meets_expect	yes
+log	"error: cannot form `any Producer`: `Producer` has an associated type `Item` — `any` over a trait with associated types is not yet supported"
+log	"  --> examples/errors/any_associated_type.saw:11:1"
+log	"     |"
+log	" 11 | func use(x: &any Producer) {"
+log	"     | ^"
+log	""
+log	"1 error(s) generated"

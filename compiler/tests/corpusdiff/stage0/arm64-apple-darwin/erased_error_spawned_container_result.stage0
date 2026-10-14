@@ -1,0 +1,11 @@
+program	erased_error_spawned_container_result.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"ok 4"
+stdout	"err MyErr(-4)"
+stdout	"downcast -7"
+stdout	""
+meets_expect	yes

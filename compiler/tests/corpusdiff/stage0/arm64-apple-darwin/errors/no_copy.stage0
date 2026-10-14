@@ -1,0 +1,14 @@
+program	errors/no_copy.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	cannot copy value of type `FileHandle` which implements NoCopy
+meets_expect	yes
+log	"error: cannot copy value of type `FileHandle` which implements NoCopy"
+log	"  --> examples/errors/no_copy.saw:17:5"
+log	"     |"
+log	" 17 |     let f2 = f1  // Error: cannot copy NoCopy type"
+log	"     |     ^"
+log	"   hint: use `move` to transfer ownership instead"
+log	""
+log	"1 error(s) generated"

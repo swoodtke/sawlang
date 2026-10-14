@@ -1,0 +1,22 @@
+program	suspending_binding_scrutinee_propagates_a_try.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"while ok 6"
+stdout	"while err A27"
+stdout	"if ok 6"
+stdout	"if err A27"
+stdout	"guard ok 12"
+stdout	"guard err A30"
+stdout	"guard_nested ok 600"
+stdout	"guard_nested err A30"
+stdout	"if_cond ok 6"
+stdout	"if_cond err A30"
+stdout	"for_range ok 6"
+stdout	"for_range err A30"
+stdout	"match_scrutinee ok 6"
+stdout	"match_scrutinee err A30"
+stdout	""
+meets_expect	yes

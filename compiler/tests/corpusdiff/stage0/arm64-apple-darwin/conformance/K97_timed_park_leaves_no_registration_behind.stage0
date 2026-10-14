@@ -1,0 +1,10 @@
+program	conformance/K97_timed_park_leaves_no_registration_behind.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"10 rounds timed out"
+stdout	"deinits=10"
+stdout	""
+meets_expect	yes

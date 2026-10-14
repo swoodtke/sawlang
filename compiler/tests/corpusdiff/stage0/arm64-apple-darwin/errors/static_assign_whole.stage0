@@ -1,0 +1,14 @@
+program	errors/static_assign_whole.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	cannot assign to static `X`: statics are immutable
+meets_expect	yes
+log	"error: cannot assign to static `X`: statics are immutable"
+log	"  --> examples/errors/static_assign_whole.saw:8:15"
+log	"    |"
+log	" 8 | func main() { X = 2 }"
+log	"    |               ^"
+log	"   hint: use an interior-synchronized type (`Atomic<Int>`, `SpinLock<T>`) and mutate through its methods, or declare it `unsafe static var` and own the serialization argument"
+log	""
+log	"1 error(s) generated"

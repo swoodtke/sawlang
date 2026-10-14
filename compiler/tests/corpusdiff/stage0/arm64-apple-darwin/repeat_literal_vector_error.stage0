@@ -1,0 +1,14 @@
+program	repeat_literal_vector_error.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	a repeat literal `[v; N]` builds a fixed array, not a `Vector<Int, GlobalAllocator>`
+meets_expect	yes
+log	"error: a repeat literal `[v; N]` builds a fixed array, not a `Vector<Int, GlobalAllocator>`"
+log	"  --> examples/repeat_literal_vector_error.saw:8:26"
+log	"    |"
+log	" 8 |     let v: Vector<Int> = [0; 8]"
+log	"    |                          ^"
+log	"   hint: drop the annotation to get `[T; N]`, or build the vector with a loop of `push`"
+log	""
+log	"1 error(s) generated"

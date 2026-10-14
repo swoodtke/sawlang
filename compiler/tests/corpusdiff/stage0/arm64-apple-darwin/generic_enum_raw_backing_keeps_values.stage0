@@ -1,0 +1,15 @@
+program	generic_enum_raw_backing_keeps_values.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"generic 20"
+stdout	"other instantiation 30"
+stdout	"control 20"
+stdout	"agree true"
+stdout	"round trip 30"
+stdout	"ordinal rejected"
+stdout	"width 1 1"
+stdout	""
+meets_expect	yes

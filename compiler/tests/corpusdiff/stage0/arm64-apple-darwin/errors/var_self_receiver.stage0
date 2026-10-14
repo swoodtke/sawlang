@@ -1,0 +1,7 @@
+program	errors/var_self_receiver.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	Parse error at 13:15: `var self` is not a receiver spelling: write `&var self` to borrow mutably (or `&self` to borrow immutably)
+meets_expect	yes
+log	"error: Parse error at 13:15: `var self` is not a receiver spelling: write `&var self` to borrow mutably (or `&self` to borrow immutably)"

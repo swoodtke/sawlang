@@ -1,0 +1,10 @@
+program	coro_spawn_and_embed_cancel.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"101"
+stdout	"107"
+stdout	""
+meets_expect	yes

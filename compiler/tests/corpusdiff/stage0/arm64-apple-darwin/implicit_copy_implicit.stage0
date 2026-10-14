@@ -1,0 +1,10 @@
+program	implicit_copy_implicit.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"copy called"
+stdout	"84"
+stdout	""
+meets_expect	yes

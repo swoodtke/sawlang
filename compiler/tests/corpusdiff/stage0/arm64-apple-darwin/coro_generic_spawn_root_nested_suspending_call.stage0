@@ -1,0 +1,12 @@
+program	coro_generic_spawn_root_nested_suspending_call.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"v 1"
+stdout	"joined 0"
+stdout	"ambient v 1"
+stdout	"ambient 0"
+stdout	""
+meets_expect	yes

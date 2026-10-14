@@ -1,0 +1,25 @@
+program	assignment_target_adopts_fixed_width.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"local = 4"
+stdout	"static = 3"
+stdout	"ref = 11"
+stdout	"self field = 3"
+stdout	"field = 2"
+stdout	"named tuple = 6"
+stdout	"tuple idx = 5"
+stdout	"elem field = 7"
+stdout	"arr = 5"
+stdout	"vec = 9"
+stdout	"compound = 2"
+stdout	"nonliteral = 5"
+stdout	"folded = 5"
+stdout	"neg local = -5"
+stdout	"neg field = -128"
+stdout	"branch = 7"
+stdout	"platform = 5"
+stdout	""
+meets_expect	yes

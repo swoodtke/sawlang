@@ -1,0 +1,27 @@
+program	set_element_not_hashable_error.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	type `Set<NoHash, GlobalAllocator>` has no method `insert`: requires `T: Hashable`, and `NoHash` does not conform
+meets_expect	yes
+log	"error: set element type `NoHash` must be copyable (trivial, Copy, or ExplicitCopy with retain semantics): `NoHash` owns a Deinit without a copy (it is move-only, not retainable)"
+log	"  --> examples/set_element_not_hashable_error.saw:12:13"
+log	"     |"
+log	" 12 |     var s = Set<NoHash>()"
+log	"     |             ^"
+log	""
+log	"error: type `Set<NoHash, GlobalAllocator>` has no method `insert`: requires `T: Hashable`, and `NoHash` does not conform"
+log	"  --> examples/set_element_not_hashable_error.saw:13:6"
+log	"     |"
+log	" 13 |     s.insert(NoHash(label: \"x\"))"
+log	"     |      ^"
+log	"   hint: `insert` is only available when `T` satisfies `Hashable`"
+log	""
+log	"error: type `Set<NoHash, GlobalAllocator>` has no method `len`: requires `T: Hashable`, and `NoHash` does not conform"
+log	"  --> examples/set_element_not_hashable_error.saw:14:12"
+log	"     |"
+log	" 14 |     print(s.len())"
+log	"     |            ^"
+log	"   hint: `len` is only available when `T` satisfies `Hashable`"
+log	""
+log	"3 error(s) generated"

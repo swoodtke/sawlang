@@ -1,0 +1,9 @@
+program	net_budget_fairness.saw
+triple	arm64-apple-darwin
+twin	differs
+expect	success
+build	ok
+exit	0
+stdout	"5"
+stdout	""
+meets_expect	yes

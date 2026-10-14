@@ -1,0 +1,29 @@
+program	unsigned_ordered_comparison_matrix.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"u8 255 vs 127: false false true true"
+stdout	"u8 128 vs 127: false false true true"
+stdout	"u8 0 vs 255: true true false false"
+stdout	"u8 255 vs 255: false true false true"
+stdout	"uint max vs 1: false false true true"
+stdout	"uint 2^63 vs 1: false false true true"
+stdout	"uint 0 vs max: true true false false"
+stdout	"byte 255 vs 127: false false true true"
+stdout	"byte 128 vs 127: false false true true"
+stdout	"byte 0 vs 255: true true false false"
+stdout	"byte 255 vs 255: false true false true"
+stdout	"word 65535 vs 32767: false false true true"
+stdout	"word 32768 vs 32767: false false true true"
+stdout	"word 0 vs 65535: true true false false"
+stdout	"mixed u8 255 vs byte 127: false false true true"
+stdout	"mixed byte 255 vs u8 127: false false true true"
+stdout	"alias over UInt64 max vs 1: false false true true"
+stdout	"i8 -1 vs 1: true true false false"
+stdout	"i8 -128 vs 127: true true false false"
+stdout	"int -5 vs 3: true true false false"
+stdout	"alias over Int8 -1 vs 1: true true false false"
+stdout	""
+meets_expect	yes

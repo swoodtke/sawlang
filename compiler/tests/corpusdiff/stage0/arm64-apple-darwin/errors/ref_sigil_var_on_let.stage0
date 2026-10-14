@@ -1,0 +1,14 @@
+program	errors/ref_sigil_var_on_let.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	cannot take mutable reference to immutable variable `a`
+meets_expect	yes
+log	"error: cannot take mutable reference to immutable variable `a`"
+log	"  --> examples/errors/ref_sigil_var_on_let.saw:12:10"
+log	"     |"
+log	" 12 |     bump(&var a)"
+log	"     |          ^"
+log	"   hint: declare with `var` to make it mutable"
+log	""
+log	"1 error(s) generated"

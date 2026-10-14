@@ -1,0 +1,9 @@
+program	self_type_in_generic_extension.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"same 9"
+stdout	""
+meets_expect	yes

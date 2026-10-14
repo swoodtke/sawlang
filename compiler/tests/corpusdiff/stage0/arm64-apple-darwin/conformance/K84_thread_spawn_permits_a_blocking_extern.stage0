@@ -1,0 +1,9 @@
+program	conformance/K84_thread_spawn_permits_a_blocking_extern.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"napped"
+stdout	""
+meets_expect	yes

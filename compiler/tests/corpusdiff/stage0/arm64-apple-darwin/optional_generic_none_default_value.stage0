@@ -1,0 +1,13 @@
+program	optional_generic_none_default_value.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"omitted ok"
+stdout	"supplied ok"
+stdout	"param-optional omitted no b"
+stdout	"param-optional supplied with b"
+stdout	"-- done"
+stdout	""
+meets_expect	yes

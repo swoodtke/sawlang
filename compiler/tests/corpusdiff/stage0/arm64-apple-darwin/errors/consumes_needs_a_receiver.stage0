@@ -1,0 +1,7 @@
+program	errors/consumes_needs_a_receiver.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	Parse error at 15:41: `consumes` may only appear on a method with a `&var self` receiver — a `static` method has no receiver to consume
+meets_expect	yes
+log	"error: Parse error at 15:41: `consumes` may only appear on a method with a `&var self` receiver — a `static` method has no receiver to consume"

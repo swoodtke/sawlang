@@ -1,0 +1,11 @@
+program	trait_default_inherited.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"3"
+stdout	"6"
+stdout	"30"
+stdout	""
+meets_expect	yes

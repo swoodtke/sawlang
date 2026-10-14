@@ -1,0 +1,14 @@
+program	export229_selective_error.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	`leaf_make` is not part of `modules.export229_wall`'s surface
+meets_expect	yes
+log	"error: `leaf_make` is not part of `modules.export229_wall`'s surface"
+log	"  --> examples/export229_selective_error.saw:6:1"
+log	"    |"
+log	" 6 | import modules.export229_wall.{wall_make, leaf_make}"
+log	"    | ^"
+log	"   hint: `leaf_make` is imported by `modules.export229_wall` but not re-exported — add `public import` in `modules.export229_wall`, or import `modules.export229_leaf` directly"
+log	""
+log	"1 error(s) generated"

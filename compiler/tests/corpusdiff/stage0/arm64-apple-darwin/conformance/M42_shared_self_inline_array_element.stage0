@@ -1,0 +1,21 @@
+program	conformance/M42_shared_self_inline_array_element.saw
+triple	arm64-apple-darwin
+twin	differs
+expect	error
+build	refused	cannot assign to storage reached through a `&self` receiver: `self` is borrowed SHARED here, so the write would reach storage this method may only read
+meets_expect	yes
+log	"error: cannot assign to storage reached through a `&self` receiver: `self` is borrowed SHARED here, so the write would reach storage this method may only read"
+log	"  --> examples/conformance/M42_shared_self_inline_array_element.saw:22:34"
+log	"     |"
+log	" 22 |     func stamp(&self) { self.grid[0] = 100 }"
+log	"     |                                  ^"
+log	"   hint: declare the method `&var self` to mutate through the receiver, or `&var self ... borrows -> &var T` to lend the place and let each use site choose the window's flavor"
+log	""
+log	"error: cannot use compound assignment on storage reached through a `&self` receiver: `self` is borrowed SHARED here, so the write would reach storage this method may only read"
+log	"  --> examples/conformance/M42_shared_self_inline_array_element.saw:23:33"
+log	"     |"
+log	" 23 |     func bump(&self) { self.grid[0] += 100 }"
+log	"     |                                 ^"
+log	"   hint: declare the method `&var self` to mutate through the receiver, or `&var self ... borrows -> &var T` to lend the place and let each use site choose the window's flavor"
+log	""
+log	"2 error(s) generated"

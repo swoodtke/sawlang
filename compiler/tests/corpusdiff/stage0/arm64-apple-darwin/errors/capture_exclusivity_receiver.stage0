@@ -1,0 +1,14 @@
+program	errors/capture_exclusivity_receiver.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	exclusive access violation: `b` is passed as `&var` while also being accessed in the same call
+meets_expect	yes
+log	"error: exclusive access violation: `b` is passed as `&var` while also being accessed in the same call"
+log	"  --> examples/errors/capture_exclusivity_receiver.saw:22:15"
+log	"     |"
+log	" 22 |     b.each({ [&var b] x in"
+log	"     |               ^"
+log	"   hint: disjoint access paths are allowed (e.g. `&var p.x` with `&p.y`); give the mutable reference exclusive access"
+log	""
+log	"1 error(s) generated"

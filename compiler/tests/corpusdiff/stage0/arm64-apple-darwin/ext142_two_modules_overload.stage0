@@ -1,0 +1,10 @@
+program	ext142_two_modules_overload.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"22"
+stdout	"26"
+stdout	""
+meets_expect	yes

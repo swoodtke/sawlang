@@ -1,0 +1,35 @@
+program	std_import_gate_signature_position.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	`Data` is not in the prelude and must be imported
+meets_expect	yes
+log	"error: `Data` is not in the prelude and must be imported"
+log	"  --> examples/std_import_gate_signature_position.saw:24:8"
+log	"     |"
+log	" 24 |     d: Data"
+log	"     |        ^"
+log	"   hint: `import std.data.{Data}` selects it, `import std.data.*` takes the module's whole vocabulary bare, and `import std.data` lets you write `data.Data`"
+log	""
+log	"error: struct `Holder` contains Copy field `d` of type `Data` but does not implement Copy"
+log	"  --> examples/std_import_gate_signature_position.saw:23:1"
+log	"     |"
+log	" 23 | struct Holder {"
+log	"     | ^"
+log	"   hint: add `@synthesize extension Holder: Copy {}` for a memberwise copy, or write `func copy(&self) -> Holder` by hand"
+log	""
+log	"error: `Data` is not in the prelude and must be imported"
+log	"  --> examples/std_import_gate_signature_position.saw:27:15"
+log	"     |"
+log	" 27 | func take(d: &Data) -> Int {"
+log	"     |               ^"
+log	"   hint: `import std.data.{Data}` selects it, `import std.data.*` takes the module's whole vocabulary bare, and `import std.data` lets you write `data.Data`"
+log	""
+log	"error: `Data` is not in the prelude and must be imported"
+log	"  --> examples/std_import_gate_signature_position.saw:31:27"
+log	"     |"
+log	" 31 | func hand_back(n: Int) -> Data? {"
+log	"     |                           ^"
+log	"   hint: `import std.data.{Data}` selects it, `import std.data.*` takes the module's whole vocabulary bare, and `import std.data` lets you write `data.Data`"
+log	""
+log	"4 error(s) generated"

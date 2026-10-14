@@ -1,0 +1,12 @@
+program	conformance/K99_watch_is_scoped_and_singly_owned.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"first watch ok"
+stdout	"second watch refused: already exists"
+stdout	"other signal ok"
+stdout	"rewatch after drop ok"
+stdout	""
+meets_expect	yes

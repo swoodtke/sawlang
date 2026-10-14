@@ -1,0 +1,21 @@
+program	conformance/X14_push_inside_with_ref.saw
+triple	arm64-apple-darwin
+twin	differs
+expect	error
+build	refused	exclusive access violation: `v` is passed as `&var` while also being accessed in the same call
+meets_expect	yes
+log	"error: result of `push` is `Result<Void, AllocError>` and is silently discarded"
+log	"  --> examples/conformance/X14_push_inside_with_ref.saw:11:10"
+log	"     |"
+log	" 11 |         v.push(9)"
+log	"     |          ^"
+log	"   hint: handle it — `match` it, `try`/`try!`/`try?` it, or return it — or write `let _ = ...` to discard it explicitly"
+log	""
+log	"error: exclusive access violation: `v` is passed as `&var` while also being accessed in the same call"
+log	"  --> examples/conformance/X14_push_inside_with_ref.saw:10:30"
+log	"     |"
+log	" 10 |     let r = v.with_ref(0, { [&var v] e in"
+log	"     |                              ^"
+log	"   hint: disjoint access paths are allowed (e.g. `&var p.x` with `&p.y`); give the mutable reference exclusive access"
+log	""
+log	"2 error(s) generated"

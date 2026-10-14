@@ -1,0 +1,14 @@
+program	optional_coalesce_peel_depth.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"plain 1"
+stdout	"plain-miss 0"
+stdout	"nested-none absent"
+stdout	"nested-some 1"
+stdout	"peeled 2"
+stdout	"chained 7"
+stdout	""
+meets_expect	yes

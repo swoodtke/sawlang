@@ -1,0 +1,7 @@
+program	try_routing_clause_needs_a_case.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	Parse error at 27:31: `try(as LocalError)` names no case — the routing clause is `try(as ErrorType.Case) ...`, naming the enum and the case the error is carried in
+meets_expect	yes
+log	"error: Parse error at 27:31: `try(as LocalError)` names no case — the routing clause is `try(as ErrorType.Case) ...`, naming the enum and the case the error is carried in"

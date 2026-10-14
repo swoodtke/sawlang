@@ -1,0 +1,11 @@
+program	df140f_private_static_collision.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"1"
+stdout	"7"
+stdout	"9"
+stdout	""
+meets_expect	yes

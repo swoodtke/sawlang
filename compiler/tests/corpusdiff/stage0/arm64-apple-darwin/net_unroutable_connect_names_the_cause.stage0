@@ -1,0 +1,12 @@
+program	net_unroutable_connect_names_the_cause.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"0.0.0.1: io error: connect failed (host unreachable)"
+stdout	"240.0.0.1: dialled — this machine has a route, nothing to name"
+stdout	"192.0.2.1: dialled — this machine has a route, nothing to name"
+stdout	"unroutable connect: no immediate failure fell through to \"other error\""
+stdout	""
+meets_expect	yes

@@ -1,0 +1,14 @@
+program	errors/unsafe_sync_not_a_bound.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	`UnsafeSync` is not a generic bound, so it cannot bound the type parameter `T`
+meets_expect	yes
+log	"error: `UnsafeSync` is not a generic bound, so it cannot bound the type parameter `T`"
+log	"  --> examples/errors/unsafe_sync_not_a_bound.saw:7:12"
+log	"    |"
+log	" 7 | func share<T: UnsafeSync>(x: &T) -> Int {"
+log	"    |            ^"
+log	"   hint: bound on the PROPERTY instead — `T: Sync` — which a type declaring `UnsafeSync` satisfies through it. The assertion is written once, at the conformance header, where it can be audited"
+log	""
+log	"1 error(s) generated"

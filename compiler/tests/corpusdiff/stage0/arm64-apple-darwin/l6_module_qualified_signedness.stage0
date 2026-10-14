@@ -1,0 +1,10 @@
+program	l6_module_qualified_signedness.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"10000000000000000000"
+stdout	"5000000000000000000"
+stdout	""
+meets_expect	yes

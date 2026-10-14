@@ -1,0 +1,18 @@
+program	slot_optional_payload.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"empty: occupied false"
+stdout	"holds None: occupied true"
+stdout	"cleared a None: occupied false, live 0"
+stdout	"holds Some: occupied true"
+stdout	"took r1"
+stdout	"after take: occupied false"
+stdout	"deinit r2"
+stdout	"after clearing a Some: live 1"
+stdout	"deinit r1"
+stdout	"live 0"
+stdout	""
+meets_expect	yes

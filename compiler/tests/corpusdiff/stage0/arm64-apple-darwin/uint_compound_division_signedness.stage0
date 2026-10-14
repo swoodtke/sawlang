@@ -1,0 +1,18 @@
+program	uint_compound_division_signedness.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"66 4"
+stdout	"21845 1"
+stdout	"1431655765 3"
+stdout	"9223372036854775800 0"
+stdout	"5000000000000000000 0"
+stdout	"field 66 4"
+stdout	"index 66 4"
+stdout	"chain 66 4"
+stdout	"ref 66 4"
+stdout	"signed -66 -4"
+stdout	""
+meets_expect	yes

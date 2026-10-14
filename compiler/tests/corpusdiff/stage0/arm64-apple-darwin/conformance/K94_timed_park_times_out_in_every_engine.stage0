@@ -1,0 +1,10 @@
+program	conformance/K94_timed_park_times_out_in_every_engine.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"sweep timed out, waited long enough"
+stdout	"mt timed out, waited long enough"
+stdout	""
+meets_expect	yes

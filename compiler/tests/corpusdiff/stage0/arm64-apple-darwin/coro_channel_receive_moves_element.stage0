@@ -1,0 +1,21 @@
+program	coro_channel_receive_moves_element.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"nocopy ctor 7"
+stdout	"nocopy got 7 seven"
+stdout	"nocopy deinit 7 seven"
+stdout	"nocopy join 7"
+stdout	"explicit got 8 eight"
+stdout	"explicit join 8"
+stdout	"vector join 2"
+stdout	"arc after ctor 1"
+stdout	"arc after send 2"
+stdout	"arc in worker 2"
+stdout	"arc join 9"
+stdout	"arc after join 1"
+stdout	"arc deinit 9"
+stdout	""
+meets_expect	yes

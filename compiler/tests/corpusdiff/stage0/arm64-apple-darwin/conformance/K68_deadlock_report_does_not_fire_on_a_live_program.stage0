@@ -1,0 +1,12 @@
+program	conformance/K68_deadlock_report_does_not_fire_on_a_live_program.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"sleeper fed 1"
+stdout	"thread fed 2"
+stdout	"mt fed 3"
+stdout	"busy owner fed 4"
+stdout	""
+meets_expect	yes

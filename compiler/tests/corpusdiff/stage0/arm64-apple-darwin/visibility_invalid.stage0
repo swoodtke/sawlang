@@ -1,0 +1,7 @@
+program	visibility_invalid.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	Parse error at 5:15: Unknown visibility modifier: public(invalid). Expected 'package' or 'parent'
+meets_expect	yes
+log	"error: Parse error at 5:15: Unknown visibility modifier: public(invalid). Expected 'package' or 'parent'"

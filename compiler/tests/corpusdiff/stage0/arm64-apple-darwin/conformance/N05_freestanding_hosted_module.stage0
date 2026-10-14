@@ -1,0 +1,7 @@
+program	conformance/N05_freestanding_hosted_module.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	module `std.file` is hosted-only and cannot be imported in the freestanding profile
+meets_expect	yes
+log	"error: module `std.file` is hosted-only and cannot be imported in the freestanding profile"

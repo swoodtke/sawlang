@@ -1,0 +1,23 @@
+program	int_parse_to_uint.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"dec_umax: true"
+stdout	"dec_over: true"
+stdout	"bin: true"
+stdout	"oct: true"
+stdout	"dec10: true"
+stdout	"hex: true"
+stdout	"hex_umax: true"
+stdout	"hex_over: true"
+stdout	"empty: true"
+stdout	"junk: true"
+stdout	"neg: true"
+stdout	"plus: true"
+stdout	"bad_radix_lo: true"
+stdout	"bad_radix_hi: true"
+stdout	"val: 12345"
+stdout	""
+meets_expect	yes

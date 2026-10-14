@@ -1,0 +1,35 @@
+program	type_alias_of_enum_error.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	type alias `Rank` names the enum `Level`, and an alias of an enum is not allowed
+meets_expect	yes
+log	"error: type alias `Rank` names the enum `Level`, and an alias of an enum is not allowed"
+log	"  --> examples/type_alias_of_enum_error.saw:35:1"
+log	"     |"
+log	" 35 | type Rank = Level          // direct"
+log	"     | ^"
+log	"   hint: use `Level` itself. An alias is read back to the type it names with `as`, and there is no such reading for an enum — so `Rank` would be a name with no way out. Aliases of structs and primitives are unaffected"
+log	""
+log	"error: type alias `Step` names the enum `Level` (through `Rank`), and an alias of an enum is not allowed"
+log	"  --> examples/type_alias_of_enum_error.saw:36:1"
+log	"     |"
+log	" 36 | type Step = Rank           // a chain ending at an enum"
+log	"     | ^"
+log	"   hint: use `Level` itself. An alias is read back to the type it names with `as`, and there is no such reading for an enum — so `Step` would be a name with no way out. Aliases of structs and primitives are unaffected"
+log	""
+log	"error: type alias `Bits` names the enum `Perm`, and an alias of an enum is not allowed"
+log	"  --> examples/type_alias_of_enum_error.saw:37:1"
+log	"     |"
+log	" 37 | type Bits = Perm           // raw-backed: the backing is not a way back"
+log	"     | ^"
+log	"   hint: use `Perm` itself. An alias is read back to the type it names with `as`, and there is no such reading for an enum — so `Bits` would be a name with no way out. Aliases of structs and primitives are unaffected"
+log	""
+log	"error: type alias `Ranked` names the enum `Level`, and an alias of an enum is not allowed"
+log	"  --> examples/type_alias_of_enum_error.saw:38:1"
+log	"     |"
+log	" 38 | type Ranked = qslot.Level  // module-qualified"
+log	"     | ^"
+log	"   hint: use `Level` itself. An alias is read back to the type it names with `as`, and there is no such reading for an enum — so `Ranked` would be a name with no way out. Aliases of structs and primitives are unaffected"
+log	""
+log	"4 error(s) generated"

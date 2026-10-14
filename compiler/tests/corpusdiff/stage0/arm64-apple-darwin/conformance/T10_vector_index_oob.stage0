@@ -1,0 +1,9 @@
+program	conformance/T10_vector_index_oob.saw
+triple	arm64-apple-darwin
+twin	same
+expect	panic
+build	ok
+exit	-6
+stdout	"panic at vector.saw:90: Vector.[]: index out of range: 5 (len 3)"
+stdout	""
+meets_expect	yes

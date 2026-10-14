@@ -1,0 +1,28 @@
+program	conformance/V33_explicitcopy_refused_at_silent_bound.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	type `Vector<Int, GlobalAllocator>` does not satisfy the `Copy` bound
+meets_expect	yes
+log	"error: result of `push` is `Result<Void, AllocError>` and is silently discarded"
+log	"  --> examples/conformance/V33_explicitcopy_refused_at_silent_bound.saw:25:6"
+log	"     |"
+log	" 25 |     v.push(1)"
+log	"     |      ^"
+log	"   hint: handle it — `match` it, `try`/`try!`/`try?` it, or return it — or write `let _ = ...` to discard it explicitly"
+log	""
+log	"error: type `Vector<Int, GlobalAllocator>` does not satisfy the `Copy` bound"
+log	"  --> examples/conformance/V33_explicitcopy_refused_at_silent_bound.saw:26:15"
+log	"     |"
+log	" 26 |     let out = launder<Vector<Int>>(move v)"
+log	"     |               ^"
+log	"   hint: the `Copy` tier is what duplicates silently — a trivially-copyable type, or one whose members the compiler retains; a type that copies only with a spelled `.copy()` needs an `ExplicitCopy` bound here instead"
+log	""
+log	"error: `launder` requires `T` to be `Copy` — it binds `x` twice, at lines 17 and 18; `Vector<Int, GlobalAllocator>` is duplicated only by a spelled `.copy()`"
+log	"  --> examples/conformance/V33_explicitcopy_refused_at_silent_bound.saw:26:15"
+log	"     |"
+log	" 26 |     let out = launder<Vector<Int>>(move v)"
+log	"     |               ^"
+log	"   hint: pass a type on the `Copy` tier, or rewrite the body to move `T` instead of duplicating it. A body that means to duplicate declares `<T: ExplicitCopy>` and spells `.copy()`"
+log	""
+log	"3 error(s) generated"

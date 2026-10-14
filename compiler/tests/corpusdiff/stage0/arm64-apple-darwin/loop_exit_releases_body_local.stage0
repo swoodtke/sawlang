@@ -1,0 +1,39 @@
+program	loop_exit_releases_body_local.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"body b0"
+stdout	"DEINIT b0"
+stdout	"body b1"
+stdout	"DEINIT b1"
+stdout	"after break loop"
+stdout	"body c0"
+stdout	"DEINIT c0"
+stdout	"body c1"
+stdout	"DEINIT c1"
+stdout	"after continue loop"
+stdout	"body r0"
+stdout	"DEINIT r0"
+stdout	"body r1"
+stdout	"DEINIT r1"
+stdout	"after return loop"
+stdout	"body o0"
+stdout	"DEINIT o0"
+stdout	"nested n1"
+stdout	"DEINIT n1"
+stdout	"DEINIT o1"
+stdout	"after nested break"
+stdout	"iter f0"
+stdout	"tail f0"
+stdout	"DEINIT f0"
+stdout	"iter f1"
+stdout	"DEINIT f1"
+stdout	"iter f2"
+stdout	"tail f2"
+stdout	"DEINIT f2"
+stdout	"after for"
+stdout	"done"
+stdout	""
+meets_expect	yes

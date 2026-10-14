@@ -1,0 +1,13 @@
+program	try_catch_void_result.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"1"
+stdout	"step failed: refused"
+stdout	"-1"
+stdout	"fallback: refused"
+stdout	"done"
+stdout	""
+meets_expect	yes

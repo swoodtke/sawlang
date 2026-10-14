@@ -1,0 +1,14 @@
+program	conformance/V38_generic_requirement_propagates_through_forwarding.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	`outer` requires `T` to be `Copy` — it forwards `T` to ``inner``, which needs it to be `Copy`; `Res` is move-only
+meets_expect	yes
+log	"error: `outer` requires `T` to be `Copy` — it forwards `T` to ``inner``, which needs it to be `Copy`; `Res` is move-only"
+log	"  --> examples/conformance/V38_generic_requirement_propagates_through_forwarding.saw:34:15"
+log	"     |"
+log	" 34 |     print(\"n {outer(move r)}\")"
+log	"     |               ^"
+log	"   hint: pass a type on the `Copy` tier, or rewrite the body to move `T` instead of duplicating it. A body that means to duplicate declares `<T: ExplicitCopy>` and spells `.copy()`"
+log	""
+log	"1 error(s) generated"

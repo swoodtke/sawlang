@@ -1,0 +1,14 @@
+program	errors/blocking_extern_sync_reject.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	cannot suspend in `sync func` declaration: `sync func f` calls blocking extern `slow` (`f` suspends at line 14)
+meets_expect	yes
+log	"error: cannot suspend in `sync func` declaration: `sync func f` calls blocking extern `slow` (`f` suspends at line 14)"
+log	"  --> examples/errors/blocking_extern_sync_reject.saw:13:1"
+log	"     |"
+log	" 13 | func f(x: Int) sync -> Int {"
+log	"     | ^"
+log	"   hint: a `sync` context must be transitively suspension-free: remove the suspending call or hoist it out of the sync region"
+log	""
+log	"1 error(s) generated"

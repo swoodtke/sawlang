@@ -1,0 +1,22 @@
+program	conformance/K135_window_conflicts_that_compose.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"read the root 21"
+stdout	"disjoint sibling 27"
+stdout	"nested over one root 36"
+stdout	"shared extent composes 6"
+stdout	"disjoint exclusive extent 6"
+stdout	"refining shadow is its own root 15"
+stdout	"refining shadow driven 15"
+stdout	"disjoint constant indices 6"
+stdout	"root frame-local 12"
+stdout	"root shared param 12"
+stdout	"root var param 12"
+stdout	"root enclosing frame field 12"
+stdout	"root receiver field 12"
+stdout	"root generic instantiation 12"
+stdout	""
+meets_expect	yes

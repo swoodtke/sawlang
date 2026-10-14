@@ -1,0 +1,19 @@
+program	stringbuilder_fixed.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"n = 42"
+stdout	"false"
+stdout	"6"
+stdout	"false"
+stdout	"0"
+stdout	"abcdefghijkl…"
+stdout	"true"
+stdout	"15"
+stdout	"aaaaaaaaaaa…"
+stdout	"14"
+stdout	"97"
+stdout	""
+meets_expect	yes

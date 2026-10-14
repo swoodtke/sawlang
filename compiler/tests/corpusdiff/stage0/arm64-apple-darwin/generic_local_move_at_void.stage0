@@ -1,0 +1,16 @@
+program	generic_local_move_at_void.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"epilogue"
+stdout	"epilogue"
+stdout	"20"
+stdout	"epilogue"
+stdout	"n=2"
+stdout	"epilogue"
+stdout	"held made2"
+stdout	"Res.deinit made2"
+stdout	""
+meets_expect	yes

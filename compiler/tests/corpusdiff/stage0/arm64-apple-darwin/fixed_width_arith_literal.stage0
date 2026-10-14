@@ -1,0 +1,17 @@
+program	fixed_width_arith_literal.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"13"
+stdout	"13"
+stdout	"6"
+stdout	"20"
+stdout	"3"
+stdout	"2"
+stdout	"0"
+stdout	"8"
+stdout	"105"
+stdout	""
+meets_expect	yes

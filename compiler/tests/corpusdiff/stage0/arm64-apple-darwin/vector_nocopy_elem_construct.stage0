@@ -1,0 +1,12 @@
+program	vector_nocopy_elem_construct.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"1"
+stdout	"0"
+stdout	"1"
+stdout	"42"
+stdout	""
+meets_expect	yes

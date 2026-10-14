@@ -1,0 +1,14 @@
+program	errors/unsafe_fn_type_missing_effect.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	the function type `(UnsafeMmioReg) sync -> Int` names an unsafe type (`UnsafeMmioReg`) but its effect slot does not say `unsafe`
+meets_expect	yes
+log	"error: the function type `(UnsafeMmioReg) sync -> Int` names an unsafe type (`UnsafeMmioReg`) but its effect slot does not say `unsafe`"
+log	"  --> examples/errors/unsafe_fn_type_missing_effect.saw:12:1"
+log	"     |"
+log	" 12 | func run(body: (UnsafeMmioReg) sync -> Int) unsafe -> Int {"
+log	"     | ^"
+log	"   hint: write the effect the signature carries, e.g. `(UnsafePointer<T>) unsafe sync -> R` — one contract has one spelling"
+log	""
+log	"1 error(s) generated"

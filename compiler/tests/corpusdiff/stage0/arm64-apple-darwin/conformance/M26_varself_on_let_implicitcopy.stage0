@@ -1,0 +1,14 @@
+program	conformance/M26_varself_on_let_implicitcopy.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	cannot call `&var self` method `rename` on immutable variable `t`
+meets_expect	yes
+log	"error: cannot call `&var self` method `rename` on immutable variable `t`"
+log	"  --> examples/conformance/M26_varself_on_let_implicitcopy.saw:13:6"
+log	"     |"
+log	" 13 |     t.rename(\"b\")"
+log	"     |      ^"
+log	"   hint: consider using `var` instead of `let` to make it mutable"
+log	""
+log	"1 error(s) generated"

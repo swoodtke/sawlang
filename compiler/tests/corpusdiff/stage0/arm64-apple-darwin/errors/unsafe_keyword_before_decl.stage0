@@ -1,0 +1,7 @@
+program	errors/unsafe_keyword_before_decl.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	Parse error at 9:8: `unsafe` goes after the parameter list, not before `func` — write `func name(...) unsafe -> T` (the effect slot, before `sync`)
+meets_expect	yes
+log	"error: Parse error at 9:8: `unsafe` goes after the parameter list, not before `func` — write `func name(...) unsafe -> T` (the effect slot, before `sync`)"

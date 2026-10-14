@@ -1,0 +1,35 @@
+program	errors/place_window_root_read_teaches_the_asymmetry.saw
+triple	arm64-apple-darwin
+twin	differs
+expect	error
+build	refused	cannot read `v` from inside a place window opened on it
+meets_expect	yes
+log	"error: cannot read `v` from inside a place window opened on it"
+log	"  --> examples/errors/place_window_root_read_teaches_the_asymmetry.saw:41:6"
+log	"     |"
+log	" 41 |     v[0].bump(by: v.len())"
+log	"     |      ^"
+log	"   hint: a window's extent is the whole expression that asks for the borrow, so this read sits between the accessor's prologue and its epilogue. Lift it above the statement and name the binding here — `let n = v.len()` is the shape. An ASSIGNMENT is the one position that needs no rewrite: `v[0].n = v.len()` compiles, because a right-hand side is defined to run before its target, so the compiler lifts it out of the window for you. Here it cannot: the read would move ahead of the accessor's prologue, which changes the order the program runs in"
+log	""
+log	"error: cannot read `v` from inside a place window opened on it"
+log	"  --> examples/errors/place_window_root_read_teaches_the_asymmetry.saw:44:24"
+log	"     |"
+log	" 44 |     print(\"{v.len()} {v[0]}\")"
+log	"     |                        ^"
+log	"   hint: a window's extent is the whole expression that asks for the borrow, so this read sits between the accessor's prologue and its epilogue. Lift it above the statement and name the binding here — `let n = v.len()` is the shape. An ASSIGNMENT is the one position that needs no rewrite: `v[0].n = v.len()` compiles, because a right-hand side is defined to run before its target, so the compiler lifts it out of the window for you. Here it cannot: the read would move ahead of the accessor's prologue, which changes the order the program runs in"
+log	""
+log	"error: cannot read `v` from inside a place window opened on it"
+log	"  --> examples/errors/place_window_root_read_teaches_the_asymmetry.saw:47:14"
+log	"     |"
+log	" 47 |     print(\"{v[0] == v[1]}\")"
+log	"     |              ^"
+log	"   hint: a window's extent is the whole expression that asks for the borrow, so this read sits between the accessor's prologue and its epilogue. Lift it above the statement and name the binding here — `let n = v.len()` is the shape. An ASSIGNMENT is the one position that needs no rewrite: `v[0].n = v.len()` compiles, because a right-hand side is defined to run before its target, so the compiler lifts it out of the window for you. Here it cannot: the read would move ahead of the accessor's prologue, which changes the order the program runs in"
+log	""
+log	"error: cannot read `v` from inside a place window opened on it"
+log	"  --> examples/errors/place_window_root_read_teaches_the_asymmetry.saw:50:33"
+log	"     |"
+log	" 50 |     assert(v[0].id == 1, \"{}\", v[0])"
+log	"     |                                 ^"
+log	"   hint: a window's extent is the whole expression that asks for the borrow, so this read sits between the accessor's prologue and its epilogue. Lift it above the statement and name the binding here — `let n = v.len()` is the shape. An ASSIGNMENT is the one position that needs no rewrite: `v[0].n = v.len()` compiles, because a right-hand side is defined to run before its target, so the compiler lifts it out of the window for you. Here it cannot: the read would move ahead of the accessor's prologue, which changes the order the program runs in"
+log	""
+log	"4 error(s) generated"

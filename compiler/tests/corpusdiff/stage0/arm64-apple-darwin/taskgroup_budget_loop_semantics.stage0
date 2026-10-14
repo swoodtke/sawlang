@@ -1,0 +1,13 @@
+program	taskgroup_budget_loop_semantics.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"range 1000"
+stdout	"vector 55"
+stdout	"suspending 300"
+stdout	"continue 500"
+stdout	"nested 600"
+stdout	""
+meets_expect	yes

@@ -1,0 +1,7 @@
+program	newline_generic_param_trailing_comma_error.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	Parse error at 6:12: a trailing comma is not allowed in a generic parameter list (it is allowed in `(...)` and `[...]` lists)
+meets_expect	yes
+log	"error: Parse error at 6:12: a trailing comma is not allowed in a generic parameter list (it is allowed in `(...)` and `[...]` lists)"

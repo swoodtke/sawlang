@@ -1,0 +1,13 @@
+program	coro_hoisted_struct_init_arg_consumed_once.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"h=5"
+stdout	"deinit 5"
+stdout	"e=6"
+stdout	"deinit 6"
+stdout	"done"
+stdout	""
+meets_expect	yes

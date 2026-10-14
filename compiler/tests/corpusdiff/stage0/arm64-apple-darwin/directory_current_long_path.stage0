@@ -1,0 +1,14 @@
+program	directory_current_long_path.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"descended 10"
+stdout	"got a path: true"
+stdout	"longer than the old fixed buffer: true"
+stdout	"contains the test root: true"
+stdout	"ends with the deepest component: true"
+stdout	"cleaned up: true"
+stdout	""
+meets_expect	yes

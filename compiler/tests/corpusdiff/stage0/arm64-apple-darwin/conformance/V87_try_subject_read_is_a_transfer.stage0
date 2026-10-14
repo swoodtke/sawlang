@@ -1,0 +1,28 @@
+program	conformance/V87_try_subject_read_is_a_transfer.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	cannot copy value of type `Res` which implements NoCopy
+meets_expect	yes
+log	"error: cannot copy value of type `Res` which implements NoCopy"
+log	"  --> examples/conformance/V87_try_subject_read_is_a_transfer.saw:53:5"
+log	"     |"
+log	" 53 |     let a = try r"
+log	"     |     ^"
+log	"   hint: the subject still owns the payload — spell it `try move r` to transfer it"
+log	""
+log	"error: cannot copy value of type `Res` which implements NoCopy"
+log	"  --> examples/conformance/V87_try_subject_read_is_a_transfer.saw:54:5"
+log	"     |"
+log	" 54 |     let b = try r"
+log	"     |     ^"
+log	"   hint: the subject still owns the payload — spell it `try move r` to transfer it"
+log	""
+log	"error: cannot copy value of type `Res` which implements NoCopy"
+log	"  --> examples/conformance/V87_try_subject_read_is_a_transfer.saw:61:5"
+log	"     |"
+log	" 61 |     let a = try! h.r"
+log	"     |     ^"
+log	"   hint: `h.r` still owns the payload, and a field cannot be moved out of — bind the owner by value and `try! move` the whole binding, or hold the result in an `Optional` field and `take()` it"
+log	""
+log	"3 error(s) generated"

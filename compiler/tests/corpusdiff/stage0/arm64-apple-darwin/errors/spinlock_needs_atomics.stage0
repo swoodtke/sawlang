@@ -1,0 +1,14 @@
+program	errors/spinlock_needs_atomics.saw
+triple	arm64-apple-darwin
+twin	differs
+expect	error
+build	refused	`SpinLock` needs target atomics, and `riscv32-unknown-none-elf` has none: its base ISA omits the `A` extension, so a compare-and-swap lowers to an `__atomic_*` libcall
+meets_expect	yes
+log	"error: `SpinLock` needs target atomics, and `riscv32-unknown-none-elf` has none: its base ISA omits the `A` extension, so a compare-and-swap lowers to an `__atomic_*` libcall"
+log	"  --> examples/errors/spinlock_needs_atomics.saw:14:1"
+log	"     |"
+log	" 14 | static COUNT: SpinLock<Int>"
+log	"     | ^"
+log	"   hint: enable the extension: `--target-features +a`. Without it the lock would call into a C runtime a freestanding target does not have, and which is usually itself implemented with a lock; for state a single core serializes by construction, reach for `unsafe static var` instead"
+log	""
+log	"1 error(s) generated"

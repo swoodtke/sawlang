@@ -1,0 +1,23 @@
+program	coro_try_in_borrowed_place_index.saw
+triple	arm64-apple-darwin
+twin	differs
+expect	success
+build	ok
+exit	0
+stdout	"4"
+stdout	"drop kept"
+stdout	"J: caught"
+stdout	"4"
+stdout	"drop kept"
+stdout	"K: caught"
+stdout	"4"
+stdout	"drop kept"
+stdout	"J2: ok 10"
+stdout	"4"
+stdout	"drop kept"
+stdout	"J3: caught"
+stdout	"4"
+stdout	"drop kept"
+stdout	"J4: caught"
+stdout	""
+meets_expect	yes

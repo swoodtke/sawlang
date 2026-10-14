@@ -1,0 +1,20 @@
+program	errors/cast170_from_bad_label.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	`UInt8.from` has no argument labeled `wrapping`
+meets_expect	yes
+log	"error: `UInt8.from` has no argument labeled `wrapping`"
+log	"  --> examples/errors/cast170_from_bad_label.saw:10:18"
+log	"     |"
+log	" 10 |     let b = UInt8.from(wrapping: n)"
+log	"     |                  ^"
+log	"   hint: write `UInt8.from(x)` for the checked conversion (`UInt8?`), or `UInt8.from(truncating: x)` to keep the low bits"
+log	""
+log	"error: undefined variable `b`"
+log	"  --> examples/errors/cast170_from_bad_label.saw:11:13"
+log	"     |"
+log	" 11 |     print(\"{b}\")"
+log	"     |             ^"
+log	""
+log	"2 error(s) generated"

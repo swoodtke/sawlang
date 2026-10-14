@@ -1,0 +1,14 @@
+program	runtime_build_reserved_without_mode_error.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	`@export` symbol `__saw_rt_alloc` collides with a reserved runtime symbol (`main`, `saw_*`, `__saw_*`)
+meets_expect	yes
+log	"error: `@export` symbol `__saw_rt_alloc` collides with a reserved runtime symbol (`main`, `saw_*`, `__saw_*`)"
+log	"  --> examples/runtime_build_reserved_without_mode_error.saw:8:1"
+log	"    |"
+log	" 8 | func my_alloc(size: Int, align: Int) -> Int { size }"
+log	"    | ^"
+log	"   hint: `__saw_rt_*` names are the runtime ABI — a runtime authored in Saw exports them under `--runtime-build`; an ordinary program must choose a different name"
+log	""
+log	"1 error(s) generated"

@@ -1,0 +1,12 @@
+program	static236_module_level_funcs_untouched.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"plain 12"
+stdout	"exported 9"
+stdout	"generic 5"
+stdout	"closure 8"
+stdout	""
+meets_expect	yes

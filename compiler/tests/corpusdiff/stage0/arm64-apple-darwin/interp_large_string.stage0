@@ -1,0 +1,9 @@
+program	interp_large_string.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"SENTINEL"
+stdout	""
+meets_expect	yes

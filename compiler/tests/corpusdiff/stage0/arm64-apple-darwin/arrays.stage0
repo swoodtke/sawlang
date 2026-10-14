@@ -1,0 +1,39 @@
+program	arrays.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"Array from function:"
+stdout	"10"
+stdout	"20"
+stdout	"30"
+stdout	"20"
+stdout	"Array elements:"
+stdout	"1"
+stdout	"3"
+stdout	"5"
+stdout	"4"
+stdout	"Tuple elements:"
+stdout	"10"
+stdout	"20"
+stdout	"30"
+stdout	"10"
+stdout	"20"
+stdout	"Bool array:"
+stdout	"true"
+stdout	"false"
+stdout	"300"
+stdout	"First element is 1"
+stdout	"Sum using loop:"
+stdout	"15"
+stdout	"Mutable arrays:"
+stdout	"1"
+stdout	"100"
+stdout	"200"
+stdout	"300"
+stdout	"400"
+stdout	"200"
+stdout	"10"
+stdout	""
+meets_expect	yes

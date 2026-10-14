@@ -1,0 +1,13 @@
+program	generic_bound_call_concrete_param_type.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	argument `n` expects `Int` but got `String`
+meets_expect	yes
+log	"error: argument `n` expects `Int` but got `String`"
+log	"  --> examples/generic_bound_call_concrete_param_type.saw:29:16"
+log	"     |"
+log	" 29 |     a.concrete(\"hi\")"
+log	"     |                ^"
+log	""
+log	"1 error(s) generated"

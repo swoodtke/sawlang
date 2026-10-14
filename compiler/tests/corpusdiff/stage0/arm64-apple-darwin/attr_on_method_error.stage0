@@ -1,0 +1,9 @@
+program	attr_on_method_error.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	Parse error at 8:5: attributes are not supported on methods
+meets_expect	yes
+log	"error: Parse error at 8:5: attributes are not supported on methods"
+log	"Parse error at 8:12: Expected path after 'export'"
+log	"Parse error at 10:1: Expected import, export, module, struct, enum, trait, extension, type, extern, or function declaration, got RBRACE"

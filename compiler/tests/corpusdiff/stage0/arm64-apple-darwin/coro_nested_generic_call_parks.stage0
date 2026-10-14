@@ -1,0 +1,12 @@
+program	coro_nested_generic_call_parks.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"A 0"
+stdout	"B 0"
+stdout	"A 1"
+stdout	"B 1"
+stdout	""
+meets_expect	yes

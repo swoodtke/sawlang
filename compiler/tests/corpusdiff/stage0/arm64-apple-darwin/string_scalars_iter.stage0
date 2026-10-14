@@ -1,0 +1,16 @@
+program	string_scalars_iter.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"h 104"
+stdout	"i 105"
+stdout	"a 97"
+stdout	"é 233"
+stdout	"€ 8364"
+stdout	"😀 128512"
+stdout	"4"
+stdout	"count 0"
+stdout	""
+meets_expect	yes

@@ -1,0 +1,13 @@
+program	try_inline_catch_diverging_arm.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"err MyErr(99)"
+stdout	"ok 0"
+stdout	"err MyErr(99)"
+stdout	"ok 5"
+stdout	"ok 12"
+stdout	""
+meets_expect	yes

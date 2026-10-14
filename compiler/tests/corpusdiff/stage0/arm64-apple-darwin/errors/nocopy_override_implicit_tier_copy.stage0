@@ -1,0 +1,14 @@
+program	errors/nocopy_override_implicit_tier_copy.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	cannot copy value of type `Ticket` which implements NoCopy
+meets_expect	yes
+log	"error: cannot copy value of type `Ticket` which implements NoCopy"
+log	"  --> examples/errors/nocopy_override_implicit_tier_copy.saw:16:5"
+log	"     |"
+log	" 16 |     let b = a"
+log	"     |     ^"
+log	"   hint: use `move` to transfer ownership instead"
+log	""
+log	"1 error(s) generated"

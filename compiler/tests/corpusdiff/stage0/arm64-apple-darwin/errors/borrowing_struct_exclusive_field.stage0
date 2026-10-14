@@ -1,0 +1,7 @@
+program	errors/borrowing_struct_exclusive_field.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	Parse error at 24:18: field `bag` of `borrows struct Writer` may not be an EXCLUSIVE reference: its type `&var Bag` is `&var`, and a borrowing struct holds SHARED references only. A window is shared, and an exclusive field would let this type reallocate the very storage another reader is walking through its own field — which recording the root alone would not catch. Lend it shared (`bag: &Bag`); mutating this type's OWN state stays ordinary `&var self` on its methods
+meets_expect	yes
+log	"error: Parse error at 24:18: field `bag` of `borrows struct Writer` may not be an EXCLUSIVE reference: its type `&var Bag` is `&var`, and a borrowing struct holds SHARED references only. A window is shared, and an exclusive field would let this type reallocate the very storage another reader is walking through its own field — which recording the root alone would not catch. Lend it shared (`bag: &Bag`); mutating this type's OWN state stays ordinary `&var self` on its methods"

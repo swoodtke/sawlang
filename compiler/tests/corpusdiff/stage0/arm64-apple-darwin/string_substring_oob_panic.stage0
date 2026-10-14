@@ -1,0 +1,11 @@
+program	string_substring_oob_panic.saw
+triple	arm64-apple-darwin
+twin	same
+expect	panic
+build	ok
+exit	-6
+stdout	"el"
+stdout	""
+stdout	"panic at string.saw:374: String.substring: range out of range: -9..99 (len 5)"
+stdout	""
+meets_expect	yes

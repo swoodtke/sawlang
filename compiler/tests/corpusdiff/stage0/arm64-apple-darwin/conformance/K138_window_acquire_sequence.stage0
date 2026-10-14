@@ -1,0 +1,19 @@
+program	conformance/K138_window_acquire_sequence.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"a"
+stdout	"b"
+stdout	"order sync a b 9"
+stdout	"a"
+stdout	"b"
+stdout	"order driven a b 9"
+stdout	"suspending argument sync 9"
+stdout	""
+stdout	"suspending argument driven 9"
+stdout	"failing argument: no iterator built, root writable 4"
+stdout	"owned iterator from a suspending head 12"
+stdout	""
+meets_expect	yes

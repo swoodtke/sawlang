@@ -1,0 +1,11 @@
+program	init_fallible_result_module_qualified.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"qualified ok: 9"
+stdout	"qualified err: too small"
+stdout	"try across the module line: 21"
+stdout	""
+meets_expect	yes

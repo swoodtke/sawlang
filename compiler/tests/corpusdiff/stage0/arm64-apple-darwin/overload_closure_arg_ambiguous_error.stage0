@@ -1,0 +1,14 @@
+program	overload_closure_arg_ambiguous_error.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	ambiguous call to `apply`: multiple overloads match the argument types (<closure>)
+meets_expect	yes
+log	"error: ambiguous call to `apply`: multiple overloads match the argument types (<closure>)"
+log	"  --> examples/overload_closure_arg_ambiguous_error.saw:11:11"
+log	"     |"
+log	" 11 |     print(apply({ x in x + 1 }))"
+log	"     |           ^"
+log	"   hint: matching candidates: apply(f: (Int) -> Int); apply(f: (String) -> Int)"
+log	""
+log	"1 error(s) generated"

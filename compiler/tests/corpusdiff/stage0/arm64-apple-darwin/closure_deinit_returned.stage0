@@ -1,0 +1,11 @@
+program	closure_deinit_returned.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"made"
+stdout	"got: 3"
+stdout	"deinit 3"
+stdout	""
+meets_expect	yes

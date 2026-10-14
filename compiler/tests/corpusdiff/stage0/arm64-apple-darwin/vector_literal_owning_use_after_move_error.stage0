@@ -1,0 +1,14 @@
+program	vector_literal_owning_use_after_move_error.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	use of moved variable `a`
+meets_expect	yes
+log	"error: use of moved variable `a`"
+log	"  --> examples/vector_literal_owning_use_after_move_error.saw:17:11"
+log	"     |"
+log	" 17 |     print(a.id)   // use-after-move: `a` was moved into the literal"
+log	"     |           ^"
+log	"   hint: value was moved at line 16 and can no longer be used"
+log	""
+log	"1 error(s) generated"

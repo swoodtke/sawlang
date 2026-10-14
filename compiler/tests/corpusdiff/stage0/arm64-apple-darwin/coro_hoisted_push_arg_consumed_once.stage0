@@ -1,0 +1,15 @@
+program	coro_hoisted_push_arg_consumed_once.saw
+triple	arm64-apple-darwin
+twin	differs
+expect	success
+build	ok
+exit	0
+stdout	"len=1"
+stdout	"deinit 52"
+stdout	"deinit 1"
+stdout	"head=3"
+stdout	"deinit 3"
+stdout	"deinit 2"
+stdout	"done"
+stdout	""
+meets_expect	yes

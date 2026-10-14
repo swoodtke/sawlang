@@ -1,0 +1,24 @@
+program	conformance/K28_slot_payload_released_exactly_once.saw
+triple	arm64-apple-darwin
+twin	differs
+expect	success
+build	ok
+exit	0
+stdout	"occupied false"
+stdout	"borrow r1"
+stdout	"deinit r1"
+stdout	"took r2"
+stdout	"occupied false"
+stdout	"deinit r3"
+stdout	"live 1"
+stdout	"deinit r2"
+stdout	"live 0"
+stdout	"deinit r4"
+stdout	"live 0"
+stdout	"inside 2"
+stdout	"after take 2"
+stdout	"live 1"
+stdout	"deinit a"
+stdout	"live 0"
+stdout	""
+meets_expect	yes

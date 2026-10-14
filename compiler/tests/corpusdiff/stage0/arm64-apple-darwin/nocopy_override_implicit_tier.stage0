@@ -1,0 +1,12 @@
+program	nocopy_override_implicit_tier.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"ticket-3"
+stdout	"ticket-3"
+stdout	"8"
+stdout	"moved once"
+stdout	""
+meets_expect	yes

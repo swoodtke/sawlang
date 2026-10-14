@@ -1,0 +1,13 @@
+program	drive_site_in_suspending_function.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	coroutine transform: `__saw_drive_steps` may not appear in `runner`, which itself suspends. This body already runs inside an executor, so `s(...)` needs no drive site — call it directly and the suspending call embeds here (design 120).
+meets_expect	yes
+log	"error: coroutine transform: `__saw_drive_steps` may not appear in `runner`, which itself suspends. This body already runs inside an executor, so `s(...)` needs no drive site — call it directly and the suspending call embeds here (design 120)."
+log	"  --> examples/drive_site_in_suspending_function.saw:26:13"
+log	"     |"
+log	" 26 |     let a = __saw_drive_steps(s())"
+log	"     |             ^"
+log	""
+log	"1 error(s) generated"

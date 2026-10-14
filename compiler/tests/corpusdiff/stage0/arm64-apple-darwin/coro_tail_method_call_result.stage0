@@ -1,0 +1,13 @@
+program	coro_tail_method_call_result.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"tail:   42"
+stdout	"return: 42"
+stdout	"let:    42"
+stdout	"static: 42"
+stdout	"text:   forty-two"
+stdout	""
+meets_expect	yes

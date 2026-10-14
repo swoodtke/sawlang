@@ -1,0 +1,10 @@
+program	conformance/K95_ready_before_deadline_reports_the_value.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"timed read got 5 bytes"
+stdout	"untimed read got 3 bytes"
+stdout	""
+meets_expect	yes

@@ -1,0 +1,18 @@
+program	interp_string_escaped_braces_and_control_bytes.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"{7}"
+stdout	"7{7"
+stdout	"{7}{7}"
+stdout	"77"
+stdout	"control-then-interp 2 1 55"
+stdout	"control-then-escaped-brace 3 1 123 55"
+stdout	"control-then-bare-close 3 1 125 55"
+stdout	"control-inside-expression v=1"
+stdout	"placeholder-in-braces {7}"
+stdout	"two-lines 3 97 10 55"
+stdout	""
+meets_expect	yes

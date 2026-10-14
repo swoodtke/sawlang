@@ -1,0 +1,11 @@
+program	match_guard_on_payload_free_enum.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"warm"
+stdout	"cool"
+stdout	"other"
+stdout	""
+meets_expect	yes

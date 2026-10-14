@@ -1,0 +1,11 @@
+program	process_signal_death.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"signal death nonzero: true"
+stdout	"normal exit 3 preserved: true"
+stdout	"success is zero: true"
+stdout	""
+meets_expect	yes

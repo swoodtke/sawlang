@@ -1,0 +1,7 @@
+program	array_no_extension_error.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	Parse error at 5:11: extension methods on array types are not supported; fixed arrays have the builtin `.len()` and `.swap(i, j)` only
+meets_expect	yes
+log	"error: Parse error at 5:11: extension methods on array types are not supported; fixed arrays have the builtin `.len()` and `.swap(i, j)` only"

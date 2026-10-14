@@ -1,0 +1,9 @@
+program	cast_distinct_string_underlying.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"hi"
+stdout	""
+meets_expect	yes

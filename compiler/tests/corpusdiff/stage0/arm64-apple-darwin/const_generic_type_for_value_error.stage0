@@ -1,0 +1,14 @@
+program	const_generic_type_for_value_error.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	struct `FixedBuf` takes a VALUE for the const parameter `N`, and `Int` is a type
+meets_expect	yes
+log	"error: struct `FixedBuf` takes a VALUE for the const parameter `N`, and `Int` is a type"
+log	"  --> examples/const_generic_type_for_value_error.saw:11:13"
+log	"     |"
+log	" 11 |     let b = FixedBuf<Int>(data: [0; 4])"
+log	"     |             ^"
+log	"   hint: write a compile-time integer — `N` is declared `const N: Int`"
+log	""
+log	"1 error(s) generated"

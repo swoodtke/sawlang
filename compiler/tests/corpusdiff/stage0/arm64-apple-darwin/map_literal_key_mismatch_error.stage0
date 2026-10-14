@@ -1,0 +1,19 @@
+program	map_literal_key_mismatch_error.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	map key 1 has type `String`, expected `Int` (all keys in a map literal must share one type)
+meets_expect	yes
+log	"error: map key 1 has type `String`, expected `Int` (all keys in a map literal must share one type)"
+log	"  --> examples/map_literal_key_mismatch_error.saw:7:21"
+log	"    |"
+log	" 7 |     var m = {1: 10, \"two\": 20}"
+log	"    |                     ^"
+log	""
+log	"error: undefined variable `m`"
+log	"  --> examples/map_literal_key_mismatch_error.saw:8:11"
+log	"    |"
+log	" 8 |     print(m.len())"
+log	"    |           ^"
+log	""
+log	"2 error(s) generated"

@@ -1,0 +1,9 @@
+program	df229b_alias_construction_in_module.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"4 9"
+stdout	""
+meets_expect	yes

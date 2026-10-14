@@ -1,0 +1,21 @@
+program	spawn_capture_move_root.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	cannot `move` `buf` while a spawned task borrows it: the task spawned at line 27 holds `&var buf` until `h.join()` releases it
+meets_expect	yes
+log	"error: result of `push` is `Result<Void, AllocError>` and is silently discarded"
+log	"  --> examples/spawn_capture_move_root.saw:27:48"
+log	"     |"
+log	" 27 |     let h = group.spawn(run({ [&var buf] in buf.push(9); buf.len() }))"
+log	"     |                                                ^"
+log	"   hint: handle it — `match` it, `try`/`try!`/`try?` it, or return it — or write `let _ = ...` to discard it explicitly"
+log	""
+log	"error: cannot `move` `buf` while a spawned task borrows it: the task spawned at line 27 holds `&var buf` until `h.join()` releases it"
+log	"  --> examples/spawn_capture_move_root.saw:28:25"
+log	"     |"
+log	" 28 |     let taken = consume(move buf)"
+log	"     |                         ^"
+log	"   hint: join the task first — `h.join()` ends the borrow, and the spawn-join-use order stays legal. To watch the value WHILE the task runs, share it through an `Arc<Mutex<T>>` or a `Channel`, where the synchronization is visible in the types"
+log	""
+log	"2 error(s) generated"

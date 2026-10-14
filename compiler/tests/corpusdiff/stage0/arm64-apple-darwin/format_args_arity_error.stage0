@@ -1,0 +1,14 @@
+program	format_args_arity_error.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	`print` format string has 2 placeholders but 1 argument was given
+meets_expect	yes
+log	"error: `print` format string has 2 placeholders but 1 argument was given"
+log	"  --> examples/format_args_arity_error.saw:10:5"
+log	"     |"
+log	" 10 |     print(\"{} and {}\", 1)"
+log	"     |     ^"
+log	"   hint: every `{}` takes exactly one argument, by position"
+log	""
+log	"1 error(s) generated"

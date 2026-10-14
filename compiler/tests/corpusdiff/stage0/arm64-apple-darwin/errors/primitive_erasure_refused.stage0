@@ -1,0 +1,14 @@
+program	errors/primitive_erasure_refused.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	`Int` is a primitive and cannot be erased to `any Tagged`: an existential carries a vtable beside the value, and a primitive has no boxed form to carry one
+meets_expect	yes
+log	"error: `Int` is a primitive and cannot be erased to `any Tagged`: an existential carries a vtable beside the value, and a primitive has no boxed form to carry one"
+log	"  --> examples/errors/primitive_erasure_refused.saw:27:18"
+log	"     |"
+log	" 27 |     print(\"{show(&n)}\")"
+log	"     |                  ^"
+log	"   hint: take it through a generic BOUND instead — `<T: Tagged>` monomorphizes and costs nothing at `T = Int` — or wrap it in a struct you own and conform that"
+log	""
+log	"1 error(s) generated"

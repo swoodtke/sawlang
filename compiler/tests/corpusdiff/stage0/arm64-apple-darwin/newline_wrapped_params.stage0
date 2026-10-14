@@ -1,0 +1,11 @@
+program	newline_wrapped_params.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"6"
+stdout	"25"
+stdout	"10"
+stdout	""
+meets_expect	yes

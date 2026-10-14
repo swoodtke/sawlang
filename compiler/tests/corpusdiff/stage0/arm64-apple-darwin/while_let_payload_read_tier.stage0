@@ -1,0 +1,14 @@
+program	while_let_payload_read_tier.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	cannot read the payload out of `slot` in a `while let` binding: `Token` implements NoCopy
+meets_expect	yes
+log	"error: cannot read the payload out of `slot` in a `while let` binding: `Token` implements NoCopy"
+log	"  --> examples/while_let_payload_read_tier.saw:17:5"
+log	"     |"
+log	" 17 |     while let t = slot {"
+log	"     |     ^"
+log	"   hint: use `move slot!` to transfer the whole binding, or `slot.take()` to move the payload out in place"
+log	""
+log	"1 error(s) generated"

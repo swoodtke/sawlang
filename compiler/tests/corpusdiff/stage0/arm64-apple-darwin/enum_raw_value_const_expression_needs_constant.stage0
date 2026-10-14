@@ -1,0 +1,14 @@
+program	enum_raw_value_const_expression_needs_constant.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	raw value for case `A` of enum `Ref` is not a compile-time constant
+meets_expect	yes
+log	"error: raw value for case `A` of enum `Ref` is not a compile-time constant"
+log	"  --> examples/enum_raw_value_const_expression_needs_constant.saw:24:12"
+log	"     |"
+log	" 24 |     case A = BASE,"
+log	"     |            ^"
+log	"   hint: a case's raw value is an integer CONSTANT EXPRESSION: literals (`0x100`, `0b1010`) and arithmetic, bitwise and shift operators over them, so a flag is spelled `1 << 8`. It may not name a `static` or another enum's case — an enum's cases are fixed by its own declaration, before any of those are known"
+log	""
+log	"1 error(s) generated"

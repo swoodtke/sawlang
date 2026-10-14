@@ -1,0 +1,14 @@
+program	conformance/K11_spinlock_captured.saw
+triple	arm64-apple-darwin
+twin	differs
+expect	error
+build	refused	cannot copy value of type `SpinLock<Int>` which implements NoCopy
+meets_expect	yes
+log	"error: cannot copy value of type `SpinLock<Int>` which implements NoCopy"
+log	"  --> examples/conformance/K11_spinlock_captured.saw:11:13"
+log	"     |"
+log	" 11 |     let f = { lock.lock({ c in c }) }"
+log	"     |             ^"
+log	"   hint: use `move` to transfer ownership instead"
+log	""
+log	"1 error(s) generated"

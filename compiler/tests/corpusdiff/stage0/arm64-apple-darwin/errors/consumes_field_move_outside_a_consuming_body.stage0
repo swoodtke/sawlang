@@ -1,0 +1,20 @@
+program	errors/consumes_field_move_outside_a_consuming_body.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	cannot move out of field `a` of `self`
+meets_expect	yes
+log	"error: cannot move out of field `a` of `self`"
+log	"  --> examples/errors/consumes_field_move_outside_a_consuming_body.saw:19:35"
+log	"     |"
+log	" 19 |     func peel(&var self) -> Tag { move self.a }"
+log	"     |                                   ^"
+log	"   hint: move the whole value (`move self`) or restructure so the piece is its own binding; a field moves out with `self.a.take()`, which leaves a valid value behind"
+log	""
+log	"error: method `peel` should return `Tag` but body has no value"
+log	"  --> examples/errors/consumes_field_move_outside_a_consuming_body.saw:19:5"
+log	"     |"
+log	" 19 |     func peel(&var self) -> Tag { move self.a }"
+log	"     |     ^"
+log	""
+log	"2 error(s) generated"

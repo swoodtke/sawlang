@@ -8,9 +8,11 @@ The programs are the Stage 0 snapshot's (`stage0/index.tsv`): the corpus
 programs Stage 0 frames at least one function for. Each is built by `sawc2
 build` against the new std and, once it builds, run and judged by its own
 `EXPECT` directives. The refusal tests are `stage0/refusals.tsv`'s: one passes
-when sawc2 refuses it by the rule `PLAN_RULES` gives its Stage 0 message, or
-by any rule when the plan names none, with no refusal from `GAP_RULES` beside
-it.
+when sawc2 refuses it by the rule the plan gives its Stage 0 message, or by
+any rule when the plan names none, with no refusal from a gap rule beside it.
+The build, the run and that judgement, with the plan's rules and the gap
+rules, are `compiler/tests/oracle.py`'s, which the corpus differential
+(`compiler/tests/corpusdiff/`) shares.
 
 A program is gated when its missing names include a std module, a type, or a
 member of a type that no unit of the plan provides (`PLAN_MODULES`,
@@ -24,7 +26,6 @@ import argparse
 import concurrent.futures
 import os
 import re
-import subprocess
 import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -34,22 +35,16 @@ REPO = os.path.dirname(COMPILER)
 CORPUS = os.path.join(REPO, "tests", "corpus")
 OUT = os.path.join(REPO, ".build", "coro-census")
 sys.path.insert(0, os.path.join(COMPILER, "tools"))
+sys.path.insert(0, TESTS)
 sys.path.insert(0, HERE)
 sys.path.insert(0, os.path.join(HERE, "stage0"))
 sys.path.append(os.path.join(REPO, "tools"))
 
-import build  # noqa: E402
 import child_groups  # noqa: E402
 import gate_jobs  # noqa: E402
 import expect  # noqa: E402
+import oracle  # noqa: E402
 import snapshot  # noqa: E402
-
-BUILD_TIMEOUT = 600
-RUN_TIMEOUT = 60
-
-# The refusals that say sawc2 lacks something, not that the program is wrong.
-GAP_RULES = ("import.unknown-module", "name.undefined", "member.unknown", "slice.not-yet", "backend.not-yet",
-             "coro.not-yet")
 
 # The std modules, types and members the plan's units provide (§1 and §4):
 # the task surface, `Duration` and `Instant`, `std.channel`, `std.signal`, and
@@ -60,41 +55,9 @@ PLAN_TYPES = ("Task", "VoidTask", "TaskGroup", "Duration", "Instant", "Channel",
 # A plan type not named here has every member in the plan.
 PLAN_MEMBERS = {"TcpStream": ("pair", "read", "write"), "TcpListener": ("listen", "accept")}
 
-# The sawc2 rule the plan names for a refusal Stage 0 makes, by a phrase of
-# Stage 0's message (§3.3, "Language refusals"); a test whose message matches
-# none is judged by any rule.
-PLAN_RULES = (
-    ("suspending recursion is not allowed", "coro.suspending-cycle"),
-    ("cannot suspend in an `@export` function", "export.suspends"),
-    ("cannot suspend in `sync func`", "effect.sync"),
-    ("cannot suspend in `deinit` context", "effect.sync"),
-    ("cannot suspend in a `sync` closure context", "effect.sync"),
-    ("cannot suspend in the `Copy` `copy()`", "effect.sync"),
-    ("this closure body suspends", "effect.closure-suspends"),
-    ("inside a CLOSURE BODY", "effect.closure-suspends"),
-    ("dispatch through `any ", "effect.any-suspends"),
-    ("which itself suspends", "coro.drive-in-suspending"),
-    ("accepts no borrows", "spawn.borrow"),
-    ("a task body may not be `Never`", "spawn.never-body"),
-    ("so the task frame cannot cross to a worker thread", "coro.spawn-not-send"),
-    ("into a multi-threaded `TaskGroup(threads: ...)`", "coro.spawn-not-send"),
-)
-
-_ERROR = re.compile(r"^ERROR\t(\S+)\t(\S+)\t(.*)$")
 _MODULE = re.compile(r"^no module `([^`]+)`")
 _NAME = re.compile(r"^cannot find `([^`]+)` in scope$")
 _MEMBER = re.compile(r"^`([^`]+)` has no (?:member|method) `([^`]+)`")
-
-
-def rel(path):
-    return os.path.relpath(path, REPO)
-
-
-def plan_rule(message):
-    for phrase, rule in PLAN_RULES:
-        if phrase in message:
-            return rule
-    return None
 
 
 def build_program(path):
@@ -102,29 +65,8 @@ def build_program(path):
     `path` under `sawc2 build`."""
     src = os.path.join(CORPUS, path)
     binary = os.path.join(OUT, os.path.splitext(path)[0].replace("/", "__"))
-    os.makedirs(OUT, exist_ok=True)
-    flags = expect.read(src).flags
-    try:
-        r = subprocess.run([build.SAWC2, "build", "--std-root", "std"] + flags + [rel(src), "-o", binary],
-                           cwd=REPO, capture_output=True, text=True, timeout=BUILD_TIMEOUT)
-    except subprocess.TimeoutExpired:
-        return None, [], binary
-    errors = [m.groups() for m in map(_ERROR.match, r.stdout.split("\n")) if m]
-    return r.returncode, errors, binary
-
-
-def run_binary(binary):
-    proc = child_groups.start([binary], cwd=REPO, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
-                              stderr=subprocess.PIPE)
-    try:
-        out, err = proc.communicate(timeout=RUN_TIMEOUT)
-        return proc.returncode, out, err
-    except subprocess.TimeoutExpired:
-        child_groups.kill(proc)
-        proc.communicate()
-        return None, b"", b""
-    finally:
-        child_groups.forget(proc)
+    code, errors, _, _ = oracle.sawc2_build(src, binary, expect.read(src).flags)
+    return code, errors, binary
 
 
 def missing_names(errors):
@@ -183,7 +125,7 @@ def census_program(path):
         return "refused", "%s %s" % (rule, message), gating
     if code != 0:
         return "crash", "sawc2 build exit %d with no ERROR line" % code, gating
-    rc, out, err = run_binary(binary)
+    rc, out, err, _ = oracle.run_binary(binary)
     verdict = expect.judge(expect.read(os.path.join(CORPUS, path)), rc, out.decode("utf-8", "replace"),
                            err.decode("utf-8", "replace"))
     return ("pass", "", gating) if verdict is None else ("fail", verdict, gating)
@@ -194,19 +136,7 @@ def census_refusal(row):
     `blocked` (a gap rule refuses it), `other` (refused, not by the rule the
     plan names) or `crash`."""
     code, errors, _ = build_program(row["path"])
-    want = plan_rule(row["error"])
-    if code is None:
-        return "crash", "sawc2 build timed out"
-    if code == 0:
-        return "accepted", ""
-    if not errors:
-        return "crash", "sawc2 build exit %d with no ERROR line" % code
-    gaps = [e for e in errors if e[0] in GAP_RULES]
-    if gaps:
-        return "blocked", "%s %s" % (gaps[0][0], gaps[0][2])
-    if want is not None and want not in [e[0] for e in errors]:
-        return "other", "%s, where the plan names %s" % (errors[0][0], want)
-    return "pass", errors[0][0] if want is None else want
+    return oracle.judge_refusal(row["error"], code, errors)
 
 
 def tally(results):

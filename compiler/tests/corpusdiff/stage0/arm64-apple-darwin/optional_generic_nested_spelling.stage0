@@ -1,0 +1,12 @@
+program	optional_generic_nested_spelling.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"some 5"
+stdout	"inner-absent"
+stdout	"outer-absent"
+stdout	"-- done"
+stdout	""
+meets_expect	yes

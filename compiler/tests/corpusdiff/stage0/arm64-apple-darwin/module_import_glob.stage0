@@ -1,0 +1,11 @@
+program	module_import_glob.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"42"
+stdout	"30"
+stdout	"40"
+stdout	""
+meets_expect	yes

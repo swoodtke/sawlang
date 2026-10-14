@@ -1,0 +1,13 @@
+program	array_const_index_out_of_bounds.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	array index 5 out of range for array with 3 elements
+meets_expect	yes
+log	"error: array index 5 out of range for array with 3 elements"
+log	"  --> examples/array_const_index_out_of_bounds.saw:12:14"
+log	"     |"
+log	" 12 |     print(arr[5])   // constant index past the end of a 3-element array"
+log	"     |              ^"
+log	""
+log	"1 error(s) generated"

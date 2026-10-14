@@ -1,0 +1,10 @@
+program	coercion/array_literal_const_element_mixed.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"0 24"
+stdout	"24 0"
+stdout	""
+meets_expect	yes

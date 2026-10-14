@@ -1,0 +1,14 @@
+program	errors/use_after_move_field_init.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	use of moved variable `f`
+meets_expect	yes
+log	"error: use of moved variable `f`"
+log	"  --> examples/errors/use_after_move_field_init.saw:36:11"
+log	"     |"
+log	" 36 |     print(f.fd)                      // use-after-move: f was already moved out"
+log	"     |           ^"
+log	"   hint: value was moved at line 35 and can no longer be used"
+log	""
+log	"1 error(s) generated"

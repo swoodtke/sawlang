@@ -1,0 +1,14 @@
+program	conformance/V27_atomic_field_no_policy.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	struct `Holder` contains NoCopy field `n` of type `Atomic<Int>` but does not implement NoCopy
+meets_expect	yes
+log	"error: struct `Holder` contains NoCopy field `n` of type `Atomic<Int>` but does not implement NoCopy"
+log	"  --> examples/conformance/V27_atomic_field_no_policy.saw:12:1"
+log	"     |"
+log	" 12 | struct Holder {"
+log	"     | ^"
+log	"   hint: add `extension Holder: NoCopy {}` — a NoCopy field makes `Holder` move-only, and its `deinit` is synthesized"
+log	""
+log	"1 error(s) generated"

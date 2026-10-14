@@ -1,0 +1,13 @@
+program	conformance/V67_building_casts_are_untouched.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"widened 300"
+stdout	"narrowed 44"
+stdout	"tag 3"
+stdout	"roundtrip 7"
+stdout	"same address true"
+stdout	""
+meets_expect	yes

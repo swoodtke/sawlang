@@ -1,0 +1,14 @@
+program	errors/forwarding_return.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	cannot store or forward a non-escaping closure into an escaping `(Int) escaping -> Int` slot (function `ret`)
+meets_expect	yes
+log	"error: cannot store or forward a non-escaping closure into an escaping `(Int) escaping -> Int` slot (function `ret`)"
+log	"  --> examples/errors/forwarding_return.saw:6:1"
+log	"    |"
+log	" 6 | func ret(f: (Int) -> Int) -> (Int) -> Int {"
+log	"    | ^"
+log	"   hint: a non-escaping closure's captures may borrow the enclosing frame; only call it or pass it as another non-escaping argument"
+log	""
+log	"1 error(s) generated"

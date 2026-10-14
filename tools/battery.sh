@@ -12,8 +12,10 @@
 # irdet" are different situations and you want to know which one you are in.
 # The exit code is the number of failing stages.
 #
-#   tools/battery.sh                    # everything
+#   tools/battery.sh                    # everything but the manual lanes
 #   tools/battery.sh --quick            # skip the slow lanes (freestanding, bootstrap, reemit, irdet, gmgate, linux)
+#   tools/battery.sh corpusdiff         # a manual lane, which runs only when named
+#   tools/battery.sh --quick corpusdiff # its quick form
 #   tools/battery.sh suite irdet        # named stages only
 #   tools/battery.sh --list             # what the stages are
 #
@@ -44,7 +46,8 @@ fi
 # stage name | slow? | description | command
 #
 # `slow` stages are the ones --quick drops: minutes each, and each has its own
-# make target for when you want it alone.
+# make target for when you want it alone. A `manual` stage runs only when it is
+# named: it is long and gates nothing, so a full battery leaves it out.
 #
 # ORDERING NOTE (design 220 D4): `suite` runs before `irdet` in this list —
 # deliberately kept that way, not required. `suite` publishes
@@ -95,16 +98,18 @@ STAGES=(
     "bootstrap|yes|Blade builds and tests Blade, stage0 through stage2|$PY tools/blade_bootstrap.py"
     "freestanding|yes|the freestanding feature suite, booted under QEMU|$PY tools/freestanding_runner.py"
     "linux|yes|the run lane on Linux aarch64 and x86_64 (Rosetta) in the sawlang-linux VM; skips when it is down|__LINUX__"
+    "corpusdiff|manual|every tests/corpus program through sawc2 against Stage 0's snapshot, bucketed; fails only on a snapshot that is not whole|__CORPUSDIFF__"
 )
 
 usage() {
     echo "usage: tools/battery.sh [--quick] [--list] [stage ...]"
     echo
-    echo "stages (a * marks one --quick skips):"
+    echo "stages (a * marks one --quick skips, a + one that runs only when named):"
     for entry in "${STAGES[@]}"; do
         IFS='|' read -r name slow desc _cmd <<< "$entry"
         mark=" "
         [ "$slow" = "yes" ] && mark="*"
+        [ "$slow" = "manual" ] && mark="+"
         printf "  %s %-15s %s\n" "$mark" "$name" "$desc"
     done
 }
@@ -195,6 +200,17 @@ run_linux() {
     "$PY" tools/linux.py lane
 }
 
+# The whole corpus differential is long; `--quick` keeps its
+# wholeness check and measures one program per bucket and key of its baseline,
+# which proves the tool runs end to end (compiler/tests/corpusdiff/README.md).
+run_corpusdiff() {
+    if [ "$QUICK" = "1" ]; then
+        "$PY" compiler/tests/corpusdiff/corpusdiff.py run --quick
+    else
+        "$PY" compiler/tests/corpusdiff/corpusdiff.py run
+    fi
+}
+
 echo "battery: $REPO"
 echo "battery: python $PY"
 started=$(date +%s)
@@ -205,6 +221,10 @@ SKIPPED=()
 for entry in "${STAGES[@]}"; do
     IFS='|' read -r name slow desc cmd <<< "$entry"
     wanted "$name" || continue
+    if [ "$slow" = "manual" ] && [ ${#WANTED[@]} -eq 0 ]; then
+        SKIPPED+=("$name")
+        continue
+    fi
     if [ "$QUICK" = "1" ] && [ "$slow" = "yes" ] && [ ${#WANTED[@]} -eq 0 ]; then
         SKIPPED+=("$name")
         continue
@@ -222,6 +242,8 @@ for entry in "${STAGES[@]}"; do
         run_minivm
     elif [ "$cmd" = "__LINUX__" ]; then
         run_linux
+    elif [ "$cmd" = "__CORPUSDIFF__" ]; then
+        run_corpusdiff
     else
         $cmd
     fi
@@ -240,7 +262,7 @@ elapsed=$(( $(date +%s) - started ))
 echo
 echo "=============================================================="
 if [ ${#SKIPPED[@]} -gt 0 ]; then
-    echo "battery: skipped by --quick: ${SKIPPED[*]}"
+    echo "battery: skipped, by --quick or as run only when named: ${SKIPPED[*]}"
 fi
 if [ ${#FAILED[@]} -eq 0 ]; then
     echo "battery: $RAN stage(s) GREEN in ${elapsed}s"

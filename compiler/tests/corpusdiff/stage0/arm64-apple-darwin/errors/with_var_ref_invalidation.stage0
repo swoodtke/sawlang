@@ -1,0 +1,14 @@
+program	errors/with_var_ref_invalidation.saw
+triple	arm64-apple-darwin
+twin	differs
+expect	error
+build	refused	exclusive access violation: `v` is passed as `&var` while also being accessed in the same call
+meets_expect	yes
+log	"error: exclusive access violation: `v` is passed as `&var` while also being accessed in the same call"
+log	"  --> examples/errors/with_var_ref_invalidation.saw:16:5"
+log	"     |"
+log	" 16 |     v.with_var_ref<Void>(0, { [&var v] e in try! v.push(9) })"
+log	"     |     ^"
+log	"   hint: disjoint access paths are allowed (e.g. `&var p.x` with `&p.y`); give the mutable reference exclusive access"
+log	""
+log	"1 error(s) generated"

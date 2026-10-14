@@ -1,0 +1,14 @@
+program	errors/any_marker_trait.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	cannot form `any Marker`: `Marker` is a marker trait with no methods to dispatch
+meets_expect	yes
+log	"error: cannot form `any Marker`: `Marker` is a marker trait with no methods to dispatch"
+log	"  --> examples/errors/any_marker_trait.saw:8:1"
+log	"    |"
+log	" 8 | func use(x: &any Marker) {"
+log	"    | ^"
+log	"   hint: only a trait with instance methods can be erased to `any`"
+log	""
+log	"1 error(s) generated"

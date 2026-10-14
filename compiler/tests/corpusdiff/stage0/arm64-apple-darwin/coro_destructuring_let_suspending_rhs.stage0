@@ -1,0 +1,18 @@
+program	coro_destructuring_let_suspending_rhs.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"literal 1 2"
+stdout	"call 3 4"
+stdout	"var 5 6"
+stdout	"nested 7 8 9"
+stdout	"wildcard 11"
+stdout	"order noisy"
+stdout	"order slow"
+stdout	"1 2"
+stdout	"coalesce 12 4"
+stdout	"done"
+stdout	""
+meets_expect	yes

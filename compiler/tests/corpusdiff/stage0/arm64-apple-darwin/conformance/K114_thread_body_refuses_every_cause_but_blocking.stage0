@@ -1,0 +1,21 @@
+program	conformance/K114_thread_body_refuses_every_cause_but_blocking.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	cannot suspend in a `Thread.spawn { ... }` body: closure calls `boundary` → __saw_suspend (`boundary` suspends at line 37)
+meets_expect	yes
+log	"error: cannot suspend in a `Thread.spawn { ... }` body: closure calls `boundary` → __saw_suspend (`boundary` suspends at line 37)"
+log	"  --> examples/conformance/K114_thread_body_refuses_every_cause_but_blocking.saw:43:26"
+log	"     |"
+log	" 43 |     var a = Thread.spawn { boundary() }"
+log	"     |                          ^"
+log	"   hint: a spawned thread runs no executor, so there is nothing there to resume a suspension — it would simply not cede. For suspending work on a dedicated thread write `TaskGroup(threads: 1)`, which brings an executor with it; a `blocking` extern is the one thing this body MAY do, and it blocks the spawned thread on purpose"
+log	""
+log	"error: cannot suspend in a `Thread.spawn { ... }` body: closure calls `apply` → a call through a non-`sync` function value (`apply` suspends at line 33)"
+log	"  --> examples/conformance/K114_thread_body_refuses_every_cause_but_blocking.saw:47:26"
+log	"     |"
+log	" 47 |     var b = Thread.spawn { apply({ v in v + 1 }) }"
+log	"     |                          ^"
+log	"   hint: a spawned thread runs no executor, so there is nothing there to resume a suspension — it would simply not cede. For suspending work on a dedicated thread write `TaskGroup(threads: 1)`, which brings an executor with it; a `blocking` extern is the one thing this body MAY do, and it blocks the spawned thread on purpose"
+log	""
+log	"2 error(s) generated"

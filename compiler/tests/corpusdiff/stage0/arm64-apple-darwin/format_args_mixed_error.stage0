@@ -1,0 +1,14 @@
+program	format_args_mixed_error.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	`print` format string mixes `{...}` interpolation with `{}` placeholders
+meets_expect	yes
+log	"error: `print` format string mixes `{...}` interpolation with `{}` placeholders"
+log	"  --> examples/format_args_mixed_error.saw:11:19"
+log	"     |"
+log	" 11 |     print(\"mixed {x} and {}\", 2)"
+log	"     |                   ^"
+log	"   hint: use `{}` for every slot and pass the values as arguments; an interpolated format string would allocate, which is what this spelling avoids"
+log	""
+log	"1 error(s) generated"

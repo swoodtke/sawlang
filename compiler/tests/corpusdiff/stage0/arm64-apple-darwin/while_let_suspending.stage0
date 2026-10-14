@@ -1,0 +1,17 @@
+program	while_let_suspending.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"susp scrutinee 6"
+stdout	"susp args 6"
+stdout	"susp body 6"
+stdout	"both 6"
+stdout	"in if let 6"
+stdout	"in match arm 6"
+stdout	"nested 9"
+stdout	"spawned 45"
+stdout	"spawned 45"
+stdout	""
+meets_expect	yes

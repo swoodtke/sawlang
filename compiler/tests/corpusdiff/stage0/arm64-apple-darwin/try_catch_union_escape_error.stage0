@@ -1,0 +1,13 @@
+program	try_catch_union_escape_error.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	expected return type `ParseError` but got `<error union: ParseError | FileError>`
+meets_expect	yes
+log	"error: expected return type `ParseError` but got `<error union: ParseError | FileError>`"
+log	"  --> examples/try_catch_union_escape_error.saw:29:9"
+log	"     |"
+log	" 29 |         return error"
+log	"     |         ^"
+log	""
+log	"1 error(s) generated"

@@ -1,0 +1,14 @@
+program	unsafe_mem_normal_region.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"11"
+stdout	"22"
+stdout	"11"
+stdout	"11"
+stdout	"32"
+stdout	"32"
+stdout	""
+meets_expect	yes

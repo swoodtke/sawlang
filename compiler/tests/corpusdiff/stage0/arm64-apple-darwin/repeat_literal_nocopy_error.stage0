@@ -1,0 +1,20 @@
+program	repeat_literal_nocopy_error.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	a repeat literal needs a freely copyable element, and `Handle` is NoCopy
+meets_expect	yes
+log	"error: a repeat literal needs a freely copyable element, and `Handle` is NoCopy"
+log	"  --> examples/repeat_literal_nocopy_error.saw:15:20"
+log	"     |"
+log	" 15 |     let handles = [Handle(id: 1); 4]"
+log	"     |                    ^"
+log	"   hint: a NoCopy value has exactly one owner, so there is nothing to repeat — build the array element by element, moving a separate value into each slot"
+log	""
+log	"error: undefined variable `handles`"
+log	"  --> examples/repeat_literal_nocopy_error.saw:16:11"
+log	"     |"
+log	" 16 |     print(handles[0].id)"
+log	"     |           ^"
+log	""
+log	"2 error(s) generated"

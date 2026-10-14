@@ -1,0 +1,16 @@
+program	ref_replace_through_param.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"s=new"
+stdout	"n=42"
+stdout	"vlen=2"
+stdout	"replace tracker"
+stdout	"deinit 1"
+stdout	"t=2"
+stdout	"end"
+stdout	"deinit 2"
+stdout	""
+meets_expect	yes

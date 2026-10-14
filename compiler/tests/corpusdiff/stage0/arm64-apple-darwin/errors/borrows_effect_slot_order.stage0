@@ -1,0 +1,7 @@
+program	errors/borrows_effect_slot_order.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	Parse error at 14:43: `sync` comes before `borrows` in the effect slot — write `... consumes unsafe sync borrows ...` (omitting the ones you do not need)
+meets_expect	yes
+log	"error: Parse error at 14:43: `sync` comes before `borrows` in the effect slot — write `... consumes unsafe sync borrows ...` (omitting the ones you do not need)"

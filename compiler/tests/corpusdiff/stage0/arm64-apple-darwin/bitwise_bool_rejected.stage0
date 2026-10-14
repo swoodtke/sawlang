@@ -1,0 +1,19 @@
+program	bitwise_bool_rejected.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	operator `|` requires integer operands, got `Bool` and `Bool`
+meets_expect	yes
+log	"error: operator `|` requires integer operands, got `Bool` and `Bool`"
+log	"  --> examples/bitwise_bool_rejected.saw:7:19"
+log	"    |"
+log	" 7 |     let ok = true | false"
+log	"    |                   ^"
+log	""
+log	"error: undefined variable `ok`"
+log	"  --> examples/bitwise_bool_rejected.saw:8:11"
+log	"    |"
+log	" 8 |     print(ok)"
+log	"    |           ^"
+log	""
+log	"2 error(s) generated"

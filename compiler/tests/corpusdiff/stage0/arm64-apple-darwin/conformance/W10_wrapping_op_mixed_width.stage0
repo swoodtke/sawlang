@@ -1,0 +1,33 @@
+program	conformance/W10_wrapping_op_mixed_width.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	operator `&+` requires both operands to have the same type, but the left is `Int` and the right is `Int16`
+meets_expect	yes
+log	"error: operator `&+` requires both operands to have the same type, but the left is `Int` and the right is `Int16`"
+log	"  --> examples/conformance/W10_wrapping_op_mixed_width.saw:16:7"
+log	"     |"
+log	" 16 |     n &+ m"
+log	"     |       ^"
+log	"   hint: convert one operand — `x as Int` panics out of range, `Int.from(x)` answers `None`, `Int.from(truncating: x)` keeps the low bits"
+log	""
+log	"error: function `wrap_add` should return `Int` but body has no value"
+log	"  --> examples/conformance/W10_wrapping_op_mixed_width.saw:15:1"
+log	"     |"
+log	" 15 | func wrap_add(n: Int, m: Int16) -> Int {"
+log	"     | ^"
+log	""
+log	"error: operator `&*` requires both operands to have the same type, but the left is `Int` and the right is `Int16`"
+log	"  --> examples/conformance/W10_wrapping_op_mixed_width.saw:20:7"
+log	"     |"
+log	" 20 |     n &* m"
+log	"     |       ^"
+log	"   hint: convert one operand — `x as Int` panics out of range, `Int.from(x)` answers `None`, `Int.from(truncating: x)` keeps the low bits"
+log	""
+log	"error: function `wrap_mul` should return `Int` but body has no value"
+log	"  --> examples/conformance/W10_wrapping_op_mixed_width.saw:19:1"
+log	"     |"
+log	" 19 | func wrap_mul(n: Int, m: Int16) -> Int {"
+log	"     | ^"
+log	""
+log	"4 error(s) generated"

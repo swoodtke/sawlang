@@ -1,0 +1,14 @@
+program	d249_prelude_gate_over_a_std_free_function.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	`dump_tasks` is not in the prelude and must be imported
+meets_expect	yes
+log	"error: `dump_tasks` is not in the prelude and must be imported"
+log	"  --> examples/d249_prelude_gate_over_a_std_free_function.saw:8:5"
+log	"    |"
+log	" 8 |     dump_tasks()"
+log	"    |     ^"
+log	"   hint: `import std.task.{dump_tasks}` selects it, `import std.task.*` takes the module's whole vocabulary bare, and `import std.task` lets you write `task.dump_tasks`"
+log	""
+log	"1 error(s) generated"

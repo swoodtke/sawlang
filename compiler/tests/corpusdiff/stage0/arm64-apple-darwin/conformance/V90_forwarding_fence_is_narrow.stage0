@@ -1,0 +1,27 @@
+program	conformance/V90_forwarding_fence_is_narrow.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"drop 1"
+stdout	"try-call 1"
+stdout	"drop 2"
+stdout	"try-move 2"
+stdout	"wrap-temporary 3"
+stdout	"drop 3"
+stdout	"wrap-move 4"
+stdout	"drop 4"
+stdout	"generic-optional 5"
+stdout	"drop 5"
+stdout	"generic-result 6"
+stdout	"branch-arm 7"
+stdout	"drop 7"
+stdout	"drop 8"
+stdout	"break-value 8"
+stdout	"consumed 9"
+stdout	"end"
+stdout	"drop 9"
+stdout	"drop 6"
+stdout	""
+meets_expect	yes

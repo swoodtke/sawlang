@@ -1,0 +1,12 @@
+program	errors/statement_juxtaposition_in_declaration_lists.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	Parse error at 32:50: two declarations on one line: the first begins with `public`, the second with `public` — declarations are not joined by `;` — put each declaration on its own line
+meets_expect	yes
+log	"error: Parse error at 32:50: two declarations on one line: the first begins with `public`, the second with `public` — declarations are not joined by `;` — put each declaration on its own line"
+log	"Parse error at 32:79: Expected import, export, module, struct, enum, trait, extension, type, extern, or function declaration, got RBRACE"
+log	"Parse error at 37:57: two declarations on one line: the first begins with `func`, the second with `static` — declarations are not joined by `;` — put each declaration on its own line"
+log	"Parse error at 37:105: Expected import, export, module, struct, enum, trait, extension, type, extern, or function declaration, got RBRACE"
+log	"Parse error at 40:25: two declarations on one line: the first begins with `type`, the second with `func` — declarations are not joined by `;` — put each declaration on its own line"
+log	"Parse error at 43:42: two declarations on one line: the first begins with `func`, the second with `func` — declarations are not joined by `;` — put each declaration on its own line"

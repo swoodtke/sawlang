@@ -1,0 +1,11 @@
+program	void_if_chain_tail.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"small"
+stdout	"med"
+stdout	"big"
+stdout	""
+meets_expect	yes

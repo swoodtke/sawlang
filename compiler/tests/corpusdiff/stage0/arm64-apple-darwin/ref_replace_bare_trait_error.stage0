@@ -1,0 +1,14 @@
+program	ref_replace_bare_trait_error.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	`&var Shape` names a trait, which is unsized
+meets_expect	yes
+log	"error: `&var Shape` names a trait, which is unsized"
+log	"  --> examples/ref_replace_bare_trait_error.saw:12:1"
+log	"     |"
+log	" 12 | func takes_mut(p: &var Shape) { print(\"{p.area()}\") }"
+log	"     | ^"
+log	"   hint: a trait can only be borrowed as an existential: write `&var any Shape`"
+log	""
+log	"1 error(s) generated"

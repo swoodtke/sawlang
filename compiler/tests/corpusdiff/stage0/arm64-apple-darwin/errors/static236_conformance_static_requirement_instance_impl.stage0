@@ -1,0 +1,14 @@
+program	errors/static236_conformance_static_requirement_instance_impl.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	method `make` must be declared `static` to conform to trait `Maker`, whose requirement is static: it is called on the TYPE, so there is no receiver for this implementation's `self` to come from
+meets_expect	yes
+log	"error: method `make` must be declared `static` to conform to trait `Maker`, whose requirement is static: it is called on the TYPE, so there is no receiver for this implementation's `self` to come from"
+log	"  --> examples/errors/static236_conformance_static_requirement_instance_impl.saw:16:1"
+log	"     |"
+log	" 16 | extension Point: Maker {"
+log	"     | ^"
+log	"   hint: write `static func make(...)` and drop the `&self`/`&var self` parameter"
+log	""
+log	"1 error(s) generated"

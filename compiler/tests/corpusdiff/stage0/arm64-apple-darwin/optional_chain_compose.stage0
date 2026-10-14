@@ -1,0 +1,13 @@
+program	optional_chain_compose.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"10"
+stdout	"bound 10"
+stdout	"guarded 10"
+stdout	"fallback"
+stdout	"side 1"
+stdout	""
+meets_expect	yes

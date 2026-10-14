@@ -1,0 +1,14 @@
+program	errors/shadow_closure_param.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	`total` shadows the binding declared at shadow_closure_param.saw:12:5
+meets_expect	yes
+log	"error: `total` shadows the binding declared at shadow_closure_param.saw:12:5"
+log	"  --> examples/errors/shadow_closure_param.saw:13:21"
+log	"     |"
+log	" 13 |     let r = apply({ total in total * 2 }, 5)"
+log	"     |                     ^"
+log	"   hint: rename the parameter — a parameter cannot derive from the binding it would shadow"
+log	""
+log	"1 error(s) generated"

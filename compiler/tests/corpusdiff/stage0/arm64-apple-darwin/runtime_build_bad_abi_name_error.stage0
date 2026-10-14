@@ -1,0 +1,14 @@
+program	runtime_build_bad_abi_name_error.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	`@export` symbol `__saw_rt_allocate` is not part of the frozen `__saw_rt_*` runtime ABI
+meets_expect	yes
+log	"error: `@export` symbol `__saw_rt_allocate` is not part of the frozen `__saw_rt_*` runtime ABI"
+log	"  --> examples/runtime_build_bad_abi_name_error.saw:9:1"
+log	"    |"
+log	" 9 | func rt_alloc(size: Int, align: Int) -> Int { size }"
+log	"    | ^"
+log	"   hint: a runtime may export only the frozen ABI names; valid names are: __saw_rt_alloc, __saw_rt_alloc_deny_after, __saw_rt_blocking_sleep, __saw_rt_clock_monotonic_nanos, __saw_rt_dealloc, __saw_rt_env_set, __saw_rt_env_unset, __saw_rt_executable_path, __saw_rt_fs_chdir, __saw_rt_fs_dirent_name, __saw_rt_fs_lseek, __saw_rt_fs_mkdir, __saw_rt_fs_open, __saw_rt_fs_opendir, __saw_rt_fs_read, __saw_rt_fs_rename, __saw_rt_fs_rmdir, __saw_rt_fs_unlink, __saw_rt_fs_write, __saw_rt_get_argc, __saw_rt_get_argv, __saw_rt_last_raw_code, __saw_rt_last_syserror, __saw_rt_lock_acquire, __saw_rt_lock_release, __saw_rt_offload_done, __saw_rt_offload_pipe_fd, __saw_rt_offload_start, __saw_rt_offload_take, __saw_rt_op_budget_reset, __saw_rt_op_budget_tick, __saw_rt_panic, __saw_rt_proc_exit_fd, __saw_rt_proc_read_stdout, __saw_rt_proc_release, __saw_rt_proc_spawn, __saw_rt_proc_spawn_env, __saw_rt_proc_try_wait, __saw_rt_proc_wait_fd, __saw_rt_pthread_cond_init_default, __saw_rt_pthread_mutex_init_default, __saw_rt_reactor_create, __saw_rt_reactor_destroy, __saw_rt_reactor_poll, __saw_rt_reactor_register, __saw_rt_reactor_unregister, __saw_rt_reactor_wake, __saw_rt_resolve_ipv4, __saw_rt_set_nonblocking, __saw_rt_sin_set_family, __saw_rt_sleep_ns, __saw_rt_socket_set_option, __saw_rt_tcp_accept, __saw_rt_tcp_connect_check, __saw_rt_tcp_connect_start, __saw_rt_tcp_listen, __saw_rt_tcp_listen_on, __saw_rt_tcp_listen_with, __saw_rt_tcp_local_port, __saw_rt_tcp_read, __saw_rt_tcp_write, __saw_rt_thread_detach, __saw_rt_thread_join, __saw_rt_thread_spawn, __saw_rt_unix_timestamp_secs, __saw_rt_write"
+log	""
+log	"1 error(s) generated"

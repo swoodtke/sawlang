@@ -1,0 +1,10 @@
+program	coro_module_json_encode_in_task.saw
+triple	arm64-apple-darwin
+twin	differs
+expect	success
+build	ok
+exit	0
+stdout	"public {\"a\":1}"
+stdout	"private {\"a\":1}"
+stdout	""
+meets_expect	yes

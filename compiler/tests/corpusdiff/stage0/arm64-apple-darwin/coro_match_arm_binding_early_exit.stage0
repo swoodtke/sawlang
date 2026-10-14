@@ -1,0 +1,9 @@
+program	coro_match_arm_binding_early_exit.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"1 1"
+stdout	""
+meets_expect	yes

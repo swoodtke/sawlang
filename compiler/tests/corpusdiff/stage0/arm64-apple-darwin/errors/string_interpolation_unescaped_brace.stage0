@@ -1,0 +1,10 @@
+program	errors/string_interpolation_unescaped_brace.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	Invalid expression in string interpolation at 8:27
+meets_expect	yes
+log	"error: Invalid expression in string interpolation at 8:27"
+log	"  Expression: {\\n    return 1\\n}"
+log	"  Error: Lexer error at 1:1: Unexpected character: \\"
+log	"  Hint: Use \\{ and \\} for literal braces in interpolated strings"

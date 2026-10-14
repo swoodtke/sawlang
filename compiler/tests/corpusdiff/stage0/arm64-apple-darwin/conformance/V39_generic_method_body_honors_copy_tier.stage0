@@ -1,0 +1,14 @@
+program	conformance/V39_generic_method_body_honors_copy_tier.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	`Wrap.dup` requires `T` to be `Copy` — it binds `x` twice, at lines 32 and 33; `Res` is move-only
+meets_expect	yes
+log	"error: `Wrap.dup` requires `T` to be `Copy` — it binds `x` twice, at lines 32 and 33; `Res` is move-only"
+log	"  --> examples/conformance/V39_generic_method_body_honors_copy_tier.saw:40:14"
+log	"     |"
+log	" 40 |     let n = w.dup(Res(name: \"s1\"))"
+log	"     |              ^"
+log	"   hint: pass a type on the `Copy` tier, or rewrite the body to move `T` instead of duplicating it. A body that means to duplicate declares `<T: ExplicitCopy>` and spells `.copy()`"
+log	""
+log	"1 error(s) generated"

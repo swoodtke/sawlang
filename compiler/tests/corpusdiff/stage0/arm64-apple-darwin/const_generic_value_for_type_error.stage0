@@ -1,0 +1,33 @@
+program	const_generic_value_for_type_error.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	struct `Pair` takes a TYPE for the parameter `T`, and `4` is a value
+meets_expect	yes
+log	"error: struct `Pair` takes a TYPE for the parameter `T`, and `4` is a value"
+log	"  --> examples/const_generic_value_for_type_error.saw:12:13"
+log	"     |"
+log	" 12 |     let p = Pair<4>(a: 1, b: 2)"
+log	"     |             ^"
+log	"   hint: declare it `const T: Int` to take a value"
+log	""
+log	"error: field `a` expects type `4` but got `Int`"
+log	"  --> examples/const_generic_value_for_type_error.saw:12:13"
+log	"     |"
+log	" 12 |     let p = Pair<4>(a: 1, b: 2)"
+log	"     |             ^"
+log	""
+log	"error: field `b` expects type `4` but got `Int`"
+log	"  --> examples/const_generic_value_for_type_error.saw:12:13"
+log	"     |"
+log	" 12 |     let p = Pair<4>(a: 1, b: 2)"
+log	"     |             ^"
+log	""
+log	"error: cannot print value of type `4`: it is not `Printable`"
+log	"  --> examples/const_generic_value_for_type_error.saw:13:12"
+log	"     |"
+log	" 13 |     print(p.a)"
+log	"     |            ^"
+log	"   hint: conform it with `extension 4: Printable { ... }`"
+log	""
+log	"4 error(s) generated"

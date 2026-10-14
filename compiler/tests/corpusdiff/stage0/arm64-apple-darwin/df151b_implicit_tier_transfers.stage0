@@ -1,0 +1,23 @@
+program	df151b_implicit_tier_transfers.saw
+triple	arm64-apple-darwin
+twin	differs
+expect	success
+build	ok
+exit	0
+stdout	"local local-7 local-7 local-7"
+stdout	"argument 5 5 arg-7"
+stdout	"return ret-7 ret-7 ret-7"
+stdout	"field-write fw-7 fw-7"
+stdout	"enum enum-7 enum-7"
+stdout	"optional opt-7 opt-7"
+stdout	"tuple tup-7 tup-7 tup-7"
+stdout	"array arr-7 arr-7 arr-7"
+stdout	"vector vec-7 vec-7 2"
+stdout	"nested nest-7 nest-7 nest-7"
+stdout	"closure 5 5 5"
+stdout	"balance-struct 1 3 6 3"
+stdout	"deinit 1"
+stdout	"balance-enum 1 2 5 2"
+stdout	"deinit 2"
+stdout	""
+meets_expect	yes

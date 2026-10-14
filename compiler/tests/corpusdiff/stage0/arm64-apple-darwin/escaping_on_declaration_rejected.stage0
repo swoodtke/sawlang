@@ -1,0 +1,7 @@
+program	escaping_on_declaration_rejected.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	Parse error at 11:20: `escaping` applies to function TYPES, not declarations — a named function has no environment and may always escape. Write it on the parameter that receives the value (`body: (Int) escaping -> Int`); the declaration slot takes `consumes`, `unsafe`, `sync` and `borrows`
+meets_expect	yes
+log	"error: Parse error at 11:20: `escaping` applies to function TYPES, not declarations — a named function has no environment and may always escape. Write it on the parameter that receives the value (`body: (Int) escaping -> Int`); the declaration slot takes `consumes`, `unsafe`, `sync` and `borrows`"

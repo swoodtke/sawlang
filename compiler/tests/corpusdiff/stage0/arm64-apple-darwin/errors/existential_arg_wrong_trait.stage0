@@ -1,0 +1,13 @@
+program	errors/existential_arg_wrong_trait.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	expected `&any Logger` but got `&any Counter`
+meets_expect	yes
+log	"error: expected `&any Logger` but got `&any Counter`"
+log	"  --> examples/errors/existential_arg_wrong_trait.saw:32:29"
+log	"     |"
+log	" 32 |         self.take_logger(l: &var c)"
+log	"     |                             ^"
+log	""
+log	"1 error(s) generated"

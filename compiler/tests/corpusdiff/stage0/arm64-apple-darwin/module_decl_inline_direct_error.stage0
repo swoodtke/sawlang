@@ -1,0 +1,20 @@
+program	module_decl_inline_direct_error.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	function `add` is not directly accessible
+meets_expect	yes
+log	"error: function `add` is not directly accessible"
+log	"  --> examples/module_decl_inline_direct_error.saw:14:13"
+log	"     |"
+log	" 14 |     let x = add(1, 2)"
+log	"     |             ^"
+log	"   hint: use qualified access (`math.add`), or select it with `import math.{add}`"
+log	""
+log	"error: undefined variable `x`"
+log	"  --> examples/module_decl_inline_direct_error.saw:15:11"
+log	"     |"
+log	" 15 |     print(x)"
+log	"     |           ^"
+log	""
+log	"2 error(s) generated"

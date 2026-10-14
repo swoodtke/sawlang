@@ -1,0 +1,10 @@
+program	expr_suspend_blocking.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"61"
+stdout	"61"
+stdout	""
+meets_expect	yes

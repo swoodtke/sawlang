@@ -1,0 +1,14 @@
+program	chain_assign_exclusivity_in_literal.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	exclusive access violation: `w` is written by this optional-chain assignment while also being accessed in the right-hand side
+meets_expect	yes
+log	"error: exclusive access violation: `w` is written by this optional-chain assignment while also being accessed in the right-hand side"
+log	"  --> examples/chain_assign_exclusivity_in_literal.saw:32:6"
+log	"     |"
+log	" 32 |     w?.c = Cell(v: refill(&var w))"
+log	"     |      ^"
+log	"   hint: the right-hand side is evaluated first, so its writes through that borrow are overwritten by this assignment. Bind the value in its own statement, or borrow a disjoint path"
+log	""
+log	"1 error(s) generated"

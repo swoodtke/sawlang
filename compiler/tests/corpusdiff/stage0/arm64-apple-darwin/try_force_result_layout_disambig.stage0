@@ -1,0 +1,11 @@
+program	try_force_result_layout_disambig.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"7"
+stdout	"99"
+stdout	"hi"
+stdout	""
+meets_expect	yes

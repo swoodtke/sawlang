@@ -1,0 +1,14 @@
+program	errors/let_void_expression_rejected.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	cannot bind `n` to an expression of type `Void` — it produces no value
+meets_expect	yes
+log	"error: cannot bind `n` to an expression of type `Void` — it produces no value"
+log	"  --> examples/errors/let_void_expression_rejected.saw:12:5"
+log	"     |"
+log	" 12 |     let n = nothing()"
+log	"     |     ^"
+log	"   hint: call it as a statement on its own line, or write `let _ = ...` if the point is to evaluate it and discard"
+log	""
+log	"1 error(s) generated"

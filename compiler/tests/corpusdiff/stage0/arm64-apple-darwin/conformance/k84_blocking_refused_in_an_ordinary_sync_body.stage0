@@ -1,0 +1,14 @@
+program	conformance/k84_blocking_refused_in_an_ordinary_sync_body.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	cannot suspend in `sync func` declaration: `sync func nap` calls blocking extern `__saw_rt_blocking_sleep` (`nap` suspends at line 18)
+meets_expect	yes
+log	"error: cannot suspend in `sync func` declaration: `sync func nap` calls blocking extern `__saw_rt_blocking_sleep` (`nap` suspends at line 18)"
+log	"  --> examples/conformance/k84_blocking_refused_in_an_ordinary_sync_body.saw:17:1"
+log	"     |"
+log	" 17 | func nap() sync -> Int {"
+log	"     | ^"
+log	"   hint: a `sync` context must be transitively suspension-free: remove the suspending call or hoist it out of the sync region"
+log	""
+log	"1 error(s) generated"

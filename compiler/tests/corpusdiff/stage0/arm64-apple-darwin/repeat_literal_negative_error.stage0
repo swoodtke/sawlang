@@ -1,0 +1,20 @@
+program	repeat_literal_negative_error.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	repeat count is negative (`-2`)
+meets_expect	yes
+log	"error: repeat count is negative (`-2`)"
+log	"  --> examples/repeat_literal_negative_error.saw:6:20"
+log	"    |"
+log	" 6 |     let xs = [0; 3 - 5]"
+log	"    |                    ^"
+log	"   hint: an array length counts elements, so it starts at 0"
+log	""
+log	"error: undefined variable `xs`"
+log	"  --> examples/repeat_literal_negative_error.saw:7:11"
+log	"    |"
+log	" 7 |     print(xs.len())"
+log	"    |           ^"
+log	""
+log	"2 error(s) generated"

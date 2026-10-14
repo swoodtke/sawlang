@@ -1,0 +1,14 @@
+program	errors/ref_sigil_missing_var.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	parameter `y` is `&var Int`; write `&var b`
+meets_expect	yes
+log	"error: parameter `y` is `&var Int`; write `&var b`"
+log	"  --> examples/errors/ref_sigil_missing_var.saw:12:10"
+log	"     |"
+log	" 12 |     bump(&b)"
+log	"     |          ^"
+log	"   hint: call sites mirror the parameter's reference spelling"
+log	""
+log	"1 error(s) generated"

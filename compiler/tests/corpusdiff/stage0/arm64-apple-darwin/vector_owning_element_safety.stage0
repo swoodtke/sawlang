@@ -1,0 +1,15 @@
+program	vector_owning_element_safety.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"3"
+stdout	"3"
+stdout	"4"
+stdout	"deinit old"
+stdout	"end of set scope"
+stdout	"deinit new"
+stdout	"1"
+stdout	""
+meets_expect	yes

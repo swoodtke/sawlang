@@ -1,0 +1,14 @@
+program	conformance/U04_unsafe_param_undeclared.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	function `f` is not declared `unsafe`, but its signature receives a value of unsafe type (`UnsafePointer<Int>`)
+meets_expect	yes
+log	"error: function `f` is not declared `unsafe`, but its signature receives a value of unsafe type (`UnsafePointer<Int>`)"
+log	"  --> examples/conformance/U04_unsafe_param_undeclared.saw:8:1"
+log	"    |"
+log	" 8 | func f(p: UnsafePointer<Int>) -> Int { 1 }"
+log	"    | ^"
+log	"   hint: write `func f(...) unsafe` — the unsafety belongs in the signature where every caller can see it; if the operation is sound for every input, keep the wrapper unsafe and expose a safe one that checks its arguments"
+log	""
+log	"1 error(s) generated"

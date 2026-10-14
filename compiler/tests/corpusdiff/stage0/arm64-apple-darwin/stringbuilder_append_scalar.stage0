@@ -1,0 +1,24 @@
+program	stringbuilder_append_scalar.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"n_7f: 1"
+stdout	"n_80: 2"
+stdout	"n_7ff: 2"
+stdout	"n_800: 3"
+stdout	"n_ffff: 3"
+stdout	"n_10000: 4"
+stdout	"n_10ffff: 4"
+stdout	"rt_7f: true"
+stdout	"rt_80: true"
+stdout	"rt_7ff: true"
+stdout	"rt_800: true"
+stdout	"rt_ffff: true"
+stdout	"rt_10000: true"
+stdout	"rt_10ffff: true"
+stdout	"bytes_80: true"
+stdout	"text: hé€😀"
+stdout	""
+meets_expect	yes

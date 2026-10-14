@@ -1,0 +1,7 @@
+program	errors/string_unknown_escape.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	Lexer error at 8:16: unknown escape `\d` in a string literal (supported: \\ \" \n \t \r \0 \u{...})
+meets_expect	yes
+log	"error: Lexer error at 8:16: unknown escape `\\d` in a string literal (supported: \\\\ \\\" \\n \\t \\r \\0 \\u{...})"

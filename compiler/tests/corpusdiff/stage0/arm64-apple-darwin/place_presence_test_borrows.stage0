@@ -1,0 +1,21 @@
+program	place_presence_test_borrows.saw
+triple	arm64-apple-darwin
+twin	differs
+expect	success
+build	ok
+exit	0
+stdout	"-- match, no arm binds"
+stdout	"1"
+stdout	"1"
+stdout	"-- one arm binds, one does not"
+stdout	"a"
+stdout	"a"
+stdout	"-- if let _ presence"
+stdout	"present"
+stdout	"absent"
+stdout	"-- guard let _ presence"
+stdout	"guarded"
+stdout	"-- teardown"
+stdout	"deinit a"
+stdout	""
+meets_expect	yes

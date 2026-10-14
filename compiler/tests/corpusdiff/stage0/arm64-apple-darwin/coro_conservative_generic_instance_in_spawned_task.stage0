@@ -1,0 +1,12 @@
+program	coro_conservative_generic_instance_in_spawned_task.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"plain 20 10"
+stdout	"tick 0"
+stdout	"parked 3 3"
+stdout	"tick 1"
+stdout	""
+meets_expect	yes

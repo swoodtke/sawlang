@@ -1,0 +1,16 @@
+program	place_window_borrows_enclosing_locals.saw
+triple	arm64-apple-darwin
+twin	differs
+expect	success
+build	ok
+exit	0
+stdout	"var arg: 1"
+stdout	"shared arg: 1"
+stdout	"value arg: 6"
+stdout	"mutating call: 2"
+stdout	"cross-root read: 4"
+stdout	"forwarded param: 4"
+stdout	"deep chain: 4"
+stdout	"element write: 9"
+stdout	""
+meets_expect	yes

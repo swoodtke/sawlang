@@ -1,0 +1,12 @@
+program	array_explicit_copy_move.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"1"
+stdout	"2"
+stdout	"d2"
+stdout	"d1"
+stdout	""
+meets_expect	yes

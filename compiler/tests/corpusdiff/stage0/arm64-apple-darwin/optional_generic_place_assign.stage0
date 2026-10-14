@@ -1,0 +1,11 @@
+program	optional_generic_place_assign.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"before 1 inner-absent"
+stdout	"after 4 7"
+stdout	"-- done"
+stdout	""
+meets_expect	yes

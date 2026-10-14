@@ -1,0 +1,14 @@
+program	optional_force_unwrap_field_store.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"99"
+stdout	"7"
+stdout	"42"
+stdout	"99"
+stdout	"99"
+stdout	"-1"
+stdout	""
+meets_expect	yes

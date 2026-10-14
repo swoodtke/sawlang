@@ -1,0 +1,14 @@
+program	errors/funcpointer226_named_not_sync.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	`plain` is not declared `sync`, so it cannot be a `FuncPointer<(Int) sync -> Int>`
+meets_expect	yes
+log	"error: `plain` is not declared `sync`, so it cannot be a `FuncPointer<(Int) sync -> Int>`"
+log	"  --> examples/errors/funcpointer226_named_not_sync.saw:15:45"
+log	"     |"
+log	" 15 |     let p: FuncPointer<(Int) sync -> Int> = plain"
+log	"     |                                             ^"
+log	"   hint: write the effect slot — `func plain(...) sync -> ...` — and the body is checked suspension-free. A bare code address has nowhere to keep the frame a suspending body runs out of, which is why `F` is sync-only"
+log	""
+log	"1 error(s) generated"

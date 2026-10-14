@@ -1,0 +1,14 @@
+program	arithmetic_no_false_overflow.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"14"
+stdout	"-7"
+stdout	"3"
+stdout	"1"
+stdout	"10"
+stdout	"9223372036854775807"
+stdout	""
+meets_expect	yes

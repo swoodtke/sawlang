@@ -1,0 +1,12 @@
+program	lend_var_coro_and_forwarding.saw
+triple	arm64-apple-darwin
+twin	differs
+expect	success
+build	ok
+exit	0
+stdout	"task results 12 22"
+stdout	"forwarded read 3, inner gates 0"
+stdout	"forwarded write 4, inner gates 1"
+stdout	"-- done"
+stdout	""
+meets_expect	yes

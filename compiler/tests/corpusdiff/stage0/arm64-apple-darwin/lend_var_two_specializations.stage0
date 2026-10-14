@@ -1,0 +1,16 @@
+program	lend_var_two_specializations.saw
+triple	arm64-apple-darwin
+twin	differs
+expect	success
+build	ok
+exit	0
+stdout	"shared read through a let root: 3"
+stdout	"gates after that read: 0"
+stdout	"second shared read: 4"
+stdout	"gates still: 0"
+stdout	"after a write: cell 99, gates 1"
+stdout	"after a compound write: cell 7, gates 2"
+stdout	"forwarded read: 7, gates 2"
+stdout	"-- done"
+stdout	""
+meets_expect	yes

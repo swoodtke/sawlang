@@ -1,0 +1,21 @@
+program	errors/ref_closure_return_inferred.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	a closure may not return a reference: this body's value has type `&Int`, which is a reference, and references in Saw are PARAMETERS ONLY — a reference borrows storage for the duration of one call and may not escape it (designs 88/106; the Law of Exclusivity is statically sound only because every live reference belongs to a call still on the stack)
+meets_expect	yes
+log	"error: `&` here is not a call argument, and references in Saw are PARAMETERS ONLY — a reference borrows storage for the duration of one call and may not escape it (designs 88/106; the Law of Exclusivity is statically sound only because every live reference belongs to a call still on the stack)"
+log	"  --> examples/errors/ref_closure_return_inferred.saw:16:15"
+log	"     |"
+log	" 16 |     let f = { &x }"
+log	"     |               ^"
+log	"   hint: a reference cannot be stored or bound: pass it straight to a `&` parameter, or — to hand out storage a value already owns — declare a `borrows` accessor (`... borrows -> &var T` with `lend`, design 141), which lends the place for a window rather than letting a pointer out"
+log	""
+log	"error: a closure may not return a reference: this body's value has type `&Int`, which is a reference, and references in Saw are PARAMETERS ONLY — a reference borrows storage for the duration of one call and may not escape it (designs 88/106; the Law of Exclusivity is statically sound only because every live reference belongs to a call still on the stack)"
+log	"  --> examples/errors/ref_closure_return_inferred.saw:16:15"
+log	"     |"
+log	" 16 |     let f = { &x }"
+log	"     |               ^"
+log	"   hint: yield the value instead (drop the `&`, so the closure returns `Int`), or — to hand out storage something already owns — declare a `borrows` accessor (`... borrows -> &var Int` with `lend`, design 141), which lends the place for a window rather than letting a pointer out"
+log	""
+log	"2 error(s) generated"

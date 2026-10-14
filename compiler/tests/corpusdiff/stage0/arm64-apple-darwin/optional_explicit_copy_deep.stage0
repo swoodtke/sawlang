@@ -1,0 +1,12 @@
+program	optional_explicit_copy_deep.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"original 3"
+stdout	"duplicate 3"
+stdout	"after push: original 3 duplicate 4"
+stdout	"none copies to none"
+stdout	""
+meets_expect	yes

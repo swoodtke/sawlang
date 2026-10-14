@@ -1,0 +1,19 @@
+program	let_refutable_pattern_error.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	refutable pattern in `let`/`var`: only bindings, `_`, and nested tuples are allowed (literals/ranges/variants require `match`/`if let`)
+meets_expect	yes
+log	"error: refutable pattern in `let`/`var`: only bindings, `_`, and nested tuples are allowed (literals/ranges/variants require `match`/`if let`)"
+log	"  --> examples/let_refutable_pattern_error.saw:7:5"
+log	"    |"
+log	" 7 |     let (0, y) = (1, 2)"
+log	"    |     ^"
+log	""
+log	"error: undefined variable `y`"
+log	"  --> examples/let_refutable_pattern_error.saw:8:11"
+log	"    |"
+log	" 8 |     print(y)"
+log	"    |           ^"
+log	""
+log	"2 error(s) generated"

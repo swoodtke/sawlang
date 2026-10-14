@@ -1,0 +1,6 @@
+program	freestanding_aarch64_no_simd.saw
+triple	arm64-apple-darwin
+twin	same
+expect	object
+build	ok
+meets_expect	yes

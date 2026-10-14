@@ -1,0 +1,7 @@
+program	errors/align_on_function.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	Parse error at 7:1: attribute `@align` is not supported on function declarations (legal here: @export, @section) — `@align(N)` is accepted on a `static` declaration and on a local `let`/`var`. A field, a parameter or a type cannot state an alignment yet — an alignment the TYPE carries is its own design
+meets_expect	yes
+log	"error: Parse error at 7:1: attribute `@align` is not supported on function declarations (legal here: @export, @section) — `@align(N)` is accepted on a `static` declaration and on a local `let`/`var`. A field, a parameter or a type cannot state an alignment yet — an alignment the TYPE carries is its own design"

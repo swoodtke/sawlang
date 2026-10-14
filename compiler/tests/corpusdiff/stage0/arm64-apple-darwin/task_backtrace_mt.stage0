@@ -1,0 +1,17 @@
+program	task_backtrace_mt.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"saw tasks: 2 live (unsynchronized snapshot)"
+stdout	"  task group 1 slot 0 gen 1 channel-parked"
+stdout	"    at task_backtrace_mt.saw:50 in mt_leaf"
+stdout	"    at task_backtrace_mt.saw:55 in mt_middle"
+stdout	"    at task_backtrace_mt.saw:60 in mt_worker"
+stdout	"  task group 1 slot 1 gen 1 running"
+stdout	"    at task_backtrace_mt.saw:78 in mt_watcher"
+stdout	"watcher 0"
+stdout	"worker 13"
+stdout	""
+meets_expect	yes

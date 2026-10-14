@@ -1,0 +1,15 @@
+program	optional_type_name.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"named 5"
+stdout	"none -1"
+stdout	"same 5"
+stdout	"nested some 5"
+stdout	"nested inner-absent"
+stdout	"nested outer-absent"
+stdout	"-- done"
+stdout	""
+meets_expect	yes

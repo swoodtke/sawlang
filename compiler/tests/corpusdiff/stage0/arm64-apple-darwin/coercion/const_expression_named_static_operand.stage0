@@ -1,0 +1,13 @@
+program	coercion/const_expression_named_static_operand.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	constant expression 1048576 does not fit in `UInt16` (range 0..=65535)
+meets_expect	yes
+log	"error: constant expression 1048576 does not fit in `UInt16` (range 0..=65535)"
+log	"  --> examples/coercion/const_expression_named_static_operand.saw:22:23"
+log	"     |"
+log	" 22 |     let e: UInt16 = 1 << PAGE_SHIFT"
+log	"     |                       ^"
+log	""
+log	"1 error(s) generated"

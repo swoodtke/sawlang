@@ -1,0 +1,15 @@
+program	static_derived_from_imported_const.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"inline 4 32 5"
+stdout	"alias 4"
+stdout	"mixed 6"
+stdout	"sum 12"
+stdout	"qualified 12 16"
+stdout	"local 3"
+stdout	"imported-whole 8"
+stdout	""
+meets_expect	yes

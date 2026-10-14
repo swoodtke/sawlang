@@ -1,0 +1,20 @@
+program	module_path_facade_selection_error.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	`pkg_secret` is public(package) in `pkgvis`
+meets_expect	yes
+log	"error: `pkg_secret` is public(package) in `pkgvis`"
+log	"  --> examples/module_path_facade_selection_error.saw:15:1"
+log	"     |"
+log	" 15 | import pkgvis.{pkg_secret}"
+log	"     | ^"
+log	"   hint: mark it `public` in `pkgvis` to expose it; available: lib_answer"
+log	""
+log	"error: undefined function `pkg_secret`"
+log	"  --> examples/module_path_facade_selection_error.saw:18:11"
+log	"     |"
+log	" 18 |     print(pkg_secret())"
+log	"     |           ^"
+log	""
+log	"2 error(s) generated"

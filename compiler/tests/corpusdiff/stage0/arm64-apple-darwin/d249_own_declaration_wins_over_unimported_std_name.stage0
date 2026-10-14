@@ -1,0 +1,9 @@
+program	d249_own_declaration_wins_over_unimported_std_name.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"mine"
+stdout	""
+meets_expect	yes

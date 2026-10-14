@@ -1,0 +1,11 @@
+program	register_mask_idiom.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"203"
+stdout	"4660"
+stdout	"61695"
+stdout	""
+meets_expect	yes

@@ -1,0 +1,9 @@
+program	conformance/G15_main_int_exit_status_truncates.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	44
+stdout	"wide"
+stdout	""
+meets_expect	yes

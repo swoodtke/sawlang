@@ -1,0 +1,10 @@
+program	process_error_surfaced.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"launched: false"
+stdout	"error names program: true"
+stdout	""
+meets_expect	yes

@@ -1,0 +1,14 @@
+program	errors/place_window_enum_method_let_root.saw
+triple	arm64-apple-darwin
+twin	differs
+expect	error
+build	refused	cannot open an exclusive place window on immutable variable `frozen`
+meets_expect	yes
+log	"error: cannot open an exclusive place window on immutable variable `frozen`"
+log	"  --> examples/errors/place_window_enum_method_let_root.saw:35:11"
+log	"     |"
+log	" 35 |     frozen[0].flip()"
+log	"     |           ^"
+log	"   hint: consider using `var` instead of `let` to make it mutable"
+log	""
+log	"1 error(s) generated"

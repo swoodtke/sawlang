@@ -1,0 +1,10 @@
+program	source_location_suspending.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"source_location_suspending.saw:14:worker"
+stdout	"done 23"
+stdout	""
+meets_expect	yes

@@ -1,0 +1,14 @@
+program	errors/funcpointer226_effect_slot.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	the function type `(UnsafePointer<UInt8>) sync -> Int` names an unsafe type (`UnsafePointer<UInt8>`) but its effect slot does not say `unsafe`
+meets_expect	yes
+log	"error: the function type `(UnsafePointer<UInt8>) sync -> Int` names an unsafe type (`UnsafePointer<UInt8>`) but its effect slot does not say `unsafe`"
+log	"  --> examples/errors/funcpointer226_effect_slot.saw:12:1"
+log	"     |"
+log	" 12 | func install(p: FuncPointer<(UnsafePointer<UInt8>) sync -> Int>) unsafe { }"
+log	"     | ^"
+log	"   hint: write the effect the signature carries, e.g. `(UnsafePointer<T>) unsafe sync -> R` — one contract has one spelling"
+log	""
+log	"1 error(s) generated"

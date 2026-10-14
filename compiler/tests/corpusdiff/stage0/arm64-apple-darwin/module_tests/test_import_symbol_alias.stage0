@@ -1,0 +1,10 @@
+program	module_tests/test_import_symbol_alias.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"9"
+stdout	"8"
+stdout	""
+meets_expect	yes

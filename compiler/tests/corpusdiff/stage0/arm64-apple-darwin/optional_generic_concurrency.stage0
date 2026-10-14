@@ -1,0 +1,16 @@
+program	optional_generic_concurrency.saw
+triple	arm64-apple-darwin
+twin	differs
+expect	success
+build	ok
+exit	0
+stdout	"t1 present -1"
+stdout	"t2 present 7"
+stdout	"t3 EMPTY"
+stdout	"across suspend 106"
+stdout	"with_unique 5"
+stdout	"mutex 5"
+stdout	"mutex after -7"
+stdout	"-- done"
+stdout	""
+meets_expect	yes

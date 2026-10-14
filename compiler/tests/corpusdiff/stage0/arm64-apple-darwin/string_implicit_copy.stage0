@@ -1,0 +1,13 @@
+program	string_implicit_copy.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"5"
+stdout	"5"
+stdout	"hello"
+stdout	"hello"
+stdout	"hello"
+stdout	""
+meets_expect	yes

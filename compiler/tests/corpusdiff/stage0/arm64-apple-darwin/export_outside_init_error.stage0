@@ -1,0 +1,14 @@
+program	export_outside_init_error.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	`export` statements are only allowed in init.saw files
+meets_expect	yes
+log	"error: `export` statements are only allowed in init.saw files"
+log	"  --> examples/export_outside_init_error.saw:5:1"
+log	"    |"
+log	" 5 | export utils.double"
+log	"    | ^"
+log	"   hint: use `public` visibility modifier to expose symbols from regular modules"
+log	""
+log	"1 error(s) generated"

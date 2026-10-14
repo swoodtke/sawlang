@@ -1,0 +1,14 @@
+program	errors/funcpointer226_arg_suspending.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	`FuncPointer`'s type argument must be `sync`, but `(Int) -> Int` may suspend
+meets_expect	yes
+log	"error: `FuncPointer`'s type argument must be `sync`, but `(Int) -> Int` may suspend"
+log	"  --> examples/errors/funcpointer226_arg_suspending.saw:10:14"
+log	"     |"
+log	" 10 |     handler: FuncPointer<(Int) -> Int>"
+log	"     |              ^"
+log	"   hint: a suspending body runs out of a frame and a bare code address has nowhere to keep one — write `sync` in the effect slot (`(Int) sync -> Int`), or pass a `Task` handle if the work really does suspend"
+log	""
+log	"1 error(s) generated"

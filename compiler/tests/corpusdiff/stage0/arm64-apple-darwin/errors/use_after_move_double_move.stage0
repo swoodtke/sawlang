@@ -1,0 +1,14 @@
+program	errors/use_after_move_double_move.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	use of moved variable `f`
+meets_expect	yes
+log	"error: use of moved variable `f`"
+log	"  --> examples/errors/use_after_move_double_move.saw:18:13"
+log	"     |"
+log	" 18 |     let b = move f   // error: f was already moved into `a`"
+log	"     |             ^"
+log	"   hint: value was already moved at line 17 and can no longer be used"
+log	""
+log	"1 error(s) generated"

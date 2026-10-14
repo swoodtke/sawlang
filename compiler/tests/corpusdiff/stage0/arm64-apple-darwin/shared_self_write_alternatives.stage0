@@ -1,0 +1,12 @@
+program	shared_self_write_alternatives.saw
+triple	arm64-apple-darwin
+twin	differs
+expect	success
+build	ok
+exit	0
+stdout	"through the buffer 40"
+stdout	"counted 7"
+stdout	"reads 2"
+stdout	"-- done"
+stdout	""
+meets_expect	yes

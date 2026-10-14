@@ -1,0 +1,12 @@
+program	optional_move_unwrap.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"took 3"
+stdout	"drop res 3"
+stdout	"took 5"
+stdout	"drop res 5"
+stdout	""
+meets_expect	yes

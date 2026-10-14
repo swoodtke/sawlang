@@ -1,0 +1,10 @@
+program	ref_replace_across_suspend.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"spawn result=42"
+stdout	"driver local=99"
+stdout	""
+meets_expect	yes

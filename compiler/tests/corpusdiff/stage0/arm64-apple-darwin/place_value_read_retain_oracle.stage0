@@ -1,0 +1,22 @@
+program	place_value_read_retain_oracle.saw
+triple	arm64-apple-darwin
+twin	differs
+expect	success
+build	ok
+exit	0
+stdout	"-- trivial"
+stdout	"20"
+stdout	"30"
+stdout	"-- borrow, no copy"
+stdout	"a"
+stdout	"-- value read retains"
+stdout	"copy a"
+stdout	"have a"
+stdout	"-- vector cleared"
+stdout	"deinit a"
+stdout	"deinit b"
+stdout	"-- holder still valid"
+stdout	"a"
+stdout	"deinit a"
+stdout	""
+meets_expect	yes

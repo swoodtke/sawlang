@@ -1,0 +1,27 @@
+program	json_value_accessors.saw
+triple	arm64-apple-darwin
+twin	differs
+expect	success
+build	ok
+exit	0
+stdout	"is_null on null: true"
+stdout	"is_null on number: false"
+stdout	"as_bool on bool: true"
+stdout	"as_bool on number: none"
+stdout	"as_int on number: 7"
+stdout	"as_int on text: none"
+stdout	"as_float on float: 1.5"
+stdout	"as_float on int: none"
+stdout	"as_int on float: none"
+stdout	"as_text on text: hi"
+stdout	"as_text on array: none"
+stdout	"as_array on array: len=2"
+stdout	"as_array on object: none"
+stdout	"as_object on object: present"
+stdout	"as_object on array: none"
+stdout	"element present: 20"
+stdout	"element absent: none"
+stdout	"member present: 1"
+stdout	"member absent: none"
+stdout	""
+meets_expect	yes

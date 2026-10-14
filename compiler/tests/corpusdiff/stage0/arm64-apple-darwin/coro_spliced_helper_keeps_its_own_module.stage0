@@ -1,0 +1,11 @@
+program	coro_spliced_helper_keeps_its_own_module.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"entry_direct 1"
+stdout	"imported_value 101"
+stdout	"entry_value 2"
+stdout	""
+meets_expect	yes

@@ -1,0 +1,14 @@
+program	errors/shadow_redef_nonderived.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	variable `data` is already defined in this scope
+meets_expect	yes
+log	"error: variable `data` is already defined in this scope"
+log	"  --> examples/errors/shadow_redef_nonderived.saw:14:5"
+log	"     |"
+log	" 14 |     let data = fresh()   // does not mention `data` -> duplicate error"
+log	"     |     ^"
+log	"   hint: previous definition was at line 13"
+log	""
+log	"1 error(s) generated"

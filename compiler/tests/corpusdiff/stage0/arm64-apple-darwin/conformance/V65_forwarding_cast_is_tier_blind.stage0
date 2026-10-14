@@ -1,0 +1,13 @@
+program	conformance/V65_forwarding_cast_is_tier_blind.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"built 1"
+stdout	"after plain let 2"
+stdout	"after cast 3"
+stdout	"still live 3"
+stdout	"drop 1"
+stdout	""
+meets_expect	yes

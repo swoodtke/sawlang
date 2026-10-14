@@ -1,0 +1,14 @@
+program	errors/ref_forwarding_self_upgrade.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	cannot take mutable reference to immutable `self`
+meets_expect	yes
+log	"error: cannot take mutable reference to immutable `self`"
+log	"  --> examples/errors/ref_forwarding_self_upgrade.saw:14:18"
+log	"     |"
+log	" 14 |         bumpcell(&var self)     // upgrade `&self` -> `&var self` — rejected"
+log	"     |                  ^"
+log	"   hint: declare the method `&var self` to mutate through the receiver, or `&var self ... borrows -> &var T` to lend the place and let each use site choose the window's flavor"
+log	""
+log	"1 error(s) generated"

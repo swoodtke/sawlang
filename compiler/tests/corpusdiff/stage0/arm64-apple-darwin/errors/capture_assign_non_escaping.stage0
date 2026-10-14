@@ -1,0 +1,21 @@
+program	errors/capture_assign_non_escaping.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	cannot assign to `sum`: it is captured by value, so the write would be discarded when the closure returns
+meets_expect	yes
+log	"error: cannot assign to `sum`: it is captured by value, so the write would be discarded when the closure returns"
+log	"  --> examples/errors/capture_assign_non_escaping.saw:15:18"
+log	"     |"
+log	" 15 |     each3({ n in sum = sum + n"
+log	"     |                  ^"
+log	"   hint: capture it by borrow — `{ [&var sum] ... }`, legal in a closure passed directly to a non-escaping parameter — or, for a closure that outlives the frame, share the state through an `Arc<Mutex<T>>`"
+log	""
+log	"error: cannot assign to `total`: it is captured by value, so the write would be discarded when the closure returns"
+log	"  --> examples/errors/capture_assign_non_escaping.saw:20:18"
+log	"     |"
+log	" 20 |     each3({ n in total += n"
+log	"     |                  ^"
+log	"   hint: capture it by borrow — `{ [&var total] ... }`, legal in a closure passed directly to a non-escaping parameter — or, for a closure that outlives the frame, share the state through an `Arc<Mutex<T>>`"
+log	""
+log	"2 error(s) generated"

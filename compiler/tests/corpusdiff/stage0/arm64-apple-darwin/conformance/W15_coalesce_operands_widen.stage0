@@ -1,0 +1,13 @@
+program	conformance/W15_coalesce_operands_widen.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"3"
+stdout	"-7"
+stdout	"-7"
+stdout	"11"
+stdout	"-7"
+stdout	""
+meets_expect	yes

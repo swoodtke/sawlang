@@ -1,0 +1,13 @@
+program	errors/coro_guarded_arm_owning_payload.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	coroutine transform: a suspension-spanning `match` in `driven` cannot combine a guarded arm with the move-only payload binding `r`; drop the guard and test inside the arm body, or match on a copyable projection of the payload
+meets_expect	yes
+log	"error: coroutine transform: a suspension-spanning `match` in `driven` cannot combine a guarded arm with the move-only payload binding `r`; drop the guard and test inside the arm body, or match on a copyable projection of the payload"
+log	"  --> examples/errors/coro_guarded_arm_owning_payload.saw:50:13"
+log	"     |"
+log	" 50 |             case Full(r) if i == 1 -> { print(\"guarded {}\", r.name) },"
+log	"     |             ^"
+log	""
+log	"1 error(s) generated"

@@ -1,0 +1,12 @@
+program	array_in_struct_deinit.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"live"
+stdout	"holder deinit"
+stdout	"d2"
+stdout	"d1"
+stdout	""
+meets_expect	yes

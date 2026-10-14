@@ -1,0 +1,16 @@
+program	funcpointer226_coercion_positions.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"argument"
+stdout	"let"
+stdout	"field"
+stdout	"return"
+stdout	"static"
+stdout	"named argument"
+stdout	"named let"
+stdout	"named field"
+stdout	""
+meets_expect	yes

@@ -1,0 +1,10 @@
+program	offload_pointer_heap_arg.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"writer: fed the pipe"
+stdout	"reader: 97,98,99"
+stdout	""
+meets_expect	yes

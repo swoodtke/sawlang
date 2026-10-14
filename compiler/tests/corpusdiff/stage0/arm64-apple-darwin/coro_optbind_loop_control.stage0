@@ -1,0 +1,15 @@
+program	coro_optbind_loop_control.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"6"
+stdout	"306"
+stdout	"203"
+stdout	"6"
+stdout	"6"
+stdout	"6"
+stdout	"6"
+stdout	""
+meets_expect	yes

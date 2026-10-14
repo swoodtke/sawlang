@@ -1,0 +1,19 @@
+program	type_alias_construction_type_error.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	`UserId` is a type alias for `Int` and cannot be built from `String`
+meets_expect	yes
+log	"error: `UserId` is a type alias for `Int` and cannot be built from `String`"
+log	"  --> examples/type_alias_construction_type_error.saw:11:22"
+log	"     |"
+log	" 11 |     let bad = UserId(\"nope\")"
+log	"     |                      ^"
+log	""
+log	"error: undefined variable `bad`"
+log	"  --> examples/type_alias_construction_type_error.saw:12:11"
+log	"     |"
+log	" 12 |     print(bad as Int)"
+log	"     |           ^"
+log	""
+log	"2 error(s) generated"

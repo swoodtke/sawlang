@@ -1,0 +1,13 @@
+program	errors/borrows_body_never_lends.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	a `borrows` body must `lend` a place — this one never does. `borrows -> &T` promises the caller a window onto storage of type `T`, and without a `lend` there is nothing to open it onto
+meets_expect	yes
+log	"error: a `borrows` body must `lend` a place — this one never does. `borrows -> &T` promises the caller a window onto storage of type `T`, and without a `lend` there is nothing to open it onto"
+log	"  --> examples/errors/borrows_body_never_lends.saw:12:12"
+log	"     |"
+log	" 12 |     public func at(&self, i: Int) borrows -> &Int {"
+log	"     |            ^"
+log	""
+log	"1 error(s) generated"

@@ -1,0 +1,7 @@
+program	errors/trailing_dot_float.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	Parse error at 8:15: Expected field name or tuple index after '.', got NEWLINE — a float literal needs a digit after the point (write `7.0`)
+meets_expect	yes
+log	"error: Parse error at 8:15: Expected field name or tuple index after '.', got NEWLINE — a float literal needs a digit after the point (write `7.0`)"

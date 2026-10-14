@@ -1,0 +1,15 @@
+program	const_static_length.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"64"
+stdout	"9"
+stdout	"64"
+stdout	"132"
+stdout	"64"
+stdout	"128"
+stdout	"4"
+stdout	""
+meets_expect	yes

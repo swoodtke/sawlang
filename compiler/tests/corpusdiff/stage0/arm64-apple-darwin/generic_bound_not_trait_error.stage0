@@ -1,0 +1,14 @@
+program	generic_bound_not_trait_error.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	`Int` is a type, not a trait, so it cannot bound the type parameter `N`
+meets_expect	yes
+log	"error: `Int` is a type, not a trait, so it cannot bound the type parameter `N`"
+log	"  --> examples/generic_bound_not_trait_error.saw:12:17"
+log	"     |"
+log	" 12 | struct FixedBuf<N: Int> {"
+log	"     |                 ^"
+log	"   hint: to take a compile-time VALUE, write `const N: Int` — a bound names a trait the argument must conform to, not the value's type"
+log	""
+log	"1 error(s) generated"

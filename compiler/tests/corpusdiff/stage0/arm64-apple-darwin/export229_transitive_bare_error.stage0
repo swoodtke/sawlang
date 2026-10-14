@@ -1,0 +1,21 @@
+program	export229_transitive_bare_error.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	`Widget` is not part of `modules.export229_wall`'s surface
+meets_expect	yes
+log	"error: `Widget` is not part of `modules.export229_wall`'s surface"
+log	"  --> examples/export229_transitive_bare_error.saw:12:12"
+log	"     |"
+log	" 12 |     let f: Widget = Widget(n: 1)"
+log	"     |            ^"
+log	"   hint: `Widget` is imported by `modules.export229_wall` but not re-exported — add `public import` in `modules.export229_wall`, or import `modules.export229_leaf` directly"
+log	""
+log	"error: `Widget` is not part of `modules.export229_wall`'s surface"
+log	"  --> examples/export229_transitive_bare_error.saw:12:21"
+log	"     |"
+log	" 12 |     let f: Widget = Widget(n: 1)"
+log	"     |                     ^"
+log	"   hint: `Widget` is imported by `modules.export229_wall` but not re-exported — add `public import` in `modules.export229_wall`, or import `modules.export229_leaf` directly"
+log	""
+log	"2 error(s) generated"

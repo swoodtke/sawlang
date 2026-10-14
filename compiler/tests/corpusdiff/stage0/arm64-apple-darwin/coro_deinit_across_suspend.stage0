@@ -1,0 +1,10 @@
+program	coro_deinit_across_suspend.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"42"
+stdout	"43"
+stdout	""
+meets_expect	yes

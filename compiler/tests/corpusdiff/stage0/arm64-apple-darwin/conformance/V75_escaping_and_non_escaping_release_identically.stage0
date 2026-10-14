@@ -1,0 +1,17 @@
+program	conformance/V75_escaping_and_non_escaping_release_identically.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"direct 1"
+stdout	"drop 1"
+stdout	"after direct"
+stdout	"bound 2"
+stdout	"drop 2"
+stdout	"after bound"
+stdout	"bound 3"
+stdout	"drop 3"
+stdout	"after second call"
+stdout	""
+meets_expect	yes

@@ -1,0 +1,14 @@
+program	errors/constructor_inference_underdetermined.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	cannot infer type argument `T` for struct `Vector`
+meets_expect	yes
+log	"error: cannot infer type argument `T` for struct `Vector`"
+log	"  --> examples/errors/constructor_inference_underdetermined.saw:10:13"
+log	"     |"
+log	" 10 |     let v = Vector()"
+log	"     |             ^"
+log	"   hint: give the type argument(s) explicitly, e.g. `Vector<T>(...)`"
+log	""
+log	"1 error(s) generated"

@@ -1,0 +1,14 @@
+program	cbor169_roundtrip.saw
+triple	arm64-apple-darwin
+twin	differs
+expect	success
+build	ok
+exit	0
+stdout	"endpoint bytes match struct_endpoint.cbor"
+stdout	"endpoint back: port=443 secure=true name=api"
+stdout	"lock entry bytes match lock_entry.cbor"
+stdout	"lock entry back: toml 0.1.0 path libs/toml ''"
+stdout	"manifest back: track=Release port=8080 tag=none deps=2 first=toml/0.1.0 lo=-7 hi=200"
+stdout	"a second value in the same blob: decode error at byte 1: bytes remain after the top-level item"
+stdout	""
+meets_expect	yes

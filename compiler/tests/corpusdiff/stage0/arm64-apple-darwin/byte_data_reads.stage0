@@ -1,0 +1,18 @@
+program	byte_data_reads.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"get 200"
+stdout	"pop 200"
+stdout	"iterated 3, last 202"
+stdout	"literal sink 7"
+stdout	"byte sink 65"
+stdout	"uint8 sink 9"
+stdout	"place read 7"
+stdout	"place write 42"
+stdout	"from a string 104"
+stdout	"fixedbuf 65"
+stdout	""
+meets_expect	yes

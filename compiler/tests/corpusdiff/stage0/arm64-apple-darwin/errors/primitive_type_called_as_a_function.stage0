@@ -1,0 +1,7 @@
+program	errors/primitive_type_called_as_a_function.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	internal compiler error at examples/errors/primitive_type_called_as_a_function.saw:26:5 (FunctionCall): Undefined function: UInt8
+meets_expect	yes
+log	"error: internal compiler error at examples/errors/primitive_type_called_as_a_function.saw:26:5 (FunctionCall): Undefined function: UInt8"

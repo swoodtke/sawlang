@@ -1,0 +1,10 @@
+program	free_function_never_shadows_a_runtime_symbol.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"bytes 16"
+stdout	"helper 4242"
+stdout	""
+meets_expect	yes

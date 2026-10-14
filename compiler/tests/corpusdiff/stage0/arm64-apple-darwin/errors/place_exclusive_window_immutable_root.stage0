@@ -1,0 +1,14 @@
+program	errors/place_exclusive_window_immutable_root.saw
+triple	arm64-apple-darwin
+twin	differs
+expect	error
+build	refused	cannot open an exclusive place window on immutable variable `v`
+meets_expect	yes
+log	"error: cannot open an exclusive place window on immutable variable `v`"
+log	"  --> examples/errors/place_exclusive_window_immutable_root.saw:25:6"
+log	"     |"
+log	" 25 |     v[0].bump()"
+log	"     |      ^"
+log	"   hint: consider using `var` instead of `let` to make it mutable"
+log	""
+log	"1 error(s) generated"

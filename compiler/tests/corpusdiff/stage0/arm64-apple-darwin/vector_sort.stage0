@@ -1,0 +1,17 @@
+program	vector_sort.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"1"
+stdout	"2"
+stdout	"2"
+stdout	"5"
+stdout	"8"
+stdout	"9"
+stdout	"apple"
+stdout	"banana"
+stdout	"cherry"
+stdout	""
+meets_expect	yes

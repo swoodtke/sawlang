@@ -1,0 +1,14 @@
+program	errors/unsafe_sync_past_safe_field.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	cannot declare `UnsafeSend` for `Mixed`: field `fn` has type `(Int) escaping -> Int`, which is not `Send` and is not an unsafe type
+meets_expect	yes
+log	"error: cannot declare `UnsafeSend` for `Mixed`: field `fn` has type `(Int) escaping -> Int`, which is not `Send` and is not an unsafe type"
+log	"  --> examples/errors/unsafe_sync_past_safe_field.saw:14:1"
+log	"     |"
+log	" 14 | extension Mixed: UnsafeSend {}"
+log	"     | ^"
+log	"   hint: an assertion may cover only what the unsafe domain already owns — an interior cell, an `UnsafePointer`, an `UnsafeMemory`. Asserting past a SAFE field is a claim about someone else's invariants; bound the parameter (`<T: Send>`) or hold the field behind a type that carries the synchronization"
+log	""
+log	"1 error(s) generated"

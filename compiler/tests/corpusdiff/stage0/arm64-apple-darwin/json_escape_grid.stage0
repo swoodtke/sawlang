@@ -1,0 +1,16 @@
+program	json_escape_grid.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"short_escapes -> \"\\\"\\\\/\\b\\f\\n\\r\\t\" -> roundtrip OK"
+stdout	"bmp_escape decoded: e9"
+stdout	"astral_surrogate_pair decoded: 1f600"
+stdout	"lone_high_surrogate: decode error at byte 1: the bytes are not a well-formed item"
+stdout	"lone_low_surrogate: decode error at byte 1: the bytes are not a well-formed item"
+stdout	"high_then_non_low_surrogate: decode error at byte 1: the bytes are not a well-formed item"
+stdout	"high_not_followed_by_escape: decode error at byte 1: the bytes are not a well-formed item"
+stdout	"raw_control_byte: decode error at byte 1: the bytes are not a well-formed item"
+stdout	""
+meets_expect	yes

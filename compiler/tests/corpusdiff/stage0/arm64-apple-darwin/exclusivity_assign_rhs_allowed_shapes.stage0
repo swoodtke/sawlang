@@ -1,0 +1,12 @@
+program	exclusivity_assign_rhs_allowed_shapes.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"disjoint 9 3"
+stdout	"accumulate 10"
+stdout	"unrelated 5"
+stdout	"self-read 4"
+stdout	""
+meets_expect	yes

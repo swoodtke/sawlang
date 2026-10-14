@@ -1,0 +1,11 @@
+program	deinit_temp_receiver.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"use"
+stdout	"R deinit"
+stdout	"after"
+stdout	""
+meets_expect	yes

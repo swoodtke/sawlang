@@ -1,0 +1,14 @@
+program	conformance/V37_generic_body_field_read_requires_copy.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	`Cell.get` requires `T` to be `Copy` — it reads `the value.value` out of storage it does not own; `Res` is move-only
+meets_expect	yes
+log	"error: `Cell.get` requires `T` to be `Copy` — it reads `the value.value` out of storage it does not own; `Res` is move-only"
+log	"  --> examples/conformance/V37_generic_body_field_read_requires_copy.saw:30:16"
+log	"     |"
+log	" 30 |     let out = c.get()"
+log	"     |                ^"
+log	"   hint: pass a type on the `Copy` tier, or rewrite the body to move `T` instead of duplicating it. A body that means to duplicate declares `<T: ExplicitCopy>` and spells `.copy()`"
+log	""
+log	"1 error(s) generated"

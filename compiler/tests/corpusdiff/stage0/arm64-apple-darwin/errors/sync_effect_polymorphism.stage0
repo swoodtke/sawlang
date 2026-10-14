@@ -1,0 +1,14 @@
+program	errors/sync_effect_polymorphism.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	cannot suspend in `sync func` declaration: `sync func handler` calls `apply` → a call through a non-`sync` function value (`apply` suspends at line 12)
+meets_expect	yes
+log	"error: cannot suspend in `sync func` declaration: `sync func handler` calls `apply` → a call through a non-`sync` function value (`apply` suspends at line 12)"
+log	"  --> examples/errors/sync_effect_polymorphism.saw:15:1"
+log	"     |"
+log	" 15 | func handler() sync -> Int {"
+log	"     | ^"
+log	"   hint: a `sync` context must be transitively suspension-free: remove the suspending call or hoist it out of the sync region"
+log	""
+log	"1 error(s) generated"

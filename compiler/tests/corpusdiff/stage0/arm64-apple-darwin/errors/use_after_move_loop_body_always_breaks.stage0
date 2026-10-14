@@ -1,0 +1,21 @@
+program	errors/use_after_move_loop_body_always_breaks.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	use of moved variable `body` across loop iterations
+meets_expect	yes
+log	"error: use of moved variable `body` across loop iterations"
+log	"  --> examples/errors/use_after_move_loop_body_always_breaks.saw:35:30"
+log	"     |"
+log	" 35 |         let _ = consume_bool(move body)"
+log	"     |                              ^"
+log	"   hint: a binding moved inside a loop is moved-from on the next iteration; reassign it before the loop body ends, or move a fresh value"
+log	""
+log	"error: use of moved variable `head` across loop iterations"
+log	"  --> examples/errors/use_after_move_loop_body_always_breaks.saw:47:24"
+log	"     |"
+log	" 47 |     while consume_bool(move head) {"
+log	"     |                        ^"
+log	"   hint: this move is in the loop's CONDITION, which re-evaluates on every iteration, so the second evaluation reads a binding the first one consumed; reassign it before the loop body ends, move a fresh value, or lift the move out of the loop"
+log	""
+log	"2 error(s) generated"

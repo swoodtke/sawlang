@@ -1,0 +1,13 @@
+program	vector_swap_string.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"gamma padding cccccccccccccccccccccccc"
+stdout	"beta padding bbbbbbbbbbbbbbbbbbbbbbbbbb"
+stdout	"alpha padding aaaaaaaaaaaaaaaaaaaaaaaa"
+stdout	"DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD"
+stdout	"gamma padding cccccccccccccccccccccccc"
+stdout	""
+meets_expect	yes

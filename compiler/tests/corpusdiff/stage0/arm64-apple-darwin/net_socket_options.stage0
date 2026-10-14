@@ -1,0 +1,13 @@
+program	net_socket_options.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"no_delay off ok"
+stdout	"no_delay on ok"
+stdout	"keepalive on ok"
+stdout	"keepalive off ok"
+stdout	"wrote 5 bytes worth"
+stdout	""
+meets_expect	yes

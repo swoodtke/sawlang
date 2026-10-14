@@ -1,0 +1,13 @@
+program	crossmodule_embed_type_name_head.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"enum arg 2"
+stdout	"generic arg 11"
+stdout	"qualifier 12"
+stdout	"static 201"
+stdout	"builtin 301"
+stdout	""
+meets_expect	yes

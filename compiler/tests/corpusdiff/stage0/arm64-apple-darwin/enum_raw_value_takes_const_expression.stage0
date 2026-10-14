@@ -1,0 +1,16 @@
+program	enum_raw_value_takes_const_expression.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"Read=1 Device=8"
+stdout	"bit8=256"
+stdout	"shift=1 2 4 8"
+stdout	"arith=8 16 32"
+stdout	"paren=64 combined=24"
+stdout	"signed=-1 -2 0"
+stdout	"static fold=3"
+stdout	"from8=8"
+stdout	""
+meets_expect	yes

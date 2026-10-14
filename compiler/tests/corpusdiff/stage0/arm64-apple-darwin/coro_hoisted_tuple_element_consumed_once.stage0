@@ -1,0 +1,12 @@
+program	coro_hoisted_tuple_element_consumed_once.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"t=70 71"
+stdout	"deinit 71"
+stdout	"deinit 70"
+stdout	"done"
+stdout	""
+meets_expect	yes

@@ -1,0 +1,9 @@
+program	once_get_before_set_panic.saw
+triple	arm64-apple-darwin
+twin	same
+expect	panic
+build	ok
+exit	-6
+stdout	"panic at once.saw:113: Once.get: read before initialization"
+stdout	""
+meets_expect	yes

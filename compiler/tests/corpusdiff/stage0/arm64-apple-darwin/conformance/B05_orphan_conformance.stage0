@@ -1,0 +1,21 @@
+program	conformance/B05_orphan_conformance.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	`Thing` cannot be conformed to `Printable` here: this module defines neither the type nor the trait
+meets_expect	yes
+log	"error: `Thing` cannot be conformed to `Printable` here: this module defines neither the type nor the trait"
+log	"  --> examples/conformance/B05_orphan_conformance.saw:10:1"
+log	"     |"
+log	" 10 | extension Thing: Printable {"
+log	"     | ^"
+log	"   hint: declare the conformance in `dep` (which defines `Thing`) or `std.builtin` (which defines `Printable`). A conformance is program-wide — two modules minting one for the same (type, trait) pair would disagree about what `Printable` means for `Thing`"
+log	""
+log	"error: result of `append` is `Result<Void, AllocError>` and is silently discarded"
+log	"  --> examples/conformance/B05_orphan_conformance.saw:11:56"
+log	"     |"
+log	" 11 |     func format(&self, into: &var StringBuilder) { into.append(\"thing\") }"
+log	"     |                                                        ^"
+log	"   hint: handle it — `match` it, `try`/`try!`/`try?` it, or return it — or write `let _ = ...` to discard it explicitly"
+log	""
+log	"2 error(s) generated"

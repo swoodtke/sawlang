@@ -1,0 +1,13 @@
+program	coro_suspending_default_omitted_cross_module.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	coroutine transform: the default value of parameter `x` of `suspdefN` suspends, and a suspending default cannot be materialized at a call that omits it — the expression would need a coroutine frame of its own at every such call. Pass the argument explicitly, or give the parameter a non-suspending default
+meets_expect	yes
+log	"error: coroutine transform: the default value of parameter `x` of `suspdefN` suspends, and a suspending default cannot be materialized at a call that omits it — the expression would need a coroutine frame of its own at every such call. Pass the argument explicitly, or give the parameter a non-suspending default"
+log	"  --> examples/coro_suspending_default_omitted_cross_module.saw:24:1"
+log	"     |"
+log	" 24 |     sl208_calls.suspdefN()"
+log	"     | ^"
+log	""
+log	"1 error(s) generated"

@@ -1,0 +1,14 @@
+program	errors/arc_forward_var_self.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	cannot call `&var self` method `bump` through `Arc` — aliased mutation of a shared value is not allowed
+meets_expect	yes
+log	"error: cannot call `&var self` method `bump` through `Arc` — aliased mutation of a shared value is not allowed"
+log	"  --> examples/errors/arc_forward_var_self.saw:19:7"
+log	"     |"
+log	" 19 |     ac.bump()"
+log	"     |       ^"
+log	"   hint: wrap the payload in a `Mutex` and mutate it inside `lock`"
+log	""
+log	"1 error(s) generated"

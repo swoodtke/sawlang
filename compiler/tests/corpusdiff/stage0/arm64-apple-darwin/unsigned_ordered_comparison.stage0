@@ -1,0 +1,18 @@
+program	unsigned_ordered_comparison.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"alias 255 <= 127: false"
+stdout	"alias 255 <  245: false"
+stdout	"alias 255 >  127: true"
+stdout	"alias 255 <= u127: false"
+stdout	"plain 255 <= 127: false"
+stdout	"compare(255, 127): Greater"
+stdout	"compare(UInt.max, 1): Greater"
+stdout	"equality 255 == 255: true"
+stdout	"divide 255 / 2: 127"
+stdout	"widen 255 as Int: 255"
+stdout	""
+meets_expect	yes

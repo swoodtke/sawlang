@@ -1,0 +1,11 @@
+program	init_generic_body_isolates_cleanup_state.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"3"
+stdout	"3 7"
+stdout	"hi 1"
+stdout	""
+meets_expect	yes

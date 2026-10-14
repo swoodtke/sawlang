@@ -1,0 +1,14 @@
+program	errors/sleep_bare_int.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	`sleep` expects a `Duration`, got `Int`
+meets_expect	yes
+log	"error: `sleep` expects a `Duration`, got `Int`"
+log	"  --> examples/errors/sleep_bare_int.saw:10:5"
+log	"     |"
+log	" 10 |     sleep(200)"
+log	"     |     ^"
+log	"   hint: a span is a `Duration`: `sleep(Duration.ms(200))`, or `Duration.ns` / `us` / `secs`"
+log	""
+log	"1 error(s) generated"

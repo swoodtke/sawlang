@@ -1,0 +1,20 @@
+program	errors/infer_overload_ambiguous.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	ambiguous call to `amb`: type-argument inference matches multiple generic overloads (Int, Int)
+meets_expect	yes
+log	"error: ambiguous call to `amb`: type-argument inference matches multiple generic overloads (Int, Int)"
+log	"  --> examples/errors/infer_overload_ambiguous.saw:12:13"
+log	"     |"
+log	" 12 |     let x = amb(5, 5)   // both solve T=Int and type-match -> ambiguous"
+log	"     |             ^"
+log	"   hint: give explicit type arguments or labels to select one; matching: <T> amb(a: T, b: Int) with <T=Int>; <T> amb(a: T, b: T) with <T=Int>"
+log	""
+log	"error: undefined variable `x`"
+log	"  --> examples/errors/infer_overload_ambiguous.saw:13:11"
+log	"     |"
+log	" 13 |     print(x)"
+log	"     |           ^"
+log	""
+log	"2 error(s) generated"

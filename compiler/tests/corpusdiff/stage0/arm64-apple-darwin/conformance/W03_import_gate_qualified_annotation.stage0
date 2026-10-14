@@ -1,0 +1,11 @@
+program	conformance/W03_import_gate_qualified_annotation.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"3"
+stdout	"none"
+stdout	"2"
+stdout	""
+meets_expect	yes

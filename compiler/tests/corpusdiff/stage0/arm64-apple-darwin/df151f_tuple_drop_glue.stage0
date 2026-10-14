@@ -1,0 +1,28 @@
+program	df151f_tuple_drop_glue.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"start 0"
+stdout	"named_tuple 1 live 0"
+stdout	"field_named_tuple 3 live 0"
+stdout	"nested_tuple 2 live 0"
+stdout	"tuple_in_struct 3 live 0"
+stdout	"tuple_in_enum 1 live 0"
+stdout	"destructured 2 live 0"
+stdout	"matched_temp 5 live 0"
+stdout	"whole_copy 2 live 0"
+stdout	"by_value_arg 2 live 0"
+stdout	"returned 1 live 0"
+stdout	"element_read 2 live 0"
+stdout	"in_vector 2 live 0"
+stdout	"owning_array 1 live 0"
+stdout	"array_of_tuples 6 live 0"
+stdout	"optional_tuple 8 live 0"
+stdout	"overwritten 12 live 0"
+stdout	"across_suspend 13 live 0"
+stdout	"destructured_across_suspend 2 live 0"
+stdout	"done 0"
+stdout	""
+meets_expect	yes

@@ -1,0 +1,21 @@
+program	export229_std_through_module_error.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	`data` is not part of `export229_wall`'s surface
+meets_expect	yes
+log	"error: `data` is not part of `export229_wall`'s surface"
+log	"  --> examples/export229_std_through_module_error.saw:10:15"
+log	"     |"
+log	" 10 | func take(d: &export229_wall.data.Data) -> Int {"
+log	"     |               ^"
+log	"   hint: `data` is imported by `export229_wall` but not re-exported — add `public import` in `export229_wall`, or import `std.data` directly"
+log	""
+log	"error: type `export229_wall.data.Data` in parameter `d` does not resolve"
+log	"  --> examples/export229_std_through_module_error.saw:10:1"
+log	"     |"
+log	" 10 | func take(d: &export229_wall.data.Data) -> Int {"
+log	"     | ^"
+log	"   hint: `export229_wall.data` must be an imported module exporting a public `Data` — check the import and that `Data` is `public`"
+log	""
+log	"2 error(s) generated"

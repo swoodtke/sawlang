@@ -1,0 +1,13 @@
+program	capture_write_allowed_forms.saw
+triple	arm64-apple-darwin
+twin	differs
+expect	success
+build	ok
+exit	0
+stdout	"6"
+stdout	"5"
+stdout	"11"
+stdout	"3"
+stdout	"2"
+stdout	""
+meets_expect	yes

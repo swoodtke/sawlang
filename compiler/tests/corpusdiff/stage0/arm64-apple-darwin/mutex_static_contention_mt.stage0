@@ -1,0 +1,10 @@
+program	mutex_static_contention_mt.saw
+triple	arm64-apple-darwin
+twin	differs
+expect	success
+build	ok
+exit	0
+stdout	"1000"
+stdout	"4"
+stdout	""
+meets_expect	yes

@@ -1,0 +1,11 @@
+program	method_overloads_distinguished_by_labels.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"free 3 30"
+stdout	"static 3 30"
+stdout	"instance 4 40"
+stdout	""
+meets_expect	yes

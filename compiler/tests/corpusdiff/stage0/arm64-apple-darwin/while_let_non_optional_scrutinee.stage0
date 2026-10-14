@@ -1,0 +1,13 @@
+program	while_let_non_optional_scrutinee.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	'while let' requires an optional type, got `Int`
+meets_expect	yes
+log	"error: 'while let' requires an optional type, got `Int`"
+log	"  --> examples/while_let_non_optional_scrutinee.saw:9:5"
+log	"    |"
+log	" 9 |     while let x = n {"
+log	"    |     ^"
+log	""
+log	"1 error(s) generated"

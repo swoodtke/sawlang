@@ -1,0 +1,11 @@
+program	vector_custom_alloc_grow_pairs.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"40"
+stdout	"true"
+stdout	"true"
+stdout	""
+meets_expect	yes

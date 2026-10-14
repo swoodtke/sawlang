@@ -1,0 +1,27 @@
+program	map_each_mutate_error.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	exclusive access violation: `m` is passed as `&var` while also being accessed in the same call
+meets_expect	yes
+log	"error: result of `insert` is `Result<Int?, AllocError>` and is silently discarded"
+log	"  --> examples/map_each_mutate_error.saw:10:6"
+log	"     |"
+log	" 10 |     m.insert(1, 10)"
+log	"     |      ^"
+log	"   hint: handle it — `match` it, `try`/`try!`/`try?` it, or return it — or write `let _ = ...` to discard it explicitly"
+log	""
+log	"error: argument `body` expects `(&Int, &Int) -> Void` but got `(&Int, &Int) -> Result<Int?, AllocError>`"
+log	"  --> examples/map_each_mutate_error.saw:11:12"
+log	"     |"
+log	" 11 |     m.each { [&var m] k, v in"
+log	"     |            ^"
+log	""
+log	"error: exclusive access violation: `m` is passed as `&var` while also being accessed in the same call"
+log	"  --> examples/map_each_mutate_error.saw:11:15"
+log	"     |"
+log	" 11 |     m.each { [&var m] k, v in"
+log	"     |               ^"
+log	"   hint: disjoint access paths are allowed (e.g. `&var p.x` with `&p.y`); give the mutable reference exclusive access"
+log	""
+log	"3 error(s) generated"

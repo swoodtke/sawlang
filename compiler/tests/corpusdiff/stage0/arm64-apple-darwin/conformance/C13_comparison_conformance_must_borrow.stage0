@@ -1,0 +1,14 @@
+program	conformance/C13_comparison_conformance_must_borrow.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	parameter `other` of `equals` must be a reference: trait `Equatable` declares it `&Self`, and this implementation takes it by value (`Tag`)
+meets_expect	yes
+log	"error: parameter `other` of `equals` must be a reference: trait `Equatable` declares it `&Self`, and this implementation takes it by value (`Tag`)"
+log	"  --> examples/conformance/C13_comparison_conformance_must_borrow.saw:22:1"
+log	"     |"
+log	" 22 | extension Tag: Equatable {"
+log	"     | ^"
+log	"   hint: write `func equals(&self, other: &Self)` — on `Tag` that is `&Tag`. A by-value parameter says the body may consume what it is given, and every caller of the requirement hands it a borrow"
+log	""
+log	"1 error(s) generated"

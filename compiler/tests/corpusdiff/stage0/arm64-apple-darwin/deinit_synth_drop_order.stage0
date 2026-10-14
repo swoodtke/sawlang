@@ -1,0 +1,18 @@
+program	deinit_synth_drop_order.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"locals built"
+stdout	"drop l2"
+stdout	"drop l1"
+stdout	"fields built"
+stdout	"drop c"
+stdout	"drop b"
+stdout	"drop a"
+stdout	"nested built"
+stdout	"drop inner-y"
+stdout	"drop inner-x"
+stdout	""
+meets_expect	yes

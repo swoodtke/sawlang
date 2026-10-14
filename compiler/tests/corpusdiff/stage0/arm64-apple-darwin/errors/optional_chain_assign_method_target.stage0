@@ -1,0 +1,13 @@
+program	errors/optional_chain_assign_method_target.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	an optional-chain assignment must target a field of the payload (the final segment must be `.field`, not a method call)
+meets_expect	yes
+log	"error: an optional-chain assignment must target a field of the payload (the final segment must be `.field`, not a method call)"
+log	"  --> examples/errors/optional_chain_assign_method_target.saw:11:7"
+log	"     |"
+log	" 11 |     op?.setX() = 5"
+log	"     |       ^"
+log	""
+log	"1 error(s) generated"

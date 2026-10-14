@@ -1,0 +1,11 @@
+program	coro_hoisted_coalesce_rhs_consumed_once.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"r=9"
+stdout	"deinit 9"
+stdout	"done"
+stdout	""
+meets_expect	yes

@@ -1,0 +1,14 @@
+program	conformance/M21_write_field_of_capture.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	cannot assign to `s`: it is captured by value, so the write would be discarded when the closure returns
+meets_expect	yes
+log	"error: cannot assign to `s`: it is captured by value, so the write would be discarded when the closure returns"
+log	"  --> examples/conformance/M21_write_field_of_capture.saw:12:16"
+log	"     |"
+log	" 12 |     let f = { s.n = 1; s.n }"
+log	"     |                ^"
+log	"   hint: capture it by borrow — `{ [&var s] ... }`, legal in a closure passed directly to a non-escaping parameter — or, for a closure that outlives the frame, share the state through an `Arc<Mutex<T>>`"
+log	""
+log	"1 error(s) generated"

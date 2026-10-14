@@ -1,0 +1,11 @@
+program	string_iterator_retains_its_receiver.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"bytes 169"
+stdout	"scalars 170"
+stdout	"for-loop 169"
+stdout	""
+meets_expect	yes

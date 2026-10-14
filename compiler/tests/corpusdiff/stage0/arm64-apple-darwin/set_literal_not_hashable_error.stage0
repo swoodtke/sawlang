@@ -1,0 +1,20 @@
+program	set_literal_not_hashable_error.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	set element type `NoHash` must be `Hashable` (map keys and set elements require Hashable + Equatable)
+meets_expect	yes
+log	"error: set element type `NoHash` must be `Hashable` (map keys and set elements require Hashable + Equatable)"
+log	"  --> examples/set_literal_not_hashable_error.saw:11:13"
+log	"     |"
+log	" 11 |     var s = {NoHash(label: \"a\"), NoHash(label: \"b\")}"
+log	"     |             ^"
+log	""
+log	"error: type `Set<NoHash>` has no method `len`: requires `T: Hashable`, and `NoHash` does not conform"
+log	"  --> examples/set_literal_not_hashable_error.saw:12:12"
+log	"     |"
+log	" 12 |     print(s.len())"
+log	"     |            ^"
+log	"   hint: `len` is only available when `T` satisfies `Hashable`"
+log	""
+log	"2 error(s) generated"

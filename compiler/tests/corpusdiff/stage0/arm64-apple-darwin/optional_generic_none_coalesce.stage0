@@ -1,0 +1,11 @@
+program	optional_generic_none_coalesce.saw
+triple	arm64-apple-darwin
+twin	differs
+expect	success
+build	ok
+exit	0
+stdout	"missing inner-absent"
+stdout	"present 1"
+stdout	"-- done"
+stdout	""
+meets_expect	yes

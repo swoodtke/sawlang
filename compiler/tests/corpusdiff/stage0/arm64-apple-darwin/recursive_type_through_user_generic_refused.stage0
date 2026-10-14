@@ -1,0 +1,14 @@
+program	recursive_type_through_user_generic_refused.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	recursive type `Expr` has infinite size: its storage contains its own storage inline, through Expr.Group.p -> Pair.a -> Expr
+meets_expect	yes
+log	"error: recursive type `Expr` has infinite size: its storage contains its own storage inline, through Expr.Group.p -> Pair.a -> Expr"
+log	"  --> examples/recursive_type_through_user_generic_refused.saw:22:1"
+log	"     |"
+log	" 22 | enum Expr {"
+log	"     | ^"
+log	"   hint: hold the recursive member behind a heap indirection — `Box<Expr>`, `Vector<Expr>` or a `Map` value — so the cycle crosses a pointer and the layout is finite"
+log	""
+log	"1 error(s) generated"

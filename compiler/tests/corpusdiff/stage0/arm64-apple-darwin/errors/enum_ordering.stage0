@@ -1,0 +1,14 @@
+program	errors/enum_ordering.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	cannot order values of type `Status` with `<`: `Status` does not conform to `Comparable`
+meets_expect	yes
+log	"error: cannot order values of type `Status` with `<`: `Status` does not conform to `Comparable`"
+log	"  --> examples/errors/enum_ordering.saw:16:11"
+log	"     |"
+log	" 16 |     if s1 < s2 {"
+log	"     |           ^"
+log	"   hint: add `extension Status: Comparable {}`"
+log	""
+log	"1 error(s) generated"

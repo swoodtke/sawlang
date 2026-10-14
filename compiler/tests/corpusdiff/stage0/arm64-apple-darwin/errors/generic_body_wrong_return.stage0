@@ -1,0 +1,13 @@
+program	errors/generic_body_wrong_return.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	function `bad` should return `Int` but returns `Bool`
+meets_expect	yes
+log	"error: function `bad` should return `Int` but returns `Bool`"
+log	"  --> examples/errors/generic_body_wrong_return.saw:14:1"
+log	"     |"
+log	" 14 | func bad<T>(x: T) -> Int {"
+log	"     | ^"
+log	""
+log	"1 error(s) generated"

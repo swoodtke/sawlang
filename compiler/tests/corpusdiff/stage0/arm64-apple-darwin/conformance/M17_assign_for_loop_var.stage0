@@ -1,0 +1,14 @@
+program	conformance/M17_assign_for_loop_var.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	cannot assign to immutable variable `i`
+meets_expect	yes
+log	"error: cannot assign to immutable variable `i`"
+log	"  --> examples/conformance/M17_assign_for_loop_var.saw:10:9"
+log	"     |"
+log	" 10 |         i = 5"
+log	"     |         ^"
+log	"   hint: consider using `var` instead of `let` to make it mutable"
+log	""
+log	"1 error(s) generated"

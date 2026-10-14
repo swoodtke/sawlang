@@ -9,8 +9,8 @@
 // EXPECT-OUTPUT:
 // bound r1
 // DEINIT r1
-// DEINIT r2
 // wildcard
+// DEINIT r2
 // done
 
 struct Res { name: String }

@@ -1,0 +1,9 @@
+program	trait_self_optional_bound_call.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"1"
+stdout	""
+meets_expect	yes

@@ -1,0 +1,13 @@
+program	coro_try_block_two_error_types.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	coroutine transform: a `try { } catch { }` block that spans a suspension in `mixed` may raise only ONE error type, and this one raises 2 (`Flaky`, `Other`); the catch would bind a union the split lowering cannot build. Split it into one `try`/`catch` per error type, or handle each call with an inline `try <call> catch { ... }`.
+meets_expect	yes
+log	"error: coroutine transform: a `try { } catch { }` block that spans a suspension in `mixed` may raise only ONE error type, and this one raises 2 (`Flaky`, `Other`); the catch would bind a union the split lowering cannot build. Split it into one `try`/`catch` per error type, or handle each call with an inline `try <call> catch { ... }`."
+log	"  --> examples/coro_try_block_two_error_types.saw:48:5"
+log	"     |"
+log	" 48 |     try {"
+log	"     |     ^"
+log	""
+log	"1 error(s) generated"

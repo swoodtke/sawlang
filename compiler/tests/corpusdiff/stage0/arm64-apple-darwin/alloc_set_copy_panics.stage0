@@ -1,0 +1,10 @@
+program	alloc_set_copy_panics.saw
+triple	arm64-apple-darwin
+twin	same
+expect	panic
+build	ok
+exit	-6
+stdout	"1"
+stdout	"panic at map.saw:448: Map.copy: allocation of 128 bytes (align 8) failed"
+stdout	""
+meets_expect	yes

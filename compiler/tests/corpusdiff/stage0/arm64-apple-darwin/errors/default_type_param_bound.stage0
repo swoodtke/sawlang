@@ -1,0 +1,13 @@
+program	errors/default_type_param_bound.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	type argument `Int` does not satisfy bound `A: Marker` on struct `Crate`
+meets_expect	yes
+log	"error: type argument `Int` does not satisfy bound `A: Marker` on struct `Crate`"
+log	"  --> examples/errors/default_type_param_bound.saw:19:13"
+log	"     |"
+log	" 19 |     let b = Crate<Int>(v: 5)"
+log	"     |             ^"
+log	""
+log	"1 error(s) generated"

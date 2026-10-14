@@ -1,0 +1,26 @@
+program	suspending_return_propagates_a_try.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"plain ok 6"
+stdout	"plain err A30"
+stdout	"argument ok 12"
+stdout	"argument err A30"
+stdout	"receiver ok 1"
+stdout	"receiver err A30"
+stdout	"binary ok 7"
+stdout	"binary err A30"
+stdout	"subject ok 600"
+stdout	"subject err A30"
+stdout	"coalesce ok 6"
+stdout	"coalesce err A30"
+stdout	"tail ok 6"
+stdout	"tail err A30"
+stdout	"tail_arm ok 6"
+stdout	"tail_arm err A30"
+stdout	"in_loop ok 6"
+stdout	"in_loop err A30"
+stdout	""
+meets_expect	yes

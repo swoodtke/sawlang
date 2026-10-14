@@ -1,0 +1,13 @@
+program	any_vector_deinit.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"3"
+stdout	"gone 3"
+stdout	"loop done"
+stdout	"gone 1"
+stdout	"gone 2"
+stdout	""
+meets_expect	yes

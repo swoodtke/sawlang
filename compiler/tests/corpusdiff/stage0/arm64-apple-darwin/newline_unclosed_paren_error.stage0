@@ -1,0 +1,7 @@
+program	newline_unclosed_paren_error.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	Parse error at 14:18: unclosed `(` — no matching `)` before the end of the file (a line break inside brackets does not close them)
+meets_expect	yes
+log	"error: Parse error at 14:18: unclosed `(` — no matching `)` before the end of the file (a line break inside brackets does not close them)"

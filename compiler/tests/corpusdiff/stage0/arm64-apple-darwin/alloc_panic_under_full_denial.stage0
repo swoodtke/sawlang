@@ -1,0 +1,10 @@
+program	alloc_panic_under_full_denial.saw
+triple	arm64-apple-darwin
+twin	same
+expect	panic
+build	ok
+exit	-6
+stdout	"denial armed"
+stdout	"panic at alloc_panic_under_full_denial.saw:31: out of frames"
+stdout	""
+meets_expect	yes

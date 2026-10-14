@@ -1,0 +1,14 @@
+program	conformance/R40_var_self_capture_needs_var_receiver.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	`[&var self]` needs a `&var self` receiver, and `read` takes `&self`: a shared borrow has no exclusive borrow to hand out
+meets_expect	yes
+log	"error: `[&var self]` needs a `&var self` receiver, and `read` takes `&self`: a shared borrow has no exclusive borrow to hand out"
+log	"  --> examples/conformance/R40_var_self_capture_needs_var_receiver.saw:20:42"
+log	"     |"
+log	" 20 |     func read(&self) -> Int { run_int({ [&var self] in self.n + 1 }) }"
+log	"     |                                          ^"
+log	"   hint: write `[&self]` to capture the receiver as the shared borrow it is, or declare `read` with a `&var self` receiver"
+log	""
+log	"1 error(s) generated"

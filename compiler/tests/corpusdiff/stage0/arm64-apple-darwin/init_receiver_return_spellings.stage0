@@ -1,0 +1,14 @@
+program	init_receiver_return_spellings.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"Self: 7"
+stdout	"spelled receiver: 9"
+stdout	"generic, own params: 4 hi"
+stdout	"generic, Self: 5 yo"
+stdout	"const generic: 16"
+stdout	"no return clause: 25"
+stdout	""
+meets_expect	yes

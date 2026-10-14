@@ -1,0 +1,7 @@
+program	errors/static236_trait_default_no_receiver.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	Parse error at 13:5: trait requirement `describe` has no receiver — add `&self`/`&var self`, or declare it `static func` if a static was intended
+meets_expect	yes
+log	"error: Parse error at 13:5: trait requirement `describe` has no receiver — add `&self`/`&var self`, or declare it `static func` if a static was intended"

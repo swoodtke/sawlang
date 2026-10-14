@@ -1,0 +1,14 @@
+program	conformance/M12_varself_method_through_shared_ref.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	cannot call `&var self` method `bump` on immutable variable `c`
+meets_expect	yes
+log	"error: cannot call `&var self` method `bump` on immutable variable `c`"
+log	"  --> examples/conformance/M12_varself_method_through_shared_ref.saw:11:18"
+log	"     |"
+log	" 11 | func f(c: &C) { c.bump() }"
+log	"     |                  ^"
+log	"   hint: consider using `var` instead of `let` to make it mutable"
+log	""
+log	"1 error(s) generated"

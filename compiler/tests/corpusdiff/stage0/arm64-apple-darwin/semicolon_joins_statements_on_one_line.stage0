@@ -1,0 +1,28 @@
+program	semicolon_joins_statements_on_one_line.saw
+triple	arm64-apple-darwin
+twin	differs
+expect	success
+build	ok
+exit	0
+stdout	"sum 3"
+stdout	"less"
+stdout	"second on the line"
+stdout	"not less"
+stdout	"else second on the line"
+stdout	"tick 1"
+stdout	"tick 2"
+stdout	"step 0 doubled 0"
+stdout	"step 1 doubled 2"
+stdout	"closure 12"
+stdout	"buffer 7 of 3"
+stdout	"one"
+stdout	"still one"
+stdout	"bumped 1 then 2"
+stdout	"ok 6"
+stdout	"caught bad"
+stdout	"catch second on the line"
+stdout	"empty guard"
+stdout	"first 11"
+stdout	"lent 41"
+stdout	""
+meets_expect	yes

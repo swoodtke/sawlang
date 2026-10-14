@@ -1,0 +1,7 @@
+program	unicode_escape_malformed_error.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	Lexer error at 6:16: `\u{}` must contain 1–6 hexadecimal digits
+meets_expect	yes
+log	"error: Lexer error at 6:16: `\\u{}` must contain 1–6 hexadecimal digits"

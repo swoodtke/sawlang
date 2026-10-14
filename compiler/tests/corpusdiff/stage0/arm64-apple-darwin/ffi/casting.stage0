@@ -1,0 +1,13 @@
+program	ffi/casting.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"42"
+stdout	"42"
+stdout	"255"
+stdout	"1000"
+stdout	"-1"
+stdout	""
+meets_expect	yes

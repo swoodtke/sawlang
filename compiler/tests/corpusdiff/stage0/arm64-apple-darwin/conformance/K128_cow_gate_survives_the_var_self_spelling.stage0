@@ -1,0 +1,15 @@
+program	conformance/K128_cow_gate_survives_the_var_self_spelling.saw
+triple	arm64-apple-darwin
+twin	differs
+expect	success
+build	ok
+exit	0
+stdout	"let read 10, gates 0"
+stdout	"var read 10, gates 0"
+stdout	"var write 11, gates 1"
+stdout	"Data: frozen read 7, no var needed"
+stdout	"Data: after buf[0] = 90 -> frozen 7, buf 90"
+stdout	"Data: two readers of one buffer see 7 and 7"
+stdout	"-- done"
+stdout	""
+meets_expect	yes

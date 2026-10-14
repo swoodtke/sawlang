@@ -29,46 +29,42 @@ of the table, which is the same for every program. For each refusal test,
 `EXPECT-ERROR-CONTAINS` texts and gives the error that names the limit, and
 `refusals/PATH.stage0` holds the diagnostics whole.
 
-Reading needs only this file: `load()` gives each record.
+A record's header, run and log lines are the shared format of
+`compiler/tests/oracle.py`, which reads and writes them; the frame layout and
+table lines are this snapshot's own. Reading needs only this file and that
+one: `load()` gives each record.
 """
 import argparse
-import base64
 import concurrent.futures
-import hashlib
 import json
 import os
 import re
 import shutil
-import subprocess
 import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 CORO = os.path.dirname(HERE)
 REPO = os.path.dirname(os.path.dirname(os.path.dirname(CORO)))
-CORPUS = os.path.join(REPO, "tests", "corpus")
 EXAMPLES = os.path.join(REPO, "examples")
 INDEX = os.path.join(HERE, "index.tsv")
 REFUSALS = os.path.join(HERE, "refusals.tsv")
 RAW = os.path.join(REPO, ".build", "coro-stage0")
-FROZEN_SAWC = os.path.join(REPO, "sawc", "sawc.py")
 sys.path.insert(0, CORO)
+sys.path.insert(0, os.path.dirname(CORO))
 sys.path.append(os.path.join(REPO, "tools"))
 
 import child_groups  # noqa: E402
 import expect  # noqa: E402
+import oracle  # noqa: E402
 
 # compiler/target's names. Stage 0 runs only the host's binary; the others
 # are layout and table only.
 TRIPLES = ("arm64-apple-darwin", "x86_64-unknown-linux-gnu")
-RUNS = 2
-RUN_TIMEOUT = 60
-BUILD_TIMEOUT = 900
+RUNS = oracle.RUNS
 
 INDEX_COLUMNS = ("path", "triple", "twin", "expect", "build", "exit", "stdout", "stderr", "meets_expect",
                  "frames", "frame_bytes", "largest_frame", "bt_frames", "bt_states", "bt_bytes")
 REFUSAL_COLUMNS = ("path", "twin", "exit", "meets_expect", "errors", "error")
-_ANSI = re.compile(r"\x1b\[[0-9;]*m")
-_ERROR = re.compile(r"^(?:error\b|\w+ error at )")
 
 
 def rel(path):
@@ -83,7 +79,7 @@ def target_name(raw):
 
 # --- reading ---------------------------------------------------------------
 
-class Record:
+class Record(oracle.Record):
     """One program on one triple, as `TRIPLE/PATH.stage0` holds it.
 
     `frames` maps a frame symbol to its size, alignment, fields and the rest
@@ -93,16 +89,8 @@ class Record:
     is the string `varies`."""
 
     def __init__(self, path, triple):
-        self.path = path
+        super().__init__(path)
         self.triple = triple
-        self.twin = None
-        self.expect = None
-        self.build = None
-        self.exit = None
-        self.ran = False
-        self.meets_expect = None
-        self.stdout = None
-        self.stderr = None
         self.frames = {}
         self.frame_order = []
         self.bt = {}
@@ -116,53 +104,32 @@ def record_path(path, triple):
 
 def read_record(path, triple):
     rec = Record(path, triple)
-    streams = {}
-    frame = None
-    with open(record_path(path, triple), encoding="utf-8") as fh:
-        for line in fh:
-            fields = line.rstrip("\n").split("\t")
-            kind = fields[0]
-            if kind in ("twin", "expect", "build", "meets_expect"):
-                setattr(rec, kind, fields[1])
-            elif kind == "exit":
-                rec.ran = True
-                if fields[1] in ("timeout", "varies"):
-                    rec.exit = None if fields[1] == "timeout" else "varies"
-                else:
-                    rec.exit = int(fields[1])
-            elif kind in ("stdout", "stderr"):
-                if fields[1] == "varies":
-                    streams[kind] = "varies"
-                else:
-                    streams.setdefault(kind, []).append(json.loads(fields[1]))
-            elif kind == "frame":
-                frame = {"name": fields[2], "size": int(fields[3]), "align": int(fields[4]), "fields": []}
-                frame.update(_pairs(fields[5:]))
-                rec.frames[fields[1]] = frame
-                rec.frame_order.append(fields[1])
-            elif kind == "field":
-                entry = {"name": fields[1], "kind": fields[2], "offset": int(fields[3]), "size": int(fields[4]),
-                         "align": int(fields[5])}
-                entry.update(_pairs(fields[6:]))
-                frame["fields"].append(entry)
-            elif kind == "bt":
-                rec.bt_bytes = int(fields[1])
-            elif kind == "btframe":
-                rec.bt[fields[1]] = {"name": fields[2], "file": fields[3], "state_field": int(fields[4]),
-                                     "states": [_state(s) for s in fields[5].split(" ")] if len(fields) > 5 else []}
-                rec.bt_order.append(fields[1])
-            elif kind == "layout" and fields[1] == "same-as":
-                other = read_record(path, fields[2])
-                for name in ("frames", "frame_order", "bt", "bt_order", "bt_bytes"):
-                    setattr(rec, name, getattr(other, name))
-    if rec.ran:
-        rec.stdout = streams.get("stdout", "")
-        rec.stderr = streams.get("stderr", "")
-        for kind in ("stdout", "stderr"):
-            value = getattr(rec, kind)
-            if isinstance(value, list):
-                setattr(rec, kind, "\n".join(value))
-    return rec
+    frame = []
+
+    def layout_line(fields):
+        kind = fields[0]
+        if kind == "frame":
+            frame[:] = [{"name": fields[2], "size": int(fields[3]), "align": int(fields[4]), "fields": []}]
+            frame[0].update(_pairs(fields[5:]))
+            rec.frames[fields[1]] = frame[0]
+            rec.frame_order.append(fields[1])
+        elif kind == "field":
+            entry = {"name": fields[1], "kind": fields[2], "offset": int(fields[3]), "size": int(fields[4]),
+                     "align": int(fields[5])}
+            entry.update(_pairs(fields[6:]))
+            frame[0]["fields"].append(entry)
+        elif kind == "bt":
+            rec.bt_bytes = int(fields[1])
+        elif kind == "btframe":
+            rec.bt[fields[1]] = {"name": fields[2], "file": fields[3], "state_field": int(fields[4]),
+                                 "states": [_state(s) for s in fields[5].split(" ")] if len(fields) > 5 else []}
+            rec.bt_order.append(fields[1])
+        elif kind == "layout" and fields[1] == "same-as":
+            other = read_record(path, fields[2])
+            for name in ("frames", "frame_order", "bt", "bt_order", "bt_bytes"):
+                setattr(rec, name, getattr(other, name))
+
+    return oracle.read_record(record_path(path, triple), rec, layout_line)
 
 
 def _pairs(tokens):
@@ -182,23 +149,12 @@ def _state(token):
 
 def read_index():
     """The rows of index.tsv, as dicts by column."""
-    return _read_tsv(INDEX, INDEX_COLUMNS)
+    return oracle.read_tsv(INDEX, INDEX_COLUMNS)
 
 
 def read_refusals():
     """The rows of refusals.tsv, as dicts by column."""
-    return _read_tsv(REFUSALS, REFUSAL_COLUMNS)
-
-
-def _read_tsv(path, columns):
-    rows = []
-    with open(path, encoding="utf-8") as fh:
-        header = tuple(fh.readline().rstrip("\n").split("\t"))
-        if header != columns:
-            raise ValueError("%s: the header is %s, not %s" % (rel(path), header, columns))
-        for line in fh:
-            rows.append(dict(zip(columns, line.rstrip("\n").split("\t"))))
-    return rows
+    return oracle.read_tsv(REFUSALS, REFUSAL_COLUMNS)
 
 
 def programs():
@@ -230,8 +186,8 @@ def summary(rec):
         "expect": rec.expect,
         "build": rec.build,
         "exit": exit_text,
-        "stdout": _stream_summary(rec.stdout),
-        "stderr": _stream_summary(rec.stderr),
+        "stdout": oracle.stream_summary(rec.stdout),
+        "stderr": oracle.stream_summary(rec.stderr),
         "meets_expect": rec.meets_expect or "-",
         "frames": str(len(sizes)),
         "frame_bytes": str(sum(sizes)),
@@ -240,17 +196,6 @@ def summary(rec):
         "bt_states": str(sum(len(b["states"]) for b in rec.bt.values())),
         "bt_bytes": "-" if rec.bt_bytes is None else str(rec.bt_bytes),
     }
-
-
-def _stream_summary(text):
-    """`-` for a stream not recorded, `varies`, or its byte count and the
-    first 12 hex digits of its SHA-256."""
-    if text is None:
-        return "-"
-    if text == "varies":
-        return "varies"
-    data = text.encode("utf-8", "surrogateescape")
-    return "%d:%s" % (len(data), hashlib.sha256(data).hexdigest()[:12])
 
 
 def check():
@@ -305,60 +250,9 @@ def read_list(path):
     return out
 
 
-def stage0(src, out, args):
-    """Stage 0 on `src`: (exit status, what it printed, colours removed)."""
-    r = subprocess.run([sys.executable, FROZEN_SAWC, rel(src), "-o", out] + list(args), cwd=REPO,
-                       capture_output=True, text=True, timeout=BUILD_TIMEOUT)
-    return r.returncode, _ANSI.sub("", r.stdout + r.stderr)
-
-
-def run_binary(binary):
-    """(exit status, or None on a timeout; stdout; stderr), run from the
-    repository root as test_runner.py runs a program."""
-    proc = child_groups.start([binary], cwd=REPO, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
-                              stderr=subprocess.PIPE)
-    try:
-        out, err = proc.communicate(timeout=RUN_TIMEOUT)
-        return proc.returncode, out, err
-    except subprocess.TimeoutExpired:
-        child_groups.kill(proc)
-        out, err = proc.communicate()
-        return None, out, err
-    finally:
-        child_groups.forget(proc)
-
-
-def errors(log):
-    """The diagnostic lines of a Stage 0 log, each without its `error:`
-    prefix or this checkout's path."""
-    out = []
-    for line in log.split("\n"):
-        if _ERROR.match(line):
-            text = line.split(": ", 1)[1].strip() if line.startswith("error") else line.strip()
-            out.append(text.replace(REPO + os.sep, "").replace("\t", " "))
-    return out
-
-
-def first_error(log):
-    found = errors(log)
-    if found:
-        return found[0]
-    lines = [l for l in log.split("\n") if l.strip()]
-    return (lines[-1] if lines else "no output").replace(REPO + os.sep, "").replace("\t", " ")
-
-
-def twin_of(path):
-    """(the examples/ twin's path, `same` or `differs`)."""
-    src = os.path.join(EXAMPLES, path)
-    if not os.path.exists(src):
-        raise SystemExit("snapshot: %s has no twin under examples/" % path)
-    with open(src, "rb") as a, open(os.path.join(CORPUS, path), "rb") as b:
-        return src, "same" if a.read() == b.read() else "differs"
-
-
 def collect_program(path, host, others):
     """Stage 0's raw results for corpus program `path`, as JSON-able data."""
-    src, twin = twin_of(path)
+    src, twin = oracle.twin_of(path)
     d = expect.read(src)
     work = os.path.join(RAW, "work", os.path.splitext(path)[0].replace("/", "__"))
     os.makedirs(work, exist_ok=True)
@@ -368,35 +262,34 @@ def collect_program(path, host, others):
         entry = {}
         for flag, key in (("--emit-frame-layout", "layout"), ("--emit-bt-table", "bt")):
             out = os.path.join(work, "%s.%s.json" % (key, triple))
-            code, log = stage0(src, out, [flag] + target + d.flags)
+            code, log = oracle.stage0(src, out, [flag] + target + d.flags)
             if code != 0 or not os.path.exists(out):
                 entry[key] = None
-                entry[key + "_error"] = first_error(log)
+                entry[key + "_error"] = oracle.first_error(log)
             else:
                 with open(out) as fh:
                     entry[key] = json.load(fh)
         raw["triples"][triple] = entry
     binary = os.path.join(work, "bin")
-    code, log = stage0(src, binary, d.flags)
+    code, log = oracle.stage0(src, binary, d.flags)
     raw["build"] = "ok" if code == 0 else "refused"
-    raw["build_error"] = None if code == 0 else first_error(log)
+    raw["build_error"] = None if code == 0 else oracle.first_error(log)
     raw["runs"] = []
     if code == 0:
         for _ in range(RUNS):
-            rc, out, err = run_binary(binary)
-            raw["runs"].append({"exit": rc, "stdout": base64.b64encode(out).decode("ascii"),
-                                "stderr": base64.b64encode(err).decode("ascii")})
+            rc, out, err, _ = oracle.run_binary(binary)
+            raw["runs"].append({"exit": rc, "stdout": oracle.encode(out), "stderr": oracle.encode(err)})
     return raw
 
 
 def collect_refusal(path):
-    src, twin = twin_of(path)
+    src, twin = oracle.twin_of(path)
     d = expect.read(src)
     work = os.path.join(RAW, "work", "refuse__" + os.path.splitext(path)[0].replace("/", "__"))
     os.makedirs(work, exist_ok=True)
-    code, log = stage0(src, os.path.join(work, "bin"), d.flags)
-    return {"path": path, "twin": twin, "exit": code, "errors": errors(log) if code else [],
-            "first_error": first_error(log) if code else "-", "log": log.replace(REPO + os.sep, "")}
+    code, log = oracle.stage0(src, os.path.join(work, "bin"), d.flags)
+    return {"path": path, "twin": twin, "exit": code, "errors": oracle.errors(log) if code else [],
+            "first_error": oracle.first_error(log) if code else "-", "log": oracle.unrooted(log)}
 
 
 def refusal_row(raw):
@@ -406,13 +299,7 @@ def refusal_row(raw):
     error when none does."""
     d = expect.read(os.path.join(EXAMPLES, raw["path"]))
     found = raw["errors"]
-    missing = [w for w in d.error_contains if w not in raw["log"]]
-    if raw["exit"] == 0:
-        meets = "no: Stage 0 builds it"
-    elif missing:
-        meets = "no: no error contains %r" % missing[0]
-    else:
-        meets = "yes"
+    meets = oracle.refusal_meets_expect(d, raw["exit"], raw["log"])
     named = [e for e in found if d.error_contains and d.error_contains[0] in e]
     return [raw["path"], raw["twin"], str(raw["exit"]), meets.replace("\t", " "),
             str(len(found)), named[0] if named else raw["first_error"]]
@@ -420,12 +307,8 @@ def refusal_row(raw):
 
 def refusal_record(raw):
     """`refusals/PATH.stage0`: Stage 0's whole diagnostic output for a
-    refusal test, each line JSON-quoted with its trailing whitespace and
-    trailing blank lines dropped."""
-    lines = [l.rstrip() for l in raw["log"].split("\n")]
-    while lines and not lines[-1]:
-        lines.pop()
-    return "".join("log\t%s\n" % _quote(l) for l in lines)
+    refusal test, as `log` lines."""
+    return "".join(line + "\n" for line in oracle.render_log(raw["log"]))
 
 
 def refusal_path(path):
@@ -443,23 +326,11 @@ def detect_host():
     hello = os.path.join(EXAMPLES, "hello.saw")
     out = os.path.join(RAW, "host.json")
     os.makedirs(RAW, exist_ok=True)
-    code, log = stage0(hello, out, ["--emit-frame-layout"])
+    code, log = oracle.stage0(hello, out, ["--emit-frame-layout"])
     if code != 0:
         raise SystemExit("snapshot: Stage 0 cannot report a layout for hello.saw: %s" % log[-300:])
     with open(out) as fh:
         return target_name(json.load(fh)["triple"])
-
-
-def _decode(data):
-    return base64.b64decode(data).decode("utf-8", "surrogateescape")
-
-
-def _quote(text):
-    """One stream line as JSON, readable UTF-8 where it is valid."""
-    try:
-        return json.dumps(text, ensure_ascii=False).encode("utf-8").decode("utf-8")
-    except UnicodeEncodeError:
-        return json.dumps(text)
 
 
 def render(raw, triple, host):
@@ -472,18 +343,7 @@ def render(raw, triple, host):
     else:
         lines.append("build\tnot-run")
     if triple == host and raw["build"] == "ok":
-        runs = raw["runs"]
-        codes = {r["exit"] for r in runs}
-        lines.append("exit\t" + ("varies" if len(codes) > 1 else ("timeout" if runs[0]["exit"] is None
-                                                                   else str(runs[0]["exit"]))))
-        for stream in ("stdout", "stderr"):
-            texts = {_decode(r[stream]) for r in runs}
-            if len(texts) > 1:
-                lines.append(stream + "\tvaries")
-                continue
-            text = texts.pop()
-            if text:
-                lines.extend(stream + "\t" + _quote(part) for part in text.split("\n"))
+        lines.extend(oracle.render_run(raw["runs"]))
         lines.append("meets_expect\t" + raw["meets_expect"])
     head, lines = lines, []
     for key in ("layout", "bt"):
@@ -549,13 +409,7 @@ def write(args):
     for path in program_list:
         raw = raws["programs"][path]
         d = expect.read(os.path.join(EXAMPLES, path))
-        verdicts = {expect.judge(d, r["exit"], _decode(r["stdout"]), _decode(r["stderr"])) for r in raw["runs"]}
-        if raw["build"] != "ok":
-            raw["meets_expect"] = "no: Stage 0 does not build it"
-        elif verdicts == {None}:
-            raw["meets_expect"] = "yes"
-        else:
-            raw["meets_expect"] = "no: " + sorted(v or "met on another run" for v in verdicts)[0].replace("\t", " ")
+        raw["meets_expect"] = oracle.meets_expect(d, raw["build"] == "ok", raw["runs"])
         host_body = None
         for triple in (host,) + others:
             head, body, header = render(raw, triple, host)

@@ -1,0 +1,7 @@
+program	errors/unknown_directive.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	Lexer error at 8:13: unknown directive `#foobar` (expected one of #file, #line, #function, #lend_var)
+meets_expect	yes
+log	"error: Lexer error at 8:13: unknown directive `#foobar` (expected one of #file, #line, #function, #lend_var)"

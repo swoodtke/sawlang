@@ -1,0 +1,12 @@
+program	conformance/K14_spawn_ref_param_join_releases.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"task filled 3"
+stdout	"root len 3"
+stdout	"root sum 300"
+stdout	"after second join: 6"
+stdout	""
+meets_expect	yes

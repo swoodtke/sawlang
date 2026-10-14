@@ -1,0 +1,14 @@
+program	json_value_escape_grid.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"short_escapes roundtrip: true"
+stdout	"short_escapes reencoded: \"\\\"\\\\/\\b\\f\\n\\r\\t\""
+stdout	"bmp_escape decoded: e9"
+stdout	"astral_surrogate_pair decoded: 1f600"
+stdout	"lone_high_surrogate: decode error at byte 1: the bytes are not a well-formed item"
+stdout	"nested_in_array: [\"a\",\"\\n\",\"b\"]"
+stdout	""
+meets_expect	yes

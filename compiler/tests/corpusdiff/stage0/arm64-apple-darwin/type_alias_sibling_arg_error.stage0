@@ -1,0 +1,13 @@
+program	type_alias_sibling_arg_error.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	argument `o` expects `OrderId` but got `UserId`
+meets_expect	yes
+log	"error: argument `o` expects `OrderId` but got `UserId`"
+log	"  --> examples/type_alias_sibling_arg_error.saw:14:18"
+log	"     |"
+log	" 14 |     print(lookup(user))"
+log	"     |                  ^"
+log	""
+log	"1 error(s) generated"

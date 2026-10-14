@@ -1,0 +1,15 @@
+program	static_atomic_counter.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"0"
+stdout	"5"
+stdout	"99"
+stdout	"true"
+stdout	"7"
+stdout	"3"
+stdout	"13"
+stdout	""
+meets_expect	yes

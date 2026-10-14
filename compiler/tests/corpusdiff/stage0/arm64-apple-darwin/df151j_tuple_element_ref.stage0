@@ -1,0 +1,17 @@
+program	df151j_tuple_element_ref.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"mutate_through_ref 2"
+stdout	"disjoint_shared 12"
+stdout	"disjoint_both_mutable 23"
+stdout	"owning_element 2"
+stdout	"named_element 2"
+stdout	"nested_element 8"
+stdout	"element_of_struct_tuple 5"
+stdout	"forwarded_onward 4"
+stdout	"across_suspend 6"
+stdout	""
+meets_expect	yes

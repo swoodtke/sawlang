@@ -1,0 +1,21 @@
+program	errors/place_window_beside_var_root.saw
+triple	arm64-apple-darwin
+twin	differs
+expect	error
+build	refused	exclusive access violation: the place `p.at(…)` borrows `p` for the whole window, and `p` is accessed by reference a second time in the same call
+meets_expect	yes
+log	"error: exclusive access violation: the place `p.at(…)` borrows `p` for the whole window, and `p` is accessed by reference a second time in the same call"
+log	"  --> examples/errors/place_window_beside_var_root.saw:45:10"
+log	"     |"
+log	" 45 |     sink(&var p.at(0), reset(&var p))"
+log	"     |          ^"
+log	"   hint: a place borrow charges its ROOT, so two windows onto one receiver — or a window beside a `&var` of it — cannot both be open. Open them in SEPARATE statements, or reach for the method that does both at once (`v.swap(i, j)`)"
+log	""
+log	"error: exclusive access violation: the place `p.at(…)` borrows `p` for the whole window, and `p` is accessed by reference a second time in the same call"
+log	"  --> examples/errors/place_window_beside_var_root.saw:46:11"
+log	"     |"
+log	" 46 |     sink2(&var p.at(0), &var p)"
+log	"     |           ^"
+log	"   hint: a place borrow charges its ROOT, so two windows onto one receiver — or a window beside a `&var` of it — cannot both be open. Open them in SEPARATE statements, or reach for the method that does both at once (`v.swap(i, j)`)"
+log	""
+log	"2 error(s) generated"

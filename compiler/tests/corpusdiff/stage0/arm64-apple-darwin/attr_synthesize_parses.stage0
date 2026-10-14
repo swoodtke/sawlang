@@ -1,0 +1,11 @@
+program	attr_synthesize_parses.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"true"
+stdout	"false"
+stdout	"7"
+stdout	""
+meets_expect	yes

@@ -1,0 +1,7 @@
+program	const_bitwise_static_assert_range_error.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	static_assert condition is not a compile-time constant: shift count `64` out of range (0..<64) is not allowed here
+meets_expect	yes
+log	"error: static_assert condition is not a compile-time constant: shift count `64` out of range (0..<64) is not allowed here"

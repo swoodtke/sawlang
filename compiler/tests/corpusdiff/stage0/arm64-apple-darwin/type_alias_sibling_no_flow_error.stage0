@@ -1,0 +1,13 @@
+program	type_alias_sibling_no_flow_error.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	cannot assign `UserId` to variable of type `OrderId`
+meets_expect	yes
+log	"error: cannot assign `UserId` to variable of type `OrderId`"
+log	"  --> examples/type_alias_sibling_no_flow_error.saw:17:5"
+log	"     |"
+log	" 17 |     let order: OrderId = user"
+log	"     |     ^"
+log	""
+log	"1 error(s) generated"

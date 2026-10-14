@@ -1,0 +1,13 @@
+program	cast_sibling_alias_error.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	cannot cast `Int` to `OrderId`
+meets_expect	yes
+log	"error: cannot cast `Int` to `OrderId`"
+log	"  --> examples/cast_sibling_alias_error.saw:12:27"
+log	"     |"
+log	" 12 |     let bad: OrderId = id as OrderId"
+log	"     |                           ^"
+log	""
+log	"1 error(s) generated"

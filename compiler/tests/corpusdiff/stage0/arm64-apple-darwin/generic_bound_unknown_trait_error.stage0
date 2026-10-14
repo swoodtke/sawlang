@@ -1,0 +1,20 @@
+program	generic_bound_unknown_trait_error.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	unknown trait `Fooable` in the bound on type parameter `T`
+meets_expect	yes
+log	"error: unknown trait `Fooable` in the bound on type parameter `T`"
+log	"  --> examples/generic_bound_unknown_trait_error.saw:6:13"
+log	"    |"
+log	" 6 | func widest<T: Fooable>(a: T) -> T {"
+log	"    |             ^"
+log	"   hint: a type parameter's bound must name a trait that is in scope"
+log	""
+log	"error: unknown trait `Fooable` in type parameter bound"
+log	"  --> examples/generic_bound_unknown_trait_error.saw:11:11"
+log	"     |"
+log	" 11 |     print(widest(1))"
+log	"     |           ^"
+log	""
+log	"2 error(s) generated"

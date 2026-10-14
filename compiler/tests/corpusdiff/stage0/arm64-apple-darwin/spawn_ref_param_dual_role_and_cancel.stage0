@@ -1,0 +1,12 @@
+program	spawn_ref_param_dual_role_and_cancel.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"spawned 2 a 2"
+stdout	"driven 11 b 11"
+stdout	"cancelled task len 1 marker -1"
+stdout	"root after cancel 1"
+stdout	""
+meets_expect	yes

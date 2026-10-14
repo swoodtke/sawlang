@@ -1,0 +1,21 @@
+program	conformance/M38_compound_assign_rhs_exclusivity.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	exclusive access violation: `bp` is written by this assignment while also being accessed in the right-hand side
+meets_expect	yes
+log	"error: exclusive access violation: `bp` is written by this assignment while also being accessed in the right-hand side"
+log	"  --> examples/conformance/M38_compound_assign_rhs_exclusivity.saw:29:7"
+log	"     |"
+log	" 29 |     bp.n = grow(b: &var bp)"
+log	"     |       ^"
+log	"   hint: the right-hand side is evaluated first, so its writes through that borrow are overwritten by this assignment. Bind the value in its own statement, or borrow a disjoint path"
+log	""
+log	"error: exclusive access violation: `bc` is written by this compound assignment while also being accessed in the right-hand side"
+log	"  --> examples/conformance/M38_compound_assign_rhs_exclusivity.saw:35:7"
+log	"     |"
+log	" 35 |     bc.n += grow(b: &var bc)"
+log	"     |       ^"
+log	"   hint: the right-hand side is evaluated first, so its writes through that borrow are overwritten by this assignment. Bind the value in its own statement, or borrow a disjoint path"
+log	""
+log	"2 error(s) generated"

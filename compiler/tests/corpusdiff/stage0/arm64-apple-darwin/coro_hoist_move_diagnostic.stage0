@@ -1,0 +1,21 @@
+program	coro_hoist_move_diagnostic.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	cannot copy value of type `Vector<Int, GlobalAllocator>` which implements ExplicitCopy
+meets_expect	yes
+log	"error: cannot copy value of type `Vector<Int, GlobalAllocator>` which implements ExplicitCopy"
+log	"  --> examples/coro_hoist_move_diagnostic.saw:30:13"
+log	"     |"
+log	" 30 |     consume(taken, slow(v.len()))"
+log	"     |             ^"
+log	"   hint: use .copy() for an explicit deep copy, or `move` to transfer ownership"
+log	""
+log	"error: use of moved variable `v`"
+log	"  --> examples/coro_hoist_move_diagnostic.saw:30:25"
+log	"     |"
+log	" 30 |     consume(taken, slow(v.len()))"
+log	"     |                         ^"
+log	"   hint: value was moved at line 29 and can no longer be used"
+log	""
+log	"2 error(s) generated"

@@ -1,0 +1,33 @@
+program	conformance/B12_prelude_type_name_stays_reserved.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	struct `Vector` is defined multiple times
+meets_expect	yes
+log	"error: struct `Vector` is defined multiple times"
+log	"  --> examples/conformance/B12_prelude_type_name_stays_reserved.saw:13:1"
+log	"     |"
+log	" 13 | struct Vector {"
+log	"     | ^"
+log	""
+log	"error: generic struct `Vector` requires type arguments"
+log	"  --> examples/conformance/B12_prelude_type_name_stays_reserved.saw:18:13"
+log	"     |"
+log	" 18 |     print(\"{Vector(x: 1).x}\")"
+log	"     |             ^"
+log	""
+log	"error: no matching initializer for `Vector` with parameters: x"
+log	"  --> examples/conformance/B12_prelude_type_name_stays_reserved.saw:18:13"
+log	"     |"
+log	" 18 |     print(\"{Vector(x: 1).x}\")"
+log	"     |             ^"
+log	"   hint: field init expects: buffer, capacity, length; available init methods: [[], ['capacity']]"
+log	""
+log	"error: struct `Vector` has no field `x`"
+log	"  --> examples/conformance/B12_prelude_type_name_stays_reserved.saw:18:25"
+log	"     |"
+log	" 18 |     print(\"{Vector(x: 1).x}\")"
+log	"     |                         ^"
+log	"   hint: available fields: buffer, length, capacity"
+log	""
+log	"4 error(s) generated"

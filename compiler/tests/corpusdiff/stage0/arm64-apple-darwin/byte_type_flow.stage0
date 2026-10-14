@@ -1,0 +1,19 @@
+program	byte_type_flow.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"cmp ok"
+stdout	"mask 1"
+stdout	"degrade 65"
+stdout	"sink 65"
+stdout	"sink 7"
+stdout	"widen 200"
+stdout	"print 200"
+stdout	"from string 104"
+stdout	"iterated 5 bytes, last 169"
+stdout	"needle at 1"
+stdout	"last needle at 3"
+stdout	""
+meets_expect	yes

@@ -1,0 +1,13 @@
+program	distinct_type_value_access_error.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	cannot access member `value` on the distinct type `MyInt`: it has no fields and there is no `.value` accessor — a distinct type flows to its underlying type implicitly (use it directly), or project it explicitly with a cast like `x as Int`
+meets_expect	yes
+log	"error: cannot access member `value` on the distinct type `MyInt`: it has no fields and there is no `.value` accessor — a distinct type flows to its underlying type implicitly (use it directly), or project it explicitly with a cast like `x as Int`"
+log	"  --> examples/distinct_type_value_access_error.saw:15:12"
+log	"     |"
+log	" 15 |     print(x.value)"
+log	"     |            ^"
+log	""
+log	"1 error(s) generated"

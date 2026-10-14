@@ -1,0 +1,21 @@
+program	static_method_through_field_receiver.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	`nullary` is a static method of `Inner` and cannot be called on a value
+meets_expect	yes
+log	"error: `nullary` is a static method of `Inner` and cannot be called on a value"
+log	"  --> examples/static_method_through_field_receiver.saw:42:18"
+log	"     |"
+log	" 42 |     print(o.inner.nullary())"
+log	"     |                  ^"
+log	"   hint: call it on the type: `Inner.nullary(...)`. A static method has no `self`, so there is nothing for the receiver to become"
+log	""
+log	"error: `scaled` is a static method of `Inner` and cannot be called on a value"
+log	"  --> examples/static_method_through_field_receiver.saw:43:18"
+log	"     |"
+log	" 43 |     print(o.inner.scaled(by: 4))"
+log	"     |                  ^"
+log	"   hint: call it on the type: `Inner.scaled(...)`. A static method has no `self`, so there is nothing for the receiver to become"
+log	""
+log	"2 error(s) generated"

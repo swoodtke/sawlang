@@ -1,0 +1,10 @@
+program	deinit_nested.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"outer deinit"
+stdout	"inner deinit"
+stdout	""
+meets_expect	yes

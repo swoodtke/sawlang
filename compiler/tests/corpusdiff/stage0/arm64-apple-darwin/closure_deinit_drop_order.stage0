@@ -1,0 +1,11 @@
+program	closure_deinit_drop_order.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	"live"
+stdout	"deinit 1"
+stdout	"deinit 5"
+stdout	""
+meets_expect	yes

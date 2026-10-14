@@ -1,0 +1,27 @@
+program	signal_concurrency_pins.saw
+triple	arm64-apple-darwin
+twin	same
+expect	success
+build	ok
+exit	0
+stdout	""
+stdout	"ok   concurrent acquisition: exactly one watcher wins, the other gets AlreadyExists"
+stdout	"ok   teardown pin: watch acquired"
+stdout	"ok   teardown pin: the watch descriptor is NOT reclaimed, so no later resource can inherit its number"
+stdout	"ok   teardown pin: the signal can be watched again after teardown"
+stdout	"ok   teardown pin: the re-watch reuses the SAME process-lifetime pipe"
+stdout	"ok   stale pin: a delivery under the CURRENT watch is reported"
+stdout	"ok   stale pin: a byte from a PREVIOUS watch is discarded, not reported as a delivery"
+stdout	"signal race probe: all cells hold"
+stdout	""
+stdout	"signal_hook_shim: generated .build/scratch/shim_with_scheduling_hook.c from sawc/rt/shim.c (1 hook)"
+stdout	""
+stdout	""
+stdout	"ok   in-flight handler + ONE rewatch: the stale delivery is rejected"
+stdout	"ok   in-flight handler + 256 rewatches: the tag has not recurred"
+stdout	"ok   control: a delivery under the CURRENT watch is reported"
+stdout	"signal in-flight probe: all cells hold"
+stdout	""
+stdout	"pins held"
+stdout	""
+meets_expect	yes

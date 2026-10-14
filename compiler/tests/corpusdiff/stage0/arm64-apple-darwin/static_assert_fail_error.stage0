@@ -1,0 +1,7 @@
+program	static_assert_fail_error.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	static assertion failed: UartRegs layout drift
+meets_expect	yes
+log	"error: static assertion failed: UartRegs layout drift"

@@ -1,0 +1,13 @@
+program	tuple_element_literal_out_of_range_error.saw
+triple	arm64-apple-darwin
+twin	same
+expect	error
+build	refused	integer literal 300 does not fit in `Int8` (range -128..=127)
+meets_expect	yes
+log	"error: integer literal 300 does not fit in `Int8` (range -128..=127)"
+log	"  --> examples/tuple_element_literal_out_of_range_error.saw:7:29"
+log	"    |"
+log	" 7 |     let t: (Int8, Int16) = (300, 2)"
+log	"    |                             ^"
+log	""
+log	"1 error(s) generated"
