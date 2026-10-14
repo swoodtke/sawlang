@@ -553,7 +553,7 @@ func coro_lower_frame(coro: &var CoroProgram, context: &CoroContext, f: Int) {
 // type of the local a parking frame holds it through (`&var TaskContext`,
 // which the backend points at the resume function's `cx`), and its park word
 // and deadline fields with their types; each -1 when std declares none.
-struct CoroContext {
+public struct CoroContext {
     ty: Int
     pointer: Int
     park: Int
@@ -562,7 +562,7 @@ struct CoroContext {
     deadline_ty: Int
 }
 
-func coro_context_shape(coro: &var CoroProgram) -> CoroContext {
+public func coro_context_shape(coro: &var CoroProgram) -> CoroContext {
     var out = CoroContext(ty: -1, pointer: -1, park: -1, park_ty: -1, deadline: -1, deadline_ty: -1)
     let m = coro.mono.dp.bc.mir.tc.module_named("std.taskgroup")
     let d = if m >= 0 { coro.mono.dp.bc.mir.tc.top_decl(m, "TaskContext") } else { -1 }

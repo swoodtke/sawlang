@@ -1,0 +1,19 @@
+// The program compiler/coro/tests/verify_teardown.saw and
+// compiler/coro/tests/verify_frame_slots.saw lower, then edit: `keep` holds
+// an owning `label` across its drive of `yield_now`, so the lowered body
+// reaches it in its frame slot and drops it there at the end. One edit
+// unlinks that drop, the other addresses the frame as a whole where the slot
+// was, and the verifier must report each by its rule.
+import std.task.{yield_now}
+
+func keep(n: Int) -> Int {
+    let label = "kept across"
+    yield_now()
+    print("{} {}", label, n)
+    n + 1
+}
+
+func main() {
+    let m = keep(4)
+    print("{}", m)
+}

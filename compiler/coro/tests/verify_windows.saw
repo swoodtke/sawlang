@@ -1,0 +1,94 @@
+// The post-lowering verifier's rule 3 (compiler/tests/coro/README.md, "The
+// verifier"): every window is closed exactly once on every path. The fixture
+// `compiler/tests/coro/inject/windows.saw` is lowered and found clean; then
+// `main`'s window close returns to a second close of the same window, and the
+// verifier must report the second one under rule 3. Paths are the repository
+// root's, where the runner runs.
+import sawcoro.api.{coro_lower_file, coro_lower_for}
+import sawcoro.lower.{coro_add_block}
+import sawcoro.program.{CoroProgram}
+import sawcoro.verify.{coro_verify_lowering}
+import sawmir.model.{MirBlock, MirCallKind, MirSwitchKind, MirTermKind}
+import sawmono.dump.{mono_dump_layouts}
+
+// Whether `text` holds `word` at some byte.
+func holds(text: &String, word: String) -> Bool {
+    let n = text.len()
+    let w = word.len()
+    var at = 0
+    while at + w <= n {
+        var k = 0
+        while k < w && text.byte_at(at + k) == word.byte_at(k) {
+            k = k + 1
+        }
+        if k == w {
+            return true
+        }
+        at = at + 1
+    }
+    false
+}
+
+// The MIR function of the verified body whose item's name holds `name`, or -1.
+func body_of(coro: &CoroProgram, name: String) -> Int {
+    var k = 0
+    while k < coro.before.bodies.len() {
+        let b = coro.before.bodies[k]
+        k = k + 1
+        let item = coro.mono.item_name(b.item)
+        if holds(&item, name) {
+            return b.body
+        }
+    }
+    return -1
+}
+
+// Makes the first window close of function `f` return to a copy of itself,
+// which then returns where the close did; returns whether `f` closes one.
+func close_twice(coro: &var CoroProgram, f: Int) -> Bool {
+    let info = coro.mono.dp.bc.mir.funcs[f]
+    var b = 0
+    while b < info.block_count {
+        let block = coro.mono.dp.bc.mir.blocks[info.block_first + b]
+        b = b + 1
+        if block.term != MirTermKind.Call {
+            continue
+        }
+        var close = coro.mono.dp.bc.mir.calls[block.call]
+        if close.kind != MirCallKind.WindowClose {
+            continue
+        }
+        let again = coro.mono.dp.bc.mir.calls.len()
+        try! coro.mono.dp.bc.mir.calls.push(close)
+        let copy = MirBlock(first: -1, last: -1, term: MirTermKind.Call, target: -1, switch_kind: MirSwitchKind.Bool,
+                            operand: -1, place: -1, arm_first: 0, arm_count: 0, otherwise: -1, call: again,
+                            term_node: block.term_node, term_closing: false)
+        let added = coro_add_block(&var coro, f, copy)
+        close.next = added
+        coro.mono.dp.bc.mir.calls[block.call] = close
+        return true
+    }
+    false
+}
+
+func main() {
+    let names = Vector<String>()
+    let dirs = Vector<String>()
+    var front = StringBuilder()
+    var coro = coro_lower_file(out: &var front, path: "compiler/tests/coro/inject/windows.saw", std_root: "std",
+                               notes: false, names: &names, dirs: &dirs)
+    assert(not coro.blocked && coro.diags.len() == 0, "the fixture is refused: run from the repository root")
+    var target = coro.mono.target_for("arm64-apple-darwin")
+    coro_lower_for(&var coro, &var target)
+    // Stage 0 workaround (SL:hazards S23): canonical: assert(coro.problems.len() == 0, "the fixture's lowering is not clean: {}", coro.problems.get(0) ?? "")
+    let first = coro.problems.get(0) ?? ""
+    assert(coro.problems.len() == 0, "the fixture's lowering is not clean: {}", first)
+    let f = body_of(&coro, "main")
+    assert(f >= 0, "the verifier records no body for `main`, whose drive site the lowering rewrites")
+    assert(close_twice(&var coro, f), "`main` closes no window")
+    coro_verify_lowering(&var coro)
+    assert(coro.problems.len() == 1, "the verifier reports {} problems, not one", coro.problems.len())
+    let found = coro.problems.get(0) ?? ""
+    assert(holds(&found, "verify rule 3 (windows close once)"), "the report does not name rule 3: {}", found)
+    assert(holds(&found, "may already be closed"), "the report does not name the second close: {}", found)
+}

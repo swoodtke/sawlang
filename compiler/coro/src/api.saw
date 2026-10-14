@@ -9,6 +9,7 @@ import sawcoro.lower.{coro_decide_lowering, coro_frame_lowered, coro_lower_frame
 import sawcoro.program.{CoroProgram, coro_program}
 import sawcoro.spawn.{coro_check_spawns, coro_lower_spawn_sites}
 import sawcoro.suspends.{coro_solve_suspension}
+import sawcoro.verify.{coro_verify_lowering, coro_verify_snapshot}
 import sawmir.api.{mir_append_diag}
 import sawmir.program.{MirProgram}
 import sawmono.api.{mono_append_findings, mono_lower_file}
@@ -69,14 +70,18 @@ func coro_root_entry_executor(coro: &var CoroProgram) {
 // drive site, then each lowered frame: what the backend consumes, and what
 // `--lowered` prints. A spawn site is lowered first, so the locals and blocks
 // it adds to a framed spawner are in that frame's body when the frame is
-// lowered; a drive site is only ever in an item with no frame.
+// lowered; a drive site is only ever in an item with no frame. The verifier
+// records every body the lowering rewrites before it starts, and checks them
+// once it is done.
 public func coro_lower_for(coro: &var CoroProgram, target: &var Target) {
     coro_lay_out_frames(&var coro, &var target)
+    coro_verify_snapshot(&var coro)
     coro_lower_spawn_sites(&var coro)
     coro_lower_drive_sites(&var coro)
     coro_lower_frames(&var coro)
     coro_check_spawns(&var coro)
     coro_check_drive_sites(&var coro)
+    coro_verify_lowering(&var coro)
 }
 
 // The record of one program, after its `FILE` line: everything

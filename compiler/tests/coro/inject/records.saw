@@ -1,0 +1,12 @@
+// The program compiler/coro/tests/verify_records.saw lowers under a copy of
+// std whose `task.saw` ends in compiler/tests/coro/parks/task_tail.saw, then
+// edits: `fd_wait`'s descriptor park records -1 in the park word, arms the
+// reactor, then parks, after `yield_now`'s ready park. The edit moves the
+// record past the arm, and the verifier must report the arm as reached with
+// no record of its park.
+import std.task.{fd_wait, yield_now}
+
+func main() {
+    yield_now()
+    fd_wait(0, 0)
+}

@@ -1,0 +1,26 @@
+// The program compiler/coro/tests/verify_windows.saw lowers, then edits:
+// `main` drives `work` through `__saw_drive`, a site the lowering rewrites,
+// and writes through a `borrow` window, which opens and closes once on the
+// one path through it. The edit closes the window a second time, and the
+// verifier must report the second close.
+struct Row {
+    cells: [Int; 4]
+}
+
+extension Row {
+    func [](&var self, i: Int) borrows -> &var Int {
+        lend self.cells[i]
+    }
+}
+
+func work(n: Int) -> Int {
+    __saw_suspend()
+    n + 1
+}
+
+func main() {
+    var r = Row(cells: [1, 2, 3, 4])
+    borrow var r[1] += 10
+    let x = __saw_drive(work(3))
+    print("{} {}", x, r.cells[1])
+}

@@ -1,0 +1,99 @@
+// The post-lowering verifier's rule 1 (compiler/tests/coro/README.md, "The
+// verifier"): a frame value is reached only in its slot, and the frame never
+// as a whole. The fixture `compiler/tests/coro/inject/teardown.saw` is lowered
+// and found clean; then a place reaching `keep`'s `label` in its slot,
+// `(*_F).[OFFSET: String]`, loses the slot step, so it names the whole frame
+// the pointer points at, and the verifier must report that under rule 1.
+// Paths are the repository root's, where the runner runs.
+import sawcoro.api.{coro_lower_file, coro_lower_for}
+import sawcoro.program.{CoroProgram}
+import sawcoro.verify.{coro_verify_lowering}
+import sawmir.model.{MirPlace, MirProjKind, MirStmtKind}
+import sawmono.dump.{mono_dump_layouts}
+
+// Whether `text` holds `word` at some byte.
+func holds(text: &String, word: String) -> Bool {
+    let n = text.len()
+    let w = word.len()
+    var at = 0
+    while at + w <= n {
+        var k = 0
+        while k < w && text.byte_at(at + k) == word.byte_at(k) {
+            k = k + 1
+        }
+        if k == w {
+            return true
+        }
+        at = at + 1
+    }
+    false
+}
+
+// The MIR function of the verified body whose item's name holds `name`, or -1.
+func body_of(coro: &CoroProgram, name: String) -> Int {
+    var k = 0
+    while k < coro.before.bodies.len() {
+        let b = coro.before.bodies[k]
+        k = k + 1
+        let item = coro.mono.item_name(b.item)
+        if holds(&item, name) {
+            return b.body
+        }
+    }
+    return -1
+}
+
+// The place of function `f`'s first drop, which names a frame slot in a
+// lowered body, or -1.
+func dropped_place(coro: &CoroProgram, f: Int) -> Int {
+    let info = coro.mono.dp.bc.mir.funcs[f]
+    var b = 0
+    while b < info.block_count {
+        var s = coro.mono.dp.bc.mir.blocks[info.block_first + b].first
+        b = b + 1
+        while s >= 0 {
+            let stmt = coro.mono.dp.bc.mir.stmts[s]
+            if stmt.kind == MirStmtKind.Drop {
+                return stmt.place
+            }
+            s = stmt.next
+        }
+    }
+    return -1
+}
+
+func main() {
+    let names = Vector<String>()
+    let dirs = Vector<String>()
+    var front = StringBuilder()
+    var coro = coro_lower_file(out: &var front, path: "compiler/tests/coro/inject/teardown.saw", std_root: "std",
+                               notes: false, names: &names, dirs: &dirs)
+    assert(not coro.blocked && coro.diags.len() == 0, "the fixture is refused: run from the repository root")
+    var target = coro.mono.target_for("arm64-apple-darwin")
+    coro_lower_for(&var coro, &var target)
+    // Stage 0 workaround (SL:hazards S23): canonical: assert(coro.problems.len() == 0, "the fixture's lowering is not clean: {}", coro.problems.get(0) ?? "")
+    let first = coro.problems.get(0) ?? ""
+    assert(coro.problems.len() == 0, "the fixture's lowering is not clean: {}", first)
+    let f = body_of(&coro, "keep")
+    assert(f >= 0, "the verifier records no body for `keep`")
+    let p = dropped_place(&coro, f)
+    assert(p >= 0, "`keep`'s lowered body drops nothing")
+    let place = coro.mono.dp.bc.mir.places[p]
+    let slot = coro.mono.dp.bc.mir.projs[place.first + 1]
+    assert(place.count == 2 && slot.kind == MirProjKind.FrameSlot, "`keep`'s drop does not name a frame slot")
+    coro.mono.dp.bc.mir.places[p] = MirPlace(local: place.local, static_decl: -1, first: place.first, count: 1,
+                                              ty: place.ty)
+    coro_verify_lowering(&var coro)
+    assert(coro.problems.len() > 0, "the verifier admits a frame addressed as a whole")
+    var whole = 0
+    var k = 0
+    while k < coro.problems.len() {
+        let found = coro.problems.get(k) ?? ""
+        k = k + 1
+        assert(holds(&found, "verify rule 1 (frame in place)"), "a report does not name rule 1: {}", found)
+        if holds(&found, "is addressed as a whole") {
+            whole = whole + 1
+        }
+    }
+    assert(whole == 1, "the verifier reports the whole-frame place {} times, not once", whole)
+}

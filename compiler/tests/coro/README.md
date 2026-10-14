@@ -16,8 +16,13 @@ coro/
                           NAME.layouts, its frames' layouts; NAME.lowered, its
                           lowered frames' resume functions
   refuse/                 RULE.saw or RULE.VARIANT.saw, a program refused
+  inject/                 NAME.saw, a program a unit program lowers, then
+                          edits, to prove the verifier refuses a shape no
+                          lowering emits
   modules/                packages a fixture imports, one directory each
   parks/task_tail.saw     what the park goldens' copy of std adds to task.saw
+  parks/NAME.saw          a verifier injection's unit program that needs
+                          that copy, which the lane runs (see "The verifier")
 ```
 
 ## `sawc2 coro`
@@ -367,6 +372,85 @@ drive site, in item order: a `spawner #K: NAME` line for one that spawns, a
 `driver #K: NAME` line otherwise, its `spawn` lines, its `drive bbB task root
 #J ROOT, descriptor _D, frame _R` lines, and its body.
 
+## The verifier
+
+The borrow check runs before this stage, so it never sees the paths lowering
+makes; a verifier after lowering checks that lowering preserved what was
+decided before it (SL:architecture §3.9, SL:coroutines A5). It is one funnel,
+`compiler/coro/src/verify.saw`, whose docstring names its entry points, and
+`coro_lower_for` runs it on every lowering, so `sawc2 build`, `--lowered` and
+every lane that builds a program run it too. It recomputes every fact from the
+MIR, and reads none of the lowering's own records (its points and resume
+functions): only which frames are lowered, and their layouts.
+
+The lowering rewrites places and calls in place, so just before it starts the
+verifier records every body it may rewrite: each lowered frame's, and each one
+holding a spawn or a drive site. For each it keeps every place and call as it
+was, and each drop with its block; for a frame, also its suspension points,
+numbered as its states are, with the initialisation analysis's conditions of
+each local at each. Once the lowering is done, each recorded body is checked
+against four rules, and a broken one is an `INVARIANT` line,
+`verify rule N (NAME): `ITEM`: …`:
+
+1. **frame in place.** A frame slot is only ever the second step of its place,
+   right after the dereference of the local pointing at the frame, at an
+   offset of at least 0, and no place dereferences that local without one, so
+   the frame's bytes are never read, written or moved as a whole. A lowered
+   frame's own pointer is the one such local its body never writes; it is used
+   for nothing but its slots, and they lie inside the frame. Each place the
+   body named is either as it was or, for a frame value, its slot followed by
+   its own steps, at one offset for all of the local's places, the offset its
+   frame's layout gives it. No local is reached both in its slot and on the
+   stack, the result and the parameters never stay on the stack, and no index
+   reads a frame value's local. So nothing relocates a frame a loan points
+   into.
+2. **teardown by state.** At each suspension state, the conditions of each
+   local, recomputed over the lowered body read with every place put back as
+   it was, equal the ones recorded, and a local that may be initialised there
+   lives in the frame, since a suspension loses the resume function's stack.
+   Only an effect-only suspension (`__saw_test_suspend`) may leave the body.
+   The drops are exactly drop elaboration's, each once, in the block it was
+   placed in. A call that loses its arguments or destination is a child's
+   drive, a park, a spawn site or a drive site; each operand it passed is used
+   exactly once after lowering, a drive or a site's in a write into its
+   parameter's slot, a drive's in its own block, which its state re-enters
+   past. A drive's result is moved out of the child's result slot once, on its
+   return edge, into the call's destination. Nothing else reaches into a
+   child's frame, and no place lowering adds reaches a frame value of the body
+   itself. So lowering adds no ownership operation, and teardown at each state
+   is the body's own.
+3. **windows close once.** Every window a body opens is closed exactly once on
+   every path, a resumed state's included: none opens while it may be open,
+   none closes while it may already be closed, and none may be open at a
+   `return`. An accessor's epilogue starts with the windows its prologue
+   carries, which the prologue may leave open.
+4. **record before arm.** Each park's record in the task's context, its park
+   word and, for a timer, a descriptor or an offload, its deadline, reaches its
+   park, and its arm when its reason arms the reactor, as one record on every
+   path with no suspension since. The record holds its reason's value (0
+   ready, 1 a timer, -1 a descriptor or an offload, the channel's operand for
+   a channel), the deadline its park's bound or 0, and a descriptor park's arm
+   registers the descriptor and direction the park was given. An armed park is
+   entered only from its arm.
+
+Each rule has a unit program that lowers a fixture of `inject/`, finds it
+clean, edits the lowered MIR into a shape no lowering emits, and requires the
+verifier's report naming the rule:
+
+| rule | unit program | fixture | edit |
+|---|---|---|---|
+| 1 | `compiler/coro/tests/verify_frame_slots` | `teardown` | a drop's place loses its slot step, so it names the whole frame |
+| 2 | `compiler/coro/tests/verify_teardown` | `teardown` | a drop of a frame-resident `String` is unlinked |
+| 3 | `compiler/coro/tests/verify_windows` | `windows` | a window close returns to a second close of its window |
+| 4 | `parks/verify_records` | `records` | a descriptor park's record moves past its arm |
+
+`records` parks on a descriptor, which no std module calls yet, so it is
+lowered under the lane's copy of std, as the park goldens are; its unit
+program sits under `parks/`, and the lane builds and runs it once that copy is
+made, rather than `compiler/tests/run.py`'s unit step, which runs beside the
+lane. The goldens, the run lane's programs and the census are the clean side:
+their lowering is verified with every build.
+
 ## Rules
 
 | rule | refuses | fixture |
@@ -400,7 +484,8 @@ fixture; and that `sawc2 coro --layouts` reports no `INVARIANT` line over the
 mono lane's golden programs and the run lane's programs, which is where a
 disagreement with typecheck would show, and lays out every frame they hold.
 Every package under `modules/` is mapped with `--module-path` by its
-directory's name.
+directory's name. Last, it builds each unit program under `parks/` with Stage
+0 and requires it to exit 0 (see "The verifier").
 
 The layout goldens' frames are the first cut's (golden `yield_loop`, a loop
 whose suspension carries values across it): the values each frame holds, and

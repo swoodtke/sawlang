@@ -1,0 +1,99 @@
+// The post-lowering verifier's rule 2 (compiler/tests/coro/README.md, "The
+// verifier"): every drop of a lowered body is one drop elaboration placed.
+// The fixture `compiler/tests/coro/inject/teardown.saw` is lowered and found
+// clean; then the drop of `keep`'s frame-resident `label` is unlinked from its
+// block, and the verifier must report that drop gone, under rule 2. Paths are
+// the repository root's, where the runner runs.
+import sawcoro.api.{coro_lower_file, coro_lower_for}
+import sawcoro.program.{CoroProgram}
+import sawcoro.verify.{coro_verify_lowering}
+import sawmir.model.{MirStmtKind}
+import sawmono.dump.{mono_dump_layouts}
+
+// Whether `text` holds `word` at some byte.
+func holds(text: &String, word: String) -> Bool {
+    let n = text.len()
+    let w = word.len()
+    var at = 0
+    while at + w <= n {
+        var k = 0
+        while k < w && text.byte_at(at + k) == word.byte_at(k) {
+            k = k + 1
+        }
+        if k == w {
+            return true
+        }
+        at = at + 1
+    }
+    false
+}
+
+// The MIR function of the verified body whose item's name holds `name`, or -1.
+func body_of(coro: &CoroProgram, name: String) -> Int {
+    var k = 0
+    while k < coro.before.bodies.len() {
+        let b = coro.before.bodies[k]
+        k = k + 1
+        let item = coro.mono.item_name(b.item)
+        if holds(&item, name) {
+            return b.body
+        }
+    }
+    return -1
+}
+
+// Unlinks the first drop statement of function `f` from its block, and
+// returns whether there was one.
+func unlink_first_drop(coro: &var CoroProgram, f: Int) -> Bool {
+    let info = coro.mono.dp.bc.mir.funcs[f]
+    var b = 0
+    while b < info.block_count {
+        let at = info.block_first + b
+        b = b + 1
+        var block = coro.mono.dp.bc.mir.blocks[at]
+        var prev = -1
+        var s = block.first
+        while s >= 0 {
+            let stmt = coro.mono.dp.bc.mir.stmts[s]
+            if stmt.kind == MirStmtKind.Drop {
+                if prev < 0 {
+                    block.first = stmt.next
+                } else {
+                    var before = coro.mono.dp.bc.mir.stmts[prev]
+                    before.next = stmt.next
+                    coro.mono.dp.bc.mir.stmts[prev] = before
+                }
+                if block.last == s {
+                    block.last = prev
+                }
+                coro.mono.dp.bc.mir.blocks[at] = block
+                return true
+            }
+            prev = s
+            s = stmt.next
+        }
+    }
+    false
+}
+
+func main() {
+    let names = Vector<String>()
+    let dirs = Vector<String>()
+    var front = StringBuilder()
+    var coro = coro_lower_file(out: &var front, path: "compiler/tests/coro/inject/teardown.saw", std_root: "std",
+                               notes: false, names: &names, dirs: &dirs)
+    assert(not coro.blocked && coro.diags.len() == 0, "the fixture is refused: run from the repository root")
+    var target = coro.mono.target_for("arm64-apple-darwin")
+    coro_lower_for(&var coro, &var target)
+    // Stage 0 workaround (SL:hazards S23): canonical: assert(coro.problems.len() == 0, "the fixture's lowering is not clean: {}", coro.problems.get(0) ?? "")
+    let first = coro.problems.get(0) ?? ""
+    assert(coro.problems.len() == 0, "the fixture's lowering is not clean: {}", first)
+    let f = body_of(&coro, "keep")
+    assert(f >= 0, "the verifier records no body for `keep`")
+    assert(unlink_first_drop(&var coro, f), "`keep`'s lowered body drops nothing")
+    coro_verify_lowering(&var coro)
+    assert(coro.problems.len() == 1, "the verifier reports {} problems, not one", coro.problems.len())
+    let found = coro.problems.get(0) ?? ""
+    assert(holds(&found, "verify rule 2 (teardown by state)"), "the report does not name rule 2: {}", found)
+    assert(holds(&found, "is gone from the lowered body"), "the report does not say the drop is gone: {}", found)
+}

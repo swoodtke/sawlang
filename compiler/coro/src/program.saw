@@ -4,7 +4,7 @@
 
 import sawborrowck.program.{BorrowckProgram}
 import sawdrops.program.{DropsProgram}
-import sawmir.model.{MirDiag}
+import sawmir.model.{MirCall, MirDiag, MirPlace}
 import sawmir.program.{MirProgram}
 import sawmono.dump.{mono_dump_layouts}
 import sawmono.program.{MonoItemKind, MonoProgram}
@@ -56,6 +56,9 @@ public struct CoroProgram {
     // Refusals (`coro_rules`) and broken invariants.
     diags: Vector<MirDiag>
     problems: Vector<String>
+    // What the bodies the lowering rewrites were before it, which the
+    // post-lowering verifier compares them with (`coro_verify_snapshot`).
+    before: CoroBefore
 }
 
 extension CoroProgram: NoCopy {}
@@ -68,7 +71,68 @@ public func coro_program(mono: MonoProgram) -> CoroProgram {
                 lowered: Vector<Bool>(), unlowered: Vector<CoroUnlowered>(), resume_of: Vector<Int>(),
                 resumes: Vector<CoroResume>(), points: Vector<CoroPoint>(), resident: Vector<Bool>(),
                 spawns: Vector<CoroSpawn>(), drives: Vector<CoroDriveSite>(), diags: Vector<MirDiag>(),
-                problems: Vector<String>())
+                problems: Vector<String>(), before: coro_no_before())
+}
+
+// The verifier's record of the bodies the lowering may rewrite, taken just
+// before it runs (compiler/tests/coro/README.md, "The verifier"): each body's
+// places and calls as they were, its drops, and for a lowered frame's body its
+// suspension points with the initialisation analysis's answer at each. The
+// lowering rewrites places and calls in place, so this is the only record of
+// what it started from.
+public struct CoroBefore {
+    bodies: Vector<CoroBeforeBody>
+    // Runs per body: each place index the body names and its value then.
+    place_ids: Vector<Int>
+    places: Vector<MirPlace>
+    // Runs per body: each call terminator and its value then.
+    call_ids: Vector<Int>
+    calls: Vector<MirCall>
+    // Runs per body: each drop statement and the block holding it.
+    drops: Vector<Int>
+    drop_blocks: Vector<Int>
+    // Runs per body: the suspension points, and per point a run of
+    // `local_count` entries, each local's conditions there.
+    points: Vector<CoroBeforePoint>
+    conditions: Vector<Int>
+}
+
+extension CoroBefore: NoCopy {}
+
+public func coro_no_before() -> CoroBefore {
+    CoroBefore(bodies: Vector<CoroBeforeBody>(), place_ids: Vector<Int>(), places: Vector<MirPlace>(),
+               call_ids: Vector<Int>(), calls: Vector<MirCall>(), drops: Vector<Int>(), drop_blocks: Vector<Int>(),
+               points: Vector<CoroBeforePoint>(), conditions: Vector<Int>())
+}
+
+// One body the verifier checks: its item, its MIR function, whether it is a
+// lowered frame's (else it holds a spawn or a drive site), its local count
+// before lowering, and its runs in `CoroBefore`.
+public struct CoroBeforeBody {
+    item: Int
+    body: Int
+    framed: Bool
+    local_count: Int
+    place_first: Int
+    place_count: Int
+    call_first: Int
+    call_count: Int
+    drop_first: Int
+    drop_count: Int
+    point_first: Int
+    point_count: Int
+}
+
+// One suspension point of a body before lowering: the call that suspends
+// there, or for an op-budget point -1 and its statement; the block holding
+// it; and its state, numbered in block order from 1. Its run of conditions
+// starts at `conditions_first`.
+public struct CoroBeforePoint {
+    call: Int
+    stmt: Int
+    block: Int
+    state: Int
+    conditions_first: Int
 }
 
 // What a frame value is: the state word the resume function switches on,

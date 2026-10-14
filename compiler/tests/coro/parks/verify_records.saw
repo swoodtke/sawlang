@@ -1,0 +1,130 @@
+// The post-lowering verifier's rule 4 (compiler/tests/coro/README.md, "The
+// verifier"): a park's record in the task's context reaches its arm with no
+// suspension between. The fixture `compiler/tests/coro/inject/records.saw`
+// parks on a descriptor, which no std module calls yet, so it is lowered under
+// the coro lane's copy of std, whose `task.saw` ends in `task_tail.saw`; the
+// lane builds and runs this program once that copy is made. Lowered, the
+// fixture is found clean; then `fd_wait`'s record of its park word moves past
+// its arm, into the park's own block, and the verifier must report the arm
+// under rule 4. Paths are the repository root's, where the lane runs it.
+import sawcoro.api.{coro_lower_file, coro_lower_for}
+import sawcoro.program.{CoroProgram}
+import sawcoro.verify.{coro_verify_lowering}
+import sawmir.model.{MirProjKind, MirTermKind}
+import sawmono.dump.{mono_dump_layouts}
+
+// Whether `text` holds `word` at some byte.
+func holds(text: &String, word: String) -> Bool {
+    let n = text.len()
+    let w = word.len()
+    var at = 0
+    while at + w <= n {
+        var k = 0
+        while k < w && text.byte_at(at + k) == word.byte_at(k) {
+            k = k + 1
+        }
+        if k == w {
+            return true
+        }
+        at = at + 1
+    }
+    false
+}
+
+// The MIR function of the verified body whose item's name holds `name`, or -1.
+func body_of(coro: &CoroProgram, name: String) -> Int {
+    var k = 0
+    while k < coro.before.bodies.len() {
+        let b = coro.before.bodies[k]
+        k = k + 1
+        let item = coro.mono.item_name(b.item)
+        if holds(&item, name) {
+            return b.body
+        }
+    }
+    return -1
+}
+
+// Whether place `p` is the park word, `(*(*_C).park)`.
+func park_word(coro: &CoroProgram, p: Int) -> Bool {
+    if p < 0 {
+        return false
+    }
+    let place = coro.mono.dp.bc.mir.places[p]
+    if place.count != 3 {
+        return false
+    }
+    let last = coro.mono.dp.bc.mir.projs[place.first + 2]
+    last.kind == MirProjKind.Deref
+}
+
+// Moves the park-word record out of the block of function `f` that ends in
+// the reactor's arm, to the front of the block the arm returns to, which is
+// the park's; returns whether it found one.
+func record_after_arm(coro: &var CoroProgram, f: Int) -> Bool {
+    let info = coro.mono.dp.bc.mir.funcs[f]
+    let arm_item = coro.mono.park_register_item
+    var b = 0
+    while b < info.block_count {
+        let at = info.block_first + b
+        b = b + 1
+        var block = coro.mono.dp.bc.mir.blocks[at]
+        if block.term != MirTermKind.Call || coro.mono.call_item(block.call) != arm_item {
+            continue
+        }
+        var prev = -1
+        var s = block.first
+        while s >= 0 {
+            var stmt = coro.mono.dp.bc.mir.stmts[s]
+            if park_word(&coro, stmt.place) {
+                if prev < 0 {
+                    block.first = stmt.next
+                } else {
+                    var before = coro.mono.dp.bc.mir.stmts[prev]
+                    before.next = stmt.next
+                    coro.mono.dp.bc.mir.stmts[prev] = before
+                }
+                if block.last == s {
+                    block.last = prev
+                }
+                coro.mono.dp.bc.mir.blocks[at] = block
+                let park = info.block_first + coro.mono.dp.bc.mir.calls[block.call].next
+                var parked = coro.mono.dp.bc.mir.blocks[park]
+                stmt.next = parked.first
+                coro.mono.dp.bc.mir.stmts[s] = stmt
+                if parked.first < 0 {
+                    parked.last = s
+                }
+                parked.first = s
+                coro.mono.dp.bc.mir.blocks[park] = parked
+                return true
+            }
+            prev = s
+            s = stmt.next
+        }
+    }
+    false
+}
+
+func main() {
+    let root = ".build/coro-lane/std"
+    let names = Vector<String>()
+    let dirs = Vector<String>()
+    var front = StringBuilder()
+    var coro = coro_lower_file(out: &var front, path: "compiler/tests/coro/inject/records.saw", std_root: root,
+                               notes: false, names: &names, dirs: &dirs)
+    assert(not coro.blocked && coro.diags.len() == 0, "the fixture is refused: run it through the coro lane")
+    var target = coro.mono.target_for("arm64-apple-darwin")
+    coro_lower_for(&var coro, &var target)
+    // Stage 0 workaround (SL:hazards S23): canonical: assert(coro.problems.len() == 0, "the fixture's lowering is not clean: {}", coro.problems.get(0) ?? "")
+    let first = coro.problems.get(0) ?? ""
+    assert(coro.problems.len() == 0, "the fixture's lowering is not clean: {}", first)
+    let f = body_of(&coro, "fd_wait")
+    assert(f >= 0, "the verifier records no body for `fd_wait`")
+    assert(record_after_arm(&var coro, f), "`fd_wait`'s arm is not preceded by a record of its park word")
+    coro_verify_lowering(&var coro)
+    assert(coro.problems.len() == 1, "the verifier reports {} problems, not one", coro.problems.len())
+    let found = coro.problems.get(0) ?? ""
+    assert(holds(&found, "verify rule 4 (record before arm)"), "the report does not name rule 4: {}", found)
+    assert(holds(&found, "its arm in bb"), "the report does not name the arm: {}", found)
+}

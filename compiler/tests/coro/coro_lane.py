@@ -22,7 +22,10 @@ directory specifies:
 - over every program of this lane, of the mono lane's goldens and of the run
   lane, coroutine lowering's frame decisions agree with typecheck's
   summaries wherever a summary is unconditional, and every frame is laid
-  out: `sawc2 coro --layouts` gives each a record with no `INVARIANT` line.
+  out: `sawc2 coro --layouts` gives each a record with no `INVARIANT` line;
+- each unit program under `parks/`, a verifier injection over a fixture of
+  `inject/` that needs the park std, builds and exits 0 once that std is
+  made.
 """
 import glob
 import os
@@ -44,7 +47,8 @@ import borrowck_lane  # noqa: E402
 GOLDEN = os.path.join(HERE, "golden")
 REFUSE = os.path.join(HERE, "refuse")
 MODULES = os.path.join(HERE, "modules")
-PARKS_TAIL = os.path.join(HERE, "parks", "task_tail.saw")
+PARKS = os.path.join(HERE, "parks")
+PARKS_TAIL = os.path.join(PARKS, "task_tail.saw")
 PARK_STD = os.path.join(REPO, ".build", "coro-lane", "std")
 RULES_SOURCE = os.path.join(COMPILER, "coro", "src", "suspends.saw")
 AGREEMENT = (os.path.join(TESTS, "mono", "golden"), os.path.join(TESTS, "run"))
@@ -212,6 +216,37 @@ def check_agreement(failures, counts):
     counts["coro agreement programs"] = len(cases)
 
 
+def check_park_injections(failures, counts):
+    """Each unit program under `parks/`, which lowers a fixture of `inject/`
+    under the park std and needs it made first: built by Stage 0 and run from
+    the repository root, as compiler/tests/run.py runs the stages' own."""
+    for src in sorted(glob.glob(os.path.join(PARKS, "*.saw"))):
+        if src == PARKS_TAIL:
+            continue
+        name = os.path.splitext(os.path.basename(src))[0]
+        exe = os.path.join(REPO, ".build", "coro-lane", name)
+        ok, output = build.build_program(src, exe)
+        if not ok:
+            failures.append("coro injection %s: does not compile: %s" % (rel(src), first_line(output)))
+            continue
+        try:
+            r = subprocess.run([exe], cwd=REPO, capture_output=True, text=True, timeout=TIMEOUT)
+        except subprocess.TimeoutExpired:
+            failures.append("coro injection %s: timed out" % rel(src))
+            continue
+        if r.returncode != 0:
+            failures.append("coro injection %s: exit %d: %s"
+                            % (rel(src), r.returncode, first_line(r.stderr) or first_line(r.stdout)))
+        counts["coro park injections"] = counts.get("coro park injections", 0) + 1
+
+
+def first_line(text):
+    for line in (text or "").splitlines():
+        if line.strip():
+            return line.strip()
+    return ""
+
+
 def run(write=False):
     failures = []
     counts = {}
@@ -222,6 +257,7 @@ def run(write=False):
     check_golden(failures, counts, write, rules, "--lowered", ".lowered", park_root)
     check_refusals(failures, counts, rules)
     check_agreement(failures, counts)
+    check_park_injections(failures, counts)
     return failures, counts
 
 
