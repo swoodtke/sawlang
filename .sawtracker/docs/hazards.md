@@ -1514,6 +1514,18 @@ So both shapes build under sawc2 and fail under Stage 0. It is loud: Stage 0 ref
 
 **Checker:** not needed: Stage 0 refuses loudly.
 
+### L29. A suspending default value: sawc2 charges the caller that leaves it out, and Stage 0 refuses both forms (SL-656)
+
+**Shape:** the user's ruling (b) on SL-656 says a default is evaluated in the caller, so its effect belongs to the call that leaves the argument out, never to the function. For `func f(n: Int = slow())`:
+- **sawc2:** `f` is an ordinary function whose summary is its body's alone. `f()` suspends in the caller, and is refused only in a `sync` context (`effect.sync`, naming the default). `f(n: 2)` is accepted anywhere, `sync` included.
+- **Stage 0:** refuses every call that leaves out a suspending default, and also refuses a `sync` caller that passes the argument explicitly.
+
+So code using a suspending default builds under sawc2 and fails under Stage 0. It is loud: Stage 0 refuses at the call.
+
+**Instead:** in code Stage 0 builds (`compiler/`, `blade/`, `libs/`, `examples/`), give no parameter a default value that suspends; make the suspending value an argument the caller passes.
+
+**Checker:** not needed: Stage 0 refuses loudly.
+
 ## Cases with no issue
 
 
