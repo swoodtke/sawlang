@@ -1,0 +1,15 @@
+// refuses: transfer.no-move at 9:5
+// A `TaskGroup` is `NoMove`: its tasks hold its address, so it lives where
+// its constructor built it, and moving one out of its binding is refused at
+// the `move` (design 124).
+
+func make() -> TaskGroup {
+    var group = TaskGroup()
+    print("{}", group.count())
+    move group
+}
+
+func main() -> Int {
+    let g = make()
+    g.count()
+}

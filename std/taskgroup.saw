@@ -135,7 +135,14 @@ struct TaskTicket {
     generation: Int
 }
 
-/// A scope for spawned tasks over the shared cooperative scheduler.
+/// A scope for spawned tasks: every task spawned into a group finishes before
+/// the group is destroyed.
+///
+/// The group's tasks run on the one cooperative scheduler, beside every other
+/// group's, whenever it runs: under a suspending `main`, at a `join`, and at a
+/// group's teardown. A group may live in a suspending function's frame and
+/// stay there across its suspensions. It is `NoMove`, because its tasks reach
+/// it through its address.
 public struct TaskGroup {
     private slots: Vector<TaskSlot>
     private free: Vector<Int>
@@ -145,7 +152,44 @@ public struct TaskGroup {
     private registered: Bool
 }
 
-extension TaskGroup: NoCopy {}
+extension TaskGroup {
+    /// Creates an empty group, whose tasks run on the shared cooperative
+    /// scheduler.
+    public init() -> TaskGroup {
+        TaskGroup(slots: Vector<TaskSlot>(), free: Vector<Int>(), next: 0, registered: false)
+    }
+
+    /// Returns the number of task slots the group holds: its live tasks, plus
+    /// the finished ones whose result has not been joined yet.
+    public func count(&self) -> Int {
+        self.slots.len() - self.free.len()
+    }
+}
+
+// The group's teardown is its structured join: every live task is driven to
+// completion where the group was born, other groups' tasks advancing beside
+// them, and then each slot is released, a result nobody joined included.
+// Nothing is cancelled. The sweep skips every frame active on this thread's
+// stack, so a group torn down while one of its own tasks is further up the
+// stack would release a frame that has not returned `Ready`; it panics
+// instead (SL:coroutines §3.1).
+extension TaskGroup: NoCopy {
+    public func deinit(&var self) unsafe {
+        if self.registered {
+            let me = (&self) as UnsafePointer<TaskGroup> as Int
+            exec_run(me, -1, 0)
+            if self.has_live() {
+                panic("TaskGroup: the group is torn down while one of its tasks is running further up this thread's stack")
+            }
+        }
+        unregister(&var self)
+        release_slots(&var self)
+    }
+}
+
+// A group is a scope whose tasks hold its address, so it lives where its
+// constructor built it (design 124).
+extension TaskGroup: NoMove {}
 
 // The ambient scheduler's list of every group with tasks, threaded through
 // each group's `next`; the head group's address, or 0.
@@ -234,11 +278,6 @@ func free_cell(cell: UnsafePointer<TaskCell>) unsafe {
 }
 
 extension TaskGroup {
-    // An empty group, linked into nothing.
-    static func empty() -> TaskGroup {
-        TaskGroup(slots: Vector<TaskSlot>(), free: Vector<Int>(), next: 0, registered: false)
-    }
-
     // Whether (`slot`, `generation`) no longer names the task it was minted
     // for. Every handle operation asks first, so a stale handle never reaches
     // a successor's state.
@@ -627,7 +666,7 @@ public func __saw_exec_background() unsafe -> UnsafePointer<TaskGroup> {
     let align = alignof<TaskGroup>()
     let raw = exec_alloc(size, align, "Task.spawn")
     let g = raw as UnsafePointer<TaskGroup>
-    g[0] = TaskGroup.empty()
+    g[0] = TaskGroup()
     if BACKGROUND.compare_exchange(0, raw as Int) {
         return g
     }
@@ -668,15 +707,13 @@ public func __saw_exec_close_background() unsafe {
 /// the entry the compiler calls.
 public func __saw_exec_drive_main(descriptor: UnsafePointer<FrameDescriptor>,
                                   frame: UnsafePointer<UInt8>) unsafe {
-    var root = TaskGroup.empty()
+    var root = TaskGroup()
     let ticket = enqueue(&var root, descriptor, frame, false)
     let at = (&root) as UnsafePointer<TaskGroup> as Int
     exec_run(at, ticket.slot, ticket.generation)
     if not root.is_done(ticket.slot) {
         panic("executor: `main` cannot finish: every live task is waiting")
     }
-    release_slots(&var root)
-    unregister(&var root)
     __saw_exec_close_background()
 }
 

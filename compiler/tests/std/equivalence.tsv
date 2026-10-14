@@ -140,3 +140,9 @@ Command	std.process init Command.init program:String	SL-522
 (api)	vocabulary method Atomic.compare_exchange expected:T,desired:T	SL-522
 (api)	vocabulary conformance Atomic UnsafeSync	SL-522
 (api)	vocabulary conformance Atomic NoCopy	SL-522
+(api)	std.taskgroup struct TaskGroup -	SL-563
+(api)	std.taskgroup init TaskGroup.init -	SL-563
+(api)	std.taskgroup method TaskGroup.count -	SL-563
+(api)	std.taskgroup method TaskGroup.deinit -	SL-563
+(api)	std.taskgroup conformance TaskGroup NoCopy	SL-563
+(api)	std.taskgroup conformance TaskGroup NoMove	SL-563

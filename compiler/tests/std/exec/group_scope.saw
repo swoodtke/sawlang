@@ -1,0 +1,85 @@
+// A `TaskGroup` built with `TaskGroup()` is a scope: its teardown drives the
+// tasks still live to completion, then releases the results nobody joined.
+// Its handles drop silently, and `count` reports the slots it holds: live
+// tasks plus finished ones whose result is still waiting for a join.
+
+import std.taskgroup.{FrameDescriptor, Poll, TaskContext, TaskProvenance}
+import std.taskgroup.{__saw_exec_task_box}
+
+// A frame that counts to `steps`, yielding after every step but its last.
+struct Counter {
+    state: Int
+    name: Int
+    steps: Int
+    result: Int
+}
+
+func park_ready(cx: UnsafePointer<TaskContext>) unsafe -> Poll {
+    cx[0].park[0] = 0
+    Poll.Pending
+}
+
+func counter_resume(frame: UnsafePointer<UInt8>, cx: UnsafePointer<TaskContext>) unsafe -> Poll {
+    let f = frame as UnsafePointer<Counter>
+    let step = f[0].state + 1
+    f[0].state = step
+    print("task {} step {}", f[0].name, step)
+    if step < f[0].steps {
+        return park_ready(cx)
+    }
+    f[0].result = f[0].name * 100 + step
+    Poll.Ready
+}
+
+func drop_int(at: UnsafePointer<UInt8>) unsafe {
+    let p = at as UnsafePointer<Int>
+    print("released result {}", p[0])
+}
+
+func counter_offset() unsafe -> Int {
+    var probe = Counter(state: 0, name: 0, steps: 0, result: 0)
+    let base = (&probe) as UnsafePointer<Counter>
+    let field = (&probe.result) as UnsafePointer<Int>
+    field as Int - base as Int
+}
+
+func spawn_counter(group: UnsafePointer<TaskGroup>, d: UnsafePointer<FrameDescriptor>, name: Int,
+                   steps: Int) unsafe -> Task<Int> {
+    let frame = __saw_exec_task_box(d)
+    let f = frame as UnsafePointer<Counter>
+    f[0] = Counter(state: 0, name: name, steps: steps, result: 0)
+    Task<Int>.__saw_spawn(group, d, frame, TaskProvenance.Group)
+}
+
+func scope(d: UnsafePointer<FrameDescriptor>) unsafe {
+    var group = TaskGroup()
+    let g = (&group) as UnsafePointer<TaskGroup>
+    print("an empty group holds {}", group.count())
+    let a = spawn_counter(g, d, 1, 3)
+    let b = spawn_counter(g, d, 2, 2)
+    let c = spawn_counter(g, d, 3, 1)
+    print("the group holds {}", group.count())
+    print("joined {}", b.join())
+    print("the group holds {}", group.count())
+    print("leaving the scope")
+}
+
+func unused() {
+    let group = TaskGroup()
+    print("a group nothing spawned into holds {}", group.count())
+}
+
+func run() unsafe {
+    let counter = FrameDescriptor(resume: { f, c in counter_resume(f, c) }, size: sizeof<Counter>(),
+                                  align: alignof<Counter>(), result_offset: counter_offset(),
+                                  result_size: sizeof<Int>(), result_align: alignof<Int>(),
+                                  drop_result: { p in drop_int(p) }, backtrace: -1)
+    scope((&counter) as UnsafePointer<FrameDescriptor>)
+    print("after the scope")
+    unused()
+    print("after the unused group")
+}
+
+func main() {
+    run()
+}

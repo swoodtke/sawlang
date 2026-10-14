@@ -1,0 +1,11 @@
+inner 10 yields
+inner 20 yields
+inner 10 joins
+inner 20 joins
+leaf 10 done
+leaf 11 done
+leaf 20 done
+leaf 21 done
+inner 20 got 82
+inner 10 got 42
+124

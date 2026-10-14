@@ -1,0 +1,40 @@
+// expect-panic: Task.detach: this handle came from `group.spawn`, and a group task's fate is its group's scope — drop the handle instead, or use `Task.spawn` for a detachable task
+// A group's handle is not must-consume, and it takes no `detach`: the task's
+// fate is its group's scope, which may hold borrows from the spawner, so
+// handing the task to the process panics where the handle is detached.
+
+import std.taskgroup.{FrameDescriptor, Poll, TaskContext, TaskProvenance}
+import std.taskgroup.{__saw_exec_task_box}
+
+struct Answer {
+    result: Int
+}
+
+func answer_resume(frame: UnsafePointer<UInt8>, cx: UnsafePointer<TaskContext>) unsafe -> Poll {
+    let f = frame as UnsafePointer<Answer>
+    f[0].result = 42
+    Poll.Ready
+}
+
+func drop_int(at: UnsafePointer<UInt8>) unsafe {
+}
+
+func run() unsafe {
+    let answer = FrameDescriptor(resume: { f, c in answer_resume(f, c) }, size: sizeof<Answer>(),
+                                 align: alignof<Answer>(), result_offset: 0,
+                                 result_size: sizeof<Int>(), result_align: alignof<Int>(),
+                                 drop_result: { p in drop_int(p) }, backtrace: -1)
+    let d = (&answer) as UnsafePointer<FrameDescriptor>
+    var group = TaskGroup()
+    let frame = __saw_exec_task_box(d)
+    let f = frame as UnsafePointer<Answer>
+    f[0] = Answer(result: 0)
+    let task = Task<Int>.__saw_spawn((&group) as UnsafePointer<TaskGroup>, d, frame,
+                                     TaskProvenance.Group)
+    task.detach()
+    print("unreached")
+}
+
+func main() {
+    run()
+}

@@ -1,0 +1,124 @@
+// Nested groups, by hand: the `taskgroup_nested_groups` shape (SL:coroutines
+// §3.1, t2). Two `inner` tasks of an outer group each yield, then build a
+// group of their own, spawn two leaves into it and join them. A join inside a
+// task drives the one scheduler re-entrantly: the first inner's join reaches
+// the outer group, where it must skip that inner, which is running further up
+// the stack, and resume the other, whose own join then nests a second level.
+// A resumed inner that finds itself re-entered says so.
+
+import std.taskgroup.{FrameDescriptor, Poll, TaskContext, TaskProvenance}
+import std.taskgroup.{__saw_exec_task_box}
+
+// A leaf: yields twice, then returns double its `n`.
+struct Leaf {
+    state: Int
+    n: Int
+    result: Int
+}
+
+// An inner task.
+struct Inner {
+    state: Int
+    base: Int
+    inside: Bool
+    leaf: UnsafePointer<FrameDescriptor>
+    result: Int
+}
+
+func park_ready(cx: UnsafePointer<TaskContext>) unsafe -> Poll {
+    cx[0].park[0] = 0
+    Poll.Pending
+}
+
+func leaf_resume(frame: UnsafePointer<UInt8>, cx: UnsafePointer<TaskContext>) unsafe -> Poll {
+    let f = frame as UnsafePointer<Leaf>
+    let state = f[0].state
+    f[0].state = state + 1
+    if state < 2 {
+        return park_ready(cx)
+    }
+    f[0].result = f[0].n * 2
+    print("leaf {} done", f[0].n)
+    Poll.Ready
+}
+
+func inner_resume(frame: UnsafePointer<UInt8>, cx: UnsafePointer<TaskContext>) unsafe -> Poll {
+    let f = frame as UnsafePointer<Inner>
+    let base = f[0].base
+    if f[0].inside {
+        print("inner {} was re-entered", base)
+    }
+    let state = f[0].state
+    f[0].state = state + 1
+    if state == 0 {
+        print("inner {} yields", base)
+        return park_ready(cx)
+    }
+    f[0].inside = true
+    var group = TaskGroup()
+    let g = (&group) as UnsafePointer<TaskGroup>
+    let a = spawn_leaf(g, f[0].leaf, base)
+    let b = spawn_leaf(g, f[0].leaf, base + 1)
+    print("inner {} joins", base)
+    let x = a.join()
+    let y = b.join()
+    print("inner {} got {}", base, x + y)
+    f[0].result = x + y
+    f[0].inside = false
+    Poll.Ready
+}
+
+func drop_nothing(at: UnsafePointer<UInt8>) unsafe {
+}
+
+func leaf_offset() unsafe -> Int {
+    var probe = Leaf(state: 0, n: 0, result: 0)
+    let base = (&probe) as UnsafePointer<Leaf>
+    let field = (&probe.result) as UnsafePointer<Int>
+    field as Int - base as Int
+}
+
+func inner_offset() unsafe -> Int {
+    var probe = Inner(state: 0, base: 0, inside: false, leaf: 0 as UnsafePointer<FrameDescriptor>,
+                      result: 0)
+    let base = (&probe) as UnsafePointer<Inner>
+    let field = (&probe.result) as UnsafePointer<Int>
+    field as Int - base as Int
+}
+
+func spawn_leaf(group: UnsafePointer<TaskGroup>, d: UnsafePointer<FrameDescriptor>, n: Int) unsafe -> Task<Int> {
+    let frame = __saw_exec_task_box(d)
+    let f = frame as UnsafePointer<Leaf>
+    f[0] = Leaf(state: 0, n: n, result: 0)
+    Task<Int>.__saw_spawn(group, d, frame, TaskProvenance.Group)
+}
+
+func spawn_inner(group: UnsafePointer<TaskGroup>, d: UnsafePointer<FrameDescriptor>,
+                 leaf: UnsafePointer<FrameDescriptor>, base: Int) unsafe -> Task<Int> {
+    let frame = __saw_exec_task_box(d)
+    let f = frame as UnsafePointer<Inner>
+    f[0] = Inner(state: 0, base: base, inside: false, leaf: leaf, result: 0)
+    Task<Int>.__saw_spawn(group, d, frame, TaskProvenance.Group)
+}
+
+func run() unsafe {
+    let leaf = FrameDescriptor(resume: { f, c in leaf_resume(f, c) }, size: sizeof<Leaf>(),
+                               align: alignof<Leaf>(), result_offset: leaf_offset(),
+                               result_size: sizeof<Int>(), result_align: alignof<Int>(),
+                               drop_result: { p in drop_nothing(p) }, backtrace: -1)
+    let inner = FrameDescriptor(resume: { f, c in inner_resume(f, c) }, size: sizeof<Inner>(),
+                                align: alignof<Inner>(), result_offset: inner_offset(),
+                                result_size: sizeof<Int>(), result_align: alignof<Int>(),
+                                drop_result: { p in drop_nothing(p) }, backtrace: -1)
+    let ld = (&leaf) as UnsafePointer<FrameDescriptor>
+    let id = (&inner) as UnsafePointer<FrameDescriptor>
+    var group = TaskGroup()
+    let g = (&group) as UnsafePointer<TaskGroup>
+    let h1 = spawn_inner(g, id, ld, 10)
+    let h2 = spawn_inner(g, id, ld, 20)
+    print(h1.join() + h2.join())
+}
+
+func main() {
+    run()
+}

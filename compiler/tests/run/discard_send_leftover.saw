@@ -1,13 +1,13 @@
 // due: the new std's tasks and spawn enter the slice, to a Send refusal
-// refuses: call.no-match at 30:22
+// refuses: call.label at 30:22
 // A part a consumed `match` discards with `_` is held until the arm
 // completes, so it lives across the arm's suspension: in a task spawned into
 // a `threads:` group, that makes it a value the frame carries between
 // workers, which must be `Send`. A closure is not, so this program must be
 // refused at `step` for the discarded payload, as Stage 0 refuses it ("local
 // `job` of type `Job` is held across a suspension but is not `Send`"). The
-// new std's `TaskGroup` has no constructor yet, and sawc2 lowers no spawn,
-// so the refusal standing in the way today is the group's construction.
+// new std's `TaskGroup` has no `threads:` constructor yet (A17a), and sawc2
+// lowers no spawn, so the group's construction is refused first.
 import std.task.{yield_now}
 
 enum Job {

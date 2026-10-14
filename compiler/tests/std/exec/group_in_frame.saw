@@ -1,0 +1,117 @@
+// A group resident in a coroutine frame (design 62 G1): a hand-built `main`
+// frame holds a `TaskGroup`, spawns two children into it and parks. The
+// children run while their spawner is parked, since the group links its
+// address into the one scheduler, and that address is the frame's, which
+// never moves. `main` returns without joining them; the frame's group is
+// torn down where the frame dies, and its teardown drives the children to
+// completion and releases their unjoined results.
+
+import std.taskgroup.{FrameDescriptor, Poll, TaskContext, TaskProvenance}
+import std.taskgroup.{__saw_exec_drive_main, __saw_exec_task_box}
+
+struct MainFrame {
+    state: Int
+    child: UnsafePointer<FrameDescriptor>
+    group: TaskGroup
+    result: Int
+}
+
+extension MainFrame: NoCopy {}
+
+extension MainFrame: NoMove {}
+
+// A child that counts to three, yielding after every step but its last.
+struct Child {
+    state: Int
+    name: Int
+    result: Int
+}
+
+func park_ready(cx: UnsafePointer<TaskContext>) unsafe -> Poll {
+    cx[0].park[0] = 0
+    Poll.Pending
+}
+
+func main_resume(frame: UnsafePointer<UInt8>, cx: UnsafePointer<TaskContext>) unsafe -> Poll {
+    let f = frame as UnsafePointer<MainFrame>
+    let state = f[0].state
+    f[0].state = state + 1
+    if state == 0 {
+        let g = (&f[0].group) as UnsafePointer<TaskGroup>
+        let a = spawn_child(g, f[0].child, 1)
+        let b = spawn_child(g, f[0].child, 2)
+        print("main spawned, and its group holds {}", f[0].group.count())
+        return park_ready(cx)
+    }
+    print("main returns without a join, its group holding {}", f[0].group.count())
+    f[0].result = 7
+    Poll.Ready
+}
+
+func child_resume(frame: UnsafePointer<UInt8>, cx: UnsafePointer<TaskContext>) unsafe -> Poll {
+    let f = frame as UnsafePointer<Child>
+    let step = f[0].state + 1
+    f[0].state = step
+    print("child {} step {}", f[0].name, step)
+    if step < 3 {
+        return park_ready(cx)
+    }
+    f[0].result = f[0].name * 100 + step
+    Poll.Ready
+}
+
+func drop_int(at: UnsafePointer<UInt8>) unsafe {
+    let p = at as UnsafePointer<Int>
+    print("released result {}", p[0])
+}
+
+func drop_nothing(at: UnsafePointer<UInt8>) unsafe {
+}
+
+func main_offset() unsafe -> Int {
+    var probe = MainFrame(state: 0, child: 0 as UnsafePointer<FrameDescriptor>, group: TaskGroup(),
+                          result: 0)
+    let base = (&probe) as UnsafePointer<MainFrame>
+    let field = (&probe.result) as UnsafePointer<Int>
+    field as Int - base as Int
+}
+
+func child_offset() unsafe -> Int {
+    var probe = Child(state: 0, name: 0, result: 0)
+    let base = (&probe) as UnsafePointer<Child>
+    let field = (&probe.result) as UnsafePointer<Int>
+    field as Int - base as Int
+}
+
+func spawn_child(group: UnsafePointer<TaskGroup>, d: UnsafePointer<FrameDescriptor>, name: Int) unsafe -> Task<Int> {
+    let frame = __saw_exec_task_box(d)
+    let f = frame as UnsafePointer<Child>
+    f[0] = Child(state: 0, name: name, result: 0)
+    Task<Int>.__saw_spawn(group, d, frame, TaskProvenance.Group)
+}
+
+// The frame is this function's local, so its group is destroyed in place
+// when the function ends, as a lowered frame's own exit destroys it.
+func drive(entry: UnsafePointer<FrameDescriptor>, child: UnsafePointer<FrameDescriptor>) unsafe {
+    var frame = MainFrame(state: 0, child: child, group: TaskGroup(), result: 0)
+    let at = (&frame) as UnsafePointer<MainFrame>
+    __saw_exec_drive_main(entry, at as UnsafePointer<UInt8>)
+    print("main's result {}", at[0].result)
+}
+
+func run() unsafe {
+    let child = FrameDescriptor(resume: { f, c in child_resume(f, c) }, size: sizeof<Child>(),
+                                align: alignof<Child>(), result_offset: child_offset(),
+                                result_size: sizeof<Int>(), result_align: alignof<Int>(),
+                                drop_result: { p in drop_int(p) }, backtrace: -1)
+    let entry = FrameDescriptor(resume: { f, c in main_resume(f, c) }, size: sizeof<MainFrame>(),
+                                align: alignof<MainFrame>(), result_offset: main_offset(),
+                                result_size: sizeof<Int>(), result_align: alignof<Int>(),
+                                drop_result: { p in drop_nothing(p) }, backtrace: -1)
+    drive((&entry) as UnsafePointer<FrameDescriptor>, (&child) as UnsafePointer<FrameDescriptor>)
+    print("after the frame")
+}
+
+func main() {
+    run()
+}

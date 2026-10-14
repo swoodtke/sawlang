@@ -1,0 +1,12 @@
+main spawned, and its group holds 2
+child 1 step 1
+child 2 step 1
+main returns without a join, its group holding 2
+main's result 7
+child 1 step 2
+child 2 step 2
+child 1 step 3
+child 2 step 3
+released result 103
+released result 203
+after the frame
