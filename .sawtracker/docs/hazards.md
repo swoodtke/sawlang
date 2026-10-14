@@ -1822,6 +1822,8 @@ ledger's reading. Where it differs from the sweep, Notes for the lead says why.
 | SL-641 | L27 Copy policies, a stray `copy()` and redeclarations that Stage 0 accepts and sawc2 refuses | loud (a ruling, which sawc2's typecheck refuses; no live instance) |
 | SL-648 | L28 An `init` matching its struct's fields: Stage 0 refuses it, sawc2 accepts it as an override or an overload | loud (Stage 0 refuses at the declaration; no live instance) |
 | SL-656 | L29 A suspending default value: sawc2 charges the caller that leaves it out, and Stage 0 refuses both forms | loud (Stage 0 refuses at the call; no live instance) |
+| SL-660 | S35 A zero-initialized static that Stage 0 accepts and sawc2 refuses | silent (a missing check in Stage 0; no live instance in compiler source) |
+| SL-660 | L30 `ZeroInit`: Stage 0 has none | loud (an unknown name to Stage 0; no live instance) |
 
 No issue is marked "not reachable from the subset". Several entries depend on
 features the subset does not list (`any`, `Box`, cells, pointers, fixed arrays,
