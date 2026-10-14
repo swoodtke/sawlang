@@ -929,9 +929,7 @@ Stage 0 also refuses `&(move a)` passed to a `&` parameter, which sawc2 accepts 
 ## Loud hazards
 
 
-### L1. Integer literal adoption
-
- (SL-13, SL-53, SL-56, SL-70, SL-75, SL-84, SL-194)
+### L1. Integer literal adoption (SL-13, SL-53, SL-56, SL-70, SL-75, SL-84, SL-194)
 
 **Shape:** a bare integer literal is meant to adopt a non-`Int` integer type
 wherever one is expected. The frozen compiler misses these positions, and
