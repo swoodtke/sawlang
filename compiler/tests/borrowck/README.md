@@ -23,6 +23,7 @@ borrowck/
   differential.tsv       the tests/corpus move errors the check does not refuse, and why
   loan_differential.tsv  the tests/corpus loan errors the check does not refuse, and the
                          expected successes it does, each with its mechanism
+  ledger/                ledgers that carry one row id twice, which the ledger check must refuse
 ```
 
 ## `sawc2 borrowck`
@@ -315,7 +316,14 @@ drop-after-move site it lists must be labelled `elided` or `flagged`.
 
 ## The lane
 
-`borrowck_lane.py` checks the conformance matrix (every row of the five
+`borrowck_lane.py` first checks the ledgers `.gitattributes` merges by union
+(`LEDGERS`: INDEX.md, CONFORMANCE.md and `compiler/tests/drops/conformance.tsv`).
+A union merge keeps every row both sides wrote, so a row id two patches both
+chose lands twice; each id must be carried by one row, save the ids
+`ADMITTED_DUPLICATES` names, each on exactly the rows it admits, and a
+duplicate fails with each of its rows quoted. Every union-merged path must be
+in `LEDGERS`, and each fixture in `ledger/` must fail on its one duplicate.
+It then checks the conformance matrix (every row of the five
 sections, each with an owner, every path it names existing, every row the
 borrow check owns, U6d1's or U6d2's, naming a fixture or golden here); that
 each golden's record equals its `.borrowck` file byte for byte (`--write`

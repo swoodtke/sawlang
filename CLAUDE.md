@@ -484,7 +484,12 @@ editor — NEVER `checkout --theirs/--ours` on a shared accumulator file
 (todo.md, INDEX.md, SKILL.md): it replaces the whole file and silently
 discards the other side's non-conflicted entries (this happened Aug 17;
 recovered from history). After any accumulator-file resolution,
-sanity-grep a couple of entries that exist only on the other side. Two
+sanity-grep a couple of entries that exist only on the other side. The
+conformance ledgers (`examples/conformance/INDEX.md`,
+`compiler/tests/borrowck/CONFORMANCE.md`, `compiler/tests/drops/conformance.tsv`)
+merge by union (`.gitattributes`), so rows appended at one place both land
+and a duplicated row id fails the borrowck lane, but a row one side deleted
+can come back unflagged. Two
 concurrent agents WILL collide on DF numbers — assign ranges at
 dispatch or renumber at submission. SOS-side branches PARK for USER
 review before submission; compiler briefs follow the normal flow.

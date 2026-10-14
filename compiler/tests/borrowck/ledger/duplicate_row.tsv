@@ -1,0 +1,6 @@
+# A ledger two patches appended to under a union merge: each chose V02.
+row	path	summary
+V01	tests/corpus/conformance/V01_use_after_move.saw	drops 2, flags 0
+V02	tests/corpus/conformance/V02_move_into_closure.saw	drops 3, flags 0
+V02	tests/corpus/conformance/V02_field_refill.saw	drops 4, flags 1
+V03	tests/corpus/conformance/V03_consumed_receiver.saw	drops 5, flags 0

@@ -9,6 +9,8 @@ fixtures, conformance matrix and the move-error differential.
 `compiler/tests/run.py` runs `run()`. It checks, as README.md in this
 directory specifies:
 
+- each ledger `.gitattributes` merges by union (`LEDGERS`) gives every row
+  an id of its own, and each fixture in `ledger/` fails that check;
 - CONFORMANCE.md accounts for every row of `examples/conformance/INDEX.md`'s
   five borrow-check sections, each with an owner from the matrix's own
   table, every `compiler/tests/` path it names exists, and every row the
@@ -61,6 +63,29 @@ CORPUS = os.path.join(REPO, "tests", "corpus")
 STD_ENTRY = os.path.join(TESTS, "std", "entry.saw")
 RULES_SOURCE = os.path.join(COMPILER, "borrowck", "src", "check.saw")
 TIMEOUT = 3600
+GITATTRIBUTES = os.path.join(REPO, ".gitattributes")
+LEDGER_FIXTURES = os.path.join(HERE, "ledger")
+
+# The ledgers `.gitattributes` merges by union, each with the shape of its
+# rows: a markdown table row's first cell, or a tsv line's first field after
+# the header. A union merge keeps both sides' rows, so two patches that chose
+# one id both land, and `check_ledgers` is what refuses that.
+LEDGERS = (
+    ("examples/conformance/INDEX.md", "table"),
+    ("compiler/tests/borrowck/CONFORMANCE.md", "table"),
+    ("compiler/tests/drops/conformance.tsv", "tsv"),
+)
+# Ids already carried by more than one row, each admitted on exactly that many
+# rows: one more row, or one fewer, fails.
+ADMITTED_DUPLICATES = {
+    "examples/conformance/INDEX.md": {"X41": 2, "K53": 2},
+    "compiler/tests/borrowck/CONFORMANCE.md": {"X41": 2},
+}
+# Each fixture of `ledger/`, its shape, and the one id it carries twice.
+LEDGER_FIXTURE_CASES = (
+    ("duplicate_row.md", "table", "V02"),
+    ("duplicate_row.tsv", "tsv", "V02"),
+)
 
 # INDEX.md's five borrow-check sections, by the start of their headings, and
 # the heading each has in the matrix.
@@ -160,6 +185,85 @@ def section_rows(path, headings):
             if current is not None and _ROW.match(line):
                 out[current].append([c.strip() for c in line.strip().strip("|").split("|")])
     return out
+
+
+def ledger_rows(path, shape):
+    """[(line number, id, line)] for each row of a ledger of `shape`."""
+    out = []
+    header = shape == "tsv"
+    with open(path) as fh:
+        for number, line in enumerate(fh, start=1):
+            line = line.rstrip("\n")
+            if shape == "table":
+                m = _ROW.match(line)
+                if m:
+                    out.append((number, m.group(1), line))
+            elif line and not line.startswith("#"):
+                if header:
+                    header = False
+                    continue
+                out.append((number, line.split("\t")[0], line))
+    return out
+
+
+def duplicate_rows(path, shape, admitted=None):
+    """One failure per id carried by more rows than `admitted` allows (one by
+    default), quoting each of those rows in full, and one per admitted id
+    carried by fewer rows than it admits."""
+    admitted = admitted or {}
+    by_id = collections.OrderedDict()
+    for number, ident, line in ledger_rows(path, shape):
+        by_id.setdefault(ident, []).append((number, line))
+    failures = []
+    for ident, rows in by_id.items():
+        if len(rows) > admitted.get(ident, 1):
+            failures.append("borrowck ledger %s: row id %s is carried by %d rows: %s"
+                            % (rel(path), ident, len(rows),
+                               " / ".join("line %d: %s" % row for row in rows)))
+    for ident, n in sorted(admitted.items()):
+        if len(by_id.get(ident, ())) < n:
+            failures.append("borrowck ledger %s: row id %s is admitted on %d rows but is carried by %d; "
+                            "update ADMITTED_DUPLICATES" % (rel(path), ident, n, len(by_id.get(ident, ()))))
+    return failures
+
+
+def union_paths():
+    """The paths `.gitattributes` marks `merge=union`, in order."""
+    out = []
+    with open(GITATTRIBUTES) as fh:
+        for line in fh:
+            fields = line.split()
+            if fields and not fields[0].startswith("#") and "merge=union" in fields[1:]:
+                out.append(fields[0])
+    return out
+
+
+def check_ledgers(failures, counts):
+    """Every union-merged ledger's row ids are unique, the union-merged paths
+    are exactly `LEDGERS`, and each fixture's duplicate is refused with both
+    of its rows quoted."""
+    marked = union_paths()
+    listed = [path for path, _ in LEDGERS]
+    for path in marked:
+        if path not in listed:
+            failures.append("borrowck ledger %s: %s merges by union, and LEDGERS does not check its row ids"
+                            % (rel(GITATTRIBUTES), path))
+    for path, shape in LEDGERS:
+        if path not in marked:
+            failures.append("borrowck ledger %s: %s is in LEDGERS but is not marked merge=union"
+                            % (rel(GITATTRIBUTES), path))
+        failures += duplicate_rows(os.path.join(REPO, path), shape, ADMITTED_DUPLICATES.get(path))
+        counts["union-merged ledgers"] = counts.get("union-merged ledgers", 0) + 1
+    for name, shape, ident in LEDGER_FIXTURE_CASES:
+        path = os.path.join(LEDGER_FIXTURES, name)
+        got = duplicate_rows(path, shape)
+        rows = [line for _, row, line in ledger_rows(path, shape) if row == ident]
+        expected = "borrowck ledger %s: row id %s is carried by %d rows: " % (rel(path), ident, len(rows))
+        if len(rows) < 2 or len(got) != 1 or not got[0].startswith(expected) \
+                or not all(line in got[0] for line in rows):
+            failures.append("borrowck ledger %s: expected only row id %s refused, with each of its rows "
+                            "quoted; got %r" % (rel(path), ident, got))
+        counts["ledger fixtures"] = counts.get("ledger fixtures", 0) + 1
 
 
 def check_conformance(failures, counts):
@@ -519,6 +623,7 @@ def check_loan_row(path, text, wanted, record, loan_reasons, loan_seen, failures
 def run(write=False, fill=False):
     failures = []
     counts = {}
+    check_ledgers(failures, counts)
     check_conformance(failures, counts)
     check_golden(failures, counts, write)
     check_refusals(failures, counts, fill)

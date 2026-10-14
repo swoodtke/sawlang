@@ -1,0 +1,7 @@
+# Append-only ledgers with an id per row: a union merge keeps the rows both
+# sides added at one place. It also keeps both versions of a row two sides
+# edited, and revives a row one side deleted; the borrowck lane fails a
+# duplicate id, and each path here must be in its LEDGERS.
+examples/conformance/INDEX.md merge=union
+compiler/tests/borrowck/CONFORMANCE.md merge=union
+compiler/tests/drops/conformance.tsv merge=union
