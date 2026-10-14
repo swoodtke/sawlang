@@ -1,0 +1,19 @@
+// A setitem: `func []=`, which `m[k] = v` calls. Its last parameter is the
+// value written. The frozen parser has no setitem name at all.
+
+public struct Pair {
+    first: Int
+    second: Int
+}
+
+extension Pair {
+    public func []=(&var self, index: Int, value: Int) {
+        if index == 0 {
+            self.first = value
+        } else if index == 1 {
+            self.second = value
+        } else {
+            panic("Pair.[]=: index out of range")
+        }
+    }
+}

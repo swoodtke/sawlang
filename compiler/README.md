@@ -75,10 +75,13 @@ compiler/
     build.py          builds Stage 1 and Stage 2, or any program over the stage
                       packages
     subset_check.py   the subset checker
+    sawc2_reading.py  sawc2's reading of a file in the frozen parser's tree, which
+                      the subset checker's std profile reads std/ through
     grammar_tables.py writes parse/src/grammar.saw from GRAMMAR.md
     depth_funnel.py   the parser's depth-funnel lane
     comma_funnel.py   the parser's comma-list-funnel lane
-    frozen_compare.py the one-time comparison with the frozen parser, not a lane
+    frozen_compare.py the one-time comparison with the frozen parser, not a lane;
+                      sawc2_reading.py reads sawc2's dumps with its reader
     std_cone.py       the std cone of sawc2's Stage 0 build, recorded in std_cone.txt
                       and reviewed against SL:hazards in std_cone_review.md; with
                       --std-root, a program's cone against the new std
@@ -367,11 +370,13 @@ runs it by hand:
 
 `tools/subset_check.py --std` holds `std/` to the subset with exactly the
 low-level features SL:architecture §4 names: `raw-pointer` (raw memory and
-pointers), `borrows-accessor` (`borrows` and `lend`), `deinit-body` (a type
-owning a buffer frees it), `box-type` and `generic-extension-init`
-(allocator parameters: `Box<T, A>`, and `Vector<T, A>` built by its `init`),
-and `cell-type` (the prelude's `UnsafeMutableInterior` and the `Atomic` over
-it, SL:open-questions D38) are dropped. A bound may be `Allocator`, or a policy trait a container's
+pointers), `borrows-accessor` and `borrow-syntax` (`borrows`, `lend`, and the
+`borrow` that takes a lent place), `deinit-body` (a type owning a buffer frees
+it), `box-type` and `generic-extension-init` (allocator parameters:
+`Box<T, A>`, and `Vector<T, A>` built by its `init`), `cell-type` (the
+prelude's `UnsafeMutableInterior` and the `Atomic` over it, SL:open-questions
+D38) and `sync-only` (`std.task`'s park points and the modules that call them)
+are dropped. A bound may be `Allocator`, or a policy trait a container's
 conditional conformance needs (`Copy`, `ExplicitCopy`, `Send`, `Sync`), and
 nothing else (`bounded-extension`); a fieldless struct may be an allocator
 (`empty-struct`); the prelude may declare the vocabulary's alias `Byte` and
@@ -379,11 +384,20 @@ no other (`type-alias`); and a std module imports only std modules
 (`import-allowlist`). `prelude-type-name` and `std-api` hold the compiler to
 std, so the profile drops them too, and `compile` and `owned-operand`, which
 ask Stage 0's code generator, never run: sawc2's check of `std/` stands in.
-The frozen parser predates a case named `None` and takes no attribute on a
-method, so the profile reads such a case as an identifier and a method
-without its `@synthesize(shared)`, and `move buf[i]` through a binding is the
-raw-memory feature's move out of a pointer place, not `borrowed-match-payload`.
-Its fixtures are `tests/std/subset/`.
+`move buf[i]` through a binding is the raw-memory feature's move out of a
+pointer place, not `borrowed-match-payload`.
+
+No stage compiles `std/` with Stage 0, so the profile reads it with sawc2
+(`tools/sawc2_reading.py`), not the frozen parser: `sawc2 lex` gives the tokens
+and `sawc2 parse --dump` the tree, rebuilt in the frozen parser's shapes so
+that every rule reads `std/` as it reads the compiler's source. GRAMMAR.md
+therefore decides what parses, and a file sawc2 refuses is refused as
+`grammar` with sawc2's diagnostic, where the compiler's source gets `lex` and
+`parse`. A form of the new language that the profile names no feature for is
+refused as `new-feature`: a slice type, or a `constexpr` function. The reading
+refuses to guess: a dump whose leaves do not line up with the tokens, or a node
+it has no reading for, stops the check (`ReadingError`). Its fixtures are
+`tests/std/subset/`, and the profile needs a built sawc2.
 
 ## API equivalence
 

@@ -1,0 +1,20 @@
+// A getitem: a `[]` subscript with no `borrows`, which returns a value. `m[k]`
+// calls it, and it panics where it has no value to give. The frozen parser
+// refuses it as a `[]` that is not `borrows`; GRAMMAR.md's method-name takes it.
+
+public struct Pair {
+    first: Int
+    second: Int
+}
+
+extension Pair {
+    public func [](&self, index: Int) -> Int {
+        if index == 0 {
+            return self.first
+        }
+        if index != 1 {
+            panic("Pair.[]: index out of range")
+        }
+        self.second
+    }
+}

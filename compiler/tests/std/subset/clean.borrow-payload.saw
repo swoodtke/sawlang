@@ -1,0 +1,23 @@
+// A `borrow var` payload pattern: an accessor lends a case's payload in place,
+// as LANGUAGE_SPEC's "Lending an enum payload" writes it. The frozen parser
+// reads `borrow` as a name, and the compiler profile refuses it.
+
+enum Slot {
+    case Empty
+    case Occupied(key: Int, value: Int)
+}
+
+public struct Cell {
+    slot: Slot
+}
+
+extension Cell {
+    public func find(&var self) borrows -> &var Int? {
+        match self.slot {
+            case Occupied(_, borrow var value) -> {
+                lend value
+            }
+            case Empty -> {}
+        }
+    }
+}

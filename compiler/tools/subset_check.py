@@ -5,7 +5,8 @@ Each rule in `RULES` enforces one subset rule or one checkable hazard entry and
 names that source in its diagnostic. The frozen compiler's own lexer and parser
 read the source, so the checker sees exactly what Stage 0 reads. A build the
 source rules accept is then compiled by Stage 0 itself, in a child process, for
-the rules only its code generator can answer.
+the rules only its code generator can answer. The std profile reads `std/`
+with sawc2 instead (`sawc2_reading.py`), since only sawc2 compiles it.
 
     python compiler/tools/subset_check.py          # compiler/**/*.saw, no tests/ or sidecars
     python compiler/tools/subset_check.py FILE...  # each file as a unit program
@@ -27,6 +28,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 sys.path.append(os.path.join(REPO, "tools"))
 
 import gate_jobs  # noqa: E402
+import sawc2_reading  # noqa: E402
 import ast_nodes as A  # noqa: E402
 from lexer import Lexer, TokenType as T  # noqa: E402
 from parser import Parser  # noqa: E402
@@ -166,7 +168,9 @@ STD_API = {
 
 # The std profile (SL-456): the subset's rules over the new std in `std/`, which
 # only sawc2 compiles, with exactly the low-level features SL:architecture §4
-# names allowed. Each rule the profile drops says which feature it is.
+# names allowed. Each rule the profile drops says which feature it is. The rules
+# read sawc2's tree, rebuilt in the frozen parser's shapes, so GRAMMAR.md
+# decides what parses and the rules decide what is in the language.
 STD_ROOT = os.path.join(REPO, "std")
 STD_PROFILE_FEATURES = {
     "raw-pointer": "raw memory and pointers",
@@ -179,6 +183,14 @@ STD_PROFILE_FEATURES = {
                  "word over it (SL:open-questions D38)",
     "sync-only": "cooperative tasks: `std.task` declares the task vocabulary over its park points, "
                  "and the std modules a task parks in call it (SL:coroutines)",
+    "borrow-syntax": "`borrows` accessors and `lend`: a `borrow` binding is how a caller takes "
+                     "the place an accessor lends",
+}
+# The rules only the std profile has. No stage compiles `std/` with Stage 0, so
+# GRAMMAR.md governs its spelling, and sawc2's parser reads it (SL-600).
+STD_PROFILE_RULES = {
+    "grammar": "GRAMMAR.md: sawc2's parser must accept the source",
+    "new-feature": ARCH + ": the new std's language is the subset and a named list of features",
 }
 # Rules that hold the compiler's source to std, which the std profile is
 # checking itself: std declares the std names, imports std and calls std.
@@ -194,33 +206,6 @@ STD_PROFILE_POLICY_BOUNDS = ("Copy", "ExplicitCopy", "Send", "Sync")
 # declares where Stage 0's builtin module did: `type-alias` refuses any other.
 STD_PROFILE_ALIAS_HOME = "std/prelude.saw"
 STD_PROFILE_ALIASES = ("Byte",)
-
-
-def _drop_shared_twins(tokens):
-    """The frozen parser takes no attribute on a method, and predates the
-    `@synthesize(shared)` twin SL:borrowing §4 rules for a std accessor, so
-    the std profile reads the method without it; no rule asks about it."""
-    out, i = [], 0
-    shape = (T.AT, T.IDENT, T.LPAREN, T.IDENT, T.RPAREN)
-    while i < len(tokens):
-        window = tokens[i:i + len(shape)]
-        if len(window) == len(shape) and tuple(t.type for t in window) == shape \
-                and window[1].value == "synthesize" and window[3].value == "shared":
-            i += len(shape)
-            continue
-        out.append(tokens[i])
-        i += 1
-    return out
-
-
-def _read_none_cases(tokens):
-    """The frozen lexer makes every `None` a keyword, and its parser predates
-    a case declared `None` (SL:open-questions D22), so the std profile reads
-    one as the identifier it names. A `case None ->` arm stays a pattern."""
-    for i in range(1, len(tokens) - 1):
-        if tokens[i].type == T.NONE and tokens[i - 1].type == T.CASE \
-                and tokens[i + 1].type not in (T.ARROW, T.IF):
-            tokens[i].type = T.IDENT
 
 
 # Std calls the lockdown retires, refused by name whatever the allowlist says.
@@ -275,13 +260,13 @@ class Diagnostic:
 
     def render(self):
         return "%s:%d: %s: %s (%s)" % (self.path, self.line, self.rule, self.message,
-                                       RULES[self.rule])
+                                       RULES.get(self.rule) or STD_PROFILE_RULES[self.rule])
 
 
 class SourceFile:
     """One file: its text, the frozen lexer's tokens and the frozen parser's tree."""
 
-    def __init__(self, path, std_profile=False):
+    def __init__(self, path):
         self.path = path
         self.rel = os.path.relpath(path, REPO)
         with open(path, encoding="utf-8") as fh:
@@ -290,20 +275,47 @@ class SourceFile:
         self.program = None
         self.lex_error = None
         self.parse_error = None
+        self.grammar_error = None
+        self.features = ()
         lexer = Lexer(self.text)
         try:
             self.tokens = lexer.tokenize()
         except Exception as exc:  # the frozen lexer raises more than SyntaxError
             self.lex_error = _position(exc)
             return
-        if std_profile:
-            _read_none_cases(self.tokens)
-            self.tokens = _drop_shared_twins(self.tokens)
         try:
             self.program = Parser(self.tokens, source_file=path,
                                   doc_comments=lexer.doc_comments).parse()
         except Exception as exc:
             self.parse_error = _position(exc)
+
+    def lex_fragment(self, text):
+        """An interpolation's tokens, read as this file's tokens were, or None."""
+        try:
+            return Lexer(text).tokenize()
+        except Exception:
+            return None
+
+
+class StdSourceFile(SourceFile):
+    """One `std/` file as sawc2 reads it: its tokens and tree, in the frozen
+    shapes the rules are written over, or `grammar_error`, sawc2's refusal as
+    (line, message) (compiler/tools/sawc2_reading.py)."""
+
+    def __init__(self, path, reading):
+        self.path = path
+        self.rel = os.path.relpath(path, REPO)
+        with open(path, encoding="utf-8") as fh:
+            self.text = fh.read()
+        self.tokens = reading.tokens
+        self.program = reading.program
+        self.lex_error = None
+        self.parse_error = None
+        self.grammar_error = reading.error
+        self.features = reading.features
+
+    def lex_fragment(self, text):
+        return sawc2_reading.lex_text(text)
 
 
 def _position(exc):
@@ -907,6 +919,9 @@ class FileChecker:
             self.report(src.text.count("\n") + 1, "file-end",
                         "the file must end with a newline")
         self.check_workaround_markers()
+        if src.grammar_error:
+            self.report(src.grammar_error[0], "grammar", src.grammar_error[1])
+            return self.diags
         if src.lex_error:
             self.report(src.lex_error[0], "lex", src.lex_error[1])
             return self.diags
@@ -914,6 +929,10 @@ class FileChecker:
         if src.parse_error:
             self.report(src.parse_error[0], "parse", src.parse_error[1])
             return self.diags
+        for line, what in src.features:
+            self.report(line, "new-feature",
+                        "%s belongs to the new language, and the std profile names no such "
+                        "feature" % what)
         for prog in programs(src.program):
             self.check_declarations(prog)
         self.check_types()
@@ -1001,9 +1020,8 @@ class FileChecker:
                 self.report(line + seg.text.count("\n"), "interpolation-line-break",
                             "keep an interpolation on one line; compute a longer "
                             "expression into a `let` first")
-            try:
-                inner = Lexer(seg.text).tokenize()
-            except Exception:
+            inner = self.src.lex_fragment(seg.text)
+            if inner is None:
                 continue
             # A broken segment is refused above; the other token rules read it as
             # one line, so a `-` or `*` after the break is not taken for a prefix.
@@ -1499,6 +1517,11 @@ class BodyChecker:
             return self.block_ends(expr.block)
         if isinstance(expr, A.WhileExpr):
             return False
+        if isinstance(expr, sawc2_reading.BorrowBlock):
+            return self.block_ends(expr.body)
+        if isinstance(expr, sawc2_reading.BorrowUnwrap):
+            return (not expr.is_loop and expr.else_branch is not None
+                    and self.block_ends(expr.then_branch) and self.block_ends(expr.else_branch))
         return not self.is_void_call(expr)
 
     def is_void_call(self, expr):
@@ -1603,6 +1626,9 @@ class BodyChecker:
             self.bind(s.variable, "for")
             self.block(s.body)
             self.pop()
+        elif isinstance(s, sawc2_reading.ForBorrow):
+            self.expr(s.iterable, s)
+            self.borrowed_scope([(s.variable, s.mutable)], s.body)
         elif isinstance(s, A.WhileExpr):
             self.expr(s, None)
         elif isinstance(s, A.GuardLetStatement):
@@ -1613,6 +1639,15 @@ class BodyChecker:
         else:
             for child in children(s):
                 self.any(child, s)
+
+    def borrowed_scope(self, names, body):
+        """`body` with each (name, mutable) bound to the place a `borrow` lends,
+        storage the binding does not own."""
+        self.push()
+        for name, mutable in names:
+            self.bind(name, "pattern-var" if mutable else "pattern", borrowed=True)
+        self.block(body)
+        self.pop()
 
     def bind_destructured(self, pattern, t, kind):
         """Bind a destructuring pattern's names, each with its element's written
@@ -1742,6 +1777,16 @@ class BodyChecker:
         elif isinstance(e, A.WhileExpr):
             self.expr(e.condition, e)
             self.block(e.body)
+        elif isinstance(e, sawc2_reading.BorrowBlock):
+            names = []
+            for b in e.bindings:
+                self.expr(b.value, e)
+                names += [(n, b.mutable) for n in pattern_names(b.pattern, [b.name])]
+            self.borrowed_scope(names, e.body)
+        elif isinstance(e, sawc2_reading.BorrowUnwrap):
+            self.expr(e.place, e)
+            self.borrowed_scope([(e.name, e.mutable)], e.then_branch)
+            self.block(e.else_branch)
         elif isinstance(e, CALLS):
             self.call(e, parent)
         elif isinstance(e, A.BinaryOp):
@@ -2681,13 +2726,16 @@ def std_tree_files():
 
 def check_std(paths=None):
     """The std profile over `paths`, by default every module of the new std:
-    one build, checked by the source rules alone. `compile` and
+    one build, checked by the source rules alone. sawc2 reads it, so `grammar`
+    stands where `lex` and `parse` ask the frozen parser; `compile` and
     `owned-operand` ask Stage 0's code generator, which never compiles the new
-    std; sawc2's own check of it stands in their place (compiler/tests/std)."""
+    std, and sawc2's own check of it stands in their place (compiler/tests/std)."""
     if paths is None:
         paths = std_tree_files()
     std = StdFacts(stage0=False)
-    files = [SourceFile(p, std_profile=True) for p in sorted(set(paths))]
+    paths = sorted(set(paths))
+    readings = sawc2_reading.read_files(paths)
+    files = [StdSourceFile(p, readings[p]) for p in paths]
     facts = BuildFacts(files)
     diags = []
     for f in files:

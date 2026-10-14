@@ -1,0 +1,21 @@
+// A case declared `None`, and an accessor's `@synthesize(shared)` twin: the
+// spellings the prelude and `Vector` write, read as GRAMMAR.md spells them.
+
+public enum Maybe {
+    case Some(value: Int),
+    case None
+}
+
+public struct Slot {
+    value: Int
+}
+
+extension Slot {
+    @synthesize(shared)
+    public func [](&var self, index: Int) borrows -> &var Int {
+        if index != 0 {
+            panic("Slot.[]: index out of range")
+        }
+        lend self.value
+    }
+}

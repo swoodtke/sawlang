@@ -1,0 +1,10 @@
+// The new language's features stay out of the new std until the profile names
+// them, though the grammar spells them: a slice type and `constexpr`.
+
+public func total(values: &[Int]) -> Int { // refuses: new-feature
+    0
+}
+
+public func double(n: Int) constexpr -> Int { // refuses: new-feature
+    n + n
+}

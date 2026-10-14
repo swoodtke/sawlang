@@ -1,0 +1,8 @@
+// `borrows` on a trait requirement: the lending iterator of LANGUAGE_SPEC's
+// "Two iterator traits", whose `next` lends each element in place. The frozen
+// parser refuses `borrows` on any requirement.
+
+public trait LendingIterator {
+    type Item
+    func next(&var self) borrows -> &var Item?
+}

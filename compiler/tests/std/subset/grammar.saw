@@ -1,0 +1,4 @@
+// What GRAMMAR.md refuses, the std profile refuses with sawc2's diagnostic: a
+// mutable static is spelled `unsafe static var`.
+
+static var COUNT: Int = 0 // refuses: grammar
