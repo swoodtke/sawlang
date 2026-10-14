@@ -936,6 +936,14 @@ The plan holds except where an amendment below says otherwise. Each one is the l
 - **A3b, A4 and A9 (SL-555 c4):** with the ready role on `__saw_park_ready` (A2), `yield_now` is a child frame. So A3b takes A4's smallest drive (a child with no parameters and a `Void` result: the child slot, the state reset, the drive block, `Pending` passed through, `Ready` continuing). A4 extends it with parameter slots, the result move-out and the test intrinsics. A3b's `yield_main` is straight-line, because a suspending `main`'s loop has a live budget point, which is A9's, and A9 adds the loop form. A3b's corpus pins are the four single-yield programs a3b's census found. The plan's "`async_main_*` without `sleep`" pin is void and goes to A11. The funnel deciding which frames are lowered is `coro_frame_lowered`.
 - **The run-time half of must-consume (SL-595 c2 and c4, from the Air's review of A7d):** A7b's `Task<T>`/`VoidTask` carry a provenance word, and their destructor panics with Stage 0's message when a singleton handle is dropped unconsumed. A7a writes 'singleton' at a `Task.spawn` site, and A8b writes 'group'. A7d pins both discard spellings, and states which escapes are refused statically and which are left to the panic.
 
+- **A4 splits into A4a and A4b (SL-557 c5, the lead's ruling):**
+  - **A4a** (SL-557, landed): a drive writes its arguments into the child's parameter slots and moves the result out on `Ready`, as MIR statements on frame slots, and `__saw_suspend` and `__saw_test_suspend` lower. `coro_check_drives` checks the lowered drive's shape inside coro. The MIR verifier never sees a lowered body; A5 recomputes the drive invariants (SL-558).
+  - **A4b** (SL-636): the test drivers `__saw_drive` and `__saw_drive_steps`, and their front half in resolve, typecheck, MIR and mono, with A4's driver pins. A driven root is the root's task-root specialization, framed even when it doesn't suspend.
+- **A7a's scope (SL-560 c6, the lead's ruling after a7a's stop):**
+  - A7a's files gain `compiler/llvm/src/{program,bodies}.saw` (a descriptor per task root, the spawn point, and the background close in `entry_point`), `compiler/mono/src/{program,dump}.saw` (the task-root key, and its distinct item name) and `std/task.saw` (`__saw_exec_run_main` calls `__saw_exec_drive_main`, so a framed `main` runs the tasks it spawns).
+  - A lowered spawn site keeps its spawn terminator, and the backend stores the root's descriptor address into its destination. No MIR operand kind names an item.
+  - Its pins are `task_spawn`, `task_spawn_and_embed` and `task_handle_escaped`, and the coro golden `task_root`. `background_task_spawn` moves to A9 (budget points, the `cancelled()` read), and `coro_spawn_and_embed` to A8b.
+
 ## 5. Open questions for the user
 
 **RULED by the user (Oct 12):**
