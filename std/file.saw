@@ -11,7 +11,7 @@ import std.systemerror.{SystemError, SystemErrorKind, system_error_kind}
 
 extern "C" {
     // Each returns its natural non-negative result (a descriptor, a byte
-    // count, an offset) or a negated portable tag (sawc/rt/ABI.md).
+    // count, an offset) or a negated portable tag (runtime/ABI.md).
     func __saw_rt_fs_open(path: UnsafePointer<Int8>, mode: Int, perm: Int) -> Int
     func __saw_rt_fs_read(fd: Int, buf: UnsafePointer<Int8>, count: Int) -> Int
     func __saw_rt_fs_write(fd: Int, buf: UnsafePointer<Int8>, count: Int) -> Int

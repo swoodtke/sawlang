@@ -126,7 +126,7 @@ gmgate:
 	@python3 tools/gmgate.py
 
 # Runtime-ABI document check (design 149 unit c): the compiler checks exported
-# seams against the signatures in rt/ABI.md, so the document has to describe
+# seams against the signatures in runtime/ABI.md, so the document has to describe
 # exactly the frozen symbol set. Neither kind of drift shows up in a build.
 abidoc:
 	@python3 tools/test_runtime_abi_doc.py
@@ -216,7 +216,7 @@ help:
 	@echo "  make irdet           - IR determinism over a 40-example sample (per commit)"
 	@echo "  make irdet-all       - IR determinism over the WHOLE corpus (final gate)"
 	@echo "  make gmgate          - Ownership + concurrency oracles under Guard Malloc (macOS)"
-	@echo "  make abidoc          - rt/ABI.md describes exactly the frozen seam set"
+	@echo "  make abidoc          - runtime/ABI.md describes exactly the frozen seam set"
 	@echo "  make ircontract      - -c embeds what hosted embeds; seam widths match rt/ABI.md"
 	@echo "  make preludegate     - The import gate matches LANGUAGE_SPEC's module table"
 	@echo "  make toolchain       - The toolchain resolver: four steps, version check, refusal"

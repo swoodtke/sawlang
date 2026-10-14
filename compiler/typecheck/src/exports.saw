@@ -1,7 +1,7 @@
 // `@export`: the C symbol a function or static is defined under, recorded by
 // declaration for mono and the backend, and the rules an export meets. A
 // runtime's seams are checked against the ABI table compiled from
-// sawc/rt/ABI.md, `runtimeabi.saw` (design 149).
+// runtime/ABI.md, `runtimeabi.saw` (design 149).
 
 import sawparse.grammar.{Alt}
 import sawresolve.model.{ResDeclKind}
@@ -299,7 +299,7 @@ extension TcProgram {
             var msg = StringBuilder()
             try! msg.append("`@export` symbol `")
             try! msg.append(symbol)
-            try! msg.append("` is not part of the frozen `__saw_rt_*` runtime ABI (sawc/rt/ABI.md): a runtime defines only the seams it lists")
+            try! msg.append("` is not part of the frozen `__saw_rt_*` runtime ABI (runtime/ABI.md): a runtime defines only the seams it lists")
             self.refuse_in(m, attr, "export.unknown-seam", msg.build())
             return false
         }
@@ -307,7 +307,7 @@ extension TcProgram {
         try! msg.append("`@export` symbol `")
         try! msg.append(symbol)
         if self.runtime_build && row >= 0 {
-            try! msg.append("` is the program's, not the runtime's: the compiler defines it in every program (sawc/rt/ABI.md, \"Program arguments\")")
+            try! msg.append("` is the program's, not the runtime's: the compiler defines it in every program (runtime/ABI.md, \"Program arguments\")")
         } else if symbol.starts_with("__saw_rt_") {
             try! msg.append("` collides with a reserved runtime symbol (`main`, `saw_*`, `__saw_*`): `__saw_rt_*` names are the runtime ABI, which only a runtime built by `sawc2 runtime` defines")
         } else {
@@ -347,7 +347,7 @@ extension TcProgram {
         try! msg.append(got_params)
         try! msg.append(") -> ")
         try! msg.append(got_result)
-        try! msg.append("`, and sawc/rt/ABI.md freezes it as `(")
+        try! msg.append("`, and runtime/ABI.md freezes it as `(")
         try! msg.append(want_params)
         try! msg.append(") -> ")
         try! msg.append(want_result)

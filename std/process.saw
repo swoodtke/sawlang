@@ -10,7 +10,7 @@ import std.systemerror.{SystemError, SystemErrorKind, system_error_kind}
 
 extern "C" {
     // A job handle (`> 0`) or a negated portable tag; `argv` is the program's
-    // name, then its arguments, then NULL (sawc/rt/ABI.md, "Process spawn").
+    // name, then its arguments, then NULL (runtime/ABI.md, "Process spawn").
     func __saw_rt_proc_spawn(path: UnsafePointer<Int8>, argv: UnsafePointer<UnsafePointer<Int8>>, flags: Int) -> Int
     // The raw POSIX wait status of a child that has exited, `-WouldBlock`
     // while it runs, or another negated tag; every answer but `-WouldBlock`

@@ -11,7 +11,7 @@ run/
   NAME.saw       a program
   hello.ll       the `.ll` sawc2 writes for hello.saw, pinned
   noalias.defines  the `define` lines sawc2 writes for noalias.saw's own functions, pinned
-  runtime_dirent.ll  the `.ll` `sawc2 runtime` writes for sawc/rt/host_macos/dirent.saw, pinned
+  runtime_dirent.ll  the `.ll` `sawc2 runtime` writes for runtime/host_macos/dirent.saw, pinned
   frame_pointers.saw  a program defining one function of each kind, whose defines the lane checks
   probes/        programs held to what their own headers state ("Probes")
   modules/       packages a program imports as `modules.NAME`, never run alone
@@ -93,7 +93,7 @@ else the manifest's; with neither flag and no manifest the command is
 refused. The sources are compiled against the new std, `--std-root std` by
 default, the one std they are written for. The ABI table
 (`compiler/typecheck/src/runtimeabi.saw`) lists the target's sources under the
-runtime root (`--rt-root`, `sawc/rt` by default): every `.saw` of `common/`,
+runtime root (`--rt-root`, `runtime` by default): every `.saw` of `common/`,
 then of `host_macos/` or `host_linux/`; a target the table has no row for is
 refused. Each is compiled as a runtime source to `DIR/NAME.ll`,
 unbuffered and closed explicitly, and by `CLANG -c -target TRIPLE -O2 -x ir`
@@ -227,7 +227,7 @@ description's (`compiler/tests/mono/README.md`, "Layouts").
   a NUL), wrapped through `string_literal`; a literal message's bytes are
   written as they are. A static is a global holding the evaluator's value.
 - **The entry.** The C `main(argc, argv)` keeps both for the argument
-  accessors the compiler emits into every program (rt/ABI.md, "Program
+  accessors the compiler emits into every program (runtime/ABI.md, "Program
   arguments"), calls the program's `main`, and exits with its `Int`, or 0
   for a `Void` main. A plain `main` of a program that spawns is followed by
   std's `__saw_exec_close_background`, which cancels and then finishes every
@@ -238,7 +238,7 @@ description's (`compiler/tests/mono/README.md`, "Layouts").
   program also gets the frame descriptor, a constant laid out as std's
   `FrameDescriptor`, whose `resume` and `drop_result` are function values
   over two thunks, and `__saw_frame_resume`, one resume through a descriptor
-  (rt/ABI.md, "The compiler → executor boundary"). A runtime source has no entry and no accessors.
+  (runtime/ABI.md, "The compiler → executor boundary"). A runtime source has no entry and no accessors.
 - **Resume functions.** A lowered frame's item is emitted as its resume
   function, `i32 @"saw resume NAME"(ptr %frame, ptr %cx)`, and never as a
   plain function: an entry switch on the state word, then the body's
@@ -336,7 +336,7 @@ compares:
 - a build that links prints nothing, standard output or standard error: the
   linker has no object built for another macOS to warn about;
 - `hello.saw`'s `.ll`, as `sawc2 build --emit-ll --target arm64-apple-darwin`
-  writes it, equals `hello.ll` byte for byte, and `sawc/rt/host_macos/dirent.saw`'s,
+  writes it, equals `hello.ll` byte for byte, and `runtime/host_macos/dirent.saw`'s,
   as `sawc2 runtime --emit-ll` writes it for the same target,
   `runtime_dirent.ll` (`--write` rewrites both); naming the target keeps the
   pins one pair of files on every host;
@@ -359,7 +359,7 @@ compares:
   comparison at `bump(gauge: &noalias.Gauge)`: the injection proves the pin
   catches a funnel that drops the exemption;
 - `sawc2 runtime --out` writes the same files, byte for byte, into two
-  directories, and refuses a copy of `sawc/rt` that leaves a seam undefined
+  directories, and refuses a copy of `runtime/` that leaves a seam undefined
   (`sleep.saw` without its `@export`) or defines one twice (the host's
   `dirent.saw` exporting `os_ops.saw`'s `__saw_rt_fs_chdir`), naming the seam and printing
   no manifest;
@@ -464,5 +464,5 @@ intrinsics, layout `static_assert`s, pointer-integer casts, variadic extern
 calls and pointer arithmetic (SL:open-questions D38 to D40), pinned by
 `atomic_ops`, `layout_asserts`, `pointer_address`, `variadic_extern` and
 `pointer_offset`; the seventh was the runtime-build mode itself, `sawc2
-runtime` above (D41). With it, every source of `sawc/rt/common/` and
-`sawc/rt/host_macos/` builds with no refusal.
+runtime` above (D41). With it, every source of `runtime/common/` and
+`runtime/host_macos/` builds with no refusal.

@@ -18,12 +18,12 @@ Stage 2 is cached: its key covers Stage 1's code, the sources Stage 1
 compiles, this file, the runtime manifest and its objects and clang, so an
 unchanged tree links nothing. Stage 1 is rebuilt on every call, as Stage 0
 has no cache of its own. Stage 1 links against Stage 0's runtime, since Stage
-0 links it; every link after that takes the runtime Stage 1 builds with
-`sawc2 runtime`, cached under `.build/rt2/<key>/` by a key covering Stage 1's
-code, `sawc/rt/`, std, the target and clang. Beside the stages goes
-`.build/sawc2-runtime.txt`, the runtime manifest naming the host, the clang
-`choose_clang` picked and those objects, which a hosted `sawc2 build` links
-against.
+0 links it (`bootstrap_stage1`); every link after that takes the runtime Stage
+1 builds from `runtime/` with `sawc2 runtime`, cached under `.build/rt2/<key>/`
+by a key covering Stage 1's code, `runtime/`, std, the target and clang.
+Beside the stages goes `.build/sawc2-runtime.txt`, the runtime manifest naming
+the host, the clang `choose_clang` picked and those objects, which a hosted
+`sawc2 build` links against.
 
 The interpreter running this script runs `sawc/sawc.py`, so invoke it with the
 venv's Python. `STAGE_PACKAGES` is the one place that maps a stage package to
@@ -57,7 +57,7 @@ DRIVER_ENTRY = os.path.join(REPO, "compiler", "driver", "src", "main.saw")
 RUNTIME_MANIFEST = os.path.join(BUILD_DIR, "sawc2-runtime.txt")
 # The runtime's sources, and where the objects Stage 1 builds from them are
 # cached by key.
-RT_ROOT = os.path.join(REPO, "sawc", "rt")
+RT_ROOT = os.path.join(REPO, "runtime")
 RUNTIME_CACHE = os.path.join(BUILD_DIR, "rt2")
 THIS_FILE = os.path.abspath(__file__)
 STD_ROOT = os.path.join(REPO, "std")
@@ -311,8 +311,9 @@ def build_runtime(triple=None):
         if not os.path.exists(done):
             shutil.rmtree(directory, ignore_errors=True)
             os.makedirs(directory)
-            r = subprocess.run([STAGE1, "runtime", "--rt-root", "sawc/rt", "--target", triple, "--clang", clang,
-                                "--out", directory], cwd=REPO, capture_output=True, text=True, timeout=LINK_TIMEOUT)
+            r = subprocess.run([STAGE1, "runtime", "--rt-root", os.path.relpath(RT_ROOT, REPO), "--target", triple,
+                                "--clang", clang, "--out", directory], cwd=REPO, capture_output=True, text=True,
+                               timeout=LINK_TIMEOUT)
             if r.returncode != 0:
                 return "Stage 1 does not build the runtime: " + ((r.stdout + r.stderr).strip()[-600:]
                                                                   or "it exited %d" % r.returncode)
@@ -337,12 +338,22 @@ def build_runtime(triple=None):
     return ""
 
 
-def build_stage1():
+def bootstrap_stage1():
     """Stage 0 builds the driver into `.build/sawc2`, linking it against Stage
-    0's own runtime as every Stage 0 build does; then Stage 1 builds the
-    runtime every later link takes, and its manifest is written beside the
+    0's own runtime as every Stage 0 build does: the one built from Stage 0's
+    copy, `sawc/rt/`, which `runtime_table.py` holds identical to `RT_ROOT`.
+    This is the one step that needs a compiler other than sawc2, and the only
+    one a bootstrap seed replaces: a seed links Stage 1 against `RT_ROOT`'s
+    runtime itself, its shim compiled by `choose_clang`'s clang (SL-663).
+    Returns (ok, output)."""
+    return build_program(DRIVER_ENTRY, STAGE1)
+
+
+def build_stage1():
+    """Stage 1 from the bootstrap (`bootstrap_stage1`); then Stage 1 builds
+    the runtime every later link takes, and its manifest is written beside the
     stages. Returns (ok, output)."""
-    ok, output = build_program(DRIVER_ENTRY, STAGE1)
+    ok, output = bootstrap_stage1()
     if not ok:
         return ok, output
     why = build_runtime()

@@ -56,7 +56,8 @@ SUITE_INPUTS = {
     "fixpoint": (
         "compiler/",                # the compiler Stage 1 and Stage 2 are built from
         "std/",                     # the std Stage 1 builds Stage 2 against
-        "sawc/",                    # Stage 0, which builds Stage 1, and the runtime both link
+        "sawc/",                    # Stage 0, which builds Stage 1 and the runtime Stage 1 links
+        "runtime/",                 # the runtime Stage 1 builds, which every later link takes
         "compiler/tests/fixpoint/", # the lane, twin.py and mismatches.tsv
         "compiler/tools/build.py",  # which builds both stages
         "tests/corpus/",            # the programs the replayed lanes run sawc2 over

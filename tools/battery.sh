@@ -86,7 +86,7 @@ STAGES=(
     "suitelock|no|the suite lock names its holder, heartbeats, reports its wait; build.sh hands the wait to the gate and gives the lock back on a TERM|$PY tools/test_suite_lock.py"
     "childgroups|no|a TERM to a runner ends every child group it started in a session of its own|$PY tools/test_child_groups.py"
     "floatvectors|no|the Float<->text vectors against CPython's own conversions|$PY tools/sawfloat.py verify --rule"
-    "abidoc|no|rt/ABI.md describes exactly the frozen seam set|$PY tools/test_runtime_abi_doc.py"
+    "abidoc|no|runtime/ABI.md describes exactly the frozen seam set|$PY tools/test_runtime_abi_doc.py"
     "bttable|no|the task-backtrace table against the frame layouts|$PY tools/test_bt_table.py"
     "fuzz|no|corpus-mutation fuzzing, one oracle: no ICE, no traceback|$PY tools/sawfuzz.py --quick"
     "corodiff|no|coroutine twin parity: suspending vs non-suspending|$PY tools/corodiff.py --quick"

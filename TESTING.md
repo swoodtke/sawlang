@@ -447,6 +447,7 @@ decision is `tools/patch_gate.py`'s:
   (`sawc/`, `tests/freestanding/`, `blade/`, `libs/`, the runner itself);
 - the fixpoint lane (`compiler/tests/fixpoint/fixpoint_lane.py`) runs when
   `compiler/` (the lane itself and `compiler/tools/build.py` included), `std/`,
+  `runtime/` (the runtime Stage 1 builds, which every later link takes),
   `sawc/` (Stage 0 builds Stage 1, so a `sawc/` change can move it) or
   `tests/corpus/` (the programs the replayed lanes run sawc2 over) changes,
   so a local gate never runs it. The gate runs its default mode, which compares

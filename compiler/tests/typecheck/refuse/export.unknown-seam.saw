@@ -1,6 +1,6 @@
 // refuses: export.unknown-seam at 5:1
 // flags: --runtime
-// a runtime exporting a `__saw_rt_*` name sawc/rt/ABI.md does not list: a misspelt seam
+// a runtime exporting a `__saw_rt_*` name runtime/ABI.md does not list: a misspelt seam
 
 @export("__saw_rt_allocate")
 func allocate(size: Int, align: Int) -> Int {

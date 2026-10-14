@@ -74,7 +74,7 @@ public(package) func __saw_cancel_requested() -> Bool {
     false
 }
 
-// The entry executor (SL:coroutines §3.1, sawc/rt/ABI.md "The compiler →
+// The entry executor (SL:coroutines §3.1, runtime/ABI.md "The compiler →
 // executor boundary"): a suspending `main`'s frame and its descriptor, from
 // the C entry. The executor drives `main` and every task it spawns until
 // `main` returns, then closes the background group.
@@ -84,7 +84,7 @@ public(package) func __saw_exec_run_main(descriptor: UnsafePointer<FrameDescript
 }
 
 // The compiler defines it in every program whose `main` it hands here: one
-// resume of `frame` through its descriptor's `resume` (sawc/rt/ABI.md, "The
+// resume of `frame` through its descriptor's `resume` (runtime/ABI.md, "The
 // compiler → executor boundary"). It is no `blocking` extern, so it is
 // callable from `sync` code.
 extern "C" {

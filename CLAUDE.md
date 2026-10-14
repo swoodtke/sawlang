@@ -22,19 +22,24 @@ sawc/              # Compiler: Python + llvmlite
   codegen/         # LLVM IR generation (mixin classes)
   coro_transform.py# Source-level coroutine transform
   builtin.saw      # Built-in traits; std/ = stdlib (.saw)
-  rt/              # Runtime ABI (design 113/113b, v2 by 117): rt/ABI.md freezes
+  rt/              # Stage 0's copy of runtime/ (below), byte for byte:
+                   # Stage 0 builds it (--runtime-build), caches it under
+                   # .build/rt/ and links it into its hosted builds, Stage 1
+                   # included. compiler/tools/runtime_table.py fails on any
+                   # difference, so a runtime change is made in BOTH trees
+                   # until sawc/ is deleted (SL-661).
+runtime/           # The runtime (design 113/113b, v2 by 117): ABI.md freezes
                    # the __saw_rt_* seam contract; the seam bodies are AUTHORED
                    # IN SAW here — common/ (os_ops.saw = status-carrying tcp/fs/
                    # env ops) + host_macos/ + host_linux/ (reactor.saw kqueue/
-                   # epoll, net_os.saw errno->SysError) (.saw, --runtime-build)
-                   # + shim.c (FFI-blocked bodies, grown past the original
-                   # three — DF-113a/b/c: write/panic, open_flags, getaddrinfo
-                   # helpers, environ get/set, thread_spawn+offload thunk,
-                   # set_nonblocking — plus DF-186c's Linux-only futex lock).
-                   # Built + cached under .build/rt/, auto-linked for hosted
-                   # builds. Design 117: the reactor is now Saw too
-                   # (instance-based); the compiler only synthesizes the
-                   # process-global __saw_reactor getter.
+                   # epoll, net_os.saw errno->SysError) + shim.c (FFI-blocked
+                   # bodies, grown past the original three — DF-113a/b/c:
+                   # write/panic, open_flags, getaddrinfo helpers, environ
+                   # get/set, thread_spawn+offload thunk, set_nonblocking —
+                   # plus DF-186c's Linux-only futex lock). `sawc2 runtime`
+                   # builds it (build.py caches it under .build/rt2/). Design
+                   # 117: the reactor is Saw too (instance-based); the compiler
+                   # only synthesizes the process-global __saw_reactor getter.
 compiler/          # The self-hosted compiler, in Saw (epic SL-398; README.md):
                    # one dir per stage — lex/ (package sawlex) — plus driver/
                    # (the sawc2 binary), tools/ (build.py builds it with sawc/,
@@ -147,8 +152,9 @@ objects are built + cached under `.build/rt/` and auto-linked (delete
   `.sawtracker/`), or when
   the changed paths are unknown. The `fixpoint` lane
   (`compiler/tests/fixpoint/fixpoint_lane.py`) follows the same rule over
-  `compiler/`, `std/`, `compiler/tools/build.py` and `sawc/` (Stage 0
-  builds Stage 1, so a `sawc/` change can move it). The full
+  `compiler/`, `std/`, `compiler/tools/build.py`, `runtime/` (the runtime
+  Stage 1 builds) and `sawc/` (Stage 0 builds Stage 1, so a `sawc/` change
+  can move it). The full
   `grammarcorpus` run follows the
   same rule over its inputs (`GRAMMAR.md`, `LANGUAGE_SPEC.md`,
   `compiler/tests/grammar/`, `compiler/lex/`, `compiler/driver/`,

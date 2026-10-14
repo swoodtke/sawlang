@@ -14,7 +14,7 @@ func main() {
     assert(not coro.blocked, "the statics program is refused before coroutine lowering")
     assert(coro.mono.lowerings == 1, "coroutine lowering's program was lowered {} times", coro.mono.lowerings)
     var head = StringBuilder()
-    let runtime = mono_lower_file(out: &var head, path: "sawc/rt/common/mem.saw", std_root: "std", notes: false,
+    let runtime = mono_lower_file(out: &var head, path: "runtime/common/mem.saw", std_root: "std", notes: false,
                                   names: &names, dirs: &dirs, runtime: true)
     assert(not runtime.blocked, "the runtime source is refused before mono")
     assert(runtime.lowerings == 1, "the runtime source was lowered {} times", runtime.lowerings)

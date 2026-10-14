@@ -1,7 +1,7 @@
 //! `SystemError`: an operating-system operation that failed, and why.
 //!
 //! A runtime seam reports a failure as the negated portable tag of
-//! `sawc/rt/ABI.md`'s error table, and this module reads that tag as a
+//! `runtime/ABI.md`'s error table, and this module reads that tag as a
 //! `SystemErrorKind`. It reads nothing else from the runtime: the error
 //! carries the operation's name and the kind, and no platform error number,
 //! so it renders the same on every host.
@@ -63,7 +63,7 @@ public enum SystemErrorKind {
     case LaunchFailed
 }
 
-// The runtime's portable tags (sawc/rt/ABI.md, "Errors"). Tag 0 is success
+// The runtime's portable tags (runtime/ABI.md, "Errors"). Tag 0 is success
 // and is never reported.
 static TAG_WOULD_BLOCK: Int = 1
 static TAG_IN_PROGRESS: Int = 2

@@ -1400,8 +1400,8 @@ says what the fixture shows.
 | `export.c-abi` | an `@export`ed function whose parameter or result C cannot pass: anything but a fixed-width integer, `Int`/`UInt`, `Float`, a pointer or a `FuncPointer`, and `Void` or `Never` as a result, so never an optional; an exported static whose type has no fixed C data layout (designs 58 and 113b) |
 | `export.generic` | an `@export`ed generic function, whose one C symbol cannot name a body per instantiation |
 | `export.duplicate` | a second declaration exported under a C symbol the program already exports, at the second |
-| `export.reserved` | an export named `main`, `saw_*` or `__saw_*`; in a runtime (`--runtime`, `sawc2 runtime`) the frozen seams the runtime owns are the exception, and a seam the program owns, an argument accessor, is still refused (rt/ABI.md, "Program arguments") |
-| `export.unknown-seam` | in a runtime, a `__saw_rt_*` export the ABI table (`typecheck/src/runtimeabi.saw`, from rt/ABI.md) does not list |
+| `export.reserved` | an export named `main`, `saw_*` or `__saw_*`; in a runtime (`--runtime`, `sawc2 runtime`) the frozen seams the runtime owns are the exception, and a seam the program owns, an argument accessor, is still refused (runtime/ABI.md, "Program arguments") |
+| `export.unknown-seam` | in a runtime, a `__saw_rt_*` export the ABI table (`typecheck/src/runtimeabi.saw`, from runtime/ABI.md) does not list |
 | `export.seam-signature` | in a runtime, a seam whose arity or a parameter's or the result's width class differs from the ABI table's, pointers and words sharing the class `word` (design 149) |
 | `export.suspends` | an `@export`ed function that may suspend, read from its summary: C calls it with no executor to resume it |
 | `operator.undefined` | an operator over a type it is not defined for; a raw pointer takes only `p + n` and `p - n`, an integer offset after it, which steps `n` elements |

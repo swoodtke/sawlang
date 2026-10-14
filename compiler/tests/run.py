@@ -15,7 +15,8 @@ kinds and lex errors must cover the lexer's; runs the subset checker over the
 compiler source and its own fixtures in `subset/`; recomputes the std cone of
 sawc2's build and compares it with `tools/std_cone.txt`, and the std suspension
 table with `tools/std_suspension.txt`; compares the runtime ABI table compiled
-into sawc2 with `sawc/rt/ABI.md` and the runtime's sources; and runs the grammar lint,
+into sawc2 with `runtime/ABI.md` and the runtime's sources, and Stage 0's copy of
+the runtime with `runtime/`; and runs the grammar lint,
 the reference recognizer's own tests in `grammar/`, and the parser corpus's
 checks over `parse/`; runs the corpus rewriter's golden fixtures in
 `migrate/`; checks that the parser's grammar tables are current and that its
@@ -442,8 +443,8 @@ def run_std_suspension(run):
 
 def run_runtime_table(run):
     """The runtime ABI table compiled into sawc2 against a fresh reading of
-    rt/ABI.md through `sawc/runtime_abi.py`, and each host's runtime sources
-    and shim against it."""
+    runtime/ABI.md, each host's runtime sources and shim against it, and
+    Stage 0's copy of the runtime against `runtime/`."""
     failures, counts = runtime_table.check()
     for failure in failures:
         run.fail(failure)

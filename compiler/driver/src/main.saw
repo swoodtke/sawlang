@@ -480,7 +480,7 @@ func driver_runtime(args: &Vector<String>) -> Int {
     // The runtime sources are written against the new std's `Atomic` and cell,
     // so they build against `std/` alone, unlike every other subcommand.
     var std_root = "std"
-    var rt_root = "sawc/rt"
+    var rt_root = "runtime"
     var out_dir = ""
     var emit = ""
     var host = ""
@@ -679,7 +679,7 @@ func driver_runtime_seams_hold(seams: &Vector<String>, definers: &Vector<String>
             j = j + 1
         }
         if first.len() == 0 {
-            print("sawc2 runtime: no runtime object defines `{}`, which sawc/rt/ABI.md lists", name)
+            print("sawc2 runtime: no runtime object defines `{}`, which runtime/ABI.md lists", name)
             holds = false
         }
     }
@@ -697,9 +697,9 @@ func driver_runtime_seams_hold(seams: &Vector<String>, definers: &Vector<String>
             j = j + 1
         }
         if not listed {
-            // Stage 0 workaround (SL:hazards S23): canonical: print("sawc2 runtime: {} defines `{}`, which is not a runtime seam of sawc/rt/ABI.md", definers.get(k) ?? "", seam)
+            // Stage 0 workaround (SL:hazards S23): canonical: print("sawc2 runtime: {} defines `{}`, which is not a runtime seam of runtime/ABI.md", definers.get(k) ?? "", seam)
             let by = definers.get(k) ?? ""
-            print("sawc2 runtime: {} defines `{}`, which is not a runtime seam of sawc/rt/ABI.md", by, seam)
+            print("sawc2 runtime: {} defines `{}`, which is not a runtime seam of runtime/ABI.md", by, seam)
             holds = false
         }
         k = k + 1

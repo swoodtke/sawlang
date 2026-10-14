@@ -88,9 +88,9 @@ compiler/
     std_suspension.py each std function's suspension verdict from Stage 0's std
                       check, recorded in std_suspension.txt and compiled into
                       typecheck/src/stdsuspension.saw
-    runtime_table.py  the runtime ABI table, from sawc/runtime_abi.py's reading
-                      of sawc/rt/ABI.md and the runtime's sources, compiled into
-                      typecheck/src/runtimeabi.saw
+    runtime_table.py  the runtime ABI table, from runtime/ABI.md and the runtime's
+                      sources, compiled into typecheck/src/runtimeabi.saw; and
+                      Stage 0's copy of the runtime held to runtime/
   tests/
     run.py            the test runner
     parse_lane.py     the parse lane: sawc2 parse against the parser corpus
@@ -190,16 +190,18 @@ Use the venv's Python, since it runs the frozen compiler:
 `sawc2 build` writes the program's `.ll` beside its output and runs clang on
 it with the runtime objects the manifest beside the executable names
 (tests/run/README.md). `sawc2 runtime` builds those objects: each runtime
-source of `sawc/rt/` and its C shim, at the module's own target, each export
+source of `runtime/` and its C shim, at the module's own target, each export
 checked against the runtime ABI table. The file and process API they use is
 the ruled Stage 0 workaround of SL:open-questions, "SL-522": an unbuffered
 write with an explicit `close`, and a blocking `Command.wait`, each site
 marked for SL:hazards S28.
 
 `build.py` rebuilds Stage 1 on every call. Stage 1 is linked by Stage 0
-against Stage 0's own runtime; every link after it takes the runtime Stage 1
-builds, cached under `.build/rt2/<key>/` by a key covering Stage 1's object,
-`sawc/rt/`, std and clang, and named by `.build/sawc2-runtime.txt`. Stage 2
+against Stage 0's own runtime, built from its copy of the runtime, `sawc/rt/`
+(`bootstrap_stage1`, the step a bootstrap seed replaces); every link after it
+takes the runtime Stage 1 builds from `runtime/` at the repository root, cached
+under `.build/rt2/<key>/` by a key covering Stage 1's object, `runtime/`, std
+and clang, and named by `.build/sawc2-runtime.txt`. Stage 2
 is cached under a key covering Stage 1's object (the linker stamps each Stage
 1 binary with a fresh UUID, so its bytes never repeat), the trees it
 compiles, `build.py` itself, which holds the link's arguments, the runtime
@@ -256,11 +258,15 @@ below that runs sawc2 runs Stage 2. It checks these things.
   those whose bodies spell a cooperative primitive. Rerun it with `--write`
   after std changes, and review the difference.
 - **The runtime ABI table**: `tools/runtime_table.py` reads every
-  `__saw_rt_*` seam's signature as Stage 0 does (`sawc/runtime_abi.py`, over
-  `sawc/rt/ABI.md`), with its owner, each host's runtime sources and the seams
-  its C shim defines, and fails when `typecheck/src/runtimeabi.saw` differs
-  from that reading, or when a host's sources and shim do not export the
-  runtime's seams exactly once each. Rerun it with `--write` after an ABI or
+  `__saw_rt_*` seam's signature out of `runtime/ABI.md` (the seam set is
+  Stage 0's, `sawc/runtime_abi.py`), with its owner, each host's runtime
+  sources and the seams its C shim defines, and fails when
+  `typecheck/src/runtimeabi.saw` differs from that reading, or when a host's
+  sources and shim do not export the runtime's seams exactly once each. It
+  also fails when Stage 0's copy of the runtime, `sawc/rt/`, differs from
+  `runtime/` in any file, or when Stage 0 reads the ABI differently: Stage 1
+  links the runtime Stage 0 builds from its copy, so the two trees are one
+  runtime, and a runtime change is made in both until `sawc/` is deleted. Rerun it with `--write` after an ABI or
   runtime-source change, and review the difference. The table is checked in
   so that it outlives Stage 0 (SL:open-questions D41).
 - **The grammar tools** in `tests/grammar/`: the lint over `GRAMMAR.md`, with a

@@ -1,0 +1,511 @@
+// Status-carrying OS operations (design 117), authored in Saw.
+//
+// Each status-carrying op does its syscall and returns a non-negative result (fd, count,
+// offset) or the negated portable SysError tag. The tag is taken from the host
+// `__saw_rt_last_syserror()` seam immediately after the failing syscall, with
+// nothing in between that could clobber errno, so std never sees a raw errno.
+//
+// These bodies are OS-independent; the per-host facts live in net_os.saw
+// (errno mapping, sockaddr prefix) and shim.c (C macros and struct layouts).
+// Hosted only; a freestanding runtime supplies its own.
+
+extern "C" {
+    func socket(domain: Int32, ty: Int32, protocol: Int32) -> Int32
+    func bind(fd: Int32, addr: UnsafePointer<Int8>, len: Int32) -> Int32
+    func listen(fd: Int32, backlog: Int32) -> Int32
+    func accept(fd: Int32, addr: UnsafePointer<Int8>, len: UnsafePointer<Int32>) -> Int32
+    func connect(fd: Int32, addr: UnsafePointer<Int8>, len: Int32) -> Int32
+    func getsockname(fd: Int32, addr: UnsafePointer<Int8>, len: UnsafePointer<Int32>) -> Int32
+    func read(fd: Int32, buf: UnsafePointer<Int8>, count: Int) -> Int
+    func write(fd: Int32, buf: UnsafePointer<Int8>, count: Int) -> Int
+    func close(fd: Int32) -> Int32
+    // Filesystem / environment ops.
+    // `open` is variadic; the mode argument is read only with O_CREAT.
+    func open(path: UnsafePointer<Int8>, flags: Int32, ...) -> Int32
+    func lseek(fd: Int32, offset: Int64, whence: Int32) -> Int64
+    func opendir(name: UnsafePointer<Int8>) -> UnsafePointer<Int8>?
+    func unlink(path: UnsafePointer<Int8>) -> Int32
+    func rename(oldpath: UnsafePointer<Int8>, newpath: UnsafePointer<Int8>) -> Int32
+    func mkdir(path: UnsafePointer<Int8>, mode: Int) -> Int32
+    func rmdir(path: UnsafePointer<Int8>) -> Int32
+    func chdir(path: UnsafePointer<Int8>) -> Int32
+    func setenv(name: UnsafePointer<Int8>, value: UnsafePointer<Int8>, overwrite: Int32) -> Int32
+    func unsetenv(name: UnsafePointer<Int8>) -> Int32
+    // Hostname resolution; see `rt_resolve_ipv4` for why it may block.
+    func getaddrinfo(node: UnsafePointer<Int8>, service: UnsafePointer<Int8>,
+                     hints: UnsafePointer<Int8>, res: UnsafePointer<Int8>) -> Int32
+    func freeaddrinfo(res: UnsafePointer<Int8>)
+    // shim.c: the `struct addrinfo` / `EAI_*` facts only C can spell (field
+    // order and failure codes differ by host).
+    func __saw_ai_next(entry: UnsafePointer<Int8>) -> UnsafePointer<Int8>?
+    func __saw_ai_ipv4(entry: UnsafePointer<Int8>, out: UnsafePointer<UInt32>) -> Int
+    func __saw_gai_tag(code: Int) -> Int
+    // Host seams: the portable open mode -> this host's O_* flags and the
+    // nonblocking-socket helper (shim.c); the sockaddr prefix stamp and the
+    // errno -> SysError tag mapper (net_os.saw).
+    func __saw_open_flags(mode: Int) -> Int
+    func __saw_rt_set_nonblocking(fd: Int) -> Int
+    func __saw_rt_sin_set_family(buf: UnsafePointer<Int8>)
+    func __saw_rt_last_syserror() -> Int
+    // Socket-option seams (shim.c): the portable option tag -> this host's
+    // (level, name), `-1` for an option this host lacks; the per-host SIGPIPE
+    // suppression; and the flags every socket send passes (design 272).
+    func __saw_sockopt_level(option: Int) -> Int
+    func __saw_sockopt_name(option: Int) -> Int
+    func __saw_socket_suppress_sigpipe(fd: Int)
+    func __saw_socket_send_flags() -> Int
+    func setsockopt(fd: Int32, level: Int32, name: Int32,
+                    value: UnsafePointer<Int8>, len: Int32) -> Int32
+    func send(fd: Int32, buf: UnsafePointer<Int8>, len: Int, flags: Int32) -> Int
+}
+
+// The portable SysError tag space (ABI.md). A failing op returns the negated
+// tag. The whole space is declared, not just the subset this file branches
+// on, so the enum matches the document.
+enum SysError: UInt8 {
+    case Ok = 0,
+    case WouldBlock = 1,
+    case InProgress = 2,
+    case IsConnected = 3,
+    case Interrupted = 4,
+    case ConnReset = 5,
+    case ConnRefused = 6,
+    case ConnAborted = 7,
+    case BrokenPipe = 8,
+    case NotConnected = 9,
+    case NotFound = 10,
+    case PermissionDenied = 11,
+    case Exists = 12,
+    case AddrInUse = 13,
+    case Invalid = 14,
+    case Exhausted = 15,
+    case Other = 16,
+    // Remote-reach failures sit after `Other` because the numbers are frozen.
+    case HostUnreachable = 17,
+    case NetUnreachable = 18,
+    case TimedOut = 19,
+    case HostDown = 20,
+    case NetDown = 21
+}
+
+static AF_INET: Int32 = 2
+static SOCK_STREAM: Int32 = 1
+static PROTO_DEFAULT: Int32 = 0
+static LISTEN_BACKLOG: Int32 = 16
+// Portable socket-option tags (rt/ABI.md). The host says what each one means
+// (host_*/net_os.saw); this file only ever names the portable number.
+static OPT_NO_DELAY: Int = 1
+static OPT_KEEPALIVE: Int = 2
+static OPT_REUSE_ADDRESS: Int = 3
+static SOCKADDR_IN_LEN: Int32 = 16
+static LOOPBACK_BE: UInt32 = 0x0100007f   // 127.0.0.1, network byte order (LE)
+
+// A typed stack stand-in for `struct sockaddr_in` (16 bytes, natural ABI).
+struct SockAddrIn {
+    family: UInt16
+    port: UInt16
+    addr: UInt32
+    zero: UInt64
+}
+
+// A typed stack stand-in for the hints argument of `getaddrinfo`. The first
+// five fields of `struct addrinfo` match on macOS and Linux; the next two
+// pointers swap order between hosts, which is why the walk asks shim.c for
+// fields by name. Hints set only the prefix and require the rest to be zero,
+// so the divergence never reaches this declaration.
+struct AddrInfoHints {
+    flags: Int32
+    family: Int32
+    socktype: Int32
+    protocol: Int32
+    addrlen: UInt32
+    hole: UInt32        // the LP64 alignment hole ahead of the first pointer
+    ptr0: UInt64        // ai_canonname / ai_addr, host order of declaration
+    ptr1: UInt64        // ai_addr / ai_canonname
+    next: UInt64        // ai_next
+}
+
+static_assert(sizeof<AddrInfoHints>() == 48,
+              "struct addrinfo is 48 bytes on every hosted (LP64) target")
+
+// host-order port -> network byte order (htons). Targets are little-endian.
+func htons(port: Int) -> UInt16 {
+    (((port & 0xff) << 8) | ((port >> 8) & 0xff)) as UInt16
+}
+
+// network byte order UInt16 -> host-order port (ntohs).
+func ntohs(net: UInt16) -> Int {
+    let v = net as Int
+    ((v & 0xff) << 8) | ((v >> 8) & 0xff)
+}
+
+// An `addr`:`port` sockaddr with the OS-correct family prefix. `addr` is in
+// network byte order, as `sin_addr` holds it and as both the dotted-quad parser
+// and `__saw_rt_resolve_ipv4` produce it.
+func ipv4_sockaddr(addr: UInt32, port: Int) unsafe -> SockAddrIn {
+    var sa = SockAddrIn(family: 0 as UInt16, port: htons(port), addr: addr, zero: 0 as UInt64)
+    __saw_rt_sin_set_family((&sa) as UnsafePointer<Int8>)
+    sa
+}
+
+// Open a nonblocking listening TCP socket bound to 127.0.0.1:port (0 = ephemeral).
+// Returns the listen fd (>= 0) or -tag.
+@export("__saw_rt_tcp_listen")
+func rt_tcp_listen(port: Int) unsafe -> Int {
+    rt_tcp_listen_on(LOOPBACK_BE as Int, port)
+}
+
+// Explicit address, network-order IPv4 bits carried in a platform word.
+//
+// Forwards to the options-carrying op below with the defaults: `reuse_address`
+// on, the standard backlog. It stays a separate seam so a runtime provider
+// that implements only the v2 seam set still links.
+@export("__saw_rt_tcp_listen_on")
+func rt_tcp_listen_on(addr_be: Int, port: Int) unsafe -> Int {
+    rt_tcp_listen_with(addr_be, port, 1, LISTEN_BACKLOG as Int)
+}
+
+// Bind + listen with the options a listener can only be given between
+// `socket()` and `bind()` (design 272).
+//
+// `SO_REUSEADDR` must be set before bind, so it cannot be a setter on the
+// returned listener. std.net's `listen` defaults it on, so a restarted server
+// does not lose to the dead process's TIME_WAIT socket. It does not hide a
+// genuine collision: a second socket bound to the same address and port still
+// fails with `EADDRINUSE`.
+@export("__saw_rt_tcp_listen_with")
+func rt_tcp_listen_with(addr_be: Int, port: Int, reuse_address: Int,
+                        backlog: Int) unsafe -> Int {
+    let fd = socket(AF_INET, SOCK_STREAM, PROTO_DEFAULT)
+    if fd < (0 as Int32) {
+        return -__saw_rt_last_syserror()
+    }
+    let _ = __saw_rt_set_nonblocking(fd as Int)
+    __saw_socket_suppress_sigpipe(fd as Int)
+    if reuse_address != 0 {
+        let r = rt_socket_set_option(fd as Int, OPT_REUSE_ADDRESS, 1)
+        if r < 0 {
+            let _ = close(fd)
+            return r
+        }
+    }
+    var sa = ipv4_sockaddr(addr_be as UInt32, port)
+    let ap = (&sa) as UnsafePointer<Int8>
+    if bind(fd, ap, SOCKADDR_IN_LEN) != (0 as Int32) {
+        let e = __saw_rt_last_syserror()
+        let _ = close(fd)
+        return -e
+    }
+    if listen(fd, backlog as Int32) != (0 as Int32) {
+        let e = __saw_rt_last_syserror()
+        let _ = close(fd)
+        return -e
+    }
+    fd as Int
+}
+
+// Set one socket option by portable tag. Returns 0 or -tag.
+//
+// Every option in the tag space takes a C `int`, which is what lets one seam
+// serve them all; an option with another value shape needs its own seam.
+// An option this host lacks is refused with `Invalid`, never silently ignored.
+@export("__saw_rt_socket_set_option")
+func rt_socket_set_option(fd: Int, option: Int, value: Int) unsafe -> Int {
+    let level = __saw_sockopt_level(option)
+    let name = __saw_sockopt_name(option)
+    if level < 0 || name < 0 {
+        return 0 - (SysError.Invalid as UInt8) as Int
+    }
+    var v: Int32 = value as Int32
+    if setsockopt(fd as Int32, level as Int32, name as Int32,
+                  (&v) as UnsafePointer<Int8>, 4 as Int32) != (0 as Int32) {
+        return 0 - __saw_rt_last_syserror()
+    }
+    0
+}
+
+// The actual local port a (possibly ephemeral) listen fd is bound to.
+@export("__saw_rt_tcp_local_port")
+func rt_tcp_local_port(fd: Int) unsafe -> Int {
+    var sa = SockAddrIn(family: 0 as UInt16, port: 0 as UInt16, addr: 0 as UInt32, zero: 0 as UInt64)
+    let ap = (&sa) as UnsafePointer<Int8>
+    var len: Int32 = SOCKADDR_IN_LEN
+    let lp = (&len) as UnsafePointer<Int32>
+    let _ = getsockname(fd as Int32, ap, lp)
+    ntohs(sa.port)
+}
+
+// Nonblocking accept: a nonblocking connection fd (>= 0), or -tag
+// (-WouldBlock when no client is waiting).
+@export("__saw_rt_tcp_accept")
+func rt_tcp_accept(listen_fd: Int) unsafe -> Int {
+    var sa = SockAddrIn(family: 0 as UInt16, port: 0 as UInt16, addr: 0 as UInt32, zero: 0 as UInt64)
+    let ap = (&sa) as UnsafePointer<Int8>
+    var len: Int32 = SOCKADDR_IN_LEN
+    let lp = (&len) as UnsafePointer<Int32>
+    let c = accept(listen_fd as Int32, ap, lp)
+    if c >= (0 as Int32) {
+        let _ = __saw_rt_set_nonblocking(c as Int)
+        // An accepted socket does not inherit the listener's options, so the
+        // hardening is applied per connection.
+        __saw_socket_suppress_sigpipe(c as Int)
+        let _ = rt_socket_set_option(c as Int, OPT_NO_DELAY, 1)
+        return c as Int
+    }
+    return 0 - __saw_rt_last_syserror()
+}
+
+// Start a nonblocking connect to `addr_be`:`port`. Returns a connecting fd
+// (>= 0, including the EINPROGRESS "wait for writable" case) or -tag on a real
+// failure.
+@export("__saw_rt_tcp_connect_start")
+func rt_tcp_connect_start(addr_be: Int, port: Int) unsafe -> Int {
+    let fd = socket(AF_INET, SOCK_STREAM, PROTO_DEFAULT)
+    if fd < (0 as Int32) {
+        return -__saw_rt_last_syserror()
+    }
+    let _ = __saw_rt_set_nonblocking(fd as Int)
+    // Same hardening as the accept path, set before `connect` while the socket
+    // is certainly still ours alone.
+    __saw_socket_suppress_sigpipe(fd as Int)
+    let _ = rt_socket_set_option(fd as Int, OPT_NO_DELAY, 1)
+    var sa = ipv4_sockaddr(addr_be as UInt32, port)
+    let ap = (&sa) as UnsafePointer<Int8>
+    let r = connect(fd, ap, SOCKADDR_IN_LEN)
+    if r == (0 as Int32) {
+        return fd as Int
+    }
+    let e = __saw_rt_last_syserror()
+    if e == ((SysError.WouldBlock as UInt8) as Int) || e == ((SysError.InProgress as UInt8) as Int) {
+        return fd as Int
+    }
+    let _ = close(fd)
+    return 0 - e
+}
+
+// Re-issue the nonblocking connect() to learn the true completion state. The
+// address must be the one `connect_start` used. Returns 0 = connected,
+// -InProgress = still connecting (re-park), or -tag = a real failure.
+@export("__saw_rt_tcp_connect_check")
+func rt_tcp_connect_check(fd: Int, addr_be: Int, port: Int) unsafe -> Int {
+    var sa = ipv4_sockaddr(addr_be as UInt32, port)
+    let ap = (&sa) as UnsafePointer<Int8>
+    let r = connect(fd as Int32, ap, SOCKADDR_IN_LEN)
+    if r == (0 as Int32) {
+        return 0
+    }
+    let e = __saw_rt_last_syserror()
+    if e == ((SysError.IsConnected as UInt8) as Int) {
+        return 0
+    }
+    if e == ((SysError.InProgress as UInt8) as Int) || e == ((SysError.WouldBlock as UInt8) as Int) {
+        return 0 - ((SysError.InProgress as UInt8) as Int)
+    }
+    return 0 - e
+}
+
+// Nonblocking read: byte count (0 = EOF), or -tag (-WouldBlock on a would-block).
+@export("__saw_rt_tcp_read")
+func rt_tcp_read(fd: Int, buf: UnsafePointer<Int8>, len: Int) unsafe -> Int {
+    let n = read(fd as Int32, buf, len)
+    if n >= 0 {
+        return n
+    }
+    return 0 - __saw_rt_last_syserror()
+}
+
+// Nonblocking write: bytes written (may be < len), or -tag.
+//
+// `send` rather than `write`, so Linux can pass `MSG_NOSIGNAL` and a write to
+// a hung-up peer reports `EPIPE` instead of raising SIGPIPE, which would kill
+// the process. macOS passes 0 and relies on the best-effort SO_NOSIGPIPE
+// setup attempted at socket creation (rt/shim.c).
+@export("__saw_rt_tcp_write")
+func rt_tcp_write(fd: Int, buf: UnsafePointer<Int8>, len: Int) unsafe -> Int {
+    let n = send(fd as Int32, buf, len, __saw_socket_send_flags() as Int32)
+    if n >= 0 {
+        return n
+    }
+    return 0 - __saw_rt_last_syserror()
+}
+
+// Resolve `host` to IPv4 addresses, writing up to `max` of them (in network
+// byte order, ready for `sockaddr_in.sin_addr`) to `out`. Returns the COUNT
+// written — `0` when the resolver succeeded and offered no IPv4 address — or
+// `-tag` when it failed.
+//
+// Unbounded: `getaddrinfo` may consult /etc/hosts, mDNS, LDAP and the network,
+// and can take as long as a DNS timeout. std declares this seam `extern
+// blocking`, so the call runs on a worker thread while the calling task parks;
+// the body itself is ordinary sync code. `host` and `out` point into the
+// parked task's frame or the heap and stay valid for the whole call
+// (design 183).
+@export("__saw_rt_resolve_ipv4")
+func rt_resolve_ipv4(host: UnsafePointer<Int8>, out: UnsafePointer<UInt32>, max: Int) unsafe -> Int {
+    if max <= 0 {
+        return 0 - ((SysError.Invalid as UInt8) as Int)
+    }
+    var hints = AddrInfoHints(flags: 0 as Int32, family: AF_INET,
+                              socktype: SOCK_STREAM, protocol: PROTO_DEFAULT,
+                              addrlen: 0 as UInt32, hole: 0 as UInt32,
+                              ptr0: 0 as UInt64, ptr1: 0 as UInt64,
+                              next: 0 as UInt64)
+    var head = 0 as UnsafePointer<Int8>
+    let rc = getaddrinfo(host, 0 as UnsafePointer<Int8>,
+                         (&hints) as UnsafePointer<Int8>,
+                         (&head) as UnsafePointer<Int8>)
+    if rc != (0 as Int32) {
+        // EAI_SYSTEM answers 0: its cause is in errno, read on the next line
+        // with nothing in between.
+        var tag = __saw_gai_tag(rc as Int)
+        if tag == 0 {
+            tag = __saw_rt_last_syserror()
+        }
+        if tag == 0 {
+            tag = (SysError.Other as UInt8) as Int
+        }
+        return 0 - tag
+    }
+    // getaddrinfo answering 0 guarantees a non-empty list, so the head is a real
+    // entry; only `ai_next` can be absent.
+    var cur: UnsafePointer<Int8>? = head
+    var found = 0
+    while found < max {
+        guard let entry = cur else { break }
+        var one = 0 as UInt32
+        if __saw_ai_ipv4(entry, (&one) as UnsafePointer<UInt32>) != 0 {
+            out[found] = one
+            found = found + 1
+        }
+        cur = __saw_ai_next(entry)
+    }
+    freeaddrinfo(head)
+    found
+}
+
+// =============================================================================
+// Filesystem / environment status ops. Same convention as the socket ops:
+// a natural non-negative result (0, fd, byte count, offset) or -tag.
+// =============================================================================
+
+// `mode` is the portable open mode (rt/ABI.md), not a POSIX flag word, because
+// the `O_*` bits are per-host C macros that only the shim can see. `perm` is
+// the creation permission, read by the kernel only when the mode creates.
+@export("__saw_rt_fs_open")
+func rt_fs_open(path: UnsafePointer<Int8>, mode: Int, perm: Int) unsafe -> Int {
+    let flags = __saw_open_flags(mode)
+    if flags < 0 {
+        return 0 - ((SysError.Invalid as UInt8) as Int)
+    }
+    let fd = open(path, flags as Int32, perm)
+    if fd >= (0 as Int32) {
+        return fd as Int
+    }
+    return 0 - __saw_rt_last_syserror()
+}
+
+@export("__saw_rt_fs_read")
+func rt_fs_read(fd: Int, buf: UnsafePointer<Int8>, count: Int) unsafe -> Int {
+    let n = read(fd as Int32, buf, count)
+    if n >= 0 {
+        return n
+    }
+    return 0 - __saw_rt_last_syserror()
+}
+
+@export("__saw_rt_fs_write")
+func rt_fs_write(fd: Int, buf: UnsafePointer<Int8>, count: Int) unsafe -> Int {
+    let n = write(fd as Int32, buf, count)
+    if n >= 0 {
+        return n
+    }
+    return 0 - __saw_rt_last_syserror()
+}
+
+// lseek's success value is an offset, which can exceed the tag space, so a
+// negative result is the only failure signal, as it is for lseek itself.
+@export("__saw_rt_fs_lseek")
+func rt_fs_lseek(fd: Int, offset: Int, whence: Int) unsafe -> Int {
+    let pos = lseek(fd as Int32, offset as Int64, whence as Int32)
+    if pos >= (0 as Int64) {
+        return pos as Int
+    }
+    return 0 - __saw_rt_last_syserror()
+}
+
+// opendir yields a DIR* and cannot fold a tag into its return, so the status
+// goes to an out-parameter: 0 on success, the (positive) tag on failure. The
+// pointer is returned raw because an exported return may not be optional; the
+// caller's `extern` declaration adds the `?`.
+@export("__saw_rt_fs_opendir")
+func rt_fs_opendir(path: UnsafePointer<Int8>, status_out: UnsafePointer<Int>) unsafe -> UnsafePointer<Int8> {
+    if let dir = opendir(path) {
+        status_out[0] = 0
+        return dir
+    }
+    status_out[0] = __saw_rt_last_syserror()
+    return 0 as UnsafePointer<Int8>
+}
+
+@export("__saw_rt_fs_unlink")
+func rt_fs_unlink(path: UnsafePointer<Int8>) unsafe -> Int {
+    if unlink(path) == (0 as Int32) {
+        0
+    } else {
+        0 - __saw_rt_last_syserror()
+    }
+}
+
+@export("__saw_rt_fs_rename")
+func rt_fs_rename(oldpath: UnsafePointer<Int8>, newpath: UnsafePointer<Int8>) unsafe -> Int {
+    if rename(oldpath, newpath) == (0 as Int32) {
+        0
+    } else {
+        0 - __saw_rt_last_syserror()
+    }
+}
+
+@export("__saw_rt_fs_mkdir")
+func rt_fs_mkdir(path: UnsafePointer<Int8>, mode: Int) unsafe -> Int {
+    if mkdir(path, mode) == (0 as Int32) {
+        0
+    } else {
+        0 - __saw_rt_last_syserror()
+    }
+}
+
+@export("__saw_rt_fs_rmdir")
+func rt_fs_rmdir(path: UnsafePointer<Int8>) unsafe -> Int {
+    if rmdir(path) == (0 as Int32) {
+        0
+    } else {
+        0 - __saw_rt_last_syserror()
+    }
+}
+
+@export("__saw_rt_fs_chdir")
+func rt_fs_chdir(path: UnsafePointer<Int8>) unsafe -> Int {
+    if chdir(path) == (0 as Int32) {
+        0
+    } else {
+        0 - __saw_rt_last_syserror()
+    }
+}
+
+@export("__saw_rt_env_set")
+func rt_env_set(name: UnsafePointer<Int8>, value: UnsafePointer<Int8>, overwrite: Int) unsafe -> Int {
+    if setenv(name, value, overwrite as Int32) == (0 as Int32) {
+        0
+    } else {
+        0 - __saw_rt_last_syserror()
+    }
+}
+
+@export("__saw_rt_env_unset")
+func rt_env_unset(name: UnsafePointer<Int8>) unsafe -> Int {
+    if unsetenv(name) == (0 as Int32) {
+        0
+    } else {
+        0 - __saw_rt_last_syserror()
+    }
+}

@@ -1,5 +1,5 @@
-// The runtime ABI table (sawc/rt/ABI.md, as sawc/runtime_abi.py reads it), compiled
-// in: written by compiler/tools/runtime_table.py --write, never by hand.
+// The runtime ABI table (runtime/ABI.md, as compiler/tools/runtime_table.py reads it),
+// compiled in: written by that tool's --write, never by hand.
 
 // Each seam's name, its parameters' machine classes separated by commas, its
 // result's class, and whether the runtime or the program defines it.

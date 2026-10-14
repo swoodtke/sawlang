@@ -31,10 +31,10 @@ public func llvm_emit_program(mono: &var MonoProgram, target: &var Target, lower
     var e = ll_emitter(move lowering)
     // The helpers copy with it whether or not any function does.
     e.declare("llvm.memcpy.p0.p0.i64", "declare void @llvm.memcpy.p0.p0.i64(ptr, ptr, i64, i1)")
-    // A program's entry point defines the argument accessors (rt/ABI.md,
+    // A program's entry point defines the argument accessors (runtime/ABI.md,
     // "Program arguments"), which std's `extern` declarations name, and,
     // when it hands `main`'s frame to the entry executor, the descriptor call
-    // the executor resumes a frame through (rt/ABI.md, "The compiler →
+    // the executor resumes a frame through (runtime/ABI.md, "The compiler →
     // executor boundary"). A runtime has no entry point: those belong to the
     // program it is linked into.
     if not mono.runtime {
@@ -133,7 +133,7 @@ public func llvm_emit_program(mono: &var MonoProgram, target: &var Target, lower
 
 extension LlEmitter {
     // The C entry point: `main(argc, argv)` keeps both for the argument
-    // accessors the compiler emits into every program (rt/ABI.md, "Program
+    // accessors the compiler emits into every program (runtime/ABI.md, "Program
     // arguments"), runs the program's `main`, and exits with its `Int`, or 0
     // for a `Void` main. A plain `main` is called, then the background group
     // closed when the program spawns, since a task may still be running; one
@@ -228,7 +228,7 @@ extension LlEmitter {
     }
 
     // Item `k`'s frame descriptor, the constant record the executor reaches
-    // its frame through, laid out as std's `FrameDescriptor` (sawc/rt/ABI.md,
+    // its frame through, laid out as std's `FrameDescriptor` (runtime/ABI.md,
     // "The compiler → executor boundary"): its resume function, the frame's
     // size and alignment, the result's offset, size and alignment, a drop of
     // a result in place, and the backtrace index, -1 while there is no
@@ -333,7 +333,7 @@ func ll_result_drop_symbol(mono: &MonoProgram, k: Int) -> String {
 // `__saw_frame_resume(descriptor, frame, cx) -> Int32`, one resume of a frame
 // through its descriptor's `resume` function value, called as a function
 // value returning a `Poll` is (`sret`, then the environment), with the
-// `Poll`'s tag as its result (sawc/rt/ABI.md, "The compiler → executor
+// `Poll`'s tag as its result (runtime/ABI.md, "The compiler → executor
 // boundary").
 func ll_frame_resume_helper(env_offset: Int) -> String {
     var out = StringBuilder()
@@ -348,7 +348,7 @@ func ll_frame_resume_helper(env_offset: Int) -> String {
     out.build()
 }
 
-// The compiler's own helpers (rt/ABI.md's `__saw_*` tier, never a runtime
+// The compiler's own helpers (runtime/ABI.md's `__saw_*` tier, never a runtime
 // seam): decimal rendering of an `i64`, signed and unsigned, and an append
 // into a panic message's buffer that cuts at its limit, and the end that
 // marks a cut.

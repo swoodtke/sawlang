@@ -1,0 +1,192 @@
+// OS-divergent errno and socket helpers (design 117) — macOS.
+//
+// `__saw_rt_last_syserror()` reads the calling thread's errno and returns the
+// portable SysError tag (sawc/rt/ABI.md). The status-carrying ops in
+// sawc/rt/common/os_ops.saw call it immediately after a failing syscall, so
+// nothing can clobber errno first and std never sees a raw errno.
+// `__saw_rt_last_raw_code()` returns the raw number that classification folded
+// away. `sin_set_family` stamps the host's sockaddr_in prefix.
+//
+// Keep in step with host_linux/net_os.saw: the SysError enum and the raw-code
+// slot are shared verbatim; only the errno values and sockaddr layout differ.
+
+extern "C" {
+    // errno lives behind __error() on macOS (returns `int*`).
+    func __error() -> UnsafePointer<Int32>
+
+    // Thread-specific storage for the raw-code slot below. `pthread_key_t` is
+    // `unsigned long` on macOS, so the key is modelled as `Int` and
+    // `pthread_key_create` writes into a zeroed 8-byte slot, as in
+    // rt/common/op_budget.saw.
+    func pthread_key_create(key: UnsafePointer<Int8>, dtor: UnsafePointer<Int8>) -> Int32
+    func pthread_key_delete(key: Int) -> Int32
+    func pthread_getspecific(key: Int) -> Int
+    func pthread_setspecific(key: Int, value: Int) -> Int32
+}
+
+// The portable SysError tag space (ABI.md). A failing op returns the negated
+// tag. The numbers are frozen; the raw backing pins them.
+enum SysError: UInt8 {
+    case Ok = 0,
+    case WouldBlock = 1,
+    case InProgress = 2,
+    case IsConnected = 3,
+    case Interrupted = 4,
+    case ConnReset = 5,
+    case ConnRefused = 6,
+    case ConnAborted = 7,
+    case BrokenPipe = 8,
+    case NotConnected = 9,
+    case NotFound = 10,
+    case PermissionDenied = 11,
+    case Exists = 12,
+    case AddrInUse = 13,
+    case Invalid = 14,
+    case Exhausted = 15,
+    case Other = 16,
+    // Remote-reach failures sit after `Other` because the numbers are frozen.
+    case HostUnreachable = 17,
+    case NetUnreachable = 18,
+    case TimedOut = 19,
+    case HostDown = 20,
+    case NetDown = 21
+}
+
+// macOS errno numbers.
+static EPERM: Int = 1
+static ENOENT: Int = 2
+static EINTR: Int = 4
+static ENOMEM: Int = 12
+static EACCES: Int = 13
+static EEXIST: Int = 17
+static EINVAL: Int = 22
+static ENFILE: Int = 23
+static EMFILE: Int = 24
+static ENOSPC: Int = 28
+static EPIPE: Int = 32
+static EAGAIN: Int = 35        // == EWOULDBLOCK
+static EINPROGRESS: Int = 36
+static EALREADY: Int = 37
+static EADDRINUSE: Int = 48
+static ENETDOWN: Int = 50
+static ENETUNREACH: Int = 51
+static ECONNABORTED: Int = 53
+static ECONNRESET: Int = 54
+static EISCONN: Int = 56
+static ENOTCONN: Int = 57
+static ETIMEDOUT: Int = 60
+static ECONNREFUSED: Int = 61
+static EHOSTDOWN: Int = 64
+static EHOSTUNREACH: Int = 65
+
+// sockaddr_in prefix (macOS): { u8 sin_len = 16; u8 sin_family = AF_INET }.
+static SIN_LEN: Int8 = 16
+static AF_INET: Int8 = 2
+
+// The current thread's errno (sign-extended to a platform word). Private helper.
+func errno_value() unsafe -> Int {
+    __error()[0] as Int
+}
+
+// The raw platform code behind the last classification (design 234).
+//
+// `rt_last_syserror` folds an errno family into one tag (EACCES and EPERM are
+// both `PermissionDenied`), losing the number a log wants. The tag still
+// travels in the op's negated-word return; this slot holds the raw number,
+// stored in the same call that classifies. Unlike the live errno it cannot be
+// clobbered by a later syscall.
+//
+// Per thread, because errno is: MT TaskGroups classify on several threads at
+// once. Saw has no thread-local storage, so this is pthread thread-specific
+// data, and both encodings are biased by one so all-zero reads as "nothing
+// captured yet".
+static RAW_CODE_KEY: Atomic<Int> = Atomic(0)
+
+// The pthread key, created once and published by CAS (op_budget.saw's pattern):
+// create, try to publish, and if somebody else won, delete the spare and use
+// theirs. Holds `key + 1`, so a genuine key of 0 is not read as "no key yet".
+func raw_code_key() unsafe -> Int {
+    let cur = RAW_CODE_KEY.load()
+    if cur != 0 {
+        return cur - 1
+    }
+    var fresh: Int = 0
+    pthread_key_create((&fresh) as UnsafePointer<Int8>, 0 as UnsafePointer<Int8>)
+    if RAW_CODE_KEY.compare_exchange(0, fresh + 1) {
+        return fresh
+    }
+    pthread_key_delete(fresh)
+    RAW_CODE_KEY.load() - 1
+}
+
+func raw_code_store(value: Int) unsafe {
+    pthread_setspecific(raw_code_key(), value + 1)
+}
+
+@export("__saw_rt_last_raw_code")
+func rt_last_raw_code() unsafe -> Int {
+    let raw = pthread_getspecific(raw_code_key())
+    if raw == 0 {
+        return 0
+    }
+    raw - 1
+}
+
+// Map the current errno to a portable SysError tag. Called by the common
+// status-carrying OS ops right after a failing syscall.
+@export("__saw_rt_last_syserror")
+func rt_last_syserror() -> Int {
+    let e = errno_value()
+    raw_code_store(e)
+    let tag = if e == EAGAIN {
+        SysError.WouldBlock
+    } else if e == EINPROGRESS || e == EALREADY {
+        SysError.InProgress
+    } else if e == EISCONN {
+        SysError.IsConnected
+    } else if e == EINTR {
+        SysError.Interrupted
+    } else if e == ECONNRESET {
+        SysError.ConnReset
+    } else if e == ECONNREFUSED {
+        SysError.ConnRefused
+    } else if e == ECONNABORTED {
+        SysError.ConnAborted
+    } else if e == EPIPE {
+        SysError.BrokenPipe
+    } else if e == ENOTCONN {
+        SysError.NotConnected
+    } else if e == ENOENT {
+        SysError.NotFound
+    } else if e == EACCES || e == EPERM {
+        SysError.PermissionDenied
+    } else if e == EEXIST {
+        SysError.Exists
+    } else if e == EADDRINUSE {
+        SysError.AddrInUse
+    } else if e == EINVAL {
+        SysError.Invalid
+    } else if e == EMFILE || e == ENFILE || e == ENOMEM || e == ENOSPC {
+        SysError.Exhausted
+    } else if e == EHOSTUNREACH {
+        SysError.HostUnreachable
+    } else if e == ENETUNREACH {
+        SysError.NetUnreachable
+    } else if e == ETIMEDOUT {
+        SysError.TimedOut
+    } else if e == EHOSTDOWN {
+        SysError.HostDown
+    } else if e == ENETDOWN {
+        SysError.NetDown
+    } else {
+        SysError.Other
+    }
+    (tag as UInt8) as Int
+}
+
+// Stamp the macOS sockaddr_in prefix: sin_len at byte 0, sin_family at byte 1.
+@export("__saw_rt_sin_set_family")
+func rt_sin_set_family(buf: UnsafePointer<Int8>) unsafe {
+    buf[0] = SIN_LEN
+    buf[1] = AF_INET
+}

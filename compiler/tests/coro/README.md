@@ -274,7 +274,7 @@ destination, its block writes each of the child's parameter slots (read from
 the child's frame) exactly once, and a call with a destination returns to its
 move-out. A broken one is an `INVARIANT` line, which the unit program
 `compiler/coro/tests/drive_invariant.saw` provokes by unlinking a write. The
-resume function, `resume(frame, cx) -> Poll` (rt/ABI.md, "The
+resume function, `resume(frame, cx) -> Poll` (runtime/ABI.md, "The
 compiler → executor boundary"), is the body's blocks behind a switch on the
 state word: state 0 enters at `bb0`, state N re-enters suspension point N,
 and the done state (-1) traps, since a driver that resumes a done frame has

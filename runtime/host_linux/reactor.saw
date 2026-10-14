@@ -1,0 +1,220 @@
+// The IO reactor for Linux (epoll), authored in Saw.
+//
+// The epoll mirror of host_macos/reactor.saw, which has the shared rationale:
+// the same instance shape (an epoll fd plus a wake source), the same token
+// contract, one-shot rearm for real descriptors (EPOLLONESHOT, re-armed with
+// EPOLL_CTL_MOD when EPOLL_CTL_ADD fails), and a per-call heap event buffer
+// so concurrent polls stay independent.
+//
+// `struct epoll_event` is not a natural layout, so the event is stamped and
+// read through raw byte-offset pointers rather than a typed Saw struct, and
+// the offsets depend on the architecture: the header packs the struct on
+// x86_64, so it is 12 bytes with `data` at 4 there, and 16 bytes with `data`
+// at 8 on aarch64. Both numbers come from `__saw_epoll_*` in shim.c, because C
+// is the only language in the build that can read a struct's layout. `events`
+// is a u32 at byte 0 in both.
+//
+// The wake is a broadcast, as on kqueue (design 225):
+//
+//   * The eventfd is registered once, at create, level-triggered and never
+//     one-shot, so a blocked poller's registration cannot be consumed out from
+//     under it. A one-shot registration armed inside each poll would be shared
+//     by concurrent pollers and disarmed by the first delivery.
+//   * Reaching every poller is the cascade: the instance counts the threads at
+//     the blocking `epoll_wait` call, and a poller that consumed a wake re-posts
+//     it while that count is positive. Linux may wake every blocked poller on
+//     one level-triggered fd, in which case the cascade finds the count at zero
+//     and stops; the property does not rest on which behavior a kernel picks.
+//
+// A wake with no poller blocked is not lost (the eventfd counter is state, not
+// an edge, so the next `epoll_wait` returns at once), and a consumed wake does
+// not busy-fire (the consumer reads the counter back to zero).
+//
+// The eventfd is registered with data 0, the value the latch loop skips, so a
+// ready event with `data == 0` is taken as the wake. The executor's own tokens
+// are frame `__wake`-word addresses, but the outside-frame `io_wait` fallback
+// registers its fd with token 0 as well, and its readiness event is taken as a
+// wake too: it sets `woke`, drains the eventfd and may re-post.
+
+extern "C" {
+    func epoll_create1(flags: Int32) -> Int32
+    func epoll_ctl(epfd: Int32, op: Int32, fd: Int32, event: UnsafePointer<Int8>) -> Int32
+    func epoll_wait(epfd: Int32, events: UnsafePointer<Int8>, maxevents: Int32, timeout: Int32) -> Int32
+    func eventfd(initval: UInt32, flags: Int32) -> Int32
+    func read(fd: Int32, buf: UnsafePointer<Int8>, count: Int) -> Int
+    func write(fd: Int32, buf: UnsafePointer<Int8>, count: Int) -> Int
+    func close(fd: Int32) -> Int32
+    func calloc(count: Int, size: Int) -> UnsafePointer<Int8>
+    func malloc(size: Int) -> UnsafePointer<Int8>
+    func free(ptr: UnsafePointer<Int8>)
+    // The `struct epoll_event` layout for this target (DF-113a, shim.c).
+    func __saw_epoll_event_size() -> Int
+    func __saw_epoll_data_offset() -> Int
+}
+
+// The reactor instance: the epoll fd, the eventfd every thread is woken
+// through, and the count of threads at the blocking `epoll_wait` call (the
+// cascade's count). `calloc` is what makes the counter start at zero: an
+// all-zero `Atomic<Int>` is `Atomic(0)`, so there is no construction to write
+// into raw storage.
+struct Reactor {
+    fd: Int
+    wake_fd: Int
+    waiters: Atomic<Int>
+}
+
+// `Atomic` is NoCopy, so the struct holding one states its policy.
+extension Reactor: NoCopy {}
+
+// A 16-byte stack vehicle for the epoll_event — big enough for the unpacked
+// layout too, and zeroed, so the padding an aarch64 event carries is defined.
+// events (u32) is written at byte 0 and data (u64) at the target's data offset
+// via raw offset pointers below.
+struct EpollEv {
+    lo: Int
+    hi: Int
+}
+
+// EPOLLIN (0x001) | EPOLLONESHOT (0x40000000); EPOLLOUT (0x004) | EPOLLONESHOT.
+static EV_IN_ONESHOT: UInt32 = 0x40000001
+static EV_OUT_ONESHOT: UInt32 = 0x40000004
+// EPOLLIN alone: level-triggered and persistent, the wake source's arm.
+static EV_IN_LEVEL: UInt32 = 0x00000001
+static EPOLL_CTL_ADD: Int32 = 1
+static EPOLL_CTL_DEL: Int32 = 2
+static EPOLL_CTL_MOD: Int32 = 3
+// EFD_NONBLOCK (0o4000): a wake post must never block the poster, and a
+// consumer that loses the read race must get EAGAIN rather than hang.
+static EFD_NONBLOCK: Int32 = 0x800
+static POLL_EVENTS: Int = 64
+
+@export("__saw_rt_reactor_create")
+func rt_reactor_create() unsafe -> Int {
+    let epfd = epoll_create1(0 as Int32)
+    let efd = eventfd(0 as UInt32, EFD_NONBLOCK)
+    let raw = calloc(1, sizeof<Reactor>())
+    let rp = raw as UnsafePointer<Reactor>
+    rp[0].fd = epfd as Int
+    rp[0].wake_fd = efd as Int
+    // Arm the wake source once, for the instance's whole life (see the header).
+    var ev = EpollEv(lo: 0, hi: 0)
+    let evp = (&ev) as UnsafePointer<Int8>
+    (evp as UnsafePointer<UInt32>)[0] = EV_IN_LEVEL
+    let datap = (evp + __saw_epoll_data_offset()) as UnsafePointer<Int>
+    datap[0] = 0
+    epoll_ctl(epfd as Int32, EPOLL_CTL_ADD, efd, evp)
+    raw as Int
+}
+
+// Arm one-shot readiness on `fd` for read (w==0) or write (w!=0). `token` is the
+// parked frame's `__wake`-word address, stored as epoll_event.data; 0 comes
+// from a registration made outside any frame (see the header). A failed arm is
+// not reported: the `epoll_ctl` results are ignored (SL-354).
+@export("__saw_rt_reactor_register")
+func rt_reactor_register(r: Int, fd: Int, w: Int, token: Int) unsafe {
+    let rp = r as UnsafePointer<Reactor>
+    let epfd = rp[0].fd
+    var ev = EpollEv(lo: 0, hi: 0)
+    let evp = (&ev) as UnsafePointer<Int8>
+    let events: UInt32 = if w != 0 { EV_OUT_ONESHOT } else { EV_IN_ONESHOT }
+    (evp as UnsafePointer<UInt32>)[0] = events           // events @ byte 0
+    let datap = (evp + __saw_epoll_data_offset()) as UnsafePointer<Int>
+    datap[0] = token
+    // EPOLL_CTL_ADD, and on any failure (EEXIST for a known fd) re-arm with
+    // EPOLL_CTL_MOD.
+    let r0 = epoll_ctl(epfd as Int32, EPOLL_CTL_ADD, fd as Int32, evp)
+    if r0 != (0 as Int32) {
+        epoll_ctl(epfd as Int32, EPOLL_CTL_MOD, fd as Int32, evp)
+    }
+}
+
+// Drop readiness interest on `fd`: the epoll mirror of the kqueue EV_DELETE.
+// See host_macos/reactor.saw for why an unfired registration that outlives its
+// frame is a use-after-free rather than a leak.
+//
+// `w` is accepted for ABI uniformity and unused: epoll keeps one interest per
+// (epfd, fd) pair covering both directions, so EPOLL_CTL_DEL drops whichever
+// was armed. The event pointer must be non-NULL for kernels before 2.6.9, which
+// is why a zeroed vehicle is passed rather than null. Idempotent: DEL on an
+// unknown or closed fd returns ENOENT/EBADF, the state the caller wanted.
+@export("__saw_rt_reactor_unregister")
+func rt_reactor_unregister(r: Int, fd: Int, w: Int) unsafe {
+    let rp = r as UnsafePointer<Reactor>
+    let epfd = rp[0].fd
+    var ev = EpollEv(lo: 0, hi: 0)
+    let evp = (&ev) as UnsafePointer<Int8>
+    epoll_ctl(epfd as Int32, EPOLL_CTL_DEL, fd as Int32, evp)
+}
+
+// Post one wake. Both `wake` and the cascade inside `poll` use it.
+func rt_reactor_post(efd: Int) unsafe {
+    var one: Int = 1
+    write(efd as Int32, (&one) as UnsafePointer<Int8>, 8)
+}
+
+// Block in epoll_wait up to `timeout_ms` (< 0 = forever), latch each ready
+// event's nonzero data token word to 0 (ready), and pass a consumed wake on to
+// the next blocked poller. Returns the number of events delivered, a consumed
+// wake event included. A per-call heap event buffer keeps concurrent polls
+// independent.
+@export("__saw_rt_reactor_poll")
+func rt_reactor_poll(r: Int, timeout_ms: Int) unsafe -> Int {
+    let rp = r as UnsafePointer<Reactor>
+    let epfd = rp[0].fd
+    let efd = rp[0].wake_fd
+    let ev_size = __saw_epoll_event_size()
+    let data_off = __saw_epoll_data_offset()
+    let buf = malloc(POLL_EVENTS * ev_size)
+    let to: Int32 = if timeout_ms < 0 { -1 } else { timeout_ms as Int32 }
+    // Counted around the blocking call only, so the count leaves out threads
+    // that are scanning. A thread counted just before it enters `epoll_wait`
+    // finds a re-post pending and consumes it at once.
+    let _ = rp[0].waiters.fetch_add(1)
+    let n = epoll_wait(epfd as Int32, buf, POLL_EVENTS as Int32, to)
+    let _ = rp[0].waiters.fetch_add(-1)
+    var woke = false
+    var i = 0
+    while i < (n as Int) {
+        let datap = (buf + (i * ev_size + data_off)) as UnsafePointer<Int>
+        let ud = datap[0]
+        if ud != 0 {
+            let tokptr = ud as UnsafePointer<Int>
+            tokptr[0] = 0
+        } else {
+            woke = true
+        }
+        i = i + 1
+    }
+    if woke {
+        // Read the counter back to zero so a level-triggered eventfd does not
+        // busy-fire the next poll. A peer that won the race leaves EAGAIN here,
+        // which is the same "nothing pending" state.
+        let _ = read(efd as Int32, buf, 8)
+    }
+    free(buf)
+    // The cascade. This thread has already left the count, so a positive
+    // reading is a peer at the blocking call, and the re-post releases at least
+    // one more poller. It repeats until a poller that consumed it reads zero.
+    if woke {
+        if rp[0].waiters.load() > 0 {
+            rt_reactor_post(efd)
+        }
+    }
+    n as Int
+}
+
+// Rouse every blocked poll, through the cascade. Callable from any thread,
+// including one the executor knows nothing about.
+@export("__saw_rt_reactor_wake")
+func rt_reactor_wake(r: Int) unsafe {
+    let rp = r as UnsafePointer<Reactor>
+    rt_reactor_post(rp[0].wake_fd)
+}
+
+@export("__saw_rt_reactor_destroy")
+func rt_reactor_destroy(r: Int) unsafe {
+    let rp = r as UnsafePointer<Reactor>
+    close(rp[0].fd as Int32)
+    close(rp[0].wake_fd as Int32)
+    free(r as UnsafePointer<Int8>)
+}

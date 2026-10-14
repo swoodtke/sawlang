@@ -1,0 +1,34 @@
+// The running executable's path (D44): Linux.
+//
+// The kernel exposes the executable as the symbolic link `/proc/self/exe`;
+// see host_macos/executable_path.saw for the seam's contract.
+
+extern "C" {
+    func realpath(path: UnsafePointer<Int8>, resolved: UnsafePointer<Int8>) -> UnsafePointer<Int8>?
+}
+
+// `/proc/self/exe` and its NUL as two little-endian words, which every Linux
+// target sawc2 knows is: a runtime source holds no `String`, whose layout
+// belongs to the std it is built against, and the backend has no array
+// literal yet.
+struct ProcSelfExe {
+    head: Int
+    tail: Int
+}
+
+// "/proc/se"
+static PROC_SELF_EXE_HEAD: Int = 7310238724270485551
+// "lf/exe" then two NULs
+static PROC_SELF_EXE_TAIL: Int = 111567768086124
+
+// The executable's absolute path with every symbolic link resolved, in a
+// buffer the caller frees, or NULL.
+@export("__saw_rt_executable_path")
+func rt_executable_path() unsafe -> UnsafePointer<Int8> {
+    let none = 0 as UnsafePointer<Int8>
+    var link = ProcSelfExe(head: PROC_SELF_EXE_HEAD, tail: PROC_SELF_EXE_TAIL)
+    guard let resolved = realpath((&link) as UnsafePointer<Int8>, none) else {
+        return none
+    }
+    resolved
+}

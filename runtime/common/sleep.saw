@@ -1,0 +1,61 @@
+// The thread-park timer seam (design 113b), authored in Saw.
+//
+// `__saw_rt_sleep_ns(ns)` parks the current OS thread for `ns` nanoseconds. A
+// zero request returns at once. Hosted default: a clock-corrected loop of
+// `usleep` calls.
+//
+// Why a loop: `usleep` takes microseconds as a 32-bit unsigned, so a long
+// sleep must be chunked. The chunk is one second, which the hosted targets
+// (macOS, glibc) accept, although POSIX allows `usleep(1000000)` to fail.
+// Chunking removes the bound rather than checking it.
+//
+// Why the clock: each `usleep` returns a little late, and a plain countdown
+// would accumulate those overruns. Each pass charges what the monotonic clock
+// says it slept, so an overrun shortens the next chunk and the total converges
+// on the request.
+//
+// A park is a floor, so both roundings go up: the tail rounds to a whole
+// microsecond, and the loop exits only once the elapsed total reaches the
+// request.
+//
+// Not interruptible: nothing on another thread can cut the park short. The
+// executor therefore parks in the reactor when it may need to abandon a wait;
+// this seam is the no-reactor fallback and the body behind a `sleep` outside
+// any executor (design 180).
+
+extern "C" {
+    func usleep(us: UInt32) -> Int32
+    // Implemented by host_macos/clock.saw and host_linux/clock.saw, linked into
+    // the same runtime. Nanoseconds from an arbitrary epoch; only differences
+    // are meaningful, which is all this needs.
+    func __saw_rt_clock_monotonic_nanos() -> Int64
+}
+
+static NANOS_PER_MICRO: UInt64 = 1000
+// One chunk: a whole second.
+static CHUNK_NANOS: UInt64 = 1000000000
+
+@export("__saw_rt_sleep_ns")
+func rt_sleep_ns(ns: UInt64) {
+    var left = ns
+    while left > (0 as UInt64) {
+        var chunk = CHUNK_NANOS
+        if left < chunk {
+            chunk = left
+        }
+        let before = __saw_rt_clock_monotonic_nanos()
+        usleep((((chunk + NANOS_PER_MICRO - (1 as UInt64)) / NANOS_PER_MICRO)) as UInt32)
+        let delta = __saw_rt_clock_monotonic_nanos() - before
+        // What the clock says this pass cost. A non-positive reading means the
+        // clock is unusable for correction here; charge the chunk we asked for
+        // instead, so the loop always makes progress and always terminates.
+        var slept = chunk
+        if delta > (0 as Int64) {
+            slept = delta as UInt64
+        }
+        if slept >= left {
+            return
+        }
+        left = left - slept
+    }
+}

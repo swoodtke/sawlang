@@ -30,7 +30,7 @@ exit status compared.
 - a build that links prints nothing: the runtime it links is built at the
   module's own target, so the linker has nothing to warn about;
 - `hello.saw`'s `.ll`, as the compiler binary writes it, equals `hello.ll`
-  byte for byte, and `sawc/rt/host_macos/dirent.saw`'s, as `sawc2 runtime`
+  byte for byte, and `runtime/host_macos/dirent.saw`'s, as `sawc2 runtime`
   writes it, `runtime_dirent.ll`;
 - `noalias.saw`'s own `define` lines equal `noalias.defines`, and a sawc2
   built from a copy of the backend whose `noalias` funnel skips its
@@ -307,7 +307,7 @@ def check_pinned_ir(failures, counts, write):
                           rel(os.path.join(HERE, "hello.saw"))])
     dirent = check_pinned(failures, counts, write, "runtime dirent", os.path.join(HERE, "runtime_dirent.ll"),
                           ["runtime", "--target", PINNED_TARGET, "--std-root", "std", "--emit-ll",
-                           os.path.join("sawc", "rt", "host_macos", "dirent.saw")])
+                           rel(os.path.join(build.RT_ROOT, "host_macos", "dirent.saw"))])
     r = subprocess.run([build.SAWC2, "build", "--emit-ll", "--target", PINNED_TARGET, "--std-root", "std",
                         rel(os.path.join(HERE, "frame_pointers.saw"))], cwd=REPO, capture_output=True, text=True,
                        timeout=BUILD_TIMEOUT)
@@ -476,11 +476,11 @@ def build_runtime(directory, rt_root):
 
 
 # Each defect a runtime source may carry, and the line `sawc2 runtime` must
-# print for it: (source under sawc/rt, the text replaced, its replacement,
+# print for it: (source under runtime/, the text replaced, its replacement,
 # the line).
 RUNTIME_DEFECTS = (
     ("common/sleep.saw", '@export("__saw_rt_sleep_ns")\n', "",
-     "sawc2 runtime: no runtime object defines `__saw_rt_sleep_ns`, which sawc/rt/ABI.md lists"),
+     "sawc2 runtime: no runtime object defines `__saw_rt_sleep_ns`, which runtime/ABI.md lists"),
     ("%s/dirent.saw" % ("host_macos" if build.host_triple().endswith("-apple-darwin") else "host_linux"),
      '@export("__saw_rt_fs_dirent_name")', '@export("__saw_rt_fs_chdir")',
      "sawc2 runtime: `__saw_rt_fs_chdir` is defined by both"),
@@ -493,7 +493,7 @@ def check_runtime(failures, counts):
     printing no manifest."""
     first_dir = os.path.join(OUT, "runtime-a")
     second_dir = os.path.join(OUT, "runtime-b")
-    rt = os.path.join(REPO, "sawc", "rt")
+    rt = build.RT_ROOT
     code_a, log_a = build_runtime(first_dir, rt)
     code_b, log_b = build_runtime(second_dir, rt)
     if code_a != 0 or code_b != 0:

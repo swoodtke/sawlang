@@ -1,0 +1,137 @@
+// Blocking-extern offload seams, authored in Saw (design 183).
+//
+// A blocking FFI call inside a suspending task runs on a thread of its own, one
+// per call; normally the task parks on the job's pipe like any socket read, so
+// no executor thread blocks. A cancelled task instead goes straight to `take`,
+// which joins the call's thread, so cancellation can block the executor
+// thread running it until the call returns. A job is a 48-byte heap record shared with the C
+// thread body in rt/shim.c, which is C because it calls a raw function
+// pointer. Single-owner discipline: `start` creates the job, the thread fills
+// it, and `take` joins the thread (a full happens-before barrier) before it
+// reads, closes and frees. The thread publishes `done` with release; the load
+// here is seq_cst, which is at least as strong as the acquire it needs.
+//
+// The word the thread passes to `fn` points at the call's argument slots, one
+// per parameter, and `fn` is a compiler-synthesized thunk that reads them back
+// at their declared types. The slots are copied into a block the job owns,
+// because the worker reads them after `start` has returned and the caller's
+// copy may be a stack temporary.
+
+extern "C" {
+    func malloc(size: Int) -> UnsafePointer<Int8>
+    func free(ptr: UnsafePointer<Int8>)
+    func pipe(fds: UnsafePointer<Int8>) -> Int32
+    func close(fd: Int32) -> Int32
+    // Join is Saw (rt/common/pthread.saw); spawn is C (rt/shim.c).
+    func __saw_rt_thread_spawn(entry: UnsafePointer<Int8>, env: UnsafePointer<Int8>) -> Int
+    func __saw_rt_thread_join(handle: Int)
+    func __saw_rt_sleep_ns(ns: UInt64)
+    // The offload thread thunk's address (shim). Saw cannot name a C function
+    // pointer, so the shim exposes it as an opaque pointer for pthread_create.
+    func __saw_offload_thread_ptr() -> UnsafePointer<Int8>
+}
+
+// Must match `struct saw_offload_job` in shim.c (48 bytes; the static_assert
+// below checks the size). Declaration-order natural layout: fn@0, args@8,
+// result@16, done@24, pipe_r@32, pipe_w@36, thread@40.
+struct Job {
+    fn: Int
+    args: Int
+    result: Int
+    done: Atomic<Int>
+    pipe_r: Int32
+    pipe_w: Int32
+    thread: Int
+}
+
+// NoCopy, as its `Atomic` field is. A job is never held by value: `start`
+// mallocs one and every seam below reaches it through an `UnsafePointer<Job>`.
+extension Job: NoCopy {}
+
+static NANOS_PER_MILLI: UInt64 = 1000000
+
+// pipe() writes fds[0]=read, fds[1]=write into two adjacent Int32s.
+struct PipeFds {
+    r: Int32
+    w: Int32
+}
+
+static_assert(sizeof<Job>() == 48, "offload Job layout must match shim.c")
+
+// Copy `argc` argument slots out of the caller's storage into a block the job
+// owns. The worker reads them on its own thread, at a time this call cannot
+// bound, so borrowing the caller's array would be a dangling read; `take` frees
+// the copy. Zero arguments allocate nothing and the thunk gets a null pointer.
+func copy_arg_slots(argp: Int, argc: Int) unsafe -> Int {
+    if argc <= 0 {
+        return 0
+    }
+    let src = argp as UnsafePointer<Int64>
+    let dst = malloc(argc * sizeof<Int64>()) as UnsafePointer<Int64>
+    var i = 0
+    while i < argc {
+        dst[i] = src[i]
+        i = i + 1
+    }
+    dst as Int
+}
+
+@export("__saw_rt_offload_start")
+func rt_offload_start(fn: Int, argp: Int, argc: Int) unsafe -> Int {
+    let raw = malloc(sizeof<Job>())
+    let p = raw as UnsafePointer<Job>
+    p[0].fn = fn
+    p[0].args = copy_arg_slots(argp, argc)
+    p[0].result = 0
+    p[0].done.store(0)
+    var fds = PipeFds(r: 0, w: 0)
+    pipe((&fds) as UnsafePointer<Int8>)
+    p[0].pipe_r = fds.r
+    p[0].pipe_w = fds.w
+    // `take` joins the thread through the handle stored here.
+    let thunk = __saw_offload_thread_ptr()
+    p[0].thread = __saw_rt_thread_spawn(thunk, raw)
+    raw as Int
+}
+
+@export("__saw_rt_offload_done")
+func rt_offload_done(job: Int) unsafe -> Int {
+    let p = job as UnsafePointer<Job>
+    p[0].done.load()
+}
+
+@export("__saw_rt_offload_pipe_fd")
+func rt_offload_pipe_fd(job: Int) unsafe -> Int {
+    let p = job as UnsafePointer<Job>
+    p[0].pipe_r as Int
+}
+
+@export("__saw_rt_offload_take")
+func rt_offload_take(job: Int) unsafe -> Int {
+    let raw = job as UnsafePointer<Int8>
+    let p = job as UnsafePointer<Job>
+    // The join is a full barrier, so the thread's stores are visible below. It
+    // is also what makes freeing the argument slots safe: the worker has
+    // finished reading them whether or not the caller was cancelled.
+    __saw_rt_thread_join(p[0].thread)
+    let result = p[0].result
+    close(p[0].pipe_r)
+    close(p[0].pipe_w)
+    if p[0].args != 0 {
+        free(p[0].args as UnsafePointer<Int8>)
+    }
+    free(raw)
+    result
+}
+
+// The reference blocking primitive: a thread-blocking sleep that returns its
+// argument, which the offload tests call through a `blocking func` extern. It
+// takes milliseconds rather than following the nanosecond sleep seam because
+// it stands in for an arbitrary blocking C call, whatever its units.
+@export("__saw_rt_blocking_sleep")
+func rt_blocking_sleep(ms: Int) -> Int {
+    if ms > 0 {
+        __saw_rt_sleep_ns((ms as UInt64) * NANOS_PER_MILLI)
+    }
+    ms
+}
