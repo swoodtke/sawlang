@@ -926,6 +926,18 @@ Stage 0 also refuses `&(move a)` passed to a `&` parameter, which sawc2 accepts 
 
 **Checker:** not needed: the compiler's source declares no `deinit` with an observable effect (S28), so a lost drop there can only leak, which Stage 1 tolerates.
 
+### S35. A zero-initialized static that Stage 0 accepts and sawc2 refuses (SL-660)
+
+**Shape (silent: a missing check, and in one form a value no case names):** Stage 0 checks only that all-zero is a valid value.
+- It accepts a bare `static P: dep.Port` whose fields are `private`, building a `Port` past its validating `init`.
+- It accepts a raw-backed enum with no case of value 0 inside a bare static. There `as UInt8` reads 0, and an exhaustive `match` silently takes the first arm.
+
+sawc2 refuses both: `static.zero-hidden` names the field, and `static.zero-invalid` names the enum (pins `static.zero-hidden*` and `static.zero-invalid.raw-enum`).
+
+**Instead:** give the static an initializer, or give a raw-backed enum a `= 0` case.
+
+**Checker:** not needed: the compiler's source declares no bare static.
+
 ## Loud hazards
 
 
