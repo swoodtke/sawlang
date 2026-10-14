@@ -1788,6 +1788,7 @@ ledger's reading. Where it differs from the sweep, Notes for the lead says why.
 | SL-643 | S34 A spelled `move` as a comparison operand: Stage 0 never drops the moved value | silent, a lost deinit (found by SL-642's sweep; no live instance) |
 | SL-621 | L26 A reborrowing argument to a suspending callee that borrows its by-value parameter | loud (found by the sawtracker lead in ST-90; sawtracker's ST-SAW-7) |
 | SL-641 | L27 Copy policies, a stray `copy()` and redeclarations that Stage 0 accepts and sawc2 refuses | loud (a ruling, which sawc2's typecheck refuses; no live instance) |
+| SL-648 | L28 An `init` matching its struct's fields: Stage 0 refuses it, sawc2 accepts it as an override or an overload | loud (Stage 0 refuses at the declaration; no live instance) |
 
 No issue is marked "not reachable from the subset". Several entries depend on
 features the subset does not list (`any`, `Box`, cells, pointers, fixed arrays,
