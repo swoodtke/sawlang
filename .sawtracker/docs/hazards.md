@@ -883,7 +883,7 @@ The fixpoint compares outputs, not intermediate values, so it sees the differenc
 
 **Instead:** capture the value, not the reference: `let n = r.n`, then `{ [n] in n }`.
 
-**Checker:** not needed: the self-hosted compiler's source has no closures (architecture §4).
+**Checker:** yes: the subset's `closure-capture` rule refuses a capture list and any capture of an enclosing binding in compiler source, so all three faces are refused there: the escaping `[copy r]`, the non-escaping `[copy r]` of a `&var`, and the implicit capture (the Air's probe, SL:hazards t31).
 
 **The non-escaping face is the same mechanism** (the Air, SL-607 c4): `[copy r]` of a `&var` aliases two exclusive references even when the closure doesn't escape. `both(&var r, { [copy r] in r += 10 })`, with `both(a: &var Int, body:)` doing `a += 1; body(); a += 1`, prints 2 under Stage 0. `a` is a `noalias` `&var` parameter, so the closure's `+= 10` is lost. **Instead:** capture the exclusive reference as `[&var r]`, and never pass it to a call that also takes the reference.
 
