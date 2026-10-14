@@ -1,7 +1,14 @@
+// probe: stated
+// about: a production export is defined beside test-only exports, which a normal build names nowhere (SL-631)
+// stage 0: cannot parse `@test`
+// speeds: -O0 -O2
 // A production export is defined under its symbol and reached through
 // `extern "C"`; test-only exports nothing calls, in both spellings, build and
 // define no symbol (SL:testing: test-only code is emitted only in test builds).
 // prints: 7
+// ll defines: c631_kept
+// ll omits: c631_unused_item
+// ll omits: c631_unused_group
 
 extern "C" {
     func c631_kept() -> Int32

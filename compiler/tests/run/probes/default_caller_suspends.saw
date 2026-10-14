@@ -1,10 +1,13 @@
-// A suspending default is evaluated by the caller, so a call that leaves it
-// out suspends in the caller and the function itself does not: `f`, `add`
-// and `run` need no frame, `f(n: 2)` runs in a `sync` body, and a call
-// through a bound that leaves out a requirement's suspending default
-// suspends its caller though the implementation does not. Stage 0 refuses
-// every call that leaves out a suspending default, and a `sync` caller that
-// passes the argument. A default whose suspension is a condition over the
+// probe: stated
+// about: the caller evaluates a suspending default, so a call that leaves it out suspends there and its function does not (SL-656)
+// stage 0: refuses every call that leaves out a suspending default, and a `sync` caller that passes the argument
+// speeds: -O0 -O2
+// Calls leave out a suspending default of a free function, a method, a
+// generic function, a spawn root, and a requirement through a bound, or pass
+// the argument: `f`, `add` and `run` need no frame, `f(n: 2)` runs in a
+// `sync` body, and a call through a bound that leaves out a requirement's
+// suspending default suspends its caller though the implementation does
+// not. A default whose suspension is a condition over the
 // function's type parameter suspends only where the caller's type argument
 // makes it, so a `sync` body may leave it out at `Fast`.
 // prints: free 5

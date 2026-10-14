@@ -1,10 +1,15 @@
+// probe: stated
+// about: a call through a bound that leaves out a bodyless requirement's default evaluates the requirement's own (SL-638)
+// stage 0: refuses leaving out a requirement's default through a bound
+// speeds: -O0 -O2
+// A call through a bound that leaves out a requirement's default, an instance
+// and a static one, evaluates the requirement's own default, which a bodyless
+// requirement's unit solves. Each implementation writes the same default as
+// its requirement, since which of the two applies on a concrete receiver is
+// not ruled. The call on a concrete receiver, which Stage 0 runs, is the run
+// program `requirement_default.saw`.
 // prints: 11
 // prints: 21
-// A call through a bound that leaves out a requirement's default evaluates
-// the requirement's own default, which a bodyless requirement's unit solves.
-// Each implementation writes the same default as its requirement, since
-// which of the two applies on a concrete receiver is not ruled. Stage 0
-// refuses leaving out a requirement's default through a bound.
 
 func tick() -> Int {
     1

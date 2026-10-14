@@ -1,10 +1,11 @@
-// An `init` matching its struct's fields exactly overrides the memberwise
-// construction (SL-648): a call from outside, from another `init`, from a
-// generic body and from another module runs the override, a refused value
-// reaches every caller as the override's `Err`, and the override's own block
-// builds the value from its fields. Stage 0 refuses the override as
-// ambiguous with field initialization, so the run lane builds this at -O0
-// and -O2 and requires the `// prints:` lines.
+// probe: stated
+// about: an `init` matching its struct's fields exactly overrides the memberwise construction (SL-648)
+// stage 0: refuses the override as ambiguous with field initialization
+// speeds: -O0 -O2
+// A call from outside, from another `init`, from a generic body and, through
+// `construction_override_gate.saw`, from another module runs the override, a
+// refused value reaches every caller as the override's `Err`, and the
+// override's own block builds the value from its fields.
 // prints: check 3
 // prints: 3
 // prints: check 8

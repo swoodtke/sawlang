@@ -1,5 +1,5 @@
-// The module `construction_override.saw` imports: a public struct whose
-// construction a public `init` overrides (SL-648).
+// probe: module
+// about: the module `construction_override.saw` imports, whose public `init` overrides a public struct's construction (SL-648)
 
 public struct Gate {
     width: Int

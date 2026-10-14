@@ -1,8 +1,12 @@
-// A `consumes` body that moves a field out and assigns it again releases the
+// probe: stated
+// about: a `consumes` body's field moved out and assigned again is released with the receiver (SL-611)
+// stage 0: refuses the assignment as a use after the move
+// speeds: -O0 -O2
+// A `consumes` body that moves a field out and assigns it again
+// (straight-line, on both arms, before an early return, then out again, on a
+// type that writes its own `deinit`, and on a generic receiver) releases the
 // new value with what remains of the receiver (spec, The callee is the
-// release point). Stage 0 refuses the assignment as a use after the move, so
-// the run lane builds this at -O0 and -O2 and requires the `// prints:` lines
-// (SL-611).
+// release point).
 // prints: drop 2
 // prints: drop 11
 // prints: r1 got 1

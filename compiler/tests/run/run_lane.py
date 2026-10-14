@@ -5,7 +5,7 @@ exit status compared.
 
     python compiler/tests/run/run_lane.py            # check
     python compiler/tests/run/run_lane.py --write    # rewrite hello.ll and noalias.defines
-    python compiler/tests/run/run_lane.py NAME...    # just these programs
+    python compiler/tests/run/run_lane.py NAME...    # just these programs and probes
     python compiler/tests/run/run_lane.py --bench    # the timing report over bench/
     python compiler/tests/run/run_lane.py --target TRIPLE   # sawc2's side cross-built
 
@@ -45,51 +45,21 @@ exit status compared.
   host build, so a cross-built binary meets the host's expectations;
 - `sawc2 runtime` writes the same bytes into two directories, and refuses a
   copy of the runtime that leaves a seam undefined or defines one twice;
-- `probes/executable_path.saw`, built by sawc2 and by Stage 0 and run through
-  a renamed symbolic link on `PATH` from another directory, prints its
-  binary's real path;
+- each `probes/NAME.saw` states in its leading comment lines how it is held
+  (README.md, "Probes"): `// probe: stated` is built by sawc2 alone at its
+  `// speeds:` with nothing printed and prints exactly its `// prints:` lines,
+  `// probe: panics` prints them and then panics with its `// panics:` text,
+  `// probe: link-fails` fails to link with each `// undefined:` symbol
+  undefined, and `// ll defines:` and `// ll omits:` hold each build's `.ll`;
+  a `// probe: custom` one is checked by its function in `CUSTOM_PROBES`, a
+  `// probe: module` one is imported by another probe and never built alone,
+  and a probe stating no kind, or a kind's lines wrongly, fails the lane;
+- `probes/executable_path.saw`, the custom probe, built by sawc2 and by
+  Stage 0 and run through a renamed symbolic link on `PATH` from another
+  directory, prints its binary's real path;
 - a generated accessor with a local live across its `lend` and 1100 `if`s
-  after it, and `probes/accessor_loops.saw`, whose accessors keep locals live
-  around loops, neither of which Stage 0 can parse, built by sawc2 at -O0
-  and at -O2 with nothing printed, print the lines they state;
-- `probes/consumes_refill.saw`, whose `consumes` bodies assign a field again
-  after moving it out, which Stage 0 refuses, prints the lines it states the
-  same way, and so does `probes/consumes_replace.saw`, whose `consumes` bodies
-  replace `self` where no field has left it;
-- `probes/raw_enum_cast_handoff.saw`, whose raw-backed enum casts run no
-  `copy()` and leave each temporary they read to its statement, which Stage 0
-  loses the deinit of, prints the lines it states the same way;
-- `probes/borrow_place_reads.saw`, whose `borrow` subscripts are read where
-  each position borrows the value, which Stage 0 cannot parse, prints the
-  lines it states the same way: each NoCopy element deinits once;
-- `probes/coro_windows_held.saw` and `probes/coro_tuple_unwrap.saw`, coroutine
-  shapes Stage 0 refuses, print the lines they state the same way;
-- a normal build emits no test-only declaration: `probes/test_only_export_group.saw`
-  and `probes/test_only_export_item.saw`, whose `main` calls a test-only
-  `@export` through `extern "C"`, fail to link with its symbol undefined, and
-  `probes/test_only_export_unused.saw` prints the lines it states, its `.ll`
-  defining its production export and neither test-only one;
-- `probes/move_at_borrow.saw`, whose spelled `move`s are comparison operands
-  and a shared `&` argument, which Stage 0 loses the deinit of or refuses,
-  prints the lines it states the same way;
-- `probes/drive_timer_park.saw` and `probes/main_timer_park.saw`, whose
-  timer park is lowered and whose executor does not wait on a timer yet,
-  built by sawc2 at -O0 and at -O2 with nothing printed, print the lines
-  they state, then panic with the text their `// panics:` line states, and
-  abort: a drive point and the entry executor each refuse a wait they do
-  not perform rather than spin or return early;
-- `probes/requirement_default_bound.saw`, whose calls through a bound leave
-  out a bodyless requirement's default, which Stage 0 refuses, prints the
-  lines it states the same way;
-- `probes/construction_override.saw`, whose `init`s override the memberwise
-  construction, which Stage 0 refuses, prints the lines it states the same way;
-- `probes/test_only_members.saw`, whose `@test` declarations Stage 0 cannot
-  parse, prints the lines it states the same way: a production generic's
-  instance at a production type, and ordinary code's direct call, run what
-  production code declares whatever order a test-only refinement is declared in;
-- `probes/default_caller_suspends.saw`, whose calls leave out suspending
-  defaults and pass them, a `sync` body's among them, which Stage 0 refuses,
-  prints the lines it states the same way.
+  after it, which Stage 0 cannot parse, is held as a stated probe to the `42`
+  and `5` it prints.
 
 `--bench` runs none of that: it times each kernel of `bench/` under sawc2 at
 -O2 and under Stage 0 and prints the report, which gates nothing. The runner
@@ -142,9 +112,6 @@ _REFUSES = re.compile(r"^// refuses: (\S+) at (\d+:\d+)$")
 _DIFFERS = re.compile(r"^// differs: (.+)$")
 _HAZARD = re.compile(r"\bSL:hazards C\d+\b")
 _PRINTS = re.compile(r"^// prints: (.*)$")
-_PANICS = re.compile(r"^// panics: (.+)$")
-# The probes whose park the executor cannot wait on yet (`check_park_panics`).
-PARK_PANICS = ("drive_timer_park.saw", "main_timer_park.saw")
 _PANIC = re.compile(r"^panic at [^:]+:\d+: ")
 _RULE = re.compile(r'try! out\.push\("([^"]+)"\)')
 RULES_SOURCE = os.path.join(COMPILER, "llvm", "src", "module.saw")
@@ -645,220 +612,221 @@ def long_accessor_source(ifs):
     return "\n".join(lines) + "\n"
 
 
-def check_stated(failures, counts, what, src, want):
-    """`src`, which Stage 0 cannot build, built by sawc2 at -O0 and at -O2
-    with nothing printed (so no INVARIANT), prints exactly `want` and exits
-    0 under both: a read of an uninitialised local can pass at one level and
-    not the other."""
-    passed = True
-    for speed in ("-O0", "-O2"):
-        ok, binary, log = build_new(src, speed)
-        if not ok or log:
-            failures.append("run %s %s: sawc2 %s: %s" % (what, speed, "builds it but prints" if ok
-                                                         else "does not build it", log[:300]))
-            passed = False
-            continue
-        code, out = execute(binary)
-        if code != 0 or out != want:
-            failures.append("run %s %s: exit %s, prints %r, not %r" % (what, speed, code, out[:300], want))
-            passed = False
-    if passed:
-        counts["run programs stating their output"] = counts.get("run programs stating their output", 0) + 1
+PROBES = os.path.join(HERE, "probes")
+# A probe's header lines, `// NAME: VALUE`, as README.md's "Probes" lists them.
+_DIRECTIVE = re.compile(r"^// (probe|about|stage 0|speeds|prints|panics|undefined|ll defines|ll omits): ?(.*)$")
+_ISSUE = re.compile(r"\(SL-\d+\)$")
+SPEEDS = ("-O0", "-O1", "-O2", "-Os", "-Oz")
+# The lines each kind of probe takes, each as (fewest, most), most None for
+# any number. A line its kind does not list is refused, so no header states
+# what the lane does not check.
+_BUILT = {"probe": (1, 1), "about": (1, 1), "stage 0": (1, 1), "speeds": (1, 1),
+          "ll defines": (0, None), "ll omits": (0, None)}
+PROBE_LINES = {
+    "stated": dict(_BUILT, prints=(1, None)),
+    "panics": dict(_BUILT, prints=(0, None), panics=(1, 1)),
+    "link-fails": dict(_BUILT, undefined=(1, None)),
+    "custom": {"probe": (1, 1), "about": (1, 1)},
+    "module": {"probe": (1, 1), "about": (1, 1)},
+}
+# The count each kind adds to for a probe that holds.
+PROBE_COUNTS = {
+    "stated": "run programs stating their output",
+    "panics": "run programs stating their panic",
+    "link-fails": "run programs failing to link as stated",
+    "module": "run probe modules imported",
+}
+LL_COUNT = "run programs stating their .ll"
 
 
-def check_long_accessor(failures, counts):
-    """An accessor's state record holds every local live across its `lend`
-    however long the body after it is, and however its locals flow around
-    loops: the generated long accessor prints `42` then `5`, and
-    `probes/accessor_loops.saw` its `// prints:` lines."""
-    src = os.path.join(OUT, "long_accessor.saw")
-    with open(src, "w") as fh:
-        fh.write(long_accessor_source(LONG_ACCESSOR_IFS))
-    check_stated(failures, counts, "long accessor", src, b"42\n5\n")
-    loops = os.path.join(HERE, "probes", "accessor_loops.saw")
-    want = "".join(line + "\n" for line in stated_prints(loops)).encode()
-    check_stated(failures, counts, "accessor loops", loops, want)
+def probe_header(path):
+    """A probe's header lines, {name: [value, ...]} in file order."""
+    found = {}
+    with open(path) as fh:
+        for line in fh:
+            line = line.rstrip("\n")
+            if not line.startswith("//"):
+                break
+            m = _DIRECTIVE.match(line)
+            if m:
+                found.setdefault(m.group(1), []).append(m.group(2))
+    return found
 
 
-def check_consumes_refill(failures, counts):
-    """A `consumes` body's field moved out and assigned again is released
-    with the rest of the receiver: `probes/consumes_refill.saw`, which Stage 0
-    refuses, prints its `// prints:` lines (SL-611)."""
-    src = os.path.join(HERE, "probes", "consumes_refill.saw")
-    want = "".join(line + "\n" for line in stated_prints(src)).encode()
-    check_stated(failures, counts, "consumes refill", src, want)
+def probe_problems(src, header):
+    """Why `header` is no well-formed probe header; empty when it is one."""
+    where = "run %s" % rel(src)
+    kind = header.get("probe", [None])[0]
+    if len(header.get("probe", [])) != 1 or kind not in PROBE_LINES:
+        return ["%s: a probe states one `// probe: KIND` line, KIND one of %s"
+                % (where, ", ".join(PROBE_LINES))]
+    allowed = PROBE_LINES[kind]
+    problems = ["%s: a %s probe takes no `// %s:` line" % (where, kind, name)
+                for name in header if name not in allowed]
+    for name, (fewest, most) in allowed.items():
+        n = len(header.get(name, []))
+        if n < fewest or (most is not None and n > most):
+            problems.append("%s: a %s probe states %s `// %s:` line%s, not %d"
+                            % (where, kind, "one" if most == 1 else "at least %d" % fewest, name,
+                               "" if most == 1 else "s", n))
+    about = header.get("about", [])
+    if len(about) == 1 and not _ISSUE.search(about[0]):
+        problems.append("%s: its `// about:` line ends with its issue, `(SL-N)`" % where)
+    if "speeds" in header:
+        speeds = header["speeds"][0].split()
+        if not speeds or len(set(speeds)) != len(speeds) or any(s not in SPEEDS for s in speeds):
+            problems.append("%s: `// speeds:` lists distinct levels of %s" % (where, " ".join(SPEEDS)))
+    return problems
 
 
-def check_consumes_replace(failures, counts):
-    """A `consumes` body's `self = v` where no field has left deinits the old
-    referent whole and releases the new one: `probes/consumes_replace.saw`,
-    which Stage 0 refuses, prints its `// prints:` lines (SL-625)."""
-    src = os.path.join(HERE, "probes", "consumes_replace.saw")
-    want = "".join(line + "\n" for line in stated_prints(src)).encode()
-    check_stated(failures, counts, "consumes replace", src, want)
-
-
-def check_raw_enum_cast_handoff(failures, counts):
-    """A raw-backed enum's cast reads only its tag, so it runs no `copy()` and
-    a temporary it reads is destroyed at the end of its statement:
-    `probes/raw_enum_cast_handoff.saw`, whose temporaries Stage 0 never
-    destroys, prints its `// prints:` lines (SL-623)."""
-    src = os.path.join(HERE, "probes", "raw_enum_cast_handoff.saw")
-    want = "".join(line + "\n" for line in stated_prints(src)).encode()
-    check_stated(failures, counts, "raw enum cast handoff", src, want)
-
-
-def check_borrow_place_reads(failures, counts):
-    """A `borrow` subscript read where its position borrows the value reads
-    the element in place, so a NoCopy element deinits once:
-    `probes/borrow_place_reads.saw`, which Stage 0 cannot parse, prints its
-    `// prints:` lines (SL-642)."""
-    src = os.path.join(HERE, "probes", "borrow_place_reads.saw")
-    want = "".join(line + "\n" for line in stated_prints(src)).encode()
-    check_stated(failures, counts, "borrow place reads", src, want)
-
-
-def check_coro_stated(failures, counts):
-    """Coroutine shapes Stage 0 refuses, so their expectations are
-    spec-derived: `probes/coro_windows_held.saw` and
-    `probes/coro_tuple_unwrap.saw` print their `// prints:` lines (SL-559)."""
-    for name in ("coro_windows_held", "coro_tuple_unwrap"):
-        src = os.path.join(HERE, "probes", name + ".saw")
-        want = "".join(line + "\n" for line in stated_prints(src)).encode()
-        check_stated(failures, counts, name.replace("_", " "), src, want)
-
-
-TEST_ONLY_LEAK_SYMBOL = "c631_leak"
-TEST_ONLY_UNUSED_SYMBOLS = ("c631_unused_item", "c631_unused_group")
-TEST_ONLY_KEPT_SYMBOL = "c631_kept"
-
-
-def check_test_only_exports(failures, counts):
-    """A normal build emits no test-only declaration (SL:testing), so a
-    test-only `@export` defines no symbol in either spelling (SL-631):
-    `probes/test_only_export_{group,item}.saw`, whose `main` calls one through
-    `extern "C"`, fail to link with the symbol undefined and no refusal, and
-    `probes/test_only_export_unused.saw` prints its `// prints:` lines, its
-    `.ll` defining the production export and neither test-only one. Stage 0
-    cannot parse `@test`, so sawc2 alone is held to these."""
-    for spelling in ("group", "item"):
-        src = os.path.join(HERE, "probes", "test_only_export_%s.saw" % spelling)
-        ok, _, log = build_new(src)
-        undefined = TEST_ONLY_LEAK_SYMBOL in log and "ndefined" in log
-        if ok or first_error(log) is not None or not undefined:
-            failures.append("run test-only export (%s): sawc2 %s, not a link failure naming `%s` undefined: %s"
-                            % (spelling, "links it" if ok else "fails otherwise", TEST_ONLY_LEAK_SYMBOL, log[:300]))
-            continue
-        counts["run test-only exports left undefined"] = counts.get("run test-only exports left undefined", 0) + 1
-    src = os.path.join(HERE, "probes", "test_only_export_unused.saw")
-    want = "".join(line + "\n" for line in stated_prints(src)).encode()
-    check_stated(failures, counts, "test-only export unused", src, want)
-    # check_stated's -O0 build wrote this `.ll` (build_new's naming).
-    ll = os.path.join(OUT, "test_only_export_unused.new.ll")
+def ll_problems(where, ll, header):
+    """Failures of the `.ll` at `ll` against the probe's `// ll defines:` and
+    `// ll omits:` lines: each symbol defined, and each named nowhere."""
+    defined = header.get("ll defines", [])
+    omitted = header.get("ll omits", [])
+    if not defined and not omitted:
+        return []
     try:
         with open(ll) as fh:
             text = fh.read()
     except OSError as e:
-        failures.append("run test-only export unused: no `.ll` beside the binary: %s" % e)
-        return
+        return ["%s: no `.ll` beside the binary: %s" % (where, e)]
     defines = [line for line in text.split("\n") if line.startswith("define ")]
-    kept = ('@%s(' % TEST_ONLY_KEPT_SYMBOL, '@"%s"(' % TEST_ONLY_KEPT_SYMBOL)
-    if not any(spelled in line for line in defines for spelled in kept):
-        failures.append("run test-only export unused: the production export `%s` is not defined"
-                        % TEST_ONLY_KEPT_SYMBOL)
-    for symbol in TEST_ONLY_UNUSED_SYMBOLS:
-        if symbol in text:
-            failures.append("run test-only export unused: the normal build's `.ll` names the test-only export `%s`"
-                            % symbol)
+    problems = ["%s: the `.ll` defines no `%s`" % (where, symbol) for symbol in defined
+                if not any(spelled in line for line in defines
+                           for spelled in ("@%s(" % symbol, '@"%s"(' % symbol))]
+    problems += ["%s: the `.ll` names `%s`" % (where, symbol) for symbol in omitted if symbol in text]
+    return problems
 
 
-def check_move_at_borrow(failures, counts):
-    """A spelled `move` where its position borrows the value moves it into a
-    temporary its statement drops: `probes/move_at_borrow.saw`, whose
-    comparison operands Stage 0 never destroys, prints its `// prints:` lines
-    (SL-643)."""
-    src = os.path.join(HERE, "probes", "move_at_borrow.saw")
-    want = "".join(line + "\n" for line in stated_prints(src)).encode()
-    check_stated(failures, counts, "move at borrow", src, want)
-
-
-def check_park_panics(failures, counts):
-    """A park this compiler lowers whose wait the executor does not perform
-    yet panics, naming the reason, rather than spin or return early (SL-645,
-    SL:coroutines A3c): each of `PARK_PANICS`, built by sawc2 at -O0 and at
-    -O2 with nothing printed, prints its `// prints:` lines, then a panic
-    holding its `// panics:` line, and aborts. Stage 0 performs those waits,
-    so its output is no oracle here."""
-    for name in PARK_PANICS:
-        src = os.path.join(HERE, "probes", name)
-        want = stated_prints(src)
-        panic = stated_panic(src)
-        passed = True
-        for speed in ("-O0", "-O2"):
-            ok, binary, log = build_new(src, speed)
-            if not ok or log:
-                failures.append("run %s %s: sawc2 %s: %s" % (name, speed, "builds it but prints" if ok
-                                                             else "does not build it", log[:300]))
-                passed = False
-                continue
+def held_probe(src, header):
+    """(failures, counts) for a probe of a kind its header states, built by
+    sawc2 alone at each of its speeds. Each build is held whole, since a read
+    of an uninitialised local can pass at one level and not another."""
+    kind = header["probe"][0]
+    name = os.path.splitext(os.path.basename(src))[0]
+    failures = []
+    ll_failures = []
+    for speed in header["speeds"][0].split():
+        where = "run %s %s" % (rel(src), speed)
+        # build_new's naming; a refused build writes no `.ll`, so a stale one
+        # must not stand in for it.
+        ll = os.path.join(OUT, name + (".new" if speed == "-O0" else ".new" + speed[1:]) + ".ll")
+        if os.path.exists(ll):
+            os.remove(ll)
+        ok, binary, log = build_new(src, speed)
+        if kind == "link-fails":
+            symbols = header["undefined"]
+            if ok or first_error(log) is not None or "ndefined" not in log or any(s not in log for s in symbols):
+                failures.append("%s: sawc2 %s, not a link failure naming %s undefined: %s"
+                                % (where, "links it" if ok else "fails otherwise",
+                                   ", ".join("`%s`" % s for s in symbols), log[:300]))
+        elif not ok or log:
+            failures.append("%s: sawc2 %s: %s" % (where, "builds it but prints" if ok else "does not build it",
+                                                  log[:300]))
+            continue
+        elif kind == "stated":
+            want = "".join(line + "\n" for line in header["prints"]).encode()
+            code, out = execute(binary)
+            if code != 0 or out != want:
+                failures.append("%s: exit %s, prints %r, not %r" % (where, code, out[:300], want))
+        else:
+            want = header.get("prints", [])
+            panic = header["panics"][0]
             code, out = execute(binary)
             lines = masked(out).rstrip("\n").split("\n")
             if code in (0, None) or lines[:-1] != want or not lines[-1].startswith("panic at ?: ") \
                     or panic not in lines[-1]:
-                failures.append("run %s %s: exit %s, prints %r, not %r then a panic holding %r"
-                                % (name, speed, code, out[:300], want, panic))
-                passed = False
-        if passed:
-            counts["run programs stating their panic"] = counts.get("run programs stating their panic", 0) + 1
+                failures.append("%s: exit %s, prints %r, not %r then a panic holding %r"
+                                % (where, code, out[:300], want, panic))
+        ll_failures += ll_problems(where, ll, header)
+    counts = {}
+    if not failures:
+        counts[PROBE_COUNTS[kind]] = 1
+    if not ll_failures and (header.get("ll defines") or header.get("ll omits")):
+        counts[LL_COUNT] = 1
+    return failures + ll_failures, counts
 
 
-def stated_panic(path):
-    """The text a program's `// panics:` header says its panic holds."""
-    with open(path) as fh:
-        for line in fh:
-            if not line.startswith("//"):
-                break
-            m = _PANICS.match(line.rstrip("\n"))
-            if m:
-                return m.group(1)
-    return None
+def check_probe(src):
+    """(failures, counts) for one probe whose kind is not `custom`."""
+    header = probe_header(src)
+    problems = probe_problems(src, header)
+    if problems:
+        return problems, {}
+    if header["probe"][0] == "module":
+        problems = module_problems(src)
+        return problems, {} if problems else {PROBE_COUNTS["module"]: 1}
+    return held_probe(src, header)
 
 
-def check_requirement_default_bound(failures, counts):
-    """A call through a bound that leaves out a bodyless requirement's default
-    evaluates the requirement's own default: `probes/requirement_default_bound.saw`,
-    which Stage 0 refuses, prints its `// prints:` lines (SL-638)."""
-    src = os.path.join(HERE, "probes", "requirement_default_bound.saw")
-    want = "".join(line + "\n" for line in stated_prints(src)).encode()
-    check_stated(failures, counts, "requirement default bound", src, want)
+def module_problems(src):
+    """A module probe is never built alone, so some other probe must import
+    it, or nothing would build it at all."""
+    name = os.path.splitext(os.path.basename(src))[0]
+    imported = re.compile(r"^import %s\b" % re.escape(name), re.M)
+    for other in probes():
+        if other != src:
+            with open(other) as fh:
+                if imported.search(fh.read()):
+                    return []
+    return ["run %s: a module probe no other probe imports" % rel(src)]
 
 
-def check_construction_override(failures, counts):
-    """An `init` matching its struct's fields exactly overrides the memberwise
-    construction: `probes/construction_override.saw`, which Stage 0 refuses,
-    prints its `// prints:` lines (SL-648)."""
-    src = os.path.join(HERE, "probes", "construction_override.saw")
-    want = "".join(line + "\n" for line in stated_prints(src)).encode()
-    check_stated(failures, counts, "construction override", src, want)
+def check_long_accessor(failures, counts):
+    """An accessor's state record holds every local live across its `lend`
+    however long the body after it is: the generated accessor, held as a
+    stated probe, prints `42` then `5`."""
+    src = os.path.join(OUT, "long_accessor.saw")
+    with open(src, "w") as fh:
+        fh.write(long_accessor_source(LONG_ACCESSOR_IFS))
+    header = {"probe": ["stated"], "speeds": ["-O0 -O2"], "prints": ["42", "5"]}
+    found, added = held_probe(src, header)
+    failures.extend(found)
+    for key, n in added.items():
+        counts[key] = counts.get(key, 0) + n
 
 
-def check_test_only_members(failures, counts):
-    """A production generic's one instance at a production type runs what
-    production code declares, never a test-only member:
-    `probes/test_only_members.saw`, whose `@test` Stage 0 cannot parse,
-    prints its `// prints:` lines (SL-640, SL-629)."""
-    src = os.path.join(HERE, "probes", "test_only_members.saw")
-    want = "".join(line + "\n" for line in stated_prints(src)).encode()
-    check_stated(failures, counts, "test-only members", src, want)
+# The custom probes, each checked by its own function. `executable_path.saw`
+# is built by both compilers and run through a renamed link on `PATH` from
+# another directory, and what it must print is its binary's real path, which
+# no header line can state.
+CUSTOM_PROBES = {
+    "executable_path.saw": check_executable_path,
+}
 
 
-def check_default_caller_suspends(failures, counts):
-    """The caller evaluates a suspending default, so a call that leaves it out
-    suspends there and its function does not: `probes/default_caller_suspends.saw`,
-    which Stage 0 refuses, prints its `// prints:` lines (SL-656)."""
-    src = os.path.join(HERE, "probes", "default_caller_suspends.saw")
-    want = "".join(line + "\n" for line in stated_prints(src)).encode()
-    check_stated(failures, counts, "default caller suspends", src, want)
+def probes(names=None):
+    found = sorted(glob.glob(os.path.join(PROBES, "*.saw")))
+    if names:
+        found = [p for p in found if os.path.splitext(os.path.basename(p))[0] in names]
+    return found
+
+
+def check_probes(failures, counts, names=None):
+    """Every probe of `probes/`, found by the listing and held as its header
+    states. A custom probe must have its check in `CUSTOM_PROBES`, and over
+    the whole listing every entry there must be a custom probe."""
+    srcs = probes(names)
+    custom = [src for src in srcs if probe_header(src).get("probe") == ["custom"]]
+    if not names:
+        for base in CUSTOM_PROBES:
+            if os.path.join(PROBES, base) not in custom:
+                failures.append("run %s: `CUSTOM_PROBES` names it, but no such `// probe: custom` probe exists"
+                                % rel(os.path.join(PROBES, base)))
+    for found, added in gate_jobs.map_ordered(check_probe, [src for src in srcs if src not in custom]):
+        failures.extend(found)
+        for key, n in added.items():
+            counts[key] = counts.get(key, 0) + n
+    for src in custom:
+        problems = probe_problems(src, probe_header(src))
+        base = os.path.basename(src)
+        if base not in CUSTOM_PROBES:
+            problems.append("run %s: a custom probe whose check `CUSTOM_PROBES` does not name" % rel(src))
+        if problems:
+            failures.extend(problems)
+            continue
+        CUSTOM_PROBES[base](failures, counts)
 
 
 def run(names=None, write=False):
@@ -886,20 +854,8 @@ def run(names=None, write=False):
         check_noalias(failures, counts, write)
         check_foreign_targets(failures, counts)
         check_runtime(failures, counts)
-        check_executable_path(failures, counts)
         check_long_accessor(failures, counts)
-        check_consumes_refill(failures, counts)
-        check_consumes_replace(failures, counts)
-        check_raw_enum_cast_handoff(failures, counts)
-        check_borrow_place_reads(failures, counts)
-        check_coro_stated(failures, counts)
-        check_test_only_exports(failures, counts)
-        check_move_at_borrow(failures, counts)
-        check_park_panics(failures, counts)
-        check_requirement_default_bound(failures, counts)
-        check_construction_override(failures, counts)
-        check_test_only_members(failures, counts)
-        check_default_caller_suspends(failures, counts)
+    check_probes(failures, counts, names)
     return failures, counts, dues
 
 

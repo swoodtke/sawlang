@@ -1,8 +1,12 @@
-// Accessors whose locals stay live across their `lend` and around a loop,
-// so the split's liveness reaches them through a backedge. The run lane
-// builds this at -O0 and -O2 and requires the `// prints:` lines;
-// compiler/mir/tests/verify_record.saw lowers it, checks it clean, and drops
-// an epilogue's record local (SL-610).
+// probe: stated
+// about: an accessor's state record holds the locals live across its `lend` around loops (SL-610)
+// stage 0: cannot parse a `borrow` block
+// speeds: -O0 -O2
+// Accessors whose locals stay live across their `lend` and around a loop (a
+// window inside a loop, a value carried into the next iteration, a loop
+// before the `lend`, two nested loops), so the split's liveness reaches them
+// through a backedge. compiler/mir/tests/verify_record.saw lowers it, checks
+// it clean, and drops an epilogue's record local.
 // prints: 42
 // prints: 7 168
 // prints: 1

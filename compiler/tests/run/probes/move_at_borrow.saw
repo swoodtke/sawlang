@@ -1,8 +1,11 @@
+// probe: stated
+// about: a spelled `move` where its position borrows the value moves it into a temporary its statement drops (SL-643)
+// stage 0: loses the deinit of a moved comparison operand and refuses `&(move a)`
+// speeds: -O0 -O2
 // A spelled `move` as either comparison operand, or under a shared `&`
 // argument, moves the value into a temporary the statement drops, so it
-// deinits before the next statement runs. Stage 0 loses the deinit of a
-// moved comparison operand and refuses `&(move a)`, so the run lane builds
-// this at -O0 and -O2 and requires the `// prints:` lines (conformance V141).
+// deinits before the next statement runs. The positions Stage 0 agrees on
+// are the run program `move_at_borrow.saw` (conformance V141).
 // prints: drop 1
 // prints: compared false
 // prints: drop 10

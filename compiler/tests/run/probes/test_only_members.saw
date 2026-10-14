@@ -1,9 +1,13 @@
+// probe: stated
+// about: a production generic's instance and a direct call run what production code declares, never a test-only member (SL-640)
+// stage 0: cannot parse `@test`
+// speeds: -O0 -O2
 // Production code runs what production code declares (SL:testing): a
-// production conformance meets its requirements as if no test-only member
-// existed, and a test-only refinement of it, declared before it or after it,
-// answers the same and hides nothing it brings, so a production generic's one
-// instance at the type, and a direct call, both run the trait's default. The
-// run lane builds this at -O0 and -O2 and requires the `// prints:` lines.
+// production conformance beside a test-only method of another name meets its
+// requirements as if no test-only member existed, and a test-only refinement
+// of it, declared before it or after it, answers the same and hides nothing
+// it brings, so a production generic's one instance at the type, and a
+// direct call, both run the trait's default.
 // prints: plain 1
 // prints: plain direct 1
 // prints: shared 1

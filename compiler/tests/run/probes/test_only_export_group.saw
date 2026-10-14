@@ -1,6 +1,11 @@
+// probe: link-fails
+// about: a normal build defines no symbol for an `@export` inside an `@test { }` group (SL-631)
+// stage 0: cannot parse `@test`
+// speeds: -O0
 // A normal build emits no test-only declaration (SL:testing), so an `@export`
 // inside an `@test { }` group defines no symbol, and production code calling
-// it through `extern "C"` fails to link with `c631_leak` undefined.
+// it through `extern "C"` fails to link, with no refusal printed.
+// undefined: c631_leak
 
 extern "C" {
     func c631_leak() -> Int32

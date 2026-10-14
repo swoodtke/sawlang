@@ -1,3 +1,7 @@
+// probe: stated
+// about: a tuple-pattern `if let` and `guard let` over a suspension (SL-559)
+// stage 0: refuses a tuple pattern over a suspension
+// speeds: -O0 -O2
 // prints: 9
 // prints: -1
 // prints: 32

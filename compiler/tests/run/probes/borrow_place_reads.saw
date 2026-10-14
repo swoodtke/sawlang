@@ -1,11 +1,14 @@
+// probe: stated
+// about: a `borrow` subscript read where its position borrows the value is read in place (SL-642)
+// stage 0: cannot parse a `borrow` expression
+// speeds: -O0 -O2
 // A `borrow` subscript read where its position borrows the value, a format
-// argument, an interpolation, a comparison operand, a scrutinee, a field, a
-// receiver, a `borrow var`, a nested chain, an ExplicitCopy element, a range
-// bound, an accessor's `lend`, and a raw-backed enum's cast of an element, a
-// field or a lent place, reads it in place: nothing copies it, so each value
-// deinits once and a cast prints the real tag. Stage 0 cannot parse a
-// `borrow` expression, so the run lane builds this at -O0 and -O2 and
-// requires the `// prints:` lines (conformance V140).
+// argument, an interpolation, a comparison operand, a scrutinee with and
+// without a payload binding, a field, a receiver, a `borrow var`, a nested
+// chain, an ExplicitCopy element, a range bound, an accessor's `lend`, and a
+// raw-backed enum's cast of an element, a field or a lent place, reads it in
+// place: nothing copies it, so each value deinits once and a cast prints the
+// real tag (conformance V140).
 // prints: format res 1
 // prints: drop 1
 // prints: interpolated res 2

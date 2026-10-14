@@ -1,12 +1,14 @@
-// panics: executor: a task is parked on a timer, which this executor does not wait on yet
+// probe: panics
+// about: the entry executor refuses a timer park, which it does not wait on yet, rather than spin or return early (SL-556)
+// stage 0: sleeps here and prints 1
+// speeds: -O0 -O2
 // `yield_now` and `sleep` park through `std.task`'s park points, and both
 // parks are lowered, so `main`'s frame is built and run by the entry
 // executor. The ready park resumes at the next sweep; the timer park records
 // its deadline and the timer marker, and the executor, which waits on a
-// ready park alone until the timers' executor half arrives (SL:coroutines
-// A11), panics naming the reason rather than spin or return early. Stage 0
-// sleeps here and prints 1, so this pins the reachable path, not Stage 0's
-// output.
+// ready park alone until the timers' executor half arrives, panics naming
+// the reason (SL:coroutines A11).
+// panics: executor: a task is parked on a timer, which this executor does not wait on yet
 import std.task.{yield_now}
 
 func main() {

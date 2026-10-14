@@ -1,12 +1,13 @@
+// probe: stated
+// about: a raw-backed enum's cast runs no `copy()` and leaves each temporary it reads to its statement (SL-623)
+// stage 0: loses the temporaries' deinits, recurses in the ExplicitCopy enum's `copy()` and cannot parse a `borrow` block
+// speeds: -O0 -O2
 // A raw-backed enum's cast reads only the tag, so it runs no `copy()`, and a
 // value handed to it is still a temporary its statement destroys (spec,
 // Raw-backed enums, and Temporaries): a call's result, a case, a moved local
 // and a generic enum's case each print their drop right after their line.
 // A `borrow` block's binding and a payload's `borrow let` read the lent tag
-// in place. Stage 0 loses the temporaries' deinits, recurses in the
-// ExplicitCopy enum's `copy()` and cannot parse a `borrow` block, so the run
-// lane builds this with sawc2 alone, at -O0 and -O2, and requires the
-// `// prints:` lines (SL-623).
+// in place.
 // prints: explicit 300
 // prints: explicit as byte 7
 // prints: explicit end

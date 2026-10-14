@@ -1,8 +1,10 @@
+// probe: stated
+// about: `self = v` in a `consumes` body where no field has left deinits the old referent whole (SL-625)
+// stage 0: refuses a replacement anywhere in a body that also moves a field out
+// speeds: -O0 -O2
 // `self = v` in a `consumes` body where no field has left `self`: the old
 // referent deinits whole, its hand-written body first, and the new one is
-// released with what remains of it. Stage 0 refuses a replacement anywhere in
-// a body that also moves a field out, so the run lane builds this at -O0 and
-// -O2 and requires the `// prints:` lines (conformance V130).
+// released with what remains of it (conformance V130).
 // prints: closing 1 2
 // prints: drop 2
 // prints: drop 1

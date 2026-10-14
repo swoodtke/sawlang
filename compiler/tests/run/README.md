@@ -13,7 +13,7 @@ run/
   noalias.defines  the `define` lines sawc2 writes for noalias.saw's own functions, pinned
   runtime_dirent.ll  the `.ll` `sawc2 runtime` writes for sawc/rt/host_macos/dirent.saw, pinned
   frame_pointers.saw  a program defining one function of each kind, whose defines the lane checks
-  probes/        programs the lane runs apart from the comparison
+  probes/        programs held to what their own headers state ("Probes")
   modules/       packages a program imports as `modules.NAME`, never run alone
 ```
 
@@ -363,96 +363,58 @@ compares:
   (`sleep.saw` without its `@export`) or defines one twice (the host's
   `dirent.saw` exporting `os_ops.saw`'s `__saw_rt_fs_chdir`), naming the seam and printing
   no manifest;
-- `probes/executable_path.saw`, built by sawc2 and by Stage 0, run by a bare
-  name that a renamed relative symbolic link on `PATH` resolves, from another
-  working directory, prints its binary's real path: what the manifest lookup
-  rests on;
 - an accessor the lane writes to `.build/run-lane/long_accessor.saw`, with a
-  local live across its `lend` and 1100 `if`s after it, built by sawc2 at -O0
-  and at -O2 with nothing printed, prints the `42` and `5` it states, and
-  `probes/accessor_loops.saw`, whose accessors keep locals live across their
-  `lend` and around loops (a window inside a loop, a value carried into the
-  next iteration, a loop before the `lend`, two nested loops), prints its
-  `// prints:` lines the same way. Stage 0 cannot parse a `borrow` block, so
-  each program states its own output; the long one's length is past the
-  round count a capped dataflow stops at (SL-610);
-- `probes/consumes_refill.saw`, whose `consumes` bodies move a field out and
-  assign it again (straight-line, on both arms, before an early return, then
-  out again, on a type that writes its own `deinit`, and on a generic
-  receiver), prints its `// prints:` lines the same way: each refilled value
-  is released with the rest of the receiver. Stage 0 refuses the assignment
-  as a use after the move (SL-611);
-- `probes/raw_enum_cast_handoff.saw`, whose raw-backed enum casts read an
-  ExplicitCopy enum's place, a call's result, a case, a moved local and a
-  generic enum's case, and a `borrow` block's and a payload's lent binding,
-  prints its `// prints:` lines the same way: no `copy()` runs, each
-  temporary is destroyed at the end of its statement, and a lent binding
-  reads its tag in place. Stage 0 never destroys those temporaries (SL-623);
-- `probes/borrow_place_reads.saw`, whose `borrow` subscripts are read where
-  each position borrows the value (a format argument, an interpolation, a
-  comparison operand, a scrutinee with and without a payload binding, a field,
-  a receiver, a `borrow var`, a nested chain, an ExplicitCopy element, a range
-  bound, an accessor's `lend`), prints its `// prints:` lines the same way:
-  each element is read in place and deinits once. Stage 0 cannot parse a
-  `borrow` expression (SL-642);
-- `probes/coro_windows_held.saw` (a `borrow` block held across a suspension,
-  its accessor's record in the frame, and an accessor whose halves suspend)
-  and `probes/coro_tuple_unwrap.saw` (a tuple-pattern `if let` and `guard
-  let` over a suspension), which Stage 0 refuses, print their `// prints:`
-  lines the same way; each expectation is spec-derived (SL-559);
-- a normal build emits no test-only declaration (SL:testing), so a test-only
-  `@export` defines no symbol, in either spelling (SL-631).
-  `probes/test_only_export_group.saw` (the export inside an `@test { }` group)
-  and `probes/test_only_export_item.saw` (`@test` written before it), whose
-  `main` calls the export through `extern "C"`, are built by sawc2 and must
-  fail to link with `c631_leak` undefined and no refusal printed.
-  `probes/test_only_export_unused.saw`, a production export called the same
-  way beside a test-only export of each spelling that nothing calls, prints
-  its `// prints:` lines the same way as the accessor probes, and its `.ll`
-  defines the production export and names neither test-only one. Stage 0
-  cannot parse `@test`;
-- `probes/move_at_borrow.saw`, whose spelled `move`s are either comparison
-  operand and a shared `&` argument, prints its `// prints:` lines the same
-  way: each moved value deinits at the end of its statement. Stage 0 loses
-  the deinit of a moved comparison operand and refuses `&(move a)`; the
-  positions it agrees on are the run program `move_at_borrow.saw` (SL-643);
-- `probes/drive_timer_park.saw`, a `__saw_drive` of a frame that sleeps, and
-  `probes/main_timer_park.saw`, a suspending `main` that yields and then
-  sleeps, built by sawc2 at -O0 and at -O2 with nothing printed, print their
-  `// prints:` lines and then panic with the text of their `// panics:` line:
-  the timer park is lowered, and the drive point (SL-645) and the entry
-  executor, which wait on a ready park alone until the timers' executor half
-  arrives (SL:coroutines A11), refuse it loudly, naming the reason. Stage 0
-  sleeps there, so each program states its own outcome;
-- `probes/requirement_default_bound.saw`, whose calls through a bound leave
-  out a bodyless requirement's default, an instance and a static one, prints
-  its `// prints:` lines the same way: the caller evaluates the requirement's
-  own default, whose summary the requirement's unit solves. Stage 0 refuses
-  leaving out a requirement's default through a bound; the call on a concrete
-  receiver, which it runs, is the run program `requirement_default.saw`
-  (SL-638);
-- `probes/construction_override.saw`, whose `init`s override the memberwise
-  construction, called from outside, from another `init`, from a generic body
-  and, through `probes/construction_override_gate.saw`, from another module,
-  prints its `// prints:` lines the same way. Stage 0 refuses an `init`
-  matching the fields as ambiguous with field initialization (SL-648);
-- `probes/test_only_members.saw`, a production conformance beside a
-  test-only method of another name, and two a test-only refinement also
-  reaches, declared before one and after the other, prints its `// prints:`
-  lines the same way: the production generic's instance at each type and
-  ordinary code's direct call both run the trait's default, whatever the
-  declaration order. Stage 0 cannot parse `@test` (SL-640, SL-629);
-- `probes/default_caller_suspends.saw`, whose calls leave out a suspending
-  default (a free function, a method, a generic function, a spawn root, and a
-  requirement's through a bound whose implementation does not suspend) or
-  pass the argument, in a `sync` body too, prints its `// prints:` lines the
-  same way: the caller evaluates the default, so the call that leaves it out
-  suspends in the caller and the function needs no frame. Stage 0 refuses
-  every call that leaves out a suspending default, and a `sync` caller that
-  passes the argument (SL-656).
+  local live across its `lend` and 1100 `if`s after it, is held as a stated
+  probe (below) to the `42` and `5` it prints: its length is past the round
+  count a capped dataflow stops at (SL-610), and Stage 0 cannot parse a
+  `borrow` block;
+- every program of `probes/` is held to what its header states (below).
 
 Stage 0 is the oracle: a difference is a sawc2 bug until shown otherwise
 (SL:architecture §5).
+
+## Probes
+
+A probe is a program Stage 0 is no oracle for: it cannot build it, or runs
+it differently, so the program states its own outcome. The lane finds each
+`probes/NAME.saw` by listing the directory, so adding one touches nothing
+else. Its leading comment lines carry these header lines, in any order and
+among its prose:
+
+- `// probe: KIND`, one of the kinds below;
+- `// about: WHAT IT PINS (SL-N)`, one line ending with its issue;
+- `// stage 0: WHAT STAGE 0 DOES WITH IT`, why Stage 0's output is no oracle
+  here;
+- `// speeds: -O0 -O2`, the levels sawc2 builds it at, each a build held whole
+  (a read of an uninitialised local can pass at one level and not another);
+- `// prints: LINE`, a line of its output, in order;
+- `// panics: TEXT`, text its final panic line holds;
+- `// undefined: SYMBOL`, a symbol its link must leave undefined;
+- `// ll defines: SYMBOL`, a symbol the `.ll` of each build defines, under
+  its plain or quoted name;
+- `// ll omits: SYMBOL`, a symbol the `.ll` of each build names nowhere.
+
+| kind | sawc2 at each speed | its lines |
+|---|---|---|
+| `stated` | builds it with nothing printed; the binary prints exactly its `// prints:` lines and exits 0 | `prints`, at least one |
+| `panics` | builds it with nothing printed; the binary prints its `// prints:` lines, then a `panic at` line holding the `// panics:` text, and aborts | `prints`, any number; one `panics` |
+| `link-fails` | does not link it: the build prints no refusal, and the linker names every `// undefined:` symbol undefined | `undefined`, at least one |
+| `custom` | whatever its function in `run_lane.py`'s `CUSTOM_PROBES` checks | `probe` and `about` alone |
+| `module` | never builds it alone: it is a module another probe imports, as `import NAME`, and one that no probe imports fails | `probe` and `about` alone |
+
+Every kind takes one `about` line, and every kind but `custom` and `module`
+also takes one `stage 0` and `speeds` line and any `ll defines` and `ll
+omits` lines. A probe states one kind, and a line
+its kind does not take fails it, as does a missing one, so no header claims
+what the lane does not check. A custom probe needs an entry in
+`CUSTOM_PROBES`, and every entry there needs its custom probe; the entry
+says why the check cannot be header lines. The one custom probe,
+`executable_path.saw`, is built by sawc2 and by Stage 0 and run by a bare
+name that a renamed relative symbolic link on `PATH` resolves, from another
+working directory, and must print its binary's real path, which no header
+can state: what the manifest lookup rests on.
+
+`run_lane.py NAME` runs the programs and probes named `NAME`.
 
 ## The timing report
 

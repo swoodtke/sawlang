@@ -1,3 +1,7 @@
+// probe: stated
+// about: a `borrow` window held across a suspension, and an accessor whose halves suspend (SL-559)
+// stage 0: refuses a suspension in a `borrows` body
+// speeds: -O0 -O2
 // prints: 71010
 // prints: 1
 // prints: 6101
