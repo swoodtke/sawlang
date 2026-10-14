@@ -1,7 +1,10 @@
 #!/usr/bin/env python3
 """The self-hosted compiler's tests, until it can run its own `@test` sidecars.
 
-    python compiler/tests/run.py [--stage 1|2]
+    python compiler/tests/run.py [--stage 1|2] [--only NAME[,NAME...]]
+
+`--only` runs just the named steps (`STEPS`), building sawc2 first when one of
+them needs it, and prints as the full run prints.
 
 Builds Stage 1 (`sawc2`, by the frozen compiler) and Stage 2 (sawc2 built by
 Stage 1, `compiler/tools/build.py`), and every sawc2-driven lane below runs
@@ -43,6 +46,7 @@ Each of those parts is a step (`STEPS`) run in a process of its own, as many
 at once as `SAW_GATE_JOBS` allows (`tools/gate_jobs.py`, `run_steps`); the
 output is merged in `STEPS` order, so it is the same at every worker count.
 """
+import argparse
 import collections
 import glob
 import json
@@ -895,27 +899,82 @@ def render(run):
     return "".join(line + "\n" for line in lines)
 
 
+def only_steps(text):
+    """The steps `--only` names, comma-separated, in `STEPS` order, and None;
+    or None and the error naming every step, when a name is no step's."""
+    names = text.split(",")
+    unknown = [name for name in names if name not in STEP_BY_NAME]
+    if unknown:
+        return None, "--only: no step is named %s; the steps are %s" % (
+            ", ".join(repr(name) for name in unknown), ", ".join(step.name for step in STEPS))
+    return [step for step in STEPS if step.name in names], None
+
+
+def needs_build(steps):
+    """A step that waits for the build reads sawc2, so a stale binary would
+    pass it against an old compiler."""
+    return any(step.when != "always" for step in steps)
+
+
+class _Progress:
+    """`run_steps`' progress lines, onto the binary stream the steps' standard
+    error goes to, so the two keep their order."""
+
+    def __init__(self, stream):
+        self.stream = stream
+
+    def write(self, text):
+        self.stream.write(text.encode("utf-8"))
+
+    def flush(self):
+        self.stream.flush()
+
+
+def report(steps, build_sawc2=None, sawc2=None, out=None, err=None):
+    """Runs `steps`, after `build_sawc2` (`build.build_sawc2` when None) if one
+    of them needs it, writes what run.py prints to the binary streams `out`
+    and `err` (standard output and error when None), and returns run.py's exit
+    status. `sawc2` is `run_steps`'."""
+    out = out or sys.stdout.buffer
+    err = err or sys.stderr.buffer
+    if not needs_build(steps):
+        build_sawc2 = None
+    elif build_sawc2 is None:
+        build_sawc2 = build.build_sawc2
+    build_outcome, results = run_steps(steps, build_sawc2=build_sawc2, sawc2=sawc2, progress=_Progress(err))
+    for _, result in results:
+        out.write(result["stdout"])
+        err.write(result["stderr"])
+    err.flush()
+    run = merge(build_outcome, results)
+    out.write(render(run).encode("utf-8"))
+    out.flush()
+    return 1 if run.failures else 0
+
+
 def main():
+    """`--stage` and `--only` are the human entry. `--step NAME --result FILE`
+    is `run_steps`' child interface, its binary named by SAWC2_BINARY: it
+    neither builds nor prints the step's failures, and exits 0 whatever they
+    are."""
     child_groups.install()
     args = sys.argv[1:]
     if args[:1] == ["--step"] and len(args) == 4 and args[1] in STEP_BY_NAME and args[2] == "--result":
         return step_main(args[1], args[3])
-    if args[:1] == ["--stage"] and len(args) == 2 and args[1] in ("1", "2"):
+    parser = argparse.ArgumentParser(prog="run.py", description=__doc__.splitlines()[0])
+    parser.add_argument("--stage", choices=("1", "2"), help="run the lanes on Stage 1 or Stage 2")
+    parser.add_argument("--only", metavar="NAME[,NAME...]", help="run only these steps")
+    options = parser.parse_args(args)
+    if options.stage:
         # The environment carries the choice to the steps and their own child processes.
-        os.environ["SAWC2_STAGE"] = args[1]
-        build.SAWC2 = build.STAGE1 if args[1] == "1" else build.STAGE2
-    elif args:
-        print("usage: run.py [--stage 1|2]")
-        return 2
-    build_outcome, results = run_steps(STEPS, build_sawc2=build.build_sawc2, progress=sys.stderr)
-    for _, result in results:
-        sys.stdout.buffer.write(result["stdout"])
-        sys.stderr.buffer.write(result["stderr"])
-    sys.stdout.flush()
-    sys.stderr.flush()
-    run = merge(build_outcome, results)
-    sys.stdout.write(render(run))
-    return 1 if run.failures else 0
+        os.environ["SAWC2_STAGE"] = options.stage
+        build.SAWC2 = build.STAGE1 if options.stage == "1" else build.STAGE2
+    steps = STEPS
+    if options.only is not None:
+        steps, problem = only_steps(options.only)
+        if problem:
+            parser.error(problem)
+    return report(steps)
 
 
 if __name__ == "__main__":

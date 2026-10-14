@@ -2,6 +2,7 @@
 """A serial and a parallel run print the same, an injected failure included.
 
     python compiler/tests/parallel_order.py
+    python compiler/tests/parallel_order.py --section programs
 
 `compiler/tests/run.py` runs `run()`. It checks:
 
@@ -12,6 +13,10 @@
   step's budget), print the same bytes, with a failure injected into one case
   of the coro lane appearing in both at the same place, and each writes one
   progress line as it starts and one as it ends, outside those bytes;
+- `run.py --only coro`, its sawc2 missing until the build makes it, builds
+  first, exits 1 on that failure and prints exactly coro's part of that run;
+  `--only` over a step that needs no sawc2 builds nothing, and an unknown
+  step name is refused with the list of steps;
 - a small fixpoint replay, serial and parallel, judges the same, with a
   difference injected into one Stage 2 invocation reported in both;
 - the recognizer's worker processes run the sawc2 their parent chose (a
@@ -24,6 +29,10 @@
   candidate texts lex with Stage 2 alone and every other text through the
   twin, which still catches a difference on a case text; in full mode the
   candidates go through the twin too.
+
+`--section NAME` checks `run.py --only NAME` against NAME's part of a run
+beside other steps, with nothing injected, for a step too long to run twice in
+every gate (`programs`).
 
 Each injection goes through a wrapper written under `.build/`, put where the
 lanes expect sawc2 or where the twin expects Stage 2; nothing tracked changes.
@@ -52,6 +61,10 @@ MARK = "INJECTED\tparallel-order"
 # The stage-lane steps compared, and the call whose output the wrapper alters.
 STAGE_STEPS = ("golden", "grammar_lint", "coro")
 STAGE_INJECTED = ("coro", "--dump")
+# The step `--only` runs, compared with its section of the run of STAGE_STEPS,
+# and one that needs no sawc2.
+ONLY_STEP = "coro"
+ONLY_UNBUILT = "fixture_whitespace"
 # The fixpoint replay's lanes, and the Stage 2 call the wrapper alters.
 FIXPOINT_LANES = ("golden", "coro")
 FIXPOINT_INJECTED = ("lex", "--kinds")
@@ -184,14 +197,16 @@ class Injecting:
 
 def stage_output(failures, R, wrapper, budget):
     """Everything run.py would print for STAGE_STEPS at `budget` workers, its
-    progress lines apart: those are checked, never compared."""
+    progress lines apart: those are checked, never compared. With it, the
+    results by step name."""
     steps = [R.STEP_BY_NAME[name] for name in STAGE_STEPS]
     progress = io.StringIO()
     _, results = R.run_steps(steps, sawc2=wrapper, budget=budget, progress=progress, label="pin")
     check_progress(failures, budget, progress.getvalue(),
                    {step.name: bool(r["failures"]) for step, r in results})
     streams = b"".join(r["stdout"] + r["stderr"] for _, r in results)
-    return streams.decode("utf-8", "replace") + R.render(R.merge(None, results))
+    text = streams.decode("utf-8", "replace") + R.render(R.merge(None, results))
+    return text, {step.name: (step, r) for step, r in results}
 
 
 def check_progress(failures, budget, text, fails):
@@ -217,12 +232,100 @@ def check_progress(failures, budget, text, fails):
 
 def check_stage_steps(failures, R, wrapper, budget):
     with Injecting(R.build.SAWC2, STAGE_INJECTED):
-        serial = stage_output(failures, R, wrapper, 1)
-        parallel = stage_output(failures, R, wrapper, budget)
+        serial, results = stage_output(failures, R, wrapper, 1)
+        parallel, _ = stage_output(failures, R, wrapper, budget)
+        check_only_section(failures, R, wrapper, ONLY_STEP, results[ONLY_STEP])
     compare(failures, "the steps %s" % ", ".join(STAGE_STEPS), serial, parallel)
     if not any(MARK.split("\t")[0] in line and line.startswith("coro golden ") for line in serial.split("\n")):
         failures.append("parallel order: the failure injected into `sawc2 %s` is not reported"
                         % " ".join(STAGE_INJECTED))
+
+
+def only_output(R, steps, build_sawc2, sawc2=None):
+    """run.py's exit status and what it prints to standard output and to
+    standard error for `steps`, as `--only` runs them."""
+    out, err = io.BytesIO(), io.BytesIO()
+    code = R.report(steps, build_sawc2=build_sawc2, sawc2=sawc2, out=out, err=err)
+    return code, out.getvalue().decode("utf-8", "replace"), err.getvalue().decode("utf-8", "replace")
+
+
+def split_progress(err):
+    """`run.py: VERB NAME` progress lines, and the rest of standard error."""
+    progress, rest = [], []
+    for line in err.splitlines(True):
+        words = line.split(" ")
+        if words[0] == "run.py:" and words[1:2] and words[1] in ("started", "finished", "failed", "skipped"):
+            progress.append(" ".join(words[:3]).rstrip("\n"))
+        else:
+            rest.append(line)
+    return progress, "".join(rest)
+
+
+def check_only_section(failures, R, wrapper, name, section):
+    """`--only NAME`, its binary missing until the build makes it, builds
+    first, exits 1 on the failure injected into it, and prints exactly NAME's
+    section of a run of several steps: its streams, then its own summary."""
+    builds = []
+
+    def build_sawc2():
+        builds.append(name)
+        write_wrapper()
+        return True, ""
+
+    steps, problem = R.only_steps(name)
+    if problem:
+        failures.append("parallel order: run.py --only %s is refused: %s" % (name, problem))
+        return
+    os.remove(wrapper)
+    try:
+        code, out, err = only_output(R, steps, build_sawc2, sawc2=wrapper)
+    finally:
+        write_wrapper()
+    progress = split_progress(err)[0]
+    want_progress = ["run.py: started build", "run.py: finished build", "run.py: started %s" % name,
+                     "run.py: %s %s" % ("failed" if section[1]["failures"] else "finished", name)]
+    if builds != [name] or progress != want_progress:
+        failures.append("parallel order: run.py --only %s built %d times and wrote the progress lines %r, "
+                        "expected one build, then the step: %r" % (name, len(builds), progress, want_progress))
+    if code != 1:
+        failures.append("parallel order: run.py --only %s exits %d on an injected failure, expected 1"
+                        % (name, code))
+    compare_section(failures, R, name, section, out, err)
+
+
+def compare_section(failures, R, name, section, out, err):
+    """`--only NAME`'s standard output and error, its progress lines apart,
+    against NAME's section of a run of several steps: its streams, then the
+    summary of its result alone."""
+    step, result = section
+    sides = "in a run of several steps and under run.py --only"
+    compare(failures, "%s's standard output" % name,
+            result["stdout"].decode("utf-8", "replace") + R.render(R.merge(None, [(step, result)])), out, sides)
+    compare(failures, "%s's standard error" % name, result["stderr"].decode("utf-8", "replace"),
+            split_progress(err)[1], sides)
+
+
+def check_only_entry(failures, R):
+    """`--only` with a step that needs no sawc2 builds nothing, and an unknown
+    name is refused with every step's name, before anything runs."""
+    builds = []
+
+    def build_sawc2():
+        builds.append(True)
+        return True, ""
+
+    steps, _ = R.only_steps(ONLY_UNBUILT)
+    _, _, err = only_output(R, steps, build_sawc2)
+    progress, _ = split_progress(err)
+    if builds or progress[:1] != ["run.py: started %s" % ONLY_UNBUILT] or len(progress) != 2:
+        failures.append("parallel order: run.py --only %s builds %d times and writes the progress lines %r, "
+                        "expected the step's alone" % (ONLY_UNBUILT, len(builds), progress))
+    r = subprocess.run([sys.executable, os.path.join(HERE, "run.py"), "--only", "coro,no_such_step"],
+                       capture_output=True, text=True)
+    named = all(step.name in r.stderr for step in R.STEPS)
+    if r.returncode != 2 or "'no_such_step'" not in r.stderr or not named or "run.py: started" in r.stderr:
+        failures.append("parallel order: run.py --only coro,no_such_step exits %d with %r, expected 2 and "
+                        "a refusal naming it and every step" % (r.returncode, r.stderr.strip()[-200:]))
 
 
 def fixpoint_output(F, wrapper, budget):
@@ -248,7 +351,7 @@ def check_fixpoint(failures, F, wrapper, budget):
                         % " ".join(FIXPOINT_INJECTED))
 
 
-def compare(failures, what, serial, parallel):
+def compare(failures, what, serial, parallel, sides="serial and parallel"):
     if serial == parallel:
         return
     a, b = serial.split("\n"), parallel.split("\n")
@@ -256,8 +359,8 @@ def compare(failures, what, serial, parallel):
         x = a[k] if k < len(a) else "<end>"
         y = b[k] if k < len(b) else "<end>"
         if x != y:
-            failures.append("parallel order: %s print differently, serial and parallel, at line %d: %r, then %r"
-                            % (what, k + 1, x[:120], y[:120]))
+            failures.append("parallel order: %s print differently, %s, at line %d: %r, then %r"
+                            % (what, sides, k + 1, x[:120], y[:120]))
             return
 
 
@@ -269,8 +372,9 @@ def run():
     budget = gate_jobs.jobs()
     wrapper = write_wrapper()
     check_stage_steps(failures, R, wrapper, budget)
+    check_only_entry(failures, R)
     check_fixpoint(failures, F, wrapper, budget)
-    counts["parallel order comparisons"] = 2
+    counts["parallel order comparisons"] = 4
     counts["handed-down binary checks"] = check_handed_down(failures, R)
     counts["lex list checks"] = check_lex_list(failures, F, R.build, wrapper)
     counts["candidate text checks"] = check_candidates(failures, F, R.build, wrapper)
@@ -479,8 +583,34 @@ def check_handed_down(failures, R):
     return 2
 
 
+def section(name):
+    """`--only NAME` against NAME's section of a run of NAME beside
+    STAGE_STEPS, with nothing injected and the sawc2 on disk, built first."""
+    import run as R
+    failures = []
+    ok, output = R.build.build_sawc2()
+    if not ok:
+        return ["parallel order: sawc2 does not build: %s" % R._first_line(output)], {}
+    only, problem = R.only_steps(name)
+    if problem:
+        return ["parallel order: run.py --only %s is refused: %s" % (name, problem)], {}
+    _, results = R.run_steps([R.STEP_BY_NAME[n] for n in STAGE_STEPS if n != name] + only)
+    code, out, err = only_output(R, only, lambda: (True, ""))
+    if code != (1 if results[-1][1]["failures"] else 0):
+        failures.append("parallel order: run.py --only %s exits %d" % (name, code))
+    compare_section(failures, R, name, results[-1], out, err)
+    return failures, {"parallel order section comparisons": 1}
+
+
 def main():
-    failures, counts = run()
+    args = sys.argv[1:]
+    if args[:1] == ["--section"] and len(args) == 2:
+        failures, counts = section(args[1])
+    elif args:
+        print("usage: parallel_order.py [--section NAME]")
+        return 2
+    else:
+        failures, counts = run()
     for failure in failures:
         print(failure)
     summary = ", ".join("%d %s" % (n, key) for key, n in sorted(counts.items()))

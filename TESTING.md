@@ -379,6 +379,7 @@ adds or updates its conformance rows as its FIRST unit.
 
 ```bash
 ./.venv/bin/python compiler/tests/run.py
+./.venv/bin/python compiler/tests/run.py --only mir,programs   # those steps, building sawc2 first if they need it
 ```
 
 The compiler written in Saw (`compiler/`, epic SL-398) has its own tests until

@@ -172,9 +172,14 @@ objects are built + cached under `.build/rt/` and auto-linked (delete
   subsets, and the battery lanes that touch the change's subject and that
   the server does not run: `astgraft` and `transferdecisions` for the
   typechecker or codegen, `bootstrap` for the blade/libs corpus,
-  `docverify` for spec prose, `compiler` and `citations` for `compiler/`;
+  `docverify` for spec prose, `citations` for `compiler/`;
   `irdet` and `reemit` only when the change can
-  reach them. No branch owes the full battery; it will run on main
+  reach them. **The server always runs `compiler/tests/run.py` (user, Oct
+  14),** so a `compiler/` change runs only the steps for the stages it
+  touches, `compiler/tests/run.py --only NAME[,NAME]` (e.g. `mir`,
+  `typechecker`, `programs`), never the whole of it nor the battery's
+  `compiler` stage, which stays for manual runs; every local run holds the
+  one suite lock the server's gate also waits on. No branch owes the full battery; it will run on main
   periodically, never per merge, once sawtracker schedules it (ST-45, open).
   SawOS work happens in the sawos repo under
   its own gate (`make sos-test` there) and its own CLAUDE.md. XFAIL policy (user, Aug 7): a
