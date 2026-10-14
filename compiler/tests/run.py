@@ -696,7 +696,8 @@ def run_steps(steps, build_sawc2=None, sawc2=None, env=None, budget=None, call_t
     a step whose process ended without its result.
 
     `build_sawc2` runs here first, every step but an "always" one waiting for
-    it, and `sawc2` replaces `build.SAWC2` in each step. The build and each
+    it, and `sawc2` replaces `build.SAWC2` in each step and every process
+    below it (SAWC2_BINARY, `build.handed_down`). The build and each
     step hold their tokens of the gate's budget while they run, the first of
     them this process's own (`gate_jobs.budget`); a step whose calls do not
     overlap holds `call_tokens` (two under the fixpoint lane's twin), which
@@ -832,11 +833,12 @@ def _run_step_process(step, workers, sawc2, env):
     os.close(fd)
     try:
         cmd = [sys.executable, os.path.abspath(__file__), "--step", step.name, "--result", result_path]
-        if sawc2:
-            cmd += ["--sawc2", sawc2]
         child_env = gate_jobs.child_env(workers)
         child_env.update(env or {})
         child_env["SAW_GATE_STEP"] = step.name
+        # Through the environment, so that every process below the step runs
+        # this binary, the workers of its pools included (`build.handed_down`).
+        child_env["SAWC2_BINARY"] = sawc2 or build.SAWC2
         r = subprocess.run(cmd, capture_output=True, env=child_env)
         try:
             with open(result_path, encoding="utf-8") as fh:
@@ -862,10 +864,8 @@ def _crashed(step, why, stdout, stderr):
                    crashed=True)
 
 
-def step_main(name, result_path, sawc2):
+def step_main(name, result_path):
     """One step, in the child process `run_steps` starts: its Run as JSON."""
-    if sawc2:
-        build.SAWC2 = sawc2
     run = Run()
     STEP_BY_NAME[name].function()(run)
     with open(result_path, "w", encoding="utf-8") as fh:
@@ -898,9 +898,8 @@ def render(run):
 def main():
     child_groups.install()
     args = sys.argv[1:]
-    if args[:1] == ["--step"] and len(args) in (4, 6) and args[1] in STEP_BY_NAME and args[2] == "--result" \
-            and (len(args) == 4 or args[4] == "--sawc2"):
-        return step_main(args[1], args[3], args[5] if len(args) == 6 else None)
+    if args[:1] == ["--step"] and len(args) == 4 and args[1] in STEP_BY_NAME and args[2] == "--result":
+        return step_main(args[1], args[3])
     if args[:1] == ["--stage"] and len(args) == 2 and args[1] in ("1", "2"):
         # The environment carries the choice to the steps and their own child processes.
         os.environ["SAWC2_STAGE"] = args[1]

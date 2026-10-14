@@ -2,7 +2,8 @@
 """The fixpoint lane: the compiler built by itself agrees with the one Stage 0
 built, and building itself again changes nothing.
 
-    python compiler/tests/fixpoint/fixpoint_lane.py
+    python compiler/tests/fixpoint/fixpoint_lane.py                       # default mode
+    SAW_FIXPOINT_FULL=1 python compiler/tests/fixpoint/fixpoint_lane.py   # full mode
 
 The numbering is the conventional one. Stage 0 (the frozen Python compiler)
 builds Stage 1, `.build/sawc2`; Stage 1's `sawc2 build -O2` of its own driver,
@@ -23,6 +24,16 @@ The lane requires:
   run.py's steps do, as many at once as `SAW_GATE_JOBS` allows
   (`tools/gate_jobs.py`), and the records are judged in a fixed order: by
   lane, then by arguments.
+
+What the lanes' part compares depends on the mode, which the summary line
+names. **Full mode** (`SAW_FIXPOINT_FULL=1`, what the battery's `fixpoint`
+stage and so the periodic full battery on main run) compares every call. The
+**default mode** (the per-patch gate's) compares every call but the
+generator's and the mutator's candidate texts (`generate.py`, `negative.py`),
+which they make and lex as they go, many thousands of them: those lex with
+Stage 2 alone (`lexdump.candidate_sawc2`). It still compares every case text,
+corpus file and parse-lane input, the lex fixtures, every other lane's calls,
+and the generated cases' recorded results, which the case files hold.
 
 An invocation whose outputs differ fails unless `mismatches.tsv` lists it
 (`ARGUMENTS<TAB>REASON`, the arguments joined by single spaces) with the
@@ -60,6 +71,14 @@ TIMEOUT = 1800
 # The steps of run.py that drive sawc2, in run.py's order.
 LANES = ("golden", "grammar_lint", "recognizer", "grammar_parse", "parser", "resolver", "typechecker", "mir",
          "eval", "std", "borrowck", "drops", "mono", "coro", "programs")
+
+
+def mode():
+    """"full" under SAW_FIXPOINT_FULL=1, else "default" (the docstring above)."""
+    value = os.environ.get("SAW_FIXPOINT_FULL", "")
+    if value not in ("", "0", "1"):
+        raise SystemExit("SAW_FIXPOINT_FULL is %r; it is 1 for full mode, or unset" % value)
+    return "full" if value == "1" else "default"
 
 
 def rel(path):
@@ -158,6 +177,8 @@ def replay_lanes(failures, counts, lanes=LANES, new=None, out=OUT, budget=None, 
     os.chmod(twin, 0o755)
     budget = min(budget or gate_jobs.jobs(), gate_jobs.jobs())
     env = {"FIXPOINT_REF": build.STAGE1, "FIXPOINT_NEW": new or build.STAGE2, "FIXPOINT_LOG": log}
+    if mode() == "default":
+        env["SAWC2_CANDIDATE_BINARY"] = build.STAGE2
     start = time.time()
     _, results = R.run_steps([R.STEP_BY_NAME[name] for name in lanes], sawc2=twin, env=env, budget=budget,
                              call_tokens=2, progress=progress, label="fixpoint: run.py")
@@ -189,19 +210,26 @@ def read_mismatches(failures):
 
 
 def judge(failures, counts, records):
+    """Each record's verdict; a `lex @LIST` record's differing listed files are
+    each judged as `lex FILE`, the key `mismatches.tsv` annotates them by."""
     known = read_mismatches(failures)
     seen = set()
     for record in records:
-        key = " ".join(record["args"])
         counts["fixpoint invocations compared"] = counts.get("fixpoint invocations compared", 0) + 1
-        if not record["differs"]:
+        if record.get("listed"):
+            counts["fixpoint listed files compared"] = (counts.get("fixpoint listed files compared", 0)
+                                                        + record["listed"])
+        verdicts = [(" ".join(record["args"]), "", record["differs"])] if record["differs"] else []
+        verdicts += [("lex " + f["path"], " (listed in sawc2 %s)" % " ".join(record["args"]), f["differs"])
+                     for f in record.get("files", [])]
+        if not verdicts:
             counts["fixpoint invocations agreeing"] = counts.get("fixpoint invocations agreeing", 0) + 1
-            continue
-        if key in known:
-            seen.add(key)
-            counts["fixpoint annotated mismatches"] = counts.get("fixpoint annotated mismatches", 0) + 1
-            continue
-        failures.append("fixpoint mismatch: sawc2 %s: %s" % (key[:300], "; ".join(record["differs"])[:600]))
+        for key, where, differs in verdicts:
+            if key in known:
+                seen.add(key)
+                counts["fixpoint annotated mismatches"] = counts.get("fixpoint annotated mismatches", 0) + 1
+                continue
+            failures.append("fixpoint mismatch: sawc2 %s%s: %s" % (key[:300], where[:300], "; ".join(differs)[:600]))
     for key in sorted(set(known) - seen):
         failures.append("fixpoint: the annotated mismatch `%s` no longer occurs; remove its line" % key[:300])
 
@@ -249,7 +277,7 @@ def main():
     for failure in failures:
         print(failure)
     summary = ", ".join("%s %s" % (n, key) for key, n in sorted(counts.items()))
-    print("fixpoint lane: %s: %s" % ("FAIL (%d)" % len(failures) if failures else "ok", summary))
+    print("fixpoint lane (%s mode): %s: %s" % (mode(), "FAIL (%d)" % len(failures) if failures else "ok", summary))
     return 1 if failures else 0
 
 

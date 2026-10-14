@@ -13,13 +13,27 @@
   of the coro lane appearing in both at the same place, and each writes one
   progress line as it starts and one as it ends, outside those bytes;
 - a small fixpoint replay, serial and parallel, judges the same, with a
-  difference injected into one Stage 2 invocation reported in both.
+  difference injected into one Stage 2 invocation reported in both;
+- the recognizer's worker processes run the sawc2 their parent chose (a
+  logging wrapper here, the twin under the fixpoint lane), and never rebuild
+  one handed down to them, however stale it looks;
+- `sawc2 lex @LIST` frames each listed file exactly as the single-file
+  commands print it, and under the twin a difference in one listed file is
+  reported naming it;
+- in the fixpoint lane's default mode the generator's and mutator's
+  candidate texts lex with Stage 2 alone and every other text through the
+  twin, which still catches a difference on a case text; in full mode the
+  candidates go through the twin too.
 
 Each injection goes through a wrapper written under `.build/`, put where the
 lanes expect sawc2 or where the twin expects Stage 2; nothing tracked changes.
 """
+import glob
 import io
+import json
 import os
+import shutil
+import subprocess
 import sys
 import threading
 import time
@@ -257,7 +271,212 @@ def run():
     check_stage_steps(failures, R, wrapper, budget)
     check_fixpoint(failures, F, wrapper, budget)
     counts["parallel order comparisons"] = 2
+    counts["handed-down binary checks"] = check_handed_down(failures, R)
+    counts["lex list checks"] = check_lex_list(failures, F, R.build, wrapper)
+    counts["candidate text checks"] = check_candidates(failures, F, R.build, wrapper)
     return failures, counts
+
+
+def check_candidates(failures, F, build, wrapper):
+    """Candidate-text workers lex with SAWC2_CANDIDATE_BINARY when a runner
+    sets it (the fixpoint lane's default mode) and with the chosen sawc2
+    otherwise (full mode); the generator and the mutator are such workers;
+    and in default mode a Stage 2 difference on a case text is still caught."""
+    import cases
+    import lexdump
+    import recognize
+    work = os.path.join(OUT, "candidates")
+    shutil.rmtree(work, ignore_errors=True)
+    os.makedirs(work)
+    logs = {}
+    wrappers = {}
+    for name in ("chosen", "candidate"):
+        logs[name] = os.path.join(work, name + ".log")
+        wrappers[name] = os.path.join(work, "sawc2-" + name)
+        with open(wrappers[name], "w") as fh:
+            fh.write('#!/bin/sh\necho "$*" >> "%s"\nexec "%s" "$@"\n' % (logs[name], build.STAGE2))
+        os.chmod(wrappers[name], 0o755)
+    paths = [os.path.join(COMPILER, "tests", "lex", name) for name in WORKER_FILES[:2]]
+    saved = (build.SAWC2, list(lexdump._built), os.environ.get("SAWC2_CANDIDATE_BINARY"))
+
+    def calls(name):
+        if not os.path.exists(logs[name]):
+            return 0
+        with open(logs[name]) as fh:
+            return sum(1 for _ in fh)
+
+    try:
+        build.SAWC2 = wrappers["chosen"]
+        lexdump._built[:] = []
+        for candidates, default_mode, want in ((True, True, "candidate"), (False, True, "chosen"),
+                                               (True, False, "chosen")):
+            for log in logs.values():
+                if os.path.exists(log):
+                    os.remove(log)
+            if default_mode:
+                os.environ["SAWC2_CANDIDATE_BINARY"] = wrappers["candidate"]
+            else:
+                os.environ.pop("SAWC2_CANDIDATE_BINARY", None)
+            recognize.check_paths(paths, jobs=2) if not candidates else recognize.run_workers(
+                [recognize.__file__, "--worker", "--grammar", recognize.extract.GRAMMAR], paths, 2, candidates=True)
+            other = "chosen" if want == "candidate" else "candidate"
+            if calls(want) == 0 or calls(other) != 0:
+                failures.append("parallel order: %s workers in %s mode lexed %d times with the %s sawc2 and %d "
+                                "with the %s one, expected only the %s one"
+                                % ("candidate-text" if candidates else "other", "default" if default_mode else "full",
+                                   calls(want), want, calls(other), other, want))
+        # A difference on a case text, in default mode, through the twin.
+        log = os.path.join(work, "twin-log")
+        os.makedirs(log)
+        twin = os.path.join(work, "sawc2-twin")
+        with open(twin, "w") as fh:
+            fh.write('#!/bin/sh\nexec "%s" "%s" "$@"\n' % (sys.executable, F.TWIN))
+        os.chmod(twin, 0o755)
+        build.SAWC2 = twin
+        lexdump._built[:] = []
+        os.environ["SAWC2_CANDIDATE_BINARY"] = build.STAGE2
+        injected = {"FIXPOINT_REF": build.STAGE1, "FIXPOINT_NEW": wrapper, "FIXPOINT_LOG": log,
+                    "PARALLEL_ORDER_REAL": build.STAGE2, "PARALLEL_ORDER_MATCH": "lex"}
+        before = {k: os.environ.get(k) for k in injected}
+        os.environ.update(injected)
+        try:
+            cases.evaluate_files([os.path.join(cases.GOLDEN, "strings.saw")], jobs=2)
+        finally:
+            for k, v in before.items():
+                if v is None:
+                    os.environ.pop(k, None)
+                else:
+                    os.environ[k] = v
+        records = []
+        for path in glob.glob(os.path.join(log, "*.json")):
+            with open(path, encoding="utf-8") as fh:
+                records.append(json.load(fh))
+        judged = []
+        F.judge(judged, {}, records)
+        if not any(line.startswith("fixpoint mismatch: sawc2 lex ") for line in judged):
+            failures.append("parallel order: in default mode a Stage 2 difference on a case text is not caught "
+                            "(%d twin records)" % len(records))
+    finally:
+        build.SAWC2, lexdump._built[:] = saved[0], saved[1]
+        if saved[2] is None:
+            os.environ.pop("SAWC2_CANDIDATE_BINARY", None)
+        else:
+            os.environ["SAWC2_CANDIDATE_BINARY"] = saved[2]
+    for module in ("generate.py", "negative.py"):
+        with open(os.path.join(COMPILER, "tests", "grammar", module), encoding="utf-8") as fh:
+            text = fh.read()
+        if text.count("recognize.run_workers(") != text.count("candidates=True)"):
+            failures.append("parallel order: %s starts recognizer workers that are not marked as lexing "
+                            "candidate texts" % module)
+    return 5
+
+
+# Files whose dumps the list check compares: plain tokens, doc trivia, lex
+# errors, and a path that does not exist.
+LIST_FILES = ("comments.saw", "doc_comments.saw", "error_binary_digit.saw", "no_such_file.saw")
+
+
+def check_lex_list(failures, F, build, wrapper):
+    """`sawc2 lex @LIST` prints, per listed file, exactly what `sawc2 lex FILE`
+    and `sawc2 lex --docs FILE` print, with their statuses; lexdump reads it
+    back as it reads those; and under the twin a Stage 2 difference in one
+    listed file is reported naming that file."""
+    import lexdump
+    work = os.path.join(OUT, "lex-list")
+    shutil.rmtree(work, ignore_errors=True)
+    os.makedirs(work)
+    paths = [os.path.join(COMPILER, "tests", "lex", name) for name in LIST_FILES]
+    listing = os.path.join(work, "list.txt")
+    with open(listing, "w") as fh:
+        fh.write("".join(p + "\n" for p in paths))
+    kinds = subprocess.run([build.SAWC2, "lex", "--kinds"], capture_output=True, text=True).stdout.split()
+    framing = [k for k in kinds if k in ("FILE", "DOCS", "END")]
+    if framing:
+        failures.append("parallel order: token kinds %s collide with `sawc2 lex @LIST`'s frame lines" % framing)
+    batched = lexdump.frames(subprocess.run([build.SAWC2, "lex", "@" + listing], capture_output=True)
+                             .stdout.decode("utf-8"))
+    for path in paths:
+        single = []
+        for flags in ((), ("--docs",)):
+            r = subprocess.run([build.SAWC2, "lex"] + list(flags) + [path], capture_output=True)
+            single += [r.returncode, r.stdout.decode("utf-8")]
+        if batched.get(path) != tuple(single):
+            failures.append("parallel order: `sawc2 lex @LIST` frames %s as %r, the single-file commands print %r"
+                            % (os.path.basename(path), batched.get(path), tuple(single)))
+    # The twin, with Stage 2 altered in the first listed file's frame, over
+    # the files that exist: Stage 0's std and the new one word a failed open
+    # differently, which is not this check's concern.
+    paths = paths[:-1]
+    with open(listing, "w") as fh:
+        fh.write("".join(p + "\n" for p in paths))
+    log = os.path.join(work, "log")
+    os.makedirs(log)
+    twin = os.path.join(work, "sawc2-twin")
+    with open(twin, "w") as fh:
+        fh.write('#!/bin/sh\nexec "%s" "%s" "$@"\n' % (sys.executable, F.TWIN))
+    os.chmod(twin, 0o755)
+    env = dict(os.environ, FIXPOINT_REF=build.STAGE1, FIXPOINT_NEW=wrapper, FIXPOINT_LOG=log,
+               PARALLEL_ORDER_REAL=build.STAGE2, PARALLEL_ORDER_MATCH="lex @" + listing, SAW_GATE_JOBS="1")
+    subprocess.run([twin, "lex", "@" + listing], capture_output=True, env=env)
+    records = []
+    for path in glob.glob(os.path.join(log, "*.json")):
+        with open(path, encoding="utf-8") as fh:
+            records.append(json.load(fh))
+    judged, counts = [], {}
+    F.judge(judged, counts, records)
+    want = "fixpoint mismatch: sawc2 lex %s (listed in sawc2 lex @%s): " % (paths[0], listing)
+    if len(judged) != 1 or not judged[0].startswith(want) or counts.get("fixpoint listed files compared") != len(paths):
+        failures.append("parallel order: a Stage 2 difference in one listed file is reported as %r with %r, "
+                        "expected one mismatch naming %s" % (judged, counts, os.path.basename(paths[0])))
+    return len(LIST_FILES) + 2
+
+
+# The files the worker check lexes; each is lexed twice, for tokens and docs.
+WORKER_FILES = ("comments.saw", "directives.saw", "compound_locals.saw", "borrow_keyword.saw")
+
+
+def check_handed_down(failures, R):
+    """Under a logging wrapper as the chosen sawc2, the recognizer's workers'
+    calls are logged; and with the wrapper looking older than its sources and
+    handed down, they are logged again and nothing rebuilds Stage 1 or 2."""
+    import lexdump
+    import recognize
+    build = R.build
+    paths = [os.path.join(COMPILER, "tests", "lex", name) for name in WORKER_FILES]
+    log = os.path.join(OUT, "worker-calls.log")
+    logging = os.path.join(OUT, "sawc2-logging")
+    with open(logging, "w") as fh:
+        fh.write('#!/bin/sh\necho "$*" >> "%s"\nexec "%s" "$@"\n' % (log, build.SAWC2))
+    os.chmod(logging, 0o755)
+    saved = (build.SAWC2, list(lexdump._built), os.environ.get("SAWC2_BINARY"))
+    stamps = [os.path.getmtime(p) for p in (build.STAGE1, build.STAGE2) if os.path.exists(p)]
+    try:
+        for stale in (False, True):
+            if os.path.exists(log):
+                os.remove(log)
+            build.SAWC2 = logging
+            lexdump._built[:] = []
+            if stale:
+                os.utime(logging, (0, 0))
+                os.environ["SAWC2_BINARY"] = logging
+            recognize.check_paths(paths, jobs=2)
+            calls = 0
+            if os.path.exists(log):
+                with open(log) as fh:
+                    calls = sum(1 for _ in fh)
+            if calls < 2 * len(paths):
+                failures.append("parallel order: the recognizer's workers made %d calls through the %s sawc2 "
+                                "their parent chose, expected at least %d"
+                                % (calls, "stale" if stale else "fresh", 2 * len(paths)))
+    finally:
+        build.SAWC2, lexdump._built[:] = saved[0], saved[1]
+        if saved[2] is None:
+            os.environ.pop("SAWC2_BINARY", None)
+        else:
+            os.environ["SAWC2_BINARY"] = saved[2]
+    if [os.path.getmtime(p) for p in (build.STAGE1, build.STAGE2) if os.path.exists(p)] != stamps:
+        failures.append("parallel order: a stale sawc2 handed down to the recognizer's workers was rebuilt")
+    return 2
 
 
 def main():

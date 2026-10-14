@@ -49,6 +49,7 @@ import build  # noqa: E402
 import cases  # noqa: E402
 import dump  # noqa: E402
 import extract  # noqa: E402
+import lexdump  # noqa: E402
 import recognize  # noqa: E402
 
 CLAIMS = os.path.join(COMPILER, "parse", "CLAIMS.tsv")
@@ -304,10 +305,14 @@ def load_records(cases_list):
 def run_worker():
     sys.setrecursionlimit(recognize.RECURSION_LIMIT)
     g = recognize.Grammar(extract.extract())
+    jobs = []
     for line in sys.stdin:
         start, path, want_dump = line.rstrip("\n").split("\t")
         with open(path, encoding="utf-8", newline="") as fh:
-            text = fh.read()
+            jobs.append((start, fh.read(), want_dump))
+    # Every case's text in one sawc2 process, before any is checked.
+    lexdump.lex_texts([text for _, text, _ in jobs])
+    for start, text, want_dump in jobs:
         checked = recognize.check(g, text, trees=True, start=start)
         entry = {"verdict": checked.verdict, "alternatives": [], "dump": None}
         if checked.verdict == "OK":

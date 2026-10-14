@@ -313,7 +313,7 @@ def generate_all(jobs_count=None):
     g = recognize.Grammar(extract.extract())
     todo = jobs(g)
     results = recognize.run_workers([os.path.abspath(__file__), "--worker"], todo,
-                                    jobs_count or recognize.default_jobs())
+                                    jobs_count or recognize.default_jobs(), candidates=True)
     out = {"removed": [], "cells": [], "bare": [], "mutations": []}
     stems = {"removed": "removed", "cell": "cells", "bare": "bare", "mutate": "mutations"}
     seen = set()

@@ -10,7 +10,9 @@ The numbering is the conventional one: Stage 0 is the frozen Python compiler
 in `sawc/`, Stage 1 is the sawc2 it builds (`.build/sawc2`), and Stage 2 is
 sawc2 built by Stage 1 at -O2 (`.build/sawc2-stage2`). The lanes run Stage 2;
 `SAWC2_STAGE=1` selects Stage 1 instead, for bisecting a difference between
-the two, and then Stage 2 is not built. `SAWC2` is the binary selected.
+the two, and then Stage 2 is not built. `SAWC2` is the binary selected, or the
+one `SAWC2_BINARY` names: a runner that has chosen the binary (the fixpoint
+lane's twin, say) hands it to every process below it that way.
 
 Stage 2 is cached: its key covers Stage 1's code, the sources Stage 1
 compiles, this file, the runtime manifest and its objects and clang, so an
@@ -89,7 +91,13 @@ def selected_stage():
     return int(stage)
 
 
-SAWC2 = STAGE2 if selected_stage() == 2 else STAGE1
+SAWC2 = os.environ.get("SAWC2_BINARY") or (STAGE2 if selected_stage() == 2 else STAGE1)
+
+
+def handed_down():
+    """Whether a runner above this process chose `SAWC2` (SAWC2_BINARY), so
+    keeping it fresh is that runner's job and never this process's."""
+    return bool(os.environ.get("SAWC2_BINARY"))
 
 
 def sawc_arguments(entry, out):

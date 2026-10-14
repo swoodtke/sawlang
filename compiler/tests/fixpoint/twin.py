@@ -6,19 +6,22 @@ exit status. Configured by FIXPOINT_REF (Stage 1), FIXPOINT_NEW (Stage 2) and
 FIXPOINT_LOG (the directory). The two stages run at once when the step holds a
 second token for the call (SAW_GATE_CALL_TOKENS, compiler/tests/run.py) or one
 of the gate's budget is free (`tools/gate_jobs.py`), except for a command that
-writes files, whose two runs would write the same paths.
+writes files, whose two runs would write the same paths. For `sawc2 lex @LIST`,
+which lexes many files in one process, the record names each listed file
+whose frame the two stages print differently (`files`), and counts the files.
+
+The twin runs once per sawc2 call, the recognizer's many small lexes
+included, so it imports only what it needs, `gate_jobs` only when it must ask
+for a token.
 """
-import concurrent.futures
 import json
 import os
 import subprocess
 import sys
-import tempfile
+import threading
 
-sys.path.append(os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(
-    os.path.abspath(__file__))))), "tools"))
-
-import gate_jobs  # noqa: E402
+TOOLS = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(
+    os.path.abspath(__file__))))), "tools")
 
 # The sawc2 commands that write files at paths their arguments name.
 WRITERS = ("build", "runtime")
@@ -37,35 +40,72 @@ def first_difference(a, b):
 
 def run_both(args):
     commands = [[os.environ["FIXPOINT_REF"]] + args, [os.environ["FIXPOINT_NEW"]] + args]
-    together = False
-    token = None
-    if gate_jobs.jobs() >= 2 and args[:1] and args[0] not in WRITERS:
-        together = os.environ.get("SAW_GATE_CALL_TOKENS") == "2"
-        if not together:
-            token = gate_jobs.try_acquire()
-            together = token is not None
-    if not together:
+    if os.environ.get("SAW_GATE_JOBS") == "1" or not args[:1] or args[0] in WRITERS:
         return tuple(subprocess.run(cmd, capture_output=True) for cmd in commands)
+    gate_jobs = token = None
+    if os.environ.get("SAW_GATE_CALL_TOKENS") != "2":
+        sys.path.append(TOOLS)
+        import gate_jobs
+        token = gate_jobs.try_acquire() if gate_jobs.jobs() >= 2 else None
+        if token is None:
+            return tuple(subprocess.run(cmd, capture_output=True) for cmd in commands)
+    answers = [None, None]
+
+    def run(k):
+        answers[k] = subprocess.run(commands[k], capture_output=True)
+
     try:
-        with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
-            ref, new = pool.map(lambda cmd: subprocess.run(cmd, capture_output=True), commands)
-        return ref, new
+        other = threading.Thread(target=run, args=(1,))
+        other.start()
+        run(0)
+        other.join()
+        return tuple(answers)
     finally:
-        gate_jobs.release(token)
+        if gate_jobs is not None:
+            gate_jobs.release(token)
+
+
+def listed(args):
+    """Whether the call is `sawc2 lex @LIST`, whose output is one frame per
+    listed file, each starting with a `FILE\tPATH` line."""
+    return args[:1] == ["lex"] and len(args) == 2 and args[1].startswith("@")
+
+
+def split_frames(out):
+    """[(path, frame bytes)] of a `sawc2 lex @LIST` output, in order."""
+    frames = []
+    for line in out.split(b"\n"):
+        if line.startswith(b"FILE\t"):
+            frames.append([line[5:].decode("utf-8", "replace"), []])
+        elif frames:
+            frames[-1][1].append(line)
+    return [(path, b"\n".join(lines)) for path, lines in frames]
 
 
 def main():
     args = sys.argv[1:]
     ref, new = run_both(args)
     differs = []
+    files = []
     if ref.returncode != new.returncode:
         differs.append("exit %d under Stage 2, %d under Stage 1" % (new.returncode, ref.returncode))
     if ref.stdout != new.stdout:
-        differs.append("stdout " + first_difference(ref.stdout, new.stdout))
+        a, b = split_frames(ref.stdout), split_frames(new.stdout)
+        if listed(args) and [p for p, _ in a] == [p for p, _ in b]:
+            # Name each listed file the two stages lex differently.
+            for (path, x), (_, y) in zip(a, b):
+                if x != y:
+                    files.append({"path": path, "differs": ["stdout " + first_difference(x, y)]})
+        if not files:
+            differs.append("stdout " + first_difference(ref.stdout, new.stdout))
     if ref.stderr != new.stderr:
         differs.append("stderr " + first_difference(ref.stderr, new.stderr))
-    record = {"args": args, "differs": differs, "step": os.environ.get("SAW_GATE_STEP", "")}
-    fd, path = tempfile.mkstemp(suffix=".json", dir=os.environ["FIXPOINT_LOG"])
+    record = {"args": args, "differs": differs, "files": files, "step": os.environ.get("SAW_GATE_STEP", ""),
+              "listed": len(split_frames(ref.stdout)) if listed(args) else 0}
+    # The pid and the thread's id are unique among live writers, and O_EXCL
+    # refuses a name a finished one already took.
+    name = "%d-%d-%d.json" % (os.getpid(), threading.get_ident(), os.times().elapsed * 1e6)
+    fd = os.open(os.path.join(os.environ["FIXPOINT_LOG"], name), os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o644)
     with os.fdopen(fd, "w", encoding="utf-8") as fh:
         fh.write(json.dumps(record, sort_keys=True) + "\n")
     sys.stdout.buffer.write(ref.stdout)

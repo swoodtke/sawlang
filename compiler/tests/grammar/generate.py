@@ -957,7 +957,7 @@ def generate(jobs_count=None):
     gen = Generator(recognize.Grammar(extract.extract()))
     todo = jobs(gen)
     results = recognize.run_workers([os.path.abspath(__file__), "--worker"], todo,
-                                    jobs_count or recognize.default_jobs())
+                                    jobs_count or recognize.default_jobs(), candidates=True)
     return [case for result in results for case in result]
 
 

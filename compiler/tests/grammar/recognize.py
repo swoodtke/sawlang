@@ -2906,18 +2906,24 @@ def check_paths(paths, grammar_path=extract.GRAMMAR, enable=(), jobs=None):
 WORKER_SHARES = 24
 
 
-def run_workers(script_args, paths, jobs):
+def run_workers(script_args, paths, jobs, candidates=False):
     """Each path's JSON result line from `python SCRIPT_ARGS`, which reads paths
     on stdin, at most `jobs` of the `WORKER_SHARES` workers running at once.
     Plain subprocesses, since a sandbox may refuse the semaphores
-    multiprocessing needs; results come back in the order of `paths`."""
+    multiprocessing needs; results come back in the order of `paths`.
+    `candidates` marks workers that lex candidate texts as they make them (the
+    generator's, the mutator's), which lex with `lexdump.candidate_sawc2`."""
     shares = max(1, min(WORKER_SHARES, len(paths)))
-    # Built here, so that workers never race to build it.
-    lexdump.ensure_sawc2()
+    # Chosen and built here, and handed to every worker, which then never
+    # builds it (`build.handed_down`) and lexes with what this process lexes with.
+    binary = lexdump.ensure_sawc2()
+    if candidates:
+        binary = lexdump.candidate_sawc2() or binary
+    env = dict(os.environ, SAWC2_BINARY=binary)
     cmd = [sys.executable] + list(script_args)
 
     def work(share):
-        proc = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True)
+        proc = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True, env=env)
         out, _ = proc.communicate("".join(p + "\n" for p in share))
         lines = out.splitlines()
         if proc.returncode != 0 or len(lines) != len(share):
@@ -2935,8 +2941,11 @@ def run_workers(script_args, paths, jobs):
 
 def run_worker(grammar_path, enable):
     g = Grammar(extract.extract(grammar_path), enable)
-    for line in sys.stdin:
-        sys.stdout.write(json.dumps(check_file(g, line.rstrip("\n"))) + "\n")
+    paths = [line.rstrip("\n") for line in sys.stdin]
+    # Every file in one sawc2 process, before any is checked.
+    lexdump.lex_files(paths)
+    for path in paths:
+        sys.stdout.write(json.dumps(check_file(g, path)) + "\n")
     return 0
 
 

@@ -37,7 +37,14 @@ The CLI is the driver's `lex` subcommand:
 ./.venv/bin/python compiler/tools/build.py
 .build/sawc2 lex [--docs] <file.saw>
 .build/sawc2 lex --kinds
+.build/sawc2 lex @LIST
 ```
+
+`sawc2 lex @LIST` lexes every file the list names, one path per line, in one
+process. For each it prints `FILE<TAB>PATH`, what `sawc2 lex PATH` prints,
+`DOCS<TAB>STATUS` with that command's exit status, what `sawc2 lex --docs PATH`
+prints, and `END<TAB>STATUS`; it exits with the largest status. No token or doc
+record starts with `FILE`, `DOCS` or `END`.
 
 ## Canonical token-dump format
 

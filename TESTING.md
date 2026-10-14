@@ -448,7 +448,12 @@ decision is `tools/patch_gate.py`'s:
   `compiler/` (the lane itself and `compiler/tools/build.py` included), `std/`,
   `sawc/` (Stage 0 builds Stage 1, so a `sawc/` change can move it) or
   `tests/corpus/` (the programs the replayed lanes run sawc2 over) changes,
-  so a local gate never runs it;
+  so a local gate never runs it. The gate runs its default mode, which compares
+  every call but the candidate texts the grammar generator and mutator lex as
+  they go (`generate.py`, `negative.py`), which lex with Stage 2 alone; full
+  mode, `SAW_FIXPOINT_FULL=1`, compares those too, and is what the battery's
+  `fixpoint` stage runs, so the periodic full battery on main (ST-45) covers
+  them. The lane's summary line names the mode;
 - the full grammar corpus runs when `GRAMMAR.md`, `LANGUAGE_SPEC.md` (whose
   headings `spec=` names), `compiler/tests/grammar/` or `sawc/` (the reference
   lexer and the classifying parser) changes; otherwise each changed `.saw` file

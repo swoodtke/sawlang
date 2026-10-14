@@ -178,6 +178,7 @@ Use the venv's Python, since it runs the frozen compiler:
 ./.venv/bin/python compiler/tools/build.py            # builds Stage 1, then Stage 2
 .build/sawc2 lex [--docs] <file.saw>                   # the token dump, or the doc trivia
 .build/sawc2 lex --kinds                               # every token kind's dump name
+.build/sawc2 lex @LIST                                 # both dumps of each listed file, framed
 .build/sawc2 parse --dump FILE...                      # each file's canonical AST dump
 .build/sawc2 parse --check FILE...                     # each file's diagnostics
 .build/sawc2 build --std-root std FILE -o OUT          # FILE compiled and linked by clang

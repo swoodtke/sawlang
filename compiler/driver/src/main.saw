@@ -3,6 +3,7 @@
 //
 //   sawc2 lex [--docs] <file.saw>   the token dump, or the doc-comment trivia
 //   sawc2 lex --kinds               every token kind's dump name, one per line
+//   sawc2 lex @LIST                 each listed file's token dump and doc dump, framed
 //   sawc2 parse --dump FILE...      each file's canonical AST dump
 //   sawc2 parse --check FILE...     each file's diagnostics only
 //   sawc2 parse --redump FILE...    each dump file read back and rendered again
@@ -72,6 +73,7 @@ static DRIVER_SLASH: Int = 47
 func driver_usage() -> Int {
     print("usage: sawc2 lex [--docs] <file.saw>")
     print("       sawc2 lex --kinds")
+    print("       sawc2 lex @LIST")
     print("       sawc2 parse (--dump | --check) [--alternatives] [[--unit] FILE | @LIST]...")
     print("       sawc2 parse --redump [FILE | @LIST]...")
     print("       sawc2 resolve (--dump | --check) [--notes] [--lowerings] [--std-root DIR]")
@@ -1223,8 +1225,8 @@ func driver_parse_one(input: &DriverInput, dump: Bool, reread: Bool, alternative
     DRIVER_EXIT_USAGE
 }
 
-// `sawc2 lex`: the arguments after the subcommand name one file, or ask for
-// the kind list.
+// `sawc2 lex`: the arguments after the subcommand name one file or one `@LIST`,
+// or ask for the kind list.
 func driver_lex(args: &Vector<String>) -> Int {
     var docs_mode = false
     var kinds_mode = false
@@ -1252,11 +1254,56 @@ func driver_lex(args: &Vector<String>) -> Int {
     if path.equals("") {
         return driver_usage()
     }
+    if path.len() > 1 && (path.byte_at(0) as Int) == DRIVER_AT {
+        if docs_mode {
+            return driver_usage()
+        }
+        // Stage 0 workaround (SL:hazards S4): canonical: return driver_lex_list(path.substring(1, path.len()))
+        let size = path.len()
+        let list = path.substring(1, size)
+        return driver_lex_list(list)
+    }
+    driver_lex_part(path, docs_mode)
+}
+
+// One file's token dump, or its doc dump, and the status `sawc2 lex` exits with.
+func driver_lex_part(path: String, docs_mode: Bool) -> Int {
     if let text = driver_read_source(path) {
         driver_dump(text, docs_mode)
     } else {
         DRIVER_EXIT_USAGE
     }
+}
+
+// `sawc2 lex @LIST`: for each listed file, `FILE\tPATH`, what `sawc2 lex PATH`
+// prints, `DOCS\tSTATUS` with that command's exit status, what `sawc2 lex
+// --docs PATH` prints, and `END\tSTATUS`. Each part is byte for byte the
+// single-file command's output, so one process can stand for many. No token or
+// doc record starts with `FILE`, `DOCS` or `END`. Exits with the largest status.
+func driver_lex_list(list: String) -> Int {
+    var inputs = Vector<DriverInput>()
+    if not driver_add_list(&var inputs, list) {
+        return DRIVER_EXIT_USAGE
+    }
+    var status = 0
+    var k = 0
+    while k < inputs.len() {
+        if let input = inputs.get(k) {
+            print("FILE\t{}", input.path)
+            let tokens = driver_lex_part(input.path, false)
+            print("DOCS\t{}", tokens)
+            let docs = driver_lex_part(input.path, true)
+            print("END\t{}", docs)
+            if tokens > status {
+                status = tokens
+            }
+            if docs > status {
+                status = docs
+            }
+        }
+        k = k + 1
+    }
+    status
 }
 
 // The file's text, or None once the reason it could not be read is printed.

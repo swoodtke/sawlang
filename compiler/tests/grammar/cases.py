@@ -545,11 +545,17 @@ def run_worker():
     sys.setrecursionlimit(recognize.RECURSION_LIMIT)
     exp = Expectations()
     files = {}
+    todo = []
     for line in sys.stdin:
         path, index = line.rstrip("\n").split("\t")
         if path not in files:
             files[path] = read_cases(path)
-        sys.stdout.write(json.dumps(evaluate(exp, path, files[path][int(index)])) + "\n")
+        todo.append((path, files[path][int(index)]))
+    # Every case's own text in one sawc2 process; the texts an evaluation
+    # derives from it are lexed as they come.
+    lexdump.lex_texts([case.text for _, case in todo])
+    for path, case in todo:
+        sys.stdout.write(json.dumps(evaluate(exp, path, case)) + "\n")
     return 0
 
 

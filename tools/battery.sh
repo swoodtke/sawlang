@@ -61,7 +61,7 @@ STAGES=(
     "suite|no|the compiler test suite (zero UNCITED xfails is the bar)|$PY test_runner.py"
     "icebreadcrumb|no|an internal compiler error reports one located line|$PY tools/test_ice_breadcrumb.py"
     "compiler|no|the self-hosted compiler: unit programs, golden fixtures, the subset checker, the grammar lint|$PY compiler/tests/run.py"
-    "fixpoint|no|Stage 2 (sawc2 built by sawc2) agrees with Stage 1 on every lane's invocations, and Stage 3 = Stage 2|$PY compiler/tests/fixpoint/fixpoint_lane.py"
+    "fixpoint|no|Stage 2 (sawc2 built by sawc2) agrees with Stage 1 on every lane's invocations, and Stage 3 = Stage 2|env SAW_FIXPOINT_FULL=1 $PY compiler/tests/fixpoint/fixpoint_lane.py"
     "grammarcorpus|no|every tracked .saw against GRAMMAR.md: its recorded verdict, one tree when accepted|$PY compiler/tests/grammar/corpus.py"
     "astdiff|no|every .saw dumps completely and byte-stably|$PY tools/astdiff.py"
     "astgraft|no|no pass stamps an AST attribute no class declares|$PY tools/test_ast_graft.py"

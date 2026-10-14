@@ -8,9 +8,14 @@ segments. The record format is compiler/lex/README.md's. A lex error raises
 normalizes. `ensure_sawc2` builds the driver when it is missing or older than
 its sources or the frozen compiler that builds it.
 
+`lex_files` and `lex_texts` lex many at once through `sawc2 lex @LIST`, so a
+worker that knows its inputs runs one sawc2 process for all of them.
+
 ENTRY POINTS
     lex_file
     lex_text
+    lex_files
+    lex_texts
 """
 import os
 import subprocess
@@ -159,15 +164,28 @@ _built = []
 
 
 def ensure_sawc2():
-    """The path of a sawc2 at least as new as everything it is built from."""
+    """The path of a sawc2 at least as new as everything it is built from. A
+    binary handed down from a runner above is used as it is: that runner
+    keeps it fresh, and two processes building it at once would race."""
     if _built:
         return _built[0]
-    if not os.path.exists(build.SAWC2) or _newest(SAWC2_SOURCES) > os.path.getmtime(build.SAWC2):
+    if build.handed_down():
+        if not os.path.exists(build.SAWC2):
+            raise RuntimeError("SAWC2_BINARY names %s, which does not exist" % build.SAWC2)
+    elif not os.path.exists(build.SAWC2) or _newest(SAWC2_SOURCES) > os.path.getmtime(build.SAWC2):
         ok, output = build.build_sawc2()
         if not ok:
             raise RuntimeError("sawc2 does not build: %s" % output.strip().split("\n")[0])
     _built.append(build.SAWC2)
     return build.SAWC2
+
+
+def candidate_sawc2():
+    """The sawc2 that candidate texts are lexed with, those the generator and
+    the mutator make and lex as they go, when a runner above chose one apart
+    (SAWC2_CANDIDATE_BINARY: the fixpoint lane's default mode hands Stage 2
+    here and its twin to everything else); None to use `ensure_sawc2`'s."""
+    return os.environ.get("SAWC2_CANDIDATE_BINARY") or None
 
 
 def _newest(roots):
@@ -191,13 +209,110 @@ def _run(*args):
 
 
 def lex_file(path):
-    """(tokens, doc comments) of the file; raises LexError."""
+    """(tokens, doc comments) of the file; raises LexError. A file `lex_files`
+    has lexed is answered from that, once."""
+    if path in _prefetched:
+        return _answer(_prefetched.pop(path))
     code, dump = _run(path)
     tokens = parse_tokens(dump)
     if code != 0:
         raise RuntimeError("sawc2 lex %s: exit %d without an ERROR record" % (path, code))
     _, docs = _run("--docs", path)
     return tokens, parse_docs(docs)
+
+
+def _lexed(path, code, dump, docs_code, docs):
+    """What `lex_file` makes of the two dumps and their statuses: (tokens, doc
+    comments), or the LexError or RuntimeError it would raise."""
+    if code not in (0, 1):
+        return RuntimeError("sawc2 lex %s: exit %d: %s" % (path, code, dump))
+    try:
+        tokens = parse_tokens(dump)
+    except LexError as e:
+        return e
+    if code != 0:
+        return RuntimeError("sawc2 lex %s: exit %d without an ERROR record" % (path, code))
+    if docs_code not in (0, 1):
+        return RuntimeError("sawc2 lex --docs %s: exit %d: %s" % (path, docs_code, docs))
+    return tokens, parse_docs(docs)
+
+
+def _answer(lexed):
+    if isinstance(lexed, Exception):
+        raise lexed
+    return lexed
+
+
+def lex_list(paths, scratch):
+    """{path: what `_lexed` makes of it} for every path, from one `sawc2 lex
+    @LIST` call over a listing written into the directory `scratch`."""
+    listing = os.path.join(scratch, "list.txt")
+    with open(listing, "w", encoding="utf-8") as fh:
+        fh.write("".join(p + "\n" for p in paths))
+    r = subprocess.run([ensure_sawc2(), "lex", "@" + listing], capture_output=True,
+                       timeout=LEX_TIMEOUT * max(1, len(paths) // 100))
+    if r.returncode not in (0, 1, 2):
+        raise RuntimeError("sawc2 lex @%s: exit %d: %s" % (listing, r.returncode, r.stdout[-300:]))
+    return {path: _lexed(path, *parts) for path, parts in frames(r.stdout.decode("utf-8")).items()}
+
+
+def frames(dump):
+    """{path: (status, token dump, docs status, doc dump)} of a `sawc2 lex
+    @LIST` dump, each dump the text the single-file command prints."""
+    lines = dump.split("\n")
+    if lines and lines[-1] == "":
+        lines.pop()
+    out = {}
+    k = 0
+    while k < len(lines):
+        if not lines[k].startswith("FILE\t"):
+            raise RuntimeError("sawc2 lex @LIST: expected a FILE line, got %r" % lines[k][:120])
+        path = lines[k][len("FILE\t"):]
+        parts = []
+        k += 1
+        for closer in ("DOCS\t", "END\t"):
+            body = []
+            while k < len(lines) and not lines[k].startswith(closer):
+                body.append(lines[k])
+                k += 1
+            if k == len(lines):
+                raise RuntimeError("sawc2 lex @LIST: %s has no %s line" % (path, closer.strip()))
+            parts += [int(lines[k][len(closer):]), "".join(line + "\n" for line in body)]
+            k += 1
+        out[path] = tuple(parts)
+    return out
+
+
+_prefetched = {}
+
+
+def lex_files(paths):
+    """Lex every file of `paths` with one sawc2 process, so that `lex_file`
+    answers each from that; the answers are those it gives a file alone
+    (pinned by compiler/tests/parallel_order.py)."""
+    todo = [p for p in dict.fromkeys(paths) if p not in _prefetched]
+    if len(todo) > 1:
+        with tempfile.TemporaryDirectory(prefix="sawgrammar-") as scratch:
+            _prefetched.update(lex_list(todo, scratch))
+
+
+def lex_texts(texts):
+    """Lex every text of `texts` not yet cached with one sawc2 process, so
+    that `lex_text` answers each from the cache as it would alone."""
+    todo = [t for t in dict.fromkeys(texts) if t not in _cache]
+    if len(todo) <= 1:
+        return
+    with tempfile.TemporaryDirectory(prefix="sawgrammar-") as scratch:
+        paths = []
+        for k, text in enumerate(todo):
+            paths.append(os.path.join(scratch, "text%d.saw" % k))
+            with open(paths[-1], "w", encoding="utf-8") as fh:
+                fh.write(text)
+        lexed = lex_list(paths, scratch)
+    for text, path in zip(todo, paths):
+        # A RuntimeError is not an answer to keep: `lex_text` meets it again.
+        if not isinstance(lexed[path], RuntimeError):
+            _cache[text] = lexed[path]
 
 
 _cache = {}
