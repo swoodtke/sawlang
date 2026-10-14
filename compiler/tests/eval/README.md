@@ -34,9 +34,10 @@ adopts, and a negated literal is one constant, so `-128` is an `Int8`), an
 integer type's `max` and `min`, the arithmetic, wrapping, bit and shift
 operators, comparisons, `not`, `&&` and `||` as the branches MIR makes them,
 casts, widenings and adoptions between integer types, a type alias's
-construction (`Byte(65)`, the identity at its underlying type), payload-free enum cases
-(read as their raw values where they adopt an integer type), and reads of
-other statics and raw-backed cases, evaluated once each, before or after the
+construction (`Byte(65)`, the identity at its underlying type), payload-free
+enum cases (read as their raw values where they adopt an integer type, and
+where two are compared, as typecheck's fold and the run time compare them),
+and reads of other statics and raw-backed cases, evaluated once each, before or after the
 reader in the source. Arithmetic is typed: each operation runs at its
 operands' type through `sawtypecheck.arith`, the rule typecheck's fold
 follows too. Calls, loops, aggregates, references and every other construct

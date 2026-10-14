@@ -51,10 +51,11 @@ typecheck/
                       compiler/tools/runtime_table.py
     erasure.saw       object safety: the funnel every written `any Trait` reaches
     effects.saw       phase 3: the checks that read the summaries
-    exhaust.saw       match exhaustiveness
+    exhaust.saw       match exhaustiveness and duplicate arms
     arith.saw         typed integer arithmetic, the one rule every constant follows
     fold.saw          constant folding by typed arithmetic, for literal ranges, which
-                      the MIR evaluator (compiler/eval) agrees with
+                      the MIR evaluator (compiler/eval) agrees with; the value a
+                      literal or range pattern tests
     lang.saw          the lang items' shapes
     strings.saw       the String positions and their funnel
     bodychecks.saw    borrowing-struct containment, a static's type, the body
@@ -139,7 +140,9 @@ typecheck/
    one. A closure's inferred result is judged as the closure is walked.
 10. **Exhaustiveness** (`exhaust.saw`): every `match`'s unguarded arms
    against its scrutinee's type, as the usefulness of a wildcard row over the
-   pattern matrix, which names each missing value. A discarded `Result` is
+   pattern matrix, which names each missing value; and an unguarded arm that
+   repeats an earlier one, its literals compared by the value they test
+   (`pattern_value`), never by their spelling. A discarded `Result` is
    refused as the body is walked (design 151).
 11. **Path uses** (`paths.saw`, design 219): each by-value read of a local
     whose type names one of the function's own type parameters, which the
@@ -154,7 +157,9 @@ typecheck/
     suspending implementation.
 14. **Body rules** (`bodychecks.saw`): borrowing-struct containment, a
     static's type (never optional, and `Sync` unless it is an `unsafe static
-    var`), the body half of `unsafe`, and the `borrows(sync)` window, which
+    var`), a raw-backed enum's backing and its cases' values, stated and
+    distinct by their folded values, the body half of `unsafe`, and the
+    `borrows(sync)` window, which
     reads the summaries. A `consumes` call's `move` and `move self`'s `consumes` body
     are checked as the body is walked.
 15. **Exports** (`exports.saw`, the export funnel `tc_check_exports`): each
@@ -559,6 +564,11 @@ These are the reversible readings this unit made; SL-447's report lists them.
   rename that leaves out a defaulted parameter is refused with the head
   written out (SL:open-questions D14); a rename missing an undefaulted one is
   `type.arity`.
+- A literal or range pattern's integer adopts the matched type whole, as a
+  bare literal adopts its slot, so `case 300` on a `UInt8` and `case -1` on
+  an unsigned type are refused as not fitting it, the spec's rule for every
+  literal. Stage 0 accepts both and truncates at run time, so `case 300`
+  matches 44 there (SL-609).
 
 ## Safety readings
 

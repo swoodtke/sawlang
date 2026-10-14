@@ -12,6 +12,7 @@ import sawtypecheck.adjust.{TC_FIT_EXACT}
 import sawtypecheck.candidates.{tc_contains}
 import sawtypecheck.checks.{tc_check_unsafe}
 import sawtypecheck.conform.{TcSubst, tc_args_subst}
+import sawtypecheck.fold.{TcFold}
 import sawtypecheck.model.{TC_EFFECT_BORROWS, TC_EFFECT_BORROWS_SYNC, TC_EFFECT_UNSAFE,
                                TC_FLAG_BORROWS_STRUCT, TC_FLAG_UNSAFE_VAR, TcAdjust, TcAdjustKind,
                                TcCall, TcLend, TcParam, TcSig, TcUse}
@@ -211,6 +212,62 @@ extension TcProgram {
                 self.refuse_in(info.module, site, "type.raw-backing", why.build())
                 return
             }
+        }
+        self.check_raw_values(d, &members)
+    }
+
+    // Rule 2 of raw-backed enums: every case states its value, and no two
+    // share one, compared by their folded values, so `1` and `0x01` are one
+    // value. A value whose fold faulted was refused where it is written.
+    func check_raw_values(&var self, d: Int, members: &Vector<Int>) {
+        let info = self.res.decls[d]
+        var cases = Vector<Int>()
+        var values = Vector<Int>()
+        var k = 0
+        while k < members.len() {
+            let c = members[k]
+            k = k + 1
+            if self.res.decls[c].kind != ResDeclKind.Case {
+                continue
+            }
+            let node = self.raw_value_node(c)
+            if node < 0 {
+                var why = StringBuilder()
+                try! why.append("case `")
+                try! why.append(self.res.decl_path(c))
+                try! why.append("` needs an explicit value: every case of an enum with a raw backing declares its own, since the backing says the numbers are ABI and none is assigned for you")
+                let site = self.decl_site(c)
+                self.refuse_in(info.module, site, "type.raw-value", why.build())
+                continue
+            }
+            let v = self.fold_constant(node)
+            if not v.ok {
+                continue
+            }
+            var j = 0
+            while j < values.len() {
+                if values[j] == v.bits {
+                    var why = StringBuilder()
+                    try! why.append("cases `")
+                    // Stage 0 workaround (SL:hazards S4): canonical: try! why.append(self.name_text(self.res.decls[cases[j]].name))
+                    let first_name = self.res.decls[cases[j]].name
+                    try! why.append(self.name_text(first_name))
+                    try! why.append("` and `")
+                    // Stage 0 workaround (SL:hazards S4): canonical: try! why.append(self.name_text(self.res.decls[c].name))
+                    let second_name = self.res.decls[c].name
+                    try! why.append(self.name_text(second_name))
+                    try! why.append("` of enum `")
+                    try! why.append(self.res.decl_path(d))
+                    try! why.append("` both have raw value ")
+                    try! why.append(self.fold_text(&v))
+                    try! why.append(": raw values identify the cases on the wire, so they must be distinct")
+                    self.refuse_in(info.module, node, "type.raw-value", why.build())
+                    j = values.len()
+                }
+                j = j + 1
+            }
+            try! cases.push(c)
+            try! values.push(v.bits)
         }
     }
 

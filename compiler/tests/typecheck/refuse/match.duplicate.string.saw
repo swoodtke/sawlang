@@ -1,0 +1,10 @@
+// refuses: match.duplicate at 7:9
+// patterns compare by value: `"\u{61}"` repeats `"a"`, decoded by the lexer's rule
+
+func pick(s: String) -> Int {
+    match s {
+        case "a" -> 1,
+        case "\u{61}" -> 2,
+        case _ -> 3
+    }
+}

@@ -1,0 +1,9 @@
+// refuses: match.duplicate at 7:9
+// a binding and `_` are one catch-all, so the second never runs
+
+func pick(x: Int) -> Int {
+    match x {
+        case n -> n,
+        case _ -> 3
+    }
+}

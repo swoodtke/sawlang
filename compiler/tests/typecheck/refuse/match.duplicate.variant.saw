@@ -1,0 +1,15 @@
+// refuses: match.duplicate at 12:9
+// a hole is one pattern whether it is `_` or a name, so `Move(a, b)` repeats `Move(x, y)` (Stage 0's second shape)
+
+enum Message {
+    case Quit,
+    case Move(x: Int, y: Int)
+}
+
+func kind(m: Message) -> Int {
+    match m {
+        case Move(x, y) -> x,
+        case Move(a, b) -> b,
+        case Quit -> 1
+    }
+}

@@ -1,0 +1,9 @@
+// refuses: type.mismatch at 6:14
+// a range pattern's end adopts the matched type too, and 256 does not fit `UInt8`
+
+func pick(x: UInt8) -> Int {
+    match x {
+        case 250..=256 -> 1,
+        case _ -> 3
+    }
+}

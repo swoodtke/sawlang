@@ -31,6 +31,7 @@ import sawtypecheck.candidates.{tc_contains}
 import sawtypecheck.checks.{tc_check_unsafe}
 import sawtypecheck.conform.{TcSubst, tc_args_subst, tc_extension_sets}
 import sawtypecheck.declarations.{tc_build_signatures}
+import sawtypecheck.fold.{TcSameTest}
 import sawtypecheck.program.{TcProgram}
 import sawtypecheck.signatures.{TcContext}
 import sawtypecheck.spell.{tc_effects_text}
@@ -5393,8 +5394,11 @@ extension MirProgram {
         MirRow(arm: r.arm, first: first, count: state.cells.len() - first)
     }
 
-    // A test of the first row's literal or range pattern: rows the same
-    // pattern settles follow its true edge, the rest its false edge.
+    // A test of the first row's literal or range pattern: a row whose
+    // pattern tests the same values follows its true edge only, settled; one
+    // testing a different value its false edge only; any other row, a range
+    // or an untested place, both edges. Patterns are compared by value, so a
+    // spelling never sends a row past an arm that matches.
     func split_test(&var self, state: &var MirMatch, rows: &Vector<MirRow>, cell: MirCell, root: Int) {
         let o = self.pattern_test(cell)
         let yes = self.new_block()
@@ -5413,12 +5417,13 @@ extension MirProgram {
                 continue
             }
             let other = state.cells[at].pattern
-            if self.same_pattern(other, cell.pattern) {
+            let same = self.tc.same_test(other, cell.pattern)
+            if same == TcSameTest.Same {
                 try! passed.push(self.without(&var state, r, at))
-            } else if self.is_bool_pattern(other) && self.is_bool_pattern(cell.pattern) {
+            } else if same == TcSameTest.Different && self.is_bool_pattern(other) {
                 // The other `Bool` literal holds exactly where this one fails.
                 try! failed.push(self.without(&var state, r, at))
-            } else if self.is_literal_pattern(other) && self.is_literal_pattern(cell.pattern) {
+            } else if same == TcSameTest.Different {
                 try! failed.push(r)
             } else {
                 try! passed.push(r)
@@ -5447,22 +5452,6 @@ extension MirProgram {
 
     func is_bool_pattern(&self, p: Int) -> Bool {
         self.tc.has_alt(p, Alt.Pat_Literal_True) || self.tc.has_alt(p, Alt.Pat_Literal_False)
-    }
-
-    func is_literal_pattern(&self, p: Int) -> Bool {
-        self.tc.has_alt(p, Alt.Pat_Literal_Int) || self.tc.has_alt(p, Alt.Pat_Literal_NegativeInt) || self.tc.has_alt(p, Alt.Pat_Literal_String) || self.tc.has_alt(p, Alt.Pat_Literal_True) || self.tc.has_alt(p, Alt.Pat_Literal_False)
-    }
-
-    // Whether two literal or range patterns test the same thing, by their
-    // spelling.
-    func same_pattern(&self, a: Int, b: Int) -> Bool {
-        let ma = self.tc.node_module(a)
-        let mb = self.tc.node_module(b)
-        let ta = self.tc.text(ma, a)
-        let tb = self.tc.text(mb, b)
-        let alt_a = self.tc.node_alt(a)
-        let alt_b = self.tc.node_alt(b)
-        ta.equals(tb) && alt_a == alt_b
     }
 
     // The `Bool` a literal or range pattern's test computes of its place.

@@ -294,7 +294,7 @@ through a reference to stay a reported move.
 | `borrow v.get(i)` in `if let` or `??` | the conditional window `v.get(i)` opens | windows |
 | each kind of body | a function of its own | bodies |
 | `try`, `try!`, `try?` | a switch with a return of `Err`; the `Ok!` projection; a switch building an Optional | branches, adjustments |
-| `match` | a decision tree | matches |
+| `match` | a decision tree; a literal test settles a later row testing the same value, however spelled (`pattern_value`), sends one testing a different value down its false edge, and sends a range down both | matches, run match_literal_values |
 | `borrow let x = p { }` | a window, closed on every edge out of the body | windows |
 | `borrow var p += v`, `borrow p` | a window closed at the statement's end, or once the value is copied out | windows |
 | `v[i]` read, `v[i] = x` | a derived getitem or setitem around the place accessor's window, or the declared `[]`, `[]=` | windows, order |

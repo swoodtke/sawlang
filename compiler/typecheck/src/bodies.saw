@@ -8876,7 +8876,32 @@ extension TcProgram {
             self.refuse_pattern(p, "this literal pattern does not match the value", t)
         } else if kind == 1 {
             self.string_position(p, TcStringPosition.Pattern)
+        } else if kind == 0 {
+            self.check_pattern_range(p, t)
         }
+    }
+
+    // An integer pattern's literals adopt the matched type whole, as a bare
+    // literal adopts its slot, so one that type cannot hold is refused as
+    // such a literal is.
+    func check_pattern_range(&var self, p: Int, t: Int) {
+        let v = self.pattern_value(p)
+        if v.misfit < 0 {
+            return
+        }
+        let m = self.current
+        var msg = StringBuilder()
+        try! msg.append("integer literal ")
+        if v.misfit_negated {
+            try! msg.append("-")
+        }
+        try! msg.append(self.text(m, v.misfit))
+        try! msg.append(" does not fit in `")
+        try! msg.append(self.type_text(t))
+        try! msg.append("` (range ")
+        try! msg.append(self.int_range_text(t))
+        try! msg.append(")")
+        self.refuse(p, "type.mismatch", msg.build())
     }
 
     // `(a, b)`: a tuple of as many elements.

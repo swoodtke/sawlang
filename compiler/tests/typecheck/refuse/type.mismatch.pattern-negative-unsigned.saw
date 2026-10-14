@@ -1,0 +1,9 @@
+// refuses: type.mismatch at 6:14
+// a negative literal pattern on an unsigned type does not fit it
+
+func pick(x: UInt8) -> Int {
+    match x {
+        case -1 -> 1,
+        case _ -> 3
+    }
+}

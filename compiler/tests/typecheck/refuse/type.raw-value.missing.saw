@@ -1,0 +1,7 @@
+// refuses: type.raw-value at 6:10
+// every case of a raw-backed enum states its value; nothing is assigned for it (spec, Raw-backed enums, rule 2)
+
+enum Wire: UInt8 {
+    case Ack = 6,
+    case Nak
+}

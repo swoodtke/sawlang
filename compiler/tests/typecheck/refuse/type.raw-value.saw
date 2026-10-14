@@ -1,0 +1,7 @@
+// refuses: type.raw-value at 6:16
+// no two cases of a raw-backed enum share a value, compared by value: `0x01` is `1` (spec, Raw-backed enums, rule 2)
+
+enum Wire: UInt8 {
+    case Ack = 1,
+    case Nak = 0x01
+}

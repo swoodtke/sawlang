@@ -12,7 +12,12 @@
 // The MIR evaluator in `compiler/eval` computes the same values from MIR,
 // and a lane holds the two to agreement; lowering this fold to MIR on demand
 // is a later unit's.
+//
+// A literal or range pattern's value is read here too, by the same literal
+// rule, so patterns are compared by the values they test and never by their
+// spelling: `0x10` and `16`, or `"a"` and `"\u{61}"`, are one test.
 
+import sawlex.{lex}
 import sawparse.grammar.{Alt}
 import sawresolve.collect.{res_is_top_level}
 import sawresolve.kinds.{res_is_type_alt}
@@ -43,6 +48,43 @@ public func tc_folded(bits: Int, ty: Int) -> TcFold {
 
 public func tc_fold_fault(fault: TcFault, ty: Int, at: Int) -> TcFold {
     TcFold(ok: false, bits: 0, ty: ty, fault: fault, at: at)
+}
+
+// What a literal or range pattern tests.
+public enum TcPatternKind {
+    case Other,
+    case Integer,
+    case Text,
+    case Boolean,
+    case Range
+}
+
+// A literal or range pattern's value at the type it matches: an integer's
+// bits, or a `Bool` as 1 or 0, in `low`; a range's ends in `low` and `high`;
+// a string's decoded content in `text`. `misfit` is the leaf of the first
+// integer the type cannot hold, or -1, `misfit_negated` whether a `-` is
+// written before it; such a pattern has no value to compare.
+public struct TcPatternValue {
+    kind: TcPatternKind
+    low: Int
+    high: Int
+    inclusive: Bool
+    text: String
+    misfit: Int
+    misfit_negated: Bool
+}
+
+// Whether two patterns at one place test the same values, different ones, or
+// neither is known: a range against anything but the same range, or an
+// integer its type cannot hold.
+public enum TcSameTest {
+    case Same,
+    case Different,
+    case Unknown
+}
+
+func tc_is_digit(b: Int) -> Bool {
+    b >= 48 && b <= 57
 }
 
 extension TcProgram {
@@ -484,7 +526,8 @@ extension TcProgram {
         return -1
     }
 
-    // A raw-backed case's value node, or -1.
+    // A raw-backed case's value node, or -1. A documented case's doc comment
+    // is a child of its node too, and is no value.
     public func raw_value_node(&self, c: Int) -> Int {
         let info = self.res.decls[c]
         if info.node < 0 {
@@ -494,7 +537,7 @@ extension TcProgram {
         var k = 0
         while k < n {
             let child = self.child(info.node, k)
-            if not self.is_leaf(child) && not self.has_alt(child, Alt.Decl_PayloadField) {
+            if not self.is_leaf(child) && not self.has_alt(child, Alt.Decl_PayloadField) && not self.res.is_doc(child) {
                 return child
             }
             k = k + 1
@@ -528,4 +571,152 @@ extension TcProgram {
         }
         v.bits.to_string()
     }
+}
+
+// Pattern values.
+extension TcProgram {
+    // The value literal or range pattern `p` tests, at the type it matches,
+    // or kind Other for any other pattern. An integer is read as a literal
+    // adopting that type, `-` and all, so its spelling never decides.
+    //
+    // ENTRY POINTS (pattern_value):
+    //     same_test
+    //     check_pattern_range
+    //     duplicate_text
+    public func pattern_value(&self, p: Int) -> TcPatternValue {
+        var v = TcPatternValue(kind: TcPatternKind.Other, low: 0, high: 0, inclusive: false, text: "", misfit: -1,
+                               misfit_negated: false)
+        if p < 0 || p >= self.expr_types.len() {
+            return move v
+        }
+        guard let alt = self.node_alt(p) else {
+            return move v
+        }
+        let t = self.expr_types[p]
+        if t < 0 || self.has_error(t) {
+            return move v
+        }
+        if alt == Alt.Pat_Literal_True || alt == Alt.Pat_Literal_False {
+            if self.is_bool(t) {
+                v.kind = TcPatternKind.Boolean
+                v.low = if alt == Alt.Pat_Literal_True { 1 } else { 0 }
+            }
+            return move v
+        }
+        if alt == Alt.Pat_Literal_String {
+            if self.is_string(t) {
+                self.decode_string_pattern(p, &var v)
+            }
+            return move v
+        }
+        let range = alt == Alt.Pat_Range_Exclusive || alt == Alt.Pat_Range_Inclusive
+        if not range && alt != Alt.Pat_Literal_Int && alt != Alt.Pat_Literal_NegativeInt {
+            return move v
+        }
+        if not self.is_integer(t) {
+            return move v
+        }
+        v.kind = if range { TcPatternKind.Range } else { TcPatternKind.Integer }
+        v.inclusive = alt == Alt.Pat_Range_Inclusive
+        self.read_pattern_integers(p, t, &var v)
+        move v
+    }
+
+    // The integers pattern `p` writes: a literal's one into `v.low`, a
+    // range's ends into `v.low` and `v.high`, each at integer type `t`.
+    func read_pattern_integers(&self, p: Int, t: Int, v: &var TcPatternValue) {
+        let m = self.node_module_of(p)
+        let w = self.int_width(t)
+        let signed = not self.is_unsigned(t)
+        // A negative literal's node implies its `-`, where a range's ends
+        // keep theirs as leaves.
+        var negated = self.has_alt(p, Alt.Pat_Literal_NegativeInt)
+        var count = 0
+        let n = self.child_count(p)
+        var k = 0
+        while k < n {
+            let c = self.child(p, k)
+            k = k + 1
+            if not self.is_leaf(c) {
+                continue
+            }
+            let text = self.text(m, c)
+            if text.equals("-") {
+                negated = true
+                continue
+            }
+            if text.len() == 0 || not tc_is_digit(text.byte_at(0) as Int) {
+                continue
+            }
+            let magnitude = tc_arith_literal(&text)
+            var r = magnitude
+            if magnitude.ok && negated {
+                r = tc_arith_negative_literal(magnitude.bits, w, signed)
+            } else if magnitude.ok {
+                r = tc_arith_convert(magnitude.bits, 64, false, w, signed)
+            }
+            if not r.ok && v.misfit < 0 {
+                v.misfit = c
+                v.misfit_negated = negated
+            }
+            if count == 0 {
+                v.low = r.bits
+            } else {
+                v.high = r.bits
+            }
+            count = count + 1
+            negated = false
+        }
+    }
+
+    // A string pattern's content, decoded by the lexer's own rule.
+    func decode_string_pattern(&self, p: Int, v: &var TcPatternValue) {
+        let m = self.node_module_of(p)
+        let leaf = self.res.first_leaf(p)
+        let source = self.text(m, if leaf >= 0 { leaf } else { p })
+        let lexed = lex(source)
+        match lexed {
+            case Ok(result) -> {
+                if result.tokens.len() > 0 {
+                    let first = result.tokens[0]
+                    v.kind = TcPatternKind.Text
+                    v.text = first.value
+                }
+            },
+            case Err(_) -> {}
+        }
+    }
+
+    // Whether literal or range patterns `a` and `b`, matched against one
+    // place, test the same values.
+    public func same_test(&self, a: Int, b: Int) -> TcSameTest {
+        let va = self.pattern_value(a)
+        let vb = self.pattern_value(b)
+        tc_same_values(&va, &vb)
+    }
+}
+
+// Whether two pattern values, of patterns matched against one place, test the
+// same values: the one rule `same_test` and the duplicate-arm check compare
+// by.
+public func tc_same_values(va: &TcPatternValue, vb: &TcPatternValue) -> TcSameTest {
+    if va.kind == TcPatternKind.Other || va.kind != vb.kind || va.misfit >= 0 || vb.misfit >= 0 {
+        return TcSameTest.Unknown
+    }
+    if va.kind == TcPatternKind.Range {
+        if va.inclusive == vb.inclusive && va.low == vb.low && va.high == vb.high {
+            return TcSameTest.Same
+        }
+        return TcSameTest.Unknown
+    }
+    if va.kind == TcPatternKind.Text {
+        if va.text.equals(vb.text) {
+            return TcSameTest.Same
+        }
+        return TcSameTest.Different
+    }
+    if va.low == vb.low {
+        return TcSameTest.Same
+    }
+    TcSameTest.Different
 }

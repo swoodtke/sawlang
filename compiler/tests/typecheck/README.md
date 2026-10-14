@@ -724,6 +724,27 @@ and whether it duplicates the local. A function named is one of
 | `Result` | exhaustive |
 | an inline-recursive enum with wildcards | type.infinite-size.matched |
 
+**Duplicate arms** (spec, Control Flow). Patterns compare by the values
+they test, read by `pattern_value` (`fold.saw`), which MIR's decision tree
+reads too (SL-609); a hole is one pattern whether it is `_` or a name. `d.`
+abbreviates `refuse/match.duplicate.`, and run program
+`compiler/tests/run/match_literal_values.saw` holds the accepted controls
+against Stage 0:
+
+| position | verdict | covered by |
+|---|---|---|
+| `case 1` twice | refused | match.duplicate |
+| `Move(a, b)` after `Move(x, y)` | refused | d.variant |
+| `0x10` and `16` | refused | d.hex |
+| `-1` and `- 1` | refused | d.negative |
+| `1_000` and `1000_u16` | refused | d.separator |
+| `"a"` and `"\u{61}"` | refused | d.string |
+| a repeat inside a tuple and a payload | refused | d.nested |
+| a binding, then `_` | refused | d.catch-all |
+| a repeat whose first arm is guarded | allowed | match_literal_values |
+| two equal ranges, a literal inside a range | allowed | match_literal_values |
+| `-1` beside `1` | allowed | match_literal_values |
+
 **Borrowing-struct containment** (spec, Borrowing structs; SL:borrowing §2.6):
 
 | position | verdict | covered by |
@@ -1170,6 +1191,7 @@ says what the fixture shows.
 | `type.default` | a parameter with no default after one with a default; a default that names a type parameter |
 | `type.alias-cycle` | type aliases that stand for each other |
 | `type.raw-backing` | an enum's raw backing written as a type alias, `Byte`, an alias of it and a user alias alike, since an alias is a distinct type and the backing is a fixed-width or platform integer written as itself; a backing that is not an integer type; a backing on an enum whose case carries a payload (spec, Raw-backed enums; SL-498: `type.raw-backing`, `.user-alias`, `.alias-of-byte`, `.not-integer`, `.payload`; golden `constant_positions` holds the `UInt8` control) |
+| `type.raw-value` | a case of a raw-backed enum that states no value (`.missing`), and two cases sharing one, compared by their folded values, so `0x01` is `1` and `1 << 0` is too (`.folded`) (spec, Raw-backed enums, rule 2; SL-609) |
 | `type.infinite-size` | a struct or enum whose storage contains its own inline, through fields, payloads, tuples, optionals, arrays and the generic declarations they instantiate, or through ever larger instantiations |
 | `conformance.incomplete` | a requirement of a trait, or of a trait it refines, that nothing meets: no member written, no default, no derivation; an associated type no type assignment gives, the conformance's own or, for a parent trait's, the type's conformance to that trait (refined_assignments) |
 | `conformance.associated-conflict` | a refining trait's conformance restating a parent trait's associated type as another type than the type's conformance to the parent assigns |
@@ -1188,7 +1210,7 @@ says what the fixture shows.
 | `conformance.deinit` | a conformance to `Deinit` itself, which a copy policy carries instead (design 131) |
 | `deinit.outside-policy` | a `deinit` written in an extension that declares no copy policy, beside the type's policy or on a type with none, where no scope exit would call it (spec, The Deinit trait) |
 | `extension.default-omitted` | an extension head renaming its type's parameters that leaves out a defaulted one, with the head written out (D14) |
-| `type.mismatch` | a value that does not convert to what its position expects, one fixture per funnel position and one per cell of the wrap and erasure matrix a position refuses; a condition that is not a `Bool`; a pattern that does not fit its value; operands that disagree; a bare integer literal, or a constant expression's literal, leaf or cast, that does not fit the type it adopts or converts to; a literal past its signed suffix's range (D6) |
+| `type.mismatch` | a value that does not convert to what its position expects, one fixture per funnel position and one per cell of the wrap and erasure matrix a position refuses; a condition that is not a `Bool`; a pattern that does not fit its value; operands that disagree; a bare integer literal, or a constant expression's literal, leaf or cast, that does not fit the type it adopts or converts to; a literal or range pattern's integer that does not fit the matched type (`.pattern-literal-range`, `.pattern-negative-unsigned`, `.pattern-range-end`); a literal past its signed suffix's range (D6) |
 | `constant.overflow`, `constant.shift-range`, `constant.divide-by-zero` | a constant expression whose typed arithmetic overflows, shifts by a count outside its width, or divides by zero, where it adopts an integer slot and at every constant position (the constant-position funnel); a shift count or divisor constant before instantiation that faults whatever the other operand is, reachable or not (the certain-fault funnel) |
 | `type.ambiguous-result` | a value both of a Result slot's payloads could take |
 | `type.not-a-value` | a type, module or trait named where a value is read |
@@ -1244,6 +1266,7 @@ says what the fixture shows.
 | `consumes.move` | a bare call of a `consumes` method on a place, at every Copy tier: the call spells `(move x).m()`, and a temporary receiver needs no `move` (spec, `consumes`) |
 | `consumes.move-self` | `move self` or `move` of a part of `self` outside a `consumes` method (SL-414) |
 | `match.non-exhaustive` | a `match` some value of its scrutinee's type reaches no unguarded arm of, each missing value named as a pattern: enums (`Optional` and `Result` included), `Bool`, tuples, split by their constructors at any depth; any other type, matched by literals and ranges, covered only by a wildcard or a binding |
+| `match.duplicate` | an unguarded arm whose pattern repeats an earlier unguarded arm's exactly, holes alike whatever they are named and literals compared by value, at the second arm, naming the first's line; a guarded arm and a pattern holding a range are never duplicates (spec, Control Flow; the duplicate-arm matrix) |
 | `result.discarded` | a `Result` computed where nothing reads it (design 151): a statement, a `Void` body's or a loop body's tail, an arm of a statement-position `if` or `match`, refused at the expression that produced it; `let _ =` is the out |
 | `effect.sync` | a call in a `sync` body (a function declared `sync`, a `deinit`, a closure of a `sync` type) of a target that is not sync-callable: one that may suspend, a function value whose type is not `sync`; a call whose type arguments make a requirement a generic `sync` body calls through a bound not sync-callable; a `sync` requirement met by a member that is not sync-callable; a hand-written `copy()` of a copy-policy conformance that may suspend, refused at the conformance |
 | `copy.requirement` | a call whose type argument is not on the Copy tier where its callee's body copies that parameter with nothing written (design 219), named with the copy's position, or, for a local one path uses twice, both uses |

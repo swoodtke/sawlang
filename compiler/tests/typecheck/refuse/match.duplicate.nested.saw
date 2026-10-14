@@ -1,0 +1,10 @@
+// refuses: match.duplicate at 7:9
+// a repeat inside a tuple and a payload: `(0x1, Some(b))` repeats `(1, Some(a))`
+
+func pick(x: Int, o: Int?) -> Int {
+    match (x, o) {
+        case (1, Some(a)) -> a,
+        case (0x1, Some(b)) -> b,
+        case _ -> 3
+    }
+}

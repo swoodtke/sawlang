@@ -1,0 +1,7 @@
+// refuses: type.raw-value at 6:16
+// a raw value is compared folded: `1 << 0` and `1` are one value
+
+enum Right: UInt32 {
+    case Low = 1 << 0,
+    case One = 1
+}

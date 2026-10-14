@@ -5,16 +5,21 @@
 // covered only by a wildcard or a binding (spec, Control Flow: "literal /
 // range / guarded arms never prove it on an open type"). A guarded arm covers
 // nothing. The check is the usefulness of a wildcard row against the arms'
-// pattern matrix, which also builds a witness for each missing value.
+// pattern matrix, which also builds a witness for each missing value. An arm
+// repeating an earlier one exactly is refused here too, its literals compared
+// by value (`pattern_value`, in fold.saw).
 
+import sawlex.{escape_text}
 import sawparse.grammar.{Alt}
 import sawresolve.collect.{res_is_top_level}
 import sawresolve.dump.{res_sort_strings}
 import sawresolve.model.{ResBindKind, ResBinding, ResDecl, ResDeclKind}
 import sawtypecheck.adjust.{TC_FIT_EXACT}
+import sawtypecheck.arith.{tc_arith_text}
 import sawtypecheck.bodies.{TcCand, TcCandKind}
 import sawtypecheck.candidates.{tc_contains}
 import sawtypecheck.conform.{TcSubst, tc_args_subst}
+import sawtypecheck.fold.{TcPatternKind, TcPatternValue, TcSameTest, tc_same_values}
 import sawtypecheck.program.{TcProgram}
 import sawtypecheck.signatures.{TcContext}
 import sawtypecheck.spell.{tc_effects_text}
@@ -101,6 +106,7 @@ extension TcProgram {
             return
         }
         var rows = Vector<Int>()
+        var unguarded = Vector<Int>()
         var count = 0
         let n = self.child_count(e)
         var k = 0
@@ -127,9 +133,11 @@ extension TcProgram {
             }
             if not guarded {
                 try! rows.push(pattern)
+                try! unguarded.push(arm)
                 count = count + 1
             }
         }
+        self.check_duplicate_arms(&unguarded)
         var types = Vector<Int>()
         try! types.push(t)
         let missing = self.missing_values(&rows, count, &types)
@@ -633,5 +641,147 @@ extension TcProgram {
         }
         try! out.append(")")
         out.build()
+    }
+}
+
+// Duplicate arms.
+extension TcProgram {
+    // Duplicate arms (spec, Control Flow): an unguarded arm whose pattern
+    // repeats an earlier unguarded arm's exactly can never run, so it is
+    // refused, naming the first. A hole matches like any other, a binding or
+    // `_`, and a pattern holding a range is never a duplicate, since
+    // overlapping ranges are how first-match-wins is written.
+    func check_duplicate_arms(&var self, arms: &Vector<Int>) {
+        // Each arm's literal value is read once, so a long match of literal
+        // arms compares values, never re-reading them per pair.
+        var values = Vector<TcPatternValue>()
+        var k = 0
+        while k < arms.len() {
+            let pattern = self.res.first_node_child(arms[k])
+            try! values.push(self.pattern_value(pattern))
+            k = k + 1
+        }
+        k = 1
+        while k < arms.len() {
+            let later = self.res.first_node_child(arms[k])
+            let lv = values[k]
+            var j = 0
+            var found = -1
+            while j < k && found < 0 {
+                let earlier = self.res.first_node_child(arms[j])
+                let ev = values[j]
+                var repeats = false
+                if ev.kind != TcPatternKind.Other || lv.kind != TcPatternKind.Other {
+                    repeats = ev.kind != TcPatternKind.Range && tc_same_values(&ev, &lv) == TcSameTest.Same
+                } else {
+                    repeats = self.repeats_pattern(earlier, later)
+                }
+                if repeats {
+                    found = arms[j]
+                }
+                j = j + 1
+            }
+            if found >= 0 {
+                self.refuse_duplicate_arm(arms[k], found)
+            }
+            k = k + 1
+        }
+    }
+
+    // Whether pattern `b` matches exactly the values pattern `a` does, by
+    // their structure: holes, the same case or tuple with repeating parts,
+    // and literals testing the same value.
+    func repeats_pattern(&self, a: Int, b: Int) -> Bool {
+        let ta = self.expr_types[a]
+        let ca = self.cell_ctor(a, ta)
+        // Stage 0 workaround (SL:hazards S4): canonical: let cb = self.cell_ctor(b, self.expr_types[b])
+        let tb = self.expr_types[b]
+        let cb = self.cell_ctor(b, tb)
+        if ca == TC_WILD || cb == TC_WILD {
+            return ca == cb
+        }
+        if ca == TC_CTOR_OPAQUE || cb == TC_CTOR_OPAQUE {
+            let ranged = self.has_alt(a, Alt.Pat_Range_Exclusive) || self.has_alt(a, Alt.Pat_Range_Inclusive)
+            return ca == cb && not ranged && self.same_test(a, b) == TcSameTest.Same
+        }
+        if ca != cb {
+            return false
+        }
+        let pa = self.sub_patterns(a)
+        let pb = self.sub_patterns(b)
+        if pa.len() != pb.len() {
+            return false
+        }
+        var k = 0
+        while k < pa.len() {
+            if not self.repeats_pattern(pa[k], pb[k]) {
+                return false
+            }
+            k = k + 1
+        }
+        true
+    }
+
+    func refuse_duplicate_arm(&var self, arm: Int, first: Int) {
+        let m = self.node_in_module(arm)
+        let pattern = self.res.first_node_child(arm)
+        // Stage 0 workaround (SL:hazards S4): canonical: let position = self.res.position_text(m, self.res.nodes[first].start)
+        let start = self.res.nodes[first].start
+        let position = self.res.position_text(m, start)
+        var colon = 0
+        while colon < position.len() && (position.byte_at(colon) as Int) != 58 {
+            colon = colon + 1
+        }
+        var msg = StringBuilder()
+        try! msg.append("duplicate match arm: ")
+        try! msg.append(self.duplicate_text(pattern))
+        try! msg.append(" is already matched by the arm at line ")
+        try! msg.append(position.substring(0, colon))
+        try! msg.append("; the first matching arm wins, so this one can never run: delete it (overlapping ranges and guarded arms are not duplicates)")
+        self.refuse_in(m, arm, "match.duplicate", msg.build())
+    }
+
+    // How the duplicate-arm refusal names pattern `p`: a literal by its
+    // value, a case by its name.
+    func duplicate_text(&self, p: Int) -> String {
+        // Stage 0 workaround (SL:hazards S4): canonical: let c = self.cell_ctor(p, self.expr_types[p])
+        let typed = self.expr_types[p]
+        let c = self.cell_ctor(p, typed)
+        if c == TC_WILD {
+            return "this catch-all pattern"
+        }
+        if c == TC_CTOR_TUPLE {
+            return "this tuple pattern"
+        }
+        if c == TC_CTOR_TRUE {
+            return "`true`"
+        }
+        if c == TC_CTOR_FALSE {
+            return "`false`"
+        }
+        var out = StringBuilder()
+        if c >= 0 {
+            try! out.append("`")
+            // Stage 0 workaround (SL:hazards S4): canonical: try! out.append(self.name_text(self.res.decls[c].name))
+            let name = self.res.decls[c].name
+            try! out.append(self.name_text(name))
+            try! out.append("`")
+            return out.build()
+        }
+        let v = self.pattern_value(p)
+        if v.kind == TcPatternKind.Integer {
+            let t = self.strip_refs(typed)
+            try! out.append("`")
+            try! out.append(tc_arith_text(v.low, self.int_width(t), not self.is_unsigned(t)))
+            try! out.append("`")
+            return out.build()
+        }
+        if v.kind == TcPatternKind.Text {
+            try! out.append("`\"")
+            try! out.append(escape_text(v.text))
+            try! out.append("\"`")
+            return out.build()
+        }
+        "this pattern"
     }
 }

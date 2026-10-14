@@ -4,8 +4,9 @@
 // the type its expression adopts, and each operation runs at its operands'
 // type, so `1 << 63` at `UInt64` is 2^63 and `~(0 as UInt)` is `UInt.max`. A
 // static reads another, declared before it or after it, and a case's raw
-// value is a constant of its backing. A negated literal is one constant, so a
-// width's minimum, `-128` at `Int8`, fits.
+// value is a constant of its backing, a documented case's too. Two raw-backed
+// cases compare by their raw values, as they do at run time. A negated literal
+// is one constant, so a width's minimum, `-128` at `Int8`, fits.
 
 enum Perm: UInt8 {
     case Read = 1 << 0,
@@ -15,6 +16,7 @@ enum Perm: UInt8 {
 
 enum Level: Int8 {
     case Floor = -128,
+    /// A documented case: its doc comment is no part of its value.
     case Top = 127
 }
 
@@ -39,6 +41,9 @@ static WRAPPED: UInt8 = 250 &+ 10
 static NARROWED: UInt16 = PAGE_SIZE as UInt16
 static SHIFTED: UInt64 = HIGH >> 62
 static FLAG: Bool = PAGE_SIZE > 4096 || PAGE_SHIFT == 12
+static SAME_CASE: Bool = Perm.Read == Perm.Write
+static OTHER_CASE: Bool = Perm.Read != Perm.Exec
+static TOP: Int8 = Level.Top
 
 @align(PAGE_SIZE)
 static BUFFER: Int = 0

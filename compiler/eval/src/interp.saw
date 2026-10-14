@@ -357,8 +357,16 @@ extension EvalProgram {
         self.result(&mir, f, r, a.ty)
     }
 
-    func comparison(&var self, mir: &MirProgram, f: Int, op: &String, a: &EvalValue, b: &EvalValue,
+    func comparison(&var self, mir: &MirProgram, f: Int, op: &String, left: &EvalValue, right: &EvalValue,
                     t: Int) -> EvalValue {
+        let a = self.compared_as(&mir, &left)
+        if a.kind == EvalKind.Missing {
+            return a
+        }
+        let b = self.compared_as(&mir, &right)
+        if b.kind == EvalKind.Missing {
+            return b
+        }
         var holds = false
         if a.kind == EvalKind.Integer && b.kind == EvalKind.Integer && a.ty == b.ty {
             let w = mir.tc.int_width(a.ty)
@@ -371,6 +379,24 @@ extension EvalProgram {
             return self.not_yet(&mir, f, "a comparison of values the evaluator does not hold")
         }
         eval_value(EvalKind.Boolean, if holds { 1 } else { 0 }, t)
+    }
+
+    // Value `v` as a comparison reads it: a raw-backed case as its raw
+    // value, which is what typecheck's fold and the run time compare, so
+    // the three agree; any other value as itself.
+    func compared_as(&var self, mir: &MirProgram, v: &EvalValue) -> EvalValue {
+        if v.kind != EvalKind.Case || v.decl < 0 {
+            return v
+        }
+        let g = self.constant_of[v.decl]
+        if g < 0 {
+            return v
+        }
+        let raw = self.evaluate(&mir, g)
+        if raw.kind == EvalKind.Missing {
+            self.last_fault = raw.fault
+        }
+        raw
     }
 
     // `-x`, `not x`, `~x`; a negated integer literal is one constant.

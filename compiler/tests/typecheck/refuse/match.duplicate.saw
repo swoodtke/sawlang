@@ -1,0 +1,10 @@
+// refuses: match.duplicate at 7:9
+// an unguarded arm repeating an earlier one can never run: `case 1` twice (Stage 0's first shape)
+
+func name(code: Int) -> Int {
+    match code {
+        case 1 -> 10,
+        case 1 -> 20,
+        case _ -> 30
+    }
+}

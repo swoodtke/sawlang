@@ -1,0 +1,9 @@
+// refuses: type.mismatch at 6:14
+// a literal pattern adopts the matched type whole, and 300 does not fit `UInt8`
+
+func pick(x: UInt8) -> Int {
+    match x {
+        case 300 -> 1,
+        case _ -> 3
+    }
+}

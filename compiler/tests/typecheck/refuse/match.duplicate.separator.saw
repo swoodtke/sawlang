@@ -1,0 +1,10 @@
+// refuses: match.duplicate at 7:9
+// patterns compare by value: `1000` repeats `1_000`, and a width suffix is a spelling too
+
+func pick(x: UInt16) -> Int {
+    match x {
+        case 1_000 -> 1,
+        case 1000_u16 -> 2,
+        case _ -> 3
+    }
+}
