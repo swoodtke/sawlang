@@ -1502,6 +1502,18 @@ It is loud: sawc2 refuses each one where it's declared, and a program Stage 0 bu
 
 **Checker:** not needed: the fixpoint lane builds the compiler's source with sawc2, which refuses every one, and SL-641's sweep found none in the compiler, std, blade or libs.
 
+### L28. An `init` matching its struct's fields: Stage 0 refuses it, sawc2 accepts it as an override or an overload (SL-648)
+
+**Shape:** Stage 0 refuses every `init` whose labels are exactly the struct's field names, whatever their types: "init method parameters match field names exactly - this is ambiguous with field initialization". sawc2 follows the user's Oct 15 ruling (SL-648) instead:
+- an exact match (labels in any order, types equal) overrides the memberwise construction, which stays reachable only inside the override's own body;
+- an `init` with the same labels but other types (`init(x: Float, y: Float)` on `Int` fields) is an ordinary overload.
+
+So both shapes build under sawc2 and fail under Stage 0. It is loud: Stage 0 refuses at the declaration.
+
+**Instead:** in code Stage 0 builds (`compiler/`, `blade/`, `libs/`, `examples/`), give a validating `init` a label no field has, and keep a converting `init`'s labels off the field names. The override returns after self-hosting.
+
+**Checker:** not needed: Stage 0 refuses loudly.
+
 ## Cases with no issue
 
 
