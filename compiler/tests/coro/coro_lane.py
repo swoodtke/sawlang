@@ -28,11 +28,14 @@ directory specifies:
   made.
 """
 import glob
+import hashlib
 import os
 import re
 import shutil
 import subprocess
 import sys
+import tempfile
+import threading
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 TESTS = os.path.dirname(HERE)
@@ -49,7 +52,7 @@ REFUSE = os.path.join(HERE, "refuse")
 MODULES = os.path.join(HERE, "modules")
 PARKS = os.path.join(HERE, "parks")
 PARKS_TAIL = os.path.join(PARKS, "task_tail.saw")
-PARK_STD = os.path.join(REPO, ".build", "coro-lane", "std")
+PARK_ROOT = os.path.join(REPO, ".build", "coro-lane")
 RULES_SOURCE = os.path.join(COMPILER, "coro", "src", "suspends.saw")
 AGREEMENT = (os.path.join(TESTS, "mono", "golden"), os.path.join(TESTS, "run"))
 TIMEOUT = 600
@@ -103,17 +106,61 @@ def check_invariants(failures, kind, path, record):
             failures.append("coro %s %s: %s" % (kind, rel(path), line))
 
 
+def _std_digest(std, tail):
+    """A hash of every file under `std` and of `tail`, so equal inputs name one
+    directory."""
+    digest = hashlib.sha256()
+    for base, dirs, files in os.walk(std):
+        dirs.sort()
+        for name in sorted(files):
+            path = os.path.join(base, name)
+            digest.update(os.path.relpath(path, std).encode() + b"\0")
+            with open(path, "rb") as fh:
+                digest.update(fh.read() + b"\0")
+    digest.update(tail.encode())
+    return digest.hexdigest()[:16]
+
+
 def park_std():
     """A copy of std whose `task.saw` ends in `parks/task_tail.saw`, the entry
     points to the park points no program can name and no ported std module
-    calls yet, for the park goldens; returns its root."""
-    shutil.rmtree(PARK_STD, ignore_errors=True)
-    shutil.copytree(os.path.join(REPO, "std"), PARK_STD)
+    calls yet, for the park goldens; returns its root.
+
+    The directory is named by its content and published by one rename, so a
+    concurrent run reads either nothing or a finished copy and none deletes a
+    directory another is reading (SL-692)."""
+    std = os.path.join(REPO, "std")
     with open(PARKS_TAIL) as fh:
         tail = fh.read()
-    with open(os.path.join(PARK_STD, "task.saw"), "a") as fh:
-        fh.write("\n" + tail)
-    return rel(PARK_STD)
+    final = os.path.join(PARK_ROOT, "std-" + _std_digest(std, tail))
+    os.makedirs(PARK_ROOT, exist_ok=True)
+    if not os.path.isdir(final):
+        staging = tempfile.mkdtemp(prefix="staging-", dir=PARK_ROOT)
+        try:
+            built = os.path.join(staging, "std")
+            shutil.copytree(std, built)
+            with open(os.path.join(built, "task.saw"), "a") as fh:
+                fh.write("\n" + tail)
+            try:
+                os.rename(built, final)
+            except OSError:
+                if not os.path.isdir(final):
+                    raise
+        finally:
+            shutil.rmtree(staging, ignore_errors=True)
+    _point_link(final)
+    return rel(final)
+
+
+def _point_link(final):
+    """`.build/coro-lane/std`, the fixed path `parks/verify_records.saw` names,
+    as a symlink to `final`, replaced by one rename."""
+    link = os.path.join(PARK_ROOT, "std")
+    if os.path.isdir(link) and not os.path.islink(link):
+        shutil.rmtree(link, ignore_errors=True)
+    staged = "%s.link-%d-%d" % (link, os.getpid(), threading.get_ident())
+    os.symlink(os.path.basename(final), staged)
+    os.replace(staged, link)
 
 
 def check_golden(failures, counts, write, rules, mode, suffix, park_root):
@@ -251,6 +298,10 @@ def run(write=False):
     failures = []
     counts = {}
     rules = coro_rules()
+    import test_park_std
+    more, more_counts = test_park_std.run()
+    failures += more
+    counts.update(more_counts)
     park_root = park_std()
     check_golden(failures, counts, write, rules, "--dump", ".coro", park_root)
     check_golden(failures, counts, write, rules, "--layouts", ".layouts", park_root)
