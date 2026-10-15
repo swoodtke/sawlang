@@ -1,0 +1,13 @@
+program	compiler/tests/run/discard_optional_match.saw
+triple	arm64-apple-darwin
+source	96e890b7806b4724
+build	ok
+exit	0
+stdout	"filled 1"
+stdout	"drop 1"
+stdout	"after enum match"
+stdout	"some 2"
+stdout	"after optional match"
+stdout	"end"
+stdout	"drop 2"
+stdout	""

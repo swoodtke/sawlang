@@ -1,0 +1,9 @@
+program	compiler/tests/run/overflow.saw
+triple	aarch64-unknown-linux-gnu
+source	501866c6ad425e02
+build	ok
+exit	-6
+stdout	"before"
+stdout	"top 9223372036854775807"
+stdout	"panic at overflow.saw:3: integer overflow"
+stdout	""

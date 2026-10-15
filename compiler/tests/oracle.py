@@ -1,13 +1,15 @@
 #!/usr/bin/env python3
-"""Stage 0's behaviour on a corpus program, recorded as a snapshot record, and
-sawc2's behaviour judged against it: the one format and the one comparison the
-coroutine snapshot and census (`coro/`) and the corpus differential
-(`corpusdiff/`) share (SL-655).
+"""Stage 0's behaviour on a program, recorded as a snapshot record, and sawc2's
+behaviour judged against it: the one format and the one comparison every lane
+that holds sawc2 to Stage 0 shares (SL-655, SL-665). No lane runs Stage 0;
+each reads its records, and only a snapshot's regeneration runs the v0
+compiler, which `v0_compiler` finds.
 
 A record is one file of tab-separated lines, each led by its kind:
 
-    program       PATH                   the corpus path
+    program       PATH                   the corpus path, or the repository path
     triple        TRIPLE                 compiler/target's name for it
+    source        SHA                    the program's bytes the record was made from
     twin          same | differs         examples/PATH against tests/corpus/PATH
     expect        KIND                   the twin's `EXPECT:` directive
     build         ok | refused [ERROR] | timeout | not-run
@@ -20,11 +22,15 @@ A record is one file of tab-separated lines, each led by its kind:
 A reader keeps the kinds it knows and passes the rest to its caller, which is
 how the coroutine snapshot adds frame layouts. Every text is written with the
 checkout's root removed, so two checkouts write the same bytes, and a stream
-that differs between runs is `varies`, with no lines.
+that differs between runs is `varies`, with no lines. A record with a
+`source` line is stale once its program's bytes change, and `load_run`
+refuses it then.
 
 ENTRY POINTS
     read_record
+    load_run
     render_run
+    record_run
     sawc2_build
     run_binary
     judge_refusal
@@ -45,7 +51,6 @@ COMPILER = os.path.dirname(TESTS)
 REPO = os.path.dirname(COMPILER)
 CORPUS = os.path.join(REPO, "tests", "corpus")
 EXAMPLES = os.path.join(REPO, "examples")
-FROZEN_SAWC = os.path.join(REPO, "sawc", "sawc.py")
 for _path in (os.path.join(TESTS, "coro"), os.path.join(TESTS, "fixpoint"), os.path.join(COMPILER, "tools")):
     if _path not in sys.path:
         sys.path.insert(0, _path)
@@ -55,6 +60,7 @@ if os.path.join(REPO, "tools") not in sys.path:
 import build  # noqa: E402
 import child_groups  # noqa: E402
 import expect  # noqa: E402
+import toolchain  # noqa: E402
 import twin  # noqa: E402
 
 RUNS = 2
@@ -112,11 +118,45 @@ def twin_of(path):
 
 # --- Stage 0 -----------------------------------------------------------------
 
-def stage0(src, out, args, timeout=STAGE0_TIMEOUT):
+# The checkout whose `sawc/sawc.py` is the v0 compiler. This tree holds it
+# until `sawc/` is deleted; then this one line names SAWLANG_V0_ROOT (SL-668).
+V0_ROOT = REPO
+
+
+def v0_root():
+    """The v0 compiler's checkout, `V0_ROOT`, or an exit naming why there is
+    none. Every regeneration of a Stage 0 snapshot reaches Stage 0 through
+    here, and nothing else runs it.
+
+    ENTRY POINTS
+        v0_compiler
+        v0_python
+        stage0
+        std_suspension.use_v0_checkout
+        migrate/instrument.py
+    """
+    if not toolchain._looks_like_sawlang(V0_ROOT):
+        raise SystemExit("oracle: %s holds no v0 compiler (sawc/sawc.py), and regenerating a Stage 0 "
+                         "snapshot needs one" % V0_ROOT)
+    return V0_ROOT
+
+
+def v0_compiler():
+    """The argv prefix that runs the v0 compiler, with its checkout's venv."""
+    return toolchain._sawc_from_root(v0_root())
+
+
+def v0_python():
+    """The Python of the v0 compiler's checkout, for an observer that runs
+    its passes in-process."""
+    return v0_compiler()[0]
+
+
+def stage0(src, out, args, timeout=STAGE0_TIMEOUT, cwd=REPO):
     """Stage 0 on `src`: (exit status, or None on a timeout; what it printed,
     colours removed)."""
     try:
-        r = subprocess.run([sys.executable, FROZEN_SAWC, rel(src), "-o", out] + list(args), cwd=REPO,
+        r = subprocess.run(v0_compiler() + [os.path.relpath(src, cwd), "-o", out] + list(args), cwd=cwd,
                            capture_output=True, text=True, timeout=timeout)
     except subprocess.TimeoutExpired as e:
         return None, _ANSI.sub("", _text(e.stdout) + _text(e.stderr))
@@ -148,15 +188,16 @@ def first_error(log):
     return unrooted(lines[-1] if lines else "no output").replace("\t", " ")
 
 
-def run_binary(binary, timeout=RUN_TIMEOUT):
+def run_binary(binary, timeout=RUN_TIMEOUT, cwd=REPO, arguments=()):
     """(exit status, or None on a timeout; stdout; stderr; seconds), run from
-    the repository root as test_runner.py runs a program. A run that dies by a
-    signal having written nothing is run once more, as test_runner.py does,
-    since that is how a binary the kernel has not finished validating dies."""
+    `cwd`, the repository root as test_runner.py runs a program unless a lane
+    runs its own elsewhere. A run that dies by a signal having written nothing
+    is run once more, as test_runner.py does, since that is how a binary the
+    kernel has not finished validating dies."""
     for attempt in (1, 2):
         start = time.monotonic()
-        proc = child_groups.start([binary], cwd=REPO, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
-                                  stderr=subprocess.PIPE)
+        proc = child_groups.start([binary] + list(arguments), cwd=cwd, stdin=subprocess.DEVNULL,
+                                  stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         try:
             out, err = proc.communicate(timeout=timeout)
             code = proc.returncode
@@ -214,6 +255,35 @@ def render_log(log):
     return ["log\t" + quote(l) for l in lines]
 
 
+def record_run(src, file, program, flags=(), cwd=REPO, arguments=(), timeout=RUN_TIMEOUT, data=None,
+               runs=RUNS):
+    """Stage 0 builds `src` with `flags` and runs the binary `runs` times
+    (none for a build alone) from `cwd` with `arguments`; the record,
+    `program` its path and `data` the bytes its `source` line holds (`src`'s
+    own when None), is written to `file` and returned."""
+    if data is None:
+        with open(src, "rb") as fh:
+            data = fh.read()
+    binary = os.path.join(REPO, ".build", "stage0-records", rel(file).replace(os.sep, "__"))
+    os.makedirs(os.path.dirname(binary), exist_ok=True)
+    code, log = stage0(src, binary, flags)
+    lines = ["program\t" + program, "triple\t" + build.host_triple(), "source\t" + source_sha(data)]
+    if code != 0:
+        lines.append("build\t" + ("timeout" if code is None else "refused\t" + first_error(log)))
+    else:
+        lines.append("build\tok")
+        made = []
+        for _ in range(runs):
+            rc, out, err, _ = run_binary(binary, timeout, cwd, arguments)
+            made.append({"exit": rc, "stdout": encode(out), "stderr": encode(err)})
+        if made:
+            lines.extend(render_run(made))
+    os.makedirs(os.path.dirname(file), exist_ok=True)
+    with open(file, "w", encoding="utf-8") as fh:
+        fh.write("\n".join(lines) + "\n")
+    return read_record(file, Record(program))
+
+
 def meets_expect(d, build_ok, runs):
     """`yes`, or `no: WHY`, for a run program whose directives are `d`."""
     if not build_ok:
@@ -253,6 +323,7 @@ class Record:
     def __init__(self, path):
         self.path = path
         self.triple = None
+        self.source = None
         self.twin = None
         self.expect = None
         self.build = None
@@ -276,7 +347,7 @@ def read_record(file, rec, other=None):
             kind = fields[0]
             if kind == "program":
                 rec.path = fields[1]
-            elif kind in ("triple", "twin", "expect", "meets_expect"):
+            elif kind in ("triple", "source", "twin", "expect", "meets_expect"):
                 setattr(rec, kind, fields[1])
             elif kind == "build":
                 rec.build = fields[1]
@@ -305,6 +376,43 @@ def read_record(file, rec, other=None):
     if log:
         rec.log = "\n".join(log)
     return rec
+
+
+def source_sha(data):
+    """The `source` line's value for a program's bytes."""
+    return hashlib.sha256(data).hexdigest()[:16]
+
+
+def record_file(directory, triple, name):
+    """Where the snapshot in `directory` keeps the record of `name` on
+    `triple`: a directory per triple, since Stage 0 builds for its host."""
+    return os.path.join(directory, triple, name + ".stage0")
+
+
+def load_run(directory, name, data, regenerate, other=None):
+    """The record of `name` in the snapshot in `directory` for this host,
+    held current with the program's bytes `data`: (Record, None), or (None,
+    why there is none to compare with, naming `regenerate`, the command that
+    records it with the v0 compiler)."""
+    triple = build.host_triple()
+    file = record_file(directory, triple, name)
+    if not os.path.exists(file):
+        return None, "no Stage 0 record for %s (%s); record it with `%s`" % (triple, rel(file), regenerate)
+    rec = read_record(file, Record(name), other)
+    if rec.triple != triple or rec.source != source_sha(data):
+        return None, "%s is stale, made from other bytes; rerecord it with `%s`" % (rel(file), regenerate)
+    return rec, None
+
+
+def stale_records(directory, names):
+    """The record files of the snapshot in `directory` that name no program
+    of `names`, on any triple."""
+    out = []
+    for root, _, files in os.walk(directory):
+        for f in sorted(files):
+            if f.endswith(".stage0") and f[:-len(".stage0")] not in names:
+                out.append(os.path.join(root, f))
+    return sorted(out)
 
 
 def stream_summary(text):

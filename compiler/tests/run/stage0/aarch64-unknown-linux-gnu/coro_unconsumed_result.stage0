@@ -1,0 +1,8 @@
+program	compiler/tests/run/coro_unconsumed_result.saw
+triple	aarch64-unknown-linux-gnu
+source	dd9003d814417f1a
+build	ok
+exit	0
+stdout	"7"
+stdout	"1"
+stdout	""

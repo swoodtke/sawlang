@@ -1,0 +1,8 @@
+program	compiler/tests/run/generic_copy.saw
+triple	aarch64-unknown-linux-gnu
+source	6ff062d9a903503b
+build	ok
+exit	0
+stdout	"copy copy copy"
+stdout	"5 5"
+stdout	""

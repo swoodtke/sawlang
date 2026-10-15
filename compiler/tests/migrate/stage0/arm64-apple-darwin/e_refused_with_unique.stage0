@@ -1,0 +1,6 @@
+program	compiler/tests/migrate/fixtures/e_refused_with_unique.before
+triple	arm64-apple-darwin
+source	4650f624b378ffbc
+instrument	{"arg_index": 0, "arg_labels": [null], "args": [{"left": [5, 27, "ClosureExpr"], "names": ["c"], "pos": [5, 27], "resolved": "(&var Cell) -> Int", "type": "ClosureExpr"}], "body_names": ["c"], "body_pos": [5, 34], "call_type": "MethodCall", "callee": "with_unique", "callee_file": "sawc/std/arc.saw", "capture_specs": [], "captures_root": false, "closure_pos": [5, 27], "closure_type": "(&var Cell) -> Int", "col": 14, "ctx": [{"field": "expr", "pos": [5, 41], "type": "NilCoalesce"}, {"field": "value", "mutable": false, "name": "n", "pos": [5, 5], "type": "LetStatement"}, {"field": "statements[1]", "pos": [3, 13], "type": "Block"}], "exits": [], "file": ".build/migrate-tests/e_refused_with_unique.saw", "func": "main", "kind": "closure", "line": 5, "n_args": 1, "owner": "Arc", "owner_type": "Arc<Cell>", "params": [{"name": "c", "pos": [5, 29], "ref": false, "typed": false}], "recv_left": [5, 13, "Identifier"], "ref_params": ["&var Cell"], "result_type": "Int?", "root": "a", "shadow_risk": [], "shorthand": 0}
+instrument	{"col": 1, "ext": null, "file": ".build/migrate-tests/e_refused_with_unique.saw", "kind": "walked", "line": 3, "name": "main"}
+instrument	{"kind": "status", "status": "stopped-after-places"}

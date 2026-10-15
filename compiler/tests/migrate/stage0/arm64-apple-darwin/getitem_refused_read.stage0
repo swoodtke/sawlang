@@ -1,0 +1,8 @@
+program	compiler/tests/migrate/fixtures/getitem_refused_read.before
+triple	arm64-apple-darwin
+source	9b20f3e66af7623b
+instrument	{"col": 1, "ext": null, "file": ".build/migrate-tests/getitem_refused_read.saw", "kind": "walked", "line": 14, "name": "main"}
+instrument	{"absent": "none", "accessor_file": ".build/migrate-tests/getitem_refused_read.saw", "accessor_self": "var", "args": null, "bare": true, "caller": "_chain_window", "chain": [], "col": 12, "ctx": [{"field": "arguments[0]", "name": "print", "pos": [16, 5], "type": "FunctionCall"}, {"field": "final_expr", "pos": [14, 13], "type": "Block"}, {"field": "body", "name": "main", "pos": [14, 1], "type": "Function"}], "decl": "main", "elem": "Int", "elem_kind": "INT", "exclusive": false, "exclusive_only": true, "expr_pos": [16, 12], "expr_resolved": "Int", "expr_type": "ArrayIndex", "file": ".build/migrate-tests/getitem_refused_read.saw", "grand": "_value", "key": {"left": [16, 13, "IntLiteral"], "names": [], "pos": [16, 13], "resolved": "Int", "type": "IntLiteral"}, "kind": "window", "line": 16, "method": "[]", "nested_outer": false, "optional": false, "policy": "trivial", "recv_left": [16, 11, "Identifier"], "recv_type": "Grid", "root": "g", "self_cell": false, "shared_self_body": false, "struct": "Grid", "subscript": true, "synthesized": false, "tier": "free", "unwrap_read": false}
+instrument	{"col": 5, "ext": "Grid", "file": ".build/migrate-tests/getitem_refused_read.saw", "kind": "walked", "line": 7, "name": "[]"}
+instrument	{"col": 5, "ext": "Grid", "file": ".build/migrate-tests/getitem_refused_read.saw", "kind": "walked", "line": 7, "name": "__lend_var_[]"}
+instrument	{"kind": "status", "status": "stopped-after-places"}

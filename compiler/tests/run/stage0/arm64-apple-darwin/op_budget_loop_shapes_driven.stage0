@@ -1,0 +1,14 @@
+program	compiler/tests/run/op_budget_loop_shapes_driven.saw
+triple	arm64-apple-darwin
+source	13f63d4c2f96f03b
+build	ok
+exit	0
+stdout	"range 1000"
+stdout	"suspending 300"
+stdout	"continue 500"
+stdout	"nested 600"
+stdout	"7"
+stdout	"302"
+stdout	"7"
+stdout	"4"
+stdout	""

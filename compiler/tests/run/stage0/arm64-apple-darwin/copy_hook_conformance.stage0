@@ -1,0 +1,29 @@
+program	compiler/tests/run/copy_hook_conformance.saw
+triple	arm64-apple-darwin
+source	b40534b07c891b0c
+build	ok
+exit	0
+stdout	"hook"
+stdout	"let 101"
+stdout	"hook"
+stdout	"hook"
+stdout	"tuple 201"
+stdout	"hook"
+stdout	"hook"
+stdout	"optional 201"
+stdout	"hook"
+stdout	"hook"
+stdout	"generic 201"
+stdout	"hook"
+stdout	"hook"
+stdout	"field 201"
+stdout	"hook"
+stdout	"hook"
+stdout	"hook"
+stdout	"hook"
+stdout	"payload 401"
+stdout	"hook"
+stdout	"spelled call 101"
+stdout	"explicit copy"
+stdout	"explicit 2"
+stdout	""

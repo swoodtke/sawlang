@@ -1,0 +1,11 @@
+program	compiler/tests/run/cast.saw
+triple	arm64-apple-darwin
+source	88cb39030f376777
+build	ok
+exit	-6
+stdout	"widened -3"
+stdout	"truncated 44"
+stdout	"fits 200 0"
+stdout	"cast 100"
+stdout	"panic at cast.saw:12: cast to UInt8 out of range: 300"
+stdout	""

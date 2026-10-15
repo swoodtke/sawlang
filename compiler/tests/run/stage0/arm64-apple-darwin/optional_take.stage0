@@ -1,0 +1,12 @@
+program	compiler/tests/run/optional_take.saw
+triple	arm64-apple-darwin
+source	46ae7ceebba46d0a
+build	ok
+exit	0
+stdout	"took bcde"
+stdout	"now empty"
+stdout	"refilled cdef"
+stdout	"took noisy 4"
+stdout	"drop 4"
+stdout	"end"
+stdout	""

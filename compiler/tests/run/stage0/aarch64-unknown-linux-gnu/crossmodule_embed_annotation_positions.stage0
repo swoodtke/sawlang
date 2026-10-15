@@ -1,0 +1,13 @@
+program	compiler/tests/run/crossmodule_embed_annotation_positions.saw
+triple	aarch64-unknown-linux-gnu
+source	17fb74ead534575b
+build	ok
+exit	0
+stdout	"field 11"
+stdout	"generic 21"
+stdout	"optional 31"
+stdout	"payload 41"
+stdout	"return 71"
+stdout	"signature 81"
+stdout	"local 91"
+stdout	""

@@ -1,0 +1,12 @@
+program	compiler/tests/run/op_budget_counts.saw
+triple	aarch64-unknown-linux-gnu
+source	e7b0fd46afdd7cb6
+build	ok
+exit	0
+stdout	"127"
+stdout	"0"
+stdout	"1"
+stdout	"1"
+stdout	"2"
+stdout	"1000"
+stdout	""

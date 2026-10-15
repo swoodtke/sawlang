@@ -1,0 +1,5 @@
+program	compiler/tests/std/pairs/vocabulary_traits.saw
+triple	arm64-apple-darwin
+source	4b87e2272b0d0f18
+build	ok
+exit	0

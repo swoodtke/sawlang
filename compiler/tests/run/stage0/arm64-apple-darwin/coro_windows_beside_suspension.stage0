@@ -1,0 +1,8 @@
+program	compiler/tests/run/coro_windows_beside_suspension.saw
+triple	arm64-apple-darwin
+source	e1df8e0c3c4ad389
+build	ok
+exit	0
+stdout	"1340"
+stdout	"2"
+stdout	""

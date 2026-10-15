@@ -1,5 +1,4 @@
 path	verdict	reason
-compiler/lex/tests/escapes.saw	SEGFAIL	c-conflict: 72:63 {1F600} 72:65 refused by syntax.rule.interpolation-whole
 compiler/tests/grammar/fixtures/refusals/arm_body_brace_is_a_block.saw	FAIL	a-error: 5:19 refused by syntax.rule.arm-body
 compiler/tests/grammar/fixtures/refusals/arm_body_on_the_next_line.saw	FAIL	a-error: 5:18 refused by syntax.rule.arm-body
 compiler/tests/grammar/fixtures/refusals/attribute_on_the_wrong_declaration.saw	FAIL	a-error: 3:1 refused by syntax.rule.attribute-position

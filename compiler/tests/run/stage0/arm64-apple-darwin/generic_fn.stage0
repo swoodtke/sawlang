@@ -1,0 +1,12 @@
+program	compiler/tests/run/generic_fn.saw
+triple	arm64-apple-darwin
+source	77adac95fce12a42
+build	ok
+exit	0
+stdout	"int 1"
+stdout	"bool false"
+stdout	"pair 3 4"
+stdout	"twice 8"
+stdout	"measured 26"
+stdout	"ints measured 130"
+stdout	""

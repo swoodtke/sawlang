@@ -1,0 +1,5 @@
+program	compiler/tests/std/pairs/vector_basics.saw
+triple	arm64-apple-darwin
+source	bc7c4d918616d4eb
+build	ok
+exit	0

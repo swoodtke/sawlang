@@ -1,0 +1,11 @@
+program	compiler/tests/run/optional.saw
+triple	aarch64-unknown-linux-gnu
+source	b16fbdae59f7a2d4
+build	ok
+exit	0
+stdout	"root 7"
+stdout	"default -1"
+stdout	"guarded 9 0"
+stdout	"matched 4"
+stdout	"present false true"
+stdout	""

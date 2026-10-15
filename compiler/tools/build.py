@@ -2,7 +2,7 @@
 """Build the self-hosted compiler: Stage 1 with the seed, Stage 2 with Stage 1.
 
     python compiler/tools/build.py                   # .build/sawc2, then .build/sawc2-stage2
-    python compiler/tools/build.py ENTRY.saw -o OUT  # any program over the stages, by Stage 0
+    python compiler/tools/build.py ENTRY.saw -o OUT  # the stages, then any program over them
     python compiler/tools/build.py --runtime TRIPLE  # the stages, then another target's runtime
 
 The seed is sawc2 compiled by clang from its own `.ll`, committed per host
@@ -23,8 +23,8 @@ std, the target and clang. Beside the stages goes `.build/sawc2-runtime.txt`,
 the runtime manifest naming the host, the clang `choose_clang` picked and
 those objects, which a hosted `sawc2 build` links against.
 
-The stages need only Python's standard library and clang. `build_program`
-runs the frozen compiler, `sawc/sawc.py`, so it needs the venv's Python.
+Nothing here runs Stage 0: the stages need only Python's standard library and
+clang, and `build_program` builds a program with `SAWC2`, after the stages.
 `STAGE_PACKAGES` is the one place that maps a stage package to its directory:
 the stages, the unit programs and the runner all read it, so a new stage is
 registered here once.
@@ -39,7 +39,6 @@ import subprocess
 import sys
 
 REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-FROZEN_SAWC = os.path.join(REPO, "sawc", "sawc.py")
 BUILD_DIR = os.path.join(REPO, ".build")
 STAGE1 = os.path.join(BUILD_DIR, "sawc2")
 STAGE1_KEY = STAGE1 + ".key"
@@ -105,7 +104,7 @@ def handed_down():
 
 def sawc_arguments(entry, out):
     """The frozen compiler's command-line arguments for building `entry` to
-    `out`: what `build_program` runs, and what `std_cone.py` runs in-process."""
+    `out`, which `std_cone.py` runs in-process."""
     args = [entry, "-o", out]
     for name, rel in STAGE_PACKAGES:
         args += ["--module-path", "%s=%s" % (name, os.path.join(REPO, rel))]
@@ -121,11 +120,13 @@ def package_arguments(root):
 
 
 def build_program(entry, out):
-    """Compile `entry` to the executable `out` with Stage 0. Returns (ok,
+    """Compile `entry`, against the new std and every stage package, to the
+    executable `out` with `SAWC2`, the stage the lanes run. Returns (ok,
     compiler output)."""
     os.makedirs(os.path.dirname(out), exist_ok=True)
-    argv = [sys.executable, FROZEN_SAWC] + sawc_arguments(entry, out)
-    r = subprocess.run(argv, cwd=REPO, capture_output=True, text=True)
+    r = subprocess.run([SAWC2, "build", "--std-root", "std"] + package_arguments(REPO)
+                       + [os.path.relpath(entry, REPO), "-o", out], cwd=REPO, capture_output=True, text=True,
+                       timeout=LINK_TIMEOUT)
     return r.returncode == 0, (r.stdout + r.stderr).strip()
 
 
@@ -591,8 +592,11 @@ def main():
     else:
         if args.out is None:
             ap.error("-o is required when an ENTRY is given")
-        ok, output = build_program(os.path.abspath(args.entry), os.path.abspath(args.out))
-        target = args.out
+        target = SAWC2
+        ok, output = (True, "") if handed_down() else build_sawc2()
+        if ok:
+            ok, output = build_program(os.path.abspath(args.entry), os.path.abspath(args.out))
+            target = args.out
     if output:
         print(output)
     if not ok:

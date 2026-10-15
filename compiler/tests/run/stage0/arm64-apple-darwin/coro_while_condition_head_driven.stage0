@@ -1,0 +1,18 @@
+program	compiler/tests/run/coro_while_condition_head_driven.saw
+triple	arm64-apple-darwin
+source	02979220d97935f6
+build	ok
+exit	0
+stdout	"A0"
+stdout	"A1"
+stdout	"A2"
+stdout	"B0"
+stdout	"B1"
+stdout	"B2"
+stdout	"while 7"
+stdout	"C0"
+stdout	"C1"
+stdout	"C2"
+stdout	"3"
+stdout	"3"
+stdout	""

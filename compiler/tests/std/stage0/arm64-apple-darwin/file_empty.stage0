@@ -1,0 +1,5 @@
+program	compiler/tests/std/pairs/file_empty.saw
+triple	arm64-apple-darwin
+source	30da795f1ae636d7
+build	ok
+exit	0

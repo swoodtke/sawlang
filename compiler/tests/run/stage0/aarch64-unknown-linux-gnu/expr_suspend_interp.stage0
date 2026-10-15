@@ -1,0 +1,8 @@
+program	compiler/tests/run/expr_suspend_interp.saw
+triple	aarch64-unknown-linux-gnu
+source	c301c8517d9eecf7
+build	ok
+exit	0
+stdout	"v=7"
+stdout	"a=1 b=2"
+stdout	""

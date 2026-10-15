@@ -1,0 +1,14 @@
+program	compiler/tests/run/noalias.saw
+triple	aarch64-unknown-linux-gnu
+source	4735a7a461814dee
+build	ok
+exit	0
+stdout	"10"
+stdout	"20"
+stdout	"60"
+stdout	"40"
+stdout	"41"
+stdout	"42"
+stdout	"3"
+stdout	"42"
+stdout	""

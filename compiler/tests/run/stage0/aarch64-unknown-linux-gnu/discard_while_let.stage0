@@ -1,0 +1,19 @@
+program	compiler/tests/run/discard_while_let.saw
+triple	aarch64-unknown-linux-gnu
+source	a7a86d1e953025c1
+build	ok
+exit	0
+stdout	"drop 30"
+stdout	"item 3"
+stdout	"drop 3"
+stdout	"drop 20"
+stdout	"item 2"
+stdout	"drop 2"
+stdout	"drop 10"
+stdout	"skip 1"
+stdout	"drop 1"
+stdout	"drop 90"
+stdout	"stop 9"
+stdout	"drop 9"
+stdout	"done"
+stdout	""

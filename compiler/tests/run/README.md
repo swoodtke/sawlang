@@ -2,13 +2,15 @@
 
 The programs the LLVM backend (`compiler/llvm`, package `sawllvm`, SL-505)
 and `sawc2 build` are held to: each is built by sawc2 against the new std and
-by Stage 0 against its own, both binaries run, and their output compared.
+run, and its output compared with Stage 0's recorded run of it, built against
+Stage 0's own std ("The oracle").
 
 ```
 run/
   README.md      this specification
   run_lane.py    the lane compiler/tests/run.py runs
   NAME.saw       a program
+  stage0/TRIPLE/NAME.stage0  Stage 0's recorded run of NAME.saw on host TRIPLE
   hello.ll       the `.ll` sawc2 writes for hello.saw, pinned
   noalias.defines  the `define` lines sawc2 writes for noalias.saw's own functions, pinned
   runtime_dirent.ll  the `.ll` `sawc2 runtime` writes for runtime/host_macos/dirent.saw, pinned
@@ -318,14 +320,13 @@ escaping closure that captures anything (`compiler/tests/mono/README.md`).
 
 ## The lane
 
-`run_lane.py` builds every program both ways, eight at a time, under
-`.build/run-lane/`. The sawc2 side is `sawc2 build` run by the binary the
-runner selected (Stage 2 by default, `compiler/tools/build.py`). The lane
-compares:
+`run_lane.py` builds every program with sawc2, eight at a time, under
+`.build/run-lane/`: `sawc2 build` run by the binary the runner selected
+(Stage 2 by default, `compiler/tools/build.py`). The lane compares:
 
 - a plain program passes when sawc2's binary, built at -O0 and again at -O2,
-  writes the same bytes as Stage 0's and exits with the same status, a
-  panic's abort included;
+  writes the same bytes as Stage 0's recorded run and exits with the same
+  status, a panic's abort included;
 - a `// differs: REASON` program compares its exit status and every line
   but a `panic at` line's location, for a panic std raises, since each
   compiler's std is its own file;
@@ -336,7 +337,8 @@ compares:
   lines in another order, since such a hazard moves a line and never adds or
   loses one, and both must exit alike; a Stage 0 that prints them in order
   fails the program too, so the line comes off when the hazard no longer
-  shows there;
+  shows there, and a Stage 0 whose order varied between its recorded runs is
+  not compared;
 - a `// due: REASON` program, with `// refuses: RULE at L:C` after it, must
   be refused there by that rule; once sawc2 builds it the lane fails, so the
   lines come off as the slice grows; every rule of `ll_rules` has one;
@@ -375,10 +377,42 @@ compares:
   probe (below) to the `42` and `5` it prints: its length is past the round
   count a capped dataflow stops at (SL-610), and Stage 0 cannot parse a
   `borrow` block;
-- every program of `probes/` is held to what its header states (below).
+- every program of `probes/` is held to what its header states (below);
+- no record under `stage0/` names a program that is gone.
 
 Stage 0 is the oracle: a difference is a sawc2 bug until shown otherwise
 (SL:architecture §5).
+
+## The oracle
+
+The lane never runs Stage 0. Its oracle is `stage0/TRIPLE/NAME.stage0`,
+Stage 0's run of `NAME.saw` recorded on host TRIPLE in the format of
+`compiler/tests/oracle.py`: the program, the triple, the SHA-256 prefix of the
+program's bytes and of each `modules/` file it imports (`source`), Stage 0's
+build, and its two runs from
+`.build/run-lane/`, their exit status and standard output and error with the
+checkout's root removed, a stream or a status that differed between the runs
+recorded as `varies`. The lane reads the host's directory, so the macOS run
+reads `arm64-apple-darwin/` and the Linux VM `aarch64-unknown-linux-gnu/`,
+also for its x86_64 cross-built side.
+
+A plain program whose record is missing, made for another triple or made from
+other bytes fails, naming the command that records it:
+`run_lane.py --stage0 [NAME...]` builds each program that is not due with
+Stage 0 and runs it as the lane runs sawc2's, and writes its record for this
+host; over every program it also removes a record that names none. That and
+`--bench` are the lane's only runs of Stage 0, and both take the v0 compiler
+from `oracle.v0_compiler`, which names its checkout in one place: this tree
+until `sawc/` is deleted, then a checkout of the v0.13.0 tag (SL-668). The
+Linux records are written in the VM: `tools/linux.py stage0 [NAME...]` runs
+`--stage0` in its clone of HEAD and copies `aarch64-unknown-linux-gnu/` back,
+as `tools/linux.py seed` copies the seed.
+
+A record says which program bytes it was made from, not which Stage 0 made
+it, so a change under `sawc/` rerecords every snapshot that compares with
+Stage 0: this lane's, the mono, std, borrowck and migrate lanes' (each lane's
+`--stage0`), `compiler/tools/std_suspension.py --write`, and the coro and
+corpusdiff snapshots' writers.
 
 ## Probes
 
@@ -416,18 +450,19 @@ its kind does not take fails it, as does a missing one, so no header claims
 what the lane does not check. A custom probe needs an entry in
 `CUSTOM_PROBES`, and every entry there needs its custom probe; the entry
 says why the check cannot be header lines. The one custom probe,
-`executable_path.saw`, is built by sawc2 and by Stage 0 and run by a bare
-name that a renamed relative symbolic link on `PATH` resolves, from another
-working directory, and must print its binary's real path, which no header
-can state: what the manifest lookup rests on.
+`executable_path.saw`, is built by sawc2 and run by a bare name that a
+renamed relative symbolic link on `PATH` resolves, from another working
+directory, and must print its binary's real path, which no header can state:
+what the manifest lookup rests on.
 
 `run_lane.py NAME` runs the programs and probes named `NAME`.
 
 ## The timing report
 
 `run_lane.py --bench` builds each kernel of `bench/` with `sawc2 build -O2`
-and with Stage 0, runs each binary once to warm it, then five times, and
-prints the best time of each and their ratio:
+and with Stage 0 (the v0 compiler, since a time is no record), runs each
+binary once to warm it, then five times, and prints the best time of each and
+their ratio:
 
 - `sieve`: a sieve to two million over a `Vector<Bool>`, `set` and `[]`;
 - `sort`: an insertion sort of 20,000 `Int`s, whose inner loop is all `v[k]`

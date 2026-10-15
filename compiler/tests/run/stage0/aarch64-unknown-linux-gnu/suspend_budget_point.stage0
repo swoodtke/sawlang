@@ -1,0 +1,7 @@
+program	compiler/tests/run/suspend_budget_point.saw
+triple	aarch64-unknown-linux-gnu
+source	163b775616f2526a
+build	ok
+exit	0
+stdout	"3"
+stdout	""

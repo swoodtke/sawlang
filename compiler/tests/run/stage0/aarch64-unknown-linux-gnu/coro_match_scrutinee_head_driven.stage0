@@ -1,0 +1,13 @@
+program	compiler/tests/run/coro_match_scrutinee_head_driven.saw
+triple	aarch64-unknown-linux-gnu
+source	14bb6eea097e77b3
+build	ok
+exit	0
+stdout	"A1"
+stdout	"A2"
+stdout	"scrutinee 12"
+stdout	"B1"
+stdout	"B2"
+stdout	"1"
+stdout	"1"
+stdout	""

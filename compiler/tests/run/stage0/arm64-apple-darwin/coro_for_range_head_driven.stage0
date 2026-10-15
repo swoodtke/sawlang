@@ -1,0 +1,15 @@
+program	compiler/tests/run/coro_for_range_head_driven.saw
+triple	arm64-apple-darwin
+source	f2e7e49d69b6fccf
+build	ok
+exit	0
+stdout	"A1"
+stdout	"A2"
+stdout	"B1"
+stdout	"B2"
+stdout	"range 15"
+stdout	"C1"
+stdout	"C2"
+stdout	"1"
+stdout	"2"
+stdout	""

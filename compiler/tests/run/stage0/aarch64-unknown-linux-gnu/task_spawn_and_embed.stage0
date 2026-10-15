@@ -1,0 +1,10 @@
+program	compiler/tests/run/task_spawn_and_embed.saw
+triple	aarch64-unknown-linux-gnu
+source	8bcb924a227cfe52
+build	ok
+exit	0
+stdout	"10"
+stdout	"20"
+stdout	"30"
+stdout	"40"
+stdout	""

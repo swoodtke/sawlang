@@ -1,0 +1,9 @@
+program	compiler/tests/run/statics.saw
+triple	aarch64-unknown-linux-gnu
+source	f8371267d76660ea
+build	ok
+exit	0
+stdout	"page 4096 mask 4095"
+stdout	"pages 1 1 2"
+stdout	"enabled true"
+stdout	""

@@ -1,0 +1,10 @@
+program	compiler/tests/run/collection_literal.saw
+triple	arm64-apple-darwin
+source	cb359fdfb0bdf74a
+build	ok
+exit	0
+stdout	"4"
+stdout	"2"
+stdout	"3 three"
+stdout	"30"
+stdout	""

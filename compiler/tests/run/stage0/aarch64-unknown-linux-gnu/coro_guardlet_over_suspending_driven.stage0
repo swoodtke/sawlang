@@ -1,0 +1,10 @@
+program	compiler/tests/run/coro_guardlet_over_suspending_driven.saw
+triple	aarch64-unknown-linux-gnu
+source	ed7f6fe1c07d0cda
+build	ok
+exit	0
+stdout	"52"
+stdout	"-1"
+stdout	"2"
+stdout	"1"
+stdout	""

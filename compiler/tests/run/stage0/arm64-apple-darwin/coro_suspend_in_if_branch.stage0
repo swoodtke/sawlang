@@ -1,0 +1,10 @@
+program	compiler/tests/run/coro_suspend_in_if_branch.saw
+triple	arm64-apple-darwin
+source	86725b92f696671c
+build	ok
+exit	0
+stdout	"11"
+stdout	"1"
+stdout	"22"
+stdout	"2"
+stdout	""

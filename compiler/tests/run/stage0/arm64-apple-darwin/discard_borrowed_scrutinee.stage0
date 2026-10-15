@@ -1,0 +1,10 @@
+program	compiler/tests/run/discard_borrowed_scrutinee.saw
+triple	arm64-apple-darwin
+source	854b1759db485277
+build	ok
+exit	0
+stdout	"first"
+stdout	"full"
+stdout	"end"
+stdout	"drop 5"
+stdout	""

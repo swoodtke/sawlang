@@ -1,0 +1,14 @@
+program	compiler/tests/run/coro_if_condition_head_driven.saw
+triple	arm64-apple-darwin
+source	95b7c745781978db
+build	ok
+exit	0
+stdout	"A1"
+stdout	"A2"
+stdout	"condition 22"
+stdout	"B1"
+stdout	"B2"
+stdout	"1"
+stdout	"1"
+stdout	"1"
+stdout	""

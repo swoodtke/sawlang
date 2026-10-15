@@ -1,0 +1,13 @@
+program	compiler/tests/migrate/fixtures/a4_accessor_forced_store.before
+triple	arm64-apple-darwin
+source	17fdd9299e901846
+instrument	{"col": 1, "ext": null, "file": ".build/migrate-tests/a4_accessor_forced_store.saw", "kind": "walked", "line": 17, "name": "make"}
+instrument	{"col": 1, "ext": null, "file": ".build/migrate-tests/a4_accessor_forced_store.saw", "kind": "walked", "line": 19, "name": "main"}
+instrument	{"absent": "panic", "accessor_file": ".build/migrate-tests/a4_accessor_forced_store.saw", "accessor_self": "var", "args": [{"left": [21, 12, "IntLiteral"], "names": [], "pos": [21, 12], "resolved": "Int", "type": "IntLiteral"}], "caller": "_assignment", "chain": ["!"], "col": 6, "compound": null, "ctx": [{"field": "statements[1]", "pos": [19, 13], "type": "Block"}, {"field": "body", "name": "main", "pos": [19, 1], "type": "Function"}, {"field": "functions[1]", "pos": [0, 0], "type": "Program"}], "decl": "main", "elem": "Cell", "elem_kind": "STRUCT", "exclusive": true, "exclusive_only": false, "file": ".build/migrate-tests/a4_accessor_forced_store.saw", "force_whole": true, "grand": "_stmt", "hoisted": false, "key": null, "kind": "window", "line": 21, "method": "slot", "optional": true, "policy": "trivial", "recv_left": [21, 5, "Identifier"], "recv_type": "Bag", "root": "b", "self_cell": false, "shared_self_body": false, "stmt_pos": [21, 14], "stmt_type": "AssignStatement", "struct": "Bag", "subscript": false, "synthesized": false, "tier": "free", "value": {"left": [21, 18, "StructInit"], "names": [], "pos": [21, 18], "resolved": "Cell", "type": "StructInit"}, "whole": false}
+instrument	{"col": 12, "ext": "Bag", "file": ".build/migrate-tests/a4_accessor_forced_store.saw", "kind": "walked", "line": 5, "name": "at"}
+instrument	{"col": 12, "ext": "Bag", "file": ".build/migrate-tests/a4_accessor_forced_store.saw", "kind": "walked", "line": 8, "name": "slot"}
+instrument	{"col": 12, "ext": "Bag", "file": ".build/migrate-tests/a4_accessor_forced_store.saw", "kind": "walked", "line": 12, "name": "total"}
+instrument	{"col": 12, "ext": "Bag", "file": ".build/migrate-tests/a4_accessor_forced_store.saw", "kind": "walked", "line": 5, "name": "__lend_var_at"}
+instrument	{"col": 12, "ext": "Bag", "file": ".build/migrate-tests/a4_accessor_forced_store.saw", "kind": "walked", "line": 8, "name": "__lend_var_slot"}
+instrument	{"col": 12, "ext": "Bag", "file": ".build/migrate-tests/a4_accessor_forced_store.saw", "kind": "walked", "line": 12, "name": "__lend_var_total"}
+instrument	{"kind": "status", "status": "stopped-after-places"}

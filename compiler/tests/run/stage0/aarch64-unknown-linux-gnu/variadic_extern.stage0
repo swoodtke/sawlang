@@ -1,0 +1,7 @@
+program	compiler/tests/run/variadic_extern.saw
+triple	aarch64-unknown-linux-gnu
+source	87a2948e330c7441
+build	ok
+exit	0
+stdout	"true"
+stdout	""

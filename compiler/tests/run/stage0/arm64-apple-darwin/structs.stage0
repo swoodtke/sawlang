@@ -1,0 +1,10 @@
+program	compiler/tests/run/structs.saw
+triple	arm64-apple-darwin
+source	548324d1212bbf7c
+build	ok
+exit	0
+stdout	"manhattan 7"
+stdout	"shifted 5 -6"
+stdout	"copy kept 5 -6, original 6 -7"
+stdout	"segment 0 0 -> 5 -6"
+stdout	""

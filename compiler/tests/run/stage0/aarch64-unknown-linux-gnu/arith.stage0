@@ -1,0 +1,16 @@
+program	compiler/tests/run/arith.saw
+triple	aarch64-unknown-linux-gnu
+source	8113fca41735fed5
+build	ok
+exit	0
+stdout	"12 22 -85"
+stdout	"-3 2 -2 -1"
+stdout	"wrapped -56"
+stdout	"byte 200 144"
+stdout	"big 18446744073709551615"
+stdout	"shift 1024 -16 31"
+stdout	"bits 48 255 240"
+stdout	"cmp false true false"
+stdout	"min -2147483648"
+stdout	"sum of squares 385"
+stdout	""

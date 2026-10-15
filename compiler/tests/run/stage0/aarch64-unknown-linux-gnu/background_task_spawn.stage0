@@ -1,0 +1,9 @@
+program	compiler/tests/run/background_task_spawn.saw
+triple	aarch64-unknown-linux-gnu
+source	0e87bc01e1a817e0
+build	ok
+exit	0
+stdout	"36"
+stdout	"counter ran"
+stdout	"cancelled early"
+stdout	""

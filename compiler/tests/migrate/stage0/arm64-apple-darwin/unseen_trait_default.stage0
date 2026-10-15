@@ -1,0 +1,8 @@
+program	compiler/tests/migrate/fixtures/unseen_trait_default.before
+triple	arm64-apple-darwin
+source	9d3702c56af2f637
+instrument	{"col": 1, "ext": null, "file": ".build/migrate-tests/unseen_trait_default.saw", "kind": "walked", "line": 14, "name": "main"}
+instrument	{"col": 5, "ext": "Box2", "file": ".build/migrate-tests/unseen_trait_default.saw", "kind": "walked", "line": 11, "name": "items"}
+instrument	{"col": 1, "ext": "Box2", "file": ".build/migrate-tests/unseen_trait_default.saw", "kind": "walked", "line": 10, "name": "first"}
+instrument	{"absent": "none", "accessor_file": "sawc/std/vector.saw", "accessor_self": "var", "args": null, "bare": true, "caller": "_chain_window", "chain": [], "col": 10, "ctx": [{"field": "final_expr", "pos": [3, 30], "type": "Block"}, {"field": "body", "name": "first", "pos": [10, 1], "type": "Method"}, {"field": "methods[1]", "pos": [10, 1], "type": "Extension"}], "decl": "first", "elem": "Int", "elem_kind": "INT", "exclusive": false, "exclusive_only": false, "expr_pos": [5, 10], "expr_resolved": "Int", "expr_type": "ArrayIndex", "file": ".build/migrate-tests/unseen_trait_default.saw", "grand": "_value", "key": {"left": [5, 11, "IntLiteral"], "names": [], "pos": [5, 11], "resolved": "Int", "type": "IntLiteral"}, "kind": "window", "line": 5, "method": "[]", "nested_outer": false, "optional": false, "policy": "trivial", "recv_left": [5, 9, "Identifier"], "recv_type": "Vector<Int, GlobalAllocator>", "root": "v", "self_cell": false, "shared_self_body": true, "struct": "Vector", "subscript": true, "synthesized": false, "tier": "free", "unwrap_read": false}
+instrument	{"kind": "status", "status": "stopped-after-places"}

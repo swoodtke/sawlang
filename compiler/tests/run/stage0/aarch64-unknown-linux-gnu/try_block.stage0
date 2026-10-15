@@ -1,0 +1,22 @@
+program	compiler/tests/run/try_block.saw
+triple	aarch64-unknown-linux-gnu
+source	bc44a642a11cb8fe
+build	ok
+exit	0
+stdout	"first 2"
+stdout	"second 3"
+stdout	"caught 3"
+stdout	"first 2"
+stdout	"caught 5"
+stdout	"value 5 -3 -5"
+stdout	"nested body 5 52 -1"
+stdout	"nested catch 2 303 -5"
+stdout	"inline inside 5 1003 -5"
+stdout	"returning 7"
+stdout	"leaves 12 -1"
+stdout	"looped total 410 stopped at 9"
+stdout	"closure inside 8 -5"
+stdout	"text 15 and text 5"
+stdout	"failed at -5"
+stdout	"failed at -5"
+stdout	""

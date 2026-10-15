@@ -1,0 +1,18 @@
+program	compiler/tests/run/move_at_borrow.saw
+triple	arm64-apple-darwin
+source	5c4cebff4e98f851
+build	ok
+exit	0
+stdout	"format res 1"
+stdout	"drop 1"
+stdout	"after format"
+stdout	"interpolated res 2"
+stdout	"drop 2"
+stdout	"after interpolated"
+stdout	"drop 3"
+stdout	"receiver 3"
+stdout	"scrutinee 4"
+stdout	"drop 4"
+stdout	"after scrutinee"
+stdout	"end"
+stdout	""

@@ -1,19 +1,22 @@
 #!/usr/bin/env python3
-"""The run lane: each program here built by sawc2 against the new std and by
-Stage 0 against its own, both binaries run, and their standard output and
-exit status compared.
+"""The run lane: each program here built by sawc2 against the new std and
+run, and its standard output and exit status compared with Stage 0's recorded
+run of it, built against its own std.
 
     python compiler/tests/run/run_lane.py            # check
     python compiler/tests/run/run_lane.py --write    # rewrite hello.ll and noalias.defines
     python compiler/tests/run/run_lane.py NAME...    # just these programs and probes
+    python compiler/tests/run/run_lane.py --stage0 [NAME...]   # record Stage 0's runs
     python compiler/tests/run/run_lane.py --bench    # the timing report over bench/
     python compiler/tests/run/run_lane.py --target TRIPLE   # sawc2's side cross-built
 
 `compiler/tests/run.py` runs `run()`. Each `NAME.saw` is one case:
 
 - a plain program passes when sawc2's binary, built at -O0 and again at -O2,
-  prints the same bytes as Stage 0's and exits with the same status (a
-  panic's abort included);
+  prints the same bytes as Stage 0's recorded run and exits with the same
+  status (a panic's abort included); the record is `stage0/HOST/NAME.stage0`,
+  written by `--stage0` through the v0 compiler, and a program without one,
+  or whose bytes changed since it was made, fails until it is rerecorded;
 - a program whose first lines are `// due: REASON` and `// refuses: RULE at
   L:C` is one sawc2 cannot build yet: the lane requires `sawc2 build` to
   refuse it first there by that rule, and fails once it builds, so the lines
@@ -54,19 +57,22 @@ exit status compared.
   a `// probe: custom` one is checked by its function in `CUSTOM_PROBES`, a
   `// probe: module` one is imported by another probe and never built alone,
   and a probe stating no kind, or a kind's lines wrongly, fails the lane;
-- `probes/executable_path.saw`, the custom probe, built by sawc2 and by
-  Stage 0 and run through a renamed symbolic link on `PATH` from another
-  directory, prints its binary's real path;
+- `probes/executable_path.saw`, the custom probe, built by sawc2 and run
+  through a renamed symbolic link on `PATH` from another directory, prints its
+  binary's real path;
 - a generated accessor with a local live across its `lend` and 1100 `if`s
   after it, which Stage 0 cannot parse, is held as a stated probe to the `42`
-  and `5` it prints.
+  and `5` it prints;
+- no record in `stage0/` names a program that is gone.
 
-`--bench` runs none of that: it times each kernel of `bench/` under sawc2 at
--O2 and under Stage 0 and prints the report, which gates nothing. The runner
-never runs it.
+`--stage0` records Stage 0's runs of every program not due, or of the NAMEs,
+for this host; `--bench` times each kernel of `bench/` under sawc2 at -O2 and
+under Stage 0 and prints the report, which gates nothing. Those two run the v0
+compiler (`oracle.v0_compiler`); the check never does, and the runner never
+runs either.
 
-Stage 0 is the oracle; a difference is a sawc2 bug until shown otherwise
-(SL:architecture §5).
+Stage 0's recorded run is the oracle; a difference is a sawc2 bug until shown
+otherwise (SL:architecture §5).
 """
 import glob
 import os
@@ -81,14 +87,19 @@ TESTS = os.path.dirname(HERE)
 COMPILER = os.path.dirname(TESTS)
 REPO = os.path.dirname(COMPILER)
 sys.path.insert(0, os.path.join(COMPILER, "tools"))
+sys.path.insert(0, TESTS)
 sys.path.append(os.path.join(REPO, "tools"))
 
 import build  # noqa: E402
 import gate_jobs  # noqa: E402
+import oracle  # noqa: E402
 
 OUT = os.path.join(REPO, ".build", "run-lane")
-# The target sawc2 builds the programs for, None for the host. Stage 0 builds
-# its oracle for the host either way: the expected output is the same on
+# Stage 0's recorded runs, one directory per host triple (README.md, "The
+# oracle").
+STAGE0 = os.path.join(HERE, "stage0")
+# The target sawc2 builds the programs for, None for the host. The oracle is
+# Stage 0's run on the host either way: the expected output is the same on
 # every target, which is the claim a cross-built program is held to.
 TARGET = None
 
@@ -163,7 +174,8 @@ def stated_prints(path):
 def check_hazard(src, differs, out_new, out_old):
     """Failures for a program whose `// differs:` cites an SL:hazards entry:
     its `// prints:` lines are what sawc2 must print, and Stage 0 must print
-    the same lines in another order."""
+    the same lines in another order; `out_old` is None when Stage 0's order
+    varied between its recorded runs, which the hazard allows."""
     stated = stated_prints(src)
     if not stated:
         return ["run %s: cites %s but states no `// prints:` lines" % (rel(src), _HAZARD.search(differs).group(0))]
@@ -172,6 +184,8 @@ def check_hazard(src, differs, out_new, out_old):
     if out_new != want:
         failures.append("run %s: sawc2 does not print the stated lines: %s"
                         % (rel(src), first_difference(out_new, want)))
+    if out_old is None:
+        return failures
     old_lines = out_old.decode("utf-8", "replace").split("\n")
     if old_lines and old_lines[-1] == "":
         old_lines = old_lines[:-1]
@@ -212,12 +226,53 @@ def build_new(src, speed="-O0"):
     return r.returncode == 0, out, (r.stdout + r.stderr).strip()
 
 
-def build_old(src):
+def stage0_command(names=()):
+    return "python compiler/tests/run/run_lane.py --stage0" + "".join(" " + n for n in names)
+
+
+_MODULE_IMPORT = re.compile(rb"^import modules\.(\w+)", re.M)
+
+
+def program_data(src):
+    """The bytes a program's Stage 0 record is made from: its source, then
+    each `modules/NAME.saw` it imports."""
+    with open(src, "rb") as fh:
+        data = fh.read()
+    for name in sorted(set(_MODULE_IMPORT.findall(data))):
+        with open(os.path.join(HERE, "modules", name.decode("ascii") + ".saw"), "rb") as fh:
+            data += b"\0" + name + b"\0" + fh.read()
+    return data
+
+
+def stage0_run(src):
+    """Stage 0's recorded run of `src` on this host: (Record, None), or (None,
+    why there is none)."""
     name = os.path.splitext(os.path.basename(src))[0]
-    out = os.path.join(OUT, name + ".old")
-    r = subprocess.run([sys.executable, build.FROZEN_SAWC, rel(src), "-o", out], cwd=REPO,
-                       capture_output=True, text=True, timeout=BUILD_TIMEOUT)
-    return r.returncode == 0, out, (r.stdout + r.stderr).strip()
+    return oracle.load_run(STAGE0, name, program_data(src), stage0_command([name]))
+
+
+def record_stage0(names=None):
+    """Stage 0 builds each program that is not due and runs it as `execute`
+    runs one, and its record replaces the one in `STAGE0`; over every program,
+    a record naming none is removed. This and `bench` are the lane's only
+    runs of Stage 0, both through the v0 compiler (`oracle.v0_compiler`)."""
+    os.makedirs(OUT, exist_ok=True)
+    triple = build.host_triple()
+    srcs = [src for src in cases(names) if headers(src)[0] is None]
+
+    def one(src):
+        name = os.path.splitext(os.path.basename(src))[0]
+        rec = oracle.record_run(src, oracle.record_file(STAGE0, triple, name), rel(src), cwd=OUT,
+                                timeout=RUN_TIMEOUT, data=program_data(src))
+        return "%s: build %s%s" % (name, rec.build, "" if rec.build != "ok" else ", exit %s" % rec.exit)
+    for line in gate_jobs.map_ordered(one, srcs):
+        print("run lane stage0 %s %s" % (triple, line))
+    if not names:
+        for path in oracle.stale_records(os.path.join(STAGE0, triple),
+                                         {os.path.splitext(os.path.basename(s))[0] for s in srcs}):
+            os.remove(path)
+            print("run lane stage0: removed %s" % rel(path))
+    return 0
 
 
 def execute(binary):
@@ -263,23 +318,32 @@ def check_case(src):
         return ["run %s: sawc2 does not build it: %s" % (rel(src), first)], "fail"
     if new_log:
         return ["run %s: sawc2 builds it but prints: %s" % (rel(src), new_log[:300])], "fail"
-    ok_old, old, old_log = build_old(src)
-    if not ok_old:
-        return ["run %s: Stage 0 does not build it: %s" % (rel(src), old_log[-300:])], "fail"
+    old, why = stage0_run(src)
+    if old is None:
+        return ["run %s: %s" % (rel(src), why)], "fail"
+    if old.build != "ok":
+        return ["run %s: Stage 0 does not build it: %s" % (rel(src), old.build_error or old.build)], "fail"
     ok_fast, fast, fast_log = build_new(src, "-O2")
     if not ok_fast:
         return ["run %s: sawc2 does not build it at -O2: %s" % (rel(src), fast_log[:300])], "fail"
-    code_old, out_old = execute(old)
+    code_old = old.exit
+    # The record holds the output with this checkout's root removed, so
+    # sawc2's is compared the same way.
+    out_old = None if old.stdout == "varies" else old.stdout.encode("utf-8", "surrogateescape")
     failures = []
     for speed, binary in (("-O0", new), ("-O2", fast)):
         code_new, out_new = execute(binary)
+        out_new = oracle.unrooted(out_new.decode("utf-8", "surrogateescape")).encode("utf-8", "surrogateescape")
         where = "%s %s" % (rel(src), speed)
         if code_new is None or code_old is None:
             failures.append("run %s: a binary timed out" % where)
-        elif code_new != code_old:
+        elif code_old != "varies" and code_new != code_old:
             failures.append("run %s: exit %d under sawc2, %d under Stage 0" % (where, code_new, code_old))
         if differs is not None and _HAZARD.search(differs):
             failures.extend("%s (%s)" % (f, speed) for f in check_hazard(src, differs, out_new, out_old))
+        elif out_old is None:
+            failures.append("run %s: Stage 0's output varies between runs, so it is no oracle: state the "
+                            "output with `// prints:` lines and cite the hazard on a `// differs:` line" % where)
         elif differs is not None:
             if masked(out_new) != masked(out_old):
                 failures.append("run %s: output differs beyond a panic location: %s"
@@ -558,10 +622,10 @@ def check_foreign_targets(failures, counts):
 
 def check_executable_path(failures, counts):
     """`Env.executable_path` names the real file however the program is
-    started: `probes/executable_path.saw`, built by sawc2 and by Stage 0, is
-    run by a bare name that a renamed relative symbolic link on `PATH`
-    resolves, from another working directory, and must print its binary's
-    real path."""
+    started: `probes/executable_path.saw`, built by sawc2, is run by a bare
+    name that a renamed relative symbolic link on `PATH` resolves, from
+    another working directory, and must print its binary's real path. The
+    expectation is the path itself, so no Stage 0 run is needed."""
     probe = os.path.join(HERE, "probes", "executable_path.saw")
     links = os.path.join(OUT, "probe-links")
     elsewhere = os.path.join(OUT, "probe-elsewhere")
@@ -573,15 +637,11 @@ def check_executable_path(failures, counts):
     r = subprocess.run([build.SAWC2, "build", "--std-root", "std"] + target_flags() + [rel(probe), "-o", new],
                        cwd=REPO, capture_output=True, text=True, timeout=BUILD_TIMEOUT)
     built.append(("sawc2", r.returncode, new, (r.stdout + r.stderr).strip()))
-    old = os.path.join(OUT, "executable_path.old")
-    r = subprocess.run([sys.executable, build.FROZEN_SAWC, rel(probe), "-o", old], cwd=REPO,
-                       capture_output=True, text=True, timeout=BUILD_TIMEOUT)
-    built.append(("Stage 0", r.returncode, old, (r.stdout + r.stderr).strip()))
     for who, code, binary, log in built:
         if code != 0:
             failures.append("run executable path: %s does not build the probe: %s" % (who, log[:300]))
             continue
-        name = "renamed-probe-" + ("new" if binary == new else "old")
+        name = "renamed-probe-new"
         os.symlink(os.path.relpath(binary, links), os.path.join(links, name))
         env = dict(os.environ, PATH=links + os.pathsep + "/usr/bin" + os.pathsep + "/bin")
         r = subprocess.run([name], cwd=elsewhere, env=env, capture_output=True, text=True,
@@ -788,9 +848,8 @@ def check_long_accessor(failures, counts):
 
 
 # The custom probes, each checked by its own function. `executable_path.saw`
-# is built by both compilers and run through a renamed link on `PATH` from
-# another directory, and what it must print is its binary's real path, which
-# no header line can state.
+# is run through a renamed link on `PATH` from another directory, and what it
+# must print is its binary's real path, which no header line can state.
 CUSTOM_PROBES = {
     "executable_path.saw": check_executable_path,
 }
@@ -847,6 +906,10 @@ def run(names=None, write=False):
             dues.append("%s (%s)" % (os.path.basename(src), due))
             covered.add(refuses[0])
     if not names:
+        programs = {os.path.splitext(os.path.basename(s))[0] for s in srcs}
+        for path in oracle.stale_records(STAGE0, programs):
+            failures.append("run %s: a Stage 0 record of no program here; `%s` removes it"
+                            % (rel(path), stage0_command()))
         for rule in ll_rules():
             if rule not in covered:
                 failures.append("run rule %s: no due program is refused by it" % rule)
@@ -876,14 +939,17 @@ def bench():
     """The timing report: each kernel of `bench/` built by sawc2 at -O2 and
     by Stage 0, both run, their best times printed beside the ratio. Only a
     build that fails, or two outputs that differ, fails the report; a time
-    never does, since it is only as good as the machine is quiet."""
+    never does, since it is only as good as the machine is quiet. A time is
+    no record, so Stage 0 is run here, through the v0 compiler."""
     os.makedirs(OUT, exist_ok=True)
     failures = []
     print("%-12s %10s %10s %7s" % ("kernel", "Stage 0", "sawc2 -O2", "ratio"))
     for src in sorted(glob.glob(os.path.join(HERE, "bench", "*.saw"))):
         name = os.path.splitext(os.path.basename(src))[0]
         ok_new, new, new_log = build_new(src, "-O2")
-        ok_old, old, old_log = build_old(src)
+        old = os.path.join(OUT, name + ".old")
+        code, old_log = oracle.stage0(src, old, [], timeout=BUILD_TIMEOUT)
+        ok_old = code == 0
         if not ok_new or not ok_old:
             failures.append("bench %s: %s does not build it: %s"
                             % (name, "sawc2" if not ok_new else "Stage 0", (new_log if not ok_new else old_log)[:300]))
@@ -910,6 +976,11 @@ def main():
     if "--bench" in args:
         return bench()
     names = [a for a in args if not a.startswith("-")]
+    if "--stage0" in args:
+        if TARGET:
+            print("run lane: --stage0 records Stage 0's host runs, so it takes no --target")
+            return 2
+        return record_stage0(names)
     failures, counts, dues = run(names, "--write" in args)
     for failure in failures:
         print(failure)

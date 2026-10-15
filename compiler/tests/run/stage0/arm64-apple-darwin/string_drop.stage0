@@ -1,0 +1,11 @@
+program	compiler/tests/run/string_drop.saw
+triple	arm64-apple-darwin
+source	830c0c19dffc727f
+build	ok
+exit	0
+stdout	"cde"
+stdout	"cde 3"
+stdout	"ab"
+stdout	"bc"
+stdout	"cd"
+stdout	""

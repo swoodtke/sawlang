@@ -1,0 +1,10 @@
+program	compiler/tests/run/discard_borrowed_scrutinee.saw
+triple	aarch64-unknown-linux-gnu
+source	854b1759db485277
+build	ok
+exit	0
+stdout	"first"
+stdout	"full"
+stdout	"end"
+stdout	"drop 5"
+stdout	""

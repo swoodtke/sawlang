@@ -1,0 +1,9 @@
+program	compiler/tests/run/recursion.saw
+triple	arm64-apple-darwin
+source	4f89153dadcd7b20
+build	ok
+exit	0
+stdout	"fib 6765"
+stdout	"iterated 832040"
+stdout	"parity true true"
+stdout	""

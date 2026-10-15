@@ -1,0 +1,7 @@
+program	compiler/tests/run/frame_pointers.saw
+triple	arm64-apple-darwin
+source	6d967890153d4617
+build	ok
+exit	0
+stdout	"frame 44"
+stdout	""

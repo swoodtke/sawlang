@@ -1,0 +1,7 @@
+program	compiler/tests/std/pairs/string_substring_range.saw
+triple	arm64-apple-darwin
+source	858d16087337d301
+build	ok
+exit	-6
+stdout	"panic at string.saw:374: String.substring: range out of range: 1..5 (len 3)"
+stdout	""

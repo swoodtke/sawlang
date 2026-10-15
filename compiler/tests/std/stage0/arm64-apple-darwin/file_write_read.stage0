@@ -1,0 +1,5 @@
+program	compiler/tests/std/pairs/file_write_read.saw
+triple	arm64-apple-darwin
+source	744f0d9324a23dad
+build	ok
+exit	0

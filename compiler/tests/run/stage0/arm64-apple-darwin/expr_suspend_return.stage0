@@ -1,0 +1,8 @@
+program	compiler/tests/run/expr_suspend_return.saw
+triple	arm64-apple-darwin
+source	12fda1c52611c7cf
+build	ok
+exit	0
+stdout	"10"
+stdout	"6"
+stdout	""

@@ -1,0 +1,13 @@
+program	compiler/tests/run/expr_suspend_andor.saw
+triple	arm64-apple-darwin
+source	f1f016a308f39448
+build	ok
+exit	0
+stdout	"0"
+stdout	"0"
+stdout	"1"
+stdout	"1"
+stdout	"1"
+stdout	"1"
+stdout	"2"
+stdout	""

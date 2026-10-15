@@ -1,0 +1,10 @@
+program	compiler/tests/migrate/fixtures/e_refused_try.before
+triple	arm64-apple-darwin
+source	24c262ae0ddbf945
+instrument	{"arg_index": 0, "arg_labels": [null], "args": [{"left": [18, 42, "ClosureExpr"], "names": ["c"], "pos": [18, 42], "resolved": "(&var Int) -> Result<Int, Oops>", "type": "ClosureExpr"}], "body_names": ["c"], "body_pos": [18, 54], "call_type": "MethodCall", "callee": "lock", "callee_file": "sawc/std/mutex.saw", "capture_specs": [], "captures_root": false, "closure_pos": [18, 42], "closure_type": "(&var Int) -> Result<Int, Oops>", "col": 17, "ctx": [{"field": "value", "mutable": false, "name": "seen", "pos": [18, 5], "type": "LetStatement"}, {"field": "statements[0]", "pos": [17, 47], "type": "Block"}, {"field": "body", "name": "run", "pos": [17, 1], "type": "Function"}], "exits": ["try"], "file": ".build/migrate-tests/e_refused_try.saw", "func": "run", "kind": "closure", "line": 18, "n_args": 1, "owner": "Mutex", "owner_type": "Mutex<Int>", "params": [{"name": "c", "pos": [18, 49], "ref": true, "typed": false}], "recv_left": [18, 16, "Identifier"], "ref_params": ["&var Int"], "result_type": "Result<Int, Oops>", "root": "m", "shadow_risk": [], "shorthand": 0}
+instrument	{"col": 1, "ext": null, "file": ".build/migrate-tests/e_refused_try.saw", "kind": "walked", "line": 12, "name": "step"}
+instrument	{"col": 1, "ext": null, "file": ".build/migrate-tests/e_refused_try.saw", "kind": "walked", "line": 17, "name": "run"}
+instrument	{"col": 1, "ext": null, "file": ".build/migrate-tests/e_refused_try.saw", "kind": "walked", "line": 22, "name": "main"}
+instrument	{"col": 5, "ext": "Oops", "file": ".build/migrate-tests/e_refused_try.saw", "kind": "walked", "line": 5, "name": "format"}
+instrument	{"col": 1, "ext": "Oops", "file": ".build/migrate-tests/e_refused_try.saw", "kind": "walked", "line": 4, "name": "to_string"}
+instrument	{"kind": "status", "status": "stopped-after-places"}

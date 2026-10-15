@@ -1,0 +1,8 @@
+program	compiler/tests/run/program_arguments.saw
+triple	arm64-apple-darwin
+source	7b64a251a650ceb1
+build	ok
+exit	0
+stdout	"1"
+stdout	"true"
+stdout	""

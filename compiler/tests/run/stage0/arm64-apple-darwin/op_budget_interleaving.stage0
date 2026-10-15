@@ -1,0 +1,24 @@
+program	compiler/tests/run/op_budget_interleaving.saw
+triple	arm64-apple-darwin
+source	63950974089ab9d9
+build	ok
+exit	0
+stdout	"body 125"
+stdout	"body 126"
+stdout	"odd 125"
+stdout	"odd 127"
+stdout	"sibling ran"
+stdout	"body 127"
+stdout	"body 128"
+stdout	"body 129"
+stdout	"200"
+stdout	"odd 129"
+stdout	"200"
+stdout	"cell 115"
+stdout	"cell 116"
+stdout	"cell 117"
+stdout	"cell 118"
+stdout	"cell 119"
+stdout	"200"
+stdout	"1"
+stdout	""

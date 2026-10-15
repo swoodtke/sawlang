@@ -1,0 +1,13 @@
+program	compiler/tests/mono/golden/copy_hooks.saw
+triple	arm64-apple-darwin
+source	e62487c7d82dbde2
+build	ok
+exit	0
+stdout	"Bool\t1\t1"
+stdout	"Int\t8\t8"
+stdout	"String\t8\t8"
+stdout	"UnsafePointer<Int8>\t8\t8"
+stdout	"UnsafePointer<Int>\t8\t8"
+stdout	"Counted\t8\t8"
+stdout	"Named\t8\t8"
+stdout	""

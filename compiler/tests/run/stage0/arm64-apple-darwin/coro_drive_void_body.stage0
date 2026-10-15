@@ -1,0 +1,7 @@
+program	compiler/tests/run/coro_drive_void_body.saw
+triple	arm64-apple-darwin
+source	0f5b8ac523c0ff22
+build	ok
+exit	0
+stdout	"3"
+stdout	""

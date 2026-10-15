@@ -1,0 +1,8 @@
+program	compiler/tests/run/expr_suspend_iflet_scrutinee.saw
+triple	arm64-apple-darwin
+source	c05315efb7aad0ec
+build	ok
+exit	0
+stdout	"9"
+stdout	"7"
+stdout	""

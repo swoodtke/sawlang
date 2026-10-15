@@ -1,0 +1,9 @@
+program	compiler/tests/run/yield_main.saw
+triple	aarch64-unknown-linux-gnu
+source	ebbaefa018c8827c
+build	ok
+exit	3
+stdout	"1 hello, frame"
+stdout	"2 hello, frame"
+stdout	"3 hello, frame"
+stdout	""

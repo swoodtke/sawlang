@@ -1,0 +1,8 @@
+program	compiler/tests/run/coro_suspend_in_while.saw
+triple	aarch64-unknown-linux-gnu
+source	3f07297acfedaad2
+build	ok
+exit	0
+stdout	"3"
+stdout	"3"
+stdout	""

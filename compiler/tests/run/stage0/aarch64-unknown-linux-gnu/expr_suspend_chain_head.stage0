@@ -1,0 +1,8 @@
+program	compiler/tests/run/expr_suspend_chain_head.saw
+triple	aarch64-unknown-linux-gnu
+source	782b78bb65e24456
+build	ok
+exit	0
+stdout	"10"
+stdout	"6"
+stdout	""

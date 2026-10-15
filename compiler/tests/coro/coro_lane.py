@@ -218,7 +218,7 @@ def check_agreement(failures, counts):
 
 def check_park_injections(failures, counts):
     """Each unit program under `parks/`, which lowers a fixture of `inject/`
-    under the park std and needs it made first: built by Stage 0 and run from
+    under the park std and needs it made first: built by sawc2 and run from
     the repository root, as compiler/tests/run.py runs the stages' own."""
     for src in sorted(glob.glob(os.path.join(PARKS, "*.saw"))):
         if src == PARKS_TAIL:

@@ -1,0 +1,10 @@
+program	compiler/tests/run/control.saw
+triple	arm64-apple-darwin
+source	ca2651b7d2c40c2d
+build	ok
+exit	0
+stdout	"evens 56 stopped at 16"
+stdout	"total 610"
+stdout	"-1 0 1"
+stdout	"flag true"
+stdout	""

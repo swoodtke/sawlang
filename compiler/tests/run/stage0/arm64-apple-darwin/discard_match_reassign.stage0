@@ -1,0 +1,13 @@
+program	compiler/tests/run/discard_match_reassign.saw
+triple	arm64-apple-darwin
+source	de9d456548cbecc8
+build	ok
+exit	0
+stdout	"drop 3"
+stdout	"arm reassigned"
+stdout	"after match"
+stdout	"drop 4"
+stdout	"arm emptied"
+stdout	"end"
+stdout	"drop 9"
+stdout	""

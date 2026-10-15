@@ -1,0 +1,7 @@
+program	compiler/tests/std/pairs/string_byte_at_range.saw
+triple	arm64-apple-darwin
+source	b36a0689ce50c9d7
+build	ok
+exit	-6
+stdout	"panic at string.saw:49: String.byte_at: index out of range: 3 (len 3)"
+stdout	""

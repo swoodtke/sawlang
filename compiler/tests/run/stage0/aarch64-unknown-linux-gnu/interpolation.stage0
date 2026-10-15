@@ -1,0 +1,10 @@
+program	compiler/tests/run/interpolation.saw
+triple	aarch64-unknown-linux-gnu
+source	6b3c38bc5aac788c
+build	ok
+exit	0
+stdout	"hello world, n = 42"
+stdout	"tag alpha#-3 of 5 letters"
+stdout	"5"
+stdout	"15"
+stdout	""

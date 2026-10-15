@@ -1,0 +1,5 @@
+program	compiler/tests/std/pairs/file_invalid_utf8.saw
+triple	arm64-apple-darwin
+source	0ae1c0d7d0989c9e
+build	ok
+exit	0

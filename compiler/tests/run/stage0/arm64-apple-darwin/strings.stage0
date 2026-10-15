@@ -1,0 +1,12 @@
+program	compiler/tests/run/strings.saw
+triple	arm64-apple-darwin
+source	a489801b7deae6e3
+build	ok
+exit	0
+stdout	"saw"
+stdout	"name: saw and again"
+stdout	"tab\there \"quoted\" back\\slash"
+stdout	"len 3 3"
+stdout	"heavy 9"
+stdout	"true"
+stdout	""

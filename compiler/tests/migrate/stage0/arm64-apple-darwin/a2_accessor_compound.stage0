@@ -1,0 +1,13 @@
+program	compiler/tests/migrate/fixtures/a2_accessor_compound.before
+triple	arm64-apple-darwin
+source	ad927a16afc4c297
+instrument	{"col": 1, "ext": null, "file": ".build/migrate-tests/a2_accessor_compound.saw", "kind": "walked", "line": 17, "name": "make"}
+instrument	{"col": 1, "ext": null, "file": ".build/migrate-tests/a2_accessor_compound.saw", "kind": "walked", "line": 19, "name": "main"}
+instrument	{"absent": "panic", "accessor_file": ".build/migrate-tests/a2_accessor_compound.saw", "accessor_self": "var", "args": [], "caller": "_assignment", "chain": [], "col": 6, "compound": "+", "ctx": [{"field": "statements[1]", "pos": [19, 13], "type": "Block"}, {"field": "body", "name": "main", "pos": [19, 1], "type": "Function"}, {"field": "functions[1]", "pos": [0, 0], "type": "Program"}], "decl": "main", "elem": "Int", "elem_kind": "INT", "exclusive": true, "exclusive_only": false, "file": ".build/migrate-tests/a2_accessor_compound.saw", "force_whole": false, "grand": "_stmt", "hoisted": false, "key": null, "kind": "window", "line": 21, "method": "total", "optional": false, "policy": "trivial", "recv_left": [21, 5, "Identifier"], "recv_type": "Bag", "root": "b", "self_cell": false, "shared_self_body": false, "stmt_pos": [21, 6], "stmt_type": "CompoundAssignStatement", "struct": "Bag", "subscript": false, "synthesized": false, "tier": "free", "value": {"left": [21, 18, "IntLiteral"], "names": [], "pos": [21, 18], "resolved": "Int", "type": "IntLiteral"}, "whole": true}
+instrument	{"col": 12, "ext": "Bag", "file": ".build/migrate-tests/a2_accessor_compound.saw", "kind": "walked", "line": 5, "name": "at"}
+instrument	{"col": 12, "ext": "Bag", "file": ".build/migrate-tests/a2_accessor_compound.saw", "kind": "walked", "line": 8, "name": "slot"}
+instrument	{"col": 12, "ext": "Bag", "file": ".build/migrate-tests/a2_accessor_compound.saw", "kind": "walked", "line": 12, "name": "total"}
+instrument	{"col": 12, "ext": "Bag", "file": ".build/migrate-tests/a2_accessor_compound.saw", "kind": "walked", "line": 5, "name": "__lend_var_at"}
+instrument	{"col": 12, "ext": "Bag", "file": ".build/migrate-tests/a2_accessor_compound.saw", "kind": "walked", "line": 8, "name": "__lend_var_slot"}
+instrument	{"col": 12, "ext": "Bag", "file": ".build/migrate-tests/a2_accessor_compound.saw", "kind": "walked", "line": 12, "name": "__lend_var_total"}
+instrument	{"kind": "status", "status": "stopped-after-places"}

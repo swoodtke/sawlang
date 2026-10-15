@@ -9,7 +9,7 @@ them needs it, and prints as the full run prints.
 Builds Stage 1 (`sawc2`, by the seed) and Stage 2 (sawc2 built by
 Stage 1, `compiler/tools/build.py`), and every sawc2-driven lane below runs
 Stage 2; `--stage 1`, or `SAWC2_STAGE=1`, runs them on Stage 1 instead, for
-bisecting. Builds the unit programs with the frozen compiler and runs them;
+bisecting. Builds the unit programs with sawc2 and runs them;
 compares `sawc2 lex` with the golden fixtures in `lex/`, whose token
 kinds and lex errors must cover the lexer's; runs the subset checker over the
 compiler source and its own fixtures in `subset/`; recomputes the std cone of
@@ -33,13 +33,16 @@ fold to agreement over tests/corpus/; runs the std lane over `std/`, the
 new std; runs the borrowck lane over `borrowck/`; runs the drops lane over
 `drops/`; runs the mono lane over `mono/`, whose golden item dumps, layout
 tables and refusal fixtures hold `sawc2 mono` and the target description, and
-whose layouts are compared with Stage 0's; runs the coro lane over `coro/`,
-whose golden frame decisions and refusal fixtures hold `sawc2 coro`, and whose
-decisions must agree with typecheck's summaries; runs the run lane over `run/`,
-which builds each program with `sawc2 build` and with Stage 0 and compares
-the two binaries' output; and checks that the Stage 0 snapshot in
-`coro/stage0/` is whole and prints the coroutine census, which gates nothing;
-and checks that a serial and a parallel run print the same (`parallel_order.py`).
+whose layouts are compared with Stage 0's recorded ones; runs the coro lane
+over `coro/`, whose golden frame decisions and refusal fixtures hold `sawc2
+coro`, and whose decisions must agree with typecheck's summaries; runs the run
+lane over `run/`, which builds each program with `sawc2 build` and compares
+its binary's output with Stage 0's recorded run; and checks that the Stage 0
+snapshot in `coro/stage0/` is whole and prints the coroutine census, which
+gates nothing; and checks that a serial and a parallel run print the same
+(`parallel_order.py`). The lanes' oracles are Stage 0's recorded snapshots
+(`oracle.py`); no step runs Stage 0 but `subset` and `std_cone`, which
+compile the compiler's own source with it.
 The inventory of Stage 0 workaround markers prints first, then each failure as
 one line in a fixed order; the summary comes last, and any failure exits 1.
 
@@ -229,14 +232,15 @@ def run_fixture_whitespace(run):
         paths += glob.glob(os.path.join(MIR_CORPUS, "**", suffix), recursive=True)
     for suffix in ("*.saw", "*.eval"):
         paths += glob.glob(os.path.join(EVAL_CORPUS, "**", suffix), recursive=True)
-    for suffix in ("*.saw", "*.borrowck", "*.md"):
+    for suffix in ("*.saw", "*.borrowck", "*.md", "*.stage0"):
         paths += glob.glob(os.path.join(BORROWCK_CORPUS, "**", suffix), recursive=True)
     for suffix in ("*.saw", "*.drops", "*.md", "*.tsv"):
         paths += glob.glob(os.path.join(DROPS_CORPUS, "**", suffix), recursive=True)
-    for suffix in ("*.saw", "*.mono", "*.layouts", "*.md", "*.tsv"):
+    for suffix in ("*.saw", "*.mono", "*.layouts", "*.md", "*.tsv", "*.stage0"):
         paths += glob.glob(os.path.join(MONO_CORPUS, "**", suffix), recursive=True)
-    for suffix in ("*.saw", "*.ll", "*.md"):
+    for suffix in ("*.saw", "*.ll", "*.md", "*.stage0"):
         paths += glob.glob(os.path.join(RUN_CORPUS, "**", suffix), recursive=True)
+    paths += glob.glob(os.path.join(test_migrate.STAGE0, "**", "*.stage0"), recursive=True)
     for suffix in ("*.saw", "*.coro", "*.layouts", "*.md", "*.tsv", "*.stage0"):
         paths += glob.glob(os.path.join(CORO_CORPUS, "**", suffix), recursive=True)
     for path in sorted(paths):
@@ -432,8 +436,9 @@ def run_std_cone(run):
 
 
 def run_std_suspension(run):
-    """The std suspension table against the frozen compiler's std check, and
-    the modules its `suspends` rows fall in against the parking spellings."""
+    """The std suspension table, Stage 0's recorded verdicts, against the
+    rows compiled into sawc2, and the new std's suspending modules against its
+    park points."""
     failures, counts = std_suspension.check()
     for failure in failures:
         run.fail(failure)
@@ -583,7 +588,7 @@ def run_drops(run):
 def run_mono(run):
     """The mono lane (compiler/tests/mono/mono_lane.py): the golden item dumps
     and layout tables, the refusal fixtures and their rule coverage, and the
-    layouts against Stage 0's."""
+    layouts against Stage 0's recorded ones."""
     failures, counts = mono_lane.run()
     for failure in failures:
         run.fail(failure)
@@ -604,7 +609,7 @@ def run_coro(run):
 
 def run_programs(run):
     """The run lane (compiler/tests/run/run_lane.py): each program built by
-    sawc2 and by Stage 0, the two binaries' output and exit status compared,
+    sawc2, its binary's output and exit status compared with Stage 0's recorded run,
     the due programs refused where they say, and hello's `.ll` pinned."""
     failures, counts, _ = run_lane.run()
     for failure in failures:
@@ -653,7 +658,7 @@ class Step:
 
 # In output order, which is the order the parts ran in when they ran serially.
 STEPS = (
-    Step("units", "always", calls_overlap=True),
+    Step("units", "built", calls_overlap=True),
     Step("fixture_whitespace", "always"),
     Step("golden", "built"),
     Step("subset", "always", calls_overlap=True),

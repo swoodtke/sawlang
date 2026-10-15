@@ -4,6 +4,7 @@ profile, the lang-item table, and the API equivalence of the two stds.
 
     python compiler/tests/std/std_lane.py            # check
     python compiler/tests/std/std_lane.py --write    # rewrite the lang dumps and the cones
+    python compiler/tests/std/std_lane.py --stage0 [NAME...]   # record Stage 0's runs of the pairs
 
 `compiler/tests/run.py` runs `run()`. It checks:
 
@@ -24,11 +25,13 @@ profile, the lang-item table, and the API equivalence of the two stds.
 - the API-equivalence of `equivalence.tsv`, under `equivalence_exceptions.tsv`:
   signature records, String's layout, and the conformance sets of String and
   Vector, read off which trait bounds each type meets under each root;
-- each `pairs/` program exits 0 when Stage 0 builds it against `sawc/std`, or
-  panics with the text its `// expect-panic:` line names, and checks, lowers
-  and evaluates clean with sawc2 against `std/`; one headed
-  `// arguments: ...` runs with those arguments, `{files}` the directory of
-  the lane's FILE_FIXTURES;
+- each `pairs/` program exits 0 in Stage 0's recorded run of it, built
+  against `sawc/std` (`stage0/HOST/NAME.stage0`, which `--stage0` writes
+  through the v0 compiler and which is stale once the pair or the file
+  fixtures change), or panics with the text its `// expect-panic:` line
+  names, and checks, lowers and evaluates clean with sawc2 against `std/`; one
+  headed `// arguments: ...` runs with those arguments, `{files}` the
+  directory of the lane's FILE_FIXTURES;
 - each `calls/` program, which only the new std's API can type, checks clean
   through drop elaboration against `std/`, or, headed `// refuses: RULE at
   L:C`, is refused first there by that rule;
@@ -66,12 +69,17 @@ COMPILER = os.path.dirname(TESTS)
 REPO = os.path.dirname(COMPILER)
 sys.path.insert(0, os.path.join(COMPILER, "tools"))
 sys.path.append(os.path.join(REPO, "tools"))
+sys.path.insert(0, TESTS)
 
 import build  # noqa: E402
 import gate_jobs  # noqa: E402
+import oracle  # noqa: E402
 import std_cone  # noqa: E402
 import subset_check  # noqa: E402
 
+# Stage 0's recorded runs of the behaviour pairs, one directory per host
+# triple.
+STAGE0 = os.path.join(HERE, "stage0")
 NEW_ROOT = "std"
 STAGE0_ROOT = "sawc"
 ENTRY = os.path.join(HERE, "entry.saw")
@@ -624,32 +632,74 @@ def write_file_fixtures():
             fh.write(data)
 
 
-def build_and_run_pair(path):
-    exe = os.path.join(OUT, "pairs", module_name(path))
-    ok, output = build.build_program(path, exe)
-    if not ok:
-        return "std pair %s: Stage 0 does not build it: %s" % (rel(path), output.split("\n")[0])
-    try:
-        r = subprocess.run([exe] + pair_arguments(path), capture_output=True, text=True,
-                           timeout=RUN_TIMEOUT)
-    except subprocess.TimeoutExpired:
+def pair_data(path):
+    """The bytes a pair's Stage 0 record is made from: its source and the
+    file fixtures its arguments may name."""
+    with open(path, "rb") as fh:
+        data = fh.read()
+    for name in sorted(FILE_FIXTURES):
+        data += b"\0" + name.encode("utf-8") + b"\0" + FILE_FIXTURES[name]
+    return data
+
+
+def stage0_command(names=()):
+    return "python compiler/tests/std/std_lane.py --stage0" + "".join(" " + n for n in names)
+
+
+def record_stage0(names=None):
+    """Stage 0 builds each pair against `sawc/std` and runs it, and its record
+    replaces the one in `STAGE0`; over every pair, a record naming none is
+    removed. The lane's only run of Stage 0, through the v0 compiler
+    (`oracle.v0_compiler`)."""
+    write_file_fixtures()
+    triple = build.host_triple()
+    pairs = sorted(glob.glob(os.path.join(PAIRS, "*.saw")))
+    chosen = [p for p in pairs if not names or module_name(p) in names]
+
+    def one(path):
+        rec = oracle.record_run(path, oracle.record_file(STAGE0, triple, module_name(path)), rel(path),
+                                flags=build.package_arguments(REPO), arguments=pair_arguments(path),
+                                timeout=RUN_TIMEOUT, data=pair_data(path))
+        return "std lane stage0 %s %s: build %s, exit %s" % (triple, module_name(path), rec.build, rec.exit)
+    for line in gate_jobs.map_ordered(one, chosen, most=4):
+        print(line)
+    if not names:
+        for path in oracle.stale_records(os.path.join(STAGE0, triple), {module_name(p) for p in pairs}):
+            os.remove(path)
+            print("std lane stage0: removed %s" % rel(path))
+    return 0
+
+
+def check_pair(path):
+    """A failure, or None: Stage 0's recorded run of the pair exits 0, or
+    panics with the text its `// expect-panic:` line names."""
+    rec, why = oracle.load_run(STAGE0, module_name(path), pair_data(path), stage0_command([module_name(path)]))
+    if rec is None:
+        return "std pair %s: %s" % (rel(path), why)
+    if rec.build != "ok":
+        return "std pair %s: Stage 0 does not build it: %s" % (rel(path), rec.build_error or rec.build)
+    if rec.exit is None:
         return "std pair %s: timed out under Stage 0" % rel(path)
+    if "varies" in (rec.exit, rec.stdout, rec.stderr):
+        return "std pair %s: Stage 0's two recorded runs differ" % rel(path)
     panic = expected_panic(path)
-    said = (r.stderr + r.stdout).strip()
+    said = (rec.stderr + rec.stdout).strip()
     if panic is not None:
-        if r.returncode == 0 or panic not in said:
+        if rec.exit == 0 or panic not in said:
             return "std pair %s: expected a panic saying `%s` under Stage 0, got exit %d: %s" \
-                % (rel(path), panic, r.returncode, said)
+                % (rel(path), panic, rec.exit, said)
         return None
-    if r.returncode != 0:
-        return "std pair %s: exit %d under Stage 0: %s" % (rel(path), r.returncode, said)
+    if rec.exit != 0:
+        return "std pair %s: exit %d under Stage 0: %s" % (rel(path), rec.exit, said)
     return None
 
 
 def check_pairs(failures, counts):
     pairs = sorted(glob.glob(os.path.join(PAIRS, "*.saw")))
-    write_file_fixtures()
-    for failure in gate_jobs.map_ordered(build_and_run_pair, pairs, most=4):
+    for path in oracle.stale_records(STAGE0, {module_name(p) for p in pairs}):
+        failures.append("std pair %s: a Stage 0 record of no pair; `%s` removes it" % (rel(path), stage0_command()))
+    for path in pairs:
+        failure = check_pair(path)
         if failure:
             failures.append(failure)
     for stage in ("typecheck", "mir", "eval"):
@@ -1014,6 +1064,8 @@ def run(write=False):
 
 
 def main():
+    if "--stage0" in sys.argv[1:]:
+        return record_stage0([a for a in sys.argv[1:] if not a.startswith("-")])
     failures, counts = run("--write" in sys.argv[1:])
     for failure in failures:
         print(failure)

@@ -1,0 +1,6 @@
+program	compiler/tests/migrate/fixtures/e_lock_multiline.before
+triple	arm64-apple-darwin
+source	c03bcc4fd043f041
+instrument	{"arg_index": 0, "arg_labels": [null], "args": [{"left": [5, 23, "ClosureExpr"], "names": ["c"], "pos": [5, 23], "resolved": "(&var Int) -> Int", "type": "ClosureExpr"}], "body_names": ["c"], "body_pos": [6, 9], "call_type": "MethodCall", "callee": "lock", "callee_file": "sawc/std/mutex.saw", "capture_specs": [], "captures_root": false, "closure_pos": [5, 23], "closure_type": "(&var Int) -> Int", "col": 17, "ctx": [{"field": "value", "mutable": false, "name": "seen", "pos": [5, 5], "type": "LetStatement"}, {"field": "statements[1]", "pos": [3, 13], "type": "Block"}, {"field": "body", "name": "main", "pos": [3, 1], "type": "Function"}], "exits": [], "file": ".build/migrate-tests/e_lock_multiline.saw", "func": "main", "kind": "closure", "line": 5, "n_args": 1, "owner": "Mutex", "owner_type": "Mutex<Int>", "params": [{"name": "c", "pos": [5, 30], "ref": true, "typed": false}], "recv_left": [5, 16, "Identifier"], "ref_params": ["&var Int"], "result_type": "Int", "root": "m", "shadow_risk": [], "shorthand": 0}
+instrument	{"col": 1, "ext": null, "file": ".build/migrate-tests/e_lock_multiline.saw", "kind": "walked", "line": 3, "name": "main"}
+instrument	{"kind": "status", "status": "stopped-after-places"}

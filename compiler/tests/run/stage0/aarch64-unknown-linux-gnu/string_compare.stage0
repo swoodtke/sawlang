@@ -1,0 +1,13 @@
+program	compiler/tests/run/string_compare.saw
+triple	aarch64-unknown-linux-gnu
+source	007a164aee5ac33a
+build	ok
+exit	0
+stdout	"true false true true"
+stdout	"true true true false"
+stdout	"true false"
+stdout	"true true true"
+stdout	"true false"
+stdout	"true false true"
+stdout	"2 1 0"
+stdout	""

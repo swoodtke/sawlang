@@ -1,0 +1,5 @@
+program	compiler/tests/std/pairs/env_args.saw
+triple	arm64-apple-darwin
+source	0e87c152bde31e2e
+build	ok
+exit	0

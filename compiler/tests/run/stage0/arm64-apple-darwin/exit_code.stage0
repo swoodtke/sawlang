@@ -1,0 +1,7 @@
+program	compiler/tests/run/exit_code.saw
+triple	arm64-apple-darwin
+source	b05a8a4cae0370b5
+build	ok
+exit	42
+stdout	"exiting with 42"
+stdout	""

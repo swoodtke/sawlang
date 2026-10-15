@@ -1,0 +1,12 @@
+program	compiler/tests/run/runtime_count_divisor.saw
+triple	arm64-apple-darwin
+source	a8dad4a101da72f5
+build	ok
+exit	-6
+stdout	"11"
+stdout	"128"
+stdout	"14"
+stdout	"0"
+stdout	"-4611686018427387904 0 1"
+stdout	"panic at runtime_count_divisor.saw:23: shift out of range"
+stdout	""

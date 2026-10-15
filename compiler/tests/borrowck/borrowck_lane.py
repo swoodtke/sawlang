@@ -5,6 +5,7 @@ fixtures, conformance matrix and the move-error differential.
     python compiler/tests/borrowck/borrowck_lane.py            # check
     python compiler/tests/borrowck/borrowck_lane.py --write    # rewrite the golden records
     python compiler/tests/borrowck/borrowck_lane.py --fill     # fill `// refuses: TODO` headers
+    python compiler/tests/borrowck/borrowck_lane.py --stage0   # record Stage 0's builds of the divergent fixtures
 
 `compiler/tests/run.py` runs `run()`. It checks, as README.md in this
 directory specifies:
@@ -37,8 +38,10 @@ directory specifies:
   an exclusivity or loan error is refused by a rule of the loan half, and
   every program expected to succeed is refused by none, or
   `loan_differential.tsv` names the program with its direction and the
-  mechanism of the divergence. The drop labels over the compiler and over
-  tests/corpus are counted for information.
+  mechanism of the divergence; a fixture of this directory listed there is
+  one Stage 0 compiles, by its recorded build (`stage0/HOST/NAME.stage0`,
+  which `--stage0` writes through the v0 compiler). The drop labels over the
+  compiler and over tests/corpus are counted for information.
 """
 import collections
 import glob
@@ -52,9 +55,14 @@ TESTS = os.path.dirname(HERE)
 COMPILER = os.path.dirname(TESTS)
 REPO = os.path.dirname(COMPILER)
 sys.path.insert(0, os.path.join(COMPILER, "tools"))
+sys.path.insert(0, TESTS)
 
 import build  # noqa: E402
+import oracle  # noqa: E402
 
+# Stage 0's recorded builds of the fixtures the loan differential says it
+# compiles, one directory per host triple.
+STAGE0 = os.path.join(HERE, "stage0")
 INDEX = os.path.join(REPO, "examples", "conformance", "INDEX.md")
 MATRIX = os.path.join(HERE, "CONFORMANCE.md")
 GOLDEN = os.path.join(HERE, "golden")
@@ -660,14 +668,48 @@ def check_fixture_divergence(path, row, failures, counts):
     if found is None or not found[0].startswith(LOAN_RULE_PREFIXES):
         failures.append("borrowck loan differential %s: listed as refused by a loan rule, refused as %s"
                         % (path, "nothing" if found is None else found[0]))
-    r = subprocess.run([sys.executable, os.path.join("sawc", "sawc.py"), path, "-c", "-o",
-                        os.path.join(".build", "borrowck_stage0_probe.o")],
-                       cwd=REPO, capture_output=True, text=True, timeout=TIMEOUT)
-    if r.returncode != 0:
+    with open(os.path.join(REPO, path), "rb") as fh:
+        data = fh.read()
+    name = stage0_name(path)
+    rec, why = oracle.load_run(STAGE0, name, data, stage0_command())
+    if rec is None:
+        failures.append("borrowck loan differential %s: %s" % (path, why))
+    elif rec.build != "ok":
         failures.append("borrowck loan differential %s: listed as one Stage 0 compiles, and Stage 0 refuses it"
                         % path)
     key = "fixture divergences from Stage 0: %s" % row[1]
     counts[key] = counts.get(key, 0) + 1
+
+
+def stage0_name(path):
+    return os.path.splitext(os.path.basename(path))[0]
+
+
+def stage0_command():
+    return "python compiler/tests/borrowck/borrowck_lane.py --stage0"
+
+
+def divergent_fixtures():
+    """The fixtures of this directory the loan differential lists, which
+    Stage 0 is to compile."""
+    return sorted(p for p in read_loan_differential([]) if p.startswith("compiler/tests/borrowck/"))
+
+
+def record_stage0():
+    """Stage 0 compiles each fixture the loan differential lists (`-c`, no
+    link), and its record replaces the one in `STAGE0`; a record naming none
+    is removed. The lane's only run of Stage 0, through the v0 compiler
+    (`oracle.v0_compiler`)."""
+    triple = build.host_triple()
+    paths = divergent_fixtures()
+    for path in paths:
+        rec = oracle.record_run(os.path.join(REPO, path), oracle.record_file(STAGE0, triple, stage0_name(path)),
+                                path, flags=["-c"], runs=0)
+        print("borrowck lane stage0 %s %s: build %s" % (triple, stage0_name(path), rec.build))
+    for stale in oracle.stale_records(os.path.join(STAGE0, triple), {stage0_name(p) for p in paths}):
+        os.remove(stale)
+        print("borrowck lane stage0: removed %s" % rel(stale))
+    return 0
 
 
 def read_loan_differential(failures):
@@ -734,10 +776,15 @@ def run(write=False, fill=False):
     check_acceptance(failures, counts)
     check_long_programs(failures, counts)
     check_corpus(failures, counts)
+    for stale in oracle.stale_records(STAGE0, {stage0_name(p) for p in divergent_fixtures()}):
+        failures.append("borrowck loan differential %s: a Stage 0 record of no listed fixture; `%s` removes it"
+                        % (rel(stale), stage0_command()))
     return failures, counts
 
 
 def main():
+    if "--stage0" in sys.argv[1:]:
+        return record_stage0()
     write = "--write" in sys.argv[1:]
     fill = "--fill" in sys.argv[1:]
     failures, counts = run(write, fill)

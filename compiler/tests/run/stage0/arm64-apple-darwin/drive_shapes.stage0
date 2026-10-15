@@ -1,0 +1,17 @@
+program	compiler/tests/run/drive_shapes.saw
+triple	arm64-apple-darwin
+source	9f646193d3f0db8f
+build	ok
+exit	0
+stdout	"5"
+stdout	"5"
+stdout	"9"
+stdout	"7"
+stdout	"text"
+stdout	"15"
+stdout	"1"
+stdout	"x-3"
+stdout	"3"
+stdout	"42"
+stdout	"15"
+stdout	""

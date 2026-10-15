@@ -23,6 +23,10 @@ coro/
   parks/task_tail.saw     what the park goldens' copy of std adds to task.saw
   parks/NAME.saw          a verifier injection's unit program that needs
                           that copy, which the lane runs (see "The verifier")
+  census.py               the coroutine census, for information
+  expect.py               a corpus program's run directives, read and judged
+  stage0/                 Stage 0's recorded snapshot and its writer, snapshot.py
+                          (see "The Stage 0 snapshot and the census")
 ```
 
 ## `sawc2 coro`
@@ -560,8 +564,23 @@ fixture; and that `sawc2 coro --layouts` reports no `INVARIANT` line over the
 mono lane's golden programs and the run lane's programs, which is where a
 disagreement with typecheck would show, and lays out every frame they hold.
 Every package under `modules/` is mapped with `--module-path` by its
-directory's name. Last, it builds each unit program under `parks/` with Stage
-0 and requires it to exit 0 (see "The verifier").
+directory's name. Last, it builds each unit program under `parks/` with
+sawc2, against the new std and the stage packages, and requires it to exit 0
+(see "The verifier"). Nothing in the lane runs Stage 0.
+
+## The Stage 0 snapshot and the census
+
+`stage0/` is Stage 0's behaviour on the corpus programs it frames at least
+one function for, and on the coroutine refusal tests, recorded in the format
+of `compiler/tests/oracle.py` with the target triple of each record:
+`stage0/index.tsv` and `stage0/TRIPLE/PATH.stage0` for the programs (the
+run, the frame layouts and the backtrace table), `stage0/refusals.tsv` and
+`stage0/refusals/PATH.stage0` for the refusal tests. `census.py`, which
+`compiler/tests/run.py` runs for information, reads it and never runs Stage 0:
+it fails only when the snapshot is not whole, and counts the programs sawc2
+builds and passes and the refusal tests it refuses by the plan's rule.
+`stage0/snapshot.py --write` regenerates the snapshot with the v0 compiler,
+which `oracle.v0_compiler` finds; nothing else does.
 
 The layout goldens' frames are the first cut's (golden `yield_loop`, a loop
 whose suspension carries values across it, and whose op-budget point gives

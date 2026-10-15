@@ -1,0 +1,9 @@
+program	compiler/tests/run/generic_struct.saw
+triple	aarch64-unknown-linux-gnu
+source	cd82c2f3440d8bab
+build	ok
+exit	0
+stdout	"int boxed 41 3"
+stdout	"bool boxed true 8"
+stdout	"sides 12 1"
+stdout	""

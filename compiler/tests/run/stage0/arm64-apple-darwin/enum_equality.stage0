@@ -1,0 +1,14 @@
+program	compiler/tests/run/enum_equality.saw
+triple	arm64-apple-darwin
+source	f41c7f0d2d2eede3
+build	ok
+exit	0
+stdout	"true"
+stdout	"false"
+stdout	"true"
+stdout	"true"
+stdout	"2"
+stdout	"false"
+stdout	"true"
+stdout	"true"
+stdout	""

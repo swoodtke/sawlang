@@ -1,0 +1,12 @@
+program	compiler/tests/run/printable_format.saw
+triple	aarch64-unknown-linux-gnu
+source	fa5a7c062a4d99ee
+build	ok
+exit	-6
+stdout	"(3, -4)"
+stdout	"segment edge: (3, -4) -> (0, 7) of 2 points"
+stdout	"(3, -4)(3, -4)"
+stdout	"brick é brick é brick é "
+stdout	"brick é brick é brick é brick é brick é brick é brick é brick é brick é brick é brick é brick é brick é brick é brick é brick é brick é brick é brick é brick é brick é brick é brick é brick é brick é brick é brick é brick é brick é brick é brick é brick é brick é brick é brick é brick é brick é brick é brick é brick é brick é brick é brick é brick é brick é brick é brick é brick é brick é brick é brick é brick é brick é brick é brick é brick é bric…"
+stdout	"panic at printable_format.saw:59: bad segment edge: (3, -4) -> (0, 7)"
+stdout	""

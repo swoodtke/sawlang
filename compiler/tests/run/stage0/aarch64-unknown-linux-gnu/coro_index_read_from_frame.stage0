@@ -1,0 +1,9 @@
+program	compiler/tests/run/coro_index_read_from_frame.saw
+triple	aarch64-unknown-linux-gnu
+source	1fec6d805fbaf2ef
+build	ok
+exit	0
+stdout	"26"
+stdout	"1 10 5 4"
+stdout	"3"
+stdout	""

@@ -1,0 +1,5 @@
+program	compiler/tests/std/pairs/process_wait.saw
+triple	arm64-apple-darwin
+source	2dce7a9a496f2cbc
+build	ok
+exit	0

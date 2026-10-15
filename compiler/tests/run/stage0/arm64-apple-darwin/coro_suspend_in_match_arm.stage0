@@ -1,0 +1,10 @@
+program	compiler/tests/run/coro_suspend_in_match_arm.saw
+triple	arm64-apple-darwin
+source	1b6dc7f7a6cd1081
+build	ok
+exit	0
+stdout	"43"
+stdout	"1"
+stdout	"8"
+stdout	"2"
+stdout	""

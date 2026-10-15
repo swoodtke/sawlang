@@ -1,0 +1,14 @@
+program	compiler/tests/run/default_on_suspending.saw
+triple	aarch64-unknown-linux-gnu
+source	aa17536c584500bc
+build	ok
+exit	0
+stdout	"4"
+stdout	"11"
+stdout	"4"
+stdout	"27"
+stdout	"13"
+stdout	"23"
+stdout	"4"
+stdout	"4"
+stdout	""

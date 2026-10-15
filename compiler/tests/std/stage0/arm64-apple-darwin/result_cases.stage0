@@ -1,0 +1,5 @@
+program	compiler/tests/std/pairs/result_cases.saw
+triple	arm64-apple-darwin
+source	27c14a544fd37c4f
+build	ok
+exit	0

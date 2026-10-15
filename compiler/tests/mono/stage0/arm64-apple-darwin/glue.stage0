@@ -1,0 +1,13 @@
+program	compiler/tests/mono/golden/glue.saw
+triple	arm64-apple-darwin
+source	fe2d08134cf902f2
+build	ok
+exit	0
+stdout	"(Int, Int)\t16\t8"
+stdout	"(String, String)\t16\t8"
+stdout	"Bool\t1\t1"
+stdout	"Int\t8\t8"
+stdout	"String\t8\t8"
+stdout	"UnsafePointer<Int8>\t8\t8"
+stdout	"UnsafePointer<Int>\t8\t8"
+stdout	""

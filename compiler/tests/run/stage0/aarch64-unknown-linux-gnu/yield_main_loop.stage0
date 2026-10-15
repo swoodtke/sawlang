@@ -1,0 +1,9 @@
+program	compiler/tests/run/yield_main_loop.saw
+triple	aarch64-unknown-linux-gnu
+source	6dd1a5882c4821f0
+build	ok
+exit	0
+stdout	"0"
+stdout	"1"
+stdout	"2"
+stdout	""

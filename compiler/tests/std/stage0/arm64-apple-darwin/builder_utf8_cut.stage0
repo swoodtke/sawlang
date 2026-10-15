@@ -1,0 +1,5 @@
+program	compiler/tests/std/pairs/builder_utf8_cut.saw
+triple	arm64-apple-darwin
+source	c41dea83ff709b1c
+build	ok
+exit	0

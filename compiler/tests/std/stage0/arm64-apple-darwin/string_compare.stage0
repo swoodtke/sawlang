@@ -1,0 +1,5 @@
+program	compiler/tests/std/pairs/string_compare.saw
+triple	arm64-apple-darwin
+source	2ca4b06bae82ebcc
+build	ok
+exit	0

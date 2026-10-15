@@ -1,0 +1,16 @@
+program	compiler/tests/run/integer_bounds.saw
+triple	arm64-apple-darwin
+source	8ff39f9e4f57a3ad
+build	ok
+exit	0
+stdout	"9223372036854775807 -9223372036854775808"
+stdout	"18446744073709551615 0"
+stdout	"127 -128"
+stdout	"255 0"
+stdout	"32767 -32768"
+stdout	"65535 4294967295"
+stdout	"-2147483648 -9223372036854775808"
+stdout	"18446744073709551615"
+stdout	"true"
+stdout	"true"
+stdout	""

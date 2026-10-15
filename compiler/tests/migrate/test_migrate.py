@@ -8,9 +8,12 @@ site and ` -- REASON` for any other) and, for the manual pass, NAME.manual
 `flagged` decisions.tsv row. A before text is a program the
 frozen compiler checks, except where the fixture is about what happens when
 it does not (a removed form, a blind spot). A `// expected: REASON` line
-stands in for the file's corpus_expected.tsv row. The instrument runs on each
-fixture, and the pipeline's output must match the goldens exactly;
-`test_migrate.py --write` rewrites them for review.
+stands in for the file's corpus_expected.tsv row. The pipeline runs over the
+instrument's records of each fixture, and its output must match the goldens
+exactly; `test_migrate.py --write` rewrites them for review. The instrument
+runs Stage 0's passes, so its records are a recorded snapshot,
+`stage0/HOST/NAME.stage0`, stale once the fixture's before text changes;
+`test_migrate.py --stage0 [NAME...]` rerecords them through the v0 compiler.
 """
 import json
 import os
@@ -27,7 +30,10 @@ OUT = os.path.join(REPO, ".build", "migrate-tests")
 if TOOL not in sys.path:
     sys.path.insert(0, TOOL)
 sys.path.append(os.path.join(REPO, "tools"))
+sys.path.append(os.path.dirname(HERE))
 
+import oracle  # noqa: E402
+import build  # noqa: E402  (on sys.path through oracle)
 import gate_jobs  # noqa: E402
 import layout  # noqa: E402
 import manifest  # noqa: E402
@@ -37,6 +43,9 @@ import rules  # noqa: E402
 import scan  # noqa: E402
 
 INSTRUMENT = os.path.join(TOOL, "instrument.py")
+# The instrument's recorded records for each fixture, one directory per host
+# triple.
+STAGE0 = os.path.join(HERE, "stage0")
 
 
 def names():
@@ -48,18 +57,73 @@ def read(path):
         return fh.read()
 
 
+def stage0_command(names=()):
+    return "python compiler/tests/migrate/test_migrate.py --stage0" + "".join(" " + n for n in names)
+
+
 def observe(name):
-    """The instrument's records for one fixture, compiled as a lone entry."""
+    """The instrument's records for one fixture, compiled as a lone entry: run
+    by the v0 compiler's checkout (`oracle.v0_python`), which the instrument
+    takes its passes from, and recorded as `stage0/HOST/NAME.stage0`, one
+    `instrument` line per record. Returns (the record's path, None) or (None,
+    why)."""
     os.makedirs(OUT, exist_ok=True)
+    before = os.path.join(FIXTURES, name + ".before")
     src = os.path.join(OUT, name + ".saw")
-    shutil.copyfile(os.path.join(FIXTURES, name + ".before"), src)
+    shutil.copyfile(before, src)
     out = os.path.join(OUT, name + ".json")
-    r = subprocess.run([sys.executable, INSTRUMENT, out, "--", src, "-o", os.path.join(OUT, name)],
+    if os.path.exists(out):
+        os.remove(out)
+    r = subprocess.run([oracle.v0_python(), INSTRUMENT, out, "--", src, "-o", os.path.join(OUT, name)],
                        cwd=REPO, capture_output=True, text=True, env=dict(os.environ, PYTHONHASHSEED="0"))
     if not os.path.exists(out):
         return None, "the instrument wrote nothing: %s" % r.stderr[-400:]
     with open(out, encoding="utf-8") as fh:
-        return json.load(fh), None
+        records = json.load(fh)
+    # The pipeline reads only the fixture's own records (`job_for`); std's are
+    # most of the build's and would only be carried.
+    own = os.path.relpath(src, REPO)
+    records = [r for r in records if r.get("file") == own or r.get("kind") == "status"]
+    with open(before, "rb") as fh:
+        data = fh.read()
+    record = oracle.record_file(STAGE0, build.host_triple(), name)
+    lines = ["program\t" + os.path.relpath(before, REPO), "triple\t" + build.host_triple(),
+             "source\t" + oracle.source_sha(data)]
+    lines += ["instrument\t" + oracle.unrooted(json.dumps(r, sort_keys=True)) for r in records]
+    os.makedirs(os.path.dirname(record), exist_ok=True)
+    with open(record, "w", encoding="utf-8") as fh:
+        fh.write("\n".join(lines) + "\n")
+    return record, None
+
+
+def recorded(name):
+    """The instrument's recorded records for one fixture: (records, None), or
+    (None, why there are none)."""
+    with open(os.path.join(FIXTURES, name + ".before"), "rb") as fh:
+        data = fh.read()
+    records = []
+    rec, why = oracle.load_run(STAGE0, name, data, stage0_command([name]),
+                               lambda fields: records.append(json.loads(fields[1]))
+                               if fields[0] == "instrument" else None)
+    if rec is None:
+        return None, why
+    return records, None
+
+
+def record_stage0(chosen=None):
+    """The instrument runs on each fixture, or on the `chosen` ones, and its
+    records replace the fixture's in `STAGE0`; over every fixture, a record
+    naming none is removed."""
+    fixtures = [n for n in names() if not chosen or n in chosen]
+    failed = 0
+    for name, (path, why) in zip(fixtures, gate_jobs.map_ordered(observe, fixtures)):
+        print("migrate stage0 %s: %s" % (name, why or os.path.relpath(path, REPO)))
+        failed += path is None
+    if not chosen:
+        for stale in oracle.stale_records(os.path.join(STAGE0, build.host_triple()), set(names())):
+            os.remove(stale)
+            print("migrate stage0: removed %s" % os.path.relpath(stale, REPO))
+    return 1 if failed else 0
 
 
 def job_for(name, records, accessors):
@@ -360,9 +424,12 @@ def run(write=False):
     failures, counts = [], {}
     accessors = sorted(scan.accessor_names())
     fixtures = names()
-    # The instrument runs one process per fixture; the pipeline runs here, in
-    # order, since the recognizer it checks with is built once per process.
-    observed = gate_jobs.map_ordered(observe, fixtures)
+    for stale in oracle.stale_records(STAGE0, set(fixtures)):
+        failures.append("migrate %s: a Stage 0 record of no fixture; `%s` removes it"
+                        % (os.path.relpath(stale, REPO), stage0_command()))
+    # The pipeline runs here, in order, since the recognizer it checks with is
+    # built once per process.
+    observed = [recorded(name) for name in fixtures]
     covered = set()
     for name, obs in zip(fixtures, observed):
         failures.extend(check_fixture(name, obs, accessors, write, covered))
@@ -386,6 +453,8 @@ def run(write=False):
 
 
 def main():
+    if "--stage0" in sys.argv[1:]:
+        return record_stage0([a for a in sys.argv[1:] if not a.startswith("-")])
     failures, counts = run(write="--write" in sys.argv[1:])
     for f in failures:
         print(f)

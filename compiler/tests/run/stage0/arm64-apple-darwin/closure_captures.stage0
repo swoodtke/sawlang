@@ -1,0 +1,14 @@
+program	compiler/tests/run/closure_captures.saw
+triple	arm64-apple-darwin
+source	dd8f565e0b70b8fc
+build	ok
+exit	0
+stdout	"42"
+stdout	"41"
+stdout	"12"
+stdout	"42"
+stdout	"81"
+stdout	"80"
+stdout	"166"
+stdout	"80"
+stdout	""

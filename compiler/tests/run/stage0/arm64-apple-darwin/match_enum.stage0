@@ -1,0 +1,8 @@
+program	compiler/tests/run/match_enum.saw
+triple	arm64-apple-darwin
+source	b380f426f9cd58ab
+build	ok
+exit	0
+stdout	"areas 12 12 0"
+stdout	"classes 100 200 300 400"
+stdout	""

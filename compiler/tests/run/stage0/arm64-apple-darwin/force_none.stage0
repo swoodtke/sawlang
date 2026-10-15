@@ -1,0 +1,8 @@
+program	compiler/tests/run/force_none.saw
+triple	arm64-apple-darwin
+source	7a926a6c85401960
+build	ok
+exit	-6
+stdout	"hit 100"
+stdout	"panic at force_none.saw:13: force unwrap of None"
+stdout	""

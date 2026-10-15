@@ -1,0 +1,10 @@
+program	compiler/tests/run/capture_reference.saw
+triple	arm64-apple-darwin
+source	f7b726ed30218d2f
+build	ok
+exit	0
+stdout	"3 7 8"
+stdout	"3"
+stdout	"16"
+stdout	"42"
+stdout	""

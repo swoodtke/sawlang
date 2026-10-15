@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
-"""Stage 0's behaviour on the coroutine programs, recorded while Stage 0
-exists, so the lanes that compare sawc2 with it outlive `sawc/` (SL:coroutines
-§4, unit A0b).
+"""Stage 0's behaviour on the coroutine programs, recorded so the lanes that
+compare sawc2 with it never run Stage 0 (SL:coroutines §4, unit A0b).
 
     python compiler/tests/coro/stage0/snapshot.py            # check the snapshot is whole
     python compiler/tests/coro/stage0/snapshot.py --write    # rerun Stage 0, rewrite it
         [--programs LIST] [--refusals LIST] [--jobs N] [--reuse]
+
+`--write` runs the v0 compiler that `oracle.v0_compiler` finds.
 
 The programs are the rows of `index.tsv` and the refusal tests the rows of
 `refusals.tsv`; `--programs` and `--refusals` name other lists, one corpus

@@ -1,0 +1,21 @@
+program	compiler/tests/run/drive_ownership.saw
+triple	arm64-apple-darwin
+source	d0985dfdc7d0bea5
+build	ok
+exit	0
+stdout	"drop 1"
+stdout	"keep 1"
+stdout	"relayed 2"
+stdout	"made 3"
+stdout	"drop 4"
+stdout	"after discard"
+stdout	"drop 5"
+stdout	"steps 1"
+stdout	"drop 6"
+stdout	"ignore 7"
+stdout	"drop 8"
+stdout	"plain steps 0"
+stdout	"end"
+stdout	"drop 3"
+stdout	"drop 2"
+stdout	""

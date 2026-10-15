@@ -1,0 +1,11 @@
+program	compiler/tests/run/drive_arguments.saw
+triple	aarch64-unknown-linux-gnu
+source	912be04e7d2bebcb
+build	ok
+exit	6
+stdout	"6"
+stdout	"tag-4"
+stdout	"21"
+stdout	"17"
+stdout	"6"
+stdout	""

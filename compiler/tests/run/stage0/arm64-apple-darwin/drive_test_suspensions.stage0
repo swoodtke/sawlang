@@ -1,0 +1,9 @@
+program	compiler/tests/run/drive_test_suspensions.saw
+triple	arm64-apple-darwin
+source	3e8e37d208848ebc
+build	ok
+exit	0
+stdout	"6"
+stdout	"13"
+stdout	"42"
+stdout	""

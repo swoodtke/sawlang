@@ -1,0 +1,9 @@
+program	compiler/tests/run/vector.saw
+triple	aarch64-unknown-linux-gnu
+source	24848f641db409fa
+build	ok
+exit	0
+stdout	"len 10"
+stdout	"first 0 last 81"
+stdout	"sum 285"
+stdout	""

@@ -1,0 +1,7 @@
+program	compiler/tests/run/copy_hook_per_instantiation.saw
+triple	aarch64-unknown-linux-gnu
+source	61b2bcd0fff474c8
+build	ok
+exit	0
+stdout	"3"
+stdout	""

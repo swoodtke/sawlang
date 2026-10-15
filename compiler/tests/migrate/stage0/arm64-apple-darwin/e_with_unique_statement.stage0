@@ -1,0 +1,6 @@
+program	compiler/tests/migrate/fixtures/e_with_unique_statement.before
+triple	arm64-apple-darwin
+source	1dd03c047df3bcd3
+instrument	{"arg_index": 0, "arg_labels": [null], "args": [{"left": [5, 19, "ClosureExpr"], "names": ["c"], "pos": [5, 19], "resolved": "(&var Cell) -> Void", "type": "ClosureExpr"}], "body_names": ["c"], "body_pos": [6, 9], "call_type": "MethodCall", "callee": "with_unique", "callee_file": "sawc/std/arc.saw", "capture_specs": [], "captures_root": false, "closure_pos": [5, 19], "closure_type": "(&var Cell) -> Void", "col": 6, "ctx": [{"field": "expression", "pos": [5, 6], "type": "ExpressionStatement"}, {"field": "statements[1]", "pos": [3, 13], "type": "Block"}, {"field": "body", "name": "main", "pos": [3, 1], "type": "Function"}], "exits": [], "file": ".build/migrate-tests/e_with_unique_statement.saw", "func": "main", "kind": "closure", "line": 5, "n_args": 1, "owner": "Arc", "owner_type": "Arc<Cell>", "params": [{"name": "c", "pos": [5, 21], "ref": false, "typed": false}], "recv_left": [5, 5, "Identifier"], "ref_params": ["&var Cell"], "result_type": "Void?", "root": "a", "shadow_risk": [], "shorthand": 0}
+instrument	{"col": 1, "ext": null, "file": ".build/migrate-tests/e_with_unique_statement.saw", "kind": "walked", "line": 3, "name": "main"}
+instrument	{"kind": "status", "status": "stopped-after-places"}

@@ -1,0 +1,4 @@
+program	compiler/tests/migrate/fixtures/export_public_import.before
+triple	arm64-apple-darwin
+source	ed54d08072f203db
+instrument	{"kind": "status", "status": "exit:1"}

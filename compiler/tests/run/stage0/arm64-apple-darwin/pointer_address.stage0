@@ -1,0 +1,10 @@
+program	compiler/tests/run/pointer_address.saw
+triple	arm64-apple-darwin
+source	57489085ba413482
+build	ok
+exit	0
+stdout	"42"
+stdout	"42"
+stdout	"0"
+stdout	"2"
+stdout	""

@@ -1,0 +1,4 @@
+program	compiler/tests/migrate/fixtures/lend_var_refused.before
+triple	arm64-apple-darwin
+source	efd55178ee8ced89
+instrument	{"kind": "status", "status": "exit:1"}

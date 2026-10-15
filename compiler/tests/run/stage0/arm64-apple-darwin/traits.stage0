@@ -1,0 +1,7 @@
+program	compiler/tests/run/traits.saw
+triple	arm64-apple-darwin
+source	13726e8245987a72
+build	ok
+exit	0
+stdout	"plain 12 fancy 405"
+stdout	""

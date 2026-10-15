@@ -1,0 +1,6 @@
+program	compiler/tests/migrate/fixtures/e_refused_try_lock.before
+triple	arm64-apple-darwin
+source	6cd4de057590ab7d
+instrument	{"arg_index": 0, "arg_labels": [null], "args": [{"left": [6, 31, "ClosureExpr"], "names": ["c"], "pos": [6, 31], "resolved": "(&var Int) -> Int", "type": "ClosureExpr"}], "body_names": ["c"], "body_pos": [6, 38], "call_type": "MethodCall", "callee": "try_lock", "callee_file": "sawc/std/spinlock.saw", "capture_specs": [], "captures_root": false, "closure_pos": [6, 31], "closure_type": "(&var Int) -> Int", "col": 21, "ctx": [{"field": "optional_expr", "mutable": false, "name": "n", "pos": [6, 5], "type": "IfLetExpr"}, {"field": "final_expr", "pos": [5, 13], "type": "Block"}, {"field": "body", "name": "main", "pos": [5, 1], "type": "Function"}], "exits": [], "file": ".build/migrate-tests/e_refused_try_lock.saw", "func": "main", "kind": "closure", "line": 6, "n_args": 1, "owner": "SpinLock", "owner_type": "SpinLock<Int>", "params": [{"name": "c", "pos": [6, 33], "ref": false, "typed": false}], "recv_left": [6, 16, "Identifier"], "ref_params": ["&var Int"], "result_type": "Int?", "root": "STATS", "shadow_risk": [], "shorthand": 0}
+instrument	{"col": 1, "ext": null, "file": ".build/migrate-tests/e_refused_try_lock.saw", "kind": "walked", "line": 5, "name": "main"}
+instrument	{"kind": "status", "status": "stopped-after-places"}

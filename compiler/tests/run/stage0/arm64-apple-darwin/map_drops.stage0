@@ -1,0 +1,15 @@
+program	compiler/tests/run/map_drops.saw
+triple	arm64-apple-darwin
+source	693497692d37050c
+build	ok
+exit	0
+stdout	"after 40 inserts and four rehashes: keys alive 40, values dropped 0"
+stdout	"replaced value 7"
+stdout	"after the replaced value is destroyed: keys alive 40, values dropped 1"
+stdout	"removed value 9"
+stdout	"after the removed value is destroyed: keys alive 39, values dropped 2"
+stdout	"removing an absent key found false"
+stdout	"len 39"
+stdout	"before the map is destroyed: keys alive 39, values dropped 2"
+stdout	"after the map is destroyed: keys alive 0, values dropped 41"
+stdout	""

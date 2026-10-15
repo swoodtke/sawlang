@@ -1,0 +1,5 @@
+program	compiler/tests/std/pairs/env_executable_path.saw
+triple	arm64-apple-darwin
+source	1704640114daf8a1
+build	ok
+exit	0

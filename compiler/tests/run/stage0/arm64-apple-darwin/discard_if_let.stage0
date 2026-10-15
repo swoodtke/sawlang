@@ -1,0 +1,15 @@
+program	compiler/tests/run/discard_if_let.saw
+triple	arm64-apple-darwin
+source	321ff7f767f3032f
+build	ok
+exit	0
+stdout	"drop 2"
+stdout	"if bound 1"
+stdout	"drop 1"
+stdout	"after if"
+stdout	"drop 4"
+stdout	"var bound 3"
+stdout	"drop 3"
+stdout	"none"
+stdout	"end"
+stdout	""

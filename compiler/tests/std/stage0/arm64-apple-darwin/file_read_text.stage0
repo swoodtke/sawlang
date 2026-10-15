@@ -1,0 +1,5 @@
+program	compiler/tests/std/pairs/file_read_text.saw
+triple	arm64-apple-darwin
+source	c3109f69712ca4b4
+build	ok
+exit	0

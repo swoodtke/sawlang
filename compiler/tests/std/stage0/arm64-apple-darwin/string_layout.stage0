@@ -1,0 +1,5 @@
+program	compiler/tests/std/pairs/string_layout.saw
+triple	arm64-apple-darwin
+source	cbf5a12e3d1acf51
+build	ok
+exit	0

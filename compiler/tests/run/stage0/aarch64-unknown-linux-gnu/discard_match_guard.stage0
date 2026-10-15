@@ -1,0 +1,10 @@
+program	compiler/tests/run/discard_match_guard.saw
+triple	aarch64-unknown-linux-gnu
+source	c41e144c2074b81c
+build	ok
+exit	0
+stdout	"second 2"
+stdout	"after"
+stdout	"drop 2"
+stdout	"drop 1"
+stdout	""

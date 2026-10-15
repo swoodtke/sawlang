@@ -1,0 +1,6 @@
+program	compiler/tests/migrate/fixtures/retired_closure_api_closure.before
+triple	arm64-apple-darwin
+source	8143b61622207c3b
+instrument	{"arg_index": 0, "arg_labels": [null], "args": [{"left": [6, 23, "ClosureExpr"], "names": ["c"], "pos": [6, 23], "resolved": "(&var Int) -> Int", "type": "ClosureExpr"}], "body_names": ["c"], "body_pos": [6, 35], "call_type": "MethodCall", "callee": "lock", "callee_file": "sawc/std/mutex.saw", "capture_specs": [], "captures_root": false, "closure_pos": [6, 23], "closure_type": "(&var Int) -> Int", "col": 17, "ctx": [{"field": "value", "mutable": false, "name": "seen", "pos": [6, 5], "type": "LetStatement"}, {"field": "statements[1]", "pos": [4, 13], "type": "Block"}, {"field": "body", "name": "main", "pos": [4, 1], "type": "Function"}], "exits": [], "file": ".build/migrate-tests/retired_closure_api_closure.saw", "func": "main", "kind": "closure", "line": 6, "n_args": 1, "owner": "Mutex", "owner_type": "Mutex<Int>", "params": [{"name": "c", "pos": [6, 30], "ref": true, "typed": false}], "recv_left": [6, 16, "Identifier"], "ref_params": ["&var Int"], "result_type": "Int", "root": "m", "shadow_risk": [], "shorthand": 0}
+instrument	{"col": 1, "ext": null, "file": ".build/migrate-tests/retired_closure_api_closure.saw", "kind": "walked", "line": 4, "name": "main"}
+instrument	{"kind": "status", "status": "stopped-after-places"}

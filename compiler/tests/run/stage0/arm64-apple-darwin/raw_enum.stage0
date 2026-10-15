@@ -1,0 +1,17 @@
+program	compiler/tests/run/raw_enum.saw
+triple	arm64-apple-darwin
+source	2d2dd7dd96c7b73a
+build	ok
+exit	0
+stdout	"200 255 big"
+stdout	"top"
+stdout	"-1 -128"
+stdout	"-128"
+stdout	"40000 3 -1"
+stdout	"40000"
+stdout	"true"
+stdout	"1"
+stdout	"1"
+stdout	"24"
+stdout	"4"
+stdout	""

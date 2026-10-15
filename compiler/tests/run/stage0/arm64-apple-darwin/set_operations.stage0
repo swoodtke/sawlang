@@ -1,0 +1,19 @@
+program	compiler/tests/run/set_operations.saw
+triple	arm64-apple-darwin
+source	f9931d2375dc334f
+build	ok
+exit	0
+stdout	"empty true len 0"
+stdout	"first insert true second insert false"
+stdout	"len 3 has green true has pink false"
+stdout	"remove green true remove green again false"
+stdout	"len after remove 2"
+stdout	"of: len 1 has solo true"
+stdout	"from 35 names: len 10 has e3 true has e10 false"
+stdout	"each visited total length 20"
+stdout	"union 11 intersection 5 difference 5"
+stdout	"union has e12 true intersection has e3 false difference has e4 false"
+stdout	"subset true superset true"
+stdout	"evens subset of from false from superset of evens false"
+stdout	"to_vector 10"
+stdout	""

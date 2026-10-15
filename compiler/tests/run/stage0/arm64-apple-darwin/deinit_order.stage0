@@ -1,0 +1,17 @@
+program	compiler/tests/run/deinit_order.saw
+triple	arm64-apple-darwin
+source	59a371bffd369327
+build	ok
+exit	0
+stdout	"consuming 2"
+stdout	"drop 2"
+stdout	"consuming 30"
+stdout	"drop 30"
+stdout	"end of maybe true"
+stdout	"end of maybe false"
+stdout	"drop 30"
+stdout	"end of main 1 10"
+stdout	"drop 11"
+stdout	"drop 10"
+stdout	"drop 1"
+stdout	""

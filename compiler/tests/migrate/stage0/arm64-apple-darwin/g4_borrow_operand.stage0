@@ -1,0 +1,7 @@
+program	compiler/tests/migrate/fixtures/g4_borrow_operand.before
+triple	arm64-apple-darwin
+source	e34b709fceb33e66
+instrument	{"col": 1, "ext": null, "file": ".build/migrate-tests/g4_borrow_operand.saw", "kind": "walked", "line": 7, "name": "main"}
+instrument	{"absent": "panic", "accessor_file": "sawc/std/vector.saw", "accessor_self": "var", "args": null, "caller": "_borrow_operand_window", "col": 14, "ctx": [{"field": "?", "op": "==", "pos": [11, 18], "type": "BinaryOp"}, {"field": "expressions[0]", "pos": [11, 11], "type": "StringInterpolation"}, {"field": "arguments[0]", "name": "print", "pos": [11, 5], "type": "FunctionCall"}], "decl": "main", "elem": "Tag", "elem_kind": "STRUCT", "exclusive": false, "exclusive_only": false, "file": ".build/migrate-tests/g4_borrow_operand.saw", "grand": "_value", "key": {"left": [11, 15, "IntLiteral"], "names": [], "pos": [11, 15], "resolved": "Int", "type": "IntLiteral"}, "kind": "window", "line": 11, "method": "[]", "optional": false, "policy": "nocopy", "recv_left": [11, 13, "Identifier"], "recv_type": "Vector<Tag, GlobalAllocator>", "root": "v", "self_cell": false, "shared_self_body": false, "struct": "Vector", "subscript": true, "synthesized": false, "tier": "nocopy"}
+instrument	{"col": 5, "ext": "Tag", "file": ".build/migrate-tests/g4_borrow_operand.saw", "kind": "walked", "line": 4, "name": "equals"}
+instrument	{"kind": "status", "status": "stopped-after-places"}

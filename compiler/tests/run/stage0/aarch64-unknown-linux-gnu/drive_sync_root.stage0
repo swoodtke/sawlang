@@ -1,0 +1,12 @@
+program	compiler/tests/run/drive_sync_root.saw
+triple	aarch64-unknown-linux-gnu
+source	5c5e633d91caff96
+build	ok
+exit	0
+stdout	"5"
+stdout	"0"
+stdout	"9"
+stdout	"0"
+stdout	"103"
+stdout	"3"
+stdout	""

@@ -1,0 +1,7 @@
+program	compiler/tests/run/hello.saw
+triple	aarch64-unknown-linux-gnu
+source	041822dd2a518b97
+build	ok
+exit	0
+stdout	"hello, world"
+stdout	""

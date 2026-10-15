@@ -74,8 +74,8 @@ compiler/
   seed/               the bootstrap seed: sawc2's own IR per host target, and the
                       commit it was emitted from (pin); see "The seed"
   tools/
-    build.py          builds the seed binary, Stage 1 and Stage 2, or any program
-                      over the stage packages (by Stage 0)
+    build.py          builds the seed binary, Stage 1 and Stage 2, and then any
+                      program over the stage packages (by sawc2)
     seed.py           writes the seed (a bump) and checks it
     subset_check.py   the subset checker
     sawc2_reading.py  sawc2's reading of a file in the frozen parser's tree, which
@@ -89,13 +89,16 @@ compiler/
                       and reviewed against SL:hazards in std_cone_review.md; with
                       --std-root, a program's cone against the new std
     std_suspension.py each std function's suspension verdict from Stage 0's std
-                      check, recorded in std_suspension.txt and compiled into
-                      typecheck/src/stdsuspension.saw
+                      check, recorded in std_suspension.txt by --write (the v0
+                      compiler) and compiled into typecheck/src/stdsuspension.saw
     runtime_table.py  the runtime ABI table, from runtime/ABI.md and the runtime's
                       sources, compiled into typecheck/src/runtimeabi.saw; and
                       Stage 0's copy of the runtime held to runtime/
   tests/
     run.py            the test runner
+    oracle.py         Stage 0's recorded snapshots: the record format every lane
+                      reads, the comparison, and the one way to the v0 compiler
+                      that regenerates them (v0_root)
     parse_lane.py     the parse lane: sawc2 parse against the parser corpus
     lex/              golden token fixtures
     subset/           the subset checker's own fixtures
@@ -125,29 +128,36 @@ compiler/
     std/              the std lane (std_lane.py) over the new std in `std/`: the
                       subset profile's fixtures, the lang items' paired dumps
                       and shape fixtures, the API-equivalence members and
-                      exceptions, the behaviour pairs, the call programs, the MIR
-                      pins and the cones
+                      exceptions, the behaviour pairs and Stage 0's recorded runs
+                      of them (stage0/), the call programs, the MIR pins and the
+                      cones
     borrowck/         the borrowck lane (borrowck_lane.py): the dump's
                       specification (README.md), golden records, refusal and
                       due fixtures, the soundness premise's pins (premise/),
                       the conformance matrix of the borrow-check rows
                       (CONFORMANCE.md), and the move-error and loan
                       differentials over tests/corpus/ (differential.tsv,
-                      loan_differential.tsv)
+                      loan_differential.tsv, with Stage 0's recorded builds of
+                      the fixtures it lists in stage0/)
     drops/            the drops lane (drops_lane.py): the dump's specification
                       (README.md), golden records, refusal and due fixtures, and
                       the conformance rows drop elaboration owns (conformance.tsv)
     mono/             the mono lane (mono_lane.py): the dump's and the layout
                       table's specification (README.md), golden item dumps and
                       layout tables, refusal fixtures, and the layouts against
-                      Stage 0's (layout_exceptions.tsv)
+                      Stage 0's recorded ones (stage0/, layout_exceptions.tsv)
     coro/             the coro lane (coro_lane.py): the dump's specification
                       (README.md), golden frame decisions, refusal fixtures and
-                      the packages they import (modules/)
+                      the packages they import (modules/); Stage 0's snapshot
+                      of the coroutine programs (stage0/) and the census
     run/              the run lane (run_lane.py): the backend's, `sawc2 build`'s
                       and `sawc2 runtime`'s specification (README.md), and
-                      programs built by sawc2 and by Stage 0 whose binaries'
-                      output must agree
+                      programs whose sawc2-built binaries' output must agree
+                      with Stage 0's recorded runs (stage0/)
+    migrate/          the corpus rewriter's golden fixtures, over the
+                      instrument's recorded records (stage0/)
+    corpusdiff/       the whole-corpus differential against Stage 0's snapshot
+                      (stage0/), for information
     fixpoint/         the fixpoint lane (fixpoint_lane.py): Stage 2, sawc2
                       built by sawc2, against Stage 1 over every lane's
                       invocations (twin.py runs both), Stage 3 against Stage 2,
@@ -175,9 +185,11 @@ under `seed/` (below). Stage 1 is the sawc2 the seed builds at -O2,
 `.build/sawc2`. Stage 2 is sawc2 built by Stage 1 at -O2,
 `.build/sawc2-stage2`, and Stage 3 is Stage 2 building itself. The fixpoint is
 Stage 3 equal to Stage 2, byte for byte. Stage 0, the frozen Python compiler
-in `sawc/`, builds none of them; it still builds the unit programs and the
-oracles' programs (`build.py ENTRY -o OUT`), so the venv's Python is what runs
-`build.py`:
+in `sawc/`, builds none of them, nor the unit programs (`build.py ENTRY -o
+OUT`, by sawc2); the lanes read its recorded snapshots (`tests/oracle.py`),
+and only a snapshot's regeneration runs it. A record does not name the Stage
+0 that made it, so a change under `sawc/` rerecords every snapshot
+(`tests/run/README.md`, "The oracle"):
 
 ```sh
 ./.venv/bin/python compiler/tools/build.py            # builds the seed, Stage 1, then Stage 2
@@ -275,8 +287,9 @@ runs it, and so does every per-patch gate run (`./build.sh test`). Every lane
 below that runs sawc2 runs Stage 2. It checks these things.
 
 - **Unit programs**: `compiler/<stage>/tests/*.saw`. These are small programs in
-  the subset, built by the frozen compiler against the stage packages. Each
-  passes by exiting 0. Until the compiler builds itself, these and the golden
+  the subset, built by sawc2 against the new std and the stage packages
+  (`build.py`'s `build_program`); the subset checker still compiles each with
+  the frozen compiler, as it does all of `compiler/`. Each passes by exiting 0. Until the compiler builds itself, these and the golden
   dumps are its only tests. At self-hosting, `*.test.saw` sidecars take over
   (SL:testing §4).
 - **Golden token fixtures**: `tests/lex/NAME.saw`, with the expected
@@ -305,12 +318,15 @@ below that runs sawc2 runs Stage 2. It checks these things.
   declaration), rerun it with `--write`, and commit the file. A declaration new
   to the cone is also reviewed against SL:hazards, as `tools/std_cone_review.md`
   records for the rest.
-- **The std suspension table**: `tools/std_suspension.py` observes the frozen
-  compiler's std check and fails when `tools/std_suspension.txt`, or its
-  compiled form `typecheck/src/stdsuspension.saw`, differs from what it
-  observes, or when the std modules holding a suspending function differ from
-  those whose bodies spell a cooperative primitive. Rerun it with `--write`
-  after std changes, and review the difference.
+- **The std suspension table**: `tools/std_suspension.txt` is the frozen
+  compiler's std check, recorded with the triple it was observed on, and
+  `tools/std_suspension.py` fails when its compiled form
+  `typecheck/src/stdsuspension.saw` differs from it, or when the new std's
+  modules holding a suspending function differ from those calling a park
+  point. `--write` observes the v0 compiler's std check again
+  (`tests/oracle.py`'s `v0_root`), refuses unless the std modules holding a
+  suspending row are those whose bodies spell a cooperative primitive, and
+  rewrites both; review the difference.
 - **The runtime ABI table**: `tools/runtime_table.py` reads every
   `__saw_rt_*` seam's signature out of `runtime/ABI.md` (the seam set is
   Stage 0's, `sawc/runtime_abi.py`), with its owner, each host's runtime
@@ -319,8 +335,8 @@ below that runs sawc2 runs Stage 2. It checks these things.
   sources and shim do not export the runtime's seams exactly once each. It
   also fails when Stage 0's copy of the runtime, `sawc/rt/`, differs from
   `runtime/` in any file, or when Stage 0 reads the ABI differently: the
-  oracles compare programs Stage 0 links against its copy with programs sawc2
-  links against `runtime/`, so the two trees are one runtime, and a runtime
+  recorded oracles hold programs Stage 0 linked against its copy beside
+  programs sawc2 links against `runtime/`, so the two trees are one runtime, and a runtime
   change is made in both until `sawc/` is deleted. Rerun it with `--write` after an ABI or
   runtime-source change, and review the difference. The table is checked in
   so that it outlives Stage 0 (SL:open-questions D41).
@@ -366,8 +382,9 @@ below that runs sawc2 runs Stage 2. It checks these things.
   invariant; the subset checker's std profile accepts it; each lang-item
   program types the same against `std/` and `sawc/`; each lang item keeps its
   shape; the std API allowlist's members match in the two stds (below); each
-  behaviour pair runs under Stage 0 (exiting 0, or panicking as its
-  `// expect-panic:` line says) and checks, lowers and evaluates against
+  behaviour pair's recorded run under Stage 0 (`tests/std/stage0/`) exits 0,
+  or panics as its `// expect-panic:` line says, and the pair checks, lowers
+  and evaluates against
   `std/`; each call program (`tests/std/calls/`), which only the new std can
   type, checks clean through drop elaboration, or is refused first where its
   `// refuses:` header says; each MIR pin (`tests/std/mir/`) holds, String's
@@ -402,7 +419,8 @@ below that runs sawc2 runs Stage 2. It checks these things.
 - **Monomorphization and layout** (`tests/mono/README.md`): the mono lane
   (`tests/mono/mono_lane.py`) holds `sawc2 mono` to its golden item dumps and
   layout tables and its refusal fixtures, requires a fixture for every rule it
-  refuses by, and compares each layout Stage 0 can name with Stage 0's.
+  refuses by, and compares each layout Stage 0 can name with Stage 0's
+  recorded one.
 - **Coroutine lowering** (`tests/coro/README.md`): the coro lane
   (`tests/coro/coro_lane.py`) holds `sawc2 coro` to its golden frame
   decisions and its refusal fixtures, requires a fixture for every rule it
@@ -410,8 +428,9 @@ below that runs sawc2 runs Stage 2. It checks these things.
   over the mono lane's and the run lane's programs.
 - **The backend and `sawc2 build`** (`tests/run/README.md`): the run lane
   (`tests/run/run_lane.py`) builds each program of `tests/run/` with
-  `sawc2 build` against the new std and with Stage 0, runs both, and requires
-  the same output and exit status, a link printing nothing; a due program
+  `sawc2 build` against the new std, runs it, and requires the output and
+  exit status of Stage 0's recorded run (`tests/run/stage0/`), a link printing
+  nothing; a due program
   must be refused where it says; hello's `.ll` and one runtime source's are
   pinned; and `sawc2 runtime` writes the same bytes twice and refuses a
   runtime that leaves a seam undefined or defines one twice.

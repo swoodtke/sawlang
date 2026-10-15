@@ -1,0 +1,8 @@
+program	compiler/tests/run/coro_suspend_in_for.saw
+triple	arm64-apple-darwin
+source	70d28f5361f3b297
+build	ok
+exit	0
+stdout	"10"
+stdout	"5"
+stdout	""

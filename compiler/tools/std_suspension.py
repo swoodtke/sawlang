@@ -1,16 +1,17 @@
 #!/usr/bin/env python3
 """The suspension verdict of every std function, as Stage 0 decides it.
 
-    python compiler/tools/std_suspension.py          # fails if the table is stale
-    python compiler/tools/std_suspension.py --write  # rewrites the table and its Saw form
+    python compiler/tools/std_suspension.py          # fails if the Saw form is not the table's
+    python compiler/tools/std_suspension.py --write  # observes Stage 0, rewrites both
 
 sawc2 reads std as interfaces and checks no std body, so its phase 2 cannot
 infer whether a std function suspends. Until the new std's bodies are checked,
-it takes each std function's verdict from this table: the frozen compiler's
-own std check, observed in a child process with `sawc/` never edited, and the
-one suspension analysis that check runs over std's effect graph (the analysis
-Stage 0's std censuses read). Each free function, extension method and trait
-default body of `sawc/builtin.saw` and `sawc/std` gets one row:
+it takes each std function's verdict from this table, a recorded snapshot:
+the frozen compiler's own std check, observed by `--write` in a child process
+run by the v0 compiler's checkout (`oracle.v0_root`), and the one suspension
+analysis that check runs over std's effect graph (the analysis Stage 0's std
+censuses read). Each free function, extension method and trait default body
+of that checkout's `sawc/builtin.saw` and `sawc/std` gets one row:
 
 - `suspends`: the body owns a suspension a frame is built around;
 - `nonsync`: it only may suspend, as a call through a non-`sync` function
@@ -19,16 +20,17 @@ default body of `sawc/builtin.saw` and `sawc/std` gets one row:
 
 A row is keyed as sawc2 names the declaration: its module, its path, and its
 parameters' names, `self` left out. Overloads sharing a key take the worst
-verdict. `std_suspension.txt` is the record; `compiler/typecheck/src/
-stdsuspension.saw` is the same rows compiled into sawc2.
+verdict. `std_suspension.txt` is the record, with the triple it was observed
+on; `compiler/typecheck/src/stdsuspension.saw` is the same rows compiled into
+sawc2, and the check holds the two equal.
 
-The check also derives, from the source alone, the std modules whose bodies
+`--write` also derives, from the source alone, the std modules whose bodies
 spell a parking primitive, closed over the std modules that import them, and
-requires that set to equal the modules holding a `suspends` row. The new std
-in `std/` needs no table, since sawc2 checks its bodies, and gets the same
-cross-check: the modules spelling one of its park points (`std.task`'s lang
-items), closed over their importers, against the modules holding a function
-sawc2's summaries say suspends.
+refuses to write unless that set equals the modules holding a `suspends` row.
+The new std in `std/` needs no table, since sawc2 checks its bodies, and the
+check gives it the same cross-check: the modules spelling one of its park
+points (`std.task`'s lang items), closed over their importers, against the
+modules holding a function sawc2's summaries say suspends.
 """
 import argparse
 import glob
@@ -44,7 +46,9 @@ REPO = os.path.dirname(os.path.dirname(HERE))
 sys.path.insert(0, HERE)
 
 import build  # noqa: E402
-SAWC = os.path.join(REPO, "sawc")
+# The v0 checkout's `sawc/`, whose std the table describes; `use_v0_checkout`
+# sets it, and only `--write` and the observer read it.
+SAWC = None
 TABLE_FILE = os.path.join(HERE, "std_suspension.txt")
 SAW_FILE = os.path.join(REPO, "compiler", "typecheck", "src", "stdsuspension.saw")
 OBSERVE_FLAG = "--observe"
@@ -96,6 +100,7 @@ def key_of(module, path, parameters):
 
 def observe(out_path):
     """Runs in the child: the frozen std check, then one row per function."""
+    use_v0_checkout()
     sys.path.insert(0, SAWC)
     import sawc
     from errors import ErrorReporter
@@ -162,12 +167,26 @@ def observe(out_path):
         json.dump(rows, fh)
 
 
+def use_v0_checkout():
+    """Points `SAWC` at the v0 compiler's checkout (`oracle.v0_root`), whose
+    std the observation reads and whose own sources the rows are checked
+    against; only `--write` and the observer need it."""
+    global SAWC, _MODULES
+    sys.path.insert(0, os.path.join(REPO, "compiler", "tests"))
+    import oracle
+    SAWC = os.path.join(oracle.v0_root(), "sawc")
+    _MODULES = None
+    return oracle
+
+
 def observed_rows():
-    """The rows, from a child process running the frozen compiler."""
+    """The rows, from a child process running the v0 compiler's std check
+    with its checkout's venv."""
+    oracle = use_v0_checkout()
     fd, out = tempfile.mkstemp(suffix=".json")
     os.close(fd)
     try:
-        r = subprocess.run([sys.executable, os.path.abspath(__file__), OBSERVE_FLAG, out],
+        r = subprocess.run([oracle.v0_python(), os.path.abspath(__file__), OBSERVE_FLAG, out],
                            capture_output=True, text=True, timeout=TIMEOUT)
         if r.returncode != 0:
             raise RuntimeError("the observer failed: %s" % (r.stderr.strip() or r.stdout.strip()))
@@ -183,17 +202,34 @@ HEADER = """\
 # The suspension verdict of every std function, as Stage 0's std check decides
 # it: `suspends` (a frame is built around it), `nonsync` (not sync-callable, and
 # framing nothing) or `sync`. Written by compiler/tools/std_suspension.py
-# --write; compiler/tests/run.py fails when it is stale. sawc2's phase 2 reads
-# these rows, compiled in as compiler/typecheck/src/stdsuspension.saw, for the
-# std functions whose bodies it does not check.
+# --write through the v0 compiler; compiler/tests/run.py fails when the Saw
+# form differs. sawc2's phase 2 reads these rows, compiled in as
+# compiler/typecheck/src/stdsuspension.saw, for the std functions whose bodies
+# it does not check.
 """
+_TRIPLE = "# observed on "
 
 
-def table_text(rows):
-    lines = [HEADER]
+def table_text(rows, triple):
+    lines = [HEADER, "%s%s\n" % (_TRIPLE, triple)]
     for key in sorted(rows):
         lines.append("%s\t%s\n" % (key, rows[key]))
     return "".join(lines)
+
+
+def read_table():
+    """(the recorded rows, the triple Stage 0 observed them on)."""
+    rows = {}
+    triple = None
+    with open(TABLE_FILE, encoding="utf-8") as fh:
+        for line in fh:
+            line = line.rstrip("\n")
+            if line.startswith(_TRIPLE):
+                triple = line[len(_TRIPLE):]
+            elif line and not line.startswith("#"):
+                key, verdict = line.split("\t")
+                rows[key] = verdict
+    return rows, triple
 
 
 def saw_text(rows):
@@ -345,20 +381,26 @@ def check_new_std(sawc2):
 
 
 def check():
-    """(failures, counts): the table and its Saw form against a fresh
-    observation, the rows' consistency, and the new std's cross-check."""
-    rows = observed_rows()
-    failures = check_rows(rows)
+    """(failures, counts): the Saw form against the recorded table, and the
+    new std's cross-check. The table is Stage 0's verdicts on its frozen std,
+    so it is observed and its rows checked against that std's sources only
+    when `--write` records it."""
+    rows, triple = read_table()
+    failures = []
+    if not rows or triple is None:
+        failures.append("std suspension: %s holds no rows or no `%s` line; rerun "
+                        "compiler/tools/std_suspension.py --write" % (os.path.relpath(TABLE_FILE, REPO),
+                                                                       _TRIPLE.strip()))
     failures += check_new_std(build.SAWC2)
-    for path, text in ((TABLE_FILE, table_text(rows)), (SAW_FILE, saw_text(rows))):
-        try:
-            with open(path) as fh:
-                current = fh.read()
-        except OSError:
-            current = None
-        if current != text:
-            failures.append("std suspension: %s is stale; rerun compiler/tools/std_suspension.py "
-                            "--write and review the difference" % os.path.relpath(path, REPO))
+    try:
+        with open(SAW_FILE) as fh:
+            current = fh.read()
+    except OSError:
+        current = None
+    if current != saw_text(rows):
+        failures.append("std suspension: %s differs from %s; rerun compiler/tools/std_suspension.py "
+                        "--write and review the difference" % (os.path.relpath(SAW_FILE, REPO),
+                                                               os.path.relpath(TABLE_FILE, REPO)))
     counts = {"std suspension rows": len(rows)}
     return failures, counts
 
@@ -373,10 +415,14 @@ def main():
         return 0
     if args.write:
         rows = observed_rows()
-        for failure in check_rows(rows):
+        failures = check_rows(rows)
+        for failure in failures:
             print(failure)
+        if failures:
+            print("std suspension: nothing written")
+            return 1
         with open(TABLE_FILE, "w") as fh:
-            fh.write(table_text(rows))
+            fh.write(table_text(rows, build.host_triple()))
         with open(SAW_FILE, "w") as fh:
             fh.write(saw_text(rows))
         print("std suspension: %d rows written" % len(rows))

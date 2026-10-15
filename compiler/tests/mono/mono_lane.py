@@ -4,6 +4,7 @@ tables, its refusal fixtures, and Stage 0's layouts.
 
     python compiler/tests/mono/mono_lane.py            # check
     python compiler/tests/mono/mono_lane.py --write    # rewrite the golden records
+    python compiler/tests/mono/mono_lane.py --stage0   # record Stage 0's layout probes
 
 `compiler/tests/run.py` runs `run()`. It checks, as README.md in this
 directory specifies:
@@ -16,7 +17,9 @@ directory specifies:
   rule its name starts with, and every rule mono refuses by (`mono_rules` in
   `compiler/mono/src/worklist.saw`) has a fixture;
 - each type of a layout table that Stage 0 can spell has Stage 0's size and
-  alignment there, read off a probe program Stage 0 builds and runs, unless
+  alignment there, read off Stage 0's recorded run of a probe program
+  (`stage0/HOST/NAME.stage0`, which `--stage0` writes through the v0
+  compiler and which is stale once the probe changes), unless
   `layout_exceptions.tsv` gives the reason the two differ;
 - each subcommand `--lowerings` counts for lowers each program's source to
   MIR as often as it owes: once from `mir` on, never before.
@@ -33,10 +36,15 @@ COMPILER = os.path.dirname(TESTS)
 REPO = os.path.dirname(COMPILER)
 sys.path.insert(0, os.path.join(COMPILER, "tools"))
 sys.path.insert(0, os.path.join(TESTS, "borrowck"))
+sys.path.insert(0, TESTS)
 
 import build  # noqa: E402
 import borrowck_lane  # noqa: E402
+import oracle  # noqa: E402
 
+# Stage 0's recorded runs of the layout probes, one directory per host
+# triple (README.md, "The lane").
+STAGE0 = os.path.join(HERE, "stage0")
 GOLDEN = os.path.join(HERE, "golden")
 REFUSE = os.path.join(HERE, "refuse")
 EXCEPTIONS = os.path.join(HERE, "layout_exceptions.tsv")
@@ -164,47 +172,93 @@ def stage0_spelling(text):
     return _MODULE_PATH.sub("", text)
 
 
-def check_layouts(failures, counts):
-    """Each golden program's layout table against Stage 0's `sizeof` and
-    `alignof` of the same types, built into the program itself."""
-    os.makedirs(PROBES, exist_ok=True)
-    exceptions = read_exceptions()
-    used = set()
+def layout_probe(src):
+    """(the rows of `src`'s layout table Stage 0 can spell, as (spelling,
+    size, align); the probe program printing Stage 0's `sizeof` and `alignof`
+    of each, built into the program itself), or None when no row is
+    spelled."""
+    table = os.path.splitext(src)[0] + ".layouts"
+    if not os.path.exists(table):
+        return None
+    rows = []
+    with open(table) as fh:
+        for line in fh:
+            m = _LAYOUT.match(line.rstrip("\n"))
+            if m:
+                spelled = stage0_spelling(m.group(1))
+                if spelled is not None:
+                    rows.append((spelled, int(m.group(2)), int(m.group(3))))
+    if not rows:
+        return None
+    with open(src) as fh:
+        program = fh.read()
+    probe = _MAIN.sub("func mono_probe_original()", program, count=1)
+    probe += "\nfunc main() {\n"
+    for spelled, _, _ in rows:
+        probe += '    print("%s\\t{}\\t{}", sizeof<%s>(), alignof<%s>())\n' % (spelled, spelled, spelled)
+    probe += "}\n"
+    return rows, probe
+
+
+def probes():
+    """{golden program name: (its source, rows, probe text)} for every golden
+    program with a layout probe."""
+    out = {}
     for src in sorted(glob.glob(os.path.join(GOLDEN, "*.saw"))):
-        table = os.path.splitext(src)[0] + ".layouts"
-        if not os.path.exists(table):
-            continue
-        rows = []
-        with open(table) as fh:
-            for line in fh:
-                m = _LAYOUT.match(line.rstrip("\n"))
-                if m:
-                    spelled = stage0_spelling(m.group(1))
-                    if spelled is not None:
-                        rows.append((spelled, int(m.group(2)), int(m.group(3))))
-        if not rows:
-            continue
-        with open(src) as fh:
-            program = fh.read()
-        probe = _MAIN.sub("func mono_probe_original()", program, count=1)
-        probe += "\nfunc main() {\n"
-        for spelled, _, _ in rows:
-            probe += '    print("%s\\t{}\\t{}", sizeof<%s>(), alignof<%s>())\n' % (spelled, spelled, spelled)
-        probe += "}\n"
-        name = os.path.splitext(os.path.basename(src))[0]
+        found = layout_probe(src)
+        if found is not None:
+            out[os.path.splitext(os.path.basename(src))[0]] = (src, found[0], found[1])
+    return out
+
+
+def stage0_command(names=()):
+    return "python compiler/tests/mono/mono_lane.py --stage0" + "".join(" " + n for n in names)
+
+
+def record_stage0():
+    """Stage 0 builds and runs each layout probe, and its record replaces the
+    one in `STAGE0`; a record naming no probe is removed. The lane's only run
+    of Stage 0, through the v0 compiler (`oracle.v0_compiler`)."""
+    os.makedirs(PROBES, exist_ok=True)
+    triple = build.host_triple()
+    found = probes()
+    for name, (src, _, probe) in sorted(found.items()):
         probe_src = os.path.join(PROBES, name + ".saw")
-        probe_bin = os.path.join(PROBES, name)
         with open(probe_src, "w") as fh:
             fh.write(probe)
-        r = subprocess.run([sys.executable, build.FROZEN_SAWC, probe_src, "-o", probe_bin], cwd=REPO,
-                           capture_output=True, text=True, timeout=TIMEOUT)
-        if r.returncode != 0:
-            failures.append("mono layout %s: Stage 0 does not build the probe: %s"
-                            % (rel(src), (r.stdout + r.stderr).strip()[-300:]))
+        rec = oracle.record_run(probe_src, oracle.record_file(STAGE0, triple, name), rel(src),
+                                data=probe.encode("utf-8"))
+        print("mono lane stage0 %s %s: build %s" % (triple, name, rec.build))
+    for path in oracle.stale_records(os.path.join(STAGE0, triple), set(found)):
+        os.remove(path)
+        print("mono lane stage0: removed %s" % rel(path))
+    return 0
+
+
+def check_layouts(failures, counts):
+    """Each golden program's layout table against Stage 0's `sizeof` and
+    `alignof` of the same types, built into the program itself, as Stage 0's
+    recorded run of that probe printed them."""
+    exceptions = read_exceptions()
+    used = set()
+    found = probes()
+    for path in oracle.stale_records(STAGE0, set(found)):
+        failures.append("mono layout %s: a Stage 0 record of no probe; `%s` removes it"
+                        % (rel(path), stage0_command()))
+    for name, (src, rows, probe) in sorted(found.items()):
+        rec, why = oracle.load_run(STAGE0, name, probe.encode("utf-8"), stage0_command())
+        if rec is None:
+            failures.append("mono layout %s: %s" % (rel(src), why))
             continue
-        run = subprocess.run([probe_bin], capture_output=True, text=True, timeout=60)
+        if rec.build != "ok":
+            failures.append("mono layout %s: Stage 0 does not build the probe: %s"
+                            % (rel(src), rec.build_error or rec.build))
+            continue
+        if rec.stdout == "varies":
+            failures.append("mono layout %s: Stage 0's probe printed differently on two runs" % rel(src))
+            continue
         stage0 = {}
-        for line in run.stdout.split("\n"):
+        for line in rec.stdout.split("\n"):
             parts = line.split("\t")
             if len(parts) == 3:
                 stage0[parts[0]] = (int(parts[1]), int(parts[2]))
@@ -257,6 +311,8 @@ def run(write=False):
 
 
 def main():
+    if "--stage0" in sys.argv[1:]:
+        return record_stage0()
     write = "--write" in sys.argv[1:]
     failures, counts = run(write)
     for failure in failures:

@@ -1,0 +1,5 @@
+program	compiler/tests/std/pairs/string_methods.saw
+triple	arm64-apple-darwin
+source	1515dfd18fb45712
+build	ok
+exit	0

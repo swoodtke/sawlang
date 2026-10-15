@@ -1,0 +1,16 @@
+program	compiler/tests/run/raw_enum_cast.saw
+triple	aarch64-unknown-linux-gnu
+source	fd7dcc8ec8fe0cee
+build	ok
+exit	0
+stdout	"place 1"
+stdout	"shared 1"
+stdout	"exclusive 2"
+stdout	"field 3"
+stdout	"force 2"
+stdout	"end"
+stdout	"drop 2"
+stdout	"drop 3"
+stdout	"drop 2"
+stdout	"drop 1"
+stdout	""

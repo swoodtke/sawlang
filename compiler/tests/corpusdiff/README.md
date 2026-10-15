@@ -32,8 +32,9 @@ the same path below `examples/` (SL:architecture §5), which every program has.
 
 ## The Stage 0 snapshot
 
-`snapshot` compiles each twin with Stage 0 (`sawc/sawc.py`, its
-`COMPILE-FLAGS` included) on the host triple and writes one record per
+`snapshot` compiles each twin with Stage 0, the v0 compiler that
+`oracle.v0_compiler` finds (its `COMPILE-FLAGS` included), on the host triple
+and writes one record per
 program to `stage0/TRIPLE/PATH.stage0`, in the format
 `compiler/tests/oracle.py` reads and writes, which the coroutine snapshot
 (`compiler/tests/coro/stage0/`) shares:
@@ -59,8 +60,9 @@ record was written. A corpus program added or a twin edited is caught there,
 and `snapshot --reuse PATH...` writes just that record: `--reuse` keeps each
 raw result saved under `.build/corpusdiff/stage0-raw/` whose twin has not
 changed, so an interrupted write resumes where it stopped. The snapshot is
-the oracle that outlives `sawc/`: once Stage 0 is gone nothing can rewrite
-it, only read it.
+the oracle that outlives `sawc/`: `check` and `run` only read it, and only
+`snapshot` runs Stage 0, through `oracle.v0_root`, the one place the v0
+compiler's checkout is named.
 
 ## The measurement
 

@@ -10,6 +10,7 @@
 // run lane's `probes/accessor_loops.saw`, whose four accessors keep locals
 // live around a backedge, each edited in turn. Paths are the repository
 // root's, where the runner runs.
+import std.data.{Data}
 import std.file.{File}
 import std.path.{Path}
 import sawmir.api.{mir_lower_file}

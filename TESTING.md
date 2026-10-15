@@ -450,7 +450,7 @@ decision is `tools/patch_gate.py`'s:
   `compiler/seed/` included), `std/`,
   `runtime/` (the runtime Stage 1 builds, which every later link takes),
   `sawc/` (its std is the one sawc2 compiles when no `--std-root` names
-  another, and Stage 0 builds the replayed lanes' oracles) or
+  another) or
   `tests/corpus/` (the programs the replayed lanes run sawc2 over) changes,
   so a local gate never runs it. The gate runs its default mode, which compares
   every call but the candidate texts the grammar generator and mutator lex as

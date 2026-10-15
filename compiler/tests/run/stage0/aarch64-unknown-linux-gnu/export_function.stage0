@@ -1,0 +1,8 @@
+program	compiler/tests/run/export_function.saw
+triple	aarch64-unknown-linux-gnu
+source	5e87243fc6dcf4e1
+build	ok
+exit	0
+stdout	"42"
+stdout	"-5"
+stdout	""

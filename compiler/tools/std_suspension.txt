@@ -1,9 +1,11 @@
 # The suspension verdict of every std function, as Stage 0's std check decides
 # it: `suspends` (a frame is built around it), `nonsync` (not sync-callable, and
 # framing nothing) or `sync`. Written by compiler/tools/std_suspension.py
-# --write; compiler/tests/run.py fails when it is stale. sawc2's phase 2 reads
-# these rows, compiled in as compiler/typecheck/src/stdsuspension.saw, for the
-# std functions whose bodies it does not check.
+# --write through the v0 compiler; compiler/tests/run.py fails when the Saw
+# form differs. sawc2's phase 2 reads these rows, compiled in as
+# compiler/typecheck/src/stdsuspension.saw, for the std functions whose bodies
+# it does not check.
+# observed on arm64-apple-darwin
 builtin.Atomic.compare_exchange(expected, desired)	sync
 builtin.Atomic.fetch_add(v)	sync
 builtin.Atomic.load()	sync

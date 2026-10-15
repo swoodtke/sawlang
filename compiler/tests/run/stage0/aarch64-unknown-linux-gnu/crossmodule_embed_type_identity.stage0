@@ -1,0 +1,7 @@
+program	compiler/tests/run/crossmodule_embed_type_identity.saw
+triple	aarch64-unknown-linux-gnu
+source	ef053e453639f894
+build	ok
+exit	0
+stdout	"build"
+stdout	""

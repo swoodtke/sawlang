@@ -1,0 +1,10 @@
+program	compiler/tests/run/deep_equality.saw
+triple	arm64-apple-darwin
+source	65393de66158e1ee
+build	ok
+exit	0
+stdout	"true"
+stdout	"false"
+stdout	"true"
+stdout	"true"
+stdout	""

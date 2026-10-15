@@ -1,0 +1,13 @@
+program	compiler/tests/run/task_spawn.saw
+triple	aarch64-unknown-linux-gnu
+source	a1a174bfd15cb7d7
+build	ok
+exit	0
+stdout	"36"
+stdout	"hello, task"
+stdout	"bye, task"
+stdout	"5"
+stdout	"noisy 7"
+stdout	"main returns"
+stdout	"the detached task finished at the close"
+stdout	""

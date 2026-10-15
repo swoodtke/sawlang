@@ -1,0 +1,5 @@
+program	compiler/tests/migrate/fixtures/manual_anchor.before
+triple	arm64-apple-darwin
+source	65a11c577e1d32c1
+instrument	{"col": 1, "ext": null, "file": ".build/migrate-tests/manual_anchor.saw", "kind": "walked", "line": 6, "name": "main"}
+instrument	{"kind": "status", "status": "stopped-after-places"}

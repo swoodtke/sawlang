@@ -1,0 +1,7 @@
+program	compiler/tests/run/exit_code.saw
+triple	aarch64-unknown-linux-gnu
+source	b05a8a4cae0370b5
+build	ok
+exit	42
+stdout	"exiting with 42"
+stdout	""

@@ -1,0 +1,16 @@
+program	compiler/tests/run/try_catch_inline.saw
+triple	arm64-apple-darwin
+source	5dd557d49752b444
+build	ok
+exit	0
+stdout	"noisy ok 1"
+stdout	"noisy caught 50"
+stdout	"a 4 b -9"
+stdout	"argument 100"
+stdout	"tail 2 1005"
+stdout	"leaving with 7"
+stdout	"leaves 4 -1"
+stdout	"looped total 6 stopped at 7"
+stdout	"nested 1 5 503"
+stdout	"label 3 / negative"
+stdout	""

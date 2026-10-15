@@ -1,0 +1,4 @@
+program	compiler/tests/migrate/fixtures/unseen_static_initializer.before
+triple	arm64-apple-darwin
+source	557f7ea577297418
+instrument	{"kind": "status", "status": "exit:1"}

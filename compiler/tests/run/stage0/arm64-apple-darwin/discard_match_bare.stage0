@@ -1,0 +1,9 @@
+program	compiler/tests/run/discard_match_bare.saw
+triple	arm64-apple-darwin
+source	25ab5542f31264d9
+build	ok
+exit	0
+stdout	"drop 3"
+stdout	"arm"
+stdout	"after"
+stdout	""

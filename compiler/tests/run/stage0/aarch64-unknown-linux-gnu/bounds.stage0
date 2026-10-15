@@ -1,0 +1,8 @@
+program	compiler/tests/run/bounds.saw
+triple	aarch64-unknown-linux-gnu
+source	5315c370ae301687
+build	ok
+exit	-6
+stdout	"in range 2"
+stdout	"panic at vector.saw:90: Vector.[]: index out of range: 5 (len 2)"
+stdout	""

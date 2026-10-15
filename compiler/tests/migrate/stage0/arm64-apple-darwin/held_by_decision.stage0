@@ -1,0 +1,5 @@
+program	compiler/tests/migrate/fixtures/held_by_decision.before
+triple	arm64-apple-darwin
+source	16df8ebd746662c6
+instrument	{"col": 1, "ext": null, "file": ".build/migrate-tests/held_by_decision.saw", "kind": "walked", "line": 4, "name": "main"}
+instrument	{"kind": "status", "status": "stopped-after-places"}

@@ -1,0 +1,15 @@
+program	compiler/tests/run/optional_assign.saw
+triple	arm64-apple-darwin
+source	917b1f99c07754cd
+build	ok
+exit	0
+stdout	"top count 3 token 2 plain 8 leaf 7/14 note 40"
+stdout	"top count 13 token 2 plain 8 leaf 14/14 note 40"
+stdout	"top count 11 token 3 plain 10 no leaf"
+stdout	"top count 6 token 5 no mid"
+stdout	"no top"
+stdout	"top count 0 token 7 plain 21 leaf 15/1 note 20"
+stdout	"tested written"
+stdout	"tested skipped"
+stdout	"guard skipped"
+stdout	""

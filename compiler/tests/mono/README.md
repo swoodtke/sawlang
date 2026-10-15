@@ -13,6 +13,7 @@ mono/
                           its layout table
   refuse/                 RULE.saw or RULE.VARIANT.saw, a program refused
   layout_exceptions.tsv   a type whose layout differs from Stage 0's, and why
+  stage0/                 Stage 0's recorded runs of the layout probes (see "The lane")
 ```
 
 ## `sawc2 mono`
@@ -257,9 +258,16 @@ rewrites them, for review) and carry no `ERROR` or `INVARIANT` line; that each
 fixture in `refuse/` is refused first at its header's position by the rule its
 name starts with, and every rule has a fixture; and that each type of a
 layout table that Stage 0 can spell (not a reference, a function type, `Void`
-or `Never`) has Stage 0's size and alignment: the lane builds the golden
-program with Stage 0, its `main` renamed and a new one printing `sizeof` and
-`alignof` of each type, and compares. A difference fails unless
+or `Never`) has Stage 0's size and alignment: the probe is the golden
+program with its `main` renamed and a new one printing `sizeof` and `alignof`
+of each type, and the lane compares the table with what Stage 0's recorded run
+of the probe printed. It never runs Stage 0: the record is
+`stage0/TRIPLE/NAME.stage0` for host TRIPLE, in the format of
+`compiler/tests/oracle.py`, holding the SHA-256 prefix of the probe's text,
+so a table that gains or loses a row makes it stale, and a missing or stale
+record fails, naming `mono_lane.py --stage0`, which builds and runs every
+probe with the v0 compiler (`oracle.v0_compiler`) and rewrites the records. A
+record naming no golden program fails too. A difference fails unless
 `layout_exceptions.tsv` (`TYPE<TAB>reason`) gives the reason, and an exception
 no difference uses fails as stale. A bare `Void` or `Never` is not compared
 (Stage 0's `alignof<Void>()` is an internal error), but every type holding

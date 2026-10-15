@@ -1,0 +1,7 @@
+program	compiler/tests/run/suspend_budget_point.saw
+triple	arm64-apple-darwin
+source	163b775616f2526a
+build	ok
+exit	0
+stdout	"3"
+stdout	""

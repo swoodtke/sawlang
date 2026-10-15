@@ -1,0 +1,10 @@
+program	compiler/tests/run/result.saw
+triple	aarch64-unknown-linux-gnu
+source	2750bd079610fe23
+build	ok
+exit	0
+stdout	"ok 20"
+stdout	"negative -3"
+stdout	"ok 1600"
+stdout	"sure 42"
+stdout	""

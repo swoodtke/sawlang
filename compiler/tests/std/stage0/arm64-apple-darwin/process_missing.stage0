@@ -1,0 +1,5 @@
+program	compiler/tests/std/pairs/process_missing.saw
+triple	arm64-apple-darwin
+source	41b663f7892d7f8a
+build	ok
+exit	0

@@ -1,0 +1,8 @@
+program	compiler/tests/run/coro_conservative_generic_instance_not_promoted.saw
+triple	arm64-apple-darwin
+source	fb8997b454f10b9a
+build	ok
+exit	0
+stdout	"20"
+stdout	"10"
+stdout	""

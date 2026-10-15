@@ -1,0 +1,10 @@
+program	compiler/tests/mono/golden/hello.saw
+triple	arm64-apple-darwin
+source	ed139ffb579a6625
+build	ok
+exit	0
+stdout	"Int\t8\t8"
+stdout	"String\t8\t8"
+stdout	"UnsafePointer<Int8>\t8\t8"
+stdout	"UnsafePointer<Int>\t8\t8"
+stdout	""

@@ -1,0 +1,17 @@
+program	compiler/tests/mono/golden/voids.saw
+triple	arm64-apple-darwin
+source	0d780572343521e0
+build	ok
+exit	0
+stdout	"(Void?, UInt8)\t3\t1"
+stdout	"Int\t8\t8"
+stdout	"Result<Void, Int8>\t8\t4"
+stdout	"String\t8\t8"
+stdout	"UnsafePointer<Int8>\t8\t8"
+stdout	"UnsafePointer<Int>\t8\t8"
+stdout	"Void?\t2\t1"
+stdout	"Void??\t3\t1"
+stdout	"Carrier\t4\t4"
+stdout	"Empty?\t1\t1"
+stdout	"HasVoidOpt\t3\t1"
+stdout	""

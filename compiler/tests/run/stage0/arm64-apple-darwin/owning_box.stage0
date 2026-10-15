@@ -1,0 +1,12 @@
+program	compiler/tests/run/owning_box.saw
+triple	arm64-apple-darwin
+source	ee0880e64da3b9a5
+build	ok
+exit	0
+stdout	"made 7"
+stdout	"kept 8"
+stdout	"drop 8"
+stdout	"string bcd"
+stdout	"end"
+stdout	"drop 7"
+stdout	""

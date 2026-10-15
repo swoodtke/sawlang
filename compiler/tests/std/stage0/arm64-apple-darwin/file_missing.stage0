@@ -1,0 +1,5 @@
+program	compiler/tests/std/pairs/file_missing.saw
+triple	arm64-apple-darwin
+source	eb5a2915b65a36c3
+build	ok
+exit	0

@@ -1,0 +1,8 @@
+program	compiler/tests/run/coro_nested_suspend_two_deep.saw
+triple	arm64-apple-darwin
+source	83a107a266a00db4
+build	ok
+exit	0
+stdout	"6"
+stdout	"13"
+stdout	""

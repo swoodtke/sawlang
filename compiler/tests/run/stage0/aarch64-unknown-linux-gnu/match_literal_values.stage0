@@ -1,0 +1,25 @@
+program	compiler/tests/run/match_literal_values.saw
+triple	aarch64-unknown-linux-gnu
+source	30be250d54e48d6c
+build	ok
+exit	0
+stdout	"sign 2 1"
+stdout	"hex 2 1"
+stdout	"negative 2 1"
+stdout	"separated 2 1"
+stdout	"binary 2 1"
+stdout	"suffixed 2 1"
+stdout	"escaped 2 1"
+stdout	"newline 2 1"
+stdout	"tuple 2 1"
+stdout	"payload 2 1"
+stdout	"ranged 2 1"
+stdout	"distinct 2 3 1"
+stdout	"flags 3 1 2"
+stdout	"false true true"
+stdout	"1"
+stdout	"2 1"
+stdout	"1 4"
+stdout	"2 3 1"
+stdout	"1 2"
+stdout	""

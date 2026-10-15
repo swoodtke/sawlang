@@ -1,0 +1,11 @@
+program	compiler/tests/run/deep_walks.saw
+triple	arm64-apple-darwin
+source	baf9e18dfd199dd7
+build	ok
+exit	0
+stdout	"7"
+stdout	"20"
+stdout	"1"
+stdout	"2"
+stdout	"3"
+stdout	""

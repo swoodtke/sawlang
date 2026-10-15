@@ -1,0 +1,5 @@
+program	compiler/tests/std/pairs/optional_values.saw
+triple	arm64-apple-darwin
+source	95d24766add618c9
+build	ok
+exit	0

@@ -1,0 +1,10 @@
+program	compiler/tests/migrate/fixtures/g1_accessor_read.before
+triple	arm64-apple-darwin
+source	23b99575abfa927b
+instrument	{"col": 1, "ext": null, "file": ".build/migrate-tests/g1_accessor_read.saw", "kind": "walked", "line": 17, "name": "make"}
+instrument	{"col": 1, "ext": null, "file": ".build/migrate-tests/g1_accessor_read.saw", "kind": "walked", "line": 19, "name": "main"}
+instrument	{"absent": "none", "accessor_file": ".build/migrate-tests/g1_accessor_read.saw", "accessor_self": "ref", "args": [], "bare": true, "caller": "_chain_window", "chain": [], "col": 14, "ctx": [{"field": "value", "mutable": false, "name": "t", "pos": [21, 5], "type": "LetStatement"}, {"field": "statements[1]", "pos": [19, 13], "type": "Block"}, {"field": "body", "name": "main", "pos": [19, 1], "type": "Function"}], "decl": "main", "elem": "Int", "elem_kind": "INT", "exclusive": false, "exclusive_only": false, "expr_pos": [21, 14], "expr_resolved": "Int", "expr_type": "MethodCall", "file": ".build/migrate-tests/g1_accessor_read.saw", "grand": "_value", "key": null, "kind": "window", "line": 21, "method": "total", "nested_outer": false, "optional": false, "policy": "trivial", "recv_left": [21, 13, "Identifier"], "recv_type": "Bag", "root": "b", "self_cell": false, "shared_self_body": false, "struct": "Bag", "subscript": false, "synthesized": false, "tier": "free", "unwrap_read": false}
+instrument	{"col": 12, "ext": "Bag", "file": ".build/migrate-tests/g1_accessor_read.saw", "kind": "walked", "line": 5, "name": "at"}
+instrument	{"col": 12, "ext": "Bag", "file": ".build/migrate-tests/g1_accessor_read.saw", "kind": "walked", "line": 8, "name": "slot"}
+instrument	{"col": 12, "ext": "Bag", "file": ".build/migrate-tests/g1_accessor_read.saw", "kind": "walked", "line": 12, "name": "total"}
+instrument	{"kind": "status", "status": "stopped-after-places"}

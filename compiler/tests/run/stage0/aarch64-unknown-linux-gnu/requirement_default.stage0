@@ -1,0 +1,7 @@
+program	compiler/tests/run/requirement_default.saw
+triple	aarch64-unknown-linux-gnu
+source	1304e8250a379188
+build	ok
+exit	0
+stdout	"11"
+stdout	""

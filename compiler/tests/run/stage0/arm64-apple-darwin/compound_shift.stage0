@@ -1,0 +1,11 @@
+program	compiler/tests/run/compound_shift.saw
+triple	arm64-apple-darwin
+source	39477d49540f6035
+build	ok
+exit	0
+stdout	"4 16 32 8 2 4 32 8 2 16"
+stdout	"2 4 16 0 0 0 8 0 0 2"
+stdout	"0 4 0"
+stdout	"-16"
+stdout	"32 6"
+stdout	""

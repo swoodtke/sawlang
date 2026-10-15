@@ -1,0 +1,7 @@
+program	compiler/tests/run/layout_asserts.saw
+triple	arm64-apple-darwin
+source	2d15c3acb39fc0e3
+build	ok
+exit	0
+stdout	"1"
+stdout	""

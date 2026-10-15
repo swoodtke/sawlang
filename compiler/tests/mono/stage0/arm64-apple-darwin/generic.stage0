@@ -1,0 +1,14 @@
+program	compiler/tests/mono/golden/generic.saw
+triple	arm64-apple-darwin
+source	ea5315ebe1425d73
+build	ok
+exit	0
+stdout	"Bool\t1\t1"
+stdout	"Int\t8\t8"
+stdout	"String\t8\t8"
+stdout	"UnsafePointer<Int8>\t8\t8"
+stdout	"UnsafePointer<Int>\t8\t8"
+stdout	"Crate\t16\t8"
+stdout	"Pair<Int>\t16\t8"
+stdout	"Slot\t24\t8"
+stdout	""

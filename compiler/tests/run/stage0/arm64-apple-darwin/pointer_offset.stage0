@@ -1,0 +1,10 @@
+program	compiler/tests/run/pointer_offset.saw
+triple	arm64-apple-darwin
+source	c7d657c45f47cb00
+build	ok
+exit	0
+stdout	"30"
+stdout	"30"
+stdout	"9"
+stdout	"8"
+stdout	""

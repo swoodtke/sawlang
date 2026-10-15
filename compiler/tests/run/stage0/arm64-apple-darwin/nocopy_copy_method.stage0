@@ -1,0 +1,14 @@
+program	compiler/tests/run/nocopy_copy_method.saw
+triple	arm64-apple-darwin
+source	6639699f777da51d
+build	ok
+exit	0
+stdout	"Handle.copy"
+stdout	"spelled 101"
+stdout	"Socket.copy"
+stdout	"spelled 202"
+stdout	"shut 202"
+stdout	"shut 2"
+stdout	"closed 101"
+stdout	"closed 1"
+stdout	""

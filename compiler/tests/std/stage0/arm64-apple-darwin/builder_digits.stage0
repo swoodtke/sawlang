@@ -1,0 +1,5 @@
+program	compiler/tests/std/pairs/builder_digits.saw
+triple	arm64-apple-darwin
+source	a05a0b2e89e27c0f
+build	ok
+exit	0

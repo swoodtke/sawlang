@@ -1,0 +1,15 @@
+program	compiler/tests/run/discard_let_control.saw
+triple	aarch64-unknown-linux-gnu
+source	d94a9ea982eceb79
+build	ok
+exit	0
+stdout	"drop 6"
+stdout	"guard bound 5"
+stdout	"drop 5"
+stdout	"after guard"
+stdout	"drop 8"
+stdout	"let bound 7"
+stdout	"drop 1"
+stdout	"after discard"
+stdout	"drop 7"
+stdout	""

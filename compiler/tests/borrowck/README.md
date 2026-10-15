@@ -24,6 +24,7 @@ borrowck/
   loan_differential.tsv  the tests/corpus loan errors the check does not refuse, and the
                          expected successes it does, each with its mechanism
   ledger/                ledgers that carry one row id twice, which the ledger check must refuse
+  stage0/                Stage 0's recorded builds of the fixtures loan_differential.tsv lists
 ```
 
 ## `sawc2 borrowck`
@@ -371,7 +372,11 @@ artifact included), `order` (an evaluation-order difference),
 Stage 0 compiles, the decision cited), `gap` (the loan half misses it) or
 `mir-bug` (the lowering hands the check wrong MIR). A line may also name a
 refusal fixture of this directory that Stage 0 compiles, always `refuses`:
-the lane checks that a loan rule refuses it and that Stage 0 compiles it. It
+the lane checks that a loan rule refuses it and that Stage 0 compiles it, by
+Stage 0's recorded build, `stage0/TRIPLE/NAME.stage0` in the format of
+`compiler/tests/oracle.py`, stale once the fixture's bytes change.
+`borrowck_lane.py --stage0` rewrites those records with the v0 compiler
+(`oracle.v0_compiler`); nothing else here runs Stage 0. It
 counts the drop labels over the sawc2 build and over tests/corpus, for
 information.
 

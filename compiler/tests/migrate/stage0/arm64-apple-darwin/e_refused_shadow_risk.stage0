@@ -1,0 +1,6 @@
+program	compiler/tests/migrate/fixtures/e_refused_shadow_risk.before
+triple	arm64-apple-darwin
+source	3481c006c11aef81
+instrument	{"arg_index": 0, "arg_labels": [null], "args": [{"left": [8, 23, "ClosureExpr"], "names": ["c"], "pos": [8, 23], "resolved": "(&var Int) -> Int", "type": "ClosureExpr"}], "body_names": ["c"], "body_pos": [8, 35], "call_type": "MethodCall", "callee": "lock", "callee_file": "sawc/std/mutex.saw", "capture_specs": [], "captures_root": false, "closure_pos": [8, 23], "closure_type": "(&var Int) -> Int", "col": 17, "ctx": [{"field": "value", "mutable": false, "name": "seen", "pos": [8, 5], "type": "LetStatement"}, {"field": "statements[2]", "pos": [3, 13], "type": "Block"}, {"field": "body", "name": "main", "pos": [3, 1], "type": "Function"}], "exits": [], "file": ".build/migrate-tests/e_refused_shadow_risk.saw", "func": "main", "kind": "closure", "line": 8, "n_args": 1, "owner": "Mutex", "owner_type": "Mutex<Int>", "params": [{"name": "c", "pos": [8, 30], "ref": true, "typed": false}], "recv_left": [8, 16, "Identifier"], "ref_params": ["&var Int"], "result_type": "Int", "root": "m", "shadow_risk": ["c"], "shorthand": 0}
+instrument	{"col": 1, "ext": null, "file": ".build/migrate-tests/e_refused_shadow_risk.saw", "kind": "walked", "line": 3, "name": "main"}
+instrument	{"kind": "status", "status": "stopped-after-places"}

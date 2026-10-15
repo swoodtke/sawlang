@@ -1,0 +1,15 @@
+program	compiler/tests/run/owning_vector.saw
+triple	aarch64-unknown-linux-gnu
+source	04c64f3dc076bec1
+build	ok
+exit	0
+stdout	"abc a klmnop 20"
+stdout	"pushed 3"
+stdout	"drop 2"
+stdout	"set 3"
+stdout	"popped 3"
+stdout	"drop 3"
+stdout	"end of noisy"
+stdout	"drop 1"
+stdout	"drop 20"
+stdout	""

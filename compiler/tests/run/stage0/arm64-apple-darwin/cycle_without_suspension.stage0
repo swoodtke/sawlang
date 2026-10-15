@@ -1,0 +1,7 @@
+program	compiler/tests/run/cycle_without_suspension.saw
+triple	arm64-apple-darwin
+source	cfc37f834ac7a863
+build	ok
+exit	0
+stdout	"15 31"
+stdout	""

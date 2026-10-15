@@ -1,0 +1,8 @@
+program	compiler/tests/run/compound_shift_range.saw
+triple	arm64-apple-darwin
+source	89b4affd996bc390
+build	ok
+exit	-6
+stdout	"128"
+stdout	"panic at compound_shift_range.saw:9: shift out of range"
+stdout	""

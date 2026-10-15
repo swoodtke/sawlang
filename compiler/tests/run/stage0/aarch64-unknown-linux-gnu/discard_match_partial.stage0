@@ -1,0 +1,16 @@
+program	compiler/tests/run/discard_match_partial.saw
+triple	aarch64-unknown-linux-gnu
+source	45d31d2763562cbc
+build	ok
+exit	0
+stdout	"drop 2"
+stdout	"arm a 1"
+stdout	"drop 1"
+stdout	"after 1"
+stdout	"drop 3"
+stdout	"arm one"
+stdout	"after 2"
+stdout	"drop 4"
+stdout	"arm wild"
+stdout	"after 3"
+stdout	""

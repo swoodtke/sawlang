@@ -1,0 +1,5 @@
+program	compiler/tests/std/pairs/string_interior_nul.saw
+triple	arm64-apple-darwin
+source	74aa31700202f154
+build	ok
+exit	0

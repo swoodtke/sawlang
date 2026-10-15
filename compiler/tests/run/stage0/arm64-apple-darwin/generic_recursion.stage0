@@ -1,0 +1,14 @@
+program	compiler/tests/run/generic_recursion.saw
+triple	arm64-apple-darwin
+source	5fb31db29c9c999f
+build	ok
+exit	0
+stdout	"3"
+stdout	"2"
+stdout	"12"
+stdout	"3"
+stdout	"4"
+stdout	"2"
+stdout	"3"
+stdout	"3"
+stdout	""

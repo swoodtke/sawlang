@@ -1,0 +1,22 @@
+program	compiler/tests/run/map_operations.saw
+triple	aarch64-unknown-linux-gnu
+source	f10662066b28aa4e
+build	ok
+exit	0
+stdout	"empty true len 0"
+stdout	"one absent"
+stdout	"new key replaced false"
+stdout	"len 2 one true three false"
+stdout	"update returned 1"
+stdout	"len after update 2"
+stdout	"one = 10"
+stdout	"removed 2"
+stdout	"second remove found false"
+stdout	"len after remove 1"
+stdout	"grown len 151 present 150 sum 11175"
+stdout	"after removing the even keys len 76"
+stdout	"after churn len 76 odd present 75 sum 5625"
+stdout	"k0 absent"
+stdout	"k149 = 149"
+stdout	"one = 10"
+stdout	""

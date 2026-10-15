@@ -1,0 +1,15 @@
+program	compiler/tests/run/discard_early_exit.saw
+triple	arm64-apple-darwin
+source	49e8b5301677428e
+build	ok
+exit	0
+stdout	"drop 2"
+stdout	"arm 1"
+stdout	"drop 1"
+stdout	"returned 7"
+stdout	"drop 4"
+stdout	"value arm 3"
+stdout	"drop 3"
+stdout	"value 3"
+stdout	"end"
+stdout	""

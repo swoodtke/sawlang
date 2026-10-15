@@ -1,0 +1,10 @@
+program	compiler/tests/run/expr_suspend_arg.saw
+triple	aarch64-unknown-linux-gnu
+source	24925942389e18c9
+build	ok
+exit	0
+stdout	"20"
+stdout	"12"
+stdout	"10"
+stdout	"10"
+stdout	""

@@ -1,0 +1,10 @@
+program	compiler/tests/run/map_snapshots.saw
+triple	arm64-apple-darwin
+source	529e57c3c38ea1e3
+build	ok
+exit	0
+stdout	"keys 30 of total length 140"
+stdout	"values 30 summing to 1305"
+stdout	"each visited key length 140 value sum 1305"
+stdout	"each_key 30 each_value doubled 2610"
+stdout	""

@@ -23,7 +23,10 @@ import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(os.path.dirname(os.path.dirname(HERE)))
-sys.path.insert(0, os.path.join(REPO, "sawc"))
+sys.path.insert(0, os.path.join(REPO, "compiler", "tests"))
+import oracle  # noqa: E402
+
+sys.path.insert(0, os.path.join(oracle.v0_root(), "sawc"))
 
 import dataclasses  # noqa: E402
 

@@ -1,0 +1,10 @@
+program	compiler/tests/run/expr_suspend_coalesce.saw
+triple	arm64-apple-darwin
+source	70d13e62e9d1fda5
+build	ok
+exit	0
+stdout	"42"
+stdout	"0"
+stdout	"5"
+stdout	"1"
+stdout	""
