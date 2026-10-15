@@ -1,34 +1,33 @@
 #!/usr/bin/env python3
-"""Build the self-hosted compiler: Stage 1 with the frozen compiler, Stage 2
-with Stage 1.
+"""Build the self-hosted compiler: Stage 1 with the seed, Stage 2 with Stage 1.
 
     python compiler/tools/build.py                   # .build/sawc2, then .build/sawc2-stage2
     python compiler/tools/build.py ENTRY.saw -o OUT  # any program over the stages, by Stage 0
     python compiler/tools/build.py --runtime TRIPLE  # the stages, then another target's runtime
 
-The numbering is the conventional one: Stage 0 is the frozen Python compiler
-in `sawc/`, Stage 1 is the sawc2 it builds (`.build/sawc2`), and Stage 2 is
-sawc2 built by Stage 1 at -O2 (`.build/sawc2-stage2`). The lanes run Stage 2;
-`SAWC2_STAGE=1` selects Stage 1 instead, for bisecting a difference between
-the two, and then Stage 2 is not built. `SAWC2` is the binary selected, or the
-one `SAWC2_BINARY` names: a runner that has chosen the binary (the fixpoint
-lane's twin, say) hands it to every process below it that way.
+The seed is sawc2 compiled by clang from its own `.ll`, committed per host
+target under `compiler/seed/` (`seed.py`). Stage 1 is the sawc2 the seed
+builds at -O2 (`.build/sawc2`), and Stage 2 is sawc2 built by Stage 1 at -O2
+(`.build/sawc2-stage2`). The lanes run Stage 2; `SAWC2_STAGE=1` selects Stage
+1 instead, for bisecting a difference between the two, and then Stage 2 is
+not built. `SAWC2` is the binary selected, or the one `SAWC2_BINARY` names: a
+runner that has chosen the binary (the fixpoint lane's twin, say) hands it to
+every process below it that way.
 
-Stage 2 is cached: its key covers Stage 1's code, the sources Stage 1
-compiles, this file, the runtime manifest and its objects and clang, so an
-unchanged tree links nothing. Stage 1 is rebuilt on every call, as Stage 0
-has no cache of its own. Stage 1 links against Stage 0's runtime, since Stage
-0 links it (`bootstrap_stage1`); every link after that takes the runtime Stage
-1 builds from `runtime/` with `sawc2 runtime`, cached under `.build/rt2/<key>/`
-by a key covering Stage 1's code, `runtime/`, std, the target and clang.
-Beside the stages goes `.build/sawc2-runtime.txt`, the runtime manifest naming
-the host, the clang `choose_clang` picked and those objects, which a hosted
-`sawc2 build` links against.
+Every step is cached by key, so an unchanged tree compiles and links nothing:
+the seed under `.build/seed/<key>/` (`build_seed`), Stage 1 and Stage 2
+beside their binaries. Stage 1 links against the seed's runtime; every link
+after that takes the runtime Stage 1 builds from `runtime/` with `sawc2
+runtime`, cached under `.build/rt2/<key>/` by a key covering Stage 1, `runtime/`,
+std, the target and clang. Beside the stages goes `.build/sawc2-runtime.txt`,
+the runtime manifest naming the host, the clang `choose_clang` picked and
+those objects, which a hosted `sawc2 build` links against.
 
-The interpreter running this script runs `sawc/sawc.py`, so invoke it with the
-venv's Python. `STAGE_PACKAGES` is the one place that maps a stage package to
-its directory: the driver, the unit programs and the runner all build through
-`build_program`, so a new stage is registered here once.
+The stages need only Python's standard library and clang. `build_program`
+runs the frozen compiler, `sawc/sawc.py`, so it needs the venv's Python.
+`STAGE_PACKAGES` is the one place that maps a stage package to its directory:
+the stages, the unit programs and the runner all read it, so a new stage is
+registered here once.
 """
 import argparse
 import fcntl
@@ -43,12 +42,7 @@ REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)
 FROZEN_SAWC = os.path.join(REPO, "sawc", "sawc.py")
 BUILD_DIR = os.path.join(REPO, ".build")
 STAGE1 = os.path.join(BUILD_DIR, "sawc2")
-# The file that stands for Stage 1's code in a cache key. On macOS it is the
-# object Stage 0 links Stage 1 from and keeps beside it, since the linker
-# stamps each Mach-O binary with a fresh UUID; on Linux Stage 0 removes the
-# object, and the ELF binary, whose build ID is a hash of its contents, is as
-# stable as the object.
-STAGE1_CODE = STAGE1 + ".o" if sys.platform == "darwin" else STAGE1
+STAGE1_KEY = STAGE1 + ".key"
 STAGE2 = os.path.join(BUILD_DIR, "sawc2-stage2")
 STAGE2_KEY = STAGE2 + ".key"
 DRIVER_ENTRY = os.path.join(REPO, "compiler", "driver", "src", "main.saw")
@@ -62,6 +56,15 @@ RUNTIME_CACHE = os.path.join(BUILD_DIR, "rt2")
 THIS_FILE = os.path.abspath(__file__)
 STD_ROOT = os.path.join(REPO, "std")
 LINK_TIMEOUT = 1800
+# The committed seed, one directory per target (seed.py describes it), and
+# where the seed binaries built from it are cached by key.
+SEED_DIR = os.path.join(REPO, "compiler", "seed")
+SEED_DRIVER = "sawc2.ll.xz"
+SEED_CACHE = os.path.join(BUILD_DIR, "seed")
+SHIM_C = os.path.join(RT_ROOT, "shim.c")
+# Bumped when `build_seed` compiles or links the seed differently, which its
+# key cannot otherwise see.
+SEED_RECIPE = b"sawc2-seed-v1\0"
 
 # (package name, source directory relative to the repo root). The directory is
 # the package's module root, as `--module-path NAME=DIR` defines it: the others
@@ -230,14 +233,14 @@ def clang_version(clang):
 
 def runtime_key(triple, clang):
     """What the runtime Stage 1 builds for `triple` with `clang` is a function
-    of: Stage 1's code (`STAGE1_CODE`, as for Stage 2's key), the runtime's
-    sources and C shim, the std they compile against, the target and the
-    clang. None when Stage 1's code is missing."""
-    if not os.path.exists(STAGE1_CODE):
+    of: Stage 1's binary, the runtime's sources and C shim, the std they
+    compile against, the target and the clang. None when Stage 1 is
+    missing."""
+    if not os.path.exists(STAGE1):
         return None
     digest = hashlib.sha256()
     digest.update(b"sawc2-runtime-v1\0")
-    with open(STAGE1_CODE, "rb") as fh:
+    with open(STAGE1, "rb") as fh:
         digest.update(hashlib.sha256(fh.read()).digest())
     for root in (RT_ROOT, STD_ROOT):
         _hash_tree(digest, root)
@@ -299,7 +302,7 @@ def build_runtime(triple=None):
         return why
     key = runtime_key(triple, clang)
     if key is None:
-        return "the runtime's key needs %s" % os.path.relpath(STAGE1_CODE, REPO)
+        return "the runtime's key needs %s" % os.path.relpath(STAGE1, REPO)
     directory = os.path.join(RUNTIME_CACHE, key)
     done = os.path.join(directory, "manifest.txt")
     os.makedirs(RUNTIME_CACHE, exist_ok=True)
@@ -338,15 +341,137 @@ def build_runtime(triple=None):
     return ""
 
 
+def seed_files(triple):
+    """The committed seed of `triple`, relative to its directory: the
+    driver's IR, then each runtime source's, in `host_sources` order (common
+    first, sorted within a directory), which is the link's object order."""
+    directory = os.path.join(SEED_DIR, triple)
+    runtime = []
+    for parent, subdirs, files in os.walk(os.path.join(directory, "runtime")):
+        subdirs.sort()
+        runtime += [os.path.relpath(os.path.join(parent, name), directory) for name in files
+                    if name.endswith(".ll.xz")]
+    return [SEED_DRIVER] + sorted(runtime)
+
+
+def seed_key(triple, clang):
+    """What the seed of `triple` built with `clang` is a function of: the
+    committed IR, the C shim, the recipe, the target and the clang."""
+    digest = hashlib.sha256()
+    digest.update(SEED_RECIPE)
+    for name in seed_files(triple) + [SHIM_C]:
+        path = os.path.join(SEED_DIR, triple, name)
+        digest.update(os.path.relpath(path, REPO).encode("utf-8") + b"\0")
+        with open(path, "rb") as fh:
+            digest.update(hashlib.sha256(fh.read()).digest())
+    digest.update(("%s\0%s\0" % (triple, clang)).encode("utf-8"))
+    digest.update(clang_version(clang).encode("utf-8"))
+    return digest.hexdigest()[:16]
+
+
+def _clang(clang, arguments):
+    """Runs `clang` with `arguments`; the error text, or "" when it succeeded."""
+    r = subprocess.run([clang] + arguments, cwd=REPO, capture_output=True, text=True, timeout=LINK_TIMEOUT)
+    if r.returncode != 0:
+        return (r.stdout + r.stderr).strip()[-600:] or "clang exited %d" % r.returncode
+    return ""
+
+
+def _decompress(source, destination):
+    import lzma
+    os.makedirs(os.path.dirname(destination), exist_ok=True)
+    with lzma.open(source) as src, open(destination, "wb") as dst:
+        shutil.copyfileobj(src, dst, 1 << 20)
+
+
+def build_seed(triple=None):
+    """The seed binary of `triple`, the host when None, built from its
+    committed IR into `.build/seed/<key>/` unless that directory already holds
+    the build of the same key: each runtime IR compiled as `sawc2 runtime`
+    compiles it, `runtime/shim.c` too, and the driver's IR linked against them
+    as `sawc2 build` links, all by `choose_clang`'s clang. Beside the binary
+    goes the runtime manifest naming those objects, which the seed links
+    Stage 1 against. Returns (path, "") or (None, why)."""
+    triple = triple or host_triple()
+    if not os.path.exists(os.path.join(SEED_DIR, triple, SEED_DRIVER)):
+        return None, ("no seed for %s: %s/%s/%s is missing (compiler/README.md, \"The seed\")"
+                      % (triple, os.path.relpath(SEED_DIR, REPO), triple, SEED_DRIVER))
+    clang, why = choose_clang(triple)
+    if clang is None:
+        return None, why
+    key = seed_key(triple, clang)
+    directory = os.path.join(SEED_CACHE, key)
+    binary = os.path.join(directory, "sawc2")
+    done = os.path.join(directory, "done")
+    target = clang_triple(triple)
+    os.makedirs(SEED_CACHE, exist_ok=True)
+    # As in `build_runtime`: the build of a key holds its lock, and the check
+    # for a finished one is repeated under it.
+    with open(os.path.join(SEED_CACHE, key + ".lock"), "w") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        if not os.path.exists(done):
+            shutil.rmtree(directory, ignore_errors=True)
+            os.makedirs(directory)
+            objects = []
+            for name in seed_files(triple)[1:]:
+                stem = os.path.join(directory, name[:-len(".ll.xz")])
+                _decompress(os.path.join(SEED_DIR, triple, name), stem + ".ll")
+                why = _clang(clang, ["-c", "-target", target, "-O2", "-x", "ir", stem + ".ll", "-o", stem + ".o"])
+                if why:
+                    return None, "the seed's %s does not compile: %s" % (name, why)
+                os.remove(stem + ".ll")
+                objects.append(stem + ".o")
+            shim = os.path.join(directory, "shim.o")
+            why = _clang(clang, ["-c", SHIM_C, "-O2", "-fno-strict-aliasing", "-target", target, "-o", shim])
+            if why:
+                return None, "%s does not compile for the seed: %s" % (os.path.relpath(SHIM_C, REPO), why)
+            objects.append(shim)
+            ll = os.path.join(directory, "sawc2.ll")
+            _decompress(os.path.join(SEED_DIR, triple, SEED_DRIVER), ll)
+            why = _clang(clang, ["-target", target, "-O2", "-x", "ir", ll, "-x", "none"] + objects + ["-o", binary])
+            if why:
+                return None, "the seed of %s does not link: %s" % (triple, why)
+            os.remove(ll)
+            with open(os.path.join(directory, "sawc2-runtime.txt"), "w") as fh:
+                fh.write("target %s\nclang %s\n" % (triple, clang) + "".join("object %s\n" % o for o in objects))
+            with open(done, "w") as fh:
+                fh.write(key + "\n")
+    return binary, ""
+
+
+def stage1_key(seed):
+    """What Stage 1 is a function of: the seed binary at `seed` (its cache
+    key, the name of its directory), the trees it compiles, and this file,
+    which holds the link's arguments."""
+    digest = hashlib.sha256()
+    digest.update(b"stage1\0" + os.path.basename(os.path.dirname(seed)).encode("utf-8") + b"\0")
+    _hash_sources(digest)
+    return digest.hexdigest()
+
+
 def bootstrap_stage1():
-    """Stage 0 builds the driver into `.build/sawc2`, linking it against Stage
-    0's own runtime as every Stage 0 build does: the one built from Stage 0's
-    copy, `sawc/rt/`, which `runtime_table.py` holds identical to `RT_ROOT`.
-    This is the one step that needs a compiler other than sawc2, and the only
-    one a bootstrap seed replaces: a seed links Stage 1 against `RT_ROOT`'s
-    runtime itself, its shim compiled by `choose_clang`'s clang (SL-663).
-    Returns (ok, output)."""
-    return build_program(DRIVER_ENTRY, STAGE1)
+    """The seed (`build_seed`) builds the driver into `.build/sawc2` at -O2,
+    linking it against the seed's own runtime, unless the cached link has the
+    same key. The seed is the one compiler in the chain that the tree does not
+    build. Returns (ok, output)."""
+    seed, why = build_seed()
+    if seed is None:
+        return False, "build: " + why
+    key = stage1_key(seed)
+    if os.path.exists(STAGE1) and os.path.exists(STAGE1_KEY):
+        with open(STAGE1_KEY) as fh:
+            if fh.read().strip() == key:
+                os.utime(STAGE1)
+                return True, ""
+    if os.path.exists(STAGE1_KEY):
+        os.remove(STAGE1_KEY)
+    why = link_driver(seed, STAGE1)
+    if why:
+        return False, "the seed does not build Stage 1: " + why
+    with open(STAGE1_KEY + ".tmp", "w") as fh:
+        fh.write(key + "\n")
+    os.replace(STAGE1_KEY + ".tmp", STAGE1_KEY)
+    return True, ""
 
 
 def build_stage1():
@@ -372,21 +497,26 @@ def _hash_tree(digest, root):
                 digest.update(hashlib.sha256(fh.read()).digest())
 
 
-def stage2_key():
-    """What Stage 2 is a function of: Stage 1's code, the trees it compiles,
-    this file (which holds the link's arguments), the runtime manifest and the
-    objects it names, and the clang that links them. Stage 1's code is
-    `STAGE1_CODE`. None when Stage 1's code or the manifest is missing."""
-    if not os.path.exists(STAGE1_CODE):
-        return None
-    digest = hashlib.sha256()
-    with open(STAGE1_CODE, "rb") as fh:
-        digest.update(hashlib.sha256(fh.read()).digest())
+def _hash_sources(digest):
+    """The trees a stage compiles into the driver, and this file."""
     for root in [os.path.join(REPO, rel) for _, rel in STAGE_PACKAGES] + [os.path.dirname(DRIVER_ENTRY),
                                                                           STD_ROOT]:
         _hash_tree(digest, root)
     with open(THIS_FILE, "rb") as fh:
         digest.update(fh.read())
+
+
+def stage2_key():
+    """What Stage 2 is a function of: Stage 1's binary, the trees it
+    compiles, this file (which holds the link's arguments), the runtime
+    manifest and the objects it names, and the clang that links them. None
+    when Stage 1 or the manifest is missing."""
+    if not os.path.exists(STAGE1):
+        return None
+    digest = hashlib.sha256()
+    with open(STAGE1, "rb") as fh:
+        digest.update(hashlib.sha256(fh.read()).digest())
+    _hash_sources(digest)
     if not os.path.exists(RUNTIME_MANIFEST):
         return None
     with open(RUNTIME_MANIFEST, "rb") as fh:
@@ -411,7 +541,7 @@ def build_stage2():
     key = stage2_key()
     if key is None:
         return False, ("build: Stage 2's cache key needs %s and %s, and one is missing"
-                       % (os.path.relpath(STAGE1_CODE, REPO), os.path.relpath(RUNTIME_MANIFEST, REPO)))
+                       % (os.path.relpath(STAGE1, REPO), os.path.relpath(RUNTIME_MANIFEST, REPO)))
     if os.path.exists(STAGE2) and os.path.exists(STAGE2_KEY):
         with open(STAGE2_KEY) as fh:
             if fh.read().strip() == key:

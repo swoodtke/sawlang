@@ -15,6 +15,12 @@ cone is what the linked program reaches from `main` in those modules' symbol
 graph, mapped back to the declarations whose bodies define the symbols, closed
 over the types and traits those bodies name. SL:architecture §4 ("The bootstrap
 std") says why; `std_cone_review.md` says what the method cannot see.
+
+No stage is this build: the seed builds Stage 1 against `std/` (compiler/README.md,
+"The seed"), whose cone `new_std_cone` reads. The check stays until `sawc/` is
+deleted because it is the one build of the whole driver by the frozen
+compiler, which the subset checker and the unit programs, still built by Stage
+0, assume of `compiler/`.
 """
 import argparse
 import dataclasses

@@ -6,7 +6,7 @@
 `--only` runs just the named steps (`STEPS`), building sawc2 first when one of
 them needs it, and prints as the full run prints.
 
-Builds Stage 1 (`sawc2`, by the frozen compiler) and Stage 2 (sawc2 built by
+Builds Stage 1 (`sawc2`, by the seed) and Stage 2 (sawc2 built by
 Stage 1, `compiler/tools/build.py`), and every sawc2-driven lane below runs
 Stage 2; `--stage 1`, or `SAWC2_STAGE=1`, runs them on Stage 1 instead, for
 bisecting. Builds the unit programs with the frozen compiler and runs them;

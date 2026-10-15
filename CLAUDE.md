@@ -24,8 +24,8 @@ sawc/              # Compiler: Python + llvmlite
   builtin.saw      # Built-in traits; std/ = stdlib (.saw)
   rt/              # Stage 0's copy of runtime/ (below), byte for byte:
                    # Stage 0 builds it (--runtime-build), caches it under
-                   # .build/rt/ and links it into its hosted builds, Stage 1
-                   # included. compiler/tools/runtime_table.py fails on any
+                   # .build/rt/ and links it into its hosted builds, the
+                   # oracles' among them. compiler/tools/runtime_table.py fails on any
                    # difference, so a runtime change is made in BOTH trees
                    # until sawc/ is deleted (SL-661).
 runtime/           # The runtime (design 113/113b, v2 by 117): ABI.md freezes
@@ -42,7 +42,10 @@ runtime/           # The runtime (design 113/113b, v2 by 117): ABI.md freezes
                    # only synthesizes the process-global __saw_reactor getter.
 compiler/          # The self-hosted compiler, in Saw (epic SL-398; README.md):
                    # one dir per stage — lex/ (package sawlex) — plus driver/
-                   # (the sawc2 binary), tools/ (build.py builds it with sawc/,
+                   # (the sawc2 binary), seed/ (the bootstrap seed: sawc2's own
+                   # IR per host target, xz, and its pin; README.md "The seed"
+                   # is the bump), tools/ (build.py builds the seed with clang,
+                   # Stage 1 with the seed, Stage 2 with Stage 1; no sawc/;
                    # subset_check.py enforces the subset its source is written
                    # in) and tests/ (run.py: unit programs, golden fixtures,
                    # the checker's fixtures). prototypes/ holds the paused
@@ -153,12 +156,13 @@ objects are built + cached under `.build/rt/` and auto-linked (delete
   the changed paths are unknown. The `fixpoint` lane
   (`compiler/tests/fixpoint/fixpoint_lane.py`) follows the same rule over
   `compiler/`, `std/`, `compiler/tools/build.py`, `runtime/` (the runtime
-  Stage 1 builds) and `sawc/` (Stage 0 builds Stage 1, so a `sawc/` change
-  can move it). The full
+  Stage 1 builds) and `sawc/` (its std is the one sawc2 compiles when no
+  `--std-root` names another, and Stage 0 builds the replayed lanes'
+  oracles). The full
   `grammarcorpus` run follows the
   same rule over its inputs (`GRAMMAR.md`, `LANGUAGE_SPEC.md`,
   `compiler/tests/grammar/`, `compiler/lex/`, `compiler/driver/`,
-  `compiler/tools/build.py`, `sawc/`); without it, each changed `.saw`
+  `compiler/tools/build.py`, `compiler/seed/`, `sawc/`); without it, each changed `.saw`
   file is checked against `corpus_expected.tsv` alone, in seconds. The
   full `astdiff` follows the same rule over the Python parser and its
   dumper (`sawc/lexer.py`, `sawc/parser/`, `sawc/ast_nodes.py`,
@@ -267,7 +271,8 @@ objects are built + cached under `.build/rt/` and auto-linked (delete
   when the per-patch gate runs it in full, are `GRAMMAR.md`,
   `LANGUAGE_SPEC.md`, `compiler/tests/grammar/`, `compiler/lex/` and
   `compiler/driver/` (sawc2's token dump), `compiler/tools/build.py` and
-  `sawc/`, which build sawc2), `astdiff`, `astgraft`,
+  `compiler/seed/`, which build sawc2, and `sawc/`, whose parser classifies),
+  `astdiff`, `astgraft`,
   `corodiscovery` (design 275 U1: ONE ledger answers every coroutine frame
   decision — `tools/test_coro_discovery.py` parses `coro_transform.py` and
   fails on any site outside the ledger's builder that reads a raw discovery

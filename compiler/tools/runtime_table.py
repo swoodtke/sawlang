@@ -20,8 +20,8 @@ requires their exports and the shim's seams to be the runtime's seams, each
 once; this tool requires the same of the sources' `@export` spellings, so the
 table cannot describe a runtime the tree does not hold.
 
-Stage 0 builds its own copy, `sawc/rt/`, and links Stage 1 against it. The
-check requires that copy to be `runtime/` byte for byte, and Stage 0's reading
+Stage 0 builds its own copy, `sawc/rt/`, and links every program it builds
+against it, the oracles' programs among them. The check requires that copy to be `runtime/` byte for byte, and Stage 0's reading
 of its ABI.md to be this one, so a runtime change is made in both trees until
 `sawc/` is deleted (`copy_drift`).
 """
@@ -114,9 +114,9 @@ def abi_signatures(path=ABI_DOC):
 
 def copy_drift():
     """Every way Stage 0's copy of the runtime differs from `runtime/`, file by
-    file, and how many files `runtime/` holds. Stage 1 links the runtime Stage
-    0 builds from its copy, and every later link the one Stage 1 builds from
-    `runtime/`, so both must be one runtime."""
+    file, and how many files `runtime/` holds. The oracles compare programs
+    Stage 0 links against its copy with programs sawc2 links against the one
+    Stage 1 builds from `runtime/`, so both must be one runtime."""
     def files(root):
         out = {}
         for directory, subdirs, names in os.walk(root):

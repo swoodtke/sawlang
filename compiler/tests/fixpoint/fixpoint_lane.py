@@ -1,16 +1,18 @@
 #!/usr/bin/env python3
-"""The fixpoint lane: the compiler built by itself agrees with the one Stage 0
+"""The fixpoint lane: the compiler built by itself agrees with the one the seed
 built, and building itself again changes nothing.
 
     python compiler/tests/fixpoint/fixpoint_lane.py                       # default mode
     SAW_FIXPOINT_FULL=1 python compiler/tests/fixpoint/fixpoint_lane.py   # full mode
 
-The numbering is the conventional one. Stage 0 (the frozen Python compiler)
-builds Stage 1, `.build/sawc2`; Stage 1's `sawc2 build -O2` of its own driver,
+The seed (sawc2 compiled from its committed `.ll`, `compiler/seed/`) builds
+Stage 1, `.build/sawc2`; Stage 1's `sawc2 build -O2` of its own driver,
 against the new std, links Stage 2, `.build/sawc2-stage2`
 (`compiler/tools/build.py` builds both); Stage 2 building itself is Stage 3.
 The lane requires:
 
+- **the seed**: `compiler/tools/seed.py`'s check, that every target's
+  committed IR is path-free and is what the seed emits for the pinned commit;
 - **determinism**: the driver's `.ll` from Stage 1 is the same bytes built
   twice, and built from a copy of `compiler/` and `std/` in another directory;
 - **the fixpoint**: Stage 2's `.ll` of the driver is Stage 1's, byte for byte,
@@ -100,12 +102,12 @@ def driver_ir(binary, root):
 
 
 def build_stages(failures, counts):
-    """Stage 0 builds Stage 1, which builds Stage 2. True when both linked."""
+    """The seed builds Stage 1, which builds Stage 2. True when both linked."""
     start = time.time()
     ok, output = build.build_stage1()
-    counts["seconds: Stage 0 builds Stage 1"] = round(time.time() - start)
+    counts["seconds: the seed builds Stage 1, or finds it cached"] = round(time.time() - start)
     if not ok:
-        failures.append("fixpoint: Stage 0 does not build Stage 1: %s" % output[:300])
+        failures.append("fixpoint: %s" % output[:600])
         return False
     start = time.time()
     ok, output = build.build_stage2()
@@ -132,6 +134,16 @@ def check_stage3(failures, counts):
             failures.append("fixpoint: Stage 3 is not Stage 2 byte for byte")
             return
     counts["fixpoint binaries"] = 1
+
+
+def check_seed(failures, counts):
+    """`seed.py`'s check, run by the host's seed."""
+    import seed
+    start = time.time()
+    seed_failures, seed_counts = seed.check()
+    counts["seconds: the seed check"] = round(time.time() - start)
+    failures += ["fixpoint %s" % failure for failure in seed_failures]
+    counts.update(seed_counts)
 
 
 def check_driver_ir(failures, counts):
@@ -261,21 +273,22 @@ def run():
     counts = {}
     check_twin_stderr(failures, counts)
     if build_stages(failures, counts):
-        # The driver checks and the replay write apart (`elsewhere/`, `stage3/`
-        # and the lanes' own directories), so beside the replay each check runs
-        # on a token of its own; each part keeps its own failures, merged in
-        # this order.
-        parts = [(check_driver_ir, [], {}), (check_stage3, [], {}), (replay_lanes, [], {})]
+        # The checks and the replay write apart (`elsewhere/`, `stage3/`,
+        # `.build/seed-check/` and the lanes' own directories), so beside the
+        # replay each check runs on a token of its own; each part keeps its own
+        # failures, merged in this order.
+        parts = [(check_seed, [], {}), (check_driver_ir, [], {}), (check_stage3, [], {}),
+                 (replay_lanes, [], {})]
         with gate_jobs.budget():
             if gate_jobs.jobs() >= 2:
-                threads = [threading.Thread(target=_on_token, args=part) for part in parts[:2]]
+                threads = [threading.Thread(target=_on_token, args=part) for part in parts[:-1]]
                 for t in threads:
                     t.start()
             else:
                 threads = []
-                for check, part_failures, part_counts in parts[:2]:
+                for check, part_failures, part_counts in parts[:-1]:
                     check(part_failures, part_counts)
-            records = replay_lanes(parts[2][1], parts[2][2], progress=sys.stderr)
+            records = replay_lanes(parts[-1][1], parts[-1][2], progress=sys.stderr)
             for t in threads:
                 t.join()
         for _, part_failures, part_counts in parts:

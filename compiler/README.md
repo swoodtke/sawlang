@@ -71,9 +71,12 @@ compiler/
     src/*.saw
   driver/             the `sawc2` binary, package `sawc2`
     src/main.saw
+  seed/               the bootstrap seed: sawc2's own IR per host target, and the
+                      commit it was emitted from (pin); see "The seed"
   tools/
-    build.py          builds Stage 1 and Stage 2, or any program over the stage
-                      packages
+    build.py          builds the seed binary, Stage 1 and Stage 2, or any program
+                      over the stage packages (by Stage 0)
+    seed.py           writes the seed (a bump) and checks it
     subset_check.py   the subset checker
     sawc2_reading.py  sawc2's reading of a file in the frozen parser's tree, which
                       the subset checker's std profile reads std/ through
@@ -167,15 +170,17 @@ named `sawc2` for now.
 
 ## Building
 
-The stages are numbered the conventional way. Stage 0 is the frozen Python
-compiler in `sawc/`. Stage 1 is the sawc2 it builds, `.build/sawc2`. Stage 2
-is sawc2 built by Stage 1 at -O2, `.build/sawc2-stage2`, and Stage 3 is Stage 2
-building itself. The fixpoint is Stage 3 equal to Stage 2, byte for byte.
-
-Use the venv's Python, since it runs the frozen compiler:
+The seed is sawc2 compiled by clang from its own LLVM IR, which is committed
+under `seed/` (below). Stage 1 is the sawc2 the seed builds at -O2,
+`.build/sawc2`. Stage 2 is sawc2 built by Stage 1 at -O2,
+`.build/sawc2-stage2`, and Stage 3 is Stage 2 building itself. The fixpoint is
+Stage 3 equal to Stage 2, byte for byte. Stage 0, the frozen Python compiler
+in `sawc/`, builds none of them; it still builds the unit programs and the
+oracles' programs (`build.py ENTRY -o OUT`), so the venv's Python is what runs
+`build.py`:
 
 ```sh
-./.venv/bin/python compiler/tools/build.py            # builds Stage 1, then Stage 2
+./.venv/bin/python compiler/tools/build.py            # builds the seed, Stage 1, then Stage 2
 .build/sawc2 lex [--docs] <file.saw>                   # the token dump, or the doc trivia
 .build/sawc2 lex --kinds                               # every token kind's dump name
 .build/sawc2 lex @LIST                                 # both dumps of each listed file, framed
@@ -196,18 +201,57 @@ the ruled Stage 0 workaround of SL:open-questions, "SL-522": an unbuffered
 write with an explicit `close`, and a blocking `Command.wait`, each site
 marked for SL:hazards S28.
 
-`build.py` rebuilds Stage 1 on every call. Stage 1 is linked by Stage 0
-against Stage 0's own runtime, built from its copy of the runtime, `sawc/rt/`
-(`bootstrap_stage1`, the step a bootstrap seed replaces); every link after it
-takes the runtime Stage 1 builds from `runtime/` at the repository root, cached
-under `.build/rt2/<key>/` by a key covering Stage 1's object, `runtime/`, std
-and clang, and named by `.build/sawc2-runtime.txt`. Stage 2
-is cached under a key covering Stage 1's object (the linker stamps each Stage
-1 binary with a fresh UUID, so its bytes never repeat), the trees it
-compiles, `build.py` itself, which holds the link's arguments, the runtime
-manifest and its objects, and clang (`.build/sawc2-stage2.key`), so an
-unchanged tree links nothing. The lanes run Stage 2; `SAWC2_STAGE=1` (or `run.py --stage 1`) runs
-them on Stage 1 instead, for bisecting, and Stage 2 is then not built.
+Every step of `build.py` is cached by key, so an unchanged tree compiles and
+links nothing. The seed binary is built under `.build/seed/<key>/`, its key
+covering the committed IR, `runtime/shim.c` and clang. Stage 1 is linked
+against the seed's own runtime, and cached under a key covering the seed, the
+trees it compiles and `build.py` itself, which holds the link's arguments
+(`.build/sawc2.key`). Every link after it takes the runtime Stage 1 builds
+from `runtime/` at the repository root, cached under `.build/rt2/<key>/` by a
+key covering Stage 1, `runtime/`, std and clang, and named by
+`.build/sawc2-runtime.txt`. Stage 2 is cached under a key covering Stage 1, the
+trees it compiles, `build.py`, the runtime manifest and its objects, and clang
+(`.build/sawc2-stage2.key`). The lanes run Stage 2; `SAWC2_STAGE=1` (or
+`run.py --stage 1`) runs them on Stage 1 instead, for bisecting, and Stage 2
+is then not built.
+
+### The seed
+
+`seed/` holds, for each host target (`arm64-apple-darwin`,
+`aarch64-unknown-linux-gnu`, `x86_64-unknown-linux-gnu`), xz-compressed:
+
+- `sawc2.ll.xz`, the driver's IR as `sawc2 build -O2 --emit-ll` writes it;
+- `runtime/DIR/NAME.ll.xz`, each runtime source's IR as `sawc2 runtime
+  --emit-ll` writes it.
+
+`seed/pin` names the commit that IR was emitted from. `build.py`'s
+`build_seed` decompresses the host's IR, compiles each runtime module and
+`runtime/shim.c` from the tree as `sawc2 runtime` does, and links the driver
+against them as `sawc2 build` does, all with the clang `choose_clang` picks.
+The shim is the tree's, not the pin's, so a change to a shim seam the pinned
+runtime IR calls owes a bump.
+
+`tools/seed.py check` requires every target's IR to hold no absolute path,
+so the IR depends only on the source and the target, and the seed to
+reproduce itself: built from the committed IR, it emits, for the pinned
+commit's tree, every target's committed IR byte for byte. The fixpoint lane
+runs it with the host's seed; `--seed TRIPLE` runs it with another target's,
+which in the Linux VM includes x86_64 under Rosetta.
+
+**Bumping the seed** is needed only when `compiler/` starts using something
+the seed does not compile; it is a patch of its own:
+
+1. On a clean checkout of a commit of main, build the stages (`build.py`,
+   with the current seed). The check reads the pinned commit's tree from git,
+   so the pin has to name a commit that main holds.
+2. `./.venv/bin/python compiler/tools/seed.py write --target arm64-apple-darwin`
+   writes the host's seed from Stage 1 and pins HEAD; it refuses a tree whose
+   `compiler/`, `std/` or `runtime/` differs from HEAD.
+3. `tools/linux.py seed` writes the two Linux seeds the same way in the
+   `sawlang-linux` VM, from the same commit, and copies them back.
+4. `./.venv/bin/python compiler/tools/seed.py check`, then commit `seed/` on
+   top of that commit. The IR is binary, so the patch is made with
+   `git diff --binary`.
 
 A lex error prints one `ERROR` record and exits 1, and so does a file the parser
 refuses. A usage or I/O failure exits 2.
@@ -244,9 +288,12 @@ below that runs sawc2 runs Stage 2. It checks these things.
   `err`/`err_at` calls.
 - **The subset checker**, over the compiler's source and over its own fixtures
   (below).
-- **The std cone**: `tools/std_cone.py` recomputes, from a real Stage 0 build,
-  every std and runtime declaration sawc2 reaches, and fails when that differs
-  from `tools/std_cone.txt` in either direction. After a change that moves the
+- **The std cone**: `tools/std_cone.py` recomputes, from a real Stage 0 build
+  of the driver, every std and runtime declaration that build reaches, and
+  fails when that differs from `tools/std_cone.txt` in either direction. No
+  stage is that build since the seed, but it is the one build of the whole
+  driver by Stage 0, whose language `compiler/` stays in until `sawc/` is
+  deleted. After a change that moves the
   cone, review the difference (`--why TEXT` shows how the build reaches a
   declaration), rerun it with `--write`, and commit the file. A declaration new
   to the cone is also reviewed against SL:hazards, as `tools/std_cone_review.md`
@@ -264,9 +311,10 @@ below that runs sawc2 runs Stage 2. It checks these things.
   `typecheck/src/runtimeabi.saw` differs from that reading, or when a host's
   sources and shim do not export the runtime's seams exactly once each. It
   also fails when Stage 0's copy of the runtime, `sawc/rt/`, differs from
-  `runtime/` in any file, or when Stage 0 reads the ABI differently: Stage 1
-  links the runtime Stage 0 builds from its copy, so the two trees are one
-  runtime, and a runtime change is made in both until `sawc/` is deleted. Rerun it with `--write` after an ABI or
+  `runtime/` in any file, or when Stage 0 reads the ABI differently: the
+  oracles compare programs Stage 0 links against its copy with programs sawc2
+  links against `runtime/`, so the two trees are one runtime, and a runtime
+  change is made in both until `sawc/` is deleted. Rerun it with `--write` after an ABI or
   runtime-source change, and review the difference. The table is checked in
   so that it outlives Stage 0 (SL:open-questions D41).
 - **The grammar tools** in `tests/grammar/`: the lint over `GRAMMAR.md`, with a
@@ -362,10 +410,11 @@ below that runs sawc2 runs Stage 2. It checks these things.
   runtime that leaves a seam undefined or defines one twice.
 
 One lane runs apart from the runner: the per-patch gate runs it when
-`compiler/`, `std/` or `sawc/` (Stage 0) changes, and the battery's `fixpoint` stage
-runs it by hand:
+`compiler/` (the seed included), `std/`, `runtime/` or `sawc/` (Stage 0)
+changes, and the battery's `fixpoint` stage runs it by hand:
 
-- **The fixpoint** (`tests/fixpoint/fixpoint_lane.py`): Stage 1's `.ll` of
+- **The fixpoint** (`tests/fixpoint/fixpoint_lane.py`): the seed check
+  (`tools/seed.py check`, "The seed" above), then Stage 1's `.ll` of
   its own driver is the same bytes over two builds and from another
   directory, Stage 2 writes that same `.ll`, Stage 3 (Stage 2 building
   itself) links into Stage 2's bytes, and every `sawc2` invocation the

@@ -51,12 +51,13 @@ SUITE_INPUTS = {
         "compiler/lex/",            # the lexer whose token dump it reads
         "compiler/driver/",         # sawc2, which prints that dump
         "compiler/tools/build.py",  # which builds sawc2
-        "sawc/",                    # Stage 0, which builds sawc2, and the parser that classifies
+        "compiler/seed/",           # the seed, which builds Stage 1
+        "sawc/",                    # the parser that classifies
     ),
     "fixpoint": (
-        "compiler/",                # the compiler Stage 1 and Stage 2 are built from
-        "std/",                     # the std Stage 1 builds Stage 2 against
-        "sawc/",                    # Stage 0, which builds Stage 1 and the runtime Stage 1 links
+        "compiler/",                # the compiler the stages are built from, and the seed
+        "std/",                     # the std the seed and Stage 1 build against
+        "sawc/",                    # the default std sawc2 compiles, and the oracles' compiler
         "runtime/",                 # the runtime Stage 1 builds, which every later link takes
         "compiler/tests/fixpoint/", # the lane, twin.py and mismatches.tsv
         "compiler/tools/build.py",  # which builds both stages

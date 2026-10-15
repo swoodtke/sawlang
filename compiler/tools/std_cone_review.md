@@ -483,8 +483,10 @@ defect.
 # The new std's cone of sawc2
 
 Everything above is Stage 0's cone: what the frozen compiler compiles into
-sawc2 from `sawc/std`. That cone stays as recorded while Stage 0 builds sawc2,
-since `sawc/std` is frozen. The std sawc2 compiles from Stage 1 on is `std/`, and
+its build of sawc2 from `sawc/std`. No stage is that build: the seed builds
+Stage 1 (compiler/README.md, "The seed"), and the seed and every stage compile
+`std/`. The cone stays as recorded while Stage 0 still builds the driver for
+the std cone check, since `sawc/std` is frozen. The std sawc2 compiles is `std/`, and
 its cone of sawc2's own build is recorded in `compiler/tests/std/cone/sawc2.cone`,
 which the std lane holds (SL-456).
 

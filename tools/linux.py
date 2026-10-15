@@ -9,6 +9,8 @@
                                      # (x86_64: cross-built, run under Rosetta)
     tools/linux.py lane              # the battery's `linux` lane: run-lane on both arches,
                                      # or a passing SKIP when the VM is not running
+    tools/linux.py seed              # a seed bump's Linux half: sync, write the Linux targets'
+                                     # seed in the VM, copy it into this checkout
 
 The VM is `tools/lima/sawlang-linux.yaml`. This tool never starts, stops or
 creates it: starting it from inside a sandboxed session fails at the
@@ -23,11 +25,14 @@ The host checkout is mounted read-only, so the VM builds in a clone on its own
 disk, `~/sawlang/<checkout name>`. `sync` carries COMMITS: the clone is checked
 out at this checkout's HEAD, and uncommitted changes stay behind (it warns).
 The clone gets its own `.venv`, Python 3.14 from uv with sawc's requirements
-and llvmlite pinned as on the Mac, so Stage 0 runs inside the VM and every
-stage is built natively there.
+and llvmlite pinned as on the Mac, so Stage 0, the run lane's oracle, runs
+inside the VM, and every stage is built natively there from the Linux seed.
+`seed` writes that seed (compiler/README.md, "The seed"): Stage 1 built in the
+VM emits it, and it is copied back over this checkout's `compiler/seed/`.
 """
 import json
 import os
+import shutil
 import subprocess
 import sys
 
@@ -46,6 +51,8 @@ UV = "$HOME/.local/bin/uv"
 # Each arch the run lane runs on, and the target sawc2 cross-builds for it:
 # None is the VM's own (native aarch64); x86_64 binaries run under Rosetta.
 ARCHES = {"aarch64": None, "x86_64": "x86_64-unknown-linux-gnu"}
+# The seeds a bump writes in the VM, each a directory of compiler/seed/.
+LINUX_SEEDS = ("aarch64-unknown-linux-gnu", "x86_64-unknown-linux-gnu")
 
 
 class VmError(Exception):
@@ -229,11 +236,37 @@ def command_run_lane(record, args):
     return run_in_vm(lane + names, workdir=dest).returncode
 
 
+def command_seed(record, args):
+    """The VM's Stage 1, built from the current seed, writes the Linux
+    targets' seed of HEAD in the clone, which replaces this checkout's."""
+    if args:
+        return usage()
+    dest = sync(record)
+    write = [".venv/bin/python", "compiler/tools/seed.py", "write"]
+    for target in LINUX_SEEDS:
+        write += ["--target", target]
+    r = run_in_vm(write, workdir=dest)
+    if r.returncode != 0:
+        print("linux: the VM does not write the seed (exit %d)" % r.returncode)
+        return r.returncode
+    seeds = os.path.join(REPO, "compiler", "seed")
+    for target in LINUX_SEEDS:
+        shutil.rmtree(os.path.join(seeds, target), ignore_errors=True)
+        r = limactl(["copy", "-r", "%s:%s/compiler/seed/%s" % (VM, dest, target), seeds])
+        if r.returncode != 0:
+            raise VmError("linux: cannot copy compiler/seed/%s out of the VM (exit %d)" % (target, r.returncode))
+        print("linux: compiler/seed/%s" % target)
+    print("linux: written from %s; `compiler/tools/seed.py check` checks them against the pin"
+          % host_git(["rev-parse", "--short", "HEAD"]))
+    return 0
+
+
 COMMANDS = {
     "status": command_status,
     "sync": command_sync,
     "shell": command_shell,
     "run-lane": command_run_lane,
+    "seed": command_seed,
 }
 
 
