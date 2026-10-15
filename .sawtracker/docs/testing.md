@@ -150,7 +150,11 @@ let b = move x                                  // first error has that ID
   - it makes nothing public and does not weaken production visibility;
   - it may add imports of its own. Since everything in a sidecar is test-only,
     they are test-only imports, exactly as `@test import` is in the
-    implementation file.
+    implementation file;
+  - for a type's policies it belongs to its module's one test file, as every
+    test section does, so it can only do what such a file may. It cannot declare
+    a policy conformance for a production type, its own module's included
+    (`conformance.policy-placement`, SL-659); a test-only type declares its own.
 
   The only difference is where the text lives. That matters for the
   self-hosted compiler, whose implementation files must stay in the subset the
