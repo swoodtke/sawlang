@@ -1,0 +1,592 @@
+item #0: names.main()
+fn -> Void {
+    let _0: Void;  // return
+    let _1: names.Grid;  // g
+    let _2: names.Grid;
+    let _3: Int;
+    let _4: &var Int;
+    let _5: &var names.Grid;
+    let _6: (Int,);  // record
+    let _7: &var (Int,);
+    let _8: &var Int;  // ref x
+    let _9: &var (Int,);
+    let _10: Int;  // r
+    let _11: Int;
+    let _12: &Int;
+    let _13: &names.Grid;
+    let _14: (Int,);  // record
+    let _15: &var (Int,);
+    let _16: &Int;  // ref y
+    let _17: &var (Int,);
+    let _18: names.Path;  // own
+    let _19: names.Path;
+    let _20: std.path.Path;  // theirs
+    let _21: std.path.Path;
+    let _22: &names.Path;
+    let _23: Int;
+    let _24: &std.path.Path;
+    let _25: Int;
+    let _26: Int;
+
+    bb0: {
+        _2 = names.Grid { a: const 1: Int, b: const 2: Int };
+        _1 = move _2;
+        _3 = call default names.Grid.at(i: Int).i (owner names.Grid) [] -> [return: bb1]; => #5
+    }
+
+    bb1: {
+        _5 = ref(exclusive, _1);
+        _7 = ref(exclusive, _6);
+        _4 = window_open w0 prologue names.Grid.at(i: Int) (owner names.Grid) [move _7, move _5, move _3] -> [present: bb2]; => #6
+    }
+
+    bb2: {
+        _8 = ref(exclusive, (*_4));
+        (*_8) = Add(copy (*_8), const 1: Int);
+        _9 = ref(exclusive, _6);
+        window_close w0 epilogue names.Grid.at(i: Int) (owner names.Grid) [move _9] -> [return: bb3]; => #7
+    }
+
+    bb3: {
+        _10 = const 0: Int;
+        _11 = call default names.Grid.at(i: Int).i (owner names.Grid) [] -> [return: bb4]; => #8
+    }
+
+    bb4: {
+        _13 = ref(shared, _1);
+        _15 = ref(exclusive, _14);
+        _12 = window_open w1 prologue names.Grid.at(i: Int) (owner names.Grid) [move _15, move _13, move _11] -> [present: bb5]; => #9
+    }
+
+    bb5: {
+        _16 = ref(shared, (*_12));
+        _10 = copy (*_16);
+        _17 = ref(exclusive, _14);
+        window_close w1 epilogue names.Grid.at(i: Int) (owner names.Grid) [move _17] -> [return: bb6]; => #10
+    }
+
+    bb6: {
+        _19 = names.Path { n: copy _10 };
+        _18 = move _19;
+        _21 = call std.path.Path.init(s: String) (owner std.path.Path) [const "a": String] -> [return: bb7]; => #11
+    }
+
+    bb7: {
+        _20 = move _21;
+        _22 = ref(shared, _18);
+        _23 = call names.Path.weight() (owner names.Path) [move _22] -> [return: bb8]; => #12
+    }
+
+    bb8: {
+        _24 = ref(shared, _20);
+        _25 = call names.Path.weight() (owner std.path.Path) [move _24] -> [return: bb9]; => #13
+    }
+
+    bb9: {
+        _26 = Add(move _23, move _25);
+        call builtin print [move _26] -> [return: bb10];
+    }
+
+    bb10: {
+        drop(_20);
+        return;
+    }
+}
+
+item #1: std.panic.panic_sink(message: UnsafePointer<Int8>, length: Int)
+fn -> Never {
+    let _0: Never;  // return
+    let _1: UnsafePointer<Int8>;  // param message
+    let _2: Int;  // param length
+
+    bb0: {
+        call std.panic.__saw_rt_panic(ptr: UnsafePointer<Int8>, len: Int) [copy _1, copy _2] -> !; => #15
+    }
+}
+
+item #2: std.string.string_literal(bytes: UnsafePointer<Int8>)
+fn -> String {
+    let _0: String;  // return
+    let _1: UnsafePointer<Int8>;  // param bytes
+    let _2: String;
+
+    bb0: {
+        _2 = String { bytes: copy _1 };
+        _0 = move _2;
+        return;
+    }
+}
+
+item #3: std.string.string_bytes(text: &String)
+fn -> UnsafePointer<Int8> {
+    let _0: UnsafePointer<Int8>;  // return
+    let _1: &String;  // param text
+
+    bb0: {
+        _0 = copy (*_1).bytes;
+        return;
+    }
+}
+
+item #4: std.string.string_length(text: &String)
+fn -> Int {
+    let _0: Int;  // return
+    let _1: &String;  // param text
+    let _2: &String;
+    let _3: Int;
+
+    bb0: {
+        _2 = ref(shared, (*_1));
+        _3 = call std.string.String.len() (owner String) [move _2] -> [return: bb1]; => #16
+    }
+
+    bb1: {
+        _0 = move _3;
+        return;
+    }
+}
+
+item #5: default names.Grid.at(i: Int).i receiver exclusive  (from #0)
+fn -> Int {
+    let _0: Int;  // return
+
+    bb0: {
+        _0 = const 1: Int;
+        return;
+    }
+}
+
+item #6: prologue names.Grid.at(i: Int) receiver exclusive  (from #0)
+fn -> &var Int {
+    let _0: &var Int;  // return
+    let _1: &var (Int,);  // record
+    let _2: &var names.Grid;  // self
+    let _3: Int;  // param i
+    let _4: Int;
+    let _5: (Int) -> Bool;
+    let _6: Bool;
+    let _7: &var Int;
+    let _8: &var Int;
+
+    bb0: {
+        _4 = copy _3;
+        _5 = closure#0 of prologue names.Grid.at(i: Int) [];
+        _6 = call names.check(i: Int, f: (Int) -> Bool) [move _4, move _5] -> [return: bb1]; => #18
+    }
+
+    bb1: {
+        switch move _6 -> [true: bb2, false: bb3];
+    }
+
+    bb2: {
+        _7 = ref(exclusive, (*_2).a);
+        _0 = move _7;
+        (*_1).0 = const 0: Int;
+        return;
+    }
+
+    bb3: {
+        _8 = ref(exclusive, (*_2).b);
+        _0 = move _8;
+        (*_1).0 = const 1: Int;
+        return;
+    }
+}
+
+item #7: epilogue names.Grid.at(i: Int) receiver exclusive  (from #0)
+fn -> Void {
+    let _0: Void;  // return
+    let _1: &var (Int,);  // record
+    let _2: Bool;
+
+    bb0: {
+        _2 = Eq(copy (*_1).0, const 0: Int);
+        switch move _2 -> [true: bb2, false: bb4];
+    }
+
+    bb1: {
+        return;
+    }
+
+    bb2: {
+        goto -> bb1;
+    }
+
+    bb3: {
+        goto -> bb1;
+    }
+
+    bb4: {
+        goto -> bb3;
+    }
+}
+
+item #8: default names.Grid.at(i: Int).i receiver shared  (from #0)
+fn -> Int {
+    let _0: Int;  // return
+
+    bb0: {
+        _0 = const 0: Int;
+        return;
+    }
+}
+
+item #9: prologue names.Grid.at(i: Int) receiver shared  (from #0)
+fn -> &Int {
+    let _0: &Int;  // return
+    let _1: &var (Int,);  // record
+    let _2: &names.Grid;  // self
+    let _3: Int;  // param i
+    let _4: Int;
+    let _5: (Int) -> Bool;
+    let _6: Bool;
+    let _7: &Int;
+    let _8: &Int;
+
+    bb0: {
+        _4 = copy _3;
+        _5 = closure#0 of prologue names.Grid.at(i: Int) [];
+        _6 = call names.check(i: Int, f: (Int) -> Bool) [move _4, move _5] -> [return: bb1]; => #18
+    }
+
+    bb1: {
+        switch move _6 -> [true: bb2, false: bb3];
+    }
+
+    bb2: {
+        _7 = ref(shared, (*_2).a);
+        _0 = move _7;
+        (*_1).0 = const 0: Int;
+        return;
+    }
+
+    bb3: {
+        _8 = ref(shared, (*_2).b);
+        _0 = move _8;
+        (*_1).0 = const 1: Int;
+        return;
+    }
+}
+
+item #10: epilogue names.Grid.at(i: Int) receiver shared  (from #0)
+fn -> Void {
+    let _0: Void;  // return
+    let _1: &var (Int,);  // record
+    let _2: Bool;
+
+    bb0: {
+        _2 = Eq(copy (*_1).0, const 0: Int);
+        switch move _2 -> [true: bb2, false: bb4];
+    }
+
+    bb1: {
+        return;
+    }
+
+    bb2: {
+        goto -> bb1;
+    }
+
+    bb3: {
+        goto -> bb1;
+    }
+
+    bb4: {
+        goto -> bb3;
+    }
+}
+
+item #11: std.path.Path.init(s: String)  (from #0)
+fn -> std.path.Path {
+    let _0: std.path.Path;  // return
+    let _1: String;  // param s
+    let _2: &String;
+    let _3: String;
+    let _4: std.path.Path;
+
+    bb0: {
+        _2 = ref(shared, _1);
+        _3 = call std.string.String.copy() (owner String) [move _2] -> [return: bb1]; => #20
+    }
+
+    bb1: {
+        _4 = std.path.Path { text: move _3 };
+        _0 = move _4;
+        drop(_1);
+        return;
+    }
+}
+
+item #12: names.Path.weight()  (from #0)
+fn -> Int {
+    let _0: Int;  // return
+    let _1: &names.Path;  // self
+
+    bb0: {
+        _0 = copy (*_1).n;
+        return;
+    }
+}
+
+item #13: names.Path.weight() extends std.path.Path  (from #0)
+fn -> Int {
+    let _0: Int;  // return
+    let _1: &std.path.Path;  // self
+
+    bb0: {
+        _0 = const 1: Int;
+        return;
+    }
+}
+
+item #14: drop glue std.path.Path  (from #0)
+fn -> Void {
+    let _0: Void;  // return
+    let _1: &var std.path.Path;  // param
+
+    bb0: {
+        drop((*_1).text);
+        return;
+    }
+}
+
+item #15: extern __saw_rt_panic  (from #1)
+
+item #16: std.string.String.len()  (from #4)
+fn -> Int {
+    let _0: Int;  // return
+    let _1: &String;  // self
+    let _2: UnsafePointer<Int>;  // words
+    let _3: UnsafePointer<Int>;
+    let _4: Int;
+
+    bb0: {
+        _3 = cast(copy (*_1).bytes as UnsafePointer<Int>);
+        _2 = move _3;
+        _4 = copy static std.string.LENGTH_SLOT;
+        _0 = copy _2[_4];
+        return;
+    }
+}
+
+item #17: closure#0 of prologue names.Grid.at(i: Int) receiver exclusive  (from #6)
+fn -> Bool {
+    let _0: Bool;  // return
+    let _1: &();  // env
+    let _2: Int;  // param k
+    let _3: Bool;
+
+    bb0: {
+        _3 = Ne(copy _2, const 0: Int);
+        _0 = move _3;
+        return;
+    }
+}
+
+item #18: names.check(i: Int, f: (Int) -> Bool)  (from #6)
+fn -> Bool {
+    let _0: Bool;  // return
+    let _1: Int;  // param i
+    let _2: (Int) -> Bool;  // param f
+    let _3: Bool;
+
+    bb0: {
+        _3 = call value copy _2 [copy _1] -> [return: bb1];
+    }
+
+    bb1: {
+        _0 = move _3;
+        drop(_2);
+        return;
+    }
+}
+
+item #19: closure#0 of prologue names.Grid.at(i: Int) receiver shared  (from #9)
+fn -> Bool {
+    let _0: Bool;  // return
+    let _1: &();  // env
+    let _2: Int;  // param k
+    let _3: Bool;
+
+    bb0: {
+        _3 = Eq(copy _2, const 0: Int);
+        _0 = move _3;
+        return;
+    }
+}
+
+item #20: std.string.String.copy()  (from #11)
+fn -> String {
+    let _0: String;  // return
+    let _1: &String;  // self
+    let _2: UnsafePointer<Int>;  // words
+    let _3: UnsafePointer<Int>;
+    let _4: UnsafePointer<Int>;  // count
+    let _5: Int;
+    let _6: &Int;
+    let _7: UnsafePointer<Int>;
+    let _8: Int;
+    let _9: Bool;
+    let _10: Int;
+    let _11: String;
+
+    bb0: {
+        _3 = cast(copy (*_1).bytes as UnsafePointer<Int>);
+        _2 = move _3;
+        _5 = copy static std.string.REFCOUNT_SLOT;
+        _6 = ref(shared, _2[_5]);
+        _7 = cast(move _6 as UnsafePointer<Int>);
+        _4 = move _7;
+        _8 = call builtin __saw_atomic_load_i64_relaxed [copy _4] -> [return: bb2];
+    }
+
+    bb1: {
+        _11 = String { bytes: copy (*_1).bytes };
+        _0 = move _11;
+        return;
+    }
+
+    bb2: {
+        _9 = Ne(copy _8, copy static std.string.IMMORTAL);
+        switch move _9 -> [true: bb3, false: bb4];
+    }
+
+    bb3: {
+        _10 = call builtin __saw_atomic_add_i64 [copy _4, const 1: Int] -> [return: bb5];
+    }
+
+    bb4: {
+        goto -> bb1;
+    }
+
+    bb5: {
+        goto -> bb1;
+    }
+}
+
+item #21: drop glue String  (from #11)
+fn -> Void {
+    let _0: Void;  // return
+    let _1: &var String;  // param
+    let _2: &var String;
+
+    bb0: {
+        _2 = ref(exclusive, (*_1));
+        call std.string.String.deinit() (owner String) [move _2] -> [return: bb1]; => #22
+    }
+
+    bb1: {
+        return;
+    }
+}
+
+item #22: std.string.String.deinit()  (from #21)
+fn -> Void {
+    let _0: Void;  // return
+    let _1: &var String;  // self
+    let _2: UnsafePointer<Int>;  // words
+    let _3: UnsafePointer<Int>;
+    let _4: UnsafePointer<Int>;  // count
+    let _5: Int;
+    let _6: &Int;
+    let _7: UnsafePointer<Int>;
+    let _8: Int;
+    let _9: Bool;
+    let _10: Int;  // old
+    let _11: Int;
+    let _12: Bool;
+    let _13: Bool;
+    let _14: Int;  // header_bytes
+    let _15: Int;
+    let _16: Int;
+    let _17: Int;
+    let _18: UnsafePointer<Int8>;  // block
+    let _19: UnsafePointer<Int8>;
+    let _20: UnsafePointer<Int8>;
+    let _21: Int;
+    let _22: Int;
+    let _23: Int;
+    let _24: Int;
+
+    bb0: {
+        _3 = cast(copy (*_1).bytes as UnsafePointer<Int>);
+        _2 = move _3;
+        _5 = copy static std.string.REFCOUNT_SLOT;
+        _6 = ref(shared, _2[_5]);
+        _7 = cast(move _6 as UnsafePointer<Int>);
+        _4 = move _7;
+        _8 = call builtin __saw_atomic_load_i64_relaxed [copy _4] -> [return: bb2];
+    }
+
+    bb1: {
+        _11 = call builtin __saw_atomic_sub_i64_release [copy _4, const 1: Int] -> [return: bb5];
+    }
+
+    bb2: {
+        _9 = Eq(copy _8, copy static std.string.IMMORTAL);
+        switch move _9 -> [true: bb3, false: bb4];
+    }
+
+    bb3: {
+        return;
+    }
+
+    bb4: {
+        goto -> bb1;
+    }
+
+    bb5: {
+        _10 = move _11;
+        _12 = Lt(copy _10, const 1: Int);
+        switch move _12 -> [true: bb7, false: bb8];
+    }
+
+    bb6: {
+        _13 = Eq(copy _10, const 1: Int);
+        switch move _13 -> [true: bb10, false: bb11];
+    }
+
+    bb7: {
+        call builtin panic [const "String: over-release of a String reference (refcount underflow)": String] -> !;
+    }
+
+    bb8: {
+        goto -> bb6;
+    }
+
+    bb9: {
+        return;
+    }
+
+    bb10: {
+        call builtin __saw_atomic_fence_acquire [] -> [return: bb12];
+    }
+
+    bb11: {
+        goto -> bb9;
+    }
+
+    bb12: {
+        _15 = copy static std.string.HEADER_WORDS;
+        _16 = call builtin sizeof (inst Int) [] -> [return: bb13];
+    }
+
+    bb13: {
+        _17 = Mul(move _15, move _16);
+        _14 = move _17;
+        _19 = cast(copy _4 as UnsafePointer<Int8>);
+        _18 = move _19;
+        _20 = copy _18;
+        _21 = copy _14;
+        _22 = copy static std.string.LENGTH_SLOT;
+        _23 = Add(move _21, copy _2[_22]);
+        _24 = Add(move _23, const 1: Int);
+        call std.string.__saw_rt_dealloc(ptr: UnsafePointer<Int8>, size: Int, align: Int) [move _20, move _24, copy static std.string.BLOCK_ALIGN] -> [return: bb14]; => #23
+    }
+
+    bb14: {
+        goto -> bb9;
+    }
+}
+
+item #23: extern __saw_rt_dealloc  (from #22)

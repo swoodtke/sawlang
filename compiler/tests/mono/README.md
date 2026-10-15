@@ -184,8 +184,22 @@ fn -> RESULT {
 ```
 
 NAME is the MIR dump's name for the source function, or `drop glue TYPE`,
-`copy glue TYPE`, `member glue REQUIREMENT on TYPE`, `extern NAME`.
-`(from #ORIGIN)` names the item whose body
+`copy glue TYPE`, `member glue REQUIREMENT on TYPE`, `extern NAME`. A
+function's name then adds what the MIR dump's spelling of its declaration
+leaves out, wherever two declarations could share that spelling:
+
+- `receiver shared` or `receiver exclusive`, for a `borrows` accessor, so a
+  `&self` accessor and a `&var self` one of the same name and parameters
+  (SL:borrowing §4) are told apart;
+- `extends TYPE`, for a method of an extension of a type another module
+  declares, since the spelling names that type by its last segment alone;
+- `in module M`, for a top-level function of a module named like a
+  vocabulary declaration, whose members print with no module (a module `Range`
+  and the prelude's `Range.next()`).
+
+A closure, a default value and an accessor's halves add their declaration's.
+Every item has a name no other item has, and the backend spells each item's
+symbols from it (golden `names`). `(from #ORIGIN)` names the item whose body
 first reached it; a root has none. Statements and terminators print as the
 MIR dump prints them (`compiler/tests/mir/README.md`), and a call terminator
 is followed by ` => #K`, the item it reaches. A glue function's `_1` is its
@@ -273,6 +287,10 @@ no difference uses fails as stale. A bare `Void` or `Never` is not compared
 (Stage 0's `alignof<Void>()` is an internal error), but every type holding
 one is: golden `voids` reaches them, and `Void?` and the types holding it are
 the exceptions, Stage 0 giving `Void` a byte of its own inside an Optional.
+A golden program that Stage 0 cannot build says so in a `// stage 0: REASON`
+line, as a run-lane probe does, and its table is compared with nothing: golden
+`names`, whose `borrow` blocks and qualified extension head Stage 0 cannot
+parse.
 
 The lane also runs each subcommand `--lowerings` counts for over the golden
 programs, two run-lane programs with constants (`statics`, `layout_asserts`),

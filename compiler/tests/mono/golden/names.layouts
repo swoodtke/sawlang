@@ -1,0 +1,23 @@
+&(): size 8 align 8 pointer
+&Int: size 8 align 8 pointer
+&String: size 8 align 8 pointer
+&names.Grid: size 8 align 8 pointer
+&names.Path: size 8 align 8 pointer
+&std.path.Path: size 8 align 8 pointer
+&var (Int,): size 8 align 8 pointer
+&var Int: size 8 align 8 pointer
+&var String: size 8 align 8 pointer
+&var names.Grid: size 8 align 8 pointer
+&var std.path.Path: size 8 align 8 pointer
+(Int) -> Bool: size 16 align 8 closure
+(Int,): size 8 align 8 record offsets 0
+Bool: size 1 align 1 int
+Int: size 8 align 8 int
+Never: size 0 align 1 zero
+String: size 8 align 8 record offsets 0
+UnsafePointer<Int8>: size 8 align 8 pointer
+UnsafePointer<Int>: size 8 align 8 pointer
+Void: size 0 align 1 zero
+names.Grid: size 16 align 8 record offsets 0 8
+names.Path: size 8 align 8 record offsets 0
+std.path.Path: size 8 align 8 record offsets 0

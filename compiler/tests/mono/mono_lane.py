@@ -20,7 +20,8 @@ directory specifies:
   alignment there, read off Stage 0's recorded run of a probe program
   (`stage0/HOST/NAME.stage0`, which `--stage0` writes through the v0
   compiler and which is stale once the probe changes), unless
-  `layout_exceptions.tsv` gives the reason the two differ;
+  `layout_exceptions.tsv` gives the reason the two differ, or the program
+  states in a `// stage 0: REASON` line that Stage 0 cannot build it;
 - each subcommand `--lowerings` counts for lowers each program's source to
   MIR as often as it owes: once from `mir` on, never before.
 """
@@ -57,6 +58,7 @@ _RULE = re.compile(r'try! out\.push\("([^"]+)"\)')
 _LAYOUT = re.compile(r"^(.*): size (\d+) align (\d+) ")
 _MODULE_PATH = re.compile(r"\b(?:[a-z_][a-z0-9_]*\.)+(?=[A-Z])")
 _MAIN = re.compile(r"^func main\(\)", re.M)
+_STAGE0 = re.compile(r"^// stage 0: \S", re.M)
 # The subcommands `--lowerings` counts for, each with the count it owes.
 LOWERING_COMMANDS = (("resolve", 0), ("typecheck", 0), ("mir", 1), ("eval", 1), ("borrowck", 1),
                      ("drops", 1), ("mono", 1))
@@ -172,13 +174,20 @@ def stage0_spelling(text):
     return _MODULE_PATH.sub("", text)
 
 
+def stage0_cannot_build(src):
+    """Whether golden program `src` states, in a `// stage 0: REASON` line,
+    that Stage 0 cannot build it, so no probe can read Stage 0's layouts."""
+    with open(src) as fh:
+        return _STAGE0.search(fh.read()) is not None
+
+
 def layout_probe(src):
     """(the rows of `src`'s layout table Stage 0 can spell, as (spelling,
     size, align); the probe program printing Stage 0's `sizeof` and `alignof`
     of each, built into the program itself), or None when no row is
     spelled."""
     table = os.path.splitext(src)[0] + ".layouts"
-    if not os.path.exists(table):
+    if not os.path.exists(table) or stage0_cannot_build(src):
         return None
     rows = []
     with open(table) as fh:

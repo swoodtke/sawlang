@@ -6,14 +6,18 @@
 import sawborrowck.program.{BorrowckProgram}
 import sawdrops.program.{DropsProgram}
 import sawmir.dump.{mir_module_functions}
-import sawmir.model.{MirBlock, MirLocal, MirLocalKind, MirStmt, MirTermKind}
+import sawmir.model.{MirBlock, MirFuncKind, MirLocal, MirLocalKind, MirStmt, MirTermKind}
 import sawmir.program.{MirProgram}
 import sawmono.program.{MonoItem, MonoItemKind, MonoProgram}
 import sawresolve.dump.{res_sort_strings}
+import sawresolve.lang.{ResLang}
+import sawresolve.model.{ResDeclKind}
 import sawresolve.program.{ResProgram}
 import sawtypecheck.program.{TcProgram}
 import sawtarget.layout.{Target}
 import sawtypecheck.bodydump.{tc_dump_bodies}
+import sawtypecheck.model.{TcLend}
+import sawtypecheck.signatures.{TcContext}
 import sawtypecheck.spell.{tc_effects_text}
 
 extension MonoProgram {
@@ -29,14 +33,27 @@ extension MonoProgram {
         }
     }
 
-    // How the dump names item `k`: its source function, or its glue's type,
-    // or its extern's name, then its concrete arguments.
+    // THE ITEM NAMING FUNNEL: item `k`'s name, which the dump, every later
+    // stage's records and every LLVM symbol of an item spell. It is its
+    // source function, glue type or extern, then what tells it apart from
+    // other items of that source, so two items never share a name and no
+    // symbol is defined twice (golden `names`). The backend's symbol spellers
+    // all go through it.
+    // ENTRY POINTS:
+    //     ll_symbol
+    //     ll_resume_symbol
+    //     ll_descriptor_symbol
+    //     ll_resume_value_symbol
+    //     ll_result_drop_symbol
     public func item_name(&self, k: Int) -> String {
         let it = self.items[k]
         var out = StringBuilder()
         match it.kind {
             case Function -> {
                 try! out.append(self.dp.bc.mir.func_name(it.source))
+                // Stage 0 workaround (SL:hazards S4): canonical: self.append_qualifiers(&var out, self.root_decl(it.source))
+                let decl = self.root_decl(it.source)
+                self.append_qualifiers(&var out, decl)
                 self.append_run(&var out, " args", it.args_first, it.args_count)
                 self.append_run(&var out, " inst", it.inst_first, it.inst_count)
                 if it.self_type >= 0 {
@@ -68,6 +85,71 @@ extension MonoProgram {
             }
         }
         out.build()
+    }
+
+    // The declaration source function `f` belongs to, a closure's being its
+    // enclosing function's; -1 for none.
+    func root_decl(&self, f: Int) -> Int {
+        var at = f
+        while self.dp.bc.mir.funcs[at].kind == MirFuncKind.Closure && self.dp.bc.mir.funcs[at].parent >= 0 {
+            at = self.dp.bc.mir.funcs[at].parent
+        }
+        self.dp.bc.mir.funcs[at].decl
+    }
+
+    // What the MIR dump's spelling of declaration `d` leaves out, wherever it
+    // could tell `d` from another declaration of that spelling: a lending
+    // member's receiver (an accessor's shared and exclusive pair), the type
+    // an extension of another module's type extends (two extended types of
+    // one name), and that a top-level function's module is a module when the
+    // module is named like a vocabulary declaration, whose members print with
+    // no module.
+    func append_qualifiers(&self, out: &var StringBuilder, d: Int) {
+        if d < 0 {
+            return
+        }
+        let info = self.dp.bc.mir.tc.res.decls[d]
+        let callable = info.kind == ResDeclKind.Func || info.kind == ResDeclKind.Method || info.kind == ResDeclKind.Init
+        if not callable {
+            return
+        }
+        let s = self.dp.bc.mir.tc.sigs[d]
+        if s.lending != TcLend.NotBorrows {
+            match s.receiver {
+                case Shared -> try! out.append(" receiver shared"),
+                case Exclusive -> try! out.append(" receiver exclusive"),
+                case Absent -> {}
+            }
+        }
+        if info.parent >= 0 && self.dp.bc.mir.tc.res.decls[info.parent].kind == ResDeclKind.Extension {
+            let extended = self.dp.bc.mir.tc.ext_target(info.parent)
+            if extended >= 0 && self.dp.bc.mir.tc.res.decls[extended].module != info.module {
+                try! out.append(" extends ")
+                try! out.append(self.dp.bc.mir.tc.nominal_name(extended))
+            }
+        }
+        if info.parent < 0 && self.names_vocabulary(info.module) {
+            try! out.append(" in module ")
+            try! out.append(self.dp.bc.mir.tc.res.module_name(info.module))
+        }
+    }
+
+    // Whether module `m` is outside the vocabulary and named like a top-level
+    // vocabulary declaration, so its `M.f()` reads as that declaration's
+    // member.
+    func names_vocabulary(&self, m: Int) -> Bool {
+        if self.dp.bc.mir.tc.res.is_vocabulary_module(m) {
+            return false
+        }
+        // Stage 0 workaround (SL:hazards S4): canonical: let id = self.dp.bc.mir.tc.res.names.find(self.dp.bc.mir.tc.res.module_name(m))
+        let name = self.dp.bc.mir.tc.res.module_name(m)
+        let id = self.dp.bc.mir.tc.res.names.find(name)
+        if id < 0 {
+            return false
+        }
+        let builtin = self.dp.bc.mir.tc.res.builtin
+        let prelude = self.dp.bc.mir.tc.res.std_prelude
+        self.dp.bc.mir.tc.res.top.first(builtin, id) >= 0 || self.dp.bc.mir.tc.res.top.first(prelude, id) >= 0
     }
 
     func append_run(&self, out: &var StringBuilder, word: String, first: Int, count: Int) {

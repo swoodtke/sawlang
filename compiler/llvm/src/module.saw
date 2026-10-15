@@ -163,8 +163,8 @@ public func ll_is_scalar(l: &TargetLayout) -> Bool {
 }
 
 // The symbol of item `k`: an exported function's C symbol, else its dump
-// name, quoted. Names are derived from what the item is, so they never depend
-// on discovery order.
+// name, quoted, which no other item shares. Names are derived from what the
+// item is, so they never depend on discovery order.
 public func ll_symbol(mono: &MonoProgram, k: Int) -> String {
     let exported = ll_export_symbol(&mono, k)
     var out = StringBuilder()

@@ -273,7 +273,11 @@ description's (`compiler/tests/mono/README.md`, "Layouts").
   `align_static`, `align_local` (a `var`) and `align_local_let` pin each
   position the parser admits.
 - **Determinism.** Functions are written in item order and globals in first
-  use; every symbol is derived from what the item is (`@"saw NAME"`).
+  use; every symbol is derived from what the item is (`@"saw NAME"`). NAME is
+  mono's item name, which no two items share (`compiler/tests/mono/README.md`,
+  "The dump"), so no symbol is defined twice: the probes `accessor_pair` and
+  `extension_same_name` and the program `Range` pin the declarations whose MIR
+  spellings coincide.
 
 | rule | refuses | due program |
 |---|---|---|

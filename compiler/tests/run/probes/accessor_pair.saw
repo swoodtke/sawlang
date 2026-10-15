@@ -1,0 +1,107 @@
+// probe: stated
+// about: an accessor's shared and exclusive pair, each half its own item and symbol (SL-671)
+// stage 0: cannot parse a `borrow` block, and refuses two overloads that differ only in their receiver
+// speeds: -O0 -O2
+// ll defines: saw prologue accessor_pair.Grid.[](i: Int) receiver shared
+// ll defines: saw prologue accessor_pair.Grid.[](i: Int) receiver exclusive
+// ll defines: saw epilogue accessor_pair.Grid.[](i: Int) receiver shared
+// ll defines: saw epilogue accessor_pair.Grid.[](i: Int) receiver exclusive
+// prints: 8
+// prints: 1
+// prints: 8
+// prints: 1
+// prints: 8
+// prints: 6102
+// A `&self` and a `&var self` accessor of one name and parameters
+// (SL:borrowing §4, the pair `@synthesize(shared)` cannot derive): each half
+// of each is an item of its own, and so is a default value or a closure
+// written in either, and a half that suspends has a frame of its own. Stage 0
+// cannot parse a `borrow` block and refuses the pair as overloads that differ
+// only in their receiver, so the expectation is the spec's: `Grid` writes `a` through the exclusive `[]` and
+// reads both fields through the shared one; `Picked` takes `i` from each
+// accessor's own default, and `Tested` picks the field through each one's own
+// closure, so each writes `b` and reads `a`; `Slow` writes `a` through a
+// prologue and an epilogue that suspend, the epilogue adding a gate, then
+// reads `b`.
+import std.task.*
+
+struct Grid { a: Int, b: Int }
+
+extension Grid {
+    public func [](&self, i: Int) borrows -> &Int { if i == 0 { lend self.a } else { lend self.b } }
+    public func [](&var self, i: Int) borrows -> &var Int { if i == 0 { lend self.a } else { lend self.b } }
+}
+
+struct Picked { a: Int, b: Int }
+
+extension Picked {
+    public func at(&self, i: Int = 0) borrows -> &Int { if i == 0 { lend self.a } else { lend self.b } }
+    public func at(&var self, i: Int = 1) borrows -> &var Int { if i == 0 { lend self.a } else { lend self.b } }
+}
+
+func check(i: Int, f: (Int) -> Bool) -> Bool { f(i) }
+
+struct Tested { a: Int, b: Int }
+
+extension Tested {
+    public func at(&self, i: Int) borrows -> &Int {
+        if check(i, { k in k == 0 }) { lend self.a } else { lend self.b }
+    }
+    public func at(&var self, i: Int) borrows -> &var Int {
+        if check(i, { k in k != 0 }) { lend self.a } else { lend self.b }
+    }
+}
+
+struct Slow { a: Int, b: Int, gates: Int }
+
+extension Slow {
+    public func at(&self, i: Int) borrows -> &Int {
+        yield_now()
+        if i == 0 { lend self.a } else { lend self.b }
+    }
+    public func at(&var self, i: Int) borrows -> &var Int {
+        yield_now()
+        if i == 0 { lend self.a } else { lend self.b }
+        yield_now()
+        self.gates = self.gates + 1
+    }
+}
+
+func slow(n: Int) -> Int {
+    var s = Slow(a: 1, b: 2, gates: 0)
+    borrow var c = s.at(0) {
+        c += n
+        yield_now()
+    }
+    var r = 0
+    borrow let d = s.at(1) {
+        r = d
+    }
+    s.a * 1000 + s.gates * 100 + r
+}
+
+func main() {
+    var g = Grid(a: 1, b: 2)
+    g[0] += 5
+    print(g[0] + g[1])
+
+    var p = Picked(a: 1, b: 2)
+    borrow var x = p.at() {
+        x += 5
+    }
+    borrow let y = p.at() {
+        print(y)
+    }
+    print(p.a + p.b)
+
+    var t = Tested(a: 1, b: 2)
+    borrow var u = t.at(0) {
+        u += 5
+    }
+    borrow let v = t.at(0) {
+        print(v)
+    }
+    print(t.a + t.b)
+
+    print(__saw_drive(slow(5)))
+}

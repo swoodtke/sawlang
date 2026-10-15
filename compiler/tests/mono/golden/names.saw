@@ -1,0 +1,43 @@
+// stage 0: cannot parse a `borrow` block or an extension of a qualified type name
+// Item names that tell apart two declarations the MIR dump spells alike
+// (SL-671): the shared and the exclusive accessor `at`, each half, its
+// default value and the closure in its prologue an item of its own; and the
+// module's own `Path` and std's `path.Path`, each extended with `weight()`.
+import std.path
+
+func check(i: Int, f: (Int) -> Bool) -> Bool { f(i) }
+
+struct Grid { a: Int, b: Int }
+
+extension Grid {
+    public func at(&self, i: Int = 0) borrows -> &Int {
+        if check(i, { k in k == 0 }) { lend self.a } else { lend self.b }
+    }
+    public func at(&var self, i: Int = 1) borrows -> &var Int {
+        if check(i, { k in k != 0 }) { lend self.a } else { lend self.b }
+    }
+}
+
+struct Path { n: Int }
+
+extension Path {
+    func weight(&self) -> Int { self.n }
+}
+
+extension path.Path {
+    func weight(&self) -> Int { 1 }
+}
+
+func main() {
+    var g = Grid(a: 1, b: 2)
+    borrow var x = g.at() {
+        x += 1
+    }
+    var r = 0
+    borrow let y = g.at() {
+        r = y
+    }
+    let own = Path(n: r)
+    let theirs = path.Path(s: "a")
+    print(own.weight() + theirs.weight())
+}

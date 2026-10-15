@@ -1,0 +1,12 @@
+// A program whose module is named like the vocabulary type `Range`: its own
+// `next()` and `Range.next()`, which its `for` loop calls, are two functions
+// that the MIR dump spells alike, so each needs a symbol of its own (SL-671).
+func next() -> Int? { 5 }
+
+func main() {
+    var total = 0
+    for i in 0..3 {
+        total = total + i
+    }
+    print(total + (next() ?? 0))
+}

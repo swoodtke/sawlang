@@ -1,0 +1,29 @@
+// probe: stated
+// about: one module's extensions of two types of one name, each method its own symbol (SL-671)
+// stage 0: cannot parse an extension of a qualified type name
+// speeds: -O0 -O2
+// ll defines: saw extension_same_name.Path.weight()
+// ll defines: saw extension_same_name.Path.weight() extends std.path.Path
+// prints: 105
+// A module extends its own `Path` and std's `path.Path` with a method of one
+// name and parameters. The two methods print alike in the MIR dump, as
+// `extension_same_name.Path.weight()`, so the item name says which type the
+// second extends. Stage 0 cannot parse the qualified extension head, so the
+// expectation is the spec's: 4 + 1 from the local type, 100 from std's.
+import std.path
+
+struct Path { n: Int }
+
+extension Path {
+    func weight(&self) -> Int { self.n + 1 }
+}
+
+extension path.Path {
+    func weight(&self) -> Int { 100 }
+}
+
+func main() {
+    let own = Path(n: 4)
+    let theirs = path.Path(s: "a/b")
+    print(own.weight() + theirs.weight())
+}
