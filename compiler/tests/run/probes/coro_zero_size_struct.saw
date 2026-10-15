@@ -1,0 +1,132 @@
+// probe: stated
+// about: an empty struct in a frame, at its end, mid-frame and as a child's parameter or result (SL-688)
+// stage 0: builds it and prints the same lines; stated until the lane keeps Stage 0's output (SL-665)
+// speeds: -O0 -O2
+// prints: drop
+// prints: 103
+// prints: drop
+// prints: 103
+// prints: drop
+// prints: 118
+// prints: drop
+// prints: a 101
+// prints: drop
+// prints: drop
+// prints: b 202
+// prints: made
+// prints: drop
+// prints: 403
+// prints: drop
+// prints: 104
+// prints: drop
+// prints: 105
+// prints: 100
+// prints: drop
+// A zero-size value occupies no byte of its frame, so its slot lies at the
+// frame's end when it is laid last, and at the offset of the value after it
+// when laid mid-frame. `Token` has a deinit, so each of its moves through a
+// frame slot and its drop there shows. `at_end` and `mid` hold one across an
+// op-budget point; `before_index` holds one at the offset of the index the
+// lowering copies out of the frame; `last_param` is a child whose last
+// parameter lies at its frame's end; `first_params` has two at one offset;
+// `make`'s result is moved out of the last child slot of `children`, at its
+// frame's end; `root` is driven and spawned with one at its first parameter.
+
+struct Token {}
+
+extension Token: NoCopy {
+    func deinit(&var self) {
+        print("drop")
+    }
+}
+
+extension Token {
+    func weight(&self) -> Int {
+        100
+    }
+}
+
+struct Triple {
+    a: Int
+    b: Int
+    c: Int
+}
+
+func at_end() -> Int {
+    var i = 0
+    let t = Token()
+    while i < 3 {
+        i = i + 1
+    }
+    t.weight() + i
+}
+
+func mid() -> Int {
+    let t = Token()
+    var i = 0
+    while i < 3 {
+        i = i + 1
+    }
+    t.weight() + i
+}
+
+func before_index(p: UnsafePointer<Int>) unsafe -> Int {
+    var i = 0
+    var s = 0
+    let t = Token()
+    while i < 3 {
+        s = s + p[i]
+        i = i + 1
+    }
+    t.weight() + s
+}
+
+func last_param(n: Int, t: Token) -> Int {
+    __saw_suspend()
+    n + t.weight()
+}
+
+func first_params(t: Token, u: Token, n: Int) -> Int {
+    __saw_suspend()
+    n + t.weight() + u.weight()
+}
+
+func make() -> Token {
+    __saw_suspend()
+    Token()
+}
+
+func children() -> Int {
+    let a = last_param(n: 1, t: Token())
+    print("a {}", a)
+    let b = first_params(t: Token(), u: Token(), n: 2)
+    print("b {}", b)
+    let t = make()
+    print("made")
+    a + b + t.weight()
+}
+
+func root(t: Token, n: Int) -> Int {
+    var i = 0
+    while i < n {
+        i = i + 1
+    }
+    t.weight() + i
+}
+
+func indexed() unsafe {
+    var q = Triple(a: 5, b: 6, c: 7)
+    let qp = (&q) as UnsafePointer<Int>
+    print(__saw_drive(before_index(qp)))
+}
+
+func main() {
+    print(__saw_drive(at_end()))
+    print(__saw_drive(mid()))
+    indexed()
+    print(__saw_drive(children()))
+    print(__saw_drive(root(Token(), 4)))
+    print(Task.spawn(root(Token(), 5)).join())
+    let t = __saw_drive(make())
+    print(t.weight())
+}

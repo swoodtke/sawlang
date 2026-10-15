@@ -1,0 +1,75 @@
+frame #5: zero_size.at_end() task root  (size 32 align 8)
+    suspend 1: bb3 budget
+    (*frame).[0: Int]  size 8 align 8  state
+    (*frame).[8: Int]  size 8 align 8  op budget
+    (*frame).[16: Int]  size 8 align 8  _0 result
+    (*frame).[24: Int]  size 8 align 8  _1 i  (across 1)
+    (*frame).[32: [Int; 0]]  size 0 align 8  _2 z  (across 1)
+    stack: _3 _4 _5 _6 _7
+frame #7: zero_size.mid() task root  (size 32 align 8)
+    suspend 1: bb3 budget
+    (*frame).[0: Int]  size 8 align 8  state
+    (*frame).[8: Int]  size 8 align 8  op budget
+    (*frame).[16: Int]  size 8 align 8  _0 result
+    (*frame).[24: [Int; 0]]  size 0 align 8  _1 z  (across 1)
+    (*frame).[24: Int]  size 8 align 8  _3 i  (across 1)
+    stack: _2 _4 _5 _6 _7
+frame #9: zero_size.children() task root  (size 88 align 8)
+    suspend 1: bb0 call last_param
+    suspend 2: bb1 call first_params
+    suspend 3: bb2 call result
+    (*frame).[0: Int]  size 8 align 8  state
+    (*frame).[8: Int]  size 8 align 8  _0 result
+    (*frame).[16: Int]  size 8 align 8  _1 a  (across 2 3)
+    (*frame).[24: Int]  size 8 align 8  _4 b  (across 3)
+    (*frame).[32: frame zero_size.last_param(n: Int, z: [Int; 0])]  size 24 align 8  child  (across 1)
+    (*frame).[56: frame zero_size.first_params(y: [Int; 0], z: [Int; 0], n: Int)]  size 24 align 8  child  (across 2)
+    (*frame).[80: frame zero_size.result()]  size 8 align 8  child  (across 3)
+    stack: _2 _3 _5 _6 _7 _8 _9 _10 _11 _12
+frame #10: zero_size.first_params(y: [Int; 0], z: [Int; 0], n: Int) task root  (size 24 align 8)
+    suspend 1: bb0 call __saw_suspend
+    (*frame).[0: Int]  size 8 align 8  state
+    (*frame).[8: Int]  size 8 align 8  _0 result
+    (*frame).[16: [Int; 0]]  size 0 align 8  _1 param y  (across 1)
+    (*frame).[16: [Int; 0]]  size 0 align 8  _2 param z  (across 1)
+    (*frame).[16: Int]  size 8 align 8  _3 param n  (across 1)
+    stack: _4 _5 _6 _7 _8
+frame #17: zero_size.enum_at_end() task root  (size 40 align 8)
+    suspend 1: bb3 budget
+    (*frame).[0: Int]  size 8 align 8  state
+    (*frame).[8: Int]  size 8 align 8  op budget
+    (*frame).[16: Int]  size 8 align 8  _0 result
+    (*frame).[24: Int]  size 8 align 8  _1 i  (across 1)
+    (*frame).[32: zero_size.One]  size 4 align 4  _2 o  (across 1)
+    stack: _3 _4 _5 _6
+frame #23: zero_size.before_index(p: UnsafePointer<Int>) task root  (size 56 align 8)
+    suspend 1: bb3 budget
+    (*frame).[0: Int]  size 8 align 8  state
+    (*frame).[8: Int]  size 8 align 8  op budget
+    (*frame).[16: Int]  size 8 align 8  _0 result
+    (*frame).[24: UnsafePointer<Int>]  size 8 align 8  _1 param p  (across 1)
+    (*frame).[32: Int]  size 8 align 8  _2 i  (across 1)
+    (*frame).[40: Int]  size 8 align 8  _3 t  (across 1)
+    (*frame).[48: [Int; 0]]  size 0 align 8  _4 z  (across 1)
+    (*frame).[48: Int]  size 8 align 8  _8  (across 1)
+    stack: _5 _6 _7 _9 _10 _11 _12
+frame #24: zero_size.last_param(n: Int, z: [Int; 0])  (size 24 align 8)
+    suspend 1: bb0 call __saw_suspend
+    (*frame).[0: Int]  size 8 align 8  state
+    (*frame).[8: Int]  size 8 align 8  _0 result
+    (*frame).[16: Int]  size 8 align 8  _1 param n  (across 1)
+    (*frame).[24: [Int; 0]]  size 0 align 8  _2 param z  (across 1)
+    stack: _3 _4 _5
+frame #25: zero_size.first_params(y: [Int; 0], z: [Int; 0], n: Int)  (size 24 align 8)
+    suspend 1: bb0 call __saw_suspend
+    (*frame).[0: Int]  size 8 align 8  state
+    (*frame).[8: Int]  size 8 align 8  _0 result
+    (*frame).[16: [Int; 0]]  size 0 align 8  _1 param y  (across 1)
+    (*frame).[16: [Int; 0]]  size 0 align 8  _2 param z  (across 1)
+    (*frame).[16: Int]  size 8 align 8  _3 param n  (across 1)
+    stack: _4 _5 _6 _7 _8
+frame #26: zero_size.result()  (size 8 align 8)
+    suspend 1: bb0 call __saw_suspend
+    (*frame).[0: Int]  size 8 align 8  state
+    (*frame).[8: [Int; 0]]  size 0 align 8  _0 result
+    stack: _1

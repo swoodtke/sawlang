@@ -89,7 +89,7 @@ func main() {
     assert(at >= 0, "the verifier records no body for `held`")
     let b = coro.before.bodies[at]
     assert(unslot_record(&var coro, &b) > 0, "`held` names no window record, or none in the frame")
-    coro_verify_lowering(&var coro)
+    coro_verify_lowering(&var coro, &var target)
     assert(coro.problems.len() == 1, "the verifier reports {} problems, not one", coro.problems.len())
     let found = coro.problems.get(0) ?? ""
     assert(holds(&found, "verify rule 2 (teardown by state)"), "the report does not name rule 2: {}", found)

@@ -83,7 +83,7 @@ func main() {
     assert(place.count == 2 && slot.kind == MirProjKind.FrameSlot, "`keep`'s drop does not name a frame slot")
     coro.mono.dp.bc.mir.places[p] = MirPlace(local: place.local, static_decl: -1, first: place.first, count: 1,
                                               ty: place.ty)
-    coro_verify_lowering(&var coro)
+    coro_verify_lowering(&var coro, &var target)
     assert(coro.problems.len() > 0, "the verifier admits a frame addressed as a whole")
     var whole = 0
     var k = 0

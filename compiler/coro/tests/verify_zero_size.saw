@@ -1,0 +1,166 @@
+// The post-lowering verifier over zero-size frame values (SL-688): a slot's
+// bytes run from its offset through its type's size, so a zero-size slot may
+// lie at its frame's end. The fixture `compiler/tests/coro/inject/zero_size.saw`
+// is lowered and found clean, `make`'s zero-size result slot lying at the end
+// of `outer`'s frame. Then, each on a fresh lowering: `label`'s drop is moved
+// to a slot that starts inside the frame and runs past its end, which rule 1
+// must report; and `make`'s result slot is copied by a statement lowering
+// never adds, which rule 2 must report as reaching into that child's frame.
+// Paths are the repository root's, where the runner runs.
+import sawcoro.api.{coro_lower_file, coro_lower_for}
+import sawcoro.frames.{coro_frame_of}
+import sawcoro.lower.{coro_add_local, coro_append_stmt, coro_frame_place, coro_use_rvalue}
+import sawcoro.program.{CoroProgram, CoroValueKind}
+import sawcoro.spawn.{coro_param_type}
+import sawcoro.verify.{coro_verify_lowering}
+import sawmir.model.{MirConstKind, MirOperand, MirOperandKind, MirPlace, MirProjKind, MirStmtKind}
+import sawmono.dump.{mono_dump_layouts}
+
+// Whether `text` holds `word` at some byte.
+func holds(text: &String, word: String) -> Bool {
+    let n = text.len()
+    let w = word.len()
+    var at = 0
+    while at + w <= n {
+        var k = 0
+        while k < w && text.byte_at(at + k) == word.byte_at(k) {
+            k = k + 1
+        }
+        if k == w {
+            return true
+        }
+        at = at + 1
+    }
+    false
+}
+
+// The verified body whose item's name holds `name`, by its index in
+// `coro.before.bodies`, or -1.
+func body_of(coro: &CoroProgram, name: String) -> Int {
+    var k = 0
+    while k < coro.before.bodies.len() {
+        let b = coro.before.bodies[k]
+        let item = coro.mono.item_name(b.item)
+        if holds(&item, name) {
+            return k
+        }
+        k = k + 1
+    }
+    return -1
+}
+
+// The fixture, lowered for one target, with nothing refused or broken.
+func lowered() -> CoroProgram {
+    let names = Vector<String>()
+    let dirs = Vector<String>()
+    var front = StringBuilder()
+    var coro = coro_lower_file(out: &var front, path: "compiler/tests/coro/inject/zero_size.saw", std_root: "std",
+                               notes: false, names: &names, dirs: &dirs)
+    assert(not coro.blocked && coro.diags.len() == 0, "the fixture is refused: run from the repository root")
+    var target = coro.mono.target_for("arm64-apple-darwin")
+    coro_lower_for(&var coro, &var target)
+    // Stage 0 workaround (SL:hazards S23): canonical: assert(coro.problems.len() == 0, "the fixture's lowering is not clean: {}", coro.problems.get(0) ?? "")
+    let first = coro.problems.get(0) ?? ""
+    assert(coro.problems.len() == 0, "the fixture's lowering is not clean: {}", first)
+    move coro
+}
+
+// How many of `coro`'s problems hold `word`, each of them naming rule `rule`.
+func reports(coro: &CoroProgram, word: String, rule: String) -> Int {
+    var found = 0
+    var k = 0
+    while k < coro.problems.len() {
+        let text = coro.problems.get(k) ?? ""
+        k = k + 1
+        if holds(&text, word) {
+            assert(holds(&text, rule), "a report does not name {}: {}", rule, text)
+            found = found + 1
+        }
+    }
+    found
+}
+
+// `label`'s drop in `outer`'s lowered body moves to the slot at 4 bytes
+// before the frame's end, so its 8 bytes run past it.
+func past_the_end() {
+    var coro = lowered()
+    let at = body_of(&coro, "outer")
+    assert(at >= 0, "the verifier records no body for `outer`")
+    let body = coro.before.bodies[at]
+    let item = body.item
+    let f = body.body
+    let size = coro.frames[coro_frame_of(&coro, item)].size
+    let info = coro.mono.dp.bc.mir.funcs[f]
+    var moved = 0
+    var b = 0
+    while b < info.block_count {
+        var s = coro.mono.dp.bc.mir.blocks[info.block_first + b].first
+        b = b + 1
+        while s >= 0 {
+            let stmt = coro.mono.dp.bc.mir.stmts[s]
+            s = stmt.next
+            if stmt.kind != MirStmtKind.Drop {
+                continue
+            }
+            let place = coro.mono.dp.bc.mir.places[stmt.place]
+            var slot = coro.mono.dp.bc.mir.projs[place.first + 1]
+            assert(place.count == 2 && slot.kind == MirProjKind.FrameSlot, "`outer`'s drop does not name a frame slot")
+            slot.index = size - 4
+            coro.mono.dp.bc.mir.projs[place.first + 1] = slot
+            moved = moved + 1
+        }
+    }
+    assert(moved == 1, "`outer`'s lowered body drops {} places, not one", moved)
+    var target = coro.mono.target_for("arm64-apple-darwin")
+    coro_verify_lowering(&var coro, &var target)
+    let past = reports(&coro, "a slot lies past the frame's end", "verify rule 1 (frame in place)")
+    assert(past == 1, "the verifier reports a slot running past the frame's end {} times, not once", past)
+}
+
+// A statement lowering never adds copies `make`'s result slot, which lies at
+// the end of `make`'s frame and of `outer`'s.
+func into_the_child() {
+    var coro = lowered()
+    let at = body_of(&coro, "outer")
+    assert(at >= 0, "the verifier records no body for `outer`")
+    let body = coro.before.bodies[at]
+    let item = body.item
+    let f = body.body
+    let frame = coro.frames[coro_frame_of(&coro, item)]
+    var child = -1
+    var end = -1
+    var k = 0
+    while k < frame.value_count {
+        let v = coro.values[frame.value_first + k]
+        k = k + 1
+        if v.kind == CoroValueKind.Child {
+            child = v.child
+            end = v.offset + coro.frames[coro_frame_of(&coro, v.child)].size
+        }
+    }
+    assert(child >= 0 && end == frame.size, "`outer`'s last value is no child frame ending at its own end")
+    let ty = coro_param_type(&coro, child, 0)
+    let frame_local = coro.resumes[coro.resume_of[item]].frame_local
+    let from = coro_frame_place(&var coro, frame_local, end, ty)
+    let o = coro.mono.dp.bc.mir.operands.len()
+    try! coro.mono.dp.bc.mir.operands.push(MirOperand(kind: MirOperandKind.Copy, place: from, ty: ty,
+                                                      const_kind: MirConstKind.Unit, text: -1))
+    let first = coro.mono.dp.bc.mir.lists.len()
+    try! coro.mono.dp.bc.mir.lists.push(o)
+    let rv = coro_use_rvalue(&var coro, ty, first)
+    let local = coro_add_local(&var coro, f, ty)
+    let into = coro.mono.dp.bc.mir.places.len()
+    let steps = coro.mono.dp.bc.mir.projs.len()
+    try! coro.mono.dp.bc.mir.places.push(MirPlace(local: local, static_decl: -1, first: steps, count: 0, ty: ty))
+    coro_append_stmt(&var coro, f, 0, into, rv, -1)
+    var target = coro.mono.target_for("arm64-apple-darwin")
+    coro_verify_lowering(&var coro, &var target)
+    let reached = reports(&coro, "a place reaches into the frame of child `zero_size.make()`",
+                          "verify rule 2 (teardown by state)")
+    assert(reached == 1, "the verifier reports the copy of `make`'s result slot {} times, not once", reached)
+}
+
+func main() {
+    past_the_end()
+    into_the_child()
+}

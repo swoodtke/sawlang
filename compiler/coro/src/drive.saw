@@ -21,8 +21,8 @@
 
 import sawborrowck.program.{BorrowckProgram}
 import sawcoro.frames.{coro_frame_of}
-import sawcoro.lower.{coro_add_block, coro_add_local, coro_append_stmt, coro_child_offset, coro_frame_lowered,
-                      coro_frame_place, coro_is_frame_slot, coro_use_rvalue}
+import sawcoro.lower.{coro_add_block, coro_add_local, coro_append_owed, coro_append_stmt, coro_child_offset,
+                      coro_frame_lowered, coro_frame_place, coro_is_frame_slot, coro_slot_writes, coro_use_rvalue}
 import sawcoro.program.{CoroDriveSite, CoroFrame, CoroProgram, CoroValueKind}
 import sawcoro.spawn.{coro_add_call_block, coro_local_place, coro_new_call, coro_param_type, coro_push_local_arg,
                       coro_set_next, coro_write_frame}
@@ -225,11 +225,11 @@ func coro_escaped(text: String) -> String {
 
 // The structural invariant of every lowered drive site: its drive call
 // carries no arguments and returns to the driver's call; the site's block
-// writes the task root's state word and each of its parameter slots exactly
-// once, `(*_R).[P: T] = ...`; and a `__saw_drive` whose root gives a value
-// returns from the driver to the move-out, `dest = move (*_R).[R: T]` then a
-// goto. The slots are read from the root's frame, not from the lowering. A
-// broken one is an `INVARIANT` line.
+// writes the task root's state word and each of its parameters exactly once,
+// in its slot, `(*_R).[P: T] = ...`; and a `__saw_drive` whose root gives a
+// value returns from the driver to the move-out, `dest = move (*_R).[R: T]`
+// then a goto. The slots are read from the root's frame, not from the
+// lowering. A broken one is an `INVARIANT` line.
 public func coro_check_drive_sites(coro: &var CoroProgram) {
     var k = 0
     while k < coro.drives.len() {
@@ -246,20 +246,12 @@ public func coro_check_drive_sites(coro: &var CoroProgram) {
         let block = coro.mono.dp.bc.mir.blocks[info.block_first + d.block]
         var l = 0
         while l <= root_info.param_count {
-            var off = coro_child_offset(&coro, &frame, CoroValueKind.Param, l)
-            if l == 0 {
-                off = coro_child_offset(&coro, &frame, CoroValueKind.State, -1)
+            let w = if l == 0 {
+                coro_slot_writes(&coro, &block, d.frame, &frame, 0, CoroValueKind.State, -1)
+            } else {
+                coro_slot_writes(&coro, &block, d.frame, &frame, 0, CoroValueKind.Param, l)
             }
-            var writes = 0
-            var st = block.first
-            while st >= 0 {
-                let stmt = coro.mono.dp.bc.mir.stmts[st]
-                st = stmt.next
-                if stmt.kind == MirStmtKind.Assign && coro_is_frame_slot(&coro, stmt.place, d.frame, off) {
-                    writes = writes + 1
-                }
-            }
-            if writes != 1 {
+            if w.writes != w.owed {
                 var what = StringBuilder()
                 if l == 0 {
                     try! what.append("the state word's slot")
@@ -269,12 +261,12 @@ public func coro_check_drive_sites(coro: &var CoroProgram) {
                     try! what.append("'s slot")
                 }
                 try! what.append(" (*frame).[")
-                try! what.append(off)
+                try! what.append(w.offset)
                 try! what.append("] is written ")
-                try! what.append(writes)
+                try! what.append(w.writes)
                 try! what.append(" times in bb")
                 try! what.append(d.block)
-                try! what.append(", not once")
+                coro_append_owed(&var what, w.owed)
                 coro_drive_site_problem(&var coro, &d, what.build())
             }
             l = l + 1
@@ -292,6 +284,7 @@ func coro_check_move_out(coro: &var CoroProgram, d: &CoroDriveSite, frame: &Coro
     let info = coro.mono.dp.bc.mir.funcs[f]
     let driver = coro.mono.dp.bc.mir.blocks[info.block_first + d.drive_block]
     let off = coro_child_offset(&coro, &frame, CoroValueKind.Result, 0)
+    let ty = coro.mono.dp.bc.mir.locals[coro.mono.dp.bc.mir.funcs[frame.body].local_first].ty
     var moves = driver.term == MirTermKind.Call && coro.mono.dp.bc.mir.calls[driver.call].next == d.result_block
     if moves {
         let after = coro.mono.dp.bc.mir.blocks[info.block_first + d.result_block]
@@ -304,7 +297,7 @@ func coro_check_move_out(coro: &var CoroProgram, d: &CoroDriveSite, frame: &Coro
                 moves = rv.kind == MirRvalueKind.Use && rv.count == 1
                 if moves {
                     let o = coro.mono.dp.bc.mir.operands[coro.mono.dp.bc.mir.lists[rv.first]]
-                    moves = o.kind == MirOperandKind.Move && coro_is_frame_slot(&coro, o.place, d.frame, off)
+                    moves = o.kind == MirOperandKind.Move && coro_is_frame_slot(&coro, o.place, d.frame, off, ty)
                 }
             }
         }

@@ -1,0 +1,59 @@
+// probe: stated
+// about: the `Void` payload of a `try!` held in a frame, at its end and mid-frame (SL-688)
+// stage 0: builds it and prints the same lines; stated until the lane keeps Stage 0's output (SL-665)
+// speeds: -O0 -O2
+// prints: 300
+// prints: 36
+// prints: 8
+// prints: 300
+// A loop in a framed body suspends at its op-budget point, so the `Void`
+// payload local of `try! v.push(...)` lives in the frame across it. It
+// occupies no byte, so in `at_end` it lies at the frame's end, and in `mid`
+// at the offset of `j`, laid after it. `pauses` drives a `Void` child from
+// the last child slot, whose result lies at the end of that child's frame.
+
+func at_end() -> Int {
+    var v = Vector<Int>()
+    var i = 0
+    while i < 3 {
+        try! v.push(i * 100)
+        i = i + 1
+    }
+    v[1] + v[2]
+}
+
+func mid() -> Int {
+    var v = Vector<Int>()
+    var i = 0
+    while i < 3 {
+        try! v.push(i * 10)
+        i = i + 1
+    }
+    var j = 0
+    var t = 0
+    while j < 4 {
+        t = t + j
+        j = j + 1
+    }
+    v[1] + v[2] + t
+}
+
+func pause() {
+    __saw_suspend()
+}
+
+func pauses() -> Int {
+    var n = 7
+    pause()
+    n = n + 1
+    pause()
+    n
+}
+
+func main() {
+    print(__saw_drive(at_end()))
+    print(__saw_drive(mid()))
+    print(__saw_drive(pauses()))
+    __saw_drive(pause())
+    print(Task.spawn(at_end()).join())
+}

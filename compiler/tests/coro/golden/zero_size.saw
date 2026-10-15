@@ -1,0 +1,99 @@
+// Zero-size frame values (SL-688): a zero-length array takes no byte of its
+// frame, so it lies at the frame's end when laid last, and at the offset of
+// the value after it when laid mid-frame, beside the index the lowering copies
+// out of the frame among them; two parameters share one slot; a child's
+// result lies at that child's frame's end, which is its caller's. The backend
+// cannot build an array literal yet, so these shapes are lowered here; the run
+// lane's `coro_zero_size_*` probes run an empty struct, the `Void` payload of a
+// `try!` and an empty tuple in them. A one-case enum keeps its tag, so it is
+// no zero-size value.
+
+enum One {
+    case Only
+}
+
+func count(of: [Int; 0]) -> Int {
+    0
+}
+
+func at_end() -> Int {
+    var i = 0
+    let z: [Int; 0] = []
+    while i < 3 {
+        i = i + 1
+    }
+    count(of: z) + i
+}
+
+func mid() -> Int {
+    let z: [Int; 0] = []
+    var i = 0
+    while i < 3 {
+        i = i + 1
+    }
+    count(of: z) + i
+}
+
+func before_index(p: UnsafePointer<Int>) unsafe -> Int {
+    var i = 0
+    var t = 0
+    let z: [Int; 0] = []
+    while i < 2 {
+        t = t + p[i]
+        i = i + 1
+    }
+    count(of: z) + t
+}
+
+func last_param(n: Int, z: [Int; 0]) -> Int {
+    __saw_suspend()
+    n + count(of: z)
+}
+
+func first_params(y: [Int; 0], z: [Int; 0], n: Int) -> Int {
+    __saw_suspend()
+    n + count(of: y) + count(of: z)
+}
+
+func result() -> [Int; 0] {
+    __saw_suspend()
+    []
+}
+
+func children() -> Int {
+    let a = last_param(n: 1, z: [])
+    let b = first_params(y: [], z: [], n: 2)
+    let z = result()
+    a + b + count(of: z)
+}
+
+func enum_at_end() -> Int {
+    var i = 0
+    let o = One.Only
+    while i < 3 {
+        i = i + 1
+    }
+    let _ = o
+    i
+}
+
+struct Pair {
+    a: Int
+    b: Int
+}
+
+func indexed() unsafe {
+    var q = Pair(a: 1, b: 2)
+    let qp = (&q) as UnsafePointer<Int>
+    print(__saw_drive(before_index(qp)))
+}
+
+func main() {
+    print(__saw_drive(at_end()))
+    print(__saw_drive(mid()))
+    indexed()
+    print(__saw_drive(children()))
+    print(__saw_drive(first_params([], [], 3)))
+    print(Task.spawn(first_params([], [], 4)).join())
+    print(__saw_drive(enum_at_end()))
+}

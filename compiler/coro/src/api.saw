@@ -81,7 +81,7 @@ public func coro_lower_for(coro: &var CoroProgram, target: &var Target) {
     coro_lower_frames(&var coro)
     coro_check_spawns(&var coro)
     coro_check_drive_sites(&var coro)
-    coro_verify_lowering(&var coro)
+    coro_verify_lowering(&var coro, &var target)
 }
 
 // The record of one program, after its `FILE` line: everything

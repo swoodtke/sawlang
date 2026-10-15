@@ -164,7 +164,12 @@ interference and gives each an offset; its policy is no sharing, each value
 at the next offset its alignment allows after the one before, so packing
 (SL:coroutines B2) changes that policy and nothing else. The frame's
 alignment is its values' largest, and its size the end of its last value
-rounded up to it. A frame holding a value the target cannot lay out, a child
+rounded up to it. A zero-size value, such as an empty struct, the `Void`
+payload of a `try!`, an empty tuple or a zero-length array, takes its offset
+the same way and occupies no byte: it lies at the offset of the value after
+it, or at the frame's end when laid last. So a slot is told apart by its
+offset and its type, and zero-size parameters of one type share a slot
+(golden `zero_size`). A frame holding a value the target cannot lay out, a child
 frame that cannot be among them, gets no offsets.
 
 **The `--layouts` record**, per frame, in item order:
@@ -311,8 +316,8 @@ Stage 0, where only a `cancelled()` written in a framed body reads the word.
 Nothing else changes: no drop and no window close is added, since teardown is the body's
 own, and the writes and the move-out are the transfers the call made. After
 lowering, every drive is checked: its call carries no arguments and no
-destination, its block writes each of the child's parameter slots (read from
-the child's frame) exactly once, and a call with a destination returns to its
+destination, its block writes each of the child's parameters (its slot read
+from the child's frame) exactly once, and a call with a destination returns to its
 move-out. A broken one is an `INVARIANT` line, which the unit program
 `compiler/coro/tests/drive_invariant.saw` provokes by unlinking a write. The
 resume function, `resume(frame, cx) -> Poll` (runtime/ABI.md, "The
@@ -366,8 +371,8 @@ So the rewrite adds no ownership operation: the arguments travel as the site
 passed them, and the handle lands where the site put it. Every lowered site
 is checked: its spawn call carries no arguments and returns to the box, the
 box returns to the writes, and the writes set the state word and each of the
-root's parameter slots (read from the root's frame) exactly once. A broken one
-is an `INVARIANT` line.
+root's parameters (its slot read from the root's frame) exactly once. A broken
+one is an `INVARIANT` line.
 
 ### Drive sites
 
@@ -407,7 +412,7 @@ yield is resumed at once, so a drive point never cedes to the run queue
 SITE, until A11 hands that wait to the executor's sweep (SL-645). Every
 lowered site is checked: its drive call carries no arguments and returns to
 the driver's call, its block writes the state word and each of the root's
-parameter slots (read from the root's frame) exactly once, and a move-out
+parameters (its slot read from the root's frame) exactly once, and a move-out
 follows the driver when there is one. A broken one is an `INVARIANT` line.
 
 **The `--lowered` record**, after an `INVARIANT` line per drive or spawn
@@ -438,7 +443,8 @@ decided before it (SL:architecture §3.9, SL:coroutines A5). It is one funnel,
 `coro_lower_for` runs it on every lowering, so `sawc2 build`, `--lowered` and
 every lane that builds a program run it too. It recomputes every fact from the
 MIR, and reads none of the lowering's own records (its points and resume
-functions): only which frames are lowered, and their layouts.
+functions): only which frames are lowered, their layouts, and the target's size
+of each slot's type.
 
 The lowering rewrites places and calls in place, so just before it starts the
 verifier records every body it may rewrite: each lowered frame's, and each one
@@ -454,7 +460,8 @@ against four rules, and a broken one is an `INVARIANT` line,
    offset of at least 0, and no place dereferences that local without one, so
    the frame's bytes are never read, written or moved as a whole. A lowered
    frame's own pointer is the one such local its body never writes; it is used
-   for nothing but its slots, and they lie inside the frame. Each place the
+   for nothing but its slots, and each slot's bytes, from its offset through
+   its type's size, lie inside the frame. Each place the
    body named is either as it was or, for a frame value, its slot followed by
    its own steps, at one offset for all of the local's places, the offset its
    frame's layout gives it. No local is reached both in its slot and on the
@@ -511,6 +518,7 @@ verifier's report naming the rule:
 | 2 | `compiler/coro/tests/verify_window_records` | `window_records` | a window record open across a suspension is put back on the stack |
 | 3 | `compiler/coro/tests/verify_windows` | `windows` | a window close returns to a second close of its window |
 | 4 | `parks/verify_records` | `records` | a descriptor park's record moves past its arm |
+| 1, 2 | `compiler/coro/tests/verify_zero_size` | `zero_size` | a drop's slot starts inside the frame and runs past its end; a statement copies a child's zero-size result slot, at that child's end and the frame's |
 
 `records` parks on a descriptor, which no std module calls yet, so it is
 lowered under the lane's copy of std, as the park goldens are; its unit
@@ -584,6 +592,13 @@ suspensions, whose record stays on the stack. The run lane's
 `coro_windows_beside_suspension` and `probes/coro_windows_held` run those
 shapes. Golden `index_reads` is an index by a frame value, through its stack
 local, which the run lane's `coro_index_read_from_frame` runs. Golden
+`zero_size` is a zero-length array, which the backend cannot build yet, at a
+frame's end, mid-frame, beside an index's frame value, as two parameters
+sharing a slot and as a child's result at its caller's end, and a one-case
+enum, which keeps its tag; the run lane's `probes/coro_zero_size_struct`,
+`probes/coro_zero_size_void` and `probes/coro_zero_size_tuple` run an empty
+struct, the `Void` payload of a `try!` and an empty tuple in those positions.
+Golden
 `op_budget` is op-budget points: yield-capable ones in a frame that also
 yields and in a driven root that never suspends, a charge-only one inside a
 `borrows(sync)` window, and the points deleted from a driver's own loop;

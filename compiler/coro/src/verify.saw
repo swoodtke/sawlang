@@ -2,9 +2,10 @@
 // so it never sees the resume paths lowering makes; this checks that lowering
 // preserved what was decided before it. Every fact is recomputed from the
 // MIR, as it was and as lowering left it, and none is read from the
-// lowering's own records; it reads only which frames were lowered and their
-// layouts. Four rules, each broken one an `INVARIANT` line naming its rule
-// (compiler/tests/coro/README.md, "The verifier"):
+// lowering's own records; it reads only which frames were lowered, their
+// layouts, and the target's size of each slot's type. Four rules, each broken
+// one an `INVARIANT` line naming its rule (compiler/tests/coro/README.md, "The
+// verifier"):
 //   1, frame in place: a frame value is reached only in its slot through the
 //      frame pointer, and the frame never as a whole, so nothing relocates it;
 //   2, teardown by state: at each suspension state the frame's values are
@@ -36,6 +37,7 @@ import sawmono.dump.{mono_dump_layouts}
 import sawmono.program.{MonoProgram}
 import sawresolve.lang.{ResLang}
 import sawresolve.program.{ResProgram}
+import sawtarget.layout.{Target}
 import sawtypecheck.program.{TcProgram}
 import sawtypecheck.typeops.{TcClient}
 
@@ -298,27 +300,28 @@ func coro_verify_find(values: &Vector<Int>, value: Int) -> Int {
 }
 
 // Checks every body the snapshot recorded, as the lowering left it, against
-// the four rules; each broken one is a problem of `coro`.
-public func coro_verify_lowering(coro: &var CoroProgram) {
+// the four rules, sizing each slot's type for `target`, the target the frames
+// were laid out for; each broken one is a problem of `coro`.
+public func coro_verify_lowering(coro: &var CoroProgram, target: &var Target) {
     let context = coro_context_shape(&var coro)
     var k = 0
     while k < coro.before.bodies.len() {
         let body = coro.before.bodies[k]
         k = k + 1
-        coro_verify_body(&var coro, &context, &body)
+        coro_verify_body(&var coro, &var target, &context, &body)
     }
 }
 
-func coro_verify_body(coro: &var CoroProgram, cx: &CoroContext, b: &CoroBeforeBody) {
+func coro_verify_body(coro: &var CoroProgram, target: &var Target, cx: &CoroContext, b: &CoroBeforeBody) {
     let places = coro_verify_places(&coro, b.body)
-    let frame = coro_verify_frame_pointer(&var coro, &b, &places)
+    let frame = coro_verify_frame_pointer(&var coro, &var target, &b, &places)
     let slots = coro_verify_residents(&var coro, &b, frame)
     coro_verify_index_reads(&var coro, &b, &places, &slots)
     if b.framed {
         coro_verify_point_states(&var coro, &b, &slots)
     }
     coro_verify_drops(&var coro, &b)
-    coro_verify_transfers(&var coro, &cx, &b, frame, &slots, &places)
+    coro_verify_transfers(&var coro, &var target, &cx, &b, frame, &slots, &places)
     coro_verify_windows(&var coro, &b, &slots)
     if b.framed {
         coro_verify_records(&var coro, &cx, &b)
@@ -406,9 +409,10 @@ func coro_verify_add_operands(coro: &CoroProgram, out: &var Vector<Int>, first: 
 // without a slot, which would read, write or move the frame's bytes as a
 // whole. A lowered frame's own pointer is the one such local the body never
 // writes, which the resume function points at the frame on every entry; it
-// is used for nothing but its slots, and they lie inside the frame. Returns
-// that local, or -1.
-func coro_verify_frame_pointer(coro: &var CoroProgram, b: &CoroBeforeBody, places: &Vector<Int>) -> Int {
+// is used for nothing but its slots, and each slot's bytes lie inside the
+// frame. Returns that local, or -1.
+func coro_verify_frame_pointer(coro: &var CoroProgram, target: &var Target, b: &CoroBeforeBody,
+                               places: &Vector<Int>) -> Int {
     let info = coro.mono.dp.bc.mir.funcs[b.body]
     var roots = Vector<Bool>()
     var writes = Vector<Int>()
@@ -486,8 +490,8 @@ func coro_verify_frame_pointer(coro: &var CoroProgram, b: &CoroBeforeBody, place
             coro_verify_problem(&var coro, 1, b.item, what.build())
             continue
         }
-        let offset = coro.mono.dp.bc.mir.projs[pl.first + 1].index
-        if pl.local == frame && size >= 0 && offset >= size {
+        let slot = coro.mono.dp.bc.mir.projs[pl.first + 1]
+        if pl.local == frame && size >= 0 && coro_verify_slot_end(&var coro, &var target, &slot) > size {
             var what = StringBuilder()
             try! what.append("a slot lies past the frame's end, ")
             try! what.append(size)
@@ -530,6 +534,13 @@ func coro_verify_count_write(coro: &CoroProgram, writes: &var Vector<Int>, p: In
     if pl.count == 0 && pl.local >= 0 && pl.local < writes.len() {
         writes[pl.local] += 1
     }
+}
+
+// Where frame slot `slot`'s bytes end: its offset plus its type's size. A
+// zero-size value occupies no byte, so its slot may sit at the frame's end,
+// or at the offset of the value after it.
+func coro_verify_slot_end(coro: &var CoroProgram, target: &var Target, slot: &MirProj) -> Int {
+    slot.index + target.layout(&var coro.mono.dp.bc.mir.tc, slot.ty).size
 }
 
 // Item `item`'s frame size, by its layout, or -1.
@@ -745,6 +756,8 @@ func coro_verify_copied_slot(coro: &CoroProgram, rv: Int, frame: Int) -> Int {
 }
 
 // The local whose value item `item`'s frame layout puts at `offset`, or -1.
+// A zero-size value shares its offset with the value after it, and a copy of
+// that slot is a copy of the value whose bytes are there.
 func coro_verify_local_at(coro: &CoroProgram, item: Int, offset: Int) -> Int {
     let fr = coro_frame_of(&coro, item)
     if fr < 0 || offset < 0 {
@@ -755,7 +768,8 @@ func coro_verify_local_at(coro: &CoroProgram, item: Int, offset: Int) -> Int {
     while k < frame.value_count {
         let v = coro.values[frame.value_first + k]
         k = k + 1
-        if v.offset == offset && v.local >= 0 && v.kind != CoroValueKind.Child && v.kind != CoroValueKind.State {
+        let held = v.kind != CoroValueKind.Child && v.kind != CoroValueKind.State
+        if v.offset == offset && v.size > 0 && v.local >= 0 && held {
             return v.local
         }
     }
@@ -1168,8 +1182,8 @@ func coro_verify_uses(coro: &CoroProgram, f: Int) -> Vector<CoroVerifyUse> {
 // frame value of the body's own. A call gone from the body is an effect-only
 // suspension, or a read of the cancel word whose destination one read of the
 // word through the task's context writes.
-func coro_verify_transfers(coro: &var CoroProgram, cx: &CoroContext, b: &CoroBeforeBody, frame: Int,
-                           slots: &Vector<Int>, places: &Vector<Int>) {
+func coro_verify_transfers(coro: &var CoroProgram, target: &var Target, cx: &CoroContext, b: &CoroBeforeBody,
+                           frame: Int, slots: &Vector<Int>, places: &Vector<Int>) {
     let uses = coro_verify_uses(&coro, b.body)
     // The places a drive may reach its child's frame through, and each
     // child's region of the frame.
@@ -1281,7 +1295,8 @@ func coro_verify_transfers(coro: &var CoroProgram, cx: &CoroContext, b: &CoroBef
             }
         }
     }
-    coro_verify_regions(&var coro, &b, frame, &slots, &places, &allowed, &region_start, &region_end, &region_child)
+    coro_verify_regions(&var coro, &var target, &b, frame, &slots, &places, &allowed, &region_start, &region_end,
+                        &region_child)
 }
 
 // Call `c` of body `b`, as `pre` was before lowering, ends no block after it:
@@ -1557,9 +1572,9 @@ func coro_verify_move_out(coro: &var CoroProgram, b: &CoroBeforeBody, c: Int, pr
 // Every place lowering added through frame pointer `frame` inside a child's
 // region is one the child's drive was found to reach it by; and none reaches
 // one of the body's own frame values, whose accesses are the body's.
-func coro_verify_regions(coro: &var CoroProgram, b: &CoroBeforeBody, frame: Int, slots: &Vector<Int>,
-                         places: &Vector<Int>, allowed: &Vector<Int>, starts: &Vector<Int>, ends: &Vector<Int>,
-                         children: &Vector<Int>) {
+func coro_verify_regions(coro: &var CoroProgram, target: &var Target, b: &CoroBeforeBody, frame: Int,
+                         slots: &Vector<Int>, places: &Vector<Int>, allowed: &Vector<Int>, starts: &Vector<Int>,
+                         ends: &Vector<Int>, children: &Vector<Int>) {
     if frame < 0 {
         return
     }
@@ -1580,11 +1595,14 @@ func coro_verify_regions(coro: &var CoroProgram, b: &CoroBeforeBody, frame: Int,
         if coro_verify_named_before(&coro, &b, p) {
             continue
         }
+        // A zero-size slot at a child's end is that child's: its last value,
+        // whose offset is where the next child's region begins.
         let offset = slot.index
+        let end = coro_verify_slot_end(&var coro, &var target, &slot)
         var inside = -1
         var r = 0
-        while r < starts.len() {
-            if offset >= starts[r] && offset < ends[r] {
+        while r < starts.len() && inside < 0 {
+            if offset >= starts[r] && (offset < ends[r] || (end == offset && offset == ends[r])) {
                 inside = r
             }
             r = r + 1

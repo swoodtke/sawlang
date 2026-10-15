@@ -86,7 +86,7 @@ func main() {
     let f = body_of(&coro, "main")
     assert(f >= 0, "the verifier records no body for `main`, whose drive site the lowering rewrites")
     assert(close_twice(&var coro, f), "`main` closes no window")
-    coro_verify_lowering(&var coro)
+    coro_verify_lowering(&var coro, &var target)
     assert(coro.problems.len() == 1, "the verifier reports {} problems, not one", coro.problems.len())
     let found = coro.problems.get(0) ?? ""
     assert(holds(&found, "verify rule 3 (windows close once)"), "the report does not name rule 3: {}", found)

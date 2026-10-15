@@ -16,12 +16,12 @@
 
 import sawborrowck.program.{BorrowckProgram}
 import sawcoro.frames.{coro_frame_of}
-import sawcoro.lower.{coro_add_block, coro_add_local, coro_append_stmt, coro_child_offset, coro_frame_lowered,
-                      coro_frame_place, coro_is_frame_slot, coro_use_rvalue}
+import sawcoro.lower.{coro_add_block, coro_add_local, coro_append_owed, coro_append_stmt, coro_child_offset,
+                      coro_frame_lowered, coro_frame_place, coro_slot_writes, coro_use_rvalue}
 import sawcoro.program.{CoroFrame, CoroProgram, CoroSpawn, CoroValueKind}
 import sawdrops.program.{DropsProgram}
 import sawmir.model.{MirAggregate, MirBlock, MirCall, MirCallKind, MirConstKind, MirOperand, MirOperandKind,
-                     MirPlace, MirRvalue, MirRvalueKind, MirSpawnForm, MirStmtKind, MirSwitchKind, MirTermKind}
+                     MirPlace, MirRvalue, MirRvalueKind, MirSpawnForm, MirSwitchKind, MirTermKind}
 import sawmir.program.{MirProgram}
 import sawmir.build.{mir_func_local}
 import sawmono.dump.{mono_dump_layouts}
@@ -242,8 +242,8 @@ public func coro_set_next(coro: &var CoroProgram, f: Int, b: Int, next: Int) {
 // The structural invariant of every lowered spawn site: its spawn call
 // carries no arguments and returns to the box's allocation, which returns to
 // the writes; and the writes set the task root's state word and each of its
-// parameter slots exactly once, `(*_B).[P: T] = ...`. The slots are read
-// from the root's frame, not from the lowering. A broken one is an
+// parameters exactly once, in its slot, `(*_B).[P: T] = ...`. The slots are
+// read from the root's frame, not from the lowering. A broken one is an
 // `INVARIANT` line.
 public func coro_check_spawns(coro: &var CoroProgram) {
     var k = 0
@@ -265,20 +265,12 @@ public func coro_check_spawns(coro: &var CoroProgram) {
         let block = coro.mono.dp.bc.mir.blocks[info.block_first + s.write_block]
         var l = 0
         while l <= root_info.param_count {
-            var off = coro_child_offset(&coro, &frame, CoroValueKind.Param, l)
-            if l == 0 {
-                off = coro_child_offset(&coro, &frame, CoroValueKind.State, -1)
+            let w = if l == 0 {
+                coro_slot_writes(&coro, &block, s.frame, &frame, 0, CoroValueKind.State, -1)
+            } else {
+                coro_slot_writes(&coro, &block, s.frame, &frame, 0, CoroValueKind.Param, l)
             }
-            var writes = 0
-            var st = block.first
-            while st >= 0 {
-                let stmt = coro.mono.dp.bc.mir.stmts[st]
-                st = stmt.next
-                if stmt.kind == MirStmtKind.Assign && coro_is_frame_slot(&coro, stmt.place, s.frame, off) {
-                    writes = writes + 1
-                }
-            }
-            if writes != 1 {
+            if w.writes != w.owed {
                 var what = StringBuilder()
                 if l == 0 {
                     try! what.append("the state word's slot")
@@ -288,12 +280,12 @@ public func coro_check_spawns(coro: &var CoroProgram) {
                     try! what.append("'s slot")
                 }
                 try! what.append(" (*box).[")
-                try! what.append(off)
+                try! what.append(w.offset)
                 try! what.append("] is written ")
-                try! what.append(writes)
+                try! what.append(w.writes)
                 try! what.append(" times in bb")
                 try! what.append(s.write_block)
-                try! what.append(", not once")
+                coro_append_owed(&var what, w.owed)
                 coro_spawn_problem(&var coro, &s, what.build())
             }
             l = l + 1

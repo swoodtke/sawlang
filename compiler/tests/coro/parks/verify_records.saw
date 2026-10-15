@@ -122,7 +122,7 @@ func main() {
     let f = body_of(&coro, "fd_wait")
     assert(f >= 0, "the verifier records no body for `fd_wait`")
     assert(record_after_arm(&var coro, f), "`fd_wait`'s arm is not preceded by a record of its park word")
-    coro_verify_lowering(&var coro)
+    coro_verify_lowering(&var coro, &var target)
     assert(coro.problems.len() == 1, "the verifier reports {} problems, not one", coro.problems.len())
     let found = coro.problems.get(0) ?? ""
     assert(holds(&found, "verify rule 4 (record before arm)"), "the report does not name rule 4: {}", found)

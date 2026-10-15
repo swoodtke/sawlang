@@ -1,0 +1,641 @@
+resume #5: zero_size.at_end() task root  (frame size 32 align 8, pointer _8, context _9)
+    state 0: bb0
+    state 1: bb6 park ready
+fn zero_size.at_end() -> Int {
+    let _0: Int;  // return
+    let _1: Int;  // i
+    let _2: [Int; 0];  // z
+    let _3: [Int; 0];
+    let _4: Bool;
+    let _5: Int;
+    let _6: Int;
+    let _7: Int;
+    let _8: &var Int;
+    let _9: &var std.taskgroup.TaskContext;
+    let _10: Bool;
+
+    bb0: {
+        (*_8).[8: Int] = const 128: Int;
+        (*_8).[24: Int] = const 0: Int;
+        _3 = [];
+        (*_8).[32: [Int; 0]] = move _3;
+        goto -> bb1;
+    }
+
+    bb1: {
+        _4 = Lt(copy (*_8).[24: Int], const 3: Int);
+        switch move _4 -> [true: bb3, false: bb2];
+    }
+
+    bb2: {
+        _6 = call zero_size.count(of: [Int; 0]) [copy (*_8).[32: [Int; 0]]] -> [return: bb5];
+    }
+
+    bb3: {
+        (*_8).[8: Int] = SubWrapping(copy (*_8).[8: Int], const 1: Int);
+        _10 = Le(copy (*_8).[8: Int], const 0: Int);
+        switch move _10 -> [true: bb6, false: bb4];
+    }
+
+    bb4: {
+        _5 = Add(copy (*_8).[24: Int], const 1: Int);
+        (*_8).[24: Int] = move _5;
+        goto -> bb1;
+    }
+
+    bb5: {
+        _7 = Add(move _6, copy (*_8).[24: Int]);
+        (*_8).[16: Int] = move _7;
+        return;
+    }
+
+    bb6: {
+        (*_8).[8: Int] = const 128: Int;
+        (*(*_9).park) = const 0: Int;
+        call std.task.__saw_park_ready() [] -> [return: bb4] suspends;
+    }
+}
+resume #7: zero_size.mid() task root  (frame size 32 align 8, pointer _8, context _9)
+    state 0: bb0
+    state 1: bb6 park ready
+fn zero_size.mid() -> Int {
+    let _0: Int;  // return
+    let _1: [Int; 0];  // z
+    let _2: [Int; 0];
+    let _3: Int;  // i
+    let _4: Bool;
+    let _5: Int;
+    let _6: Int;
+    let _7: Int;
+    let _8: &var Int;
+    let _9: &var std.taskgroup.TaskContext;
+    let _10: Bool;
+
+    bb0: {
+        (*_8).[8: Int] = const 128: Int;
+        _2 = [];
+        (*_8).[24: [Int; 0]] = move _2;
+        (*_8).[24: Int] = const 0: Int;
+        goto -> bb1;
+    }
+
+    bb1: {
+        _4 = Lt(copy (*_8).[24: Int], const 3: Int);
+        switch move _4 -> [true: bb3, false: bb2];
+    }
+
+    bb2: {
+        _6 = call zero_size.count(of: [Int; 0]) [copy (*_8).[24: [Int; 0]]] -> [return: bb5];
+    }
+
+    bb3: {
+        (*_8).[8: Int] = SubWrapping(copy (*_8).[8: Int], const 1: Int);
+        _10 = Le(copy (*_8).[8: Int], const 0: Int);
+        switch move _10 -> [true: bb6, false: bb4];
+    }
+
+    bb4: {
+        _5 = Add(copy (*_8).[24: Int], const 1: Int);
+        (*_8).[24: Int] = move _5;
+        goto -> bb1;
+    }
+
+    bb5: {
+        _7 = Add(move _6, copy (*_8).[24: Int]);
+        (*_8).[16: Int] = move _7;
+        return;
+    }
+
+    bb6: {
+        (*_8).[8: Int] = const 128: Int;
+        (*(*_9).park) = const 0: Int;
+        call std.task.__saw_park_ready() [] -> [return: bb4] suspends;
+    }
+}
+resume #9: zero_size.children() task root  (frame size 88 align 8, pointer _13)
+    state 0: bb0
+    state 1: bb0 drive #24 zero_size.last_param(n: Int, z: [Int; 0]) at (*frame).[32]
+    state 2: bb1 drive #25 zero_size.first_params(y: [Int; 0], z: [Int; 0], n: Int) at (*frame).[56]
+    state 3: bb2 drive #26 zero_size.result() at (*frame).[80]
+fn zero_size.children() -> Int {
+    let _0: Int;  // return
+    let _1: Int;  // a
+    let _2: [Int; 0];
+    let _3: Int;
+    let _4: Int;  // b
+    let _5: [Int; 0];
+    let _6: [Int; 0];
+    let _7: Int;
+    let _8: [Int; 0];  // z
+    let _9: [Int; 0];
+    let _10: Int;
+    let _11: Int;
+    let _12: Int;
+    let _13: &var Int;
+
+    bb0: {
+        _2 = [];
+        (*_13).[48: Int] = const 1: Int;
+        (*_13).[56: [Int; 0]] = move _2;
+        call zero_size.last_param(n: Int, z: [Int; 0]) [] -> [return: bb5] suspends;
+    }
+
+    bb1: {
+        (*_13).[16: Int] = move _3;
+        _5 = [];
+        _6 = [];
+        (*_13).[72: [Int; 0]] = move _5;
+        (*_13).[72: [Int; 0]] = move _6;
+        (*_13).[72: Int] = const 2: Int;
+        call zero_size.first_params(y: [Int; 0], z: [Int; 0], n: Int) [] -> [return: bb6] suspends;
+    }
+
+    bb2: {
+        (*_13).[24: Int] = move _7;
+        call zero_size.result() [] -> [return: bb7] suspends;
+    }
+
+    bb3: {
+        _8 = move _9;
+        _10 = Add(copy (*_13).[16: Int], copy (*_13).[24: Int]);
+        _11 = call zero_size.count(of: [Int; 0]) [copy _8] -> [return: bb4];
+    }
+
+    bb4: {
+        _12 = Add(move _10, move _11);
+        (*_13).[8: Int] = move _12;
+        return;
+    }
+
+    bb5: {
+        _3 = move (*_13).[40: Int];
+        goto -> bb1;
+    }
+
+    bb6: {
+        _7 = move (*_13).[64: Int];
+        goto -> bb2;
+    }
+
+    bb7: {
+        _9 = move (*_13).[88: [Int; 0]];
+        goto -> bb3;
+    }
+}
+resume #10: zero_size.first_params(y: [Int; 0], z: [Int; 0], n: Int) task root  (frame size 24 align 8, pointer _9, context _10)
+    state 0: bb0
+    state 1: bb0 park ready
+fn zero_size.first_params(y: [Int; 0], z: [Int; 0], n: Int) -> Int {
+    let _0: Int;  // return
+    let _1: [Int; 0];  // param y
+    let _2: [Int; 0];  // param z
+    let _3: Int;  // param n
+    let _4: Int;
+    let _5: Int;
+    let _6: Int;
+    let _7: Int;
+    let _8: Int;
+    let _9: &var Int;
+    let _10: &var std.taskgroup.TaskContext;
+
+    bb0: {
+        (*(*_10).park) = const 0: Int;
+        call builtin __saw_suspend [] -> [return: bb1] suspends;
+    }
+
+    bb1: {
+        _4 = copy (*_9).[16: Int];
+        _5 = call zero_size.count(of: [Int; 0]) [copy (*_9).[16: [Int; 0]]] -> [return: bb2];
+    }
+
+    bb2: {
+        _6 = Add(move _4, move _5);
+        _7 = call zero_size.count(of: [Int; 0]) [copy (*_9).[16: [Int; 0]]] -> [return: bb3];
+    }
+
+    bb3: {
+        _8 = Add(move _6, move _7);
+        (*_9).[8: Int] = move _8;
+        return;
+    }
+}
+resume #17: zero_size.enum_at_end() task root  (frame size 40 align 8, pointer _7, context _8)
+    state 0: bb0
+    state 1: bb5 park ready
+fn zero_size.enum_at_end() -> Int {
+    let _0: Int;  // return
+    let _1: Int;  // i
+    let _2: zero_size.One;  // o
+    let _3: zero_size.One;
+    let _4: Bool;
+    let _5: Int;
+    let _6: zero_size.One;
+    let _7: &var Int;
+    let _8: &var std.taskgroup.TaskContext;
+    let _9: Bool;
+
+    bb0: {
+        (*_7).[8: Int] = const 128: Int;
+        (*_7).[24: Int] = const 0: Int;
+        _3 = zero_size.One::Only;
+        (*_7).[32: zero_size.One] = move _3;
+        goto -> bb1;
+    }
+
+    bb1: {
+        _4 = Lt(copy (*_7).[24: Int], const 3: Int);
+        switch move _4 -> [true: bb3, false: bb2];
+    }
+
+    bb2: {
+        _6 = copy (*_7).[32: zero_size.One];
+        (*_7).[16: Int] = copy (*_7).[24: Int];
+        return;
+    }
+
+    bb3: {
+        (*_7).[8: Int] = SubWrapping(copy (*_7).[8: Int], const 1: Int);
+        _9 = Le(copy (*_7).[8: Int], const 0: Int);
+        switch move _9 -> [true: bb5, false: bb4];
+    }
+
+    bb4: {
+        _5 = Add(copy (*_7).[24: Int], const 1: Int);
+        (*_7).[24: Int] = move _5;
+        goto -> bb1;
+    }
+
+    bb5: {
+        (*_7).[8: Int] = const 128: Int;
+        (*(*_8).park) = const 0: Int;
+        call std.task.__saw_park_ready() [] -> [return: bb4] suspends;
+    }
+}
+resume #23: zero_size.before_index(p: UnsafePointer<Int>) task root  (frame size 56 align 8, pointer _13, context _14)
+    state 0: bb0
+    state 1: bb6 park ready
+fn zero_size.before_index(p: UnsafePointer<Int>) -> Int {
+    let _0: Int;  // return
+    let _1: UnsafePointer<Int>;  // param p
+    let _2: Int;  // i
+    let _3: Int;  // t
+    let _4: [Int; 0];  // z
+    let _5: [Int; 0];
+    let _6: Bool;
+    let _7: Int;
+    let _8: Int;
+    let _9: Int;
+    let _10: Int;
+    let _11: Int;
+    let _12: Int;
+    let _13: &var Int;
+    let _14: &var std.taskgroup.TaskContext;
+    let _15: Bool;
+    let _16: Int;
+
+    bb0: {
+        (*_13).[8: Int] = const 128: Int;
+        (*_13).[32: Int] = const 0: Int;
+        (*_13).[40: Int] = const 0: Int;
+        _5 = [];
+        (*_13).[48: [Int; 0]] = move _5;
+        goto -> bb1;
+    }
+
+    bb1: {
+        _6 = Lt(copy (*_13).[32: Int], const 2: Int);
+        switch move _6 -> [true: bb3, false: bb2];
+    }
+
+    bb2: {
+        _11 = call zero_size.count(of: [Int; 0]) [copy (*_13).[48: [Int; 0]]] -> [return: bb5];
+    }
+
+    bb3: {
+        (*_13).[8: Int] = SubWrapping(copy (*_13).[8: Int], const 1: Int);
+        _15 = Le(copy (*_13).[8: Int], const 0: Int);
+        switch move _15 -> [true: bb6, false: bb4];
+    }
+
+    bb4: {
+        _7 = copy (*_13).[40: Int];
+        (*_13).[48: Int] = copy (*_13).[32: Int];
+        _16 = copy (*_13).[48: Int];
+        _9 = Add(move _7, copy (*_13).[24: UnsafePointer<Int>][_16]);
+        (*_13).[40: Int] = move _9;
+        _10 = Add(copy (*_13).[32: Int], const 1: Int);
+        (*_13).[32: Int] = move _10;
+        goto -> bb1;
+    }
+
+    bb5: {
+        _12 = Add(move _11, copy (*_13).[40: Int]);
+        (*_13).[16: Int] = move _12;
+        return;
+    }
+
+    bb6: {
+        (*_13).[8: Int] = const 128: Int;
+        (*(*_14).park) = const 0: Int;
+        call std.task.__saw_park_ready() [] -> [return: bb4] suspends;
+    }
+}
+resume #24: zero_size.last_param(n: Int, z: [Int; 0])  (frame size 24 align 8, pointer _6, context _7)
+    state 0: bb0
+    state 1: bb0 park ready
+fn zero_size.last_param(n: Int, z: [Int; 0]) -> Int {
+    let _0: Int;  // return
+    let _1: Int;  // param n
+    let _2: [Int; 0];  // param z
+    let _3: Int;
+    let _4: Int;
+    let _5: Int;
+    let _6: &var Int;
+    let _7: &var std.taskgroup.TaskContext;
+
+    bb0: {
+        (*(*_7).park) = const 0: Int;
+        call builtin __saw_suspend [] -> [return: bb1] suspends;
+    }
+
+    bb1: {
+        _3 = copy (*_6).[16: Int];
+        _4 = call zero_size.count(of: [Int; 0]) [copy (*_6).[24: [Int; 0]]] -> [return: bb2];
+    }
+
+    bb2: {
+        _5 = Add(move _3, move _4);
+        (*_6).[8: Int] = move _5;
+        return;
+    }
+}
+resume #25: zero_size.first_params(y: [Int; 0], z: [Int; 0], n: Int)  (frame size 24 align 8, pointer _9, context _10)
+    state 0: bb0
+    state 1: bb0 park ready
+fn zero_size.first_params(y: [Int; 0], z: [Int; 0], n: Int) -> Int {
+    let _0: Int;  // return
+    let _1: [Int; 0];  // param y
+    let _2: [Int; 0];  // param z
+    let _3: Int;  // param n
+    let _4: Int;
+    let _5: Int;
+    let _6: Int;
+    let _7: Int;
+    let _8: Int;
+    let _9: &var Int;
+    let _10: &var std.taskgroup.TaskContext;
+
+    bb0: {
+        (*(*_10).park) = const 0: Int;
+        call builtin __saw_suspend [] -> [return: bb1] suspends;
+    }
+
+    bb1: {
+        _4 = copy (*_9).[16: Int];
+        _5 = call zero_size.count(of: [Int; 0]) [copy (*_9).[16: [Int; 0]]] -> [return: bb2];
+    }
+
+    bb2: {
+        _6 = Add(move _4, move _5);
+        _7 = call zero_size.count(of: [Int; 0]) [copy (*_9).[16: [Int; 0]]] -> [return: bb3];
+    }
+
+    bb3: {
+        _8 = Add(move _6, move _7);
+        (*_9).[8: Int] = move _8;
+        return;
+    }
+}
+resume #26: zero_size.result()  (frame size 8 align 8, pointer _2, context _3)
+    state 0: bb0
+    state 1: bb0 park ready
+fn zero_size.result() -> [Int; 0] {
+    let _0: [Int; 0];  // return
+    let _1: [Int; 0];
+    let _2: &var Int;
+    let _3: &var std.taskgroup.TaskContext;
+
+    bb0: {
+        (*(*_3).park) = const 0: Int;
+        call builtin __saw_suspend [] -> [return: bb1] suspends;
+    }
+
+    bb1: {
+        _1 = [];
+        (*_2).[8: [Int; 0]] = move _1;
+        return;
+    }
+}
+spawner #0: zero_size.main()
+    spawn bb9 task root #10 zero_size.first_params(y: [Int; 0], z: [Int; 0], n: Int) task root, descriptor _13, box _14
+    drive bb0 task root #5 zero_size.at_end() task root, descriptor _17, frame _18
+    drive bb2 task root #7 zero_size.mid() task root, descriptor _19, frame _20
+    drive bb5 task root #9 zero_size.children() task root, descriptor _21, frame _22
+    drive bb7 task root #10 zero_size.first_params(y: [Int; 0], z: [Int; 0], n: Int) task root, descriptor _23, frame _24
+    drive bb12 task root #17 zero_size.enum_at_end() task root, descriptor _25, frame _26
+fn zero_size.main() -> Void {
+    let _0: Void;  // return
+    let _1: Int;
+    let _2: Int;
+    let _3: Int;
+    let _4: [Int; 0];
+    let _5: [Int; 0];
+    let _6: Int;
+    let _7: [Int; 0];
+    let _8: [Int; 0];
+    let _9: std.taskgroup.Task<Int>;
+    let _10: &std.taskgroup.Task<Int>;
+    let _11: Int;
+    let _12: Int;
+    let _13: UnsafePointer<std.taskgroup.FrameDescriptor>;
+    let _14: UnsafePointer<UInt8>;
+    let _15: UnsafePointer<std.taskgroup.TaskGroup>;
+    let _16: std.taskgroup.TaskProvenance;
+    let _17: UnsafePointer<std.taskgroup.FrameDescriptor>;
+    let _18: UnsafePointer<UInt8>;
+    let _19: UnsafePointer<std.taskgroup.FrameDescriptor>;
+    let _20: UnsafePointer<UInt8>;
+    let _21: UnsafePointer<std.taskgroup.FrameDescriptor>;
+    let _22: UnsafePointer<UInt8>;
+    let _23: UnsafePointer<std.taskgroup.FrameDescriptor>;
+    let _24: UnsafePointer<UInt8>;
+    let _25: UnsafePointer<std.taskgroup.FrameDescriptor>;
+    let _26: UnsafePointer<UInt8>;
+
+    bb0: {
+        (*_18).[0: Int] = const 0: Int;
+        _17 = drive result zero_size.at_end() [] -> [return: bb18];
+    }
+
+    bb1: {
+        call builtin print [copy _1] -> [return: bb2];
+    }
+
+    bb2: {
+        (*_20).[0: Int] = const 0: Int;
+        _19 = drive result zero_size.mid() [] -> [return: bb20];
+    }
+
+    bb3: {
+        call builtin print [copy _2] -> [return: bb4];
+    }
+
+    bb4: {
+        call zero_size.indexed() [] -> [return: bb5];
+    }
+
+    bb5: {
+        (*_22).[0: Int] = const 0: Int;
+        _21 = drive result zero_size.children() [] -> [return: bb22];
+    }
+
+    bb6: {
+        call builtin print [copy _3] -> [return: bb7];
+    }
+
+    bb7: {
+        _4 = [];
+        _5 = [];
+        (*_24).[0: Int] = const 0: Int;
+        (*_24).[16: [Int; 0]] = move _4;
+        (*_24).[16: [Int; 0]] = move _5;
+        (*_24).[16: Int] = const 3: Int;
+        _23 = drive result zero_size.first_params(y: [Int; 0], z: [Int; 0], n: Int) [] -> [return: bb24];
+    }
+
+    bb8: {
+        call builtin print [copy _6] -> [return: bb9];
+    }
+
+    bb9: {
+        _7 = [];
+        _8 = [];
+        _13 = spawn singleton zero_size.first_params(y: [Int; 0], z: [Int; 0], n: Int) [] -> [return: bb15];
+    }
+
+    bb10: {
+        _10 = ref(shared, _9);
+        _11 = call std.taskgroup.Task.join() (owner std.taskgroup.Task<Int>) [move _10] -> [return: bb11];
+    }
+
+    bb11: {
+        call builtin print [copy _11] -> [return: bb12];
+    }
+
+    bb12: {
+        drop(_9);
+        (*_26).[0: Int] = const 0: Int;
+        _25 = drive result zero_size.enum_at_end() [] -> [return: bb26];
+    }
+
+    bb13: {
+        call builtin print [copy _12] -> [return: bb14];
+    }
+
+    bb14: {
+        return;
+    }
+
+    bb15: {
+        _14 = call std.taskgroup.__saw_exec_task_box(descriptor: UnsafePointer<std.taskgroup.FrameDescriptor>) [copy _13] -> [return: bb16];
+    }
+
+    bb16: {
+        (*_14).[0: Int] = const 0: Int;
+        (*_14).[16: [Int; 0]] = move _7;
+        (*_14).[16: [Int; 0]] = move _8;
+        (*_14).[16: Int] = const 4: Int;
+        _16 = std.taskgroup.TaskProvenance::Singleton;
+        _15 = call std.taskgroup.__saw_exec_background() [] -> [return: bb17];
+    }
+
+    bb17: {
+        _9 = call std.taskgroup.Task.__saw_spawn(group: UnsafePointer<std.taskgroup.TaskGroup>, descriptor: UnsafePointer<std.taskgroup.FrameDescriptor>, frame: UnsafePointer<UInt8>, provenance: std.taskgroup.TaskProvenance) (owner std.taskgroup.Task<Int>) [copy _15, copy _13, copy _14, move _16] -> [return: bb10];
+    }
+
+    bb18: {
+        call std.taskgroup.__saw_exec_drive(descriptor: UnsafePointer<std.taskgroup.FrameDescriptor>, frame: UnsafePointer<UInt8>, site: String) [copy _17, copy _18, const "`__saw_drive(...)` at compiler/tests/coro/golden/zero_size.saw:92:11": String] -> [return: bb19];
+    }
+
+    bb19: {
+        _1 = move (*_18).[16: Int];
+        goto -> bb1;
+    }
+
+    bb20: {
+        call std.taskgroup.__saw_exec_drive(descriptor: UnsafePointer<std.taskgroup.FrameDescriptor>, frame: UnsafePointer<UInt8>, site: String) [copy _19, copy _20, const "`__saw_drive(...)` at compiler/tests/coro/golden/zero_size.saw:93:11": String] -> [return: bb21];
+    }
+
+    bb21: {
+        _2 = move (*_20).[16: Int];
+        goto -> bb3;
+    }
+
+    bb22: {
+        call std.taskgroup.__saw_exec_drive(descriptor: UnsafePointer<std.taskgroup.FrameDescriptor>, frame: UnsafePointer<UInt8>, site: String) [copy _21, copy _22, const "`__saw_drive(...)` at compiler/tests/coro/golden/zero_size.saw:95:11": String] -> [return: bb23];
+    }
+
+    bb23: {
+        _3 = move (*_22).[8: Int];
+        goto -> bb6;
+    }
+
+    bb24: {
+        call std.taskgroup.__saw_exec_drive(descriptor: UnsafePointer<std.taskgroup.FrameDescriptor>, frame: UnsafePointer<UInt8>, site: String) [copy _23, copy _24, const "`__saw_drive(...)` at compiler/tests/coro/golden/zero_size.saw:96:11": String] -> [return: bb25];
+    }
+
+    bb25: {
+        _6 = move (*_24).[8: Int];
+        goto -> bb8;
+    }
+
+    bb26: {
+        call std.taskgroup.__saw_exec_drive(descriptor: UnsafePointer<std.taskgroup.FrameDescriptor>, frame: UnsafePointer<UInt8>, site: String) [copy _25, copy _26, const "`__saw_drive(...)` at compiler/tests/coro/golden/zero_size.saw:98:11": String] -> [return: bb27];
+    }
+
+    bb27: {
+        _12 = move (*_26).[16: Int];
+        goto -> bb13;
+    }
+}
+driver #8: zero_size.indexed()
+    drive bb0 task root #23 zero_size.before_index(p: UnsafePointer<Int>) task root, descriptor _7, frame _8
+fn zero_size.indexed() -> Void {
+    let _0: Void;  // return
+    let _1: zero_size.Pair;  // q
+    let _2: zero_size.Pair;
+    let _3: UnsafePointer<Int>;  // qp
+    let _4: &zero_size.Pair;
+    let _5: UnsafePointer<Int>;
+    let _6: Int;
+    let _7: UnsafePointer<std.taskgroup.FrameDescriptor>;
+    let _8: UnsafePointer<UInt8>;
+
+    bb0: {
+        _2 = zero_size.Pair { a: const 1: Int, b: const 2: Int };
+        _1 = move _2;
+        _4 = ref(shared, _1);
+        _5 = cast(move _4 as UnsafePointer<Int>);
+        _3 = move _5;
+        (*_8).[0: Int] = const 0: Int;
+        (*_8).[24: UnsafePointer<Int>] = copy _3;
+        _7 = drive result zero_size.before_index(p: UnsafePointer<Int>) [] -> [return: bb3];
+    }
+
+    bb1: {
+        call builtin print [copy _6] -> [return: bb2];
+    }
+
+    bb2: {
+        return;
+    }
+
+    bb3: {
+        call std.taskgroup.__saw_exec_drive(descriptor: UnsafePointer<std.taskgroup.FrameDescriptor>, frame: UnsafePointer<UInt8>, site: String) [copy _7, copy _8, const "`__saw_drive(...)` at compiler/tests/coro/golden/zero_size.saw:88:11": String] -> [return: bb4];
+    }
+
+    bb4: {
+        _6 = move (*_8).[16: Int];
+        goto -> bb1;
+    }
+}

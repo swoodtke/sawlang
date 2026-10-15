@@ -1,0 +1,101 @@
+// probe: stated
+// about: an empty tuple in a frame, at its end, mid-frame and as a child's parameter or result (SL-688)
+// stage 0: builds it and prints the same lines; stated until the lane keeps Stage 0's output (SL-665)
+// speeds: -O0 -O2
+// prints: 103
+// prints: 103
+// prints: 118
+// prints: 403
+// prints: 104
+// prints: 105
+// The empty tuple occupies no byte of its frame, so it lies at the frame's
+// end when laid last, and at the offset of the value after it when laid
+// mid-frame. `before_index` holds one at the offset of the index the
+// lowering copies out of the frame; `last_param` is a child whose last
+// parameter lies at its frame's end; `first_params` has two at one offset;
+// `make` is the last child of `children`, its result at that child's end;
+// `root` is driven and spawned with one at its first parameter.
+
+func weight(e: ()) -> Int {
+    100
+}
+
+struct Triple {
+    a: Int
+    b: Int
+    c: Int
+}
+
+func at_end() -> Int {
+    var i = 0
+    let e = ()
+    while i < 3 {
+        i = i + 1
+    }
+    weight(e: e) + i
+}
+
+func mid() -> Int {
+    let e = ()
+    var i = 0
+    while i < 3 {
+        i = i + 1
+    }
+    weight(e: e) + i
+}
+
+func before_index(p: UnsafePointer<Int>) unsafe -> Int {
+    var i = 0
+    var t = 0
+    let e = ()
+    while i < 3 {
+        t = t + p[i]
+        i = i + 1
+    }
+    weight(e: e) + t
+}
+
+func last_param(n: Int, e: ()) -> Int {
+    __saw_suspend()
+    n + weight(e: e)
+}
+
+func first_params(e: (), f: (), n: Int) -> Int {
+    __saw_suspend()
+    n + weight(e: e) + weight(e: f)
+}
+
+func make() -> () {
+    __saw_suspend()
+    ()
+}
+
+func children() -> Int {
+    let a = last_param(n: 1, e: ())
+    let b = first_params(e: (), f: (), n: 2)
+    let e = make()
+    a + b + weight(e: e)
+}
+
+func root(e: (), n: Int) -> Int {
+    var i = 0
+    while i < n {
+        i = i + 1
+    }
+    weight(e: e) + i
+}
+
+func indexed() unsafe {
+    var q = Triple(a: 5, b: 6, c: 7)
+    let qp = (&q) as UnsafePointer<Int>
+    print(__saw_drive(before_index(qp)))
+}
+
+func main() {
+    print(__saw_drive(at_end()))
+    print(__saw_drive(mid()))
+    indexed()
+    print(__saw_drive(children()))
+    print(__saw_drive(root((), 4)))
+    print(Task.spawn(root((), 5)).join())
+}

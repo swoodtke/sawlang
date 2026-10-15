@@ -1599,10 +1599,10 @@ public func coro_add_block(coro: &var CoroProgram, f: Int, block: MirBlock) -> I
 
 // The structural invariant of every lowered drive: its call carries no
 // arguments and no destination; its block writes each of the child's
-// parameter slots exactly once, `(*_F).[slot + P: T] = ...`; and when the
-// call had a destination, the block it returns to is the move-out, `dest =
-// move (*_F).[slot + R: T]` then a goto. The slots are read from the child's
-// frame, not from the lowering. A broken one is an `INVARIANT` line.
+// parameters exactly once into its slot, `(*_F).[slot + P: T] = ...`; and
+// when the call had a destination, the block it returns to is the move-out,
+// `dest = move (*_F).[slot + R: T]` then a goto. The slots are read from the
+// child's frame, not from the lowering. A broken one is an `INVARIANT` line.
 public func coro_check_drives(coro: &var CoroProgram) {
     var r = 0
     while r < coro.resumes.len() {
@@ -1631,27 +1631,18 @@ func coro_check_drive(coro: &var CoroProgram, item: Int, f: Int, frame_local: In
     }
     var l = 1
     while l <= child_info.param_count {
-        let off = point.slot + coro_child_offset(&coro, &cf, CoroValueKind.Param, l)
-        var writes = 0
-        var s = block.first
-        while s >= 0 {
-            let stmt = coro.mono.dp.bc.mir.stmts[s]
-            s = stmt.next
-            if stmt.kind == MirStmtKind.Assign && coro_is_frame_slot(&coro, stmt.place, frame_local, off) {
-                writes = writes + 1
-            }
-        }
-        if writes != 1 {
+        let w = coro_slot_writes(&coro, &block, frame_local, &cf, point.slot, CoroValueKind.Param, l)
+        if w.writes != w.owed {
             var what = StringBuilder()
             try! what.append("parameter _")
             try! what.append(l)
             try! what.append("'s slot (*frame).[")
-            try! what.append(off)
+            try! what.append(w.offset)
             try! what.append("] is written ")
-            try! what.append(writes)
+            try! what.append(w.writes)
             try! what.append(" times in bb")
             try! what.append(point.block)
-            try! what.append(", not once")
+            coro_append_owed(&var what, w.owed)
             coro_drive_problem(&var coro, item, &point, what.build())
         }
         l = l + 1
@@ -1660,6 +1651,7 @@ func coro_check_drive(coro: &var CoroProgram, item: Int, f: Int, frame_local: In
         return
     }
     let off = point.slot + coro_child_offset(&coro, &cf, CoroValueKind.Result, 0)
+    let result_ty = coro.mono.dp.bc.mir.locals[child_info.local_first].ty
     var moves = point.result_block >= 0 && call.next == point.result_block
     if moves {
         let after = coro.mono.dp.bc.mir.blocks[info.block_first + point.result_block]
@@ -1672,7 +1664,8 @@ func coro_check_drive(coro: &var CoroProgram, item: Int, f: Int, frame_local: In
                 moves = rv.kind == MirRvalueKind.Use && rv.count == 1
                 if moves {
                     let o = coro.mono.dp.bc.mir.operands[coro.mono.dp.bc.mir.lists[rv.first]]
-                    moves = o.kind == MirOperandKind.Move && coro_is_frame_slot(&coro, o.place, frame_local, off)
+                    moves = o.kind == MirOperandKind.Move && coro_is_frame_slot(&coro, o.place, frame_local, off,
+                                                                                result_ty)
                 }
             }
         }
@@ -1682,9 +1675,10 @@ func coro_check_drive(coro: &var CoroProgram, item: Int, f: Int, frame_local: In
     }
 }
 
-// Whether place `p` is the frame slot `(*_F).[offset: T]` through local
-// `frame_local`, with no step after it.
-public func coro_is_frame_slot(coro: &CoroProgram, p: Int, frame_local: Int, offset: Int) -> Bool {
+// Whether place `p` is the frame slot `(*_F).[offset: ty]` through local
+// `frame_local`, with no step after it. A zero-size value takes the offset of
+// the value after it, so a slot is its offset and its type.
+public func coro_is_frame_slot(coro: &CoroProgram, p: Int, frame_local: Int, offset: Int, ty: Int) -> Bool {
     if p < 0 {
         return false
     }
@@ -1694,7 +1688,64 @@ public func coro_is_frame_slot(coro: &CoroProgram, p: Int, frame_local: Int, off
     }
     let deref = coro.mono.dp.bc.mir.projs[place.first]
     let step = coro.mono.dp.bc.mir.projs[place.first + 1]
-    deref.kind == MirProjKind.Deref && step.kind == MirProjKind.FrameSlot && step.index == offset
+    deref.kind == MirProjKind.Deref && step.kind == MirProjKind.FrameSlot && step.index == offset && step.ty == ty
+}
+
+// The writes into one slot of an embedded or boxed frame: the slot's offset
+// from the frame pointer, how many statements write it, and how many writes
+// it is owed.
+public struct CoroSlotWrites {
+    offset: Int
+    writes: Int
+    owed: Int
+}
+
+// The writes block `block` makes into the slot of frame `cf`'s value of kind
+// `kind` for local `l`, `cf` laid at `base` through `frame_local`. The slot
+// is owed a write per value of that kind laid in it: one, but zero-size
+// parameters of one type share a slot, and each one's write is a write of it.
+public func coro_slot_writes(coro: &CoroProgram, block: &MirBlock, frame_local: Int, cf: &CoroFrame, base: Int,
+                             kind: CoroValueKind, l: Int) -> CoroSlotWrites {
+    let offset = coro_child_offset(&coro, &cf, kind, l)
+    var ty = -1
+    var k = 0
+    while k < cf.value_count {
+        let v = coro.values[cf.value_first + k]
+        k = k + 1
+        if v.kind == kind && v.local == l {
+            ty = v.ty
+        }
+    }
+    var owed = 0
+    k = 0
+    while k < cf.value_count {
+        let v = coro.values[cf.value_first + k]
+        k = k + 1
+        if v.kind == kind && v.offset == offset && v.ty == ty {
+            owed = owed + 1
+        }
+    }
+    var writes = 0
+    var s = block.first
+    while s >= 0 {
+        let stmt = coro.mono.dp.bc.mir.stmts[s]
+        s = stmt.next
+        if stmt.kind == MirStmtKind.Assign && coro_is_frame_slot(&coro, stmt.place, frame_local, base + offset, ty) {
+            writes = writes + 1
+        }
+    }
+    CoroSlotWrites(offset: base + offset, writes: writes, owed: owed)
+}
+
+// Ends a slot-writes problem with the writes the slot is owed.
+public func coro_append_owed(what: &var StringBuilder, owed: Int) {
+    if owed == 1 {
+        try! what.append(", not once")
+    } else {
+        try! what.append(", not ")
+        try! what.append(owed)
+        try! what.append(" times")
+    }
 }
 
 func coro_drive_problem(coro: &var CoroProgram, item: Int, point: &CoroPoint, what: String) {
