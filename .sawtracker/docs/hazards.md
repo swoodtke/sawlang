@@ -1835,6 +1835,7 @@ ledger's reading. Where it differs from the sweep, Notes for the lead says why.
 | SL-656 | L29 A suspending default value: sawc2 charges the caller that leaves it out, and Stage 0 refuses both forms | loud (Stage 0 refuses at the call; no live instance) |
 | SL-660 | S35 A zero-initialized static that Stage 0 accepts and sawc2 refuses | silent (a missing check in Stage 0; no live instance in compiler source) |
 | SL-660 | L30 `ZeroInit`: Stage 0 has none | loud (an unknown name to Stage 0; no live instance) |
+| SL-673 | L31 Derivation-only parents: Stage 0 and sawc2 differ | loud in two forms, silent in one (a deinit reached through `trait X: Deinit` never runs under Stage 0; no live instance) |
 
 No issue is marked "not reachable from the subset". Several entries depend on
 features the subset does not list (`any`, `Box`, cells, pointers, fixed arrays,
