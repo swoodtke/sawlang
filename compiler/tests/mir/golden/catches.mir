@@ -1,0 +1,417 @@
+module catches
+
+fn catches.risky(n: Int) -> Result<Int, catches.Fault> {
+    let _0: Result<Int, catches.Fault>;  // return
+    let _1: Int;  // param n
+    let _2: Bool;
+    let _3: catches.Fault;
+    let _4: Result<Int, catches.Fault>;
+    let _5: Result<Int, catches.Fault>;
+
+    bb0: {
+        _2 = Lt(copy _1, const 0: Int);
+        switch move _2 -> [true: bb2, false: bb3];
+    }
+
+    bb1: {
+        _5 = Result<Int, catches.Fault>::Ok(copy _1);
+        _0 = move _5;
+        return;
+    }
+
+    bb2: {
+        _3 = catches.Fault { code: copy _1 };
+        _4 = Result<Int, catches.Fault>::Err(move _3);
+        _0 = move _4;
+        return;
+    }
+
+    bb3: {
+        goto -> bb1;
+    }
+}
+
+fn catches.owning(n: Int) -> Result<catches.Res, catches.Owned> {
+    let _0: Result<catches.Res, catches.Owned>;  // return
+    let _1: Int;  // param n
+    let _2: Bool;
+    let _3: catches.Owned;
+    let _4: Result<catches.Res, catches.Owned>;
+    let _5: catches.Res;
+    let _6: Result<catches.Res, catches.Owned>;
+
+    bb0: {
+        _2 = Lt(copy _1, const 0: Int);
+        switch move _2 -> [true: bb2, false: bb3];
+    }
+
+    bb1: {
+        _5 = catches.Res { id: copy _1 };
+        _6 = Result<catches.Res, catches.Owned>::Ok(move _5);
+        _0 = move _6;
+        return;
+    }
+
+    bb2: {
+        _3 = catches.Owned { reason: const "negative": String };
+        _4 = Result<catches.Res, catches.Owned>::Err(move _3);
+        _0 = move _4;
+        return;
+    }
+
+    bb3: {
+        goto -> bb1;
+    }
+}
+
+fn catches.valued(n: Int) -> Int {
+    let _0: Int;  // return
+    let _1: Int;  // param n
+    let _2: Result<Int, catches.Fault>;
+    let _3: catches.Fault;  // error
+
+    bb0: {
+        _2 = call catches.risky(n: Int) [copy _1] -> [return: bb1];
+    }
+
+    bb1: {
+        switch discriminant(_2) -> [Ok: bb2, Err: bb3];
+    }
+
+    bb2: {
+        _0 = copy (_2 as Ok).0;
+        goto -> bb4;
+    }
+
+    bb3: {
+        _3 = copy (_2 as Err).0;
+        _0 = copy _3.code;
+        goto -> bb4;
+    }
+
+    bb4: {
+        drop(_2);
+        return;
+    }
+}
+
+fn catches.discarded(n: Int) -> Void {
+    let _0: Void;  // return
+    let _1: Int;  // param n
+    let _2: Result<catches.Res, catches.Owned>;
+    let _3: catches.Owned;  // error
+    let _4: catches.Res;
+
+    bb0: {
+        _2 = call catches.owning(n: Int) [copy _1] -> [return: bb1];
+    }
+
+    bb1: {
+        switch discriminant(_2) -> [Ok: bb2, Err: bb3];
+    }
+
+    bb2: {
+        drop(_2);
+        goto -> bb4;
+    }
+
+    bb3: {
+        _3 = move (_2 as Err).0;
+        _4 = catches.Res { id: const 0: Int };
+        drop(_4);
+        drop(_3);
+        goto -> bb4;
+    }
+
+    bb4: {
+        return;
+    }
+}
+
+fn catches.taken(n: Int) -> Int {
+    let _0: Int;  // return
+    let _1: Int;  // param n
+    let _2: catches.Res;  // r
+    let _3: Result<catches.Res, catches.Owned>;
+    let _4: catches.Owned;  // error
+    let _5: Int;
+
+    bb0: {
+        _3 = call catches.owning(n: Int) [copy _1] -> [return: bb1];
+    }
+
+    bb1: {
+        switch discriminant(_3) -> [Ok: bb2, Err: bb3];
+    }
+
+    bb2: {
+        _2 = move (_3 as Ok).0;
+        goto -> bb4;
+    }
+
+    bb3: {
+        _4 = move (_3 as Err).0;
+        _5 = Neg(const 1: Int);
+        _0 = move _5;
+        drop(_4);
+        return;
+    }
+
+    bb4: {
+        _0 = copy _2.id;
+        drop(_2);
+        return;
+    }
+}
+
+fn catches.looped(n: Int) -> Void {
+    let _0: Void;  // return
+    let _1: Int;  // param n
+    let _2: Int;  // i
+    let _3: Bool;
+    let _4: Int;
+    let _5: Int;  // v
+    let _6: Result<Int, catches.Fault>;
+    let _7: catches.Fault;  // error
+
+    bb0: {
+        _2 = const 0: Int;
+        goto -> bb1;
+    }
+
+    bb1: {
+        _3 = Lt(copy _2, copy _1);
+        switch move _3 -> [true: bb3, false: bb2];
+    }
+
+    bb2: {
+        return;
+    }
+
+    bb3: {
+        _4 = Add(copy _2, const 1: Int);
+        _2 = move _4;
+        _6 = call catches.risky(n: Int) [copy _2] -> [return: bb4];
+    }
+
+    bb4: {
+        switch discriminant(_6) -> [Ok: bb5, Err: bb6];
+    }
+
+    bb5: {
+        _5 = copy (_6 as Ok).0;
+        goto -> bb7;
+    }
+
+    bb6: {
+        _7 = copy (_6 as Err).0;
+        drop(_6);
+        goto -> bb2;
+    }
+
+    bb7: {
+        drop(_6);
+        call builtin print [format "{}", copy _5] -> [return: bb8];
+    }
+
+    bb8: {
+        budget(yield-capable);
+        goto -> bb1;
+    }
+}
+
+fn catches.block(a: Int, b: Int) -> Int {
+    let _0: Int;  // return
+    let _1: Int;  // param a
+    let _2: Int;  // param b
+    let _3: catches.Fault;  // error
+    let _4: catches.Res;  // held
+    let _5: catches.Res;
+    let _6: Int;  // x
+    let _7: Result<Int, catches.Fault>;
+    let _8: Int;  // y
+    let _9: Result<Int, catches.Fault>;
+    let _10: Int;
+    let _11: Int;
+
+    bb0: {
+        _5 = catches.Res { id: copy _1 };
+        _4 = move _5;
+        _7 = call catches.risky(n: Int) [copy _1] -> [return: bb3];
+    }
+
+    bb1: {
+        _0 = copy _3.code;
+        goto -> bb2;
+    }
+
+    bb2: {
+        return;
+    }
+
+    bb3: {
+        switch discriminant(_7) -> [Ok: bb4, Err: bb5];
+    }
+
+    bb4: {
+        _6 = copy (_7 as Ok).0;
+        drop(_7);
+        _9 = call catches.risky(n: Int) [copy _2] -> [return: bb6];
+    }
+
+    bb5: {
+        _3 = copy (_7 as Err).0;
+        drop(_7);
+        drop(_4);
+        goto -> bb1;
+    }
+
+    bb6: {
+        switch discriminant(_9) -> [Ok: bb7, Err: bb8];
+    }
+
+    bb7: {
+        _8 = copy (_9 as Ok).0;
+        drop(_9);
+        _10 = Add(copy _6, copy _8);
+        _11 = Add(move _10, copy _4.id);
+        _0 = move _11;
+        drop(_4);
+        goto -> bb2;
+    }
+
+    bb8: {
+        _3 = copy (_9 as Err).0;
+        drop(_9);
+        drop(_4);
+        goto -> bb1;
+    }
+}
+
+fn catches.nested(a: Int, b: Int) -> Int {
+    let _0: Int;  // return
+    let _1: Int;  // param a
+    let _2: Int;  // param b
+    let _3: catches.Fault;  // error
+    let _4: Int;  // inner
+    let _5: catches.Fault;  // error
+    let _6: Result<Int, catches.Fault>;
+    let _7: Int;  // again
+    let _8: Result<Int, catches.Fault>;
+    let _9: Int;
+    let _10: Int;
+
+    bb0: {
+        _6 = call catches.risky(n: Int) [copy _1] -> [return: bb5];
+    }
+
+    bb1: {
+        _10 = Neg(copy _3.code);
+        _0 = move _10;
+        goto -> bb2;
+    }
+
+    bb2: {
+        return;
+    }
+
+    bb3: {
+        _8 = call catches.risky(n: Int) [copy _2] -> [return: bb8];
+    }
+
+    bb4: {
+        _0 = copy _4;
+        goto -> bb2;
+    }
+
+    bb5: {
+        switch discriminant(_6) -> [Ok: bb6, Err: bb7];
+    }
+
+    bb6: {
+        _4 = copy (_6 as Ok).0;
+        drop(_6);
+        goto -> bb4;
+    }
+
+    bb7: {
+        _5 = copy (_6 as Err).0;
+        drop(_6);
+        goto -> bb3;
+    }
+
+    bb8: {
+        switch discriminant(_8) -> [Ok: bb9, Err: bb10];
+    }
+
+    bb9: {
+        _7 = copy (_8 as Ok).0;
+        drop(_8);
+        _9 = Add(copy _7, copy _5.code);
+        _4 = move _9;
+        goto -> bb4;
+    }
+
+    bb10: {
+        _3 = copy (_8 as Err).0;
+        drop(_8);
+        goto -> bb1;
+    }
+}
+
+fn catches.owned_block(n: Int) -> Int {
+    let _0: Int;  // return
+    let _1: Int;  // param n
+    let _2: catches.Owned;  // error
+    let _3: catches.Res;  // r
+    let _4: Result<catches.Res, catches.Owned>;
+    let _5: catches.Res;
+
+    bb0: {
+        _4 = call catches.owning(n: Int) [copy _1] -> [return: bb3];
+    }
+
+    bb1: {
+        _0 = const 0: Int;
+        drop(_2);
+        goto -> bb2;
+    }
+
+    bb2: {
+        return;
+    }
+
+    bb3: {
+        switch discriminant(_4) -> [Ok: bb4, Err: bb5];
+    }
+
+    bb4: {
+        _5 = move (_4 as Ok).0;
+        _3 = move _5;
+        _0 = copy _3.id;
+        drop(_3);
+        goto -> bb2;
+    }
+
+    bb5: {
+        _2 = move (_4 as Err).0;
+        goto -> bb1;
+    }
+}
+
+fn catches.unreached() -> Int {
+    let _0: Int;  // return
+
+    bb0: {
+        _0 = const 1: Int;
+        goto -> bb2;
+    }
+
+    bb1: {
+        unreachable;
+    }
+
+    bb2: {
+        return;
+    }
+}

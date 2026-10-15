@@ -3,6 +3,7 @@
 // set of methods on it, as in resolve.
 
 import sawparse.grammar.{Alt}
+import sawresolve.collect.{res_is_top_level}
 import sawresolve.model.{ResBindKind, ResBinding, ResDecl, ResDeclKind, ResModule}
 import sawresolve.names.{ResIndex, res_index}
 import sawresolve.program.{ResProgram}
@@ -195,6 +196,11 @@ public struct TcProgram {
     // loops around the position: each open loop's count of `break`s.
     body_result: Int
     loop_breaks: Vector<Int>
+    // The `try` blocks open around the position, innermost last: each one's
+    // first entry in `catch_errors`, which holds the error types their
+    // `try`s propagate, each once per block.
+    catch_frames: Vector<Int>
+    catch_errors: Vector<Int>
     // Whether the closure being checked has no expected result, so its first
     // `return` gives `body_result` and the later ones are checked against it.
     result_open: Bool
@@ -365,7 +371,8 @@ public func tc_program(res: ResProgram) -> TcProgram {
                       local_types: Vector<Int>(), aliasing_bindings: Vector<Bool>(), lent_bindings: Vector<Bool>(), nonescaping_bindings: Vector<Bool>(),
                       res_call_at: Vector<Int>(),
                       body_roots: Vector<Int>(), body_decls: Vector<Int>(),
-                      ext_visible: Vector<Bool>(), body_result: -1, loop_breaks: Vector<Int>(), result_open: false,
+                      ext_visible: Vector<Bool>(), body_result: -1, loop_breaks: Vector<Int>(),
+                      catch_frames: Vector<Int>(), catch_errors: Vector<Int>(), result_open: false,
                       branch_allow: TcAllowance(optionals: 1, results: 1, erases: false, widens: true),
                       chosen_twin: -1, unmet_member: -1, unmet_owner: -1,
                       placement_value: -1, borrow_captures: Vector<Int>(), param_leaves: Vector<Int>(), referenced_params: Vector<Int>(), current_root: -1, poisoned: Vector<Int>(), borrow_head: -1,
@@ -450,6 +457,19 @@ extension TcProgram {
     public func child_count(&self, id: Int) -> Int { self.res.child_count(id) }
 
     public func is_leaf(&self, id: Int) -> Bool { self.res.is_leaf(id) }
+
+    // The catch block of an inline `catch` or a `try` block at `id`, which
+    // declares its `error` binding, or -1.
+    public func catch_block_of(&self, id: Int) -> Int {
+        if self.has_alt(id, Alt.Expr_TryBlock) {
+            return self.res.last_node_child(id)
+        }
+        if self.has_alt(id, Alt.Expr_Try_Catch) {
+            let clause = self.res.last_node_child(id)
+            return self.res.first_node_child(clause)
+        }
+        return -1
+    }
 
     // The source text of node `id` in module `m`.
     public func text(&self, m: Int, id: Int) -> String { self.res.text_of(m, id) }

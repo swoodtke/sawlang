@@ -1,0 +1,54 @@
+// Loans across the catch forms' edges (SL-670): a `try` inside a `borrow`
+// block inside a `try` block closes the window on its way to the catch
+// block, so the catch block may use the root again; an optional assignment
+// through a conditional lend holds its window only on the present edge, its
+// right side read before it opens; and one whose right side reads the
+// written root reads it before any hop is tested.
+
+struct Slot { n: Int }
+
+struct Shelf { slot: Slot, open: Bool }
+
+extension Shelf {
+    func at(&var self) borrows -> &var Slot {
+        lend self.slot
+    }
+
+    func find(&var self, i: Int) borrows -> &var Slot? {
+        if not self.open || i != 0 {
+            return None
+        }
+        lend self.slot
+    }
+}
+
+struct Fault { code: Int }
+
+func risky(n: Int) -> Result<Int, Fault> {
+    if n < 0 {
+        return Fault(code: n)
+    }
+    n
+}
+
+func windowed(s: &var Shelf, n: Int) -> Int {
+    try {
+        borrow var c = s.at() {
+            c.n = try risky(n)
+        }
+        s.slot.n
+    } catch {
+        s.slot.n = error.code
+        -1
+    }
+}
+
+func lent(s: &var Shelf) {
+    borrow var s.find(0)?.n = s.slot.n + 1
+}
+
+struct Holder { slot: Slot? }
+
+func reread(h: &var Holder) {
+    h.slot?.n = h.slot!.n + 1
+}

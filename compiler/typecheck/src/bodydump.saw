@@ -166,6 +166,13 @@ extension TcProgram {
         if at >= 0 {
             self.append_call(&var out, at)
         }
+        let handler = self.catch_block_of(id)
+        if handler >= 0 {
+            try! out.append(" (error ")
+            let caught = self.local_types[handler]
+            self.append_type(&var out, caught)
+            try! out.append(")")
+        }
         self.append_captures(&var out, m, id)
         try! out.append(")")
     }

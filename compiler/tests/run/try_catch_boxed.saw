@@ -1,0 +1,40 @@
+// due: the backend does not erase a value into `Box<any Error>` yet
+// refuses: backend.not-yet at 21:16
+// A catch over an erased error, `Box<any Error>` (SL-670): an inline catch
+// and a `try` block whose `try`s propagate the box, which the catch block
+// holds as `error` and drops. Erasing the error is what makes the box.
+struct Parse {
+    line: Int
+}
+
+extension Parse: Printable {
+    func format(&self, into: &var StringBuilder) {
+        try! into.append("parse error at ")
+        try! into.append(self.line)
+    }
+}
+
+extension Parse: Error {}
+
+func parse(n: Int) -> Result<Int, Box<any Error>> {
+    if n < 0 {
+        return Parse(line: -n)
+    }
+    n * 10
+}
+
+func both(a: Int, b: Int) -> Int {
+    try {
+        let x = try parse(a)
+        let y = try parse(b)
+        x + y
+    } catch {
+        -1
+    }
+}
+
+func main() {
+    let v = try parse(-3) catch { 0 }
+    print("v {}", v)
+    print("both {} {}", both(1, 2), both(1, -7))
+}

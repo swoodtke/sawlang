@@ -1,0 +1,77 @@
+ERROR	copy.requirement	compiler/tests/typecheck/golden/catch_paths.saw:45:11	`caught` requires `T` to be Copy, as its body binds `x` twice on one path, at compiler/tests/typecheck/golden/catch_paths.saw:23:22 and 27:14, with nothing written, and `catch_paths.Res` is NoCopy: pass a Copy type, or declare the parameter `ExplicitCopy` and write `.copy()` in the body
+ERROR	copy.requirement	compiler/tests/typecheck/golden/catch_paths.saw:47:11	`inline` requires `T` to be Copy, as its body binds `x` twice on one path, at compiler/tests/typecheck/golden/catch_paths.saw:41:20 and 41:37, with nothing written, and `catch_paths.Res` is NoCopy: pass a Copy type, or declare the parameter `ExplicitCopy` and write `.copy()` in the body
+(Module catch_paths
+  (declarations
+    (struct Res 7:8 private)
+    (field Res.id 8:5 private Int)
+    (extension 11:1 (target catch_paths.Res) (conforms NoCopy))
+    (struct Fault 13:8 private)
+    (field Fault.code 14:5 private Int)
+    (func sink 17:6 private (signature (generics (T)) (params (x T owned)) -> Int) (summary body (suspends no) (sync-callable yes)))
+    (func risky 19:6 private (signature (params (n Int owned)) -> Result<Int, catch_paths.Fault>) (summary body (suspends no) (sync-callable yes)))
+    (func caught 21:6 private (signature (generics (T)) (params (x T owned)) -> Int) (summary body (suspends no) (sync-callable yes) (copy T)))
+    (func untried 31:6 private (signature (generics (T)) (params (x T owned)) -> Int) (summary body (suspends no) (sync-callable yes)))
+    (func inline 40:6 private (signature (generics (T)) (params (x T owned)) -> Int) (summary body (suspends no) (sync-callable yes) (copy T)))
+    (func main 44:6 private (signature (params) -> Void) (summary body (suspends no) (sync-callable yes))))
+  (members
+    (catch_paths.Res
+      (field id Int private declared))
+    (catch_paths.Fault
+      (field code Int private declared)))
+  (views
+    (catch_paths.Res id)
+    (catch_paths.Fault code))
+  (conformances
+    (catch_paths.Res NoCopy 11:16 (deinit implicit)))
+  (copy-tier
+    (catch_paths.Res NoCopy declared)
+    (catch_paths.Fault Copy))
+  (bodies
+    (sink 17:6
+      (17:29-17:30 IntLit Int value temp))
+    (risky 19:6
+      (19:44-19:45 Name Int (ok Result<Int, catch_paths.Fault>) place copy))
+    (caught 21:6
+      (22:5-28:6 TryBlock Int value temp (error catch_paths.Fault))
+      (23:13-23:14 BindingName Int place temp)
+      (23:17-23:24 Call.paren Int value temp (call catch_paths.sink(x: T) (inst T)))
+      (23:22-23:23 Name T place copy)
+      (24:13-24:14 BindingName Int place temp)
+      (24:17-24:29 Try.propagate Int value temp)
+      (24:21-24:29 Call.paren Result<Int, catch_paths.Fault> value temp (call catch_paths.risky(n: Int)))
+      (24:27-24:28 Name Int place copy)
+      (25:9-25:10 Name Int place copy)
+      (27:9-27:16 Call.paren Int value temp (call catch_paths.sink(x: T) (inst T)))
+      (27:14-27:15 Name T place copy))
+    (untried 31:6
+      (32:5-37:6 TryBlock Int value temp (error catch_paths.Fault))
+      (33:13-33:14 BindingName Int place temp)
+      (33:17-33:29 Try.propagate Int value temp)
+      (33:21-33:29 Call.paren Result<Int, catch_paths.Fault> value temp (call catch_paths.risky(n: Int)))
+      (33:27-33:28 IntLit Int value temp)
+      (34:9-34:20 Binary Int value temp (op +))
+      (34:9-34:16 Call.paren Int value temp (call catch_paths.sink(x: T) (inst T)))
+      (34:14-34:15 Name T place move)
+      (34:19-34:20 Name Int place copy)
+      (36:9-36:16 Call.paren Int value temp (call catch_paths.sink(x: T) (inst T)))
+      (36:14-36:15 Name T place move))
+    (inline 40:6
+      (41:5-41:41 Try.catch Int value temp (error catch_paths.Fault))
+      (41:9-41:23 Call.paren Result<Int, catch_paths.Fault> value temp (call catch_paths.risky(n: Int)))
+      (41:15-41:22 Call.paren Int value temp (call catch_paths.sink(x: T) (inst T)))
+      (41:20-41:21 Name T place copy)
+      (41:32-41:39 Call.paren Int value temp (call catch_paths.sink(x: T) (inst T)))
+      (41:37-41:38 Name T place copy))
+    (main 44:6
+      (45:5-45:30 Call.paren Void value temp (builtin print))
+      (45:11-45:29 Call.paren Int value borrow (call catch_paths.caught(x: T) (inst catch_paths.Res)))
+      (45:18-45:28 Call.paren catch_paths.Res value temp (memberwise catch_paths.Res (owner catch_paths.Res)))
+      (45:26-45:27 IntLit Int value temp)
+      (46:5-46:31 Call.paren Void value temp (builtin print))
+      (46:11-46:30 Call.paren Int value borrow (call catch_paths.untried(x: T) (inst catch_paths.Res)))
+      (46:19-46:29 Call.paren catch_paths.Res value temp (memberwise catch_paths.Res (owner catch_paths.Res)))
+      (46:27-46:28 IntLit Int value temp)
+      (47:5-47:30 Call.paren Void value temp (builtin print))
+      (47:11-47:29 Call.paren Int value borrow (call catch_paths.inline(x: T) (inst catch_paths.Res)))
+      (47:18-47:28 Call.paren catch_paths.Res value temp (memberwise catch_paths.Res (owner catch_paths.Res)))
+      (47:26-47:27 IntLit Int value temp))))

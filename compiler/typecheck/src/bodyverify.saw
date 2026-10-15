@@ -11,6 +11,7 @@
 //     total argument binding;
 //   - every closure records a capture of each enclosing binding it names;
 //   - every adjustment chain composes, each step's source the last's result;
+//   - every catch block's `error` binding has a type;
 //   - every type written in a body was built exactly once, and resolved.
 // Nothing under a construct refused as outside the slice is asked about.
 
@@ -175,6 +176,10 @@ extension TcProgram {
                 if not refused {
                     self.verify_string_position(&var problems, m, id)
                 }
+            }
+            let handler = self.catch_block_of(id)
+            if handler >= 0 && self.local_types[handler] < 0 {
+                self.body_problem(&var problems, m, id, "a catch block's `error` has no type")
             }
             if self.is_call_node(id) {
                 self.verify_call(&var problems, m, id, d, refused)
@@ -735,6 +740,9 @@ public func tc_is_expression_alt(alt: Alt) -> Bool {
         case Expr_Try_Propagate -> true,
         case Expr_Try_Force -> true,
         case Expr_Try_Optional -> true,
+        case Expr_Try_Catch -> true,
+        case Expr_TryBlock -> true,
+        case Expr_OptionalMember -> true,
         case Expr_Tuple_Unit -> true,
         case Expr_Tuple_Positional -> true,
         case Expr_Tuple_Named -> true,

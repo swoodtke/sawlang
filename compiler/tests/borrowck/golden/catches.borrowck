@@ -1,0 +1,201 @@
+module catches
+
+fn prologue catches.Shelf.at() {
+    loan L0: exclusive (*_1).slot;  // ref at 14:9
+
+    bb0: {
+        [] {} _2 = ref(exclusive, (*_1).slot);
+        [] {L0} _0 = move _2;
+        [] {L0} return;
+    }
+}
+
+fn epilogue catches.Shelf.at() {
+
+    bb0: {
+        [] goto -> bb1;
+    }
+
+    bb1: {
+        [] return;
+    }
+}
+
+fn prologue catches.Shelf.find(i: Int) {
+    loan L0: exclusive (*_1).slot;  // ref at 21:9
+
+    bb0: {
+        [] {} _4 = Not(copy (*_1).open);
+        [] {} switch move _4 -> [true: bb4, false: bb3];
+    }
+
+    bb1: {
+        [] {} _6 = ref(exclusive, (*_1).slot);
+        [] {L0} _7 = (&var catches.Slot)?::Some(move _6);
+        [] {L0} _0 = move _7;
+        [] {L0} return;
+    }
+
+    bb2: {
+        [] {} switch move _3 -> [true: bb5, false: bb6];
+    }
+
+    bb3: {
+        [] {} _5 = Ne(copy _2, const 0: Int);
+        [] {} _3 = move _5;
+        [] {} goto -> bb2;
+    }
+
+    bb4: {
+        [] {} _3 = const true: Bool;
+        [] {} goto -> bb2;
+    }
+
+    bb5: {
+        [] {} _0 = (&var catches.Slot)?::None;
+        [] {} return;
+    }
+
+    bb6: {
+        [] {} goto -> bb1;
+    }
+}
+
+fn epilogue catches.Shelf.find(i: Int) {
+
+    bb0: {
+        [] goto -> bb1;
+    }
+
+    bb1: {
+        [] return;
+    }
+}
+
+fn catches.risky(n: Int) {
+    place _0: Result<Int, catches.Fault>;  // _0
+    place _4: Result<Int, catches.Fault>;  // _4
+    place _5: Result<Int, catches.Fault>;  // _5
+
+    bb0: {
+        [U U U] _2 = Lt(copy _1, const 0: Int);
+        [U U U] switch move _2 -> [true: bb2, false: bb3];
+    }
+
+    bb1: {
+        [U U U] _5 = Result<Int, catches.Fault>::Ok(copy _1);
+        [U U W] _0 = move _5;
+        [W U M] return;
+    }
+
+    bb2: {
+        [U U U] _3 = catches.Fault { code: copy _1 };
+        [U U U] _4 = Result<Int, catches.Fault>::Err(move _3);
+        [U W U] _0 = move _4;
+        [W M U] return;
+    }
+
+    bb3: {
+        [U U U] goto -> bb1;
+    }
+}
+
+fn catches.windowed(s: &var catches.Shelf, n: Int) {
+    place _7: Result<Int, catches.Fault>;  // _7
+    loan L0: exclusive (*_1);  // ref at 36:9
+    loan L1: exclusive (*_1);  // window w0 at 36:9
+    loan L2: exclusive (*_4);  // ref at 36:20
+
+    bb0: {
+        [U] {} _5 = ref(exclusive, (*_1));
+        [U] {L0} _4 = window_open w0 prologue catches.Shelf.at() (owner catches.Shelf) [move _5] -> [present: bb3];
+    }
+
+    bb1: {
+        [D] {} (*_1).slot.n = copy _3.code;
+        [D] {} _8 = Neg(const 1: Int);
+        [D] {} _0 = move _8;
+        [D] {} goto -> bb2;
+    }
+
+    bb2: {
+        [D] {} return;
+    }
+
+    bb3: {
+        [U] {L0 L1} _6 = ref(exclusive, (*_4));
+        [U] {L0 L1 L2} _7 = call catches.risky(n: Int) [copy _2] -> [return: bb4];
+    }
+
+    bb4: {
+        [W] {L0 L1 L2} switch discriminant(_7) -> [Ok: bb5, Err: bb6];
+    }
+
+    bb5: {
+        [W] {L0 L1 L2} (*_6).n = copy (_7 as Ok).0;
+        [W] {L0 L1} drop(_7);  // static
+        [D] {L0 L1} window_close w0 epilogue catches.Shelf.at() (owner catches.Shelf) -> [return: bb8];
+    }
+
+    bb6: {
+        [W] {L0 L1} _3 = copy (_7 as Err).0;
+        [W] {L0 L1} drop(_7);  // static
+        [D] {L0 L1} window_close w0 epilogue catches.Shelf.at() (owner catches.Shelf) -> [return: bb7];
+    }
+
+    bb7: {
+        [D] {} goto -> bb1;
+    }
+
+    bb8: {
+        [D] {} _0 = copy (*_1).slot.n;
+        [D] {} goto -> bb2;
+    }
+}
+
+fn catches.lent(s: &var catches.Shelf) {
+    loan L0: exclusive (*_1);  // ref at 47:5
+    loan L1: exclusive (*_1);  // window w0 at 47:5
+
+    bb0: {
+        [] {} _2 = Add(copy (*_1).slot.n, const 1: Int);
+        [] {} _3 = move _2;
+        [] {} _5 = ref(exclusive, (*_1));
+        [] {L0} _4 = window_open w0 prologue catches.Shelf.find(i: Int) (owner catches.Shelf) [move _5, const 0: Int] -> [present: bb2, absent: bb3];
+    }
+
+    bb1: {
+        [] {} return;
+    }
+
+    bb2: {
+        [] {L0 L1} (*_4).n = move _3;
+        [] {L0 L1} window_close w0 epilogue catches.Shelf.find(i: Int) (owner catches.Shelf) -> [return: bb4];
+    }
+
+    bb3: {
+        [] {} goto -> bb1;
+    }
+
+    bb4: {
+        [] {} goto -> bb1;
+    }
+}
+
+fn catches.reread(h: &var catches.Holder) {
+
+    bb0: {
+        [] _2 = Add(copy ((*_1).slot as Some!).0.n, const 1: Int);
+        [] _3 = move _2;
+        [] switch discriminant((*_1).slot) -> [Some: bb2, None: bb1];
+    }
+
+    bb1: {
+        [] return;
+    }
+
+    bb2: {
+        [] ((*_1).slot as Some).0.n = move _3;
+        [] goto -> bb1;
+    }
+}

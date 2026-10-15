@@ -32,6 +32,16 @@ public struct MirLoop {
     node: Int
 }
 
+// A `try` block being lowered: the block its catch block starts at, the
+// scope depth outside its body, the local its `error` binding is, and
+// whether a propagating `try` reaches it.
+public struct MirCatch {
+    block: Int
+    depth: Int
+    error: Int
+    reached: Bool
+}
+
 public struct MirProgram {
     tc: TcProgram
     funcs: Vector<MirFunc>
@@ -68,6 +78,8 @@ public struct MirProgram {
     scope: Vector<MirScopeEntry>
     scope_marks: Vector<Int>
     loops: Vector<MirLoop>
+    // The `try` blocks open around the position, innermost last.
+    catches: Vector<MirCatch>
     // By leaf: the local a binding lowers to, or -1; the leaves set, so they
     // are cleared when the function is done.
     leaf_local: Vector<Int>
@@ -140,7 +152,8 @@ public func mir_program(tc: TcProgram) -> MirProgram {
                diags: Vector<MirDiag>(), problems: Vector<String>(), problem_modules: Vector<Int>(),
                func_of: res_index(), cur: -1, local_base: 0,
                block_base: 0, current: -1, scope: Vector<MirScopeEntry>(),
-               scope_marks: Vector<Int>(), loops: Vector<MirLoop>(), leaf_local: move leaf_local,
+               scope_marks: Vector<Int>(), loops: Vector<MirLoop>(), catches: Vector<MirCatch>(),
+               leaf_local: move leaf_local,
                touched: Vector<Int>(), leaf_capture: move leaf_capture, pending: Vector<Int>(),
                pending_parents: Vector<Int>(), closure_counts: res_index(),
                statement_windows: Vector<Int>(), refused: false, moved_parts: Vector<Int>(),

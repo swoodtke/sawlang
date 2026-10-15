@@ -1,0 +1,101 @@
+// The catch forms and the optional assignment (SL-670). An inline catch is
+// its operand's `Ok` type, its catch block a branch of that type whose
+// `error` is the operand's error type, in a statement too. A `try` block is
+// the type its body and catch block merge into; its `error` holds the one
+// error type its `try`s propagate however many of them do, an erased
+// `Box<any Error>` as written, and `Never` where none does. A `try` in a
+// closure inside a `try` block leaves the closure. An optional assignment's
+// hops are places its write projects through, the top one written or
+// updated, and its value is checked against the field's type; as an optional
+// binding's subject its `Void?` binds a `Void`.
+
+struct Fault { code: Int }
+
+struct Other { line: Int }
+
+extension Other: Printable {
+    func format(&self, into: &var StringBuilder) {
+        try! into.append(self.line)
+    }
+}
+
+extension Other: Error {}
+
+func risky(n: Int) -> Result<Int, Fault> {
+    n
+}
+
+func erased(n: Int) -> Result<Int, Box<any Error>> {
+    if n < 0 {
+        return Other(line: n)
+    }
+    n
+}
+
+func inline(n: Int) -> Int {
+    try risky(n) catch { 0 }
+    let narrow: Int = try risky(n) catch { error.code }
+    narrow
+}
+
+func block(n: Int) -> Int {
+    try {
+        let a = try risky(n)
+        let b = try risky(a)
+        a + b
+    } catch {
+        error.code
+    }
+}
+
+func boxed(n: Int) -> Int {
+    try {
+        try erased(n)
+    } catch {
+        -1
+    }
+}
+
+func nothing() -> Int {
+    try {
+        1
+    } catch {
+        2
+    }
+}
+
+func apply(f: (Int) -> Result<Int, Other>) -> Int {
+    try f(1) catch { error.line }
+}
+
+func closed(n: Int) -> Int {
+    try {
+        let k = try risky(n)
+        apply({ x in try erased_other(x + k) })
+    } catch {
+        error.code
+    }
+}
+
+func erased_other(n: Int) -> Result<Int, Other> {
+    n
+}
+
+struct Leaf { n: Int }
+
+struct Top {
+    leaf: Leaf?,
+    count: Int
+}
+
+func assign(t: &var Top?) {
+    t?.count = 1
+    t?.leaf?.n += 2
+}
+
+func tested(t: &var Top?) -> Bool {
+    if let _ = t?.leaf?.n = 3 {
+        return true
+    }
+    false
+}

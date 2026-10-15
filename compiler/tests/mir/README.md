@@ -327,6 +327,9 @@ through a reference to stay a reported move.
 | `borrow v.get(i)` in `if let` or `??` | the conditional window `v.get(i)` opens | windows |
 | each kind of body | a function of its own | bodies |
 | `try`, `try!`, `try?` | a switch with a return of `Err`; the `Ok!` projection; a switch building an Optional | branches, adjustments |
+| `try e catch { … }` | a switch: the `Ok` payload into the destination, or dropped with the Result where nothing reads it; on `Err` the error moved into the catch block's `error`, a local the catch block's scope owns, then the catch block into the destination | catches `valued`, `discarded`, `taken`, `looped` |
+| `try { … } catch { … }` | the body into the destination; each `try` in it no nested block takes moves its error into the catch block's `error` and leaves through the exits of every scope inside the body to the catch block, which gives the destination its value; a `try` in a catch block goes to the block around it; no catch block where no `try` reaches it | catches `block`, `nested`, `owned_block`, `unreached` |
+| `a?.b = v`, `a?.b op= v`, their `borrow var` forms, and one as an optional binding's subject | the head's subexpressions, the value into a temporary, the head's borrows, then a discriminant switch per `?.` hop, the absent edges skipping the write, the old value of an owning field dropped before it; a conditional lend's head opens its window after the value, writes on the present edge and closes it there; as a subject, `Void?` into a temporary, `Some(())` where it wrote, switched on | optional_assigns |
 | `match` | a decision tree; a literal test settles a later row testing the same value, however spelled (`pattern_value`), sends one testing a different value down its false edge, and sends a range down both | matches, run match_literal_values |
 | `borrow let x = p { }` | a window, closed on every edge out of the body | windows |
 | `borrow var p += v`, `borrow p` | a window closed at the statement's end, or once the value is copied out | windows |
@@ -405,6 +408,8 @@ value the same way. Golden `leftovers` covers each.
 | `try e` | the switch: the `Ok` payload into a temporary, the `Err` payload into the returned `Err`; a trivially copyable `Err` is copied out, and the Result drops whole | destructures `propagated`, `relayed` |
 | `try! e` | the checked `Ok!` payload, moved into a temporary when its position takes it by value | destructures `forced` |
 | `try? e` | the `Ok` edge's `Some`; the `Err` edge drops the Result whole | destructures `optional` |
+| `try e catch { … }` | the switch: the `Ok` payload into the destination, or the Result dropped whole where nothing reads it; the `Err` payload into the catch block's `error` | catches `discarded`, `taken` |
+| a `try` in a `try` block | the switch: the `Ok` payload into a temporary, the `Err` payload into the catch block's `error` | catches `owned_block` |
 | `a ?? b` | the present edge's payload; the absent edge drops the `None` | destructures `coalesced` |
 | `move o!` | the Optional moved whole into a temporary, then its payload | destructures `moved_force` |
 | `f()!`, `f().field`, `f().0` by value | the temporary, around the part | destructures `temporary_parts` |

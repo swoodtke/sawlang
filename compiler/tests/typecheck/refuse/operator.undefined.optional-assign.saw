@@ -1,0 +1,15 @@
+// refuses: operator.undefined at 14:5
+// an optional assignment's `?.` hop over a value that is no Optional
+
+struct Leaf {
+    n: Int
+}
+
+struct Mid {
+    leaf: Leaf
+}
+
+func main() {
+    var m: Mid? = Mid(leaf: Leaf(n: 1))
+    m?.leaf?.n = 2
+}

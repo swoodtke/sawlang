@@ -86,6 +86,7 @@ extension TcProgram {
     // ENTRY POINTS (place_verdict):
     //     an assignment's target (`Write`)
     //     a compound assignment's target (`Update`)
+    //     an optional assignment's target, `a?.b = v` and `a?.b op= v`
     //     the place of a `borrow var` statement written whole (`borrow var
     //         PLACE = v`, `+=`), and of a bare `borrow` one, refused
     //     a write reached through a bare `borrow` statement's place, refused
@@ -308,7 +309,7 @@ extension TcProgram {
 
     // Whether node `e` is an expression that can name a place.
     func is_place_alt(&self, e: Int) -> Bool {
-        self.has_alt(e, Alt.Expr_Name) || self.has_alt(e, Alt.Expr_NameRef) || self.has_alt(e, Alt.Expr_Self) || self.has_alt(e, Alt.Expr_Member) || self.has_alt(e, Alt.Expr_TupleIndex) || self.has_alt(e, Alt.Expr_Force) || self.has_alt(e, Alt.Expr_Subscript_Single) || self.has_alt(e, Alt.Expr_Subscript_Multi) || self.has_alt(e, Alt.Expr_Deref) || self.has_alt(e, Alt.Expr_Paren) || self.has_alt(e, Alt.Expr_Call_Paren)
+        self.has_alt(e, Alt.Expr_Name) || self.has_alt(e, Alt.Expr_NameRef) || self.has_alt(e, Alt.Expr_Self) || self.has_alt(e, Alt.Expr_Member) || self.has_alt(e, Alt.Expr_TupleIndex) || self.has_alt(e, Alt.Expr_Force) || self.has_alt(e, Alt.Expr_OptionalMember) || self.has_alt(e, Alt.Expr_Subscript_Single) || self.has_alt(e, Alt.Expr_Subscript_Multi) || self.has_alt(e, Alt.Expr_Deref) || self.has_alt(e, Alt.Expr_Paren) || self.has_alt(e, Alt.Expr_Call_Paren)
     }
 
     // Whether place `e` may be written, walked to its root. The walk stops
@@ -361,7 +362,7 @@ extension TcProgram {
             let base = self.res.first_node_child(e)
             return self.place_verdict(base, &var tables)
         }
-        if self.has_alt(e, Alt.Expr_TupleIndex) || self.has_alt(e, Alt.Expr_Force) {
+        if self.has_alt(e, Alt.Expr_TupleIndex) || self.has_alt(e, Alt.Expr_Force) || self.has_alt(e, Alt.Expr_OptionalMember) {
             let base = self.res.first_node_child(e)
             return self.place_verdict(base, &var tables)
         }

@@ -25,9 +25,11 @@ import sawtypecheck.typeops.{TcClient}
 static TC_PATH_FRESH: Int = -1
 static TC_PATH_GONE: Int = -2
 
-// The frames a `return`, `break` or `continue` leaves its state to.
+// The frames a `return`, `break`, `continue` or propagating `try` leaves its
+// state to.
 static TC_FRAME_LOOP: Int = 0
 static TC_FRAME_CLOSURE: Int = 1
+static TC_FRAME_CATCH: Int = 2
 
 // What the walk over one body keeps. A path state is `width` slots, one per
 // tracked local and a last one that is 1 when no path reaches the position.
@@ -343,6 +345,45 @@ extension TcProgram {
         return -1
     }
 
+    // The innermost open frame a propagating `try` leaves to: a `try`
+    // block's, or a closure's, or -1.
+    func propagation_frame(&self, w: &TcPaths) -> Int {
+        var f = w.depth - 1
+        while f >= 0 {
+            let k = w.frame_kinds[f]
+            if k == TC_FRAME_CATCH || k == TC_FRAME_CLOSURE {
+                return f
+            }
+            f = f - 1
+        }
+        return -1
+    }
+
+    // `try { … } catch { … }`: the body on the path, and the catch block on
+    // the paths every propagating `try` in the body leaves; past it, both.
+    func walk_try_block(&var self, w: &var TcPaths, id: Int, st: &var Vector<Int>) {
+        let body = self.res.first_node_child(id)
+        let handler = self.res.last_node_child(id)
+        self.push_frame(&var w, TC_FRAME_CATCH)
+        let f = w.depth - 1
+        self.walk_path(&var w, body, &var st)
+        var caught = self.frame_state(&w, f, 0)
+        w.depth = w.depth - 1
+        self.walk_path(&var w, handler, &var caught)
+        self.merge_paths(&w, &var st, &caught)
+    }
+
+    // `try e catch { … }`: the operand on the path, then the catch block on a
+    // branch of it.
+    func walk_try_catch(&var self, w: &var TcPaths, id: Int, st: &var Vector<Int>) {
+        let operand = self.res.first_node_child(id)
+        let clause = self.res.last_node_child(id)
+        self.walk_path(&var w, operand, &var st)
+        var branch = tc_copy_ints(&st)
+        self.walk_path(&var w, clause, &var branch)
+        self.merge_paths(&w, &var st, &branch)
+    }
+
     // Walks node `id` along the paths `st` holds, leaving the state after it.
     func walk_path(&var self, w: &var TcPaths, id: Int, st: &var Vector<Int>) {
         if id < 0 || self.is_dead(&w, &st) {
@@ -374,7 +415,11 @@ extension TcProgram {
             self.walk_repeated(&var w, id, seq, TC_FRAME_LOOP, &var st)
         } else if self.has_alt(id, Alt.Expr_Closure) {
             self.walk_repeated(&var w, id, -1, TC_FRAME_CLOSURE, &var st)
-        } else if self.has_alt(id, Alt.Stmt_Assign) {
+        } else if self.has_alt(id, Alt.Expr_TryBlock) {
+            self.walk_try_block(&var w, id, &var st)
+        } else if self.has_alt(id, Alt.Expr_Try_Catch) {
+            self.walk_try_catch(&var w, id, &var st)
+        } else if self.has_alt(id, Alt.Stmt_Assign) || self.has_alt(id, Alt.Stmt_OptionalAssign_Plain) {
             // The value is read before the target is written.
             let value = self.res.last_node_child(id)
             let target = self.res.first_node_child(id)
@@ -397,9 +442,10 @@ extension TcProgram {
             }
             st[w.width - 1] = 1
         } else if self.has_alt(id, Alt.Expr_Try_Propagate) {
-            // An error leaves the closure the propagation stands in.
+            // An error leaves for the `try` block's catch block or the
+            // closure the propagation stands in.
             self.walk_children(&var w, id, -1, &var st)
-            let f = self.open_frame(&w, TC_FRAME_CLOSURE)
+            let f = self.propagation_frame(&w)
             if f >= 0 {
                 self.merge_into_frame(&var w, f, 0, &st)
             }

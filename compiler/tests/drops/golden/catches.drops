@@ -1,0 +1,324 @@
+module catches
+
+fn catches.take(r: catches.Res) -> Int {
+    let _0: Int;  // return
+    let _1: catches.Res;  // param r
+
+    bb0: {
+        _0 = copy _1.id;
+        drop(_1);
+        return;
+    }
+
+    glue catches.Res: structural
+}
+
+fn catches.risky(n: Int) -> Result<Int, catches.Fault> {
+    let _0: Result<Int, catches.Fault>;  // return
+    let _1: Int;  // param n
+    let _2: Bool;
+    let _3: catches.Fault;
+    let _4: Result<Int, catches.Fault>;
+    let _5: Result<Int, catches.Fault>;
+
+    bb0: {
+        _2 = Lt(copy _1, const 0: Int);
+        switch move _2 -> [true: bb2, false: bb3];
+    }
+
+    bb1: {
+        _5 = Result<Int, catches.Fault>::Ok(copy _1);
+        _0 = move _5;
+        return;
+    }
+
+    bb2: {
+        _3 = catches.Fault { code: const "negative": String };
+        _4 = Result<Int, catches.Fault>::Err(move _3);
+        _0 = move _4;
+        return;
+    }
+
+    bb3: {
+        goto -> bb1;
+    }
+}
+
+fn catches.made(n: Int) -> Result<catches.Res, catches.Fault> {
+    let _0: Result<catches.Res, catches.Fault>;  // return
+    let _1: Int;  // param n
+    let _2: Bool;
+    let _3: catches.Fault;
+    let _4: Result<catches.Res, catches.Fault>;
+    let _5: catches.Res;
+    let _6: Result<catches.Res, catches.Fault>;
+
+    bb0: {
+        _2 = Lt(copy _1, const 0: Int);
+        switch move _2 -> [true: bb2, false: bb3];
+    }
+
+    bb1: {
+        _5 = catches.Res { id: copy _1 };
+        _6 = Result<catches.Res, catches.Fault>::Ok(move _5);
+        _0 = move _6;
+        return;
+    }
+
+    bb2: {
+        _3 = catches.Fault { code: const "negative": String };
+        _4 = Result<catches.Res, catches.Fault>::Err(move _3);
+        _0 = move _4;
+        return;
+    }
+
+    bb3: {
+        goto -> bb1;
+    }
+}
+
+fn catches.flagged(n: Int, c: Bool) -> Int {
+    let _0: Int;  // return
+    let _1: Int;  // param n
+    let _2: Bool;  // param c
+    let _3: catches.Fault;  // error
+    let _4: catches.Res;  // r
+    let _5: catches.Res;
+    let _6: Int;  // used
+    let _7: Int;
+    let _8: Int;  // x
+    let _9: Result<Int, catches.Fault>;
+    let _10: Int;
+    let _11: Int;
+    let _12: &String;
+    let _13: Int;
+    let _14: Bool;  // flag _4
+
+    bb0: {
+        _14 = const false: Bool;
+        _5 = catches.Res { id: copy _1 };
+        _4 = move _5;
+        _14 = const true: Bool;
+        _6 = const 0: Int;
+        switch copy _2 -> [true: bb4, false: bb5];
+    }
+
+    bb1: {
+        _12 = ref(shared, _3.code);
+        _13 = call std.string.String.len() (owner String) [move _12] -> [return: bb10];
+    }
+
+    bb2: {
+        return;
+    }
+
+    bb3: {
+        _9 = call catches.risky(n: Int) [copy _1] -> [return: bb7];
+    }
+
+    bb4: {
+        _14 = const false: Bool;
+        _7 = call catches.take(r: catches.Res) [move _4] -> [return: bb6];
+    }
+
+    bb5: {
+        goto -> bb3;
+    }
+
+    bb6: {
+        _6 = move _7;
+        goto -> bb3;
+    }
+
+    bb7: {
+        switch discriminant(_9) -> [Ok: bb8, Err: bb9];
+    }
+
+    bb8: {
+        _10 = copy (_9 as Ok).0;
+        drop(_9);
+        _8 = move _10;
+        _11 = Add(copy _8, copy _6);
+        _0 = move _11;
+        switch copy _14 -> [true: bb11, false: bb12];
+    }
+
+    bb9: {
+        _3 = move (_9 as Err).0;
+        switch copy _14 -> [true: bb13, false: bb14];
+    }
+
+    bb10: {
+        _0 = move _13;
+        drop(_3);
+        goto -> bb2;
+    }
+
+    bb11: {
+        drop(_4);
+        _14 = const false: Bool;
+        goto -> bb12;
+    }
+
+    bb12: {
+        goto -> bb2;
+    }
+
+    bb13: {
+        drop(_4);
+        _14 = const false: Bool;
+        goto -> bb14;
+    }
+
+    bb14: {
+        goto -> bb1;
+    }
+
+    glue Result<Int, catches.Fault>: structural
+    glue catches.Fault: structural
+    glue catches.Res: structural
+}
+
+fn catches.nested(n: Int) -> Int {
+    let _0: Int;  // return
+    let _1: Int;  // param n
+    let _2: catches.Res;  // outer
+    let _3: catches.Res;
+    let _4: catches.Fault;  // error
+    let _5: catches.Res;  // inner
+    let _6: catches.Res;
+    let _7: Int;  // x
+    let _8: Result<Int, catches.Fault>;
+    let _9: Int;
+    let _10: Int;
+    let _11: Int;
+    let _12: catches.Res;  // held
+    let _13: catches.Res;
+    let _14: Int;
+    let _15: Bool;
+    let _16: Int;
+    let _17: &String;
+    let _18: Int;
+
+    bb0: {
+        _3 = catches.Res { id: const 1: Int };
+        _2 = move _3;
+        _6 = catches.Res { id: const 2: Int };
+        _5 = move _6;
+        _8 = call catches.risky(n: Int) [copy _1] -> [return: bb3];
+    }
+
+    bb1: {
+        _13 = catches.Res { id: const 3: Int };
+        _12 = move _13;
+        _14 = Neg(const 10: Int);
+        _15 = Lt(copy _1, move _14);
+        switch move _15 -> [true: bb7, false: bb8];
+    }
+
+    bb2: {
+        drop(_2);
+        return;
+    }
+
+    bb3: {
+        switch discriminant(_8) -> [Ok: bb4, Err: bb5];
+    }
+
+    bb4: {
+        _9 = copy (_8 as Ok).0;
+        drop(_8);
+        _7 = move _9;
+        _10 = Add(copy _7, copy _5.id);
+        _11 = Add(move _10, copy _2.id);
+        _0 = move _11;
+        drop(_5);
+        goto -> bb2;
+    }
+
+    bb5: {
+        _4 = move (_8 as Err).0;
+        drop(_5);
+        goto -> bb1;
+    }
+
+    bb6: {
+        _17 = ref(shared, _4.code);
+        _18 = call std.string.String.len() (owner String) [move _17] -> [return: bb10];
+    }
+
+    bb7: {
+        _16 = call catches.take(r: catches.Res) [move _12] -> [return: bb9];
+    }
+
+    bb8: {
+        goto -> bb6;
+    }
+
+    bb9: {
+        _0 = move _16;
+        drop(_4);
+        drop(_2);
+        return;
+    }
+
+    bb10: {
+        _0 = move _18;
+        drop(_12);
+        drop(_4);
+        goto -> bb2;
+    }
+
+    glue Result<Int, catches.Fault>: structural
+    glue catches.Fault: structural
+    glue catches.Res: structural
+}
+
+fn catches.inline(n: Int) -> Int {
+    let _0: Int;  // return
+    let _1: Int;  // param n
+    let _2: catches.Res;  // r
+    let _3: Result<catches.Res, catches.Fault>;
+    let _4: catches.Fault;  // error
+    let _5: &String;
+    let _6: Int;
+    let _7: catches.Res;
+    let _8: Int;
+
+    bb0: {
+        _3 = call catches.made(n: Int) [copy _1] -> [return: bb1];
+    }
+
+    bb1: {
+        switch discriminant(_3) -> [Ok: bb2, Err: bb3];
+    }
+
+    bb2: {
+        _2 = move (_3 as Ok).0;
+        goto -> bb4;
+    }
+
+    bb3: {
+        _4 = move (_3 as Err).0;
+        _5 = ref(shared, _4.code);
+        _6 = call std.string.String.len() (owner String) [move _5] -> [return: bb5];
+    }
+
+    bb4: {
+        _8 = call catches.take(r: catches.Res) [move _2] -> [return: bb6];
+    }
+
+    bb5: {
+        _7 = catches.Res { id: move _6 };
+        _2 = move _7;
+        drop(_4);
+        goto -> bb4;
+    }
+
+    bb6: {
+        _0 = move _8;
+        return;
+    }
+
+    glue catches.Fault: structural
+}

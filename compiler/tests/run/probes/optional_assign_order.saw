@@ -1,0 +1,74 @@
+// probe: stated
+// about: an optional assignment runs its right side on an absent chain too, and an absent hop skips only the write (SL-670)
+// stage 0: skips the right side of an absent chain
+// speeds: -O0 -O2
+// The right side runs first, as every assignment's does (spec, Optionals,
+// "Chained assignment"; SL:open-questions W3): on the written path the old
+// value deinits once, before the new one is stored, and on a skipped path
+// the value the right side made deinits with its statement, the field
+// untouched.
+// prints: rhs 1
+// prints: drop 10
+// prints: written 1
+// prints: rhs 2
+// prints: drop 2
+// prints: skipped absent head
+// prints: rhs 3
+// prints: drop 3
+// prints: skipped absent inner hop
+// prints: rhs 4
+// prints: compound 14
+// prints: rhs 5
+// prints: compound skipped
+// prints: end
+// prints: drop 1
+
+struct Res {
+    n: Int
+}
+
+extension Res: NoCopy {
+    func deinit(&var self) {
+        print("drop {}", self.n)
+    }
+}
+
+struct Inner {
+    slot: Res
+    count: Int
+}
+
+extension Inner: NoCopy {}
+
+struct Outer {
+    inner: Inner?
+}
+
+extension Outer: NoCopy {}
+
+func made(n: Int) -> Res {
+    print("rhs {}", n)
+    Res(n: n)
+}
+
+func loud(n: Int) -> Int {
+    print("rhs {}", n)
+    n
+}
+
+func main() {
+    var full: Outer? = Outer(inner: Inner(slot: Res(n: 10), count: 10))
+    full?.inner?.slot = made(1)
+    print("written {}", full!.inner!.slot.n)
+    var none: Outer? = None
+    none?.inner?.slot = made(2)
+    print("skipped absent head")
+    var empty: Outer? = Outer(inner: None)
+    empty?.inner?.slot = made(3)
+    print("skipped absent inner hop")
+    full?.inner?.count += loud(4)
+    print("compound {}", full!.inner!.count)
+    empty?.inner?.count += loud(5)
+    print("compound skipped")
+    print("end")
+}

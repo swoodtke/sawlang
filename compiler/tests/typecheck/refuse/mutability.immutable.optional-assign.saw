@@ -1,0 +1,11 @@
+// refuses: mutability.immutable at 10:5
+// writing through a `let` optional's payload, `o?.n = 5`
+
+struct Leaf {
+    n: Int
+}
+
+func main() {
+    let o: Leaf? = Leaf(n: 1)
+    o?.n = 5
+}

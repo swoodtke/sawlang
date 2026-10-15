@@ -279,6 +279,7 @@ there. It counts the drop flags over the sawc2 build and over tests/corpus.
 | a conditional move: a flag set and cleared | conditional |
 | a loop moving on some iterations | loops |
 | early exits: `return`, `break`, `continue`, `try` | exits |
+| the catch forms' edges: a `try` leaving a `try` block's body through its scopes, a value moved on some paths before it dropped under its flag; the catch block's `error` dropped as the block ends or a `return` leaves it; an inline catch's payload moved out and its `error` dropped with its block | catches |
 | a dissolve under each consuming form: part drops | dissolves |
 | what a `match`, `if let` or `while let` leaves over, static, on each exit of its body: the arm's end, a `return`, across a suspension, per iteration and on `break` | leftovers |
 | a `consumes` body: field release, a field moved out and assigned again released with it, no flag | consumes |

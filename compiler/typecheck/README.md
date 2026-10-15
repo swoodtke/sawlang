@@ -368,6 +368,10 @@ body's control structure with one state per path:
 - a `return` ends its path, a `break` carries its path past the loop and a
   `continue` to its head, and a closure's `return` or `?` carries its path
   out of the closure; an expression of type `Never` ends its path;
+- a propagating `try` in a `try` block's body carries its path to the catch
+  block, which runs on every such path, and past the block the body's end
+  and the catch block's join; an inline catch's catch block is a branch
+  after its operand;
 - a spelled `move x` ends `x` on its path, and an assignment `x = v` gives it
   a new value;
 - a borrow (`&x`, a receiver, a format argument, a comparison operand) is no

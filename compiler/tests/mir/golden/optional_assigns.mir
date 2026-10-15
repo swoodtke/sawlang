@@ -1,0 +1,385 @@
+module optional_assigns
+
+fn prologue optional_assigns.Shelf.find(i: Int) -> (&var optional_assigns.Leaf)? {
+    let _0: (&var optional_assigns.Leaf)?;  // return
+    let _1: &var optional_assigns.Shelf;  // self
+    let _2: Int;  // param i
+    let _3: Bool;
+    let _4: &var optional_assigns.Leaf;
+    let _5: (&var optional_assigns.Leaf)?;
+
+    bb0: {
+        _3 = Ne(copy _2, const 0: Int);
+        switch move _3 -> [true: bb2, false: bb3];
+    }
+
+    bb1: {
+        _4 = ref(exclusive, (*_1).slot);
+        _5 = (&var optional_assigns.Leaf)?::Some(move _4);
+        _0 = move _5;
+        return;
+    }
+
+    bb2: {
+        _0 = (&var optional_assigns.Leaf)?::None;
+        return;
+    }
+
+    bb3: {
+        goto -> bb1;
+    }
+}
+
+fn epilogue optional_assigns.Shelf.find(i: Int) -> Void {
+    let _0: Void;  // return
+
+    bb0: {
+        goto -> bb1;
+    }
+
+    bb1: {
+        return;
+    }
+}
+
+fn optional_assigns.note(n: Int) -> Int {
+    let _0: Int;  // return
+    let _1: Int;  // param n
+
+    bb0: {
+        _0 = copy _1;
+        return;
+    }
+}
+
+fn optional_assigns.single(t: &var optional_assigns.Top?) -> Void {
+    let _0: Void;  // return
+    let _1: &var optional_assigns.Top?;  // param t
+    let _2: Int;
+    let _3: Int;
+
+    bb0: {
+        _2 = call optional_assigns.note(n: Int) [const 1: Int] -> [return: bb1];
+    }
+
+    bb1: {
+        _3 = move _2;
+        switch discriminant((*_1)) -> [Some: bb3, None: bb2];
+    }
+
+    bb2: {
+        return;
+    }
+
+    bb3: {
+        ((*_1) as Some).0.count = move _3;
+        goto -> bb2;
+    }
+}
+
+fn optional_assigns.multi(t: &var optional_assigns.Top?) -> Void {
+    let _0: Void;  // return
+    let _1: &var optional_assigns.Top?;  // param t
+    let _2: Int;
+    let _3: Int;
+
+    bb0: {
+        _2 = call optional_assigns.note(n: Int) [const 2: Int] -> [return: bb1];
+    }
+
+    bb1: {
+        _3 = move _2;
+        switch discriminant((*_1)) -> [Some: bb3, None: bb2];
+    }
+
+    bb2: {
+        return;
+    }
+
+    bb3: {
+        switch discriminant(((*_1) as Some).0.mid) -> [Some: bb4, None: bb2];
+    }
+
+    bb4: {
+        switch discriminant((((*_1) as Some).0.mid as Some).0.leaf) -> [Some: bb5, None: bb2];
+    }
+
+    bb5: {
+        ((((*_1) as Some).0.mid as Some).0.leaf as Some).0.n = move _3;
+        goto -> bb2;
+    }
+}
+
+fn optional_assigns.compound(t: &var optional_assigns.Top?) -> Void {
+    let _0: Void;  // return
+    let _1: &var optional_assigns.Top?;  // param t
+    let _2: Int;
+    let _3: Int;
+
+    bb0: {
+        _2 = call optional_assigns.note(n: Int) [const 3: Int] -> [return: bb1];
+    }
+
+    bb1: {
+        _3 = move _2;
+        switch discriminant((*_1)) -> [Some: bb3, None: bb2];
+    }
+
+    bb2: {
+        return;
+    }
+
+    bb3: {
+        switch discriminant(((*_1) as Some).0.mid) -> [Some: bb4, None: bb2];
+    }
+
+    bb4: {
+        switch discriminant((((*_1) as Some).0.mid as Some).0.leaf) -> [Some: bb5, None: bb2];
+    }
+
+    bb5: {
+        ((((*_1) as Some).0.mid as Some).0.leaf as Some).0.n = Add(copy ((((*_1) as Some).0.mid as Some).0.leaf as Some).0.n, move _3);
+        goto -> bb2;
+    }
+}
+
+fn optional_assigns.owning(t: &var optional_assigns.Top?) -> Void {
+    let _0: Void;  // return
+    let _1: &var optional_assigns.Top?;  // param t
+    let _2: Int;
+    let _3: optional_assigns.Res;
+    let _4: optional_assigns.Res;
+
+    bb0: {
+        _2 = call optional_assigns.note(n: Int) [const 4: Int] -> [return: bb1];
+    }
+
+    bb1: {
+        _3 = optional_assigns.Res { id: move _2 };
+        _4 = move _3;
+        switch discriminant((*_1)) -> [Some: bb3, None: bb2];
+    }
+
+    bb2: {
+        drop(_4);
+        return;
+    }
+
+    bb3: {
+        switch discriminant(((*_1) as Some).0.mid) -> [Some: bb4, None: bb2];
+    }
+
+    bb4: {
+        drop((((*_1) as Some).0.mid as Some).0.res);
+        (((*_1) as Some).0.mid as Some).0.res = move _4;
+        goto -> bb2;
+    }
+}
+
+fn optional_assigns.member_between(t: &var optional_assigns.Top?) -> Void {
+    let _0: Void;  // return
+    let _1: &var optional_assigns.Top?;  // param t
+    let _2: Int;
+    let _3: Int;
+
+    bb0: {
+        _2 = call optional_assigns.note(n: Int) [const 5: Int] -> [return: bb1];
+    }
+
+    bb1: {
+        _3 = move _2;
+        switch discriminant((*_1)) -> [Some: bb3, None: bb2];
+    }
+
+    bb2: {
+        return;
+    }
+
+    bb3: {
+        switch discriminant(((*_1) as Some).0.mid) -> [Some: bb4, None: bb2];
+    }
+
+    bb4: {
+        (((*_1) as Some).0.mid as Some).0.res.id = move _3;
+        goto -> bb2;
+    }
+}
+
+fn optional_assigns.local() -> Void {
+    let _0: Void;  // return
+    let _1: optional_assigns.Top?;  // t
+    let _2: optional_assigns.Top?;
+    let _3: Int;
+
+    bb0: {
+        _2 = optional_assigns.Top?::None;
+        _1 = move _2;
+        _3 = const 6: Int;
+        switch discriminant(_1) -> [Some: bb2, None: bb1];
+    }
+
+    bb1: {
+        drop(_1);
+        return;
+    }
+
+    bb2: {
+        (_1 as Some).0.count = move _3;
+        goto -> bb1;
+    }
+}
+
+fn optional_assigns.lent(s: &var optional_assigns.Shelf) -> Void {
+    let _0: Void;  // return
+    let _1: &var optional_assigns.Shelf;  // param s
+    let _2: Int;
+    let _3: Int;
+    let _4: &var optional_assigns.Leaf;
+    let _5: &var optional_assigns.Shelf;
+    let _6: Int;
+    let _7: Int;
+    let _8: &var optional_assigns.Leaf;
+    let _9: &var optional_assigns.Shelf;
+    window w0: optional_assigns.Shelf.find(i: Int) exclusive conditional;
+    window w1: optional_assigns.Shelf.find(i: Int) exclusive conditional;
+
+    bb0: {
+        _2 = call optional_assigns.note(n: Int) [const 7: Int] -> [return: bb1];
+    }
+
+    bb1: {
+        _3 = move _2;
+        _5 = ref(exclusive, (*_1));
+        _4 = window_open w0 prologue optional_assigns.Shelf.find(i: Int) (owner optional_assigns.Shelf) [move _5, const 0: Int] -> [present: bb3, absent: bb4];
+    }
+
+    bb2: {
+        _6 = call optional_assigns.note(n: Int) [const 8: Int] -> [return: bb6];
+    }
+
+    bb3: {
+        (*_4).n = move _3;
+        window_close w0 epilogue optional_assigns.Shelf.find(i: Int) (owner optional_assigns.Shelf) -> [return: bb5];
+    }
+
+    bb4: {
+        goto -> bb2;
+    }
+
+    bb5: {
+        goto -> bb2;
+    }
+
+    bb6: {
+        _7 = move _6;
+        _9 = ref(exclusive, (*_1));
+        _8 = window_open w1 prologue optional_assigns.Shelf.find(i: Int) (owner optional_assigns.Shelf) [move _9, const 1: Int] -> [present: bb8, absent: bb9];
+    }
+
+    bb7: {
+        return;
+    }
+
+    bb8: {
+        (*_8).n = Add(copy (*_8).n, move _7);
+        window_close w1 epilogue optional_assigns.Shelf.find(i: Int) (owner optional_assigns.Shelf) -> [return: bb10];
+    }
+
+    bb9: {
+        goto -> bb7;
+    }
+
+    bb10: {
+        goto -> bb7;
+    }
+}
+
+fn optional_assigns.tested(t: &var optional_assigns.Top?) -> Int {
+    let _0: Int;  // return
+    let _1: &var optional_assigns.Top?;  // param t
+    let _2: Void?;
+    let _3: Int;
+    let _4: Int;
+    let _5: Void;  // _
+    let _6: Void?;
+    let _7: Int;
+    let _8: Int;
+    let _9: Void;  // _
+
+    bb0: {
+        _3 = call optional_assigns.note(n: Int) [const 9: Int] -> [return: bb2];
+    }
+
+    bb1: {
+        _7 = call optional_assigns.note(n: Int) [const 10: Int] -> [return: bb8];
+    }
+
+    bb2: {
+        _4 = move _3;
+        switch discriminant((*_1)) -> [Some: bb4, None: bb3];
+    }
+
+    bb3: {
+        _2 = Void?::None;
+        goto -> bb5;
+    }
+
+    bb4: {
+        ((*_1) as Some).0.count = move _4;
+        _2 = Void?::Some(const (): Void);
+        goto -> bb5;
+    }
+
+    bb5: {
+        switch discriminant(_2) -> [Some: bb6, None: bb7];
+    }
+
+    bb6: {
+        _5 = copy (_2 as Some).0;
+        _0 = const 1: Int;
+        return;
+    }
+
+    bb7: {
+        goto -> bb1;
+    }
+
+    bb8: {
+        _8 = move _7;
+        switch discriminant((*_1)) -> [Some: bb10, None: bb9];
+    }
+
+    bb9: {
+        _6 = Void?::None;
+        goto -> bb13;
+    }
+
+    bb10: {
+        switch discriminant(((*_1) as Some).0.mid) -> [Some: bb11, None: bb9];
+    }
+
+    bb11: {
+        switch discriminant((((*_1) as Some).0.mid as Some).0.leaf) -> [Some: bb12, None: bb9];
+    }
+
+    bb12: {
+        ((((*_1) as Some).0.mid as Some).0.leaf as Some).0.n = move _8;
+        _6 = Void?::Some(const (): Void);
+        goto -> bb13;
+    }
+
+    bb13: {
+        switch discriminant(_6) -> [Some: bb14, None: bb15];
+    }
+
+    bb14: {
+        _9 = copy (_6 as Some).0;
+        _0 = const 3: Int;
+        return;
+    }
+
+    bb15: {
+        _0 = const 2: Int;
+        return;
+    }
+}

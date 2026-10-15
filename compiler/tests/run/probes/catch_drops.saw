@@ -1,0 +1,110 @@
+// probe: stated
+// about: a caught error deinits as its catch block ends or is left, and an owned `Ok` payload moves or deinits with its statement (SL-670)
+// stage 0: never destroys a caught error (SL:hazards S3)
+// speeds: -O0 -O2
+// The caught error is the catch block's `error` binding, so it deinits as
+// the block ends, or as a `return` or `break` leaves it; an inline catch's
+// `Ok` payload moves to its destination, or deinits with its statement when
+// nothing reads it; and a `try` that leaves a `try` block's body ends every
+// scope it leaves on the way, its locals deinit before the catch block runs.
+// prints: made 1
+// prints: kept 1
+// prints: drop value 1
+// prints: caught 2
+// prints: drop fault 2
+// prints: made 3
+// prints: drop value 3
+// prints: statement done
+// prints: leaving with 4
+// prints: drop fault 4
+// prints: returned -1
+// prints: made 5
+// prints: drop value 50
+// prints: drop value 5
+// prints: block caught 6
+// prints: drop fault 6
+// prints: made 7
+// prints: got 7
+// prints: drop value 7
+// prints: drop fault 8
+// prints: loop ended
+// prints: end
+// prints: drop value -2
+
+struct Value {
+    n: Int
+}
+
+extension Value: NoCopy {
+    func deinit(&var self) {
+        print("drop value {}", self.n)
+    }
+}
+
+struct Fault {
+    code: Int
+}
+
+extension Fault: NoCopy {
+    func deinit(&var self) {
+        print("drop fault {}", self.code)
+    }
+}
+
+func make(n: Int) -> Result<Value, Fault> {
+    if n % 2 == 0 {
+        return Fault(code: n)
+    }
+    print("made {}", n)
+    Value(n: n)
+}
+
+func leaves(n: Int) -> Int {
+    let v = try make(n) catch {
+        print("leaving with {}", error.code)
+        return -1
+    }
+    v.n
+}
+
+func block(n: Int) {
+    try {
+        let first = try make(n - 1)
+        let held = Value(n: 50)
+        let second = try make(n)
+        print("never {} {} {}", first.n, held.n, second.n)
+    } catch {
+        print("block caught {}", error.code)
+    }
+}
+
+func looped() {
+    var i = 6
+    while i < 10 {
+        i = i + 1
+        let v = try make(i) catch {
+            if error.code == 8 {
+                break
+            }
+            continue
+        }
+        print("got {}", v.n)
+    }
+    print("loop ended")
+}
+
+func main() {
+    let kept = try make(1) catch { Value(n: 0) }
+    print("kept {}", kept.n)
+    let _ = move kept
+    let other = try make(2) catch {
+        print("caught {}", error.code)
+        Value(n: -2)
+    }
+    try make(3) catch { Value(n: 0) }
+    print("statement done")
+    print("returned {}", leaves(4))
+    block(6)
+    looped()
+    print("end")
+}

@@ -1,0 +1,82 @@
+// The optional assignment, `a?.b = v` and `a?.b op= v` (SL-670): the right
+// side is evaluated into a temporary first, then each optional hop switches
+// on its base and goes on into the payload, and the write happens only where
+// every hop is present; on an absent edge the value's temporary drops with
+// the statement. The old value of an owning field drops before the write. A
+// head reached through `&var` reads through its reference. A head that is a
+// conditional lend, in either spelling, opens its window after the right
+// side, writes on the present edge and closes it there; the absent edge
+// opens nothing. As an optional binding's subject the assignment's `Void?`
+// is a temporary, `Some(())` where it wrote, which the head switches on.
+
+struct Res { id: Int }
+extension Res: NoCopy {}
+
+struct Leaf { n: Int }
+
+struct Mid {
+    leaf: Leaf?,
+    res: Res
+}
+extension Mid: NoCopy {}
+
+struct Top {
+    mid: Mid?,
+    count: Int
+}
+extension Top: NoCopy {}
+
+struct Shelf { slot: Leaf }
+
+extension Shelf {
+    func find(&var self, i: Int) borrows -> &var Leaf? {
+        if i != 0 {
+            return None
+        }
+        lend self.slot
+    }
+}
+
+func note(n: Int) -> Int {
+    n
+}
+
+func single(t: &var Top?) {
+    t?.count = note(1)
+}
+
+func multi(t: &var Top?) {
+    t?.mid?.leaf?.n = note(2)
+}
+
+func compound(t: &var Top?) {
+    t?.mid?.leaf?.n += note(3)
+}
+
+func owning(t: &var Top?) {
+    t?.mid?.res = Res(id: note(4))
+}
+
+func member_between(t: &var Top?) {
+    t?.mid?.res.id = note(5)
+}
+
+func local() {
+    var t: Top? = None
+    t?.count = 6
+}
+
+func lent(s: &var Shelf) {
+    borrow var s.find(0)?.n = note(7)
+    borrow var s.find(1)?.n += note(8)
+}
+
+func tested(t: &var Top?) -> Int {
+    if let _ = t?.count = note(9) {
+        return 1
+    }
+    guard let _ = t?.mid?.leaf?.n = note(10) else {
+        return 2
+    }
+    3
+}

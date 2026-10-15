@@ -1,0 +1,29 @@
+// refuses: borrowing.lend-chain at 28:16
+// a second `?.` hop past a conditional lend's own in an optional assignment
+// (spec, Optionals: "One fence")
+
+struct Leaf {
+    n: Int
+}
+
+struct Slot {
+    leaf: Leaf?
+}
+
+struct Shelf {
+    slot: Slot
+}
+
+extension Shelf {
+    func find(&var self, i: Int) borrows -> &var Slot? {
+        if i != 0 {
+            return None
+        }
+        lend self.slot
+    }
+}
+
+func main() {
+    var s = Shelf(slot: Slot(leaf: None))
+    borrow var s.find(0)?.leaf?.n = 4
+}

@@ -1,0 +1,14 @@
+// refuses: type.not-a-place at 13:5
+// an optional assignment through a temporary, which is no place
+
+struct Leaf {
+    n: Int
+}
+
+func make() -> Leaf? {
+    Leaf(n: 1)
+}
+
+func main() {
+    make()?.n = 2
+}

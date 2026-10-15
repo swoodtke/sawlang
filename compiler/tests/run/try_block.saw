@@ -1,0 +1,157 @@
+// The `try { } catch { }` block (SL-670): as a statement and as a value; two
+// `try`s of one error type, which `error` holds as that type; a statement
+// after a failing `try` skipped; a `try` block nested in another's body and
+// in its catch block, where a `try` reaches the outer block; an inline catch
+// inside a `try` block, which handles its own error; `return`, `break` and
+// `continue` in the catch block; a `try` in a closure inside a `try` block,
+// which leaves the closure; and owned values in scope when a `try` leaves.
+struct Fault {
+    code: Int
+}
+
+struct Text {
+    words: String
+}
+
+func half(n: Int) -> Result<Int, Fault> {
+    if n % 2 == 1 {
+        return Fault(code: n)
+    }
+    n / 2
+}
+
+func named(n: Int) -> Result<Text, Fault> {
+    if n < 0 {
+        return Fault(code: n)
+    }
+    Text(words: "text {n}")
+}
+
+func statement(a: Int, b: Int) {
+    try {
+        let x = try half(a)
+        print("first {}", x)
+        let y = try half(b)
+        print("second {}", y)
+    } catch {
+        print("caught {}", error.code)
+    }
+}
+
+func value(a: Int, b: Int) -> Int {
+    try {
+        let x = try half(a)
+        let y = try half(b)
+        x + y
+    } catch {
+        -error.code
+    }
+}
+
+func nested_body(a: Int, b: Int) -> Int {
+    try {
+        let x = try half(a)
+        let y = try {
+            try half(b)
+        } catch {
+            error.code * 10
+        }
+        x + y
+    } catch {
+        -1
+    }
+}
+
+func nested_catch(a: Int, b: Int) -> Int {
+    try {
+        try {
+            let x = try half(a)
+            x
+        } catch {
+            let again = try half(b)
+            again + error.code * 100
+        }
+    } catch {
+        -error.code
+    }
+}
+
+func inline_inside(a: Int, b: Int) -> Int {
+    try {
+        let x = try half(a) catch { 1000 }
+        let y = try half(b)
+        x + y
+    } catch {
+        -error.code
+    }
+}
+
+func leaves(n: Int) -> Int {
+    let v = try {
+        try half(n)
+    } catch {
+        print("returning {}", error.code)
+        return -1
+    }
+    v * 3
+}
+
+func looped() {
+    var total = 0
+    var i = 0
+    while i < 12 {
+        i = i + 1
+        try {
+            total = total + try half(i)
+        } catch {
+            if error.code > 8 {
+                break
+            }
+            continue
+        }
+        total = total + 100
+    }
+    print("looped total {} stopped at {}", total, i)
+}
+
+func apply(f: (Int) -> Result<Int, Fault>, n: Int) -> Result<Int, Fault> {
+    f(n)
+}
+
+func closure_inside(n: Int) -> Int {
+    try {
+        let r = try apply({ k in
+            let h = try half(k)
+            h + 1
+        }, n)
+        r * 2
+    } catch {
+        -error.code
+    }
+}
+
+func owned(n: Int) -> String {
+    try {
+        let first = try named(n)
+        let second = try named(n - 10)
+        "{first.words} and {second.words}"
+    } catch {
+        "failed at {error.code}"
+    }
+}
+
+func main() {
+    statement(4, 6)
+    statement(3, 6)
+    statement(4, 5)
+    print("value {} {} {}", value(4, 6), value(3, 6), value(4, 5))
+    print("nested body {} {} {}", nested_body(4, 6), nested_body(4, 5), nested_body(3, 6))
+    print("nested catch {} {} {}", nested_catch(4, 6), nested_catch(3, 6), nested_catch(3, 5))
+    print("inline inside {} {} {}", inline_inside(4, 6), inline_inside(3, 6), inline_inside(4, 5))
+    print("leaves {} {}", leaves(8), leaves(7))
+    looped()
+    print("closure inside {} {}", closure_inside(6), closure_inside(5))
+    print("{}", owned(15))
+    print("{}", owned(5))
+    print("{}", owned(-5))
+}

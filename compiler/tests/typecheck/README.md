@@ -173,6 +173,9 @@ A module's dump is one S-expression, one entry per line, in this layout:
     capture in order, the capture list's entries then the bindings its body
     names, with its transfer: `copy` or `move` by value, `borrow` or
     `borrow-var` for a borrow of the enclosing frame;
+  - for an inline catch or a `try` block, `(error TYPE)`: the type of its
+    catch block's `error` binding, `Never` for a `try` block no `try`
+    propagates out of;
   - CALL, for a call, operator, subscript, `for` or pattern case: `(ROLE
     [TARGET] [SPELLING] [derived] [(owner TYPE)] [(inst TYPE...)]
     [(bind PARAM=ARG...)] [(variadic K)])`. ROLE is
@@ -722,7 +725,10 @@ Every body construct in the slice, and how it is typed:
 | a raw-backed enum's `as` to an integer | a borrow of a place, through a reference too, at every copy tier, since the enum is its tag (spec, Raw-backed enums); a temporary or a `move` handed off; the same-type cast a by-value read (SL-623); a `borrow PLACE` or a part of one read in place, as every `borrow` subscript is (SL-642) | raw_enum_cast; transfer.implicit-copy.raw-enum-forwarding; run probe borrow_place_reads |
 | `==` on an undeclared generic POD struct, `Pair<Int> == Pair<Int>` | the automatic `Equatable`, judged per instantiation (SL:open-questions D18) | partial_arguments |
 | `==`, `<` on a type parameter, a trivially copyable struct, a tuple | a bound's `equals` or `compare` ("A `T: Equatable` generic bound grants `==`"); the structural comparison of the automatic `Equatable` ("trivial (POD) structs"), and of a tuple whose elements all are ("Tuples are Equatable iff every element is") | comparisons |
-| `try`, `try!`, `try?` | the `Ok` type, its error propagating into the body's Result | carried |
+| `try`, `try!`, `try?` | the `Ok` type, its error propagating into the innermost `try` block around it, else into the body's Result; a `try` in a closure leaves the closure | carried, catches |
+| an inline catch, `try e catch { … }` | the `Ok` type, the catch block a branch of that type in a statement too (spec, Inline Catch: "either produces the fallback value or diverges"), its `error` the operand's error type, an erased `Box<any Error>` as written | catches; type.mismatch.try-catch, operator.undefined.try-catch |
+| a `try` block, `try { … } catch { … }` | the type its body and catch block merge into, as an `if`'s branches do, in a statement too, as Stage 0 has it; its `error` the one error type its `try`s propagate, however many do, or `Never` where none does | catches; type.mismatch.try-block |
+| an optional assignment, `a?.b = v`, `a?.b op= v` and their `borrow var` forms | `Void?`, which a statement discards and an optional binding's subject, `if let _ = a?.b = v`, tests, its binding a `Void`: each `?.` hop a place of its base's payload's field (`project`), the top hop `write` or `update`, the value checked against the field as an assignment's or a compound assignment's is; a conditional lend's head takes no second `?` | catches; borrowing.lend-chain, operator.undefined.optional-assign, type.not-a-place.optional-assign, mutability.immutable.optional-assign |
 | tuples, repeat, `Map` and `Set` literals | from the slot, or the first element | funnel |
 | a repeat literal's element | refused unless it copies silently, a temporary's too (spec, Composite Types); a type parameter's an implied copy at the literal (SL-612) | copy_free_reads; transfer.implicit-copy.repeat-temporary, copy.requirement.repeat |
 | a bracket literal | a `Vector` where the slot is one; otherwise a fixed array `[T; N]`, `T` from the slot or the first element and `N` its element count (spec, Composite Types: "with no expected type it is a fixed-size array") | arrays, funnel |
@@ -739,8 +745,9 @@ Every body construct in the slice, and how it is typed:
 
 | outside the slice (bodies) | refused as |
 |---|---|
-| an optional chain, `a?.b` | `slice.not-yet` (`syntax.expr.optional-member`) |
-| a `try` block, an inline `catch`, a `try(as ...)` route | `slice.not-yet` (the alternative) |
+| an optional chain read, `a?.b`, and a call through `?.` in an optional assignment's target | `slice.not-yet` (`syntax.expr.optional-member`) |
+| a `try` block whose `try`s propagate more than one error type, which its `error` holds as their union | `slice.not-yet` (error-union) |
+| a `try(as ...)` route | `slice.not-yet` (the alternative) |
 | an open range, `a..` or `..b` | `slice.not-yet` (the alternative) |
 | `for borrow`, `while borrow`, `lends`, `move *p` | `slice.not-yet` (the alternative) |
 | `break` with a value | `slice.not-yet` (`syntax.stmt.break`) |
@@ -811,6 +818,9 @@ and whether it duplicates the local. A function named is one of
 | a spelled `move`, and nothing after it | `move`, no requirement | `moved` |
 | a read, an assignment, a read | `move` each | `refilled` |
 | a read of a field of a type parameter's type | `copy`, the requirement at one read | `field` |
+| a read before a propagating `try` in a `try` block's body, and one in its catch block | `copy`, both quoted | catch_paths `caught` |
+| a read after a `try` block's last `try`, and one in its catch block | `move` each | catch_paths `untried` |
+| a read in an inline catch's operand, and one in its catch block | `copy`, both quoted | catch_paths `inline` |
 
 **A discarded `Result`** (design 151):
 
@@ -1404,7 +1414,7 @@ says what the fixture shows.
 | `export.unknown-seam` | in a runtime, a `__saw_rt_*` export the ABI table (`typecheck/src/runtimeabi.saw`, from runtime/ABI.md) does not list |
 | `export.seam-signature` | in a runtime, a seam whose arity or a parameter's or the result's width class differs from the ABI table's, pointers and words sharing the class `word` (design 149) |
 | `export.suspends` | an `@export`ed function that may suspend, read from its summary: C calls it with no executor to resume it |
-| `operator.undefined` | an operator over a type it is not defined for; a raw pointer takes only `p + n` and `p - n`, an integer offset after it, which steps `n` elements |
+| `operator.undefined` | an operator over a type it is not defined for; a raw pointer takes only `p + n` and `p - n`, an integer offset after it, which steps `n` elements; a `try`, an inline catch's included, over a value that is no Result, and an optional assignment's `?.` hop over one that is no Optional |
 | `static.optional` | a static whose own type is an optional; an `unsafe static var` is exempt (spec, Module-level statics: "Never optional") |
 | `static.not-sync` | a static whose type is not `Sync`, naming the member that blocks the derivation, down to a cell-carrying type and the `UnsafeSync` declaration it owes, or a conditional `UnsafeSync` and the bound its argument fails; an `unsafe static var` is exempt (spec, Module-level statics: "Sync-only"; the static Sync matrix) |
 | `static.not-constant` | a sub-expression outside the constant grammar of a static's initializer, a raw case's value, an `@align` argument or a `static_assert` condition, named (the constant-position funnel) |
@@ -1417,6 +1427,7 @@ says what the fixture shows.
 | `escaping.stored` | a non-escaping function value (a parameter whose function type does not say `escaping`, or a local bound to one) in a position that holds it past the call: a field, a payload, an element, an Optional, a return, an assignment's target, an escaping closure's capture, a type argument, an `escaping` parameter (D35) |
 | `borrowing.sigil-place` | `&` or `&var` on a place reached through a `borrows` call, a subscript accessor or a named one, at any depth of fields, tuple elements and payloads: the place is passed with `borrow` (SL:borrowing §9) |
 | `borrowing.var-unwrap` | an `if var`, `guard var` or `while var` binding of the payload of an optional place a `borrow` binding names, or of an optional field of one: it would write a copy, never the place (SL:borrowing §2.4) |
+| `borrowing.lend-chain` | an optional assignment whose head is a conditional lend, with a `?.` hop past the lend's own `?`, at that hop (spec, Optionals: "One fence") |
 | `borrows.result` | a `borrows` function whose result is no place, slice, optional of either or borrowing struct (the accessor-signature reader's `other`) |
 | `borrows.sync-window` | a call that may suspend, for some type argument, in the block of a `borrow` or a `for` whose head calls a `borrows(sync)` accessor (SL:borrowing §2.5) |
 | `consumes.move` | a bare call of a `consumes` method on a place, at every Copy tier: the call spells `(move x).m()`, and a temporary receiver needs no `move` (spec, `consumes`) |

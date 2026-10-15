@@ -1,0 +1,89 @@
+// The inline catch, `try e catch { … }` (SL-670): as a statement, as a value
+// in a `let`, an argument and a body's tail, with `error` read in the catch
+// block, with a catch block that leaves by `return`, `break` and `continue`,
+// nested in another catch block, over an owned `Ok` payload and an owned
+// error.
+struct Fault {
+    code: Int
+}
+
+struct Named {
+    reason: String
+}
+
+func half(n: Int) -> Result<Int, Fault> {
+    if n % 2 == 1 {
+        return Fault(code: n)
+    }
+    n / 2
+}
+
+func label(n: Int) -> Result<String, Named> {
+    if n < 0 {
+        return Named(reason: "negative")
+    }
+    "label {n}"
+}
+
+func noisy(n: Int) -> Result<Void, Fault> {
+    if n > 2 {
+        return Fault(code: n * 10)
+    }
+    print("noisy ok {}", n)
+}
+
+func twice(n: Int) -> Int {
+    n * 2
+}
+
+func tail(n: Int) -> Int {
+    try half(n) catch { error.code + 1000 }
+}
+
+func leaves(n: Int) -> Int {
+    let h = try half(n) catch {
+        print("leaving with {}", error.code)
+        return -1
+    }
+    h + 1
+}
+
+func looped() {
+    var total = 0
+    var i = 0
+    while i < 10 {
+        i = i + 1
+        let h = try half(i) catch {
+            if error.code == 7 {
+                break
+            }
+            continue
+        }
+        total = total + h
+    }
+    print("looped total {} stopped at {}", total, i)
+}
+
+func nested(a: Int, b: Int) -> Int {
+    try half(a) catch {
+        let inner = try half(b) catch { error.code * 100 }
+        inner + error.code
+    }
+}
+
+func main() {
+    try noisy(1) catch { print("noisy caught {}", error.code) }
+    try noisy(5) catch { print("noisy caught {}", error.code) }
+    let a = try half(8) catch { -1 }
+    let b = try half(9) catch { -error.code }
+    print("a {} b {}", a, b)
+    print("argument {}", twice(try half(3) catch { 50 }))
+    print("tail {} {}", tail(4), tail(5))
+    print("leaves {} {}", leaves(6), leaves(7))
+    looped()
+    print("nested {} {} {}", nested(2, 0), nested(3, 4), nested(3, 5))
+    let s = try label(3) catch { error.reason }
+    let t = try label(-3) catch { error.reason }
+    print("{} / {}", s, t)
+    try label(1) catch { error.reason }
+}

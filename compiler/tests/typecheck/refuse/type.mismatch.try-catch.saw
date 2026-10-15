@@ -1,0 +1,16 @@
+// refuses: type.mismatch at 15:24
+// an inline catch whose block gives no value of the `Ok` type, in a
+// statement too ("The catch block either produces the fallback value or
+// diverges")
+
+struct Fault {
+    code: Int
+}
+
+func name() -> Result<String, Fault> {
+    "x"
+}
+
+func main() {
+    try name() catch { print("no name") }
+}

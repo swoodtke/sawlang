@@ -381,6 +381,7 @@ information.
 | branches and joins | branches |
 | loops: a move used again on the backedge, a revived condition move | loops |
 | early exits: `return`, `break`, `try` | exits, loops |
+| the catch forms' edges: a `try` inside a window inside a `try` block closing the window before the catch block uses the root; an optional assignment through a conditional lend, its loan on the present edge alone; one whose right side reads the written root | catches |
 | `consumes` field moves: every path, none, a diverging path | consumes |
 | re-initialisation, a whole-referent replacement through `&var` | reinit |
 | a closure capturing by `move` | closures |

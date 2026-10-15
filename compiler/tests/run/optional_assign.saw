@@ -1,0 +1,140 @@
+// The optional assignment, `a?.b = v` and `a?.b op= v` (SL-670): one
+// optional hop and several, a member hop between them, present and absent at
+// each hop, compound operators, a field that is itself optional, a head
+// reached through `&var` and through `self`, a NoCopy field written by
+// `move`, and the assignment's `Void?` tested by `if let _ =` and `guard let
+// _ =`. Every right side here is pure, so its evaluation order shows only in
+// probes/optional_assign_order.saw.
+struct Token {
+    id: Int
+}
+
+extension Token: NoCopy {}
+
+struct Leaf {
+    n: Int
+    flags: UInt8
+}
+
+struct Mid {
+    leaf: Leaf?
+    plain: Leaf
+    note: Int?
+}
+
+struct Top {
+    mid: Mid?
+    count: Int
+    token: Token
+}
+
+extension Top: NoCopy {}
+
+func leaf(n: Int) -> Leaf {
+    Leaf(n: n, flags: 1)
+}
+
+func show(t: &Top?) {
+    if t.is_some() {
+        var line = StringBuilder()
+        try! line.append("top count ")
+        try! line.append(t!.count)
+        try! line.append(" token ")
+        try! line.append(t!.token.id)
+        if let mid = t!.mid {
+            try! line.append(" plain ")
+            try! line.append(mid.plain.n)
+            if let l = mid.leaf {
+                try! line.append(" leaf ")
+                try! line.append(l.n)
+                try! line.append("/")
+                try! line.append(l.flags as Int)
+            } else {
+                try! line.append(" no leaf")
+            }
+            if let note = mid.note {
+                try! line.append(" note ")
+                try! line.append(note)
+            }
+        } else {
+            try! line.append(" no mid")
+        }
+        print("{}", line.build())
+    } else {
+        print("no top")
+    }
+}
+
+func bump(t: &var Top?) {
+    t?.count += 10
+    t?.mid?.leaf?.n *= 2
+}
+
+extension Top {
+    func renote(&var self, v: Int) {
+        self.mid?.note = v
+        self.mid?.plain.n = v + 1
+    }
+}
+
+func main() {
+    var full: Top? = Top(mid: Mid(leaf: leaf(1), plain: leaf(2), note: None), count: 0,
+                         token: Token(id: 1))
+    full?.count = 5
+    full?.mid?.leaf?.n = 7
+    full?.mid?.plain.n = 8
+    full?.mid?.leaf?.flags |= 6
+    full?.mid?.leaf?.flags <<= 1
+    full?.count -= 2
+    full?.mid?.note = 40
+    full?.token = Token(id: 2)
+    show(&full)
+    bump(&var full)
+    show(&full)
+
+    var no_leaf: Top? = Top(mid: Mid(leaf: None, plain: leaf(3), note: 1), count: 1,
+                            token: Token(id: 3))
+    no_leaf?.mid?.leaf?.n = 9
+    no_leaf?.mid?.leaf?.flags |= 1
+    no_leaf?.mid?.plain.n = 10
+    no_leaf?.mid?.note = None
+    bump(&var no_leaf)
+    show(&no_leaf)
+
+    var no_mid: Top? = Top(mid: None, count: 2, token: Token(id: 4))
+    no_mid?.mid?.plain.n = 11
+    no_mid?.mid?.leaf?.n += 1
+    no_mid?.count *= 3
+    let fresh = Token(id: 5)
+    no_mid?.token = move fresh
+    show(&no_mid)
+
+    var none: Top? = None
+    none?.count = 12
+    none?.mid?.leaf?.n = 13
+    none?.count += 1
+    none?.token = Token(id: 6)
+    bump(&var none)
+    show(&none)
+
+    var direct = Top(mid: Mid(leaf: None, plain: leaf(4), note: None), count: 0, token: Token(id: 7))
+    direct.mid?.leaf = leaf(14)
+    direct.mid?.leaf?.n += 1
+    direct.renote(20)
+    var wrapped: Top? = move direct
+    show(&wrapped)
+
+    if let _ = wrapped?.mid?.leaf?.n = 30 {
+        print("tested written")
+    }
+    if let _ = none?.count = 31 {
+        print("never")
+    } else {
+        print("tested skipped")
+    }
+    guard let _ = no_leaf?.mid?.leaf?.n = 32 else {
+        print("guard skipped")
+        return
+    }
+    print("never")
+}

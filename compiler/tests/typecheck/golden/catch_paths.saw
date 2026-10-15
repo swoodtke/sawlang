@@ -1,0 +1,48 @@
+// The per-path use count across the catch forms (design 219, SL-670): a
+// `try` block's catch block runs on the path each propagating `try` in its
+// body leaves, so a read before such a `try` and one in the catch block are
+// on one path; a read after the body's last `try` is not. An inline catch's
+// operand runs before its catch block, on the same path.
+
+struct Res {
+    id: Int
+}
+
+extension Res: NoCopy {}
+
+struct Fault {
+    code: Int
+}
+
+func sink<T>(x: T) -> Int { 1 }
+
+func risky(n: Int) -> Result<Int, Fault> { n }
+
+func caught<T>(x: T) -> Int {
+    try {
+        let a = sink(x)
+        let b = try risky(a)
+        b
+    } catch {
+        sink(x)
+    }
+}
+
+func untried<T>(x: T) -> Int {
+    try {
+        let b = try risky(1)
+        sink(x) + b
+    } catch {
+        sink(x)
+    }
+}
+
+func inline<T>(x: T) -> Int {
+    try risky(sink(x)) catch { sink(x) }
+}
+
+func main() {
+    print(caught(Res(id: 1)))
+    print(untried(Res(id: 2)))
+    print(inline(Res(id: 3)))
+}

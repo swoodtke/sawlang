@@ -226,6 +226,8 @@ extension TcProgram {
         try! self.body_roots.push(root)
         try! self.body_decls.push(d)
         self.loop_breaks = Vector<Int>()
+        self.catch_frames = Vector<Int>()
+        self.catch_errors = Vector<Int>()
         self.referenced_params = Vector<Int>()
         self.current_root = root
     }
@@ -572,6 +574,22 @@ extension TcProgram {
             },
             case Stmt_CompoundAssign -> {
                 self.check_compound(s)
+                false
+            },
+            case Stmt_OptionalAssign_Plain -> {
+                self.check_optional_assign(s, false)
+                false
+            },
+            case Stmt_OptionalAssign_Compound -> {
+                self.check_optional_assign(s, true)
+                false
+            },
+            case Stmt_OptionalAssign_BorrowPlain -> {
+                self.check_optional_assign(s, false)
+                false
+            },
+            case Stmt_OptionalAssign_BorrowCompound -> {
+                self.check_optional_assign(s, true)
                 false
             },
             case Stmt_Return -> {
@@ -936,6 +954,12 @@ extension TcProgram {
         let target = self.res.first_node_child(s)
         let value = self.res.last_node_child(s)
         let t = self.check_target(target, TcUse.Update)
+        self.check_compound_operands(s, value, t)
+    }
+
+    // A compound assignment's operator and right side `value`, against its
+    // target's type `t`.
+    func check_compound_operands(&var self, s: Int, value: Int, t: Int) {
         let op = self.compound_op_text(s)
         if self.has_error(t) {
             let _ = self.expr(value, TC_WANT_NONE)
@@ -997,6 +1021,183 @@ extension TcProgram {
             return inner
         }
         t
+    }
+
+    // `a?.b = v` and `a?.b op= v` as a statement, whose `Void?` is discarded.
+    func check_optional_assign(&var self, s: Int, compound: Bool) {
+        let target = self.res.first_node_child(s)
+        let value = self.res.last_node_child(s)
+        self.check_chain_write(s, target, value, compound)
+    }
+
+    // An optional assignment (spec, Optionals, "Chained assignment"), `target`
+    // its chain or its `borrow var` form, `value` its right side: the target
+    // names a field reached through each optional hop's payload, written only
+    // where every hop is present, and the value is checked against that field
+    // as an assignment's or, `compound`, a compound assignment's operand is,
+    // its operator `s`'s. A head that is a conditional lend takes no `?` past
+    // its own (spec: "bind the lend first"). The assignment's value is
+    // `Void?`, which its position discards or tests.
+    //
+    // ENTRY POINTS (check_chain_write):
+    //     check_optional_assign
+    //     check_optional_binding
+    func check_chain_write(&var self, s: Int, target: Int, value: Int, compound: Bool) {
+        var chain = target
+        if self.has_alt(target, Alt.Borrow_OptionalTarget) {
+            chain = self.res.first_node_child(target)
+        }
+        let top = self.res.first_node_child(chain)
+        let t = self.chain_hop(top)
+        self.check_lend_hops(top)
+        if compound {
+            self.set_use(top, TcUse.Update)
+        } else {
+            self.set_use(top, TcUse.Write)
+        }
+        if self.has_error(t) {
+            let _ = self.expr(value, TC_WANT_NONE)
+            self.consume(value)
+            return
+        }
+        if not self.expr_place[top] {
+            self.refuse_not_a_place(top)
+        }
+        if compound {
+            self.check_compound_operands(s, value, t)
+            return
+        }
+        self.check_assigned(value, t)
+        if self.nonescaping_value(value) {
+            self.refuse_escape(value, "the assignment's target")
+        }
+    }
+
+    // Hop `e` of an optional assignment's target, and the hops under it
+    // down to the chain's head: an optional hop names a field of its base's
+    // payload, and a member hop above one a field of its base. The head, and
+    // the part of the chain below its first `?.`, are ordinary expressions;
+    // a call through a `?.` is an optional chain's read, outside the slice.
+    // Returns the type of the place `e` names.
+    func chain_hop(&var self, e: Int) -> Int {
+        if not self.above_optional_hop(e) {
+            return self.expr(e, TC_WANT_NONE)
+        }
+        let optional = self.has_alt(e, Alt.Expr_OptionalMember)
+        let base = self.res.first_node_child(e)
+        let leaf = self.res.first_leaf(e)
+        let bt = self.chain_hop(base)
+        self.set_use(base, TcUse.Project)
+        let t = self.through_refs(base)
+        let place = self.expr_place[base] || self.referent(bt) >= 0
+        if self.has_error(t) {
+            let poisoned = self.error_type
+            return self.set_type(e, poisoned, place)
+        }
+        if not optional {
+            return self.member_place(e, leaf, t, place)
+        }
+        if not self.is_optional(t) {
+            self.refuse_operand(e, "`?.` reads through an Optional", t)
+            let poisoned = self.error_type
+            return self.set_type(e, poisoned, place)
+        }
+        let payload = self.arg_of(t, 0)
+        self.member_place(e, leaf, payload, place)
+    }
+
+    // An optional assignment's target whose top hop is `top`: when its head
+    // is a conditional lend, whose `?` is the lend's own, a second `?` hop
+    // is refused (spec, Optionals: "One fence").
+    func check_lend_hops(&var self, top: Int) {
+        var hops = Vector<Int>()
+        var at = top
+        while at >= 0 && self.above_optional_hop(at) {
+            if self.has_alt(at, Alt.Expr_OptionalMember) {
+                try! hops.push(at)
+            }
+            at = self.res.first_node_child(at)
+        }
+        if hops.len() < 2 || not self.lends_conditionally(at) {
+            return
+        }
+        let past = hops[hops.len() - 2]
+        self.refuse(past, "borrowing.lend-chain",
+                    "a `?.` hop past a conditional lend's own `?` is not supported: bind the lend first, as `if borrow var p = m.find(&k) \{ p.a?.b = v \}`")
+    }
+
+    // Whether `e` calls or subscripts a `borrows` accessor that may lend
+    // nothing.
+    func lends_conditionally(&self, e: Int) -> Bool {
+        if e < 0 || self.call_at[e] < 0 {
+            return false
+        }
+        let target = self.calls[self.call_at[e]].target
+        if target < 0 {
+            return false
+        }
+        let s = self.sigs[target]
+        let conditional = s.lending == TcLend.ConditionalPlace || s.lending == TcLend.ConditionalSlice
+        (s.effects & TC_EFFECT_BORROWS) != 0 && conditional
+    }
+
+    // The optional assignment a binding construct `head` tests, `if let _ =
+    // a?.b = v`: its target, a chain or its `borrow var` form, which a right
+    // side follows; -1 when the head's subject is an ordinary expression, an
+    // optional chain read among them.
+    public func chain_subject(&self, head: Int) -> Int {
+        let n = self.child_count(head)
+        var k = 0
+        while k < n {
+            let c = self.child(head, k)
+            k = k + 1
+            if self.is_leaf(c) {
+                continue
+            }
+            if self.has_alt(c, Alt.Borrow_OptionalTarget) || self.res.nodes[c].shape == NodeShape.OptionalChain {
+                let value = self.node_after(head, c)
+                if value >= 0 && not self.has_alt(value, Alt.Stmt_Block) {
+                    return c
+                }
+                return -1
+            }
+        }
+        return -1
+    }
+
+    // The node child of `id` after `c`, or -1.
+    public func node_after(&self, id: Int, c: Int) -> Int {
+        let n = self.child_count(id)
+        var seen = false
+        var k = 0
+        while k < n {
+            let x = self.child(id, k)
+            k = k + 1
+            if seen && not self.is_leaf(x) {
+                return x
+            }
+            if x == c {
+                seen = true
+            }
+        }
+        return -1
+    }
+
+    // Whether `e` is an optional hop, or a member hop over one.
+    func above_optional_hop(&self, e: Int) -> Bool {
+        var at = e
+        var steps = 0
+        while at >= 0 && steps < 10000 {
+            if self.has_alt(at, Alt.Expr_OptionalMember) {
+                return true
+            }
+            if not self.has_alt(at, Alt.Expr_Member) {
+                return false
+            }
+            at = self.res.first_node_child(at)
+            steps = steps + 1
+        }
+        false
     }
 
     // `return` and `return e`.
@@ -1111,7 +1312,6 @@ extension TcProgram {
     func check_guard_let(&var self, s: Int) {
         let target = self.res.first_node_child(s)
         var subject = -1
-        var parts = 0
         var block = -1
         let n = self.child_count(s)
         var k = 0
@@ -1120,38 +1320,14 @@ extension TcProgram {
             if c != target && not self.is_leaf(c) {
                 if self.has_alt(c, Alt.Stmt_Block) {
                     block = c
-                } else {
-                    if subject < 0 {
-                        subject = c
-                    }
-                    parts = parts + 1
+                } else if subject < 0 {
+                    subject = c
                 }
             }
             k = k + 1
         }
-        if parts > 1 {
-            self.not_in_slice(s, Alt.Stmt_BindingSubject_ChainAssign)
-            return
-        }
         self.check_optional_binding(s, target, subject)
         let _ = self.check_block(block, TC_WANT_STMT, TcTail.Plain)
-    }
-
-    // Whether an optional binding's head holds an assignment through an
-    // optional chain as its subject, `let _ = a?.b = v`, which is outside the
-    // slice: more parts than its target and one subject.
-    func binds_chain_assignment(&self, head: Int) -> Bool {
-        var parts = 0
-        let n = self.child_count(head)
-        var k = 0
-        while k < n {
-            let c = self.child(head, k)
-            if not self.is_leaf(c) {
-                parts = parts + 1
-            }
-            k = k + 1
-        }
-        parts > 2
     }
 
     // `guard cond else { ... }`.
@@ -2692,6 +2868,8 @@ extension TcProgram {
             case Expr_Try_Propagate -> self.try_expr(e, 0),
             case Expr_Try_Force -> self.try_expr(e, 1),
             case Expr_Try_Optional -> self.try_expr(e, 2),
+            case Expr_Try_Catch -> self.try_catch_expr(e, want),
+            case Expr_TryBlock -> self.try_block_expr(e, want),
             case Expr_Tuple_Unit -> self.tuple_expr(e, want, false),
             case Expr_Tuple_Positional -> self.tuple_expr(e, want, false),
             case Expr_Tuple_Named -> self.tuple_expr(e, want, true),
@@ -3066,9 +3244,6 @@ extension TcProgram {
         if type_decl >= 0 {
             return self.static_member(e, type_decl, leaf)
         }
-        let m = self.current
-        let member_text = self.text(m, leaf)
-        let name = self.res.intern(member_text)
         let bt = self.expr(base, TC_WANT_NONE)
         self.set_use(base, TcUse.Project)
         let t = self.through_refs(base)
@@ -3077,6 +3252,16 @@ extension TcProgram {
             return self.set_type(e, poisoned, true)
         }
         let place = self.expr_place[base] || self.referent(bt) >= 0
+        self.member_place(e, leaf, t, place)
+    }
+
+    // Member `leaf` of a value of type `t`, at `e`: a named tuple's element
+    // or a field, a place when `place` is. A method named without its call is
+    // outside the slice.
+    func member_place(&var self, e: Int, leaf: Int, t: Int, place: Bool) -> Int {
+        let m = self.current
+        let member_text = self.text(m, leaf)
+        let name = self.res.intern(member_text)
         let info = self.types.ty(t)
         if info.kind == TcKind.Tuple {
             var k = 0
@@ -4399,8 +4584,9 @@ extension TcProgram {
     }
 
     // `try e` (which 0), `try! e` (1), `try? e` (2) over a Result. `try`
-    // propagates the error into the body's own Result, erasing it into a
-    // `Box<any Error>` there when that is the body's error type.
+    // propagates the error into the innermost `try` block around it, or else
+    // into the body's own Result, erasing it into a `Box<any Error>` there
+    // when that is the body's error type.
     func try_expr(&var self, e: Int, which: Int) -> Int {
         let operand = self.res.first_node_child(e)
         let _ = self.expr(operand, TC_WANT_NONE)
@@ -4422,6 +4608,10 @@ extension TcProgram {
         if which == 2 {
             let opt = self.mk_optional(ok)
             return self.set_type(e, opt, false)
+        }
+        if self.catch_frames.len() > 0 {
+            self.note_caught(err)
+            return self.set_type(e, ok, false)
         }
         let result = self.body_result
         if result < 0 || self.has_error(result) {
@@ -4451,6 +4641,152 @@ extension TcProgram {
             }
         }
         self.set_type(e, ok, false)
+    }
+
+    // Error type `err`, which a `try` propagates into the innermost open
+    // `try` block, noted once per block (spec, The error union:
+    // "Deduplicated").
+    func note_caught(&var self, err: Int) {
+        let start = self.catch_frames[self.catch_frames.len() - 1]
+        var k = start
+        while k < self.catch_errors.len() {
+            if self.catch_errors[k] == err {
+                return
+            }
+            k = k + 1
+        }
+        try! self.catch_errors.push(err)
+    }
+
+    // Closes the innermost `try` block, whose errors start at `start` in
+    // `catch_errors`, and returns them.
+    func close_catch_frame(&var self, start: Int) -> Vector<Int> {
+        var caught = Vector<Int>()
+        var kept = Vector<Int>()
+        var k = 0
+        while k < self.catch_errors.len() {
+            if k < start {
+                try! kept.push(self.catch_errors[k])
+            } else {
+                try! caught.push(self.catch_errors[k])
+            }
+            k = k + 1
+        }
+        self.catch_errors = move kept
+        var frames = Vector<Int>()
+        k = 0
+        while k + 1 < self.catch_frames.len() {
+            try! frames.push(self.catch_frames[k])
+            k = k + 1
+        }
+        self.catch_frames = move frames
+        move caught
+    }
+
+    // `try e catch { … }` (spec, Inline Catch): the catch block runs on `e`'s
+    // error, bound as `error` of `e`'s error type, and gives the value in the
+    // `Ok` payload's place, or leaves, in a statement too ("The catch block
+    // either produces the fallback value or diverges").
+    func try_catch_expr(&var self, e: Int, want: Int) -> Int {
+        let operand = self.res.first_node_child(e)
+        let clause = self.res.last_node_child(e)
+        let handler = self.res.first_node_child(clause)
+        let _ = self.expr(operand, TC_WANT_NONE)
+        self.consume(operand)
+        let t = self.final_type(operand)
+        var ok = self.error_type
+        var err = self.error_type
+        if not self.has_error(t) {
+            if self.is_result(t) {
+                ok = self.arg_of(t, 0)
+                err = self.arg_of(t, 1)
+            } else {
+                self.refuse_operand(e, "`try` unwraps a Result", t)
+            }
+        }
+        self.local_types[handler] = err
+        if self.has_error(ok) {
+            let _ = self.check_block(handler, TC_WANT_NONE, TcTail.Branch)
+        } else {
+            let ct = self.check_block(handler, ok, TcTail.Branch)
+            self.check_branch_value(handler, ct, ok)
+        }
+        self.set_type(e, ok, false)
+    }
+
+    // `try { … } catch { … }` (spec, Block Try-Catch): each `try` in the
+    // body that no nested block or closure takes propagates into the catch
+    // block, whose `error` holds the error type they propagate, or `Never`
+    // when none does and the catch block cannot run. The two blocks give the
+    // construct's value and merge as an `if`'s branches do, the body's type
+    // the one the catch block meets; a statement discards that value, and its
+    // blocks agree on it all the same, as Stage 0 has them. More than one
+    // error type forms the error union, which is outside the slice.
+    func try_block_expr(&var self, e: Int, want: Int) -> Int {
+        let body = self.res.first_node_child(e)
+        let handler = self.res.last_node_child(e)
+        var slot = -1
+        if want >= 0 {
+            slot = want
+        }
+        let start = self.catch_errors.len()
+        try! self.catch_frames.push(start)
+        let bt = self.try_block_arm(body, slot)
+        if slot < 0 && not self.is_never(bt) && not self.has_error(bt) {
+            slot = bt
+        }
+        let caught = self.close_catch_frame(start)
+        var et = self.never_type()
+        if caught.len() == 1 {
+            et = caught[0]
+        } else if caught.len() > 1 {
+            self.refuse_error_union(e, &caught)
+            et = self.error_type
+        }
+        self.local_types[handler] = et
+        let ct = self.try_block_arm(handler, slot)
+        if slot < 0 && not self.is_never(ct) && not self.has_error(ct) {
+            slot = ct
+        }
+        if self.is_never(bt) && self.is_never(ct) {
+            let t = self.never_type()
+            return self.set_type(e, t, false)
+        }
+        if slot < 0 {
+            let poisoned = self.error_type
+            return self.set_type(e, poisoned, false)
+        }
+        self.set_type(e, slot, false)
+    }
+
+    // One block of a `try` block, a branch merging into `slot` when there is
+    // one.
+    func try_block_arm(&var self, block: Int, slot: Int) -> Int {
+        if slot >= 0 {
+            let t = self.check_block(block, slot, TcTail.Branch)
+            self.check_branch_value(block, t, slot)
+            return t
+        }
+        self.check_block(block, TC_WANT_NONE, TcTail.Branch)
+    }
+
+    // A `try` block whose `try`s propagate more than one error type, which
+    // its `error` would hold as their closed union (spec, The error union).
+    func refuse_error_union(&var self, e: Int, caught: &Vector<Int>) {
+        var what = StringBuilder()
+        try! what.append("a `try` block whose `try`s propagate more than one error type (")
+        var k = 0
+        while k < caught.len() {
+            if k > 0 {
+                try! what.append(", ")
+            }
+            try! what.append("`")
+            try! what.append(self.type_text(caught[k]))
+            try! what.append("`")
+            k = k + 1
+        }
+        try! what.append("), which its `error` holds as their union,")
+        self.not_yet(e, what.build())
     }
 
     // A tuple: each element, against the expected tuple's element when one
@@ -4847,9 +5183,15 @@ extension TcProgram {
         let saved_result = self.body_result
         let saved_open = self.result_open
         let saved_loops = tc_copy_ints(&self.loop_breaks)
+        // A `try` in the closure's body propagates out of the closure, never
+        // into a `try` block around it.
+        let saved_frames = tc_copy_ints(&self.catch_frames)
+        let saved_errors = tc_copy_ints(&self.catch_errors)
         let saved_captures = self.borrow_captures.len()
         self.note_borrow_captures(e)
         self.loop_breaks = Vector<Int>()
+        self.catch_frames = Vector<Int>()
+        self.catch_errors = Vector<Int>()
         self.body_result = result
         self.result_open = result < 0
         var body = self.error_type
@@ -4868,6 +5210,8 @@ extension TcProgram {
         self.body_result = saved_result
         self.result_open = saved_open
         self.loop_breaks = move saved_loops
+        self.catch_frames = move saved_frames
+        self.catch_errors = move saved_errors
         if self.borrow_captures.len() > saved_captures {
             var kept = Vector<Int>()
             var j = 0
@@ -5265,11 +5609,6 @@ extension TcProgram {
 
     // An `if` arm's head: a condition, `let x = e`, or `borrow let x = e`.
     func check_if_head(&var self, head: Int) {
-        let binding = self.has_alt(head, Alt.Expr_OptionalBinding_Let) || self.has_alt(head, Alt.Expr_OptionalBinding_Var) || self.has_alt(head, Alt.Borrow_Unwrap_Let) || self.has_alt(head, Alt.Borrow_Unwrap_Var)
-        if binding && self.binds_chain_assignment(head) {
-            self.not_in_slice(head, Alt.Stmt_BindingSubject_ChainAssign)
-            return
-        }
         if self.has_alt(head, Alt.Expr_OptionalBinding_Let) || self.has_alt(head, Alt.Expr_OptionalBinding_Var) {
             let target = self.res.first_node_child(head)
             let subject = self.res.last_node_child(head)
@@ -5287,8 +5626,18 @@ extension TcProgram {
     // construct): `e` is an Optional, and `x` its payload, copied out of a
     // place (design 131). Out of an optional place an accessor lends, the
     // copy is spelled `let`: a `var` would write the copy and never the
-    // place (SL:borrowing §2.4).
+    // place (SL:borrowing §2.4). An optional assignment as the subject,
+    // `let _ = a?.b = v`, is tested by its `Void?`, present where it wrote
+    // (spec, Optionals, "Chained assignment").
     func check_optional_binding(&var self, head: Int, target: Int, subject: Int) {
+        let chain = self.chain_subject(head)
+        if chain >= 0 {
+            let value = self.node_after(head, chain)
+            self.check_chain_write(head, chain, value, false)
+            let written = self.void_type()
+            self.bind_target(target, written, TcOrigin.Temporary)
+            return
+        }
         let _ = self.expr(subject, TC_WANT_NONE)
         self.set_use(subject, TcUse.Test)
         let t = self.through_refs(subject)
@@ -9674,7 +10023,9 @@ extension TcProgram {
                 try! msg.append("`")
                 self.refuse(p, "type.mismatch", msg.build())
             }
-        } else if b.kind == ResBindKind.Decl {
+        } else if b.kind == ResBindKind.Decl && not self.has_error(t) {
+            // An error union's arm names an error type; the union itself is
+            // outside the slice, and refused where its `try` block stands.
             self.not_in_slice(p, Alt.Pat_Variant)
             return
         }

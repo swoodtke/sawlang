@@ -1,0 +1,62 @@
+// The catch forms' edges (SL-670): a `try` that leaves a `try` block's body
+// drops what each scope it leaves still holds, a value moved on some paths
+// before it under a flag, and the catch block's `error` drops as its block
+// ends or is left. An inline catch's `Ok` payload moves to its destination,
+// and its `error` drops with its catch block.
+
+struct Res { id: Int }
+extension Res: NoCopy {}
+
+struct Fault { code: String }
+
+func take(r: Res) -> Int { r.id }
+
+func risky(n: Int) -> Result<Int, Fault> {
+    if n < 0 {
+        return Fault(code: "negative")
+    }
+    n
+}
+
+func made(n: Int) -> Result<Res, Fault> {
+    if n < 0 {
+        return Fault(code: "negative")
+    }
+    Res(id: n)
+}
+
+func flagged(n: Int, c: Bool) -> Int {
+    try {
+        let r = Res(id: n)
+        var used = 0
+        if c {
+            used = take(move r)
+        }
+        let x = try risky(n)
+        x + used
+    } catch {
+        error.code.len()
+    }
+}
+
+func nested(n: Int) -> Int {
+    let outer = Res(id: 1)
+    try {
+        let inner = Res(id: 2)
+        let x = try risky(n)
+        x + inner.id + outer.id
+    } catch {
+        let held = Res(id: 3)
+        if n < -10 {
+            return take(move held)
+        }
+        error.code.len()
+    }
+}
+
+func inline(n: Int) -> Int {
+    let r = try made(n) catch {
+        Res(id: error.code.len())
+    }
+    take(move r)
+}

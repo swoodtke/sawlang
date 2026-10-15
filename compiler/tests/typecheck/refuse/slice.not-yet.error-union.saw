@@ -1,0 +1,31 @@
+// refuses: slice.not-yet at 22:5
+// a `try` block whose `try`s propagate two error types, which its `error`
+// holds as their union (spec, The error union)
+
+struct IoError {
+    code: Int
+}
+
+struct ParseError {
+    line: Int
+}
+
+func read() -> Result<Int, IoError> {
+    1
+}
+
+func parse(n: Int) -> Result<Int, ParseError> {
+    n
+}
+
+func load() -> Int {
+    try {
+        let n = try read()
+        try parse(n)
+    } catch {
+        match error {
+            case IoError(e) -> e.code,
+            case ParseError(e) -> e.line
+        }
+    }
+}

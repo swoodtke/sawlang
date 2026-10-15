@@ -15,7 +15,7 @@ import sawmir.model.{MirAggregate, MirArm, MirBlock, MirCall, MirCallKind, MirCo
                          MirFuncKind, MirLocal, MirLocalKind, MirOperand, MirOperandKind, MirPlace,
                          MirProj, MirProjKind, MirRvalue, MirRvalueKind, MirSpawnForm, MirStmt, MirStmtKind,
                          MirSuspend, MirTermKind, MirWindow, mir_mint_obligation}
-import sawmir.program.{MirLoop, MirProgram, MirScopeEntry}
+import sawmir.program.{MirCatch, MirLoop, MirProgram, MirScopeEntry}
 import sawmir.split.{MirHalf}
 import sawparse.grammar.{Alt, alt_name}
 import sawparse.tree.{AstNode, NodeShape}
@@ -250,6 +250,7 @@ extension MirProgram {
         self.leftover_parts = Vector<Int>()
         self.scope_marks = Vector<Int>()
         self.loops = Vector<MirLoop>()
+        self.catches = Vector<MirCatch>()
         self.refused = false
         let _ = self.source_at(root)
         let _ = self.new_local(result, MirLocalKind.Return, -1, -1)
@@ -894,6 +895,10 @@ extension MirProgram {
             },
             case Stmt_Assign -> self.lower_assign(s),
             case Stmt_CompoundAssign -> self.lower_compound(s),
+            case Stmt_OptionalAssign_Plain -> self.lower_optional_assign(s, false),
+            case Stmt_OptionalAssign_Compound -> self.lower_optional_assign(s, true),
+            case Stmt_OptionalAssign_BorrowPlain -> self.lower_optional_assign(s, false),
+            case Stmt_OptionalAssign_BorrowCompound -> self.lower_optional_assign(s, true),
             case Stmt_Return -> self.lower_return(s),
             case Stmt_Break -> self.lower_break(),
             case Stmt_Continue -> self.lower_continue(),
@@ -1042,6 +1047,8 @@ func mir_is_control_alt(alt: Alt) -> Bool {
         case Expr_WhileLet_Var -> true,
         case Expr_For_Plain -> true,
         case Borrow_Block -> true,
+        case Expr_Try_Catch -> true,
+        case Expr_TryBlock -> true,
         case _ -> false
     }
 }
@@ -1150,19 +1157,7 @@ extension MirProgram {
     func lower_compound(&var self, s: Int) {
         let target = self.tc.res.first_node_child(s)
         let value = self.tc.res.last_node_child(s)
-        let m = self.tc.node_module(s)
-        var op = ""
-        let n = self.tc.child_count(s)
-        var k = 0
-        while k < n {
-            let c = self.tc.child(s, k)
-            if self.tc.is_leaf(c) && op.len() == 0 {
-                let text = self.tc.text(m, c)
-                let size = text.len()
-                op = text.substring(0, size - 1)
-            }
-            k = k + 1
-        }
+        let op = self.compound_op(s)
         let _ = self.open_scope()
         var steps = Vector<MirStep>()
         self.prepare_target(target, &var steps)
@@ -1176,6 +1171,221 @@ extension MirProgram {
         let rv = self.rv_over(MirRvalueKind.Binary, t, op, &ops)
         self.assign(p, rv)
         self.close_scope()
+    }
+
+    // `a?.b = v` and `a?.b op= v` (spec, Optionals, "Chained assignment"),
+    // and their `borrow var` forms: the head's subexpressions, then the
+    // value, held in a temporary, then the head's borrows; each optional hop
+    // tests its base and goes on into the payload where it is present. A head
+    // that is a conditional lend opens its window there instead, which lends
+    // on the present edge and is closed once the write is done. Only the path
+    // on which every hop is present writes: an absent one skips the write,
+    // and the value, still in its temporary, drops with the statement.
+    func lower_optional_assign(&var self, s: Int, compound: Bool) {
+        let target = self.tc.res.first_node_child(s)
+        let value = self.tc.res.last_node_child(s)
+        self.lower_chain_write(s, target, value, compound, -1)
+    }
+
+    // An optional assignment, `target` its chain or its `borrow var` form and
+    // `value` its right side, `compound` applying `s`'s operator; with
+    // `result` a local of type `Void?`, the assignment's value lands there,
+    // `Some` where it wrote and `None` where a hop was absent.
+    //
+    // ENTRY POINTS (lower_chain_write):
+    //     lower_optional_assign
+    //     assignment_test
+    func lower_chain_write(&var self, s: Int, target: Int, value: Int, compound: Bool, result: Int) {
+        var chain = target
+        if self.tc.has_alt(target, Alt.Borrow_OptionalTarget) {
+            chain = self.tc.res.first_node_child(target)
+        }
+        var hops = Vector<Int>()
+        var at = self.tc.res.first_node_child(chain)
+        while at >= 0 && self.above_optional_hop(at) {
+            try! hops.push(at)
+            at = self.tc.res.first_node_child(at)
+        }
+        let head = at
+        let lending = self.conditional_lend(head)
+        let _ = self.open_scope()
+        var steps = Vector<MirStep>()
+        var args = Vector<Int>()
+        var receiver = head
+        if lending {
+            receiver = self.lend_receiver(head)
+            self.prepare_target(receiver, &var steps)
+            let c = self.tc.calls[self.tc.call_at[head]]
+            args = self.call_arguments(head, &c, true)
+        } else {
+            self.prepare_target(head, &var steps)
+        }
+        let o = self.operand(value)
+        let held = self.rv_use(o)
+        let r = self.temp_of(held)
+        let held_place = self.place_local(r)
+        self.own_temp(held_place)
+        var p = self.realize_all(&steps)
+        let skip = self.new_block()
+        var window = -1
+        if lending {
+            let first = self.push_args(&args)
+            let exclusive = self.borrows_exclusively(receiver)
+            let opened = self.window_open(head, p, exclusive, first, args.len(), true)
+            self.enter(opened.absent)
+            self.goto(skip)
+            self.enter(opened.present)
+            window = opened.window
+            let lent = self.place_local(opened.dest)
+            let inner = self.lent_type(&opened)
+            p = self.project(lent, MirProjKind.Deref, -1, -1, inner)
+        }
+        let some = self.optional_case("Some")
+        let none = self.optional_case("None")
+        var k = hops.len() - 1
+        while k >= 0 {
+            let hop = hops[k]
+            // The head's own reference reads are its plan's.
+            let innermost = k == hops.len() - 1
+            if not innermost {
+                let base = self.tc.res.first_node_child(hop)
+                p = self.base_refs(base, p)
+            }
+            k = k - 1
+            // A conditional lend's `?` is its window's absent edge.
+            if self.tc.has_alt(hop, Alt.Expr_OptionalMember) && not (lending && innermost) {
+                let present = self.new_block()
+                var cases = Vector<Int>()
+                try! cases.push(some)
+                try! cases.push(none)
+                var targets = Vector<Int>()
+                try! targets.push(present)
+                try! targets.push(skip)
+                self.switch_cases(p, &cases, &targets, -1)
+                self.enter(present)
+                let payload = self.place_arg(p, 0)
+                p = self.project(p, MirProjKind.Payload, some, 0, payload)
+            }
+            let holder = self.place_type(p)
+            let member = self.member_step(hop, holder)
+            if member.kind == MIR_STEP_TUPLE {
+                p = self.project(p, MirProjKind.Tuple, -1, member.index, member.ty)
+            } else if member.kind == MIR_STEP_FIELD {
+                p = self.project(p, MirProjKind.Field, member.decl, -1, member.ty)
+            } else {
+                self.missing(hop, "a field read names no field of its base's type")
+            }
+        }
+        let t = self.place_type(p)
+        let rp = self.place_local(r)
+        if compound {
+            let op = self.compound_op(s)
+            let read = self.op_copy(p)
+            var ops = Vector<Int>()
+            try! ops.push(read)
+            try! ops.push(self.op_move(rp))
+            let rv = self.rv_over(MirRvalueKind.Binary, t, op, &ops)
+            self.assign(p, rv)
+        } else {
+            if self.owns(t) {
+                self.emit_drop(p)
+            }
+            let rv = self.rv_move(rp)
+            self.assign(p, rv)
+        }
+        if window >= 0 {
+            self.close_window(window)
+        }
+        if result < 0 {
+            self.goto(skip)
+            self.enter(skip)
+            self.close_scope()
+            return
+        }
+        let join = self.new_block()
+        self.assign_written(result, true)
+        self.goto(join)
+        self.enter(skip)
+        self.assign_written(result, false)
+        self.goto(join)
+        self.enter(join)
+        self.close_scope()
+    }
+
+    // An optional assignment's `Void?` into `result`: `Some(())` where it
+    // wrote, `None` where it did not.
+    func assign_written(&var self, result: Int, written: Bool) {
+        let t = self.local_type(result)
+        var ops = Vector<Int>()
+        var c = self.optional_case("None")
+        if written {
+            c = self.optional_case("Some")
+            let unit = self.tc.arg_of(t, 0)
+            try! ops.push(self.op_const(MirConstKind.Unit, "()", unit))
+        }
+        let rv = self.rv_aggregate(MirAggregate.Case, c, t, &ops)
+        self.assign_local(result, rv)
+    }
+
+    // The receiver of conditional lend `e`, a method call's or a
+    // subscript's.
+    func lend_receiver(&self, e: Int) -> Int {
+        let base = self.tc.res.first_node_child(e)
+        if self.tc.is_call_alt(e) {
+            return self.tc.res.first_node_child(base)
+        }
+        base
+    }
+
+    // Whether `e` is an optional hop, or a member hop over one: the part of
+    // an optional assignment's target above its head.
+    func above_optional_hop(&self, e: Int) -> Bool {
+        var at = e
+        var steps = 0
+        while at >= 0 && steps < 10000 {
+            if self.tc.has_alt(at, Alt.Expr_OptionalMember) {
+                return true
+            }
+            if not self.tc.has_alt(at, Alt.Expr_Member) {
+                return false
+            }
+            at = self.tc.res.first_node_child(at)
+            steps = steps + 1
+        }
+        false
+    }
+
+    // Place `p` of expression `base`, read through the references its
+    // adjustment chain begins with.
+    func base_refs(&var self, base: Int, p: Int) -> Int {
+        var q = p
+        var a = self.tc.adj_head[base]
+        while a >= 0 {
+            let adj = self.tc.adjusts[a]
+            if adj.kind != TcAdjustKind.Deref {
+                return q
+            }
+            q = self.project(q, MirProjKind.Deref, -1, -1, adj.to)
+            a = adj.next
+        }
+        q
+    }
+
+    // The operator a compound assignment applies, its `=` dropped.
+    func compound_op(&self, s: Int) -> String {
+        let m = self.tc.node_module(s)
+        let n = self.tc.child_count(s)
+        var k = 0
+        while k < n {
+            let c = self.tc.child(s, k)
+            if self.tc.is_leaf(c) {
+                let text = self.tc.text(m, c)
+                let size = text.len()
+                return text.substring(0, size - 1)
+            }
+            k = k + 1
+        }
+        ""
     }
 
     // `return` and `return e`: the value into the return place, then every
@@ -1280,7 +1490,7 @@ extension MirProgram {
                 subject = c
             }
         }
-        let opened = self.open_head(subject, false, target)
+        let opened = self.open_head(s, subject, false, target)
         let test = opened.test
         var bound = Vector<Int>()
         self.bind_test(&test, target, false, -1, &var bound)
@@ -2234,18 +2444,33 @@ extension MirProgram {
         }
         self.prepare_base(base, &var steps)
         let bt = steps[steps.len() - 1].ty
+        let member = self.member_step(e, bt)
+        if member.kind < 0 {
+            self.missing(e, "a field read names no field of its base's type")
+            return
+        }
+        try! steps.push(member)
+        self.take_from_temporary(e, &var steps)
+    }
+
+    // The step member hop `e` takes out of a value of type `bt`: a named
+    // tuple's element or a field; of kind -1 when `bt` has no such member.
+    func member_step(&var self, e: Int, bt: Int) -> MirStep {
+        let leaf = self.tc.res.first_leaf(e)
         let m = self.tc.node_module(e)
         let written = self.tc.text(m, leaf)
         let name = self.tc.res.intern(written)
         let t = self.tc.expr_types[e]
+        var step = MirStep(kind: -1, node: e, place: -1, decl: -1, index: -1, first: 0, count: 0, ty: t,
+                           fresh: false)
         let info = self.tc.types.ty(bt)
         if info.kind == TcKind.Tuple {
             var k = 0
             while k < info.count {
                 if self.tc.types.label(bt, k) == name {
-                    self.push_step(&var steps, MIR_STEP_TUPLE, e, -1, k, t)
-                    self.take_from_temporary(e, &var steps)
-                    return
+                    step.kind = MIR_STEP_TUPLE
+                    step.index = k
+                    return step
                 }
                 k = k + 1
             }
@@ -2256,13 +2481,13 @@ extension MirProgram {
         while k < found.len() {
             let member = self.tc.members[found[k]]
             if self.tc.res.decls[member.decl].kind == ResDeclKind.Field {
-                self.push_step(&var steps, MIR_STEP_FIELD, e, member.decl, -1, t)
-                self.take_from_temporary(e, &var steps)
-                return
+                step.kind = MIR_STEP_FIELD
+                step.decl = member.decl
+                return step
             }
             k = k + 1
         }
-        self.missing(e, "a field read names no field of its base's type")
+        step
     }
 
     // `v[i]` as a place: a builtin element, a getitem's copy, a setitem's
@@ -3640,8 +3865,10 @@ extension MirProgram {
         self.temp_operand(rv)
     }
 
-    // `try e`: an error returns from the body, as its own Result's `Err`,
-    // after every scope's exits; the `Ok` payload is the value.
+    // `try e`: an error goes to the catch block of the innermost `try` block
+    // around it, after the exits of every scope inside that block, or else
+    // returns from the body, as its own Result's `Err`, after every scope's
+    // exits; the `Ok` payload is the value.
     func try_propagate(&var self, e: Int) -> Int {
         let inner = self.tc.res.first_node_child(e)
         let o = self.operand(inner)
@@ -3665,21 +3892,39 @@ extension MirProgram {
             self.forget_temp(p)
         }
         self.enter(bad)
-        let result = self.local_type(0)
         let error = self.project(p, MirProjKind.Payload, err, 0, et)
-        var ops = Vector<Int>()
-        try! ops.push(self.op_move(error))
-        let rv = self.rv_aggregate(MirAggregate.Case, err, result, &ops)
-        let ret = self.place_local(0)
-        self.assign(ret, rv)
+        let caught = self.catches.len()
+        if caught > 0 {
+            let c = self.catches[caught - 1]
+            if self.local_type(c.error) != et {
+                self.missing(e, "a `try` in a `try` block propagates an error of a type its catch block's `error` does not hold")
+            }
+            let rv = self.rv_move(error)
+            self.assign_local(c.error, rv)
+        } else {
+            let result = self.local_type(0)
+            var ops = Vector<Int>()
+            try! ops.push(self.op_move(error))
+            let rv = self.rv_aggregate(MirAggregate.Case, err, result, &ops)
+            let ret = self.place_local(0)
+            self.assign(ret, rv)
+        }
         if consuming {
             self.begin_taking()
             self.note_taken(error)
             let taken = self.taken_parts()
             self.dissolve(p, &taken, e)
         }
-        self.unwind_to(0)
-        self.ret()
+        if caught > 0 {
+            var c = self.catches[caught - 1]
+            self.unwind_to(c.depth)
+            self.goto(c.block)
+            c.reached = true
+            self.catches[caught - 1] = c
+        } else {
+            self.unwind_to(0)
+            self.ret()
+        }
         self.enter(good)
         let value = self.project(p, MirProjKind.Payload, ok, 0, t)
         if not consuming {
@@ -4072,6 +4317,8 @@ extension MirProgram {
             case Expr_WhileLet_Var -> self.lower_while_let(e),
             case Expr_For_Plain -> self.lower_for(e),
             case Borrow_Block -> self.lower_borrow_block(e, dest),
+            case Expr_Try_Catch -> self.lower_try_catch(e, dest),
+            case Expr_TryBlock -> self.lower_try_block(e, dest),
             case _ -> self.not_yet(e, alt_name(alt))
         }
     }
@@ -4134,7 +4381,7 @@ extension MirProgram {
             if binding || unwrap {
                 let target = self.tc.res.first_node_child(head)
                 let subject = self.tc.res.last_node_child(head)
-                let opened = self.open_head(subject, unwrap, target)
+                let opened = self.open_head(head, subject, unwrap, target)
                 let test = opened.test
                 let _ = self.open_scope()
                 var bound = Vector<Int>()
@@ -4176,9 +4423,10 @@ extension MirProgram {
     //     lower_if
     //     lower_guard_let
     //     lower_while_let
-    func open_head(&var self, subject: Int, unwrap: Bool, target: Int) -> MirHead {
+    func open_head(&var self, head: Int, subject: Int, unwrap: Bool, target: Int) -> MirHead {
         let depth = self.open_scope()
-        var test = self.optional_switch(subject, unwrap, target)
+        let chain = self.tc.chain_subject(head)
+        var test = if chain >= 0 { self.assignment_test(head, chain) } else { self.optional_switch(subject, unwrap, target) }
         self.enter(test.absent)
         self.unwind_to(depth)
         let absent = self.current
@@ -4236,6 +4484,30 @@ extension MirProgram {
         MirTest(present: present, absent: absent, payload: payload, window: -1, whole: p, consuming: consuming)
     }
 
+    // An optional assignment as a binding head's subject, `if let _ = a?.b =
+    // v`: its `Void?` into a temporary of the head scope, switched on.
+    func assignment_test(&var self, head: Int, chain: Int) -> MirTest {
+        let value = self.tc.node_after(head, chain)
+        let unit = self.tc.void_type()
+        let t = self.tc.mk_optional(unit)
+        let r = self.new_temp(t)
+        self.lower_chain_write(head, chain, value, false, r)
+        let p = self.place_local(r)
+        let some = self.optional_case("Some")
+        let none = self.optional_case("None")
+        let present = self.new_block()
+        let absent = self.new_block()
+        var cases = Vector<Int>()
+        try! cases.push(some)
+        try! cases.push(none)
+        var targets = Vector<Int>()
+        try! targets.push(present)
+        try! targets.push(absent)
+        self.switch_cases(p, &cases, &targets, -1)
+        let payload = self.project(p, MirProjKind.Payload, some, 0, unit)
+        MirTest(present: present, absent: absent, payload: payload, window: -1, whole: p, consuming: false)
+    }
+
     // The conditional lend a `borrow` expression `e` spells out, or `e`
     // itself: `borrow v.get(i)` opens the same window `v.get(i)` does.
     func lend_subject(&self, e: Int) -> Int {
@@ -4273,10 +4545,7 @@ extension MirProgram {
     // subscript's.
     func open_lend(&var self, e: Int, edges: Bool) -> MirOpen {
         let c = self.tc.calls[self.tc.call_at[e]]
-        var base = self.tc.res.first_node_child(e)
-        if self.tc.is_call_alt(e) {
-            base = self.tc.res.first_node_child(base)
-        }
+        let base = self.lend_receiver(e)
         var steps = Vector<MirStep>()
         self.prepare_base(base, &var steps)
         self.open_receiver_windows(&var steps)
@@ -4487,7 +4756,7 @@ extension MirProgram {
         let exit = self.new_block()
         self.goto(head)
         self.enter(head)
-        let opened = self.open_head(subject, false, target)
+        let opened = self.open_head(e, subject, false, target)
         let test = opened.test
         let yields = self.budget_class()
         try! self.loops.push(MirLoop(head: head, exit: exit, depth: opened.depth, yields: yields, node: e))
@@ -4690,6 +4959,119 @@ extension MirProgram {
         self.lower_block(block, dest)
         self.close_scope()
     }
+
+    // `try e catch { … }`: `e`'s Result switched on. The `Ok` payload is the
+    // value; on `Err` the error moves into the catch block's `error`, which
+    // its scope owns, and the catch block gives the value instead. Like
+    // `try?`, the switch consumes a temporary that owns anything on every
+    // path.
+    func lower_try_catch(&var self, e: Int, dest: Int) {
+        let inner = self.tc.res.first_node_child(e)
+        let clause = self.tc.res.last_node_child(e)
+        let handler = self.tc.res.first_node_child(clause)
+        let o = self.operand(inner)
+        let p = self.as_place(mir_operand_val(o), inner)
+        let pt = self.place_type(p)
+        let t = self.tc.arg_of(pt, 0)
+        let et = self.tc.arg_of(pt, 1)
+        let consuming = self.owns(t) || self.owns(et)
+        let ok = self.result_case("Ok")
+        let err = self.result_case("Err")
+        let good = self.new_block()
+        let bad = self.new_block()
+        let join = self.new_block()
+        var cases = Vector<Int>()
+        try! cases.push(ok)
+        try! cases.push(err)
+        var targets = Vector<Int>()
+        try! targets.push(good)
+        try! targets.push(bad)
+        self.switch_cases(p, &cases, &targets, -1)
+        if consuming {
+            self.forget_temp(p)
+        }
+        self.enter(good)
+        let value = self.project(p, MirProjKind.Payload, ok, 0, t)
+        self.begin_taking()
+        if dest >= 0 && not self.is_unit_type(t) {
+            let rv = self.rv_move(value)
+            self.assign(dest, rv)
+            self.note_taken(value)
+        }
+        let taken = self.taken_parts()
+        if consuming {
+            self.dissolve(p, &taken, e)
+        }
+        self.goto(join)
+        self.enter(bad)
+        let error = self.project(p, MirProjKind.Payload, err, 0, et)
+        let l = self.error_local(handler, et)
+        let rv = self.rv_move(error)
+        self.assign_local(l, rv)
+        if consuming {
+            self.begin_taking()
+            self.note_taken(error)
+            let gone = self.taken_parts()
+            self.dissolve(p, &gone, e)
+        }
+        self.lower_catch_block(handler, l, dest)
+        self.goto(join)
+        self.enter(join)
+    }
+
+    // `try { … } catch { … }`: the body, each `try` in it that no nested
+    // `try` block takes leaving through the exits of the scopes it is in to
+    // the catch block with its error in `error`; then the catch block, when a
+    // `try` reaches it. Both blocks give the construct's value.
+    func lower_try_block(&var self, e: Int, dest: Int) {
+        let body = self.tc.res.first_node_child(e)
+        let handler = self.tc.res.last_node_child(e)
+        let et = self.tc.local_types[handler]
+        let entry = self.new_block()
+        let join = self.new_block()
+        var l = -1
+        if not self.tc.is_never(et) {
+            l = self.error_local(handler, et)
+        }
+        let depth = self.scope_marks.len()
+        try! self.catches.push(MirCatch(block: entry, depth: depth, error: l, reached: false))
+        self.lower_block(body, dest)
+        self.goto(join)
+        let n = self.catches.len()
+        let c = self.catches[n - 1]
+        var kept = Vector<MirCatch>()
+        var k = 0
+        while k + 1 < n {
+            try! kept.push(self.catches[k])
+            k = k + 1
+        }
+        self.catches = move kept
+        if c.reached {
+            self.enter(entry)
+            self.lower_catch_block(handler, l, dest)
+            self.goto(join)
+        }
+        self.enter(join)
+    }
+
+    // The local a catch block's `error` binding is, of type `t`.
+    func error_local(&var self, handler: Int, t: Int) -> Int {
+        let name = self.tc.res.intern("error")
+        let l = self.new_local(t, MirLocalKind.User, name, handler)
+        self.bind_leaf(handler, l)
+        l
+    }
+
+    // A catch block whose `error` binding is local `l`, which a scope
+    // around the block owns, so every path out of it drops the error.
+    func lower_catch_block(&var self, handler: Int, l: Int, dest: Int) {
+        let _ = self.open_scope()
+        self.scope_owned(l)
+        self.lower_block(handler, dest)
+        let saved = self.source_closing(handler)
+        self.close_scope()
+        self.source_restore(saved)
+    }
 }
 
 // Consuming destructures. Saw has no partial moves, so the one way a value
@@ -4709,6 +5091,7 @@ extension MirProgram {
     // ENTRY POINTS (dissolve):
     //     try_propagate
     //     try_optional
+    //     lower_try_catch
     //     coalesce
     //     take_payload
     //     consumed_root

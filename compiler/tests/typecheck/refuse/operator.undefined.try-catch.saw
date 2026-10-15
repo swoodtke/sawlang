@@ -1,0 +1,10 @@
+// refuses: operator.undefined at 9:13
+// an inline catch over a value that is no Result
+
+func count() -> Int {
+    3
+}
+
+func main() {
+    let n = try count() catch { 0 }
+}

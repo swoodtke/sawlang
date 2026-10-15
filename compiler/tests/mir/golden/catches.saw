@@ -1,0 +1,98 @@
+// The catch forms (SL-670). An inline catch switches on its operand's
+// Result: the `Ok` payload is the value, and on `Err` the error moves into
+// the catch block's `error`, which the catch block's scope owns, so every way
+// out of the block drops it. A `try` block's `try`s go to its catch block
+// instead of returning, each through the exits of the scopes it leaves inside
+// the block's body; a nested block takes the `try`s its own body holds, and
+// a `try` in a catch block goes to the block around it. A `try` block no
+// `try` reaches has no catch block in its MIR.
+
+struct Res { id: Int }
+extension Res: NoCopy {}
+
+struct Fault { code: Int }
+
+struct Owned { reason: String }
+extension Owned: NoCopy {}
+
+func risky(n: Int) -> Result<Int, Fault> {
+    if n < 0 {
+        return Fault(code: n)
+    }
+    n
+}
+
+func owning(n: Int) -> Result<Res, Owned> {
+    if n < 0 {
+        return Owned(reason: "negative")
+    }
+    Res(id: n)
+}
+
+func valued(n: Int) -> Int {
+    try risky(n) catch { error.code }
+}
+
+func discarded(n: Int) {
+    try owning(n) catch { Res(id: 0) }
+}
+
+func taken(n: Int) -> Int {
+    let r = try owning(n) catch {
+        return -1
+    }
+    r.id
+}
+
+func looped(n: Int) {
+    var i = 0
+    while i < n {
+        i = i + 1
+        let v = try risky(i) catch {
+            break
+        }
+        print("{}", v)
+    }
+}
+
+func block(a: Int, b: Int) -> Int {
+    try {
+        let held = Res(id: a)
+        let x = try risky(a)
+        let y = try risky(b)
+        x + y + held.id
+    } catch {
+        error.code
+    }
+}
+
+func nested(a: Int, b: Int) -> Int {
+    try {
+        let inner = try {
+            try risky(a)
+        } catch {
+            let again = try risky(b)
+            again + error.code
+        }
+        inner
+    } catch {
+        -error.code
+    }
+}
+
+func owned_block(n: Int) -> Int {
+    try {
+        let r = try owning(n)
+        r.id
+    } catch {
+        0
+    }
+}
+
+func unreached() -> Int {
+    try {
+        1
+    } catch {
+        2
+    }
+}

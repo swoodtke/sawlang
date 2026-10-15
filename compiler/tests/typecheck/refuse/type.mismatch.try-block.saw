@@ -1,0 +1,20 @@
+// refuses: type.mismatch at 18:9
+// a `try` block whose catch block disagrees with its body's value, in a
+// statement too, as Stage 0 has it
+
+struct Fault {
+    code: Int
+}
+
+func half(n: Int) -> Result<Int, Fault> {
+    n / 2
+}
+
+func main() {
+    try {
+        let x = try half(4)
+        x + 1
+    } catch {
+        print("caught {}", error.code)
+    }
+}
