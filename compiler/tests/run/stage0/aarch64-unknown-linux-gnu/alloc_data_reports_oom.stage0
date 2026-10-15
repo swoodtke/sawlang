@@ -1,0 +1,16 @@
+program	compiler/tests/run/alloc_data_reports_oom.saw
+triple	aarch64-unknown-linux-gnu
+source	cffa74c61b480daf
+build	ok
+exit	0
+stdout	"3"
+stdout	"push denied: allocation of 32 bytes (align 1) failed"
+stdout	"3"
+stdout	"3"
+stdout	"append denied"
+stdout	"3"
+stdout	"detach denied"
+stdout	"capacity denied"
+stdout	"9"
+stdout	"preflight denied, nothing written"
+stdout	""

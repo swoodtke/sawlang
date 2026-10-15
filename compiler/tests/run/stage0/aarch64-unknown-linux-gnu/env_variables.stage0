@@ -1,0 +1,17 @@
+program	compiler/tests/run/env_variables.saw
+triple	aarch64-unknown-linux-gnu
+source	0d6d9989990b8e9a
+build	ok
+exit	0
+stdout	"false"
+stdout	"true"
+stdout	"first"
+stdout	"first"
+stdout	"third"
+stdout	"true"
+stdout	"0"
+stdout	"false"
+stdout	"unset"
+stdout	"set empty name: surfaced"
+stdout	"unset empty name: surfaced"
+stdout	""

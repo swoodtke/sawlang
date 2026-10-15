@@ -1,0 +1,15 @@
+program	compiler/tests/run/file_path_ops.saw
+triple	aarch64-unknown-linux-gnu
+source	2aec56e54562de79
+build	ok
+exit	0
+stdout	"false"
+stdout	"2"
+stdout	"true"
+stdout	"false"
+stdout	"true"
+stdout	"2"
+stdout	"false"
+stdout	"remove missing: surfaced"
+stdout	"rename missing: surfaced"
+stdout	""

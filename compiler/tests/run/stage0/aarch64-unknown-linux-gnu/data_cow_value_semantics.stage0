@@ -1,0 +1,7 @@
+program	compiler/tests/run/data_cow_value_semantics.saw
+triple	aarch64-unknown-linux-gnu
+source	af2c1e1e6beeb8a9
+build	ok
+exit	0
+stdout	"ok"
+stdout	""

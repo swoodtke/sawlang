@@ -1,0 +1,19 @@
+program	compiler/tests/run/file_append_seek.saw
+triple	aarch64-unknown-linux-gnu
+source	ed7482956a27a969
+build	ok
+exit	0
+stdout	"3"
+stdout	"3"
+stdout	"0"
+stdout	"6"
+stdout	"6"
+stdout	"2"
+stdout	"4"
+stdout	"1"
+stdout	"3"
+stdout	"5"
+stdout	"1"
+stdout	"6"
+stdout	"seek before start: surfaced"
+stdout	""

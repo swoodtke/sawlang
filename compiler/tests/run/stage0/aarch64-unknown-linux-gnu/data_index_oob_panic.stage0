@@ -1,0 +1,7 @@
+program	compiler/tests/run/data_index_oob_panic.saw
+triple	aarch64-unknown-linux-gnu
+source	dd08deaf9a379f65
+build	ok
+exit	-6
+stdout	"panic at data.saw:187: Data.[]: index out of range: 9 (len 1)"
+stdout	""

@@ -1,0 +1,7 @@
+program	compiler/tests/run/Range.saw
+triple	aarch64-unknown-linux-gnu
+source	547306edf2c08274
+build	ok
+exit	0
+stdout	"8"
+stdout	""

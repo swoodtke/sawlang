@@ -1,0 +1,7 @@
+program	compiler/tests/run/data_cow_slice.saw
+triple	aarch64-unknown-linux-gnu
+source	ca4a06e73668f8bb
+build	ok
+exit	0
+stdout	"ok"
+stdout	""

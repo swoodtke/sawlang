@@ -1,0 +1,10 @@
+program	compiler/tests/run/coro_moved_arc_param_deinit_once.saw
+triple	aarch64-unknown-linux-gnu
+source	502379817c22eb26
+build	ok
+exit	0
+stdout	"3"
+stdout	"2"
+stdout	"deinit 7"
+stdout	"999"
+stdout	""
