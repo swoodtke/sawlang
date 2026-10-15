@@ -1,0 +1,41 @@
+// File.exists, remove and rename over a file of this program's own in the
+// working directory, and the Err of removing or renaming one that is missing.
+import std.data.{Data}
+import std.file.{File}
+import std.path.{Path}
+
+func main() {
+    let first = Path(s: "file_path_ops_first.tmp")
+    let second = Path(s: "file_path_ops_second.tmp")
+    let _ = File.remove(first)
+    let _ = File.remove(second)
+
+    print(File.exists(first))
+    var data = Data()
+    try! data.push(72 as UInt8)
+    try! data.push(105 as UInt8)
+    var file = try! File.create(first)
+    print(try! file.write(data))
+    try! file.close()
+    print(File.exists(first))
+
+    try! File.rename(first, second)
+    print(File.exists(first))
+    print(File.exists(second))
+    var again = try! File.open(second)
+    let contents = try! again.read()
+    print(contents.len())
+    try! again.close()
+
+    try! File.remove(second)
+    print(File.exists(second))
+
+    match File.remove(second) {
+        case Ok(_) -> print("remove UNEXPECTED ok"),
+        case Err(_) -> print("remove missing: surfaced")
+    }
+    match File.rename(first, second) {
+        case Ok(_) -> print("rename UNEXPECTED ok"),
+        case Err(_) -> print("rename missing: surfaced")
+    }
+}

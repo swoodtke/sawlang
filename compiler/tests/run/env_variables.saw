@@ -1,0 +1,40 @@
+// Env.get, set, unset and contains over a variable of this program's own, and
+// the failure of a set with an empty name surfacing as an Err.
+import std.env.{Env}
+
+func main() {
+    print(Env.contains("SAW_RUN_PIN_VAR"))
+    try! Env.set("SAW_RUN_PIN_VAR", "first")
+    print(Env.contains("SAW_RUN_PIN_VAR"))
+    print(Env.get("SAW_RUN_PIN_VAR")!)
+
+    // overwrite: false leaves the value alone and still succeeds.
+    try! Env.set("SAW_RUN_PIN_VAR", "second", overwrite: false)
+    print(Env.get("SAW_RUN_PIN_VAR")!)
+    try! Env.set("SAW_RUN_PIN_VAR", "third")
+    print(Env.get("SAW_RUN_PIN_VAR")!)
+
+    // An empty value is a set variable.
+    try! Env.set("SAW_RUN_PIN_VAR", "")
+    print(Env.contains("SAW_RUN_PIN_VAR"))
+    print(Env.get("SAW_RUN_PIN_VAR")!.len())
+
+    try! Env.unset("SAW_RUN_PIN_VAR")
+    print(Env.contains("SAW_RUN_PIN_VAR"))
+    if let _ = Env.get("SAW_RUN_PIN_VAR") {
+        print("still set")
+    } else {
+        print("unset")
+    }
+    // Unsetting a variable that is not set succeeds.
+    try! Env.unset("SAW_RUN_PIN_VAR")
+
+    match Env.set("", "value") {
+        case Ok(_) -> print("set UNEXPECTED ok"),
+        case Err(_) -> print("set empty name: surfaced")
+    }
+    match Env.unset("") {
+        case Ok(_) -> print("unset UNEXPECTED ok"),
+        case Err(_) -> print("unset empty name: surfaced")
+    }
+}

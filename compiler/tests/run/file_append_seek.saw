@@ -1,0 +1,49 @@
+// File.open_append, seek_start, seek_current, seek_end and position: appended
+// writes land at the end whatever the position, and the seeks report where
+// they landed.
+import std.data.{Data}
+import std.file.{File}
+import std.path.{Path}
+
+func bytes(a: UInt8, b: UInt8, c: UInt8) -> Data {
+    var data = Data()
+    try! data.push(a)
+    try! data.push(b)
+    try! data.push(c)
+    return move data
+}
+
+func main() {
+    let path = Path(s: "file_append_seek.tmp")
+    let _ = File.remove(path)
+
+    // Appending creates the file when it is absent.
+    var out = try! File.open_append(path)
+    print(try! out.write(bytes(1, 2, 3)))
+    try! out.close()
+    var more = try! File.open_append(path)
+    print(try! more.write(bytes(4, 5, 6)))
+    try! more.close()
+
+    var file = try! File.open(path)
+    print(try! file.position())
+    print(try! file.seek_end(0))
+    print(try! file.position())
+    print(try! file.seek_start(2))
+    let rest = try! file.read()
+    print(rest.len())
+    print(try! file.seek_start(1))
+    print(try! file.seek_current(2))
+    print(try! file.seek_end(-1))
+    let tail = try! file.read()
+    print(tail.len())
+    print(tail.get(0)! as Int)
+
+    // A position before the start is refused.
+    match file.seek_start(-1) {
+        case Ok(_) -> print("seek UNEXPECTED ok"),
+        case Err(_) -> print("seek before start: surfaced")
+    }
+    try! file.close()
+    try! File.remove(path)
+}

@@ -967,8 +967,8 @@ enums_match.saw	pass	-	-
 enums_match_bind.saw	pass	-	-
 enums_positional.saw	pass	-	-
 enums_simple.saw	pass	-	-
-env_error_surfaced.saw	refused	typecheck member.unknown	`std.env.Env` has no method `set` this module can see
-env_simple.saw	refused	typecheck member.unknown	`std.env.Env` has no method `set` this module can see
+env_error_surfaced.saw	pass	-	-
+env_simple.saw	pass	-	-
 equatable_array_field.saw	refused	llvm backend.not-yet	an array, a repeat, a `Map` or a `Set` literal is not in the backend slice yet
 equatable_auto_enum.saw	pass	-	-
 equatable_auto_struct.saw	pass	-	-
@@ -1544,7 +1544,7 @@ ffi/sizeof_generic.saw	pass	-	-
 ffi/sizeof_test.saw	pass	-	-
 field_assign_through_ref_param.saw	pass	-	-
 field_call_indirect.saw	pass	-	-
-file_error_surfaced.saw	refused	typecheck member.unknown	`std.file.File` has no method `remove` this module can see
+file_error_surfaced.saw	pass	-	-
 file_open_modes.saw	refused	resolve import.unknown-module	no module `std.directory`
 file_open_read_write_surfaced.saw	refused	resolve import.unknown-module	no module `std.directory`
 file_simple.saw	refused	resolve import.unknown-module	no module `std.net`

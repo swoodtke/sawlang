@@ -1,4 +1,4 @@
-//! `File`: a file opened for reading, or created for writing.
+//! `File`: a file opened for reading, or created for writing or appending.
 //!
 //! Every operation is synchronous: none suspends, so the calling thread waits
 //! in the system call until it returns. A write is unbuffered, and `close`
@@ -16,6 +16,10 @@ extern "C" {
     func __saw_rt_fs_read(fd: Int, buf: UnsafePointer<Int8>, count: Int) -> Int
     func __saw_rt_fs_write(fd: Int, buf: UnsafePointer<Int8>, count: Int) -> Int
     func __saw_rt_fs_lseek(fd: Int, offset: Int, whence: Int) -> Int
+    // Each returns 0, or a negated portable tag.
+    func __saw_rt_fs_unlink(path: UnsafePointer<Int8>) -> Int
+    func __saw_rt_fs_rename(old: UnsafePointer<Int8>, new: UnsafePointer<Int8>) -> Int
+    func access(path: UnsafePointer<Int8>, mode: Int32) -> Int32
     // No runtime seam closes a descriptor, so the C library's close(2) does.
     func close(fd: Int32) -> Int32
 }
@@ -24,7 +28,8 @@ extern "C" {
 // host's flag bits.
 enum OpenMode: UInt8 {
     case Read = 0,
-    case WriteTruncate = 1
+    case WriteTruncate = 1,
+    case Append = 2
 }
 
 // Where an lseek(2) offset is measured from: POSIX's `SEEK_SET`, `SEEK_CUR`
@@ -67,7 +72,16 @@ extension File {
         File.opened(path, OpenMode.WriteTruncate, CREATED_PERMISSION)
     }
 
-    // The one open(2) call `open` and `create` share.
+    /// Opens the file at `path` for appending, creating it when it is absent;
+    /// each write lands at the end of the file.
+    ///
+    /// Returns `Err(SystemError)` with the reason open(2) refused, or
+    /// `InvalidArgument` and `ResourcesExhausted` as `open` does.
+    public static func open_append(path: Path) unsafe -> Result<File, SystemError> {
+        File.opened(path, OpenMode.Append, CREATED_PERMISSION)
+    }
+
+    // The one open(2) call `open`, `create` and `open_append` share.
     static func opened(path: Path, mode: OpenMode, permission: Int) unsafe -> Result<File, SystemError> {
         let text = path.as_string()
         let length = text.len()
@@ -166,6 +180,89 @@ extension File {
             }
         }
         done
+    }
+
+    /// Moves the position to `offset` bytes from the start of the file, and
+    /// returns the new position.
+    ///
+    /// Returns `Err(SystemError)` with the cause of a failing lseek(2): a
+    /// negative result position is `InvalidArgument`.
+    public func seek_start(&self, offset: Int) unsafe -> Result<Int, SystemError> {
+        self.sought(offset, SeekOrigin.Start)
+    }
+
+    /// Moves the position by `offset` bytes, forward when positive, and
+    /// returns the new position from the start of the file. Errors as
+    /// `seek_start` does.
+    public func seek_current(&self, offset: Int) unsafe -> Result<Int, SystemError> {
+        self.sought(offset, SeekOrigin.Current)
+    }
+
+    /// Moves the position to `offset` bytes from the end of the file, and
+    /// returns the new position from the start. Errors as `seek_start` does.
+    public func seek_end(&self, offset: Int) unsafe -> Result<Int, SystemError> {
+        self.sought(offset, SeekOrigin.End)
+    }
+
+    /// Returns the current position, in bytes from the start of the file.
+    ///
+    /// Returns `Err(SystemError)` with the cause of a failing lseek(2), as
+    /// for a pipe.
+    public func position(&self) unsafe -> Result<Int, SystemError> {
+        self.sought(0, SeekOrigin.Current)
+    }
+
+    // The one lseek(2) call the seeks and `position` share.
+    func sought(&self, offset: Int, origin: SeekOrigin) unsafe -> Result<Int, SystemError> {
+        let result = __saw_rt_fs_lseek(self.descriptor, offset, (origin as UInt8) as Int)
+        if result < 0 {
+            return SystemError.of("lseek", 0 - result)
+        }
+        result
+    }
+
+    /// Returns whether a file or directory exists at `path` and the process
+    /// may reach it; a path holding a NUL byte names nothing.
+    public static func exists(path: Path) unsafe -> Bool {
+        let text = path.as_string()
+        if text.index_of(0).is_some() {
+            return false
+        }
+        access(text.c_bytes(), 0 as Int32) == (0 as Int32)
+    }
+
+    /// Removes the file at `path`.
+    ///
+    /// Returns `Err(SystemError)` with the cause of a failing unlink(2), or
+    /// `InvalidArgument` for a path holding a NUL byte.
+    public static func remove(path: Path) unsafe -> Result<Void, SystemError> {
+        let text = path.as_string()
+        if text.index_of(0).is_some() {
+            return SystemError.raised("unlink", SystemErrorKind.InvalidArgument)
+        }
+        let status = __saw_rt_fs_unlink(text.c_bytes())
+        if status != 0 {
+            return SystemError.of("unlink", 0 - status)
+        }
+        return
+    }
+
+    /// Renames or moves the file at `from_path` to `to_path`, replacing a file
+    /// already there.
+    ///
+    /// Returns `Err(SystemError)` with the cause of a failing rename(2), or
+    /// `InvalidArgument` for a path holding a NUL byte.
+    public static func rename(from_path: Path, to_path: Path) unsafe -> Result<Void, SystemError> {
+        let old = from_path.as_string()
+        let new = to_path.as_string()
+        if old.index_of(0).is_some() || new.index_of(0).is_some() {
+            return SystemError.raised("rename", SystemErrorKind.InvalidArgument)
+        }
+        let status = __saw_rt_fs_rename(old.c_bytes(), new.c_bytes())
+        if status != 0 {
+            return SystemError.of("rename", 0 - status)
+        }
+        return
     }
 
     /// Closes the file now, and reports what close(2) found.
