@@ -36,11 +36,14 @@ a command line: the daemon decides what to execute, so a client cannot ask the
 worker to run something arbitrary.
 """
 
+import gzip
 import hashlib
+import importlib.util
 import io
 import json
 import os
 import struct
+import sys
 import tarfile
 from pathlib import Path
 
@@ -140,9 +143,10 @@ def build_snapshot(root: Path) -> bytes:
     """
     root = Path(root)
     buf = io.BytesIO()
-    # mtime=0 keeps the gzip header itself stable too.
-    with tarfile.open(fileobj=buf, mode="w:gz", compresslevel=6,
-                      format=tarfile.PAX_FORMAT) as tar:
+    # tarfile's own "w:gz" stamps the gzip header with the current time, so the
+    # GzipFile is built here with mtime=0 to keep the bytes stable.
+    with gzip.GzipFile(fileobj=buf, mode="wb", compresslevel=6, mtime=0) as gz, \
+            tarfile.open(fileobj=gz, mode="w", format=tarfile.PAX_FORMAT) as tar:
         for rel in _snapshot_members(root):
             info = tar.gettarinfo(str(root / rel), arcname=str(rel))
             if info is None:
@@ -155,7 +159,55 @@ def build_snapshot(root: Path) -> bytes:
                     tar.addfile(info, fh)
             else:
                 tar.addfile(info)
+        _add_seed_blobs(tar, root)
     return buf.getvalue()
+
+
+SEED_MANIFEST_RELATIVE = Path("compiler") / "seed" / "manifest.tsv"
+SEED_BLOBS_RELATIVE = Path(".build") / "blobs"
+
+
+def _build_module():
+    """compiler/tools/build.py beside this checkout's tools/, the seed funnel."""
+    if "saw_compiler_build" in sys.modules:
+        return sys.modules["saw_compiler_build"]
+    path = Path(__file__).resolve().parent.parent / "compiler" / "tools" / "build.py"
+    spec = importlib.util.spec_from_file_location("saw_compiler_build", path)
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+def _add_seed_blobs(tar, root: Path) -> None:
+    """Add the seed blobs the tree's own manifest names, and no other
+    `.build/` content: the worker has no route to the blob host, and
+    build.py's `seed_blob` re-hashes each cached blob on read, so the carried
+    bytes need no trust. A blob the client lacks is fetched through
+    `seed_blob`; build.py's SeedError, which names the file, propagates.
+    """
+    manifest = root / SEED_MANIFEST_RELATIVE
+    if not manifest.is_file():
+        return
+    build = _build_module()
+    entries = build.seed_manifest(str(manifest))
+    blobs = {}
+    for triple in sorted(entries):
+        for entry in entries[triple]:
+            blobs[entry.sha256] = build.seed_blob(entry)
+    if not blobs:
+        return
+    for directory in (SEED_BLOBS_RELATIVE.parent, SEED_BLOBS_RELATIVE):
+        info = tarfile.TarInfo(str(directory))
+        info.type = tarfile.DIRTYPE
+        info.mode = 0o755
+        tar.addfile(info)
+    for sha256 in sorted(blobs):
+        data = Path(blobs[sha256]).read_bytes()
+        info = tarfile.TarInfo(str(SEED_BLOBS_RELATIVE / sha256))
+        info.size = len(data)
+        info.mode = 0o644
+        tar.addfile(info, io.BytesIO(data))
 
 
 def _snapshot_members(root: Path):

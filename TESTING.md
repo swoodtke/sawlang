@@ -1421,7 +1421,10 @@ under a sandbox profile, and the only thing that crosses the network is a job:
 a snapshot of the tree plus a list of which tests to run. The daemon takes no
 command from the client, and never executes the submitted tree in its own
 process — each job runs in a child process tree, in a fresh directory that is
-deleted when the job ends.
+deleted when the job ends. The snapshot also carries the seed blobs the
+tree's `compiler/seed/manifest.tsv` names, at `.build/blobs/<sha256>` (the
+client fetches any it lacks first), because the sandboxed worker cannot reach
+the blob host.
 
 ### Setting up the worker machine
 
