@@ -184,10 +184,7 @@ let b = move x                                  // first error has that ID
   - a production conformance's requirements are met as if no test-only declaration existed. A test-only conformance that reaches a requirement a production conformance also reaches takes the production answer, and an associated type it assigns must agree with the production one. None of this depends on declaration order (SL-640);
   - a test-only member whose signature meets a requirement that a production conformance of its type already meets is refused at its declaration (`conformance.test-only-shadow`), whether production meets it with a written member (`overload.indistinguishable`), the trait's default, or `@synthesize`. Nothing called through the trait would ever run it. A fake is a test-only type passed to the production generic (the user's ruling on SL-640);
   - a member written to meet a requirement follows its trait's visibility only through a production conformance;
-  - a test-only copy-family conformance (`Copy`, `ExplicitCopy`, `NoCopy`) on a
-    production type is refused outright (Air t15). Every type already has a
-    tier, so one would give a single type two tiers in one binary once a value
-    crossed from test code into a production generic.
+  - a type's policies, `Copy`, `ExplicitCopy`, `NoCopy`, `NoMove`, `ZeroInit`, `UnsafeSend` and `UnsafeSync`, are declared only in the file that defines it, and a module's test code (its `@test` declarations, its `@test { … }` groups and its sidecar) is one file of its own (Ruled, SL-659: "treat a test section as a separate source file - so it can only do what is allowed in such a file"; "Module's tests = one file"). A test-only policy on a production type is refused at its declaration (`conformance.policy-placement`) and counts for nothing, so every type has one tier, one movability, one zero value and one thread behaviour in a binary (Air t15). A test-only type declares its own policies anywhere in its module's test code.
   - a test-only `copy()` on a production type is refused the same way
     (`copy.test-only-policy`, SL-630): how a production type copies, silently
     or with a spelled `.copy()`, is production code's alone. A copy policy's
