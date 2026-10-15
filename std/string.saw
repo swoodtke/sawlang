@@ -14,6 +14,8 @@
 //! before any atomic read-modify-write, so a literal is never retained,
 //! released or written, and a literal costs no allocation.
 
+import std.mem.{copy_bytes}
+
 // The String layer's blocks go straight to the runtime's allocation seams, as
 // Stage 0's synthesized helpers do, so a program whose only Strings are
 // literals reaches no allocator type.
@@ -124,6 +126,29 @@ public(package) func string_from_bytes(source: UnsafePointer<Int8>, count: Int) 
     }
     bytes[count] = NUL
     String(bytes: bytes)
+}
+
+// A scratch byte buffer of `count` (> 0) bytes, for a producer that builds a
+// String's bytes before `string_from_scratch` copies them into a block.
+func scratch_buffer(count: Int) unsafe -> UnsafePointer<Int8> {
+    guard let block = __saw_rt_alloc(count, 1) else {
+        panic("String: allocation of {} bytes (align {}) failed", count, 1)
+    }
+    block
+}
+
+// The String holding the first `count` scratch bytes; frees the scratch.
+func string_from_scratch(scratch: UnsafePointer<Int8>, count: Int) unsafe -> String {
+    let result = string_from_bytes(scratch, count)
+    __saw_rt_dealloc(scratch, count, 1)
+    result
+}
+
+// Copies `count` bytes of `source` from `from` into `target` at `at`; returns
+// the offset after them.
+func copy_into_scratch(target: UnsafePointer<Int8>, at: Int, source: UnsafePointer<Int8>, from: Int, count: Int) unsafe -> Int {
+    copy_bytes((&source[from]) as UnsafePointer<Int8>, (&target[at]) as UnsafePointer<Int8>, count)
+    at + count
 }
 
 extension String {
@@ -314,6 +339,82 @@ extension String {
     // bounds-checked.
     func copy_range(&self, start: Int, count: Int) unsafe -> String {
         string_from_bytes((&self.bytes[start]) as UnsafePointer<Int8>, count)
+    }
+
+    /// Returns the string with each ASCII letter in uppercase.
+    ///
+    /// Bytes outside `a`-`z`, including every byte of a multi-byte character,
+    /// are kept as they are.
+    public func to_uppercase(&self) unsafe -> String {
+        self.map_ascii_case(97, 122, -32)
+    }
+
+    /// Returns the string with each ASCII letter in lowercase.
+    ///
+    /// Bytes outside `A`-`Z`, including every byte of a multi-byte character,
+    /// are kept as they are.
+    public func to_lowercase(&self) unsafe -> String {
+        self.map_ascii_case(65, 90, 32)
+    }
+
+    // Copies the string, adding `delta` to each byte in `low...high`. The
+    // bytes are signed, so a non-ASCII byte is negative and never in range.
+    func map_ascii_case(&self, low: Int8, high: Int8, delta: Int8) unsafe -> String {
+        let n = self.len()
+        if n == 0 {
+            return ""
+        }
+        let scratch = scratch_buffer(n)
+        var i = 0
+        while i < n {
+            let c = self.bytes[i]
+            if c >= low && c <= high {
+                scratch[i] = c + delta
+            } else {
+                scratch[i] = c
+            }
+            i = i + 1
+        }
+        return string_from_scratch(scratch, n)
+    }
+
+    /// Returns the string with every non-overlapping occurrence of `old`
+    /// replaced by `new`, scanning left to right.
+    ///
+    /// An empty `old` or an empty string replaces nothing, so the result is
+    /// the string itself.
+    public func replace(&self, old: String, new: String) unsafe -> String {
+        let n = self.len()
+        let old_len = old.len()
+        let new_len = new.len()
+        if old_len == 0 || n == 0 {
+            return self
+        }
+        var count = 0
+        var at = self.find(&old, 0)
+        while at >= 0 {
+            count = count + 1
+            at = self.find(&old, at + old_len)
+        }
+        if count == 0 {
+            return self
+        }
+        let total = n - count * old_len + count * new_len
+        if total == 0 {
+            return ""
+        }
+        let scratch = scratch_buffer(total)
+        var out = 0
+        var start = 0
+        at = self.find(&old, 0)
+        while at >= 0 {
+            out = copy_into_scratch(scratch, out, self.bytes, start, at - start)
+            out = copy_into_scratch(scratch, out, new.bytes, 0, new_len)
+            start = at + old_len
+            at = self.find(&old, start)
+        }
+        out = copy_into_scratch(scratch, out, self.bytes, start, n - start)
+        return string_from_scratch(scratch, total)
     }
 
     /// Returns whether the two strings hold the same bytes, as `==` answers.

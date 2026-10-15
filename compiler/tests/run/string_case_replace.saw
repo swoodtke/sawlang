@@ -1,0 +1,31 @@
+// `to_uppercase`, `to_lowercase` and `replace`: ASCII-only case mapping that
+// leaves multi-byte characters alone, and replacement that is
+// non-overlapping, left to right, shorter, longer or deleting, with a missing
+// match and an empty `old` returning the string unchanged.
+
+func main() {
+    print("[{}]", "Hello, World 123!".to_uppercase())
+    print("[{}]", "Hello, World 123!".to_lowercase())
+    print("[{}]", "".to_uppercase())
+    print("[{}]", "".to_lowercase())
+    print("[{}]", "héllo wörld".to_uppercase())
+    print("[{}]", "HÉLLO WÖRLD".to_lowercase())
+    print("[{}]", "azAZ@[`~".to_uppercase())
+    print("[{}]", "azAZ@[`~".to_lowercase())
+
+    print("[{}]", "a-b-c".replace("-", "+"))
+    print("[{}]", "a-b-c".replace("-", ""))
+    print("[{}]", "a-b-c".replace("-", "<->"))
+    print("[{}]", "abc".replace("x", "y"))
+    print("[{}]", "abc".replace("", "y"))
+    print("[{}]", "".replace("a", "b"))
+    print("[{}]", "aaaa".replace("aa", "b"))
+    print("[{}]", "aaa".replace("aa", "b"))
+    print("[{}]", "abc".replace("abc", ""))
+    print("[{}]", "abc".replace("abcd", "x"))
+    print("[{}]", "x→y→z".replace("→", "->"))
+    print("[{}]", "one two one".replace("one", "three"))
+    let original = "keep me"
+    let same = original.replace("zz", "yy")
+    print("[{}] [{}]", original, same)
+}

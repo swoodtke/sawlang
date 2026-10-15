@@ -17,7 +17,7 @@ alloc_map_insert_forced_panics_named.saw	refused	mono mono.not-yet	a synthesized
 alloc_map_set_reports_oom.saw	refused	mono mono.not-yet	a synthesized `Equatable.equals(other: &Self)` on `Int` is not in the backend slice yet: only a signed integer's `Printable.format` (inside std/map.saw:232:24)
 alloc_panic_under_full_denial.saw	pass	-	-
 alloc_set_copy_panics.saw	refused	mono mono.not-yet	a synthesized `Equatable.equals(other: &Self)` on `Int` is not in the backend slice yet: only a signed integer's `Printable.format` (inside std/map.saw:232:24)
-alloc_string_no_degradation.saw	refused	typecheck member.unknown	`String` has no method `to_lowercase` this module can see
+alloc_string_no_degradation.saw	refused	typecheck member.unknown	`std.vector.Vector<String, std.alloc.GlobalAllocator>` has no method `join` this module can see
 alloc_string_oom_panic.saw	wrong	stdout differs	line 1: sawc2 "panic at <std>: String: allocation of 20 bytes (align 16) failed", Stage 0 "panic: string allocation failed"
 alloc_stringbuilder_append_forced_panics_named.saw	refused	typecheck call.no-match	no candidate takes these arguments; the candidates are StringBuilder.init() [std.stringbuilder]; StringBuilder.init(bytes: UnsafePointer<Int8>, capacity: Int) [std.stringbuilder]
 alloc_stringbuilder_reports_oom.saw	refused	typecheck call.no-match	no candidate takes these arguments; the candidates are StringBuilder.init() [std.stringbuilder]; StringBuilder.init(bytes: UnsafePointer<Int8>, capacity: Int) [std.stringbuilder]
@@ -272,7 +272,7 @@ conformance/C08_implicitcopy_operand_handwritten_equals_legal.saw	pass	-	-
 conformance/C09_nocopy_synthesized_comparison_legal.saw	refused	mono mono.not-yet	a synthesized `Equatable.equals(other: &Self)` on `C09_nocopy_synthesized_comparison_legal.Tag` is not in the backend slice yet: only a signed integer's `Printable.format`
 conformance/C10_direct_call_transfer_spellings.saw	pass	-	-
 conformance/C11_explicitcopy_operand_handwritten_compare.saw	pass	-	-
-conformance/C12_implicitcopy_operand_survives_consuming_equals.saw	refused	typecheck member.unknown	`String` has no method `to_uppercase` this module can see
+conformance/C12_implicitcopy_operand_survives_consuming_equals.saw	pass	-	-
 conformance/C13_comparison_conformance_must_borrow.saw	pass	-	conformance.signature: `Tag.equals` does not meet `Equatable.equals`, as `Tag` conforms to `Equatable` needs: a parameter's type differs
 conformance/C14_comparison_body_cannot_consume_operand.saw	pass	-	transfer.move-from-borrow: cannot move out of `other`: it is a reference, which borrows storage its caller owns and ends; read or borrow it instead, or give the owner a move-out (`take()` on an option
 conformance/D01_guard_else_diverging_exit.saw	pass	-	-
@@ -2368,10 +2368,10 @@ string_interp_owned.saw	pass	-	-
 string_interpolation.saw	refused	mono mono.not-yet	a synthesized `Printable.format(into: &var std.stringbuilder.StringBuilder)` on `Float` is not in the backend slice yet: only a signed integer's `Printable.format`
 string_interpolation_escaped_braces.saw	pass	-	-
 string_iterator_retains_its_receiver.saw	refused	typecheck member.unknown	`String` has no method `bytes` this module can see
-string_len_o1.saw	refused	typecheck member.unknown	`String` has no method `to_uppercase` this module can see
+string_len_o1.saw	pass	-	-
 string_lifetime.saw	pass	-	-
 string_literal_immortal.saw	pass	-	-
-string_methods.saw	refused	typecheck member.unknown	`String` has no method `to_uppercase` this module can see
+string_methods.saw	pass	-	-
 string_pattern_escaped_brace_matches.saw	pass	-	-
 string_raw_control_byte_before_brace.saw	pass	-	-
 string_scalars_iter.saw	refused	typecheck member.unknown	`String` has no method `scalars` this module can see
@@ -2570,7 +2570,7 @@ var_struct_field_assign_ok.saw	pass	-	-
 variables.saw	refused	mono mono.not-yet	a synthesized `Printable.format(into: &var std.stringbuilder.StringBuilder)` on `Float` is not in the backend slice yet: only a signed integer's `Printable.format`
 vector_capacity_reports_oom.saw	pass	-	-
 vector_closure_suspending_transform.saw	refused	typecheck member.unknown	`std.vector.Vector<Int, std.alloc.GlobalAllocator>` has no method `map` this module can see
-vector_closures_over_nocopy_elements.saw	refused	typecheck member.unknown	`String` has no method `to_uppercase` this module can see
+vector_closures_over_nocopy_elements.saw	refused	typecheck infer.failed	this closure parameter has no type: write one, as `x: Int`, or pass the closure where a function type is expected
 vector_copy.saw	refused	mono mono.not-yet	a synthesized `ExplicitCopy.copy()` on `Int` is not in the backend slice yet: only a signed integer's `Printable.format` (inside std/vector.saw:227:35)
 vector_custom_alloc_grow_pairs.saw	pass	-	-
 vector_each_fold_map.saw	refused	resolve slice.not-yet	`syntax.expr.shorthand-param` is not in the bootstrap slice yet
