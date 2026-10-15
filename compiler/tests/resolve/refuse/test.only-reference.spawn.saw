@@ -1,0 +1,13 @@
+// refuses: test.only-reference at 11:27
+// a spawn site naming a test-only function as its task root, which a normal
+// build therefore never roots
+
+@test
+func worker() -> Int {
+    5
+}
+
+func main() {
+    let task = Task.spawn(worker())
+    print("{}", task.join())
+}

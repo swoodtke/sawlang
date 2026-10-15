@@ -1,0 +1,53 @@
+// probe: stated
+// about: a normal build defines no test-only function, static, extension method or conformance (SL-644)
+// stage 0: cannot parse `@test`
+// speeds: -O0 -O2
+// Test-only code is typechecked in every build and emitted only in test
+// builds (SL:testing), so a program that declares each kind beside its
+// production code builds and its `.ll` names none of them.
+// prints: 1
+// ll defines: saw test_only_absent.prod_fn()
+// ll omits: test_only_fn
+// ll omits: test_group_fn
+// ll omits: test_ext_method
+// ll omits: TEST_ITEM_STATIC
+// ll omits: TEST_GROUP_STATIC
+// ll omits: TestOnlyRecord
+
+func prod_fn() -> Int {
+    1
+}
+
+@test
+func test_only_fn() -> Int {
+    22
+}
+
+@test
+static TEST_ITEM_STATIC: Int = 55
+
+@test
+extension Int {
+    func test_ext_method(&self) -> Int {
+        66
+    }
+}
+
+@test {
+    func test_group_fn() -> Int {
+        33
+    }
+
+    static TEST_GROUP_STATIC: Int = 44
+
+    struct TestOnlyRecord {
+        n: Int
+    }
+
+    @synthesize
+    extension TestOnlyRecord: Equatable {}
+}
+
+func main() {
+    print("{}", prod_fn())
+}

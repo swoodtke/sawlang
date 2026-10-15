@@ -194,6 +194,7 @@ GRAMMAR.md alternative; the last table lists them.
 | a lone name pattern, by the enums of the module's import closure | a case when the closure declares one of that name, else a binding | multi/closure |
 | test-only declaration, test group, test case | collected test-only; named from test code only | tests |
 | an overload set every overload of which is test-only, named from ordinary code | refused | test.only-reference.overloads |
+| a test-only static named from ordinary code; a test-only function named as a `Task.spawn` root | refused, so no normal build roots either (SL-644) | test.only-reference.static, test.only-reference.spawn |
 | prelude names | the prelude table | prelude |
 | every import form, re-exports through a facade | Imports, below | multi/imports |
 | a package's own modules: bare from inside its `src/`, by its name through its own `--module-path`, and from its tests by name; one module whichever spelling | the module, its identity `NAME.path` | package/shelf |

@@ -1,0 +1,10 @@
+// refuses: test.only-reference at 9:5
+// ordinary code naming a test-only static, whose initializer a normal build
+// therefore never roots
+
+@test
+static LIMIT: Int = 5
+
+func f() -> Int {
+    LIMIT
+}
