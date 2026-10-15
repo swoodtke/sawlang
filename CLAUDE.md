@@ -139,60 +139,61 @@ objects are built + cached under `.build/rt/` and auto-linked (delete
 `.build/rt/` to force a rebuild; `-v` lists the linked objects).
 
 ## Testing
-- `make test` (venv active) or `./.venv/bin/python test_runner.py` —
-  full compiler suite, ~1 min uncontended. Multi-pattern filter:
-  `./.venv/bin/python test_runner.py -f test_a,test_b`.
+- **No gate runs the frozen Python compiler (SL-666).** `test_runner.py`
+  (`make test`) over `examples/`, the freestanding suite, Blade's bootstrap
+  and the lanes that read or drive `sawc/` gate nothing; their tools run by
+  hand until `sawc/` is deleted (SL-667). Blade, `libs/` and
+  `tests/freestanding/` are frozen sources until their port (SL-661).
 - `./build.sh test` — the sawtracker patch gate's entry point
   (`.sawtracker/tests.json` runs `./build.sh test --changed-since HEAD^`
   on every submitted patch): bootstraps `.venv` if absent (or uses
   `$SAW_PYTHON`), then runs `tools/patch_gate.py` under the machine-wide
   suite lock, so a server-side patch test and a local suite run never
   overlap. **THE PER-PATCH GATE IS PATH-AWARE (user, Sep 25):**
-  `compiler/tests/run.py` always runs; the full suite and freestanding
-  (both arches) run only when a changed path is one of their runner's
-  inputs (`SUITE_INPUTS` in `tools/patch_gate.py`: `sawc/`, `examples/`,
-  `tests/{cbor,float}_vectors/`, `tests/freestanding/`, `blade/`, `libs/`,
-  the runners — a new input a runner reads is added there), when the gate itself
-  changes (`build.sh`, `tools/patch_gate.py`, `tools/suite_lock.sh`,
-  `.sawtracker/`), or when
-  the changed paths are unknown. The `fixpoint` lane
-  (`compiler/tests/fixpoint/fixpoint_lane.py`) follows the same rule over
-  `compiler/`, `std/`, `compiler/tools/build.py`, `runtime/` (the runtime
-  Stage 1 builds) and `sawc/` (its std is the one sawc2 compiles when no
-  `--std-root` names another, and Stage 0 builds the replayed lanes'
-  oracles). The full
-  `grammarcorpus` run follows the
-  same rule over its inputs (`GRAMMAR.md`, `LANGUAGE_SPEC.md`,
-  `compiler/tests/grammar/`, `compiler/lex/`, `compiler/driver/`,
-  `compiler/tools/build.py`, `compiler/seed/`, `sawc/`); without it, each changed `.saw`
-  file is checked against `corpus_expected.tsv` alone, in seconds. The
-  full `astdiff` follows the same rule over the Python parser and its
-  dumper (`sawc/lexer.py`, `sawc/parser/`, `sawc/ast_nodes.py`,
-  `sawc/ast_dump.py`, `tools/astdiff.py`, `tools/dump_ast.py`); without
-  it, `tools/astdiff.py FILE...` checks each changed `.saw` file outside
-  `tests/corpus/` and `compiler/tests/parse/`. It prints each decision
-  and why; `./build.sh test --dry-run --diff FILE` shows a patch's
-  decision without running anything.
+  `compiler/tests/run.py` always runs; each other part runs only when a
+  changed path is one of its inputs (`SUITE_INPUTS` in
+  `tools/patch_gate.py` — a new input a part reads is added there), when the
+  gate itself changes (`build.sh`, `tools/patch_gate.py`,
+  `tools/suite_lock.sh`, `.sawtracker/`), or when the changed paths are
+  unknown. The parts: the `fixpoint` lane
+  (`compiler/tests/fixpoint/fixpoint_lane.py`) over `compiler/`, `std/`,
+  `runtime/`, `tests/corpus/` and `sawc/` (its std is the one sawc2
+  compiles when no `--std-root` names another); the full `grammarcorpus` over
+  `GRAMMAR.md`, `LANGUAGE_SPEC.md`, `compiler/tests/grammar/` and what sawc2's
+  token dump and parser come from (`compiler/lex/`, `compiler/parse/`,
+  `compiler/driver/`, `compiler/tools/build.py`, `compiler/seed/`) — without
+  it, each changed `.saw` file is checked against `corpus_expected.tsv` alone,
+  in seconds; and the **corpusdiff regression gate**
+  (`compiler/tests/corpusdiff/corpusdiff.py gate`, every program on the
+  gate's workers) over what
+  sawc2 is built from (each stage's `src/`, `compiler/driver/`,
+  `compiler/seed/`, `build.py`, `std/`, `runtime/`) and what it measures
+  (`tests/corpus/`, the vector files, `examples/`, the corpusdiff directory,
+  `compiler/tests/oracle.py`). It measures every corpus program and FAILS when
+  any verdict moved from `corpus_diff.tsv`: a new bucket or key, an
+  improvement included, or a new detail inside `stage0-wrong`. A patch that
+  moves one on purpose records it with `corpusdiff.py run --baseline --jobs N`
+  in the same patch. It prints each decision and why;
+  `./build.sh test --dry-run --diff FILE` shows a patch's decision without
+  running anything.
 - **PER-COMMIT GATE POLICY (user, Sep 24): run only the tests a change
   affects, and never duplicate what the server runs.** The per-patch gate
-  above runs the full suite, freestanding (both arches), `fixpoint` and
-  `astdiff` on every patch that reaches their inputs, so NOBODY,
-  implementer or lead, runs a per-commit or pre-submit full suite,
-  freestanding, `fixpoint` or `astdiff` (the battery keeps `fixpoint` and
-  `astdiff` as stages for manual runs). Before a commit or
-  a submission, run the change's pins, targeted `test_runner.py -f`
-  subsets, and the battery lanes that touch the change's subject and that
-  the server does not run: `astgraft` and `transferdecisions` for the
-  typechecker or codegen, `bootstrap` for the blade/libs corpus,
-  `docverify` for spec prose, `citations` for `compiler/`;
-  `irdet` and `reemit` only when the change can
-  reach them. **The server always runs `compiler/tests/run.py` (user, Oct
-  14),** so a `compiler/` change runs only the steps for the stages it
-  touches, `compiler/tests/run.py --only NAME[,NAME]` (e.g. `mir`,
-  `typechecker`, `programs`), never the whole of it nor the battery's
-  `compiler` stage, which stays for manual runs; every local run holds the
-  one suite lock the server's gate also waits on. No branch owes the full battery; it will run on main
-  periodically, never per merge, once sawtracker schedules it (ST-45, open).
+  above runs `fixpoint`, `grammarcorpus` and the corpusdiff gate on every
+  patch that reaches their inputs, so NOBODY, implementer or lead, runs them
+  per commit or before a submission (the battery keeps them as stages for
+  manual runs). The one exception is a change meant to move a corpus verdict
+  (a coverage or a fix): it records the new baseline before submitting, or
+  the server's gate fails it. Before a commit or a submission, run the
+  change's pins and the battery lanes that touch the change's subject and
+  that the server does not run: `docverify` for spec prose, `citations` for
+  `compiler/`, `patchgate` for the gate. **The server always runs
+  `compiler/tests/run.py` (user, Oct 14),** so a `compiler/` change runs only
+  the steps for the stages it touches, `compiler/tests/run.py --only
+  NAME[,NAME]` (e.g. `mir`, `typechecker`, `programs`), never the whole of it
+  nor the battery's `compiler` stage, which stays for manual runs; every
+  local run holds the one suite lock the server's gate also waits on. No
+  branch owes the full battery; it will run on main periodically, never per
+  merge, once sawtracker schedules it (ST-45, open).
   SawOS work happens in the sawos repo under
   its own gate (`make sos-test` there) and its own CLAUDE.md. XFAIL policy (user, Aug 7): a
   `// XFAIL: reason` test is legal ONLY as a pin of a filed finding —
@@ -208,164 +209,59 @@ objects are built + cached under `.build/rt/` and auto-linked (delete
   suite: one row per guarantee the language claims, with
   `examples/conformance/INDEX.md` naming the covering test for every
   row — including the rows an existing `examples/` test already covers,
-  which is what makes the ledger auditable. It runs inside the ordinary
-  battery; `-f conformance/` is the subset switch (~9s), and a brief
-  touching a safety guarantee updates its rows FIRST (obligation 3).
+  which is what makes the ledger auditable. Its programs' twins under
+  `tests/corpus/conformance/` are measured by the corpusdiff gate, and a
+  brief touching a safety guarantee updates its rows FIRST (obligation 3).
 - Never run two suite invocations at once.
 - Tests support a `// COMPILE-FLAGS:` directive (`{TESTDIR}`
   placeholder), and — for warnings, which are reported on the SUCCESS
   path and never affect the exit code — `// EXPECT-WARNING-CONTAINS:`
   and `// EXPECT-NO-WARNINGS` (design 150).
-- App-level: `blade test` (tests/*.saw exit 0 = pass; see TESTING.md);
-  `./.venv/bin/python tools/blade_bootstrap.py` or
-  `make blade-bootstrap` runs the self-hosting loop (stage0→stage2).
-- IR determinism: the harness is **written in Saw** (`devtools/irdet/`,
-  design 155 — the first devtool port; it still drives the PYTHON
-  sawc). `make irdet` builds `.build/irdetbin` and samples 40 examples
-  — cheap enough per commit. **A change that can reach IR emission runs
-  `irdet --all`** (the whole corpus; design 146 unit D):
-  ```bash
-  ./.venv/bin/python sawc/sawc.py devtools/irdet/src/main.saw -o .build/irdetbin
-  ./.build/irdetbin --all
-  ```
-  (`make irdet-all` does both, but the Makefile's bare `python3` cannot
-  build it — activate the venv first.) A random sample cannot police a
-  whole-corpus property: design 141 found two nondeterministic emission
-  orders that had sat in the tree unnoticed until two unrelated new
-  examples reshuffled the sample onto one of them. Two machines:
-  `./.venv/bin/python tools/irdet_remote.py --all --remote HOST:PORT`.
-  Design 220: `test_runner.py` gives every invocation its own
-  `.build/test_runner_<stamp>/`, atomically published to
-  `test_runner_last` (never `ln -sfn`'s unlink-then-create), with a
-  `manifest.tsv` recording each SUCCESS/PANIC compile's worker
-  `PYTHONHASHSEED` and its optimized-IR artifact — a hash-order failure
-  replays via `PYTHONHASHSEED=<recorded>`, an unchanged file's artifact
-  hardlinks forward instead of recompiling (freshness = newer than every
-  `sawc/` file+directory, the llvmlite install, and `test_runner.py`
-  itself), and `irdet` reuses one side of its byte-compare from that
-  manifest when `test_runner_last` is fresh — a mismatch there is never
-  trusted on its own; a three-way verify (fresh recompiles at both
-  seeds) sorts it into true nondeterminism, a violated invariant (never
-  absorbed into a nondeterminism report), or a transient race. Running
-  `suite` right before `irdet` maximizes reuse but is never required
-  (TESTING.md's "reuse manifest" section has the rest). A violated
-  invariant is a FOURTH `--jsonl` record status, `invariant`, which
-  `tools/irdet_verdict.py` fails on exactly as it fails on `mismatch` —
-  the battery's irdet lane reads records, never `$?` (design 221 D).
 - **THE GATE BATTERY is `tools/battery.sh`** (design 192 unit 5) — tracked,
   so a lane cannot quietly go missing the way it did while the battery was
   an untracked scratch file each session rewrote from this prose:
   ```bash
   SAW_PYTHON=/path/to/main/.venv/bin/python tools/battery.sh   # from a worktree
-  tools/battery.sh --quick        # skips the slow six (reemit/irdet/gmgate/
-                                  # bootstrap/freestanding/linux)
-  tools/battery.sh suite fuzz     # named stages
+  tools/battery.sh --quick        # skips the slow two (gmgate/linux)
+  tools/battery.sh compiler corpusdiff   # named stages
   tools/battery.sh --list
   ```
-  Stages: `suite`, `icebreadcrumb`, `compiler` (`compiler/tests/run.py`:
-  the self-hosted compiler's unit programs, its golden token fixtures with
-  their kind coverage, the subset checker over its source and its own
-  fixtures, and the grammar lint and recognizer tests),
-  `grammarcorpus` (`compiler/tests/grammar/corpus.py`: every tracked .saw
-  recognized with GRAMMAR.md, its verdict compared with
-  `corpus_expected.tsv`, and exactly one tree required of an accepted one;
-  `--write` records a deliberate change for review; its inputs, which decide
-  when the per-patch gate runs it in full, are `GRAMMAR.md`,
-  `LANGUAGE_SPEC.md`, `compiler/tests/grammar/`, `compiler/lex/` and
-  `compiler/driver/` (sawc2's token dump), `compiler/tools/build.py` and
-  `compiler/seed/`, which build sawc2, and `sawc/`, whose parser classifies),
-  `astdiff`, `astgraft`,
-  `corodiscovery` (design 275 U1: ONE ledger answers every coroutine frame
-  decision — `tools/test_coro_discovery.py` parses `coro_transform.py` and
-  fails on any site outside the ledger's builder that reads a raw discovery
-  input, on a frame table looked up by a written `.name`, on a named consumer
-  that stopped reading the ledger, on a new caller of either key composer, and
-  on a missing freeze or miss invariant. Two of its nine checks RUN the
-  compiler rather than reading it: one DROPS a recorded decision — injected
-  into `FrameLedger.record_frame`, restored in a `finally`, the
-  `icebreadcrumb` pattern — and requires the internal-compiler-error line to
-  NAME the dropped key, because a structural check that `frame()` contains a
-  raise is not a check that a consumer's miss reaches it; the other asserts the
-  dump carries a `context=driven root` site for each of the three driven-root
-  families, which is what caught a FRAME row sitting beside `# sites: 0`),
-  `corototality` (design 275 U2: there is NO fourth outcome —
-  `sawc/coro_shapes.py` says, per shape a suspension can sit in, SPLIT / HOIST /
-  INLINE / EMBED / REFUSE, and `tools/test_coro_shapes.py` compares that table
-  against `ast_walk.CONTAINER_KINDS` and `CONTAINER_HEADS` — the other two
-  enumerations of the same fact — checks each row is well formed and each named
-  consumer still reads it, then INJECTS the failure three times: a dropped
-  container row must ICE naming the AST class, a dropped site decision must ICE,
-  and a plain call to a `frame_boundary` callee grafted into a generated resume
-  body must ICE naming the frame and the callee. Each injection runs beside an
-  uninjected control, because a structural claim that a function contains a
-  raise is not a claim that anything reaches it — and the three injections are
-  six, because the plain-call one runs once per family a call comes in: a free
-  call plus an INSTANCE, a STATIC and a GENERIC-struct method, each grafted from
-  a node the compiler really produced),
-  `windowseam` (design 275 U3: the statement-scoped borrow window is a STRUCTURE,
-  not a `for`-loop feature — `tools/test_window_seam.py` fails if `sawc/windows.py`
-  names an AST class or any iteration vocabulary in its code, if the record's
-  resource slot stops being generic, if the chokepoint's docstring lists a client
-  that no longer resolves, or if either the typechecker or codegen half reaches
-  past its ONE adapter, so the generic window statement a follow-up specifies adds
-  syntax and a binding rather than a second implementation of root accounting),
-  `stdseed` (SL-327: the design-206 std seed table is keyed by `Method.node_id`,
-  and a wrong key costs a DIAGNOSTIC rather than a failure, so nothing in the
-  corpus can see it — `tools/test_std_seed_keying.py` checks the rule directly:
-  a key must name the METHOD ITS ENTRY IS ABOUT, membership of the integer is
-  not the question; a wrong-method key and a missing key are both refused at
-  publication and re-keyed by identity, an unresolvable identity is an invariant
-  failure naming the entry, and an unsound blob already on disk is discarded AND
-  deleted so it costs one cold std build rather than a silence forever),
+  Stages: `compiler` (`compiler/tests/run.py`: the self-hosted compiler's
+  unit programs, its golden token fixtures with their kind coverage, the
+  subset checker over its source and its own fixtures, and the grammar lint
+  and recognizer tests), `fixpoint` (full mode), `grammarcorpus`
+  (`compiler/tests/grammar/corpus.py`: every tracked .saw recognized with
+  GRAMMAR.md, its verdict compared with `corpus_expected.tsv`, and exactly
+  one tree required of an accepted one; a refused file is classified by
+  whether sawc2's parser refuses it too; `--write` records a deliberate
+  change for review), `corpusdiff` (the gate form, above),
   `citations` (DF-248c, Aug 24: stale XFAIL/ledger citations against the
   tracker's closed set + committed conflict markers over tracked files —
-  the gate for the files nothing compiles),
-  `forgetgate`, `ircontract`, `preludegate`, `stdtypes`, `toolchain` (design
+  the gate for the files nothing compiles), `docverify`, `toolchain` (design
   238 unit 4: the sawlang-artifact resolver — four steps, the pin's version
   check, the refusal), `suitelock` (`tools/suite_lock.sh`'s holder line,
   heartbeat and wait, build.sh handing the wait to the gate, and a TERMed
   gate giving the lock back, against a lock directory of its own),
-  `childgroups` (SL-603: `tools/test_child_groups.py` TERMs each runner over
-  hanging children and requires every one gone; a launch either stays in its
-  runner's process group or starts its own through `tools/child_groups.py`,
-  whose handler ends it, and the lane fails on any tracked source that makes a
-  group some other way), `abidoc`, `bttable`,
-  `fuzz` (`sawfuzz --quick`), `corodiff` (`--quick`), `bench` (the warehouse
-  benchmark — checksums GATE, timing report-only; devtools/bench/ +
-  TESTING.md), `minivm` (the paused prototype builds against compiler/lex
-  and its differential harness passes), `floatvectors` (design
+  `patchgate` (`tools/test_patch_gate.py`: the gate's decision per changed
+  path, no part naming the Python compiler, and the baseline's regression
+  rule), `childgroups` (SL-603: `tools/test_child_groups.py` TERMs each
+  runner over hanging children and requires every one gone; a launch either
+  stays in its runner's process group or starts its own through
+  `tools/child_groups.py`, whose handler ends it, and the lane fails on any
+  tracked source that makes a group some other way), `floatvectors` (design
   253: the committed Float↔text vectors, bit-exact, plus the Ryū table
-  re-derivation), then the slow five
-  `reemit` (design 221 A2: TWO compiles in ONE process, byte-comparing the
-  unopt IR, the OPTIMIZED IR and the object — the optimized IR is the
-  artifact DF-220a moved and the only one nothing checked),
-  `irdet` (`--all`, whole corpus), `gmgate` (both lanes), `bootstrap`,
-  `freestanding` (the design-238-unit-1 feature suite under QEMU,
-  both arches; the `sos` stage left with the kernel at 238 unit 5), and the
-  opt-in `linux` (the run lane in the Linux VM, both arches; see "Linux").
-  Every stage RUNS even after one fails; the exit code is the
-  number of failing stages. Adding a lane means editing `STAGES`.
-  Coverage map (Aug-10 sweep): blade/tests + libs/*/tests are
-  typechecked+run by `bootstrap` ONLY (so `--quick` skips them);
-  compiler/*/tests by `compiler` only; astdiff parses EVERY tracked .saw
-  but checks no semantics. RETIRED (SL-399): the `lexdiff` and
-  `selfhostlex` lanes, with `tools/lexdiff.py` and `tools/dump_tokens.py`
-  — the golden token fixtures in compiler/tests/lex, snapshotted once
-  against the Python lexer, are the lexer's oracle now.
-- The AST contract (design 126, gated by design 194): every attribute a pass
-  stamps on an AST node is a DECLARED `annotation(...)` field on the node
-  class, never a runtime graft — `tools/test_ast_graft.py` (the `astgraft`
-  lane) fails on any attribute assignment in `sawc/` that no class declares.
-  A graft is invisible to `dataclasses.fields()`, which is what
-  `substitute_ast_types` walks, so a grafted `SawType` survives
-  monomorphization un-substituted.
-- Fuzzing (design 192): `tools/sawfuzz.py` mutates the examples/ corpus and
-  asserts ONE oracle — the compiler succeeds or exits with a clean
-  diagnostic; a traceback, an `internal compiler error`, a signal or a hang
-  is a finding, minimized into `.build/fuzz-findings/` with its seed.
-  Deterministic per `(seed, index)`, wave-bounded fan-out. A finding becomes
-  a DF + a cited XFAIL pin + a `tools/sawfuzz_known.txt` entry, all three
-  removed together by the fix. `--soak` runs it unbounded. See TESTING.md.
+  re-derivation), `abidoc`, then the slow two: `gmgate` (both lanes) and
+  the opt-in `linux` (the run lane in the Linux VM, both arches; see
+  "Linux"). `docverify` and `gmgate` still drive Stage 0, which has no
+  sawc2 equivalent yet. Every stage RUNS even after one fails; the exit code
+  is the number of failing stages. Adding a lane means editing `STAGES`.
+  RETIRED from the battery (SL-666), the tools staying until SL-667 deletes
+  `sawc/`: `suite`, `freestanding`, `bootstrap`, `astdiff`, `irdet`,
+  `reemit`, `fuzz`, `corodiff`, `bench`, `minivm`, and the checks over
+  `sawc/`'s own source (`icebreadcrumb`, `astgraft`, `closurestate`,
+  `transferdecisions`, `producertaxonomy`, `corodiscovery`, `corototality`,
+  `windowseam`, `stdseed`, `forgetgate`, `ircontract`, `preludegate`,
+  `moduletag`, `stdtypes`, `bttable`).
 - Pyright diagnostics on sawc/ are NOISE (mixin `self.X` false
   positives) — ignore unless a real behavior test fails.
 

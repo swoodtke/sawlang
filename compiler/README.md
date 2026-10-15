@@ -470,9 +470,11 @@ below that runs sawc2 runs Stage 2. It checks these things.
   pinned; and `sawc2 runtime` writes the same bytes twice and refuses a
   runtime that leaves a seam undefined or defines one twice.
 
-One lane runs apart from the runner: the per-patch gate runs it when
-`compiler/` (the seed included), `std/`, `runtime/` or `sawc/` (Stage 0)
-changes, and the battery's `fixpoint` stage runs it by hand:
+Two lanes run apart from the runner. The corpus differential's regression
+gate (`tests/corpusdiff/README.md`) runs every corpus program through sawc2
+and fails on any verdict that moved from its baseline. The per-patch gate runs
+the fixpoint lane when `compiler/` (the seed included), `std/`, `runtime/` or
+`sawc/` (Stage 0) changes, and the battery's `fixpoint` stage runs it by hand:
 
 - **The fixpoint** (`tests/fixpoint/fixpoint_lane.py`): the seed check
   (`tools/seed.py check`, "The seed" above), then Stage 1's `.ll` of

@@ -1,4 +1,8 @@
 path	kind	reason
 coro_iflet_move_out_releases_once.saw	stage0-wrong	SL-513 ruling (B), SL:hazards C11: an unbound part dies when its construct completes; Stage 0 releases it at arm entry. This file's EXPECT-OUTPUT states the ruled order
+coro_suspending_default_omitted.saw	stage0-wrong	SL-656 ruling (b), SL:hazards L29: a left-out suspending default is evaluated in the caller and charged to the call that omits it; sawc2 accepts it in a non-sync context, and Stage 0 refuses it
+coro_suspending_default_omitted_cross_module.saw	stage0-wrong	SL-656 ruling (b), SL:hazards L29: a left-out suspending default is evaluated in the caller and charged to the call that omits it; sawc2 accepts it in a non-sync context, and Stage 0 refuses it
 discard_forms_release_matrix.saw	stage0-wrong	SL-513 ruling (B), SL:hazards C11: an unbound part dies when its construct completes; Stage 0 releases it at arm entry. This file's EXPECT-OUTPUT states the ruled order
+errors/coro_guarded_arm_owning_payload.saw	stage0-wrong	SL-283: Stage 0 refuses a guarded arm beside an owning payload binding in a driven match because its own lowering double frees the pair; the language allows it, and sawc2 lowers it
 match_wildcard_payload_released.saw	stage0-wrong	SL-513 ruling (B), SL:hazards C11: an unbound part dies when its construct completes; Stage 0 releases it at arm entry. This file's EXPECT-OUTPUT states the ruled order
+while_let_tuple_over_suspension_refused.saw	stage0-wrong	SL-566: Stage 0 refuses a tuple-pattern `while let` whose body spans a suspension, a limit of its coroutine transform; the spec allows it, and sawc2 lowers it

@@ -1,12 +1,14 @@
 #!/usr/bin/env python3
 """The whole-corpus behavioural differential: every tests/corpus program built
 and run by sawc2, compared with Stage 0's snapshot of its examples/ twin, and
-put in one bucket under one key (SL-655). It gates nothing.
+put in one bucket under one key (SL-655). Its baseline is a regression gate
+(SL-666).
 
     python compiler/tests/corpusdiff/corpusdiff.py check
     python compiler/tests/corpusdiff/corpusdiff.py snapshot [--reuse] [--jobs N] [PATH...]
     python compiler/tests/corpusdiff/corpusdiff.py run [--jobs N] [--no-build] [--baseline | --quick]
                                                        [--report FILE] [PATH...]
+    python compiler/tests/corpusdiff/corpusdiff.py gate [--no-build]
 
 `check` says whether the snapshot in stage0/ is whole: one record per corpus
 program, each current with its twin. `snapshot` reruns Stage 0 and rewrites
@@ -17,8 +19,11 @@ builds sawc2 through compiler/tools/build.py (unless `--no-build`), then
 measures, writes .build/corpusdiff/results.tsv and report.md, and prints the
 report; `--baseline` rewrites corpus_diff.tsv from the run, and otherwise the
 run is compared with it. `--quick` checks the whole snapshot but measures one
-program per bucket and key of the baseline. Both measure one program at a time unless `--jobs`
-says otherwise, and neither takes the suite lock. README.md has the buckets.
+program per bucket and key of the baseline. `gate` is a whole run on the
+gate's worker budget that fails when any program's verdict moved from
+corpus_diff.tsv's. `snapshot` and `run` measure one program at a time unless
+`--jobs` says otherwise, and none of the three takes the suite lock. README.md
+has the buckets and the gate's rule.
 """
 import argparse
 import collections
@@ -30,6 +35,7 @@ import re
 import signal
 import subprocess
 import sys
+import threading
 import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -40,6 +46,7 @@ import oracle  # noqa: E402  (puts coro/, compiler/tools and tools/ on the path)
 import build  # noqa: E402
 import child_groups  # noqa: E402
 import expect  # noqa: E402
+import gate_jobs  # noqa: E402
 
 REPO = oracle.REPO
 CORPUS = oracle.CORPUS
@@ -59,6 +66,8 @@ ANNOTATION_COLUMNS = ("path", "kind", "reason")
 ANNOTATION_KINDS = ("stage0-wrong", "nondeterministic")
 BUCKETS = ("pass", "refused", "crash", "wrong", "link", "stage0-wrong", "nondeterministic", "slow")
 QUICK_WITHOUT_BASELINE = 20
+# The moves the gate prints; the report file holds them all.
+GATE_LINES = 40
 
 _XFAIL = re.compile(r"^//\s*XFAIL:\s*(.*)$")
 _DIFFERS = re.compile(r"^// differs: (.+)$")
@@ -382,6 +391,7 @@ def known_wrong(path, annotations):
 # --- measuring ------------------------------------------------------------------
 
 _STAGES = {}
+_STAGES_LOCK = threading.Lock()
 # sawc2's stage commands in pipeline order; each runs every stage before it.
 STAGE_COMMANDS = ("parse", "resolve", "typecheck", "mir", "eval", "borrowck", "drops", "mono", "coro")
 
@@ -412,19 +422,22 @@ def refusing_stage(src, flags, rule, where):
 def stage_of(rule):
     """The compiler stage whose source spells `rule`, `+`-joined when several
     do, `?` when none."""
-    if not _STAGES:
-        compiler = os.path.join(REPO, "compiler")
-        for name in sorted(os.listdir(compiler)):
-            src = os.path.join(compiler, name, "src")
-            if not os.path.isdir(src):
-                continue
-            text = []
-            for root, _, files in os.walk(src):
-                for f in files:
-                    if f.endswith(".saw"):
-                        with open(os.path.join(root, f), encoding="utf-8") as fh:
-                            text.append(fh.read())
-            _STAGES[name] = "\n".join(text)
+    # Measuring threads call this at once, and one reading a half-filled table
+    # would key a refusal by the wrong stage (tools/test_patch_gate.py).
+    with _STAGES_LOCK:
+        if not _STAGES:
+            compiler = os.path.join(REPO, "compiler")
+            for name in sorted(os.listdir(compiler)):
+                src = os.path.join(compiler, name, "src")
+                if not os.path.isdir(src):
+                    continue
+                text = []
+                for root, _, files in os.walk(src):
+                    for f in files:
+                        if f.endswith(".saw"):
+                            with open(os.path.join(root, f), encoding="utf-8") as fh:
+                                text.append(fh.read())
+                _STAGES[name] = "\n".join(text)
     found = [name for name, text in _STAGES.items() if '"%s"' % rule in text]
     return "+".join(found) if found else "?"
 
@@ -481,13 +494,15 @@ def usage_flags(log):
     return flags
 
 
-def build_verdict(src, d, rec, code, found, log):
+def build_verdict(src, d, rec, code, found, log, wrong_refusal=False):
     """(bucket, key, detail) when the build decides the program's bucket,
-    None when it built a program that is run."""
+    None when it built a program that is run. A refusal test whose refusal
+    annotations.tsv marks wrong is judged as any other program is, so one
+    sawc2 builds is run."""
     problems = oracle.invariants(log)
     if problems:
         return "crash", "INVARIANT", one_line(problems[0].split("\t")[-1])
-    if d.expect == "error":
+    if d.expect == "error" and not wrong_refusal:
         stage0_error = (rec.build_error or "") if rec.expect == "error" else ""
         outcome, detail = oracle.judge_refusal(stage0_error, code, found)
         if outcome == "pass":
@@ -504,7 +519,7 @@ def build_verdict(src, d, rec, code, found, log):
         rule, where, message = found[0]
         return "refused", "%s %s" % (refusing_stage(src, d.flags, rule, where), rule), one_line(message)
     if code == 0:
-        return None if d.expect in RUN_KINDS else ("pass", "-", "built")
+        return None if d.expect in RUN_KINDS or wrong_refusal else ("pass", "-", "built")
     if code == 2 and log.startswith("usage:"):
         unknown = [f for f in d.flags if f.startswith("-") and f not in usage_flags(log)]
         return "refused", "driver driver.usage", "sawc2 build takes no %s" % (" ".join(unknown) or "such arguments")
@@ -527,6 +542,11 @@ def run_verdict(path, d, rec, code, stdout, stderr, annotations):
     panicked = code == -signal.SIGABRT and _PANIC.search(stdout + stderr) is not None
     if code is not None and code < 0 and not panicked and code != rec.exit:
         return "crash", "run %s" % oracle.exit_text(code), one_line(stdout + stderr or "no output")
+    if d.expect == "error":
+        # A refusal test states no run, so the detail is what the run did.
+        met = "sawc2 builds it, and its run " + (
+            "panics: " + _PANIC.search(stdout + stderr).group(0) if panicked else "exits %s" % oracle.exit_text(code))
+        met = one_line(met)
     known = known_wrong(path, annotations)
     if known is not None:
         cite, prints = known
@@ -568,7 +588,8 @@ def measure(path, rec, annotations, scale=1):
     result = {"path": path, "build_seconds": build_seconds, "run_seconds": 0.0}
     if code is None:
         return dict(result, bucket="timeout", phase="build", seconds=build_seconds)
-    verdict = build_verdict(src, d, rec, code, found, log)
+    wrong_refusal = annotations.get(path, (None,))[0] == "stage0-wrong"
+    verdict = build_verdict(src, d, rec, code, found, log, wrong_refusal)
     if verdict is None:
         rc, out, err, run_seconds = oracle.run_binary(binary, oracle.RUN_TIMEOUT * scale)
         result["run_seconds"] = run_seconds
@@ -597,7 +618,18 @@ def retried(first, path, rec, annotations):
                            % (first["seconds"], again["seconds"]))
     return dict(again, bucket="slow", key="slow %s" % first["phase"],
                 detail="timed out after %.0fs, finished in %.0fs on a second try: %s %s"
-                       % (first["seconds"], seconds, again["bucket"], again["key"]))
+                       % (first["seconds"], seconds, again["bucket"], again["key"]),
+                settled=(again["bucket"], again["key"], again["detail"]))
+
+
+def settled(row):
+    """A row as the baseline holds it: a `slow` program's verdict is the one
+    its second try reached, since whether a run times out depends on the
+    machine's load and not on sawc2."""
+    if row.get("settled"):
+        bucket, key, detail = row["settled"]
+        return dict(row, bucket=bucket, key=key, detail=detail)
+    return row
 
 
 def commit():
@@ -656,15 +688,22 @@ def measure_all(args):
     if unknown:
         raise SystemExit("corpusdiff: no record for %s" % ", ".join(unknown))
     head, base = commit()
-    print("corpusdiff: sawc2 over %d programs, %d at a time; HEAD %s, main %s" % (len(paths), args.jobs, head, base),
+    jobs = min(args.jobs, gate_jobs.jobs())
+    print("corpusdiff: sawc2 over %d programs, %d at a time; HEAD %s, main %s" % (len(paths), jobs, head, base),
           flush=True)
     start = time.monotonic()
-    results = {}
-    with concurrent.futures.ThreadPoolExecutor(max_workers=args.jobs) as pool:
-        for k, result in enumerate(pool.map(lambda p: measure(p, records[p], annotations), paths), 1):
-            results[result["path"]] = result
-            if k % 250 == 0:
-                print("corpusdiff: %d of %d, %.0fs" % (k, len(paths), time.monotonic() - start), flush=True)
+    lock = threading.Lock()
+    done = [0]
+
+    def one(path):
+        result = measure(path, records[path], annotations)
+        with lock:
+            done[0] += 1
+            if done[0] % 250 == 0:
+                print("corpusdiff: %d of %d, %.0fs" % (done[0], len(paths), time.monotonic() - start), flush=True)
+        return result
+
+    results = {r["path"]: r for r in gate_jobs.map_ordered(one, paths, most=jobs)}
     late = [p for p in paths if results[p]["bucket"] == "timeout"]
     for path in late:
         results[path] = retried(results[path], path, records[path], annotations)
@@ -676,14 +715,55 @@ def measure_all(args):
     suffix = "-partial" if args.paths else ""
     write_results(os.path.join(OUT, "results%s.tsv" % suffix), rows)
     if args.baseline:
-        write_results(BASELINE, rows)
+        write_results(BASELINE, [settled(r) for r in rows])
     lines = report(rows, head, base, wall, records)
+    if args.gate:
+        found = regressions([settled(r) for r in rows], oracle.read_tsv(BASELINE, RESULT_COLUMNS))
+        with open(os.path.join(OUT, "report.md"), "w", encoding="utf-8") as fh:
+            fh.write("\n".join(lines + [""] + (found or ["No program moved."])) + "\n")
+        print("\n".join(counts(rows, head, base, wall)))
+        print("corpusdiff gate: the whole report is .build/corpusdiff/report.md")
+        for line in found[:GATE_LINES]:
+            print(line)
+        if len(found) > GATE_LINES:
+            print("... and %d more moves" % (len(found) - GATE_LINES))
+        if found:
+            print("corpusdiff gate: FAIL: %d program(s) moved from corpus_diff.tsv. A move the patch means is "
+                  "recorded by `python compiler/tests/corpusdiff/corpusdiff.py run --baseline --jobs N` in the "
+                  "same patch, its diff reviewed with the rest." % len(found))
+            return 1
+        print("corpusdiff gate: ok: all %d programs hold their baseline verdicts" % len(rows))
+        return 0
     moved = against_baseline(rows) if not args.baseline and os.path.exists(BASELINE) else []
     text = "\n".join(lines + moved) + "\n"
     with open(args.report or os.path.join(OUT, "report%s.md" % suffix), "w", encoding="utf-8") as fh:
         fh.write(text)
     print(text, end="")
     return 0
+
+
+def regressions(rows, baseline):
+    """A line per program whose verdict moved from the baseline's: a new
+    bucket or key, a new detail inside `stage0-wrong` (whose detail is the
+    oracle's answer), a program the baseline lacks, and a baseline row
+    naming no measured program. Improvements count too, so the baseline
+    always says what main does."""
+    old = {r["path"]: r for r in baseline}
+    out = []
+    for r in rows:
+        was = old.pop(r["path"], None)
+        if was is None:
+            out.append("corpusdiff gate: %s is not in the baseline; it is now `%s %s`"
+                       % (r["path"], r["bucket"], r["key"]))
+        elif (was["bucket"], was["key"]) != (r["bucket"], r["key"]):
+            out.append("corpusdiff gate: %s moved: `%s %s` -> `%s %s` (%s)"
+                       % (r["path"], was["bucket"], was["key"], r["bucket"], r["key"], r["detail"]))
+        elif r["bucket"] == "stage0-wrong" and was["detail"] != r["detail"]:
+            out.append("corpusdiff gate: %s moved inside `stage0-wrong %s`: `%s` -> `%s`"
+                       % (r["path"], r["key"], was["detail"], r["detail"]))
+    for path in sorted(old):
+        out.append("corpusdiff gate: %s is in the baseline but was not measured" % path)
+    return out
 
 
 def write_results(path, rows):
@@ -702,10 +782,9 @@ _NAMED_DETAILS = oracle.GAP_RULES + ("driver.usage",)
 _RULE_DETAIL = re.compile(r"^([a-z]+(?:\.[a-z-]+)+): ")
 
 
-def report(rows, head, base, wall, records):
-    """The report's lines, Markdown: the counts per bucket, then each
-    bucket's keys by program count, three example paths each, and for each
-    key its most common details."""
+def counts(rows, head, base, wall):
+    """The report's head, Markdown: what was measured, and the counts per
+    bucket."""
     by_bucket = collections.Counter(r["bucket"] for r in rows)
     lines = ["# corpusdiff: %d corpus programs through sawc2, against Stage 0" % len(rows), "",
              "HEAD `%s`, main `%s`; %.0fs of sawc2 builds, %.0fs of runs, %.0fs wall." % (
@@ -713,6 +792,14 @@ def report(rows, head, base, wall, records):
              "| bucket | programs |", "|---|---:|"]
     for bucket in BUCKETS:
         lines.append("| %s | %d |" % (bucket, by_bucket.get(bucket, 0)))
+    return lines
+
+
+def report(rows, head, base, wall, records):
+    """The report's lines, Markdown: the counts per bucket, then each
+    bucket's keys by program count, three example paths each, and for each
+    key its most common details."""
+    lines = counts(rows, head, base, wall)
     # A refusal test passes on any rule that is no gap when the plan names
     # none, so the rules it passed on show how loose those passes are.
     refusals = collections.Counter(m.group(1) for r in rows if r["bucket"] == "pass"
@@ -783,10 +870,17 @@ def main():
     run.add_argument("--quick", action="store_true")
     run.add_argument("--report")
     run.add_argument("paths", nargs="*")
+    gate = sub.add_parser("gate")
+    gate.add_argument("--no-build", action="store_true")
     args = parser.parse_args()
     if args.command == "snapshot":
         return write_snapshot(args)
     if args.command == "run":
+        args.gate = False
+        return measure_all(args)
+    if args.command == "gate":
+        args.gate, args.jobs, args.baseline, args.quick, args.paths, args.report = \
+            True, gate_jobs.jobs(), False, False, [], None
         return measure_all(args)
     failures, counts = check()
     for failure in failures:

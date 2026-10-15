@@ -3,8 +3,9 @@
 The whole-corpus behavioural differential (SL-655, SL-398's acceptance item
 4): each `tests/corpus/` program built and run by sawc2, compared with what
 Stage 0 did with its `examples/` twin, and put in one bucket under one key.
-It is the progress meter for removing `sawc/`, and its report is the list of
-what sawc2 cannot do yet. It gates nothing.
+Its report is the list of what sawc2 cannot do yet, and its baseline is a
+regression gate: the per-patch gate fails a patch that moves any program's
+verdict (SL-666, "The gate" below).
 
 ```
 corpusdiff/
@@ -19,8 +20,8 @@ corpusdiff/
 python compiler/tests/corpusdiff/corpusdiff.py check
 python compiler/tests/corpusdiff/corpusdiff.py snapshot [--reuse] [--jobs N] [PATH...]
 python compiler/tests/corpusdiff/corpusdiff.py run [--jobs N] [--no-build] [--baseline | --quick] [--report FILE] [PATH...]
+python compiler/tests/corpusdiff/corpusdiff.py gate [--no-build]
 tools/battery.sh corpusdiff
-tools/battery.sh --quick corpusdiff
 ```
 
 ## The programs
@@ -72,7 +73,8 @@ program, runs `sawc2 build --std-root std` on the corpus file with its
 `COMPILE-FLAGS`, and runs what it builds the way the snapshot ran Stage 0's.
 Both `snapshot` and `run` take one program at a time unless `--jobs` says
 otherwise, and neither takes the suite lock, so either shares the machine
-with the patch server's gate.
+with the patch server's gate. `run`'s `--jobs` is held to the gate's worker
+ceiling (`tools/gate_jobs.py`), and `gate` takes that whole budget.
 
 The buckets:
 
@@ -96,7 +98,9 @@ program's bucket:
    one (`oracle.judge_refusal`): `pass` when sawc2 refuses it by the rule the
    plan names for its Stage 0 error, or by any rule that is no gap when the
    plan names none; `refused` when a gap rule (`oracle.GAP_RULES`) refuses
-   it; `wrong` when sawc2 builds it or refuses it by another rule.
+   it; `wrong` when sawc2 builds it or refuses it by another rule. A refusal
+   test whose refusal `annotations.tsv` marks `stage0-wrong` is not: it goes
+   on through the rules below like any program, and one sawc2 builds is run.
 3. Any other refusal: `refused`, keyed by its stage and rule. A flag `sawc2
    build` does not take is the driver's refusal, `driver driver.usage`.
 4. A `compiles`, `object` or `docs` test that builds: `pass`.
@@ -106,7 +110,9 @@ program's bucket:
    die by: `crash`.
 7. Stage 0's answer is known wrong (see Annotations): `stage0-wrong`, keyed
    by the citation, its detail saying whether sawc2 meets the program's own
-   directives, the oracle there.
+   directives, the oracle there; for a refusal test, whose directives state
+   no run, the detail is what the run did: `sawc2 builds it, and its run
+   exits N` or `panics: …`.
 8. The corpus file's `EXPECT` is not its twin's, since the language changed
    on purpose (SL:architecture §5), or `annotations.tsv` marks the program
    `nondeterministic`: it is judged by its own directives, `pass` or `wrong`.
@@ -148,7 +154,8 @@ known wrong: SL-nnn`. `annotations.tsv` adds the lane's own, one row per
 program, for what a corpus file does not say:
 
 - `stage0-wrong`: Stage 0's answer is known wrong; the reason cites the DF,
-  SL issue or SL:hazards entry;
+  SL issue or SL:hazards entry. On a refusal test it says the refusal is a
+  Stage 0 limit, not the language's;
 - `nondeterministic`: the program's output depends on scheduling, time or
   hash order, so it is judged by its own directives.
 
@@ -164,8 +171,9 @@ every other key's group by their shape, each name and number made alike.
 
 `corpus_diff.tsv` is the checked-in baseline: `run --baseline` rewrites it
 from a run over the whole corpus, and every other run ends with the programs
-that moved since it, from which bucket and key to which. The numbers move as
-patches land, so a baseline is only as current as the commit its run names.
+that moved since it, from which bucket and key to which. A `slow` program is
+written as the verdict its second try reached, since whether a run times out
+says more about the machine's load than about sawc2.
 
 A run over named PATHs, or the quick form, is partial: it writes
 `results-partial.tsv` and `report-partial.md` beside the whole run's files
@@ -173,14 +181,32 @@ and leaves those alone. `run --quick` checks the whole snapshot, then measures
 the first program under each bucket and key of the baseline, so every verdict
 the baseline holds is reached once.
 
-## How it runs
+## The gate
 
-The whole run is long, Stage 0's snapshot by far the longest part, so it is
-a standalone tool and the battery's `corpusdiff` stage, which runs only when
-named (`tools/battery.sh corpusdiff`), and in its quick form under
-`--quick`. It is not a step of `compiler/tests/run.py` nor of the per-patch
-gate. The stage fails only when the snapshot is not whole or the tool cannot
-run; the buckets are information.
+`gate` is a whole run on the gate's worker budget, compared with the
+baseline. It fails when the snapshot is not whole, when sawc2 does not build,
+and when any program moved: a new bucket or key, an improvement as much as a
+regression; a new detail inside `stage0-wrong`, where the detail is the
+oracle's answer (the run against the program's own directives); a program the
+baseline lacks; or a baseline row for a program that is gone. A `slow`
+program is compared by the verdict its second try reached. Each move is
+printed with its old and new verdict, and the whole report is written to
+`.build/corpusdiff/report.md`.
+
+So the baseline always says what main does. A patch that moves a verdict on
+purpose, a sawc2 fix or a new corpus program, runs `run --baseline` and
+carries the rewritten rows, which review reads as the patch's effect on the
+corpus; the gate then finds nothing moved. Details outside `stage0-wrong`, a
+refusal's message or the first line that differs, may change freely.
+
+The per-patch gate (`tools/patch_gate.py`) runs it when what sawc2 is built
+from changes, or what the measurement reads: `tests/corpus/`, the vector
+files the programs read, `examples/` (the twins the snapshot must be current
+with), this directory, and `compiler/tests/oracle.py` with the modules it
+imports. It runs in full there, never in the quick form: one program per
+bucket and key cannot see a passing program regress, and the whole run's
+builds spread over the gate's workers. The battery's `corpusdiff`
+stage runs it too. `run --quick` stays for a quick look by hand.
 
 ## The coroutine census
 

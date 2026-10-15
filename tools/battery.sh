@@ -8,15 +8,17 @@
 # tracked, and adding a lane means editing it.
 #
 # Every stage is INDEPENDENT and every stage runs: the script does not stop at
-# the first failure, because "the suite is red" and "the suite is red AND so is
-# irdet" are different situations and you want to know which one you are in.
-# The exit code is the number of failing stages.
+# the first failure, because "the compiler tests are red" and "they are red AND
+# so is the fixpoint" are different situations and you want to know which one
+# you are in. The exit code is the number of failing stages.
+#
+# No stage runs the frozen Python compiler (sawc/): the lanes that tested it
+# left the battery with the per-patch gate's move to sawc2 (SL-666), but for
+# gmgate and docverify, which stay until sawc2 has their equivalent.
 #
 #   tools/battery.sh                    # everything but the manual lanes
-#   tools/battery.sh --quick            # skip the slow lanes (freestanding, bootstrap, reemit, irdet, gmgate, linux)
-#   tools/battery.sh corpusdiff         # a manual lane, which runs only when named
-#   tools/battery.sh --quick corpusdiff # its quick form
-#   tools/battery.sh suite irdet        # named stages only
+#   tools/battery.sh --quick            # skip the slow lanes (gmgate, linux)
+#   tools/battery.sh compiler fixpoint  # named stages only
 #   tools/battery.sh --list             # what the stages are
 #
 # The interpreter comes from $SAW_PYTHON, else ./.venv/bin/python under the
@@ -45,60 +47,24 @@ fi
 
 # stage name | slow? | description | command
 #
-# `slow` stages are the ones --quick drops: minutes each, and each has its own
-# make target for when you want it alone. A `manual` stage runs only when it is
-# named: it is long and gates nothing, so a full battery leaves it out.
-#
-# ORDERING NOTE (design 220 D4): `suite` runs before `irdet` in this list —
-# deliberately kept that way, not required. `suite` publishes
-# `.build/test_runner_last` with a manifest of optimized-IR artifacts;
-# `irdet --all` reuses one side of its byte-compare from that manifest when
-# it is fresh, which is cheapest right after `suite` just built it. Running
-# `irdet` alone (`tools/battery.sh irdet`), or any other stage ordering, is
-# still fully correct — D4's byte-compare + three-way verify catches a stale
-# or absent manifest as either "no reuse" (empty/missing manifest, today's
-# compile-both path) or a self-reporting "violated invariant" (a stale one),
-# never a false pass. Reordering these two stages trades reuse rate, never
-# correctness.
+# `slow` stages are the ones --quick drops: minutes each. A `manual` stage runs
+# only when it is named: it is long and gates nothing, so a full battery leaves
+# it out.
 STAGES=(
-    "suite|no|the compiler test suite (zero UNCITED xfails is the bar)|$PY test_runner.py"
-    "icebreadcrumb|no|an internal compiler error reports one located line|$PY tools/test_ice_breadcrumb.py"
     "compiler|no|the self-hosted compiler: unit programs, golden fixtures, the subset checker, the grammar lint|$PY compiler/tests/run.py"
     "fixpoint|no|Stage 2 (sawc2 built by sawc2) agrees with Stage 1 on every lane's invocations, and Stage 3 = Stage 2|env SAW_FIXPOINT_FULL=1 $PY compiler/tests/fixpoint/fixpoint_lane.py"
     "grammarcorpus|no|every tracked .saw against GRAMMAR.md: its recorded verdict, one tree when accepted|$PY compiler/tests/grammar/corpus.py"
-    "astdiff|no|every .saw dumps completely and byte-stably|$PY tools/astdiff.py"
-    "astgraft|no|no pass stamps an AST attribute no class declares|$PY tools/test_ast_graft.py"
-    "closurestate|no|a nested body hands back every kind of per-function codegen state|$PY tools/test_closure_state.py"
-    "transferdecisions|no|every ownership boundary carries an explicit decision|$PY tools/test_transfer_decisions.py"
-    "producertaxonomy|no|every value-position node says how it produces a value|$PY tools/test_producer_taxonomy.py"
-    "corodiscovery|no|one ledger answers every coroutine frame decision|$PY tools/test_coro_discovery.py"
-    "corototality|no|every shape a suspension sits in SPLITs, HOISTs, INLINEs, EMBEDs or REFUSEs|$PY tools/test_coro_shapes.py"
-    "windowseam|no|the statement window is a structure, not a for-loop feature|$PY tools/test_window_seam.py"
-    "stdseed|no|a cached std seed key names the METHOD ITS ENTRY IS ABOUT|$PY tools/test_std_seed_keying.py"
+    "corpusdiff|no|every tests/corpus program through sawc2 against Stage 0's snapshot: no verdict moved from the baseline|$PY compiler/tests/corpusdiff/corpusdiff.py gate"
     "citations|no|the files nothing compiles: stale DF/SL citations, committed conflict markers|$PY tools/check_citations.py"
-    "forgetgate|no|every __saw_forget and M1/M3 stamp cites its deferral|$PY tools/test_forget_purge.py"
-    "ircontract|no|-c embeds what hosted embeds; seam widths match rt/ABI.md|$PY tools/test_ir_contract.py"
-    "preludegate|no|the import gate matches LANGUAGE_SPEC's module table|$PY tools/test_prelude_gate_doc.py"
     "docverify|no|every Saw example in README/CLAUDE/spec/skill compiles as its marker claims|$PY tools/docverify.py"
-    "moduletag|no|every module renders to its own \$m\$ tag, and it decodes back|$PY tools/test_module_tag.py"
-    "stdtypes|no|two std files may each own one private type name (design 204)|$PY tools/test_std_private_type_names.py"
     "toolchain|no|the toolchain resolver: four steps, the version check, the refusal|$PY tools/test_toolchain.py"
     "suitelock|no|the suite lock names its holder, heartbeats, reports its wait; build.sh hands the wait to the gate and gives the lock back on a TERM|$PY tools/test_suite_lock.py"
+    "patchgate|no|the per-patch gate's decision per changed path, and the corpusdiff baseline's regression rule|$PY tools/test_patch_gate.py"
     "childgroups|no|a TERM to a runner ends every child group it started in a session of its own|$PY tools/test_child_groups.py"
     "floatvectors|no|the Float<->text vectors against CPython's own conversions|$PY tools/sawfloat.py verify --rule"
     "abidoc|no|runtime/ABI.md describes exactly the frozen seam set|$PY tools/test_runtime_abi_doc.py"
-    "bttable|no|the task-backtrace table against the frame layouts|$PY tools/test_bt_table.py"
-    "fuzz|no|corpus-mutation fuzzing, one oracle: no ICE, no traceback|$PY tools/sawfuzz.py --quick"
-    "corodiff|no|coroutine twin parity: suspending vs non-suspending|$PY tools/corodiff.py --quick"
-    "bench|no|warehouse benchmark: checksums gate, timing reports|__BENCH__"
-    "minivm|no|the minivm prototype builds and its differential harness passes|__MINIVM__"
-    "reemit|yes|two compiles in ONE process emit identical unopt IR, opt IR and object|$PY tools/reemitdiff.py"
-    "irdet|yes|IR determinism over the WHOLE corpus (not a sample)|__IRDET__"
     "gmgate|yes|ownership + concurrency oracles under Guard Malloc (macOS)|$PY tools/gmgate.py"
-    "bootstrap|yes|Blade builds and tests Blade, stage0 through stage2|$PY tools/blade_bootstrap.py"
-    "freestanding|yes|the freestanding feature suite, booted under QEMU|$PY tools/freestanding_runner.py"
     "linux|yes|the run lane on Linux aarch64 and x86_64 (Rosetta) in the sawlang-linux VM; skips when it is down|__LINUX__"
-    "corpusdiff|manual|every tests/corpus program through sawc2 against Stage 0's snapshot, bucketed; fails only on a snapshot that is not whole|__CORPUSDIFF__"
 )
 
 usage() {
@@ -133,60 +99,6 @@ wanted() {
     return 1
 }
 
-# irdet's harness is written in Saw (design 155), so it is built before it runs.
-# `--all` and not the 40-example sample: design 141 found two nondeterministic
-# emission orders that a sample had been walking past for weeks.
-#
-# The VERDICT comes from irdet's structured `--jsonl` records, never from `$?`
-# (design 221 Part D). irdet's `main` suspends on every path, and until DF-220b
-# was fixed a suspending `main` never propagated its return value — so this lane
-# always read 0 and had never been able to fail. The status works now; reading
-# the records anyway is the contract, because a gate should not depend on the
-# bug it gates being fixed. `--plan` supplies the expected record count, which
-# is what catches a run that stopped early rather than disagreeing. Design 220
-# added a FOURTH record status, `invariant` (a reused suite artifact that a
-# fresh recompile at its own recorded seed does not reproduce);
-# `tools/irdet_verdict.py` fails on it exactly as it fails on `mismatch`, which
-# is what keeps a cache bug from ever reading as green.
-# DF-232m: irdetbin DRIVES sawc, so it needs `--python` — building it with $PY
-# says nothing about the interpreter it then invokes, and its default is bare
-# `python3`. From a worktree there is no ./.venv for that fallback to find, so
-# every candidate failed to compile and the lane verified NOTHING.
-run_irdet() {
-    "$PY" sawc/sawc.py devtools/irdet/src/main.saw -o .build/irdetbin || return 1
-    local records=".build/irdet-battery.jsonl"
-    local planned
-    rm -f "$records"
-    planned=$(./.build/irdetbin --plan --all --python "$PY" | grep -c '\.saw$')
-    ./.build/irdetbin --all --python "$PY" --jsonl "$records"
-    "$PY" tools/irdet_verdict.py "$records" --expect "$planned"
-}
-
-# The bench harness is Saw too (the third devtool). Its CHECKSUMS gate — the
-# benchmark is a behavioral pin — but its TIMING is report-only by design:
-# battery numbers are trend-watching, and a slow machine is not a regression.
-# See devtools/bench/warehouse/README.md and the tracker's "Measured
-# performance" entry (Aug 10).
-run_bench() {
-    "$PY" sawc/sawc.py devtools/bench/warehouse/warehouse.saw -o .build/benchbin_warehouse || return 1
-    "$PY" sawc/sawc.py devtools/bench/src/main.saw -o .build/benchdriver || return 1
-    ./.build/benchdriver
-}
-
-# prototypes/minivm is typechecked by no other stage: astdiff only parses it,
-# and neither the suite nor the server gate opens it (SL-266). This builds the
-# prototype against the compiler's lexer package, which it imports, then runs
-# its full differential harness (VM + clang-native, explicit expected-output
-# oracles). Its own build dir: the lane must never clobber a developer's
-# .build/minivm.
-run_minivm() {
-    mkdir -p .build/minivm-battery
-    "$PY" sawc/sawc.py prototypes/minivm/src/main.saw \
-        --module-path sawlex=compiler/lex \
-        -o .build/minivm-battery/minivm || return 1
-    "$PY" prototypes/minivm/test_minivm.py --binary .build/minivm-battery/minivm
-}
-
 # The Linux lanes run in the sawlang-linux Lima VM through tools/linux.py, which
 # never starts it (only the user can, from outside a sandboxed session). So the
 # lane is opt-in by the VM's state: down (or no Lima installed), it SKIPS with
@@ -198,17 +110,6 @@ run_minivm() {
 run_linux() {
     "$PY" tools/test_linux.py || return 1
     "$PY" tools/linux.py lane
-}
-
-# The whole corpus differential is long; `--quick` keeps its
-# wholeness check and measures one program per bucket and key of its baseline,
-# which proves the tool runs end to end (compiler/tests/corpusdiff/README.md).
-run_corpusdiff() {
-    if [ "$QUICK" = "1" ]; then
-        "$PY" compiler/tests/corpusdiff/corpusdiff.py run --quick
-    else
-        "$PY" compiler/tests/corpusdiff/corpusdiff.py run
-    fi
 }
 
 echo "battery: $REPO"
@@ -234,16 +135,8 @@ for entry in "${STAGES[@]}"; do
     echo "  $name — $desc"
     echo "=============================================================="
     stage_start=$(date +%s)
-    if [ "$cmd" = "__IRDET__" ]; then
-        run_irdet
-    elif [ "$cmd" = "__BENCH__" ]; then
-        run_bench
-    elif [ "$cmd" = "__MINIVM__" ]; then
-        run_minivm
-    elif [ "$cmd" = "__LINUX__" ]; then
+    if [ "$cmd" = "__LINUX__" ]; then
         run_linux
-    elif [ "$cmd" = "__CORPUSDIFF__" ]; then
-        run_corpusdiff
     else
         $cmd
     fi

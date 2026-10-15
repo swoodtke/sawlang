@@ -1,10 +1,10 @@
 path	bucket	key	detail
-D21_substituted_never_is_a_value.saw	refused	typecheck call.no-match	`TaskGroup` has no `init` this module can call, and its fields are not all visible here
+D21_substituted_never_is_a_value.saw	refused	typecheck slice.not-yet	`TaskGroup.spawn` is not in the bootstrap slice yet
 aggregate_copy_is_one_memcpy.saw	pass	-	-
 align_attribute_survives_optimization.saw	refused	llvm backend.not-yet	an exported static is not in the backend slice yet
-align_nonresident_local_in_suspending_function.saw	refused	typecheck call.no-match	`TaskGroup` has no `init` this module can call, and its fields are not all visible here
+align_nonresident_local_in_suspending_function.saw	refused	typecheck slice.not-yet	`TaskGroup.spawn` is not in the bootstrap slice yet
 alloc_channel_send_reports_oom.saw	refused	resolve import.unknown-module	no module `std.channel`
-alloc_channel_taskgroup_reports_oom.saw	refused	resolve import.unknown-module	no module `std.mutex`
+alloc_channel_taskgroup_reports_oom.saw	refused	resolve import.unknown-module	no module `std.channel`
 alloc_collection_literal_panics_named.saw	pass	-	-
 alloc_custom_allocator.saw	pass	-	-
 alloc_data_push_forced_panics_named.saw	refused	typecheck call.no-match	`Data` has no `init` this module can call, and its fields are not all visible here
@@ -21,8 +21,8 @@ alloc_string_no_degradation.saw	refused	typecheck member.unknown	`String` has no
 alloc_string_oom_panic.saw	wrong	stdout differs	line 1: sawc2 "panic at <std>: String: allocation of 20 bytes (align 16) failed", Stage 0 "panic: string allocation failed"
 alloc_stringbuilder_append_forced_panics_named.saw	refused	typecheck call.no-match	no candidate takes these arguments; the candidates are StringBuilder.init() [std.stringbuilder]; StringBuilder.init(bytes: UnsafePointer<Int8>, capacity: Int) [std.stringbuilder]
 alloc_stringbuilder_reports_oom.saw	refused	typecheck call.no-match	no candidate takes these arguments; the candidates are StringBuilder.init() [std.stringbuilder]; StringBuilder.init(bytes: UnsafePointer<Int8>, capacity: Int) [std.stringbuilder]
-alloc_taskgroup_threads_forced_panics_named.saw	refused	typecheck call.no-match	`TaskGroup` has no `init` this module can call, and its fields are not all visible here
-alloc_vector_copy_panics.saw	refused	mono mono.not-yet	a synthesized `ExplicitCopy.copy()` on `Int` is not in the backend slice yet: only a signed integer's `Printable.format` (inside std/vector.saw:220:35)
+alloc_taskgroup_threads_forced_panics_named.saw	refused	typecheck slice.not-yet	`TaskGroup.spawn` is not in the bootstrap slice yet
+alloc_vector_copy_panics.saw	refused	mono mono.not-yet	a synthesized `ExplicitCopy.copy()` on `Int` is not in the backend slice yet: only a signed integer's `Printable.format` (inside std/vector.saw:227:35)
 alloc_vector_push_reports_oom.saw	pass	-	-
 alloc_vector_reports_oom.saw	refused	typecheck member.unknown	`std.vector.Vector<Int, alloc_vector_reports_oom.FailAlloc>` has no method `try_copy` this module can see
 any_box_deinit.saw	refused	typecheck slice.not-yet	`Box<any Trait>.make` is not in the bootstrap slice yet
@@ -34,7 +34,7 @@ any_var_self.saw	refused	typecheck slice.not-yet	a method call on `any Trait` is
 any_vector_deinit.saw	refused	typecheck slice.not-yet	`Box<any Trait>.make` is not in the bootstrap slice yet
 any_vector_shapes.saw	refused	typecheck slice.not-yet	`Box<any Trait>.make` is not in the bootstrap slice yet
 arc_basic.saw	refused	resolve name.undefined	cannot find `Arc` in scope
-arc_forward.saw	refused	resolve import.unknown-module	no module `std.mutex`
+arc_forward.saw	refused	resolve name.undefined	cannot find `Arc` in scope
 arc_forward_generic_method.saw	refused	resolve name.undefined	cannot find `Arc` in scope
 arc_with_unique.saw	refused	resolve name.undefined	cannot find `Arc` in scope
 arithmetic_no_false_overflow.saw	pass	-	-
@@ -83,8 +83,8 @@ assignment_target_adopts_fixed_width.saw	refused	typecheck slice.not-yet	a const
 assignment_target_literal_out_of_range.saw	pass	-	type.mismatch: integer literal 999 does not fit in `UInt8` (range 0..=255)
 associated_type.saw	pass	-	-
 associated_type_generic.saw	refused	resolve name.undefined	cannot find `Item` in scope; an associated type of a bound is named through its type parameter, as `T.Item`
-async_main_nested_sleep.saw	wrong	sawc2's binary panics	panic at taskgroup.saw:564: executor: a task is parked on a timer, which this executor does not wait on yet
-async_main_sleep_yield.saw	wrong	sawc2's binary panics	panic at taskgroup.saw:564: executor: a task is parked on a timer, which this executor does not wait on yet
+async_main_nested_sleep.saw	wrong	sawc2's binary panics	panic at taskgroup.saw:633: executor: a task is parked on a timer, which this executor does not wait on yet
+async_main_sleep_yield.saw	wrong	sawc2's binary panics	panic at taskgroup.saw:633: executor: a task is parked on a timer, which this executor does not wait on yet
 atomic_field_self_method.saw	refused	typecheck slice.not-yet	a method call on `any Trait` is not in the bootstrap slice yet
 atomic_nocopy_cell_clause.saw	pass	-	-
 attr_bad_arity_error.saw	pass	-	resolve.parse-refused: the parser refuses `tests/corpus/attr_bad_arity_error.saw` (syntax.rule.attribute-position), so its declarations are not available
@@ -103,7 +103,7 @@ autowrap_ok_no_premature_free.saw	pass	-	-
 autowrap_optional_no_premature_free.saw	pass	-	-
 autowrap_return_move_still_works.saw	pass	-	-
 backed_enum_extension_param.saw	refused	llvm backend.not-yet	this conversion is not in the backend slice yet
-background_task_spawn.saw	refused	coro coro.not-yet	`count_up` suspends (count_up -> yield_now -> __saw_park_ready), so it needs a coroutine frame, and its op-budget point is not lowered yet (SL-545)
+background_task_spawn.saw	pass	-	-
 bare_return_in_main.saw	pass	-	-
 binop_mixed_width_operands.saw	pass	-	type.mismatch: an operator's operands agree on one type, and these are `Int` and `Int16`; convert one with `as`
 bitwise_and_or_xor.saw	pass	-	-
@@ -128,7 +128,7 @@ byte_append_discrimination.saw	crash	INVARIANT	66:32 an expression has no type
 byte_data_reads.saw	crash	INVARIANT	77:24 an expression has no type
 byte_type_flow.saw	refused	typecheck member.unknown	`String` has no method `bytes` this module can see
 capture_exclusivity_disjoint.saw	pass	-	-
-capture_write_allowed_forms.saw	refused	resolve import.unknown-module	no module `std.mutex`
+capture_write_allowed_forms.saw	refused	resolve name.undefined	cannot find `Arc` in scope
 cast170_checked_as.saw	refused	resolve name.reserved	`Byte` is a prelude name, so it is reserved and cannot be declared again
 cast170_from_family.saw	refused	driver driver.usage	sawc2 build takes no --no-hidden-alloc
 cast170_narrowing_panics.saw	pass	-	-
@@ -143,7 +143,7 @@ catch_binding_rename_covers_every_position.saw	refused	typecheck member.unknown	
 cbor169_limits.saw	refused	resolve import.unknown-module	no module `std.cbor`
 cbor169_roundtrip.saw	refused	resolve import.unknown-module	no module `std.cbor`
 cbor169_vectors.saw	refused	resolve import.unknown-module	no module `std.cbor`
-chain_assign_exclusivity_in_literal.saw	refused	typecheck slice.not-yet	`syntax.stmt.optional-assign.plain` is not in the bootstrap slice yet
+chain_assign_exclusivity_in_literal.saw	wrong	accepts a refusal test	exclusive access violation: `w` is written by this optional-chain assignment while also being accessed in the right-hand side
 channel_pipeline.saw	refused	resolve import.unknown-module	no module `std.channel`
 channel_receive_cancel_mt.saw	refused	resolve import.unknown-module	no module `std.channel`
 channel_receive_in_main.saw	refused	resolve import.unknown-module	no module `std.channel`
@@ -176,15 +176,15 @@ closure_leaves_enclosing_void_local_visible.saw	pass	-	-
 closure_module_struct_field_infer.saw	refused	resolve slice.not-yet	`syntax.expr.shorthand-param` is not in the bootstrap slice yet
 closure_move_capture_transfers_when_body_runs.saw	refused	typecheck slice.not-yet	`syntax.expr.optional-member` is not in the bootstrap slice yet
 closure_nested_ref_param_capture.saw	stage0-wrong	XFAIL DF-248b	sawc2 meets its directives
-closure_propagates_to_its_own_result_not_the_enclosing_catch.saw	refused	typecheck slice.not-yet	`syntax.expr.try-block` is not in the bootstrap slice yet
+closure_propagates_to_its_own_result_not_the_enclosing_catch.saw	pass	-	-
 closure_pushed_into_a_vector_keeps_its_captures.saw	refused	mono mono.not-yet	an escaping closure that captures a value is not in the backend slice yet: its environment would live in the frame that builds it, and heap environments are unbuilt (SL-525)
-closure_return_is_local.saw	refused	typecheck slice.not-yet	`syntax.expr.try-block` is not in the bootstrap slice yet
+closure_return_is_local.saw	pass	-	-
 closure_satisfies_copy_bound.saw	refused	mono mono.not-yet	an escaping closure that captures a value is not in the backend slice yet: its environment would live in the frame that builds it, and heap environments are unbuilt (SL-525)
 closure_shorthand_parameter_inside_a_try.saw	refused	resolve slice.not-yet	`syntax.expr.shorthand-param` is not in the bootstrap slice yet
 closure_spawn_arc_balance.saw	refused	resolve name.undefined	cannot find `Arc` in scope
 closure_struct_field_infer.saw	refused	resolve slice.not-yet	`syntax.expr.shorthand-param` is not in the bootstrap slice yet
 closure_tail_adopts_expected_return_type.saw	pass	-	-
-closure_tail_autowraps_result.saw	crash	INVARIANT	the type `any Error` is not in the backend slice yet: a type that is not concrete
+closure_tail_autowraps_result.saw	refused	llvm backend.not-yet	an erasure into `any` is not in the backend slice yet
 closure_tail_result_ambiguous_payloads.saw	pass	-	type.ambiguous-result: both payloads of `Result<Int32, Int32>` can take this value, so it names neither: write `.Ok(value: ...)` or `.Err(error: ...)`
 closure_tail_takes_the_transfer_checkpoint.saw	pass	-	transfer.implicit-copy: this reads a place of type `closure_tail_takes_the_transfer_checkpoint.Res`, which is NoCopy, by value: only a Copy type copies silently; write `move r` to take it, or borrow i
 closure_vector_copy_get.saw	refused	mono mono.not-yet	an escaping closure that captures a value is not in the backend slice yet: its environment would live in the frame that builds it, and heap environments are unbuilt (SL-525)
@@ -284,19 +284,19 @@ conformance/D06_diverging_tail_and_never_chain.saw	refused	mono mono.not-yet	a s
 conformance/D07_never_method_and_generic.saw	pass	-	-
 conformance/D08_never_closure_vtable_default.saw	refused	typecheck type.mismatch	expected `D08_never_closure_vtable_default.Reply`, the type of the function's result, which the body's last expression is, and found `Void`
 conformance/D09_diverging_positions_freestanding.saw	refused	driver driver.usage	sawc2 build takes no --freestanding
-conformance/D10_spawn_never_body_refused.saw	wrong	refused by another rule	call.no-match, where the plan names spawn.never-body
+conformance/D10_spawn_never_body_refused.saw	refused	typecheck slice.not-yet	`TaskGroup.spawn` is not in the bootstrap slice yet
 conformance/D11_spawn_closure_never_refused.saw	refused	resolve slice.not-yet	the `Thread.spawn` form is not in the bootstrap slice yet
-conformance/D12_drive_never_body_refused.saw	refused	coro coro.not-yet	`halt` suspends (halt -> yield_now -> __saw_park_ready), so it needs a coroutine frame, and its op-budget point is not lowered yet (SL-545)
+conformance/D12_drive_never_body_refused.saw	pass	-	spawn.never-body: a task body may not be `Never`: `halt` never returns, so `__saw_drive` would drive it for ever. Write a forever-task as `-> Void` with a loop, `func serve() { while { ... } }`, and e
 conformance/D13_no_fallthrough_past_diverging_call.saw	pass	-	-
 conformance/D14_diverging_forwarded_and_later_args.saw	refused	resolve name.undefined	cannot find `Arc` in scope
 conformance/E12_autowrap_at_the_argument_position.saw	pass	-	-
 conformance/G01_sync_main_int_exit_status.saw	pass	-	-
 conformance/G02_suspending_main_int_exit_status.saw	pass	-	-
-conformance/G03_ambient_main_int_exit_status.saw	refused	typecheck call.no-match	`TaskGroup` has no `init` this module can call, and its fields are not all visible here
-conformance/G04_mt_main_int_exit_status.saw	refused	typecheck call.no-match	`TaskGroup` has no `init` this module can call, and its fields are not all visible here
+conformance/G03_ambient_main_int_exit_status.saw	refused	typecheck slice.not-yet	`TaskGroup.spawn` is not in the bootstrap slice yet
+conformance/G04_mt_main_int_exit_status.saw	refused	typecheck call.label	no parameter is labeled `threads` in TaskGroup.init() [std.taskgroup]
 conformance/G05_suspending_main_void_exit_zero.saw	pass	-	-
 conformance/G06_panic_in_suspending_main_aborts.saw	pass	-	-
-conformance/G07_panic_in_spawned_task_mt_aborts.saw	refused	typecheck call.no-match	`TaskGroup` has no `init` this module can call, and its fields are not all visible here
+conformance/G07_panic_in_spawned_task_mt_aborts.saw	refused	typecheck call.label	no parameter is labeled `threads` in TaskGroup.init() [std.taskgroup]
 conformance/G08_sync_main_result_ok_exit_status.saw	crash	INVARIANT	a `main` returning anything but Void or Int is not in the backend slice yet
 conformance/G09_sync_main_result_err_exits_one.saw	crash	INVARIANT	a `main` returning anything but Void or Int is not in the backend slice yet
 conformance/G10_suspending_main_result_ok_exit_status.saw	crash	INVARIANT	a `main` returning anything but Void or Int is not in the backend slice yet
@@ -308,16 +308,16 @@ conformance/G15_main_int_exit_status_truncates.saw	pass	-	-
 conformance/G16_try_propagates_out_of_main.saw	crash	INVARIANT	a `main` returning anything but Void or Int is not in the backend slice yet
 conformance/G17_early_return_from_main.saw	pass	-	-
 conformance/G18_main_result_void_ok_exit_zero.saw	crash	INVARIANT	a `main` returning anything but Void or Int is not in the backend slice yet
-conformance/K02_nonsend_across_suspend_local_mt.saw	wrong	refused by another rule	call.no-match, where the plan names coro.spawn-not-send
+conformance/K02_nonsend_across_suspend_local_mt.saw	wrong	refused by another rule	call.label, where the plan names coro.spawn-not-send
 conformance/K100_shutdown_rides_cancellation.saw	refused	resolve import.unknown-module	no module `std.signal`
 conformance/K111_suspension_causes_decide_framing.saw	refused	resolve import.unknown-module	no module `std.json`
 conformance/K112_thread_body_refuses_a_multi_cause_std_method.saw	refused	resolve slice.not-yet	the `Thread.spawn` form is not in the bootstrap slice yet
 conformance/K113_test_suspend_is_a_frame_boundary_not_an_executor.saw	refused	coro coro.drive-in-suspending	`__saw_drive` may not appear in `main`, which itself suspends. This body already runs inside an executor, so `driven(...)` needs no drive site: call it directly and the suspending call embeds here (de
 conformance/K114_thread_body_refuses_every_cause_but_blocking.saw	refused	resolve slice.not-yet	the `Thread.spawn` form is not in the bootstrap slice yet
 conformance/K116_one_frame_ledger_answers_every_discovery_question.saw	refused	resolve slice.not-yet	`syntax.decl.module.inline` is not in the bootstrap slice yet
-conformance/K118_every_shape_splits_hoists_or_refuses.saw	refused	typecheck slice.not-yet	`syntax.expr.try-block` is not in the bootstrap slice yet
-conformance/K11_spinlock_captured.saw	refused	resolve import.unknown-module	no module `std.spinlock`
-conformance/K123_every_window_opener_reads_the_declared_mode.saw	refused	typecheck slice.not-yet	`syntax.stmt.optional-assign.borrow-plain` is not in the bootstrap slice yet
+conformance/K118_every_shape_splits_hoists_or_refuses.saw	pass	-	-
+conformance/K11_spinlock_captured.saw	pass	-	transfer.implicit-copy: the closure captures `lock` by value, and `std.spinlock.SpinLock<Int>` is NoCopy, which does not copy silently: capture it with `[move lock]`, or copy it into a local the closu
+conformance/K123_every_window_opener_reads_the_declared_mode.saw	refused	llvm backend.not-yet	an array, a repeat, a `Map` or a `Set` literal is not in the backend slice yet
 conformance/K127_conditional_lend_modes.saw	refused	mir slice.not-yet	a `borrow` block binding a conditional lend is not lowered to MIR in the bootstrap slice yet
 conformance/K128_cow_gate_survives_the_var_self_spelling.saw	refused	typecheck call.no-match	`Data` has no `init` this module can call, and its fields are not all visible here
 conformance/K129_forwarded_lend_carries_the_window_mode.saw	refused	typecheck subscript.role	`std.data.Data` declares no subscript `[]`, so it has no getitem, setitem or place accessor
@@ -326,18 +326,18 @@ conformance/K135_window_conflicts_that_compose.saw	refused	typecheck member.unkn
 conformance/K136_window_release_routes.saw	refused	typecheck member.unknown	`std.vector.Vector<Int, std.alloc.GlobalAllocator>` has no method `iter` this module can see
 conformance/K137_window_destruction_order.saw	refused	typecheck slice.not-yet	`syntax.expr.lends` is not in the bootstrap slice yet
 conformance/K138_window_acquire_sequence.saw	refused	typecheck slice.not-yet	`syntax.expr.lends` is not in the bootstrap slice yet
-conformance/K13_mt_sum_under_mutex.saw	refused	resolve import.unknown-module	no module `std.mutex`
+conformance/K13_mt_sum_under_mutex.saw	refused	resolve name.undefined	cannot find `Arc` in scope
 conformance/K140_window_under_cancellation.saw	refused	typecheck slice.not-yet	`syntax.expr.lends` is not in the bootstrap slice yet
-conformance/K141_mutex_guarded_for_is_sync.saw	refused	resolve import.unknown-module	no module `std.mutex`
-conformance/K147_inline_catch_splits.saw	refused	typecheck slice.not-yet	`syntax.expr.try.catch` is not in the bootstrap slice yet
+conformance/K141_mutex_guarded_for_is_sync.saw	refused	typecheck member.unknown	`std.vector.Vector<Int, std.alloc.GlobalAllocator>` has no method `iter` this module can see
+conformance/K147_inline_catch_splits.saw	refused	typecheck slice.not-yet	`syntax.expr.try.route` is not in the bootstrap slice yet
 conformance/K149_sawtracker_loop_shape.saw	refused	typecheck member.unknown	`std.vector.Vector<Int, std.alloc.GlobalAllocator>` has no method `iter` this module can see
 conformance/K14_spawn_ref_param_join_releases.saw	refused	typecheck member.unknown	`std.vector.Vector<Int, std.alloc.GlobalAllocator>` has no method `iter` this module can see
-conformance/K15_spawn_ref_param_exclusion_window.saw	pass	-	call.no-match: `TaskGroup` has no `init` this module can call, and its fields are not all visible here
-conformance/K16_spawn_shared_ref_param_composes.saw	refused	typecheck call.no-match	`TaskGroup` has no `init` this module can call, and its fields are not all visible here
-conformance/K17_spawn_ref_param_across_iterations.saw	pass	-	call.no-match: `TaskGroup` has no `init` this module can call, and its fields are not all visible here
-conformance/K18_spawn_ref_param_after_group.saw	pass	-	result.discarded: the result of `push` is `Result<Void, std.alloc.AllocError>` and is silently discarded: handle it (`match` it, `try` or `try!` it, or return it), or write `let _ = ...` to discard it
-conformance/K19_spawn_ref_param_mt_send.saw	wrong	refused by another rule	call.no-match, where the plan names coro.spawn-not-send
-conformance/K20_spawn_ref_param_move_root.saw	pass	-	result.discarded: the result of `push` is `Result<Void, std.alloc.AllocError>` and is silently discarded: handle it (`match` it, `try` or `try!` it, or return it), or write `let _ = ...` to discard it
+conformance/K15_spawn_ref_param_exclusion_window.saw	refused	typecheck slice.not-yet	`TaskGroup.spawn` is not in the bootstrap slice yet
+conformance/K16_spawn_shared_ref_param_composes.saw	refused	typecheck slice.not-yet	`TaskGroup.spawn` is not in the bootstrap slice yet
+conformance/K17_spawn_ref_param_across_iterations.saw	refused	typecheck slice.not-yet	`TaskGroup.spawn` is not in the bootstrap slice yet
+conformance/K18_spawn_ref_param_after_group.saw	refused	typecheck slice.not-yet	`TaskGroup.spawn` is not in the bootstrap slice yet
+conformance/K19_spawn_ref_param_mt_send.saw	wrong	refused by another rule	call.label, where the plan names coro.spawn-not-send
+conformance/K20_spawn_ref_param_move_root.saw	refused	typecheck slice.not-yet	`TaskGroup.spawn` is not in the bootstrap slice yet
 conformance/K21_cross_module_embed_private_sibling.saw	refused	typecheck slice.not-yet	a constant argument named by a static, `SLOTS`, is not in the bootstrap slice yet
 conformance/K22_cross_module_generic_embed_private_sibling.saw	refused	typecheck slice.not-yet	a constant argument named by a static, `SLOTS`, is not in the bootstrap slice yet
 conformance/K24_frame_slot_payload_binding_not_a_copy.saw	pass	-	-
@@ -349,13 +349,13 @@ conformance/K29_copy_policy_hook_must_be_sync.saw	pass	-	effect.sync: cannot sus
 conformance/K30_generic_container_of_pinned_is_pinned.saw	refused	typecheck member.unknown	`std.taskgroup.TaskGroup` has no method `is_empty` this module can see
 conformance/K31_generic_arc_share_at_non_sync_refused.saw	refused	resolve name.undefined	cannot find `Arc` in scope
 conformance/K32_task_cell_result_and_cancel.saw	refused	resolve name.undefined	cannot find `Arc` in scope
-conformance/K33_suspending_enum_method_embedded.saw	refused	typecheck call.no-match	`TaskGroup` has no `init` this module can call, and its fields are not all visible here
-conformance/K34_suspending_generic_struct_method_embedded.saw	refused	typecheck call.no-match	`TaskGroup` has no `init` this module can call, and its fields are not all visible here
-conformance/K35_suspending_generic_method_embedded.saw	refused	typecheck call.no-match	`TaskGroup` has no `init` this module can call, and its fields are not all visible here
-conformance/K36_suspending_conformance_method_embedded.saw	refused	typecheck call.no-match	`TaskGroup` has no `init` this module can call, and its fields are not all visible here
+conformance/K33_suspending_enum_method_embedded.saw	refused	typecheck slice.not-yet	`TaskGroup.spawn` is not in the bootstrap slice yet
+conformance/K34_suspending_generic_struct_method_embedded.saw	refused	typecheck slice.not-yet	`TaskGroup.spawn` is not in the bootstrap slice yet
+conformance/K35_suspending_generic_method_embedded.saw	refused	typecheck slice.not-yet	`TaskGroup.spawn` is not in the bootstrap slice yet
+conformance/K36_suspending_conformance_method_embedded.saw	refused	typecheck slice.not-yet	`TaskGroup.spawn` is not in the bootstrap slice yet
 conformance/K37_existential_dispatch_suspending_impl_refused.saw	refused	typecheck slice.not-yet	a method call on `any Trait` is not in the bootstrap slice yet
-conformance/K38_std_name_collision_no_frame_on_sync_method.saw	refused	typecheck call.no-match	`TaskGroup` has no `init` this module can call, and its fields are not all visible here
-conformance/K39_cross_module_suspending_method_shapes_embed.saw	refused	typecheck call.no-match	`TaskGroup` has no `init` this module can call, and its fields are not all visible here
+conformance/K38_std_name_collision_no_frame_on_sync_method.saw	refused	typecheck slice.not-yet	`TaskGroup.spawn` is not in the bootstrap slice yet
+conformance/K39_cross_module_suspending_method_shapes_embed.saw	refused	typecheck slice.not-yet	`TaskGroup.spawn` is not in the bootstrap slice yet
 conformance/K40_suspending_match_scrutinee_head.saw	refused	resolve import.unknown-module	no module `std.channel`
 conformance/K41_suspending_if_condition_head.saw	refused	resolve import.unknown-module	no module `std.channel`
 conformance/K42_suspending_while_condition_head.saw	refused	resolve import.unknown-module	no module `std.channel`
@@ -366,11 +366,11 @@ conformance/K46_suspending_return_head.saw	refused	resolve import.unknown-module
 conformance/K47_channel_receive_binding_and_try_heads.saw	refused	resolve import.unknown-module	no module `std.channel`
 conformance/K48_mt_group_task_runs_before_join.saw	refused	resolve import.unknown-module	no module `std.channel`
 conformance/K49_mt_worker_feeds_st_group_task.saw	refused	resolve import.unknown-module	no module `std.channel`
-conformance/K50_mt_group_progresses_while_main_sleeps.saw	refused	resolve import.unknown-module	no module `std.mutex`
-conformance/K51_mt_group_progresses_while_main_yields.saw	refused	resolve import.unknown-module	no module `std.mutex`
+conformance/K50_mt_group_progresses_while_main_sleeps.saw	refused	resolve name.undefined	cannot find `Arc` in scope
+conformance/K51_mt_group_progresses_while_main_yields.saw	refused	resolve import.unknown-module	no module `std.time`
 conformance/K52_mt_two_workers_deliver_before_join.saw	refused	resolve import.unknown-module	no module `std.channel`
-conformance/K53_driven_for_range_iteration_count.saw	refused	typecheck call.no-match	`TaskGroup` has no `init` this module can call, and its fields are not all visible here
-conformance/K53_mt_group_stays_live_across_spawns.saw	refused	resolve import.unknown-module	no module `std.mutex`
+conformance/K53_driven_for_range_iteration_count.saw	refused	typecheck slice.not-yet	`TaskGroup.spawn` is not in the bootstrap slice yet
+conformance/K53_mt_group_stays_live_across_spawns.saw	refused	resolve import.unknown-module	no module `std.time`
 conformance/K54_mt_task_receives_what_main_sent.saw	refused	resolve import.unknown-module	no module `std.channel`
 conformance/K55_mt_same_group_send_and_receive.saw	refused	resolve import.unknown-module	no module `std.channel`
 conformance/K56_thread_engine_feeds_main_receive.saw	refused	resolve import.unknown-module	no module `std.channel`
@@ -379,7 +379,7 @@ conformance/K58_main_receives_after_mt_join.saw	refused	resolve import.unknown-m
 conformance/K59_main_receives_after_mt_group_scope.saw	refused	resolve import.unknown-module	no module `std.channel`
 conformance/K60_threads_one_is_the_single_threaded_engine.saw	refused	resolve import.unknown-module	no module `std.channel`
 conformance/K61_st_group_task_feeds_main_receive.saw	refused	resolve import.unknown-module	no module `std.channel`
-conformance/K62_mt_join_returns_the_task_result.saw	refused	typecheck call.no-match	`TaskGroup` has no `init` this module can call, and its fields are not all visible here
+conformance/K62_mt_join_returns_the_task_result.saw	refused	typecheck call.label	no parameter is labeled `threads` in TaskGroup.init() [std.taskgroup]
 conformance/K63_channel_wait_is_a_park.saw	refused	resolve import.unknown-module	no module `std.channel`
 conformance/K64_close_drains_before_it_reports_closed.saw	refused	resolve import.unknown-module	no module `std.channel`
 conformance/K65_close_wakes_a_parked_receiver.saw	refused	resolve import.unknown-module	no module `std.channel`
@@ -387,18 +387,18 @@ conformance/K66_send_and_close_after_close_report.saw	refused	resolve import.unk
 conformance/K67_quiescent_channel_deadlock_is_reported.saw	refused	resolve import.unknown-module	no module `std.channel`
 conformance/K68_deadlock_report_does_not_fire_on_a_live_program.saw	refused	resolve import.unknown-module	no module `std.channel`
 conformance/K69_cancel_reaches_a_parked_channel_receive.saw	refused	resolve import.unknown-module	no module `std.channel`
-conformance/K70_driven_scope_end_release_matrix.saw	refused	coro coro.not-yet	`main` suspends (main -> sc2_driven), so it needs a coroutine frame, which is not lowered yet (SL-545)
+conformance/K70_driven_scope_end_release_matrix.saw	wrong	stdout differs	line 64: sawc2 "now s1-2", Stage 0 "DEINIT s1"
 conformance/K74_send_bound_licenses_a_generic_spawn_capture.saw	refused	resolve slice.not-yet	the `Thread.spawn` form is not in the bootstrap slice yet
 conformance/K78_singleton_spawn_discard_is_refused.saw	refused	resolve slice.not-yet	the `Thread.spawn` form is not in the bootstrap slice yet
 conformance/K79_unconsumed_thread_handle_is_refused.saw	refused	resolve slice.not-yet	the `Thread.spawn` form is not in the bootstrap slice yet
-conformance/K80_group_spawn_handle_may_be_dropped.saw	refused	typecheck call.no-match	`TaskGroup` has no `init` this module can call, and its fields are not all visible here
+conformance/K80_group_spawn_handle_may_be_dropped.saw	refused	typecheck slice.not-yet	`TaskGroup.spawn` is not in the bootstrap slice yet
 conformance/K81_storage_owner_discharges_the_obligation.saw	refused	resolve import.unknown-symbol	`VoidThread` is not defined in `std.task`
 conformance/K82_forgotten_thread_handle_panics_in_deinit.saw	refused	resolve import.unknown-symbol	`VoidThread` is not defined in `std.task`
 conformance/K83_thread_spawn_body_is_sync_enforced.saw	refused	resolve slice.not-yet	the `Thread.spawn` form is not in the bootstrap slice yet
 conformance/K84_thread_spawn_permits_a_blocking_extern.saw	refused	resolve slice.not-yet	the `Thread.spawn` form is not in the bootstrap slice yet
 conformance/K85_background_spawn_handle_must_be_consumed.saw	pass	-	drop.must-consume: `Task.spawn` hands back a `std.taskgroup.Task<Int>` that must be consumed, and this one is discarded. Bind it and consume it on every path: `join()` waits for it and takes its resul
-conformance/K86_background_task_handle_panics_in_deinit.saw	refused	typecheck call.no-match	`TaskGroup` has no `init` this module can call, and its fields are not all visible here
-conformance/K87_background_group_cancels_then_joins_at_exit.saw	refused	coro coro.not-yet	`serve` suspends (serve -> yield_now -> __saw_park_ready), so it needs a coroutine frame, and its op-budget point is not lowered yet (SL-545)
+conformance/K86_background_task_handle_panics_in_deinit.saw	refused	typecheck slice.not-yet	`TaskGroup.spawn` is not in the bootstrap slice yet
+conformance/K87_background_group_cancels_then_joins_at_exit.saw	pass	-	-
 conformance/K88_background_spawn_takes_no_borrows.saw	pass	-	spawn.borrow: `Task.spawn` accepts no borrows: `&var buffer` is an argument of the spawned call. A background task outlives the statement that spawned it and may be detached, so no join ends the borro
 conformance/K89_detach_gives_up_the_result.saw	pass	-	-
 conformance/K90_thread_detach_is_a_fate.saw	refused	resolve slice.not-yet	the `Thread.spawn` form is not in the bootstrap slice yet
@@ -428,8 +428,8 @@ conformance/M35_var_self_place_window_write.saw	refused	llvm backend.not-yet	an 
 conformance/M36_shared_self_capture_refuses_write.saw	pass	-	mutability.immutable: this assignment writes `self.n`, and the closure captured `self` by shared borrow, which never writes: capture it with `[&var self]` in a `&var self` method
 conformance/M37_inline_array_immutability_every_shape.saw	pass	-	mutability.immutable: this assignment writes `bare_p[0]`, and `bare_p` is a `let` binding, which is never written: every binding is initialized where it is declared, so only a `var` takes a new value
 conformance/M38_compound_assign_rhs_exclusivity.saw	pass	-	assign.rhs-borrow: `bp.n` is written by this assignment while its right-hand side borrows `bp` exclusively at 29:20; the right-hand side runs first, so what it writes through that borrow is overwritte
-conformance/M39_chain_assign_through_shared_self.saw	refused	typecheck slice.not-yet	`syntax.stmt.optional-assign.plain` is not in the bootstrap slice yet
-conformance/M40_compound_chain_assign.saw	refused	typecheck slice.not-yet	`syntax.stmt.optional-assign.compound` is not in the bootstrap slice yet
+conformance/M39_chain_assign_through_shared_self.saw	pass	-	mutability.immutable: this assignment writes `self.c?.n`, and this method's receiver is `&self`, a shared borrow that writes neither the storage it borrows nor storage reached through it: declare the
+conformance/M40_compound_chain_assign.saw	wrong	stdout differs	line 2: sawc2 "empty calls 2", Stage 0 "empty calls 1"
 conformance/M41_shared_self_indirection_carveout_spellings.saw	refused	typecheck member.unknown	`std.data.Data` has no method `get` this module can see
 conformance/M42_shared_self_inline_array_element.saw	pass	-	mutability.immutable: this assignment writes `self.grid[0]`, and this method's receiver is `&self`, a shared borrow that writes neither the storage it borrows nor storage reached through it: declare t
 conformance/M43_write_optional_payload_of_let.saw	pass	-	mutability.immutable: this assignment writes `o!.n`, and `o` is a `let` binding, which is never written: every binding is initialized where it is declared, so only a `var` takes a new value
@@ -438,7 +438,7 @@ conformance/N05_freestanding_hosted_module.saw	refused	driver driver.usage	sawc2
 conformance/N08_align_local_is_honored.saw	refused	llvm backend.not-yet	`@align` is not in the backend slice yet: a static or a local is aligned only as its type asks, so the attribute would be dropped
 conformance/N09_align_static_is_honored.saw	refused	llvm backend.not-yet	`@align` is not in the backend slice yet: a static or a local is aligned only as its type asks, so the attribute would be dropped
 conformance/N10_align_rejects_non_power_of_two.saw	refused	llvm backend.not-yet	`@align` is not in the backend slice yet: a static or a local is aligned only as its type asks, so the attribute would be dropped
-conformance/N11_align_refuses_frame_resident_local.saw	pass	-	call.no-match: `TaskGroup` has no `init` this module can call, and its fields are not all visible here
+conformance/N11_align_refuses_frame_resident_local.saw	refused	typecheck slice.not-yet	`TaskGroup.spawn` is not in the bootstrap slice yet
 conformance/O12_iflet_move_binding_released_in_coroutine.saw	pass	-	-
 conformance/O13_wildcard_optional_binding_releases_moved_payload.saw	pass	-	-
 conformance/O14_presence_test_is_tier_independent.saw	refused	resolve import.unknown-module	no module `std.compiler.frame`
@@ -459,7 +459,7 @@ conformance/R34_field_of_ref_returning_fn_type.saw	pass	-	type.reference-positio
 conformance/R39_explicit_self_borrow_capture.saw	pass	-	-
 conformance/R40_var_self_capture_needs_var_receiver.saw	pass	-	capture.exclusive-self: `[&var self]` needs a `&var self` receiver, and `Counter.read` takes `&self`: a shared borrow has no exclusive borrow to hand out; write `[&self]`
 conformance/R41_explicit_self_capture_escaping_error.saw	pass	-	capture.escaping-borrow: an escaping closure cannot capture `self`: a method's receiver is a borrow of storage the caller owns, and a borrow may not outlive the frame it points into: pass the closure
-conformance/S09_same_scope_redefinition_owning_across_suspend.saw	refused	mono mono.not-yet	a synthesized `ExplicitCopy.copy()` on `Int` is not in the backend slice yet: only a signed integer's `Printable.format` (inside std/vector.saw:220:35)
+conformance/S09_same_scope_redefinition_owning_across_suspend.saw	refused	mono mono.not-yet	a synthesized `ExplicitCopy.copy()` on `Int` is not in the backend slice yet: only a signed integer's `Printable.format` (inside std/vector.saw:227:35)
 conformance/T10_vector_index_oob.saw	pass	-	-
 conformance/T11_vector_negative_index.saw	pass	-	-
 conformance/T12_vector_get_none.saw	pass	-	-
@@ -482,7 +482,7 @@ conformance/V04_move_out_of_ref.saw	pass	-	transfer.move-from-borrow: cannot mov
 conformance/V100_bounded_copy_at_the_auto_tier_retains.saw	refused	resolve name.undefined	cannot find `Arc` in scope
 conformance/V101_copy_family_carries_the_tier.saw	refused	typecheck member.unknown	`std.vector.Vector<V101_copy_family_carries_the_tier.Rec, std.alloc.GlobalAllocator>` has no method `try_copy` this module can see
 conformance/V102_derived_copy_duplicates_every_field.saw	refused	mono mono.not-yet	a synthesized `ExplicitCopy.copy()` on `V102_derived_copy_duplicates_every_field.Holder` is not in the backend slice yet: only a signed integer's `Printable.format`
-conformance/V103_copy_funnel_duplicates_exactly_once.saw	refused	mono mono.not-yet	a call of `ExplicitCopy.copy()` on `V103_copy_funnel_duplicates_exactly_once.Counted`, which no conformance of it meets, is not in the backend slice yet (inside std/vector.saw:220:35)
+conformance/V103_copy_funnel_duplicates_exactly_once.saw	refused	mono mono.not-yet	a call of `ExplicitCopy.copy()` on `V103_copy_funnel_duplicates_exactly_once.Counted`, which no conformance of it meets, is not in the backend slice yet (inside std/vector.saw:227:35)
 conformance/V104_unbound_value_is_released.saw	wrong	stdout differs	line 9: sawc2 "if 5", Stage 0 "drop 4"
 conformance/V105_copy_capture_releases_its_duplicate.saw	refused	mono mono.not-yet	a closure capturing a value that owns something is not in the backend slice yet
 conformance/V106_driven_copy_capture_duplicates_once.saw	refused	mono mono.not-yet	a closure capturing a value that owns something is not in the backend slice yet
@@ -514,7 +514,7 @@ conformance/V36_generic_body_double_bind_refused_at_call.saw	pass	-	copy.require
 conformance/V37_generic_body_field_read_requires_copy.saw	pass	-	copy.requirement: `Cell.get` requires `T` to be Copy, as its body copies one at tests/corpus/conformance/V37_generic_body_field_read_requires_copy.saw:25:28 with nothing written, and `V37_generic_body
 conformance/V38_generic_requirement_propagates_through_forwarding.saw	pass	-	copy.requirement: `outer` requires `T` to be Copy, as its body binds `y` twice on one path, at tests/corpus/conformance/V38_generic_requirement_propagates_through_forwarding.saw:23:18 and 24:18, with
 conformance/V39_generic_method_body_honors_copy_tier.saw	pass	-	copy.requirement: `Wrap.dup` requires `T` to be Copy, as its body binds `x` twice on one path, at tests/corpus/conformance/V39_generic_method_body_honors_copy_tier.saw:32:22 and 33:22, with nothing wr
-conformance/V40_generic_coroutine_body_honors_copy_tier.saw	pass	-	call.no-match: `TaskGroup` has no `init` this module can call, and its fields are not all visible here
+conformance/V40_generic_coroutine_body_honors_copy_tier.saw	refused	typecheck slice.not-yet	`TaskGroup.spawn` is not in the bootstrap slice yet
 conformance/V41_branch_exclusive_uses_stay_move_only.saw	refused	mono mono.not-yet	a synthesized `Comparable.compare(other: &Self)` on `Int` is not in the backend slice yet: only a signed integer's `Printable.format`
 conformance/V42_copy_argument_to_duplicating_body_runs.saw	pass	-	-
 conformance/V43_copy_call_needs_a_bound_through_wrappers.saw	pass	-	type.bound: `(T, Int)` has no `copy()`: its copy reaches the type parameter `T`, which no bound makes `ExplicitCopy`; declare `T: ExplicitCopy`, or `Copy`
@@ -537,7 +537,7 @@ conformance/V65_forwarding_cast_is_tier_blind.saw	refused	resolve name.undefined
 conformance/V66_alias_projection_cast_forwards.saw	pass	-	type.mismatch: expected `Int`, the type of the field, and found `V66_alias_projection_cast_forwards.Res`
 conformance/V67_building_casts_are_untouched.saw	pass	-	-
 conformance/V68_closure_reference_parameter_is_a_borrow.saw	pass	-	transfer.move-from-borrow: cannot move out of `e`: it is a reference, which borrows storage its caller owns and ends; read or borrow it instead, or give the owner a move-out (`take()` on an optional,
-conformance/V69_borrow_capture_is_a_borrow.saw	refused	resolve import.unknown-module	no module `std.mutex`
+conformance/V69_borrow_capture_is_a_borrow.saw	pass	-	transfer.move-from-borrow: cannot move out of `o`: the closure captured it by borrow, so its owner outside the closure still ends it; read or borrow it instead, or give the owner a move-out (`take()`
 conformance/V70_borrowed_closure_binding_refusal_is_tier_blind.saw	refused	resolve name.undefined	cannot find `Arc` in scope
 conformance/V71_borrowed_closure_binding_fence_is_narrow.saw	refused	llvm backend.not-yet	a `[move]` capture's take is not in the backend slice yet
 conformance/V72_std_visitors_lend.saw	refused	resolve name.undefined	cannot find `Arc` in scope
@@ -547,9 +547,9 @@ conformance/V75_escaping_and_non_escaping_release_identically.saw	refused	mono m
 conformance/V76_fold_threads_its_accumulator.saw	refused	resolve name.undefined	cannot find `Arc` in scope
 conformance/V77_value_branch_arm_takes_the_move_checkpoint.saw	pass	-	transfer.implicit-copy: this reads a place of type `V77_value_branch_arm_takes_the_move_checkpoint.Res`, which is NoCopy, by value: only a Copy type copies silently; write `move a` to take it, or borr
 conformance/V78_value_arm_refusal_is_position_blind.saw	pass	-	transfer.implicit-copy: this reads a place of type `V78_value_arm_refusal_is_position_blind.Res`, which is NoCopy, by value: only a Copy type copies silently; write `move a` to take it, or borrow it
-conformance/V79_every_value_branch_construct_is_a_transfer.saw	refused	typecheck slice.not-yet	`syntax.expr.try.catch` is not in the bootstrap slice yet
+conformance/V79_every_value_branch_construct_is_a_transfer.saw	refused	typecheck slice.not-yet	`syntax.stmt.break` is not in the bootstrap slice yet
 conformance/V80_copy_tier_arm_retains_exactly_once.saw	refused	resolve name.undefined	cannot find `Arc` in scope
-conformance/V81_value_arm_fence_is_narrow.saw	refused	mono mono.not-yet	a synthesized `ExplicitCopy.copy()` on `Int` is not in the backend slice yet: only a signed integer's `Printable.format` (inside std/vector.saw:220:35)
+conformance/V81_value_arm_fence_is_narrow.saw	refused	mono mono.not-yet	a synthesized `ExplicitCopy.copy()` on `Int` is not in the backend slice yet: only a signed integer's `Printable.format` (inside std/vector.saw:227:35)
 conformance/V82_closure_tail_takes_the_transfer_checkpoint.saw	pass	-	transfer.implicit-copy: this reads a place of type `V82_closure_tail_takes_the_transfer_checkpoint.Res`, which is NoCopy, by value: only a Copy type copies silently; write `move r` to take it, or borr
 conformance/V83_closure_tail_refusal_reaches_every_source.saw	pass	-	transfer.implicit-copy: this reads a place of type `V83_closure_tail_refusal_reaches_every_source.Res`, which is NoCopy, by value: only a Copy type copies silently; write `move r` to take it, or borro
 conformance/V84_copy_tier_closure_tail_retains_exactly_once.saw	refused	resolve name.undefined	cannot find `Arc` in scope
@@ -559,8 +559,8 @@ conformance/V87_try_subject_read_is_a_transfer.saw	pass	-	transfer.implicit-copy
 conformance/V88_auto_wrapped_return_is_a_transfer.saw	pass	-	transfer.implicit-copy: this reads a place of type `V88_auto_wrapped_return_is_a_transfer.Res`, which is NoCopy, by value: only a Copy type copies silently; a field is not moved out on its own, so bor
 conformance/V89_forwarding_copy_tier_duplicates_exactly_once.saw	refused	typecheck transfer.implicit-copy	this reads a place of type `Result<V89_forwarding_copy_tier_duplicates_exactly_once.Counted, V89_forwarding_copy_tier_duplicates_exactly_once.Bad>`, which is NoCopy, by value: only a Copy type copies
 conformance/V90_forwarding_fence_is_narrow.saw	refused	typecheck slice.not-yet	`syntax.stmt.break` is not in the bootstrap slice yet
-conformance/V91_try_catch_copies_per_path.saw	refused	typecheck slice.not-yet	`syntax.expr.try.catch` is not in the bootstrap slice yet
-conformance/V92_merged_results_copy_once.saw	refused	typecheck slice.not-yet	`syntax.expr.try-block` is not in the bootstrap slice yet
+conformance/V91_try_catch_copies_per_path.saw	refused	typecheck transfer.implicit-copy	this reads a place of type `Result<V91_try_catch_copies_per_path.Counted, V91_try_catch_copies_per_path.Bad>`, which is NoCopy, by value: only a Copy type copies silently; write `move r` to take it, o
+conformance/V92_merged_results_copy_once.saw	refused	typecheck transfer.implicit-copy	this reads a place of type `Result<V92_merged_results_copy_once.Counted, V92_merged_results_copy_once.Bad>`, which is NoCopy, by value: only a Copy type copies silently; write `move r` to take it, or
 conformance/V93_specialization_judges_the_instance.saw	pass	-	-
 conformance/V94_driven_body_keeps_the_sync_decision.saw	pass	-	-
 conformance/V95_materialized_capture_releases_once.saw	refused	llvm backend.not-yet	a `[move]` capture's take is not in the backend slice yet
@@ -639,30 +639,30 @@ consumes_field_extraction.saw	pass	-	-
 consumes_foreign_module_declaration_error.saw	wrong	accepts a refusal test	`leak` cannot be declared `consumes` here: a consuming method replaces `Handle`'s teardown, and this module does not define `Handle`
 consumes_is_a_contextual_word.saw	pass	-	-
 consumes_receiver_forms.saw	pass	-	-
-consumes_suspending_method.saw	refused	typecheck call.no-match	`TaskGroup` has no `init` this module can call, and its fields are not all visible here
+consumes_suspending_method.saw	refused	typecheck slice.not-yet	`TaskGroup.spawn` is not in the bootstrap slice yet
 copy_bound_generic.saw	refused	mono mono.not-yet	a synthesized `ExplicitCopy.copy()` on `Int` is not in the backend slice yet: only a signed integer's `Printable.format`
 copy_policy_hook_sync.saw	pass	-	-
 copy_traits_both_declared_legal.saw	pass	-	copy.second-policy: `Buf` conforms to `ExplicitCopy`, a second copy policy beside `Copy` at 22:16: a type has one of `Copy`, `ExplicitCopy` and `NoCopy`, bounded or not, so a transfer of it copies sil
 coro_autowrap_argument_in_driven_body.saw	refused	resolve import.unknown-module	no module `std.channel`
 coro_bind_id_closure_local.saw	refused	mono mono.not-yet	an escaping closure that captures a value is not in the backend slice yet: its environment would live in the frame that builds it, and heap environments are unbuilt (SL-525)
-coro_bind_id_for_var_derived.saw	refused	coro coro.not-yet	`suspending` suspends (suspending -> slow -> yield_now -> __saw_park_ready), so it needs a coroutine frame, and its op-budget point is not lowered yet (SL-545)
+coro_bind_id_for_var_derived.saw	pass	-	-
 coro_bind_id_guardlet_nonspanning.saw	pass	-	-
 coro_bind_id_iflet_nonspanning.saw	pass	-	-
 coro_bind_id_match_arm_later_local.saw	pass	-	-
 coro_bind_id_match_arms_same_name.saw	refused	mono mono.not-yet	a synthesized `Printable.format(into: &var std.stringbuilder.StringBuilder)` on `Bool` is not in the backend slice yet: only a signed integer's `Printable.format`
 coro_bind_id_nested_block_shadow.saw	pass	-	-
-coro_bind_id_param_shadow.saw	refused	typecheck call.no-match	`TaskGroup` has no `init` this module can call, and its fields are not all visible here
-coro_bind_id_scopes_stress.saw	refused	typecheck slice.not-yet	`syntax.expr.try.catch` is not in the bootstrap slice yet
-coro_bind_id_shadow_regressions.saw	refused	typecheck call.no-match	`TaskGroup` has no `init` this module can call, and its fields are not all visible here
+coro_bind_id_param_shadow.saw	refused	typecheck slice.not-yet	`TaskGroup.spawn` is not in the bootstrap slice yet
+coro_bind_id_scopes_stress.saw	pass	-	-
+coro_bind_id_shadow_regressions.saw	refused	typecheck slice.not-yet	`TaskGroup.spawn` is not in the bootstrap slice yet
 coro_bind_id_sibling_scopes.saw	pass	-	-
-coro_break_reentered_in_loop.saw	refused	coro coro.not-yet	`driver` suspends (driver -> count_break), so it needs a coroutine frame, which is not lowered yet (SL-545)
+coro_break_reentered_in_loop.saw	pass	-	-
 coro_channel_receive_moves_element.saw	refused	resolve import.unknown-module	no module `std.channel`
-coro_closure_capture_positions.saw	refused	typecheck call.no-match	`TaskGroup` has no `init` this module can call, and its fields are not all visible here
+coro_closure_capture_positions.saw	refused	typecheck slice.not-yet	`TaskGroup.spawn` is not in the bootstrap slice yet
 coro_closure_capture_reads_by_policy.saw	refused	resolve name.undefined	cannot find `Arc` in scope
 coro_closure_captures_self_nested.saw	pass	-	-
 coro_closure_deinit_once.saw	refused	resolve name.undefined	cannot find `Arc` in scope
 coro_closure_local_call.saw	refused	mono mono.not-yet	an escaping closure that captures a value is not in the backend slice yet: its environment would live in the frame that builds it, and heap environments are unbuilt (SL-525)
-coro_closure_taskgroup.saw	refused	typecheck call.no-match	`TaskGroup` has no `init` this module can call, and its fields are not all visible here
+coro_closure_taskgroup.saw	refused	typecheck slice.not-yet	`TaskGroup.spawn` is not in the bootstrap slice yet
 coro_conditional_move_across_suspend.saw	pass	-	-
 coro_conservative_callee_in_spawned_task.saw	refused	resolve import.unknown-module	no module `std.json`
 coro_conservative_callee_not_embedded.saw	refused	resolve import.unknown-module	no module `std.json`
@@ -675,94 +675,94 @@ coro_cross_module_generic_callee.saw	pass	-	-
 coro_cross_module_io_wake.saw	refused	resolve import.unknown-module	no module `std.net`
 coro_deinit_across_suspend.saw	pass	-	-
 coro_destructure_across_suspend.saw	pass	-	-
-coro_destructure_nocopy_into_frame.saw	refused	typecheck call.no-match	`TaskGroup` has no `init` this module can call, and its fields are not all visible here
+coro_destructure_nocopy_into_frame.saw	refused	typecheck slice.not-yet	`TaskGroup.spawn` is not in the bootstrap slice yet
 coro_destructuring_let_suspending_rhs.saw	pass	-	-
 coro_discarded_match_payload_field_drop_order.saw	refused	resolve name.undefined	cannot find `Arc` in scope
 coro_discarded_match_payload_released_at_extraction.saw	refused	resolve name.undefined	cannot find `Arc` in scope
 coro_discarded_tail_move_cross_module.saw	refused	typecheck member.unknown	`std.vector.Vector<Int, std.alloc.GlobalAllocator>` has no method `iter` this module can see
 coro_discarded_tail_move_in_nested_block.saw	refused	typecheck member.unknown	`std.vector.Vector<Int, std.alloc.GlobalAllocator>` has no method `iter` this module can see
 coro_discarded_tail_move_in_nested_control_flow.saw	refused	typecheck member.unknown	`std.vector.Vector<Int, std.alloc.GlobalAllocator>` has no method `iter` this module can see
-coro_done_path_releases_in_scope_order.saw	refused	coro coro.not-yet	`main` suspends (main -> driven_loop_return), so it needs a coroutine frame, which is not lowered yet (SL-545)
-coro_drive_and_spawn.saw	refused	typecheck call.no-match	`TaskGroup` has no `init` this module can call, and its fields are not all visible here
+coro_done_path_releases_in_scope_order.saw	pass	-	-
+coro_drive_and_spawn.saw	refused	typecheck slice.not-yet	`TaskGroup.spawn` is not in the bootstrap slice yet
 coro_drive_void_body.saw	pass	-	-
 coro_driven_match_move_out_releases_once.saw	pass	-	-
 coro_driving_method_self.saw	pass	-	-
 coro_early_return_after_resume.saw	pass	-	-
 coro_entry_template_chain_names_a_suspending_callee.saw	pass	-	-
 coro_existential_only_body_is_not_framed.saw	refused	typecheck slice.not-yet	a method call on `any Trait` is not in the bootstrap slice yet
-coro_for_inclusive_range_int_max.saw	refused	typecheck call.no-match	`TaskGroup` has no `init` this module can call, and its fields are not all visible here
-coro_for_inclusive_range_last_iteration.saw	refused	typecheck call.no-match	`TaskGroup` has no `init` this module can call, and its fields are not all visible here
+coro_for_inclusive_range_int_max.saw	refused	typecheck slice.not-yet	`TaskGroup.spawn` is not in the bootstrap slice yet
+coro_for_inclusive_range_last_iteration.saw	refused	typecheck slice.not-yet	`TaskGroup.spawn` is not in the bootstrap slice yet
 coro_for_of_frames_stress.saw	refused	typecheck member.unknown	`std.vector.Vector<Int, std.alloc.GlobalAllocator>` has no method `iter` this module can see
 coro_frame_byte_local_across_suspend.saw	pass	-	-
-coro_frame_local_released_at_scope_end.saw	refused	coro coro.not-yet	`main` suspends (main -> driven_loop), so it needs a coroutine frame, which is not lowered yet (SL-545)
+coro_frame_local_released_at_scope_end.saw	wrong	stdout differs	line 6: sawc2 "now s1-2", Stage 0 "DEINIT s1"
 coro_frame_optional_param_presence.saw	pass	-	-
 coro_frame_over_65535_nonconstant_values.saw	refused	typecheck slice.not-yet	a constant argument named by a static, `FRAME_VALUES`, is not in the bootstrap slice yet
 coro_generic_call_in_an_expression_position.saw	pass	-	-
 coro_generic_driven_both.saw	pass	-	-
 coro_generic_method_self.saw	pass	-	-
 coro_generic_mono_type_subst.saw	pass	-	-
-coro_generic_spawn_root_nested_suspending_call.saw	refused	typecheck call.no-match	`TaskGroup` has no `init` this module can call, and its fields are not all visible here
+coro_generic_spawn_root_nested_suspending_call.saw	refused	typecheck slice.not-yet	`TaskGroup.spawn` is not in the bootstrap slice yet
 coro_generic_struct_and_method.saw	pass	-	-
 coro_generic_struct_method.saw	pass	-	-
-coro_guardlet_over_suspending.saw	refused	typecheck call.no-match	`TaskGroup` has no `init` this module can call, and its fields are not all visible here
+coro_guardlet_over_suspending.saw	refused	typecheck slice.not-yet	`TaskGroup.spawn` is not in the bootstrap slice yet
 coro_head_move_relinquishes_before_early_exit.saw	refused	typecheck member.unknown	`std.vector.Vector<Int, std.alloc.GlobalAllocator>` has no method `iter` this module can see
 coro_head_move_with_early_exit_drops_once.saw	refused	typecheck member.unknown	`std.vector.Vector<Int, std.alloc.GlobalAllocator>` has no method `iter` this module can see
-coro_hoist_evaluation_order.saw	refused	typecheck call.no-match	`TaskGroup` has no `init` this module can call, and its fields are not all visible here
-coro_hoist_move_diagnostic.saw	pass	-	transfer.implicit-copy: this reads a place of type `std.vector.Vector<Int, std.alloc.GlobalAllocator>`, which is ExplicitCopy, by value: only a Copy type copies silently; write `move taken` to take it
+coro_hoist_evaluation_order.saw	refused	typecheck slice.not-yet	`TaskGroup.spawn` is not in the bootstrap slice yet
+coro_hoist_move_diagnostic.saw	refused	typecheck slice.not-yet	`TaskGroup.spawn` is not in the bootstrap slice yet
 coro_hoisted_call_arg_consumed_once.saw	pass	-	-
 coro_hoisted_coalesce_rhs_consumed_once.saw	pass	-	-
-coro_hoisted_push_arg_consumed_once.saw	refused	coro coro.not-yet	`main` suspends (main -> set_argument), so it needs a coroutine frame, which is not lowered yet (SL-545)
+coro_hoisted_push_arg_consumed_once.saw	pass	-	-
 coro_hoisted_receiver_temp_released_once.saw	pass	-	-
 coro_hoisted_scrutinee_released_once.saw	pass	-	-
 coro_hoisted_struct_init_arg_consumed_once.saw	pass	-	-
 coro_hoisted_tuple_element_consumed_once.saw	pass	-	-
 coro_iflet_move_out_releases_once.saw	stage0-wrong	annotated SL-513	sawc2 meets its directives
 coro_iflet_move_scrutinee_releases_payload.saw	refused	resolve name.undefined	cannot find `Arc` in scope
-coro_iflet_over_suspending.saw	refused	typecheck call.no-match	`TaskGroup` has no `init` this module can call, and its fields are not all visible here
-coro_iflet_suspending_deinit.saw	refused	typecheck call.no-match	`TaskGroup` has no `init` this module can call, and its fields are not all visible here
+coro_iflet_over_suspending.saw	refused	typecheck slice.not-yet	`TaskGroup.spawn` is not in the bootstrap slice yet
+coro_iflet_suspending_deinit.saw	refused	typecheck slice.not-yet	`TaskGroup.spawn` is not in the bootstrap slice yet
 coro_imported_callee_discovery_matrix.saw	pass	-	-
 coro_imported_private_helper_parks_on_io.saw	refused	resolve import.unknown-module	no module `std.net`
 coro_imported_private_helper_suspends.saw	pass	-	-
-coro_inline_catch_loop_exit_in_child_positions.saw	refused	typecheck slice.not-yet	`syntax.expr.try.catch` is not in the bootstrap slice yet
+coro_inline_catch_loop_exit_in_child_positions.saw	refused	typecheck member.unknown	`std.vector.Vector<Int, std.alloc.GlobalAllocator>` has no method `iter` this module can see
 coro_json_encode_in_task.saw	refused	resolve import.unknown-module	no module `std.json`
-coro_labeled_call_positions.saw	refused	typecheck call.no-match	`TaskGroup` has no `init` this module can call, and its fields are not all visible here
+coro_labeled_call_positions.saw	refused	typecheck slice.not-yet	`TaskGroup.spawn` is not in the bootstrap slice yet
 coro_locals_across_suspend.saw	pass	-	-
-coro_match_arm_binding_early_exit.saw	refused	coro coro.not-yet	`main` suspends (main -> driven_loop), so it needs a coroutine frame, which is not lowered yet (SL-545)
-coro_match_arm_binding_loop_shapes.saw	refused	coro coro.not-yet	`main` suspends (main -> while_break_driven), so it needs a coroutine frame, which is not lowered yet (SL-545)
-coro_match_arm_binding_patterns.saw	refused	coro coro.not-yet	`main` suspends (main -> guard_break_driven), so it needs a coroutine frame, which is not lowered yet (SL-545)
-coro_match_arm_binding_positions.saw	refused	coro coro.not-yet	`main` suspends (main -> before_no_exit_driven), so it needs a coroutine frame, which is not lowered yet (SL-545)
-coro_match_arm_payload_drops.saw	refused	coro coro.not-yet	`main` suspends (main -> break_driven), so it needs a coroutine frame, which is not lowered yet (SL-545)
-coro_match_binds_scrutinee.saw	refused	typecheck call.no-match	`TaskGroup` has no `init` this module can call, and its fields are not all visible here
-coro_match_move_out_releases_once_in_loop_try_and_task.saw	refused	typecheck slice.not-yet	`syntax.expr.try-block` is not in the bootstrap slice yet
+coro_match_arm_binding_early_exit.saw	wrong	sawc2's binary panics	panic at taskgroup.saw:633: executor: a task is parked on a timer, which this executor does not wait on yet
+coro_match_arm_binding_loop_shapes.saw	wrong	sawc2's binary panics	panic at taskgroup.saw:633: executor: a task is parked on a timer, which this executor does not wait on yet
+coro_match_arm_binding_patterns.saw	wrong	sawc2's binary panics	panic at taskgroup.saw:633: executor: a task is parked on a timer, which this executor does not wait on yet
+coro_match_arm_binding_positions.saw	wrong	sawc2's binary panics	panic at taskgroup.saw:633: executor: a task is parked on a timer, which this executor does not wait on yet
+coro_match_arm_payload_drops.saw	wrong	sawc2's binary panics	panic at taskgroup.saw:633: executor: a task is parked on a timer, which this executor does not wait on yet
+coro_match_binds_scrutinee.saw	refused	typecheck slice.not-yet	`TaskGroup.spawn` is not in the bootstrap slice yet
+coro_match_move_out_releases_once_in_loop_try_and_task.saw	refused	typecheck slice.not-yet	`TaskGroup.spawn` is not in the bootstrap slice yet
 coro_match_moved_payload_survives_return.saw	crash	INVARIANT	a `main` returning anything but Void or Int is not in the backend slice yet
 coro_method_root_and_embedded.saw	pass	-	-
 coro_mixed_match_payload_released_at_extraction.saw	refused	resolve name.undefined	cannot find `Arc` in scope
 coro_module_json_encode_in_task.saw	refused	resolve import.unknown-module	no module `std.json`
 coro_module_tagged_free_callee_discovery.saw	pass	-	-
-coro_move_in_a_while_condition_driven.saw	refused	coro coro.not-yet	`main` suspends (main -> driven_loop), so it needs a coroutine frame, which is not lowered yet (SL-545)
+coro_move_in_a_while_condition_driven.saw	wrong	sawc2's binary panics	panic at taskgroup.saw:633: executor: a task is parked on a timer, which this executor does not wait on yet
 coro_move_in_split_if_head.saw	refused	typecheck member.unknown	`std.vector.Vector<Int, std.alloc.GlobalAllocator>` has no method `iter` this module can see
 coro_move_in_split_match_scrutinee.saw	refused	typecheck member.unknown	`std.vector.Vector<Int, std.alloc.GlobalAllocator>` has no method `iter` this module can see
 coro_move_in_split_try_body.saw	refused	typecheck member.unknown	`std.vector.Vector<Int, std.alloc.GlobalAllocator>` has no method `iter` this module can see
 coro_move_in_split_while_head.saw	refused	typecheck member.unknown	`std.vector.Vector<Int, std.alloc.GlobalAllocator>` has no method `iter` this module can see
-coro_move_scrutinee_span.saw	refused	typecheck call.no-match	`TaskGroup` has no `init` this module can call, and its fields are not all visible here
+coro_move_scrutinee_span.saw	refused	typecheck slice.not-yet	`TaskGroup.spawn` is not in the bootstrap slice yet
 coro_moved_arc_param_deinit_once.saw	refused	resolve name.undefined	cannot find `Arc` in scope
 coro_nested_generic_call.saw	pass	-	-
-coro_nested_generic_call_parks.saw	refused	typecheck call.no-match	`TaskGroup` has no `init` this module can call, and its fields are not all visible here
+coro_nested_generic_call_parks.saw	refused	typecheck slice.not-yet	`TaskGroup.spawn` is not in the bootstrap slice yet
 coro_nested_generic_deep.saw	pass	-	-
-coro_nested_generic_tail.saw	refused	typecheck call.no-match	`TaskGroup` has no `init` this module can call, and its fields are not all visible here
-coro_nested_iflet_struct_init.saw	refused	typecheck call.no-match	`TaskGroup` has no `init` this module can call, and its fields are not all visible here
+coro_nested_generic_tail.saw	refused	typecheck slice.not-yet	`TaskGroup.spawn` is not in the bootstrap slice yet
+coro_nested_iflet_struct_init.saw	refused	typecheck slice.not-yet	`TaskGroup.spawn` is not in the bootstrap slice yet
 coro_nested_suspend_method.saw	pass	-	-
 coro_nested_suspend_two_deep.saw	pass	-	-
-coro_nested_yield_wrapper.saw	refused	typecheck call.no-match	`TaskGroup` has no `init` this module can call, and its fields are not all visible here
-coro_omitted_default_arguments.saw	refused	typecheck call.no-match	`TaskGroup` has no `init` this module can call, and its fields are not all visible here
-coro_optbind_loop_control.saw	refused	coro coro.not-yet	`tail_break` suspends (tail_break -> yield_now -> __saw_park_ready), so it needs a coroutine frame, and its op-budget point is not lowered yet (SL-545)
-coro_optbind_loop_control_spawned.saw	refused	typecheck call.no-match	`TaskGroup` has no `init` this module can call, and its fields are not all visible here
-coro_optbind_split_in_try.saw	refused	typecheck slice.not-yet	`syntax.expr.try-block` is not in the bootstrap slice yet
-coro_optional_binding_suspending_method.saw	refused	typecheck call.no-match	`TaskGroup` has no `init` this module can call, and its fields are not all visible here
+coro_nested_yield_wrapper.saw	refused	typecheck slice.not-yet	`TaskGroup.spawn` is not in the bootstrap slice yet
+coro_omitted_default_arguments.saw	refused	typecheck slice.not-yet	`TaskGroup.spawn` is not in the bootstrap slice yet
+coro_optbind_loop_control.saw	pass	-	-
+coro_optbind_loop_control_spawned.saw	refused	typecheck slice.not-yet	`TaskGroup.spawn` is not in the bootstrap slice yet
+coro_optbind_split_in_try.saw	pass	-	-
+coro_optional_binding_suspending_method.saw	refused	typecheck slice.not-yet	`TaskGroup.spawn` is not in the bootstrap slice yet
 coro_optional_presence_unconditional_lend.saw	refused	resolve import.unknown-module	no module `std.compiler.frame`
-coro_panic_value_position.saw	refused	typecheck call.no-match	`TaskGroup` has no `init` this module can call, and its fields are not all visible here
+coro_panic_value_position.saw	refused	typecheck slice.not-yet	`TaskGroup.spawn` is not in the bootstrap slice yet
 coro_qualified_generic_call_embeds.saw	pass	-	-
-coro_reassign_owning_local.saw	refused	typecheck call.no-match	`TaskGroup` has no `init` this module can call, and its fields are not all visible here
+coro_reassign_owning_local.saw	refused	typecheck slice.not-yet	`TaskGroup.spawn` is not in the bootstrap slice yet
 coro_ref_arg_beside_suspending_arg.saw	pass	-	-
 coro_ref_arg_beside_suspending_arg_cross_module.saw	pass	-	-
 coro_ref_into_frame_resident_fixed_array.saw	refused	llvm backend.not-yet	an array, a repeat, a `Map` or a `Set` literal is not in the backend slice yet
@@ -773,41 +773,41 @@ coro_ref_param_read.saw	pass	-	-
 coro_ref_self_method.saw	pass	-	-
 coro_result_array_and_closure.saw	refused	llvm backend.not-yet	indexing an array or a slice is not in the backend slice yet
 coro_return_autowrap_result_suspending.saw	refused	mono mono.not-yet	a call of `Printable.format(into: &var std.stringbuilder.StringBuilder)` on `std.box.Box<any Error, std.alloc.GlobalAllocator>`, which no conformance of it meets, is not in the backend slice yet
-coro_return_in_expression_block.saw	refused	typecheck call.no-match	`TaskGroup` has no `init` this module can call, and its fields are not all visible here
-coro_same_scope_redefinition_owning_slots.saw	refused	typecheck call.no-match	`TaskGroup` has no `init` this module can call, and its fields are not all visible here
-coro_spawn_and_embed.saw	refused	typecheck call.no-match	`TaskGroup` has no `init` this module can call, and its fields are not all visible here
-coro_spawn_and_embed_cancel.saw	refused	typecheck call.no-match	`TaskGroup` has no `init` this module can call, and its fields are not all visible here
-coro_spawn_and_embed_generic.saw	refused	typecheck call.no-match	`TaskGroup` has no `init` this module can call, and its fields are not all visible here
-coro_spawn_and_embed_mt.saw	refused	typecheck call.no-match	`TaskGroup` has no `init` this module can call, and its fields are not all visible here
-coro_spawn_and_embed_owning.saw	refused	typecheck call.no-match	`TaskGroup` has no `init` this module can call, and its fields are not all visible here
-coro_spawn_nested_ref.saw	refused	typecheck call.no-match	`TaskGroup` has no `init` this module can call, and its fields are not all visible here
+coro_return_in_expression_block.saw	refused	typecheck slice.not-yet	`TaskGroup.spawn` is not in the bootstrap slice yet
+coro_same_scope_redefinition_owning_slots.saw	refused	typecheck slice.not-yet	`TaskGroup.spawn` is not in the bootstrap slice yet
+coro_spawn_and_embed.saw	refused	typecheck slice.not-yet	`TaskGroup.spawn` is not in the bootstrap slice yet
+coro_spawn_and_embed_cancel.saw	refused	typecheck slice.not-yet	`TaskGroup.spawn` is not in the bootstrap slice yet
+coro_spawn_and_embed_generic.saw	refused	typecheck slice.not-yet	`TaskGroup.spawn` is not in the bootstrap slice yet
+coro_spawn_and_embed_mt.saw	refused	typecheck call.label	no parameter is labeled `threads` in TaskGroup.init() [std.taskgroup]
+coro_spawn_and_embed_owning.saw	refused	typecheck slice.not-yet	`TaskGroup.spawn` is not in the bootstrap slice yet
+coro_spawn_nested_ref.saw	refused	typecheck slice.not-yet	`TaskGroup.spawn` is not in the bootstrap slice yet
 coro_spliced_helper_keeps_its_own_module.saw	pass	-	-
-coro_static_method_suspends.saw	refused	typecheck call.no-match	`TaskGroup` has no `init` this module can call, and its fields are not all visible here
+coro_static_method_suspends.saw	refused	typecheck slice.not-yet	`TaskGroup.spawn` is not in the bootstrap slice yet
 coro_string_across_suspend.saw	pass	-	-
-coro_suspend_in_for.saw	refused	coro coro.not-yet	`total` suspends (total -> __saw_suspend), so it needs a coroutine frame, and its op-budget point is not lowered yet (SL-545)
+coro_suspend_in_for.saw	pass	-	-
 coro_suspend_in_if_branch.saw	pass	-	-
 coro_suspend_in_match_arm.saw	pass	-	-
-coro_suspend_in_while.saw	refused	coro coro.not-yet	`work` suspends (work -> __saw_suspend), so it needs a coroutine frame, and its op-budget point is not lowered yet (SL-545)
-coro_suspend_nested_loop_if.saw	refused	coro coro.not-yet	`evens` suspends (evens -> __saw_suspend), so it needs a coroutine frame, and its op-budget point is not lowered yet (SL-545)
-coro_suspending_call_in_inline_catch.saw	refused	typecheck slice.not-yet	`syntax.expr.try.catch` is not in the bootstrap slice yet
+coro_suspend_in_while.saw	pass	-	-
+coro_suspend_nested_loop_if.saw	pass	-	-
+coro_suspending_call_in_inline_catch.saw	pass	-	-
 coro_suspending_ctor_arg_in_match_scrutinee.saw	pass	-	-
-coro_suspending_default_omitted.saw	wrong	accepts a refusal test	coroutine transform: the default value of parameter `x` of `target` suspends, and a suspending default cannot be materialized at a call that omits it — the expression would need a coroutine frame of i
-coro_suspending_default_omitted_cross_module.saw	wrong	accepts a refusal test	coroutine transform: the default value of parameter `x` of `suspdefN` suspends, and a suspending default cannot be materialized at a call that omits it — the expression would need a coroutine frame of
-coro_tail_if_let_value.saw	refused	typecheck call.no-match	`TaskGroup` has no `init` this module can call, and its fields are not all visible here
-coro_tail_method_call_result.saw	refused	typecheck call.no-match	`TaskGroup` has no `init` this module can call, and its fields are not all visible here
-coro_tail_move_local.saw	refused	typecheck call.no-match	`TaskGroup` has no `init` this module can call, and its fields are not all visible here
-coro_tail_nested_suspend.saw	refused	typecheck call.no-match	`TaskGroup` has no `init` this module can call, and its fields are not all visible here
-coro_tail_suspend_void.saw	refused	typecheck call.no-match	`TaskGroup` has no `init` this module can call, and its fields are not all visible here
+coro_suspending_default_omitted.saw	stage0-wrong	annotated SL-656	sawc2 builds it, and its run exits 0
+coro_suspending_default_omitted_cross_module.saw	stage0-wrong	annotated SL-656	sawc2 builds it, and its run exits 0
+coro_tail_if_let_value.saw	refused	typecheck slice.not-yet	`TaskGroup.spawn` is not in the bootstrap slice yet
+coro_tail_method_call_result.saw	refused	typecheck slice.not-yet	`TaskGroup.spawn` is not in the bootstrap slice yet
+coro_tail_move_local.saw	refused	typecheck slice.not-yet	`TaskGroup.spawn` is not in the bootstrap slice yet
+coro_tail_nested_suspend.saw	refused	typecheck slice.not-yet	`TaskGroup.spawn` is not in the bootstrap slice yet
+coro_tail_suspend_void.saw	refused	typecheck slice.not-yet	`TaskGroup.spawn` is not in the bootstrap slice yet
 coro_transform_error_anchors_in_defining_module.saw	refused	typecheck member.unknown	`std.vector.Vector<Int, std.alloc.GlobalAllocator>` has no method `each` this module can see
-coro_try_block_positions.saw	refused	typecheck slice.not-yet	`syntax.expr.try-block` is not in the bootstrap slice yet
-coro_try_block_suspending.saw	refused	typecheck slice.not-yet	`syntax.expr.try-block` is not in the bootstrap slice yet
-coro_try_block_two_error_types.saw	refused	typecheck slice.not-yet	`syntax.expr.try-block` is not in the bootstrap slice yet
-coro_try_catch_early_exit.saw	refused	typecheck slice.not-yet	`syntax.expr.try-block` is not in the bootstrap slice yet
-coro_try_catch_suspending.saw	refused	typecheck slice.not-yet	`syntax.expr.try.catch` is not in the bootstrap slice yet
-coro_try_in_borrowed_place_index.saw	refused	coro coro.not-yet	`j_ref_index` suspends (j_ref_index -> yield_now -> __saw_park_ready), so it needs a coroutine frame, and a borrow window in it is not lowered yet (SL-545)
-coro_try_landing_relinquishes_by_position.saw	refused	typecheck slice.not-yet	`syntax.expr.try-block` is not in the bootstrap slice yet
+coro_try_block_positions.saw	refused	typecheck slice.not-yet	`TaskGroup.spawn` is not in the bootstrap slice yet
+coro_try_block_suspending.saw	refused	typecheck slice.not-yet	`TaskGroup.spawn` is not in the bootstrap slice yet
+coro_try_block_two_error_types.saw	refused	typecheck slice.not-yet	a `try` block whose `try`s propagate more than one error type (`coro_try_block_two_error_types.Flaky`, `coro_try_block_two_error_types.Other`), which its `error` holds as their union, is not in the bo
+coro_try_catch_early_exit.saw	wrong	sawc2's binary panics	panic at taskgroup.saw:633: executor: a task is parked on a timer, which this executor does not wait on yet
+coro_try_catch_suspending.saw	refused	typecheck slice.not-yet	`TaskGroup.spawn` is not in the bootstrap slice yet
+coro_try_in_borrowed_place_index.saw	refused	llvm backend.not-yet	an array, a repeat, a `Map` or a `Set` literal is not in the backend slice yet
+coro_try_landing_relinquishes_by_position.saw	wrong	stdout differs	line 5: sawc2 "caught", Stage 0 "drop kept"
 coro_try_landing_within_guards.saw	refused	typecheck slice.not-yet	`syntax.expr.optional-member` is not in the bootstrap slice yet
-coro_try_propagate_suspending.saw	refused	typecheck call.no-match	`TaskGroup` has no `init` this module can call, and its fields are not all visible here
+coro_try_propagate_suspending.saw	refused	typecheck slice.not-yet	`TaskGroup.spawn` is not in the bootstrap slice yet
 coro_tuple_across_suspend.saw	pass	-	-
 coro_unconsumed_result.saw	pass	-	-
 coro_value_inline_catch_hosts_a_move.saw	refused	typecheck member.unknown	`std.vector.Vector<Int, std.alloc.GlobalAllocator>` has no method `iter` this module can see
@@ -851,7 +851,7 @@ default_param_nontrailing_error.saw	wrong	accepts a refusal test	function `f`: p
 default_param_overload_coexist.saw	pass	-	-
 default_param_per_call.saw	pass	-	-
 default_param_shape_collision_error.saw	pass	-	overload.indistinguishable: `g(x: Int)` is already declared at 7:6 as `g(x: Int, y: Int)`, and no call could tell the two apart: overloads must differ in a parameter's label or type, or in how many ar
-default_param_suspend_sync_error.saw	pass	-	effect.sync: `caller` is declared `sync`, and it calls `useDefault`, which may suspend
+default_param_suspend_sync_error.saw	pass	-	effect.sync: `caller` is declared `sync`, and it calls `useDefault` leaving out `x`, whose default value may suspend
 default_type_param.saw	pass	-	-
 deinit_automatic.saw	pass	-	-
 deinit_early_return.saw	pass	-	-
@@ -866,7 +866,7 @@ deinit_synth_nocopy_holder.saw	refused	typecheck member.unknown	`std.vector.Vect
 deinit_temp_chain.saw	pass	-	-
 deinit_temp_receiver.saw	pass	-	-
 dependency_error_names_its_own_file_error.saw	pass	-	type.not-a-value: `Widget` names a type, a module or a trait, not a value
-dependency_named_main_keeps_the_entry_point.saw	refused	typecheck call.no-match	`TaskGroup` has no `init` this module can call, and its fields are not all visible here
+dependency_named_main_keeps_the_entry_point.saw	refused	typecheck slice.not-yet	`TaskGroup.spawn` is not in the bootstrap slice yet
 destructuring_wildcard_over_a_borrowed_projection.saw	refused	resolve name.undefined	cannot find `Arc` in scope
 df137d_literal_width_riscv32.saw	refused	driver driver.usage	sawc2 build takes no --freestanding
 df137d_literal_width_riscv32_ok.saw	refused	driver driver.usage	sawc2 build takes no --freestanding
@@ -942,7 +942,7 @@ enum145_raw_missing_value_error.saw	pass	-	type.raw-value: case `Missing.B` need
 enum145_raw_payload_error.saw	pass	-	type.raw-backing: case `WithPayload.Detail` carries a payload, so its enum cannot declare a raw backing: a case with a payload has no integer identity
 enum145_raw_unbacked_cast_error.saw	pass	-	type.cast: `as` cannot convert `enum145_raw_unbacked_cast_error.Plain` to `UInt8`: it converts between numbers, from a raw-backed enum, and between pointers
 enum145_raw_wire_struct.saw	refused	resolve name.undefined	cannot find `UnsafeMemory` in scope
-enum145_traits.saw	refused	typecheck slice.not-yet	`syntax.expr.try.catch` is not in the bootstrap slice yet
+enum145_traits.saw	refused	mono mono.not-yet	a synthesized `Equatable.equals(other: &Self)` on `enum145_traits.SysError` is not in the backend slice yet: only a signed integer's `Printable.format`
 enum_arc_struct_payload_match.saw	refused	resolve name.undefined	cannot find `Arc` in scope
 enum_bitwise_value_error.saw	pass	-	operator.undefined: a bit operator takes integers or `Bool`s, and this is `enum_bitwise_value_error.Perm`
 enum_extension_overloads.saw	pass	-	-
@@ -992,8 +992,8 @@ erased_downcast_nonconforming_error.saw	refused	typecheck slice.not-yet	`Box<any
 erased_downcast_use_after_take_error.saw	refused	typecheck slice.not-yet	`Box<any Trait>.make` is not in the bootstrap slice yet
 erased_error_across_suspension.saw	refused	mono mono.not-yet	a call of `Printable.format(into: &var std.stringbuilder.StringBuilder)` on `std.box.Box<any Error, std.alloc.GlobalAllocator>`, which no conformance of it meets, is not in the backend slice yet
 erased_error_spawned_container_result.saw	refused	typecheck slice.not-yet	a method `Box` forwards to its payload is not in the bootstrap slice yet
-erased_error_spawned_task.saw	refused	typecheck call.no-match	`TaskGroup` has no `init` this module can call, and its fields are not all visible here
-erased_result_catch.saw	refused	typecheck slice.not-yet	`syntax.expr.try-block` is not in the bootstrap slice yet
+erased_error_spawned_task.saw	refused	typecheck slice.not-yet	`TaskGroup.spawn` is not in the bootstrap slice yet
+erased_result_catch.saw	refused	mono mono.not-yet	a call of `Printable.format(into: &var std.stringbuilder.StringBuilder)` on `std.box.Box<any Error, std.alloc.GlobalAllocator>`, which no conformance of it meets, is not in the backend slice yet
 erased_result_return.saw	refused	mono mono.not-yet	a call of `Printable.format(into: &var std.stringbuilder.StringBuilder)` on `std.box.Box<any Error, std.alloc.GlobalAllocator>`, which no conformance of it meets, is not in the backend slice yet
 erased_result_try.saw	refused	mono mono.not-yet	a call of `Printable.format(into: &var std.stringbuilder.StringBuilder)` on `std.box.Box<any Error, std.alloc.GlobalAllocator>`, which no conformance of it meets, is not in the backend slice yet
 error_any_box.saw	refused	typecheck slice.not-yet	a method call on `any Trait` is not in the bootstrap slice yet
@@ -1019,7 +1019,7 @@ errors/array_mixed_types.saw	pass	-	type.mismatch: expected `Int`, the type of t
 errors/array_non_int_index.saw	pass	-	type.mismatch: expected `Int`, the type of the parameter, and found `String`
 errors/array_wrong_type.saw	pass	-	type.mismatch: expected `Int`, the type of the assignment's target, and found `String`
 errors/background_spawn_needs_a_hosted_entry.saw	refused	driver driver.usage	sawc2 build takes no --freestanding
-errors/blocking_extern_decl_conflict.saw	pass	-	call.no-match: `TaskGroup` has no `init` this module can call, and its fields are not all visible here
+errors/blocking_extern_decl_conflict.saw	refused	typecheck slice.not-yet	`TaskGroup.spawn` is not in the bootstrap slice yet
 errors/blocking_extern_sync_reject.saw	pass	-	effect.sync: `f` is declared `sync`, and it calls `slow`, which may suspend
 errors/borrowing_field_alias_exclusive.saw	pass	-	mutability.immutable: this assignment writes `self.source.value`, and `self.source` is a shared reference, through which nothing is written: take it as `&var`
 errors/borrowing_field_is_read_only.saw	refused	typecheck slice.not-yet	`syntax.expr.lends` is not in the bootstrap slice yet
@@ -1075,8 +1075,8 @@ errors/consumes_function_type.saw	pass	-	resolve.parse-refused: the parser refus
 errors/consumes_needs_a_receiver.saw	pass	-	resolve.parse-refused: the parser refuses `tests/corpus/errors/consumes_needs_a_receiver.saw` (syntax.rule.effect-slot), so its declarations are not available
 errors/consumes_needs_var_self.saw	pass	-	resolve.parse-refused: the parser refuses `tests/corpus/errors/consumes_needs_var_self.saw` (syntax.rule.effect-slot), so its declarations are not available
 errors/consumes_receiver_through_a_field_or_place.saw	pass	-	transfer.partial-move: cannot move out of field `b` of `h`: a `move` takes a whole binding, and taking a part would leave its owner half-owned; move the whole value, or keep the part in a binding of i
-errors/consumes_suspending_field_move.saw	pass	-	call.no-match: `TaskGroup` has no `init` this module can call, and its fields are not all visible here
-errors/consumes_suspending_handwritten_deinit.saw	pass	-	call.no-match: `TaskGroup` has no `init` this module can call, and its fields are not all visible here
+errors/consumes_suspending_field_move.saw	refused	typecheck slice.not-yet	`TaskGroup.spawn` is not in the bootstrap slice yet
+errors/consumes_suspending_handwritten_deinit.saw	refused	typecheck slice.not-yet	`TaskGroup.spawn` is not in the bootstrap slice yet
 errors/consumes_trait_requirement.saw	pass	-	resolve.parse-refused: the parser refuses `tests/corpus/errors/consumes_trait_requirement.saw` (syntax.rule.requirement-borrows), so its declarations are not available
 errors/copy_bound_missing.saw	pass	-	type.bound: `T` has no `copy()`: no bound makes it `ExplicitCopy`; declare `T: ExplicitCopy`, or `Copy`
 errors/copy_policy_hook_suspends_in_sync_fn.saw	pass	-	effect.sync: cannot suspend in the `Copy` `copy()` of `Heavy`: `Heavy.copy` may suspend, and a copy-policy `copy()` runs at compiler-inserted call sites, so it must be `sync`
@@ -1084,8 +1084,8 @@ errors/coro_assign_rhs_move_beside_early_exit.saw	refused	typecheck member.unkno
 errors/coro_buried_early_exit_beside_a_move.saw	refused	typecheck member.unknown	`std.vector.Vector<Int, std.alloc.GlobalAllocator>` has no method `iter` this module can see
 errors/coro_closure_body_suspends_with_no_driven_root.saw	refused	typecheck member.unknown	`std.vector.Vector<Int, std.alloc.GlobalAllocator>` has no method `each` this module can see
 errors/coro_cross_module_suspending_recursion.saw	pass	-	coro.suspending-cycle: suspending recursion is not allowed: the suspending-call cycle `descend -> descend` has no compile-time frame size, since a callee's frame is embedded in its caller's by value.
-errors/coro_group_spawn_suspending_recursion.saw	wrong	refused by another rule	call.no-match, where the plan names coro.suspending-cycle
-errors/coro_guarded_arm_owning_payload.saw	refused	coro coro.not-yet	`main` suspends (main -> driven), so it needs a coroutine frame, which is not lowered yet (SL-545)
+errors/coro_group_spawn_suspending_recursion.saw	refused	typecheck slice.not-yet	`TaskGroup.spawn` is not in the bootstrap slice yet
+errors/coro_guarded_arm_owning_payload.saw	stage0-wrong	annotated SL-283	sawc2 builds it, and its run panics: panic at taskgroup.saw:633: executor: a task is parked on a timer, which this executor does not wait on yet
 errors/coro_imported_closure_body_suspends.saw	refused	typecheck member.unknown	`std.vector.Vector<Int, std.alloc.GlobalAllocator>` has no method `each` this module can see
 errors/coro_imported_closure_body_suspends_with_no_driven_root.saw	refused	typecheck member.unknown	`std.vector.Vector<Int, std.alloc.GlobalAllocator>` has no method `each` this module can see
 errors/coro_io_park_in_closure_body_beside_a_conservative_call.saw	refused	resolve import.unknown-module	no module `std.net`
@@ -1156,7 +1156,7 @@ errors/infer_underdetermined.saw	pass	-	infer.failed: cannot infer type argument
 errors/init_result_ok_must_be_receiver.saw	pass	-	init.result: an `init` returns its receiver, `init_result_ok_must_be_receiver.Third`, or `Result<init_result_ok_must_be_receiver.Third, E>`, and this one returns `Result<init_result_ok_must_be_receive
 errors/init_return_must_name_receiver.saw	refused	typecheck member.unknown	`Int` has no member `m` this module can see
 errors/init_return_optional_encodes_as_result.saw	pass	-	init.result: an `init` may not return an optional: an optional creation is `Result<init_return_optional_encodes_as_result.Other, E>`, because a `None` names no cause
-errors/inline_catch_multi_error.saw	refused	typecheck slice.not-yet	`syntax.expr.try-block` is not in the bootstrap slice yet
+errors/inline_catch_multi_error.saw	refused	typecheck slice.not-yet	a `try` block whose `try`s propagate more than one error type (`inline_catch_multi_error.Alpha`, `inline_catch_multi_error.Beta`), which its `error` holds as their union, is not in the bootstrap slice
 errors/interior_cell_wrapper_var_self.saw	pass	-	mutability.immutable: this exclusive borrow of `self.hits` would let it be written, and this method's receiver is `&self`, a shared borrow that writes neither the storage it borrows nor storage reache
 errors/interp_error_position.saw	pass	-	format.argument: `interp_error_position.Blob` is formatted here, and it is neither `Printable` nor a primitive
 errors/interp_error_position_after_escape.saw	pass	-	format.argument: `interp_error_position_after_escape.Blob` is formatted here, and it is neither `Printable` nor a primitive
@@ -1187,15 +1187,15 @@ errors/move_in_a_while_condition_nested_loop_header.saw	pass	-	move.use-after: `
 errors/move_in_a_while_condition_positions.saw	pass	-	move.use-after: `whole` is used after it may have been moved (moved at 38:11); a moved value is gone until it is assigned again
 errors/multiple.saw	refused	resolve name.undefined	cannot find `y` in scope
 errors/mutex_closure_stored.saw	wrong	accepts a refusal test	a closure with reference (`&`/`&var`) parameters may only be passed directly as a call argument; it cannot be bound, returned, or captured
-errors/mutex_guarded_for_suspends.saw	refused	resolve import.unknown-module	no module `std.mutex`
-errors/mutex_lock_suspend.saw	refused	resolve import.unknown-module	no module `std.mutex`
+errors/mutex_guarded_for_suspends.saw	refused	typecheck member.unknown	`std.vector.Vector<Int, std.alloc.GlobalAllocator>` has no method `iter` this module can see
+errors/mutex_lock_suspend.saw	wrong	refused by another rule	borrows.sync-window, where the plan names effect.sync
 errors/never_emitted_instance_reports.saw	refused	typecheck member.unknown	`std.vector.Vector<never_emitted_instance_reports.Anchor, std.alloc.GlobalAllocator>` has no method `swap_out` this module can see
 errors/no_copy.saw	pass	-	transfer.implicit-copy: this reads a place of type `no_copy.FileHandle`, which is NoCopy, by value: only a Copy type copies silently; write `move f1` to take it, or borrow it
 errors/no_copy_containment.saw	pass	-	copy.undeclared-policy: `Connection` holds `Connection.handle` of type `no_copy_containment.FileHandle`, which is NoCopy, so it declares its own policy: `extension Connection: NoCopy {}`, or `@synthes
 errors/no_hidden_alloc_closure_pushed_into_a_vector.saw	refused	driver driver.usage	sawc2 build takes no --no-hidden-alloc
 errors/nocopy_override_implicit_tier_copy.saw	pass	-	transfer.implicit-copy: this reads a place of type `nocopy_override_implicit_tier_copy.Ticket`, which is NoCopy, by value: only a Copy type copies silently; write `move a` to take it, or borrow it
 errors/nomove_bound_value_into_argument.saw	pass	-	transfer.no-move: cannot `move` `a`: `nomove_bound_value_into_argument.Anchor` is `NoMove`, so it lives where its constructor built it and may not be relocated; pass `&var` to lend it, or build the va
-errors/nomove_containment_cascade.saw	pass	-	call.no-match: `TaskGroup` has no `init` this module can call, and its fields are not all visible here
+errors/nomove_containment_cascade.saw	pass	-	nomove.undeclared: `Server` contains NoMove member `group` of type `std.taskgroup.TaskGroup` but does not declare `NoMove`: declare `extension Server: NoMove {}` beside its `NoCopy`, or hold the membe
 errors/nomove_not_a_bound.saw	pass	-	nomove.bound: `NoMove` is not a bound: `NoMove` licenses a generic body nothing, and a type states it in its own conformance, `extension T: NoMove {}`
 errors/nomove_placement_after_borrow.saw	pass	-	transfer.no-move: cannot `move` `value`: `nomove_placement_after_borrow.Anchor` is `NoMove`, so it lives where its constructor built it and may not be relocated; pass `&var` to lend it, or build the v
 errors/nomove_requires_nocopy.saw	pass	-	nomove.requires-nocopy: `Loose` declares `NoMove` without a declared `NoCopy`: a pinned type is move-only first, so declare `extension Loose: NoCopy {}` beside it
@@ -1203,11 +1203,11 @@ errors/none_default_underdetermined.saw	pass	-	infer.failed: cannot infer type a
 errors/offload_freestanding_reject.saw	refused	driver driver.usage	sawc2 build takes no --freestanding
 errors/offload_pointer_sync_reject.saw	pass	-	effect.sync: `fill` is declared `sync`, and it calls `slow_into`, which may suspend
 errors/offload_signature_reject.saw	wrong	accepts a refusal test	`extern blocking func slow_named`: parameter `s` has type `String`, which is not C-ABI-safe
-errors/optional_chain_assign_exclusivity.saw	refused	typecheck slice.not-yet	`syntax.stmt.optional-assign.plain` is not in the bootstrap slice yet
-errors/optional_chain_assign_explicit_copy.saw	refused	typecheck slice.not-yet	`syntax.stmt.optional-assign.plain` is not in the bootstrap slice yet
-errors/optional_chain_assign_immutable_head.saw	refused	typecheck slice.not-yet	`syntax.stmt.optional-assign.plain` is not in the bootstrap slice yet
-errors/optional_chain_assign_method_target.saw	refused	typecheck slice.not-yet	`syntax.stmt.optional-assign.plain` is not in the bootstrap slice yet
-errors/optional_chain_compound_assign_immutable_head.saw	refused	typecheck slice.not-yet	`syntax.stmt.optional-assign.compound` is not in the bootstrap slice yet
+errors/optional_chain_assign_exclusivity.saw	wrong	accepts a refusal test	exclusive access violation: `oh` is written by this optional-chain assignment while also being accessed in the right-hand side
+errors/optional_chain_assign_explicit_copy.saw	pass	-	transfer.implicit-copy: this reads a place of type `optional_chain_assign_explicit_copy.Money`, which is ExplicitCopy, by value: only a Copy type copies silently; write `move m` to take it, `m.copy()`
+errors/optional_chain_assign_immutable_head.saw	pass	-	mutability.immutable: this assignment writes `p?.x`, and `p` is a `let` binding, which is never written: every binding is initialized where it is declared, so only a `var` takes a new value
+errors/optional_chain_assign_method_target.saw	refused	typecheck member.unknown	`optional_chain_assign_method_target.P?` has no method `setX` this module can see
+errors/optional_chain_compound_assign_immutable_head.saw	pass	-	mutability.immutable: this compound assignment writes `p?.x`, and `p` is a `let` binding, which is never written: every binding is initialized where it is declared, so only a `var` takes a new value
 errors/optional_chain_nocopy_field.saw	refused	typecheck slice.not-yet	`syntax.expr.optional-member` is not in the bootstrap slice yet
 errors/optional_chain_non_optional.saw	refused	typecheck slice.not-yet	`syntax.expr.optional-member` is not in the bootstrap slice yet
 errors/optional_coalesce_default_too_deep.saw	pass	-	format.argument: `Int?` is formatted here, and it is neither `Printable` nor a primitive
@@ -1275,7 +1275,7 @@ errors/semicolon_before_newline.saw	pass	-	resolve.parse-refused: the parser ref
 errors/semicolon_between_declarations.saw	pass	-	resolve.parse-refused: the parser refuses `tests/corpus/errors/semicolon_between_declarations.saw` (syntax.rule.declaration-separator), so its declarations are not available
 errors/semicolon_doubled.saw	pass	-	resolve.parse-refused: the parser refuses `tests/corpus/errors/semicolon_doubled.saw` (syntax.rule.statement-separator), so its declarations are not available
 errors/send_bound_not_satisfied.saw	pass	-	type.bound: `send_bound_not_satisfied.RawHandle` does not satisfy `Send`, the bound on `T` of `needs_send`
-errors/send_explicit_conformance.saw	wrong	accepts a refusal test	cannot explicitly implement `Send`: it is a marker trait derived structurally by the compiler
+errors/send_explicit_conformance.saw	pass	-	conformance.derived-only: cannot explicitly implement `Send`: it is a marker trait derived structurally by the compiler, so `Foo` is `Send` exactly when its members are; where an unsafe-typed member b
 errors/serde169_deserialize_not_any.saw	refused	resolve name.undefined	cannot find `Deserialize` in scope
 errors/serde169_underivable_field.saw	refused	resolve name.undefined	cannot find `Serialize` in scope
 errors/shadow_closure_param.saw	pass	-	name.shadowing: `total` shadows an enclosing binding, which a pattern, a parameter or a closure parameter may not do; pick another name
@@ -1286,7 +1286,7 @@ errors/shadow_inner_let.saw	pass	-	name.shadowing: `x` shadows an enclosing bind
 errors/shadow_match_pattern.saw	pass	-	name.shadowing: `x` shadows an enclosing binding, which a pattern, a parameter or a closure parameter may not do; pick another name
 errors/shadow_param.saw	pass	-	name.shadowing: `count` shadows an enclosing binding, which a pattern, a parameter or a closure parameter may not do; pick another name
 errors/shadow_redef_nonderived.saw	pass	-	name.shadowing: `data` is already defined in this scope; a redefinition must derive from it, as `let data = f(data)` does
-errors/shared_lend_write_refused_at_every_opener.saw	refused	typecheck slice.not-yet	`syntax.stmt.optional-assign.borrow-plain` is not in the bootstrap slice yet
+errors/shared_lend_write_refused_at_every_opener.saw	pass	-	subscript.role: this subscript is used as a setitem: it declares no `[]=`, and its `[]` lends no writable place (`shared_lend_write_refused_at_every_opener.View` declares or derives no such role)
 errors/shared_self_borrows_epilogue_write.saw	pass	-	result.discarded: the result of `push` is `Result<Void, std.alloc.AllocError>` and is silently discarded: handle it (`match` it, `try` or `try!` it, or return it), or write `let _ = ...` to discard it
 errors/shared_self_borrows_field_var_method_call.saw	pass	-	mutability.immutable: this exclusive borrow of `self.gate` would let it be written, and this method's receiver is `&self`, a shared borrow that writes neither the storage it borrows nor storage reache
 errors/shared_self_field_var_method_call.saw	pass	-	result.discarded: the result of `push` is `Result<Void, std.alloc.AllocError>` and is silently discarded: handle it (`match` it, `try` or `try!` it, or return it), or write `let _ = ...` to discard it
@@ -1294,16 +1294,16 @@ errors/shared_self_field_write.saw	pass	-	mutability.immutable: this assignment 
 errors/shared_self_var_method_call.saw	pass	-	mutability.immutable: this exclusive borrow of `self` would let it be written, and this method's receiver is `&self`, a shared borrow that writes neither the storage it borrows nor storage reached thr
 errors/signal_is_hosted_only.saw	refused	driver driver.usage	sawc2 build takes no --freestanding
 errors/sleep_bare_int.saw	pass	-	type.mismatch: expected `std.duration.Duration`, the type of the parameter, and found `Int`
-errors/spawn_capture_across_iterations.saw	pass	-	call.no-match: `TaskGroup` has no `init` this module can call, and its fields are not all visible here
-errors/spawn_capture_mt_send.saw	wrong	refused by another rule	call.no-match, where the plan names coro.spawn-not-send
+errors/spawn_capture_across_iterations.saw	refused	typecheck slice.not-yet	`TaskGroup.spawn` is not in the bootstrap slice yet
+errors/spawn_capture_mt_send.saw	wrong	refused by another rule	call.label, where the plan names coro.spawn-not-send
 errors/spawn_capture_not_send.saw	refused	resolve slice.not-yet	the `Thread.spawn` form is not in the bootstrap slice yet
-errors/spawn_capture_unjoined_handle.saw	pass	-	call.no-match: `TaskGroup` has no `init` this module can call, and its fields are not all visible here
+errors/spawn_capture_unjoined_handle.saw	refused	typecheck slice.not-yet	`TaskGroup.spawn` is not in the bootstrap slice yet
 errors/spawn_handle_may_not_escape_the_function.saw	refused	resolve name.undefined	cannot find `VoidThread` in scope
 errors/spawn_names_its_engine.saw	refused	resolve name.undefined	cannot find `spawn` in scope
 errors/spawn_result_not_send.saw	refused	resolve slice.not-yet	the `Thread.spawn` form is not in the bootstrap slice yet
 errors/specialized_method_wrong_type.saw	refused	typecheck slice.not-yet	`extension Vector<...>` names the type `Int` among its parameters: a specialized extension is not in the bootstrap slice yet
 errors/spinlock_needs_atomics.saw	refused	driver driver.usage	sawc2 build takes no --freestanding
-errors/spinlock_suspending_body.saw	refused	resolve import.unknown-module	no module `std.spinlock`
+errors/spinlock_suspending_body.saw	wrong	refused by another rule	borrows.sync-window, where the plan names effect.sync
 errors/statement_juxtaposition_in_closure_and_module_scope.saw	pass	-	resolve.parse-refused: the parser refuses `tests/corpus/errors/statement_juxtaposition_in_closure_and_module_scope.saw` (syntax.rule.juxtaposition), so its declarations are not available
 errors/statement_juxtaposition_in_control_flow_bodies.saw	pass	-	resolve.parse-refused: the parser refuses `tests/corpus/errors/statement_juxtaposition_in_control_flow_bodies.saw` (syntax.rule.juxtaposition), so its declarations are not available
 errors/statement_juxtaposition_in_declaration_lists.saw	pass	-	resolve.parse-refused: the parser refuses `tests/corpus/errors/statement_juxtaposition_in_declaration_lists.saw` (syntax.rule.declaration-separator), so its declarations are not available
@@ -1353,7 +1353,7 @@ errors/synthesize_required_enum.saw	pass	-	synthesize.required: `Shape` conforms
 errors/synthesize_required_equatable.saw	pass	-	synthesize.required: `Named` conforms to `Equatable` with no `Equatable.equals` written: write it, or mark the extension `@synthesize` to derive it
 errors/synthesize_required_explicit_copy.saw	pass	-	synthesize.required: `Holder` conforms to `ExplicitCopy` with no `ExplicitCopy.copy` written: write it, or mark the extension `@synthesize` to derive it
 errors/synthesize_required_hashable.saw	pass	-	synthesize.required: `Keyed` conforms to `Hashable` with no `Hashable.hash` written: write it, or mark the extension `@synthesize` to derive it
-errors/taskgroup_threads_nonsend_reject.saw	wrong	refused by another rule	call.no-match, where the plan names coro.spawn-not-send
+errors/taskgroup_threads_nonsend_reject.saw	wrong	refused by another rule	call.label, where the plan names coro.spawn-not-send
 errors/thread_body_reports_both_violations.saw	refused	resolve slice.not-yet	the `Thread.spawn` form is not in the bootstrap slice yet
 errors/trailing_dot_float.saw	pass	-	resolve.parse-refused: the parser refuses `tests/corpus/errors/trailing_dot_float.saw` (syntax.lex.float-point), so its declarations are not available
 errors/trait_inheritance_missing_method.saw	pass	-	conformance.incomplete: `Number` conforms to `Child`, but nothing meets its requirement `Base.getValue`: no member of that name is written, and the trait gives no default
@@ -1389,10 +1389,10 @@ errors/unsafe_static_needs_deinit.saw	refused	llvm backend.not-yet	a static whos
 errors/unsafe_static_trigger.saw	pass	-	unsafe.undeclared: `peek_owner` is not declared `unsafe`, but its body names an unsafe static (`TABLE`): write `unsafe` after its parameter list, where every caller can see it
 errors/unsafe_static_without_var.saw	pass	-	resolve.parse-refused: the parser refuses `tests/corpus/errors/unsafe_static_without_var.saw` (syntax.decl.refused-static), so its declarations are not available
 errors/unsafe_struct_name_not_prefixed.saw	pass	-	unsafe.type-name: an unsafe type must be named `Unsafe*`, but this one is named `MmioReg`: rename it to `UnsafeMmioReg`, or drop `unsafe` if the type is safe to name, hold and pass
-errors/unsafe_sync_already_derives.saw	wrong	accepts a refusal test	`Plain` already derives `Sync`, so `UnsafeSync` asserts nothing
+errors/unsafe_sync_already_derives.saw	pass	-	conformance.assertion-derives: `Plain` already derives `Sync`, so `UnsafeSync` asserts nothing: an assertion is legal only where the derivation fails, and one beside a type that derives cleanly tells
 errors/unsafe_sync_cell_static_undeclared.saw	pass	-	static.not-sync: the static `SHARED` has type `unsafe_sync_cell_static_undeclared.Cell`, which is not `Sync`, and a static is reachable from every thread: `Cell` holds an interior cell in `Cell.slot`
-errors/unsafe_sync_not_a_bound.saw	wrong	accepts a refusal test	`UnsafeSync` is not a generic bound, so it cannot bound the type parameter `T`
-errors/unsafe_sync_past_safe_field.saw	wrong	accepts a refusal test	cannot declare `UnsafeSend` for `Mixed`: field `fn` has type `(Int) escaping -> Int`, which is not `Send` and is not an unsafe type
+errors/unsafe_sync_not_a_bound.saw	pass	-	trait.assertion-position: `UnsafeSync` is not a generic bound, so it cannot bound the type parameter `T`: bound it by the property, `T: Sync`, which a type declaring `UnsafeSync` meets through it; the
+errors/unsafe_sync_past_safe_field.saw	pass	-	conformance.assertion-safe-member: cannot declare `UnsafeSend` for `Mixed`: field `fn` has type `(Int) -> Int`, which is not `Send` and names no unsafe type; an assertion covers only what the unsafe d
 errors/unsafe_trigger_undeclared.saw	pass	-	unsafe.undeclared: `leak_it` is not declared `unsafe`, but its body names a value of unsafe type (`unsafe_trigger_undeclared.UnsafeMmioReg`) at 13:9: write `unsafe` after its parameter list, where eve
 errors/unsaferef_write_through_let_closure_capture.saw	refused	resolve import.unknown-module	no module `std.compiler.frame`
 errors/unsaferef_write_through_let_root.saw	refused	resolve import.unknown-module	no module `std.compiler.frame`
@@ -1426,7 +1426,7 @@ errors/window_static_root_write.saw	refused	typecheck slice.not-yet	`syntax.expr
 errors/with_var_ref_invalidation.saw	pass	-	loan.window-root: `v` is borrowed exclusively here while the window of `[]` opened at 16:5 holds `v` exclusively until the window closes; a window charges its whole root until it closes, so the root i
 errors/withcstring_escape.saw	pass	-	escaping.stored: `body` is a non-escaping function value, a parameter whose type does not say `escaping` or a binding of one, and a field holds it past the call: mark the parameter `escaping`, as `()
 errors/wrong_args.saw	pass	-	call.arity: too many arguments: add(a: Int, b: Int) [wrong_args] takes 2
-errors/yield_now_bare_gated.saw	pass	-	name.not-in-prelude: `yield_now` is not in the prelude and must be imported: `import std.task.{yield_now}` selects it
+errors/yield_now_bare_gated.saw	refused	typecheck slice.not-yet	`TaskGroup.spawn` is not in the bootstrap slice yet
 escaping_closure_borrow_capture_local_container.saw	pass	-	capture.escaping-borrow: an escaping closure cannot capture `n`, a reference (`&Int`), and a borrow may not outlive the frame it points into: pass the closure straight to a parameter that does not esc
 escaping_closure_borrow_capture_stored.saw	pass	-	capture.escaping-borrow: an escaping closure cannot capture `n`, a reference (`&Int`), and a borrow may not outlive the frame it points into: pass the closure straight to a parameter that does not esc
 escaping_on_declaration_rejected.saw	pass	-	resolve.parse-refused: the parser refuses `tests/corpus/escaping_on_declaration_rejected.saw` (syntax.decl.refused-escaping), so its declarations are not available
@@ -1460,9 +1460,9 @@ export229_transitive_qualified_error.saw	pass	-	import.not-reexported: `Widget` 
 export229_whole_chain_call.saw	pass	-	-
 export_bool_error.saw	pass	-	export.c-abi: `@export` function `flag`: parameter `b` has type `Bool`, which is not C-ABI-safe: an exported signature takes fixed-width integers, `Int`/`UInt`, `Float` and pointers; pass an aggregate
 export_duplicate_symbol_error.saw	pass	-	export.duplicate: duplicate `@export` symbol `shared`, already exported by `a`: an unmangled C symbol is unique across the program
-export_duplicate_symbol_with_spawn_error.saw	pass	-	call.no-match: `TaskGroup` has no `init` this module can call, and its fields are not all visible here
+export_duplicate_symbol_with_spawn_error.saw	refused	typecheck slice.not-yet	`TaskGroup.spawn` is not in the bootstrap slice yet
 export_generic_error.saw	pass	-	export.generic: cannot `@export` the generic function `ident`: a C symbol has no type parameters; export a concrete wrapper instead
-export_in_entry_module_with_spawn.saw	refused	typecheck call.no-match	`TaskGroup` has no `init` this module can call, and its fields are not all visible here
+export_in_entry_module_with_spawn.saw	refused	typecheck slice.not-yet	`TaskGroup.spawn` is not in the bootstrap slice yet
 export_never_noreturn.saw	pass	-	-
 export_outside_init_error.saw	pass	-	resolve.parse-refused: the parser refuses `tests/corpus/export_outside_init_error.saw` (syntax.decl.refused-export), so its declarations are not available
 export_overload_named_ok.saw	pass	-	-
@@ -1479,7 +1479,7 @@ expr_suspend_andor.saw	pass	-	-
 expr_suspend_arg.saw	pass	-	-
 expr_suspend_arg_order.saw	pass	-	-
 expr_suspend_binop.saw	pass	-	-
-expr_suspend_blocking.saw	refused	typecheck call.no-match	`TaskGroup` has no `init` this module can call, and its fields are not all visible here
+expr_suspend_blocking.saw	refused	typecheck slice.not-yet	`TaskGroup.spawn` is not in the bootstrap slice yet
 expr_suspend_chain_head.saw	pass	-	-
 expr_suspend_channel_recv.saw	refused	resolve import.unknown-module	no module `std.channel`
 expr_suspend_coalesce.saw	pass	-	-
@@ -1491,10 +1491,10 @@ expr_suspend_interp.saw	pass	-	-
 expr_suspend_later_hop.saw	pass	-	-
 expr_suspend_match_scrutinee.saw	pass	-	-
 expr_suspend_move_error.saw	pass	-	move.use-after: `data` is used after it may have been moved (moved at 19:5); a moved value is gone until it is assigned again
-expr_suspend_nested_blocking.saw	refused	typecheck call.no-match	`TaskGroup` has no `init` this module can call, and its fields are not all visible here
+expr_suspend_nested_blocking.saw	refused	typecheck slice.not-yet	`TaskGroup.spawn` is not in the bootstrap slice yet
 expr_suspend_nested_shortcircuit.saw	pass	-	-
-expr_suspend_optchain_assign.saw	refused	typecheck slice.not-yet	`syntax.stmt.optional-assign.plain` is not in the bootstrap slice yet
-expr_suspend_optchain_compound_assign.saw	refused	typecheck slice.not-yet	`syntax.stmt.optional-assign.compound` is not in the bootstrap slice yet
+expr_suspend_optchain_assign.saw	wrong	stdout differs	line 4: sawc2 "2", Stage 0 "1"
+expr_suspend_optchain_compound_assign.saw	wrong	stdout differs	line 4: sawc2 "2", Stage 0 "1"
 expr_suspend_optchain_hop.saw	refused	typecheck slice.not-yet	`syntax.expr.optional-member` is not in the bootstrap slice yet
 expr_suspend_optchain_multihop.saw	refused	typecheck slice.not-yet	`syntax.expr.optional-member` is not in the bootstrap slice yet
 expr_suspend_return.saw	pass	-	-
@@ -1524,7 +1524,7 @@ ext254_plain_import_no_forward_error.saw	refused	typecheck member.unknown	`modul
 extension_head_visibility_error.saw	pass	-	resolve.parse-refused: the parser refuses `tests/corpus/extension_head_visibility_error.saw` (syntax.decl.refused-visibility-prefix), so its declarations are not available
 extension_head_visibility_package_error.saw	pass	-	resolve.parse-refused: the parser refuses `tests/corpus/extension_head_visibility_package_error.saw` (syntax.decl.refused-visibility-prefix), so its declarations are not available
 extension_init.saw	pass	-	-
-extension_method_duplicate_on_imported_type_error.saw	pass	-	overload.indistinguishable: `Reading.doubled()` is already declared at 17:10 as `Reading.doubled()`, and no call could tell the two apart: overloads must differ in a parameter's label or type, or in h
+extension_method_duplicate_on_imported_type_error.saw	refused	typecheck slice.not-yet	`TaskGroup.spawn` is not in the bootstrap slice yet
 extension_method_tie_break_distinguishes_nested_module_paths.saw	refused	resolve slice.not-yet	`syntax.decl.module.inline` is not in the bootstrap slice yet
 extension_method_tie_break_distinguishes_the_entry_module.saw	refused	resolve slice.not-yet	`syntax.decl.module.inline` is not in the bootstrap slice yet
 extension_mutable.saw	pass	-	-
@@ -1586,7 +1586,7 @@ format_args_print.saw	refused	mono mono.not-yet	a synthesized `Printable.format(
 format_args_too_many_error.saw	pass	-	format.slot-count: the format string has 1 `{}` slots, and 2 arguments follow it; each slot takes one argument
 format_into_builtin_alloc_free.saw	refused	mono mono.not-yet	a synthesized `Printable.format(into: &var std.stringbuilder.StringBuilder)` on `Bool` is not in the backend slice yet: only a signed integer's `Printable.format`
 forwarding_nonescaping_ok.saw	refused	resolve slice.not-yet	`syntax.expr.shorthand-param` is not in the bootstrap slice yet
-forwarding_transfer_drops_once_driven.saw	refused	typecheck call.no-match	`TaskGroup` has no `init` this module can call, and its fields are not all visible here
+forwarding_transfer_drops_once_driven.saw	refused	typecheck slice.not-yet	`TaskGroup.spawn` is not in the bootstrap slice yet
 free_function_never_shadows_a_runtime_symbol.saw	refused	resolve import.unknown-module	no module `std.net`
 freestanding_aarch64_no_simd.saw	refused	driver driver.usage	sawc2 build takes no --freestanding
 freestanding_seams_extern_no_runtime.saw	refused	driver driver.usage	sawc2 build takes no --freestanding
@@ -1625,7 +1625,7 @@ generic_instance_associated_type_return.saw	refused	resolve name.undefined	canno
 generic_instance_const_parameter_value.saw	refused	llvm backend.not-yet	an array, a repeat, a `Map` or a `Set` literal is not in the backend slice yet
 generic_instance_constructs_type_param.saw	pass	-	-
 generic_instantiation_unsafe_signature.saw	wrong	accepts a refusal test	`idn` is not declared `unsafe`, but this instantiation's signature names a value of unsafe type (`UnsafePointer<Int8>`)
-generic_local_at_void.saw	refused	typecheck call.no-match	`TaskGroup` has no `init` this module can call, and its fields are not all visible here
+generic_local_at_void.saw	refused	typecheck slice.not-yet	`TaskGroup.spawn` is not in the bootstrap slice yet
 generic_local_move_at_void.saw	pass	-	-
 generic_method_basic.saw	refused	resolve slice.not-yet	`syntax.expr.shorthand-param` is not in the bootstrap slice yet
 generic_method_default_type_and_value_param.saw	pass	-	-
@@ -1661,7 +1661,7 @@ hello.saw	pass	-	-
 hex_binary_octal_literals.saw	pass	-	-
 if_arm_literal_out_of_range_error.saw	pass	-	type.mismatch: integer literal 300 does not fit in `Int8` (range -128..=127)
 if_let.saw	pass	-	-
-if_let_binding_released_on_early_exit.saw	refused	coro coro.not-yet	`driven_break` suspends (driven_break -> yield_now -> __saw_park_ready), so it needs a coroutine frame, and its op-budget point is not lowered yet (SL-545)
+if_let_binding_released_on_early_exit.saw	pass	-	-
 if_let_deinit_binding.saw	pass	-	-
 if_let_void_branches.saw	pass	-	-
 if_value_mismatched_width_arms.saw	pass	-	-
@@ -1690,7 +1690,7 @@ import_rename_function_positions.saw	refused	resolve import.unknown-symbol	`dump
 import_std_function_rename.saw	refused	resolve import.unknown-symbol	`dump_tasks` is not defined in `std.task`
 indexed_read_addresses_the_live_array.saw	refused	llvm backend.not-yet	a static whose value is not an integer or a Bool is not in the backend slice yet
 infer_generic_driven.saw	pass	-	-
-infer_generic_spawned.saw	refused	typecheck call.no-match	`TaskGroup` has no `init` this module can call, and its fields are not all visible here
+infer_generic_spawned.saw	refused	typecheck slice.not-yet	`TaskGroup.spawn` is not in the bootstrap slice yet
 infer_move_argument_checked_once.saw	refused	mono mono.not-yet	a synthesized `Equatable.equals(other: &Self)` on `Int` is not in the backend slice yet: only a signed integer's `Printable.format` (inside std/map.saw:232:24)
 infer_overload.saw	refused	resolve slice.not-yet	`syntax.expr.shorthand-param` is not in the bootstrap slice yet
 infer_overload_driven.saw	refused	resolve slice.not-yet	`syntax.expr.shorthand-param` is not in the bootstrap slice yet
@@ -1769,7 +1769,7 @@ lend_accessor_local.saw	pass	-	mutability.immutable: this assignment writes `bor
 lend_rooted_in_receiver.saw	refused	typecheck call.no-match	`Data` has no `init` this module can call, and its fields are not all visible here
 lend_var_both_branches.saw	refused	llvm backend.not-yet	an array, a repeat, a `Map` or a `Set` literal is not in the backend slice yet
 lend_var_conditional_lend.saw	refused	mir slice.not-yet	a `borrow` block binding a conditional lend is not lowered to MIR in the bootstrap slice yet
-lend_var_coro_and_forwarding.saw	refused	typecheck call.no-match	`TaskGroup` has no `init` this module can call, and its fields are not all visible here
+lend_var_coro_and_forwarding.saw	refused	typecheck slice.not-yet	`TaskGroup.spawn` is not in the bootstrap slice yet
 lend_var_epilogue_nesting.saw	refused	llvm backend.not-yet	an array, a repeat, a `Map` or a `Set` literal is not in the backend slice yet
 lend_var_generic_and_match.saw	refused	mir slice.not-yet	a `borrow` block binding a conditional lend is not lowered to MIR in the bootstrap slice yet
 lend_var_two_specializations.saw	refused	llvm backend.not-yet	an array, a repeat, a `Map` or a `Set` literal is not in the backend slice yet
@@ -1825,7 +1825,7 @@ map_values_nocopy_error.saw	pass	-	result.discarded: the result of `insert` is `
 match_arm_optional_wrap.saw	pass	-	-
 match_arm_overlap_legal.saw	pass	-	-
 match_bool_exhaustive.saw	pass	-	-
-match_borrowed_payload_in_a_driven_body.saw	refused	typecheck call.no-match	`TaskGroup` has no `init` this module can call, and its fields are not all visible here
+match_borrowed_payload_in_a_driven_body.saw	refused	typecheck slice.not-yet	`TaskGroup.spawn` is not in the bootstrap slice yet
 match_duplicate_arm_spellings.saw	pass	-	match.duplicate: duplicate match arm: `"build"` is already matched by the arm at line 20; the first matching arm wins, so this one can never run: delete it (overlapping ranges and guarded arms are not
 match_duplicate_enum_arm.saw	pass	-	match.duplicate: duplicate match arm: `Green` is already matched by the arm at line 24; the first matching arm wins, so this one can never run: delete it (overlapping ranges and guarded arms are not d
 match_enum_guard.saw	pass	-	-
@@ -1913,11 +1913,11 @@ move_into_function.saw	pass	-	-
 move_out_then_reassign.saw	pass	-	-
 move_whole_binding.saw	pass	-	-
 moved_variables_per_function_reset.saw	refused	resolve name.undefined	cannot find `Arc` in scope
-mutex_basic.saw	refused	resolve import.unknown-module	no module `std.mutex`
-mutex_counter.saw	refused	resolve import.unknown-module	no module `std.mutex`
-mutex_lock_result.saw	refused	resolve import.unknown-module	no module `std.mutex`
-mutex_static_contention_mt.saw	refused	resolve import.unknown-module	no module `std.mutex`
-mutex_static_inline.saw	refused	resolve import.unknown-module	no module `std.mutex`
+mutex_basic.saw	refused	mono mono.not-yet	a synthesized `ExplicitCopy.copy()` on `Int` is not in the backend slice yet: only a signed integer's `Printable.format` (inside std/mutex.saw:81:24)
+mutex_counter.saw	refused	resolve name.undefined	cannot find `Arc` in scope
+mutex_lock_result.saw	refused	resolve name.undefined	cannot find `Arc` in scope
+mutex_static_contention_mt.saw	refused	resolve slice.not-yet	the `Thread.spawn` form is not in the bootstrap slice yet
+mutex_static_inline.saw	refused	mono mono.not-yet	a synthesized `ExplicitCopy.copy()` on `Int` is not in the backend slice yet: only a signed integer's `Printable.format` (inside std/mutex.saw:81:24)
 named_tuple_basic.saw	refused	typecheck subscript.role	`(x: Int, y: Int)` declares no subscript `[]`, so it has no getitem, setitem or place accessor
 named_tuple_different_names_error.saw	pass	-	type.mismatch: expected `(x: Int, y: Int)`, the type of the annotated binding, and found `(a: Int, b: Int)`
 named_tuple_equality.saw	pass	-	-
@@ -2005,27 +2005,27 @@ nomove_placement_into_its_home.saw	refused	resolve slice.not-yet	the compiler in
 nomove_tier.saw	refused	typecheck slice.not-yet	a method `Box` forwards to its payload is not in the bootstrap slice yet
 none_return_test.saw	pass	-	-
 number_literal_member_access.saw	refused	mono mono.not-yet	a synthesized `Printable.format(into: &var std.stringbuilder.StringBuilder)` on `Float` is not in the backend slice yet: only a signed integer's `Printable.format` (inside std/prelude.saw:150:9)
-offload_cancel_multi_arg.saw	refused	typecheck call.no-match	`TaskGroup` has no `init` this module can call, and its fields are not all visible here
-offload_cancel_parked.saw	refused	typecheck call.no-match	`TaskGroup` has no `init` this module can call, and its fields are not all visible here
-offload_multi_arg_pipe_read.saw	refused	typecheck call.no-match	`TaskGroup` has no `init` this module can call, and its fields are not all visible here
-offload_pointer_heap_arg.saw	refused	typecheck call.no-match	`TaskGroup` has no `init` this module can call, and its fields are not all visible here
+offload_cancel_multi_arg.saw	refused	typecheck slice.not-yet	`TaskGroup.spawn` is not in the bootstrap slice yet
+offload_cancel_parked.saw	refused	typecheck slice.not-yet	`TaskGroup.spawn` is not in the bootstrap slice yet
+offload_multi_arg_pipe_read.saw	refused	typecheck slice.not-yet	`TaskGroup.spawn` is not in the bootstrap slice yet
+offload_pointer_heap_arg.saw	refused	typecheck slice.not-yet	`TaskGroup.spawn` is not in the bootstrap slice yet
 offload_seam_first_tick.saw	refused	resolve import.unknown-module	no module `std.time`
-offload_signature_shapes.saw	refused	typecheck call.no-match	`TaskGroup` has no `init` this module can call, and its fields are not all visible here
-offload_spawn_interleave.saw	refused	typecheck call.no-match	`TaskGroup` has no `init` this module can call, and its fields are not all visible here
-once_cross_thread_publish.saw	refused	resolve import.unknown-module	no module `std.once`
-once_double_set_panic.saw	refused	resolve import.unknown-module	no module `std.once`
-once_get_before_set_panic.saw	refused	resolve import.unknown-module	no module `std.once`
-once_static_set_get.saw	refused	resolve import.unknown-module	no module `std.once`
+offload_signature_shapes.saw	refused	typecheck slice.not-yet	`TaskGroup.spawn` is not in the bootstrap slice yet
+offload_spawn_interleave.saw	refused	typecheck slice.not-yet	`TaskGroup.spawn` is not in the bootstrap slice yet
+once_cross_thread_publish.saw	refused	resolve slice.not-yet	the `Thread.spawn` form is not in the bootstrap slice yet
+once_double_set_panic.saw	refused	mono mono.not-yet	a synthesized `ExplicitCopy.copy()` on `Int` is not in the backend slice yet: only a signed integer's `Printable.format` (inside std/once.saw:96:9)
+once_get_before_set_panic.saw	refused	mono mono.not-yet	a synthesized `ExplicitCopy.copy()` on `Int` is not in the backend slice yet: only a signed integer's `Printable.format` (inside std/once.saw:96:9)
+once_static_set_get.saw	refused	mono mono.not-yet	a call of `ExplicitCopy.copy()` on `once_static_set_get.Limits`, which no conformance of it meets, is not in the backend slice yet (inside std/once.saw:104:9)
 optimization_level_o0_preserves_semantics.saw	refused	typecheck infer.failed	this closure parameter has no type: write one, as `x: Int`, or pass the closure where a function type is expected
 optimization_level_o2_preserves_semantics.saw	refused	typecheck infer.failed	this closure parameter has no type: write one, as `x: Int`, or pass the closure where a function type is expected
 optimization_level_os_preserves_semantics.saw	refused	typecheck infer.failed	this closure parameter has no type: write one, as `x: Int`, or pass the closure where a function type is expected
 optimization_level_oz_preserves_semantics.saw	refused	typecheck infer.failed	this closure parameter has no type: write one, as `x: Int`, or pass the closure where a function type is expected
 optional_binding_underscore.saw	pass	-	-
-optional_chain_assign.saw	refused	typecheck slice.not-yet	`syntax.stmt.binding-subject.chain-assign` is not in the bootstrap slice yet
-optional_chain_assign_deinit.saw	refused	typecheck slice.not-yet	`syntax.stmt.optional-assign.plain` is not in the bootstrap slice yet
-optional_chain_assign_move.saw	refused	typecheck slice.not-yet	`syntax.stmt.optional-assign.plain` is not in the bootstrap slice yet
+optional_chain_assign.saw	wrong	stdout differs	line 3: sawc2 "1", Stage 0 "0"
+optional_chain_assign_deinit.saw	wrong	stdout differs	line 3: sawc2 "2", Stage 0 "1"
+optional_chain_assign_move.saw	pass	-	-
 optional_chain_compose.saw	refused	typecheck slice.not-yet	`syntax.expr.optional-member` is not in the bootstrap slice yet
-optional_chain_compound_assign.saw	refused	typecheck slice.not-yet	`syntax.stmt.binding-subject.chain-assign` is not in the bootstrap slice yet
+optional_chain_compound_assign.saw	refused	typecheck mutability.immutable	this compound assignment writes `scores.find(&"a")?.x`, and `scores.find(&"a")` lends a read-only place (`-> &T`): declare the accessor `-> &var T` to lend a writable one
 optional_chain_deinit_once.saw	refused	typecheck slice.not-yet	`syntax.expr.optional-member` is not in the bootstrap slice yet
 optional_chain_methods.saw	refused	typecheck slice.not-yet	`syntax.expr.optional-member` is not in the bootstrap slice yet
 optional_chain_multihop.saw	refused	typecheck slice.not-yet	`syntax.expr.optional-member` is not in the bootstrap slice yet
@@ -2037,7 +2037,7 @@ optional_explicit_copy_deep.saw	refused	mono mono.not-yet	the builtin `copy` is 
 optional_explicit_read_hints_error.saw	pass	-	transfer.implicit-copy: this reads a place of type `std.vector.Vector<Int, std.alloc.GlobalAllocator>?`, which is ExplicitCopy, by value: only a Copy type copies silently; write `move o` to take it, `
 optional_field_store_retain.saw	pass	-	-
 optional_force_unwrap_field_store.saw	pass	-	-
-optional_generic_chain_assign_place_head.saw	refused	typecheck slice.not-yet	`syntax.stmt.optional-assign.borrow-plain` is not in the bootstrap slice yet
+optional_generic_chain_assign_place_head.saw	refused	typecheck mutability.immutable	this assignment writes `m.find(&"x")?.value`, and `m.find(&"x")` lends a read-only place (`-> &T`): declare the accessor `-> &var T` to lend a writable one
 optional_generic_concurrency.saw	refused	resolve import.unknown-module	no module `std.channel`
 optional_generic_hashable_keys.saw	refused	mono mono.not-yet	a synthesized `Printable.format(into: &var std.stringbuilder.StringBuilder)` on `Bool` is not in the backend slice yet: only a signed integer's `Printable.format`
 optional_generic_infer_later_arg.saw	pass	-	-
@@ -2053,7 +2053,7 @@ optional_generic_none_map_literal.saw	refused	mono mono.not-yet	a fixed array, a
 optional_generic_ownership.saw	pass	-	-
 optional_generic_place_assign.saw	pass	-	-
 optional_generic_return_tail.saw	pass	-	-
-optional_generic_spawn_result.saw	refused	typecheck call.no-match	`TaskGroup` has no `init` this module can call, and its fields are not all visible here
+optional_generic_spawn_result.saw	refused	typecheck slice.not-yet	`TaskGroup.spawn` is not in the bootstrap slice yet
 optional_generic_traits_result.saw	refused	mono mono.not-yet	a synthesized `Printable.format(into: &var std.stringbuilder.StringBuilder)` on `Bool` is not in the backend slice yet: only a signed integer's `Printable.format`
 optional_generic_vector.saw	refused	typecheck member.unknown	`std.vector.Vector<Int?, std.alloc.GlobalAllocator>` has no method `swap_out` this module can see
 optional_guard_let_payload_read.saw	pass	-	-
@@ -2117,7 +2117,7 @@ parse_recovery_two_errors.saw	pass	-	resolve.parse-refused: the parser refuses `
 path_simple.saw	refused	typecheck member.unknown	`std.path.Path` has no method `as_str` this module can see
 payload_derived_binding_fills_default_type_args.saw	refused	typecheck infer.failed	this closure parameter has no type: write one, as `x: Int`, or pass the closure where a function type is expected
 place_abstract_value_read.saw	pass	-	-
-place_assignment_targets.saw	refused	typecheck slice.not-yet	`syntax.stmt.optional-assign.borrow-plain` is not in the bootstrap slice yet
+place_assignment_targets.saw	refused	typecheck subscript.role	this subscript is used as a writable place: its `[]` lends read-only (`std.map.Map<String, Int, std.alloc.GlobalAllocator>` declares or derives no such role)
 place_comparison_operand_is_a_borrow.saw	refused	mono mono.not-yet	a synthesized `Printable.format(into: &var std.stringbuilder.StringBuilder)` on `Bool` is not in the backend slice yet: only a signed integer's `Printable.format`
 place_conditional_lend_uses.saw	refused	llvm backend.not-yet	an array, a repeat, a `Map` or a `Set` literal is not in the backend slice yet
 place_cross_module_same_name_type.saw	refused	llvm backend.not-yet	a conditional borrow is not in the backend slice yet
@@ -2132,7 +2132,7 @@ place_rendered_frame_local_migrates.saw	refused	mono mono.not-yet	a call of `Pri
 place_rendering_operand_is_a_borrow.saw	pass	-	-
 place_shared_accessor_flavors.saw	refused	llvm backend.not-yet	an array, a repeat, a `Map` or a `Set` literal is not in the backend slice yet
 place_shared_window_readonly.saw	refused	llvm backend.not-yet	an array, a repeat, a `Map` or a `Set` literal is not in the backend slice yet
-place_two_windows_one_nocopy_root.saw	refused	typecheck slice.not-yet	`syntax.stmt.optional-assign.borrow-plain` is not in the bootstrap slice yet
+place_two_windows_one_nocopy_root.saw	refused	typecheck subscript.role	this subscript is used as a writable place: its `[]` lends read-only (`std.map.Map<String, Int, std.alloc.GlobalAllocator>` declares or derives no such role)
 place_use_sites.saw	refused	llvm backend.not-yet	an array, a repeat, a `Map` or a `Set` literal is not in the backend slice yet
 place_value_read_retain_oracle.saw	pass	-	-
 place_window_borrows_enclosing_locals.saw	pass	-	-
@@ -2140,7 +2140,7 @@ place_window_exclusivity.saw	pass	-	loan.window-root: `p` is borrowed exclusivel
 place_window_exclusivity_boundary.saw	refused	typecheck call.no-match	`Data` has no `init` this module can call, and its fields are not all visible here
 place_window_move_arg_consumes_local.saw	refused	resolve import.unknown-module	no module `std.compiler.frame`
 place_window_nested_writes_land.saw	pass	-	-
-place_window_root_read_in_assignment_rhs.saw	refused	typecheck slice.not-yet	`syntax.stmt.optional-assign.borrow-plain` is not in the bootstrap slice yet
+place_window_root_read_in_assignment_rhs.saw	refused	typecheck mutability.immutable	this assignment writes `m.find(&"a")?.n`, and `m.find(&"a")` lends a read-only place (`-> &T`): declare the accessor `-> &var T` to lend a writable one
 place_write_self_rhs.saw	pass	-	-
 plain_type_generic_method.saw	pass	-	-
 pointer_prefix_deref.saw	refused	typecheck slice.not-yet	`syntax.expr.move-deref.name` is not in the bootstrap slice yet
@@ -2171,7 +2171,7 @@ qualified_type_declaration_slots.saw	refused	typecheck slice.not-yet	`syntax.exp
 qualified_type_in_declaration_slot.saw	refused	typecheck call.no-match	`Data` has no `init` this module can call, and its fields are not all visible here
 range_inclusive_basics.saw	refused	typecheck slice.not-yet	`syntax.stmt.break` is not in the bootstrap slice yet
 range_inclusive_intmax.saw	pass	-	-
-reactor_cross_thread_wake.saw	refused	resolve import.unknown-module	no module `std.mutex`
+reactor_cross_thread_wake.saw	refused	resolve import.unknown-module	no module `std.time`
 receiver_temporary_evaluated_once.saw	refused	llvm backend.not-yet	a static whose value is not an integer or a Bool is not in the backend slice yet
 recursive_enum_built_in_a_task.saw	refused	typecheck infer.failed	this closure parameter has no type: write one, as `x: Int`, or pass the closure where a function type is expected
 recursive_enum_inline_payload_refused.saw	pass	-	type.infinite-size: recursive type `Tree` has infinite size: its storage contains its own storage inline, through Tree.Node -> Tree; hold the recursive member behind a heap indirection, such as `Box`
@@ -2191,13 +2191,13 @@ reexport_import_error.saw	pass	-	import.not-reexported: `utils` is imported by `
 reexport_private_module_error.saw	refused	resolve slice.not-yet	`syntax.decl.module.inline` is not in the bootstrap slice yet
 reexport_public_module.saw	refused	resolve slice.not-yet	`syntax.decl.module.inline` is not in the bootstrap slice yet
 ref_forwarding.saw	pass	-	-
-ref_forwarding_suspend.saw	refused	typecheck call.no-match	`TaskGroup` has no `init` this module can call, and its fields are not all visible here
-ref_forwarding_suspend_nested.saw	refused	typecheck call.no-match	`TaskGroup` has no `init` this module can call, and its fields are not all visible here
+ref_forwarding_suspend.saw	refused	typecheck slice.not-yet	`TaskGroup.spawn` is not in the bootstrap slice yet
+ref_forwarding_suspend_nested.saw	refused	typecheck slice.not-yet	`TaskGroup.spawn` is not in the bootstrap slice yet
 ref_into_array_element_addresses_real_storage.saw	refused	llvm backend.not-yet	an array, a repeat, a `Map` or a `Set` literal is not in the backend slice yet
 ref_no_escape_alias_boundary.saw	pass	-	-
 ref_parameter_positions.saw	pass	-	-
 ref_pointer_cast_blessed.saw	refused	mono mono.not-yet	a synthesized `Printable.format(into: &var std.stringbuilder.StringBuilder)` on `Bool` is not in the backend slice yet: only a signed integer's `Printable.format`
-ref_replace_across_suspend.saw	refused	typecheck call.no-match	`TaskGroup` has no `init` this module can call, and its fields are not all visible here
+ref_replace_across_suspend.saw	refused	typecheck slice.not-yet	`TaskGroup.spawn` is not in the bootstrap slice yet
 ref_replace_bare_trait_error.saw	pass	-	type.not-a-type: `Shape` is a trait; a type position names it as `any Shape`
 ref_replace_bare_trait_shared_error.saw	pass	-	type.not-a-type: `Shape` is a trait; a type position names it as `any Shape`
 ref_replace_box_swap.saw	refused	typecheck slice.not-yet	`Box<any Trait>.make` is not in the bootstrap slice yet
@@ -2229,15 +2229,15 @@ resolve_seam_offloads.saw	refused	typecheck slice.not-yet	a constant argument na
 result_autowrap_final.saw	pass	-	-
 result_basic.saw	pass	-	-
 result_discard_erased_error.saw	pass	-	result.discarded: the result of `append` is `Result<Void, std.alloc.AllocError>` and is silently discarded: handle it (`match` it, `try` or `try!` it, or return it), or write `let _ = ...` to discard
-result_discard_legal.saw	refused	typecheck slice.not-yet	`syntax.stmt.optional-assign.plain` is not in the bootstrap slice yet
+result_discard_legal.saw	refused	mono mono.not-yet	a fixed array, a repeat, a `Map` or a `Set` literal is not in the backend slice yet
 result_discard_match_arm_error.saw	pass	-	result.discarded: the result of `append` is `Result<Void, std.alloc.AllocError>` and is silently discarded: handle it (`match` it, `try` or `try!` it, or return it), or write `let _ = ...` to discard
 result_discard_positions_error.saw	pass	-	result.discarded: the result of `append` is `Result<Void, std.alloc.AllocError>` and is silently discarded: handle it (`match` it, `try` or `try!` it, or return it), or write `let _ = ...` to discard
 result_discard_statement_error.saw	pass	-	result.discarded: the result of `append` is `Result<Void, std.alloc.AllocError>` and is silently discarded: handle it (`match` it, `try` or `try!` it, or return it), or write `let _ = ...` to discard
 result_discard_suspending_error.saw	pass	-	result.discarded: the result of `append` is `Result<Void, std.alloc.AllocError>` and is silently discarded: handle it (`match` it, `try` or `try!` it, or return it), or write `let _ = ...` to discard
 result_discard_try_payload_error.saw	pass	-	result.discarded: the result of `append` is `Result<Void, std.alloc.AllocError>` and is silently discarded: handle it (`match` it, `try` or `try!` it, or return it), or write `let _ = ...` to discard
 result_generic_same_type_instantiation.saw	pass	-	-
-result_optional_none_survives_the_transform.saw	refused	typecheck call.no-match	`TaskGroup` has no `init` this module can call, and its fields are not all visible here
-result_optional_none_tail_types_itself.saw	refused	typecheck call.no-match	`TaskGroup` has no `init` this module can call, and its fields are not all visible here
+result_optional_none_survives_the_transform.saw	refused	typecheck slice.not-yet	`TaskGroup.spawn` is not in the bootstrap slice yet
+result_optional_none_tail_types_itself.saw	refused	typecheck slice.not-yet	`TaskGroup.spawn` is not in the bootstrap slice yet
 result_optional_payload_owes_one_wrap.saw	pass	-	-
 result_same_type.saw	pass	-	-
 result_same_type_ambiguous_error.saw	pass	-	type.ambiguous-result: both payloads of `Result<Int, Int>` can take this value, so it names neither: write `.Ok(value: ...)` or `.Err(error: ...)`
@@ -2261,7 +2261,7 @@ self_type_generic_extension_positions.saw	refused	typecheck slice.not-yet	`synta
 self_type_in_extension_parameter.saw	pass	-	-
 self_type_in_generic_extension.saw	pass	-	-
 self_type_signature_positions.saw	refused	typecheck slice.not-yet	`syntax.expr.optional-member` is not in the bootstrap slice yet
-semicolon_joins_statements_on_one_line.saw	refused	typecheck slice.not-yet	`syntax.expr.try-block` is not in the bootstrap slice yet
+semicolon_joins_statements_on_one_line.saw	refused	mono mono.not-yet	the builtin `len` is not in the backend slice yet
 send_sync_bounds.saw	refused	llvm backend.not-yet	a Float constant, `3.0`, is not in the backend slice yet
 serde169_derived.saw	refused	resolve name.undefined	cannot find `Serialize` in scope
 serde169_hand_written.saw	refused	resolve name.undefined	cannot find `Serialize` in scope
@@ -2289,12 +2289,12 @@ shadow255_prelude_name_reserved_error.saw	pass	-	name.reserved: `Duration` is a 
 shadow255_qualified_escape.saw	refused	resolve import.unknown-symbol	`Thread` is not defined in `std.task`
 shadow255_selective_import.saw	pass	-	-
 shadow255_two_imports_ambiguous_error.saw	pass	-	name.ambiguous: ambiguous `Widget`: two imports bind it to different declarations; qualify the use, or import it from a single module
-shadow_derived.saw	refused	mono mono.not-yet	a synthesized `ExplicitCopy.copy()` on `Int` is not in the backend slice yet: only a signed integer's `Printable.format` (inside std/vector.saw:220:35)
+shadow_derived.saw	refused	mono mono.not-yet	a synthesized `ExplicitCopy.copy()` on `Int` is not in the backend slice yet: only a signed integer's `Printable.format` (inside std/vector.saw:227:35)
 shadow_for_derived.saw	refused	typecheck member.unknown	`std.vector.Vector<Int, std.alloc.GlobalAllocator>` has no method `iter` this module can see
-shadow_owning_lifetime.saw	refused	mono mono.not-yet	a synthesized `ExplicitCopy.copy()` on `Int` is not in the backend slice yet: only a signed integer's `Printable.format` (inside std/vector.saw:220:35)
+shadow_owning_lifetime.saw	refused	mono mono.not-yet	a synthesized `ExplicitCopy.copy()` on `Int` is not in the backend slice yet: only a signed integer's `Printable.format` (inside std/vector.saw:227:35)
 shadow_redef_nested_owning.saw	wrong	stdout differs	line 1: sawc2 "mid 2001", Stage 0 "deinit 1001"
 shadow_redef_same_scope.saw	refused	resolve slice.not-yet	`syntax.expr.shorthand-param` is not in the bootstrap slice yet
-shared_self_field_call_exemption.saw	refused	resolve import.unknown-module	no module `std.spinlock`
+shared_self_field_call_exemption.saw	refused	mono mono.not-yet	a synthesized `Printable.format(into: &var std.stringbuilder.StringBuilder)` on `Bool` is not in the backend slice yet: only a signed integer's `Printable.format`
 shared_self_write_alternatives.saw	pass	-	-
 shift_negative_panic.saw	pass	-	-
 shift_out_of_range_panic.saw	pass	-	-
@@ -2308,25 +2308,25 @@ sleep_seam_multi_chunk.saw	refused	resolve import.unknown-module	no module `std.
 slot_all_four_tiers.saw	refused	resolve import.unknown-module	no module `std.compiler.frame`
 slot_optional_payload.saw	refused	resolve import.unknown-module	no module `std.compiler.frame`
 source_location_literals.saw	refused	llvm backend.not-yet	a memory constant is not in the backend slice yet
-source_location_suspending.saw	refused	typecheck call.no-match	`TaskGroup` has no `init` this module can call, and its fields are not all visible here
-spawn_body_destructuring_let.saw	refused	typecheck call.no-match	`TaskGroup` has no `init` this module can call, and its fields are not all visible here
+source_location_suspending.saw	refused	typecheck slice.not-yet	`TaskGroup.spawn` is not in the bootstrap slice yet
+spawn_body_destructuring_let.saw	refused	typecheck slice.not-yet	`TaskGroup.spawn` is not in the bootstrap slice yet
 spawn_body_same_scope_redefinition.saw	refused	resolve name.undefined	cannot find `Arc` in scope
-spawn_capture_after_group.saw	pass	-	call.no-match: `TaskGroup` has no `init` this module can call, and its fields are not all visible here
-spawn_capture_alias.saw	pass	-	call.no-match: `TaskGroup` has no `init` this module can call, and its fields are not all visible here
-spawn_capture_caller_alias.saw	pass	-	call.no-match: `TaskGroup` has no `init` this module can call, and its fields are not all visible here
-spawn_capture_declared_before.saw	refused	typecheck call.no-match	`TaskGroup` has no `init` this module can call, and its fields are not all visible here
-spawn_capture_join_releases.saw	refused	typecheck call.no-match	`TaskGroup` has no `init` this module can call, and its fields are not all visible here
-spawn_capture_move_root.saw	pass	-	call.no-match: `TaskGroup` has no `init` this module can call, and its fields are not all visible here
+spawn_capture_after_group.saw	refused	typecheck slice.not-yet	`TaskGroup.spawn` is not in the bootstrap slice yet
+spawn_capture_alias.saw	refused	typecheck slice.not-yet	`TaskGroup.spawn` is not in the bootstrap slice yet
+spawn_capture_caller_alias.saw	refused	typecheck slice.not-yet	`TaskGroup.spawn` is not in the bootstrap slice yet
+spawn_capture_declared_before.saw	refused	typecheck slice.not-yet	`TaskGroup.spawn` is not in the bootstrap slice yet
+spawn_capture_join_releases.saw	refused	typecheck slice.not-yet	`TaskGroup.spawn` is not in the bootstrap slice yet
+spawn_capture_move_root.saw	refused	typecheck slice.not-yet	`TaskGroup.spawn` is not in the bootstrap slice yet
 spawn_join.saw	refused	resolve slice.not-yet	the `Thread.spawn` form is not in the bootstrap slice yet
 spawn_multi.saw	refused	resolve slice.not-yet	the `Thread.spawn` form is not in the bootstrap slice yet
-spawn_optional_result.saw	refused	typecheck call.no-match	`TaskGroup` has no `init` this module can call, and its fields are not all visible here
-spawn_ref_param_dual_role_and_cancel.saw	refused	typecheck call.no-match	`TaskGroup` has no `init` this module can call, and its fields are not all visible here
-spawn_ref_param_referent_deinit_once.saw	refused	typecheck call.no-match	`TaskGroup` has no `init` this module can call, and its fields are not all visible here
+spawn_optional_result.saw	refused	typecheck slice.not-yet	`TaskGroup.spawn` is not in the bootstrap slice yet
+spawn_ref_param_dual_role_and_cancel.saw	refused	typecheck slice.not-yet	`TaskGroup.spawn` is not in the bootstrap slice yet
+spawn_ref_param_referent_deinit_once.saw	refused	typecheck slice.not-yet	`TaskGroup.spawn` is not in the bootstrap slice yet
 spawn_void_body.saw	refused	resolve slice.not-yet	the `Thread.spawn` form is not in the bootstrap slice yet
 spawned_task_runs_before_reactor_park.saw	refused	resolve import.unknown-module	no module `std.net`
-spinlock_basic.saw	refused	resolve import.unknown-module	no module `std.spinlock`
-spinlock_contention_mt.saw	refused	resolve import.unknown-module	no module `std.spinlock`
-spinlock_import_gate.saw	refused	resolve name.undefined	cannot find `SpinLock` in scope
+spinlock_basic.saw	refused	typecheck call.arity	too many arguments: SpinLock.lock() [std.spinlock] takes 0
+spinlock_contention_mt.saw	refused	typecheck call.label	no parameter is labeled `threads` in TaskGroup.init() [std.taskgroup]
+spinlock_import_gate.saw	pass	-	name.not-in-prelude: `SpinLock` is not in the prelude and must be imported: `import std.spinlock.{SpinLock}` selects it
 spinlock_no_hidden_alloc.saw	refused	driver driver.usage	sawc2 build takes no --no-hidden-alloc
 static236_declared_static.saw	pass	-	-
 static236_module_level_funcs_untouched.saw	pass	-	-
@@ -2394,72 +2394,72 @@ struct_field_deinit.saw	pass	-	-
 struct_field_deinit_nested.saw	pass	-	-
 struct_fixed_width_field_literals.saw	pass	-	-
 struct_fixed_width_field_out_of_range_error.saw	pass	-	type.mismatch: integer literal 999 does not fit in `Int8` (range -128..=127)
-struct_init_destination_semantics.saw	refused	typecheck slice.not-yet	`syntax.stmt.optional-assign.plain` is not in the bootstrap slice yet
-struct_init_ownership_and_failure.saw	refused	typecheck slice.not-yet	`syntax.stmt.optional-assign.plain` is not in the bootstrap slice yet
+struct_init_destination_semantics.saw	refused	mono mono.not-yet	a synthesized `Printable.format(into: &var std.stringbuilder.StringBuilder)` on `UInt16` is not in the backend slice yet: only a signed integer's `Printable.format`
+struct_init_ownership_and_failure.saw	refused	typecheck transfer.implicit-copy	a repeat literal needs a freely copyable element, and `struct_init_ownership_and_failure.Resource` is NoCopy: write the elements out, or build the array from a Copy value
 struct_optional_cascade_error.saw	pass	-	copy.undeclared-policy: `Keeper` holds `Keeper.handle` of type `std.file.File?`, which is NoCopy, so it declares its own policy: `extension Keeper: NoCopy {}`, or `@synthesize` an ExplicitCopy
 struct_string_field_release.saw	pass	-	-
 structs.saw	pass	-	-
 structs_advanced.saw	pass	-	-
 suspend_intrinsic.saw	pass	-	-
-suspending_binding_scrutinee_propagates_a_try.saw	refused	typecheck call.no-match	`TaskGroup` has no `init` this module can call, and its fields are not all visible here
-suspending_return_propagates_a_try.saw	refused	typecheck call.no-match	`TaskGroup` has no `init` this module can call, and its fields are not all visible here
+suspending_binding_scrutinee_propagates_a_try.saw	refused	typecheck slice.not-yet	`TaskGroup.spawn` is not in the bootstrap slice yet
+suspending_return_propagates_a_try.saw	refused	typecheck slice.not-yet	`TaskGroup.spawn` is not in the bootstrap slice yet
 sync_call_temp_released_once.saw	pass	-	-
 sync_extension_method_pure.saw	pass	-	-
-sync_mutex_pure_closure.saw	refused	resolve import.unknown-module	no module `std.mutex`
+sync_mutex_pure_closure.saw	refused	mono mono.not-yet	a synthesized `ExplicitCopy.copy()` on `Int` is not in the backend slice yet: only a signed integer's `Printable.format` (inside std/mutex.saw:81:24)
 sync_pure_chain.saw	pass	-	-
 sync_suspending_mainline.saw	pass	-	-
-synthesize_across_coro_reentry.saw	refused	typecheck call.no-match	`TaskGroup` has no `init` this module can call, and its fields are not all visible here
+synthesize_across_coro_reentry.saw	refused	typecheck slice.not-yet	`TaskGroup.spawn` is not in the bootstrap slice yet
 synthesize_auto_conformance_unmarked.saw	refused	mono mono.not-yet	a fixed array, a repeat, a `Map` or a `Set` literal is not in the backend slice yet
 synthesize_explicit_copy_holder.saw	refused	mono mono.not-yet	a synthesized `ExplicitCopy.copy()` on `synthesize_explicit_copy_holder.Holder` is not in the backend slice yet: only a signed integer's `Printable.format`
 task_backtrace_churn.saw	refused	resolve name.undefined	cannot find `dump_tasks` in scope
 task_backtrace_mt.saw	refused	resolve import.unknown-module	no module `std.channel`
 task_backtrace_nest.saw	refused	resolve import.unknown-symbol	`dump_tasks` is not defined in `std.task`
-task_backtrace_panic.saw	refused	typecheck call.no-match	`TaskGroup` has no `init` this module can call, and its fields are not all visible here
+task_backtrace_panic.saw	refused	typecheck slice.not-yet	`TaskGroup.spawn` is not in the bootstrap slice yet
 taskgroup_budget_loop_semantics.saw	refused	typecheck member.unknown	`std.vector.Vector<Int, std.alloc.GlobalAllocator>` has no method `iter` this module can see
-taskgroup_cancel_check.saw	refused	typecheck call.no-match	`TaskGroup` has no `init` this module can call, and its fields are not all visible here
+taskgroup_cancel_check.saw	refused	typecheck slice.not-yet	`TaskGroup.spawn` is not in the bootstrap slice yet
 taskgroup_cancel_during_sleep.saw	refused	resolve import.unknown-module	no module `std.time`
 taskgroup_cancel_receive.saw	refused	resolve import.unknown-module	no module `std.channel`
-taskgroup_compute_preemption.saw	refused	typecheck call.no-match	`TaskGroup` has no `init` this module can call, and its fields are not all visible here
-taskgroup_compute_preemption_mt.saw	refused	typecheck call.no-match	`TaskGroup` has no `init` this module can call, and its fields are not all visible here
-taskgroup_compute_preemption_unbounded.saw	refused	resolve import.unknown-module	no module `std.mutex`
-taskgroup_eager_teardown.saw	refused	typecheck call.no-match	`TaskGroup` has no `init` this module can call, and its fields are not all visible here
-taskgroup_eager_teardown_live_count.saw	refused	typecheck call.no-match	`TaskGroup` has no `init` this module can call, and its fields are not all visible here
-taskgroup_eager_teardown_mt.saw	refused	typecheck call.no-match	`TaskGroup` has no `init` this module can call, and its fields are not all visible here
-taskgroup_in_suspending_fn.saw	refused	typecheck call.no-match	`TaskGroup` has no `init` this module can call, and its fields are not all visible here
-taskgroup_join_typed.saw	refused	typecheck call.no-match	`TaskGroup` has no `init` this module can call, and its fields are not all visible here
-taskgroup_move_live.saw	refused	typecheck member.unknown	`std.taskgroup.TaskGroup` has no method `count` this module can see
-taskgroup_mt_join_then_respawn.saw	refused	typecheck call.no-match	`TaskGroup` has no `init` this module can call, and its fields are not all visible here
+taskgroup_compute_preemption.saw	refused	typecheck slice.not-yet	`TaskGroup.spawn` is not in the bootstrap slice yet
+taskgroup_compute_preemption_mt.saw	refused	typecheck call.label	no parameter is labeled `threads` in TaskGroup.init() [std.taskgroup]
+taskgroup_compute_preemption_unbounded.saw	refused	resolve name.undefined	cannot find `Arc` in scope
+taskgroup_eager_teardown.saw	refused	typecheck slice.not-yet	`TaskGroup.spawn` is not in the bootstrap slice yet
+taskgroup_eager_teardown_live_count.saw	refused	typecheck slice.not-yet	`TaskGroup.spawn` is not in the bootstrap slice yet
+taskgroup_eager_teardown_mt.saw	refused	typecheck call.label	no parameter is labeled `threads` in TaskGroup.init() [std.taskgroup]
+taskgroup_in_suspending_fn.saw	refused	typecheck slice.not-yet	`TaskGroup.spawn` is not in the bootstrap slice yet
+taskgroup_join_typed.saw	refused	typecheck slice.not-yet	`TaskGroup.spawn` is not in the bootstrap slice yet
+taskgroup_move_live.saw	refused	typecheck slice.not-yet	`TaskGroup.spawn` is not in the bootstrap slice yet
+taskgroup_mt_join_then_respawn.saw	refused	typecheck call.label	no parameter is labeled `threads` in TaskGroup.init() [std.taskgroup]
 taskgroup_mt_live_pool_soak.saw	refused	resolve import.unknown-module	no module `std.channel`
-taskgroup_nested_ambient.saw	refused	typecheck call.no-match	`TaskGroup` has no `init` this module can call, and its fields are not all visible here
-taskgroup_nested_groups.saw	refused	typecheck call.no-match	`TaskGroup` has no `init` this module can call, and its fields are not all visible here
+taskgroup_nested_ambient.saw	refused	typecheck slice.not-yet	`TaskGroup.spawn` is not in the bootstrap slice yet
+taskgroup_nested_groups.saw	refused	typecheck slice.not-yet	`TaskGroup.spawn` is not in the bootstrap slice yet
 taskgroup_producer_consumer.saw	refused	resolve import.unknown-module	no module `std.channel`
-taskgroup_result_joined_once.saw	refused	typecheck call.no-match	`TaskGroup` has no `init` this module can call, and its fields are not all visible here
-taskgroup_result_unjoined_once.saw	refused	typecheck call.no-match	`TaskGroup` has no `init` this module can call, and its fields are not all visible here
+taskgroup_result_joined_once.saw	refused	typecheck slice.not-yet	`TaskGroup.spawn` is not in the bootstrap slice yet
+taskgroup_result_unjoined_once.saw	refused	typecheck slice.not-yet	`TaskGroup.spawn` is not in the bootstrap slice yet
 taskgroup_send_containers.saw	refused	typecheck member.unknown	`std.data.Data` has no method `len` this module can see
-taskgroup_sleep_ordering.saw	refused	typecheck call.no-match	`TaskGroup` has no `init` this module can call, and its fields are not all visible here
-taskgroup_slot_reuse_mt.saw	refused	typecheck call.no-match	`TaskGroup` has no `init` this module can call, and its fields are not all visible here
-taskgroup_slot_reuse_o_live.saw	refused	typecheck call.no-match	`TaskGroup` has no `init` this module can call, and its fields are not all visible here
-taskgroup_spawn_and_loop.saw	refused	typecheck call.no-match	`TaskGroup` has no `init` this module can call, and its fields are not all visible here
-taskgroup_spawn_generic.saw	refused	typecheck call.no-match	`TaskGroup` has no `init` this module can call, and its fields are not all visible here
-taskgroup_spawn_void.saw	refused	typecheck call.no-match	`TaskGroup` has no `init` this module can call, and its fields are not all visible here
-taskgroup_stale_handle_cancel.saw	refused	typecheck call.no-match	`TaskGroup` has no `init` this module can call, and its fields are not all visible here
-taskgroup_stale_handle_join.saw	refused	typecheck call.no-match	`TaskGroup` has no `init` this module can call, and its fields are not all visible here
-taskgroup_structured_join.saw	refused	typecheck call.no-match	`TaskGroup` has no `init` this module can call, and its fields are not all visible here
-taskgroup_suspending_cancel.saw	refused	typecheck call.no-match	`TaskGroup` has no `init` this module can call, and its fields are not all visible here
-taskgroup_suspending_deinit_join.saw	refused	typecheck call.no-match	`TaskGroup` has no `init` this module can call, and its fields are not all visible here
-taskgroup_suspending_main.saw	refused	typecheck call.no-match	`TaskGroup` has no `init` this module can call, and its fields are not all visible here
-taskgroup_suspending_parent_sleep.saw	refused	typecheck call.no-match	`TaskGroup` has no `init` this module can call, and its fields are not all visible here
-taskgroup_threads_cancel.saw	refused	typecheck call.no-match	`TaskGroup` has no `init` this module can call, and its fields are not all visible here
-taskgroup_threads_deinit_once.saw	refused	typecheck call.no-match	`TaskGroup` has no `init` this module can call, and its fields are not all visible here
-taskgroup_threads_parallel_sum.saw	refused	typecheck call.no-match	`TaskGroup` has no `init` this module can call, and its fields are not all visible here
+taskgroup_sleep_ordering.saw	refused	typecheck slice.not-yet	`TaskGroup.spawn` is not in the bootstrap slice yet
+taskgroup_slot_reuse_mt.saw	refused	typecheck call.label	no parameter is labeled `threads` in TaskGroup.init() [std.taskgroup]
+taskgroup_slot_reuse_o_live.saw	refused	typecheck slice.not-yet	`TaskGroup.spawn` is not in the bootstrap slice yet
+taskgroup_spawn_and_loop.saw	refused	typecheck slice.not-yet	`TaskGroup.spawn` is not in the bootstrap slice yet
+taskgroup_spawn_generic.saw	refused	typecheck slice.not-yet	`TaskGroup.spawn` is not in the bootstrap slice yet
+taskgroup_spawn_void.saw	refused	typecheck slice.not-yet	`TaskGroup.spawn` is not in the bootstrap slice yet
+taskgroup_stale_handle_cancel.saw	refused	typecheck slice.not-yet	`TaskGroup.spawn` is not in the bootstrap slice yet
+taskgroup_stale_handle_join.saw	refused	typecheck slice.not-yet	`TaskGroup.spawn` is not in the bootstrap slice yet
+taskgroup_structured_join.saw	refused	typecheck slice.not-yet	`TaskGroup.spawn` is not in the bootstrap slice yet
+taskgroup_suspending_cancel.saw	refused	typecheck slice.not-yet	`TaskGroup.spawn` is not in the bootstrap slice yet
+taskgroup_suspending_deinit_join.saw	refused	typecheck slice.not-yet	`TaskGroup.spawn` is not in the bootstrap slice yet
+taskgroup_suspending_main.saw	refused	typecheck slice.not-yet	`TaskGroup.spawn` is not in the bootstrap slice yet
+taskgroup_suspending_parent_sleep.saw	refused	typecheck slice.not-yet	`TaskGroup.spawn` is not in the bootstrap slice yet
+taskgroup_threads_cancel.saw	refused	typecheck call.label	no parameter is labeled `threads` in TaskGroup.init() [std.taskgroup]
+taskgroup_threads_deinit_once.saw	refused	typecheck call.label	no parameter is labeled `threads` in TaskGroup.init() [std.taskgroup]
+taskgroup_threads_parallel_sum.saw	refused	typecheck call.label	no parameter is labeled `threads` in TaskGroup.init() [std.taskgroup]
 taskgroup_threads_producer_consumer.saw	refused	resolve import.unknown-module	no module `std.channel`
 taskgroup_threads_send_accept.saw	refused	resolve import.unknown-module	no module `std.channel`
-taskgroup_threads_send_enum_field.saw	refused	typecheck call.no-match	`TaskGroup` has no `init` this module can call, and its fields are not all visible here
-taskgroup_threads_sleep.saw	refused	typecheck call.no-match	`TaskGroup` has no `init` this module can call, and its fields are not all visible here
-taskgroup_two_task_yield.saw	refused	typecheck call.no-match	`TaskGroup` has no `init` this module can call, and its fields are not all visible here
-taskgroup_unjoined_drop.saw	refused	typecheck call.no-match	`TaskGroup` has no `init` this module can call, and its fields are not all visible here
+taskgroup_threads_send_enum_field.saw	refused	typecheck call.label	no parameter is labeled `threads` in TaskGroup.init() [std.taskgroup]
+taskgroup_threads_sleep.saw	refused	typecheck call.label	no parameter is labeled `threads` in TaskGroup.init() [std.taskgroup]
+taskgroup_two_task_yield.saw	refused	typecheck slice.not-yet	`TaskGroup.spawn` is not in the bootstrap slice yet
+taskgroup_unjoined_drop.saw	refused	typecheck slice.not-yet	`TaskGroup.spawn` is not in the bootstrap slice yet
 thread_assertion_survives_a_glob_import.saw	refused	llvm backend.not-yet	a static whose value is not an integer or a Bool is not in the backend slice yet
-thread_fate_is_written_not_dropped.saw	refused	resolve import.unknown-module	no module `std.mutex`
+thread_fate_is_written_not_dropped.saw	refused	resolve name.undefined	cannot find `Arc` in scope
 thread_name_belongs_to_the_user.saw	refused	resolve slice.not-yet	the `Thread.spawn` form is not in the bootstrap slice yet
 thread_spawn_blocking_beside_a_driven_root.saw	refused	resolve slice.not-yet	the `Thread.spawn` form is not in the bootstrap slice yet
 trailing_closure_inside_a_try_operand.saw	refused	typecheck infer.failed	this closure parameter has no type: write one, as `x: Int`, or pass the closure where a function type is expected
@@ -2480,20 +2480,20 @@ trait_self_ref_param_direct_call.saw	pass	-	-
 trait_self_ref_param_generic_call.saw	pass	-	-
 trait_self_ref_param_not_erasable_error.saw	refused	typecheck slice.not-yet	a method call on `any Trait` is not in the bootstrap slice yet
 trait_simple.saw	pass	-	-
-try_catch_block.saw	refused	typecheck slice.not-yet	`syntax.expr.try-block` is not in the bootstrap slice yet
-try_catch_error_edge_releases_try_locals.saw	refused	typecheck slice.not-yet	`syntax.expr.try-block` is not in the bootstrap slice yet
-try_catch_inline.saw	refused	typecheck slice.not-yet	`syntax.expr.try.catch` is not in the bootstrap slice yet
-try_catch_multi_match.saw	refused	typecheck slice.not-yet	`syntax.expr.try-block` is not in the bootstrap slice yet
-try_catch_union_conformance.saw	refused	typecheck slice.not-yet	`syntax.expr.try-block` is not in the bootstrap slice yet
-try_catch_union_escape_error.saw	refused	typecheck slice.not-yet	`syntax.expr.try-block` is not in the bootstrap slice yet
-try_catch_union_nonexhaustive_error.saw	refused	typecheck slice.not-yet	`syntax.expr.try-block` is not in the bootstrap slice yet
-try_catch_void_result.saw	refused	typecheck slice.not-yet	`syntax.expr.try.catch` is not in the bootstrap slice yet
-try_catch_void_result_spawned.saw	refused	typecheck slice.not-yet	`syntax.expr.try.catch` is not in the bootstrap slice yet
+try_catch_block.saw	pass	-	-
+try_catch_error_edge_releases_try_locals.saw	pass	-	-
+try_catch_inline.saw	pass	-	-
+try_catch_multi_match.saw	refused	typecheck slice.not-yet	a `try` block whose `try`s propagate more than one error type (`try_catch_multi_match.ParseError`, `try_catch_multi_match.FileError`), which its `error` holds as their union, is not in the bootstrap s
+try_catch_union_conformance.saw	refused	typecheck slice.not-yet	a `try` block whose `try`s propagate more than one error type (`try_catch_union_conformance.ParseError`, `try_catch_union_conformance.FileError`), which its `error` holds as their union, is not in the
+try_catch_union_escape_error.saw	refused	typecheck slice.not-yet	a `try` block whose `try`s propagate more than one error type (`try_catch_union_escape_error.ParseError`, `try_catch_union_escape_error.FileError`), which its `error` holds as their union, is not in t
+try_catch_union_nonexhaustive_error.saw	refused	typecheck slice.not-yet	a `try` block whose `try`s propagate more than one error type (`try_catch_union_nonexhaustive_error.ParseError`, `try_catch_union_nonexhaustive_error.FileError`), which its `error` holds as their unio
+try_catch_void_result.saw	pass	-	-
+try_catch_void_result_spawned.saw	refused	typecheck slice.not-yet	`TaskGroup.spawn` is not in the bootstrap slice yet
 try_force.saw	pass	-	-
 try_force_panic.saw	pass	-	-
 try_force_panic_names_the_error.saw	wrong	stdout differs	line 2: sawc2 "panic at try_force_panic_names_the_error.saw:39: try! failed", Stage 0 "panic at try_force_panic_names_the_error.saw:39: try! failed: allocation of 64 bytes (align 8) failed"
 try_force_result_layout_disambig.saw	pass	-	-
-try_inline_catch_diverging_arm.saw	refused	typecheck slice.not-yet	`syntax.expr.try.catch` is not in the bootstrap slice yet
+try_inline_catch_diverging_arm.saw	pass	-	-
 try_optional.saw	pass	-	-
 try_optional_void_result.saw	pass	-	-
 try_propagate.saw	pass	-	-
@@ -2525,7 +2525,7 @@ type_def_distinct_error.saw	wrong	accepts a refusal test	argument `x` expects `M
 type_is_a_contextual_keyword.saw	refused	mono mono.not-yet	a synthesized `Printable.format(into: &var std.stringbuilder.StringBuilder)` on `UInt8` is not in the backend slice yet: only a signed integer's `Printable.format`
 type_order.saw	pass	-	-
 typealias_ref_launder.saw	pass	-	type.reference-position: a field may not name a reference: `&Int` is one, and references are parameters only: a reference borrows storage for the duration of one call and may not escape it; use the va
-uint_compound_division_signedness.saw	refused	typecheck slice.not-yet	`syntax.stmt.optional-assign.compound` is not in the bootstrap slice yet
+uint_compound_division_signedness.saw	pass	-	-
 uint_division_signedness.saw	refused	mono mono.not-yet	a synthesized `Printable.format(into: &var std.stringbuilder.StringBuilder)` on `UInt` is not in the backend slice yet: only a signed integer's `Printable.format`
 uint_modulo_signedness.saw	refused	mono mono.not-yet	a synthesized `Printable.format(into: &var std.stringbuilder.StringBuilder)` on `UInt` is not in the backend slice yet: only a signed integer's `Printable.format`
 unary_minus_fixed_width.saw	pass	-	-
@@ -2563,7 +2563,7 @@ use_after_move_loop_reassign.saw	pass	-	-
 use_after_move_revive.saw	pass	-	-
 use_after_move_shadow.saw	pass	-	-
 user_enum_name_vs_private_std_enum.saw	refused	mono mono.not-yet	a synthesized `Printable.format(into: &var std.stringbuilder.StringBuilder)` on `UInt8` is not in the backend slice yet: only a signed integer's `Printable.format`
-user_enum_poll_coexists.saw	refused	typecheck call.no-match	`TaskGroup` has no `init` this module can call, and its fields are not all visible here
+user_enum_poll_coexists.saw	refused	typecheck slice.not-yet	`TaskGroup.spawn` is not in the bootstrap slice yet
 value_branch_valueless_arm_preserved.saw	pass	-	-
 value_if_optional_destination_context.saw	pass	-	-
 var_struct_field_assign_ok.saw	pass	-	-
@@ -2571,7 +2571,7 @@ variables.saw	refused	mono mono.not-yet	a synthesized `Printable.format(into: &v
 vector_capacity_reports_oom.saw	pass	-	-
 vector_closure_suspending_transform.saw	refused	typecheck member.unknown	`std.vector.Vector<Int, std.alloc.GlobalAllocator>` has no method `map` this module can see
 vector_closures_over_nocopy_elements.saw	refused	typecheck member.unknown	`String` has no method `to_uppercase` this module can see
-vector_copy.saw	refused	mono mono.not-yet	a synthesized `ExplicitCopy.copy()` on `Int` is not in the backend slice yet: only a signed integer's `Printable.format` (inside std/vector.saw:220:35)
+vector_copy.saw	refused	mono mono.not-yet	a synthesized `ExplicitCopy.copy()` on `Int` is not in the backend slice yet: only a signed integer's `Printable.format` (inside std/vector.saw:227:35)
 vector_custom_alloc_grow_pairs.saw	pass	-	-
 vector_each_fold_map.saw	refused	resolve slice.not-yet	`syntax.expr.shorthand-param` is not in the bootstrap slice yet
 vector_each_indexed.saw	refused	typecheck infer.failed	this closure parameter has no type: write one, as `x: Int`, or pass the closure where a function type is expected
@@ -2645,16 +2645,16 @@ while_let_no_else_clause.saw	pass	-	resolve.parse-refused: the parser refuses `t
 while_let_non_optional_scrutinee.saw	pass	-	operator.undefined: an optional binding unwraps an Optional, and this is `Int`
 while_let_payload_read_tier.saw	pass	-	transfer.implicit-copy: this reads a place of type `while_let_payload_read_tier.Token`, which is NoCopy, by value: only a Copy type copies silently; match a `move` of the value when its binding owns i
 while_let_shadow_rules.saw	pass	-	name.shadowing: `x` shadows an enclosing binding without deriving from it; pick another name, or mention `x` in the initializer
-while_let_suspending.saw	refused	typecheck call.no-match	`TaskGroup` has no `init` this module can call, and its fields are not all visible here
-while_let_suspending_mt.saw	refused	typecheck call.no-match	`TaskGroup` has no `init` this module can call, and its fields are not all visible here
-while_let_suspending_try_catch.saw	refused	typecheck slice.not-yet	`syntax.expr.try-block` is not in the bootstrap slice yet
-while_let_tuple_over_suspension_refused.saw	refused	coro coro.not-yet	`drain_pairs` suspends (drain_pairs -> Cursor.next_pair -> yield_now -> __saw_park_ready), so it needs a coroutine frame, and its op-budget point is not lowered yet (SL-545)
+while_let_suspending.saw	refused	typecheck slice.not-yet	`TaskGroup.spawn` is not in the bootstrap slice yet
+while_let_suspending_mt.saw	refused	typecheck call.label	no parameter is labeled `threads` in TaskGroup.init() [std.taskgroup]
+while_let_suspending_try_catch.saw	refused	typecheck slice.not-yet	`TaskGroup.spawn` is not in the bootstrap slice yet
+while_let_tuple_over_suspension_refused.saw	stage0-wrong	annotated SL-566	sawc2 builds it, and its run exits 0
 while_let_value_position_refused.saw	pass	-	format.argument: `Void` is formatted here, and it is neither `Printable` nor a primitive
 while_nested.saw	pass	-	-
 while_never_break_forms.saw	refused	typecheck slice.not-yet	`syntax.stmt.break` is not in the bootstrap slice yet
 while_never_diverges.saw	pass	-	-
 while_never_freestanding.saw	refused	driver driver.usage	sawc2 build takes no --freestanding
-while_never_sync_context.saw	refused	typecheck call.no-match	`TaskGroup` has no `init` this module can call, and its fields are not all visible here
+while_never_sync_context.saw	refused	typecheck slice.not-yet	`TaskGroup.spawn` is not in the bootstrap slice yet
 while_simple.saw	pass	-	-
 wrapped_return_takes_the_transfer_checkpoint.saw	pass	-	transfer.implicit-copy: this reads a place of type `wrapped_return_takes_the_transfer_checkpoint.Res`, which is NoCopy, by value: only a Copy type copies silently; a binding that only borrows has noth
 wrapping_and_reference_mix.saw	pass	-	-

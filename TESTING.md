@@ -421,9 +421,9 @@ verdict with `compiler/tests/grammar/corpus_expected.tsv`. The record is a
 statement about `GRAMMAR.md`, so the recognizer refuses what the grammar's
 productions and its section-13 rules refuse, naming the rule. The record lists
 each refused file with its verdict and a classified reason: `a-removed` names
-the removed form the file uses, `a-error` is a file the frozen parser refuses
-too, and `c-conflict` one it accepts, which a ruling must explain. A file that a
-rule the recognizer does not model yet refuses is listed by hand, as
+the removed form the file uses, `a-error` is a file sawc2's parser refuses too,
+and `c-conflict` one it accepts, which a ruling or a filed finding must explain.
+A file that a rule the recognizer does not model yet refuses is listed by hand, as
 `UNMODELLED` with the reason `unmodelled: RULE`, never left unlisted. A file the
 record does not list must be accepted with exactly one tree. When a change
 moves a verdict on purpose, run `--write`, which keeps the `UNMODELLED` rows,
@@ -437,14 +437,11 @@ were checked once against the Python lexer, and they are the lexer's oracle now.
 
 `./build.sh test` is what sawtracker runs on every submitted patch, as
 `./build.sh test --changed-since HEAD^` (`.sawtracker/tests.json`). The
-decision is `tools/patch_gate.py`'s:
+decision is `tools/patch_gate.py`'s. Every part builds and runs sawc2; none
+runs the frozen Python compiler, so `test_runner.py`, the freestanding suite and
+astdiff gate nothing (SL-666):
 
 - the compiler tests above always run;
-- the Python suite runs when a changed path is one of `test_runner.py`'s inputs
-  (`sawc/`, `examples/`, the vector files under `tests/` the examples read, the
-  runner itself);
-- the freestanding suite runs when a changed path is one of its runner's inputs
-  (`sawc/`, `tests/freestanding/`, `blade/`, `libs/`, the runner itself);
 - the fixpoint lane (`compiler/tests/fixpoint/fixpoint_lane.py`) runs when
   `compiler/` (the lane itself, `compiler/tools/build.py` and the seed's
   manifest and pin in `compiler/seed/` included), `std/`,
@@ -459,16 +456,23 @@ decision is `tools/patch_gate.py`'s:
   `fixpoint` stage runs, so the periodic full battery on main (ST-45) covers
   them. The lane's summary line names the mode;
 - the full grammar corpus runs when `GRAMMAR.md`, `LANGUAGE_SPEC.md` (whose
-  headings `spec=` names), `compiler/tests/grammar/` or `sawc/` (the reference
-  lexer and the classifying parser) changes; otherwise each changed `.saw` file
-  is checked against `corpus_expected.tsv` on its own, except the parser
-  corpus's case files under `compiler/tests/parse/`, which the compiler tests'
-  parse lane checks case by case;
-- the full astdiff (`tools/astdiff.py`) runs when the Python parser or its dump
-  changes (`sawc/lexer.py`, `sawc/parser/`, `sawc/ast_nodes.py`,
-  `sawc/ast_dump.py`, `tools/astdiff.py`, `tools/dump_ast.py`); otherwise
-  `tools/astdiff.py FILE...` checks each changed `.saw` file outside the two
-  new-syntax corpora, `tests/corpus/` and `compiler/tests/parse/`;
+  headings `spec=` names), `compiler/tests/grammar/`, or what sawc2's token
+  dump and parser come from (`compiler/lex/`, `compiler/parse/`,
+  `compiler/driver/`, `compiler/tools/build.py`, `compiler/seed/`) changes;
+  otherwise each changed `.saw` file is checked against `corpus_expected.tsv`
+  on its own, except the parser corpus's case files under
+  `compiler/tests/parse/`, which the compiler tests' parse lane checks case by
+  case;
+- the corpus differential's regression gate (`corpusdiff.py gate`, see
+  `compiler/tests/corpusdiff/README.md`) runs when what sawc2 is built from
+  changes (each stage's `src/`, `compiler/driver/`, `compiler/seed/`,
+  `compiler/tools/build.py`, `std/`, `runtime/`), or what it measures or judges
+  by (`tests/corpus/`, the vector files under `tests/` the programs read,
+  `examples/`, whose files the snapshot must be current with,
+  `compiler/tests/corpusdiff/`, `compiler/tests/oracle.py` and the modules it
+  imports). It measures the whole corpus and fails when any program's verdict
+  moved from `corpus_diff.tsv`, an improvement included, so a patch that moves
+  one records the move with `corpusdiff.py run --baseline` in the same patch;
 - a change to the gate itself (`build.sh`, `tools/patch_gate.py`,
   `tools/suite_lock.sh`, `.sawtracker/`) runs everything, and so does a run
   whose changed paths are unknown.
@@ -549,15 +553,22 @@ setting.
 
 ```bash
 tools/battery.sh                     # everything
-tools/battery.sh --quick             # skip the slow lanes (reemit, irdet, gmgate, bootstrap, freestanding)
-tools/battery.sh suite fuzz          # named stages only
+tools/battery.sh --quick             # skip the slow lanes (gmgate, linux)
+tools/battery.sh compiler corpusdiff # named stages only
 tools/battery.sh --list              # what the stages are
 ```
 
 Everything a design brief runs before it is called landed, in one tracked
-script. Every stage runs even after one fails — "the suite is red" and "the
-suite is red and so is irdet" are different situations — and the exit code is
-the number of failing stages.
+script. Every stage runs even after one fails — "the compiler tests are red"
+and "they are red and so is the fixpoint" are different situations — and the
+exit code is the number of failing stages.
+
+No stage tests the frozen Python compiler any more (SL-666): the `suite`,
+`freestanding`, `bootstrap`, `astdiff`, `irdet`, `reemit`, `fuzz`, `corodiff`,
+`bench`, `minivm` stages and the checks that read `sawc/`'s source left the
+battery. Their tools still run by hand until `sawc/` is deleted, and the
+sections below that describe them describe those tools. Two stages still run
+Stage 0, because sawc2 has no equivalent yet: `gmgate` and `docverify`.
 
 The interpreter comes from `$SAW_PYTHON`, else `./.venv/bin/python`, else
 `python3`. A worktree has no venv of its own, so point it at the main

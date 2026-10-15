@@ -9,8 +9,9 @@ The record, corpus_expected.tsv, is a statement about GRAMMAR.md: it lists each
 file the grammar refuses, with its verdict and a classified reason, and an
 unlisted file must be accepted with exactly one tree. `a-removed` names the
 removed productions whose enabling alone makes the file parse; otherwise
-`a-error` means the frozen parser refuses the file too, and `c-conflict` that it
-accepts what the grammar refuses, which a ruling explains. A file refused by a
+`a-error` means sawc2's parser refuses the file too, and `c-conflict` that it
+accepts what the grammar refuses, which a ruling or a filed finding must
+explain. A file refused by a
 rule the recognizer does not model yet is listed by hand as UNMODELLED, with the
 reason `unmodelled: RULE`; the recognizer must accept it, and `--write` keeps
 the row while it does. An ambiguous file, or a listed file that is gone, always
@@ -31,8 +32,6 @@ import extract  # noqa: E402
 import recognize  # noqa: E402
 
 REPO = extract.REPO
-# The frozen compiler, whose parser tells an error test from a conflict.
-SAWC = os.path.join(REPO, "sawc")
 EXPECTED = os.path.join(HERE, "corpus_expected.tsv")
 # The parser corpus, as a repository-relative prefix (owned_elsewhere).
 PARSE_CORPUS = "compiler/tests/parse/"
@@ -98,7 +97,7 @@ class Classifier:
                     if recognize.check_file(self._single(p.nonterminal), path)[0] == "OK"]
             if hits:
                 return "a-removed: " + ", ".join(hits)
-        cls = "c-conflict" if python_accepts(path) else "a-error"
+        cls = "c-conflict" if parser_accepts(path) else "a-error"
         return "%s: %s" % (cls, escape(detail))
 
     def _single(self, nonterminal):
@@ -107,21 +106,12 @@ class Classifier:
         return self.single[nonterminal]
 
 
-def python_accepts(path):
-    """Whether the frozen compiler's lexer and parser take the file."""
-    if SAWC not in sys.path:
-        sys.path.insert(0, SAWC)
-    from lexer import Lexer
-    from parser import Parser
-    with open(path, encoding="utf-8") as fh:
-        src = fh.read()
-    try:
-        lexer = Lexer(src)
-        tokens = lexer.tokenize()
-        Parser(tokens, source_file=path, doc_comments=lexer.doc_comments).parse()
-    except Exception:  # noqa: BLE001 - any refusal, a crash included, is not acceptance
-        return False
-    return True
+def parser_accepts(path):
+    """Whether sawc2's parser takes the file: `parse --check` exits 0 and
+    reports no error. A crash is no acceptance."""
+    r = subprocess.run([recognize.lexdump.ensure_sawc2(), "parse", "--check", path], cwd=REPO,
+                       capture_output=True, text=True)
+    return r.returncode == 0 and not any(line.startswith("ERROR\t") for line in r.stdout.split("\n"))
 
 
 def run_worker():

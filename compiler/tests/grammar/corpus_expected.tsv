@@ -8,8 +8,8 @@ compiler/tests/grammar/fixtures/refusals/borrow_binding_without_a_place.saw	FAIL
 compiler/tests/grammar/fixtures/refusals/borrow_block_at_an_if_head.saw	FAIL	a-error: 4:8 refused by syntax.rule.borrow-form
 compiler/tests/grammar/fixtures/refusals/bracketed_type_with_no_length.saw	FAIL	a-error: 4:16 refused by syntax.rule.prefix-type-suffix
 compiler/tests/grammar/fixtures/refusals/call_after_a_move.saw	FAIL	a-error: 4:15 refused by syntax.rule.move-place
-compiler/tests/grammar/fixtures/refusals/cast_target_then_coalesce.saw	FAIL	c-conflict: 4:22 refused by syntax.rule.cast-target-question
-compiler/tests/grammar/fixtures/refusals/catch_after_a_cast.saw	FAIL	c-conflict: 4:28 refused by syntax.rule.try-extent
+compiler/tests/grammar/fixtures/refusals/cast_target_then_coalesce.saw	FAIL	a-error: 4:22 refused by syntax.rule.cast-target-question
+compiler/tests/grammar/fixtures/refusals/catch_after_a_cast.saw	FAIL	a-error: 4:28 refused by syntax.rule.try-extent
 compiler/tests/grammar/fixtures/refusals/chained_assignment.saw	FAIL	a-error: 4:11 refused by syntax.rule.assignment-target
 compiler/tests/grammar/fixtures/refusals/clause_on_a_test_only_declaration.saw	FAIL	a-error: 3:31 refused by syntax.rule.test-form
 compiler/tests/grammar/fixtures/refusals/consumes_on_a_free_function.saw	FAIL	a-error: 3:16 refused by syntax.rule.effect-slot
@@ -25,7 +25,7 @@ compiler/tests/grammar/fixtures/refusals/loop_continuing_as_an_operand.saw	FAIL	
 compiler/tests/grammar/fixtures/refusals/map_key_colon_on_the_next_line.saw	FAIL	a-error: 5:9 refused by syntax.rule.brace
 compiler/tests/grammar/fixtures/refusals/method_without_a_receiver.saw	FAIL	a-error: 4:5 refused by syntax.rule.receiver-and-static
 compiler/tests/grammar/fixtures/refusals/module_doc_after_a_token.saw	LEXERR	a-error: 5:1 refused by syntax.lex.module-doc
-compiler/tests/grammar/fixtures/refusals/nesting_past_the_depth_limit.saw	FAIL	c-conflict: 4:270 refused by syntax.rule.depth-limit
+compiler/tests/grammar/fixtures/refusals/nesting_past_the_depth_limit.saw	FAIL	a-error: 4:270 refused by syntax.rule.depth-limit
 compiler/tests/grammar/fixtures/refusals/open_range_before_an_operator.saw	FAIL	a-error: 4:17 refused by syntax.rule.range-open-end
 compiler/tests/grammar/fixtures/refusals/open_range_before_an_operator_at_a_line_end.saw	FAIL	a-error: 4:17 refused by syntax.rule.range-open-end
 compiler/tests/grammar/fixtures/refusals/semicolon_ending_a_statement.saw	FAIL	a-error: 4:11 refused by syntax.rule.statement-separator
@@ -38,7 +38,7 @@ compiler/tests/grammar/fixtures/refusals/trailing_closure_on_a_call_result.saw	F
 compiler/tests/grammar/fixtures/refusals/try_before_a_brace.saw	FAIL	a-error: 4:17 refused by syntax.rule.try-block
 compiler/tests/grammar/fixtures/refusals/try_route_without_a_case.saw	FAIL	a-error: 4:20 refused by syntax.rule.try-route-case
 compiler/tests/grammar/fixtures/refusals/two_declarations_on_one_line.saw	FAIL	a-error: 4:3 refused by syntax.rule.declaration-separator
-compiler/tests/grammar/fixtures/refusals/two_names_in_a_segment.saw	SEGFAIL	c-conflict: 4:12 {a b} 4:15 refused by syntax.rule.interpolation-whole
+compiler/tests/grammar/fixtures/refusals/two_names_in_a_segment.saw	SEGFAIL	a-error: 4:12 {a b} 4:15 refused by syntax.rule.interpolation-whole
 compiler/tests/grammar/fixtures/refusals/two_statements_on_one_line.saw	FAIL	a-error: 4:11 refused by syntax.rule.juxtaposition
 compiler/tests/grammar/fixtures/refusals/unknown_attribute.saw	FAIL	a-error: 3:2 refused by syntax.rule.attribute-position
 compiler/tests/grammar/fixtures/refusals/var_discard.saw	FAIL	a-removed: syntax.stmt.refused-var-discard
@@ -86,11 +86,11 @@ compiler/tests/lex/unicode_escape_oversized_error.saw	LEXERR	a-error: 8:12 refus
 compiler/tests/lex/unicode_escape_surrogate_error.saw	LEXERR	a-error: 8:12 refused by syntax.lex.escape: Unicode escape is a surrogate code point
 compiler/tests/lex/unsafe_expression_marker_removed.saw	FAIL	a-removed: syntax.expr.refused-unsafe
 compiler/tests/std/subset/grammar.saw	FAIL	a-removed: syntax.decl.refused-static
-compiler/tests/subset/borrow-syntax.saw	FAIL	c-conflict: 3:9 near BORROW 'borrow'
-compiler/tests/subset/cast-then-optional.interpolation.saw	SEGFAIL	c-conflict: 6:17 {n as Int ?? 9} 1:10 refused by syntax.rule.cast-target-question
-compiler/tests/subset/cast-then-optional.newline.saw	FAIL	c-conflict: 15:14 refused by syntax.rule.cast-target-question
-compiler/tests/subset/cast-then-optional.saw	FAIL	c-conflict: 3:23 refused by syntax.rule.cast-target-question
-compiler/tests/subset/interpolation-line-break.saw	SEGFAIL	c-conflict: 5:17 {x\n        + 3} 5:19 refused by syntax.rule.interpolation-whole
+compiler/tests/subset/borrow-syntax.saw	FAIL	a-error: 3:9 near BORROW 'borrow'
+compiler/tests/subset/cast-then-optional.interpolation.saw	SEGFAIL	a-error: 6:17 {n as Int ?? 9} 1:10 refused by syntax.rule.cast-target-question
+compiler/tests/subset/cast-then-optional.newline.saw	FAIL	a-error: 15:14 refused by syntax.rule.cast-target-question
+compiler/tests/subset/cast-then-optional.saw	FAIL	a-error: 3:23 refused by syntax.rule.cast-target-question
+compiler/tests/subset/interpolation-line-break.saw	SEGFAIL	a-error: 5:17 {x\n        + 3} 5:19 refused by syntax.rule.interpolation-whole
 compiler/tests/subset/lex.saw	LEXERR	a-error: 3:7 refused by syntax.lex.escape: unknown escape in a string literal
 compiler/tests/subset/parse.interpolation-escape.saw	SEGLEX	a-error: 6:14 Lexer error at 1:3: Unexpected character
 compiler/tests/subset/parse.saw	FAIL	a-error: 3:9 near ASSIGN '='
