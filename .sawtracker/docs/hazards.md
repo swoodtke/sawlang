@@ -1565,6 +1565,18 @@ So code using a suspending default builds under sawc2 and fails under Stage 0. I
 
 **Checker:** not needed: sawc2 refuses at the declaration, and the compiler's source declares no trait refining either assertion.
 
+### L33. A field read two struct hops away, bound by a `let`: Stage 0 loses the binding when neither struct type is named in the module (SL-649)
+
+**Shape (loud):** a field read that stands alone as a statement's value, with its receiver two struct hops from a parameter or `self`, and neither struct type named in the using module, yields no value in Stage 0:
+- `let s = o.res.node.start` reports "undefined variable `s`" at the next use;
+- a tail `o.res.node.start` reports "body has no value".
+
+The binding's name is irrelevant. It works when the field is read as a call argument (`show(o.res.node.start)`), when a `let` holds the intermediate struct (`let n = o.res.node`, then `n.start` in an argument), when either struct name is imported, and with a single hop. The compiler's instance was `let start = self.res.nodes[prior.node].start` in typecheck's `refuse_second_policy`: `self.res` is a `ResProgram`, `nodes` holds `AstNode`, and `conform.saw` imports neither. The minimal repro is three files (the trigger needs a module boundary); it is on SL-649.
+
+**Instead:** bind the intermediate struct and read the field where it's used: `let node = self.res.nodes[prior.node]`, then `node.start` as the argument. Don't bind a field read of such a chain to a local. Importing the type's name only to cure it adds an unused import.
+
+**Checker:** not needed: the failure is loud, and the shape needs type resolution and import scope, which the subset checker doesn't have.
+
 ## Cases with no issue
 
 
@@ -1845,6 +1857,7 @@ ledger's reading. Where it differs from the sweep, Notes for the lead says why.
 | SL-660 | L30 `ZeroInit`: Stage 0 has none | loud (an unknown name to Stage 0; no live instance) |
 | SL-673 | L31 Derivation-only parents: Stage 0 and sawc2 differ | loud in two forms, silent in one (a deinit reached through `trait X: Deinit` never runs under Stage 0; no live instance) |
 | SL-675 | L32 `UnsafeSend`/`UnsafeSync` as a trait parent: Stage 0 accepts it, sawc2 refuses it | loud (sawc2 refuses at the trait; Stage 0 grants nothing through it; no live instance) |
+| SL-649 | L33 A field read two struct hops away, bound by a `let`, with neither struct type named in the module | loud (Stage 0 reports an undefined variable; one marked instance in `compiler/typecheck/src/conform.saw`) |
 
 No issue is marked "not reachable from the subset". Several entries depend on
 features the subset does not list (`any`, `Box`, cells, pointers, fixed arrays,
