@@ -497,8 +497,11 @@ caching.
 - **Suspension points are marked.** A call to a function that may suspend
   (§3.4) is a *suspension point* in the MIR. §3.9 lowers it, but the borrow
   check sees it first.
-- **Op-budget points are placed here too** (design 127), on *every* loop
-  backedge of every function, not only of functions that may suspend (Air t22).
+- **Op-budget points are placed here too** (design 127), one at the start of
+  *every* loop body (`while`, `while let`, `for`) of every function, not only of
+  functions that may suspend (Air t22), so a forced yield comes before an
+  iteration runs, as Stage 0's does; `continue` reaches it through the loop
+  head (SL-566).
   A pure-compute task body such as `while true { n += 1 }` has no suspending
   call at all, and the budget is what gives it a place to yield. Each point
   gets its class here, once:
