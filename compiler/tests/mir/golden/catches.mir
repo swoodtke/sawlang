@@ -189,33 +189,37 @@ fn catches.looped(n: Int) -> Void {
     }
 
     bb3: {
-        _4 = Add(copy _2, const 1: Int);
-        _2 = move _4;
-        _6 = call catches.risky(n: Int) [copy _2] -> [return: bb4];
+        budget(yield-capable);
+        goto -> bb4;
     }
 
     bb4: {
-        switch discriminant(_6) -> [Ok: bb5, Err: bb6];
+        _4 = Add(copy _2, const 1: Int);
+        _2 = move _4;
+        _6 = call catches.risky(n: Int) [copy _2] -> [return: bb5];
     }
 
     bb5: {
-        _5 = copy (_6 as Ok).0;
-        goto -> bb7;
+        switch discriminant(_6) -> [Ok: bb6, Err: bb7];
     }
 
     bb6: {
+        _5 = copy (_6 as Ok).0;
+        goto -> bb8;
+    }
+
+    bb7: {
         _7 = copy (_6 as Err).0;
         drop(_6);
         goto -> bb2;
     }
 
-    bb7: {
+    bb8: {
         drop(_6);
-        call builtin print [format "{}", copy _5] -> [return: bb8];
+        call builtin print [format "{}", copy _5] -> [return: bb9];
     }
 
-    bb8: {
-        budget(yield-capable);
+    bb9: {
         goto -> bb1;
     }
 }

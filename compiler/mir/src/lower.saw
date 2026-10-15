@@ -1434,8 +1434,8 @@ extension MirProgram {
         self.goto(loop.exit)
     }
 
-    // `continue`: the scopes of the body exit, and the backedge charges the
-    // op budget.
+    // `continue`: the scopes of the body exit, and the next iteration's body
+    // charges the op budget at its top.
     func lower_continue(&var self) {
         let n = self.loops.len()
         if n == 0 {
@@ -1443,9 +1443,6 @@ extension MirProgram {
         }
         let loop = self.loops[n - 1]
         self.unwind_to(loop.depth)
-        let saved = self.source_at(loop.node)
-        self.emit_budget(loop.yields)
-        self.source_restore(saved)
         self.goto(loop.head)
     }
 
@@ -4683,8 +4680,8 @@ extension MirProgram {
         TcUse.Borrow
     }
 
-    // `while cond { }` and `while { }`: the condition at the head, the body,
-    // and the backedge's op-budget point.
+    // `while cond { }` and `while { }`: the condition at the head, then the
+    // body, which starts with the loop's op-budget point.
     func lower_while(&var self, e: Int) {
         var cond = -1
         var block = -1
@@ -4715,11 +4712,26 @@ extension MirProgram {
         let yields = self.budget_class()
         let loop_depth = self.scope_marks.len()
         try! self.loops.push(MirLoop(head: head, exit: exit, depth: loop_depth, yields: yields, node: e))
+        self.loop_budget(e, yields)
         self.lower_block(block, -1)
-        self.emit_budget(yields)
         self.goto(head)
         self.pop_loop()
         self.enter(exit)
+    }
+
+    // The op-budget point at the top of a loop's body (design 127): every
+    // iteration that starts charges it, and one whose charge runs the budget
+    // out cedes before its body runs, as the spec's "Pure compute" rule
+    // places it. A `continue` reaches it through the head. The point ends its
+    // block, which goes to the body's own, so a frame's yield there is an edge
+    // and the body's statements stay in the blocks they are lowered into.
+    func loop_budget(&var self, e: Int, yields: Bool) {
+        let saved = self.source_at(e)
+        self.emit_budget(yields)
+        let body = self.new_block()
+        self.goto(body)
+        self.source_restore(saved)
+        self.enter(body)
     }
 
     func pop_loop(&var self) {
@@ -4764,12 +4776,12 @@ extension MirProgram {
         var bound = Vector<Int>()
         self.bind_test(&test, target, false, opened.depth, &var bound)
         self.scope_all(&bound)
+        self.loop_budget(e, yields)
         self.lower_block(block, -1)
         let saved = self.source_closing(block)
         self.close_scope()
         let absent = self.close_head(&opened)
         self.source_restore(saved)
-        self.emit_budget(yields)
         self.goto(head)
         self.pop_loop()
         self.enter(absent)
@@ -4852,11 +4864,11 @@ extension MirProgram {
         let taken = self.taken_parts()
         self.dissolve(np, &taken, target)
         self.scope_all(&bound)
+        self.loop_budget(e, yields)
         self.lower_block(body, -1)
         let saved = self.source_closing(body)
         self.close_scope()
         self.source_restore(saved)
-        self.emit_budget(yields)
         self.goto(head)
         self.pop_loop()
         self.enter(exit)

@@ -266,8 +266,8 @@ fn leftovers.drained(n: Int) -> Int {
 
     bb4: {
         _5 = move (_4 as Some).0.0;
-        _6 = Gt(copy _5.id, const 9: Int);
-        switch move _6 -> [true: bb7, false: bb8];
+        budget(yield-capable);
+        goto -> bb6;
     }
 
     bb5: {
@@ -276,29 +276,33 @@ fn leftovers.drained(n: Int) -> Int {
     }
 
     bb6: {
-        _7 = copy _2;
-        _8 = ref(shared, _5);
-        _9 = call leftovers.touch(r: &leftovers.Res) [move _8] -> [return: bb9];
+        _6 = Gt(copy _5.id, const 9: Int);
+        switch move _6 -> [true: bb8, false: bb9];
     }
 
     bb7: {
+        _7 = copy _2;
+        _8 = ref(shared, _5);
+        _9 = call leftovers.touch(r: &leftovers.Res) [move _8] -> [return: bb10];
+    }
+
+    bb8: {
         drop(_5);
         drop((_4 as Some).0.1);
         goto -> bb2;
     }
 
-    bb8: {
-        goto -> bb6;
+    bb9: {
+        goto -> bb7;
     }
 
-    bb9: {
+    bb10: {
         _10 = Add(move _7, move _9);
         _2 = move _10;
         _11 = Sub(copy _3, const 1: Int);
         _3 = move _11;
         drop(_5);
         drop((_4 as Some).0.1);
-        budget(yield-capable);
         goto -> bb1;
     }
 

@@ -32,7 +32,7 @@ fn windows.iterate(v: std.vector.Vector<String, std.alloc.GlobalAllocator>) -> I
     }
 
     bb3: {
-        window_close w0 epilogue std.vector.Vector.iter() (owner std.vector.Vector<String, std.alloc.GlobalAllocator>) -> [return: bb7];
+        window_close w0 epilogue std.vector.Vector.iter() (owner std.vector.Vector<String, std.alloc.GlobalAllocator>) -> [return: bb8];
     }
 
     bb4: {
@@ -41,22 +41,26 @@ fn windows.iterate(v: std.vector.Vector<String, std.alloc.GlobalAllocator>) -> I
 
     bb5: {
         _7 = move (_5 as Some).0;
-        _8 = copy _7;
-        _9 = copy _2;
-        _10 = ref(shared, _8);
-        _11 = call std.string.String.len() (owner String) [move _10] -> [return: bb6];
+        budget(yield-capable);
+        goto -> bb6;
     }
 
     bb6: {
+        _8 = copy _7;
+        _9 = copy _2;
+        _10 = ref(shared, _8);
+        _11 = call std.string.String.len() (owner String) [move _10] -> [return: bb7];
+    }
+
+    bb7: {
         _12 = Add(move _9, move _11);
         _2 = move _12;
         drop(_8);
         drop(_7);
-        budget(yield-capable);
         goto -> bb2;
     }
 
-    bb7: {
+    bb8: {
         _0 = copy _2;
         drop(_1);
         return;

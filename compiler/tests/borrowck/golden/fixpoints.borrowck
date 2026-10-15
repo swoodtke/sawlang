@@ -51,14 +51,18 @@ fn fixpoints.counted(n: Int) {
     }
 
     bb3: {
-        [] {} _6 = ref(exclusive, _2);
-        [] {L0} call fixpoints.bump(c: &var fixpoints.Cell) [move _6] -> [return: bb4];
+        [] {} budget(yield-capable);
+        [] {} goto -> bb4;
     }
 
     bb4: {
+        [] {} _6 = ref(exclusive, _2);
+        [] {L0} call fixpoints.bump(c: &var fixpoints.Cell) [move _6] -> [return: bb5];
+    }
+
+    bb5: {
         [] {} _7 = Add(copy _4, const 1: Int);
         [] {} _4 = move _7;
-        [] {} budget(yield-capable);
         [] {} goto -> bb1;
     }
 }
@@ -87,22 +91,26 @@ fn fixpoints.windowed(n: Int) {
     }
 
     bb3: {
-        [] {} _8 = ref(exclusive, _2);
-        [] {L0} _7 = window_open w0 prologue fixpoints.Cell.me() (owner fixpoints.Cell) [move _8] -> [present: bb4];
+        [] {} budget(yield-capable);
+        [] {} goto -> bb4;
     }
 
     bb4: {
-        [] {L0 L1} _9 = ref(exclusive, (*_7));
-        [] {L0 L1 L2} _10 = Add(copy (*_9).value, copy _4);
-        [] {L0 L1 L2} (*_9).value = move _10;
-        [] {L0 L1} window_close w0 epilogue fixpoints.Cell.me() (owner fixpoints.Cell) -> [return: bb5];
+        [] {} _8 = ref(exclusive, _2);
+        [] {L0} _7 = window_open w0 prologue fixpoints.Cell.me() (owner fixpoints.Cell) [move _8] -> [present: bb5];
     }
 
     bb5: {
+        [] {L0 L1} _9 = ref(exclusive, (*_7));
+        [] {L0 L1 L2} _10 = Add(copy (*_9).value, copy _4);
+        [] {L0 L1 L2} (*_9).value = move _10;
+        [] {L0 L1} window_close w0 epilogue fixpoints.Cell.me() (owner fixpoints.Cell) -> [return: bb6];
+    }
+
+    bb6: {
         [] {} _4 = copy _2.value;
         [] {} _11 = Add(copy _5, const 1: Int);
         [] {} _5 = move _11;
-        [] {} budget(yield-capable);
         [] {} goto -> bb1;
     }
 }
@@ -132,38 +140,46 @@ fn fixpoints.across(n: Int) {
     }
 
     bb3: {
-        [] {L0 L1} window_close w0 epilogue fixpoints.Cell.me() (owner fixpoints.Cell) -> [return: bb8];
+        [] {L0 L1} window_close w0 epilogue fixpoints.Cell.me() (owner fixpoints.Cell) -> [return: bb10];
     }
 
     bb4: {
-        [] {L0 L1 L2} _10 = const 0: Int;
+        [] {L0 L1 L2} budget(yield-capable);
         [] {L0 L1 L2} goto -> bb5;
     }
 
     bb5: {
-        [] {L0 L1 L2} _11 = Lt(copy _10, copy _8);
-        [] {L0 L1 L2} switch move _11 -> [true: bb7, false: bb6];
+        [] {L0 L1 L2} _10 = const 0: Int;
+        [] {L0 L1 L2} goto -> bb6;
     }
 
     bb6: {
+        [] {L0 L1 L2} _11 = Lt(copy _10, copy _8);
+        [] {L0 L1 L2} switch move _11 -> [true: bb8, false: bb7];
+    }
+
+    bb7: {
         [] {L0 L1 L2} _14 = Add(copy _4, copy (*_7).value);
         [] {L0 L1 L2} _4 = move _14;
         [] {L0 L1 L2} _15 = Add(copy _8, const 1: Int);
         [] {L0 L1 L2} _8 = move _15;
-        [] {L0 L1 L2} budget(yield-capable);
         [] {L0 L1 L2} goto -> bb2;
     }
 
-    bb7: {
+    bb8: {
+        [] {L0 L1 L2} budget(yield-capable);
+        [] {L0 L1 L2} goto -> bb9;
+    }
+
+    bb9: {
         [] {L0 L1 L2} _12 = Add(copy (*_7).value, copy _10);
         [] {L0 L1 L2} (*_7).value = move _12;
         [] {L0 L1 L2} _13 = Add(copy _10, const 1: Int);
         [] {L0 L1 L2} _10 = move _13;
-        [] {L0 L1 L2} budget(yield-capable);
-        [] {L0 L1 L2} goto -> bb5;
+        [] {L0 L1 L2} goto -> bb6;
     }
 
-    bb8: {
+    bb10: {
         [] {} _16 = Add(copy _4, copy _2.value);
         [] {} _0 = move _16;
         [] {} return;

@@ -718,8 +718,8 @@ fn destructures.drained(n: Int) -> Int {
 
     bb4: {
         _5 = move (_4 as Some).0;
-        _6 = copy _2;
-        _7 = call destructures.use_res(r: destructures.Res) [move _5] -> [return: bb6];
+        budget(yield-capable);
+        goto -> bb6;
     }
 
     bb5: {
@@ -728,12 +728,16 @@ fn destructures.drained(n: Int) -> Int {
     }
 
     bb6: {
+        _6 = copy _2;
+        _7 = call destructures.use_res(r: destructures.Res) [move _5] -> [return: bb7];
+    }
+
+    bb7: {
         _8 = Add(move _6, move _7);
         _2 = move _8;
         _9 = Sub(copy _3, const 1: Int);
         _3 = move _9;
         drop(_5);
-        budget(yield-capable);
         goto -> bb1;
     }
 }
@@ -800,7 +804,7 @@ fn destructures.iterated(items: std.vector.Vector<String, std.alloc.GlobalAlloca
     }
 
     bb3: {
-        window_close w0 epilogue std.vector.Vector.iter() (owner std.vector.Vector<String, std.alloc.GlobalAllocator>) -> [return: bb7];
+        window_close w0 epilogue std.vector.Vector.iter() (owner std.vector.Vector<String, std.alloc.GlobalAllocator>) -> [return: bb8];
     }
 
     bb4: {
@@ -809,51 +813,59 @@ fn destructures.iterated(items: std.vector.Vector<String, std.alloc.GlobalAlloca
 
     bb5: {
         _7 = move (_5 as Some).0;
-        _8 = copy _2;
-        _9 = ref(shared, _7);
-        _10 = call std.string.String.len() (owner String) [move _9] -> [return: bb6];
+        budget(yield-capable);
+        goto -> bb6;
     }
 
     bb6: {
-        _11 = Add(move _8, move _10);
-        _2 = move _11;
-        drop(_7);
-        budget(yield-capable);
-        goto -> bb2;
+        _8 = copy _2;
+        _9 = ref(shared, _7);
+        _10 = call std.string.String.len() (owner String) [move _9] -> [return: bb7];
     }
 
     bb7: {
-        _13 = ref(shared, _1);
-        _12 = window_open w1 prologue std.vector.Vector.iter() (owner std.vector.Vector<String, std.alloc.GlobalAllocator>) [move _13] -> [present: bb8];
+        _11 = Add(move _8, move _10);
+        _2 = move _11;
+        drop(_7);
+        goto -> bb2;
     }
 
     bb8: {
-        goto -> bb9;
+        _13 = ref(shared, _1);
+        _12 = window_open w1 prologue std.vector.Vector.iter() (owner std.vector.Vector<String, std.alloc.GlobalAllocator>) [move _13] -> [present: bb9];
     }
 
     bb9: {
-        _15 = ref(exclusive, _12);
-        _14 = call std.vector.VectorIterator.next() (owner std.vector.VectorIterator<String, std.alloc.GlobalAllocator>) [move _15] -> [return: bb11];
+        goto -> bb10;
     }
 
     bb10: {
-        window_close w1 epilogue std.vector.Vector.iter() (owner std.vector.Vector<String, std.alloc.GlobalAllocator>) -> [return: bb13];
+        _15 = ref(exclusive, _12);
+        _14 = call std.vector.VectorIterator.next() (owner std.vector.VectorIterator<String, std.alloc.GlobalAllocator>) [move _15] -> [return: bb12];
     }
 
     bb11: {
-        switch discriminant(_14) -> [Some: bb12, None: bb10];
+        window_close w1 epilogue std.vector.Vector.iter() (owner std.vector.Vector<String, std.alloc.GlobalAllocator>) -> [return: bb15];
     }
 
     bb12: {
-        _16 = move (_14 as Some).0;
-        _17 = Add(copy _2, const 1: Int);
-        _2 = move _17;
-        drop(_16);
-        budget(yield-capable);
-        goto -> bb9;
+        switch discriminant(_14) -> [Some: bb13, None: bb11];
     }
 
     bb13: {
+        _16 = move (_14 as Some).0;
+        budget(yield-capable);
+        goto -> bb14;
+    }
+
+    bb14: {
+        _17 = Add(copy _2, const 1: Int);
+        _2 = move _17;
+        drop(_16);
+        goto -> bb10;
+    }
+
+    bb15: {
         _0 = copy _2;
         drop(_1);
         return;

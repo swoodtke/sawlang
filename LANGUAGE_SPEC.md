@@ -872,8 +872,7 @@ Binding rules are `if let`'s, applied once per iteration:
 - The same shadowing rule (see Shadowing). A scrutinee that mentions the
   shadowed name is a derived shadow and is allowed: `while let c = c.next()`.
 - The same pattern surface. A tuple pattern over an optional tuple works
-  (`while let (key, value) = pairs.pop()`), and over a *suspending* scrutinee it
-  is rejected with a diagnostic naming the way out.
+  (`while let (key, value) = pairs.pop()`), over a *suspending* scrutinee too.
 - The same payload-read tier. A `Copy` payload retains; an `ExplicitCopy` or
   `NoCopy` one needs `move`, `.copy()` or `take()` exactly where `if let` needs
   it.

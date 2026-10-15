@@ -136,11 +136,13 @@ public struct CoroBeforePoint {
 }
 
 // What a frame value is: the state word the resume function switches on,
-// the result the caller moves out after `Ready`, a parameter the caller
-// writes before the first resume, a local resident across a suspension, or
-// the embedded frame of a child the item drives.
+// the op-budget counter its loops charge, the result the caller moves out
+// after `Ready`, a parameter the caller writes before the first resume, a
+// local resident across a suspension, or the embedded frame of a child the
+// item drives.
 public enum CoroValueKind {
     case State,
+    case Budget,
     case Result,
     case Param,
     case Local,
@@ -148,7 +150,8 @@ public enum CoroValueKind {
 }
 
 // One value of a frame. `local` is the item body's local, or -1 for the
-// state word and a child; `child` is the item a child slot's frame is, or
+// state word, the op-budget counter and a child; `child` is the item a child
+// slot's frame is, or
 // -1; `ty` is -1 for a child, whose bytes are its frame's. `live_first`
 // starts its lifetime's run of `live`. The offset, size and alignment are
 // the layout's, -1 until it runs.
@@ -179,8 +182,6 @@ public enum CoroUnloweredKind {
     case Source,
     // A call driving a child whose frame is not lowered.
     case Child,
-    // An op-budget point.
-    case Budget,
     // A conditional window whose open suspends.
     case Window
 }
@@ -190,7 +191,8 @@ public enum CoroUnloweredKind {
 // resume, it continues. Its record in the task's context, and its arm, are
 // MIR the lowering wrote before the park's call (`coro_lower_park`).
 public enum CoroPointKind {
-    // A ready yield, `yield_now`, or the test intrinsic `__saw_suspend`.
+    // A ready yield: `yield_now`, the test intrinsic `__saw_suspend`, or an
+    // op-budget point whose counter ran out.
     case ParkReady,
     // A timer: `sleep`.
     case ParkTimer,
@@ -209,7 +211,8 @@ public enum CoroPointKind {
 }
 
 // One suspension point of a lowered frame: the state the frame records when
-// it pends there, the block whose call terminator the point replaces, and
+// it pends there, the block whose call terminator the point replaces (for
+// an op-budget point, the block lowering added for its yield), and
 // for a drive the child item, its slot's offset in the frame, and the place
 // the call wrote its result to and the block that moves it there from the
 // child's result slot, each -1 for a call with no destination.

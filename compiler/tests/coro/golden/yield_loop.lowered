@@ -1,3 +1,116 @@
-ERROR	coro.not-yet	compiler/tests/coro/golden/yield_loop.saw:34:17	`main` suspends (main -> tally -> usleep), so it needs a coroutine frame, which is not lowered yet (SL-545)
-ERROR	coro.not-yet	compiler/tests/coro/golden/yield_loop.saw:25:9	`tally` suspends (tally -> usleep), so it needs a coroutine frame, which is not lowered yet (SL-545)
-no lowered frame
+resume #0: yield_loop.main()  (frame size 80 align 8, pointer _2)
+    state 0: bb0
+    state 1: bb0 drive #5 yield_loop.tally(rounds: Int) at (*frame).[8]
+fn yield_loop.main() -> Void {
+    let _0: Void;  // return
+    let _1: Int;
+    let _2: &var Int;
+
+    bb0: {
+        (*_2).[32: Int] = const 3: Int;
+        call yield_loop.tally(rounds: Int) [] -> [return: bb3] suspends;
+    }
+
+    bb1: {
+        call builtin print [format "{}", copy _1] -> [return: bb2];
+    }
+
+    bb2: {
+        return;
+    }
+
+    bb3: {
+        _1 = move (*_2).[24: Int];
+        goto -> bb1;
+    }
+}
+resume #5: yield_loop.tally(rounds: Int)  (frame size 72 align 8, pointer _13, context _14)
+    state 0: bb0
+    state 1: bb7 park ready
+    state 2: bb4 drive #9 std.task.yield_now() at (*frame).[64]
+fn yield_loop.tally(rounds: Int) -> Int {
+    let _0: Int;  // return
+    let _1: Int;  // param rounds
+    let _2: String;  // label
+    let _3: Int;  // total
+    let _4: Int;  // i
+    let _5: Bool;
+    let _6: Int;  // step
+    let _7: Int;
+    let _8: Int;
+    let _9: &String;
+    let _10: Int;
+    let _11: Int;
+    let _12: Int;
+    let _13: &var Int;
+    let _14: &var std.taskgroup.TaskContext;
+    let _15: Bool;
+
+    bb0: {
+        (*_13).[8: Int] = const 128: Int;
+        (*_13).[32: String] = const "round": String;
+        (*_13).[40: Int] = const 0: Int;
+        (*_13).[48: Int] = const 0: Int;
+        goto -> bb1;
+    }
+
+    bb1: {
+        _5 = Lt(copy (*_13).[48: Int], copy (*_13).[24: Int]);
+        switch move _5 -> [true: bb3, false: bb2];
+    }
+
+    bb2: {
+        (*_13).[16: Int] = copy (*_13).[40: Int];
+        drop((*_13).[32: String]);
+        return;
+    }
+
+    bb3: {
+        (*_13).[8: Int] = SubWrapping(copy (*_13).[8: Int], const 1: Int);
+        _15 = Le(copy (*_13).[8: Int], const 0: Int);
+        switch move _15 -> [true: bb7, false: bb4];
+    }
+
+    bb4: {
+        call std.task.yield_now() [] -> [return: bb5] suspends;
+    }
+
+    bb5: {
+        _7 = Mul(copy (*_13).[48: Int], const 2: Int);
+        (*_13).[56: Int] = move _7;
+        _8 = Add(copy (*_13).[40: Int], copy (*_13).[56: Int]);
+        _9 = ref(shared, (*_13).[32: String]);
+        _10 = call std.string.String.len() (owner String) [move _9] -> [return: bb6];
+    }
+
+    bb6: {
+        _11 = Add(move _8, move _10);
+        (*_13).[40: Int] = move _11;
+        _12 = Add(copy (*_13).[48: Int], const 1: Int);
+        (*_13).[48: Int] = move _12;
+        goto -> bb1;
+    }
+
+    bb7: {
+        (*_13).[8: Int] = const 128: Int;
+        (*(*_14).park) = const 0: Int;
+        call std.task.__saw_park_ready() [] -> [return: bb4] suspends;
+    }
+}
+resume #9: std.task.yield_now()  (frame size 8 align 8, pointer _1, context _2)
+    state 0: bb0
+    state 1: bb0 park ready
+fn std.task.yield_now() -> Void {
+    let _0: Void;  // return
+    let _1: &var Int;
+    let _2: &var std.taskgroup.TaskContext;
+
+    bb0: {
+        (*(*_2).park) = const 0: Int;
+        call std.task.__saw_park_ready() [] -> [return: bb1] suspends;
+    }
+
+    bb1: {
+        return;
+    }
+}

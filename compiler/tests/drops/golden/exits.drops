@@ -123,47 +123,50 @@ fn exits.looped(n: Int) -> Int {
     }
 
     bb3: {
+        budget(yield-capable);
+        goto -> bb4;
+    }
+
+    bb4: {
         _5 = Add(copy _3, const 1: Int);
         _3 = move _5;
         _7 = exits.Res { id: copy _3 };
         _6 = move _7;
         _8 = Eq(copy _3, const 2: Int);
-        switch move _8 -> [true: bb5, false: bb6];
-    }
-
-    bb4: {
-        _9 = Eq(copy _3, const 4: Int);
-        switch move _9 -> [true: bb8, false: bb9];
+        switch move _8 -> [true: bb6, false: bb7];
     }
 
     bb5: {
-        drop(_6);
-        budget(yield-capable);
-        goto -> bb1;
+        _9 = Eq(copy _3, const 4: Int);
+        switch move _9 -> [true: bb9, false: bb10];
     }
 
     bb6: {
-        goto -> bb4;
+        drop(_6);
+        goto -> bb1;
     }
 
     bb7: {
-        _10 = copy _2;
-        _11 = call exits.take(r: exits.Res) [move _6] -> [return: bb10];
+        goto -> bb5;
     }
 
     bb8: {
+        _10 = copy _2;
+        _11 = call exits.take(r: exits.Res) [move _6] -> [return: bb11];
+    }
+
+    bb9: {
         drop(_6);
         goto -> bb2;
     }
 
-    bb9: {
-        goto -> bb7;
+    bb10: {
+        goto -> bb8;
     }
 
-    bb10: {
+    bb11: {
         _12 = Add(move _10, move _11);
         _2 = move _12;
-        budget(yield-capable);
         goto -> bb1;
     }
 

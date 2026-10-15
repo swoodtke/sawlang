@@ -23,7 +23,7 @@
 //     (initialisation.saw);
 //   - an accessor's epilogue carries exactly its prologue's carried windows,
 //     in order;
-//   - every loop backedge carries an op-budget point;
+//   - every cycle the entry reaches passes an op-budget point;
 //   - every statement and terminator the entry reaches carries a source node;
 //   - no operand moves an owning value out through a reference, but for an
 //     epilogue's record load and a closure body's take of a take capture,
@@ -84,7 +84,7 @@ extension MirProgram {
             b = b + 1
         }
         self.verify_flow(f, &var out)
-        self.verify_backedges(f, &var out)
+        self.verify_budget_cycles(f, &var out)
         self.verify_halves(f, &var out)
         self.verify_nodes(f, &var out)
         self.verify_moves(f, &var out)
@@ -1799,62 +1799,109 @@ extension MirProgram {
         }
     }
 
-    // Every edge to a block on the depth-first path from the entry, a loop's
-    // backedge, leaves a block whose last statement is an op-budget point.
-    func verify_backedges(&self, f: Int, out: &var Vector<String>) {
+    // Every cycle the entry reaches passes an op-budget point: with each block
+    // holding one taken out, the blocks the entry reaches form no cycle. A
+    // loop's point opens its body, so a `continue` and the backedge both
+    // reach it through the head.
+    func verify_budget_cycles(&self, f: Int, out: &var Vector<String>) {
         let info = self.funcs[f]
         if info.block_count == 0 {
             return
         }
+        var reached = Vector<Bool>()
+        var charged = Vector<Bool>()
         var state = Vector<Int>()
-        var k = 0
-        while k < info.block_count {
-            try! state.push(0)
-            k = k + 1
-        }
         var stack = Vector<Int>()
         var cursor = Vector<Int>()
-        k = 0
+        var k = 0
         while k < info.block_count {
+            let block = self.blocks[info.block_first + k]
+            try! reached.push(false)
+            try! charged.push(self.holds_budget(&block))
+            try! state.push(0)
             try! stack.push(0)
             try! cursor.push(0)
             k = k + 1
         }
-        var depth = 1
-        state[0] = 1
-        while depth > 0 {
-            let top = depth - 1
-            let b = stack[top]
+        var work = Vector<Int>()
+        try! work.push(0)
+        reached[0] = true
+        var at = 0
+        while at < work.len() {
+            let b = work[at]
+            at = at + 1
             let block = self.blocks[info.block_first + b]
             var succ = Vector<Int>()
             var opened = -1
             self.successors(f, &block, &var succ, &var opened)
-            let i = cursor[top]
-            if i >= succ.len() {
-                state[b] = 2
-                depth = top
+            var j = 0
+            while j < succ.len() {
+                let t = succ[j]
+                j = j + 1
+                if not reached[t] {
+                    reached[t] = true
+                    try! work.push(t)
+                }
+            }
+        }
+        var root = 0
+        while root < info.block_count {
+            let r = root
+            root = root + 1
+            if not reached[r] || charged[r] || state[r] != 0 {
                 continue
             }
-            cursor[top] = i + 1
-            let target = succ[i]
-            if state[target] == 1 {
-                let last = block.last
-                if last < 0 || self.stmts[last].kind != MirStmtKind.Budget {
+            var depth = 1
+            stack[0] = r
+            cursor[0] = 0
+            state[r] = 1
+            while depth > 0 {
+                let top = depth - 1
+                let b = stack[top]
+                let block = self.blocks[info.block_first + b]
+                var succ = Vector<Int>()
+                var opened = -1
+                self.successors(f, &block, &var succ, &var opened)
+                let i = cursor[top]
+                if i >= succ.len() {
+                    state[b] = 2
+                    depth = top
+                    continue
+                }
+                cursor[top] = i + 1
+                let target = succ[i]
+                if charged[target] {
+                    continue
+                }
+                if state[target] == 1 {
                     var text = StringBuilder()
-                    try! text.append("the backedge bb")
+                    try! text.append("the cycle through bb")
                     try! text.append(b)
                     try! text.append(" -> bb")
                     try! text.append(target)
-                    try! text.append(" has no op-budget point")
+                    try! text.append(" passes no op-budget point")
                     self.problem(f, &var out, text.build())
+                } else if state[target] == 0 {
+                    state[target] = 1
+                    stack[depth] = target
+                    cursor[depth] = 0
+                    depth = depth + 1
                 }
-            } else if state[target] == 0 {
-                state[target] = 1
-                stack[depth] = target
-                cursor[depth] = 0
-                depth = depth + 1
             }
         }
+    }
+
+    // Whether `block` holds an op-budget point.
+    func holds_budget(&self, block: &MirBlock) -> Bool {
+        var s = block.first
+        while s >= 0 {
+            let stmt = self.stmts[s]
+            if stmt.kind == MirStmtKind.Budget {
+                return true
+            }
+            s = stmt.next
+        }
+        false
     }
 }
 

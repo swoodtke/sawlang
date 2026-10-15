@@ -1443,7 +1443,7 @@ says what the fixture shows.
 | `drive.argument` | a test driver (`__saw_drive`, `__saw_drive_steps`) given anything but one positional argument (bare), or a root that is no call of a function or a method: a function value, a closure (`.value-root`) |
 | `spawn.argument` | a `Task.spawn` given anything but one positional argument, or a root that is no call of a free function: a method, a closure, a value (`.method-root`) |
 | `spawn.borrow` | a borrow a `Task.spawn` root takes of its spawner, at both spellings: a `&` or `&var` argument of the root call, and a borrow capture written in a closure anywhere inside it (`.capture`); a reference a call nested in the arguments makes ends at the spawn and is none (golden `task_spawn`; spec, "BORROWS ARE REFUSED AT THE FORM") |
-| `spawn.never-body` | a task root of type `Never`, whose handle's `join` could never return (design 228); the funnel `refuse_never_task_body` names its entry points, the `Task.spawn` form today |
+| `spawn.never-body` | a task root of type `Never`, whose handle's `join` could never return, or which a test driver would drive for ever (design 228; conformance row D12); the funnel `refuse_never_task_body` names its entry points, the `Task.spawn` form and the two test drivers (`.drive`, `.drive-steps`) |
 | `slice.not-yet` | a signature or body construct outside the bootstrap slice |
 
 The traits that derive under `@synthesize` are `Copy`, `ExplicitCopy`,

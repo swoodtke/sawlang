@@ -1,0 +1,130 @@
+resume #5: cancel_read.watch(n: Int) task root  (frame size 40 align 8, pointer _9, context _10)
+    state 0: bb0
+    state 1: bb1 drive #10 std.task.yield_now() at (*frame).[32]
+fn cancel_read.watch(n: Int) -> Int {
+    let _0: Int;  // return
+    let _1: Int;  // param n
+    let _2: Bool;  // early
+    let _3: Bool;
+    let _4: Bool;
+    let _5: Bool;
+    let _6: Int;
+    let _7: Bool;
+    let _8: Int;
+    let _9: &var Int;
+    let _10: &var std.taskgroup.TaskContext;
+
+    bb0: {
+        _3 = copy (*(*_10).cancel);
+        goto -> bb1;
+    }
+
+    bb1: {
+        (*_9).[24: Bool] = move _3;
+        call std.task.yield_now() [] -> [return: bb2] suspends;
+    }
+
+    bb2: {
+        _5 = copy (*(*_10).cancel);
+        goto -> bb5;
+    }
+
+    bb3: {
+        _7 = call cancel_read.check() [] -> [return: bb11];
+    }
+
+    bb4: {
+        switch move _4 -> [true: bb8, false: bb9];
+    }
+
+    bb5: {
+        switch move _5 -> [true: bb7, false: bb6];
+    }
+
+    bb6: {
+        _4 = copy (*_9).[24: Bool];
+        goto -> bb4;
+    }
+
+    bb7: {
+        _4 = const true: Bool;
+        goto -> bb4;
+    }
+
+    bb8: {
+        _6 = Neg(const 1: Int);
+        (*_9).[8: Int] = move _6;
+        return;
+    }
+
+    bb9: {
+        goto -> bb3;
+    }
+
+    bb10: {
+        (*_9).[8: Int] = copy (*_9).[16: Int];
+        return;
+    }
+
+    bb11: {
+        switch move _7 -> [true: bb12, false: bb13];
+    }
+
+    bb12: {
+        _8 = Neg(const 2: Int);
+        (*_9).[8: Int] = move _8;
+        return;
+    }
+
+    bb13: {
+        goto -> bb10;
+    }
+}
+resume #10: std.task.yield_now()  (frame size 8 align 8, pointer _1, context _2)
+    state 0: bb0
+    state 1: bb0 park ready
+fn std.task.yield_now() -> Void {
+    let _0: Void;  // return
+    let _1: &var Int;
+    let _2: &var std.taskgroup.TaskContext;
+
+    bb0: {
+        (*(*_2).park) = const 0: Int;
+        call std.task.__saw_park_ready() [] -> [return: bb1] suspends;
+    }
+
+    bb1: {
+        return;
+    }
+}
+driver #0: cancel_read.main()
+    drive bb0 task root #5 cancel_read.watch(n: Int) task root, descriptor _2, frame _3
+fn cancel_read.main() -> Void {
+    let _0: Void;  // return
+    let _1: Int;
+    let _2: UnsafePointer<std.taskgroup.FrameDescriptor>;
+    let _3: UnsafePointer<UInt8>;
+
+    bb0: {
+        (*_3).[0: Int] = const 0: Int;
+        (*_3).[16: Int] = const 4: Int;
+        _2 = drive result cancel_read.watch(n: Int) [] -> [return: bb3];
+    }
+
+    bb1: {
+        call builtin print [copy _1] -> [return: bb2];
+    }
+
+    bb2: {
+        return;
+    }
+
+    bb3: {
+        call std.taskgroup.__saw_exec_drive(descriptor: UnsafePointer<std.taskgroup.FrameDescriptor>, frame: UnsafePointer<UInt8>, site: String) [copy _2, copy _3, const "`__saw_drive(...)` at compiler/tests/coro/golden/cancel_read.saw:27:11": String] -> [return: bb4];
+    }
+
+    bb4: {
+        _1 = move (*_3).[8: Int];
+        goto -> bb1;
+    }
+}

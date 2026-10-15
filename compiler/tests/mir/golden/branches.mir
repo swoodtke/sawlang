@@ -272,13 +272,17 @@ fn branches.tries(n: Int) -> Result<Int, branches.Fault> {
 
     bb16: {
         _15 = copy (_13 as Some).0;
-        _16 = Int?::None;
-        _13 = move _16;
         budget(yield-capable);
-        goto -> bb14;
+        goto -> bb18;
     }
 
     bb17: {
         goto -> bb15;
+    }
+
+    bb18: {
+        _16 = Int?::None;
+        _13 = move _16;
+        goto -> bb14;
     }
 }

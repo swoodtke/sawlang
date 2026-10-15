@@ -20,8 +20,8 @@
 
 import sawborrowck.program.{BorrowckProgram}
 import sawcoro.frames.{coro_driven_child, coro_frame_of}
-import sawcoro.lower.{CORO_PARK_FD, CORO_PARK_READY, CORO_PARK_TIMER, CoroContext, coro_child_offset,
-                      coro_context_shape, coro_frame_lowered}
+import sawcoro.lower.{CORO_PARK_FD, CORO_PARK_READY, CORO_PARK_TIMER, CoroContext, coro_call_decl, coro_cancel_read,
+                      coro_child_offset, coro_context_shape, coro_frame_lowered}
 import sawcoro.program.{CoroBefore, CoroBeforeBody, CoroBeforePoint, CoroFrame, CoroProgram, CoroValue,
                         CoroValueKind, coro_no_before}
 import sawcoro.suspends.{coro_call_suspends}
@@ -30,7 +30,7 @@ import sawmir.dump.{mir_dump_module}
 import sawmir.initialisation.{MIR_INIT_DROPPED, MIR_INIT_MOVED, MIR_INIT_PARTIAL, MIR_INIT_UNASSIGNED,
                               MIR_INIT_WHOLE, MirAccess, MirAccessKind, MirInit, mir_init_apply_all}
 import sawmir.model.{MirBlock, MirCall, MirCallKind, MirConstKind, MirFuncKind, MirOperandKind, MirPlace, MirProj,
-                     MirProjKind, MirRvalueKind, MirStmtKind, MirTermKind}
+                     MirProjKind, MirRvalueKind, MirStmtKind, MirSwitchKind, MirTermKind}
 import sawmir.program.{MirProgram}
 import sawmono.dump.{mono_dump_layouts}
 import sawmono.program.{MonoProgram}
@@ -318,7 +318,7 @@ func coro_verify_body(coro: &var CoroProgram, cx: &CoroContext, b: &CoroBeforeBo
         coro_verify_point_states(&var coro, &b, &slots)
     }
     coro_verify_drops(&var coro, &b)
-    coro_verify_transfers(&var coro, &b, frame, &slots, &places)
+    coro_verify_transfers(&var coro, &cx, &b, frame, &slots, &places)
     coro_verify_windows(&var coro, &b, &slots)
     if b.framed {
         coro_verify_records(&var coro, &cx, &b)
@@ -592,6 +592,18 @@ func coro_verify_residents(coro: &var CoroProgram, b: &CoroBeforeBody, frame: In
         slots[pre.local] = offset
     }
     let info = coro.mono.dp.bc.mir.funcs[b.body]
+    // The result and every parameter live in a lowered frame whether or not
+    // the body names them, since the caller reaches them there; one the body
+    // never names has no place to show its slot, so its layout's stands.
+    if b.framed {
+        l = 0
+        while l <= info.param_count && l < b.local_count {
+            if slots[l] < 0 && not stack[l] {
+                slots[l] = coro_verify_layout_offset(&coro, b.item, l)
+            }
+            l = l + 1
+        }
+    }
     l = 0
     while l < b.local_count {
         let local = l
@@ -821,9 +833,10 @@ func coro_verify_index_reads(coro: &var CoroProgram, b: &CoroBeforeBody, places:
 // each local, recomputed over the lowered body read with every place as it
 // was before lowering, equal the ones before lowering, and a local that may
 // be initialised there lives in the frame, since a suspension loses the
-// resume function's stack. A point is matched by its call, or its op-budget
-// statement; an effect-only suspension, `__saw_test_suspend`, is the one that
-// lowering removes.
+// resume function's stack. A point is matched by its call, or an op-budget
+// point by the ready park its block's test of the counter yields at; an
+// effect-only suspension, `__saw_test_suspend`, is the one that lowering
+// removes.
 func coro_verify_point_states(coro: &var CoroProgram, b: &CoroBeforeBody, slots: &Vector<Int>) {
     var calls = Vector<Int>()
     var stmts = Vector<Int>()
@@ -844,17 +857,20 @@ func coro_verify_point_states(coro: &var CoroProgram, b: &CoroBeforeBody, slots:
             }
             call = -1
         }
-        if point.stmt >= 0 && not coro_verify_holds_stmt(&coro, b.body, point.stmt) {
-            var what = StringBuilder()
-            try! what.append("state ")
-            try! what.append(point.state)
-            try! what.append("'s op-budget point in bb")
-            try! what.append(point.block)
-            try! what.append(" is gone from the lowered body")
-            coro_verify_problem(&var coro, 2, b.item, what.build())
+        if point.stmt >= 0 {
+            call = coro_verify_budget_yield(&coro, b.body, point.block)
+            if call < 0 {
+                var what = StringBuilder()
+                try! what.append("state ")
+                try! what.append(point.state)
+                try! what.append("'s op-budget point in bb")
+                try! what.append(point.block)
+                try! what.append(" does not end its block in a test whose true edge parks ready")
+                coro_verify_problem(&var coro, 2, b.item, what.build())
+            }
         }
         try! calls.push(call)
-        try! stmts.push(point.stmt)
+        try! stmts.push(-1)
     }
     let saved = coro_verify_restore(&var coro, &b)
     let after = coro_verify_states(&coro, b.body, &calls, &stmts, b.local_count)
@@ -953,21 +969,26 @@ func coro_verify_block_of_call(coro: &CoroProgram, f: Int, c: Int) -> Int {
     return -1
 }
 
-// Whether a block of function `f` holds statement `s`.
-func coro_verify_holds_stmt(coro: &CoroProgram, f: Int, s: Int) -> Bool {
+// The ready park an op-budget point of block `bb` of function `f` yields at:
+// the call ending the block its `Bool` switch's true edge reaches, or -1.
+func coro_verify_budget_yield(coro: &CoroProgram, f: Int, bb: Int) -> Int {
     let info = coro.mono.dp.bc.mir.funcs[f]
-    var b = 0
-    while b < info.block_count {
-        var at = coro.mono.dp.bc.mir.blocks[info.block_first + b].first
-        b = b + 1
-        while at >= 0 {
-            if at == s {
-                return true
+    let block = coro.mono.dp.bc.mir.blocks[info.block_first + bb]
+    if block.term != MirTermKind.Switch || block.switch_kind != MirSwitchKind.Bool {
+        return -1
+    }
+    var j = 0
+    while j < block.arm_count {
+        let arm = coro.mono.dp.bc.mir.arms[block.arm_first + j]
+        j = j + 1
+        if arm.value == 1 {
+            let c = coro_verify_park_at(&coro, f, arm.target)
+            if c >= 0 && coro_verify_park(&coro, c) == CoroVerifyPark.Ready {
+                return c
             }
-            at = coro.mono.dp.bc.mir.stmts[at].next
         }
     }
-    false
+    return -1
 }
 
 // Whether call `c` is the effect-only test intrinsic `__saw_test_suspend`.
@@ -1144,9 +1165,11 @@ func coro_verify_uses(coro: &CoroProgram, f: Int) -> Vector<CoroVerifyUse> {
 // its state re-enters past. A drive's result is moved out of the child's
 // result slot once, on its return edge, into the call's destination; nothing
 // else reaches into a child's frame, and no place lowering adds reaches a
-// frame value of the body's own.
-func coro_verify_transfers(coro: &var CoroProgram, b: &CoroBeforeBody, frame: Int, slots: &Vector<Int>,
-                           places: &Vector<Int>) {
+// frame value of the body's own. A call gone from the body is an effect-only
+// suspension, or a read of the cancel word whose destination one read of the
+// word through the task's context writes.
+func coro_verify_transfers(coro: &var CoroProgram, cx: &CoroContext, b: &CoroBeforeBody, frame: Int,
+                           slots: &Vector<Int>, places: &Vector<Int>) {
     let uses = coro_verify_uses(&coro, b.body)
     // The places a drive may reach its child's frame through, and each
     // child's region of the frame.
@@ -1160,6 +1183,10 @@ func coro_verify_transfers(coro: &var CoroProgram, b: &CoroBeforeBody, frame: In
         let pre = coro.before.calls[b.call_first + k]
         k = k + 1
         let post = coro.mono.dp.bc.mir.calls[c]
+        if not coro_verify_ends_block(&coro, b.body, c) {
+            coro_verify_gone_call(&var coro, &cx, &b, c, &pre)
+            continue
+        }
         if coro_verify_same_args(&coro, &pre, &post) && pre.dest == post.dest {
             continue
         }
@@ -1255,6 +1282,77 @@ func coro_verify_transfers(coro: &var CoroProgram, b: &CoroBeforeBody, frame: In
         }
     }
     coro_verify_regions(&var coro, &b, frame, &slots, &places, &allowed, &region_start, &region_end, &region_child)
+}
+
+// Call `c` of body `b`, as `pre` was before lowering, ends no block after it:
+// it is an effect-only suspension, which runs as nothing, or a read of the
+// cancel word in a lowered frame, whose destination exactly one statement
+// writes, with a copy of the word through the task's context, in a block that
+// goes where the call returned.
+func coro_verify_gone_call(coro: &var CoroProgram, cx: &CoroContext, b: &CoroBeforeBody, c: Int, pre: &MirCall) {
+    if coro_verify_effect_only(&coro, c) {
+        return
+    }
+    if not b.framed || not coro_cancel_read(&coro, c) {
+        var what = StringBuilder()
+        try! what.append("a call is gone from the lowered body, and it is no effect-only suspension or read of the cancel word: ")
+        coro_verify_append_callee(&coro, &var what, c)
+        coro_verify_problem(&var coro, 2, b.item, what.build())
+        return
+    }
+    if pre.dest < 0 {
+        return
+    }
+    let info = coro.mono.dp.bc.mir.funcs[b.body]
+    var reads = 0
+    var writes = 0
+    var bb = 0
+    while bb < info.block_count {
+        let block = coro.mono.dp.bc.mir.blocks[info.block_first + bb]
+        bb = bb + 1
+        var s = block.first
+        while s >= 0 {
+            let here = s
+            let stmt = coro.mono.dp.bc.mir.stmts[here]
+            s = stmt.next
+            if stmt.kind != MirStmtKind.Assign || stmt.place != pre.dest {
+                continue
+            }
+            writes = writes + 1
+            let o = coro_verify_record_operand(&coro, here)
+            let read = o >= 0 && coro.mono.dp.bc.mir.operands[o].kind == MirOperandKind.Copy
+            let returns = (block.term == MirTermKind.Goto && block.target == pre.next) || (block.term == MirTermKind.Unreachable && pre.next < 0)
+            // Stage 0 workaround (SL:hazards S4): canonical: if read && returns && stmt.next < 0 && coro_verify_is_cancel(&coro, &cx, coro.mono.dp.bc.mir.operands[o].place) {
+            let source = if o >= 0 { coro.mono.dp.bc.mir.operands[o].place } else { -1 }
+            if read && returns && stmt.next < 0 && coro_verify_is_cancel(&coro, &cx, source) {
+                reads = reads + 1
+            }
+        }
+    }
+    if reads != 1 || writes != 1 {
+        var what = StringBuilder()
+        try! what.append("the read of the cancel word by ")
+        coro_verify_append_callee(&coro, &var what, c)
+        try! what.append(" is not one copy of the word through the task's context into its destination, last in a block going where the call returned")
+        coro_verify_problem(&var coro, 2, b.item, what.build())
+    }
+}
+
+// Whether place `p` is the cancel word through the task's context,
+// `(*(*_C).cancel)`.
+func coro_verify_is_cancel(coro: &CoroProgram, cx: &CoroContext, p: Int) -> Bool {
+    if p < 0 || cx.cancel < 0 {
+        return false
+    }
+    let pl = coro.mono.dp.bc.mir.places[p]
+    if pl.local < 0 || pl.count != 3 {
+        return false
+    }
+    let a = coro.mono.dp.bc.mir.projs[pl.first]
+    let field = coro.mono.dp.bc.mir.projs[pl.first + 1]
+    let d = coro.mono.dp.bc.mir.projs[pl.first + 2]
+    let through = a.kind == MirProjKind.Deref && a.ty == cx.ty && d.kind == MirProjKind.Deref
+    through && field.kind == MirProjKind.Field && field.decl == cx.cancel
 }
 
 // Whether calls `a` and `b` pass the same operands.
@@ -1806,11 +1904,7 @@ func coro_verify_park(coro: &CoroProgram, c: Int) -> CoroVerifyPark {
     if coro_verify_builtin(&coro, c, "__saw_suspend") {
         return CoroVerifyPark.Ready
     }
-    let t = coro.mono.call_item(c)
-    if t < 0 {
-        return CoroVerifyPark.NotAPark
-    }
-    let d = coro.item_decl(t)
+    let d = coro_call_decl(&coro, c)
     if d < 0 {
         return CoroVerifyPark.NotAPark
     }

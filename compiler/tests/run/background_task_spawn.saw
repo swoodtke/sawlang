@@ -1,0 +1,57 @@
+// design 242 unit 3: `Task.spawn(work(n))` — the cooperative engine's
+// singleton form. No group is declared: the task rides ONE process-wide
+// background group the runtime builds on first use and closes at `main`'s
+// return. The handle is a `Task<T>` / `VoidTask`, exactly what `group.spawn`
+// hands back, and its fate is explicit — `join()`, `detach()` or `cancel()` on
+// every path (ruling 5).
+//
+// Ruling 10 makes the CALL form the primitive: a background task's whole point
+// is that it can suspend, and only a named function gets a coroutine frame.
+//
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 36
+// counter ran
+// cancelled early
+
+import std.task.*
+
+func square(n: Int) -> Int {
+    yield_now()
+    n * n
+}
+
+func count_up() {
+    var i = 0
+    while i < 3 {
+        yield_now()
+        i = i + 1
+    }
+    print("counter ran")
+}
+
+func spin() {
+    while true {
+        if cancelled() {
+            print("cancelled early")
+            return
+        }
+        yield_now()
+    }
+}
+
+func main() {
+    // A valued task: `join` drives the scheduler until this one finishes and
+    // hands the result over.
+    let squared = Task.spawn(square(6))
+    print(squared.join())
+
+    // A `Void` body gives a `VoidTask` — the same split `group.spawn` has.
+    let counter = Task.spawn(count_up())
+    counter.join()
+
+    // `cancel()` is a fate too: the task runs its cancel path to completion.
+    let spinner = Task.spawn(spin())
+    spinner.cancel()
+    yield_now()
+}

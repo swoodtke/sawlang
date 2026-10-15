@@ -22,7 +22,7 @@ public struct MirScopeEntry {
 }
 
 // A loop being lowered: where `continue` goes, where `break` goes, the scope
-// depth outside its body, and whether its backedge's budget point may yield.
+// depth outside its body, and whether its body's budget point may yield.
 public struct MirLoop {
     head: Int
     exit: Int

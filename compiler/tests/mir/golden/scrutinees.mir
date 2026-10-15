@@ -819,9 +819,8 @@ fn scrutinees.Holder.while_let_field() -> Int {
 
     bb3: {
         _3 = copy ((*_1).text as Some).0;
-        _4 = copy _2;
-        _5 = ref(shared, _3);
-        _6 = call std.string.String.len() (owner String) [move _5] -> [return: bb5];
+        budget(yield-capable);
+        goto -> bb5;
     }
 
     bb4: {
@@ -829,25 +828,30 @@ fn scrutinees.Holder.while_let_field() -> Int {
     }
 
     bb5: {
-        _7 = Add(move _4, move _6);
-        _2 = move _7;
-        _8 = Gt(copy _2, const 2: Int);
-        switch move _8 -> [true: bb7, false: bb8];
+        _4 = copy _2;
+        _5 = ref(shared, _3);
+        _6 = call std.string.String.len() (owner String) [move _5] -> [return: bb6];
     }
 
     bb6: {
-        drop(_3);
-        budget(yield-capable);
-        goto -> bb1;
+        _7 = Add(move _4, move _6);
+        _2 = move _7;
+        _8 = Gt(copy _2, const 2: Int);
+        switch move _8 -> [true: bb8, false: bb9];
     }
 
     bb7: {
         drop(_3);
-        goto -> bb2;
+        goto -> bb1;
     }
 
     bb8: {
-        goto -> bb6;
+        drop(_3);
+        goto -> bb2;
+    }
+
+    bb9: {
+        goto -> bb7;
     }
 }
 
@@ -1239,14 +1243,12 @@ fn scrutinees.while_let_borrow_let(opts: &std.vector.Vector<scrutinees.Res?, std
     }
 
     bb3: {
-        window_close w0 epilogue std.vector.Vector.[](index: Int) (owner std.vector.Vector<scrutinees.Res?, std.alloc.GlobalAllocator>) -> [return: bb9];
+        window_close w0 epilogue std.vector.Vector.[](index: Int) (owner std.vector.Vector<scrutinees.Res?, std.alloc.GlobalAllocator>) -> [return: bb10];
     }
 
     bb4: {
-        _8 = Add(copy _3, const 1: Int);
-        _3 = move _8;
-        _9 = Gt(copy _3, const 2: Int);
-        switch move _9 -> [true: bb7, false: bb8];
+        budget(yield-capable);
+        goto -> bb6;
     }
 
     bb5: {
@@ -1254,19 +1256,25 @@ fn scrutinees.while_let_borrow_let(opts: &std.vector.Vector<scrutinees.Res?, std
     }
 
     bb6: {
-        budget(yield-capable);
-        goto -> bb2;
+        _8 = Add(copy _3, const 1: Int);
+        _3 = move _8;
+        _9 = Gt(copy _3, const 2: Int);
+        switch move _9 -> [true: bb8, false: bb9];
     }
 
     bb7: {
-        goto -> bb3;
+        goto -> bb2;
     }
 
     bb8: {
-        goto -> bb6;
+        goto -> bb3;
     }
 
     bb9: {
+        goto -> bb7;
+    }
+
+    bb10: {
         _0 = copy _3;
         return;
     }
@@ -1299,9 +1307,8 @@ fn scrutinees.while_let_parameter(o: &String?) -> Int {
 
     bb3: {
         _3 = copy ((*_1) as Some).0;
-        _4 = copy _2;
-        _5 = ref(shared, _3);
-        _6 = call std.string.String.len() (owner String) [move _5] -> [return: bb5];
+        budget(yield-capable);
+        goto -> bb5;
     }
 
     bb4: {
@@ -1309,24 +1316,29 @@ fn scrutinees.while_let_parameter(o: &String?) -> Int {
     }
 
     bb5: {
-        _7 = Add(move _4, move _6);
-        _2 = move _7;
-        _8 = Gt(copy _2, const 2: Int);
-        switch move _8 -> [true: bb7, false: bb8];
+        _4 = copy _2;
+        _5 = ref(shared, _3);
+        _6 = call std.string.String.len() (owner String) [move _5] -> [return: bb6];
     }
 
     bb6: {
-        drop(_3);
-        budget(yield-capable);
-        goto -> bb1;
+        _7 = Add(move _4, move _6);
+        _2 = move _7;
+        _8 = Gt(copy _2, const 2: Int);
+        switch move _8 -> [true: bb8, false: bb9];
     }
 
     bb7: {
         drop(_3);
-        goto -> bb2;
+        goto -> bb1;
     }
 
     bb8: {
-        goto -> bb6;
+        drop(_3);
+        goto -> bb2;
+    }
+
+    bb9: {
+        goto -> bb7;
     }
 }

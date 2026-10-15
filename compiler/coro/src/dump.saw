@@ -149,6 +149,10 @@ func coro_dump_value(coro: &CoroProgram, out: &var StringBuilder, frame: &CoroFr
         try! out.append("state\n")
         return
     }
+    if v.kind == CoroValueKind.Budget {
+        try! out.append("op budget\n")
+        return
+    }
     if v.kind == CoroValueKind.Child {
         try! out.append("child")
     } else {

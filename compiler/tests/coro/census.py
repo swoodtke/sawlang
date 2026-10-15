@@ -61,6 +61,8 @@ PLAN_MEMBERS = {"TcpStream": ("pair", "read", "write"), "TcpListener": ("listen"
 LANGUAGE_CHANGED = {
     "conformance/P08_borrows_body_suspends.saw":
         "a `borrows` body may suspend unless it is `borrows(sync)` (SL-559; run lane probes/coro_windows_held)",
+    "while_let_tuple_over_suspension_refused.saw":
+        "a tuple-pattern `while let` may span a suspension (SL-566; run lane probes/coro_while_let_tuple)",
 }
 
 _MODULE = re.compile(r"^no module `([^`]+)`")

@@ -1,0 +1,16 @@
+// refuses: spawn.never-body at 14:5
+// a `__saw_drive` root that never returns (conformance row D12): the driver
+// runs its frame to its end, which never comes, so it would drive it for ever
+
+import std.task.{yield_now}
+
+func halt(n: Int) -> Never {
+    while {
+        yield_now()
+    }
+}
+
+func main() {
+    __saw_drive(halt(1))
+    print("driven")
+}

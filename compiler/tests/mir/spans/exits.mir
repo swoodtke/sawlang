@@ -103,44 +103,47 @@ fn exits.looped(n: Int) -> Int {
     }
 
     bb3: {
+        budget(yield-capable);  @23:5
+        goto -> bb4;  @23:5
+    }
+
+    bb4: {
         _4 = const "looped": String;  @24:17
         _5 = Add(copy _2, const 1: Int);  @25:13
         _2 = move _5;  @25:9
         _6 = Eq(copy _2, const 2: Int);  @26:12
-        switch move _6 -> [true: bb5, false: bb6];  @26:9
-    }
-
-    bb4: {
-        _7 = Eq(copy _2, const 5: Int);  @29:12
-        switch move _7 -> [true: bb8, false: bb9];  @29:9
+        switch move _6 -> [true: bb6, false: bb7];  @26:9
     }
 
     bb5: {
-        drop(_4);  @27:13
-        budget(yield-capable);  @23:5
-        goto -> bb1;  @27:13
+        _7 = Eq(copy _2, const 5: Int);  @29:12
+        switch move _7 -> [true: bb9, false: bb10];  @29:9
     }
 
     bb6: {
-        goto -> bb4;  @26:9
+        drop(_4);  @27:13
+        goto -> bb1;  @27:13
     }
 
     bb7: {
-        call builtin print [copy _4] -> [return: bb10];  @32:9
+        goto -> bb5;  @26:9
     }
 
     bb8: {
+        call builtin print [copy _4] -> [return: bb11];  @32:9
+    }
+
+    bb9: {
         drop(_4);  @30:13
         goto -> bb2;  @30:13
     }
 
-    bb9: {
-        goto -> bb7;  @29:9
+    bb10: {
+        goto -> bb8;  @29:9
     }
 
-    bb10: {
+    bb11: {
         drop(_4);  @33:5
-        budget(yield-capable);  @23:5
         goto -> bb1;  @23:5
     }
 }

@@ -1356,8 +1356,8 @@ while let job = queue.pop() { }      // DRAIN: one iteration per Some
   termination in the body and, when a refactor loses the `break`, fails as a HANG
   rather than an error. (That spelling also MISCOMPILED over a suspension until
   DF-233a, so treat a pre-Aug-16 one as suspect.) The scrutinee may suspend, in
-  a driven or spawned body; a TUPLE pattern over a suspending scrutinee is a
-  clean error (an `if let`/`guard let` one is not: sawc2 lowers it).
+  a driven or spawned body, under a TUPLE pattern too (sawc2 lowers it; Stage 0
+  refuses it, as it does the `if let`/`guard let` form).
 - **An EXACT duplicate arm is a compile error**, reported at the second and
   naming the first's line — no input reaches it. Equality is textual after
   literal normalization (`case 10` and `case 0x0A` are one pattern), and an
@@ -3087,10 +3087,10 @@ dump_tasks()                // every live task's logical backtrace (std.task)
   LOST while a `continue` spun forever, because the split marking listed the
   block form and not the inline one.
   Still a clean,
-  user-anchored compile error (NOT a silent block): a suspension-spanning
-  `while let` with a TUPLE pattern (`if let`/`guard let` with one is lowered by
-  sawc2, refused by Stage 0); and a suspending `try { } catch { }` block whose try
-  body raises TWO OR MORE distinct error types (below).
+  user-anchored compile error (NOT a silent block): a suspending `try { } catch
+  { }` block whose try body raises TWO OR MORE distinct error types (below). A
+  suspension-spanning `if let`/`guard let`/`while let` with a TUPLE pattern is
+  lowered by sawc2 and refused by Stage 0.
   A NESTED generic call whose template suspends UNCONDITIONALLY without calling a
   type-param method (`func g<T>(x: T) -> T { yield_now(); x }` called nested) PARKS
   since design 218 unit 1.5 — write it and it takes its turn. Until then it

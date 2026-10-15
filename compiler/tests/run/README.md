@@ -279,13 +279,13 @@ description's (`compiler/tests/mono/README.md`, "Layouts").
 
 **Suspension.** The backend's input is coroutine lowering's program
 (`compiler/tests/coro/README.md`), which lowers the frames whose every
-suspension is a ready park, an effect-only test suspension or the drive of a
-lowered child, and refuses every
+suspension is a park, an op-budget point, an effect-only test suspension or
+the drive of a lowered child, and refuses every
 other item that needs a frame (`coro.not-yet`) and every suspending cycle
 (`coro.suspending-cycle`), so every suspending call that reaches the backend
 is a lowered point, and none is emitted as a plain call that blocks the
-thread. Every op-budget point that reaches it is outside a frame, and writes
-nothing. `yield_main` is the walking skeleton, a suspending `main` the entry
+thread. No op-budget point reaches it: coroutine lowering turns each one in a
+frame into a charge of the frame's counter and deletes every other. `yield_main` is the walking skeleton, a suspending `main` the entry
 executor drives; `drive_arguments` drives children that take arguments and
 return values, `drive_test_suspensions` parks through `__saw_suspend`
 and `__saw_test_suspend`, and `default_on_suspending` leaves literal defaults
@@ -299,9 +299,16 @@ under `modules/`). The test drivers run over a plain `main`:
 corpus programs, `drive_shapes` drives
 methods, a static method, generic roots, references, a loop, a sync helper
 and a `sync` function, `drive_ownership` owning arguments and results, and
-`drive_sync_root` roots that never suspend. The due programs `suspend_blocking_main`, `suspend_cycle`,
-`suspend_budget_point` and `suspend_park_point` pin the refusals at a build:
-a `blocking` extern's offload, a cycle, a budget point and a timer park.
+`drive_sync_root` roots that never suspend. The op budget (SL:coroutines
+A9): `yield_main_loop` and `suspend_budget_point` are suspending `main`s
+with a loop, `op_budget_counts` counts a driven loop's forced yields,
+`op_budget_loop_shapes_driven` charges each loop shape without changing its
+count, `op_budget_interleaving` cedes before the body that runs the counter
+out, `background_compute_preemption` cedes from a task that only computes,
+and `background_task_spawn` also reads `cancelled()` in a task. The due
+programs `suspend_blocking_main`, `suspend_cycle` and `suspend_park_point`
+pin the refusals at a build: a `blocking` extern's offload, a cycle and a
+timer park.
 
 **Closures.** A closure's environment is a slot of the frame that builds it,
 which is sound only for a closure that does not escape; mono refuses an

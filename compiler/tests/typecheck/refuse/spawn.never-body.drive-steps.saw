@@ -1,0 +1,15 @@
+// refuses: spawn.never-body at 14:11
+// a `__saw_drive_steps` root that never returns: counting its pends would
+// drive it for ever, as `__saw_drive` would
+
+import std.task.{yield_now}
+
+func halt() -> Never {
+    while {
+        yield_now()
+    }
+}
+
+func main() {
+    print(__saw_drive_steps(halt()))
+}

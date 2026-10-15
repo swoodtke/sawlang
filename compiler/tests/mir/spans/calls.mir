@@ -80,14 +80,18 @@ fn calls.spin(n: Int) -> Int {
     }
 
     bb3: {
-        _4 = copy _2;  @18:13
-        _5 = call calls.twice(n: Int) [const 1: Int] -> [return: bb4];  @18:17
+        budget(yield-capable);  @17:5
+        goto -> bb4;  @17:5
     }
 
     bb4: {
+        _4 = copy _2;  @18:13
+        _5 = call calls.twice(n: Int) [const 1: Int] -> [return: bb5];  @18:17
+    }
+
+    bb5: {
         _6 = Add(move _4, move _5);  @18:13
         _2 = move _6;  @18:9
-        budget(yield-capable);  @17:5
         goto -> bb1;  @17:5
     }
 }

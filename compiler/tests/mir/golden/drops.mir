@@ -79,55 +79,59 @@ fn drops.exits(n: Int) -> Result<Int, drops.Fault> {
 
     bb3: {
         _15 = Gt(copy _4, const 0: Int);
-        switch move _15 -> [true: bb18, false: bb19];
+        switch move _15 -> [true: bb19, false: bb20];
     }
 
     bb4: {
-        _7 = call drops.make() [] -> [return: bb5];
+        budget(yield-capable);
+        goto -> bb5;
     }
 
     bb5: {
+        _7 = call drops.make() [] -> [return: bb6];
+    }
+
+    bb6: {
         _6 = move _7;
         _8 = Add(copy _4, const 1: Int);
         _4 = move _8;
         _9 = Eq(copy _4, const 2: Int);
-        switch move _9 -> [true: bb7, false: bb8];
-    }
-
-    bb6: {
-        _10 = Eq(copy _4, const 5: Int);
-        switch move _10 -> [true: bb10, false: bb11];
+        switch move _9 -> [true: bb8, false: bb9];
     }
 
     bb7: {
-        drop(_6);
-        budget(yield-capable);
-        goto -> bb2;
+        _10 = Eq(copy _4, const 5: Int);
+        switch move _10 -> [true: bb11, false: bb12];
     }
 
     bb8: {
-        goto -> bb6;
+        drop(_6);
+        goto -> bb2;
     }
 
     bb9: {
-        _11 = Eq(copy _4, const 7: Int);
-        switch move _11 -> [true: bb13, false: bb14];
+        goto -> bb7;
     }
 
     bb10: {
+        _11 = Eq(copy _4, const 7: Int);
+        switch move _11 -> [true: bb14, false: bb15];
+    }
+
+    bb11: {
         drop(_6);
         goto -> bb3;
     }
 
-    bb11: {
-        goto -> bb9;
-    }
-
     bb12: {
-        _14 = call drops.parse(n: Int) [copy _4] -> [return: bb15];
+        goto -> bb10;
     }
 
     bb13: {
+        _14 = call drops.parse(n: Int) [copy _4] -> [return: bb16];
+    }
+
+    bb14: {
         _12 = Result<Int, drops.Fault>::Ok(copy _4);
         _0 = move _12;
         drop(_6);
@@ -135,23 +139,22 @@ fn drops.exits(n: Int) -> Result<Int, drops.Fault> {
         return;
     }
 
-    bb14: {
-        goto -> bb12;
-    }
-
     bb15: {
-        switch discriminant(_14) -> [Ok: bb16, Err: bb17];
+        goto -> bb13;
     }
 
     bb16: {
-        _13 = copy (_14 as Ok).0;
-        drop(_14);
-        drop(_6);
-        budget(yield-capable);
-        goto -> bb2;
+        switch discriminant(_14) -> [Ok: bb17, Err: bb18];
     }
 
     bb17: {
+        _13 = copy (_14 as Ok).0;
+        drop(_14);
+        drop(_6);
+        goto -> bb2;
+    }
+
+    bb18: {
         _0 = Result<Int, drops.Fault>::Err(copy (_14 as Err).0);
         drop(_14);
         drop(_6);
@@ -159,18 +162,18 @@ fn drops.exits(n: Int) -> Result<Int, drops.Fault> {
         return;
     }
 
-    bb18: {
-        _18 = call drops.make() [] -> [return: bb20];
+    bb19: {
+        _18 = call drops.make() [] -> [return: bb21];
     }
 
-    bb19: {
+    bb20: {
         _16 = Result<Int, drops.Fault>::Ok(const 0: Int);
         _0 = move _16;
         drop(_2);
         return;
     }
 
-    bb20: {
+    bb21: {
         _17 = move _18;
         _19 = Result<Int, drops.Fault>::Ok(copy _4);
         _0 = move _19;

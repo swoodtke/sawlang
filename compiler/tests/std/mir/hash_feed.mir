@@ -46,21 +46,25 @@ fn std.string.String.hash(h: &var Hasher) -> Void {
     }
 
     bb4: {
-        _8 = copy _6;
-        _9 = ref(shared, (*_1));
-        _10 = call std.string.String.byte_at(index: Int) (owner String) [move _9, move _8] -> [return: bb5];
+        budget(yield-capable);
+        goto -> bb5;
     }
 
     bb5: {
-        _11 = cast(move _10 as Int);
-        _12 = ref(exclusive, (*_2));
-        call Hasher.write_int(n: Int) (owner Hasher) [move _12, move _11] -> [return: bb6];
+        _8 = copy _6;
+        _9 = ref(shared, (*_1));
+        _10 = call std.string.String.byte_at(index: Int) (owner String) [move _9, move _8] -> [return: bb6];
     }
 
     bb6: {
+        _11 = cast(move _10 as Int);
+        _12 = ref(exclusive, (*_2));
+        call Hasher.write_int(n: Int) (owner Hasher) [move _12, move _11] -> [return: bb7];
+    }
+
+    bb7: {
         _13 = Add(copy _6, const 1: Int);
         _6 = move _13;
-        budget(yield-capable);
         goto -> bb2;
     }
 }

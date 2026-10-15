@@ -344,8 +344,8 @@ fn dissolves.drained(n: Int) -> Int {
 
     bb4: {
         _5 = move (_4 as Some).0;
-        _6 = copy _2;
-        _7 = call dissolves.take(r: dissolves.Res) [move _5] -> [return: bb6];
+        budget(yield-capable);
+        goto -> bb6;
     }
 
     bb5: {
@@ -354,11 +354,15 @@ fn dissolves.drained(n: Int) -> Int {
     }
 
     bb6: {
+        _6 = copy _2;
+        _7 = call dissolves.take(r: dissolves.Res) [move _5] -> [return: bb7];
+    }
+
+    bb7: {
         _8 = Add(move _6, move _7);
         _2 = move _8;
         _9 = Sub(copy _3, const 1: Int);
         _3 = move _9;
-        budget(yield-capable);
         goto -> bb1;
     }
 
@@ -399,14 +403,18 @@ fn dissolves.iterated(n: Int) -> Int {
 
     bb4: {
         _6 = move (_4 as Some).0;
-        _7 = copy _2;
-        _8 = call dissolves.take(r: dissolves.Res) [move _6] -> [return: bb5];
+        budget(yield-capable);
+        goto -> bb5;
     }
 
     bb5: {
+        _7 = copy _2;
+        _8 = call dissolves.take(r: dissolves.Res) [move _6] -> [return: bb6];
+    }
+
+    bb6: {
         _9 = Add(move _7, move _8);
         _2 = move _9;
-        budget(yield-capable);
         goto -> bb1;
     }
 }

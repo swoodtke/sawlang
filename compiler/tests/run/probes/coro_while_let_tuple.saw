@@ -1,0 +1,44 @@
+// probe: stated
+// about: a tuple-pattern `while let` over a suspension (SL-566)
+// stage 0: refuses a tuple-pattern `while let` whose body spans a suspension
+// speeds: -O0 -O2
+// prints: 66
+// prints: 0
+// prints: 7
+// A tuple-pattern `while let` whose subject suspends, with the loop's
+// op-budget point live in the frame: one of the spec's "Not yet supported"
+// limits, which Stage 0 refuses (tests/corpus/while_let_tuple_over_suspension_refused)
+// and sawc2 lowers as ordinary blocks (SL:coroutines §3.3, A9).
+// Spec-derived expectation (no oracle): `next_pair` yields `(1, 10)`,
+// `(2, 20)` and `(3, 30)` for a limit of 3, then `None`, so `drain_pairs(3)`
+// sums 66, a limit of 0 yields nothing, and `drain_pairs(3)` parks once in
+// each of its four calls of `next_pair`, plus once in each of the three
+// bodies' `yield_now`.
+import std.task.*
+
+struct Cursor { at: Int, limit: Int }
+
+extension Cursor {
+    func next_pair(&var self) -> (Int, Int)? {
+        yield_now()
+        self.at = self.at + 1
+        if self.at > self.limit { return None }
+        return (self.at, self.at * 10)
+    }
+}
+
+func drain_pairs(limit: Int) -> Int {
+    var c = Cursor(at: 0, limit: limit)
+    var total = 0
+    while let (a, b) = c.next_pair() {
+        yield_now()
+        total = total + a + b
+    }
+    total
+}
+
+func main() {
+    print(__saw_drive(drain_pairs(3)))
+    print(__saw_drive(drain_pairs(0)))
+    print(__saw_drive_steps(drain_pairs(3)))
+}

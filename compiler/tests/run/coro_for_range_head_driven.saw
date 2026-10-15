@@ -1,0 +1,51 @@
+// tests/corpus/conformance/K43_suspending_for_range_head, with `__saw_drive`
+// in place of its `TaskGroup` (SL-551 c2): a suspension in a `for` range's
+// endpoint embeds as a child frame, evaluated once at the loop's entry, and
+// both endpoints are evaluated in source order, which a suspending lower
+// bound checks: 2..11 is nine iterations. The step counts show each endpoint
+// suspended. K43's interleaving waits on a group, and its channel receive on
+// SL:coroutines A13a.
+import std.task.*
+
+struct Stepper { at: Int }
+
+extension Stepper {
+    func next(&var self) -> Int {
+        yield_now()
+        self.at = self.at + 9
+        self.at
+    }
+}
+
+func gate(tag: String) -> Int {
+    print("{tag}1")
+    yield_now()
+    print("{tag}2")
+    return 3
+}
+
+func work(tag: String) -> Int {
+    var n = 0
+    for _ in 0..gate(tag) {
+        n += 1
+    }
+    return n
+}
+
+func method_range(start: Int) -> Int {
+    var src = Stepper(at: start)
+    var n = 0
+    for _ in src.next()..src.next() {
+        n += 1
+    }
+    return n
+}
+
+func main() {
+    let a = __saw_drive(work("A"))
+    let b = __saw_drive(work("B"))
+    let m = __saw_drive(method_range(-7))
+    print("range {}", a + b + m)
+    print(__saw_drive_steps(work("C")))
+    print(__saw_drive_steps(method_range(-7)))
+}

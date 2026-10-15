@@ -1,0 +1,22 @@
+// The op budget's count (design 127, SL:coroutines A9), after the oracle
+// sweep's stage0/p5_budget probe: a driven loop that never suspends of its
+// own accord yields once per 128 iterations, so 127 * 128 iterations park
+// 127 times and 127 iterations none; the count runs exactly to 128, and a
+// yield changes no result. The frame's counter starts at 128 and restarts at
+// each forced yield.
+func spin(n: Int) -> Int {
+    var i = 0
+    while i < n {
+        i = i + 1
+    }
+    i
+}
+
+func main() {
+    print(__saw_drive_steps(spin(127 * 128)))
+    print(__saw_drive_steps(spin(127)))
+    print(__saw_drive_steps(spin(128)))
+    print(__saw_drive_steps(spin(255)))
+    print(__saw_drive_steps(spin(256)))
+    print(__saw_drive(spin(1000)))
+}

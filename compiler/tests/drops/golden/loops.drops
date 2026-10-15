@@ -52,69 +52,73 @@ fn loops.sometimes(n: Int, stop: Int) -> Int {
 
     bb2: {
         _0 = copy _5;
-        switch copy _19 -> [true: bb12, false: bb13];
+        switch copy _19 -> [true: bb13, false: bb14];
     }
 
     bb3: {
-        _8 = Add(copy _6, const 1: Int);
-        _6 = move _8;
-        _9 = Eq(copy _6, copy _2);
-        switch move _9 -> [true: bb5, false: bb6];
-    }
-
-    bb4: {
-        _13 = Rem(copy _6, const 2: Int);
-        _14 = Eq(move _13, const 0: Int);
-        switch move _14 -> [true: bb9, false: bb10];
-    }
-
-    bb5: {
-        _10 = copy _5;
-        _19 = const false: Bool;
-        _11 = call loops.take(r: loops.Res) [move _3] -> [return: bb7];
-    }
-
-    bb6: {
+        budget(yield-capable);
         goto -> bb4;
     }
 
+    bb4: {
+        _8 = Add(copy _6, const 1: Int);
+        _6 = move _8;
+        _9 = Eq(copy _6, copy _2);
+        switch move _9 -> [true: bb6, false: bb7];
+    }
+
+    bb5: {
+        _13 = Rem(copy _6, const 2: Int);
+        _14 = Eq(move _13, const 0: Int);
+        switch move _14 -> [true: bb10, false: bb11];
+    }
+
+    bb6: {
+        _10 = copy _5;
+        _19 = const false: Bool;
+        _11 = call loops.take(r: loops.Res) [move _3] -> [return: bb8];
+    }
+
     bb7: {
+        goto -> bb5;
+    }
+
+    bb8: {
         _12 = Add(move _10, move _11);
         _5 = move _12;
         goto -> bb2;
     }
 
-    bb8: {
-        budget(yield-capable);
+    bb9: {
         goto -> bb1;
     }
 
-    bb9: {
+    bb10: {
         _15 = copy _5;
         _19 = const false: Bool;
-        _16 = call loops.take(r: loops.Res) [move _3] -> [return: bb11];
-    }
-
-    bb10: {
-        goto -> bb8;
+        _16 = call loops.take(r: loops.Res) [move _3] -> [return: bb12];
     }
 
     bb11: {
+        goto -> bb9;
+    }
+
+    bb12: {
         _17 = Add(move _15, move _16);
         _5 = move _17;
         _18 = loops.Res { id: copy _6 };
         _3 = move _18;
         _19 = const true: Bool;
-        goto -> bb8;
-    }
-
-    bb12: {
-        drop(_3);
-        _19 = const false: Bool;
-        goto -> bb13;
+        goto -> bb9;
     }
 
     bb13: {
+        drop(_3);
+        _19 = const false: Bool;
+        goto -> bb14;
+    }
+
+    bb14: {
         return;
     }
 
@@ -157,18 +161,22 @@ fn loops.always(n: Int) -> Int {
     }
 
     bb3: {
-        _7 = copy _4;
-        _8 = call loops.take(r: loops.Res) [move _2] -> [return: bb4];
+        budget(yield-capable);
+        goto -> bb4;
     }
 
     bb4: {
+        _7 = copy _4;
+        _8 = call loops.take(r: loops.Res) [move _2] -> [return: bb5];
+    }
+
+    bb5: {
         _9 = Add(move _7, move _8);
         _4 = move _9;
         _10 = loops.Res { id: copy _5 };
         _2 = move _10;
         _11 = Add(copy _5, const 1: Int);
         _5 = move _11;
-        budget(yield-capable);
         goto -> bb1;
     }
 

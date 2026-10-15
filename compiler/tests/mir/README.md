@@ -319,7 +319,7 @@ through a reference to stay a reported move.
 |---|---|---|
 | `if`, `else if`, `else` | a switch per condition, each arm into the destination | branches, windows |
 | `if let`, `guard let`, `while let` | a discriminant switch, or a conditional window's two edges | branches, windows, guards |
-| `while`, `while { }`, `for` | a head, a body, an op-budget point on each backedge | drops, points, windows |
+| `while`, `while { }`, `for` | a head, then the body, opened by an op-budget point that ends its own block | drops, points, windows |
 | `break`, `continue`, `return` | the scopes' exits, then the edge | drops |
 | `&&`, `\|\|` | a switch per operand; each operand after the first a scope of its own, its temporaries dropped on its own path before the paths join | branches, short_circuits |
 | `??` | a discriminant switch per operand, peeling one layer of a nested Optional, keeping the left operand whole against an Optional default of its own type; each operand after the first a scope of its own, ended on each of its edges | branches, peel, short_circuits |
@@ -624,8 +624,8 @@ nowhere, and checks, from the MIR alone:
   check. A `consumes` body moving a field on some paths to a return only is a
   user's error the borrow check reports, so its move paths are not checked
   here;
-- every loop backedge, an edge to a block on the depth-first path from the
-  entry, leaves a block whose last statement is an op-budget point;
+- every cycle the entry reaches passes an op-budget point: with the blocks
+  holding one taken out, the reachable blocks form no cycle;
 - every statement and terminator the entry reaches carries a source node;
 - no operand moves an owning value out through a `Deref` of a reference
   (SL-475): that storage is someone else's, who drops it again. A value that

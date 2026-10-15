@@ -7016,6 +7016,14 @@ extension TcProgram {
             let poisoned = self.error_type
             return self.set_type(e, poisoned, false)
         }
+        var consequence = StringBuilder()
+        try! consequence.append("`")
+        try! consequence.append(name)
+        try! consequence.append("` would drive it for ever")
+        if self.refuse_never_task_body(e, root, consequence.build(), body) {
+            let poisoned = self.error_type
+            return self.set_type(e, poisoned, false)
+        }
         if name.equals("__saw_drive_steps") {
             let t = self.int_type()
             return self.set_type(e, t, false)
@@ -7086,6 +7094,7 @@ extension TcProgram {
     // whether it refused.
     // ENTRY POINTS:
     //     task_spawn
+    //     test_drive
     func refuse_never_task_body(&var self, at: Int, root: Int, consequence: String, body: Int) -> Bool {
         if not self.is_never(body) {
             return false

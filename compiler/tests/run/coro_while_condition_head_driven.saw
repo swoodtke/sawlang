@@ -1,0 +1,50 @@
+// tests/corpus/conformance/K42_suspending_while_condition_head, with
+// `__saw_drive` in place of its `TaskGroup` (SL-551 c2): a suspension in a
+// `while` condition embeds as a child frame and is evaluated again before
+// every iteration, so the loop runs as many times as the condition's
+// successive answers say, which a condition evaluated once could not produce.
+// The step counts show each evaluation suspended. K42's interleaving waits on
+// a group, and its channel receive on SL:coroutines A13a.
+import std.task.*
+
+struct Countdown { left: Int }
+
+extension Countdown {
+    func next(&var self) -> Int {
+        yield_now()
+        self.left = self.left - 1
+        self.left
+    }
+}
+
+func gate(tag: String, n: Int) -> Bool {
+    print("{tag}{n}")
+    yield_now()
+    return n < 2
+}
+
+func work(tag: String) -> Int {
+    var n = 0
+    while gate(tag, n) {
+        n += 1
+    }
+    return n
+}
+
+func drain_method(start: Int) -> Int {
+    var src = Countdown(left: start)
+    var n = 0
+    while src.next() > 0 {
+        n += 1
+    }
+    return n
+}
+
+func main() {
+    let a = __saw_drive(work("A"))
+    let b = __saw_drive(work("B"))
+    let m = __saw_drive(drain_method(4))
+    print("while {}", a + b + m)
+    print(__saw_drive_steps(work("C")))
+    print(__saw_drive_steps(drain_method(3)))
+}

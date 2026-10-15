@@ -645,40 +645,44 @@ fn -> Void {
     bb5: {
         _10 = cast(copy _2 as UnsafePointer<Int8>);
         _9 = move _10;
-        _11 = call builtin init (owner std.alloc.GlobalAllocator) [] -> [return: bb8];
+        _11 = call builtin init (owner std.alloc.GlobalAllocator) [] -> [return: bb9];
     }
 
     bb6: {
-        _5 = copy _3;
-        _6 = ref(shared, _2[_5]);
-        _7 = cast(move _6 as UnsafePointer<Int>);
-        call std.mem.drop_in_place(at: UnsafePointer<T>) (inst Int) [move _7] -> [return: bb7]; => #21
+        budget(yield-capable);
+        goto -> bb7;
     }
 
     bb7: {
-        _8 = Add(copy _3, const 1: Int);
-        _3 = move _8;
-        budget(yield-capable);
-        goto -> bb4;
+        _5 = copy _3;
+        _6 = ref(shared, _2[_5]);
+        _7 = cast(move _6 as UnsafePointer<Int>);
+        call std.mem.drop_in_place(at: UnsafePointer<T>) (inst Int) [move _7] -> [return: bb8]; => #21
     }
 
     bb8: {
-        _12 = copy _9;
-        _13 = copy (*_1).capacity;
-        _14 = call builtin sizeof (inst Int) [] -> [return: bb9];
+        _8 = Add(copy _3, const 1: Int);
+        _3 = move _8;
+        goto -> bb4;
     }
 
     bb9: {
-        _15 = Mul(move _13, move _14);
-        _16 = call builtin alignof (inst Int) [] -> [return: bb10];
+        _12 = copy _9;
+        _13 = copy (*_1).capacity;
+        _14 = call builtin sizeof (inst Int) [] -> [return: bb10];
     }
 
     bb10: {
-        _17 = ref(shared, _11);
-        call std.alloc.Allocator.dealloc(ptr: UnsafePointer<Int8>, size: Int, align: Int) (owner std.alloc.GlobalAllocator) [move _17, move _12, move _15, move _16] -> [return: bb11] suspends when A.Allocator.dealloc; => #20
+        _15 = Mul(move _13, move _14);
+        _16 = call builtin alignof (inst Int) [] -> [return: bb11];
     }
 
     bb11: {
+        _17 = ref(shared, _11);
+        call std.alloc.Allocator.dealloc(ptr: UnsafePointer<Int8>, size: Int, align: Int) (owner std.alloc.GlobalAllocator) [move _17, move _12, move _15, move _16] -> [return: bb12] suspends when A.Allocator.dealloc; => #20
+    }
+
+    bb12: {
         drop(_11);
         goto -> bb1;
     }
@@ -729,12 +733,16 @@ fn -> Void {
     }
 
     bb3: {
+        budget(yield-capable);
+        goto -> bb4;
+    }
+
+    bb4: {
         _6 = copy _4;
         _7 = copy _4;
         _2[_6] = copy _1[_7];
         _8 = Add(copy _4, const 1: Int);
         _4 = move _8;
-        budget(yield-capable);
         goto -> bb1;
     }
 }

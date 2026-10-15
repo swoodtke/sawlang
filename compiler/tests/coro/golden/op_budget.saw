@@ -1,0 +1,64 @@
+// Op-budget points (SL:coroutines A9). In a lowered frame each yield-capable
+// point charges the frame's counter, which starts at 128 in `bb0`, and parks
+// ready when it runs out: `count`'s loop also yields, and `spin` is a driven
+// root that never suspends, framed for its loop's point. `held`'s loop runs
+// inside a `borrows(sync)` window, so its point is charge-only and never
+// parks. Outside a frame a point is deleted: `main` drives, and its own loop's
+// point is gone from its body, as is `plain`'s, a sync helper `spin` calls.
+import std.task.{yield_now}
+
+struct Guarded {
+    n: Int
+}
+
+extension Guarded {
+    func hold(&var self) sync borrows(sync) -> &var Int {
+        lend self.n
+    }
+}
+
+func count(limit: Int) -> Int {
+    var i = 0
+    while i < limit {
+        yield_now()
+        i = i + 1
+    }
+    i
+}
+
+func held(limit: Int) -> Int {
+    var g = Guarded(n: 0)
+    yield_now()
+    borrow var n = g.hold() {
+        while n < limit {
+            n = n + 1
+        }
+    }
+    g.n
+}
+
+func plain(limit: Int) -> Int {
+    var i = 0
+    while i < limit {
+        i = i + 1
+    }
+    i
+}
+
+func spin(limit: Int) -> Int {
+    var i = 0
+    while i < limit {
+        i = i + 1
+    }
+    plain(i)
+}
+
+func main() {
+    var k = 0
+    while k < 2 {
+        k = k + 1
+    }
+    print(__saw_drive(count(3)))
+    print(__saw_drive(held(4)))
+    print(__saw_drive(spin(k)))
+}

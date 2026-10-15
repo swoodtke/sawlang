@@ -190,7 +190,7 @@ public enum MirStmtKind {
     case Assign,
     // `drop(place)`: drop it if it is still initialised.
     case Drop,
-    // An op-budget point (design 127), on a loop backedge.
+    // An op-budget point (design 127), opening a loop's body.
     case Budget
 }
 

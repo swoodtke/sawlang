@@ -1,0 +1,67 @@
+// Where the op budget's forced yield lands (design 127, SL:coroutines A9):
+// at the top of the loop body that runs the counter out, before that body
+// runs (spec: "Pure compute"). `spin`'s 128th body would print `body 127`, so
+// the tasks after it in the run queue get their turns between `body 126` and
+// `body 127`. A `continue` charges the next body's top too, and nested loops
+// charge one counter per frame, so `skip` cedes between `odd 127` and `odd
+// 129`, and `grid`, whose 128 bodies count twelve of the outer loop's, cedes
+// just before `cell 115`.
+func spin(n: Int) -> Int {
+    var i = 0
+    while i < n {
+        if i >= 125 && i <= 129 {
+            print("body {}", i)
+        }
+        i = i + 1
+    }
+    i
+}
+
+func skip(n: Int) -> Int {
+    var i = 0
+    while i < n {
+        i = i + 1
+        if i % 2 == 0 {
+            continue
+        }
+        if i >= 125 && i <= 129 {
+            print("odd {}", i)
+        }
+    }
+    i
+}
+
+func grid(rows: Int, cols: Int) -> Int {
+    var seen = 0
+    var r = 0
+    while r < rows {
+        var c = 0
+        while c < cols {
+            if seen >= 115 && seen <= 119 {
+                print("cell {}", seen)
+            }
+            seen = seen + 1
+            c = c + 1
+        }
+        r = r + 1
+    }
+    seen
+}
+
+func sibling(tag: String) -> Int {
+    print("sibling {}", tag)
+    1
+}
+
+// The four tasks are spawned together, so each runs in its turn in the order
+// spawned, and each forced yield hands the turn to the next.
+func main() {
+    let a = Task.spawn(spin(200))
+    let b = Task.spawn(skip(200))
+    let c = Task.spawn(grid(20, 10))
+    let d = Task.spawn(sibling("ran"))
+    print(a.join())
+    print(b.join())
+    print(c.join())
+    print(d.join())
+}

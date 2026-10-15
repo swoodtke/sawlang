@@ -1,0 +1,67 @@
+// tests/corpus/taskgroup_budget_loop_semantics, with `__saw_drive` in place
+// of its `TaskGroup` (SL:coroutines A9): the op budget charges every loop
+// shape a driven body carries without changing its iteration count, and the
+// step counts show where it forced a yield. A `for` over a range longer than
+// the budget; a `while` whose body already suspends, where the charge rides
+// beside the suspension; a `while` with `continue`, which reaches a point of
+// its own, so half the iterations never counted still charge; and nested
+// loops, whose points charge one counter per frame. The corpus program's
+// `for` over a `Vector` waits on SL-601.
+import std.task.*
+
+func count_range(n: Int) -> Int {
+    var seen = 0
+    for _ in 0..n {
+        seen = seen + 1
+    }
+    seen
+}
+
+func count_suspending(n: Int) -> Int {
+    var seen = 0
+    var i = 0
+    while i < n {
+        yield_now()
+        seen = seen + 1
+        i = i + 1
+    }
+    seen
+}
+
+func count_continue(n: Int) -> Int {
+    var seen = 0
+    var i = 0
+    while i < n {
+        i = i + 1
+        if i % 2 == 0 {
+            continue
+        }
+        seen = seen + 1
+    }
+    seen
+}
+
+func count_nested(rows: Int, cols: Int) -> Int {
+    var seen = 0
+    var r = 0
+    while r < rows {
+        var c = 0
+        while c < cols {
+            seen = seen + 1
+            c = c + 1
+        }
+        r = r + 1
+    }
+    seen
+}
+
+func main() {
+    print("range {}", __saw_drive(count_range(1000)))
+    print("suspending {}", __saw_drive(count_suspending(300)))
+    print("continue {}", __saw_drive(count_continue(1000)))
+    print("nested {}", __saw_drive(count_nested(20, 30)))
+    print(__saw_drive_steps(count_range(1000)))
+    print(__saw_drive_steps(count_suspending(300)))
+    print(__saw_drive_steps(count_continue(1000)))
+    print(__saw_drive_steps(count_nested(20, 30)))
+}

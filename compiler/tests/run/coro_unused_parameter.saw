@@ -1,0 +1,25 @@
+// A parameter a framed body never names still lives in its frame, where the
+// caller writes it, so it survives every suspension and drops at the end
+// (SL-566): `worker`'s loop suspends at its op-budget point, spawned and
+// driven, and `waits` yields with an owning parameter it never reads.
+import std.task.{yield_now}
+
+func worker(id: Int) -> Int {
+    var i = 0
+    while i < 300 {
+        i = i + 1
+    }
+    i
+}
+
+func waits(id: Int, label: String) {
+    yield_now()
+    print("waited")
+}
+
+func main() {
+    let t = Task.spawn(worker(7))
+    print(t.join())
+    print(__saw_drive_steps(worker(3)))
+    __saw_drive(waits(1, "unused"))
+}

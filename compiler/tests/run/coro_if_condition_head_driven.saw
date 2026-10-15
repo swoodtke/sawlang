@@ -1,9 +1,8 @@
 // tests/corpus/conformance/K41_suspending_if_condition_head, with
 // `__saw_drive` in place of its `TaskGroup` and `Channel` (SL-551 c2): a
-// suspension in an `if` condition embeds as a child frame, at the top and
-// nested inside another `if`. The step counts show each condition suspended.
-// K41's interleaving waits on a group, and its condition inside a `for` body
-// on the op budget (SL-566).
+// suspension in an `if` condition embeds as a child frame, at the top,
+// nested inside another `if`, and inside a `for` body. The step counts show
+// each condition suspended. K41's interleaving waits on a group.
 import std.task.*
 
 struct Src { v: Int }
@@ -36,10 +35,20 @@ func nested_cond(src: Src) -> Int {
     return seen
 }
 
+func method_cond(src: Src) -> Int {
+    var seen = 0
+    for _ in 0..1 {
+        if src.next() > 0 { seen = 12 }
+    }
+    return seen
+}
+
 func main() {
     let a = __saw_drive(work("A"))
     let n = __saw_drive(nested_cond(Src(v: 9)))
-    print("condition {}", a + n)
+    let m = __saw_drive(method_cond(Src(v: 9)))
+    print("condition {}", a + n + m)
     print(__saw_drive_steps(work("B")))
     print(__saw_drive_steps(nested_cond(Src(v: 0))))
+    print(__saw_drive_steps(method_cond(Src(v: 0))))
 }

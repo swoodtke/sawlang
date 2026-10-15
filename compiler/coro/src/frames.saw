@@ -1,7 +1,8 @@
-// What each framed item's frame holds: the state word, the result `_0`,
-// every parameter, which the caller writes into the frame before the first
-// resume, every other local whose storage lifetime contains a suspension
-// point, and the embedded frame of each child it drives. A local whose
+// What each framed item's frame holds: the state word, the op-budget counter
+// when the body has an op-budget point, the result `_0`, every parameter,
+// which the caller writes into the frame before the first resume, every
+// other local whose storage lifetime contains a suspension point, and the
+// embedded frame of each child it drives. A local whose
 // lifetime holds none stays on the resume function's stack. The frame has no
 // drop glue: every drop stays where drop elaboration placed it.
 //
@@ -97,6 +98,7 @@ func coro_find_frame(coro: &var CoroProgram, item: Int) {
     let width = info.window_count
     var p = 0
     var b = 0
+    var charges = false
     while b < info.block_count {
         let block = coro.mono.dp.bc.mir.blocks[info.block_first + b]
         var state = facts.entry_state(b)
@@ -114,8 +116,11 @@ func coro_find_frame(coro: &var CoroProgram, item: Int) {
             let stmt = coro.mono.dp.bc.mir.stmts[s]
             coro_mark_live(&facts, &state, &var lv, p)
             coro_mark_records(&coro, f, &open, b * width, -1, &var lv, p)
-            if stmt.kind == MirStmtKind.Budget && stmt.yields {
-                try! coro.suspends.push(CoroSuspend(block: b, point: p, call: -1))
+            if stmt.kind == MirStmtKind.Budget {
+                charges = true
+                if stmt.yields {
+                    try! coro.suspends.push(CoroSuspend(block: b, point: p, call: -1))
+                }
             }
             let accesses = coro.mono.dp.bc.mir.init_stmt_accesses(f, s, &facts)
             mir_init_apply_all(&facts, &var state, &accesses)
@@ -148,6 +153,9 @@ func coro_find_frame(coro: &var CoroProgram, item: Int) {
     let value_first = coro.values.len()
     let word = coro.mono.dp.bc.mir.tc.int_type()
     coro_add_value(&var coro, CoroValueKind.State, -1, word, &lv, true)
+    if charges {
+        coro_add_value(&var coro, CoroValueKind.Budget, -1, word, &lv, true)
+    }
     var l = 0
     while l < info.local_count {
         let local = coro.mono.dp.bc.mir.locals[info.local_first + l]

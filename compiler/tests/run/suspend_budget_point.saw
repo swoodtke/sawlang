@@ -1,9 +1,7 @@
-// due: an op-budget point in a frame is not lowered yet (SL:coroutines A9)
-// refuses: coro.not-yet at 16:9
 // A loop in a function that suspends keeps its op-budget point live, so the
-// point is a suspension of the function's frame. The ready park under
-// `yield_now` is lowered and the budget point is not, so `main` is refused,
-// at the call its suspension was found through, naming the budget point.
+// point is a suspension of the function's frame: here a suspending `main`,
+// whose loop charges the frame's counter three times, too few to force a
+// yield, before the ready park under `yield_now` (SL:coroutines A9).
 import std.task.{yield_now}
 
 func main() {

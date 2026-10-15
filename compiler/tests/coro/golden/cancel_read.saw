@@ -1,0 +1,28 @@
+// Reads of the cancel word (SL:coroutines A9). In a lowered frame, a call of
+// `cancelled()` becomes a copy of the running task's cancel word through its
+// context, `(*(*_C).cancel)`, into the call's destination, and a goto where
+// the call returned: `watch` reads it in a condition and into a value that
+// lives across a suspension, so that destination is a frame slot. Outside a
+// frame the call stays a call, and its body answers `false`: `check` is a
+// sync helper, so a task that calls it reads no word.
+import std.task.{yield_now}
+
+func check() -> Bool {
+    cancelled()
+}
+
+func watch(n: Int) -> Int {
+    let early = cancelled()
+    yield_now()
+    if cancelled() || early {
+        return -1
+    }
+    if check() {
+        return -2
+    }
+    n
+}
+
+func main() {
+    print(__saw_drive(watch(4)))
+}

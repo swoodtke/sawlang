@@ -295,8 +295,8 @@ fn dissolves.drained(n: Int) {
 
     bb4: {
         [W UD W] _5 = move (_4 as Some).0;
-        [P W M] _6 = copy _2;
-        [P W M] _7 = call dissolves.take(r: dissolves.Res) [move _5] -> [return: bb6];
+        [P W M] budget(yield-capable);
+        [P W M] goto -> bb6;
     }
 
     bb5: {
@@ -305,12 +305,16 @@ fn dissolves.drained(n: Int) {
     }
 
     bb6: {
+        [P W M] _6 = copy _2;
+        [P W M] _7 = call dissolves.take(r: dissolves.Res) [move _5] -> [return: bb7];
+    }
+
+    bb7: {
         [P M M] _8 = Add(move _6, move _7);
         [P M M] _2 = move _8;
         [P M M] _9 = Sub(copy _3, const 1: Int);
         [P M M] _3 = move _9;
         [P M M] drop(_5);  // elided
-        [P D M] budget(yield-capable);
         [P D M] goto -> bb1;
     }
 }
@@ -343,15 +347,19 @@ fn dissolves.iterated(n: Int) {
 
     bb4: {
         [W UD W] {} _6 = move (_4 as Some).0;
-        [P W M] {} _7 = copy _2;
-        [P W M] {} _8 = call dissolves.take(r: dissolves.Res) [move _6] -> [return: bb5];
+        [P W M] {} budget(yield-capable);
+        [P W M] {} goto -> bb5;
     }
 
     bb5: {
+        [P W M] {} _7 = copy _2;
+        [P W M] {} _8 = call dissolves.take(r: dissolves.Res) [move _6] -> [return: bb6];
+    }
+
+    bb6: {
         [P M M] {} _9 = Add(move _7, move _8);
         [P M M] {} _2 = move _9;
         [P M M] {} drop(_6);  // elided
-        [P D M] {} budget(yield-capable);
         [P D M] {} goto -> bb1;
     }
 }

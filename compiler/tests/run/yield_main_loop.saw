@@ -1,0 +1,14 @@
+// The walking skeleton's loop form (SL:coroutines A9): a suspending `main`
+// whose loop yields between prints. The loop's op-budget point is live in
+// `main`'s frame, which holds the counter it charges (golden `yield_loop` in
+// compiler/tests/coro).
+import std.task.{yield_now}
+
+func main() {
+    var i = 0
+    while i < 3 {
+        print(i)
+        yield_now()
+        i = i + 1
+    }
+}
