@@ -55,7 +55,7 @@ fn std.data.Data.spare() -> UnsafePointer<Int8> {
     }
 
     bb9: {
-        _7 = copy (*_1).length;
+        _7 = Add(copy (*_1).offset, copy (*_1).length);
         _8 = ref(shared, _6[_7]);
         _9 = cast(move _8 as UnsafePointer<Int8>);
         _0 = move _9;

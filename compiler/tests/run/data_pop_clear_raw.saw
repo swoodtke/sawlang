@@ -1,0 +1,51 @@
+// `Data`'s narrowing and raw members: pop and clear only narrow the window
+// (a sibling keeps its bytes), reserve and capacity agree, and append_bytes and
+// byte_ptr move raw bytes in and out.
+import std.data.*
+
+func main() unsafe {
+    var d = Data()
+    print("{} {}", d.is_empty(), d.capacity())
+    print("{}", missing(d.pop()))
+    try! d.reserve(10)
+    print("{} {}", d.len(), d.capacity() >= 10)
+    try! d.push(5)
+    try! d.push(6)
+    try! d.push(7)
+    var shared = d
+    print("{}", d.pop()!)
+    print("{} {}", d.len(), shared.len())
+    print("{}", shared.get(2)!)
+    d.clear()
+    print("{} {}", d.is_empty(), shared.len())
+    print("{}", shared.capacity() == shared.len())
+
+    var raw = Data()
+    try! raw.append_bytes(shared.byte_ptr(), shared.len())
+    try! raw.append_bytes(shared.byte_ptr(), 0)
+    print("{} {} {}", raw.len(), raw.get(0)!, raw.get(2)!)
+    print("{}", missing(raw.get(3)))
+    print("{}", missing(raw.get(0 - 1)))
+    print("{}", Data().byte_ptr() as Int)
+
+    let window = raw.slice(1, 3)!
+    var edit = window
+    edit[0] = 60
+    print("{} {} {}", raw[1], window[0], edit[0])
+    print("{}", absent(raw.slice(2, 1)))
+    print("{}", absent(raw.slice(0, 4)))
+}
+
+func missing(byte: Byte?) -> Bool {
+    if let _ = byte {
+        return false
+    }
+    true
+}
+
+func absent(window: Data?) -> Bool {
+    if let _ = window {
+        return false
+    }
+    true
+}

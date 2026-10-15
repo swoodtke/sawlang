@@ -1,0 +1,10 @@
+// differs: the panic is raised inside std, and each compiler's std is its own file
+// `Data` is a safe type, so its subscript is checked like `Vector`'s.
+
+import std.data.*
+func main() {
+    var d = Data()
+    try! d.push(1)
+    var i = 9
+    print(d[i])
+}

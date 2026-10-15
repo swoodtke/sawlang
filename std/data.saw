@@ -1,15 +1,31 @@
 //! `Data`: bytes with value semantics.
 //!
-//! A `Data` is a length over one heap block laid out as
-//! `{ refcount, capacity, bytes }`. Copying a `Data` retains the block and
-//! copies no bytes, and the last drop frees it. The refcount is atomic, with
-//! `String`'s orderings: a retain adds with relaxed ordering, a release
-//! subtracts with release ordering, and the release that reaches zero issues
-//! an acquire fence before it frees the block.
+//! A `Data` is a window, an offset and a length, over one heap block laid out
+//! as `{ refcount, capacity, bytes }`. Copying or slicing a `Data` retains the
+//! block and copies no bytes, and the last drop frees it. The refcount is
+//! atomic, with `String`'s orderings: a retain adds with relaxed ordering, a
+//! release subtracts with release ordering, and the release that reaches zero
+//! issues an acquire fence before it frees the block.
 //!
 //! The block is written only while one `Data` owns it, which every write
-//! checks, so no `Data` observes another's write.
+//! checks, so no `Data` observes another's write. A write that finds the block
+//! shared, or the window starting partway in, first moves the live bytes into a
+//! fresh block of its own.
+//!
+//! ```saw
+//! var a = try! Data(capacity: 4)
+//! let _ = try! a.push(1)
+//! var b = a                     // a retain; both windows see the same byte
+//! let _ = try! b.push(2)        // b is shared, so it separates here
+//! print("{a.len()} {b.len()}")  // 1 2
+//! ```
+//!
+//! Every operation that can run out of memory reports it as
+//! `Result<_, AllocError>`, all-or-nothing. The one exception is the subscript
+//! write `d[i] = v`, whose separation panics; `detached()` is the preflight
+//! that attempts the same allocation where a refusal has somewhere to go.
 
+import std.mem.{copy_bytes}
 import std.string.{Utf8Error, string_from_bytes}
 import std.utf8.{utf8_error_offset}
 
@@ -24,8 +40,10 @@ static DATA_BLOCK_ALIGN: Int = 16
 ///
 /// Copying a `Data` is a refcount increment.
 public struct Data {
-    // `None` is the empty `Data`, which owns no block.
+    // `None` is the empty `Data`, which owns no block; `offset` is then 0.
     private block: UnsafePointer<Int8>?
+    // Where this window starts in the block's bytes.
+    private offset: Int
     private length: Int
 }
 
@@ -51,7 +69,7 @@ extension Data {
     // allocator refuses. A non-positive `capacity` allocates nothing.
     public(package) static func reserved(capacity: Int) unsafe -> Data? {
         if capacity <= 0 {
-            return Data(block: None, length: 0)
+            return Data(block: None, offset: 0, length: 0)
         }
         let total = DATA_HEADER_WORDS * sizeof<Int>() + capacity
         guard let block = GlobalAllocator().alloc(total, DATA_BLOCK_ALIGN) else {
@@ -60,7 +78,7 @@ extension Data {
         let words = block as UnsafePointer<Int>
         words[DATA_REFCOUNT_SLOT] = 1
         words[DATA_CAPACITY_SLOT] = capacity
-        Data(block: block, length: 0)
+        Data(block: block, offset: 0, length: 0)
     }
 
     // Where the next byte goes, with `spare_count()` bytes of room behind it.
@@ -78,7 +96,7 @@ extension Data {
         // orders nothing, so this fence pairs with that release's subtract, as
         // the last owner's fence in `deinit` does.
         __saw_atomic_fence_acquire()
-        (&data_bytes(block)[self.length]) as UnsafePointer<Int8>
+        (&data_bytes(block)[self.offset + self.length]) as UnsafePointer<Int8>
     }
 
     // How many bytes fit after the last one before the block is full.
@@ -86,7 +104,7 @@ extension Data {
         guard let block = self.block else {
             return 0
         }
-        data_capacity(block) - self.length
+        data_capacity(block) - self.offset - self.length
     }
 
     // Counts `count` more bytes, which the caller has written at `spare()`.
@@ -109,7 +127,328 @@ extension Data {
         guard let block = self.block else {
             return None
         }
-        data_bytes(block)
+        (&data_bytes(block)[self.offset]) as UnsafePointer<Int8>
+    }
+
+    /// An empty `Data`. It allocates nothing; a block arrives with the first
+    /// byte.
+    public init() unsafe -> Data {
+        Data(block: None, offset: 0, length: 0)
+    }
+
+    /// An empty `Data` with room for `capacity` bytes.
+    ///
+    /// Returns `Err(AllocError)` when the allocator refuses.
+    public init(capacity: Int) unsafe -> Result<Data, AllocError> {
+        guard var data = Data.reserved(capacity) else {
+            return AllocError(size: capacity, align: 1)
+        }
+        data
+    }
+
+    /// The number of bytes in this window.
+    public func len(&self) -> Int {
+        self.length
+    }
+
+    /// Whether this window covers no bytes.
+    public func is_empty(&self) -> Bool {
+        self.length == 0
+    }
+
+    /// How many bytes this `Data` can take before a mutation has to allocate.
+    ///
+    /// For sole ownership of a whole block that is the block's capacity. When
+    /// the block is shared, or this window starts partway in, the next write
+    /// separates the bytes into a block of its own, so the answer is `len()`.
+    public func capacity(&self) unsafe -> Int {
+        if self.offset == 0 && self.is_unique() {
+            return data_capacity(self.block!)
+        }
+        self.length
+    }
+
+    /// The byte at `index`, as a place: `d[i] = 0` writes it where it sits and
+    /// `d[i] += 1` reads, adds and stores in one window.
+    ///
+    /// Panics if `index` is outside `0..<len()`. A read costs nothing and works
+    /// on a `let` binding, a `&Data` parameter or a slice several `Data`s
+    /// share.
+    public func [](&self, index: Int) unsafe borrows -> &UInt8 {
+        if index < 0 || index >= self.length {
+            panic("Data.[]: index out of range: {} (len {})", index, self.length)
+        }
+        guard let first = self.first_byte() else {
+            panic("Data.[]: no block")
+        }
+        let bytes = first as UnsafePointer<UInt8>
+        lend bytes[index]
+    }
+
+    /// The byte at `index`, as a place, for a write.
+    ///
+    /// Panics if `index` is outside `0..<len()`. A write needs a `var` root and
+    /// separates shared bytes first; if that copy cannot be allocated, the
+    /// write panics (see `detached`).
+    public func [](&var self, index: Int) unsafe borrows -> &var UInt8 {
+        if index < 0 || index >= self.length {
+            panic("Data.[]: index out of range: {} (len {})", index, self.length)
+        }
+        let live = self.length
+        if not self.ready(live) {
+            panic("Data.[]: allocation failed")
+        }
+        guard let first = self.first_byte() else {
+            panic("Data.[]: no block")
+        }
+        let bytes = first as UnsafePointer<UInt8>
+        lend bytes[index]
+    }
+
+    /// The byte at `index`, or `None` when it is out of range.
+    ///
+    /// The `None`-returning twin of `[]`, which panics.
+    public func get(&self, index: Int) unsafe -> Byte? {
+        if index < 0 || index >= self.length {
+            return None
+        }
+        guard let first = self.first_byte() else {
+            return None
+        }
+        Byte(UInt8.from(truncating: first[index]))
+    }
+
+    /// Writes `value` at `index`.
+    ///
+    /// Panics if `index` is outside `0..<len()`. If the block is shared this
+    /// separates it first, so the write lands on this `Data` and no other sees
+    /// it; an `Err(AllocError)` from that leaves every `Data` as it was.
+    public func set(&var self, index: Int, value: UInt8) unsafe -> Result<Void, AllocError> {
+        if index < 0 || index >= self.length {
+            panic("Data.set: index out of range: {} (len {})", index, self.length)
+        }
+        let live = self.length
+        if not self.ready(live) {
+            return AllocError(size: self.grown(live), align: 1)
+        }
+        self.store(index, value)
+        return
+    }
+
+    /// Appends one byte.
+    ///
+    /// Separates shared bytes first. Returns `Err(AllocError)` when the
+    /// allocator refuses, and the `Data` is unchanged then.
+    public func push(&var self, value: UInt8) unsafe -> Result<Void, AllocError> {
+        let wanted = self.length + 1
+        if not self.ready(wanted) {
+            return AllocError(size: self.grown(wanted), align: 1)
+        }
+        let at = self.length
+        self.store(at, value)
+        self.length = wanted
+        return
+    }
+
+    /// Removes and returns the last byte, or `None` when there is none.
+    ///
+    /// Narrowing a window is not a write, so this never separates the bytes and
+    /// never allocates.
+    public func pop(&var self) unsafe -> Byte? {
+        if self.length == 0 {
+            return None
+        }
+        guard let first = self.first_byte() else {
+            return None
+        }
+        let value = Byte(UInt8.from(truncating: first[self.length - 1]))
+        self.length = self.length - 1
+        value
+    }
+
+    /// Drops every byte from this window, keeping the block for reuse.
+    ///
+    /// Like `pop`, this only narrows the window.
+    public func clear(&var self) {
+        self.length = 0
+    }
+
+    /// Appends every byte of `other`.
+    ///
+    /// `d.append(d)` is well defined: the argument is a retain, which makes the
+    /// block shared, so the separation happens before the copy.
+    ///
+    /// Returns `Err(AllocError)` when the allocator refuses, and the `Data` is
+    /// unchanged then.
+    public func append(&var self, other: Data) unsafe -> Result<Void, AllocError> {
+        if other.length == 0 {
+            return
+        }
+        let wanted = self.length + other.length
+        if not self.ready(wanted) {
+            return AllocError(size: self.grown(wanted), align: 1)
+        }
+        // Read after `ready`: when the two shared a block, the separation has
+        // already given this `Data` a different one to write into.
+        guard let source = other.first_byte() else {
+            return
+        }
+        self.place(source, other.length)
+        return
+    }
+
+    /// Appends `len` raw bytes from `src`.
+    ///
+    /// `src` must point at `len` valid bytes. Returns `Err(AllocError)` when
+    /// the allocator refuses, and the `Data` is unchanged then.
+    public func append_bytes(&var self, src: UnsafePointer<Int8>, len: Int) unsafe -> Result<Void, AllocError> {
+        if len <= 0 {
+            return
+        }
+        let wanted = self.length + len
+        if not self.ready(wanted) {
+            return AllocError(size: self.grown(wanted), align: 1)
+        }
+        self.place(src, len)
+        return
+    }
+
+    /// Reserves room for `additional` more bytes.
+    ///
+    /// On `Ok` this `Data` solely owns a block with that much room, so the next
+    /// `additional` pushes cannot allocate. Returns `Err(AllocError)` when the
+    /// allocator refuses.
+    public func reserve(&var self, additional: Int) unsafe -> Result<Void, AllocError> {
+        let wanted = self.length + additional
+        if not self.ready(wanted) {
+            return AllocError(size: self.grown(wanted), align: 1)
+        }
+        return
+    }
+
+    /// A pointer to this window's first byte, or a null pointer when it is
+    /// empty.
+    ///
+    /// It may address shared bytes, so it is for reading only: writing through
+    /// it would reach every `Data` that holds the block.
+    public func byte_ptr(&self) unsafe -> UnsafePointer<Int8> {
+        guard let first = self.first_byte() else {
+            return 0 as UnsafePointer<Int8>
+        }
+        first
+    }
+
+    /// A narrower window onto the same bytes, or `None` when the bounds are
+    /// invalid.
+    ///
+    /// O(1) at any size: the block is retained, never copied. The slice is an
+    /// independent value, so writing to it or to this `Data` separates the
+    /// bytes first.
+    public func slice(&self, start: Int, end: Int) unsafe -> Data? {
+        if start < 0 || end < start || end > self.length {
+            return None
+        }
+        guard let block = self.block else {
+            return Data(block: None, offset: 0, length: 0)
+        }
+        // The new window's own retain, as `copy` takes.
+        let _ = __saw_atomic_add_i64(data_refcount(block), 1)
+        Data(block: block, offset: self.offset + start, length: end - start)
+    }
+
+    /// An independent `Data` holding exactly these bytes, materialized now.
+    ///
+    /// `copy()` is the lazy retain; `detached` separates immediately and sizes
+    /// the new block to `len()`, so a small slice stops pinning the large
+    /// block it was cut from. It is also the preflight for `d[i] = v` on shared
+    /// bytes, whose own separation panics.
+    ///
+    /// Returns `Err(AllocError)` when the allocator refuses, allocating nothing.
+    public func detached(&self) unsafe -> Result<Data, AllocError> {
+        guard var fresh = Data.reserved(self.length) else {
+            return AllocError(size: self.length, align: 1)
+        }
+        if self.length > 0 {
+            fresh.place(self.byte_ptr(), self.length)
+        }
+        fresh
+    }
+
+    // Whether this `Data` is the sole owner of its block; an empty one owns
+    // none. The acquire fence pairs with a departing owner's release subtract.
+    func is_unique(&self) unsafe -> Bool {
+        guard let block = self.block else {
+            return false
+        }
+        if __saw_atomic_load_i64_relaxed(data_refcount(block)) != 1 {
+            return false
+        }
+        __saw_atomic_fence_acquire()
+        true
+    }
+
+    // The block capacity a write growing to `wanted` bytes allocates: doubling
+    // from a 16-byte floor, starting at the current block when this `Data`
+    // grows it in place and at the floor when it moves to a fresh one.
+    func grown(&self, wanted: Int) unsafe -> Int {
+        var target = 16
+        if self.offset == 0 && self.is_unique() {
+            target = data_capacity(self.block!)
+            if target < 16 {
+                target = 16
+            }
+        }
+        while target < wanted {
+            target = target * 2
+        }
+        target
+    }
+
+    // The gate every mutation passes: afterwards this `Data` solely owns a
+    // block that holds the window at offset 0 with at least `min_capacity`
+    // bytes of room. `false` means the allocator refused and nothing changed.
+    func ready(&var self, min_capacity: Int) unsafe -> Bool {
+        // An empty `Data` asked for no room needs no block. Every caller that
+        // goes on to write asks for at least one byte.
+        if min_capacity <= 0 && self.length == 0 {
+            return true
+        }
+        if self.offset == 0 && self.is_unique() && data_capacity(self.block!) >= min_capacity {
+            return true
+        }
+        let wanted = if min_capacity < self.length { self.length } else { min_capacity }
+        let target = self.grown(wanted)
+        guard let fresh = self.relocated(target) else {
+            return false
+        }
+        self = fresh
+        true
+    }
+
+    // A new `Data` over a block of `capacity` bytes holding this window's
+    // bytes, or `None` when the allocator refuses.
+    func relocated(&self, capacity: Int) unsafe -> Data? {
+        guard var fresh = Data.reserved(capacity) else {
+            return None
+        }
+        if self.length > 0 {
+            fresh.place(self.byte_ptr(), self.length)
+        }
+        fresh
+    }
+
+    // Writes one byte inside the window. The caller has just passed `ready`.
+    func store(&var self, index: Int, value: UInt8) unsafe {
+        guard let first = self.first_byte() else {
+            panic("Data.store: no block")
+        }
+        first[index] = Int8.from(truncating: value)
+    }
+
+    // Copies `count` bytes from `source` onto the end of the window.
+    func place(&var self, source: UnsafePointer<Int8>, count: Int) unsafe {
+        copy_bytes(source, self.spare(), count)
+        self.grow(count)
     }
 
     /// Decodes the bytes as UTF-8 into a new `String`.
@@ -125,7 +464,7 @@ extension Data {
         guard let block = self.block else {
             return ""
         }
-        let bytes = data_bytes(block)
+        let bytes = (&data_bytes(block)[self.offset]) as UnsafePointer<Int8>
         if let offset = utf8_error_offset(bytes, self.length) {
             return Utf8Error(offset: offset)
         }
@@ -171,7 +510,7 @@ extension Data: Copy {
         if let block = self.block {
             let _ = __saw_atomic_add_i64(data_refcount(block), 1)
         }
-        Data(block: self.block, length: self.length)
+        Data(block: self.block, offset: self.offset, length: self.length)
     }
 
     /// Releases the block, freeing it when this was the last reference.

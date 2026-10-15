@@ -7,8 +7,8 @@ alloc_channel_send_reports_oom.saw	refused	resolve import.unknown-module	no modu
 alloc_channel_taskgroup_reports_oom.saw	refused	resolve import.unknown-module	no module `std.channel`
 alloc_collection_literal_panics_named.saw	pass	-	-
 alloc_custom_allocator.saw	pass	-	-
-alloc_data_push_forced_panics_named.saw	refused	typecheck call.no-match	`Data` has no `init` this module can call, and its fields are not all visible here
-alloc_data_reports_oom.saw	refused	typecheck call.no-match	`Data` has no `init` this module can call, and its fields are not all visible here
+alloc_data_push_forced_panics_named.saw	wrong	stdout differs	line 2: sawc2 "panic at alloc_data_push_forced_panics_named.saw:28: try! failed", Stage 0 "panic at alloc_data_push_forced_panics_named.saw:28: try! failed: allocation of 32 bytes (align 1) failed"
+alloc_data_reports_oom.saw	pass	-	-
 alloc_default_equals_global.saw	pass	-	-
 alloc_deny_after_seam.saw	pass	-	-
 alloc_hosted_no_degradation.saw	refused	resolve import.unknown-module	no module `std.directory`
@@ -319,8 +319,8 @@ conformance/K118_every_shape_splits_hoists_or_refuses.saw	pass	-	-
 conformance/K11_spinlock_captured.saw	pass	-	transfer.implicit-copy: the closure captures `lock` by value, and `std.spinlock.SpinLock<Int>` is NoCopy, which does not copy silently: capture it with `[move lock]`, or copy it into a local the closu
 conformance/K123_every_window_opener_reads_the_declared_mode.saw	refused	llvm backend.not-yet	an array, a repeat, a `Map` or a `Set` literal is not in the backend slice yet
 conformance/K127_conditional_lend_modes.saw	refused	mir slice.not-yet	a `borrow` block binding a conditional lend is not lowered to MIR in the bootstrap slice yet
-conformance/K128_cow_gate_survives_the_var_self_spelling.saw	refused	typecheck call.no-match	`Data` has no `init` this module can call, and its fields are not all visible here
-conformance/K129_forwarded_lend_carries_the_window_mode.saw	refused	typecheck subscript.role	`std.data.Data` declares no subscript `[]`, so it has no getitem, setitem or place accessor
+conformance/K128_cow_gate_survives_the_var_self_spelling.saw	refused	mono mono.not-yet	a synthesized `Printable.format(into: &var std.stringbuilder.StringBuilder)` on `UInt8` is not in the backend slice yet: only a signed integer's `Printable.format`
+conformance/K129_forwarded_lend_carries_the_window_mode.saw	refused	mono mono.not-yet	a synthesized `Printable.format(into: &var std.stringbuilder.StringBuilder)` on `UInt8` is not in the backend slice yet: only a signed integer's `Printable.format`
 conformance/K133_window_spans_a_suspension.saw	refused	typecheck slice.not-yet	`syntax.expr.lends` is not in the bootstrap slice yet
 conformance/K135_window_conflicts_that_compose.saw	refused	typecheck member.unknown	`std.vector.Vector<Int, std.alloc.GlobalAllocator>` has no method `iter` this module can see
 conformance/K136_window_release_routes.saw	refused	typecheck member.unknown	`std.vector.Vector<Int, std.alloc.GlobalAllocator>` has no method `iter` this module can see
@@ -430,7 +430,7 @@ conformance/M37_inline_array_immutability_every_shape.saw	pass	-	mutability.immu
 conformance/M38_compound_assign_rhs_exclusivity.saw	pass	-	assign.rhs-borrow: `bp.n` is written by this assignment while its right-hand side borrows `bp` exclusively at 29:20; the right-hand side runs first, so what it writes through that borrow is overwritte
 conformance/M39_chain_assign_through_shared_self.saw	pass	-	mutability.immutable: this assignment writes `self.c?.n`, and this method's receiver is `&self`, a shared borrow that writes neither the storage it borrows nor storage reached through it: declare the
 conformance/M40_compound_chain_assign.saw	wrong	stdout differs	line 2: sawc2 "empty calls 2", Stage 0 "empty calls 1"
-conformance/M41_shared_self_indirection_carveout_spellings.saw	refused	typecheck member.unknown	`std.data.Data` has no method `get` this module can see
+conformance/M41_shared_self_indirection_carveout_spellings.saw	pass	-	subscript.role: this subscript is used as a writable place: its `[]` lends read-only (`std.map.Map<String, Int, std.alloc.GlobalAllocator>` declares or derives no such role)
 conformance/M42_shared_self_inline_array_element.saw	pass	-	mutability.immutable: this assignment writes `self.grid[0]`, and this method's receiver is `&self`, a shared borrow that writes neither the storage it borrows nor storage reached through it: declare t
 conformance/M43_write_optional_payload_of_let.saw	pass	-	mutability.immutable: this assignment writes `o!.n`, and `o` is a `let` binding, which is never written: every binding is initialized where it is declared, so only a `var` takes a new value
 conformance/M44_var_self_call_through_inline_array_element.saw	pass	-	mutability.immutable: this exclusive borrow of `h.cells[0]` would let it be written, and `h` is a `let` binding, which is never written: every binding is initialized where it is declared, so only a `v
@@ -464,7 +464,7 @@ conformance/T10_vector_index_oob.saw	pass	-	-
 conformance/T11_vector_negative_index.saw	pass	-	-
 conformance/T12_vector_get_none.saw	pass	-	-
 conformance/T18_map_forced_absent_key.saw	refused	mono mono.not-yet	a fixed array, a repeat, a `Map` or a `Set` literal is not in the backend slice yet
-conformance/T25_data_index_oob.saw	refused	typecheck call.no-match	`Data` has no `init` this module can call, and its fields are not all visible here
+conformance/T25_data_index_oob.saw	pass	-	-
 conformance/U02_plain_struct_unsafe_name.saw	pass	-	built
 conformance/U04_unsafe_param_undeclared.saw	pass	-	unsafe.undeclared: `f` is not declared `unsafe`, but its signature names a value of unsafe type (`UnsafePointer<Int>`): write `unsafe` after its parameter list, where every caller can see it
 conformance/U05_unsafe_return_undeclared.saw	pass	-	unsafe.undeclared: `f` is not declared `unsafe`, but its signature names a value of unsafe type (`UnsafePointer<Int>`): write `unsafe` after its parameter list, where every caller can see it
@@ -569,8 +569,8 @@ conformance/V97_frame_read_retains_once.saw	pass	-	-
 conformance/V98_driven_generic_judges_each_instance.saw	pass	-	-
 conformance/V99_every_payload_read_retains_once.saw	pass	-	-
 conformance/W02_import_gate_annotation_positions.saw	pass	-	name.not-in-prelude: `Path` is not in the prelude and must be imported: `import std.path.{Path}` selects it
-conformance/W03_import_gate_qualified_annotation.saw	refused	typecheck member.unknown	`std.data.Data` has no method `len` this module can see
-conformance/W04_import_gate_bare_import_forms.saw	refused	typecheck member.unknown	`std.data.Data` has no method `len` this module can see
+conformance/W03_import_gate_qualified_annotation.saw	pass	-	-
+conformance/W04_import_gate_bare_import_forms.saw	refused	typecheck member.unknown	`std.path.Path` has no method `as_str` this module can see
 conformance/W06_binop_mixed_width_operands.saw	pass	-	type.mismatch: an operator's operands agree on one type, and these are `Int` and `Int16`; convert one with `as`
 conformance/W07_binop_sign_mix_operands.saw	pass	-	type.mismatch: an operator's operands agree on one type, and these are `Int` and `UInt`; convert one with `as`
 conformance/W08_comparison_mixed_width.saw	pass	-	type.mismatch: expected `Int`, the type of the other operand, and found `Int16`; an operator's operands agree, and only a transfer widens an integer, so convert one with `as`
@@ -832,14 +832,14 @@ d249_selective_import_binds_whole_overload_set.saw	pass	-	-
 d249_selective_import_of_one_twin.saw	pass	-	-
 d249_std_json_and_cbor_both_name_encode.saw	refused	resolve import.unknown-module	no module `std.json`
 d249_std_selective_import_of_a_two_owner_name.saw	refused	resolve import.unknown-module	no module `std.json`
-data_advanced.saw	refused	typecheck call.no-match	`Data` has no `init` this module can call, and its fields are not all visible here
-data_cow_self_append.saw	refused	typecheck member.unknown	`std.data.Data` has no method `len` this module can see
-data_cow_slice.saw	refused	typecheck call.no-match	`Data` has no `init` this module can call, and its fields are not all visible here
-data_cow_value_semantics.saw	refused	typecheck call.no-match	`Data` has no `init` this module can call, and its fields are not all visible here
+data_advanced.saw	refused	typecheck member.unknown	`std.data.Data` has no method `iter` this module can see
+data_cow_self_append.saw	pass	-	-
+data_cow_slice.saw	pass	-	-
+data_cow_value_semantics.saw	pass	-	-
 data_iter_outlives_source.saw	refused	resolve name.undefined	cannot find `DataIterator` in scope
-data_place_shared_read.saw	refused	typecheck member.unknown	`std.data.Data` has no method `len` this module can see
-data_set_oob_panic.saw	refused	typecheck call.no-match	`Data` has no `init` this module can call, and its fields are not all visible here
-data_simple.saw	refused	typecheck call.no-match	`Data` has no `init` this module can call, and its fields are not all visible here
+data_place_shared_read.saw	pass	-	-
+data_set_oob_panic.saw	pass	-	-
+data_simple.saw	pass	-	-
 data_to_string_validates_utf8.saw	refused	typecheck member.unknown	`String` has no method `scalars` this module can see
 declaration_lists_take_a_line_each.saw	refused	resolve slice.not-yet	`syntax.decl.module.inline` is not in the bootstrap slice yet
 declared_length_error_names_its_file_error.saw	refused	typecheck slice.not-yet	a constant argument named by a static, `MUT`, is not in the bootstrap slice yet
@@ -892,7 +892,7 @@ df151j_tuple_element_ref.saw	pass	-	-
 df151j_tuple_element_write.saw	refused	llvm backend.not-yet	an array, a repeat, a `Map` or a `Set` literal is not in the backend slice yet
 df151l_tuple_literal_expected_type.saw	pass	-	-
 df165b_place_literal_range_error.saw	pass	-	result.discarded: the result of `push` is `Result<Void, std.alloc.AllocError>` and is silently discarded: handle it (`match` it, `try` or `try!` it, or return it), or write `let _ = ...` to discard it
-df165b_place_literal_width.saw	refused	typecheck call.no-match	`Data` has no `init` this module can call, and its fields are not all visible here
+df165b_place_literal_width.saw	refused	mono mono.not-yet	a synthesized `Printable.format(into: &var std.stringbuilder.StringBuilder)` on `UInt8` is not in the backend slice yet: only a signed integer's `Printable.format`
 df229a_missing_selection_error.saw	refused	resolve name.undefined	cannot find `gauge_make` in scope
 df229a_private_selection_error.saw	pass	-	visibility.private: `trim` is private in `modules.df229a_leaf`
 df229a_private_type_selection_error.saw	pass	-	visibility.private: `Calibration` is private in `modules.df229a_leaf`
@@ -1228,7 +1228,7 @@ errors/place_force_target_not_a_place.saw	wrong	accepts a refusal test	`!` is an
 errors/place_nested_window_let_root.saw	pass	-	mutability.immutable: this compound assignment writes `borrow var frozen[0][1].count`, and `frozen` is a `let` binding, which is never written: every binding is initialized where it is declared, so on
 errors/place_target_not_a_place.saw	pass	-	result.discarded: the result of `push` is `Result<Void, std.alloc.AllocError>` and is silently discarded: handle it (`match` it, `try` or `try!` it, or return it), or write `let _ = ...` to discard it
 errors/place_window_beside_var_root.saw	pass	-	loan.nested-call: `p` is borrowed by a nested call in this argument list while `p` is also accessed by reference in the same call, at 45:10; a call's references are checked together over the whole cal
-errors/place_window_data_corruption.saw	pass	-	call.no-match: `Data` has no `init` this module can call, and its fields are not all visible here
+errors/place_window_data_corruption.saw	pass	-	result.discarded: the result of `push` is `Result<Void, std.alloc.AllocError>` and is silently discarded: handle it (`match` it, `try` or `try!` it, or return it), or write `let _ = ...` to discard it
 errors/place_window_enum_method_let_root.saw	pass	-	mutability.immutable: this exclusive borrow of `frozen[0]` would let it be written, and `frozen` is a `let` binding, which is never written: every binding is initialized where it is declared, so only
 errors/place_window_root_read_teaches_the_asymmetry.saw	pass	-	loan.window-root: `v` is borrowed here while the window of `[]` opened at 41:16 holds `v` exclusively until the window closes; a window charges its whole root until it closes, so the root is reached o
 errors/place_window_through_a_forced_lend_charges_its_root.saw	pass	-	loan.window-root: `b` is borrowed exclusively here while the window of `opt` opened at 35:13 holds `b` exclusively until the window closes; a window charges its whole root until it closes, so the root
@@ -1507,7 +1507,7 @@ expr_suspend_value_match.saw	pass	-	-
 ext142_conformance_owners.saw	pass	-	-
 ext142_direct_import.saw	pass	-	-
 ext142_duplicate_one_import.saw	pass	-	-
-ext142_inherent_module.saw	refused	typecheck member.unknown	`std.data.Data` has no method `len` this module can see
+ext142_inherent_module.saw	pass	-	-
 ext142_orphan_conformance_error.saw	pass	-	conformance.orphan: a conformance lives in its type's module (`modules.ext142_base`) or its trait's (`std.prelude`); wrap the type in one this module owns
 ext142_package_scoped.saw	pass	-	-
 ext142_transitive_leak_error.saw	refused	typecheck member.unknown	`modules.ext142_base.Reading` has no method `scaled` this module can see
@@ -1601,8 +1601,8 @@ generic_body_honors_copy_tier.saw	pass	-	copy.requirement: `twice` requires `T` 
 generic_body_try_survives_a_second_instantiation.saw	pass	-	-
 generic_bound_call_associated_param_defers.saw	refused	typecheck type.mismatch	expected `T.Item`, the type of the parameter, and found `Int`
 generic_bound_call_concrete_param_type.saw	pass	-	type.mismatch: expected `Int`, the type of the parameter, and found `String`
-generic_bound_call_cross_module_gated_param.saw	refused	typecheck member.unknown	`std.data.Data` has no method `len` this module can see
-generic_bound_call_cross_module_gated_param_mismatch.saw	refused	typecheck member.unknown	`std.data.Data` has no method `len` this module can see
+generic_bound_call_cross_module_gated_param.saw	pass	-	-
+generic_bound_call_cross_module_gated_param_mismatch.saw	pass	-	type.mismatch: expected `&std.data.Data`, the type of the parameter, and found `&String`
 generic_bound_call_decidable_param_conversions.saw	pass	-	-
 generic_bound_call_mixed_signature_error.saw	pass	-	call.arity: missing an argument for `index` of Mixed.at(index: Int, item: Self.Item, peer: &Self) [generic_bound_call_mixed_signature_error]
 generic_bound_call_self_param_type.saw	pass	-	type.mismatch: expected `&T`, the type of the parameter, and found `&generic_bound_call_self_param_type.Sack`
@@ -1675,13 +1675,13 @@ implicit_copy_nested.saw	pass	-	-
 implicit_copy_reassign.saw	wrong	stdout differs	line 1: sawc2 "copy called", Stage 0 "deinit"
 import150_bare_under_qualified_error.saw	pass	-	name.not-in-prelude: `Data` is not in the prelude and must be imported: `import std.data.{Data}` selects it
 import150_qualified_trait.saw	refused	typecheck slice.not-yet	a method call on `any Trait` is not in the bootstrap slice yet
-import150_qualifier_collision_alias.saw	refused	typecheck call.no-match	`Data` has no `init` this module can call, and its fields are not all visible here
+import150_qualifier_collision_alias.saw	pass	-	-
 import150_qualifier_collision_error.saw	pass	-	import.duplicate-qualifier: two imports bind the qualifier `data`: `std.data` and `data`
 import150_shadowed_qualifier_error.saw	refused	typecheck member.unknown	`Int` has no method `Data` this module can see
-import150_std_forms.saw	refused	typecheck call.no-match	`Data` has no `init` this module can call, and its fields are not all visible here
-import150_std_qualified_positions.saw	refused	typecheck member.unknown	`std.data.Data` has no method `get` this module can see
+import150_std_forms.saw	refused	typecheck member.unknown	`std.path.Path` has no method `is_absolute` this module can see
+import150_std_qualified_positions.saw	refused	typecheck slice.not-yet	`syntax.expr.optional-member` is not in the bootstrap slice yet
 import150_warn_shadowed_qualifier.saw	refused	driver driver.usage	sawc2 build takes no -W
-import150_weak_qualifier.saw	refused	typecheck call.no-match	`Data` has no `init` this module can call, and its fields are not all visible here
+import150_weak_qualifier.saw	pass	-	-
 import225e_bare_std_leaf_not_found.saw	refused	resolve import.unknown-module	no module `data` (looked for `tests/corpus/data.saw`)
 import247b_glob_pair_one_identity.saw	refused	resolve import.unknown-module	no module `std.compiler.frame`
 import247b_nonbinding_form_qualifier_error.saw	refused	resolve name.undefined	cannot find `data` in scope
@@ -1766,7 +1766,7 @@ labeled_overload_label_then_type.saw	pass	-	-
 labeled_overload_method_static.saw	pass	-	-
 labeled_overload_same_type_diff_label.saw	pass	-	-
 lend_accessor_local.saw	pass	-	mutability.immutable: this assignment writes `borrow var c.slot()`, and `c.slot()` lends a read-only place (`-> &T`): declare the accessor `-> &var T` to lend a writable one
-lend_rooted_in_receiver.saw	refused	typecheck call.no-match	`Data` has no `init` this module can call, and its fields are not all visible here
+lend_rooted_in_receiver.saw	refused	mono mono.not-yet	a synthesized `Printable.format(into: &var std.stringbuilder.StringBuilder)` on `UInt8` is not in the backend slice yet: only a signed integer's `Printable.format`
 lend_var_both_branches.saw	refused	llvm backend.not-yet	an array, a repeat, a `Map` or a `Set` literal is not in the backend slice yet
 lend_var_conditional_lend.saw	refused	mir slice.not-yet	a `borrow` block binding a conditional lend is not lowered to MIR in the bootstrap slice yet
 lend_var_coro_and_forwarding.saw	refused	typecheck slice.not-yet	`TaskGroup.spawn` is not in the bootstrap slice yet
@@ -1885,7 +1885,7 @@ module_path_shadow.saw	wrong	accepts a refusal test	mapped package `mpshadow` sh
 module_path_submodule.saw	pass	-	-
 module_path_whole_facade_no_widen_error.saw	pass	-	visibility.private: `pkg_secret` is public(package) in `pkgvis.secret`
 module_tests/pkg232n/tests/package_tier_same_package_reach.saw	pass	-	visibility.private: `pkg_secret` is public(package) in `pkg232n`
-module_tests/test_bare_import_user_module_named_after_std.saw	refused	typecheck call.no-match	`Data` has no `init` this module can call, and its fields are not all visible here
+module_tests/test_bare_import_user_module_named_after_std.saw	pass	-	-
 module_tests/test_df3_module_wrap.saw	pass	-	-
 module_tests/test_enum_variant_access.saw	pass	-	-
 module_tests/test_function_contexts.saw	pass	-	-
@@ -2137,7 +2137,7 @@ place_use_sites.saw	refused	llvm backend.not-yet	an array, a repeat, a `Map` or 
 place_value_read_retain_oracle.saw	pass	-	-
 place_window_borrows_enclosing_locals.saw	pass	-	-
 place_window_exclusivity.saw	pass	-	loan.window-root: `p` is borrowed exclusively here while the window of `at` opened at 32:13 holds `p` exclusively until the window closes; a window charges its whole root until it closes, so the root
-place_window_exclusivity_boundary.saw	refused	typecheck call.no-match	`Data` has no `init` this module can call, and its fields are not all visible here
+place_window_exclusivity_boundary.saw	refused	mono mono.not-yet	a synthesized `Printable.format(into: &var std.stringbuilder.StringBuilder)` on `UInt8` is not in the backend slice yet: only a signed integer's `Printable.format`
 place_window_move_arg_consumes_local.saw	refused	resolve import.unknown-module	no module `std.compiler.frame`
 place_window_nested_writes_land.saw	pass	-	-
 place_window_root_read_in_assignment_rhs.saw	refused	typecheck mutability.immutable	this assignment writes `m.find(&"a")?.n`, and `m.find(&"a")` lends a read-only place (`-> &T`): declare the accessor `-> &var T` to lend a writable one
@@ -2168,7 +2168,7 @@ process_simple.saw	refused	typecheck member.unknown	`std.process.Command` has no
 qualified_call_literal_adopts_parameter_width.saw	pass	-	type.mismatch: integer literal 300 does not fit in `UInt8` (range 0..=255)
 qualified_call_threads_the_callee_signature.saw	pass	-	-
 qualified_type_declaration_slots.saw	refused	typecheck slice.not-yet	`syntax.expr.optional-member` is not in the bootstrap slice yet
-qualified_type_in_declaration_slot.saw	refused	typecheck call.no-match	`Data` has no `init` this module can call, and its fields are not all visible here
+qualified_type_in_declaration_slot.saw	pass	-	-
 range_inclusive_basics.saw	refused	typecheck slice.not-yet	`syntax.stmt.break` is not in the bootstrap slice yet
 range_inclusive_intmax.saw	pass	-	-
 reactor_cross_thread_wake.saw	refused	resolve slice.not-yet	the `Thread.spawn` form is not in the bootstrap slice yet
@@ -2361,8 +2361,8 @@ string_byte_at_oob_panic.saw	pass	-	-
 string_bytes_iter.saw	refused	typecheck member.unknown	`String` has no method `bytes` this module can see
 string_escaped_brace_keeps_control_byte.saw	pass	-	-
 string_escapes.saw	pass	-	-
-string_from_bytes.saw	refused	typecheck call.no-match	`Data` has no `init` this module can call, and its fields are not all visible here
-string_from_bytes_errors.saw	refused	typecheck call.no-match	`Data` has no `init` this module can call, and its fields are not all visible here
+string_from_bytes.saw	refused	typecheck member.unknown	`String` has no method `fromBytes` this module can see
+string_from_bytes_errors.saw	refused	typecheck member.unknown	`String` has no method `fromBytes` this module can see
 string_implicit_copy.saw	pass	-	-
 string_interp_owned.saw	pass	-	-
 string_interpolation.saw	refused	mono mono.not-yet	a synthesized `Printable.format(into: &var std.stringbuilder.StringBuilder)` on `Float` is not in the backend slice yet: only a signed integer's `Printable.format`
@@ -2435,7 +2435,7 @@ taskgroup_nested_groups.saw	refused	typecheck slice.not-yet	`TaskGroup.spawn` is
 taskgroup_producer_consumer.saw	refused	resolve import.unknown-module	no module `std.channel`
 taskgroup_result_joined_once.saw	refused	typecheck slice.not-yet	`TaskGroup.spawn` is not in the bootstrap slice yet
 taskgroup_result_unjoined_once.saw	refused	typecheck slice.not-yet	`TaskGroup.spawn` is not in the bootstrap slice yet
-taskgroup_send_containers.saw	refused	typecheck member.unknown	`std.data.Data` has no method `len` this module can see
+taskgroup_send_containers.saw	refused	typecheck call.label	no parameter is labeled `threads` in TaskGroup.init() [std.taskgroup]
 taskgroup_sleep_ordering.saw	refused	typecheck slice.not-yet	`TaskGroup.spawn` is not in the bootstrap slice yet
 taskgroup_slot_reuse_mt.saw	refused	typecheck call.label	no parameter is labeled `threads` in TaskGroup.init() [std.taskgroup]
 taskgroup_slot_reuse_o_live.saw	refused	typecheck slice.not-yet	`TaskGroup.spawn` is not in the bootstrap slice yet

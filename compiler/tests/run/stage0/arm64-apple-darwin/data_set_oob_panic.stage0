@@ -1,0 +1,9 @@
+program	compiler/tests/run/data_set_oob_panic.saw
+triple	arm64-apple-darwin
+source	843efed952aeabfe
+build	ok
+exit	-6
+stdout	"99"
+stdout	"none"
+stdout	"panic at data.saw:226: Data.set: index out of range: 9 (len 2)"
+stdout	""

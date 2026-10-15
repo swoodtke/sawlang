@@ -1,0 +1,7 @@
+program	compiler/tests/run/data_place_shared_read.saw
+triple	arm64-apple-darwin
+source	579dd3e1a85036fa
+build	ok
+exit	0
+stdout	"ok"
+stdout	""

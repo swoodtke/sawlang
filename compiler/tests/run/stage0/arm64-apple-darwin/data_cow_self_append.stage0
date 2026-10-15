@@ -1,0 +1,10 @@
+program	compiler/tests/run/data_cow_self_append.saw
+triple	arm64-apple-darwin
+source	73650b728660bd45
+build	ok
+exit	0
+stdout	"self-append 1,2,1,2"
+stdout	"slice-append 10,20,30,20,30"
+stdout	"shared-append 7,9 sibling 7"
+stdout	"grow-append 5,5,5,5"
+stdout	""

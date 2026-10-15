@@ -1,0 +1,19 @@
+// differs: the panic is raised inside std, and each compiler's std is its own file
+// `Data.set` panics out of range, and `get` answers `None` (design 130's
+// accessor rule).
+
+import std.data.*
+
+func main() {
+    var d = Data()
+    try! d.push(10 as UInt8)
+    try! d.push(20 as UInt8)
+    try! d.set(0, 99 as UInt8)
+    print(d.get(0)!)             // 99 — in range still writes
+    if let _ = d.get(9) {
+        print("unreachable")
+    } else {
+        print("none")            // `get` stays get-shaped
+    }
+    try! d.set(9, 7 as UInt8)         // past the end -> panic
+}

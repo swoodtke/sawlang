@@ -1,0 +1,21 @@
+program	compiler/tests/run/data_pop_clear_raw.saw
+triple	arm64-apple-darwin
+source	97233bc57befd354
+build	ok
+exit	0
+stdout	"true 0"
+stdout	"true"
+stdout	"0 true"
+stdout	"7"
+stdout	"2 3"
+stdout	"7"
+stdout	"true 3"
+stdout	"true"
+stdout	"3 5 7"
+stdout	"true"
+stdout	"true"
+stdout	"0"
+stdout	"6 6 60"
+stdout	"true"
+stdout	"true"
+stdout	""

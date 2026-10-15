@@ -1,0 +1,111 @@
+// Conformance rows A08, A09 and A15 — `Data` under a refusing allocator.
+//
+// Design 123: `Data` was the third copy of RS-1's shape. `ensure_capacity`
+// returned Void, so a refused grow left `capacity()` short and `push`/`append`/
+// `append_bytes` wrote past the end of the buffer. `copy` was worse: it set
+// `length` whether or not the reservation succeeded, so a refused copy reported
+// `len() == N` with `capacity() == 0` and every `get` answering `None`. That
+// became a PANIC, with a `try_`-prefixed twin beside each op that reported.
+//
+// Design 234 retires the split: `push`, `append`, `detached` and
+// `Data(capacity:)` REPORT, and there is one of each. The all-or-nothing half
+// is what a panic could never state, and it is what this file checks after
+// every refusal — the bytes already in the buffer are still there and still
+// readable.
+//
+// A15 is the row for the one `Data` operation that still panics: `d[i] = v` on
+// SHARED storage has to separate the bytes first, and that allocation shares a
+// body with the subscript's bounds check. `detached()` is the preflight that
+// attempts the same allocation where a refusal has somewhere to go, and the
+// last block here is that pairing.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 3
+// push denied: allocation of 32 bytes (align 1) failed
+// 3
+// 3
+// append denied
+// 3
+// detach denied
+// capacity denied
+// 9
+// preflight denied, nothing written
+
+import std.data.*
+
+extern "C" {
+    func __saw_rt_alloc_deny_after(allow: Int)
+}
+
+func main() {
+    var d = try! Data(capacity: 16)
+    try! d.push(1)
+    try! d.push(2)
+    try! d.push(3)
+    print(d.len())                  // 3
+
+    // Fill to capacity so the next push must grow, then refuse the grow.
+    var i = 3
+    while i < 16 {
+        try! d.push(0)
+        i = i + 1
+    }
+    __saw_rt_alloc_deny_after(0)
+    let pushed = d.push(9)
+    __saw_rt_alloc_deny_after(-1)
+    match pushed {
+        case Ok(_) -> print("pushed"),
+        case Err(e) -> print("push denied: {e}")
+    }
+    print(d.get(2)!)                // 3 — content untouched
+
+    // `append`: the same refusal, reported before any byte is copied.
+    var other = try! Data(capacity: 8)
+    try! other.push(7)
+    __saw_rt_alloc_deny_after(0)
+    let appended = d.append(move other)
+    __saw_rt_alloc_deny_after(-1)
+    print(d.get(2)!)                // 3
+    match appended {
+        case Ok(_) -> print("appended"),
+        case Err(_) -> print("append denied")
+    }
+    print(d.get(2)!)                // 3 — still untouched
+
+    // `detached` is all-or-nothing: no Data that claims bytes it does not have.
+    // (Design 165 renamed the eager copy: `copy()` is the Copy retain now, and
+    // the spelling that materializes bytes — the one that can run out of
+    // allocator — says so.)
+    __saw_rt_alloc_deny_after(0)
+    let copied = d.detached()
+    __saw_rt_alloc_deny_after(-1)
+    match copied {
+        case Ok(c) -> print(c.len()),
+        case Err(_) -> print("detach denied")
+    }
+
+    __saw_rt_alloc_deny_after(0)
+    let made = Data(capacity: 64)
+    __saw_rt_alloc_deny_after(-1)
+    match made {
+        case Ok(_) -> print("capacity ok"),
+        case Err(_) -> print("capacity denied")
+    }
+
+    // Allocation available again: the same operations just work.
+    try! d.push(9)
+    print(d.get(16)!)               // 9
+
+    // A15 — the boundary. `shared` and `d` see the same bytes, so writing
+    // through the subscript would have to separate them, and that separation
+    // panics rather than answering. `detached()` is where the same allocation
+    // reports, so a caller who cannot accept the panic preflights instead.
+    let shared = d
+    __saw_rt_alloc_deny_after(0)
+    let preflight = shared.detached()
+    __saw_rt_alloc_deny_after(-1)
+    match preflight {
+        case Ok(_) -> print("preflight ok"),
+        case Err(_) -> print("preflight denied, nothing written")
+    }
+}
