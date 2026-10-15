@@ -1546,6 +1546,17 @@ So code using a suspending default builds under sawc2 and fails under Stage 0. I
 
 **Checker:** not needed.
 
+### L31. Derivation-only parents: Stage 0 and sawc2 differ (SL-673)
+
+**Shape (loud in two forms, silent in one):** the user's ruling (SL-673) says a trait that lists `Send` or `Sync` as a parent requires it of every conformer and never grants it, and `T: Child` meets `T: Send` in a generic body. Only `NoCopy` and `ExplicitCopy` may list `Deinit` as a parent. sawc2 follows the ruling. Stage 0 differs in three ways:
+1. **`trait X: Deinit` is accepted, and the `deinit` silently disappears (silent).** With `trait Closeable: Deinit {}` and `extension Handle: Closeable { func deinit(&var self) { … } }`, Stage 0 compiles, and no scope exit runs that `deinit`. sawc2 refuses the trait (`trait.deinit-parent`).
+2. **A conformance to a `Send`-refining trait on a non-`Send` type is accepted and grants nothing.** Stage 0 accepts `extension Buf: Shippable {}` on a raw-pointer holder, and `Buf` still fails `T: Send`. sawc2 refuses the conformance (`conformance.derived-parent`), naming the blocking field.
+3. **`T: Shippable` is refused as `T: Send`.** Stage 0 reports that `T` does not satisfy `Send`; sawc2 accepts it.
+
+**Instead:** don't write a trait whose parent is `Deinit`; put a hand-written `deinit` in the type's `NoCopy` or `ExplicitCopy` conformance. Conform only types that derive the parent, or declare `UnsafeSend` where the spec allows it. In code Stage 0 must also compile, write both bounds, `<T: Shippable + Send>` (checked: Stage 0 builds and runs it).
+
+**Checker:** not needed: the compiler's source declares no trait refining `Send`, `Sync` or `Deinit`.
+
 ## Cases with no issue
 
 
