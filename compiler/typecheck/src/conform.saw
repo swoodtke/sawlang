@@ -476,6 +476,7 @@ extension TcProgram {
     //     policy_copy
     //     declares_misplaced_policy
     //     check_zero_inits
+    //     check_thread_assertion
     public func policy_in_place(&self, at: Int) -> Bool {
         let c = self.conformances[at]
         if c.type_decl < 0 || not self.is_policy_trait(c.trait_decl) {

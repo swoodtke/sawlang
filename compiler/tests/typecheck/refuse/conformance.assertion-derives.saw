@@ -1,0 +1,13 @@
+// refuses: conformance.assertion-derives at 9:14
+// `UnsafeSend` on a type whose members derive `Send`: it asserts nothing
+
+struct P {
+    x: Int
+    label: String
+}
+
+extension P: UnsafeSend {}
+
+func main() {
+    print("ok")
+}

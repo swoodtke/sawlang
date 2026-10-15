@@ -1,0 +1,23 @@
+// refuses: conformance.assertion-derives at 19:17
+// `UnsafeSync` on a type holding a member that asserts it: the member's
+// assertion is the argument, so the holder derives `Sync`
+
+struct Counter {
+    hits: UnsafeMutableInterior<Int>
+}
+
+extension Counter: NoCopy {}
+
+extension Counter: UnsafeSync {}
+
+struct Wrap {
+    c: Counter
+}
+
+extension Wrap: NoCopy {}
+
+extension Wrap: UnsafeSync {}
+
+func main() {
+    print("ok")
+}

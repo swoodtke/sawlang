@@ -1,0 +1,16 @@
+// refuses: conformance.assertion-safe-member at 12:17
+// a field reaching the asserted type again blocks with it: each member is
+// judged as the derivation judges it, without the type's own assertion
+
+struct Node {
+    raw: UnsafePointer<Int>
+    next: Vector<Node>
+}
+
+extension Node: NoCopy {}
+
+extension Node: UnsafeSend {}
+
+func main() {
+    print("ok")
+}

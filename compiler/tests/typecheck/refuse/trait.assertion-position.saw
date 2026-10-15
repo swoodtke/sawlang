@@ -1,0 +1,8 @@
+// refuses: trait.assertion-position at 4:14
+// `UnsafeSend` as a function's generic bound, where the property `Send` goes
+
+func need<T: UnsafeSend>(x: &T) {}
+
+func main() {
+    print("ok")
+}

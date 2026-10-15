@@ -1,0 +1,13 @@
+// refuses: conformance.assertion-safe-member at 9:14
+// an unconditioned generic assertion past a field of the type parameter
+
+struct W<T> {
+    v: T
+    raw: UnsafePointer<Int>
+}
+
+extension W: UnsafeSend {}
+
+func main() {
+    print("ok")
+}

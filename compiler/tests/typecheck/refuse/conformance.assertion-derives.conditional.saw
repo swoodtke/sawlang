@@ -1,0 +1,12 @@
+// refuses: conformance.assertion-derives at 8:23
+// a conditional `UnsafeSend` whose bound already makes every field derive it
+
+struct W<T> {
+    v: T
+}
+
+extension W<T: Send>: UnsafeSend {}
+
+func main() {
+    print("ok")
+}

@@ -1,0 +1,72 @@
+// The assertions the header check accepts (spec, `UnsafeSync` / `UnsafeSend`,
+// "Legality, checked at the header"): each blocks the derivation only through
+// members whose types name an unsafe type, a raw pointer, an interior cell or
+// a type argument naming one, plainly or under a conditional head, and each
+// then meets its property's bound.
+
+struct Buf {
+    raw: UnsafePointer<Int>
+    count: Int
+}
+
+extension Buf: UnsafeSend {}
+
+struct Cell<T> {
+    raw: UnsafePointer<T>
+    value: T
+}
+
+extension Cell<T: Send>: UnsafeSend {}
+
+struct Counter {
+    hits: UnsafeMutableInterior<Int>
+}
+
+extension Counter: NoCopy {}
+
+extension Counter: UnsafeSync {}
+
+struct Guard<T> {
+    state: UnsafeMutableInterior<Int>
+    value: UnsafeMutableInterior<T>
+}
+
+extension Guard<T>: NoCopy {}
+
+extension Guard<T: Send>: UnsafeSync {}
+
+struct Many {
+    ptrs: Vector<UnsafePointer<Int>>
+    label: String
+}
+
+extension Many: NoCopy {}
+
+extension Many: UnsafeSend {}
+
+enum Choice {
+    case Pointer(p: UnsafePointer<Int>),
+    case Plain(n: Int)
+}
+
+extension Choice: UnsafeSend {}
+
+extension Choice: UnsafeSync {}
+
+func need_send<T: Send>(x: &T) {}
+
+func need_sync<T: Sync>(x: &T) {}
+
+func relay(b: &Buf, c: &Cell<Int>, n: &Counter, g: &Guard<Int>, m: &Many, k: &Choice) {
+    need_send(&b)
+    need_send(&c)
+    need_sync(&n)
+    need_sync(&g)
+    need_send(&m)
+    need_send(&k)
+    need_sync(&k)
+}
+
+func main() {
+    print("ok")
+}

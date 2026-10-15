@@ -1,0 +1,14 @@
+// refuses: trait.assertion-position at 9:18
+// `UnsafeSend` as a method's generic bound
+
+struct Probe {
+    n: Int
+}
+
+extension Probe {
+    func peek<U: UnsafeSend>(&self, u: &U) -> Int { self.n }
+}
+
+func main() {
+    print("ok")
+}

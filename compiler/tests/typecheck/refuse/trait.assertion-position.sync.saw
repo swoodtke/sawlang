@@ -1,0 +1,10 @@
+// refuses: trait.assertion-position at 4:27
+// `UnsafeSync` beside another bound on a function's parameter
+
+func share<T: Equatable + UnsafeSync>(x: &T) -> Int {
+    1
+}
+
+func main() {
+    print("ok")
+}

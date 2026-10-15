@@ -1,0 +1,13 @@
+// refuses: conformance.assertion-derives at 9:18
+// an enum's `UnsafeSync` where every payload is `Sync`
+
+enum Shape {
+    case Dot,
+    case Line(length: Int, label: String)
+}
+
+extension Shape: UnsafeSync {}
+
+func main() {
+    print("ok")
+}

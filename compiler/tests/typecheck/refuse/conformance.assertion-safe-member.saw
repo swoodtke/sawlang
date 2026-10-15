@@ -1,0 +1,23 @@
+// refuses: conformance.assertion-safe-member at 13:18
+// `UnsafeSend` past a field of a safe type that is not `Send`: a claim about
+// another type's invariants, which a `T: Send` bound would otherwise accept
+
+struct Buf {
+    raw: UnsafePointer<Int>
+}
+
+struct Outer {
+    b: Buf
+}
+
+extension Outer: UnsafeSend {}
+
+func need<T: Send>(x: &T) {}
+
+func relay(o: &Outer) {
+    need(&o)
+}
+
+func main() {
+    print("ok")
+}

@@ -1,0 +1,19 @@
+// refuses: conformance.assertion-safe-member at 15:19
+// a test-only `UnsafeSend` on a test-only type, past a field of a safe
+// non-`Send` type
+
+struct Buf {
+    raw: UnsafePointer<Int>
+}
+
+@test
+struct Handle {
+    b: Buf
+}
+
+@test
+extension Handle: UnsafeSend {}
+
+func main() {
+    print("ok")
+}

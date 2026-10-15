@@ -1,0 +1,18 @@
+// refuses: conformance.assertion-safe-member at 14:17
+// an enum's `UnsafeSend` past a payload of a safe non-`Send` type, beside a
+// raw-pointer payload it may cover
+
+struct Buf {
+    raw: UnsafePointer<Int>
+}
+
+enum Slot {
+    case Raw(p: UnsafePointer<Int>),
+    case Held(b: Buf)
+}
+
+extension Slot: UnsafeSend {}
+
+func main() {
+    print("ok")
+}

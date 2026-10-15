@@ -1,0 +1,10 @@
+// refuses: trait.assertion-position at 4:16
+// a user trait listing `UnsafeSend` as a parent
+
+trait Shipped: UnsafeSend {
+    func tag(&self) -> Int
+}
+
+func main() {
+    print("ok")
+}

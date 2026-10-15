@@ -675,8 +675,10 @@ func tc_summary_join(a: Int, b: Int, any_part: Bool) -> Int {
 // frame asking it; the pairs that hold while a frame they leaned on is open,
 // the first `leaning` of `leaning_types` and `leaning_traits`, in the order
 // they were decided; the lowest frame a cycle reached back to; the type whose
-// derivation from its members nested past the instantiation depth; and the
-// code asking, whose conformances every pair is answered by.
+// derivation from its members nested past the instantiation depth; the code
+// asking, whose conformances every pair is answered by; and the declaration
+// whose own conformances are not consulted for trait `hidden_trait`, -1 for
+// none.
 struct TcSatisfyRun {
     states: TcMemo
     leaning_types: Vector<Int>
@@ -688,6 +690,8 @@ struct TcSatisfyRun {
     overflow_trait: Int
     viewer: Int
     in_test: Bool
+    hidden: Int
+    hidden_trait: Int
 }
 
 extension TcSatisfyRun: NoCopy {}
@@ -695,7 +699,7 @@ extension TcSatisfyRun: NoCopy {}
 func tc_satisfy_run(viewer: Int, in_test: Bool) -> TcSatisfyRun {
     TcSatisfyRun(states: tc_memo(), leaning_types: Vector<Int>(), leaning_traits: Vector<Int>(), leaning: 0,
                  frames: 0, low: TC_SATISFY_NO_LOW, overflow: -1, overflow_trait: -1,
-                 viewer: viewer, in_test: in_test)
+                 viewer: viewer, in_test: in_test, hidden: -1, hidden_trait: -1)
 }
 
 extension TcSatisfyRun {
@@ -774,6 +778,21 @@ extension TcProgram {
     public func satisfies(&var self, t: Int, tr: Int, env_decl: Int, env_ext: Int, viewer: Int,
                           in_test: Bool) -> Bool {
         var run = tc_satisfy_run(viewer, in_test)
+        let answer = self.satisfies_in(t, tr, env_decl, env_ext, &var run)
+        if run.overflow >= 0 {
+            self.refuse_instantiation_depth(run.overflow, run.overflow_trait)
+        }
+        answer
+    }
+
+    // `satisfies`, with no conformance of declaration `hidden` answering for
+    // `tr` at any depth: what `t` meets were `hidden`'s assertions of `tr`
+    // deleted.
+    public func satisfies_without(&var self, t: Int, tr: Int, hidden: Int, env_decl: Int, env_ext: Int,
+                                  viewer: Int, in_test: Bool) -> Bool {
+        var run = tc_satisfy_run(viewer, in_test)
+        run.hidden = hidden
+        run.hidden_trait = tr
         let answer = self.satisfies_in(t, tr, env_decl, env_ext, &var run)
         if run.overflow >= 0 {
             self.refuse_instantiation_depth(run.overflow, run.overflow_trait)
@@ -986,6 +1005,9 @@ extension TcProgram {
     // refines it, that the run's code may use holds for `t`'s arguments.
     func declares_conformance(&var self, t: Int, tr: Int, env_decl: Int, env_ext: Int, run: &var TcSatisfyRun) -> Bool {
         let info = self.types.ty(t)
+        if info.decl == run.hidden && tr == run.hidden_trait {
+            return false
+        }
         var k = 0
         while k < self.conformances.len() {
             let c = self.conformances[k]

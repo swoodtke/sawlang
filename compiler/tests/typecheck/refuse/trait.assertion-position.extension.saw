@@ -1,0 +1,12 @@
+// refuses: trait.assertion-position at 8:19
+// `UnsafeSend` as an extension's condition, in the header of an assertion
+
+struct Cell<T> {
+    raw: UnsafePointer<T>
+}
+
+extension Cell<T: UnsafeSend>: UnsafeSend {}
+
+func main() {
+    print("ok")
+}

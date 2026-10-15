@@ -1,0 +1,15 @@
+// refuses: conformance.assertion-safe-member at 11:18
+// `UnsafeSend` past a closure field beside a raw pointer
+
+struct Mixed {
+    raw: UnsafePointer<Int>
+    fn: (Int) -> Int
+}
+
+extension Mixed: NoCopy {}
+
+extension Mixed: UnsafeSend {}
+
+func main() {
+    print("ok")
+}

@@ -1,0 +1,13 @@
+// refuses: slice.not-yet at 9:16
+// an assertion on one instantiation, which the assertion funnel passes over
+// while the specialized extension is outside the slice
+
+struct Cell<T> {
+    raw: UnsafePointer<T>
+}
+
+extension Cell<Int>: UnsafeSend {}
+
+func main() {
+    print("ok")
+}

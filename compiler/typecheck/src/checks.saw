@@ -1,13 +1,14 @@
 // The signature-only checks that need every signature first: finite struct
 // size, which is a cycle in the by-value containment graph (spec, Recursive
 // types), the signature half of `unsafe` (designs 130 and 136), the rules on
-// the traits the compiler only derives, where a type's policies are declared,
-// and a test-only conformance or member overlapping what production code
-// meets.
+// the traits the compiler only derives and on the thread-safety assertions,
+// where a type's policies are declared, and a test-only conformance or member
+// overlapping what production code meets.
 
 import sawparse.grammar.{Alt}
 import sawresolve.dump.{res_sort_strings}
 import sawresolve.model.{ResBindKind, ResDecl, ResDeclKind}
+import sawtypecheck.candidates.{tc_contains}
 import sawtypecheck.conform.{TcSubst, tc_args_subst}
 import sawtypecheck.declarations.{tc_build_signatures}
 import sawtypecheck.model.{TC_EFFECT_UNSAFE, TC_FLAG_UNSAFE_STRUCT, TC_FLAG_WRITTEN_RETURN, TcParam,
@@ -490,17 +491,20 @@ extension TcProgram {
     // table, which holds every written conformance (a plain or conditional
     // head, a struct or an enum, several traits in one head, an `@synthesize`
     // one, a test-only extension and a test group's), and every trait's
-    // parent list.
+    // parent list. The assertions, `UnsafeSend` and `UnsafeSync`, are the
+    // assertion funnel's (`check_thread_assertion`).
     // ENTRY POINTS:
     //     tc_check_derived_conformances
     public func check_derived_conformances(&var self) {
         self.check_deinit_parents()
+        self.check_assertion_positions()
         var k = 0
         while k < self.conformances.len() {
             let c = self.conformances[k]
             k = k + 1
             let tr = c.trait_decl
             if tr == self.known.unsafe_send || tr == self.known.unsafe_sync {
+                self.check_thread_assertion(k - 1)
                 continue
             }
             if tr != self.known.deinit && tr != self.known.send && tr != self.known.sync {
@@ -649,6 +653,217 @@ extension TcProgram {
             }
             self.refuse_in(c.module, c.node, "conformance.policy-placement", msg.build())
         }
+    }
+}
+
+// The thread-safety assertion, `UnsafeSend` and `UnsafeSync`.
+extension TcProgram {
+    // THE ASSERTION FUNNEL: every rule on `UnsafeSend` and `UnsafeSync` but
+    // object safety's (spec, `UnsafeSync` / `UnsafeSend`). The assertion is
+    // checked at its header: refused where the type derives the property from
+    // its members under the extension's conditions, and past a member that
+    // blocks the derivation unless the member's type names an unsafe type.
+    // And it is written nowhere else: a generic parameter's bound naming it,
+    // of any declaration or extension, and a trait's parent naming it are
+    // refused. A specialized header is `slice.not-yet`'s, one outside its
+    // type's defining file `conformance.policy-placement`'s, and an
+    // existential `check_object_safety`'s.
+    // ENTRY POINTS:
+    //     check_derived_conformances
+    func check_thread_assertion(&var self, at: Int) {
+        let c = self.conformances[at]
+        let ext_node = self.res.decls[c.ext].node
+        if tc_contains(&self.skipped, ext_node) || not self.policy_in_place(at) {
+            return
+        }
+        let property = if c.trait_decl == self.known.unsafe_send { self.known.send } else { self.known.sync }
+        if property < 0 {
+            return
+        }
+        let in_test = self.is_test_only_conformance(at)
+        let t = self.self_type_of(c.type_decl)
+        let name = self.res.decl_path(c.trait_decl)
+        let target = self.res.decl_path(c.type_decl)
+        let property_name = self.res.decl_path(property)
+        if self.satisfies_without(t, property, c.type_decl, c.type_decl, c.ext, c.module, in_test) {
+            var msg = StringBuilder()
+            try! msg.append("`")
+            try! msg.append(target)
+            try! msg.append("` already derives `")
+            try! msg.append(property_name)
+            try! msg.append("`, so `")
+            try! msg.append(name)
+            try! msg.append("` asserts nothing: an assertion is legal only where the derivation fails, and one beside a type that derives cleanly tells the next reader something was needed; delete it")
+            self.refuse_in(c.module, c.node, "conformance.assertion-derives", msg.build())
+            return
+        }
+        // Empty when every blocking member is unsafe-typed, or when the type
+        // is one no source declares, which has no member and whose assertion
+        // the orphan rule keeps in the builtin module.
+        let blocker = self.uncovered_blocker(t, property, c.type_decl, c.ext, c.module, in_test)
+        if blocker.len() == 0 {
+            return
+        }
+        var msg = StringBuilder()
+        try! msg.append("cannot declare `")
+        try! msg.append(name)
+        try! msg.append("` for `")
+        try! msg.append(target)
+        try! msg.append("`: ")
+        try! msg.append(blocker)
+        try! msg.append(" and names no unsafe type; an assertion covers only what the unsafe domain owns, a raw pointer, an interior cell or an `UnsafeMemory`, so bound the parameter (`<T: ")
+        try! msg.append(property_name)
+        try! msg.append(">`) or hold the member behind a type that carries the synchronization")
+        self.refuse_in(c.module, c.node, "conformance.assertion-safe-member", msg.build())
+    }
+
+    // The first field or case payload of nominal `t` that does not meet `tr`
+    // and whose type names no unsafe type, named with its type; "" when
+    // every one an assertion of `tr` would cover is unsafe-typed. Each is
+    // judged as the derivation judged it, without `t`'s own assertions, so a
+    // member reaching `t` again blocks with it.
+    func uncovered_blocker(&var self, t: Int, tr: Int, env_decl: Int, env_ext: Int, viewer: Int,
+                           in_test: Bool) -> String {
+        let info = self.types.ty(t)
+        let arguments = self.nominal_args(t)
+        let subst = tc_args_subst(info.decl, move arguments)
+        let members = self.members_of(info.decl)
+        var k = 0
+        while k < members.len() {
+            let m = members[k]
+            k = k + 1
+            let mi = self.res.decls[m]
+            let s = self.sigs[m]
+            var parts = Vector<Int>()
+            if mi.kind == ResDeclKind.Field && s.result >= 0 {
+                try! parts.push(self.subst(s.result, &subst))
+            } else if mi.kind == ResDeclKind.Case {
+                var j = 0
+                while j < s.param_count {
+                    let p = self.params[s.param_first + j]
+                    try! parts.push(self.subst(p.ty, &subst))
+                    j = j + 1
+                }
+            }
+            var j = 0
+            while j < parts.len() {
+                let part = parts[j]
+                j = j + 1
+                if self.unsafe_named(part) >= 0 || self.satisfies_without(part, tr, info.decl, env_decl, env_ext, viewer, in_test) {
+                    continue
+                }
+                var out = StringBuilder()
+                if mi.kind == ResDeclKind.Field {
+                    try! out.append("field `")
+                    try! out.append(self.name_text(mi.name))
+                    try! out.append("` has type `")
+                } else {
+                    try! out.append("case `")
+                    try! out.append(self.name_text(mi.name))
+                    try! out.append("` has a payload of type `")
+                }
+                try! out.append(self.type_text(part))
+                try! out.append("`, which is not `")
+                try! out.append(self.res.decl_path(tr))
+                try! out.append("`")
+                return out.build()
+            }
+        }
+        ""
+    }
+
+    // Each generic parameter's bound and each trait parent that names
+    // `UnsafeSend` or `UnsafeSync`, refused where it is written.
+    func check_assertion_positions(&var self) {
+        var d = 0
+        while d < self.res.decls.len() {
+            let info = self.res.decls[d]
+            d = d + 1
+            if info.node < 0 || info.kind == ResDeclKind.Field || info.kind == ResDeclKind.Case {
+                continue
+            }
+            let n = self.child_count(info.node)
+            var k = 0
+            while k < n {
+                let c = self.child(info.node, k)
+                k = k + 1
+                if info.kind == ResDeclKind.Trait && self.has_alt(c, Alt.Type_Path) {
+                    let tr = self.assertion_named(c)
+                    if tr >= 0 {
+                        self.refuse_assertion_parent(d - 1, c, tr)
+                    }
+                } else if self.has_alt(c, Alt.Generic_Param_Type) {
+                    self.check_assertion_bounds(info.module, c)
+                }
+            }
+        }
+    }
+
+    // The bounds of generic parameter `g` that name an assertion.
+    func check_assertion_bounds(&var self, m: Int, g: Int) {
+        let n = self.child_count(g)
+        var k = 0
+        while k < n {
+            let c = self.child(g, k)
+            k = k + 1
+            if not self.has_alt(c, Alt.Type_Path) {
+                continue
+            }
+            let tr = self.assertion_named(c)
+            if tr < 0 {
+                continue
+            }
+            let name = self.res.decl_path(tr)
+            let property = if tr == self.known.unsafe_send { self.known.send } else { self.known.sync }
+            // Stage 0 workaround (SL:hazards S4): canonical: let param = self.text(m, self.child(g, 0))
+            let leaf = self.child(g, 0)
+            let param = self.text(m, leaf)
+            var msg = StringBuilder()
+            try! msg.append("`")
+            try! msg.append(name)
+            try! msg.append("` is not a generic bound, so it cannot bound the type parameter `")
+            try! msg.append(param)
+            try! msg.append("`: bound it by the property, `")
+            try! msg.append(param)
+            try! msg.append(": ")
+            try! msg.append(self.res.decl_path(property))
+            try! msg.append("`, which a type declaring `")
+            try! msg.append(name)
+            try! msg.append("` meets through it; the assertion is written only in a conformance header, where it can be audited")
+            self.refuse_in(m, c, "trait.assertion-position", msg.build())
+        }
+    }
+
+    // Trait `d`'s parent `c`, which names assertion `tr`.
+    func refuse_assertion_parent(&var self, d: Int, c: Int, tr: Int) {
+        let info = self.res.decls[d]
+        let name = self.res.decl_path(tr)
+        let property = if tr == self.known.unsafe_send { self.known.send } else { self.known.sync }
+        var msg = StringBuilder()
+        try! msg.append("`")
+        try! msg.append(self.res.decl_path(d))
+        try! msg.append("` lists `")
+        try! msg.append(name)
+        try! msg.append("` as a parent, and the assertion is written only in a conformance header, where it can be audited: list the property, `")
+        try! msg.append(self.res.decl_path(property))
+        try! msg.append("`, as the parent, and declare `")
+        try! msg.append(name)
+        try! msg.append("` on each type that needs it")
+        self.refuse_in(info.module, c, "trait.assertion-position", msg.build())
+    }
+
+    // The assertion trait path `c` names, `UnsafeSend` or `UnsafeSync`, or -1.
+    func assertion_named(&self, c: Int) -> Int {
+        let last = self.child_count(c) - 1
+        let leaf = self.child(c, last)
+        let b = self.binding_at(leaf)
+        if b.kind != ResBindKind.Decl || b.decl < 0 {
+            return -1
+        }
+        if b.decl == self.known.unsafe_send || b.decl == self.known.unsafe_sync {
+            return b.decl
+        }
+        return -1
     }
 }
 

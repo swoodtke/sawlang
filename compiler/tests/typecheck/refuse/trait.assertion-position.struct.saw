@@ -1,0 +1,10 @@
+// refuses: trait.assertion-position at 4:18
+// `UnsafeSync` as a struct's generic bound
+
+struct Holder<T: UnsafeSync> {
+    value: Int
+}
+
+func main() {
+    print("ok")
+}

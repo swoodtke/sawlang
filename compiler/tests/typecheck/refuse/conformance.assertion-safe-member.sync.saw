@@ -1,0 +1,21 @@
+// refuses: conformance.assertion-safe-member at 17:17
+// `UnsafeSync` past a field of a safe type that holds a cell and asserts
+// nothing, so it is not `Sync`
+
+struct Counter {
+    hits: UnsafeMutableInterior<Int>
+}
+
+extension Counter: NoCopy {}
+
+struct Wrap {
+    c: Counter
+}
+
+extension Wrap: NoCopy {}
+
+extension Wrap: UnsafeSync {}
+
+func main() {
+    print("ok")
+}
