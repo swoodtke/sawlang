@@ -1,0 +1,81 @@
+//! Integer arithmetic helpers.
+//!
+//! Methods on `Int`: absolute value, minimum, maximum, clamping, integer
+//! powers, parity and sign. The checks every `Int` operation carries stay on
+//! here, so an overflow panics with `panic at FILE:LINE:` instead of wrapping.
+
+extension Int {
+    /// Returns the absolute value.
+    ///
+    /// Panics on `Int.min`: its magnitude does not fit in an `Int`, so the
+    /// negation overflows.
+    public func abs(&self) -> Int {
+        if self < 0 {
+            -self
+        } else {
+            self
+        }
+    }
+
+    /// Returns the smaller of the receiver and `other`.
+    public func min(&self, other: Int) -> Int {
+        if self < other { self } else { other }
+    }
+
+    /// Returns the larger of the receiver and `other`.
+    public func max(&self, other: Int) -> Int {
+        if self > other { self } else { other }
+    }
+
+    /// Returns the receiver limited to `low...high`.
+    ///
+    /// The result is `low` below the range and `high` above it. `low` must not
+    /// exceed `high`.
+    public func clamp(&self, low: Int, high: Int) -> Int {
+        if self < low {
+            low
+        } else if self > high {
+            high
+        } else {
+            self
+        }
+    }
+
+    /// Returns the receiver raised to the power `exp`.
+    ///
+    /// Panics when `exp` is negative, since there is no integer result, and
+    /// when a multiplication overflows.
+    public func pow(&self, exp: Int) -> Int {
+        if exp < 0 {
+            panic("negative exponent")
+        }
+        var result = 1
+        var e = exp
+        while e > 0 {
+            result = result * self
+            e = e - 1
+        }
+        result
+    }
+
+    /// Returns whether the receiver is divisible by 2.
+    public func is_even(&self) -> Bool {
+        self % 2 == 0
+    }
+
+    /// Returns whether the receiver is not divisible by 2.
+    public func is_odd(&self) -> Bool {
+        self % 2 != 0
+    }
+
+    /// Returns -1 for a negative receiver, 0 for zero and 1 for a positive one.
+    public func signum(&self) -> Int {
+        if self > 0 {
+            1
+        } else if self < 0 {
+            -1
+        } else {
+            0
+        }
+    }
+}

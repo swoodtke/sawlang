@@ -27,7 +27,7 @@ alloc_vector_push_reports_oom.saw	pass	-	-
 alloc_vector_reports_oom.saw	refused	typecheck member.unknown	`std.vector.Vector<Int, alloc_vector_reports_oom.FailAlloc>` has no method `try_copy` this module can see
 any_box_deinit.saw	refused	typecheck slice.not-yet	`Box<any Trait>.make` is not in the bootstrap slice yet
 any_box_iflet_move_out.saw	refused	typecheck slice.not-yet	`Box<any Trait>.make` is not in the bootstrap slice yet
-any_box_slab.saw	refused	resolve import.unknown-module	no module `std.slab`
+any_box_slab.saw	refused	typecheck slice.not-yet	`Box<any Trait>.make` is not in the bootstrap slice yet
 any_ref_dispatch.saw	refused	typecheck slice.not-yet	a method call on `any Trait` is not in the bootstrap slice yet
 any_sync_effect.saw	refused	typecheck slice.not-yet	a method call on `any Trait` is not in the bootstrap slice yet
 any_var_self.saw	refused	typecheck slice.not-yet	a method call on `any Trait` is not in the bootstrap slice yet
@@ -1701,14 +1701,14 @@ init_fallible_result_shapes.saw	refused	llvm backend.not-yet	the constant `N` is
 init_generic_body_isolates_cleanup_state.saw	pass	-	-
 init_generic_param_released.saw	pass	-	-
 init_receiver_return_spellings.saw	refused	llvm backend.not-yet	the constant `N` is not in the backend slice yet
-int_abs_min_panics.saw	refused	typecheck member.unknown	`Int` has no method `abs` this module can see
+int_abs_min_panics.saw	pass	-	-
 int_limits.saw	pass	-	-
 int_literal_out_of_range.saw	pass	-	resolve.parse-refused: the parser refuses `tests/corpus/int_literal_out_of_range.saw` (syntax.lex.int-range), so its declarations are not available
-int_methods.saw	refused	typecheck member.unknown	`Int` has no method `abs` this module can see
+int_methods.saw	pass	-	-
 int_narrowing_transfer_through_platform_int.saw	pass	-	type.mismatch: expected `Int8`, the type of the annotated binding, and found `Int`; only a lossless widening into or out of `Int` or `UInt` is implicit: write `as` to panic out of range, `.from(...)`
 int_parse_to_uint.saw	refused	mono mono.not-yet	a synthesized `Printable.format(into: &var std.stringbuilder.StringBuilder)` on `Bool` is not in the backend slice yet: only a signed integer's `Printable.format`
 int_parse_unsigned_compare.saw	refused	mono mono.not-yet	a synthesized `Printable.format(into: &var std.stringbuilder.StringBuilder)` on `Bool` is not in the backend slice yet: only a signed integer's `Printable.format`
-int_pow_negative_panics.saw	refused	typecheck member.unknown	`Int` has no method `pow` this module can see
+int_pow_negative_panics.saw	pass	-	-
 int_sign_flip_transfer_through_platform_int.saw	pass	-	type.mismatch: expected `Int`, the type of the annotated binding, and found `UInt`; only a lossless widening into or out of `Int` or `UInt` is implicit: write `as` to panic out of range, `.from(...)`
 int_types.saw	refused	mono mono.not-yet	a synthesized `Printable.format(into: &var std.stringbuilder.StringBuilder)` on `UInt` is not in the backend slice yet: only a signed integer's `Printable.format`
 int_widening_argument_positions.saw	refused	llvm backend.not-yet	an array, a repeat, a `Map` or a `Set` literal is not in the backend slice yet
@@ -1744,7 +1744,7 @@ json_value_object_serialize.saw	refused	resolve import.unknown-module	no module 
 json_value_roundtrip.saw	refused	resolve import.unknown-module	no module `std.json`
 json_value_structural_reject.saw	refused	resolve import.unknown-module	no module `std.json`
 json_value_synthesized_deep_copy.saw	refused	resolve import.unknown-module	no module `std.json`
-kernel_slab_idiom.saw	refused	resolve import.unknown-module	no module `std.slab`
+kernel_slab_idiom.saw	refused	typecheck slice.not-yet	a method `Box` forwards to its payload is not in the bootstrap slice yet
 l18_module_qualified_annotation.saw	pass	-	-
 l3_private_struct_bare.saw	refused	resolve name.undefined	cannot find `Secret` in scope
 l3_qualified_still_works.saw	pass	-	-
@@ -2303,7 +2303,7 @@ short_circuit_skipped_operand_temp_cleanup.saw	pass	-	-
 short_circuit_token_field_no_crash.saw	pass	-	-
 signal_concurrency_pins.saw	refused	resolve import.unknown-module	no module `std.directory`
 sizeof_missing_type_arg_error.saw	pass	-	type.arity: `sizeof` and `alignof` take one type argument, as `sizeof<T>()`
-slab_basic.saw	refused	resolve import.unknown-module	no module `std.slab`
+slab_basic.saw	refused	llvm backend.not-yet	a static whose value is not an integer or a Bool is not in the backend slice yet
 sleep_seam_multi_chunk.saw	refused	mono mono.not-yet	a synthesized `Printable.format(into: &var std.stringbuilder.StringBuilder)` on `Bool` is not in the backend slice yet: only a signed integer's `Printable.format`
 slot_all_four_tiers.saw	refused	resolve import.unknown-module	no module `std.compiler.frame`
 slot_optional_payload.saw	refused	resolve import.unknown-module	no module `std.compiler.frame`

@@ -1,0 +1,37 @@
+// The slab over a caller-owned region, with its head as a local:
+// exhaustion returns None, a freed chunk is reused most recently freed first,
+// and chunks sit chunk_size bytes apart.
+import std.slab.{SlabHead, slab_alloc, slab_dealloc}
+
+func ok(p: UnsafePointer<Int8>?) unsafe -> Int {
+    if let _x = p { 1 } else { 0 }
+}
+
+func main() unsafe {
+    let heap = GlobalAllocator()
+    guard let base = heap.alloc(256, 8) else { return }
+    let head = SlabHead(bump: Atomic(0), free: Atomic(0))
+    let a = slab_alloc(base, 4, 64, &head)
+    let b = slab_alloc(base, 4, 64, &head)
+    let c = slab_alloc(base, 4, 64, &head)
+    let d = slab_alloc(base, 4, 64, &head)
+    print("{}", ok(a))
+    print("{}", ok(d))
+    print("{}", ok(slab_alloc(base, 4, 64, &head)))
+    if let p = b {
+        slab_dealloc(p, &head)
+    }
+    let e = slab_alloc(base, 4, 64, &head)
+    print("{}", ok(e))
+    if let pa = a {
+        if let pc = c {
+            print("{}", (pc as Int) - (pa as Int))
+        }
+    }
+    if let pb = b {
+        if let pe = e {
+            print("{}", (pe as Int) - (pb as Int))
+        }
+    }
+    heap.dealloc(base, 256, 8)
+}

@@ -1,0 +1,79 @@
+//! Slab allocation: fixed-size chunks from a byte region the caller owns.
+//!
+//! A slab hands out equal chunks of a contiguous region and takes them back
+//! onto a free list. It needs no libc: the bookkeeping is a `SlabHead` of two
+//! atomics, updated by compare-and-swap loops over raw pointers. Use it where
+//! a `Box` must come from a fixed region, such as a kernel's task table.
+//!
+//! The free list threads each freed chunk's address through that chunk's first
+//! word, so a chunk freed, reallocated and freed again between one thread's
+//! load and swap can reinstate a stale link. Concurrent use across threads is
+//! therefore unsafe; one thread, or one thread at a time, is sound.
+
+/// A slab's bookkeeping: which chunks were handed out and which came back.
+///
+/// Build one with `SlabHead(bump: Atomic(0), free: Atomic(0))`. A head is
+/// `NoCopy`, since a copy would be a second set of bookkeeping over the same
+/// region and would hand one chunk out twice. Keep it where it lives and lend
+/// it as `&` to every slab function.
+public struct SlabHead {
+    /// How many chunks the never-used tail has handed out so far.
+    ///
+    /// It only grows and stops at the chunk count.
+    bump: Atomic<Int>
+    /// The address of the most recently freed chunk, or 0 when none is free.
+    free: Atomic<Int>
+}
+
+extension SlabHead: NoCopy {}
+
+/// Hands out one uninitialized chunk, or `None` when the slab is exhausted.
+///
+/// `region` is the start of the caller's byte region, `chunk_count` the number
+/// of chunks it holds and `chunk_size` the bytes in each. A chunk must be at
+/// least 8 bytes, so a freed chunk can hold the free-list link, and at least as
+/// large as the value placed in it. `head` is the slab's bookkeeping.
+///
+/// A freed chunk is reused before a fresh one is taken, most recently freed
+/// first. The chunk is uninitialized: the caller moves a value into it.
+public func slab_alloc(region: UnsafePointer<Int8>, chunk_count: Int, chunk_size: Int, head: &SlabHead) unsafe -> UnsafePointer<Int8>? {
+    while true {
+        let f = head.free.load()
+        if f == 0 {
+            break
+        }
+        let chunk = f as UnsafePointer<Int8>
+        let link = chunk as UnsafePointer<Int>
+        let next = link[0]
+        if head.free.compare_exchange(f, next) {
+            return chunk
+        }
+    }
+    while true {
+        let b = head.bump.load()
+        if b >= chunk_count {
+            return None
+        }
+        if head.bump.compare_exchange(b, b + 1) {
+            return region + b * chunk_size
+        }
+    }
+    None
+}
+
+/// Returns a chunk to the slab, to be handed out again by `slab_alloc`.
+///
+/// `ptr` must be a chunk `slab_alloc` returned for the same `head`, and its
+/// value must already be dead: the chunk's first word becomes the free-list
+/// link.
+public func slab_dealloc(ptr: UnsafePointer<Int8>, head: &SlabHead) unsafe {
+    let addr = ptr as Int
+    let link = ptr as UnsafePointer<Int>
+    while true {
+        let f = head.free.load()
+        link[0] = f
+        if head.free.compare_exchange(f, addr) {
+            return
+        }
+    }
+}

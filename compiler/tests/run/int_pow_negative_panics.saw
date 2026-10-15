@@ -1,0 +1,5 @@
+// differs: the panic is raised inside std, and each compiler's std is its own file
+// pow with a negative exponent has no integer result and panics.
+func main() {
+    print("{}", (2).pow(-3))
+}

@@ -1,0 +1,18 @@
+// Every Int method of std.numeric, each family once.
+func main() {
+    print("{}", (5).abs())
+    print("{}", (-5).abs())
+    print("{}", (3).min(9))
+    print("{}", (3).max(9))
+    print("{}", (12).clamp(0, 7))
+    print("{}", (-4).clamp(0, 7))
+    print("{}", (8).clamp(8, 20))
+    print("{}", (10).pow(3))
+    print("{}", (7).pow(0))
+    print("{}", if (4).is_even() { 1 } else { 0 })
+    print("{}", if (7).is_odd() { 1 } else { 0 })
+    print("{}", if (7).is_even() { 1 } else { 0 })
+    print("{}", (42).signum())
+    print("{}", (-42).signum())
+    print("{}", (0).signum())
+}

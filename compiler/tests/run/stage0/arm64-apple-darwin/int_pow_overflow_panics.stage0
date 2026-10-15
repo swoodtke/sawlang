@@ -1,0 +1,8 @@
+program	compiler/tests/run/int_pow_overflow_panics.saw
+triple	arm64-apple-darwin
+source	6f24d367e4135181
+build	ok
+exit	-6
+stdout	"4611686018427387904"
+stdout	"panic at numeric.saw:64: integer overflow"
+stdout	""

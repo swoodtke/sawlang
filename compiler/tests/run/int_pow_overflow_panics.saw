@@ -1,0 +1,6 @@
+// differs: the panic is raised inside std, and each compiler's std is its own file
+// pow past Int's range overflows its checked multiply and panics.
+func main() {
+    print("{}", (2).pow(62))
+    print("{}", (2).pow(64))
+}

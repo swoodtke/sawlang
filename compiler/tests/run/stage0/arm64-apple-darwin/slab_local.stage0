@@ -1,0 +1,12 @@
+program	compiler/tests/run/slab_local.saw
+triple	arm64-apple-darwin
+source	0c96d2113d41df85
+build	ok
+exit	0
+stdout	"1"
+stdout	"1"
+stdout	"0"
+stdout	"1"
+stdout	"128"
+stdout	"0"
+stdout	""

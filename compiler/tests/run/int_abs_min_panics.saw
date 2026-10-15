@@ -1,0 +1,6 @@
+// differs: the panic is raised inside std, and each compiler's std is its own file
+// abs on Int.min overflows its negation and panics.
+func main() {
+    let mn = -9223372036854775807 - 1
+    print("{}", mn.abs())
+}
