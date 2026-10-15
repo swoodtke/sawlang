@@ -11,7 +11,7 @@ import sawresolve.model.{ResBindKind, ResBinding, ResDecl, ResDeclKind, ResModul
 import sawtypecheck.adjust.{TC_FIT_EXACT}
 import sawtypecheck.candidates.{tc_contains}
 import sawtypecheck.checks.{tc_check_unsafe}
-import sawtypecheck.conform.{TcSubst, tc_args_subst}
+import sawtypecheck.conform.{TcSubst}
 import sawtypecheck.fold.{TcFold}
 import sawtypecheck.model.{TC_EFFECT_BORROWS, TC_EFFECT_BORROWS_SYNC, TC_EFFECT_UNSAFE,
                                TC_FLAG_BORROWS_STRUCT, TC_FLAG_UNSAFE_VAR, TcAdjust, TcAdjustKind,
@@ -19,11 +19,12 @@ import sawtypecheck.model.{TC_EFFECT_BORROWS, TC_EFFECT_BORROWS_SYNC, TC_EFFECT_
 import sawtypecheck.program.{TcProgram}
 import sawtypecheck.signatures.{TcContext}
 import sawtypecheck.spell.{tc_effects_text}
-import sawtypecheck.summaries.{tc_acc}
-import sawtypecheck.tier.{tc_tier}
+import sawtypecheck.summaries.{TcAcc}
+// For the extension writing `satisfies`.
+import sawtypecheck.tier.{tc_max}
 import sawtypecheck.typeops.{TcClient}
 import sawtypecheck.types.{TcKind, TcType}
-import sawtypecheck.walks.{TC_INSTANTIATION_DEPTH, TcMemo, tc_memo, tc_memo_empty}
+import sawtypecheck.walks.{TC_INSTANTIATION_DEPTH, TcMemo, tc_memo}
 
 // Runs every check of this file.
 public func tc_check_body_rules(p: &var TcProgram) {
@@ -45,7 +46,7 @@ extension TcProgram {
     // argument, an element, a payload, a reference or a function type; -1
     // for none.
     public func borrowing_named(&self, t: Int) -> Int {
-        var seen = tc_memo_empty()
+        var seen = TcMemo.empty()
         self.borrowing_named_in(t, &var seen)
     }
 
@@ -418,7 +419,7 @@ extension TcProgram {
             return ""
         }
         let arguments = self.nominal_args(t)
-        let subst = tc_args_subst(d, move arguments)
+        let subst = TcSubst(owner: d, args: move arguments)
         let members = self.members_of(d)
         var k = 0
         while k < members.len() {
@@ -766,7 +767,7 @@ extension TcProgram {
                 continue
             }
             if self.call_at[id] >= 0 {
-                var acc = tc_acc(d, -1)
+                var acc = TcAcc(owner: d, unit: -1)
                 self.eval_call(id, &var acc)
                 if acc.suspends || acc.suspend_atoms.len() > 0 {
                     var msg = StringBuilder()

@@ -212,8 +212,10 @@ public func borrowck_join(dst: &var Vector<Int>, base: Int, src: &Vector<Int>) -
     changed
 }
 
-public func borrowck_no_path() -> BorrowckPath {
-    BorrowckPath(local: -1, static_decl: -1, first: 0, count: -1)
+extension BorrowckPath {
+    public static func none() -> BorrowckPath {
+        BorrowckPath(local: -1, static_decl: -1, first: 0, count: -1)
+    }
 }
 
 extension BorrowckLoans {
@@ -460,7 +462,7 @@ extension BorrowckProgram {
         let info = self.mir.funcs[f]
         var w = 0
         while w < info.window_count {
-            try! facts.window_path.push(borrowck_no_path())
+            try! facts.window_path.push(BorrowckPath.none())
             w = w + 1
         }
         var b = 0
@@ -656,7 +658,7 @@ extension BorrowckProgram {
         if p.local >= 0 {
             local = self.record_counterpart(f, pro, p.local)
             if local < 0 {
-                return borrowck_no_path()
+                return BorrowckPath.none()
             }
         }
         let first = facts.projs.len()
@@ -1423,7 +1425,7 @@ extension BorrowckProgram {
     func trace_once(&self, f: Int, p: &BorrowckPath, facts: &var BorrowckLoans) -> BorrowckPath {
         let l = p.local
         if l < 0 || p.count < 1 || facts.def_count[l] != 1 {
-            return borrowck_no_path()
+            return BorrowckPath.none()
         }
         let first = facts.projs[p.first]
         let s = facts.def_stmt[l]
@@ -1432,39 +1434,39 @@ extension BorrowckProgram {
             // optional one reached through its payload.
             let c = self.mir.calls[self.mir.blocks[self.mir.funcs[f].block_first + facts.def_block[l]].call]
             if c.kind != MirCallKind.WindowOpen || c.window < 0 {
-                return borrowck_no_path()
+                return BorrowckPath.none()
             }
             var through = first.kind == MirProjKind.Deref
             if p.count > 1 && first.kind != MirProjKind.Field && facts.projs[p.first + 1].kind == MirProjKind.Deref {
                 through = true
             }
             if not through {
-                return borrowck_no_path()
+                return BorrowckPath.none()
             }
             return facts.window_path[c.window]
         }
         if first.kind != MirProjKind.Deref {
-            return borrowck_no_path()
+            return BorrowckPath.none()
         }
         let stmt = self.mir.stmts[s]
         // A local the epilogue restores is the binding the source names.
         if stmt.rvalue < 0 || self.restores_record(f, s) {
-            return borrowck_no_path()
+            return BorrowckPath.none()
         }
         let rv = self.mir.rvalues[stmt.rvalue]
-        var base = borrowck_no_path()
+        var base = BorrowckPath.none()
         if rv.kind == MirRvalueKind.Ref && rv.place >= 0 {
             base = self.path_of(rv.place, &var facts)
         } else if rv.kind == MirRvalueKind.Use && rv.count == 1 {
             let o = self.mir.operands[self.mir.lists[rv.first]]
             if o.kind == MirOperandKind.Const || o.place < 0 {
-                return borrowck_no_path()
+                return BorrowckPath.none()
             }
             let src = self.path_of(o.place, &var facts)
             let step = MirProj(kind: MirProjKind.Deref, decl: -1, index: -1, ty: first.ty)
             base = self.path_then(&src, step, &var facts)
         } else {
-            return borrowck_no_path()
+            return BorrowckPath.none()
         }
         let start = facts.projs.len()
         var k = 0

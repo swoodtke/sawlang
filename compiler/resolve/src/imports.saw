@@ -13,7 +13,7 @@ import sawresolve.model.{ResBindKind, ResBinding, ResDecl, ResDeclKind, ResExpor
 import sawresolve.loader.{res_after_first_segment, res_base_name, res_dir_of,
                               res_dots_to_slashes, res_first_segment, res_is_within, res_join,
                               res_read_file}
-import sawresolve.names.{res_index}
+import sawresolve.names.{ResIndex}
 import sawresolve.program.{ResProgram}
 
 // Where a bare import path's file is: in the importing file's directory, else
@@ -135,7 +135,7 @@ extension ResProgram {
     // pushed, so the walk terminates over a refused cycle.
     func compute_closures(&var self) {
         let n = self.modules.len()
-        var edges = res_index()
+        var edges = ResIndex()
         var i = 0
         while i < self.imports.len() {
             let imp = self.imports[i]

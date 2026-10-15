@@ -5,12 +5,12 @@
 // unsolved parameter is never recorded.
 
 import sawtypecheck.adjust.{TC_FIT_NONE}
-import sawtypecheck.conform.{TcSubst, tc_args_subst, tc_copy_ints}
+import sawtypecheck.conform.{TcSubst, tc_copy_ints}
 import sawtypecheck.program.{TcProgram}
 import sawtypecheck.signatures.{TcContext}
 import sawtypecheck.typeops.{TcClient}
 import sawtypecheck.types.{TC_HOLDS_PARAM, TcKind, TcType, tc_kind_wraps}
-import sawtypecheck.walks.{TcMemo, tc_memo_empty}
+import sawtypecheck.walks.{TcMemo}
 
 // The solutions for the type parameters of `owner`: -1 where unsolved. The
 // first conflict found is kept for its message.
@@ -40,7 +40,7 @@ extension TcProgram {
     // unknowns, with argument type `a`. False when the two cannot agree; a
     // later conversion check reports why.
     public func unify(&var self, p: Int, a: Int, s: &var TcSolve) -> Bool {
-        var pairs = tc_memo_empty()
+        var pairs = TcMemo.empty()
         self.unify_in(p, a, &var s, &var pairs)
     }
 
@@ -139,7 +139,7 @@ extension TcProgram {
 
     // Whether `t` mentions a parameter of `s.owner` that is not solved yet.
     public func mentions_unsolved(&self, t: Int, s: &TcSolve) -> Bool {
-        var seen = tc_memo_empty()
+        var seen = TcMemo.empty()
         self.unsolved_in(t, &s, &var seen)
     }
 
@@ -202,6 +202,6 @@ extension TcProgram {
             }
             k = k + 1
         }
-        tc_args_subst(s.owner, move args)
+        TcSubst(owner: s.owner, args: move args)
     }
 }

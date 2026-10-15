@@ -83,10 +83,12 @@ public struct TcSig {
     lending_exclusive: Bool
 }
 
-public func tc_blank_sig() -> TcSig {
-    TcSig(state: 0, generic_first: 0, generic_count: 0, param_first: 0, param_count: 0,
-          trait_first: 0, trait_count: 0, receiver: TcReceiver.Absent, result: -1, effects: 0,
-          flags: 0, lending: TcLend.NotBorrows, lending_exclusive: false)
+extension TcSig {
+    public static func blank() -> TcSig {
+        TcSig(state: 0, generic_first: 0, generic_count: 0, param_first: 0, param_count: 0,
+              trait_first: 0, trait_count: 0, receiver: TcReceiver.Absent, result: -1, effects: 0,
+              flags: 0, lending: TcLend.NotBorrows, lending_exclusive: false)
+    }
 }
 
 // One generic parameter: its bounds are traits, its default a type (or a
@@ -432,10 +434,12 @@ public struct TcSummary {
     forbid_count: Int
 }
 
-public func tc_blank_summary() -> TcSummary {
-    TcSummary(state: TC_SUMMARY_NONE, suspends: false, suspend_first: 0, suspend_count: 0, nonsync: false,
-              nonsync_first: 0, nonsync_count: 0, copy_first: 0, copy_count: 0, forbid_first: 0,
-              forbid_count: 0)
+extension TcSummary {
+    public static func blank() -> TcSummary {
+        TcSummary(state: TC_SUMMARY_NONE, suspends: false, suspend_first: 0, suspend_count: 0, nonsync: false,
+                  nonsync_first: 0, nonsync_count: 0, copy_first: 0, copy_count: 0, forbid_first: 0,
+                  forbid_count: 0)
+    }
 }
 
 // A body's unit: a declaration's body, or a closure in it. `top` is the unit

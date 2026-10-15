@@ -18,12 +18,12 @@ import sawtypecheck.adjust.{TC_FIT_EXACT}
 import sawtypecheck.arith.{tc_arith_text}
 import sawtypecheck.bodies.{TcCand, TcCandKind}
 import sawtypecheck.candidates.{tc_contains}
-import sawtypecheck.conform.{TcSubst, tc_args_subst}
+import sawtypecheck.conform.{TcSubst}
 import sawtypecheck.fold.{TcPatternKind, TcPatternValue, TcSameTest, tc_same_values}
 import sawtypecheck.program.{TcProgram}
 import sawtypecheck.signatures.{TcContext}
 import sawtypecheck.spell.{tc_effects_text}
-import sawtypecheck.summaries.{tc_acc}
+import sawtypecheck.summaries.{TcAcc}
 import sawtypecheck.tier.{tc_bit}
 import sawtypecheck.typeops.{TcClient}
 import sawtypecheck.types.{TcKind, TcType}
@@ -509,7 +509,7 @@ extension TcProgram {
         let count = self.cand_param_count(cand)
         let d = self.res.decls[c].parent
         let args = self.nominal_args(t)
-        let sub = tc_args_subst(d, move args)
+        let sub = TcSubst(owner: d, args: move args)
         var k = 0
         while k < count {
             let raw = self.cand_param_type(cand, k)

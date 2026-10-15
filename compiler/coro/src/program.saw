@@ -71,7 +71,7 @@ public func coro_program(mono: MonoProgram) -> CoroProgram {
                 lowered: Vector<Bool>(), unlowered: Vector<CoroUnlowered>(), resume_of: Vector<Int>(),
                 resumes: Vector<CoroResume>(), points: Vector<CoroPoint>(), resident: Vector<Bool>(),
                 spawns: Vector<CoroSpawn>(), drives: Vector<CoroDriveSite>(), diags: Vector<MirDiag>(),
-                problems: Vector<String>(), before: coro_no_before())
+                problems: Vector<String>(), before: CoroBefore.empty())
 }
 
 // The verifier's record of the bodies the lowering may rewrite, taken just
@@ -99,10 +99,12 @@ public struct CoroBefore {
 
 extension CoroBefore: NoCopy {}
 
-public func coro_no_before() -> CoroBefore {
-    CoroBefore(bodies: Vector<CoroBeforeBody>(), place_ids: Vector<Int>(), places: Vector<MirPlace>(),
-               call_ids: Vector<Int>(), calls: Vector<MirCall>(), drops: Vector<Int>(), drop_blocks: Vector<Int>(),
-               points: Vector<CoroBeforePoint>(), conditions: Vector<Int>())
+extension CoroBefore {
+    public static func empty() -> CoroBefore {
+        CoroBefore(bodies: Vector<CoroBeforeBody>(), place_ids: Vector<Int>(), places: Vector<MirPlace>(),
+                   call_ids: Vector<Int>(), calls: Vector<MirCall>(), drops: Vector<Int>(), drop_blocks: Vector<Int>(),
+                   points: Vector<CoroBeforePoint>(), conditions: Vector<Int>())
+    }
 }
 
 // One body the verifier checks: its item, its MIR function, whether it is a

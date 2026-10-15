@@ -50,12 +50,12 @@ import sawresolve.program.{ResProgram}
 // For the extension writing `casts_backing`.
 import sawtypecheck.bodies.{tc_check_bodies}
 import sawtypecheck.bodydump.{tc_dump_bodies}
-import sawtypecheck.conform.{TcSubst, tc_args_subst}
+import sawtypecheck.conform.{TcSubst}
 import sawtypecheck.model.{TC_EFFECT_BORROWS, TC_EFFECT_CONSUMES, TcLend, TcReceiver}
 import sawtypecheck.program.{TcProgram}
 import sawtypecheck.signatures.{TcContext}
 import sawtypecheck.spell.{tc_effects_text}
-import sawtypecheck.summaries.{TcAcc, tc_acc}
+import sawtypecheck.summaries.{TcAcc}
 import sawtypecheck.typeops.{TcClient}
 import sawtypecheck.types.{TcKind}
 
@@ -1243,7 +1243,7 @@ extension MirProgram {
             try! args.push(self.types[c.inst_first + k])
             k = k + 1
         }
-        let own = tc_args_subst(c.target, move args)
+        let own = TcSubst(owner: c.target, args: move args)
         let first = self.tc.subst(t, &own)
         if c.owner < 0 {
             return first
@@ -1430,7 +1430,7 @@ extension MirProgram {
             return
         }
         let owner = self.funcs[f].owner
-        var acc = tc_acc(owner, -1)
+        var acc = TcAcc(owner: owner, unit: -1)
         let node = c.node
         self.call_effect(node, &c, &var acc)
         var want = MirSuspend.Never

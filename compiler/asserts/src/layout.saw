@@ -5,7 +5,7 @@
 // typecheck ends, in every mode; mono checks one over a type parameter per
 // instantiation (`mono_check_layout_asserts`).
 
-import sawtarget.layout.{Target, target_named}
+import sawtarget.layout.{Target}
 import sawtypecheck.api.{typecheck_program}
 import sawtypecheck.bodies.{tc_check_bodies}
 import sawtypecheck.checks.{tc_check_atomic_widths}
@@ -32,7 +32,7 @@ public func asserts_typecheck_program(path: String, std_root: String, names: &Ve
 func asserts_check_concrete(p: &var TcProgram) {
     // Every target sawc2 describes is LP64 with natural alignment, so one
     // answers for all of them.
-    var target = target_named("arm64-apple-darwin")
+    var target = Target(triple: "arm64-apple-darwin")
     var k = 0
     while k < p.layout_asserts.len() {
         if not p.layout_assert_generic[k] {

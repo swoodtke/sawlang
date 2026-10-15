@@ -29,9 +29,11 @@ func res_buckets(count: Int) -> Vector<Int> {
     move heads
 }
 
-public func res_names() -> ResNames {
-    ResNames(texts: Vector<String>(), hashes: Vector<Int>(), next: Vector<Int>(),
-             heads: res_buckets(RES_NAME_BUCKETS))
+extension ResNames {
+    public init() -> ResNames {
+        ResNames(texts: Vector<String>(), hashes: Vector<Int>(), next: Vector<Int>(),
+                 heads: res_buckets(RES_NAME_BUCKETS))
+    }
 }
 
 // FNV-1a over the bytes, kept to 32 bits so no product overflows an `Int`.
@@ -105,9 +107,11 @@ public struct ResIndex {
 
 extension ResIndex: NoCopy {}
 
-public func res_index() -> ResIndex {
-    ResIndex(heads: res_buckets(RES_INDEX_BUCKETS), key_a: Vector<Int>(), key_b: Vector<Int>(),
-             values: Vector<Int>(), next: Vector<Int>())
+extension ResIndex {
+    public init() -> ResIndex {
+        ResIndex(heads: res_buckets(RES_INDEX_BUCKETS), key_a: Vector<Int>(), key_b: Vector<Int>(),
+                 values: Vector<Int>(), next: Vector<Int>())
+    }
 }
 
 func res_pair_bucket(a: Int, b: Int) -> Int {

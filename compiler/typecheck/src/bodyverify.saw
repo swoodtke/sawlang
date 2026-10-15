@@ -29,7 +29,7 @@ import sawtypecheck.signatures.{TcContext}
 import sawtypecheck.strings.{TcStringPosition}
 import sawtypecheck.typeops.{TcClient}
 import sawtypecheck.types.{TC_HOLDS_PARAM, TcKind, TcType, tc_kind_wraps}
-import sawtypecheck.walks.{TcMemo, tc_memo_empty}
+import sawtypecheck.walks.{TcMemo}
 
 // Every problem the body verifier finds in module `m`, one line each.
 public func tc_verify_bodies(p: &TcProgram, m: Int) -> Vector<String> {
@@ -634,7 +634,7 @@ extension TcProgram {
     // Whether `t` names a type parameter a body of declaration `d` cannot
     // see.
     func mentions_unseen_param(&self, t: Int, d: Int) -> Bool {
-        var seen = tc_memo_empty()
+        var seen = TcMemo.empty()
         self.unseen_param_in(t, d, &var seen)
     }
 

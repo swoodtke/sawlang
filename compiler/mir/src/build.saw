@@ -14,12 +14,12 @@ import sawresolve.dump.{res_sort_strings}
 import sawresolve.model.{ResDeclKind}
 import sawresolve.program.{ResProgram}
 import sawtypecheck.checks.{tc_check_unsafe}
-import sawtypecheck.conform.{tc_args_subst}
+import sawtypecheck.conform.{TcSubst}
 import sawtypecheck.model.{TcSource, TcUse}
 import sawtypecheck.program.{TcProgram}
 import sawtypecheck.signatures.{TcContext}
 import sawtypecheck.spell.{tc_effects_text}
-import sawtypecheck.summaries.{TcAcc, tc_acc}
+import sawtypecheck.summaries.{TcAcc}
 import sawtypecheck.tier.{tc_compute_tiers}
 import sawtypecheck.typeops.{TcClient}
 import sawtypecheck.types.{TcKind, TcType}
@@ -103,7 +103,7 @@ extension MirProgram {
     // at `t`'s arguments.
     public func struct_fields(&var self, t: Int, fields: &var Vector<Int>, types: &var Vector<Int>) {
         let d = self.tc.nominal_decl(t)
-        let sub = tc_args_subst(d, self.tc.nominal_args(t))
+        let sub = TcSubst(owner: d, args: self.tc.nominal_args(t))
         let members = self.tc.members_of(d)
         var k = 0
         while k < members.len() {
@@ -918,7 +918,7 @@ extension MirProgram {
             return
         }
         let owner = self.funcs[self.cur].owner
-        var acc = tc_acc(owner, -1)
+        var acc = TcAcc(owner: owner, unit: -1)
         self.call_effect(e, &c, &var acc)
         if acc.suspends {
             c.suspend = MirSuspend.Always

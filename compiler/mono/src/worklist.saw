@@ -28,7 +28,7 @@ import sawtypecheck.typeops.{TcClient}
 import sawresolve.lang.{ResLang}
 import sawresolve.model.{ResDeclKind, ResModuleKind}
 import sawresolve.program.{ResProgram}
-import sawtypecheck.conform.{tc_args_subst}
+import sawtypecheck.conform.{TcSubst}
 import sawtypecheck.model.{TC_FLAG_DEFAULT_BODY, TcStatusKind}
 import sawtypecheck.program.{TcProgram}
 import sawtypecheck.tier.{tc_compute_tiers}
@@ -320,7 +320,7 @@ extension MonoProgram {
                 try! args.push(self.item_types[it.args_first + j])
                 j = j + 1
             }
-            var s = tc_args_subst(it.type_decl, move args)
+            var s = TcSubst(owner: it.type_decl, args: move args)
             s.self_type = it.self_type
             out = self.dp.bc.mir.tc.subst(out, &s)
         }
@@ -331,7 +331,7 @@ extension MonoProgram {
                 try! inst.push(self.item_types[it.inst_first + j])
                 j = j + 1
             }
-            let s = tc_args_subst(it.func_decl, move inst)
+            let s = TcSubst(owner: it.func_decl, args: move inst)
             out = self.dp.bc.mir.tc.subst(out, &s)
         }
         self.refuse_narrow_atomics(k, out)

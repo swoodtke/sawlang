@@ -8,7 +8,7 @@ import sawborrowck.program.{BorrowckProgram}
 import sawdrops.program.{DropsProgram}
 import sawllvm.module.{LlEmitter, ll_is_scalar, ll_symbol, ll_value_type}
 import sawllvm.places.{ll_local_slot}
-import sawllvm.prims.{LL_MESSAGE_LIMIT, LL_PART_RUN, LlParts, ll_parts, ll_parts_push}
+import sawllvm.prims.{LL_MESSAGE_LIMIT, LL_PART_RUN, LlParts, ll_parts_push}
 import sawmir.build.{mir_func_local}
 import sawmir.model.{MirOperandKind, MirRvalue}
 import sawmir.program.{MirProgram}
@@ -212,7 +212,7 @@ extension LlEmitter {
         let error = mono.dp.bc.mir.tc.types.arg(t, 1)
         let off = target.payload_offset(&var mono.dp.bc.mir.tc, t, err_decl, 0)
         let payload = self.offset_addr(at, off)
-        var parts = ll_parts()
+        var parts = LlParts()
         self.render_fixed(&var mono, &var target, payload, error, node, &var parts)
         var lead = StringBuilder()
         try! lead.append(what)

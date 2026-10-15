@@ -11,7 +11,7 @@
 
 import sawresolve.model.{ResDeclKind}
 import sawresolve.program.{ResProgram}
-import sawtypecheck.conform.{tc_args_subst}
+import sawtypecheck.conform.{TcSubst}
 import sawtypecheck.program.{TcProgram}
 import sawtypecheck.spell.{tc_effects_text}
 import sawtypecheck.typeops.{TcClient}
@@ -148,10 +148,12 @@ public func target_clang_triple(triple: String) -> String {
 
 // The description of `triple`, which `target_known` must answer for: every
 // triple it knows is LP64.
-public func target_named(triple: String) -> Target {
-    Target(triple: triple, word: 8, layouts: Vector<TargetLayout>(), states: Vector<Int>(), offsets: Vector<Int>(),
-           cases: Vector<TargetCase>(), reasons: Vector<String>(), case_values: Vector<Int>(),
-           case_valued: Vector<Bool>())
+extension Target {
+    public init(triple: String) -> Target {
+        Target(triple: triple, word: 8, layouts: Vector<TargetLayout>(), states: Vector<Int>(),
+               offsets: Vector<Int>(), cases: Vector<TargetCase>(), reasons: Vector<String>(),
+               case_values: Vector<Int>(), case_valued: Vector<Bool>())
+    }
 }
 
 func target_align_up(n: Int, align: Int) -> Int {
@@ -165,14 +167,16 @@ func target_align_up(n: Int, align: Int) -> Int {
     n + align - rem
 }
 
-func target_blank(kind: TargetKind) -> TargetLayout {
-    TargetLayout(size: 0, align: 1, kind: kind, bits: 0, shape: TargetShape.Scalar, tag_bytes: 0, first: 0,
-                 count: 0, element: -1, length: 0, reason: -1)
-}
+extension TargetLayout {
+    static func blank(kind: TargetKind) -> TargetLayout {
+        TargetLayout(size: 0, align: 1, kind: kind, bits: 0, shape: TargetShape.Scalar, tag_bytes: 0, first: 0,
+                     count: 0, element: -1, length: 0, reason: -1)
+    }
 
-func target_scalar(kind: TargetKind, bytes: Int) -> TargetLayout {
-    TargetLayout(size: bytes, align: bytes, kind: kind, bits: bytes * 8, shape: TargetShape.Scalar, tag_bytes: 0,
-                 first: 0, count: 0, element: -1, length: 0, reason: -1)
+    init(kind: TargetKind, bytes: Int) -> TargetLayout {
+        TargetLayout(size: bytes, align: bytes, kind: kind, bits: bytes * 8, shape: TargetShape.Scalar,
+                     tag_bytes: 0, first: 0, count: 0, element: -1, length: 0, reason: -1)
+    }
 }
 
 extension Target {
@@ -192,7 +196,7 @@ extension Target {
         }
         while self.states.len() <= t {
             try! self.states.push(0)
-            try! self.layouts.push(target_blank(TargetKind.Zero))
+            try! self.layouts.push(TargetLayout.blank(TargetKind.Zero))
         }
         let state = self.states[t]
         if state == 2 {
@@ -217,7 +221,7 @@ extension Target {
     }
 
     func unsupported(&var self, why: String) -> TargetLayout {
-        var l = target_blank(TargetKind.Unsupported)
+        var l = TargetLayout.blank(TargetKind.Unsupported)
         l.reason = self.reasons.len()
         try! self.reasons.push(why)
         l
@@ -227,7 +231,7 @@ extension Target {
         let info = tc.types.ty(t)
         match info.kind {
             case Nominal -> self.nominal(&var tc, t),
-            case Ref -> target_scalar(TargetKind.Pointer, self.word),
+            case Ref -> TargetLayout(kind: TargetKind.Pointer, bytes: self.word),
             case Tuple -> {
                 var members = Vector<Int>()
                 var k = 0
@@ -238,7 +242,7 @@ extension Target {
                 self.record(&var tc, &members)
             },
             case Slice -> {
-                var l = target_blank(TargetKind.Memory)
+                var l = TargetLayout.blank(TargetKind.Memory)
                 l.shape = TargetShape.Record
                 l.size = 2 * self.word
                 l.align = self.word
@@ -251,7 +255,7 @@ extension Target {
                 l
             },
             case Func -> {
-                var l = target_blank(TargetKind.Memory)
+                var l = TargetLayout.blank(TargetKind.Memory)
                 l.shape = TargetShape.Closure
                 l.size = 2 * self.word
                 l.align = self.word
@@ -268,7 +272,7 @@ extension Target {
                 if lt.kind != TcKind.ConstInt {
                     return self.unsupported("an array whose length is not a folded constant")
                 }
-                var l = target_blank(TargetKind.Memory)
+                var l = TargetLayout.blank(TargetKind.Memory)
                 l.shape = TargetShape.Array
                 l.size = el.size * lt.a
                 l.align = el.align
@@ -285,28 +289,28 @@ extension Target {
         let d = info.decl
         let k = tc.known
         if d == k.int8 || d == k.uint8 || d == k.bool_type {
-            return target_scalar(TargetKind.Int, 1)
+            return TargetLayout(kind: TargetKind.Int, bytes: 1)
         }
         if d == k.int16 || d == k.uint16 {
-            return target_scalar(TargetKind.Int, 2)
+            return TargetLayout(kind: TargetKind.Int, bytes: 2)
         }
         if d == k.int32 || d == k.uint32 {
-            return target_scalar(TargetKind.Int, 4)
+            return TargetLayout(kind: TargetKind.Int, bytes: 4)
         }
         if d == k.int64 || d == k.uint64 {
-            return target_scalar(TargetKind.Int, 8)
+            return TargetLayout(kind: TargetKind.Int, bytes: 8)
         }
         if d == k.int || d == k.uint {
-            return target_scalar(TargetKind.Int, self.word)
+            return TargetLayout(kind: TargetKind.Int, bytes: self.word)
         }
         if d == k.float {
-            return target_scalar(TargetKind.Float, 8)
+            return TargetLayout(kind: TargetKind.Float, bytes: 8)
         }
         if d == k.void_type || d == k.never {
-            return target_blank(TargetKind.Zero)
+            return TargetLayout.blank(TargetKind.Zero)
         }
         if d == k.unsafe_pointer || d == k.unsafe_const_pointer || d == k.func_pointer {
-            return target_scalar(TargetKind.Pointer, self.word)
+            return TargetLayout(kind: TargetKind.Pointer, bytes: self.word)
         }
         if d == k.optional {
             return self.flagged(&var tc, t)
@@ -352,7 +356,7 @@ extension Target {
             }
             k = k + 1
         }
-        var l = target_blank(TargetKind.Memory)
+        var l = TargetLayout.blank(TargetKind.Memory)
         l.shape = TargetShape.Record
         l.align = align
         l.size = target_align_up(at, align)
@@ -501,7 +505,7 @@ extension Target {
         if payload_align > align {
             align = payload_align
         }
-        var l = target_blank(TargetKind.Memory)
+        var l = TargetLayout.blank(TargetKind.Memory)
         l.shape = TargetShape.Enum
         l.tag_bytes = tag
         l.align = align
@@ -745,6 +749,6 @@ public func target_member_type(tc: &var TcProgram, t: Int, written: Int) -> Int 
         try! args.push(tc.types.arg(t, k))
         k = k + 1
     }
-    let s = tc_args_subst(info.decl, move args)
+    let s = TcSubst(owner: info.decl, args: move args)
     tc.subst(written, &s)
 }

@@ -168,70 +168,72 @@ public func res_is_park_point(p: &ResProgram, d: Int) -> Bool {
     false
 }
 
-func res_lang_type(index: Int, name: String) -> ResLangRow {
-    ResLangRow(index: index, name: name, home: "std.prelude", builtin_home: "builtin",
-               builtin_name: name)
-}
+extension ResLangRow {
+    static func type(index: Int, name: String) -> ResLangRow {
+        ResLangRow(index: index, name: name, home: "std.prelude", builtin_home: "builtin",
+                   builtin_name: name)
+    }
 
-// A function role of `std.string` that Stage 0's compiler synthesizes.
-func res_lang_string_function(index: Int, name: String) -> ResLangRow {
-    ResLangRow(index: index, name: name, home: "std.string", builtin_home: "builtin",
-               builtin_name: "")
-}
+    // A function role of `std.string` that Stage 0's compiler synthesizes.
+    static func string_function(index: Int, name: String) -> ResLangRow {
+        ResLangRow(index: index, name: name, home: "std.string", builtin_home: "builtin",
+                   builtin_name: "")
+    }
 
-// A function role of `std.task`. Stage 0's compiler synthesizes its park
-// points as intrinsics no declaration has.
-func res_lang_task_function(index: Int, name: String) -> ResLangRow {
-    ResLangRow(index: index, name: name, home: "std.task", builtin_home: "builtin",
-               builtin_name: "")
+    // A function role of `std.task`. Stage 0's compiler synthesizes its park
+    // points as intrinsics no declaration has.
+    static func task_function(index: Int, name: String) -> ResLangRow {
+        ResLangRow(index: index, name: name, home: "std.task", builtin_home: "builtin",
+                   builtin_name: "")
+    }
 }
 
 public func res_lang_row(role: ResLang) -> ResLangRow {
     match role {
-        case OptionalEnum -> res_lang_type(0, "Optional"),
-        case ResultEnum -> res_lang_type(1, "Result"),
-        case OrderingEnum -> res_lang_type(2, "Ordering"),
-        case CopyTrait -> res_lang_type(3, "Copy"),
-        case ExplicitCopyTrait -> res_lang_type(4, "ExplicitCopy"),
-        case NoCopyTrait -> res_lang_type(5, "NoCopy"),
-        case NoMoveTrait -> res_lang_type(6, "NoMove"),
-        case DeinitTrait -> res_lang_type(7, "Deinit"),
-        case EquatableTrait -> res_lang_type(8, "Equatable"),
-        case ComparableTrait -> res_lang_type(9, "Comparable"),
-        case HashableTrait -> res_lang_type(10, "Hashable"),
-        case HasherStruct -> res_lang_type(11, "Hasher"),
-        case PrintableTrait -> res_lang_type(12, "Printable"),
-        case ErrorTrait -> res_lang_type(13, "Error"),
-        case SendTrait -> res_lang_type(14, "Send"),
-        case SyncTrait -> res_lang_type(15, "Sync"),
-        case UnsafeSendTrait -> res_lang_type(16, "UnsafeSend"),
-        case UnsafeSyncTrait -> res_lang_type(17, "UnsafeSync"),
-        case IteratorTrait -> res_lang_type(18, "Iterator"),
-        case RangeStruct -> res_lang_type(19, "Range"),
-        case RangeInclusiveStruct -> res_lang_type(20, "RangeInclusive"),
+        case OptionalEnum -> ResLangRow.type(0, "Optional"),
+        case ResultEnum -> ResLangRow.type(1, "Result"),
+        case OrderingEnum -> ResLangRow.type(2, "Ordering"),
+        case CopyTrait -> ResLangRow.type(3, "Copy"),
+        case ExplicitCopyTrait -> ResLangRow.type(4, "ExplicitCopy"),
+        case NoCopyTrait -> ResLangRow.type(5, "NoCopy"),
+        case NoMoveTrait -> ResLangRow.type(6, "NoMove"),
+        case DeinitTrait -> ResLangRow.type(7, "Deinit"),
+        case EquatableTrait -> ResLangRow.type(8, "Equatable"),
+        case ComparableTrait -> ResLangRow.type(9, "Comparable"),
+        case HashableTrait -> ResLangRow.type(10, "Hashable"),
+        case HasherStruct -> ResLangRow.type(11, "Hasher"),
+        case PrintableTrait -> ResLangRow.type(12, "Printable"),
+        case ErrorTrait -> ResLangRow.type(13, "Error"),
+        case SendTrait -> ResLangRow.type(14, "Send"),
+        case SyncTrait -> ResLangRow.type(15, "Sync"),
+        case UnsafeSendTrait -> ResLangRow.type(16, "UnsafeSend"),
+        case UnsafeSyncTrait -> ResLangRow.type(17, "UnsafeSync"),
+        case IteratorTrait -> ResLangRow.type(18, "Iterator"),
+        case RangeStruct -> ResLangRow.type(19, "Range"),
+        case RangeInclusiveStruct -> ResLangRow.type(20, "RangeInclusive"),
         case PanicSinkFunction -> ResLangRow(index: 21, name: "panic_sink", home: "std.panic",
                                              builtin_home: "builtin", builtin_name: "panic"),
         case StringStruct -> ResLangRow(index: 22, name: "String", home: "std.string",
                                         builtin_home: "builtin", builtin_name: "String"),
-        case StringLiteralFunction -> res_lang_string_function(23, "string_literal"),
-        case StringBytesFunction -> res_lang_string_function(24, "string_bytes"),
-        case StringEqualsFunction -> res_lang_string_function(25, "string_equals"),
-        case StringCompareFunction -> res_lang_string_function(26, "string_compare"),
+        case StringLiteralFunction -> ResLangRow.string_function(23, "string_literal"),
+        case StringBytesFunction -> ResLangRow.string_function(24, "string_bytes"),
+        case StringEqualsFunction -> ResLangRow.string_function(25, "string_equals"),
+        case StringCompareFunction -> ResLangRow.string_function(26, "string_compare"),
         case StringBuilderStruct -> ResLangRow(index: 27, name: "StringBuilder",
                                                home: "std.stringbuilder",
                                                builtin_home: "std.stringbuilder",
                                                builtin_name: "StringBuilder"),
-        case StringLengthFunction -> res_lang_string_function(28, "string_length"),
-        case InteriorStruct -> res_lang_type(29, "UnsafeMutableInterior"),
-        case AtomicStruct -> res_lang_type(30, "Atomic"),
-        case ParkReadyFunction -> res_lang_task_function(31, "__saw_park_ready"),
-        case ParkTimerFunction -> res_lang_task_function(32, "__saw_park_timer"),
-        case ParkFdFunction -> res_lang_task_function(33, "__saw_park_fd"),
-        case ParkFdUntilFunction -> res_lang_task_function(34, "__saw_park_fd_until"),
-        case ParkChannelFunction -> res_lang_task_function(35, "__saw_park_channel"),
-        case ParkOffloadFunction -> res_lang_task_function(36, "__saw_park_offload"),
-        case CancelRequestedFunction -> res_lang_task_function(37, "__saw_cancel_requested"),
-        case ExecRunMainFunction -> res_lang_task_function(38, "__saw_exec_run_main"),
+        case StringLengthFunction -> ResLangRow.string_function(28, "string_length"),
+        case InteriorStruct -> ResLangRow.type(29, "UnsafeMutableInterior"),
+        case AtomicStruct -> ResLangRow.type(30, "Atomic"),
+        case ParkReadyFunction -> ResLangRow.task_function(31, "__saw_park_ready"),
+        case ParkTimerFunction -> ResLangRow.task_function(32, "__saw_park_timer"),
+        case ParkFdFunction -> ResLangRow.task_function(33, "__saw_park_fd"),
+        case ParkFdUntilFunction -> ResLangRow.task_function(34, "__saw_park_fd_until"),
+        case ParkChannelFunction -> ResLangRow.task_function(35, "__saw_park_channel"),
+        case ParkOffloadFunction -> ResLangRow.task_function(36, "__saw_park_offload"),
+        case CancelRequestedFunction -> ResLangRow.task_function(37, "__saw_cancel_requested"),
+        case ExecRunMainFunction -> ResLangRow.task_function(38, "__saw_exec_run_main"),
         case ZeroInitTrait -> ResLangRow(index: 39, name: "ZeroInit", home: "std.prelude",
                                          builtin_home: "builtin", builtin_name: "")
     }

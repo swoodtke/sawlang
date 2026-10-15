@@ -9,14 +9,14 @@ import sawparse.grammar.{Alt}
 import sawresolve.dump.{res_sort_strings}
 import sawresolve.model.{ResBindKind, ResDecl, ResDeclKind}
 import sawtypecheck.candidates.{tc_contains}
-import sawtypecheck.conform.{TcSubst, tc_args_subst}
+import sawtypecheck.conform.{TcSubst}
 import sawtypecheck.declarations.{tc_build_signatures}
 import sawtypecheck.model.{TC_EFFECT_UNSAFE, TC_FLAG_UNSAFE_STRUCT, TC_FLAG_WRITTEN_RETURN, TcParam,
                                TcReceiver, TcSig, TcStatus, TcStatusKind}
 import sawtypecheck.program.{TcProgram}
 import sawtypecheck.signatures.{TcContext}
 import sawtypecheck.spell.{tc_effects_text}
-import sawtypecheck.tier.{tc_bit, tc_tier}
+import sawtypecheck.tier.{tc_bit}
 import sawtypecheck.types.{TcKind, TcType}
 import sawtypecheck.walks.{TcMemo, tc_memo}
 
@@ -406,7 +406,7 @@ extension TcProgram {
                 }
             } else if info.kind == TcKind.Nominal && self.res.decls[info.decl].node >= 0 {
                 let arguments = self.nominal_args(t)
-                let subst = tc_args_subst(info.decl, move arguments)
+                let subst = TcSubst(owner: info.decl, args: move arguments)
                 let members = self.members_of(info.decl)
                 var k = 0
                 while k < members.len() {
@@ -726,7 +726,7 @@ extension TcProgram {
                            in_test: Bool) -> String {
         let info = self.types.ty(t)
         let arguments = self.nominal_args(t)
-        let subst = tc_args_subst(info.decl, move arguments)
+        let subst = TcSubst(owner: info.decl, args: move arguments)
         let members = self.members_of(info.decl)
         var k = 0
         while k < members.len() {

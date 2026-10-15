@@ -31,12 +31,14 @@ public struct EvalValue {
     fault: TcFault
 }
 
-public func eval_value(kind: EvalKind, bits: Int, ty: Int) -> EvalValue {
-    EvalValue(kind: kind, bits: bits, ty: ty, decl: -1, fault: TcFault.Clean)
-}
+extension EvalValue {
+    public init(kind: EvalKind, bits: Int, ty: Int) -> EvalValue {
+        EvalValue(kind: kind, bits: bits, ty: ty, decl: -1, fault: TcFault.Clean)
+    }
 
-public func eval_missing(fault: TcFault) -> EvalValue {
-    EvalValue(kind: EvalKind.Missing, bits: 0, ty: -1, decl: -1, fault: fault)
+    public static func missing(fault: TcFault) -> EvalValue {
+        EvalValue(kind: EvalKind.Missing, bits: 0, ty: -1, decl: -1, fault: fault)
+    }
 }
 
 // How a function's evaluation ended: with a value, refused with a
@@ -86,7 +88,7 @@ public func eval_program(mir: &MirProgram) -> EvalProgram {
     let funcs = mir.funcs.len()
     var k = 0
     while k < funcs {
-        try! values.push(eval_missing(TcFault.NotConstant))
+        try! values.push(EvalValue.missing(fault: TcFault.NotConstant))
         try! ends.push(EvalEnd.Pending)
         try! active.push(false)
         k = k + 1

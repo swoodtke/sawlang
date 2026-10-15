@@ -73,9 +73,11 @@ public func tc_copy_ints(v: &Vector<Int>) -> Vector<Int> {
     move out
 }
 
-public func tc_args_subst(owner: Int, args: Vector<Int>) -> TcSubst {
-    TcSubst(self_type: -1, from_owner: -1, to_owner: -1, args_owner: owner, args: move args,
-            assoc_decls: Vector<Int>(), assoc_types: Vector<Int>())
+extension TcSubst {
+    public init(owner: Int, args: Vector<Int>) -> TcSubst {
+        TcSubst(self_type: -1, from_owner: -1, to_owner: -1, args_owner: owner, args: move args,
+                assoc_decls: Vector<Int>(), assoc_types: Vector<Int>())
+    }
 }
 
 extension TcProgram {
@@ -176,7 +178,7 @@ extension TcProgram {
             try! args.push(self.types.arg(base, j))
             j = j + 1
         }
-        let by_args = tc_args_subst(info.decl, move args)
+        let by_args = TcSubst(owner: info.decl, args: move args)
         var pass = 0
         while pass < 2 {
             var c = 0

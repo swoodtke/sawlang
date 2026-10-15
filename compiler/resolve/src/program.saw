@@ -7,7 +7,7 @@ import sawparse.tree.{AstNode, AstTree, NodeShape, is_leaf_shape}
 import sawresolve.model.{ResBinding, ResBindKind, ResCall, ResConformance, ResDecl,
                              ResDeclKind, ResDiag, ResExport, ResImport, ResLocal, ResModule,
                              ResModuleKind, ResName, ResPending, ResSymbol, ResVis}
-import sawresolve.names.{ResIndex, ResNames, res_index, res_names}
+import sawresolve.names.{ResIndex, ResNames}
 
 static RES_NEWLINE: Int = 10
 static RES_CONTINUATION_LOW: Int = 128
@@ -111,7 +111,7 @@ public struct ResProgram {
 extension ResProgram: NoCopy {}
 
 public func res_program(std_root: String) -> ResProgram {
-    var p = ResProgram(names: res_names(), std_root: std_root, std_new: false,
+    var p = ResProgram(names: ResNames(), std_root: std_root, std_new: false,
                        lang: Vector<Int>(), std_prelude: -1, packages: Vector<ResPackage>(),
                        modules: Vector<ResModule>(), texts: Vector<String>(),
                        nodes: Vector<AstNode>(), children: Vector<Int>(),
@@ -120,26 +120,22 @@ public func res_program(std_root: String) -> ResProgram {
                        exports: Vector<ResExport>(), records: Vector<ResName>(),
                        calls: Vector<ResCall>(), conformances: Vector<ResConformance>(),
                        diags: Vector<ResDiag>(), skipped: Vector<Int>(), merges: Vector<Int>(),
-                       top: res_index(),
-                       members: res_index(),
-                       cases: res_index(), closure: Vector<Bool>(), closure_stride: 0,
-                       surface: res_index(), bare: res_index(),
-                       qualifiers: res_index(), prelude: res_index(), by_name: res_index(),
-                       param_nodes: res_index(),
+                       top: ResIndex(),
+                       members: ResIndex(),
+                       cases: ResIndex(), closure: Vector<Bool>(), closure_stride: 0,
+                       surface: ResIndex(), bare: ResIndex(),
+                       qualifiers: ResIndex(), prelude: ResIndex(), by_name: ResIndex(),
+                       param_nodes: ResIndex(),
                        record_of: Vector<Int>(), pending: Vector<ResPending>(),
                        pending_params: Vector<Int>(), locals: Vector<ResLocal>(), local_top: 0,
                        scope_marks: Vector<Int>(), scope_top: 0, current: -1,
-                       current_decl: -1, receiver: res_blank(), self_type: res_blank(),
+                       current_decl: -1, receiver: ResBinding.unbound(), self_type: ResBinding.unbound(),
                        inherit_from: -1, in_test: false, builtin: -1, entry: -1, name_self_type: -1, name_error: -1,
                        name_std: -1)
     p.name_self_type = p.names.intern("Self")
     p.name_error = p.names.intern("error")
     p.name_std = p.names.intern("std")
     move p
-}
-
-func res_blank() -> ResBinding {
-    ResBinding(kind: ResBindKind.Unbound, module: -1, decl: -1, name: -1, node: -1)
 }
 
 // Whether byte `b` continues a UTF-8 sequence rather than starting a scalar.

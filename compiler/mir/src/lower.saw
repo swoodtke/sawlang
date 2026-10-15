@@ -29,7 +29,7 @@ import sawtypecheck.bodies.{TcCand, TcCandKind, tc_check_bodies}
 import sawtypecheck.bodydump.{tc_dump_bodies}
 import sawtypecheck.checks.{tc_check_unsafe}
 import sawtypecheck.candidates.{tc_contains}
-import sawtypecheck.conform.{TcSubst, tc_args_subst, tc_extension_sets}
+import sawtypecheck.conform.{TcSubst, tc_extension_sets}
 import sawtypecheck.declarations.{tc_build_signatures}
 import sawtypecheck.fold.{TcSameTest}
 import sawtypecheck.program.{TcProgram}
@@ -81,12 +81,14 @@ static MIR_STEP_INDEX: Int = 5
 static MIR_STEP_WINDOW: Int = 6
 static MIR_STEP_SETITEM: Int = 7
 
-func mir_place_val(p: Int, fresh: Bool) -> MirVal {
-    MirVal(place: p, operand: -1, fresh: fresh)
-}
+extension MirVal {
+    init(place: Int, fresh: Bool) -> MirVal {
+        MirVal(place: place, operand: -1, fresh: fresh)
+    }
 
-func mir_operand_val(o: Int) -> MirVal {
-    MirVal(place: -1, operand: o, fresh: false)
+    init(operand: Int) -> MirVal {
+        MirVal(place: -1, operand: operand, fresh: false)
+    }
 }
 
 // Functions: one per body root typecheck recorded, and one per closure.
@@ -1082,7 +1084,7 @@ extension MirProgram {
             // The value is taken as its position records, a place's copied
             // out, and the pattern takes the temporary that holds it apart.
             let o = self.operand(value)
-            var p = self.as_place(mir_operand_val(o), value)
+            var p = self.as_place(MirVal(operand: o), value)
             let consuming = self.pattern_moves_owned(target)
             if consuming {
                 p = self.consumed_root(p, target)
@@ -1616,21 +1618,21 @@ extension MirProgram {
             case Deref -> {
                 let p = self.as_place(v, e)
                 let q = self.project(p, MirProjKind.Deref, -1, -1, adj.to)
-                mir_place_val(q, false)
+                MirVal(place: q, fresh: false)
             },
             case Borrow -> {
                 let p = self.as_place(v, e)
                 let rv = self.rv_ref(false, p)
                 let t = self.temp_of(rv)
                 let q = self.place_local(t)
-                mir_operand_val(self.op_move(q))
+                MirVal(operand: self.op_move(q))
             },
             case BorrowVar -> {
                 let p = self.as_place(v, e)
                 let rv = self.rv_ref(true, p)
                 let t = self.temp_of(rv)
                 let q = self.place_local(t)
-                mir_operand_val(self.op_move(q))
+                MirVal(operand: self.op_move(q))
             },
             case Shared -> {
                 let p = self.as_place(v, e)
@@ -1639,13 +1641,13 @@ extension MirProgram {
                 let rv = self.rv_ref(false, d)
                 let t = self.temp_of(rv)
                 let q = self.place_local(t)
-                mir_operand_val(self.op_move(q))
+                MirVal(operand: self.op_move(q))
             },
-            case Never -> mir_operand_val(self.dead_operand(adj.to)),
+            case Never -> MirVal(operand: self.dead_operand(adj.to)),
             case Adopt -> {
                 let o = self.transfer(v, u, e, false)
                 if self.is_const(o) {
-                    return mir_operand_val(self.retype_const(o, adj.to))
+                    return MirVal(operand: self.retype_const(o, adj.to))
                 }
                 self.rebuilt(MirRvalueKind.Adopt, adj.to, o)
             },
@@ -1673,7 +1675,7 @@ extension MirProgram {
         let rv = self.rv_one(kind, t, "", o)
         let l = self.temp_of(rv)
         let p = self.place_local(l)
-        mir_operand_val(self.op_move(p))
+        MirVal(operand: self.op_move(p))
     }
 
     // An auto-wrap: the value as case `name` of `Optional`, or else of
@@ -1691,7 +1693,7 @@ extension MirProgram {
         let rv = self.rv_aggregate(MirAggregate.Case, c, t, &ops)
         let l = self.temp_of(rv)
         let p = self.place_local(l)
-        mir_operand_val(self.op_move(p))
+        MirVal(operand: self.op_move(p))
     }
 
     // How a position reads lowered value `v`, by use `u`: an operand is
@@ -1879,27 +1881,27 @@ extension MirProgram {
         let t = self.tc.expr_types[e]
         guard let alt = self.tc.node_alt(e) else {
             self.not_yet(e, "this expression")
-            return mir_operand_val(self.dead_operand(t))
+            return MirVal(operand: self.dead_operand(t))
         }
         self.lower_val_as(e, alt, t)
     }
 
     func lower_val_as(&var self, e: Int, alt: Alt, t: Int) -> MirVal {
         match alt {
-            case Expr_Int -> mir_operand_val(self.literal(e, MirConstKind.Int, t)),
-            case Expr_Float -> mir_operand_val(self.literal(e, MirConstKind.Float, t)),
-            case Expr_String -> mir_operand_val(self.literal(e, MirConstKind.String, t)),
-            case Expr_Bool_True -> mir_operand_val(self.op_const(MirConstKind.Bool, "true", t)),
-            case Expr_Bool_False -> mir_operand_val(self.op_const(MirConstKind.Bool, "false", t)),
-            case Expr_None -> mir_operand_val(self.none_value(t)),
-            case Expr_Interpolation -> mir_operand_val(self.interpolation(e)),
-            case Expr_SourceLocation_File -> mir_operand_val(self.literal(e, MirConstKind.Builtin, t)),
-            case Expr_SourceLocation_Line -> mir_operand_val(self.literal(e, MirConstKind.Builtin, t)),
-            case Expr_SourceLocation_Function -> mir_operand_val(self.literal(e, MirConstKind.Builtin, t)),
+            case Expr_Int -> MirVal(operand: self.literal(e, MirConstKind.Int, t)),
+            case Expr_Float -> MirVal(operand: self.literal(e, MirConstKind.Float, t)),
+            case Expr_String -> MirVal(operand: self.literal(e, MirConstKind.String, t)),
+            case Expr_Bool_True -> MirVal(operand: self.op_const(MirConstKind.Bool, "true", t)),
+            case Expr_Bool_False -> MirVal(operand: self.op_const(MirConstKind.Bool, "false", t)),
+            case Expr_None -> MirVal(operand: self.none_value(t)),
+            case Expr_Interpolation -> MirVal(operand: self.interpolation(e)),
+            case Expr_SourceLocation_File -> MirVal(operand: self.literal(e, MirConstKind.Builtin, t)),
+            case Expr_SourceLocation_Line -> MirVal(operand: self.literal(e, MirConstKind.Builtin, t)),
+            case Expr_SourceLocation_Function -> MirVal(operand: self.literal(e, MirConstKind.Builtin, t)),
             case Expr_Name -> self.name_val(e),
             case Expr_NameRef -> self.name_val(e),
             case Expr_Self -> self.prepared_val(e),
-            case Expr_ImplicitMember -> mir_operand_val(self.case_value(e)),
+            case Expr_ImplicitMember -> MirVal(operand: self.case_value(e)),
             case Expr_Member -> self.member_val(e),
             case Expr_TupleIndex -> self.prepared_val(e),
             case Expr_Force -> self.prepared_val(e),
@@ -1911,42 +1913,42 @@ extension MirProgram {
             case Expr_Call_Paren -> self.call_val(e),
             case Expr_Call_ParenTrailing -> self.call_val(e),
             case Expr_TrailingCall -> self.call_val(e),
-            case Expr_Unary_Negate -> mir_operand_val(self.unary(e, "-")),
-            case Expr_Unary_Not -> mir_operand_val(self.unary(e, "not")),
-            case Expr_Unary_Complement -> mir_operand_val(self.unary(e, "~")),
-            case Expr_Additive -> mir_operand_val(self.arithmetic(e)),
-            case Expr_Multiplicative -> mir_operand_val(self.arithmetic(e)),
-            case Expr_Shift -> mir_operand_val(self.arithmetic(e)),
-            case Expr_Bitand -> mir_operand_val(self.arithmetic(e)),
-            case Expr_Bitor -> mir_operand_val(self.arithmetic(e)),
-            case Expr_Bitxor -> mir_operand_val(self.arithmetic(e)),
-            case Expr_And -> mir_operand_val(self.logic(e, true)),
-            case Expr_Or -> mir_operand_val(self.logic(e, false)),
-            case Expr_Compare_Pair -> mir_operand_val(self.comparison(e)),
-            case Expr_Coalesce -> mir_operand_val(self.coalesce(e)),
-            case Expr_Range_Closed -> mir_operand_val(self.range(e)),
-            case Expr_Cast -> mir_operand_val(self.cast(e)),
-            case Expr_Ref_Shared -> mir_operand_val(self.reference(e, false)),
-            case Expr_Ref_Exclusive -> mir_operand_val(self.reference(e, true)),
+            case Expr_Unary_Negate -> MirVal(operand: self.unary(e, "-")),
+            case Expr_Unary_Not -> MirVal(operand: self.unary(e, "not")),
+            case Expr_Unary_Complement -> MirVal(operand: self.unary(e, "~")),
+            case Expr_Additive -> MirVal(operand: self.arithmetic(e)),
+            case Expr_Multiplicative -> MirVal(operand: self.arithmetic(e)),
+            case Expr_Shift -> MirVal(operand: self.arithmetic(e)),
+            case Expr_Bitand -> MirVal(operand: self.arithmetic(e)),
+            case Expr_Bitor -> MirVal(operand: self.arithmetic(e)),
+            case Expr_Bitxor -> MirVal(operand: self.arithmetic(e)),
+            case Expr_And -> MirVal(operand: self.logic(e, true)),
+            case Expr_Or -> MirVal(operand: self.logic(e, false)),
+            case Expr_Compare_Pair -> MirVal(operand: self.comparison(e)),
+            case Expr_Coalesce -> MirVal(operand: self.coalesce(e)),
+            case Expr_Range_Closed -> MirVal(operand: self.range(e)),
+            case Expr_Cast -> MirVal(operand: self.cast(e)),
+            case Expr_Ref_Shared -> MirVal(operand: self.reference(e, false)),
+            case Expr_Ref_Exclusive -> MirVal(operand: self.reference(e, true)),
             case Expr_Move_Place -> self.move_val(e),
-            case Expr_Try_Propagate -> mir_operand_val(self.try_propagate(e)),
+            case Expr_Try_Propagate -> MirVal(operand: self.try_propagate(e)),
             case Expr_Try_Force -> self.try_force(e),
-            case Expr_Try_Optional -> mir_operand_val(self.try_optional(e)),
-            case Expr_Tuple_Unit -> mir_operand_val(self.op_const(MirConstKind.Unit, "()", t)),
-            case Expr_Tuple_Positional -> mir_operand_val(self.tuple(e, false)),
-            case Expr_Tuple_Named -> mir_operand_val(self.tuple(e, true)),
-            case Expr_Array -> mir_operand_val(self.array(e)),
-            case Expr_Repeat -> mir_operand_val(self.repeat(e)),
-            case Expr_Map_Empty -> mir_operand_val(self.map_literal(e)),
-            case Expr_Map_Entries -> mir_operand_val(self.map_literal(e)),
-            case Expr_Set -> mir_operand_val(self.set_literal(e)),
-            case Expr_Closure -> mir_operand_val(self.closure(e)),
+            case Expr_Try_Optional -> MirVal(operand: self.try_optional(e)),
+            case Expr_Tuple_Unit -> MirVal(operand: self.op_const(MirConstKind.Unit, "()", t)),
+            case Expr_Tuple_Positional -> MirVal(operand: self.tuple(e, false)),
+            case Expr_Tuple_Named -> MirVal(operand: self.tuple(e, true)),
+            case Expr_Array -> MirVal(operand: self.array(e)),
+            case Expr_Repeat -> MirVal(operand: self.repeat(e)),
+            case Expr_Map_Empty -> MirVal(operand: self.map_literal(e)),
+            case Expr_Map_Entries -> MirVal(operand: self.map_literal(e)),
+            case Expr_Set -> MirVal(operand: self.set_literal(e)),
+            case Expr_Closure -> MirVal(operand: self.closure(e)),
             case _ -> {
                 if self.is_control(e) {
                     return self.control_val(e)
                 }
                 self.not_yet(e, alt_name(alt))
-                mir_operand_val(self.dead_operand(t))
+                MirVal(operand: self.dead_operand(t))
             }
         }
     }
@@ -1973,12 +1975,12 @@ extension MirProgram {
         let t = self.tc.expr_types[e]
         if self.is_unit_type(t) {
             self.lower_control(e, -1)
-            return mir_operand_val(self.op_const(MirConstKind.Unit, "()", t))
+            return MirVal(operand: self.op_const(MirConstKind.Unit, "()", t))
         }
         let l = self.new_temp(t)
         let dest = self.place_local(l)
         self.lower_control(e, dest)
-        mir_place_val(self.place_local(l), true)
+        MirVal(place: self.place_local(l), fresh: true)
     }
 
     // An interpolated string: its segments, placeholders and borrowed values,
@@ -2028,15 +2030,15 @@ extension MirProgram {
             return self.prepared_val(e)
         }
         if b.kind == ResBindKind.Overload || b.kind == ResBindKind.Overloads {
-            return mir_operand_val(self.function_constant(e, t))
+            return MirVal(operand: self.function_constant(e, t))
         }
         if b.kind == ResBindKind.TypeParam {
             let m = self.tc.node_module(e)
             let text = self.tc.text(m, leaf)
-            return mir_operand_val(self.op_const(MirConstKind.Generic, text, t))
+            return MirVal(operand: self.op_const(MirConstKind.Generic, text, t))
         }
         self.not_yet(e, "this name")
-        mir_operand_val(self.dead_operand(t))
+        MirVal(operand: self.dead_operand(t))
     }
 
     // A function named as a value: its call record's target.
@@ -2076,10 +2078,10 @@ extension MirProgram {
         if at >= 0 {
             let c = self.tc.calls[at]
             if c.role == TcRole.Case {
-                return mir_operand_val(self.case_value(e))
+                return MirVal(operand: self.case_value(e))
             }
             if c.role == TcRole.Value {
-                return mir_operand_val(self.function_constant(e, t))
+                return MirVal(operand: self.function_constant(e, t))
             }
         }
         let leaf = self.tc.res.first_leaf(e)
@@ -2091,7 +2093,7 @@ extension MirProgram {
         if self.type_named(base) {
             let m = self.tc.node_module(e)
             let text = self.tc.text(m, e)
-            return mir_operand_val(self.op_const(MirConstKind.Builtin, text, t))
+            return MirVal(operand: self.op_const(MirConstKind.Builtin, text, t))
         }
         self.prepared_val(e)
     }
@@ -2108,7 +2110,7 @@ extension MirProgram {
         self.prepare(e, &var steps)
         let p = self.realize_all(&steps)
         let fresh = steps.len() == 1 && steps[0].fresh
-        mir_place_val(p, fresh)
+        MirVal(place: p, fresh: fresh)
     }
 
     // A place a position needs: a target's, a borrow's, a `lend`'s.
@@ -2128,7 +2130,7 @@ extension MirProgram {
             let exclusive = self.tc.is_exclusive_ref(t)
             let rv = self.rv_ref(exclusive, v.place)
             let l = self.temp_of(rv)
-            return mir_place_val(self.place_local(l), true)
+            return MirVal(place: self.place_local(l), fresh: true)
         }
         let u = self.tc.expr_use[e]
         let subject = self.lend_subject(e)
@@ -2147,7 +2149,7 @@ extension MirProgram {
         let rv = self.rv_use(o)
         let l = self.temp_of(rv)
         self.close_windows_since(mark)
-        mir_place_val(self.place_local(l), true)
+        MirVal(place: self.place_local(l), fresh: true)
     }
 
     // Closes the windows registered since scope entry `mark`, newest first,
@@ -2182,7 +2184,7 @@ extension MirProgram {
             if self.tc.expr_use[e] == TcUse.Borrow {
                 return self.moved_to_temporary(p)
             }
-            return mir_place_val(p, false)
+            return MirVal(place: p, fresh: false)
         }
         // `move o!` retires the whole binding: the Optional moves out whole,
         // and the temporary holding it is dissolved around its payload.
@@ -2195,7 +2197,7 @@ extension MirProgram {
         let wp = self.place_local(whole)
         let value = self.project(wp, MirProjKind.Force, some, 0, t)
         let moved = self.take_payload(wp, value, e)
-        mir_place_val(self.operands[moved].place, true)
+        MirVal(place: self.operands[moved].place, fresh: true)
     }
 
     // A spelled `move` where its position borrows the value, a format
@@ -2207,7 +2209,7 @@ extension MirProgram {
         let t = self.new_temp(pt)
         let rv = self.rv_move(p)
         self.assign_local(t, rv)
-        mir_place_val(self.place_local(t), true)
+        MirVal(place: self.place_local(t), fresh: true)
     }
 }
 
@@ -2270,7 +2272,7 @@ extension MirProgram {
             case Expr_Deref -> {
                 let inner = self.tc.res.first_node_child(e)
                 let o = self.operand(inner)
-                let p = self.as_place(mir_operand_val(o), inner)
+                let p = self.as_place(MirVal(operand: o), inner)
                 self.push_root(&var steps, e, p, false)
                 let t = self.node_type(e)
                 self.push_step(&var steps, MIR_STEP_DEREF, e, -1, -1, t)
@@ -2502,7 +2504,7 @@ extension MirProgram {
             self.open_receiver_windows(&var steps)
             let key = self.subscript_values(e)
             let o = self.operand(key[0])
-            let p = self.as_place(mir_operand_val(o), key[0])
+            let p = self.as_place(MirVal(operand: o), key[0])
             let l = self.bare_local(p)
             let t = self.node_type(e)
             self.push_step(&var steps, MIR_STEP_INDEX, e, -1, l, t)
@@ -2756,7 +2758,7 @@ extension MirProgram {
             try! inst.push(self.tc.insts[c.inst_first + k])
             k = k + 1
         }
-        let own = tc_args_subst(c.target, move inst)
+        let own = TcSubst(owner: c.target, args: move inst)
         var t = self.tc.subst(raw, &own)
         if c.owner >= 0 {
             t = self.tc.impl_subst(t, c.target, c.owner)
@@ -2924,7 +2926,7 @@ extension MirProgram {
         if at >= 0 && self.tc.calls[at].role == TcRole.Getitem {
             let c = self.tc.calls[at]
             let p = self.getitem(e, &c)
-            return mir_place_val(p, true)
+            return MirVal(place: p, fresh: true)
         }
         self.prepared_val(e)
     }
@@ -2939,14 +2941,14 @@ extension MirProgram {
         let t = self.tc.expr_types[e]
         if at < 0 {
             self.missing(e, "a call has no target recorded")
-            return mir_operand_val(self.dead_operand(t))
+            return MirVal(operand: self.dead_operand(t))
         }
         let c = self.tc.calls[at]
         match c.role {
             case Builtin -> self.builtin_call(e, &c),
-            case Conversion -> mir_operand_val(self.conversion(e, &c)),
-            case Memberwise -> mir_operand_val(self.construction(e, &c, MirAggregate.Struct)),
-            case Case -> mir_operand_val(self.construction(e, &c, MirAggregate.Case)),
+            case Conversion -> MirVal(operand: self.conversion(e, &c)),
+            case Memberwise -> MirVal(operand: self.construction(e, &c, MirAggregate.Struct)),
+            case Case -> MirVal(operand: self.construction(e, &c, MirAggregate.Case)),
             case Value -> self.value_call(e, &c),
             case Spawn -> self.spawn_site(e, MirSpawnForm.Singleton),
             case Call -> {
@@ -2956,7 +2958,7 @@ extension MirProgram {
                 }
                 if not self.lends_place(e) {
                     self.not_yet(e, "a `borrows` call lending a slice or a borrowing struct outside a `for` head")
-                    return mir_operand_val(self.dead_operand(t))
+                    return MirVal(operand: self.dead_operand(t))
                 }
                 if self.tc.expr_use[e] == TcUse.Copy {
                     return self.lent_copy(e)
@@ -2965,7 +2967,7 @@ extension MirProgram {
             },
             case _ -> {
                 self.not_yet(e, "this call")
-                mir_operand_val(self.dead_operand(t))
+                MirVal(operand: self.dead_operand(t))
             }
         }
     }
@@ -2988,7 +2990,7 @@ extension MirProgram {
         let result = self.new_temp(t)
         let dest = self.place_local(result)
         self.copy_out(&opened, t, dest)
-        mir_place_val(self.place_local(result), true)
+        MirVal(place: self.place_local(result), fresh: true)
     }
 
     // A call of a function, method, requirement or `init`. A receiver taken
@@ -3061,7 +3063,7 @@ extension MirProgram {
         let at = if root >= 0 { self.tc.call_at[root] } else { -1 }
         if at < 0 || self.tc.calls[at].role != TcRole.Call {
             self.missing(e, "a spawn form has no root call recorded")
-            return mir_operand_val(self.dead_operand(t))
+            return MirVal(operand: self.dead_operand(t))
         }
         let rc = self.tc.calls[at]
         let saved = self.source_at(root)
@@ -3088,12 +3090,12 @@ extension MirProgram {
         let at = if root >= 0 { self.tc.call_at[root] } else { -1 }
         if at < 0 || self.tc.calls[at].role != TcRole.Call {
             self.missing(e, "a drive site has no root call recorded")
-            return mir_operand_val(self.dead_operand(t))
+            return MirVal(operand: self.dead_operand(t))
         }
         let rc = self.tc.calls[at]
         if (self.tc.sigs[rc.target].effects & TC_EFFECT_BORROWS) != 0 {
             self.not_yet(e, "a drive site whose root is a `borrows` accessor")
-            return mir_operand_val(self.dead_operand(t))
+            return MirVal(operand: self.dead_operand(t))
         }
         let saved = self.source_at(root)
         let all = self.call_operands(root, &rc)
@@ -3124,16 +3126,16 @@ extension MirProgram {
         var record = call
         if self.tc.is_never(t) {
             let _ = self.emit_call(record)
-            return mir_operand_val(self.dead_operand(t))
+            return MirVal(operand: self.dead_operand(t))
         }
         if self.is_unit_type(t) {
             let _ = self.call_and_continue(record)
-            return mir_operand_val(self.op_const(MirConstKind.Unit, "()", t))
+            return MirVal(operand: self.op_const(MirConstKind.Unit, "()", t))
         }
         let l = self.new_temp(t)
         record.dest = self.place_local(l)
         let _ = self.call_and_continue(record)
-        mir_place_val(self.place_local(l), true)
+        MirVal(place: self.place_local(l), fresh: true)
     }
 
     // A call's arguments in its target's parameter order, as typecheck bound
@@ -3378,15 +3380,15 @@ extension MirProgram {
         let written = self.written_arguments(e)
         if written.len() != 1 {
             self.missing(e, "an in-place drop does not take one pointer")
-            return mir_operand_val(self.dead_operand(t))
+            return MirVal(operand: self.dead_operand(t))
         }
         let o = self.builtin_operand(written[0])
-        let at = self.as_place(mir_operand_val(o), written[0])
+        let at = self.as_place(MirVal(operand: o), written[0])
         let pointer = self.place_type(at)
         let pointee = self.tc.arg_of(pointer, 0)
         let lives = self.project(at, MirProjKind.Deref, -1, -1, pointee)
         self.emit_drop(lives)
-        mir_operand_val(self.op_const(MirConstKind.Unit, "()", t))
+        MirVal(operand: self.op_const(MirConstKind.Unit, "()", t))
     }
 
     // Which written argument of builtin call `e`, named `name`, is a format
@@ -3757,7 +3759,7 @@ extension MirProgram {
                 depth = self.open_scope()
             }
             let o = self.operand(operands[k])
-            let p = self.as_place(mir_operand_val(o), operands[k])
+            let p = self.as_place(MirVal(operand: o), operands[k])
             // An optional default keeps the left operand whole when the two
             // share a type; against `T??` it peels one layer.
             let whole = self.place_type(p) == t
@@ -3850,13 +3852,13 @@ extension MirProgram {
         let u = self.tc.expr_use[e]
         let referent = self.tc.referent(ot)
         if u == TcUse.Borrow && referent >= 0 && self.tc.casts_backing(referent, to) {
-            let r = self.as_place(mir_operand_val(o), e)
+            let r = self.as_place(MirVal(operand: o), e)
             let tag = self.project(r, MirProjKind.Deref, -1, -1, referent)
             return self.op_copy(tag)
         }
         let handed = u == TcUse.Move || u == TcUse.Temp
         if handed && self.owns(ot) && self.tc.casts_backing(ot, to) {
-            let p = self.as_place(mir_operand_val(o), e)
+            let p = self.as_place(MirVal(operand: o), e)
             return self.op_copy(p)
         }
         o
@@ -3890,7 +3892,7 @@ extension MirProgram {
     func try_propagate(&var self, e: Int) -> Int {
         let inner = self.tc.res.first_node_child(e)
         let o = self.operand(inner)
-        let p = self.as_place(mir_operand_val(o), inner)
+        let p = self.as_place(MirVal(operand: o), inner)
         let pt = self.place_type(p)
         let t = self.tc.expr_types[e]
         let et = self.tc.arg_of(pt, 1)
@@ -3970,16 +3972,16 @@ extension MirProgram {
     func try_force(&var self, e: Int) -> MirVal {
         let inner = self.tc.res.first_node_child(e)
         let o = self.operand(inner)
-        let p = self.as_place(mir_operand_val(o), inner)
+        let p = self.as_place(MirVal(operand: o), inner)
         let ok = self.result_case("Ok")
         let t = self.tc.expr_types[e]
         let value = self.project(p, MirProjKind.Force, ok, 0, t)
         if not self.takes_payload(e, t) {
-            return mir_place_val(value, false)
+            return MirVal(place: value, fresh: false)
         }
         self.forget_temp(p)
         let moved = self.take_payload(p, value, e)
-        mir_place_val(self.operands[moved].place, true)
+        MirVal(place: self.operands[moved].place, fresh: true)
     }
 
     // Whether payload read `e`, of type `t`, moves an owned payload out of
@@ -3993,7 +3995,7 @@ extension MirProgram {
     func try_optional(&var self, e: Int) -> Int {
         let inner = self.tc.res.first_node_child(e)
         let o = self.operand(inner)
-        let p = self.as_place(mir_operand_val(o), inner)
+        let p = self.as_place(MirVal(operand: o), inner)
         let pt = self.place_type(p)
         let t = self.tc.expr_types[e]
         let ok = self.result_case("Ok")
@@ -5003,7 +5005,7 @@ extension MirProgram {
         let clause = self.tc.res.last_node_child(e)
         let handler = self.tc.res.first_node_child(clause)
         let o = self.operand(inner)
-        let p = self.as_place(mir_operand_val(o), inner)
+        let p = self.as_place(MirVal(operand: o), inner)
         let pt = self.place_type(p)
         let t = self.tc.arg_of(pt, 0)
         let et = self.tc.arg_of(pt, 1)
@@ -5232,7 +5234,7 @@ extension MirProgram {
             }
         } else if step.kind == MirProjKind.Field {
             let d = self.tc.nominal_decl(ty)
-            let sub = tc_args_subst(d, self.tc.nominal_args(ty))
+            let sub = TcSubst(owner: d, args: self.tc.nominal_args(ty))
             let members = self.tc.members_of(d)
             var j = 0
             while j < members.len() {
@@ -5287,7 +5289,7 @@ extension MirProgram {
         let cand = TcCand(decl: c, kind: TcCandKind.Case, member: -1, owner: t)
         let count = self.tc.cand_param_count(cand)
         let d = self.tc.res.decls[c].parent
-        let sub = tc_args_subst(d, self.tc.nominal_args(t))
+        let sub = TcSubst(owner: d, args: self.tc.nominal_args(t))
         var k = 0
         while k < count {
             let raw = self.tc.cand_param_type(cand, k)

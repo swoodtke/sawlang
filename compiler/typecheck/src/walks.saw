@@ -49,10 +49,12 @@ public func tc_memo() -> TcMemo {
     TcMemo(keys_a: move a, keys_b: move b, values: move v, used: 0)
 }
 
-// A memo with no slots yet, which costs nothing until a walk sets a pair: a
-// walk that marks only the branching types it finishes takes one per call.
-public func tc_memo_empty() -> TcMemo {
-    TcMemo(keys_a: Vector<Int>(), keys_b: Vector<Int>(), values: Vector<Int>(), used: 0)
+extension TcMemo {
+    // A memo with no slots yet, which costs nothing until a walk sets a pair: a
+    // walk that marks only the branching types it finishes takes one per call.
+    public static func empty() -> TcMemo {
+        TcMemo(keys_a: Vector<Int>(), keys_b: Vector<Int>(), values: Vector<Int>(), used: 0)
+    }
 }
 
 func tc_memo_slot(a: Int, b: Int, slots: Int) -> Int {

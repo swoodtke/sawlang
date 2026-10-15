@@ -11,7 +11,8 @@ import sawresolve.collect.{res_is_top_level}
 import sawresolve.dump.{res_sort_strings}
 import sawresolve.model.{ResDecl, ResDeclKind, ResModule, ResVis}
 import sawtypecheck.candidates.{tc_contains}
-import sawtypecheck.tier.{tc_tier}
+// For the extension writing `generic_grants`.
+import sawtypecheck.tier.{tc_max}
 import sawtypecheck.checks.{tc_check_unsafe}
 import sawtypecheck.conform.{TcSubst}
 import sawtypecheck.spell.{tc_effects_text}
@@ -23,7 +24,7 @@ import sawtypecheck.model.{TC_BIND_DEFAULT, TC_EFFECT_SYNC, TC_FLAG_DEFAULT_BODY
                                TcSummary, TcUnit, TcUse}
 import sawtypecheck.program.{TcProgram}
 import sawtypecheck.signatures.{TcContext}
-import sawtypecheck.summaries.{TcAcc, tc_acc}
+import sawtypecheck.summaries.{TcAcc}
 import sawtypecheck.types.{TcKind, TcType}
 
 // Runs every check that reads the summaries (phase 3).
@@ -206,7 +207,7 @@ extension TcProgram {
     // body a call whose answer depends on a type argument is judged at each
     // instantiation, through the body's `refuses-when` conditions.
     func check_sync_call(&var self, e: Int, unit: TcUnit, owner: Int) {
-        var acc = tc_acc(owner, -1)
+        var acc = TcAcc(owner: owner, unit: -1)
         self.eval_call(e, &var acc)
         if not acc.nonsync && not acc.suspends {
             return
@@ -237,7 +238,7 @@ extension TcProgram {
         let effect = if suspends { "may suspend" } else { "is not sync-callable" }
         var out = StringBuilder()
         try! out.append(self.callee_text(e))
-        var target = tc_acc(owner, -1)
+        var target = TcAcc(owner: owner, unit: -1)
         self.eval_target(e, &var target)
         let at = self.call_at[e]
         if (target.suspends || (not suspends && target.nonsync)) || at < 0 {
@@ -249,7 +250,7 @@ extension TcProgram {
         var j = 0
         while j < c.bind_count && c.bind_first >= 0 {
             if self.binds[c.bind_first + j] == TC_BIND_DEFAULT {
-                var one = tc_acc(owner, -1)
+                var one = TcAcc(owner: owner, unit: -1)
                 self.eval_default(e, j, &var one)
                 if one.suspends || (not suspends && one.nonsync) {
                     let param = self.params[self.sigs[c.target].param_first + j]
@@ -271,7 +272,7 @@ extension TcProgram {
     // closure body cannot suspend"); one that suspends only at some
     // instantiation is refused at the call that makes it.
     func check_closure_call(&var self, e: Int, owner: Int) {
-        var acc = tc_acc(owner, -1)
+        var acc = TcAcc(owner: owner, unit: -1)
         self.eval_call(e, &var acc)
         if not acc.suspends {
             return
@@ -321,7 +322,7 @@ extension TcProgram {
             let a = self.atoms[s.copy_first + k]
             k = k + 1
             let t = self.call_subst(a.ty, d, &c)
-            var acc = tc_acc(owner, -1)
+            var acc = TcAcc(owner: owner, unit: -1)
             if not self.copy_needs(t, e, a.origin, &var acc) {
                 self.refuse_copy_requirement(e, d, &a, t)
             }
@@ -335,7 +336,7 @@ extension TcProgram {
             if self.is_own_condition(recv, owner) {
                 continue
             }
-            var acc = tc_acc(owner, -1)
+            var acc = TcAcc(owner: owner, unit: -1)
             let sync_kind = a.kind == TC_FORBID_SYNC
             self.eval_condition(recv, a.req, e, not sync_kind, &var acc)
             if (sync_kind && acc.nonsync) || (not sync_kind && acc.suspends) {
@@ -360,7 +361,7 @@ extension TcProgram {
         while k < reqs.len() {
             let req = reqs[k]
             k = k + 1
-            var acc = tc_acc(owner, -1)
+            var acc = TcAcc(owner: owner, unit: -1)
             self.eval_condition(from, req, id, true, &var acc)
             if acc.suspends {
                 self.refuse_suspending_dispatch(id, from, tr, req)

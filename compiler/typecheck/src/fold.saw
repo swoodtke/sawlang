@@ -42,12 +42,14 @@ public struct TcFold {
     at: Int
 }
 
-public func tc_folded(bits: Int, ty: Int) -> TcFold {
-    TcFold(ok: true, bits: bits, ty: ty, fault: TcFault.Clean, at: -1)
-}
+extension TcFold {
+    public init(bits: Int, ty: Int) -> TcFold {
+        TcFold(ok: true, bits: bits, ty: ty, fault: TcFault.Clean, at: -1)
+    }
 
-public func tc_fold_fault(fault: TcFault, ty: Int, at: Int) -> TcFold {
-    TcFold(ok: false, bits: 0, ty: ty, fault: fault, at: at)
+    public init(fault: TcFault, ty: Int, at: Int) -> TcFold {
+        TcFold(ok: false, bits: 0, ty: ty, fault: fault, at: at)
+    }
 }
 
 // What a literal or range pattern tests.
@@ -98,10 +100,10 @@ extension TcProgram {
     // `e`'s value, `chain` the statics being folded around it, newest last.
     func fold_at(&var self, e: Int, chain: &var Vector<Int>) -> TcFold {
         if e < 0 {
-            return tc_fold_fault(TcFault.NotConstant, -1, e)
+            return TcFold(fault: TcFault.NotConstant, ty: -1, at: e)
         }
         guard let alt = self.node_alt(e) else {
-            return tc_fold_fault(TcFault.NotConstant, -1, e)
+            return TcFold(fault: TcFault.NotConstant, ty: -1, at: e)
         }
         let v = self.fold_as(e, alt, &var chain)
         if not v.ok {
@@ -113,7 +115,7 @@ extension TcProgram {
             let adj = self.adjusts[a]
             a = adj.next
             if adj.kind != TcAdjustKind.Adopt && adj.kind != TcAdjustKind.Widen {
-                return tc_fold_fault(TcFault.NotConstant, cur.ty, e)
+                return TcFold(fault: TcFault.NotConstant, ty: cur.ty, at: e)
             }
             cur = self.fold_convert(cur, adj.to, e)
             if not cur.ok {
@@ -129,8 +131,8 @@ extension TcProgram {
                 let t = self.literal_type(e)
                 self.fold_literal(e, t, false)
             },
-            case Expr_Bool_True -> tc_folded(1, self.bool_type()),
-            case Expr_Bool_False -> tc_folded(0, self.bool_type()),
+            case Expr_Bool_True -> TcFold(bits: 1, ty: self.bool_type()),
+            case Expr_Bool_False -> TcFold(bits: 0, ty: self.bool_type()),
             case Expr_Unary_Negate -> {
                 let operand = self.res.first_node_child(e)
                 if self.has_alt(operand, Alt.Expr_Int) {
@@ -151,7 +153,7 @@ extension TcProgram {
                 if not inner.ok {
                     return inner
                 }
-                tc_folded(1 - inner.bits, inner.ty)
+                TcFold(bits: 1 - inner.bits, ty: inner.ty)
             },
             case Expr_Additive -> self.fold_operators(e, &var chain),
             case Expr_Multiplicative -> self.fold_operators(e, &var chain),
@@ -174,7 +176,7 @@ extension TcProgram {
             case Expr_Name -> self.fold_name(e, &var chain),
             case Expr_Member -> self.fold_member(e, &var chain),
             case Expr_Call_Paren -> self.fold_alias_construct(e, &var chain),
-            case _ -> tc_fold_fault(TcFault.NotConstant, -1, e)
+            case _ -> TcFold(fault: TcFault.NotConstant, ty: -1, at: e)
         }
     }
 
@@ -187,17 +189,17 @@ extension TcProgram {
         var m = 0
         while m < self.measured_nodes.len() {
             if self.measured_nodes[m] == e {
-                return tc_folded(self.measured_values[m], self.int_type())
+                return TcFold(bits: self.measured_values[m], ty: self.int_type())
             }
             m = m + 1
         }
         let at = if e < self.call_at.len() { self.call_at[e] } else { -1 }
         if at < 0 {
-            return tc_fold_fault(TcFault.NotConstant, -1, e)
+            return TcFold(fault: TcFault.NotConstant, ty: -1, at: e)
         }
         let c = self.calls[at]
         if c.role != TcRole.Conversion || c.spelling < 0 || not self.name_text(c.spelling).equals("alias") {
-            return tc_fold_fault(TcFault.NotConstant, -1, e)
+            return TcFold(fault: TcFault.NotConstant, ty: -1, at: e)
         }
         let callee = self.res.first_node_child(e)
         var arg = -1
@@ -210,7 +212,7 @@ extension TcProgram {
                 continue
             }
             if arg >= 0 {
-                return tc_fold_fault(TcFault.NotConstant, -1, e)
+                return TcFold(fault: TcFault.NotConstant, ty: -1, at: e)
             }
             arg = child
             if self.has_alt(child, Alt.Expr_Argument_Positional) {
@@ -231,14 +233,14 @@ extension TcProgram {
             return v
         }
         if not self.is_integer(v.ty) || not self.is_integer(t) {
-            return tc_fold_fault(TcFault.NotConstant, v.ty, at)
+            return TcFold(fault: TcFault.NotConstant, ty: v.ty, at: at)
         }
         let r = tc_arith_convert(v.bits, self.int_width(v.ty), not self.is_unsigned(v.ty), self.int_width(t),
                                  not self.is_unsigned(t))
         if not r.ok {
             return TcFold(ok: false, bits: v.bits, ty: v.ty, fault: TcFault.NotFit, at: at)
         }
-        tc_folded(r.bits, t)
+        TcFold(bits: r.bits, ty: t)
     }
 
     // The type a literal is written at: the integer type it adopts, as a
@@ -254,7 +256,7 @@ extension TcProgram {
     // Integer literal `e` at type `t`, negated with `negated`.
     func fold_literal(&var self, e: Int, t: Int, negated: Bool) -> TcFold {
         if t < 0 || not self.is_integer(t) {
-            return tc_fold_fault(TcFault.NotConstant, t, e)
+            return TcFold(fault: TcFault.NotConstant, ty: t, at: e)
         }
         let m = self.node_module_of(e)
         let leaf = self.res.first_leaf(e)
@@ -271,13 +273,13 @@ extension TcProgram {
             if not r.ok {
                 return TcFold(ok: false, bits: magnitude.bits, ty: self.uint64_type(), fault: TcFault.NotFit, at: e)
             }
-            return tc_folded(r.bits, t)
+            return TcFold(bits: r.bits, ty: t)
         }
         let r = tc_arith_negative_literal(magnitude.bits, w, signed)
         if not r.ok {
             return TcFold(ok: false, bits: r.bits, ty: self.int_type(), fault: TcFault.NotFit, at: e)
         }
-        tc_folded(r.bits, t)
+        TcFold(bits: r.bits, ty: t)
     }
 
     func uint64_type(&var self) -> Int {
@@ -294,7 +296,7 @@ extension TcProgram {
             return inner
         }
         if not self.is_integer(inner.ty) {
-            return tc_fold_fault(TcFault.NotConstant, inner.ty, e)
+            return TcFold(fault: TcFault.NotConstant, ty: inner.ty, at: e)
         }
         let r = tc_arith_unary(&op, inner.bits, self.int_width(inner.ty), not self.is_unsigned(inner.ty))
         self.fold_result(r, inner.ty, e)
@@ -303,16 +305,16 @@ extension TcProgram {
     // A typed arithmetic result at type `t`, or its fault at `e`.
     func fold_result(&self, r: TcValue, t: Int, e: Int) -> TcFold {
         if not r.ok {
-            return tc_fold_fault(r.fault, t, e)
+            return TcFold(fault: r.fault, ty: t, at: e)
         }
-        tc_folded(r.bits, t)
+        TcFold(bits: r.bits, ty: t)
     }
 
     // A flat operator chain, left to right, each operator at its left
     // operand's type; a shift's count keeps its own.
     func fold_operators(&var self, e: Int, chain: &var Vector<Int>) -> TcFold {
         let m = self.node_module_of(e)
-        var acc = tc_fold_fault(TcFault.NotConstant, -1, e)
+        var acc = TcFold(fault: TcFault.NotConstant, ty: -1, at: e)
         var started = false
         var op = ""
         let n = self.child_count(e)
@@ -334,7 +336,7 @@ extension TcProgram {
                 continue
             }
             if not self.is_integer(acc.ty) || not self.is_integer(v.ty) {
-                return tc_fold_fault(TcFault.NotConstant, acc.ty, e)
+                return TcFold(fault: TcFault.NotConstant, ty: acc.ty, at: e)
             }
             let w = self.int_width(acc.ty)
             let signed = not self.is_unsigned(acc.ty)
@@ -342,7 +344,7 @@ extension TcProgram {
             if op.equals("<<") || op.equals(">>") {
                 r = tc_arith_shift(&op, acc.bits, w, signed, v.bits, self.int_width(v.ty), not self.is_unsigned(v.ty))
             } else if acc.ty != v.ty {
-                return tc_fold_fault(TcFault.NotConstant, acc.ty, e)
+                return TcFold(fault: TcFault.NotConstant, ty: acc.ty, at: e)
             }
             acc = self.fold_result(r, acc.ty, e)
             if not acc.ok {
@@ -369,22 +371,22 @@ extension TcProgram {
         }
         let bt = self.bool_type()
         if a.ty != b.ty {
-            return tc_fold_fault(TcFault.NotConstant, a.ty, e)
+            return TcFold(fault: TcFault.NotConstant, ty: a.ty, at: e)
         }
         if self.is_bool(a.ty) {
             if op.equals("==") {
-                return tc_folded(if a.bits == b.bits { 1 } else { 0 }, bt)
+                return TcFold(bits: if a.bits == b.bits { 1 } else { 0 }, ty: bt)
             }
             if op.equals("!=") {
-                return tc_folded(if a.bits != b.bits { 1 } else { 0 }, bt)
+                return TcFold(bits: if a.bits != b.bits { 1 } else { 0 }, ty: bt)
             }
-            return tc_fold_fault(TcFault.NotConstant, a.ty, e)
+            return TcFold(fault: TcFault.NotConstant, ty: a.ty, at: e)
         }
         if not self.is_integer(a.ty) {
-            return tc_fold_fault(TcFault.NotConstant, a.ty, e)
+            return TcFold(fault: TcFault.NotConstant, ty: a.ty, at: e)
         }
         let holds = tc_arith_compare(&op, a.bits, b.bits, self.int_width(a.ty), not self.is_unsigned(a.ty))
-        tc_folded(if holds { 1 } else { 0 }, bt)
+        TcFold(bits: if holds { 1 } else { 0 }, ty: bt)
     }
 
     // `a && b && ...` or `a || b || ...`: each operand after the first only
@@ -404,13 +406,13 @@ extension TcProgram {
                 return v
             }
             if conjunction && v.bits == 0 {
-                return tc_folded(0, bt)
+                return TcFold(bits: 0, ty: bt)
             }
             if not conjunction && v.bits != 0 {
-                return tc_folded(1, bt)
+                return TcFold(bits: 1, ty: bt)
             }
         }
-        tc_folded(if conjunction { 1 } else { 0 }, bt)
+        TcFold(bits: if conjunction { 1 } else { 0 }, ty: bt)
     }
 
     // A name: a module static, by its initializer.
@@ -418,7 +420,7 @@ extension TcProgram {
         let leaf = self.res.first_leaf(e)
         let b = self.binding_at(leaf)
         if b.kind != ResBindKind.Decl || b.decl < 0 {
-            return tc_fold_fault(TcFault.NotConstant, -1, e)
+            return TcFold(fault: TcFault.NotConstant, ty: -1, at: e)
         }
         self.fold_static(b.decl, e, &var chain)
     }
@@ -427,16 +429,16 @@ extension TcProgram {
     func fold_static(&var self, d: Int, e: Int, chain: &var Vector<Int>) -> TcFold {
         let info = self.res.decls[d]
         if info.kind != ResDeclKind.Static {
-            return tc_fold_fault(TcFault.NotConstant, -1, e)
+            return TcFold(fault: TcFault.NotConstant, ty: -1, at: e)
         }
         let s = self.sigs[d]
         if (s.flags & TC_FLAG_UNSAFE_VAR) != 0 || s.result < 0 {
-            return tc_fold_fault(TcFault.NotConstant, s.result, e)
+            return TcFold(fault: TcFault.NotConstant, ty: s.result, at: e)
         }
         var k = 0
         while k < chain.len() {
             if chain[k] == d {
-                return tc_fold_fault(TcFault.Cycle, s.result, e)
+                return TcFold(fault: TcFault.Cycle, ty: s.result, at: e)
             }
             k = k + 1
         }
@@ -474,13 +476,13 @@ extension TcProgram {
             let w = self.int_width(t)
             let signed = not self.is_unsigned(t)
             if name.equals("max") {
-                return tc_folded(tc_arith_max(w, signed), t)
+                return TcFold(bits: tc_arith_max(w, signed), ty: t)
             }
             if name.equals("min") {
-                return tc_folded(tc_arith_min(w, signed), t)
+                return TcFold(bits: tc_arith_min(w, signed), ty: t)
             }
         }
-        tc_fold_fault(TcFault.NotConstant, -1, e)
+        TcFold(fault: TcFault.NotConstant, ty: -1, at: e)
     }
 
     // The case of a raw-backed enum member expression `e` names, `E.Case`,

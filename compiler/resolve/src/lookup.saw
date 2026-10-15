@@ -16,9 +16,8 @@
 import sawparse.grammar.{Alt}
 import sawresolve.imports.{res_decl_binding, res_is_function, res_same_binding}
 import sawresolve.prelude.{res_is_std_intrinsic, res_is_test_driver, res_is_test_intrinsic}
-import sawresolve.model.{ResBindKind, ResBinding, ResDecl, ResDeclKind, ResImport,
-                             ResImportForm, ResLocal, ResModuleKind, ResName, ResPending,
-                             ResPendingKind, ResSymbol, res_unbound}
+import sawresolve.model.{ResBindKind, ResBinding, ResDecl, ResDeclKind, ResImport, ResImportForm, ResLocal,
+                         ResModuleKind, ResName, ResPending, ResPendingKind, ResSymbol}
 import sawresolve.program.{ResProgram}
 
 // Adds `b` to `out` unless a binding denoting the same thing is there.
@@ -328,7 +327,7 @@ extension ResProgram {
             chain = self.child(path, 2)
         }
         var trait_decl = -1
-        var param = res_unbound()
+        var param = ResBinding.unbound()
         if head.kind == ResBindKind.SelfType {
             trait_decl = head.decl
         } else {
@@ -371,7 +370,7 @@ extension ResProgram {
         }
         let m = self.current
         try! self.pending.push(ResPending(kind: ResPendingKind.Bare, module: m, leaf: leaf,
-                                          name: name, param: res_unbound(), trait_decl: -1,
+                                          name: name, param: ResBinding.unbound(), trait_decl: -1,
                                           chain: -1, first: first, count: count, bound: false))
         true
     }
@@ -388,7 +387,7 @@ extension ResProgram {
         let m = self.current
         let t = self.inherit_from
         try! self.pending.push(ResPending(kind: ResPendingKind.Inherited, module: m, leaf: leaf,
-                                          name: name, param: res_unbound(), trait_decl: t,
+                                          name: name, param: ResBinding.unbound(), trait_decl: t,
                                           chain: -1, first: first, count: count, bound: bound))
     }
 
@@ -493,7 +492,7 @@ extension ResProgram {
         let m = self.current
         let name = self.leaf_name(leaf)
         try! self.pending.push(ResPending(kind: ResPendingKind.Restated, module: m, leaf: leaf,
-                                          name: name, param: res_unbound(), trait_decl: t,
+                                          name: name, param: ResBinding.unbound(), trait_decl: t,
                                           chain: -1, first: 0, count: 0, bound: false))
     }
 

@@ -17,8 +17,7 @@ import sawmir.model.{MirAggregate, MirBlock, MirCallKind, MirConstKind, MirDiag,
                          MirOperandKind, MirPlace, MirRvalue, MirRvalueKind, MirStmt, MirStmtKind, MirSwitchKind,
                          MirTermKind}
 import sawmir.program.{MirProgram}
-import saweval.program.{EvalEnd, EvalKind, EvalProgram, EvalValue, eval_is_constant_kind, eval_missing,
-                            eval_value}
+import saweval.program.{EvalEnd, EvalKind, EvalProgram, EvalValue, eval_is_constant_kind}
 import saweval.report.{eval_rules}
 import sawtypecheck.arith.{TcFault, TcValue, tc_arith_binary, tc_arith_compare, tc_arith_convert,
                                tc_arith_literal, tc_arith_max, tc_arith_min, tc_arith_negative_literal,
@@ -100,7 +99,7 @@ extension EvalProgram {
         }
         if self.active[f] {
             self.report_cycle(&mir, f)
-            return eval_missing(TcFault.Cycle)
+            return EvalValue.missing(fault: TcFault.Cycle)
         }
         self.active[f] = true
         try! self.stack.push(f)
@@ -135,7 +134,7 @@ extension EvalProgram {
         var locals = Vector<EvalValue>()
         var k = 0
         while k < info.local_count {
-            try! locals.push(eval_missing(TcFault.NotConstant))
+            try! locals.push(EvalValue.missing(fault: TcFault.NotConstant))
             k = k + 1
         }
         var b = 0
@@ -144,7 +143,7 @@ extension EvalProgram {
             if self.steps > EVAL_STEP_BUDGET {
                 let text = self.budget_text(&mir)
                 self.report_at(&mir, f, "eval.cycle", text)
-                return eval_missing(TcFault.Cycle)
+                return EvalValue.missing(fault: TcFault.Cycle)
             }
             let block = mir.blocks[info.block_first + b]
             var s = block.first
@@ -174,7 +173,7 @@ extension EvalProgram {
         }
         // A step that stopped reported its fault, or the evaluation it
         // read did; this one passes the value on as missing.
-        eval_missing(self.last_fault)
+        EvalValue.missing(fault: self.last_fault)
     }
 
     // Where control goes after block `block`: a block, `EVAL_RETURNS`, or
@@ -298,19 +297,19 @@ extension EvalProgram {
                 if not r.ok {
                     return self.fault_value(&mir, f, m.bits, -1, t)
                 }
-                eval_value(EvalKind.Integer, r.bits, t)
+                EvalValue(kind: EvalKind.Integer, bits: r.bits, ty: t)
             },
-            case Bool -> eval_value(EvalKind.Boolean, if text.equals("true") { 1 } else { 0 }, t),
-            case Unit -> eval_value(EvalKind.Unit, 0, t),
+            case Bool -> EvalValue(kind: EvalKind.Boolean, bits: if text.equals("true") { 1 } else { 0 }, ty: t),
+            case Unit -> EvalValue(kind: EvalKind.Unit, bits: 0, ty: t),
             case Builtin -> {
                 let max = eval_ends_in(&text, ".max")
                 if mir.tc.is_integer(t) && (max || eval_ends_in(&text, ".min")) {
                     let w = mir.tc.int_width(t)
                     let signed = not mir.tc.is_unsigned(t)
                     if max {
-                        return eval_value(EvalKind.Integer, tc_arith_max(w, signed), t)
+                        return EvalValue(kind: EvalKind.Integer, bits: tc_arith_max(w, signed), ty: t)
                     }
-                    return eval_value(EvalKind.Integer, tc_arith_min(w, signed), t)
+                    return EvalValue(kind: EvalKind.Integer, bits: tc_arith_min(w, signed), ty: t)
                 }
                 self.not_yet(&mir, f, "a source location")
             },
@@ -378,7 +377,7 @@ extension EvalProgram {
         } else {
             return self.not_yet(&mir, f, "a comparison of values the evaluator does not hold")
         }
-        eval_value(EvalKind.Boolean, if holds { 1 } else { 0 }, t)
+        EvalValue(kind: EvalKind.Boolean, bits: if holds { 1 } else { 0 }, ty: t)
     }
 
     // Value `v` as a comparison reads it: a raw-backed case as its raw
@@ -418,7 +417,7 @@ extension EvalProgram {
             if not r.ok {
                 return self.fault_value(&mir, f, r.bits, -1, t)
             }
-            return eval_value(EvalKind.Integer, r.bits, t)
+            return EvalValue(kind: EvalKind.Integer, bits: r.bits, ty: t)
         }
         let v = self.operand(&mir, f, o, &locals)
         if v.kind == EvalKind.Missing {
@@ -428,7 +427,7 @@ extension EvalProgram {
             if v.kind != EvalKind.Boolean {
                 return self.not_yet(&mir, f, "`not` of a value that is no `Bool`")
             }
-            return eval_value(EvalKind.Boolean, 1 - v.bits, v.ty)
+            return EvalValue(kind: EvalKind.Boolean, bits: 1 - v.bits, ty: v.ty)
         }
         if v.kind != EvalKind.Integer {
             return self.not_yet(&mir, f, "an operator over a value of no integer type")
@@ -468,7 +467,7 @@ extension EvalProgram {
         if not r.ok {
             return self.fault_value(&mir, f, v.bits, v.ty, rv.ty)
         }
-        eval_value(EvalKind.Integer, r.bits, rv.ty)
+        EvalValue(kind: EvalKind.Integer, bits: r.bits, ty: rv.ty)
     }
 
     // `Atomic(<int>)`: the aggregate whose cell holds the integer, the one
@@ -489,7 +488,7 @@ extension EvalProgram {
     // A typed arithmetic result at type `t`, or its fault reported.
     func result(&var self, mir: &MirProgram, f: Int, r: TcValue, t: Int) -> EvalValue {
         if r.ok {
-            return eval_value(EvalKind.Integer, r.bits, t)
+            return EvalValue(kind: EvalKind.Integer, bits: r.bits, ty: t)
         }
         self.fault(&mir, f, r.fault, r.bits, t)
     }

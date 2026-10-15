@@ -10,8 +10,8 @@ import sawllvm.bodies.{ll_param_name}
 import sawllvm.prims.{LL_FAIL_KINDS, LL_FAIL_PART_SIZE, LL_MESSAGE_LIMIT, LL_PART_BOOL, LL_PART_SIGNED,
                           LL_PART_UNSIGNED, ll_fail_reason, ll_fail_symbol}
 import sawcoro.lower.{CORO_STATE_START}
-import sawllvm.module.{LlEmitter, LlLowering, ll_descriptor_symbol, ll_emitter, ll_export_symbol, ll_is_scalar,
-                           ll_resume_symbol, ll_symbol, ll_value_type}
+import sawllvm.module.{LlEmitter, LlLowering, ll_descriptor_symbol, ll_export_symbol, ll_is_scalar, ll_resume_symbol,
+                       ll_symbol, ll_value_type}
 import sawllvm.text.{ll_quoted}
 import sawparse.grammar.{Alt}
 import sawresolve.model.{ResDeclKind}
@@ -28,7 +28,7 @@ import sawtypecheck.typeops.{TcClient}
 // the module names, which the driver passes clang as `-target`.
 public func llvm_emit_program(mono: &var MonoProgram, target: &var Target, lowering: LlLowering, speed: String,
                               module_triple: String) -> String {
-    var e = ll_emitter(move lowering)
+    var e = LlEmitter(lowering: move lowering)
     // The helpers copy with it whether or not any function does.
     e.declare("llvm.memcpy.p0.p0.i64", "declare void @llvm.memcpy.p0.p0.i64(ptr, ptr, i64, i1)")
     // A program's entry point defines the argument accessors (runtime/ABI.md,

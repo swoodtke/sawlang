@@ -28,25 +28,26 @@ import sawtypecheck.adjust.{TC_FIT_AMBIGUOUS, TC_FIT_CONVERTED, TC_FIT_EXACT, TC
                                 TC_PEEL_AMBIGUOUS, TC_PEEL_NONE}
 import sawtypecheck.candidates.{tc_contains}
 import sawtypecheck.checks.{tc_check_unsafe}
-import sawtypecheck.conform.{TcSubst, tc_args_subst, tc_copy_ints, tc_extension_sets}
+import sawtypecheck.conform.{TcSubst, tc_copy_ints, tc_extension_sets}
 import sawtypecheck.declarations.{tc_build_signatures}
 import sawtypecheck.arith.{TcFault, tc_arith_literal}
 import sawtypecheck.binders.{TcBinder, tc_binder_of, tc_binder_text}
-import sawtypecheck.fold.{TcFold, tc_fold_fault}
+import sawtypecheck.fold.{TcFold}
 import sawtypecheck.infer.{TcSolve, tc_solve}
 import sawtypecheck.members.{tc_build_members}
 import sawtypecheck.model.{TC_ANY_DEPTH, TC_BIND_DEFAULT, TC_EFFECT_BORROWS, TC_EFFECT_CONSUMES, TC_EFFECT_ESCAPING, TC_FLAG_STATIC, TC_FLAG_SYNTHESIZE_SHARED, TC_FLAG_UNSAFE_VAR, TC_FLAG_VARIADIC,
                                TC_TIER_EXPLICIT, TC_TIER_NOCOPY, TcAdjust, TcAdjustKind, TcAllowance, TcCall, TcCapture, TcLend, TcMember, TcParam, TcReceiver,
-                               TcRole, TcSig, TcSource, TcUse, tc_blank_sig}
+                               TcRole, TcSig, TcSource, TcUse}
 import sawtypecheck.overloads.{tc_check_redeclarations}
 import sawtypecheck.program.{TcProgram}
 import sawtypecheck.signatures.{TcContext}
 import sawtypecheck.spell.{tc_effects_text}
 import sawtypecheck.strings.{TcStringPosition}
-import sawtypecheck.tier.{tc_tier}
+// For the extension writing `satisfies`.
+import sawtypecheck.tier.{tc_max}
 import sawtypecheck.typeops.{TcClient}
 import sawtypecheck.types.{TC_HOLDS_PARAM, TcKind, TcType, tc_kind_wraps}
-import sawtypecheck.walks.{TcMemo, tc_memo, tc_memo_empty}
+import sawtypecheck.walks.{TcMemo, tc_memo}
 
 // Checks every body of every module checked in full.
 public func tc_check_bodies(p: &var TcProgram) {
@@ -3290,7 +3291,7 @@ extension TcProgram {
             if mi.kind == ResDeclKind.Field {
                 self.build_decl(member.decl)
                 let written = self.sigs[member.decl].result
-                let s = tc_args_subst(d, self.nominal_args(t))
+                let s = TcSubst(owner: d, args: self.nominal_args(t))
                 let ft = self.subst(written, &s)
                 self.poison_if(ft)
                 return self.set_type(e, ft, place)
@@ -3796,7 +3797,7 @@ extension TcProgram {
     // reported as no constant (SL:open-questions Q-shiftcount).
     func fold_before_instantiation(&var self, c: Int) -> TcFold {
         if self.mentions_generic_parameter(c) {
-            return tc_fold_fault(TcFault.NotConstant, -1, c)
+            return TcFold(fault: TcFault.NotConstant, ty: -1, at: c)
         }
         self.fold_constant(c)
     }
@@ -6168,10 +6169,6 @@ public struct TcZero {
     decl: Int
 }
 
-func tc_zero(fault: TcZeroFault, ty: Int, decl: Int) -> TcZero {
-    TcZero(fault: fault, ty: ty, decl: decl)
-}
-
 // The root a hint's proposed write would land in: its node, or -1, whether a
 // write through the place lands, and what declared a root binding.
 struct TcHintRoot {
@@ -6534,7 +6531,7 @@ extension TcProgram {
         self.build_decl(f)
         let d = self.nominal_decl(t)
         let written = self.sigs[f].result
-        let s = tc_args_subst(d, self.nominal_args(t))
+        let s = TcSubst(owner: d, args: self.nominal_args(t))
         self.subst(written, &s)
     }
 
@@ -7696,14 +7693,14 @@ extension TcProgram {
     //     check_zero_init_declaration
     func zero_fault(&var self, t: Int, env_ext: Int, walked: &var Vector<Int>) -> TcZero {
         if t < 0 || tc_contains(&walked, t) {
-            return tc_zero(TcZeroFault.Valid, t, -1)
+            return TcZero(fault: TcZeroFault.Valid, ty: t, decl: -1)
         }
         try! walked.push(t)
         let info = self.types.ty(t)
         // A reference is refused wherever a static or a field names one
         // (`type.reference-position`), so its zero is no second fault.
         if info.kind == TcKind.Error || info.kind == TcKind.Ref || info.kind == TcKind.Slice {
-            return tc_zero(TcZeroFault.Valid, t, -1)
+            return TcZero(fault: TcZeroFault.Valid, ty: t, decl: -1)
         }
         if info.kind == TcKind.Tuple {
             return self.zero_parts(t, env_ext, &var walked)
@@ -7712,17 +7709,17 @@ extension TcProgram {
             return self.zero_fault(info.b, env_ext, &var walked)
         }
         if info.kind == TcKind.Param && self.param_zero_init(info.decl, info.a, env_ext) {
-            return tc_zero(TcZeroFault.Valid, t, -1)
+            return TcZero(fault: TcZeroFault.Valid, ty: t, decl: -1)
         }
         if info.kind != TcKind.Nominal {
-            return tc_zero(TcZeroFault.Invalid, t, -1)
+            return TcZero(fault: TcZeroFault.Invalid, ty: t, decl: -1)
         }
         let d = info.decl
         if d == self.known.string || d == self.known.never || d == self.known.func_pointer {
-            return tc_zero(TcZeroFault.Invalid, t, -1)
+            return TcZero(fault: TcZeroFault.Invalid, ty: t, decl: -1)
         }
         if self.is_primitive_decl(d) || d == self.known.optional {
-            return tc_zero(TcZeroFault.Valid, t, -1)
+            return TcZero(fault: TcZeroFault.Valid, ty: t, decl: -1)
         }
         // A cell is built positionally from any module, so its payload is
         // what the zero constructs.
@@ -7731,26 +7728,26 @@ extension TcProgram {
         }
         if self.is_enum_decl(d) {
             if self.enum_zero_valid(d) {
-                return tc_zero(TcZeroFault.Valid, t, -1)
+                return TcZero(fault: TcZeroFault.Valid, ty: t, decl: -1)
             }
-            return tc_zero(TcZeroFault.Invalid, t, -1)
+            return TcZero(fault: TcZeroFault.Invalid, ty: t, decl: -1)
         }
         if not self.is_struct_decl(d) {
-            return tc_zero(TcZeroFault.Invalid, t, -1)
+            return TcZero(fault: TcZeroFault.Invalid, ty: t, decl: -1)
         }
         let route = self.construction_route(d)
         if route.override_init >= 0 {
-            return tc_zero(TcZeroFault.Override, t, route.override_init)
+            return TcZero(fault: TcZeroFault.Override, ty: t, decl: route.override_init)
         }
         let vouched = self.zero_init_vouches(t, env_ext, &var walked)
         if vouched.fault != TcZeroFault.Valid {
             return vouched
         }
         if vouched.decl >= 0 {
-            return tc_zero(TcZeroFault.Valid, t, -1)
+            return TcZero(fault: TcZeroFault.Valid, ty: t, decl: -1)
         }
         if route.hidden >= 0 {
-            return tc_zero(TcZeroFault.Hidden, t, route.hidden)
+            return TcZero(fault: TcZeroFault.Hidden, ty: t, decl: route.hidden)
         }
         let sub = self.owner_subst(t)
         let fields = self.struct_fields(d)
@@ -7766,7 +7763,7 @@ extension TcProgram {
                 return z
             }
         }
-        tc_zero(TcZeroFault.Valid, t, -1)
+        TcZero(fault: TcZeroFault.Valid, ty: t, decl: -1)
     }
 
     // `zero_fault` over each argument of `t`, the first fault.
@@ -7781,7 +7778,7 @@ extension TcProgram {
                 return z
             }
         }
-        tc_zero(TcZeroFault.Valid, t, -1)
+        TcZero(fault: TcZeroFault.Valid, ty: t, decl: -1)
     }
 
     // Whether a `ZeroInit` conformance the code being checked may use vouches
@@ -7824,10 +7821,10 @@ extension TcProgram {
                 }
             }
             if met {
-                return tc_zero(TcZeroFault.Valid, t, 0)
+                return TcZero(fault: TcZeroFault.Valid, ty: t, decl: 0)
             }
         }
-        tc_zero(TcZeroFault.Valid, t, -1)
+        TcZero(fault: TcZeroFault.Valid, ty: t, decl: -1)
     }
 
     // Whether parameter `index` of `owner` is bound by `ZeroInit`: by its
@@ -8931,7 +8928,7 @@ extension TcProgram {
 
     // Whether `t` mentions a parameter of declaration `owner`.
     func mentions_owner(&self, t: Int, owner: Int) -> Bool {
-        var seen = tc_memo_empty()
+        var seen = TcMemo.empty()
         self.mentions_owner_in(t, owner, &var seen)
     }
 
@@ -10094,7 +10091,7 @@ extension TcProgram {
             let cand = TcCand(decl: c, kind: TcCandKind.Case, member: -1, owner: t)
             let count = self.cand_param_count(cand)
             let d = self.res.decls[c].parent
-            let sub = tc_args_subst(d, self.nominal_args(t))
+            let sub = TcSubst(owner: d, args: self.nominal_args(t))
             k = 0
             while k < count {
                 let raw = self.cand_param_type(cand, k)
@@ -10798,7 +10795,7 @@ extension TcProgram {
     func add_capture(&var self, e: Int, d: Int, binding: Int, site: Int, entry: Int, escapes: Bool) {
         let t = self.local_types[binding]
         let receiver = self.has_alt(binding, Alt.Decl_Param_Receiver)
-        var s = tc_blank_sig()
+        var s = TcSig.blank()
         if d >= 0 {
             s = self.sigs[d]
         }
@@ -11268,7 +11265,7 @@ extension TcProgram {
 
     // Whether `t` mentions a type parameter, `Self` or a projection.
     func open_tier(&self, t: Int) -> Bool {
-        var seen = tc_memo_empty()
+        var seen = TcMemo.empty()
         self.open_tier_in(t, &var seen)
     }
 

@@ -9,10 +9,11 @@ import sawresolve.model.{ResDeclKind}
 import sawtypecheck.model.{TcAdjust, TcAdjustKind, TcAllowance}
 import sawtypecheck.program.{TcProgram}
 import sawtypecheck.signatures.{TcContext}
-import sawtypecheck.tier.{tc_tier}
+// For the extension writing `satisfies`.
+import sawtypecheck.tier.{tc_max}
 import sawtypecheck.typeops.{TcClient}
 import sawtypecheck.types.{TcKind, TcType}
-import sawtypecheck.walks.{TcMemo, tc_memo_empty}
+import sawtypecheck.walks.{TcMemo}
 
 // How a conversion fits: not at all, through an adjustment, or exactly.
 public static TC_FIT_NONE: Int = 0
@@ -243,7 +244,7 @@ extension TcProgram {
     // that takes it. An abstract generic peels nothing. TC_PEEL_NONE when no
     // layer takes it, TC_PEEL_AMBIGUOUS when both of a Result's do.
     public func peel(&self, slot: Int, kind: TcClient, name: Int, d: Int) -> Int {
-        var results = tc_memo_empty()
+        var results = TcMemo.empty()
         self.peel_in(slot, kind, name, d, &var results)
     }
 

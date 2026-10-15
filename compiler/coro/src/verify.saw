@@ -24,7 +24,7 @@ import sawcoro.frames.{coro_driven_child, coro_frame_of}
 import sawcoro.lower.{CORO_PARK_FD, CORO_PARK_READY, CORO_PARK_TIMER, CoroContext, coro_call_decl, coro_cancel_read,
                       coro_child_offset, coro_context_shape, coro_frame_lowered}
 import sawcoro.program.{CoroBefore, CoroBeforeBody, CoroBeforePoint, CoroFrame, CoroProgram, CoroValue,
-                        CoroValueKind, coro_no_before}
+                        CoroValueKind}
 import sawcoro.suspends.{coro_call_suspends}
 import sawdrops.program.{DropsProgram}
 import sawmir.dump.{mir_dump_module}
@@ -75,7 +75,7 @@ enum CoroVerifyPark {
 // kept as they are, and a frame's suspension points with the conditions the
 // initialisation analysis gives each local there.
 public func coro_verify_snapshot(coro: &var CoroProgram) {
-    coro.before = coro_no_before()
+    coro.before = CoroBefore.empty()
     var k = 0
     while k < coro.mono.items.len() {
         let item = k

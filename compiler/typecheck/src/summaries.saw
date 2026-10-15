@@ -15,15 +15,15 @@ import sawparse.grammar.{Alt}
 import sawresolve.dump.{res_sort_strings}
 import sawresolve.model.{ResDecl, ResDeclKind, ResModule}
 import sawresolve.lang.{res_is_park_point}
-import sawresolve.names.{ResIndex, res_index}
+import sawresolve.names.{ResIndex}
 import sawresolve.prelude.{res_is_test_intrinsic}
-import sawtypecheck.conform.{TcSubst, tc_args_subst}
+import sawtypecheck.conform.{TcSubst}
 import sawtypecheck.model.{TC_BIND_DEFAULT, TC_COPY_COVERED, TC_EFFECT_SYNC, TC_FLAG_BLOCKING, TC_FLAG_DEFAULT_BODY,
                                TC_FORBID_CLOSURE, TC_FORBID_ERASE, TC_FORBID_SYNC, TC_ITEM_CALL, TC_ITEM_COPY,
                                TC_ITEM_ERASE, TC_SUMMARY_BODY, TC_SUMMARY_DECLARED, TC_SUMMARY_NONE, TC_SUMMARY_TABLE,
                                TC_SUMMARY_UNTABLED, TC_TIER_COPY, TcAdjust, TcAdjustKind, TcAtom,
                                TcCall, TcConformance, TcDefault, TcItem, TcParam, TcRole, TcSig, TcStatus,
-                               TcStatusKind, TcSummary, TcTier, TcUnit, TcUse, tc_blank_summary}
+                               TcStatusKind, TcSummary, TcTier, TcUnit, TcUse}
 import sawtypecheck.program.{TcProgram}
 import sawtypecheck.signatures.{TcContext}
 import sawtypecheck.spell.{tc_effects_text}
@@ -31,7 +31,7 @@ import sawtypecheck.stdsuspension.{TC_STD_NONSYNC, TC_STD_SUSPENDS, tc_std_suspe
 import sawtypecheck.tier.{tc_bit}
 import sawtypecheck.typeops.{TcClient}
 import sawtypecheck.types.{TC_HOLDS_PARAM, TcKind, TcType}
-import sawtypecheck.walks.{TcMemo, tc_memo, tc_memo_empty}
+import sawtypecheck.walks.{TcMemo, tc_memo}
 
 // What evaluating a body's items gathers.
 public struct TcAcc {
@@ -49,9 +49,11 @@ public struct TcAcc {
 
 extension TcAcc: NoCopy {}
 
-public func tc_acc(owner: Int, unit: Int) -> TcAcc {
-    TcAcc(suspends: false, nonsync: false, suspend_atoms: Vector<TcAtom>(), nonsync_atoms: Vector<TcAtom>(),
-          copies: Vector<TcAtom>(), forbids: Vector<TcAtom>(), owner: owner, unit: unit)
+extension TcAcc {
+    public init(owner: Int, unit: Int) -> TcAcc {
+        TcAcc(suspends: false, nonsync: false, suspend_atoms: Vector<TcAtom>(), nonsync_atoms: Vector<TcAtom>(),
+              copies: Vector<TcAtom>(), forbids: Vector<TcAtom>(), owner: owner, unit: unit)
+    }
 }
 
 // Solves every summary (phase 2).
@@ -80,7 +82,7 @@ extension TcProgram {
         let total = self.res.decls.len()
         var k = 0
         while k < total {
-            try! self.summaries.push(tc_blank_summary())
+            try! self.summaries.push(TcSummary.blank())
             try! self.decl_unit.push(-1)
             k = k + 1
         }
@@ -150,7 +152,7 @@ extension TcProgram {
     func summarize_declared(&var self, d: Int) {
         let info = self.res.decls[d]
         let s = self.sigs[d]
-        var summary = tc_blank_summary()
+        var summary = TcSummary.blank()
         summary.suspend_first = self.atoms.len()
         summary.nonsync_first = self.atoms.len()
         summary.copy_first = self.atoms.len()
@@ -239,7 +241,7 @@ extension TcProgram {
                 let end = self.items.len()
                 self.default_at.add(d, param, at)
                 try! self.defaults.push(TcDefault(decl: d, param: param, unit: u, item_first: run_first,
-                                                  item_end: end, summary: tc_blank_summary()))
+                                                  item_end: end, summary: TcSummary.blank()))
             }
             var top = self.units[u]
             top.item_end = self.items.len()
@@ -446,7 +448,7 @@ extension TcProgram {
                 pending = pending + 1
             }
             if function {
-                var blank = tc_blank_summary()
+                var blank = TcSummary.blank()
                 blank.state = TC_SUMMARY_BODY
                 blank.suspend_first = self.atoms.len()
                 blank.nonsync_first = self.atoms.len()
@@ -541,7 +543,7 @@ extension TcProgram {
     // the argument out evaluates it, so its effect is that caller's.
     public func summarize_unit(&var self, u: Int) -> TcAcc {
         let unit = self.units[u]
-        var acc = tc_acc(unit.decl, u)
+        var acc = TcAcc(owner: unit.decl, unit: u)
         var k = unit.item_first
         if unit.decl >= 0 {
             let d = unit.decl
@@ -568,7 +570,7 @@ extension TcProgram {
     // summary read on behalf of unit `reader`, or of none when it is -1.
     func summarize_items(&var self, u: Int, first: Int, end: Int, reader: Int) -> TcAcc {
         let unit = self.units[u]
-        var acc = tc_acc(unit.decl, reader)
+        var acc = TcAcc(owner: unit.decl, unit: reader)
         self.gather_items(u, first, end, &var acc)
         move acc
     }
@@ -589,7 +591,7 @@ extension TcProgram {
                 if own && not in_sync {
                     self.eval_call(item.node, &var acc)
                 } else {
-                    var inner = tc_acc(unit.decl, reader)
+                    var inner = TcAcc(owner: unit.decl, unit: reader)
                     self.eval_call(item.node, &var inner)
                     if in_sync {
                         self.join_sync(&var acc, &var inner, item.node)
@@ -696,7 +698,7 @@ extension TcProgram {
 
     // The summary a unit's gathered facts make, its lists deduplicated.
     public func summary_from(&var self, d: Int, acc: &var TcAcc) -> TcSummary {
-        var s = tc_blank_summary()
+        var s = TcSummary.blank()
         s.state = TC_SUMMARY_BODY
         let sync = self.declares_sync(d)
         s.suspends = acc.suspends && not sync
@@ -832,7 +834,7 @@ extension TcProgram {
     //   MirProgram.call_effect
     public func eval_target(&var self, e: Int, acc: &var TcAcc) {
         if self.spawn_roots[e] || self.drive_roots[e] {
-            var task = tc_acc(acc.owner, acc.unit)
+            var task = TcAcc(owner: acc.owner, unit: acc.unit)
             self.eval_made_call(e, &var task)
             self.join_spawned(&var acc, &var task)
             return
@@ -1153,7 +1155,7 @@ extension TcProgram {
             try! args.push(self.insts[c.inst_first + k])
             k = k + 1
         }
-        let own = tc_args_subst(d, move args)
+        let own = TcSubst(owner: d, args: move args)
         let first = self.subst(t, &own)
         if c.owner < 0 {
             return first
@@ -1175,7 +1177,7 @@ extension TcProgram {
                 k = k + 1
             }
         }
-        var s = tc_args_subst(owner, move args)
+        var s = TcSubst(owner: owner, args: move args)
         s.self_type = r
         self.bound_projections(d, r, &var s)
         self.subst(t, &s)
@@ -1222,7 +1224,7 @@ extension TcProgram {
     // is not, whatever they are. `site` is the node that needs it, `origin`
     // the copy that started the requirement.
     public func copy_needs(&var self, t: Int, site: Int, origin: Int, acc: &var TcAcc) -> Bool {
-        var seen = tc_memo_empty()
+        var seen = TcMemo.empty()
         self.copy_needs_in(t, site, origin, &var acc, &var seen)
     }
 
@@ -1528,7 +1530,7 @@ extension TcProgram {
     // Every row of the std suspension table names a std function: a row no
     // function answers to is stale.
     func verify_std_table(&self, out: &var Vector<String>) {
-        var matched = res_index()
+        var matched = ResIndex()
         var d = 0
         while d < self.res.decls.len() {
             let info = self.res.decls[d]
@@ -1595,7 +1597,7 @@ extension TcProgram {
             k = k + 1
             let unit = self.units[item.unit]
             if item.kind == TC_ITEM_CALL && unit.node >= 0 {
-                var acc = tc_acc(top.decl, -1)
+                var acc = TcAcc(owner: top.decl, unit: -1)
                 self.eval_call(item.node, &var acc)
                 if acc.suspends {
                     try! out.push(self.node_problem(item.node, "a closure body's call may suspend, and nothing refused it"))
@@ -1608,7 +1610,7 @@ extension TcProgram {
                     let reqs = self.dispatched_requirements(tr)
                     var j = 0
                     while j < reqs.len() {
-                        var acc = tc_acc(top.decl, -1)
+                        var acc = TcAcc(owner: top.decl, unit: -1)
                         let req = reqs[j]
                         self.eval_condition(from, req, item.node, true, &var acc)
                         if acc.suspends {

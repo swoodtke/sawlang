@@ -17,7 +17,7 @@ import sawmono.dump.{mono_dump_layouts}
 import sawmono.program.{MonoItemKind, MonoProgram, mono_program}
 import sawmono.worklist.{mono_rules}
 import sawasserts.layout.{AssertsVerdict, asserts_verdict}
-import sawtarget.layout.{Target, target_named}
+import sawtarget.layout.{Target}
 import sawtypecheck.bodies.{tc_check_bodies}
 
 // How `sawc2 mono` treats one entry file.
@@ -113,7 +113,7 @@ func mono_check_layout_asserts(mono: &var MonoProgram) {
     }
     // Every target sawc2 describes is LP64 with natural alignment, so one
     // answers for all of them, as the layout-assert funnel's does.
-    var target = target_named("arm64-apple-darwin")
+    var target = Target(triple: "arm64-apple-darwin")
     var k = 0
     while k < mono.items.len() {
         let it = mono.items[k]

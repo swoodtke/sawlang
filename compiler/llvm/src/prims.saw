@@ -484,8 +484,10 @@ public struct LlParts {
 
 extension LlParts: NoCopy {}
 
-public func ll_parts() -> LlParts {
-    LlParts(kinds: Vector<Int>(), firsts: Vector<String>(), seconds: Vector<String>())
+extension LlParts {
+    public init() -> LlParts {
+        LlParts(kinds: Vector<Int>(), firsts: Vector<String>(), seconds: Vector<String>())
+    }
 }
 
 public func ll_parts_push(parts: &var LlParts, kind: Int, first: String, second: String) {

@@ -6,13 +6,14 @@
 
 import sawresolve.imports.{res_decl_binding}
 import sawresolve.model.{ResBinding, ResBindKind, ResDecl, ResDeclKind}
-import sawtypecheck.conform.{TcSubst, tc_args_subst, tc_copy_ints}
+import sawtypecheck.conform.{TcSubst, tc_copy_ints}
 import sawtypecheck.declarations.{tc_build_signatures}
 import sawtypecheck.members.{tc_build_members}
 import sawtypecheck.model.{TC_FLAG_STATIC, TcMember, TcSig, TcSource, TcUnmetBound}
 import sawtypecheck.program.{TcProgram}
 import sawtypecheck.signatures.{TcContext}
-import sawtypecheck.tier.{tc_tier}
+// For the extension writing `satisfies`.
+import sawtypecheck.tier.{tc_max}
 import sawtypecheck.typeops.{TcClient}
 import sawtypecheck.types.{TcKind, TcType}
 
@@ -392,7 +393,7 @@ extension TcProgram {
                            assoc_types: Vector<Int>())
         }
         let args = self.nominal_args(owner)
-        let by_args = tc_args_subst(info.decl, tc_copy_ints(&args))
+        let by_args = TcSubst(owner: info.decl, args: tc_copy_ints(&args))
         var decls = Vector<Int>()
         var types = Vector<Int>()
         var k = 0

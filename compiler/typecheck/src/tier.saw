@@ -9,7 +9,7 @@
 
 import sawresolve.dump.{res_sort_strings}
 import sawresolve.model.{ResDecl, ResDeclKind}
-import sawtypecheck.conform.{TcSubst, tc_args_subst}
+import sawtypecheck.conform.{TcSubst}
 import sawtypecheck.model.{TC_TIER_COPY, TC_TIER_EXPLICIT, TC_TIER_NOCOPY, TcConformance,
                                TcGeneric, TcObligation, TcSig, TcTier}
 import sawtypecheck.program.{TcProgram}
@@ -52,8 +52,10 @@ static TC_SATISFY_LEANING: Int = -4
 // A run's lowest frame reached back to, when no cycle has reached any.
 static TC_SATISFY_NO_LOW: Int = 0x7FFF_FFFF_FFFF
 
-public func tc_tier(base: Int, mask: Int, declared: Bool) -> TcTier {
-    TcTier(state: TC_TIER_DONE, base: base, mask: mask, declared: declared)
+extension TcTier {
+    public init(base: Int, mask: Int, declared: Bool) -> TcTier {
+        TcTier(state: TC_TIER_DONE, base: base, mask: mask, declared: declared)
+    }
 }
 
 public func tc_max(a: Int, b: Int) -> Int {
@@ -124,7 +126,7 @@ extension TcProgram {
             return known
         }
         if known.state == TC_TIER_COMPUTING {
-            return tc_tier(TC_TIER_COPY, 0, false)
+            return TcTier(base: TC_TIER_COPY, mask: 0, declared: false)
         }
         var marking = known
         marking.state = TC_TIER_COMPUTING
@@ -137,17 +139,17 @@ extension TcProgram {
     func classify(&var self, d: Int) -> TcTier {
         let declared = self.declared_policy(d)
         if declared >= 0 {
-            return tc_tier(declared, 0, true)
+            return TcTier(base: declared, mask: 0, declared: true)
         }
         let info = self.res.decls[d]
         if d == self.known.optional {
-            return tc_tier(TC_TIER_COPY, tc_bit(0), false)
+            return TcTier(base: TC_TIER_COPY, mask: tc_bit(0), declared: false)
         }
         if d == self.known.result {
-            return tc_tier(TC_TIER_COPY, tc_bit(0) | tc_bit(1), false)
+            return TcTier(base: TC_TIER_COPY, mask: tc_bit(0) | tc_bit(1), declared: false)
         }
         if info.kind == ResDeclKind.Primitive || info.node < 0 {
-            return tc_tier(TC_TIER_COPY, 0, false)
+            return TcTier(base: TC_TIER_COPY, mask: 0, declared: false)
         }
         var base = TC_TIER_COPY
         var mask = 0
@@ -176,7 +178,7 @@ extension TcProgram {
             }
             k = k + 1
         }
-        tc_tier(base, mask, false)
+        TcTier(base: base, mask: mask, declared: false)
     }
 
     // The tier type `t` contributes to type `cls`, whose parameters it may
@@ -191,7 +193,7 @@ extension TcProgram {
     func type_tier_in(&var self, t: Int, cls: Int, parts: &var TcMemo) -> TcTier {
         let known = parts.get(t, 0)
         if known >= 0 {
-            return tc_tier(known, parts.get(t, 1), false)
+            return TcTier(base: known, mask: parts.get(t, 1), declared: false)
         }
         let tier = self.type_tier_of(t, cls, &var parts)
         parts.set(t, 0, tier.base)
@@ -216,13 +218,13 @@ extension TcProgram {
                     }
                     k = k + 1
                 }
-                tc_tier(base, mask, false)
+                TcTier(base: base, mask: mask, declared: false)
             },
             case Param -> {
                 if info.decl == cls {
-                    return tc_tier(TC_TIER_COPY, tc_bit(info.a), false)
+                    return TcTier(base: TC_TIER_COPY, mask: tc_bit(info.a), declared: false)
                 }
-                tc_tier(TC_TIER_NOCOPY, 0, false)
+                TcTier(base: TC_TIER_NOCOPY, mask: 0, declared: false)
             },
             case Tuple -> {
                 var base = TC_TIER_COPY
@@ -235,13 +237,13 @@ extension TcProgram {
                     mask = mask | part.mask
                     k = k + 1
                 }
-                tc_tier(base, mask, false)
+                TcTier(base: base, mask: mask, declared: false)
             },
             case Array -> self.type_tier_in(info.b, cls, &var parts),
-            case Any -> tc_tier(TC_TIER_NOCOPY, 0, false),
-            case SelfType -> tc_tier(TC_TIER_NOCOPY, 0, false),
-            case Projection -> tc_tier(TC_TIER_NOCOPY, 0, false),
-            case _ -> tc_tier(TC_TIER_COPY, 0, false)
+            case Any -> TcTier(base: TC_TIER_NOCOPY, mask: 0, declared: false),
+            case SelfType -> TcTier(base: TC_TIER_NOCOPY, mask: 0, declared: false),
+            case Projection -> TcTier(base: TC_TIER_NOCOPY, mask: 0, declared: false),
+            case _ -> TcTier(base: TC_TIER_COPY, mask: 0, declared: false)
         }
     }
 
@@ -696,13 +698,14 @@ struct TcSatisfyRun {
 
 extension TcSatisfyRun: NoCopy {}
 
-func tc_satisfy_run(viewer: Int, in_test: Bool) -> TcSatisfyRun {
-    TcSatisfyRun(states: tc_memo(), leaning_types: Vector<Int>(), leaning_traits: Vector<Int>(), leaning: 0,
-                 frames: 0, low: TC_SATISFY_NO_LOW, overflow: -1, overflow_trait: -1,
-                 viewer: viewer, in_test: in_test, hidden: -1, hidden_trait: -1)
-}
-
 extension TcSatisfyRun {
+    init(viewer: Int, in_test: Bool) -> TcSatisfyRun {
+        TcSatisfyRun(states: tc_memo(), leaning_types: Vector<Int>(), leaning_traits: Vector<Int>(), leaning: 0,
+                     frames: 0, low: TC_SATISFY_NO_LOW, overflow: -1, overflow_trait: -1,
+                     viewer: viewer, in_test: in_test, hidden: -1, hidden_trait: -1)
+    }
+
+
     // Lowers the frame the pair being decided leans on to `frame`.
     func lean(&var self, frame: Int) {
         if frame < self.low {
@@ -777,7 +780,7 @@ extension TcProgram {
     // `in_test`, may use (`conformance_visible`).
     public func satisfies(&var self, t: Int, tr: Int, env_decl: Int, env_ext: Int, viewer: Int,
                           in_test: Bool) -> Bool {
-        var run = tc_satisfy_run(viewer, in_test)
+        var run = TcSatisfyRun(viewer: viewer, in_test: in_test)
         let answer = self.satisfies_in(t, tr, env_decl, env_ext, &var run)
         if run.overflow >= 0 {
             self.refuse_instantiation_depth(run.overflow, run.overflow_trait)
@@ -790,7 +793,7 @@ extension TcProgram {
     // deleted.
     public func satisfies_without(&var self, t: Int, tr: Int, hidden: Int, env_decl: Int, env_ext: Int,
                                   viewer: Int, in_test: Bool) -> Bool {
-        var run = tc_satisfy_run(viewer, in_test)
+        var run = TcSatisfyRun(viewer: viewer, in_test: in_test)
         run.hidden = hidden
         run.hidden_trait = tr
         let answer = self.satisfies_in(t, tr, env_decl, env_ext, &var run)
@@ -1117,7 +1120,7 @@ extension TcProgram {
             return false
         }
         let arguments = self.nominal_args(t)
-        let subst = tc_args_subst(d, move arguments)
+        let subst = TcSubst(owner: d, args: move arguments)
         let members = self.members_of(d)
         var k = 0
         while k < members.len() {
@@ -1155,7 +1158,7 @@ extension TcProgram {
             return ""
         }
         let arguments = self.nominal_args(t)
-        let subst = tc_args_subst(info.decl, move arguments)
+        let subst = TcSubst(owner: info.decl, args: move arguments)
         let members = self.members_of(info.decl)
         var k = 0
         while k < members.len() {

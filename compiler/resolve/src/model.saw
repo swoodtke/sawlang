@@ -148,12 +148,14 @@ public struct ResBinding {
     node: Int
 }
 
-public func res_unbound() -> ResBinding {
-    ResBinding(kind: ResBindKind.Unbound, module: -1, decl: -1, name: -1, node: -1)
-}
+extension ResBinding {
+    public static func unbound() -> ResBinding {
+        ResBinding(kind: ResBindKind.Unbound, module: -1, decl: -1, name: -1, node: -1)
+    }
 
-public func res_error_binding() -> ResBinding {
-    ResBinding(kind: ResBindKind.Error, module: -1, decl: -1, name: -1, node: -1)
+    public static func error() -> ResBinding {
+        ResBinding(kind: ResBindKind.Error, module: -1, decl: -1, name: -1, node: -1)
+    }
 }
 
 // What a pending name asks of the traits' parents.

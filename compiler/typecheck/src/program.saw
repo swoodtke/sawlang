@@ -5,11 +5,11 @@
 import sawparse.grammar.{Alt}
 import sawresolve.collect.{res_is_top_level}
 import sawresolve.model.{ResBindKind, ResBinding, ResDecl, ResDeclKind, ResModule}
-import sawresolve.names.{ResIndex, res_index}
+import sawresolve.names.{ResIndex}
 import sawresolve.program.{ResProgram}
 import sawtypecheck.model.{TcAdjust, TcAllowance, TcAtom, TcCall, TcCapture, TcConformance, TcDefault, TcDiag,
                                TcGeneric, TcItem, TcMember, TcObligation, TcParam, TcSig, TcStatus, TcSummary,
-                               TcTier, TcUnit, TcUse, tc_blank_sig}
+                               TcTier, TcUnit, TcUse}
 import sawtypecheck.types.{TC_HOLDS_PARAM, TcKind, TcType, TcTypes, tc_types}
 import sawtypecheck.walks.{TcMemo, tc_memo}
 
@@ -334,7 +334,7 @@ public func tc_program(res: ResProgram) -> TcProgram {
     var export_nodes = Vector<Int>()
     var k = 0
     while k < decl_total {
-        try! sigs.push(tc_blank_sig())
+        try! sigs.push(TcSig.blank())
         try! firsts.push(-1)
         try! counts.push(0)
         try! symbols.push("")
@@ -364,7 +364,7 @@ public func tc_program(res: ResProgram) -> TcProgram {
                       generics: Vector<TcGeneric>(), traits: Vector<Int>(),
                       params: Vector<TcParam>(), node_types: move node_types,
                       type_builds: move type_builds,
-                      param_owners: res_index(), extensions_of: res_index(),
+                      param_owners: ResIndex(), extensions_of: ResIndex(),
                       conformances: Vector<TcConformance>(), statuses: Vector<TcStatus>(),
                       members: Vector<TcMember>(), member_first: move firsts,
                       member_count: move counts, tiers: Vector<TcTier>(),
@@ -389,14 +389,14 @@ public func tc_program(res: ResProgram) -> TcProgram {
                       chosen_twin: -1, unmet_member: -1, unmet_owner: -1,
                       placement_value: -1, borrow_captures: Vector<Int>(), param_leaves: Vector<Int>(), referenced_params: Vector<Int>(), fresh_placements: Vector<Int>(), relocations: Vector<Int>(), relocation_places: Vector<Int>(), relocation_types: Vector<Int>(), relocation_decls: Vector<Int>(), current_root: -1, poisoned: Vector<Int>(), borrow_head: -1,
                       summaries: Vector<TcSummary>(), atoms: Vector<TcAtom>(), units: Vector<TcUnit>(),
-                      items: Vector<TcItem>(), decl_unit: Vector<Int>(), summary_deps: res_index(),
-                      defaults: Vector<TcDefault>(), default_at: res_index(),
-                      std_verdicts: res_index(), std_keys: Vector<Int>(), untabled: Vector<Int>(),
+                      items: Vector<TcItem>(), decl_unit: Vector<Int>(), summary_deps: ResIndex(),
+                      defaults: Vector<TcDefault>(), default_at: ResIndex(),
+                      std_verdicts: ResIndex(), std_keys: Vector<Int>(), untabled: Vector<Int>(),
                       summary_problems: Vector<String>(), summary_problem_modules: Vector<Int>(),
                       negated_literal: -1, meets_trait: Vector<Int>(), closures: Vector<Int>(),
                       closure_decls: Vector<Int>(), capture_first: Vector<Int>(),
                       capture_count: Vector<Int>(), captures: Vector<TcCapture>(),
-                      closure_index: res_index(), closure_escaping: Vector<Bool>(),
+                      closure_index: ResIndex(), closure_escaping: Vector<Bool>(),
                       implied_copies: Vector<Int>(), narrow_atomics: Vector<Int>(), narrow_reported: Vector<Bool>(),
                       layout_asserts: Vector<Int>(), layout_assert_messages: Vector<Int>(),
                       layout_assert_decls: Vector<Int>(), layout_assert_generic: Vector<Bool>(),

@@ -17,7 +17,7 @@ import sawtypecheck.candidates.{tc_contains}
 import sawtypecheck.conform.{tc_copy_ints}
 import sawtypecheck.model.{TC_COPY_COVERED, TcAdjustKind, TcUse}
 import sawtypecheck.program.{TcProgram}
-import sawtypecheck.summaries.{tc_acc}
+import sawtypecheck.summaries.{TcAcc}
 import sawtypecheck.typeops.{TcClient}
 
 // A tracked local's slot in a path state: not yet read by value, or moved by
@@ -222,7 +222,7 @@ extension TcProgram {
             if a >= 0 && self.adjusts[a].kind == TcAdjustKind.Deref {
                 continue
             }
-            var acc = tc_acc(d, -1)
+            var acc = TcAcc(owner: d, unit: -1)
             let t = self.expr_types[id]
             if not self.copy_needs(t, id, id, &var acc) || acc.copies.len() == 0 {
                 continue

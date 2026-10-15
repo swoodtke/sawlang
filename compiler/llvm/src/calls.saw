@@ -8,7 +8,7 @@
 import sawborrowck.program.{BorrowckProgram}
 import sawdrops.program.{DropsProgram}
 import sawllvm.prims.{LL_MESSAGE_LIMIT, LL_PART_BOOL, LL_PART_RUN, LL_PART_SIGNED, LL_PART_UNSIGNED, LlParts,
-                          ll_parts, ll_parts_push}
+                      ll_parts_push}
 import sawllvm.module.{LlEmitter, ll_is_scalar, ll_symbol, ll_value_type}
 import sawllvm.ops.{ll_lossless}
 import sawllvm.places.{ll_local_slot}
@@ -556,7 +556,7 @@ extension LlEmitter {
     // the call was handed by `move` is the call's to drop.
     func print_call(&var self, mono: &var MonoProgram, target: &var Target, info: &MirCall) {
         let node = info.node
-        var parts = ll_parts()
+        var parts = LlParts()
         self.message_parts(&var mono, &var target, &info, 0, &var parts)
         var k = 0
         while k < parts.kinds.len() {
@@ -611,7 +611,7 @@ extension LlEmitter {
             self.fail_message(&var mono, node, &message)
             return
         }
-        var parts = ll_parts()
+        var parts = LlParts()
         self.message_parts(&var mono, &var target, &info, from, &var parts)
         self.fail_parts(&var mono, node, lead, &parts)
     }
@@ -631,7 +631,7 @@ extension LlEmitter {
             self.prepare(&var mono, &var target, first, node, &var parts)
             return
         }
-        var values = ll_parts()
+        var values = LlParts()
         var k = from + 1
         while k < info.arg_count {
             let arg = mono.dp.bc.mir.lists[info.arg_first + k]

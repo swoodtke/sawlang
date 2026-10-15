@@ -6,7 +6,7 @@
 import sawmir.dump.{mir_operator_name}
 import sawmir.model.{MirDiag, MirFuncKind}
 import sawmir.program.{MirProgram}
-import saweval.program.{EvalEnd, EvalKind, EvalProgram, EvalValue, eval_missing}
+import saweval.program.{EvalEnd, EvalKind, EvalProgram, EvalValue}
 import sawtypecheck.arith.{TcFault, tc_arith_max, tc_arith_min, tc_arith_text}
 import sawtypecheck.program.{TcProgram}
 import sawtypecheck.spell.{tc_effects_text}
@@ -62,7 +62,7 @@ extension EvalProgram {
         try! msg.append(" is not evaluated as a constant in the bootstrap slice yet")
         self.report_at(&mir, f, "slice.not-yet", msg.build())
         self.last_fault = TcFault.NotConstant
-        eval_missing(TcFault.NotConstant)
+        EvalValue.missing(fault: TcFault.NotConstant)
     }
 
     // An arithmetic fault in function `f`, in an operation at type `t`.
@@ -93,7 +93,7 @@ extension EvalProgram {
         }
         self.report_at(&mir, f, rule, msg.build())
         self.last_fault = fault
-        eval_missing(fault)
+        EvalValue.missing(fault: fault)
     }
 
     // Value `bits` of type `from` (-1 for a literal's magnitude, read
@@ -114,7 +114,7 @@ extension EvalProgram {
         try! msg.append(")")
         self.report_at(&mir, f, "eval.not-fit", msg.build())
         self.last_fault = TcFault.NotFit
-        eval_missing(TcFault.NotFit)
+        EvalValue.missing(fault: TcFault.NotFit)
     }
 
     // Integer type `t`'s range.

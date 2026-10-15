@@ -11,9 +11,9 @@ import sawmir.program.{MirProgram}
 import sawtypecheck.program.{TcProgram}
 import sawmir.model.{MirDiag}
 import sawparse.tree.{AstNode}
-import sawresolve.names.{ResIndex, res_index}
+import sawresolve.names.{ResIndex}
 import sawresolve.model.{ResDeclKind, ResModuleKind}
-import sawtarget.layout.{Target, target_named}
+import sawtarget.layout.{Target}
 import sawresolve.program.{ResProgram}
 import sawtypecheck.checks.{tc_check_unsafe}
 import sawtypecheck.typeops.{TcClient}
@@ -185,7 +185,7 @@ public func mono_program(dp: DropsProgram, blocked: Bool) -> MonoProgram {
         try! bodies.push(-1)
         k = k + 1
     }
-    MonoProgram(dp: move dp, items: Vector<MonoItem>(), item_types: Vector<Int>(), by_key: res_index(),
+    MonoProgram(dp: move dp, items: Vector<MonoItem>(), item_types: Vector<Int>(), by_key: ResIndex(),
                 call_items: Vector<Int>(), closure_items: Vector<Int>(), concrete_first: first,
                 diags: Vector<MirDiag>(), problems: Vector<String>(), static_kinds: move kinds,
                 static_bits: move bits, main_item: -1, panic_item: -1, literal_item: -1, bytes_item: -1,
@@ -195,7 +195,7 @@ public func mono_program(dp: DropsProgram, blocked: Bool) -> MonoProgram {
                 equals_item: -1, compare_item: -1, builder_new_item: -1, builder_fixed_item: -1,
                 builder_build_item: -1, builder_len_item: -1, literal_inits: Vector<Int>(),
                 literal_pushes: Vector<Int>(), depth_call: -1, depth_glue: -1, current: -1, blocked: blocked,
-                body_of: move bodies, defaults: res_index(), runtime: false, export_items: Vector<Int>(),
+                body_of: move bodies, defaults: ResIndex(), runtime: false, export_items: Vector<Int>(),
                 lowerings: 0)
 }
 
@@ -206,7 +206,7 @@ extension MonoProgram {
     // the evaluated value of every raw-backed case, which its enum's layout
     // reads.
     public func target_for(&self, triple: String) -> Target {
-        var target = target_named(triple)
+        var target = Target(triple: triple)
         var d = 0
         while d < self.static_kinds.len() {
             if self.static_kinds[d] == 0 && self.dp.bc.mir.tc.res.decls[d].kind == ResDeclKind.Case {

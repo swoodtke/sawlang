@@ -92,11 +92,13 @@ public func ll_lowering(coro: &CoroProgram) -> LlLowering {
     move out
 }
 
-public func ll_emitter(lowering: LlLowering) -> LlEmitter {
-    LlEmitter(globals: StringBuilder(), decls: StringBuilder(), defs: StringBuilder(), declared: Vector<String>(),
-              pool_texts: Vector<String>(), pool_blocks: Vector<Bool>(), statics: Vector<Int>(), current: -1,
-              body: StringBuilder(), allocas: StringBuilder(), temps: 0, labels: 0, sret: false, refused: false,
-              lowering: move lowering, resume: -1)
+extension LlEmitter {
+    public init(lowering: LlLowering) -> LlEmitter {
+        LlEmitter(globals: StringBuilder(), decls: StringBuilder(), defs: StringBuilder(), declared: Vector<String>(),
+                  pool_texts: Vector<String>(), pool_blocks: Vector<Bool>(), statics: Vector<Int>(), current: -1,
+                  body: StringBuilder(), allocas: StringBuilder(), temps: 0, labels: 0, sret: false, refused: false,
+                  lowering: move lowering, resume: -1)
+    }
 }
 
 extension LlEmitter {

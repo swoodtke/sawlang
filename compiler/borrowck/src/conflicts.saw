@@ -9,7 +9,7 @@
 // `lend` hands out must outlive the prologue.
 
 import sawborrowck.loans.{BorrowckAccess, BorrowckAccessKind, BorrowckLoanKind, BorrowckLoans,
-                              BorrowckPath, borrowck_bit, borrowck_no_path, borrowck_slice, borrowck_zeros}
+                              BorrowckPath, borrowck_bit, borrowck_slice, borrowck_zeros}
 import sawborrowck.program.{BorrowckProgram}
 import sawmir.build.{mir_func_local}
 import sawmir.dump.{mir_module_functions}
@@ -489,7 +489,7 @@ extension BorrowckProgram {
     func call_receiver(&self, f: Int, node: Int, facts: &var BorrowckLoans) -> BorrowckPath {
         let rc = self.mir.tc.res_call_at[node]
         if rc < 0 || self.mir.tc.res.calls[rc].classification != ResCallClass.Method {
-            return borrowck_no_path()
+            return BorrowckPath.none()
         }
         let info = self.mir.funcs[f]
         var b = 0
@@ -519,7 +519,7 @@ extension BorrowckProgram {
             let raw = self.path_of(rv.place, &var facts)
             return self.borrowck_trace(f, &raw, &var facts)
         }
-        borrowck_no_path()
+        BorrowckPath.none()
     }
 
     // An assignment whose right side writes `&var` of a place overlapping

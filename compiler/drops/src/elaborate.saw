@@ -35,7 +35,7 @@ import sawtypecheck.checks.{tc_check_unsafe}
 import sawtypecheck.model.{TC_EFFECT_CONSUMES, TcReceiver}
 import sawtypecheck.program.{TcProgram}
 import sawtypecheck.spell.{tc_effects_text}
-import sawtypecheck.summaries.{tc_acc}
+import sawtypecheck.summaries.{TcAcc}
 import sawtypecheck.typeops.{TcClient}
 
 // Every rule drop elaboration refuses by.

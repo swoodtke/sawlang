@@ -247,7 +247,7 @@ extension TcProgram {
     // its top. A function type answers for itself.
     func reference_in(&var self, t: Int, allow: TcRefAllow) -> TcRefHit {
         if t < 0 {
-            return tc_no_reference()
+            return TcRefHit.none()
         }
         let info = self.types.ty(t)
         if info.kind == TcKind.Ref || info.kind == TcKind.Slice {
@@ -274,7 +274,7 @@ extension TcProgram {
     // are interned before it, so the walk ends.
     func reference_part(&var self, t: Int, within: TcRefWithin) -> TcRefHit {
         if t < 0 {
-            return tc_no_reference()
+            return TcRefHit.none()
         }
         let info = self.types.ty(t)
         if info.kind == TcKind.Ref || info.kind == TcKind.Slice {
@@ -284,7 +284,7 @@ extension TcProgram {
         if known >= 0 {
             return tc_ref_hit_decoded(known)
         }
-        var hit = tc_no_reference()
+        var hit = TcRefHit.none()
         if info.kind == TcKind.Array {
             hit = self.reference_part(info.b, TcRefWithin.ArrayElement)
         } else if info.kind == TcKind.Nominal || info.kind == TcKind.Tuple {
@@ -490,8 +490,10 @@ extension TcProgram {
     }
 }
 
-func tc_no_reference() -> TcRefHit {
-    TcRefHit(ty: -1, within: TcRefWithin.Top)
+extension TcRefHit {
+    static func none() -> TcRefHit {
+        TcRefHit(ty: -1, within: TcRefWithin.Top)
+    }
 }
 
 // A hit as `TcProgram.walks` keeps it: 0 for none, else the type and the part
@@ -513,7 +515,7 @@ func tc_ref_hit_encoded(hit: TcRefHit) -> Int {
 
 func tc_ref_hit_decoded(value: Int) -> TcRefHit {
     if value == 0 {
-        return tc_no_reference()
+        return TcRefHit.none()
     }
     let part = (value - 1) % 8
     var within = TcRefWithin.Top
