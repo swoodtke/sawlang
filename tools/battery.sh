@@ -14,7 +14,7 @@
 #
 # No stage runs the frozen Python compiler (sawc/): the lanes that tested it
 # left the battery with the per-patch gate's move to sawc2 (SL-666), but for
-# gmgate and docverify, which stay until sawc2 has their equivalent.
+# docverify, which stays until sawc2 has its equivalent.
 #
 #   tools/battery.sh                    # everything but the manual lanes
 #   tools/battery.sh --quick            # skip the slow lanes (gmgate, linux)
@@ -63,7 +63,7 @@ STAGES=(
     "childgroups|no|a TERM to a runner ends every child group it started in a session of its own|$PY tools/test_child_groups.py"
     "floatvectors|no|the Float<->text vectors against CPython's own conversions|$PY tools/sawfloat.py verify --rule"
     "abidoc|no|runtime/ABI.md describes exactly the frozen seam set|$PY tools/test_runtime_abi_doc.py"
-    "gmgate|yes|ownership + concurrency oracles under Guard Malloc (macOS)|$PY tools/gmgate.py"
+    "gmgate|yes|ownership + concurrency oracles, built by sawc2, under Guard Malloc (macOS)|$PY tools/gmgate.py"
     "linux|yes|the run lane on Linux aarch64 and x86_64 (Rosetta) in the sawlang-linux VM; skips when it is down|__LINUX__"
 )
 

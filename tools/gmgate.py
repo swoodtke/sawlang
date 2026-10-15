@@ -1,419 +1,539 @@
 #!/usr/bin/env python3
-"""Ownership gate under Guard Malloc (design 159 unit 4).
+"""Ownership and concurrency oracles, built by sawc2, run under Guard Malloc.
 
-A missing retain is INVISIBLE to an ordinary run. The surplus release lands in
-a block libmalloc has already freed but not unmapped, so the program reads
-correct values and exits 0 — until some later, unrelated allocation trips over
-the damage. That is why DF-151b sat in the tree from design 73 (a by-value
-argument) and design 147 (a local copy) with a green suite the whole time: at a
-~15-35% per-run crash rate a single suite pass clears easily, and the two tests
-that should have caught it were passing for the wrong reason.
+A surplus release is invisible to an ordinary run: it lands in a block
+libmalloc has freed but not unmapped, so the program reads correct values and
+exits 0 until some unrelated allocation trips over the damage. A deinit fires
+on the 1 -> 0 edge and never again, so neither a refcount assertion nor a
+deinit-print count sees a second release. Guard Malloc
+(`/usr/lib/libgmalloc.dylib`) puts each allocation on its own page and unmaps
+it on free, so the release faults at the instruction that makes it.
 
-Guard Malloc (`/usr/lib/libgmalloc.dylib`) puts each allocation on its own page
-and UNMAPS it on free, so a release of a freed block faults AT the offending
-instruction instead of corrupting a neighbour. Every program below went from
-100% crash to 100% clean across the design 159 fix.
+TWO LANES. `ownership` (10 runs a program) is about values: copies, retains,
+drops, refcounts, containers. `concurrency` (5 runs) is the same failure where
+the value lives in a heap-resident coroutine frame or crosses a task boundary;
+its programs run under a scheduler, so a repeat buys interleaving variety
+rather than the same trace, and each is slower.
 
-This lane is deliberately SMALL. Guard Malloc costs a page per allocation and
-runs the whole suite far too slowly to gate on; what it needs to cover is the
-ownership oracles, where a latent over-release is the failure mode that no
-other check can see. Add a program here when it exists to prove something about
-copies, retains, drops or refcounts.
+THE LISTS. Each lane is a list of categories, each category the shape its
+programs police. A category names three kinds of program:
+  twins      tests/corpus twins of the programs the lane ran on Stage 0;
+  stand-ins  other programs sawc2 builds that police the same shape, held
+             until a blocked twin builds;
+  blocked    twins sawc2 refuses today, each with the rule of its first
+             refusal and the unit that clears it (or `unfiled`).
+A tests/corpus program is judged by its own directives; a compiler/tests/run
+program by Stage 0's recorded run of it, as the run lane judges it. Every
+run of every program must meet its oracle: a fault, a signal or wrong output
+fails. A blocked program is still built, and fails the lane once sawc2 builds
+it or refuses it by another rule, so the list cannot go stale silently.
 
-TWO LANES (design 192 unit 4). The original `ownership` lane is about VALUES —
-copies, retains, drops, refcounts, containers. The `concurrency` lane added
-beside it is about the same failures where the value lives in a HEAP-RESIDENT
-COROUTINE FRAME or crosses a task boundary: a frame handoff, a capture a task
-holds while its spawner runs on, a group teardown, a channel send. Design 190's
-audit found two CONFIRMED silent use-after-frees in that surface — both probes
-exited 0 with plausible output — and the ordinary suite could not see either.
-Under Guard Malloc they are instruction-level crashes. Measured on a probe that
-returns a pointer into heap storage a suspending frame released (the shape
-design 189 now refuses at compile time): NATIVE it prints a plausible byte and
-exits 0; under this harness it takes SIGSEGV at the load, rc=139.
+COVERAGE: ownership runs a program in 5 of its 6 categories, and 2 of its 26
+Stage 0 programs build; concurrency runs a program in 6 of its 6 categories,
+and 4 of its 25 Stage 0 programs build.
 
-The concurrency lane runs FEWER repeats (5 vs 10) because it has a scheduler
-under it: its programs interleave, so repeats buy variety rather than the
-same trace again, and each one is slower.
+THE SELF-TEST. `gmgate_surplus_release.saw` releases one block twice. Before
+the lanes count, it must pass natively and fault under Guard Malloc; a lane
+that cannot make it fault sees nothing.
 
 Usage:
     python tools/gmgate.py [-n RUNS] [--lane ownership|concurrency|all] [-v]
+                           [--no-build] [--list]
 
-`make gmgate` wires this up. macOS only — Guard Malloc is a macOS facility, so
-elsewhere this reports SKIPPED rather than failing (see TESTING.md).
+macOS only: elsewhere it reports SKIPPED and exits 0.
 """
 import argparse
+import collections
 import os
+import re
 import subprocess
 import sys
+import time
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-SAWC = os.path.join(REPO, "sawc", "sawc.py")
+sys.path.insert(0, os.path.join(REPO, "compiler", "tests"))
+sys.path.insert(0, os.path.join(REPO, "compiler", "tests", "run"))
+
+import oracle  # noqa: E402  (puts coro/, compiler/tools and tools/ on the path)
+import build  # noqa: E402
+import child_groups  # noqa: E402
+import expect  # noqa: E402
+import gate_jobs  # noqa: E402
+import run_lane  # noqa: E402
+
 GMALLOC = "/usr/lib/libgmalloc.dylib"
 OUT_DIR = os.path.join(REPO, ".build", "gmgate")
+SELF_TEST = "tools/gmgate_surplus_release.saw"
+CORPUS = "tests/corpus/"
+RUN_LANE = "compiler/tests/run/"
+# Guard Malloc makes every allocation a page, so a run takes far longer than
+# the run lane allows one.
+RUN_TIMEOUT = 300
+# What Guard Malloc itself writes to standard error, which no program prints:
+# its banner, and the refusal of the sysctl that turns off address reuse,
+# which only root may set.
+_BANNER = re.compile(r"^(?:GuardMalloc\[[^\]]*\]: |Sysctl \(debug\.toggle_address_reuse\) error: ).*\n?", re.M)
+# The docstring's COVERAGE statement: a paragraph, compared as one line.
+_COVERAGE = re.compile(r"^COVERAGE: (.*?)\n\n", re.M | re.S)
+_UNIT = re.compile(r"^(SL-\d+|unfiled)$")
 
-# The ownership lane. Each entry is an example that asserts something about
-# ownership; the comment says which shape it pins.
-OWNERSHIP_GATE = [
-    # The undeclared `Copy` tier across every transfer class (design 159).
-    "examples/df151b_implicit_tier_transfers.saw",
-    # A closure env retained through struct copies (design 73). This one is the
-    # reason the lane exists: its own `strong_count` assertions read correct
-    # while the env was released three times, so Guard Malloc is the ONLY thing
-    # that can police it.
-    "examples/closure_copyable_struct_copied.saw",
-    # A `Copy`-tier value copied out of a place, then the place overwritten
-    # (design 147 unit B / DF-139a).
-    "examples/df139a_copy_then_overwrite.saw",
-    # A closure env's retains and releases counted against an Arc (design 73).
-    "examples/closure_deinit_arc_balance.saw",
-    "examples/closure_borrow_lend_balance.saw",
-    # Container-slot read-out: an owning value copied OUT of a container the
-    # container still owns — the `v[i]` / `m[k]` duplication rule.
-    "examples/closure_vector_copy_get.saw",
-    "examples/map_string_owning_value_balance.saw",
-    "examples/set_algebra_owning_balance.saw",
-    "examples/generic_for_loop_owning_balance.saw",
-    # Implicit copies at a call argument, nested in a struct, and splatted into
-    # a repeat literal.
-    "examples/implicit_copy_call_arg.saw",
-    "examples/implicit_copy_nested.saw",
-    "examples/repeat_literal_implicit_copy.saw",
-    # A refcounted value copied into an OPT-ENCODED destination, at all six
-    # transfer sites (DF-151c). Its Arc counts prove the retains happen; only
-    # Guard Malloc proves no surplus release does, since an over-release reads
-    # correct until the freed block is reused.
-    "examples/df151c_optional_dest_copy.saw",
-    # A match scrutinee that no binding holds (DF-151d). A leak here inverts to
-    # an over-release under a fix that drops one time too many — an escaping arm
-    # binding is an alias into the very value being released — so the counts and
-    # this lane police opposite failures of the same change.
-    "examples/df151d_match_temporary_scrutinee.saw",
-    # Optional ELEMENTS of a fixed array (DF-151e): the retain is driven by the
-    # payload's type and the wrap follows it, at construction and at a write.
-    "examples/df151e_optional_element_array.saw",
-    # TUPLE drop glue (DF-151f). The leak and the over-release are one change:
-    # elements now drop at scope exit AND a whole-tuple copy now retains them,
-    # so getting either half wrong inverts this program's failure. The counts
-    # catch a missing retain; only Guard Malloc catches a surplus release.
-    "examples/df151f_tuple_drop_glue.saw",
-    # TUPLE `.copy()` (DF-151i), the operation DF-151f's glue exists to balance.
-    # An element-wise deep copy is exactly the shape this lane polices: a tuple
-    # copy that ALIASED a refcounted element instead of retaining it reads
-    # correct values and exits 0, and the surplus release lands at the second
-    # tuple's scope exit where nothing else can see it.
-    "examples/df151i_tuple_copy.saw",
-    # The WHOLE-ELEMENT tuple write `t.0 = fresh` (DF-151j). Replacing an owning
-    # element has to drop the old one exactly once, and this is the third way to
-    # get that wrong: the write had no place at all before, so the drop is new
-    # code on a slot that always holds a live value. Skipping it leaks (the live
-    # count sees that); running it twice reads correct and faults only when the
-    # freed block is reused, which is this lane's job.
-    "examples/df151j_tuple_element_write.saw",
-    # An assignment RHS reading out of storage the source keeps (DF-151h). The
-    # exact DF-151b shape one statement kind over: `a = h.r` read correct and
-    # freed twice, so the surplus release is invisible without Guard Malloc.
-    "examples/df151h_assign_rhs_retain.saw",
-    # A move-only param and a refcounted result crossing the DF-138a spawn-root
-    # trampoline: the trampoline frame holds the value only long enough to hand
-    # it down to the sub-frame, and takes the result back up. Both halves are a
-    # move BETWEEN two frames the same task owns, so a drop on the wrong side of
-    # the hand-off is exactly the over-release this lane exists to see. Its live
-    # count proves nothing leaks; only Guard Malloc proves nothing is freed twice.
-    "examples/coro_spawn_and_embed_owning.saw",
-    # A frame local handed out through a TAIL `move` rather than a `return`
-    # (DF-182d). The drop-flag clear that keeps the frame from dropping it again
-    # now rides the done sequence; put it in the wrong place and the value is
-    # freed twice while still reading correctly, which is this lane's whole brief.
-    "examples/coro_tail_move_local.saw",
-    # A `move` SCRUTINEE handed into a frame field by the optional-binding
-    # dispatch (DF-182c). The store became a move and the drop-flag clear went
-    # into both branches, which is two chances to release the same value twice —
-    # a copying store that still cleared the flag, or a clear on a branch that
-    # never took the payload. Its deinit count catches a leak; only Guard Malloc
-    # catches the surplus release, which reads correct until the block is reused.
-    "examples/coro_move_scrutinee_span.saw",
-    # Data's copy-on-write separation plus the offset-aware eager fill. Since
-    # design 165 the count is Arc's rather than hand-rolled, which is exactly
-    # why these stay: the release now runs through Arc's two-phase drop into
-    # DataBuf's deinit, so a miscount frees a buffer a live Data or slice still
-    # points at — correct-reading natively, visible only here.
-    "examples/data_cow_slice.saw",
-    # Every Data mutation taking the uniqueness gate (design 165). Each
-    # separation allocates a buffer, copies into it, and RELEASES the old
-    # storage; getting that release wrong in either direction is invisible
-    # natively — a leak reads correct, and a double release reads correct until
-    # the block is reused. The program holds a sibling live across every one of
-    # them precisely so a premature free has a live reader.
-    "examples/data_cow_value_semantics.saw",
-    # DATA-1: an iterator that OUTLIVES its Data — the use-after-free design 165
-    # closes. Reverting `iter()` to its pre-165 shape (a raw pointer and no
-    # retain) makes this program read `7 0 48` for `7 8 9`, so the suite catches
-    # that regression on its own. It is in this lane for the read that does NOT
-    # corrupt visibly: the iterator holds a retain now, so the source Data stays
-    # alive with a count this lane can see miscounted in either direction.
-    "examples/data_iter_outlives_source.saw",
-    # Appending a Data to itself (design 165). The argument is a retain, so the
-    # separation and the read race each other by construction: separate too
-    # late and the memcpy source is a buffer `grow` has freed, separate without
-    # re-reading and it is the destination being filled. Both read plausible
-    # bytes natively.
-    "examples/data_cow_self_append.saw",
-]
+Category = collections.namedtuple("Category", "name shape twins stand_ins blocked")
+# `why` is the gap in a few words; `rule` is the first refusal's rule.
+Blocked = collections.namedtuple("Blocked", "path rule unit why")
 
-# The CONCURRENCY lane (design 192 unit 4). Same failure mode, different
-# storage: a suspending function's locals live in a heap-allocated frame, a
-# spawned task's values live in a frame the spawner's stack does not own, and a
-# group's teardown drops both. Every drop in here happens somewhere no stack
-# discipline polices, which is why design 190's audit found two silent
-# use-after-frees in this surface and the suite saw neither.
-#
-# Curated, not swept: a corpus sweep of every concurrency example takes 30-60
-# minutes under Guard Malloc and would be flaky-adjacent (real threads, real
-# timers). These are the OWNERSHIP oracles among them.
-CONCURRENCY_GATE = [
-    # --- Frame handoff: an owning value that lives across a suspension -------
-    # A Deinit local held across a suspend. The frame is heap-resident, so the
-    # local's storage outlives no stack frame and the drop happens at frame
-    # death — the plainest version of everything below it.
-    "examples/coro_deinit_across_suspend.saw",
-    # A moved Arc PARAMETER: the caller hands ownership into the frame, so the
-    # release belongs to the frame and the caller must not also make it. The
-    # refcount reads correct either way; only Guard Malloc sees the second one.
-    "examples/coro_moved_arc_param_deinit_once.saw",
-    # A CONDITIONAL move of a cleanup-needing frame local — the drop-flag
-    # shape. Two paths, one of which handed the value away, and a flag in the
-    # frame deciding whether the frame still owns it. Getting the flag wrong in
-    # either direction leaks or double-frees, and DF-182c/DF-182d were both
-    # exactly this in another spelling.
-    "examples/coro_conditional_move_across_suspend.saw",
-    # Tuple DESTRUCTURING across a suspension: two bindings out of one value,
-    # each its own frame field, each owning its element. A drop of the whole
-    # tuple beside the elements' drops is the failure.
-    "examples/coro_destructure_across_suspend.saw",
-    # The NEGATIVE of the rule: a reference frame field is non-owning and must
-    # never be dropped. A frame that drops one frees a value its CALLER still
-    # owns, and the caller's own drop then lands in freed storage.
-    "examples/coro_ref_param_deinit_once.saw",
-    # The same negative in SPAWN position (design 201), which is where it is
-    # load-bearing rather than merely true: the frame is boxed on the run queue,
-    # its referent is the spawner's storage, and design 124 tears a task's own
-    # values down eagerly at completion. A borrowed referent must be exempt from
-    # that teardown, and the elements the task pushed must die once, with the
-    # caller. Three Deinit-bearing elements, so a second drop lands on a page
-    # Guard Malloc has already unmapped.
-    "examples/spawn_ref_param_referent_deinit_once.saw",
+ARC = "Arc is not in the new std"
+SPAWN = "`group.spawn` is not in the slice"
 
-    # --- Captures: an env the frame owns, and a root a task borrows ----------
-    # A closure capturing a frame-resident Arc, held across a suspension. The
-    # env is refcounted heap storage owned by the frame; DF-C1 was it being
-    # released twice.
-    "examples/coro_closure_deinit_once.saw",
-    # A spawned TaskGroup child frame that OWNS closures — the env crosses into
-    # a task's frame and dies with it.
-    "examples/coro_closure_taskgroup.saw",
-    # The nearest STILL-LEGAL cousin of design 188's ex-UAF probe (a capture
-    # declared AFTER its group, now a compile error): declared BEFORE it, which
-    # is the accepted order and the one whose soundness rests on LIFO
-    # destruction actually holding at run time. If the group's Deinit ever
-    # stopped joining before the captured roots die, this is the program that
-    # crashes.
-    "examples/spawn_capture_declared_before.saw",
-    # The nearest still-legal cousin of design 189's ex-UAF probe (a `move` of
-    # a borrowed root between spawn and join, now a compile error): the same
-    # shapes with the borrow released where it should be. DF-189c handed a task
-    # a freed `Vector` buffer, and `log` here is that same Vector.
-    "examples/spawn_capture_join_releases.saw",
-    # The join-release shape through a reference ARGUMENT (design 201): the
-    # `Vector` is filled by one task, read by a second that borrows it SHARED
-    # after the first join, and appended to by a third. Three tasks reach one
-    # buffer across two releases, and every reallocating push happens while a
-    # frame elsewhere holds a pointer to the root — which is the arrangement
-    # that turns a release point off by one task into a fault here.
-    "examples/conformance/K14_spawn_ref_param_join_releases.saw",
+OWNERSHIP = (
+    Category(
+        "copy tier", "the undeclared Copy tier and implicit copies, at every transfer site",
+        twins=(
+            # A Copy argument and a Copy value nested in a struct run copy().
+            CORPUS + "implicit_copy_call_arg.saw",
+            CORPUS + "implicit_copy_nested.saw",
+        ),
+        stand_ins=(
+            # Heap Strings copied through an enum payload and a struct field
+            # projection, in a loop that turns an imbalance into heap damage.
+            CORPUS + "owning_aggregate_copy.saw",
+            # The copy hook at a binding, a tuple, an Optional, a generic
+            # body, a field and a payload.
+            RUN_LANE + "copy_hook_conformance.saw",
+        ),
+        blocked=(
+            Blocked(CORPUS + "df151b_implicit_tier_transfers.saw", "name.undefined", "SL-701", ARC),
+            Blocked(CORPUS + "df139a_copy_then_overwrite.saw", "backend.not-yet", "unfiled",
+                    "a fixed-array literal is not in the backend"),
+            Blocked(CORPUS + "repeat_literal_implicit_copy.saw", "mono.not-yet", "unfiled",
+                    "the builtin `len` of a fixed array is not in the backend"),
+        )),
+    Category(
+        "closure environments", "a closure environment retained through copies and released once",
+        twins=(),
+        stand_ins=(
+            # Non-escaping environments: explicit, implicit and `[copy p]`
+            # captures, and a closure built inside another.
+            RUN_LANE + "closure_captures.saw",
+        ),
+        blocked=(
+            Blocked(CORPUS + "closure_copyable_struct_copied.saw", "name.undefined", "SL-701", ARC),
+            Blocked(CORPUS + "closure_deinit_arc_balance.saw", "name.undefined", "SL-701", ARC),
+            Blocked(CORPUS + "closure_borrow_lend_balance.saw", "name.undefined", "SL-701", ARC),
+        )),
+    Category(
+        "container read-out", "an owning value copied out of a container that keeps its own",
+        twins=(),
+        stand_ins=(
+            # A String-holding element read out of a Vector, and the copy and
+            # deinit counts of each tier's read.
+            CORPUS + "place_read_retains_owning.saw",
+            CORPUS + "place_value_read_retain_oracle.saw",
+            # Replaced, removed and rehashed Map entries, and a Vector slot
+            # overwritten, each destroyed once.
+            RUN_LANE + "map_drops.saw",
+            RUN_LANE + "owning_vector.saw",
+        ),
+        blocked=(
+            Blocked(CORPUS + "closure_vector_copy_get.saw", "mono.not-yet", "SL-525",
+                    "an escaping closure's environment is not built"),
+            Blocked(CORPUS + "map_string_owning_value_balance.saw", "name.undefined", "SL-701", ARC),
+            Blocked(CORPUS + "set_algebra_owning_balance.saw", "name.undefined", "SL-701", ARC),
+            Blocked(CORPUS + "generic_for_loop_owning_balance.saw", "name.undefined", "SL-701", ARC),
+        )),
+    Category(
+        "optional, match and tuple transfers",
+        "copies into optional destinations, match scrutinee temporaries, tuple glue, assignment sources",
+        twins=(),
+        stand_ins=(
+            # Every face of the payload read retains once, and the payload
+            # outlives the source it was read from.
+            CORPUS + "optional_payload_read_retains.saw",
+            CORPUS + "conformance/V99_every_payload_read_retains_once.saw",
+            CORPUS + "optional_field_store_retain.saw",
+            # A String scrutinee matched against literals, then used again.
+            CORPUS + "match_string_scrutinee_refcount.saw",
+            # Each owning element of a destructured tuple drops once.
+            CORPUS + "let_tuple_destructure_owning_move.saw",
+            # A heap String auto-wrapped into Ok from a tail expression.
+            CORPUS + "autowrap_ok_no_premature_free.saw",
+        ),
+        blocked=(
+            Blocked(CORPUS + "df151c_optional_dest_copy.saw", "name.undefined", "SL-701", ARC),
+            Blocked(CORPUS + "df151d_match_temporary_scrutinee.saw", "name.undefined", "SL-701", ARC),
+            Blocked(CORPUS + "df151e_optional_element_array.saw", "name.undefined", "SL-701", ARC),
+            Blocked(CORPUS + "df151f_tuple_drop_glue.saw", "name.undefined", "SL-701", ARC),
+            Blocked(CORPUS + "df151i_tuple_copy.saw", "name.undefined", "SL-701", ARC),
+            Blocked(CORPUS + "df151j_tuple_element_write.saw", "name.undefined", "SL-701", ARC),
+            Blocked(CORPUS + "df151h_assign_rhs_retain.saw", "name.undefined", "SL-701", ARC),
+        )),
+    Category(
+        "hand-off between one task's frames", "a value moved between frames one task owns, dropped on one side",
+        twins=(),
+        stand_ins=(
+            # A payload moved out of a driven match arm to each destination.
+            CORPUS + "coro_driven_match_move_out_releases_once.saw",
+            # A hoisted suspending call's result consumed by value.
+            CORPUS + "coro_hoisted_call_arg_consumed_once.saw",
+            # A root's owned arguments and its result through a drive site.
+            RUN_LANE + "drive_ownership.saw",
+        ),
+        blocked=(
+            Blocked(CORPUS + "coro_spawn_and_embed_owning.saw", "slice.not-yet", "SL-564", SPAWN),
+            Blocked(CORPUS + "coro_tail_move_local.saw", "slice.not-yet", "SL-564", SPAWN),
+            Blocked(CORPUS + "coro_move_scrutinee_span.saw", "slice.not-yet", "SL-564", SPAWN),
+        )),
+    Category(
+        "Data copy-on-write", "a separation that releases the old storage while a sibling still reads it",
+        twins=(),
+        stand_ins=(),
+        blocked=(
+            Blocked(CORPUS + "data_cow_slice.saw", "call.no-match", "SL-596", "Data has no public init"),
+            Blocked(CORPUS + "data_cow_value_semantics.saw", "call.no-match", "SL-596", "Data has no public init"),
+            Blocked(CORPUS + "data_iter_outlives_source.saw", "name.undefined", "SL-596",
+                    "DataIterator is not in the new std"),
+            Blocked(CORPUS + "data_cow_self_append.saw", "member.unknown", "SL-596", "Data has no public len"),
+        )),
+)
 
-    # --- Join and teardown: who drops what, and when -------------------------
-    # Design 124's eager teardown: a task's owned values deinit AT TASK
-    # COMPLETION, not at group death. The drop moved; anything that kept the
-    # old one too frees twice.
-    "examples/taskgroup_eager_teardown.saw",
-    # A result NOBODY joins. It outlives its frame in a group-owned cell and is
-    # dropped exactly once at group teardown — the path with no `join` to make
-    # the ownership transfer explicit.
-    "examples/taskgroup_result_unjoined_once.saw",
-    # The same question with real worker threads stealing: a frame result
-    # dropped exactly once when the completing thread and the joining thread
-    # are different.
-    "examples/taskgroup_threads_deinit_once.saw",
-    # Design 134's slot reuse: the frame ALLOCATION is released at completion
-    # and its run-queue slot returns to a free list, so a later task's frame
-    # lands where a finished one was. Guard Malloc unmaps the old page, which
-    # is what turns "a stale handle reads the new occupant" into a fault.
-    "examples/taskgroup_slot_reuse_o_live.saw",
-
-    # --- The executor's own drive paths (design 206) --------------------------
-    # A task spawned BEFORE main's first suspension, where that suspension is a
-    # reactor park. `main` is a coroutine frame here — it was a plain C function
-    # until design 206 — so main's `TcpListener`, its accepted `TcpStream` and
-    # the worker's own stream all live in heap frames the executor drops, and
-    # the worker's frame dies at completion while main is still parked. Guard
-    # Malloc is what turns "main's frame was released a beat early" into a
-    # fault rather than a passing test.
-    "examples/spawned_task_runs_before_reactor_park.saw",
-    # The semaphore-wrapper shape: a helper frame between a task and a channel
-    # `receive()`. Two tasks pass one token through a channel, so the value
-    # crosses task boundaries while `acquire`'s frame is EMBEDDED BY VALUE in
-    # each worker's frame — a sub-frame whose storage is interior to another
-    # allocation, which is exactly the arrangement a stale interior pointer
-    # survives unnoticed under the ordinary allocator.
-    "examples/channel_receive_through_helper.saw",
-
-    # --- Values crossing a task boundary -------------------------------------
-    # Owning values moved through a cooperative channel: the sender gives up
-    # ownership, the receiver takes it, and exactly one of them drops.
-    "examples/channel_recv_producer_consumer.saw",
-    # An owning CONTAINER moved into a task — a Vector, a Map, a Data. `Data`
-    # is copy-on-write over Arc-owned storage since design 165, so a container
-    # crossing into a frame is the COW question and the Send question at once.
-    "examples/taskgroup_send_containers.saw",
-
-    # --- Errors and captures inside a frame (design 196) ---------------------
-    # Each of these was a compiler refusal or an ICE until design 196, so none
-    # of them had ever RUN — and every one puts an owning value somewhere the
-    # frame owns it: exactly the storage this lane exists to police.
-    #
-    # A BOXED error built into the frame's own result slot across a suspension.
-    # The box is heap storage the frame owns until `join` (or teardown) takes
-    # it, and its payload is destroyed through the vtable's destructor slot,
-    # not through a static type — so a drop counted twice never shows in a
-    # refcount, only here.
-    "examples/erased_error_across_suspension.saw",
-    # The same box travelling through a SPAWNED task's result cell, one nesting
-    # level deeper (a `Vector` Ok payload), with a downcast beside it —
-    # `take<T>()` CONSUMES the box and moves the payload out on a hit, drops it
-    # on a miss, and both paths run here.
-    "examples/erased_error_spawned_container_result.saw",
-    # A split `try { } catch { }`: the caught error lands in a FRAME FIELD in
-    # one state and is read in another, and the error owns a String. Beside it,
-    # an owning `Vector` Ok payload moved out of a `try` in the try arm, the
-    # whole shape inside a spawned task, and thirteen positions' worth of
-    # states to drop it in exactly once.
-    "examples/coro_try_block_positions.saw",
-    # `try` PROPAGATION out of a frame: the error is wrapped into the result
-    # slot and the frame finishes, including the design-56 RE-BOX of a concrete
-    # error into an erased return — a fresh allocation on the failing path of a
-    # function that is also handing back an owning Ok payload on the other.
-    "examples/coro_try_propagate_suspending.saw",
-    # Reassigning an owning frame local: the field's OLD payload has to be
-    # dropped exactly once by the store that replaces it. A String, a String
-    # derived from the old one, and a `Vector` moved in from a sibling local.
-    "examples/coro_reassign_owning_local.saw",
-    # The canonical shared-counter idiom, which had no legal spelling at all
-    # until design 196 unit 4: four MT tasks each carrying their own `Arc`
-    # copy into a frame, mutating the shared payload under the lock, and
-    # releasing on whichever worker thread finishes them.
-    "examples/conformance/K13_mt_sum_under_mutex.saw",
-]
+CONCURRENCY = (
+    Category(
+        "frame hand-off", "an owning value that lives in a heap frame across a suspension",
+        twins=(
+            # A Deinit local, a conditional move decided by a frame drop flag,
+            # a destructured tuple, and a reference field that must never drop.
+            CORPUS + "coro_deinit_across_suspend.saw",
+            CORPUS + "coro_conditional_move_across_suspend.saw",
+            CORPUS + "coro_destructure_across_suspend.saw",
+            CORPUS + "coro_ref_param_deinit_once.saw",
+        ),
+        stand_ins=(
+            # A hoisted intermediate dies at its statement's end, once.
+            CORPUS + "expr_suspend_deinit_once.saw",
+            # An `if let` over a `move` scrutinee releases its payload once.
+            CORPUS + "conformance/O12_iflet_move_binding_released_in_coroutine.saw",
+        ),
+        blocked=(
+            Blocked(CORPUS + "coro_moved_arc_param_deinit_once.saw", "name.undefined", "SL-701", ARC),
+            Blocked(CORPUS + "spawn_ref_param_referent_deinit_once.saw", "slice.not-yet", "SL-564", SPAWN),
+        )),
+    Category(
+        "captures", "an environment a frame owns, and a root a task borrows",
+        twins=(),
+        stand_ins=(
+            # Closures in a suspending method, each holding its own handle to
+            # the frame's receiver, one nested in another.
+            CORPUS + "coro_closure_captures_self_nested.saw",
+        ),
+        blocked=(
+            Blocked(CORPUS + "coro_closure_deinit_once.saw", "name.undefined", "SL-701", ARC),
+            Blocked(CORPUS + "coro_closure_taskgroup.saw", "slice.not-yet", "SL-564", SPAWN),
+            Blocked(CORPUS + "spawn_capture_declared_before.saw", "slice.not-yet", "SL-564", SPAWN),
+            Blocked(CORPUS + "spawn_capture_join_releases.saw", "slice.not-yet", "SL-564", SPAWN),
+            Blocked(CORPUS + "conformance/K14_spawn_ref_param_join_releases.saw", "member.unknown", "SL-703",
+                    "Vector.iter is not in the new std"),
+        )),
+    Category(
+        "join and teardown", "who drops a task's values, and when",
+        twins=(),
+        stand_ins=(
+            # At main's return the background group cancels and joins its
+            # tasks, whose owned values deinit on the cancel path.
+            CORPUS + "conformance/K87_background_group_cancels_then_joins_at_exit.saw",
+            # A detached task's result drops when the task finishes.
+            CORPUS + "conformance/K89_detach_gives_up_the_result.saw",
+        ),
+        blocked=(
+            Blocked(CORPUS + "taskgroup_eager_teardown.saw", "slice.not-yet", "SL-564", SPAWN),
+            Blocked(CORPUS + "taskgroup_result_unjoined_once.saw", "slice.not-yet", "SL-564", SPAWN),
+            Blocked(CORPUS + "taskgroup_threads_deinit_once.saw", "call.label", "SL-578",
+                    "`TaskGroup(threads:)` is not in the new std"),
+            Blocked(CORPUS + "taskgroup_slot_reuse_o_live.saw", "slice.not-yet", "SL-564", SPAWN),
+        )),
+    Category(
+        "the executor's drive paths", "main as a frame the executor drives, beside the tasks it spawns",
+        twins=(),
+        stand_ins=(
+            # A function run as a task root, as an embedded child and directly
+            # from main, which makes main a frame.
+            RUN_LANE + "task_spawn_and_embed.saw",
+            # Valued, Void and cancelled background tasks.
+            CORPUS + "background_task_spawn.saw",
+        ),
+        blocked=(
+            Blocked(CORPUS + "spawned_task_runs_before_reactor_park.saw", "import.unknown-module", "SL-570",
+                    "std.net is not in the new std"),
+            Blocked(CORPUS + "channel_receive_through_helper.saw", "import.unknown-module", "SL-571",
+                    "std.channel is not in the new std"),
+        )),
+    Category(
+        "values crossing a task boundary", "an owning value moved into a task, dropped by exactly one side",
+        twins=(),
+        stand_ins=(
+            # Root arguments written into the task box's slots, a joined
+            # result, a cancelled task joined, a detached one. Its String is a
+            # literal, so the box, not a heap payload, is what it polices.
+            RUN_LANE + "task_spawn.saw",
+        ),
+        blocked=(
+            Blocked(CORPUS + "channel_recv_producer_consumer.saw", "import.unknown-module", "SL-571",
+                    "std.channel is not in the new std"),
+            Blocked(CORPUS + "taskgroup_send_containers.saw", "member.unknown", "SL-596", "Data has no public len"),
+        )),
+    Category(
+        "errors in a frame", "an error or Ok payload the frame owns across a suspension",
+        twins=(),
+        stand_ins=(
+            # An inline catch whose block suspends, over an error that owns a
+            # String field.
+            CORPUS + "coro_suspending_call_in_inline_catch.saw",
+        ),
+        blocked=(
+            Blocked(CORPUS + "erased_error_across_suspension.saw", "mono.not-yet", "unfiled",
+                    "Printable on `Box<any Error>` is not in the backend"),
+            Blocked(CORPUS + "erased_error_spawned_container_result.saw", "slice.not-yet", "unfiled",
+                    "a method `Box` forwards to its payload is not in the slice"),
+            Blocked(CORPUS + "coro_try_block_positions.saw", "slice.not-yet", "SL-564", SPAWN),
+            Blocked(CORPUS + "coro_try_propagate_suspending.saw", "slice.not-yet", "SL-564", SPAWN),
+            Blocked(CORPUS + "coro_reassign_owning_local.saw", "slice.not-yet", "SL-564", SPAWN),
+            Blocked(CORPUS + "conformance/K13_mt_sum_under_mutex.saw", "name.undefined", "SL-701", ARC),
+        )),
+)
 
 LANES = {
-    "ownership": (OWNERSHIP_GATE, 10),
-    "concurrency": (CONCURRENCY_GATE, 5),
+    "ownership": (OWNERSHIP, 10),
+    "concurrency": (CONCURRENCY, 5),
 }
 
 
-def build(rel: str, verbose: bool):
-    """Compile one gate program. Returns its binary path, or None if absent."""
-    src = os.path.join(REPO, rel)
-    if not os.path.exists(src):
-        return None
-    stem = os.path.splitext(os.path.basename(rel))[0]
-    out = os.path.join(OUT_DIR, stem)
-    os.makedirs(OUT_DIR, exist_ok=True)
-    r = subprocess.run([sys.executable, SAWC, src, "-o", out],
-                       capture_output=True, text=True, cwd=REPO)
-    if r.returncode != 0:
-        if verbose:
-            sys.stderr.write(r.stdout + r.stderr)
-        return False
-    return out
+def rel(path):
+    return os.path.relpath(path, REPO)
 
 
-def run_under_gmalloc(binary: str, runs: int):
-    """Run `binary` `runs` times under Guard Malloc; return the failure list."""
+def run_programs(categories):
+    return [p for c in categories for p in c.twins + c.stand_ins]
+
+
+def coverage_text():
+    """The docstring's COVERAGE statement, as the lists determine it."""
+    parts = []
+    for name, (categories, _) in LANES.items():
+        covered = sum(1 for c in categories if c.twins or c.stand_ins)
+        twins = sum(len(c.twins) for c in categories)
+        stage0 = twins + sum(len(c.blocked) for c in categories)
+        parts.append("%s runs a program in %d of its %d categories, and %d of its %d Stage 0 programs build"
+                     % (name, covered, len(categories), twins, stage0))
+    return "; ".join(parts) + "."
+
+
+def list_problems():
+    """Every way the lists break this module's rules, without building."""
+    problems = []
+    seen = collections.Counter()
+    for lane, (categories, _) in LANES.items():
+        for c in categories:
+            for path in run_programs([c]) + [b.path for b in c.blocked]:
+                seen[path] += 1
+                if not os.path.exists(os.path.join(REPO, path)):
+                    problems.append("%s: %s is not in the tree" % (lane, path))
+                elif not path.startswith((CORPUS, RUN_LANE)):
+                    problems.append("%s: %s is neither a tests/corpus nor a compiler/tests/run program" % (lane, path))
+            for path in run_programs([c]):
+                full = os.path.join(REPO, path)
+                if not os.path.exists(full):
+                    continue
+                if path.startswith(CORPUS) and expect.read(full).expect in ("error", "skip"):
+                    problems.append("%s: %s states no run (EXPECT: %s)" % (lane, path, expect.read(full).expect))
+                if path.startswith(RUN_LANE) and any(run_lane.headers(full)):
+                    problems.append("%s: %s carries a due or differs header, so Stage 0's run is no oracle for it"
+                                    % (lane, path))
+            for b in c.blocked:
+                if not b.path.startswith(CORPUS):
+                    problems.append("%s: blocked %s is not a tests/corpus twin" % (lane, b.path))
+                if not _UNIT.match(b.unit):
+                    problems.append("%s: blocked %s names no unit (%r)" % (lane, b.path, b.unit))
+    problems.extend("%s is listed %d times" % (path, n) for path, n in sorted(seen.items()) if n > 1)
+    stated = _COVERAGE.search(__doc__)
+    if stated is None or " ".join(stated.group(1).split()) != coverage_text():
+        problems.append("the docstring's COVERAGE line is stale; it reads: COVERAGE: " + coverage_text())
+    return problems
+
+
+def binary_of(path):
+    return os.path.join(OUT_DIR, os.path.splitext(path)[0].replace("/", "__"))
+
+
+def sawc2_build(path):
+    """sawc2's build of `path`: (binary or None, the first refusal (rule,
+    position, message) or None, what it printed)."""
+    src = os.path.join(REPO, path)
+    out = binary_of(path)
+    if os.path.exists(out):
+        os.remove(out)
+    code, found, log, _ = oracle.sawc2_build(src, out, expect.read(src).flags)
+    return (out if code == 0 else None), (found[0] if found else None), log
+
+
+def run(binary, guarded):
+    """(exit status, or None on a timeout; stdout; stderr), from the
+    repository root, under Guard Malloc when `guarded`."""
     env = dict(os.environ)
-    env["DYLD_INSERT_LIBRARIES"] = GMALLOC
-    # Guard the page BEFORE the allocation too, so an underflowing write faults
-    # as readily as an overflowing one.
-    env["MALLOC_PROTECT_BEFORE"] = "1"
+    if guarded:
+        env["DYLD_INSERT_LIBRARIES"] = GMALLOC
+        # Guard the page before each block too, so an underflowing access
+        # faults as readily as an overflowing one.
+        env["MALLOC_PROTECT_BEFORE"] = "1"
+    try:
+        r = subprocess.run([binary], cwd=REPO, env=env, stdin=subprocess.DEVNULL, capture_output=True,
+                           timeout=RUN_TIMEOUT)
+    except subprocess.TimeoutExpired:
+        return None, "", ""
+    out = r.stdout.decode("utf-8", "replace")
+    err = _BANNER.sub("", r.stderr.decode("utf-8", "replace"))
+    return r.returncode, out, err
+
+
+def judge(path, code, stdout, stderr):
+    """None when a run meets `path`'s oracle, else the first way it does not."""
+    if code is None:
+        return "timed out after %ds" % RUN_TIMEOUT
+    if path.startswith(RUN_LANE):
+        rec, why = run_lane.stage0_run(os.path.join(REPO, path))
+        if rec is None:
+            return why
+        diff = oracle.compare_run(rec, code, stdout, stderr)
+        return None if diff is None else "%s: %s" % diff
+    found = expect.judge(expect.read(os.path.join(REPO, path)), code, stdout, stderr)
+    if found is not None and code < 0:
+        return "%s (%s)" % (oracle.exit_text(code), found)
+    return found
+
+
+def check_run(item):
+    """One listed program: (path, failures, how many runs were clean)."""
+    path, runs = item
+    binary, refusal, log = sawc2_build(path)
+    if binary is None:
+        first = "%s at %s: %s" % refusal if refusal else oracle.first_error(log)
+        return path, ["sawc2 does not build it: %s" % first], 0
     failures = []
-    for i in range(runs):
-        r = subprocess.run([binary], capture_output=True, text=True, env=env)
-        if r.returncode != 0:
-            failures.append((i, r.returncode))
+    for k in range(runs):
+        why = judge(path, *run(binary, guarded=True))
+        if why is not None:
+            failures.append("run %d: %s" % (k + 1, why))
+    return path, failures, runs - len(failures)
+
+
+def check_blocked(b):
+    """A blocked twin: (path, failures). It fails once sawc2 builds it or
+    refuses it first by a rule other than the one listed."""
+    binary, refusal, log = sawc2_build(b.path)
+    if binary is not None:
+        return b.path, ["sawc2 builds it now (listed as blocked on %s): move it to the category's twins" % b.unit]
+    if refusal is None:
+        return b.path, ["sawc2 refuses it with no ERROR line: %s" % oracle.first_error(log)]
+    if refusal[0] != b.rule:
+        return b.path, ["sawc2 refuses it first by %s at %s, not %s: update its reason and unit"
+                        % (refusal[0], refusal[1], b.rule)]
+    return b.path, []
+
+
+def self_test():
+    """The failures of the surplus-release probe: it must meet its
+    directives natively and fault under Guard Malloc."""
+    binary, refusal, log = sawc2_build(SELF_TEST)
+    if binary is None:
+        return ["sawc2 does not build it: %s" % ("%s at %s: %s" % refusal if refusal else oracle.first_error(log))]
+    failures = []
+    native = judge(SELF_TEST, *run(binary, guarded=False))
+    if native is not None:
+        failures.append("its native run fails (%s), so it no longer shows what only Guard Malloc sees" % native)
+    code, _, _ = run(binary, guarded=True)
+    if code is None or code >= 0:
+        failures.append("under Guard Malloc it exits %s instead of faulting: the lane is blind"
+                        % ("by timeout" if code is None else code))
     return failures
 
 
-def run_lane(name, programs, runs, verbose):
-    """Build and run one lane. Returns `(checked, failed, missing)`."""
-    failed, checked, missing = [], 0, []
-    print(f"gmgate [{name}]: {len(programs)} program(s) x {runs} runs")
-    for rel in programs:
-        binary = build(rel, verbose)
-        if binary is None:
-            missing.append(rel)
-            continue
-        if binary is False:
-            print(f"  \033[1;31mBUILD FAIL\033[0m {rel}")
-            failed.append(rel)
-            continue
-        failures = run_under_gmalloc(binary, runs)
-        checked += 1
-        if failures:
-            codes = ", ".join(f"run {i} rc={rc}" for i, rc in failures[:5])
-            print(f"  FAIL {rel}: {len(failures)}/{runs} crashed ({codes})")
-            failed.append(rel)
-        elif verbose:
-            print(f"  ok   {rel}: {runs}/{runs} clean")
-    return checked, failed, missing
+def print_lists():
+    for lane, (categories, runs) in LANES.items():
+        print("%s (%d runs a program)" % (lane, runs))
+        for c in categories:
+            print("  %s: %s" % (c.name, c.shape))
+            for kind, paths in (("twin", c.twins), ("stand-in", c.stand_ins)):
+                for p in paths:
+                    print("    %-9s %s" % (kind, p))
+            for b in c.blocked:
+                print("    %-9s %s (%s, %s: %s)" % ("blocked", b.path, b.rule, b.unit, b.why))
+    print("COVERAGE: " + coverage_text())
 
 
-def main() -> int:
-    ap = argparse.ArgumentParser(description=__doc__,
-                                 formatter_class=argparse.RawDescriptionHelpFormatter)
+def main():
+    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("-n", "--runs", type=int, default=None,
-                    help="runs per program, OVERRIDING each lane's own default "
-                         "(ownership 10, concurrency 5)")
-    ap.add_argument("--lane", choices=sorted(LANES) + ["all"], default="all",
-                    help="which lane to run (default all)")
+                    help="runs per program, overriding each lane's own (ownership 10, concurrency 5)")
+    ap.add_argument("--lane", choices=sorted(LANES) + ["all"], default="all", help="which lane to run (default all)")
+    ap.add_argument("--no-build", action="store_true", help="use the sawc2 already built")
+    ap.add_argument("--list", action="store_true", help="print the lists and check them, building nothing")
     ap.add_argument("-v", "--verbose", action="store_true")
     args = ap.parse_args()
+    child_groups.install()
+
+    problems = list_problems()
+    if args.list:
+        print_lists()
+    for p in problems:
+        print("gmgate: " + p)
+    if args.list or problems:
+        return 1 if problems else 0
 
     if sys.platform != "darwin" or not os.path.exists(GMALLOC):
-        print("gmgate: SKIPPED — Guard Malloc is a macOS facility "
-              f"({GMALLOC} not present)")
+        print("gmgate: SKIPPED: Guard Malloc is a macOS facility (%s not present)" % GMALLOC)
         return 0
+    if not args.no_build and not build.handed_down():
+        ok, output = build.build_sawc2()
+        if not ok:
+            print(output)
+            print("gmgate: sawc2 did not build")
+            return 1
 
+    start = time.monotonic()
     lanes = sorted(LANES) if args.lane == "all" else [args.lane]
-    failed, checked, missing = [], 0, []
+    items, blocked = [], []
     for lane in lanes:
-        programs, default_runs = LANES[lane]
+        categories, default_runs = LANES[lane]
         runs = args.runs if args.runs is not None else default_runs
-        c, f, m = run_lane(lane, programs, runs, args.verbose)
-        checked += c
-        failed.extend(f)
-        missing.extend(m)
+        items.extend((p, runs) for p in run_programs(categories))
+        blocked.extend(b for c in categories for b in c.blocked)
+    os.makedirs(OUT_DIR, exist_ok=True)
+    blind = self_test()
+    ran = gate_jobs.map_ordered(check_run, items)
+    still = gate_jobs.map_ordered(check_blocked, blocked)
 
-    for rel in missing:
-        print(f"  note: {rel} is not in the tree — gate entry skipped")
-
-    print(f"gmgate: {checked} program(s) under Guard Malloc across "
-          f"{len(lanes)} lane(s), {len(failed)} failing")
+    failed = 0
+    if blind:
+        failed += 1
+        for f in blind:
+            print("  FAIL %s: %s" % (SELF_TEST, f))
+    elif args.verbose:
+        print("  ok   %s: passes natively, faults under Guard Malloc" % SELF_TEST)
+    for path, failures, clean in ran:
+        if failures:
+            failed += 1
+            print("  FAIL %s: %s" % (path, "; ".join(failures[:3])))
+        elif args.verbose:
+            print("  ok   %s: %d/%d clean" % (path, clean, clean))
+    for path, failures in still:
+        if failures:
+            failed += 1
+            print("  FAIL %s: %s" % (path, failures[0]))
+        elif args.verbose:
+            print("  blocked %s" % path)
+    print("gmgate: %d program(s) under Guard Malloc across %s, %d blocked twin(s) still refused; %d failing (%.0fs)"
+          % (len(items), " and ".join(lanes), len(blocked), failed, time.monotonic() - start))
     if failed:
-        print("\nA failure here is an OVER-RELEASE or a use-after-free, not a "
-              "flake:\nGuard Malloc unmaps freed blocks, so the fault lands at "
-              "the instruction\nthat touched one. Re-run the named program "
-              "directly to see it:\n"
-              f"  DYLD_INSERT_LIBRARIES={GMALLOC} .build/gmgate/<name>")
+        print("A run that faults here is a surplus release or a use-after-free, not a flake: Guard Malloc\n"
+              "unmaps freed blocks, so the fault lands at the instruction that touched one. Rerun it:\n"
+              "  DYLD_INSERT_LIBRARIES=%s %s/<name>" % (GMALLOC, rel(OUT_DIR)))
         return 1
     return 0
 

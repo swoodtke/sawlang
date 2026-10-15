@@ -1,0 +1,47 @@
+// gmgate's self-test: a refcount whose copy skips its retain, so the program
+// releases one block twice. Natively the second release reads and writes a
+// block libmalloc has freed but not unmapped, and the program prints `7` and
+// exits 0; under Guard Malloc the freed block's page is gone and the second
+// release faults. If it ever stops faulting there, the lane can see nothing.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 7
+
+struct Counted {
+    block: UnsafePointer<Int>
+}
+
+extension Counted {
+    static func make(value: Int) unsafe -> Counted {
+        let raw = GlobalAllocator().alloc(16, 8)!
+        let words = raw as UnsafePointer<Int>
+        words[0] = 1
+        words[1] = value
+        Counted(block: words)
+    }
+
+    func value(&self) unsafe -> Int {
+        self.block[1]
+    }
+}
+
+extension Counted: Copy {
+    // The deliberate defect: a second reference to the block, not counted.
+    func copy(&self) unsafe -> Counted {
+        Counted(block: self.block)
+    }
+
+    func deinit(&var self) unsafe {
+        let old = self.block[0]
+        self.block[0] = old - 1
+        if old == 1 {
+            GlobalAllocator().dealloc(self.block as UnsafePointer<Int8>, 16, 8)
+        }
+    }
+}
+
+func main() {
+    let a = Counted.make(value: 7)
+    let b = a
+    print(b.value())
+}
