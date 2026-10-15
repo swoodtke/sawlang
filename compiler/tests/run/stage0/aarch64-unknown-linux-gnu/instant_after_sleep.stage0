@@ -1,0 +1,8 @@
+program	compiler/tests/run/instant_after_sleep.saw
+triple	aarch64-unknown-linux-gnu
+source	6f3c97076884b195
+build	ok
+exit	0
+stdout	"slept at least the nap: true"
+stdout	"a later instant is no earlier: true"
+stdout	""

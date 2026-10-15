@@ -12,6 +12,9 @@ import std.mem.{copy_bytes, drop_in_place}
 
 extern "C" {
     func __saw_rt_clock_monotonic_nanos() -> Int64
+    func __saw_rt_reactor_create() -> Int
+    func __saw_rt_reactor_destroy(r: Int)
+    func __saw_rt_reactor_poll(r: Int, timeout_ms: Int) -> Int
 }
 
 // The park word vocabulary: what a frame records through `TaskContext.park`
@@ -23,13 +26,14 @@ extern "C" {
 //           and bounded by the context's `deadline` when that is nonzero
 //    < -1   a channel's readiness word, by its negated address
 //
-// Every value above 1 is reserved for the timers' executor half. The
-// executor waits on a ready park alone, and wakes a park of any reason whose
-// task is cancelled (`park_wakes`); each other reason has its own lowering
-// and its own executor half. `PARK_UNSET` is written before every
+// A value above 1 names no park, and a frame that records one is refused.
+// The executor waits on a ready park and a timer, and wakes a park of any
+// reason whose task is cancelled (`park_wakes`); each other reason has its own
+// lowering and its own executor half. `PARK_UNSET` is written before every
 // resume, so a frame that reports `Pending` without recording a park is caught
 // rather than read as stale (SL:coroutines §3.3).
 static PARK_READY: Int = 0
+static PARK_TIMER: Int = 1
 static PARK_FD: Int = -1
 static PARK_UNSET: Int = Int.min
 
@@ -140,10 +144,11 @@ struct TaskTicket {
 /// the group is destroyed.
 ///
 /// The group's tasks run on the one cooperative scheduler, beside every other
-/// group's, whenever it runs: under a suspending `main`, at a `join`, and at a
-/// group's teardown. A group may live in a suspending function's frame and
-/// stay there across its suspensions. It is `NoMove`, because its tasks reach
-/// it through its address.
+/// group's, whenever it runs: under a suspending `main`, at a `join`, at a
+/// group's teardown, and while a test driver waits for its frame's timer. A
+/// group may live in a suspending function's frame and stay there across its
+/// suspensions. It is `NoMove`, because its tasks reach it through its
+/// address.
 public struct TaskGroup {
     private slots: Vector<TaskSlot>
     private free: Vector<Int>
@@ -308,7 +313,8 @@ extension TaskGroup {
         if s.done || s.active {
             return false
         }
-        park_wakes(self.cell_at(slot))
+        let cell = self.cell_at(slot)
+        park_wakes((&cell[0].context) as UnsafePointer<TaskContext>)
     }
 
     func has_live(&self) -> Bool {
@@ -320,20 +326,6 @@ extension TaskGroup {
             i = i + 1
         }
         false
-    }
-
-    // The park word of the first live frame not on this thread's stack, or
-    // `PARK_UNSET` when there is none.
-    func first_parked(&self) unsafe -> Int {
-        var i = 0
-        while i < self.slots.len() {
-            let s = self.slots[i]
-            if not s.done && not s.active {
-                return self.cell_at(i)[0].park
-            }
-            i = i + 1
-        }
-        PARK_UNSET
     }
 }
 
@@ -456,10 +448,12 @@ func request_cancel(cell: UnsafePointer<TaskCell>) unsafe {
     cell[0].cancel = true
 }
 
-// Whether the task of `cell`, parked, can be resumed now: when its park is a
-// ready one, and when the task has been asked to stop, whatever its park's
+// Whether the park recorded through `cx` can be resumed now: when it is a
+// ready one; when its task has been asked to stop, whatever the park's
 // reason, so a cancelled task reaches its cancel path at its next turn and
-// each park it makes after that resumes at once (SL:coroutines §3.1).
+// each park it makes after that resumes at once, a timer's long before its
+// deadline (SL:coroutines §3.1); and when it is a timer whose deadline has
+// passed.
 //
 // The cancel word is read here, after the resume that parked has returned,
 // so the park's record and its arm both precede the read: a cancel that
@@ -469,8 +463,17 @@ func request_cancel(cell: UnsafePointer<TaskCell>) unsafe {
 //
 // ENTRY POINTS:
 //   TaskGroup.runnable
-func park_wakes(cell: UnsafePointer<TaskCell>) unsafe -> Bool {
-    cell[0].park == PARK_READY || cell[0].cancel
+//   should_stop (a drive point's own park)
+func park_wakes(cx: UnsafePointer<TaskContext>) unsafe -> Bool {
+    let park = cx[0].park[0]
+    if park == PARK_READY || cx[0].cancel[0] {
+        return true
+    }
+    park == PARK_TIMER && monotonic_now() >= cx[0].deadline
+}
+
+func monotonic_now() -> UInt64 {
+    __saw_rt_clock_monotonic_nanos() as UInt64
 }
 
 // Releases every slot's cell, dropping any result nobody took. A slot still
@@ -565,11 +568,15 @@ func resume_slot(at: UnsafePointer<TaskGroup>, slot: Int) unsafe {
     }
 }
 
-// Whether the sweep `exec_run` was asked for is finished: with `term_group`
-// 0, when no group has a live task; with `term_slot` negative, when that
-// group has none; otherwise when that task is done, or its slot has moved on
-// to a successor.
-func should_stop(term_group: Int, term_slot: Int, term_gen: Int) unsafe -> Bool {
+// Whether the sweep `sweep` was asked for is finished: with `waiter` nonzero,
+// when the drive point's park recorded through the context at that address
+// wakes; otherwise, with `term_group` 0, when no group has a live task; with
+// `term_slot` negative, when that group has none; otherwise when that task is
+// done, or its slot has moved on to a successor.
+func should_stop(term_group: Int, term_slot: Int, term_gen: Int, waiter: Int) unsafe -> Bool {
+    if waiter != 0 {
+        return park_wakes(waiter as UnsafePointer<TaskContext>)
+    }
     if term_group != 0 {
         let g = term_group as UnsafePointer<TaskGroup>
         if term_slot >= 0 {
@@ -588,16 +595,22 @@ func should_stop(term_group: Int, term_slot: Int, term_gen: Int) unsafe -> Bool 
     true
 }
 
-// The scheduler sweep: resumes woken frames round-robin across every group in
-// the ambient list until `should_stop` says the sweep is finished.
+// The sweep a join, a group's teardown and the entry executor run: until the
+// task, the group or every group named is finished (`should_stop`).
+func exec_run(term_group: Int, term_slot: Int, term_gen: Int) unsafe {
+    sweep(term_group, term_slot, term_gen, 0)
+}
+
+// The scheduler sweep, shared by every drive point: resumes woken frames
+// round-robin across every group in the ambient list until `should_stop` says
+// the sweep is finished, and when a pass wakes nothing, waits for the earliest
+// timer (`idle`).
 //
 // A nested sweep (a task joins a task) skips every frame active on this
-// thread's stack, and returns when every live frame is one of those, ceding
-// to the sweep further up. A frame that is not cancelled and is parked on
-// anything but a ready park is a wait this executor does not perform yet, so
-// it panics rather than spin.
-func exec_run(term_group: Int, term_slot: Int, term_gen: Int) unsafe {
-    while not should_stop(term_group, term_slot, term_gen) {
+// thread's stack, and returns when every live frame is one of those and it
+// has no timer of its own to wait for, ceding to the sweep further up.
+func sweep(term_group: Int, term_slot: Int, term_gen: Int, waiter: Int) unsafe {
+    while not should_stop(term_group, term_slot, term_gen, waiter) {
         var resumed = false
         var cur = EXEC_HEAD.load()
         while cur != 0 {
@@ -607,7 +620,7 @@ func exec_run(term_group: Int, term_slot: Int, term_gen: Int) unsafe {
                 if g[0].runnable(i) {
                     resume_slot(g, i)
                     resumed = true
-                    if should_stop(term_group, term_slot, term_gen) {
+                    if should_stop(term_group, term_slot, term_gen, waiter) {
                         return
                     }
                 }
@@ -615,36 +628,126 @@ func exec_run(term_group: Int, term_slot: Int, term_gen: Int) unsafe {
             }
             cur = g[0].next
         }
-        if not resumed {
-            refuse_parked()
+        if not resumed && not idle(waiter) {
             return
         }
     }
 }
 
-// Nothing was woken. When some live frame off this thread's stack is parked,
-// that wait is one the executor cannot perform yet.
-func refuse_parked() unsafe {
+// A pass woke nothing: blocks until the earliest deadline among the timers
+// parked off this thread's stack, the drive point's park at `waiter` among
+// them, and answers true; answers false when there is no such timer, since
+// every live frame is then on this thread's stack. A frame parked on a wait
+// this executor does not perform is refused rather than spun on, since
+// nothing here would ever wake it.
+func idle(waiter: Int) unsafe -> Bool {
+    var timed = false
+    var earliest = UInt64.max
+    if waiter != 0 {
+        let w = waiter as UnsafePointer<TaskContext>
+        if park_wakes(w) {
+            return true
+        }
+        if w[0].park[0] == PARK_TIMER {
+            timed = true
+            earliest = w[0].deadline
+        }
+    }
+    let lead = "executor"
     var cur = EXEC_HEAD.load()
     while cur != 0 {
         let g = cur as UnsafePointer<TaskGroup>
-        let park = g[0].first_parked()
-        if park != PARK_UNSET {
-            panic("executor: a task is parked on {}, which this executor does not wait on yet",
-                  park_reason(park))
+        var i = 0
+        while i < g[0].slots.len() {
+            let s = g[0].slots[i]
+            if not s.done && not s.active {
+                let cell = g[0].cell_at(i)
+                let cx = (&cell[0].context) as UnsafePointer<TaskContext>
+                // The clock moved on since the pass, or a deadline it read as
+                // future has passed: the next pass resumes the frame.
+                if park_wakes(cx) {
+                    return true
+                }
+                let park = cell[0].park
+                if not waits_on(park) {
+                    refuse_park(&lead, "a task", park)
+                }
+                timed = true
+                if cell[0].context.deadline < earliest {
+                    earliest = cell[0].context.deadline
+                }
+            }
+            i = i + 1
         }
         cur = g[0].next
     }
+    if timed {
+        wait_until(earliest)
+    }
+    timed
 }
 
-func park_reason(park: Int) -> String {
-    if park > 0 {
-        return "a timer"
+// Whether the executor performs the wait park word `park` records. A ready
+// park needs none; a cancel wakes a park of any reason (`park_wakes`).
+func waits_on(park: Int) -> Bool {
+    park == PARK_READY || park == PARK_TIMER
+}
+
+// Panics for park word `park`, a wait the executor does not perform, which
+// `subject` recorded: `lead` opens the message.
+func refuse_park(lead: &String, subject: String, park: Int) -> Never {
+    if park > PARK_TIMER {
+        panic("{}: {} recorded park word {}, which names no park", lead, subject, park)
     }
     if park == PARK_FD {
-        return "a descriptor's readiness"
+        panic("{}: {} is parked on a descriptor's readiness, which the executor does not wait on until SL:coroutines A12a",
+              lead, subject)
     }
-    "a channel's readiness word"
+    panic("{}: {} is parked on a channel's readiness word, which the executor does not wait on until SL:coroutines A13a",
+          lead, subject)
+}
+
+// The process-wide reactor instance, created on first use; 0 until then
+// (runtime/ABI.md, "The IO reactor").
+static REACTOR: Atomic<Int> = Atomic(0)
+
+// The process-wide reactor. A thread that loses the race to publish its new
+// instance destroys it and takes the winner's.
+func host_reactor() -> Int {
+    let current = REACTOR.load()
+    if current != 0 {
+        return current
+    }
+    let fresh = __saw_rt_reactor_create()
+    if REACTOR.compare_exchange(0, fresh) {
+        return fresh
+    }
+    __saw_rt_reactor_destroy(fresh)
+    REACTOR.load()
+}
+
+// The unit of the reactor poll's timeout, a millisecond, in nanoseconds.
+static POLL_TICK_NANOS: UInt64 = 1_000_000
+// The longest single idle poll, in milliseconds. epoll takes its timeout as
+// a C `int`, so a longer deadline is waited for in polls of this length.
+static IDLE_POLL_CAP_MILLIS: Int = 60_000
+
+// The executor's idle wait: blocks this thread in the reactor's poll until
+// the monotonic clock reaches `deadline`, or until the reactor is woken. The
+// timeout is rounded up to whole milliseconds, since a sub-millisecond rest
+// rounded down would be a zero timeout, and a poll that returns before the
+// deadline costs one more pass of the sweep, which polls again.
+func wait_until(deadline: UInt64) unsafe {
+    let now = monotonic_now()
+    if now >= deadline {
+        return
+    }
+    let rest = deadline - now
+    var millis = IDLE_POLL_CAP_MILLIS
+    if rest < (IDLE_POLL_CAP_MILLIS as UInt64) * POLL_TICK_NANOS {
+        millis = ((rest + POLL_TICK_NANOS - 1) / POLL_TICK_NANOS) as Int
+    }
+    let _ = __saw_rt_reactor_poll(host_reactor(), millis)
 }
 
 // The executor halves the park lowerings call (SL:coroutines §3.1). Each park
@@ -655,7 +758,7 @@ func park_reason(park: Int) -> String {
 /// deadline a timer park records in its context. A span past the clock's end
 /// saturates there, since no clock reaches it.
 public func __saw_exec_timer_deadline(nanos: UInt64) -> UInt64 {
-    let now = __saw_rt_clock_monotonic_nanos() as UInt64
+    let now = monotonic_now()
     if nanos > UInt64.max - now {
         return UInt64.max
     }
@@ -752,7 +855,8 @@ public func __saw_exec_drive_main(descriptor: UnsafePointer<FrameDescriptor>,
 /// the test driver `__saw_drive`, written at `site`, which then moves the
 /// result out.
 ///
-/// Panics if the frame parks on anything but a ready yield (`drive_frame`).
+/// Panics if the frame parks on a wait the executor does not perform yet
+/// (`drive_frame`).
 public func __saw_exec_drive(descriptor: UnsafePointer<FrameDescriptor>, frame: UnsafePointer<UInt8>,
                              site: String) unsafe {
     drive_frame(descriptor, frame, &site)
@@ -763,7 +867,8 @@ public func __saw_exec_drive(descriptor: UnsafePointer<FrameDescriptor>, frame: 
 /// reported `Pending`: the lowering of the test driver `__saw_drive_steps`,
 /// written at `site`, whose result nobody takes.
 ///
-/// Panics if the frame parks on anything but a ready yield (`drive_frame`).
+/// Panics if the frame parks on a wait the executor does not perform yet
+/// (`drive_frame`).
 public func __saw_exec_drive_steps(descriptor: UnsafePointer<FrameDescriptor>, frame: UnsafePointer<UInt8>,
                                    site: String) unsafe -> Int {
     let steps = drive_frame(descriptor, frame, &site)
@@ -772,12 +877,13 @@ public func __saw_exec_drive_steps(descriptor: UnsafePointer<FrameDescriptor>, f
     steps
 }
 
-// A drive point's loop (SL:coroutines §4, A4b): the frame is resumed with a
-// context of its own until its root returns, and each `Pending` is counted. A
-// ready yield is resumed at once, so a drive point never cedes to the run
-// queue. Any other park is a wait this executor performs for nobody yet, so
-// it panics naming the reason and the site rather than spin, which would mask
-// a lost wake (SL-645).
+// A drive point's loop (SL:coroutines §4, A4b and A11): the frame is resumed
+// with a context of its own until its root returns, and each `Pending` is
+// counted. A ready yield is resumed at once, so a drive point never cedes to
+// the run queue for one. Any other park hands its wait to the shared sweep:
+// other tasks run meanwhile, and the drive resumes once its own park wakes
+// (t8). A wait the executor does not perform yet panics, naming the reason
+// and the site, rather than spin, which would mask a lost wake.
 func drive_frame(descriptor: UnsafePointer<FrameDescriptor>, frame: UnsafePointer<UInt8>,
                  site: &String) unsafe -> Int {
     var park = PARK_UNSET
@@ -794,8 +900,10 @@ func drive_frame(descriptor: UnsafePointer<FrameDescriptor>, frame: UnsafePointe
             panic("{}: the driven frame reported Pending without recording a park", site)
         }
         if parked != PARK_READY {
-            panic("{}: the driven frame is parked on {}, which a drive point does not wait on yet",
-                  site, park_reason(parked))
+            if not waits_on(parked) {
+                refuse_park(&site, "the driven frame", parked)
+            }
+            sweep(0, -1, 0, cx as Int)
         }
         word[0] = PARK_UNSET
     }

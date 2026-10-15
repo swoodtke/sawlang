@@ -1,0 +1,8 @@
+program	compiler/tests/run/drive_timer_park.saw
+triple	aarch64-unknown-linux-gnu
+source	efb6a193aaf56a21
+build	ok
+exit	0
+stdout	"before"
+stdout	"after"
+stdout	""

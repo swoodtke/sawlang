@@ -1,0 +1,33 @@
+// tests/corpus/taskgroup_suspending_parent_sleep's subject, with `Task.spawn`
+// in place of its `TaskGroup` (SL:coroutines A11): a drive point whose frame
+// sleeps while the tasks it spawned sleep too. The drive hands its timer
+// park to the executor's sweep, which runs the children and idles until each
+// deadline in turn, the children's first and the parent's last; the joins
+// then find both children finished. `marker` lives in the driven frame, and
+// its drop at the frame's return prints 905 before the drive's result does.
+struct Res {
+    id: Int
+}
+
+extension Res: NoCopy {
+    func deinit(&var self) {
+        print(900 + self.id)
+    }
+}
+
+func child(n: Int) -> Int {
+    sleep(Duration.ms(n as UInt64))
+    return n * 10
+}
+
+func orchestrate() -> Int {
+    let marker = Res(id: 5)
+    let h1 = Task.spawn(child(2))
+    let h2 = Task.spawn(child(1))
+    sleep(Duration.ms(3))
+    return h1.join() + h2.join()
+}
+
+func main() {
+    print(__saw_drive(orchestrate()))
+}

@@ -1,0 +1,13 @@
+// A driven frame that sleeps (SL-645, SL:coroutines A11): `nap`'s frame
+// records its deadline and the timer marker and returns `Pending`, and the
+// drive point hands that wait to the executor's sweep, which idles until the
+// deadline and then lets the drive resume the frame.
+func nap() {
+    print("before")
+    sleep(Duration.ms(1))
+    print("after")
+}
+
+func main() {
+    __saw_drive(nap())
+}

@@ -311,10 +311,16 @@ with a loop, `op_budget_counts` counts a driven loop's forced yields,
 `op_budget_loop_shapes_driven` charges each loop shape without changing its
 count, `op_budget_interleaving` cedes before the body that runs the counter
 out, `background_compute_preemption` cedes from a task that only computes,
-and `background_task_spawn` also reads `cancelled()` in a task. The due
-programs `suspend_blocking_main`, `suspend_cycle` and `suspend_park_point`
-pin the refusals at a build: a `blocking` extern's offload, a cycle and a
-timer park.
+and `background_task_spawn` also reads `cancelled()` in a task. Timers
+(SL:coroutines A11): `main_timer_park` and `async_main_sleep_yield` sleep in
+a suspending `main`, `drive_timer_park` in a driven frame,
+`task_suspending_parent_sleep` in a driven frame whose spawned tasks sleep
+too, `task_sleep_ordering` wakes two sleeping tasks in deadline order, and
+`task_cancel_idle_sleep` cancels a sleeping task once the executor has
+idled until `main`'s earlier deadline, and `instant_after_sleep` measures a
+sleep with `std.time`'s `Instant`. The due programs
+`suspend_blocking_main` and `suspend_cycle` pin the refusals at a build: a
+`blocking` extern's offload and a cycle.
 
 **Closures.** A closure's environment is a slot of the frame that builds it,
 which is sound only for a closure that does not escape; mono refuses an

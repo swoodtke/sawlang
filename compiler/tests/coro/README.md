@@ -271,13 +271,15 @@ lives as long as the task. The executor functions each lowering calls are
 `std.taskgroup`'s; mono reaches them from the park's call. A park this
 executor does not wait on yet panics, never returns early: the arm of a
 descriptor and of an offload park panics naming the unit that brings its
-executor half (SL:coroutines A12a, A14b), and a timer or channel park, which
-arms nothing, reaches the executor's refusal of a wait it does not perform,
-at a drive point (SL-645) and in the entry executor alike (the run lane's
-`probes/drive_timer_park.saw` and `probes/main_timer_park.saw`). What a park
-reads on resume, ready, timed out or cancelled, comes with the units whose
-executor can tell them apart (A10, A11); until then every park returns
-nothing.
+executor half (SL:coroutines A12a, A14b), and a channel park, which arms
+nothing, reaches the executor's refusal of a wait it does not perform,
+naming A13a. A timer park, which arms nothing either, is resumed once its
+deadline passes, at a drive point (SL-645) and in the entry executor alike
+(the run lane's `drive_timer_park` and `main_timer_park`). Every park
+returns nothing: its cancelled outcome is the task's cancel word, which the
+frame reads after its park (A10), and a timer has no outcome but its
+deadline; a bounded descriptor park's timed-out outcome comes with that
+park's executor half (A12a).
 
 A call of `__saw_test_suspend` becomes a goto where it returned.
 
@@ -411,9 +413,12 @@ site's call loses its arguments:
 
 The driver resumes the frame with a context of its own, its park and cancel
 words its locals, until the root returns, counting each `Pending`. A ready
-yield is resumed at once, so a drive point never cedes to the run queue
-(SL:coroutines §4, A4, t8); any other park panics, naming the reason and
-SITE, until A11 hands that wait to the executor's sweep (SL-645). Every
+yield is resumed at once, so a drive point never cedes to the run queue for
+one (SL:coroutines §4, A4, t8); a timer park hands its wait to the
+executor's shared sweep, which runs other tasks meanwhile and idles until
+the earliest deadline, its own among them (A11, SL-645), and a park whose
+wait the executor does not perform yet panics, naming the reason, SITE and
+the unit that brings it. Every
 lowered site is checked: its drive call carries no arguments and returns to
 the driver's call, its block writes the state word and each of the root's
 parameters (its slot read from the root's frame) exactly once, and a move-out
@@ -602,8 +607,9 @@ and both forms over a result with a destructor; the run lane's
 `coro_nested_suspend_two_deep`, `coro_drive_void_body`, `expr_suspend_return`,
 `coro_unconsumed_result`, `coro_driven_match_move_out_releases_once`,
 `drive_shapes`, `drive_ownership` and
-`drive_sync_root` run them, and std's lane's `exec/drive_timer_park` pins the
-panic on a non-ready park. Golden `windows` is borrow windows in lowered
+`drive_sync_root` run them, and std's lane's `exec/drive_timer_park` pins a
+drive point's timer park and its refusal of a park word that names no park.
+Golden `windows` is borrow windows in lowered
 frames: one held open across a suspension, its record a frame value across
 that state; one on an accessor whose prologue and epilogue suspend, driven as
 children at the open and the close; and one-statement windows between

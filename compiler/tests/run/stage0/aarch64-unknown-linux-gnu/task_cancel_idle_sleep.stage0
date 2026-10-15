@@ -1,0 +1,10 @@
+program	compiler/tests/run/task_cancel_idle_sleep.saw
+triple	aarch64-unknown-linux-gnu
+source	32b7e589de33c38d
+build	ok
+exit	0
+stdout	"sleeper: going to sleep"
+stdout	"main: cancelling the sleeper"
+stdout	"sleeper: cancelled"
+stdout	"main: joined 1"
+stdout	""

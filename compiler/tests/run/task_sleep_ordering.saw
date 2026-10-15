@@ -1,0 +1,18 @@
+// tests/corpus/taskgroup_sleep_ordering's subject, with `Task.spawn` in place
+// of its `TaskGroup` (SL:coroutines A11): two tasks sleep for different
+// spans, and the executor idles until the earlier deadline, so the shorter
+// sleeper wakes and prints first, whatever the spawn order. The spans are
+// 20 ms apart, so the order never rests on the clock's resolution.
+func sleeper(id: Int, nap: Duration) -> Int {
+    sleep(nap)
+    print(id)
+    return id
+}
+
+func main() {
+    let a = Task.spawn(sleeper(1, Duration.ms(30)))
+    let b = Task.spawn(sleeper(2, Duration.ms(10)))
+    let x = a.join()
+    let y = b.join()
+    print(x + y)
+}

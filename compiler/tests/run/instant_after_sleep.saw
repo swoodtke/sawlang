@@ -1,0 +1,17 @@
+// `std.time`'s `Instant` (SL:coroutines A11): the span an `Instant` measures
+// across a `sleep` is at least the sleep's, since a timer park resumes only
+// once its deadline has passed, and an instant taken later is never earlier.
+// The spans compare by their nanoseconds: `Duration`'s synthesized
+// `Comparable` is `mono.not-yet` in sawc2's slice.
+import std.time.{Instant}
+
+static NAP_MS: UInt64 = 20
+
+func main() {
+    let started = Instant.now()
+    sleep(Duration.ms(NAP_MS))
+    let slept = started.elapsed().as_nanos()
+    print("slept at least the nap: {}", slept >= Duration.ms(NAP_MS).as_nanos())
+    let later = Instant.now()
+    print("a later instant is no earlier: {}", later.duration_since(started).as_nanos() >= slept)
+}

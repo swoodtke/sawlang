@@ -1,6 +1,6 @@
 sleeper yields
-sleeper yields
-sleeper is done
+sleeper sleeps
+sleeper wakes at its deadline: true
 2 steps
 sleeper parks
-panic at ?: `__saw_drive(...)` at the site: the driven frame is parked on a timer, which a drive point does not wait on yet
+panic at ?: `__saw_drive(...)` at the site: the driven frame recorded park word 1000000, which names no park

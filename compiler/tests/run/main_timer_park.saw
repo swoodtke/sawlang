@@ -1,0 +1,11 @@
+// A suspending `main` that yields and then sleeps (SL-645, SL:coroutines
+// A11): the ready park resumes at the next sweep, and the timer park records
+// its deadline and the timer marker, so the entry executor idles until the
+// deadline and then resumes `main`.
+import std.task.{yield_now}
+
+func main() {
+    yield_now()
+    sleep(Duration.ms(1))
+    print("{}", 1)
+}

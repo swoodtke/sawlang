@@ -1,0 +1,9 @@
+program	compiler/tests/run/task_sleep_ordering.saw
+triple	arm64-apple-darwin
+source	5892c8d2a12769a4
+build	ok
+exit	0
+stdout	"2"
+stdout	"1"
+stdout	"3"
+stdout	""

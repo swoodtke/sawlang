@@ -1,0 +1,8 @@
+program	compiler/tests/run/task_suspending_parent_sleep.saw
+triple	aarch64-unknown-linux-gnu
+source	121c8b6530244acc
+build	ok
+exit	0
+stdout	"905"
+stdout	"30"
+stdout	""

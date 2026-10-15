@@ -1,0 +1,7 @@
+program	compiler/tests/run/main_timer_park.saw
+triple	aarch64-unknown-linux-gnu
+source	359b9f68a7c9267a
+build	ok
+exit	0
+stdout	"1"
+stdout	""
