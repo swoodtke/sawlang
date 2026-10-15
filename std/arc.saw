@@ -1,0 +1,144 @@
+//! `Arc<T>`: atomic reference-counted shared ownership.
+//!
+//! An `Arc` is `Copy`: a copy retains the one heap block the handles share,
+//! and the last handle to die destroys the payload and frees the block. The
+//! payload is shared, never duplicated, so write to it through a `Mutex`, or
+//! through `with_unique` while no other handle exists.
+//!
+//! ```saw-fragment
+//! let shared = try! Arc<Int>(value: 7)
+//! let other = shared.copy()
+//! print(shared.strong_count())    // 2
+//! ```
+
+// One heap block, { i64 strong, i64 weak, T payload }, allocated through the
+// allocator. The weak count is reserved layout: it starts at 1, the strong
+// handles' collective weak reference, so a `Weak` added later changes no
+// offset.
+//
+// copy() adds to strong (monotonic). deinit() subtracts (release); the thread
+// that takes strong to 0 fences acquire, drops the payload in place, then
+// subtracts from weak the same way and frees the block at 0.
+
+/// Atomic reference-counted shared ownership of one `T`.
+public struct Arc<T> {
+    // Points at the block's strong count. Always `Some` in a constructed Arc:
+    // `init` reports allocator failure instead of building one, so the `None`
+    // arms below are unreachable.
+    private ptr: UnsafePointer<Int8>?
+}
+
+// The counts are updated with atomic read-modify-writes, so a handle may cross
+// threads when the payload may be both moved and shared there. Both bounds are
+// required: an `Arc` shares its payload by construction (design 186).
+extension Arc<T: Send + Sync>: UnsafeSend {}
+extension Arc<T: Send + Sync>: UnsafeSync {}
+
+extension Arc<T> {
+    /// Constructs a fresh `Arc` owning `value`, with one strong owner.
+    ///
+    /// Returns `Err(AllocError)` when the allocator refuses; `value` is then
+    /// destroyed rather than leaked.
+    public init(value: T) unsafe -> Result<Arc<T>, AllocError> {
+        let size = 16 + sizeof<T>()
+        if let block = GlobalAllocator().alloc(size, 16) {
+            let strong_ptr = block as UnsafePointer<Int>
+            strong_ptr[0] = 1
+            let weak_ptr = (block + 8) as UnsafePointer<Int>
+            weak_ptr[0] = 1
+            let payload_ptr = (block + 16) as UnsafePointer<T>
+            payload_ptr[0] = value
+            return Arc<T>(ptr: block)
+        }
+        return AllocError(size: size, align: 16)
+    }
+
+    /// Returns the number of strong owners.
+    ///
+    /// Another thread can change the count before the caller reads it, so use
+    /// it for tests and diagnostics, never to decide whether a value is shared.
+    public func strong_count(&self) unsafe -> Int {
+        if let block = self.ptr {
+            let strong_ptr = block as UnsafePointer<Int>
+            strong_ptr[0]
+        } else {
+            0
+        }
+    }
+
+    /// Lends the payload where it sits when this handle is the only strong
+    /// owner, or nothing when the value is shared.
+    ///
+    /// This is the copy-on-write gate. Payload-method forwarding passes `&self`
+    /// methods through and refuses `&var self` ones, because an aliased write
+    /// is what `Mutex` exists to make safe. Uniqueness is the other sound
+    /// answer: nobody else can observe a write to a value only you hold. The
+    /// test and the lend are one operation, so the count cannot go stale
+    /// between them, and the absent path opens no window.
+    ///
+    /// The `None` arm is the caller's cue to duplicate the payload and write to
+    /// the duplicate, which is how `Data` gets value semantics over shared
+    /// storage. The answer is single-threaded: a count of 1 says nothing about
+    /// a handle another thread holds, so share a value across tasks through
+    /// `Mutex`.
+    public func unique(&var self) unsafe borrows -> &var T? {
+        guard let block = self.ptr else {
+            return None
+        }
+        let strong_ptr = block as UnsafePointer<Int>
+        if __saw_atomic_load_i64_relaxed(strong_ptr) != 1 {
+            return None
+        }
+        // The caller writes through the lend, so another thread's last release
+        // must happen-before it.
+        __saw_atomic_fence_acquire()
+        let payload_ptr = (block + 16) as UnsafePointer<T>
+        lend payload_ptr[0]
+    }
+}
+
+// `deinit` lives inside the copy-policy conformance because `Deinit` is never
+// declared on its own.
+/// `Arc` copies by reference count.
+extension Arc<T>: Copy {
+    /// Releases this handle, destroying the payload and freeing the block when
+    /// it was the last one.
+    public func deinit(&var self) unsafe {
+        if let block = self.ptr {
+            let strong_ptr = block as UnsafePointer<Int>
+            let old = __saw_atomic_sub_i64_release(strong_ptr, 1)
+            if old < 1 {
+                // The platform allocator may or may not trap on the eventual
+                // double free; this panic is the deterministic report.
+                panic("over-release of an Arc (refcount underflow)")
+            }
+            if old == 1 {
+                // Order every other thread's final payload reads before the
+                // teardown.
+                __saw_atomic_fence_acquire()
+                let payload_ptr = (block + 16) as UnsafePointer<T>
+                __saw_deinit_in_place(payload_ptr)
+                // Release the strong handles' collective weak count.
+                let weak_ptr = (block + 8) as UnsafePointer<Int>
+                let wold = __saw_atomic_sub_i64_release(weak_ptr, 1)
+                if wold < 1 {
+                    panic("over-release of an Arc weak count (refcount underflow)")
+                }
+                if wold == 1 {
+                    __saw_atomic_fence_acquire()
+                    GlobalAllocator().dealloc(block, 16 + sizeof<T>(), 16)
+                }
+            }
+        }
+    }
+
+    /// Retains the block and returns a second handle to it.
+    public func copy(&self) unsafe -> Arc<T> {
+        if let block = self.ptr {
+            let strong_ptr = block as UnsafePointer<Int>
+            // A live handle keeps the block alive, so monotonic is enough.
+            let _ = __saw_atomic_add_i64(strong_ptr, 1)
+        }
+        Arc<T>(ptr: self.ptr)
+    }
+}

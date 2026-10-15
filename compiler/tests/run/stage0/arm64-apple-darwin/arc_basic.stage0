@@ -1,0 +1,10 @@
+program	compiler/tests/run/arc_basic.saw
+triple	arm64-apple-darwin
+source	bdf4ada91d417ffc
+build	ok
+exit	0
+stdout	"1"
+stdout	"2"
+stdout	"1"
+stdout	"5"
+stdout	""

@@ -33,10 +33,10 @@ any_sync_effect.saw	refused	typecheck slice.not-yet	a method call on `any Trait`
 any_var_self.saw	refused	typecheck slice.not-yet	a method call on `any Trait` is not in the bootstrap slice yet
 any_vector_deinit.saw	refused	typecheck slice.not-yet	`Box<any Trait>.make` is not in the bootstrap slice yet
 any_vector_shapes.saw	refused	typecheck slice.not-yet	`Box<any Trait>.make` is not in the bootstrap slice yet
-arc_basic.saw	refused	resolve name.undefined	cannot find `Arc` in scope
-arc_forward.saw	refused	resolve name.undefined	cannot find `Arc` in scope
-arc_forward_generic_method.saw	refused	resolve name.undefined	cannot find `Arc` in scope
-arc_with_unique.saw	refused	resolve name.undefined	cannot find `Arc` in scope
+arc_basic.saw	pass	-	-
+arc_forward.saw	refused	typecheck slice.not-yet	a method `Arc` forwards to its payload is not in the bootstrap slice yet
+arc_forward_generic_method.saw	refused	typecheck slice.not-yet	a method `Arc` forwards to its payload is not in the bootstrap slice yet
+arc_with_unique.saw	refused	typecheck slice.not-yet	a method `Arc` forwards to its payload is not in the bootstrap slice yet
 arithmetic_no_false_overflow.saw	pass	-	-
 array_const_index_out_of_bounds.saw	refused	llvm backend.not-yet	an array, a repeat, a `Map` or a `Set` literal is not in the backend slice yet
 array_dynamic_compound_oob_panic.saw	refused	llvm backend.not-yet	an array, a repeat, a `Map` or a `Set` literal is not in the backend slice yet
@@ -128,7 +128,7 @@ byte_append_discrimination.saw	crash	INVARIANT	66:32 an expression has no type
 byte_data_reads.saw	crash	INVARIANT	77:24 an expression has no type
 byte_type_flow.saw	refused	typecheck member.unknown	`String` has no method `bytes` this module can see
 capture_exclusivity_disjoint.saw	pass	-	-
-capture_write_allowed_forms.saw	refused	resolve name.undefined	cannot find `Arc` in scope
+capture_write_allowed_forms.saw	refused	typecheck slice.not-yet	a method `Arc` forwards to its payload is not in the bootstrap slice yet
 cast170_checked_as.saw	refused	resolve name.reserved	`Byte` is a prelude name, so it is reserved and cannot be declared again
 cast170_from_family.saw	refused	driver driver.usage	sawc2 build takes no --no-hidden-alloc
 cast170_narrowing_panics.saw	pass	-	-
@@ -153,7 +153,7 @@ channel_recv_cancel.saw	refused	resolve import.unknown-module	no module `std.cha
 channel_recv_nested.saw	refused	resolve import.unknown-module	no module `std.channel`
 channel_recv_producer_consumer.saw	refused	resolve import.unknown-module	no module `std.channel`
 closure_body_owns_its_own_statement_temporaries.saw	refused	mono mono.not-yet	a closure capturing a value that owns something is not in the backend slice yet
-closure_borrow_lend_balance.saw	refused	resolve name.undefined	cannot find `Arc` in scope
+closure_borrow_lend_balance.saw	refused	mono mono.not-yet	a closure capturing a value that owns something is not in the backend slice yet
 closure_captureless_copyable.saw	pass	-	-
 closure_captures_block_match_arm.saw	pass	-	-
 closure_captures_reference_param.saw	pass	-	-
@@ -161,9 +161,9 @@ closure_captures_reference_param_escaping_error.saw	pass	-	capture.escaping-borr
 closure_captures_self.saw	pass	-	-
 closure_captures_self_escaping_error.saw	pass	-	capture.escaping-borrow: an escaping closure cannot capture `self`: a method's receiver is a borrow of storage the caller owns, and a borrow may not outlive the frame it points into: pass the closure
 closure_captures_self_suspending.saw	pass	-	-
-closure_copy_binding.saw	refused	resolve name.undefined	cannot find `Arc` in scope
-closure_copyable_struct_copied.saw	refused	resolve name.undefined	cannot find `Arc` in scope
-closure_deinit_arc_balance.saw	refused	resolve name.undefined	cannot find `Arc` in scope
+closure_copy_binding.saw	refused	mono mono.not-yet	a closure capturing a value that owns something is not in the backend slice yet
+closure_copyable_struct_copied.saw	refused	mono mono.not-yet	a closure capturing a value that owns something is not in the backend slice yet
+closure_deinit_arc_balance.saw	refused	mono mono.not-yet	a closure capturing a value that owns something is not in the backend slice yet
 closure_deinit_called_then_dropped.saw	refused	mono mono.not-yet	a closure capturing a value that owns something is not in the backend slice yet
 closure_deinit_conditional_move.saw	refused	mono mono.not-yet	a closure capturing a value that owns something is not in the backend slice yet
 closure_deinit_drop_order.saw	refused	mono mono.not-yet	a closure capturing a value that owns something is not in the backend slice yet
@@ -181,14 +181,14 @@ closure_pushed_into_a_vector_keeps_its_captures.saw	refused	mono mono.not-yet	an
 closure_return_is_local.saw	pass	-	-
 closure_satisfies_copy_bound.saw	refused	mono mono.not-yet	an escaping closure that captures a value is not in the backend slice yet: its environment would live in the frame that builds it, and heap environments are unbuilt (SL-525)
 closure_shorthand_parameter_inside_a_try.saw	refused	resolve slice.not-yet	`syntax.expr.shorthand-param` is not in the bootstrap slice yet
-closure_spawn_arc_balance.saw	refused	resolve name.undefined	cannot find `Arc` in scope
+closure_spawn_arc_balance.saw	refused	resolve slice.not-yet	the `Thread.spawn` form is not in the bootstrap slice yet
 closure_struct_field_infer.saw	refused	resolve slice.not-yet	`syntax.expr.shorthand-param` is not in the bootstrap slice yet
 closure_tail_adopts_expected_return_type.saw	pass	-	-
 closure_tail_autowraps_result.saw	refused	llvm backend.not-yet	an erasure into `any` is not in the backend slice yet
 closure_tail_result_ambiguous_payloads.saw	pass	-	type.ambiguous-result: both payloads of `Result<Int32, Int32>` can take this value, so it names neither: write `.Ok(value: ...)` or `.Err(error: ...)`
 closure_tail_takes_the_transfer_checkpoint.saw	pass	-	transfer.implicit-copy: this reads a place of type `closure_tail_takes_the_transfer_checkpoint.Res`, which is NoCopy, by value: only a Copy type copies silently; write `move r` to take it, or borrow i
 closure_vector_copy_get.saw	refused	mono mono.not-yet	an escaping closure that captures a value is not in the backend slice yet: its environment would live in the frame that builds it, and heap environments are unbuilt (SL-525)
-closure_vector_deinit_once.saw	refused	resolve name.undefined	cannot find `Arc` in scope
+closure_vector_deinit_once.saw	refused	mono mono.not-yet	a closure capturing a value that owns something is not in the backend slice yet
 closures_basic.saw	pass	-	-
 closures_borrow_capture.saw	pass	-	-
 closures_capture.saw	refused	mono mono.not-yet	an escaping closure that captures a value is not in the backend slice yet: its environment would live in the frame that builds it, and heap environments are unbuilt (SL-525)
@@ -288,7 +288,7 @@ conformance/D10_spawn_never_body_refused.saw	refused	typecheck slice.not-yet	`Ta
 conformance/D11_spawn_closure_never_refused.saw	refused	resolve slice.not-yet	the `Thread.spawn` form is not in the bootstrap slice yet
 conformance/D12_drive_never_body_refused.saw	pass	-	spawn.never-body: a task body may not be `Never`: `halt` never returns, so `__saw_drive` would drive it for ever. Write a forever-task as `-> Void` with a loop, `func serve() { while { ... } }`, and e
 conformance/D13_no_fallthrough_past_diverging_call.saw	pass	-	-
-conformance/D14_diverging_forwarded_and_later_args.saw	refused	resolve name.undefined	cannot find `Arc` in scope
+conformance/D14_diverging_forwarded_and_later_args.saw	refused	typecheck slice.not-yet	a method `Box` forwards to its payload is not in the bootstrap slice yet
 conformance/E12_autowrap_at_the_argument_position.saw	pass	-	-
 conformance/G01_sync_main_int_exit_status.saw	pass	-	-
 conformance/G02_suspending_main_int_exit_status.saw	pass	-	-
@@ -326,7 +326,7 @@ conformance/K135_window_conflicts_that_compose.saw	refused	typecheck member.unkn
 conformance/K136_window_release_routes.saw	refused	typecheck member.unknown	`std.vector.Vector<Int, std.alloc.GlobalAllocator>` has no method `iter` this module can see
 conformance/K137_window_destruction_order.saw	refused	typecheck slice.not-yet	`syntax.expr.lends` is not in the bootstrap slice yet
 conformance/K138_window_acquire_sequence.saw	refused	typecheck slice.not-yet	`syntax.expr.lends` is not in the bootstrap slice yet
-conformance/K13_mt_sum_under_mutex.saw	refused	resolve name.undefined	cannot find `Arc` in scope
+conformance/K13_mt_sum_under_mutex.saw	refused	typecheck slice.not-yet	a method `Arc` forwards to its payload is not in the bootstrap slice yet
 conformance/K140_window_under_cancellation.saw	refused	typecheck slice.not-yet	`syntax.expr.lends` is not in the bootstrap slice yet
 conformance/K141_mutex_guarded_for_is_sync.saw	refused	typecheck member.unknown	`std.vector.Vector<Int, std.alloc.GlobalAllocator>` has no method `iter` this module can see
 conformance/K147_inline_catch_splits.saw	refused	typecheck slice.not-yet	`syntax.expr.try.route` is not in the bootstrap slice yet
@@ -342,13 +342,13 @@ conformance/K21_cross_module_embed_private_sibling.saw	refused	typecheck slice.n
 conformance/K22_cross_module_generic_embed_private_sibling.saw	refused	typecheck slice.not-yet	a constant argument named by a static, `SLOTS`, is not in the bootstrap slice yet
 conformance/K24_frame_slot_payload_binding_not_a_copy.saw	pass	-	-
 conformance/K25_cross_module_embed_private_static_const_position.saw	refused	typecheck slice.not-yet	a constant argument named by a static, `SLOTS`, is not in the bootstrap slice yet
-conformance/K26_closure_capture_of_frame_local_not_a_user_copy.saw	refused	resolve name.undefined	cannot find `Arc` in scope
+conformance/K26_closure_capture_of_frame_local_not_a_user_copy.saw	refused	mono mono.not-yet	a closure capturing a value that owns something is not in the backend slice yet
 conformance/K27_receiver_window_never_spans_suspend.saw	refused	resolve import.unknown-module	no module `std.compiler.frame`
 conformance/K28_slot_payload_released_exactly_once.saw	refused	resolve import.unknown-module	no module `std.compiler.frame`
 conformance/K29_copy_policy_hook_must_be_sync.saw	pass	-	effect.sync: cannot suspend in the `Copy` `copy()` of `Heavy`: `Heavy.copy` may suspend, and a copy-policy `copy()` runs at compiler-inserted call sites, so it must be `sync`
 conformance/K30_generic_container_of_pinned_is_pinned.saw	refused	typecheck member.unknown	`std.taskgroup.TaskGroup` has no method `is_empty` this module can see
-conformance/K31_generic_arc_share_at_non_sync_refused.saw	refused	resolve name.undefined	cannot find `Arc` in scope
-conformance/K32_task_cell_result_and_cancel.saw	refused	resolve name.undefined	cannot find `Arc` in scope
+conformance/K31_generic_arc_share_at_non_sync_refused.saw	refused	typecheck slice.not-yet	a method `Arc` forwards to its payload is not in the bootstrap slice yet
+conformance/K32_task_cell_result_and_cancel.saw	refused	typecheck slice.not-yet	`TaskGroup.spawn` is not in the bootstrap slice yet
 conformance/K33_suspending_enum_method_embedded.saw	refused	typecheck slice.not-yet	`TaskGroup.spawn` is not in the bootstrap slice yet
 conformance/K34_suspending_generic_struct_method_embedded.saw	refused	typecheck slice.not-yet	`TaskGroup.spawn` is not in the bootstrap slice yet
 conformance/K35_suspending_generic_method_embedded.saw	refused	typecheck slice.not-yet	`TaskGroup.spawn` is not in the bootstrap slice yet
@@ -366,11 +366,11 @@ conformance/K46_suspending_return_head.saw	refused	resolve import.unknown-module
 conformance/K47_channel_receive_binding_and_try_heads.saw	refused	resolve import.unknown-module	no module `std.channel`
 conformance/K48_mt_group_task_runs_before_join.saw	refused	resolve import.unknown-module	no module `std.channel`
 conformance/K49_mt_worker_feeds_st_group_task.saw	refused	resolve import.unknown-module	no module `std.channel`
-conformance/K50_mt_group_progresses_while_main_sleeps.saw	refused	resolve name.undefined	cannot find `Arc` in scope
-conformance/K51_mt_group_progresses_while_main_yields.saw	refused	resolve name.undefined	cannot find `Arc` in scope
+conformance/K50_mt_group_progresses_while_main_sleeps.saw	refused	typecheck slice.not-yet	a method `Arc` forwards to its payload is not in the bootstrap slice yet
+conformance/K51_mt_group_progresses_while_main_yields.saw	refused	typecheck slice.not-yet	a method `Arc` forwards to its payload is not in the bootstrap slice yet
 conformance/K52_mt_two_workers_deliver_before_join.saw	refused	resolve import.unknown-module	no module `std.channel`
 conformance/K53_driven_for_range_iteration_count.saw	refused	typecheck slice.not-yet	`TaskGroup.spawn` is not in the bootstrap slice yet
-conformance/K53_mt_group_stays_live_across_spawns.saw	refused	resolve name.undefined	cannot find `Arc` in scope
+conformance/K53_mt_group_stays_live_across_spawns.saw	refused	typecheck slice.not-yet	a method `Arc` forwards to its payload is not in the bootstrap slice yet
 conformance/K54_mt_task_receives_what_main_sent.saw	refused	resolve import.unknown-module	no module `std.channel`
 conformance/K55_mt_same_group_send_and_receive.saw	refused	resolve import.unknown-module	no module `std.channel`
 conformance/K56_thread_engine_feeds_main_receive.saw	refused	resolve import.unknown-module	no module `std.channel`
@@ -479,7 +479,7 @@ conformance/U32_funcpointer_capture_local_error.saw	refused	resolve name.undefin
 conformance/U33_funcpointer_capture_list_error.saw	refused	resolve name.undefined	cannot find `FuncPointer` in scope
 conformance/U34_funcpointer_capture_self_error.saw	refused	resolve name.undefined	cannot find `FuncPointer` in scope
 conformance/V04_move_out_of_ref.saw	pass	-	transfer.move-from-borrow: cannot move out of `x`: it is a reference, which borrows storage its caller owns and ends; read or borrow it instead, or give the owner a move-out (`take()` on an optional,
-conformance/V100_bounded_copy_at_the_auto_tier_retains.saw	refused	resolve name.undefined	cannot find `Arc` in scope
+conformance/V100_bounded_copy_at_the_auto_tier_retains.saw	refused	mono mono.not-yet	a closure capturing a value that owns something is not in the backend slice yet
 conformance/V101_copy_family_carries_the_tier.saw	refused	typecheck member.unknown	`std.vector.Vector<V101_copy_family_carries_the_tier.Rec, std.alloc.GlobalAllocator>` has no method `try_copy` this module can see
 conformance/V102_derived_copy_duplicates_every_field.saw	refused	mono mono.not-yet	a synthesized `ExplicitCopy.copy()` on `V102_derived_copy_duplicates_every_field.Holder` is not in the backend slice yet: only a signed integer's `Printable.format`
 conformance/V103_copy_funnel_duplicates_exactly_once.saw	refused	mono mono.not-yet	a call of `ExplicitCopy.copy()` on `V103_copy_funnel_duplicates_exactly_once.Counted`, which no conformance of it meets, is not in the backend slice yet (inside std/vector.saw:227:35)
@@ -487,14 +487,14 @@ conformance/V104_unbound_value_is_released.saw	wrong	stdout differs	line 9: sawc
 conformance/V105_copy_capture_releases_its_duplicate.saw	refused	mono mono.not-yet	a closure capturing a value that owns something is not in the backend slice yet
 conformance/V106_driven_copy_capture_duplicates_once.saw	refused	mono mono.not-yet	a closure capturing a value that owns something is not in the backend slice yet
 conformance/V107_capture_survives_repeated_invocation.saw	refused	mono mono.not-yet	a closure capturing a value that owns something is not in the backend slice yet
-conformance/V108_each_copy_capture_owns_one_duplicate.saw	refused	resolve name.undefined	cannot find `Arc` in scope
+conformance/V108_each_copy_capture_owns_one_duplicate.saw	refused	typecheck slice.not-yet	a method `Arc` forwards to its payload is not in the bootstrap slice yet
 conformance/V109_move_in_a_while_condition.saw	pass	-	move.use-after: `r` is used after it may have been moved (moved at 38:11); a moved value is gone until it is assigned again
 conformance/V110_loop_head_moves_that_stay_legal.saw	pass	-	-
-conformance/V111_discard_let_retains_a_projection.saw	refused	resolve name.undefined	cannot find `Arc` in scope
-conformance/V112_destructuring_let_retains_a_projection.saw	refused	resolve name.undefined	cannot find `Arc` in scope
-conformance/V113_chain_assign_retains_a_projection.saw	refused	resolve name.undefined	cannot find `Arc` in scope
-conformance/V114_struct_field_retains_a_projection.saw	refused	resolve name.undefined	cannot find `Arc` in scope
-conformance/V115_stored_closure_owns_its_captures.saw	refused	resolve name.undefined	cannot find `Arc` in scope
+conformance/V111_discard_let_retains_a_projection.saw	refused	llvm backend.not-yet	an array, a repeat, a `Map` or a `Set` literal is not in the backend slice yet
+conformance/V112_destructuring_let_retains_a_projection.saw	wrong	stdout differs	line 25: sawc2 "E4 if-let fresh        inside 5 after 3", Stage 0 "E4 if-let fresh        inside 4 after 3"
+conformance/V113_chain_assign_retains_a_projection.saw	refused	llvm backend.not-yet	an array, a repeat, a `Map` or a `Set` literal is not in the backend slice yet
+conformance/V114_struct_field_retains_a_projection.saw	refused	typecheck member.unknown	`String` has no method `bytes` this module can see
+conformance/V115_stored_closure_owns_its_captures.saw	refused	typecheck type.mismatch	expected `Result<() sync -> Int, V115_stored_closure_owns_its_captures.Res>`, the type of the function's result, which the body's last expression is, and found `() -> Int`
 conformance/V116_non_escaping_closure_keeps_its_stack_env.saw	refused	driver driver.usage	sawc2 build takes no --no-hidden-alloc
 conformance/V11_copy_on_nocopy.saw	refused	typecheck member.unknown	`Result<std.box.Box<Int, std.alloc.GlobalAllocator>, std.alloc.AllocError>` is NoCopy, so it has no `copy()`; move it instead
 conformance/V12_move_capture_out_of_closure.saw	pass	-	transfer.implicit-copy: the closure captures `v` by value, and `std.vector.Vector<Int, std.alloc.GlobalAllocator>` is ExplicitCopy, which does not copy silently: capture it with `[move v]`, or copy it
@@ -507,7 +507,7 @@ conformance/V28_atomic_holder_declares_nocopy.saw	pass	-	-
 conformance/V29_static_atomic_unaffected.saw	refused	mono mono.not-yet	a synthesized `Printable.format(into: &var std.stringbuilder.StringBuilder)` on `Bool` is not in the backend slice yet: only a signed integer's `Printable.format`
 conformance/V30_move_atomic_local.saw	pass	-	-
 conformance/V31_move_out_of_vector_element.saw	pass	-	result.discarded: the result of `push` is `Result<Void, std.alloc.AllocError>` and is silently discarded: handle it (`match` it, `try` or `try!` it, or return it), or write `let _ = ...` to discard it
-conformance/V32_copy_bound_is_tier_derived.saw	refused	resolve name.undefined	cannot find `Arc` in scope
+conformance/V32_copy_bound_is_tier_derived.saw	pass	-	-
 conformance/V33_explicitcopy_refused_at_silent_bound.saw	pass	-	result.discarded: the result of `push` is `Result<Void, std.alloc.AllocError>` and is silently discarded: handle it (`match` it, `try` or `try!` it, or return it), or write `let _ = ...` to discard it
 conformance/V34_explicitcopy_bound_is_the_copyable_family.saw	refused	mono mono.not-yet	a synthesized `ExplicitCopy.copy()` on `Int` is not in the backend slice yet: only a signed integer's `Printable.format`
 conformance/V36_generic_body_double_bind_refused_at_call.saw	pass	-	copy.requirement: `twice` requires `T` to be Copy, as its body binds `x` twice on one path, at tests/corpus/conformance/V36_generic_body_double_bind_refused_at_call.saw:25:18 and 26:18, with nothing w
@@ -533,26 +533,26 @@ conformance/V61_match_self_payload_move_refused.saw	pass	-	transfer.move-from-bo
 conformance/V62_borrowed_payload_move_is_tier_blind.saw	pass	-	transfer.move-from-borrow: cannot move out of `t`: it names a place it only borrows, a `borrow` binding or a part of a scrutinee a match borrows, so the place's owner still ends it; read or borrow it
 conformance/V63_owned_match_still_consumes.saw	pass	-	-
 conformance/V64_forwarding_cast_takes_the_move_checkpoint.saw	pass	-	transfer.implicit-copy: this reads a place of type `V64_forwarding_cast_takes_the_move_checkpoint.Res`, which is NoCopy, by value: only a Copy type copies silently; write `move r` to take it, or borro
-conformance/V65_forwarding_cast_is_tier_blind.saw	refused	resolve name.undefined	cannot find `Arc` in scope
+conformance/V65_forwarding_cast_is_tier_blind.saw	refused	llvm backend.not-yet	this conversion is not in the backend slice yet
 conformance/V66_alias_projection_cast_forwards.saw	pass	-	type.mismatch: expected `Int`, the type of the field, and found `V66_alias_projection_cast_forwards.Res`
 conformance/V67_building_casts_are_untouched.saw	pass	-	-
 conformance/V68_closure_reference_parameter_is_a_borrow.saw	pass	-	transfer.move-from-borrow: cannot move out of `e`: it is a reference, which borrows storage its caller owns and ends; read or borrow it instead, or give the owner a move-out (`take()` on an optional,
 conformance/V69_borrow_capture_is_a_borrow.saw	pass	-	transfer.move-from-borrow: cannot move out of `o`: the closure captured it by borrow, so its owner outside the closure still ends it; read or borrow it instead, or give the owner a move-out (`take()`
-conformance/V70_borrowed_closure_binding_refusal_is_tier_blind.saw	refused	resolve name.undefined	cannot find `Arc` in scope
+conformance/V70_borrowed_closure_binding_refusal_is_tier_blind.saw	pass	-	transfer.move-from-borrow: cannot move out of `e`: it is a reference, which borrows storage its caller owns and ends; read or borrow it instead, or give the owner a move-out (`take()` on an optional,
 conformance/V71_borrowed_closure_binding_fence_is_narrow.saw	refused	llvm backend.not-yet	a `[move]` capture's take is not in the backend slice yet
-conformance/V72_std_visitors_lend.saw	refused	resolve name.undefined	cannot find `Arc` in scope
-conformance/V73_closure_by_value_parameter_is_owned.saw	refused	resolve name.undefined	cannot find `Arc` in scope
+conformance/V72_std_visitors_lend.saw	refused	typecheck infer.failed	this closure parameter has no type: write one, as `x: Int`, or pass the closure where a function type is expected
+conformance/V73_closure_by_value_parameter_is_owned.saw	pass	-	-
 conformance/V74_closure_parameter_moved_into_a_new_owner.saw	pass	-	-
 conformance/V75_escaping_and_non_escaping_release_identically.saw	refused	mono mono.not-yet	an escaping closure that captures a value is not in the backend slice yet: its environment would live in the frame that builds it, and heap environments are unbuilt (SL-525)
-conformance/V76_fold_threads_its_accumulator.saw	refused	resolve name.undefined	cannot find `Arc` in scope
+conformance/V76_fold_threads_its_accumulator.saw	refused	typecheck infer.failed	this closure parameter has no type: write one, as `x: Int`, or pass the closure where a function type is expected
 conformance/V77_value_branch_arm_takes_the_move_checkpoint.saw	pass	-	transfer.implicit-copy: this reads a place of type `V77_value_branch_arm_takes_the_move_checkpoint.Res`, which is NoCopy, by value: only a Copy type copies silently; write `move a` to take it, or borr
 conformance/V78_value_arm_refusal_is_position_blind.saw	pass	-	transfer.implicit-copy: this reads a place of type `V78_value_arm_refusal_is_position_blind.Res`, which is NoCopy, by value: only a Copy type copies silently; write `move a` to take it, or borrow it
 conformance/V79_every_value_branch_construct_is_a_transfer.saw	refused	typecheck slice.not-yet	`syntax.stmt.break` is not in the bootstrap slice yet
-conformance/V80_copy_tier_arm_retains_exactly_once.saw	refused	resolve name.undefined	cannot find `Arc` in scope
+conformance/V80_copy_tier_arm_retains_exactly_once.saw	pass	-	-
 conformance/V81_value_arm_fence_is_narrow.saw	refused	mono mono.not-yet	a synthesized `ExplicitCopy.copy()` on `Int` is not in the backend slice yet: only a signed integer's `Printable.format` (inside std/vector.saw:227:35)
 conformance/V82_closure_tail_takes_the_transfer_checkpoint.saw	pass	-	transfer.implicit-copy: this reads a place of type `V82_closure_tail_takes_the_transfer_checkpoint.Res`, which is NoCopy, by value: only a Copy type copies silently; write `move r` to take it, or borr
 conformance/V83_closure_tail_refusal_reaches_every_source.saw	pass	-	transfer.implicit-copy: this reads a place of type `V83_closure_tail_refusal_reaches_every_source.Res`, which is NoCopy, by value: only a Copy type copies silently; write `move r` to take it, or borro
-conformance/V84_copy_tier_closure_tail_retains_exactly_once.saw	refused	resolve name.undefined	cannot find `Arc` in scope
+conformance/V84_copy_tier_closure_tail_retains_exactly_once.saw	pass	-	-
 conformance/V85_closure_tail_fence_is_narrow.saw	refused	llvm backend.not-yet	a `[move]` capture's take is not in the backend slice yet
 conformance/V86_self_receiver_read_is_a_transfer.saw	pass	-	transfer.implicit-copy: this reads a place of type `V86_self_receiver_read_is_a_transfer.Res`, which is NoCopy, by value: only a Copy type copies silently; a binding that only borrows has nothing to m
 conformance/V87_try_subject_read_is_a_transfer.saw	pass	-	transfer.implicit-copy: this reads a place of type `Result<V87_try_subject_read_is_a_transfer.Res, V87_try_subject_read_is_a_transfer.Bad>`, which is NoCopy, by value: only a Copy type copies silently
@@ -565,7 +565,7 @@ conformance/V93_specialization_judges_the_instance.saw	pass	-	-
 conformance/V94_driven_body_keeps_the_sync_decision.saw	pass	-	-
 conformance/V95_materialized_capture_releases_once.saw	refused	llvm backend.not-yet	a `[move]` capture's take is not in the backend slice yet
 conformance/V96_driven_capture_duplicates_once.saw	refused	mono mono.not-yet	a closure capturing a value that owns something is not in the backend slice yet
-conformance/V97_frame_read_retains_once.saw	refused	resolve name.undefined	cannot find `Arc` in scope
+conformance/V97_frame_read_retains_once.saw	pass	-	-
 conformance/V98_driven_generic_judges_each_instance.saw	pass	-	-
 conformance/V99_every_payload_read_retains_once.saw	pass	-	-
 conformance/W02_import_gate_annotation_positions.saw	pass	-	name.not-in-prelude: `Path` is not in the prelude and must be imported: `import std.path.{Path}` selects it
@@ -658,9 +658,9 @@ coro_bind_id_sibling_scopes.saw	pass	-	-
 coro_break_reentered_in_loop.saw	pass	-	-
 coro_channel_receive_moves_element.saw	refused	resolve import.unknown-module	no module `std.channel`
 coro_closure_capture_positions.saw	refused	typecheck slice.not-yet	`TaskGroup.spawn` is not in the bootstrap slice yet
-coro_closure_capture_reads_by_policy.saw	refused	resolve name.undefined	cannot find `Arc` in scope
+coro_closure_capture_reads_by_policy.saw	refused	typecheck slice.not-yet	`TaskGroup.spawn` is not in the bootstrap slice yet
 coro_closure_captures_self_nested.saw	pass	-	-
-coro_closure_deinit_once.saw	refused	resolve name.undefined	cannot find `Arc` in scope
+coro_closure_deinit_once.saw	refused	mono mono.not-yet	a closure capturing a value that owns something is not in the backend slice yet
 coro_closure_local_call.saw	refused	mono mono.not-yet	an escaping closure that captures a value is not in the backend slice yet: its environment would live in the frame that builds it, and heap environments are unbuilt (SL-525)
 coro_closure_taskgroup.saw	refused	typecheck slice.not-yet	`TaskGroup.spawn` is not in the bootstrap slice yet
 coro_conditional_move_across_suspend.saw	pass	-	-
@@ -677,8 +677,8 @@ coro_deinit_across_suspend.saw	pass	-	-
 coro_destructure_across_suspend.saw	pass	-	-
 coro_destructure_nocopy_into_frame.saw	refused	typecheck slice.not-yet	`TaskGroup.spawn` is not in the bootstrap slice yet
 coro_destructuring_let_suspending_rhs.saw	pass	-	-
-coro_discarded_match_payload_field_drop_order.saw	refused	resolve name.undefined	cannot find `Arc` in scope
-coro_discarded_match_payload_released_at_extraction.saw	refused	resolve name.undefined	cannot find `Arc` in scope
+coro_discarded_match_payload_field_drop_order.saw	stage0-wrong	annotated SL-513	sawc2: output line 4 is 'arm', expected 'DEINIT t2'
+coro_discarded_match_payload_released_at_extraction.saw	stage0-wrong	annotated SL-513	sawc2: output line 3 is 'arm', expected 'DEINIT t1'
 coro_discarded_tail_move_cross_module.saw	refused	typecheck member.unknown	`std.vector.Vector<Int, std.alloc.GlobalAllocator>` has no method `iter` this module can see
 coro_discarded_tail_move_in_nested_block.saw	refused	typecheck member.unknown	`std.vector.Vector<Int, std.alloc.GlobalAllocator>` has no method `iter` this module can see
 coro_discarded_tail_move_in_nested_control_flow.saw	refused	typecheck member.unknown	`std.vector.Vector<Int, std.alloc.GlobalAllocator>` has no method `iter` this module can see
@@ -717,7 +717,7 @@ coro_hoisted_scrutinee_released_once.saw	pass	-	-
 coro_hoisted_struct_init_arg_consumed_once.saw	pass	-	-
 coro_hoisted_tuple_element_consumed_once.saw	pass	-	-
 coro_iflet_move_out_releases_once.saw	stage0-wrong	annotated SL-513	sawc2 meets its directives
-coro_iflet_move_scrutinee_releases_payload.saw	refused	resolve name.undefined	cannot find `Arc` in scope
+coro_iflet_move_scrutinee_releases_payload.saw	pass	-	-
 coro_iflet_over_suspending.saw	refused	typecheck slice.not-yet	`TaskGroup.spawn` is not in the bootstrap slice yet
 coro_iflet_suspending_deinit.saw	refused	typecheck slice.not-yet	`TaskGroup.spawn` is not in the bootstrap slice yet
 coro_imported_callee_discovery_matrix.saw	pass	-	-
@@ -736,7 +736,7 @@ coro_match_binds_scrutinee.saw	refused	typecheck slice.not-yet	`TaskGroup.spawn`
 coro_match_move_out_releases_once_in_loop_try_and_task.saw	refused	typecheck slice.not-yet	`TaskGroup.spawn` is not in the bootstrap slice yet
 coro_match_moved_payload_survives_return.saw	crash	INVARIANT	a `main` returning anything but Void or Int is not in the backend slice yet
 coro_method_root_and_embedded.saw	pass	-	-
-coro_mixed_match_payload_released_at_extraction.saw	refused	resolve name.undefined	cannot find `Arc` in scope
+coro_mixed_match_payload_released_at_extraction.saw	stage0-wrong	annotated SL-513	sawc2: output line 4 is 'arm', expected 'DEINIT t2'
 coro_module_json_encode_in_task.saw	refused	resolve import.unknown-module	no module `std.json`
 coro_module_tagged_free_callee_discovery.saw	pass	-	-
 coro_move_in_a_while_condition_driven.saw	pass	-	-
@@ -745,7 +745,7 @@ coro_move_in_split_match_scrutinee.saw	refused	typecheck member.unknown	`std.vec
 coro_move_in_split_try_body.saw	refused	typecheck member.unknown	`std.vector.Vector<Int, std.alloc.GlobalAllocator>` has no method `iter` this module can see
 coro_move_in_split_while_head.saw	refused	typecheck member.unknown	`std.vector.Vector<Int, std.alloc.GlobalAllocator>` has no method `iter` this module can see
 coro_move_scrutinee_span.saw	refused	typecheck slice.not-yet	`TaskGroup.spawn` is not in the bootstrap slice yet
-coro_moved_arc_param_deinit_once.saw	refused	resolve name.undefined	cannot find `Arc` in scope
+coro_moved_arc_param_deinit_once.saw	pass	-	-
 coro_nested_generic_call.saw	pass	-	-
 coro_nested_generic_call_parks.saw	refused	typecheck slice.not-yet	`TaskGroup.spawn` is not in the bootstrap slice yet
 coro_nested_generic_deep.saw	pass	-	-
@@ -812,7 +812,7 @@ coro_tuple_across_suspend.saw	pass	-	-
 coro_unconsumed_result.saw	pass	-	-
 coro_value_inline_catch_hosts_a_move.saw	refused	typecheck member.unknown	`std.vector.Vector<Int, std.alloc.GlobalAllocator>` has no method `iter` this module can see
 coro_while_head_move_reevaluates_per_iteration.saw	refused	typecheck member.unknown	`std.vector.Vector<Int, std.alloc.GlobalAllocator>` has no method `iter` this module can see
-coro_wildcard_discards_own_slots.saw	refused	resolve name.undefined	cannot find `Arc` in scope
+coro_wildcard_discards_own_slots.saw	refused	typecheck slice.not-yet	`TaskGroup.spawn` is not in the bootstrap slice yet
 crossmodule_embed_annotation_positions.saw	pass	-	-
 crossmodule_embed_type_identity.saw	pass	-	-
 crossmodule_embed_type_name_head.saw	refused	llvm backend.not-yet	this conversion is not in the backend slice yet
@@ -867,7 +867,7 @@ deinit_temp_chain.saw	pass	-	-
 deinit_temp_receiver.saw	pass	-	-
 dependency_error_names_its_own_file_error.saw	pass	-	type.not-a-value: `Widget` names a type, a module or a trait, not a value
 dependency_named_main_keeps_the_entry_point.saw	refused	typecheck slice.not-yet	`TaskGroup.spawn` is not in the bootstrap slice yet
-destructuring_wildcard_over_a_borrowed_projection.saw	refused	resolve name.undefined	cannot find `Arc` in scope
+destructuring_wildcard_over_a_borrowed_projection.saw	pass	-	-
 df137d_literal_width_riscv32.saw	refused	driver driver.usage	sawc2 build takes no --freestanding
 df137d_literal_width_riscv32_ok.saw	refused	driver driver.usage	sawc2 build takes no --freestanding
 df139a_copy_then_overwrite.saw	refused	llvm backend.not-yet	an array, a repeat, a `Map` or a `Set` literal is not in the backend slice yet
@@ -877,19 +877,19 @@ df140d_result_optional_autowrap.saw	refused	mono mono.not-yet	a call of `Printab
 df140f_private_static_collision.saw	pass	-	-
 df140h_std_private_static.saw	pass	-	-
 df140h_std_private_static_two_files.saw	refused	resolve import.unknown-module	no module `std.net`
-df151b_implicit_tier_transfers.saw	refused	resolve name.undefined	cannot find `Arc` in scope
-df151c_optional_dest_copy.saw	refused	resolve name.undefined	cannot find `Arc` in scope
-df151d_match_temporary_scrutinee.saw	refused	resolve name.undefined	cannot find `Arc` in scope
-df151e_optional_element_array.saw	refused	resolve name.undefined	cannot find `Arc` in scope
+df151b_implicit_tier_transfers.saw	refused	mono mono.not-yet	a closure capturing a value that owns something is not in the backend slice yet
+df151c_optional_dest_copy.saw	pass	-	-
+df151d_match_temporary_scrutinee.saw	refused	typecheck slice.not-yet	`syntax.stmt.break` is not in the bootstrap slice yet
+df151e_optional_element_array.saw	refused	typecheck slice.not-yet	`TaskGroup.spawn` is not in the bootstrap slice yet
 df151e_optional_element_repeat_error.saw	pass	-	transfer.implicit-copy: a repeat literal needs a freely copyable element, and `df151e_optional_element_repeat_error.Handle?` is NoCopy: write the elements out, or build the array from a Copy value
-df151f_tuple_drop_glue.saw	refused	resolve name.undefined	cannot find `Arc` in scope
-df151h_assign_rhs_retain.saw	refused	resolve name.undefined	cannot find `Arc` in scope
-df151i_tuple_copy.saw	refused	resolve name.undefined	cannot find `Arc` in scope
+df151f_tuple_drop_glue.saw	refused	typecheck slice.not-yet	`TaskGroup.spawn` is not in the bootstrap slice yet
+df151h_assign_rhs_retain.saw	refused	llvm backend.not-yet	an array, a repeat, a `Map` or a `Set` literal is not in the backend slice yet
+df151i_tuple_copy.saw	refused	typecheck slice.not-yet	`TaskGroup.spawn` is not in the bootstrap slice yet
 df151i_tuple_copy_nocopy_error.saw	refused	typecheck member.unknown	`(df151i_tuple_copy_nocopy_error.Res, Int)` is NoCopy, so it has no `copy()`; move it instead
 df151i_tuple_transfer_hint_agrees.saw	pass	-	result.discarded: the result of `push` is `Result<Void, std.alloc.AllocError>` and is silently discarded: handle it (`match` it, `try` or `try!` it, or return it), or write `let _ = ...` to discard it
 df151j_tuple_element_mutate.saw	refused	llvm backend.not-yet	an array, a repeat, a `Map` or a `Set` literal is not in the backend slice yet
 df151j_tuple_element_ref.saw	pass	-	-
-df151j_tuple_element_write.saw	refused	resolve name.undefined	cannot find `Arc` in scope
+df151j_tuple_element_write.saw	refused	llvm backend.not-yet	an array, a repeat, a `Map` or a `Set` literal is not in the backend slice yet
 df151l_tuple_literal_expected_type.saw	pass	-	-
 df165b_place_literal_range_error.saw	pass	-	result.discarded: the result of `push` is `Result<Void, std.alloc.AllocError>` and is silently discarded: handle it (`match` it, `try` or `try!` it, or return it), or write `let _ = ...` to discard it
 df165b_place_literal_width.saw	refused	typecheck call.no-match	`Data` has no `init` this module can call, and its fields are not all visible here
@@ -943,7 +943,7 @@ enum145_raw_payload_error.saw	pass	-	type.raw-backing: case `WithPayload.Detail`
 enum145_raw_unbacked_cast_error.saw	pass	-	type.cast: `as` cannot convert `enum145_raw_unbacked_cast_error.Plain` to `UInt8`: it converts between numbers, from a raw-backed enum, and between pointers
 enum145_raw_wire_struct.saw	refused	resolve name.undefined	cannot find `UnsafeMemory` in scope
 enum145_traits.saw	refused	mono mono.not-yet	a synthesized `Equatable.equals(other: &Self)` on `enum145_traits.SysError` is not in the backend slice yet: only a signed integer's `Printable.format`
-enum_arc_struct_payload_match.saw	refused	resolve name.undefined	cannot find `Arc` in scope
+enum_arc_struct_payload_match.saw	pass	-	-
 enum_bitwise_value_error.saw	pass	-	operator.undefined: a bit operator takes integers or `Bool`s, and this is `enum_bitwise_value_error.Perm`
 enum_extension_overloads.saw	pass	-	-
 enum_field_drop_glue.saw	refused	llvm backend.not-yet	an array, a repeat, a `Map` or a `Set` literal is not in the backend slice yet
@@ -1012,7 +1012,7 @@ errors/any_unknown_method.saw	refused	typecheck slice.not-yet	a method call on `
 errors/any_unsized_binding.saw	refused	typecheck slice.not-yet	a method call on `any Trait` is not in the bootstrap slice yet
 errors/any_unsized_by_value.saw	wrong	accepts a refusal test	`any Shape` is unsized and cannot be used by value here
 errors/any_unsized_container.saw	wrong	accepts a refusal test	`any Shape` is unsized and cannot be used by value here
-errors/arc_forward_var_self.saw	refused	resolve name.undefined	cannot find `Arc` in scope
+errors/arc_forward_var_self.saw	refused	typecheck slice.not-yet	a method `Arc` forwards to its payload is not in the bootstrap slice yet
 errors/array_elem_field_immutable.saw	pass	-	mutability.immutable: this assignment writes `a[0].v`, and `a` is a `let` binding, which is never written: every binding is initialized where it is declared, so only a `var` takes a new value
 errors/array_immutable.saw	pass	-	mutability.immutable: this assignment writes `arr[0]`, and `arr` is a `let` binding, which is never written: every binding is initialized where it is declared, so only a `var` takes a new value
 errors/array_mixed_types.saw	pass	-	type.mismatch: expected `Int`, the type of the collection's element, and found `String`
@@ -1567,7 +1567,7 @@ float_methods.saw	refused	typecheck member.unknown	`Float` has no method `abs` t
 float_text_format.saw	refused	typecheck call.no-match	no candidate takes these arguments; the candidates are StringBuilder.append(s: String) [std.stringbuilder]; StringBuilder.append(value: Int) [std.stringbuilder]; StringBuilder.append(b: UInt8) [std.st
 float_text_parse_vectors.saw	refused	resolve import.unknown-module	no module `std.net`
 float_text_shortest_vectors.saw	refused	resolve import.unknown-module	no module `std.net`
-for_head_transfer_accepts.saw	refused	resolve name.undefined	cannot find `Arc` in scope
+for_head_transfer_accepts.saw	refused	typecheck slice.not-yet	`syntax.stmt.break` is not in the bootstrap slice yet
 for_loop_break.saw	pass	-	-
 for_loop_continue.saw	pass	-	-
 for_loop_expr.saw	refused	typecheck slice.not-yet	`syntax.stmt.break` is not in the bootstrap slice yet
@@ -1618,7 +1618,7 @@ generic_enum_raw_backing_keeps_values.saw	refused	mono mono.not-yet	a synthesize
 generic_extension_overload.saw	pass	-	-
 generic_fn_box_param.saw	pass	-	-
 generic_fn_vector_ref_param.saw	pass	-	-
-generic_for_loop_owning_balance.saw	refused	resolve name.undefined	cannot find `Arc` in scope
+generic_for_loop_owning_balance.saw	refused	typecheck member.unknown	`std.vector.Vector<T, std.alloc.GlobalAllocator>` has no method `iter` this module can see
 generic_init_moved_parameter_is_released_once.saw	stage0-wrong	XFAIL DF-302b	sawc2 meets its directives
 generic_instance_associated_type_binding.saw	refused	resolve name.undefined	cannot find `Item` in scope; an associated type of a bound is named through its type parameter, as `T.Item`
 generic_instance_associated_type_return.saw	refused	resolve name.undefined	cannot find `Item` in scope; an associated type of a bound is named through its type parameter, as `T.Item`
@@ -1643,7 +1643,7 @@ generic_static_type_arg_inference.saw	pass	-	-
 generic_struct.saw	pass	-	-
 generic_struct_deinit.saw	pass	-	-
 generic_struct_field_assign.saw	pass	-	-
-generic_struct_literal_retains_fields.saw	refused	resolve name.undefined	cannot find `Arc` in scope
+generic_struct_literal_retains_fields.saw	refused	mono mono.not-yet	a synthesized `ExplicitCopy.copy()` on `generic_struct_literal_retains_fields.Bag` is not in the backend slice yet: only a signed integer's `Printable.format`
 generic_tuple_result_single.saw	pass	-	-
 generic_type_param_shadows_type_name.saw	pass	-	-
 generics_multi_param.saw	pass	-	-
@@ -1817,7 +1817,7 @@ map_owning_remove_overwrite.saw	refused	mono mono.not-yet	a synthesized `Equatab
 map_owning_value_deinit.saw	refused	mono mono.not-yet	a synthesized `Equatable.equals(other: &Self)` on `Int` is not in the backend slice yet: only a signed integer's `Printable.format` (inside std/map.saw:232:24)
 map_simple.saw	refused	mono mono.not-yet	a synthesized `Equatable.equals(other: &Self)` on `Int` is not in the backend slice yet: only a signed integer's `Printable.format` (inside std/map.saw:232:24)
 map_string_keys.saw	pass	-	-
-map_string_owning_value_balance.saw	refused	resolve name.undefined	cannot find `Arc` in scope
+map_string_owning_value_balance.saw	pass	-	-
 map_subscript_place.saw	refused	typecheck infer.failed	this closure parameter has no type: write one, as `x: Int`, or pass the closure where a function type is expected
 map_subscript_retain_oracle.saw	wrong	stdout differs	line 1: sawc2 "-- ready", Stage 0 "copy 1"
 map_try_copy.saw	refused	mono mono.not-yet	a call of `ExplicitCopy.copy()` on `String`, which no conformance of it meets, is not in the backend slice yet (inside std/map.saw:456:57)
@@ -1832,7 +1832,7 @@ match_enum_guard.saw	pass	-	-
 match_guard_fallthrough.saw	pass	-	-
 match_guard_on_payload_free_enum.saw	pass	-	-
 match_guarded_not_exhaustive_error.saw	pass	-	match.non-exhaustive: this `match` on `Int` covers only the values its literal and range arms name: add a `case _ ->` arm or a binding (a guarded arm covers nothing)
-match_implicit_enum_payload_single_release.saw	refused	resolve name.undefined	cannot find `Arc` in scope
+match_implicit_enum_payload_single_release.saw	pass	-	-
 match_int_literals.saw	pass	-	-
 match_missing_fallback_error.saw	pass	-	match.non-exhaustive: this `match` on `Int` covers only the values its literal and range arms name: add a `case _ ->` arm or a binding (a guarded arm covers nothing)
 match_owned_enum_double_consume.saw	pass	-	move.use-after: `s` is used after it may have been moved (moved at 30:5); a moved value is gone until it is assigned again
@@ -1912,10 +1912,10 @@ move_in_a_while_condition_back_edge.saw	refused	borrowck move.use-after	`r` is u
 move_into_function.saw	pass	-	-
 move_out_then_reassign.saw	pass	-	-
 move_whole_binding.saw	pass	-	-
-moved_variables_per_function_reset.saw	refused	resolve name.undefined	cannot find `Arc` in scope
+moved_variables_per_function_reset.saw	pass	-	-
 mutex_basic.saw	refused	mono mono.not-yet	a synthesized `ExplicitCopy.copy()` on `Int` is not in the backend slice yet: only a signed integer's `Printable.format` (inside std/mutex.saw:81:24)
-mutex_counter.saw	refused	resolve name.undefined	cannot find `Arc` in scope
-mutex_lock_result.saw	refused	resolve name.undefined	cannot find `Arc` in scope
+mutex_counter.saw	refused	resolve slice.not-yet	the `Thread.spawn` form is not in the bootstrap slice yet
+mutex_lock_result.saw	refused	typecheck slice.not-yet	a method `Arc` forwards to its payload is not in the bootstrap slice yet
 mutex_static_contention_mt.saw	refused	resolve slice.not-yet	the `Thread.spawn` form is not in the bootstrap slice yet
 mutex_static_inline.saw	refused	mono mono.not-yet	a synthesized `ExplicitCopy.copy()` on `Int` is not in the backend slice yet: only a signed integer's `Printable.format` (inside std/mutex.saw:81:24)
 named_tuple_basic.saw	refused	typecheck subscript.role	`(x: Int, y: Int)` declares no subscript `[]`, so it has no getitem, setitem or place accessor
@@ -2171,11 +2171,11 @@ qualified_type_declaration_slots.saw	refused	typecheck slice.not-yet	`syntax.exp
 qualified_type_in_declaration_slot.saw	refused	typecheck call.no-match	`Data` has no `init` this module can call, and its fields are not all visible here
 range_inclusive_basics.saw	refused	typecheck slice.not-yet	`syntax.stmt.break` is not in the bootstrap slice yet
 range_inclusive_intmax.saw	pass	-	-
-reactor_cross_thread_wake.saw	refused	resolve name.undefined	cannot find `Arc` in scope
+reactor_cross_thread_wake.saw	refused	resolve slice.not-yet	the `Thread.spawn` form is not in the bootstrap slice yet
 receiver_temporary_evaluated_once.saw	refused	llvm backend.not-yet	a static whose value is not an integer or a Bool is not in the backend slice yet
 recursive_enum_built_in_a_task.saw	refused	typecheck infer.failed	this closure parameter has no type: write one, as `x: Int`, or pass the closure where a function type is expected
 recursive_enum_inline_payload_refused.saw	pass	-	type.infinite-size: recursive type `Tree` has infinite size: its storage contains its own storage inline, through Tree.Node -> Tree; hold the recursive member behind a heap indirection, such as `Box`
-recursive_enum_synthesized_deep_copy.saw	refused	resolve name.undefined	cannot find `Arc` in scope
+recursive_enum_synthesized_deep_copy.saw	refused	typecheck infer.failed	this closure parameter has no type: write one, as `x: Int`, or pass the closure where a function type is expected
 recursive_enum_through_box_payload.saw	refused	mono mono.not-yet	a synthesized `Printable.format(into: &var std.stringbuilder.StringBuilder)` on `Bool` is not in the backend slice yet: only a signed integer's `Printable.format`
 recursive_enum_through_user_generic_wrapper.saw	refused	typecheck infer.failed	this closure parameter has no type: write one, as `x: Int`, or pass the closure where a function type is expected
 recursive_enum_through_vector_payload.saw	refused	typecheck infer.failed	this closure parameter has no type: write one, as `x: Int`, or pass the closure where a function type is expected
@@ -2266,7 +2266,7 @@ send_sync_bounds.saw	refused	llvm backend.not-yet	a Float constant, `3.0`, is no
 serde169_derived.saw	refused	resolve name.undefined	cannot find `Serialize` in scope
 serde169_hand_written.saw	refused	resolve name.undefined	cannot find `Serialize` in scope
 set_algebra.saw	refused	typecheck member.unknown	`std.vector.Vector<Int, std.alloc.GlobalAllocator>` has no method `sort` this module can see
-set_algebra_owning_balance.saw	refused	resolve name.undefined	cannot find `Arc` in scope
+set_algebra_owning_balance.saw	refused	mono mono.not-yet	a synthesized `Hashable.hash(h: &var Hasher)` on `Int` is not in the backend slice yet: only a signed integer's `Printable.format`
 set_basic.saw	refused	mono mono.not-yet	a synthesized `Equatable.equals(other: &Self)` on `Int` is not in the backend slice yet: only a signed integer's `Printable.format` (inside std/map.saw:232:24)
 set_copy.saw	refused	mono mono.not-yet	a synthesized `Equatable.equals(other: &Self)` on `Int` is not in the backend slice yet: only a signed integer's `Printable.format` (inside std/map.saw:232:24)
 set_each_mutate_error.saw	pass	-	result.discarded: the result of `insert` is `Result<Bool, std.alloc.AllocError>` and is silently discarded: handle it (`match` it, `try` or `try!` it, or return it), or write `let _ = ...` to discard
@@ -2280,7 +2280,7 @@ set_literal_element_mismatch_error.saw	pass	-	type.mismatch: expected `Int`, the
 set_literal_not_hashable_error.saw	refused	mono mono.not-yet	a fixed array, a repeat, a `Map` or a `Set` literal is not in the backend slice yet
 set_nocopy_element_copy_bound_error.saw	pass	-	conformance.signature: `Tag.hash` does not meet `Hashable.hash`, as `Tag` conforms to `Hashable` needs: a parameter's name differs
 set_nocopy_key_error.saw	refused	mono mono.not-yet	a synthesized `Equatable.equals(other: &Self)` on `set_nocopy_key_error.Counted` is not in the backend slice yet: only a signed integer's `Printable.format` (inside std/map.saw:232:24)
-set_owning_key_refcount.saw	refused	resolve name.undefined	cannot find `Arc` in scope
+set_owning_key_refcount.saw	refused	mono mono.not-yet	a synthesized `Hashable.hash(h: &var Hasher)` on `Int` is not in the backend slice yet: only a signed integer's `Printable.format`
 set_try_copy.saw	refused	mono mono.not-yet	a synthesized `ExplicitCopy.copy()` on `Int` is not in the backend slice yet: only a signed integer's `Printable.format` (inside std/map.saw:456:57)
 shadow255_glob_import.saw	pass	-	-
 shadow255_kinds_and_rename.saw	pass	-	-
@@ -2310,7 +2310,7 @@ slot_optional_payload.saw	refused	resolve import.unknown-module	no module `std.c
 source_location_literals.saw	refused	llvm backend.not-yet	a memory constant is not in the backend slice yet
 source_location_suspending.saw	refused	typecheck slice.not-yet	`TaskGroup.spawn` is not in the bootstrap slice yet
 spawn_body_destructuring_let.saw	refused	typecheck slice.not-yet	`TaskGroup.spawn` is not in the bootstrap slice yet
-spawn_body_same_scope_redefinition.saw	refused	resolve name.undefined	cannot find `Arc` in scope
+spawn_body_same_scope_redefinition.saw	refused	typecheck slice.not-yet	a method `Arc` forwards to its payload is not in the bootstrap slice yet
 spawn_capture_after_group.saw	refused	typecheck slice.not-yet	`TaskGroup.spawn` is not in the bootstrap slice yet
 spawn_capture_alias.saw	refused	typecheck slice.not-yet	`TaskGroup.spawn` is not in the bootstrap slice yet
 spawn_capture_caller_alias.saw	refused	typecheck slice.not-yet	`TaskGroup.spawn` is not in the bootstrap slice yet
@@ -2421,7 +2421,7 @@ taskgroup_cancel_during_sleep.saw	refused	typecheck slice.not-yet	`TaskGroup.spa
 taskgroup_cancel_receive.saw	refused	resolve import.unknown-module	no module `std.channel`
 taskgroup_compute_preemption.saw	refused	typecheck slice.not-yet	`TaskGroup.spawn` is not in the bootstrap slice yet
 taskgroup_compute_preemption_mt.saw	refused	typecheck call.label	no parameter is labeled `threads` in TaskGroup.init() [std.taskgroup]
-taskgroup_compute_preemption_unbounded.saw	refused	resolve name.undefined	cannot find `Arc` in scope
+taskgroup_compute_preemption_unbounded.saw	refused	typecheck slice.not-yet	a method `Arc` forwards to its payload is not in the bootstrap slice yet
 taskgroup_eager_teardown.saw	refused	typecheck slice.not-yet	`TaskGroup.spawn` is not in the bootstrap slice yet
 taskgroup_eager_teardown_live_count.saw	refused	typecheck slice.not-yet	`TaskGroup.spawn` is not in the bootstrap slice yet
 taskgroup_eager_teardown_mt.saw	refused	typecheck call.label	no parameter is labeled `threads` in TaskGroup.init() [std.taskgroup]
@@ -2459,7 +2459,7 @@ taskgroup_threads_sleep.saw	refused	typecheck call.label	no parameter is labeled
 taskgroup_two_task_yield.saw	refused	typecheck slice.not-yet	`TaskGroup.spawn` is not in the bootstrap slice yet
 taskgroup_unjoined_drop.saw	refused	typecheck slice.not-yet	`TaskGroup.spawn` is not in the bootstrap slice yet
 thread_assertion_survives_a_glob_import.saw	refused	llvm backend.not-yet	a static whose value is not an integer or a Bool is not in the backend slice yet
-thread_fate_is_written_not_dropped.saw	refused	resolve name.undefined	cannot find `Arc` in scope
+thread_fate_is_written_not_dropped.saw	refused	resolve slice.not-yet	the `Thread.spawn` form is not in the bootstrap slice yet
 thread_name_belongs_to_the_user.saw	refused	resolve slice.not-yet	the `Thread.spawn` form is not in the bootstrap slice yet
 thread_spawn_blocking_beside_a_driven_root.saw	refused	resolve slice.not-yet	the `Thread.spawn` form is not in the bootstrap slice yet
 trailing_closure_inside_a_try_operand.saw	refused	typecheck infer.failed	this closure parameter has no type: write one, as `x: Int`, or pass the closure where a function type is expected
@@ -2504,7 +2504,7 @@ tuple_element_literal_out_of_range_error.saw	pass	-	type.mismatch: integer liter
 tuple_index_member_access.saw	refused	mono mono.not-yet	a synthesized `Printable.format(into: &var std.stringbuilder.StringBuilder)` on `Float` is not in the backend slice yet: only a signed integer's `Printable.format`
 tuples.saw	pass	-	-
 tuples_advanced.saw	refused	llvm backend.not-yet	a Float constant, `3.14`, is not in the backend slice yet
-two_copy_arc.saw	refused	resolve name.undefined	cannot find `Arc` in scope
+two_copy_arc.saw	refused	typecheck slice.not-yet	a method `Arc` forwards to its payload is not in the bootstrap slice yet
 two_copy_captures.saw	refused	mono mono.not-yet	a closure capturing a value that owns something is not in the backend slice yet
 two_escaping_copies.saw	refused	mono mono.not-yet	a closure capturing a value that owns something is not in the backend slice yet
 two_modules_export_distinct_c_symbols.saw	refused	resolve slice.not-yet	`syntax.decl.module.inline` is not in the bootstrap slice yet
@@ -2591,8 +2591,8 @@ vector_literal_owning_use_after_move_error.saw	pass	-	move.use-after: `a.id` is 
 vector_map_fold.saw	refused	resolve slice.not-yet	`syntax.expr.shorthand-param` is not in the bootstrap slice yet
 vector_nested_each_borrows.saw	refused	typecheck infer.failed	this closure parameter has no type: write one, as `x: Int`, or pass the closure where a function type is expected
 vector_nocopy_elem_construct.saw	pass	-	-
-vector_owning_element_safety.saw	refused	resolve name.undefined	cannot find `Arc` in scope
-vector_pop_refcount_exact.saw	refused	resolve name.undefined	cannot find `Arc` in scope
+vector_owning_element_safety.saw	refused	typecheck member.unknown	`std.vector.Vector<std.arc.Arc<Int>, std.alloc.GlobalAllocator>` has no method `iter` this module can see
+vector_pop_refcount_exact.saw	pass	-	-
 vector_set_oob_panic.saw	pass	-	-
 vector_simple.saw	pass	-	-
 vector_sort.saw	refused	typecheck member.unknown	`std.vector.Vector<Int, std.alloc.GlobalAllocator>` has no method `sort` this module can see

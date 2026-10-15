@@ -416,6 +416,7 @@ extension ResProgram {
         self.std_module("alloc")
         self.std_module("mem")
         self.std_module("box")
+        self.std_module("arc")
         self.std_module("panic")
         self.std_module("scalar")
         self.std_module("string")
