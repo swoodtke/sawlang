@@ -10342,8 +10342,12 @@ someone else's invariants; asserting where the derivation already succeeds is
 refused too, since it teaches the next reader that something was needed.
 
 **Three fences.** The assertion appears in exactly one position, the
-conformance header: `T: UnsafeSync` as a generic bound and `any UnsafeSync` as
-an existential are both clean errors pointing at the property. These are two
+conformance header. Each other position is a clean error pointing at the
+property: `T: UnsafeSync` as a generic bound (a function's, a type's, a
+method's, or an extension's condition), `any UnsafeSync` as an existential,
+and `trait Shipped: UnsafeSend` as a trait's parent. A trait parent would let
+every conformance to `Shipped` grant `Send` without the header check above,
+so the assertion is never inherited through a user trait. These are two
 builtin traits, not a user-definable unsafe-trait feature. The
 [orphan rule](#conformance-coherence-the-orphan-rule) applies unchanged, and
 the assertion is declared beside the type, in its defining file: test code
