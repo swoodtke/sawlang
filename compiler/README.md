@@ -71,12 +71,13 @@ compiler/
     src/*.saw
   driver/             the `sawc2` binary, package `sawc2`
     src/main.saw
-  seed/               the bootstrap seed: sawc2's own IR per host target, and the
-                      commit it was emitted from (pin); see "The seed"
+  seed/               the bootstrap seed's manifest (sawc2's own IR per host target,
+                      by SHA-256, on the blob host) and the commit it was emitted
+                      from (pin); see "The seed"
   tools/
     build.py          builds the seed binary, Stage 1 and Stage 2, and then any
-                      program over the stage packages (by sawc2)
-    seed.py           writes the seed (a bump) and checks it
+                      program over the stage packages (by sawc2); fetches the seed
+    seed.py           writes the seed (a bump), publishes it, and checks it
     subset_check.py   the subset checker
     sawc2_reading.py  sawc2's reading of a file in the frozen parser's tree, which
                       the subset checker's std profile reads std/ through
@@ -180,8 +181,8 @@ named `sawc2` for now.
 
 ## Building
 
-The seed is sawc2 compiled by clang from its own LLVM IR, which is committed
-under `seed/` (below). Stage 1 is the sawc2 the seed builds at -O2,
+The seed is sawc2 compiled by clang from its own LLVM IR, which `seed/`
+names by SHA-256 and the blob host serves (below). Stage 1 is the sawc2 the seed builds at -O2,
 `.build/sawc2`. Stage 2 is sawc2 built by Stage 1 at -O2,
 `.build/sawc2-stage2`, and Stage 3 is Stage 2 building itself. The fixpoint is
 Stage 3 equal to Stage 2, byte for byte. Stage 0, the frozen Python compiler
@@ -214,8 +215,10 @@ write with an explicit `close`, and a blocking `Command.wait`, each site
 marked for SL:hazards S28.
 
 Every step of `build.py` is cached by key, so an unchanged tree compiles and
-links nothing. The seed binary is built under `.build/seed/<key>/`, its key
-covering the committed IR, `runtime/shim.c` and clang. Stage 1 is linked
+links nothing. The seed's files are cached under `.build/blobs/` by SHA-256,
+and the seed binary is built under `.build/seed/<key>/`, its key covering the
+manifest's SHA-256s, `runtime/shim.c` and clang, so a cached seed builds with
+no network. Stage 1 is linked
 against the seed's own runtime, and cached under a key covering the seed, the
 trees it compiles and `build.py` itself, which holds the link's arguments
 (`.build/sawc2.key`). Every link after it takes the runtime Stage 1 builds
@@ -229,14 +232,25 @@ is then not built.
 
 ### The seed
 
-`seed/` holds, for each host target (`arm64-apple-darwin`,
-`aarch64-unknown-linux-gnu`, `x86_64-unknown-linux-gnu`), xz-compressed:
+The seed of each host target (`arm64-apple-darwin`,
+`aarch64-unknown-linux-gnu`, `x86_64-unknown-linux-gnu`) is these files,
+xz-compressed:
 
 - `sawc2.ll.xz`, the driver's IR as `sawc2 build -O2 --emit-ll` writes it;
 - `runtime/DIR/NAME.ll.xz`, each runtime source's IR as `sawc2 runtime
   --emit-ll` writes it.
 
-`seed/pin` names the commit that IR was emitted from. `build.py`'s
+They are not in the tree. `seed/manifest.tsv` lists each one as its target,
+name, SHA-256 and size, and the blob host serves it at
+`https://blobs.sawlang.com/<SHA-256>`, publicly and unchanging; a blob is
+never deleted, so every commit's seed stays buildable. `seed/pin` names the
+commit the IR was emitted from. `build.py`'s `seed_blob` is the one way a seed
+file is had: from the cache, `.build/blobs/<SHA-256>`, when its size and hash
+are the manifest's, else fetched over HTTPS, checked, and cached. A file the
+host lacks, a fetch that fails, or bytes that are not the manifest's are an
+error naming the file, the URL and the expected hash. `SAWLANG_BLOB_URL` names
+a mirror instead of the host.
+
 `build_seed` decompresses the host's IR, compiles each runtime module and
 `runtime/shim.c` from the tree as `sawc2 runtime` does, and links the driver
 against them as `sawc2 build` does, all with the clang `choose_clang` picks.
@@ -245,25 +259,38 @@ runtime IR calls owes a bump.
 
 `tools/seed.py check` requires every target's IR to hold no absolute path,
 so the IR depends only on the source and the target, and the seed to
-reproduce itself: built from the committed IR, it emits, for the pinned
-commit's tree, every target's committed IR byte for byte. The fixpoint lane
-runs it with the host's seed; `--seed TRIPLE` runs it with another target's,
-which in the Linux VM includes x86_64 under Rosetta.
+reproduce itself: built from the manifest's IR, it emits, for the pinned
+commit's tree, every target's IR byte for byte. It reads the IR through
+`seed_blob`, so it judges the bytes the manifest names, never a file a bump
+left in `.build/`. The fixpoint lane runs it with the host's seed; `--seed
+TRIPLE` runs it with another target's, which in the Linux VM includes x86_64
+under Rosetta.
 
 **Bumping the seed** is needed only when `compiler/` starts using something
-the seed does not compile; it is a patch of its own:
+the seed does not compile; it is a patch of its own, and its diff is the
+manifest and the pin:
 
 1. On a clean checkout of a commit of main, build the stages (`build.py`,
    with the current seed). The check reads the pinned commit's tree from git,
    so the pin has to name a commit that main holds.
 2. `./.venv/bin/python compiler/tools/seed.py write --target arm64-apple-darwin`
-   writes the host's seed from Stage 1 and pins HEAD; it refuses a tree whose
-   `compiler/`, `std/` or `runtime/` differs from HEAD.
-3. `tools/linux.py seed` writes the two Linux seeds the same way in the
-   `sawlang-linux` VM, from the same commit, and copies them back.
-4. `./.venv/bin/python compiler/tools/seed.py check`, then commit `seed/` on
-   top of that commit. The IR is binary, so the patch is made with
-   `git diff --binary`.
+   emits the host's seed from Stage 1 into `.build/seed-write/`, then
+   publishes it: uploads each new file, fetches it back to check the host
+   serves those bytes, and rewrites the target's manifest lines and the pin,
+   which names HEAD. It refuses a tree whose `compiler/`, `std/` or
+   `runtime/` differs from HEAD. A file whose IR is unchanged keeps its
+   manifest line, whatever xz now makes of it. The upload needs the blob
+   host's upload key, which only the lead's machine holds:
+   `SAWLANG_BLOB_KEY` and `SAWLANG_BLOB_KNOWN_HOSTS` name it and the host's
+   pinned key, by default `.claude/blobs_upload_key` and
+   `.claude/linode_known_hosts` in the checkout; without them `publish`
+   refuses, naming them.
+3. `tools/linux.py seed` emits the two Linux seeds the same way in the
+   `sawlang-linux` VM, from the same commit, copies them back into
+   `.build/seed-write/`, and publishes them from this machine
+   (`seed.py publish`), since the VM has no key.
+4. `./.venv/bin/python compiler/tools/seed.py check`, then commit
+   `seed/manifest.tsv` and `seed/pin` on top of that commit.
 
 Stage 1 is the seed compiling the tree's `std/` as well as `compiler/`, so a
 std change that needs a compiler feature the seed lacks, a new intrinsic say,
@@ -340,6 +367,14 @@ below that runs sawc2 runs Stage 2. It checks these things.
   change is made in both until `sawc/` is deleted. Rerun it with `--write` after an ABI or
   runtime-source change, and review the difference. The table is checked in
   so that it outlives Stage 0 (SL:open-questions D41).
+- **The seed's fetch** (`tests/seed/test_seed_store.py`): `seed_blob` and
+  `build_seed` against a blob host on 127.0.0.1, with a small seed of the
+  host's target and caches of their own. A cold cache builds from fetched
+  blobs; a warm one builds with the fetch URL unroutable; a corrupted cache
+  entry is fetched again; a hash that matches no blob, bytes of the wrong
+  size or hash, and a refused connection fail naming the file, the URL and the
+  expected hash; and `seed.py publish` uploads only a changed file and fetches
+  it back.
 - **The grammar tools** in `tests/grammar/`: the lint over `GRAMMAR.md`, with a
   fixture per check that injects one defect and names the line the check must
   report, and the reference recognizer's pinned trees, coverage records and

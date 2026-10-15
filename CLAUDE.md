@@ -42,9 +42,11 @@ runtime/           # The runtime (design 113/113b, v2 by 117): ABI.md freezes
                    # only synthesizes the process-global __saw_reactor getter.
 compiler/          # The self-hosted compiler, in Saw (epic SL-398; README.md):
                    # one dir per stage — lex/ (package sawlex) — plus driver/
-                   # (the sawc2 binary), seed/ (the bootstrap seed: sawc2's own
-                   # IR per host target, xz, and its pin; README.md "The seed"
-                   # is the bump), tools/ (build.py builds the seed with clang,
+                   # (the sawc2 binary), seed/ (the bootstrap seed's manifest:
+                   # sawc2's own IR per host target, xz, by SHA-256, fetched
+                   # from https://blobs.sawlang.com/ into .build/blobs/; and
+                   # its pin; README.md "The seed" is the bump, a manifest and
+                   # pin diff), tools/ (build.py builds the seed with clang,
                    # Stage 1 with the seed, Stage 2 with Stage 1; no sawc/;
                    # subset_check.py enforces the subset its source is written
                    # in) and tests/ (run.py: unit programs, golden fixtures,

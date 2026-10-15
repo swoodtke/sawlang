@@ -5,14 +5,14 @@ built, and building itself again changes nothing.
     python compiler/tests/fixpoint/fixpoint_lane.py                       # default mode
     SAW_FIXPOINT_FULL=1 python compiler/tests/fixpoint/fixpoint_lane.py   # full mode
 
-The seed (sawc2 compiled from its committed `.ll`, `compiler/seed/`) builds
+The seed (sawc2 compiled from the `.ll` `compiler/seed/manifest.tsv` names) builds
 Stage 1, `.build/sawc2`; Stage 1's `sawc2 build -O2` of its own driver,
 against the new std, links Stage 2, `.build/sawc2-stage2`
 (`compiler/tools/build.py` builds both); Stage 2 building itself is Stage 3.
 The lane requires:
 
 - **the seed**: `compiler/tools/seed.py`'s check, that every target's
-  committed IR is path-free and is what the seed emits for the pinned commit;
+  seed IR is path-free and is what the seed emits for the pinned commit;
 - **determinism**: the driver's `.ll` from Stage 1 is the same bytes built
   twice, and built from a copy of `compiler/` and `std/` in another directory;
 - **the fixpoint**: Stage 2's `.ll` of the driver is Stage 1's, byte for byte,

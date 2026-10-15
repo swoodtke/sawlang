@@ -5,8 +5,9 @@
     python compiler/tools/build.py ENTRY.saw -o OUT  # the stages, then any program over them
     python compiler/tools/build.py --runtime TRIPLE  # the stages, then another target's runtime
 
-The seed is sawc2 compiled by clang from its own `.ll`, committed per host
-target under `compiler/seed/` (`seed.py`). Stage 1 is the sawc2 the seed
+The seed is sawc2 compiled by clang from its own `.ll`, one set of files per
+host target, which `compiler/seed/manifest.tsv` names by SHA-256 and the blob
+host serves (`seed_blob`, `seed.py`). Stage 1 is the sawc2 the seed
 builds at -O2 (`.build/sawc2`), and Stage 2 is sawc2 built by Stage 1 at -O2
 (`.build/sawc2-stage2`). The lanes run Stage 2; `SAWC2_STAGE=1` selects Stage
 1 instead, for bisecting a difference between the two, and then Stage 2 is
@@ -15,16 +16,18 @@ runner that has chosen the binary (the fixpoint lane's twin, say) hands it to
 every process below it that way.
 
 Every step is cached by key, so an unchanged tree compiles and links nothing:
-the seed under `.build/seed/<key>/` (`build_seed`), Stage 1 and Stage 2
-beside their binaries. Stage 1 links against the seed's runtime; every link
+the seed's files under `.build/blobs/` by SHA-256 (`seed_blob`), the seed under
+`.build/seed/<key>/` (`build_seed`), Stage 1 and Stage 2 beside their
+binaries. Stage 1 links against the seed's runtime; every link
 after that takes the runtime Stage 1 builds from `runtime/` with `sawc2
 runtime`, cached under `.build/rt2/<key>/` by a key covering Stage 1, `runtime/`,
 std, the target and clang. Beside the stages goes `.build/sawc2-runtime.txt`,
 the runtime manifest naming the host, the clang `choose_clang` picked and
 those objects, which a hosted `sawc2 build` links against.
 
-Nothing here runs Stage 0: the stages need only Python's standard library and
-clang, and `build_program` builds a program with `SAWC2`, after the stages.
+Nothing here runs Stage 0: the stages need only Python's standard library,
+clang, and HTTPS to the blob host while the seed's files are not yet cached;
+and `build_program` builds a program with `SAWC2`, after the stages.
 `STAGE_PACKAGES` is the one place that maps a stage package to its directory:
 the stages, the unit programs and the runner all read it, so a new stage is
 registered here once.
@@ -32,11 +35,17 @@ registered here once.
 import argparse
 import fcntl
 import hashlib
+import http.client
 import os
 import platform
+import re
 import shutil
 import subprocess
 import sys
+import tempfile
+import urllib.error
+import urllib.request
+from collections import namedtuple
 
 REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 BUILD_DIR = os.path.join(REPO, ".build")
@@ -55,11 +64,19 @@ RUNTIME_CACHE = os.path.join(BUILD_DIR, "rt2")
 THIS_FILE = os.path.abspath(__file__)
 STD_ROOT = os.path.join(REPO, "std")
 LINK_TIMEOUT = 1800
-# The committed seed, one directory per target (seed.py describes it), and
-# where the seed binaries built from it are cached by key.
+# The seed (seed.py describes it): its manifest, which names each file by
+# SHA-256, and where the seed binaries built from it are cached by key.
 SEED_DIR = os.path.join(REPO, "compiler", "seed")
+SEED_MANIFEST = os.path.join(SEED_DIR, "manifest.tsv")
 SEED_DRIVER = "sawc2.ll.xz"
 SEED_CACHE = os.path.join(BUILD_DIR, "seed")
+# The blob host serves a file at its lowercase hex SHA-256, publicly, and never
+# changes or deletes one; the variable names a mirror instead. The cache holds
+# the fetched files under the same names.
+BLOB_URL = "https://blobs.sawlang.com/"
+BLOB_URL_VARIABLE = "SAWLANG_BLOB_URL"
+BLOB_CACHE = os.path.join(BUILD_DIR, "blobs")
+FETCH_TIMEOUT = 120
 SHIM_C = os.path.join(RT_ROOT, "shim.c")
 # Bumped when `build_seed` compiles or links the seed differently, which its
 # key cannot otherwise see.
@@ -342,29 +359,161 @@ def build_runtime(triple=None):
     return ""
 
 
+class SeedError(Exception):
+    """The manifest is malformed, or a seed file it names cannot be had; the
+    text names the file, and for a file, the URL and the expected SHA-256."""
+
+
+# One manifest line: the file `name` of the seed of `triple`, whose xz bytes
+# have the lowercase hex SHA-256 `sha256` and are `size` bytes long.
+SeedFile = namedtuple("SeedFile", "triple name sha256 size")
+SEED_MANIFEST_HEADER = (
+    "# The seed: each file's target, name, SHA-256 and size in bytes, in build.py's\n"
+    "# seed_files order; the blob host serves each at its SHA-256. compiler/tools/seed.py\n"
+    "# writes this file, and compiler/README.md, \"The seed\", says when.\n")
+SHA256_HEX = re.compile(r"[0-9a-f]{64}")
+
+
+def seed_manifest(path=None):
+    """Every SeedFile the manifest at `path` (SEED_MANIFEST when None) names,
+    as {triple: [SeedFile]}, each list in `seed_files` order. Raises SeedError
+    on a line that is not one."""
+    path = path or SEED_MANIFEST
+    if not os.path.exists(path):
+        return {}
+    seeds = {}
+    with open(path, encoding="utf-8") as fh:
+        for number, line in enumerate(fh, 1):
+            if not line.strip() or line.startswith("#"):
+                continue
+            fields = line.rstrip("\n").split("\t")
+            where = "%s:%d" % (os.path.relpath(path, REPO), number)
+            if (len(fields) != 4 or not fields[0] or not fields[1].endswith(".ll.xz")
+                    or not SHA256_HEX.fullmatch(fields[2]) or not fields[3].isdigit()):
+                raise SeedError("%s is not `TARGET<tab>NAME.ll.xz<tab>SHA-256<tab>BYTES`: %r" % (where, line))
+            entry = SeedFile(fields[0], fields[1], fields[2], int(fields[3]))
+            seeds.setdefault(entry.triple, []).append(entry)
+    for triple, entries in seeds.items():
+        names = [entry.name for entry in entries]
+        runtime = [name for name in names[1:] if name.startswith("runtime/")]
+        if names[:1] != [SEED_DRIVER] or runtime != sorted(set(names[1:])):
+            raise SeedError("%s lists %s's files as %s; the order is %s, then runtime/ sorted, each once"
+                            % (os.path.relpath(path, REPO), triple, ", ".join(names), SEED_DRIVER))
+    return seeds
+
+
+def format_seed_manifest(seeds, order):
+    """The text of a manifest holding `seeds` ({triple: [SeedFile]}), the
+    targets in `order`."""
+    lines = [SEED_MANIFEST_HEADER]
+    for triple in order:
+        lines += ["%s\t%s\t%s\t%d\n" % entry for entry in seeds.get(triple, [])]
+    return "".join(lines)
+
+
+def seed_entries(triple):
+    """The seed of `triple` as the manifest names it, a SeedFile per file:
+    the driver's IR, then each runtime source's, in `host_sources` order
+    (common first, sorted within a directory), which is the link's object
+    order. Empty when the manifest names no file of `triple`."""
+    return seed_manifest().get(triple, [])
+
+
 def seed_files(triple):
-    """The committed seed of `triple`, relative to its directory: the
-    driver's IR, then each runtime source's, in `host_sources` order (common
-    first, sorted within a directory), which is the link's object order."""
-    directory = os.path.join(SEED_DIR, triple)
-    runtime = []
-    for parent, subdirs, files in os.walk(os.path.join(directory, "runtime")):
-        subdirs.sort()
-        runtime += [os.path.relpath(os.path.join(parent, name), directory) for name in files
-                    if name.endswith(".ll.xz")]
-    return [SEED_DRIVER] + sorted(runtime)
+    """The names of the seed files of `triple`, in `seed_entries` order."""
+    return [entry.name for entry in seed_entries(triple)]
+
+
+def blob_url(sha256):
+    """Where the blob host, or the mirror BLOB_URL_VARIABLE names, serves
+    the file with SHA-256 `sha256`."""
+    return (os.environ.get(BLOB_URL_VARIABLE) or BLOB_URL).rstrip("/") + "/" + sha256
+
+
+def _blob_problem(path, entry):
+    """Why the file at `path` is not `entry`'s bytes, or ""."""
+    with open(path, "rb") as fh:
+        data = fh.read()
+    if len(data) != entry.size:
+        return "is %d bytes, not %d" % (len(data), entry.size)
+    found = hashlib.sha256(data).hexdigest()
+    if found != entry.sha256:
+        return "has SHA-256 %s" % found
+    return ""
+
+
+def _seed_problem(entry, url, why):
+    return "seed file %s/%s (SHA-256 %s) from %s: %s" % (entry.triple, entry.name, entry.sha256, url, why)
+
+
+def _fetch_blob(entry, path):
+    """Fetches `entry` from the blob host and publishes it at `path` by
+    rename once its size and SHA-256 are the manifest's; raises SeedError."""
+    url = blob_url(entry.sha256)
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    fd, partial = tempfile.mkstemp(dir=os.path.dirname(path), prefix=entry.sha256 + ".", suffix=".part")
+    try:
+        with os.fdopen(fd, "wb") as out:
+            try:
+                with urllib.request.urlopen(url, timeout=FETCH_TIMEOUT) as response:
+                    shutil.copyfileobj(response, out, 1 << 20)
+            except urllib.error.HTTPError as e:
+                raise SeedError(_seed_problem(entry, url, "the host answers %d %s" % (e.code, e.reason)))
+            except (urllib.error.URLError, http.client.HTTPException, OSError, ValueError) as e:
+                raise SeedError(_seed_problem(entry, url, "the fetch fails: %s" % getattr(e, "reason", e)))
+        why = _blob_problem(partial, entry)
+        if why:
+            raise SeedError(_seed_problem(entry, url, "the fetched file " + why))
+        os.replace(partial, path)
+    finally:
+        if os.path.exists(partial):
+            os.remove(partial)
+
+
+def seed_blob(entry, fresh=False):
+    """The path of the seed file `entry`'s xz bytes in BLOB_CACHE, the one
+    way a seed file is had. The cached copy serves when its size and SHA-256
+    are the manifest's, checked on every read; otherwise the file is fetched
+    from the blob host, checked, and published by rename. `fresh` fetches
+    even when the cache holds the file. Raises SeedError, naming the file,
+    the URL and the expected SHA-256; nothing else is ever tried.
+
+    The funnel is this and `seed_manifest`, the manifest's one reading;
+    `seed_key` reads the manifest's digests alone, so a cached seed needs no
+    network. Entry points:
+      seed_entries
+      seed_files
+      seed_key
+      build_seed
+      seed.seed_ir
+      seed.check
+      seed.check_path_free
+      seed.check_reproduces
+      seed.publish
+      seed.upload
+    """
+    path = os.path.join(BLOB_CACHE, entry.sha256)
+    if not fresh and os.path.exists(path):
+        why = _blob_problem(path, entry)
+        if not why:
+            return path
+        print("seed: the cached %s %s, not the manifest's; fetching it again"
+              % (os.path.relpath(path, REPO), why), file=sys.stderr)
+    _fetch_blob(entry, path)
+    return path
 
 
 def seed_key(triple, clang):
     """What the seed of `triple` built with `clang` is a function of: the
-    committed IR, the C shim, the recipe, the target and the clang."""
+    manifest's digests of its files, the C shim, the recipe, the target and
+    the clang. It reads no seed file, so a cached seed needs no network."""
     digest = hashlib.sha256()
     digest.update(SEED_RECIPE)
-    for name in seed_files(triple) + [SHIM_C]:
-        path = os.path.join(SEED_DIR, triple, name)
-        digest.update(os.path.relpath(path, REPO).encode("utf-8") + b"\0")
-        with open(path, "rb") as fh:
-            digest.update(hashlib.sha256(fh.read()).digest())
+    for entry in seed_entries(triple):
+        digest.update(("%s/%s\0" % (entry.triple, entry.name)).encode("utf-8") + bytes.fromhex(entry.sha256))
+    digest.update(os.path.relpath(SHIM_C, REPO).encode("utf-8") + b"\0")
+    with open(SHIM_C, "rb") as fh:
+        digest.update(hashlib.sha256(fh.read()).digest())
     digest.update(("%s\0%s\0" % (triple, clang)).encode("utf-8"))
     digest.update(clang_version(clang).encode("utf-8"))
     return digest.hexdigest()[:16]
@@ -386,17 +535,22 @@ def _decompress(source, destination):
 
 
 def build_seed(triple=None):
-    """The seed binary of `triple`, the host when None, built from its
-    committed IR into `.build/seed/<key>/` unless that directory already holds
-    the build of the same key: each runtime IR compiled as `sawc2 runtime`
-    compiles it, `runtime/shim.c` too, and the driver's IR linked against them
-    as `sawc2 build` links, all by `choose_clang`'s clang. Beside the binary
-    goes the runtime manifest naming those objects, which the seed links
-    Stage 1 against. Returns (path, "") or (None, why)."""
+    """The seed binary of `triple`, the host when None, built from the IR its
+    manifest lines name (`seed_blob`) into `.build/seed/<key>/` unless that
+    directory already holds the build of the same key: each runtime IR
+    compiled as `sawc2 runtime` compiles it, `runtime/shim.c` too, and the
+    driver's IR linked against them as `sawc2 build` links, all by
+    `choose_clang`'s clang. Beside the binary goes the runtime manifest naming
+    those objects, which the seed links Stage 1 against. Returns (path, "")
+    or (None, why)."""
     triple = triple or host_triple()
-    if not os.path.exists(os.path.join(SEED_DIR, triple, SEED_DRIVER)):
-        return None, ("no seed for %s: %s/%s/%s is missing (compiler/README.md, \"The seed\")"
-                      % (triple, os.path.relpath(SEED_DIR, REPO), triple, SEED_DRIVER))
+    try:
+        entries = seed_entries(triple)
+    except SeedError as e:
+        return None, str(e)
+    if not entries:
+        return None, ("no seed for %s: %s names no file of it (compiler/README.md, \"The seed\")"
+                      % (triple, os.path.relpath(SEED_MANIFEST, REPO)))
     clang, why = choose_clang(triple)
     if clang is None:
         return None, why
@@ -411,12 +565,17 @@ def build_seed(triple=None):
     with open(os.path.join(SEED_CACHE, key + ".lock"), "w") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
         if not os.path.exists(done):
+            try:
+                blobs = [seed_blob(entry) for entry in entries]
+            except SeedError as e:
+                return None, str(e)
             shutil.rmtree(directory, ignore_errors=True)
             os.makedirs(directory)
             objects = []
-            for name in seed_files(triple)[1:]:
+            for entry, blob in zip(entries[1:], blobs[1:]):
+                name = entry.name
                 stem = os.path.join(directory, name[:-len(".ll.xz")])
-                _decompress(os.path.join(SEED_DIR, triple, name), stem + ".ll")
+                _decompress(blob, stem + ".ll")
                 why = _clang(clang, ["-c", "-target", target, "-O2", "-x", "ir", stem + ".ll", "-o", stem + ".o"])
                 if why:
                     return None, "the seed's %s does not compile: %s" % (name, why)
@@ -428,7 +587,7 @@ def build_seed(triple=None):
                 return None, "%s does not compile for the seed: %s" % (os.path.relpath(SHIM_C, REPO), why)
             objects.append(shim)
             ll = os.path.join(directory, "sawc2.ll")
-            _decompress(os.path.join(SEED_DIR, triple, SEED_DRIVER), ll)
+            _decompress(blobs[0], ll)
             why = _clang(clang, ["-target", target, "-O2", "-x", "ir", ll, "-x", "none"] + objects + ["-o", binary])
             if why:
                 return None, "the seed of %s does not link: %s" % (triple, why)

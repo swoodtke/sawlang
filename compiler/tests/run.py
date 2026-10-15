@@ -14,7 +14,8 @@ compares `sawc2 lex` with the golden fixtures in `lex/`, whose token
 kinds and lex errors must cover the lexer's; runs the subset checker over the
 compiler source and its own fixtures in `subset/`; recomputes the std cone of
 sawc2's build and compares it with `tools/std_cone.txt`, and the std suspension
-table with `tools/std_suspension.txt`; compares the runtime ABI table compiled
+table with `tools/std_suspension.txt`; holds the seed's fetch funnel to its
+cases against a local blob host (`seed/`); compares the runtime ABI table compiled
 into sawc2 with `runtime/ABI.md` and the runtime's sources, and Stage 0's copy of
 the runtime with `runtime/`; and runs the grammar lint,
 the reference recognizer's own tests in `grammar/`, and the parser corpus's
@@ -88,6 +89,9 @@ import test_recognize  # noqa: E402
 
 sys.path.insert(0, os.path.join(HERE, "migrate"))
 import test_migrate  # noqa: E402
+
+sys.path.insert(0, os.path.join(HERE, "seed"))
+import test_seed_store  # noqa: E402
 
 sys.path.insert(0, os.path.join(HERE, "resolve"))
 import resolve_lane  # noqa: E402
@@ -446,6 +450,12 @@ def run_std_suspension(run):
         run.count(key, n)
 
 
+def run_seed(run):
+    """The seed's fetch funnel against a local blob host
+    (seed/test_seed_store.py)."""
+    _run_module(run, test_seed_store)
+
+
 def run_runtime_table(run):
     """The runtime ABI table compiled into sawc2 against a fresh reading of
     runtime/ABI.md, each host's runtime sources and shim against it, and
@@ -664,6 +674,7 @@ STEPS = (
     Step("subset", "always", calls_overlap=True),
     Step("std_cone", "built", calls_overlap=True),
     Step("std_suspension", "after build"),
+    Step("seed", "always"),
     Step("runtime_table", "after build"),
     Step("grammar_lint", "after build"),
     Step("recognizer", "after build"),

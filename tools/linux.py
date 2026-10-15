@@ -9,8 +9,8 @@
                                      # (x86_64: cross-built, run under Rosetta)
     tools/linux.py lane              # the battery's `linux` lane: run-lane on both arches,
                                      # or a passing SKIP when the VM is not running
-    tools/linux.py seed              # a seed bump's Linux half: sync, write the Linux targets'
-                                     # seed in the VM, copy it into this checkout
+    tools/linux.py seed              # a seed bump's Linux half: sync, emit the Linux targets'
+                                     # seed in the VM, copy it back, publish it from here
     tools/linux.py stage0 [NAME...]  # sync, record Stage 0's run-lane runs in the VM, copy
                                      # them into compiler/tests/run/stage0/
 
@@ -31,7 +31,9 @@ and llvmlite pinned as on the Mac, so Stage 0 can record the run lane's
 Linux oracle inside the VM (`stage0`), and every stage is built natively
 there from the Linux seed.
 `seed` writes that seed (compiler/README.md, "The seed"): Stage 1 built in the
-VM emits it, and it is copied back over this checkout's `compiler/seed/`.
+VM emits it, it is copied back into this checkout's `.build/seed-write/`, and
+`seed.py publish` uploads it from here, since only this machine holds the blob
+host's upload key. The VM fetches the seed it builds from over HTTPS.
 """
 import json
 import os
@@ -54,7 +56,7 @@ UV = "$HOME/.local/bin/uv"
 # Each arch the run lane runs on, and the target sawc2 cross-builds for it:
 # None is the VM's own (native aarch64); x86_64 binaries run under Rosetta.
 ARCHES = {"aarch64": None, "x86_64": "x86_64-unknown-linux-gnu"}
-# The seeds a bump writes in the VM, each a directory of compiler/seed/.
+# The targets whose seed a bump emits in the VM.
 LINUX_SEEDS = ("aarch64-unknown-linux-gnu", "x86_64-unknown-linux-gnu")
 
 
@@ -240,28 +242,33 @@ def command_run_lane(record, args):
 
 
 def command_seed(record, args):
-    """The VM's Stage 1, built from the current seed, writes the Linux
-    targets' seed of HEAD in the clone, which replaces this checkout's."""
+    """The VM's Stage 1, built from the current seed, emits the Linux
+    targets' seed of HEAD in the clone; it is copied into this checkout's
+    `.build/seed-write/`, and this machine publishes it, because the VM has
+    no upload key."""
     if args:
         return usage()
     dest = sync(record)
-    write = [".venv/bin/python", "compiler/tools/seed.py", "write"]
+    targets = []
     for target in LINUX_SEEDS:
-        write += ["--target", target]
-    r = run_in_vm(write, workdir=dest)
+        targets += ["--target", target]
+    r = run_in_vm([".venv/bin/python", "compiler/tools/seed.py", "emit"] + targets, workdir=dest)
     if r.returncode != 0:
-        print("linux: the VM does not write the seed (exit %d)" % r.returncode)
+        print("linux: the VM does not emit the seed (exit %d)" % r.returncode)
         return r.returncode
-    seeds = os.path.join(REPO, "compiler", "seed")
+    staging = os.path.join(REPO, ".build", "seed-write")
+    os.makedirs(staging, exist_ok=True)
     for target in LINUX_SEEDS:
-        shutil.rmtree(os.path.join(seeds, target), ignore_errors=True)
-        r = limactl(["copy", "-r", "%s:%s/compiler/seed/%s" % (VM, dest, target), seeds])
+        shutil.rmtree(os.path.join(staging, target), ignore_errors=True)
+        r = limactl(["copy", "-r", "%s:%s/.build/seed-write/%s" % (VM, dest, target), staging])
         if r.returncode != 0:
-            raise VmError("linux: cannot copy compiler/seed/%s out of the VM (exit %d)" % (target, r.returncode))
-        print("linux: compiler/seed/%s" % target)
-    print("linux: written from %s; `compiler/tools/seed.py check` checks them against the pin"
-          % host_git(["rev-parse", "--short", "HEAD"]))
-    return 0
+            raise VmError("linux: cannot copy .build/seed-write/%s out of the VM (exit %d)" % (target, r.returncode))
+        print("linux: .build/seed-write/%s, emitted from %s" % (target, host_git(["rev-parse", "--short", "HEAD"])))
+    publish = subprocess.run([sys.executable, os.path.join(REPO, "compiler", "tools", "seed.py"), "publish"]
+                             + targets, cwd=REPO)
+    if publish.returncode != 0:
+        print("linux: the Linux seed is emitted but not published (exit %d)" % publish.returncode)
+    return publish.returncode
 
 
 def command_stage0(record, args):

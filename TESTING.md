@@ -446,8 +446,8 @@ decision is `tools/patch_gate.py`'s:
 - the freestanding suite runs when a changed path is one of its runner's inputs
   (`sawc/`, `tests/freestanding/`, `blade/`, `libs/`, the runner itself);
 - the fixpoint lane (`compiler/tests/fixpoint/fixpoint_lane.py`) runs when
-  `compiler/` (the lane itself, `compiler/tools/build.py` and the seed in
-  `compiler/seed/` included), `std/`,
+  `compiler/` (the lane itself, `compiler/tools/build.py` and the seed's
+  manifest and pin in `compiler/seed/` included), `std/`,
   `runtime/` (the runtime Stage 1 builds, which every later link takes),
   `sawc/` (its std is the one sawc2 compiles when no `--std-root` names
   another) or
