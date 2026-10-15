@@ -1726,7 +1726,7 @@ io_error_kind_and_raw_code.saw	refused	resolve import.unknown-module	no module `
 iterator_custom.saw	pass	-	-
 iterator_for_loop.saw	pass	-	-
 iterator_generic.saw	pass	-	-
-iterator_generic_type.saw	refused	typecheck member.unknown	`String` has no method `split` this module can see
+iterator_generic_type.saw	refused	typecheck member.unknown	`std.vector.Vector<String, std.alloc.GlobalAllocator>` has no method `iter` this module can see
 iterator_simple.saw	pass	-	-
 iterator_string.saw	pass	-	-
 iterator_struct.saw	pass	-	-
@@ -2371,18 +2371,18 @@ string_iterator_retains_its_receiver.saw	refused	typecheck member.unknown	`Strin
 string_len_o1.saw	refused	typecheck member.unknown	`String` has no method `to_uppercase` this module can see
 string_lifetime.saw	pass	-	-
 string_literal_immortal.saw	pass	-	-
-string_methods.saw	refused	typecheck member.unknown	`String` has no method `ends_with` this module can see
+string_methods.saw	refused	typecheck member.unknown	`String` has no method `to_uppercase` this module can see
 string_pattern_escaped_brace_matches.saw	pass	-	-
 string_raw_control_byte_before_brace.saw	pass	-	-
 string_scalars_iter.saw	refused	typecheck member.unknown	`String` has no method `scalars` this module can see
 string_scalars_temp_receiver.saw	refused	typecheck member.unknown	`String` has no method `scalars` this module can see
 string_simple.saw	pass	-	-
-string_split_join.saw	refused	typecheck member.unknown	`String` has no method `split` this module can see
+string_split_join.saw	refused	typecheck member.unknown	`std.vector.Vector<String, std.alloc.GlobalAllocator>` has no method `iter` this module can see
 string_substring_oob_panic.saw	pass	-	-
 string_substring_reversed_panic.saw	pass	-	-
 string_to_float.saw	refused	typecheck member.unknown	`String` has no method `to_float` this module can see
-string_to_int.saw	refused	typecheck member.unknown	`String` has no method `to_int` this module can see
-string_to_int_radix.saw	refused	typecheck member.unknown	`String` has no method `to_int` this module can see
+string_to_int.saw	pass	-	-
+string_to_int_radix.saw	pass	-	-
 string_withcstring.saw	refused	typecheck infer.failed	this closure parameter has no type: write one, as `x: Int`, or pass the closure where a function type is expected
 stringbuilder_append_int_alloc_free.saw	refused	typecheck call.no-match	no candidate takes these arguments; the candidates are StringBuilder.append(s: String) [std.stringbuilder]; StringBuilder.append(value: Int) [std.stringbuilder]; StringBuilder.append(b: UInt8) [std.st
 stringbuilder_append_scalar.saw	refused	typecheck member.unknown	`String` has no method `scalars` this module can see

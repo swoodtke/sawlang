@@ -1,0 +1,42 @@
+// `to_int()` and `to_int(radix:)`: signs, junk, no trimming, a lone sign,
+// the `Int.min` and `Int.max` edges, overflow either way and every radix
+// bound.
+
+func show(o: Int?) {
+    if let v = o { print(v) } else { print("none") }
+}
+
+func main() {
+    show("42".to_int())
+    show("-42".to_int())
+    show("+7".to_int())
+    show("0".to_int())
+    show("-0".to_int())
+    show("".to_int())
+    show("-".to_int())
+    show("+".to_int())
+    show("12x".to_int())
+    show(" 5".to_int())
+    show("5 ".to_int())
+    show("--5".to_int())
+    show("9223372036854775807".to_int())
+    show("-9223372036854775808".to_int())
+    show("9223372036854775808".to_int())
+    show("-9223372036854775809".to_int())
+    show("99999999999999999999999999".to_int())
+
+    show("ff".to_int(radix: 16))
+    show("FF".to_int(radix: 16))
+    show("1010".to_int(radix: 2))
+    show("z".to_int(radix: 36))
+    show("Z".to_int(radix: 36))
+    show("-ff".to_int(radix: 16))
+    show("2".to_int(radix: 2))
+    show("10".to_int(radix: 1))
+    show("10".to_int(radix: 37))
+    show("10".to_int(radix: 0))
+    show("0xff".to_int(radix: 16))
+    show("7fffffffffffffff".to_int(radix: 16))
+    show("-8000000000000000".to_int(radix: 16))
+    show("8000000000000000".to_int(radix: 16))
+}

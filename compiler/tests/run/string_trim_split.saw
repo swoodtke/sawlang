@@ -1,0 +1,41 @@
+// `trim`, `trim_start`, `trim_end` and `split`: nothing to trim, only
+// whitespace, each whitespace byte, adjacent separators, a missing
+// separator, an empty separator and a multi-byte separator.
+
+func show(parts: Vector<String>) {
+    var line = StringBuilder()
+    try! line.append(parts.len())
+    try! line.append(":")
+    var i = 0
+    while i < parts.len() {
+        try! line.append("[")
+        try! line.append(parts[i])
+        try! line.append("]")
+        i = i + 1
+    }
+    print(line.build())
+}
+
+func main() {
+    print("[{}]", "  hello  ".trim())
+    print("[{}]", "  hello  ".trim_start())
+    print("[{}]", "  hello  ".trim_end())
+    print("[{}]", "hello".trim())
+    print("[{}]", "".trim())
+    print("[{}]", "   ".trim())
+    print("[{}]", " \t\r\nx y\n\t ".trim())
+    print("[{}]", "\t x".trim_start())
+    print("[{}]", "x \n".trim_end())
+    print("[{}]", "é ".trim())
+
+    show(try! "apple,banana,cherry".split(","))
+    show(try! "a,,b,".split(","))
+    show(try! ",".split(","))
+    show(try! "abc".split(","))
+    show(try! "abc".split(""))
+    show(try! "".split(","))
+    show(try! "a--b--c".split("--"))
+    show(try! "aaa".split("aa"))
+    show(try! "x→y→z".split("→"))
+    show(try! "toolongseparator".split("toolongseparator!"))
+}

@@ -1,0 +1,26 @@
+program	compiler/tests/run/string_trim_split.saw
+triple	arm64-apple-darwin
+source	a59663c30318809e
+build	ok
+exit	0
+stdout	"[hello]"
+stdout	"[hello  ]"
+stdout	"[  hello]"
+stdout	"[hello]"
+stdout	"[]"
+stdout	"[]"
+stdout	"[x y]"
+stdout	"[x]"
+stdout	"[x]"
+stdout	"[é]"
+stdout	"3:[apple][banana][cherry]"
+stdout	"4:[a][][b][]"
+stdout	"2:[][]"
+stdout	"1:[abc]"
+stdout	"1:[abc]"
+stdout	"1:[]"
+stdout	"3:[a][b][c]"
+stdout	"2:[][a]"
+stdout	"3:[x][y][z]"
+stdout	"1:[toolongseparator]"
+stdout	""

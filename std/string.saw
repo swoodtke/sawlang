@@ -169,6 +169,132 @@ extension String {
         true
     }
 
+    /// Returns whether the string ends with the bytes of `suffix`.
+    public func ends_with(&self, suffix: String) -> Bool {
+        let n = suffix.len()
+        let offset = self.len() - n
+        if offset < 0 {
+            return false
+        }
+        var i = 0
+        while i < n {
+            if self.byte_at(offset + i) != suffix.byte_at(i) {
+                return false
+            }
+            i = i + 1
+        }
+        true
+    }
+
+    /// Returns whether `needle` occurs anywhere in the string. The empty
+    /// string occurs in every string.
+    public func contains(&self, needle: String) -> Bool {
+        self.find(&needle, 0) >= 0
+    }
+
+    // The offset of the first occurrence of `needle` at or after `from`, or
+    // -1. A needle longer than the rest of the string never matches.
+    func find(&self, needle: &String, from: Int) -> Int {
+        let n = needle.len()
+        let last = self.len() - n
+        var i = from
+        while i <= last {
+            var j = 0
+            while j < n && self.byte_at(i + j) == needle.byte_at(j) {
+                j = j + 1
+            }
+            if j == n {
+                return i
+            }
+            i = i + 1
+        }
+        return -1
+    }
+
+    /// Returns the string without its leading whitespace (space, tab,
+    /// newline, carriage return).
+    public func trim_start(&self) -> String {
+        let n = self.len()
+        var start = 0
+        while start < n && is_whitespace_byte(self.byte_at(start)) {
+            start = start + 1
+        }
+        if start == 0 {
+            return self
+        }
+        self.substring(start, n)
+    }
+
+    /// Returns the string without its trailing whitespace (space, tab,
+    /// newline, carriage return).
+    public func trim_end(&self) -> String {
+        let n = self.len()
+        var end = n
+        while end > 0 && is_whitespace_byte(self.byte_at(end - 1)) {
+            end = end - 1
+        }
+        if end == n {
+            return self
+        }
+        self.substring(0, end)
+    }
+
+    /// Returns the string without leading or trailing whitespace.
+    public func trim(&self) -> String {
+        self.trim_start().trim_end()
+    }
+
+    /// Returns the offset of the first byte equal to `b`, or `None`. A `Byte`
+    /// and an integer literal both pass as `b` (`index_of(47)`).
+    public func index_of(&self, b: UInt8) -> Int? {
+        let n = self.len()
+        var i = 0
+        while i < n {
+            if self.byte_at(i) == b {
+                return i
+            }
+            i = i + 1
+        }
+        None
+    }
+
+    /// Returns the offset of the last byte equal to `b`, or `None`.
+    public func last_index_of(&self, b: UInt8) -> Int? {
+        var i = self.len() - 1
+        while i >= 0 {
+            if self.byte_at(i) == b {
+                return i
+            }
+            i = i - 1
+        }
+        None
+    }
+
+    /// Splits the string on every occurrence of `separator`.
+    ///
+    /// Adjacent separators yield empty pieces, and a string with no separator
+    /// (or an empty `separator`, or an empty string) is a one-element vector
+    /// holding the whole string. Returns `Err(AllocError)` when the vector's
+    /// buffer is refused.
+    public func split(&self, separator: String) -> Result<Vector<String>, AllocError> {
+        var result = Vector<String>()
+        let n = self.len()
+        let sep_len = separator.len()
+        if sep_len == 0 || n == 0 {
+            try result.push(self)
+            return move result
+        }
+        var start = 0
+        var at = self.find(&separator, 0)
+        while at >= 0 {
+            try result.push(self.substring(start, at))
+            start = at + sep_len
+            at = self.find(&separator, start)
+        }
+        try result.push(self.substring(start, n))
+        return move result
+    }
+
     /// Returns the bytes in `start..<end` as a new `String`.
     ///
     /// Panics if the range is reversed or reaches outside `0..len()`. An empty
@@ -198,6 +324,71 @@ extension String {
     /// Compares the two strings byte by byte, as the ordering operators do.
     public func compare(&self, other: String) -> Ordering {
         string_compare(&self, &other)
+    }
+
+    /// Parses the whole string as a signed decimal, or `None`.
+    ///
+    /// Nothing is trimmed: an empty string, any byte other than an optional
+    /// leading `+` or `-` and digits, and a value outside `Int.min...Int.max`
+    /// are all `None`.
+    public func to_int(&self) -> Int? {
+        self.parse_signed(10)
+    }
+
+    /// Parses the whole string as a signed number in `radix` (2 to 36), or
+    /// `None`, on the terms of `to_int()`. No `0x` or `0b` prefix is read.
+    public func to_int(&self, radix: Int) -> Int? {
+        if radix < 2 || radix > 36 {
+            return None
+        }
+        self.parse_signed(radix)
+    }
+
+    // The digits accumulate as a non-positive magnitude, because two's
+    // complement has one more negative value than positive: `Int.min` parses
+    // without an overflowing intermediate.
+    func parse_signed(&self, radix: Int) -> Int? {
+        let n = self.len()
+        if n == 0 {
+            return None
+        }
+        var i = 0
+        var negative = false
+        let first = self.byte_at(0) as Int
+        if first == MINUS_BYTE {
+            negative = true
+            i = 1
+        } else if first == PLUS_BYTE {
+            i = 1
+        }
+        if i >= n {
+            return None
+        }
+        var acc = 0
+        while i < n {
+            let d = digit_value(self.byte_at(i) as Int)
+            if d < 0 || d >= radix {
+                return None
+            }
+            let m = acc &* radix
+            if acc != 0 && m / radix != acc {
+                return None
+            }
+            let next = m &- d
+            if next > m {
+                return None
+            }
+            acc = next
+            i = i + 1
+        }
+        if negative {
+            return acc
+        }
+        let positive = 0 &- acc
+        if positive < 0 {
+            return None
+        }
+        positive
     }
 
     /// Parses the whole string as an unsigned decimal, or `None`.
@@ -266,6 +457,11 @@ static LOWER_Z: Int = 122
 static UPPER_A: Int = 65
 static UPPER_Z: Int = 90
 static FIRST_LETTER_DIGIT: Int = 10
+
+// Space, tab, newline, carriage return.
+func is_whitespace_byte(b: Byte) -> Bool {
+    b == 32 || b == 9 || b == 10 || b == 13
+}
 
 // The value of an ASCII digit byte in a radix up to 36, or -1.
 func digit_value(b: Int) -> Int {

@@ -1,0 +1,39 @@
+// `ends_with`, `contains`, `index_of` and `last_index_of`: the empty needle,
+// a needle longer than the text, a match at either end, a multi-byte text and
+// a `Byte` needle from `byte_at`.
+
+func show(at: Int?) {
+    if let i = at { print(i) } else { print(-1) }
+}
+
+func main() {
+    let s = "Hello, World!"
+    print(s.ends_with("!"))
+    print(s.ends_with("Hello"))
+    print(s.ends_with(""))
+    print(s.ends_with("xxHello, World!"))
+    print("".ends_with(""))
+    print("".ends_with("a"))
+
+    print(s.contains("World"))
+    print(s.contains(", "))
+    print(s.contains("xyz"))
+    print(s.contains(""))
+    print("".contains(""))
+    print("".contains("a"))
+    print(s.contains("Hello, World!"))
+    print(s.contains("Hello, World!!"))
+    print(s.contains("d!"))
+    print("aab".contains("ab"))
+    print("café".contains("é"))
+
+    show("a/b/c".index_of(47))
+    show("a/b/c".last_index_of(47))
+    show("abc".index_of(47))
+    show("abc".last_index_of(47))
+    show("".index_of(47))
+    show("".last_index_of(47))
+    show("café".index_of(169))
+    let colon = ":".byte_at(0)
+    show("key:value".index_of(colon))
+}
