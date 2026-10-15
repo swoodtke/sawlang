@@ -739,13 +739,11 @@ item #20: std.mem.drop_in_place(at: UnsafePointer<T>) inst Int  (from #17)
 fn -> Void {
     let _0: Void;  // return
     let _1: UnsafePointer<Int>;  // param at
-    let _2: Int;
-    let _3: Int;
+    let _2: UnsafePointer<Int>;
 
     bb0: {
-        _2 = const 0: Int;
-        _3 = move _1[_2];
-        drop(_3);
+        _2 = copy _1;
+        drop((*_2));
         return;
     }
 }

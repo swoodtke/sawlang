@@ -1,8 +1,11 @@
 //! Raw memory: what a type that owns a buffer does with it.
 
-/// Destroys the value at `at`, leaving its slot uninitialized.
+/// Destroys the value at `at` where it lies, leaving its slot uninitialized.
+///
+/// The value is never moved first, so a `NoMove` value's `deinit` runs at its
+/// own address.
 public func drop_in_place<T>(at: UnsafePointer<T>) unsafe {
-    let _ = move at[0]
+    __saw_deinit_in_place(at)
 }
 
 /// Copies `count` bytes from `source` to `target`; the two ranges must not

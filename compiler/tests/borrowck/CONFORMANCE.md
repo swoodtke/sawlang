@@ -14,7 +14,7 @@ INDEX.md, or when an owner is not one of the words below.
 | `SL-462` | a typecheck rule SL-462 owns and has not written; SL-462 wrote reference positions, mutability and moving out of a part or through a borrow, so no row names it |
 | `typecheck-gap` | a typecheck rule that refuses nothing today, which no issue owns yet (a finding of this unit) |
 | `parse` | the parser refuses the spelling: the named fixture in `compiler/tests/parse/` |
-| `mir` | the MIR stage: the named golden in `compiler/tests/mir/` |
+| `mir` | the MIR stage: the named golden in `compiler/tests/mir/`, or the new std's MIR pin in `compiler/tests/std/mir/` |
 | `§3.7` | drop elaboration: how many times a value is released, and where |
 | `§3.8` | monomorphization: the lifecycle glue generated per concrete type, retains and copies, and the checks made per instantiation |
 | `§3.9` | coroutine lowering |
@@ -231,6 +231,7 @@ INDEX.md, or when an owner is not one of the words below.
 | V121 | typecheck | `nomove.undeclared` (SL-485): `compiler/tests/typecheck/refuse/nomove.undeclared.saw`, an enum payload, an optional, a generic instance (`nomove.undeclared.payload`, `.wrapped`, `.instance`); the declared container, a pointer holder and a generic, typecheck golden `no_move.saw` |
 | V122 | typecheck | `nomove.bound` (SL-485): `compiler/tests/typecheck/refuse/nomove.bound.saw`, an extension parameter's, `compiler/tests/typecheck/refuse/nomove.bound.extension.saw` |
 | V123 | typecheck | `nomove.requires-nocopy` (SL-485): `compiler/tests/typecheck/refuse/nomove.requires-nocopy.saw`, beside `ExplicitCopy`, `compiler/tests/typecheck/refuse/nomove.requires-nocopy.explicit.saw` |
+| V164 | mir | the in-place drop `drop_in_place` is written over lowers to a drop of its pointee's place (SL-662): `compiler/tests/std/mir/drop_in_place.mir`; run, `compiler/tests/run/probes/nomove_destroyed_in_place.saw`; a boxed `TaskGroup`, `compiler/tests/std/exec/group_boxed.saw` |
 | V165 | §3.8 | `transfer.no-move` at an instantiation (SL-662): `compiler/tests/mono/refuse/transfer.no-move.saw`, `.element`, `.forward`, `.capture`, `.take`, `.map` |
 | V166 | §3.8 | `transfer.no-move` at an instantiation (SL-662): `compiler/tests/mono/refuse/transfer.no-move.placement-after-borrow.saw`; accepted, run `compiler/tests/run/probes/nomove_generic_placement.saw` |
 | V124 | typecheck | `transfer.move-from-borrow` (SL-607): `compiler/tests/typecheck/refuse/transfer.move-from-borrow.capture-reference.saw`, `compiler/tests/typecheck/refuse/transfer.move-from-borrow.capture-payload.saw`, `compiler/tests/typecheck/refuse/transfer.move-from-borrow.capture-inner.saw` |

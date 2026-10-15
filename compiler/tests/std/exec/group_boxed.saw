@@ -1,0 +1,97 @@
+// A `TaskGroup` behind a `Box`, the movable handle over pinned state: the
+// box moves, the group stays where `Box.make` placed it, and dropping the box
+// tears the group down at that address (SL-662). Its teardown drives its
+// tasks and unlinks the group from the scheduler's list by the address it
+// linked, so a later group spawns, runs and joins with no dead group left in
+// the list. Torn down at a copy, the real group would stay linked after its
+// storage was freed, and the next join would walk freed memory.
+
+import std.taskgroup.{FrameDescriptor, Poll, TaskContext, TaskProvenance}
+import std.taskgroup.{__saw_exec_task_box}
+
+// A frame that counts to `steps`, yielding after every step but its last.
+struct Counter {
+    state: Int
+    name: Int
+    steps: Int
+    result: Int
+}
+
+func park_ready(cx: UnsafePointer<TaskContext>) unsafe -> Poll {
+    cx[0].park[0] = 0
+    Poll.Pending
+}
+
+func counter_resume(frame: UnsafePointer<UInt8>, cx: UnsafePointer<TaskContext>) unsafe -> Poll {
+    let f = frame as UnsafePointer<Counter>
+    let step = f[0].state + 1
+    f[0].state = step
+    print("task {} step {}", f[0].name, step)
+    if step < f[0].steps {
+        return park_ready(cx)
+    }
+    f[0].result = f[0].name * 100 + step
+    Poll.Ready
+}
+
+func drop_int(at: UnsafePointer<UInt8>) unsafe {
+    let p = at as UnsafePointer<Int>
+    print("released result {}", p[0])
+}
+
+func counter_offset() unsafe -> Int {
+    var probe = Counter(state: 0, name: 0, steps: 0, result: 0)
+    let base = (&probe) as UnsafePointer<Counter>
+    let field = (&probe.result) as UnsafePointer<Int>
+    field as Int - base as Int
+}
+
+func spawn_counter(group: UnsafePointer<TaskGroup>, d: UnsafePointer<FrameDescriptor>, name: Int,
+                   steps: Int) unsafe -> Task<Int> {
+    let frame = __saw_exec_task_box(d)
+    let f = frame as UnsafePointer<Counter>
+    f[0] = Counter(state: 0, name: name, steps: steps, result: 0)
+    Task<Int>.__saw_spawn(group, d, frame, TaskProvenance.Group)
+}
+
+// The address of the group a box holds, where `Box.make` placed it.
+func home(b: &var Box<TaskGroup>) unsafe -> UnsafePointer<TaskGroup> {
+    borrow var g = b.value() {
+        return (&g) as UnsafePointer<TaskGroup>
+    }
+}
+
+func boxed(d: UnsafePointer<FrameDescriptor>) unsafe {
+    var b = try! Box<TaskGroup>.make(TaskGroup())
+    let g = home(&var b)
+    let a = spawn_counter(g, d, 1, 3)
+    let c = spawn_counter(g, d, 2, 2)
+    var moved = move b
+    print("the box moved, and its group stayed: {}", home(&var moved) as Int == g as Int)
+    print("joined {}", c.join())
+    print("dropping the box")
+}
+
+func later(d: UnsafePointer<FrameDescriptor>) unsafe {
+    var group = TaskGroup()
+    let g = (&group) as UnsafePointer<TaskGroup>
+    let a = spawn_counter(g, d, 3, 2)
+    print("joined {}", a.join())
+    print("the later group holds {}", group.count())
+}
+
+func run() unsafe {
+    let counter = FrameDescriptor(resume: { f, c in counter_resume(f, c) }, size: sizeof<Counter>(),
+                                  align: alignof<Counter>(), result_offset: counter_offset(),
+                                  result_size: sizeof<Int>(), result_align: alignof<Int>(),
+                                  drop_result: { p in drop_int(p) }, backtrace: -1)
+    let d = (&counter) as UnsafePointer<FrameDescriptor>
+    boxed(d)
+    print("after the box")
+    later(d)
+    print("after the later group")
+}
+
+func main() {
+    run()
+}

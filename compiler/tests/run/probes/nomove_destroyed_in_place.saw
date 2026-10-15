@@ -1,0 +1,163 @@
+// probe: stated
+// about: a value std destroys through a pointer runs its `deinit` at the address it lives at (SL-662)
+// stage 0: cannot name `std.mem.drop_in_place`, and cannot parse a `borrow` block
+// speeds: -O0 -O2
+// Each `deinit` compares its own address with the one its value was placed
+// at: a `NoMove` value in a raw slot `drop_in_place` destroys, and one a
+// `Box` holds, the box moved twice and then dropped by a struct's glue; and
+// the elements of a `Vector` and the value of a `Map` entry, which their
+// destructors reach through `drop_in_place` too. A relocation before the drop
+// would print `false`.
+// prints: raw slot: deinit 1 where it lives: true
+// prints: box moved: true
+// prints: box: deinit 2 where it lives: true
+// prints: holder: deinit 3 where it lives: true
+// prints: vector holds 3
+// prints: element 10 where it lives: true
+// prints: element 11 where it lives: true
+// prints: element 12 where it lives: true
+// prints: map holds 1
+// prints: entry 20 where it lives: true
+// prints: done
+
+import std.mem.{drop_in_place}
+
+unsafe static var EXPECTED: Int = 0
+
+struct Pinned {
+    id: Int
+}
+
+extension Pinned: NoCopy {
+    func deinit(&var self) unsafe {
+        let here = (&self) as UnsafePointer<Pinned> as Int
+        print("{}: deinit {} where it lives: {}", label(self.id), self.id, here == EXPECTED)
+    }
+}
+
+extension Pinned: NoMove {}
+
+func label(id: Int) -> String {
+    if id == 1 {
+        return "raw slot"
+    }
+    if id == 2 {
+        return "box"
+    }
+    "holder"
+}
+
+// A value that records the address it was placed at.
+struct Tracked {
+    id: Int
+    home: Int
+}
+
+extension Tracked: NoCopy {
+    func deinit(&var self) unsafe {
+        let here = (&self) as UnsafePointer<Tracked> as Int
+        print("element {} where it lives: {}", self.id, here == self.home)
+    }
+}
+
+func address_of(t: &Tracked) unsafe -> Int {
+    t as UnsafePointer<Tracked> as Int
+}
+
+// A map entry's value, which a shared lend cannot write, so its address is
+// recorded in `EXPECTED` instead.
+struct Entry {
+    id: Int
+}
+
+extension Entry: NoCopy {
+    func deinit(&var self) unsafe {
+        let here = (&self) as UnsafePointer<Entry> as Int
+        print("entry {} where it lives: {}", self.id, here == EXPECTED)
+    }
+}
+
+struct Key {
+    n: Int
+}
+
+extension Key: Equatable {
+    func equals(&self, other: &Key) -> Bool {
+        self.n == other.n
+    }
+}
+
+extension Key: Hashable {
+    func hash(&self, h: &var Hasher) {
+        h.write_int(self.n)
+    }
+}
+
+struct Holder {
+    pinned: Box<Pinned>
+}
+
+extension Holder: NoCopy {}
+
+func raw_slot() unsafe {
+    let raw = GlobalAllocator().alloc(sizeof<Pinned>(), alignof<Pinned>())!
+    let p = raw as UnsafePointer<Pinned>
+    p[0] = Pinned(id: 1)
+    EXPECTED = p as Int
+    drop_in_place(p)
+    GlobalAllocator().dealloc(raw, sizeof<Pinned>(), alignof<Pinned>())
+}
+
+func home_of(b: &var Box<Pinned>) unsafe -> Int {
+    borrow var p = b.value() {
+        return (&p) as UnsafePointer<Pinned> as Int
+    }
+}
+
+func boxed() unsafe {
+    var b = try! Box<Pinned>.make(Pinned(id: 2))
+    let placed = home_of(&var b)
+    var moved = move b
+    var again = move moved
+    print("box moved: {}", home_of(&var again) == placed)
+    EXPECTED = placed
+}
+
+func held() unsafe {
+    var b = try! Box<Pinned>.make(Pinned(id: 3))
+    EXPECTED = home_of(&var b)
+    let h = Holder(pinned: move b)
+}
+
+func elements() unsafe {
+    var v = Vector<Tracked>()
+    try! v.push(Tracked(id: 10, home: 0))
+    try! v.push(Tracked(id: 11, home: 0))
+    try! v.push(Tracked(id: 12, home: 0))
+    var i = 0
+    while i < v.len() {
+        borrow var e = v[i] {
+            e.home = address_of(&e)
+        }
+        i = i + 1
+    }
+    print("vector holds {}", v.len())
+}
+
+func entries() unsafe {
+    var m = Map<Key, Entry>()
+    let _ = try! m.insert(Key(n: 1), Entry(id: 20))
+    borrow let e = m[Key(n: 1)] {
+        EXPECTED = (&e) as UnsafePointer<Entry> as Int
+    }
+    print("map holds {}", m.len())
+}
+
+func main() unsafe {
+    raw_slot()
+    boxed()
+    held()
+    elements()
+    entries()
+    print("done")
+}
