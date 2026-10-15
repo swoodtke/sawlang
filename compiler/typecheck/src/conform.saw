@@ -728,6 +728,7 @@ extension TcProgram {
     func refuse_second_policy(&var self, at: Int, earlier: Int) {
         let c = self.conformances[at]
         let prior = self.conformances[earlier]
+        // Stage 0 workaround (SL:hazards L33): canonical: let start = self.res.nodes[prior.node].start
         let node = self.res.nodes[prior.node]
         let position = self.res.position_text(prior.module, node.start)
         var msg = StringBuilder()
