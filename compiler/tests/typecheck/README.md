@@ -283,12 +283,42 @@ The per-declaration filter, by position (SL-626):
 | ordinary code calling, or naming as a value, the ordinary overload of a set with a test-only one; test code using every overload and member | allowed | test_only_overloads |
 | an importer naming as a value the one overload it sees; a set whose first declaration is narrower than a later public one, imported; the module calling its own private overloads | allowed | multi/overload_visibility |
 
+A type's policies, `Copy`, `ExplicitCopy`, `NoCopy`, `NoMove`, `ZeroInit`,
+`UnsafeSend` and `UnsafeSync`, are declared only in the file that defines
+the type, and test code is a file of its own (SL-659, the user's ruling (a)):
+an `@test` declaration, an `@test { }` group and a sidecar each count as one,
+and every `@test` declaration and group of a module counts as the same test
+file. One funnel, `in_defining_file` (`compiler/typecheck/src/conform.saw`),
+answers where a declaration sits; `policy_in_place` asks it of a policy
+conformance, and `check_policy_placement` (`checks.saw`) refuses one that is
+not, under `conformance.policy-placement`. A misplaced policy counts for
+nothing: the tier, movability, zero-value and visibility readers each ask
+`policy_in_place`, so nothing else is refused or decided because of it, and
+a type has one tier, one movability, one zero value and one thread behaviour
+in a binary. Another module's policy for a type is the orphan rule's first
+(resolve's `conformance.orphan`); only the trait's own module, the prelude,
+gets past it, and the std lane holds the prelude clean. sawc2 reads no
+sidecar yet, and a sidecar's declarations are test-only declarations of its
+module, so the test-only rows cover it:
+
+| row | verdict | covered by |
+|---|---|---|
+| a test-only `NoCopy` (with its `deinit`), `Copy` (with its hook), `ExplicitCopy`, `NoMove`, `UnsafeSend` or `UnsafeSync` conformance on a production type, in an `@test` declaration | refused | conformance.policy-placement, .copy, .explicit-copy, .no-move, .unsafe-send, .unsafe-sync |
+| the same in an `@test { }` group, `ZeroInit` and a group's static of the type included | refused | conformance.policy-placement.group, .copy-group, .explicit-copy-group, .no-move-group, .unsafe-send-group, .unsafe-sync-group, .zero-init-group |
+| a test-only `ZeroInit` in the production struct's own module, which another module's static would read | refused | conformance.policy-placement.zero-init |
+| a conditional head on a generic type, `@synthesize`, an enum, a policy named after a non-policy trait in one head | refused, at the policy | conformance.policy-placement.conditional, .synthesize, .enum, .one-extension |
+| a test-only `NoMove` on a production type, beside production code that moves the value or holds it in a `NoCopy` struct | refused at the conformance alone: no `transfer.no-move`, no `nomove.undeclared` | conformance.policy-placement.no-move, .no-move-holder |
+| another module's policy conformance for a type | refused, resolve's `conformance.orphan` | resolve conformance.orphan.policy |
+| a production type's policies declared beside it, used by test code; a test-only conformance to a trait that is no policy on it; a test-only type's policies, in a separate `@test` declaration or a group, each policy trait | allowed | policy_placement, test_only_copy_policy, test_only_conformances |
+| a test-only struct holding a test-only `NoMove` type inline without declaring `NoMove` | refused, `nomove.undeclared` | nomove.undeclared.test-only |
+
 Test code cannot change how a production type copies (SL:testing, Air t15):
-a type has one tier in a binary. `check_test_only_policies`
-(`compiler/typecheck/src/conform.saw`) refuses, under `copy.test-only-policy`,
-each position a test-only declaration could give a production type a policy
-or a hook (SL-630); which `copy()` a copy runs is read from the policy
-conformance alone (`policy_copy`). A Copy or ExplicitCopy type's `copy()` is
+a type has one tier in a binary. A test-only copy policy on a production type
+is `conformance.policy-placement`'s, above, and `check_test_only_copies`
+(`compiler/typecheck/src/conform.saw`) refuses a test-only `copy()` on one,
+under `copy.test-only-policy`, the funnel's named special case for a member
+(SL-630); which `copy()` a copy runs is read from the policy conformance
+alone (`policy_copy`). A Copy or ExplicitCopy type's `copy()` is
 written only there, and `check_copy_placement` refuses one written anywhere
 else under `copy.outside-policy`, a type that is Copy by its members
 included; a NoCopy type's `copy()` is an ordinary method (SL-641). A member
@@ -296,7 +326,6 @@ named `copy` counts when a call with no arguments reaches it:
 
 | row | verdict | covered by |
 |---|---|---|
-| a test-only `NoCopy`, `Copy` or `ExplicitCopy` conformance on a production type, written with `@test` or in a test group | refused | copy.test-only-policy, copy.test-only-policy.copy, copy.test-only-policy.explicit-copy, copy.test-only-policy.group |
 | a test-only `copy()` on a production type, in a plain test-only extension, alone or beside a production `Copy` conformance that derives its own | refused, and not also `copy.outside-policy` | copy.test-only-policy.copy-method, copy.test-only-policy.beside-synthesized |
 | a policy's `copy()` written by another extension than the conformance, so the conformance writes none | refused, `synthesize.required`, then `copy.outside-policy` | synthesize.required.copy-outside-policy |
 | a `copy()` outside the policy of a type Copy by its members, a struct (bare), an enum or a generic type; beside a derived `Copy` or `ExplicitCopy`; in another conformance's extension; a static one; one whose parameters all have defaults | refused, `copy.outside-policy` | copy.outside-policy, .enum, .generic, .declared, .explicit, .other-conformance, .static, .defaulted |
@@ -343,10 +372,11 @@ meets, with a written member, the trait's default or a derivation, is refused
 where it is declared (`check_test_only_shadows`), since nothing through the
 trait would run it; a fake is a test-only type passed to the production
 generic. A member written to meet a requirement follows its trait's
-visibility only for a production conformance. A Copy tier is
-answered without the funnel: `check_test_only_policies` refuses every
-test-only copy policy on a production type, the one conformance the funnel
-would hide, so a type has one tier for every viewer.
+visibility only for a production conformance. A policy test code declares
+for a production type never reaches the funnel's question:
+`conformance.policy-placement` refuses it, and `conformance_visible` hides it
+from every viewer, so a type has one tier and one thread behaviour for every
+viewer.
 
 | row | verdict | covered by |
 |---|---|---|
@@ -357,11 +387,10 @@ would hide, so a type has one tier for every viewer.
 | a test-only member of a requirement's name with another signature, or of another name | allowed | test_only_conformances |
 | ordinary code's direct call of what a production conformance brings, a default or a derivation, beside a test-only refinement declared before it or after it | allowed | test_only_conformances (`Early`, `Late`, `EarlyKey`, `LateKey`, `EarlyFault`, `LateFault`), run probes/test_only_members |
 | ordinary code in another module calling a private method that meets a public trait's requirement only for a test-only conformance | refused, `member.unknown` | member.unknown.test-only-conformance-visibility |
-| ordinary code's bound met only by a test-only conformance: inferred, explicit, a generic struct's argument in a signature, a field or an inferred construction, a conditional conformance's condition, `Comparable`, `Iterator`, a refining trait's, `Hashable`, `UnsafeSend`, `UnsafeSync` | refused, `type.bound` | type.bound.test-only-conformance, -explicit, -struct, -field, -struct-inferred, type.bound.test-only-conditional, -comparable, -iterator, -refinement, -hashable, -unsafe-send, -unsafe-sync |
+| ordinary code's bound met only by a test-only conformance: inferred, explicit, a generic struct's argument in a signature, a field or an inferred construction, a conditional conformance's condition, `Comparable`, `Iterator`, a refining trait's, `Hashable` | refused, `type.bound` | type.bound.test-only-conformance, -explicit, -struct, -field, -struct-inferred, type.bound.test-only-conditional, -comparable, -iterator, -refinement, -hashable |
 | ordinary code's `==`, `!=` and `<` through a test-only `Equatable` or `Comparable` | refused, `operator.undefined` | operator.undefined.test-only-equatable, -equatable-ne, -comparable |
 | ordinary code formatting or interpolating a type only a test-only `Printable` covers | refused, `format.argument` | format.argument.test-only-printable, -printable-interpolation |
 | ordinary code erasing a type to `any Trait` that only a test-only conformance meets | refused, `type.mismatch` | type.mismatch.test-only-erasure |
-| a production static of a type only a test-only `UnsafeSync`, conditional or not, makes `Sync` | refused, `static.not-sync` | static.not-sync.test-only-unsafe-sync, -condition |
 | another module's test code using a module's test-only conformance | refused, `type.bound` | type.bound.test-only-conformance-imported-test |
 | a test-only conformance to a trait a production type meets through a production refinement, or automatically: `Equatable` or `Hashable` of a trivially copyable struct, a generic one or a payload-free enum | refused, `conformance.test-only-overlap` | conformance.test-only-overlap, .hashable, .enum, .generic, .refinement |
 | a `for` over a production `next` beside a test-only `Iterator` conformance | allowed: the loop reads the member, not the conformance | test_only_conformances |
@@ -1364,17 +1393,18 @@ says what the fixture shows.
 | `unsafe.type-name` | an `unsafe struct` not named `Unsafe*` |
 | `init.result` | an `init` returning neither its receiver nor `Result<Receiver, E>`; an optional on its own terms |
 | `init.override-outside-module` | an `init` matching a struct's fields exactly, the shape that overrides its memberwise construction, declared outside the struct's module (SL-648; the override matrix below) |
-| `init.override-test-only` | an override that is test-only on a production struct, with `copy.test-only-policy`'s reasoning (SL:testing; SL-648) |
+| `init.override-test-only` | an override that is test-only on a production struct, with `conformance.policy-placement`'s reasoning (SL:testing; SL-648) |
 | `init.override-bounded` | an override in an extension whose type parameters carry bounds, naming the bound and the unbounded head (SL-648) |
 | `conformance.deinit` | a conformance to `Deinit` itself, which a copy policy carries instead (design 131); a test-only one included (`.test-only`) |
+| `conformance.policy-placement` | a policy conformance, `Copy`, `ExplicitCopy`, `NoCopy`, `NoMove`, `ZeroInit`, `UnsafeSend` or `UnsafeSync`, declared outside the file that defines its type, test code being a file of its own: each policy in an `@test` declaration and in a group, a conditional head, `@synthesize`, an enum, beside a non-policy trait in one head (bare, `.copy`, `.explicit-copy`, `.no-move`, `.unsafe-send`, `.unsafe-sync`, `.zero-init`, `.group`, `.copy-group`, `.explicit-copy-group`, `.no-move-group`, `.unsafe-send-group`, `.unsafe-sync-group`, `.zero-init-group`, `.conditional`, `.synthesize`, `.enum`, `.one-extension`, `.no-move-holder`); the policy matrix above (SL-659) |
 | `conformance.derived-only` | a written conformance to `Send` or `Sync`, which the compiler derives from the members and never takes as written (spec, Send and Sync; SL-673): on a raw-pointer holder that a `T: Send` bound would then accept (bare), `Sync` (`.sync`), a type whose members derive it anyway (`.derivable`), a conditional head (`.generic`), an enum (`.enum`), both in one head (`.one-extension`), beside `@synthesize` (`.synthesize`), a test-only extension (`.test-only`) and a test group (`.test-group`); one funnel, `check_derived_conformances`, refuses these, `conformance.deinit`'s, `conformance.derived-parent`'s and `trait.deinit-parent`'s. Golden `thread_assertions` holds the control: `UnsafeSend`/`UnsafeSync` past an unsafe-typed field meet the bounds |
 | `conformance.derived-parent` | a conformance to a user trait refining `Send` or `Sync` on a type that does not derive it under the extension's conditions, naming the parent and the blocking field or payload: a raw-pointer holder (bare), `Sync` past an interior cell (`.sync`), an unconditioned generic head (`.generic`), an enum (`.enum`), a refinement chain (`.chain`), a test-only extension (`.test-only`). The parent is required, never granted (SL-673): golden `derived_parent_grants_nothing` keeps the refused type short of a `T: Send` bound, and golden `derived_parents` holds the accepted rows and `T: Shippable` meeting `T: Send` in a generic body |
 | `trait.deinit-parent` | a user trait listing `Deinit` as a parent, which only the copy policies `NoCopy` and `ExplicitCopy` do (SL-673) |
 | `deinit.outside-policy` | a `deinit` written in an extension that declares no copy policy, beside the type's policy or on a type with none, where no scope exit would call it (spec, The Deinit trait); a plain test-only extension's included (`-test-only`) |
-| `copy.test-only-policy` | a test-only `Copy`, `ExplicitCopy` or `NoCopy` conformance on a production type, a test group's included, and a test-only `copy()` on one (SL:testing, Air t15; SL-630) |
+| `copy.test-only-policy` | a test-only `copy()` on a production type, in a plain test-only extension (`.copy-method`) or beside a production `Copy` that derives its own (`.beside-synthesized`); the policy conformance itself is `conformance.policy-placement`'s (SL:testing, Air t15; SL-630) |
 | `copy.outside-policy` | a member named `copy` that a call with no arguments reaches, written outside the `Copy` or `ExplicitCopy` conformance of a type that does not declare `NoCopy`: in a plain extension, another conformance's, beside a derived policy, on a type Copy by its members, static or with every parameter defaulted (spec, The Copy Trait Family; SL-641) |
 | `overload.indistinguishable` | a declaration that shares a call shape with an earlier one of its overload set, at the later one; the matrix below the table lists each position (spec, Overloading; SL-641) |
-| `copy.second-policy` | a second copy policy on one type, at its conformance: `Copy` then `ExplicitCopy` (bare), `Copy` then `NoCopy` (`.no-copy`), `NoCopy` then `ExplicitCopy` (`.explicit-no-copy`), two in one extension's head (`.one-extension`), and bounded extensions, `Copy` beside `NoCopy` (`.bounded`) and `Copy` beside `ExplicitCopy` (`.bounded-both`); a test-only policy on a production type is `copy.test-only-policy`'s and counts for neither (spec, The Copy Trait Family; SL-641) |
+| `copy.second-policy` | a second copy policy on one type, at its conformance: `Copy` then `ExplicitCopy` (bare), `Copy` then `NoCopy` (`.no-copy`), `NoCopy` then `ExplicitCopy` (`.explicit-no-copy`), two in one extension's head (`.one-extension`), and bounded extensions, `Copy` beside `NoCopy` (`.bounded`) and `Copy` beside `ExplicitCopy` (`.bounded-both`); a test-only policy on a production type is `conformance.policy-placement`'s and counts for neither (spec, The Copy Trait Family; SL-641) |
 | `extension.default-omitted` | an extension head renaming its type's parameters that leaves out a defaulted one, with the head written out (D14) |
 | `type.mismatch` | a value that does not convert to what its position expects, one fixture per funnel position and one per cell of the wrap and erasure matrix a position refuses; a condition that is not a `Bool`; a pattern that does not fit its value; operands that disagree; a bare integer literal, or a constant expression's literal, leaf or cast, that does not fit the type it adopts or converts to; a literal or range pattern's integer that does not fit the matched type (`.pattern-literal-range`, `.pattern-negative-unsigned`, `.pattern-range-end`); a literal past its signed suffix's range (D6) |
 | `constant.overflow`, `constant.shift-range`, `constant.divide-by-zero` | a constant expression whose typed arithmetic overflows, shifts by a count outside its width, or divides by zero, where it adopts an integer slot and at every constant position (the constant-position funnel); a shift count or divisor constant before instantiation that faults whatever the other operand is, reachable or not (the certain-fault funnel) |
@@ -1531,7 +1561,6 @@ prelude and unbound under Stage 0's, so a row that declares it runs with
 | a conditional `ZeroInit` (`Lock<T: ZeroInit>`) at a scalar, at a `ZeroInit` type, and at a struct of the static's module with no declaration | accepted: the condition's argument is walked by the same rule, at the static's module | `zm.` |
 | another module's struct with a private field: at the top, in a field, in an array, behind a generic argument | refused, naming the field | `static.zero-hidden`, `.nested`, `.array`, `.generic` |
 | a conditional `ZeroInit` at an argument with a hidden field | refused, naming the argument's field | `static.zero-hidden.conditional` |
-| a struct whose only `ZeroInit` is test-only, in production code | refused, as if the declaration did not exist (SL:testing) | `static.zero-hidden.test-only-conformance` |
 | Stage 0's `SpinLock`, `Mutex` or `Once` under Stage 0's root, whose std cannot declare `ZeroInit` | refused, naming the private field | `static.zero-hidden.frozen-std` |
 | a `String`, directly or as a conditional `ZeroInit`'s argument | refused: a `String` owns its bytes | `static.zero-invalid`, `static.zero-invalid.conditional` |
 | an enum with a payload case | refused | `static.zero-invalid.payload-enum` |

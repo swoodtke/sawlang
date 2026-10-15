@@ -7556,7 +7556,8 @@ extension TcProgram {
             let c = self.conformances[k]
             k = k + 1
             let available = self.res.modules[c.module].available
-            if c.trait_decl == zi && c.type_decl >= 0 && available && not self.is_interface(c.module) {
+            let checked = available && not self.is_interface(c.module) && self.policy_in_place(k - 1)
+            if c.trait_decl == zi && c.type_decl >= 0 && checked {
                 let saved = self.save_context()
                 self.enter_decl(c.ext)
                 self.check_zero_init_declaration(k - 1)

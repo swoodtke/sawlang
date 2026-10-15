@@ -1,0 +1,19 @@
+// refuses: conformance.policy-placement at 12:24
+// a test group's `UnsafeSync` on a production type, which would make a
+// test-only static of it `Sync`
+
+struct Counter {
+    cell: UnsafeMutableInterior<Int>
+}
+
+extension Counter: NoCopy {}
+
+@test {
+    extension Counter: UnsafeSync {}
+
+    static COUNTER: Counter
+}
+
+func main() {
+    print("ok")
+}

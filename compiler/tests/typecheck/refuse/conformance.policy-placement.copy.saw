@@ -1,4 +1,4 @@
-// refuses: copy.test-only-policy at 9:18
+// refuses: conformance.policy-placement at 9:18
 // a test-only `Copy` conformance with a retain hook on a production type
 
 struct Money {

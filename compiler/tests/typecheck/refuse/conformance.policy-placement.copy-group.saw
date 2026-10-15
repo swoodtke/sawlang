@@ -1,0 +1,19 @@
+// refuses: conformance.policy-placement at 9:22
+// a test group's `Copy` on a production type, with its retain hook
+
+struct Money {
+    cents: Int
+}
+
+@test {
+    extension Money: Copy {
+        func copy(&self) -> Money {
+            Money(cents: self.cents + 100)
+        }
+    }
+}
+
+func main() {
+    let a = Money(cents: 1)
+    print("{}", a.cents)
+}

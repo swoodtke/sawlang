@@ -1,0 +1,16 @@
+// refuses: conformance.policy-placement at 10:22
+// a copy policy a test group declares for a production type: the group is
+// test code, a file of its own
+
+struct Noisy {
+    id: Int
+}
+
+@test {
+    extension Noisy: NoCopy {}
+}
+
+func main() {
+    let n = Noisy(id: 7)
+    print("made {}", n.id)
+}

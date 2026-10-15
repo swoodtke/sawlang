@@ -1,0 +1,22 @@
+// refuses: conformance.policy-placement at 13:30
+// a test-only head naming a non-policy trait and then a policy: the policy is
+// refused where it is named, and the `Printable` beside it stays a legal
+// test-only conformance
+
+struct Pinned {
+    n: Int
+}
+
+extension Pinned: NoCopy {}
+
+@test
+extension Pinned: Printable, NoMove {
+    func format(&self, into: &var StringBuilder) {
+        try! into.append("pinned")
+    }
+}
+
+func main() {
+    let p = Pinned(n: 4)
+    print("{}", p.n)
+}

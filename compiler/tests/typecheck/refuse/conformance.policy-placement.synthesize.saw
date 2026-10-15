@@ -1,0 +1,15 @@
+// refuses: conformance.policy-placement at 10:18
+// a test-only `ExplicitCopy` derived with `@synthesize` on a production type
+
+struct Money {
+    cents: Int
+}
+
+@test
+@synthesize
+extension Money: ExplicitCopy {}
+
+func main() {
+    let a = Money(cents: 1)
+    print("{}", a.cents)
+}

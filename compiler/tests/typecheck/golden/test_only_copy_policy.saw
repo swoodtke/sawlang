@@ -1,8 +1,10 @@
 // A test-only type declares its copy policy in test code, and its own
 // `copy()` and `deinit` with it; test code copies and drops it. Only a
 // production type's policy and `copy()` must be production code
-// (`copy.test-only-policy`). A production NoCopy type's `copy()` is an
-// ordinary method, called by name.
+// (`conformance.policy-placement`, `copy.test-only-policy`). A separate
+// `@test` declaration may declare a test-only type's policy, since every
+// `@test` declaration of a module is one test file. A production NoCopy
+// type's `copy()` is an ordinary method, called by name.
 
 struct Money {
     cents: Int

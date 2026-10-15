@@ -3448,6 +3448,9 @@ ordinary trait naming the wider family of values that can be duplicated at all,
 possibly at the cost of a spelled `.copy()`. This replaces the earlier "copy by
 default, explicit move" framing and the never-implemented "deep copy for
 collections" claim: the cost of every transfer is readable at the use site.
+A declared copy policy is written beside the type, in its defining file, never
+in test code for a production type (see [Policy conformances: declared beside
+the type](#policy-conformances-declared-beside-the-type)).
 
 - **`Copy` is DERIVED, not declared.** A type whose owning members are all
   `Copy` is `Copy`, with no declaration written and none asked for. That covers
@@ -6291,6 +6294,9 @@ type whose copy tier is anything but a declared `NoCopy` is an error, so neither
 property is ever inferred from the other. That strictness is also where the
 model grows: `NoMove` beside `ExplicitCopy` (a pinned type with a hand-written
 `copy()` that re-registers the duplicate) opens by relaxing exactly that check.
+Like a copy policy, `NoMove` is declared beside the type, in its defining file;
+test code cannot pin a production type (see [Policy conformances: declared
+beside the type](#policy-conformances-declared-beside-the-type)).
 
 A `NoMove` value moves **once, into its home**, and never again. Its home is
 normally its binding, so the constructor's move is the only one:
@@ -10339,7 +10345,10 @@ refused too, since it teaches the next reader that something was needed.
 conformance header: `T: UnsafeSync` as a generic bound and `any UnsafeSync` as
 an existential are both clean errors pointing at the property. These are two
 builtin traits, not a user-definable unsafe-trait feature. The
-[orphan rule](#conformance-coherence-the-orphan-rule) applies unchanged.
+[orphan rule](#conformance-coherence-the-orphan-rule) applies unchanged, and
+the assertion is declared beside the type, in its defining file: test code
+cannot assert it for a production type (see [Policy conformances: declared
+beside the type](#policy-conformances-declared-beside-the-type)).
 
 ### A raw buffer shared across threads
 
@@ -10692,8 +10701,11 @@ Statics obey four rules, ratified in design 19:
      is never copied, so a `NoCopy` type qualifies, which is what makes
      `static LOCK: SpinLock<T>` legal.
 
-     A type's author declares `ZeroInit` in the type's own module when zero
-     is a meaningful value of it. `SpinLock<T>`, `Mutex<T>` and `Once<T>`
+     A type's author declares `ZeroInit` beside the type, in its defining
+     file and never in test code for a production type (see [Policy
+     conformances: declared beside the
+     type](#policy-conformances-declared-beside-the-type)), when zero is a
+     meaningful value of it. `SpinLock<T>`, `Mutex<T>` and `Once<T>`
      declare it on the condition that `T` does too, since their fields are
      private:
 
@@ -12210,6 +12222,47 @@ extension Reading: Describable {
 
 To conform a foreign type to a foreign trait, wrap it in a type you own.
 
+#### Policy conformances: declared beside the type
+
+A type's policies are facts about its implementation: how it copies
+(`Copy`, `ExplicitCopy`, `NoCopy`), whether it may be relocated (`NoMove`),
+whether its all-zero value is valid (`ZeroInit`), and whether it is safe to
+send or share across threads (`UnsafeSend`, `UnsafeSync`). Only the file that
+defines the type can vouch for them, so a conformance to any of these seven is
+declared beside the type, in its defining file. The orphan rule already keeps
+other modules out; this rule also keeps out test code.
+
+Test code counts as a file of its own. An `@test` declaration, an
+`@test { … }` group and a test sidecar (`parser.test.saw`) cannot declare a
+policy for a production type, its own module's included:
+
+```saw-fragment
+struct Pinned {
+    n: Int
+}
+
+extension Pinned: NoCopy {}
+
+@test
+extension Pinned: NoMove {}
+// error: `Pinned` conforms to `NoMove` in test code, and `Pinned` is a
+//        production type: a type's policies (…) are declared beside it, in
+//        its defining file, and test code is a file of its own
+```
+
+Without the rule, test code could give a production type a second tier, a
+second movability or a second thread behaviour, and a value crossing from test
+code into production code would carry the wrong one. A refused policy
+conformance counts for nothing, so production code that moves `Pinned` is not
+refused beside it.
+
+A test-only type is defined in test code, so test code declares its policies.
+A module's test code is one file for this purpose: `@test struct Fake { … }`
+followed by `@test extension Fake: NoCopy {}` is legal, and so is either inside
+a group. A test-only conformance to a trait that is no policy, such as
+`Printable`, stays legal on a production type; SL:testing has the rules that
+keep it from changing what production code means.
+
 #### Type identity (design 144)
 
 A type is identified by the module that defines it together with its name. Two
@@ -13531,6 +13584,9 @@ whether a declaration exists in a given build. A string after it makes a test
 case, `{` makes a group of test-only declarations, and a declaration after it
 becomes test-only. A case may carry one clause, `panics:`, `warns:` or
 `refuses:`, naming the rule it expects (SL:testing has the full rules).
+Test code counts as a file of its own, so it cannot declare a policy
+conformance for a production type (see [Policy conformances: declared beside
+the type](#policy-conformances-declared-beside-the-type)).
 
 A refusal case's body is text, not a block. The case's header, the clause and
 the case's name, ends its line; the body is the lines after it, up to a line

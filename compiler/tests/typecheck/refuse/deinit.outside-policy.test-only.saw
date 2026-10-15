@@ -2,7 +2,7 @@
 // a `deinit` in a plain test-only extension, which declares no copy policy:
 // refused as any extension's is, so a test-only `deinit` reaches a production
 // type through no extension but a test-only policy, which
-// `copy.test-only-policy` refuses
+// `conformance.policy-placement` refuses
 
 struct Noisy {
     id: Int

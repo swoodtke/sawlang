@@ -34,10 +34,9 @@ public func tc_extension_sets(p: &TcProgram) -> Vector<Bool> {
     p.extension_sets()
 }
 
-// The refusal of a test-only copy policy, or a test-only `copy()`, on a
-// production type.
-public func tc_check_test_only_policies(p: &var TcProgram) {
-    p.check_test_only_policies()
+// The refusal of a test-only `copy()` on a production type.
+public func tc_check_test_only_copies(p: &var TcProgram) {
+    p.check_test_only_copies()
 }
 
 // The refusals of a second copy policy on one type, and of a `copy()` a Copy
@@ -423,18 +422,66 @@ extension TcProgram {
     // Whether conformance `at` exists for code in module `viewer`, test code
     // when `in_test`. One a test-only extension declares exists for its own
     // module's test code alone (resolve's `may_use`), so ordinary code is
-    // checked as if it did not (SL:testing). A Copy tier is read without
-    // it: `check_test_only_policies` refuses every copy policy it would hide.
+    // checked as if it did not (SL:testing). A policy declared outside its
+    // type's file exists for no code (`policy_in_place`).
     //
     // ENTRY POINTS (conformance_visible):
     //     declares_conformance
     //     has_conformance
     //     unmet_sync_condition
     //     assignment_for
+    //     zero_init_vouches
     public func conformance_visible(&self, at: Int, viewer: Int, in_test: Bool) -> Bool {
         let c = self.conformances[at]
         let ext = self.res.decls[c.ext]
-        self.res.may_use(ResVis.Public, ext.module, ext.test_only, viewer, in_test)
+        self.policy_in_place(at) && self.res.may_use(ResVis.Public, ext.module, ext.test_only, viewer, in_test)
+    }
+
+    // Whether trait `tr` states a policy of its conformers: a copy policy,
+    // `NoMove`, `ZeroInit`, or a thread-safety assertion. Each is a fact
+    // about the type's implementation that only its defining file can vouch
+    // for (SL-659).
+    public func is_policy_trait(&self, tr: Int) -> Bool {
+        if tr < 0 {
+            return false
+        }
+        tr == self.known.copy || tr == self.known.explicit_copy || tr == self.known.no_copy || tr == self.known.no_move || tr == self.known.zero_init || tr == self.known.unsafe_send || tr == self.known.unsafe_sync
+    }
+
+    // THE DEFINING-FILE FUNNEL: whether declaration `at_decl`, an extension
+    // or a member of one, is written in the file that defines type `d`. Test
+    // code is a file of its own (SL:testing), so a test-only declaration is
+    // in the defining file of a test-only type of its module only; every
+    // `@test` declaration and group of a module counts as one test file.
+    // ENTRY POINTS:
+    //     policy_in_place
+    //     check_test_only_copies
+    public func in_defining_file(&self, at_decl: Int, d: Int) -> Bool {
+        let a = self.res.decls[at_decl]
+        let t = self.res.decls[d]
+        a.module == t.module && a.test_only == t.test_only
+    }
+
+    // Whether conformance `at` is in place: not a policy, or a policy its
+    // type's defining file declares. One that is not is refused
+    // (`conformance.policy-placement`) and counts for nothing, so nothing
+    // else is refused or decided because of it.
+    // ENTRY POINTS:
+    //     check_policy_placement
+    //     conformance_visible
+    //     declared_policy
+    //     declares_no_move
+    //     check_no_move_declarations
+    //     is_copy_policy_conformance
+    //     policy_copy
+    //     declares_misplaced_policy
+    //     check_zero_inits
+    public func policy_in_place(&self, at: Int) -> Bool {
+        let c = self.conformances[at]
+        if c.type_decl < 0 || not self.is_policy_trait(c.trait_decl) {
+            return true
+        }
+        self.in_defining_file(c.ext, c.type_decl)
     }
 
     // Whether conformance `at` is declared by a test-only extension.
@@ -590,7 +637,7 @@ extension TcProgram {
             let c = self.conformances[k]
             k = k + 1
             let policy = c.trait_decl >= 0 && (c.trait_decl == self.known.copy || c.trait_decl == self.known.explicit_copy)
-            if c.type_decl != d || not policy {
+            if c.type_decl != d || not policy || not self.policy_in_place(k - 1) {
                 continue
             }
             var j = 0
@@ -606,21 +653,12 @@ extension TcProgram {
         return -1
     }
 
-    // Test code cannot change how a production type copies (SL:testing, Air
-    // t15): a type has one tier in a binary, and a value crossing from test
-    // code into a production generic would carry the other. So a test-only
-    // `Copy`, `ExplicitCopy` or `NoCopy` conformance on a production type is
-    // refused, and so is a test-only `copy()` on one, so that how such a type
-    // copies, silently or spelled, is production code's alone.
-    public func check_test_only_policies(&var self) {
-        var k = 0
-        while k < self.conformances.len() {
-            let c = self.conformances[k]
-            k = k + 1
-            if self.is_test_only_policy(c.ext, c.trait_decl) && not self.res.decls[c.type_decl].test_only {
-                self.refuse_test_only_policy(k - 1)
-            }
-        }
+    // Test code cannot change how a production type copies: a test-only
+    // `copy()` on one is refused, so that how it copies, silently or spelled,
+    // is production code's alone (SL-630). The policy conformance itself is
+    // `conformance.policy-placement`'s, which also covers a `copy()` written
+    // inside a misplaced one.
+    public func check_test_only_copies(&var self) {
         let name = self.res.intern("copy")
         var d = 0
         while d < self.res.decls.len() {
@@ -630,23 +668,14 @@ extension TcProgram {
                 continue
             }
             let ext = info.parent
-            if self.res.decls[ext].kind != ResDeclKind.Extension || self.declares_test_only_policy(ext) {
+            if self.res.decls[ext].kind != ResDeclKind.Extension || self.declares_misplaced_policy(ext) {
                 continue
             }
             let target = self.ext_target(ext)
-            if target >= 0 && not self.res.decls[target].test_only {
+            if target >= 0 && not self.in_defining_file(d - 1, target) {
                 self.refuse_test_only_copy(d - 1, target)
             }
         }
-    }
-
-    // Whether extension `ext` is test-only and conformance trait `tr` a copy
-    // policy, the three traits a type's tier is declared by.
-    func is_test_only_policy(&self, ext: Int, tr: Int) -> Bool {
-        if ext < 0 || tr < 0 || not self.res.decls[ext].test_only {
-            return false
-        }
-        tr == self.known.copy || tr == self.known.explicit_copy || tr == self.known.no_copy
     }
 
     // One copy policy per type: `Copy`, `ExplicitCopy` and `NoCopy` exclude
@@ -681,8 +710,8 @@ extension TcProgram {
     }
 
     // Whether conformance `at` declares its type's copy policy: one to `Copy`,
-    // `ExplicitCopy` or `NoCopy`, unless it is a test-only one on a production
-    // type, which `copy.test-only-policy` refuses on its own.
+    // `ExplicitCopy` or `NoCopy` in the type's defining file; one outside it
+    // is `conformance.policy-placement`'s.
     public func is_copy_policy_conformance(&self, at: Int) -> Bool {
         let c = self.conformances[at]
         let tr = c.trait_decl
@@ -690,7 +719,7 @@ extension TcProgram {
         if not policy || c.type_decl < 0 {
             return false
         }
-        not (self.res.decls[c.ext].test_only && not self.res.decls[c.type_decl].test_only)
+        self.policy_in_place(at)
     }
 
     func refuse_second_policy(&var self, at: Int, earlier: Int) {
@@ -814,29 +843,18 @@ extension TcProgram {
         self.refuse_in(info.module, info.leaf, "copy.outside-policy", msg.build())
     }
 
-    // Whether test-only extension `ext` declares a copy policy, whose own
-    // refusal covers the `copy()` written inside it.
-    func declares_test_only_policy(&self, ext: Int) -> Bool {
+    // Whether extension `ext` declares a policy outside its type's defining
+    // file, whose own refusal covers the `copy()` written inside it.
+    func declares_misplaced_policy(&self, ext: Int) -> Bool {
         var k = 0
         while k < self.conformances.len() {
             let c = self.conformances[k]
             k = k + 1
-            if c.ext == ext && self.is_test_only_policy(c.ext, c.trait_decl) {
+            if c.ext == ext && not self.policy_in_place(k - 1) {
                 return true
             }
         }
         false
-    }
-
-    func refuse_test_only_policy(&var self, at: Int) {
-        let c = self.conformances[at]
-        var msg = StringBuilder()
-        try! msg.append("a test-only copy policy on a production type is refused: ")
-        try! msg.append(self.conformance_head(at))
-        try! msg.append(" in test code alone, which would give `")
-        try! msg.append(self.res.decl_path(c.type_decl))
-        try! msg.append("` a second copy tier in one binary once a value crossed from test code into production code; declare the policy in production code, or make the type test-only too")
-        self.refuse_in(c.module, c.node, "copy.test-only-policy", msg.build())
     }
 
     func refuse_test_only_copy(&var self, d: Int, target: Int) {

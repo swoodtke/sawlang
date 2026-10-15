@@ -1,0 +1,8 @@
+// refuses: conformance.orphan at 8:19
+// a policy conformance of another module's type: a policy is declared in its
+// type's defining file, and the orphan rule already refuses every other
+// module but the trait's own (SL-659)
+
+import shapes.{Circle}
+
+extension Circle: NoMove {}

@@ -1,0 +1,26 @@
+// refuses: nomove.undeclared at 17:8
+// a test-only type declares its own `NoMove` in test code, and the cascade
+// still holds there: a test-only struct holding it inline declares `NoMove`
+// itself (SL-659)
+
+@test {
+    struct Pinned {
+        n: Int
+    }
+
+    extension Pinned: NoCopy {}
+
+    extension Pinned: NoMove {}
+}
+
+@test
+struct Holder {
+    p: Pinned
+}
+
+@test
+extension Holder: NoCopy {}
+
+func main() {
+    print("ok")
+}

@@ -3486,6 +3486,19 @@ public import wire.{Header}  // RE-EXPORT: `Header` joins THIS module's surface
   cell-carrying type was refused as non-Sync. Both work now — treat them as
   working and SUSPECT in older builds, where switching the import to the
   selective form was the workaround.
+- **A type's POLICIES are declared BESIDE IT, in its defining file (SL-659).**
+  The seven: `Copy`, `ExplicitCopy`, `NoCopy`, `NoMove`, `ZeroInit`,
+  `UnsafeSend`, `UnsafeSync` (a hand-written `deinit` rides its copy policy, so
+  it follows). Test code is a FILE OF ITS OWN: an `@test` declaration, an
+  `@test { }` group or a `foo.test.saw` sidecar may NOT declare one for a
+  production type, its own module's included —
+  `@test extension Pinned: NoMove {}` is `conformance.policy-placement`, and
+  the refused conformance counts for nothing. To fake a pinned, zeroable or
+  thread-safe thing in a test, make a TEST-ONLY type: a module's test code is
+  one test file, so `@test struct Fake { … }` plus
+  `@test extension Fake: NoCopy {}` (or both in one group) is legal. A
+  test-only conformance to a NON-policy trait (`Printable`, your own trait) on a
+  production type stays legal, under SL:testing's no-overlap rules.
 - **TYPE IDENTITY is (defining module, name) — design 144.** A dependency's
   PRIVATE `struct Header` reserves nothing in your program: you declare your
   own `Header`, with its own layout, methods and `Vector<Header>`. Same for
@@ -3791,7 +3804,8 @@ slab in std/slab.saw; `UnsafeMemory<T, Device|Normal>` for MMIO
   module's struct with a `private` field, `String`, a payload enum, a raw enum
   with no zero case (Stage 0 accepts that one and an exhaustive `match` reads
   garbage), a closure field, `FuncPointer`. A type whose zero is meaningful
-  says so in ITS OWN module, `extension Gauge: ZeroInit {}`, checked like a
+  says so in ITS DEFINING FILE (never in test code for a production type),
+  `extension Gauge: ZeroInit {}`, checked like a
   static (no override allowed; a generic one is conditional,
   `extension Lock<T: ZeroInit>: ZeroInit {}`, and the argument is then checked
   at the static from the static's module, so `static STATS:

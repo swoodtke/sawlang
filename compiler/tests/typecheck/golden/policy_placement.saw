@@ -1,0 +1,130 @@
+// flags: --std-root std
+// Where a type's policies may be declared (SL-659): in the file that defines
+// the type, and test code is a file of its own. A production type declares
+// every policy beside it, and test code uses them; a test-only conformance to
+// a trait that is no policy stays legal on it. A test-only type declares its
+// own policies in test code, in a separate `@test` declaration or in a group,
+// since every `@test` declaration and group of a module is one test file, and
+// its `NoMove` cascade holds there as in production code.
+
+struct Anchor {
+    n: Int
+}
+
+extension Anchor: NoCopy {}
+
+extension Anchor: NoMove {}
+
+struct Gauge {
+    private level: Int
+}
+
+extension Gauge: ZeroInit {}
+
+struct Buf {
+    raw: UnsafePointer<Int>
+}
+
+extension Buf: UnsafeSend {}
+
+extension Buf: UnsafeSync {}
+
+struct Money {
+    cents: Int
+}
+
+@synthesize
+extension Money: ExplicitCopy {}
+
+@test
+extension Anchor: Printable {
+    func format(&self, into: &var StringBuilder) {
+        try! into.append("anchor")
+    }
+}
+
+static GAUGE: Gauge
+
+func need_send<T: Send>(x: &T) {}
+
+func need_sync<T: Sync>(x: &T) {}
+
+@test
+struct Pin {
+    n: Int
+}
+
+@test
+extension Pin: NoCopy {}
+
+@test
+extension Pin: NoMove {}
+
+@test
+struct Mount {
+    pin: Pin
+}
+
+@test
+extension Mount: NoCopy {}
+
+@test
+extension Mount: NoMove {}
+
+@test
+struct FakeBuf {
+    raw: UnsafePointer<Int>
+}
+
+@test
+extension FakeBuf: UnsafeSend {}
+
+@test
+extension FakeBuf: UnsafeSync {}
+
+@test {
+    struct FakeGauge {
+        private level: Int
+    }
+
+    extension FakeGauge: ZeroInit {}
+
+    static FAKE_GAUGE: FakeGauge
+
+    struct Ticket {
+        id: Int
+    }
+
+    extension Ticket: Copy {
+        func copy(&self) -> Ticket {
+            Ticket(id: self.id)
+        }
+    }
+
+    struct Coupon {
+        id: Int
+    }
+
+    @synthesize
+    extension Coupon: ExplicitCopy {}
+}
+
+@test
+func relay(a: &Anchor, b: &Buf, f: &FakeBuf, m: &Mount) -> Int {
+    need_send(&b)
+    need_sync(&b)
+    need_send(&f)
+    need_sync(&f)
+    let money = Money(cents: 2)
+    let more = money.copy()
+    let t = Ticket(id: 1)
+    let u = t
+    let c = Coupon(id: 3)
+    let d = c.copy()
+    a.n + m.pin.n + more.cents + u.id + d.id
+}
+
+func main() {
+    let a = Anchor(n: 1)
+    print("{}", a.n)
+}

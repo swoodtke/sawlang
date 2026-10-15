@@ -1,6 +1,5 @@
-// refuses: static.not-sync at 20:8
-// a production static of a type whose only `UnsafeSync` is a test-only,
-// conditional one
+// refuses: conformance.policy-placement at 17:29
+// a test-only conditional `UnsafeSync` on a production generic type
 
 struct Counter {
     cell: UnsafeMutableInterior<Int>

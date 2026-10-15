@@ -7,7 +7,9 @@
 // refinement of it is declared before or after it (`Early`, `Late`). A
 // test-only member meeting a requirement production code meets is refused
 // (refuse/conformance.test-only-shadow), so `Money`'s differ in name or
-// signature.
+// signature. A policy is declared in its type's defining file, and test code
+// is a file of its own, so `Counter`, whose `UnsafeSync` test code uses, is
+// test-only too (refuse/conformance.policy-placement).
 
 trait Named {
     func name(&self) -> Int
@@ -145,10 +147,12 @@ extension LateFault: Printable {
 @test
 extension LateFault: Error {}
 
+@test
 struct Counter {
     cell: UnsafeMutableInterior<Int>
 }
 
+@test
 extension Counter: NoCopy {}
 
 @test

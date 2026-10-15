@@ -1,0 +1,20 @@
+// refuses: conformance.policy-placement at 11:23
+// a test group's `UnsafeSend` on a production type
+
+struct Handle {
+    p: UnsafePointer<Int>
+}
+
+func ship<T: Send>(x: &T) {}
+
+@test {
+    extension Handle: UnsafeSend {}
+
+    func relay(h: &Handle) {
+        ship(&h)
+    }
+}
+
+func main() {
+    print("ok")
+}

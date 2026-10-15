@@ -1,8 +1,9 @@
 // The signature-only checks that need every signature first: finite struct
 // size, which is a cycle in the by-value containment graph (spec, Recursive
 // types), the signature half of `unsafe` (designs 130 and 136), the rules on
-// the traits the compiler only derives, and a test-only conformance or member
-// overlapping what production code meets.
+// the traits the compiler only derives, where a type's policies are declared,
+// and a test-only conformance or member overlapping what production code
+// meets.
 
 import sawparse.grammar.{Alt}
 import sawresolve.dump.{res_sort_strings}
@@ -31,6 +32,11 @@ public func tc_check_unsafe(p: &var TcProgram) {
 // The rules on the traits the compiler only derives.
 public func tc_check_derived_conformances(p: &var TcProgram) {
     p.check_derived_conformances()
+}
+
+// The rule that a type's policies are declared in its defining file.
+public func tc_check_policy_placement(p: &var TcProgram) {
+    p.check_policy_placement()
 }
 
 // What an `init` returns, and where `Deinit`'s body may be written.
@@ -597,6 +603,51 @@ extension TcProgram {
                 try! msg.append("` lists `Deinit` as a parent, which only the copy policies `NoCopy` and `ExplicitCopy` do: a conformance to it would give a type a `deinit` with no copy policy, and nothing would call it")
                 self.refuse_in(info.module, c, "trait.deinit-parent", msg.build())
             }
+        }
+    }
+}
+
+// Where a type's policies are declared.
+extension TcProgram {
+    // A policy conformance, `Copy`, `ExplicitCopy`, `NoCopy`, `NoMove`,
+    // `ZeroInit`, `UnsafeSend` or `UnsafeSync`, is declared in the file that
+    // defines its type (`policy_in_place`), and test code is a file of its
+    // own, so test code cannot give a production type a second tier,
+    // movability, zero value or thread behaviour (SL-659). It reads every
+    // written conformance: a plain or conditional head, an `@synthesize` one,
+    // a test-only extension and a test group's.
+    public func check_policy_placement(&var self) {
+        var k = 0
+        while k < self.conformances.len() {
+            let at = k
+            k = k + 1
+            if self.policy_in_place(at) {
+                continue
+            }
+            let c = self.conformances[at]
+            let target = self.res.decl_path(c.type_decl)
+            let owner = self.res.decls[c.type_decl].module
+            var msg = StringBuilder()
+            try! msg.append("`")
+            try! msg.append(target)
+            try! msg.append("` conforms to `")
+            try! msg.append(self.res.decl_path(c.trait_decl))
+            if self.res.decls[c.ext].test_only && not self.res.decls[c.type_decl].test_only {
+                try! msg.append("` in test code, and `")
+                try! msg.append(target)
+                try! msg.append("` is a production type")
+            } else {
+                try! msg.append("` outside the file that defines `")
+                try! msg.append(target)
+                try! msg.append("`, module `")
+                try! msg.append(self.res.module_name(owner))
+                try! msg.append("`")
+            }
+            try! msg.append(": a type's policies (`Copy`, `ExplicitCopy`, `NoCopy`, `NoMove`, `ZeroInit`, `UnsafeSend` and `UnsafeSync`) are declared beside it, in its defining file, and test code is a file of its own; declare this one with the type")
+            if self.res.decls[c.ext].test_only {
+                try! msg.append(", or make the type test-only too")
+            }
+            self.refuse_in(c.module, c.node, "conformance.policy-placement", msg.build())
         }
     }
 }

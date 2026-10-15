@@ -1,0 +1,12 @@
+// refuses: conformance.policy-placement at ports.saw:16:17
+// flags: --std-root std
+// a test-only `ZeroInit` on a production struct, in the struct's own module,
+// which would let a zero-initialized static reach its private field
+
+import ports.{Port}
+
+static PORT: Port
+
+func main() {
+    print(PORT.number())
+}

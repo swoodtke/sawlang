@@ -31,7 +31,8 @@ typecheck/
     overloads.saw     the declaration-site overload rule: a redeclaration no
                       call could tell apart, refused where it is written
     checks.saw        finite size, the signature half of `unsafe`, the rules on
-                      the traits the compiler only derives, what an `init`
+                      the traits the compiler only derives, where a type's
+                      policies are declared, what an `init`
                       returns, where a `deinit` is written, and a test-only
                       conformance or member overlapping what production
                       code meets
@@ -146,6 +147,12 @@ final, or for the one call where it is not:
    one to a user trait refining one requires the type to derive it under
    the extension's conditions; `Deinit` is carried by a copy policy, so a
    conformance to it and a user trait listing it as a parent are refused.
+   Then a type's policies, `Copy`, `ExplicitCopy`, `NoCopy`, `NoMove`,
+   `ZeroInit`, `UnsafeSend` and `UnsafeSync`, are declared in the file that
+   defines it, test code being a file of its own
+   (`check_policy_placement`, `checks.saw`); `in_defining_file` answers
+   where a declaration sits, and a misplaced policy counts for nothing
+   (`policy_in_place`), so nothing else is refused or decided because of it.
    Then how each requirement of its trait and the traits it refines
    is met, against the members written in the extensions the conformance's
    module sees. A production conformance is met as if no test-only

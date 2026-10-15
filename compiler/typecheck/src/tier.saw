@@ -92,13 +92,14 @@ extension TcProgram {
     // The policy nominal `d` declares by conformance, or -1 for none. A type
     // declares one (`copy.second-policy`); the order NoCopy, then Copy, then
     // ExplicitCopy answers for a type that declares more, so the rest of a
-    // refused program is still checked against one tier.
+    // refused program is still checked against one tier. A policy declared
+    // outside the type's file counts for nothing.
     public func declared_policy(&self, d: Int) -> Int {
         var found = -1
         var k = 0
         while k < self.conformances.len() {
             let c = self.conformances[k]
-            if c.type_decl == d {
+            if c.type_decl == d && self.policy_in_place(k) {
                 if c.trait_decl == self.known.no_copy {
                     return TC_TIER_NOCOPY
                 }
@@ -373,7 +374,7 @@ extension TcProgram {
         while k < self.conformances.len() {
             let c = self.conformances[k]
             k = k + 1
-            if c.trait_decl == tr && c.type_decl >= 0 && self.declared_policy(c.type_decl) != TC_TIER_NOCOPY {
+            if c.trait_decl == tr && c.type_decl >= 0 && self.policy_in_place(k - 1) && self.declared_policy(c.type_decl) != TC_TIER_NOCOPY {
                 self.refuse_no_move_policy(c)
             }
         }
@@ -388,11 +389,12 @@ extension TcProgram {
         }
     }
 
+    // Whether type `d` declares `NoMove` in its defining file.
     func declares_no_move(&self, d: Int) -> Bool {
         var k = 0
         while k < self.conformances.len() {
             let c = self.conformances[k]
-            if c.type_decl == d && c.trait_decl == self.known.no_move {
+            if c.type_decl == d && c.trait_decl == self.known.no_move && self.policy_in_place(k) {
                 return true
             }
             k = k + 1

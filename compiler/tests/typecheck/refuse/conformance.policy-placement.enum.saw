@@ -1,0 +1,19 @@
+// refuses: conformance.policy-placement at 10:18
+// a test-only `NoCopy` on a production enum
+
+enum Token {
+    case Open(id: Int),
+    case Closed
+}
+
+@test
+extension Token: NoCopy {}
+
+func main() {
+    let t = Token.Open(id: 3)
+    let u = t
+    match u {
+        case Open(id) -> print("{}", id),
+        case Closed -> print("closed")
+    }
+}

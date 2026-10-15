@@ -1,7 +1,7 @@
-// refuses: copy.test-only-policy at 11:18
+// refuses: conformance.policy-placement at 11:18
 // a test-only `NoCopy` conformance on a production type, whose `deinit` would
-// run in a production build: test code cannot give a type a second tier
-// (SL:testing, "Test code cannot change what production code means")
+// run in a production build: test code is a file of its own, and a type's
+// policies are declared in its defining file (SL-659)
 
 struct Noisy {
     id: Int

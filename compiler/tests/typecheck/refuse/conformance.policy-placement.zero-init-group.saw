@@ -1,0 +1,18 @@
+// refuses: conformance.policy-placement at 10:21
+// flags: --std-root std
+// a test group's `ZeroInit` on a production struct of its own module
+
+struct Port {
+    number: Int
+}
+
+@test {
+    extension Port: ZeroInit {}
+
+    static PORT: Port
+}
+
+func main() {
+    let p = Port(number: 80)
+    print("{}", p.number)
+}

@@ -1,0 +1,22 @@
+// refuses: conformance.policy-placement at 13:19
+// a test-only `NoMove` on a production type, which made production code's
+// `take(move p)` a `transfer.no-move`: refused at the conformance and nowhere
+// else (SL-659)
+
+struct Pinned {
+    n: Int
+}
+
+extension Pinned: NoCopy {}
+
+@test
+extension Pinned: NoMove {}
+
+func take(p: Pinned) -> Int {
+    p.n
+}
+
+func main() {
+    let p = Pinned(n: 4)
+    print("{}", take(move p))
+}

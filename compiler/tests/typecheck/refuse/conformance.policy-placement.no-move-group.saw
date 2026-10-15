@@ -1,0 +1,21 @@
+// refuses: conformance.policy-placement at 11:23
+// a test group's `NoMove` on a production type
+
+struct Pinned {
+    n: Int
+}
+
+extension Pinned: NoCopy {}
+
+@test {
+    extension Pinned: NoMove {}
+
+    func pin(p: &Pinned) -> Int {
+        p.n
+    }
+}
+
+func main() {
+    let p = Pinned(n: 4)
+    print("{}", p.n)
+}

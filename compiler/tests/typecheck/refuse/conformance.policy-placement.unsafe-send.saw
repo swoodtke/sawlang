@@ -1,0 +1,21 @@
+// refuses: conformance.policy-placement at 10:19
+// a test-only `UnsafeSend` on a production type, which test code's `T: Send`
+// bound would meet: the assertion is a fact about the type's implementation
+
+struct Handle {
+    p: UnsafePointer<Int>
+}
+
+@test
+extension Handle: UnsafeSend {}
+
+func ship<T: Send>(x: &T) {}
+
+@test
+func relay(h: &Handle) {
+    ship(&h)
+}
+
+func main() {
+    print("ok")
+}
