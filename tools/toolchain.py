@@ -69,6 +69,10 @@ import sys
 # the fresh-machine promise needs no credentials.
 UPSTREAM_URL = "https://github.com/swoodtke/sawlang.git"
 
+# The Python a fetched checkout's venv is built with: the version the frozen
+# compiler's gate ran on, not whatever `python3` a consumer's PATH has.
+FETCH_PYTHON = "python3.14"
+
 # Where a fetched checkout is cached, keyed by SHA — a hit is the steady state,
 # because the fetch is a clone plus a venv plus llvmlite, which is minutes.
 # (Design 238 D-b3 wrote this as `~/.cache/sawos/toolchain/`; the repo-neutral
@@ -317,7 +321,7 @@ def _fetch(sha, env, verbose=False):
     if _looks_like_sawlang(dest):
         return dest
 
-    for tool in ("git", "python3"):
+    for tool in ("git", FETCH_PYTHON):
         if not _which(tool, env):
             raise ToolchainError(
                 f"fetching the pinned sawlang toolchain needs `{tool}`, and\n"
@@ -348,12 +352,13 @@ def _fetch(sha, env, verbose=False):
     run(["git", "remote", "add", "origin", UPSTREAM_URL], cwd=tmp)
     run(["git", "fetch", "--quiet", "--depth", "1", "origin", sha], cwd=tmp)
     run(["git", "checkout", "--quiet", "FETCH_HEAD"], cwd=tmp)
-    # D-b3: the fetch creates its OWN venv, which is what keeps the
-    # fresh-machine promise. Nothing fancier — no wheel cache, no pin file for
-    # llvmlite; this is a pre-1.0 bootstrap, not a package manager.
-    run(["python3", "-m", "venv", os.path.join(tmp, ".venv")])
+    # The fetch creates its OWN venv, which keeps the fresh-machine promise,
+    # and pins it: the Python the frozen compiler was gated on, and the
+    # checkout's own `sawc/requirements.txt`, so a later llvmlite cannot change
+    # a consumer's pinned build (SL-539).
+    run([FETCH_PYTHON, "-m", "venv", os.path.join(tmp, ".venv")])
     run([os.path.join(tmp, ".venv", "bin", "pip"), "install", "--quiet",
-         "llvmlite"])
+         "-r", os.path.join(tmp, "sawc", "requirements.txt")])
     os.replace(tmp, dest)
     return dest
 
