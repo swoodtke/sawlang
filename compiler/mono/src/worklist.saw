@@ -370,7 +370,7 @@ extension MonoProgram {
     }
 
     // `NoMove` at an instantiation (SL-662): the first move out of a place
-    // that typecheck recorded in a generic body (`note_relocation`) whose
+    // that typecheck recorded in a generic body (`check_relocation`) whose
     // type item `k`'s arguments make `NoMove` is refused, once for the
     // instantiation. A declaration's moves are judged once per set of
     // arguments, however many of its functions (its body, its closures, an
@@ -391,7 +391,8 @@ extension MonoProgram {
                     let place = self.dp.bc.mir.tc.relocation_places[j]
                     let m = self.dp.bc.mir.tc.node_module(at)
                     let instance = self.item_name(k)
-                    let msg = self.dp.bc.mir.tc.no_move_text(m, place, t, "`move`", "may not be relocated", instance)
+                    let how = self.dp.bc.mir.tc.relocation_hows[j]
+                    let msg = self.dp.bc.mir.tc.relocation_text(m, place, t, how, instance)
                     self.refuse(at, "transfer.no-move", msg)
                     return
                 }

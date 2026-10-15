@@ -1,0 +1,15 @@
+// refuses: transfer.no-move at 14:18
+// A destructuring `let` takes an owned tuple's parts only by a spelled
+// `move` of the tuple, which a `NoMove` element refuses (SL-681's sweep).
+
+struct Pinned {
+    id: Int
+}
+
+extension Pinned: NoCopy {}
+extension Pinned: NoMove {}
+
+func main() {
+    let t = (Pinned(id: 1), 2)
+    let (p, n) = move t
+}

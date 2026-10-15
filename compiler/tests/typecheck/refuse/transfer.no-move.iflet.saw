@@ -1,0 +1,17 @@
+// refuses: transfer.no-move at 14:16
+// An `if let` over an owned optional takes its payload only by a spelled
+// `move` of the subject, which a `NoMove` payload refuses (SL-681's sweep).
+
+struct Pinned {
+    id: Int
+}
+
+extension Pinned: NoCopy {}
+extension Pinned: NoMove {}
+
+func main() {
+    let o: Pinned? = Pinned(id: 1)
+    if let p = move o {
+        print("{}", p.id)
+    }
+}

@@ -1,0 +1,19 @@
+// refuses: transfer.no-move at 13:18
+// A generic body's destructuring `let` of an owned tuple at its last use is
+// a move of the tuple, refused at a `NoMove` instantiation (SL-681's sweep).
+
+struct Pinned {
+    id: Int
+}
+
+extension Pinned: NoCopy {}
+extension Pinned: NoMove {}
+
+func look<T>(t: (T, Int)) -> Int {
+    let (a, n) = t
+    n
+}
+
+func main() {
+    let n = look((Pinned(id: 1), 2))
+}

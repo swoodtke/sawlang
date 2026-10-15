@@ -1,4 +1,4 @@
-// refuses: transfer.no-move at 20:19
+// refuses: transfer.no-move at 20:14
 // The fresh journey ends at the first reference to the parameter: once
 // `observe(&value)` has seen its address, `ptr[0] = move value` relocates it.
 // Refused at `T = Pinned`; `place(5)` is the same body at `Int`, which no

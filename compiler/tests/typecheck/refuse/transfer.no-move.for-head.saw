@@ -1,0 +1,29 @@
+// refuses: transfer.no-move at 26:14
+// A `for` head is a transfer, so a named iterator reaches it only by a
+// spelled `move`, which a `NoMove` iterator refuses (SL-681's sweep).
+
+struct Count {
+    n: Int
+}
+
+extension Count: NoCopy {}
+extension Count: NoMove {}
+
+extension Count: Iterator {
+    type Item = Int
+
+    func next(&var self) -> Int? {
+        if self.n == 0 {
+            return None
+        }
+        self.n = self.n - 1
+        self.n
+    }
+}
+
+func main() {
+    let it = Count(n: 2)
+    for x in move it {
+        print("{}", x)
+    }
+}

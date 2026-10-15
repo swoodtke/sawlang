@@ -13,9 +13,10 @@
 import sawparse.grammar.{Alt}
 import sawresolve.collect.{res_is_top_level}
 import sawresolve.model.{ResBindKind}
+import sawtypecheck.bodies.{tc_check_bodies}
 import sawtypecheck.candidates.{tc_contains}
 import sawtypecheck.conform.{tc_copy_ints}
-import sawtypecheck.model.{TC_COPY_COVERED, TcAdjustKind, TcUse}
+import sawtypecheck.model.{TC_COPY_COVERED, TcAdjustKind, TcRelocation, TcUse}
 import sawtypecheck.program.{TcProgram}
 import sawtypecheck.summaries.{TcAcc}
 import sawtypecheck.typeops.{TcClient}
@@ -136,7 +137,7 @@ extension TcProgram {
                 self.expr_use[r] = TcUse.Move
                 if not tc_contains(&self.fresh_placements, r) {
                     let t = self.expr_types[r]
-                    self.note_relocation(r, r, t, d)
+                    self.check_relocation(r, r, t, d, TcRelocation.Read)
                 }
                 continue
             }

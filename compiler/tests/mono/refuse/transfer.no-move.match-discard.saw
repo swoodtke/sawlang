@@ -1,0 +1,28 @@
+// refuses: transfer.no-move at 20:11
+// A generic `match` whose arms bind nothing still consumes its owned
+// scrutinee (SL-681).
+
+struct Pinned {
+    id: Int
+}
+
+extension Pinned: NoCopy {}
+extension Pinned: NoMove {}
+
+enum Wrap<T> {
+    case Full(v: T),
+    case Blank
+}
+
+extension Wrap<T>: NoCopy {}
+
+func look<T>(w: Wrap<T>) -> Int {
+    match w {
+        case Full(_) -> 1,
+        case Blank -> 0
+    }
+}
+
+func main() {
+    let n = look(Wrap<Pinned>.Full(v: Pinned(id: 1)))
+}

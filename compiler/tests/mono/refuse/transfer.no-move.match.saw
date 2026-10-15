@@ -1,0 +1,29 @@
+// refuses: transfer.no-move at 21:11
+// A generic body's `match` on an owned binding whose type only an
+// instantiation makes `NoMove` relocates it there: refused where it is
+// written (SL-681).
+
+struct Pinned {
+    id: Int
+}
+
+extension Pinned: NoCopy {}
+extension Pinned: NoMove {}
+
+enum Wrap<T> {
+    case Full(v: T),
+    case Blank
+}
+
+extension Wrap<T>: NoCopy {}
+
+func look<T>(w: Wrap<T>) -> Int {
+    match w {
+        case Full(v) -> 1,
+        case Blank -> 0
+    }
+}
+
+func main() {
+    let n = look(Wrap<Pinned>.Full(v: Pinned(id: 1)))
+}

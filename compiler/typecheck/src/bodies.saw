@@ -37,7 +37,7 @@ import sawtypecheck.infer.{TcSolve, tc_solve}
 import sawtypecheck.members.{tc_build_members}
 import sawtypecheck.model.{TC_ANY_DEPTH, TC_BIND_DEFAULT, TC_EFFECT_BORROWS, TC_EFFECT_CONSUMES, TC_EFFECT_ESCAPING, TC_FLAG_STATIC, TC_FLAG_SYNTHESIZE_SHARED, TC_FLAG_UNSAFE_VAR, TC_FLAG_VARIADIC,
                                TC_TIER_EXPLICIT, TC_TIER_NOCOPY, TcAdjust, TcAdjustKind, TcAllowance, TcCall, TcCapture, TcLend, TcMember, TcParam, TcReceiver,
-                               TcRole, TcSig, TcSource, TcUse}
+                               TcRelocation, TcRole, TcSig, TcSource, TcUse}
 import sawtypecheck.overloads.{tc_check_redeclarations}
 import sawtypecheck.program.{TcProgram}
 import sawtypecheck.signatures.{TcContext}
@@ -887,7 +887,8 @@ extension TcProgram {
     }
 
     // What a `match` scrutinee's bindings take their parts from: a
-    // temporary; an owned local, consumed unless its type copies silently;
+    // temporary; an owned local, consumed unless its type copies silently,
+    // which moves it into the match's own storage and so is a relocation;
     // or anything else a place is, which the match borrows. A name that
     // reads through a borrow owns nothing, so a match borrows it as it
     // borrows a reference: a `borrow` binding, a payload binding aliasing a
@@ -909,6 +910,8 @@ extension TcProgram {
                     return TcOrigin.Place
                 }
                 self.set_use(scrutinee, TcUse.Move)
+                let d = self.current_decl
+                self.check_relocation(scrutinee, scrutinee, t, d, TcRelocation.Match)
                 return TcOrigin.Owned
             }
         }
@@ -4432,34 +4435,77 @@ extension TcProgram {
         self.refuse(e, "transfer.partial-move", msg.build())
     }
 
-    // A `NoMove` value moves once, from its constructor into its home, so a
-    // spelled `move` of one is refused, which refuses every relocation: a
-    // NoCopy value leaves a place only by `move`. The one exception is a
-    // by-value parameter placed into fresh storage, `ptr[i] = move param`,
+    // A spelled `move`, judged by the relocation funnel. The one exception is
+    // a by-value parameter placed into fresh storage, `ptr[i] = move param`,
     // before any `&`, `&var` or `borrow` named it: no caller can hand over a
     // bound one, so the parameter is a temporary on its way home (design 188).
-    // A type only an instantiation decides is recorded for mono instead.
     func check_no_move(&var self, e: Int, operand: Int) {
         let t = self.final_type(operand)
-        if self.has_error(t) {
-            return
-        }
         let place = self.unparen(operand)
         if e == self.placement_value && self.is_fresh_parameter(place) {
             return
         }
-        if self.is_no_move(t) {
-            self.refuse_no_move(e, place, t, "`move`", "may not be relocated")
-        } else {
-            let d = self.current_decl
-            self.note_relocation(place, place, t, d)
-        }
+        let d = self.current_decl
+        self.check_relocation(e, place, t, d, TcRelocation.Move)
     }
 
-    // The message a relocation of `place`, at `NoMove` type `t`, is refused
-    // with; `instance` names the instantiation that made `t`, or is empty.
-    public func no_move_text(&self, m: Int, place: Int, t: Int, verb: String, what: String,
-                             instance: String) -> String {
+    // THE RELOCATION FUNNEL: a move, written at `at`, of the value `place`
+    // names, of type `t`, in the body of declaration `d`. A `NoMove` value
+    // moves once, from its constructor into its home, so a move of one out of
+    // a place is refused here; a NoCopy value leaves a place by no other road.
+    // A type only an instantiation decides is recorded, and mono refuses it at
+    // each instantiation that makes it `NoMove` (SL-662). A consumed match's
+    // payload bindings are not entries: the scrutinee's move is the one
+    // relocation, and a later move of a binding is a spelled `move`.
+    // ENTRY POINTS:
+    //     check_no_move
+    //     scrutinee_origin
+    //     add_capture
+    //     check_take
+    //     settle_body_paths
+    public func check_relocation(&var self, at: Int, place: Int, t: Int, d: Int, how: TcRelocation) {
+        if t < 0 || self.has_error(t) {
+            return
+        }
+        if self.is_no_move(t) {
+            let m = self.node_module(at)
+            let msg = self.relocation_text(m, place, t, how, "")
+            self.refuse_in(m, at, "transfer.no-move", msg)
+            return
+        }
+        if d < 0 || (self.types.ty(t).holds & TC_HOLDS_PARAM) == 0 {
+            return
+        }
+        try! self.relocations.push(at)
+        try! self.relocation_places.push(place)
+        try! self.relocation_types.push(t)
+        try! self.relocation_decls.push(d)
+        try! self.relocation_hows.push(how)
+    }
+
+    // The message a relocation `how` of `place`, at `NoMove` type `t`, is
+    // refused with; `instance` names the instantiation that made `t`, or is
+    // empty.
+    public func relocation_text(&self, m: Int, place: Int, t: Int, how: TcRelocation,
+                                instance: String) -> String {
+        var verb = "`move`"
+        var what = "may not be relocated"
+        var hint = "pass `&var` to lend it, or build the value where it has to live"
+        match how {
+            case Capture -> {
+                what = "may not be moved into a closure"
+            },
+            case Take -> {
+                verb = "`take()` the payload of"
+                what = "may not be moved out of its optional"
+            },
+            case Match -> {
+                verb = "`match` on"
+                what = "a `match` that consumes it would move it into the match's own storage"
+                hint = "match it through a `&` or `&var` parameter, which borrows it where it lives"
+            },
+            case _ -> {}
+        }
         var msg = StringBuilder()
         try! msg.append("cannot ")
         try! msg.append(verb)
@@ -4476,7 +4522,8 @@ extension TcProgram {
         if instance.len() > 0 {
             try! msg.append("; a generic that relocates its values cannot hold one")
         } else {
-            try! msg.append("; pass `&var` to lend it, or build the value where it has to live")
+            try! msg.append("; ")
+            try! msg.append(hint)
         }
         msg.build()
     }
@@ -4508,11 +4555,11 @@ extension TcProgram {
         }
     }
 
-    // `verb` names the transfer: `move`, or `take()` from an optional.
-    func refuse_no_move(&var self, e: Int, place: Int, t: Int, verb: String, what: String) {
-        let m = self.node_module(e)
-        let msg = self.no_move_text(m, place, t, verb, what, "")
-        self.refuse_in(m, e, "transfer.no-move", msg)
+    // `take()` at `e` moves the payload of optional `base`, of type `t`, out.
+    func check_take(&var self, e: Int, base: Int, t: Int) {
+        let payload = self.arg_of(t, 0)
+        let d = self.current_decl
+        self.check_relocation(e, base, payload, d, TcRelocation.Take)
     }
 
     // A `move` of a whole binding takes what the binding owns, never what it
@@ -6411,10 +6458,7 @@ extension TcProgram {
         // An Optional the new std declares writes its own `take`, which
         // moves the payload out as the builtin one does.
         if text.equals("take") && self.is_optional(t) {
-            let payload = self.arg_of(t, 0)
-            if self.is_no_move(payload) {
-                self.refuse_no_move(e, base, payload, "`take()` the payload of", "may not be moved out of its optional")
-            }
+            self.check_take(e, base, t)
         }
         if text.equals("deinit") {
             self.refuse_manual_deinit(leaf)
@@ -6629,10 +6673,7 @@ extension TcProgram {
         c.owner = t
         self.calls[at] = c
         if text.equals("take") {
-            let payload = self.arg_of(t, 0)
-            if self.is_no_move(payload) {
-                self.refuse_no_move(e, base, payload, "`take()` the payload of", "may not be moved out of its optional")
-            }
+            self.check_take(e, base, t)
             return self.set_type(e, t, false)
         }
         if text.equals("copy") {
@@ -10815,10 +10856,8 @@ extension TcProgram {
                 let name = self.capture_name(binding)
                 self.refuse_move_from_borrow(entry, name, reason)
                 frame = false
-            } else if t >= 0 && not self.has_error(t) && self.is_no_move(t) {
-                self.refuse_no_move(entry, binding, t, "`move`", "may not be moved into a closure")
             } else {
-                self.note_relocation(entry, binding, t, d)
+                self.check_relocation(entry, binding, t, d, TcRelocation.Capture)
             }
         } else if entry >= 0 && self.has_alt(entry, Alt.Expr_Capture_Copy) {
             let value = not reference && t >= 0 && not self.has_error(t)

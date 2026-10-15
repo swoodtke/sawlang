@@ -1,0 +1,15 @@
+// refuses: transfer.no-move at 14:23
+// A value branch's arm hands its value to the branch's home, so a `move`
+// there relocates a `NoMove` binding (SL-681's sweep).
+
+struct Pinned {
+    id: Int
+}
+
+extension Pinned: NoCopy {}
+extension Pinned: NoMove {}
+
+func main() {
+    let p = Pinned(id: 1)
+    let q = if true { move p } else { Pinned(id: 2) }
+}

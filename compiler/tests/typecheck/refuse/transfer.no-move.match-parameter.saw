@@ -1,0 +1,30 @@
+// refuses: transfer.no-move at 22:11
+// A by-value parameter is owned by the body, so a `match` on one at a
+// `NoMove` type relocates it; the fresh journey's exception is a placement
+// into fresh storage, never a match (SL-681).
+
+struct Pinned {
+    id: Int
+}
+
+extension Pinned: NoCopy {}
+extension Pinned: NoMove {}
+
+enum Holder {
+    case Has(p: Pinned),
+    case Empty
+}
+
+extension Holder: NoCopy {}
+extension Holder: NoMove {}
+
+func look(h: Holder) -> Int {
+    match h {
+        case Has(p) -> p.id,
+        case Empty -> 0
+    }
+}
+
+func main() {
+    let n = look(Holder.Has(p: Pinned(id: 1)))
+}

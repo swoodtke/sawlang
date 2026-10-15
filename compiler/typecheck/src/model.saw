@@ -239,6 +239,20 @@ public enum TcUse {
     case Test
 }
 
+// How a move out of a place is written, which a `NoMove` refusal names.
+public enum TcRelocation {
+    // A spelled `move`.
+    case Move,
+    // A generic body's by-value read of a local at its last use.
+    case Read,
+    // A `[move x]` capture.
+    case Capture,
+    // `take()` of an optional's payload.
+    case Take,
+    // A `match` that consumes an owned binding.
+    case Match
+}
+
 // An implicit conversion, one step of an expression's adjustment chain.
 public enum TcAdjustKind {
     // A literal or constant takes the type its position expects (design 87).

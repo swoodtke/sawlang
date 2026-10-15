@@ -1,0 +1,114 @@
+// probe: stated
+// about: a `match` through a reference borrows a `NoMove` value where it lives, as the consuming match it replaces cannot (SL-681)
+// stage 0: accepts the consuming match on an owned `NoMove` binding, which runs the payload's `deinit` at a stack copy
+// speeds: -O0 -O2
+// A `match` that consumes an owned `NoMove` binding moves it into the
+// match's own storage, so it is refused: typecheck's
+// `transfer.no-move.match` fixtures, and mono's at a `NoMove`
+// instantiation. What stays legal is matching through a `&` parameter,
+// whose arm binds the payload in place, so the arm and the `deinit` see one
+// address inside the value's home; a temporary scrutinee, which no binding
+// ever held; and a generic consuming match at a type that moves.
+// prints: arm sees 1 inside its enum: true
+// prints: a borrowing generic match: 1
+// prints: a temporary's arm sees 3
+// prints: deinit 3 where the arm saw it: true
+// prints: a consuming generic match at Int: 1
+// prints: end of main
+// prints: deinit 2 where the arm saw it: true
+// prints: deinit 1 where the arm saw it: true
+
+unsafe static var SEEN_1: Int = 0
+unsafe static var SEEN_2: Int = 0
+unsafe static var SEEN_3: Int = 0
+
+func note(id: Int, at: Int) unsafe {
+    if id == 1 {
+        SEEN_1 = at
+    } else if id == 2 {
+        SEEN_2 = at
+    } else {
+        SEEN_3 = at
+    }
+}
+
+func seen(id: Int) unsafe -> Int {
+    if id == 1 { SEEN_1 } else if id == 2 { SEEN_2 } else { SEEN_3 }
+}
+
+struct Pinned {
+    id: Int
+}
+
+extension Pinned: NoCopy {
+    func deinit(&var self) unsafe {
+        let here = (&self) as UnsafePointer<Pinned> as Int
+        print("deinit {} where the arm saw it: {}", self.id, here == seen(self.id))
+    }
+}
+
+extension Pinned: NoMove {}
+
+enum Holder {
+    case Has(p: Pinned),
+    case Empty
+}
+
+extension Holder: NoCopy {}
+extension Holder: NoMove {}
+
+enum Wrap<T> {
+    case Full(v: T),
+    case Blank
+}
+
+extension Wrap<T>: NoCopy {}
+
+func address(p: &Pinned) unsafe -> Int {
+    (&p) as UnsafePointer<Pinned> as Int
+}
+
+func look(h: &Holder) unsafe {
+    let start = (&h) as UnsafePointer<Holder> as Int
+    match h {
+        case Has(p) -> {
+            let at = address(&p)
+            note(p.id, at)
+            print("arm sees {} inside its enum: {}", p.id, at >= start && at < start + sizeof<Holder>())
+        },
+        case Empty -> print("empty")
+    }
+}
+
+func look_generic<T>(w: &Wrap<T>, id: Int) unsafe -> Int {
+    match w {
+        case Full(v) -> {
+            note(id, (&v) as UnsafePointer<T> as Int)
+            1
+        },
+        case Blank -> 0
+    }
+}
+
+func count<T>(w: Wrap<T>) -> Int {
+    match w {
+        case Full(v) -> 1,
+        case Blank -> 0
+    }
+}
+
+func main() unsafe {
+    let h = Holder.Has(p: Pinned(id: 1))
+    look(&h)
+    let w = Wrap<Pinned>.Full(v: Pinned(id: 2))
+    print("a borrowing generic match: {}", look_generic(&w, 2))
+    match Holder.Has(p: Pinned(id: 3)) {
+        case Has(p) -> {
+            note(3, address(&p))
+            print("a temporary's arm sees {}", p.id)
+        },
+        case Empty -> print("empty")
+    }
+    print("a consuming generic match at Int: {}", count(Wrap<Int>.Full(v: 5)))
+    print("end of main")
+}

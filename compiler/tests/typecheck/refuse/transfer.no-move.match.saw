@@ -1,0 +1,27 @@
+// refuses: transfer.no-move at 23:11
+// A `match` on an owned `NoMove` binding consumes it, which moves it into
+// the match's own storage, so the payload's `deinit` would run away from its
+// home: refused as a spelled `move` is (SL-681).
+
+struct Pinned {
+    id: Int
+}
+
+extension Pinned: NoCopy {}
+extension Pinned: NoMove {}
+
+enum Holder {
+    case Has(p: Pinned),
+    case Empty
+}
+
+extension Holder: NoCopy {}
+extension Holder: NoMove {}
+
+func main() {
+    let h = Holder.Has(p: Pinned(id: 1))
+    match h {
+        case Has(p) -> print("{}", p.id),
+        case Empty -> print("empty")
+    }
+}

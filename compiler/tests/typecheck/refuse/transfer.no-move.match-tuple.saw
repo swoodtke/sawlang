@@ -1,0 +1,17 @@
+// refuses: transfer.no-move at 14:11
+// A tuple holding a `NoMove` value is `NoMove`, so a `match` consuming an
+// owned one relocates it (SL-681).
+
+struct Pinned {
+    id: Int
+}
+
+extension Pinned: NoCopy {}
+extension Pinned: NoMove {}
+
+func main() {
+    let t = (Pinned(id: 1), 2)
+    match t {
+        case (p, n) -> print("{} {}", p.id, n)
+    }
+}
