@@ -1,0 +1,22 @@
+// refuses: transfer.no-move at 16:5
+// `take()` of an optional whose payload only an instantiation makes
+// `NoMove` moves the payload out of its optional, inside `Optional`'s own
+// body: refused at the program's call that reached it (SL-662).
+struct Pinned {
+    id: Int
+}
+
+extension Pinned: NoCopy {}
+extension Pinned: NoMove {}
+
+struct Slot<T> { held: T? }
+extension Slot<T>: NoCopy {}
+
+func empty<T>(s: &var Slot<T>) -> T? {
+    s.held.take()
+}
+
+func main() {
+    var s = Slot<Pinned>(held: Pinned(id: 1))
+    let out = empty(&var s)
+}

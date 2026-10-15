@@ -1,0 +1,27 @@
+// refuses: transfer.no-move at 20:19
+// The fresh journey ends at the first reference to the parameter: once
+// `observe(&value)` has seen its address, `ptr[0] = move value` relocates it.
+// Refused at `T = Pinned`; `place(5)` is the same body at `Int`, which no
+// rule refuses (SL-662).
+struct Pinned {
+    id: Int
+}
+
+extension Pinned: NoCopy {}
+extension Pinned: NoMove {}
+
+func observe<T>(v: &T) -> Int {
+    1
+}
+
+func place<T>(value: T) unsafe -> UnsafePointer<T> {
+    let ptr = GlobalAllocator().alloc(sizeof<T>(), alignof<T>())! as UnsafePointer<T>
+    let seen = observe(&value)
+    ptr[0] = move value
+    ptr
+}
+
+func main() unsafe {
+    let a = place(5)
+    let p = place(Pinned(id: 1))
+}

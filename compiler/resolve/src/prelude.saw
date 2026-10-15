@@ -79,7 +79,17 @@ public func res_declare_synthetic_builtins(p: &var ResProgram) {
         p.builtin_function("__saw_atomic_store_i64_seq_cst")
         p.builtin_function("__saw_atomic_add_i64_seq_cst")
         p.builtin_function("__saw_atomic_cmpxchg_i64_seq_cst")
+        // The in-place drop: it runs the pointee's glue at its own address,
+        // which no Saw source can spell without first moving the value
+        // (SL-662).
+        p.builtin_function("__saw_deinit_in_place")
     }
+}
+
+// Whether `text` names an intrinsic of the new std's builtin module that only
+// a std module sees: the atomics and the in-place drop.
+public func res_is_std_intrinsic(text: String) -> Bool {
+    text.starts_with("__saw_atomic_") || text.equals("__saw_deinit_in_place")
 }
 
 // The test intrinsics Stage 0's corpus calls with no import and no

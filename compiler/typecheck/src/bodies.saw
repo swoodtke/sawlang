@@ -925,6 +925,10 @@ extension TcProgram {
             self.placement_value = self.unparen(value)
         }
         self.check_assigned(value, t)
+        let placed = self.placement_value
+        if self.is_pointer_write(target) && self.is_fresh_parameter(placed) {
+            try! self.fresh_placements.push(placed)
+        }
         self.placement_value = outer
         // A non-escaping local may take another non-escaping value; any other
         // target holds it past the call (SL:open-questions D35).
@@ -4433,16 +4437,47 @@ extension TcProgram {
     // by-value parameter placed into fresh storage, `ptr[i] = move param`,
     // before any `&`, `&var` or `borrow` named it: no caller can hand over a
     // bound one, so the parameter is a temporary on its way home (design 188).
+    // A type only an instantiation decides is recorded for mono instead.
     func check_no_move(&var self, e: Int, operand: Int) {
         let t = self.final_type(operand)
-        if self.has_error(t) || not self.is_no_move(t) {
+        if self.has_error(t) {
             return
         }
         let place = self.unparen(operand)
         if e == self.placement_value && self.is_fresh_parameter(place) {
             return
         }
-        self.refuse_no_move(e, place, t, "`move`", "may not be relocated")
+        if self.is_no_move(t) {
+            self.refuse_no_move(e, place, t, "`move`", "may not be relocated")
+        } else {
+            let d = self.current_decl
+            self.note_relocation(place, place, t, d)
+        }
+    }
+
+    // The message a relocation of `place`, at `NoMove` type `t`, is refused
+    // with; `instance` names the instantiation that made `t`, or is empty.
+    public func no_move_text(&self, m: Int, place: Int, t: Int, verb: String, what: String,
+                             instance: String) -> String {
+        var msg = StringBuilder()
+        try! msg.append("cannot ")
+        try! msg.append(verb)
+        try! msg.append(" `")
+        try! msg.append(self.text(m, place))
+        if instance.len() > 0 {
+            try! msg.append("` in the instantiation `")
+            try! msg.append(instance)
+        }
+        try! msg.append("`: `")
+        try! msg.append(self.type_text(t))
+        try! msg.append("` is `NoMove`, so it lives where its constructor built it and ")
+        try! msg.append(what)
+        if instance.len() > 0 {
+            try! msg.append("; a generic that relocates its values cannot hold one")
+        } else {
+            try! msg.append("; pass `&var` to lend it, or build the value where it has to live")
+        }
+        msg.build()
     }
 
     // Whether name `place` is a by-value parameter of the body being checked
@@ -4475,17 +4510,8 @@ extension TcProgram {
     // `verb` names the transfer: `move`, or `take()` from an optional.
     func refuse_no_move(&var self, e: Int, place: Int, t: Int, verb: String, what: String) {
         let m = self.node_module(e)
-        var msg = StringBuilder()
-        try! msg.append("cannot ")
-        try! msg.append(verb)
-        try! msg.append(" `")
-        try! msg.append(self.text(m, place))
-        try! msg.append("`: `")
-        try! msg.append(self.type_text(t))
-        try! msg.append("` is `NoMove`, so it lives where its constructor built it and ")
-        try! msg.append(what)
-        try! msg.append("; pass `&var` to lend it, or build the value where it has to live")
-        self.refuse_in(m, e, "transfer.no-move", msg.build())
+        let msg = self.no_move_text(m, place, t, verb, what, "")
+        self.refuse_in(m, e, "transfer.no-move", msg)
     }
 
     // A `move` of a whole binding takes what the binding owns, never what it
@@ -9588,6 +9614,9 @@ extension TcProgram {
         if name.starts_with("__saw_atomic_") {
             return self.atomic_intrinsic(e, d, name, &args)
         }
+        if name.equals("__saw_deinit_in_place") {
+            return self.deinit_in_place(e, d, name, &args)
+        }
         if res_is_test_intrinsic(name) {
             if args.values.len() > 0 {
                 var msg = StringBuilder()
@@ -9767,6 +9796,27 @@ extension TcProgram {
             return self.set_type(e, t, false)
         }
         let t = self.int_type()
+        self.set_type(e, t, false)
+    }
+
+    // The new std's in-place drop (SL-662): one `UnsafePointer<T>`, whose
+    // pointee MIR drops where it lies, so a `NoMove` value is destroyed at
+    // its home. A const pointer is refused, since destroying writes.
+    func deinit_in_place(&var self, e: Int, d: Int, name: String, args: &TcArgs) -> Int {
+        if args.values.len() != 1 {
+            self.refuse(e, "call.arity", "`__saw_deinit_in_place` takes the pointer to the value it destroys")
+            self.type_args_alone(&args)
+        } else {
+            let at = args.values[0]
+            let _ = self.expr(at, TC_WANT_NONE)
+            self.consume(at)
+            let t = self.final_type(at)
+            if not self.has_error(t) && self.nominal_decl(t) != self.known.unsafe_pointer {
+                self.refuse_operand(at, "`__saw_deinit_in_place` destroys the pointee of an `UnsafePointer<T>`", t)
+            }
+        }
+        self.record_builtin(e, d, TcRole.Builtin, name)
+        let t = self.void_type()
         self.set_type(e, t, false)
     }
 
@@ -10769,6 +10819,8 @@ extension TcProgram {
                 frame = false
             } else if t >= 0 && not self.has_error(t) && self.is_no_move(t) {
                 self.refuse_no_move(entry, binding, t, "`move`", "may not be moved into a closure")
+            } else {
+                self.note_relocation(entry, binding, t, d)
             }
         } else if entry >= 0 && self.has_alt(entry, Alt.Expr_Capture_Copy) {
             let value = not reference && t >= 0 && not self.has_error(t)

@@ -12,12 +12,16 @@ import sawmir.model.{MirAggregate, MirBlock, MirCall, MirCallKind, MirConstKind,
                          MirStmtKind, MirSwitchKind, MirTermKind, MirWindow}
 import sawmir.program.{MirProgram}
 import sawmir.build.{mir_func_local}
+import sawmono.dump.{mono_dump_layouts}
 import sawmono.glue.{mono_copies_bitwise}
 import sawtarget.layout.{target_struct_fields}
 import sawmono.program.{MONO_DEPTH_LIMIT, MONO_KEY_COPY, MONO_KEY_DROP, MONO_KEY_EXTERN, MONO_KEY_FUNCTION,
-                            MONO_KEY_MEMBER, MONO_KEY_RENDER, MONO_KEY_TASK_ROOT, MonoItem, MonoItemKind,
-                            MonoProgram}
+                            MONO_KEY_MEMBER, MONO_KEY_RELOCATIONS, MONO_KEY_RENDER, MONO_KEY_TASK_ROOT, MonoItem,
+                            MonoItemKind, MonoProgram}
+import sawtypecheck.bodies.{tc_check_bodies}
 import sawtypecheck.bodydump.{tc_dump_bodies}
+import sawtypecheck.candidates.{tc_contains}
+import sawtypecheck.checks.{tc_check_unsafe}
 import sawtypecheck.signatures.{TcContext}
 import sawtypecheck.spell.{tc_effects_text}
 import sawtypecheck.typeops.{TcClient}
@@ -37,6 +41,7 @@ public func mono_rules() -> Vector<String> {
     try! out.push("mono.depth")
     try! out.push("mono.not-yet")
     try! out.push("static_assert.failed")
+    try! out.push("transfer.no-move")
     move out
 }
 
@@ -345,6 +350,7 @@ extension MonoProgram {
                 var done = self.items[k]
                 done.body = f
                 self.items[k] = done
+                self.refuse_relocations(k)
                 // A task root's descriptor destroys a result nobody takes,
                 // which no statement of any body drops.
                 if self.is_task_root(k) {
@@ -361,6 +367,64 @@ extension MonoProgram {
         if body >= 0 {
             self.resolve_function(k, body)
         }
+    }
+
+    // `NoMove` at an instantiation (SL-662): the first move out of a place
+    // that typecheck recorded in a generic body (`note_relocation`) whose
+    // type item `k`'s arguments make `NoMove` is refused, once for the
+    // instantiation. A declaration's moves are judged once per set of
+    // arguments, however many of its functions (its body, its closures, an
+    // accessor's halves) are items.
+    func refuse_relocations(&var self, k: Int) {
+        let it = self.items[k]
+        if it.decl < 0 || not tc_contains(&self.dp.bc.mir.tc.relocation_decls, it.decl) || self.relocations_judged(k) {
+            return
+        }
+        self.by_key.add(it.decl, MONO_KEY_RELOCATIONS, k)
+        var j = 0
+        while j < self.dp.bc.mir.tc.relocations.len() {
+            if self.dp.bc.mir.tc.relocation_decls[j] == it.decl {
+                let written = self.dp.bc.mir.tc.relocation_types[j]
+                let t = self.concrete_type(k, written)
+                if self.dp.bc.mir.tc.is_no_move(t) {
+                    let at = self.dp.bc.mir.tc.relocations[j]
+                    let place = self.dp.bc.mir.tc.relocation_places[j]
+                    let m = self.dp.bc.mir.tc.node_module(at)
+                    let instance = self.item_name(k)
+                    let msg = self.dp.bc.mir.tc.no_move_text(m, place, t, "`move`", "may not be relocated", instance)
+                    self.refuse(at, "transfer.no-move", msg)
+                    return
+                }
+            }
+            j = j + 1
+        }
+    }
+
+    // Whether an item of `k`'s declaration at `k`'s arguments has had its
+    // moves judged.
+    func relocations_judged(&self, k: Int) -> Bool {
+        let it = self.items[k]
+        var args = Vector<Int>()
+        var j = 0
+        while j < it.args_count {
+            try! args.push(self.item_types[it.args_first + j])
+            j = j + 1
+        }
+        var inst = Vector<Int>()
+        j = 0
+        while j < it.inst_count {
+            try! inst.push(self.item_types[it.inst_first + j])
+            j = j + 1
+        }
+        var at = self.by_key.first(it.decl, MONO_KEY_RELOCATIONS)
+        while at >= 0 {
+            let judged = self.by_key.value(at)
+            if self.same_arguments(judged, &args, &inst, it.self_type) {
+                return true
+            }
+            at = self.by_key.following(at)
+        }
+        false
     }
 
     // The atomic role's width rule at an instantiation (SL:open-questions

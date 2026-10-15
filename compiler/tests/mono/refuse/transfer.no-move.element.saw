@@ -1,0 +1,15 @@
+// refuses: transfer.no-move at 14:13
+// A generic body's `move` out of a raw pointer's element, `Vector.pop`'s
+// `move buf[i]`, at an instantiation that makes the element `NoMove`: the
+// value would leave the slot it lives in (SL-662).
+struct Pinned {
+    id: Int
+}
+
+extension Pinned: NoCopy {}
+extension Pinned: NoMove {}
+
+func main() unsafe {
+    var v = Vector<Pinned>()
+    let p = v.pop()
+}

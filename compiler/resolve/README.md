@@ -48,7 +48,8 @@ nothing declares and `builtin.saw`'s declarations (SL:open-questions D12).
   the atomic intrinsics the new std's refcounts are written over
   (`__saw_atomic_add_i64`, `__saw_atomic_sub_i64_release`,
   `__saw_atomic_fence_acquire`, spelled as Stage 0's synthesized helpers;
-  SL:open-questions D23; and `__saw_atomic_load_i64_relaxed`, D24). No prelude entry names an intrinsic: only a module
+  SL:open-questions D23; and `__saw_atomic_load_i64_relaxed`, D24), and the
+  in-place drop `__saw_deinit_in_place`, Stage 0's spelling (SL-662). No prelude entry names an intrinsic: only a module
   of the new std sees one, when `lookup` finds the name nowhere else. A
   prelude name the new std does not declare yet is left out.
 - Under Stage 0's std (`sawc`, the default), `std.X` is

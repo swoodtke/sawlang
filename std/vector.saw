@@ -9,7 +9,7 @@
 //! `Vector` is ExplicitCopy: a transfer is `move v` or `v.copy()`, and `copy()`
 //! exists when the element is ExplicitCopy.
 
-import std.mem.{copy_bytes, drop_in_place}
+import std.mem.{drop_in_place}
 
 static FIRST_SLOTS: Int = 4
 
@@ -176,9 +176,16 @@ extension Vector<T, A: Allocator = GlobalAllocator> {
             return false
         }
         if let old = self.buffer {
-            let old_raw = old as UnsafePointer<Int8>
-            copy_bytes(old_raw, fresh, self.length * sizeof<T>())
-            A().dealloc(old_raw, self.capacity * sizeof<T>(), alignof<T>())
+            // Each element changes address, so a growth is refused where it
+            // is instantiated at a `NoMove` element (spec, Placement into
+            // heap storage).
+            let slots = fresh as UnsafePointer<T>
+            var i = 0
+            while i < self.length {
+                slots[i] = move old[i]
+                i = i + 1
+            }
+            A().dealloc(old as UnsafePointer<Int8>, self.capacity * sizeof<T>(), alignof<T>())
         }
         self.buffer = fresh as UnsafePointer<T>
         self.capacity = target

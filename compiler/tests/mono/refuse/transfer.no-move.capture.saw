@@ -1,0 +1,19 @@
+// refuses: transfer.no-move at 13:16
+// A generic body's `[move x]` capture moves the value into the closure's
+// environment, so at a `NoMove` instantiation it is refused as the concrete
+// capture is (SL-662).
+struct Pinned {
+    id: Int
+}
+
+extension Pinned: NoCopy {}
+extension Pinned: NoMove {}
+
+func run<T>(x: T) -> Int {
+    let f = { [move x] in 1 }
+    f()
+}
+
+func main() {
+    print("{}", run(Pinned(id: 1)))
+}

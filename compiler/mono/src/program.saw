@@ -67,7 +67,8 @@ public struct MonoProgram {
     item_types: Vector<Int>
     // (source function, 0), (type, 1) for drop glue, (type, 2) for copy glue,
     // (C name, 3) for an extern, (type, 4) for member glue, (source function,
-    // 6) for a task root -> the items with that key.
+    // 6) for a task root, (declaration, 7) for an item whose arguments its
+    // declaration's moves were judged at -> the items with that key.
     by_key: ResIndex
     // By concrete call: the item it calls, or -1 for a builtin.
     call_items: Vector<Int>
@@ -166,6 +167,7 @@ public static MONO_KEY_EXTERN: Int = 3
 public static MONO_KEY_MEMBER: Int = 4
 public static MONO_KEY_RENDER: Int = 5
 public static MONO_KEY_TASK_ROOT: Int = 6
+public static MONO_KEY_RELOCATIONS: Int = 7
 
 // How deeply a concrete argument may nest before mono refuses it: unbounded
 // instantiation has no identity cycle to detect (SL-507).

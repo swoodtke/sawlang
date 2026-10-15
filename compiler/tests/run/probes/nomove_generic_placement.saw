@@ -1,0 +1,68 @@
+// probe: stated
+// about: a generic body's fresh placement of a by-value parameter stays legal at a `NoMove` instantiation (SL-662)
+// stage 0: does not check a generic body's unspelled move per instantiation
+// speeds: -O0 -O2
+// The per-instantiation `NoMove` check keeps the fresh journey's one
+// exception: a by-value parameter placed into fresh storage before anything
+// referenced it, spelled `ptr[0] = move value` or, at its last use,
+// `ptr[0] = value`. A body that references the parameter first is refused at
+// `Pinned` (mono's `transfer.no-move.placement-after-borrow`) and runs at
+// `Int`, here. Each slot is freed without its value destroyed.
+// prints: placed 7
+// prints: placed 8
+// prints: an Int placed after a reference: 5
+
+struct Pinned {
+    id: Int
+}
+
+extension Pinned: NoCopy {
+    func deinit(&var self) {
+        print("deinit {}", self.id)
+    }
+}
+
+extension Pinned: NoMove {}
+
+func fresh_slot<T>() unsafe -> UnsafePointer<T> {
+    GlobalAllocator().alloc(sizeof<T>(), alignof<T>())! as UnsafePointer<T>
+}
+
+func place_spelled<T>(value: T) unsafe -> UnsafePointer<T> {
+    let ptr = fresh_slot<T>()
+    ptr[0] = move value
+    ptr
+}
+
+func place_unspelled<T>(value: T) unsafe -> UnsafePointer<T> {
+    let ptr = fresh_slot<T>()
+    ptr[0] = value
+    ptr
+}
+
+func observe<T>(v: &T) -> Int {
+    1
+}
+
+func place_seen<T>(value: T) unsafe -> UnsafePointer<T> {
+    let ptr = fresh_slot<T>()
+    let seen = observe(&value)
+    ptr[0] = move value
+    ptr
+}
+
+func free_slot<T>(at: UnsafePointer<T>) unsafe {
+    GlobalAllocator().dealloc(at as UnsafePointer<Int8>, sizeof<T>(), alignof<T>())
+}
+
+func main() unsafe {
+    let a = place_spelled(Pinned(id: 7))
+    print("placed {}", a[0].id)
+    free_slot(a)
+    let b = place_unspelled(Pinned(id: 8))
+    print("placed {}", b[0].id)
+    free_slot(b)
+    let n = place_seen(5)
+    print("an Int placed after a reference: {}", n[0])
+    free_slot(n)
+}

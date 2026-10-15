@@ -8,7 +8,7 @@
 //! cancel word live in the task's cell, which outlives the frame, so a handle
 //! never addresses the frame itself.
 
-import std.mem.{copy_bytes, drop_in_place}
+import std.mem.{copy_bytes}
 
 extern "C" {
     func __saw_rt_clock_monotonic_nanos() -> Int64
@@ -670,8 +670,9 @@ public func __saw_exec_background() unsafe -> UnsafePointer<TaskGroup> {
     if BACKGROUND.compare_exchange(0, raw as Int) {
         return g
     }
-    // A peer published first; nothing was enqueued into this one.
-    drop_in_place(g)
+    // A peer published first; nothing was enqueued into this one, so it was
+    // never linked and its empty slot tables own nothing: the storage is
+    // freed with no teardown, which would move a `NoMove` group to run it.
     GlobalAllocator().dealloc(raw, size, align)
     BACKGROUND.load() as UnsafePointer<TaskGroup>
 }

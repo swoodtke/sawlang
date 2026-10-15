@@ -16,7 +16,7 @@ INDEX.md, or when an owner is not one of the words below.
 | `parse` | the parser refuses the spelling: the named fixture in `compiler/tests/parse/` |
 | `mir` | the MIR stage: the named golden in `compiler/tests/mir/` |
 | `§3.7` | drop elaboration: how many times a value is released, and where |
-| `§3.8` | the lifecycle glue generated per concrete type: retains and copies |
+| `§3.8` | monomorphization: the lifecycle glue generated per concrete type, retains and copies, and the checks made per instantiation |
 | `§3.9` | coroutine lowering |
 | `slice.not-yet` | sawc2 refuses a construct in the row's file as outside the bootstrap slice; the construct is named, and the owner the row reaches after it in parentheses |
 
@@ -231,6 +231,8 @@ INDEX.md, or when an owner is not one of the words below.
 | V121 | typecheck | `nomove.undeclared` (SL-485): `compiler/tests/typecheck/refuse/nomove.undeclared.saw`, an enum payload, an optional, a generic instance (`nomove.undeclared.payload`, `.wrapped`, `.instance`); the declared container, a pointer holder and a generic, typecheck golden `no_move.saw` |
 | V122 | typecheck | `nomove.bound` (SL-485): `compiler/tests/typecheck/refuse/nomove.bound.saw`, an extension parameter's, `compiler/tests/typecheck/refuse/nomove.bound.extension.saw` |
 | V123 | typecheck | `nomove.requires-nocopy` (SL-485): `compiler/tests/typecheck/refuse/nomove.requires-nocopy.saw`, beside `ExplicitCopy`, `compiler/tests/typecheck/refuse/nomove.requires-nocopy.explicit.saw` |
+| V165 | §3.8 | `transfer.no-move` at an instantiation (SL-662): `compiler/tests/mono/refuse/transfer.no-move.saw`, `.element`, `.forward`, `.capture`, `.take`, `.map` |
+| V166 | §3.8 | `transfer.no-move` at an instantiation (SL-662): `compiler/tests/mono/refuse/transfer.no-move.placement-after-borrow.saw`; accepted, run `compiler/tests/run/probes/nomove_generic_placement.saw` |
 | V124 | typecheck | `transfer.move-from-borrow` (SL-607): `compiler/tests/typecheck/refuse/transfer.move-from-borrow.capture-reference.saw`, `compiler/tests/typecheck/refuse/transfer.move-from-borrow.capture-payload.saw`, `compiler/tests/typecheck/refuse/transfer.move-from-borrow.capture-inner.saw` |
 | V125 | slice.not-yet | `mono.not-yet`, an escaping closure that captures a value, at each position it escapes through (SL-608): `compiler/tests/mono/refuse/mono.not-yet.escaping-return.saw`, `compiler/tests/mono/refuse/mono.not-yet.escaping-field.saw`, `compiler/tests/mono/refuse/mono.not-yet.escaping-element.saw`, `compiler/tests/mono/refuse/mono.not-yet.escaping-optional.saw`, `compiler/tests/mono/refuse/mono.not-yet.escaping-payload.saw`, `compiler/tests/mono/refuse/mono.not-yet.escaping-parameter.saw`, `compiler/tests/mono/refuse/mono.not-yet.escaping-binding.saw`, `compiler/tests/mono/refuse/mono.not-yet.escaping-generic.saw`; drop elaboration accepts them, `compiler/tests/drops/golden/escaping_environment.saw` (then §3.8: SL-525's heap environment) |
 | V126 | typecheck | `transfer.implicit-copy` (SL-612): `compiler/tests/typecheck/refuse/transfer.implicit-copy.repeat-temporary.saw`, `-repeat-explicit.saw`, `-repeat-slot.saw`, `-repeat-place.saw`, `-repeat-move.saw`; a type parameter's, `copy.requirement`: `compiler/tests/typecheck/refuse/copy.requirement.repeat.saw`; the Copy controls, typecheck golden `copy_free_reads.saw` |

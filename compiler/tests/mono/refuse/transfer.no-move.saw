@@ -1,0 +1,17 @@
+// refuses: transfer.no-move at 15:10
+// A `Vector` at a `NoMove` element is refused where its growth relocates the
+// elements, `reserve_slots`'s `move old[i]`, reported at the program's `push`
+// that reached it (SL-662). The push itself places a fresh parameter, which
+// the fresh journey allows.
+struct Pinned {
+    id: Int
+}
+
+extension Pinned: NoCopy {}
+extension Pinned: NoMove {}
+
+func main() {
+    var v = Vector<Pinned>()
+    try! v.push(Pinned(id: 1))
+    print("{}", v.len())
+}

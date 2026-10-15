@@ -10,7 +10,7 @@ import sawresolve.program.{ResProgram}
 import sawtypecheck.model.{TcAdjust, TcAllowance, TcAtom, TcCall, TcCapture, TcConformance, TcDefault, TcDiag,
                                TcGeneric, TcItem, TcMember, TcObligation, TcParam, TcSig, TcStatus, TcSummary,
                                TcTier, TcUnit, TcUse, tc_blank_sig}
-import sawtypecheck.types.{TcKind, TcType, TcTypes, tc_types}
+import sawtypecheck.types.{TC_HOLDS_PARAM, TcKind, TcType, TcTypes, tc_types}
 import sawtypecheck.walks.{TcMemo, tc_memo}
 
 // The declarations typecheck knows by identity, found once: `T?` names
@@ -225,6 +225,18 @@ public struct TcProgram {
     borrow_captures: Vector<Int>
     param_leaves: Vector<Int>
     referenced_params: Vector<Int>
+    // The unspelled value of each placement write `ptr[i] = param` whose
+    // parameter no reference had named, the fresh journey a later by-value
+    // read may still be.
+    fresh_placements: Vector<Int>
+    // Each move a generic body makes of a value whose type names a type
+    // parameter: the node it is reported at, the node naming what moves, that
+    // type, and the declaration whose body holds it. Mono refuses one whose
+    // instantiated type is `NoMove` (`note_relocation`).
+    relocations: Vector<Int>
+    relocation_places: Vector<Int>
+    relocation_types: Vector<Int>
+    relocation_decls: Vector<Int>
     // The body being checked, and the bodies poisoned by a signature another
     // module's refusal left unformed (SL:architecture §3.0): their error
     // types are that refusal's, not this body's.
@@ -375,7 +387,7 @@ public func tc_program(res: ResProgram) -> TcProgram {
                       catch_frames: Vector<Int>(), catch_errors: Vector<Int>(), result_open: false,
                       branch_allow: TcAllowance(optionals: 1, results: 1, erases: false, widens: true),
                       chosen_twin: -1, unmet_member: -1, unmet_owner: -1,
-                      placement_value: -1, borrow_captures: Vector<Int>(), param_leaves: Vector<Int>(), referenced_params: Vector<Int>(), current_root: -1, poisoned: Vector<Int>(), borrow_head: -1,
+                      placement_value: -1, borrow_captures: Vector<Int>(), param_leaves: Vector<Int>(), referenced_params: Vector<Int>(), fresh_placements: Vector<Int>(), relocations: Vector<Int>(), relocation_places: Vector<Int>(), relocation_types: Vector<Int>(), relocation_decls: Vector<Int>(), current_root: -1, poisoned: Vector<Int>(), borrow_head: -1,
                       summaries: Vector<TcSummary>(), atoms: Vector<TcAtom>(), units: Vector<TcUnit>(),
                       items: Vector<TcItem>(), decl_unit: Vector<Int>(), summary_deps: res_index(),
                       defaults: Vector<TcDefault>(), default_at: res_index(),
@@ -403,6 +415,25 @@ extension TcProgram {
     public func sig(&self, d: Int) -> TcSig { self.sigs[d] }
 
     public func ty(&self, t: Int) -> TcType { self.types.ty(t) }
+
+    // THE RELOCATION FUNNEL: a move, written at `at`, of the value `place`
+    // names, of type `t`, in the body of `d`, other than the fresh journey,
+    // where only an instantiation decides whether `t` is `NoMove`. Mono
+    // refuses it at each instantiation that makes it so (SL-662); a concrete
+    // type is judged where the move is written.
+    // ENTRY POINTS:
+    //     check_no_move
+    //     add_capture
+    //     settle_body_paths
+    public func note_relocation(&var self, at: Int, place: Int, t: Int, d: Int) {
+        if d < 0 || t < 0 || (self.types.ty(t).holds & TC_HOLDS_PARAM) == 0 {
+            return
+        }
+        try! self.relocations.push(at)
+        try! self.relocation_places.push(place)
+        try! self.relocation_types.push(t)
+        try! self.relocation_decls.push(d)
+    }
 
     // Per node, whether it lies under a construct refused as outside the
     // slice, whose uses no check after the walk may read.

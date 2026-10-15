@@ -15,7 +15,7 @@
 
 import sawparse.grammar.{Alt}
 import sawresolve.imports.{res_decl_binding, res_is_function, res_same_binding}
-import sawresolve.prelude.{res_is_test_driver, res_is_test_intrinsic}
+import sawresolve.prelude.{res_is_std_intrinsic, res_is_test_driver, res_is_test_intrinsic}
 import sawresolve.model.{ResBindKind, ResBinding, ResDecl, ResDeclKind, ResImport,
                              ResImportForm, ResLocal, ResModuleKind, ResName, ResPending,
                              ResPendingKind, ResSymbol, res_unbound}
@@ -228,10 +228,10 @@ extension ResProgram {
         }
         let text = self.name_text(name)
         var msg = StringBuilder()
-        // The atomic intrinsics are the new std's alone: no prelude names
-        // them, and only a std module sees the builtin module's spelling.
+        // The std intrinsics are the new std's alone: no prelude names them,
+        // and only a std module sees the builtin module's spelling.
         let info = self.modules[m]
-        if info.kind == ResModuleKind.Std && self.std_new && text.starts_with("__saw_atomic_") {
+        if info.kind == ResModuleKind.Std && self.std_new && res_is_std_intrinsic(text) {
             let b = self.builtin
             let intrinsic = self.top.first(b, name)
             if intrinsic >= 0 {

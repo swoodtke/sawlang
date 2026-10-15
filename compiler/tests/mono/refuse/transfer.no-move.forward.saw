@@ -1,0 +1,18 @@
+// refuses: transfer.no-move at 13:5
+// A generic body's by-value read of a local at its last use is a move
+// (design 219), so at a `NoMove` instantiation it relocates the value as a
+// spelled `move` would: refused where it is written (SL-662).
+struct Pinned {
+    id: Int
+}
+
+extension Pinned: NoCopy {}
+extension Pinned: NoMove {}
+
+func hand<T>(x: T) -> T {
+    x
+}
+
+func main() {
+    let p = hand(Pinned(id: 1))
+}

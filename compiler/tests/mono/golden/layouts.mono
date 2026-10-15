@@ -425,10 +425,10 @@ fn -> Bool {
     let _14: UnsafePointer<Int8>?;
     let _15: UnsafePointer<Int8>;  // fresh
     let _16: UnsafePointer<Int>;  // old
-    let _17: UnsafePointer<Int8>;  // old_raw
-    let _18: UnsafePointer<Int8>;
-    let _19: UnsafePointer<Int8>;
-    let _20: UnsafePointer<Int8>;
+    let _17: UnsafePointer<Int>;  // slots
+    let _18: UnsafePointer<Int>;
+    let _19: Int;  // i
+    let _20: Bool;
     let _21: Int;
     let _22: Int;
     let _23: Int;
@@ -509,12 +509,10 @@ fn -> Bool {
 
     bb12: {
         _16 = copy ((*_1).buffer as Some).0;
-        _18 = cast(copy _16 as UnsafePointer<Int8>);
+        _18 = cast(copy _15 as UnsafePointer<Int>);
         _17 = move _18;
-        _19 = copy _17;
-        _20 = copy _15;
-        _21 = copy (*_1).length;
-        _22 = call builtin sizeof (inst Int) [] -> [return: bb14];
+        _19 = const 0: Int;
+        goto -> bb14;
     }
 
     bb13: {
@@ -522,31 +520,45 @@ fn -> Bool {
     }
 
     bb14: {
-        _23 = Mul(move _21, move _22);
-        call std.mem.copy_bytes(source: UnsafePointer<Int8>, target: UnsafePointer<Int8>, count: Int) [move _19, move _20, move _23] -> [return: bb15]; => #19
+        _20 = Lt(copy _19, copy (*_1).length);
+        switch move _20 -> [true: bb16, false: bb15];
     }
 
     bb15: {
-        _24 = call builtin init (owner std.alloc.GlobalAllocator) [] -> [return: bb16];
+        _24 = call builtin init (owner std.alloc.GlobalAllocator) [] -> [return: bb18];
     }
 
     bb16: {
-        _25 = copy _17;
-        _26 = copy (*_1).capacity;
-        _27 = call builtin sizeof (inst Int) [] -> [return: bb17];
+        budget(yield-capable);
+        goto -> bb17;
     }
 
     bb17: {
-        _28 = Mul(move _26, move _27);
-        _29 = call builtin alignof (inst Int) [] -> [return: bb18];
+        _21 = copy _19;
+        _22 = copy _19;
+        _17[_21] = move _16[_22];
+        _23 = Add(copy _19, const 1: Int);
+        _19 = move _23;
+        goto -> bb14;
     }
 
     bb18: {
-        _30 = ref(shared, _24);
-        call std.alloc.Allocator.dealloc(ptr: UnsafePointer<Int8>, size: Int, align: Int) (owner std.alloc.GlobalAllocator) [move _30, move _25, move _28, move _29] -> [return: bb19] suspends when A.Allocator.dealloc; => #20
+        _25 = cast(copy _16 as UnsafePointer<Int8>);
+        _26 = copy (*_1).capacity;
+        _27 = call builtin sizeof (inst Int) [] -> [return: bb19];
     }
 
     bb19: {
+        _28 = Mul(move _26, move _27);
+        _29 = call builtin alignof (inst Int) [] -> [return: bb20];
+    }
+
+    bb20: {
+        _30 = ref(shared, _24);
+        call std.alloc.Allocator.dealloc(ptr: UnsafePointer<Int8>, size: Int, align: Int) (owner std.alloc.GlobalAllocator) [move _30, move _25, move _28, move _29] -> [return: bb21] suspends when A.Allocator.dealloc; => #19
+    }
+
+    bb21: {
         drop(_24);
         goto -> bb11;
     }
@@ -657,7 +669,7 @@ fn -> Void {
         _5 = copy _3;
         _6 = ref(shared, _2[_5]);
         _7 = cast(move _6 as UnsafePointer<Int>);
-        call std.mem.drop_in_place(at: UnsafePointer<T>) (inst Int) [move _7] -> [return: bb8]; => #21
+        call std.mem.drop_in_place(at: UnsafePointer<T>) (inst Int) [move _7] -> [return: bb8]; => #20
     }
 
     bb8: {
@@ -679,7 +691,7 @@ fn -> Void {
 
     bb11: {
         _17 = ref(shared, _11);
-        call std.alloc.Allocator.dealloc(ptr: UnsafePointer<Int8>, size: Int, align: Int) (owner std.alloc.GlobalAllocator) [move _17, move _12, move _15, move _16] -> [return: bb12] suspends when A.Allocator.dealloc; => #20
+        call std.alloc.Allocator.dealloc(ptr: UnsafePointer<Int8>, size: Int, align: Int) (owner std.alloc.GlobalAllocator) [move _17, move _12, move _15, move _16] -> [return: bb12] suspends when A.Allocator.dealloc; => #19
     }
 
     bb12: {
@@ -697,7 +709,7 @@ fn -> UnsafePointer<Int8>? {
     let _4: UnsafePointer<Int8>?;
 
     bb0: {
-        _4 = call std.alloc.__saw_rt_alloc(size: Int, align: Int) [copy _2, copy _3] -> [return: bb1]; => #22
+        _4 = call std.alloc.__saw_rt_alloc(size: Int, align: Int) [copy _2, copy _3] -> [return: bb1]; => #21
     }
 
     bb1: {
@@ -706,48 +718,7 @@ fn -> UnsafePointer<Int8>? {
     }
 }
 
-item #19: std.mem.copy_bytes(source: UnsafePointer<Int8>, target: UnsafePointer<Int8>, count: Int)  (from #15)
-fn -> Void {
-    let _0: Void;  // return
-    let _1: UnsafePointer<Int8>;  // param source
-    let _2: UnsafePointer<Int8>;  // param target
-    let _3: Int;  // param count
-    let _4: Int;  // i
-    let _5: Bool;
-    let _6: Int;
-    let _7: Int;
-    let _8: Int;
-
-    bb0: {
-        _4 = const 0: Int;
-        goto -> bb1;
-    }
-
-    bb1: {
-        _5 = Lt(copy _4, copy _3);
-        switch move _5 -> [true: bb3, false: bb2];
-    }
-
-    bb2: {
-        return;
-    }
-
-    bb3: {
-        budget(yield-capable);
-        goto -> bb4;
-    }
-
-    bb4: {
-        _6 = copy _4;
-        _7 = copy _4;
-        _2[_6] = copy _1[_7];
-        _8 = Add(copy _4, const 1: Int);
-        _4 = move _8;
-        goto -> bb1;
-    }
-}
-
-item #20: std.alloc.GlobalAllocator.dealloc(ptr: UnsafePointer<Int8>, size: Int, align: Int)  (from #15)
+item #19: std.alloc.GlobalAllocator.dealloc(ptr: UnsafePointer<Int8>, size: Int, align: Int)  (from #15)
 fn -> Void {
     let _0: Void;  // return
     let _1: &std.alloc.GlobalAllocator;  // self
@@ -756,7 +727,7 @@ fn -> Void {
     let _4: Int;  // param align
 
     bb0: {
-        call std.alloc.__saw_rt_dealloc(ptr: UnsafePointer<Int8>, size: Int, align: Int) [copy _2, copy _3, copy _4] -> [return: bb1]; => #23
+        call std.alloc.__saw_rt_dealloc(ptr: UnsafePointer<Int8>, size: Int, align: Int) [copy _2, copy _3, copy _4] -> [return: bb1]; => #22
     }
 
     bb1: {
@@ -764,7 +735,7 @@ fn -> Void {
     }
 }
 
-item #21: std.mem.drop_in_place(at: UnsafePointer<T>) inst Int  (from #17)
+item #20: std.mem.drop_in_place(at: UnsafePointer<T>) inst Int  (from #17)
 fn -> Void {
     let _0: Void;  // return
     let _1: UnsafePointer<Int>;  // param at
@@ -779,6 +750,6 @@ fn -> Void {
     }
 }
 
-item #22: extern __saw_rt_alloc  (from #18)
+item #21: extern __saw_rt_alloc  (from #18)
 
-item #23: extern __saw_rt_dealloc  (from #20)
+item #22: extern __saw_rt_dealloc  (from #19)

@@ -3318,6 +3318,9 @@ extension MirProgram {
         if name.equals("__saw_drive_steps") {
             return self.drive_site(e, MirDriveForm.Steps)
         }
+        if name.equals("__saw_deinit_in_place") {
+            return self.deinit_in_place(e, t)
+        }
         let callee = self.tc.res.first_node_child(e)
         var all = Vector<Int>()
         var call = self.blank_call(MirCallKind.Builtin, e)
@@ -3366,6 +3369,24 @@ extension MirProgram {
         call.arg_count = all.len()
         self.suspension(e, &var call)
         self.finish_call(call, t)
+    }
+
+    // `__saw_deinit_in_place(at)`: a drop of `(*at)`, so the pointee's glue
+    // runs at the address the value lives at. Moving it out first would run
+    // a `NoMove` value's `deinit` at a copy (SL-662).
+    func deinit_in_place(&var self, e: Int, t: Int) -> MirVal {
+        let written = self.written_arguments(e)
+        if written.len() != 1 {
+            self.missing(e, "an in-place drop does not take one pointer")
+            return mir_operand_val(self.dead_operand(t))
+        }
+        let o = self.builtin_operand(written[0])
+        let at = self.as_place(mir_operand_val(o), written[0])
+        let pointer = self.place_type(at)
+        let pointee = self.tc.arg_of(pointer, 0)
+        let lives = self.project(at, MirProjKind.Deref, -1, -1, pointee)
+        self.emit_drop(lives)
+        mir_operand_val(self.op_const(MirConstKind.Unit, "()", t))
     }
 
     // Which written argument of builtin call `e`, named `name`, is a format

@@ -1,0 +1,32 @@
+// refuses: transfer.no-move at 30:18
+// A `Map` at a `NoMove` value relocates its entries: `insert` moves the
+// value into a slot it builds and moves an old slot out, and a growth moves
+// every slot. Refused at the program's `insert` that reached them (SL-662).
+struct Pinned {
+    id: Int
+}
+
+extension Pinned: NoCopy {}
+extension Pinned: NoMove {}
+
+struct Key {
+    n: Int
+}
+
+extension Key: Equatable {
+    func equals(&self, other: &Key) -> Bool {
+        self.n == other.n
+    }
+}
+
+extension Key: Hashable {
+    func hash(&self, h: &var Hasher) {
+        h.write_int(self.n)
+    }
+}
+
+func main() {
+    var m = Map<Key, Pinned>()
+    let _ = try! m.insert(Key(n: 1), Pinned(id: 1))
+    print("{}", m.len())
+}

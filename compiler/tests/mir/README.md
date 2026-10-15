@@ -106,7 +106,9 @@ allocated (design 137). Only a real interpolation, `"x = {x}"`, builds a
 `String` with `interpolate`.
 
 A **statement** is `PLACE = RVALUE;`, `drop(PLACE);` (drop it if it is still
-initialised; a part's place drops that part alone), or `budget(yield-capable);` / `budget(charge-only);`, an
+initialised; a part's place drops that part alone; the new std's in-place
+drop `__saw_deinit_in_place(p)` lowers to `drop((*p))`, the pointee dropped
+where it lives, SL-662), or `budget(yield-capable);` / `budget(charge-only);`, an
 op-budget point. Only a value that owns something a drop releases is dropped:
 anything but a reference, a slice, a trivially copyable type, or a tuple, an
 array or an Optional of those alone. An **rvalue** is:

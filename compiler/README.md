@@ -253,6 +253,13 @@ the seed does not compile; it is a patch of its own:
    top of that commit. The IR is binary, so the patch is made with
    `git diff --binary`.
 
+Stage 1 is the seed compiling the tree's `std/` as well as `compiler/`, so a
+std change that needs a compiler feature the seed lacks, a new intrinsic say,
+lands in two patches. The first is the compiler half: the feature, with its
+pins, and std unchanged. The second, once the first is on main, bumps the
+seed to its merge commit and makes the std change, with the pins that need
+it (SL-662).
+
 A lex error prints one `ERROR` record and exits 1, and so does a file the parser
 refuses. A usage or I/O failure exits 2.
 

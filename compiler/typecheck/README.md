@@ -429,7 +429,8 @@ These are the reversible readings U6b2 made; SL-447's report lists them.
   delta and return the old value, `__saw_atomic_load_i64_relaxed` takes an
   `UnsafePointer<Int>` and returns the word (D24), and
   `__saw_atomic_fence_acquire` takes nothing. A plain load is an ordinary
-  read through a pointer.
+  read through a pointer. Its in-place drop, `__saw_deinit_in_place`, takes
+  one `UnsafePointer<T>`, a const pointer refused, and gives `Void` (SL-662).
 - A documented enum case's doc comment is a child of its node, and no raw
   value.
 - sawc2 takes no target yet, so the platform pair, `Int` and `UInt`, is read
@@ -862,6 +863,14 @@ These are the reversible readings typecheck batch B2 made for SL-485.
   instance's substituted members; a pointer holds its value behind an
   indirection and owes nothing. A generic declaration holding a type
   parameter derives `NoMove` per instance and owes no declaration.
+- A generic body's move out of a place whose type names a type parameter is
+  recorded for mono, which refuses it as `transfer.no-move` at each
+  instantiation that makes the type `NoMove` (SL-662): a spelled `move`, a
+  `[move x]` capture, and a local's by-value read at its last use (design
+  219), which relocates the value as one. The fresh journey is read where
+  it is written: a placement `ptr[i] = move value`, or `ptr[i] = value` at
+  the value's last use, of a by-value parameter no reference has named is
+  no relocation.
 
 ## Object-safety readings
 

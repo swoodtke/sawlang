@@ -13,6 +13,7 @@
 import sawparse.grammar.{Alt}
 import sawresolve.collect.{res_is_top_level}
 import sawresolve.model.{ResBindKind}
+import sawtypecheck.candidates.{tc_contains}
 import sawtypecheck.conform.{tc_copy_ints}
 import sawtypecheck.model.{TC_COPY_COVERED, TcAdjustKind, TcUse}
 import sawtypecheck.program.{TcProgram}
@@ -133,6 +134,10 @@ extension TcProgram {
             let first = w.dup_first[i]
             if first < 0 {
                 self.expr_use[r] = TcUse.Move
+                if not tc_contains(&self.fresh_placements, r) {
+                    let t = self.expr_types[r]
+                    self.note_relocation(r, r, t, d)
+                }
                 continue
             }
             let second = w.dup_second[i]
