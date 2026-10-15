@@ -1557,6 +1557,14 @@ So code using a suspending default builds under sawc2 and fails under Stage 0. I
 
 **Checker:** not needed: the compiler's source declares no trait refining `Send`, `Sync` or `Deinit`.
 
+### L32. `UnsafeSend`/`UnsafeSync` as a trait parent: Stage 0 accepts it, sawc2 refuses it (SL-675)
+
+**Shape (loud):** the spec's "Three fences" allow the assertion only in a conformance header. sawc2 refuses a trait that lists `UnsafeSend` or `UnsafeSync` as a parent (`trait.assertion-position`, pin `trait.assertion-position.parent`). Stage 0 accepts `trait Shippable: UnsafeSend {}` and conformances to it, and grants nothing through it: a raw-pointer holder conforming to `Shippable` still fails `T: Send`, and a type that already derives `Send` builds and runs unchanged (both checked on Stage 0). So such code builds under Stage 0 and fails under sawc2, at the trait.
+
+**Instead:** declare `UnsafeSend`/`UnsafeSync` in the type's own conformance header, where the spec allows it, and give a user trait `Send` as its parent when it needs one (L31).
+
+**Checker:** not needed: sawc2 refuses at the declaration, and the compiler's source declares no trait refining either assertion.
+
 ## Cases with no issue
 
 
@@ -1836,6 +1844,7 @@ ledger's reading. Where it differs from the sweep, Notes for the lead says why.
 | SL-660 | S35 A zero-initialized static that Stage 0 accepts and sawc2 refuses | silent (a missing check in Stage 0; no live instance in compiler source) |
 | SL-660 | L30 `ZeroInit`: Stage 0 has none | loud (an unknown name to Stage 0; no live instance) |
 | SL-673 | L31 Derivation-only parents: Stage 0 and sawc2 differ | loud in two forms, silent in one (a deinit reached through `trait X: Deinit` never runs under Stage 0; no live instance) |
+| SL-675 | L32 `UnsafeSend`/`UnsafeSync` as a trait parent: Stage 0 accepts it, sawc2 refuses it | loud (sawc2 refuses at the trait; Stage 0 grants nothing through it; no live instance) |
 
 No issue is marked "not reachable from the subset". Several entries depend on
 features the subset does not list (`any`, `Box`, cells, pointers, fixed arrays,
