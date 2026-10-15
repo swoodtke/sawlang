@@ -105,9 +105,10 @@ extension MonoProgram {
         }
     }
 
-    // The roots, in order: the entry module's `main`, which a runtime has
-    // none of; each exported function, in declaration order; then the lang
-    // functions the backend's own lowering calls: the panic sink, which every
+    // The roots, in order: the entry module's `main`, never a test-only one
+    // (`top_decl`), which a runtime has none of; each exported function, in
+    // declaration order; then the lang functions the backend's own lowering
+    // calls: the panic sink, which every
     // check ends in, and the String roles a literal and a written-out String
     // are read through.
     func add_roots(&var self) {

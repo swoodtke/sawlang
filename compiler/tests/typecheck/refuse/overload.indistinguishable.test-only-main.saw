@@ -1,0 +1,8 @@
+// refuses: overload.indistinguishable at 8:6
+// a test-only `main` twin of the production one is a clash as any test-only
+// twin is (SL-698): a test build holds both, and no call there could pick one
+
+func main() {}
+
+@test
+func main() {}

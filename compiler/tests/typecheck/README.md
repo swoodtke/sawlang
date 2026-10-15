@@ -281,6 +281,7 @@ The per-declaration filter, by position (SL-626):
 | ordinary code calling a test-only overload, of its own module or another's; test code calling another module's | refused | call.arity.test-only-overload, type.mismatch.test-only-overload-imported, type.mismatch.test-only-overload-imported-test |
 | ordinary code calling a test-only extension's method, static, `init` or method overload | refused | member.unknown.test-only-method, member.unknown.test-only-static, call.label.test-only-init, call.label.test-only-method-overload |
 | ordinary code calling, or naming as a value, the ordinary overload of a set with a test-only one; test code using every overload and member | allowed | test_only_overloads |
+| a test-only twin of a production function, `main` included, with `@test` or in a group: a test build holds both, though a normal build emits neither test-only one | refused, `overload.indistinguishable` | overload.indistinguishable.test-only, .test-only-main, .test-only-main-group |
 | an importer naming as a value the one overload it sees; a set whose first declaration is narrower than a later public one, imported; the module calling its own private overloads | allowed | multi/overload_visibility |
 
 A type's policies, `Copy`, `ExplicitCopy`, `NoCopy`, `NoMove`, `ZeroInit`,

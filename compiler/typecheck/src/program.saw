@@ -574,7 +574,19 @@ extension TcProgram {
         self.res.by_name.value(at)
     }
 
-    // The declaration named `name` at the top of module `module`, or -1.
+    // The newest production declaration named `name` at the top of module
+    // `module`, or -1. Each caller picks by name a declaration whose body or
+    // type a normal build emits, which a test-only declaration never is, so
+    // a test-only one of that name is passed over as if absent (SL:testing,
+    // "No rot"). Pinned by mono's golden `test_only_main` and the run probe
+    // `test_only_main_overloads`.
+    //
+    // ENTRY POINTS:
+    //     add_roots (mono: the entry module's `main`)
+    //     exec_entry (mono)
+    //     resolve_spawn (mono)
+    //     coro_context_shape (coro)
+    //     find_known (typecheck)
     public func top_decl(&self, module: Int, name: String) -> Int {
         if module < 0 {
             return -1
@@ -583,11 +595,15 @@ extension TcProgram {
         if id < 0 {
             return -1
         }
-        let at = self.res.top.first(module, id)
-        if at < 0 {
-            return -1
+        var at = self.res.top.first(module, id)
+        while at >= 0 {
+            let d = self.res.top.value(at)
+            if not self.res.decls[d].test_only {
+                return d
+            }
+            at = self.res.top.following(at)
         }
-        self.res.top.value(at)
+        return -1
     }
 
     // The owner and index of the generic parameter declared at `leaf`.

@@ -1,0 +1,33 @@
+// probe: stated
+// about: a production `main` beside unrelated test-only code builds and runs, and the test-only code is never emitted (SL-698)
+// stage 0: cannot parse `@test`
+// speeds: -O0 -O2
+// The control for `test_only_main_overloads`: no test-only `main`, only a
+// test-only function, a group and a case, none of which a normal build emits.
+// prints: prod 3
+// ll defines: saw test_only_beside_main.main()
+// ll omits: fake_count
+// ll omits: group_helper
+
+func count() -> Int {
+    3
+}
+
+@test
+func fake_count() -> Int {
+    4
+}
+
+@test {
+    func group_helper() -> Int {
+        fake_count() + 1
+    }
+}
+
+@test "count is three" {
+    assert(count() == 3)
+}
+
+func main() {
+    print("prod {}", count())
+}

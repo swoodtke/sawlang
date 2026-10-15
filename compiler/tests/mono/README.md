@@ -64,7 +64,11 @@ member glue item (requirement, concrete type); an extern item is its C name,
 so two std modules declaring one seam call one symbol.
 
 **The worklist** starts from the roots, in this order: the entry module's
-`main`, which a runtime source (`sawc2 runtime`) has none of; each `@export`ed
+`main`, which a runtime source (`sawc2 runtime`) has none of, and which is
+never a test-only declaration: a normal build emits none, so a program whose
+only `main` is test-only roots none and is refused as one with no `main`
+(golden `test_only_main`; typecheck's `top_decl` passes test-only
+declarations over for each lookup by name that picks a root); each `@export`ed
 function, in declaration order, which typecheck's export funnel records; then
 the lang functions the backend's own lowering calls (the panic sink,
 `string_literal`, `string_bytes` and `string_length`). A builtin

@@ -1,0 +1,8 @@
+// refuses: overload.indistinguishable at 7:10
+// a production `main` and its twin in an `@test { }` group clash (SL-698)
+
+func main() {}
+
+@test {
+    func main() {}
+}

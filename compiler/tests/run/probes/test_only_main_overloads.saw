@@ -1,0 +1,27 @@
+// probe: stated
+// about: a production `main` is the entry point beside test-only `main` overloads, which a normal build names nowhere (SL-698)
+// stage 0: cannot parse `@test`
+// speeds: -O0 -O2
+// The entry point is the entry module's production `main`: test-only
+// overloads of it, distinguishable from it and from each other, in both
+// spellings and declared after it, are typechecked and never emitted
+// (SL:testing).
+// prints: prod main
+// ll defines: saw test_only_main_overloads.main()
+// ll omits: main(x: Int)
+// ll omits: main(y: Int)
+
+func main() {
+    print("prod main")
+}
+
+@test
+func main(x: Int) {
+    print("test main {}", x)
+}
+
+@test {
+    func main(y: Int) {
+        print("group test main {}", y)
+    }
+}
