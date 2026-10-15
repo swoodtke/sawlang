@@ -1,0 +1,12 @@
+// refuses: trait.deinit-parent at 4:18
+// a user trait listing `Deinit` as a parent, which only the copy policies do
+
+trait Closeable: Deinit {}
+
+struct Handle {
+    fd: Int
+}
+
+func main() {
+    print("ok")
+}

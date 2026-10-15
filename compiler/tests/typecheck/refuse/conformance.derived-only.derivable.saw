@@ -1,0 +1,12 @@
+// refuses: conformance.derived-only at 8:18
+// a written `Send` on a type whose members derive it, refused all the same
+
+struct Point {
+    x: Int
+}
+
+extension Point: Send {}
+
+func main() {
+    print("ok")
+}

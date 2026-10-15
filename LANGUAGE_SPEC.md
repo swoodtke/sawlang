@@ -3503,7 +3503,8 @@ collections" claim: the cost of every transfer is readable at the use site.
   ```
 
   `T: Deinit` remains legal as a generic bound; only the conformance form is
-  gone.
+  gone, along with a user trait that lists `Deinit` as a parent
+  ([The Deinit trait](#the-deinit-trait)).
 - **A type declares one copy policy.** `Copy`, `ExplicitCopy` and `NoCopy`
   exclude each other, so a type that conforms to one may not conform to
   another, whatever bounds the extensions carry. A type declaring two would
@@ -5989,6 +5990,22 @@ trait Deinit {
     func deinit(&var self)
 }
 ```
+
+Only the copy policies `NoCopy` and `ExplicitCopy` list `Deinit` as a parent.
+A trait of your own that lists it is refused at its declaration, because a
+conformance to it would give a type a `deinit` and no copy policy, and no
+scope exit calls such a `deinit`:
+
+```saw-fragment
+trait Closeable: Deinit {}
+// error: `Closeable` lists `Deinit` as a parent, which only the copy policies
+//        `NoCopy` and `ExplicitCopy` do: a conformance to it would give a type
+//        a `deinit` with no copy policy, and nothing would call it
+```
+
+A conformance to `Deinit` itself is refused the same way (see
+[The Copy Trait Family](#the-copy-trait-family)). `T: Deinit` stays legal as a
+generic bound.
 
 The compiler inserts `deinit()` calls at every scope exit: falling off the end
 of a block, `return`, `break`, `continue`, and error propagation. Each scope
@@ -10228,6 +10245,47 @@ enum is `Send`/`Sync` iff every field or payload is, and **explicit
 `Channel<T>` requires `T: Send`. `String` is `Send`+`Sync` (immutable buffer,
 atomic refcount); `UnsafePointer` is neither and poisons anything holding one;
 an interior cell blocks `Sync` ([Interior mutability](#interior-mutability)).
+
+**A trait may list `Send` or `Sync` as a parent, and the parent is a
+requirement, never a grant.** Every conformer must derive it: the conformance
+is checked where it is written, with its extension's bounds in scope, and a
+type that does not derive the parent is refused there, naming the field or
+payload that blocks it. In a generic body the bound carries the parent, so
+`T: Shippable` meets a `T: Send` bound.
+
+```saw-fragment
+trait Shippable: Send {
+    func label(&self) -> String
+}
+
+struct Parcel { weight: Int }
+
+extension Parcel: Shippable {          // `Parcel` derives `Send`
+    func label(&self) -> String { "parcel" }
+}
+
+struct Wrap<T> { value: T }
+
+extension Wrap<T: Send>: Shippable {   // derives `Send` under the bound
+    func label(&self) -> String { "wrap" }
+}
+
+struct Buf { raw: UnsafePointer<Int> }
+
+extension Buf: Shippable {
+    func label(&self) -> String { "buf" }
+}
+// error: `Buf` conforms to `Shippable`, which requires `Send`, and `Buf` is
+//        not `Send`: field `raw` has type `UnsafePointer<Int>`, which is not
+//        `Send`; a conformance requires the parent and never grants it
+
+func ship<T: Shippable>(item: &T) {
+    deliver(&item)                     // `deliver<U: Send>`: met through the bound
+}
+```
+
+A conformance to the child therefore never makes a type `Send` or `Sync`; only
+the members and the declared assertions below do.
 
 Saw has no shared references in flight, so `Sync` is not about `&` travelling.
 A plain `&` never crosses a spawn, and a single-threaded group never consults

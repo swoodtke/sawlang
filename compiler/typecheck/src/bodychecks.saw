@@ -493,7 +493,7 @@ extension TcProgram {
         while c < self.conformances.len() {
             let one = self.conformances[c]
             c = c + 1
-            if one.type_decl != info.decl || not self.trait_refines(one.trait_decl, sync) {
+            if one.type_decl != info.decl || not self.conformance_grants(one.trait_decl, sync) {
                 continue
             }
             if not self.conformance_visible(c - 1, viewer, in_test) {

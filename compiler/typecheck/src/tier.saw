@@ -988,7 +988,7 @@ extension TcProgram {
         while k < self.conformances.len() {
             let c = self.conformances[k]
             k = k + 1
-            if c.type_decl != info.decl || not self.trait_refines(c.trait_decl, tr) {
+            if c.type_decl != info.decl || not self.conformance_grants(c.trait_decl, tr) {
                 continue
             }
             if not self.conformance_visible(k - 1, run.viewer, run.in_test) {
@@ -1119,6 +1119,63 @@ extension TcProgram {
             k = k + 1
         }
         true
+    }
+
+    // Why nominal `t` does not derive `tr`, `Send` or `Sync`: its first field
+    // or case payload that does not meet it, named with its type; "" when
+    // none is found.
+    public func derivation_blocker(&var self, t: Int, tr: Int, env_decl: Int, env_ext: Int, viewer: Int,
+                                   in_test: Bool) -> String {
+        let info = self.types.ty(t)
+        if info.kind != TcKind.Nominal || self.res.decls[info.decl].node < 0 {
+            return ""
+        }
+        let arguments = self.nominal_args(t)
+        let subst = tc_args_subst(info.decl, move arguments)
+        let members = self.members_of(info.decl)
+        var k = 0
+        while k < members.len() {
+            let m = members[k]
+            k = k + 1
+            let mi = self.res.decls[m]
+            let s = self.sigs[m]
+            var out = StringBuilder()
+            if mi.kind == ResDeclKind.Field && s.result >= 0 {
+                let ft = self.subst(s.result, &subst)
+                if self.satisfies(ft, tr, env_decl, env_ext, viewer, in_test) {
+                    continue
+                }
+                try! out.append("field `")
+                try! out.append(self.name_text(mi.name))
+                try! out.append("` has type `")
+                try! out.append(self.type_text(ft))
+            } else if mi.kind == ResDeclKind.Case {
+                var blocked = -1
+                var j = 0
+                while j < s.param_count && blocked < 0 {
+                    let p = self.params[s.param_first + j]
+                    let pt = self.subst(p.ty, &subst)
+                    if not self.satisfies(pt, tr, env_decl, env_ext, viewer, in_test) {
+                        blocked = pt
+                    }
+                    j = j + 1
+                }
+                if blocked < 0 {
+                    continue
+                }
+                try! out.append("case `")
+                try! out.append(self.name_text(mi.name))
+                try! out.append("` has a payload of type `")
+                try! out.append(self.type_text(blocked))
+            } else {
+                continue
+            }
+            try! out.append("`, which is not `")
+            try! out.append(self.res.decl_path(tr))
+            try! out.append("`")
+            return out.build()
+        }
+        ""
     }
 
     // The instantiation depth limit's refusal (spec, "Instantiation depth is

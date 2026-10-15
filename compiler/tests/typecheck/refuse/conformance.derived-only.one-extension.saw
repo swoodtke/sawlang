@@ -1,0 +1,12 @@
+// refuses: conformance.derived-only at 8:16
+// `Send` and `Sync` in one extension's head, each refused at its own name
+
+struct Buf {
+    raw: UnsafePointer<Int>
+}
+
+extension Buf: Send, Sync {}
+
+func main() {
+    print("ok")
+}

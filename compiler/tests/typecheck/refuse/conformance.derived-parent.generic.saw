@@ -1,0 +1,14 @@
+// refuses: conformance.derived-parent at 10:20
+// an unconditioned generic conformance, whose parameter's field need not be `Send`
+
+trait Shippable: Send {}
+
+struct Wrap<T> {
+    value: T
+}
+
+extension Wrap<T>: Shippable {}
+
+func main() {
+    print("ok")
+}

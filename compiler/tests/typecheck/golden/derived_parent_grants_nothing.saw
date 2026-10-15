@@ -1,0 +1,21 @@
+// A conformance to a trait refining `Send` requires `Send` and never grants
+// it (SL-673): `Buf`'s conformance is refused, and `Buf` still meets no
+// `T: Send` bound, so the call is refused too.
+
+trait Shippable: Send {}
+
+struct Buf {
+    raw: UnsafePointer<Int>
+}
+
+extension Buf: Shippable {}
+
+func need_send<T: Send>(x: &T) {}
+
+func relay(b: &Buf) {
+    need_send(&b)
+}
+
+func main() {
+    print("ok")
+}

@@ -1,0 +1,14 @@
+// refuses: conformance.derived-parent at 10:16
+// a conformance to a trait refining `Send` on a raw-pointer holder, which does not derive it
+
+trait Shippable: Send {}
+
+struct Buf {
+    raw: UnsafePointer<Int>
+}
+
+extension Buf: Shippable {}
+
+func main() {
+    print("ok")
+}

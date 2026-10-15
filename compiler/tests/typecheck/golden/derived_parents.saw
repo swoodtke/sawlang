@@ -1,0 +1,89 @@
+// A user trait refining `Send` or `Sync` requires it of its conformers
+// (SL-673): each conformance below derives the parent, plainly, through a
+// conditional head, an enum's payloads, another trait's refinement, a
+// parameter bound by the refining trait, or a type's `UnsafeSend`. In a
+// generic body, `T: Shippable` meets `T: Send` and `T: Courier` meets both.
+
+trait Shippable: Send {
+    func tag(&self) -> Int
+}
+
+trait Courier: Shippable, Sync {}
+
+struct Point {
+    x: Int
+}
+
+extension Point: Shippable {
+    func tag(&self) -> Int {
+        self.x
+    }
+}
+
+extension Point: Courier {}
+
+struct Wrap<T> {
+    value: T
+}
+
+extension Wrap<T: Send>: Shippable {
+    func tag(&self) -> Int {
+        1
+    }
+}
+
+struct Relay<T> {
+    inner: T
+}
+
+extension Relay<T: Shippable>: Shippable {
+    func tag(&self) -> Int {
+        self.inner.tag()
+    }
+}
+
+enum Signal {
+    case Go(n: Int),
+    case Stop
+}
+
+extension Signal: Shippable {
+    func tag(&self) -> Int {
+        2
+    }
+}
+
+struct Buf {
+    raw: UnsafePointer<Int>
+}
+
+extension Buf: UnsafeSend {}
+
+extension Buf: Shippable {
+    func tag(&self) -> Int {
+        3
+    }
+}
+
+func need_send<T: Send>(x: &T) {}
+
+func need_sync<T: Sync>(x: &T) {}
+
+func ship<T: Shippable>(x: &T) -> Int {
+    need_send(&x)
+    x.tag()
+}
+
+func carry<T: Courier>(x: &T) -> Int {
+    need_send(&x)
+    need_sync(&x)
+    x.tag()
+}
+
+func main() {
+    let p = Point(x: 4)
+    let w = Wrap(value: 5)
+    let r = Relay(inner: Point(x: 6))
+    let s = Signal.Stop
+    print("{} {} {} {} {}", ship(&p), ship(&w), ship(&r), ship(&s), carry(&p))
+}

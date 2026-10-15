@@ -1,0 +1,29 @@
+ERROR	conformance.derived-parent	compiler/tests/typecheck/golden/derived_parent_grants_nothing.saw:11:16	`Buf` conforms to `Shippable`, which requires `Send`, and `Buf` is not `Send`: field `raw` has type `UnsafePointer<Int>`, which is not `Send`; a conformance requires the parent and never grants it
+ERROR	type.bound	compiler/tests/typecheck/golden/derived_parent_grants_nothing.saw:16:5	`derived_parent_grants_nothing.Buf` does not satisfy `Send`, the bound on `T` of `need_send`
+(Module derived_parent_grants_nothing
+  (declarations
+    (trait Shippable 5:7 private (parents Send))
+    (struct Buf 7:8 private)
+    (field Buf.raw 8:5 private UnsafePointer<Int>)
+    (extension 11:1 (target derived_parent_grants_nothing.Buf) (conforms derived_parent_grants_nothing.Shippable))
+    (func need_send 13:6 private (signature (generics (T (bounds Send))) (params (x &T shared)) -> Void) (summary body (suspends no) (sync-callable yes)))
+    (func relay 15:6 private (signature (params (b &derived_parent_grants_nothing.Buf shared)) -> Void) (summary body (suspends no) (sync-callable yes)))
+    (func main 19:6 private (signature (params) -> Void) (summary body (suspends no) (sync-callable yes))))
+  (members
+    (derived_parent_grants_nothing.Buf
+      (field raw UnsafePointer<Int> private declared)))
+  (views
+    (derived_parent_grants_nothing.Buf raw))
+  (conformances
+    (derived_parent_grants_nothing.Buf derived_parent_grants_nothing.Shippable 11:16))
+  (copy-tier
+    (derived_parent_grants_nothing.Buf Copy))
+  (bodies
+    (need_send 13:6)
+    (relay 15:6
+      (16:5-16:18 Call.paren Void value temp (call derived_parent_grants_nothing.need_send(x: &T) (inst derived_parent_grants_nothing.Buf)))
+      (16:15-16:17 Ref.shared &derived_parent_grants_nothing.Buf value temp)
+      (16:16-16:17 Name &derived_parent_grants_nothing.Buf (deref derived_parent_grants_nothing.Buf) place borrow))
+    (main 19:6
+      (20:5-20:16 Call.paren Void value temp (builtin print))
+      (20:11-20:15 StringLit String value temp))))

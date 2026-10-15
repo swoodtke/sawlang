@@ -1,0 +1,12 @@
+// refuses: conformance.derived-only at 8:26
+// a conditional `Send` on a generic type, its condition the parameter's `Send`
+
+struct Wrap<T> {
+    value: T
+}
+
+extension Wrap<T: Send>: Send {}
+
+func main() {
+    print("ok")
+}

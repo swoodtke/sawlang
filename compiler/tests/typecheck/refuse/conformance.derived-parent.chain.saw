@@ -1,0 +1,16 @@
+// refuses: conformance.derived-parent at 12:16
+// a trait reaching `Send` through another trait's refinement
+
+trait Shippable: Send {}
+
+trait Courier: Shippable {}
+
+struct Buf {
+    raw: UnsafePointer<Int>
+}
+
+extension Buf: Courier {}
+
+func main() {
+    print("ok")
+}

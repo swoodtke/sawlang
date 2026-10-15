@@ -1,0 +1,16 @@
+// refuses: conformance.derived-parent at 12:20
+// a trait refining `Sync` on a type holding an interior cell, which blocks it
+
+trait Shareable: Sync {}
+
+struct Counter {
+    cell: UnsafeMutableInterior<Int>
+}
+
+extension Counter: NoCopy {}
+
+extension Counter: Shareable {}
+
+func main() {
+    print("ok")
+}

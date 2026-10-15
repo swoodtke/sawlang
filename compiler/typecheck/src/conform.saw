@@ -308,6 +308,27 @@ extension TcProgram {
         false
     }
 
+    // Whether a conformance to trait `a` gives its type trait `tr`. `Send`
+    // and `Sync` are given only by themselves or by their assertions,
+    // `UnsafeSend` and `UnsafeSync`: a user trait refining one requires it of
+    // its conformers, which `check_derived_conformances` checks, and grants
+    // nothing. Any other parent is given through the refinement.
+    // ENTRY POINTS:
+    //     declares_conformance
+    //     unmet_sync_condition
+    public func conformance_grants(&self, a: Int, tr: Int) -> Bool {
+        if a == tr {
+            return true
+        }
+        if tr == self.known.send {
+            return a == self.known.unsafe_send
+        }
+        if tr == self.known.sync {
+            return a == self.known.unsafe_sync
+        }
+        self.trait_refines(a, tr)
+    }
+
     // Whether module `m` sees the extensions of module `e` on a type defined
     // in module `owner` (design 142): its own, its direct imports' and those
     // they re-export, and the type's defining module's.

@@ -1,0 +1,18 @@
+// refuses: conformance.derived-only at 8:16
+// a written `Send` on a raw-pointer holder, which would meet a `T: Send` bound
+
+struct Buf {
+    raw: UnsafePointer<Int>
+}
+
+extension Buf: Send {}
+
+func need<T: Send>(x: &T) {}
+
+func relay(b: &Buf) {
+    need(&b)
+}
+
+func main() {
+    print("ok")
+}

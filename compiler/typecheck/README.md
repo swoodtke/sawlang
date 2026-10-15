@@ -30,10 +30,11 @@ typecheck/
     members.saw       the member tables and a module's view of them
     overloads.saw     the declaration-site overload rule: a redeclaration no
                       call could tell apart, refused where it is written
-    checks.saw        finite size, the signature half of `unsafe`, what an
-                      `init` returns, `Deinit`'s conformances, where a
-                      `deinit` is written, and a test-only conformance or
-                      member overlapping what production code meets
+    checks.saw        finite size, the signature half of `unsafe`, the rules on
+                      the traits the compiler only derives, what an `init`
+                      returns, where a `deinit` is written, and a test-only
+                      conformance or member overlapping what production
+                      code meets
     typeops.saw       the type questions a body asks: numbers, Optionals, Results
     adjust.saw        adjustment chains, conversions, and peeling
     candidates.saw    what a name or selector can mean: overload sets, members,
@@ -139,7 +140,13 @@ final, or for the one call where it is not:
    never a spelling. A bound on a written type argument is recorded as an
    obligation, checked once the conformance table exists.
 3. **The conformance table** (`conform.saw`): each conformance resolve
-   recorded, then how each requirement of its trait and the traits it refines
+   recorded, then the rules on the traits the compiler only derives, in one
+   funnel, `check_derived_conformances` (`checks.saw`): `Send` and `Sync`
+   follow from the members, so a conformance written to one is refused and
+   one to a user trait refining one requires the type to derive it under
+   the extension's conditions; `Deinit` is carried by a copy policy, so a
+   conformance to it and a user trait listing it as a parent are refused.
+   Then how each requirement of its trait and the traits it refines
    is met, against the members written in the extensions the conformance's
    module sees. A production conformance is met as if no test-only
    declaration existed; the test-only ones are settled after, and take a
@@ -172,9 +179,8 @@ final, or for the one call where it is not:
 6. **The checks** that need the tables: a test-only conformance overlapping
    a production one, a test-only member meeting a requirement a production
    conformance meets, bounds, Copy-policy containment,
-   `NoMove`'s declared containment and the `NoCopy` it requires, finite size, the signature half of `unsafe`, what an `init` returns, the
-   conformances `Deinit` refuses, and a `deinit` written outside the copy
-   policy.
+   `NoMove`'s declared containment and the `NoCopy` it requires, finite size, the signature half of `unsafe`, what an `init` returns, and a
+   `deinit` written outside the copy policy.
 7. **Bodies** (`bodies.saw`), each module checked in full, declarations in
    source order: a function's parameter defaults and block, a static's
    initializer, a raw case's value, an `@align` argument, then the file's
@@ -600,7 +606,11 @@ These are the reversible readings this unit made; SL-447's report lists them.
   frozen compiler applies it, not to a tuple, an optional or an enum's
   payload.
 - A bound is satisfied through a conformance to the trait or to one refining
-  it, with the conformance's conditions checked against the arguments. Copy
+  it, with the conformance's conditions checked against the arguments, except
+  that `Send` and `Sync` are given only by `UnsafeSend` and `UnsafeSync`
+  (`conformance_grants`): a user trait refining one requires it of its
+  conformers and grants nothing, while a bound by that trait still meets it
+  in a generic body. Copy
   and ExplicitCopy are answered by the tier; Equatable and Hashable also by
   the automatic conformance of a trivially copyable type; Send and Sync from
   the members, except that the interior cell itself derives no Sync, so a type

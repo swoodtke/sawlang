@@ -1,0 +1,41 @@
+// The thread-safety assertions the spec allows, beside the derivation-only
+// `Send` and `Sync` (spec, `UnsafeSync` / `UnsafeSend`): `UnsafeSend` and
+// `UnsafeSync` past an unsafe-typed field that blocks the derivation meet
+// `T: Send` and `T: Sync`, a type holding the asserted one derives both with
+// nothing written, and a conditional assertion holds at an argument that
+// meets its bound.
+
+struct Buf {
+    raw: UnsafePointer<Int>
+}
+
+extension Buf: UnsafeSend {}
+
+extension Buf: UnsafeSync {}
+
+struct Holder {
+    buf: Buf
+    count: Int
+}
+
+struct Cell<T> {
+    raw: UnsafePointer<T>
+}
+
+extension Cell<T: Send>: UnsafeSend {}
+
+func need_send<T: Send>(x: &T) {}
+
+func need_sync<T: Sync>(x: &T) {}
+
+func relay(b: &Buf, h: &Holder, c: &Cell<Int>) {
+    need_send(&b)
+    need_sync(&b)
+    need_send(&h)
+    need_sync(&h)
+    need_send(&c)
+}
+
+func main() {
+    print("ok")
+}

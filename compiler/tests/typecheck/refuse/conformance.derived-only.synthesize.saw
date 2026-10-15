@@ -1,0 +1,13 @@
+// refuses: conformance.derived-only at 9:16
+// a written `Send` marked `@synthesize`, which derives no body for it
+
+struct Buf {
+    raw: UnsafePointer<Int>
+}
+
+@synthesize
+extension Buf: Send {}
+
+func main() {
+    print("ok")
+}

@@ -1,0 +1,58 @@
+(Module thread_assertions
+  (declarations
+    (struct Buf 8:8 private)
+    (field Buf.raw 9:5 private UnsafePointer<Int>)
+    (extension 12:1 (target thread_assertions.Buf) (conforms UnsafeSend))
+    (extension 14:1 (target thread_assertions.Buf) (conforms UnsafeSync))
+    (struct Holder 16:8 private)
+    (field Holder.buf 17:5 private thread_assertions.Buf)
+    (field Holder.count 18:5 private Int)
+    (struct Cell 21:8 private (generics (T)))
+    (field Cell.raw 22:5 private UnsafePointer<T>)
+    (extension 25:1 (target thread_assertions.Cell<T>) (where (T Send)) (conforms UnsafeSend))
+    (func need_send 27:6 private (signature (generics (T (bounds Send))) (params (x &T shared)) -> Void) (summary body (suspends no) (sync-callable yes)))
+    (func need_sync 29:6 private (signature (generics (T (bounds Sync))) (params (x &T shared)) -> Void) (summary body (suspends no) (sync-callable yes)))
+    (func relay 31:6 private (signature (params (b &thread_assertions.Buf shared) (h &thread_assertions.Holder shared) (c &thread_assertions.Cell<Int> shared)) -> Void) (summary body (suspends no) (sync-callable yes)))
+    (func main 39:6 private (signature (params) -> Void) (summary body (suspends no) (sync-callable yes))))
+  (members
+    (thread_assertions.Buf
+      (field raw UnsafePointer<Int> private declared))
+    (thread_assertions.Holder
+      (field buf thread_assertions.Buf private declared)
+      (field count Int private declared))
+    (thread_assertions.Cell
+      (field raw UnsafePointer<T> private declared)))
+  (views
+    (thread_assertions.Buf raw)
+    (thread_assertions.Holder buf count)
+    (thread_assertions.Cell raw))
+  (conformances
+    (thread_assertions.Buf UnsafeSend 12:16)
+    (thread_assertions.Buf UnsafeSync 14:16)
+    (thread_assertions.Cell UnsafeSend 25:26))
+  (copy-tier
+    (thread_assertions.Buf Copy)
+    (thread_assertions.Holder Copy)
+    (thread_assertions.Cell Copy))
+  (bodies
+    (need_send 27:6)
+    (need_sync 29:6)
+    (relay 31:6
+      (32:5-32:18 Call.paren Void value temp (call thread_assertions.need_send(x: &T) (inst thread_assertions.Buf)))
+      (32:15-32:17 Ref.shared &thread_assertions.Buf value temp)
+      (32:16-32:17 Name &thread_assertions.Buf (deref thread_assertions.Buf) place borrow)
+      (33:5-33:18 Call.paren Void value temp (call thread_assertions.need_sync(x: &T) (inst thread_assertions.Buf)))
+      (33:15-33:17 Ref.shared &thread_assertions.Buf value temp)
+      (33:16-33:17 Name &thread_assertions.Buf (deref thread_assertions.Buf) place borrow)
+      (34:5-34:18 Call.paren Void value temp (call thread_assertions.need_send(x: &T) (inst thread_assertions.Holder)))
+      (34:15-34:17 Ref.shared &thread_assertions.Holder value temp)
+      (34:16-34:17 Name &thread_assertions.Holder (deref thread_assertions.Holder) place borrow)
+      (35:5-35:18 Call.paren Void value temp (call thread_assertions.need_sync(x: &T) (inst thread_assertions.Holder)))
+      (35:15-35:17 Ref.shared &thread_assertions.Holder value temp)
+      (35:16-35:17 Name &thread_assertions.Holder (deref thread_assertions.Holder) place borrow)
+      (36:5-36:18 Call.paren Void value temp (call thread_assertions.need_send(x: &T) (inst thread_assertions.Cell<Int>)))
+      (36:15-36:17 Ref.shared &thread_assertions.Cell<Int> value temp)
+      (36:16-36:17 Name &thread_assertions.Cell<Int> (deref thread_assertions.Cell<Int>) place borrow))
+    (main 39:6
+      (40:5-40:16 Call.paren Void value temp (builtin print))
+      (40:11-40:15 StringLit String value temp))))

@@ -1,0 +1,15 @@
+// refuses: conformance.derived-parent at 11:16
+// a test-only conformance to a trait refining `Send`, checked as test code sees it
+
+trait Shippable: Send {}
+
+struct Buf {
+    raw: UnsafePointer<Int>
+}
+
+@test
+extension Buf: Shippable {}
+
+func main() {
+    print("ok")
+}

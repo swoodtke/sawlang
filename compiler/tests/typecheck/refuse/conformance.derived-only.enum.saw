@@ -1,0 +1,13 @@
+// refuses: conformance.derived-only at 9:17
+// a written `Sync` on an enum whose payload holds a raw pointer
+
+enum Slot {
+    case Held(p: UnsafePointer<Int>),
+    case Empty
+}
+
+extension Slot: Sync {}
+
+func main() {
+    print("ok")
+}

@@ -1,0 +1,20 @@
+// refuses: conformance.derived-only at 9:16
+// a test-only `Send`, which test code's `T: Send` bound would meet
+
+struct Buf {
+    raw: UnsafePointer<Int>
+}
+
+@test
+extension Buf: Send {}
+
+func need<T: Send>(x: &T) {}
+
+@test
+func relay(b: &Buf) {
+    need(&b)
+}
+
+func main() {
+    print("ok")
+}

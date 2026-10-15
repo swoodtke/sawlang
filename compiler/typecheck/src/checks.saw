@@ -1,10 +1,12 @@
 // The signature-only checks that need every signature first: finite struct
 // size, which is a cycle in the by-value containment graph (spec, Recursive
-// types), the signature half of `unsafe` (designs 130 and 136), and a
-// test-only conformance or member overlapping what production code meets.
+// types), the signature half of `unsafe` (designs 130 and 136), the rules on
+// the traits the compiler only derives, and a test-only conformance or member
+// overlapping what production code meets.
 
+import sawparse.grammar.{Alt}
 import sawresolve.dump.{res_sort_strings}
-import sawresolve.model.{ResDecl, ResDeclKind}
+import sawresolve.model.{ResBindKind, ResDecl, ResDeclKind}
 import sawtypecheck.conform.{TcSubst, tc_args_subst}
 import sawtypecheck.declarations.{tc_build_signatures}
 import sawtypecheck.model.{TC_EFFECT_UNSAFE, TC_FLAG_UNSAFE_STRUCT, TC_FLAG_WRITTEN_RETURN, TcParam,
@@ -26,10 +28,14 @@ public func tc_check_unsafe(p: &var TcProgram) {
     p.check_unsafe()
 }
 
+// The rules on the traits the compiler only derives.
+public func tc_check_derived_conformances(p: &var TcProgram) {
+    p.check_derived_conformances()
+}
+
 // What an `init` returns, and where `Deinit`'s body may be written.
 public func tc_check_inits(p: &var TcProgram) {
     p.check_inits()
-    p.check_deinit_conformances()
     p.check_deinit_placement()
 }
 
@@ -465,7 +471,137 @@ extension TcProgram {
     }
 }
 
-// What an `init` returns, and `Deinit`'s conformances.
+// The traits the compiler only derives.
+extension TcProgram {
+    // THE DERIVED-ONLY FUNNEL: every rule on a trait the compiler only
+    // derives. `Send` and `Sync` follow from the members, so a conformance
+    // written to one is refused, and a user trait refining one requires it
+    // of each conformer, checked under the extension's conditions; it never
+    // grants it (`conformance_grants`), since that would assert thread-safety
+    // past every check `UnsafeSend` and `UnsafeSync` make (spec, Send and
+    // Sync). `Deinit` is carried by a copy policy, so neither a conformance
+    // nor a user trait's parent list may name it. It reads the conformance
+    // table, which holds every written conformance (a plain or conditional
+    // head, a struct or an enum, several traits in one head, an `@synthesize`
+    // one, a test-only extension and a test group's), and every trait's
+    // parent list.
+    // ENTRY POINTS:
+    //     tc_check_derived_conformances
+    public func check_derived_conformances(&var self) {
+        self.check_deinit_parents()
+        var k = 0
+        while k < self.conformances.len() {
+            let c = self.conformances[k]
+            k = k + 1
+            let tr = c.trait_decl
+            if tr == self.known.unsafe_send || tr == self.known.unsafe_sync {
+                continue
+            }
+            if tr != self.known.deinit && tr != self.known.send && tr != self.known.sync {
+                let send = self.known.send
+                let sync = self.known.sync
+                self.check_derived_parent(k - 1, send)
+                self.check_derived_parent(k - 1, sync)
+                continue
+            }
+            if tr == self.known.deinit {
+                var msg = StringBuilder()
+                try! msg.append("`")
+                try! msg.append(self.res.decl_path(c.type_decl))
+                try! msg.append("` conforms to `Deinit` directly, and `Deinit` takes no conformance: a hand-written `deinit` goes in the type's copy policy, `NoCopy`, `ExplicitCopy` or `Copy`")
+                self.refuse_in(c.module, c.node, "conformance.deinit", msg.build())
+                continue
+            }
+            let name = self.res.decl_path(tr)
+            let target = self.res.decl_path(c.type_decl)
+            var msg = StringBuilder()
+            try! msg.append("cannot explicitly implement `")
+            try! msg.append(name)
+            try! msg.append("`: it is a marker trait derived structurally by the compiler, so `")
+            try! msg.append(target)
+            try! msg.append("` is `")
+            try! msg.append(name)
+            try! msg.append("` exactly when its members are; where an unsafe-typed member blocks the derivation, a conformance to `Unsafe")
+            try! msg.append(name)
+            try! msg.append("` asserts it")
+            self.refuse_in(c.module, c.node, "conformance.derived-only", msg.build())
+        }
+    }
+
+    // What conformance `at` owes when its trait refines `parent`, `Send` or
+    // `Sync`: its type derives `parent`, with the extension's conditions in
+    // scope, as code that may use the conformance sees it.
+    func check_derived_parent(&var self, at: Int, parent: Int) {
+        let c = self.conformances[at]
+        if parent < 0 || not self.trait_refines(c.trait_decl, parent) {
+            return
+        }
+        let in_test = self.is_test_only_conformance(at)
+        let t = self.self_type_of(c.type_decl)
+        if self.satisfies(t, parent, c.type_decl, c.ext, c.module, in_test) {
+            return
+        }
+        let name = self.res.decl_path(parent)
+        let target = self.res.decl_path(c.type_decl)
+        var msg = StringBuilder()
+        try! msg.append("`")
+        try! msg.append(target)
+        try! msg.append("` conforms to `")
+        try! msg.append(self.res.decl_path(c.trait_decl))
+        try! msg.append("`, which requires `")
+        try! msg.append(name)
+        try! msg.append("`, and `")
+        try! msg.append(target)
+        try! msg.append("` is not `")
+        try! msg.append(name)
+        try! msg.append("`")
+        let blocker = self.derivation_blocker(t, parent, c.type_decl, c.ext, c.module, in_test)
+        if blocker.len() > 0 {
+            try! msg.append(": ")
+            try! msg.append(blocker)
+        }
+        try! msg.append("; a conformance requires the parent and never grants it")
+        self.refuse_in(c.module, c.node, "conformance.derived-parent", msg.build())
+    }
+
+    // A user trait listing `Deinit` as a parent. Only the copy policies,
+    // `NoCopy` and `ExplicitCopy`, may: a conformance to any other would give
+    // a type a `deinit` with no transfer rule, which no scope exit calls
+    // (spec, The Deinit trait).
+    func check_deinit_parents(&var self) {
+        var d = 0
+        while d < self.res.decls.len() {
+            let info = self.res.decls[d]
+            d = d + 1
+            let policy = d - 1 == self.known.no_copy || d - 1 == self.known.explicit_copy
+            if info.kind != ResDeclKind.Trait || info.node < 0 || policy {
+                continue
+            }
+            let n = self.child_count(info.node)
+            var k = 0
+            while k < n {
+                let c = self.child(info.node, k)
+                k = k + 1
+                if not self.has_alt(c, Alt.Type_Path) {
+                    continue
+                }
+                let last = self.child_count(c) - 1
+                let leaf = self.child(c, last)
+                let b = self.binding_at(leaf)
+                if b.kind != ResBindKind.Decl || b.decl != self.known.deinit {
+                    continue
+                }
+                var msg = StringBuilder()
+                try! msg.append("`")
+                try! msg.append(self.res.decl_path(d - 1))
+                try! msg.append("` lists `Deinit` as a parent, which only the copy policies `NoCopy` and `ExplicitCopy` do: a conformance to it would give a type a `deinit` with no copy policy, and nothing would call it")
+                self.refuse_in(info.module, c, "trait.deinit-parent", msg.build())
+            }
+        }
+    }
+}
+
+// What an `init` returns, and where a `deinit` is written.
 extension TcProgram {
     // An `init` returns its receiver, or `Result<Receiver, E>`; an optional
     // is refused on its own terms, since a `None` names no cause (spec,
@@ -529,24 +665,6 @@ extension TcProgram {
         }
         let info = self.types.ty(t)
         info.kind == TcKind.Error
-    }
-
-    // `Deinit` is never conformed to directly: a hand-written body goes in
-    // the type's copy policy (design 131).
-    public func check_deinit_conformances(&var self) {
-        var k = 0
-        while k < self.conformances.len() {
-            let c = self.conformances[k]
-            k = k + 1
-            if c.trait_decl != self.known.deinit {
-                continue
-            }
-            var msg = StringBuilder()
-            try! msg.append("`")
-            try! msg.append(self.res.decl_path(c.type_decl))
-            try! msg.append("` conforms to `Deinit` directly, and `Deinit` takes no conformance: a hand-written `deinit` goes in the type's copy policy, `NoCopy`, `ExplicitCopy` or `Copy`")
-            self.refuse_in(c.module, c.node, "conformance.deinit", msg.build())
-        }
     }
 
     // A hand-written `deinit` goes in the extension that declares the type's

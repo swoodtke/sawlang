@@ -1,0 +1,15 @@
+// refuses: conformance.derived-parent at 11:17
+// an enum whose payload holds a raw pointer, conforming to a trait refining `Send`
+
+trait Shippable: Send {}
+
+enum Slot {
+    case Held(p: UnsafePointer<Int>),
+    case Empty
+}
+
+extension Slot: Shippable {}
+
+func main() {
+    print("ok")
+}

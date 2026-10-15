@@ -700,7 +700,10 @@ INSIDE the policy conformance (`extension Res: NoCopy { func deinit(&var self)
 {...} }`) — the requirement is inherited, so that is the only spelling. A type
 declaring just `Deinit` had a `deinit` and no transfer rule, so `let s = r`
 silently aliased it and both halves ran deinit. `T: Deinit` as a generic BOUND
-is still fine.
+is still fine. Nor may your own trait list `Deinit` as a parent
+(`trait Closeable: Deinit {}` is refused at the trait): only `NoCopy` and
+`ExplicitCopy` do, since a conformance to anything else would give a type a
+`deinit` that no scope exit calls.
 ```saw-fragment
 var w = move v         // v now invalid (use-after-move = compile error)
 var u = w.copy()       // explicit duplicate
@@ -3880,6 +3883,13 @@ slab in std/slab.saw; `UnsafeMemory<T, Device|Normal>` for MMIO
   nothing about `Mutex<File>`). They appear in EXACTLY ONE position, the
   conformance header: `T: UnsafeSync` as a bound and `any UnsafeSync` are
   both clean errors pointing back at the property.
+- **A trait whose parent is `Send` or `Sync` REQUIRES it, never grants it.**
+  `trait Shippable: Send` is fine; `extension Buf: Shippable {}` compiles only
+  where `Buf` already derives `Send` (checked at the conformance with its
+  extension's bounds, so `extension Wrap<T: Send>: Shippable` works), and is
+  refused otherwise naming the blocking field. In a generic body `T: Shippable`
+  meets `T: Send`. To make a raw-pointer type `Send`, declare `UnsafeSend`
+  beside it; conforming to a `Send`-refining trait proves nothing.
 - **`--freestanding` on aarch64 implies `--target-features -neon,-fp-armv8`**
   (design 172). An AArch64 core traps Advanced SIMD at EL1 out of reset
   (`CPACR_EL1.FPEN` = 0) and LLVM uses `q` registers to move a struct, so a

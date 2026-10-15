@@ -1,0 +1,17 @@
+// refuses: conformance.deinit at 9:19
+// a test-only conformance to `Deinit` itself
+
+struct Handle {
+    fd: Int
+}
+
+@test
+extension Handle: Deinit {
+    func deinit(&var self) {
+        self.fd = 0
+    }
+}
+
+func main() {
+    print("ok")
+}

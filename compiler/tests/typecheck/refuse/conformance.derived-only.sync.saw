@@ -1,0 +1,18 @@
+// refuses: conformance.derived-only at 8:16
+// a written `Sync` on a raw-pointer holder, which would meet a `T: Sync` bound
+
+struct Buf {
+    raw: UnsafePointer<Int>
+}
+
+extension Buf: Sync {}
+
+func need<T: Sync>(x: &T) {}
+
+func relay(b: &Buf) {
+    need(&b)
+}
+
+func main() {
+    print("ok")
+}

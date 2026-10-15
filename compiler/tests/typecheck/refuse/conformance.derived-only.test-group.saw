@@ -1,0 +1,14 @@
+// refuses: conformance.derived-only at 9:20
+// a `Sync` written inside a test group
+
+struct Buf {
+    raw: UnsafePointer<Int>
+}
+
+@test {
+    extension Buf: Sync {}
+}
+
+func main() {
+    print("ok")
+}
