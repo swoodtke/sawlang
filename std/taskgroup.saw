@@ -24,8 +24,9 @@ extern "C" {
 //    < -1   a channel's readiness word, by its negated address
 //
 // Every value above 1 is reserved for the timers' executor half. The
-// executor waits on a ready park alone; each other reason has its own
-// lowering and its own executor half. `PARK_UNSET` is written before every
+// executor waits on a ready park alone, and wakes a park of any reason whose
+// task is cancelled (`park_wakes`); each other reason has its own lowering
+// and its own executor half. `PARK_UNSET` is written before every
 // resume, so a frame that reports `Pending` without recording a park is caught
 // rather than read as stale (SL:coroutines §3.3).
 static PARK_READY: Int = 0
@@ -301,13 +302,13 @@ extension TaskGroup {
     }
 
     // Whether `slot` can be resumed now: live, not on this thread's stack,
-    // and parked ready.
+    // and woken (`park_wakes`).
     func runnable(&self, slot: Int) unsafe -> Bool {
         let s = self.slots[slot]
         if s.done || s.active {
             return false
         }
-        self.cell_at(slot)[0].park == PARK_READY
+        park_wakes(self.cell_at(slot))
     }
 
     func has_live(&self) -> Bool {
@@ -437,11 +438,39 @@ func cancel_every_live(group: &var TaskGroup) unsafe {
     var i = 0
     while i < group.slots.len() {
         if not group.slots[i].done {
-            let cell = group.cell_at(i)
-            cell[0].cancel = true
+            request_cancel(group.cell_at(i))
         }
         i = i + 1
     }
+}
+
+// Asks the task of `cell` to stop. Only the cancel word is written: the park
+// word stays what the task's last park recorded, and the wake is the
+// executor's, read when it next decides what can run (`park_wakes`).
+//
+// ENTRY POINTS:
+//   Task.cancel
+//   VoidTask.cancel
+//   cancel_every_live
+func request_cancel(cell: UnsafePointer<TaskCell>) unsafe {
+    cell[0].cancel = true
+}
+
+// Whether the task of `cell`, parked, can be resumed now: when its park is a
+// ready one, and when the task has been asked to stop, whatever its park's
+// reason, so a cancelled task reaches its cancel path at its next turn and
+// each park it makes after that resumes at once (SL:coroutines §3.1).
+//
+// The cancel word is read here, after the resume that parked has returned,
+// so the park's record and its arm both precede the read: a cancel that
+// arrives before the record, between the record and the arm, or after both
+// is seen at this read, and nothing a cancel writes can be overwritten by a
+// later record (SL:coroutines R3).
+//
+// ENTRY POINTS:
+//   TaskGroup.runnable
+func park_wakes(cell: UnsafePointer<TaskCell>) unsafe -> Bool {
+    cell[0].park == PARK_READY || cell[0].cancel
 }
 
 // Releases every slot's cell, dropping any result nobody took. A slot still
@@ -559,13 +588,14 @@ func should_stop(term_group: Int, term_slot: Int, term_gen: Int) unsafe -> Bool 
     true
 }
 
-// The scheduler sweep: resumes ready frames round-robin across every group in
+// The scheduler sweep: resumes woken frames round-robin across every group in
 // the ambient list until `should_stop` says the sweep is finished.
 //
 // A nested sweep (a task joins a task) skips every frame active on this
 // thread's stack, and returns when every live frame is one of those, ceding
-// to the sweep further up. A frame parked on anything but a ready park is a
-// wait this executor does not perform yet, so it panics rather than spin.
+// to the sweep further up. A frame that is not cancelled and is parked on
+// anything but a ready park is a wait this executor does not perform yet, so
+// it panics rather than spin.
 func exec_run(term_group: Int, term_slot: Int, term_gen: Int) unsafe {
     while not should_stop(term_group, term_slot, term_gen) {
         var resumed = false
@@ -592,7 +622,7 @@ func exec_run(term_group: Int, term_slot: Int, term_gen: Int) unsafe {
     }
 }
 
-// Nothing was ready. When some live frame off this thread's stack is parked,
+// Nothing was woken. When some live frame off this thread's stack is parked,
 // that wait is one the executor cannot perform yet.
 func refuse_parked() unsafe {
     var cur = EXEC_HEAD.load()
@@ -839,16 +869,15 @@ extension Task<T> {
     /// Asks the task to stop.
     ///
     /// Cancellation is cooperative: the task observes it through `cancelled()`
-    /// and returns through its own code. Cancelling a finished task does
-    /// nothing.
+    /// and returns through its own code. A task parked in `sleep` or any other
+    /// wait is woken to do so. Cancelling a finished task does nothing.
     public func cancel(&self) unsafe {
         self.consume()
         let g = self.group
         if g[0].stale(self.slot, self.generation) {
             return
         }
-        let cell = g[0].cell_at(self.slot)
-        cell[0].cancel = true
+        request_cancel(g[0].cell_at(self.slot))
     }
 
     /// Hands the task to the process and gives up its result.
@@ -931,8 +960,7 @@ extension VoidTask {
         if g[0].stale(self.slot, self.generation) {
             return
         }
-        let cell = g[0].cell_at(self.slot)
-        cell[0].cancel = true
+        request_cancel(g[0].cell_at(self.slot))
     }
 
     /// Hands the task to the process. The task keeps running.

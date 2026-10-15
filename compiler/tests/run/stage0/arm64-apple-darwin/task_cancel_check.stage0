@@ -1,0 +1,9 @@
+program	compiler/tests/run/task_cancel_check.saw
+triple	arm64-apple-darwin
+source	e2bfe18fe90c6649
+build	ok
+exit	0
+stdout	"77"
+stdout	"-1"
+stdout	"9"
+stdout	""

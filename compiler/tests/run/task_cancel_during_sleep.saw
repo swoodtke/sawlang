@@ -1,0 +1,59 @@
+// tests/corpus/taskgroup_cancel_during_sleep's subject, with `Task.spawn` in
+// place of its `TaskGroup` and a handle's `cancel()` in place of a peer's
+// write through `cancel_addr()` (SL:coroutines A10): a cancel wakes a task
+// parked on a timer, so its `sleep` returns long before the deadline and the
+// task takes its cancel path. Each task is parked when the cancel reaches it,
+// and no deadline is ever waited out, so a sleep that is not cut short shows
+// as a hang rather than as a late line.
+//
+// A cancelled task stays cancelled: its next `sleep` returns at once too. And
+// a task whose fate is its handle's `cancel()`, asleep when `main` returns,
+// is woken and run to its end by the close of the background group.
+import std.task.{yield_now}
+
+struct Held {
+    name: String
+}
+
+extension Held: NoCopy {
+    func deinit(&var self) {
+        print("{} dropped", self.name)
+    }
+}
+
+func sleeper() -> Int {
+    let held = Held(name: "sleeper's value")
+    print("sleeper: going to sleep")
+    sleep(Duration.secs(600))
+    if cancelled() {
+        print("sleeper: cancelled")
+        sleep(Duration.secs(600))
+        print("sleeper: a cancelled task's sleep returns at once")
+        return 1
+    }
+    print("sleeper: slept the whole span")
+    0
+}
+
+func napper() {
+    print("napper: going to sleep")
+    sleep(Duration.secs(600))
+    if cancelled() {
+        print("napper: cancelled")
+        return
+    }
+    print("napper: slept the whole span")
+}
+
+func main() {
+    let victim = Task.spawn(sleeper())
+    yield_now()
+    print("main: cancelling the sleeper")
+    victim.cancel()
+    print("main: joined {}", victim.join())
+
+    let napping = Task.spawn(napper())
+    yield_now()
+    napping.cancel()
+    print("main: returning")
+}

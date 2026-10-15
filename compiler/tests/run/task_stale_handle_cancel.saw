@@ -1,0 +1,42 @@
+// tests/corpus/taskgroup_stale_handle_cancel, with `Task.spawn` in place of
+// its `TaskGroup`, which waits on SL:coroutines A8b (SL-564): a stale handle
+// cannot reach the task that took its place. `a` is joined, so its slot can
+// be handed to `b`, spawned next; cancelling through `a` then must not set
+// `b`'s cancel word. `b` runs to completion and reports 2, where a cancelled
+// run would report -2. A `Void` task's second join and its late cancel are
+// defined no-ops too.
+import std.task.*
+
+static VOID_RAN: Atomic<Int> = Atomic(0)
+
+func slow(tag: Int) -> Int {
+    var n = 0
+    while n < 4 {
+        if cancelled() {
+            return 0 - tag
+        }
+        yield_now()
+        n = n + 1
+    }
+    tag
+}
+
+func tick() {
+    yield_now()
+    VOID_RAN.fetch_add(1)
+}
+
+func main() {
+    let a = Task.spawn(slow(1))
+    print(a.join())
+
+    let b = Task.spawn(slow(2))
+    a.cancel()
+    print(b.join())
+
+    let v = Task.spawn(tick())
+    v.join()
+    v.join()
+    v.cancel()
+    print("void joined twice, ran {}", VOID_RAN.load())
+}

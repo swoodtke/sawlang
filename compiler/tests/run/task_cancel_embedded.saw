@@ -1,0 +1,32 @@
+// tests/corpus/coro_spawn_and_embed_cancel, with `Task.spawn` in place of its
+// `TaskGroup`, which waits on SL:coroutines A8b (SL-564): `leaf` is both a
+// task root and a child `caller` drives. The cancel word reaches the root
+// through its task's context, and the embedded child through the same
+// context, which its parent passes down. Both tasks are cancelled before
+// either runs, so each observes it at its first check.
+import std.task.*
+
+func leaf(base: Int) -> Int {
+    var i = 0
+    while i < 1000000 {
+        if cancelled() {
+            return base + 100
+        }
+        yield_now()
+        i = i + 1
+    }
+    base
+}
+
+func caller() -> Int {
+    leaf(7)
+}
+
+func main() {
+    let a = Task.spawn(leaf(1))
+    let b = Task.spawn(caller())
+    a.cancel()
+    b.cancel()
+    print(a.join())
+    print(b.join())
+}

@@ -1,0 +1,37 @@
+// tests/corpus/taskgroup_cancel_check, with `Task.spawn` in place of its
+// `TaskGroup`, which waits on SL:coroutines A8b (SL-564): cooperative
+// cancellation observed at an explicit check. The handle cancels the task
+// before it first runs; the task sees `cancelled()` at its first check and
+// returns through its own code, so its value is dropped exactly once, when the
+// task returns, before `join()` hands back -1.
+import std.task.*
+
+struct Res {
+    id: Int
+}
+
+extension Res: NoCopy {
+    func deinit(&var self) {
+        print(self.id)
+    }
+}
+
+func worker() -> Int {
+    let held = Res(id: 77)
+    var i = 0
+    while i < 1000000 {
+        if cancelled() {
+            return 0 - 1
+        }
+        yield_now()
+        i = i + 1
+    }
+    100
+}
+
+func main() {
+    let h = Task.spawn(worker())
+    h.cancel()
+    print(h.join())
+    print(9)
+}

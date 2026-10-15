@@ -15,7 +15,11 @@ public func yield_now() {
     __saw_park_ready()
 }
 
-/// Parks the running task for at least `duration`.
+/// Parks the running task for at least `duration`, or until the task is
+/// cancelled, whichever comes first.
+///
+/// A cancelled task's `sleep` returns at once; `cancelled()` tells the two
+/// apart.
 public func sleep(duration: Duration) {
     __saw_park_timer(duration.as_nanos())
 }
@@ -33,6 +37,11 @@ public func cancelled() -> Bool {
 // records the park in the task's context (`TaskContext`), arms what wakes it,
 // and returns `Pending`. So a body here runs only when a call reached code
 // generation unlowered.
+//
+// A park returns nothing. Its cancelled outcome is the task's cancel word: a
+// cancel wakes a park of any reason (`park_wakes` in std.taskgroup), and the
+// frame that parked reads the word after its park with
+// `__saw_cancel_requested()`, which the lowering reads through the context.
 
 // A ready yield: the task stays runnable and resumes at its next turn.
 public(package) func __saw_park_ready() {

@@ -1,0 +1,13 @@
+program	compiler/tests/run/task_cancel_parked_ready.saw
+triple	aarch64-unknown-linux-gnu
+source	91d28ce1e2976474
+build	ok
+exit	0
+stdout	"main: cancelling the counter"
+stdout	"counter's value dropped"
+stdout	"main: counter returned 1"
+stdout	"main: cancelling outer"
+stdout	"inner's value dropped"
+stdout	"outer: inner returned 107"
+stdout	"main: outer returned 108"
+stdout	""

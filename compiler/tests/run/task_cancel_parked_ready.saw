@@ -1,0 +1,67 @@
+// A cancel that reaches a task parked on a ready park (SL:coroutines A10):
+// the task is already running and has parked when the cancel arrives, rather
+// than being cancelled before its first turn.
+//
+// `counter` only computes; its loop's op-budget point parks it every 128
+// iterations, and the cancel lands while it is parked there. `outer` parks on
+// `yield_now` inside `inner`, a child it drives: the cancel word the child
+// reads is the task's, through the one context every frame of the task
+// shares. Both observe the cancel at their next check and return through
+// their own code, dropping their values once.
+import std.task.{yield_now}
+
+struct Held {
+    name: String
+}
+
+extension Held: NoCopy {
+    func deinit(&var self) {
+        print("{} dropped", self.name)
+    }
+}
+
+func counter() -> Int {
+    let held = Held(name: "counter's value")
+    var i = 0
+    while not cancelled() {
+        i = i + 1
+    }
+    if i > 0 {
+        return 1
+    }
+    0
+}
+
+func inner(base: Int) -> Int {
+    let held = Held(name: "inner's value")
+    var i = 0
+    while i < 1000000 {
+        if cancelled() {
+            return base + 100
+        }
+        yield_now()
+        i = i + 1
+    }
+    base
+}
+
+func outer() -> Int {
+    let r = inner(7)
+    print("outer: inner returned {}", r)
+    r + 1
+}
+
+func main() {
+    let computing = Task.spawn(counter())
+    yield_now()
+    print("main: cancelling the counter")
+    computing.cancel()
+    print("main: counter returned {}", computing.join())
+
+    let nested = Task.spawn(outer())
+    yield_now()
+    yield_now()
+    print("main: cancelling outer")
+    nested.cancel()
+    print("main: outer returned {}", nested.join())
+}

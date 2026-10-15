@@ -1,0 +1,15 @@
+program	compiler/tests/run/task_cancel_during_sleep.saw
+triple	aarch64-unknown-linux-gnu
+source	96e43166298fb834
+build	ok
+exit	0
+stdout	"sleeper: going to sleep"
+stdout	"main: cancelling the sleeper"
+stdout	"sleeper: cancelled"
+stdout	"sleeper: a cancelled task's sleep returns at once"
+stdout	"sleeper's value dropped"
+stdout	"main: joined 1"
+stdout	"napper: going to sleep"
+stdout	"main: returning"
+stdout	"napper: cancelled"
+stdout	""

@@ -1,0 +1,8 @@
+program	compiler/tests/run/task_cancel_embedded.saw
+triple	arm64-apple-darwin
+source	0bc6fd579960710a
+build	ok
+exit	0
+stdout	"101"
+stdout	"107"
+stdout	""
