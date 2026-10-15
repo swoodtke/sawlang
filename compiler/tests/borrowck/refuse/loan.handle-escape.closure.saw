@@ -1,0 +1,18 @@
+// refuses: loan.handle-escape at 11:13
+// a closure that captures a `group.spawn` handle by move and is returned:
+// the closure's environment carries the handle's borrow of the local group
+// past the function's end.
+func work(n: Int) -> Int {
+    n
+}
+
+func deferred() -> () -> Int {
+    var g = TaskGroup()
+    let h = g.spawn(work(2))
+    { [move h] in h.join() }
+}
+
+func main() {
+    let later = deferred()
+    print("{}", later())
+}

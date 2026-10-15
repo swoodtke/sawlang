@@ -1,0 +1,24 @@
+// A `group.spawn` handle owes no fate (conformance/K80): the group form mints
+// no obligation, so a handle dropped as a bare statement, bound and never
+// joined, discarded, or moved into storage whose owner declares no `deinit`
+// is accepted, each where the same `Task.spawn` handle is refused.
+
+func work(n: Int) -> Int {
+    n
+}
+
+struct Bag {
+    held: Task<Int>
+}
+
+extension Bag: NoCopy {}
+
+func main() {
+    var group = TaskGroup()
+    group.spawn(work(1))
+    let unjoined = group.spawn(work(2))
+    let _ = group.spawn(work(3))
+    let bag = Bag(held: group.spawn(work(4)))
+    let last = group.spawn(work(6))
+    print("{}", last.join())
+}

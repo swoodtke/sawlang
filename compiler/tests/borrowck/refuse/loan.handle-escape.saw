@@ -1,0 +1,20 @@
+// refuses: loan.handle-escape at 14:5
+// SL-683's repro: a `group.spawn` handle returned from the function whose
+// local group it was spawned into. The handle carries a shared borrow of the
+// group, which ends where `leak` returns.
+import std.task.{yield_now}
+
+func work(n: Int) -> Int {
+    yield_now()
+    n
+}
+
+func leak() -> Task<Int> {
+    var g = TaskGroup()
+    g.spawn(work(5))
+}
+
+func main() {
+    let h = leak()
+    print("{}", h.join())
+}

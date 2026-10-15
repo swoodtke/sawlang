@@ -6441,6 +6441,10 @@ extension TcProgram {
         if cands.len() == 0 && self.is_builtin_method(t, &text) {
             return self.builtin_method(e, base, inner, t, &text, &args)
         }
+        let d = self.nominal_decl(t)
+        if cands.len() == 0 && d >= 0 && d == self.known.task_group && text.equals("spawn") {
+            return self.group_spawn(e, base, inner, t, &args)
+        }
         let outside = self.method_outside_slice(e, t, name, &text, &cands, &args)
         if outside.len() > 0 {
             self.set_use(base, TcUse.Borrow)
@@ -6486,8 +6490,8 @@ extension TcProgram {
 
     // What names method call `e`, of `name` on type `t`, as outside the
     // bootstrap slice, or "" when it is not: a call on an existential, a
-    // method `Box` or `Arc` forwards to its payload, `TaskGroup.spawn`, and a
-    // `borrow` block's head that lends through a closure parameter rather
+    // method `Box` or `Arc` forwards to its payload, and a `borrow` block's
+    // head that lends through a closure parameter rather
     // than as a `borrows` accessor, as today's `Mutex.lock` does.
     func method_outside_slice(&var self, e: Int, t: Int, name: Int, text: &String, cands: &Vector<TcCand>,
                               args: &TcArgs) -> String {
@@ -6496,9 +6500,6 @@ extension TcProgram {
         if cands.len() == 0 {
             if kind == TcKind.Any {
                 return "a method call on `any Trait`"
-            }
-            if d >= 0 && d == self.known.task_group && text.equals("spawn") {
-                return "`TaskGroup.spawn`"
             }
             if d >= 0 && d == self.known.interior {
                 return "a method of the interior cell `UnsafeMutableInterior`"
@@ -7054,6 +7055,46 @@ extension TcProgram {
         self.set_type(e, handle, false)
     }
 
+    // `group.spawn(f(x))`, the group spawn form: `group`, of type `t` (through
+    // a reference when `inner` is not -1), is borrowed shared for the spawn
+    // alone, since a group enqueues through its address and a task may spawn
+    // siblings into a group it was handed as `&TaskGroup` (spec, TaskGroup).
+    // The root is `Task.spawn`'s, and so is the handle; a borrow the root
+    // takes of its spawner lasts the task's life, which needs the group's
+    // extent (SL:coroutines A8c), so each is refused until then.
+    func group_spawn(&var self, e: Int, base: Int, inner: Int, t: Int, args: &TcArgs) -> Int {
+        let form = "group.spawn"
+        if inner >= 0 {
+            self.add_adjust(base, TcAdjustKind.Deref, inner)
+        }
+        let r = self.mk_ref(false, t)
+        self.add_adjust(base, TcAdjustKind.Borrow, r)
+        self.set_use(base, TcUse.Borrow)
+        let root = self.spawned_root(e, &args, form)
+        if root < 0 {
+            self.type_args_alone(&args)
+            let poisoned = self.error_type
+            return self.set_type(e, poisoned, false)
+        }
+        let body = self.expr(root, TC_WANT_NONE)
+        self.consume(root)
+        self.spawn_roots[root] = true
+        self.record_builtin(e, -1, TcRole.Spawn, form)
+        let refused = self.refuse_never_task_body(e, root, "the task never completes and `join` on its handle could never return", body)
+        let sources = self.spawn_borrow_sources(root)
+        var k = 0
+        while k < sources.len() {
+            self.not_yet(sources[k], "a borrow a `group.spawn` root takes of its spawner for the task's life (SL:coroutines A8c)")
+            k = k + 1
+        }
+        if refused || sources.len() > 0 || self.has_error(body) {
+            let poisoned = self.error_type
+            return self.set_type(e, poisoned, false)
+        }
+        let handle = self.task_handle(e, body)
+        self.set_type(e, handle, false)
+    }
+
     // `__saw_drive(f(x))` and `__saw_drive_steps(f(x))`, the test drivers
     // (design 44). The one argument is the root, a call of a function or a
     // method that the driver runs to its end over a frame of its own;
@@ -7159,6 +7200,7 @@ extension TcProgram {
     // ENTRY POINTS:
     //     task_spawn
     //     test_drive
+    //     group_spawn
     func refuse_never_task_body(&var self, at: Int, root: Int, consequence: String, body: Int) -> Bool {
         if not self.is_never(body) {
             return false
@@ -7183,6 +7225,7 @@ extension TcProgram {
     // its borrow ends with the statement.
     // ENTRY POINTS:
     //     refuse_spawn_borrows
+    //     group_spawn
     func spawn_borrow_sources(&self, root: Int) -> Vector<Int> {
         var out = Vector<Int>()
         let callee = self.res.first_node_child(root)

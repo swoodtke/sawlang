@@ -1,0 +1,126 @@
+module group_spawn_site
+
+fn group_spawn_site.work(n: Int, label: String) -> Int {
+    let _0: Int;  // return
+    let _1: Int;  // param n
+    let _2: String;  // param label
+
+    bb0: {
+        _0 = copy _1;
+        drop(_2);
+        return;
+    }
+}
+
+fn group_spawn_site.scale(n: Int) -> Int {
+    let _0: Int;  // return
+    let _1: Int;  // param n
+    let _2: Int;
+
+    bb0: {
+        _2 = Mul(copy _1, const 3: Int);
+        _0 = move _2;
+        return;
+    }
+}
+
+fn group_spawn_site.idle() -> Void {
+    let _0: Void;  // return
+
+    bb0: {
+        return;
+    }
+}
+
+fn group_spawn_site.into(group: &std.taskgroup.TaskGroup) -> Void {
+    let _0: Void;  // return
+    let _1: &std.taskgroup.TaskGroup;  // param group
+    let _2: &std.taskgroup.TaskGroup;
+    let _3: std.taskgroup.VoidTask;
+
+    bb0: {
+        _2 = ref(shared, (*_1));
+        _3 = spawn group group_spawn_site.idle() [move _2] -> [return: bb1];
+    }
+
+    bb1: {
+        drop(_3);
+        return;
+    }
+}
+
+fn group_spawn_site.main() -> Void {
+    let _0: Void;  // return
+    let _1: std.taskgroup.TaskGroup;  // group
+    let _2: std.taskgroup.TaskGroup;
+    let _3: std.taskgroup.Task<Int>;  // t
+    let _4: Int;
+    let _5: &std.taskgroup.TaskGroup;
+    let _6: std.taskgroup.Task<Int>;
+    let _7: &std.taskgroup.Task<Int>;
+    let _8: Int;
+    let _9: &std.taskgroup.TaskGroup;
+    let _10: std.taskgroup.VoidTask;
+    let _11: group_spawn_site.Holder;  // holder
+    let _12: std.taskgroup.TaskGroup;
+    let _13: group_spawn_site.Holder;
+    let _14: std.taskgroup.Task<Int>;  // h
+    let _15: &std.taskgroup.TaskGroup;
+    let _16: std.taskgroup.Task<Int>;
+    let _17: &std.taskgroup.TaskGroup;
+
+    bb0: {
+        _2 = call std.taskgroup.TaskGroup.init() (owner std.taskgroup.TaskGroup) [] -> [return: bb1];
+    }
+
+    bb1: {
+        _1 = move _2;
+        _4 = call group_spawn_site.scale(n: Int) [const 2: Int] -> [return: bb2];
+    }
+
+    bb2: {
+        _5 = ref(shared, _1);
+        _6 = spawn group group_spawn_site.work(n: Int, label: String) [move _5, move _4, const "first": String] -> [return: bb3];
+    }
+
+    bb3: {
+        _3 = move _6;
+        _7 = ref(shared, _3);
+        _8 = call std.taskgroup.Task.join() (owner std.taskgroup.Task<Int>) [move _7] -> [return: bb4];
+    }
+
+    bb4: {
+        call builtin print [format "{}", copy _8] -> [return: bb5];
+    }
+
+    bb5: {
+        _9 = ref(shared, _1);
+        _10 = spawn group group_spawn_site.idle() [move _9] -> [return: bb6];
+    }
+
+    bb6: {
+        drop(_10);
+        _12 = call std.taskgroup.TaskGroup.init() (owner std.taskgroup.TaskGroup) [] -> [return: bb7];
+    }
+
+    bb7: {
+        _13 = group_spawn_site.Holder { group: move _12 };
+        _11 = move _13;
+        _15 = ref(shared, _11.group);
+        _16 = spawn group group_spawn_site.scale(n: Int) [move _15, const 4: Int] -> [return: bb8];
+    }
+
+    bb8: {
+        _14 = move _16;
+        _17 = ref(shared, _1);
+        call group_spawn_site.into(group: &std.taskgroup.TaskGroup) [move _17] -> [return: bb9];
+    }
+
+    bb9: {
+        drop(_14);
+        drop(_11);
+        drop(_3);
+        drop(_1);
+        return;
+    }
+}

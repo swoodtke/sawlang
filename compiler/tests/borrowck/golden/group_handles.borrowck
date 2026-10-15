@@ -1,0 +1,311 @@
+module group_handles
+
+fn group_handles.work(n: Int) {
+
+    bb0: {
+        [] _0 = copy _1;
+        [] return;
+    }
+}
+
+fn group_handles.finish(h: std.taskgroup.Task<Int>) {
+    place _1: std.taskgroup.Task<Int>;  // h
+    loan L0: shared _1;  // argument at 13:5
+
+    bb0: {
+        [W] {} _2 = ref(shared, _1);
+        [W] {L0} _3 = call std.taskgroup.Task.join() (owner std.taskgroup.Task<Int>) [move _2] -> [return: bb1];
+    }
+
+    bb1: {
+        [W] {} _0 = move _3;
+        [W] {} drop(_1);  // static
+        [D] {} return;
+    }
+}
+
+fn group_handles.apply(t: std.taskgroup.Task<Int>, body: (std.taskgroup.Task<Int>) -> Void) {
+    place _1: std.taskgroup.Task<Int>;  // t
+    place _2: (std.taskgroup.Task<Int>) -> Void;  // body
+
+    bb0: {
+        [W W] call value copy _2 [move _1] -> [return: bb1];
+    }
+
+    bb1: {
+        [M W] drop(_2);  // static
+        [M D] drop(_1);  // elided
+        [D D] return;
+    }
+}
+
+fn group_handles.into(group: &std.taskgroup.TaskGroup, n: Int) {
+    place _3: std.taskgroup.Task<Int>;  // h
+    place _5: std.taskgroup.Task<Int>;  // _5
+    loan L0: shared (*_1);  // argument at 21:13
+    loan L1: shared (*_1);  // handle at 21:13
+    loan L2: shared _3;  // argument at 22:5
+
+    bb0: {
+        [U U] {} _4 = ref(shared, (*_1));
+        [U U] {L0} _5 = spawn group group_handles.work(n: Int) [move _4, copy _2] -> [return: bb1];
+    }
+
+    bb1: {
+        [U W] {L1} _3 = move _5;
+        [W M] {L1} _6 = ref(shared, _3);
+        [W M] {L2} _7 = call std.taskgroup.Task.join() (owner std.taskgroup.Task<Int>) [move _6] -> [return: bb2];
+    }
+
+    bb2: {
+        [W M] {} _0 = move _7;
+        [W M] {} drop(_3);  // static
+        [D M] {} return;
+    }
+}
+
+fn group_handles.main() {
+    place _1: std.taskgroup.TaskGroup;  // group
+    place _2: std.taskgroup.TaskGroup;  // _2
+    place _3: std.taskgroup.Task<Int>;  // a
+    place _5: std.taskgroup.Task<Int>;  // _5
+    place _6: std.taskgroup.Task<Int>;  // b
+    place _8: std.taskgroup.Task<Int>;  // _8
+    place _15: std.taskgroup.Task<Int>;  // _15
+    place _16: group_handles.Pair;  // pair
+    place _18: std.taskgroup.Task<Int>;  // _18
+    place _20: std.taskgroup.Task<Int>;  // _20
+    place _21: group_handles.Pair;  // _21
+    place _27: std.taskgroup.Task<Int>?;  // maybe
+    place _28: std.taskgroup.Task<Int>?;  // _28
+    place _30: std.taskgroup.Task<Int>;  // _30
+    place _31: std.taskgroup.Task<Int>?;  // _31
+    place _32: std.vector.Vector<std.taskgroup.Task<Int>, std.alloc.GlobalAllocator>;  // kept
+    place _33: std.vector.Vector<std.taskgroup.Task<Int>, std.alloc.GlobalAllocator>;  // _33
+    place _35: std.taskgroup.Task<Int>;  // _35
+    place _37: Result<Void, std.alloc.AllocError>;  // _37
+    place _44: std.taskgroup.Task<Int>;  // _44
+    place _46: std.vector.Vector<std.taskgroup.Task<Int>, std.alloc.GlobalAllocator>;  // seen
+    place _47: std.vector.Vector<std.taskgroup.Task<Int>, std.alloc.GlobalAllocator>;  // _47
+    place _49: std.taskgroup.Task<Int>;  // _49
+    place _51: (std.taskgroup.Task<Int>) -> Void;  // _51
+    place _16.first: std.taskgroup.Task<Int>;  // pair.first
+    place _16.second: std.taskgroup.Task<Int>;  // pair.second
+    loan L0: shared _1;  // argument at 34:13
+    loan L1: shared _1;  // handle at 34:13
+    loan L2: shared _1;  // argument at 35:13
+    loan L3: shared _1;  // handle at 35:13
+    loan L4: shared _1;  // argument at 36:22
+    loan L5: shared _3;  // argument at 37:17
+    loan L6: shared _6;  // argument at 38:5
+    loan L7: shared _1;  // argument at 39:5
+    loan L8: shared _1;  // handle at 39:5
+    loan L9: shared _1;  // argument at 40:28
+    loan L10: shared _1;  // handle at 40:28
+    loan L11: shared _1;  // argument at 40:58
+    loan L12: shared _1;  // handle at 40:58
+    loan L13: shared _16.first;  // argument at 41:17
+    loan L14: shared _16.second;  // argument at 41:37
+    loan L15: shared _1;  // argument at 43:13
+    loan L16: shared _1;  // handle at 43:13
+    loan L17: shared _1;  // argument at 45:20
+    loan L18: shared _1;  // handle at 45:20
+    loan L19: exclusive _32;  // argument at 45:10
+    loan L20: shared _32;  // argument at 46:17
+    loan L21: shared _1;  // argument at 47:22
+    loan L22: shared _1;  // argument at 48:24
+    loan L23: shared _1;  // handle at 48:24
+    loan L24: shared _1;  // argument at 50:11
+    loan L25: shared _1;  // handle at 50:11
+    loan L26: exclusive _46;  // capture at 50:34
+    loan L27: exclusive (*_50);  // capture at 50:34
+    loan L28: shared _46;  // argument at 51:17
+
+    bb0: {
+        [U U U U U U U U U U U U U U U U U U U U U U U U U U] {} _2 = call std.taskgroup.TaskGroup.init() (owner std.taskgroup.TaskGroup) [] -> [return: bb1];
+    }
+
+    bb1: {
+        [U W U U U U U U U U U U U U U U U U U U U U U U U U] {} _1 = move _2;
+        [W M U U U U U U U U U U U U U U U U U U U U U U U U] {} _4 = ref(shared, _1);
+        [W M U U U U U U U U U U U U U U U U U U U U U U U U] {L0} _5 = spawn group group_handles.work(n: Int) [move _4, const 1: Int] -> [return: bb2];
+    }
+
+    bb2: {
+        [W M U W U U U U U U U U U U U U U U U U U U U U U U] {L1} _3 = move _5;
+        [W M W M U U U U U U U U U U U U U U U U U U U U U U] {L1} _7 = ref(shared, _1);
+        [W M W M U U U U U U U U U U U U U U U U U U U U U U] {L1 L2} _8 = spawn group group_handles.work(n: Int) [move _7, const 2: Int] -> [return: bb3];
+    }
+
+    bb3: {
+        [W M W M U W U U U U U U U U U U U U U U U U U U U U] {L1 L3} _6 = move _8;
+        [W M W M W M U U U U U U U U U U U U U U U U U U U U] {L1 L3} _9 = ref(shared, _1);
+        [W M W M W M U U U U U U U U U U U U U U U U U U U U] {L1 L3 L4} _10 = call std.taskgroup.TaskGroup.count() (owner std.taskgroup.TaskGroup) [move _9] -> [return: bb4];
+    }
+
+    bb4: {
+        [W M W M W M U U U U U U U U U U U U U U U U U U U U] {L1 L3} call builtin print [format "{} live", copy _10] -> [return: bb5];
+    }
+
+    bb5: {
+        [W M W M W M U U U U U U U U U U U U U U U U U U U U] {L1 L3} _11 = ref(shared, _3);
+        [W M W M W M U U U U U U U U U U U U U U U U U U U U] {L3 L5} _12 = call std.taskgroup.Task.join() (owner std.taskgroup.Task<Int>) [move _11] -> [return: bb6];
+    }
+
+    bb6: {
+        [W M W M W M U U U U U U U U U U U U U U U U U U U U] {L3} call builtin print [format "{}", copy _12] -> [return: bb7];
+    }
+
+    bb7: {
+        [W M W M W M U U U U U U U U U U U U U U U U U U U U] {L3} _13 = ref(shared, _6);
+        [W M W M W M U U U U U U U U U U U U U U U U U U U U] {L6} call std.taskgroup.Task.cancel() (owner std.taskgroup.Task<Int>) [move _13] -> [return: bb8];
+    }
+
+    bb8: {
+        [W M W M W M U U U U U U U U U U U U U U U U U U U U] {} _14 = ref(shared, _1);
+        [W M W M W M U U U U U U U U U U U U U U U U U U U U] {L7} _15 = spawn group group_handles.work(n: Int) [move _14, const 3: Int] -> [return: bb9];
+    }
+
+    bb9: {
+        [W M W M W M W U U U U U U U U U U U U U U U U U U U] {} drop(_15);  // static
+        [W M W M W M D U U U U U U U U U U U U U U U U U U U] {} _17 = ref(shared, _1);
+        [W M W M W M D U U U U U U U U U U U U U U U U U U U] {L9} _18 = spawn group group_handles.work(n: Int) [move _17, const 4: Int] -> [return: bb10];
+    }
+
+    bb10: {
+        [W M W M W M D U W U U U U U U U U U U U U U U U U U] {L10} _19 = ref(shared, _1);
+        [W M W M W M D U W U U U U U U U U U U U U U U U U U] {L10 L11} _20 = spawn group group_handles.work(n: Int) [move _19, const 5: Int] -> [return: bb11];
+    }
+
+    bb11: {
+        [W M W M W M D U W W U U U U U U U U U U U U U U U U] {L10 L12} _21 = group_handles.Pair { first: move _18, second: move _20 };
+        [W M W M W M D U M M W U U U U U U U U U U U U U U U] {L10 L12} _16 = move _21;
+        [W M W M W M D W M M M U U U U U U U U U U U U U W W] {L10 L12} _22 = ref(shared, _16.first);
+        [W M W M W M D W M M M U U U U U U U U U U U U U W W] {L10 L12 L13} _23 = call std.taskgroup.Task.join() (owner std.taskgroup.Task<Int>) [move _22] -> [return: bb12];
+    }
+
+    bb12: {
+        [W M W M W M D W M M M U U U U U U U U U U U U U W W] {L10 L12} _24 = ref(shared, _16.second);
+        [W M W M W M D W M M M U U U U U U U U U U U U U W W] {L14} _25 = call std.taskgroup.Task.join() (owner std.taskgroup.Task<Int>) [move _24] -> [return: bb13];
+    }
+
+    bb13: {
+        [W M W M W M D W M M M U U U U U U U U U U U U U W W] {} _26 = Add(move _23, move _25);
+        [W M W M W M D W M M M U U U U U U U U U U U U U W W] {} call builtin print [format "{}", move _26] -> [return: bb14];
+    }
+
+    bb14: {
+        [W M W M W M D W M M M U U U U U U U U U U U U U W W] {} _28 = std.taskgroup.Task<Int>?::None;
+        [W M W M W M D W M M M U W U U U U U U U U U U U W W] {} _27 = move _28;
+        [W M W M W M D W M M M W M U U U U U U U U U U U W W] {} _29 = ref(shared, _1);
+        [W M W M W M D W M M M W M U U U U U U U U U U U W W] {L15} _30 = spawn group group_handles.work(n: Int) [move _29, const 6: Int] -> [return: bb15];
+    }
+
+    bb15: {
+        [W M W M W M D W M M M W M W U U U U U U U U U U W W] {L16} _31 = std.taskgroup.Task<Int>?::Some(move _30);
+        [W M W M W M D W M M M W M M W U U U U U U U U U W W] {L16} drop(_27);  // static
+        [W M W M W M D W M M M D M M W U U U U U U U U U W W] {L16} _27 = move _31;
+        [W M W M W M D W M M M W M M M U U U U U U U U U W W] {} _33 = call std.vector.Vector.init() (owner std.vector.Vector<std.taskgroup.Task<Int>, std.alloc.GlobalAllocator>) [] -> [return: bb16];
+    }
+
+    bb16: {
+        [W M W M W M D W M M M W M M M U W U U U U U U U W W] {} _32 = move _33;
+        [W M W M W M D W M M M W M M M W M U U U U U U U W W] {} _34 = ref(shared, _1);
+        [W M W M W M D W M M M W M M M W M U U U U U U U W W] {L17} _35 = spawn group group_handles.work(n: Int) [move _34, const 7: Int] -> [return: bb17];
+    }
+
+    bb17: {
+        [W M W M W M D W M M M W M M M W M W U U U U U U W W] {L18} _36 = ref(exclusive, _32);
+        [W M W M W M D W M M M W M M M W M W U U U U U U W W] {L18 L19} _37 = call std.vector.Vector.push(value: T) (owner std.vector.Vector<std.taskgroup.Task<Int>, std.alloc.GlobalAllocator>) [move _36, move _35] -> [return: bb18];
+    }
+
+    bb18: {
+        [W M W M W M D W M M M W M M M W M M W U U U U U W W] {L18} _38 = copy (_37 as Ok!).0;
+        [W M W M W M D W M M M W M M M W M M W U U U U U W W] {L18} drop(_37);  // static
+        [W M W M W M D W M M M W M M M W M M D U U U U U W W] {L18} _39 = ref(shared, _32);
+        [W M W M W M D W M M M W M M M W M M D U U U U U W W] {L20} _40 = call std.vector.Vector.len() (owner std.vector.Vector<std.taskgroup.Task<Int>, std.alloc.GlobalAllocator>) [move _39] -> [return: bb19];
+    }
+
+    bb19: {
+        [W M W M W M D W M M M W M M M W M M D U U U U U W W] {} call builtin print [format "{}", copy _40] -> [return: bb20];
+    }
+
+    bb20: {
+        [W M W M W M D W M M M W M M M W M M D U U U U U W W] {} _41 = ref(shared, _1);
+        [W M W M W M D W M M M W M M M W M M D U U U U U W W] {L21} _42 = call group_handles.into(group: &std.taskgroup.TaskGroup, n: Int) [move _41, const 8: Int] -> [return: bb21];
+    }
+
+    bb21: {
+        [W M W M W M D W M M M W M M M W M M D U U U U U W W] {} call builtin print [format "{}", copy _42] -> [return: bb22];
+    }
+
+    bb22: {
+        [W M W M W M D W M M M W M M M W M M D U U U U U W W] {} _43 = ref(shared, _1);
+        [W M W M W M D W M M M W M M M W M M D U U U U U W W] {L22} _44 = spawn group group_handles.work(n: Int) [move _43, const 9: Int] -> [return: bb23];
+    }
+
+    bb23: {
+        [W M W M W M D W M M M W M M M W M M D W U U U U W W] {L23} _45 = call group_handles.finish(h: std.taskgroup.Task<Int>) [move _44] -> [return: bb24];
+    }
+
+    bb24: {
+        [W M W M W M D W M M M W M M M W M M D M U U U U W W] {L23} call builtin print [format "{}", copy _45] -> [return: bb25];
+    }
+
+    bb25: {
+        [W M W M W M D W M M M W M M M W M M D M U U U U W W] {} _47 = call std.vector.Vector.init() (owner std.vector.Vector<std.taskgroup.Task<Int>, std.alloc.GlobalAllocator>) [] -> [return: bb26];
+    }
+
+    bb26: {
+        [W M W M W M D W M M M W M M M W M M D M U W U U W W] {} _46 = move _47;
+        [W M W M W M D W M M M W M M M W M M D M W M U U W W] {} _48 = ref(shared, _1);
+        [W M W M W M D W M M M W M M M W M M D M W M U U W W] {L24} _49 = spawn group group_handles.work(n: Int) [move _48, const 10: Int] -> [return: bb27];
+    }
+
+    bb27: {
+        [W M W M W M D W M M M W M M M W M M D M W M W U W W] {L25} _50 = ref(exclusive, _46);
+        [W M W M W M D W M M M W M M M W M M D M W M W U W W] {L25 L26} _51 = closure#0 of group_handles.main() [move _50];
+        [W M W M W M D W M M M W M M M W M M D M W M W W W W] {L25 L26 L27} call group_handles.apply(t: std.taskgroup.Task<Int>, body: (std.taskgroup.Task<Int>) -> Void) [move _49, move _51] -> [return: bb28];
+    }
+
+    bb28: {
+        [W M W M W M D W M M M W M M M W M M D M W M M M W W] {L25} _52 = ref(shared, _46);
+        [W M W M W M D W M M M W M M M W M M D M W M M M W W] {L28} _53 = call std.vector.Vector.len() (owner std.vector.Vector<std.taskgroup.Task<Int>, std.alloc.GlobalAllocator>) [move _52] -> [return: bb29];
+    }
+
+    bb29: {
+        [W M W M W M D W M M M W M M M W M M D M W M M M W W] {} call builtin print [format "{}", copy _53] -> [return: bb30];
+    }
+
+    bb30: {
+        [W M W M W M D W M M M W M M M W M M D M W M M M W W] {} drop(_46);  // static
+        [W M W M W M D W M M M W M M M W M M D M D M M M W W] {} drop(_32);  // static
+        [W M W M W M D W M M M W M M M D M M D M D M M M W W] {} drop(_27);  // static
+        [W M W M W M D W M M M D M M M D M M D M D M M M W W] {} drop(_16);  // static
+        [W M W M W M D D M M M D M M M D M M D M D M M M D D] {} drop(_6);  // static
+        [W M W M D M D D M M M D M M M D M M D M D M M M D D] {} drop(_3);  // static
+        [W M D M D M D D M M M D M M M D M M D M D M M M D D] {} drop(_1);  // static
+        [D M D M D M D D M M M D M M M D M M D M D M M M D D] {} return;
+    }
+}
+
+fn closure#0 of group_handles.main() {
+    place _2: std.taskgroup.Task<Int>;  // t
+    place _4: std.taskgroup.Task<Int>;  // _4
+    place _6: Result<Void, std.alloc.AllocError>;  // _6
+    loan L0: exclusive (*_3);  // argument at 50:58
+
+    bb0: {
+        [W U U] {} _3 = copy (*_1).0;
+        [W U U] {} _4 = move _2;
+        [M W U] {} _5 = ref(exclusive, (*_3));
+        [M W U] {L0} _6 = call std.vector.Vector.push(value: T) (owner std.vector.Vector<std.taskgroup.Task<Int>, std.alloc.GlobalAllocator>) [move _5, move _4] -> [return: bb1];
+    }
+
+    bb1: {
+        [M M W] {} _7 = copy (_6 as Ok!).0;
+        [M M W] {} drop(_6);  // static
+        [M M D] {} drop(_2);  // elided
+        [D M D] {} return;
+    }
+}

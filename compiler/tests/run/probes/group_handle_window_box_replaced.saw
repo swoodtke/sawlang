@@ -1,0 +1,27 @@
+// probe: panics
+// about: a `Box<TaskGroup>` replaced while a handle minted through its borrow window is outstanding panics at the old group's teardown, before the handle can reach freed storage (SL-564)
+// stage 0: cannot parse a `borrow` block
+// speeds: -O0 -O2
+// The assignment destroys the old box, whose group's teardown joins its task
+// and then finds the kept handle's fate unwritten. The join after it never
+// runs.
+// prints: window closed
+// panics: TaskGroup: destroyed while 1 task handle still refers to it
+import std.task.{yield_now}
+
+func work(n: Int) -> Int {
+    yield_now()
+    n * 2
+}
+
+func main() {
+    var g = try! Box<TaskGroup>.make(TaskGroup())
+    var kept: Task<Int>? = None
+    borrow var p = g.value() {
+        kept = p.spawn(work(7))
+    }
+    print("window closed")
+    g = try! Box<TaskGroup>.make(TaskGroup())
+    print("replaced")
+    print("joined {}", kept.take()!.join())
+}

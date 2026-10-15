@@ -153,17 +153,21 @@ call:
   shows one.
 - A **spawn site**, `PLACE = spawn FORM TARGET [(inst T...)] [ARGS] ->
   [return: bbK];`, is a cooperative spawn form (`Task.spawn(f(x))`, FORM
-  `singleton`). ARGS are the root call's arguments, evaluated before it in
-  the spawner as any call's are, a nested call among them included; TARGET,
-  the root, is not called here, since the task makes that call (golden
-  `spawn_site`). PLACE is the handle, `Task<T>` for a root of type `T` or
-  `VoidTask` for a `Void` one. The site is no suspension point. The verifier
-  checks that a spawn site names a form and a free function, returns, passes
+  `singleton`, or `group.spawn(f(x))`, FORM `group`). ARGS are the root
+  call's arguments, evaluated before it in the spawner as any call's are, a
+  nested call among them included; a group site passes a shared reference to
+  its group first, borrowed after the arguments as a method's receiver is
+  (golden `group_spawn_site`). TARGET, the root, is not called here, since
+  the task makes that call (golden `spawn_site`). PLACE is the handle,
+  `Task<T>` for a root of type `T` or `VoidTask` for a `Void` one. The site
+  is no suspension point. The verifier checks that a spawn site names a form
+  and a free function, returns, passes a group site's `&TaskGroup` and then
   arguments of its root's parameter types, and leaves the handle its form
   gives, and that no other call carries a form. A singleton site's handle
   must reach a written fate, which drop elaboration checks
-  (`compiler/tests/drops/README.md`, "Fates"); coroutine lowering refuses
-  every spawn site until it lowers task roots (`compiler/tests/coro/README.md`).
+  (`compiler/tests/drops/README.md`, "Fates"); a group site's owes none.
+  Coroutine lowering rewrites each site over std's executor
+  (`compiler/tests/coro/README.md`, "Spawn sites").
 - A **drive site**, `[PLACE = ] drive FORM TARGET [(owner T)] [(inst T...)]
   [ARGS] -> [return: bbK];`, is a test driver's call (`__saw_drive(f(x))`,
   FORM `result`, or `__saw_drive_steps(f(x))`, FORM `steps`). ARGS are the

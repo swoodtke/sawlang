@@ -1,0 +1,24 @@
+// Lowered group spawn sites (SL:coroutines A8b). A group site lowers as a
+// `Task.spawn` site does, but the task is enqueued into the group whose
+// shared reference the site passes, cast to the group's pointer beside the
+// writes into the box, and `__saw_spawn` mints the handle with the group
+// provenance. The group's own spawn of a root that never suspends frames it
+// all the same.
+import std.task.{yield_now}
+
+func double(n: Int) -> Int {
+    n * 2
+}
+
+func hello(name: String) {
+    yield_now()
+    print("{}", name)
+}
+
+func main() {
+    var group = TaskGroup()
+    let a = group.spawn(double(4))
+    print("{}", a.join())
+    let b = group.spawn(hello("root"))
+    b.join()
+}

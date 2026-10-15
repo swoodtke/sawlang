@@ -1,0 +1,9 @@
+// refuses: type.reference-position at 8:13
+// `let r = &group`: no binding holds a group's reference, so a handle reaches
+// a group through one only as a parameter or a borrow window's lend binding
+// (conformance row K167)
+
+func main() {
+    var group = TaskGroup()
+    let r = &group
+}

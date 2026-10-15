@@ -2950,7 +2950,10 @@ extension MirProgram {
             case Memberwise -> MirVal(operand: self.construction(e, &c, MirAggregate.Struct)),
             case Case -> MirVal(operand: self.construction(e, &c, MirAggregate.Case)),
             case Value -> self.value_call(e, &c),
-            case Spawn -> self.spawn_site(e, MirSpawnForm.Singleton),
+            case Spawn -> {
+                let group = self.tc.name_text(c.spelling).equals("group.spawn")
+                self.spawn_site(e, if group { MirSpawnForm.Group } else { MirSpawnForm.Singleton })
+            },
             case Call -> {
                 let s = self.tc.sigs[c.target]
                 if (s.effects & TC_EFFECT_BORROWS) == 0 {
@@ -3052,10 +3055,11 @@ extension MirProgram {
         move all
     }
 
-    // Spawn form `e` of form `form`: its root call's arguments evaluated
-    // here, in the spawner, then a spawn terminator that hands the task those
-    // values and leaves the handle in a temporary. The root's body is the
-    // task's, so the root is no call here and no suspension point.
+    // Spawn form `e` of form `form`: a group form's shared reference to its
+    // group, then its root call's arguments, evaluated here, in the spawner,
+    // then a spawn terminator that hands the task those values and leaves
+    // the handle in a temporary. The root's body is the task's, so the root
+    // is no call here and no suspension point.
     func spawn_site(&var self, e: Int, form: MirSpawnForm) -> MirVal {
         let t = self.tc.expr_types[e]
         let written = self.written_arguments(e)
@@ -3066,9 +3070,27 @@ extension MirProgram {
             return MirVal(operand: self.dead_operand(t))
         }
         let rc = self.tc.calls[at]
+        var args = Vector<Int>()
+        var steps = Vector<MirStep>()
+        let callee = self.tc.res.first_node_child(e)
+        let base = self.tc.res.first_node_child(callee)
+        if form == MirSpawnForm.Group {
+            self.prepare_base(base, &var steps)
+            self.open_receiver_windows(&var steps)
+        }
         let saved = self.source_at(root)
-        let args = self.call_arguments(root, &rc, false)
+        let root_args = self.call_arguments(root, &rc, false)
         self.source_restore(saved)
+        if form == MirSpawnForm.Group {
+            // The group is borrowed last, as a method's receiver is, so the
+            // reference spans no argument's evaluation.
+            let p = self.realize_all(&steps)
+            let rv = self.rv_ref(false, p)
+            let rl = self.temp_of(rv)
+            let rp = self.place_local(rl)
+            try! args.push(self.op_move(rp))
+        }
+        self.append_all(&var args, &root_args)
         var call = self.blank_call(MirCallKind.Spawn, e)
         call.target = rc.target
         call.owner = rc.owner

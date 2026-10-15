@@ -140,8 +140,8 @@ type's glue, generated once per concrete type at monomorphization
 A handle a singleton spawn form mints must reach `join()`, `detach()` or
 `cancel()` on every path (spec, *No implicit fates*). The obligation follows
 the FORM, not the type: `group.spawn` mints the same `Task<T>`, and its
-handle may be dropped. So it is the spawn site that owes it, `mir_owes_fate`
-over the MIR's spawn terminator (`compiler/tests/mir/README.md`), and no type
+handle may be dropped (golden `fates_group`). So it is the spawn site that
+owes it, `mir_owes_fate` over the MIR's spawn terminator (`compiler/tests/mir/README.md`), and no type
 or lang role carries it. Where a site owes one is decided by one funnel,
 `mir_mint_obligation` (`compiler/mir/src/model.saw`), whose docstring names
 its entry points: `Task.spawn`'s lowering now, and `Thread.spawn`'s with

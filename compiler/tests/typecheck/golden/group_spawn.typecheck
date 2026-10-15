@@ -1,0 +1,67 @@
+(Module group_spawn
+  (declarations
+    (func work 8:6 private (signature (params (n Int owned)) -> Int) (summary body (suspends yes) (sync-callable no)))
+    (func ping 13:6 private (signature (params) -> Void) (summary body (suspends yes) (sync-callable no)))
+    (struct Holder 17:8 private)
+    (field Holder.group 18:5 private std.taskgroup.TaskGroup)
+    (extension 21:1 (target group_spawn.Holder) (conforms NoCopy))
+    (extension 22:1 (target group_spawn.Holder) (conforms NoMove))
+    (func into 24:6 private (signature (params (group &std.taskgroup.TaskGroup shared)) (effects sync) -> Int) (summary body (suspends no) (sync-callable yes)))
+    (func main 29:6 private (signature (params) -> Void) (summary body (suspends no) (sync-callable yes))))
+  (members
+    (group_spawn.Holder
+      (field group std.taskgroup.TaskGroup private declared)
+      (method deinit public (synthesized Deinit))))
+  (views
+    (group_spawn.Holder group deinit))
+  (conformances
+    (group_spawn.Holder NoCopy 21:19 (deinit implicit))
+    (group_spawn.Holder NoMove 22:19))
+  (copy-tier
+    (group_spawn.Holder NoCopy declared))
+  (bodies
+    (work 8:6
+      (9:5-9:16 Call.paren Void value temp (call std.task.yield_now()))
+      (10:5-10:6 Name Int place copy))
+    (ping 13:6
+      (14:5-14:16 Call.paren Void value temp (call std.task.yield_now())))
+    (into 24:6
+      (25:9-25:10 BindingName std.taskgroup.Task<Int> place temp)
+      (25:13-25:33 Call.paren std.taskgroup.Task<Int> value temp (spawn group.spawn))
+      (25:13-25:18 Name &std.taskgroup.TaskGroup (deref std.taskgroup.TaskGroup) (borrow &std.taskgroup.TaskGroup) place borrow)
+      (25:25-25:32 Call.paren Int value temp (call group_spawn.work(n: Int)))
+      (25:30-25:31 IntLit Int value temp)
+      (26:5-26:13 Call.paren Int value temp (call std.taskgroup.Task.join() (owner std.taskgroup.Task<Int>)))
+      (26:5-26:6 Name std.taskgroup.Task<Int> (borrow &std.taskgroup.Task<Int>) place borrow))
+    (main 29:6
+      (30:9-30:14 BindingName std.taskgroup.TaskGroup place temp)
+      (30:17-30:28 Call.paren std.taskgroup.TaskGroup value temp (call std.taskgroup.TaskGroup.init() (owner std.taskgroup.TaskGroup)))
+      (31:9-31:10 BindingName std.taskgroup.Task<Int> place temp)
+      (31:13-31:33 Call.paren std.taskgroup.Task<Int> value temp (spawn group.spawn))
+      (31:13-31:18 Name std.taskgroup.TaskGroup (borrow &std.taskgroup.TaskGroup) place borrow)
+      (31:25-31:32 Call.paren Int value temp (call group_spawn.work(n: Int)))
+      (31:30-31:31 IntLit Int value temp)
+      (32:9-32:10 BindingName std.taskgroup.VoidTask place temp)
+      (32:13-32:32 Call.paren std.taskgroup.VoidTask value temp (spawn group.spawn))
+      (32:13-32:18 Name std.taskgroup.TaskGroup (borrow &std.taskgroup.TaskGroup) place borrow)
+      (32:25-32:31 Call.paren Void value temp (call group_spawn.ping()))
+      (33:9-33:15 BindingName group_spawn.Holder place temp)
+      (33:18-33:44 Call.paren group_spawn.Holder value temp (memberwise group_spawn.Holder (owner group_spawn.Holder)))
+      (33:32-33:43 Call.paren std.taskgroup.TaskGroup value temp (call std.taskgroup.TaskGroup.init() (owner std.taskgroup.TaskGroup)))
+      (34:9-34:10 BindingName std.taskgroup.Task<Int> place temp)
+      (34:13-34:40 Call.paren std.taskgroup.Task<Int> value temp (spawn group.spawn))
+      (34:13-34:25 Member std.taskgroup.TaskGroup (borrow &std.taskgroup.TaskGroup) place borrow)
+      (34:13-34:19 Name group_spawn.Holder place project)
+      (34:32-34:39 Call.paren Int value temp (call group_spawn.work(n: Int)))
+      (34:37-34:38 IntLit Int value temp)
+      (35:5-35:56 Call.paren Void value temp (builtin print))
+      (35:11-35:21 Interp String value temp)
+      (35:23-35:31 Call.paren Int value borrow (call std.taskgroup.Task.join() (owner std.taskgroup.Task<Int>)))
+      (35:23-35:24 Name std.taskgroup.Task<Int> (borrow &std.taskgroup.Task<Int>) place borrow)
+      (35:33-35:41 Call.paren Int value borrow (call std.taskgroup.Task.join() (owner std.taskgroup.Task<Int>)))
+      (35:33-35:34 Name std.taskgroup.Task<Int> (borrow &std.taskgroup.Task<Int>) place borrow)
+      (35:43-35:55 Call.paren Int value borrow (call group_spawn.into(group: &std.taskgroup.TaskGroup)))
+      (35:48-35:54 Ref.shared &std.taskgroup.TaskGroup value temp)
+      (35:49-35:54 Name std.taskgroup.TaskGroup place borrow)
+      (36:5-36:13 Call.paren Void value temp (call std.taskgroup.VoidTask.join() (owner std.taskgroup.VoidTask)))
+      (36:5-36:6 Name std.taskgroup.VoidTask (borrow &std.taskgroup.VoidTask) place borrow))))

@@ -1,0 +1,17 @@
+// refuses: loan.handle-escape at 12:12
+// a handle stored into a static: no scope ends a static, so it outlives every
+// group.
+func work(n: Int) -> Int {
+    n
+}
+
+unsafe static var KEPT: Task<Int>? = None
+
+func stash() unsafe {
+    var g = TaskGroup()
+    KEPT = g.spawn(work(6))
+}
+
+func main() {
+    stash()
+}

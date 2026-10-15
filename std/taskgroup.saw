@@ -156,13 +156,18 @@ public struct TaskGroup {
     // end, and whether this group is in the list.
     private next: Int
     private registered: Bool
+    // The `group.spawn` handles whose fate is not written yet, which the
+    // teardown requires to be none (`check_no_outstanding`). Under `threads: N`
+    // it becomes an atomic, read after the workers join (SL:coroutines A17a).
+    private outstanding: Int
 }
 
 extension TaskGroup {
     /// Creates an empty group, whose tasks run on the shared cooperative
     /// scheduler.
     public init() -> TaskGroup {
-        TaskGroup(slots: Vector<TaskSlot>(), free: Vector<Int>(), next: 0, registered: false)
+        TaskGroup(slots: Vector<TaskSlot>(), free: Vector<Int>(), next: 0, registered: false,
+                  outstanding: 0)
     }
 
     /// Returns the number of task slots the group holds: its live tasks, plus
@@ -178,7 +183,9 @@ extension TaskGroup {
 // Nothing is cancelled. The sweep skips every frame active on this thread's
 // stack, so a group torn down while one of its own tasks is further up the
 // stack would release a frame that has not returned `Ready`; it panics
-// instead (SL:coroutines §3.1).
+// instead (SL:coroutines §3.1). The outstanding-handle check sits between the
+// join and the release: a handle a task's own frame held was dropped by that
+// task's code during the join, and nothing a late handle reads is freed yet.
 extension TaskGroup: NoCopy {
     public func deinit(&var self) unsafe {
         if self.registered {
@@ -188,9 +195,54 @@ extension TaskGroup: NoCopy {
                 panic("TaskGroup: the group is torn down while one of its tasks is running further up this thread's stack")
             }
         }
+        check_no_outstanding(&self)
         unregister(&var self)
         release_slots(&var self)
     }
+}
+
+// A group may be destroyed only once every `group.spawn` handle to it has its
+// fate written. Each of a handle's operations, its drop included, reads or
+// writes the group, so a handle still outstanding here would reach freed
+// storage later; the borrow check refuses the routes it sees, and this
+// catches the rest, a handle minted through a borrow window among them.
+//
+// ENTRY POINTS:
+//   TaskGroup.deinit
+func check_no_outstanding(group: &TaskGroup) {
+    let n = group.outstanding
+    if n < 0 {
+        panic("TaskGroup: a task handle's fate was counted more than once")
+    }
+    if n == 1 {
+        panic("TaskGroup: destroyed while 1 task handle still refers to it; join, cancel or drop each `group.spawn` handle before its group ends")
+    }
+    if n != 0 {
+        panic("TaskGroup: destroyed while {} task handles still refer to it; join, cancel or drop each `group.spawn` handle before its group ends",
+              n)
+    }
+}
+
+// A `group.spawn` handle to the group at `group` was minted.
+//
+// ENTRY POINTS:
+//   Task.__saw_spawn
+//   VoidTask.__saw_spawn
+func handle_minted(group: UnsafePointer<TaskGroup>) unsafe {
+    var g = group
+    g[0].outstanding += 1
+}
+
+// A `group.spawn` handle to the group at `group` had its fate written. The
+// caller's `consumed` flag makes this run once per handle, so a joined handle
+// that is dropped later counts down nothing more.
+//
+// ENTRY POINTS:
+//   Task.consume
+//   VoidTask.consume
+func handle_released(group: UnsafePointer<TaskGroup>) unsafe {
+    var g = group
+    g[0].outstanding -= 1
 }
 
 // A group is a scope whose tasks hold its address, so it lives where its
@@ -915,6 +967,7 @@ func drive_frame(descriptor: UnsafePointer<FrameDescriptor>, frame: UnsafePointe
 /// `join` waits for the task and takes its result. A handle from `Task.spawn`
 /// must be joined, detached or cancelled before it is dropped; a handle from
 /// `group.spawn` may be dropped, and the result is released with the group.
+/// A group destroyed while one of its handles is still outstanding panics.
 public struct Task<T> {
     private group: UnsafePointer<TaskGroup>
     private slot: Int
@@ -939,12 +992,24 @@ extension Task<T> {
         var g = group
         // Stage 0 workaround (SL:hazards S15): canonical: group[0].enqueue(descriptor, frame, true)
         let ticket = enqueue(&var g[0], descriptor, frame, true)
+        if provenance == TaskProvenance.Group {
+            handle_minted(group)
+        }
         Task<T>(group: group, slot: ticket.slot, generation: ticket.generation,
                 provenance: provenance, consumed: UnsafeMutableInterior(false))
     }
 
+    // Writes the handle's fate once: the first of `join`, `cancel`, `detach`
+    // and the drop marks it consumed and gives back a `group.spawn` handle's
+    // count on its group (`handle_released`); every later one does nothing.
     func consume(&self) unsafe {
+        if self.consumed.ptr()[0] {
+            return
+        }
         self.consumed.ptr()[0] = true
+        if self.provenance == TaskProvenance.Group {
+            handle_released(self.group)
+        }
     }
 
     /// Waits for the task to finish and returns its result, moving it out of
@@ -1010,6 +1075,7 @@ extension Task<T>: NoCopy {
         if self.provenance == TaskProvenance.Singleton && not self.consumed.ptr()[0] {
             panic("Task was dropped without being joined, detached or cancelled — `join()` waits for it and takes its result, `detach()` hands it to the process, `cancel()` asks it to stop")
         }
+        self.consume()
     }
 }
 
@@ -1038,12 +1104,22 @@ extension VoidTask {
         var g = group
         // Stage 0 workaround (SL:hazards S15): canonical: group[0].enqueue(descriptor, frame, true)
         let ticket = enqueue(&var g[0], descriptor, frame, true)
+        if provenance == TaskProvenance.Group {
+            handle_minted(group)
+        }
         VoidTask(group: group, slot: ticket.slot, generation: ticket.generation,
                  provenance: provenance, consumed: UnsafeMutableInterior(false))
     }
 
+    // Writes the handle's fate once, as `Task.consume` does.
     func consume(&self) unsafe {
+        if self.consumed.ptr()[0] {
+            return
+        }
         self.consumed.ptr()[0] = true
+        if self.provenance == TaskProvenance.Group {
+            handle_released(self.group)
+        }
     }
 
     /// Waits until the task is done. Joining one that has already finished
@@ -1092,5 +1168,6 @@ extension VoidTask: NoCopy {
         if self.provenance == TaskProvenance.Singleton && not self.consumed.ptr()[0] {
             panic("VoidTask was dropped without being joined, detached or cancelled — `join()` waits for it, `detach()` hands it to the process, `cancel()` asks it to stop")
         }
+        self.consume()
     }
 }

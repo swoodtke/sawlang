@@ -1,0 +1,17 @@
+// refuses: loan.write-while-shared at 15:11
+// `&var group` while a handle spawned into it is live: the handle holds the
+// group shared until its last use.
+func work(n: Int) -> Int {
+    n
+}
+
+func reset(group: &var TaskGroup) {
+    print("{}", group.count())
+}
+
+func main() {
+    var group = TaskGroup()
+    let h = group.spawn(work(1))
+    reset(&var group)
+    print("{}", h.join())
+}

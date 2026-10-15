@@ -1,0 +1,26 @@
+// refuses: loan.handle-escape at 17:17
+// a handle stored into a field of `&var self`: the receiver is the caller's
+// storage, and outlives the method's local group.
+func work(n: Int) -> Int {
+    n
+}
+
+struct Pool {
+    pending: Vector<Task<Int>>
+}
+
+extension Pool: NoCopy {}
+
+extension Pool {
+    func start(&var self, n: Int) {
+        var g = TaskGroup()
+        let h = g.spawn(work(n))
+        try! self.pending.push(move h)
+    }
+}
+
+func main() {
+    var pool = Pool(pending: Vector<Task<Int>>())
+    pool.start(4)
+    print("{}", pool.pending.len())
+}

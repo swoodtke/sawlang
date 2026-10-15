@@ -97,8 +97,8 @@ INDEX.md, or when an owner is not one of the words below.
 | R21 | typecheck | `type.reference-position`: `compiler/tests/typecheck/refuse/type.reference-position.alias-return.saw` |
 | R22 | slice.not-yet | the `Thread.spawn` and `Task.spawn` forms (then typecheck `capture.escaping-borrow`) |
 | R23 | typecheck | `capture.escaping-borrow`: `compiler/tests/typecheck/refuse/capture.escaping-borrow.saw` |
-| R24 | slice.not-yet | `TaskGroup.spawn` (then typecheck) |
-| R25 | slice.not-yet | `TaskGroup.spawn` (then typecheck and U6d2: the task borrows its root) |
+| R24 | slice.not-yet | a borrow a `group.spawn` root takes of its spawner, `compiler/tests/typecheck/refuse/slice.not-yet.group-spawn-borrow.saw` (then typecheck, SL:coroutines A8c) |
+| R25 | slice.not-yet | a borrow a `group.spawn` root takes of its spawner, `compiler/tests/typecheck/refuse/slice.not-yet.group-spawn-borrow.saw` (then typecheck and U6d2: the task borrows its root, SL:coroutines A8c) |
 | R26 | typecheck | `type.reference-position`: `compiler/tests/typecheck/refuse/type.reference-position.optional-written.saw` |
 | R27 | typecheck | `type.reference-position`: `compiler/tests/typecheck/refuse/type.reference-position.nested-generic.saw` |
 | R28 | typecheck | accepted: the sanctioned `(&var n) as UnsafePointer<Int>`, `address` in `compiler/tests/typecheck/golden/reference_positions.saw` |
@@ -204,7 +204,7 @@ INDEX.md, or when an owner is not one of the words below.
 | V37 | typecheck | `copy.requirement`: `compiler/tests/typecheck/refuse/copy.requirement.saw` |
 | V38 | typecheck | `copy.requirement`: `compiler/tests/typecheck/refuse/copy.requirement.saw` |
 | V39 | typecheck | `copy.requirement`: `compiler/tests/typecheck/refuse/copy.requirement.saw` |
-| V40 | slice.not-yet | `TaskGroup.spawn` (then typecheck `copy.requirement`) |
+| V40 | typecheck | `copy.requirement`, at a `group.spawn` root's generic instantiation as at any call's: `compiler/tests/typecheck/refuse/copy.requirement.saw` |
 | V41 | typecheck | accepted: branch-exclusive uses stay move-only |
 | V42 | typecheck | accepted: a duplicating body at every tier that satisfies it |
 | V43 | typecheck | `type.bound`, a copy reaching an unbounded type parameter (SL-463): `compiler/tests/typecheck/refuse/type.bound.copy-wrapper.saw`; the bounded control, typecheck golden `extension_bounds.saw` |

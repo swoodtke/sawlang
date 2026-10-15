@@ -1,0 +1,15 @@
+program	compiler/tests/run/group_handle_dropped.saw
+triple	arm64-apple-darwin
+source	236da20f45442350
+build	ok
+exit	0
+stdout	"served 1"
+stdout	"served 2"
+stdout	"served 4"
+stdout	"served 8"
+stdout	"served 16"
+stdout	"last 16"
+stdout	"leaving run_all"
+stdout	"the keeper drops 1 handles"
+stdout	"done"
+stdout	""

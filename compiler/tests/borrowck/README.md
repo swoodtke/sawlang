@@ -144,6 +144,24 @@ dump are its clients.
   the reference's own local, which no loan on the referent overlaps (SL-607).
   A slice's `&s` and `&var s` are reborrows of the same shape, typed as the
   slice. A `ref` of an accessor's state record makes none.
+- **Handles.** A group spawn site (`spawn group`, `compiler/tests/mir/README.md`)
+  makes a shared loan on its group, the place of the `ref` it passes first,
+  held by its handle (SL-683): the handle borrows its group for its whole
+  life. It is carried as any loan is, and through calls too, since a callee
+  may keep what it is handed: a value carrying it that is an argument
+  reaches the call's destination, what each `&var` argument refers to, and
+  what each exclusive capture of a closure among the operands borrows
+  (`handle_flows`). The handle may not leave every scope of the function: a
+  carrier that is the result, a reference parameter, a `&var self`
+  receiver or a closure's environment, or that is stored into a static,
+  handed to a function value the function did not write (whose captures it
+  cannot see) or to a spawn's root, is refused where the handle is made
+  (`loan.handle-escape`). Inside the function, the loan is live while a
+  carrier is, so the group's drop at its scope's end conflicts with a
+  carrier used after it (`loan.handle-outlives-group`), and `&var group` or
+  an assignment to the group conflicts while a handle is live. A8c's spawn
+  borrows are loans the handle carries in the same way, so they can be made
+  as handle loans on each borrowed root.
 - **Liveness.** A window's loan is live from its open's present edge to its
   `window_close`, so a conditional lend's absent edge carries none. Any other
   loan is live where a local carrying it is live, by a backward liveness of
@@ -194,7 +212,9 @@ dump are its clients.
 | `consumes.some-paths` | a `consumes` method's receiver, or a field of it, left moved out on some paths to a `return` and in place on others, judged before the receiver's release (spec, Moving a field out); a path that diverges reaches no `return`, so it is exempt | `consumes.some-paths`; a field assigned again on one path only, `.refill` |
 | `consumes.replace-partial` | a `self = v` in a `consumes` body where the receiver may be `P`: the replacement deinits the old referent whole, hand-written `deinit` included, and a field of it has left. A field assigned again leaves the receiver `P`, so it is refused too. The drops are `init_consumes_replacements`'s, which the MIR verifier also reads to skip the move-path checks of a body refused here; a replacement before any move, or after a trivially copyable field's, is accepted (golden `replace`) | `consumes.replace-partial`, assigned again first `.refill`, on one arm `.branch`, in a loop `.loop`, a generic receiver `.generic` |
 | `loan.read-while-exclusive` | a read or a shared borrow of a place overlapping a live exclusive loan | `loan.read-while-exclusive`, `.tuple-element`, `.forwarded` |
-| `loan.write-while-shared` | a write or an exclusive borrow of a place overlapping a live shared loan | `loan.write-while-shared`, `.receiver`; a slice forwarded `&s` beside `&var s`: `.slice-forward` |
+| `loan.write-while-shared` | a write or an exclusive borrow of a place overlapping a live shared loan | `loan.write-while-shared`, `.receiver`; a slice forwarded `&s` beside `&var s`: `.slice-forward`; `&var group` while a group task's handle is live: `.group-handle` |
+| `loan.handle-escape` | a group spawn site whose handle may leave every scope of the function (Handles, above): returned bare, inside a value or in a returned closure; stored through a reference parameter or a `&var self` receiver; stored into a static; handed to a function value the function did not write, or to a spawn's root. At the site, naming where the group ends, or that it is the caller's | `loan.handle-escape` (SL-683's `leak()`), `.wrapped`, `.closure`, `.parameter`, `.through-parameter`, `.receiver`, `.static`, `.function-value`, `.task`; the legal shapes, golden `group_handles` |
+| `loan.handle-outlives-group` | a group's drop, at its scope's end, while a value carrying a handle of it is used after: an `Optional`, a struct's field, a `Vector` declared before the group, or one a closure's `[&var v]` capture may store it into; at the scope's closing brace | `loan.handle-outlives-group`, `.field`, `.vector`, `.closure-capture` |
 | `loan.exclusive-twice` | a write or an exclusive borrow of a place overlapping a live exclusive loan | `loan.exclusive-twice`, `.dynamic-index`; `&var v` beside a `[&var v]` capture of the same reference parameter: `.capture-reference`; a closure naming the same parameter with no capture list: `.implicit-capture-reference`; a slice forwarded `&var s` twice: `.slice-forward`; a `[&var s]` capture inside a borrow of an element: `.slice-capture` |
 | `loan.move-while-borrowed` | a move of a place overlapping a live loan, a take included | `loan.move-while-borrowed`, `.take` |
 | `loan.drop-while-borrowed` | a drop, at a scope's end or before an assignment, of a place overlapping a live loan | `loan.drop-while-borrowed` |

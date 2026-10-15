@@ -1,0 +1,37 @@
+// A group spawn site: the root call's arguments evaluated in the spawner,
+// then a shared borrow of the group, through a local, a field or a
+// `&TaskGroup` parameter, passed first; one spawn terminator of form `group`
+// naming its root, which is no call of the root; the handle in a temporary,
+// which owes no fate.
+
+struct Holder {
+    group: TaskGroup
+}
+
+extension Holder: NoCopy {}
+extension Holder: NoMove {}
+
+func work(n: Int, label: String) -> Int {
+    n
+}
+
+func scale(n: Int) -> Int {
+    n * 3
+}
+
+func idle() {
+}
+
+func into(group: &TaskGroup) {
+    group.spawn(idle())
+}
+
+func main() {
+    var group = TaskGroup()
+    let t = group.spawn(work(scale(2), label: "first"))
+    print("{}", t.join())
+    let _ = group.spawn(idle())
+    var holder = Holder(group: TaskGroup())
+    let h = holder.group.spawn(scale(4))
+    into(&group)
+}

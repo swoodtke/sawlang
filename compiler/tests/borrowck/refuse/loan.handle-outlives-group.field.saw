@@ -1,0 +1,28 @@
+// refuses: loan.handle-outlives-group at 24:5
+// a handle stored into a field of a struct declared before the group, read
+// after the group's scope ends.
+func work(n: Int) -> Int {
+    n
+}
+
+func pick() -> Bool {
+    true
+}
+
+struct Slot {
+    task: Task<Int>?,
+    label: String
+}
+
+extension Slot: NoCopy {}
+
+func main() {
+    var slot = Slot(task: None, label: "late")
+    if pick() {
+        var g = TaskGroup()
+        slot.task = g.spawn(work(2))
+    }
+    if let h = slot.task.take() {
+        print("{} {}", slot.label, h.join())
+    }
+}

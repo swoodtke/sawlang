@@ -1,0 +1,24 @@
+// refuses: loan.handle-escape at 17:27
+// a `group.spawn` handle returned inside a struct: the struct carries the
+// handle's borrow of the local group out of the function.
+func work(n: Int) -> Int {
+    n
+}
+
+struct Pending {
+    task: Task<Int>,
+    label: String
+}
+
+extension Pending: NoCopy {}
+
+func start() -> Pending {
+    var g = TaskGroup()
+    let p = Pending(task: g.spawn(work(1)), label: "one")
+    move p
+}
+
+func main() {
+    let p = start()
+    print("{} {}", p.label, p.task.join())
+}

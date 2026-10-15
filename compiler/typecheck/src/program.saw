@@ -66,8 +66,9 @@ public struct TcKnown {
     map: Int
     set: Int
     // The declarations whose uses lie outside the bootstrap slice and are
-    // refused by name: `Arc`'s forwarding, `TaskGroup.spawn`, `FuncPointer`.
+    // refused by name: `Arc`'s forwarding, `FuncPointer`.
     arc: Int
+    // The group `group.spawn` spawns into.
     task_group: Int
     // The handles a cooperative spawn form hands back, found in the module
     // that declares `TaskGroup`; -1 under a std root that declares neither.

@@ -1,25 +1,21 @@
-// refuses: coro.suspending-cycle at 11:1
+// refuses: coro.suspending-cycle at 9:1
 // message: suspending recursion is not allowed
 // message: `recurse -> recurse`
-// From errors/coro_group_spawn_suspending_recursion. The test's root is
-// `group.spawn(recurse(3))`, which arrives with the group spawn form
-// (SL:coroutines A8b); `main` calls `recurse` through a helper until then.
-extern "C" {
-    blocking func usleep(us: UInt32) -> Int32
-}
+// From errors/coro_group_spawn_suspending_recursion: a task root spawned into
+// a group whose function is a cycle of its own. The root is a separate item
+// that calls the ordinary one, which the cycle refusal names.
+import std.task.{yield_now}
 
 func recurse(n: Int) -> Int {
-    usleep(1)
+    yield_now()
     if n <= 0 {
         return 0
     }
     return recurse(n - 1)
 }
 
-func start(n: Int) -> Int {
-    recurse(n)
-}
-
 func main() {
-    print("{}", start(3))
+    var group = TaskGroup()
+    let h = group.spawn(recurse(3))
+    print("{}", h.join())
 }

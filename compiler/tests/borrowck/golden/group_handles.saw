@@ -1,0 +1,52 @@
+// A `group.spawn` handle carries a shared borrow of its group (SL-683), and
+// these keep it inside the group's scope: joined, cancelled or dropped there;
+// held in a struct, an `Optional` or a `Vector` declared after the group,
+// which dies first; minted through a `&TaskGroup` receiver and consumed in
+// the callee; moved through a function that consumes it, or handed to a
+// closure written here whose captures die with the group. Further spawns and
+// `count()` read the group beside a live handle.
+func work(n: Int) -> Int {
+    n
+}
+
+func finish(h: Task<Int>) -> Int {
+    h.join()
+}
+
+func apply(t: Task<Int>, body: (Task<Int>) -> Void) {
+    body(move t)
+}
+
+func into(group: &TaskGroup, n: Int) -> Int {
+    let h = group.spawn(work(n))
+    h.join()
+}
+
+struct Pair {
+    first: Task<Int>,
+    second: Task<Int>
+}
+
+extension Pair: NoCopy {}
+
+func main() {
+    var group = TaskGroup()
+    let a = group.spawn(work(1))
+    let b = group.spawn(work(2))
+    print("{} live", group.count())
+    print("{}", a.join())
+    b.cancel()
+    group.spawn(work(3))
+    let pair = Pair(first: group.spawn(work(4)), second: group.spawn(work(5)))
+    print("{}", pair.first.join() + pair.second.join())
+    var maybe: Task<Int>? = None
+    maybe = group.spawn(work(6))
+    var kept = Vector<Task<Int>>()
+    try! kept.push(group.spawn(work(7)))
+    print("{}", kept.len())
+    print("{}", into(&group, 8))
+    print("{}", finish(group.spawn(work(9))))
+    var seen = Vector<Task<Int>>()
+    apply(group.spawn(work(10)), { [&var seen] t in try! seen.push(move t) })
+    print("{}", seen.len())
+}

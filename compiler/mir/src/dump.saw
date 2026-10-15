@@ -65,11 +65,13 @@ public func mir_module_functions(p: &MirProgram, m: Int) -> Vector<Int> {
     move out
 }
 
-// How a spawn site's form prints: `singleton` for `Task.spawn`.
+// How a spawn site's form prints: `singleton` for `Task.spawn`, `group` for
+// `group.spawn`.
 public func mir_spawn_form_text(form: MirSpawnForm) -> String {
     match form {
         case Absent -> "absent",
-        case Singleton -> "singleton"
+        case Singleton -> "singleton",
+        case Group -> "group"
     }
 }
 

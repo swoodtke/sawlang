@@ -1,0 +1,20 @@
+// refuses: loan.handle-outlives-group at 18:5
+// handles pushed into a `Vector` declared before the group, counted after the
+// group's scope ends: the push hands each handle's borrow to the vector.
+func work(n: Int) -> Int {
+    n
+}
+
+func pick() -> Bool {
+    true
+}
+
+func main() {
+    var kept = Vector<Task<Int>>()
+    if pick() {
+        var g = TaskGroup()
+        try! kept.push(g.spawn(work(1)))
+        try! kept.push(g.spawn(work(2)))
+    }
+    print("{}", kept.len())
+}

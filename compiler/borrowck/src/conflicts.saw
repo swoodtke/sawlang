@@ -8,7 +8,7 @@
 // window may be open across a suspension; and inside an accessor, what a
 // `lend` hands out must outlive the prologue.
 
-import sawborrowck.loans.{BorrowckAccess, BorrowckAccessKind, BorrowckLoanKind, BorrowckLoans,
+import sawborrowck.loans.{BorrowckAccess, BorrowckAccessKind, BorrowckEscape, BorrowckLoanKind, BorrowckLoans,
                               BorrowckPath, borrowck_bit, borrowck_slice, borrowck_zeros}
 import sawborrowck.program.{BorrowckProgram}
 import sawmir.build.{mir_func_local}
@@ -72,6 +72,7 @@ extension BorrowckProgram {
             }
             b = b + 1
         }
+        self.check_handle_escapes(f, &var facts, &var reported)
         if info.kind == MirFuncKind.Prologue {
             self.check_prologue(f, &inits, &var facts, &var reported)
         }
@@ -118,6 +119,85 @@ extension BorrowckProgram {
         }
     }
 
+    // Each group spawn site whose handle's borrow of its group may leave
+    // every scope of the function (`handle_flows`), refused where the handle
+    // is made, naming where the group ends (SL-683).
+    func check_handle_escapes(&var self, f: Int, facts: &var BorrowckLoans, reported: &var Vector<Int>) {
+        var n = 0
+        while n < facts.loan_count() {
+            let loan = facts.loans[n]
+            n = n + 1
+            if loan.kind != BorrowckLoanKind.Handle || loan.escape == BorrowckEscape.Contained {
+                continue
+            }
+            var msg = StringBuilder()
+            try! msg.append("the task handle this `group.spawn` makes ")
+            match loan.escape {
+                case Returned -> try! msg.append("leaves the function through its result"),
+                case Outside -> {
+                    try! msg.append("is stored into `")
+                    let p = BorrowckPath(local: loan.escape_local, static_decl: -1, first: 0, count: 0)
+                    try! msg.append(self.borrowck_path_text(f, &p, &facts))
+                    try! msg.append("`, storage the caller owns")
+                },
+                case Static -> try! msg.append("is stored into a static, which no scope ends"),
+                case Opaque -> try! msg.append("is handed to a function value whose captures this function cannot see, which may keep it anywhere"),
+                case Spawned -> try! msg.append("is handed to another task's root, and that task may outlive the group"),
+                case Contained -> {}
+            }
+            try! msg.append(", but it holds its group shared for its whole life, and ")
+            try! msg.append(self.group_end_text(f, n - 1, &var facts))
+            try! msg.append(": join, cancel or drop the handle inside the group's scope")
+            self.report_loan(f, loan.node, "loan.handle-escape", msg.build(), &var reported)
+        }
+    }
+
+    // Where the group handle loan `n` borrows ends, as a diagnostic says it:
+    // a local's at its drop, or the caller's, reached through a parameter.
+    func group_end_text(&self, f: Int, n: Int, facts: &var BorrowckLoans) -> String {
+        let loan = facts.loans[n]
+        let root = self.borrowck_trace(f, &loan.path, &var facts)
+        var text = StringBuilder()
+        try! text.append("the group `")
+        try! text.append(self.borrowck_path_text(f, &root, &facts))
+        try! text.append("` ")
+        let owned = root.local >= 0 && root.count >= 0 && not self.through_deref(&root, &facts)
+        if not owned {
+            try! text.append("is the caller's, which this function cannot see end")
+            return text.build()
+        }
+        let info = self.mir.funcs[f]
+        var b = 0
+        while b < info.block_count {
+            let block = self.mir.blocks[info.block_first + b]
+            var s = block.first
+            while s >= 0 {
+                let stmt = self.mir.stmts[s]
+                s = stmt.next
+                if stmt.kind == MirStmtKind.Drop && stmt.place >= 0 && self.bare_local_of(stmt.place) == root.local {
+                    try! text.append("ends at ")
+                    try! text.append(self.mir.span_text(stmt.node, stmt.closing))
+                    return text.build()
+                }
+            }
+            b = b + 1
+        }
+        try! text.append("ends with its scope")
+        text.build()
+    }
+
+    // Whether path `p` reaches through a deref anywhere.
+    func through_deref(&self, p: &BorrowckPath, facts: &BorrowckLoans) -> Bool {
+        var k = 0
+        while k < p.count {
+            if facts.proj(&p, k).kind == MirProjKind.Deref {
+                return true
+            }
+            k = k + 1
+        }
+        false
+    }
+
     // A window's root charge, at its open: an exclusive or shared access of
     // its receiver's place, by the declared mode, beside every live loan but
     // the ones its own arguments carry.
@@ -155,6 +235,10 @@ extension BorrowckProgram {
                 continue
             }
             if not loan.exclusive && not writes {
+                continue
+            }
+            // An escaping handle is refused once, where it is made.
+            if loan.kind == BorrowckLoanKind.Handle && loan.escape != BorrowckEscape.Contained {
                 continue
             }
             if not facts.is_live(n - 1, &live, &created, &open) {
@@ -204,6 +288,34 @@ extension BorrowckProgram {
         let loan = facts.loans[n]
         var rule = ""
         var tail = ""
+        if loan.kind == BorrowckLoanKind.Handle && a.kind == BorrowckAccessKind.Drop {
+            let group = self.borrowck_trace(f, &a.path, &var facts)
+            var msg = StringBuilder()
+            try! msg.append("`")
+            try! msg.append(self.borrowck_path_text(f, &group, &facts))
+            try! msg.append("` ends here while the task handle `group.spawn` made at ")
+            try! msg.append(self.mir.span_text(loan.node, loan.closing))
+            try! msg.append(" is still used after it; a group task's handle holds its group shared for its whole life, so it may not outlive the group: join, cancel or drop the handle inside the group's scope, or declare the group in a scope that outlives the handle")
+            if a.node < 0 {
+                self.report_loan(f, a.node, "loan.handle-outlives-group", msg.build(), &var reported)
+                return
+            }
+            if borrowck_seen(&reported, a.node) {
+                return
+            }
+            try! reported.push(a.node)
+            // A scope's end drops the group at its closing brace, which is
+            // where the diagnostic points.
+            let m = self.mir.tc.node_module(a.node)
+            let at = self.mir.tc.res.nodes[a.node]
+            var start = at.start
+            if a.closing && at.end > at.start {
+                start = at.end - 1
+            }
+            try! self.diags.push(MirDiag(module: m, start: start, end: at.end, id: "loan.handle-outlives-group",
+                                         message: msg.build()))
+            return
+        }
         if a.kind == BorrowckAccessKind.Move {
             rule = "loan.move-while-borrowed"
             tail = "a borrowed value cannot leave while the borrow is live"
@@ -254,6 +366,8 @@ extension BorrowckProgram {
             try! text.append("` opened at ")
         } else if loan.kind == BorrowckLoanKind.Capture || loan.captured {
             try! text.append("the closure capture at ")
+        } else if loan.kind == BorrowckLoanKind.Handle {
+            try! text.append("the task handle `group.spawn` made at ")
         } else if loan.argument {
             try! text.append("the argument at ")
         } else {
@@ -272,6 +386,8 @@ extension BorrowckProgram {
             try! text.append(" until the window closes")
         } else if loan.kind == BorrowckLoanKind.Capture || loan.captured {
             try! text.append(" until the closure's last call")
+        } else if loan.kind == BorrowckLoanKind.Handle {
+            try! text.append(" until the handle's last use")
         } else if loan.argument {
             try! text.append(" for its call")
         } else {
@@ -695,7 +811,8 @@ extension BorrowckProgram {
             var n = 0
             while n < facts.loan_count() {
                 let loan = facts.loans[n]
-                if loan.kind != BorrowckLoanKind.Window && facts.carries(n, 0) && facts.is_live(n, &live, &created, &open) {
+                let lent = loan.kind != BorrowckLoanKind.Window && loan.kind != BorrowckLoanKind.Handle
+                if lent && facts.carries(n, 0) && facts.is_live(n, &live, &created, &open) {
                     let root = self.borrowck_trace(f, &loan.path, &var facts)
                     if not self.lendable_root(f, &root, &var facts) {
                         var msg = StringBuilder()

@@ -6,9 +6,10 @@
 // name; a task box of the descriptor's size is allocated; the state word and
 // each argument are written into the box, at the root's state and parameter
 // slots, each argument moving or copying as the site passed it; and the
-// handle type's `__saw_spawn` enqueues the box into the background group and
-// mints the handle, recording the form's provenance. So the rewrite adds no
-// ownership operation.
+// handle type's `__saw_spawn` enqueues the box into its group and mints the
+// handle, recording the form's provenance. A group site's group is the one
+// whose reference it passes, any other site's the background group. So the
+// rewrite adds no ownership operation.
 //
 // ENTRY POINTS of the spawn lowering:
 //   coro_lower_spawn_sites
@@ -21,7 +22,8 @@ import sawcoro.lower.{coro_add_block, coro_add_local, coro_append_owed, coro_app
 import sawcoro.program.{CoroFrame, CoroProgram, CoroSpawn, CoroValueKind}
 import sawdrops.program.{DropsProgram}
 import sawmir.model.{MirAggregate, MirBlock, MirCall, MirCallKind, MirConstKind, MirOperand, MirOperandKind,
-                     MirPlace, MirRvalue, MirRvalueKind, MirSpawnForm, MirSwitchKind, MirTermKind}
+                     MirPlace, MirRvalue, MirRvalueKind, MirSpawnForm, MirSwitchKind, MirTermKind,
+                     mir_spawn_leading}
 import sawmir.program.{MirProgram}
 import sawmir.build.{mir_func_local}
 import sawmono.dump.{mono_dump_layouts}
@@ -81,7 +83,9 @@ func coro_lower_spawn(coro: &var CoroProgram, item: Int, f: Int, b: Int) {
     let box_item = coro.mono.spawn_box_item
     let group_item = coro.mono.spawn_background_item
     let handle_item = coro.mono.spawn_handle_item(c)
-    if box_item < 0 || group_item < 0 || handle_item < 0 || coro.mono.spawn_singleton < 0 {
+    let leading = mir_spawn_leading(&site)
+    let form_case = if leading > 0 { coro_group_case(&var coro) } else { coro.mono.spawn_singleton }
+    if box_item < 0 || group_item < 0 || handle_item < 0 || form_case < 0 {
         try! coro.problems.push("a spawn site reached coroutine lowering without the std functions it calls")
         return
     }
@@ -99,15 +103,6 @@ func coro_lower_spawn(coro: &var CoroProgram, item: Int, f: Int, b: Int) {
     coro_push_local_arg(&var coro, &var box_call, descriptor, types.descriptor, false)
     box_call.dest = coro_local_place(&var coro, boxed, types.frame)
     let box_block = coro_add_call_block(&var coro, f, box_call, box_item, node)
-    // The writes, then the group: `_G = __saw_exec_background()`.
-    var group_call = coro_new_call(&var coro, group_item, node)
-    group_call.dest = coro_local_place(&var coro, group, types.group)
-    let write_block = coro_add_call_block(&var coro, f, group_call, group_item, node)
-    coro_write_frame(&var coro, f, write_block, boxed, &frame, &site, node)
-    let singleton = coro.mono.spawn_singleton
-    let case_rv = coro_case_rvalue(&var coro, singleton, types.provenance)
-    let p = coro_local_place(&var coro, provenance, types.provenance)
-    coro_append_stmt(&var coro, f, write_block, p, case_rv, node)
     // The handle: `dest = H.__saw_spawn(copy _G, copy _D, copy _B, move _P)`.
     var handle_call = coro_new_call(&var coro, handle_item, node)
     handle_call.owner = coro.mono.dp.bc.mir.places[site.dest].ty
@@ -117,9 +112,35 @@ func coro_lower_spawn(coro: &var CoroProgram, item: Int, f: Int, b: Int) {
     coro_push_local_arg(&var coro, &var handle_call, provenance, types.provenance, true)
     handle_call.dest = site.dest
     handle_call.next = site.next
-    let handle_block = coro_add_call_block(&var coro, f, handle_call, handle_item, node)
+    // The writes, then the group. A group site's is the reference it passes,
+    // `_G = move _R as UnsafePointer<TaskGroup>`, written beside the writes
+    // in the handle's block; any other site's is the background group,
+    // `_G = __saw_exec_background()`, which ends a block of its own.
+    var root_args = site
+    root_args.arg_first = site.arg_first + leading
+    root_args.arg_count = site.arg_count - leading
+    var write_block = -1
+    var handle_block = -1
+    if leading > 0 {
+        handle_block = coro_add_call_block(&var coro, f, handle_call, handle_item, node)
+        write_block = handle_block
+        coro_write_frame(&var coro, f, write_block, boxed, &frame, &root_args, node)
+        let r = coro.mono.dp.bc.mir.lists[site.arg_first]
+        let rv = coro.mono.dp.bc.mir.rv_one(MirRvalueKind.Cast, types.group, "", r)
+        let g = coro_local_place(&var coro, group, types.group)
+        coro_append_stmt(&var coro, f, write_block, g, rv, node)
+    } else {
+        var group_call = coro_new_call(&var coro, group_item, node)
+        group_call.dest = coro_local_place(&var coro, group, types.group)
+        write_block = coro_add_call_block(&var coro, f, group_call, group_item, node)
+        coro_write_frame(&var coro, f, write_block, boxed, &frame, &root_args, node)
+        handle_block = coro_add_call_block(&var coro, f, handle_call, handle_item, node)
+        coro_set_next(&var coro, f, write_block, handle_block)
+    }
+    let case_rv = coro_case_rvalue(&var coro, form_case, types.provenance)
+    let p = coro_local_place(&var coro, provenance, types.provenance)
+    coro_append_stmt(&var coro, f, write_block, p, case_rv, node)
     coro_set_next(&var coro, f, box_block, write_block)
-    coro_set_next(&var coro, f, write_block, handle_block)
     // The site itself: `_D = spawn FORM f()`, the descriptor.
     var lowered = site
     lowered.arg_count = 0
@@ -129,6 +150,18 @@ func coro_lower_spawn(coro: &var CoroProgram, item: Int, f: Int, b: Int) {
     try! coro.spawns.push(CoroSpawn(item: item, block: b, call: c, root: root, descriptor: descriptor,
                                     frame: boxed, box_block: box_block, write_block: write_block,
                                     handle_block: handle_block))
+}
+
+// The provenance case a group spawn site's handle records,
+// `TaskProvenance.Group`, or -1 under a std root that declares none.
+func coro_group_case(coro: &var CoroProgram) -> Int {
+    let m = coro.mono.dp.bc.mir.tc.module_named("std.taskgroup")
+    let provenance = coro.mono.dp.bc.mir.tc.top_decl(m, "TaskProvenance")
+    if provenance < 0 {
+        return -1
+    }
+    let name = coro.mono.dp.bc.mir.tc.res.intern("Group")
+    coro.mono.dp.bc.mir.tc.case_named(provenance, name)
 }
 
 // Appends to block `wb` of function `f` the writes that start the task root

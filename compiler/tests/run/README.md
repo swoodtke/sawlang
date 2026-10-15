@@ -310,10 +310,11 @@ A9): `yield_main_loop` and `suspend_budget_point` are suspending `main`s
 with a loop, `op_budget_counts` counts a driven loop's forced yields,
 `op_budget_loop_shapes_driven` charges each loop shape without changing its
 count, `op_budget_interleaving` cedes before the body that runs the counter
-out, `background_compute_preemption` cedes from a task that only computes,
-and `background_task_spawn` also reads `cancelled()` in a task. Timers
-(SL:coroutines A11): `main_timer_park` and `async_main_sleep_yield` sleep in
-a suspending `main`, `drive_timer_park` in a driven frame,
+out, `background_compute_preemption` and `taskgroup_compute_preemption`
+cede from a task that only computes, in the background group and in a
+`TaskGroup`, and `background_task_spawn` also reads `cancelled()` in a task.
+Timers (SL:coroutines A11): `main_timer_park` and `async_main_sleep_yield`
+sleep in a suspending `main`, `drive_timer_park` in a driven frame,
 `task_suspending_parent_sleep` in a driven frame whose spawned tasks sleep
 too, `task_sleep_ordering` wakes two sleeping tasks in deadline order, and
 `task_cancel_idle_sleep` cancels a sleeping task once the executor has

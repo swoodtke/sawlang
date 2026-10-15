@@ -1,0 +1,24 @@
+// probe: stated
+// about: a handle minted through a `Box<TaskGroup>`'s borrow window may be kept past the window and joined while the box still owns its group (SL-564)
+// stage 0: cannot parse a `borrow` block
+// speeds: -O0 -O2
+// prints: window closed
+// prints: joined 14
+// prints: done
+import std.task.{yield_now}
+
+func work(n: Int) -> Int {
+    yield_now()
+    n * 2
+}
+
+func main() {
+    var g = try! Box<TaskGroup>.make(TaskGroup())
+    var kept: Task<Int>? = None
+    borrow var p = g.value() {
+        kept = p.spawn(work(7))
+    }
+    print("window closed")
+    print("joined {}", kept.take()!.join())
+    print("done")
+}

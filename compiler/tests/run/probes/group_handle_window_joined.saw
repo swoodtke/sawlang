@@ -1,0 +1,27 @@
+// probe: stated
+// about: a handle minted through a `Box<TaskGroup>`'s borrow window and joined inside it runs, and its group dies with no handle outstanding (SL-564)
+// stage 0: cannot parse a `borrow` block
+// speeds: -O0 -O2
+// The window lends the boxed group, the handle is joined before the window
+// closes, and the box is then replaced: the old group's teardown finds every
+// handle's fate written.
+// prints: joined 14
+// prints: replaced
+// prints: done
+import std.task.{yield_now}
+
+func work(n: Int) -> Int {
+    yield_now()
+    n * 2
+}
+
+func main() {
+    var g = try! Box<TaskGroup>.make(TaskGroup())
+    borrow var p = g.value() {
+        let h = p.spawn(work(7))
+        print("joined {}", h.join())
+    }
+    g = try! Box<TaskGroup>.make(TaskGroup())
+    print("replaced")
+    print("done")
+}

@@ -69,6 +69,9 @@ func boxed(d: UnsafePointer<FrameDescriptor>) unsafe {
     var moved = move b
     print("the box moved, and its group stayed: {}", home(&var moved) as Int == g as Int)
     print("joined {}", c.join())
+    // `a` is declared before `moved`, so it would outlive the group; its fate
+    // is written first, since a group dies only with no handle outstanding.
+    let _ = move a
     print("dropping the box")
 }
 

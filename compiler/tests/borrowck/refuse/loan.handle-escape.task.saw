@@ -1,0 +1,21 @@
+// refuses: loan.handle-escape at 14:13
+// a handle handed to another task: the detached background task outlives the
+// handle's group.
+func work(n: Int) -> Int {
+    n
+}
+
+func wait_for(h: Task<Int>) -> Int {
+    h.join()
+}
+
+func start() {
+    var g = TaskGroup()
+    let h = g.spawn(work(8))
+    let t = Task.spawn(wait_for(move h))
+    t.detach()
+}
+
+func main() {
+    start()
+}

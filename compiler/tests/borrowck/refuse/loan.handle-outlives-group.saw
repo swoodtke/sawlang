@@ -1,0 +1,22 @@
+// refuses: loan.handle-outlives-group at 18:5
+// a handle stored into an `Optional` declared before the group and joined
+// after the group's scope ends: the group is dropped at its scope's close
+// while the handle still holds its borrow.
+func work(n: Int) -> Int {
+    n
+}
+
+func pick() -> Bool {
+    true
+}
+
+func main() {
+    var kept: Task<Int>? = None
+    if pick() {
+        var g = TaskGroup()
+        kept = g.spawn(work(1))
+    }
+    if let h = kept.take() {
+        print("{}", h.join())
+    }
+}

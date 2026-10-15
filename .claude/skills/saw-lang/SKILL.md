@@ -2441,6 +2441,17 @@ dump_tasks()                // every live task's logical backtrace (std.task)
   A `group.spawn` handle takes NO `detach()` — a group task may borrow from its
   spawner and the group's scope is what releases that borrow, so calling it
   there panics. Drop the handle, or use `Task.spawn`.
+  **A `group.spawn` handle borrows its group (SL-683)**, shared, for its whole
+  life: it may not outlive the group. Returning it, storing it through a
+  `&var` parameter or into a static, or keeping it in a binding, field or
+  `Vector` declared BEFORE the group and used after the group's scope ends is
+  refused (`loan.handle-escape`, `loan.handle-outlives-group`), and so is
+  `&var group` while a handle is live. Join or cancel inside the group's
+  scope; a `Vector<Task<T>>` of handles is declared AFTER its group. A handle
+  minted through a borrow window (`borrow var p = boxed.value() { … }`) is not
+  traced statically: if it is still outstanding when its group dies, the
+  group's teardown PANICS ("TaskGroup: destroyed while 1 task handle still
+  refers to it"). Consume it before the box is replaced, moved or dropped.
 - **`Task.spawn(work(n))` IS THE COOPERATIVE ENGINE WITHOUT A GROUP (design 242
   ruling 3).** Same scheduler, same `Task<T>`/`VoidTask`, no declaration:
   ```saw-fragment

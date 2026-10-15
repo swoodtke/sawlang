@@ -1,0 +1,78 @@
+// The `group.spawn` form (SL:coroutines A8b): the spawn lowering takes the
+// group the form names as the task's queue, through the shared reference the
+// site passes. The receiver is a local, a field, or a `&TaskGroup` parameter a
+// task spawns siblings through; the root is valued, `Void`, owning a String,
+// or never suspending; a group lives in a spawned task's frame across its
+// suspensions (G1); a group handle is cancelled then joined; and a group
+// whose tasks nobody joined runs them at its teardown.
+import std.task.{yield_now}
+
+func square(n: Int) -> Int {
+    yield_now()
+    n * n
+}
+
+func greet(name: String) {
+    print("hello, {}", name)
+    yield_now()
+    print("bye, {}", name)
+}
+
+func plain(a: Int, b: Int) -> Int {
+    a + b
+}
+
+func noisy(n: Int) {
+    yield_now()
+    print("noisy {}", n)
+}
+
+struct Holder {
+    group: TaskGroup
+}
+
+extension Holder: NoCopy {}
+extension Holder: NoMove {}
+
+func spawn_into(group: &TaskGroup, n: Int) -> Int {
+    let h = group.spawn(square(n))
+    h.join()
+}
+
+// A group resident in a task's frame across its suspensions.
+func host(n: Int) -> Int {
+    var inner = TaskGroup()
+    let a = inner.spawn(square(n))
+    yield_now()
+    let b = inner.spawn(square(n + 1))
+    a.join() + b.join()
+}
+
+func main() {
+    var group = TaskGroup()
+    let a = group.spawn(square(3))
+    let g = group.spawn(greet("group"))
+    let p = group.spawn(plain(2, 5))
+    print("count {}", group.count())
+    print("square {}", a.join())
+    g.join()
+    print("plain {}", p.join())
+
+    var holder = Holder(group: TaskGroup())
+    let f = holder.group.spawn(square(4))
+    print("field {}", f.join())
+
+    print("through a reference {}", spawn_into(&group, 5))
+
+    let hosted = group.spawn(host(6))
+    print("hosted {}", hosted.join())
+
+    let c = group.spawn(noisy(1))
+    c.cancel()
+    c.join()
+
+    var scope = TaskGroup()
+    scope.spawn(noisy(2))
+    let _ = scope.spawn(square(7))
+    print("scope ends")
+}

@@ -1,0 +1,48 @@
+// design 127 (RC-3): the op budget covers PURE-COMPUTE loops. A spawned task
+// that only computes — no suspending call anywhere in its body, no `yield_now`
+// — must still cede to its siblings.
+//
+// `spinner` is the design-89 residual starvation case: a million-iteration
+// arithmetic loop with no suspension source of its own. Before design 127 the
+// budget only decremented on non-parking io ops, so `spinner` ran to completion
+// and the output was `spin start / spin end / sibling ran` — `chatty` starved
+// for the spinner's whole life. Now the coroutine transform charges every loop
+// iteration against a frame-resident budget and force-yields when it runs out,
+// so `chatty` (spawned second, sitting in the run queue) gets its turn while the
+// spinner is still counting.
+//
+// Deterministic: the yield is an OP COUNT (128 iterations), never a clock, so
+// any loop longer than the budget cedes at a fixed iteration and the three lines
+// always land in this order.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// spin start
+// sibling ran
+// spin end
+// 499999500000
+
+func spinner() -> Int {
+    print("spin start")
+    var i = 0
+    var acc = 0
+    while i < 1000000 {
+        acc = acc + i
+        i = i + 1
+    }
+    print("spin end")
+    acc
+}
+
+func chatty() -> Int {
+    print("sibling ran")
+    1
+}
+
+func main() {
+    var group = TaskGroup()
+    let hs = group.spawn(spinner())
+    let hc = group.spawn(chatty())
+    let acc = hs.join()
+    let _ = hc.join()
+    print(acc)
+}

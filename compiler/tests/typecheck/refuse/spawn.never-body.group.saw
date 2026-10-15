@@ -1,0 +1,17 @@
+// refuses: spawn.never-body at 15:13
+// a `group.spawn` root that never returns: the handle's result cannot exist,
+// so `join` on it could never return, as at `Task.spawn`
+
+import std.task.{yield_now}
+
+func halt(n: Int) -> Never {
+    while {
+        yield_now()
+    }
+}
+
+func main() {
+    var group = TaskGroup()
+    let h = group.spawn(halt(1))
+    h.cancel()
+}

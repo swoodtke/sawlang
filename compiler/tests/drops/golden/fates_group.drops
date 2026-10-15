@@ -1,0 +1,90 @@
+module fates_group
+
+fn fates_group.work(n: Int) -> Int {
+    let _0: Int;  // return
+    let _1: Int;  // param n
+
+    bb0: {
+        _0 = copy _1;
+        return;
+    }
+}
+
+fn fates_group.main() -> Void {
+    let _0: Void;  // return
+    let _1: std.taskgroup.TaskGroup;  // group
+    let _2: std.taskgroup.TaskGroup;
+    let _3: &std.taskgroup.TaskGroup;
+    let _4: std.taskgroup.Task<Int>;
+    let _5: std.taskgroup.Task<Int>;  // unjoined
+    let _6: &std.taskgroup.TaskGroup;
+    let _7: std.taskgroup.Task<Int>;
+    let _8: &std.taskgroup.TaskGroup;
+    let _9: std.taskgroup.Task<Int>;
+    let _10: fates_group.Bag;  // bag
+    let _11: &std.taskgroup.TaskGroup;
+    let _12: std.taskgroup.Task<Int>;
+    let _13: fates_group.Bag;
+    let _14: std.taskgroup.Task<Int>;  // last
+    let _15: &std.taskgroup.TaskGroup;
+    let _16: std.taskgroup.Task<Int>;
+    let _17: &std.taskgroup.Task<Int>;
+    let _18: Int;
+
+    bb0: {
+        _2 = call std.taskgroup.TaskGroup.init() (owner std.taskgroup.TaskGroup) [] -> [return: bb1];
+    }
+
+    bb1: {
+        _1 = move _2;
+        _3 = ref(shared, _1);
+        _4 = spawn group fates_group.work(n: Int) [move _3, const 1: Int] -> [return: bb2];
+    }
+
+    bb2: {
+        drop(_4);
+        _6 = ref(shared, _1);
+        _7 = spawn group fates_group.work(n: Int) [move _6, const 2: Int] -> [return: bb3];
+    }
+
+    bb3: {
+        _5 = move _7;
+        _8 = ref(shared, _1);
+        _9 = spawn group fates_group.work(n: Int) [move _8, const 3: Int] -> [return: bb4];
+    }
+
+    bb4: {
+        drop(_9);
+        _11 = ref(shared, _1);
+        _12 = spawn group fates_group.work(n: Int) [move _11, const 4: Int] -> [return: bb5];
+    }
+
+    bb5: {
+        _13 = fates_group.Bag { held: move _12 };
+        _10 = move _13;
+        _15 = ref(shared, _1);
+        _16 = spawn group fates_group.work(n: Int) [move _15, const 6: Int] -> [return: bb6];
+    }
+
+    bb6: {
+        _14 = move _16;
+        _17 = ref(shared, _14);
+        _18 = call std.taskgroup.Task.join() (owner std.taskgroup.Task<Int>) [move _17] -> [return: bb7];
+    }
+
+    bb7: {
+        call builtin print [format "{}", copy _18] -> [return: bb8];
+    }
+
+    bb8: {
+        drop(_14);
+        drop(_10);
+        drop(_5);
+        drop(_1);
+        return;
+    }
+
+    glue fates_group.Bag: structural
+    glue std.taskgroup.Task<Int>: deinit std.taskgroup.Task.deinit() in the NoCopy conformance, then structural
+    glue std.taskgroup.TaskGroup: deinit std.taskgroup.TaskGroup.deinit() in the NoCopy conformance, then structural
+}

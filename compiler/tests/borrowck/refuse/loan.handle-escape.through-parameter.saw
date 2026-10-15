@@ -1,0 +1,17 @@
+// refuses: loan.handle-escape at 10:20
+// a handle pushed into a `Vector` the caller lends through `&var`: the vector
+// is the caller's, and outlives the function's local group.
+func work(n: Int) -> Int {
+    n
+}
+
+func fill(into: &var Vector<Task<Int>>) {
+    var g = TaskGroup()
+    try! into.push(g.spawn(work(3)))
+}
+
+func main() {
+    var kept = Vector<Task<Int>>()
+    fill(&var kept)
+    print("{}", kept.len())
+}

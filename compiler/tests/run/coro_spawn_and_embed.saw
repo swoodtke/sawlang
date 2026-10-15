@@ -1,0 +1,41 @@
+// DF-138a: a suspending function that is BOTH spawned as a task root AND
+// embedded as another task's sub-frame. Each role worked alone; the combination
+// crashed the compiler, because a spawn root reaches its result and cancel word
+// through the group-owned cell (`__cellp`, design 134) while an embedded
+// sub-frame keeps both in the frame — and one function had one frame.
+//
+// The spawn role now gets its own trampoline frame (`leaf$spawnroot`, whose one
+// statement embeds `__Frame_leaf` as a sub-frame), so `leaf` keeps a single
+// driven-flavour frame however many other roles it plays. Here the chain is two
+// deep and every link is spawned directly as well: `leaf` under `mid`, `mid`
+// under `caller`.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 10
+// 20
+// 30
+
+import std.task.*
+
+func leaf(n: Int) -> Int {
+    yield_now()
+    n * 10
+}
+
+func mid(n: Int) -> Int {
+    return leaf(n)
+}
+
+func caller() -> Int {
+    return mid(3)
+}
+
+func main() {
+    var group = TaskGroup()
+    let a = group.spawn(leaf(1))     // leaf as a root
+    let b = group.spawn(mid(2))      // mid as a root, leaf as its sub-frame
+    let c = group.spawn(caller())    // caller as a root, mid as its sub-frame
+    print(a.join())
+    print(b.join())
+    print(c.join())
+}

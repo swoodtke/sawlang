@@ -31,7 +31,7 @@ import sawmir.dump.{mir_dump_module}
 import sawmir.initialisation.{MIR_INIT_DROPPED, MIR_INIT_MOVED, MIR_INIT_PARTIAL, MIR_INIT_UNASSIGNED,
                               MIR_INIT_WHOLE, MirAccess, MirAccessKind, MirInit, mir_init_apply_all}
 import sawmir.model.{MirBlock, MirCall, MirCallKind, MirConstKind, MirFuncKind, MirOperandKind, MirPlace, MirProj,
-                     MirProjKind, MirRvalueKind, MirStmtKind, MirSwitchKind, MirTermKind}
+                     MirProjKind, MirRvalueKind, MirStmtKind, MirSwitchKind, MirTermKind, mir_spawn_leading}
 import sawmir.program.{MirProgram}
 import sawmono.dump.{mono_dump_layouts}
 import sawmono.program.{MonoProgram}
@@ -1231,16 +1231,19 @@ func coro_verify_transfers(coro: &var CoroProgram, target: &var Target, cx: &Cor
             root = coro.mono.call_item(c)
         }
         let rf = coro_frame_of(&coro, root)
+        // A group site's group reference becomes the group's pointer, not a
+        // parameter.
+        let leading = mir_spawn_leading(&pre)
         var j = 0
         while j < pre.arg_count {
             let o = coro.mono.dp.bc.mir.lists[pre.arg_first + j]
             j = j + 1
             let at = coro_verify_single_use(&var coro, &b, &uses, o, c)
-            if at < 0 || base < 0 || rf < 0 {
+            if at < 0 || base < 0 || rf < 0 || j <= leading {
                 continue
             }
             let rframe = coro.frames[rf]
-            let want = base + coro_child_offset(&coro, &rframe, CoroValueKind.Param, j)
+            let want = base + coro_child_offset(&coro, &rframe, CoroValueKind.Param, j - leading)
             let stmt = coro.mono.dp.bc.mir.stmts[at]
             var through = -1
             if drive {
@@ -1258,7 +1261,7 @@ func coro_verify_transfers(coro: &var CoroProgram, target: &var Target, cx: &Cor
             if not placed {
                 var what = StringBuilder()
                 try! what.append("argument ")
-                try! what.append(j)
+                try! what.append(j - leading)
                 try! what.append(" of ")
                 coro_verify_append_callee(&coro, &var what, c)
                 if drive {

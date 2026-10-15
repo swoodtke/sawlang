@@ -1,0 +1,21 @@
+// refuses: loan.handle-outlives-group at 19:5
+// a handle passed beside a closure whose `[&var kept]` capture may store it:
+// the call hands the handle's borrow to `kept`, read after the group's scope
+// ends.
+func work(n: Int) -> Int {
+    n
+}
+
+func apply(t: Task<Int>, body: (Task<Int>) -> Void) {
+    body(move t)
+}
+
+func main() {
+    var kept = Vector<Task<Int>>()
+    if kept.len() == 0 {
+        var g = TaskGroup()
+        apply(g.spawn(work(4)), { [&var kept] t in try! kept.push(move t) })
+        print("spawned")
+    }
+    print("{}", kept.len())
+}

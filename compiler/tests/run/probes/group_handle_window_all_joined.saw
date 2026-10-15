@@ -1,0 +1,41 @@
+// probe: stated
+// about: a group whose handles were all joined, cancelled or dropped before it dies tears down without a panic, however the handles were minted (SL-564)
+// stage 0: cannot parse a `borrow` block
+// speeds: -O0 -O2
+// Handles minted through the window are kept past it, then joined, cancelled
+// and dropped; one minted directly is dropped unjoined. Replacing the box
+// then destroys the group with every handle's fate written.
+// prints: window closed
+// prints: joined 2
+// prints: joined 4
+// prints: replaced
+// prints: done
+import std.task.{yield_now}
+
+func work(n: Int) -> Int {
+    yield_now()
+    n * 2
+}
+
+func main() {
+    var g = try! Box<TaskGroup>.make(TaskGroup())
+    var a: Task<Int>? = None
+    var b: Task<Int>? = None
+    var c: Task<Int>? = None
+    var d: Task<Int>? = None
+    borrow var p = g.value() {
+        a = p.spawn(work(1))
+        b = p.spawn(work(2))
+        c = p.spawn(work(3))
+        d = p.spawn(work(4))
+        p.spawn(work(5))
+    }
+    print("window closed")
+    print("joined {}", a.take()!.join())
+    print("joined {}", b.take()!.join())
+    c.take()!.cancel()
+    let _ = d.take()
+    g = try! Box<TaskGroup>.make(TaskGroup())
+    print("replaced")
+    print("done")
+}

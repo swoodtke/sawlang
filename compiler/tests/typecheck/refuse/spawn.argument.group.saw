@@ -1,0 +1,20 @@
+// refuses: spawn.argument at 18:25
+// `group.spawn` given a method call as its root: a task's frame is built for
+// a named free function, as at `Task.spawn`
+
+struct Counter {
+    n: Int
+}
+
+extension Counter {
+    func value(&self) -> Int {
+        self.n
+    }
+}
+
+func main() {
+    var group = TaskGroup()
+    let c = Counter(n: 1)
+    let h = group.spawn(c.value())
+    print("{}", h.join())
+}

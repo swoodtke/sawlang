@@ -1,0 +1,17 @@
+program	compiler/tests/run/group_spawn.saw
+triple	arm64-apple-darwin
+source	62c57499e0ee886a
+build	ok
+exit	0
+stdout	"count 3"
+stdout	"hello, group"
+stdout	"square 9"
+stdout	"bye, group"
+stdout	"plain 7"
+stdout	"field 16"
+stdout	"through a reference 25"
+stdout	"hosted 85"
+stdout	"noisy 1"
+stdout	"scope ends"
+stdout	"noisy 2"
+stdout	""

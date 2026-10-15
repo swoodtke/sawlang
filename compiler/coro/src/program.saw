@@ -251,8 +251,9 @@ public struct CoroResume {
 // One lowered spawn site (compiler/tests/coro/README.md, "Spawn sites"): the
 // spawner item, the block whose spawn terminator now leaves the task root's
 // frame descriptor in local `descriptor`, the root item, the local holding
-// the task box, and the three blocks the lowering added: the box's
-// allocation, the writes into it, and the handle's minting.
+// the task box, and the blocks the lowering added: the box's allocation, the
+// writes into it, and the handle's minting, which is the writes' own block
+// at a group site.
 public struct CoroSpawn {
     item: Int
     block: Int

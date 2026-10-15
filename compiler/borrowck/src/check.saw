@@ -32,6 +32,8 @@ public func borrowck_rules() -> Vector<String> {
     try! out.push("loan.closure-carrier")
     try! out.push("loan.drop-while-borrowed")
     try! out.push("loan.exclusive-twice")
+    try! out.push("loan.handle-escape")
+    try! out.push("loan.handle-outlives-group")
     try! out.push("loan.move-while-borrowed")
     try! out.push("loan.nested-call")
     try! out.push("loan.read-while-exclusive")

@@ -1,0 +1,18 @@
+// refuses: loan.handle-escape at 11:10
+// a handle handed to a function value this function did not write: its
+// captures are invisible here, so it may keep the handle past the group,
+// as `main`'s closure does by pushing it into `kept`.
+func work(n: Int) -> Int {
+    n
+}
+
+func run(keep: (Task<Int>) -> Void) {
+    var g = TaskGroup()
+    keep(g.spawn(work(7)))
+}
+
+func main() {
+    var kept = Vector<Task<Int>>()
+    run({ [&var kept] h in try! kept.push(move h) })
+    print("{}", kept.len())
+}

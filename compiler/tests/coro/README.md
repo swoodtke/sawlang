@@ -373,6 +373,12 @@ follow it:
   handle type H, which enqueues the box and mints the handle, then the
   site's own return edge.
 
+A group site (golden `group_task_root`) adds two blocks, not three: its
+group is the shared reference the site passes first, `_R`, so the writes go
+into the handle's own block followed by `_G = cast(move _R as
+UnsafePointer<TaskGroup>)` and `_P = TaskProvenance::Group`, with no call of
+`__saw_exec_background`.
+
 So the rewrite adds no ownership operation: the arguments travel as the site
 passed them, and the handle lands where the site put it. Every lowered site
 is checked: its spawn call carries no arguments and returns to the box, the
@@ -551,8 +557,8 @@ message naming the std position, as mono's are.
 
 The recursion tests themselves reach this stage only once their vocabulary
 does: `yield_now` and `__saw_suspend` (SL:coroutines A2), `__saw_drive` (A4b),
-`Task.spawn` (A7a) and `group.spawn` (A8b). `spawn` has its test's own
-shape; each other fixture keeps its test's shape with a `blocking` extern as
+`Task.spawn` (A7a) and `group.spawn` (A8b). `spawn` and `group-spawn` have
+their tests' own shape; each other fixture keeps its test's shape with a `blocking` extern as
 the suspension and `main` calling the recursive function directly, and says
 which form it stands in for.
 
@@ -629,7 +635,7 @@ yields and in a driven root that never suspends, a charge-only one inside a
 `borrows(sync)` window, and the points deleted from a driver's own loop;
 golden `cancel_read` is reads of the cancel word, in a frame and in a sync
 helper. The run lane's `op_budget_counts`, `op_budget_loop_shapes_driven`,
-`background_compute_preemption`, `yield_main_loop` and
+`background_compute_preemption`, `taskgroup_compute_preemption`, `yield_main_loop` and
 `background_task_spawn` run them.
 
 The park goldens, `park_timer`, `park_fd`, `park_channel`, `park_offload`

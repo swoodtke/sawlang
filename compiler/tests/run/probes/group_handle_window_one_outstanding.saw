@@ -1,0 +1,30 @@
+// probe: panics
+// about: a joined handle's later drop counts its group down nothing more, so a group dying with one of its two handles outstanding reports exactly one (SL-564)
+// stage 0: cannot parse a `borrow` block
+// speeds: -O0 -O2
+// Both handles are minted through the window. The first is joined and then
+// dropped at the window's close; were its drop to count down again, the two
+// would cancel and the outstanding second would go unreported.
+// prints: joined 2
+// prints: window closed
+// panics: TaskGroup: destroyed while 1 task handle still refers to it
+import std.task.{yield_now}
+
+func work(n: Int) -> Int {
+    yield_now()
+    n * 2
+}
+
+func main() {
+    var g = try! Box<TaskGroup>.make(TaskGroup())
+    var kept: Task<Int>? = None
+    borrow var p = g.value() {
+        let first = p.spawn(work(1))
+        kept = p.spawn(work(2))
+        print("joined {}", first.join())
+    }
+    print("window closed")
+    g = try! Box<TaskGroup>.make(TaskGroup())
+    print("replaced")
+    print("joined {}", kept.take()!.join())
+}

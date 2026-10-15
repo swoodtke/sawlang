@@ -1,0 +1,20 @@
+// differs: the panic is raised inside std, and each compiler's std is its own file
+// A `group.spawn` handle takes no `detach()` (spec, "`detach()`: the fate
+// that does not wait"): the handle the spawn lowering mints records its group
+// provenance, so detaching it panics, naming the group form.
+import std.task.{yield_now}
+
+func work(n: Int) -> Int {
+    yield_now()
+    n
+}
+
+func main() {
+    var group = TaskGroup()
+    let h = group.spawn(work(3))
+    // The join's sweep runs `h`'s task to its end too, so no task is live
+    // when the detach panics.
+    let other = group.spawn(work(4))
+    print("{}", other.join())
+    h.detach()
+}

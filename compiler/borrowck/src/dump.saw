@@ -149,6 +149,8 @@ extension BorrowckProgram {
             try! out.append(loan.window)
         } else if loan.kind == BorrowckLoanKind.Capture || loan.captured {
             try! out.append("capture")
+        } else if loan.kind == BorrowckLoanKind.Handle {
+            try! out.append("handle")
         } else if loan.argument {
             try! out.append("argument")
         } else {

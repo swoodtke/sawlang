@@ -1,0 +1,16 @@
+// refuses: loan.handle-escape at 9:5
+// a handle minted through a `&TaskGroup` parameter and returned: the group is
+// the caller's, and nothing ties the returned handle to it.
+func work(n: Int) -> Int {
+    n
+}
+
+func handed(group: &TaskGroup) -> Task<Int> {
+    group.spawn(work(5))
+}
+
+func main() {
+    var group = TaskGroup()
+    let h = handed(&group)
+    print("{}", h.join())
+}

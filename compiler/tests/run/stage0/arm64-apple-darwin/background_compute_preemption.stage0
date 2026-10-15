@@ -1,6 +1,6 @@
 program	compiler/tests/run/background_compute_preemption.saw
 triple	arm64-apple-darwin
-source	00e22c4a94da6713
+source	ec39c9f20258652e
 build	ok
 exit	0
 stdout	"spin start"

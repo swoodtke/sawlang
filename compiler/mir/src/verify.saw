@@ -41,7 +41,7 @@ import sawmir.initialisation.{MIR_INIT_DROPPED, MIR_INIT_MOVED, MIR_INIT_PARTIAL
 import sawmir.model.{MirAccessor, MirArm, MirBlock, MirCall, MirCallKind, MirFunc, MirFuncKind, MirLocal, MirLocalKind,
                          MirOperand, MirOperandKind, MirPlace, MirProj, MirProjKind, MirRvalue, MirRvalueKind,
                          MirDriveForm, MirSpawnForm, MirStmt, MirStmtKind, MirSuspend, MirSwitchKind,
-                         MirTermKind}
+                         MirTermKind, mir_spawn_leading}
 import sawmir.program.{MirProgram}
 import sawmir.split.{MirHalf}
 import sawresolve.dump.{res_sort_strings}
@@ -1191,7 +1191,8 @@ extension MirProgram {
 
     // A spawn site names its form and a free function as its root, returns,
     // and leaves the handle its form gives for the root's result: `Task<T>`,
-    // or `VoidTask` for a `Void` root. Only a spawn site carries a form.
+    // or `VoidTask` for a `Void` root. A group site passes a shared reference
+    // to a `TaskGroup` first. Only a spawn site carries a form.
     func verify_spawn(&var self, f: Int, c: &MirCall, out: &var Vector<String>) {
         if c.kind != MirCallKind.Spawn {
             if c.spawn != MirSpawnForm.Absent {
@@ -1201,6 +1202,18 @@ extension MirProgram {
         }
         if c.spawn == MirSpawnForm.Absent {
             self.problem(f, &var out, "a spawn site carries no form")
+        }
+        if c.spawn == MirSpawnForm.Group {
+            var grouped = false
+            if c.arg_count > 0 {
+                let have = self.operands[self.lists[c.arg_first]].ty
+                let group = self.tc.strip_refs(have)
+                let d = self.tc.nominal_decl(group)
+                grouped = d >= 0 && d == self.tc.known.task_group && have == self.tc.mk_ref(false, group)
+            }
+            if not grouped {
+                self.problem(f, &var out, "a group spawn site does not pass a shared reference to its `TaskGroup` first")
+            }
         }
         if c.target < 0 {
             return
@@ -1302,6 +1315,9 @@ extension MirProgram {
                 at = 1
             }
         }
+        // A group spawn site passes its group first, which `verify_spawn`
+        // checks.
+        at = at + mir_spawn_leading(&c)
         if s.receiver != TcReceiver.Absent {
             if c.arg_count <= at {
                 self.problem(f, &var out, "a method's call passes no receiver")

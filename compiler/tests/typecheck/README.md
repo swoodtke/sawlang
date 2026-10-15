@@ -749,6 +749,7 @@ Every body construct in the slice, and how it is typed:
 | a raw pointer's `*p` and `p[i]`, `(&x) as UnsafePointer<T>`, an extern call, a C variadic one, an `unsafe static var`, an allocator parameter's `A()` | the pointee, a pointer, the extern's result, a value of the parameter | lowlevel |
 | `print`, `panic`, `assert` with a message or format arguments; `sizeof`, `alignof` | `Void`, `Never`, `Int` | format, inference |
 | `Task.spawn(f(x))`, under a std root declaring `Task` beside `TaskGroup` | `Task<T>` for a root of type `T`, `VoidTask` for a `Void` one; the root's call is the task's, so its suspension is not the spawner's | task_spawn |
+| `group.spawn(f(x))` on a `TaskGroup`, a local, a field or through a `&TaskGroup` | the group borrowed shared for the spawn; the handle and the root as `Task.spawn`'s | group_spawn |
 | a subscript | a getitem, setitem or place accessor call, or an array's builtin | places, funnel |
 | `o!`, `-x`, `not b`, `~x`, `&x`, `&var x`, `move x`, `move o!`, `*p` | the payload place, the operand's type, a reference, the moved value, the payload moved out of the optional place (design 131), the pointee | places, operators, conversions, builtin_values |
 | arithmetic, bit, shift, comparison, logic, `??`, `as`, `a..b` | agreeing operands; builtin or a declared `equals`/`compare` | operators |
@@ -791,7 +792,7 @@ Every body construct in the slice, and how it is typed:
 | constructing a builtin type no declaration writes an `init` for, `UnsafeMemory<T, U>(a)`; `Atomic(v)` and `UnsafeMutableInterior(v)` are their lang roles' positional constructions | `slice.not-yet` (builtin-construction) |
 | a method call on `any Trait` | `slice.not-yet` (existential-call) |
 | a method `Box` or `Arc` forwards to its payload | `slice.not-yet` (forwarding) |
-| `TaskGroup.spawn` | `slice.not-yet` (task-group-spawn) |
+| a borrow a `group.spawn` root takes of its spawner, a `&`/`&var` argument or a borrow capture, which lasts the task's life (SL:coroutines A8c) | `slice.not-yet` (group-spawn-borrow) |
 | a `borrow` block over a method that lends through a closure parameter, as `borrow var c = m.lock() { ... }` | `slice.not-yet` (lock-borrow) |
 | calling a `FuncPointer`, a function or closure where one is expected | `slice.not-yet` (func-pointer) |
 | the erasing `Box<any Trait>.make` | `slice.not-yet` (box-make-any) |
@@ -1328,7 +1329,7 @@ fixture.
 | R11, R12, R13, R14, R15 | `r` (bare), `r.exclusive-binding`, `r.type-argument` and `r.local-annotation`, `r.explicit-instantiation`, `r.closure-return` |
 | R16, R17, R18, R19, R20, R21 | `r.array-literal`, `r.tuple-literal`, `r.map-value`, `r.static`, `r.alias-field`, `r.alias-return` |
 | R22, R23 | `capture.escaping-borrow` and `capture.escaping-borrow.explicit`: a closure bound to a `let` or passed to an escaping parameter, the `[&x]` spelling |
-| R24, R25 | `slice.not-yet` (`TaskGroup.spawn`, task-group-spawn): due when spawn enters the slice |
+| R24, R25 | `slice.not-yet` (a `group.spawn` root's borrow, group-spawn-borrow): due with the spawn borrows' extent (SL:coroutines A8c) |
 | R26, R27, R29, R31, R32, R34 | `r.optional-written`, `r.nested-generic`, `r.cast-to-integer`, `r.operand`, `r.box`, `r.field-function-type` |
 | R28, R30, R33 | accepted: golden `reference_positions` (the pointer cast, the `borrows` lends), `captures` (a non-escaping borrow capture) |
 | V03, V04 | `b` (bare), `b.shared` |
@@ -1478,9 +1479,9 @@ says what the fixture shows.
 | `erasure.not-object-safe` | a written `any Trait` whose trait is not object-safe: a marker trait, one with an associated type, a static requirement, or a requirement naming `Self` in its result or a parameter, its parents' included, naming the trait, the reason and the member (spec, "Object safety (v1)"; the object-safety matrix) |
 | `effect.any-suspends` | a coercion to `any Trait`, or a call whose type arguments make one in its callee, where the implementation of a requirement not declared `sync` may suspend, naming both (spec: suspension) |
 | `drive.argument` | a test driver (`__saw_drive`, `__saw_drive_steps`) given anything but one positional argument (bare), or a root that is no call of a function or a method: a function value, a closure (`.value-root`) |
-| `spawn.argument` | a `Task.spawn` given anything but one positional argument, or a root that is no call of a free function: a method, a closure, a value (`.method-root`) |
+| `spawn.argument` | a `Task.spawn` or `group.spawn` (`.group`) given anything but one positional argument, or a root that is no call of a free function: a method, a closure, a value (`.method-root`) |
 | `spawn.borrow` | a borrow a `Task.spawn` root takes of its spawner, at both spellings: a `&` or `&var` argument of the root call, and a borrow capture written in a closure anywhere inside it (`.capture`); a reference a call nested in the arguments makes ends at the spawn and is none (golden `task_spawn`; spec, "BORROWS ARE REFUSED AT THE FORM") |
-| `spawn.never-body` | a task root of type `Never`, whose handle's `join` could never return, or which a test driver would drive for ever (design 228; conformance row D12); the funnel `refuse_never_task_body` names its entry points, the `Task.spawn` form and the two test drivers (`.drive`, `.drive-steps`) |
+| `spawn.never-body` | a task root of type `Never`, whose handle's `join` could never return, or which a test driver would drive for ever (design 228; conformance row D12); the funnel `refuse_never_task_body` names its entry points, the `Task.spawn` form, `group.spawn` (`.group`) and the two test drivers (`.drive`, `.drive-steps`) |
 | `slice.not-yet` | a signature or body construct outside the bootstrap slice |
 
 The traits that derive under `@synthesize` are `Copy`, `ExplicitCopy`,

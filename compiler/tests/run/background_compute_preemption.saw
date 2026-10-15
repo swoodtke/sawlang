@@ -1,6 +1,6 @@
 // tests/corpus/taskgroup_compute_preemption, with `Task.spawn` in place of
-// its `TaskGroup`, which waits on SL:coroutines A8b (SL-566): a task that only
-// computes, with no suspending call of its own, still cedes to its sibling.
+// its `TaskGroup` (SL-566): a task that only computes, with no suspending
+// call of its own, still cedes to its sibling in the background group too.
 // `spinner`'s loop is a million iterations of arithmetic; its op-budget point
 // forces a yield after 128 of them, so `chatty`, spawned second and waiting
 // in the run queue, prints while the spinner is still counting.

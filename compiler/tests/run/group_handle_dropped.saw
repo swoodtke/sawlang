@@ -1,0 +1,41 @@
+// A `group.spawn` handle owes no fate (spec: No implicit fates;
+// conformance/K80): the group form writes no obligation, and the handle the
+// spawn lowering mints records its group provenance, so dropping one
+// unconsumed, as a bare statement, an unjoined binding, a discard or a
+// handle moved into storage whose owner declares a `deinit`, never panics.
+// The group's teardown runs every task nobody joined.
+import std.task.{yield_now}
+
+func serve(amount: Int) -> Int {
+    yield_now()
+    print("served {}", amount)
+    amount
+}
+
+struct Keeper {
+    held: Vector<Task<Int>>
+}
+
+extension Keeper: NoCopy {
+    func deinit(&var self) {
+        print("the keeper drops {} handles", self.held.len())
+    }
+}
+
+func run_all() {
+    var group = TaskGroup()
+    group.spawn(serve(1))
+    let unjoined = group.spawn(serve(2))
+    let _ = group.spawn(serve(4))
+    var keeper = Keeper(held: Vector<Task<Int>>())
+    let kept = group.spawn(serve(8))
+    try! keeper.held.push(move kept)
+    let last = group.spawn(serve(16))
+    print("last {}", last.join())
+    print("leaving run_all")
+}
+
+func main() {
+    run_all()
+    print("done")
+}

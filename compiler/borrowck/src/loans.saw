@@ -35,7 +35,8 @@ import sawmir.build.{mir_func_local}
 import sawmir.dump.{mir_module_functions}
 import sawmir.initialisation.{MirInit}
 import sawmir.model.{MirAggregate, MirCallKind, MirConstKind, MirFuncKind, MirLocalKind, MirOperandKind, MirProj, MirProjKind,
-                         MirRvalue, MirRvalueKind, MirStmtKind, MirSuspend, MirSwitchKind, MirTermKind}
+                         MirRvalue, MirRvalueKind, MirStmtKind, MirSuspend, MirSwitchKind, MirTermKind,
+                         mir_spawn_leading}
 import sawmir.program.{MirProgram}
 import sawtypecheck.model.{TC_FLAG_SYNTHESIZE_SHARED, TcReceiver}
 import sawtypecheck.program.{TcProgram}
@@ -48,7 +49,23 @@ public static BORROWCK_WORD_BITS: Int = 60
 public enum BorrowckLoanKind {
     case Ref,
     case Window,
-    case Capture
+    case Capture,
+    // A `group.spawn` handle's shared borrow of its group, for the handle's
+    // whole life (SL-683).
+    case Handle
+}
+
+// Where a handle's borrow of its group may outlive every scope of the
+// function: its result; storage the caller owns, reached through a reference
+// parameter, a `&var self` receiver or a closure's environment; a static; a
+// function value whose captures the function cannot see; another task.
+public enum BorrowckEscape {
+    case Contained,
+    case Returned,
+    case Outside,
+    case Static,
+    case Opaque,
+    case Spawned
 }
 
 // What an access does to its place: a read (a copy, a switch, an index), a
@@ -93,6 +110,10 @@ public struct BorrowckLoan {
     // or one passed to a call.
     captured: Bool
     argument: Bool
+    // A handle loan's first way out of the function, and the local it leaves
+    // through (an `Outside` one's), or -1.
+    escape: BorrowckEscape
+    escape_local: Int
 }
 
 // One access of a statement or terminator.
@@ -597,8 +618,39 @@ extension BorrowckProgram {
                     self.add_loan(&var facts, BorrowckLoanKind.Window, path, exclusive, block.term_node,
                                   block.term_closing, b, -1, c.window, -1)
                 }
+                if c.kind == MirCallKind.Spawn && mir_spawn_leading(&c) > 0 && c.dest >= 0 {
+                    self.handle_loan(&var facts, block.call, block.term_node, block.term_closing, b)
+                }
             }
             b = b + 1
+        }
+    }
+
+    // A group spawn site's handle borrows the group shared for its life: the
+    // place the `ref` it passes first was made of, held by the handle's
+    // destination, or escaping at once when that is a static.
+    func handle_loan(&self, facts: &var BorrowckLoans, call: Int, node: Int, closing: Bool, b: Int) {
+        let c = self.mir.calls[call]
+        let o = self.mir.operands[self.mir.lists[c.arg_first]]
+        if o.kind == MirOperandKind.Const || o.place < 0 {
+            return
+        }
+        let r = self.bare_local_of(o.place)
+        if r < 0 || facts.def_count[r] != 1 || facts.def_stmt[r] < 0 {
+            return
+        }
+        let rv = self.mir.rvalues[self.mir.stmts[facts.def_stmt[r]].rvalue]
+        if rv.kind != MirRvalueKind.Ref || rv.place < 0 {
+            return
+        }
+        let path = self.path_of(rv.place, &var facts)
+        let holder = self.mir.places[c.dest].local
+        self.add_loan(&var facts, BorrowckLoanKind.Handle, path, false, node, closing, b, -1, -1, holder)
+        if holder < 0 {
+            let n = facts.loans.len() - 1
+            var loan = facts.loans[n]
+            loan.escape = BorrowckEscape.Static
+            facts.loans[n] = loan
         }
     }
 
@@ -783,7 +835,7 @@ extension BorrowckProgram {
         try! facts.loans.push(BorrowckLoan(kind: kind, path: path, exclusive: exclusive, node: node, closing: closing,
                                            block: b, stmt: s, window: w, holder_first: first, holder_count: count,
                                            tie_first: 0, tie_count: 0, captured: kind == BorrowckLoanKind.Capture,
-                                           argument: false))
+                                           argument: false, escape: BorrowckEscape.Contained, escape_local: -1))
     }
 
     // Each loan's carriers: its holder, then every local a value carrying it
@@ -870,6 +922,256 @@ extension BorrowckProgram {
             }
             n = n + 1
         }
+        self.handle_flows(f, &var facts, &from, &to)
+    }
+
+    // Each handle loan's carriers, and its first way out (SL-683): the
+    // assignment edges `loan_holders` follows, and a call's too, since a
+    // callee may keep what it is handed. A value carrying the loan that is
+    // an argument of a call reaches the call's destination, what each
+    // `&var` argument refers to, and what each exclusive capture of a closure
+    // among the operands borrows; handed to a function value whose captures
+    // this function did not write, or to a spawn's root, it may be kept
+    // anywhere.
+    func handle_flows(&self, f: Int, facts: &var BorrowckLoans, from: &Vector<Int>, to: &Vector<Int>) {
+        var any = false
+        var n = 0
+        while n < facts.loans.len() {
+            if facts.loans[n].kind == BorrowckLoanKind.Handle {
+                any = true
+            }
+            n = n + 1
+        }
+        if not any {
+            return
+        }
+        let info = self.mir.funcs[f]
+        var cfrom = Vector<Int>()
+        var cto = Vector<Int>()
+        // Per local: how a value it holds may be kept past every scope.
+        var kept = Vector<BorrowckEscape>()
+        var k = 0
+        while k < info.local_count {
+            try! kept.push(BorrowckEscape.Contained)
+            k = k + 1
+        }
+        var b = 0
+        while b < info.block_count {
+            let block = self.mir.blocks[info.block_first + b]
+            var s = block.first
+            while s >= 0 {
+                let stmt = self.mir.stmts[s]
+                if stmt.kind == MirStmtKind.Assign && stmt.rvalue >= 0 && stmt.place >= 0 {
+                    let rv = self.mir.rvalues[stmt.rvalue]
+                    if self.mir.places[stmt.place].local < 0 && borrowck_carrying_rvalue(rv.kind) {
+                        self.keep_movers(rv.first, rv.count, BorrowckEscape.Static, &var kept)
+                    }
+                }
+                s = stmt.next
+            }
+            if block.term == MirTermKind.Call {
+                self.call_flows(f, block.call, &var facts, &var cfrom, &var cto, &var kept)
+            }
+            b = b + 1
+        }
+        n = 0
+        while n < facts.loans.len() {
+            var loan = facts.loans[n]
+            if loan.kind == BorrowckLoanKind.Handle && loan.holder_count > 0 {
+                var seen = borrowck_zeros(info.local_count)
+                var run = Vector<Int>()
+                let first = facts.holders[loan.holder_first]
+                try! run.push(first)
+                seen[first] = 1
+                var at = 0
+                while at < run.len() {
+                    let l = run[at]
+                    at = at + 1
+                    if loan.escape == BorrowckEscape.Contained {
+                        let way = self.local_escape(f, l, &kept)
+                        if way != BorrowckEscape.Contained {
+                            loan.escape = way
+                            loan.escape_local = l
+                        }
+                    }
+                    var e = 0
+                    while e < from.len() + cfrom.len() {
+                        let src = if e < from.len() { from[e] } else { cfrom[e - from.len()] }
+                        let dst = if e < from.len() { to[e] } else { cto[e - from.len()] }
+                        e = e + 1
+                        if src == l && seen[dst] == 0 {
+                            seen[dst] = 1
+                            try! run.push(dst)
+                        }
+                    }
+                }
+                loan.holder_first = facts.holders.len()
+                loan.holder_count = run.len()
+                var r = 0
+                while r < run.len() {
+                    try! facts.holders.push(run[r])
+                    r = r + 1
+                }
+                facts.loans[n] = loan
+            }
+            n = n + 1
+        }
+    }
+
+    // How a value carried by local `l` may outlive every scope of function
+    // `f`, by `l` alone: the result; a reference parameter, a `&var self`
+    // receiver or a closure's environment, all the caller's storage; or as
+    // `kept` recorded `l` handed on.
+    func local_escape(&self, f: Int, l: Int, kept: &Vector<BorrowckEscape>) -> BorrowckEscape {
+        let local = mir_func_local(&self.mir, f, l)
+        if local.kind == MirLocalKind.Return {
+            return BorrowckEscape.Returned
+        }
+        if local.kind == MirLocalKind.Env {
+            return BorrowckEscape.Outside
+        }
+        let outside = local.kind == MirLocalKind.Param || local.kind == MirLocalKind.Receiver
+        if outside && self.mir.tc.is_reference(local.ty) {
+            return BorrowckEscape.Outside
+        }
+        kept[l]
+    }
+
+    // Records in `kept` that each local an operand of the run reads a value
+    // from may be kept as `way` says.
+    func keep_movers(&self, first: Int, count: Int, way: BorrowckEscape, kept: &var Vector<BorrowckEscape>) {
+        var k = 0
+        while k < count {
+            let o = self.mir.operands[self.mir.lists[first + k]]
+            k = k + 1
+            if o.kind == MirOperandKind.Const || o.place < 0 || not self.reads_carrier(o.place) {
+                continue
+            }
+            let l = self.mir.places[o.place].local
+            if l >= 0 && kept[l] == BorrowckEscape.Contained {
+                kept[l] = way
+            }
+        }
+    }
+
+    // The flow edges of call `call` for handle loans: each local an argument
+    // reads a value from, to each place the callee may keep it in. One
+    // handed where nothing bounds it is recorded in `kept`.
+    func call_flows(&self, f: Int, call: Int, facts: &var BorrowckLoans, cfrom: &var Vector<Int>,
+                    cto: &var Vector<Int>, kept: &var Vector<BorrowckEscape>) {
+        let c = self.mir.calls[call]
+        if c.kind == MirCallKind.Spawn {
+            let lead = mir_spawn_leading(&c)
+            self.keep_movers(c.arg_first + lead, c.arg_count - lead, BorrowckEscape.Spawned, &var kept)
+            return
+        }
+        var targets = Vector<Int>()
+        var to_static = false
+        if c.dest >= 0 {
+            let d = self.mir.places[c.dest].local
+            if d >= 0 {
+                try! targets.push(d)
+            } else {
+                to_static = true
+            }
+        }
+        var opaque = c.kind == MirCallKind.Value && c.callee >= 0 && not self.closure_operand(c.callee, &facts)
+        var k = 0
+        while k < c.arg_count {
+            let at = self.mir.lists[c.arg_first + k]
+            k = k + 1
+            let o = self.mir.operands[at]
+            if o.kind == MirOperandKind.Const || o.place < 0 {
+                continue
+            }
+            let t = self.mir.places[o.place].ty
+            let value = if self.mir.tc.is_reference(t) { self.mir.tc.deref_type(t) } else { t }
+            if self.mir.tc.kind_of(value) == TcKind.Func && not self.closure_operand(at, &facts) {
+                opaque = true
+            }
+            if self.mir.tc.is_exclusive_ref(t) {
+                let base = self.path_of(o.place, &var facts)
+                let step = MirProj(kind: MirProjKind.Deref, decl: -1, index: -1, ty: self.mir.tc.deref_type(t))
+                let through = self.path_then(&base, step, &var facts)
+                let root = self.borrowck_trace(f, &through, &var facts)
+                if root.local >= 0 {
+                    try! targets.push(root.local)
+                } else if root.static_decl >= 0 {
+                    to_static = true
+                }
+            }
+        }
+        // What each exclusive capture of a closure among the operands borrows.
+        var n = 0
+        while n < facts.loans.len() {
+            let loan = facts.loans[n]
+            n = n + 1
+            if not loan.exclusive || not (loan.kind == BorrowckLoanKind.Capture || loan.captured) {
+                continue
+            }
+            var carried = c.callee >= 0 && self.operand_carries(&facts, n - 1, c.callee)
+            k = 0
+            while k < c.arg_count && not carried {
+                let operand = self.mir.lists[c.arg_first + k]
+                carried = self.operand_carries(&facts, n - 1, operand)
+                k = k + 1
+            }
+            if carried {
+                let root = self.borrowck_trace(f, &loan.path, &var facts)
+                if root.local >= 0 {
+                    try! targets.push(root.local)
+                } else if root.static_decl >= 0 {
+                    to_static = true
+                }
+            }
+        }
+        if opaque {
+            self.keep_movers(c.arg_first, c.arg_count, BorrowckEscape.Opaque, &var kept)
+        } else if to_static {
+            self.keep_movers(c.arg_first, c.arg_count, BorrowckEscape.Static, &var kept)
+        }
+        k = 0
+        while k < c.arg_count {
+            let o = self.mir.operands[self.mir.lists[c.arg_first + k]]
+            k = k + 1
+            if o.kind == MirOperandKind.Const || o.place < 0 || not self.reads_carrier(o.place) {
+                continue
+            }
+            let src = self.mir.places[o.place].local
+            var j = 0
+            while j < targets.len() && src >= 0 {
+                if targets[j] != src {
+                    try! cfrom.push(src)
+                    try! cto.push(targets[j])
+                }
+                j = j + 1
+            }
+        }
+    }
+
+    // Whether operand `o` reads a local carrying loan `n`.
+    func operand_carries(&self, facts: &BorrowckLoans, n: Int, o: Int) -> Bool {
+        let operand = self.mir.operands[o]
+        if operand.kind == MirOperandKind.Const || operand.place < 0 {
+            return false
+        }
+        let l = self.mir.places[operand.place].local
+        l >= 0 && facts.carries(n, l)
+    }
+
+    // Whether operand `o` reads a closure this function builds, whose
+    // captures are its own loans.
+    func closure_operand(&self, o: Int, facts: &BorrowckLoans) -> Bool {
+        let operand = self.mir.operands[o]
+        if operand.kind == MirOperandKind.Const || operand.place < 0 {
+            return false
+        }
+        let l = self.bare_local_of(operand.place)
+        if l < 0 || facts.def_count[l] != 1 || facts.def_stmt[l] < 0 {
+            return false
+        }
+        let rv = self.mir.rvalues[self.mir.stmts[facts.def_stmt[l]].rvalue]
+        rv.kind == MirRvalueKind.Aggregate && rv.aggregate == MirAggregate.Closure
     }
 
     // Whether a value read from place `p` may carry its local's loans: one

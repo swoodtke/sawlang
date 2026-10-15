@@ -8982,7 +8982,13 @@ anti-suspension boundary, so it is `sync`) plus `wake_reason(&self) sync -> Int`
   runs the executor to completion of every child, then tears each frame down.
   Because the group is declared before the resources its tasks use and before its
   own handles, LIFO destroys it *first* — draining children while those resources
-  are still alive — and handles die before the frames they point into. Task
+  are still alive — and handles die before the frames they point into. A group
+  destroyed while any of its `group.spawn` handles is outstanding (not yet
+  joined, cancelled or dropped) panics at its teardown, after its tasks are
+  joined and before any of its storage is released; the rules of "A group
+  task's handle borrows its group" refuse the direct routes to that at compile
+  time, so the panic catches a handle minted through a borrow window, such as
+  `Box<TaskGroup>.value()`'s, and any route those rules do not see. Task
   frames are self-contained (spawn strips references, paper 18), so no scope
   ordering hazard arises. NO forced destroy anywhere.
 - **Cancellation** is cooperative (design 18 C1). `handle.cancel()` sets the
@@ -9819,6 +9825,57 @@ Three cases release later than the join, each conservatively:
 
 `cancel()` does not release. A cancelled task still runs its cancel path, and
 the reference is live until it finishes.
+
+#### A group task's handle borrows its group
+
+A `group.spawn` handle reaches its task through the group, so the handle holds
+a shared borrow of its group for its whole life, the same extent a spawn borrow
+has. While a handle is live, further `group.spawn`s and `count()` read the
+group beside it, and `&var group`, an assignment to the group or the group's
+drop are refused. A handle therefore cannot outlive its group:
+
+```saw-fragment
+func leak() -> Task<Int> {
+    var group = TaskGroup()
+    group.spawn(work(5))
+}
+// error: the task handle this `group.spawn` makes leaves the function through
+//        its result, but it holds its group shared for its whole life, and the
+//        group `group` ends at 4:1
+```
+
+The handle may not leave every scope of the function that made it. It may not
+be returned (bare, inside a value, or captured by a returned closure), stored
+through a reference parameter or a `&var self` receiver, stored into a static,
+handed to a function value the function did not write, or handed to another
+task's root. A handle minted through a `&TaskGroup` parameter is bound by the
+same rule, since the function cannot see where the caller's group ends. Inside
+the function, a handle stored where it outlives the group (an `Optional`, a
+struct or a `Vector` declared before the group and used after the group's
+scope ends) is refused at the group's closing brace:
+
+```saw-fragment
+var kept: Task<Int>? = None
+if ready() {
+    var group = TaskGroup()
+    kept = group.spawn(work(1))
+}
+// error: `group` ends here while the task handle `group.spawn` made at 4:12
+//        is still used after it
+if let h = kept.take() {
+    print(h.join())
+}
+```
+
+A handle joined, cancelled or dropped inside its group's scope is fine, and so
+is one held in a struct, an `Optional` or a `Vector` declared after the group,
+which dies first.
+
+These rules do not follow a handle minted through a borrow window's lend
+binding, such as `borrow var p = boxed.value() { kept = p.spawn(work(7)) }`.
+That route is checked when the program runs: the group panics at its teardown
+if such a handle is still outstanding, before the handle can reach the
+group's freed storage.
 
 ### Task backtraces (design 158)
 
