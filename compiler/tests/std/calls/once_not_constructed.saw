@@ -1,0 +1,12 @@
+// refuses: call.no-match at 9:17
+// A `Once` is declared, not constructed (SL-672): its unset state is the zero
+// pattern, so it has no `init`, and its private fields keep another module
+// from building one field by field.
+
+import std.once.{Once}
+
+func main() -> Int {
+    let limit = Once<Int>()
+    limit.set(4)
+    limit.get()
+}

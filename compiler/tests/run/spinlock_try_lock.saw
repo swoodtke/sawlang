@@ -1,0 +1,14 @@
+// due: the backend lowers no conditional borrow, which `SpinLock.try_lock()` lends (SL-686)
+// refuses: backend.not-yet at 11:33
+// `try_lock` lends the payload when the lock is free, and nothing when it is
+// held; it never spins. Stage 0 cannot parse a `borrow`, so once sawc2 builds
+// this it becomes a stated probe printing `try got 5` and `unlocked true`.
+
+import std.spinlock.{SpinLock}
+
+func main() {
+    let local = SpinLock<Int>(value: 5)
+    let got = if borrow var n = local.try_lock() { n } else { 0 }
+    print("try got {}", got)
+    print("unlocked {}", not local.is_locked())
+}

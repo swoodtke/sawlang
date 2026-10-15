@@ -433,6 +433,9 @@ extension ResProgram {
         self.std_module("set")
         self.std_module("task")
         self.std_module("taskgroup")
+        self.std_module("spinlock")
+        self.std_module("mutex")
+        self.std_module("once")
     }
 
     // Stage 0's std modules, each `std.X` at `<std root>/std/X.saw`.

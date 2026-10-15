@@ -43,8 +43,9 @@ profile, the lang-item table, and the API equivalence of the two stds.
   issues an acquire fence before it returns the bytes;
 - each `cone/` program's new-std cone (compiler/tools/std_cone.py) equals
   `NAME.cone`; `optional_result`'s and `literal_only`'s hold no runtime module,
-  nothing of `std.alloc` and no task module, `interpolation`'s reaches the
-  builder and the allocator, and none holds a task module;
+  nothing of `std.alloc` and no task module, `spinlock`'s neither the
+  allocator nor any runtime seam but the panic sink, `interpolation`'s reaches
+  the builder and the allocator, and none holds a task module;
 - sawc2's own build (the driver with every stage package, the resolve loader
   among them) typechecks, lowers, borrow-checks and drop-elaborates against
   `std/` with no refusal and no invariant, and its new-std cone equals
@@ -89,10 +90,10 @@ TIMEOUT = 300
 RUN_TIMEOUT = 60
 
 # The units whose std declarations have landed: SL-456's, SL-522's file
-# writing and process waiting, and SL-563's `TaskGroup`. A member row of a
-# landed unit is compared, and an exception due by one fails until it is
-# resolved.
-LANDED_UNITS = ("U5b1", "U5b2", "U5b3", "SL-522", "SL-563")
+# writing and process waiting, SL-563's `TaskGroup`, and SL-672's locks and
+# `Once`. A member row of a landed unit is compared, and an exception due by
+# one fails until it is resolved.
+LANDED_UNITS = ("U5b1", "U5b2", "U5b3", "SL-522", "SL-563", "SL-672")
 # The programs of `lang/` checked against the new std only, or refused.
 NEW_ONLY = ("optional_methods", "string_positions")
 REFUSED_PAIRED = ("missing_case",)
@@ -104,7 +105,11 @@ USER_OPTIONAL = "user_optional"
 OPTIONAL_METHODS = ("take", "is_some", "is_none")
 # The cones that must reach no allocator: a program using only Optional and
 # Result, and one whose only Strings are literals.
-NO_ALLOCATOR_CONES = ("optional_result", "literal_only")
+NO_ALLOCATOR_CONES = ("optional_result", "literal_only", "spinlock")
+# The cones that must reach no runtime seam but the panic sink, which every
+# runtime provides, a freestanding one included: a program locking a
+# `SpinLock`, which needs no operating system.
+SEAM_FREE_CONES = {"spinlock": ("__saw_rt_panic",)}
 # The cone of a program that interpolates, which reaches the builder and the
 # allocator.
 BUILDER_CONE = "interpolation"
@@ -712,6 +717,11 @@ def check_cones(failures, counts, write):
             if "std.alloc" in modules or "GlobalAllocator" in text:
                 failures.append("std cone %s: reaches the allocator, which this program "
                                 "must not" % rel(path))
+        if name in SEAM_FREE_CONES:
+            for seam in re.findall(r"^  extern (\S+)$", text, re.M):
+                if seam not in SEAM_FREE_CONES[name]:
+                    failures.append("std cone %s: reaches the runtime seam `%s`, which this "
+                                    "program must not" % (rel(path), seam))
         if name == BUILDER_CONE:
             for wanted in ("std.stringbuilder", "std.alloc"):
                 if wanted not in modules:

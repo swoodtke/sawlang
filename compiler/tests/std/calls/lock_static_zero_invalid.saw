@@ -1,0 +1,13 @@
+// refuses: static.zero-invalid at 9:8
+// A lock's ZeroInit is conditional on its payload (SL-672): a bare static of
+// `SpinLock<String>` is refused, since an all-zero `String` is no valid
+// String, though `SpinLock` vouches for its own private fields.
+
+import std.spinlock.{SpinLock}
+
+static COUNT: SpinLock<Int>
+static LABEL: SpinLock<String>
+
+func main() -> Int {
+    borrow var n = COUNT.lock() { n }
+}

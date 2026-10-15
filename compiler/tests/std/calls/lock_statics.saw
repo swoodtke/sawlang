@@ -1,0 +1,63 @@
+// SpinLock, Mutex and Once as the spec spells them: each a bare static over a
+// payload this module could build field by field (ZeroInit, SL-660), a lock's
+// `borrow` window and its value, the conditional `try_lock`, Mutex's and
+// Once's copies out, and a local lock built through `init` (SL-672). A bare
+// and an initialized `Atomic` static sit beside them, the part tier 1 names.
+
+import std.mutex.{Mutex}
+import std.once.{Once}
+import std.spinlock.{SpinLock}
+
+struct Counters {
+    hits: Int,
+    misses: Int
+}
+
+static STATS: SpinLock<Counters>
+static COUNT: SpinLock<Int>
+static REGISTRY: Mutex<Int>
+static TALLY: Mutex<Counters>
+static LIMITS: Once<Counters>
+static PAGE: Once<Int>
+static TICKS: Atomic<Int>
+static STARTED: Atomic<Int> = Atomic(0)
+
+func record(hit: Bool) {
+    borrow var c = STATS.lock() {
+        if hit { c.hits = c.hits + 1 } else { c.misses = c.misses + 1 }
+    }
+}
+
+func shared_count(lock: &SpinLock<Int>) -> Int {
+    borrow var n = lock.lock() { n }
+}
+
+func main() -> Int {
+    record(true)
+    record(false)
+    let hits = borrow var c = STATS.lock() { c.hits }
+    let quick = if borrow var n = COUNT.try_lock() { n + 1 } else { 0 }
+    let held = COUNT.is_locked()
+    let local = SpinLock<Int>(value: 5)
+    let doubled = borrow var n = local.lock() { n * 2 }
+    let seen = shared_count(&local)
+
+    borrow var total = REGISTRY.lock() { total = total + 10 }
+    borrow var t = TALLY.lock() { t.hits = t.hits + 1 }
+    let registered = REGISTRY.get()
+    let guarded = Mutex<Int>(value: 3)
+    let three = guarded.get()
+
+    LIMITS.set(Counters(hits: 1, misses: 2))
+    PAGE.set(4096)
+    let workers = LIMITS.get().hits
+    let page = PAGE.try_get() ?? 0
+    let ready = PAGE.is_set()
+
+    let _ = TICKS.fetch_add(1)
+    let _ = STARTED.fetch_add(1)
+    if held || not ready {
+        return 1
+    }
+    hits + quick + doubled + seen + registered + three + workers + page + TICKS.load() + STARTED.load()
+}

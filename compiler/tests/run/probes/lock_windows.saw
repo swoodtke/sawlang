@@ -1,0 +1,59 @@
+// probe: stated
+// about: a local SpinLock's and Mutex's `lock()` window writes the payload in place and releases the lock as it closes (SL-672)
+// stage 0: cannot parse a `borrow` block, and its std spells `lock` with a closure
+// speeds: -O0 -O2
+// prints: hits 2 misses 1
+// prints: unlocked true
+// prints: doubled 10
+// prints: after 15
+// prints: registry 13
+// prints: tally 2 1
+
+import std.mutex.{Mutex}
+import std.spinlock.{SpinLock}
+
+struct Counters {
+    hits: Int,
+    misses: Int
+}
+
+func record(stats: &SpinLock<Counters>, hit: Bool) {
+    borrow var c = stats.lock() {
+        if hit { c.hits = c.hits + 1 } else { c.misses = c.misses + 1 }
+    }
+}
+
+func note(tally: &Mutex<Counters>, hit: Bool) {
+    borrow var c = tally.lock() {
+        if hit { c.hits = c.hits + 1 } else { c.misses = c.misses + 1 }
+    }
+}
+
+func main() {
+    let stats = SpinLock<Counters>(value: Counters(hits: 0, misses: 0))
+    record(&stats, true)
+    record(&stats, false)
+    record(&stats, true)
+    let hits = borrow var c = stats.lock() { c.hits }
+    let misses = borrow var c = stats.lock() { c.misses }
+    print("hits {} misses {}", hits, misses)
+    print("unlocked {}", not stats.is_locked())
+
+    let local = SpinLock<Int>(value: 5)
+    print("doubled {}", borrow var n = local.lock() { n * 2 })
+    borrow var n = local.lock() { n = n + 10 }
+    print("after {}", borrow var n = local.lock() { n })
+
+    let registry = Mutex<Int>(value: 1)
+    borrow var total = registry.lock() { total = total + 2 }
+    borrow var total = registry.lock() { total = total + 10 }
+    print("registry {}", borrow var total = registry.lock() { total })
+
+    let tally = Mutex<Counters>(value: Counters(hits: 0, misses: 0))
+    note(&tally, true)
+    note(&tally, false)
+    note(&tally, true)
+    let tally_hits = borrow var c = tally.lock() { c.hits }
+    let tally_misses = borrow var c = tally.lock() { c.misses }
+    print("tally {} {}", tally_hits, tally_misses)
+}

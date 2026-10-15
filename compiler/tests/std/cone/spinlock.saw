@@ -1,0 +1,32 @@
+// A program that locks a static `SpinLock` and a local one, tries one, and
+// counts with an `Atomic`: a spin lock needs no operating system and no
+// allocator (SL-672), so its cone holds no runtime seam and no allocator.
+
+import std.spinlock.{SpinLock}
+
+struct Counters {
+    hits: Int,
+    misses: Int
+}
+
+static STATS: SpinLock<Counters>
+static TURNS: Atomic<Int>
+
+func record(hit: Bool) {
+    borrow var c = STATS.lock() {
+        if hit { c.hits = c.hits + 1 } else { c.misses = c.misses + 1 }
+    }
+    let _ = TURNS.fetch_add(1)
+}
+
+func main() -> Int {
+    record(true)
+    record(false)
+    let local = SpinLock<Int>(value: 2)
+    let quick = if borrow var n = local.try_lock() { n } else { 0 }
+    let hits = borrow var c = STATS.lock() { c.hits }
+    if local.is_locked() {
+        return 1
+    }
+    hits + quick + TURNS.load()
+}

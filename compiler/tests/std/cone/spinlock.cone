@@ -1,0 +1,31 @@
+# The cone of compiler/tests/std/cone/spinlock.saw against the new std (std): every std declaration its
+# functions reach, read off sawc2's typecheck dump by compiler/tools/std_cone.py.
+# 22 declarations in 3 modules
+
+std.panic: 2
+  extern __saw_rt_panic
+  func panic_sink
+
+std.prelude: 12
+  enum Optional
+  func atomic_add_word
+  func atomic_exchange_word
+  func atomic_load_word
+  func atomic_store_word
+  method Atomic.compare_exchange
+  method Atomic.fetch_add
+  method Atomic.load
+  method Atomic.store
+  method UnsafeMutableInterior.ptr
+  struct Atomic
+  struct UnsafeMutableInterior
+
+std.spinlock: 8
+  enum LockState
+  init SpinLock.init
+  method SpinLock.acquire
+  method SpinLock.is_locked
+  method SpinLock.lock
+  method SpinLock.release
+  method SpinLock.try_lock
+  struct SpinLock

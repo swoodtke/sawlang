@@ -1,0 +1,17 @@
+// refuses: static.not-sync at 13:8
+// A lock is `Sync` only when its payload is `Send` (SL-672): the lock
+// serializes access, and cannot make a payload that may not cross threads
+// safe to reach from every thread, so a static of one is refused.
+
+import std.spinlock.{SpinLock}
+
+struct Handle {
+    at: UnsafePointer<Int>
+}
+
+static OWNED: SpinLock<Int>
+static ROOTS: SpinLock<Handle>
+
+func main() -> Int {
+    borrow var n = OWNED.lock() { n }
+}

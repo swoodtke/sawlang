@@ -1,0 +1,21 @@
+// refuses: borrows.sync-window at 13:9
+// A critical section cannot suspend (SL-672): `SpinLock.lock()` is
+// `borrows(sync)`, so a suspension inside its window is refused, naming the
+// accessor, rather than a task parking with the lock held.
+
+import std.spinlock.{SpinLock}
+import std.task.{yield_now}
+
+static COUNT: SpinLock<Int>
+
+func bump() -> Int {
+    borrow var n = COUNT.lock() {
+        yield_now()
+        n = n + 1
+        n
+    }
+}
+
+func main() -> Int {
+    bump()
+}

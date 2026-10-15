@@ -1,0 +1,106 @@
+//! `Once<T>`: state that is computed once and read everywhere after.
+//!
+//! A `static` is image bytes, and Saw has no life-before-main, so a global
+//! whose initial value has to be computed cannot be a static initializer in
+//! any form. `Once<T>` covers the common case: state set once, at a moment the
+//! program picks, and read as a plain value from then on.
+//!
+//! ```saw-fragment
+//! import std.once.{Once}
+//!
+//! struct Limits {
+//!     workers: Int,
+//!     queue: Int
+//! }
+//!
+//! static LIMITS: Once<Limits>          // zero is unset: .bss, no image bytes
+//!
+//! func boot(cpus: Int) {
+//!     LIMITS.set(Limits(workers: cpus, queue: cpus * 64))
+//! }
+//!
+//! func workers() -> Int {
+//!     LIMITS.get().workers
+//! }
+//! ```
+//!
+//! A second `set` panics, and so does a `get` before any `set`: both are bugs
+//! in the program's order, not conditions to branch on. `try_get` is for code
+//! that genuinely does not know yet. Nothing here blocks: a `get` racing the
+//! `set` that would satisfy it takes the panic rather than waiting.
+
+// Zero must be `Unset`: that is what makes a bare `static LIMITS: Once<T>`
+// legal. `Atomic<Int>` is the only atomic, so each use site projects with
+// `as Int`.
+enum State: Int {
+    case Unset = 0,
+    case Setting = 1,
+    case Ready = 2
+}
+
+/// A value written once and read many times.
+///
+/// The payload write and the `Ready` store that announces it are ordered by
+/// the state word's sequentially consistent atomics, so a reader that sees
+/// `Ready` sees the payload too.
+///
+/// `NoCopy`: a copied `Once` is a second, independent slot that would accept
+/// its own `set`. It is `Sync` when `T` is `Send` (`get` hands a copy to
+/// whichever thread asked) and `Sync` (two readers copy the stored value at
+/// once). A bare `static` of one is legal when `T` is valid at zero; a static
+/// never runs its deinit, so `T` should be trivially destructible.
+public struct Once<T> {
+    private state: Atomic<Int>,
+    private value: UnsafeMutableInterior<T>
+}
+
+extension Once<T>: NoCopy {}
+
+extension Once<T: Send + Sync>: UnsafeSync {}
+
+// Zero is the unset state over a zeroed payload, which no reader sees.
+extension Once<T: ZeroInit>: ZeroInit {}
+
+extension Once<T> {
+    /// Publishes `value`, once.
+    ///
+    /// Panics if this `Once` already holds a value, or if another thread is
+    /// setting it at this instant: racing setters resolve through one
+    /// compare-and-swap, and every loser panics.
+    public func set(&self, value: T) unsafe {
+        if not self.state.compare_exchange(State.Unset as Int, State.Setting as Int) {
+            panic("Once.set: already initialized (a Once is written once)")
+        }
+        self.value.ptr()[0] = move value
+        self.state.store(State.Ready as Int)
+    }
+
+    /// Whether a value has been published.
+    ///
+    /// The answer can be stale before it is read, so deciding whether to
+    /// `set` on it is a race; `set` itself resolves that.
+    public func is_set(&self) -> Bool {
+        self.state.load() == (State.Ready as Int)
+    }
+}
+
+extension Once<T: ExplicitCopy> {
+    /// The published value.
+    ///
+    /// Panics if nothing has been published yet; `try_get` is the spelling
+    /// for code that genuinely does not know.
+    public func get(&self) unsafe -> T {
+        if self.state.load() != (State.Ready as Int) {
+            panic("Once.get: read before initialization")
+        }
+        self.value.ptr()[0].copy()
+    }
+
+    /// The published value, or `None` when nothing has been published yet.
+    public func try_get(&self) unsafe -> T? {
+        if self.state.load() != (State.Ready as Int) {
+            return None
+        }
+        self.value.ptr()[0].copy()
+    }
+}

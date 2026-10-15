@@ -1,0 +1,85 @@
+//! `Mutex<T>`: mutual exclusion for state several threads share.
+//!
+//! A mutex is one inline word beside its payload. It allocates nothing, frees
+//! nothing, and needs no constructor to be valid: zero means unlocked, so a
+//! `static` holds one with no initializer at all.
+//!
+//! ```saw-fragment
+//! import std.mutex.{Mutex}
+//!
+//! static REGISTRY: Mutex<Int>          // .bss: an idle mutex costs no bytes
+//!
+//! func record(n: Int) {
+//!     borrow var total = REGISTRY.lock() { total = total + n }
+//! }
+//! ```
+//!
+//! The word is the runtime's lock: `os_unfair_lock` on macOS and a futex on
+//! Linux, both zero when unlocked. A contended `lock` blocks the calling
+//! thread, so prefer a `Channel` where a task would otherwise wait.
+
+extern "C" {
+    // Acquire and release one platform word, zero = unlocked (runtime/ABI.md).
+    // The protocol is the runtime's, so std never knows which host it is on.
+    func __saw_rt_lock_acquire(state: UnsafePointer<Int>)
+    func __saw_rt_lock_release(state: UnsafePointer<Int>)
+}
+
+/// A value guarded by a lock.
+///
+/// `lock()` lends the payload for a `borrow` window under the lock, and
+/// releases it when the window closes. The window cannot suspend: a task can
+/// resume on another worker, and the lock would then be released by a thread
+/// that does not own it.
+///
+/// `NoCopy`: a copied mutex is two mutexes guarding two payloads. It is not
+/// `NoMove`, since a move needs exclusive access and no thread can hold the
+/// lock across one. It is `Sync` when `T` is `Send`, and a bare `static` of
+/// one is legal when `T` is valid at zero.
+///
+/// Locking is not reentrant: locking a mutex this thread already holds is a
+/// program bug (macOS traps, Linux deadlocks).
+public struct Mutex<T> {
+    private state: UnsafeMutableInterior<Int>,
+    private value: UnsafeMutableInterior<T>
+}
+
+// The lock serializes every access, so no two threads ever hold the payload
+// at once.
+extension Mutex<T: Send>: UnsafeSync {}
+
+// Zero is an unlocked word over a zeroed payload.
+extension Mutex<T: ZeroInit>: ZeroInit {}
+
+// No hand-written `deinit`: the word owns no OS resource and no block.
+extension Mutex<T>: NoCopy {}
+
+extension Mutex<T> {
+    /// Wraps `value` behind a fresh unlocked mutex.
+    ///
+    /// Allocates nothing, so it cannot fail. A `static` does not need this:
+    /// declare it without an initializer and the zero pattern is already an
+    /// unlocked mutex over a zeroed payload.
+    public init(value: T) unsafe -> Mutex<T> {
+        Mutex<T>(state: UnsafeMutableInterior(0), value: UnsafeMutableInterior(move value))
+    }
+
+    /// Blocks until the lock is free, then lends the payload for the window.
+    ///
+    /// The lock is released when the window closes, on every way out.
+    public func lock(&self) unsafe sync borrows(sync) -> &var T {
+        __saw_rt_lock_acquire(self.state.ptr())
+        lend self.value.ptr()[0]
+        __saw_rt_lock_release(self.state.ptr())
+    }
+}
+
+extension Mutex<T: ExplicitCopy> {
+    /// Returns a copy of the payload, read under the lock.
+    public func get(&self) unsafe -> T {
+        __saw_rt_lock_acquire(self.state.ptr())
+        let snapshot = self.value.ptr()[0].copy()
+        __saw_rt_lock_release(self.state.ptr())
+        move snapshot
+    }
+}

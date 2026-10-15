@@ -201,8 +201,9 @@ STD_PROFILE_SELF = ("prelude-type-name", "std-api")
 STD_PROFILE_BOUND = "Allocator"
 # The traits a container's conditional conformance may bound its element on,
 # as the language defines `Vector`: ExplicitCopy when its element is, Send and
-# Sync when its element and allocator are, and `iter()` where it is Copy.
-STD_PROFILE_POLICY_BOUNDS = ("Copy", "ExplicitCopy", "Send", "Sync")
+# Sync when its element and allocator are, and `iter()` where it is Copy; and
+# ZeroInit when its payload is, as the language defines the locks.
+STD_PROFILE_POLICY_BOUNDS = ("Copy", "ExplicitCopy", "Send", "Sync", "ZeroInit")
 # The aliases the language's vocabulary defines, which the new std's prelude
 # declares where Stage 0's builtin module did: `type-alias` refuses any other.
 STD_PROFILE_ALIAS_HOME = "std/prelude.saw"

@@ -1,0 +1,110 @@
+//! `SpinLock<T>`: a lock that costs one word and needs no operating system.
+//!
+//! It guards a value behind an atomic word, so it can live anywhere its
+//! payload can: a local, a field, or a `static`. Unlike `Mutex<T>` it needs no
+//! runtime lock seam, which is the point: it works on a freestanding target.
+//!
+//! ```saw-fragment
+//! import std.spinlock.{SpinLock}
+//!
+//! struct Counters {
+//!     hits: Int,
+//!     misses: Int
+//! }
+//!
+//! static STATS: SpinLock<Counters>          // zero means unlocked and zeroed
+//!
+//! func record(hit: Bool) {
+//!     borrow var c = STATS.lock() {
+//!         if hit { c.hits = c.hits + 1 } else { c.misses = c.misses + 1 }
+//!     }
+//! }
+//! ```
+//!
+//! Hold it briefly. A waiter burns its core until the lock is free.
+
+// Unlocked must be zero: that is what lets a `static SpinLock<T>` go without
+// an initializer. `Atomic<Int>` is the only atomic, so each use site projects
+// with `as Int`.
+enum LockState: Int {
+    case Unlocked = 0,
+    case Held = 1
+}
+
+/// A value guarded by an atomic word.
+///
+/// `lock()` lends the payload for a `borrow` window and releases the lock
+/// when the window closes. The window cannot suspend: `lock` is
+/// `borrows(sync)`, so a task cannot be switched out while it holds the lock,
+/// and contention always means another thread or another core.
+///
+/// `SpinLock` is `NoCopy`: a copied lock is two locks guarding two payloads.
+/// It is `Sync` when `T` is `Send`, and a bare `static` of one is legal when
+/// `T` is valid at zero.
+///
+/// Locking is not reentrant. Taking the lock again through another name while
+/// holding it spins forever, since the thread that would release it is the
+/// one spinning.
+public struct SpinLock<T> {
+    private state: Atomic<Int>,
+    private value: UnsafeMutableInterior<T>
+}
+
+// A cell derives no `Sync`. The compare-and-swap makes sharing one sound
+// exactly when moving a `T` between threads is.
+extension SpinLock<T: Send>: UnsafeSync {}
+
+// Zero is an unlocked word over a zeroed payload.
+extension SpinLock<T: ZeroInit>: ZeroInit {}
+
+extension SpinLock<T>: NoCopy {}
+
+extension SpinLock<T> {
+    /// Creates an unlocked lock owning `value`.
+    ///
+    /// A `static` does not need this: declare it without an initializer and
+    /// the zero pattern is already an unlocked lock over a zeroed payload.
+    public init(value: T) unsafe -> SpinLock<T> {
+        SpinLock<T>(state: Atomic(LockState.Unlocked as Int),
+                    value: UnsafeMutableInterior(move value))
+    }
+
+    /// Spins until the lock is free, then lends the payload for the window.
+    ///
+    /// The lock is released when the window closes, on every way out.
+    public func lock(&self) unsafe sync borrows(sync) -> &var T {
+        self.acquire()
+        lend self.value.ptr()[0]
+        self.release()
+    }
+
+    /// Lends the payload if the lock is free, and nothing if it was held.
+    ///
+    /// Never spins: one compare-and-swap decides it. Absent means another
+    /// holder had the lock at that instant, and says nothing about whether it
+    /// still does.
+    public func try_lock(&self) unsafe sync borrows(sync) -> &var T? {
+        if not self.state.compare_exchange(LockState.Unlocked as Int, LockState.Held as Int) {
+            return None
+        }
+        lend self.value.ptr()[0]
+        self.release()
+    }
+
+    /// Whether the lock is held at this instant.
+    ///
+    /// A debugging aid: the answer can be stale before it is read, so branch
+    /// with `try_lock`, not with this.
+    public func is_locked(&self) -> Bool {
+        self.state.load() != (LockState.Unlocked as Int)
+    }
+
+    func acquire(&self) sync {
+        while not self.state.compare_exchange(LockState.Unlocked as Int, LockState.Held as Int) {
+        }
+    }
+
+    func release(&self) sync {
+        self.state.store(LockState.Unlocked as Int)
+    }
+}

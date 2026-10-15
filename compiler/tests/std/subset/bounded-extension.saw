@@ -12,3 +12,5 @@ extension Pair<T: Equatable> { // refuses: bounded-extension
 }
 
 extension Pair<T: Send>: UnsafeSend {}
+
+extension Pair<T: ZeroInit>: ZeroInit {}

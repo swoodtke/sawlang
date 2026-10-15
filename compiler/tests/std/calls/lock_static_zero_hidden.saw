@@ -1,0 +1,16 @@
+// refuses: static.zero-hidden at 10:8
+// `Mutex<T>` and `Once<T>` vouch for their own fields and no further (SL-672):
+// a payload of another module's type with private fields, here std's
+// `Vector`, needs that type's own `ZeroInit`, which it does not declare.
+
+import std.mutex.{Mutex}
+import std.once.{Once}
+
+static REGISTRY: Mutex<Int>
+static QUEUE: Mutex<Vector<Int>>
+static LIMIT: Once<Int>
+
+func main() -> Int {
+    LIMIT.set(4)
+    borrow var n = REGISTRY.lock() { n }
+}
