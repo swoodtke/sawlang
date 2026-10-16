@@ -1,55 +1,40 @@
-// SL-339 / codex SL-318.p7 r1 #6: THE TRY LANDING'S ERROR EDGE RELINQUISHES
-// EXACTLY THE MOVES THAT EXECUTED — by POSITION in evaluation order, never by
-// replaying every `move` the statement holds.
+// A try landing's error edge drops exactly the values its statement still
+// owns, by position in evaluation order (SL-339).
 //
-// `examples/coro_move_in_split_try_body.saw` pins the half SL-339 found: a
-// `move` INSIDE the failing call's subject (`try f(move r)`) handed the value
-// to the callee before the failure, so the frame's claim is dead on the error
-// edge too. This file pins the other half, which the fix of that half broke:
-// a `move` the failing `try` NEVER REACHED. `sink(try f(), move r)` evaluates
-// its arguments left to right (design 147/199), `f` fails, `move r` never runs
-// — and a landing that replayed every clear in the statement dropped the
-// frame's claim on a value the frame still owned, a LEAK where the base
-// compiler dropped it once at frame release. c72 had called that ordering
-// unreachable; it is one line of ordinary code.
+// Arguments are evaluated left to right, and a `move` argument transfers its
+// value when it is evaluated. When a later operand's `try` fails, the call is
+// abandoned and the error edge ends the statement. A value moved before the
+// failure is a temporary of that statement, so it is destroyed there, newest
+// temporary first, before a `catch` block runs and before the bindings the
+// exit leaves. A `move` the failing `try` never reached has not run: the
+// binding still owns its value and its scope drops it. A `move` inside the
+// failing call's subject (`try f(move r)`) gave the value to the callee, which
+// drops it (`examples/coro_move_in_split_try_body.saw` pins that case).
 //
-// THE MECHANISM: a leaf statement with a propagating `try` NESTED in its value
-// beside a `move` is SPLIT at each such `try`, in evaluation order, before the
-// landings are built (`_split_leaf_at_propagating_tries`) — every hoisted
-// `let __anfN = try <subject>` owes the clears of the moves in ITS subject and
-// nothing else, and the residual statement, carrying no `try`, owes its moves
-// on the straight-line edge only. Side-effecting siblings written before a
-// lifted `try` are lifted with it (design 147's rule, `_anf_children`'s
-// shape); a pure `move` operand stays where it was written.
-//
-// WHICH ORDERINGS ARE REACHABLE, since the claim was made once that some are
-// not — every one below is, in the same eight lines of prelude:
-//   1  `sink(try f(), move r)`            f fails: r NOT moved, dropped by its scope
-//   2  `sink_rev(move r, try f())`        f fails: the call is never made, so the
-//      value has no taker; the move is not performed on that path (pure
-//      operand, evaluated after the hoisted `try`) and r drops by its scope.
-//      THE SYNC TWIN LEAKS HERE — the moved temporary of an abandoned call is
-//      released by nothing in codegen's own try lowering (pre-existing,
-//      SL-348) — so this row's oracle is the BASE driven compiler and the
-//      count, not the sync twin
+// The rows, each one line of ordinary code:
+//   1  `sink(try f(), move r)`            f fails: r not moved, dropped by its scope
+//   2  `sink_rev(move r, try f())`        f fails: r is moved, the call is never
+//      made, and the moved value is destroyed on the error edge
 //   3a `sink3(try a(), move r, try b())`  a fails: r not moved
-//   3b `sink3(try a(), move r, try b())`  b fails: r not moved (row 2's rule)
-//   4  `(try mk()).use(move r)`           a `try` in RECEIVER position, mk fails
-//   5  the BLOCK form `try { n = sink(try f(), move r) } catch { … }` and its
-//      `sink_rev` twin — the in-block landing, `_try_catch_landing`
-//   6  `return try take(move r)`          the move IS inside the subject: the
-//      callee took it, one drop in the callee (SL-339's own half, kept)
-//   7  a `move` in the CATCH block         `eat(move r)` runs there, one drop
-//   8  `two(eat(move r), try f())`         a call BEFORE the `try` took r: it is
-//      lifted ahead of the `try` and its own clear runs at once
-//   9  `sink4(try a(), move r, try b(), move q)`  two moves, two tries
+//   3b `sink3(try a(), move r, try b())`  b fails: r is moved, destroyed as in row 2
+//   4  `(try mk()).use(move r)`           a `try` in receiver position, mk fails
+//   5  the block form `try { n = sink(try f(), move r) } catch { … }`: r is not
+//      moved, so it drops with its scope after the `catch` block; and its
+//      `sink_rev` twin, where r is moved and its value is destroyed on the
+//      error edge before the `catch` block runs
+//   6  `return try take(move r)`          the move is inside the subject: the
+//      callee took it, one drop in the callee
+//   7  a `move` in the catch block        `eat(move r)` runs there, one drop
+//   8  `two(eat(move r), try f())`         a call before the `try` took r
+//   9  `sink4(try a(), move r, try b(), move q)`  b fails: r's moved value is
+//      destroyed on the error edge, then q, never moved, drops with its scope
 //  10  `sink(g(try f()), move r)`          a `try` nested inside an argument's call
-//  11  the SUCCESS path of the split       the values are the hand-unchained ones
+//  11  the success path                   every call is made, r drops in `sink`
 //
 // Every cell binds `r` as `var`, reads `&r` before the suspension (so `r` is a
-// drop-flag frame field, the encoding the clear is about — a `Slot`-encoded
-// field gives its claim up in `take()` and never had the bug), and is driven.
-// THE ORACLE IS THE DROP COUNT: `kept` (and `second`) destroyed exactly once.
+// drop-flag frame field rather than a `Slot`), and is driven. The oracle is
+// each drop: `kept` (and `second`) destroyed exactly once, where the rule
+// above puts it.
 // EXPECT: success
 // EXPECT-OUTPUT:
 // -- 1 try then move
@@ -72,8 +57,8 @@
 // drop kept
 // ok 0
 // -- 5 block form, move then try
-// handled
 // drop kept
+// handled
 // ok 0
 // -- 6 return try, move in the subject
 // take_res kept
@@ -88,8 +73,8 @@
 // drop kept
 // caught
 // -- 9 two moves, two tries, second fails
-// drop second
 // drop kept
+// drop second
 // caught
 // -- 10 try nested in an argument's call
 // drop kept

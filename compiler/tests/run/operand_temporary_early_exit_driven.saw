@@ -1,0 +1,239 @@
+// An operand already evaluated drops once when a later operand exits early,
+// in a driven body (SL-731). Each cell moves a frame-resident `r` into an
+// operand, then a later operand of the same construct propagates a `try`
+// before the construct takes it, so the operand's temporary is dropped by the
+// exit. The cells Stage 0 does not run right, an owning temporary with no
+// `move`, a `try` landing in a block's catch, and a `return` or `break` in a
+// later operand, are operand_temporary_early_exit_driven_stated's; the sync
+// twins are operand_temporary_early_exit_sync's.
+
+import std.task.{yield_now}
+
+struct Res { name: String, data: Vector<Int> }
+extension Res: NoCopy {
+    func deinit(&var self) { print("drop {}", self.name) }
+}
+
+func res(name: String) -> Res {
+    var data = Vector<Int>()
+    try! data.push(name.len())
+    Res(name: name, data: move data)
+}
+
+struct Bad { n: Int }
+extension Bad: Error {
+    func format(&self, into: &var StringBuilder) { try! into.append("bad") }
+}
+
+struct Pair { r: Res, n: Int }
+extension Pair: NoCopy {}
+
+enum Holder { case Two(r: Res, n: Int), case Empty }
+extension Holder: NoCopy {}
+
+struct Owner { r: Res }
+extension Owner: NoCopy {}
+extension Owner {
+    func finish(&var self, n: Int) consumes -> Int { n }
+}
+
+struct Taker { k: Int }
+extension Taker {
+    func take(&self, r: Res, n: Int) -> Int { n + self.k }
+}
+
+func note(r: &Res) -> Int { r.name.len() }
+func fail() sync -> Result<Int, Bad> { Bad(n: 1) }
+func fail_later() -> Result<Int, Bad> {
+    yield_now()
+    Bad(n: 3)
+}
+func fail_res() sync -> Result<Res, Bad> { Bad(n: 2) }
+func g(n: Int) sync -> Int { n + 10 }
+func outer(n: Int) sync -> Int { n + 100 }
+func sink(n: Int, r: Res) sync -> Int { print("sink {}", r.name); n }
+func sink_rev(r: Res, n: Int) sync -> Int { print("sink_rev {}", r.name); n }
+func sink_two(a: Res, b: Res, n: Int) sync -> Int { n }
+
+func row_a() -> Result<Int, Bad> {
+    var r = res("kept")
+    let _ = note(&r)
+    yield_now()
+    sink_rev(move r, try fail())
+    0
+}
+
+func row_b() -> Result<Int, Bad> {
+    let r = res("kept")
+    let _ = note(&r)
+    yield_now()
+    let n = sink_rev(move r, try fail())
+    n
+}
+
+func row_c() -> Result<Int, Bad> {
+    yield_now()
+    var r = res("kept")
+    let n = sink_rev(move r, try fail())
+    n
+}
+
+func row_d() -> Result<Int, Bad> {
+    var r = res("kept")
+    let _ = note(&r)
+    yield_now()
+    let p = Pair(r: move r, n: try fail())
+    p.n
+}
+
+func row_e() -> Result<Int, Bad> {
+    var r = res("kept")
+    let _ = note(&r)
+    yield_now()
+    return sink_rev(move r, try fail())
+}
+
+func row_f() -> Result<Int, Bad> {
+    var r = res("kept")
+    let _ = note(&r)
+    yield_now()
+    var n = 0
+    n = sink_rev(move r, try fail())
+    n
+}
+
+func row_h() -> Result<Int, Bad> {
+    var r = res("kept")
+    let _ = note(&r)
+    yield_now()
+    let n = sink_rev(move r, g(try fail()))
+    n
+}
+
+func row_i() -> Result<Int, Bad> {
+    var r = res("kept")
+    let _ = note(&r)
+    yield_now()
+    let t = Taker(k: 1)
+    let n = t.take(move r, try fail())
+    n
+}
+
+func row_j() -> Result<Int, Bad> {
+    var r = res("kept")
+    let _ = note(&r)
+    yield_now()
+    let n = sink_rev(move r, try fail_later())
+    n
+}
+
+func row_k() -> Result<Int, Bad> {
+    var r = res("kept")
+    let _ = note(&r)
+    yield_now()
+    let t = (move r, try fail())
+    t.1
+}
+
+func row_m() -> Result<Int, Bad> {
+    var o = Owner(r: res("kept"))
+    yield_now()
+    let n = (move o).finish(try fail())
+    n
+}
+
+func row_n() -> Result<Int, Bad> {
+    var r = res("kept")
+    let _ = note(&r)
+    yield_now()
+    let a: [Res; 2] = [move r, try fail_res()]
+    a.len()
+}
+
+func row_o() -> Result<Int, Bad> {
+    var r = res("kept")
+    let _ = note(&r)
+    yield_now()
+    let h = Holder.Two(r: move r, n: try fail())
+    match h {
+        case Two(_, n) -> n,
+        case Empty -> 0
+    }
+}
+
+func row_p() -> Result<Int, Bad> {
+    var r = res("kept")
+    let _ = note(&r)
+    yield_now()
+    let n = outer(sink_rev(move r, try fail()))
+    n
+}
+
+func row_u() -> Result<Int, Bad> {
+    var a = res("first")
+    var b = res("second")
+    let _ = note(&a) + note(&b)
+    yield_now()
+    let n = sink_two(move a, move b, try fail())
+    n
+}
+
+func row_s() -> Result<Int, Bad> {
+    var r = res("kept")
+    let _ = note(&r)
+    yield_now()
+    let n = sink(try fail(), move r)
+    n
+}
+
+func row_t() -> Result<Int, Bad> {
+    var r = res("kept")
+    let _ = note(&r)
+    yield_now()
+    let n = sink_rev(move r, try fail() catch { 7 })
+    n
+}
+
+func report(r: Result<Int, Bad>) {
+    match r {
+        case Ok(n) -> print("ok {}", n),
+        case Err(_) -> print("caught")
+    }
+}
+
+func main() {
+    print("-- A call argument")
+    report(__saw_drive(row_a()))
+    print("-- B let local")
+    report(__saw_drive(row_b()))
+    print("-- C local after the suspension")
+    report(__saw_drive(row_c()))
+    print("-- D struct field")
+    report(__saw_drive(row_d()))
+    print("-- E return")
+    report(__saw_drive(row_e()))
+    print("-- F assignment")
+    report(__saw_drive(row_f()))
+    print("-- H try nested in a later argument")
+    report(__saw_drive(row_h()))
+    print("-- I method argument")
+    report(__saw_drive(row_i()))
+    print("-- J suspending failing try")
+    report(__saw_drive(row_j()))
+    print("-- K tuple")
+    report(__saw_drive(row_k()))
+    print("-- M consumed receiver")
+    report(__saw_drive(row_m()))
+    print("-- N array element")
+    report(__saw_drive(row_n()))
+    print("-- O enum payload")
+    report(__saw_drive(row_o()))
+    print("-- P abandoned inner call")
+    report(__saw_drive(row_p()))
+    print("-- U two operands, newest first")
+    report(__saw_drive(row_u()))
+    print("-- S control: try before the move")
+    report(__saw_drive(row_s()))
+    print("-- T control: inline catch")
+    report(__saw_drive(row_t()))
+}

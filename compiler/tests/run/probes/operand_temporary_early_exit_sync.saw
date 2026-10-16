@@ -1,0 +1,304 @@
+// probe: stated
+// about: an operand already evaluated drops once when a later operand exits early, in a sync body (SL-731)
+// stage 0: leaks the operand in every cell but the struct field's (SL-348)
+// speeds: -O0 -O2
+// Each cell evaluates an owning operand, then a later operand of the same
+// construct leaves the statement before the construct takes it: a
+// propagating `try`, a `try` landing in a block's catch, a `return` or a
+// `break`. The operand's temporary is held by its statement until the
+// consuming instruction is emitted, so the exit drops it, exactly once and
+// before the catch block runs. `Res` owns a heap buffer, so a leak shows
+// under `leaks --atExit` as well as in the missing line. The two controls
+// move after the `try`, and catch inline; the driven twins are
+// operand_temporary_early_exit_driven and its stated probe.
+// prints: -- A call argument
+// prints: drop kept
+// prints: caught
+// prints: -- B let local
+// prints: drop kept
+// prints: caught
+// prints: -- C a second local
+// prints: drop kept
+// prints: caught
+// prints: -- D struct field
+// prints: drop kept
+// prints: caught
+// prints: -- E return
+// prints: drop kept
+// prints: caught
+// prints: -- F assignment
+// prints: drop kept
+// prints: caught
+// prints: -- G owning temporary
+// prints: drop kept
+// prints: caught
+// prints: -- H try nested in a later argument
+// prints: drop kept
+// prints: caught
+// prints: -- I method argument
+// prints: drop kept
+// prints: caught
+// prints: -- K tuple
+// prints: drop kept
+// prints: caught
+// prints: -- L block landing
+// prints: drop kept
+// prints: handled
+// prints: ok 0
+// prints: -- M consumed receiver
+// prints: drop kept
+// prints: caught
+// prints: -- N array element
+// prints: drop kept
+// prints: caught
+// prints: -- O enum payload
+// prints: drop kept
+// prints: caught
+// prints: -- P abandoned inner call
+// prints: drop kept
+// prints: caught
+// prints: -- Q return in a value if
+// prints: drop kept
+// prints: caught
+// prints: -- R break in a value if
+// prints: drop kept
+// prints: after loop
+// prints: ok 0
+// prints: -- U two operands, newest first
+// prints: drop second
+// prints: drop first
+// prints: caught
+// prints: -- S control: try before the move
+// prints: drop kept
+// prints: caught
+// prints: -- T control: inline catch
+// prints: sink_rev kept
+// prints: drop kept
+// prints: ok 7
+
+struct Res { name: String, data: Vector<Int> }
+extension Res: NoCopy {
+    func deinit(&var self) { print("drop {}", self.name) }
+}
+
+func res(name: String) -> Res {
+    var data = Vector<Int>()
+    try! data.push(name.len())
+    Res(name: name, data: move data)
+}
+
+struct Bad { n: Int }
+extension Bad: Error {
+    func format(&self, into: &var StringBuilder) { try! into.append("bad") }
+}
+
+struct Pair { r: Res, n: Int }
+extension Pair: NoCopy {}
+
+enum Holder { case Two(r: Res, n: Int), case Empty }
+extension Holder: NoCopy {}
+
+struct Owner { r: Res }
+extension Owner: NoCopy {}
+extension Owner {
+    func finish(&var self, n: Int) consumes -> Int { n }
+}
+
+struct Taker { k: Int }
+extension Taker {
+    func take(&self, r: Res, n: Int) -> Int { n + self.k }
+}
+
+func fail() -> Result<Int, Bad> { Bad(n: 1) }
+func fail_res() -> Result<Res, Bad> { Bad(n: 2) }
+func g(n: Int) -> Int { n + 10 }
+func outer(n: Int) -> Int { n + 100 }
+func sink(n: Int, r: Res) -> Int { print("sink {}", r.name); n }
+func sink_rev(r: Res, n: Int) -> Int { print("sink_rev {}", r.name); n }
+func sink_two(a: Res, b: Res, n: Int) -> Int { n }
+
+func row_a() -> Result<Int, Bad> {
+    var r = res("kept")
+    sink_rev(move r, try fail())
+    0
+}
+
+func row_b() -> Result<Int, Bad> {
+    let r = res("kept")
+    let n = sink_rev(move r, try fail())
+    n
+}
+
+func row_c() -> Result<Int, Bad> {
+    let first = 1
+    var r = res("kept")
+    let n = sink_rev(move r, try fail())
+    n + first
+}
+
+func row_d() -> Result<Int, Bad> {
+    var r = res("kept")
+    let p = Pair(r: move r, n: try fail())
+    p.n
+}
+
+func row_e() -> Result<Int, Bad> {
+    var r = res("kept")
+    return sink_rev(move r, try fail())
+}
+
+func row_f() -> Result<Int, Bad> {
+    var r = res("kept")
+    var n = 0
+    n = sink_rev(move r, try fail())
+    n
+}
+
+func row_g() -> Result<Int, Bad> {
+    let n = sink_rev(res("kept"), try fail())
+    n
+}
+
+func row_h() -> Result<Int, Bad> {
+    var r = res("kept")
+    let n = sink_rev(move r, g(try fail()))
+    n
+}
+
+func row_i() -> Result<Int, Bad> {
+    var r = res("kept")
+    let t = Taker(k: 1)
+    let n = t.take(move r, try fail())
+    n
+}
+
+func row_k() -> Result<Int, Bad> {
+    var r = res("kept")
+    let t = (move r, try fail())
+    t.1
+}
+
+func row_l() -> Result<Int, Bad> {
+    var r = res("kept")
+    var n = 0
+    try {
+        n = sink_rev(move r, try fail())
+    } catch {
+        print("handled")
+    }
+    n
+}
+
+func row_m() -> Result<Int, Bad> {
+    var o = Owner(r: res("kept"))
+    let n = (move o).finish(try fail())
+    n
+}
+
+func row_n() -> Result<Int, Bad> {
+    var r = res("kept")
+    let a: [Res; 2] = [move r, try fail_res()]
+    a.len()
+}
+
+func row_o() -> Result<Int, Bad> {
+    var r = res("kept")
+    let h = Holder.Two(r: move r, n: try fail())
+    match h {
+        case Two(_, n) -> n,
+        case Empty -> 0
+    }
+}
+
+func row_p() -> Result<Int, Bad> {
+    var r = res("kept")
+    let n = outer(sink_rev(move r, try fail()))
+    n
+}
+
+func row_q(go: Bool) -> Result<Int, Bad> {
+    var r = res("kept")
+    let n = sink_rev(move r, if go { 1 } else { return Bad(n: 4) })
+    n
+}
+
+func row_r(go: Bool) -> Result<Int, Bad> {
+    var k = 0
+    while k < 1 {
+        k = k + 1
+        var r = res("kept")
+        let n = sink_rev(move r, if go { 1 } else { break })
+        k = k + n
+    }
+    print("after loop")
+    return 0
+}
+
+func row_u() -> Result<Int, Bad> {
+    var a = res("first")
+    var b = res("second")
+    let n = sink_two(move a, move b, try fail())
+    n
+}
+
+func row_s() -> Result<Int, Bad> {
+    var r = res("kept")
+    let n = sink(try fail(), move r)
+    n
+}
+
+func row_t() -> Result<Int, Bad> {
+    var r = res("kept")
+    let n = sink_rev(move r, try fail() catch { 7 })
+    n
+}
+
+func report(r: Result<Int, Bad>) {
+    match r {
+        case Ok(n) -> print("ok {}", n),
+        case Err(_) -> print("caught")
+    }
+}
+
+func main() {
+    print("-- A call argument")
+    report(row_a())
+    print("-- B let local")
+    report(row_b())
+    print("-- C a second local")
+    report(row_c())
+    print("-- D struct field")
+    report(row_d())
+    print("-- E return")
+    report(row_e())
+    print("-- F assignment")
+    report(row_f())
+    print("-- G owning temporary")
+    report(row_g())
+    print("-- H try nested in a later argument")
+    report(row_h())
+    print("-- I method argument")
+    report(row_i())
+    print("-- K tuple")
+    report(row_k())
+    print("-- L block landing")
+    report(row_l())
+    print("-- M consumed receiver")
+    report(row_m())
+    print("-- N array element")
+    report(row_n())
+    print("-- O enum payload")
+    report(row_o())
+    print("-- P abandoned inner call")
+    report(row_p())
+    print("-- Q return in a value if")
+    report(row_q(false))
+    print("-- R break in a value if")
+    report(row_r(false))
+    print("-- U two operands, newest first")
+    report(row_u())
+    print("-- S control: try before the move")
+    report(row_s())
+    print("-- T control: inline catch")
+    report(row_t())
+}

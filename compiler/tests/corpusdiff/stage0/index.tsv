@@ -805,7 +805,7 @@ coro_try_block_two_error_types.saw	arm64-apple-darwin	same	75c6dd848e5c	error	re
 coro_try_catch_early_exit.saw	arm64-apple-darwin	same	88f3c87d527b	success	ok	0	101:7c3e8ffc706b	0:e3b0c44298fc	-	yes	-
 coro_try_catch_suspending.saw	arm64-apple-darwin	same	78b6fc74a311	success	ok	0	10:8ea9ae5052ea	0:e3b0c44298fc	-	yes	-
 coro_try_in_borrowed_place_index.saw	arm64-apple-darwin	differs	7455b60c9288	success	ok	0	112:312632fadccb	0:e3b0c44298fc	-	yes	-
-coro_try_landing_relinquishes_by_position.saw	arm64-apple-darwin	same	135b46df034d	success	ok	0	666:94f775d5aafe	0:e3b0c44298fc	-	yes	-
+coro_try_landing_relinquishes_by_position.saw	arm64-apple-darwin	same	edf3d4ee9327	success	ok	0	666:94f775d5aafe	0:e3b0c44298fc	-	no: output line 21 is 'handled', expected 'drop kept'	-
 coro_try_landing_within_guards.saw	arm64-apple-darwin	same	25703ac380e7	success	ok	0	377:894b1e9ece6b	0:e3b0c44298fc	-	yes	-
 coro_try_propagate_suspending.saw	arm64-apple-darwin	same	989ea98563ab	success	ok	0	85:c195f4f6233a	0:e3b0c44298fc	-	yes	-
 coro_tuple_across_suspend.saw	arm64-apple-darwin	same	e6fb2fa8b539	success	ok	0	5:ab16e44e4153	0:e3b0c44298fc	-	yes	-

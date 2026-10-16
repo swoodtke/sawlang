@@ -6076,6 +6076,13 @@ branch it decides. A block ends its own temporaries, its tail expression's
 included, so a value `if` or a braced `match` arm destroys what its tail made
 before the expression around it goes on.
 
+An early exit ends its statement: the statement's temporaries are destroyed
+before the bindings the exit leaves, and before a `catch` block runs. That
+includes a value already moved into an argument of a call the exit abandons. In
+`f(move r, try g())`, `r`'s value moves when the first argument is evaluated,
+so if `g` fails, that value is destroyed as the statement ends, and `r` itself
+has nothing left to drop.
+
 An operand that only some paths evaluate is a temporary scope of its own: the
 right side of `&&` or `||`, an operand of either between the first and the
 last, every operand of `??` after the first, and a bare `match` arm, as a

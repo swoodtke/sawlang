@@ -1,0 +1,104 @@
+// probe: stated
+// about: an operand already evaluated drops once when a later operand exits early, driven cells Stage 0 runs wrong (SL-731)
+// stage 0: leaks an owning temporary with no `move`, drops a block landing's operand after the catch block, and refuses a `return` or `break` in a later operand
+// speeds: -O0 -O2
+// The driven cells of operand_temporary_early_exit_sync that Stage 0 is no
+// oracle for: an owning temporary with no `move` (G), a `try` landing in a
+// block's catch (L), whose operand dies on the branch into the catch block
+// as its sync twin's does, and a `return` (Q) or `break` (R) inside a value
+// `if` in a later argument.
+// prints: -- G owning temporary
+// prints: drop kept
+// prints: caught
+// prints: -- L block landing
+// prints: drop kept
+// prints: handled
+// prints: ok 0
+// prints: -- Q return in a value if
+// prints: drop kept
+// prints: caught
+// prints: -- R break in a value if
+// prints: drop kept
+// prints: after loop
+// prints: ok 0
+
+import std.task.{yield_now}
+
+struct Res { name: String, data: Vector<Int> }
+extension Res: NoCopy {
+    func deinit(&var self) { print("drop {}", self.name) }
+}
+
+func res(name: String) -> Res {
+    var data = Vector<Int>()
+    try! data.push(name.len())
+    Res(name: name, data: move data)
+}
+
+struct Bad { n: Int }
+extension Bad: Error {
+    func format(&self, into: &var StringBuilder) { try! into.append("bad") }
+}
+
+func note(r: &Res) -> Int { r.name.len() }
+func fail() sync -> Result<Int, Bad> { Bad(n: 1) }
+func sink_rev(r: Res, n: Int) sync -> Int { print("sink_rev {}", r.name); n }
+
+func row_g() -> Result<Int, Bad> {
+    yield_now()
+    let n = sink_rev(res("kept"), try fail())
+    n
+}
+
+func row_l() -> Result<Int, Bad> {
+    var r = res("kept")
+    let _ = note(&r)
+    yield_now()
+    var n = 0
+    try {
+        n = sink_rev(move r, try fail())
+    } catch {
+        print("handled")
+    }
+    n
+}
+
+func row_q(go: Bool) -> Result<Int, Bad> {
+    var r = res("kept")
+    let _ = note(&r)
+    yield_now()
+    let n = sink_rev(move r, if go { 1 } else { return Bad(n: 4) })
+    n
+}
+
+func row_r(go: Bool) -> Result<Int, Bad> {
+    var k = 0
+    while k < 1 {
+        k = k + 1
+        var r = res("kept")
+        let _ = note(&r)
+        yield_now()
+        let n = sink_rev(move r, if go { 1 } else { break })
+        k = k + n
+    }
+    print("after loop")
+    return 0
+}
+
+func report(r: Result<Int, Bad>) {
+    match r {
+        case Ok(n) -> print("ok {}", n),
+        case Err(_) -> print("caught")
+    }
+}
+
+func main() {
+    print("-- G owning temporary")
+    report(__saw_drive(row_g()))
+    print("-- L block landing")
+    report(__saw_drive(row_l()))
+    print("-- Q return in a value if")
+    report(__saw_drive(row_q(false)))
+    print("-- R break in a value if")
+    report(__saw_drive(row_r(false)))
+}

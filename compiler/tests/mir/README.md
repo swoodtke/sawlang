@@ -283,7 +283,12 @@ whose docstring lists them), each covered by a golden case:
 receiver, a shared `&` argument) moves into a temporary the position borrows
 and its statement drops (`moved_to_temporary`; borrowck's
 `move.use-after.format-argument` and its siblings, SL-643); an owned
-temporary is handed off; a named place of the
+temporary is handed off, and until the instruction that takes it is emitted
+its scope holds it, so an exit a later operand takes (a propagating `try`, a
+`return` or `break` in a value `if`) drops it: the funnel and `snapshot` hold
+it, the assignment or call that consumes it relinquishes it, and a construct
+that keeps it for its statement adopts it (`hold_operand`, SL-731; the run
+lane's `operand_temporary_early_exit_driven` and its two probes); a named place of the
 Copy tier copies, through the `copy()` its type's `Copy` conformance writes
 when it writes one (operands, `Retained`), and otherwise by its members, since
 typecheck refuses a `copy()` written outside a policy: one funnel,

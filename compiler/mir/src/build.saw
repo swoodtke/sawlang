@@ -267,16 +267,114 @@ extension MirProgram {
     // Registers local `l` with the innermost scope, whose exits drop it,
     // when its type owns something.
     public func scope_owned(&var self, l: Int) {
+        self.scope_entry(l, false)
+    }
+
+    func scope_entry(&var self, l: Int, handoff: Bool) {
         let t = self.local_type(l)
         if not self.owns(t) {
             return
         }
+        self.set_owned(l, true)
+        try! self.scope.push(MirScopeEntry(window: false, index: l, fieldwise: false, parts_first: 0,
+                                           parts_count: -1, handoff: handoff))
+    }
+
+    func set_owned(&var self, l: Int, owned: Bool) {
         let at = self.local_base + l
         var info = self.locals[at]
-        info.owned = true
+        info.owned = owned
         self.locals[at] = info
-        try! self.scope.push(MirScopeEntry(window: false, index: l, fieldwise: false, parts_first: 0,
-                                           parts_count: -1))
+    }
+
+    // Registers the temporary operand `o` moves out of whole, when it owns
+    // something and no scope holds it yet, with the innermost scope as a
+    // hand-off: an exit taken before the instruction that consumes it, a
+    // propagating `try`, a `return` or a `break` in a later operand, drops
+    // it, so a value already evaluated is never lost (spec, Temporaries).
+    // The consuming instruction relinquishes it (`relinquish_operands`),
+    // and a construct that keeps the temporary for its statement adopts it
+    // (`adopt_temp`) (SL-731).
+    //
+    // ENTRY POINTS (hold_operand):
+    //     operand_at
+    //     snapshot
+    public func hold_operand(&var self, o: Int) {
+        if o < 0 || not self.live() {
+            return
+        }
+        let info = self.operands[o]
+        if info.kind != MirOperandKind.Move {
+            return
+        }
+        let l = self.bare_local(info.place)
+        if l < 0 || self.local(l).kind != MirLocalKind.Temp || self.local(l).owned {
+            return
+        }
+        self.scope_entry(l, true)
+    }
+
+    // Makes the hand-off entry holding temporary `l`, if one does, an
+    // ordinary one, which its scope's exits drop whatever takes the value
+    // after.
+    public func adopt_temp(&var self, l: Int) {
+        let at = self.newest_entry(l)
+        if at < 0 || not self.scope[at].handoff {
+            return
+        }
+        var entry = self.scope[at]
+        entry.handoff = false
+        self.scope[at] = entry
+    }
+
+    // The newest scope entry holding local `l` whole, or -1.
+    func newest_entry(&self, l: Int) -> Int {
+        var k = self.scope.len() - 1
+        while k >= 0 {
+            let entry = self.scope[k]
+            if not entry.window && entry.index == l {
+                return k
+            }
+            k = k - 1
+        }
+        return -1
+    }
+
+    // Takes off its scope each hand-off temporary that the operands
+    // `first..first + count` of an instruction just emitted move out of:
+    // the instruction owns the value now, so no later exit drops it.
+    //
+    // ENTRY POINTS (relinquish_operands):
+    //     assign
+    //     emit_call
+    func relinquish_operands(&var self, first: Int, count: Int) {
+        var k = 0
+        while k < count {
+            // Stage 0 workaround (SL:hazards S4): canonical: self.relinquish_operand(self.lists[first + k])
+            let o = self.lists[first + k]
+            self.relinquish_operand(o)
+            k = k + 1
+        }
+    }
+
+    func relinquish_operand(&var self, o: Int) {
+        if o < 0 {
+            return
+        }
+        let info = self.operands[o]
+        if info.kind != MirOperandKind.Move {
+            return
+        }
+        let l = self.bare_local(info.place)
+        if l < 0 || not self.local(l).owned {
+            return
+        }
+        let at = self.newest_entry(l)
+        if at < 0 || not self.scope[at].handoff {
+            return
+        }
+        self.forget_local(l)
+        self.set_owned(l, false)
     }
 
     // Binds leaf `leaf` to local `l` for the rest of the function.
@@ -669,7 +767,12 @@ extension MirProgram {
     // Statements.
 
     public func assign(&var self, p: Int, rv: Int) {
+        if self.current < 0 {
+            return
+        }
         self.push_stmt(MirStmtKind.Assign, p, rv, false)
+        let info = self.rvalues[rv]
+        self.relinquish_operands(info.first, info.count)
     }
 
     public func emit_drop(&var self, p: Int) {
@@ -841,6 +944,8 @@ extension MirProgram {
         }
         let at = self.calls.len()
         try! self.calls.push(c)
+        self.relinquish_operands(c.arg_first, c.arg_count)
+        self.relinquish_operand(c.callee)
         let b = self.current
         var info = self.block(b)
         info.term = MirTermKind.Call
@@ -1176,7 +1281,7 @@ extension MirProgram {
     // field by field.
     public func scope_fieldwise(&var self, l: Int) {
         try! self.scope.push(MirScopeEntry(window: false, index: l, fieldwise: true, parts_first: 0,
-                                           parts_count: -1))
+                                           parts_count: -1, handoff: false))
     }
 
     func pop_scope_entries(&var self, mark: Int) {
@@ -1192,7 +1297,7 @@ extension MirProgram {
     // Registers window `w` with the innermost scope, whose exits close it.
     public func scope_window(&var self, w: Int) {
         try! self.scope.push(MirScopeEntry(window: true, index: w, fieldwise: false, parts_first: 0,
-                                           parts_count: -1))
+                                           parts_count: -1, handoff: false))
     }
 
     // Removes the newest scope entry for window `w`, which its own

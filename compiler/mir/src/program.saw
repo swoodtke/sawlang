@@ -13,12 +13,15 @@ import sawtypecheck.program.{TcProgram}
 // construct's implicit binding of what its pattern left over holds the run
 // `leftover_parts[parts_first..]` of places in local `index`, dropped in
 // that order; `parts_count` is -1 for every other entry (`hold_leftovers`).
+// A hand-off entry holds an operand's temporary only until the instruction
+// that takes it is emitted (`hold_operand`).
 public struct MirScopeEntry {
     window: Bool
     index: Int
     fieldwise: Bool
     parts_first: Int
     parts_count: Int
+    handoff: Bool
 }
 
 // A loop being lowered: where `continue` goes, where `break` goes, the scope

@@ -804,8 +804,8 @@ coro_try_block_suspending.saw	pass	-	-
 coro_try_block_two_error_types.saw	refused	typecheck slice.not-yet	a `try` block whose `try`s propagate more than one error type (`coro_try_block_two_error_types.Flaky`, `coro_try_block_two_error_types.Other`), which its `error` holds as their union, is not in the bo
 coro_try_catch_early_exit.saw	pass	-	-
 coro_try_catch_suspending.saw	pass	-	-
-coro_try_in_borrowed_place_index.saw	wrong	stdout differs	line 14: sawc2 "J4: caught", Stage 0 "drop kept"
-coro_try_landing_relinquishes_by_position.saw	wrong	stdout differs	line 5: sawc2 "caught", Stage 0 "drop kept"
+coro_try_in_borrowed_place_index.saw	pass	-	-
+coro_try_landing_relinquishes_by_position.saw	stage0-wrong	annotated SL-731	sawc2 meets its directives
 coro_try_landing_within_guards.saw	refused	typecheck slice.not-yet	`syntax.expr.optional-member` is not in the bootstrap slice yet
 coro_try_propagate_suspending.saw	pass	-	-
 coro_tuple_across_suspend.saw	pass	-	-

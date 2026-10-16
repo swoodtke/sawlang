@@ -310,6 +310,10 @@ extension MirProgram {
             b = b + 1
         }
         self.current = -1
+        // Drop elaboration emits through the same builder, and a stale scope
+        // would hand it this function's entries (`relinquish_operands`).
+        self.scope = Vector<MirScopeEntry>()
+        self.scope_marks = Vector<Int>()
         var k = 0
         while k < self.touched.len() {
             let leaf = self.touched[k]
@@ -1615,7 +1619,9 @@ extension MirProgram {
             v = self.adjust(v, &adj, u, e)
             a = adj.next
         }
-        self.transfer(v, u, e, want_ref)
+        let o = self.transfer(v, u, e, want_ref)
+        self.hold_operand(o)
+        o
     }
 
     // A placeholder for the value of an expression control never leaves; no
@@ -1840,10 +1846,16 @@ extension MirProgram {
         p
     }
 
-    // Registers the temporary place `p` names with the innermost scope, once.
+    // Registers the temporary place `p` names with the innermost scope, once;
+    // one an operand's hand-off holds already stays where it is, held for
+    // the rest of its scope.
     func own_temp(&var self, p: Int) {
         let l = self.bare_local(p)
-        if l < 0 || self.local(l).owned {
+        if l < 0 {
+            return
+        }
+        if self.local(l).owned {
+            self.adopt_temp(l)
             return
         }
         self.scope_owned(l)
@@ -3311,7 +3323,9 @@ extension MirProgram {
     }
 
     // Operand `o` taken now: a read of a place is copied or moved into a
-    // temporary, so a later evaluation cannot change what it reads.
+    // temporary, so a later evaluation cannot change what it reads, and the
+    // temporary is held until its taker consumes it, so a later evaluation
+    // that exits cannot lose it.
     public func snapshot(&var self, o: Int) -> Int {
         if o < 0 || not self.live() {
             return o
@@ -3322,12 +3336,15 @@ extension MirProgram {
         }
         let l = self.bare_local(info.place)
         if l >= 0 && self.local(l).kind == MirLocalKind.Temp {
+            self.hold_operand(o)
             return o
         }
         let rv = self.rv_use(o)
         let t = self.temp_of(rv)
         let p = self.place_local(t)
-        self.op_move(p)
+        let taken = self.op_move(p)
+        self.hold_operand(taken)
+        taken
     }
 
     // A struct's memberwise construction or an enum case's, its operands in
