@@ -8,7 +8,7 @@ alloc_channel_taskgroup_reports_oom.saw	rewritten	E.lock:2	-
 alloc_collection_literal_panics_named.saw	copied	-	-
 alloc_custom_allocator.saw	copied	-	-
 alloc_data_push_forced_panics_named.saw	copied	-	-
-alloc_data_reports_oom.saw	copied	-	-
+alloc_data_reports_oom.saw	manual	manual.alloc-true-size:1	SL-735 ruling: a refused Data allocation reports the block's true size (header plus bytes, align 16); Stage 0 reports the bytes alone at align 1
 alloc_default_equals_global.saw	copied	-	-
 alloc_deny_after_seam.saw	copied	-	-
 alloc_hosted_no_degradation.saw	copied	-	-

@@ -8,7 +8,7 @@ alloc_channel_taskgroup_reports_oom.saw	arm64-apple-darwin	differs	268c42897b60	
 alloc_collection_literal_panics_named.saw	arm64-apple-darwin	same	a83f11457e78	panic	ok	-6	115:d0bd97684cd6	0:e3b0c44298fc	-	yes	-
 alloc_custom_allocator.saw	arm64-apple-darwin	same	64b8b1d78dde	success	ok	0	24:45c550ce76d1	0:e3b0c44298fc	-	yes	-
 alloc_data_push_forced_panics_named.saw	arm64-apple-darwin	same	267422188659	panic	ok	-6	109:42d3aab075a5	0:e3b0c44298fc	-	yes	-
-alloc_data_reports_oom.saw	arm64-apple-darwin	same	cffa74c61b48	success	ok	0	141:eb88db73ee63	0:e3b0c44298fc	-	yes	-
+alloc_data_reports_oom.saw	arm64-apple-darwin	differs	cffa74c61b48	success	ok	0	141:eb88db73ee63	0:e3b0c44298fc	-	yes	-
 alloc_default_equals_global.saw	arm64-apple-darwin	same	02bf615934ea	success	ok	0	6:14c5e74c4b96	0:e3b0c44298fc	-	yes	-
 alloc_deny_after_seam.saw	arm64-apple-darwin	same	7818b635f7e6	success	ok	0	31:43f612e65036	0:e3b0c44298fc	-	yes	-
 alloc_hosted_no_degradation.saw	arm64-apple-darwin	same	b6d9a95d5d36	success	ok	0	26:663d134f110f	0:e3b0c44298fc	-	yes	-

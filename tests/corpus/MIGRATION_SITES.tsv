@@ -1,6 +1,7 @@
 path	line	col	rule	status	before	after	evidence	reason
 alloc_channel_taskgroup_reports_oom.saw	59	22	E.lock	rewritten	let held = denied.lock { &var c in c == 7 }	let held = borrow var c = denied.lock() { c == 7 }	Mutex.lock closure=(&var Int) -> Bool	-
 alloc_channel_taskgroup_reports_oom.saw	64	12	E.lock	rewritten	print(m.lock { &var c in c > 0 })    // true — a real mutex still locks	print(borrow var c = m.lock() { c > 0 })    // true — a real mutex still locks	Mutex.lock closure=(&var Int) -> Bool	-
+alloc_data_reports_oom.saw	24	0	alloc-true-size	manual	// push denied: allocation of 32 bytes (align 1) failed	// push denied: allocation of 48 bytes (align 16) failed	-	SL-735 ruling: a refused Data allocation reports the block's true size, header plus bytes at align 16
 arc_forward.saw	30	15	E.lock	rewritten	shared.lock { &var c in	borrow var c = shared.lock() {	Arc.lock closure=(&var Int) -> Bool	-
 arc_forward.saw	36	11	E.lock	rewritten	shared.lock { &var c in	borrow var c = shared.lock() {	Arc.lock closure=(&var Int) -> Bool	-
 arc_forward.saw	1	0	forwarding-refusal.companion	manual	// Arc payload method forwarding (design 21b E2). An immutable `&self` method	// Refused: Box/Arc forwarding is dropped (SL-712), so a payload method is reached with `borrow p.value().m()`.	-	SL-712: a refusal test of the dropped Box/Arc forwarding

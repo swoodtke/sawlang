@@ -1,3 +1,17 @@
+// probe: stated
+// about: a refused `Data` allocation reports the block's true size, header plus bytes at the block's alignment, and leaves the bytes untouched (SL-735)
+// stage 0: its std reports the bytes alone at align 1, `allocation of 32 bytes (align 1) failed`
+// speeds: -O0 -O2
+// prints: 3
+// prints: push denied: allocation of 48 bytes (align 16) failed
+// prints: 3
+// prints: 3
+// prints: append denied
+// prints: 3
+// prints: detach denied
+// prints: capacity denied
+// prints: 9
+// prints: preflight denied, nothing written
 // Conformance rows A08, A09 and A15 — `Data` under a refusing allocator.
 //
 // Design 123: `Data` was the third copy of RS-1's shape. `ensure_capacity`
@@ -18,18 +32,6 @@
 // body with the subscript's bounds check. `detached()` is the preflight that
 // attempts the same allocation where a refusal has somewhere to go, and the
 // last block here is that pairing.
-// EXPECT: success
-// EXPECT-OUTPUT:
-// 3
-// push denied: allocation of 32 bytes (align 1) failed
-// 3
-// 3
-// append denied
-// 3
-// detach denied
-// capacity denied
-// 9
-// preflight denied, nothing written
 
 import std.data.*
 

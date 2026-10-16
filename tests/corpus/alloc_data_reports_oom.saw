@@ -21,7 +21,7 @@
 // EXPECT: success
 // EXPECT-OUTPUT:
 // 3
-// push denied: allocation of 32 bytes (align 1) failed
+// push denied: allocation of 48 bytes (align 16) failed
 // 3
 // 3
 // append denied

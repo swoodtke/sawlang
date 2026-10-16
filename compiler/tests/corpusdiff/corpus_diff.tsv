@@ -8,7 +8,7 @@ alloc_channel_taskgroup_reports_oom.saw	refused	resolve import.unknown-module	no
 alloc_collection_literal_panics_named.saw	pass	-	-
 alloc_custom_allocator.saw	pass	-	-
 alloc_data_push_forced_panics_named.saw	wrong	stdout differs	line 2: sawc2 "panic at alloc_data_push_forced_panics_named.saw:28: try! failed", Stage 0 "panic at alloc_data_push_forced_panics_named.saw:28: try! failed: allocation of 32 bytes (align 1) failed"
-alloc_data_reports_oom.saw	pass	-	-
+alloc_data_reports_oom.saw	stage0-wrong	annotated SL-735	sawc2 meets its directives
 alloc_default_equals_global.saw	pass	-	-
 alloc_deny_after_seam.saw	pass	-	-
 alloc_hosted_no_degradation.saw	refused	resolve import.unknown-module	no module `std.directory`

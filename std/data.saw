@@ -64,6 +64,13 @@ func data_bytes(block: UnsafePointer<Int8>) unsafe -> UnsafePointer<Int8> {
     (&block[DATA_HEADER_WORDS * sizeof<Int>()]) as UnsafePointer<Int8>
 }
 
+// The error for a refused block of `capacity` bytes. It names the request the
+// allocator actually saw, header included and at the block's alignment, so
+// the message matches what was refused rather than the bytes the caller wanted.
+func data_refused(capacity: Int) -> AllocError {
+    AllocError(size: DATA_HEADER_WORDS * sizeof<Int>() + capacity, align: DATA_BLOCK_ALIGN)
+}
+
 extension Data {
     // An empty `Data` with a block of `capacity` bytes, or `None` when the
     // allocator refuses. A non-positive `capacity` allocates nothing.
@@ -141,7 +148,7 @@ extension Data {
     /// Returns `Err(AllocError)` when the allocator refuses.
     public init(capacity: Int) unsafe -> Result<Data, AllocError> {
         guard var data = Data.reserved(capacity) else {
-            return AllocError(size: capacity, align: 1)
+            return data_refused(capacity)
         }
         data
     }
@@ -229,7 +236,7 @@ extension Data {
         }
         let live = self.length
         if not self.ready(live) {
-            return AllocError(size: self.grown(live), align: 1)
+            return data_refused(self.grown(live))
         }
         self.store(index, value)
         return
@@ -242,7 +249,7 @@ extension Data {
     public func push(&var self, value: UInt8) unsafe -> Result<Void, AllocError> {
         let wanted = self.length + 1
         if not self.ready(wanted) {
-            return AllocError(size: self.grown(wanted), align: 1)
+            return data_refused(self.grown(wanted))
         }
         let at = self.length
         self.store(at, value)
@@ -286,7 +293,7 @@ extension Data {
         }
         let wanted = self.length + other.length
         if not self.ready(wanted) {
-            return AllocError(size: self.grown(wanted), align: 1)
+            return data_refused(self.grown(wanted))
         }
         // Read after `ready`: when the two shared a block, the separation has
         // already given this `Data` a different one to write into.
@@ -313,7 +320,7 @@ extension Data {
         // Not `ready`: `src` may address the old block, which the move releases.
         let target = self.grown(wanted)
         guard var fresh = self.relocated(target) else {
-            return AllocError(size: target, align: 1)
+            return data_refused(target)
         }
         fresh.place(src, len)
         self = fresh
@@ -324,11 +331,14 @@ extension Data {
     ///
     /// On `Ok` this `Data` solely owns a block with that much room, so the next
     /// `additional` pushes cannot allocate. Returns `Err(AllocError)` when the
-    /// allocator refuses.
+    /// allocator refuses. Panics if `additional` is negative.
     public func reserve(&var self, additional: Int) unsafe -> Result<Void, AllocError> {
+        if additional < 0 {
+            panic("Data.reserve: additional {} is negative", additional)
+        }
         let wanted = self.length + additional
         if not self.ready(wanted) {
-            return AllocError(size: self.grown(wanted), align: 1)
+            return data_refused(self.grown(wanted))
         }
         return
     }
@@ -373,7 +383,7 @@ extension Data {
     /// Returns `Err(AllocError)` when the allocator refuses, allocating nothing.
     public func detached(&self) unsafe -> Result<Data, AllocError> {
         guard var fresh = Data.reserved(self.length) else {
-            return AllocError(size: self.length, align: 1)
+            return data_refused(self.length)
         }
         if self.length > 0 {
             fresh.place(self.byte_ptr(), self.length)
@@ -500,7 +510,7 @@ extension String {
 func data_of_string(text: &String) unsafe -> Result<Data, AllocError> {
     let count = text.len()
     guard var data = Data.reserved(count) else {
-        return AllocError(size: DATA_HEADER_WORDS * sizeof<Int>() + count, align: DATA_BLOCK_ALIGN)
+        return data_refused(count)
     }
     if count == 0 {
         return data

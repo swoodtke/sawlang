@@ -1,6 +1,6 @@
 # The cone of compiler/driver/src/main.saw against the new std (std): every std declaration its
 # functions reach, read off sawc2's typecheck dump by compiler/tools/std_cone.py.
-# 155 declarations in 18 modules
+# 156 declarations in 18 modules
 
 std.alloc: 8
   extern __saw_rt_alloc
@@ -12,11 +12,12 @@ std.alloc: 8
   struct AllocError
   struct GlobalAllocator
 
-std.data: 16
+std.data: 17
   func data_bytes
   func data_capacity
   func data_of_string
   func data_refcount
+  func data_refused
   method Data.copy
   method Data.count
   method Data.decoded

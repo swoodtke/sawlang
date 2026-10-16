@@ -1,0 +1,21 @@
+// probe: panics
+// about: `Data.reserve` panics on a negative `additional` rather than answering `Ok`, or separating a shared block as a side effect, and accepts zero (SL-735)
+// stage 0: its std's `reserve` checks no sign, so it answers `Ok` and separates a shared block
+// speeds: -O0 -O2
+// prints: 3
+// prints: 3
+// panics: Data.reserve: additional -2 is negative
+import std.data.*
+
+func main() {
+    var d = try! Data(capacity: 4)
+    try! d.push(1)
+    try! d.push(2)
+    try! d.push(3)
+    try! d.reserve(0)
+    print(d.len())
+    let shared = d
+    print(shared.len())
+    let _ = d.reserve(-2)
+    print("unreachable")
+}
