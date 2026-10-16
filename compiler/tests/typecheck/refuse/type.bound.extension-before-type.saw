@@ -1,0 +1,18 @@
+// refuses: type.bound at 17:13
+// a bounded extension written before the type it extends keeps its own
+// parameters' bounds, read from its head and never from the type's list
+
+extension Cell<T: Equatable> {
+    func same(&self, other: &Cell<T>) -> Bool { self.v == other.v }
+}
+
+struct Token { id: Int }
+extension Token: NoCopy {}
+
+struct Cell<T> { v: T }
+
+func main() {
+    let a = Cell(v: Token(id: 3))
+    let b = Cell(v: Token(id: 4))
+    print(a.same(&b))
+}

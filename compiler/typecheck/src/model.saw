@@ -182,6 +182,16 @@ public struct TcUnmetBound {
     trait_decl: Int
 }
 
+// What an extension's head writes in its parameter list (`head_kind`).
+public enum TcHeadKind {
+    // Each one renames the extended type's parameter: a generic extension.
+    case Generic,
+    // Each one names a type: a specialized extension (spec, Type Extensions).
+    case Specialized,
+    // Some name a type and some rename a parameter, which is refused.
+    case Partial
+}
+
 // A nominal type's Copy tier: `base` joined with the tiers of the arguments
 // whose parameter indices `mask` holds. A declared policy is uniform over the
 // arguments, so its mask is empty.

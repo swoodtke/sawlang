@@ -1,0 +1,19 @@
+// refuses: member.unknown at 13:7
+// a generic body bound only by `T` reaches no specialized member, though the
+// one call instantiates `T` to the type the head names: the body is checked
+// against its bounds, before any instantiation (spec, Generics)
+
+struct Wrap<T> { value: T }
+
+extension Wrap<Int> {
+    func doubled(&self) -> Int { self.value * 2 }
+}
+
+func via<T>(w: &Wrap<T>) -> Int {
+    w.doubled()
+}
+
+func main() {
+    let w = Wrap<Int>(value: 4)
+    print(via(&w))
+}

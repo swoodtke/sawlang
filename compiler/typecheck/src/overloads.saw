@@ -15,6 +15,8 @@ import sawtypecheck.declarations.{tc_build_signatures}
 import sawtypecheck.members.{tc_build_members}
 import sawtypecheck.model.{TC_EFFECT_BORROWS, TC_EFFECT_BORROWS_SYNC, TcSig}
 import sawtypecheck.program.{TcProgram}
+// For the extension writing `ext_self_type` and `extensions_disjoint`.
+import sawtypecheck.signatures.{TcContext}
 import sawtypecheck.spell.{tc_effects_text}
 import sawtypecheck.tier.{tc_max}
 import sawtypecheck.typeops.{TcClient}
@@ -123,7 +125,8 @@ extension TcProgram {
                     case Accepted -> {},
                     case OutsideModule -> self.refuse_override_outside(m, d),
                     case TestOnly -> self.refuse_override_test_only(m, d),
-                    case Bounded -> self.refuse_override_bounded(m, d)
+                    case Bounded -> self.refuse_override_bounded(m, d),
+                    case Specialized -> self.refuse_override_specialized(m, d)
                 }
                 continue
             }
@@ -137,7 +140,8 @@ extension TcProgram {
     // Whether one of `init` `m`'s call shapes binds struct `d`'s fields: its
     // first parameters, as many as the fields, are theirs in some order, each
     // of the same label and type with every type parameter one placeholder,
-    // and the rest are defaulted.
+    // and the rest are defaulted. A field's type is read as `m`'s extension
+    // sees it (`ext_field_type`).
     func shares_field_shape(&var self, m: Int, d: Int) -> Bool {
         self.build_decl(m)
         let s = self.sigs[m]
@@ -146,13 +150,13 @@ extension TcProgram {
         if arity > s.param_count || self.required_count(&s) > arity {
             return false
         }
+        let ext = self.res.decls[m].parent
         var k = 0
         while k < arity {
             let f = fields[k]
             k = k + 1
-            self.build_decl(f)
             let name = self.res.decls[f].name
-            let ty = self.sigs[f].result
+            let ty = self.ext_field_type(ext, f)
             var found = false
             var j = 0
             while j < arity && not found {
@@ -249,6 +253,25 @@ extension TcProgram {
         try! msg.append("`, or give this `init` another label")
         let site = self.decl_site(m)
         self.refuse_in(info.module, site, "init.override-bounded", msg.build())
+    }
+
+    func refuse_override_specialized(&var self, m: Int, d: Int) {
+        let info = self.res.decls[m]
+        let own = self.ext_self_type(info.parent)
+        var msg = StringBuilder()
+        try! msg.append("`")
+        try! msg.append(self.overload_text(m))
+        try! msg.append("` matches the fields of `")
+        try! msg.append(self.type_text(own))
+        try! msg.append("` exactly, so it would override `")
+        try! msg.append(self.construction_text(d))
+        try! msg.append("`, but its specialized extension declares it for `")
+        try! msg.append(self.type_text(own))
+        try! msg.append("` alone, which would give one generic construction two meanings, chosen per instantiation: write the override in an extension for every instantiation, `extension ")
+        try! msg.append(self.unbounded_head(d, d))
+        try! msg.append("`, or give this `init` another label")
+        let site = self.decl_site(m)
+        self.refuse_in(info.module, site, "init.override-specialized", msg.build())
     }
 
     func refuse_beside_memberwise(&var self, m: Int, d: Int) {
@@ -412,9 +435,16 @@ extension TcProgram {
     // signature's aliases are already their targets. A `borrows` member is
     // called only as a `borrow` head, so it never meets a plain one, and two
     // whose receivers differ are the shared and exclusive twins `borrow let`
-    // and `borrow var` choose between (SL:borrowing §3, §4). Otherwise the
-    // result, the effects, the receiver and staticness never tell two apart.
+    // and `borrow var` choose between (SL:borrowing §3, §4). Two members of
+    // extensions no type shares, specializations at different arguments,
+    // never meet at a call (`extensions_disjoint`). Otherwise the result, the
+    // effects, the receiver and staticness never tell two apart.
     func indistinguishable(&var self, a: Int, b: Int) -> Bool {
+        let parent_a = self.res.decls[a].parent
+        let parent_b = self.res.decls[b].parent
+        if self.extensions_disjoint(parent_a, parent_b) {
+            return false
+        }
         self.build_decl(a)
         self.build_decl(b)
         let sa = self.sigs[a]

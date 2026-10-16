@@ -1301,7 +1301,7 @@ errors/spawn_capture_unjoined_handle.saw	refused	typecheck slice.not-yet	a borro
 errors/spawn_handle_may_not_escape_the_function.saw	refused	resolve name.undefined	cannot find `VoidThread` in scope
 errors/spawn_names_its_engine.saw	refused	resolve name.undefined	cannot find `spawn` in scope
 errors/spawn_result_not_send.saw	refused	resolve slice.not-yet	the `Thread.spawn` form is not in the bootstrap slice yet
-errors/specialized_method_wrong_type.saw	refused	typecheck slice.not-yet	`extension Vector<...>` names the type `Int` among its parameters: a specialized extension is not in the bootstrap slice yet
+errors/specialized_method_wrong_type.saw	refused	typecheck member.unknown	`std.vector.Vector<Int, std.alloc.GlobalAllocator>` has no method `join` this module can see
 errors/spinlock_needs_atomics.saw	refused	driver driver.usage	sawc2 build takes no --freestanding
 errors/spinlock_suspending_body.saw	wrong	refused by another rule	borrows.sync-window, where the plan names effect.sync
 errors/statement_juxtaposition_in_closure_and_module_scope.saw	pass	-	resolve.parse-refused: the parser refuses `tests/corpus/errors/statement_juxtaposition_in_closure_and_module_scope.saw` (syntax.rule.juxtaposition), so its declarations are not available
@@ -1528,7 +1528,7 @@ extension_method_duplicate_on_imported_type_error.saw	pass	-	overload.indistingu
 extension_method_tie_break_distinguishes_nested_module_paths.saw	refused	resolve slice.not-yet	`syntax.decl.module.inline` is not in the bootstrap slice yet
 extension_method_tie_break_distinguishes_the_entry_module.saw	refused	resolve slice.not-yet	`syntax.decl.module.inline` is not in the bootstrap slice yet
 extension_mutable.saw	pass	-	-
-extension_of_imported_type_with_spawn.saw	refused	typecheck slice.not-yet	`extension Vector<...>` names the type `Int` among its parameters: a specialized extension is not in the bootstrap slice yet
+extension_of_imported_type_with_spawn.saw	pass	-	-
 extension_simple.saw	pass	-	-
 extension_specialized.saw	refused	typecheck member.unknown	`std.vector.Vector<String, std.alloc.GlobalAllocator>` has no method `join` this module can see
 extern_c_compiler_declared_symbol.saw	refused	typecheck infer.failed	this closure parameter has no type: write one, as `x: Int`, or pass the closure where a function type is expected

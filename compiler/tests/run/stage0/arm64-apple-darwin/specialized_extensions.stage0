@@ -1,0 +1,17 @@
+program	compiler/tests/run/specialized_extensions.saw
+triple	arm64-apple-darwin
+source	9a88e2ba9f8f9eb6
+build	ok
+exit	0
+stdout	"a, b, b"
+stdout	"3"
+stdout	"42"
+stdout	"int 22"
+stdout	"string s"
+stdout	"7"
+stdout	"p-q"
+stdout	"2"
+stdout	"32"
+stdout	"10"
+stdout	"3"
+stdout	""

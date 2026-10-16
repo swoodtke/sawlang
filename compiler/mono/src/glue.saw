@@ -856,8 +856,9 @@ extension MonoProgram {
         status
     }
 
-    // The member of type `t`'s declaration named `name` taking one parameter
-    // labelled `label`, the `Int` one where several share the label, or -1.
+    // The member of type `t` named `name` taking one parameter labelled
+    // `label`, the `Int` one where several share the label, or -1: a member
+    // of its declaration's table that belongs to `t` (`extension_applies`).
     func glue_member(&var self, t: Int, name: String, label: String) -> Int {
         let d = self.dp.bc.mir.tc.nominal_decl(t)
         if d < 0 || d >= self.dp.bc.mir.tc.member_first.len() || self.dp.bc.mir.tc.member_first[d] < 0 {
@@ -873,7 +874,7 @@ extension MonoProgram {
         while j < first + count {
             let member = self.dp.bc.mir.tc.members[j]
             j = j + 1
-            if member.name != name_id {
+            if member.name != name_id || not self.dp.bc.mir.tc.extension_applies(member.ext, t) {
                 continue
             }
             let s = self.dp.bc.mir.tc.sigs[member.decl]

@@ -11,8 +11,8 @@ import sawresolve.model.{ResBindKind, ResConformance, ResDecl, ResDeclKind, ResM
 import sawtypecheck.declarations.{tc_build_signatures}
 import sawtypecheck.model.{TC_EFFECT_BORROWS, TC_EFFECT_BORROWS_SYNC, TC_EFFECT_CONSUMES,
                                TC_EFFECT_UNSAFE, TC_FLAG_DEFAULT_BODY, TC_FLAG_STATIC,
-                               TC_FLAG_SYNTHESIZE, TcConformance, TcParam, TcReceiver, TcSig,
-                               TcStatus, TcStatusKind}
+                               TC_FLAG_SYNTHESIZE, TcConformance, TcHeadKind, TcParam, TcReceiver,
+                               TcSig, TcStatus, TcStatusKind}
 import sawtypecheck.program.{TcProgram}
 import sawtypecheck.signatures.{TcContext}
 import sawtypecheck.spell.{tc_effects_text}
@@ -371,7 +371,10 @@ extension TcProgram {
 
     // The conformance table's entries, one per conformance a program's
     // extensions declare whose type and trait resolved; how each requirement
-    // is met is found once the members are known.
+    // is met is found once the members are known. A specialized extension
+    // declares none: the spec leaves a conformance of one instantiation
+    // planned, so it is refused here and counts for nothing, and a partially
+    // specialized head is refused at the head.
     public func collect_conformances(&var self) {
         var k = 0
         while k < self.res.conformances.len() {
@@ -382,10 +385,46 @@ extension TcProgram {
             if target < 0 || tb.kind != ResBindKind.Decl || not self.is_trait(tb.decl) {
                 continue
             }
+            let head = self.head_kind(c.ext)
+            if head == TcHeadKind.Specialized {
+                self.refuse_specialized_conformance(c.module, c.path, target, tb.decl)
+            }
+            if head != TcHeadKind.Generic {
+                continue
+            }
             try! self.conformances.push(TcConformance(module: c.module, ext: c.ext, node: c.path,
                                                       type_decl: target, trait_decl: tb.decl,
                                                       status_first: 0, status_count: 0))
         }
+    }
+
+    func refuse_specialized_conformance(&var self, m: Int, path: Int, target: Int, tr: Int) {
+        self.ensure_generic_list(target)
+        let s = self.sigs[target]
+        var head = StringBuilder()
+        try! head.append(self.res.decl_path(target))
+        try! head.append("<")
+        var k = 0
+        while k < s.generic_count {
+            if k > 0 {
+                try! head.append(", ")
+            }
+            let g = self.generics[s.generic_first + k]
+            try! head.append(self.name_text(g.name))
+            k = k + 1
+        }
+        try! head.append(">")
+        var msg = StringBuilder()
+        try! msg.append("`")
+        try! msg.append(self.res.decl_path(tr))
+        try! msg.append("` is declared in a specialized extension, for one instantiation of `")
+        try! msg.append(self.res.decl_path(target))
+        try! msg.append("`: a specialized extension's conformances are planned (spec, Type Extensions); declare it for every instantiation, `extension ")
+        try! msg.append(head.build())
+        try! msg.append(": ")
+        try! msg.append(self.res.decl_path(tr))
+        try! msg.append("`, with a bound on a parameter where it needs one")
+        self.refuse_in(m, path, "extension.specialized-conformance", msg.build())
     }
 
     // Whether a trait's requirement is derived under `@synthesize` (design 128):

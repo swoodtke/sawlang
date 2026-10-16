@@ -665,9 +665,9 @@ extension TcProgram {
     // blocks the derivation unless the member's type names an unsafe type.
     // And it is written nowhere else: a generic parameter's bound naming it,
     // of any declaration or extension, and a trait's parent naming it are
-    // refused. A specialized header is `slice.not-yet`'s, one outside its
-    // type's defining file `conformance.policy-placement`'s, and an
-    // existential `check_object_safety`'s.
+    // refused. A specialized header is `extension.specialized-conformance`'s,
+    // one outside its type's defining file `conformance.policy-placement`'s,
+    // and an existential `check_object_safety`'s.
     // ENTRY POINTS:
     //     check_derived_conformances
     func check_thread_assertion(&var self, at: Int) {
@@ -911,8 +911,7 @@ extension TcProgram {
         }
     }
 
-    // The receiver an `init` builds: its extension's type, applied to the
-    // extension's parameters.
+    // The receiver an `init` builds: its extension's `Self`.
     func init_receiver(&var self, d: Int) -> Int {
         let info = self.res.decls[d]
         if info.parent < 0 {
@@ -922,7 +921,7 @@ extension TcProgram {
         if target < 0 {
             return -1
         }
-        self.self_type_of(target)
+        self.ext_self_type(info.parent)
     }
 
     func has_error_type(&self, t: Int) -> Bool {

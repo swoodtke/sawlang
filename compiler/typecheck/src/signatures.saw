@@ -30,11 +30,11 @@ import sawtypecheck.model.{TC_EFFECT_BORROWS, TC_EFFECT_BORROWS_SYNC, TC_EFFECT_
                                TC_EFFECT_UNSAFE, TC_FLAG_ALIAS_BUILDING, TC_FLAG_BLOCKING,
                                TC_FLAG_BORROWS_STRUCT, TC_FLAG_DEFAULT_BODY, TC_FLAG_STATIC, TC_FLAG_SYNTHESIZE,
                                TC_FLAG_SYNTHESIZE_SHARED, TC_FLAG_UNSAFE_STRUCT, TC_FLAG_UNSAFE_VAR,
-                               TC_FLAG_VARIADIC, TC_FLAG_WRITTEN_RETURN, TcGeneric, TcLend,
-                               TcObligation, TcParam, TcReceiver, TcSig}
+                               TC_FLAG_VARIADIC, TC_FLAG_WRITTEN_RETURN, TcGeneric, TcHeadKind,
+                               TcLend, TcObligation, TcParam, TcReceiver, TcSig}
 import sawtypecheck.program.{TcProgram}
 import sawtypecheck.types.{TC_HOLDS_PARAM, TcKind, TcType}
-import sawtypecheck.walks.{TC_WALK_NESTING}
+import sawtypecheck.walks.{TC_WALK_EXT_SELF, TC_WALK_NESTING}
 
 // The generic parameters of every declaration, keyed by where each is declared.
 public func tc_index_generics(p: &var TcProgram) {
@@ -102,6 +102,9 @@ extension TcProgram {
                 let leaf = self.res.first_leaf(g)
                 self.param_owners.add(leaf, 0, owner)
                 self.param_owners.add(leaf, 1, index)
+                if owner != d {
+                    self.param_owners.add(leaf, 2, d)
+                }
                 index = index + 1
             }
             k = k + 1
@@ -170,12 +173,7 @@ extension TcProgram {
             self.current_self = self.mk_self(t)
         } else if self.current_ext >= 0 {
             let e = self.current_ext
-            let target = self.ext_target(e)
-            if target >= 0 {
-                self.current_self = self.self_type_of(target)
-            } else {
-                self.current_self = self.error_type
-            }
+            self.current_self = self.ext_self_type(e)
         } else if type_decl >= 0 {
             self.current_self = self.self_type_of(type_decl)
         }
@@ -192,6 +190,228 @@ extension TcProgram {
             k = k + 1
         }
         self.mk_nominal(d, &args)
+    }
+}
+
+// Specialized extensions (spec, Type Extensions): `extension Vector<String>`
+// names, in its head, the types its members are for.
+extension TcProgram {
+    // Which parameters extension `ext`'s head names a type for: none, every
+    // one it writes, or some. A head parameter names a type when its name is
+    // one in the extension's module (`head_named_decl`); resolve declares it
+    // a parameter either way, and `param_type` reads it as the type.
+    public func head_kind(&var self, ext: Int) -> TcHeadKind {
+        self.ensure_generic_list(ext)
+        let s = self.sigs[ext]
+        let m = self.res.decls[ext].module
+        var named = 0
+        var k = 0
+        while k < s.generic_count {
+            let g = self.generics[s.generic_first + k]
+            if self.head_named_decl(m, g.name) >= 0 {
+                named = named + 1
+            }
+            k = k + 1
+        }
+        if named == 0 {
+            return TcHeadKind.Generic
+        }
+        if named == s.generic_count {
+            return TcHeadKind.Specialized
+        }
+        TcHeadKind.Partial
+    }
+
+    // The type declaration `name` names in module `m` where an extension head
+    // is written: one the module declares, a selective import binds or the
+    // prelude holds; -1 for none.
+    public func head_named_decl(&self, m: Int, name: Int) -> Int {
+        var at = self.res.top.first(m, name)
+        while at >= 0 {
+            let decl = self.res.top.value(at)
+            if self.is_nominal(decl) || self.res.decls[decl].kind == ResDeclKind.Alias {
+                return decl
+            }
+            at = self.res.top.following(at)
+        }
+        at = self.res.bare.first(m, name)
+        while at >= 0 {
+            let index = self.res.bare.value(at)
+            let symbol = self.res.symbols[index]
+            let b = symbol.binding
+            if b.kind == ResBindKind.Decl && b.decl >= 0 && self.is_nominal(b.decl) {
+                return b.decl
+            }
+            at = self.res.bare.following(at)
+        }
+        at = self.res.prelude.first(0, name)
+        while at >= 0 {
+            let decl = self.res.prelude.value(at)
+            if self.is_nominal(decl) || self.res.decls[decl].kind == ResDeclKind.Alias {
+                return decl
+            }
+            at = self.res.prelude.following(at)
+        }
+        return -1
+    }
+
+    // THE EXTENSION-SELF FUNNEL: what `Self` is inside extension `ext`. A
+    // generic extension's is the type it extends applied to its own
+    // parameters; a specialized one's is that type applied to the types its
+    // head names, each parameter it leaves out filled with its default
+    // (SL:open-questions D14), so `extension Vector<String>` is about
+    // `Vector<String, GlobalAllocator>`. A partially specialized head is
+    // refused at the head and read as generic here.
+    // ENTRY POINTS:
+    //     enter_decl
+    //     init_receiver
+    //     param_type
+    //     ext_field_type
+    //     found_owner
+    //     extension_applies
+    //     extensions_disjoint
+    public func ext_self_type(&var self, ext: Int) -> Int {
+        let target = self.ext_target(ext)
+        if target < 0 {
+            return self.error_type
+        }
+        if self.head_kind(ext) != TcHeadKind.Specialized {
+            return self.self_type_of(target)
+        }
+        let known = self.walks.get(ext, TC_WALK_EXT_SELF)
+        if known >= 0 {
+            return known
+        }
+        if known == -2 {
+            return self.error_type
+        }
+        self.walks.set(ext, TC_WALK_EXT_SELF, -2)
+        self.ensure_generics(target)
+        let saved = self.save_context()
+        let info = self.res.decls[ext]
+        self.current = info.module
+        self.current_decl = ext
+        self.current_ext = ext
+        self.current_trait = -1
+        self.current_self = -1
+        self.current_test = info.test_only
+        let s = self.sigs[ext]
+        let wanted = self.sigs[target]
+        var args = Vector<Int>()
+        var k = 0
+        while k < wanted.generic_count {
+            let tg = self.generics[wanted.generic_first + k]
+            if k < s.generic_count {
+                let g = self.generics[s.generic_first + k]
+                let arg = self.head_arg_type(g)
+                try! args.push(arg)
+                var j = 0
+                while j < tg.bound_count {
+                    let bound = self.traits[tg.bound_first + j]
+                    self.oblige(g.node, arg, bound, target, k)
+                    j = j + 1
+                }
+            } else if tg.default_type >= 0 {
+                try! args.push(tg.default_type)
+            } else {
+                try! args.push(self.error_type)
+            }
+            k = k + 1
+        }
+        self.restore_context(saved)
+        let t = self.mk_nominal(target, &args)
+        self.walks.set(ext, TC_WALK_EXT_SELF, t)
+        t
+    }
+
+    // The type a specialized head's parameter `g` names: a nominal type,
+    // which takes no arguments there, or an alias's target.
+    func head_arg_type(&var self, g: TcGeneric) -> Int {
+        let m = self.current
+        let d = self.head_named_decl(m, g.name)
+        if d < 0 {
+            return self.error_type
+        }
+        if self.is_nominal(d) {
+            let none = Vector<Int>()
+            return self.apply_nominal(-1, g.leaf, d, &none)
+        }
+        self.alias_type(d, g.leaf)
+    }
+
+    // What the type parameter declared at `leaf` names where it is used: the
+    // parameter, or, for a specialized extension's head, the type the head
+    // names in its place.
+    // ENTRY POINTS:
+    //     named_type
+    //     static_call
+    //     type_param_call
+    public func param_type(&var self, leaf: Int) -> Int {
+        let owner = self.param_owner(leaf)
+        let index = self.param_index(leaf)
+        if owner < 0 || index < 0 {
+            return -1
+        }
+        let ext = self.param_ext(leaf)
+        if ext >= 0 {
+            let own = self.ext_self_type(ext)
+            let info = self.types.ty(own)
+            if info.kind == TcKind.Nominal && info.decl == owner && index < info.count {
+                return self.types.arg(own, index)
+            }
+        }
+        self.mk_param(owner, index)
+    }
+
+    // THE APPLIES-TO FUNNEL: whether the members of extension `ext` belong to
+    // a value of type `owner`. A specialized extension's belong exactly to
+    // the instantiation its `Self` names (`ext_self_type`), and it declares
+    // no conformance (`collect_conformances`); a generic extension's belong
+    // to every instantiation of its type, whose bounds `unmet_member_bound`
+    // answers. A type parameter is no type a head names, so a generic body
+    // bound only by `T` reaches no specialized member, whatever `T` is
+    // instantiated to. A member found by its type alone, with no owner yet,
+    // is called at its extension's `Self` (`found_owner`).
+    // ENTRY POINTS:
+    //     members_for
+    //     member_place
+    //     construction_candidates
+    //     extensions_disjoint
+    //     glue_member (mono)
+    //     member_with (mono)
+    public func extension_applies(&var self, ext: Int, owner: Int) -> Bool {
+        if ext < 0 || owner < 0 {
+            return true
+        }
+        let info = self.types.ty(owner)
+        if info.kind != TcKind.Nominal || info.decl != self.ext_target(ext) {
+            return true
+        }
+        if self.head_kind(ext) != TcHeadKind.Specialized {
+            return true
+        }
+        self.ext_self_type(ext) == owner
+    }
+
+    // Whether no value is of a type both extension `a`'s members and `b`'s
+    // belong to, so no call sees members of both: a specialized one's `Self`
+    // is the one type its members belong to, and the other's do not.
+    public func extensions_disjoint(&var self, a: Int, b: Int) -> Bool {
+        if a < 0 || b < 0 || a == b || not self.is_extension(a) || not self.is_extension(b) {
+            return false
+        }
+        if self.ext_target(a) != self.ext_target(b) {
+            return false
+        }
+        if self.head_kind(a) == TcHeadKind.Specialized {
+            let own = self.ext_self_type(a)
+            return not self.extension_applies(b, own)
+        }
+        if self.head_kind(b) == TcHeadKind.Specialized {
+            let own = self.ext_self_type(b)
+            return not self.extension_applies(a, own)
+        }
+        false
     }
 }
 
@@ -414,7 +634,16 @@ extension TcProgram {
             return
         }
         let info = self.res.decls[d]
-        var sig = s
+        // An extension's list is read beside its type's, so the type's is
+        // entered first: entered while this one is, its entries would land
+        // inside this one's range.
+        if info.kind == ResDeclKind.Extension {
+            let extended = self.ext_target(d)
+            if extended >= 0 {
+                self.ensure_generic_list(extended)
+            }
+        }
+        var sig = self.sigs[d]
         sig.state = TC_SIG_GENERICS
         sig.generic_first = self.generics.len()
         if info.node < 0 {
@@ -753,12 +982,11 @@ extension TcProgram {
                     self.refuse_arguments_on(leaf)
                     return self.error_type
                 }
-                let owner = self.param_owner(b.node)
-                let index = self.param_index(b.node)
-                if owner < 0 {
+                let named = self.param_type(b.node)
+                if named < 0 {
                     return self.error_type
                 }
-                self.mk_param(owner, index)
+                named
             },
             case Projection -> {
                 if arg_nodes.len() > 0 {

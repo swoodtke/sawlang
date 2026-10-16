@@ -1,0 +1,15 @@
+// refuses: member.unknown at 14:7
+// a specialized extension's `&var self` method called on another
+// instantiation of its type, a `Vector` whose element is no `String`
+
+extension Vector<String> {
+    func push_twice(&var self, s: String) {
+        try! self.push(s)
+        try! self.push(s)
+    }
+}
+
+func main() {
+    var v = Vector<Int>()
+    v.push_twice(3)
+}

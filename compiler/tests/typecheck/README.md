@@ -426,6 +426,32 @@ Optional. Under `type.bound` unless a cell says otherwise:
 | a bound over a tuple 66 deep of a NoCopy struct, answered by identity at any depth (SL-627) | refused | type.bound.deep-tuple |
 | the builtin `copy()` on a NoCopy value, a tuple holding one included (rows V11, V22) | refused, `member.unknown` | member.unknown.copy-nocopy |
 | each where the bound holds: a concrete argument, a generic body's own bound, `copy()` under `T: ExplicitCopy` | allowed | extension_bounds |
+| a bounded extension written before the type it extends, whose bounds are its own head's (SL-740) | refused | type.bound.extension-before-type |
+
+A fourth filter is the specialized extension's (spec, Type Extensions; SL-740):
+a head that names a type for every parameter it writes, `extension
+Vector<String>`, declares members for that instantiation alone, its omitted
+defaulted parameters filled (SL:open-questions D14), and its body sees the
+head's types where it names them and `Self` as the instantiation. Two funnels
+in `compiler/typecheck/src/signatures.saw` answer it: `ext_self_type`, what
+`Self` is in an extension, and `extension_applies`, whether its members belong
+to a receiver, which `members_for` and mono's role lookups ask; a member found
+by its type alone is called at the head's instantiation (`found_owner`). The
+run program `specialized_extensions` and the probe
+`specialized_extension_statics` (`compiler/tests/run/`) hold the accepted rows.
+
+| row | verdict | covered by |
+|---|---|---|
+| a method, a `&var self` method and a generic method, on a std type and a user type specialized at a primitive, a struct or an enum; a receiver reached through a nested generic argument; a generic extension's member beside them | allowed | run specialized_extensions, probe specialized_extension_statics |
+| a static, on the instantiation written and on the type written bare; an `init`, explicit and inferred; `Self`; the head's type built by its name in the body | allowed | probe specialized_extension_statics |
+| two specializations at different arguments declaring one name | allowed | run specialized_extensions |
+| a method, a `&var self` method or a static called on another instantiation | refused, `member.unknown` | member.unknown.specialized-instantiation, .specialized-mutating, .specialized-static |
+| a call inside a generic body bound only by `T`, whatever `T` is instantiated to | refused, `member.unknown` | member.unknown.specialized-generic-body |
+| a member of the shape a generic extension's member has, on the same type | refused, `overload.indistinguishable` | overload.indistinguishable.specialized-beside-generic |
+| an `init` taking the head's instantiation's fields exactly | refused, `init.override-specialized` | init.override-specialized |
+| a conformance in a specialized extension, an assertion included | refused, `extension.specialized-conformance` | extension.specialized-conformance, .assertion |
+| a head naming a type for some parameters and renaming others | refused, `extension.partial-specialization` | extension.partial-specialization |
+| a head writing a generic argument, `extension Map<String, Vector<Int>>` | refused by the parser: a head's parameter is a name (GRAMMAR, syntax.generic.param) | |
 
 ## The position matrix
 
@@ -791,7 +817,6 @@ Every body construct in the slice, and how it is typed:
 | a generic static method called on a generic type written without its type arguments, whose call would solve the type's parameters and the method's at once (SL-657) | `slice.not-yet` (generic-static-bare-head) |
 | `sleep`, `cancelled` | `slice.not-yet` (sync-only) |
 | a call whose signature names a type from a std module the parser refuses | `slice.not-yet` |
-| a specialized extension, and every body in it | `slice.not-yet` |
 | a default of a type parameter's type that is no literal and no `None` | `slice.not-yet` (generic-default) |
 | a `??` whose fallback is wider than the optional's payload | `slice.not-yet` (coalesce-wider) |
 | constructing a builtin type no declaration writes an `init` for, `UnsafeMemory<T, U>(a)`; `Atomic(v)` and `UnsafeMutableInterior(v)` are their lang roles' positional constructions | `slice.not-yet` (builtin-construction) |
@@ -1451,6 +1476,7 @@ says what the fixture shows.
 | `init.override-outside-module` | an `init` matching a struct's fields exactly, the shape that overrides its memberwise construction, declared outside the struct's module (SL-648; the override matrix below) |
 | `init.override-test-only` | an override that is test-only on a production struct, with `conformance.policy-placement`'s reasoning (SL:testing; SL-648) |
 | `init.override-bounded` | an override in an extension whose type parameters carry bounds, naming the bound and the unbounded head (SL-648) |
+| `init.override-specialized` | an override in a specialized extension, an `init` taking the fields of the instantiation its head names exactly, naming that instantiation and the generic head (SL-648, SL-740) |
 | `conformance.deinit` | a conformance to `Deinit` itself, which a copy policy carries instead (design 131); a test-only one included (`.test-only`) |
 | `conformance.policy-placement` | a policy conformance, `Copy`, `ExplicitCopy`, `NoCopy`, `NoMove`, `ZeroInit`, `UnsafeSend` or `UnsafeSync`, declared outside the file that defines its type, test code being a file of its own: each policy in an `@test` declaration and in a group, a conditional head, `@synthesize`, an enum, beside a non-policy trait in one head (bare, `.copy`, `.explicit-copy`, `.no-move`, `.unsafe-send`, `.unsafe-sync`, `.zero-init`, `.group`, `.copy-group`, `.explicit-copy-group`, `.no-move-group`, `.unsafe-send-group`, `.unsafe-sync-group`, `.zero-init-group`, `.conditional`, `.synthesize`, `.enum`, `.one-extension`, `.no-move-holder`); the policy matrix above (SL-659) |
 | `conformance.derived-only` | a written conformance to `Send` or `Sync`, which the compiler derives from the members and never takes as written (spec, Send and Sync; SL-673): on a raw-pointer holder that a `T: Send` bound would then accept (bare), `Sync` (`.sync`), a type whose members derive it anyway (`.derivable`), a conditional head (`.generic`), an enum (`.enum`), both in one head (`.one-extension`), beside `@synthesize` (`.synthesize`), a test-only extension (`.test-only`) and a test group (`.test-group`); one funnel, `check_derived_conformances`, refuses these, `conformance.deinit`'s, `conformance.derived-parent`'s and `trait.deinit-parent`'s. Golden `thread_assertions` holds the control: `UnsafeSend`/`UnsafeSync` past an unsafe-typed field meet the bounds |
@@ -1458,13 +1484,15 @@ says what the fixture shows.
 | `trait.deinit-parent` | a user trait listing `Deinit` as a parent, which only the copy policies `NoCopy` and `ExplicitCopy` do (SL-673) |
 | `conformance.assertion-derives` | an `UnsafeSend` or `UnsafeSync` on a type that derives the property from its members under the extension's conditions, its own assertions of it deleted (spec, `UnsafeSync` / `UnsafeSend`, "Legality, checked at the header"; SL-675): a struct of `Send` fields (bare), `Sync` through a member that asserts it (`.sync`), a conditional head whose bound makes the field derive (`.conditional`), an enum (`.enum`). One funnel, `check_thread_assertion`, makes the header checks |
 | `conformance.assertion-safe-member` | an `UnsafeSend` or `UnsafeSync` past a field or case payload that blocks the derivation and whose type names no unsafe type, naming it (SL-675): a safe non-`Send` struct, which a `T: Send` bound would otherwise accept (bare), an unconditioned type parameter (`.generic`), a safe non-`Sync` struct (`.sync`), a closure (`.closure`), an enum payload (`.enum`), a member reaching the asserted type again, judged without the assertion as Stage 0 judges it (`.recursive`), a test-only extension (`.test-only`). Golden `thread_assertion_legality` holds the accepted rows: a raw pointer, an interior cell, a type argument naming an unsafe type, an enum payload, and conditional heads |
-| `trait.assertion-position` | `UnsafeSend` or `UnsafeSync` written anywhere but a conformance header (spec, `UnsafeSync` / `UnsafeSend`, "Three fences"; SL-675): a function's bound (bare), `UnsafeSync` (`.sync`), a struct's (`.struct`), a method's (`.method`), an extension's condition (`.extension`), a trait's parent (`.parent`). The existential is `erasure.not-object-safe.unsafe-sync`'s, and a header on one instantiation is `slice.not-yet.assertion-specialized`'s |
+| `trait.assertion-position` | `UnsafeSend` or `UnsafeSync` written anywhere but a conformance header (spec, `UnsafeSync` / `UnsafeSend`, "Three fences"; SL-675): a function's bound (bare), `UnsafeSync` (`.sync`), a struct's (`.struct`), a method's (`.method`), an extension's condition (`.extension`), a trait's parent (`.parent`). The existential is `erasure.not-object-safe.unsafe-sync`'s, and a header on one instantiation is `extension.specialized-conformance.assertion`'s |
 | `deinit.outside-policy` | a `deinit` written in an extension that declares no copy policy, beside the type's policy or on a type with none, where no scope exit would call it (spec, The Deinit trait); a plain test-only extension's included (`-test-only`) |
 | `copy.test-only-policy` | a test-only `copy()` on a production type, in a plain test-only extension (`.copy-method`) or beside a production `Copy` that derives its own (`.beside-synthesized`); the policy conformance itself is `conformance.policy-placement`'s (SL:testing, Air t15; SL-630) |
 | `copy.outside-policy` | a member named `copy` that a call with no arguments reaches, written outside the `Copy` or `ExplicitCopy` conformance of a type that does not declare `NoCopy`: in a plain extension, another conformance's, beside a derived policy, on a type Copy by its members, static or with every parameter defaulted (spec, The Copy Trait Family; SL-641) |
 | `overload.indistinguishable` | a declaration that shares a call shape with an earlier one of its overload set, at the later one; the matrix below the table lists each position (spec, Overloading; SL-641) |
 | `copy.second-policy` | a second copy policy on one type, at its conformance: `Copy` then `ExplicitCopy` (bare), `Copy` then `NoCopy` (`.no-copy`), `NoCopy` then `ExplicitCopy` (`.explicit-no-copy`), two in one extension's head (`.one-extension`), and bounded extensions, `Copy` beside `NoCopy` (`.bounded`) and `Copy` beside `ExplicitCopy` (`.bounded-both`); a test-only policy on a production type is `conformance.policy-placement`'s and counts for neither (spec, The Copy Trait Family; SL-641) |
 | `extension.default-omitted` | an extension head renaming its type's parameters that leaves out a defaulted one, with the head written out (D14) |
+| `extension.partial-specialization` | an extension head naming a type for some of its parameters and renaming others, a generic specialized extension, which the spec leaves planned (SL-740) |
+| `extension.specialized-conformance` | a conformance declared in a specialized extension, for one instantiation, which the spec leaves planned; it counts for nothing (bare), an `UnsafeSend` assertion included (`.assertion`) (SL-740) |
 | `type.mismatch` | a value that does not convert to what its position expects, one fixture per funnel position and one per cell of the wrap and erasure matrix a position refuses; a condition that is not a `Bool`; a pattern that does not fit its value; operands that disagree; a bare integer literal, or a constant expression's literal, leaf or cast, that does not fit the type it adopts or converts to; a literal or range pattern's integer that does not fit the matched type (`.pattern-literal-range`, `.pattern-negative-unsigned`, `.pattern-range-end`); a literal past its signed suffix's range (D6) |
 | `constant.overflow`, `constant.shift-range`, `constant.divide-by-zero` | a constant expression whose typed arithmetic overflows, shifts by a count outside its width, or divides by zero, where it adopts an integer slot and at every constant position (the constant-position funnel); a shift count or divisor constant before instantiation that faults whatever the other operand is, reachable or not (the certain-fault funnel) |
 | `type.ambiguous-result` | a value both of a Result slot's payloads could take |
@@ -1472,7 +1500,7 @@ says what the fixture shows.
 | `type.not-a-place` | a value where a place is needed: an assignment's target, `move`, `&var` |
 | `type.cast` | an `as` between types it does not convert |
 | `type.try` | a `try` propagating out of a body that returns no Result, or into one whose error type does not take its error |
-| `member.unknown` | a field or method the type does not have, or this module does not see; the builtin `copy()` on a NoCopy value |
+| `member.unknown` | a field or method the type does not have, or this module does not see; a specialized extension's member on another instantiation or in a generic body (SL-740); the builtin `copy()` on a NoCopy value |
 | `member.through-pointer` | a method a `Box`'s or an `Arc`'s payload declares and the pointer does not, called on the pointer: a pointer forwards nothing, so the message names `borrow b.value().m(…)`, and for a `&var self` one `borrow var` on a box, or a lock or `unique()` on an `Arc`; every receiver mode, through a box (`&self` bare, `.var-self`, `.consumes`, a `borrows` accessor `.borrows`, a `&Box` parameter `.reference`, a `String` payload `.string`) and an `Arc` (`.arc`, `.arc-var-self`, `.arc-consumes`, `Mutex.lock` `.arc-borrows`) (SL-712) |
 | `call.arity` | too many arguments, a missing one, a case built without its payload |
 | `call.label` | a label no parameter has, one naming a parameter behind the last bound, a repeated label |
@@ -1595,6 +1623,7 @@ funnel share. `golden/construction_override` is abbreviated `g.`:
 | an override declared outside the struct's module | refused at the declaration | `init.override-outside-module` |
 | a test-only override of a production struct; a test-only struct's own | refused; the control accepted | `init.override-test-only`; `g.` |
 | an override in a bounded extension; in an unbounded generic one | refused; the control accepted | `init.override-bounded`; `g.` |
+| an override in a specialized extension, the head's instantiation's fields read as its body sees them (SL-740) | refused | `init.override-specialized` |
 | a derived `copy()` | unchanged: it copies field by field and calls no constructor | mono's glue |
 | a synthesized `Deserialize` | lands with the serde port, which sawc2's std does not have yet | none |
 | a zero-initialized `static` or `unsafe static var` of a struct with an override, in its module or another, or holding one at any depth (a field, an array element) | refused: zero is a construction the override never checks | `static.zero-init`, `static.zero-init.override-module`, `static.zero-init.nested` |

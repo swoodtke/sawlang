@@ -1,0 +1,14 @@
+// refuses: extension.partial-specialization at 5:11
+// a head naming a type for one parameter and renaming the other, a generic
+// specialized extension, which the spec leaves planned
+
+extension Pair<Int, T> {
+    func first_plus(&self, n: Int) -> Int { self.a + n }
+}
+
+struct Pair<A, B> { a: A, b: B }
+
+func main() {
+    let p = Pair<Int, String>(a: 4, b: "x")
+    print(p.first_plus(1))
+}

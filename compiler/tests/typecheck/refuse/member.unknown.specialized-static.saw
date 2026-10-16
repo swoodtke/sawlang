@@ -1,0 +1,14 @@
+// refuses: member.unknown at 13:26
+// a specialized extension's static named on another instantiation of its
+// type, which has no such member (spec, Type Extensions)
+
+struct Wrap<T> { value: T }
+
+extension Wrap<Int> {
+    static func seven() -> Wrap<Int> { Wrap<Int>(value: 7) }
+}
+
+func main() {
+    print(Wrap<Int>.seven().value)
+    let s = Wrap<String>.seven()
+}

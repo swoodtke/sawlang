@@ -1,0 +1,17 @@
+// refuses: init.override-specialized at 10:5
+// an override in a specialized extension would reach one instantiation and
+// not the others, one generic call with two meanings (SL-648)
+
+struct Wrap<T> {
+    value: T
+}
+
+extension Wrap<String> {
+    init(value: String) -> Wrap<String> {
+        Wrap<String>(value: value)
+    }
+}
+
+func main() {
+    print(Wrap(value: 1).value)
+}

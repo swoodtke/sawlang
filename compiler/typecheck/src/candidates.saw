@@ -9,7 +9,7 @@ import sawresolve.model.{ResBinding, ResBindKind, ResDecl, ResDeclKind}
 import sawtypecheck.conform.{TcSubst, tc_copy_ints}
 import sawtypecheck.declarations.{tc_build_signatures}
 import sawtypecheck.members.{tc_build_members}
-import sawtypecheck.model.{TC_FLAG_STATIC, TcMember, TcSig, TcSource, TcUnmetBound}
+import sawtypecheck.model.{TC_FLAG_STATIC, TcHeadKind, TcMember, TcSig, TcSource, TcUnmetBound}
 import sawtypecheck.program.{TcProgram}
 import sawtypecheck.signatures.{TcContext}
 // For the extension writing `satisfies`.
@@ -26,7 +26,9 @@ public enum TcOverrideFault {
     // Test-only, on a production struct.
     case TestOnly,
     // In an extension whose type parameters carry bounds.
-    case Bounded
+    case Bounded,
+    // In a specialized extension, for one instantiation.
+    case Specialized
 }
 
 extension TcProgram {
@@ -92,11 +94,13 @@ extension TcProgram {
 
     // The members named `name` a value of nominal type `owner` has, as code
     // in module `viewer`, test code when `in_test`, sees them:
-    // `visible_members`, less each entry whose declaring extension's bounds
+    // `visible_members`, less each entry of a specialized extension for
+    // another instantiation (`extension_applies`), which is no member of
+    // `owner` at all, and each entry whose declaring extension's bounds
     // `owner`'s arguments do not meet. The
-    // first entry dropped is kept in `unmet_member` for the refusal
-    // (`refuse_unmet_member`), so a member that exists only under a bound
-    // is never chosen and never mistaken for an absent one (SL-463).
+    // first entry dropped for a bound is kept in `unmet_member` for the
+    // refusal (`refuse_unmet_member`), so a member that exists only under a
+    // bound is never chosen and never mistaken for an absent one (SL-463).
     //
     // ENTRY POINTS:
     // - method_candidates (methods, statics, a subscript's `[]`)
@@ -114,6 +118,10 @@ extension TcProgram {
         while k < found.len() {
             let at = found[k]
             k = k + 1
+            let ext = self.members[at].ext
+            if not self.extension_applies(ext, owner) {
+                continue
+            }
             if let _ = self.unmet_member_bound(at, owner) {
                 if self.unmet_member < 0 {
                     self.unmet_member = at
@@ -229,7 +237,8 @@ extension TcProgram {
 
     // Whether declaration `m` is an `init` whose labels, in any order, and
     // types are its struct's fields exactly, every parameter one field: the
-    // shape that overrides the memberwise construction (SL-648).
+    // shape that overrides the memberwise construction (SL-648). A field's
+    // type is read as the `init`'s extension sees it (`ext_field_type`).
     public func matches_fields(&var self, m: Int) -> Bool {
         let info = self.res.decls[m]
         if info.kind != ResDeclKind.Init || info.parent < 0 {
@@ -251,19 +260,33 @@ extension TcProgram {
                 continue
             }
             fields = fields + 1
-            self.build_decl(f)
-            if not self.takes_field(&s, f) {
+            let ty = self.ext_field_type(info.parent, f)
+            if not self.takes_field(&s, f, ty) {
                 return false
             }
         }
         fields == s.param_count
     }
 
-    // Whether signature `s` has a parameter of field `f`'s label and type.
-    // Labels are distinct within a declaration, so a match is the only one.
-    func takes_field(&self, s: &TcSig, f: Int) -> Bool {
+    // Field `f`'s type as extension `ext` sees it: of its `Self`, which for a
+    // specialized extension is the instantiation its head names.
+    public func ext_field_type(&var self, ext: Int, f: Int) -> Int {
+        self.build_decl(f)
+        let written = self.sigs[f].result
+        let own = self.ext_self_type(ext)
+        let d = self.ext_target(ext)
+        if written < 0 || own < 0 || self.nominal_decl(own) != d {
+            return written
+        }
+        let sub = TcSubst(owner: d, args: self.nominal_args(own))
+        self.subst(written, &sub)
+    }
+
+    // Whether signature `s` has a parameter of field `f`'s label and of type
+    // `ty`. Labels are distinct within a declaration, so a match is the only
+    // one.
+    func takes_field(&self, s: &TcSig, f: Int, ty: Int) -> Bool {
         let name = self.res.decls[f].name
-        let ty = self.sigs[f].result
         var k = 0
         while k < s.param_count {
             let p = self.params[s.param_first + k]
@@ -278,8 +301,8 @@ extension TcProgram {
     // Why `init` `m`, which matches its struct's fields, may not override the
     // construction: an importer's would change what every module's call
     // means, a test-only one what production code's means (SL:testing), and
-    // a bounded extension's would give one generic call two meanings, chosen
-    // per instantiation where no reader sees it.
+    // a bounded or a specialized extension's would give one generic call two
+    // meanings, chosen per instantiation where no reader sees it.
     public func override_fault(&var self, m: Int) -> TcOverrideFault {
         let info = self.res.decls[m]
         let d = self.ext_target(info.parent)
@@ -292,6 +315,9 @@ extension TcProgram {
         }
         if self.bounded_parameter(info.parent) >= 0 {
             return TcOverrideFault.Bounded
+        }
+        if self.head_kind(info.parent) == TcHeadKind.Specialized {
+            return TcOverrideFault.Specialized
         }
         TcOverrideFault.Accepted
     }

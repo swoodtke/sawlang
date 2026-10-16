@@ -1,0 +1,82 @@
+// Specialized extensions: a member of `extension Vector<String>` or
+// `extension Wrap<Int>` belongs to that instantiation alone, and its body sees
+// the head's types. The rows: a method and a `&var self` method on a std type
+// specialized at `String`, a user type specialized at `Int` and at a struct,
+// a receiver reached through a nested generic argument, a generic extension's
+// member beside the specialized ones, two specializations declaring one name,
+// a generic method inside a specialized extension, and a specialized method
+// called on a concrete type inside a generic body.
+
+struct Wrap<T> { value: T }
+
+struct Point { x: Int, y: Int }
+
+extension Vector<String> {
+    func glue(&self, separator: String) -> String {
+        var out = StringBuilder()
+        var i = 0
+        while i < self.len() {
+            if i > 0 {
+                try! out.append(separator)
+            }
+            try! out.append(self[i])
+            i = i + 1
+        }
+        out.build()
+    }
+
+    func push_twice(&var self, s: String) {
+        try! self.push(s)
+        try! self.push(s)
+    }
+}
+
+extension Wrap<Int> {
+    func doubled(&self) -> Int { self.value * 2 }
+    func describe(&self) -> String { "int {self.value}" }
+    func plus<U>(&self, extra: U, n: Int) -> Int { self.value + n }
+    func bump(&var self) { self.value = self.value + 1 }
+}
+
+extension Wrap<String> {
+    func describe(&self) -> String { "string {self.value}" }
+}
+
+extension Wrap<Point> {
+    func sum(&self) -> Int { self.value.x + self.value.y }
+}
+
+extension Wrap<T> {
+    func tag(&self) -> Int { 1 }
+}
+
+func through<T>(x: T, n: Int) -> Int {
+    let w = Wrap<Int>(value: n)
+    w.plus(x, n: 1)
+}
+
+func main() {
+    var v = Vector<String>()
+    try! v.push("a")
+    v.push_twice("b")
+    print(v.glue(", "))
+    print(v.len())
+
+    var w = Wrap<Int>(value: 21)
+    print(w.doubled())
+    w.bump()
+    print(w.describe())
+    print(Wrap<String>(value: "s").describe())
+    print(Wrap<Point>(value: Point(x: 3, y: 4)).sum())
+
+    var inner = Vector<String>()
+    try! inner.push("p")
+    try! inner.push("q")
+    let nested = Wrap<Vector<String>>(value: move inner)
+    print(nested.value.glue("-"))
+    print(nested.tag() + w.tag())
+
+    print(w.plus("ignored", n: 10))
+    print(through("x", 9))
+    print(through(7, 2))
+}

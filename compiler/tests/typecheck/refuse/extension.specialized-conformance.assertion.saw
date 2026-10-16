@@ -1,0 +1,13 @@
+// refuses: extension.specialized-conformance at 9:22
+// an assertion on one instantiation, which the assertion funnel never sees: a
+// specialized extension declares no conformance (spec, Type Extensions)
+
+struct Cell<T> {
+    raw: UnsafePointer<T>
+}
+
+extension Cell<Int>: UnsafeSend {}
+
+func main() {
+    print("ok")
+}

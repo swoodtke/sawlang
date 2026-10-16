@@ -1,0 +1,67 @@
+// probe: stated
+// about: a specialized extension's statics, `init`s, `Self` and head types, in every spelling the call takes (SL-740)
+// stage 0: cannot call a specialized static in either spelling, reads `Self` in a specialized extension as the generic type, and finds no member of one specialized at an enum
+// speeds: -O0 -O2
+// A static is found on the instantiation written (`Wrap<Int>.seven()`) or,
+// on the type written bare, at the instantiation its head names, which leaves
+// inference nothing to solve; an `init` the same; `Self` is the head's
+// instantiation; a head may name an enum, and the body may build the head's
+// type by its name.
+// prints: 14
+// prints: 14
+// prints: 10
+// prints: 12
+// prints: 2
+// prints: true
+// prints: false
+// prints: true
+// prints: 0 4
+
+struct Wrap<T> { value: T }
+
+struct Point { x: Int, y: Int }
+
+enum Color { case Red, case Green }
+
+extension Wrap<Int> {
+    static func seven() -> Wrap<Int> { Wrap<Int>(value: 7) }
+    init(half: Int) { Wrap<Int>(value: half * 2) }
+    func doubled(&self) -> Int { self.value * 2 }
+    func same(&self, other: &Self) -> Bool { self.value == other.value }
+}
+
+extension Vector<String> {
+    static func pair(a: String, b: String) -> Vector<String> {
+        var v = Vector<String>()
+        try! v.push(a)
+        try! v.push(b)
+        move v
+    }
+}
+
+extension Wrap<Color> {
+    func is_red(&self) -> Bool {
+        match self.value {
+            case Red -> true,
+            case Green -> false
+        }
+    }
+}
+
+extension Wrap<Point> {
+    func origin(&self) -> Point { Point(x: 0, y: self.value.y) }
+}
+
+func main() {
+    print(Wrap<Int>.seven().doubled())
+    print(Wrap.seven().doubled())
+    print(Wrap<Int>(half: 5).value)
+    print(Wrap(half: 6).value)
+    print(Vector<String>.pair(a: "x", b: "y").len())
+    let five = Wrap<Int>(value: 5)
+    print(five.same(&five))
+    print(Wrap<Color>(value: Color.Green).is_red())
+    print(Wrap<Color>(value: Color.Red).is_red())
+    let o = Wrap<Point>(value: Point(x: 3, y: 4)).origin()
+    print("{} {}", o.x, o.y)
+}

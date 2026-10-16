@@ -1,0 +1,17 @@
+// refuses: overload.indistinguishable at 12:10
+// a specialized extension's method beside a generic extension's of the same
+// shape: both are members of `Wrap<Int>`, so no call could tell them apart
+
+struct Wrap<T> { value: T }
+
+extension Wrap<T> {
+    func describe(&self) -> String { "any" }
+}
+
+extension Wrap<Int> {
+    func describe(&self) -> String { "int" }
+}
+
+func main() {
+    print(Wrap<String>(value: "s").describe())
+}

@@ -101,7 +101,7 @@ public struct TcProgram {
     type_builds: Vector<Int>
     // (leaf, 0) -> the declaration a generic parameter declared at `leaf`
     // belongs to, (leaf, 1) -> its index there. An extension's parameters
-    // belong to the type it extends.
+    // belong to the type it extends, and (leaf, 2) -> the extension.
     param_owners: ResIndex
     // (declaration, 0) -> each extension of that type.
     extensions_of: ResIndex
@@ -618,6 +618,16 @@ extension TcProgram {
 
     public func param_index(&self, leaf: Int) -> Int {
         let at = self.param_owners.first(leaf, 1)
+        if at < 0 {
+            return -1
+        }
+        self.param_owners.value(at)
+    }
+
+    // The extension whose head declares the parameter at `leaf`, or -1 for
+    // a parameter of any other declaration.
+    public func param_ext(&self, leaf: Int) -> Int {
+        let at = self.param_owners.first(leaf, 2)
         if at < 0 {
             return -1
         }

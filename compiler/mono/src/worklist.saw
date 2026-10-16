@@ -1408,8 +1408,8 @@ extension MonoProgram {
             return
         }
         let none = Vector<String>()
-        let made_decl = self.member_with(d, "init", &none)
-        let op_decl = self.member_with(d, op, &labels)
+        let made_decl = self.member_with(rv.ty, "init", &none)
+        let op_decl = self.member_with(rv.ty, op, &labels)
         if made_decl < 0 || op_decl < 0 {
             var msg = StringBuilder()
             try! msg.append("a collection literal whose type has no `init()` or `")
@@ -1522,8 +1522,7 @@ extension MonoProgram {
     // The item of the builder's member `name` whose parameters carry `labels`.
     func builder_item(&var self, name: String, labels: &Vector<String>, k: Int, node: Int) -> Int {
         let builder = self.builder_type()
-        let d = self.dp.bc.mir.tc.res.lang_item(ResLang.StringBuilderStruct)
-        let decl = self.member_with(d, name, &labels)
+        let decl = self.member_with(builder, name, &labels)
         if decl < 0 {
             var msg = StringBuilder()
             try! msg.append("the builder role declares no `")
@@ -1535,9 +1534,11 @@ extension MonoProgram {
         self.member_item(k, decl, builder, node)
     }
 
-    // Type declaration `d`'s member named `name` whose parameters carry
-    // `labels`, in order, or -1.
-    func member_with(&var self, d: Int, name: String, labels: &Vector<String>) -> Int {
+    // The member of type `t` named `name` whose parameters carry `labels`, in
+    // order, or -1: a member of its declaration's table that belongs to `t`
+    // (`extension_applies`).
+    func member_with(&var self, t: Int, name: String, labels: &Vector<String>) -> Int {
+        let d = self.dp.bc.mir.tc.nominal_decl(t)
         if d < 0 || d >= self.dp.bc.mir.tc.member_first.len() || self.dp.bc.mir.tc.member_first[d] < 0 {
             return -1
         }
@@ -1548,7 +1549,7 @@ extension MonoProgram {
         while j < first + count {
             let member = self.dp.bc.mir.tc.members[j]
             j = j + 1
-            if member.name != id {
+            if member.name != id || not self.dp.bc.mir.tc.extension_applies(member.ext, t) {
                 continue
             }
             let s = self.dp.bc.mir.tc.sigs[member.decl]
@@ -1788,7 +1789,7 @@ extension MonoProgram {
         }
         try! labels.push("size")
         try! labels.push("align")
-        let decl = self.member_with(d, name, &labels)
+        let decl = self.member_with(a, name, &labels)
         if decl < 0 {
             var msg = StringBuilder()
             try! msg.append("an erased box whose allocator `")

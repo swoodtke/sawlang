@@ -1,0 +1,20 @@
+// refuses: extension.specialized-conformance at 9:22
+// a conformance declared for one instantiation, which the spec leaves planned;
+// it counts for nothing, so the bound below is refused too
+
+trait Named {
+    func name(&self) -> String
+}
+
+extension Wrap<Int>: Named {
+    func name(&self) -> String { "int" }
+}
+
+struct Wrap<T> { value: T }
+
+func show<T: Named>(t: &T) -> String { t.name() }
+
+func main() {
+    let w = Wrap<Int>(value: 4)
+    print(show(&w))
+}

@@ -37,7 +37,7 @@ import sawtypecheck.fold.{TcFold}
 import sawtypecheck.infer.{TcSolve, tc_solve}
 import sawtypecheck.members.{tc_build_members}
 import sawtypecheck.model.{TC_ANY_DEPTH, TC_BIND_DEFAULT, TC_EFFECT_BORROWS, TC_EFFECT_CONSUMES, TC_EFFECT_ESCAPING, TC_FLAG_STATIC, TC_FLAG_SYNTHESIZE_SHARED, TC_FLAG_UNSAFE_VAR, TC_FLAG_VARIADIC,
-                               TC_TIER_EXPLICIT, TC_TIER_NOCOPY, TcAdjust, TcAdjustKind, TcAllowance, TcCall, TcCapture, TcLend, TcMember, TcParam, TcReceiver,
+                               TC_TIER_EXPLICIT, TC_TIER_NOCOPY, TcAdjust, TcAdjustKind, TcAllowance, TcCall, TcCapture, TcHeadKind, TcLend, TcMember, TcParam, TcReceiver,
                                TcRelocation, TcRole, TcSig, TcSource, TcUse}
 import sawtypecheck.overloads.{tc_check_redeclarations}
 import sawtypecheck.program.{TcProgram}
@@ -3291,7 +3291,16 @@ extension TcProgram {
         }
         let d = self.nominal_decl(t)
         let in_test = self.current_test
-        let found = self.visible_members(d, name, m, in_test)
+        let seen = self.visible_members(d, name, m, in_test)
+        var found = Vector<Int>()
+        var j = 0
+        while j < seen.len() {
+            let ext = self.members[seen[j]].ext
+            if self.extension_applies(ext, t) {
+                try! found.push(seen[j])
+            }
+            j = j + 1
+        }
         var k = 0
         while k < found.len() {
             let member = self.members[found[k]]
@@ -6342,16 +6351,22 @@ extension TcProgram {
     // the zero-sized allocator a std body builds (a construction that takes
     // arguments is outside the slice).
     func type_param_call(&var self, e: Int, b: ResBinding, args: &TcArgs) -> Int {
-        let owner = self.param_owner(b.node)
-        let index = self.param_index(b.node)
-        if owner < 0 || args.values.len() > 0 {
-            if owner >= 0 {
+        let t = self.param_type(b.node)
+        if t >= 0 && self.kind_of(t) != TcKind.Param {
+            // A specialized extension's head names the type, which its own
+            // name constructs, through its `init`s.
+            let d = self.nominal_decl(t)
+            let named = ResBinding(kind: ResBindKind.Decl, module: b.module, decl: d, name: b.name, node: -1)
+            let callee = self.res.first_node_child(e)
+            return self.init_call(e, callee, named, &args, TC_WANT_NONE)
+        }
+        if t < 0 || args.values.len() > 0 {
+            if t >= 0 {
                 self.not_in_slice(e, Alt.Expr_Call_Paren)
             }
             let poisoned = self.error_type
             return self.set_type(e, poisoned, false)
         }
-        let t = self.mk_param(owner, index)
         self.record_builtin(e, -1, TcRole.Builtin, "init")
         let at = self.call_at[e]
         var c = self.calls[at]
@@ -7211,11 +7226,7 @@ extension TcProgram {
                 return self.inferred_static_call(e, callee, b.decl, name, &args, want)
             }
         } else if b.node >= 0 {
-            let owner = self.param_owner(b.node)
-            let index = self.param_index(b.node)
-            if owner >= 0 {
-                t = self.mk_param(owner, index)
-            }
+            t = self.param_type(b.node)
         }
         if t < 0 || self.has_error(t) {
             self.type_args_alone(&args)
@@ -7285,7 +7296,8 @@ extension TcProgram {
                 if self.sigs[member.decl].generic_count > 0 {
                     own_generics = true
                 }
-                try! cands.push(TcCand(decl: member.decl, kind: TcCandKind.Function, member: at, owner: -1))
+                let owner = self.found_owner(at, -1)
+                try! cands.push(TcCand(decl: member.decl, kind: TcCandKind.Function, member: at, owner: owner))
             }
         }
         if cands.len() == 0 {
@@ -7959,6 +7971,9 @@ extension TcProgram {
             let at = inits[k]
             k = k + 1
             let member = self.members[at]
+            if not self.extension_applies(member.ext, owner) {
+                continue
+            }
             if member.decl == ov {
                 seen = true
                 if raw {
@@ -7968,8 +7983,9 @@ extension TcProgram {
                 continue
             }
             self.build_decl(member.decl)
+            let found = self.found_owner(at, owner)
             try! cands.push(TcCand(decl: member.decl, kind: TcCandKind.Function, member: at,
-                                   owner: owner))
+                                   owner: found))
         }
         let memberwise = TcCand(decl: d, kind: TcCandKind.Memberwise, member: -1, owner: owner)
         if ov >= 0 && not seen && not raw {
@@ -9959,7 +9975,8 @@ extension TcProgram {
         }
         // An `init`, and a static on a type written bare, is found by its
         // type alone, often before inference solves the type's arguments, so
-        // it meets its extension's bounds here (`members_for`).
+        // it meets its extension's bounds here (`members_for`). A specialized
+        // extension's is found at the type its head names (`found_owner`).
         let found_by_type = self.res.decls[c.decl].kind == ResDeclKind.Init || self.infers_static_owner(c)
         if c.member >= 0 && found_by_type && owner >= 0 {
             self.unmet_member = c.member
@@ -12150,6 +12167,21 @@ extension TcProgram {
         try! msg.append(self.name_text(name))
         try! msg.append("` this module can see")
         self.refuse(leaf, "member.unknown", msg.build())
+    }
+
+    // The owner member-table entry `k`, found by its type alone, is called
+    // at: `owner` when the call names it, else a specialized extension's
+    // `Self`, which leaves inference nothing to solve, else -1 for inference
+    // to solve.
+    func found_owner(&var self, k: Int, owner: Int) -> Int {
+        if owner >= 0 {
+            return owner
+        }
+        let ext = self.members[k].ext
+        if ext >= 0 && self.head_kind(ext) == TcHeadKind.Specialized {
+            return self.ext_self_type(ext)
+        }
+        return -1
     }
 
     // Refuses the member the latest lookup dropped because its declaring

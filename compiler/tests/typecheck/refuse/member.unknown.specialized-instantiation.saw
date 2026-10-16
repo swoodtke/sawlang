@@ -1,0 +1,16 @@
+// refuses: member.unknown at 15:13
+// a specialized extension's method called on another instantiation of its
+// type, which has no such member (spec, Type Extensions)
+
+struct Wrap<T> { value: T }
+
+extension Wrap<Int> {
+    func doubled(&self) -> Int { self.value * 2 }
+}
+
+func main() {
+    let w = Wrap<Int>(value: 21)
+    print(w.doubled())
+    let s = Wrap<String>(value: "s")
+    print(s.doubled())
+}
