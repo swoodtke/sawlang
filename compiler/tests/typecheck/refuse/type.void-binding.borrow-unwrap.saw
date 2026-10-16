@@ -1,0 +1,10 @@
+// refuses: type.void-binding at 7:19
+// flags: --std-root std
+// `if borrow let` binding a `Void` place
+
+func main() {
+    let v = Vector<Void>()
+    if borrow let x = v.find(0) {
+        print(1)
+    }
+}

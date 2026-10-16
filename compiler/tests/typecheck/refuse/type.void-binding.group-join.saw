@@ -1,0 +1,11 @@
+// refuses: type.void-binding at 10:9
+// flags: --std-root std
+// `join` on a group's `Task<Void>` yields nothing (SL-769)
+
+func nothing() { }
+
+func main() {
+    var group = TaskGroup()
+    let h = group.spawn(nothing())
+    let x = h.join()
+}

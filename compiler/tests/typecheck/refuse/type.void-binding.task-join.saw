@@ -1,0 +1,10 @@
+// refuses: type.void-binding at 9:9
+// flags: --std-root std
+// `join` on a `Task.spawn` `Task<Void>` yields nothing
+
+func nothing() { }
+
+func main() {
+    let h = Task.spawn(nothing())
+    let x = h.join()
+}

@@ -1,0 +1,20 @@
+// The spec's `around<R>`: a binding typed by a type parameter is a binding at
+// every instantiation, `Void` included (SL-772; spec, "Binding a `Void` expression")
+
+struct Lock { n: Int }
+
+extension Lock {
+    func release(&self) { }
+
+    func around<R>(&self, body: (Int) sync -> R) -> R {
+        let result = body(self.n)
+        self.release()
+        result
+    }
+}
+
+func main() {
+    let l = Lock(n: 4)
+    l.around({ n in print(n) })
+    print(l.around({ n in n + 1 }))
+}

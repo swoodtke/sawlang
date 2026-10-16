@@ -1,0 +1,12 @@
+// refuses: type.void-binding at 11:9
+// a generic call whose result is `Void` in the caller's body: the caller sees `Void`
+
+func nothing() { }
+
+func run<R>(f: () -> R) -> R {
+    f()
+}
+
+func main() {
+    let x = run({ nothing() })
+}

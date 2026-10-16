@@ -1,0 +1,26 @@
+(Module void_binding_generic_join
+  (declarations
+    (func nothing 5:6 private (signature (params) -> Void) (summary body (suspends no) (sync-callable yes)))
+    (func wait 7:6 private (signature (generics (R)) (params (h std.taskgroup.Task<R> owned)) -> R) (summary body (suspends no) (sync-callable yes)))
+    (func main 12:6 private (signature (params) -> Void) (summary body (suspends no) (sync-callable yes))))
+  (members)
+  (views)
+  (conformances)
+  (copy-tier)
+  (bodies
+    (nothing 5:6)
+    (wait 7:6
+      (8:9-8:10 BindingName R place temp)
+      (8:13-8:21 Call.paren R value temp (call std.taskgroup.Task.join() (owner std.taskgroup.Task<R>)))
+      (8:13-8:14 Name std.taskgroup.Task<R> (borrow &std.taskgroup.Task<R>) place borrow)
+      (9:5-9:6 Name R place move))
+    (main 12:6
+      (13:9-13:14 BindingName std.taskgroup.TaskGroup place temp)
+      (13:17-13:28 Call.paren std.taskgroup.TaskGroup value temp (call std.taskgroup.TaskGroup.init() (owner std.taskgroup.TaskGroup)))
+      (14:9-14:10 BindingName std.taskgroup.Task<Void> place temp)
+      (14:13-14:35 Call.paren std.taskgroup.Task<Void> value temp (spawn group.spawn))
+      (14:13-14:18 Name std.taskgroup.TaskGroup (borrow &std.taskgroup.TaskGroup) place borrow)
+      (14:25-14:34 Call.paren Void value temp (call void_binding_generic_join.nothing()))
+      (15:5-15:17 Call.paren Void value temp (call void_binding_generic_join.wait(h: std.taskgroup.Task<R>) (inst Void)))
+      (15:10-15:16 Move std.taskgroup.Task<Void> value move)
+      (15:15-15:16 Name std.taskgroup.Task<Void> place move))))

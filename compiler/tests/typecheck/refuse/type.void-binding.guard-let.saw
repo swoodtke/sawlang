@@ -1,0 +1,11 @@
+// refuses: type.void-binding at 9:15
+// `guard let` binding a `Void?`'s payload
+
+func maybe() -> Void? {
+    return None
+}
+
+func main() {
+    guard let x = maybe() else { return }
+    print(1)
+}

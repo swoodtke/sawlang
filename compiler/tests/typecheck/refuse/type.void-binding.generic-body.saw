@@ -1,0 +1,13 @@
+// refuses: type.void-binding at 7:9
+// a `Void` written in a generic body is as visible as anywhere else
+
+func nothing() { }
+
+func keep<T>(x: T) -> T {
+    let n = nothing()
+    x
+}
+
+func main() {
+    let _ = keep(1)
+}

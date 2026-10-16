@@ -1,0 +1,12 @@
+// refuses: type.void-binding at 11:10
+// a tuple pattern over a call returning `(Void, Int)`
+
+func nothing() { }
+
+func pair() -> (Void, Int) {
+    (nothing(), 1)
+}
+
+func main() {
+    let (a, b) = pair()
+}

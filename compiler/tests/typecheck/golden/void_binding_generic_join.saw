@@ -1,0 +1,16 @@
+// flags: --std-root std
+// `join` bound in a generic body over `Task<R>`, called at `R = Void`: the
+// binding is typed `R`, so it is accepted (SL-772)
+
+func nothing() { }
+
+func wait<R>(h: Task<R>) -> R {
+    let r = h.join()
+    r
+}
+
+func main() {
+    var group = TaskGroup()
+    let h = group.spawn(nothing())
+    wait(move h)
+}

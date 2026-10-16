@@ -1,0 +1,39 @@
+// flags: --std-root std
+// A `Void` value bound to `_` at every binding position, a call as a statement, and
+// a `Void?` bound whole, all accepted (SL-772; spec, "Binding a `Void` expression")
+
+func nothing() { }
+func maybe() -> Void? {
+    return None
+}
+struct Bad { code: Int }
+
+func fails() -> Result<Void, Bad> {
+    return
+}
+
+func main() {
+    nothing()
+    let _ = nothing()
+    let _: Void = nothing()
+    let (_, b) = (nothing(), 1)
+    let o = maybe()
+    if let _ = maybe() {
+        print(b)
+    }
+    guard let _ = maybe() else { return }
+    while let _ = maybe() {
+        print(2)
+    }
+    match fails() {
+        case Ok(_) -> print(3),
+        case Err(e) -> print(e.code)
+    }
+    let v = Vector<Void>()
+    for _ in v.iter() {
+        print(4)
+    }
+    if borrow let _ = v.find(0) {
+        print(5)
+    }
+}

@@ -1,0 +1,8 @@
+// refuses: type.void-binding at 7:10
+// a tuple pattern's element bound to a `Void` element
+
+func nothing() { }
+
+func main() {
+    let (a, b) = (nothing(), 1)
+}

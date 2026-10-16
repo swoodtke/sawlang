@@ -1,0 +1,15 @@
+// refuses: type.void-binding at 12:17
+// a `match` arm binding `Ok`'s payload of a `Result<Void, E>`
+
+struct Bad { code: Int }
+
+func fails() -> Result<Void, Bad> {
+    return
+}
+
+func main() {
+    match fails() {
+        case Ok(v) -> print(1),
+        case Err(e) -> print(e.code)
+    }
+}

@@ -1692,8 +1692,13 @@ To narrow a value's lifetime, extract a function.
 **Binding a `Void` expression** (design 122, refined by design 132). Writing
 `let n = nothing()` names a value that does not exist, and it is a compile error
 at the binding: call it as a statement, or write `let _ = ...` if the point is
-to evaluate and discard. The line is **syntactic**. A `Void` you can see in the
-source is a visible mistake and is rejected; a `Void` that arrives by
+to evaluate and discard. Every position that binds a name follows the same
+rule: a `let` or `var`, an element of a tuple pattern, `if let`, `if var`,
+`guard let` and `while let`, a `match` arm's payload or whole-value binding, a
+`for` variable, and a `borrow` binding. At each of them `_` binds nothing, so
+`if let _ = maybe()` and `case Ok(_)` are the spellings. The line is
+**syntactic**. A `Void` you can see in the source is a visible mistake and is
+rejected; a `Void` that arrives by
 INSTANTIATION is not. A local typed by a function's own type parameter compiles
 at every instantiation, `Void` included, where it becomes a zero-sized binding —
 no storage, and reading the name yields no value:

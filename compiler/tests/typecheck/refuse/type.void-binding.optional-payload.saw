@@ -1,0 +1,13 @@
+// refuses: type.void-binding at 10:19
+// a `match` arm binding `Some`'s payload of a `Void?`
+
+func maybe() -> Void? {
+    return None
+}
+
+func main() {
+    match maybe() {
+        case Some(v) -> print(1),
+        case _ -> print(2)
+    }
+}

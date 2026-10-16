@@ -1,0 +1,9 @@
+// refuses: type.void-binding at 6:9
+// a `for` variable over a `Vector<Void>`
+
+func main() {
+    let v = Vector<Void>()
+    for x in v.iter() {
+        print(1)
+    }
+}

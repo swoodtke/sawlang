@@ -1,0 +1,15 @@
+// refuses: type.void-binding at 12:19
+// a `match` arm binding a payload declared `Void`
+
+enum Slot {
+    case Held(v: Void),
+    case Empty
+}
+
+func main() {
+    let s = Slot.Empty
+    match s {
+        case Held(v) -> print(1),
+        case Empty -> print(2)
+    }
+}

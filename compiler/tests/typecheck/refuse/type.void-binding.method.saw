@@ -1,0 +1,13 @@
+// refuses: type.void-binding at 12:9
+// the result of a method that returns nothing
+
+struct Gauge { n: Int }
+
+extension Gauge {
+    func reset(&self) { }
+}
+
+func main() {
+    let g = Gauge(n: 1)
+    let x = g.reset()
+}

@@ -1,0 +1,45 @@
+(Module void_binding_around
+  (declarations
+    (struct Lock 4:8 private)
+    (field Lock.n 4:15 private Int)
+    (extension 6:1 (target void_binding_around.Lock))
+    (method Lock.release 7:10 private (signature (receiver shared) (params) -> Void) (summary body (suspends no) (sync-callable yes)))
+    (method Lock.around 9:10 private (signature (generics (R)) (receiver shared) (params (body (Int) sync -> R owned)) -> R) (summary body (suspends no) (sync-callable yes)))
+    (func main 16:6 private (signature (params) -> Void) (summary body (suspends no) (sync-callable yes))))
+  (members
+    (void_binding_around.Lock
+      (field n Int private declared)
+      (method release private (extension void_binding_around))
+      (method around private (extension void_binding_around))))
+  (views
+    (void_binding_around.Lock n release around))
+  (conformances)
+  (copy-tier
+    (void_binding_around.Lock Copy))
+  (bodies
+    (Lock.release 7:10)
+    (Lock.around 9:10
+      (10:13-10:19 BindingName R place temp)
+      (10:22-10:34 Call.paren R value temp (value (owner (Int) sync -> R)))
+      (10:22-10:26 Name (Int) sync -> R place borrow)
+      (10:27-10:33 Member Int place copy)
+      (10:27-10:31 SelfExpr void_binding_around.Lock place project)
+      (11:9-11:23 Call.paren Void value temp (call void_binding_around.Lock.release() (owner void_binding_around.Lock)))
+      (11:9-11:13 SelfExpr void_binding_around.Lock (borrow &void_binding_around.Lock) place borrow)
+      (12:9-12:15 Name R place move))
+    (main 16:6
+      (17:9-17:10 BindingName void_binding_around.Lock place temp)
+      (17:13-17:23 Call.paren void_binding_around.Lock value temp (memberwise void_binding_around.Lock (owner void_binding_around.Lock)))
+      (17:21-17:22 IntLit Int value temp)
+      (18:5-18:32 Call.paren Void value temp (call void_binding_around.Lock.around(body: (Int) sync -> R) (owner void_binding_around.Lock) (inst Void)))
+      (18:5-18:6 Name void_binding_around.Lock (borrow &void_binding_around.Lock) place borrow)
+      (18:14-18:31 Closure (Int) sync -> Void value temp)
+      (18:21-18:29 Call.paren Void value temp (builtin print))
+      (18:27-18:28 Name Int place borrow)
+      (19:5-19:36 Call.paren Void value temp (builtin print))
+      (19:11-19:35 Call.paren Int value borrow (call void_binding_around.Lock.around(body: (Int) sync -> R) (owner void_binding_around.Lock) (inst Int)))
+      (19:11-19:12 Name void_binding_around.Lock (borrow &void_binding_around.Lock) place borrow)
+      (19:20-19:34 Closure (Int) sync -> Int value temp)
+      (19:27-19:32 Binary Int value temp (op +))
+      (19:27-19:28 Name Int place copy)
+      (19:31-19:32 IntLit Int value temp))))

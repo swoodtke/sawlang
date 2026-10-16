@@ -1,0 +1,10 @@
+// refuses: type.void-binding at 9:9
+// flags: --std-root std
+// `join` on a `Thread<Void>` yields nothing (SL-765)
+
+func nothing() { }
+
+func main() {
+    var t = try! Thread.spawn { nothing() }
+    let x = t.join()
+}

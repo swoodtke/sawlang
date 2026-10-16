@@ -838,6 +838,37 @@ extension TcProgram {
         }
     }
 
+    // A name bound, at `node`, to a value whose type is `Void` in the body
+    // being checked: the value does not exist, so there is nothing to name,
+    // and `_` is the spelling (spec, "Binding a `Void` expression"). A
+    // generic body is checked once, so a binding a type parameter types
+    // never reaches `Void` here, which keeps it instantiation-uniform.
+    // `bind_part` and `bind_borrow` call it for each binding position:
+    //
+    // ENTRY POINTS:
+    //     check_let (`let x = e`, `var x = e`, annotated or not)
+    //     check_destructure (a tuple pattern's element)
+    //     check_optional_binding (`if let`, `if var`, `guard let`, `while let`)
+    //     name_pattern (a `match` arm's binding: a payload, a tuple element,
+    //         the whole value)
+    //     for_expr (a `for` variable)
+    //     bind_borrow (a `borrow let` or `borrow var` binding)
+    func refuse_void_binding(&var self, node: Int, leaf: Int, t: Int) {
+        if leaf < 0 || not self.is_void(t) {
+            return
+        }
+        let m = self.current
+        let name = self.text(m, leaf)
+        if name.equals("_") {
+            return
+        }
+        var msg = StringBuilder()
+        try! msg.append("cannot bind `")
+        try! msg.append(name)
+        try! msg.append("` to an expression of type `Void` — it produces no value: write `_` in its place to evaluate it and bind nothing (`let _ = ...`, `if let _ = ...`, `case Ok(_)`), or call it as a statement on its own line")
+        self.refuse(node, "type.void-binding", msg.build())
+    }
+
     // A binding, at `node`, of a part of type `t`, declared at `leaf`: it
     // copies the part out of a place, takes it from a temporary or from a
     // consumed local, or aliases it in a borrowed scrutinee. `_` binds
@@ -861,6 +892,7 @@ extension TcProgram {
                 return
             }
         }
+        self.refuse_void_binding(node, leaf, t)
         match from {
             case Place -> {
                 self.set_use(node, TcUse.Copy)
@@ -6083,6 +6115,7 @@ extension TcProgram {
             self.aliasing_bindings[leaf] = true
             self.lent_bindings[leaf] = true
         }
+        self.refuse_void_binding(target, leaf, t)
         let _ = self.set_type(target, t, true)
         if exclusive {
             self.set_use(target, TcUse.BorrowVar)

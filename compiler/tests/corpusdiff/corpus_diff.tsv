@@ -1174,7 +1174,7 @@ errors/lend_accessor_param.saw	pass	-	type.mismatch: `lend` hands out a place of
 errors/lend_outside_borrows_body.saw	pass	-	type.mismatch: this body produces no value, and its function returns `Int`: end it with an expression of that type, or return one
 errors/lend_payload_not_receiver_storage.saw	pass	-	lend.root: `lend` hands out `n`, which is not rooted in the receiver: it is the accessor's own local or parameter, storage a parameter refers to, or a static. An accessor lends storage its receiver al
 errors/lend_var_write_needs_var_root.saw	pass	-	mutability.immutable: this assignment writes `frozen[0]`, and `frozen` is a `let` binding, which is never written: every binding is initialized where it is declared, so only a `var` takes a new value
-errors/let_void_expression_rejected.saw	wrong	accepts a refusal test	cannot bind `n` to an expression of type `Void` — it produces no value
+errors/let_void_expression_rejected.saw	pass	-	type.void-binding: cannot bind `n` to an expression of type `Void` — it produces no value: write `_` in its place to evaluate it and bind nothing (`let _ = ...`, `if let _ = ...`, `case Ok(_)`), or ca
 errors/manual_deinit.saw	pass	-	deinit.manual-call: cannot call `deinit` manually: it runs once, where the value's scope ends; let the value go out of scope, or `move` it into a call that takes it
 errors/map_get_nocopy_value_read.saw	pass	-	type.bound: `std.map.Map<String, map_get_nocopy_value_read.Res, std.alloc.GlobalAllocator>` has no member `get`: it is declared where `V: Copy`, and `map_get_nocopy_value_read.Res` does not satisfy `C
 errors/map_subscript_immutable_root.saw	pass	-	subscript.role: this subscript is used as a writable place: its `[]` lends read-only (`std.map.Map<String, map_subscript_immutable_root.Counter, std.alloc.GlobalAllocator>` declares or derives no such
@@ -2649,7 +2649,7 @@ while_let_suspending.saw	pass	-	-
 while_let_suspending_mt.saw	refused	typecheck call.label	no parameter is labeled `threads` in TaskGroup.init() [std.taskgroup]
 while_let_suspending_try_catch.saw	pass	-	-
 while_let_tuple_over_suspension_refused.saw	stage0-wrong	annotated SL-566	sawc2 builds it, and its run exits 0
-while_let_value_position_refused.saw	pass	-	format.argument: `Void` is formatted here, and it is neither `Printable` nor a primitive
+while_let_value_position_refused.saw	pass	-	type.void-binding: cannot bind `r` to an expression of type `Void` — it produces no value: write `_` in its place to evaluate it and bind nothing (`let _ = ...`, `if let _ = ...`, `case Ok(_)`), or ca
 while_nested.saw	pass	-	-
 while_never_break_forms.saw	refused	typecheck slice.not-yet	`syntax.stmt.break` is not in the bootstrap slice yet
 while_never_diverges.saw	pass	-	-

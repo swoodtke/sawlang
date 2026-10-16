@@ -1,0 +1,12 @@
+// refuses: type.void-binding at 9:12
+// `if var` binding a `Void?`'s payload
+
+func maybe() -> Void? {
+    return None
+}
+
+func main() {
+    if var x = maybe() {
+        print(1)
+    }
+}

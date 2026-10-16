@@ -1,0 +1,12 @@
+// refuses: type.void-binding at 11:9
+// `try!` on a `Result<Void, E>` yields nothing
+
+struct Bad { code: Int }
+
+func fails() -> Result<Void, Bad> {
+    return
+}
+
+func main() {
+    let x = try! fails()
+}

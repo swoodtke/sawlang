@@ -1,0 +1,12 @@
+// refuses: type.void-binding at 9:15
+// `while let` binding a `Void?`'s payload
+
+func maybe() -> Void? {
+    return None
+}
+
+func main() {
+    while let x = maybe() {
+        print(1)
+    }
+}

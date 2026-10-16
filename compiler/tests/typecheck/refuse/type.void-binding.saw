@@ -1,0 +1,8 @@
+// refuses: type.void-binding at 7:9
+// `let` binding a call that returns nothing
+
+func nothing() { }
+
+func main() {
+    let n = nothing()
+}

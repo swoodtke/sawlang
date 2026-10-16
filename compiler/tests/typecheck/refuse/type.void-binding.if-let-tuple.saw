@@ -1,0 +1,12 @@
+// refuses: type.void-binding at 9:13
+// a tuple pattern in `if let`, one element `Void`
+
+func pair() -> (Void, Int)? {
+    return None
+}
+
+func main() {
+    if let (a, b) = pair() {
+        print(b)
+    }
+}

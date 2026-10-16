@@ -1,0 +1,10 @@
+// refuses: type.void-binding at 8:14
+// a `match` arm binding the whole `Void` scrutinee
+
+func nothing() { }
+
+func main() {
+    match nothing() {
+        case v -> print(1)
+    }
+}

@@ -1,0 +1,11 @@
+// refuses: type.void-binding at 8:12
+// `if let` binding what a chained assignment's `Void?` holds
+
+struct Point { n: Int }
+
+func main() {
+    var o: Point? = Point(n: 1)
+    if let w = o?.n = 2 {
+        print(1)
+    }
+}

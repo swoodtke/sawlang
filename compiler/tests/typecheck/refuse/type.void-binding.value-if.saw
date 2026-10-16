@@ -1,0 +1,9 @@
+// refuses: type.void-binding at 8:9
+// a value `if` whose arms produce nothing
+
+func nothing() { }
+
+func main() {
+    let c = true
+    let x = if c { nothing() } else { nothing() }
+}

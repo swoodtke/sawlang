@@ -1,0 +1,6 @@
+// refuses: type.void-binding at 5:9
+// `print` returns nothing
+
+func main() {
+    let x = print(3)
+}

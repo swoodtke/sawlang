@@ -1,0 +1,9 @@
+// refuses: type.void-binding at 6:16
+// a `borrow let` block binding a `Void` place
+
+func main() {
+    let v = Vector<Void>()
+    borrow let x = v[0] {
+        print(1)
+    }
+}

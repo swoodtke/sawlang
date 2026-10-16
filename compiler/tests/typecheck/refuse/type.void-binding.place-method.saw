@@ -1,0 +1,13 @@
+// refuses: type.void-binding at 12:9
+// a method that returns nothing, called on a subscript place
+
+struct Gauge { n: Int }
+
+extension Gauge {
+    func reset(&self) { }
+}
+
+func main() {
+    let v: Vector<Gauge> = [Gauge(n: 1)]
+    let y = v[0].reset()
+}

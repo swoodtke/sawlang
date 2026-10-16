@@ -1,0 +1,15 @@
+// refuses: type.void-binding at 14:9
+// a field typed `T` read at a `Void` instance
+
+struct Wrap<T> { v: T }
+
+func nothing() { }
+
+func make() -> Wrap<Void> {
+    Wrap<Void>(v: nothing())
+}
+
+func main() {
+    let w = make()
+    let x = w.v
+}

@@ -1,0 +1,8 @@
+// refuses: type.void-binding at 7:9
+// an annotation naming `Void` does not make the binding legal
+
+func nothing() { }
+
+func main() {
+    let n: Void = nothing()
+}

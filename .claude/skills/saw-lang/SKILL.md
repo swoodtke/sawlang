@@ -1242,7 +1242,12 @@ var scratch: [Int8; 256] = [0; 256] // REPEAT literal: N copies of one value
 - No bare block statement (design 122): a closure literal alone in statement
   position is a compile error ("never called") — call it `{ ... }()` or bind it.
   Narrow a lifetime by extracting a function.
-- `let n = <Void expr>` is a type error (bind nothing, or `let _ = ...`), and a
+- Binding a name to a visibly `Void` value is a type error at EVERY binding
+  position: `let`/`var`, `if let`/`guard let`/`while let`, a `match` or enum
+  payload (`case Ok(v)` on `Result<Void, E>`), a tuple element, a `for`
+  variable. Bind nothing (`let _ = ...`, `if let _ = maybe()`, `case Ok(_)`)
+  or call it as a statement. A binding typed by a type parameter is fine even
+  when it is `Void` at a call (`let r: R = body()`). Separately, a
   top-level `func`/`extern` named after a built-in (`print`/`assert`/`sleep`/
   `spawn`/`sizeof`/…) is a duplicate-definition error — the call site always
   resolves to the built-in, so the declaration could never run.
