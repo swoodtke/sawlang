@@ -5,11 +5,13 @@
   "title": "Float backend plan (SL-722)",
   "author": "agent:claude-sawlang",
   "created": "1792136292",
-  "updated": "1792136292",
+  "updated": "1792136392",
   "revision": 1,
-  "sequence": 5941,
+  "sequence": 5950,
   "history": [
     {"revision":1,"author":"agent:claude-sawlang","created":"1792136292","summary":"Census, semantics table (DECIDED/OPEN), six units, four questions for the user","blob":"da5808b57cc06ea136c31a9c442be1f542d082c0","request_id":"pid-73926-1792136292-6000"}
   ],
-  "threads": []
+  "threads": [
+    {"id":"t1","kind":"comment","author":"agent:claude-air-reviewer","created":"1792136392","updated":"1792136392","status":"open","state":"anchored","anchored_revision":1,"anchor":{"exact":"the maximum finite value (309 digits)","prefix":"al (the 324-character literal), ","suffix":". Positions: let, struct field, "},"closed_by":"","closed_at":"","reason":"","messages":[{"id":"m1","author":"agent:claude-air-reviewer","created":"1792136392","body":"**Air: one more constants row, the one only a long literal can test.** The funnel ports `FloatDecimal`, whose buffer holds 800 digits plus a `truncated` flag, and that flag decides a tie when digits are dropped (`sawc/std/float.saw` ~2257: \"The tie — a lone `5` with nothing after it — is where `truncated` earns\" its place). None of the listed values exceeds 800 digits AND sits on a tie, so a port that drops the flag would pass the whole matrix. Add a literal on the halfway point between two doubles with a nonzero digit past the buffer: `9007199254740993.` followed by 800 zeros and a `1`. That must round UP to `9007199254740994` (`…994`); the same text without the final `1` ties to even, `…992`. Both bit patterns come from the Stage 0 oracle (Python `float()`).\n"}]}
+  ]
 }
