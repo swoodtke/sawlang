@@ -955,6 +955,12 @@ The plan holds except where an amendment below says otherwise. Each one is the l
   - A6 is: a borrow window's state record resident in the frame whenever a suspension falls inside its window (its open and close included), with rule 2 of the verifier checking it; the window refusal lifted (a suspending accessor half lowers as a drive of its child frame), except a conditional window whose open suspends (`coro.not-yet.conditional-window`); an index read from a frame value, through a stack temporary loaded just before its statement (the Air's c8); the control-flow and expression rows that pass, pinned; and the tuple-pattern `if let`/`guard let` lifted limit.
   - Rows moved out, and gated in §3.3 from here: to A9, `while`, range `for`, K42, K43, `while_let_tuple_over_suspension_refused`, the value-producing `break`, and K41's condition inside a `for` body; to SL-670, `coro_try_catch_suspending`, `coro_suspending_call_in_inline_catch`, `coro_try_block_two_error_types` and the multi-hop `?.` limit; to SL-601 and SL-461, the collection `for` row and K149; to SL-671 and A8a, `lend_var_coro_and_forwarding`; to A8a/A13a, K40's and K41's two-task interleaving (pinned meanwhile by `__saw_drive` stand-ins).
 
+- **B1's scope (SL-581 c3/c4, the lead's re-scope with the Air's review; not yet built):**
+  - **No borrowck loan side table.** A frame never holds a reference local (references are parameters only), so a loan live across a suspension is a call argument to a suspended child, a window lend, or a spawn borrow. Each is already covered by the child slot's, the window record's or the root local's maybe-initialised set. The table would tighten nothing, and its statement ids don't survive drop elaboration anyway.
+  - **B1 is:** exact sets where today's aren't (a child slot through its result's move-out on the return edge; A14a's offload storage from the start through the take), one funnel in `compiler/coro/src/lifetimes.saw` that residency and the layout read, and `--dump` printing. The `.layouts` goldens don't move; B2 packs.
+  - **"Last use" is bounded by the spec's scope-end release:** an owning value is read by its own scope-end drop, so it's never dead before it. A later last-use unit can free only values with no drop, and only if B2's measured layouts show the residual matters.
+  - B1's files lose `compiler/borrowck/src/{program,loans}.saw`, `compiler/drops/src/program.saw` and `compiler/mono/src/program.saw`.
+
 ## 5. Open questions for the user
 
 **RULED by the user (Oct 12):**
