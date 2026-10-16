@@ -348,7 +348,7 @@ conformance/K28_slot_payload_released_exactly_once.saw	refused	resolve import.un
 conformance/K29_copy_policy_hook_must_be_sync.saw	pass	-	effect.sync: cannot suspend in the `Copy` `copy()` of `Heavy`: `Heavy.copy` may suspend, and a copy-policy `copy()` runs at compiler-inserted call sites, so it must be `sync`
 conformance/K30_generic_container_of_pinned_is_pinned.saw	refused	typecheck member.unknown	`std.taskgroup.TaskGroup` has no method `is_empty` this module can see
 conformance/K31_generic_arc_share_at_non_sync_refused.saw	wrong	refused by another rule	call.label, where the plan names coro.spawn-not-send
-conformance/K32_task_cell_result_and_cancel.saw	pass	-	-
+conformance/K32_task_cell_result_and_cancel.saw	stage0-wrong	annotated SL-769	sawc2 meets its directives
 conformance/K33_suspending_enum_method_embedded.saw	pass	-	-
 conformance/K34_suspending_generic_struct_method_embedded.saw	pass	-	-
 conformance/K35_suspending_generic_method_embedded.saw	pass	-	-
@@ -1479,7 +1479,7 @@ expr_suspend_andor.saw	pass	-	-
 expr_suspend_arg.saw	pass	-	-
 expr_suspend_arg_order.saw	pass	-	-
 expr_suspend_binop.saw	pass	-	-
-expr_suspend_blocking.saw	wrong	sawc2's binary panics	panic at taskgroup.saw:1034: executor: an offload needs its job's completion, which arrives with SL:coroutines A14b
+expr_suspend_blocking.saw	wrong	sawc2's binary panics	panic at taskgroup.saw:1117: executor: an offload needs its job's completion, which arrives with SL:coroutines A14b
 expr_suspend_chain_head.saw	pass	-	-
 expr_suspend_channel_recv.saw	pass	-	-
 expr_suspend_coalesce.saw	pass	-	-
@@ -1491,7 +1491,7 @@ expr_suspend_interp.saw	pass	-	-
 expr_suspend_later_hop.saw	pass	-	-
 expr_suspend_match_scrutinee.saw	pass	-	-
 expr_suspend_move_error.saw	pass	-	move.use-after: `data` is used after it may have been moved (moved at 19:5); a moved value is gone until it is assigned again
-expr_suspend_nested_blocking.saw	wrong	sawc2's binary panics	panic at taskgroup.saw:1034: executor: an offload needs its job's completion, which arrives with SL:coroutines A14b
+expr_suspend_nested_blocking.saw	wrong	sawc2's binary panics	panic at taskgroup.saw:1117: executor: an offload needs its job's completion, which arrives with SL:coroutines A14b
 expr_suspend_nested_shortcircuit.saw	pass	-	-
 expr_suspend_optchain_assign.saw	wrong	stdout differs	line 4: sawc2 "2", Stage 0 "1"
 expr_suspend_optchain_compound_assign.saw	wrong	stdout differs	line 4: sawc2 "2", Stage 0 "1"
@@ -1934,7 +1934,7 @@ net_accept_roundtrip.saw	pass	-	-
 net_accumulate_across_reads.saw	pass	-	-
 net_budget_fairness.saw	refused	typecheck member.through-pointer	`lock` is a method of the payload, `std.mutex.Mutex<Int>`, not of the `Arc`; reach it with `borrow stop.value().lock(…)`
 net_cancel_parked_mt.saw	refused	typecheck call.label	no parameter is labeled `threads` in TaskGroup.init() [std.taskgroup]
-net_cancel_parked_read.saw	refused	typecheck member.unknown	`std.taskgroup.VoidTask` has no method `cancel_addr` this module can see
+net_cancel_parked_read.saw	refused	typecheck member.unknown	`std.taskgroup.Task<Void>` has no method `cancel_addr` this module can see
 net_cancel_precise.saw	refused	typecheck member.unknown	`std.taskgroup.Task<Int>` has no method `cancel_addr` this module can see
 net_cancel_unregisters_token.saw	refused	typecheck member.unknown	`std.taskgroup.Task<std.net.TcpStream>` has no method `cancel_addr` this module can see
 net_connect_by_name.saw	wrong	sawc2's binary panics	panic at net.saw:521: TcpStream.connect: resolving the host name "localhost" needs the offload worker (SL:coroutines A14b)
@@ -2007,11 +2007,11 @@ none_return_test.saw	pass	-	-
 number_literal_member_access.saw	refused	mono mono.not-yet	a synthesized `Printable.format(into: &var std.stringbuilder.StringBuilder)` on `Float` is not in the backend slice yet: a Float's `format` waits for `std.float`'s formatter (SL-722 U5) (inside std/pr
 offload_cancel_multi_arg.saw	refused	typecheck member.unknown	`std.taskgroup.Task<Int>` has no method `cancel_addr` this module can see
 offload_cancel_parked.saw	refused	typecheck member.unknown	`std.taskgroup.Task<Int>` has no method `cancel_addr` this module can see
-offload_multi_arg_pipe_read.saw	wrong	sawc2's binary panics	panic at taskgroup.saw:1034: executor: an offload needs its job's completion, which arrives with SL:coroutines A14b
-offload_pointer_heap_arg.saw	wrong	sawc2's binary panics	panic at taskgroup.saw:1034: executor: an offload needs its job's completion, which arrives with SL:coroutines A14b
-offload_seam_first_tick.saw	wrong	sawc2's binary panics	panic at taskgroup.saw:1034: executor: an offload needs its job's completion, which arrives with SL:coroutines A14b
-offload_signature_shapes.saw	wrong	sawc2's binary panics	panic at taskgroup.saw:1034: executor: an offload needs its job's completion, which arrives with SL:coroutines A14b
-offload_spawn_interleave.saw	wrong	sawc2's binary panics	panic at taskgroup.saw:1034: executor: an offload needs its job's completion, which arrives with SL:coroutines A14b
+offload_multi_arg_pipe_read.saw	wrong	sawc2's binary panics	panic at taskgroup.saw:1117: executor: an offload needs its job's completion, which arrives with SL:coroutines A14b
+offload_pointer_heap_arg.saw	wrong	sawc2's binary panics	panic at taskgroup.saw:1117: executor: an offload needs its job's completion, which arrives with SL:coroutines A14b
+offload_seam_first_tick.saw	wrong	sawc2's binary panics	panic at taskgroup.saw:1117: executor: an offload needs its job's completion, which arrives with SL:coroutines A14b
+offload_signature_shapes.saw	wrong	sawc2's binary panics	panic at taskgroup.saw:1117: executor: an offload needs its job's completion, which arrives with SL:coroutines A14b
+offload_spawn_interleave.saw	wrong	sawc2's binary panics	panic at taskgroup.saw:1117: executor: an offload needs its job's completion, which arrives with SL:coroutines A14b
 once_cross_thread_publish.saw	refused	mono mono.not-yet	the builtin `Thread.spawn` is not in the backend slice yet
 once_double_set_panic.saw	pass	-	-
 once_get_before_set_panic.saw	pass	-	-
@@ -2442,7 +2442,7 @@ taskgroup_slot_reuse_o_live.saw	pass	-	-
 taskgroup_spawn_and_loop.saw	pass	-	-
 taskgroup_spawn_generic.saw	pass	-	-
 taskgroup_spawn_void.saw	refused	typecheck call.label	no parameter is labeled `threads` in TaskGroup.init() [std.taskgroup]
-taskgroup_stale_handle_cancel.saw	pass	-	-
+taskgroup_stale_handle_cancel.saw	stage0-wrong	annotated SL-769	sawc2 meets its directives
 taskgroup_stale_handle_join.saw	pass	-	-
 taskgroup_structured_join.saw	pass	-	-
 taskgroup_suspending_cancel.saw	pass	-	-

@@ -1,7 +1,7 @@
 // design 242 unit 3: `Task.spawn(work(n))` — the cooperative engine's
 // singleton form. No group is declared: the task rides ONE process-wide
 // background group the runtime builds on first use and closes at `main`'s
-// return. The handle is a `Task<T>` / `VoidTask`, exactly what `group.spawn`
+// return. The handle is a `Task<T>`, `Void` or not, exactly what `group.spawn`
 // hands back, and its fate is explicit — `join()`, `detach()` or `cancel()` on
 // every path (ruling 5).
 //
@@ -46,7 +46,7 @@ func main() {
     let squared = Task.spawn(square(6))
     print(squared.join())
 
-    // A `Void` body gives a `VoidTask` — the same split `group.spawn` has.
+    // A `Void` body gives a `Task<Void>`, as `group.spawn` does.
     let counter = Task.spawn(count_up())
     counter.join()
 

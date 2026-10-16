@@ -152,7 +152,6 @@ extension TcProgram {
                         arc: self.top_decl(std_arc, "Arc"),
                         task_group: self.top_decl(std_task_group, "TaskGroup"),
                         task: self.top_decl(std_task_group, "Task"),
-                        void_task: self.top_decl(std_task_group, "VoidTask"),
                         thread: self.top_decl(std_task, "Thread"),
                         system_error: self.top_decl(std_system_error, "SystemError"),
                         func_pointer: self.top_decl(b, "FuncPointer"),

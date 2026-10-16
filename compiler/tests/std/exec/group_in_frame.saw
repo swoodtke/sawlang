@@ -4,7 +4,8 @@
 // address into the one scheduler, and that address is the frame's, which
 // never moves. `main` returns without joining them; the frame's group is
 // torn down where the frame dies, and its teardown drives the children to
-// completion and releases their unjoined results.
+// completion, each releasing its result as it finishes, since its handle is
+// gone.
 
 import std.taskgroup.{FrameDescriptor, Poll, TaskContext, TaskProvenance}
 import std.taskgroup.{__saw_exec_drive_main, __saw_exec_task_box}

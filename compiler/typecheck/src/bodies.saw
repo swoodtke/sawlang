@@ -7536,9 +7536,9 @@ extension TcProgram {
 
     // `Task.spawn(f(x))`, the background spawn form (design 242). Its one
     // argument is the task's root, a call of a free function that the task
-    // makes; the form hands back `Task<T>` for a root of type `T`, and
-    // `VoidTask` for a `Void` one. The background group has no scope to end
-    // a borrow at, so the root takes none.
+    // makes; the form hands back `Task<T>` for a root of type `T`, `Void`
+    // included. The background group has no scope to end a borrow at, so the
+    // root takes none.
     func task_spawn(&var self, e: Int, args: &TcArgs) -> Int {
         let form = "Task.spawn"
         let root = self.spawned_root(e, &args, form)
@@ -7558,7 +7558,7 @@ extension TcProgram {
             let poisoned = self.error_type
             return self.set_type(e, poisoned, false)
         }
-        let handle = self.task_handle(e, body)
+        let handle = self.task_handle(body)
         self.set_type(e, handle, false)
     }
 
@@ -7708,7 +7708,7 @@ extension TcProgram {
             let poisoned = self.error_type
             return self.set_type(e, poisoned, false)
         }
-        let handle = self.task_handle(e, body)
+        let handle = self.task_handle(body)
         self.set_type(e, handle, false)
     }
 
@@ -7927,17 +7927,10 @@ extension TcProgram {
         sources.len() > 0
     }
 
-    // The handle a spawn form hands back for a root of type `body`.
-    func task_handle(&var self, e: Int, body: Int) -> Int {
+    // The handle a spawn form hands back for a root of type `body`: `Task<T>`
+    // at every `T`, `Void` included.
+    func task_handle(&var self, body: Int) -> Int {
         var args = Vector<Int>()
-        if self.is_void(body) {
-            let d = self.known.void_task
-            if d < 0 {
-                self.not_yet(e, "a `Void` task under a std root that declares no `VoidTask`")
-                return self.error_type
-            }
-            return self.mk_nominal(d, &args)
-        }
         try! args.push(body)
         let d = self.known.task
         self.mk_nominal(d, &args)

@@ -1,0 +1,45 @@
+// probe: stated
+// about: a task whose result is zero-sized holds it until its join, `Void` included (SL-691)
+// stage 0: builds it and prints the same lines; stated until the lane keeps Stage 0's output (SL-665)
+// speeds: -O0 -O2
+// prints: 1
+// prints: 2
+// prints: 3
+// prints: 4
+// The cell keeps a result of no bytes for its handle as it keeps any other,
+// so each join finds the task finished and its result there, whether the
+// root suspended first or returned at once.
+
+struct Marker {}
+
+func make_marker() -> Marker {
+    __saw_suspend()
+    Marker()
+}
+
+func make_unit() -> () {
+    __saw_suspend()
+    ()
+}
+
+func make_unit_plain() -> () {
+    ()
+}
+
+func tick() {
+    __saw_suspend()
+}
+
+func main() {
+    let m = Task.spawn(make_marker()).join()
+    let _ = m
+    print(1)
+    let p = Task.spawn(make_unit_plain()).join()
+    let _ = p
+    print(2)
+    let u = Task.spawn(make_unit()).join()
+    let _ = u
+    print(3)
+    Task.spawn(tick()).join()
+    print(4)
+}

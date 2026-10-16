@@ -234,7 +234,6 @@ public func res_declare_prelude(p: &var ResProgram) {
     p.prelude_name("StringBuilder", "std.stringbuilder")
     p.prelude_name("TaskGroup", "std.taskgroup")
     p.prelude_name("Task", "std.taskgroup")
-    p.prelude_name("VoidTask", "std.taskgroup")
 }
 
 extension ResProgram {

@@ -848,7 +848,7 @@ Every body construct in the slice, and how it is typed:
 | a builtin type's method of a trait it conforms to builtin: `n.to_string()`, `7.to_string()`, `equals`, `compare`, `hash` (design 109) | the trait's requirement or default, `Self` the builtin type | builtin_values |
 | a raw pointer's `*p` and `p[i]`, `(&x) as UnsafePointer<T>`, an extern call, a C variadic one, an `unsafe static var`, an allocator parameter's `A()` | the pointee, a pointer, the extern's result, a value of the parameter | lowlevel |
 | `print`, `panic`, `assert` with a message or format arguments; `sizeof`, `alignof` | `Void`, `Never`, `Int` | format, inference |
-| `Task.spawn(f(x))`, under a std root declaring `Task` beside `TaskGroup` | `Task<T>` for a root of type `T`, `VoidTask` for a `Void` one; the root's call is the task's, so its suspension is not the spawner's | task_spawn |
+| `Task.spawn(f(x))`, under a std root declaring `Task` beside `TaskGroup` | `Task<T>` for a root of type `T`, `Task<Void>` for a `Void` one; the root's call is the task's, so its suspension is not the spawner's | task_spawn |
 | `group.spawn(f(x))` on a `TaskGroup`, a local, a field or through a `&TaskGroup` | the group borrowed shared for the spawn; the handle and the root as `Task.spawn`'s | group_spawn |
 | `Thread.spawn { ... }`, under a std root declaring `std.task.Thread` and `std.systemerror.SystemError` | `Result<Thread<T>, SystemError>` for a body of type `T`, `Void` included; a builtin call whose brace is its operand (`Thread.spawn` under Stage 0's std, which has no `SystemError`, is `slice.not-yet`, its brace still checked) | thread_spawn; thread_body_std_table |
 | a subscript | a getitem, setitem or place accessor call, or an array's builtin | places, funnel |

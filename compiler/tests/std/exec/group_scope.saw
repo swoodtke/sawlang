@@ -1,7 +1,8 @@
 // A `TaskGroup` built with `TaskGroup()` is a scope: its teardown drives the
-// tasks still live to completion, then releases the results nobody joined.
-// Its handles drop silently, and `count` reports the slots it holds: live
-// tasks plus finished ones whose result is still waiting for a join.
+// tasks still live to completion. Its handles drop silently, and a dropped
+// handle gives its result up: at the drop when its task has finished, else
+// when the task does. `count` reports the slots it holds: live tasks plus
+// finished ones whose result is still waiting for a join.
 
 import std.taskgroup.{FrameDescriptor, Poll, TaskContext, TaskProvenance}
 import std.taskgroup.{__saw_exec_task_box}

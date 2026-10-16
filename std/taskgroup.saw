@@ -117,7 +117,9 @@ struct TaskCell {
     context: TaskContext
     park: Int
     cancel: Bool
-    detached: Bool
+    // No handle will take the result: its handle detached, or was dropped
+    // before the task finished.
+    unclaimed: Bool
     // A result was moved in and is neither taken nor dropped yet.
     holding: Bool
     descriptor: UnsafePointer<FrameDescriptor>
@@ -163,8 +165,11 @@ public struct TaskGroup {
     // end, and whether this group is in the list.
     private next: Int
     private registered: Bool
-    // The `group.spawn` handles whose fate is not written yet, which the
-    // teardown requires to be none (`check_no_outstanding`). Under `threads: N`
+    // The `group.spawn` handles still claiming their task's result, which the
+    // teardown requires to be none (`check_no_outstanding`). It goes down only
+    // when a handle lets go of the result, at its join or its drop
+    // (`Task.let_go`), never at `cancel`: a cancelled handle still reaches the
+    // group when it is joined or dropped. Under `threads: N`
     // it becomes an atomic, read after the workers join (SL:coroutines A17a).
     private outstanding: Int
 }
@@ -178,7 +183,7 @@ extension TaskGroup {
     }
 
     /// Returns the number of task slots the group holds: its live tasks, plus
-    /// the finished ones whose result has not been joined yet.
+    /// the finished ones whose handle is still waiting to join the result.
     public func count(&self) -> Int {
         self.slots.len() - self.free.len()
     }
@@ -186,8 +191,7 @@ extension TaskGroup {
 
 // The group's teardown is its structured join: every live task is driven to
 // completion where the group was born, other groups' tasks advancing beside
-// them, and then each slot is released, a result nobody joined included.
-// Nothing is cancelled. The sweep skips every frame active on this thread's
+// them, and then each slot is released. Nothing is cancelled. The sweep skips every frame active on this thread's
 // stack, so a group torn down while one of its own tasks is further up the
 // stack would release a frame that has not returned `Ready`; it panics
 // instead (SL:coroutines §3.1). The outstanding-handle check sits between the
@@ -208,11 +212,12 @@ extension TaskGroup: NoCopy {
     }
 }
 
-// A group may be destroyed only once every `group.spawn` handle to it has its
-// fate written. Each of a handle's operations, its drop included, reads or
-// writes the group, so a handle still outstanding here would reach freed
-// storage later; the borrow check refuses the routes it sees, and this
-// catches the rest, a handle minted through a borrow window among them.
+// A group may be destroyed only once every `group.spawn` handle to it has let
+// go of its task's result. A handle that still claims one, a cancelled one
+// included, reads or writes the group when it is joined or dropped, so one
+// still outstanding here would reach freed storage later; the borrow check
+// refuses the routes it sees, and this catches the rest, a handle minted
+// through a borrow window among them.
 //
 // ENTRY POINTS:
 //   TaskGroup.deinit
@@ -222,10 +227,10 @@ func check_no_outstanding(group: &TaskGroup) {
         panic("TaskGroup: a task handle's fate was counted more than once")
     }
     if n == 1 {
-        panic("TaskGroup: destroyed while 1 task handle still refers to it; join, cancel or drop each `group.spawn` handle before its group ends")
+        panic("TaskGroup: destroyed while 1 task handle still refers to it; join or drop each `group.spawn` handle before its group ends")
     }
     if n != 0 {
-        panic("TaskGroup: destroyed while {} task handles still refer to it; join, cancel or drop each `group.spawn` handle before its group ends",
+        panic("TaskGroup: destroyed while {} task handles still refer to it; join or drop each `group.spawn` handle before its group ends",
               n)
     }
 }
@@ -234,19 +239,17 @@ func check_no_outstanding(group: &TaskGroup) {
 //
 // ENTRY POINTS:
 //   Task.__saw_spawn
-//   VoidTask.__saw_spawn
 func handle_minted(group: UnsafePointer<TaskGroup>) unsafe {
     var g = group
     g[0].outstanding += 1
 }
 
-// A `group.spawn` handle to the group at `group` had its fate written. The
-// caller's `consumed` flag makes this run once per handle, so a joined handle
-// that is dropped later counts down nothing more.
+// A `group.spawn` handle to the group at `group` let go of its task's result.
+// The caller's `released` flag makes this run once per handle, so a joined
+// handle that is dropped later counts down nothing more.
 //
 // ENTRY POINTS:
-//   Task.consume
-//   VoidTask.consume
+//   Task.let_go
 func handle_released(group: UnsafePointer<TaskGroup>) unsafe {
     var g = group
     g[0].outstanding -= 1
@@ -316,7 +319,7 @@ func new_cell(descriptor: UnsafePointer<FrameDescriptor>) unsafe -> UnsafePointe
     let result = (raw as Int + header) as UnsafePointer<UInt8>
     let context = TaskContext(park: 0 as UnsafePointer<Int>, cancel: 0 as UnsafePointer<Bool>,
                               task: raw as Int, deadline: 0)
-    cell[0] = TaskCell(context: context, park: PARK_READY, cancel: false, detached: false,
+    cell[0] = TaskCell(context: context, park: PARK_READY, cancel: false, unclaimed: false,
                        holding: false, descriptor: descriptor, result: result, bytes: bytes,
                        align: align)
     let park = (&cell[0].park) as UnsafePointer<Int>
@@ -441,29 +444,29 @@ func recycle(group: &var TaskGroup, slot: Int) unsafe {
 }
 
 // The root of `slot` returned `Ready`. Its result moves into the cell and the
-// frame's storage is released, the one place a frame is, and a slot left with
-// nothing to hold is recycled. A frame has no drop glue, so only a frame whose
-// own code reached its end holds nothing that still needs destroying
-// (SL:coroutines §3.1).
+// frame's storage is released, the one place a frame is. The cell holds the
+// result while a handle may still join it, whatever its size, `Void` included,
+// so "holds a result" never depends on the result's bytes. A task no handle
+// claims drops its result here and gives up its slot, which keeps a group's
+// slots bounded by its live tasks and the finished ones a live handle still
+// claims. A frame has no drop glue, so only a frame whose own code reached its end
+// holds nothing that still needs destroying (SL:coroutines §3.1).
 func complete(group: &var TaskGroup, slot: Int) unsafe {
     let s = group.slots[slot]
     let cell = group.cell_at(slot)
     let descriptor = cell[0].descriptor
     if let frame = s.frame {
         if s.owned {
-            let size = descriptor[0].result_size
-            if size > 0 {
-                let from = (frame as Int + descriptor[0].result_offset) as UnsafePointer<Int8>
-                copy_bytes(from, cell[0].result as UnsafePointer<Int8>, size)
-                cell[0].holding = true
-            }
+            let from = (frame as Int + descriptor[0].result_offset) as UnsafePointer<Int8>
+            copy_bytes(from, cell[0].result as UnsafePointer<Int8>, descriptor[0].result_size)
+            cell[0].holding = true
             GlobalAllocator().dealloc(frame as UnsafePointer<Int8>, descriptor[0].size,
                                       descriptor[0].align)
         }
     }
     group.slots[slot].frame = None
     group.slots[slot].done = true
-    if cell[0].detached {
+    if cell[0].unclaimed {
         drop_held_result(cell)
     }
     if not cell[0].holding {
@@ -471,14 +474,20 @@ func complete(group: &var TaskGroup, slot: Int) unsafe {
     }
 }
 
-// Marks `slot` detached; a task that has finished already drops the result it
-// was holding for a join and gives up its slot.
-func detach_slot(group: &var TaskGroup, slot: Int, generation: Int) unsafe {
+// The handle to `slot` lets go of the task's result without taking it. A task
+// that has finished drops its result and gives up its slot now; a live one is
+// marked, and `complete` does both when it finishes. A stale handle's slot has
+// moved on, and nothing is done.
+//
+// ENTRY POINTS:
+//   Task.detach
+//   Task.deinit
+func unclaim_slot(group: &var TaskGroup, slot: Int, generation: Int) unsafe {
     if group.stale(slot, generation) {
         return
     }
     let cell = group.cell_at(slot)
-    cell[0].detached = true
+    cell[0].unclaimed = true
     if group.slots[slot].done {
         recycle(&var group, slot)
     }
@@ -501,7 +510,6 @@ func cancel_every_live(group: &var TaskGroup) unsafe {
 //
 // ENTRY POINTS:
 //   Task.cancel
-//   VoidTask.cancel
 //   cancel_every_live
 func request_cancel(cell: UnsafePointer<TaskCell>) unsafe {
     cell[0].cancel = true
@@ -1232,12 +1240,15 @@ func drive_frame(descriptor: UnsafePointer<FrameDescriptor>, frame: UnsafePointe
     steps
 }
 
-/// A handle to a spawned task that returns a value.
+/// A handle to a spawned task, carrying its result type `T`.
 ///
-/// `join` waits for the task and takes its result. A handle from `Task.spawn`
-/// must be joined, detached or cancelled before it is dropped; a handle from
-/// `group.spawn` may be dropped, and the result is released with the group.
-/// A group destroyed while one of its handles is still outstanding panics.
+/// `group.spawn(f())` and `Task.spawn(f())` return one, a `Task<Void>` when
+/// `f` returns nothing. `join` waits for the task and takes its result. A
+/// handle from `Task.spawn` must be joined, detached or cancelled before it is
+/// dropped; a handle from `group.spawn` may be dropped. Dropping a handle
+/// gives its task's result up: the result is dropped when the task finishes,
+/// or at once if it already has. A group destroyed while one of its handles
+/// is neither joined nor dropped panics.
 public struct Task<T> {
     private group: UnsafePointer<TaskGroup>
     private slot: Int
@@ -1246,6 +1257,10 @@ public struct Task<T> {
     // Whether `join`, `detach` or `cancel` has run, which the destructor of a
     // `Task.spawn` handle reads.
     private consumed: UnsafeMutableInterior<Bool>
+    // Whether the handle let go of its task's result: `join` took it, or
+    // `detach` or the drop gave it up. Until then the task's slot keeps the
+    // result for this handle.
+    private released: UnsafeMutableInterior<Bool>
 }
 
 extension Task<T> {
@@ -1266,29 +1281,47 @@ extension Task<T> {
             handle_minted(group)
         }
         Task<T>(group: group, slot: ticket.slot, generation: ticket.generation,
-                provenance: provenance, consumed: UnsafeMutableInterior(false))
+                provenance: provenance, consumed: UnsafeMutableInterior(false),
+                released: UnsafeMutableInterior(false))
     }
 
-    // Writes the handle's fate once: the first of `join`, `cancel`, `detach`
-    // and the drop marks it consumed and gives back a `group.spawn` handle's
-    // count on its group (`handle_released`); every later one does nothing.
+    // Writes the handle's fate: `join`, `cancel` and `detach` each mark it,
+    // and the drop of a `Task.spawn` handle panics without it.
     func consume(&self) unsafe {
-        if self.consumed.ptr()[0] {
-            return
-        }
         self.consumed.ptr()[0] = true
+    }
+
+    // Lets go of the task's result once, giving back a `group.spawn` handle's
+    // count on its group (`handle_released`), and answers whether the handle
+    // had let go already, so only the first of `join`, `detach` and the drop
+    // acts on the slot.
+    //
+    // ENTRY POINTS:
+    //   Task.join
+    //   Task.detach
+    //   Task.deinit
+    func let_go(&self) unsafe -> Bool {
+        if self.released.ptr()[0] {
+            return true
+        }
+        self.released.ptr()[0] = true
         if self.provenance == TaskProvenance.Group {
             handle_released(self.group)
         }
+        false
     }
 
     /// Waits for the task to finish and returns its result, moving it out of
     /// the task.
     ///
     /// The scheduler runs on this thread meanwhile, so other tasks advance.
-    /// Panics on a second join, or after `detach`, since the result is gone.
+    /// A task yields its result once, so joining a second time, or after
+    /// `detach`, panics, a `Task<Void>` included.
     public func join(&self) unsafe -> T {
         self.consume()
+        if self.let_go() {
+            panic("Task.join: this task's result was already joined")
+        }
         var g = self.group
         if g[0].stale(self.slot, self.generation) {
             panic("Task.join: this task's result was already joined")
@@ -1313,7 +1346,8 @@ extension Task<T> {
     ///
     /// Cancellation is cooperative: the task observes it through `cancelled()`
     /// and returns through its own code. A task parked in `sleep` or any other
-    /// wait is woken to do so. Cancelling a finished task does nothing.
+    /// wait is woken to do so. Cancelling a finished task does nothing, and
+    /// its result stays for a `join`.
     public func cancel(&self) unsafe {
         self.consume()
         let g = self.group
@@ -1332,112 +1366,30 @@ extension Task<T> {
             panic("Task.detach: this handle came from `group.spawn`, and a group task's fate is its group's scope — drop the handle instead, or use `Task.spawn` for a detachable task")
         }
         self.consume()
+        if self.let_go() {
+            return
+        }
         var g = self.group
-        // Stage 0 workaround (SL:hazards S15): canonical: self.group[0].detach_slot(self.slot, self.generation)
-        detach_slot(&var g[0], self.slot, self.generation)
+        // Stage 0 workaround (SL:hazards S15): canonical: self.group[0].unclaim_slot(self.slot, self.generation)
+        unclaim_slot(&var g[0], self.slot, self.generation)
     }
 }
 
 extension Task<T>: NoCopy {
     /// Panics if a `Task.spawn` handle was neither joined, detached nor
     /// cancelled. A `group.spawn` handle drops silently.
+    ///
+    /// A handle that has not let go of its task's result gives it up here:
+    /// the result is dropped now if the task has finished, or when it does.
     public func deinit(&var self) unsafe {
         if self.provenance == TaskProvenance.Singleton && not self.consumed.ptr()[0] {
             panic("Task was dropped without being joined, detached or cancelled — `join()` waits for it and takes its result, `detach()` hands it to the process, `cancel()` asks it to stop")
         }
-        self.consume()
-    }
-}
-
-/// A handle to a spawned task that returns `Void`.
-///
-/// `join` waits for the task to finish. Cancellation and dropping behave as
-/// they do for `Task<T>`.
-public struct VoidTask {
-    private group: UnsafePointer<TaskGroup>
-    private slot: Int
-    private generation: Int
-    private provenance: TaskProvenance
-    private consumed: UnsafeMutableInterior<Bool>
-}
-
-extension VoidTask {
-    // The compiler's spawn lowering for a `Void` root; see `Task.__saw_spawn`.
-    public static func __saw_spawn(group: UnsafePointer<TaskGroup>,
-                                   descriptor: UnsafePointer<FrameDescriptor>,
-                                   frame: UnsafePointer<UInt8>,
-                                   provenance: TaskProvenance) unsafe -> VoidTask {
-        if descriptor[0].result_size != 0 {
-            panic("Task.spawn: the frame's result is {} bytes, and a Void task has none",
-                  descriptor[0].result_size)
-        }
-        var g = group
-        // Stage 0 workaround (SL:hazards S15): canonical: group[0].enqueue(descriptor, frame, true)
-        let ticket = enqueue(&var g[0], descriptor, frame, true)
-        if provenance == TaskProvenance.Group {
-            handle_minted(group)
-        }
-        VoidTask(group: group, slot: ticket.slot, generation: ticket.generation,
-                 provenance: provenance, consumed: UnsafeMutableInterior(false))
-    }
-
-    // Writes the handle's fate once, as `Task.consume` does.
-    func consume(&self) unsafe {
-        if self.consumed.ptr()[0] {
+        if self.let_go() {
             return
         }
-        self.consumed.ptr()[0] = true
-        if self.provenance == TaskProvenance.Group {
-            handle_released(self.group)
-        }
-    }
-
-    /// Waits until the task is done. Joining one that has already finished
-    /// returns at once.
-    public func join(&self) unsafe {
-        self.consume()
-        let g = self.group
-        if g[0].stale(self.slot, self.generation) {
-            return
-        }
-        exec_run(g as Int, self.slot, self.generation)
-        if not g[0].stale(self.slot, self.generation) && not g[0].is_done(self.slot) {
-            panic("VoidTask.join: the task cannot finish while this join waits for it")
-        }
-    }
-
-    /// Asks the task to stop, cooperatively, as `Task.cancel` does.
-    /// Cancelling a finished task does nothing.
-    public func cancel(&self) unsafe {
-        self.consume()
-        let g = self.group
-        if g[0].stale(self.slot, self.generation) {
-            return
-        }
-        request_cancel(g[0].cell_at(self.slot))
-    }
-
-    /// Hands the task to the process. The task keeps running.
-    ///
-    /// Panics on a `group.spawn` handle, as `Task.detach` does.
-    public func detach(&self) unsafe {
-        if self.provenance == TaskProvenance.Group {
-            panic("VoidTask.detach: this handle came from `group.spawn`, and a group task's fate is its group's scope — drop the handle instead, or use `Task.spawn` for a detachable task")
-        }
-        self.consume()
         var g = self.group
-        // Stage 0 workaround (SL:hazards S15): canonical: self.group[0].detach_slot(self.slot, self.generation)
-        detach_slot(&var g[0], self.slot, self.generation)
-    }
-}
-
-extension VoidTask: NoCopy {
-    /// Panics if a `Task.spawn` handle was neither joined, detached nor
-    /// cancelled, as `Task.deinit` does. A `group.spawn` handle drops silently.
-    public func deinit(&var self) unsafe {
-        if self.provenance == TaskProvenance.Singleton && not self.consumed.ptr()[0] {
-            panic("VoidTask was dropped without being joined, detached or cancelled — `join()` waits for it, `detach()` hands it to the process, `cancel()` asks it to stop")
-        }
-        self.consume()
+        // Stage 0 workaround (SL:hazards S15): canonical: self.group[0].unclaim_slot(self.slot, self.generation)
+        unclaim_slot(&var g[0], self.slot, self.generation)
     }
 }

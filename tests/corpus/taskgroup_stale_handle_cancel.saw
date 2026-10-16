@@ -6,14 +6,12 @@
 // asked to stop, dying for a request aimed at a task that finished long ago.
 //
 // The generation makes it a no-op instead. `b` runs to completion and reports 2;
-// a cancelled run would report -2. Joining an already-finished VOID task is the
-// same question with a benign answer, so it returns rather than panicking.
-// EXPECT: success
-// EXPECT-OUTPUT:
-// 1
-// 2
-// void joined twice
-// 0
+// a cancelled run would report -2. A VOID task yields its result once, as any
+// task does: its join frees the slot, a late cancel is a no-op, and a second
+// join panics, since there is no result left to take.
+// EXPECT: panic
+// EXPECT-PANIC-CONTAINS: Task.join: this task's result was already joined
+// EXPECT-OUTPUT-CONTAINS: void joined once, and the group holds 0
 
 import std.task.*
 
@@ -46,13 +44,11 @@ func main() {
     a.cancel()                     // stale: must not touch `b`
     print(b.join())                // 2, not -2
 
-    // A Void task's slot is reclaimed at completion, so its handle goes stale on
-    // its own. Both a second join and a late cancel are defined no-ops.
+    // The join frees the Void task's slot, so its handle goes stale: a late
+    // cancel is a defined no-op, and a second join panics.
     let v = group.spawn(tick())
     v.join()
-    v.join()
     v.cancel()
-    print("void joined twice")
-
-    print(group.count())       // 0 — every slot back on the free list
+    print("void joined once, and the group holds {}", group.count())
+    v.join()
 }

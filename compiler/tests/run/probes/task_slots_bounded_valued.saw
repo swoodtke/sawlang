@@ -1,0 +1,52 @@
+// probe: stated
+// about: an accept loop whose tasks return an owning value keeps its group's slots bounded (SL-769)
+// stage 0: keeps every dropped handle's result, and its slot, until the group's teardown
+// speeds: -O0 -O2
+// The loop spawns a handler per turn and keeps no handle, as an accept loop
+// does. Each handler's result is dropped where the handler finishes, so the
+// group holds only the handlers still running, whatever they return.
+// prints: peak 1
+// prints: dropped before the teardown 999
+// prints: dropped 1000
+import std.task.{yield_now}
+
+static DROPPED: Atomic<Int> = Atomic(0)
+
+struct Reply {
+    bytes: Vector<Int>
+}
+
+extension Reply: NoCopy {
+    func deinit(&var self) {
+        DROPPED.fetch_add(1)
+    }
+}
+
+func handle(n: Int) -> Reply {
+    yield_now()
+    var bytes = Vector<Int>()
+    try! bytes.push(n)
+    Reply(bytes: move bytes)
+}
+
+func serve() {
+    var group = TaskGroup()
+    var peak = 0
+    var i = 0
+    while i < 1000 {
+        group.spawn(handle(i))
+        yield_now()
+        let held = group.count()
+        if held > peak {
+            peak = held
+        }
+        i = i + 1
+    }
+    print("peak {}", peak)
+    print("dropped before the teardown {}", DROPPED.load())
+}
+
+func main() {
+    serve()
+    print("dropped {}", DROPPED.load())
+}

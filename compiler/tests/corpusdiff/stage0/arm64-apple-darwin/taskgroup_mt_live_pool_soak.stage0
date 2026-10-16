@@ -2,10 +2,12 @@ program	taskgroup_mt_live_pool_soak.saw
 triple	arm64-apple-darwin
 twin	same
 expect	success
-build	ok
-exit	0
-stdout	"produced 15150"
-stdout	"consumed 15150"
-stdout	"main streamed 15150"
-stdout	""
-meets_expect	yes
+build	refused	argument `value` expects `Task<Void>` but got `VoidTask`
+meets_expect	no: Stage 0 does not build it
+log	"error: argument `value` expects `Task<Void>` but got `VoidTask`"
+log	"  --> examples/taskgroup_mt_live_pool_soak.saw:94:33"
+log	"     |"
+log	" 94 |         try! producers.push(pool.spawn(produce(work.copy())))"
+log	"     |                                 ^"
+log	""
+log	"1 error(s) generated"

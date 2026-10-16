@@ -41,7 +41,7 @@ func run() unsafe {
     let frame = __saw_exec_task_box(d)
     let s = frame as UnsafePointer<Sleeper>
     s[0] = Sleeper(state: 0, deadline: 0)
-    let task = VoidTask.__saw_spawn(__saw_exec_background(), d, frame, TaskProvenance.Singleton)
+    let task = Task<Void>.__saw_spawn(__saw_exec_background(), d, frame, TaskProvenance.Singleton)
     task.join()
     print("joined")
 }

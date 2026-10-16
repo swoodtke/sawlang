@@ -11,8 +11,9 @@
 //     inside the task dies exactly once, in the joiner's scope;
 //   * a refcounted result crosses with its count intact — no laundered retain,
 //     no dropped one;
-//   * an UNJOINED result still dies exactly once, at group teardown, because
-//     the cell is what owns it until somebody takes it;
+//   * an UNJOINED result still dies exactly once: at its task's completion
+//     when the handle is already gone, or at the handle's drop if the task
+//     finished first, never at group teardown (SL-769);
 //   * the cancel word is read through the same handle, so a task cancelled
 //     before it runs observes it at its first check.
 //
@@ -29,8 +30,8 @@
 // live 1
 // deinit a1
 // live 0
-// unjoined live 1
 // deinit r2
+// unjoined live 0
 // live 0
 // cancelled 101
 // void task cancelled
@@ -82,8 +83,8 @@ func arc_result() {
     print("live {LIVE.load()}")
 }
 
-// Nobody joins: the cell still owns the payload, and the group's teardown is
-// what releases it — once.
+// Nobody joins: the handle is dropped at once, so the task releases its
+// payload when it completes, once, long before the group's teardown.
 func unjoined_result() {
     var group = TaskGroup()
     let _ = group.spawn(make_one("r2"))
@@ -110,8 +111,8 @@ func cancel_word(base: Int) -> Int {
     return base
 }
 
-// The Void twin rides `__VoidCell`, which has no result slot at all — only the
-// cancel word, reached the same way.
+// The Void twin is a `Task<Void>`: its cell keeps a zero-sized result beside
+// the same cancel word, reached the same way.
 func cancel_word_void() {
     var i = 0
     while i < 1000000 {

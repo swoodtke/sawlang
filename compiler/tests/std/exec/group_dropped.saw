@@ -1,10 +1,10 @@
 // A handle whose provenance is a group drops silently, unconsumed, even when
 // it escapes into a struct field: the provenance word decides, not the type,
-// so the singleton twin of this program (`singleton_dropped`) panics. The
-// group's own teardown, here the background group's close, releases the
-// result nobody took.
+// so the singleton twin of this program (`singleton_dropped`) panics. A
+// dropped handle gives its task's result up, so the task releases it when it
+// finishes, here during the background group's close.
 
-import std.taskgroup.{FrameDescriptor, Poll, TaskContext, TaskProvenance, VoidTask}
+import std.taskgroup.{FrameDescriptor, Poll, TaskContext, TaskProvenance}
 import std.taskgroup.{__saw_exec_background, __saw_exec_close_background, __saw_exec_task_box}
 
 struct Answer {
@@ -13,7 +13,7 @@ struct Answer {
 
 struct Holder {
     task: Task<Int>
-    other: VoidTask
+    other: Task<Void>
 }
 
 extension Holder: NoCopy {}
@@ -41,7 +41,7 @@ func hold(d: UnsafePointer<FrameDescriptor>, v: UnsafePointer<FrameDescriptor>) 
     let vframe = __saw_exec_task_box(v)
     let vf = vframe as UnsafePointer<Answer>
     vf[0] = Answer(result: 0)
-    let other = VoidTask.__saw_spawn(__saw_exec_background(), v, vframe, TaskProvenance.Group)
+    let other = Task<Void>.__saw_spawn(__saw_exec_background(), v, vframe, TaskProvenance.Group)
     let holder = Holder(task: move task, other: move other)
     print("holding")
 }

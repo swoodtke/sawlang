@@ -1,5 +1,5 @@
 // `Task.spawn` typed under Stage 0's root: `Task<Int>` for an `Int` root,
-// `VoidTask` for a `Void` one. The root is the task's call, so a spawner
+// `Task<Void>` for a `Void` one. The root is the task's call, so a spawner
 // that never suspends itself stays sync-callable, and a reference a call
 // nested in the root's arguments makes ends at the spawn.
 import std.task.*

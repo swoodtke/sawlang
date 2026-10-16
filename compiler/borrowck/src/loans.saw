@@ -1175,16 +1175,15 @@ extension BorrowckProgram {
         false
     }
 
-    // The local call `call` joins when it is `join` of a cooperative task
-    // handle, `Task.join` or `VoidTask.join`, whose receiver is a `ref` of a
-    // whole local; -1 otherwise.
+    // The local call `call` joins when it is `Task.join`, whose receiver is
+    // a `ref` of a whole local; -1 otherwise.
     func joined_handle(&self, call: Int, facts: &BorrowckLoans) -> Int {
         let c = self.mir.calls[call]
         if c.kind != MirCallKind.Function || c.target < 0 || c.owner < 0 || c.arg_count < 1 {
             return -1
         }
         let d = self.mir.tc.nominal_decl(c.owner)
-        if d < 0 || (d != self.mir.tc.known.task && d != self.mir.tc.known.void_task) {
+        if d < 0 || d != self.mir.tc.known.task {
             return -1
         }
         let name = self.mir.tc.res.decls[c.target].name

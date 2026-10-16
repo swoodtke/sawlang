@@ -71,10 +71,9 @@ public struct TcKnown {
     arc: Int
     // The group `group.spawn` spawns into.
     task_group: Int
-    // The handles a cooperative spawn form hands back, found in the module
-    // that declares `TaskGroup`; -1 under a std root that declares neither.
+    // The handle a cooperative spawn form hands back, found in the module
+    // that declares `TaskGroup`; -1 under a std root that declares none.
     task: Int
-    void_task: Int
     // The OS-thread handle `Thread.spawn` hands back inside its `Result`, and
     // that `Result`'s error, found by module; -1 under a std root that
     // declares neither (Stage 0's has no `SystemError`).
@@ -379,7 +378,7 @@ public func tc_program(res: ResProgram) -> TcProgram {
                         deserialize: -1, int: -1, uint: -1, int8: -1, int16: -1, int32: -1,
                         int64: -1, uint8: -1, uint16: -1, uint32: -1, uint64: -1, float: -1,
                         bool_type: -1, range: -1, range_inclusive: -1, iterator: -1, box: -1,
-                        vector: -1, map: -1, set: -1, arc: -1, task_group: -1, task: -1, void_task: -1,
+                        vector: -1, map: -1, set: -1, arc: -1, task_group: -1, task: -1,
                         thread: -1, system_error: -1, func_pointer: -1,
                         ordering: -1, hasher: -1, panic_sink: -1, zero_init: -1)
     var p = TcProgram(res: move res, types: tc_types(), sigs: move sigs,

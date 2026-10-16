@@ -1,0 +1,24 @@
+// probe: panics
+// about: a second join of a `Task<Void>` panics, as a valued task's does (SL-769)
+// stage 0: its `VoidTask.join` returns on a second join
+// speeds: -O0 -O2
+// A task yields its result once, and a `Void` result is no exception: the
+// first join takes it and gives up the task's slot, so the second finds
+// nothing to take.
+// prints: tick
+// prints: joined once
+// panics: Task.join: this task's result was already joined
+import std.task.{yield_now}
+
+func tick() {
+    yield_now()
+    print("tick")
+}
+
+func main() {
+    let t = Task.spawn(tick())
+    t.join()
+    print("joined once")
+    t.join()
+    print("unreached")
+}

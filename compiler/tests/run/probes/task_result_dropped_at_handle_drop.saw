@@ -1,0 +1,39 @@
+// probe: stated
+// about: a finished task's result is dropped, and its slot freed, where its handle is dropped (SL-769)
+// stage 0: keeps the result until the group's teardown and drops it there
+// speeds: -O0 -O2
+// A finished task keeps its result for its live handle, and the slot with
+// it; dropping the handle gives both up at once, before the group ends.
+// prints: made 1
+// prints: the task finished, and the group holds 1
+// prints: drop token 1
+// prints: the handle dropped, and the group holds 0
+// prints: done
+import std.task.{yield_now}
+
+struct Token {
+    id: Int
+}
+
+extension Token: NoCopy {
+    func deinit(&var self) {
+        print("drop token {}", self.id)
+    }
+}
+
+func make(id: Int) -> Token {
+    yield_now()
+    print("made {}", id)
+    Token(id: id)
+}
+
+func main() {
+    var group = TaskGroup()
+    let h = group.spawn(make(1))
+    yield_now()
+    yield_now()
+    print("the task finished, and the group holds {}", group.count())
+    let _ = move h
+    print("the handle dropped, and the group holds {}", group.count())
+    print("done")
+}

@@ -1,0 +1,91 @@
+// probe: stated
+// about: a `Task<Void>` held in a field and in a `Vector` is joined, detached and cancelled (SL-769)
+// stage 0: cannot parse a `borrow` call, and types a `Void` spawn as its own `VoidTask`
+// speeds: -O0 -O2
+// Each holder declares a `deinit`, so moving a handle into it writes the
+// handle's static obligation, and each handle's fate is then written through
+// the holder. The fields start out holding group handles, which drop freely
+// when the background handles replace them.
+// prints: tick 1
+// prints: fields dropped
+// prints: tick 2
+// prints: spin 3 cancelled
+// prints: tick 0
+// prints: tick 0
+// prints: tick 0
+// prints: tick 5
+// prints: tick 4
+// prints: keeper dropped
+// prints: spin 6 cancelled
+// prints: done
+import std.task.{yield_now}
+
+func tick(n: Int) {
+    yield_now()
+    print("tick {}", n)
+}
+
+func spin(n: Int) {
+    while true {
+        if cancelled() {
+            print("spin {} cancelled", n)
+            return
+        }
+        yield_now()
+    }
+}
+
+struct Fields {
+    joined: Task<Void>
+    detached: Task<Void>
+    cancelled: Task<Void>
+}
+
+extension Fields: NoCopy {
+    func deinit(&var self) {
+        print("fields dropped")
+    }
+}
+
+struct Keeper {
+    held: Vector<Task<Void>>
+}
+
+extension Keeper: NoCopy {
+    func deinit(&var self) {
+        print("keeper dropped")
+    }
+}
+
+func in_fields() {
+    var group = TaskGroup()
+    var f = Fields(joined: group.spawn(tick(0)), detached: group.spawn(tick(0)),
+                   cancelled: group.spawn(tick(0)))
+    f.joined = Task.spawn(tick(1))
+    f.detached = Task.spawn(tick(2))
+    f.cancelled = Task.spawn(spin(3))
+    f.joined.join()
+    f.detached.detach()
+    f.cancelled.cancel()
+}
+
+func in_vector() {
+    var keeper = Keeper(held: Vector<Task<Void>>())
+    let a = Task.spawn(tick(4))
+    let b = Task.spawn(tick(5))
+    let c = Task.spawn(spin(6))
+    try! keeper.held.push(move a)
+    try! keeper.held.push(move b)
+    try! keeper.held.push(move c)
+    borrow keeper.held[0].join()
+    borrow keeper.held[1].detach()
+    borrow keeper.held[2].cancel()
+}
+
+func main() {
+    in_fields()
+    in_vector()
+    yield_now()
+    yield_now()
+    print("done")
+}

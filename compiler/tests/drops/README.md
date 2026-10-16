@@ -163,9 +163,9 @@ handle's VALUE rather than a binding's name, forward over the borrow-checked
 MIR to a fixpoint, before elaboration rewrites it. Per local it holds the
 site whose handle the local may hold, on some path, with no fate written:
 
-- a call of `join`, `detach` or `cancel` of `Task` or `VoidTask`, or of
-  `join` or `detach` of `Thread`, whose receiver borrows the local whole (or
-  a `Result` local's `Ok` payload) writes the fate;
+- a call of `join`, `detach` or `cancel` of `Task`, or of `join` or
+  `detach` of `Thread`, whose receiver borrows the local whole (or a
+  `Result` local's `Ok` payload) writes the fate;
 - a move into another local carries the handle, whole or as a part of what
   the assignment builds: a struct, a case, a tuple, a closure's environment;
 - a move into storage whose owner declares a hand-written `deinit` (an

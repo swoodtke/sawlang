@@ -170,10 +170,10 @@ fn fates.cancelled_then_moved() -> Void {
 fn fates.both_arms(c: Bool) -> Void {
     let _0: Void;  // return
     let _1: Bool;  // param c
-    let _2: std.taskgroup.VoidTask;  // t
-    let _3: std.taskgroup.VoidTask;
-    let _4: &std.taskgroup.VoidTask;
-    let _5: &std.taskgroup.VoidTask;
+    let _2: std.taskgroup.Task<Void>;  // t
+    let _3: std.taskgroup.Task<Void>;
+    let _4: &std.taskgroup.Task<Void>;
+    let _5: &std.taskgroup.Task<Void>;
 
     bb0: {
         _3 = spawn singleton fates.nap() [] -> [return: bb1];
@@ -191,12 +191,12 @@ fn fates.both_arms(c: Bool) -> Void {
 
     bb3: {
         _4 = ref(shared, _2);
-        call std.taskgroup.VoidTask.join() (owner std.taskgroup.VoidTask) [move _4] -> [return: bb5];
+        call std.taskgroup.Task.join() (owner std.taskgroup.Task<Void>) [move _4] -> [return: bb5];
     }
 
     bb4: {
         _5 = ref(shared, _2);
-        call std.taskgroup.VoidTask.detach() (owner std.taskgroup.VoidTask) [move _5] -> [return: bb6];
+        call std.taskgroup.Task.detach() (owner std.taskgroup.Task<Void>) [move _5] -> [return: bb6];
     }
 
     bb5: {
@@ -207,7 +207,7 @@ fn fates.both_arms(c: Bool) -> Void {
         goto -> bb2;
     }
 
-    glue std.taskgroup.VoidTask: deinit std.taskgroup.VoidTask.deinit() in the NoCopy conformance, then structural
+    glue std.taskgroup.Task<Void>: deinit std.taskgroup.Task.deinit() in the NoCopy conformance, then structural
 }
 
 fn fates.chained() -> Void {

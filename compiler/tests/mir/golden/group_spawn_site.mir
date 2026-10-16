@@ -36,7 +36,7 @@ fn group_spawn_site.into(group: &std.taskgroup.TaskGroup) -> Void {
     let _0: Void;  // return
     let _1: &std.taskgroup.TaskGroup;  // param group
     let _2: &std.taskgroup.TaskGroup;
-    let _3: std.taskgroup.VoidTask;
+    let _3: std.taskgroup.Task<Void>;
 
     bb0: {
         _2 = ref(shared, (*_1));
@@ -60,7 +60,7 @@ fn group_spawn_site.main() -> Void {
     let _7: &std.taskgroup.Task<Int>;
     let _8: Int;
     let _9: &std.taskgroup.TaskGroup;
-    let _10: std.taskgroup.VoidTask;
+    let _10: std.taskgroup.Task<Void>;
     let _11: group_spawn_site.Holder;  // holder
     let _12: std.taskgroup.TaskGroup;
     let _13: group_spawn_site.Holder;

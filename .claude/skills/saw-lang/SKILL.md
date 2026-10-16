@@ -2379,7 +2379,8 @@ dump_tasks()                // every live task's logical backtrace (std.task)
   let h = group.spawn(crunch(n))       // Task<Int>;   join() drives the group
   let b = Task.spawn(crunch(n))        // Task<Int>;   same engine, no group
   ```
-  A `Void` body gives `Thread<Void>` / `VoidTask` respectively.
+  A `Void` body gives `Thread<Void>` / `Task<Void>` respectively: one handle
+  type per engine, at every `T`.
   **REACH FOR THEM IN THIS ORDER**: `TaskGroup` by default (structured, one
   thread, deterministic interleaving, and the scope says where the tasks end);
   `Task.spawn` when a task genuinely OUTLIVES the frame that started it and no
@@ -2455,11 +2456,12 @@ dump_tasks()                // every live task's logical backtrace (std.task)
   `&var group` while a handle is live. Join or cancel inside the group's
   scope; a `Vector<Task<T>>` of handles is declared AFTER its group. A handle
   minted through a borrow window (`borrow var p = boxed.value() { … }`) is not
-  traced statically: if it is still outstanding when its group dies, the
-  group's teardown PANICS ("TaskGroup: destroyed while 1 task handle still
-  refers to it"). Consume it before the box is replaced, moved or dropped.
+  traced statically: if it is still outstanding (neither joined nor dropped; a
+  CANCELLED handle still counts) when its group dies, the group's teardown
+  PANICS ("TaskGroup: destroyed while 1 task handle still refers to it"). Join
+  or drop it before the box is replaced, moved or dropped.
 - **`Task.spawn(work(n))` IS THE COOPERATIVE ENGINE WITHOUT A GROUP (design 242
-  ruling 3).** Same scheduler, same `Task<T>`/`VoidTask`, no declaration:
+  ruling 3).** Same scheduler, same `Task<T>`, no declaration:
   ```saw-fragment
   let squared = Task.spawn(square(6))
   print(squared.join())
@@ -2836,16 +2838,18 @@ dump_tasks()                // every live task's logical backtrace (std.task)
   DRIVEN twin was right too, so this is the sync half catching up.
   **The SLOT goes too (design 134):**
   the frame allocation is released at completion and its run-queue slot returns to
-  a free list, so a group costs O(live + unjoined-result tasks) rather than
-  O(tasks ever spawned) — an accept loop that serves 200k connections holds as
-  many slots as it has connections IN FLIGHT (`group.count()` reports them). The
-  result and the cancel word live in a group-owned cell that outlives the frame,
-  which is what lets the frame go; a `Void` task's slot is reclaimed at
-  completion, a task with a result keeps its slot until `join` takes the value.
-  Handles are `(slot, generation)` pairs, so a handle to a task that has come and
-  gone can never reach whatever occupies its slot next: joining an already-joined
-  `Task` panics, joining a finished `VoidTask` returns, and `cancel`
-  is a no-op on both. **A DYNAMIC number of tasks works through a
+  a free list, so a group costs O(live tasks + finished tasks whose handle is
+  still live) rather than O(tasks ever spawned) — an accept loop that serves 200k
+  connections holds as many slots as it has connections IN FLIGHT
+  (`group.count()` reports them), whatever its tasks return. The result and the
+  cancel word live in a group-owned cell that outlives the frame, which is what
+  lets the frame go. ONE RULE FOR EVERY `T`, `Void` included: a finished task
+  keeps its result and slot while its handle lives; `join` takes the result and
+  frees the slot; DROPPING the handle drops the result (at the drop if the task
+  has finished, else when it completes) and frees the slot. Handles are
+  `(slot, generation)` pairs, so a handle to a task that has come and gone can
+  never reach whatever occupies its slot next: a second `join` PANICS on every
+  `Task<T>`, `Task<Void>` included, and `cancel` is a no-op. **A DYNAMIC number of tasks works through a
   `Vector<Task<T>>`** (probe-verified Aug 10 — a dogfood reader
   feared the NoCopy handle wouldn't compose with the vector; it does):
   ```saw-fragment
@@ -3545,7 +3549,7 @@ public import wire.{Header}  // RE-EXPORT: `Header` joins THIS module's surface
   `Serialize`/`Deserialize` + `Encoder`/`Decoder`/`EncodeError`/`DecodeError`
   (std.serde — design 169),
   `print`/`panic`/`assert`/`sizeof`/`alignof`/`static_assert`, `TaskGroup`/
-  `Task<T>`/`VoidTask`/`sleep`/`cancelled` (`Thread.spawn`/`Task.spawn` are
+  `Task<T>`/`sleep`/`cancelled` (`Thread.spawn`/`Task.spawn` are
   FORMS, not importable names), `StringBuilder`, `Duration` (std.duration —
   design 180; `sleep` takes one, so gating it would gate `sleep`).
   `Atomic<Int>` is prelude-bare too — a `builtin.saw` primitive, not a

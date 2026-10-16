@@ -4,7 +4,7 @@
 // others when the background group closes. `lang/sync_spawn` holds the
 // `Task.spawn` form to the same answer at type checking.
 
-import std.taskgroup.{FrameDescriptor, Poll, TaskContext, TaskProvenance, VoidTask}
+import std.taskgroup.{FrameDescriptor, Poll, TaskContext, TaskProvenance}
 import std.taskgroup.{__saw_exec_background, __saw_exec_close_background, __saw_exec_task_box}
 
 struct Counter {
@@ -31,11 +31,11 @@ func counter_resume(frame: UnsafePointer<UInt8>, cx: UnsafePointer<TaskContext>)
 func drop_nothing(at: UnsafePointer<UInt8>) unsafe sync {
 }
 
-func spawn_counter(d: UnsafePointer<FrameDescriptor>, name: Int) unsafe sync -> VoidTask {
+func spawn_counter(d: UnsafePointer<FrameDescriptor>, name: Int) unsafe sync -> Task<Void> {
     let frame = __saw_exec_task_box(d)
     let f = frame as UnsafePointer<Counter>
     f[0] = Counter(state: 0, name: name)
-    VoidTask.__saw_spawn(__saw_exec_background(), d, frame, TaskProvenance.Singleton)
+    Task<Void>.__saw_spawn(__saw_exec_background(), d, frame, TaskProvenance.Singleton)
 }
 
 func start_joined(d: UnsafePointer<FrameDescriptor>) unsafe sync {

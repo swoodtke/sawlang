@@ -218,7 +218,7 @@ STD_PROFILE_ALIASES = ("Byte",)
 # Std calls the lockdown retires, refused by name whatever the allowlist says.
 RETIRED_STD_METHODS = ("with_ref", "with_var_ref", "with_unique")
 
-SYNC_ONLY_NAMES = ("TaskGroup", "Task", "VoidTask", "Thread", "VoidThread", "Channel",
+SYNC_ONLY_NAMES = ("TaskGroup", "Task", "Thread", "VoidThread", "Channel",
                    "sleep", "cancelled", "yield_now", "dump_tasks", "spawn")
 CELL_NAMES = ("Mutex", "SpinLock", "Once", "UnsafeMutableInterior", "Atomic", "Arc")
 # The frozen parser's raw-pointer spellings. The other unsafe types are the

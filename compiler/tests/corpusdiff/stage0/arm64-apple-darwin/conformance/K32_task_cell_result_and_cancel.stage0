@@ -18,4 +18,4 @@ stdout	"live 0"
 stdout	"cancelled 101"
 stdout	"void task cancelled"
 stdout	""
-meets_expect	yes
+meets_expect	no: output line 9 is 'unjoined live 1', expected 'deinit r2'

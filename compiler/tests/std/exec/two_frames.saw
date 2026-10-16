@@ -5,7 +5,7 @@
 // task sees its cancel word through its context, and a detached task's
 // result is dropped where it finishes.
 
-import std.taskgroup.{FrameDescriptor, Poll, TaskContext, TaskProvenance, VoidTask}
+import std.taskgroup.{FrameDescriptor, Poll, TaskContext, TaskProvenance}
 import std.taskgroup.{__saw_exec_background, __saw_exec_close_background, __saw_exec_task_box}
 
 // A frame that counts to `steps`, yielding after every step but its last.
@@ -134,7 +134,7 @@ func run() unsafe {
     let lframe = __saw_exec_task_box(ld)
     let lf = lframe as UnsafePointer<Looper>
     lf[0] = Looper(turns: 0)
-    let l = VoidTask.__saw_spawn(__saw_exec_background(), ld, lframe, TaskProvenance.Singleton)
+    let l = Task<Void>.__saw_spawn(__saw_exec_background(), ld, lframe, TaskProvenance.Singleton)
     let d = spawn_counter(cd, 5, 2)
     print("joined {}", d.join())
     l.cancel()

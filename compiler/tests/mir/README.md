@@ -162,7 +162,7 @@ call:
   its group first, borrowed after the arguments as a method's receiver is
   (golden `group_spawn_site`). TARGET, the root, is not called here, since
   the task makes that call (golden `spawn_site`). PLACE is the handle,
-  `Task<T>` for a root of type `T` or `VoidTask` for a `Void` one. The site
+  `Task<T>` for a root of type `T`, `Task<Void>` for a `Void` one. The site
   is no suspension point. The verifier checks that a spawn site names a form
   and a free function, returns, passes a group site's `&TaskGroup` and then
   arguments of its root's parameter types, and leaves the handle its form

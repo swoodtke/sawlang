@@ -14,7 +14,7 @@ fn task_root.double(n: Int) -> Int {
 }
 resume #11: task_root.hello(name: String) task root  (frame size 24 align 8, pointer _3)
     state 0: bb0
-    state 1: bb0 drive #36 std.task.yield_now() at (*frame).[16]
+    state 1: bb0 drive #37 std.task.yield_now() at (*frame).[16]
 fn task_root.hello(name: String) -> Void {
     let _0: Void;  // return
     let _1: String;  // param name
@@ -37,7 +37,7 @@ fn task_root.hello(name: String) -> Void {
 }
 resume #14: task_root.twice() task root  (frame size 32 align 8, pointer _1)
     state 0: bb0
-    state 1: bb0 drive #39 task_root.hello(name: String) at (*frame).[8]
+    state 1: bb0 drive #41 task_root.hello(name: String) at (*frame).[8]
 fn task_root.twice() -> Void {
     let _0: Void;  // return
     let _1: &var Int;
@@ -51,7 +51,7 @@ fn task_root.twice() -> Void {
         return;
     }
 }
-resume #36: std.task.yield_now()  (frame size 8 align 8, pointer _1, context _2)
+resume #37: std.task.yield_now()  (frame size 8 align 8, pointer _1, context _2)
     state 0: bb0
     state 1: bb0 park ready
 fn std.task.yield_now() -> Void {
@@ -68,9 +68,9 @@ fn std.task.yield_now() -> Void {
         return;
     }
 }
-resume #39: task_root.hello(name: String)  (frame size 24 align 8, pointer _3)
+resume #41: task_root.hello(name: String)  (frame size 24 align 8, pointer _3)
     state 0: bb0
-    state 1: bb0 drive #36 std.task.yield_now() at (*frame).[16]
+    state 1: bb0 drive #37 std.task.yield_now() at (*frame).[16]
 fn task_root.hello(name: String) -> Void {
     let _0: Void;  // return
     let _1: String;  // param name
@@ -101,12 +101,12 @@ fn task_root.main() -> Void {
     let _2: std.taskgroup.Task<Int>;
     let _3: &std.taskgroup.Task<Int>;
     let _4: Int;
-    let _5: std.taskgroup.VoidTask;  // b
-    let _6: std.taskgroup.VoidTask;
-    let _7: &std.taskgroup.VoidTask;
-    let _8: std.taskgroup.VoidTask;  // c
-    let _9: std.taskgroup.VoidTask;
-    let _10: &std.taskgroup.VoidTask;
+    let _5: std.taskgroup.Task<Void>;  // b
+    let _6: std.taskgroup.Task<Void>;
+    let _7: &std.taskgroup.Task<Void>;
+    let _8: std.taskgroup.Task<Void>;  // c
+    let _9: std.taskgroup.Task<Void>;
+    let _10: &std.taskgroup.Task<Void>;
     let _11: UnsafePointer<std.taskgroup.FrameDescriptor>;
     let _12: UnsafePointer<UInt8>;
     let _13: UnsafePointer<std.taskgroup.TaskGroup>;
@@ -141,7 +141,7 @@ fn task_root.main() -> Void {
     bb4: {
         _5 = move _6;
         _7 = ref(shared, _5);
-        call std.taskgroup.VoidTask.join() (owner std.taskgroup.VoidTask) [move _7] -> [return: bb5];
+        call std.taskgroup.Task.join() (owner std.taskgroup.Task<Void>) [move _7] -> [return: bb5];
     }
 
     bb5: {
@@ -151,7 +151,7 @@ fn task_root.main() -> Void {
     bb6: {
         _8 = move _9;
         _10 = ref(shared, _8);
-        call std.taskgroup.VoidTask.join() (owner std.taskgroup.VoidTask) [move _10] -> [return: bb7];
+        call std.taskgroup.Task.join() (owner std.taskgroup.Task<Void>) [move _10] -> [return: bb7];
     }
 
     bb7: {
@@ -188,7 +188,7 @@ fn task_root.main() -> Void {
     }
 
     bb13: {
-        _6 = call std.taskgroup.VoidTask.__saw_spawn(group: UnsafePointer<std.taskgroup.TaskGroup>, descriptor: UnsafePointer<std.taskgroup.FrameDescriptor>, frame: UnsafePointer<UInt8>, provenance: std.taskgroup.TaskProvenance) (owner std.taskgroup.VoidTask) [copy _17, copy _15, copy _16, move _18] -> [return: bb4];
+        _6 = call std.taskgroup.Task.__saw_spawn(group: UnsafePointer<std.taskgroup.TaskGroup>, descriptor: UnsafePointer<std.taskgroup.FrameDescriptor>, frame: UnsafePointer<UInt8>, provenance: std.taskgroup.TaskProvenance) (owner std.taskgroup.Task<Void>) [copy _17, copy _15, copy _16, move _18] -> [return: bb4];
     }
 
     bb14: {
@@ -202,6 +202,6 @@ fn task_root.main() -> Void {
     }
 
     bb16: {
-        _9 = call std.taskgroup.VoidTask.__saw_spawn(group: UnsafePointer<std.taskgroup.TaskGroup>, descriptor: UnsafePointer<std.taskgroup.FrameDescriptor>, frame: UnsafePointer<UInt8>, provenance: std.taskgroup.TaskProvenance) (owner std.taskgroup.VoidTask) [copy _21, copy _19, copy _20, move _22] -> [return: bb6];
+        _9 = call std.taskgroup.Task.__saw_spawn(group: UnsafePointer<std.taskgroup.TaskGroup>, descriptor: UnsafePointer<std.taskgroup.FrameDescriptor>, frame: UnsafePointer<UInt8>, provenance: std.taskgroup.TaskProvenance) (owner std.taskgroup.Task<Void>) [copy _21, copy _19, copy _20, move _22] -> [return: bb6];
     }
 }

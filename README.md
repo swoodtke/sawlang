@@ -412,6 +412,12 @@ func main() {
 }
 ```
 
+`group.spawn` hands back a `Task<T>`, a `Task<Void>` when the function
+returns nothing. `join()` takes the result once, and a second `join()` panics.
+A group's handle may also be dropped unjoined: the task still runs to its end
+inside the group, and its result is dropped when it finishes, so an accept loop
+that keeps no handles holds only the tasks still running.
+
 A suspending call works in any position: an operand, an argument, a receiver,
 an interpolation, a `return` value. The compiler rewrites the statement into
 evaluation-ordered steps, so left-to-right order and short-circuiting hold as

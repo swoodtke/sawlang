@@ -103,7 +103,7 @@ autowrap_ok_no_premature_free.saw	arm64-apple-darwin	same	78dec355b2fe	success	o
 autowrap_optional_no_premature_free.saw	arm64-apple-darwin	same	d51401d99dc3	success	ok	0	100:7659a1db6f46	0:e3b0c44298fc	-	yes	-
 autowrap_return_move_still_works.saw	arm64-apple-darwin	same	688383272b65	success	ok	0	100:d416f3ff4091	0:e3b0c44298fc	-	yes	-
 backed_enum_extension_param.saw	arm64-apple-darwin	same	1b49b82a9384	success	ok	0	27:fd8f40239af0	0:e3b0c44298fc	-	yes	-
-background_task_spawn.saw	arm64-apple-darwin	same	0e87bc01e1a8	success	ok	0	31:fabd299b24d1	0:e3b0c44298fc	-	yes	-
+background_task_spawn.saw	arm64-apple-darwin	same	21ffc12a2bb5	success	ok	0	31:fabd299b24d1	0:e3b0c44298fc	-	yes	-
 bare_return_in_main.saw	arm64-apple-darwin	same	a5e163575268	success	ok	0	2:4355a46b19d3	0:e3b0c44298fc	-	yes	-
 binop_mixed_width_operands.saw	arm64-apple-darwin	same	9c648a3ea4dc	error	refused	-	-	-	594:99b4a8c06ae5	yes	operator `*` requires both operands to have the same type, but the left is `Int` and the right is `Int16`
 bitwise_and_or_xor.saw	arm64-apple-darwin	same	608c140d24a7	success	ok	0	41:89bda567fbef	0:e3b0c44298fc	-	yes	-
@@ -348,7 +348,7 @@ conformance/K28_slot_payload_released_exactly_once.saw	arm64-apple-darwin	differ
 conformance/K29_copy_policy_hook_must_be_sync.saw	arm64-apple-darwin	same	6d246fc83f64	error	refused	-	-	-	634:47ce284601fd	yes	cannot suspend in the `Copy` `copy()` of `Heavy`: method `Heavy.copy` calls yield_now (`Heavy.copy` suspends at line 20)
 conformance/K30_generic_container_of_pinned_is_pinned.saw	arm64-apple-darwin	same	ea05b34e9749	error	refused	-	-	-	676:be43d191af7b	yes	cannot `move` `w`: `Wrap<TaskGroup>` is `NoMove`, so it lives where its constructor built it and may not be relocated.
 conformance/K31_generic_arc_share_at_non_sync_refused.saw	arm64-apple-darwin	differs	3f8fe42b0bd8	error	refused	-	-	-	896:e9cb063fd424	yes	cannot spawn `bump_many` into a multi-threaded `TaskGroup(threads: ...)`: parameter `a` of type `Arc<Cell>` is not `Send`, so the task frame cannot cross to a worker thread. Share thread-safe state via `Arc` (and `Mutex` for mutation) or a `Channel` instead of moving it in. `Arc` is `Send` only when its payload is `Sync`, and `Cell` is not — that is the bound to satisfy. `Cell` carries an interior cell (design 186), so it derives no `Sync`: field `cell` of type `UnsafeMutableInterior<Int>` is mutable through a shared borrow, which the derivation cannot reason about. If the synchronization is real but invisible to the compiler, say so — `extension Cell: UnsafeSync {}`, beside the type, where it can be audited.
-conformance/K32_task_cell_result_and_cancel.saw	arm64-apple-darwin	same	fc7a5dfd6c45	success	ok	0	137:4ac7ab30197e	0:e3b0c44298fc	-	yes	-
+conformance/K32_task_cell_result_and_cancel.saw	arm64-apple-darwin	same	055334f77807	success	ok	0	137:4ac7ab30197e	0:e3b0c44298fc	-	no: output line 9 is 'unjoined live 1', expected 'deinit r2'	-
 conformance/K33_suspending_enum_method_embedded.saw	arm64-apple-darwin	same	8292af7134f3	success	ok	0	20:8df167ee0867	0:e3b0c44298fc	-	yes	-
 conformance/K34_suspending_generic_struct_method_embedded.saw	arm64-apple-darwin	same	7a24c9f6cb95	success	ok	0	28:b0a2268fa16f	0:e3b0c44298fc	-	yes	-
 conformance/K35_suspending_generic_method_embedded.saw	arm64-apple-darwin	same	8067f61c92f7	success	ok	0	16:1de1ab292d39	0:e3b0c44298fc	-	yes	-
@@ -370,7 +370,7 @@ conformance/K50_mt_group_progresses_while_main_sleeps.saw	arm64-apple-darwin	dif
 conformance/K51_mt_group_progresses_while_main_yields.saw	arm64-apple-darwin	differs	9b8549ebd5ec	success	ok	0	26:b0508e65d836	0:e3b0c44298fc	-	yes	-
 conformance/K52_mt_two_workers_deliver_before_join.saw	arm64-apple-darwin	same	2da74886961b	success	ok	0	12:059e6b1e1ff3	0:e3b0c44298fc	-	yes	-
 conformance/K53_driven_for_range_iteration_count.saw	arm64-apple-darwin	same	ab93620b5c37	success	ok	0	65:51a43b814b5d	0:e3b0c44298fc	-	yes	-
-conformance/K53_mt_group_stays_live_across_spawns.saw	arm64-apple-darwin	differs	719d78f7ac95	success	ok	0	28:09e34df9c1c1	0:e3b0c44298fc	-	yes	-
+conformance/K53_mt_group_stays_live_across_spawns.saw	arm64-apple-darwin	differs	e300babb1adc	success	refused	-	-	-	278:ae92d3c5063e	no: Stage 0 does not build it	argument `value` expects `Task<Void>` but got `VoidTask`
 conformance/K54_mt_task_receives_what_main_sent.saw	arm64-apple-darwin	same	ab4032a454f4	success	ok	0	11:ade4bb46a51e	0:e3b0c44298fc	-	yes	-
 conformance/K55_mt_same_group_send_and_receive.saw	arm64-apple-darwin	same	452ff3862c75	success	ok	0	10:a8ce1dc515c8	0:e3b0c44298fc	-	yes	-
 conformance/K56_thread_engine_feeds_main_receive.saw	arm64-apple-darwin	same	b2b82c58b46e	success	refused	-	-	-	159:2f24aef535df	no: Stage 0 does not build it	Parse error at 20:31: two statements on one line need a `;` between them: the first begins with `var`, the second with `{` — write `;` where they meet
@@ -391,7 +391,7 @@ conformance/K70_driven_scope_end_release_matrix.saw	arm64-apple-darwin	same	1c28
 conformance/K74_send_bound_licenses_a_generic_spawn_capture.saw	arm64-apple-darwin	same	05416c244749	success	refused	-	-	-	618:39a5aafba490	no: Stage 0 does not build it	Parse error at 43:31: two statements on one line need a `;` between them: the first begins with `var`, the second with `{` — write `;` where they meet
 conformance/K78_singleton_spawn_discard_is_refused.saw	arm64-apple-darwin	same	951796d6adc3	error	refused	-	-	-	1192:11c9788dc0d2	no: no error contains 'the result of this expression is `Result<std.task.Thread<Void>, std.systemerror.SystemError>` and is silently discarded'	`Thread.spawn` hands back a `VoidThread` that must be consumed, and this one is discarded
 conformance/K79_unconsumed_thread_handle_is_refused.saw	arm64-apple-darwin	same	5f8409d62203	error	refused	-	-	-	159:37d9faed120c	no: no error contains '`t` holds the `std.task.Thread<Void>` spawned here, which is never consumed'	Parse error at 19:31: two statements on one line need a `;` between them: the first begins with `var`, the second with `{` — write `;` where they meet
-conformance/K80_group_spawn_handle_may_be_dropped.saw	arm64-apple-darwin	same	070ede623158	success	ok	0	10:8ba0eea36ad6	0:e3b0c44298fc	-	yes	-
+conformance/K80_group_spawn_handle_may_be_dropped.saw	arm64-apple-darwin	same	6e88b1a51906	success	ok	0	10:8ba0eea36ad6	0:e3b0c44298fc	-	yes	-
 conformance/K81_storage_owner_discharges_the_obligation.saw	arm64-apple-darwin	same	85d9d3dc719d	success	refused	-	-	-	431:10f58330ae4b	no: Stage 0 does not build it	Parse error at 51:39: two statements on one line need a `;` between them: the first begins with `var`, the second with `{` — write `;` where they meet
 conformance/K82_forgotten_thread_handle_panics_in_deinit.saw	arm64-apple-darwin	same	6a161b452736	panic	refused	-	-	-	159:1960c07de989	no: Stage 0 does not build it	Parse error at 44:31: two statements on one line need a `;` between them: the first begins with `var`, the second with `{` — write `;` where they meet
 conformance/K83_thread_spawn_body_is_sync_enforced.saw	arm64-apple-darwin	same	0cc1aa16ff42	error	refused	-	-	-	159:7aa80815cc3c	no: no error contains 'cannot suspend in a `Thread.spawn { ... }` body'	Parse error at 26:31: two statements on one line need a `;` between them: the first begins with `var`, the second with `{` — write `;` where they meet
@@ -2429,7 +2429,7 @@ taskgroup_in_suspending_fn.saw	arm64-apple-darwin	same	280d94aaa339	success	ok	0
 taskgroup_join_typed.saw	arm64-apple-darwin	same	f43e804c9207	success	ok	0	3:6169555d9248	0:e3b0c44298fc	-	yes	-
 taskgroup_move_live.saw	arm64-apple-darwin	same	ba78c455f7f2	error	refused	-	-	-	937:dd819aac6b67	yes	cannot `move` `group`: `TaskGroup` is `NoMove`, so it lives where its constructor built it and may not be relocated. A `TaskGroup` is a SCOPE (design 124): its `Deinit` structured-joins its children where the group was born, and every spawned frame holds the group's address — so a group that moved would join in one place and be driven from another. Keep it in the frame that opened it and pass `&var group` down, or spawn into a group the caller owns.
 taskgroup_mt_join_then_respawn.saw	arm64-apple-darwin	same	d7b587c7fcbf	success	ok	0	68:9372b93517ba	0:e3b0c44298fc	-	yes	-
-taskgroup_mt_live_pool_soak.saw	arm64-apple-darwin	same	c3ea7f1b9da3	success	ok	0	50:f6e2b8d63937	0:e3b0c44298fc	-	yes	-
+taskgroup_mt_live_pool_soak.saw	arm64-apple-darwin	same	36b73f81da0a	success	refused	-	-	-	254:519a4959c193	no: Stage 0 does not build it	argument `value` expects `Task<Void>` but got `VoidTask`
 taskgroup_nested_ambient.saw	arm64-apple-darwin	same	45865c524f48	success	ok	0	12:29340536b39d	0:e3b0c44298fc	-	yes	-
 taskgroup_nested_groups.saw	arm64-apple-darwin	same	c7044775ce47	success	ok	0	4:ca2ebdf97d74	0:e3b0c44298fc	-	yes	-
 taskgroup_producer_consumer.saw	arm64-apple-darwin	same	3a5697e9764d	success	ok	0	4:a720da503907	0:e3b0c44298fc	-	yes	-
@@ -2437,12 +2437,12 @@ taskgroup_result_joined_once.saw	arm64-apple-darwin	same	c6a84c49b50e	success	ok
 taskgroup_result_unjoined_once.saw	arm64-apple-darwin	same	2570c051093d	success	ok	0	10:99a5de40fc96	0:e3b0c44298fc	-	yes	-
 taskgroup_send_containers.saw	arm64-apple-darwin	differs	9355a33476eb	success	ok	0	47:b8a7ea3e77b8	0:e3b0c44298fc	-	yes	-
 taskgroup_sleep_ordering.saw	arm64-apple-darwin	same	9ecadc47d78f	success	ok	0	6:808f9117c8d6	0:e3b0c44298fc	-	yes	-
-taskgroup_slot_reuse_mt.saw	arm64-apple-darwin	same	75d78fc8a1b9	success	ok	0	22:bb56936ae039	0:e3b0c44298fc	-	yes	-
+taskgroup_slot_reuse_mt.saw	arm64-apple-darwin	same	addb585a0efe	success	refused	-	-	-	245:26a8b9b358ae	no: Stage 0 does not build it	argument `value` expects `Task<Void>` but got `VoidTask`
 taskgroup_slot_reuse_o_live.saw	arm64-apple-darwin	same	f7dbb81a54f4	success	ok	0	22:f2d6277be88f	0:e3b0c44298fc	-	yes	-
 taskgroup_spawn_and_loop.saw	arm64-apple-darwin	same	c1e8443298b2	success	ok	0	20:49dfe237f845	0:e3b0c44298fc	-	yes	-
 taskgroup_spawn_generic.saw	arm64-apple-darwin	same	e457636d8b98	success	ok	0	6:fe6d6200cfe4	0:e3b0c44298fc	-	yes	-
-taskgroup_spawn_void.saw	arm64-apple-darwin	same	02faca6f3090	success	ok	0	3:95cf32708a31	0:e3b0c44298fc	-	yes	-
-taskgroup_stale_handle_cancel.saw	arm64-apple-darwin	same	ecc8cc18d4f7	success	ok	0	24:e86fb55b8570	0:e3b0c44298fc	-	yes	-
+taskgroup_spawn_void.saw	arm64-apple-darwin	same	dadac94e00ce	success	ok	0	3:95cf32708a31	0:e3b0c44298fc	-	yes	-
+taskgroup_stale_handle_cancel.saw	arm64-apple-darwin	same	2341ad22bc35	panic	ok	0	44:a121c6ebc99e	0:e3b0c44298fc	-	no: expected a panic, exited 0	-
 taskgroup_stale_handle_join.saw	arm64-apple-darwin	same	8e71a864fae9	panic	ok	-6	81:3a826240e3ec	0:e3b0c44298fc	-	yes	-
 taskgroup_structured_join.saw	arm64-apple-darwin	same	cc77fca69efe	success	ok	0	6:b78a1987bcbd	0:e3b0c44298fc	-	yes	-
 taskgroup_suspending_cancel.saw	arm64-apple-darwin	same	0fe39dfef807	success	ok	0	2:9a271f2a916b	0:e3b0c44298fc	-	yes	-

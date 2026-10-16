@@ -5,7 +5,7 @@
 // `Deinit` is the join barrier, so the accept-loop idiom — a bare
 // `group.spawn(...)` statement per connection, no handle kept at all — is
 // unchanged by ruling 5. This is the row that catches a must-consume check
-// written against `Task<T>`/`VoidTask` rather than against the two singleton
+// written against `Task<T>` rather than against the two singleton
 // forms, and it exercises all four ways a group handle can go unconsumed.
 //
 // EXPECT: success

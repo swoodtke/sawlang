@@ -8,7 +8,7 @@
 //! ```saw-fragment
 //! import std.signal.{Signal, SignalWatch}
 //!
-//! func shutdown(watch: SignalWatch, work: VoidTask) {
+//! func shutdown(watch: SignalWatch, work: Task<Void>) {
 //!     try! watch.next()        // suspends until SIGTERM arrives
 //!     work.cancel()            // wakes the io-parked worker; it unwinds
 //! }

@@ -1,9 +1,0 @@
-program	compiler/tests/run/task_stale_handle_cancel.saw
-triple	arm64-apple-darwin
-source	65ed0abfedc2b538
-build	ok
-exit	0
-stdout	"1"
-stdout	"2"
-stdout	"void joined twice, ran 1"
-stdout	""

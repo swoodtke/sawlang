@@ -50,9 +50,9 @@ fn spawn_site.main() -> Void {
     let _3: std.taskgroup.Task<Int>;
     let _4: &std.taskgroup.Task<Int>;
     let _5: Int;
-    let _6: std.taskgroup.VoidTask;  // v
-    let _7: std.taskgroup.VoidTask;
-    let _8: &std.taskgroup.VoidTask;
+    let _6: std.taskgroup.Task<Void>;  // v
+    let _7: std.taskgroup.Task<Void>;
+    let _8: &std.taskgroup.Task<Void>;
     let _9: std.taskgroup.Task<Int>;  // g
     let _10: std.taskgroup.Task<Int>;
     let _11: &std.taskgroup.Task<Int>;
@@ -82,7 +82,7 @@ fn spawn_site.main() -> Void {
     bb5: {
         _6 = move _7;
         _8 = ref(shared, _6);
-        call std.taskgroup.VoidTask.detach() (owner std.taskgroup.VoidTask) [move _8] -> [return: bb6];
+        call std.taskgroup.Task.detach() (owner std.taskgroup.Task<Void>) [move _8] -> [return: bb6];
     }
 
     bb6: {

@@ -8926,7 +8926,8 @@ anti-suspension boundary, so it is `sync`) plus `wake_reason(&self) sync -> Int`
   lowers like `__saw_drive`: `f` becomes a spawnable root (frame + `Resumable`
   conformance), and a synthesized `__spawn_f` helper builds the frame, erases it
   into a `Box<any Resumable>`, enqueues it, and returns a typed handle. A `Void`
-  task is fine too: it returns a result-less `VoidTask` (design 102 item 1).
+  root gives a `Task<Void>`, whose `join()` returns `Void` and is written as a
+  statement (design 102 item 1).
   `spawn` works through a shared reference to the group, and enqueueing mutates
   the queue through it. That is safe for a different reason than `Channel.send`'s
   (which is `Sync`, lock-backed for true parallelism): a `TaskGroup` is `NoMove`
@@ -8970,14 +8971,18 @@ anti-suspension boundary, so it is `sync`) plus `wake_reason(&self) sync -> Int`
   a cancelled sleeper is made runnable and takes its cancel path on resume. The drive loop is `sync` (built from `resume`), which is what
   lets the group's `Deinit` run it. A multi-threaded `TaskGroup(threads: N)`
   keeps its own queue and its own live worker pool instead (design 75/225).
-- **`Task<T>`** owns nothing. It records the task's `(slot, generation)` in
-  its group plus raw pointers into that task's group-owned CELL, which holds the
-  result and the cancel word (design 134). The cell is not part of the frame and
-  outlives it. `join()` drives the group (a multi-threaded group's pool is
-  already running it, so there it WAITS instead) then TAKES the result exactly once,
-  leaving `None` behind, and the caller owns that value outright: it stays valid
-  after the task is gone. Dropping an unjoined handle is fine — the result stays
-  in the cell and is dropped once at group teardown, exactly-once either way.
+- **`Task<T>`** records the task's `(slot, generation)` in its group plus raw
+  pointers into that task's group-owned CELL, which holds the result and the
+  cancel word (design 134). The cell is not part of the frame and outlives it.
+  One rule covers every `T`, `Void` included. `join()` drives the group (a
+  multi-threaded group's pool is already running it, so there it WAITS instead)
+  then TAKES the result exactly once, and the caller owns that value outright:
+  it stays valid after the task is gone. A task yields its result once, so a
+  second `join()`, or a `join()` after `detach()`, panics. The cell keeps the
+  result while the handle that could join it lives. Dropping an unjoined handle
+  gives the result up: a finished task's result is dropped at the handle's
+  drop, and an unfinished task's when the task completes. Either way it is
+  dropped exactly once.
 - **Eager per-task destruction (design 124).** A task's owned values are released
   when THE TASK completes, not when its group is torn down — and an owned value
   whose SCOPE ends earlier is released there, exactly as in a sync body (see
@@ -8986,8 +8991,9 @@ anti-suspension boundary, so it is `sync`) plus `wake_reason(&self) sync -> Int`
   every `return Done` site: it drops them in the same LIFO order an ordinary
   function's scope exit uses, including a frame-resident nested `TaskGroup` (whose
   own children are structured-joined first). The single exception is the result
-  slot, which is what `join()` moves out — or, unjoined, what the frame drops once
-  at group teardown. So a group is a lifetime SCOPE, not a lifetime extender: a
+  slot, which is what `join()` moves out; a result whose handle is gone is
+  dropped when the task completes, or at the handle's drop if that comes later.
+  So a group is a lifetime SCOPE, not a lifetime extender: a
   handler task's `TcpStream` closes its fd when the handler returns, an
   `accept`-loop server reclaims each connection as it finishes rather than
   accumulating them, and a task that reads to EOF sees it as soon as its sibling
@@ -8996,26 +9002,28 @@ anti-suspension boundary, so it is `sync`) plus `wake_reason(&self) sync -> Int`
   same schedule as the values inside it. When a task reports Done the scheduler
   releases its frame box outright, and the slot it occupied — the run-queue entry
   and its scheduler bookkeeping — goes on the group's free list for the next
-  `spawn` to claim. A group therefore costs O(live tasks + tasks whose result
-  nobody has joined) rather than O(tasks ever spawned), so a long-running server
-  no longer grows in task count. `group.count()` reports the slots held.
+  `spawn` to claim. A group therefore costs O(live tasks + finished tasks whose
+  handle is still live) rather than O(tasks ever spawned), so a long-running
+  server no longer grows in task count. `group.count()` reports the slots held.
 
   What made this possible is that nothing points into a frame any more. The
   result and the cancel word live in a per-task CELL the group owns, allocated at
   spawn beside the slot; the cell is typed (it holds a `T?`) but the group holds
   it erased, so the group never names `T` and the box teardown still runs the
-  right deinit. A `Void` task's cell holds only the cancel word, so its slot
-  is reclaimed at completion; a task with a result keeps its slot until `join`
-  takes the value.
+  right deinit. A finished task keeps its slot, with its result, while its
+  handle lives, whatever `T` is: `join` takes the value and frees the slot, and
+  dropping the handle drops the value and frees it. A task whose handle is
+  already gone drops its result and frees its slot when it completes, so an
+  accept loop that keeps no handles holds only its live tasks, whatever they
+  return.
 
   Reuse is safe because a handle is an `(index, generation)` pair. Each slot
   carries a counter that advances when the slot retires, so a handle to a task
   that has come and gone is recognisably STALE and every handle operation checks
   before it acts. The outcomes are defined, never a read of whatever occupies the
   slot next: `Task.join` panics ("this task's result was already joined")
-  because it cannot invent a second result, `VoidTask.join` returns (the
-  task is finished, which is what the call was asking), and `cancel` is a no-op
-  on both. `cancel_addr()` is the one exception to reuse: the raw address it
+  because it cannot invent a second result, at every `T`, and `cancel` is a
+  no-op. `cancel_addr()` is the one exception to reuse: the raw address it
   hands a peer must outlive the task and carries no generation for the peer to
   check, so taking it PINS the slot — that slot keeps its cell and is never
   handed out again, while its generation still retires normally.
@@ -9024,8 +9032,9 @@ anti-suspension boundary, so it is `sync`) plus `wake_reason(&self) sync -> Int`
   Because the group is declared before the resources its tasks use and before its
   own handles, LIFO destroys it *first* — draining children while those resources
   are still alive — and handles die before the frames they point into. A group
-  destroyed while any of its `group.spawn` handles is outstanding (not yet
-  joined, cancelled or dropped) panics at its teardown, after its tasks are
+  destroyed while any of its `group.spawn` handles is outstanding (neither
+  joined nor dropped; a cancelled handle still counts, since joining or
+  dropping it reaches the group) panics at its teardown, after its tasks are
   joined and before any of its storage is released; the rules of "A group
   task's handle borrows its group" refuse the direct routes to that at compile
   time, so the panic catches a handle minted through a borrow window, such as
@@ -9528,7 +9537,7 @@ func worker(base: Int) -> Int {
 func main() {
     var group = TaskGroup()
     let a = group.spawn(worker(10))   // -> Task<Int> (a Void spawn gives
-                                      //    a VoidTask, design 102)
+                                      //    a Task<Void>, design 102)
     let b = group.spawn(worker(20))
     print(a.join())                   // drive the group; take a's result: 11
     print(b.join())                   // 21
@@ -9543,7 +9552,8 @@ func handle(conn: TcpStream) -> Int {
 }                                     // `conn` deinits HERE: the fd closes when
                                       // the handler returns, not at group teardown
 // The result is the one value that outlives the task: `join()` moves it out and
-// the caller owns it; an unjoined result drops once at group teardown.
+// the caller owns it. An unjoined result drops once, when the task finishes or
+// when its handle drops, whichever comes later.
 
 // Cooperative suspending receive over a Channel (design 62 G3, design 230). The
 // consumer runs until the producer closes the channel, which is what ends the
@@ -9627,7 +9637,7 @@ func job() -> Int {
 #### Background tasks: `Task.spawn`
 
 `Task.spawn(work(n))` starts a cooperative task without a group. It hands back
-the same `Task<T>` / `VoidTask` that `group.spawn` does, and the task rides the
+the same `Task<T>` that `group.spawn` does, and the task rides the
 same ambient scheduler:
 
 ```saw
@@ -9872,9 +9882,9 @@ let taken = consume(move buf)
 Three cases release later than the join, each conservatively:
 
 - A handle that is **discarded or never joined** holds its borrow until the
-  group's death. Nothing joins it earlier: `Task`'s `Deinit` owns nothing
-  and leaves the result in the group's cell, so it is the group's `Deinit` that
-  drains the task. A handle stored in a field or an element is the same case,
+  group's death. Nothing joins it earlier: dropping a handle gives up the
+  task's result but does not wait for the task, so it is the group's `Deinit`
+  that drains the task. A handle stored in a field or an element is the same case,
   since there is no binding to recognize a join on.
 - A **join inside a branch** releases only on that path, so the borrow is live
   again below the branch. Hoist the join out of the branch to get the root back.
@@ -11319,7 +11329,7 @@ import std.signal.{Signal, SignalWatch}
 import std.net.{TcpListener}
 
 // A shutdown task: wait for SIGTERM, then cancel the work and let it unwind.
-func shutdown(watch: SignalWatch, work: VoidTask) {
+func shutdown(watch: SignalWatch, work: Task<Void>) {
     try! watch.next()
     work.cancel()
     let _ = move watch
@@ -13043,7 +13053,7 @@ need one of the three [import forms](#imports).
 | `std.slab` | `SlabHead`, `slab_alloc`, `slab_dealloc` | no |
 | `std.numeric` | the `Int` / `Float` extensions | yes (methods on primitives) |
 | `std.float` | `Float` ↔ text, and the bit accessors | yes (methods only) |
-| `std.taskgroup` | `TaskGroup`, `Task<T>`, `VoidTask` | yes |
+| `std.taskgroup` | `TaskGroup`, `Task<T>` | yes |
 | `std.task` | `yield_now`, `Thread<T>` (the `Thread.spawn` handle) | no |
 | `std.channel` | `Channel<T>`, `ChannelError` | no |
 | `std.mutex` / `std.spinlock` | `Mutex<T>`, `SpinLock<T>` | no |

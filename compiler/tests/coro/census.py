@@ -50,7 +50,7 @@ import snapshot  # noqa: E402
 # the task surface, `Duration` and `Instant`, `std.channel`, `std.signal`, and
 # `std.net`'s cooperative slice (A12b).
 PLAN_MODULES = ("std.task", "std.taskgroup", "std.duration", "std.time", "std.channel", "std.signal", "std.net")
-PLAN_TYPES = ("Task", "VoidTask", "TaskGroup", "Duration", "Instant", "Channel", "ChannelError", "Signal",
+PLAN_TYPES = ("Task", "TaskGroup", "Duration", "Instant", "Channel", "ChannelError", "Signal",
               "SignalWatch", "TcpStream", "TcpListener", "IoError", "IoErrorKind")
 # A plan type not named here has every member in the plan.
 PLAN_MEMBERS = {"TcpStream": ("pair", "read", "write"), "TcpListener": ("listen", "accept")}

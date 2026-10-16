@@ -1,0 +1,58 @@
+// probe: stated
+// about: a task whose handle is dropped before it finishes drops its result at its completion, exactly once (SL-769)
+// stage 0: keeps the result until the group's teardown and drops it there
+// speeds: -O0 -O2
+// Nothing can take the result once its handle is gone, so the task drops it
+// and frees its slot where it finishes, and the group's teardown finds
+// nothing left to drop. A cancelled background task whose handle is dropped
+// takes the same path.
+// prints: handle dropped
+// prints: made 1
+// prints: drop token 1
+// prints: the group holds 0
+// prints: cancelled handle dropped
+// prints: made 2
+// prints: drop token 2
+// prints: done
+import std.task.{yield_now}
+
+struct Token {
+    id: Int
+}
+
+extension Token: NoCopy {
+    func deinit(&var self) {
+        print("drop token {}", self.id)
+    }
+}
+
+func make(id: Int) -> Token {
+    yield_now()
+    print("made {}", id)
+    Token(id: id)
+}
+
+func grouped() {
+    var group = TaskGroup()
+    let h = group.spawn(make(1))
+    let _ = move h
+    print("handle dropped")
+    yield_now()
+    yield_now()
+    print("the group holds {}", group.count())
+}
+
+func background() {
+    let h = Task.spawn(make(2))
+    h.cancel()
+    let _ = move h
+    print("cancelled handle dropped")
+    yield_now()
+    yield_now()
+}
+
+func main() {
+    grouped()
+    background()
+    print("done")
+}

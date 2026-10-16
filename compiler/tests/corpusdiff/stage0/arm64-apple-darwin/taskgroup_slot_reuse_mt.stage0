@@ -2,10 +2,12 @@ program	taskgroup_slot_reuse_mt.saw
 triple	arm64-apple-darwin
 twin	same
 expect	success
-build	ok
-exit	0
-stdout	"peak 4"
-stdout	"final 0"
-stdout	"ran 32"
-stdout	""
-meets_expect	yes
+build	refused	argument `value` expects `Task<Void>` but got `VoidTask`
+meets_expect	no: Stage 0 does not build it
+log	"error: argument `value` expects `Task<Void>` but got `VoidTask`"
+log	"  --> examples/taskgroup_slot_reuse_mt.saw:39:36"
+log	"     |"
+log	" 39 |             try! pending.push(group.spawn(worker(1)))"
+log	"     |                                    ^"
+log	""
+log	"1 error(s) generated"

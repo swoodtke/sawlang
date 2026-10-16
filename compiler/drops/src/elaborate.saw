@@ -956,7 +956,7 @@ extension DropsProgram {
         let owner = self.bc.mir.tc.strip_refs(c.owner)
         let d = self.bc.mir.tc.nominal_decl(owner)
         let thread = d >= 0 && d == self.bc.mir.tc.known.thread
-        if d < 0 || (d != self.bc.mir.tc.known.task && d != self.bc.mir.tc.known.void_task && not thread) {
+        if d < 0 || (d != self.bc.mir.tc.known.task && not thread) {
             return false
         }
         // Stage 0 workaround (SL:hazards S4): canonical: let name = self.bc.mir.tc.name_text(self.bc.mir.tc.res.decls[c.target].name)

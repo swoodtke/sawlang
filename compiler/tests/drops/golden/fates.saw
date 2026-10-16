@@ -47,7 +47,7 @@ func cancelled_then_moved() {
     print("moved")
 }
 
-// Each arm writes a fate of its own, on a `VoidTask`.
+// Each arm writes a fate of its own, on a `Task<Void>`.
 func both_arms(c: Bool) {
     let t = Task.spawn(nap())
     if c {

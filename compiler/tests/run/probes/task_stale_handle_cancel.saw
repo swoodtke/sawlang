@@ -1,0 +1,49 @@
+// probe: panics
+// about: a stale handle cannot reach the task that took its place, and a `Void` task's second join panics (SL-769)
+// stage 0: its `VoidTask.join` returns on a second join
+// speeds: -O0 -O2
+// tests/corpus/taskgroup_stale_handle_cancel, with `Task.spawn` in place of
+// its `TaskGroup`. `a` is joined, so its slot can be handed to `b`, spawned
+// next; cancelling through `a` then must not set `b`'s cancel word. `b` runs
+// to completion and reports 2, where a cancelled run would report -2. A
+// `Void` task's join frees its slot too: a late cancel is a defined no-op,
+// and a second join panics.
+// prints: 1
+// prints: 2
+// prints: void joined once, ran 1
+// panics: Task.join: this task's result was already joined
+import std.task.*
+
+static VOID_RAN: Atomic<Int> = Atomic(0)
+
+func slow(tag: Int) -> Int {
+    var n = 0
+    while n < 4 {
+        if cancelled() {
+            return 0 - tag
+        }
+        yield_now()
+        n = n + 1
+    }
+    tag
+}
+
+func tick() {
+    yield_now()
+    VOID_RAN.fetch_add(1)
+}
+
+func main() {
+    let a = Task.spawn(slow(1))
+    print(a.join())
+
+    let b = Task.spawn(slow(2))
+    a.cancel()
+    print(b.join())
+
+    let v = Task.spawn(tick())
+    v.join()
+    v.cancel()
+    print("void joined once, ran {}", VOID_RAN.load())
+    v.join()
+}

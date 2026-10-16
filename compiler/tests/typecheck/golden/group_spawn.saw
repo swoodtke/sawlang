@@ -1,7 +1,7 @@
 // `group.spawn` typed under Stage 0's root: the group is borrowed shared for
 // the spawn, through a local, a field or a `&TaskGroup` parameter, and the
-// form hands back `Task<Int>` for an `Int` root and `VoidTask` for a `Void`
-// one. The root is the task's call, so a spawner that never suspends itself
+// form hands back `Task<Int>` for an `Int` root and `Task<Void>` for a
+// `Void` one. The root is the task's call, so a spawner that never suspends itself
 // stays sync-callable.
 import std.task.*
 
