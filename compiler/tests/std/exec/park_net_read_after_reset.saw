@@ -1,0 +1,66 @@
+// A read on a connection whose peer dropped it with a request unread fails
+// with `ConnectionReset`, not a clean end of stream (SL:coroutines A12b).
+// The peer closes a socket holding unread bytes only after the descriptor
+// wait reports the request queued, so the reset is the one outcome the read
+// can see. The server end is a raw descriptor, since a std `TcpStream` keeps
+// its descriptor private. Its listening socket binds nothing: `listen` picks
+// the port, and `getsockname` reads it back from the address's bytes 2 and 3.
+
+import std.net.{IoErrorKind, TcpStream}
+import std.task.{fd_wait}
+
+extern "C" {
+    func socket(domain: Int32, kind: Int32, protocol: Int32) -> Int32
+    func listen(fd: Int32, backlog: Int32) -> Int32
+    func getsockname(fd: Int32, addr: UnsafePointer<Int8>, len: UnsafePointer<UInt32>) -> Int32
+    func accept(fd: Int32, addr: UnsafePointer<Int8>, len: UnsafePointer<UInt32>) -> Int32
+    func close(fd: Int32) -> Int32
+}
+
+struct Address {
+    low: Int
+    high: Int
+}
+
+func open_listener() unsafe -> Int32 {
+    let fd = socket(2 as Int32, 1 as Int32, 0 as Int32)
+    if fd < (0 as Int32) || listen(fd, 8 as Int32) != (0 as Int32) {
+        panic("listener failed")
+    }
+    fd
+}
+
+func listener_port(fd: Int32) unsafe -> Int {
+    var address = Address(low: 0, high: 0)
+    var length = 16 as UInt32
+    if getsockname(fd, (&address) as UnsafePointer<Int8>, (&length) as UnsafePointer<UInt32>) != (0 as Int32) {
+        panic("getsockname failed")
+    }
+    ((address.low >> 16) & 255) * 256 + ((address.low >> 24) & 255)
+}
+
+func accept_one(fd: Int32) unsafe -> Int32 {
+    let server = accept(fd, 0 as UnsafePointer<Int8>, 0 as UnsafePointer<UInt32>)
+    if server < (0 as Int32) {
+        panic("accept failed")
+    }
+    server
+}
+
+func shut(fd: Int32) unsafe {
+    let _ = close(fd)
+}
+
+func main() {
+    let listener = open_listener()
+    let client = try! TcpStream.connect("127.0.0.1", listener_port(listener))
+    let server = accept_one(listener)
+    try! client.write("request")
+    print("server: request {}", fd_wait(server as Int, 0, 0))
+    shut(server)
+    shut(listener)
+    match client.read() {
+        case Ok(bytes) -> print("client: {} bytes", bytes.len()),
+        case Err(e) -> print("client: {}; kind reset: {}", e, e.kind() == IoErrorKind.ConnectionReset)
+    }
+}
