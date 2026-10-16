@@ -1,0 +1,18 @@
+the unbounded wait parks
+main cancels the unbounded wait
+the unbounded wait: cancelled
+main joined: cancelled
+the bounded wait parks
+main cancels the bounded wait
+the bounded wait: cancelled
+main joined: cancelled
+it resumed within a second: true
+a second wait on the same descriptor parks
+a second wait on the same descriptor: timed out
+main joined: timed out
+the wait on the other pipe parks
+main writes to the first pipe
+main slept
+main writes to the other pipe
+the wait on the other pipe: ready
+main joined: read 2

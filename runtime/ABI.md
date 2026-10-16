@@ -15,6 +15,14 @@ OS ops where an operation crosses the boundary. More symbols, less hidden
 coupling. The reactor is written in Saw; C is left for the bodies a Saw FFI gap
 blocks (`shim.c`, listed under "Authoring a runtime in Saw").
 
+**Amendments to v2** (each changes a frozen signature, so every runtime
+provider must follow it):
+
+- sawc 0.14.0 (SL-569, SL-355's R5): `__saw_rt_reactor_register` returns a
+  status word (`0` armed, else `errno`) instead of `void`, and
+  `__saw_rt_reactor_poll` latches a token word by compare-and-swap from `-1`
+  to `0`.
+
 Two symbol tiers exist (design 113); only the first is this ABI:
 
 - **`__saw_rt_*` — the runtime ABI (this document).** Implemented by a linked
@@ -724,13 +732,29 @@ Create a reactor instance: a kqueue (macOS) / epoll (Linux) fd + its wake source
 (an armed `EVFILT_USER` event / a nonblocking `eventfd`). Returns an opaque
 instance pointer (as a `word`).
 
-### `__saw_rt_reactor_register(r: ptr, fd: word, write: word, token: word) -> void`
+### `__saw_rt_reactor_register(r: ptr, fd: word, write: word, token: word) -> word  (0/errno)`
 Arm **one-shot** readiness interest on `fd` in `r` for read (`write==0`) or write
 (`write!=0`). `token` is carried as the event's user-data and is **the parked
 frame's `__wake`-word address** (design 91), the precise-routing contract, or
 `0` for a registration made outside any frame (never latched). One-shot
 (`EV_ONESHOT`/`EPOLLONESHOT`) plus fd close drop the registration; epoll re-arms a
-known fd with `EPOLL_CTL_MOD` when the `EPOLL_CTL_ADD` fails.
+known fd with `EPOLL_CTL_MOD` when the `EPOLL_CTL_ADD` fails with `EEXIST`.
+
+> **Amended in sawc 0.14.0 (SL-569, SL-355's R5):** the return is a status
+> word; it was `void` in v2 as frozen.
+
+**Returns `0` when readiness is armed, else the platform's raw `errno`.** A
+registration that fails and says nothing leaves its task parked forever on an
+event that can never arrive, which is exactly the signature of a lost wake
+(SL-354). The executor's arm funnel `__saw_exec_io_register` turns a nonzero
+status into a panic naming the fd, the direction and the code: a failed arm is a
+runtime invariant violation, never a recoverable condition. A runtime that
+implements this seam must report.
+
+**The park order** the executor keeps around this call: the parking side writes
+the park value (`-1`) into the token's word before it calls register, and
+nothing on the parking side writes that word while the park lasts, so a latch
+`poll` makes from any thread is never overwritten by the park it ends.
 
 ### `__saw_rt_reactor_unregister(r: ptr, fd: word, write: word) -> void`
 Drop readiness interest on `fd` in `r` for read (`write==0`) or write
@@ -752,10 +776,13 @@ contains no literal `io_wait` gets neither the bookkeeping fields nor the call.
 ### `__saw_rt_reactor_poll(r: ptr, timeout_ms: word) -> word  (ready count)`
 Block in `kevent`/`epoll_wait` on `r` up to `timeout_ms` (`< 0` = forever). For
 each ready event with a nonzero token, **latch its token word to 0 (ready)**,
-waking the task whose frame registered for that `(fd, direction)`. The latch
-is a persistent word, not an edge, so a latch that lands after the frame has
-stored its park word is seen at the next scan. (One that lands between the
-arm and that store is overwritten today: SL-353.) Token `0` is never latched:
+waking the task whose frame registered for that `(fd, direction)`. The token
+names an `Atomic<Int>` word, and the latch is a sequentially consistent
+compare-and-swap from parked (`-1`) to ready (`0`): a word that no longer holds
+the park it was armed for (the park ended by a cancel or a deadline, and the
+task now sleeps or parks on something else) is left alone. The latch is a
+persistent word, not an edge, so a latch that lands before the scheduler reads
+the park is never lost. Token `0` is never latched:
 it belongs to the wake source and to registrations made outside any frame.
 Consuming the wake event makes the poll re-post the wake while another poller
 is blocked (the cascade above) and clear the source so it does not busy-fire.
@@ -993,6 +1020,7 @@ a flag bit.
 | D44    | `__saw_rt_executable_path`: one new symbol, required of every runtime because std calls it. sawos's runtime owes its NULL stub when that work resumes |
 | SL-720 | `__saw_rt_fs_getcwd`: one new symbol, status-carrying like `__saw_rt_fs_opendir`, so `Env.cwd` reports the cause getcwd gave. No existing signature moved |
 | SL-737 | `__saw_rt_env_get` (status-carrying like `__saw_rt_fs_getcwd`) and `__saw_rt_env_contains`: two new symbols, so std's environment reads go through the runtime. `__saw_rt_env_set`/`_unset`, `__saw_rt_proc_spawn` and `__saw_rt_proc_spawn_env` **changed** contract: all six take one environment lock, both spawns hold it in the parent across `fork`, and `_spawn_env` copies the parent's entries under it. No existing signature moved |
+| SL-569 | `__saw_rt_reactor_register` **changed**: returns a status word, `0` armed or the platform's `errno`, where it returned `void`; `__saw_rt_reactor_poll` **changed** contract: its latch is a compare-and-swap from `-1` to `0` on an `Atomic<Int>` token word (sawc 0.14.0, SL-355's R5). Every runtime provider follows it |
 
 ## The compiler → executor boundary (design 118)
 

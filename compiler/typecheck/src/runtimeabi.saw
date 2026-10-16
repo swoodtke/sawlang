@@ -52,7 +52,7 @@ public func tc_runtime_abi_rows(names: &var Vector<String>, params: &var Vector<
     tc_abi_row(&var names, &var params, &var results, &var owners, "__saw_rt_reactor_create", "", "word", "runtime")
     tc_abi_row(&var names, &var params, &var results, &var owners, "__saw_rt_reactor_destroy", "word", "void", "runtime")
     tc_abi_row(&var names, &var params, &var results, &var owners, "__saw_rt_reactor_poll", "word, word", "word", "runtime")
-    tc_abi_row(&var names, &var params, &var results, &var owners, "__saw_rt_reactor_register", "word, word, word, word", "void", "runtime")
+    tc_abi_row(&var names, &var params, &var results, &var owners, "__saw_rt_reactor_register", "word, word, word, word", "word", "runtime")
     tc_abi_row(&var names, &var params, &var results, &var owners, "__saw_rt_reactor_unregister", "word, word, word", "void", "runtime")
     tc_abi_row(&var names, &var params, &var results, &var owners, "__saw_rt_reactor_wake", "word", "void", "runtime")
     tc_abi_row(&var names, &var params, &var results, &var owners, "__saw_rt_resolve_ipv4", "word, word, word", "word", "runtime")

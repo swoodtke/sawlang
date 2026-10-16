@@ -39,6 +39,9 @@ profile, the lang-item table, and the API equivalence of the two stds.
   descriptors and drives them through the executor's entries, builds with
   sawc2 against `std/` at -O0 and -O2 and prints exactly its `NAME.out`,
   exiting 0, or, headed `// expect-panic: TEXT`, panicking with that text;
+  a `park_NAME.saw` program builds instead against a copy of std whose
+  `task.saw` ends in `parks/task_tail.saw`, which re-exposes the std-internal
+  descriptor wait to those programs alone;
 - each `mir/NAME.mir` holds its functions' MIR as sawc2 lowers them against
   `std/`, and String's retain and release read the count with a relaxed
   atomic load and compare it with the immortal sentinel before any atomic
@@ -89,11 +92,16 @@ SUBSET = os.path.join(HERE, "subset")
 PAIRS = os.path.join(HERE, "pairs")
 CALLS = os.path.join(HERE, "calls")
 EXEC = os.path.join(HERE, "exec")
+# The text appended to `task.saw` in the std copy the `park_` executor
+# programs build against, and where that copy is made.
+PARKS_TAIL = os.path.join(HERE, "parks", "task_tail.saw")
+PARK_EXEC_PREFIX = "park_"
 CONE = os.path.join(HERE, "cone")
 MIR = os.path.join(HERE, "mir")
 MEMBERS = os.path.join(HERE, "equivalence.tsv")
 EXCEPTIONS = os.path.join(HERE, "equivalence_exceptions.tsv")
 OUT = os.path.join(REPO, ".build", "std-lane")
+PARK_STD = os.path.join(OUT, "park-std")
 TIMEOUT = 300
 RUN_TIMEOUT = 60
 
@@ -980,16 +988,36 @@ def check_mir_pins(failures, counts, write):
 
 # ------------------------------------------------------------ the executor
 
+def make_park_std():
+    """A fresh copy of `std/` whose `task.saw` ends in `parks/task_tail.saw`,
+    for the `park_` executor programs alone; its root, relative to the repo."""
+    shutil.rmtree(PARK_STD, ignore_errors=True)
+    shutil.copytree(os.path.join(REPO, NEW_ROOT), PARK_STD)
+    with open(PARKS_TAIL, encoding="utf-8") as fh:
+        tail = fh.read()
+    with open(os.path.join(PARK_STD, "task.saw"), "a", encoding="utf-8") as fh:
+        fh.write("\n" + tail)
+    return rel(PARK_STD)
+
+
+def exec_std_root(path):
+    """The std root executor program `path` builds against."""
+    if module_name(path).startswith(PARK_EXEC_PREFIX):
+        return rel(PARK_STD)
+    return NEW_ROOT
+
+
 def build_and_run_exec(path, speed):
-    """sawc2's build of executor program `path` against `std/` at `speed`,
-    run: None when it prints its `NAME.out`, each panic's location masked, and
-    exits as its header says, or the failure. The output file is the oracle
-    because no Stage 0 build can run these: they drive frames the new std's
-    executor defines."""
+    """sawc2's build of executor program `path` against its std root at
+    `speed`, run: None when it prints its `NAME.out`, each panic's location
+    masked, and exits as its header says, or the failure. The output file is
+    the oracle because no Stage 0 build can run these: they drive frames the
+    new std's executor defines."""
     name = module_name(path)
     exe = os.path.join(OUT, "exec", name + speed)
     os.makedirs(os.path.dirname(exe), exist_ok=True)
-    r = subprocess.run([build.SAWC2, "build", speed, "--std-root", NEW_ROOT, rel(path), "-o", exe],
+    r = subprocess.run([build.SAWC2, "build", speed, "--std-root", exec_std_root(path), rel(path),
+                        "-o", exe],
                        cwd=REPO, capture_output=True, text=True, timeout=TIMEOUT)
     if r.returncode != 0:
         return "std exec %s (%s): sawc2 does not build it: %s" \
@@ -1022,6 +1050,8 @@ def check_exec(failures, counts):
     """Each `exec/` program, which builds frames by hand and drives them
     through the executor's entries, built by sawc2 at -O0 and -O2 and run."""
     programs = sorted(glob.glob(os.path.join(EXEC, "*.saw")))
+    if any(module_name(p).startswith(PARK_EXEC_PREFIX) for p in programs):
+        make_park_std()
     jobs = [(p, speed) for p in programs for speed in ("-O0", "-O2")]
     for failure in gate_jobs.map_ordered(lambda job: build_and_run_exec(*job), jobs, most=4):
         if failure:

@@ -1,0 +1,91 @@
+// A bounded descriptor wait whose descriptor never becomes ready resumes once
+// its deadline passes, and reports "timed out", no earlier than the deadline
+// (SL:coroutines A12a): in a spawned task, in a suspending `main`, and in a
+// frame `__saw_drive` drives, whose drive point waits in the reactor's poll
+// for it. A bounded wait whose descriptor becomes ready first reports "ready"
+// long before its deadline. The pipes' write ends are only written where a
+// line says so.
+
+import std.task.{fd_wait, yield_now}
+import std.taskgroup.{__saw_exec_timer_deadline}
+import std.time.{Instant}
+
+extern "C" {
+    func pipe(fds: UnsafePointer<Int32>) -> Int32
+    func read(fd: Int32, buf: UnsafePointer<Int8>, count: Int) -> Int
+    func write(fd: Int32, buf: UnsafePointer<Int8>, count: Int) -> Int
+    func close(fd: Int32) -> Int32
+}
+
+struct Ends {
+    read: Int32
+    write: Int32
+}
+
+struct Pipe {
+    read: Int
+    write: Int
+}
+
+func make_pipe() unsafe -> Pipe {
+    var ends = Ends(read: 0 as Int32, write: 0 as Int32)
+    if pipe((&ends) as UnsafePointer<Int32>) != (0 as Int32) {
+        panic("pipe failed")
+    }
+    Pipe(read: ends.read as Int, write: ends.write as Int)
+}
+
+func put_byte(fd: Int, byte: Int) unsafe {
+    var b = byte as Int8
+    if write(fd as Int32, (&b) as UnsafePointer<Int8>, 1) != 1 {
+        panic("write failed")
+    }
+}
+
+func take_byte(fd: Int) unsafe -> Int {
+    var b: Int8 = 0
+    if read(fd as Int32, (&b) as UnsafePointer<Int8>, 1) != 1 {
+        panic("read failed")
+    }
+    b as Int
+}
+
+func shut(fd: Int) unsafe {
+    let _ = close(fd as Int32)
+}
+
+// Waits on `fd` until `millis` milliseconds from now, and says how the wait
+// ended and whether it lasted at least that long.
+func timed(label: String, fd: Int, millis: UInt64) -> String {
+    let start = Instant.now()
+    let outcome = fd_wait(fd, 0, __saw_exec_timer_deadline(millis * 1_000_000))
+    print("{}: {} after its deadline: {}", label, outcome, start.elapsed().as_millis() >= millis)
+    outcome
+}
+
+// The drive site sits in an unframed function, since `main` suspends.
+func drive_timed(fd: Int) -> String {
+    __saw_drive(timed("the driven frame", fd, 30))
+}
+
+func main() {
+    let p = make_pipe()
+
+    let task = Task.spawn(timed("the task", p.read, 30))
+    print("main joined: {}", task.join())
+
+    let _ = timed("main", p.read, 30)
+
+    print("main drove: {}", drive_timed(p.read))
+
+    let start = Instant.now()
+    let ready = Task.spawn(timed("the ready wait", p.read, 600_000))
+    yield_now()
+    put_byte(p.write, 7)
+    print("main joined: {}", ready.join())
+    print("it resumed within a second: {}", start.elapsed().as_millis() < 1000)
+    print("main read {}", take_byte(p.read))
+
+    shut(p.read)
+    shut(p.write)
+}

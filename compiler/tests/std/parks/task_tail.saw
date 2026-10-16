@@ -1,0 +1,18 @@
+// Entry points to `std.task`'s descriptor wait for the std lane's `park_`
+// executor programs (compiler/tests/std/std_lane.py). The lane appends this
+// text to `task.saw` in a copy of std that only those programs build against;
+// it never ships in `std/`. `io_wait` is std-internal (`public(package)`), the
+// raw layer std's descriptor-backed types drive, so no program can name it,
+// and std.net, the module that will drive it, is not ported yet.
+
+/// Waits as `io_wait` does, for descriptor `fd`'s readiness, for reading
+/// when `dir` is 0 and for writing when it is 1, bounded by the monotonic
+/// instant `deadline` when it is nonzero, and names how the wait ended:
+/// "ready", "timed out" or "cancelled".
+public func fd_wait(fd: Int, dir: Int, deadline: UInt64) -> String {
+    match io_wait(fd, dir, deadline) {
+        case Ready -> "ready",
+        case TimedOut -> "timed out",
+        case Cancelled -> "cancelled"
+    }
+}

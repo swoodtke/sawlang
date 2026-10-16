@@ -1,0 +1,44 @@
+// expect-panic: reactor: arming fd 4 for write readiness failed (errno 9)
+// The twin of `park_arm_failure_task` in a suspending `main`'s own frame
+// (SL:coroutines A12a; the port of SL-355's
+// `reactor_arm_failure_panics_outside_frame`, whose sync caller blocked its
+// thread in the reactor, where every wait here parks a frame). The arm goes
+// through the same funnel, so a wait on a closed descriptor panics here too,
+// naming the descriptor, the direction and the code.
+//
+// The pipe takes descriptors 3 and 4. The first wait, on the write end, which
+// is writable at once, succeeds and creates the reactor before 4 is closed.
+
+import std.task.{fd_wait}
+
+extern "C" {
+    func pipe(fds: UnsafePointer<Int32>) -> Int32
+    func close(fd: Int32) -> Int32
+}
+
+struct Ends {
+    read: Int32
+    write: Int32
+}
+
+func make_pipe() unsafe -> Ends {
+    var ends = Ends(read: 0 as Int32, write: 0 as Int32)
+    if pipe((&ends) as UnsafePointer<Int32>) != (0 as Int32) {
+        panic("pipe failed")
+    }
+    ends
+}
+
+func shut(fd: Int) unsafe {
+    let _ = close(fd as Int32)
+}
+
+func main() {
+    let p = make_pipe()
+    let write_end = p.write as Int
+    print("write end: {}", fd_wait(write_end, 1, 0))
+    shut(write_end)
+    print("waiting on the closed write end {}", write_end)
+    print("write end: {}", fd_wait(write_end, 1, 0))
+    print("unreachable")
+}

@@ -2096,7 +2096,7 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         word = self.int_type
         create = ir.Function(self.module, ir.FunctionType(word, []),
                              name="__saw_rt_reactor_create")
-        reg = ir.Function(self.module, ir.FunctionType(void, [word, word, word, word]),
+        reg = ir.Function(self.module, ir.FunctionType(word, [word, word, word, word]),
                           name="__saw_rt_reactor_register")
         poll = ir.Function(self.module, ir.FunctionType(word, [word, word]),
                            name="__saw_rt_reactor_poll")

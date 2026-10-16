@@ -1,0 +1,93 @@
+// A task parked on a pipe's read end resumes once a write makes the pipe
+// readable, and its wait reports "ready" (SL:coroutines A12a). The park arms
+// the reactor, and with nothing else runnable the executor blocks in the
+// reactor's poll, which latches the task's park word when the byte arrives.
+// A wait on a descriptor that is ready already, for reading or for writing,
+// resumes at the next poll: in a spawned task, in a suspending `main`, and in
+// a frame `__saw_drive` drives.
+//
+// Each line's order is the executor's: the reader parks before `main` writes,
+// since `main` cedes once with `yield_now` first, and nothing the reader
+// prints after its wait can come before the write.
+
+import std.task.{fd_wait, yield_now}
+
+extern "C" {
+    func pipe(fds: UnsafePointer<Int32>) -> Int32
+    func read(fd: Int32, buf: UnsafePointer<Int8>, count: Int) -> Int
+    func write(fd: Int32, buf: UnsafePointer<Int8>, count: Int) -> Int
+    func close(fd: Int32) -> Int32
+}
+
+struct Ends {
+    read: Int32
+    write: Int32
+}
+
+struct Pipe {
+    read: Int
+    write: Int
+}
+
+func make_pipe() unsafe -> Pipe {
+    var ends = Ends(read: 0 as Int32, write: 0 as Int32)
+    if pipe((&ends) as UnsafePointer<Int32>) != (0 as Int32) {
+        panic("pipe failed")
+    }
+    Pipe(read: ends.read as Int, write: ends.write as Int)
+}
+
+func put_byte(fd: Int, byte: Int) unsafe {
+    var b = byte as Int8
+    if write(fd as Int32, (&b) as UnsafePointer<Int8>, 1) != 1 {
+        panic("write failed")
+    }
+}
+
+func take_byte(fd: Int) unsafe -> Int {
+    var b: Int8 = 0
+    if read(fd as Int32, (&b) as UnsafePointer<Int8>, 1) != 1 {
+        panic("read failed")
+    }
+    b as Int
+}
+
+func shut(fd: Int) unsafe {
+    let _ = close(fd as Int32)
+}
+
+func reader(fd: Int) -> Int {
+    print("reader parks")
+    let outcome = fd_wait(fd, 0, 0)
+    print("reader: {}", outcome)
+    take_byte(fd)
+}
+
+func ready_already(p: Pipe) -> Int {
+    print("driven frame: write end {}", fd_wait(p.write, 1, 0))
+    print("driven frame: read end {}", fd_wait(p.read, 0, 0))
+    take_byte(p.read)
+}
+
+// The drive site sits in an unframed function, since `main` suspends.
+func drive_ready(p: Pipe) -> Int {
+    __saw_drive(ready_already(p))
+}
+
+func main() {
+    let p = make_pipe()
+    let task = Task.spawn(reader(p.read))
+    yield_now()
+    print("main writes")
+    put_byte(p.write, 120)
+    print("reader read {}", task.join())
+
+    put_byte(p.write, 121)
+    print("main: read end {}", fd_wait(p.read, 0, 0))
+    print("main read {}", take_byte(p.read))
+
+    put_byte(p.write, 122)
+    print("drive read {}", drive_ready(p))
+    shut(p.read)
+    shut(p.write)
+}

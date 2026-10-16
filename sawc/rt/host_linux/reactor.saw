@@ -50,7 +50,12 @@ extern "C" {
     // The `struct epoll_event` layout for this target (DF-113a, shim.c).
     func __saw_epoll_event_size() -> Int
     func __saw_epoll_data_offset() -> Int
+    // errno lives behind __errno_location() on Linux (returns `int*`).
+    func __errno_location() -> UnsafePointer<Int32>
 }
+
+// EEXIST: the fd is already in this epoll set, so the arm is a re-arm.
+static EEXIST: Int = 17
 
 // The reactor instance: the epoll fd, the eventfd every thread is woken
 // through, and the count of threads at the blocking `epoll_wait` call (the
@@ -107,11 +112,16 @@ func rt_reactor_create() unsafe -> Int {
 }
 
 // Arm one-shot readiness on `fd` for read (w==0) or write (w!=0). `token` is the
-// parked frame's `__wake`-word address, stored as epoll_event.data; 0 comes
-// from a registration made outside any frame (see the header). A failed arm is
-// not reported: the `epoll_ctl` results are ignored (SL-354).
+// parked task's park-word address, stored as epoll_event.data; 0 comes from a
+// registration made outside any frame (see the header).
+//
+// Returns 0 when armed, else errno, as the kqueue side does. ADD is tried
+// first; EEXIST means the fd is already in the set (a one-shot that fired
+// stays registered, disarmed), so that one case re-arms with MOD and reports
+// MOD's outcome. Every other ADD failure (EBADF for a closed fd, EPERM for a
+// file epoll cannot watch, ENOMEM, ...) is reported as it is (SL-354).
 @export("__saw_rt_reactor_register")
-func rt_reactor_register(r: Int, fd: Int, w: Int, token: Int) unsafe {
+func rt_reactor_register(r: Int, fd: Int, w: Int, token: Int) unsafe -> Int {
     let rp = r as UnsafePointer<Reactor>
     let epfd = rp[0].fd
     var ev = EpollEv(lo: 0, hi: 0)
@@ -120,12 +130,19 @@ func rt_reactor_register(r: Int, fd: Int, w: Int, token: Int) unsafe {
     (evp as UnsafePointer<UInt32>)[0] = events           // events @ byte 0
     let datap = (evp + __saw_epoll_data_offset()) as UnsafePointer<Int>
     datap[0] = token
-    // EPOLL_CTL_ADD, and on any failure (EEXIST for a known fd) re-arm with
-    // EPOLL_CTL_MOD.
     let r0 = epoll_ctl(epfd as Int32, EPOLL_CTL_ADD, fd as Int32, evp)
-    if r0 != (0 as Int32) {
-        epoll_ctl(epfd as Int32, EPOLL_CTL_MOD, fd as Int32, evp)
+    if r0 == (0 as Int32) {
+        return 0
     }
+    let add_errno = __errno_location()[0] as Int
+    if add_errno != EEXIST {
+        return add_errno
+    }
+    let r1 = epoll_ctl(epfd as Int32, EPOLL_CTL_MOD, fd as Int32, evp)
+    if r1 != (0 as Int32) {
+        return __errno_location()[0] as Int
+    }
+    0
 }
 
 // Drop readiness interest on `fd`: the epoll mirror of the kqueue EV_DELETE.
@@ -152,11 +169,16 @@ func rt_reactor_post(efd: Int) unsafe {
     write(efd as Int32, (&one) as UnsafePointer<Int8>, 8)
 }
 
+// Latches the token word `word` from parked (-1) to ready (0).
+func latch_ready(word: &Atomic<Int>) {
+    let _ = word.compare_exchange(-1, 0)
+}
+
 // Block in epoll_wait up to `timeout_ms` (< 0 = forever), latch each ready
-// event's nonzero data token word to 0 (ready), and pass a consumed wake on to
-// the next blocked poller. Returns the number of events delivered, a consumed
-// wake event included. A per-call heap event buffer keeps concurrent polls
-// independent.
+// event's nonzero data token word from parked (-1) to ready (0), and pass a
+// consumed wake on to the next blocked poller. Returns the number of events
+// delivered, a consumed wake event included. A per-call heap event buffer
+// keeps concurrent polls independent.
 @export("__saw_rt_reactor_poll")
 func rt_reactor_poll(r: Int, timeout_ms: Int) unsafe -> Int {
     let rp = r as UnsafePointer<Reactor>
@@ -178,8 +200,11 @@ func rt_reactor_poll(r: Int, timeout_ms: Int) unsafe -> Int {
         let datap = (buf + (i * ev_size + data_off)) as UnsafePointer<Int>
         let ud = datap[0]
         if ud != 0 {
-            let tokptr = ud as UnsafePointer<Int>
-            tokptr[0] = 0
+            // A compare-and-swap from parked (-1) to ready (0), as on kqueue:
+            // a word whose park has ended is left alone (SL-355).
+            let tokptr = ud as UnsafePointer<Atomic<Int>>
+            // Stage 0 workaround (SL:hazards S15): canonical: let _ = tokptr[0].compare_exchange(-1, 0)
+            latch_ready(&tokptr[0])
         } else {
             woke = true
         }

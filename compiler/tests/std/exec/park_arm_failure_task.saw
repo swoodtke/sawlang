@@ -1,0 +1,54 @@
+// expect-panic: reactor: arming fd 3 for read readiness failed (errno 9)
+// A failed reactor arm is reported, never swallowed (SL:coroutines A12a; the
+// port of SL-355's `reactor_arm_failure_panics_in_task`). A task waits on a
+// descriptor closed under it: arming readiness on a closed descriptor fails
+// with EBADF, errno 9 on macOS and Linux alike, and the arm panics naming the
+// descriptor, the direction and the code, where a silent failure would leave
+// the task parked forever on an event that cannot arrive.
+//
+// The pipe takes descriptors 3 and 4. The first wait, on the write end, which
+// is writable at once, succeeds and creates the reactor, whose own descriptor
+// therefore cannot land on 3 once it is closed.
+
+import std.task.{fd_wait}
+
+extern "C" {
+    func pipe(fds: UnsafePointer<Int32>) -> Int32
+    func close(fd: Int32) -> Int32
+}
+
+struct Ends {
+    read: Int32
+    write: Int32
+}
+
+struct Pipe {
+    read: Int
+    write: Int
+}
+
+func make_pipe() unsafe -> Pipe {
+    var ends = Ends(read: 0 as Int32, write: 0 as Int32)
+    if pipe((&ends) as UnsafePointer<Int32>) != (0 as Int32) {
+        panic("pipe failed")
+    }
+    Pipe(read: ends.read as Int, write: ends.write as Int)
+}
+
+func shut(fd: Int) unsafe {
+    let _ = close(fd as Int32)
+}
+
+func wait_on(p: Pipe) -> Int {
+    print("write end: {}", fd_wait(p.write, 1, 0))
+    shut(p.read)
+    print("waiting on the closed read end {}", p.read)
+    print("read end: {}", fd_wait(p.read, 0, 0))
+    p.read
+}
+
+func main() {
+    let p = make_pipe()
+    let task = Task.spawn(wait_on(p))
+    print("joined {}", task.join())
+}

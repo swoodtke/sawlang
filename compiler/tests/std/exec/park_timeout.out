@@ -1,0 +1,9 @@
+the task: timed out after its deadline: true
+main joined: timed out
+main: timed out after its deadline: true
+the driven frame: timed out after its deadline: true
+main drove: timed out
+the ready wait: ready after its deadline: false
+main joined: ready
+it resumed within a second: true
+main read 7

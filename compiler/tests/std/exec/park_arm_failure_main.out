@@ -1,0 +1,3 @@
+write end: ready
+waiting on the closed write end 4
+panic at ?: reactor: arming fd 4 for write readiness failed (errno 9)

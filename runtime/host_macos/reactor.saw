@@ -35,6 +35,8 @@ extern "C" {
     func calloc(count: Int, size: Int) -> UnsafePointer<Int8>
     func malloc(size: Int) -> UnsafePointer<Int8>
     func free(ptr: UnsafePointer<Int8>)
+    // errno lives behind __error() on macOS (returns `int*`).
+    func __error() -> UnsafePointer<Int32>
 }
 
 // The reactor instance: the kqueue fd, plus the count of threads at the
@@ -95,17 +97,25 @@ func rt_reactor_create() unsafe -> Int {
 }
 
 // Arm one-shot readiness on `fd` for read (w==0) or write (w!=0). `token` is the
-// parked frame's `__wake`-word address, carried as kevent.udata; 0 (a
-// registration made outside any frame) is never latched. A failed arm is not
-// reported: the `kevent` result is ignored (SL-354).
+// parked task's park-word address, carried as kevent.udata; 0 (a registration
+// made outside any frame) is never latched.
+//
+// Returns 0 when armed, else errno. With an empty event list kevent reports a
+// failed change as -1 and errno (EBADF for a closed fd, ENOMEM, ...); a
+// failure that went unreported would leave its task parked on an event that
+// can never arrive, which reads exactly like a lost wake (SL-354).
 @export("__saw_rt_reactor_register")
-func rt_reactor_register(r: Int, fd: Int, w: Int, token: Int) unsafe {
+func rt_reactor_register(r: Int, fd: Int, w: Int, token: Int) unsafe -> Int {
     let rp = r as UnsafePointer<Reactor>
     let kfd = rp[0].fd
     let filt: Int16 = if w != 0 { -2 } else { -1 }
     var kev = KEvent(ident: fd, filter: filt, flags: EV_ADD_ONESHOT, fflags: 0 as UInt32, data: 0, udata: token)
     let nullp = 0 as UnsafePointer<Int8>
-    kevent(kfd as Int32, (&kev) as UnsafePointer<Int8>, 1, nullp, 0, nullp)
+    let rc = kevent(kfd as Int32, (&kev) as UnsafePointer<Int8>, 1, nullp, 0, nullp)
+    if rc < (0 as Int32) {
+        return __error()[0] as Int
+    }
+    0
 }
 
 // Drop readiness interest on `fd` for read (w==0) or write (w!=0).
@@ -120,7 +130,7 @@ func rt_reactor_register(r: Int, fd: Int, w: Int, token: Int) unsafe {
 //
 // Idempotent: EV_DELETE against an already-fired one-shot, a closed fd, or an
 // fd that was never armed returns ENOENT/EBADF, the "nothing is armed" state
-// the caller asked for, so the result is ignored.
+// the caller asked for, so the result is ignored, where the register's is not.
 @export("__saw_rt_reactor_unregister")
 func rt_reactor_unregister(r: Int, fd: Int, w: Int) unsafe {
     let rp = r as UnsafePointer<Reactor>
@@ -138,11 +148,16 @@ func rt_reactor_trigger(kfd: Int) unsafe {
     kevent(kfd as Int32, (&kev) as UnsafePointer<Int8>, 1, nullp, 0, nullp)
 }
 
+// Latches the token word `word` from parked (-1) to ready (0).
+func latch_ready(word: &Atomic<Int>) {
+    let _ = word.compare_exchange(-1, 0)
+}
+
 // Block in kevent up to `timeout_ms` (< 0 = forever), latch each ready event's
-// nonzero udata token word to 0 (ready), and pass a consumed wake on to the
-// next blocked poller. Returns the number of events delivered, a consumed wake
-// event included. A per-call heap event buffer keeps concurrent polls
-// independent.
+// nonzero udata token word from parked (-1) to ready (0), and pass a consumed
+// wake on to the next blocked poller. Returns the number of events delivered,
+// a consumed wake event included. A per-call heap event buffer keeps
+// concurrent polls independent.
 @export("__saw_rt_reactor_poll")
 func rt_reactor_poll(r: Int, timeout_ms: Int) unsafe -> Int {
     let rp = r as UnsafePointer<Reactor>
@@ -165,8 +180,14 @@ func rt_reactor_poll(r: Int, timeout_ms: Int) unsafe -> Int {
         }
         let ud = evs[i].udata
         if ud != 0 {
-            let tokptr = ud as UnsafePointer<Int>
-            tokptr[0] = 0
+            // The latch is a compare-and-swap from parked (-1) to ready (0).
+            // The parking side stored -1 before it armed, so the swap finds
+            // it; a word that has moved on since (its park ended by a cancel
+            // or a deadline, and the task now sleeps or parks elsewhere) is
+            // left alone (SL-355).
+            let tokptr = ud as UnsafePointer<Atomic<Int>>
+            // Stage 0 workaround (SL:hazards S15): canonical: let _ = tokptr[0].compare_exchange(-1, 0)
+            latch_ready(&tokptr[0])
         }
         i = i + 1
     }

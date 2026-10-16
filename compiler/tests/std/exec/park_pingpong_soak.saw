@@ -1,0 +1,114 @@
+// A task parked on a descriptor is woken exactly once and never lost: the
+// shape of SL-355's `park_wake_net_stress` (`tools/parksoak.py`'s program),
+// with the plan's vocabulary (SL:coroutines A12a). Each pair of tasks shares
+// two pipes and ping-pongs a byte over them, so every read really parks and
+// its readiness is made by the peer. Every exchange has to arrive for the
+// total to be exact, and a lost wake stalls the program, which the lane's
+// timeout reports.
+//
+// Reshaped from the original: pipes stand in for `TcpStream.pair` (std.net is
+// SL-570's), one cooperative thread runs every task where the original ran
+// `TaskGroup(threads: 4)` (SL-578), and the lane's timeout stands in for the
+// original's watchdog thread (`Thread.spawn`, SL-765). The oversubscribed,
+// multi-threaded soak waits for those units.
+
+import std.task.{fd_wait}
+
+extern "C" {
+    func pipe(fds: UnsafePointer<Int32>) -> Int32
+    func read(fd: Int32, buf: UnsafePointer<Int8>, count: Int) -> Int
+    func write(fd: Int32, buf: UnsafePointer<Int8>, count: Int) -> Int
+    func close(fd: Int32) -> Int32
+}
+
+struct Ends {
+    read: Int32
+    write: Int32
+}
+
+struct Pipe {
+    read: Int
+    write: Int
+}
+
+func make_pipe() unsafe -> Pipe {
+    var ends = Ends(read: 0 as Int32, write: 0 as Int32)
+    if pipe((&ends) as UnsafePointer<Int32>) != (0 as Int32) {
+        panic("pipe failed")
+    }
+    Pipe(read: ends.read as Int, write: ends.write as Int)
+}
+
+func put_byte(fd: Int) unsafe {
+    var b: Int8 = 120
+    if write(fd as Int32, (&b) as UnsafePointer<Int8>, 1) != 1 {
+        panic("write failed")
+    }
+}
+
+func take_byte(fd: Int) unsafe -> Int {
+    var b: Int8 = 0
+    if read(fd as Int32, (&b) as UnsafePointer<Int8>, 1) != 1 {
+        panic("read failed")
+    }
+    1
+}
+
+func shut(fd: Int) unsafe {
+    let _ = close(fd as Int32)
+}
+
+// Parks until `fd` is readable, then reads its one byte.
+func receive(fd: Int) -> Int {
+    let outcome = fd_wait(fd, 0, 0)
+    if not outcome.equals("ready") {
+        panic("a wait ended {}", outcome)
+    }
+    take_byte(fd)
+}
+
+// One side of a pair: `rounds` one-byte exchanges, the starter sending first.
+func side(out: Int, from: Int, rounds: Int, starter: Bool) -> Int {
+    var total = 0
+    var i = 0
+    while i < rounds {
+        if starter {
+            put_byte(out)
+            total = total + receive(from)
+        } else {
+            total = total + receive(from)
+            put_byte(out)
+        }
+        i = i + 1
+    }
+    total
+}
+
+func main() {
+    let pairs = 4
+    let rounds = 200
+    var pipes = Vector<Pipe>()
+    var group = TaskGroup()
+    var handles = Vector<Task<Int>>()
+    var p = 0
+    while p < pairs {
+        let there = make_pipe()
+        let back = make_pipe()
+        try! pipes.push(there)
+        try! pipes.push(back)
+        try! handles.push(group.spawn(side(there.write, back.read, rounds, true)))
+        try! handles.push(group.spawn(side(back.write, there.read, rounds, false)))
+        p = p + 1
+    }
+    var total = 0
+    while let h = handles.pop() {
+        total = total + h.join()
+    }
+    print("total={}", total)
+    var k = 0
+    while k < pipes.len() {
+        shut(pipes[k].read)
+        shut(pipes[k].write)
+        k = k + 1
+    }
+}

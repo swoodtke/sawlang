@@ -1,0 +1,116 @@
+// A cancel wakes a task parked on a descriptor that never becomes ready, and
+// its wait reports "cancelled" (SL:coroutines A12a, SL-569 c2). The pipe here
+// is never written while a task waits on it, so only the cancel can end the
+// wait: an unbounded one would hang the program, and a bounded one would run
+// to its ten-minute deadline and report "timed out", since the cancel word is
+// read after the park and ahead of the clock.
+//
+// A wait that ends without its descriptor withdraws its registration. The
+// reactor carries the address of the waiting task's park word, and a task's
+// cell is freed once it is joined, so the next task's cell may sit where the
+// last one's did. A second task that waits on the same descriptor with a
+// short deadline times out rather than waking. And while a third task waits on
+// another pipe, a write to the first pipe wakes nothing: the third task
+// resumes only after `main` writes to its own pipe.
+
+import std.task.{fd_wait, yield_now}
+import std.taskgroup.{__saw_exec_timer_deadline}
+import std.time.{Instant}
+
+extern "C" {
+    func pipe(fds: UnsafePointer<Int32>) -> Int32
+    func read(fd: Int32, buf: UnsafePointer<Int8>, count: Int) -> Int
+    func write(fd: Int32, buf: UnsafePointer<Int8>, count: Int) -> Int
+    func close(fd: Int32) -> Int32
+}
+
+struct Ends {
+    read: Int32
+    write: Int32
+}
+
+struct Pipe {
+    read: Int
+    write: Int
+}
+
+func make_pipe() unsafe -> Pipe {
+    var ends = Ends(read: 0 as Int32, write: 0 as Int32)
+    if pipe((&ends) as UnsafePointer<Int32>) != (0 as Int32) {
+        panic("pipe failed")
+    }
+    Pipe(read: ends.read as Int, write: ends.write as Int)
+}
+
+func put_byte(fd: Int, byte: Int) unsafe {
+    var b = byte as Int8
+    if write(fd as Int32, (&b) as UnsafePointer<Int8>, 1) != 1 {
+        panic("write failed")
+    }
+}
+
+func take_byte(fd: Int) unsafe -> Int {
+    var b: Int8 = 0
+    if read(fd as Int32, (&b) as UnsafePointer<Int8>, 1) != 1 {
+        panic("read failed")
+    }
+    b as Int
+}
+
+func shut(fd: Int) unsafe {
+    let _ = close(fd as Int32)
+}
+
+func waiter(label: String, fd: Int, deadline: UInt64) -> String {
+    print("{} parks", label)
+    let outcome = fd_wait(fd, 0, deadline)
+    print("{}: {}", label, outcome)
+    outcome
+}
+
+func reader(label: String, fd: Int) -> Int {
+    print("{} parks", label)
+    let outcome = fd_wait(fd, 0, 0)
+    print("{}: {}", label, outcome)
+    take_byte(fd)
+}
+
+func main() {
+    let quiet = make_pipe()
+    let other = make_pipe()
+
+    let unbounded = Task.spawn(waiter("the unbounded wait", quiet.read, 0))
+    yield_now()
+    print("main cancels the unbounded wait")
+    unbounded.cancel()
+    print("main joined: {}", unbounded.join())
+
+    let ten_minutes: UInt64 = 600_000_000_000
+    let bounded = Task.spawn(waiter("the bounded wait", quiet.read, __saw_exec_timer_deadline(ten_minutes)))
+    yield_now()
+    let start = Instant.now()
+    print("main cancels the bounded wait")
+    bounded.cancel()
+    print("main joined: {}", bounded.join())
+    print("it resumed within a second: {}", start.elapsed().as_millis() < 1000)
+
+    let fifty_millis: UInt64 = 50_000_000
+    let again = Task.spawn(waiter("a second wait on the same descriptor", quiet.read,
+                                  __saw_exec_timer_deadline(fifty_millis)))
+    print("main joined: {}", again.join())
+
+    let third = Task.spawn(reader("the wait on the other pipe", other.read))
+    yield_now()
+    print("main writes to the first pipe")
+    put_byte(quiet.write, 1)
+    sleep(Duration.ms(20))
+    print("main slept")
+    print("main writes to the other pipe")
+    put_byte(other.write, 2)
+    print("main joined: read {}", third.join())
+
+    shut(quiet.read)
+    shut(quiet.write)
+    shut(other.read)
+    shut(other.write)
+}

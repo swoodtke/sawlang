@@ -4,7 +4,8 @@
 //! `cancelled` reads whether the running task has been asked to stop. `sleep`
 //! and `cancelled` are in the prelude; `yield_now` needs `import std.task`.
 
-import std.taskgroup.{FrameDescriptor, TaskContext, __saw_exec_drive_main}
+import std.taskgroup.{FrameDescriptor, TaskContext, __saw_exec_deadline_passed, __saw_exec_drive_main}
+import std.taskgroup.{__saw_exec_io_unregister}
 
 /// Cedes to the other ready tasks; the caller resumes once they have had a
 /// turn.
@@ -30,6 +31,49 @@ public func sleep(duration: Duration) {
 /// asks here where it chooses to. Outside a task the answer is `false`.
 public func cancelled() -> Bool {
     __saw_cancel_requested()
+}
+
+// How a descriptor wait ended (`io_wait`).
+public(package) enum IoWaitOutcome {
+    // The descriptor became ready.
+    case Ready,
+    // The wait's deadline passed first.
+    case TimedOut,
+    // The task was asked to stop.
+    case Cancelled
+}
+
+// Parks the running task until descriptor `fd` is ready, for reading when
+// `dir` is 0 and for writing when it is 1, or until the monotonic instant
+// `deadline`, in nanoseconds, when it is nonzero, or until the task is
+// cancelled, and reports which. The raw layer std's descriptor-backed types
+// drive; it is not part of the public surface.
+//
+// A wait that ends without its descriptor withdraws the registration it
+// armed, before the task can end, since the reactor holds the address of the
+// task's park word.
+public(package) func io_wait(fd: Int, dir: Int, deadline: UInt64) -> IoWaitOutcome {
+    if deadline == 0 {
+        __saw_park_fd(fd, dir)
+    } else {
+        __saw_park_fd_until(fd, dir, deadline)
+    }
+    // The cancel word is read after the park and ahead of the clock, so a
+    // cancel reports as such even when the deadline passed meanwhile.
+    if __saw_cancel_requested() {
+        __saw_exec_io_unregister(fd, dir)
+        return IoWaitOutcome.Cancelled
+    }
+    // A frame cannot read why its park woke, since the executor rewrites the
+    // park word before every resume, so the clock decides: a deadline that
+    // has passed reports TimedOut, even when the descriptor became ready in
+    // the same instant. A caller retries its operation before it honours the
+    // timeout, as Stage 0's net layer does, so that data is still found.
+    if deadline != 0 && __saw_exec_deadline_passed(deadline) {
+        __saw_exec_io_unregister(fd, dir)
+        return IoWaitOutcome.TimedOut
+    }
+    IoWaitOutcome.Ready
 }
 
 // The park points (SL:coroutines §3.1). Each is a lang item whose calls

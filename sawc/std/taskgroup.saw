@@ -128,8 +128,9 @@ extern "C" {
     func __saw_rt_reactor_destroy(r: Int)
     // Arm one-shot readiness on `fd` in `r` (write==0 => read). `token` is the
     // parked task's ROOT frame `__wake`-word address (a nested frame hands
-    // that token down), or 0 from outside any frame.
-    func __saw_rt_reactor_register(r: Int, fd: Int, write: Int, token: Int)
+    // that token down), or 0 from outside any frame. Returns 0 when armed,
+    // else the platform's errno.
+    func __saw_rt_reactor_register(r: Int, fd: Int, write: Int, token: Int) -> Int
     // Drop an armed registration that never fired, so a token pointing into a
     // frame cannot outlive the frame. Idempotent: unregistering an
     // already-fired one-shot or an unarmed fd is a no-op.
@@ -167,7 +168,9 @@ extern "C" {
 // to the executor module (not `public`), so no user-facing `Reactor` or
 // `SystemReactor` name can collide with it.
 trait Reactor {
-    func register(&self, fd: Int, dir: Int, token: Int)
+    // 0 when readiness is armed, else the platform's error code, which the
+    // executor's arm funnel turns into a panic.
+    func register(&self, fd: Int, dir: Int, token: Int) -> Int
     // The inverse of `register`. A park that ends without its event firing
     // must drop the registration, or the token (an address inside the frame)
     // outlives the frame that owns it.
@@ -186,7 +189,7 @@ struct SystemReactor {
 }
 
 extension SystemReactor: Reactor {
-    func register(&self, fd: Int, dir: Int, token: Int) {
+    func register(&self, fd: Int, dir: Int, token: Int) -> Int {
         __saw_rt_reactor_register(self.instance, fd, dir, token)
     }
     func unregister(&self, fd: Int, dir: Int) {
@@ -538,9 +541,36 @@ func __saw_exec_park_flag_loop(wake: Int) unsafe {
 // Synthesized IR cannot do trait dispatch, so the arm goes through this Saw
 // function to reach the `Reactor` trait. `dir` is the direction word
 // (0 = read); `token` is the parked task's root-frame `__wake`-word address,
-// or 0 from outside any frame. A failed arm is not reported (SL-354).
-func __saw_exec_io_register(fd: Int, dir: Int, token: Int) {
-    __saw_host_reactor().register(fd, dir, token)
+// or 0 from outside any frame.
+//
+// The park is established here, before the arm: the funnel writes the io park
+// value through `token` first, so every latch a poller can make, from any
+// thread, lands after the park store and is never erased by it (SL-355).
+//
+// A failed arm panics, naming the fd, the direction and the code. None of the
+// callers has an error channel to send it down (the park is lowered from
+// `io_wait` and from blocking calls), and there is nothing to recover: the fd
+// was closed under the park or was never pollable, and a silent failure would
+// park the task forever, which reads exactly like a lost wake.
+func __saw_exec_io_register(fd: Int, dir: Int, token: Int) unsafe {
+    if token != 0 {
+        // The word is an `Atomic<Int>` frame field: this store and the poll's
+        // compare-and-swap latch are sequentially consistent on one cell.
+        let word = token as UnsafePointer<Atomic<Int>>
+        // Stage 0 workaround (SL:hazards S15): canonical: word[0].store(WAKE_IO)
+        __saw_exec_store_park(&word[0], WAKE_IO)
+    }
+    let code = __saw_host_reactor().register(fd, dir, token)
+    if code != 0 {
+        let direction = if dir != 0 { "write" } else { "read" }
+        panic("reactor: arming fd {} for {} readiness failed (errno {})", fd, direction, code)
+    }
+}
+
+// Stores park value `value` into the wake word `word`. Declared `sync`, so
+// sawc2's view of this std needs no suspension-table row for it.
+func __saw_exec_store_park(word: &Atomic<Int>, value: Int) sync {
+    word.store(value)
 }
 
 // The disarm entry point; `io_unwait` lowers to it. std's park loops call it
