@@ -1678,7 +1678,7 @@ import150_qualified_trait.saw	refused	typecheck slice.not-yet	a method call on `
 import150_qualifier_collision_alias.saw	pass	-	-
 import150_qualifier_collision_error.saw	pass	-	import.duplicate-qualifier: two imports bind the qualifier `data`: `std.data` and `data`
 import150_shadowed_qualifier_error.saw	refused	typecheck member.unknown	`Int` has no method `Data` this module can see
-import150_std_forms.saw	refused	typecheck member.unknown	`std.path.Path` has no method `is_absolute` this module can see
+import150_std_forms.saw	pass	-	-
 import150_std_qualified_positions.saw	refused	typecheck slice.not-yet	`syntax.expr.optional-member` is not in the bootstrap slice yet
 import150_warn_shadowed_qualifier.saw	refused	driver driver.usage	sawc2 build takes no -W
 import150_weak_qualifier.saw	pass	-	-

@@ -79,6 +79,9 @@ RUNTIME_ABI_SYMBOLS = frozenset({
     "__saw_rt_fs_write",
     "__saw_rt_fs_lseek",
     "__saw_rt_fs_opendir",
+    # The working directory, status-carrying like opendir, so `Env.cwd` reports
+    # getcwd's cause (SL-720)
+    "__saw_rt_fs_getcwd",
     # `struct dirent` name projection — the one OS-divergent part of a readdir
     # walk (design 122 unit F)
     "__saw_rt_fs_dirent_name",

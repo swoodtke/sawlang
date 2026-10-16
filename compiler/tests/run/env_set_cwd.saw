@@ -1,0 +1,18 @@
+// Env.set_cwd moves the working directory, which a relative path then
+// resolves against, and surfaces the Err of a directory that is missing.
+import std.env.{Env}
+import std.file.{File}
+import std.path.{Path}
+
+func main() {
+    try! Env.set_cwd(Path(s: "/"))
+    print(File.exists(Path(s: "etc")))
+    print(File.exists(Path(s: "no_such_entry_in_the_root")))
+
+    match Env.set_cwd(Path(s: "/no_such_directory_for_set_cwd")) {
+        case Ok(_) -> print("set_cwd UNEXPECTED ok"),
+        case Err(_) -> print("set_cwd missing: surfaced")
+    }
+    // The failed call leaves the directory where it was.
+    print(File.exists(Path(s: "etc")))
+}

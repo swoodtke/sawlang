@@ -11,8 +11,124 @@ extension Path {
         Path(text: s)
     }
 
-    // The path's text, which `std.file` hands to the runtime.
-    public(package) func as_string(&self) -> String {
+    /// Returns the path's text, exactly as it was built.
+    public func as_string(&self) -> String {
         self.text
+    }
+
+    /// Returns the path without its last component, or `None` when there is
+    /// nothing to remove: an empty path, `/`, or text with no `/` in it.
+    /// The parent of `/a` is `/`; a trailing `/` is a component of its own,
+    /// so the parent of `a/b/` is `a/b`.
+    public func parent(&self) -> Path? {
+        let len = self.text.len()
+        if len == 0 {
+            return None
+        }
+        guard let last_separator = self.text.last_index_of(47) else {  // '/'
+            return None
+        }
+        if last_separator == 0 {
+            if len == 1 {
+                return None
+            }
+            return Path(text: "/")
+        }
+        Path(text: self.text.substring(0, last_separator))
+    }
+
+    /// Returns the text after the last `/`, or `None` for an empty path or
+    /// one that ends in `/`. A path with no `/` is its own file name.
+    public func file_name(&self) -> String? {
+        let len = self.text.len()
+        if len == 0 {
+            return None
+        }
+        guard let last_separator = self.text.last_index_of(47) else {  // '/'
+            return self.text
+        }
+        if last_separator == len - 1 {
+            return None
+        }
+        self.text.substring(last_separator + 1, len)
+    }
+
+    /// Returns the file name's extension, without the dot, or `None` when the
+    /// name has no dot, starts with its only dot (`.gitignore`), or ends in
+    /// one.
+    public func file_extension(&self) -> String? {
+        guard let name = self.file_name() else {
+            return None
+        }
+        guard let last_dot = name.last_index_of(46) else {  // '.'
+            return None
+        }
+        let len = name.len()
+        if last_dot == 0 || last_dot == len - 1 {
+            return None
+        }
+        name.substring(last_dot + 1, len)
+    }
+
+    /// Returns the file name without its extension, or `None` when the path
+    /// has no file name. A name that starts with its only dot is returned
+    /// whole.
+    public func stem(&self) -> String? {
+        guard let name = self.file_name() else {
+            return None
+        }
+        guard let last_dot = name.last_index_of(46) else {  // '.'
+            return name
+        }
+        if last_dot == 0 {
+            return name
+        }
+        name.substring(0, last_dot)
+    }
+
+    /// Returns this path followed by `other`, with one `/` between them.
+    ///
+    /// An absolute `other` replaces this path entirely, an empty component on
+    /// either side yields the other one, and no `/` is added after a trailing
+    /// one. Panics if the allocator refuses the new text, as every `String`
+    /// producer does.
+    public func join(&self, other: String) -> Path {
+        if self.text.len() == 0 {
+            return Path(text: other)
+        }
+        if other.len() == 0 {
+            return Path(text: self.text)
+        }
+        if other.byte_at(0) == 47 {  // '/'
+            return Path(text: other)
+        }
+        var joined = StringBuilder()
+        try! joined.append(self.text)
+        let last = self.text.len() - 1
+        if self.text.byte_at(last) != 47 {
+            try! joined.append(47 as Byte)
+        }
+        try! joined.append(other)
+        Path(text: joined.build())
+    }
+
+    /// Returns this path followed by `other`, joined as `join` does.
+    public func join_path(&self, other: Path) -> Path {
+        self.join(other.text)
+    }
+
+    /// Returns whether the path starts with `/`.
+    public func is_absolute(&self) -> Bool {
+        self.text.len() > 0 && self.text.byte_at(0) == 47  // '/'
+    }
+
+    /// Returns whether the path is not absolute; the empty path is relative.
+    public func is_relative(&self) -> Bool {
+        not self.is_absolute()
+    }
+
+    /// Returns whether the path's text is empty.
+    public func is_empty(&self) -> Bool {
+        self.text.len() == 0
     }
 }

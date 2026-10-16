@@ -1,0 +1,55 @@
+// probe: stated
+// about: Path.file_extension, stem beside it, and Env.cwd after Env.set_cwd (SL-720)
+// stage 0: names the accessor `ext` and returns `Path?` from Env.cwd, where the new std names `file_extension` and returns a Result
+// speeds: -O0 -O2
+// prints: dir/file.txt -> [txt] stem [file]
+// prints: archive.tar.gz -> [gz] stem [archive.tar]
+// prints: file -> none stem [file]
+// prints: .gitignore -> none stem [.gitignore]
+// prints: dir/.hidden -> none stem [.hidden]
+// prints: trailing. -> none stem [trailing]
+// prints: dir.d/file -> none stem [file]
+// prints: a/b/ -> none stem none
+// prints:  -> none stem none
+// prints: cwd absolute true
+// prints: cwd after set_cwd root is absolute true, named none
+// A file's extension is the text after the last dot of its name; a name that
+// starts with its only dot (`.gitignore`), ends in a dot, or has no dot has
+// none, and a dot in a directory's name does not count. The expectations are
+// Stage 0's `ext` answers for the same paths, recorded by hand.
+import std.env.{Env}
+import std.path.{Path}
+
+func word(text: String?) -> String {
+    if let t = text {
+        var out = StringBuilder()
+        try! out.append("[")
+        try! out.append(t)
+        try! out.append("]")
+        return out.build()
+    }
+    "none"
+}
+
+func report(text: String) {
+    let p = Path(s: text)
+    print("{} -> {} stem {}", text, word(p.file_extension()), word(p.stem()))
+}
+
+func main() {
+    report("dir/file.txt")
+    report("archive.tar.gz")
+    report("file")
+    report(".gitignore")
+    report("dir/.hidden")
+    report("trailing.")
+    report("dir.d/file")
+    report("a/b/")
+    report("")
+
+    let here = try! Env.cwd()
+    print("cwd absolute {}", here.is_absolute())
+    try! Env.set_cwd(Path(s: "/"))
+    let root = try! Env.cwd()
+    print("cwd after set_cwd root is absolute {}, named {}", root.is_absolute(), word(root.file_name()))
+}

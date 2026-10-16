@@ -1,0 +1,48 @@
+// Path.join and join_path over the edges that decide them: an absolute other
+// replaces the path, an empty side yields the other, and a trailing separator
+// takes no second one. A Path's text is not public, so each result is spelled
+// by walking its file names from the leaf up through parent().
+import std.path.{Path}
+
+func spell(p: Path) -> String {
+    var out = StringBuilder()
+    var here = p
+    var more = true
+    while more {
+        if let name = here.file_name() {
+            try! out.append(name)
+        } else {
+            try! out.append("-")
+        }
+        try! out.append("<")
+        if let up = here.parent() {
+            here = up
+        } else {
+            more = false
+        }
+    }
+    try! out.append(if p.is_absolute() { "abs" } else { "rel" })
+    return out.build()
+}
+
+func show(label: String, p: Path) {
+    print("{} = {}", label, spell(p))
+}
+
+func main() {
+    show("a/b + c", Path(s: "a/b").join("c"))
+    show("a/b/ + c", Path(s: "a/b/").join("c"))
+    show("a/b + /c", Path(s: "a/b").join("/c"))
+    show("a/b + empty", Path(s: "a/b").join(""))
+    show("empty + c", Path(s: "").join("c"))
+    show("empty + empty", Path(s: "").join(""))
+    show("/ + c", Path(s: "/").join("c"))
+    show("/a + b", Path(s: "/a").join("b"))
+    show("a// + c", Path(s: "a//").join("c"))
+    show("a + b/c", Path(s: "a").join("b/c"))
+    show("a + b/", Path(s: "a").join("b/"))
+    show("a + b path", Path(s: "a").join_path(Path(s: "b")))
+    show("a + absolute path", Path(s: "a").join_path(Path(s: "/b")))
+    show("a + empty path", Path(s: "a").join_path(Path(s: "")))
+    show("chain", Path(s: "/usr").join("local").join("lib/").join("x.so"))
+}

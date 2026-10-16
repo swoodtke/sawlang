@@ -478,6 +478,14 @@ captured right after). C-string args.
 - `__saw_rt_fs_mkdir(path: i8*, mode: word) -> word`
 - `__saw_rt_fs_rmdir(path: i8*) -> word`
 - `__saw_rt_fs_chdir(path: i8*) -> word`
+- `__saw_rt_fs_getcwd(status_out: word*) -> i8*` — the current working
+  directory as a NUL-terminated string the caller frees, or NULL. A pointer
+  cannot fold a tag into its return, so the status goes to the out-parameter as
+  `__saw_rt_fs_opendir`'s does: `0` on success, the POSITIVE tag on failure (a
+  removed working directory is `NotFound`). The hosted body calls
+  `getcwd(NULL, 0)`, which allocates a buffer sized to the path (POSIX leaves
+  that call unspecified; macOS and glibc define it), so no path is cut short
+  and no buffer size is guessed. The pointer comes back raw, as opendir's does.
 - `__saw_rt_fs_dirent_name(entry: i8*) -> i8*` — **OS-divergent** (design 122).
   The NUL-terminated name inside a `struct dirent` returned by `readdir`: the
   `d_name` offset is 21 on macOS and 19 on Linux, and it is the only divergent
@@ -956,6 +964,7 @@ a flag bit.
 | 272    | `__saw_rt_tcp_listen_with`, `__saw_rt_socket_set_option`      |
 | —      | `__saw_rt_tcp_listen_on`                                       |
 | D44    | `__saw_rt_executable_path`: one new symbol, required of every runtime because std calls it. sawos's runtime owes its NULL stub when that work resumes |
+| SL-720 | `__saw_rt_fs_getcwd`: one new symbol, status-carrying like `__saw_rt_fs_opendir`, so `Env.cwd` reports the cause getcwd gave. No existing signature moved |
 
 ## The compiler → executor boundary (design 118)
 

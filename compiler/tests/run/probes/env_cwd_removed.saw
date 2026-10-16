@@ -1,0 +1,69 @@
+// probe: stated
+// about: Env.cwd reports the cause getcwd gave once the working directory is removed (SL-720)
+// stage 0: returns `Path?` from Env.cwd, so the cause has nowhere to go
+// speeds: -O0 -O2
+// prints: made true
+// prints: removed true
+// prints: removed directory: not found
+// prints: kind is NotFound true
+// prints: back home true
+// A removed working directory is `NotFound`: the cause reaches the caller
+// through the runtime's status, rather than every failure reading as one kind.
+import std.env.{Env}
+import std.path.{Path}
+import std.systemerror.{SystemErrorKind}
+
+extern "C" {
+    func mkdir(path: UnsafePointer<Int8>, mode: Int) -> Int32
+    func rmdir(path: UnsafePointer<Int8>) -> Int32
+    func getpid() -> Int32
+}
+
+// rwxr-xr-x
+static DIRECTORY_MODE: Int = 493
+
+// Copies `path`'s text into `buffer` as a C string. The buffer's 4096 bytes
+// are written out because sawc2 does not yet take a static as an array length.
+func fill(buffer: &var [Int8; 4096], path: Path) {
+    let text = path.as_string()
+    let length = text.len()
+    assert(length < 4096, "path of {} bytes does not fit", length)
+    for i in 0..length {
+        buffer[i] = Int8.from(truncating: text.byte_at(i))
+    }
+    buffer[length] = 0
+}
+
+func make_directory(path: Path) unsafe -> Bool {
+    var buffer: [Int8; 4096] = [0; 4096]
+    fill(&var buffer, path)
+    mkdir((&buffer) as UnsafePointer<Int8>, DIRECTORY_MODE) == 0
+}
+
+func remove_directory(path: Path) unsafe -> Bool {
+    var buffer: [Int8; 4096] = [0; 4096]
+    fill(&var buffer, path)
+    rmdir((&buffer) as UnsafePointer<Int8>) == 0
+}
+
+func process_id() unsafe -> Int32 {
+    getpid()
+}
+
+func main() {
+    let home = try! Env.cwd()
+    let doomed = home.join("env_cwd_removed_{process_id()}")
+    print("made {}", make_directory(doomed))
+    try! Env.set_cwd(doomed)
+    print("removed {}", remove_directory(doomed))
+    match Env.cwd() {
+        case Ok(_) -> print("cwd UNEXPECTED ok"),
+        case Err(e) -> {
+            print("removed directory: {}", e.kind().describe())
+            print("kind is NotFound {}", e.kind() == SystemErrorKind.NotFound)
+        }
+    }
+    try! Env.set_cwd(home)
+    let back = try! Env.cwd()
+    print("back home {}", back.as_string() == home.as_string())
+}

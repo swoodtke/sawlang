@@ -29,6 +29,7 @@ extern "C" {
     func mkdir(path: UnsafePointer<Int8>, mode: Int) -> Int32
     func rmdir(path: UnsafePointer<Int8>) -> Int32
     func chdir(path: UnsafePointer<Int8>) -> Int32
+    func getcwd(buffer: UnsafePointer<Int8>, size: Int) -> UnsafePointer<Int8>?
     func setenv(name: UnsafePointer<Int8>, value: UnsafePointer<Int8>, overwrite: Int32) -> Int32
     func unsetenv(name: UnsafePointer<Int8>) -> Int32
     // Hostname resolution; see `rt_resolve_ipv4` for why it may block.
@@ -490,6 +491,20 @@ func rt_fs_chdir(path: UnsafePointer<Int8>) unsafe -> Int {
     } else {
         0 - __saw_rt_last_syserror()
     }
+}
+
+// getcwd(NULL, 0) allocates a buffer sized to the path, so no length is
+// guessed and a long path is never cut short; POSIX leaves that call
+// unspecified, and macOS and glibc both define it. The status goes out as
+// opendir's does, and the caller frees the returned string.
+@export("__saw_rt_fs_getcwd")
+func rt_fs_getcwd(status_out: UnsafePointer<Int>) unsafe -> UnsafePointer<Int8> {
+    if let path = getcwd(0 as UnsafePointer<Int8>, 0) {
+        status_out[0] = 0
+        return path
+    }
+    status_out[0] = __saw_rt_last_syserror()
+    return 0 as UnsafePointer<Int8>
 }
 
 @export("__saw_rt_env_set")

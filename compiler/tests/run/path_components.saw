@@ -1,0 +1,43 @@
+// Path's components and queries over the shapes that decide them: a nested
+// file, a bare name, a hidden file, a trailing dot, a trailing separator, the
+// root and the empty path.
+import std.path.{Path}
+
+func show(label: String, text: String?) {
+    if let t = text {
+        print("{} = [{}]", label, t)
+    } else {
+        print("{} = none", label)
+    }
+}
+
+func parent_name(p: Path) -> String? {
+    if let up = p.parent() {
+        return up.file_name()
+    }
+    None
+}
+
+func report(text: String) {
+    let p = Path(s: text)
+    print("path [{}]", text)
+    show("  name", p.file_name())
+    show("  stem", p.stem())
+    show("  parent's name", parent_name(p))
+    print("  has parent {}", p.parent().is_some())
+    print("  absolute {} relative {} empty {}", p.is_absolute(), p.is_relative(), p.is_empty())
+}
+
+func main() {
+    report("/home/user/docs/file.txt")
+    report("docs/archive.tar.gz")
+    report("file")
+    report(".gitignore")
+    report("dir/.hidden")
+    report("trailing.")
+    report("a/b/")
+    report("/a")
+    report("/")
+    report("")
+    report("a//b")
+}

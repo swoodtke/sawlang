@@ -15,6 +15,7 @@ public func tc_runtime_abi_rows(names: &var Vector<String>, params: &var Vector<
     tc_abi_row(&var names, &var params, &var results, &var owners, "__saw_rt_executable_path", "", "word", "runtime")
     tc_abi_row(&var names, &var params, &var results, &var owners, "__saw_rt_fs_chdir", "word", "word", "runtime")
     tc_abi_row(&var names, &var params, &var results, &var owners, "__saw_rt_fs_dirent_name", "word", "word", "runtime")
+    tc_abi_row(&var names, &var params, &var results, &var owners, "__saw_rt_fs_getcwd", "word", "word", "runtime")
     tc_abi_row(&var names, &var params, &var results, &var owners, "__saw_rt_fs_lseek", "word, word, word", "word", "runtime")
     tc_abi_row(&var names, &var params, &var results, &var owners, "__saw_rt_fs_mkdir", "word, word", "word", "runtime")
     tc_abi_row(&var names, &var params, &var results, &var owners, "__saw_rt_fs_open", "word, word, word", "word", "runtime")
