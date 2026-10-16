@@ -17,7 +17,7 @@ import sawllvm.text.{LlPieces, ll_format_pieces, ll_string_bytes}
 import sawmir.model.{MirBlock, MirCall, MirCallKind, MirConstKind, MirOperand, MirOperandKind, MirSwitchKind,
                          MirTermKind}
 import sawmir.program.{MirProgram}
-import sawmono.program.{MONO_KEY_DROP, MonoItem, MonoItemKind, MonoProgram}
+import sawmono.program.{MONO_KEY_COPY, MONO_KEY_DROP, MonoItem, MonoItemKind, MonoProgram}
 import sawresolve.program.{ResProgram}
 import sawtarget.layout.{Target, TargetCClass, TargetCase, TargetKind, TargetLayout, TargetShape}
 import sawtypecheck.model.{TC_FLAG_VARIADIC}
@@ -433,6 +433,10 @@ extension LlEmitter {
 
 // Builtins.
 extension LlEmitter {
+    // THE BUILTIN FUNNEL's lowering: each builtin `mono_builtin_supported`
+    // admits, by its fixed lowering.
+    // ENTRY POINTS:
+    //     call_term
     func builtin(&var self, mono: &var MonoProgram, target: &var Target, info: &MirCall) {
         let node = info.node
         let name = mono.dp.bc.mir.tc.res.name_text(info.spelling)
@@ -473,6 +477,10 @@ extension LlEmitter {
             return
         } else if name.equals("len") {
             self.array_length(&var mono, &var target, &info)
+        } else if name.equals("swap") {
+            self.array_swap(&var mono, &var target, &info)
+        } else if name.equals("copy") {
+            self.builtin_copy(&var mono, &var target, &info)
         } else if name.equals("__saw_suspend") || name.equals("__saw_test_suspend") {
             // Coroutine lowering replaces every call of either in a lowered
             // frame, and refuses the frames it does not lower.
@@ -502,6 +510,69 @@ extension LlEmitter {
             try! v.append(l.length)
             self.store("i64", v.build(), dest)
         }
+    }
+
+    // `a.swap(i, j)` on a fixed array: both indices checked, `i` first as
+    // Stage 0 does, then the two elements' bits exchanged through a slot. No
+    // value is copied or dropped, so an owning element moves as it is, and
+    // `i == j` writes the element back over itself.
+    func array_swap(&var self, mono: &var MonoProgram, target: &var Target, info: &MirCall) {
+        let node = info.node
+        let o = mono.dp.bc.mir.lists[info.arg_first]
+        let receiver = mono.dp.bc.mir.operands[o].ty
+        let t = mono.dp.bc.mir.tc.referent(receiver)
+        let l = self.lay_at(&var mono, &var target, t, node)
+        if l.shape != TargetShape.Array {
+            self.refuse_here(&var mono, node, "the builtin `swap` of a slice is not in the backend slice yet")
+            return
+        }
+        let base = self.operand_value(&var mono, &var target, o, node)
+        let first = mono.dp.bc.mir.lists[info.arg_first + 1]
+        let second = mono.dp.bc.mir.lists[info.arg_first + 2]
+        let i = self.operand_value(&var mono, &var target, first, node)
+        let j = self.operand_value(&var mono, &var target, second, node)
+        self.check_index(&var mono, i, l.length, node)
+        self.check_index(&var mono, j, l.length, node)
+        let el = self.lay_at(&var mono, &var target, l.element, node)
+        let a = self.element_addr(base, i, el.size)
+        let b = self.element_addr(base, j, el.size)
+        let tmp = self.slot(el.size, el.align)
+        self.copy_bits(&el, tmp, a)
+        self.copy_bits(&el, a, b)
+        self.copy_bits(&el, b, tmp)
+    }
+
+    // A spelled `.copy()` no declaration writes, on a wrapper (an array, an
+    // Optional, a tuple) or a type copied by its parts: the referent's copy
+    // glue into the call's destination, which copies each part by its own
+    // `copy()` in order, or its bits when mono made no glue.
+    func builtin_copy(&var self, mono: &var MonoProgram, target: &var Target, info: &MirCall) {
+        let node = info.node
+        let o = mono.dp.bc.mir.lists[info.arg_first]
+        let receiver = mono.dp.bc.mir.operands[o].ty
+        let t = mono.dp.bc.mir.tc.referent(receiver)
+        let l = self.lay_at(&var mono, &var target, t, node)
+        let src = self.operand_value(&var mono, &var target, o, node)
+        var dest = ""
+        if info.dest >= 0 {
+            dest = self.place_addr(&var mono, &var target, info.dest, node)
+        } else {
+            dest = self.slot(l.size, l.align)
+        }
+        let glue = mono.glue_item(t, MONO_KEY_COPY)
+        if glue < 0 {
+            self.copy_bits(&l, dest, src)
+            return
+        }
+        var line = StringBuilder()
+        try! line.append("call void ")
+        try! line.append(ll_symbol(&mono, glue))
+        try! line.append("(ptr ")
+        try! line.append(dest)
+        try! line.append(", ptr ")
+        try! line.append(src)
+        try! line.append(")")
+        self.put(line.build())
     }
 
     // The atomic intrinsics, as LLVM atomics of the orderings their names

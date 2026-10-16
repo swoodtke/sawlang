@@ -47,10 +47,12 @@ public func mono_rules() -> Vector<String> {
     move out
 }
 
-// The builtins the backend's slice lowers, or coroutine lowering lowers
-// away, by spelling.
+// THE BUILTIN FUNNEL's admission: the builtins the backend's slice lowers
+// (`LlEmitter.builtin`), or coroutine lowering lowers away, by spelling.
+// ENTRY POINTS:
+//     resolve_call
 func mono_builtin_supported(name: String) -> Bool {
-    name.equals("print") || name.equals("panic") || name.equals("assert") || name.equals("init") || name.equals("len") || name.equals("sizeof") || name.equals("alignof") || name.equals("__saw_atomic_add_i64") || name.equals("__saw_atomic_sub_i64_release") || name.equals("__saw_atomic_fence_acquire") || name.equals("__saw_atomic_load_i64_relaxed") || mono_seq_cst_atomic(name) || mono_test_suspension(name)
+    name.equals("print") || name.equals("panic") || name.equals("assert") || name.equals("init") || name.equals("len") || name.equals("swap") || name.equals("copy") || name.equals("sizeof") || name.equals("alignof") || name.equals("__saw_atomic_add_i64") || name.equals("__saw_atomic_sub_i64_release") || name.equals("__saw_atomic_fence_acquire") || name.equals("__saw_atomic_load_i64_relaxed") || mono_seq_cst_atomic(name) || mono_test_suspension(name)
 }
 
 // Whether a construction of kind `agg` is a collection literal: a fixed
@@ -469,6 +471,7 @@ extension MonoProgram {
     // ENTRY POINTS:
     //     need_drop
     //     need_operand
+    //     need_builtin_copy
     //     glued
     public func glue_of(&var self, t: Int, kind: Int, origin: Int, node: Int) -> Int {
         let found = self.glue_item(t, kind)
@@ -512,6 +515,20 @@ extension MonoProgram {
             return
         }
         let _ = self.glue_of(info.ty, MONO_KEY_COPY, k, node)
+    }
+
+    // A spelled `.copy()` no declaration writes, in item `k`: a copy of its
+    // receiver's referent, so that type's copy glue unless the copy is the
+    // bits alone. The receiver's type is the call's own operand's, concrete
+    // in the item where the call's owner is still the generic one.
+    func need_builtin_copy(&var self, k: Int, info: &MirCall) {
+        let o = self.dp.bc.mir.lists[info.arg_first]
+        let receiver = self.dp.bc.mir.operands[o].ty
+        let t = self.dp.bc.mir.tc.referent(receiver)
+        if mono_copies_bitwise(&var self.dp.bc.mir.tc, t) {
+            return
+        }
+        let _ = self.glue_of(t, MONO_KEY_COPY, k, info.node)
     }
 }
 
@@ -869,6 +886,10 @@ extension MonoProgram {
                 }
                 if name.equals("init") {
                     self.check_empty_construction(c)
+                    return
+                }
+                if name.equals("copy") {
+                    self.need_builtin_copy(k, &info)
                     return
                 }
                 self.check_format_arguments(k, c, &name)

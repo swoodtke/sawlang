@@ -28,7 +28,7 @@ run of every program must meet its oracle: a fault, a signal or wrong output
 fails. A blocked program is still built, and fails the lane once sawc2 builds
 it or refuses it by another rule, so the list cannot go stale silently.
 
-COVERAGE: ownership runs a program in 6 of its 6 categories, and 18 of its 26
+COVERAGE: ownership runs a program in 6 of its 6 categories, and 19 of its 26
 Stage 0 programs build; concurrency runs a program in 6 of its 6 categories,
 and 12 of its 25 Stage 0 programs build.
 
@@ -161,6 +161,7 @@ OWNERSHIP = (
             CORPUS + "df151f_tuple_drop_glue.saw",
             CORPUS + "df151j_tuple_element_write.saw",
             CORPUS + "df151h_assign_rhs_retain.saw",
+            CORPUS + "df151i_tuple_copy.saw",
         ),
         stand_ins=(
             # Every face of the payload read retains once, and the payload
@@ -178,8 +179,6 @@ OWNERSHIP = (
         blocked=(
             Blocked(CORPUS + "df151d_match_temporary_scrutinee.saw", "slice.not-yet", "SL-674",
                     "a value-producing `break` is not in the slice"),
-            Blocked(CORPUS + "df151i_tuple_copy.saw", "mono.not-yet", "SL-734",
-                    "the builtin `copy` is not in the backend"),
         )),
     Category(
         "hand-off between one task's frames", "a value moved between frames one task owns, dropped on one side",

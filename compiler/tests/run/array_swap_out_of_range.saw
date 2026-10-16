@@ -1,0 +1,12 @@
+// A fixed array's `swap(i, j)` checks both indices before it moves anything,
+// `i` first: with both out of range the panic names `i`, as Stage 0's does.
+
+func main() {
+    var a = [1, 2, 3]
+    var k = 7
+    var m = -2
+    a.swap(0, 1)
+    print("{} {} {}", a[0], a[1], a[2])
+    a.swap(k, m)
+    print(a[0])
+}

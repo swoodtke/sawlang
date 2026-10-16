@@ -212,7 +212,16 @@ description's (`compiler/tests/mono/README.md`, "Layouts").
   of stack scratch, Stage 0's size, so a longer rendering is cut and marked
   `…` by the builder. `sizeof` and `alignof`
   are the target's, and a fixed array's `len()` the length its type carries; the four `__saw_atomic_*` builtins are LLVM atomics of
-  the orderings their names state.
+  the orderings their names state. A fixed array's `swap(i, j)` checks both
+  indices, `i` first, with the indexing panic, then exchanges the two
+  elements' bits, so nothing is copied or dropped. A spelled `copy()` no
+  declaration writes, on an array, an Optional or a tuple, calls its
+  referent's copy glue into its destination, which copies each part by its
+  own `copy()` in order. `array_swap`, `array_swap_out_of_range`,
+  `wrapper_copy` and the probe `wrapper_copy_array_of_wrappers` pin both
+  (SL-734). Every builtin passes `mono_builtin_supported`
+  (`compiler/mono/src/worklist.saw`) and `LlEmitter.builtin`
+  (`compiler/llvm/src/calls.saw`), one row each.
 - **Building through the builder.** An interpolation builds its String
   through a growable builder: `init()`, each part's `Printable.format` in
   order, `build()`, then the builder's drop.

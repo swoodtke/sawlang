@@ -1,0 +1,21 @@
+program	compiler/tests/run/array_swap.saw
+triple	aarch64-unknown-linux-gnu
+source	58ddf2032ea42fef
+build	ok
+exit	0
+stdout	"40 20 30 10"
+stdout	"40 30 20 10"
+stdout	"40 30 20 10"
+stdout	"40 20 30 10"
+stdout	"10 30 20 40"
+stdout	"gamma beta alpha"
+stdout	"gamma beta alpha"
+stdout	"beta gamma alpha"
+stdout	"3 2 1"
+stdout	"3 2 1"
+stdout	"drop 1"
+stdout	"drop 2"
+stdout	"drop 3"
+stdout	"z y x / 3 2 1"
+stdout	"z y x / 3 2 1"
+stdout	""

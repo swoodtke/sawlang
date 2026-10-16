@@ -1,0 +1,86 @@
+// A fixed array's builtin `swap(i, j)` exchanges two elements in place:
+// on trivial elements, on Strings, on owning NoCopy elements (each dropped
+// once, at the position the swaps left it in), through an array field of a
+// `&var self` receiver and through a `&var [T; N]` parameter, with constant
+// and dynamic indices and with `i == j`.
+
+struct Res {
+    id: Int
+}
+
+extension Res: NoCopy {
+    func deinit(&var self) {
+        print("drop {}", self.id)
+    }
+}
+
+struct Board {
+    cells: [String; 3],
+    marks: [Int; 3]
+}
+
+extension Board {
+    func flip(&var self, i: Int, j: Int) {
+        self.cells.swap(i, j)
+        self.marks.swap(i, j)
+    }
+}
+
+func show(a: &[Int; 4]) {
+    print("{} {} {} {}", a[0], a[1], a[2], a[3])
+}
+
+func reverse(a: &var [Int; 4]) {
+    a.swap(0, 3)
+    a.swap(1, 2)
+}
+
+func ints() {
+    var a = [10, 20, 30, 40]
+    a.swap(0, 3)
+    show(&a)
+    var i = 1
+    var j = 2
+    a.swap(i, j)
+    show(&a)
+    a.swap(2, 2)
+    show(&a)
+    a.swap(j, i)
+    show(&a)
+    reverse(&var a)
+    show(&a)
+}
+
+func strings() {
+    var s = ["alpha", "beta", "gamma"]
+    s.swap(0, 2)
+    print("{} {} {}", s[0], s[1], s[2])
+    s.swap(1, 1)
+    print("{} {} {}", s[0], s[1], s[2])
+    var k = 0
+    s.swap(k, 1)
+    print("{} {} {}", s[0], s[1], s[2])
+}
+
+func owning() {
+    var a = [Res(id: 1), Res(id: 2), Res(id: 3)]
+    a.swap(0, 2)
+    print("{} {} {}", a[0].id, a[1].id, a[2].id)
+    a.swap(1, 1)
+    print("{} {} {}", a[0].id, a[1].id, a[2].id)
+}
+
+func field() {
+    var b = Board(cells: ["x", "y", "z"], marks: [1, 2, 3])
+    b.flip(0, 2)
+    print("{} {} {} / {} {} {}", b.cells[0], b.cells[1], b.cells[2], b.marks[0], b.marks[1], b.marks[2])
+    b.flip(1, 1)
+    print("{} {} {} / {} {} {}", b.cells[0], b.cells[1], b.cells[2], b.marks[0], b.marks[1], b.marks[2])
+}
+
+func main() {
+    ints()
+    strings()
+    owning()
+    field()
+}

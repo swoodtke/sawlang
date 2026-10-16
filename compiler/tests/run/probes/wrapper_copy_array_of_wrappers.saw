@@ -1,0 +1,58 @@
+// probe: stated
+// about: a spelled `.copy()` of a fixed array whose element is itself a wrapper (SL-734)
+// stage 0: refuses `.copy()` on `[R?; 2]` and `[(R, Int); 2]` as not copyable
+// speeds: -O0 -O2
+// prints: -- [R?; 2]
+// prints: copy 8
+// prints: 108 true
+// prints: d-108
+// prints: d-8
+// prints: -- [(R, Int); 2]
+// prints: copy 13
+// prints: copy 14
+// prints: 113 2
+// prints: d-114
+// prints: d-113
+// prints: d-14
+// prints: d-13
+// An array's copy copies each element by its element type's own `copy()`
+// (spec, design 139: a wrapper carries the tier of what it wraps), so an
+// element that is an Optional or a tuple of an ExplicitCopy type copies its
+// payload through the hook, an absent element copies to `None`, and each
+// array drops its elements in reverse index order. Spec-derived expectation
+// (no oracle): `R`'s hook prints `copy V` and adds 100, its drop prints `d-V`;
+// a copy's elements drop before the original's.
+
+struct R {
+    v: Int
+}
+
+extension R: ExplicitCopy {
+    func copy(&self) -> R {
+        print("copy {}", self.v)
+        R(v: self.v + 100)
+    }
+
+    func deinit(&var self) {
+        print("d-{}", self.v)
+    }
+}
+
+func optionals() {
+    print("-- [R?; 2]")
+    let a: [R?; 2] = [R(v: 8), None]
+    let b = a.copy()
+    print("{} {}", b[0]!.v, b[1].is_none())
+}
+
+func tuples() {
+    print("-- [(R, Int); 2]")
+    let a = [(R(v: 13), 1), (R(v: 14), 2)]
+    let b = a.copy()
+    print("{} {}", b[0].0.v, b[1].1)
+}
+
+func main() {
+    optionals()
+    tuples()
+}

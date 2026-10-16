@@ -105,18 +105,7 @@ extension LlEmitter {
                     if array {
                         self.check_index(&var mono, i, base_layout.length, node)
                     }
-                    var mul = StringBuilder()
-                    try! mul.append("mul i64 ")
-                    try! mul.append(i)
-                    try! mul.append(", ")
-                    try! mul.append(element.size)
-                    let scaled = self.assign(mul.build())
-                    var gep = StringBuilder()
-                    try! gep.append("getelementptr i8, ptr ")
-                    try! gep.append(base)
-                    try! gep.append(", i64 ")
-                    try! gep.append(scaled)
-                    addr = self.assign(gep.build())
+                    addr = self.element_addr(base, i, element.size)
                 },
                 case Payload -> {
                     let off = target.payload_offset(&var mono.dp.bc.mir.tc, current, step.decl, step.index)
@@ -155,9 +144,26 @@ extension LlEmitter {
         self.assign(widen.build())
     }
 
+    // The address of element `i`, an i64, of the elements at `base`, which
+    // lie `size` bytes apart.
+    public func element_addr(&var self, base: String, i: String, size: Int) -> String {
+        var mul = StringBuilder()
+        try! mul.append("mul i64 ")
+        try! mul.append(i)
+        try! mul.append(", ")
+        try! mul.append(size)
+        let scaled = self.assign(mul.build())
+        var gep = StringBuilder()
+        try! gep.append("getelementptr i8, ptr ")
+        try! gep.append(base)
+        try! gep.append(", i64 ")
+        try! gep.append(scaled)
+        self.assign(gep.build())
+    }
+
     // A fixed array's bounds check: index `i`, an i64, is in `0 ..< length`,
     // or the program panics as Stage 0's does, naming both (DF-249a).
-    func check_index(&var self, mono: &var MonoProgram, i: String, length: Int, node: Int) {
+    public func check_index(&var self, mono: &var MonoProgram, i: String, length: Int, node: Int) {
         var test = StringBuilder()
         try! test.append("icmp ult i64 ")
         try! test.append(i)

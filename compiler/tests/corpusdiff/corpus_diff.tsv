@@ -52,7 +52,7 @@ array_elem_field_through_ref.saw	pass	-	-
 array_elem_overwrite_deinit.saw	pass	-	-
 array_elem_overwrite_move.saw	pass	-	-
 array_element_literal_out_of_range_error.saw	pass	-	type.mismatch: integer literal 300 does not fit in `Int8` (range -128..=127)
-array_explicit_copy_dotcopy.saw	refused	mono mono.not-yet	the builtin `copy` is not in the backend slice yet
+array_explicit_copy_dotcopy.saw	pass	-	-
 array_explicit_copy_move.saw	pass	-	-
 array_explicit_copy_requires_move.saw	pass	-	transfer.implicit-copy: this reads a place of type `[array_explicit_copy_requires_move.R; 2]`, which is ExplicitCopy, by value: only a Copy type copies silently; write `move a` to take it, `a.copy()`
 array_field_element_write.saw	pass	-	-
@@ -69,9 +69,9 @@ array_no_extension_error.saw	pass	-	resolve.parse-refused: the parser refuses `t
 array_nocopy_requires_move.saw	pass	-	transfer.implicit-copy: this reads a place of type `[array_nocopy_requires_move.F; 2]`, which is NoCopy, by value: only a Copy type copies silently; write `move a` to take it, or borrow it
 array_string_field.saw	pass	-	-
 array_struct_containment.saw	pass	-	copy.undeclared-policy: `Holder` holds `Holder.files` of type `[array_struct_containment.F; 2]`, which is NoCopy, so it declares its own policy: `extension Holder: NoCopy {}`, or `@synthesize` an Expl
-array_swap_builtin.saw	refused	mono mono.not-yet	the builtin `swap` is not in the backend slice yet
-array_swap_const_oob_error.saw	refused	mono mono.not-yet	the builtin `swap` is not in the backend slice yet
-array_swap_dynamic_oob_panic.saw	refused	mono mono.not-yet	the builtin `swap` is not in the backend slice yet
+array_swap_builtin.saw	pass	-	-
+array_swap_const_oob_error.saw	wrong	accepts a refusal test	`swap` index 5 out of range for array with 3 elements
+array_swap_dynamic_oob_panic.saw	pass	-	-
 array_swap_immutable_error.saw	pass	-	mutability.immutable: this exclusive borrow of `a` would let it be written, and `a` is a `let` binding, which is never written: every binding is initialized where it is declared, so only a `var` takes
 array_trivial_copy.saw	pass	-	-
 array_unknown_method_error.saw	refused	typecheck member.unknown	`[Int; 3]` has no method `push` this module can see
@@ -518,7 +518,7 @@ conformance/V40_generic_coroutine_body_honors_copy_tier.saw	pass	-	copy.requirem
 conformance/V41_branch_exclusive_uses_stay_move_only.saw	pass	-	-
 conformance/V42_copy_argument_to_duplicating_body_runs.saw	pass	-	-
 conformance/V43_copy_call_needs_a_bound_through_wrappers.saw	pass	-	type.bound: `(T, Int)` has no `copy()`: its copy reaches the type parameter `T`, which no bound makes `ExplicitCopy`; declare `T: ExplicitCopy`, or `Copy`
-conformance/V44_bounded_wrapper_copy_runs.saw	refused	mono mono.not-yet	the builtin `copy` is not in the backend slice yet
+conformance/V44_bounded_wrapper_copy_runs.saw	pass	-	-
 conformance/V45_public_generic_must_declare_its_requirement.saw	pass	-	copy.declared-bound: `published` is public, so it must declare the tier it requires: `T` is undeclared, and its body needs `T` to be `Copy`, as it binds `x` twice on one path, at tests/corpus/conforma
 conformance/V46_declared_bound_the_body_exceeds.saw	pass	-	copy.declared-bound: `exceeds` declares `T: ExplicitCopy`, which licenses a spelled `.copy()`, but its body needs `T` to be `Copy`, as it binds `x` twice on one path, at tests/corpus/conformance/V46_d
 conformance/V47_generic_return_of_a_local_is_a_move.saw	pass	-	-
@@ -884,7 +884,7 @@ df151e_optional_element_array.saw	pass	-	-
 df151e_optional_element_repeat_error.saw	pass	-	transfer.implicit-copy: a repeat literal needs a freely copyable element, and `df151e_optional_element_repeat_error.Handle?` is NoCopy: write the elements out, or build the array from a Copy value
 df151f_tuple_drop_glue.saw	pass	-	-
 df151h_assign_rhs_retain.saw	pass	-	-
-df151i_tuple_copy.saw	refused	mono mono.not-yet	the builtin `copy` is not in the backend slice yet
+df151i_tuple_copy.saw	pass	-	-
 df151i_tuple_copy_nocopy_error.saw	refused	typecheck member.unknown	`(df151i_tuple_copy_nocopy_error.Res, Int)` is NoCopy, so it has no `copy()`; move it instead
 df151i_tuple_transfer_hint_agrees.saw	pass	-	result.discarded: the result of `push` is `Result<Void, std.alloc.AllocError>` and is silently discarded: handle it (`match` it, `try` or `try!` it, or return it), or write `let _ = ...` to discard it
 df151j_tuple_element_mutate.saw	pass	-	-
@@ -2033,7 +2033,7 @@ optional_chain_sideeffect_skip.saw	refused	typecheck slice.not-yet	`syntax.expr.
 optional_chain_suspend_method.saw	refused	typecheck slice.not-yet	`syntax.expr.optional-member` is not in the bootstrap slice yet
 optional_coalesce_ownership.saw	pass	-	-
 optional_coalesce_peel_depth.saw	pass	-	-
-optional_explicit_copy_deep.saw	refused	mono mono.not-yet	the builtin `copy` is not in the backend slice yet
+optional_explicit_copy_deep.saw	pass	-	-
 optional_explicit_read_hints_error.saw	pass	-	transfer.implicit-copy: this reads a place of type `std.vector.Vector<Int, std.alloc.GlobalAllocator>?`, which is ExplicitCopy, by value: only a Copy type copies silently; write `move o` to take it, `
 optional_field_store_retain.saw	pass	-	-
 optional_force_unwrap_field_store.saw	pass	-	-
