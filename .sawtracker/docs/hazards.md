@@ -949,7 +949,7 @@ h.join()
 consume(move buf)              // accepted: the teardown then drives `fill` into the freed buffer
 ```
 
-The same hole is reached through `let g = move h; h = group.spawn(…); h.join()`, and through a spawn site inside a loop: a `let h = group.spawn(look(&buf))` in the body leaves an earlier iteration's task unjoined, and a later iteration's `h.join()` releases the one loan both tasks share (shared borrows only; the exclusive form is refused by the loop-body rule). Stage 0 compiles all of these, and the program faults at the group's teardown. sawc2 refuses them once SL-565 releases a borrow only where the joined value is the borrowing task's handle on every path. The pins are its borrowck refusal fixtures.
+The same hole is reached through `let g = move h; h = group.spawn(…); h.join()`, and through a spawn site inside a loop: a `let h = group.spawn(look(&buf))` in the body leaves an earlier iteration's task unjoined, and a later iteration's `h.join()` releases the one loan both tasks share (shared borrows only: Stage 0 applies the loop-body rule to exclusive borrows alone, where the spec refuses every spawn borrow still live when a loop body ends). Stage 0 compiles all of these, and the program faults at the group's teardown. sawc2 refuses them once SL-565 releases a borrow only where the joined value is the borrowing task's handle on every path. The pins are its borrowck refusal fixtures.
 
 **Instead:** give each spawn that borrows its own `let` binding and join that binding. Never rebind or move out of a handle variable while its task still borrows.
 
