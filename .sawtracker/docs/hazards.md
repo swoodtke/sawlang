@@ -1883,6 +1883,7 @@ ledger's reading. Where it differs from the sweep, Notes for the lead says why.
 | SL-660 | L30 `ZeroInit`: Stage 0 has none | loud (an unknown name to Stage 0; no live instance) |
 | SL-673 | L31 Derivation-only parents: Stage 0 and sawc2 differ | loud in two forms, silent in one (a deinit reached through `trait X: Deinit` never runs under Stage 0; no live instance) |
 | SL-675 | L32 `UnsafeSend`/`UnsafeSync` as a trait parent: Stage 0 accepts it, sawc2 refuses it | loud (sawc2 refuses at the trait; Stage 0 grants nothing through it; no live instance) |
+| SL-565 | S36 A spawn borrow released by joining a rebound handle variable | silent, a use-after-free (found by the Air reviewing SL-565.p1; no live instance: the compiler spawns no task) |
 | SL-649 | L33 A field read two struct hops away, bound by a `let`, with neither struct type named in the module | loud (Stage 0 reports an undefined variable; one marked instance in `compiler/typecheck/src/conform.saw`) |
 
 No issue is marked "not reachable from the subset". Several entries depend on
