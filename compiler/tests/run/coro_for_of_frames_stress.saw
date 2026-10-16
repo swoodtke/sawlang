@@ -1,0 +1,46 @@
+// Post-design-275-U3 integration stress: repeatedly enter the same nested
+// suspending call from loops over a frame-resident fixed array and Vector.  The
+// Vector collection-for span requires U3; it is a no-XFAIL integration pin, not
+// an SL-350 source-branch blocker before the required rebase.  This asserts only
+// source behavior, never frame layout or instruction counts.  Each `nested`
+// call embeds and rebuilds a `leaf` sub-frame at the loop call site.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 150
+
+import std.task.{yield_now}
+
+func leaf(value: Int) -> Int {
+    yield_now()
+    value * 2
+}
+
+func nested(value: Int) -> Int {
+    let doubled = leaf(value)
+    yield_now()
+    doubled + 1
+}
+
+func stress() -> Int {
+    let fixed = [1, 2, 3, 4]
+    var total = 0
+
+    for fixed_round in 0..3 {
+        for index in 0..fixed.len() {
+            total = total + nested(fixed[index])
+        }
+    }
+
+    let vector: Vector<Int> = [5, 6, 7]
+    for vector_round in 0..2 {
+        for value in vector.iter() {
+            total = total + nested(value)
+        }
+    }
+
+    total
+}
+
+func main() {
+    print(__saw_drive(stress()))
+}

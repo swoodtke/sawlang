@@ -1,6 +1,6 @@
 program	errors/coro_let_init_move_beside_early_exit.saw
 triple	arm64-apple-darwin
-twin	same
+twin	differs
 expect	error
 build	refused	coroutine transform: `move` of a frame local in the initializer of `v` of driven `run` whose expression also `return`s, `break`s or `continue`s is not supported; bind the moving call to its own `let` first, then use the binding
 meets_expect	yes

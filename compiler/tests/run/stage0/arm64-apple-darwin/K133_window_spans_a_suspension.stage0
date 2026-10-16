@@ -1,0 +1,20 @@
+program	compiler/tests/run/K133_window_spans_a_suspension.saw
+triple	arm64-apple-darwin
+source	1901fa7e9ec260dd
+build	ok
+exit	0
+stdout	"iter sync 12"
+stdout	"iter driven 12"
+stdout	"enumerated sync 15"
+stdout	"enumerated driven 15"
+stdout	"user sync 12"
+stdout	"user driven 12"
+stdout	"owned sync 12"
+stdout	"owned driven 12"
+stdout	"map sync 6"
+stdout	"map driven 6"
+stdout	"spawned 12"
+stdout	"embedded in spawned 24"
+stdout	"nested in while 24"
+stdout	"nested in for 36"
+stdout	""

@@ -1,0 +1,13 @@
+program	compiler/tests/run/vector_literal.saw
+triple	arm64-apple-darwin
+source	1d49df8f2e10fc50
+build	ok
+exit	0
+stdout	"4"
+stdout	"30"
+stdout	"0"
+stdout	"3"
+stdout	"6"
+stdout	"2"
+stdout	"1"
+stdout	""

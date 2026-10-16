@@ -140,8 +140,8 @@ OWNERSHIP = (
         blocked=(
             Blocked(CORPUS + "closure_vector_copy_get.saw", "mono.not-yet", "SL-525",
                     "an escaping closure's environment is not built"),
-            Blocked(CORPUS + "generic_for_loop_owning_balance.saw", "member.unknown", "SL-703",
-                    "Vector.iter is not in the new std"),
+            Blocked(CORPUS + "generic_for_loop_owning_balance.saw", "mono.not-yet", "SL-750",
+                    "a call of `ExplicitCopy.copy()` on a non-trivial type is not in the backend"),
         )),
     Category(
         "optional, match and tuple transfers",
@@ -239,8 +239,8 @@ CONCURRENCY = (
                     "an escaping closure's environment is not built"),
             Blocked(CORPUS + "spawn_capture_declared_before.saw", "slice.not-yet", "SL-565", SPAWN_BORROW),
             Blocked(CORPUS + "spawn_capture_join_releases.saw", "slice.not-yet", "SL-565", SPAWN_BORROW),
-            Blocked(CORPUS + "conformance/K14_spawn_ref_param_join_releases.saw", "member.unknown", "SL-703",
-                    "Vector.iter is not in the new std"),
+            Blocked(CORPUS + "conformance/K14_spawn_ref_param_join_releases.saw", "slice.not-yet", "SL-565",
+                    SPAWN_BORROW),
         )),
     Category(
         "join and teardown", "who drops a task's values, and when",

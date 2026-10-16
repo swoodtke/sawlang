@@ -1,41 +1,42 @@
 // SL-222 (review r3): a statement that BURIES an early exit inside its own
-// expression, beside a `move` of a frame local, is refused rather than
-// miscompiled.
+// expression, beside a `move` of a frame local. Stage 0 refuses this shape as a
+// limit of its source-level coroutine transform (SL-234); the language allows
+// it, and this copy states what it means: each `Res` is destroyed exactly once,
+// by the callee it moved into, on the path that returns early and on the one
+// that falls through.
 //
-// The container arms relinquish the move's drop-flag claim at the top of each
-// block they own, which is sound because a container's blocks always run AFTER
-// its head. A leaf statement's blocks are OPERANDS, and one can sit to the LEFT
-// of the move — `sink(if a { 1 } else { 0 } + consume(move r))` — where clearing
-// first would retire a claim the move has not yet transferred, and the move
-// would then read an emptied slot. With no ordering this position can state, the
-// refusal is the honest answer: the alternative measured as a silent double free
-// (the callee destroys the value, then frame teardown destroys it again, exit 0).
-//
-// Nothing that used to compile stops compiling — this exact shape was refused
-// before SL-222's tail demotion made it reachable, by the nested-tail-move
-// diagnostic. The workaround the message names is the one the author would
-// write anyway.
-// EXPECT: error
-// EXPECT-ERROR-CONTAINS: whose expression also `return`s, `break`s or `continue`s
-// EXPECT-ERROR-CONTAINS: bind the moving call to its own `let` first
+// It stays in `errors/` because its examples/ twin, Stage 0's refusal test, is
+// there, and corpusdiff pairs a corpus program with the twin at the same path.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// drop item1
+// drop exit
+// 1
+// drop item1
+// drop item2
+// 0
 
 import std.task.{yield_now}
 
 struct Res { name: String }
 extension Res: NoCopy {
-    func deinit(&var self) { print("drop") }
+    func deinit(&var self) { print("drop {}", self.name) }
 }
 
 func note(r: &Res) -> Int { r.name.len() }
 
-func consume_bool(r: Res) -> Bool { true }
+func consume_bool(r: Res) -> Bool { r.name == "exit" }
+
+func make(i: Int, exit_at: Int) -> Res {
+    if i == exit_at { Res(name: "exit") } else { Res(name: "item{i}") }
+}
 
 func sink_int(n: Int) { }
 
-func run(items: Vector<Int>) -> Int {
+func run(items: Vector<Int>, exit_at: Int) -> Int {
     yield_now()
     for i in items.iter() {
-        var r = Res(name: "item")
+        var r = make(i, exit_at)
         if note(&r) + i < 0 { return -1 }
         sink_int(if consume_bool(move r) { return 1 } else { 0 })
     }
@@ -43,5 +44,6 @@ func run(items: Vector<Int>) -> Int {
 }
 
 func main() {
-    print(__saw_drive(run([1, 2])))
+    print(__saw_drive(run([1, 2], 2)))
+    print(__saw_drive(run([1, 2], 0)))
 }

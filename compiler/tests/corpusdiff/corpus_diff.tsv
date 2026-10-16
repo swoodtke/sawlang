@@ -139,7 +139,7 @@ cast_distinct_string_underlying.saw	refused	llvm backend.not-yet	this conversion
 cast_distinct_to_underlying.saw	pass	-	-
 cast_reverse_to_distinct_error.saw	wrong	accepts a refusal test	cannot cast `Int` to `UserId`
 cast_sibling_alias_error.saw	wrong	accepts a refusal test	cannot cast `Int` to `OrderId`
-catch_binding_rename_covers_every_position.saw	refused	typecheck member.unknown	`std.vector.Vector<Int, std.alloc.GlobalAllocator>` has no method `iter` this module can see
+catch_binding_rename_covers_every_position.saw	pass	-	-
 cbor169_limits.saw	refused	resolve import.unknown-module	no module `std.cbor`
 cbor169_roundtrip.saw	refused	resolve import.unknown-module	no module `std.cbor`
 cbor169_vectors.saw	refused	resolve import.unknown-module	no module `std.cbor`
@@ -321,17 +321,17 @@ conformance/K123_every_window_opener_reads_the_declared_mode.saw	refused	llvm ba
 conformance/K127_conditional_lend_modes.saw	refused	mir slice.not-yet	a `borrow` block binding a conditional lend is not lowered to MIR in the bootstrap slice yet
 conformance/K128_cow_gate_survives_the_var_self_spelling.saw	pass	-	-
 conformance/K129_forwarded_lend_carries_the_window_mode.saw	pass	-	-
-conformance/K133_window_spans_a_suspension.saw	refused	typecheck member.unknown	`std.vector.Vector<Int, std.alloc.GlobalAllocator>` has no method `iter` this module can see
-conformance/K135_window_conflicts_that_compose.saw	refused	typecheck member.unknown	`std.vector.Vector<Int, std.alloc.GlobalAllocator>` has no method `iter` this module can see
-conformance/K136_window_release_routes.saw	refused	typecheck member.unknown	`std.vector.Vector<Int, std.alloc.GlobalAllocator>` has no method `iter` this module can see
+conformance/K133_window_spans_a_suspension.saw	pass	-	-
+conformance/K135_window_conflicts_that_compose.saw	refused	typecheck slice.not-yet	a borrow a `group.spawn` root takes of its spawner for the task's life (SL:coroutines A8c) is not in the bootstrap slice yet
+conformance/K136_window_release_routes.saw	refused	typecheck slice.not-yet	`syntax.stmt.break` is not in the bootstrap slice yet
 conformance/K137_window_destruction_order.saw	pass	-	-
 conformance/K138_window_acquire_sequence.saw	pass	-	-
 conformance/K13_mt_sum_under_mutex.saw	refused	typecheck call.label	no parameter is labeled `threads` in TaskGroup.init() [std.taskgroup]
 conformance/K140_window_under_cancellation.saw	pass	-	-
-conformance/K141_mutex_guarded_for_is_sync.saw	refused	typecheck member.unknown	`std.vector.Vector<Int, std.alloc.GlobalAllocator>` has no method `iter` this module can see
+conformance/K141_mutex_guarded_for_is_sync.saw	stage0-wrong	XFAIL SL-340	sawc2 meets its directives
 conformance/K147_inline_catch_splits.saw	refused	typecheck slice.not-yet	`syntax.expr.try.route` is not in the bootstrap slice yet
-conformance/K149_sawtracker_loop_shape.saw	refused	typecheck member.unknown	`std.vector.Vector<Int, std.alloc.GlobalAllocator>` has no method `iter` this module can see
-conformance/K14_spawn_ref_param_join_releases.saw	refused	typecheck member.unknown	`std.vector.Vector<Int, std.alloc.GlobalAllocator>` has no method `iter` this module can see
+conformance/K149_sawtracker_loop_shape.saw	pass	-	-
+conformance/K14_spawn_ref_param_join_releases.saw	refused	typecheck slice.not-yet	a borrow a `group.spawn` root takes of its spawner for the task's life (SL:coroutines A8c) is not in the bootstrap slice yet
 conformance/K15_spawn_ref_param_exclusion_window.saw	refused	typecheck slice.not-yet	a borrow a `group.spawn` root takes of its spawner for the task's life (SL:coroutines A8c) is not in the bootstrap slice yet
 conformance/K16_spawn_shared_ref_param_composes.saw	refused	typecheck slice.not-yet	a borrow a `group.spawn` root takes of its spawner for the task's life (SL:coroutines A8c) is not in the bootstrap slice yet
 conformance/K17_spawn_ref_param_across_iterations.saw	refused	typecheck slice.not-yet	a borrow a `group.spawn` root takes of its spawner for the task's life (SL:coroutines A8c) is not in the bootstrap slice yet
@@ -482,7 +482,7 @@ conformance/V04_move_out_of_ref.saw	pass	-	transfer.move-from-borrow: cannot mov
 conformance/V100_bounded_copy_at_the_auto_tier_retains.saw	refused	mono mono.not-yet	a closure capturing a value that owns something is not in the backend slice yet
 conformance/V101_copy_family_carries_the_tier.saw	refused	typecheck member.unknown	`std.vector.Vector<V101_copy_family_carries_the_tier.Rec, std.alloc.GlobalAllocator>` has no method `try_copy` this module can see
 conformance/V102_derived_copy_duplicates_every_field.saw	refused	mono mono.not-yet	a synthesized `ExplicitCopy.copy()` on `V102_derived_copy_duplicates_every_field.Holder` is not in the backend slice yet: only a scalar's builtin hooks
-conformance/V103_copy_funnel_duplicates_exactly_once.saw	refused	mono mono.not-yet	a call of `ExplicitCopy.copy()` on `V103_copy_funnel_duplicates_exactly_once.Counted`, which no conformance of it meets, is not in the backend slice yet (inside std/vector.saw:227:35)
+conformance/V103_copy_funnel_duplicates_exactly_once.saw	refused	mono mono.not-yet	a call of `ExplicitCopy.copy()` on `V103_copy_funnel_duplicates_exactly_once.Counted`, which no conformance of it meets, is not in the backend slice yet (inside std/vector.saw:248:35)
 conformance/V104_unbound_value_is_released.saw	wrong	stdout differs	line 9: sawc2 "if 5", Stage 0 "drop 4"
 conformance/V105_copy_capture_releases_its_duplicate.saw	refused	mono mono.not-yet	a closure capturing a value that owns something is not in the backend slice yet
 conformance/V106_driven_copy_capture_duplicates_once.saw	refused	mono mono.not-yet	a closure capturing a value that owns something is not in the backend slice yet
@@ -679,9 +679,9 @@ coro_destructure_nocopy_into_frame.saw	pass	-	-
 coro_destructuring_let_suspending_rhs.saw	pass	-	-
 coro_discarded_match_payload_field_drop_order.saw	stage0-wrong	annotated SL-513	sawc2 meets its directives
 coro_discarded_match_payload_released_at_extraction.saw	stage0-wrong	annotated SL-513	sawc2 meets its directives
-coro_discarded_tail_move_cross_module.saw	refused	typecheck member.unknown	`std.vector.Vector<Int, std.alloc.GlobalAllocator>` has no method `iter` this module can see
-coro_discarded_tail_move_in_nested_block.saw	refused	typecheck member.unknown	`std.vector.Vector<Int, std.alloc.GlobalAllocator>` has no method `iter` this module can see
-coro_discarded_tail_move_in_nested_control_flow.saw	refused	typecheck member.unknown	`std.vector.Vector<Int, std.alloc.GlobalAllocator>` has no method `iter` this module can see
+coro_discarded_tail_move_cross_module.saw	pass	-	-
+coro_discarded_tail_move_in_nested_block.saw	pass	-	-
+coro_discarded_tail_move_in_nested_control_flow.saw	pass	-	-
 coro_done_path_releases_in_scope_order.saw	pass	-	-
 coro_drive_and_spawn.saw	pass	-	-
 coro_drive_void_body.saw	pass	-	-
@@ -692,7 +692,7 @@ coro_entry_template_chain_names_a_suspending_callee.saw	pass	-	-
 coro_existential_only_body_is_not_framed.saw	pass	-	-
 coro_for_inclusive_range_int_max.saw	pass	-	-
 coro_for_inclusive_range_last_iteration.saw	refused	typecheck call.label	no parameter is labeled `threads` in TaskGroup.init() [std.taskgroup]
-coro_for_of_frames_stress.saw	refused	typecheck member.unknown	`std.vector.Vector<Int, std.alloc.GlobalAllocator>` has no method `iter` this module can see
+coro_for_of_frames_stress.saw	pass	-	-
 coro_frame_byte_local_across_suspend.saw	pass	-	-
 coro_frame_local_released_at_scope_end.saw	wrong	stdout differs	line 6: sawc2 "now s1-2", Stage 0 "DEINIT s1"
 coro_frame_optional_param_presence.saw	pass	-	-
@@ -705,8 +705,8 @@ coro_generic_spawn_root_nested_suspending_call.saw	pass	-	-
 coro_generic_struct_and_method.saw	pass	-	-
 coro_generic_struct_method.saw	pass	-	-
 coro_guardlet_over_suspending.saw	pass	-	-
-coro_head_move_relinquishes_before_early_exit.saw	refused	typecheck member.unknown	`std.vector.Vector<Int, std.alloc.GlobalAllocator>` has no method `iter` this module can see
-coro_head_move_with_early_exit_drops_once.saw	refused	typecheck member.unknown	`std.vector.Vector<Int, std.alloc.GlobalAllocator>` has no method `iter` this module can see
+coro_head_move_relinquishes_before_early_exit.saw	pass	-	-
+coro_head_move_with_early_exit_drops_once.saw	refused	typecheck member.unknown	`String` has no method `bytes` this module can see
 coro_hoist_evaluation_order.saw	pass	-	-
 coro_hoist_move_diagnostic.saw	pass	-	transfer.implicit-copy: this reads a place of type `std.vector.Vector<Int, std.alloc.GlobalAllocator>`, which is ExplicitCopy, by value: only a Copy type copies silently; write `move taken` to take it
 coro_hoisted_call_arg_consumed_once.saw	pass	-	-
@@ -723,7 +723,7 @@ coro_iflet_suspending_deinit.saw	pass	-	-
 coro_imported_callee_discovery_matrix.saw	pass	-	-
 coro_imported_private_helper_parks_on_io.saw	refused	resolve import.unknown-module	no module `std.net`
 coro_imported_private_helper_suspends.saw	pass	-	-
-coro_inline_catch_loop_exit_in_child_positions.saw	refused	typecheck member.unknown	`std.vector.Vector<Int, std.alloc.GlobalAllocator>` has no method `iter` this module can see
+coro_inline_catch_loop_exit_in_child_positions.saw	pass	-	-
 coro_json_encode_in_task.saw	refused	resolve import.unknown-module	no module `std.json`
 coro_labeled_call_positions.saw	pass	-	-
 coro_locals_across_suspend.saw	pass	-	-
@@ -740,10 +740,10 @@ coro_mixed_match_payload_released_at_extraction.saw	stage0-wrong	annotated SL-51
 coro_module_json_encode_in_task.saw	refused	resolve import.unknown-module	no module `std.json`
 coro_module_tagged_free_callee_discovery.saw	pass	-	-
 coro_move_in_a_while_condition_driven.saw	pass	-	-
-coro_move_in_split_if_head.saw	refused	typecheck member.unknown	`std.vector.Vector<Int, std.alloc.GlobalAllocator>` has no method `iter` this module can see
-coro_move_in_split_match_scrutinee.saw	refused	typecheck member.unknown	`std.vector.Vector<Int, std.alloc.GlobalAllocator>` has no method `iter` this module can see
-coro_move_in_split_try_body.saw	refused	typecheck member.unknown	`std.vector.Vector<Int, std.alloc.GlobalAllocator>` has no method `iter` this module can see
-coro_move_in_split_while_head.saw	refused	typecheck member.unknown	`std.vector.Vector<Int, std.alloc.GlobalAllocator>` has no method `iter` this module can see
+coro_move_in_split_if_head.saw	pass	-	-
+coro_move_in_split_match_scrutinee.saw	pass	-	-
+coro_move_in_split_try_body.saw	pass	-	-
+coro_move_in_split_while_head.saw	pass	-	-
 coro_move_scrutinee_span.saw	pass	-	-
 coro_moved_arc_param_deinit_once.saw	pass	-	-
 coro_nested_generic_call.saw	pass	-	-
@@ -810,8 +810,8 @@ coro_try_landing_within_guards.saw	refused	typecheck slice.not-yet	`syntax.expr.
 coro_try_propagate_suspending.saw	pass	-	-
 coro_tuple_across_suspend.saw	pass	-	-
 coro_unconsumed_result.saw	pass	-	-
-coro_value_inline_catch_hosts_a_move.saw	refused	typecheck member.unknown	`std.vector.Vector<Int, std.alloc.GlobalAllocator>` has no method `iter` this module can see
-coro_while_head_move_reevaluates_per_iteration.saw	refused	typecheck member.unknown	`std.vector.Vector<Int, std.alloc.GlobalAllocator>` has no method `iter` this module can see
+coro_value_inline_catch_hosts_a_move.saw	stage0-wrong	XFAIL SL-231	sawc2 meets its directives
+coro_while_head_move_reevaluates_per_iteration.saw	pass	-	-
 coro_wildcard_discards_own_slots.saw	pass	-	-
 crossmodule_embed_annotation_positions.saw	pass	-	-
 crossmodule_embed_type_identity.saw	pass	-	-
@@ -862,7 +862,7 @@ deinit_policy_containment.saw	pass	-	-
 deinit_synth_drop_order.saw	pass	-	-
 deinit_synth_enum_payload.saw	pass	-	-
 deinit_synth_field.saw	pass	-	-
-deinit_synth_nocopy_holder.saw	refused	typecheck member.unknown	`std.vector.Vector<Int, std.alloc.GlobalAllocator>` has no method `iter` this module can see
+deinit_synth_nocopy_holder.saw	pass	-	-
 deinit_temp_chain.saw	pass	-	-
 deinit_temp_receiver.saw	pass	-	-
 dependency_error_names_its_own_file_error.saw	pass	-	type.not-a-value: `Widget` names a type, a module or a trait, not a value
@@ -1080,8 +1080,8 @@ errors/consumes_suspending_handwritten_deinit.saw	wrong	accepts a refusal test	`
 errors/consumes_trait_requirement.saw	pass	-	resolve.parse-refused: the parser refuses `tests/corpus/errors/consumes_trait_requirement.saw` (syntax.rule.requirement-borrows), so its declarations are not available
 errors/copy_bound_missing.saw	pass	-	type.bound: `T` has no `copy()`: no bound makes it `ExplicitCopy`; declare `T: ExplicitCopy`, or `Copy`
 errors/copy_policy_hook_suspends_in_sync_fn.saw	pass	-	effect.sync: cannot suspend in the `Copy` `copy()` of `Heavy`: `Heavy.copy` may suspend, and a copy-policy `copy()` runs at compiler-inserted call sites, so it must be `sync`
-errors/coro_assign_rhs_move_beside_early_exit.saw	refused	typecheck member.unknown	`std.vector.Vector<Int, std.alloc.GlobalAllocator>` has no method `iter` this module can see
-errors/coro_buried_early_exit_beside_a_move.saw	refused	typecheck member.unknown	`std.vector.Vector<Int, std.alloc.GlobalAllocator>` has no method `iter` this module can see
+errors/coro_assign_rhs_move_beside_early_exit.saw	stage0-wrong	annotated SL-234	sawc2 meets its directives
+errors/coro_buried_early_exit_beside_a_move.saw	stage0-wrong	annotated SL-234	sawc2 meets its directives
 errors/coro_closure_body_suspends_with_no_driven_root.saw	refused	typecheck member.unknown	`std.vector.Vector<Int, std.alloc.GlobalAllocator>` has no method `each` this module can see
 errors/coro_cross_module_suspending_recursion.saw	pass	-	coro.suspending-cycle: suspending recursion is not allowed: the suspending-call cycle `descend -> descend` has no compile-time frame size, since a callee's frame is embedded in its caller's by value.
 errors/coro_group_spawn_suspending_recursion.saw	pass	-	coro.suspending-cycle: suspending recursion is not allowed: the suspending-call cycle `recurse -> recurse` has no compile-time frame size, since a callee's frame is embedded in its caller's by value.
@@ -1089,7 +1089,7 @@ errors/coro_guarded_arm_owning_payload.saw	stage0-wrong	annotated SL-283	sawc2 b
 errors/coro_imported_closure_body_suspends.saw	refused	typecheck member.unknown	`std.vector.Vector<Int, std.alloc.GlobalAllocator>` has no method `each` this module can see
 errors/coro_imported_closure_body_suspends_with_no_driven_root.saw	refused	typecheck member.unknown	`std.vector.Vector<Int, std.alloc.GlobalAllocator>` has no method `each` this module can see
 errors/coro_io_park_in_closure_body_beside_a_conservative_call.saw	refused	resolve import.unknown-module	no module `std.net`
-errors/coro_let_init_move_beside_early_exit.saw	refused	typecheck member.unknown	`std.vector.Vector<Int, std.alloc.GlobalAllocator>` has no method `iter` this module can see
+errors/coro_let_init_move_beside_early_exit.saw	stage0-wrong	annotated SL-234	sawc2 meets its directives
 errors/coro_main_suspending_recursion.saw	pass	-	coro.suspending-cycle: suspending recursion is not allowed: the suspending-call cycle `recurse -> recurse` has no compile-time frame size, since a callee's frame is embedded in its caller's by value.
 errors/coro_method_suspending_recursion.saw	pass	-	coro.suspending-cycle: suspending recursion is not allowed: the suspending-call cycle `Walker.walk -> Walker.walk` has no compile-time frame size, since a callee's frame is embedded in its caller's by
 errors/coro_mutual_suspending_recursion.saw	pass	-	coro.suspending-cycle: suspending recursion is not allowed: the suspending-call cycle `pong -> ping -> pong` has no compile-time frame size, since a callee's frame is embedded in its caller's by value
@@ -1118,7 +1118,7 @@ errors/explicit_copy_containment.saw	pass	-	copy.undeclared-policy: `Container` 
 errors/extern_c_compiler_symbol_mismatch_error.saw	wrong	accepts a refusal test	`printf` is declared `extern "C"` here with a signature the compiler's own declaration of that symbol does not have
 errors/fixed_width_arith_literal_out_of_range.saw	pass	-	type.mismatch: integer literal 999 does not fit in `Int8` (range -128..=127)
 errors/for_head_is_a_transfer.saw	refused	typecheck slice.not-yet	`syntax.stmt.break` is not in the bootstrap slice yet
-errors/for_iter_body_mutates_the_collection.saw	refused	typecheck member.unknown	`std.vector.Vector<Int, std.alloc.GlobalAllocator>` has no method `iter` this module can see
+errors/for_iter_body_mutates_the_collection.saw	pass	-	loan.window-root: `v` is borrowed exclusively here while the window of `iter` opened at 22:14 holds `v` shared until the window closes; a window charges its whole root until it closes, so the root is
 errors/forwarded_lend_cannot_upgrade_an_inner_shared_lend.saw	pass	-	subscript.role: this subscript is used as a writable place: its `[]` lends read-only (`forwarded_lend_cannot_upgrade_an_inner_shared_lend.Inner` declares or derives no such role)
 errors/forwarding_capture_escaping.saw	refused	resolve slice.not-yet	`syntax.expr.shorthand-param` is not in the bootstrap slice yet
 errors/forwarding_return.saw	refused	resolve slice.not-yet	`syntax.expr.shorthand-param` is not in the bootstrap slice yet
@@ -1187,7 +1187,7 @@ errors/move_in_a_while_condition_nested_loop_header.saw	pass	-	move.use-after: `
 errors/move_in_a_while_condition_positions.saw	pass	-	move.use-after: `whole` is used after it may have been moved (moved at 38:11); a moved value is gone until it is assigned again
 errors/multiple.saw	refused	resolve name.undefined	cannot find `y` in scope
 errors/mutex_closure_stored.saw	wrong	accepts a refusal test	a closure with reference (`&`/`&var`) parameters may only be passed directly as a call argument; it cannot be bound, returned, or captured
-errors/mutex_guarded_for_suspends.saw	refused	typecheck member.unknown	`std.vector.Vector<Int, std.alloc.GlobalAllocator>` has no method `iter` this module can see
+errors/mutex_guarded_for_suspends.saw	wrong	refused by another rule	borrows.sync-window, where the plan names effect.sync
 errors/mutex_lock_suspend.saw	wrong	refused by another rule	borrows.sync-window, where the plan names effect.sync
 errors/never_emitted_instance_reports.saw	refused	typecheck member.unknown	`std.vector.Vector<never_emitted_instance_reports.Anchor, std.alloc.GlobalAllocator>` has no method `swap_out` this module can see
 errors/no_copy.saw	pass	-	transfer.implicit-copy: this reads a place of type `no_copy.FileHandle`, which is NoCopy, by value: only a Copy type copies silently; write `move f1` to take it, or borrow it
@@ -1280,7 +1280,7 @@ errors/serde169_deserialize_not_any.saw	refused	resolve name.undefined	cannot fi
 errors/serde169_underivable_field.saw	refused	resolve name.undefined	cannot find `Serialize` in scope
 errors/shadow_closure_param.saw	pass	-	name.shadowing: `total` shadows an enclosing binding, which a pattern, a parameter or a closure parameter may not do; pick another name
 errors/shadow_for_nested_loop.saw	pass	-	name.shadowing: `x` shadows an enclosing binding without deriving from it; pick another name, or mention `x` in the initializer
-errors/shadow_for_nonderived.saw	refused	typecheck member.unknown	`std.vector.Vector<Int, std.alloc.GlobalAllocator>` has no method `iter` this module can see
+errors/shadow_for_nonderived.saw	pass	-	name.shadowing: `x` shadows an enclosing binding without deriving from it; pick another name, or mention `x` in the initializer
 errors/shadow_for_tuple_pattern.saw	pass	-	resolve.parse-refused: the parser refuses `tests/corpus/errors/shadow_for_tuple_pattern.saw` (syntax.expr.refused-for-tuple), so its declarations are not available
 errors/shadow_inner_let.saw	pass	-	name.shadowing: `x` shadows an enclosing binding without deriving from it; pick another name, or mention `x` in the initializer
 errors/shadow_match_pattern.saw	pass	-	name.shadowing: `x` shadows an enclosing binding, which a pattern, a parameter or a closure parameter may not do; pick another name
@@ -1411,7 +1411,7 @@ errors/var_ref_into_shared_self.saw	pass	-	mutability.immutable: this exclusive 
 errors/var_self_receiver.saw	pass	-	resolve.parse-refused: the parser refuses `tests/corpus/errors/var_self_receiver.saw` (syntax.decl.refused-receiver), so its declarations are not available
 errors/vector_copy_nocopy_elem.saw	pass	-	name.not-in-prelude: `File` is not in the prelude and must be imported: `import std.file.{File}` selects it
 errors/vector_get_nocopy_alias.saw	pass	-	type.bound: `std.vector.Vector<vector_get_nocopy_alias.Item, std.alloc.GlobalAllocator>` has no member `get`: it is declared where `T: Copy`, and `vector_get_nocopy_alias.Item` does not satisfy `Copy`
-errors/vector_iter_requires_copy.saw	refused	typecheck member.unknown	`std.vector.Vector<vector_iter_requires_copy.Res, std.alloc.GlobalAllocator>` has no method `iter` this module can see
+errors/vector_iter_requires_copy.saw	pass	-	result.discarded: the result of `push` is `Result<Void, std.alloc.AllocError>` and is silently discarded: handle it (`match` it, `try` or `try!` it, or return it), or write `let _ = ...` to discard it
 errors/vector_ref_at_removed.saw	refused	typecheck member.unknown	`std.vector.Vector<Int, std.alloc.GlobalAllocator>` has no method `ref_at` this module can see
 errors/while_break_not_never.saw	pass	-	type.mismatch: expected `Never`, the type of the function's result, which the body's last expression is, and found `Void`
 errors/while_break_outside_loop.saw	wrong	accepts a refusal test	`break` can only be used inside a loop
@@ -1420,8 +1420,8 @@ errors/while_expr_incompatible_break_types.saw	refused	typecheck slice.not-yet	`
 errors/while_never_unreachable_after.saw	pass	-	type.mismatch: expected `Never`, the type of the function's result, which the body's last expression is, and found `Void`
 errors/while_true_not_never.saw	pass	-	type.mismatch: expected `Never`, the type of the function's result, which the body's last expression is, and found `Void`
 errors/window_acquire_mutating_argument.saw	pass	-	loan.nested-call: `b` is borrowed by a nested call in this argument list while `b` is also the receiver of the call at 51:14, which borrows it for the whole call; bind the nested call's result in a st
-errors/window_conflicts.saw	refused	typecheck member.unknown	`std.vector.Vector<Int, std.alloc.GlobalAllocator>` has no method `iter` this module can see
-errors/window_in_a_threaded_group.saw	refused	typecheck member.unknown	`std.vector.Vector<Int, std.alloc.GlobalAllocator>` has no method `iter` this module can see
+errors/window_conflicts.saw	refused	typecheck slice.not-yet	a borrow a `group.spawn` root takes of its spawner for the task's life (SL:coroutines A8c) is not in the bootstrap slice yet
+errors/window_in_a_threaded_group.saw	wrong	refused by another rule	call.label, where the plan names coro.spawn-not-send
 errors/window_static_root_write.saw	pass	-	loan.window-root: `ROOT.value` is written here while the window of `iter` opened at 38:14 holds `ROOT` shared until the window closes; a window charges its whole root until it closes, so the root is r
 errors/with_var_ref_invalidation.saw	pass	-	loan.window-root: `v` is borrowed exclusively here while the window of `[]` opened at 16:5 holds `v` exclusively until the window closes; a window charges its whole root until it closes, so the root i
 errors/withcstring_escape.saw	pass	-	escaping.stored: `body` is a non-escaping function value, a parameter whose type does not say `escaping` or a binding of one, and a field holds it past the call: mark the parameter `escaping`, as `()
@@ -1618,7 +1618,7 @@ generic_enum_raw_backing_keeps_values.saw	refused	llvm backend.not-yet	this conv
 generic_extension_overload.saw	pass	-	-
 generic_fn_box_param.saw	pass	-	-
 generic_fn_vector_ref_param.saw	pass	-	-
-generic_for_loop_owning_balance.saw	refused	typecheck member.unknown	`std.vector.Vector<T, std.alloc.GlobalAllocator>` has no method `iter` this module can see
+generic_for_loop_owning_balance.saw	refused	mono mono.not-yet	a call of `ExplicitCopy.copy()` on `generic_for_loop_owning_balance.W`, which no conformance of it meets, is not in the backend slice yet (inside std/vector.saw:301:17)
 generic_init_moved_parameter_is_released_once.saw	stage0-wrong	XFAIL DF-302b	sawc2 meets its directives
 generic_instance_associated_type_binding.saw	refused	resolve name.undefined	cannot find `Item` in scope; an associated type of a bound is named through its type parameter, as `T.Item`
 generic_instance_associated_type_return.saw	refused	resolve name.undefined	cannot find `Item` in scope; an associated type of a bound is named through its type parameter, as `T.Item`
@@ -1726,7 +1726,7 @@ io_error_kind_and_raw_code.saw	refused	resolve import.unknown-module	no module `
 iterator_custom.saw	pass	-	-
 iterator_for_loop.saw	pass	-	-
 iterator_generic.saw	pass	-	-
-iterator_generic_type.saw	refused	typecheck member.unknown	`std.vector.Vector<String, std.alloc.GlobalAllocator>` has no method `iter` this module can see
+iterator_generic_type.saw	refused	mono mono.not-yet	a call of `ExplicitCopy.copy()` on `String`, which no conformance of it meets, is not in the backend slice yet (inside std/vector.saw:301:17)
 iterator_simple.saw	pass	-	-
 iterator_string.saw	pass	-	-
 iterator_struct.saw	pass	-	-
@@ -2144,7 +2144,7 @@ place_window_root_read_in_assignment_rhs.saw	refused	typecheck mutability.immuta
 place_write_self_rhs.saw	pass	-	-
 plain_type_generic_method.saw	pass	-	-
 pointer_prefix_deref.saw	refused	typecheck slice.not-yet	`syntax.expr.move-deref.name` is not in the bootstrap slice yet
-prelude_import_makes_visible.saw	refused	typecheck member.unknown	`std.vector.Vector<Int, std.alloc.GlobalAllocator>` has no method `iter` this module can see
+prelude_import_makes_visible.saw	pass	-	-
 prelude_user_ioerror.saw	pass	-	-
 primitive_conformances.saw	refused	llvm backend.not-yet	a Float constant, `1.5`, is not in the backend slice yet
 primitive_extension_self_is_its_own_type.saw	refused	mono mono.not-yet	a synthesized `Printable.format(into: &var std.stringbuilder.StringBuilder)` on `Float` is not in the backend slice yet: the backend lowers no Float operation
@@ -2290,7 +2290,7 @@ shadow255_qualified_escape.saw	refused	resolve import.unknown-symbol	`Thread` is
 shadow255_selective_import.saw	pass	-	-
 shadow255_two_imports_ambiguous_error.saw	pass	-	name.ambiguous: ambiguous `Widget`: two imports bind it to different declarations; qualify the use, or import it from a single module
 shadow_derived.saw	pass	-	-
-shadow_for_derived.saw	refused	typecheck member.unknown	`std.vector.Vector<Int, std.alloc.GlobalAllocator>` has no method `iter` this module can see
+shadow_for_derived.saw	pass	-	-
 shadow_owning_lifetime.saw	pass	-	-
 shadow_redef_nested_owning.saw	wrong	stdout differs	line 1: sawc2 "mid 2001", Stage 0 "deinit 1001"
 shadow_redef_same_scope.saw	refused	resolve slice.not-yet	`syntax.expr.shorthand-param` is not in the bootstrap slice yet
@@ -2377,7 +2377,7 @@ string_raw_control_byte_before_brace.saw	pass	-	-
 string_scalars_iter.saw	refused	typecheck member.unknown	`String` has no method `scalars` this module can see
 string_scalars_temp_receiver.saw	refused	typecheck member.unknown	`String` has no method `scalars` this module can see
 string_simple.saw	pass	-	-
-string_split_join.saw	refused	typecheck member.unknown	`std.vector.Vector<String, std.alloc.GlobalAllocator>` has no method `iter` this module can see
+string_split_join.saw	refused	typecheck member.unknown	`std.vector.Vector<String, std.alloc.GlobalAllocator>` has no method `join` this module can see
 string_substring_oob_panic.saw	pass	-	-
 string_substring_reversed_panic.saw	pass	-	-
 string_to_float.saw	refused	typecheck member.unknown	`String` has no method `to_float` this module can see
@@ -2415,7 +2415,7 @@ task_backtrace_churn.saw	refused	resolve name.undefined	cannot find `dump_tasks`
 task_backtrace_mt.saw	refused	resolve import.unknown-module	no module `std.channel`
 task_backtrace_nest.saw	refused	resolve import.unknown-symbol	`dump_tasks` is not defined in `std.task`
 task_backtrace_panic.saw	wrong	stdout differs	line 2: sawc2 "<end>", Stage 0 "saw tasks: 2 live (as-of panic, unsynchronized)"
-taskgroup_budget_loop_semantics.saw	refused	typecheck member.unknown	`std.vector.Vector<Int, std.alloc.GlobalAllocator>` has no method `iter` this module can see
+taskgroup_budget_loop_semantics.saw	pass	-	-
 taskgroup_cancel_check.saw	pass	-	-
 taskgroup_cancel_during_sleep.saw	refused	typecheck member.unknown	`std.taskgroup.Task<Int>` has no method `cancel_addr` this module can see
 taskgroup_cancel_receive.saw	refused	resolve import.unknown-module	no module `std.channel`
@@ -2579,11 +2579,11 @@ vector_each_indexed_exclusivity_error.saw	refused	typecheck member.unknown	`std.
 vector_elem_deinit.saw	pass	-	-
 vector_elem_deinit_pop.saw	pass	-	-
 vector_enum_payload_deinit.saw	pass	-	-
-vector_enumerated.saw	refused	typecheck member.unknown	`std.vector.Vector<Int, std.alloc.GlobalAllocator>` has no method `enumerated` this module can see
+vector_enumerated.saw	pass	-	-
 vector_field_drop_glue.saw	pass	-	-
 vector_file_copy_bound_error.saw	pass	-	name.not-in-prelude: `File` is not in the prelude and must be imported: `import std.file.{File}` selects it
 vector_in_erased_result.saw	pass	-	-
-vector_literal.saw	refused	typecheck member.unknown	`std.vector.Vector<Int, std.alloc.GlobalAllocator>` has no method `iter` this module can see
+vector_literal.saw	pass	-	-
 vector_literal_nocopy_move.saw	pass	-	-
 vector_literal_non_collection_error.saw	pass	-	type.mismatch: expected `Int`, the type of the annotated binding, and found `[Int; 3]`
 vector_literal_owning_deinit.saw	pass	-	-
@@ -2591,7 +2591,7 @@ vector_literal_owning_use_after_move_error.saw	pass	-	move.use-after: `a.id` is 
 vector_map_fold.saw	refused	resolve slice.not-yet	`syntax.expr.shorthand-param` is not in the bootstrap slice yet
 vector_nested_each_borrows.saw	refused	typecheck infer.failed	this closure parameter has no type: write one, as `x: Int`, or pass the closure where a function type is expected
 vector_nocopy_elem_construct.saw	pass	-	-
-vector_owning_element_safety.saw	refused	typecheck member.unknown	`std.vector.Vector<std.arc.Arc<Int>, std.alloc.GlobalAllocator>` has no method `iter` this module can see
+vector_owning_element_safety.saw	refused	mono mono.not-yet	a call of `ExplicitCopy.copy()` on `std.arc.Arc<Int>`, which no conformance of it meets, is not in the backend slice yet (inside std/vector.saw:301:17)
 vector_pop_refcount_exact.saw	pass	-	-
 vector_set_oob_panic.saw	pass	-	-
 vector_simple.saw	pass	-	-
@@ -2601,7 +2601,7 @@ vector_swap.saw	refused	typecheck member.unknown	`std.vector.Vector<Int, std.all
 vector_swap_oob_panic.saw	refused	typecheck member.unknown	`std.vector.Vector<Int, std.alloc.GlobalAllocator>` has no method `swap` this module can see
 vector_swap_out_oob_panic.saw	refused	typecheck member.unknown	`std.vector.Vector<Int, std.alloc.GlobalAllocator>` has no method `swap_out` this module can see
 vector_swap_string.saw	refused	typecheck member.unknown	`std.vector.Vector<String, std.alloc.GlobalAllocator>` has no method `swap` this module can see
-vector_test.saw	refused	typecheck member.unknown	`std.vector.Vector<Int, std.alloc.GlobalAllocator>` has no method `iter` this module can see
+vector_test.saw	pass	-	-
 vector_with_ref.saw	pass	-	-
 vector_with_ref_oob_panic.saw	wrong	stdout differs	line 2: sawc2 "panic at <std>: Vector.[]: index out of range: 99 (len 2)", Stage 0 "panic at <std>: Vector.with_ref: index out of range: 99 (len 2)"
 vector_with_var_ref_oob_panic.saw	wrong	stdout differs	line 2: sawc2 "panic at <std>: Vector.[]: index out of range: 99 (len 2)", Stage 0 "panic at <std>: Vector.with_var_ref: index out of range: 99 (len 2)"

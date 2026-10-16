@@ -1,41 +1,47 @@
 // SL-234: a `move` of a frame local in an ASSIGNMENT'S RIGHT-HAND SIDE whose
-// expression also exits early is refused rather than miscompiled.
+// expression also exits early. Stage 0 refuses this shape as a limit of its
+// source-level coroutine transform; the language allows it, and this copy
+// states what it means: each `Res` is destroyed exactly once, by the callee it
+// moved into, on the path that returns early and on the one that falls through.
 //
-// The assignment twin of `coro_let_init_move_beside_early_exit.saw`; the two are
-// the LEAF arms of one rule, refused through one funnel
-// (`_refuse_buried_early_exit`) alongside SL-222 r3's plain-statement shape in
-// `coro_buried_early_exit_beside_a_move.saw`. See the `let` file for why a leaf
-// position can state no ordering between its operands and the move.
-//
-// The message names the AUTHOR'S assignment target, `acc` — the frame rewrite
-// would otherwise have spelled it `self.acc`, a name they did not write.
-// EXPECT: error
-// EXPECT-ERROR-CONTAINS: the right-hand side of the assignment to `acc`
-// EXPECT-ERROR-CONTAINS: whose expression also `return`s, `break`s or `continue`s
-// EXPECT-ERROR-CONTAINS: bind the moving call to its own `let` first
+// It stays in `errors/` because its examples/ twin, Stage 0's refusal test, is
+// there, and corpusdiff pairs a corpus program with the twin at the same path.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// drop item1
+// drop exit
+// 5
+// drop item1
+// drop item2
+// 3
 
 import std.task.{yield_now}
 
 struct Res { name: String }
 extension Res: NoCopy {
-    func deinit(&var self) { print("drop") }
+    func deinit(&var self) { print("drop {}", self.name) }
 }
 
 func note(r: &Res) -> Int { r.name.len() }
 
-func consume_bool(r: Res) -> Bool { true }
+func consume_bool(r: Res) -> Bool { r.name == "exit" }
 
-func run(items: Vector<Int>) -> Int {
+func make(i: Int, exit_at: Int) -> Res {
+    if i == exit_at { Res(name: "exit") } else { Res(name: "item{i}") }
+}
+
+func run(items: Vector<Int>, exit_at: Int) -> Int {
     yield_now()
     var acc = 0
     for i in items.iter() {
-        var r = Res(name: "item")
+        var r = make(i, exit_at)
         if note(&r) + i < 0 { return -1 }
-        acc = if consume_bool(move r) { return 5 } else { 0 }
+        acc = if consume_bool(move r) { return 5 } else { acc + i }
     }
     acc
 }
 
 func main() {
-    print(__saw_drive(run([1, 2])))
+    print(__saw_drive(run([1, 2], 2)))
+    print(__saw_drive(run([1, 2], 0)))
 }

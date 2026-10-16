@@ -1,6 +1,6 @@
 program	errors/coro_buried_early_exit_beside_a_move.saw
 triple	arm64-apple-darwin
-twin	same
+twin	differs
 expect	error
 build	refused	coroutine transform: `move` of a frame local in a statement of driven `run` whose expression also `return`s, `break`s or `continue`s is not supported; bind the moving call to its own `let` first, then use the binding
 meets_expect	yes

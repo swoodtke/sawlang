@@ -209,6 +209,27 @@ extension Vector<T: Copy, A: Allocator = GlobalAllocator> {
         }
         buf[index]
     }
+
+    // `next()` hands the consumer an owned element, so a bitwise read of an
+    // owning element would give it two owners. The iterator borrows the vector
+    // itself, not its buffer, so the `for` statement is its window and a
+    // mutation in the body is an exclusivity error.
+    /// Returns an iterator over the vector's elements (`for x in v.iter()`).
+    ///
+    /// Each element is yielded as an owned copy, which is what requires
+    /// `T: Copy`. The iterator borrows the vector for the whole loop, so the
+    /// body may read it but not add to it, remove from it or replace it.
+    public func iter(&self) borrows -> VectorIterator<T, A> {
+        VectorIterator<T, A>(vector: lends self, index: 0)
+    }
+
+    /// Returns an iterator yielding `(index, element)` pairs.
+    ///
+    /// Because elements are yielded by value, `T` must be `Copy`. Like
+    /// `iter()`, it borrows the vector for the whole loop.
+    public func enumerated(&self) borrows -> EnumeratedIterator<T, A> {
+        EnumeratedIterator<T, A>(vector: lends self, index: 0)
+    }
 }
 
 extension Vector<T: ExplicitCopy, A: Allocator = GlobalAllocator>: ExplicitCopy {
@@ -248,6 +269,70 @@ extension Vector<T: ExplicitCopy, A: Allocator = GlobalAllocator>: ExplicitCopy 
             }
             let raw = buf as UnsafePointer<Int8>
             A().dealloc(raw, self.capacity * sizeof<T>(), alignof<T>())
+        }
+    }
+}
+
+// Holds the vector itself, lent, and reads `length` and `buffer` through it on
+// every `next()`. Lend the root, never the buffer: a snapshot of the buffer
+// pointer is what the vector can invalidate (SL-321).
+//
+// `public` only because `Vector.iter()` is public and a public signature may
+// not name a private type; a borrowing struct cannot be held, so its only use
+// is the head of a `for`.
+/// The iterator `Vector.iter()` returns; it lives only as the head of a `for`.
+public borrows struct VectorIterator<T, A: Allocator = GlobalAllocator> {
+    private vector: &Vector<T, A>
+    private index: Int
+}
+
+// `next()` yields an element the consumer owns, so it spells `.copy()`; a bare
+// slot read would be a second owner. The bound is `ExplicitCopy` because the
+// body spells the copy; `iter()` keeps the stricter `T: Copy` at the producer.
+extension VectorIterator<T: ExplicitCopy, A: Allocator = GlobalAllocator>: Iterator {
+    type Item = T
+
+    /// Returns a copy of the next element, or `None` past the last one.
+    public func next(&var self) unsafe -> T? {
+        if self.index < self.vector.length {
+            let idx = self.index
+            self.index = self.index + 1
+            if let buf = self.vector.buffer {
+                buf[idx].copy()
+            } else {
+                None
+            }
+        } else {
+            None
+        }
+    }
+}
+
+// Same shape and visibility reason as `VectorIterator`.
+/// The iterator `Vector.enumerated()` returns; it lives only as the head of a
+/// `for`.
+public borrows struct EnumeratedIterator<T, A: Allocator = GlobalAllocator> {
+    private vector: &Vector<T, A>
+    private index: Int
+}
+
+// The yielded pair owns its element: `.copy()` for the same reason as above.
+extension EnumeratedIterator<T: ExplicitCopy, A: Allocator = GlobalAllocator>: Iterator {
+    type Item = (Int, T)
+
+    /// Returns the next index paired with a copy of its element, or `None`
+    /// past the last one.
+    public func next(&var self) unsafe -> (Int, T)? {
+        if self.index < self.vector.length {
+            let idx = self.index
+            self.index = self.index + 1
+            if let buf = self.vector.buffer {
+                (idx, buf[idx].copy())
+            } else {
+                None
+            }
+        } else {
+            None
         }
     }
 }

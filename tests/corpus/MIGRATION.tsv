@@ -1096,8 +1096,8 @@ errors/consumes_suspending_handwritten_deinit.saw	copied,expectation-pending	-	-
 errors/consumes_trait_requirement.saw	copied,expectation-pending	-	-
 errors/copy_bound_missing.saw	copied,expectation-pending	-	-
 errors/copy_policy_hook_suspends_in_sync_fn.saw	copied,expectation-pending	-	-
-errors/coro_assign_rhs_move_beside_early_exit.saw	copied,expectation-pending	-	-
-errors/coro_buried_early_exit_beside_a_move.saw	copied,expectation-pending	-	-
+errors/coro_assign_rhs_move_beside_early_exit.saw	manual,expectation-pending	manual.transform-limit:6,manual.transform-limit.companion:13	SL-234: Stage 0's transform limit is lifted; the copy asserts one drop per value
+errors/coro_buried_early_exit_beside_a_move.saw	manual,expectation-pending	manual.transform-limit:5,manual.transform-limit.companion:18	SL-234: Stage 0's transform limit is lifted; the copy asserts one drop per value
 errors/coro_closure_body_suspends_with_no_driven_root.saw	copied,expectation-pending	-	-
 errors/coro_cross_module_suspending_recursion.saw	copied,expectation-pending	-	-
 errors/coro_group_spawn_suspending_recursion.saw	copied,expectation-pending	-	-
@@ -1105,7 +1105,7 @@ errors/coro_guarded_arm_owning_payload.saw	copied,expectation-pending	-	-
 errors/coro_imported_closure_body_suspends.saw	copied,expectation-pending	-	-
 errors/coro_imported_closure_body_suspends_with_no_driven_root.saw	copied,expectation-pending	-	-
 errors/coro_io_park_in_closure_body_beside_a_conservative_call.saw	copied,expectation-pending	-	-
-errors/coro_let_init_move_beside_early_exit.saw	copied,expectation-pending	-	-
+errors/coro_let_init_move_beside_early_exit.saw	manual,expectation-pending	manual.transform-limit:6,manual.transform-limit.companion:25	SL-234: Stage 0's transform limit is lifted; the copy asserts one drop per value
 errors/coro_main_suspending_recursion.saw	copied,expectation-pending	-	-
 errors/coro_method_suspending_recursion.saw	copied,expectation-pending	-	-
 errors/coro_mutual_suspending_recursion.saw	copied,expectation-pending	-	-

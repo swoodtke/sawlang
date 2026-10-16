@@ -1,0 +1,14 @@
+program	compiler/tests/run/catch_binding_rename_covers_every_position.saw
+triple	arm64-apple-darwin
+source	8a86c3d011d7645e
+build	ok
+exit	0
+stdout	"struct init: 1"
+stdout	"move: 1"
+stdout	"interpolation: bad"
+stdout	"closure: 101"
+stdout	"map literal: 1"
+stdout	"match: 22"
+stdout	"shadow: 1001"
+stdout	"done"
+stdout	""

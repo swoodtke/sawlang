@@ -1,11 +1,11 @@
 # The seed: each file's target, name, SHA-256 and size in bytes, in build.py's
 # seed_files order; the blob host serves each at its SHA-256. compiler/tools/seed.py
 # writes this file, and compiler/README.md, "The seed", says when.
-arm64-apple-darwin	sawc2.ll.xz	108c0a646a04adcc81de8047341ec52990fb236d2443ce910ef1d35b6158377d	1851796
+arm64-apple-darwin	sawc2.ll.xz	e8463603c120eaf89091e6fe5c5c9ffb6d645baf985f29f26ba5b2219906a88c	1923516
 arm64-apple-darwin	runtime/common/mem.ll.xz	aaee4666b9264527d8ccd309df0cf0c9122a748ddbe39b4f583762500fe7324d	3228
 arm64-apple-darwin	runtime/common/offload.ll.xz	19534427e0c0f7c7449c657a6e4499dd371a769b9721f6e6a914e7f09992fb34	4484
 arm64-apple-darwin	runtime/common/op_budget.ll.xz	6e4206816efa729ee607df7755253fee032f204d771e8eb74e2764ccc3b63c13	3692
-arm64-apple-darwin	runtime/common/os_ops.ll.xz	f67b8bef76c2d32593ad64f1ffb6f8da6548936872c6007f78836b4a5034ed85	11068
+arm64-apple-darwin	runtime/common/os_ops.ll.xz	0e661b57662826496c88642f2636abaf38760cf38104b9805e0cf1ee1ff62201	11156
 arm64-apple-darwin	runtime/common/proc.ll.xz	26c437700170eadd16d21d451f0921dedee7c11460eed727ef8cf1e70b46bcd2	8364
 arm64-apple-darwin	runtime/common/pthread.ll.xz	363a382291717fe5404e9d1f454dfe95c4db6bad84b0f3d1a062d046565c512b	2480
 arm64-apple-darwin	runtime/common/sleep.ll.xz	86d81f00113867a7aa1ca8629915ab3ba59f9ac05ccd9b158de5df7136f22f53	3428
@@ -16,11 +16,11 @@ arm64-apple-darwin	runtime/host_macos/lock.ll.xz	797dbd7dbb7f93e2250eb944d62dac1
 arm64-apple-darwin	runtime/host_macos/net_os.ll.xz	770a3f771443ce1745f6bfe47fd6da0971aaa28055408d81039d8be16c6eafc0	5232
 arm64-apple-darwin	runtime/host_macos/proc_wait.ll.xz	2781997ccdb9309f6224e6acd514d8d3b98f7a84aba62ea646440fc12b7053ab	3308
 arm64-apple-darwin	runtime/host_macos/reactor.ll.xz	7d247990dd67c8d75062309da43b15c9989e69e4b5df50f0d33e986004c2addf	5956
-x86_64-unknown-linux-gnu	sawc2.ll.xz	564743fb8e069e1877f8ffcc7d278628f261c7dafeb70f415899209726e70625	1851820
+x86_64-unknown-linux-gnu	sawc2.ll.xz	68ba5b3a46a846841f05702e582143b3f9c43f72d0f65f451920830be5114584	1923300
 x86_64-unknown-linux-gnu	runtime/common/mem.ll.xz	84976e8a5f6893e043eed8677ebd32393f10cd7f54239b8f2198619d48fcdcb3	3224
 x86_64-unknown-linux-gnu	runtime/common/offload.ll.xz	cfc46c569431426e2573358acde38f424cc8e67a7e66305bb81538aaee941b8b	4476
 x86_64-unknown-linux-gnu	runtime/common/op_budget.ll.xz	b6bd549eaa82b514b31beebf5cc71c81ab95af757843af83805155e230b69809	3688
-x86_64-unknown-linux-gnu	runtime/common/os_ops.ll.xz	176ce044a95d1acaab1bebcdf1e004abd74136b5a1865715c702a2949415ef70	11056
+x86_64-unknown-linux-gnu	runtime/common/os_ops.ll.xz	e6a5711a6bb84044dd5061f9d19a2254718ece56d45ce80bddd075a7d67446fe	11128
 x86_64-unknown-linux-gnu	runtime/common/proc.ll.xz	d68bfac47aa902f6938e5be6521f6ee1fbe6cca51405f8d0a929ffe7054f3e67	8352
 x86_64-unknown-linux-gnu	runtime/common/pthread.ll.xz	a6902e84c2e28507805e4080efbc6cf01c29fea2ca9d532d742728de4c46ca14	2480
 x86_64-unknown-linux-gnu	runtime/common/sleep.ll.xz	2157d9947eb0051a3b765239185e81cffae0d84054aa539ab290944447c538ba	3424
@@ -30,11 +30,11 @@ x86_64-unknown-linux-gnu	runtime/host_linux/executable_path.ll.xz	eaef5d31ec3bb8
 x86_64-unknown-linux-gnu	runtime/host_linux/net_os.ll.xz	c289550d5be57638f58ccf7bdc3953855ac3dda99bfb914dbdfffce18b8d10b1	5224
 x86_64-unknown-linux-gnu	runtime/host_linux/proc_wait.ll.xz	33fc50e889b28fde0f238271e7553485e530ef719bcdefb0ef1bd5f144aaa2ff	2948
 x86_64-unknown-linux-gnu	runtime/host_linux/reactor.ll.xz	12f1386605500876090b1b1970a451ac00934a64230a80b320a309f6d56a300c	6336
-aarch64-unknown-linux-gnu	sawc2.ll.xz	9453575ca8791e668ee3bd87d954e2983d7c8878aa38a66b07d0e7cc3b9c8b08	1851764
+aarch64-unknown-linux-gnu	sawc2.ll.xz	4875e874adeab53c5f9f5bc3c40ac747e936c36fcc5503aee593091d9f4cb3e4	1923384
 aarch64-unknown-linux-gnu	runtime/common/mem.ll.xz	296fc89a91f0e23ecd34f354a86fbbbe655f9d675beec90de38a13871d909abc	3224
 aarch64-unknown-linux-gnu	runtime/common/offload.ll.xz	5186066aa131c4949a6657011292c8600b59e48ca87295f87913a06e9c2394a4	4476
 aarch64-unknown-linux-gnu	runtime/common/op_budget.ll.xz	395a404611f7cb25e84c3aae5e7f33241241908a12cee70ff6f4fff0f85f25ee	3688
-aarch64-unknown-linux-gnu	runtime/common/os_ops.ll.xz	084b03becef993c00b9d4cdac1ef999d1164f9bd2ce7acd2b2816e34a2de2801	11076
+aarch64-unknown-linux-gnu	runtime/common/os_ops.ll.xz	308f64717ac59e8388b47ad4869dd87f84790bf7ca5ff7c5cdabc83c94e10338	11140
 aarch64-unknown-linux-gnu	runtime/common/proc.ll.xz	8a373453ff332d905a2a11b1265167ca5a6c7886210f7d2d08cd7c07fa281673	8356
 aarch64-unknown-linux-gnu	runtime/common/pthread.ll.xz	76156855fa6db703f2315f53766905f376a3593c383ad5ee39b3ccab98fd676f	2476
 aarch64-unknown-linux-gnu	runtime/common/sleep.ll.xz	288d3b4df41fba01a093058ab35910dcda810d5f7f01622bc86cbcd2ea4ee84e	3424

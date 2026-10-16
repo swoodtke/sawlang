@@ -1,0 +1,15 @@
+// refuses: loan.window-root at 11:14
+// `Vector.iter()` is std's borrowing struct: the `for` holds its window,
+// shared on the vector, for the whole loop, so a `push` in the body, which
+// could reallocate the buffer the walker reads, conflicts with it (spec,
+// Borrowing structs)
+
+func main() {
+    var v: Vector<Int> = [1, 2, 3]
+    var sum = 0
+    for x in v.iter() {
+        try! v.push(x)
+        sum = sum + x
+    }
+    print(sum)
+}

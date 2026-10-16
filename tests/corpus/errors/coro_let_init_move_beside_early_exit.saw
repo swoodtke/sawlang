@@ -1,54 +1,48 @@
 // SL-234: a `move` of a frame local in a `let` INITIALIZER whose expression also
-// exits early is refused rather than miscompiled.
+// exits early. Stage 0 refuses this shape as a limit of its source-level
+// coroutine transform; the language allows it, and this copy states what it
+// means: each `Res` is destroyed exactly once, by the callee it moved into, on
+// the path that returns early and on the one that falls through.
 //
-// The sibling of `coro_buried_early_exit_beside_a_move.saw` (SL-222 r3), which
-// pins the same rule at a plain expression statement, and of the assignment
-// twin next to this file. One funnel refuses all three
-// (`_refuse_buried_early_exit`).
-//
-// WHY A REFUSAL AND NOT A FIX. The three CONTAINER heads SL-234 fixed have one
-// expression evaluated before all of their blocks, so "after the head, before
-// block dispatch" names a real point and the hoist writes it down. A LEAF
-// statement has no head: its blocks are operands of an arbitrary expression, and
-// one can sit to the LEFT of the move —
-//
-//     sink(if a { 1 } else { 0 } + consume(move r))
-//
-// — where relinquishing first would retire a claim the move has not yet
-// transferred. Deferring to after the statement is what this shape did before,
-// measured as a silent double free (the callee destroys the value, then frame
-// teardown destroys it again, exit 0).
-//
-// The message names the AUTHOR'S binding, `v` — never the synthesized `__headN`
-// temp the hoist would have introduced, which is a name they cannot see.
-// EXPECT: error
-// EXPECT-ERROR-CONTAINS: the initializer of `v`
-// EXPECT-ERROR-CONTAINS: whose expression also `return`s, `break`s or `continue`s
-// EXPECT-ERROR-CONTAINS: bind the moving call to its own `let` first
+// It stays in `errors/` because its examples/ twin, Stage 0's refusal test, is
+// there, and corpusdiff pairs a corpus program with the twin at the same path.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// drop item1
+// drop exit
+// 4
+// drop item1
+// drop item2
+// 3
 
 import std.task.{yield_now}
 
 struct Res { name: String }
 extension Res: NoCopy {
-    func deinit(&var self) { print("drop") }
+    func deinit(&var self) { print("drop {}", self.name) }
 }
 
 func note(r: &Res) -> Int { r.name.len() }
 
-func consume_bool(r: Res) -> Bool { true }
+func consume_bool(r: Res) -> Bool { r.name == "exit" }
 
-func run(items: Vector<Int>) -> Int {
+func make(i: Int, exit_at: Int) -> Res {
+    if i == exit_at { Res(name: "exit") } else { Res(name: "item{i}") }
+}
+
+func run(items: Vector<Int>, exit_at: Int) -> Int {
     yield_now()
     var acc = 0
     for i in items.iter() {
-        var r = Res(name: "item")
+        var r = make(i, exit_at)
         if note(&r) + i < 0 { return -1 }
-        let v = if consume_bool(move r) { return 4 } else { 0 }
+        let v = if consume_bool(move r) { return 4 } else { i }
         acc = acc + v
     }
     acc
 }
 
 func main() {
-    print(__saw_drive(run([1, 2])))
+    print(__saw_drive(run([1, 2], 2)))
+    print(__saw_drive(run([1, 2], 0)))
 }
