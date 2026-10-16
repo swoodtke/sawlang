@@ -1,0 +1,22 @@
+program	compiler/tests/run/explicit_copy_bound_every_owner.saw
+triple	arm64-apple-darwin
+source	da177ce096c4ae51
+build	ok
+exit	0
+stdout	"int 42"
+stdout	"string text"
+stdout	"arc 2 2"
+stdout	"plain plain 3"
+stdout	"hook"
+stdout	"hooked 101"
+stdout	"pair 5 4"
+stdout	"ledger copy"
+stdout	"ledger 1"
+stdout	"bag 2 2 3"
+stdout	"bag spelled 3"
+stdout	"reel 3"
+stdout	"label named"
+stdout	"tuple tuple 6"
+stdout	"optional optional"
+stdout	"arc at end 2"
+stdout	""

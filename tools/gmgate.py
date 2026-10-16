@@ -28,7 +28,7 @@ run of every program must meet its oracle: a fault, a signal or wrong output
 fails. A blocked program is still built, and fails the lane once sawc2 builds
 it or refuses it by another rule, so the list cannot go stale silently.
 
-COVERAGE: ownership runs a program in 6 of its 6 categories, and 17 of its 26
+COVERAGE: ownership runs a program in 6 of its 6 categories, and 18 of its 26
 Stage 0 programs build; concurrency runs a program in 6 of its 6 categories,
 and 12 of its 25 Stage 0 programs build.
 
@@ -126,6 +126,9 @@ OWNERSHIP = (
             CORPUS + "map_string_owning_value_balance.saw",
             # Set algebra over Arc-holding elements keeps the counts balanced.
             CORPUS + "set_algebra_owning_balance.saw",
+            # A generic body's `for` over Arc-holding elements releases each
+            # iteration's copy.
+            CORPUS + "generic_for_loop_owning_balance.saw",
         ),
         stand_ins=(
             # A String-holding element read out of a Vector, and the copy and
@@ -140,8 +143,6 @@ OWNERSHIP = (
         blocked=(
             Blocked(CORPUS + "closure_vector_copy_get.saw", "mono.not-yet", "SL-525",
                     "an escaping closure's environment is not built"),
-            Blocked(CORPUS + "generic_for_loop_owning_balance.saw", "mono.not-yet", "SL-750",
-                    "a call of `ExplicitCopy.copy()` on a non-trivial type is not in the backend"),
         )),
     Category(
         "optional, match and tuple transfers",

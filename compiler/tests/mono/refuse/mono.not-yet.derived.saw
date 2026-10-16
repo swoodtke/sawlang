@@ -1,0 +1,18 @@
+// refuses: mono.not-yet at 7:5
+// A trivial struct meets `Equatable` with no conformance written, so the
+// requirement has no member to reach, and the slice makes no derived
+// `equals` glue (SL-598). A `copy()` met the same way is the type's copy
+// glue instead.
+func same<T: Equatable>(a: &T, b: &T) -> Bool {
+    a.equals(&b)
+}
+
+struct Point {
+    x: Int,
+    y: Int
+}
+
+func main() {
+    let p = Point(x: 1, y: 2)
+    print("{}", same(&p, &p))
+}

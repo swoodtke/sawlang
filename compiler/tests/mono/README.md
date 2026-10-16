@@ -101,7 +101,7 @@ source's local and block numbering. Then each call is resolved to its item:
 | call | resolved to |
 |---|---|
 | a function, a method, an `init` | its body at the receiver's arguments and the call's own |
-| a trait requirement on a concrete owner | the owner's conformance: the member it writes, or the trait's default body under `Self`; a requirement met with neither, by a derivation or by a builtin type's own conformance, is its member glue (`resolve_requirement`, the one funnel) |
+| a trait requirement on a concrete owner | the owner's conformance: the member it writes, or the trait's default body under `Self`; a requirement met with neither, by a derivation or by a builtin type's own conformance, is its member glue (`resolve_requirement`, the one funnel); a `copy()` of `Copy` or `ExplicitCopy` on a struct, an enum, a tuple or an array is the type's copy glue instead, whether a conformance synthesizes it or the type meets the bound with no conformance at all, through the Copy tier or a composite's parts |
 | a trait requirement on an `any Trait` owner | no item: a vtable slot (below), which the backend calls through the receiver's vtable |
 | a parameter's default value | the default's function |
 | a window's open or close | the accessor's prologue or epilogue |
@@ -111,7 +111,8 @@ source's local and block numbering. Then each call is resolved to its item:
 
 **Glue** is made once per concrete type, as a synthesized concrete MIR function,
 by one funnel (`glue_of` in `worklist.saw`), whose entry points are a drop
-statement and a copy operand:
+statement, a copy operand, and a `copy()` requirement call no written member
+answers (`glued`):
 
 - **drop glue** follows drop elaboration's resolution: the type's written
   `deinit`, then its owning fields in reverse declaration order, an enum's
@@ -122,7 +123,10 @@ statement and a copy operand:
   their own glue; typecheck refuses a `copy()` written outside a policy
   (golden `copy_hooks`; MIR's `declared_copy` answers for both stages).
   Concrete MIR spells a String's copy as a call of `String.copy()`, so copy
-  glue appears only where a generic body's `copy` lands on such a type.
+  glue appears only where a generic body's `copy` lands on such a type, or
+  where a `copy()` call under a `T: ExplicitCopy` or `T: Copy` bound does
+  (run programs `explicit_copy_bound_every_owner`,
+  `vector_iter_owning_elements`).
 
 A type that owns nothing has no glue, and neither does a function value: a
 closure capturing a value that owns something is refused where it is built.
@@ -151,8 +155,11 @@ if a growable builder cannot grow. Each answer is Stage 0's, the hash words
 included, so a `Map`'s order is too (run programs `scalar_copy`,
 `scalar_equals`, `scalar_compare`, `scalar_hash`, `scalar_format`, and the
 probe `void_copy_hook`). An empty cell is one typecheck grants no
-conformance for. Every hook on any other type, a derived `Equatable` among
-them, is refused as `mono.not-yet` (`mono.not-yet.aggregate`).
+conformance for. A `copy()` on a struct, an enum, a tuple or an array is
+its copy glue (above), and one on a function value is refused (SL-525);
+every other hook on any other type, a synthesized `Equatable` or one a
+trivial type meets with no conformance among them, is refused as
+`mono.not-yet` (`mono.not-yet.aggregate`, `mono.not-yet.derived`; SL-598).
 
 **Task roots.** A cooperative spawn site (`Task.spawn(f(x))`) is no call of
 its root: the task runs the root in a *task root*, a separate specialization
@@ -283,7 +290,7 @@ nullable pointer (null is `None`), and an aggregate by value is refused.
 
 | rule | refuses | fixture |
 |---|---|---|
-| `mono.not-yet` | what the backend's slice does not lower: a builtin outside it, a format argument or an interpolated part whose rendering the slice does not make, a requirement no member, default or member glue in the slice meets, a call of a body this program does not lower, a closure capturing an owning value, an escaping closure that captures anything, an erased box whose allocator is not a fieldless struct with no `init` | `mono.not-yet`, `mono.not-yet.format`, `mono.not-yet.std`, `mono.not-yet.aggregate`, `mono.not-yet.bool-order`, `mono.not-yet.pointer-equality`, and the escaping closure at each position it escapes through, `mono.not-yet.escaping-*` |
+| `mono.not-yet` | what the backend's slice does not lower: a builtin outside it, a format argument or an interpolated part whose rendering the slice does not make, a requirement no member, default or member glue in the slice meets, a call of a body this program does not lower, a closure capturing an owning value, an escaping closure that captures anything, an erased box whose allocator is not a fieldless struct with no `init` | `mono.not-yet`, `mono.not-yet.format`, `mono.not-yet.std`, `mono.not-yet.aggregate`, `mono.not-yet.derived`, `mono.not-yet.bool-order`, `mono.not-yet.pointer-equality`, and the escaping closure at each position it escapes through, `mono.not-yet.escaping-*` |
 | `mono.depth` | a concrete argument nested more than 64 deep, once per program, at the first call that met the limit | `mono.depth`, `mono.depth.method`, `mono.depth.recursive`, and `mono.depth.branching`, whose argument doubles its parts at each step |
 | `atomic.width` | an `Atomic<X>` at an `X` other than `Int` that only an instantiation forms, once per type, where the item was reached; one a written or inferred position carries is typecheck's (SL:open-questions D38) | `atomic.width` |
 | `transfer.no-move` | a generic body's move out of a place, which typecheck records where the type names a type parameter, at an instantiation that makes the type `NoMove`: the first such move of each declaration at each set of arguments, its body's, its closures' and its accessor halves' together. A spelled `move`, a `[move x]` capture and a local's by-value read at its last use all count; the fresh placement of a by-value parameter no reference has named does not. A concrete type's is typecheck's (SL-662) | `transfer.no-move`, a `Vector`'s growth; `.element`, `Vector.pop`'s move out of its buffer; `.forward`, a read at its last use; `.capture`, a `[move x]` capture; `.placement-after-borrow`, the placement once a reference named the parameter; `.take`, an Optional's payload; `.map`, a `Map`'s entries |

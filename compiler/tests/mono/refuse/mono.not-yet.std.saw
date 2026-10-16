@@ -1,10 +1,16 @@
-// refuses: mono.not-yet at 8:13
+// refuses: mono.not-yet at 14:18
 // A refusal met inside std is reported at the program's own call that
-// reached it, the std position named in its message: `Set.copy()` copies
-// each `String` element through `ExplicitCopy.copy()`, which the slice does
-// not resolve on `String`.
+// reached it, the std position named in its message: `Set.insert` compares
+// and hashes each element through `Equatable.equals` and `Hashable.hash`,
+// which a trivial struct meets with no conformance, and the slice makes no
+// such glue (SL-598).
+struct Point {
+    x: Int
+}
+
 func main() {
-    var s = Set<String>()
-    let t = s.copy()
-    print("{} {}", s.len(), t.len())
+    var s = Set<Point>()
+    let p = Point(x: 1)
+    let _ = try! s.insert(p)
+    print("{}", s.len())
 }

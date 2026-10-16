@@ -1,0 +1,135 @@
+// `<T: ExplicitCopy>` admits the whole duplicable family, and its `.copy()`
+// runs the copy the type's own policy gives it: a written hook, a memberwise
+// copy, or the free copy of the Copy tier, whether the type declares a policy
+// or derives one from its members.
+
+func dup<T: ExplicitCopy>(x: &T) -> T {
+    x.copy()
+}
+
+// A plain struct whose members are all Copy: Copy by derivation.
+struct Plain {
+    name: String,
+    n: Int
+}
+
+// Copy, with a written hook.
+struct Hooked {
+    n: Int
+}
+
+extension Hooked: Copy {
+    func copy(&self) -> Hooked {
+        print("hook")
+        Hooked(n: self.n + 100)
+    }
+}
+
+// Copy, declared and synthesized.
+struct Pair {
+    a: Int,
+    b: Int
+}
+
+@synthesize
+extension Pair: Copy {}
+
+// ExplicitCopy, written and synthesized.
+struct Ledger {
+    v: Vector<Int>
+}
+
+extension Ledger: ExplicitCopy {
+    func copy(&self) -> Ledger {
+        print("ledger copy")
+        Ledger(v: self.v.copy())
+    }
+}
+
+struct Bag {
+    v: Vector<Int>,
+    n: Int
+}
+
+@synthesize
+extension Bag: ExplicitCopy {}
+
+enum Reel {
+    case Full(v: Vector<Int>),
+    case Empty
+}
+
+@synthesize
+extension Reel: ExplicitCopy {}
+
+enum Label {
+    case Named(s: String),
+    case Blank
+}
+
+func reel_len(r: &Reel) -> Int {
+    match r {
+        case Full(v) -> v.len(),
+        case Empty -> 0
+    }
+}
+
+func label_text(l: &Label) -> String {
+    match l {
+        case Named(s) -> s,
+        case Blank -> "blank"
+    }
+}
+
+func main() {
+    let i = 41
+    print("int {}", dup(&i) + 1)
+
+    let s = "text"
+    print("string {}", dup(&s))
+
+    let a = try! Arc<Int>(value: 7)
+    let a2 = dup(&a)
+    print("arc {} {}", a2.strong_count(), a.strong_count())
+
+    let p = Plain(name: "plain", n: 3)
+    let p2 = dup(&p)
+    print("plain {} {}", p2.name, p2.n)
+
+    let h = Hooked(n: 1)
+    print("hooked {}", dup(&h).n)
+
+    let q = Pair(a: 4, b: 5)
+    print("pair {} {}", dup(&q).b, q.copy().a)
+
+    var l = Ledger(v: Vector<Int>())
+    try! l.v.push(1)
+    let l2 = dup(&l)
+    print("ledger {}", l2.v.len())
+
+    var b = Bag(v: Vector<Int>(), n: 2)
+    try! b.v.push(8)
+    try! b.v.push(9)
+    let b2 = dup(&b)
+    try! b.v.push(10)
+    print("bag {} {} {}", b2.v.len(), b2.n, b.v.len())
+    print("bag spelled {}", b.copy().v.len())
+
+    let r = Reel.Full(v: b.v.copy())
+    let r2 = dup(&r)
+    print("reel {}", reel_len(&r2))
+
+    let lab = Label.Named(s: "named")
+    let lab2 = dup(&lab)
+    print("label {}", label_text(&lab2))
+
+    let t = ("tuple", 6)
+    let t2 = dup(&t)
+    print("tuple {} {}", t2.0, t2.1)
+
+    let o: String? = "optional"
+    let o2 = dup(&o)
+    print("optional {}", o2!)
+
+    print("arc at end {}", a.strong_count())
+}

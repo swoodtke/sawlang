@@ -1,0 +1,44 @@
+// `iter()` and `enumerated()` yield each element as a copy the loop owns,
+// which for a refcounted element is a retain released at the end of the
+// iteration: the counts are back where they started once the loop ends.
+
+struct Tag {
+    name: String,
+    rc: Arc<Int>
+}
+
+extension Tag: Copy {
+    func copy(&self) -> Tag {
+        Tag(name: self.name, rc: self.rc.copy())
+    }
+}
+
+func main() {
+    var words = Vector<String>()
+    try! words.push("alpha")
+    try! words.push("beta")
+    try! words.push("gamma")
+    var total = 0
+    for s in words.iter() {
+        print(s)
+        total = total + s.len()
+    }
+    print("letters {}", total)
+
+    let shared = try! Arc<Int>(value: 10)
+    var arcs = Vector<Arc<Int>>()
+    try! arcs.push(shared.copy())
+    try! arcs.push(try! Arc<Int>(value: 20))
+    for e in arcs.enumerated() {
+        print("{} counts {}", e.0, e.1.strong_count())
+    }
+    print("shared after {}", shared.strong_count())
+
+    var tags = Vector<Tag>()
+    try! tags.push(Tag(name: "one", rc: shared.copy()))
+    try! tags.push(Tag(name: "two", rc: shared.copy()))
+    for t in tags.iter() {
+        print("{} sees {}", t.name, shared.strong_count())
+    }
+    print("shared at end {}", shared.strong_count())
+}

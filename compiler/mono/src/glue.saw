@@ -4,9 +4,10 @@
 // then its owning parts in reverse declaration order, an enum's active
 // payload by a switch on its case. A copy's glue runs only where a value of a
 // type that is not trivially copyable is copied, which concrete MIR spells
-// as a `copy` operand only in a generic body: the type's written `copy()`
-// when its conformance writes one, else a memberwise rebuild whose parts
-// copy by their own glue.
+// as a `copy` operand only in a generic body, and where a `copy()`
+// requirement call has no written member to reach: the type's written
+// `copy()` when its conformance writes one, else a memberwise rebuild whose
+// parts copy by their own glue.
 
 import sawborrowck.program.{BorrowckProgram}
 import sawdrops.program.{DropsProgram}
@@ -332,6 +333,21 @@ extension MonoProgram {
         self.dp.bc.mir.assign_local(i, rv)
     }
 
+    // Whether `build_copy_glue` builds a copy of concrete type `t`: a struct,
+    // an enum, a tuple or an array. A scalar's copy is its member glue, and a
+    // function value's is not in the slice (SL-525).
+    public func copy_glue_builds(&var self, t: Int) -> Bool {
+        let info = self.dp.bc.mir.tc.types.ty(t)
+        if info.kind == TcKind.Tuple || info.kind == TcKind.Array {
+            return true
+        }
+        if info.kind != TcKind.Nominal {
+            return false
+        }
+        let kind = self.dp.bc.mir.tc.res.decls[info.decl].kind
+        kind == ResDeclKind.Struct || kind == ResDeclKind.Enum
+    }
+
     public func build_copy_glue(&var self, k: Int) {
         let t = self.items[k].glue_type
         let param = self.dp.bc.mir.tc.mk_ref(false, t)
@@ -417,6 +433,14 @@ extension MonoProgram {
             return MonoScalarHook.Format
         }
         MonoScalarHook.Other
+    }
+
+    // Whether requirement `req` is the `copy()` of `Copy` or `ExplicitCopy`.
+    public func copy_hook(&var self, req: Int) -> Bool {
+        let info = self.dp.bc.mir.tc.res.decls[req]
+        let k = self.dp.bc.mir.tc.known
+        let policy = info.parent == k.copy || info.parent == k.explicit_copy
+        policy && self.dp.bc.mir.tc.res.name_text(info.name).equals("copy")
     }
 
     // The scalar kind of concrete type `t`; `Other` for any other type.

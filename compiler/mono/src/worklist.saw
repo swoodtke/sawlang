@@ -469,6 +469,7 @@ extension MonoProgram {
     // ENTRY POINTS:
     //     need_drop
     //     need_operand
+    //     glued
     public func glue_of(&var self, t: Int, kind: Int, origin: Int, node: Int) -> Int {
         let found = self.glue_item(t, kind)
         if found >= 0 {
@@ -1130,11 +1131,14 @@ extension MonoProgram {
     // THE REQUIREMENT FUNNEL: requirement `req` called on concrete `owner`,
     // the member the owner's conformance writes, or the trait's default body
     // under `Self` = owner; a requirement met with neither, by a derivation or
-    // by a builtin type's own conformance, is the member glue that
-    // synthesizes it. `item` is -1 unless the answer is glue.
+    // by a builtin type's own conformance, is the glue that synthesizes it.
+    // A `copy()` bound is also met with no conformance at all, by the Copy
+    // tier or a composite's parts, so that requirement reaches `glued` too.
+    // `item` is -1 unless the answer is glue.
     // ENTRY POINTS:
     //     resolve_call
     //     render_of
+    //     fill_slot
     func resolve_requirement(&var self, req: Int, owner: Int, k: Int, node: Int) -> MonoTarget {
         let trait_decl = self.dp.bc.mir.tc.res.decls[req].parent
         let d = self.dp.bc.mir.tc.nominal_decl(owner)
@@ -1169,6 +1173,9 @@ extension MonoProgram {
             }
             return self.glued(req, owner, k, node)
         }
+        if self.copy_hook(req) && self.copy_glue_builds(owner) {
+            return self.glued(req, owner, k, node)
+        }
         var msg = StringBuilder()
         try! msg.append("a call of `")
         try! msg.append(self.dp.bc.mir.tc.target_text(req))
@@ -1179,10 +1186,17 @@ extension MonoProgram {
         MonoTarget(decl: -1, self_type: -1, item: -1)
     }
 
-    // The member glue of `req` on `owner` as a call target, or a refused one
-    // when glue for it is not in the slice.
+    // The glue of `req` on `owner` as a call target, or a refused one when
+    // glue for it is not in the slice. A `copy()` on a struct, an enum, a
+    // tuple or an array is its copy glue: the one copy its silent, spelled
+    // and generic copies all run (spec, The Copy Trait Family).
     func glued(&var self, req: Int, owner: Int, k: Int, node: Int) -> MonoTarget {
-        let item = self.member_glue_of(req, owner, k, node)
+        var item = -1
+        if self.copy_hook(req) && self.copy_glue_builds(owner) {
+            item = self.glue_of(owner, MONO_KEY_COPY, k, node)
+        } else {
+            item = self.member_glue_of(req, owner, k, node)
+        }
         if item < 0 {
             return MonoTarget(decl: -1, self_type: -1, item: -1)
         }
