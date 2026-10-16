@@ -1,0 +1,228 @@
+// probe: stated
+// about: a `Box`'s payload methods reached through `value()` under `borrow`, the one access path (SL-712)
+// stage 0: cannot parse a `borrow` prefix, and calls a payload's `&self` method on the box itself
+// speeds: -O0 -O2
+// prints: 7
+// prints: 70
+// prints: 3
+// prints: 4
+// prints: 14
+// prints: 42
+// prints: 7
+// prints: 7
+// prints: 8
+// prints: interpolated 7 8
+// prints: big
+// prints: 30
+// prints: 30
+// prints: 5
+// prints: 9
+// prints: gone 9
+// prints: 4
+// prints: gone 4
+// prints: 3
+// prints: 4
+// prints: 9
+// prints: named z
+// prints: 29
+// prints: 8
+// prints: end
+// prints: gone 2
+// A shared `borrow` picks `value()`'s shared twin, so a `let` box, a `&Box`
+// parameter, a field, a closure's `[&b]` capture, a temporary and a
+// `Vector`'s element all serve it; `borrow var` takes the exclusive accessor
+// and writes the payload in place. The call on the lent payload is an
+// ordinary call, so labels, a default, an overload, a suspending method, a
+// generic body's bound and a `borrows` method of the payload all reach it.
+// A temporary or moved box dies after the statement that reads it, so its
+// payload's `deinit` runs once, there.
+import std.mutex.{Mutex}
+import std.task.{yield_now}
+
+struct Point {
+    x: Int,
+    y: Int
+}
+
+extension Point {
+    func sum(&self) -> Int {
+        self.x + self.y
+    }
+
+    func scaled(&self, by: Int = 2) -> Int {
+        (self.x + self.y) * by
+    }
+
+    func pick(&self, first: Bool) -> Int {
+        if first {
+            return self.x
+        }
+        self.y
+    }
+
+    func pick(&self, index: Int) -> Int {
+        if index == 0 {
+            return self.x
+        }
+        self.y
+    }
+
+    func slow(&self) -> Int {
+        yield_now()
+        self.x * 14
+    }
+
+    func grow(&var self, by: Int) {
+        self.x = self.x + by
+    }
+}
+
+struct Res {
+    id: Int
+}
+
+extension Res: NoCopy {
+    func deinit(&var self) {
+        print("gone {}", self.id)
+    }
+}
+
+extension Res {
+    func id_of(&self) -> Int {
+        self.id
+    }
+}
+
+struct Bag {
+    items: Vector<Int>
+}
+
+extension Bag: NoCopy {}
+
+extension Bag {
+    func first(&self) borrows -> &Int {
+        lend self.items[0]
+    }
+}
+
+struct Named {
+    name: String
+}
+
+extension Named: Printable {
+    func format(&self, into: &var StringBuilder) {
+        try! into.append("named ")
+        try! into.append(self.name)
+    }
+}
+
+trait Area {
+    func area(&self) -> Int
+}
+
+struct Square {
+    side: Int
+}
+
+extension Square: Area {
+    func area(&self) -> Int {
+        self.side * self.side
+    }
+}
+
+struct Cell<T> {
+    value: T
+}
+
+extension Cell<T: Area> {
+    func cell_area(&self) -> Int {
+        self.value.area()
+    }
+}
+
+struct Holder {
+    b: Box<Point>
+}
+
+extension Holder: NoCopy {}
+
+extension Holder {
+    func total(&self) -> Int {
+        borrow self.b.value().sum()
+    }
+}
+
+func generic_area<T: Area>(b: &Box<Cell<T>>) -> Int {
+    borrow b.value().cell_area()
+}
+
+func make(n: Int) -> Box<Res> {
+    try! Box<Res>.make(Res(id: n))
+}
+
+func by_ref(b: &Box<Point>) -> Int {
+    borrow b.value().sum()
+}
+
+func by_var(b: &var Box<Point>) -> Int {
+    borrow var b.value().grow(by: 7)
+    borrow b.value().sum()
+}
+
+func apply(f: (Int) sync -> Int) -> Int {
+    f(5)
+}
+
+func run() {
+    let b = try! Box<Point>.make(Point(x: 3, y: 4))
+    print(borrow b.value().sum())
+    print(borrow b.value().scaled(by: 10))
+    print(borrow b.value().pick(first: true))
+    print(borrow b.value().pick(index: 1))
+    print(borrow b.value().scaled())
+    print(borrow b.value().slow())
+    print(by_ref(&b))
+    var vb = try! Box<Point>.make(Point(x: 1, y: 1))
+    borrow var vb.value().x += 5
+    print(borrow vb.value().sum())
+    print(by_var(&var vb) - 6)
+    print("interpolated {borrow b.value().sum()} {borrow vb.value().sum() - 6}")
+    if borrow b.value().sum() > 5 {
+        print("big")
+    }
+    let h = Holder(b: try! Box<Point>.make(Point(x: 10, y: 20)))
+    print(h.total())
+    print(borrow h.b.value().sum())
+    var items = Vector<Int>()
+    try! items.push(5)
+    let bag = try! Box<Bag>.make(Bag(items: move items))
+    print(borrow bag.value().first())
+    print(borrow make(9).value().id_of())
+    let r = make(4)
+    print(borrow (move r).value().id_of())
+    let boxed = try! Box<Mutex<Int>>.make(Mutex<Int>(value: 3))
+    borrow let c = boxed.value().lock() {
+        print(c)
+    }
+    borrow var c = boxed.value().lock() {
+        c = c + 1
+    }
+    borrow let after = boxed.value().lock() {
+        print(after)
+    }
+    let cell = try! Box<Cell<Square>>.make(Cell<Square>(value: Square(side: 3)))
+    print(generic_area(&cell))
+    let named = try! Box<Named>.make(Named(name: "z"))
+    print(borrow named.value().to_string())
+    print(apply({ [&b] k in borrow b.value().scaled(by: k) - 6 }))
+    var boxes = Vector<Box<Point>>()
+    try! boxes.push(try! Box<Point>.make(Point(x: 8, y: 0)))
+    print(borrow boxes[0].value().pick(first: true))
+    let kept = make(2)
+    let _ = borrow kept.value().id_of()
+    print("end")
+}
+
+func main() {
+    run()
+}

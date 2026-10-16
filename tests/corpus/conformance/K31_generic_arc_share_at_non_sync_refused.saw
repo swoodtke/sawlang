@@ -41,7 +41,7 @@ extension Cell {
 }
 
 func bump_many(a: Arc<Cell>) unsafe -> Int {
-    a.bump(by: 1)
+    borrow a.value().bump(by: 1)
     0
 }
 
@@ -51,5 +51,5 @@ func main() unsafe {
     let a1 = c.copy()
     let h1 = g.spawn(bump_many(a1))
     h1.join()
-    print("value {c.value()}")
+    print("value {borrow c.value().value()}")
 }

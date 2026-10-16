@@ -70,16 +70,16 @@ func mk_tag(id: Int) -> Tag {
 }
 
 func derive_tag(x: Tag) -> Tag {
-    print("NEW d{x.cell.label()}")
-    Tag(cell: try! Arc<Res>(value: Res(name: "d{x.cell.label()}")))
+    print("NEW d{borrow x.cell.value().label()}")
+    Tag(cell: try! Arc<Res>(value: Res(name: "d{borrow x.cell.value().label()}")))
 }
 
 // The control: never transformed, so never renamed.
 func plain() {
     let v1 = mk_tag(1)
-    print("val {v1.cell.label()}")
+    print("val {borrow v1.cell.value().label()}")
     let v1 = derive_tag(v1)
-    print("val {v1.cell.label()}")
+    print("val {borrow v1.cell.value().label()}")
     print("scope closed")
 }
 
@@ -87,9 +87,9 @@ func plain() {
 // stay ordinary codegen locals. This is the cell that regressed.
 func worker_plain() -> Int {
     let v1 = mk_tag(1)
-    print("val {v1.cell.label()}")
+    print("val {borrow v1.cell.value().label()}")
     let v1 = derive_tag(v1)
-    print("val {v1.cell.label()}")
+    print("val {borrow v1.cell.value().label()}")
     print("scope closed")
     0
 }
@@ -99,9 +99,9 @@ func worker_plain() -> Int {
 func worker_driven() -> Int {
     yield_now()
     let v1 = mk_tag(1)
-    print("val {v1.cell.label()}")
+    print("val {borrow v1.cell.value().label()}")
     let v1 = derive_tag(v1)
-    print("val {v1.cell.label()}")
+    print("val {borrow v1.cell.value().label()}")
     print("scope closed")
     0
 }

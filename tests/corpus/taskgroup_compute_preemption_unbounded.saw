@@ -30,7 +30,7 @@ func spinner(stop: Arc<Mutex<Int>>) -> Int {
     while going {
         n = n + 1
         if n % POLL_EVERY == 0 {
-            going = borrow var f = stop.lock() {
+            going = borrow var f = stop.value().lock() {
                 f == 0
             }
         }
@@ -44,7 +44,7 @@ func stopper(stop: Arc<Mutex<Int>>) -> Int {
         k = k + 1
         yield_now()
     }
-    borrow var f = stop.lock() {
+    borrow var f = stop.value().lock() {
         f = 1
         true
     }

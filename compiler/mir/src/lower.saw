@@ -1332,11 +1332,7 @@ extension MirProgram {
     // The receiver of conditional lend `e`, a method call's or a
     // subscript's.
     func lend_receiver(&self, e: Int) -> Int {
-        let base = self.tc.res.first_node_child(e)
-        if self.tc.is_call_alt(e) {
-            return self.tc.res.first_node_child(base)
-        }
-        base
+        self.tc.call_receiver(e)
     }
 
     // Whether `e` is an optional hop, or a member hop over one: the part of
@@ -2578,7 +2574,7 @@ extension MirProgram {
             self.not_yet(e, "a `borrows` function called with no receiver")
             return
         }
-        let base = self.tc.res.first_node_child(callee)
+        let base = self.tc.call_receiver(e)
         self.prepare_base(base, &var steps)
         self.open_receiver_windows(&var steps)
         let args = self.call_arguments(e, &c, true)
@@ -2980,8 +2976,7 @@ extension MirProgram {
     func lent_copy(&var self, e: Int) -> MirVal {
         let c = self.tc.calls[self.tc.call_at[e]]
         let t = self.tc.expr_types[e]
-        let callee = self.tc.res.first_node_child(e)
-        let base = self.tc.res.first_node_child(callee)
+        let base = self.tc.call_receiver(e)
         var steps = Vector<MirStep>()
         self.prepare_base(base, &var steps)
         self.open_receiver_windows(&var steps)
@@ -3016,12 +3011,11 @@ extension MirProgram {
     // The operands call `e` of a function, method, requirement or `init`
     // passes, in its target's parameter order, the receiver first.
     func call_operands(&var self, e: Int, c: &TcCall) -> Vector<Int> {
-        let callee = self.tc.res.first_node_child(e)
         let s = self.tc.sigs[c.target]
         var base = -1
         let rc = self.tc.res_call_at[e]
         if rc >= 0 && self.tc.res.calls[rc].classification == ResCallClass.Method {
-            base = self.tc.res.first_node_child(callee)
+            base = self.tc.call_receiver(e)
         }
         var receiver = -1
         var steps = Vector<MirStep>()
@@ -4933,8 +4927,7 @@ extension MirProgram {
                     self.not_yet(seq, "a `for` head that lends a place")
                     return -1
                 }
-                let callee = self.tc.res.first_node_child(seq)
-                let base = self.tc.res.first_node_child(callee)
+                let base = self.tc.call_receiver(seq)
                 var steps = Vector<MirStep>()
                 self.prepare_base(base, &var steps)
                 self.open_receiver_windows(&var steps)

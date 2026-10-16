@@ -66,15 +66,40 @@ extension Arc<T> {
         }
     }
 
+    /// Lends the payload where it sits, read-only.
+    ///
+    /// A method of the payload is not callable on the `Arc` itself; call it
+    /// through `value()` under `borrow`, as `borrow shared.value().len()`.
+    /// The lend is read-only because every handle names the same payload. To
+    /// write to it, make the payload a `Mutex`, whose `lock()` lends a
+    /// writable place through a shared one:
+    ///
+    /// ```saw-fragment
+    /// let shared = try! Arc<Mutex<Int>>(value: Mutex<Int>(value: 0))
+    /// borrow var count = shared.value().lock() {
+    ///     count = count + 1
+    /// }
+    /// ```
+    ///
+    /// The window holds this handle, and a live handle keeps the block
+    /// allocated, so the payload outlives every window on it.
+    public func value(&self) unsafe borrows -> &T {
+        guard let block = self.ptr else {
+            panic("Arc.value: a constructed Arc always holds its block")
+        }
+        let payload_ptr = (block + 16) as UnsafePointer<T>
+        lend payload_ptr[0]
+    }
+
     /// Lends the payload where it sits when this handle is the only strong
     /// owner, or nothing when the value is shared.
     ///
-    /// This is the copy-on-write gate. Payload-method forwarding passes `&self`
-    /// methods through and refuses `&var self` ones, because an aliased write
-    /// is what `Mutex` exists to make safe. Uniqueness is the other sound
-    /// answer: nobody else can observe a write to a value only you hold. The
-    /// test and the lend are one operation, so the count cannot go stale
-    /// between them, and the absent path opens no window.
+    /// This is the copy-on-write gate. `value()` lends the payload read-only,
+    /// because an aliased write is what `Mutex` exists to make safe.
+    /// Uniqueness is the other sound answer: nobody else can observe a write
+    /// to a value only you hold. The test and the lend are one operation, so
+    /// the count cannot go stale between them, and the absent path opens no
+    /// window.
     ///
     /// The `None` arm is the caller's cue to duplicate the payload and write to
     /// the duplicate, which is how `Data` gets value semantics over shared

@@ -1,0 +1,16 @@
+// refuses: member.through-pointer at 15:7
+// flags: --std-root std
+// a payload method called through a `&Box` parameter, whose referent is the box, not its payload
+
+struct Point {
+    x: Int,
+    y: Int
+}
+
+extension Point {
+    func sum(&self) -> Int { self.x + self.y }
+}
+
+func total(b: &Box<Point>) -> Int {
+    b.sum()
+}

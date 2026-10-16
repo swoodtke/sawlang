@@ -1,0 +1,118 @@
+// probe: stated
+// about: an `Arc`'s payload methods reached through its public shared accessor `value()` under `borrow` (SL-712)
+// stage 0: cannot parse a `borrow` prefix, and its std's `Arc` declares no `value()`
+// speeds: -O0 -O2
+// prints: 11
+// prints: 33
+// prints: 22
+// prints: 2
+// prints: 11
+// prints: 22
+// prints: 2
+// prints: interpolated 11
+// prints: eleven
+// prints: 11
+// prints: 11
+// prints: 3
+// prints: 8
+// prints: 6
+// prints: 2
+// prints: end
+// prints: gone 3
+// The window borrows the block's payload where it sits through any handle, a
+// `let`, a copy, a `&` parameter, a parameter taken by value or a field, in an
+// argument, an interpolation, a condition and a return. It retains nothing,
+// so the strong count is unchanged by it. A `borrows` method of the payload
+// is reached through the same window, and the payload's `deinit` runs once,
+// with the last handle.
+struct Point {
+    x: Int,
+    y: Int
+}
+
+extension Point {
+    func sum(&self) -> Int {
+        self.x + self.y
+    }
+
+    func scaled(&self, by: Int) -> Int {
+        (self.x + self.y) * by
+    }
+}
+
+struct Res {
+    id: Int
+}
+
+extension Res: NoCopy {
+    func deinit(&var self) {
+        print("gone {}", self.id)
+    }
+}
+
+extension Res {
+    func id_of(&self) -> Int {
+        self.id
+    }
+}
+
+struct Bag {
+    items: Vector<Int>
+}
+
+extension Bag: NoCopy {}
+
+extension Bag {
+    func first(&self) borrows -> &Int {
+        lend self.items[0]
+    }
+}
+
+struct Holder {
+    a: Arc<Point>
+}
+
+extension Holder: NoCopy {}
+
+extension Holder {
+    func total(&self) -> Int {
+        borrow self.a.value().sum()
+    }
+}
+
+func by_ref(a: &Arc<Point>) -> Int {
+    borrow a.value().sum()
+}
+
+func by_value(a: Arc<Point>) -> Int {
+    borrow a.value().scaled(by: 2)
+}
+
+func main() {
+    let a = try! Arc<Point>(value: Point(x: 5, y: 6))
+    print(borrow a.value().sum())
+    print(borrow a.value().scaled(by: 3))
+    let a2 = a.copy()
+    print(borrow a.value().sum() + borrow a2.value().sum())
+    print(a.strong_count())
+    print(by_ref(&a))
+    print(by_value(a.copy()))
+    print(a.strong_count())
+    print("interpolated {borrow a.value().sum()}")
+    if borrow a2.value().sum() == 11 {
+        print("eleven")
+    }
+    let h = Holder(a: a.copy())
+    print(h.total())
+    print(borrow h.a.value().sum())
+    print(a.strong_count())
+    var items = Vector<Int>()
+    try! items.push(8)
+    let bag = try! Arc<Bag>(value: Bag(items: move items))
+    print(borrow bag.value().first())
+    let r = try! Arc<Res>(value: Res(id: 3))
+    let r2 = r.copy()
+    print(borrow r.value().id_of() + borrow r2.value().id_of())
+    print(r.strong_count())
+    print("end")
+}

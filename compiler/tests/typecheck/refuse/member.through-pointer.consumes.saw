@@ -1,0 +1,18 @@
+// refuses: member.through-pointer at 17:20
+// flags: --std-root std
+// a consuming payload method called on its `Box`, moved or not
+
+struct Res {
+    n: Int
+}
+
+extension Res: NoCopy {}
+
+extension Res {
+    func finish(&var self) consumes -> Int { self.n }
+}
+
+func main() {
+    let b = try! Box<Res>.make(Res(n: 1))
+    print((move b).finish())
+}

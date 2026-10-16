@@ -24,6 +24,6 @@ extension Res: NoCopy {
 func main() {
     let b = try! Box<Res>.make(Res(id: 5))
     print("made")
-    print(b.peek())   // 5  — forwarded read of the live payload
+    print(borrow b.value().peek())   // 5  — a read of the live payload
     // b dies here -> "gone 5" prints exactly once.
 }

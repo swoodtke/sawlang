@@ -2,8 +2,8 @@
 // the argument that follows a diverging one
 //
 // Four more call-emitting sites than the obvious ones, found by review after
-// the first pass claimed its funnel was complete: an `Arc<T>` and a `Box<T>`
-// forwarding `&self` to their heap payload's method, and a function-typed
+// the first pass claimed its funnel was complete: a `&self` method of an
+// `Arc<T>`'s and a `Box<T>`'s heap payload, through `value()`, and a function-typed
 // struct FIELD. Each reproduced the original symptom exactly — `ret void
 // %box_forward_call` against a struct return, and `'%field_closure_call'
 // defined with type 'i8' but expected 'i64'`, the poisoned phi this brief was
@@ -44,12 +44,12 @@ func die(r: Int) -> Never {
 
 func by_box(b: &Box<Killer>, x: Int) -> Reply {
     if x > 0 { return Reply(status: 7, value: 0, blocked: false) }
-    b.die()
+    borrow b.value().die()
 }
 
 func by_arc(a: &Arc<Killer>, x: Int) -> Reply {
     if x > 0 { return Reply(status: 7, value: 0, blocked: false) }
-    a.die()
+    borrow a.value().die()
 }
 
 func by_field(h: &Holder, x: Int) -> Reply {

@@ -1,0 +1,20 @@
+// refuses: member.through-pointer at 17:22
+// flags: --std-root std
+// a `borrows` payload accessor called on its `Box` in a `borrow var` head; the accessor is `borrow var c = b.value().cell() { … }`
+
+struct Slot {
+    n: Int
+}
+
+extension Slot {
+    func cell(&var self) borrows -> &var Int {
+        lend self.n
+    }
+}
+
+func main() {
+    var b = try! Box<Slot>.make(Slot(n: 1))
+    borrow var c = b.cell() {
+        c = 2
+    }
+}

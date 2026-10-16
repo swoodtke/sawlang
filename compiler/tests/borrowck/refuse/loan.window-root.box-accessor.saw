@@ -1,0 +1,16 @@
+// refuses: loan.window-root at 14:22
+// a payload read through a box's shared accessor opens a window on the box,
+// which conflicts with an exclusive window on the same box (SL-712)
+
+struct P { n: Int }
+
+extension P {
+    func get(&self) -> Int { self.n }
+}
+
+func main() {
+    var b = try! Box<P>.make(P(n: 1))
+    borrow var p = b.value() {
+        p.n = borrow b.value().get()
+    }
+}

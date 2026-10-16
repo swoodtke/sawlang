@@ -204,14 +204,7 @@ extension TcProgram {
             if skipped[e] || self.window_use_writes(e, &tables) {
                 continue
             }
-            let subscript = self.has_alt(e, Alt.Expr_Subscript_Single) || self.has_alt(e, Alt.Expr_Subscript_Multi)
-            var receiver = -1
-            let head = self.res.first_node_child(e)
-            if subscript {
-                receiver = head
-            } else if head >= 0 && self.has_alt(head, Alt.Expr_Member) {
-                receiver = self.res.first_node_child(head)
-            }
+            let receiver = self.call_receiver(e)
             if receiver < 0 || not self.is_place_alt(receiver) {
                 continue
             }
@@ -268,7 +261,7 @@ extension TcProgram {
             if subscript {
                 out[head] = true
             } else if c.role == TcRole.Call && (self.sigs[c.target].effects & TC_EFFECT_BORROWS) != 0 {
-                let receiver = if self.has_alt(head, Alt.Expr_Member) { self.res.first_node_child(head) } else { -1 }
+                let receiver = self.call_receiver(e)
                 if receiver >= 0 {
                     out[receiver] = true
                 }
@@ -385,13 +378,8 @@ extension TcProgram {
         let sig = self.sigs[c.target]
         let lending = (sig.effects & TC_EFFECT_BORROWS) != 0
         var receiver = -1
-        if subscript {
-            receiver = self.res.first_node_child(e)
-        } else if lending {
-            let callee = self.res.first_node_child(e)
-            if callee >= 0 && self.has_alt(callee, Alt.Expr_Member) {
-                receiver = self.res.first_node_child(callee)
-            }
+        if subscript || lending {
+            receiver = self.call_receiver(e)
         }
         if receiver < 0 {
             return TcWriteVerdict.ok()

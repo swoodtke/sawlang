@@ -118,7 +118,7 @@ borrowing_producer_every_path.saw	arm64-apple-darwin	same	7aa55f4c3799	success	o
 borrowing_rules_resolve_aliases.saw	arm64-apple-darwin	same	83627877ccbf	success	ok	0	35:7b7537615d36	0:e3b0c44298fc	-	yes	-
 borrows_declaration_lowers.saw	arm64-apple-darwin	same	73a2f4ff41cb	success	ok	0	9:a23c9e491c7f	0:e3b0c44298fc	-	yes	-
 box_basic.saw	arm64-apple-darwin	differs	fcb7438659cf	success	ok	0	8:72ec642d52be	0:e3b0c44298fc	-	yes	-
-box_deinit_once.saw	arm64-apple-darwin	same	0eb0d07153b1	success	ok	0	14:4f974917e263	0:e3b0c44298fc	-	yes	-
+box_deinit_once.saw	arm64-apple-darwin	differs	0eb0d07153b1	success	ok	0	14:4f974917e263	0:e3b0c44298fc	-	yes	-
 box_forward.saw	arm64-apple-darwin	same	94da3648c562	success	ok	0	5:8b5a679f0701	0:e3b0c44298fc	-	yes	-
 box_make_reports_oom.saw	arm64-apple-darwin	differs	39f93b225fcd	success	ok	0	57:bb60ec7e96ce	0:e3b0c44298fc	-	yes	-
 box_string.saw	arm64-apple-darwin	differs	b1a0c3dec29c	success	ok	0	9:fbc3969cad4a	0:e3b0c44298fc	-	yes	-
@@ -288,7 +288,7 @@ conformance/D10_spawn_never_body_refused.saw	arm64-apple-darwin	same	2297f177e10
 conformance/D11_spawn_closure_never_refused.saw	arm64-apple-darwin	same	ef1ec2d9f185	error	refused	-	-	-	550:6976c2c6d813	yes	a task body may not be `Never`: this closure's body never returns, so the task never completes and `join` on its handle could never return
 conformance/D12_drive_never_body_refused.saw	arm64-apple-darwin	same	4a2f07bafeb5	error	refused	-	-	-	479:a8cf91001a66	yes	a task body may not be `Never`: `halt` never returns, so `__saw_drive` would drive it for ever
 conformance/D13_no_fallthrough_past_diverging_call.saw	arm64-apple-darwin	same	27956b76a43c	panic	ok	-6	86:4affed230ce7	0:e3b0c44298fc	-	yes	-
-conformance/D14_diverging_forwarded_and_later_args.saw	arm64-apple-darwin	same	061207b43cf9	success	ok	0	12:2c492d5ef0ec	0:e3b0c44298fc	-	yes	-
+conformance/D14_diverging_forwarded_and_later_args.saw	arm64-apple-darwin	differs	061207b43cf9	success	ok	0	12:2c492d5ef0ec	0:e3b0c44298fc	-	yes	-
 conformance/E12_autowrap_at_the_argument_position.saw	arm64-apple-darwin	same	ff9772b52283	success	ok	0	167:157aed2bf3f2	0:e3b0c44298fc	-	yes	-
 conformance/G01_sync_main_int_exit_status.saw	arm64-apple-darwin	same	a13833ac455c	success	ok	7	9:e5e90bb4cadd	0:e3b0c44298fc	-	yes	-
 conformance/G02_suspending_main_int_exit_status.saw	arm64-apple-darwin	same	7db6e445a5de	success	ok	7	9:0ac23612fd61	0:e3b0c44298fc	-	yes	-
@@ -347,7 +347,7 @@ conformance/K27_receiver_window_never_spans_suspend.saw	arm64-apple-darwin	diffe
 conformance/K28_slot_payload_released_exactly_once.saw	arm64-apple-darwin	differs	e52f35e3eda5	success	ok	0	154:0dc03fb439ca	0:e3b0c44298fc	-	yes	-
 conformance/K29_copy_policy_hook_must_be_sync.saw	arm64-apple-darwin	same	6d246fc83f64	error	refused	-	-	-	634:47ce284601fd	yes	cannot suspend in the `Copy` `copy()` of `Heavy`: method `Heavy.copy` calls yield_now (`Heavy.copy` suspends at line 20)
 conformance/K30_generic_container_of_pinned_is_pinned.saw	arm64-apple-darwin	same	ea05b34e9749	error	refused	-	-	-	676:be43d191af7b	yes	cannot `move` `w`: `Wrap<TaskGroup>` is `NoMove`, so it lives where its constructor built it and may not be relocated.
-conformance/K31_generic_arc_share_at_non_sync_refused.saw	arm64-apple-darwin	same	3f8fe42b0bd8	error	refused	-	-	-	896:e9cb063fd424	yes	cannot spawn `bump_many` into a multi-threaded `TaskGroup(threads: ...)`: parameter `a` of type `Arc<Cell>` is not `Send`, so the task frame cannot cross to a worker thread. Share thread-safe state via `Arc` (and `Mutex` for mutation) or a `Channel` instead of moving it in. `Arc` is `Send` only when its payload is `Sync`, and `Cell` is not — that is the bound to satisfy. `Cell` carries an interior cell (design 186), so it derives no `Sync`: field `cell` of type `UnsafeMutableInterior<Int>` is mutable through a shared borrow, which the derivation cannot reason about. If the synchronization is real but invisible to the compiler, say so — `extension Cell: UnsafeSync {}`, beside the type, where it can be audited.
+conformance/K31_generic_arc_share_at_non_sync_refused.saw	arm64-apple-darwin	differs	3f8fe42b0bd8	error	refused	-	-	-	896:e9cb063fd424	yes	cannot spawn `bump_many` into a multi-threaded `TaskGroup(threads: ...)`: parameter `a` of type `Arc<Cell>` is not `Send`, so the task frame cannot cross to a worker thread. Share thread-safe state via `Arc` (and `Mutex` for mutation) or a `Channel` instead of moving it in. `Arc` is `Send` only when its payload is `Sync`, and `Cell` is not — that is the bound to satisfy. `Cell` carries an interior cell (design 186), so it derives no `Sync`: field `cell` of type `UnsafeMutableInterior<Int>` is mutable through a shared borrow, which the derivation cannot reason about. If the synchronization is real but invisible to the compiler, say so — `extension Cell: UnsafeSync {}`, beside the type, where it can be audited.
 conformance/K32_task_cell_result_and_cancel.saw	arm64-apple-darwin	same	fc7a5dfd6c45	success	ok	0	137:4ac7ab30197e	0:e3b0c44298fc	-	yes	-
 conformance/K33_suspending_enum_method_embedded.saw	arm64-apple-darwin	same	8292af7134f3	success	ok	0	20:8df167ee0867	0:e3b0c44298fc	-	yes	-
 conformance/K34_suspending_generic_struct_method_embedded.saw	arm64-apple-darwin	same	7a24c9f6cb95	success	ok	0	28:b0a2268fa16f	0:e3b0c44298fc	-	yes	-
@@ -487,7 +487,7 @@ conformance/V104_unbound_value_is_released.saw	arm64-apple-darwin	same	e1d396dd2
 conformance/V105_copy_capture_releases_its_duplicate.saw	arm64-apple-darwin	same	c578182371b4	success	ok	0	348:1608ecd6747d	0:e3b0c44298fc	-	yes	-
 conformance/V106_driven_copy_capture_duplicates_once.saw	arm64-apple-darwin	same	46c705557a2d	success	ok	0	180:9c845ec4f84a	0:e3b0c44298fc	-	yes	-
 conformance/V107_capture_survives_repeated_invocation.saw	arm64-apple-darwin	same	5c33f5e9d1a8	success	ok	0	370:024dd361dba9	0:e3b0c44298fc	-	yes	-
-conformance/V108_each_copy_capture_owns_one_duplicate.saw	arm64-apple-darwin	same	3d1e248866bd	success	ok	0	882:cf561d3b808e	0:e3b0c44298fc	-	yes	-
+conformance/V108_each_copy_capture_owns_one_duplicate.saw	arm64-apple-darwin	differs	3d1e248866bd	success	ok	0	882:cf561d3b808e	0:e3b0c44298fc	-	yes	-
 conformance/V109_move_in_a_while_condition.saw	arm64-apple-darwin	same	b5b8891110fb	error	refused	-	-	-	466:e6872f5de999	yes	use of moved variable `r` across loop iterations
 conformance/V110_loop_head_moves_that_stay_legal.saw	arm64-apple-darwin	same	35cffbee6c04	success	ok	0	113:b4201105d53f	0:e3b0c44298fc	-	yes	-
 conformance/V111_discard_let_retains_a_projection.saw	arm64-apple-darwin	same	26a240edbc20	success	ok	0	166:e4d0ec184d04	0:e3b0c44298fc	-	yes	-
@@ -1744,7 +1744,7 @@ json_value_object_serialize.saw	arm64-apple-darwin	differs	d69f08de6b7f	success	
 json_value_roundtrip.saw	arm64-apple-darwin	differs	5653bce5a9d5	success	ok	0	452:518723d0695c	0:e3b0c44298fc	-	yes	-
 json_value_structural_reject.saw	arm64-apple-darwin	differs	1fe1822b9128	success	ok	0	474:4b9497a5dafa	0:e3b0c44298fc	-	yes	-
 json_value_synthesized_deep_copy.saw	arm64-apple-darwin	differs	806bf83e0c17	success	ok	0	119:f708d2874fce	0:e3b0c44298fc	-	yes	-
-kernel_slab_idiom.saw	arm64-apple-darwin	same	edf2bbc1539a	success	ok	0	10:8e1dd39bdab5	0:e3b0c44298fc	-	yes	-
+kernel_slab_idiom.saw	arm64-apple-darwin	differs	edf2bbc1539a	success	ok	0	10:8e1dd39bdab5	0:e3b0c44298fc	-	yes	-
 l18_module_qualified_annotation.saw	arm64-apple-darwin	same	83f8a9fde406	success	ok	0	3:68ca3fba3b7e	0:e3b0c44298fc	-	yes	-
 l3_private_struct_bare.saw	arm64-apple-darwin	same	b15507cfc026	error	refused	-	-	-	294:a5bcb9952abd	yes	undefined struct `Secret`
 l3_qualified_still_works.saw	arm64-apple-darwin	same	9f415313c350	success	ok	0	2:1121cfccd591	0:e3b0c44298fc	-	yes	-
@@ -2002,7 +2002,7 @@ nocopy_override_implicit_tier.saw	arm64-apple-darwin	same	db7689e50d6a	success	o
 nocopy_struct_field_init.saw	arm64-apple-darwin	same	951d13952fce	error	refused	-	-	-	301:571ceffacfbb	yes	cannot copy value of type `FileHandle` which implements NoCopy
 nocopy_struct_field_init_with_move.saw	arm64-apple-darwin	same	1d26c7854008	success	ok	0	13:399db3599719	0:e3b0c44298fc	-	yes	-
 nomove_placement_into_its_home.saw	arm64-apple-darwin	differs	32e2ed5873e8	success	ok	0	33:93a35e7b7476	0:e3b0c44298fc	-	yes	-
-nomove_tier.saw	arm64-apple-darwin	same	22f418c37fb9	success	ok	0	42:dd03767abbaa	0:e3b0c44298fc	-	yes	-
+nomove_tier.saw	arm64-apple-darwin	differs	22f418c37fb9	success	ok	0	42:dd03767abbaa	0:e3b0c44298fc	-	yes	-
 none_return_test.saw	arm64-apple-darwin	same	fb4146c19aaa	success	ok	0	6:5891b5b522d5	0:e3b0c44298fc	-	yes	-
 number_literal_member_access.saw	arm64-apple-darwin	same	b915d758f8fb	success	ok	0	21:2e931f0c05e7	0:e3b0c44298fc	-	yes	-
 offload_cancel_multi_arg.saw	arm64-apple-darwin	same	93ca9ad8450a	success	ok	0	13:974a6240b4f6	0:e3b0c44298fc	-	yes	-
@@ -2310,7 +2310,7 @@ slot_optional_payload.saw	arm64-apple-darwin	same	de75a6cea57e	success	ok	0	205:
 source_location_literals.saw	arm64-apple-darwin	same	a083e73397c3	success	ok	0	236:06a1d8c90558	0:e3b0c44298fc	-	yes	-
 source_location_suspending.saw	arm64-apple-darwin	same	2214d0c3b252	success	ok	0	49:dfa68faaae71	0:e3b0c44298fc	-	yes	-
 spawn_body_destructuring_let.saw	arm64-apple-darwin	same	3cc65e32a877	success	ok	0	11:8f50e3dce26f	0:e3b0c44298fc	-	yes	-
-spawn_body_same_scope_redefinition.saw	arm64-apple-darwin	same	eb371b65b696	success	ok	0	268:03d3b95fb69e	0:e3b0c44298fc	-	yes	-
+spawn_body_same_scope_redefinition.saw	arm64-apple-darwin	differs	eb371b65b696	success	ok	0	268:03d3b95fb69e	0:e3b0c44298fc	-	yes	-
 spawn_capture_after_group.saw	arm64-apple-darwin	same	4500053d6911	error	refused	-	-	-	639:94b3c4e338f7	yes	cannot capture `&var n` into a task: `n` is declared AFTER the group `group` it is spawned into (line 23 against line 22), and destruction is LIFO — `n` is torn down BEFORE `group` joins its children, so the task would reach it after it is gone
 spawn_capture_alias.saw	arm64-apple-darwin	same	97750d73fd03	error	refused	-	-	-	581:ffcf7f02c339	yes	exclusive access violation: `n` cannot be captured into another task here — the task spawned at line 22 holds `&var n` until `a.join()` releases it
 spawn_capture_caller_alias.saw	arm64-apple-darwin	same	8a2cf2224f8e	error	refused	-	-	-	978:03097397a339	yes	exclusive access violation: `n` cannot be written here — the task spawned at line 26 holds `&var n` until `h.join()` releases it
@@ -2504,7 +2504,7 @@ tuple_element_literal_out_of_range_error.saw	arm64-apple-darwin	same	17d4364de12
 tuple_index_member_access.saw	arm64-apple-darwin	same	2e312927422c	success	ok	0	50:166484b12840	0:e3b0c44298fc	-	yes	-
 tuples.saw	arm64-apple-darwin	same	65d9cf623724	success	ok	0	9:a1852ec81c3b	0:e3b0c44298fc	-	yes	-
 tuples_advanced.saw	arm64-apple-darwin	same	b40066e1760d	success	ok	0	14:993346371d90	0:e3b0c44298fc	-	yes	-
-two_copy_arc.saw	arm64-apple-darwin	same	f9924d4ec62c	success	ok	0	134:21bb37beba16	0:e3b0c44298fc	-	yes	-
+two_copy_arc.saw	arm64-apple-darwin	differs	f9924d4ec62c	success	ok	0	134:21bb37beba16	0:e3b0c44298fc	-	yes	-
 two_copy_captures.saw	arm64-apple-darwin	same	f1a3f6d80257	success	ok	0	136:dd976bba9456	0:e3b0c44298fc	-	yes	-
 two_escaping_copies.saw	arm64-apple-darwin	same	bf29a093cbce	success	ok	0	136:f91754a85621	0:e3b0c44298fc	-	yes	-
 two_modules_export_distinct_c_symbols.saw	arm64-apple-darwin	same	809e63ad308a	success	ok	0	18:3cbb2d131e72	0:e3b0c44298fc	-	yes	-

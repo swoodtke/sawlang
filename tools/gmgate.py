@@ -304,12 +304,12 @@ CONCURRENCY = (
         blocked=(
             Blocked(CORPUS + "erased_error_across_suspension.saw", "mono.not-yet", "unfiled",
                     "Printable on `Box<any Error>` is not in the backend"),
-            Blocked(CORPUS + "erased_error_spawned_container_result.saw", "slice.not-yet", "unfiled",
-                    "a method `Box` forwards to its payload is not in the slice"),
+            Blocked(CORPUS + "erased_error_spawned_container_result.saw", "slice.not-yet", "SL-721",
+                    "downcasting an erased box with `is` or `take` is not in the slice"),
             Blocked(CORPUS + "coro_try_propagate_suspending.saw", "mono.not-yet", "SL-713",
                     "Printable on `Box<any Error>` is not in the backend"),
-            Blocked(CORPUS + "conformance/K13_mt_sum_under_mutex.saw", "slice.not-yet", "SL-712",
-                    "a method `Arc` forwards to its payload is not in the slice"),
+            Blocked(CORPUS + "conformance/K13_mt_sum_under_mutex.saw", "call.label", "SL-578",
+                    "`TaskGroup.init()` has no `threads:` label"),
         )),
 )
 

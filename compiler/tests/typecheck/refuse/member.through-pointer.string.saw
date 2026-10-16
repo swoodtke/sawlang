@@ -1,0 +1,8 @@
+// refuses: member.through-pointer at 7:13
+// flags: --std-root std
+// a `String` payload's method called on its `Box`: the rule holds for every payload, a std type's too
+
+func main() {
+    let b = try! Box<String>.make("hello")
+    print(b.len())
+}

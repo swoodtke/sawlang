@@ -40,8 +40,11 @@ extension Box<T, A: Allocator = GlobalAllocator>: NoCopy {
 extension Box<T, A: Allocator = GlobalAllocator> {
     /// Lends the heap `T` where it sits.
     ///
-    /// The use site picks the window: `b.value().method()` borrows it, and
-    /// `b.value().n += 1` writes it in place.
+    /// A method of the payload is not callable on the `Box` itself; call it
+    /// through `value()` under `borrow`. `borrow b.value().len()` reads the
+    /// payload through the shared accessor, which a `let` box serves, and
+    /// `borrow var b.value().n += 1` writes it in place on a `var` box.
+    @synthesize(shared)
     public func value(&var self) unsafe borrows -> &var T {
         lend self.ptr[0]
     }

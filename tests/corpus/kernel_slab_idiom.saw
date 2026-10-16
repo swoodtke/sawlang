@@ -45,12 +45,12 @@ func fill_and_exhaust() -> Int {
     let b2 = try! Box<Job, JobSlab>.make(Job(id: 2, priority: 20))
     let b3 = try! Box<Job, JobSlab>.make(Job(id: 3, priority: 30))
     let b4 = try! Box<Job, JobSlab>.make(Job(id: 4, priority: 40))
-    print(b1.tid())   // 1  — forwarded read
-    print(b4.tid())   // 4
+    print(borrow b1.value().tid())   // 1  — read through value()
+    print(borrow b4.value().tid())   // 4
 
     // 5th allocation: the slab is full -> the fallible factory returns Err.
     match Box<Job, JobSlab>.make(Job(id: 5, priority: 50)) {
-        case Ok(bad) -> bad.tid(),
+        case Ok(bad) -> borrow bad.value().tid(),
         case Err(e) -> 999
     }
     // b1..b4 drop here (LIFO), each returning its chunk to the free-list.
@@ -62,5 +62,5 @@ func main() {
     // The four chunks were reclaimed at scope death, so a fresh allocation over
     // JobSlab now succeeds.
     let again = try! Box<Job, JobSlab>.make(Job(id: 6, priority: 60))
-    print(again.tid())          // 6
+    print(borrow again.value().tid())          // 6
 }

@@ -1,0 +1,34 @@
+// probe: stated
+// about: `Arc<Mutex<Int>>`'s lock reached through the `Arc`'s shared accessor, `borrow var c = shared.value().lock() { … }` (SL-712)
+// stage 0: cannot parse a `borrow` block, and its std's `Arc` declares no `value()`
+// speeds: -O0 -O2
+// prints: 3
+// prints: 10
+// prints: 10
+// prints: total 17
+// One `borrow` covers the chain of two `borrows` calls (SL:borrowing §2.2):
+// `value()` lends the payload read-only, and `lock()`, a cell-carrying `&self`
+// accessor, lends the guarded place writable through it. Every handle names
+// the one mutex, so a write through one copy is read through another, by the
+// statement form and by a block whose value comes back out.
+import std.mutex.{Mutex}
+
+func add(shared: Arc<Mutex<Int>>, n: Int) -> Int {
+    borrow var c = shared.value().lock() {
+        c = c + n
+        c
+    }
+}
+
+func main() {
+    let shared = try! Arc<Mutex<Int>>(value: Mutex<Int>(value: 0))
+    let other = shared.copy()
+    print(add(other.copy(), 3))
+    borrow var shared.value().lock() += 7
+    borrow let c = other.value().lock() {
+        print(c)
+    }
+    let seen = borrow let c = shared.value().lock() { c }
+    print(seen)
+    print("total {add(shared.copy(), 7)}")
+}

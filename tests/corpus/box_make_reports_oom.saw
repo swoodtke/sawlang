@@ -42,13 +42,13 @@ func main() {
     // Failure (NullAlloc, Deinit payload): the value is cleanly deinit'd inside
     // `make`'s scope exit ("gone 2"), then Err carries size = sizeof(Res) = 8.
     match Box<Res, NullAlloc>.make(Res(id: 2)) {
-        case Ok(b) -> print(b.peek()),
+        case Ok(b) -> print(borrow b.value().peek()),
         case Err(e) -> print(e.size)      // gone 2, then 8
     }
 
     // AllocError is Printable (design 123), so an OOM can be logged directly.
     match Box<Res, NullAlloc>.make(Res(id: 3)) {
-        case Ok(b) -> print(b.peek()),
+        case Ok(b) -> print(borrow b.value().peek()),
         case Err(e) -> print("{e}")
     }
 }

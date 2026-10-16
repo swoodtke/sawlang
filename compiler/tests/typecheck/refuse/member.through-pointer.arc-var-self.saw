@@ -1,0 +1,16 @@
+// refuses: member.through-pointer at 15:7
+// flags: --std-root std
+// a `&var self` payload method called on its `Arc`, whose payload every handle shares; the hint names `Arc<Mutex<T>>`
+
+struct Counter {
+    n: Int
+}
+
+extension Counter {
+    func bump(&var self) { self.n = self.n + 1 }
+}
+
+func main() {
+    let a = try! Arc<Counter>(value: Counter(n: 0))
+    a.bump()
+}

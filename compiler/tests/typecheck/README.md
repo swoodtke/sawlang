@@ -791,7 +791,7 @@ Every body construct in the slice, and how it is typed:
 | a `??` whose fallback is wider than the optional's payload | `slice.not-yet` (coalesce-wider) |
 | constructing a builtin type no declaration writes an `init` for, `UnsafeMemory<T, U>(a)`; `Atomic(v)` and `UnsafeMutableInterior(v)` are their lang roles' positional constructions | `slice.not-yet` (builtin-construction) |
 | a method call on `any Trait` | `slice.not-yet` (existential-call) |
-| a method `Box` or `Arc` forwards to its payload | `slice.not-yet` (forwarding) |
+| a method call on an erased box, `Box<any Trait>`'s, which dispatches rather than forwards; downcasting one with `is` or `take` | `slice.not-yet` (erased-box-call, erased-box-downcast) |
 | a borrow a `group.spawn` root takes of its spawner, a `&`/`&var` argument or a borrow capture, which lasts the task's life (SL:coroutines A8c) | `slice.not-yet` (group-spawn-borrow) |
 | a `borrow` block over a method that lends through a closure parameter, as `borrow var c = m.lock() { ... }` | `slice.not-yet` (lock-borrow) |
 | calling a `FuncPointer`, a function or closure where one is expected | `slice.not-yet` (func-pointer) |
@@ -1419,6 +1419,7 @@ says what the fixture shows.
 | `type.cast` | an `as` between types it does not convert |
 | `type.try` | a `try` propagating out of a body that returns no Result, or into one whose error type does not take its error |
 | `member.unknown` | a field or method the type does not have, or this module does not see; the builtin `copy()` on a NoCopy value |
+| `member.through-pointer` | a method a `Box`'s or an `Arc`'s payload declares and the pointer does not, called on the pointer: a pointer forwards nothing, so the message names `borrow b.value().m(…)`, and for a `&var self` one `borrow var` on a box or a lock on an `Arc`; every receiver mode, through a box (`&self` bare, `.var-self`, `.consumes`, a `borrows` accessor `.borrows`, a `&Box` parameter `.reference`, a `String` payload `.string`) and an `Arc` (`.arc`, `.arc-var-self`, `.arc-consumes`, `Mutex.lock` `.arc-borrows`) (SL-712) |
 | `call.arity` | too many arguments, a missing one, a case built without its payload |
 | `call.label` | a label no parameter has, one naming a parameter behind the last bound, a repeated label |
 | `call.ambiguous` | overloads the arguments fit equally, named; a bare integer literal over integer overloads with no `Int` one, or preferring `Int` in a different overload at each argument (spec, Overloading, tie-break 4: `.literal-no-int`, `.literal-crossed`) |

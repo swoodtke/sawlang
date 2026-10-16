@@ -1,0 +1,17 @@
+// refuses: member.through-pointer at 16:13
+// flags: --std-root std
+// a `&self` payload method called on its `Box`: a pointer forwards nothing, so the payload is reached as `borrow b.value().sum()`
+
+struct Point {
+    x: Int,
+    y: Int
+}
+
+extension Point {
+    func sum(&self) -> Int { self.x + self.y }
+}
+
+func main() {
+    let b = try! Box<Point>.make(Point(x: 1, y: 2))
+    print(b.sum())
+}

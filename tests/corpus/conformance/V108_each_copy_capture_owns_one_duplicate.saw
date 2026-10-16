@@ -200,7 +200,7 @@ func main() {
     let root = try! Arc(value: Cell(v: 7))
     g_scope(&root)
     print("root after {}", root.strong_count())
-    print("read {}", root.get())
+    print("read {}", borrow root.value().get())
     print("-- H nested literals, driven, 1 call each")
     print("= {}", __saw_drive(h_driven(Dup(n: 60))))
     print("end")

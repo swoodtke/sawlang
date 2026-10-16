@@ -79,11 +79,11 @@ func main() {
     print("-- sync")
     live_sync(&root)
     print("root after {}", root.strong_count())
-    print("read {}", root.get())
+    print("read {}", borrow root.value().get())
 
     print("-- driven")
     live_driven(&root)
     print("root after {}", root.strong_count())
-    print("read {}", root.get())
+    print("read {}", borrow root.value().get())
     print("end")
 }

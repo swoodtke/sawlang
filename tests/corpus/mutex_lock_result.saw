@@ -2,7 +2,7 @@
 // computed (review M1): a block is an expression whose value is its tail
 // (SL:borrowing §2.1), so a value computed under the lock is carried out of
 // it, and a block that computes nothing is a statement. Reached directly and
-// through `Arc<Mutex<T>>`, the Arc forward DF-123c pins. The tail's type is
+// through `Arc<Mutex<T>>`'s `value()`, the chain DF-123c pins. The tail's type is
 // the block's own: Int, Bool or String here.
 // EXPECT: success
 // EXPECT-OUTPUT:
@@ -25,11 +25,11 @@ func main() {
     print(borrow var n = m.lock() { "n={n}" })      // yields String
 
     let shared = try! Arc<Mutex<Int>>(value: Mutex<Int>(value: 10))
-    print(borrow var n = shared.lock() { n + 1 })   // forwarded, yields Int
-    borrow var n = shared.lock() { n = n * 3 }      // forwarded, yields nothing
-    print(borrow var n = shared.lock() { n })
+    print(borrow var n = shared.value().lock() { n + 1 })   // through value(), yields Int
+    borrow var n = shared.value().lock() { n = n * 3 }      // through value(), yields nothing
+    print(borrow var n = shared.value().lock() { n })
 
     // A String computed under the lock outlives the critical section.
-    let greeting = borrow var n = shared.lock() { "hello {n}" }
+    let greeting = borrow var n = shared.value().lock() { "hello {n}" }
     print(greeting)
 }

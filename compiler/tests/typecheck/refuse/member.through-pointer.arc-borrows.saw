@@ -1,0 +1,12 @@
+// refuses: member.through-pointer at 9:27
+// flags: --std-root std
+// `Arc<Mutex<Int>>`'s lock called on the `Arc`, the bare `shared.lock()`; the chain is `borrow var c = shared.value().lock() { … }`
+
+import std.mutex.{Mutex}
+
+func main() {
+    let shared = try! Arc<Mutex<Int>>(value: Mutex<Int>(value: 0))
+    borrow var c = shared.lock() {
+        c = c + 1
+    }
+}

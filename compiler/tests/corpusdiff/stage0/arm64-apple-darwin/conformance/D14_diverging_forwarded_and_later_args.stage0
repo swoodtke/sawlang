@@ -1,6 +1,6 @@
 program	conformance/D14_diverging_forwarded_and_later_args.saw
 triple	arm64-apple-darwin
-twin	same
+twin	differs
 expect	success
 build	ok
 exit	0

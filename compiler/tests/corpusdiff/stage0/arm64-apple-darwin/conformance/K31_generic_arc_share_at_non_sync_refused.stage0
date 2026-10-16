@@ -1,6 +1,6 @@
 program	conformance/K31_generic_arc_share_at_non_sync_refused.saw
 triple	arm64-apple-darwin
-twin	same
+twin	differs
 expect	error
 build	refused	cannot spawn `bump_many` into a multi-threaded `TaskGroup(threads: ...)`: parameter `a` of type `Arc<Cell>` is not `Send`, so the task frame cannot cross to a worker thread. Share thread-safe state via `Arc` (and `Mutex` for mutation) or a `Channel` instead of moving it in. `Arc` is `Send` only when its payload is `Sync`, and `Cell` is not — that is the bound to satisfy. `Cell` carries an interior cell (design 186), so it derives no `Sync`: field `cell` of type `UnsafeMutableInterior<Int>` is mutable through a shared borrow, which the derivation cannot reason about. If the synchronization is real but invisible to the compiler, say so — `extension Cell: UnsafeSync {}`, beside the type, where it can be audited.
 meets_expect	yes

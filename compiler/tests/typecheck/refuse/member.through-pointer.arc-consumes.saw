@@ -1,0 +1,18 @@
+// refuses: member.through-pointer at 17:13
+// flags: --std-root std
+// a consuming payload method called on its `Arc`: no handle can take a payload every handle shares
+
+struct Res {
+    n: Int
+}
+
+extension Res: NoCopy {}
+
+extension Res {
+    func finish(&var self) consumes -> Int { self.n }
+}
+
+func main() {
+    let a = try! Arc<Res>(value: Res(n: 1))
+    print(a.finish())
+}

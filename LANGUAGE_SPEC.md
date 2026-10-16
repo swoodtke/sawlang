@@ -5076,6 +5076,14 @@ compile error. A chain of borrows takes the mode the prefix gives it:
 since the write reaches the outer place's storage, and an immutable root is
 refused for either of them, named as the root.
 
+The read-only refusal is about where the write lands. When a later link in the
+chain is a cell-carrying `&self` accessor, that link lends a writable place of
+its own, so a write through it lands there and not in the read-only place the
+earlier link lent. `borrow var c = shared.value().lock() { c += 1 }` is legal on
+an `Arc<Mutex<Int>>`: `value()` lends the mutex read-only, and `lock()` lends
+the integer it guards writable. The chain still holds the root exclusively for
+the window, because `lock()` lends `&var T`.
+
 > **On a `borrows` accessor the receiver sigil settles the root, as it does on
 > every method.** A `&var self` accessor borrows its receiver exclusively at
 > every use, a read included, so `let g` cannot read through `Grid.[]` above. A
@@ -8387,15 +8395,26 @@ multiple threads (design 75) — carrying the coroutine transform, suspending
   `Result`, and a `try {} catch {}` written in the enclosing function does not
   extend into a closure body (that catch belongs to a frame the closure's error
   path never reaches — write the closure its own).
-- **`Arc<T>` payload method forwarding** — a `&self` method on the
-  payload `T` is callable through the `Arc` (`arc.method(...)`): the call borrows
-  the control block's payload slot. Sound because a live strong reference pins
-  the payload. A `&var self` payload method is rejected (aliased mutation — use
-  `Arc<Mutex<T>>`). This gives the `Arc<Mutex<T>>` idiom its access path:
-  `Mutex.lock()` is a `&self` accessor, so `borrow var c = arc.lock() { … }`
-  reaches it through the `Arc`. Two copies of one `Arc` name the same mutex
-  under two names, which is why re-entry through another name panics at run
-  time rather than being refused (see [Synchronized Access](#synchronized-access)).
+- **`Arc<T>` payload access** — `value()` is a `(&self) unsafe borrows -> &T`
+  accessor that lends the payload in the control block, read-only, and it is
+  the one way to reach the payload's methods: `borrow arc.value().peek()`. A
+  method the payload declares is not callable on the `Arc` itself, so
+  `arc.peek()` is refused with a message naming the accessor spelling, whatever
+  the method's receiver. The lend is sound because the window holds the handle,
+  and a live strong reference pins the payload. It is read-only because every
+  handle names the same payload, so a `&var self` payload method has no path
+  through an `Arc`; the writable form is `Arc<Mutex<T>>`. `Mutex.lock()` is a
+  cell-carrying `&self` accessor, so one `borrow` covers both calls of the
+  chain (see [Writing through a place](#writing-through-a-place)):
+
+  ```saw-fragment
+  let shared = try! Arc<Mutex<Int>>(value: Mutex<Int>(value: 0))
+  borrow var c = shared.value().lock() { c += 1 }
+  ```
+
+  Two copies of one `Arc` name the same mutex under two names, which is why
+  re-entry through another name panics at run time rather than being refused
+  (see [Synchronized Access](#synchronized-access)).
 - **`Thread.spawn` / `Thread<T>`** — `Thread.spawn { ... } -> Thread<T>`
   launches the closure on a fresh OS thread (hosted pthread-per-thread engine;
   the thread identity is never exposed). A body whose value is `Void` yields a
@@ -10510,7 +10529,7 @@ then make the handle safe to copy into a worker.
 
 ```saw-fragment
 func record(shared: Arc<Mutex<SampleBuffer>>, sample: UInt8) {
-    borrow var buf = shared.lock() { buf.push(sample) }
+    borrow var buf = shared.value().lock() { buf.push(sample) }
 }
 
 func main() {
@@ -10520,7 +10539,7 @@ func main() {
     let right = workers.spawn(record(shared.copy(), 4))
     left.join()
     right.join()
-    let (count, total) = borrow let buf = shared.lock() { (buf.len(), buf.sum()) }
+    let (count, total) = borrow let buf = shared.value().lock() { (buf.len(), buf.sum()) }
     print("{} samples, sum {}", count, total)
     // prints: 2 samples, sum 7
 }
@@ -14458,10 +14477,13 @@ it unmoved. Payload access:
 
 - `value()` is a `borrows` accessor that lends the payload in place, used
   under `borrow` (see [Shared Ownership](#shared-ownership)).
-- **Method forwarding** (like `Arc`): a `&self` method on the payload
-  struct is callable through the Box — `b.peek()` forwards to the payload's
-  `peek`. A `&var self` payload method is rejected (aliased mutation of
-  owned-through-a-handle state is what a `Mutex` payload exists to make safe).
+- **The payload's methods are reached through `value()`**, as with `Arc`. A
+  method the payload declares is not callable on the `Box` itself: `b.peek()` is
+  refused, with a message naming `borrow b.value().peek()`, whatever `peek`'s
+  receiver. A bare `borrow` uses the shared accessor, so it works on a `let`
+  box, and `borrow var b.value().bump()` reaches a `&var self` method on a `var`
+  box. A consuming payload method has no path through a `Box`, since `value()`
+  only lends the payload where the box keeps it.
 
 ### Slab allocators (the kernel idiom)
 

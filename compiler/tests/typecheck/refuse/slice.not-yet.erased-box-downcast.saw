@@ -1,0 +1,17 @@
+// refuses: slice.not-yet at 16:5
+// flags: --std-root std
+// downcasting an erased box with `is`
+
+struct Code {
+    n: Int
+}
+
+extension Code: Printable {
+    func format(&self, into: &var StringBuilder) { try! into.append("code") }
+}
+
+extension Code: Error {}
+
+func check(e: &Box<any Error>) -> Bool {
+    e.is<Code>()
+}

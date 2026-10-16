@@ -6455,6 +6455,10 @@ extension TcProgram {
         if cands.len() == 0 {
             self.set_use(base, TcUse.Borrow)
             self.type_args_alone(&args)
+            if self.refuse_through_pointer(leaf, base, t, name) {
+                let poisoned = self.error_type
+                return self.set_type(e, poisoned, false)
+            }
             self.refuse_no_method(leaf, t, name)
             let poisoned = self.error_type
             return self.set_type(e, poisoned, false)
@@ -6489,9 +6493,9 @@ extension TcProgram {
     }
 
     // What names method call `e`, of `name` on type `t`, as outside the
-    // bootstrap slice, or "" when it is not: a call on an existential, a
-    // method `Box` or `Arc` forwards to its payload, and a `borrow` block's
-    // head that lends through a closure parameter rather
+    // bootstrap slice, or "" when it is not: a call on an existential, one
+    // on an erased box, and a `borrow` block's head that lends through a
+    // closure parameter rather
     // than as a `borrows` accessor, as today's `Mutex.lock` does.
     func method_outside_slice(&var self, e: Int, t: Int, name: Int, text: &String, cands: &Vector<TcCand>,
                               args: &TcArgs) -> String {
@@ -6504,16 +6508,16 @@ extension TcProgram {
             if d >= 0 && d == self.known.interior {
                 return "a method of the interior cell `UnsafeMutableInterior`"
             }
-            let forwarding = d >= 0 && (d == self.known.box || d == self.known.arc)
-            if forwarding && self.nominal_args(t).len() > 0 {
+            // An erased payload is reached by dynamic dispatch, not by
+            // forwarding (spec, Existentials).
+            let pointer = d >= 0 && (d == self.known.box || d == self.known.arc)
+            if pointer && self.nominal_args(t).len() > 0 {
                 let payload = self.arg_of(t, 0)
-                var forwarded = Vector<TcCand>()
-                self.method_candidates(&var forwarded, payload, name, false)
-                if forwarded.len() > 0 || self.kind_of(payload) == TcKind.Any {
-                    if d == self.known.box {
-                        return "a method `Box` forwards to its payload"
+                if self.kind_of(payload) == TcKind.Any {
+                    if text.equals("is") || text.equals("take") {
+                        return "downcasting an erased box with `is` or `take`"
                     }
-                    return "a method `Arc` forwards to its payload"
+                    return "a method call on `any Trait` through its box"
                 }
             }
             return ""
@@ -6543,6 +6547,108 @@ extension TcProgram {
             }
         }
         ""
+    }
+
+    // Refuses method call `name` on smart pointer `t` when the pointer does
+    // not declare it and its payload does, naming the spelling that reaches
+    // the payload, `borrow b.value().m(…)`; and says whether it refused.
+    // A pointer forwards nothing, whatever the method's receiver, so every
+    // `borrows` call stays spelled with `borrow` (SL:borrowing §2.2). An
+    // erased payload is `method_outside_slice`'s.
+    func refuse_through_pointer(&var self, leaf: Int, base: Int, t: Int, name: Int) -> Bool {
+        let d = self.nominal_decl(t)
+        if d < 0 || (d != self.known.box && d != self.known.arc) || self.nominal_args(t).len() == 0 {
+            return false
+        }
+        let payload = self.arg_of(t, 0)
+        // The payload's lookup must not stand in for the pointer's when
+        // `refuse_no_method` reports a member its bound withholds.
+        let unmet_member = self.unmet_member
+        let unmet_owner = self.unmet_owner
+        var cands = Vector<TcCand>()
+        self.method_candidates(&var cands, payload, name, false)
+        self.unmet_member = unmet_member
+        self.unmet_owner = unmet_owner
+        if cands.len() == 0 {
+            return false
+        }
+        var shared = false
+        var exclusive = false
+        var k = 0
+        while k < cands.len() {
+            let s = self.sigs[cands[k].decl]
+            k = k + 1
+            if (s.effects & TC_EFFECT_CONSUMES) != 0 {
+                continue
+            }
+            if s.receiver == TcReceiver.Exclusive {
+                exclusive = true
+            } else {
+                shared = true
+            }
+        }
+        let arc = d == self.known.arc
+        let pointer = if arc { "Arc" } else { "Box" }
+        let method = self.name_text(name)
+        let m = self.current
+        let receiver = self.text(m, base)
+        var msg = StringBuilder()
+        try! msg.append("`")
+        try! msg.append(method)
+        try! msg.append("` is a method of the payload, `")
+        try! msg.append(self.type_text(payload))
+        try! msg.append("`, not of the `")
+        try! msg.append(pointer)
+        try! msg.append("`; ")
+        if shared || (exclusive && not arc) {
+            try! msg.append("reach it with `borrow ")
+            if not shared {
+                try! msg.append("var ")
+            }
+            try! msg.append(receiver)
+            try! msg.append(".value().")
+            try! msg.append(method)
+            try! msg.append("(…)`")
+            if not shared {
+                try! msg.append(" on a `var` box")
+            }
+        } else if exclusive {
+            try! msg.append("it takes `&var self`, and an `Arc` lends its payload shared, since every handle names it; write to it through a lock, `Arc<Mutex<T>>`, as `borrow var p = ")
+            try! msg.append(receiver)
+            try! msg.append(".value().lock() \{ p.")
+            try! msg.append(method)
+            try! msg.append("(…) \}`")
+        } else if arc {
+            try! msg.append("it consumes its receiver, and an `Arc`'s payload is shared by every handle, so no call can take it")
+        } else {
+            try! msg.append("it consumes its receiver, and `value()` only lends the payload where the box keeps it")
+        }
+        self.refuse(leaf, "member.through-pointer", msg.build())
+        true
+    }
+
+    // The node call `e`'s receiver is read from, or -1 for a call with
+    // none: a subscript's base, or a method call's callee base.
+    //
+    // ENTRY POINTS:
+    // - settle_call
+    // - place_verdict
+    // - window_receivers
+    // - check_exclusive_windows
+    // - MIR's call_operands
+    // - MIR's prepare_lend
+    // - MIR's lent_copy
+    // - MIR's lend_receiver
+    // - MIR's iterator_of
+    public func call_receiver(&self, e: Int) -> Int {
+        if self.has_alt(e, Alt.Expr_Subscript_Single) || self.has_alt(e, Alt.Expr_Subscript_Multi) {
+            return self.res.first_node_child(e)
+        }
+        let callee = self.res.first_node_child(e)
+        if callee < 0 || not self.has_alt(callee, Alt.Expr_Member) {
+            return -1
+        }
+        self.res.first_node_child(callee)
     }
 
     // The field named `name` of type `t` this module sees whose type is a
@@ -10592,15 +10698,7 @@ extension TcProgram {
         if not subscript && not lending {
             return
         }
-        var receiver = -1
-        if subscript {
-            receiver = self.res.first_node_child(e)
-        } else {
-            let callee = self.res.first_node_child(e)
-            if self.has_alt(callee, Alt.Expr_Member) {
-                receiver = self.res.first_node_child(callee)
-            }
-        }
+        let receiver = self.call_receiver(e)
         let writes = self.use_writes(e, &parents)
         if writes && c.twin >= 0 {
             var switched = self.calls[at]

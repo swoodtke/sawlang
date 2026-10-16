@@ -22,7 +22,7 @@ import std.time.{Instant}
 static WAIT_MS: UInt64 = 2000
 
 func bump(counter: Arc<Mutex<Int>>) {
-    let _ = borrow var c = counter.lock() {
+    let _ = borrow var c = counter.value().lock() {
         c = c + 1
         c
     }
@@ -38,7 +38,7 @@ func main() {
     var seen = 0
     let start = Instant.now()
     while seen < 4 && start.elapsed().as_millis() < WAIT_MS {
-        seen = borrow var c = counter.lock() { c }
+        seen = borrow var c = counter.value().lock() { c }
         yield_now()
     }
     while handles.len() > 0 {

@@ -624,7 +624,8 @@ works but is no longer required anywhere. Three things to know:
   `d.get(i)` is the `None`-returning twin of a panicking `[]`, nothing more.
 The gate itself is `Arc.with_unique(body:) -> R?` — runs `body` on a `&var`
 borrow of the payload when the handle is the only strong owner, `None` when
-shared (Arc's `&self` payload forwarding still refuses `&var self` methods).
+shared (Arc's `value()` lends the payload read-only, so a `&var self` payload
+method has no other path; Stage 0's forwarding refuses one too).
 **A struct that OWNS one of those must pick its own copy policy** — the #1 thing
 you hit writing Saw. `struct Holder { v: Vector<Int> }` does not compile bare;
 the compiler knows how to DESTROY it but not whether you want it duplicated:
@@ -3177,7 +3178,7 @@ dump_tasks()                // every live task's logical backtrace (std.task)
   // group.spawn(add(shared.copy(), 1))
   ```
   (STAGE 0 spelling. In the ruled language `Mutex.lock()` is an accessor and
-  there is no closure: `borrow var c = shared.lock() { c = c + n; c }`.)
+  there is no closure: `borrow var c = shared.value().lock() { c = c + n; c }`.)
   Two positions still refuse a capture, cleanly: a bare (non-block) `match` arm
   expression, which cannot host the materialization at all, and a `while`
   CONDITION, where it would run once ahead of a condition that runs every
@@ -3734,10 +3735,11 @@ constructor, no un-joined path, no dropped message, and no inert object
 (`Arc`/`Mutex`/`Channel` used to construct one and no longer can). `Mutex.get()`
 is `T`, not `T?`, for the same reason. **What the critical section computes
 comes back out.** Ruled language: `lock()` is a `borrows(sync)` accessor and a
-`borrow` block is an expression, so the block's tail is the value, and
-`Arc<Mutex<T>>` forwarding reaches the `&self` accessor:
+`borrow` block is an expression, so the block's tail is the value. A pointer
+forwards nothing (SL-712): `Arc.value()` lends the mutex, and one `borrow`
+covers the chain of the two accessors:
 ```saw-fragment
-let n = borrow var c = shared.lock() { c = c + 5; c }   // shared: Arc<Mutex<Int>> -> n == 5
+let n = borrow var c = shared.value().lock() { c = c + 5; c }   // shared: Arc<Mutex<Int>> -> n == 5
 ```
 STAGE 0 spells it with a closure whose own result comes back,
 `lock<R>(body: (&var T) sync -> R) -> R`, the same shape Stage 0's
@@ -4443,11 +4445,12 @@ construct in the owner and lend `&driver` down.
   EVERY cyclic shape was an internal compiler error before Aug 27
   (``Undefined enum: Json``, once the demanded copy policy was declared), so
   code that works around one with an index into a side `Vector` predates this.
-  TWO GOTCHAS while writing one: `Box` payload-method forwarding reaches a
-  STRUCT payload's methods and NOT an ENUM payload's (DF-261d), and an optional
-  chain through a `Box<T>?` field is an ICE (DF-261e) — so traverse a
-  box-linked ENUM by matching at each level you own rather than by
-  `next.walk()`.
+  TWO GOTCHAS while writing one: Stage 0's `Box` payload-method forwarding
+  reaches a STRUCT payload's methods and NOT an ENUM payload's (DF-261d; the
+  ruled language forwards nothing, `borrow next.value().walk()`), and an
+  optional chain through a `Box<T>?` field is an ICE (DF-261e) — so traverse a
+  box-linked ENUM by matching at each level you own rather than by a method
+  call through the box.
 - An escaping closure (bound/returned/stored/`spawn`) is **Copy**
   over a refcounted heap env (like String/Arc): `let g = f` is a free
   refcount bump (both valid), and the captures are torn down exactly once
@@ -4492,7 +4495,7 @@ construct in the owner and lend `&driver` down.
   run({ [move v] in var w = move v; try! w.push(1); w.len() })  // a value of
                                                  // the BODY's own (non-escaping)
   let shared = try! Arc<Mutex<Int>>(value: Mutex<Int>(value: 0))
-  let bump = { borrow var c = shared.lock() { c = c + 1; c } }   // escaping: share it
+  let bump = { borrow var c = shared.value().lock() { c = c + 1; c } }   // escaping: share it
   ```
   (STAGE 0 spells the lock with a closure: `shared.lock({ &var c in c = c + 1; c })`.)
   An escaping closure keeps NO mutable captured state; `Arc<Mutex<T>>` is the

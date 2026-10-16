@@ -18,7 +18,7 @@
 import std.mutex.*
 
 func add(shared: Arc<Mutex<Int>>, n: Int) -> Int {
-    borrow var c = shared.lock() {
+    borrow var c = shared.value().lock() {
         c = c + n
         c
     }
@@ -35,5 +35,5 @@ func main() {
     let _ = b.join()
     let _ = c.join()
     let _ = d.join()
-    print("total {borrow var total = shared.lock() { total }}")
+    print("total {borrow var total = shared.value().lock() { total }}")
 }

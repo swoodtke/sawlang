@@ -36,7 +36,7 @@ any_vector_shapes.saw	copied	-	-
 arc_basic.saw	copied	-	-
 arc_forward.saw	rewritten	E.lock:2	-
 arc_forward_generic_method.saw	copied	-	-
-arc_with_unique.saw	manual	manual.E:8,manual.E.companion:11	re-aimed: now tests `Arc.unique()`, the conditional lend present only at strong count 1, discriminated with `if borrow var` (SL:borrowing §2.4, §8, §9)
+arc_with_unique.saw	manual	manual.E:8,manual.E.companion:11,manual.payload-accessor:2,manual.payload-accessor.companion:4	re-aimed: now tests `Arc.unique()`, the conditional lend present only at strong count 1, discriminated with `if borrow var` (SL:borrowing §2.4, §8, §9); SL-712: a payload method is reached through value() under borrow, since a pointer forwards nothing
 arithmetic_no_false_overflow.saw	copied	-	-
 array_const_index_out_of_bounds.saw	reviewed,expectation-pending	reviewed.unseen:1	-
 array_dynamic_compound_oob_panic.saw	copied	-	-
@@ -119,9 +119,9 @@ borrowing_rules_resolve_aliases.saw	copied	-	-
 borrows_declaration_lowers.saw	reviewed	-	accessors (SL-421): (b) `Bag.counted`: its epilogue writes `self`, so no shared twin typechecks (§4), and nothing borrows through it: the file pins the declaration
 borrows_fold_preserves_lexical_scope.saw	retired	-	retired: it tests the frozen compiler's `#lend_var` fold (SL-333 R6: the selected branch keeps its scope, destruction order, value and tail transfer); a body never tests its lend mode any more, so there is no fold (SL:borrowing §4, §9; GRAMMAR syntax.expr.refused-lend-var); its negative twin is errors/fold_selected_tail_is_an_ownership_transfer.saw; K131 goes with it
 box_basic.saw	rewritten	G1.accessor-read:3	-
-box_deinit_once.saw	copied	-	-
+box_deinit_once.saw	manual	manual.payload-accessor:1	SL-712: a payload method is reached through value() under borrow, since a pointer forwards nothing
 box_forward.saw	copied	-	-
-box_make_reports_oom.saw	rewritten	G1.accessor-read:1	-
+box_make_reports_oom.saw	manual,rewritten	G1.accessor-read:1,manual.payload-accessor:2	SL-712: a payload method is reached through value() under borrow, since a pointer forwards nothing
 box_string.saw	rewritten	G1.accessor-read:3	-
 box_value_lends_the_payload.saw	rewritten	A1.field-write:1,A3.mutating-call:1,G1.accessor-read:2,G3.borrow-let:3	-
 box_wrapper_tier_error.saw	copied,expectation-pending	-	-
@@ -129,7 +129,7 @@ byte_append_discrimination.saw	copied	-	-
 byte_data_reads.saw	copied	-	-
 byte_type_flow.saw	copied	-	-
 capture_exclusivity_disjoint.saw	copied	-	-
-capture_write_allowed_forms.saw	manual	manual.E:1,manual.E.companion:2	migrated: the header's closures are user closures (design 132), which stay (SL:borrowing §9); only the Mutex.lock closure inside one becomes a lock() block
+capture_write_allowed_forms.saw	manual	manual.E:1,manual.E.companion:2,manual.payload-accessor:2	migrated: the header's closures are user closures (design 132), which stay (SL:borrowing §9); only the Mutex.lock closure inside one becomes a lock() block; SL-712: a payload method is reached through value() under borrow, since a pointer forwards nothing
 cast170_checked_as.saw	copied	-	-
 cast170_from_family.saw	copied	-	-
 cast170_narrowing_panics.saw	copied	-	-
@@ -291,7 +291,7 @@ conformance/D10_spawn_never_body_refused.saw	copied,expectation-pending	-	-
 conformance/D11_spawn_closure_never_refused.saw	copied,expectation-pending	-	-
 conformance/D12_drive_never_body_refused.saw	copied,expectation-pending	-	-
 conformance/D13_no_fallthrough_past_diverging_call.saw	copied,ir-test	-	-
-conformance/D14_diverging_forwarded_and_later_args.saw	copied	-	-
+conformance/D14_diverging_forwarded_and_later_args.saw	manual	manual.payload-accessor:2,manual.payload-accessor.companion:2	SL-712: a payload method is reached through value() under borrow, since a pointer forwards nothing
 conformance/E12_autowrap_at_the_argument_position.saw	copied	-	-
 conformance/G01_sync_main_int_exit_status.saw	copied	-	-
 conformance/G02_suspending_main_int_exit_status.saw	copied	-	-
@@ -331,7 +331,7 @@ conformance/K135_window_conflicts_that_compose.saw	copied	-	-
 conformance/K136_window_release_routes.saw	copied	-	-
 conformance/K137_window_destruction_order.saw	copied	-	-
 conformance/K138_window_acquire_sequence.saw	copied	-	-
-conformance/K13_mt_sum_under_mutex.saw	manual	manual.E:2,manual.E.companion:6	re-aimed: the lock body is a `borrow var` block over the `borrows(sync)` `Mutex.lock()` that reads a driven function's frame local (SL:borrowing §2.1, §8)
+conformance/K13_mt_sum_under_mutex.saw	manual	manual.E:2,manual.E.companion:6,manual.payload-accessor:2	re-aimed: the lock body is a `borrow var` block over the `borrows(sync)` `Mutex.lock()` that reads a driven function's frame local (SL:borrowing §2.1, §8); SL-712: a payload method is reached through value() under borrow, since a pointer forwards nothing
 conformance/K140_window_under_cancellation.saw	copied	-	-
 conformance/K141_mutex_guarded_for_is_sync.saw	manual	manual.E:2,manual.E.companion:10	re-aimed: the `for` over the guarded collection sits in a `borrow var` block over the `borrows(sync)` `Mutex.lock()` (SL:borrowing §2.5, §2.6, §8); XFAIL SL-340 unchanged; xfail twin: // XFAIL: SL-340 — `Mutex(value: move v)` at a HEAP-OWNING payload frees the
 conformance/K147_inline_catch_splits.saw	copied	-	-
@@ -352,7 +352,7 @@ conformance/K27_receiver_window_never_spans_suspend.saw	rewritten,expectation-pe
 conformance/K28_slot_payload_released_exactly_once.saw	rewritten	G3.borrow-let:2	-
 conformance/K29_copy_policy_hook_must_be_sync.saw	copied,expectation-pending	-	-
 conformance/K30_generic_container_of_pinned_is_pinned.saw	copied,expectation-pending	-	-
-conformance/K31_generic_arc_share_at_non_sync_refused.saw	copied,expectation-pending	-	-
+conformance/K31_generic_arc_share_at_non_sync_refused.saw	manual,expectation-pending	manual.payload-accessor:2	SL-712: a payload method is reached through value() under borrow, since a pointer forwards nothing
 conformance/K32_task_cell_result_and_cancel.saw	copied	-	-
 conformance/K33_suspending_enum_method_embedded.saw	copied,ir-test	-	-
 conformance/K34_suspending_generic_struct_method_embedded.saw	copied,ir-test	-	-
@@ -371,11 +371,11 @@ conformance/K46_suspending_return_head.saw	copied,ir-test	-	-
 conformance/K47_channel_receive_binding_and_try_heads.saw	copied,ir-test	-	-
 conformance/K48_mt_group_task_runs_before_join.saw	copied	-	-
 conformance/K49_mt_worker_feeds_st_group_task.saw	copied	-	-
-conformance/K50_mt_group_progresses_while_main_sleeps.saw	rewritten	E.lock:2	-
-conformance/K51_mt_group_progresses_while_main_yields.saw	rewritten	E.lock:2	-
+conformance/K50_mt_group_progresses_while_main_sleeps.saw	manual,rewritten	E.lock:2,manual.payload-accessor:2	SL-712: a payload method is reached through value() under borrow, since a pointer forwards nothing
+conformance/K51_mt_group_progresses_while_main_yields.saw	manual,rewritten	E.lock:2,manual.payload-accessor:2	SL-712: a payload method is reached through value() under borrow, since a pointer forwards nothing
 conformance/K52_mt_two_workers_deliver_before_join.saw	copied	-	-
 conformance/K53_driven_for_range_iteration_count.saw	copied	-	-
-conformance/K53_mt_group_stays_live_across_spawns.saw	rewritten	E.lock:2	-
+conformance/K53_mt_group_stays_live_across_spawns.saw	manual,rewritten	E.lock:2,manual.payload-accessor:2	SL-712: a payload method is reached through value() under borrow, since a pointer forwards nothing
 conformance/K54_mt_task_receives_what_main_sent.saw	copied	-	-
 conformance/K55_mt_same_group_send_and_receive.saw	copied	-	-
 conformance/K56_thread_engine_feeds_main_receive.saw	copied	-	-
@@ -492,7 +492,7 @@ conformance/V104_unbound_value_is_released.saw	copied	-	-
 conformance/V105_copy_capture_releases_its_duplicate.saw	copied	-	-
 conformance/V106_driven_copy_capture_duplicates_once.saw	copied	-	-
 conformance/V107_capture_survives_repeated_invocation.saw	copied	-	-
-conformance/V108_each_copy_capture_owns_one_duplicate.saw	copied	-	-
+conformance/V108_each_copy_capture_owns_one_duplicate.saw	manual	manual.payload-accessor:1	SL-712: a payload method is reached through value() under borrow, since a pointer forwards nothing
 conformance/V109_move_in_a_while_condition.saw	copied,expectation-pending	-	-
 conformance/V110_loop_head_moves_that_stay_legal.saw	copied	-	-
 conformance/V111_discard_let_retains_a_projection.saw	copied	-	-
@@ -1768,7 +1768,7 @@ json_value_object_serialize.saw	rewritten	G3.borrow-let:2,K14.get-to-place:5	-
 json_value_roundtrip.saw	rewritten	G3.borrow-let:2,K14.get-to-place:6	-
 json_value_structural_reject.saw	rewritten	G3.borrow-let:1,K14.get-to-place:1	-
 json_value_synthesized_deep_copy.saw	rewritten	A3.mutating-call+map-unwrap:1,G3.borrow-let+map-unwrap:2	-
-kernel_slab_idiom.saw	copied	-	-
+kernel_slab_idiom.saw	manual	manual.payload-accessor:4	SL-712: a payload method is reached through value() under borrow, since a pointer forwards nothing
 l18_module_qualified_annotation.saw	copied	-	-
 l3_private_struct_bare.saw	copied,expectation-pending	-	-
 l3_qualified_still_works.saw	copied	-	-
@@ -2087,7 +2087,7 @@ moved_variables_per_function_reset.saw	copied	-	-
 mpshadow.saw	copied	-	-
 mutex_basic.saw	manual	manual.E:4,manual.E.companion:9	re-aimed: now tests `Mutex.lock()` lending `&var T` to a `borrow var` block whose value is its tail (SL:borrowing §2.1, §8, §9)
 mutex_counter.saw	manual	manual.E:5	migrated: a false positive, since the header's closures are the Thread.spawn bodies; each Mutex.lock closure is a `borrow var c = shared.lock() { }` block (SL:borrowing §9)
-mutex_lock_result.saw	manual	manual.E:8,manual.E.companion:12	re-aimed: now tests that a `borrow var` block over `Mutex.lock()` yields its tail's value (Int, Bool, String) or nothing, directly and through the Arc forward (SL:borrowing §2.1, §9)
+mutex_lock_result.saw	manual	manual.E:8,manual.E.companion:12,manual.payload-accessor:4,manual.payload-accessor.companion:1	re-aimed: now tests that a `borrow var` block over `Mutex.lock()` yields its tail's value (Int, Bool, String) or nothing, directly and through the Arc forward (SL:borrowing §2.1, §9); SL-712: a payload method is reached through value() under borrow, since a pointer forwards nothing
 mutex_static_contention_mt.saw	rewritten	E.lock:1	-
 mutex_static_inline.saw	rewritten	E.lock:5	-
 myutils.saw	copied	-	-
@@ -2175,7 +2175,7 @@ nocopy_override_implicit_tier.saw	copied	-	-
 nocopy_struct_field_init.saw	copied,expectation-pending	-	-
 nocopy_struct_field_init_with_move.saw	copied	-	-
 nomove_placement_into_its_home.saw	rewritten	G3.borrow-let:1	-
-nomove_tier.saw	copied	-	-
+nomove_tier.saw	manual	manual.payload-accessor:1	SL-712: a payload method is reached through value() under borrow, since a pointer forwards nothing
 none_return_test.saw	copied	-	-
 number_literal_member_access.saw	copied	-	-
 offload_cancel_multi_arg.saw	copied	-	-
@@ -2483,7 +2483,7 @@ slot_optional_payload.saw	copied	-	-
 source_location_literals.saw	copied	-	-
 source_location_suspending.saw	copied	-	-
 spawn_body_destructuring_let.saw	copied	-	-
-spawn_body_same_scope_redefinition.saw	copied	-	-
+spawn_body_same_scope_redefinition.saw	manual	manual.payload-accessor:8	SL-712: a payload method is reached through value() under borrow, since a pointer forwards nothing
 spawn_capture_after_group.saw	copied,expectation-pending	-	-
 spawn_capture_alias.saw	copied,expectation-pending	-	-
 spawn_capture_caller_alias.saw	copied,expectation-pending	-	-
@@ -2594,7 +2594,7 @@ taskgroup_cancel_during_sleep.saw	copied	-	-
 taskgroup_cancel_receive.saw	copied	-	-
 taskgroup_compute_preemption.saw	copied	-	-
 taskgroup_compute_preemption_mt.saw	copied	-	-
-taskgroup_compute_preemption_unbounded.saw	rewritten	E.lock:2	-
+taskgroup_compute_preemption_unbounded.saw	manual,rewritten	E.lock:2,manual.payload-accessor:2	SL-712: a payload method is reached through value() under borrow, since a pointer forwards nothing
 taskgroup_eager_teardown.saw	copied	-	-
 taskgroup_eager_teardown_live_count.saw	copied	-	-
 taskgroup_eager_teardown_mt.saw	copied	-	-
@@ -2677,7 +2677,7 @@ tuple_element_literal_out_of_range_error.saw	copied,expectation-pending	-	-
 tuple_index_member_access.saw	copied	-	-
 tuples.saw	copied	-	-
 tuples_advanced.saw	copied	-	-
-two_copy_arc.saw	copied	-	-
+two_copy_arc.saw	manual	manual.payload-accessor:2	SL-712: a payload method is reached through value() under borrow, since a pointer forwards nothing
 two_copy_captures.saw	copied	-	-
 two_escaping_copies.saw	copied	-	-
 two_modules_export_distinct_c_symbols.saw	copied	-	-

@@ -161,6 +161,9 @@ INDEX.md, or when an owner is not one of the words below.
 | X48 | U6d2 | `loan.exclusive-twice` and `loan.write-while-shared` (SL-607): `compiler/tests/borrowck/refuse/loan.exclusive-twice.slice-forward.saw`, `compiler/tests/borrowck/refuse/loan.write-while-shared.slice-forward.saw`, `compiler/tests/borrowck/refuse/loan.exclusive-twice.slice-capture.saw`; the accepted forms, `compiler/tests/borrowck/golden/slices.saw`; the bare forward, typecheck `type.mismatch`, `compiler/tests/typecheck/refuse/type.mismatch.slice-unsigiled.saw` |
 | X49 | U6d2 | `loan.window-root` and `loan.exclusive-twice` (SL-607): `compiler/tests/borrowck/refuse/loan.window-root.implicit-capture-reference.saw`, `compiler/tests/borrowck/refuse/loan.window-root.implicit-capture-read.saw`, `compiler/tests/borrowck/refuse/loan.exclusive-twice.implicit-capture-reference.saw`; a nested re-capture under the outer closure's window, `compiler/tests/borrowck/refuse/loan.window-root.nested-capture.saw`; the legal side runs, `compiler/tests/run/capture_reference.saw` |
 | X50 | typecheck | `capture.copy` (SL-607): `compiler/tests/typecheck/refuse/capture.copy.exclusive-reference.saw` |
+| X51 | typecheck | `member.through-pointer` (SL-712): `compiler/tests/typecheck/refuse/member.through-pointer.arc.saw`, `.arc-var-self`, `.arc-consumes`, `.arc-borrows`; the accessor's runs, `compiler/tests/run/probes/arc_payload_accessor.saw`, `compiler/tests/run/probes/arc_mutex_accessor.saw` |
+| X52 | typecheck | `member.through-pointer` (SL-712): `compiler/tests/typecheck/refuse/member.through-pointer.saw`, `.var-self`, `.consumes`, `.borrows`, `.reference`, `.string`; the accessor's runs, `compiler/tests/run/probes/box_payload_accessor.saw` |
+| X53 | U6d2 | `loan.window-root` (SL-712): `compiler/tests/borrowck/refuse/loan.window-root.box-accessor.saw` |
 ## Moves and use-after-move
 
 | Row | Owner | Covered by, or why not |

@@ -1,6 +1,6 @@
 program	conformance/V108_each_copy_capture_owns_one_duplicate.saw
 triple	arm64-apple-darwin
-twin	same
+twin	differs
 expect	success
 build	ok
 exit	0

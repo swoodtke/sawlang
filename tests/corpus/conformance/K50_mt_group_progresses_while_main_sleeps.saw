@@ -18,7 +18,7 @@
 import std.mutex.*
 
 func mark(flag: Arc<Mutex<Int>>) {
-    let _ = borrow var c = flag.lock() {
+    let _ = borrow var c = flag.value().lock() {
         c = 1
         c
     }
@@ -29,7 +29,7 @@ func main() {
     var workers = try! TaskGroup(threads: 2)
     let h = workers.spawn(mark(flag.copy()))
     sleep(Duration.ms(300))
-    let seen = borrow var c = flag.lock() { c }
+    let seen = borrow var c = flag.value().lock() { c }
     h.join()
     print("ran during the nap: {}", seen)
 }

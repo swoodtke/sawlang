@@ -1,6 +1,6 @@
 program	kernel_slab_idiom.saw
 triple	arm64-apple-darwin
-twin	same
+twin	differs
 expect	success
 build	ok
 exit	0

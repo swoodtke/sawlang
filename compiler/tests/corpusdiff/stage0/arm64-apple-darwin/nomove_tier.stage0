@@ -1,6 +1,6 @@
 program	nomove_tier.saw
 triple	arm64-apple-darwin
-twin	same
+twin	differs
 expect	success
 build	ok
 exit	0
