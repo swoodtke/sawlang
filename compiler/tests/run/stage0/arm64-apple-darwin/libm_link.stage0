@@ -1,0 +1,8 @@
+program	compiler/tests/run/libm_link.saw
+triple	arm64-apple-darwin
+source	d9980992d56d2082
+build	ok
+exit	0
+stdout	"3"
+stdout	"1024"
+stdout	""

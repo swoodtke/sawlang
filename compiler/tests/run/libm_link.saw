@@ -1,0 +1,17 @@
+// A program calling libm links: on glibc the math functions are in libm,
+// apart from libc, so the link must name it. The Floats come from libc's
+// `difftime` and leave through libm's `lround`, since this program needs no
+// Float constant or conversion; `cbrt` and `pow` have no instruction an
+// optimiser could put in place of the call.
+
+extern "C" {
+    func difftime(end: Int64, start: Int64) -> Float
+    func cbrt(x: Float) -> Float
+    func pow(x: Float, y: Float) -> Float
+    func lround(x: Float) -> Int
+}
+
+func main() {
+    print(lround(cbrt(difftime(27, 0))))
+    print(lround(pow(difftime(2, 0), difftime(10, 0))))
+}

@@ -417,8 +417,9 @@ func driver_write_file(path: String, text: String) -> Bool {
     }
 }
 
-// Runs `CLANG -target TRIPLE SPEED -x ir LL -x none OBJECTS... -o OUT` and
-// returns its exit status, or 1 once the reason it could not run is printed.
+// Runs `CLANG -target TRIPLE SPEED -x ir LL -x none OBJECTS... LIBRARIES...
+// -o OUT` and returns its exit status, or 1 once the reason it could not run
+// is printed.
 func driver_link(clang: String, ll: String, out: String, speed: String, triple: String,
                  objects: &Vector<String>) -> Int {
     var arguments = Vector<String>()
@@ -435,9 +436,32 @@ func driver_link(clang: String, ll: String, out: String, speed: String, triple: 
         try! arguments.push(objects.get(i) ?? "")
         i = i + 1
     }
+    let libraries = driver_link_libraries(triple)
+    i = 0
+    while i < libraries.len() {
+        try! arguments.push(libraries.get(i) ?? "")
+        i = i + 1
+    }
     try! arguments.push("-o")
     try! arguments.push(out)
     driver_clang("sawc2 build", clang, &arguments)
+}
+
+// The libraries a program linked for the clang triple `triple` names after
+// its objects, decided by the target and never the host. glibc keeps the
+// math functions in libm, apart from libc, so a Linux link names it; macOS
+// carries them in libSystem, which every link takes. The Linux triples are
+// named one by one, so a new Linux target must be added here, and to
+// build.py's `link_libraries`, which must agree since the seed links as
+// `sawc2 build` does.
+// ENTRY POINTS:
+//     driver_link
+func driver_link_libraries(triple: String) -> Vector<String> {
+    var out = Vector<String>()
+    if triple.equals("aarch64-unknown-linux-gnu") || triple.equals("x86_64-unknown-linux-gnu") {
+        try! out.push("-lm")
+    }
+    move out
 }
 
 // Runs the clang at `program` with `arguments` and returns its exit status,

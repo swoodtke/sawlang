@@ -29,8 +29,10 @@ run/
 
 `sawc2 build FILE` compiles the program, writes its whole `.ll` to `OUT.ll`
 (`-o` defaults to `.build/NAME`), and runs
-`clang -target TRIPLE SPEED -x ir OUT.ll -x none RUNTIME... -o OUT`,
-blocking until clang exits. A refusal prints its record (as `sawc2 coro
+`clang -target TRIPLE SPEED -x ir OUT.ll -x none RUNTIME... [-lm] -o OUT`,
+blocking until clang exits. `-lm` is there for a Linux target only, since
+glibc keeps the math functions in libm, apart from libc, while macOS's
+libSystem carries them. A refusal prints its record (as `sawc2 coro
 --check` prints one), writes nothing and exits 1; a failure to write the
 `.ll` or to start clang prints why and exits 1; otherwise the exit status
 is clang's. The `.ll` is written unbuffered and closed explicitly, and clang

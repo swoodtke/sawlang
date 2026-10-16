@@ -80,7 +80,7 @@ FETCH_TIMEOUT = 120
 SHIM_C = os.path.join(RT_ROOT, "shim.c")
 # Bumped when `build_seed` compiles or links the seed differently, which its
 # key cannot otherwise see.
-SEED_RECIPE = b"sawc2-seed-v1\0"
+SEED_RECIPE = b"sawc2-seed-v2\0"
 
 # (package name, source directory relative to the repo root). The directory is
 # the package's module root, as `--module-path NAME=DIR` defines it: the others
@@ -178,6 +178,20 @@ def clang_triple(triple):
     """The triple clang is told for a sawc2 target: `target_clang_triple` in
     compiler/target/src/layout.saw, which the two must agree with."""
     return "arm64-apple-macosx11.0.0" if triple == "arm64-apple-darwin" else triple
+
+
+def link_libraries(triple):
+    """The libraries a link for the sawc2 target `triple` names after its
+    objects: `driver_link_libraries` in compiler/driver/src/main.saw, which
+    the two must agree with, since the seed links as `sawc2 build` does.
+    glibc keeps the math functions in libm, apart from libc; macOS carries
+    them in libSystem. The Linux triples are named one by one, so a new Linux
+    target must be added here and there.
+
+    ENTRY POINTS:
+      build_seed
+    """
+    return ["-lm"] if triple in ("aarch64-unknown-linux-gnu", "x86_64-unknown-linux-gnu") else []
 
 
 # The clangs tried when `SAWC2_CLANG` names none, in order: the versioned
@@ -588,7 +602,8 @@ def build_seed(triple=None):
             objects.append(shim)
             ll = os.path.join(directory, "sawc2.ll")
             _decompress(blobs[0], ll)
-            why = _clang(clang, ["-target", target, "-O2", "-x", "ir", ll, "-x", "none"] + objects + ["-o", binary])
+            why = _clang(clang, ["-target", target, "-O2", "-x", "ir", ll, "-x", "none"] + objects
+                         + link_libraries(triple) + ["-o", binary])
             if why:
                 return None, "the seed of %s does not link: %s" % (triple, why)
             os.remove(ll)
