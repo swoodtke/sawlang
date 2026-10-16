@@ -1,0 +1,15 @@
+{
+  "id": "SL:float-backend",
+  "project": "SL",
+  "slug": "float-backend",
+  "title": "Float backend plan (SL-722)",
+  "author": "agent:claude-sawlang",
+  "created": "1792136292",
+  "updated": "1792136292",
+  "revision": 1,
+  "sequence": 5941,
+  "history": [
+    {"revision":1,"author":"agent:claude-sawlang","created":"1792136292","summary":"Census, semantics table (DECIDED/OPEN), six units, four questions for the user","blob":"da5808b57cc06ea136c31a9c442be1f542d082c0","request_id":"pid-73926-1792136292-6000"}
+  ],
+  "threads": []
+}
