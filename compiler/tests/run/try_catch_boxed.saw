@@ -1,5 +1,3 @@
-// due: the backend does not erase a value into `Box<any Error>` yet
-// refuses: backend.not-yet at 21:16
 // A catch over an erased error, `Box<any Error>` (SL-670): an inline catch
 // and a `try` block whose `try`s propagate the box, which the catch block
 // holds as `error` and drops. Erasing the error is what makes the box.

@@ -1,0 +1,15 @@
+// refuses: type.mismatch at 14:33
+// flags: --std-root std
+// `Box<any Trait>.make` of a value whose type does not conform to the trait
+
+trait Shape {
+    func area(&self) -> Int
+}
+
+struct Loose {
+    n: Int
+}
+
+func main() {
+    let b = Box<any Shape>.make(Loose(n: 1))
+}

@@ -792,12 +792,10 @@ Every body construct in the slice, and how it is typed:
 | a default of a type parameter's type that is no literal and no `None` | `slice.not-yet` (generic-default) |
 | a `??` whose fallback is wider than the optional's payload | `slice.not-yet` (coalesce-wider) |
 | constructing a builtin type no declaration writes an `init` for, `UnsafeMemory<T, U>(a)`; `Atomic(v)` and `UnsafeMutableInterior(v)` are their lang roles' positional constructions | `slice.not-yet` (builtin-construction) |
-| a method call on `any Trait` | `slice.not-yet` (existential-call) |
-| a method call on an erased box, `Box<any Trait>`'s, which dispatches rather than forwards; downcasting one with `is` or `take` | `slice.not-yet` (erased-box-call, erased-box-downcast) |
 | a borrow a `group.spawn` root takes of its spawner, a `&`/`&var` argument or a borrow capture, which lasts the task's life (SL:coroutines A8c) | `slice.not-yet` (group-spawn-borrow) |
 | a `borrow` block over a method that lends through a closure parameter, as `borrow var c = m.lock() { ... }` | `slice.not-yet` (lock-borrow) |
 | calling a `FuncPointer`, a function or closure where one is expected | `slice.not-yet` (func-pointer) |
-| the erasing `Box<any Trait>.make` | `slice.not-yet` (box-make-any) |
+| downcasting an erased box, `b.is<T>()` and `b.take<T>()` | `slice.not-yet` (erased-box-downcast) |
 | a method of the interior cell, `c.ptr()` | `slice.not-yet` (cell-method) |
 
 ## The summary and check position matrices
@@ -975,6 +973,36 @@ adds nothing. Under `erasure.not-object-safe`, `o.` abbreviating
 | an enum payload, a function's result, a Result's error box, a `Vector` element, a type alias, a function type's parameter, another trait's requirement, a `let` annotation | refused | o.payload, o.result, o.error-result, o.generic-argument, o.alias, o.function-type, o.requirement, o.let-annotation |
 | a trait with a generic requirement, erased | `trait.generic-requirement` alone | trait.generic-requirement |
 | `&self` and `&var self` requirements, a default body naming no `Self` in its signature, an object-safe parent; `Printable`, `Error`, `Hashable`; at `&any`, `&var any`, a field's and a parameter's `Box`, a `Vector` element, `Result<Int, Box<any Error>>` | allowed | object_safety |
+
+**Dispatch** (spec, `any Trait` existentials; SL-721). A method call whose
+receiver, read through its references, is an `any Trait` or an erased
+`Box<any Trait>` is resolved by one funnel (`dispatch_call`,
+`compiler/typecheck/src/bodies.saw`) against the requirements the trait's
+vtable carries (`dispatch_requirements`, `compiler/typecheck/src/erasure.saw`:
+the trait's own, then each parent's, instance requirements only, `Deinit`'s
+left out). The candidates' owner is the existential, so `Self` is it and the
+call records the requirement at that owner, which mono lowers to a vtable
+slot. The receiver is dereferenced to the existential, through a reference
+or through the box, then borrowed as the requirement declares, so every
+dispatch's receiver is `&any Trait` or `&var any Trait` and the writability
+funnel judges an exclusive one at the place it was reached through. The
+erasing `Box<any Trait>.make(v)` records the erasure on its argument, as a
+return into an erased `Result` does, and an erasure of a primitive is
+refused wherever one is recorded. Under `refuse/`:
+
+| row | verdict | covered by |
+|---|---|---|
+| a `&self` and a `&var self` requirement, a default body, a parent's requirement, a requirement with arguments and a result, at `&any`, `&var any` and a `var` box | allowed | dispatch |
+| a `&var self` requirement through `&any` or through a box a `let` holds | refused | mutability.immutable.existential-receiver, mutability.immutable.erased-box-receiver |
+| a method the trait does not declare | refused | member.unknown.existential |
+| a consuming requirement | refused by the parser at the requirement | parse's `syntax.rule.requirement-borrows` |
+| a generic requirement | `trait.generic-requirement` at the requirement | trait.generic-requirement |
+| a requirement of a trait that is not object-safe | `erasure.not-object-safe` where the existential is written, the call adding nothing | erasure.not-object-safe |
+| `Box<any Trait>.make` of a value that does not conform, of a primitive | refused | type.mismatch.erase-box-make, erasure.primitive.box-string |
+| a value assigned into a `&var any Trait`'s referent, which would erase into a bare `any Trait` | refused | type.mismatch.erase-bare |
+| `b.is<T>()`, `b.take<T>()` on an erased box | `slice.not-yet` | slice.not-yet.erased-box-downcast |
+| a `&any Trait` parameter of a suspending function, dispatched on both sides of a suspension | allowed (SL-721's ruling): the frame holds the reference's two words | run probe erased_reference_across_suspension |
+| a write to that parameter's referent while the suspended frame holds it | driven: unreachable, since a drive parks its caller; spawned: refused at the spawn borrow, `slice.not-yet` (SL:coroutines A8c), pinned once A8c lands; in one argument list beside the suspending call: refused as for a plain reference | borrowck's loan.nested-call.erased-suspending |
 
 **Statics are `Sync`** (spec, Module-level statics: "Sync-only"; Interior
 mutability; SL-537). Checked with a static's other signature rules
@@ -1336,7 +1364,7 @@ fixture.
 | M13, M14, M15, M16 | `m.shared-receiver`, `m.shared-receiver-call`, `m.shared-receiver-field-call`, `m.shared-receiver-projection` |
 | M17, M18, M19, M20, M21 | `m.for-binding`, `m.if-let`, `m.parameter`, `m.value-capture`, `m.value-capture-field` |
 | M22, M23, M24, M25, M26 | `m.accessor-root`, `m.shared-closure-parameter`, `m.shared-receiver-epilogue`, `m.map-force`, `m.copy-receiver` |
-| M27 | `slice.not-yet` (a method call on `any Trait`); an interior cell's `&self` method borrows shared, which no row of the funnel asks about |
+| M27 | accepted: an interior cell's `&self` method borrows shared, which no row of the funnel asks about; a `&var self` requirement through `&any` or a `let` box is `m.existential-receiver`, `m.erased-box-receiver` |
 | M28, M32, M41 | language changed (SL:borrowing §9, SL-483): `m.shared-receiver-heap-method` (M28), `m.shared-receiver-heap-chain` (M32), `m.shared-receiver-heap`, `-heap-compound`, `-heap-accessor` and `-heap-chain` (M41) |
 | M34, M35 | accepted: golden `mutability` (writes under `&var self`) |
 | M33 | `m.shared-accessor-window`: a `&self` accessor's prologue writing a window on inline storage; its heap form, `m.shared-accessor-heap` (SL-483) |
@@ -1502,6 +1530,7 @@ says what the fixture shows.
 | `effect.sync` | a call in a `sync` body (a function declared `sync`, a `deinit`, a closure of a `sync` type) of a target that is not sync-callable: one that may suspend, a function value whose type is not `sync`; a call whose type arguments make a requirement a generic `sync` body calls through a bound not sync-callable; a `sync` requirement met by a member that is not sync-callable; a hand-written `copy()` of a copy-policy conformance that may suspend, refused at the conformance |
 | `copy.requirement` | a call whose type argument is not on the Copy tier where its callee's body copies that parameter with nothing written (design 219), named with the copy's position, or, for a local one path uses twice, both uses; a repeat literal of the parameter's value is such a copy, however often the value is read (SL-612) |
 | `effect.closure-suspends` | a call in a closure body that may suspend, or a call whose type arguments make a closure in its callee call a suspending implementation (spec: suspension, "a closure body cannot suspend") |
+| `erasure.primitive` | a primitive, `String` among them, erased to `&any Trait`, `&var any Trait` or a box, at every erasure (`refuse_primitive_erasure`): an existential carries a vtable beside the value, and a primitive has no boxed form to carry one, naming the bound and the wrapper struct as the outs (bare; `.box-string`, `Box<any Trait>.make`) |
 | `erasure.not-object-safe` | a written `any Trait` whose trait is not object-safe: a marker trait, one with an associated type, a static requirement, or a requirement naming `Self` in its result or a parameter, its parents' included, naming the trait, the reason and the member (spec, "Object safety (v1)"; the object-safety matrix) |
 | `effect.any-suspends` | a coercion to `any Trait`, or a call whose type arguments make one in its callee, where the implementation of a requirement not declared `sync` may suspend, naming both (spec: suspension) |
 | `drive.argument` | a test driver (`__saw_drive`, `__saw_drive_steps`) given anything but one positional argument (bare), or a root that is no call of a function or a method: a function value, a closure (`.value-root`) |

@@ -2,8 +2,9 @@
 // how a concrete type is laid out in memory and how a value of it crosses the
 // C calling convention. Every backend asks here, so no layout fact lives in a
 // backend. The rules are Stage 0's, which shares the runtime ABI with sawc2:
-// primitives at their natural size, references and raw pointers one word,
-// structs and tuples in declaration order with natural alignment, `Optional`
+// primitives at their natural size, references and raw pointers one word, a
+// pointer to an erased `any Trait` two (the value's address, then its
+// vtable's), structs and tuples in declaration order with natural alignment, `Optional`
 // as a one-byte flag before its payload, a raw-backed enum as its backing
 // integer, every other enum (`Result` included) as an `Int32` tag before its
 // cases' payloads overlaid, and a function value as a code pointer beside an
@@ -231,7 +232,12 @@ extension Target {
         let info = tc.types.ty(t)
         match info.kind {
             case Nominal -> self.nominal(&var tc, t),
-            case Ref -> TargetLayout(kind: TargetKind.Pointer, bytes: self.word),
+            case Ref -> {
+                if tc.kind_of(info.b) == TcKind.Any {
+                    return self.erased_pointer()
+                }
+                TargetLayout(kind: TargetKind.Pointer, bytes: self.word)
+            },
             case Tuple -> {
                 var members = Vector<Int>()
                 var k = 0
@@ -241,19 +247,7 @@ extension Target {
                 }
                 self.record(&var tc, &members)
             },
-            case Slice -> {
-                var l = TargetLayout.blank(TargetKind.Memory)
-                l.shape = TargetShape.Record
-                l.size = 2 * self.word
-                l.align = self.word
-                l.first = self.offsets.len()
-                l.count = 2
-                try! self.offsets.push(0)
-                // Stage 0 workaround (SL:hazards S4): canonical: try! self.offsets.push(self.word)
-                let length_at = self.word
-                try! self.offsets.push(length_at)
-                l
-            },
+            case Slice -> self.word_pair(),
             case Func -> {
                 var l = TargetLayout.blank(TargetKind.Memory)
                 l.shape = TargetShape.Closure
@@ -310,6 +304,12 @@ extension Target {
             return TargetLayout.blank(TargetKind.Zero)
         }
         if d == k.unsafe_pointer || d == k.unsafe_const_pointer || d == k.func_pointer {
+            if info.count > 0 {
+                let pointee = tc.types.arg(t, 0)
+                if tc.kind_of(pointee) == TcKind.Any {
+                    return self.erased_pointer()
+                }
+            }
             return TargetLayout(kind: TargetKind.Pointer, bytes: self.word)
         }
         if d == k.optional {
@@ -335,6 +335,29 @@ extension Target {
             return self.tagged(&var tc, t)
         }
         self.unsupported("a builtin type with no layout in this slice")
+    }
+
+    // Two words, one at each of offsets 0 and a word: a slice's address and
+    // length, an erased pointer's data and vtable.
+    func word_pair(&var self) -> TargetLayout {
+        var l = TargetLayout.blank(TargetKind.Memory)
+        l.shape = TargetShape.Record
+        l.size = 2 * self.word
+        l.align = self.word
+        l.first = self.offsets.len()
+        l.count = 2
+        try! self.offsets.push(0)
+        // Stage 0 workaround (SL:hazards S4): canonical: try! self.offsets.push(self.word)
+        let second_at = self.word
+        try! self.offsets.push(second_at)
+        l
+    }
+
+    // A pointer to an erased value, `&any Trait` or the pointer an erased
+    // box holds: the value's address, then its vtable's (spec, `any Trait`
+    // existentials, "Representation").
+    func erased_pointer(&var self) -> TargetLayout {
+        self.word_pair()
     }
 
     // Members `members` laid out in order, each at its natural alignment.

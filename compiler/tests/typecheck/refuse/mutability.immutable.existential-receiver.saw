@@ -1,0 +1,10 @@
+// refuses: mutability.immutable at 9:5
+// a `&var self` requirement dispatched through a shared `&any Trait`
+
+trait Counter {
+    func bump(&var self)
+}
+
+func through_shared(c: &any Counter) {
+    c.bump()
+}

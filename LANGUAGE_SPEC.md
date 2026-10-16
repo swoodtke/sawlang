@@ -8670,11 +8670,20 @@ Observable rules:
   }
   ```
 
-  Before Sep 20 the dispatch counted as a frame boundary, so `via_existential`
-  joined the driven set and its erased parameter was then refused by the rule
-  below — a reference that spans a suspension lives in the frame as a handle to
-  its referent, and an erased referent has no size. A build that refuses the
-  helper above predates the fix.
+  An erased reference may also span a suspension, as any reference may (see
+  "References may span suspensions"). The frame holds its two words, the
+  value's address and its vtable's, so a suspending function can take a
+  `&any Trait` or `&var any Trait` parameter and dispatch through it on both
+  sides of a suspension:
+
+  ```saw-fragment
+  func spanning(s: &any Shape) -> Int {
+      let before = s.area()
+      yield_now()
+      before + s.area()        // the same value, through the same vtable
+  }
+  ```
+
   Driven methods on *generic structs* (`__saw_drive(b.run())` for `b: Holder<Int>`,
   design 74 shape 2) and *nested suspending generic calls* from a driven body
   (design 74 shape 3) are also supported: a generic-struct method is monomorphized

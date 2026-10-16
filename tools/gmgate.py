@@ -30,7 +30,7 @@ it or refuses it by another rule, so the list cannot go stale silently.
 
 COVERAGE: ownership runs a program in 6 of its 6 categories, and 10 of its 26
 Stage 0 programs build; concurrency runs a program in 6 of its 6 categories,
-and 10 of its 25 Stage 0 programs build.
+and 12 of its 25 Stage 0 programs build.
 
 THE SELF-TEST. `gmgate_surplus_release.saw` releases one block twice. Before
 the lanes count, it must pass natively and fault under Guard Malloc; a lane
@@ -295,6 +295,10 @@ CONCURRENCY = (
         twins=(
             CORPUS + "coro_try_block_positions.saw",
             CORPUS + "coro_reassign_owning_local.saw",
+            # An erased error boxed in a frame, rendered through its vtable
+            # after the suspension, and its box torn down once.
+            CORPUS + "erased_error_across_suspension.saw",
+            CORPUS + "coro_try_propagate_suspending.saw",
         ),
         stand_ins=(
             # An inline catch whose block suspends, over an error that owns a
@@ -302,12 +306,8 @@ CONCURRENCY = (
             CORPUS + "coro_suspending_call_in_inline_catch.saw",
         ),
         blocked=(
-            Blocked(CORPUS + "erased_error_across_suspension.saw", "mono.not-yet", "unfiled",
-                    "Printable on `Box<any Error>` is not in the backend"),
-            Blocked(CORPUS + "erased_error_spawned_container_result.saw", "slice.not-yet", "SL-721",
+            Blocked(CORPUS + "erased_error_spawned_container_result.saw", "slice.not-yet", "SL-745",
                     "downcasting an erased box with `is` or `take` is not in the slice"),
-            Blocked(CORPUS + "coro_try_propagate_suspending.saw", "mono.not-yet", "SL-713",
-                    "Printable on `Box<any Error>` is not in the backend"),
             Blocked(CORPUS + "conformance/K13_mt_sum_under_mutex.saw", "call.label", "SL-578",
                     "`TaskGroup.init()` has no `threads:` label"),
         )),

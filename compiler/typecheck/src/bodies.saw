@@ -30,6 +30,7 @@ import sawtypecheck.candidates.{tc_contains}
 import sawtypecheck.checks.{tc_check_unsafe}
 import sawtypecheck.conform.{TcSubst, tc_copy_ints, tc_extension_sets}
 import sawtypecheck.declarations.{tc_build_signatures}
+import sawtypecheck.erasure.{tc_check_object_safety}
 import sawtypecheck.arith.{TcFault, tc_arith_literal}
 import sawtypecheck.binders.{TcBinder, tc_binder_of, tc_binder_text}
 import sawtypecheck.fold.{TcFold}
@@ -6464,6 +6465,10 @@ extension TcProgram {
             let poisoned = self.error_type
             return self.set_type(e, poisoned, false)
         }
+        let erased = self.dispatched_existential(t)
+        if erased >= 0 {
+            return self.dispatch_call(e, callee, base, inner, t, erased, name, &text, &args)
+        }
         let tk = self.kind_of(t)
         if (tk == TcKind.Array || tk == TcKind.Slice) && (text.equals("len") || text.equals("swap")) {
             return self.sequence_method(e, base, inner, t, &text, &args)
@@ -6534,6 +6539,77 @@ extension TcProgram {
         result
     }
 
+    // The existential a method call on receiver type `t` dispatches
+    // through: `t` itself for an `any Trait`, the payload of an erased
+    // `Box<any Trait>`; -1 for any other type.
+    public func dispatched_existential(&self, t: Int) -> Int {
+        if self.kind_of(t) == TcKind.Any {
+            return t
+        }
+        if not self.is_box(t) {
+            return -1
+        }
+        let payload = self.arg_of(t, 0)
+        if self.kind_of(payload) == TcKind.Any { payload } else { -1 }
+    }
+
+    // THE DISPATCH FUNNEL: method call `e`, of `name` on receiver type `t`
+    // that dispatches through existential `x` (`dispatched_existential`),
+    // resolved against the requirements `x`'s vtable carries. The receiver
+    // is borrowed as the requirement declares through a reference to `x`: a
+    // reference receiver is dereferenced to the existential, and an erased
+    // box to its payload, so every dispatch's receiver is `&any Trait` or
+    // `&var any Trait` and its owner is `x` (spec, `any Trait`
+    // existentials). A trait that is not object-safe was refused where the
+    // existential is written, so its calls are poisoned without a second
+    // refusal.
+    // ENTRY POINTS:
+    //     method_call
+    func dispatch_call(&var self, e: Int, callee: Int, base: Int, inner: Int, t: Int, x: Int, name: Int,
+                       text: &String, args: &TcArgs) -> Int {
+        let leaf = self.res.first_leaf(callee)
+        let boxed = x != t
+        if boxed && (text.equals("is") || text.equals("take")) {
+            self.set_use(base, TcUse.Borrow)
+            self.type_args_alone(&args)
+            self.not_yet(e, "downcasting an erased box with `is` or `take`")
+            let poisoned = self.error_type
+            return self.set_type(e, poisoned, false)
+        }
+        let tr = self.types.ty(x).decl
+        if self.object_safety_reason(tr).len() > 0 {
+            self.set_use(base, TcUse.Borrow)
+            self.type_args_alone(&args)
+            let poisoned = self.error_type
+            return self.set_type(e, poisoned, false)
+        }
+        var cands = Vector<TcCand>()
+        let slots = self.dispatch_requirements(tr)
+        var k = 0
+        while k < slots.len() {
+            let req = slots[k]
+            k = k + 1
+            if self.res.decls[req].name == name {
+                try! cands.push(TcCand(decl: req, kind: TcCandKind.Function, member: -1, owner: x))
+            }
+        }
+        if cands.len() == 0 {
+            self.set_use(base, TcUse.Borrow)
+            self.type_args_alone(&args)
+            self.refuse_no_method(leaf, t, name)
+            let poisoned = self.error_type
+            return self.set_type(e, poisoned, false)
+        }
+        if inner >= 0 {
+            self.add_adjust(base, TcAdjustKind.Deref, inner)
+        }
+        if boxed {
+            self.add_adjust(base, TcAdjustKind.Deref, x)
+        }
+        let explicit = self.explicit_type_args(callee)
+        self.resolve_call(e, &cands, &args, &explicit, base, TC_WANT_NONE)
+    }
+
     // A `deinit` runs once, where its value's scope ends or a consuming
     // call takes it; a call written by hand would run it a second time
     // (spec, The Deinit trait).
@@ -6544,32 +6620,16 @@ extension TcProgram {
     }
 
     // What names method call `e`, of `name` on type `t`, as outside the
-    // bootstrap slice, or "" when it is not: a call on an existential, one
-    // on an erased box, and a `borrow` block's head that lends through a
-    // closure parameter rather
+    // bootstrap slice, or "" when it is not: a method of the interior cell,
+    // and a `borrow` block's head that lends through a closure parameter
+    // rather
     // than as a `borrows` accessor, as today's `Mutex.lock` does.
     func method_outside_slice(&var self, e: Int, t: Int, name: Int, text: &String, cands: &Vector<TcCand>,
                               args: &TcArgs) -> String {
-        let kind = self.kind_of(t)
         let d = self.nominal_decl(t)
         if cands.len() == 0 {
-            if kind == TcKind.Any {
-                return "a method call on `any Trait`"
-            }
             if d >= 0 && d == self.known.interior {
                 return "a method of the interior cell `UnsafeMutableInterior`"
-            }
-            // An erased payload is reached by dynamic dispatch, not by
-            // forwarding (spec, Existentials).
-            let pointer = d >= 0 && (d == self.known.box || d == self.known.arc)
-            if pointer && self.nominal_args(t).len() > 0 {
-                let payload = self.arg_of(t, 0)
-                if self.kind_of(payload) == TcKind.Any {
-                    if text.equals("is") || text.equals("take") {
-                        return "downcasting an erased box with `is` or `take`"
-                    }
-                    return "a method call on `any Trait` through its box"
-                }
             }
             return ""
         }
@@ -7153,11 +7213,7 @@ extension TcProgram {
         if self.is_box(t) && text.equals("make") {
             let payload = self.arg_of(t, 0)
             if self.kind_of(payload) == TcKind.Any {
-                // The erasing construction, which std's `Result`-returning
-                // `make` does not declare.
-                self.not_yet(e, "`Box<any Trait>.make`")
-                let poisoned = self.error_type
-                return self.set_type(e, poisoned, false)
+                return self.erasing_make(e, t, &args)
             }
         }
         if text.equals("from") {
@@ -7576,6 +7632,55 @@ extension TcProgram {
         // Stage 0 workaround (SL:hazards S4): canonical: c.spelling = self.res.intern(if d == self.known.atomic { "atomic" } else { "interior" })
         let word = if d == self.known.atomic { "atomic" } else { "interior" }
         c.spelling = self.res.intern(word)
+        self.calls[at] = c
+        self.set_type(e, t, false)
+    }
+
+    // `Box<any Trait, A>.make(v)`, the erasing construction (spec, `any
+    // Trait` existentials): `v`, of a concrete type that conforms, moved into
+    // a box allocated through `A`. It is no call of std's `make`, whose
+    // `Result` it does not return: the argument carries the erasure into box
+    // type `t`, as an erased error's return does, and a refused allocation
+    // panics, as that erasure's does.
+    func erasing_make(&var self, e: Int, t: Int, args: &TcArgs) -> Int {
+        let value_name = self.res.intern("value")
+        if args.values.len() != 1 || (args.labels[0] >= 0 && args.labels[0] != value_name) {
+            self.refuse(e, "call.arity", "`Box<any Trait>.make` takes one value, written bare or as `value:`")
+            self.type_args_alone(&args)
+            let bad = self.error_type
+            return self.set_type(e, bad, false)
+        }
+        let v = args.values[0]
+        let _ = self.expr(v, TC_WANT_NONE)
+        let from = self.read_value(v)
+        self.consume(v)
+        if self.has_error(from) {
+            let bad = self.error_type
+            return self.set_type(e, bad, false)
+        }
+        if not self.erases_to(from, t) {
+            let x = self.arg_of(t, 0)
+            var msg = StringBuilder()
+            try! msg.append("`")
+            try! msg.append(self.type_text(from))
+            try! msg.append("` does not conform to `")
+            let tr = self.types.ty(x).decl
+            try! msg.append(self.res.decl_path(tr))
+            try! msg.append("`, so it cannot be erased to `")
+            try! msg.append(self.type_text(x))
+            try! msg.append("`")
+            self.refuse(v, "type.mismatch", msg.build())
+            let bad = self.error_type
+            return self.set_type(e, bad, false)
+        }
+        self.add_adjust(v, TcAdjustKind.Erase, t)
+        self.refuse_primitive_erasure(v, from, t)
+        let none = Vector<Int>()
+        let box_decl = self.known.box
+        let _ = self.record_call(e, box_decl, TcRole.Conversion, t, &none)
+        let at = self.call_at[e]
+        var c = self.calls[at]
+        c.spelling = self.res.intern("erase")
         self.calls[at] = c
         self.set_type(e, t, false)
     }

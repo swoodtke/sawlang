@@ -61,6 +61,20 @@ public struct MonoItem {
     origin_node: Int
 }
 
+// The vtable of concrete type `concrete` erased to `any` of trait
+// `trait_decl` (spec, `any Trait` existentials): its slots, one per
+// requirement `dispatch_requirements` lists, a run of `vtable_slots` holding
+// each filled slot's item, or -1 for a requirement no dispatch in the
+// program calls; and the concrete type's drop glue, or -1 for a type that
+// owns nothing.
+public struct MonoVtable {
+    concrete: Int
+    trait_decl: Int
+    slot_first: Int
+    slot_count: Int
+    drop: Int
+}
+
 public struct MonoProgram {
     dp: DropsProgram
     items: Vector<MonoItem>
@@ -133,6 +147,15 @@ public struct MonoProgram {
     // element `push`, or -1.
     literal_inits: Vector<Int>
     literal_pushes: Vector<Int>
+    // The vtables erasures reach, and their slots' items. By concrete
+    // rvalue: an erasure's vtable, or -1, and an erasure into a box's
+    // allocator `alloc` item, or -1. By concrete call: the vtable slot a
+    // dispatch through `any Trait` calls, or -1 for every other call.
+    vtables: Vector<MonoVtable>
+    vtable_slots: Vector<Int>
+    erase_vtables: Vector<Int>
+    erase_allocs: Vector<Int>
+    dispatch_slots: Vector<Int>
     // Where the depth limit was first met: at a call, and at a drop or copy;
     // -1 for neither. The worklist's end refuses once, at the call when there
     // is one.
@@ -159,7 +182,10 @@ public struct MonoProgram {
 
 extension MonoProgram: NoCopy {}
 
-// The key kinds of `by_key`.
+// The key kinds of `by_key`. Beside those the comment on `by_key` names:
+// (concrete type, 8) -> its vtables; (trait, 9) -> each slot a dispatch
+// calls; (erased box type, 10) -> its allocator's `dealloc` item; (erased
+// type, 11) -> the vtable slot its rendering dispatches.
 public static MONO_KEY_FUNCTION: Int = 0
 public static MONO_KEY_DROP: Int = 1
 public static MONO_KEY_COPY: Int = 2
@@ -168,6 +194,10 @@ public static MONO_KEY_MEMBER: Int = 4
 public static MONO_KEY_RENDER: Int = 5
 public static MONO_KEY_TASK_ROOT: Int = 6
 public static MONO_KEY_RELOCATIONS: Int = 7
+public static MONO_KEY_VTABLE: Int = 8
+public static MONO_KEY_DISPATCHED: Int = 9
+public static MONO_KEY_DEALLOC: Int = 10
+public static MONO_KEY_RENDER_SLOT: Int = 11
 
 // How deeply a concrete argument may nest before mono refuses it: unbounded
 // instantiation has no identity cycle to detect (SL-507).
@@ -194,7 +224,8 @@ public func mono_program(dp: DropsProgram, blocked: Bool) -> MonoProgram {
                 drive_steps_item: -1, park_deadline_item: -1, park_register_item: -1, park_pipe_item: -1,
                 equals_item: -1, compare_item: -1, builder_new_item: -1, builder_fixed_item: -1,
                 builder_build_item: -1, builder_len_item: -1, literal_inits: Vector<Int>(),
-                literal_pushes: Vector<Int>(), depth_call: -1, depth_glue: -1, current: -1, blocked: blocked,
+                literal_pushes: Vector<Int>(), vtables: Vector<MonoVtable>(), vtable_slots: Vector<Int>(),
+                erase_vtables: Vector<Int>(), erase_allocs: Vector<Int>(), dispatch_slots: Vector<Int>(), depth_call: -1, depth_glue: -1, current: -1, blocked: blocked,
                 body_of: move bodies, defaults: ResIndex(), runtime: false, export_items: Vector<Int>(),
                 lowerings: 0)
 }
@@ -244,6 +275,16 @@ extension MonoProgram {
         self.by_key.value(at)
     }
 
+    // The vtable slot a value of erased type `t` (`any Trait` or an erased
+    // box) renders through, its `Printable.format`'s, or -1.
+    public func render_slot(&self, t: Int) -> Int {
+        let at = self.by_key.first(t, MONO_KEY_RENDER_SLOT)
+        if at < 0 {
+            return -1
+        }
+        self.by_key.value(at)
+    }
+
     // A collection literal's container `init()` item at concrete rvalue `r`,
     // and its element `push` item, or -1.
     public func literal_init(&self, r: Int) -> Int {
@@ -267,6 +308,48 @@ extension MonoProgram {
         }
         self.literal_inits[r] = made
         self.literal_pushes[r] = push
+    }
+
+    // The vtable concrete erasure `r` attaches, an index of `vtables`, or -1.
+    public func erase_vtable(&self, r: Int) -> Int {
+        if r < 0 || r >= self.erase_vtables.len() {
+            return -1
+        }
+        self.erase_vtables[r]
+    }
+
+    // The allocator's `alloc` item concrete erasure `r` into a box calls, or
+    // -1.
+    public func erase_alloc(&self, r: Int) -> Int {
+        if r < 0 || r >= self.erase_allocs.len() {
+            return -1
+        }
+        self.erase_allocs[r]
+    }
+
+    public func set_erasure(&var self, r: Int, vtable: Int, alloc: Int) {
+        while self.erase_vtables.len() <= r {
+            try! self.erase_vtables.push(-1)
+            try! self.erase_allocs.push(-1)
+        }
+        self.erase_vtables[r] = vtable
+        self.erase_allocs[r] = alloc
+    }
+
+    // The vtable slot concrete call `c` dispatches through, or -1 for a call
+    // that is no dispatch.
+    public func dispatch_slot(&self, c: Int) -> Int {
+        if c < 0 || c >= self.dispatch_slots.len() {
+            return -1
+        }
+        self.dispatch_slots[c]
+    }
+
+    public func set_dispatch_slot(&var self, c: Int, slot: Int) {
+        while self.dispatch_slots.len() <= c {
+            try! self.dispatch_slots.push(-1)
+        }
+        self.dispatch_slots[c] = slot
     }
 
     // The item concrete closure construction `r` builds, or -1.

@@ -25,14 +25,14 @@ alloc_taskgroup_threads_forced_panics_named.saw	refused	typecheck call.label	no 
 alloc_vector_copy_panics.saw	wrong	stdout differs	line 2: sawc2 "panic at <std>: Vector.copy: allocation of 16 bytes (align 8) failed", Stage 0 "panic at <std>: Vector.copy: allocation of 32 bytes (align 8) failed"
 alloc_vector_push_reports_oom.saw	pass	-	-
 alloc_vector_reports_oom.saw	refused	typecheck member.unknown	`std.vector.Vector<Int, alloc_vector_reports_oom.FailAlloc>` has no method `try_copy` this module can see
-any_box_deinit.saw	refused	typecheck slice.not-yet	`Box<any Trait>.make` is not in the bootstrap slice yet
-any_box_iflet_move_out.saw	refused	typecheck slice.not-yet	`Box<any Trait>.make` is not in the bootstrap slice yet
-any_box_slab.saw	refused	typecheck slice.not-yet	`Box<any Trait>.make` is not in the bootstrap slice yet
-any_ref_dispatch.saw	refused	typecheck slice.not-yet	a method call on `any Trait` is not in the bootstrap slice yet
-any_sync_effect.saw	refused	typecheck slice.not-yet	a method call on `any Trait` is not in the bootstrap slice yet
-any_var_self.saw	refused	typecheck slice.not-yet	a method call on `any Trait` is not in the bootstrap slice yet
-any_vector_deinit.saw	refused	typecheck slice.not-yet	`Box<any Trait>.make` is not in the bootstrap slice yet
-any_vector_shapes.saw	refused	typecheck slice.not-yet	`Box<any Trait>.make` is not in the bootstrap slice yet
+any_box_deinit.saw	pass	-	-
+any_box_iflet_move_out.saw	pass	-	-
+any_box_slab.saw	refused	llvm backend.not-yet	a static whose value is not an integer or a Bool is not in the backend slice yet
+any_ref_dispatch.saw	pass	-	-
+any_sync_effect.saw	pass	-	-
+any_var_self.saw	pass	-	-
+any_vector_deinit.saw	pass	-	-
+any_vector_shapes.saw	pass	-	-
 arc_basic.saw	pass	-	-
 arc_forward.saw	refused	typecheck member.through-pointer	`peek` is a method of the payload, `arc_forward.Counter`, not of the `Arc`; reach it with `borrow ac.value().peek(…)`
 arc_forward_generic_method.saw	refused	typecheck member.through-pointer	`apply` is a method of the payload, `arc_forward_generic_method.Cell<Int>`, not of the `Arc`; reach it with `borrow cell.value().apply(…)`
@@ -85,7 +85,7 @@ associated_type.saw	pass	-	-
 associated_type_generic.saw	refused	resolve name.undefined	cannot find `Item` in scope; an associated type of a bound is named through its type parameter, as `T.Item`
 async_main_nested_sleep.saw	pass	-	-
 async_main_sleep_yield.saw	pass	-	-
-atomic_field_self_method.saw	refused	typecheck slice.not-yet	a method call on `any Trait` is not in the bootstrap slice yet
+atomic_field_self_method.saw	refused	llvm backend.not-yet	a static whose value is not an integer or a Bool is not in the backend slice yet
 atomic_nocopy_cell_clause.saw	pass	-	-
 attr_bad_arity_error.saw	pass	-	resolve.parse-refused: the parser refuses `tests/corpus/attr_bad_arity_error.saw` (syntax.rule.attribute-position), so its declarations are not available
 attr_duplicate_error.saw	pass	-	resolve.parse-refused: the parser refuses `tests/corpus/attr_duplicate_error.saw` (syntax.rule.attribute-position), so its declarations are not available
@@ -97,7 +97,7 @@ attr_synthesize_arg_error.saw	pass	-	resolve.parse-refused: the parser refuses `
 attr_synthesize_on_func_error.saw	pass	-	resolve.parse-refused: the parser refuses `tests/corpus/attr_synthesize_on_func_error.saw` (syntax.rule.attribute-position), so its declarations are not available
 attr_synthesize_parses.saw	refused	mono mono.not-yet	a synthesized `Equatable.equals(other: &Self)` on `attr_synthesize_parses.Named` is not in the backend slice yet: only a scalar's builtin hooks
 attr_unknown_error.saw	pass	-	resolve.parse-refused: the parser refuses `tests/corpus/attr_unknown_error.saw` (syntax.rule.attribute-position), so its declarations are not available
-autowrap_diverging_arm.saw	refused	mono mono.not-yet	a call of `Printable.format(into: &var std.stringbuilder.StringBuilder)` on `std.box.Box<any Error, std.alloc.GlobalAllocator>`, which no conformance of it meets, is not in the backend slice yet
+autowrap_diverging_arm.saw	pass	-	-
 autowrap_err_no_premature_free.saw	pass	-	-
 autowrap_ok_no_premature_free.saw	pass	-	-
 autowrap_optional_no_premature_free.saw	pass	-	-
@@ -184,7 +184,7 @@ closure_shorthand_parameter_inside_a_try.saw	refused	resolve slice.not-yet	`synt
 closure_spawn_arc_balance.saw	refused	resolve slice.not-yet	the `Thread.spawn` form is not in the bootstrap slice yet
 closure_struct_field_infer.saw	refused	resolve slice.not-yet	`syntax.expr.shorthand-param` is not in the bootstrap slice yet
 closure_tail_adopts_expected_return_type.saw	pass	-	-
-closure_tail_autowraps_result.saw	refused	llvm backend.not-yet	an erasure into `any` is not in the backend slice yet
+closure_tail_autowraps_result.saw	pass	-	-
 closure_tail_result_ambiguous_payloads.saw	pass	-	type.ambiguous-result: both payloads of `Result<Int32, Int32>` can take this value, so it names neither: write `.Ok(value: ...)` or `.Err(error: ...)`
 closure_tail_takes_the_transfer_checkpoint.saw	pass	-	transfer.implicit-copy: this reads a place of type `closure_tail_takes_the_transfer_checkpoint.Res`, which is NoCopy, by value: only a Copy type copies silently; write `move r` to take it, or borrow i
 closure_vector_copy_get.saw	refused	mono mono.not-yet	an escaping closure that captures a value is not in the backend slice yet: its environment would live in the frame that builds it, and heap environments are unbuilt (SL-525)
@@ -353,7 +353,7 @@ conformance/K33_suspending_enum_method_embedded.saw	pass	-	-
 conformance/K34_suspending_generic_struct_method_embedded.saw	pass	-	-
 conformance/K35_suspending_generic_method_embedded.saw	pass	-	-
 conformance/K36_suspending_conformance_method_embedded.saw	pass	-	-
-conformance/K37_existential_dispatch_suspending_impl_refused.saw	refused	typecheck slice.not-yet	a method call on `any Trait` is not in the bootstrap slice yet
+conformance/K37_existential_dispatch_suspending_impl_refused.saw	pass	-	effect.any-suspends: `K37_existential_dispatch_suspending_impl_refused.Person` becomes `any K37_existential_dispatch_suspending_impl_refused.Greeter` here, and its implementation of `Greeter.greet`, `
 conformance/K38_std_name_collision_no_frame_on_sync_method.saw	pass	-	-
 conformance/K39_cross_module_suspending_method_shapes_embed.saw	pass	-	-
 conformance/K40_suspending_match_scrutinee_head.saw	refused	resolve import.unknown-module	no module `std.channel`
@@ -689,7 +689,7 @@ coro_driven_match_move_out_releases_once.saw	pass	-	-
 coro_driving_method_self.saw	pass	-	-
 coro_early_return_after_resume.saw	pass	-	-
 coro_entry_template_chain_names_a_suspending_callee.saw	pass	-	-
-coro_existential_only_body_is_not_framed.saw	refused	typecheck slice.not-yet	a method call on `any Trait` is not in the bootstrap slice yet
+coro_existential_only_body_is_not_framed.saw	pass	-	-
 coro_for_inclusive_range_int_max.saw	pass	-	-
 coro_for_inclusive_range_last_iteration.saw	refused	typecheck call.label	no parameter is labeled `threads` in TaskGroup.init() [std.taskgroup]
 coro_for_of_frames_stress.saw	refused	typecheck member.unknown	`std.vector.Vector<Int, std.alloc.GlobalAllocator>` has no method `iter` this module can see
@@ -772,7 +772,7 @@ coro_ref_param_mut.saw	pass	-	-
 coro_ref_param_read.saw	pass	-	-
 coro_ref_self_method.saw	pass	-	-
 coro_result_array_and_closure.saw	pass	-	-
-coro_return_autowrap_result_suspending.saw	refused	mono mono.not-yet	a call of `Printable.format(into: &var std.stringbuilder.StringBuilder)` on `std.box.Box<any Error, std.alloc.GlobalAllocator>`, which no conformance of it meets, is not in the backend slice yet
+coro_return_autowrap_result_suspending.saw	pass	-	-
 coro_return_in_expression_block.saw	pass	-	-
 coro_same_scope_redefinition_owning_slots.saw	wrong	stdout differs	line 4: sawc2 "r2 b123", Stage 0 "D b1"
 coro_spawn_and_embed.saw	pass	-	-
@@ -807,7 +807,7 @@ coro_try_catch_suspending.saw	pass	-	-
 coro_try_in_borrowed_place_index.saw	wrong	stdout differs	line 14: sawc2 "J4: caught", Stage 0 "drop kept"
 coro_try_landing_relinquishes_by_position.saw	wrong	stdout differs	line 5: sawc2 "caught", Stage 0 "drop kept"
 coro_try_landing_within_guards.saw	refused	typecheck slice.not-yet	`syntax.expr.optional-member` is not in the bootstrap slice yet
-coro_try_propagate_suspending.saw	refused	mono mono.not-yet	a call of `Printable.format(into: &var std.stringbuilder.StringBuilder)` on `std.box.Box<any Error, std.alloc.GlobalAllocator>`, which no conformance of it meets, is not in the backend slice yet
+coro_try_propagate_suspending.saw	pass	-	-
 coro_tuple_across_suspend.saw	pass	-	-
 coro_unconsumed_result.saw	pass	-	-
 coro_value_inline_catch_hosts_a_move.saw	refused	typecheck member.unknown	`std.vector.Vector<Int, std.alloc.GlobalAllocator>` has no method `iter` this module can see
@@ -873,7 +873,7 @@ df137d_literal_width_riscv32_ok.saw	refused	driver driver.usage	sawc2 build take
 df139a_copy_then_overwrite.saw	pass	-	-
 df140b_import_wrap.saw	refused	resolve import.unknown-module	no module `std.net`
 df140c_qualified_type_position.saw	refused	typecheck slice.not-yet	`syntax.expr.optional-member` is not in the bootstrap slice yet
-df140d_result_optional_autowrap.saw	refused	mono mono.not-yet	a call of `Printable.format(into: &var std.stringbuilder.StringBuilder)` on `std.box.Box<any Error, std.alloc.GlobalAllocator>`, which no conformance of it meets, is not in the backend slice yet
+df140d_result_optional_autowrap.saw	pass	-	-
 df140f_private_static_collision.saw	pass	-	-
 df140h_std_private_static.saw	pass	-	-
 df140h_std_private_static_two_files.saw	refused	resolve import.unknown-module	no module `std.net`
@@ -984,20 +984,20 @@ equatable_optional_field.saw	pass	-	-
 equatable_optional_string_synth.saw	refused	mono mono.not-yet	a synthesized `Equatable.equals(other: &Self)` on `equatable_optional_string_synth.Named` is not in the backend slice yet: only a scalar's builtin hooks
 equatable_synth_struct.saw	refused	mono mono.not-yet	a synthesized `Equatable.equals(other: &Self)` on `equatable_synth_struct.Named` is not in the backend slice yet: only a scalar's builtin hooks
 equatable_tuple.saw	refused	llvm backend.not-yet	the operator `==` on `&(Int, String)` is not in the backend slice yet
-erased_downcast_deinit_once.saw	refused	typecheck slice.not-yet	`Box<any Trait>.make` is not in the bootstrap slice yet
+erased_downcast_deinit_once.saw	refused	typecheck slice.not-yet	downcasting an erased box with `is` or `take` is not in the bootstrap slice yet
 erased_downcast_error_retry.saw	refused	typecheck slice.not-yet	downcasting an erased box with `is` or `take` is not in the bootstrap slice yet
 erased_downcast_generic.saw	refused	typecheck slice.not-yet	downcasting an erased box with `is` or `take` is not in the bootstrap slice yet
-erased_downcast_is_take.saw	refused	typecheck slice.not-yet	`Box<any Trait>.make` is not in the bootstrap slice yet
-erased_downcast_nonconforming_error.saw	refused	typecheck slice.not-yet	`Box<any Trait>.make` is not in the bootstrap slice yet
-erased_downcast_use_after_take_error.saw	refused	typecheck slice.not-yet	`Box<any Trait>.make` is not in the bootstrap slice yet
-erased_error_across_suspension.saw	refused	mono mono.not-yet	a call of `Printable.format(into: &var std.stringbuilder.StringBuilder)` on `std.box.Box<any Error, std.alloc.GlobalAllocator>`, which no conformance of it meets, is not in the backend slice yet
+erased_downcast_is_take.saw	refused	typecheck slice.not-yet	downcasting an erased box with `is` or `take` is not in the bootstrap slice yet
+erased_downcast_nonconforming_error.saw	refused	typecheck slice.not-yet	downcasting an erased box with `is` or `take` is not in the bootstrap slice yet
+erased_downcast_use_after_take_error.saw	refused	typecheck slice.not-yet	downcasting an erased box with `is` or `take` is not in the bootstrap slice yet
+erased_error_across_suspension.saw	pass	-	-
 erased_error_spawned_container_result.saw	refused	typecheck slice.not-yet	downcasting an erased box with `is` or `take` is not in the bootstrap slice yet
-erased_error_spawned_task.saw	refused	mono mono.not-yet	a call of `Printable.format(into: &var std.stringbuilder.StringBuilder)` on `std.box.Box<any Error, std.alloc.GlobalAllocator>`, which no conformance of it meets, is not in the backend slice yet
-erased_result_catch.saw	refused	mono mono.not-yet	a call of `Printable.format(into: &var std.stringbuilder.StringBuilder)` on `std.box.Box<any Error, std.alloc.GlobalAllocator>`, which no conformance of it meets, is not in the backend slice yet
-erased_result_return.saw	refused	mono mono.not-yet	a call of `Printable.format(into: &var std.stringbuilder.StringBuilder)` on `std.box.Box<any Error, std.alloc.GlobalAllocator>`, which no conformance of it meets, is not in the backend slice yet
-erased_result_try.saw	refused	mono mono.not-yet	a call of `Printable.format(into: &var std.stringbuilder.StringBuilder)` on `std.box.Box<any Error, std.alloc.GlobalAllocator>`, which no conformance of it meets, is not in the backend slice yet
-error_any_box.saw	refused	typecheck slice.not-yet	a method call on `any Trait` is not in the bootstrap slice yet
-error_split_conformance.saw	refused	typecheck slice.not-yet	`Box<any Trait>.make` is not in the bootstrap slice yet
+erased_error_spawned_task.saw	pass	-	-
+erased_result_catch.saw	pass	-	-
+erased_result_return.saw	pass	-	-
+erased_result_try.saw	pass	-	-
+error_any_box.saw	pass	-	-
+error_split_conformance.saw	pass	-	-
 errors/align_above_cap.saw	refused	llvm backend.not-yet	`@align` is not in the backend slice yet: a static or a local is aligned only as its type asks, so the attribute would be dropped
 errors/align_non_constant.saw	pass	-	static.not-constant: `width` is not a constant, and an `@align` argument is a constant expression: it names a binding whose value is known only at run time
 errors/align_on_function.saw	pass	-	resolve.parse-refused: the parser refuses `tests/corpus/errors/align_on_function.saw` (syntax.rule.attribute-position), so its declarations are not available
@@ -1007,9 +1007,9 @@ errors/alloc_type_distinct.saw	pass	-	conformance.signature: `LoudAlloc.alloc` d
 errors/any_associated_type.saw	pass	-	erasure.not-object-safe: cannot form `any any_associated_type.Producer`: `Producer` has the associated type `Producer.Item`, which an erased value cannot name; a trait that is not object-safe is a gen
 errors/any_marker_trait.saw	pass	-	erasure.not-object-safe: cannot form `any any_marker_trait.Marker`: `Marker` is a marker trait, with no requirement to dispatch; a trait that is not object-safe is a generic bound (`<T: Marker>`), nev
 errors/any_self_by_value.saw	pass	-	erasure.not-object-safe: cannot form `any any_self_by_value.Clone`: its requirement `Clone.clone` names `Self` in its result (`Self`), whose size an erased value does not know; a trait that is not obj
-errors/any_sync_suspend.saw	refused	typecheck slice.not-yet	a method call on `any Trait` is not in the bootstrap slice yet
-errors/any_unknown_method.saw	refused	typecheck slice.not-yet	a method call on `any Trait` is not in the bootstrap slice yet
-errors/any_unsized_binding.saw	refused	typecheck slice.not-yet	a method call on `any Trait` is not in the bootstrap slice yet
+errors/any_sync_suspend.saw	pass	-	effect.sync: `compute` is declared `sync`, and it calls `Shape.area` through `any any_sync_suspend.Shape`, a requirement not declared `sync`, which is not sync-callable
+errors/any_unknown_method.saw	refused	typecheck member.unknown	`any any_unknown_method.Shape` has no method `perimeter` this module can see
+errors/any_unsized_binding.saw	pass	-	type.mismatch: expected `any any_unsized_binding.Shape`, the type of the annotated binding, and found `any_unsized_binding.Circle`
 errors/any_unsized_by_value.saw	wrong	accepts a refusal test	`any Shape` is unsized and cannot be used by value here
 errors/any_unsized_container.saw	wrong	accepts a refusal test	`any Shape` is unsized and cannot be used by value here
 errors/arc_forward_var_self.saw	pass	-	member.through-pointer: `bump` is a method of the payload, `arc_forward_var_self.Counter`, not of the `Arc`; it takes `&var self`, and an `Arc` lends its payload shared, since every handle names it; w
@@ -1113,7 +1113,7 @@ errors/escaping_marker_redundant.saw	refused	resolve slice.not-yet	`syntax.expr.
 errors/escaping_variance_error.saw	refused	resolve slice.not-yet	`syntax.expr.shorthand-param` is not in the bootstrap slice yet
 errors/exclusive_only_accessor_on_let_root.saw	pass	-	mutability.immutable: `Bag.tally` takes `&var self` and declares no shared twin, so every use borrows its receiver exclusively, a read included; this use of `frozen.tally(0)` would let its receiver be
 errors/exclusive_window_in_a_shared_lend_accessor.saw	pass	-	mutability.immutable: this exclusive borrow of `self.inner.plain()` would let it be written, and this method's receiver is `&self`, a shared borrow that writes neither the storage it borrows nor stora
-errors/existential_arg_wrong_trait.saw	refused	typecheck slice.not-yet	a method call on `any Trait` is not in the bootstrap slice yet
+errors/existential_arg_wrong_trait.saw	pass	-	type.mismatch: expected `&var any existential_arg_wrong_trait.Logger`, the type of the parameter, and found `&var any existential_arg_wrong_trait.Counter`
 errors/explicit_copy_containment.saw	pass	-	copy.undeclared-policy: `Container` holds `Container.data` of type `explicit_copy_containment.Buf`, which is ExplicitCopy, so it declares its own policy: `extension Container: NoCopy {}`, or `@synthes
 errors/extern_c_compiler_symbol_mismatch_error.saw	wrong	accepts a refusal test	`printf` is declared `extern "C"` here with a signature the compiler's own declaration of that symbol does not have
 errors/fixed_width_arith_literal_out_of_range.saw	pass	-	type.mismatch: integer literal 999 does not fit in `Int8` (range -128..=127)
@@ -1234,8 +1234,8 @@ errors/place_window_root_read_teaches_the_asymmetry.saw	pass	-	loan.window-root:
 errors/place_window_through_a_forced_lend_charges_its_root.saw	pass	-	loan.window-root: `b` is borrowed exclusively here while the window of `opt` opened at 35:13 holds `b` exclusively until the window closes; a window charges its whole root until it closes, so the root
 errors/place_write_immutable_root.saw	pass	-	subscript.role: this subscript is used as a writable place: its `[]` lends read-only (`std.map.Map<String, Int, std.alloc.GlobalAllocator>` declares or derives no such role)
 errors/prelude_tcp_needs_import.saw	refused	resolve name.undefined	cannot find `TcpStream` in scope
-errors/primitive_box_erasure_refused.saw	refused	typecheck slice.not-yet	`Box<any Trait>.make` is not in the bootstrap slice yet
-errors/primitive_erasure_refused.saw	refused	typecheck slice.not-yet	a method call on `any Trait` is not in the bootstrap slice yet
+errors/primitive_box_erasure_refused.saw	pass	-	erasure.primitive: `String` is a primitive and cannot be erased to `any primitive_box_erasure_refused.Tagged`: an existential carries a vtable beside the value, and a primitive has no boxed form to ca
+errors/primitive_erasure_refused.saw	pass	-	erasure.primitive: `Int` is a primitive and cannot be erased to `any primitive_erasure_refused.Tagged`: an existential carries a vtable beside the value, and a primitive has no boxed form to carry one
 errors/primitive_type_called_as_a_function.saw	refused	typecheck slice.not-yet	constructing the builtin type `UInt8` is not in the bootstrap slice yet
 errors/print_optional_not_printable.saw	pass	-	format.argument: `Int?` is formatted here, and it is neither `Printable` nor a primitive
 errors/ref_associated_type_assignment.saw	pass	-	type.reference-position: an associated-type assignment may not name a reference: `&Int` is one, and references are parameters only: a reference borrows storage for the duration of one call and may not
@@ -1437,7 +1437,7 @@ exclusivity_byvalue_snapshot.saw	pass	-	-
 exclusivity_const_indices.saw	pass	-	-
 exclusivity_disjoint_fields.saw	pass	-	-
 exclusivity_dynamic_index.saw	pass	-	loan.read-while-exclusive: `arr[_]` is borrowed here while the argument at 15:7 holds `arr[_]` exclusively for its call; an exclusive borrow admits no other access while it is live
-exclusivity_erased_and_generic_receivers.saw	refused	typecheck slice.not-yet	a method call on `any Trait` is not in the bootstrap slice yet
+exclusivity_erased_and_generic_receivers.saw	pass	-	loan.exclusive-twice: `p` is borrowed exclusively here while the argument at 31:12 holds `p` exclusively for its call; two exclusive borrows of one place cannot be live at once
 exclusivity_forwarding.saw	pass	-	loan.exclusive-twice: `x` is borrowed exclusively here while the argument at 18:11 holds `x` exclusively for its call; two exclusive borrows of one place cannot be live at once
 exclusivity_move_and_ref.saw	pass	-	move.use-after: `x` is used after it may have been moved (moved at 16:5); a moved value is gone until it is assigned again
 exclusivity_parent_child.saw	pass	-	loan.read-while-exclusive: `p.x` is borrowed here while the argument at 21:7 holds `p` exclusively for its call; an exclusive borrow admits no other access while it is live
@@ -1445,7 +1445,7 @@ exclusivity_shared_reads.saw	pass	-	-
 exclusivity_shared_self_receiver.saw	pass	-	loan.read-while-exclusive: `c` is borrowed here while the argument at 28:20 holds `c` exclusively for its call; an exclusive borrow admits no other access while it is live
 exclusivity_swap_same_var.saw	pass	-	loan.exclusive-twice: `x` is borrowed exclusively here while the argument at 13:10 holds `x` exclusively for its call; two exclusive borrows of one place cannot be live at once
 exclusivity_var_self_receiver.saw	pass	-	loan.write-while-shared: `c` is borrowed exclusively here while the argument at 19:11 holds `c` shared for its call; a shared borrow admits only reads while it is live
-existential_arg_method.saw	refused	typecheck slice.not-yet	a method call on `any Trait` is not in the bootstrap slice yet
+existential_arg_method.saw	pass	-	-
 explicit_copy_basic.saw	pass	-	-
 explicit_copy_derive.saw	refused	mono mono.not-yet	a synthesized `ExplicitCopy.copy()` on `explicit_copy_derive.Outer` is not in the backend slice yet: only a scalar's builtin hooks
 explicit_copy_requires_move.saw	pass	-	transfer.implicit-copy: this reads a place of type `explicit_copy_requires_move.Buf`, which is ExplicitCopy, by value: only a Copy type copies silently; write `move a` to take it, `a.copy()` for a cop
@@ -1674,7 +1674,7 @@ implicit_copy_interface.saw	pass	-	-
 implicit_copy_nested.saw	pass	-	-
 implicit_copy_reassign.saw	wrong	stdout differs	line 1: sawc2 "copy called", Stage 0 "deinit"
 import150_bare_under_qualified_error.saw	pass	-	name.not-in-prelude: `Data` is not in the prelude and must be imported: `import std.data.{Data}` selects it
-import150_qualified_trait.saw	refused	typecheck slice.not-yet	a method call on `any Trait` is not in the bootstrap slice yet
+import150_qualified_trait.saw	pass	-	-
 import150_qualifier_collision_alias.saw	pass	-	-
 import150_qualifier_collision_error.saw	pass	-	import.duplicate-qualifier: two imports bind the qualifier `data`: `std.data` and `data`
 import150_shadowed_qualifier_error.saw	refused	typecheck member.unknown	`Int` has no method `Data` this module can see
@@ -1685,7 +1685,7 @@ import150_weak_qualifier.saw	pass	-	-
 import225e_bare_std_leaf_not_found.saw	refused	resolve import.unknown-module	no module `data` (looked for `tests/corpus/data.saw`)
 import247b_glob_pair_one_identity.saw	refused	resolve import.unknown-module	no module `std.compiler.frame`
 import247b_nonbinding_form_qualifier_error.saw	refused	resolve name.undefined	cannot find `data` in scope
-import247b_pair_one_identity.saw	refused	typecheck slice.not-yet	a method call on `any Trait` is not in the bootstrap slice yet
+import247b_pair_one_identity.saw	refused	typecheck type.mismatch	expected `Int`, the type of the parameter, and found `pair247b.Widget`
 import_rename_function_positions.saw	refused	resolve import.unknown-symbol	`dump_tasks` is not defined in `std.task`
 import_std_function_rename.saw	refused	resolve import.unknown-symbol	`dump_tasks` is not defined in `std.task`
 indexed_read_addresses_the_live_array.saw	refused	llvm backend.not-yet	a static whose value is not an integer or a Bool is not in the backend slice yet
@@ -1864,10 +1864,10 @@ module_matrix/graph_3cycle_error.saw	wrong	accepts a refusal test	import cycle: 
 module_matrix/graph_diamond.saw	pass	-	-
 module_matrix/graph_export_through_facade.saw	pass	-	-
 module_matrix/graph_self_import.saw	pass	-	-
-module_matrix/import_form_glob_positions.saw	refused	typecheck slice.not-yet	a method call on `any Trait` is not in the bootstrap slice yet
-module_matrix/import_form_qualified_positions.saw	refused	typecheck slice.not-yet	a method call on `any Trait` is not in the bootstrap slice yet
-module_matrix/import_form_renamed_positions.saw	refused	typecheck slice.not-yet	a method call on `any Trait` is not in the bootstrap slice yet
-module_matrix/import_form_selective_positions.saw	refused	typecheck slice.not-yet	a method call on `any Trait` is not in the bootstrap slice yet
+module_matrix/import_form_glob_positions.saw	pass	-	-
+module_matrix/import_form_qualified_positions.saw	pass	-	-
+module_matrix/import_form_renamed_positions.saw	pass	-	-
+module_matrix/import_form_selective_positions.saw	pass	-	-
 module_matrix/visibility_package_adhoc_tree_is_one_package.saw	pass	-	-
 module_matrix/visibility_private_method_static_cross_module_error.saw	refused	typecheck member.unknown	`modules.visprivate.lib.Crate` has no method `secret_make` this module can see
 module_named_root_is_not_the_entry_module.saw	refused	resolve slice.not-yet	`syntax.decl.module.inline` is not in the bootstrap slice yet
@@ -2127,8 +2127,8 @@ place_nocopy_arg_in_window.saw	pass	-	-
 place_paired_literal_fields.saw	refused	typecheck slice.not-yet	`syntax.expr.optional-member` is not in the bootstrap slice yet
 place_presence_test_borrows.saw	refused	mir slice.not-yet	a `borrow` block binding a conditional lend is not lowered to MIR in the bootstrap slice yet
 place_read_retains_owning.saw	pass	-	-
-place_reentry_idempotent.saw	refused	mono mono.not-yet	a call of `Printable.format(into: &var std.stringbuilder.StringBuilder)` on `std.box.Box<any Error, std.alloc.GlobalAllocator>`, which no conformance of it meets, is not in the backend slice yet
-place_rendered_frame_local_migrates.saw	refused	mono mono.not-yet	a call of `Printable.format(into: &var std.stringbuilder.StringBuilder)` on `std.box.Box<any Error, std.alloc.GlobalAllocator>`, which no conformance of it meets, is not in the backend slice yet
+place_reentry_idempotent.saw	pass	-	-
+place_rendered_frame_local_migrates.saw	pass	-	-
 place_rendering_operand_is_a_borrow.saw	pass	-	-
 place_shared_accessor_flavors.saw	pass	-	-
 place_shared_window_readonly.saw	pass	-	-
@@ -2200,9 +2200,9 @@ ref_pointer_cast_blessed.saw	pass	-	-
 ref_replace_across_suspend.saw	pass	-	-
 ref_replace_bare_trait_error.saw	pass	-	type.not-a-type: `Shape` is a trait; a type position names it as `any Shape`
 ref_replace_bare_trait_shared_error.saw	pass	-	type.not-a-type: `Shape` is a trait; a type position names it as `any Shape`
-ref_replace_box_swap.saw	refused	typecheck slice.not-yet	`Box<any Trait>.make` is not in the bootstrap slice yet
+ref_replace_box_swap.saw	pass	-	-
 ref_replace_exclusivity_error.saw	pass	-	loan.read-while-exclusive: `x` is borrowed here while the argument at 11:7 holds `x` exclusively for its call; an exclusive borrow admits no other access while it is live
-ref_replace_existential_error.saw	crash	INVARIANT	the type `any ref_replace_existential_error.Shape` is not in the backend slice yet: a type that is not concrete
+ref_replace_existential_error.saw	pass	-	type.mismatch: expected `any ref_replace_existential_error.Shape`, the type of the assignment's target, and found `ref_replace_existential_error.Sq`
 ref_replace_explicit_copy_error.saw	pass	-	transfer.implicit-copy: this reads a place of type `std.vector.Vector<Int, std.alloc.GlobalAllocator>`, which is ExplicitCopy, by value: only a Copy type copies silently; write `move v` to take it, `v
 ref_replace_forwarded.saw	pass	-	-
 ref_replace_generic.saw	pass	-	-
@@ -2237,7 +2237,7 @@ result_discard_suspending_error.saw	pass	-	result.discarded: the result of `appe
 result_discard_try_payload_error.saw	pass	-	result.discarded: the result of `append` is `Result<Void, std.alloc.AllocError>` and is silently discarded: handle it (`match` it, `try` or `try!` it, or return it), or write `let _ = ...` to discard
 result_generic_same_type_instantiation.saw	pass	-	-
 result_optional_none_survives_the_transform.saw	pass	-	-
-result_optional_none_tail_types_itself.saw	refused	mono mono.not-yet	a call of `Printable.format(into: &var std.stringbuilder.StringBuilder)` on `std.box.Box<any Error, std.alloc.GlobalAllocator>`, which no conformance of it meets, is not in the backend slice yet
+result_optional_none_tail_types_itself.saw	pass	-	-
 result_optional_payload_owes_one_wrap.saw	pass	-	-
 result_same_type.saw	pass	-	-
 result_same_type_ambiguous_error.saw	pass	-	type.ambiguous-result: both payloads of `Result<Int, Int>` can take this value, so it names neither: write `.Ok(value: ...)` or `.Err(error: ...)`
@@ -2464,7 +2464,7 @@ thread_name_belongs_to_the_user.saw	refused	resolve slice.not-yet	the `Thread.sp
 thread_spawn_blocking_beside_a_driven_root.saw	refused	resolve slice.not-yet	the `Thread.spawn` form is not in the bootstrap slice yet
 trailing_closure_inside_a_try_operand.saw	refused	typecheck infer.failed	this closure parameter has no type: write one, as `x: Int`, or pass the closure where a function type is expected
 trait_bound_error.saw	pass	-	type.bound: `trait_bound_error.Point` does not satisfy `Describable`, the bound on `T` of `printDescription`
-trait_default_any.saw	refused	typecheck slice.not-yet	a method call on `any Trait` is not in the bootstrap slice yet
+trait_default_any.saw	pass	-	-
 trait_default_body.saw	pass	-	-
 trait_default_inherited.saw	pass	-	-
 trait_default_missing_error.saw	pass	-	conformance.incomplete: `S` conforms to `T`, but nothing meets its requirement `T.required`: no member of that name is written, and the trait gives no default
@@ -2478,7 +2478,7 @@ trait_self_parameter_conformance.saw	pass	-	-
 trait_self_ref_param_default_body.saw	pass	-	-
 trait_self_ref_param_direct_call.saw	pass	-	-
 trait_self_ref_param_generic_call.saw	pass	-	-
-trait_self_ref_param_not_erasable_error.saw	refused	typecheck slice.not-yet	a method call on `any Trait` is not in the bootstrap slice yet
+trait_self_ref_param_not_erasable_error.saw	pass	-	erasure.not-object-safe: cannot form `any trait_self_ref_param_not_erasable_error.Merges`: its requirement `Merges.merge` names `Self` in its parameter `other` (`&Self`), and two erased values need no
 trait_simple.saw	pass	-	-
 try_catch_block.saw	pass	-	-
 try_catch_error_edge_releases_try_locals.saw	pass	-	-
@@ -2536,7 +2536,7 @@ unicode_escape_oversized_error.saw	pass	-	resolve.parse-refused: the parser refu
 unicode_escape_surrogate_error.saw	pass	-	resolve.parse-refused: the parser refuses `tests/corpus/unicode_escape_surrogate_error.saw` (syntax.lex.escape), so its declarations are not available
 unknown_type_name_diagnostic.saw	refused	resolve name.undefined	cannot find `MissingAlias` in scope
 unsafe_closure_domain.saw	refused	mono mono.not-yet	an escaping closure that captures a value is not in the backend slice yet: its environment would live in the frame that builds it, and heap environments are unbuilt (SL-525)
-unsafe_conformance_effects.saw	refused	typecheck slice.not-yet	a method call on `any Trait` is not in the bootstrap slice yet
+unsafe_conformance_effects.saw	pass	-	-
 unsafe_declarations_accepted.saw	pass	-	-
 unsafe_effect_slot.saw	pass	-	-
 unsafe_fn_type_generic_slot.saw	refused	typecheck infer.failed	this closure parameter has no type: write one, as `x: Int`, or pass the closure where a function type is expected
@@ -2582,7 +2582,7 @@ vector_enum_payload_deinit.saw	pass	-	-
 vector_enumerated.saw	refused	typecheck member.unknown	`std.vector.Vector<Int, std.alloc.GlobalAllocator>` has no method `enumerated` this module can see
 vector_field_drop_glue.saw	pass	-	-
 vector_file_copy_bound_error.saw	pass	-	name.not-in-prelude: `File` is not in the prelude and must be imported: `import std.file.{File}` selects it
-vector_in_erased_result.saw	refused	mono mono.not-yet	a call of `Printable.format(into: &var std.stringbuilder.StringBuilder)` on `std.box.Box<any Error, std.alloc.GlobalAllocator>`, which no conformance of it meets, is not in the backend slice yet
+vector_in_erased_result.saw	pass	-	-
 vector_literal.saw	refused	typecheck member.unknown	`std.vector.Vector<Int, std.alloc.GlobalAllocator>` has no method `iter` this module can see
 vector_literal_nocopy_move.saw	pass	-	-
 vector_literal_non_collection_error.saw	pass	-	type.mismatch: expected `Int`, the type of the annotated binding, and found `[Int; 3]`

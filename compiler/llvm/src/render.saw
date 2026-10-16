@@ -16,6 +16,7 @@ import sawtarget.layout.{Target, TargetKind, TargetLayout}
 import sawtypecheck.program.{TcProgram}
 import sawtypecheck.spell.{tc_effects_text}
 import sawtypecheck.typeops.{TcClient}
+import sawtypecheck.types.{TcKind}
 
 extension LlEmitter {
     // A call of item `item` with `args` already spelled, `TYPE VALUE` each, a
@@ -59,11 +60,39 @@ extension LlEmitter {
         ""
     }
 
+    // The value at `at` formatted into the builder at `sb`: by item `item`,
+    // or for an erased value through vtable slot `slot`, the value's address
+    // its receiver.
+    func render_into(&var self, mono: &var MonoProgram, target: &var Target, item: Int, slot: Int, at: String,
+                     sb: String, node: Int) {
+        if item >= 0 {
+            var into = Vector<String>()
+            try! into.push(ll_spelled("ptr", at))
+            try! into.push(ll_spelled("ptr", sb))
+            let _ = self.call_item_direct(&var mono, &var target, item, &into, "", node)
+            return
+        }
+        let data = self.load("ptr", at)
+        let code = self.dispatch_code(&var target, at, slot)
+        var call = StringBuilder()
+        try! call.append("call void ")
+        try! call.append(code)
+        try! call.append("(ptr ")
+        try! call.append(data)
+        try! call.append(", ptr ")
+        try! call.append(sb)
+        try! call.append(")")
+        self.put(call.build())
+    }
+
     // The address operand `o`'s value is read through in place: the pointer a
-    // reference holds, else the value's own address.
+    // reference holds, else the value's own address. An erased value is
+    // reached through its two-word pointer, so for a `&any Trait` that is
+    // the address of the operand itself.
     public func value_ref(&var self, mono: &var MonoProgram, target: &var Target, o: Int, node: Int) -> String {
         let op = mono.dp.bc.mir.operands[o]
-        if mono.dp.bc.mir.tc.referent(op.ty) >= 0 {
+        let referent = mono.dp.bc.mir.tc.referent(op.ty)
+        if referent >= 0 && mono.dp.bc.mir.tc.kind_of(referent) != TcKind.Any {
             return self.operand_value(&var mono, &var target, o, node)
         }
         self.operand_addr(&var mono, &var target, o, op.ty, node)
@@ -76,9 +105,10 @@ extension LlEmitter {
     public func render_fixed(&var self, mono: &var MonoProgram, target: &var Target, at: String, t: Int, node: Int,
                              parts: &var LlParts) {
         let item = mono.render_item(t)
+        let slot = mono.render_slot(t)
         let fixed = mono.builder_fixed_item
         let length = mono.builder_len_item
-        if item < 0 || fixed < 0 || length < 0 {
+        if (item < 0 && slot < 0) || fixed < 0 || length < 0 {
             self.refuse_here(&var mono, node, "a rendering mono did not resolve")
             return
         }
@@ -92,10 +122,7 @@ extension LlEmitter {
         try! capacity.append(LL_RENDER_SCRATCH)
         try! made.push(ll_spelled(self.word_type(&var mono, &var target, node), capacity.build()))
         let _ = self.call_item_direct(&var mono, &var target, fixed, &made, sb, node)
-        var into = Vector<String>()
-        try! into.push(ll_spelled("ptr", at))
-        try! into.push(ll_spelled("ptr", sb))
-        let _ = self.call_item_direct(&var mono, &var target, item, &into, "", node)
+        self.render_into(&var mono, &var target, item, slot, at, sb, node)
         var asked = Vector<String>()
         try! asked.push(ll_spelled("ptr", sb))
         let len = self.call_item_direct(&var mono, &var target, length, &asked, "", node)
@@ -128,15 +155,13 @@ extension LlEmitter {
                 t = referent
             }
             let item = mono.render_item(t)
-            if item < 0 {
+            let slot = mono.render_slot(t)
+            if item < 0 && slot < 0 {
                 self.refuse_here(&var mono, node, "an interpolated part mono did not resolve")
                 return
             }
             let at = self.value_ref(&var mono, &var target, o, node)
-            var into = Vector<String>()
-            try! into.push(ll_spelled("ptr", at))
-            try! into.push(ll_spelled("ptr", sb))
-            let _ = self.call_item_direct(&var mono, &var target, item, &into, "", node)
+            self.render_into(&var mono, &var target, item, slot, at, sb, node)
             // A part handed over by `move` is the interpolation's to drop.
             let op = mono.dp.bc.mir.operands[o]
             if op.kind == MirOperandKind.Move && referent < 0 {
@@ -180,13 +205,13 @@ extension LlEmitter {
     }
 
     // The concrete result type of item `k`'s function.
-    func item_result(&self, mono: &MonoProgram, k: Int) -> Int {
+    public func item_result(&self, mono: &MonoProgram, k: Int) -> Int {
         let body = mono.items[k].body
         mono.dp.bc.mir.locals[mono.dp.bc.mir.funcs[body].local_first].ty
     }
 
     // The integer type a word spells, the target's `Int`.
-    func word_type(&var self, mono: &var MonoProgram, target: &var Target, node: Int) -> String {
+    public func word_type(&var self, mono: &var MonoProgram, target: &var Target, node: Int) -> String {
         let int_type = mono.dp.bc.mir.tc.int_type()
         let l = self.lay_at(&var mono, &var target, int_type, node)
         ll_value_type(&l)

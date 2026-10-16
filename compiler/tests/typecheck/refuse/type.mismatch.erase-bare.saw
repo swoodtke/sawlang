@@ -1,0 +1,18 @@
+// refuses: type.mismatch at 17:9
+// a value replacing the referent of a `&var any Trait`: an erased value lives behind a reference or a box, so nothing erases into a bare `any Trait`
+
+trait Shape {
+    func area(&self) -> Int
+}
+
+struct Sq {
+    s: Int
+}
+
+extension Sq: Shape {
+    func area(&self) -> Int { self.s * self.s }
+}
+
+func replace(p: &var any Shape, other: Sq) {
+    p = other
+}

@@ -1,0 +1,8 @@
+program	compiler/tests/run/try_catch_boxed.saw
+triple	arm64-apple-darwin
+source	b064666640bd227d
+build	ok
+exit	0
+stdout	"v 0"
+stdout	"both 30 -1"
+stdout	""

@@ -2973,10 +2973,14 @@ dump_tasks()                // every live task's logical backtrace (std.task)
   suspending RECURSION needs too (a suspending-call cycle has no compile-time
   frame size, so it is refused on the same terms, anchored at the recursive
   function's own declaration), so the two cite one design together.
-  A `&any Trait` PARAMETER of a suspending function is refused for the
-  neighbouring reason: a reference that spans a suspension is held in the frame
-  as a handle to its referent, and an erased referent has no size — take a
-  `Box<any Trait>` or a generic bound.
+  A `&any Trait` PARAMETER of a suspending function is LEGAL, and a dispatch
+  through it works on both sides of a suspension: a reference that spans one
+  is held in the frame as its words, two for an erased one (the value's
+  address and its vtable's), like any other reference (SL-721, ruled Oct 16).
+  STAGE 0 (`sawc/`) refuses it, driven or spawned ("cannot be a parameter of
+  the suspending function"), because it holds such a reference as a handle to
+  a referent whose size it must name; code Stage 0 compiles takes a
+  `Box<any Trait>` or a generic bound instead.
   **BUT A DISPATCH WHOSE IMPLEMENTATIONS ARE ALL SYNC FRAMES NOTHING (SL-323,
   ruled Sep 20).** The refusal above fires first, so every dispatch that gets
   as far as the framing question names a method no conformance suspends in — a
@@ -2993,10 +2997,9 @@ dump_tasks()                // every live task's logical backtrace (std.task)
   }
   ```
   SUSPECT IT IN OLDER BUILDS: the dispatch used to count as a frame boundary,
-  so `via` joined the driven set and its own erased PARAMETER was then refused
-  by the rule one sentence up — an ordinary erased helper was simply
-  uncallable from a driven body, with a diagnostic about a frame it never
-  needed.
+  so `via` joined the driven set and Stage 0 then refused its own erased
+  PARAMETER — an ordinary erased helper was simply uncallable from a driven
+  body, with a diagnostic about a frame it never needed.
 - A suspending
   METHOD call in a
   driven/spawned body embeds as a driven sub-frame in EVERY control-flow

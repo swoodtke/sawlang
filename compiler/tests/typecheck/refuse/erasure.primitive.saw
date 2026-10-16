@@ -1,0 +1,17 @@
+// refuses: erasure.primitive at 16:22
+// a primitive erased to `&any Trait` at an argument, which has no boxed form to carry a vtable beside
+
+trait Tagged {
+    func tag(&self) -> Int
+}
+
+extension Int: Tagged {
+    func tag(&self) -> Int { 1 }
+}
+
+func show(t: &any Tagged) -> Int { t.tag() }
+
+func main() {
+    let n = 5
+    print("{}", show(&n))
+}

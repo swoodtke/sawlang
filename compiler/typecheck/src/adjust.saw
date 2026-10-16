@@ -5,10 +5,12 @@
 // caller for a position's expectation, and hands each conversion what its
 // position allows; a receiver's borrow is recorded where a call is resolved.
 
+import sawresolve.dump.{res_sort_strings}
 import sawresolve.model.{ResDeclKind}
 import sawtypecheck.model.{TcAdjust, TcAdjustKind, TcAllowance}
 import sawtypecheck.program.{TcProgram}
 import sawtypecheck.signatures.{TcContext}
+import sawtypecheck.spell.{tc_effects_text}
 // For the extension writing `satisfies`.
 import sawtypecheck.tier.{tc_max}
 import sawtypecheck.typeops.{TcClient}
@@ -148,9 +150,14 @@ extension TcProgram {
             }
             return TC_FIT_CONVERTED
         }
-        if self.erases_to(from, to) && (not self.is_box(to) || (boxes && self.is_error_box(to))) {
+        // An erased value lives behind a reference or a box, so a value is
+        // never erased into a bare `any Trait` (spec, `any Trait`
+        // existentials).
+        let behind = ti.kind == TcKind.Ref || (boxes && self.is_error_box(to))
+        if behind && self.erases_to(from, to) {
             if record {
                 self.add_adjust(e, TcAdjustKind.Erase, to)
+                self.refuse_primitive_erasure(e, from, to)
             }
             return TC_FIT_CONVERTED
         }
@@ -207,6 +214,39 @@ extension TcProgram {
         let viewer = self.current
         let in_test = self.current_test
         self.satisfies(from, tr, env, ext, viewer, in_test)
+    }
+
+    // Refuses erasure `e` of `from` into existential `to` when the concrete
+    // value is a primitive, `String` among them: an existential carries a
+    // vtable beside the value, and a primitive has no boxed form to carry one
+    // (spec, Traits on primitives). Every erasure is recorded where this is
+    // called.
+    // ENTRY POINTS:
+    //     convert
+    //     erasing_make
+    public func refuse_primitive_erasure(&var self, e: Int, from: Int, to: Int) {
+        var concrete = from
+        var x = to
+        if self.kind_of(from) == TcKind.Ref && self.kind_of(to) == TcKind.Ref {
+            concrete = self.types.ty(from).b
+            x = self.types.ty(to).b
+        } else if self.is_box(to) {
+            x = self.arg_of(to, 0)
+        }
+        let d = self.nominal_decl(concrete)
+        if not self.is_primitive_decl(d) && d != self.known.string {
+            return
+        }
+        var msg = StringBuilder()
+        try! msg.append("`")
+        try! msg.append(self.type_text(concrete))
+        try! msg.append("` is a primitive and cannot be erased to `")
+        try! msg.append(self.type_text(x))
+        try! msg.append("`: an existential carries a vtable beside the value, and a primitive has no boxed form to carry one; take it through a generic BOUND instead (`<T: ")
+        let tr = self.types.ty(x).decl
+        try! msg.append(self.res.decl_path(tr))
+        try! msg.append(">`), or wrap it in a struct you own")
+        self.refuse(e, "erasure.primitive", msg.build())
     }
 
     public func is_box(&self, t: Int) -> Bool {

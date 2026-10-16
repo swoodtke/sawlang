@@ -477,7 +477,9 @@ extension TcProgram {
             case Ok -> ti.kind == TcKind.Nominal && ti.decl == self.known.result && self.types.arg(to, 0) == from,
             case Err -> ti.kind == TcKind.Nominal && ti.decl == self.known.result && self.types.arg(to, 1) == from,
             case Slice -> fi.kind == TcKind.Ref && ti.kind == TcKind.Slice,
-            case Deref -> (fi.kind == TcKind.Ref || fi.kind == TcKind.Slice) && fi.b == to,
+            // An erased box is dereferenced to its payload only as a
+            // dispatch's receiver (`dispatch_call`).
+            case Deref -> ((fi.kind == TcKind.Ref || fi.kind == TcKind.Slice) && fi.b == to) || (self.is_box(from) && self.arg_of(from, 0) == to && ti.kind == TcKind.Any),
             case Borrow -> ti.kind == TcKind.Ref && ti.a == 0 && ti.b == from,
             case BorrowVar -> ti.kind == TcKind.Ref && ti.a == 1 && ti.b == from,
             case Shared -> fi.kind == TcKind.Ref && ti.kind == TcKind.Ref && fi.b == ti.b && ti.a == 0,

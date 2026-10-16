@@ -1,0 +1,36 @@
+// refuses: loan.nested-call at 31:30
+// an erased reference a suspending call holds across its suspension, beside a
+// write to its referent in the same argument list: refused as for a plain
+// reference, since the call's references are checked over the whole call
+
+trait Shape {
+    func area(&self) -> Int
+}
+
+struct Square {
+    side: Int
+}
+
+extension Square: Shape {
+    func area(&self) -> Int { self.side * self.side }
+}
+
+func spanning(s: &any Shape) -> Int {
+    let a = s.area()
+    __saw_suspend()
+    a + s.area()
+}
+
+func widen(sq: &var Square) -> Int {
+    sq.side = sq.side + 1
+    sq.side
+}
+
+func root() -> Int {
+    var sq = Square(side: 3)
+    sum(spanning(&sq), widen(&var sq))
+}
+
+func sum(a: Int, b: Int) -> Int {
+    a + b
+}

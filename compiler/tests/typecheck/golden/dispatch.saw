@@ -1,0 +1,51 @@
+// flags: --std-root std
+// Calls dispatched through `any Trait` (SL-721): each records its requirement
+// at the existential as owner, and its receiver dereferenced to the
+// existential, through a reference or an erased box, then borrowed as the
+// requirement declares. A parent trait's requirement and a default body are
+// reached through the sub-trait's existential, and `Box<any Trait>.make`
+// erases its argument into the box.
+
+trait Named {
+    func name(&self) -> String
+}
+
+trait Counter: Named {
+    func value(&self) -> Int
+    func bump(&var self, by: Int)
+    func doubled(&self) -> Int {
+        self.value() * 2
+    }
+}
+
+struct Tally {
+    n: Int
+}
+
+extension Tally: Named {
+    func name(&self) -> String { "tally" }
+}
+
+extension Tally: Counter {
+    func value(&self) -> Int { self.n }
+    func bump(&var self, by: Int) { self.n = self.n + by }
+}
+
+func shared(c: &any Counter) -> Int {
+    c.value() + c.doubled()
+}
+
+func exclusive(c: &var any Counter) -> String {
+    c.bump(by: 1)
+    c.name()
+}
+
+func boxed(n: Int) -> Int {
+    var b = Box<any Counter>.make(Tally(n: n))
+    b.bump(by: 2)
+    b.value()
+}
+
+func through_box_reference(b: &Box<any Counter>) -> Int {
+    b.doubled()
+}

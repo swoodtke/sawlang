@@ -1,7 +1,7 @@
 // Terminators and calls: a goto, return, switch or unreachable is its LLVM
 // twin; a call reaches the item mono resolved it to, an extern by the C
 // convention the target gives, a function value through its code and
-// environment, and a builtin by its fixed lowering: `print` writes each piece
+// environment, a dispatch through its receiver's vtable, and a builtin by its fixed lowering: `print` writes each piece
 // and rendered argument through the write seam, `panic` and `assert` hand
 // their message's parts to the failure funnel (design 137).
 
@@ -137,6 +137,10 @@ extension LlEmitter {
             case Value -> self.value_call(&var mono, &var target, &info),
             case Lend -> self.refuse_here(&var mono, node, "a lend outside an accessor's split"),
             case _ -> {
+                if mono.dispatch_slot(c) >= 0 {
+                    self.dispatch_call(&var mono, &var target, c, &info)
+                    return
+                }
                 if info.kind == MirCallKind.WindowOpen && info.absent >= 0 {
                     self.refuse_here(&var mono, node, "a conditional borrow is not in the backend slice yet")
                     return
@@ -270,6 +274,36 @@ extension LlEmitter {
         try! env_arg.append(env)
         try! leading.push(env_arg.build())
         self.call_with(&var mono, &var target, code, shape.b, &params, &leading, &info)
+    }
+
+    // A dispatch through `any Trait`: the function in the receiver's vtable
+    // slot, called with the erased value's address as its receiver and the
+    // call's other operands as the requirement's parameters pass them.
+    func dispatch_call(&var self, mono: &var MonoProgram, target: &var Target, c: Int, info: &MirCall) {
+        let node = info.node
+        let receiver = mono.dp.bc.mir.lists[info.arg_first]
+        let rt = mono.dp.bc.mir.operands[receiver].ty
+        let pointer = self.operand_addr(&var mono, &var target, receiver, rt, node)
+        let data = self.load("ptr", pointer)
+        let code = self.dispatch_code(&var target, pointer, mono.dispatch_slot(c))
+        let s = mono.dp.bc.mir.tc.sigs[info.target]
+        var params = Vector<Int>()
+        var k = 0
+        while k < s.param_count {
+            try! params.push(mono.dp.bc.mir.tc.params[s.param_first + k].ty)
+            k = k + 1
+        }
+        var result = s.result
+        if result < 0 {
+            let void_decl = mono.dp.bc.mir.tc.known.void_type
+            result = mono.dp.bc.mir.tc.prim(void_decl)
+        }
+        var rest = info
+        rest.arg_first = info.arg_first + 1
+        rest.arg_count = info.arg_count - 1
+        var leading = Vector<String>()
+        try! leading.push(ll_spelled("ptr", data))
+        self.call_with(&var mono, &var target, code, result, &params, &leading, &rest)
     }
 
     // An extern call by the C convention: scalars direct, a nullable pointer

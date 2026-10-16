@@ -1,0 +1,78 @@
+(Module dispatch
+  (declarations
+    (trait Named 9:7 private)
+    (requirement Named.name 10:10 (signature (receiver shared) (params) -> String))
+    (trait Counter 13:7 private (parents dispatch.Named))
+    (requirement Counter.value 14:10 (signature (receiver shared) (params) -> Int))
+    (requirement Counter.bump 15:10 (signature (receiver exclusive) (params (by Int owned)) -> Void))
+    (requirement Counter.doubled 16:10 (signature (receiver shared) (params) -> Int default-body) (summary body (suspends when Self.Counter.value) (sync-callable unless Self.Counter.value)))
+    (struct Tally 21:8 private)
+    (field Tally.n 22:5 private Int)
+    (extension 25:1 (target dispatch.Tally) (conforms dispatch.Named))
+    (method Tally.name 26:10 private (signature (receiver shared) (params) -> String) (summary body (suspends no) (sync-callable yes)))
+    (extension 29:1 (target dispatch.Tally) (conforms dispatch.Counter))
+    (method Tally.value 30:10 private (signature (receiver shared) (params) -> Int) (summary body (suspends no) (sync-callable yes)))
+    (method Tally.bump 31:10 private (signature (receiver exclusive) (params (by Int owned)) -> Void) (summary body (suspends no) (sync-callable yes)))
+    (func shared 34:6 private (signature (params (c &any dispatch.Counter shared)) -> Int) (summary body (suspends no) (sync-callable no)))
+    (func exclusive 38:6 private (signature (params (c &var any dispatch.Counter exclusive)) -> String) (summary body (suspends no) (sync-callable no)))
+    (func boxed 43:6 private (signature (params (n Int owned)) -> Int) (summary body (suspends no) (sync-callable no)))
+    (func through_box_reference 49:6 private (signature (params (b &std.box.Box<any dispatch.Counter, std.alloc.GlobalAllocator> shared)) -> Int) (summary body (suspends no) (sync-callable no))))
+  (members
+    (dispatch.Tally
+      (field n Int private declared)
+      (method name private (extension dispatch))
+      (method value private (extension dispatch))
+      (method bump private (extension dispatch))
+      (method doubled public (default dispatch.Counter))))
+  (views
+    (dispatch.Tally n name value bump doubled))
+  (conformances
+    (dispatch.Tally dispatch.Named 25:18 (name written))
+    (dispatch.Tally dispatch.Counter 29:18 (value written) (bump written) (doubled default) (name written)))
+  (copy-tier
+    (dispatch.Tally Copy))
+  (bodies
+    (Counter.doubled 16:10
+      (17:9-17:25 Binary Int value temp (op *))
+      (17:9-17:21 Call.paren Int value temp (call dispatch.Counter.value() (owner Self)))
+      (17:9-17:13 SelfExpr Self (borrow &Self) place borrow)
+      (17:24-17:25 IntLit Int value temp))
+    (Tally.name 26:10
+      (26:34-26:41 StringLit String value temp))
+    (Tally.value 30:10
+      (30:32-30:38 Member Int place copy)
+      (30:32-30:36 SelfExpr dispatch.Tally place project))
+    (Tally.bump 31:10
+      (31:37-31:43 Member Int place write)
+      (31:37-31:41 SelfExpr dispatch.Tally place project)
+      (31:46-31:57 Binary Int value temp (op +))
+      (31:46-31:52 Member Int place copy)
+      (31:46-31:50 SelfExpr dispatch.Tally place project)
+      (31:55-31:57 Name Int place copy))
+    (shared 34:6
+      (35:5-35:28 Binary Int value temp (op +))
+      (35:5-35:14 Call.paren Int value temp (call dispatch.Counter.value() (owner any dispatch.Counter)))
+      (35:5-35:6 Name &any dispatch.Counter (deref any dispatch.Counter) (borrow &any dispatch.Counter) place borrow)
+      (35:17-35:28 Call.paren Int value temp (call dispatch.Counter.doubled() (owner any dispatch.Counter)))
+      (35:17-35:18 Name &any dispatch.Counter (deref any dispatch.Counter) (borrow &any dispatch.Counter) place borrow))
+    (exclusive 38:6
+      (39:5-39:18 Call.paren Void value temp (call dispatch.Counter.bump(by: Int) (owner any dispatch.Counter)))
+      (39:5-39:6 Name &var any dispatch.Counter (deref any dispatch.Counter) (borrow-var &var any dispatch.Counter) place borrow-var)
+      (39:16-39:17 IntLit Int value temp)
+      (40:5-40:13 Call.paren String value temp (call dispatch.Named.name() (owner any dispatch.Counter)))
+      (40:5-40:6 Name &var any dispatch.Counter (deref any dispatch.Counter) (borrow &any dispatch.Counter) place borrow))
+    (boxed 43:6
+      (44:9-44:10 BindingName std.box.Box<any dispatch.Counter, std.alloc.GlobalAllocator> place temp)
+      (44:13-44:47 Call.paren std.box.Box<any dispatch.Counter, std.alloc.GlobalAllocator> value temp (conversion std.box.Box erase (owner std.box.Box<any dispatch.Counter, std.alloc.GlobalAllocator>)))
+      (44:35-44:46 Call.paren dispatch.Tally (erase std.box.Box<any dispatch.Counter, std.alloc.GlobalAllocator>) value temp (memberwise dispatch.Tally (owner dispatch.Tally)))
+      (44:44-44:45 Name Int place copy)
+      (45:5-45:18 Call.paren Void value temp (call dispatch.Counter.bump(by: Int) (owner any dispatch.Counter)))
+      (45:5-45:6 Name std.box.Box<any dispatch.Counter, std.alloc.GlobalAllocator> (deref any dispatch.Counter) (borrow-var &var any dispatch.Counter) place borrow-var)
+      (45:16-45:17 IntLit Int value temp)
+      (46:5-46:14 Call.paren Int value temp (call dispatch.Counter.value() (owner any dispatch.Counter)))
+      (46:5-46:6 Name std.box.Box<any dispatch.Counter, std.alloc.GlobalAllocator> (deref any dispatch.Counter) (borrow &any dispatch.Counter) place borrow))
+    (through_box_reference 49:6
+      (50:5-50:16 Call.paren Int value temp (call dispatch.Counter.doubled() (owner any dispatch.Counter)))
+      (50:5-50:6 Name &std.box.Box<any dispatch.Counter, std.alloc.GlobalAllocator> (deref std.box.Box<any dispatch.Counter, std.alloc.GlobalAllocator>) (deref any dispatch.Counter) (borrow &any dispatch.Counter) place borrow)))
+  (string-positions
+    (26:34 literal std.string.string_literal)))

@@ -1,0 +1,88 @@
+// Dispatch through `any Trait` on each erased form, `&any`, `&var any` and
+// an owned `Box<any>`, of each member kind: a `&self` method, a `&var self`
+// method, a default body, a method with arguments and a result, and a parent
+// trait's method reached through a sub-trait's existential (SL-721).
+
+trait Named {
+    func name(&self) -> String
+}
+
+trait Counter: Named {
+    func value(&self) -> Int
+    func bump(&var self, by: Int)
+    func scaled(&self, factor: Int, offset: Int) -> Int
+    func describe(&self) -> Int {
+        self.value() * 100 + self.scaled(2, 1)
+    }
+}
+
+struct Tally {
+    n: Int
+}
+
+extension Tally: Named {
+    func name(&self) -> String { "tally" }
+}
+
+extension Tally: Counter {
+    func value(&self) -> Int { self.n }
+    func bump(&var self, by: Int) { self.n = self.n + by }
+    func scaled(&self, factor: Int, offset: Int) -> Int { self.n * factor + offset }
+}
+
+struct Steps {
+    taken: Int,
+    stride: Int
+}
+
+extension Steps: Named {
+    func name(&self) -> String { "steps" }
+}
+
+extension Steps: Counter {
+    func value(&self) -> Int { self.taken * self.stride }
+    func bump(&var self, by: Int) { self.taken = self.taken + by }
+    func scaled(&self, factor: Int, offset: Int) -> Int { self.value() * factor - offset }
+    func describe(&self) -> Int { -self.value() }
+}
+
+func shared(c: &any Counter) -> Int {
+    c.value() + c.scaled(3, 4)
+}
+
+func exclusive(c: &var any Counter) -> Int {
+    c.bump(by: 2)
+    c.value()
+}
+
+func defaulted(c: &any Counter) -> Int {
+    c.describe()
+}
+
+func refined(c: &any Counter) -> String {
+    c.name()
+}
+
+func main() {
+    var t = Tally(n: 5)
+    var s = Steps(taken: 2, stride: 10)
+    print("{}", shared(&t))
+    print("{}", shared(&s))
+    print("{}", exclusive(&var t))
+    print("{}", exclusive(&var s))
+    print("{}", t.n)
+    print("{}", s.taken)
+    print("{}", defaulted(&t))
+    print("{}", defaulted(&s))
+    print(refined(&t))
+    print(refined(&s))
+
+    var b = Box<any Counter>.make(Tally(n: 1))
+    b.bump(by: 6)
+    print("{}", b.value())
+    print("{}", b.scaled(10, 3))
+    print("{}", b.describe())
+    print(b.name())
+    let c = Box<any Counter>.make(Steps(taken: 3, stride: 3))
+    print("{}", c.describe())
+}

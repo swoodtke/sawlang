@@ -1,0 +1,23 @@
+// refuses: mutability.immutable at 22:5
+// flags: --std-root std
+// a `&var self` requirement dispatched through an erased box a `let` holds:
+// the box owns its payload, so writing it writes the binding
+
+trait Counter {
+    func bump(&var self)
+}
+
+struct C {
+    n: Int
+}
+
+extension C: Counter {
+    func bump(&var self) {
+        self.n = self.n + 1
+    }
+}
+
+func through_let_box(n: Int) {
+    let b = Box<any Counter>.make(C(n: n))
+    b.bump()
+}

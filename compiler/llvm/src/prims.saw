@@ -18,6 +18,9 @@ import sawtypecheck.spell.{tc_effects_text}
 // scratch does (design 137).
 public static LL_MESSAGE_LIMIT: Int = 508
 
+// The words a vtable's header holds before its first slot (erased.saw).
+public static LL_VTABLE_HEADER: Int = 4
+
 extension LlEmitter {
     // A fresh SSA name.
     public func fresh(&var self) -> String {
@@ -87,6 +90,15 @@ extension LlEmitter {
             self.refuse_here(&var mono, node, msg.build())
         }
         l
+    }
+
+    // The address of the function in slot `slot` of the vtable the erased
+    // pointer at `pointer` holds (erased.saw).
+    public func dispatch_code(&var self, target: &var Target, pointer: String, slot: Int) -> String {
+        let table_at = self.offset_addr(pointer, target.word)
+        let table = self.load("ptr", table_at)
+        let code_at = self.offset_addr(table, (LL_VTABLE_HEADER + slot) * target.word)
+        self.load("ptr", code_at)
     }
 
     // Address `base` moved `offset` bytes on.

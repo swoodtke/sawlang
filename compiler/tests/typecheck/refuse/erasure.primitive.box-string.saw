@@ -1,0 +1,16 @@
+// refuses: erasure.primitive at 14:34
+// flags: --std-root std
+// a `String`, a primitive of the spec's, erased into a box by `Box<any Trait>.make`
+
+trait Tagged {
+    func tag(&self) -> Int
+}
+
+extension String: Tagged {
+    func tag(&self) -> Int { self.len() }
+}
+
+func main() {
+    let b = Box<any Tagged>.make("seven")
+    print("{}", b.tag())
+}

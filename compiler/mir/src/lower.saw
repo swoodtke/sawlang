@@ -3540,7 +3540,7 @@ extension MirProgram {
 
     // A conversion no declaration writes: an integer's `from` and `from(
     // truncating:)`, a raw-backed enum's `from(raw:)`, an alias's
-    // construction.
+    // construction, an erased box's.
     func conversion(&var self, e: Int, c: &TcCall) -> Int {
         let t = self.tc.expr_types[e]
         let written = self.written_arguments(e)
@@ -3550,6 +3550,11 @@ extension MirProgram {
         }
         let o = self.conversion_operand(written[0])
         let spelling = self.tc.name_text(c.spelling)
+        // `Box<any Trait>.make(v)`: the argument's adjustments already erase
+        // it into the box (`erasing_make`).
+        if spelling.equals("erase") {
+            return o
+        }
         let rv = self.rv_one(MirRvalueKind.Conversion, t, spelling, o)
         let l = self.temp_of(rv)
         let p = self.place_local(l)

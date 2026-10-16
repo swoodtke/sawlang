@@ -240,6 +240,27 @@ description's (`compiler/tests/mono/README.md`, "Layouts").
   case, an Optional by its case and then, when both are present, its
   payload, a struct or tuple member by member; a type declaring its own
   `Equatable`, a String or a Float inside one is refused.
+- **Erased values** (spec, `any Trait` existentials; SL-721). A pointer to
+  an erased value, a `&any Trait` or the pointer an erased box holds, is two
+  words: the value's address, then its vtable's. A vtable is a private
+  constant per (concrete type, trait), `[drop, size, align, type id,
+  slots...]` in words (`compiler/llvm/src/erased.saw`): the concrete type's
+  drop glue or a drop that does nothing, its layout's size and alignment, its
+  interned type as its id, then each slot's implementation, or null for one
+  nothing dispatches. A requirement names no `Self` past its receiver, so an
+  implementation's signature is its dispatch's with the receiver the value's
+  address, and a dispatch loads the slot and calls it as an internal call is
+  made. A rendered erased value calls its `format` slot the same way. A
+  borrow of an erased place copies the two words it was reached through.
+  An erasure of a reference stores its address beside the vtable; of a
+  value, a fresh allocation from the box's allocator's `alloc` with the
+  concrete layout, the value moved in, its address beside the vtable; of a
+  `Result`, its `Ok` as it is and its concrete `Err` boxed so. A refused
+  allocation panics with `allocation failed`, as Stage 0's erasure does.
+  An erased box's drop glue runs the vtable's drop on the payload, then
+  frees it through the allocator's `dealloc` with the vtable's size and
+  alignment. `existential_receivers`, `existential_positions` and
+  `existential_errors` pin the forms, members and positions.
 - **Strings and statics.** A String literal is a private constant in the
   String layer's literal block (an immortal refcount, the length, the bytes,
   a NUL), wrapped through `string_literal`; a literal message's bytes are
@@ -297,7 +318,7 @@ description's (`compiler/tests/mono/README.md`, "Layouts").
 
 | rule | refuses | due program |
 |---|---|---|
-| `backend.not-yet` | what the backend does not lower yet: a Float constant, an operator on a Float, or on anything but an integer, a Bool, a String, two raw pointers or the memory values compared part by part, an erasure, a slice, a take capture, a static that is not an integer or a Bool, an exported static, a `@section` on a static or a function, an `@align` on a static or a local, a conditional borrow, an aggregate crossing the C convention, a pointer cast to or from an integer narrower than a pointer, an unsupported layout, a `main` returning neither `Void` nor `Int`; a constant is refused at its own spelling, inside an aggregate too | `float_field` |
+| `backend.not-yet` | what the backend does not lower yet: a Float constant, an operator on a Float, or on anything but an integer, a Bool, a String, two raw pointers or the memory values compared part by part, a slice, a take capture, a static that is not an integer or a Bool, an exported static, a `@section` on a static or a function, an `@align` on a static or a local, a conditional borrow, an aggregate crossing the C convention, a pointer cast to or from an integer narrower than a pointer, an unsupported layout, a `main` returning neither `Void` nor `Int`; a constant is refused at its own spelling, inside an aggregate too | `float_field` |
 
 **Suspension.** The backend's input is coroutine lowering's program
 (`compiler/tests/coro/README.md`), which lowers the frames whose every

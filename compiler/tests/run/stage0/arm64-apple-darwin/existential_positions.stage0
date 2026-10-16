@@ -1,0 +1,13 @@
+program	compiler/tests/run/existential_positions.saw
+triple	arm64-apple-darwin
+source	a9ea465fbd0dd011
+build	ok
+exit	0
+stdout	"gone seven"
+stdout	"55"
+stdout	"32"
+stdout	"32"
+stdout	"34"
+stdout	"54"
+stdout	"gone two"
+stdout	""

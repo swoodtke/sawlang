@@ -9,6 +9,7 @@ import sawresolve.model.{ResDecl, ResDeclKind}
 import sawtypecheck.candidates.{tc_contains}
 import sawtypecheck.checks.{tc_check_unsafe}
 import sawtypecheck.conform.{TcSubst}
+import sawtypecheck.declarations.{tc_build_signatures}
 import sawtypecheck.model.{TC_FLAG_STATIC, TcParam, TcSig}
 import sawtypecheck.program.{TcProgram}
 import sawtypecheck.spell.{tc_effects_text}
@@ -74,12 +75,49 @@ extension TcProgram {
         }
     }
 
+    // THE SLOT FUNNEL: the requirements an `any Trait` of trait `tr`
+    // dispatches, in vtable slot order: the trait's own in declaration
+    // order, then each parent's as `trait_and_ancestors` reaches it, the
+    // instance requirements only, `Deinit`'s left out since the vtable's
+    // header carries the deinit. A requirement's slot is its index here, so
+    // the call that dispatches it and every vtable that fills it agree.
+    // ENTRY POINTS:
+    //     dispatch_call
+    //     MonoProgram.dispatch_slot
+    //     MonoProgram.vtable_of
+    public func dispatch_requirements(&var self, tr: Int) -> Vector<Int> {
+        var out = Vector<Int>()
+        let traits = self.trait_and_ancestors(tr)
+        var t = 0
+        while t < traits.len() {
+            let parent = traits[t]
+            t = t + 1
+            if parent == self.known.deinit {
+                continue
+            }
+            let members = self.members_of(parent)
+            var j = 0
+            while j < members.len() {
+                let d = members[j]
+                j = j + 1
+                if self.res.decls[d].kind != ResDeclKind.Requirement {
+                    continue
+                }
+                self.build_decl(d)
+                if (self.sigs[d].flags & TC_FLAG_STATIC) == 0 {
+                    try! out.push(d)
+                }
+            }
+        }
+        move out
+    }
+
     // Why trait `tr` cannot be erased, or "" when it can: a marker trait,
     // an associated type, then the first requirement, the trait's own before
     // its parents', that is static or names `Self` in its result or a
     // parameter. A generic requirement is not judged here, since
     // `trait.generic-requirement` refuses it at the requirement.
-    func object_safety_reason(&var self, tr: Int) -> String {
+    public func object_safety_reason(&var self, tr: Int) -> String {
         let traits = self.trait_and_ancestors(tr)
         var requirements = Vector<Int>()
         var assoc = -1

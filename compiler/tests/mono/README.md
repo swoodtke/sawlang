@@ -102,6 +102,7 @@ source's local and block numbering. Then each call is resolved to its item:
 |---|---|
 | a function, a method, an `init` | its body at the receiver's arguments and the call's own |
 | a trait requirement on a concrete owner | the owner's conformance: the member it writes, or the trait's default body under `Self`; a requirement met with neither, by a derivation or by a builtin type's own conformance, is its member glue (`resolve_requirement`, the one funnel) |
+| a trait requirement on an `any Trait` owner | no item: a vtable slot (below), which the backend calls through the receiver's vtable |
 | a parameter's default value | the default's function |
 | a window's open or close | the accessor's prologue or epilogue |
 | a spawn site, a drive site | its root's task root (below) |
@@ -175,6 +176,24 @@ first descriptor or offload park `__saw_exec_io_register`, and the first
 offload park `__saw_exec_offload_pipe`; a std root that declares none of them
 is refused as `mono.not-yet`.
 
+**Vtables** (spec, `any Trait` existentials; SL-721). An erasure, of a
+reference into `&any Trait`, of a value into an erased box, or of a
+`Result`'s concrete error into its erased box, attaches the vtable of its
+concrete type at the existential's trait, made once per (type, trait) by one
+funnel (`vtable_of`): a slot per requirement the trait dispatches, in
+typecheck's `dispatch_requirements` order, and the concrete type's drop glue.
+A dispatch, a call of a requirement whose owner is an `any Trait`, records
+its slot, and so does the rendering of an erased value, whose
+`Printable.format` it dispatches (`render_slot`). A slot is filled, through
+the requirement funnel at the vtable's concrete type, only once something
+dispatches it (`dispatch_of`), in every vtable of its trait whichever comes
+first, so a requirement the program never dispatches is never instantiated
+for an erased type. An erasure into a box also reaches its allocator's
+`alloc`, and an erased box's drop glue its allocator's `dealloc`: the box
+builds its allocator as `A()`, so it is a fieldless struct with no `init`,
+or the erasure is refused as `mono.not-yet`. An erased box's drop glue has
+no MIR body; the backend writes it (`compiler/tests/run/README.md`).
+
 **Budget points.** Mono keeps every op-budget point; the backend writes
 nothing for one. Coroutine lowering decides which stay live (SL:architecture
 §3.9).
@@ -242,6 +261,7 @@ shares the runtime ABI with sawc2:
 | `Int8`, `UInt8`, `Bool` .. `Int64`, `UInt64`, `Int`, `UInt` | its width, aligned to it |
 | `Float` | 8 bytes |
 | a reference, `UnsafePointer<T>`, `FuncPointer<F>` | one word |
+| a reference to an `any Trait`, an `UnsafePointer<any Trait>` (so an erased box) | two words, the value's address then its vtable's |
 | `Void`, `Never` | zero-sized |
 | a struct, a tuple | members in declaration order, each at its alignment |
 | `Optional<T>` | a one-byte flag (`Some` 1, `None` 0), then `T` at its alignment |
@@ -251,9 +271,9 @@ shares the runtime ABI with sawc2:
 | `[T; N]` | N elements |
 
 A raw-backed case's value is the evaluator's, which mono hands the target
-before any layout is asked for (`target_for`). An `any` existential and a
-type that contains itself inline are unsupported, and the backend refuses a
-program reaching one.
+before any layout is asked for (`target_for`). An `any` existential by value
+and a type that contains itself inline are unsupported, and the backend
+refuses a program reaching one.
 
 **The C convention for `extern` calls** is the target's too: a scalar or a
 pointer passes and returns directly, an `UnsafePointer<T>?` result is a
@@ -263,7 +283,7 @@ nullable pointer (null is `None`), and an aggregate by value is refused.
 
 | rule | refuses | fixture |
 |---|---|---|
-| `mono.not-yet` | what the backend's slice does not lower: a builtin outside it, a format argument or an interpolated part whose rendering the slice does not make, a requirement no member, default or member glue in the slice meets, a call of a body this program does not lower, a closure capturing an owning value, an escaping closure that captures anything | `mono.not-yet`, `mono.not-yet.format`, `mono.not-yet.std`, `mono.not-yet.aggregate`, `mono.not-yet.bool-order`, `mono.not-yet.pointer-equality`, and the escaping closure at each position it escapes through, `mono.not-yet.escaping-*` |
+| `mono.not-yet` | what the backend's slice does not lower: a builtin outside it, a format argument or an interpolated part whose rendering the slice does not make, a requirement no member, default or member glue in the slice meets, a call of a body this program does not lower, a closure capturing an owning value, an escaping closure that captures anything, an erased box whose allocator is not a fieldless struct with no `init` | `mono.not-yet`, `mono.not-yet.format`, `mono.not-yet.std`, `mono.not-yet.aggregate`, `mono.not-yet.bool-order`, `mono.not-yet.pointer-equality`, and the escaping closure at each position it escapes through, `mono.not-yet.escaping-*` |
 | `mono.depth` | a concrete argument nested more than 64 deep, once per program, at the first call that met the limit | `mono.depth`, `mono.depth.method`, `mono.depth.recursive`, and `mono.depth.branching`, whose argument doubles its parts at each step |
 | `atomic.width` | an `Atomic<X>` at an `X` other than `Int` that only an instantiation forms, once per type, where the item was reached; one a written or inferred position carries is typecheck's (SL:open-questions D38) | `atomic.width` |
 | `transfer.no-move` | a generic body's move out of a place, which typecheck records where the type names a type parameter, at an instantiation that makes the type `NoMove`: the first such move of each declaration at each set of arguments, its body's, its closures' and its accessor halves' together. A spelled `move`, a `[move x]` capture and a local's by-value read at its last use all count; the fresh placement of a by-value parameter no reference has named does not. A concrete type's is typecheck's (SL-662) | `transfer.no-move`, a `Vector`'s growth; `.element`, `Vector.pop`'s move out of its buffer; `.forward`, a read at its last use; `.capture`, a `[move x]` capture; `.placement-after-borrow`, the placement once a reference named the parameter; `.take`, an Optional's payload; `.map`, a `Map`'s entries |

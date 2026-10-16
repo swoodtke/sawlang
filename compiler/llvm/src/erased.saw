@@ -1,0 +1,311 @@
+// Erased values (spec, `any Trait` existentials): a pointer to one is two
+// words, the value's address and its vtable's, whether it is a `&any Trait`
+// or the pointer an erased `Box<any Trait, A>` holds. A vtable is a constant
+// per (concrete type, trait), laid out `[drop, size, align, type id, slots…]`
+// in words, with a slot per requirement the trait dispatches
+// (`dispatch_requirements`), each the address of the concrete type's
+// implementation: a requirement never names `Self` past its receiver, so the
+// implementation's signature is the dispatch's, the receiver being the
+// value's address. A slot no dispatch in the program calls is null.
+
+import sawborrowck.program.{BorrowckProgram}
+import sawdrops.program.{DropsProgram}
+import sawllvm.attributes.{ll_function_attributes}
+import sawllvm.module.{LlEmitter, ll_is_scalar, ll_symbol, ll_value_type}
+import sawllvm.places.{ll_tag_type}
+import sawllvm.prims.{LL_MESSAGE_LIMIT}
+import sawllvm.render.{ll_spelled}
+import sawllvm.text.{ll_quoted}
+import sawmir.build.{mir_func_local}
+import sawmir.model.{MirProjKind, MirRvalue}
+import sawmir.program.{MirProgram}
+import sawmono.program.{MonoProgram, MonoVtable}
+import sawmono.worklist.{mono_rules}
+import sawresolve.dump.{res_sort_strings}
+import sawresolve.program.{ResProgram}
+import sawtarget.layout.{Target, TargetCase, TargetKind, TargetLayout}
+import sawtypecheck.program.{TcProgram}
+import sawtypecheck.spell.{tc_effects_text}
+import sawtypecheck.typeops.{TcClient}
+import sawtypecheck.types.{TcKind}
+
+// The symbol of vtable `v`, derived from its concrete type and its trait.
+public func ll_vtable_symbol(mono: &MonoProgram, v: Int) -> String {
+    let vt = mono.vtables[v]
+    var out = StringBuilder()
+    try! out.append("@\"saw vtable ")
+    try! out.append(ll_quoted(mono.dp.bc.mir.tc.type_text(vt.concrete)))
+    try! out.append(" as ")
+    try! out.append(ll_quoted(mono.dp.bc.mir.tc.res.decl_path(vt.trait_decl)))
+    try! out.append("\"")
+    out.build()
+}
+
+extension LlEmitter {
+    // `ref(_, P)` of an erased place `P`, `(*R)` for a `&any Trait` or an
+    // erased box `R`: the two words `R` holds, so the borrow keeps the
+    // vtable the place was reached with.
+    public func erased_ref_into(&var self, mono: &var MonoProgram, target: &var Target, p: Int, dest: String,
+                                node: Int) {
+        let pl = mono.dp.bc.mir.places[p]
+        if pl.count == 0 || mono.dp.bc.mir.projs[pl.first + pl.count - 1].kind != MirProjKind.Deref {
+            self.refuse_here(&var mono, node, "a borrow of an erased value reached other than through its pointer")
+            return
+        }
+        let pointer = self.place_prefix_addr(&var mono, &var target, p, pl.count - 1, node)
+        self.memcpy(dest, pointer, 2 * target.word)
+    }
+
+    // Erasure `r` into `dest`: a reference's address beside the vtable, or a
+    // value moved into a fresh allocation of the box's allocator, its address
+    // beside the vtable. A refused allocation panics: an erasure has no error
+    // to report it through (spec, the erased-error box).
+    public func erase_into(&var self, mono: &var MonoProgram, target: &var Target, r: Int, dest: String,
+                           node: Int) {
+        let rv = mono.dp.bc.mir.rvalues[r]
+        let v = mono.erase_vtable(r)
+        if v < 0 {
+            self.refuse_here(&var mono, node, "an erasure mono did not resolve")
+            return
+        }
+        let o = mono.dp.bc.mir.lists[rv.first]
+        let table = ll_vtable_symbol(&mono, v)
+        let table_at = self.offset_addr(dest, target.word)
+        if mono.dp.bc.mir.tc.kind_of(rv.ty) == TcKind.Ref {
+            let address = self.operand_value(&var mono, &var target, o, node)
+            self.store("ptr", address, dest)
+            self.store("ptr", table, table_at)
+            return
+        }
+        let alloc = mono.erase_alloc(r)
+        if alloc < 0 {
+            self.refuse_here(&var mono, node, "an erasure into a box whose allocation mono did not resolve")
+            return
+        }
+        let concrete = mono.vtables[v].concrete
+        if mono.dp.bc.mir.tc.is_result(rv.ty) {
+            self.erase_error_into(&var mono, &var target, &rv, alloc, table, dest, node)
+            return
+        }
+        let raw = self.boxed(&var mono, &var target, concrete, alloc, node)
+        self.operand_into(&var mono, &var target, o, raw, concrete, node)
+        self.store("ptr", raw, dest)
+        self.store("ptr", table, table_at)
+    }
+
+    // A `Result` erasure, `rv`: its `Ok` as it is, its concrete `Err` moved
+    // into a fresh box of the target's error type, whose vtable is `table`,
+    // as a `try` propagating a concrete error out of an erased `Result`
+    // does (spec, `Result<T, Box<any Error>>`).
+    func erase_error_into(&var self, mono: &var MonoProgram, target: &var Target, rv: &MirRvalue, alloc: Int,
+                          table: String, dest: String, node: Int) {
+        let o = mono.dp.bc.mir.lists[rv.first]
+        let from = mono.dp.bc.mir.operands[o].ty
+        let src = self.operand_addr(&var mono, &var target, o, from, node)
+        let ok = mono.dp.bc.mir.result_case("Ok")
+        let err = mono.dp.bc.mir.result_case("Err")
+        let from_ok = target.case_of(&var mono.dp.bc.mir.tc, from, ok)
+        let tag = self.tag_of(&var mono, &var target, src, from, node)
+        var test = StringBuilder()
+        try! test.append("icmp eq i64 ")
+        try! test.append(tag)
+        try! test.append(", ")
+        try! test.append(from_ok.tag)
+        let is_ok = self.assign(test.build())
+        let ok_label = self.new_label("erase.ok")
+        let err_label = self.new_label("erase.err")
+        let done = self.new_label("erased")
+        self.branch(is_ok, ok_label, err_label)
+        let dl = self.lay_at(&var mono, &var target, rv.ty, node)
+        self.put_label(ok_label)
+        let value = mono.dp.bc.mir.tc.arg_of(from, 0)
+        let vl = self.lay_at(&var mono, &var target, value, node)
+        let to_ok = target.case_of(&var mono.dp.bc.mir.tc, rv.ty, ok)
+        var ok_tag = StringBuilder()
+        try! ok_tag.append(to_ok.tag)
+        self.store(ll_tag_type(&dl), ok_tag.build(), dest)
+        let ok_src = self.offset_addr(src, target.payload_offset(&var mono.dp.bc.mir.tc, from, ok, 0))
+        let ok_dest = self.offset_addr(dest, target.payload_offset(&var mono.dp.bc.mir.tc, rv.ty, ok, 0))
+        self.copy_bits(&vl, ok_dest, ok_src)
+        self.jump(done)
+        self.put_label(err_label)
+        let concrete = mono.dp.bc.mir.tc.arg_of(from, 1)
+        let raw = self.boxed(&var mono, &var target, concrete, alloc, node)
+        let cl = self.lay_at(&var mono, &var target, concrete, node)
+        let err_src = self.offset_addr(src, target.payload_offset(&var mono.dp.bc.mir.tc, from, err, 0))
+        self.copy_bits(&cl, raw, err_src)
+        let to_err = target.case_of(&var mono.dp.bc.mir.tc, rv.ty, err)
+        var err_tag = StringBuilder()
+        try! err_tag.append(to_err.tag)
+        self.store(ll_tag_type(&dl), err_tag.build(), dest)
+        let fat = self.offset_addr(dest, target.payload_offset(&var mono.dp.bc.mir.tc, rv.ty, err, 0))
+        self.store("ptr", raw, fat)
+        let fat_table = self.offset_addr(fat, target.word)
+        self.store("ptr", table, fat_table)
+        self.jump(done)
+        self.put_label(done)
+    }
+
+    // A fresh allocation for a value of type `concrete` through the box
+    // allocator's `alloc` item `alloc`; returns its address. A refused
+    // allocation panics.
+    func boxed(&var self, mono: &var MonoProgram, target: &var Target, concrete: Int, alloc: Int,
+               node: Int) -> String {
+        let cl = self.lay_at(&var mono, &var target, concrete, node)
+        let optional = self.item_result(&mono, alloc)
+        let ol = self.lay_at(&var mono, &var target, optional, node)
+        let word = self.word_type(&var mono, &var target, node)
+        let answer = self.slot(ol.size, ol.align)
+        let allocator = self.slot(1, 1)
+        var args = Vector<String>()
+        try! args.push(ll_spelled("ptr", allocator))
+        var size = StringBuilder()
+        try! size.append(cl.size)
+        try! args.push(ll_spelled(word, size.build()))
+        var align = StringBuilder()
+        try! align.append(if cl.align > 0 { cl.align } else { 1 })
+        try! args.push(ll_spelled(word, align.build()))
+        let _ = self.call_item_direct(&var mono, &var target, alloc, &args, answer, node)
+        let some = target.present_case(&var mono.dp.bc.mir.tc, optional)
+        let tag = self.tag_of(&var mono, &var target, answer, optional, node)
+        var test = StringBuilder()
+        try! test.append("icmp eq i64 ")
+        try! test.append(tag)
+        try! test.append(", ")
+        try! test.append(some.tag)
+        let present = self.assign(test.build())
+        let made = self.new_label("boxed")
+        let refused = self.new_label("unboxed")
+        self.branch(present, made, refused)
+        self.put_label(refused)
+        let message = self.text_bytes("allocation failed")
+        self.fail_message(&var mono, node, &message)
+        self.put_label(made)
+        let off = target.payload_offset(&var mono.dp.bc.mir.tc, optional, some.decl, 0)
+        let payload = self.offset_addr(answer, off)
+        self.load("ptr", payload)
+    }
+
+    // Vtable `v` as a constant: the concrete type's drop glue, or the drop
+    // that does nothing, its size, alignment and type id, then each slot's
+    // implementation or null. The type id is the concrete type's interned
+    // identity, one per type in a program. An implementation with a lowered
+    // frame has no plain function to point at: typecheck refuses the erasure
+    // of a type whose dispatched implementation may suspend, so one here is
+    // a broken invariant.
+    public func vtable(&var self, mono: &var MonoProgram, target: &var Target, v: Int) -> String {
+        let vt = mono.vtables[v]
+        let l = target.layout(&var mono.dp.bc.mir.tc, vt.concrete)
+        var word = StringBuilder()
+        try! word.append("i")
+        try! word.append(target.word * 8)
+        let w = word.build()
+        var out = StringBuilder()
+        try! out.append(ll_vtable_symbol(&mono, v))
+        try! out.append(" = private unnamed_addr constant \{ ptr, ")
+        try! out.append(w)
+        try! out.append(", ")
+        try! out.append(w)
+        try! out.append(", ")
+        try! out.append(w)
+        try! out.append(", [")
+        try! out.append(vt.slot_count)
+        try! out.append(" x ptr] \} \{ ptr ")
+        if vt.drop >= 0 {
+            try! out.append(ll_symbol(&mono, vt.drop))
+        } else {
+            try! out.append(ll_drop_nothing_symbol())
+        }
+        try! out.append(", ")
+        try! out.append(w)
+        try! out.append(" ")
+        try! out.append(l.size)
+        try! out.append(", ")
+        try! out.append(w)
+        try! out.append(" ")
+        try! out.append(if l.align > 0 { l.align } else { 1 })
+        try! out.append(", ")
+        try! out.append(w)
+        try! out.append(" ")
+        try! out.append(vt.concrete)
+        try! out.append(", [")
+        try! out.append(vt.slot_count)
+        try! out.append(" x ptr] [")
+        var j = 0
+        while j < vt.slot_count {
+            if j > 0 {
+                try! out.append(", ")
+            }
+            let item = mono.vtable_slots[vt.slot_first + j]
+            j = j + 1
+            if item < 0 {
+                try! out.append("ptr null")
+                continue
+            }
+            if self.resume_of(item) >= 0 {
+                try! mono.problems.push("a vtable slot names an implementation with a lowered frame")
+            }
+            try! out.append("ptr ")
+            try! out.append(ll_symbol(&mono, item))
+        }
+        try! out.append("] \}\n")
+        out.build()
+    }
+
+    // Item `k`, the drop glue of erased box type `t`: the payload's drop
+    // through the vtable, then the allocation freed through the box's
+    // allocator with the vtable's size and alignment.
+    public func emit_erased_drop(&var self, mono: &var MonoProgram, target: &var Target, k: Int) {
+        let t = mono.items[k].glue_type
+        let dealloc = mono.erased_dealloc(t)
+        if dealloc < 0 {
+            try! mono.problems.push("an erased box's drop glue reached the backend with no `dealloc`")
+            return
+        }
+        var word = StringBuilder()
+        try! word.append("i")
+        try! word.append(target.word * 8)
+        let w = word.build()
+        var out = StringBuilder()
+        try! out.append("define internal void ")
+        try! out.append(ll_symbol(&mono, k))
+        try! out.append("(ptr %p1)")
+        try! out.append(ll_function_attributes(""))
+        try! out.append(" \{\nentry:\n  %allocator = alloca i8, align 1\n  %data = load ptr, ptr %p1\n")
+        try! out.append("  %table.at = getelementptr i8, ptr %p1, i64 ")
+        try! out.append(target.word)
+        try! out.append("\n  %table = load ptr, ptr %table.at\n  %drop = load ptr, ptr %table\n")
+        try! out.append("  call void %drop(ptr %data)\n  %size.at = getelementptr i8, ptr %table, i64 ")
+        try! out.append(target.word)
+        try! out.append("\n  %size = load ")
+        try! out.append(w)
+        try! out.append(", ptr %size.at\n  %align.at = getelementptr i8, ptr %table, i64 ")
+        try! out.append(2 * target.word)
+        try! out.append("\n  %align = load ")
+        try! out.append(w)
+        try! out.append(", ptr %align.at\n  call void ")
+        try! out.append(ll_symbol(&mono, dealloc))
+        try! out.append("(ptr %allocator, ptr %data, ")
+        try! out.append(w)
+        try! out.append(" %size, ")
+        try! out.append(w)
+        try! out.append(" %align)\n  ret void\n\}\n\n")
+        try! self.defs.append(out.build())
+    }
+}
+
+// The drop a vtable names for a concrete type that owns nothing.
+public func ll_drop_nothing() -> String {
+    var out = StringBuilder()
+    try! out.append("define internal void ")
+    try! out.append(ll_drop_nothing_symbol())
+    try! out.append("(ptr %value)")
+    try! out.append(ll_function_attributes(""))
+    try! out.append(" \{\nentry:\n  ret void\n\}\n\n")
+    out.build()
+}
+
+// The symbol of that drop.
+public func ll_drop_nothing_symbol() -> String {
+    "@__saw_drop_nothing"
+}

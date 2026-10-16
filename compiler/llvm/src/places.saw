@@ -41,6 +41,13 @@ public func ll_local_slot(l: Int) -> String {
 extension LlEmitter {
     // The address place `p` names.
     public func place_addr(&var self, mono: &var MonoProgram, target: &var Target, p: Int, node: Int) -> String {
+        let count = mono.dp.bc.mir.places[p].count
+        self.place_prefix_addr(&var mono, &var target, p, count, node)
+    }
+
+    // The address the first `steps` projections of place `p` name.
+    public func place_prefix_addr(&var self, mono: &var MonoProgram, target: &var Target, p: Int, steps: Int,
+                                  node: Int) -> String {
         let pl = mono.dp.bc.mir.places[p]
         var addr = ""
         var current = -1
@@ -52,7 +59,7 @@ extension LlEmitter {
             addr = self.static_global(&var mono, &var target, pl.static_decl, current, node)
         }
         var k = 0
-        while k < pl.count {
+        while k < steps {
             let step = mono.dp.bc.mir.projs[pl.first + k]
             k = k + 1
             match step.kind {

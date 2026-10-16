@@ -1,0 +1,86 @@
+// Dispatch through `any Trait` in each position: in a loop, over erased
+// boxes popped from a vector and over a reference; in a driven body, whose
+// own suspensions the dispatch does not share; with an existential passed
+// onward as an argument; and a dispatch's result as another call's argument.
+// Each box's payload is torn down through its vtable exactly once (SL-721).
+
+trait Shape {
+    func area(&self) -> Int
+    func grow(&var self, by: Int)
+}
+
+struct Square {
+    side: Int
+}
+
+extension Square: Shape {
+    func area(&self) -> Int { self.side * self.side }
+    func grow(&var self, by: Int) { self.side = self.side + by }
+}
+
+struct Tag {
+    id: Int,
+    label: String
+}
+
+extension Tag: Shape {
+    func area(&self) -> Int { self.id }
+    func grow(&var self, by: Int) { self.id = self.id * by }
+}
+
+extension Tag: NoCopy {
+    func deinit(&var self) { print("gone {self.label}") }
+}
+
+func area_of(s: &any Shape) -> Int {
+    s.area()
+}
+
+func forwarded(s: &any Shape) -> Int {
+    area_of(&s) + area_of(&s)
+}
+
+func grow_all(s: &var any Shape, times: Int) {
+    var k = 0
+    while k < times {
+        s.grow(by: 3)
+        k = k + 1
+    }
+}
+
+func twice(n: Int) -> Int {
+    n * 2
+}
+
+func root(n: Int) -> Int {
+    let sq = Square(side: n)
+    let before = area_of(&sq)
+    __saw_suspend()
+    var boxed = Box<any Shape>.make(Square(side: n + 1))
+    boxed.grow(by: 1)
+    __saw_suspend()
+    before + boxed.area()
+}
+
+func main() {
+    var shapes = Vector<Box<any Shape>>()
+    try! shapes.push(Box<any Shape>.make(Square(side: 2)))
+    try! shapes.push(Box<any Shape>.make(Tag(id: 7, label: "seven")))
+    try! shapes.push(Box<any Shape>.make(Square(side: 3)))
+    var sum = 0
+    while let b = shapes.pop() {
+        var held = move b
+        held.grow(by: 2)
+        sum = sum + held.area()
+    }
+    print("{}", sum)
+
+    let sq = Square(side: 4)
+    print("{}", forwarded(&sq))
+    print("{}", twice(area_of(&sq)))
+    print("{}", __saw_drive(root(3)))
+
+    var tag = Tag(id: 2, label: "two")
+    grow_all(&var tag, 3)
+    print("{}", tag.id)
+}

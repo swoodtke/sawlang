@@ -1,0 +1,10 @@
+// refuses: member.unknown at 9:7
+// a method the existential's trait does not declare: an `any Trait` dispatches only its trait's requirements
+
+trait Shape {
+    func area(&self) -> Int
+}
+
+func perimeter_of(s: &any Shape) -> Int {
+    s.perimeter()
+}

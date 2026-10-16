@@ -7,6 +7,7 @@ import sawborrowck.program.{BorrowckProgram}
 import sawdrops.program.{DropsProgram}
 import sawllvm.attributes.{ll_function_attribute_group, ll_function_attributes}
 import sawllvm.bodies.{ll_param_name}
+import sawllvm.erased.{ll_drop_nothing}
 import sawllvm.prims.{LL_FAIL_KINDS, LL_FAIL_PART_SIZE, LL_MESSAGE_LIMIT, LL_PART_BOOL, LL_PART_SIGNED,
                           LL_PART_UNSIGNED, ll_fail_reason, ll_fail_symbol}
 import sawcoro.lower.{CORO_STATE_START}
@@ -75,8 +76,23 @@ public func llvm_emit_program(mono: &var MonoProgram, target: &var Target, lower
         let it = mono.items[k]
         if it.body >= 0 {
             e.emit_function(&var mono, &var target, k)
+        } else if it.kind == MonoItemKind.DropGlue {
+            e.emit_erased_drop(&var mono, &var target, k)
         }
         k = k + 1
+    }
+    var drops_nothing = false
+    k = 0
+    while k < mono.vtables.len() {
+        let table = e.vtable(&var mono, &var target, k)
+        try! e.globals.append(table)
+        if mono.vtables[k].drop < 0 {
+            drops_nothing = true
+        }
+        k = k + 1
+    }
+    if drops_nothing {
+        try! e.defs.append(ll_drop_nothing())
     }
     // A lowered spawn site names its task root's frame descriptor, which the
     // executor reaches the task's frame through.

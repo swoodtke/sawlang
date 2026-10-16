@@ -15,9 +15,10 @@ import sawmir.build.{mir_func_local}
 import sawmono.dump.{mono_dump_layouts}
 import sawmono.glue.{mono_copies_bitwise}
 import sawtarget.layout.{target_struct_fields}
-import sawmono.program.{MONO_DEPTH_LIMIT, MONO_KEY_COPY, MONO_KEY_DROP, MONO_KEY_EXTERN, MONO_KEY_FUNCTION,
-                            MONO_KEY_MEMBER, MONO_KEY_RELOCATIONS, MONO_KEY_RENDER, MONO_KEY_TASK_ROOT, MonoItem,
-                            MonoItemKind, MonoProgram}
+import sawmono.program.{MONO_DEPTH_LIMIT, MONO_KEY_COPY, MONO_KEY_DEALLOC, MONO_KEY_DISPATCHED, MONO_KEY_DROP,
+                            MONO_KEY_EXTERN, MONO_KEY_FUNCTION, MONO_KEY_MEMBER, MONO_KEY_RELOCATIONS, MONO_KEY_RENDER,
+                            MONO_KEY_RENDER_SLOT, MONO_KEY_TASK_ROOT, MONO_KEY_VTABLE, MonoItem, MonoItemKind,
+                            MonoProgram, MonoVtable}
 import sawtypecheck.bodies.{tc_check_bodies}
 import sawtypecheck.bodydump.{tc_dump_bodies}
 import sawtypecheck.candidates.{tc_contains}
@@ -29,6 +30,7 @@ import sawresolve.lang.{ResLang}
 import sawresolve.model.{ResDeclKind, ResModuleKind}
 import sawresolve.program.{ResProgram}
 import sawtypecheck.conform.{TcSubst}
+import sawtypecheck.erasure.{tc_check_object_safety}
 import sawtypecheck.model.{TC_FLAG_DEFAULT_BODY, TcStatusKind}
 import sawtypecheck.program.{TcProgram}
 import sawtypecheck.tier.{tc_compute_tiers}
@@ -365,7 +367,13 @@ extension MonoProgram {
                     self.need_drop(k, result, it.origin_node)
                 }
             },
-            case DropGlue -> self.build_drop_glue(k),
+            case DropGlue -> {
+                if self.dp.bc.mir.tc.dispatched_existential(it.glue_type) >= 0 {
+                    self.erased_box_glue(k)
+                } else {
+                    self.build_drop_glue(k)
+                }
+            },
             case CopyGlue -> self.build_copy_glue(k),
             case MemberGlue -> self.build_member_glue(k),
             case Extern -> {}
@@ -733,6 +741,9 @@ extension MonoProgram {
         if rv.kind == MirRvalueKind.Interpolate {
             self.resolve_interpolation(k, &rv, stmt.node)
         }
+        if rv.kind == MirRvalueKind.Erase {
+            self.resolve_erasure(k, stmt.rvalue, stmt.node)
+        }
         if rv.kind == MirRvalueKind.Binary && rv.count == 2 {
             self.resolve_string_comparison(k, &rv, stmt.node)
         }
@@ -868,6 +879,10 @@ extension MonoProgram {
                 if decl.kind == ResDeclKind.Extern {
                     let item = self.extern_item(k, info.target)
                     self.set_call_item(c, item)
+                    return
+                }
+                if decl.kind == ResDeclKind.Requirement && self.dp.bc.mir.tc.kind_of(info.owner) == TcKind.Any {
+                    self.resolve_dispatch(k, c, &info)
                     return
                 }
                 var target = MonoTarget(decl: info.target, self_type: -1, item: -1)
@@ -1409,7 +1424,9 @@ extension MonoProgram {
 
     // THE RENDER FUNNEL: the item that formats a value of concrete type `t`
     // into the builder, `Printable.format(into:)` resolved on `t` through the
-    // requirement funnel, made when new; -1 when refused.
+    // requirement funnel, made when new; for an erased `t` (`any Trait` or an
+    // erased box) the vtable slot its `format` dispatches through
+    // (`render_slot`); -1 when refused.
     // ENTRY POINTS:
     //     need_fixed_render
     //     resolve_interpolation
@@ -1422,6 +1439,19 @@ extension MonoProgram {
         if req < 0 {
             self.refuse(node, "mono.not-yet", "a rendering with no `Printable.format` requirement")
             return -1
+        }
+        let x = self.dp.bc.mir.tc.dispatched_existential(t)
+        if x >= 0 {
+            let known = self.render_slot(t)
+            if known >= 0 {
+                return known
+            }
+            let trait_decl = self.dp.bc.mir.tc.types.ty(x).decl
+            let slot = self.dispatch_of(k, trait_decl, req, node)
+            if slot >= 0 {
+                self.by_key.add(t, MONO_KEY_RENDER_SLOT, slot)
+            }
+            return slot
         }
         let target = self.resolve_requirement(req, t, k, node)
         var item = target.item
@@ -1543,5 +1573,218 @@ extension MonoProgram {
                                       origin_node: -1))
         self.by_key.add(name, MONO_KEY_EXTERN, k)
         k
+    }
+}
+
+// Erasure and dispatch through `any Trait` (spec, `any Trait` existentials):
+// an erasure attaches the vtable of its concrete type at the existential's
+// trait, and a dispatch calls one of that vtable's slots. A slot is filled
+// only for a requirement some dispatch in the program calls, so an erased
+// type's other requirements are never instantiated; whichever of the two
+// arrives second fills it.
+extension MonoProgram {
+    // An erasure in item `k` at concrete rvalue `r`: a reference's into
+    // `&any Trait`, a value's into an erased box, or a `Result`'s concrete
+    // error into its erased box, the last two also reaching the box
+    // allocator's `alloc`.
+    func resolve_erasure(&var self, k: Int, r: Int, node: Int) {
+        let rv = self.dp.bc.mir.rvalues[r]
+        let o = self.dp.bc.mir.lists[rv.first]
+        let from = self.dp.bc.mir.operands[o].ty
+        var concrete = from
+        var x = -1
+        var alloc = -1
+        if self.dp.bc.mir.tc.kind_of(rv.ty) == TcKind.Ref {
+            concrete = self.dp.bc.mir.tc.referent(from)
+            x = self.dp.bc.mir.tc.referent(rv.ty)
+        } else {
+            var box = rv.ty
+            if self.dp.bc.mir.tc.is_result(rv.ty) && self.dp.bc.mir.tc.is_result(from) {
+                box = self.dp.bc.mir.tc.arg_of(rv.ty, 1)
+                concrete = self.dp.bc.mir.tc.arg_of(from, 1)
+            }
+            x = self.dp.bc.mir.tc.dispatched_existential(box)
+            if x < 0 || x == box {
+                try! self.problems.push("an erasure into neither a reference nor a box reached mono")
+                return
+            }
+            alloc = self.allocator_member(k, box, "alloc", node)
+            if alloc < 0 {
+                return
+            }
+        }
+        if concrete < 0 || x < 0 || self.dp.bc.mir.tc.kind_of(x) != TcKind.Any {
+            try! self.problems.push("an erasure whose target is no existential reached mono")
+            return
+        }
+        let trait_decl = self.dp.bc.mir.tc.types.ty(x).decl
+        let v = self.vtable_of(k, concrete, trait_decl, node)
+        self.set_erasure(r, v, alloc)
+    }
+
+    // THE VTABLE FUNNEL: the vtable of concrete type `concrete` at trait
+    // `trait_decl`, made when new, with every slot a dispatch already calls
+    // filled and the type's drop glue reached.
+    // ENTRY POINTS:
+    //     resolve_erasure
+    func vtable_of(&var self, k: Int, concrete: Int, trait_decl: Int, node: Int) -> Int {
+        var at = self.by_key.first(concrete, MONO_KEY_VTABLE)
+        while at >= 0 {
+            let found = self.by_key.value(at)
+            if self.vtables[found].trait_decl == trait_decl {
+                return found
+            }
+            at = self.by_key.following(at)
+        }
+        let slots = self.dp.bc.mir.tc.dispatch_requirements(trait_decl)
+        let first = self.vtable_slots.len()
+        var j = 0
+        while j < slots.len() {
+            try! self.vtable_slots.push(-1)
+            j = j + 1
+        }
+        var drop = -1
+        if self.dp.bc.mir.owns(concrete) {
+            drop = self.glue_of(concrete, MONO_KEY_DROP, k, node)
+        }
+        let v = self.vtables.len()
+        try! self.vtables.push(MonoVtable(concrete: concrete, trait_decl: trait_decl, slot_first: first,
+                                          slot_count: slots.len(), drop: drop))
+        self.by_key.add(concrete, MONO_KEY_VTABLE, v)
+        j = 0
+        while j < slots.len() {
+            if self.is_dispatched(trait_decl, j) {
+                self.fill_slot(k, v, j, node)
+            }
+            j = j + 1
+        }
+        v
+    }
+
+    // A dispatch through `any Trait` at concrete call `c` of item `k`.
+    func resolve_dispatch(&var self, k: Int, c: Int, info: &MirCall) {
+        let trait_decl = self.dp.bc.mir.tc.types.ty(info.owner).decl
+        let slot = self.dispatch_of(k, trait_decl, info.target, info.node)
+        if slot >= 0 {
+            self.set_dispatch_slot(c, slot)
+        }
+    }
+
+    // THE DISPATCH FUNNEL: the slot requirement `req` has in the vtables of
+    // trait `trait_decl`, filled in each of them the first time anything
+    // dispatches it; -1 for a requirement with no slot.
+    // ENTRY POINTS:
+    //     resolve_dispatch
+    //     render_of
+    func dispatch_of(&var self, k: Int, trait_decl: Int, req: Int, node: Int) -> Int {
+        let slots = self.dp.bc.mir.tc.dispatch_requirements(trait_decl)
+        var slot = -1
+        var j = 0
+        while j < slots.len() {
+            if slots[j] == req {
+                slot = j
+            }
+            j = j + 1
+        }
+        if slot < 0 {
+            try! self.problems.push("a dispatch names a requirement its existential's vtable has no slot for")
+            return -1
+        }
+        if self.is_dispatched(trait_decl, slot) {
+            return slot
+        }
+        self.by_key.add(trait_decl, MONO_KEY_DISPATCHED, slot)
+        var v = 0
+        while v < self.vtables.len() {
+            if self.vtables[v].trait_decl == trait_decl {
+                self.fill_slot(k, v, slot, node)
+            }
+            v = v + 1
+        }
+        slot
+    }
+
+    // Whether some dispatch calls slot `slot` of trait `trait_decl`.
+    func is_dispatched(&self, trait_decl: Int, slot: Int) -> Bool {
+        var at = self.by_key.first(trait_decl, MONO_KEY_DISPATCHED)
+        while at >= 0 {
+            if self.by_key.value(at) == slot {
+                return true
+            }
+            at = self.by_key.following(at)
+        }
+        false
+    }
+
+    // Slot `slot` of vtable `v`: its requirement resolved on the vtable's
+    // concrete type through the requirement funnel.
+    func fill_slot(&var self, k: Int, v: Int, slot: Int, node: Int) {
+        let vt = self.vtables[v]
+        let slots = self.dp.bc.mir.tc.dispatch_requirements(vt.trait_decl)
+        let req = slots[slot]
+        let target = self.resolve_requirement(req, vt.concrete, k, node)
+        var item = target.item
+        if target.decl >= 0 && item < 0 {
+            item = self.member_item_at(k, target.decl, target.self_type, vt.concrete, node)
+        }
+        self.vtable_slots[vt.slot_first + slot] = item
+    }
+
+    // An erased box's drop glue (item `k`) has no MIR body: the backend runs
+    // the payload's drop through its vtable and frees the allocation through
+    // the box's allocator with the vtable's size and alignment, so all this
+    // item reaches is that allocator's `dealloc`.
+    func erased_box_glue(&var self, k: Int) {
+        let it = self.items[k]
+        let dealloc = self.allocator_member(k, it.glue_type, "dealloc", it.origin_node)
+        if dealloc >= 0 {
+            self.by_key.add(it.glue_type, MONO_KEY_DEALLOC, dealloc)
+        }
+    }
+
+    // The `dealloc` item erased box type `t`'s drop glue calls, or -1.
+    public func erased_dealloc(&self, t: Int) -> Int {
+        let at = self.by_key.first(t, MONO_KEY_DEALLOC)
+        if at < 0 {
+            return -1
+        }
+        self.by_key.value(at)
+    }
+
+    // The item of allocator member `name` (`alloc` or `dealloc`) of erased
+    // box type `box`'s allocator, reached from item `k`; -1 when refused.
+    // The box builds its allocator as `A()`, so in the slice it is a
+    // fieldless struct with no `init`, as a construction through a type
+    // parameter is.
+    func allocator_member(&var self, k: Int, box: Int, name: String, node: Int) -> Int {
+        let a = self.dp.bc.mir.tc.arg_of(box, 1)
+        let d = self.dp.bc.mir.tc.nominal_decl(a)
+        let is_struct = d >= 0 && self.dp.bc.mir.tc.res.decls[d].kind == ResDeclKind.Struct
+        if not is_struct || target_struct_fields(&self.dp.bc.mir.tc, d).len() != 0 || self.declares_init(d) {
+            var msg = StringBuilder()
+            try! msg.append("an erased box over `")
+            try! msg.append(self.dp.bc.mir.tc.type_text(a))
+            try! msg.append("` is not in the backend slice yet: only an allocator that is a fieldless struct with no `init`")
+            self.refuse(node, "mono.not-yet", msg.build())
+            return -1
+        }
+        var labels = Vector<String>()
+        if name.equals("dealloc") {
+            try! labels.push("ptr")
+        }
+        try! labels.push("size")
+        try! labels.push("align")
+        let decl = self.member_with(d, name, &labels)
+        if decl < 0 {
+            var msg = StringBuilder()
+            try! msg.append("an erased box whose allocator `")
+            try! msg.append(self.dp.bc.mir.tc.type_text(a))
+            try! msg.append("` declares no `")
+            try! msg.append(name)
+            try! msg.append("` is not in the backend slice yet")
+            self.refuse(node, "mono.not-yet", msg.build())
+            return -1
+        }
+        self.member_item(k, decl, a, node)
     }
 }

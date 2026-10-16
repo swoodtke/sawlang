@@ -9,6 +9,7 @@
 import sawborrowck.program.{BorrowckProgram}
 import sawdrops.program.{DropsProgram}
 import sawllvm.prims.{LL_FAIL_DIVIDE, LL_FAIL_OVERFLOW, LL_FAIL_SHIFT, LL_MESSAGE_LIMIT}
+import sawllvm.erased.{ll_vtable_symbol}
 import sawllvm.module.{LlEmitter, ll_is_scalar, ll_symbol, ll_value_type}
 import sawllvm.places.{ll_local_slot, ll_tag_type}
 import sawllvm.literals.{ll_zero_constant}
@@ -36,6 +37,11 @@ extension LlEmitter {
                 self.operand_into(&var mono, &var target, o, dest, rv.ty, node)
             },
             case Ref -> {
+                let referent = mono.dp.bc.mir.places[rv.place].ty
+                if mono.dp.bc.mir.tc.kind_of(referent) == TcKind.Any {
+                    self.erased_ref_into(&var mono, &var target, rv.place, dest, node)
+                    return
+                }
                 let addr = self.place_addr(&var mono, &var target, rv.place, node)
                 self.store("ptr", addr, dest)
             },
@@ -50,7 +56,7 @@ extension LlEmitter {
             },
             case Aggregate -> self.aggregate_into(&var mono, &var target, r, dest, node),
             case Interpolate -> self.interpolation_into(&var mono, &var target, &rv, dest, node),
-            case Erase -> self.refuse_here(&var mono, node, "an erasure into `any` is not in the backend slice yet"),
+            case Erase -> self.erase_into(&var mono, &var target, r, dest, node),
             case Slice -> self.refuse_here(&var mono, node, "a slice is not in the backend slice yet"),
             case Take -> self.refuse_here(&var mono, node, "a `[move]` capture's take is not in the backend slice yet")
         }

@@ -1,0 +1,47 @@
+// probe: stated
+// about: a `&any Trait` parameter dispatched on both sides of a suspension (SL-721)
+// stage 0: refuses the parameter of a suspending function, holding a frame's reference as a handle to a referent whose size it must name
+// speeds: -O0 -O2
+// prints: 18
+// prints: 25
+// A reference spans a suspension whatever its referent (spec, "References
+// may span suspensions"), and an erased one is held in the frame as its two
+// words, the value's address and its vtable's, so a dispatch after the
+// resume reaches the same value through the same vtable. Spec-derived
+// expectation (no oracle): `spanning` adds the area read before the
+// suspension to the one read after, so a side-3 square gives 9 + 9, and a
+// `&var` parameter grown by 2 across the suspension gives 25 for a side 3.
+
+trait Shape {
+    func area(&self) -> Int
+    func grow(&var self, by: Int)
+}
+
+struct Square {
+    side: Int
+}
+
+extension Square: Shape {
+    func area(&self) -> Int { self.side * self.side }
+    func grow(&var self, by: Int) { self.side = self.side + by }
+}
+
+func spanning(s: &any Shape) -> Int {
+    let a = s.area()
+    __saw_suspend()
+    a + s.area()
+}
+
+func growing(s: &var any Shape) -> Int {
+    __saw_suspend()
+    s.grow(by: 2)
+    __saw_suspend()
+    s.area()
+}
+
+func main() {
+    let sq = Square(side: 3)
+    print("{}", __saw_drive(spanning(&sq)))
+    var grown = Square(side: 3)
+    print("{}", __saw_drive(growing(&var grown)))
+}

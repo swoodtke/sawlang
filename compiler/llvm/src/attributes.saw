@@ -7,14 +7,16 @@ import sawmono.program.{MonoProgram}
 import sawtarget.layout.{Target}
 // For the extension writing `is_cell_carrying`.
 import sawtypecheck.tier.{tc_max}
+import sawtypecheck.typeops.{TcClient}
 import sawtypecheck.types.{TcKind}
 
 // The attributes parameter `j` of item `k`'s function, of type `t`, carries,
 // or "". A reference is `noalias` while the call runs: an exclusive one by the
 // Law of Exclusivity, and a shared one unless its referent carries a cell,
 // since a cell is the one place a shared borrow lets anything write (spec,
-// Reference passing). A raw pointer, an aggregate passed by address, the
-// result's address, a slice and a closure's environment carry nothing.
+// Reference passing). A raw pointer, an aggregate passed by address (an
+// erased `&any Trait` among them), the result's address, a slice and a
+// closure's environment carry nothing.
 //
 // ENTRY POINTS:
 //   LlEmitter.emit_function
@@ -24,7 +26,7 @@ public func ll_param_attributes(mono: &var MonoProgram, k: Int, j: Int, t: Int) 
         return ""
     }
     let info = mono.dp.bc.mir.tc.types.ty(t)
-    if info.kind != TcKind.Ref {
+    if info.kind != TcKind.Ref || mono.dp.bc.mir.tc.kind_of(info.b) == TcKind.Any {
         return ""
     }
     if info.a == 1 {
@@ -46,6 +48,8 @@ public func ll_param_attributes(mono: &var MonoProgram, k: Int, j: Int, t: Int) 
 //   LlEmitter.emit_resume
 //   LlEmitter.entry_point
 //   LlEmitter.descriptor
+//   LlEmitter.emit_erased_drop
+//   ll_drop_nothing
 //   ll_frame_resume_helper
 //   ll_helpers
 //   ll_fail_helpers
