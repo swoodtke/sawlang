@@ -1479,7 +1479,7 @@ expr_suspend_andor.saw	pass	-	-
 expr_suspend_arg.saw	pass	-	-
 expr_suspend_arg_order.saw	pass	-	-
 expr_suspend_binop.saw	pass	-	-
-expr_suspend_blocking.saw	wrong	sawc2's binary panics	panic at taskgroup.saw:1145: executor: an offload needs its job's completion, which arrives with SL:coroutines A14b
+expr_suspend_blocking.saw	pass	-	-
 expr_suspend_chain_head.saw	pass	-	-
 expr_suspend_channel_recv.saw	pass	-	-
 expr_suspend_coalesce.saw	pass	-	-
@@ -1491,7 +1491,7 @@ expr_suspend_interp.saw	pass	-	-
 expr_suspend_later_hop.saw	pass	-	-
 expr_suspend_match_scrutinee.saw	pass	-	-
 expr_suspend_move_error.saw	pass	-	move.use-after: `data` is used after it may have been moved (moved at 19:5); a moved value is gone until it is assigned again
-expr_suspend_nested_blocking.saw	wrong	sawc2's binary panics	panic at taskgroup.saw:1145: executor: an offload needs its job's completion, which arrives with SL:coroutines A14b
+expr_suspend_nested_blocking.saw	pass	-	-
 expr_suspend_nested_shortcircuit.saw	pass	-	-
 expr_suspend_optchain_assign.saw	wrong	stdout differs	line 4: sawc2 "2", Stage 0 "1"
 expr_suspend_optchain_compound_assign.saw	wrong	stdout differs	line 4: sawc2 "2", Stage 0 "1"
@@ -1937,9 +1937,9 @@ net_cancel_parked_mt.saw	refused	typecheck call.label	no parameter is labeled `t
 net_cancel_parked_read.saw	refused	typecheck member.unknown	`std.taskgroup.Task<Void>` has no method `cancel_addr` this module can see
 net_cancel_precise.saw	refused	typecheck member.unknown	`std.taskgroup.Task<Int>` has no method `cancel_addr` this module can see
 net_cancel_unregisters_token.saw	refused	typecheck member.unknown	`std.taskgroup.Task<std.net.TcpStream>` has no method `cancel_addr` this module can see
-net_connect_by_name.saw	stage0-wrong	annotated SL-768	sawc2: exit -6
+net_connect_by_name.saw	stage0-wrong	annotated SL-768	sawc2 meets its directives
 net_connect_dials_the_host_it_was_given.saw	stage0-wrong	annotated SL-768	sawc2 meets its directives
-net_connect_unresolvable_host.saw	stage0-wrong	annotated SL-768	sawc2: exit -6
+net_connect_unresolvable_host.saw	stage0-wrong	annotated SL-768	sawc2 meets its directives
 net_deinit_across_parks.saw	stage0-wrong	annotated SL-768	sawc2 meets its directives
 net_error_surfaced.saw	stage0-wrong	annotated SL-768	sawc2 meets its directives
 net_fd_leak.saw	stage0-wrong	annotated SL-768	sawc2 meets its directives
@@ -2007,11 +2007,11 @@ none_return_test.saw	pass	-	-
 number_literal_member_access.saw	refused	mono mono.not-yet	a synthesized `Printable.format(into: &var std.stringbuilder.StringBuilder)` on `Float` is not in the backend slice yet: a Float's `format` waits for `std.float`'s formatter (SL-722 U5) (inside std/pr
 offload_cancel_multi_arg.saw	refused	typecheck member.unknown	`std.taskgroup.Task<Int>` has no method `cancel_addr` this module can see
 offload_cancel_parked.saw	refused	typecheck member.unknown	`std.taskgroup.Task<Int>` has no method `cancel_addr` this module can see
-offload_multi_arg_pipe_read.saw	wrong	sawc2's binary panics	panic at taskgroup.saw:1145: executor: an offload needs its job's completion, which arrives with SL:coroutines A14b
-offload_pointer_heap_arg.saw	wrong	sawc2's binary panics	panic at taskgroup.saw:1145: executor: an offload needs its job's completion, which arrives with SL:coroutines A14b
-offload_seam_first_tick.saw	wrong	sawc2's binary panics	panic at taskgroup.saw:1145: executor: an offload needs its job's completion, which arrives with SL:coroutines A14b
-offload_signature_shapes.saw	wrong	sawc2's binary panics	panic at taskgroup.saw:1145: executor: an offload needs its job's completion, which arrives with SL:coroutines A14b
-offload_spawn_interleave.saw	wrong	sawc2's binary panics	panic at taskgroup.saw:1145: executor: an offload needs its job's completion, which arrives with SL:coroutines A14b
+offload_multi_arg_pipe_read.saw	pass	-	-
+offload_pointer_heap_arg.saw	pass	-	-
+offload_seam_first_tick.saw	pass	-	-
+offload_signature_shapes.saw	pass	-	-
+offload_spawn_interleave.saw	pass	-	-
 once_cross_thread_publish.saw	refused	mono mono.not-yet	the builtin `Thread.spawn` is not in the backend slice yet
 once_double_set_panic.saw	pass	-	-
 once_get_before_set_panic.saw	pass	-	-

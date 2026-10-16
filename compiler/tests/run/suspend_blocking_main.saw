@@ -1,0 +1,19 @@
+// A `main` that reaches a `blocking` extern through two helpers suspends, and
+// so does each helper, so the call is offloaded rather than compiled as a
+// plain call that blocks the only thread: it starts the job, parks on the
+// job's pipe until the call returns, and takes its result.
+extern "C" {
+    blocking func usleep(us: UInt32) -> Int32
+}
+
+func nap() -> Int32 {
+    usleep(10)
+}
+
+func caller() -> Int {
+    (nap() as Int) + 41
+}
+
+func main() {
+    print("{}", caller())
+}

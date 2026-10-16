@@ -1128,21 +1128,28 @@ public(package) func __saw_exec_deadline_passed(deadline: UInt64) -> Bool {
     monotonic_now() >= deadline
 }
 
+// The offload job seams. `job` is the handle `__saw_rt_offload_start`
+// returned, which the offloaded call's frame keeps until its take frees the
+// job (runtime/ABI.md, "Blocking-extern offload").
+extern "C" {
+    func __saw_rt_offload_done(job: Int) -> Int
+    func __saw_rt_offload_pipe_fd(job: Int) -> Int
+}
+
 /// The read end of offload job `job`'s completion pipe, which an offload park
 /// arms through `__saw_exec_io_register` after it records its word.
-///
-/// Panics: the offload park's executor half is not here yet.
 public func __saw_exec_offload_pipe(job: Int) -> Int {
-    panic("executor: an offload park needs its job's pipe, which arrives with SL:coroutines A14b")
+    // The registration is not withdrawn on a cancel exit: the take closes
+    // this descriptor, which removes it from the reactor, before the task can
+    // park again or its cell can be freed.
+    __saw_rt_offload_pipe_fd(job)
 }
 
 /// Whether offload job `job`'s C call has returned, which an offload asks
 /// before it parks and after every wake, so that only a finished job, or a
 /// cancelled task, reaches the take that joins the job's thread.
-///
-/// Panics: the offload's executor half is not here yet.
 public func __saw_exec_offload_done(job: Int) -> Bool {
-    panic("executor: an offload needs its job's completion, which arrives with SL:coroutines A14b")
+    __saw_rt_offload_done(job) != 0
 }
 
 /// The process-wide group `Task.spawn` spawns into, built on the first call.

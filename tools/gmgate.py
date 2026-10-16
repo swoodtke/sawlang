@@ -227,6 +227,9 @@ CONCURRENCY = (
             CORPUS + "expr_suspend_deinit_once.saw",
             # An `if let` over a `move` scrutinee releases its payload once.
             CORPUS + "conformance/O12_iflet_move_binding_released_in_coroutine.saw",
+            # A task cancelled during its offloaded call keeps its frame until
+            # the call has written into it and the take has returned.
+            RUN_LANE + "offload_cancel_waits_for_the_call.saw",
         ),
         blocked=()),
     Category(

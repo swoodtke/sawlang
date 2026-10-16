@@ -1,0 +1,7 @@
+program	compiler/tests/run/suspend_blocking_main.saw
+triple	arm64-apple-darwin
+source	ecb846615b056eee
+build	ok
+exit	0
+stdout	"41"
+stdout	""

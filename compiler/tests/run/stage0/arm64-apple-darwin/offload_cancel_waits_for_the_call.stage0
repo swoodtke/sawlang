@@ -1,0 +1,12 @@
+program	compiler/tests/run/offload_cancel_waits_for_the_call.saw
+triple	arm64-apple-darwin
+source	f010a8bccbacced9
+build	ok
+exit	0
+stdout	"worker: calling poll"
+stdout	"main: cancelling the worker during its call"
+stdout	"worker: poll returned 0, revents 0"
+stdout	"worker: cancelled"
+stdout	"worker's value dropped"
+stdout	"main: joined 1"
+stdout	""

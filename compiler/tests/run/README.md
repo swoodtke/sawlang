@@ -401,10 +401,11 @@ too, `task_sleep_ordering` wakes two sleeping tasks in deadline order, and
 `task_cancel_idle_sleep` cancels a sleeping task once the executor has
 idled until `main`'s earlier deadline, and `instant_after_sleep` measures a
 sleep with `std.time`'s `Instant`. The due program `suspend_cycle` pins
-the refusal of a cycle at a build. The offload (SL:coroutines A14a): the probe
-`probes/suspend_blocking_main` offloads a `blocking` extern from a
-suspending `main`, and panics where it asks whether the job is done, until
-the offload's executor half (A14b) lands.
+the refusal of a cycle at a build. The offload (SL:coroutines A14a, A14b):
+`suspend_blocking_main` offloads a `blocking` extern from a suspending
+`main`, and `offload_cancel_waits_for_the_call` cancels a task while its
+offloaded call is in flight: the task waits for the call, which writes into
+its frame after the cancel, before it leaves.
 
 **Closures.** A closure's environment is a slot of the frame that builds it,
 which is sound only for a closure that does not escape; mono refuses an

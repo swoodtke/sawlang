@@ -416,6 +416,69 @@ static IPV4_OCTETS: Int = 4
 static OCTET_MAX: Int = 255
 static OCTET_MAX_DIGITS: Int = 3
 
+extern "C" {
+    // Writes up to `max` IPv4 addresses `host` resolves to through `out`, as
+    // the address words the dial seams take, and returns the count, or a
+    // negated portable tag. `getaddrinfo` behind it may wait out a DNS
+    // timeout, so the call is offloaded and the task parks (runtime/ABI.md).
+    blocking func __saw_rt_resolve_ipv4(host: UnsafePointer<Int8>, out: UnsafePointer<UInt32>, max: Int) -> Int
+}
+
+// The NUL ending the C string the resolver reads a host name from.
+static HOST_NAME_END: Int8 = 0
+
+// The first IPv4 address `host` resolves to, as the address word `dial`
+// takes. A name with no IPv4 address leaves nowhere to dial, which is
+// `NotFound`.
+//
+// The worker thread reads the name and writes `found` while this task is
+// parked, so both outlive the call: the name is heap storage freed after the
+// call returns, and `found` is a local of this suspended frame. A cancelled
+// task still waits for the call before it leaves (runtime/ABI.md,
+// "Blocking-extern offload").
+func resolve_first(host: String) unsafe -> Result<Int, IoError> {
+    let length = host.len()
+    let size = length + 1
+    guard let name = GlobalAllocator().alloc(size, 1) else {
+        return resolve_error(host, IoErrorKind.ResourcesExhausted)
+    }
+    var i = 0
+    while i < length {
+        let b = host.byte_at(i)
+        if b == 0 {
+            GlobalAllocator().dealloc(name, size, 1)
+            return resolve_error(host, IoErrorKind.InvalidArgument)
+        }
+        name[i] = Int8.from(truncating: b)
+        i = i + 1
+    }
+    name[length] = HOST_NAME_END
+    var found: UInt32 = 0
+    let n = __saw_rt_resolve_ipv4(name, (&found) as UnsafePointer<UInt32>, 1)
+    GlobalAllocator().dealloc(name, size, 1)
+    if n < 0 {
+        return resolve_error(host, IoErrorKind.of(0 - n))
+    }
+    if n == 0 {
+        return resolve_error(host, IoErrorKind.NotFound)
+    }
+    found as Int
+}
+
+// A failed resolution, naming the host, since an error that does not say which
+// name failed cannot be acted on: `io error: resolve "db.internal" failed (not
+// found)`. Its `code()` is 0, because the resolver classified the failure on
+// the worker's thread, not this one.
+func resolve_error(host: String, kind: IoErrorKind) -> IoError {
+    // The appends force rather than report: this builds the error itself, and
+    // there is no error channel behind it.
+    var what = StringBuilder()
+    try! what.append("resolve \"")
+    try! what.append(host)
+    try! what.append("\"")
+    IoError.of(syscall: what.build(), kind: kind)
+}
+
 /// A listening TCP socket, which owns its descriptor.
 public struct TcpListener {
     private fd: Int
@@ -519,21 +582,18 @@ extension TcpStream {
 
     /// Connects to `host`:`port`, suspending until the connection is made.
     ///
-    /// `host` is a dotted IPv4 literal. Returns `Err(IoError)` when the
-    /// connection is refused or fails, and one of kind `Interrupted` when the
-    /// task is cancelled while it waits.
-    ///
-    /// Panics when `host` is a name: resolving one runs on an offload worker,
-    /// which this std does not have yet.
+    /// `host` is a dotted IPv4 literal or a name to resolve. A name is looked
+    /// up on a worker thread while sibling tasks run, and its first IPv4
+    /// address is dialled. Returns `Err(IoError)` naming the host when the name
+    /// does not resolve, `Err(IoError)` when the connection is refused or
+    /// fails, and one of kind `Interrupted` when the task is cancelled while it
+    /// waits.
     public static func connect(host: String, port: Int) -> Result<TcpStream, IoError> {
-        guard let address = parse_ipv4_literal(host) else {
-            // A name resolves through a `blocking` seam on an offload worker,
-            // whose executor half is not in this std. A missing executor half
-            // panics, naming its unit, rather than answering a made-up error
-            // (SL:coroutines A3c).
-            panic("TcpStream.connect: resolving the host name \"{}\" needs the offload worker (SL:coroutines A14b)", host)
+        if let address = parse_ipv4_literal(host) {
+            return TcpStream.dial(address as Int, port)
         }
-        TcpStream.dial(address as Int, port)
+        let address = try resolve_first(host)
+        TcpStream.dial(address, port)
     }
 
     // Dials `address`:`port` and parks until the socket is writable, checking
