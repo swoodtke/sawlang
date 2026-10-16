@@ -281,10 +281,20 @@ func proc_spawn_impl(path: UnsafePointer<Int8>, argv: UnsafePointer<Int8>, envp:
     let capture = flags & ((RedirectFlag.CaptureStdout as UInt8) as Int)
     let merge_stderr = flags & ((RedirectFlag.MergeStderr as UInt8) as Int)
 
+    // The job record is allocated before the pipe and the fork: a refusal here
+    // leaves no descriptor or child to undo (SL-768).
+    let raw = malloc(sizeof<ProcJob>())
+    if raw as Int == 0 {
+        return 0 - ((SysError.Exhausted as UInt8) as Int)
+    }
+    let p = raw as UnsafePointer<ProcJob>
+
     var fds = PipeFds(r: NO_FD, w: NO_FD)
     if capture != 0 {
         if pipe((&fds) as UnsafePointer<Int8>) != (0 as Int32) {
-            return 0 - __saw_rt_last_syserror()
+            let e = __saw_rt_last_syserror()
+            free(raw)
+            return 0 - e
         }
     }
 
@@ -294,12 +304,19 @@ func proc_spawn_impl(path: UnsafePointer<Int8>, argv: UnsafePointer<Int8>, envp:
     env_lock_take()
     let pid = fork()
     if pid < (0 as Int32) {
-        let e = __saw_rt_last_syserror()
+        // EAGAIN from fork means the process limit: an exhausted resource a
+        // retry will not fix, not the WouldBlock the shared classifier names.
+        // The raw code stays stamped by the classifier (SL-768).
+        var e = __saw_rt_last_syserror()
+        if e == ((SysError.WouldBlock as UInt8) as Int) {
+            e = (SysError.Exhausted as UInt8) as Int
+        }
         env_lock_give()
         if capture != 0 {
             let _ = close(fds.r)
             let _ = close(fds.w)
         }
+        free(raw)
         return 0 - e
     }
 
@@ -335,8 +352,6 @@ func proc_spawn_impl(path: UnsafePointer<Int8>, argv: UnsafePointer<Int8>, envp:
     if capture != 0 {
         let _ = close(fds.w)
     }
-    let raw = malloc(sizeof<ProcJob>())
-    let p = raw as UnsafePointer<ProcJob>
     p[0].pid = pid
     p[0].stdout_fd = fds.r
     p[0].wait_fd = NO_FD

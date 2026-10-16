@@ -1,0 +1,45 @@
+// The runtime's two lazily created pthread keys when no key is left. A refused
+// create must publish nothing: the raw-code slot answers 0 ("no code"), never
+// the garbage of a zeroed slot read as key 0, and the op budget still asks for
+// a yield every budget's worth of ops through its process-wide counter.
+
+extern "C" {
+    func pthread_key_create(key: UnsafePointer<Int8>, dtor: UnsafePointer<Int8>) -> Int32
+    func __saw_rt_fs_open(path: UnsafePointer<Int8>, mode: Int, perm: Int) -> Int
+    func __saw_rt_last_raw_code() -> Int
+    func __saw_rt_op_budget_tick() -> Int
+}
+
+// "/nx" and its NUL, little-endian: a path that does not exist.
+static MISSING_PATH: Int = 0x786E2F
+
+func exhaust_keys() unsafe -> Int {
+    var made = 0
+    var failed = false
+    while not failed {
+        var k: Int = 0
+        let rc = pthread_key_create((&k) as UnsafePointer<Int8>, 0 as UnsafePointer<Int8>)
+        if rc != (0 as Int32) {
+            failed = true
+        } else {
+            made = made + 1
+        }
+    }
+    made
+}
+
+func main() unsafe {
+    let made = exhaust_keys()
+    print("keys exhausted: {}", made > 0)
+    var path = MISSING_PATH
+    let tag = __saw_rt_fs_open((&path) as UnsafePointer<Int8>, 0, 0)
+    print("fs_open(missing) = {}", tag)
+    print("last_raw_code() = {}", __saw_rt_last_raw_code())
+    var yields = 0
+    var i = 0
+    while i < 1000 {
+        yields = yields + __saw_rt_op_budget_tick()
+        i = i + 1
+    }
+    print("yields over 1000 ops = {}", yields)
+}

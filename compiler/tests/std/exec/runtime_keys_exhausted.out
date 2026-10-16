@@ -1,0 +1,4 @@
+keys exhausted: true
+fs_open(missing) = -10
+last_raw_code() = 0
+yields over 1000 ops = 7

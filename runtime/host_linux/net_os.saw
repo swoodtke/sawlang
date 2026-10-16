@@ -99,13 +99,17 @@ static RAW_CODE_KEY: Atomic<Int> = Atomic(0)
 // The pthread key, created once and published by CAS (op_budget.saw's pattern):
 // create, try to publish, and if somebody else won, delete the spare and use
 // theirs. Holds `key + 1`, so a genuine key of 0 is not read as "no key yet".
+// A refused create publishes nothing and answers -1: key 0 belongs to libc, so
+// a failed create must never leak its zeroed slot as a key (SL-768).
 func raw_code_key() unsafe -> Int {
     let cur = RAW_CODE_KEY.load()
     if cur != 0 {
         return cur - 1
     }
     var fresh: Int = 0
-    pthread_key_create((&fresh) as UnsafePointer<Int8>, 0 as UnsafePointer<Int8>)
+    if pthread_key_create((&fresh) as UnsafePointer<Int8>, 0 as UnsafePointer<Int8>) != (0 as Int32) {
+        return -1
+    }
     if RAW_CODE_KEY.compare_exchange(0, fresh + 1) {
         return fresh
     }
@@ -114,12 +118,19 @@ func raw_code_key() unsafe -> Int {
 }
 
 func raw_code_store(value: Int) unsafe {
-    pthread_setspecific(raw_code_key(), value + 1)
+    let key = raw_code_key()
+    if key >= 0 {
+        pthread_setspecific(key, value + 1)
+    }
 }
 
 @export("__saw_rt_last_raw_code")
 func rt_last_raw_code() unsafe -> Int {
-    let raw = pthread_getspecific(raw_code_key())
+    let key = raw_code_key()
+    if key < 0 {
+        return 0
+    }
+    let raw = pthread_getspecific(key)
     if raw == 0 {
         return 0
     }

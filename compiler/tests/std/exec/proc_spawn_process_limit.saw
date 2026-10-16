@@ -1,0 +1,28 @@
+// A fork refused at the process limit (RLIMIT_NPROC) is an exhausted
+// resource, not WouldBlock: a retry will not fix it. The limit value 7 is
+// macOS's RLIMIT_NPROC.
+import std.process.{Command}
+
+extern "C" {
+    func getrlimit(resource: Int32, rlp: UnsafePointer<Int8>) -> Int32
+    func setrlimit(resource: Int32, rlp: UnsafePointer<Int8>) -> Int32
+}
+
+struct Limit {
+    cur: UInt64
+    max: UInt64
+}
+
+static NPROC: Int32 = 7
+
+func main() unsafe {
+    var l = Limit(cur: 0, max: 0)
+    let _ = getrlimit(NPROC, (&l) as UnsafePointer<Int8>)
+    l.cur = 1
+    print("setrlimit ok: {}", setrlimit(NPROC, (&l) as UnsafePointer<Int8>) == (0 as Int32))
+    let c = Command(program: "true")
+    match c.wait() {
+        case Ok(code) -> print("Ok({})", code),
+        case Err(e) -> print("Err: {}", e)
+    }
+}
