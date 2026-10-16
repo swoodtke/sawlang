@@ -1,0 +1,11 @@
+program	compiler/tests/run/vector_nested_each_borrows.saw
+triple	arm64-apple-darwin
+source	f57d75e099075f4f
+build	ok
+exit	0
+stdout	"row: 1 2 3"
+stdout	"row: 4 5"
+stdout	"row:"
+stdout	"grand total 15"
+stdout	"rows 3"
+stdout	""

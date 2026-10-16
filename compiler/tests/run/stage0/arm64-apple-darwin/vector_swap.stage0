@@ -1,0 +1,10 @@
+program	compiler/tests/run/vector_swap.saw
+triple	arm64-apple-darwin
+source	804ae21c4d691964
+build	ok
+exit	0
+stdout	"30"
+stdout	"20"
+stdout	"10"
+stdout	"20"
+stdout	""

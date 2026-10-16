@@ -2228,7 +2228,7 @@ optional_generic_place_assign.saw	copied	-	-
 optional_generic_return_tail.saw	copied	-	-
 optional_generic_spawn_result.saw	copied	-	-
 optional_generic_traits_result.saw	copied	-	-
-optional_generic_vector.saw	manual	manual.E:1,manual.E.companion:2,manual.get-place.companion:2,reviewed.get-place:3	re-aimed: `get` is described as the optional copy it is (SL:borrowing §2.4, §9.1 K14), and the with_ref row reads the element under a `borrow let` block (§9)
+optional_generic_vector.saw	manual	manual.E:1,manual.get-place.companion:2,reviewed.get-place:3	re-aimed: `get` is described as the optional copy it is (SL:borrowing §2.4, §9.1 K14), and the with_ref row reads the element under a `borrow let` block (§9)
 optional_guard_let_payload_read.saw	copied	-	-
 optional_move_unwrap.saw	copied	-	-
 optional_nested_type_sugar.saw	copied	-	-

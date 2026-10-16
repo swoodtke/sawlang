@@ -1,0 +1,94 @@
+// Conformance row V72 — a std visitor LENDS; it hands out no ownership
+//
+// Design 264 ruling B. Visiting is observation, so every std visitor parameter
+// that used to take an owning value BY VALUE now takes a reference:
+// `Map.each` (both slots), `Map.each_key`, `Map.each_value`, `Set.each`, and
+// `Vector.sort_by`'s two comparands. `Vector.fold`'s accumulator is the one
+// that stays by value, and stays deliberately — see row V76.
+//
+// THE COUNTABLE CLAIM IS ZERO RETAINS. A visit reaches each entry where the
+// container stores it, so a walk costs the refcount NOTHING: an `Arc` shared
+// by four map entries reads the same `strong_count()` before the walk, after
+// it, and after three more. Before this ruling the same three walks read
+// 5 -> 9 -> 13 -> 17, one leaked reference per slot per entry per visit
+// (DF-299c), and `std.json`'s object encoder rode `Map.each`, so every
+// `to_json_string()` of an object leaked a `String` plus a `JsonValue` per
+// field.
+//
+// AND THE VALUES ARE STILL RELEASED EXACTLY ONCE. That is the half the leak
+// used to hide: the old spelling read the payload OUT of the slot, which at
+// the owning tiers produced a NON-RETAINED ALIAS the map still owned
+// (DF-146j's family at the visitor position). It never double-freed only
+// because the by-value parameter was never released either — two defects
+// cancelling. Lending removes the alias at the source, which is why ruling B
+// had to land BEFORE the codegen release: there is now no ownership handed
+// out to release wrongly.
+//
+// Mutating the visited container inside the body stays a static
+// Law-of-Exclusivity error — checked in `examples/map_each_mutate_error.saw`,
+// which this row also points at.
+//
+// The two owning values come apart in table order (the map's own teardown),
+// then the `Arc` when its last handle goes — each exactly once, which is the
+// second half of the row.
+//
+// EXPECT: success
+// EXPECT-OUTPUT: built 5
+// EXPECT-OUTPUT: walk1 5
+// EXPECT-OUTPUT: walk2 5
+// EXPECT-OUTPUT: walk3 5
+// EXPECT-OUTPUT: each_value 5
+// EXPECT-OUTPUT: each_key 5
+// EXPECT-OUTPUT: owning total 3
+// EXPECT-OUTPUT: set saw 4
+// EXPECT-OUTPUT: sorted 1 2 3
+// EXPECT-OUTPUT: drop 2
+// EXPECT-OUTPUT: drop 1
+// EXPECT-OUTPUT: drop 7
+
+struct Res { id: Int }
+extension Res: NoCopy {
+    func deinit(&var self) { print("drop {}", self.id) }
+}
+
+func main() {
+    // ---- zero retains across a walk -------------------------------------
+    let shared = try! Arc<Res>(value: Res(id: 7))
+    var counted = Map<String, Arc<Res>>()
+    let _ = try! counted.insert("a", shared.copy())
+    let _ = try! counted.insert("b", shared.copy())
+    let _ = try! counted.insert("c", shared.copy())
+    let _ = try! counted.insert("d", shared.copy())
+    print("built {}", shared.strong_count())
+    counted.each({ k, v in })
+    print("walk1 {}", shared.strong_count())
+    counted.each({ k, v in })
+    print("walk2 {}", shared.strong_count())
+    counted.each({ k, v in })
+    print("walk3 {}", shared.strong_count())
+    counted.each_value({ v in })
+    print("each_value {}", shared.strong_count())
+    counted.each_key({ k in })
+    print("each_key {}", shared.strong_count())
+
+    // ---- an owning value is observed in place, released exactly once -----
+    var owning = Map<String, Res>()
+    let _ = try! owning.insert("x", Res(id: 1))
+    let _ = try! owning.insert("y", Res(id: 2))
+    var total = 0
+    owning.each({ [&var total] k, v in total = total + v.id })
+    print("owning total {}", total)
+
+    // ---- Set.each follows through the each_key delegation ----------------
+    var marks = Set<Int>()
+    let _ = try! marks.insert(4)
+    marks.each({ e in print("set saw {}", e) })
+
+    // ---- sort_by lends its comparands, and carries no copy bound ---------
+    var order: Vector<Int> = [3, 1, 2]
+    order.sort_by({ a, b in
+        if a < b { Ordering.Less } else if a > b { Ordering.Greater }
+        else { Ordering.Equal }
+    })
+    print("sorted {} {} {}", order[0], order[1], order[2])
+}

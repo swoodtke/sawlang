@@ -196,14 +196,19 @@ STD_PROFILE_RULES = {
 # Rules that hold the compiler's source to std, which the std profile is
 # checking itself: std declares the std names, imports std and calls std.
 STD_PROFILE_SELF = ("prelude-type-name", "std-api")
-# The bound an extension of the new std may write on a type parameter, and the
-# trait whose conformers may be fieldless: allocator parameters.
+# The bound a conformance extension of the new std may write on a type
+# parameter beside the policy traits below (a methods-only extension with no
+# hook-named member may write any), and the trait whose conformers may be
+# fieldless: allocator parameters.
 STD_PROFILE_BOUND = "Allocator"
 # The traits a container's conditional conformance may bound its element on,
 # as the language defines `Vector`: ExplicitCopy when its element is, Send and
 # Sync when its element and allocator are, and `iter()` where it is Copy; and
 # ZeroInit when its payload is, as the language defines the locks.
 STD_PROFILE_POLICY_BOUNDS = ("Copy", "ExplicitCopy", "Send", "Sync", "ZeroInit")
+# The members a compiler-inserted call reaches by name, so an extension
+# declaring one keeps the policy-only bound even without a conformance.
+HOOK_MEMBER_NAMES = ("equals", "compare", "hash", "format", "deinit", "copy")
 # The aliases the language's vocabulary defines, which the new std's prelude
 # declares where Stage 0's builtin module did: `type-alias` refuses any other.
 STD_PROFILE_ALIAS_HOME = "std/prelude.saw"
@@ -1231,7 +1236,7 @@ class FileChecker:
                     if m.is_init:
                         self.report(m.line, "generic-extension-init",
                                     "no `init` in a generic extension; build it memberwise")
-                if any(self.refused_bound(b) for tp in ext.type_params for b in tp.bounds):
+                if any(self.refused_bound(b, ext) for tp in ext.type_params for b in tp.bounds):
                     self.report(ext.line, "bounded-extension",
                                 "no bounds on an extension's type parameters")
             for m in ext.methods:
@@ -1260,11 +1265,21 @@ class FileChecker:
                             "`%s` repeats the tier of `%s struct %s`; write the field "
                             "bare, and mark only a narrowing `private`" % (tier, tier, s.name))
 
-    def refused_bound(self, bound):
-        """Every bound, but the std profile's allocator parameter and the
-        policy traits a conditional conformance is bounded on."""
-        return not (self.std_profile and
-                    (bound == STD_PROFILE_BOUND or bound in STD_PROFILE_POLICY_BOUNDS))
+    def refused_bound(self, bound, ext):
+        """Every bound, but, in the std profile, any bound on an extension
+        that declares no conformance and no hook-named member, and the
+        allocator parameter and the policy traits on any other."""
+        if not self.std_profile:
+            return True
+        # The hazard is a bounded member instantiated implicitly, as copy glue
+        # reaches a conditional conformance's members, or as a compiler-inserted
+        # hook call (glue, an operator, interpolation, a Map probe) reaches a
+        # member by its name. Any other member is instantiated only at a
+        # written call, where typecheck has already checked the bound
+        # (SL:hazards L6).
+        if not ext.conformances and not any(m.name in HOOK_MEMBER_NAMES for m in ext.methods):
+            return False
+        return not (bound == STD_PROFILE_BOUND or bound in STD_PROFILE_POLICY_BOUNDS)
 
     def check_deinit(self, m):
         """A `deinit` in any extension or trait body. Stage 1 tolerates leaks

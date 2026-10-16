@@ -24,7 +24,7 @@ alloc_stringbuilder_reports_oom.saw	refused	typecheck call.no-match	no candidate
 alloc_taskgroup_threads_forced_panics_named.saw	refused	typecheck call.label	no parameter is labeled `threads` in TaskGroup.init() [std.taskgroup]
 alloc_vector_copy_panics.saw	wrong	stdout differs	line 2: sawc2 "panic at <std>: Vector.copy: allocation of 16 bytes (align 8) failed", Stage 0 "panic at <std>: Vector.copy: allocation of 32 bytes (align 8) failed"
 alloc_vector_push_reports_oom.saw	pass	-	-
-alloc_vector_reports_oom.saw	refused	typecheck member.unknown	`std.vector.Vector<Int, alloc_vector_reports_oom.FailAlloc>` has no method `try_copy` this module can see
+alloc_vector_reports_oom.saw	pass	-	-
 any_box_deinit.saw	pass	-	-
 any_box_iflet_move_out.saw	pass	-	-
 any_box_slab.saw	refused	llvm backend.not-yet	a static whose value is not an integer or a Bool is not in the backend slice yet
@@ -480,7 +480,7 @@ conformance/U33_funcpointer_capture_list_error.saw	refused	resolve name.undefine
 conformance/U34_funcpointer_capture_self_error.saw	refused	resolve name.undefined	cannot find `FuncPointer` in scope
 conformance/V04_move_out_of_ref.saw	pass	-	transfer.move-from-borrow: cannot move out of `x`: it is a reference, which borrows storage its caller owns and ends; read or borrow it instead, or give the owner a move-out (`take()` on an optional,
 conformance/V100_bounded_copy_at_the_auto_tier_retains.saw	refused	mono mono.not-yet	a closure capturing a value that owns something is not in the backend slice yet
-conformance/V101_copy_family_carries_the_tier.saw	refused	typecheck member.unknown	`std.vector.Vector<V101_copy_family_carries_the_tier.Rec, std.alloc.GlobalAllocator>` has no method `try_copy` this module can see
+conformance/V101_copy_family_carries_the_tier.saw	refused	mono mono.not-yet	a closure capturing a value that owns something is not in the backend slice yet
 conformance/V102_derived_copy_duplicates_every_field.saw	pass	-	-
 conformance/V103_copy_funnel_duplicates_exactly_once.saw	pass	-	-
 conformance/V104_unbound_value_is_released.saw	wrong	stdout differs	line 9: sawc2 "if 5", Stage 0 "drop 4"
@@ -540,11 +540,11 @@ conformance/V68_closure_reference_parameter_is_a_borrow.saw	pass	-	transfer.move
 conformance/V69_borrow_capture_is_a_borrow.saw	pass	-	transfer.move-from-borrow: cannot move out of `o`: the closure captured it by borrow, so its owner outside the closure still ends it; read or borrow it instead, or give the owner a move-out (`take()`
 conformance/V70_borrowed_closure_binding_refusal_is_tier_blind.saw	pass	-	transfer.move-from-borrow: cannot move out of `e`: it is a reference, which borrows storage its caller owns and ends; read or borrow it instead, or give the owner a move-out (`take()` on an optional,
 conformance/V71_borrowed_closure_binding_fence_is_narrow.saw	refused	llvm backend.not-yet	a `[move]` capture's take is not in the backend slice yet
-conformance/V72_std_visitors_lend.saw	refused	typecheck infer.failed	this closure parameter has no type: write one, as `x: Int`, or pass the closure where a function type is expected
+conformance/V72_std_visitors_lend.saw	pass	-	-
 conformance/V73_closure_by_value_parameter_is_owned.saw	pass	-	-
 conformance/V74_closure_parameter_moved_into_a_new_owner.saw	pass	-	-
 conformance/V75_escaping_and_non_escaping_release_identically.saw	refused	mono mono.not-yet	an escaping closure that captures a value is not in the backend slice yet: its environment would live in the frame that builds it, and heap environments are unbuilt (SL-525)
-conformance/V76_fold_threads_its_accumulator.saw	refused	typecheck infer.failed	this closure parameter has no type: write one, as `x: Int`, or pass the closure where a function type is expected
+conformance/V76_fold_threads_its_accumulator.saw	pass	-	-
 conformance/V77_value_branch_arm_takes_the_move_checkpoint.saw	pass	-	transfer.implicit-copy: this reads a place of type `V77_value_branch_arm_takes_the_move_checkpoint.Res`, which is NoCopy, by value: only a Copy type copies silently; write `move a` to take it, or borr
 conformance/V78_value_arm_refusal_is_position_blind.saw	pass	-	transfer.implicit-copy: this reads a place of type `V78_value_arm_refusal_is_position_blind.Res`, which is NoCopy, by value: only a Copy type copies silently; write `move a` to take it, or borrow it
 conformance/V79_every_value_branch_construct_is_a_transfer.saw	refused	typecheck slice.not-yet	`syntax.stmt.break` is not in the bootstrap slice yet
@@ -666,7 +666,7 @@ coro_closure_taskgroup.saw	refused	mono mono.not-yet	an escaping closure that ca
 coro_conditional_move_across_suspend.saw	pass	-	-
 coro_conservative_callee_in_spawned_task.saw	refused	resolve import.unknown-module	no module `std.json`
 coro_conservative_callee_not_embedded.saw	refused	resolve import.unknown-module	no module `std.json`
-coro_conservative_free_callee_not_framed.saw	refused	typecheck infer.failed	this closure parameter has no type: write one, as `x: Int`, or pass the closure where a function type is expected
+coro_conservative_free_callee_not_framed.saw	refused	mono mono.not-yet	a closure capturing a value that owns something is not in the backend slice yet
 coro_conservative_generic_instance_in_spawned_task.saw	refused	resolve import.unknown-module	no module `std.channel`
 coro_conservative_generic_instance_not_promoted.saw	pass	-	-
 coro_cross_module_free_call_positions.saw	pass	-	-
@@ -798,7 +798,7 @@ coro_tail_method_call_result.saw	pass	-	-
 coro_tail_move_local.saw	pass	-	-
 coro_tail_nested_suspend.saw	pass	-	-
 coro_tail_suspend_void.saw	pass	-	-
-coro_transform_error_anchors_in_defining_module.saw	refused	typecheck member.unknown	`std.vector.Vector<Int, std.alloc.GlobalAllocator>` has no method `each` this module can see
+coro_transform_error_anchors_in_defining_module.saw	pass	-	effect.closure-suspends: a closure body cannot suspend, and this calls `yield_now`, which may suspend: call it outside the closure
 coro_try_block_positions.saw	pass	-	-
 coro_try_block_suspending.saw	pass	-	-
 coro_try_block_two_error_types.saw	refused	typecheck slice.not-yet	a `try` block whose `try`s propagate more than one error type (`coro_try_block_two_error_types.Flaky`, `coro_try_block_two_error_types.Other`), which its `error` holds as their union, is not in the bo
@@ -1082,12 +1082,12 @@ errors/copy_bound_missing.saw	pass	-	type.bound: `T` has no `copy()`: no bound m
 errors/copy_policy_hook_suspends_in_sync_fn.saw	pass	-	effect.sync: cannot suspend in the `Copy` `copy()` of `Heavy`: `Heavy.copy` may suspend, and a copy-policy `copy()` runs at compiler-inserted call sites, so it must be `sync`
 errors/coro_assign_rhs_move_beside_early_exit.saw	stage0-wrong	annotated SL-234	sawc2 meets its directives
 errors/coro_buried_early_exit_beside_a_move.saw	stage0-wrong	annotated SL-234	sawc2 meets its directives
-errors/coro_closure_body_suspends_with_no_driven_root.saw	refused	typecheck member.unknown	`std.vector.Vector<Int, std.alloc.GlobalAllocator>` has no method `each` this module can see
+errors/coro_closure_body_suspends_with_no_driven_root.saw	pass	-	effect.closure-suspends: a closure body cannot suspend, and this calls `yield_now`, which may suspend: call it outside the closure
 errors/coro_cross_module_suspending_recursion.saw	pass	-	coro.suspending-cycle: suspending recursion is not allowed: the suspending-call cycle `descend -> descend` has no compile-time frame size, since a callee's frame is embedded in its caller's by value.
 errors/coro_group_spawn_suspending_recursion.saw	pass	-	coro.suspending-cycle: suspending recursion is not allowed: the suspending-call cycle `recurse -> recurse` has no compile-time frame size, since a callee's frame is embedded in its caller's by value.
 errors/coro_guarded_arm_owning_payload.saw	stage0-wrong	annotated SL-283	sawc2 builds it, and its run exits 0
-errors/coro_imported_closure_body_suspends.saw	refused	typecheck member.unknown	`std.vector.Vector<Int, std.alloc.GlobalAllocator>` has no method `each` this module can see
-errors/coro_imported_closure_body_suspends_with_no_driven_root.saw	refused	typecheck member.unknown	`std.vector.Vector<Int, std.alloc.GlobalAllocator>` has no method `each` this module can see
+errors/coro_imported_closure_body_suspends.saw	pass	-	effect.closure-suspends: a closure body cannot suspend, and this calls `yield_now`, which may suspend: call it outside the closure
+errors/coro_imported_closure_body_suspends_with_no_driven_root.saw	pass	-	effect.closure-suspends: a closure body cannot suspend, and this calls `yield_now`, which may suspend: call it outside the closure
 errors/coro_io_park_in_closure_body_beside_a_conservative_call.saw	refused	resolve import.unknown-module	no module `std.net`
 errors/coro_let_init_move_beside_early_exit.saw	stage0-wrong	annotated SL-234	sawc2 meets its directives
 errors/coro_main_suspending_recursion.saw	pass	-	coro.suspending-cycle: suspending recursion is not allowed: the suspending-call cycle `recurse -> recurse` has no compile-time frame size, since a callee's frame is embedded in its caller's by value.
@@ -1189,7 +1189,7 @@ errors/multiple.saw	refused	resolve name.undefined	cannot find `y` in scope
 errors/mutex_closure_stored.saw	wrong	accepts a refusal test	a closure with reference (`&`/`&var`) parameters may only be passed directly as a call argument; it cannot be bound, returned, or captured
 errors/mutex_guarded_for_suspends.saw	wrong	refused by another rule	borrows.sync-window, where the plan names effect.sync
 errors/mutex_lock_suspend.saw	wrong	refused by another rule	borrows.sync-window, where the plan names effect.sync
-errors/never_emitted_instance_reports.saw	refused	typecheck member.unknown	`std.vector.Vector<never_emitted_instance_reports.Anchor, std.alloc.GlobalAllocator>` has no method `swap_out` this module can see
+errors/never_emitted_instance_reports.saw	wrong	accepts a refusal test	cannot `move` `old`: `Anchor` is `NoMove`, so it lives where its constructor built it and may not be relocated.
 errors/no_copy.saw	pass	-	transfer.implicit-copy: this reads a place of type `no_copy.FileHandle`, which is NoCopy, by value: only a Copy type copies silently; write `move f1` to take it, or borrow it
 errors/no_copy_containment.saw	pass	-	copy.undeclared-policy: `Connection` holds `Connection.handle` of type `no_copy_containment.FileHandle`, which is NoCopy, so it declares its own policy: `extension Connection: NoCopy {}`, or `@synthes
 errors/no_hidden_alloc_closure_pushed_into_a_vector.saw	refused	driver driver.usage	sawc2 build takes no --no-hidden-alloc
@@ -1801,7 +1801,7 @@ map_get_is_a_place.saw	refused	typecheck mutability.immutable	this compound assi
 map_grow_collision.saw	pass	-	-
 map_hashmap_name_gone_error.saw	refused	resolve name.undefined	cannot find `HashMap` in scope
 map_key_not_hashable_error.saw	pass	-	result.discarded: the result of `insert` is `Result<Int?, std.alloc.AllocError>` and is silently discarded: handle it (`match` it, `try` or `try!` it, or return it), or write `let _ = ...` to discard
-map_keys_values.saw	refused	typecheck member.unknown	`std.vector.Vector<Int, std.alloc.GlobalAllocator>` has no method `sort` this module can see
+map_keys_values.saw	pass	-	-
 map_literal.saw	pass	-	-
 map_literal_dup_key_no_leak.saw	pass	-	-
 map_literal_empty_no_annotation_error.saw	pass	-	infer.failed: an empty map literal has no key or value type here; give the position a type
@@ -1818,7 +1818,7 @@ map_owning_value_deinit.saw	pass	-	-
 map_simple.saw	pass	-	-
 map_string_keys.saw	pass	-	-
 map_string_owning_value_balance.saw	pass	-	-
-map_subscript_place.saw	refused	typecheck infer.failed	this closure parameter has no type: write one, as `x: Int`, or pass the closure where a function type is expected
+map_subscript_place.saw	refused	typecheck subscript.role	this subscript is used as a writable place: its `[]` lends read-only (`std.map.Map<String, map_subscript_place.Counter, std.alloc.GlobalAllocator>` declares or derives no such role)
 map_subscript_retain_oracle.saw	wrong	stdout differs	line 1: sawc2 "-- ready", Stage 0 "copy 1"
 map_try_copy.saw	pass	-	-
 map_values_nocopy_error.saw	pass	-	result.discarded: the result of `insert` is `Result<map_values_nocopy_error.Handle?, std.alloc.AllocError>` and is silently discarded: handle it (`match` it, `try` or `try!` it, or return it), or writ
@@ -1973,7 +1973,7 @@ net_unroutable_connect_names_the_cause.saw	refused	resolve import.unknown-module
 net_write_overloads.saw	refused	resolve import.unknown-module	no module `std.net`
 net_write_to_closed_peer_is_an_error.saw	refused	resolve import.unknown-module	no module `std.net`
 never_extern_module_abi.saw	pass	-	-
-newline_braces_stay_significant.saw	refused	typecheck infer.failed	this closure parameter has no type: write one, as `x: Int`, or pass the closure where a function type is expected
+newline_braces_stay_significant.saw	pass	-	-
 newline_comparison_unaffected.saw	pass	-	-
 newline_generic_call_trailing_comma_error.saw	pass	-	resolve.parse-refused: the parser refuses `tests/corpus/newline_generic_call_trailing_comma_error.saw` (syntax.generic.refused-arg-comma), so its declarations are not available
 newline_generic_param_trailing_comma_error.saw	pass	-	resolve.parse-refused: the parser refuses `tests/corpus/newline_generic_param_trailing_comma_error.saw` (syntax.generic.refused-param-comma), so its declarations are not available
@@ -2016,10 +2016,10 @@ once_cross_thread_publish.saw	refused	resolve slice.not-yet	the `Thread.spawn` f
 once_double_set_panic.saw	refused	llvm backend.not-yet	a static whose value is not an integer or a Bool is not in the backend slice yet
 once_get_before_set_panic.saw	refused	llvm backend.not-yet	a static whose value is not an integer or a Bool is not in the backend slice yet
 once_static_set_get.saw	refused	llvm backend.not-yet	a static whose value is not an integer or a Bool is not in the backend slice yet
-optimization_level_o0_preserves_semantics.saw	refused	typecheck infer.failed	this closure parameter has no type: write one, as `x: Int`, or pass the closure where a function type is expected
-optimization_level_o2_preserves_semantics.saw	refused	typecheck infer.failed	this closure parameter has no type: write one, as `x: Int`, or pass the closure where a function type is expected
-optimization_level_os_preserves_semantics.saw	refused	typecheck infer.failed	this closure parameter has no type: write one, as `x: Int`, or pass the closure where a function type is expected
-optimization_level_oz_preserves_semantics.saw	refused	typecheck infer.failed	this closure parameter has no type: write one, as `x: Int`, or pass the closure where a function type is expected
+optimization_level_o0_preserves_semantics.saw	pass	-	-
+optimization_level_o2_preserves_semantics.saw	pass	-	-
+optimization_level_os_preserves_semantics.saw	pass	-	-
+optimization_level_oz_preserves_semantics.saw	pass	-	-
 optional_binding_underscore.saw	pass	-	-
 optional_chain_assign.saw	wrong	stdout differs	line 3: sawc2 "1", Stage 0 "0"
 optional_chain_assign_deinit.saw	wrong	stdout differs	line 3: sawc2 "2", Stage 0 "1"
@@ -2055,7 +2055,7 @@ optional_generic_place_assign.saw	pass	-	-
 optional_generic_return_tail.saw	pass	-	-
 optional_generic_spawn_result.saw	pass	-	-
 optional_generic_traits_result.saw	refused	mono mono.not-yet	a call of `Equatable.equals(other: &Self)` on `Int?`, which no conformance of it meets, is not in the backend slice yet
-optional_generic_vector.saw	refused	typecheck member.unknown	`std.vector.Vector<Int?, std.alloc.GlobalAllocator>` has no method `swap_out` this module can see
+optional_generic_vector.saw	pass	-	-
 optional_guard_let_payload_read.saw	pass	-	-
 optional_move_unwrap.saw	pass	-	-
 optional_nested_type_sugar.saw	pass	-	-
@@ -2115,7 +2115,7 @@ panic_non_string_error.saw	wrong	accepts a refusal test	`panic` expects a String
 panic_source_location.saw	pass	-	-
 parse_recovery_two_errors.saw	pass	-	resolve.parse-refused: the parser refuses `tests/corpus/parse_recovery_two_errors.saw` (parse-error), so its declarations are not available
 path_simple.saw	refused	typecheck member.unknown	`std.path.Path` has no method `as_str` this module can see
-payload_derived_binding_fills_default_type_args.saw	refused	typecheck infer.failed	this closure parameter has no type: write one, as `x: Int`, or pass the closure where a function type is expected
+payload_derived_binding_fills_default_type_args.saw	refused	mir slice.not-yet	a `for` over an iterator place is not lowered to MIR in the bootstrap slice yet
 place_abstract_value_read.saw	pass	-	-
 place_assignment_targets.saw	refused	typecheck subscript.role	this subscript is used as a writable place: its `[]` lends read-only (`std.map.Map<String, Int, std.alloc.GlobalAllocator>` declares or derives no such role)
 place_comparison_operand_is_a_borrow.saw	pass	-	-
@@ -2173,20 +2173,20 @@ range_inclusive_basics.saw	refused	typecheck slice.not-yet	`syntax.stmt.break` i
 range_inclusive_intmax.saw	pass	-	-
 reactor_cross_thread_wake.saw	refused	resolve slice.not-yet	the `Thread.spawn` form is not in the bootstrap slice yet
 receiver_temporary_evaluated_once.saw	refused	llvm backend.not-yet	a static whose value is not an integer or a Bool is not in the backend slice yet
-recursive_enum_built_in_a_task.saw	refused	typecheck infer.failed	this closure parameter has no type: write one, as `x: Int`, or pass the closure where a function type is expected
+recursive_enum_built_in_a_task.saw	pass	-	-
 recursive_enum_inline_payload_refused.saw	pass	-	type.infinite-size: recursive type `Tree` has infinite size: its storage contains its own storage inline, through Tree.Node -> Tree; hold the recursive member behind a heap indirection, such as `Box`
-recursive_enum_synthesized_deep_copy.saw	refused	typecheck infer.failed	this closure parameter has no type: write one, as `x: Int`, or pass the closure where a function type is expected
+recursive_enum_synthesized_deep_copy.saw	pass	-	-
 recursive_enum_through_box_payload.saw	pass	-	-
-recursive_enum_through_user_generic_wrapper.saw	refused	typecheck infer.failed	this closure parameter has no type: write one, as `x: Int`, or pass the closure where a function type is expected
-recursive_enum_through_vector_payload.saw	refused	typecheck infer.failed	this closure parameter has no type: write one, as `x: Int`, or pass the closure where a function type is expected
+recursive_enum_through_user_generic_wrapper.saw	pass	-	-
+recursive_enum_through_vector_payload.saw	pass	-	-
 recursive_struct_inline_field_refused.saw	pass	-	type.infinite-size: recursive type `Node` has infinite size: its storage contains its own storage inline, through Node.next -> Node; hold the recursive member behind a heap indirection, such as `Box`
 recursive_struct_through_optional_box_field.saw	pass	-	-
 recursive_type_through_fixed_array_refused.saw	pass	-	type.infinite-size: recursive type `Branch` has infinite size: its storage contains its own storage inline, through Branch.kids -> Branch; hold the recursive member behind a heap indirection, such as
 recursive_type_through_optional_refused.saw	pass	-	type.infinite-size: recursive type `Node` has infinite size: its storage contains its own storage inline, through Node.next -> Optional.Some -> Node; hold the recursive member behind a heap indirectio
 recursive_type_through_user_generic_refused.saw	pass	-	type.infinite-size: recursive type `Expr` has infinite size: its storage contains its own storage inline, through Expr.Group -> Pair.a -> Expr; hold the recursive member behind a heap indirection, suc
 recursive_types_mutual_inline_refused.saw	pass	-	type.infinite-size: recursive type `Frame` has infinite size: its storage contains its own storage inline, through Frame.head -> Header.owner -> Frame; hold the recursive member behind a heap indirect
-recursive_types_mutual_through_vector.saw	refused	typecheck infer.failed	this closure parameter has no type: write one, as `x: Int`, or pass the closure where a function type is expected
-recursive_types_one_indirection_is_enough.saw	refused	typecheck infer.failed	this closure parameter has no type: write one, as `x: Int`, or pass the closure where a function type is expected
+recursive_types_mutual_through_vector.saw	pass	-	-
+recursive_types_one_indirection_is_enough.saw	pass	-	-
 reexport_import_error.saw	pass	-	import.not-reexported: `utils` is imported by `modules.lib_with_import` but not re-exported: add `public import` there, or import it directly
 reexport_private_module_error.saw	refused	resolve slice.not-yet	`syntax.decl.module.inline` is not in the bootstrap slice yet
 reexport_public_module.saw	refused	resolve slice.not-yet	`syntax.decl.module.inline` is not in the bootstrap slice yet
@@ -2265,16 +2265,16 @@ semicolon_joins_statements_on_one_line.saw	pass	-	-
 send_sync_bounds.saw	refused	llvm backend.not-yet	a Float constant, `3.0`, is not in the backend slice yet
 serde169_derived.saw	refused	resolve name.undefined	cannot find `Serialize` in scope
 serde169_hand_written.saw	refused	resolve name.undefined	cannot find `Serialize` in scope
-set_algebra.saw	refused	typecheck member.unknown	`std.vector.Vector<Int, std.alloc.GlobalAllocator>` has no method `sort` this module can see
+set_algebra.saw	pass	-	-
 set_algebra_owning_balance.saw	pass	-	-
 set_basic.saw	pass	-	-
 set_copy.saw	pass	-	-
 set_each_mutate_error.saw	pass	-	result.discarded: the result of `insert` is `Result<Bool, std.alloc.AllocError>` and is silently discarded: handle it (`match` it, `try` or `try!` it, or return it), or write `let _ = ...` to discard
-set_each_snapshot.saw	refused	typecheck member.unknown	`std.vector.Vector<Int, std.alloc.GlobalAllocator>` has no method `sort` this module can see
+set_each_snapshot.saw	pass	-	-
 set_element_not_hashable_error.saw	pass	-	result.discarded: the result of `insert` is `Result<Bool, std.alloc.AllocError>` and is silently discarded: handle it (`match` it, `try` or `try!` it, or return it), or write `let _ = ...` to discard
 set_from_vector.saw	pass	-	-
 set_from_vector_use_after_move_error.saw	pass	-	result.discarded: the result of `push` is `Result<Void, std.alloc.AllocError>` and is silently discarded: handle it (`match` it, `try` or `try!` it, or return it), or write `let _ = ...` to discard it
-set_literal.saw	refused	typecheck member.unknown	`std.vector.Vector<Int, std.alloc.GlobalAllocator>` has no method `sort` this module can see
+set_literal.saw	pass	-	-
 set_literal_comparison_elements.saw	pass	-	-
 set_literal_element_mismatch_error.saw	pass	-	type.mismatch: expected `Int`, the type of the collection's element, and found `String`
 set_literal_not_hashable_error.saw	refused	mono mono.not-yet	a call of `Equatable.equals(other: &Self)` on `set_literal_not_hashable_error.NoHash`, which no conformance of it meets, is not in the backend slice yet (inside std/map.saw:232:24)
@@ -2462,7 +2462,7 @@ thread_assertion_survives_a_glob_import.saw	refused	llvm backend.not-yet	a stati
 thread_fate_is_written_not_dropped.saw	refused	resolve slice.not-yet	the `Thread.spawn` form is not in the bootstrap slice yet
 thread_name_belongs_to_the_user.saw	refused	resolve slice.not-yet	the `Thread.spawn` form is not in the bootstrap slice yet
 thread_spawn_blocking_beside_a_driven_root.saw	refused	resolve slice.not-yet	the `Thread.spawn` form is not in the bootstrap slice yet
-trailing_closure_inside_a_try_operand.saw	refused	typecheck infer.failed	this closure parameter has no type: write one, as `x: Int`, or pass the closure where a function type is expected
+trailing_closure_inside_a_try_operand.saw	stage0-wrong	XFAIL DF-259c	sawc2: output line 4 is '1', expected '<end>'
 trait_bound_error.saw	pass	-	type.bound: `trait_bound_error.Point` does not satisfy `Describable`, the bound on `T` of `printDescription`
 trait_default_any.saw	pass	-	-
 trait_default_body.saw	pass	-	-
@@ -2539,7 +2539,7 @@ unsafe_closure_domain.saw	refused	mono mono.not-yet	an escaping closure that cap
 unsafe_conformance_effects.saw	pass	-	-
 unsafe_declarations_accepted.saw	pass	-	-
 unsafe_effect_slot.saw	pass	-	-
-unsafe_fn_type_generic_slot.saw	refused	typecheck infer.failed	this closure parameter has no type: write one, as `x: Int`, or pass the closure where a function type is expected
+unsafe_fn_type_generic_slot.saw	pass	-	-
 unsafe_mem_device_read_twice.saw	refused	resolve name.undefined	cannot find `ReadOnly` in scope
 unsafe_mem_device_registers.saw	refused	resolve name.undefined	cannot find `ReadOnly` in scope
 unsafe_mem_mmio_sim.saw	refused	resolve name.undefined	cannot find `UnsafeMemory` in scope
@@ -2553,7 +2553,7 @@ unsafe_sync_declared.saw	refused	typecheck static.not-constant	`UnsafeMutableInt
 unsafe_trait_requirement_effect.saw	pass	-	conformance.signature: `Plain.peek` does not meet `Raw.peek`, as `Plain` conforms to `Raw` needs: the requirement declares `unsafe`, so the implementation must too
 unsaferef_captured_by_closure.saw	refused	resolve import.unknown-module	no module `std.compiler.frame`
 unsaferef_deref_places.saw	refused	resolve import.unknown-module	no module `std.compiler.frame`
-unsigned_comparable_compare.saw	refused	typecheck member.unknown	`std.vector.Vector<UInt, std.alloc.GlobalAllocator>` has no method `sort` this module can see
+unsigned_comparable_compare.saw	refused	mono mono.not-yet	a synthesized `Comparable.compare(other: &Self)` on `unsigned_comparable_compare.Backed` is not in the backend slice yet: only a scalar's builtin hooks
 unsigned_handle_ordering.saw	pass	-	-
 unsigned_ordered_comparison.saw	pass	-	-
 unsigned_ordered_comparison_matrix.saw	pass	-	-
@@ -2569,13 +2569,13 @@ value_if_optional_destination_context.saw	pass	-	-
 var_struct_field_assign_ok.saw	pass	-	-
 variables.saw	refused	mono mono.not-yet	a synthesized `Printable.format(into: &var std.stringbuilder.StringBuilder)` on `Float` is not in the backend slice yet: the backend lowers no Float operation
 vector_capacity_reports_oom.saw	pass	-	-
-vector_closure_suspending_transform.saw	refused	typecheck member.unknown	`std.vector.Vector<Int, std.alloc.GlobalAllocator>` has no method `map` this module can see
-vector_closures_over_nocopy_elements.saw	refused	typecheck infer.failed	this closure parameter has no type: write one, as `x: Int`, or pass the closure where a function type is expected
+vector_closure_suspending_transform.saw	pass	-	effect.closure-suspends: a closure body cannot suspend, and this calls `slow_double`, which may suspend: call it outside the closure
+vector_closures_over_nocopy_elements.saw	pass	-	-
 vector_copy.saw	pass	-	-
 vector_custom_alloc_grow_pairs.saw	pass	-	-
 vector_each_fold_map.saw	refused	resolve slice.not-yet	`syntax.expr.shorthand-param` is not in the bootstrap slice yet
-vector_each_indexed.saw	refused	typecheck infer.failed	this closure parameter has no type: write one, as `x: Int`, or pass the closure where a function type is expected
-vector_each_indexed_exclusivity_error.saw	refused	typecheck member.unknown	`std.vector.Vector<Int, std.alloc.GlobalAllocator>` has no method `each_indexed` this module can see
+vector_each_indexed.saw	pass	-	-
+vector_each_indexed_exclusivity_error.saw	pass	-	result.discarded: the result of `push` is `Result<Void, std.alloc.AllocError>` and is silently discarded: handle it (`match` it, `try` or `try!` it, or return it), or write `let _ = ...` to discard it
 vector_elem_deinit.saw	pass	-	-
 vector_elem_deinit_pop.saw	pass	-	-
 vector_enum_payload_deinit.saw	pass	-	-
@@ -2589,23 +2589,23 @@ vector_literal_non_collection_error.saw	pass	-	type.mismatch: expected `Int`, th
 vector_literal_owning_deinit.saw	pass	-	-
 vector_literal_owning_use_after_move_error.saw	pass	-	move.use-after: `a.id` is used after it may have been moved (moved at 16:27); a moved value is gone until it is assigned again
 vector_map_fold.saw	refused	resolve slice.not-yet	`syntax.expr.shorthand-param` is not in the bootstrap slice yet
-vector_nested_each_borrows.saw	refused	typecheck infer.failed	this closure parameter has no type: write one, as `x: Int`, or pass the closure where a function type is expected
+vector_nested_each_borrows.saw	pass	-	-
 vector_nocopy_elem_construct.saw	pass	-	-
 vector_owning_element_safety.saw	pass	-	-
 vector_pop_refcount_exact.saw	pass	-	-
 vector_set_oob_panic.saw	pass	-	-
 vector_simple.saw	pass	-	-
-vector_sort.saw	refused	typecheck member.unknown	`std.vector.Vector<Int, std.alloc.GlobalAllocator>` has no method `sort` this module can see
-vector_sort_by.saw	refused	typecheck infer.failed	this closure parameter has no type: write one, as `x: Int`, or pass the closure where a function type is expected
-vector_swap.saw	refused	typecheck member.unknown	`std.vector.Vector<Int, std.alloc.GlobalAllocator>` has no method `swap` this module can see
-vector_swap_oob_panic.saw	refused	typecheck member.unknown	`std.vector.Vector<Int, std.alloc.GlobalAllocator>` has no method `swap` this module can see
-vector_swap_out_oob_panic.saw	refused	typecheck member.unknown	`std.vector.Vector<Int, std.alloc.GlobalAllocator>` has no method `swap_out` this module can see
-vector_swap_string.saw	refused	typecheck member.unknown	`std.vector.Vector<String, std.alloc.GlobalAllocator>` has no method `swap` this module can see
+vector_sort.saw	pass	-	-
+vector_sort_by.saw	pass	-	-
+vector_swap.saw	pass	-	-
+vector_swap_oob_panic.saw	pass	-	-
+vector_swap_out_oob_panic.saw	pass	-	-
+vector_swap_string.saw	pass	-	-
 vector_test.saw	pass	-	-
 vector_with_ref.saw	pass	-	-
 vector_with_ref_oob_panic.saw	wrong	stdout differs	line 2: sawc2 "panic at <std>: Vector.[]: index out of range: 99 (len 2)", Stage 0 "panic at <std>: Vector.with_ref: index out of range: 99 (len 2)"
 vector_with_var_ref_oob_panic.saw	wrong	stdout differs	line 2: sawc2 "panic at <std>: Vector.[]: index out of range: 99 (len 2)", Stage 0 "panic at <std>: Vector.with_var_ref: index out of range: 99 (len 2)"
-version_semver_sort.saw	refused	typecheck member.unknown	`std.vector.Vector<version_semver_sort.Version, std.alloc.GlobalAllocator>` has no method `sort` this module can see
+version_semver_sort.saw	refused	mono mono.not-yet	a synthesized `Comparable.compare(other: &Self)` on `version_semver_sort.Version` is not in the backend slice yet: only a scalar's builtin hooks (inside std/vector.saw:470:24)
 vis258_extension_members_do_not_inherit_error.saw	refused	typecheck member.unknown	`modules.vis258.Crate` has no method `helper` this module can see
 vis258_field_inherits_package.saw	pass	-	-
 vis258_field_inherits_parent_error.saw	pass	-	visibility.private: `ParentOnlyReading` is public(parent) in `modules.nested.child`

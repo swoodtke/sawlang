@@ -1,0 +1,15 @@
+// An extension that declares no conformance and no hook-named member may
+// bound its type parameters on any trait: its methods are instantiated only at
+// a written call, where the bound is checked. A conformance extension, or one
+// declaring a hook-named member, keeps the policy-only rule
+// (bounded-extension.saw, bounded-extension.hook-name.saw).
+
+public struct Pair<T> {
+    first: T
+}
+
+extension Pair<T: Comparable + Copy> {
+    public func larger(&self, other: &Pair<T>) -> Bool {
+        self.first > other.first
+    }
+}

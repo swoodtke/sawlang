@@ -1,0 +1,8 @@
+program	compiler/tests/run/vector_swap_oob_panic.saw
+triple	arm64-apple-darwin
+source	192220d073338a99
+build	ok
+exit	-6
+stdout	"30"
+stdout	"panic at vector.saw:247: Vector.swap: index out of range: 99 (len 3)"
+stdout	""

@@ -102,6 +102,56 @@ extension Vector<T, A: Allocator = GlobalAllocator> {
         }
     }
 
+    // A dynamic-index exchange the Law of Exclusivity must refuse as
+    // `swap(&v[i], &v[j])`. It is byte-level, with no element-typed temporary,
+    // so no retain or deinit runs and `T` needs no bound.
+    /// Exchanges the elements at `i` and `j`.
+    ///
+    /// The two values change slots without a copy or a deinit, so any element
+    /// type swaps, a NoCopy one included. Swapping an index with itself does
+    /// nothing. Panics if either index is outside `0..<len()`.
+    public func swap(&var self, i: Int, j: Int) unsafe {
+        if i == j {
+            return
+        }
+        // Checked one at a time so the message names the index that is out.
+        if i < 0 || i >= self.length {
+            panic("Vector.swap: index out of range: {} (len {})", i, self.length)
+        }
+        if j < 0 || j >= self.length {
+            panic("Vector.swap: index out of range: {} (len {})", j, self.length)
+        }
+        if let buf = self.buffer {
+            let size = sizeof<T>()
+            let first = (&buf[i]) as UnsafePointer<Int8>
+            let second = (&buf[j]) as UnsafePointer<Int8>
+            var k = 0
+            while k < size {
+                let held = first[k]
+                first[k] = second[k]
+                second[k] = held
+                k = k + 1
+            }
+        }
+    }
+
+    /// Replaces the element at `index` with `value` and returns the element
+    /// it held, which the caller now owns.
+    ///
+    /// Panics if `index` is outside `0..<len()`; `value` is consumed either
+    /// way.
+    public func swap_out(&var self, index: Int, value: T) unsafe -> T {
+        if index < 0 || index >= self.length {
+            panic("Vector.swap_out: index out of range: {} (len {})", index, self.length)
+        }
+        guard let buf = self.buffer else {
+            panic("Vector.swap_out: buffer is empty")
+        }
+        let old = move buf[index]
+        buf[index] = move value
+        move old
+    }
+
     /// Appends `value`.
     ///
     /// Returns `Err(AllocError)` when the buffer must grow and `A` refuses; the
@@ -197,6 +247,101 @@ extension Vector<T, A: Allocator = GlobalAllocator> {
     }
 }
 
+// Each closure is non-escaping, so it may capture enclosing locals by
+// reference, and is lent the element as `&T` where it sits, so no method
+// carries a copy bound. The vector is held for the whole call, so the closure
+// cannot grow it under a lent element.
+extension Vector<T, A: Allocator = GlobalAllocator> {
+    /// Calls `body` with each element in order, lent as `&T`.
+    ///
+    /// Nothing is copied, so a move-only element type is visitable.
+    public func each(&self, body: (&T) -> Void) unsafe {
+        guard let buf = self.buffer else {
+            return
+        }
+        var i = 0
+        while i < self.length {
+            body(&buf[i])
+            i = i + 1
+        }
+    }
+
+    /// Calls `body` with each index and its element, lent as `&T`, in order.
+    public func each_indexed(&self, body: (Int, &T) -> Void) unsafe {
+        guard let buf = self.buffer else {
+            return
+        }
+        var i = 0
+        while i < self.length {
+            body(i, &buf[i])
+            i = i + 1
+        }
+    }
+
+    /// Returns a new vector of `transform`'s result for each element, in
+    /// order, allocated through the same `A`.
+    ///
+    /// The element is lent to `transform` as `&T`. Returns `Err(AllocError)`
+    /// when the new vector cannot grow; the partial result is destroyed.
+    public func map<U>(&self, transform: (&T) -> U) unsafe -> Result<Vector<U, A>, AllocError> {
+        var result = Vector<U, A>()
+        guard let buf = self.buffer else {
+            return move result
+        }
+        var i = 0
+        while i < self.length {
+            try result.push(transform(&buf[i]))
+            i = i + 1
+        }
+        return move result
+    }
+
+    // The accumulator moves through `combine` at every step, so an
+    // ExplicitCopy one is never duplicated. It is `Acc` because `A` is the
+    // allocator.
+    /// Folds the elements from first to last: each call of `combine` takes the
+    /// accumulator so far and the element, lent as `&T`, and returns the next
+    /// accumulator. Returns the last one, or `initial` when the vector is
+    /// empty.
+    public func fold<Acc>(&self, initial: Acc, combine: (Acc, &T) -> Acc) unsafe -> Acc {
+        var acc = move initial
+        guard let buf = self.buffer else {
+            return move acc
+        }
+        var i = 0
+        while i < self.length {
+            acc = combine(move acc, &buf[i])
+            i = i + 1
+        }
+        move acc
+    }
+
+    // The same insertion sort as `sort`, but the comparands are lent where
+    // they sit, so `T` needs no copy bound.
+    /// Sorts the elements in place by `compare`, which is lent the two
+    /// comparands as `&T`.
+    ///
+    /// The sort is stable: equal elements keep their order.
+    public func sort_by(&var self, compare: (&T, &T) -> Ordering) unsafe {
+        var i = 1
+        while i < self.length {
+            var j = i
+            while j > 0 {
+                guard let left = self.buffer else {
+                    return
+                }
+                let right = left
+                if compare(&left[j - 1], &right[j]) != Ordering.Greater {
+                    break
+                }
+                self.swap(j - 1, j)
+                j = j - 1
+            }
+            i = i + 1
+        }
+    }
+}
+
 // `get` copies an element out, so the bound is declared where a caller reads
 // it rather than inferred from the body.
 extension Vector<T: Copy, A: Allocator = GlobalAllocator> {
@@ -274,6 +419,58 @@ extension Vector<T: ExplicitCopy, A: Allocator = GlobalAllocator>: ExplicitCopy 
             let raw = buf as UnsafePointer<Int8>
             A().dealloc(raw, self.capacity * sizeof<T>(), alignof<T>())
         }
+    }
+}
+
+// The reporting twin of `copy`; its `try_` name awaits DF-257b's ruling.
+extension Vector<T: ExplicitCopy, A: Allocator = GlobalAllocator> {
+    /// Duplicates the vector and every element through the same allocator.
+    ///
+    /// Returns `Err(AllocError)` when `A` refuses. The whole buffer is
+    /// reserved first, so the result is a complete copy or nothing.
+    public func try_copy(&self) unsafe -> Result<Vector<T, A>, AllocError> {
+        var result = Vector<T, A>()
+        try result.reserve(self.length)
+        guard let buf = self.buffer else {
+            return move result
+        }
+        var i = 0
+        while i < self.length {
+            // The reservation holds every element, so this push allocates
+            // nothing.
+            try result.push(buf[i].copy())
+            i = i + 1
+        }
+        return move result
+    }
+}
+
+// Insertion sort: no scratch buffer, and stable because an element moves only
+// past a strictly greater predecessor. Elements move by the byte-level `swap`,
+// so none is duplicated; the comparands are read by value, hence `T: Copy`.
+extension Vector<T: Comparable + Copy, A: Allocator = GlobalAllocator> {
+    /// Sorts the elements in ascending order by `T`'s `Comparable` order.
+    ///
+    /// The sort is stable: equal elements keep their order.
+    public func sort(&var self) {
+        var i = 1
+        while i < self.length {
+            var j = i
+            while j > 0 && self.greater_at(j - 1, j) {
+                self.swap(j - 1, j)
+                j = j - 1
+            }
+            i = i + 1
+        }
+    }
+
+    func greater_at(&self, i: Int, j: Int) -> Bool {
+        if let a = self.get(i) {
+            if let b = self.get(j) {
+                return a > b
+            }
+        }
+        false
     }
 }
 

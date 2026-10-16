@@ -16,7 +16,7 @@
 // idx1 -1
 // after set idx1 7
 // swap_out 1 now -1
-// borrow 3
+// with_ref 3
 // iter sum 110
 // each -1
 // each 7
@@ -57,7 +57,7 @@ func main() {
     print("swap_out {out ?? -1} now {v[0] ?? -1}")
 
     let r = borrow let x = v[2] { x ?? -1 }
-    print("borrow {r}")
+    print("with_ref {r}")
 
     var seen = 0
     for x in v.iter() {

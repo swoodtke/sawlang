@@ -1,0 +1,15 @@
+program	compiler/tests/run/alloc_vector_reports_oom.saw
+triple	arm64-apple-darwin
+source	b5e2aa3aea0bc3db
+build	ok
+exit	0
+stdout	"4"
+stdout	"push denied: allocation of 64 bytes (align 8) failed"
+stdout	"4"
+stdout	"3"
+stdout	"reserve denied"
+stdout	"4"
+stdout	"copy denied"
+stdout	"budget restored"
+stdout	"5"
+stdout	""

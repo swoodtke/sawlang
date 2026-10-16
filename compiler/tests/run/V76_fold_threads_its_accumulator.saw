@@ -1,0 +1,61 @@
+// Conformance row V76 — `Vector.fold` threads its accumulator: N elements, one
+// final owner, one release
+//
+// Design 264. `fold` is the one std visitor that KEEPS a by-value slot, and
+// the row records why that is right rather than an oversight: the accumulator
+// is genuine ownership threading, moved into `combine` and moved back out of
+// it once per element, so ruling A's release is exactly what makes it correct.
+// Every intermediate accumulator is moved on, so the scope's drop flag is
+// clear each time and nothing is released until the final owner dies.
+//
+// THIS IS THE ROW THE LEAK WAS FOUND ON (DF-291b, refiled as DF-299c). A
+// three-element fold over an `Arc` accumulator read 1 -> 5: one retain for the
+// argument, then one per iteration for the by-value parameter the body
+// returned and nothing released. The arithmetic closes exactly at 1 + 1 + 3.
+// It now reads 1 -> 2 (the original handle plus the folded-out one), and the
+// deinit runs.
+//
+// The element side is unchanged and is checked beside it: `fold` lends the
+// element as a `&T`, so it carries no copy bound and a move-only element folds.
+//
+// EXPECT: success
+// EXPECT-OUTPUT: before 1
+// EXPECT-OUTPUT: after 2
+// EXPECT-OUTPUT: carried 2
+// EXPECT-OUTPUT: sum 6
+// EXPECT-OUTPUT: ids 6
+// EXPECT-OUTPUT: end of main
+// EXPECT-OUTPUT: drop 1
+// EXPECT-OUTPUT: drop 2
+// EXPECT-OUTPUT: drop 3
+// EXPECT-OUTPUT: drop 7
+
+struct Res { id: Int }
+extension Res: NoCopy {
+    func deinit(&var self) { print("drop {}", self.id) }
+}
+
+func main() {
+    let counted: Vector<Int> = [1, 2, 3]
+
+    // The accumulator is an owning value threaded through three iterations.
+    // One final owner (`out`), one release.
+    let shared = try! Arc<Res>(value: Res(id: 7))
+    print("before {}", shared.strong_count())
+    let out = counted.fold(shared.copy(), { acc, e in acc })
+    print("after {}", out.strong_count())
+    print("carried {}", shared.strong_count())
+
+    // A trivial accumulator registers no cleanup at all and is unchanged.
+    print("sum {}", counted.fold(0, { acc, e in acc + e }))
+
+    // The ELEMENT side: lent as `&T`, so a move-only element folds with no
+    // copy bound owed.
+    var owning = Vector<Res>()
+    let _ = try! owning.push(Res(id: 1))
+    let _ = try! owning.push(Res(id: 2))
+    let _ = try! owning.push(Res(id: 3))
+    print("ids {}", owning.fold(0, { acc, e in acc + e.id }))
+
+    print("end of main")
+}

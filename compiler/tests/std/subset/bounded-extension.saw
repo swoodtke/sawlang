@@ -1,12 +1,14 @@
-// A std extension may bound an allocator parameter, and an element on a
-// policy trait a conditional conformance needs; nothing else.
+// A std extension that declares a conformance may bound an allocator
+// parameter, and an element on a policy trait a conditional conformance needs;
+// nothing else. A methods-only extension may bound on any trait
+// (clean.bounded-methods.saw).
 
 public struct Pair<T> {
     first: T
 }
 
-extension Pair<T: Equatable> { // refuses: bounded-extension
-    public func same(&self, other: &Pair<T>) -> Bool {
+extension Pair<T: Equatable>: Equatable { // refuses: bounded-extension
+    public func equals(&self, other: &Pair<T>) -> Bool {
         self.first == other.first
     }
 }
