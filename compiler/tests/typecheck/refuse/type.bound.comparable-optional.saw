@@ -1,0 +1,12 @@
+// refuses: type.bound at 11:17
+// a `T: Comparable` bound at an Optional, which is not `Comparable` whatever
+// its payload is (spec, Ordering).
+func less<T: Comparable>(a: &T, b: &T) -> Bool {
+    a < b
+}
+
+func main() {
+    let a: Int? = 1
+    let b: Int? = 2
+    print("{}", less(&a, &b))
+}

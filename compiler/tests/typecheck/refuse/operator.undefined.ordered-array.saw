@@ -1,0 +1,8 @@
+// refuses: operator.undefined at 7:17
+// `<` on a fixed array, which is not `Comparable` whatever its element is
+// (spec, Ordering).
+func main() {
+    let a: [Int; 2] = [1, 2]
+    let b: [Int; 2] = [1, 3]
+    print("{}", a < b)
+}

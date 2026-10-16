@@ -1,0 +1,8 @@
+// refuses: operator.undefined at 7:17
+// `<` on an Optional, which is not `Comparable` whatever its payload is
+// (spec, Ordering).
+func main() {
+    let a: Int? = 1
+    let b: Int? = 2
+    print("{}", a < b)
+}

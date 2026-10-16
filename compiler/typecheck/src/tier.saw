@@ -901,9 +901,15 @@ extension TcProgram {
         }
     }
 
-    // The traits a composite meets when each of its parts does.
+    // The traits a tuple, an Optional or a fixed array meets when each of its
+    // parts does: the copy tiers, `Send` and `Sync`, `Equatable` and
+    // `Hashable`. `Comparable` is not one, since the spec grants it only
+    // builtin and through a written conformance (spec, Ordering).
+    // ENTRY POINTS:
+    //     satisfies_at
+    //     nominal_satisfies
     func structural_trait(&self, tr: Int) -> Bool {
-        tr == self.known.copy || tr == self.known.explicit_copy || tr == self.known.equatable || tr == self.known.hashable || tr == self.known.comparable || tr == self.known.send || tr == self.known.sync
+        tr == self.known.copy || tr == self.known.explicit_copy || tr == self.known.equatable || tr == self.known.hashable || tr == self.known.send || tr == self.known.sync
     }
 
     // A type parameter meets what its bounds grant: its declaration's, and

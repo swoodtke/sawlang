@@ -1,0 +1,10 @@
+// refuses: type.bound at 8:7
+// `Vector.sort` over tuples: its extension's `T: Comparable` bound, which a
+// tuple never meets (spec, Ordering), drops the member at the call.
+func main() {
+    var v: Vector<(Int, Int)> = Vector()
+    try! v.push((2, 1))
+    try! v.push((1, 2))
+    v.sort()
+    print("{}", v.len())
+}

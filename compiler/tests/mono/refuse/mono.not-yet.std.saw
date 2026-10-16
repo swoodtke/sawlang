@@ -1,13 +1,12 @@
-// refuses: mono.not-yet at 11:5
+// refuses: mono.not-yet at 10:5
 // A refusal met inside std is reported at the program's own call that
 // reached it, the std position named in its message: `Vector.sort` orders
-// its elements through `Comparable.compare`, which typecheck grants a tuple
-// through its parts though the spec does not, so the member glue table has
-// no `compare` for one (SL-754).
+// its elements through `Comparable.compare`, which the scalar table refuses
+// for `Bool` though typecheck grants the bound (SL-715).
 func main() {
-    var v: Vector<(Int, Int)> = Vector()
-    try! v.push((2, 1))
-    try! v.push((1, 2))
+    var v: Vector<Bool> = Vector()
+    try! v.push(true)
+    try! v.push(false)
     v.sort()
     print("{}", v.len())
 }

@@ -161,14 +161,22 @@ An aggregate's hook asks its parts' hooks in turn, each a requirement call
 that the requirement funnel resolves as it resolves any, at the place the
 glue was first reached, so a part's hook is its written member, a default
 body or member glue again, and a part's refusal is reported there
-(`mono.not-yet.derived`, a `Float` field). Each answer is Stage 0's:
+(`mono.not-yet.derived`, a `Float` field; `mono.not-yet.aggregate`, a raw
+pointer in a tuple). Each answer is Stage 0's:
 
 | kind | `equals` | `compare` | `hash` |
 |---|---|---|---|
-| a struct, a tuple | each part's, in declaration order, the first that fails deciding | each field's, in declaration order, the first not `Equal` deciding | each part's, in declaration order |
+| a struct | each field's, in declaration order, the first that fails deciding | each field's, in declaration order, the first not `Equal` deciding | each field's, in declaration order |
+| a tuple | each element's, in order, the first that fails deciding | | each element's, in order |
 | an enum | the same case, then each payload field's | the case's position, or a raw-backed case's value at the backing's signedness, then each payload field's | the case's position, or a raw-backed case's value zero-extended, through `write_int`, then each payload field's |
-| an Optional | the same case, then the payload's | refused: the spec grants no `Comparable` (SL-754) | 1 for `Some` and 0 for `None`, then the payload's |
-| a fixed array | each element's, in index order | refused, as an Optional's | each element's, in index order |
+| an Optional | the same case, then the payload's | | 1 for `Some` and 0 for `None`, then the payload's |
+| a fixed array | each element's, in index order | | each element's, in index order |
+
+A tuple, an Optional and a fixed array meet `Equatable` and `Hashable`
+through their parts and `Comparable` never (spec, Ordering), so typecheck
+refuses their `compare` at the use (`operator.undefined.ordered-*`,
+`type.bound.comparable-*`, `type.bound.sort-tuple`); the table refuses the
+cell too.
 
 A struct's or an enum's cell is its written `@synthesize`, or the automatic
 `Equatable` and `Hashable` of a trivially copyable struct or payload-free
@@ -180,7 +188,7 @@ an interpolation, a `Map` key or `Set` element, `Vector.sort`), and the probe
 `automatic_hashable_through_bound` the one Stage 0 refuses. A `copy()` on a
 struct, an enum, a tuple or an array is its copy glue (above), and one on a
 function value is refused (SL-525); every other hook on any other type is
-refused as `mono.not-yet` (`mono.not-yet.aggregate`, a tuple's `compare`).
+refused as `mono.not-yet`.
 
 **Task roots.** A cooperative spawn site (`Task.spawn(f(x))`) is no call of
 its root: the task runs the root in a *task root*, a separate specialization

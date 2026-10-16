@@ -1,0 +1,12 @@
+// refuses: type.bound at 11:17
+// a `T: Comparable` bound at a fixed array, which is not `Comparable`
+// whatever its element is (spec, Ordering).
+func less<T: Comparable>(a: &T, b: &T) -> Bool {
+    a < b
+}
+
+func main() {
+    let a: [Int; 2] = [1, 2]
+    let b: [Int; 2] = [1, 3]
+    print("{}", less(&a, &b))
+}

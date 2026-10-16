@@ -428,6 +428,20 @@ Optional. Under `type.bound` unless a cell says otherwise:
 | each where the bound holds: a concrete argument, a generic body's own bound, `copy()` under `T: ExplicitCopy` | allowed | extension_bounds |
 | a bounded extension written before the type it extends, whose bounds are its own head's (SL-740) | refused | type.bound.extension-before-type |
 
+A tuple, an Optional and a fixed array meet a trait through their parts only
+where the spec says so: the copy tiers, `Send`, `Sync`, `Equatable` and
+`Hashable`. `Comparable` is not one of them (spec, Ordering: integers, `Float`
+and `String` builtin, a struct or enum through a written conformance). One
+funnel, `structural_trait` (`compiler/typecheck/src/tier.saw`), names the
+list for each kind (SL-754):
+
+| row | verdict | covered by |
+|---|---|---|
+| `<` on a tuple, an Optional, a fixed array of `Int` | refused, `operator.undefined` | operator.undefined.ordered-tuple, -optional, -array |
+| a `T: Comparable` bound at each | refused | type.bound.comparable-tuple, -optional, -array |
+| `Vector.sort` over tuples, its extension's `T: Comparable` | refused | type.bound.sort-tuple |
+| `Equatable` and `Hashable` through a tuple's and an Optional's parts, at a bound, `==` and a `Map` key, and through a fixed array's as a struct's field | allowed | run programs aggregate_equals, aggregate_hash, aggregate_map_keys |
+
 A fourth filter is the specialized extension's (spec, Type Extensions; SL-740):
 a head that names a type for every parameter it writes, `extension
 Vector<String>`, declares members for that instantiation alone, its omitted
