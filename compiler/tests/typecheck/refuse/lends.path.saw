@@ -1,0 +1,21 @@
+// refuses: lends.path at 19:57
+// a returning path of a `borrows` producer that yields another producer's result: the call site's window would charge this receiver's root while the struct points into `other` (spec, Borrowing structs, "The origin is the receiver")
+
+struct Bag {
+    n: Int
+}
+
+borrows struct Walk {
+    bag: &Bag,
+    at: Int
+}
+
+extension Bag {
+    func walk(&self) borrows -> Walk {
+        Walk(bag: lends self, at: 0)
+    }
+
+    func walk_either(&self, other: &Bag, mine: Bool) borrows -> Walk {
+        if mine { Walk(bag: lends self, at: 0) } else { other.walk() }
+    }
+}

@@ -1461,6 +1461,9 @@ extension MirProgram {
         if window && c.half >= 0 && not self.function_suspends(c.half) {
             want = MirSuspend.Never
         }
+        if c.kind == MirCallKind.WindowClose && self.closes_nothing(c.target) {
+            want = MirSuspend.Never
+        }
         if want != c.suspend {
             self.problem(f, &var out, "a call's suspension point disagrees with its callee's summary")
             return

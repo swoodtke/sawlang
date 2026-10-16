@@ -1,16 +1,15 @@
-// due: loan.struct-carrier when `lends` enters the slice
-// refuses: slice.not-yet at 32:23
-// A borrowing struct carries its window's loan (SL:architecture §3.6, the
-// Air's t21): a write to the walked vector while the walker is live conflicts
-// with the shared loan the struct carries. Once `lends` is lowered (SL-461),
-// this program must be refused by the struct carrier's rule.
+// A borrowing struct that owns something is destroyed before the window whose
+// loan it carries closes, so a `deinit` may still read through its reference
+// (SL:architecture §3.6): `main` drops the walker, then closes the window of
+// `walk`, whose producer's body built it with `lends self`.
 
 struct Shelf { items: Vector<Int> }
 extension Shelf: NoCopy {}
 
 borrows struct Walker {
     shelf: &Shelf,
-    at: Int
+    at: Int,
+    tag: String
 }
 
 extension Walker: NoCopy {}
@@ -29,7 +28,7 @@ extension Walker: Iterator {
 
 extension Shelf {
     func walk(&self) borrows -> Walker {
-        Walker(shelf: lends self, at: 0)
+        Walker(shelf: lends self, at: 0, tag: "walker")
     }
 }
 
@@ -38,7 +37,6 @@ func main() {
     try! s.items.push(3)
     var sum = 0
     for x in s.walk() {
-        try! s.items.push(x)
         sum = sum + x
     }
     print(sum)

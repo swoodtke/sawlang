@@ -32,6 +32,7 @@ fn windows.iterate(v: std.vector.Vector<String, std.alloc.GlobalAllocator>) -> I
     }
 
     bb3: {
+        drop(_3);
         window_close w0 epilogue std.vector.Vector.iter() (owner std.vector.Vector<String, std.alloc.GlobalAllocator>) -> [return: bb8];
     }
 
@@ -68,6 +69,7 @@ fn windows.iterate(v: std.vector.Vector<String, std.alloc.GlobalAllocator>) -> I
 
     glue String: builtin
     glue std.vector.Vector<String, std.alloc.GlobalAllocator>: deinit std.vector.Vector.deinit(), then structural
+    glue std.vector.VectorIterator<String, std.alloc.GlobalAllocator>: structural
 }
 
 fn windows.inside(v: std.vector.Vector<String, std.alloc.GlobalAllocator>) -> Int {

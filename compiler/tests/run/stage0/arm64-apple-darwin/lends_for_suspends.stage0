@@ -1,0 +1,10 @@
+program	compiler/tests/run/lends_for_suspends.saw
+triple	arm64-apple-darwin
+source	1330fd5bd014f3ae
+build	ok
+exit	0
+stdout	"inside = 6"
+stdout	"around = 42"
+stdout	"local = 30"
+stdout	"task = 30"
+stdout	""

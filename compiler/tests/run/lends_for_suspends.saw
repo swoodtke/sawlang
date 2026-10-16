@@ -1,0 +1,85 @@
+// `for` over a borrowing struct in a suspending body: a suspension inside the
+// loop body keeps the walker and its window in the frame, a suspension before
+// and after the loop finds no window open, nested windows over one root span
+// a suspension together, and a root that is the frame's own local is read
+// through the walker after each resume (spec, Borrowing structs).
+
+import std.task.*
+
+struct Bag {
+    items: Vector<Int>
+}
+
+extension Bag: NoCopy {}
+
+borrows struct BagIterator {
+    source: &Bag,
+    index: Int
+}
+
+extension Bag {
+    func iter(&self) borrows -> BagIterator {
+        BagIterator(source: lends self, index: 0)
+    }
+
+    func count(&self) -> Int { self.items.len() }
+
+    func at(&self, i: Int) -> Int { self.items[i] }
+}
+
+extension BagIterator: Iterator {
+    type Item = Int
+    func next(&var self) -> Int? {
+        if self.index < self.source.count() {
+            let i = self.index
+            self.index = i + 1
+            self.source.at(i)
+        } else {
+            None
+        }
+    }
+}
+
+func inside(bag: &Bag) -> Int {
+    var total = 0
+    for x in bag.iter() {
+        yield_now()
+        total = total + x
+    }
+    total
+}
+
+func around(bag: &Bag) -> Int {
+    var total = 0
+    yield_now()
+    for x in bag.iter() {
+        total = total + x
+    }
+    yield_now()
+    for x in bag.iter() {
+        for y in bag.iter() {
+            yield_now()
+            total = total + x * y
+        }
+    }
+    total
+}
+
+func local_root() -> Int {
+    let own = Bag(items: [7, 8])
+    var total = 0
+    for x in own.iter() {
+        yield_now()
+        total = total + x * own.count()
+    }
+    total
+}
+
+func main() {
+    let bag = Bag(items: [1, 2, 3])
+    print("inside = {}", inside(&bag))
+    print("around = {}", around(&bag))
+    print("local = {}", local_root())
+    let task = Task.spawn(local_root())
+    print("task = {}", task.join())
+}

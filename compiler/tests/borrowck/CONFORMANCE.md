@@ -154,7 +154,7 @@ INDEX.md, or when an owner is not one of the words below.
 | X41 | U6d2 | `loan.nested-call`: `compiler/tests/borrowck/refuse/loan.nested-call.sibling.saw` |
 | X42 | U6d2 | accepted: a nested reference onto a distinct root, `compiler/tests/borrowck/golden/calls.saw` |
 | X43 | U6d2 | accepted: a nested reference on a field disjoint from its sibling's, `compiler/tests/borrowck/golden/calls.saw` |
-| X44 | U6d2 | `loan.nested-call`: `compiler/tests/borrowck/refuse/loan.nested-call.receiver.saw` |
+| X44 | U6d2 | `loan.nested-call`: `compiler/tests/borrowck/refuse/loan.nested-call.receiver.saw`, `compiler/tests/borrowck/refuse/loan.nested-call.window.saw`, `compiler/tests/borrowck/refuse/loan.nested-call.place-window.saw` |
 | X45 | U6d2 | `loan.nested-call`: `compiler/tests/borrowck/refuse/loan.nested-call.saw` |
 | X46 | U6d2 | `loan.exclusive-twice` (SL-607): `compiler/tests/borrowck/refuse/loan.exclusive-twice.capture-reference.saw` |
 | X47 | U6d2 | `loan.window-root` (SL-607): `compiler/tests/borrowck/refuse/loan.window-root.capture-reference.saw`, `compiler/tests/borrowck/refuse/loan.window-root.shared-capture-reference.saw`, `compiler/tests/borrowck/refuse/loan.window-root.capture-reference-argument.saw`; `loan.closure-carrier`: `compiler/tests/borrowck/refuse/loan.closure-carrier.capture-reference.saw` |

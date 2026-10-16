@@ -1,0 +1,24 @@
+// refuses: loan.nested-call at 18:16
+// an argument of a `borrows` accessor call that writes the accessor's receiver: the window borrows its receiver for the whole call, arguments included, as an ordinary method call does (K139)
+
+struct Row { cells: [Int; 4] }
+
+extension Row {
+    func at(&self, i: Int) borrows -> &Int {
+        lend self.cells[i]
+    }
+}
+
+func reset(r: &var Row) -> Int {
+    r.cells[0] = 0
+    0
+}
+
+func peek(r: &var Row) -> Int {
+    r.at(reset(&var r))
+}
+
+func main() {
+    var r = Row(cells: [1, 2, 3, 4])
+    print(peek(&var r))
+}

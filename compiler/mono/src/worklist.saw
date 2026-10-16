@@ -908,6 +908,9 @@ extension MonoProgram {
     // instantiation; an accessor whose body this program does not lower has
     // no halves to call.
     func resolve_window(&var self, k: Int, c: Int, info: &MirCall) {
+        if info.kind == MirCallKind.WindowClose && self.dp.bc.mir.closes_nothing(info.target) {
+            return
+        }
         if info.half < 0 {
             self.refuse(info.node, "mono.not-yet", "a borrow of an accessor whose body is not lowered")
             return

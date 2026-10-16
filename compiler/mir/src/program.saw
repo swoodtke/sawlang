@@ -109,8 +109,9 @@ public struct MirProgram {
     release_types: Vector<Int>
     // Runs a function's record locals and carried windows name.
     aux: Vector<Int>
-    // The accessors lowered as halves, and by declaration the one each
-    // declaration's halves are, or -1.
+    // The accessors lowered as halves, or whole for one that lends a
+    // borrowing struct, and by declaration the one each declaration's
+    // halves are, or -1.
     accessors: Vector<MirAccessor>
     accessor_of: Vector<Int>
     // The order of the body root being lowered, which its functions take.
@@ -127,6 +128,19 @@ public struct MirProgram {
 }
 
 extension MirProgram: NoCopy {}
+
+extension MirProgram {
+    // Whether the windows of accessor `decl` close by running nothing: it
+    // lends a borrowing struct, so its whole body runs at the open and it
+    // has no epilogue (split.saw, `register_producer`).
+    public func closes_nothing(&self, decl: Int) -> Bool {
+        if decl < 0 {
+            return false
+        }
+        let a = self.accessor_of[decl]
+        a >= 0 && self.accessors[a].epilogue < 0
+    }
+}
 
 public func mir_program(tc: TcProgram) -> MirProgram {
     let n = tc.res.nodes.len()

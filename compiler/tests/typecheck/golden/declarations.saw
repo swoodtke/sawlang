@@ -17,7 +17,7 @@ public enum Status: UInt8 {
 }
 
 borrows struct Cursor {
-    at: &Vector<Int>
+    at: &Account
 }
 
 static LIMIT: Int = 8
@@ -57,7 +57,7 @@ extension Account {
     }
 
     public func cursor(&self) borrows -> Cursor {
-        lend Cursor(at: &self.history)
+        Cursor(at: lends self)
     }
 
     public func raw(&self) unsafe -> UnsafePointer<Int>? {

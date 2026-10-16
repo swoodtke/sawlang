@@ -1,0 +1,77 @@
+// probe: stated
+// about: a borrowing struct over a temporary receiver, and a producer whose body suspends (SL-739)
+// stage 0: refuses a temporary receiver at a `for` head, and `lends self` in a producer that suspends
+// speeds: -O0 -O2
+// prints: 5
+// prints: 6
+// prints: bag deinit
+// prints: slow = 5
+// prints: bag deinit
+// The spec admits both, and Stage 0 refuses both (SL:borrowing §2.6 lifts
+// the first; the second is an accessor body that suspends, which the spec
+// allows unless the accessor is `borrows(sync)`). Spec-derived expectation
+// (no oracle): the temporary `make_bag()` lives until the window closes, so
+// both elements print before its `deinit`; `slow_iter` parks once in its own
+// body, then starts at index 1, so `slow` sums 2 + 3; `kept` is destroyed as
+// `main` ends.
+
+import std.task.*
+
+struct Bag {
+    items: Vector<Int>
+}
+
+extension Bag: NoCopy {
+    func deinit(&var self) { print("bag deinit") }
+}
+
+borrows struct BagIterator {
+    source: &Bag,
+    index: Int
+}
+
+extension Bag {
+    func iter(&self) borrows -> BagIterator {
+        BagIterator(source: lends self, index: 0)
+    }
+
+    func slow_iter(&self) borrows -> BagIterator {
+        yield_now()
+        BagIterator(source: lends self, index: 1)
+    }
+
+    func count(&self) -> Int { self.items.len() }
+
+    func at(&self, i: Int) -> Int { self.items[i] }
+}
+
+extension BagIterator: Iterator {
+    type Item = Int
+    func next(&var self) -> Int? {
+        if self.index < self.source.count() {
+            let i = self.index
+            self.index = i + 1
+            self.source.at(i)
+        } else {
+            None
+        }
+    }
+}
+
+func make_bag() -> Bag { Bag(items: [5, 6]) }
+
+func slow(bag: &Bag) -> Int {
+    var total = 0
+    for x in bag.slow_iter() {
+        total = total + x
+    }
+    total
+}
+
+func main() {
+    for x in make_bag().iter() {
+        print("{}", x)
+    }
+    let kept = Bag(items: [1, 2, 3])
+    print("slow = {}", slow(&kept))
+}

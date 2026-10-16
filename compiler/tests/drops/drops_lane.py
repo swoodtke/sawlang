@@ -58,8 +58,6 @@ _RULE = re.compile(r'try! out\.push\("([^"]+)"\)')
 _FLAG_LOCAL = re.compile(r"^    let _\d+: Bool;  // flag ")
 _DROP = re.compile(r"^        drop\(")
 _ROW = re.compile(r"^\| ([A-Z]\d+) \| ([^|]+) \|(.*)\|$")
-# Due rows that pin an order rather than a refusal: the dump they will check.
-PINS = ("order.borrowing-struct",)
 
 
 def rel(path):
@@ -146,8 +144,8 @@ def check_refusals(failures, counts):
         named = due.group(1) if due else header.group(1)
         if not os.path.basename(path).startswith(named + "."):
             failures.append("drops refusal %s: the file is not named for %s" % (rel(path), named))
-        if named not in rules and named not in PINS:
-            failures.append("drops refusal %s: %s is no rule of drops_rules() and no pin" % (rel(path), named))
+        if named not in rules:
+            failures.append("drops refusal %s: %s is no rule of drops_rules()" % (rel(path), named))
         found = borrowck_lane.first_error(got.get(rel(path), ""))
         want = (header.group(1), header.group(2))
         if found != want:

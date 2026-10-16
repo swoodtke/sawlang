@@ -478,6 +478,7 @@ fn windows.iterate(v: std.vector.Vector<Int, std.alloc.GlobalAllocator>) -> Int 
     }
 
     bb3: {
+        drop(_3);
         window_close w0 epilogue std.vector.Vector.iter() (owner std.vector.Vector<Int, std.alloc.GlobalAllocator>) -> [return: bb7];
     }
 
@@ -500,6 +501,110 @@ fn windows.iterate(v: std.vector.Vector<Int, std.alloc.GlobalAllocator>) -> Int 
     bb7: {
         _0 = copy _2;
         drop(_1);
+        return;
+    }
+}
+
+fn windows.Row.steps() -> windows.Steps {
+    let _0: windows.Steps;  // return
+    let _1: &windows.Row;  // self
+    let _2: &windows.Row;
+    let _3: windows.Steps;
+
+    bb0: {
+        _2 = ref(shared, (*_1));
+        _3 = windows.Steps { row: move _2, at: const 0: Int };
+        _0 = move _3;
+        return;
+    }
+}
+
+fn windows.Steps.next() -> Int? {
+    let _0: Int?;  // return
+    let _1: &var windows.Steps;  // self
+    let _2: Bool;
+    let _3: Int?;
+    let _4: Int;  // i
+    let _5: Int;
+    let _6: Int;
+    let _7: Int?;
+
+    bb0: {
+        _2 = Ge(copy (*_1).at, const 4: Int);
+        switch move _2 -> [true: bb2, false: bb3];
+    }
+
+    bb1: {
+        _4 = copy (*_1).at;
+        _5 = Add(copy _4, const 1: Int);
+        (*_1).at = move _5;
+        _6 = copy _4;
+        _7 = Int?::Some(copy (*(*_1).row).cells[_6]);
+        _0 = move _7;
+        return;
+    }
+
+    bb2: {
+        _3 = Int?::None;
+        _0 = move _3;
+        return;
+    }
+
+    bb3: {
+        goto -> bb1;
+    }
+}
+
+fn windows.walk(r: windows.Row) -> Int {
+    let _0: Int;  // return
+    let _1: windows.Row;  // param r
+    let _2: Int;  // sum
+    let _3: windows.Steps;
+    let _4: &windows.Row;
+    let _5: Int?;
+    let _6: &var windows.Steps;
+    let _7: Int;  // x
+    let _8: Int;
+    window w0: windows.Row.steps() shared;
+
+    bb0: {
+        _2 = const 0: Int;
+        _4 = ref(shared, _1);
+        _3 = window_open w0 prologue windows.Row.steps() (owner windows.Row) [move _4] -> [present: bb1];
+    }
+
+    bb1: {
+        goto -> bb2;
+    }
+
+    bb2: {
+        _6 = ref(exclusive, _3);
+        _5 = call windows.Steps.next() (owner windows.Steps) [move _6] -> [return: bb4];
+    }
+
+    bb3: {
+        drop(_3);
+        window_close w0 epilogue windows.Row.steps() (owner windows.Row) -> [return: bb7];
+    }
+
+    bb4: {
+        switch discriminant(_5) -> [Some: bb5, None: bb3];
+    }
+
+    bb5: {
+        _7 = copy (_5 as Some).0;
+        budget(yield-capable);
+        goto -> bb6;
+    }
+
+    bb6: {
+        _8 = Add(copy _2, copy _7);
+        _2 = move _8;
+        goto -> bb2;
+    }
+
+    bb7: {
+        _0 = copy _2;
         return;
     }
 }

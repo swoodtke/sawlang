@@ -9,7 +9,7 @@
     (case Status.Open 15:10)
     (case Status.Closed 16:10)
     (struct Cursor 19:16 private borrows)
-    (field Cursor.at 20:5 private &std.vector.Vector<Int, std.alloc.GlobalAllocator>)
+    (field Cursor.at 20:5 private &declarations.Account)
     (static LIMIT 23:8 private Int)
     (static COUNTER 24:19 private Int unsafe-var)
     (extension 26:1 (target declarations.Account))
@@ -48,7 +48,7 @@
       (case Closed public declared)
       (static from public (synthesized raw)))
     (declarations.Cursor
-      (field at &std.vector.Vector<Int, std.alloc.GlobalAllocator> private declared)))
+      (field at &declarations.Account private declared)))
   (views
     (declarations.Account id balance history init get deposit close zero entry find held cursor raw deinit)
     (declarations.Status Open Closed from)
@@ -104,10 +104,9 @@
       (56:14-56:21 Member Int place borrow)
       (56:14-56:18 SelfExpr declarations.Account place project))
     (Account.cursor 59:17
-      (60:14-60:39 Call.paren declarations.Cursor value borrow (memberwise declarations.Cursor (owner declarations.Cursor)))
-      (60:25-60:38 Ref.shared &std.vector.Vector<Int, std.alloc.GlobalAllocator> value temp)
-      (60:26-60:38 Member std.vector.Vector<Int, std.alloc.GlobalAllocator> place borrow)
-      (60:26-60:30 SelfExpr declarations.Account place project))
+      (60:9-60:31 Call.paren declarations.Cursor value temp (memberwise declarations.Cursor (owner declarations.Cursor)))
+      (60:20-60:30 Lends &declarations.Account value temp)
+      (60:26-60:30 SelfExpr declarations.Account place borrow))
     (Account.raw 63:17
       (64:9-64:13 NoneLit UnsafePointer<Int>? value temp))
     (run 68:13

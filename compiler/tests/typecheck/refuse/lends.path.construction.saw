@@ -1,0 +1,20 @@
+// refuses: lends.path at 16:20
+// a producer's construction that fills its reference field with `&other` rather than `lends self`, in a `return` ahead of the tail (spec, Borrowing structs, "The origin is the receiver")
+
+struct Bag {
+    n: Int
+}
+
+borrows struct Walk {
+    bag: &Bag,
+    at: Int
+}
+
+extension Bag {
+    func walk_from(&self, other: &Bag, early: Bool) borrows -> Walk {
+        if early {
+            return Walk(bag: &other, at: 0)
+        }
+        Walk(bag: lends self, at: 0)
+    }
+}

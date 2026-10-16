@@ -97,11 +97,10 @@ so those drops are `static` too and need no flag (golden `leftovers`).
 
 **Order.** A drop never moves: scope exits drop in reverse declaration order
 and a statement's temporaries in reverse creation order, as the MIR placed
-them, and a guarded drop keeps its place. A borrowing struct that owns
-something is to be destroyed before the window whose loan it carries
-closes; `lends` is not in the slice, so no such struct exists yet, and the
-due row `refuse/order.borrowing-struct.saw` records it (the MIR registers no
-drop for a lent struct today; Vector's iterator owns nothing).
+them, and a guarded drop keeps its place. A borrowing struct a `for` head
+lends is registered with the loop's scope after the window it is lent in, so
+it is destroyed before that window closes, on every route out, and a `deinit`
+may still read through its reference (golden `borrowing_struct`).
 
 **Panic does not unwind.** `__saw_rt_panic` writes its message and exits, so
 elaboration generates no cleanup path, and a path that diverges reaches no
@@ -203,7 +202,7 @@ its carrier, is refused at its drop: conservative, as Stage 0 is.
 A **due row** starts `// due: NAME when CONDITION`, then `// refuses: RULE
 at L:C`, the refusal standing in its way today. The lane holds it to that
 refusal, and fails once the refusal is lifted, so the row cannot land
-silently. NAME is a rule of `drops_rules`, or the pin `order.borrowing-struct`.
+silently. NAME is a rule of `drops_rules`.
 
 ## The dump
 
@@ -285,6 +284,7 @@ there. It counts the drop flags over the sawc2 build and over tests/corpus.
 | a `consumes` body: field release, a field moved out and assigned again released with it, no flag | consumes |
 | statement temporaries in reverse creation order; one on a short circuit's right side, or `??`'s, dropped on that side before the sides join, unflagged, in a loop too | temporaries |
 | drops inside a window's body before its close; a `for` over a borrowing struct | windows |
+| a borrowing struct that owns something, built with `lends self`, destroyed before its window closes | borrowing_struct |
 | glue: `deinit`, structural, closure environment, builtin, per instantiation | glue |
 | an escaping closure's captures, released once by the environment, never by a call; each closure kind and capture kind | captures |
 | the same over a type parameter: unbounded read in place, `ExplicitCopy`'s `copy()` at creation, `Copy` copied; a `Copy` hand-off through a reference | generics |

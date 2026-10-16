@@ -1,0 +1,43 @@
+// refuses: loan.nested-call at 35:32
+// an argument of a `for` head's `borrows` call that writes the head's receiver: the window borrows its receiver for the whole call, arguments included, so the write is refused before the producer runs (K139)
+
+struct Tally { n: Int }
+extension Tally: NoCopy {}
+
+borrows struct Steps {
+    tally: &Tally,
+    at: Int
+}
+
+extension Tally {
+    func steps_from(&self, from: Int) borrows -> Steps {
+        Steps(tally: lends self, at: from)
+    }
+}
+
+extension Steps: Iterator {
+    type Item = Int
+    func next(&var self) -> Int? {
+        if self.at >= self.tally.n {
+            return None
+        }
+        self.at = self.at + 1
+        self.at
+    }
+}
+
+func bump(t: &var Tally) -> Int {
+    t.n = t.n + 1
+    0
+}
+
+func walk(t: &var Tally) {
+    for x in t.steps_from(bump(&var t)) {
+        print(x)
+    }
+}
+
+func main() {
+    var t = Tally(n: 2)
+    walk(&var t)
+}

@@ -113,9 +113,9 @@ bitwise_compound_assign.saw	pass	-	-
 bitwise_precedence.saw	pass	-	-
 bitwise_ref_wrap_coexistence.saw	pass	-	-
 bitwise_requires_integers.saw	pass	-	operator.undefined: a bit operator takes integers or `Bool`s, and this is `Float`
-borrowing_field_reads_compose.saw	refused	typecheck slice.not-yet	`syntax.expr.lends` is not in the bootstrap slice yet
-borrowing_producer_every_path.saw	refused	typecheck slice.not-yet	`syntax.expr.lends` is not in the bootstrap slice yet
-borrowing_rules_resolve_aliases.saw	refused	typecheck slice.not-yet	`syntax.expr.lends` is not in the bootstrap slice yet
+borrowing_field_reads_compose.saw	pass	-	-
+borrowing_producer_every_path.saw	pass	-	-
+borrowing_rules_resolve_aliases.saw	refused	typecheck call.arity	missing an argument for `done` of It(source: &borrowing_rules_resolve_aliases.Owner, done: Bool) [borrowing_rules_resolve_aliases]
 borrows_declaration_lowers.saw	pass	-	-
 box_basic.saw	pass	-	-
 box_deinit_once.saw	pass	-	-
@@ -321,13 +321,13 @@ conformance/K123_every_window_opener_reads_the_declared_mode.saw	refused	llvm ba
 conformance/K127_conditional_lend_modes.saw	refused	mir slice.not-yet	a `borrow` block binding a conditional lend is not lowered to MIR in the bootstrap slice yet
 conformance/K128_cow_gate_survives_the_var_self_spelling.saw	pass	-	-
 conformance/K129_forwarded_lend_carries_the_window_mode.saw	pass	-	-
-conformance/K133_window_spans_a_suspension.saw	refused	typecheck slice.not-yet	`syntax.expr.lends` is not in the bootstrap slice yet
+conformance/K133_window_spans_a_suspension.saw	refused	typecheck member.unknown	`std.vector.Vector<Int, std.alloc.GlobalAllocator>` has no method `iter` this module can see
 conformance/K135_window_conflicts_that_compose.saw	refused	typecheck member.unknown	`std.vector.Vector<Int, std.alloc.GlobalAllocator>` has no method `iter` this module can see
 conformance/K136_window_release_routes.saw	refused	typecheck member.unknown	`std.vector.Vector<Int, std.alloc.GlobalAllocator>` has no method `iter` this module can see
-conformance/K137_window_destruction_order.saw	refused	typecheck slice.not-yet	`syntax.expr.lends` is not in the bootstrap slice yet
-conformance/K138_window_acquire_sequence.saw	refused	typecheck slice.not-yet	`syntax.expr.lends` is not in the bootstrap slice yet
+conformance/K137_window_destruction_order.saw	pass	-	-
+conformance/K138_window_acquire_sequence.saw	pass	-	-
 conformance/K13_mt_sum_under_mutex.saw	refused	typecheck call.label	no parameter is labeled `threads` in TaskGroup.init() [std.taskgroup]
-conformance/K140_window_under_cancellation.saw	refused	typecheck slice.not-yet	`syntax.expr.lends` is not in the bootstrap slice yet
+conformance/K140_window_under_cancellation.saw	pass	-	-
 conformance/K141_mutex_guarded_for_is_sync.saw	refused	typecheck member.unknown	`std.vector.Vector<Int, std.alloc.GlobalAllocator>` has no method `iter` this module can see
 conformance/K147_inline_catch_splits.saw	refused	typecheck slice.not-yet	`syntax.expr.try.route` is not in the bootstrap slice yet
 conformance/K149_sawtracker_loop_shape.saw	refused	typecheck member.unknown	`std.vector.Vector<Int, std.alloc.GlobalAllocator>` has no method `iter` this module can see
@@ -1022,15 +1022,15 @@ errors/background_spawn_needs_a_hosted_entry.saw	refused	driver driver.usage	saw
 errors/blocking_extern_decl_conflict.saw	refused	coro coro.not-yet	`worker` suspends (worker -> __saw_rt_last_syserror), so it needs a coroutine frame, which is not lowered yet (SL-545)
 errors/blocking_extern_sync_reject.saw	pass	-	effect.sync: `f` is declared `sync`, and it calls `slow`, which may suspend
 errors/borrowing_field_alias_exclusive.saw	pass	-	mutability.immutable: this assignment writes `self.source.value`, and `self.source` is a shared reference, through which nothing is written: take it as `&var`
-errors/borrowing_field_is_read_only.saw	refused	typecheck slice.not-yet	`syntax.expr.lends` is not in the bootstrap slice yet
-errors/borrowing_producer_alias_return.saw	refused	typecheck slice.not-yet	`syntax.expr.lends` is not in the bootstrap slice yet
-errors/borrowing_producer_composite_return.saw	refused	typecheck slice.not-yet	`syntax.expr.lends` is not in the bootstrap slice yet
-errors/borrowing_producer_stores_no_borrow.saw	refused	typecheck slice.not-yet	`syntax.expr.lends` is not in the bootstrap slice yet
+errors/borrowing_field_is_read_only.saw	pass	-	mutability.immutable: this assignment writes `self.source.n`, and `self.source` is a shared reference, through which nothing is written: take it as `&var`
+errors/borrowing_producer_alias_return.saw	wrong	refused by another rule	call.arity, where the plan names lends.path
+errors/borrowing_producer_composite_return.saw	pass	-	borrows.result: `Owner.opt_sugar` is declared `borrows`, and lends `borrowing_producer_composite_return.It?`: a `borrows` function lends a place (`&T`, `&var T`), a slice, an optional of either, or a
+errors/borrowing_producer_stores_no_borrow.saw	pass	-	type.mismatch: expected `&borrowing_producer_stores_no_borrow.Owner`, the type of the parameter, and found `borrowing_producer_stores_no_borrow.It`
 errors/borrowing_struct_alias_compositions.saw	pass	-	borrowing.containment: the borrowing struct `borrowing_struct_alias_compositions.It` is stored in a field: it carries a loan, and lives only where a `borrows` function lends it, the head of a `borrow`
 errors/borrowing_struct_exclusive_field.saw	pass	-	type.reference-position: a borrowing struct's field holds a shared reference only, and `&var borrowing_struct_exclusive_field.Bag` is exclusive: a window is shared, and an exclusive field could reallo
-errors/borrowing_struct_origin.saw	refused	typecheck slice.not-yet	`syntax.expr.lends` is not in the bootstrap slice yet
+errors/borrowing_struct_origin.saw	refused	typecheck slice.not-yet	`lends self` from a `&var self` receiver is not in the bootstrap slice yet
 errors/borrowing_struct_type_positions.saw	refused	resolve name.undefined	cannot find `FuncPointer` in scope
-errors/borrowing_struct_value_positions.saw	refused	typecheck slice.not-yet	`syntax.expr.lends` is not in the bootstrap slice yet
+errors/borrowing_struct_value_positions.saw	pass	-	type.mismatch: expected `Int`, the type of the parameter, and found `borrowing_struct_value_positions.BagIterator`
 errors/borrows_bare_return_type.saw	pass	-	borrows.result: `Grid.at` is declared `borrows`, and lends `borrows_bare_return_type.Cell`: a `borrows` function lends a place (`&T`, `&var T`), a slice, an optional of either, or a borrowing struct
 errors/borrows_body_never_lends.saw	pass	-	lend.missing: this path through the `borrows` body of `at` ends without lending; an accessor whose lend is not conditional lends on every path, and returns no value
 errors/borrows_effect_slot_order.saw	pass	-	resolve.parse-refused: the parser refuses `tests/corpus/errors/borrows_effect_slot_order.saw` (syntax.rule.effect-slot), so its declarations are not available
@@ -1419,10 +1419,10 @@ errors/while_continue_outside_loop.saw	wrong	accepts a refusal test	`continue` c
 errors/while_expr_incompatible_break_types.saw	refused	typecheck slice.not-yet	`syntax.stmt.break` is not in the bootstrap slice yet
 errors/while_never_unreachable_after.saw	pass	-	type.mismatch: expected `Never`, the type of the function's result, which the body's last expression is, and found `Void`
 errors/while_true_not_never.saw	pass	-	type.mismatch: expected `Never`, the type of the function's result, which the body's last expression is, and found `Void`
-errors/window_acquire_mutating_argument.saw	refused	typecheck slice.not-yet	`syntax.expr.lends` is not in the bootstrap slice yet
+errors/window_acquire_mutating_argument.saw	pass	-	loan.nested-call: `b` is borrowed by a nested call in this argument list while `b` is also the receiver of the call at 51:14, which borrows it for the whole call; bind the nested call's result in a st
 errors/window_conflicts.saw	refused	typecheck member.unknown	`std.vector.Vector<Int, std.alloc.GlobalAllocator>` has no method `iter` this module can see
 errors/window_in_a_threaded_group.saw	refused	typecheck member.unknown	`std.vector.Vector<Int, std.alloc.GlobalAllocator>` has no method `iter` this module can see
-errors/window_static_root_write.saw	refused	typecheck slice.not-yet	`syntax.expr.lends` is not in the bootstrap slice yet
+errors/window_static_root_write.saw	pass	-	loan.window-root: `ROOT.value` is written here while the window of `iter` opened at 38:14 holds `ROOT` shared until the window closes; a window charges its whole root until it closes, so the root is r
 errors/with_var_ref_invalidation.saw	pass	-	loan.window-root: `v` is borrowed exclusively here while the window of `[]` opened at 16:5 holds `v` exclusively until the window closes; a window charges its whole root until it closes, so the root i
 errors/withcstring_escape.saw	pass	-	escaping.stored: `body` is a non-escaping function value, a parameter whose type does not say `escaping` or a binding of one, and a field holds it past the call: mark the parameter `escaping`, as `()
 errors/wrong_args.saw	pass	-	call.arity: too many arguments: add(a: Int, b: Int) [wrong_args] takes 2
@@ -1773,7 +1773,7 @@ lend_var_coro_and_forwarding.saw	pass	-	-
 lend_var_epilogue_nesting.saw	pass	-	-
 lend_var_generic_and_match.saw	refused	mir slice.not-yet	a `borrow` block binding a conditional lend is not lowered to MIR in the bootstrap slice yet
 lend_var_two_specializations.saw	pass	-	-
-lends_is_contextual.saw	refused	typecheck slice.not-yet	`syntax.expr.lends` is not in the bootstrap slice yet
+lends_is_contextual.saw	refused	typecheck call.not-callable	this is called, and it is a `Int`, not a function
 let_refutable_pattern_error.saw	wrong	accepts a refusal test	refutable pattern in `let`/`var`: only bindings, `_`, and nested tuples are allowed (literals/ranges/variants require `match`/`if let`)
 let_struct_field_assign_error.saw	pass	-	mutability.immutable: this assignment writes `p.x`, and `p` is a `let` binding, which is never written: every binding is initialized where it is declared, so only a `var` takes a new value
 let_struct_nested_field_assign_error.saw	pass	-	mutability.immutable: this assignment writes `o.inner.v`, and `o` is a `let` binding, which is never written: every binding is initialized where it is declared, so only a `var` takes a new value

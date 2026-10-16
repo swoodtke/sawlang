@@ -127,15 +127,18 @@ extension MirProgram {
             self.order_now = k - 1
             let f = self.funcs.len()
             self.lower_root(module, d, root)
-            if accessors {
+            if accessors && self.tc.sigs[d].lending == TcLend.BorrowingStruct {
+                self.register_producer(f)
+            } else if accessors {
                 self.split_accessor(f)
             }
             self.lower_pending()
         }
     }
 
-    // Whether `root` is the block of a `borrows` accessor that lends a
-    // place, which is lowered as two halves.
+    // Whether `root` is the block of a `borrows` accessor: one that lends a
+    // place, lowered as two halves, or one that lends a borrowing struct,
+    // whose whole body is its window's open.
     func is_accessor_root(&self, d: Int, root: Int) -> Bool {
         if d < 0 || not self.tc.has_alt(root, Alt.Stmt_Block) {
             return false
@@ -145,8 +148,8 @@ extension MirProgram {
             return false
         }
         let s = self.tc.sigs[d]
-        let place = s.lending == TcLend.Place || s.lending == TcLend.ConditionalPlace
-        (s.effects & TC_EFFECT_BORROWS) != 0 && place
+        let lent = s.lending == TcLend.Place || s.lending == TcLend.ConditionalPlace || s.lending == TcLend.BorrowingStruct
+        (s.effects & TC_EFFECT_BORROWS) != 0 && lent
     }
 
     func is_poisoned(&self, root: Int) -> Bool {
@@ -373,7 +376,7 @@ extension MirProgram {
             }
         }
         self.end_params()
-        let lending = (s.effects & TC_EFFECT_BORROWS) != 0
+        let lending = (s.effects & TC_EFFECT_BORROWS) != 0 && s.lending != TcLend.BorrowingStruct
         if lending || self.tc.is_void(s.result) || self.tc.is_never(s.result) {
             self.lower_block(root, -1)
         } else {
@@ -1413,13 +1416,15 @@ extension MirProgram {
         self.ret()
     }
 
-    // Whether the function being lowered is a `borrows` accessor's body.
+    // Whether the function being lowered is the body of a `borrows` accessor
+    // that lends a place, which returns no value.
     func lending_function(&self) -> Bool {
         let info = self.funcs[self.cur]
         if info.kind != MirFuncKind.Body || info.decl < 0 {
             return false
         }
-        (self.tc.sigs[info.decl].effects & TC_EFFECT_BORROWS) != 0
+        let s = self.tc.sigs[info.decl]
+        (s.effects & TC_EFFECT_BORROWS) != 0 && s.lending != TcLend.BorrowingStruct
     }
 
     func lower_break(&var self) {
@@ -1926,6 +1931,10 @@ extension MirProgram {
             case Expr_Cast -> MirVal(operand: self.cast(e)),
             case Expr_Ref_Shared -> MirVal(operand: self.reference(e, false)),
             case Expr_Ref_Exclusive -> MirVal(operand: self.reference(e, true)),
+            // `lends self` hands the receiver's reference to the borrowing
+            // struct as `&self` would; the loan it stands for is the window
+            // the caller opens (SL:architecture §3.6).
+            case Expr_Lends -> MirVal(operand: self.reference(e, false)),
             case Expr_Move_Place -> self.move_val(e),
             case Expr_Try_Propagate -> MirVal(operand: self.try_propagate(e)),
             case Expr_Try_Force -> self.try_force(e),
@@ -4928,6 +4937,7 @@ extension MirProgram {
                     return -1
                 }
                 let base = self.tc.call_receiver(seq)
+                let saved = self.source_at(seq)
                 var steps = Vector<MirStep>()
                 self.prepare_base(base, &var steps)
                 self.open_receiver_windows(&var steps)
@@ -4937,7 +4947,11 @@ extension MirProgram {
                 let exclusive = self.borrows_exclusively(base)
                 let count = args.len()
                 let opened = self.lent_struct_window(seq, p, exclusive, first, count)
+                self.source_restore(saved)
                 self.scope_window(opened.window)
+                // Registered after its window, so it is destroyed first: a
+                // `deinit` may still read through its reference.
+                self.scope_owned(opened.dest)
                 return self.place_local(opened.dest)
             }
         }
@@ -4976,7 +4990,7 @@ extension MirProgram {
         call.arg_count = args.len()
         call.dest = self.place_local(d)
         call.window = w
-        self.suspension(e, &var call)
+        self.open_half(e, &var call)
         let _ = self.call_and_continue(call)
         MirOpen(window: w, dest: d, present: self.current, absent: -1)
     }

@@ -1,0 +1,14 @@
+// refuses: lends.position at 12:14
+// `lends self` as an argument of an ordinary function, outside the construction a `borrows` function returns (spec, Borrowing structs)
+
+struct Bag {
+    n: Int
+}
+
+func peek(b: &Bag) -> Int { b.n }
+
+extension Bag {
+    func echo(&self) -> Int {
+        peek(lends self)
+    }
+}

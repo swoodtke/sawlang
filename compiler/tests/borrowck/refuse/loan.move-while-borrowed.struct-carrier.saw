@@ -1,0 +1,37 @@
+// refuses: loan.move-while-borrowed at 34:15
+// moving a `for` loop's root out would leave the borrowing struct the head lends pointing at storage that has left, so the move is refused while it is live (spec, Borrowing structs)
+
+struct Tally { n: Int }
+extension Tally: NoCopy {}
+
+borrows struct Steps {
+    tally: &Tally,
+    at: Int
+}
+
+extension Tally {
+    func steps(&self) borrows -> Steps {
+        Steps(tally: lends self, at: 0)
+    }
+}
+
+extension Steps: Iterator {
+    type Item = Int
+    func next(&var self) -> Int? {
+        if self.at >= self.tally.n {
+            return None
+        }
+        self.at = self.at + 1
+        self.at
+    }
+}
+
+func keep(t: Tally) -> Int { t.n }
+
+func main() {
+    let t = Tally(n: 2)
+    for x in t.steps() {
+        print(keep(move t))
+        break
+    }
+}

@@ -4,7 +4,9 @@
 // soon as its value is copied out; a conditional lend has a present and an
 // absent edge, and a copy of it is an Optional; a getitem and a setitem
 // derived from the place accessor open and close their window around the copy
-// or the store; a `for` over a borrowing struct opens a window on its head.
+// or the store; a `for` over a borrowing struct opens a window on its head,
+// and a producer lowered here (`Row.steps`) is that window's whole open,
+// returning the struct `lends self` built, with nothing run at its close.
 
 struct Row {
     cells: [Int; 4]
@@ -74,6 +76,37 @@ func derived(v: &var Vector<Int>) -> Int {
 func iterate(v: Vector<Int>) -> Int {
     var sum = 0
     for x in v.iter() {
+        sum = sum + x
+    }
+    sum
+}
+
+borrows struct Steps {
+    row: &Row,
+    at: Int
+}
+
+extension Row {
+    func steps(&self) borrows -> Steps {
+        Steps(row: lends self, at: 0)
+    }
+}
+
+extension Steps: Iterator {
+    type Item = Int
+    func next(&var self) -> Int? {
+        if self.at >= 4 {
+            return None
+        }
+        let i = self.at
+        self.at = i + 1
+        self.row.cells[i]
+    }
+}
+
+func walk(r: Row) -> Int {
+    var sum = 0
+    for x in r.steps() {
         sum = sum + x
     }
     sum

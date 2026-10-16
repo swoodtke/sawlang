@@ -1,0 +1,19 @@
+// refuses: lends.origin at 17:22
+// `lends self.items`, a projection of the receiver: the window the call site opens charges the receiver's root, so the field must lend the receiver itself (spec, Borrowing structs, "The origin is the receiver")
+
+struct Bag {
+    items: Vector<Int>
+}
+
+extension Bag: NoCopy {}
+
+borrows struct Items {
+    items: &Vector<Int>,
+    at: Int
+}
+
+extension Bag {
+    func items_of(&self) borrows -> Items {
+        Items(items: lends self.items, at: 0)
+    }
+}

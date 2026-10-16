@@ -1,0 +1,33 @@
+// refuses: borrowing.containment at 32:11
+// a `borrows` call lending a borrowing struct, used as a method call's receiver: the struct would outlive no window (spec, Borrowing structs)
+
+struct Bag {
+    n: Int
+}
+
+borrows struct Walk {
+    bag: &Bag,
+    at: Int
+}
+
+extension Bag {
+    func walk(&self) borrows -> Walk {
+        Walk(bag: lends self, at: 0)
+    }
+}
+
+extension Walk: Iterator {
+    type Item = Int
+    func next(&var self) -> Int? {
+        if self.at >= self.bag.n {
+            return None
+        }
+        self.at = self.at + 1
+        self.at
+    }
+}
+
+func main() {
+    let b = Bag(n: 3)
+    print(b.walk().next() ?? 0)
+}

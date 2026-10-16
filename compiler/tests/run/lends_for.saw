@@ -1,0 +1,170 @@
+// `for` over a borrowing struct its producer builds with `lends self`, with
+// no suspension: the walker reads the root through its reference on every
+// `next`, the body may read the root while the window is open, a second
+// window over the same root nests inside the first, a `break` and a `return`
+// close the window, a generic producer is one item per instantiation, and a
+// hand-written `deinit` runs before the window closes, reading through the
+// reference (spec, Borrowing structs).
+
+struct Bag {
+    items: Vector<Int>
+}
+
+extension Bag: NoCopy {}
+
+borrows struct BagIterator {
+    source: &Bag,
+    index: Int
+}
+
+extension Bag {
+    func iter(&self) borrows -> BagIterator {
+        BagIterator(source: lends self, index: 0)
+    }
+
+    func count(&self) -> Int { self.items.len() }
+
+    func at(&self, i: Int) -> Int { self.items[i] }
+}
+
+extension BagIterator: Iterator {
+    type Item = Int
+    func next(&var self) -> Int? {
+        if self.index < self.source.count() {
+            let i = self.index
+            self.index = i + 1
+            self.source.at(i)
+        } else {
+            None
+        }
+    }
+}
+
+struct Shelf<T> {
+    items: Vector<T>
+}
+
+extension Shelf<T>: NoCopy {}
+
+borrows struct ShelfIterator<T> {
+    shelf: &Shelf<T>,
+    index: Int
+}
+
+extension Shelf<T: Copy> {
+    func iter(&self) borrows -> ShelfIterator<T> {
+        ShelfIterator<T>(shelf: lends self, index: 0)
+    }
+
+    func count(&self) -> Int { self.items.len() }
+
+    func at(&self, i: Int) -> T { self.items[i] }
+}
+
+extension ShelfIterator<T: Copy>: Iterator {
+    type Item = T
+    func next(&var self) -> T? {
+        if self.index < self.shelf.count() {
+            let i = self.index
+            self.index = i + 1
+            self.shelf.at(i)
+        } else {
+            None
+        }
+    }
+}
+
+struct Ledger {
+    entries: Vector<Int>
+}
+
+extension Ledger: NoCopy {
+    func deinit(&var self) { print("ledger deinit") }
+}
+
+borrows struct Reader {
+    ledger: &Ledger,
+    index: Int
+}
+
+extension Reader: NoCopy {
+    func deinit(&var self) { print("reader deinit, ledger still has {}", self.ledger.entries.len()) }
+}
+
+extension Ledger {
+    func read(&self) borrows -> Reader {
+        Reader(ledger: lends self, index: 0)
+    }
+}
+
+extension Reader: Iterator {
+    type Item = Int
+    func next(&var self) -> Int? {
+        if self.index < self.ledger.entries.len() {
+            let i = self.index
+            self.index = i + 1
+            self.ledger.entries[i]
+        } else {
+            None
+        }
+    }
+}
+
+func first_over(bag: &Bag, limit: Int) -> Int {
+    for x in bag.iter() {
+        if x > limit {
+            return x
+        }
+    }
+    -1
+}
+
+func weigh<T: Copy>(s: &Shelf<T>, weight: (T) -> Int) -> Int {
+    var total = 0
+    for x in s.iter() {
+        total = total + weight(x)
+    }
+    total
+}
+
+func main() {
+    let bag = Bag(items: [1, 2, 3, 4])
+    var total = 0
+    for x in bag.iter() {
+        total = total + x * bag.count()
+    }
+    print("weighted = {}", total)
+
+    var pairs = 0
+    for x in bag.iter() {
+        for y in bag.iter() {
+            if x < y {
+                pairs = pairs + 1
+            }
+        }
+    }
+    print("pairs = {}", pairs)
+
+    var seen = 0
+    for x in bag.iter() {
+        if x == 3 {
+            break
+        }
+        seen = seen + x
+    }
+    print("before three = {}", seen)
+    print("first over two = {}", first_over(&bag, 2))
+    print("first over nine = {}", first_over(&bag, 9))
+
+    let ints = Shelf<Int>(items: [3, 4, 5])
+    let flags = Shelf<Bool>(items: [true, false, true])
+    print("ints = {}", weigh(&ints, { n in n }))
+    print("flags = {}", weigh(&flags, { b in if b { 1 } else { 0 } }))
+
+    let ledger = Ledger(entries: [10, 20, 30])
+    var sum = 0
+    for e in ledger.read() {
+        sum = sum + e
+    }
+    print("ledger sum = {}", sum)
+}

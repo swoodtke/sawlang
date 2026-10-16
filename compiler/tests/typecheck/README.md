@@ -769,6 +769,7 @@ Every body construct in the slice, and how it is typed:
 | `while`, `while { }`, `while let`, `for`, `break`, `continue`, `return` | `Void`, or `Never` with no `break` | control, places |
 | `let`, `var`, destructuring, assignment, compound assignment, `guard`, `lend` | statements | funnel, patterns, declarations |
 | a `borrow` block, `borrow` place, `if borrow let` | the place's type, borrowed | borrows |
+| `lends self`, a reference field's value in the construction a `borrows -> S` function returns | `&Self`, shared, typed as `&self` is; any other operand, a `&var self` receiver, and every other position refused (the origin funnel, below) | declarations; lends.origin, lends.position, slice.not-yet.lends-exclusive |
 | `borrow var PLACE`, `borrow PLACE` where a `&var T` or `&T` parameter expects it | the place passed by reference, `&var T` or `&T` (SL:borrowing §2.2) | borrow_arguments |
 | a default value whose parameter's type is a type parameter, `b: T = 0` | a literal typed as written, whose type drives each call's inference, or `None`, which needs each call's `T` optional; checked against each call's `T` (design 108) | generic_defaults; generic-default |
 | patterns: wildcard, literal, range, tuple, variant, name, `None`, borrow binding | the matched type; bindings copy, take, move or alias | patterns, places |
@@ -780,7 +781,8 @@ Every body construct in the slice, and how it is typed:
 | a `try` block whose `try`s propagate more than one error type, which its `error` holds as their union | `slice.not-yet` (error-union) |
 | a `try(as ...)` route | `slice.not-yet` (the alternative) |
 | an open range, `a..` or `..b` | `slice.not-yet` (the alternative) |
-| `for borrow`, `while borrow`, `lends`, `move *p` | `slice.not-yet` (the alternative) |
+| `for borrow`, `while borrow`, `move *p` | `slice.not-yet` (the alternative) |
+| `lends self` from a `&var self` receiver | `slice.not-yet` |
 | `break` with a value | `slice.not-yet` (`syntax.stmt.break`) |
 | a method or static method named without its call | `slice.not-yet` (`syntax.expr.member`) |
 | a call of a type parameter with arguments, `T(x)` | `slice.not-yet` (`syntax.expr.call`) |
@@ -910,7 +912,27 @@ against Stage 0:
 | an erasure to an existential | refused | borrowing.containment.erase |
 | a result not lent with `borrows` | refused | borrowing.containment.return |
 | a function type's parameter or result | refused | borrowing.containment.function-type |
+| a `borrows` call lending one as an argument, a receiver, or any other value position but a head | refused | borrowing.containment.argument, .receiver |
+| a construction outside a returning path of the `borrows` function that lends it | refused | borrowing.containment.construction |
 | a `for` head, a `borrow` head, a reference parameter | allowed | body_rules |
+
+**The origin funnel** (`check_lend_origins`, `compiler/typecheck/src/bodychecks.saw`;
+spec, Borrowing structs, "The origin is the receiver"). A borrowing struct
+points into the one root the call site's window charges: every returning path
+of a `borrows -> S` function, the tail and each `return` through the arms of a
+value `if`, `match`, `try` block and `catch`, ends in a construction of `S`
+whose every reference field is `lends self`, and nothing else constructs one.
+
+| cell | verdict | covered by |
+|---|---|---|
+| `lends self` from a `&self` receiver, on every path | allowed | declarations; run `lends_for`, `lends_for_suspends` |
+| `lends self.items`, a projection | refused | lends.origin |
+| `lends other`, a reference parameter | refused | lends.origin.parameter |
+| `lends spare`, a local | refused | lends.origin.local |
+| `lends self` from a `&var self` receiver | refused | slice.not-yet.lends-exclusive |
+| `lends self` outside such a construction | refused | lends.position |
+| a path yielding another producer's result | refused | lends.path |
+| a path whose construction fills a reference field with something else | refused | lends.path.construction |
 
 **Object safety** (spec, "Object safety (v1)"; SL-510). Every existential
 type is interned by `mk_any`, whose one caller is the type funnel's `any
@@ -1462,7 +1484,10 @@ says what the fixture shows.
 | `static.zero-invalid` | a static or `unsafe static var` with no initializer whose all-zero value holds, at any depth, a part with no valid zero: a `String`, an enum with a payload, a raw-backed enum with no case of value 0, a function, a `FuncPointer`, `Never`, naming it (SL-660; the zero-init matrix below) |
 | `static.cycle` | a static whose value depends on itself, through any number of statics, named in order |
 | `static_assert.failed` | a `static_assert` whose condition folds to `false`, at the top of a file or in a body; one over a layout once the layout-assert funnel measures it (Layout asserts) |
-| `borrowing.containment` | a borrowing struct (spec, Borrowing structs) bound outside the head of a `borrow` or a `for`, taken as a parameter by value, stored in a field or a payload, erased to an existential, returned by a function that does not lend it with `borrows`, or carried by a function type |
+| `borrowing.containment` | a borrowing struct (spec, Borrowing structs) bound outside the head of a `borrow` or a `for`, taken as a parameter by value, stored in a field or a payload, erased to an existential, returned by a function that does not lend it with `borrows`, or carried by a function type; a `borrows` call lending one anywhere but such a head; a construction of one outside a returning path of the `borrows` function that lends it |
+| `lends.origin` | a `lends` whose operand is not `self`: a projection of the receiver, a parameter, a local, named in the message (spec, Borrowing structs, "The origin is the receiver") |
+| `lends.position` | a `lends` anywhere but a reference field's value in a construction a `borrows` function returns |
+| `lends.path` | a returning path of a `borrows -> S` function that ends in anything but a construction of `S` with `lends self` in every reference field, at the path's value |
 | `escaping.stored` | a non-escaping function value (a parameter whose function type does not say `escaping`, or a local bound to one) in a position that holds it past the call: a field, a payload, an element, an Optional, a return, an assignment's target, an escaping closure's capture, a type argument, an `escaping` parameter (D35) |
 | `borrowing.sigil-place` | `&` or `&var` on a place reached through a `borrows` call, a subscript accessor or a named one, at any depth of fields, tuple elements and payloads: the place is passed with `borrow` (SL:borrowing §9) |
 | `borrowing.var-unwrap` | an `if var`, `guard var` or `while var` binding of the payload of an optional place a `borrow` binding names, or of an optional field of one: it would write a copy, never the place (SL:borrowing §2.4) |

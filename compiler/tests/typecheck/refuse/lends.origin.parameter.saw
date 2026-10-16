@@ -1,0 +1,17 @@
+// refuses: lends.origin at 15:19
+// `lends other`, another reference parameter: the window charges the receiver's root, and nothing at the call site would charge `other`'s (spec, Borrowing structs, "The origin is the receiver")
+
+struct Bag {
+    n: Int
+}
+
+borrows struct Walk {
+    bag: &Bag,
+    at: Int
+}
+
+extension Bag {
+    func walk_other(&self, other: &Bag) borrows -> Walk {
+        Walk(bag: lends other, at: 0)
+    }
+}

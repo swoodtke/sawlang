@@ -231,6 +231,16 @@ its halves only by its target. A window call is a suspension point only when
 its half holds a call that may suspend; one of an accessor whose body is not
 lowered is one as the accessor's summary makes it.
 
+A `borrows` function that lends a borrowing struct has no `lend` and is not
+split: it is lowered whole, its tail and each `return` writing the struct its
+`lends self` construction built into `_0`, and registered as the accessor of
+its windows with that one function as the prologue and no epilogue or record
+(`register_producer` in `compiler/mir/src/split.saw`). A `for` over it opens
+the window with the struct as the lent value, holds the struct in the loop's
+scope after the window, so it is dropped before the close, and the close names
+no half: it is never a suspension point, and the backend emits nothing for it.
+`lends self` lowers as `&self` does, a `ref(shared, (*_1))`.
+
 | case | covered by |
 |---|---|
 | a plain accessor | accessors `Grid.[]` |
@@ -241,6 +251,7 @@ lowered is one as the accessor's summary makes it.
 | a prologue that may suspend | accessors `Grid.waited` |
 | a `borrows(sync)` accessor | accessors `Lock.hold` |
 | a caller holding records | accessors `use_all` |
+| a producer of a borrowing struct, and a `for` over it | windows `Row.steps`, `walk` |
 
 ## The position matrices
 
@@ -543,7 +554,7 @@ slice.not-yet at L:C`.
 | the release of a consumed receiver that moves out whole, or is an enum, when its type writes its own `deinit` | consumes-whole |
 | a write to an owning part of a raw pointer's pointee (`p[i].f = v`, `(*p).f = v`), since the spec makes only a whole pointer slot a placement write | pointer-part |
 | a `lend` in the body of a `match`, `if let` or `while let` that holds leftovers: the scrutinee is partly moved out across the `lend`, and the accessor's state record cannot carry a partial value yet (`record_flag_slots` in `compiler/mir/src/split.saw`) | leftover-lend |
-| a `for` head that lends a place; a `borrows` call lending a slice or a borrowing struct outside a `for` head; a `borrows` function called with no receiver; a setitem derived from a conditional lend; a conditional lend's place read other than through `!` | none: nothing in the slice reaches them |
+| a `for` head that lends a place; a `borrows` call lending a slice outside a `for` head, or a borrowing struct there, which typecheck's `borrowing.containment` refuses first; a `borrows` function called with no receiver; a setitem derived from a conditional lend; a conditional lend's place read other than through `!` | none: nothing in the slice reaches them |
 
 Two constructs typecheck refuses before lowering, as `transfer.partial-move`,
 are invariants here rather than refusals: a `consumes` body moving out of

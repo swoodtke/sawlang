@@ -2871,6 +2871,7 @@ extension TcProgram {
             case Expr_Cast -> self.cast_expr(e),
             case Expr_Ref_Shared -> self.ref_expr(e, false),
             case Expr_Ref_Exclusive -> self.ref_expr(e, true),
+            case Expr_Lends -> self.lends_expr(e),
             case Expr_Move_Place -> self.move_expr(e),
             case Expr_Deref -> self.deref_expr(e),
             case Expr_Try_Propagate -> self.try_expr(e, 0),
@@ -4262,6 +4263,56 @@ extension TcProgram {
         self.set_type(e, t, false)
     }
 
+    // `lends self`: the receiver lent, shared, to a reference field of the
+    // borrowing struct a `borrows` function constructs, typed as `&self`
+    // is. Where it may stand is the origin funnel's (bodychecks.saw); the
+    // operand is checked here (spec, Borrowing structs, "The origin is the
+    // receiver").
+    func lends_expr(&var self, e: Int) -> Int {
+        let operand = self.res.first_node_child(e)
+        let place = self.unparen(operand)
+        if not self.has_alt(place, Alt.Expr_Self) {
+            let _ = self.expr(operand, TC_WANT_NONE)
+            self.set_use(operand, TcUse.Borrow)
+            self.refuse_lends_operand(e, place)
+            let poisoned = self.error_type
+            return self.set_type(e, poisoned, false)
+        }
+        let d = self.current_decl
+        if d >= 0 && self.sigs[d].receiver == TcReceiver.Exclusive {
+            let _ = self.expr(operand, TC_WANT_NONE)
+            self.set_use(operand, TcUse.Borrow)
+            self.not_yet(e, "`lends self` from a `&var self` receiver")
+            let poisoned = self.error_type
+            return self.set_type(e, poisoned, false)
+        }
+        self.ref_expr(e, false)
+    }
+
+    // A `lends` whose operand is not `self`, refused by what it names.
+    func refuse_lends_operand(&var self, e: Int, place: Int) {
+        var what = "an expression"
+        if self.rooted_in_self(place) {
+            what = "a projection of the receiver"
+        } else if self.has_alt(place, Alt.Expr_Name) || self.has_alt(place, Alt.Expr_NameRef) {
+            let leaf = self.res.first_leaf(place)
+            let b = self.binding_at(leaf)
+            if b.kind == ResBindKind.Local && b.node >= 0 && tc_contains(&self.param_leaves, b.node) {
+                what = "a parameter"
+            } else if b.kind == ResBindKind.Local {
+                what = "a local"
+            }
+        }
+        let m = self.current
+        var msg = StringBuilder()
+        try! msg.append("`")
+        try! msg.append(self.text(m, e))
+        try! msg.append("` lends ")
+        try! msg.append(what)
+        try! msg.append(", and `lends self` is the only spelling: the window a `borrows` call opens charges its receiver's root, and a projection (`lends self.buffer`), another reference parameter or a local names a root the call site cannot charge; lend the receiver, and read through the reference field on every access")
+        self.refuse(e, "lends.origin", msg.build())
+    }
+
     // The `borrows` call place `e` reaches storage through, following its
     // fields, tuple elements, payloads and builtin elements down, or -1: the
     // sigil a call argument writes reaches no accessor (SL:borrowing §9).
@@ -4610,7 +4661,7 @@ extension TcProgram {
     }
 
     // Expression `e` with its parentheses taken off.
-    func unparen(&self, e: Int) -> Int {
+    public func unparen(&self, e: Int) -> Int {
         var at = e
         while at >= 0 && self.has_alt(at, Alt.Expr_Paren) {
             at = self.res.first_node_child(at)
@@ -5542,7 +5593,7 @@ extension TcProgram {
     }
 
     // The expression block `b` ends in, which is its value, or -1.
-    func block_tail(&self, b: Int) -> Int {
+    public func block_tail(&self, b: Int) -> Int {
         if b < 0 {
             return -1
         }
@@ -5595,7 +5646,7 @@ extension TcProgram {
     }
 
     // An `else if` arm's block, found without checking its head.
-    func arm_block(&self, arm: Int) -> Int {
+    public func arm_block(&self, arm: Int) -> Int {
         let n = self.child_count(arm)
         var k = 0
         while k < n {

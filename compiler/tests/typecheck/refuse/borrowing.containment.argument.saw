@@ -1,0 +1,24 @@
+// refuses: borrowing.containment at 23:16
+// a `borrows` call lending a borrowing struct, passed as a generic function's argument rather than standing at the head of a `for` (spec, Borrowing structs)
+
+struct Bag {
+    n: Int
+}
+
+borrows struct Walk {
+    bag: &Bag,
+    at: Int
+}
+
+extension Bag {
+    func walk(&self) borrows -> Walk {
+        Walk(bag: lends self, at: 0)
+    }
+}
+
+func keep<T>(x: T) -> Int { 0 }
+
+func main() {
+    let b = Bag(n: 3)
+    print(keep(b.walk()))
+}

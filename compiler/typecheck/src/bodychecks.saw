@@ -6,16 +6,17 @@
 import sawparse.grammar.{Alt}
 import sawresolve.collect.{res_is_top_level}
 import sawresolve.dump.{res_sort_strings}
-import sawresolve.kinds.{res_is_type_alt}
+import sawresolve.kinds.{res_is_statement_alt, res_is_type_alt}
 import sawresolve.model.{ResBindKind, ResBinding, ResDecl, ResDeclKind, ResModule}
 import sawtypecheck.adjust.{TC_FIT_EXACT}
+import sawtypecheck.bodies.{tc_check_bodies}
 import sawtypecheck.candidates.{tc_contains}
 import sawtypecheck.checks.{tc_check_unsafe}
 import sawtypecheck.conform.{TcSubst}
 import sawtypecheck.fold.{TcFold}
 import sawtypecheck.model.{TC_EFFECT_BORROWS, TC_EFFECT_BORROWS_SYNC, TC_EFFECT_UNSAFE,
                                TC_FLAG_BORROWS_STRUCT, TC_FLAG_UNSAFE_VAR, TcAdjust, TcAdjustKind,
-                               TcCall, TcLend, TcParam, TcSig, TcUse}
+                               TcCall, TcLend, TcParam, TcRole, TcSig, TcUse}
 import sawtypecheck.program.{TcProgram}
 import sawtypecheck.signatures.{TcContext}
 import sawtypecheck.spell.{tc_effects_text}
@@ -30,6 +31,7 @@ import sawtypecheck.walks.{TC_INSTANTIATION_DEPTH, TcMemo, tc_memo}
 public func tc_check_body_rules(p: &var TcProgram) {
     p.check_containment_signatures()
     p.check_body_rules()
+    p.check_lend_origins()
 }
 
 extension TcProgram {
@@ -790,6 +792,344 @@ extension TcProgram {
                     depth = depth + 1
                 }
                 c = c - 1
+            }
+        }
+    }
+}
+
+// Where a borrowing struct's loan comes from (spec, Borrowing structs, "The
+// origin is the receiver").
+extension TcProgram {
+    // The origin funnel: a borrowing struct is constructed only as the value
+    // of a returning path of a `borrows` function that lends it, with
+    // `lends self` in every reference field; every returning path of such a
+    // function is one; `lends` stands only there; and a `borrows` call that
+    // lends one stands only at the head of a `for` or a `borrow` binding. So
+    // the struct points into the one root the call site's window charges,
+    // and lives no longer than that window.
+    //
+    // ENTRY POINTS:
+    //     check_producer_paths
+    //     check_origin_node
+    func check_lend_origins(&var self) {
+        var proven = Vector<Int>()
+        var refused = Vector<Int>()
+        var k = 0
+        while k < self.body_roots.len() {
+            let root = self.body_roots[k]
+            let d = self.body_decls[k]
+            k = k + 1
+            if not tc_contains(&self.poisoned, root) && self.is_struct_producer(d) {
+                self.check_producer_paths(d, root, &var proven, &var refused)
+            }
+        }
+        var heads = Vector<Int>()
+        var lent = Vector<Int>()
+        k = 0
+        while k < self.body_roots.len() {
+            let root = self.body_roots[k]
+            k = k + 1
+            if tc_contains(&self.poisoned, root) {
+                continue
+            }
+            var stack = Vector<Int>()
+            try! stack.push(root)
+            var depth = 1
+            while depth > 0 {
+                depth = depth - 1
+                let id = stack[depth]
+                if tc_contains(&self.skipped, id) {
+                    continue
+                }
+                self.check_origin_node(id, &proven, &refused, &var heads, &var lent)
+                var c = self.child_count(id) - 1
+                while c >= 0 {
+                    let child = self.child(id, c)
+                    if not self.is_leaf(child) {
+                        if depth < stack.len() {
+                            stack[depth] = child
+                        } else {
+                            try! stack.push(child)
+                        }
+                        depth = depth + 1
+                    }
+                    c = c - 1
+                }
+            }
+        }
+    }
+
+    // Whether `d` is a `borrows` function that lends a borrowing struct.
+    public func is_struct_producer(&self, d: Int) -> Bool {
+        if d < 0 {
+            return false
+        }
+        let kind = self.res.decls[d].kind
+        if kind != ResDeclKind.Func && kind != ResDeclKind.Method && kind != ResDeclKind.Requirement {
+            return false
+        }
+        let s = self.sigs[d]
+        (s.effects & TC_EFFECT_BORROWS) != 0 && s.lending == TcLend.BorrowingStruct
+    }
+
+    // Every returning path of producer `d`'s body `root`: the tail and each
+    // `return`'s value, through the arms of a value `if`, `match`, `try`
+    // block or `catch`, must end in a construction the funnel accepts. A
+    // path that diverges yields nothing.
+    func check_producer_paths(&var self, d: Int, root: Int, proven: &var Vector<Int>, refused: &var Vector<Int>) {
+        var leaves = Vector<Int>()
+        let tail = self.block_tail(root)
+        if tail >= 0 {
+            self.value_leaves(tail, &var leaves)
+        }
+        var stack = Vector<Int>()
+        try! stack.push(root)
+        var depth = 1
+        while depth > 0 {
+            depth = depth - 1
+            let id = stack[depth]
+            if self.has_alt(id, Alt.Expr_Closure) {
+                continue
+            }
+            if self.has_alt(id, Alt.Stmt_Return) {
+                let v = self.res.first_node_child(id)
+                if v >= 0 {
+                    self.value_leaves(v, &var leaves)
+                }
+                continue
+            }
+            var c = self.child_count(id) - 1
+            while c >= 0 {
+                let child = self.child(id, c)
+                if not self.is_leaf(child) {
+                    if depth < stack.len() {
+                        stack[depth] = child
+                    } else {
+                        try! stack.push(child)
+                    }
+                    depth = depth + 1
+                }
+                c = c - 1
+            }
+        }
+        let result = self.sigs[d].result
+        let want = self.nominal_decl(result)
+        var k = 0
+        while k < leaves.len() {
+            let leaf = leaves[k]
+            k = k + 1
+            let t = self.final_type(leaf)
+            if t < 0 || self.has_error(t) || self.is_never(t) {
+                continue
+            }
+            let failure = self.origin_failure(leaf, want)
+            if failure.len() == 0 {
+                try! proven.push(leaf)
+                continue
+            }
+            try! refused.push(leaf)
+            var msg = StringBuilder()
+            try! msg.append("every returning path of `")
+            try! msg.append(self.res.decl_path(d))
+            try! msg.append("` must construct `")
+            try! msg.append(self.res.decl_path(want))
+            try! msg.append("` with `lends self` in every reference field, and ")
+            try! msg.append(failure)
+            try! msg.append(": the window a `borrows` call opens charges its receiver's root, and only a construction that lends `self` points into it")
+            let m = self.node_in_module(leaf)
+            self.refuse_in(m, leaf, "lends.path", msg.build())
+        }
+    }
+
+    // The expressions value `e` can end in, through the arms of a value
+    // `if`, `match`, `try` block, `catch` and `borrow` block.
+    func value_leaves(&self, e: Int, out: &var Vector<Int>) {
+        let at = self.unparen(e)
+        if at < 0 {
+            return
+        }
+        if self.has_alt(at, Alt.Expr_If) {
+            let n = self.child_count(at)
+            var k = 0
+            while k < n {
+                let c = self.child(at, k)
+                k = k + 1
+                if self.has_alt(c, Alt.Stmt_Block) {
+                    self.block_leaves(c, &var out)
+                } else if self.has_alt(c, Alt.Expr_ElseIf) {
+                    let block = self.arm_block(c)
+                    self.block_leaves(block, &var out)
+                }
+            }
+            return
+        }
+        if self.has_alt(at, Alt.Expr_Match) {
+            let n = self.child_count(at)
+            var k = 0
+            while k < n {
+                let arm = self.child(at, k)
+                k = k + 1
+                if not self.has_alt(arm, Alt.Expr_MatchArm) {
+                    continue
+                }
+                let body = self.res.last_node_child(arm)
+                if self.has_alt(body, Alt.Stmt_Block) {
+                    self.block_leaves(body, &var out)
+                } else if not self.is_statement_node(body) {
+                    self.value_leaves(body, &var out)
+                }
+            }
+            return
+        }
+        if self.has_alt(at, Alt.Expr_Try_Catch) {
+            let clause = self.res.last_node_child(at)
+            let handler = self.res.first_node_child(clause)
+            self.block_leaves(handler, &var out)
+            return
+        }
+        if self.has_alt(at, Alt.Expr_TryBlock) {
+            let body = self.res.first_node_child(at)
+            let handler = self.res.last_node_child(at)
+            self.block_leaves(body, &var out)
+            self.block_leaves(handler, &var out)
+            return
+        }
+        if self.has_alt(at, Alt.Borrow_Block) {
+            let block = self.res.last_node_child(at)
+            self.block_leaves(block, &var out)
+            return
+        }
+        try! out.push(at)
+    }
+
+    func block_leaves(&self, b: Int, out: &var Vector<Int>) {
+        let tail = self.block_tail(b)
+        if tail >= 0 {
+            self.value_leaves(tail, &var out)
+        }
+    }
+
+    func is_statement_node(&self, id: Int) -> Bool {
+        guard let alt = self.node_alt(id) else {
+            return false
+        }
+        res_is_statement_alt(alt)
+    }
+
+    // Why returning value `leaf` is not a construction of `want` with
+    // `lends self` in every reference field, or "" when it is one.
+    func origin_failure(&self, leaf: Int, want: Int) -> String {
+        let m = self.node_in_module(leaf)
+        let at = self.call_at[leaf]
+        let constructs = at >= 0 && self.calls[at].role == TcRole.Memberwise
+        let built = self.final_type(leaf)
+        if not constructs || self.nominal_decl(built) != want {
+            var out = StringBuilder()
+            try! out.append("this path yields `")
+            try! out.append(self.text(m, leaf))
+            try! out.append("`, which is not a construction of it written in this body")
+            return out.build()
+        }
+        let n = self.child_count(leaf)
+        var k = 0
+        while k < n {
+            let arg = self.child(leaf, k)
+            k = k + 1
+            if not self.has_alt(arg, Alt.Expr_Argument_Labelled) {
+                continue
+            }
+            let value = self.res.last_node_child(arg)
+            let v = self.unparen(value)
+            if v < 0 || self.has_alt(v, Alt.Expr_Lends) {
+                continue
+            }
+            let vt = self.final_type(v)
+            if self.kind_of(vt) != TcKind.Ref {
+                continue
+            }
+            let label = self.res.first_leaf(arg)
+            var out = StringBuilder()
+            try! out.append("this construction initializes `")
+            try! out.append(self.text(m, label))
+            try! out.append("` with `")
+            try! out.append(self.text(m, v))
+            try! out.append("`, not `lends self`")
+            return out.build()
+        }
+        ""
+    }
+
+    // One node of a checked body, as the origin funnel reads it. A `for`'s
+    // and a `borrow` binding's heads, and a proven construction's `lends`
+    // arguments, are noted before the walk reaches them.
+    func check_origin_node(&var self, id: Int, proven: &Vector<Int>, refused: &Vector<Int>, heads: &var Vector<Int>,
+                           lent: &var Vector<Int>) {
+        if self.has_alt(id, Alt.Expr_For_Plain) {
+            let target = self.res.first_node_child(id)
+            let body = self.res.last_node_child(id)
+            let n = self.child_count(id)
+            var k = 0
+            while k < n {
+                let c = self.child(id, k)
+                k = k + 1
+                if c != target && c != body && not self.is_leaf(c) {
+                    try! heads.push(self.unparen(c))
+                }
+            }
+            return
+        }
+        // A `let`'s binding is refused by the containment rule for bindings
+        // (`check_node_containment`), so its value is not refused again.
+        let binds = self.has_alt(id, Alt.Stmt_Let_Immutable) || self.has_alt(id, Alt.Stmt_Let_Mutable)
+        if binds || self.has_alt(id, Alt.Borrow_Binding_Let) || self.has_alt(id, Alt.Borrow_Binding_Var) {
+            let value = self.res.last_node_child(id)
+            try! heads.push(self.unparen(value))
+            return
+        }
+        let t = self.expr_types[id]
+        if t < 0 || self.has_error(t) {
+            return
+        }
+        let m = self.node_in_module(id)
+        if self.has_alt(id, Alt.Expr_Lends) {
+            if not tc_contains(&lent, id) {
+                self.refuse_in(m, id, "lends.position", "`lends self` stands only as a reference field's value in a construction a `borrows` function returns, which lends its receiver to the borrowing struct it builds")
+            }
+            return
+        }
+        let at = self.call_at[id]
+        if at < 0 {
+            return
+        }
+        let c = self.calls[at]
+        let built = self.nominal_decl(t)
+        if c.role == TcRole.Memberwise && self.is_borrowing_struct(built) {
+            self.note_lends_arguments(id, &var lent)
+            if not tc_contains(&proven, id) && not tc_contains(&refused, id) {
+                self.refuse_containment(m, id, t, "constructed outside a returning path of a `borrows` function that lends it")
+            }
+            return
+        }
+        if c.role == TcRole.Call && c.target >= 0 && self.is_struct_producer(c.target) {
+            if not tc_contains(&heads, id) && not tc_contains(&refused, id) {
+                self.refuse_containment(m, id, t, "used outside the head of a `for` or a `borrow` binding")
+            }
+        }
+    }
+
+    func note_lends_arguments(&self, call: Int, lent: &var Vector<Int>) {
+        let n = self.child_count(call)
+        var k = 0
+        while k < n {
+            let arg = self.child(call, k)
+            k = k + 1
+            if not self.has_alt(arg, Alt.Expr_Argument_Labelled) {
+                continue
+            }
+            let value = self.res.last_node_child(arg)
+            let v = self.unparen(value)
+            if v >= 0 && self.has_alt(v, Alt.Expr_Lends) {
+                try! lent.push(v)
             }
         }
     }

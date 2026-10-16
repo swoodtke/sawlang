@@ -616,6 +616,15 @@ extension BorrowckProgram {
                 continue
             }
             let c = self.mir.calls[block.call]
+            // A window's open borrows its receiver from the place its loan
+            // charges, so an argument that writes it conflicts too (K139).
+            if c.kind == MirCallKind.WindowOpen && c.window >= 0 {
+                let opened = facts.window_path[c.window]
+                if opened.count < 0 {
+                    continue
+                }
+                return self.borrowck_trace(f, &opened, &var facts)
+            }
             if c.kind != MirCallKind.Function && c.kind != MirCallKind.Builtin || c.arg_count < 1 {
                 continue
             }

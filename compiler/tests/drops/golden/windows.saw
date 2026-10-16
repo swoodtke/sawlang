@@ -1,9 +1,7 @@
 // Drops and windows: a scope's exits run newest first, so a value declared
 // inside a window's body is dropped before the window closes. A `for` over a
-// borrowing struct keeps the iterator in its window; Vector's iterator owns
-// nothing, so nothing drops it, and the window closes at the loop's exit. A
-// borrowing struct that owns something needs `lends`, which is not in the
-// slice yet (refuse/order.borrowing-struct.saw records the row as due).
+// borrowing struct keeps the iterator in its window and drops it at the
+// loop's exit, before the window closes (golden `borrowing_struct`).
 
 func iterate(v: Vector<String>) -> Int {
     var total = 0

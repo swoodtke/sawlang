@@ -1,0 +1,17 @@
+// refuses: slice.not-yet at 15:19
+// `lends self` from a `&var self` receiver, whose window would charge the root exclusively; the spec plans it, and Stage 0 refuses it too
+
+struct Bag {
+    n: Int
+}
+
+borrows struct Walk {
+    bag: &Bag,
+    at: Int
+}
+
+extension Bag {
+    func walk(&var self) borrows -> Walk {
+        Walk(bag: lends self, at: 0)
+    }
+}

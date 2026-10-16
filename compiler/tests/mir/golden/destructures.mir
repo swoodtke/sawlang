@@ -804,6 +804,7 @@ fn destructures.iterated(items: std.vector.Vector<String, std.alloc.GlobalAlloca
     }
 
     bb3: {
+        drop(_3);
         window_close w0 epilogue std.vector.Vector.iter() (owner std.vector.Vector<String, std.alloc.GlobalAllocator>) -> [return: bb8];
     }
 
@@ -845,6 +846,7 @@ fn destructures.iterated(items: std.vector.Vector<String, std.alloc.GlobalAlloca
     }
 
     bb11: {
+        drop(_12);
         window_close w1 epilogue std.vector.Vector.iter() (owner std.vector.Vector<String, std.alloc.GlobalAllocator>) -> [return: bb15];
     }
 

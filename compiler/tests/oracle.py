@@ -95,6 +95,7 @@ PLAN_RULES = (
     ("a task body may not be `Never`", "spawn.never-body"),
     ("so the task frame cannot cross to a worker thread", "coro.spawn-not-send"),
     ("into a multi-threaded `TaskGroup(threads: ...)`", "coro.spawn-not-send"),
+    ("must construct `Alias` with `lends self`", "lends.path"),
 )
 
 

@@ -135,6 +135,22 @@ extension MirProgram {
         self.accessor_of[info.decl] = at
     }
 
+    // Registers function `f`, lowered whole, as the accessor of the windows
+    // that call its `borrows` declaration, which lends a borrowing struct:
+    // the whole body runs at `window_open` and returns the struct, and
+    // nothing runs at `window_close`, so it has no epilogue and no record.
+    public func register_producer(&var self, f: Int) {
+        let info = self.funcs[f]
+        if info.refused {
+            return
+        }
+        let at = self.accessors.len()
+        let suspends = self.half_suspends(f)
+        try! self.accessors.push(MirAccessor(decl: info.decl, prologue: f, epilogue: -1, record: -1, lend_sites: 0,
+                                             prologue_suspends: suspends, epilogue_suspends: false))
+        self.accessor_of[info.decl] = at
+    }
+
     // A refusal in function `f`, at node `node`.
     func not_yet_at(&var self, f: Int, node: Int, what: String) {
         let outer = self.refused

@@ -1,0 +1,18 @@
+// refuses: lends.origin at 16:19
+// `lends spare`, a local of the producer: it dies when the producer returns, and the window charges the receiver's root (spec, Borrowing structs, "The origin is the receiver")
+
+struct Bag {
+    n: Int
+}
+
+borrows struct Walk {
+    bag: &Bag,
+    at: Int
+}
+
+extension Bag {
+    func walk_spare(&self) borrows -> Walk {
+        let spare = Bag(n: 1)
+        Walk(bag: lends spare, at: 0)
+    }
+}

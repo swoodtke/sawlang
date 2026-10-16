@@ -141,6 +141,10 @@ extension LlEmitter {
                     self.refuse_here(&var mono, node, "a conditional borrow is not in the backend slice yet")
                     return
                 }
+                // A borrowing struct's window runs nothing at its close.
+                if info.kind == MirCallKind.WindowClose && mono.dp.bc.mir.closes_nothing(info.target) {
+                    return
+                }
                 let item = mono.call_item(c)
                 if item < 0 {
                     self.refuse_here(&var mono, node, "a call mono did not resolve")
