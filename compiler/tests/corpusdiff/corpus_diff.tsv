@@ -126,7 +126,7 @@ box_value_lends_the_payload.saw	pass	-	-
 box_wrapper_tier_error.saw	pass	-	transfer.implicit-copy: this reads a place of type `Result<std.box.Box<Int, std.alloc.GlobalAllocator>, std.alloc.AllocError>`, which is NoCopy, by value: only a Copy type copies silently; write `move
 byte_append_discrimination.saw	crash	INVARIANT	66:32 an expression has no type
 byte_data_reads.saw	crash	INVARIANT	77:24 an expression has no type
-byte_type_flow.saw	refused	typecheck member.unknown	`String` has no method `bytes` this module can see
+byte_type_flow.saw	pass	-	-
 capture_exclusivity_disjoint.saw	pass	-	-
 capture_write_allowed_forms.saw	refused	mono mono.not-yet	an escaping closure that captures a value is not in the backend slice yet: its environment would live in the frame that builds it, and heap environments are unbuilt (SL-525)
 cast170_checked_as.saw	refused	resolve name.reserved	`Byte` is a prelude name, so it is reserved and cannot be declared again
@@ -493,7 +493,7 @@ conformance/V110_loop_head_moves_that_stay_legal.saw	pass	-	-
 conformance/V111_discard_let_retains_a_projection.saw	pass	-	-
 conformance/V112_destructuring_let_retains_a_projection.saw	wrong	stdout differs	line 25: sawc2 "E4 if-let fresh        inside 5 after 3", Stage 0 "E4 if-let fresh        inside 4 after 3"
 conformance/V113_chain_assign_retains_a_projection.saw	pass	-	-
-conformance/V114_struct_field_retains_a_projection.saw	refused	typecheck member.unknown	`String` has no method `bytes` this module can see
+conformance/V114_struct_field_retains_a_projection.saw	pass	-	-
 conformance/V115_stored_closure_owns_its_captures.saw	refused	typecheck type.mismatch	expected `Result<() sync -> Int, V115_stored_closure_owns_its_captures.Res>`, the type of the function's result, which the body's last expression is, and found `() -> Int`
 conformance/V116_non_escaping_closure_keeps_its_stack_env.saw	refused	driver driver.usage	sawc2 build takes no --no-hidden-alloc
 conformance/V11_copy_on_nocopy.saw	refused	typecheck member.unknown	`Result<std.box.Box<Int, std.alloc.GlobalAllocator>, std.alloc.AllocError>` is NoCopy, so it has no `copy()`; move it instead
@@ -706,7 +706,7 @@ coro_generic_struct_and_method.saw	pass	-	-
 coro_generic_struct_method.saw	pass	-	-
 coro_guardlet_over_suspending.saw	pass	-	-
 coro_head_move_relinquishes_before_early_exit.saw	pass	-	-
-coro_head_move_with_early_exit_drops_once.saw	refused	typecheck member.unknown	`String` has no method `bytes` this module can see
+coro_head_move_with_early_exit_drops_once.saw	pass	-	-
 coro_hoist_evaluation_order.saw	pass	-	-
 coro_hoist_move_diagnostic.saw	pass	-	transfer.implicit-copy: this reads a place of type `std.vector.Vector<Int, std.alloc.GlobalAllocator>`, which is ExplicitCopy, by value: only a Copy type copies silently; write `move taken` to take it
 coro_hoisted_call_arg_consumed_once.saw	pass	-	-
@@ -840,7 +840,7 @@ data_iter_outlives_source.saw	refused	resolve name.undefined	cannot find `DataIt
 data_place_shared_read.saw	pass	-	-
 data_set_oob_panic.saw	pass	-	-
 data_simple.saw	pass	-	-
-data_to_string_validates_utf8.saw	refused	typecheck member.unknown	`String` has no method `scalars` this module can see
+data_to_string_validates_utf8.saw	pass	-	-
 declaration_lists_take_a_line_each.saw	refused	resolve slice.not-yet	`syntax.decl.module.inline` is not in the bootstrap slice yet
 declared_length_error_names_its_file_error.saw	refused	typecheck slice.not-yet	a constant argument named by a static, `MUT`, is not in the bootstrap slice yet
 default_param_basic.saw	pass	-	-
@@ -2358,7 +2358,7 @@ std_import_gate_signature_position.saw	pass	-	name.not-in-prelude: `Data` is not
 std_time.saw	refused	mono mono.not-yet	a synthesized `Comparable.compare(other: &Self)` on `std.duration.Duration` is not in the backend slice yet: only a scalar's builtin hooks
 std_time_duration_overflow_panic.saw	pass	-	-
 string_byte_at_oob_panic.saw	pass	-	-
-string_bytes_iter.saw	refused	typecheck member.unknown	`String` has no method `bytes` this module can see
+string_bytes_iter.saw	pass	-	-
 string_escaped_brace_keeps_control_byte.saw	pass	-	-
 string_escapes.saw	pass	-	-
 string_from_bytes.saw	refused	typecheck member.unknown	`String` has no method `fromBytes` this module can see
@@ -2367,15 +2367,15 @@ string_implicit_copy.saw	pass	-	-
 string_interp_owned.saw	pass	-	-
 string_interpolation.saw	refused	mono mono.not-yet	a synthesized `Printable.format(into: &var std.stringbuilder.StringBuilder)` on `Float` is not in the backend slice yet: the backend lowers no Float operation
 string_interpolation_escaped_braces.saw	pass	-	-
-string_iterator_retains_its_receiver.saw	refused	typecheck member.unknown	`String` has no method `bytes` this module can see
+string_iterator_retains_its_receiver.saw	pass	-	-
 string_len_o1.saw	pass	-	-
 string_lifetime.saw	pass	-	-
 string_literal_immortal.saw	pass	-	-
 string_methods.saw	pass	-	-
 string_pattern_escaped_brace_matches.saw	pass	-	-
 string_raw_control_byte_before_brace.saw	pass	-	-
-string_scalars_iter.saw	refused	typecheck member.unknown	`String` has no method `scalars` this module can see
-string_scalars_temp_receiver.saw	refused	typecheck member.unknown	`String` has no method `scalars` this module can see
+string_scalars_iter.saw	pass	-	-
+string_scalars_temp_receiver.saw	pass	-	-
 string_simple.saw	pass	-	-
 string_split_join.saw	refused	typecheck member.unknown	`std.vector.Vector<String, std.alloc.GlobalAllocator>` has no method `join` this module can see
 string_substring_oob_panic.saw	pass	-	-
@@ -2385,7 +2385,7 @@ string_to_int.saw	pass	-	-
 string_to_int_radix.saw	pass	-	-
 string_withcstring.saw	refused	typecheck infer.failed	this closure parameter has no type: write one, as `x: Int`, or pass the closure where a function type is expected
 stringbuilder_append_int_alloc_free.saw	refused	typecheck call.no-match	no candidate takes these arguments; the candidates are StringBuilder.append(s: String) [std.stringbuilder]; StringBuilder.append(value: Int) [std.stringbuilder]; StringBuilder.append(b: UInt8) [std.st
-stringbuilder_append_scalar.saw	refused	typecheck member.unknown	`String` has no method `scalars` this module can see
+stringbuilder_append_scalar.saw	pass	-	-
 stringbuilder_build_append.saw	pass	-	-
 stringbuilder_fixed.saw	pass	-	-
 stringbuilder_independence.saw	pass	-	-

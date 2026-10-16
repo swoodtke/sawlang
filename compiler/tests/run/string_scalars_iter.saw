@@ -1,0 +1,48 @@
+// `String.scalars()`: one `Scalar` per UTF-8 sequence, at each sequence
+// length's first and last code point and either side of the surrogate block,
+// printed as the character and as its value; nothing from an empty string,
+// `None` again after the end, and a temporary heap receiver kept alive.
+
+func heap(n: Int) -> String {
+    "{n}→ü"
+}
+
+func main() {
+    for c in "a\u{7F}\u{80}\u{7FF}\u{800}\u{D7FF}\u{E000}\u{FFFF}\u{10000}\u{10FFFF}".scalars() {
+        print(c.value())
+    }
+
+    for c in "hé€😀".scalars() {
+        print("{} {}", c, c.value())
+    }
+
+    var empty = 0
+    for _c in "".scalars() {
+        empty = empty + 1
+    }
+    print("empty {}", empty)
+
+    var it = "€".scalars()
+    while let c = it.next() {
+        print(c.value() == 8364)
+    }
+    print(it.next().is_none())
+    print(it.next().is_none())
+
+    var held = heap(42).scalars()
+    var sum = 0
+    var count = 0
+    while let c = held.next() {
+        sum = sum + c.value()
+        count = count + 1
+    }
+    print("held {} {}", count, sum)
+
+    var total = 0
+    for i in 0..2000 {
+        for c in heap(i).scalars() {
+            total = total + c.value()
+        }
+    }
+    print("total {}", total)
+}

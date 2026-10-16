@@ -1,0 +1,51 @@
+// `String.bytes()`: every byte in order as a `Byte`, a byte at or above 0x80
+// read unsigned, nothing from an empty string, `None` again after the end, and
+// an iterator that keeps a temporary heap receiver alive for the whole loop.
+
+func heap(n: Int) -> String {
+    "x{n}é"
+}
+
+func main() {
+    for b in "hi!".bytes() {
+        print(b as Int)
+    }
+
+    var count = 0
+    var total = 0
+    for b in "café😀".bytes() {
+        count = count + 1
+        total = total + (b as Int)
+    }
+    print("{} {}", count, total)
+
+    var empty = 0
+    for _b in "".bytes() {
+        empty = empty + 1
+    }
+    print("empty {}", empty)
+
+    var it = "ab".bytes()
+    while let b = it.next() {
+        print(b == 97)
+    }
+    print(it.next().is_none())
+    print(it.next().is_none())
+
+    var held = heap(7).bytes()
+    var sum = 0
+    while let b = held.next() {
+        sum = sum + (b as Int)
+    }
+    print("held {}", sum)
+
+    var loops = 0
+    for i in 0..2000 {
+        for b in heap(i).bytes() {
+            if b >= 0x80 {
+                loops = loops + 1
+            }
+        }
+    }
+    print("high bytes {}", loops)
+}

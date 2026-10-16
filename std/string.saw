@@ -178,6 +178,107 @@ extension String {
         Byte(UInt8.from(truncating: self.bytes[index]))
     }
 
+    // The iterator holds its own retain on the String, so
+    // `for b in make_string().bytes()` keeps the bytes alive for the whole loop.
+    /// Returns an iterator over the string's bytes, in order.
+    public func bytes(&self) -> StringBytes {
+        StringBytes(s: self, index: 0, length: self.len())
+    }
+
+    // A String always holds valid UTF-8, so a decode error is unreachable; on a
+    // buffer corrupted by unsafe code the iterator stops (`StringScalars.next`).
+    /// Returns an iterator over the Unicode scalar values the string's UTF-8
+    /// encodes, in order.
+    public func scalars(&self) -> StringScalars {
+        StringScalars(s: self, index: 0, length: self.len())
+    }
+
+    // Decodes the UTF-8 sequence starting at byte `at` (`len` is the string's
+    // length) into `(scalar, width)`: width 1 to 4 and the scalar's value, or
+    // width 0 for a malformed sequence (an invalid lead, a bad or short
+    // continuation, an overlong form, a surrogate, or past U+10FFFF). Scalar
+    // assembly multiplies by 64, 4096 and 262144 for the 6-, 12- and 18-bit
+    // shifts.
+    func decode_at(&self, at: Int, len: Int) -> (Int, Int) {
+        let b0 = self.byte_at(at) as Int
+        if b0 < 128 {
+            // 0x00..0x7F: ASCII.
+            return (b0, 1)
+        }
+        if b0 < 194 {
+            // 0x80..0xBF: a continuation byte cannot lead. 0xC0/0xC1 (192/193)
+            // could only ever encode an overlong ASCII byte.
+            return (0, 0)
+        }
+        if b0 < 224 {
+            // 0xC2..0xDF: two-byte sequence.
+            if at + 1 >= len {
+                return (0, 0)
+            }
+            let b1 = self.byte_at(at + 1) as Int
+            if b1 < 128 || b1 > 191 {
+                return (0, 0)
+            }
+            return ((b0 - 192) * 64 + (b1 - 128), 2)
+        }
+        if b0 < 240 {
+            // 0xE0..0xEF: three-byte sequence. The first continuation's bounds
+            // tighten to forbid an overlong form (0xE0) and the UTF-16
+            // surrogates D800..DFFF (0xED).
+            if at + 2 >= len {
+                return (0, 0)
+            }
+            let b1 = self.byte_at(at + 1) as Int
+            var lo = 128
+            var hi = 191
+            if b0 == 224 {
+                lo = 160
+            }
+            if b0 == 237 {
+                hi = 159
+            }
+            if b1 < lo || b1 > hi {
+                return (0, 0)
+            }
+            let b2 = self.byte_at(at + 2) as Int
+            if b2 < 128 || b2 > 191 {
+                return (0, 0)
+            }
+            return ((b0 - 224) * 4096 + (b1 - 128) * 64 + (b2 - 128), 3)
+        }
+        if b0 < 245 {
+            // 0xF0..0xF4: four-byte sequence. The first continuation's bounds
+            // tighten to forbid an overlong form (0xF0) and anything past
+            // U+10FFFF (0xF4).
+            if at + 3 >= len {
+                return (0, 0)
+            }
+            let b1 = self.byte_at(at + 1) as Int
+            var lo = 128
+            var hi = 191
+            if b0 == 240 {
+                lo = 144
+            }
+            if b0 == 244 {
+                hi = 143
+            }
+            if b1 < lo || b1 > hi {
+                return (0, 0)
+            }
+            let b2 = self.byte_at(at + 2) as Int
+            if b2 < 128 || b2 > 191 {
+                return (0, 0)
+            }
+            let b3 = self.byte_at(at + 3) as Int
+            if b3 < 128 || b3 > 191 {
+                return (0, 0)
+            }
+            return ((b0 - 240) * 262144 + (b1 - 128) * 4096 + (b2 - 128) * 64 + (b3 - 128), 4)
+        }
+        // 0xF5..0xFF: no lead byte here encodes a scalar at or below U+10FFFF.
+        return (0, 0)
+    }
+
     /// Returns whether the string begins with the bytes of `prefix`.
     public func starts_with(&self, prefix: String) -> Bool {
         let n = prefix.len()
@@ -648,6 +749,66 @@ extension String: Printable {
     /// Appends the string's bytes to `into`.
     public func format(&self, into: &var StringBuilder) {
         try! into.append(self)
+    }
+}
+
+// Both iterators hold the source String by value: String is Copy, so the
+// field retains it and the synthesized deinit releases it. That retain keeps a
+// temporary receiver's bytes alive across every `next()` in
+// `for c in make_string().scalars()`.
+/// The iterator `String.bytes()` returns: each byte of the string, in order.
+public struct StringBytes {
+    private s: String
+    private index: Int
+    private length: Int
+}
+
+extension StringBytes: Iterator {
+    type Item = Byte
+
+    /// Returns the next byte, or `None` past the last one.
+    public func next(&var self) -> Byte? {
+        if self.index < self.length {
+            let at = self.index
+            let b = self.s.byte_at(at)
+            self.index = at + 1
+            b
+        } else {
+            None
+        }
+    }
+}
+
+/// The iterator `String.scalars()` returns: each Unicode scalar value the
+/// string's UTF-8 encodes, in order.
+public struct StringScalars {
+    private s: String
+    private index: Int
+    private length: Int
+}
+
+extension StringScalars: Iterator {
+    type Item = Scalar
+
+    /// Returns the next scalar, or `None` past the last one.
+    public func next(&var self) -> Scalar? {
+        if self.index >= self.length {
+            return None
+        }
+        let at = self.index
+        let length = self.length
+        let d = self.s.decode_at(at, length)
+        if d.1 == 0 {
+            // Malformed: unreachable for a String, which always holds valid
+            // UTF-8. On a buffer unsafe code corrupted, stop rather than loop
+            // or trap.
+            self.index = length
+            return None
+        }
+        self.index = at + d.1
+        // `decode_at` rejects surrogates and anything past U+10FFFF, so this
+        // construction cannot fail.
+        try! Scalar(value: d.0)
     }
 }
 
