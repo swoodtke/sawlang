@@ -1,0 +1,16 @@
+program	compiler/tests/run/aggregate_equals.saw
+triple	arm64-apple-darwin
+source	d439b19997734b9d
+build	ok
+exit	0
+stdout	"point true false true false"
+stdout	"color true false true"
+stdout	"named true false true true"
+stdout	"shape true false false true"
+stdout	"shape true false true"
+stdout	"level true false false"
+stdout	"row true false false"
+stdout	"tuple true false false"
+stdout	"optional true false false true"
+stdout	"nest true false true true"
+stdout	""

@@ -139,6 +139,12 @@ OWNERSHIP = (
             # overwritten, each destroyed once.
             RUN_LANE + "map_drops.saw",
             RUN_LANE + "owning_vector.saw",
+            # A NoCopy Map key and Set element, hashed and compared in place:
+            # inserted, overwritten, borrowed, removed and torn down, each key
+            # dropped once. Stage 0 refuses a NoCopy key, so none is a twin.
+            CORPUS + "map_nocopy_key_error.saw",
+            CORPUS + "map_nocopy_key_literal_error.saw",
+            CORPUS + "set_nocopy_key_error.saw",
         ),
         blocked=(
             Blocked(CORPUS + "closure_vector_copy_get.saw", "mono.not-yet", "SL-525",

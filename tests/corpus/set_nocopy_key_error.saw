@@ -1,12 +1,30 @@
-// Design 65 followup (L19, user-approved): Set inherits the Map key restriction
-// through its wrapper — a move-only Deinit element cannot be a Set element
-// (probed by copy). Rejected at the user-facing `Set<T>()` construction.
-// EXPECT: error
-// EXPECT-ERROR-CONTAINS: set element type `Counted` must be copyable
+// A Set element may be of any copy tier (spec, Map; SL-598): a NoCopy element
+// is hashed and compared in place, as a Map key is. Stage 0 refuses a move-only
+// element at `Set<T>()` (design 65's L19), a rule the spec has since dropped.
+// Each element is dropped exactly once: the stored element a repeated insert
+// replaces, a consumed `contains` probe, the stored element and the consumed
+// probe of a `remove`, none by the borrowing visit, and the rest with the set.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// new true
+// new true
+// drop element 1
+// new false
+// len 2
+// drop element 2
+// has 2 true
+// visit 1
+// visit 2
+// drop element 2
+// drop element 2
+// removed true
+// len 1
+// drop element 1
 
-static DROPS: Atomic<Int> = Atomic(0)
 struct Counted { id: Int }
-extension Counted: NoCopy { func deinit(&var self) { DROPS.fetch_add(1) } }
+extension Counted: NoCopy {
+    func deinit(&var self) { print("drop element {}", self.id) }
+}
 @synthesize
 extension Counted: Equatable {}
 @synthesize
@@ -14,6 +32,13 @@ extension Counted: Hashable {}
 
 func main() {
     var s = Set<Counted>()
-    let _ = s.insert(Counted(id: 1))
-    print(s.len())
+    print("new {}", try! s.insert(Counted(id: 1)))
+    print("new {}", try! s.insert(Counted(id: 2)))
+    print("new {}", try! s.insert(Counted(id: 1)))
+    print("len {}", s.len())
+    print("has 2 {}", s.contains(Counted(id: 2)))
+    s.each({ e in print("visit {}", e.id) })
+    let gone = s.remove(Counted(id: 2))
+    print("removed {}", gone)
+    print("len {}", s.len())
 }

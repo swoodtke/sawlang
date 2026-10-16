@@ -1,0 +1,108 @@
+// An aggregate's `@synthesize`d `Comparable.compare` (SL-598): a struct's
+// fields in declaration order, the first unequal one deciding; an enum's
+// cases in declaration order, a raw-backed one's by the values its cases
+// state at the backing's signedness, then the payload of the case both hold;
+// nested aggregates asking each part's own hook, a hand-written one
+// included. Each is reached by the ordering operators, by a call through a
+// `T: Comparable` bound, by `Vector.sort` and inside an interpolation.
+
+struct Version { major: Int, minor: Int, label: String }
+@synthesize
+extension Version: Equatable {}
+@synthesize
+extension Version: Comparable {}
+
+enum Suit { case Clubs, case Diamonds, case Hearts }
+@synthesize
+extension Suit: Equatable {}
+@synthesize
+extension Suit: Comparable {}
+
+enum Wide: UInt8 { case Low = 1, case Mid = 100, case High = 200 }
+@synthesize
+extension Wide: Equatable {}
+@synthesize
+extension Wide: Comparable {}
+
+enum Signed: Int8 { case Neg = -5, case Zero = 0, case Pos = 5 }
+@synthesize
+extension Signed: Equatable {}
+@synthesize
+extension Signed: Comparable {}
+
+enum Token {
+    case Num(n: Int),
+    case Word(text: String, weight: UInt8),
+    case End
+}
+@synthesize
+extension Token: Equatable {}
+@synthesize
+extension Token: Comparable {}
+
+// Orders by `rank` alone, backwards, so a memberwise answer would differ.
+struct Rank { rank: Int, note: String }
+extension Rank: Equatable {
+    func equals(&self, other: &Self) -> Bool { self.rank == other.rank }
+}
+extension Rank: Comparable {
+    func compare(&self, other: &Self) -> Ordering { other.rank.compare(&self.rank) }
+}
+
+struct Entry { version: Version, suit: Suit, token: Token, rank: Rank }
+@synthesize
+extension Entry: Equatable {}
+@synthesize
+extension Entry: Comparable {}
+
+func order<T: Comparable>(a: T, b: T) -> String {
+    match a.compare(&b) {
+        case Less -> "less",
+        case Equal -> "equal",
+        case Greater -> "greater"
+    }
+}
+
+func version(major: Int, minor: Int, label: String) -> Version {
+    Version(major: major, minor: minor, label: label)
+}
+
+func entry(minor: Int, token: Token, rank: Int) -> Entry {
+    Entry(version: version(1, minor, "x"), suit: Suit.Hearts, token: token, rank: Rank(rank: rank, note: "n"))
+}
+
+func main() {
+    let a = version(1, 2, "a")
+    let b = version(1, 10, "a")
+    let c = version(1, 2, "b")
+    print("version {} {} {} {}", a < b, b < a, a <= a, "{c > a}")
+    print("version {} {} {}", order(a, b), order(c, a), order(a, version(1, 2, "a")))
+
+    print("suit {} {} {}", Suit.Clubs < Suit.Hearts, order(Suit.Hearts, Suit.Diamonds), order(Suit.Clubs, Suit.Clubs))
+    print("wide {} {} {}", Wide.High > Wide.Low, order(Wide.Mid, Wide.High), order(Wide.High, Wide.Mid))
+    print("signed {} {} {}", Signed.Neg < Signed.Zero, order(Signed.Pos, Signed.Neg), order(Signed.Zero, Signed.Zero))
+
+    let w1 = Token.Word(text: "b", weight: 200u8)
+    let w2 = Token.Word(text: "b", weight: 3u8)
+    let w3 = Token.Word(text: "a", weight: 255u8)
+    print("token {} {} {} {}", order(Token.Num(n: 9), w1), order(w1, w2), order(w3, w1), order(Token.End, Token.Num(n: -1)))
+    print("token {} {} {}", Token.Num(n: -3) < Token.Num(n: 2), Token.End >= Token.End, "{w2 < w1}")
+
+    print("rank {} {}", order(Rank(rank: 1, note: "p"), Rank(rank: 2, note: "q")), Rank(rank: 3, note: "p") < Rank(rank: 1, note: "q"))
+
+    let e1 = entry(2, Token.End, 5)
+    let e2 = entry(2, Token.End, 9)
+    let e3 = entry(3, Token.Num(n: 0), 9)
+    print("entry {} {} {} {}", order(e1, e2), order(e2, e3), order(e1, e1), e3 > e1)
+
+    var versions: Vector<Version> = [version(2, 0, "b"), version(1, 10, "z"), version(1, 2, "c"), version(1, 2, "a")]
+    versions.sort()
+    var out = StringBuilder()
+    var i = 0
+    while i < versions.len() {
+        let v = versions[i]
+        try! out.append(" {v.major}.{v.minor}{v.label}")
+        i = i + 1
+    }
+    print("sorted{}", out.build())
+}

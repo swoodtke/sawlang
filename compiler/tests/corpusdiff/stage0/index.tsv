@@ -1809,8 +1809,8 @@ map_literal_key_mismatch_error.saw	arm64-apple-darwin	same	b8aa93b45362	error	re
 map_literal_key_out_of_range_error.saw	arm64-apple-darwin	same	5d479419bec0	error	refused	-	-	-	238:68d8d4536f2f	yes	integer literal 300 does not fit in `Int8` (range -128..=127)
 map_literal_owning_values.saw	arm64-apple-darwin	same	57f2dd94e2ae	success	ok	0	6:911df223a868	0:e3b0c44298fc	-	yes	-
 map_literal_value_mismatch_error.saw	arm64-apple-darwin	same	f73e87039a1b	error	refused	-	-	-	392:66337b64795d	yes	map value 1 has type `String`, expected `Int` (all values in a map literal must share one type)
-map_nocopy_key_error.saw	arm64-apple-darwin	same	abf10b1ddfb8	error	refused	-	-	-	678:f6b405c35ca7	yes	map key type `Counted` must be copyable (trivial, Copy, or ExplicitCopy with retain semantics): `Counted` is NoCopy
-map_nocopy_key_literal_error.saw	arm64-apple-darwin	same	600a6bb9483a	error	refused	-	-	-	266:be338e6987a3	yes	map key type `Counted` must be copyable (trivial, Copy, or ExplicitCopy with retain semantics): `Counted` is NoCopy
+map_nocopy_key_error.saw	arm64-apple-darwin	differs	abf10b1ddfb8	error	refused	-	-	-	678:f6b405c35ca7	yes	map key type `Counted` must be copyable (trivial, Copy, or ExplicitCopy with retain semantics): `Counted` is NoCopy
+map_nocopy_key_literal_error.saw	arm64-apple-darwin	differs	600a6bb9483a	error	refused	-	-	-	266:be338e6987a3	yes	map key type `Counted` must be copyable (trivial, Copy, or ExplicitCopy with retain semantics): `Counted` is NoCopy
 map_nocopy_value_construct.saw	arm64-apple-darwin	same	1e710520b355	success	ok	0	4:5d90ef7fc0d0	0:e3b0c44298fc	-	yes	-
 map_nocopy_value_copy_bound_error.saw	arm64-apple-darwin	same	ad589434bae1	error	refused	-	-	-	331:354d79093fb9	yes	type `Map<String, File, GlobalAllocator>` has no method `copy`: requires `V: ExplicitCopy`, and `File` does not conform
 map_owning_remove_overwrite.saw	arm64-apple-darwin	same	fbdce53bba19	success	ok	0	9:e94891f88cd2	0:e3b0c44298fc	-	yes	-
@@ -2279,7 +2279,7 @@ set_literal_comparison_elements.saw	arm64-apple-darwin	same	e80c34fe28d3	success
 set_literal_element_mismatch_error.saw	arm64-apple-darwin	same	31c60549574d	error	refused	-	-	-	391:1d500b7bdc2f	yes	set element 2 has type `String`, expected `Int` (all elements in a set literal must share one type)
 set_literal_not_hashable_error.saw	arm64-apple-darwin	same	099a6e41aa7d	error	refused	-	-	-	546:757e4694a2eb	yes	set element type `NoHash` must be `Hashable` (map keys and set elements require Hashable + Equatable)
 set_nocopy_element_copy_bound_error.saw	arm64-apple-darwin	same	33c94b16628d	error	refused	-	-	-	989:6db9b193aaff	yes	type `Set<Tag, GlobalAllocator>` has no method `copy`: requires `T: ExplicitCopy`, and `Tag` does not conform
-set_nocopy_key_error.saw	arm64-apple-darwin	same	00835e93ec3c	error	refused	-	-	-	692:d25fe4f9106e	yes	set element type `Counted` must be copyable (trivial, Copy, or ExplicitCopy with retain semantics): `Counted` is NoCopy
+set_nocopy_key_error.saw	arm64-apple-darwin	differs	00835e93ec3c	error	refused	-	-	-	692:d25fe4f9106e	yes	set element type `Counted` must be copyable (trivial, Copy, or ExplicitCopy with retain semantics): `Counted` is NoCopy
 set_owning_key_refcount.saw	arm64-apple-darwin	same	d493a8d3f3eb	success	ok	0	12:81ecdcae3f06	0:e3b0c44298fc	-	yes	-
 set_try_copy.saw	arm64-apple-darwin	same	16289412a5ed	success	ok	0	7:72641fb4f568	0:e3b0c44298fc	-	yes	-
 shadow255_glob_import.saw	arm64-apple-darwin	same	25c55cba3051	success	ok	0	4:2fcae9c346ff	0:e3b0c44298fc	-	yes	-

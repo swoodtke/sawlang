@@ -1,16 +1,13 @@
-// refuses: mono.not-yet at 14:18
+// refuses: mono.not-yet at 11:5
 // A refusal met inside std is reported at the program's own call that
-// reached it, the std position named in its message: `Set.insert` compares
-// and hashes each element through `Equatable.equals` and `Hashable.hash`,
-// which a trivial struct meets with no conformance, and the slice makes no
-// such glue (SL-598).
-struct Point {
-    x: Int
-}
-
+// reached it, the std position named in its message: `Vector.sort` orders
+// its elements through `Comparable.compare`, which typecheck grants a tuple
+// through its parts though the spec does not, so the member glue table has
+// no `compare` for one (SL-754).
 func main() {
-    var s = Set<Point>()
-    let p = Point(x: 1)
-    let _ = try! s.insert(p)
-    print("{}", s.len())
+    var v: Vector<(Int, Int)> = Vector()
+    try! v.push((2, 1))
+    try! v.push((1, 2))
+    v.sort()
+    print("{}", v.len())
 }

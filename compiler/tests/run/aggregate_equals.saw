@@ -1,0 +1,101 @@
+// An aggregate's `Equatable.equals` with no written body (SL-598): a trivial
+// struct's and a payload-free enum's automatic conformance, a written
+// `@synthesize` on a struct holding a String, a payload-carrying enum, a
+// raw-backed enum and a struct holding a fixed array, and a tuple's and an
+// Optional's through their parts. Each is reached by `==`, by a call through
+// a `T: Equatable` bound and inside an interpolation, nested aggregates
+// asking each part's own hook, a hand-written one included.
+
+struct Point { x: Int, y: Int8 }
+
+enum Color { case Red, case Green, case Blue }
+
+struct Named { name: String, n: Int }
+@synthesize
+extension Named: Equatable {}
+
+enum Shape {
+    case Circle(r: Int),
+    case Rect(w: Int, h: Int),
+    case Label(text: String),
+    case Empty
+}
+@synthesize
+extension Shape: Equatable {}
+
+enum Level: Int8 { case Low = -1, case High = 7 }
+@synthesize
+extension Level: Equatable {}
+
+struct Row { cells: [Int; 3], tag: Bool }
+@synthesize
+extension Row: Equatable {}
+
+// Equal when the ids agree whatever the notes say, so a memberwise answer
+// that reached the bits instead of this body would differ.
+struct Keyed { id: Int, note: String }
+extension Keyed: Equatable {
+    func equals(&self, other: &Self) -> Bool { self.id == other.id }
+}
+
+struct Nest {
+    at: Point,
+    color: Color,
+    named: Named,
+    shape: Shape,
+    pair: (Int, String),
+    maybe: Named?,
+    keyed: Keyed
+}
+@synthesize
+extension Nest: Equatable {}
+
+func same<T: Equatable>(a: T, b: T) -> Bool {
+    a == b
+}
+
+func differ<T: Equatable>(a: T, b: T) -> Bool {
+    a != b
+}
+
+func nest(n: Int, label: String, note: String) -> Nest {
+    Nest(at: Point(x: n, y: -1i8), color: Color.Green, named: Named(name: label, n: n),
+         shape: Shape.Label(text: label), pair: (n, label), maybe: Named(name: label, n: 0),
+         keyed: Keyed(id: n, note: note))
+}
+
+func main() {
+    let p = Point(x: 3, y: -1i8)
+    let q = Point(x: 3, y: 2i8)
+    print("point {} {} {} {}", p == p, p == q, same(p, p), same(p, q))
+    print("color {} {} {}", Color.Red == Color.Red, same(Color.Red, Color.Blue), differ(Color.Green, Color.Blue))
+
+    let a = Named(name: "ab", n: 1)
+    let b = Named(name: "ab", n: 1)
+    let c = Named(name: "ac", n: 1)
+    print("named {} {} {} {}", a == b, a == c, same(a, b), "{a != c}")
+
+    let r = Shape.Rect(w: 1, h: 2)
+    print("shape {} {} {} {}", r == Shape.Rect(w: 1, h: 2), r == Shape.Rect(w: 1, h: 3), r == Shape.Circle(r: 1),
+          Shape.Empty == Shape.Empty)
+    print("shape {} {} {}", same(Shape.Label(text: "x"), Shape.Label(text: "x")),
+          same(Shape.Label(text: "x"), Shape.Label(text: "y")), differ(Shape.Empty, Shape.Circle(r: 0)))
+
+    print("level {} {} {}", Level.Low == Level.Low, same(Level.Low, Level.High), differ(Level.High, Level.High))
+
+    let row = Row(cells: [1, 2, 3], tag: true)
+    print("row {} {} {}", same(row, Row(cells: [1, 2, 3], tag: true)), same(row, Row(cells: [1, 2, 4], tag: true)),
+          same(row, Row(cells: [1, 2, 3], tag: false)))
+
+    print("tuple {} {} {}", same((1, "a"), (1, "a")), same((1, "a"), (1, "b")), same((p, Color.Red), (q, Color.Red)))
+
+    let some: Named? = Named(name: "z", n: 9)
+    let other: Named? = Named(name: "z", n: 8)
+    let none: Named? = None
+    print("optional {} {} {} {}", same(some, some), same(some, other), same(some, none), same(none, none))
+
+    let n1 = nest(4, "w", "first")
+    let n2 = nest(4, "w", "second")
+    let n3 = nest(4, "v", "first")
+    print("nest {} {} {} {}", n1 == n2, n1 == n3, same(n1, n2), "{n2 != n3}")
+}

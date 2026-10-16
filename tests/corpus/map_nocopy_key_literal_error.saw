@@ -1,16 +1,39 @@
-// Design 65 followup (L19): the key-copyability restriction also applies to the
-// LITERAL construction form `{k: v}` (not just `Map<K,V>()`).
-// EXPECT: error
-// EXPECT-ERROR-CONTAINS: must be copyable
+// A Map literal's key may be of any copy tier too (spec, Map; SL-598): `{k: v}`
+// builds the same `Map` as `Map<K, V>()`. Stage 0 refuses a move-only key here.
+// A repeated literal key keeps the last entry, its loser dropped once; then an
+// overwrite, a `find` borrow and a `remove`, and the map's own teardown, each
+// key dropped exactly once.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// drop key 1
+// len 2
+// drop key 2
+// replaced 200
+// found 300
+// drop key 1
+// drop key 1
+// removed 300
+// len 1
+// drop key 1
+// drop key 2
 
 struct Counted { id: Int }
-extension Counted: NoCopy { func deinit(&var self) {} }
+extension Counted: NoCopy {
+    func deinit(&var self) { print("drop key {}", self.id) }
+}
 @synthesize
 extension Counted: Equatable {}
 @synthesize
 extension Counted: Hashable {}
 
 func main() {
-    let m = {Counted(id: 1): 100}
-    print(m.len())
+    var m = {Counted(id: 1): 100, Counted(id: 2): 200, Counted(id: 1): 300}
+    print("len {}", m.len())
+    let old = try! m.insert(Counted(id: 2), 201)
+    print("replaced {}", old!)
+    let probe = Counted(id: 1)
+    print("found {}", borrow m.find(&probe)!)
+    let gone = m.remove(Counted(id: 1))
+    print("removed {}", gone!)
+    print("len {}", m.len())
 }

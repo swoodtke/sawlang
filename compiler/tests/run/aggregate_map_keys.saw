@@ -1,0 +1,98 @@
+// Aggregates as `Map` keys and `Set` elements (SL-598): the table hashes and
+// compares each through its synthesized or automatic hooks, so its iteration
+// order, printed here, is Stage 0's only when every digest is. A trivial
+// struct and a payload-free enum meet `Hashable` automatically; a struct
+// holding a String, a payload-carrying enum and a nested aggregate through a
+// written `@synthesize`; a tuple and an Optional through their parts. A
+// String part reaches a key through a struct and an enum payload; Stage 0
+// takes no tuple holding one as a key.
+
+struct Point { x: Int, y: Int }
+
+enum Color { case Red, case Green, case Blue }
+
+// The `Copy` assertions are Stage 0's: it takes no key holding a String unless
+// the type declares a retaining copy. sawc2 needs none.
+struct Named { name: String, n: Int }
+@synthesize
+extension Named: Copy {}
+@synthesize
+extension Named: Equatable {}
+@synthesize
+extension Named: Hashable {}
+
+enum Shape {
+    case Circle(r: Int),
+    case Label(text: String),
+    case Empty
+}
+@synthesize
+extension Shape: Copy {}
+@synthesize
+extension Shape: Equatable {}
+@synthesize
+extension Shape: Hashable {}
+
+struct Nest { at: Point, shape: Shape, tag: Color? }
+@synthesize
+extension Nest: Copy {}
+@synthesize
+extension Nest: Equatable {}
+@synthesize
+extension Nest: Hashable {}
+
+func main() {
+    var points: Map<Point, Int> = {:}
+    var k = 0
+    while k < 6 {
+        try! points.insert(Point(x: k, y: 10 - k), k * k)
+        k = k + 1
+    }
+    print("points {} {} {}", points.len(), points.contains_key(Point(x: 2, y: 8)), points.contains_key(Point(x: 2, y: 9)))
+    points.each({ p, v in print("  ({}, {}) -> {}", p.x, p.y, v) })
+
+    var colors = Set<Color>()
+    let _ = try! colors.insert(Color.Blue)
+    let _ = try! colors.insert(Color.Red)
+    let _ = try! colors.insert(Color.Blue)
+    print("colors {} {} {}", colors.len(), colors.contains(Color.Red), colors.contains(Color.Green))
+
+    var names: Map<Named, String> = {:}
+    try! names.insert(Named(name: "ada", n: 1), "one")
+    try! names.insert(Named(name: "bob", n: 2), "two")
+    try! names.insert(Named(name: "ada", n: 3), "three")
+    try! names.insert(Named(name: "ada", n: 1), "uno")
+    print("names {}", names.len())
+    names.each({ key, v in print("  {} {} -> {}", key.name, key.n, v) })
+
+    var shapes = Set<Shape>()
+    let _ = try! shapes.insert(Shape.Circle(r: 1))
+    let _ = try! shapes.insert(Shape.Label(text: "a"))
+    let _ = try! shapes.insert(Shape.Empty)
+    let _ = try! shapes.insert(Shape.Circle(r: 1))
+    let _ = try! shapes.insert(Shape.Circle(r: 2))
+    print("shapes {} {} {}", shapes.len(), shapes.contains(Shape.Label(text: "a")), shapes.contains(Shape.Label(text: "b")))
+
+    var pairs: Map<(Int, Color), Int> = {:}
+    try! pairs.insert((1, Color.Red), 1)
+    try! pairs.insert((1, Color.Blue), 2)
+    try! pairs.insert((2, Color.Red), 3)
+    try! pairs.insert((1, Color.Red), 4)
+    print("pairs {}", pairs.len())
+    pairs.each({ key, v in print("  {} {} -> {}", key.0, key.1 == Color.Red, v) })
+
+    var maybes: Map<Color?, Int> = {:}
+    let none: Color? = None
+    try! maybes.insert(none, 0)
+    try! maybes.insert(Color.Green, 1)
+    try! maybes.insert(Color.Red, 2)
+    print("maybes {} {}", maybes.len(), maybes.contains_key(none))
+
+    var nests = Set<Nest>()
+    let _ = try! nests.insert(Nest(at: Point(x: 1, y: 2), shape: Shape.Empty, tag: None))
+    let _ = try! nests.insert(Nest(at: Point(x: 1, y: 2), shape: Shape.Empty, tag: Color.Red))
+    let _ = try! nests.insert(Nest(at: Point(x: 1, y: 2), shape: Shape.Label(text: "n"), tag: None))
+    let _ = try! nests.insert(Nest(at: Point(x: 1, y: 2), shape: Shape.Empty, tag: None))
+    print("nests {}", nests.len())
+    nests.each({ e in print("  {} {}", e.at.x, e.tag.is_some()) })
+}

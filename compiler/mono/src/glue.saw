@@ -46,10 +46,10 @@ public func mono_array_length(tc: &TcProgram, t: Int) -> Int {
     tc.types.ty(length).a
 }
 
-// A requirement member glue synthesizes for a scalar's builtin conformance:
-// `ExplicitCopy.copy()`, `Equatable.equals`, `Comparable.compare`,
-// `Hashable.hash` and `Printable.format`, in that order.
-public enum MonoScalarHook {
+// A requirement member glue synthesizes: `ExplicitCopy.copy()`,
+// `Equatable.equals`, `Comparable.compare`, `Hashable.hash` and
+// `Printable.format`, in that order.
+public enum MonoHook {
     case Duplicate,
     case Equals,
     case Compare,
@@ -58,14 +58,20 @@ public enum MonoScalarHook {
     case Other
 }
 
-// A row of the scalar hook table: the integers, `Bool`, `Float`, a raw
-// pointer, `Void`.
-public enum MonoScalarKind {
+// A row of the member glue table: the scalars (the integers, `Bool`,
+// `Float`, a raw pointer, `Void`), then the aggregates whose hooks are their
+// parts' (a struct, a tuple, an enum, an Optional, a fixed array).
+public enum MonoGlueKind {
     case Integer,
     case Boolean,
     case Floating,
     case Pointer,
     case Empty,
+    case Struct,
+    case Tuple,
+    case Enum,
+    case Optional,
+    case Array,
     case Other
 }
 
@@ -108,7 +114,12 @@ extension MonoProgram {
 
     // `(*_1)`: the value glue's parameter refers to.
     func glue_subject(&var self, t: Int) -> Int {
-        let p = self.dp.bc.mir.place_local(1)
+        self.referent_place(1, t)
+    }
+
+    // `(*_l)`, the referent of type `t` reference local `l` holds.
+    func referent_place(&var self, l: Int, t: Int) -> Int {
+        let p = self.dp.bc.mir.place_local(l)
         self.dp.bc.mir.project(p, MirProjKind.Deref, -1, -1, t)
     }
 
@@ -411,28 +422,35 @@ extension MonoProgram {
         self.finish_glue(k, f)
     }
 
-    // The hook requirement `req` names; `Other` for one no scalar hook
+    // The hook requirement `req` names; `Other` for one no member glue
     // answers.
-    public func scalar_hook(&var self, req: Int) -> MonoScalarHook {
+    public func hook_of(&var self, req: Int) -> MonoHook {
         let info = self.dp.bc.mir.tc.res.decls[req]
         let k = self.dp.bc.mir.tc.known
         let name = self.dp.bc.mir.tc.res.name_text(info.name)
         if info.parent == k.explicit_copy && name.equals("copy") {
-            return MonoScalarHook.Duplicate
+            return MonoHook.Duplicate
         }
         if info.parent == k.equatable && name.equals("equals") {
-            return MonoScalarHook.Equals
+            return MonoHook.Equals
         }
         if info.parent == k.comparable && name.equals("compare") {
-            return MonoScalarHook.Compare
+            return MonoHook.Compare
         }
         if info.parent == k.hashable && name.equals("hash") {
-            return MonoScalarHook.Hash
+            return MonoHook.Hash
         }
         if info.parent == k.printable && name.equals("format") {
-            return MonoScalarHook.Format
+            return MonoHook.Format
         }
-        MonoScalarHook.Other
+        MonoHook.Other
+    }
+
+    // Whether requirement `req` is a hook whose answer on an aggregate is
+    // its parts': `equals`, `compare` or `hash`.
+    public func structural_hook(&var self, req: Int) -> Bool {
+        let hook = self.hook_of(req)
+        hook == MonoHook.Equals || hook == MonoHook.Compare || hook == MonoHook.Hash
     }
 
     // Whether requirement `req` is the `copy()` of `Copy` or `ExplicitCopy`.
@@ -443,93 +461,201 @@ extension MonoProgram {
         policy && self.dp.bc.mir.tc.res.name_text(info.name).equals("copy")
     }
 
-    // The scalar kind of concrete type `t`; `Other` for any other type.
-    public func scalar_kind(&var self, t: Int) -> MonoScalarKind {
+    // The member glue table's row for concrete type `t`; `Other` for a type
+    // no row holds.
+    public func glue_kind(&var self, t: Int) -> MonoGlueKind {
         if self.dp.bc.mir.tc.is_integer(t) {
-            return MonoScalarKind.Integer
+            return MonoGlueKind.Integer
         }
         if self.dp.bc.mir.tc.is_bool(t) {
-            return MonoScalarKind.Boolean
+            return MonoGlueKind.Boolean
         }
         if self.dp.bc.mir.tc.is_float(t) {
-            return MonoScalarKind.Floating
+            return MonoGlueKind.Floating
         }
         if self.dp.bc.mir.raw_pointer(t) {
-            return MonoScalarKind.Pointer
+            return MonoGlueKind.Pointer
         }
         let void_decl = self.dp.bc.mir.tc.known.void_type
         let void_type = self.dp.bc.mir.tc.prim(void_decl)
         if t == void_type {
-            return MonoScalarKind.Empty
+            return MonoGlueKind.Empty
         }
-        MonoScalarKind.Other
+        let info = self.dp.bc.mir.tc.types.ty(t)
+        if info.kind == TcKind.Tuple {
+            return MonoGlueKind.Tuple
+        }
+        if info.kind == TcKind.Array {
+            return MonoGlueKind.Array
+        }
+        if info.kind != TcKind.Nominal {
+            return MonoGlueKind.Other
+        }
+        if info.decl == self.dp.bc.mir.tc.known.optional {
+            return MonoGlueKind.Optional
+        }
+        let kind = self.dp.bc.mir.tc.res.decls[info.decl].kind
+        if kind == ResDeclKind.Struct {
+            return MonoGlueKind.Struct
+        }
+        if kind == ResDeclKind.Enum {
+            return MonoGlueKind.Enum
+        }
+        MonoGlueKind.Other
     }
 
-    // THE SCALAR HOOK TABLE: why member glue does not synthesize requirement
-    // `req` on concrete type `t`, or "" when it does. A row is a scalar kind,
-    // a column a hook. A cell is lowered where the spec grants the kind that
-    // builtin conformance (Equality, Ordering, Hashing, the Copy family) and
-    // the backend lowers the kind's values; every other cell says which of
-    // the two it lacks.
+    // THE MEMBER GLUE TABLE: why member glue does not synthesize requirement
+    // `req` on concrete type `t`, or "" when it does. A row is a glue kind, a
+    // column a hook. A scalar's cell is lowered where the spec grants the kind
+    // that builtin conformance (Equality, Ordering, Hashing, the Copy family)
+    // and the backend lowers the kind's values. An aggregate's `equals`,
+    // `compare` and `hash` are its parts' hooks, where the spec grants the
+    // trait: by a written `@synthesize`, automatically (a trivial struct's or
+    // a payload-free enum's `Equatable` and `Hashable`), or through the parts
+    // (a tuple's, an Optional's or a fixed array's `Equatable` and
+    // `Hashable`). Every other cell says what it lacks.
     // ENTRY POINTS:
     //     member_glue_of
     //     build_member_glue
-    public func scalar_refusal(&var self, req: Int, t: Int) -> String {
-        let hook = self.scalar_hook(req)
-        let kind = self.scalar_kind(t)
-        let other = "only a scalar's builtin hooks"
-        if hook == MonoScalarHook.Other {
+    public func member_refusal(&var self, req: Int, t: Int) -> String {
+        let hook = self.hook_of(req)
+        let kind = self.glue_kind(t)
+        let other = "only a scalar's builtin hooks and an aggregate's `equals`, `compare` and `hash`"
+        if hook == MonoHook.Other {
             return other
         }
         match kind {
             case Integer -> "",
             case Boolean -> {
-                if hook == MonoScalarHook.Compare {
+                if hook == MonoHook.Compare {
                     return "the spec gives `Bool` no builtin `Comparable` (SL-715)"
                 }
                 ""
             },
             case Floating -> "the backend lowers no Float operation",
             case Pointer -> {
-                if hook == MonoScalarHook.Duplicate {
+                if hook == MonoHook.Duplicate {
                     return ""
                 }
-                if hook == MonoScalarHook.Equals {
+                if hook == MonoHook.Equals {
                     return "the spec gives a raw pointer no builtin `Equatable` (SL-715)"
                 }
                 other
             },
             case Empty -> {
-                if hook == MonoScalarHook.Duplicate {
+                if hook == MonoHook.Duplicate {
                     return ""
                 }
                 other
             },
+            case Struct -> self.nominal_refusal(req, t, false),
+            case Enum -> self.nominal_refusal(req, t, true),
+            case Tuple -> self.composite_refusal(hook, "a tuple"),
+            case Optional -> self.composite_refusal(hook, "an Optional"),
+            case Array -> self.composite_refusal(hook, "a fixed array"),
             case Other -> other
         }
     }
 
-    // THE SCALAR HOOK FUNNEL: member glue item `k`'s body, its requirement's
-    // hook lowered for its scalar type, a cell the scalar hook table admits.
-    // Each hook's builder states what it computes; every one matches Stage 0's
-    // answer for the kind.
+    // A struct's or an enum's cell: a written conformance's derivation, or
+    // the automatic `Equatable` and `Hashable` of a trivially copyable struct
+    // or a payload-free enum, which no conformance writes.
+    func nominal_refusal(&var self, req: Int, t: Int, choice: Bool) -> String {
+        if not self.structural_hook(req) {
+            return "only a scalar's builtin hooks and an aggregate's `equals`, `compare` and `hash`"
+        }
+        let d = self.dp.bc.mir.tc.nominal_decl(t)
+        let trait_decl = self.dp.bc.mir.tc.res.decls[req].parent
+        if self.declares_trait(d, trait_decl) {
+            return ""
+        }
+        if self.hook_of(req) == MonoHook.Compare {
+            return "the spec gives a struct or an enum `Comparable` only through a written conformance"
+        }
+        if choice && self.has_payload(d) {
+            return "the spec gives a payload-carrying enum no automatic `Equatable` or `Hashable`"
+        }
+        ""
+    }
+
+    // A tuple's, an Optional's or a fixed array's cell, named `what`: the
+    // spec grants `Equatable` and `Hashable` through the parts, and nothing
+    // grants `Comparable`.
+    func composite_refusal(&var self, hook: MonoHook, what: String) -> String {
+        if hook == MonoHook.Equals || hook == MonoHook.Hash {
+            return ""
+        }
+        if hook == MonoHook.Compare {
+            var msg = StringBuilder()
+            try! msg.append("the spec gives ")
+            try! msg.append(what)
+            try! msg.append(" no `Comparable` (SL-754)")
+            return msg.build()
+        }
+        "only a scalar's builtin hooks and an aggregate's `equals`, `compare` and `hash`"
+    }
+
+    // Whether type declaration `d` declares a conformance to trait `tr`.
+    func declares_trait(&self, d: Int, tr: Int) -> Bool {
+        var k = 0
+        while k < self.dp.bc.mir.tc.conformances.len() {
+            let c = self.dp.bc.mir.tc.conformances[k]
+            if c.type_decl == d && c.trait_decl == tr {
+                return true
+            }
+            k = k + 1
+        }
+        false
+    }
+
+    // Whether enum declaration `d` has a case carrying a payload.
+    func has_payload(&self, d: Int) -> Bool {
+        let cases = target_enum_cases(&self.dp.bc.mir.tc, d)
+        var k = 0
+        while k < cases.len() {
+            if self.dp.bc.mir.tc.sigs[cases[k]].param_count > 0 {
+                return true
+            }
+            k = k + 1
+        }
+        false
+    }
+
+    // THE MEMBER GLUE BUILDER: member glue item `k`'s body, its requirement's
+    // hook lowered for its type, a cell the member glue table admits. A
+    // scalar's hook is computed in place; an aggregate's calls each part's
+    // hook as a requirement call, which the requirement funnel resolves like
+    // any other, so a part's hook is whatever answers it: a written member,
+    // a default body, or member glue again. Each builder states what it
+    // computes; every one matches Stage 0's answer.
     // ENTRY POINTS:
     //     instantiate
     public func build_member_glue(&var self, k: Int) {
         let t = self.items[k].glue_type
         let req = self.items[k].decl
-        let why = self.scalar_refusal(req, t)
+        let why = self.member_refusal(req, t)
         if why.len() > 0 {
-            try! self.problems.push("member glue was made for a cell the scalar hook table refuses")
+            try! self.problems.push("member glue was made for a cell the member glue table refuses")
             return
         }
-        match self.scalar_hook(req) {
+        let kind = self.glue_kind(t)
+        let aggregate = kind == MonoGlueKind.Struct || kind == MonoGlueKind.Tuple || kind == MonoGlueKind.Enum || kind == MonoGlueKind.Optional || kind == MonoGlueKind.Array
+        if aggregate {
+            match self.hook_of(req) {
+                case Equals -> self.build_parts_equals(k, t, req, kind),
+                case Compare -> self.build_parts_compare(k, t, req, kind),
+                case Hash -> self.build_parts_hash(k, t, req, kind),
+                case _ -> try! self.problems.push("member glue was made for an aggregate's non-structural hook")
+            }
+            return
+        }
+        match self.hook_of(req) {
             case Duplicate -> self.build_scalar_copy(k, t),
             case Equals -> self.build_scalar_equals(k, t),
             case Compare -> self.build_scalar_compare(k, t, req),
             case Hash -> self.build_scalar_hash(k, t, req),
             case Format -> self.build_scalar_format(k, t, req),
-            case Other -> try! self.problems.push("member glue was made for no scalar hook")
+            case Other -> try! self.problems.push("member glue was made for no hook")
         }
     }
 
@@ -650,7 +776,8 @@ extension MonoProgram {
         if self.dp.bc.mir.tc.is_bool(t) {
             value = self.bool_word(t)
         } else {
-            value = self.hash_word(t)
+            let bits = self.referent_copy(1, t)
+            value = self.hash_word(bits, t)
         }
         let _ = self.call_member(write, hasher, value)
         self.dp.bc.mir.ret()
@@ -683,11 +810,11 @@ extension MonoProgram {
         self.dp.bc.mir.goto(join)
     }
 
-    // `(*_1)`, an integer, as the `Int` of its bits: the platform pair and
-    // the 64-bit widths as they are, a narrower width zero-extended.
-    func hash_word(&var self, t: Int) -> Int {
+    // Operand `value`, an integer of type `t`, as the `Int` of its bits: the
+    // platform pair and the 64-bit widths as they are, a narrower width
+    // zero-extended.
+    func hash_word(&var self, value: Int, t: Int) -> Int {
         let int_type = self.dp.bc.mir.tc.int_type()
-        let value = self.referent_copy(1, t)
         if t == int_type {
             return value
         }
@@ -891,5 +1018,472 @@ extension MonoProgram {
     // The `copy()` type `t`'s copy-policy conformance writes, or -1.
     func copy_member(&var self, t: Int) -> Int {
         self.dp.bc.mir.declared_copy(t)
+    }
+}
+
+// An aggregate's member glue: each hook asks its parts' hooks in turn.
+extension MonoProgram {
+    // `equals(other:)` on an aggregate: `true` exactly when every part's
+    // `equals` holds, asked in declaration order (a fixed array's in index
+    // order) and stopping at the first that does not; an enum's or an
+    // Optional's case first, then the payload of the case both hold.
+    func build_parts_equals(&var self, k: Int, t: Int, req: Int, kind: MonoGlueKind) {
+        let bool_type = self.dp.bc.mir.tc.bool_type()
+        let other = self.dp.bc.mir.tc.mk_ref(false, t)
+        let f = self.begin_hook(bool_type, t, other)
+        let same = self.dp.bc.mir.new_block()
+        let differ = self.dp.bc.mir.new_block()
+        let done = self.dp.bc.mir.new_block()
+        if kind == MonoGlueKind.Struct || kind == MonoGlueKind.Tuple {
+            var decls = Vector<Int>()
+            var types = Vector<Int>()
+            self.record_parts(t, &var decls, &var types)
+            var j = 0
+            while j < types.len() {
+                let a = self.record_part(1, t, j, decls[j], types[j])
+                let b = self.record_part(2, t, j, decls[j], types[j])
+                self.equal_or(k, req, types[j], a, b, differ)
+                j = j + 1
+            }
+            self.dp.bc.mir.goto(same)
+        } else if kind == MonoGlueKind.Array {
+            let element = self.dp.bc.mir.tc.types.ty(t).b
+            let i = self.glue_counter(0)
+            // Stage 0 workaround (SL:hazards S4): canonical: let head = self.glue_loop(i, "<", mono_array_length(&self.dp.bc.mir.tc, t), same)
+            let length = mono_array_length(&self.dp.bc.mir.tc, t)
+            let head = self.glue_loop(i, "<", length, same)
+            let a = self.element_part(1, t, i, element)
+            let b = self.element_part(2, t, i, element)
+            self.equal_or(k, req, element, a, b, differ)
+            self.glue_step(i, "&+")
+            self.dp.bc.mir.goto(head)
+        } else {
+            let d = self.dp.bc.mir.tc.nominal_decl(t)
+            let cases = target_enum_cases(&self.dp.bc.mir.tc, d)
+            var arms = Vector<Int>()
+            var j = 0
+            while j < cases.len() {
+                try! arms.push(self.dp.bc.mir.new_block())
+                j = j + 1
+            }
+            let subject = self.referent_place(1, t)
+            self.dp.bc.mir.switch_cases(subject, &cases, &arms, -1)
+            j = 0
+            while j < cases.len() {
+                self.dp.bc.mir.enter(arms[j])
+                let both = self.dp.bc.mir.new_block()
+                var one = Vector<Int>()
+                try! one.push(cases[j])
+                var to = Vector<Int>()
+                try! to.push(both)
+                let second = self.referent_place(2, t)
+                self.dp.bc.mir.switch_cases(second, &one, &to, differ)
+                self.dp.bc.mir.enter(both)
+                let types = self.payload_types(t, cases[j])
+                var p = 0
+                while p < types.len() {
+                    let a = self.payload_part(1, t, cases[j], p, types[p])
+                    let b = self.payload_part(2, t, cases[j], p, types[p])
+                    self.equal_or(k, req, types[p], a, b, differ)
+                    p = p + 1
+                }
+                self.dp.bc.mir.goto(same)
+                j = j + 1
+            }
+        }
+        self.bool_arm(same, "true", done)
+        self.bool_arm(differ, "false", done)
+        self.dp.bc.mir.enter(done)
+        self.dp.bc.mir.ret()
+        self.finish_glue(k, f)
+    }
+
+    // `equals` of the parts at places `a` and `b`, of type `pt`: on to a new
+    // block, where the builder is left, when it holds, else to `differ`.
+    func equal_or(&var self, k: Int, req: Int, pt: Int, a: Int, b: Int, differ: Int) {
+        let other = self.borrow_of(b)
+        let answer = self.part_hook(k, req, pt, a, other)
+        let next = self.dp.bc.mir.new_block()
+        let o = self.dp.bc.mir.move_local(answer)
+        self.dp.bc.mir.switch_bool(o, next, differ)
+        self.dp.bc.mir.enter(next)
+    }
+
+    // Block `b`: `_0` is the Bool `text`, then `join`.
+    func bool_arm(&var self, b: Int, text: String, join: Int) {
+        self.dp.bc.mir.enter(b)
+        let bool_type = self.dp.bc.mir.tc.bool_type()
+        let value = self.dp.bc.mir.op_const(MirConstKind.Bool, text, bool_type)
+        let rv = self.dp.bc.mir.rv_use(value)
+        let result = self.dp.bc.mir.place_local(0)
+        self.dp.bc.mir.assign(result, rv)
+        self.dp.bc.mir.goto(join)
+    }
+
+    // `compare(other:)` on a struct or an enum: lexicographic. A struct's
+    // fields in declaration order, the first whose `compare` is not `Equal`
+    // deciding; an enum's cases first, by declaration order or, for a
+    // raw-backed enum, by the values its cases state at the backing's
+    // signedness, then the payload of the case both hold.
+    func build_parts_compare(&var self, k: Int, t: Int, req: Int, kind: MonoGlueKind) {
+        let ordering = self.dp.bc.mir.tc.sigs[req].result
+        let other = self.dp.bc.mir.tc.mk_ref(false, t)
+        let f = self.begin_hook(ordering, t, other)
+        let equal = self.dp.bc.mir.new_block()
+        let done = self.dp.bc.mir.new_block()
+        if kind == MonoGlueKind.Struct || kind == MonoGlueKind.Tuple {
+            var decls = Vector<Int>()
+            var types = Vector<Int>()
+            self.record_parts(t, &var decls, &var types)
+            var j = 0
+            while j < types.len() {
+                let a = self.record_part(1, t, j, decls[j], types[j])
+                let b = self.record_part(2, t, j, decls[j], types[j])
+                self.order_or(k, req, ordering, types[j], a, b, done)
+                j = j + 1
+            }
+            self.dp.bc.mir.goto(equal)
+        } else {
+            let d = self.dp.bc.mir.tc.nominal_decl(t)
+            let backing = self.backing_of(d)
+            if backing >= 0 {
+                let x = self.cast_word(1, t, backing)
+                let y = self.cast_word(2, t, backing)
+                self.order_words(x, y, ordering, done)
+                self.dp.bc.mir.goto(equal)
+            } else {
+                let x = self.ordinal_word(1, t)
+                let y = self.ordinal_word(2, t)
+                self.order_words(x, y, ordering, done)
+                let cases = target_enum_cases(&self.dp.bc.mir.tc, d)
+                var arms = Vector<Int>()
+                var j = 0
+                while j < cases.len() {
+                    try! arms.push(self.dp.bc.mir.new_block())
+                    j = j + 1
+                }
+                let subject = self.referent_place(1, t)
+                self.dp.bc.mir.switch_cases(subject, &cases, &arms, -1)
+                j = 0
+                while j < cases.len() {
+                    self.dp.bc.mir.enter(arms[j])
+                    let types = self.payload_types(t, cases[j])
+                    var p = 0
+                    while p < types.len() {
+                        let a = self.payload_part(1, t, cases[j], p, types[p])
+                        let b = self.payload_part(2, t, cases[j], p, types[p])
+                        self.order_or(k, req, ordering, types[p], a, b, done)
+                        p = p + 1
+                    }
+                    self.dp.bc.mir.goto(equal)
+                    j = j + 1
+                }
+            }
+        }
+        self.ordering_arm(equal, ordering, "Equal", done)
+        self.dp.bc.mir.enter(done)
+        self.dp.bc.mir.ret()
+        self.finish_glue(k, f)
+    }
+
+    // `compare` of the parts at places `a` and `b`, of type `pt`: when it is
+    // not `Equal`, it is `_0` and on to `done`; else on to a new block, where
+    // the builder is left.
+    func order_or(&var self, k: Int, req: Int, ordering: Int, pt: Int, a: Int, b: Int, done: Int) {
+        let other = self.borrow_of(b)
+        let answer = self.part_hook(k, req, pt, a, other)
+        let next = self.dp.bc.mir.new_block()
+        let decided = self.dp.bc.mir.new_block()
+        let d = self.dp.bc.mir.tc.nominal_decl(ordering)
+        let id = self.dp.bc.mir.tc.res.intern("Equal")
+        var one = Vector<Int>()
+        try! one.push(self.dp.bc.mir.tc.case_named(d, id))
+        var to = Vector<Int>()
+        try! to.push(next)
+        let held = self.dp.bc.mir.place_local(answer)
+        self.dp.bc.mir.switch_cases(held, &one, &to, decided)
+        self.dp.bc.mir.enter(decided)
+        let whole = self.dp.bc.mir.place_local(answer)
+        let rv = self.dp.bc.mir.rv_move(whole)
+        let result = self.dp.bc.mir.place_local(0)
+        self.dp.bc.mir.assign(result, rv)
+        self.dp.bc.mir.goto(done)
+        self.dp.bc.mir.enter(next)
+    }
+
+    // `_0` is `Less` when word local `x` is below word local `y` and
+    // `Greater` when above, each then `done`; the builder is left where they
+    // are equal. The words compare at their own type's signedness.
+    func order_words(&var self, x: Int, y: Int, ordering: Int, done: Int) {
+        let less = self.dp.bc.mir.new_block()
+        let rest = self.dp.bc.mir.new_block()
+        let greater = self.dp.bc.mir.new_block()
+        let equal = self.dp.bc.mir.new_block()
+        let below = self.word_test("<", x, y)
+        let below_op = self.dp.bc.mir.move_local(below)
+        self.dp.bc.mir.switch_bool(below_op, less, rest)
+        self.dp.bc.mir.enter(rest)
+        let above = self.word_test(">", x, y)
+        let above_op = self.dp.bc.mir.move_local(above)
+        self.dp.bc.mir.switch_bool(above_op, greater, equal)
+        self.ordering_arm(less, ordering, "Less", done)
+        self.ordering_arm(greater, ordering, "Greater", done)
+        self.dp.bc.mir.enter(equal)
+    }
+
+    // The Bool temp holding `x op y` of word locals `x` and `y`.
+    func word_test(&var self, op: String, x: Int, y: Int) -> Int {
+        let bool_type = self.dp.bc.mir.tc.bool_type()
+        var ops = Vector<Int>()
+        let px = self.dp.bc.mir.place_local(x)
+        try! ops.push(self.dp.bc.mir.op_copy(px))
+        let py = self.dp.bc.mir.place_local(y)
+        try! ops.push(self.dp.bc.mir.op_copy(py))
+        let rv = self.dp.bc.mir.rv_over(MirRvalueKind.Binary, bool_type, op, &ops)
+        self.dp.bc.mir.temp_of(rv)
+    }
+
+    // `hash(h:)` on an aggregate: each part's `hash` in declaration order, a
+    // struct's fields, a tuple's elements, a fixed array's elements in index
+    // order. An enum feeds its case first, as an `Int` through the hasher's
+    // `write_int(n:)`, then its payload: an Optional 1 for `Some` and 0 for
+    // `None`, a raw-backed enum the value its case states, a narrow one
+    // zero-extended, and any other enum its case's ordinal. These are the
+    // words Stage 0 feeds, so a `Map`'s order is its.
+    func build_parts_hash(&var self, k: Int, t: Int, req: Int, kind: MonoGlueKind) {
+        let void_decl = self.dp.bc.mir.tc.known.void_type
+        let void_type = self.dp.bc.mir.tc.prim(void_decl)
+        let s = self.dp.bc.mir.tc.sigs[req]
+        let into = self.dp.bc.mir.tc.params[s.param_first].ty
+        let f = self.begin_hook(void_type, t, into)
+        let done = self.dp.bc.mir.new_block()
+        if kind == MonoGlueKind.Struct || kind == MonoGlueKind.Tuple {
+            var decls = Vector<Int>()
+            var types = Vector<Int>()
+            self.record_parts(t, &var decls, &var types)
+            var j = 0
+            while j < types.len() {
+                let a = self.record_part(1, t, j, decls[j], types[j])
+                self.hash_part(k, req, types[j], a)
+                j = j + 1
+            }
+            self.dp.bc.mir.goto(done)
+        } else if kind == MonoGlueKind.Array {
+            let element = self.dp.bc.mir.tc.types.ty(t).b
+            let i = self.glue_counter(0)
+            // Stage 0 workaround (SL:hazards S4): canonical: let head = self.glue_loop(i, "<", mono_array_length(&self.dp.bc.mir.tc, t), done)
+            let length = mono_array_length(&self.dp.bc.mir.tc, t)
+            let head = self.glue_loop(i, "<", length, done)
+            let a = self.element_part(1, t, i, element)
+            self.hash_part(k, req, element, a)
+            self.glue_step(i, "&+")
+            self.dp.bc.mir.goto(head)
+        } else {
+            let hasher = self.dp.bc.mir.tc.referent(into)
+            let write = self.glue_member(hasher, "write_int", "n")
+            if write < 0 {
+                self.refuse(-1, "mono.not-yet", "an enum's `Hashable.hash` with no `write_int(n:)` on the hasher")
+                self.dp.bc.mir.ret()
+                self.finish_glue(k, f)
+                return
+            }
+            let d = self.dp.bc.mir.tc.nominal_decl(t)
+            let backing = self.backing_of(d)
+            if backing >= 0 {
+                let x = self.cast_word(1, t, backing)
+                let bits = self.dp.bc.mir.move_local(x)
+                let word = self.hash_word(bits, backing)
+                let _ = self.call_member(write, hasher, word)
+                self.dp.bc.mir.goto(done)
+            } else {
+                let int_type = self.dp.bc.mir.tc.int_type()
+                let cases = target_enum_cases(&self.dp.bc.mir.tc, d)
+                var arms = Vector<Int>()
+                var j = 0
+                while j < cases.len() {
+                    try! arms.push(self.dp.bc.mir.new_block())
+                    j = j + 1
+                }
+                let subject = self.referent_place(1, t)
+                self.dp.bc.mir.switch_cases(subject, &cases, &arms, -1)
+                j = 0
+                while j < cases.len() {
+                    self.dp.bc.mir.enter(arms[j])
+                    let text = self.case_word(t, cases[j], j)
+                    let word = self.dp.bc.mir.op_const(MirConstKind.Int, text, int_type)
+                    let _ = self.call_member(write, hasher, word)
+                    let types = self.payload_types(t, cases[j])
+                    var p = 0
+                    while p < types.len() {
+                        let a = self.payload_part(1, t, cases[j], p, types[p])
+                        self.hash_part(k, req, types[p], a)
+                        p = p + 1
+                    }
+                    self.dp.bc.mir.goto(done)
+                    j = j + 1
+                }
+            }
+        }
+        self.dp.bc.mir.enter(done)
+        self.dp.bc.mir.ret()
+        self.finish_glue(k, f)
+    }
+
+    // `hash` of the part at place `part`, of type `pt`, into the hasher `_2`
+    // refers to.
+    func hash_part(&var self, k: Int, req: Int, pt: Int, part: Int) {
+        let p = self.dp.bc.mir.place_local(2)
+        let hasher = self.dp.bc.mir.op_copy(p)
+        let _ = self.part_hook(k, req, pt, part, hasher)
+    }
+
+    // The word an enum of type `t` feeds for case `case_decl`, its `j`th: an
+    // Optional's presence flag, else the ordinal.
+    func case_word(&var self, t: Int, case_decl: Int, j: Int) -> String {
+        var text = StringBuilder()
+        if self.dp.bc.mir.tc.nominal_decl(t) == self.dp.bc.mir.tc.known.optional {
+            if case_decl == self.dp.bc.mir.optional_case("Some") {
+                try! text.append(1)
+            } else {
+                try! text.append(0)
+            }
+            return text.build()
+        }
+        try! text.append(j)
+        text.build()
+    }
+
+    // The parts of record type `t`, a struct's fields or a tuple's elements,
+    // in declaration order: each part's type into `types`, and its field's
+    // declaration into `decls`, -1 for an element.
+    func record_parts(&var self, t: Int, decls: &var Vector<Int>, types: &var Vector<Int>) {
+        let info = self.dp.bc.mir.tc.types.ty(t)
+        if info.kind == TcKind.Tuple {
+            var j = 0
+            while j < info.count {
+                try! decls.push(-1)
+                try! types.push(self.dp.bc.mir.tc.types.arg(t, j))
+                j = j + 1
+            }
+            return
+        }
+        let fields = target_struct_fields(&self.dp.bc.mir.tc, info.decl)
+        var j = 0
+        while j < fields.len() {
+            let written = self.dp.bc.mir.tc.sigs[fields[j]].result
+            try! decls.push(fields[j])
+            try! types.push(target_member_type(&var self.dp.bc.mir.tc, t, written))
+            j = j + 1
+        }
+    }
+
+    // Part `j` of the record `(*_l)`, of type `pt`: field `decl`, or element
+    // `j` when `decl` is -1.
+    func record_part(&var self, l: Int, t: Int, j: Int, decl: Int, pt: Int) -> Int {
+        let subject = self.referent_place(l, t)
+        if decl >= 0 {
+            return self.dp.bc.mir.project(subject, MirProjKind.Field, decl, -1, pt)
+        }
+        self.dp.bc.mir.project(subject, MirProjKind.Tuple, -1, j, pt)
+    }
+
+    // The element of the fixed array `(*_l)` at the index Int local `i`
+    // holds.
+    func element_part(&var self, l: Int, t: Int, i: Int, element: Int) -> Int {
+        let subject = self.referent_place(l, t)
+        self.dp.bc.mir.project(subject, MirProjKind.Index, -1, i, element)
+    }
+
+    // The payload types of case `case_decl` of enum type `t`, in order.
+    func payload_types(&var self, t: Int, case_decl: Int) -> Vector<Int> {
+        let s = self.dp.bc.mir.tc.sigs[case_decl]
+        var types = Vector<Int>()
+        var p = 0
+        while p < s.param_count {
+            let written = self.dp.bc.mir.tc.params[s.param_first + p].ty
+            try! types.push(target_member_type(&var self.dp.bc.mir.tc, t, written))
+            p = p + 1
+        }
+        move types
+    }
+
+    // Payload field `p`, of type `pt`, of case `case_decl` of `(*_l)`, which
+    // a switch has proven.
+    func payload_part(&var self, l: Int, t: Int, case_decl: Int, p: Int, pt: Int) -> Int {
+        let subject = self.referent_place(l, t)
+        self.dp.bc.mir.project(subject, MirProjKind.Payload, case_decl, p, pt)
+    }
+
+    // A shared borrow of place `p`, as an operand.
+    func borrow_of(&var self, p: Int) -> Int {
+        let rv = self.dp.bc.mir.rv_ref(false, p)
+        let l = self.dp.bc.mir.temp_of(rv)
+        self.dp.bc.mir.move_local(l)
+    }
+
+    // A call of requirement `req` on part type `pt`, the part at place
+    // `part` borrowed as its receiver and operand `second` its other
+    // argument; returns the temp its result lands in. It is made at item
+    // `k`'s origin, where a refusal of the part's hook is reported, and the
+    // requirement funnel resolves it as it does every requirement call.
+    func part_hook(&var self, k: Int, req: Int, pt: Int, part: Int, second: Int) -> Int {
+        var args = Vector<Int>()
+        try! args.push(self.borrow_of(part))
+        try! args.push(second)
+        let result = self.dp.bc.mir.tc.sigs[req].result
+        let answer = self.dp.bc.mir.new_temp(result)
+        // Stage 0 workaround (SL:hazards S4): canonical: var c = self.dp.bc.mir.blank_call(MirCallKind.Function, self.items[k].origin_node)
+        let origin = self.items[k].origin_node
+        var c = self.dp.bc.mir.blank_call(MirCallKind.Function, origin)
+        c.target = req
+        c.owner = pt
+        c.arg_first = self.dp.bc.mir.push_args(&args)
+        c.arg_count = 2
+        c.dest = self.dp.bc.mir.place_local(answer)
+        let _ = self.dp.bc.mir.call_and_continue(c)
+        answer
+    }
+
+    // The backing integer type of raw-backed enum declaration `d`, or -1.
+    func backing_of(&self, d: Int) -> Int {
+        if d < 0 || self.dp.bc.mir.tc.res.decls[d].kind != ResDeclKind.Enum {
+            return -1
+        }
+        self.dp.bc.mir.tc.sigs[d].result
+    }
+
+    // The temp holding `(*_l) as backing`, a raw-backed enum of type `t`
+    // read as the value its case states.
+    func cast_word(&var self, l: Int, t: Int, backing: Int) -> Int {
+        let value = self.referent_copy(l, t)
+        let rv = self.dp.bc.mir.rv_one(MirRvalueKind.Cast, backing, "", value)
+        self.dp.bc.mir.temp_of(rv)
+    }
+
+    // The Int temp holding the ordinal of `(*_l)`'s case, an enum of type
+    // `t`.
+    func ordinal_word(&var self, l: Int, t: Int) -> Int {
+        let int_type = self.dp.bc.mir.tc.int_type()
+        let word = self.dp.bc.mir.new_temp(int_type)
+        let d = self.dp.bc.mir.tc.nominal_decl(t)
+        let cases = target_enum_cases(&self.dp.bc.mir.tc, d)
+        let join = self.dp.bc.mir.new_block()
+        var arms = Vector<Int>()
+        var j = 0
+        while j < cases.len() {
+            try! arms.push(self.dp.bc.mir.new_block())
+            j = j + 1
+        }
+        let subject = self.referent_place(l, t)
+        self.dp.bc.mir.switch_cases(subject, &cases, &arms, -1)
+        j = 0
+        while j < cases.len() {
+            var text = StringBuilder()
+            try! text.append(j)
+            self.set_word(arms[j], word, text.build(), join)
+            j = j + 1
+        }
+        self.dp.bc.mir.enter(join)
+        word
     }
 }

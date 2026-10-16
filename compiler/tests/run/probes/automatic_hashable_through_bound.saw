@@ -1,0 +1,28 @@
+// probe: stated
+// about: a trivial struct's and a payload-free enum's automatic `Hashable` meets a `T: Hashable` bound, digesting as a call on the concrete type does (SL-598)
+// stage 0: refuses the bound ("type `Point` does not implement trait `Hashable`") though it hashes the same values called on the concrete type and as Map keys
+// speeds: -O0 -O2
+// Each digest is the one the run program `aggregate_hash` prints for the
+// same value hashed on its concrete type, which Stage 0 records.
+// prints: point 591599961139567920 591638444046525367
+// prints: color 5808590956661967507 5808592056173595232 5808588757638710281
+// prints: level 5808391945057638690 5808594255196850314
+// prints: tuple 591599961139567920
+struct Point { x: Int, y: Int8 }
+
+enum Color { case Red, case Green, case Blue }
+
+enum Level: Int8 { case Low = -1, case High = 7 }
+
+func digest<T: Hashable>(v: T) -> Int {
+    var h = Hasher()
+    v.hash(&var h)
+    h.finish()
+}
+
+func main() {
+    print("point {} {}", digest(Point(x: 3, y: -1i8)), digest(Point(x: 3, y: 2i8)))
+    print("color {} {} {}", digest(Color.Red), digest(Color.Green), digest(Color.Blue))
+    print("level {} {}", digest(Level.Low), digest(Level.High))
+    print("tuple {}", digest((3, -1i8)))
+}

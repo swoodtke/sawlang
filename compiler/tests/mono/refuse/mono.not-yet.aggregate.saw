@@ -1,18 +1,11 @@
-// refuses: mono.not-yet at 13:5
-// A struct's derived `Equatable` is synthesized glue the slice does not
-// make: the scalar hook table covers the primitives alone.
-struct Point {
-    x: Int
-    name: String
-}
-
-@synthesize
-extension Point: Equatable {}
-
-func same<T: Equatable>(a: T, b: T) -> Bool {
-    a == b
+// refuses: mono.not-yet at 6:5
+// Typecheck grants a tuple `Comparable` through its parts, which the spec
+// does not (SL-754), so the member glue table has no `compare` for one,
+// whose `equals` and `hash` it builds from the parts.
+func less<T: Comparable>(a: T, b: T) -> Bool {
+    a < b
 }
 
 func main() {
-    print(same(Point(x: 1, name: "a"), Point(x: 1, name: "a")))
+    print(less((1, 2), (1, 3)))
 }

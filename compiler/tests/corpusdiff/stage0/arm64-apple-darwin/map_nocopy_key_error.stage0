@@ -1,6 +1,6 @@
 program	map_nocopy_key_error.saw
 triple	arm64-apple-darwin
-twin	same
+twin	differs
 expect	error
 build	refused	map key type `Counted` must be copyable (trivial, Copy, or ExplicitCopy with retain semantics): `Counted` is NoCopy
 meets_expect	yes

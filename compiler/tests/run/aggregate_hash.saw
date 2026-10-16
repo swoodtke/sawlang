@@ -1,0 +1,106 @@
+// An aggregate's `Hashable.hash` with no written body (SL-598), its digest
+// printed, which must be Stage 0's word for word: a trivial struct's and a
+// payload-free enum's automatic conformance (a narrow signed field
+// zero-extended), a raw-backed enum (its case's stated value, zero-extended),
+// a written `@synthesize` on a struct holding a String, a payload-carrying
+// enum (the case's ordinal, then its payload), a struct holding a fixed array,
+// a tuple and an Optional (1 or 0, then the payload when present), and a
+// nested aggregate asking each part's own hook, a hand-written one included.
+// The automatic conformances are reached by a call on the concrete type,
+// since Stage 0 meets no `T: Hashable` bound with one.
+
+struct Point { x: Int, y: Int8 }
+
+enum Color { case Red, case Green, case Blue }
+
+enum Level: Int8 { case Low = -1, case High = 7 }
+
+struct Named { name: String, n: Int }
+@synthesize
+extension Named: Equatable {}
+@synthesize
+extension Named: Hashable {}
+
+enum Shape {
+    case Circle(r: Int),
+    case Rect(w: Int, h: Int),
+    case Label(text: String),
+    case Empty
+}
+@synthesize
+extension Shape: Equatable {}
+@synthesize
+extension Shape: Hashable {}
+
+struct Row { cells: [UInt8; 3], tag: Bool }
+@synthesize
+extension Row: Equatable {}
+@synthesize
+extension Row: Hashable {}
+
+// Feeds its id alone, so a memberwise answer would differ.
+struct Keyed { id: Int, note: String }
+extension Keyed: Equatable {
+    func equals(&self, other: &Self) -> Bool { self.id == other.id }
+}
+extension Keyed: Hashable {
+    func hash(&self, h: &var Hasher) { h.write_int(self.id) }
+}
+
+struct Nest {
+    at: Point,
+    color: Color,
+    level: Level,
+    shape: Shape,
+    pair: (Int, String),
+    maybe: Named?,
+    keyed: Keyed
+}
+@synthesize
+extension Nest: Equatable {}
+@synthesize
+extension Nest: Hashable {}
+
+func digest<T: Hashable>(v: T) -> Int {
+    var h = Hasher()
+    v.hash(&var h)
+    h.finish()
+}
+
+func point_digest(v: Point) -> Int {
+    var h = Hasher()
+    v.hash(&var h)
+    h.finish()
+}
+
+func color_digest(v: Color) -> Int {
+    var h = Hasher()
+    v.hash(&var h)
+    h.finish()
+}
+
+func level_digest(v: Level) -> Int {
+    var h = Hasher()
+    v.hash(&var h)
+    h.finish()
+}
+
+func main() {
+    print("point {} {}", point_digest(Point(x: 3, y: -1i8)), point_digest(Point(x: 3, y: 2i8)))
+    print("color {} {} {}", color_digest(Color.Red), color_digest(Color.Green), color_digest(Color.Blue))
+    print("level {} {}", level_digest(Level.Low), level_digest(Level.High))
+    print("named {} {}", digest(Named(name: "ab", n: 7)), digest(Named(name: "", n: 0)))
+    print("shape {} {} {} {}", digest(Shape.Circle(r: 9)), digest(Shape.Rect(w: 1, h: 2)), digest(Shape.Label(text: "hi")),
+          digest(Shape.Empty))
+    print("row {} {}", digest(Row(cells: [1u8, 2u8, 255u8], tag: true)), digest(Row(cells: [0u8, 0u8, 0u8], tag: false)))
+    print("tuple {} {}", digest((1, "x")), digest((-1, Shape.Empty)))
+    let some: Named? = Named(name: "z", n: 9)
+    let none: Named? = None
+    let deep: Int?? = 4
+    print("optional {} {} {}", digest(some), digest(none), digest(deep))
+    let n = Nest(at: Point(x: 5, y: -128i8), color: Color.Blue, level: Level.Low, shape: Shape.Label(text: "q"),
+                 pair: (6, "r"), maybe: None, keyed: Keyed(id: 11, note: "ignored"))
+    let m = Nest(at: Point(x: 5, y: -128i8), color: Color.Blue, level: Level.Low, shape: Shape.Label(text: "q"),
+                 pair: (6, "r"), maybe: None, keyed: Keyed(id: 11, note: "other"))
+    print("nest {} {}", digest(n), digest(n) == digest(m))
+}

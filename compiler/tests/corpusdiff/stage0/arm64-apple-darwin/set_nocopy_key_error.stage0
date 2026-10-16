@@ -1,6 +1,6 @@
 program	set_nocopy_key_error.saw
 triple	arm64-apple-darwin
-twin	same
+twin	differs
 expect	error
 build	refused	set element type `Counted` must be copyable (trivial, Copy, or ExplicitCopy with retain semantics): `Counted` is NoCopy
 meets_expect	yes

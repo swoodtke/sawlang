@@ -1833,8 +1833,8 @@ map_literal_key_mismatch_error.saw	copied,expectation-pending	-	-
 map_literal_key_out_of_range_error.saw	copied,expectation-pending	-	-
 map_literal_owning_values.saw	copied	-	-
 map_literal_value_mismatch_error.saw	copied,expectation-pending	-	-
-map_nocopy_key_error.saw	copied,expectation-pending	-	-
-map_nocopy_key_literal_error.saw	copied,expectation-pending	-	-
+map_nocopy_key_error.saw	manual,expectation-pending	manual.nocopy-key:28,manual.nocopy-key.companion:7	SL-598: the spec's Map/Set accept a key of any copy tier, a NoCopy key hashed and compared in place; Stage 0 refuses it. This file's EXPECT-OUTPUT states the ruled behaviour
+map_nocopy_key_literal_error.saw	manual,expectation-pending	manual.nocopy-key:25,manual.nocopy-key.companion:5	SL-598: the spec's Map/Set accept a key of any copy tier, a NoCopy key hashed and compared in place; Stage 0 refuses it. This file's EXPECT-OUTPUT states the ruled behaviour
 map_nocopy_value_construct.saw	copied	-	-
 map_nocopy_value_copy_bound_error.saw	copied,expectation-pending	-	-
 map_owning_remove_overwrite.saw	copied	-	-
@@ -2452,7 +2452,7 @@ set_literal_comparison_elements.saw	copied	-	-
 set_literal_element_mismatch_error.saw	copied,expectation-pending	-	-
 set_literal_not_hashable_error.saw	copied,expectation-pending	-	-
 set_nocopy_element_copy_bound_error.saw	copied,expectation-pending	-	-
-set_nocopy_key_error.saw	copied,expectation-pending	-	-
+set_nocopy_key_error.saw	manual,expectation-pending	manual.nocopy-key:29,manual.nocopy-key.companion:6	SL-598: the spec's Map/Set accept a key of any copy tier, a NoCopy key hashed and compared in place; Stage 0 refuses it. This file's EXPECT-OUTPUT states the ruled behaviour
 set_owning_key_refcount.saw	copied	-	-
 set_try_copy.saw	copied	-	-
 shadow255_glob_import.saw	copied	-	-

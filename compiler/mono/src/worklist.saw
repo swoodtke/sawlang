@@ -1132,9 +1132,9 @@ extension MonoProgram {
     // the member the owner's conformance writes, or the trait's default body
     // under `Self` = owner; a requirement met with neither, by a derivation or
     // by a builtin type's own conformance, is the glue that synthesizes it.
-    // A `copy()` bound is also met with no conformance at all, by the Copy
-    // tier or a composite's parts, so that requirement reaches `glued` too.
-    // `item` is -1 unless the answer is glue.
+    // A bound is also met with no conformance at all (`met_without_conformance`),
+    // so that requirement reaches `glued` too. `item` is -1 unless the answer
+    // is glue.
     // ENTRY POINTS:
     //     resolve_call
     //     render_of
@@ -1173,7 +1173,7 @@ extension MonoProgram {
             }
             return self.glued(req, owner, k, node)
         }
-        if self.copy_hook(req) && self.copy_glue_builds(owner) {
+        if self.met_without_conformance(req, owner) {
             return self.glued(req, owner, k, node)
         }
         var msg = StringBuilder()
@@ -1186,10 +1186,40 @@ extension MonoProgram {
         MonoTarget(decl: -1, self_type: -1, item: -1)
     }
 
-    // The glue of `req` on `owner` as a call target, or a refused one when
-    // glue for it is not in the slice. A `copy()` on a struct, an enum, a
-    // tuple or an array is its copy glue: the one copy its silent, spelled
-    // and generic copies all run (spec, The Copy Trait Family).
+    // Whether `owner` meets the trait of requirement `req` with no
+    // conformance written. A `copy()` bound through the Copy tier or a
+    // composite's parts, when copy glue builds the type; an `equals`,
+    // `compare` or `hash` bound through a tuple's, an Optional's or a fixed
+    // array's parts, or automatically for a trivially copyable struct or enum
+    // (spec, Equality and Hashing). The member glue table then says which of
+    // these the spec grants.
+    func met_without_conformance(&var self, req: Int, owner: Int) -> Bool {
+        if self.copy_hook(req) {
+            return self.copy_glue_builds(owner)
+        }
+        if not self.structural_hook(req) {
+            return false
+        }
+        match self.glue_kind(owner) {
+            case Tuple -> true,
+            case Optional -> true,
+            case Array -> true,
+            case Struct -> self.dp.bc.mir.tc.is_trivial(owner),
+            case Enum -> self.dp.bc.mir.tc.is_trivial(owner),
+            case _ -> false
+        }
+    }
+
+    // THE HOOK GLUE FUNNEL: which glue answers requirement `req` on `owner`,
+    // as a call target, or a refused one when glue for it is not in the
+    // slice. A `copy()` on a struct, an enum, a tuple or an array is its copy
+    // glue: the one copy its silent, spelled and generic copies all run
+    // (spec, The Copy Trait Family). Every other hook is member glue, whose
+    // table (`member_refusal`) decides each kind's cells; an aggregate's
+    // member glue calls its parts' hooks, which come back here through the
+    // requirement funnel.
+    // ENTRY POINTS:
+    //     resolve_requirement
     func glued(&var self, req: Int, owner: Int, k: Int, node: Int) -> MonoTarget {
         var item = -1
         if self.copy_hook(req) && self.copy_glue_builds(owner) {
@@ -1205,7 +1235,7 @@ extension MonoProgram {
 
     // THE MEMBER GLUE FUNNEL: the glue that synthesizes requirement `req` for
     // concrete type `t`, made when new; -1 when refused. In the slice: the
-    // cells the scalar hook table admits (`scalar_refusal` in glue.saw).
+    // cells the member glue table admits (`member_refusal` in glue.saw).
     // ENTRY POINTS:
     //     glued
     public func member_glue_of(&var self, req: Int, t: Int, origin: Int, node: Int) -> Int {
@@ -1217,7 +1247,7 @@ extension MonoProgram {
             }
             at = self.by_key.following(at)
         }
-        let why = self.scalar_refusal(req, t)
+        let why = self.member_refusal(req, t)
         if why.len() > 0 {
             var msg = StringBuilder()
             try! msg.append("a synthesized `")
