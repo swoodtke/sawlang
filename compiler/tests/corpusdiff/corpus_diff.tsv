@@ -309,7 +309,7 @@ conformance/G16_try_propagates_out_of_main.saw	crash	INVARIANT	a `main` returnin
 conformance/G17_early_return_from_main.saw	pass	-	-
 conformance/G18_main_result_void_ok_exit_zero.saw	crash	INVARIANT	a `main` returning anything but Void or Int is not in the backend slice yet
 conformance/K02_nonsend_across_suspend_local_mt.saw	wrong	refused by another rule	call.label, where the plan names coro.spawn-not-send
-conformance/K100_shutdown_rides_cancellation.saw	refused	resolve import.unknown-module	no module `std.signal`
+conformance/K100_shutdown_rides_cancellation.saw	pass	-	-
 conformance/K111_suspension_causes_decide_framing.saw	refused	resolve import.unknown-module	no module `std.json`
 conformance/K112_thread_body_refuses_a_multi_cause_std_method.saw	refused	resolve slice.not-yet	the `Thread.spawn` form is not in the bootstrap slice yet
 conformance/K113_test_suspend_is_a_frame_boundary_not_an_executor.saw	refused	coro coro.drive-in-suspending	`__saw_drive` may not appear in `main`, which itself suspends. This body already runs inside an executor, so `driven(...)` needs no drive site: call it directly and the suspending call embeds here (de
@@ -409,8 +409,8 @@ conformance/K94b_timed_park_times_out_in_a_single_frame_drive.saw	refused	resolv
 conformance/K95_ready_before_deadline_reports_the_value.saw	refused	resolve import.unknown-symbol	`Timed` is not defined in `std.net`
 conformance/K96_timed_and_untimed_parks_coexist.saw	refused	resolve import.unknown-symbol	`Timed` is not defined in `std.net`
 conformance/K97_timed_park_leaves_no_registration_behind.saw	refused	resolve import.unknown-symbol	`Timed` is not defined in `std.net`
-conformance/K98_signal_wakes_a_parked_watcher.saw	refused	resolve import.unknown-module	no module `std.signal`
-conformance/K99_watch_is_scoped_and_singly_owned.saw	refused	resolve import.unknown-module	no module `std.signal`
+conformance/K98_signal_wakes_a_parked_watcher.saw	pass	-	-
+conformance/K99_watch_is_scoped_and_singly_owned.saw	pass	-	-
 conformance/M06_push_on_let_vector.saw	pass	-	result.discarded: the result of `push` is `Result<Void, std.alloc.AllocError>` and is silently discarded: handle it (`match` it, `try` or `try!` it, or return it), or write `let _ = ...` to discard it
 conformance/M10_write_through_shared_ref.saw	pass	-	mutability.immutable: this compound assignment writes `x`, and `x` is a shared reference, through which nothing is written: take it as `&var`
 conformance/M12_varself_method_through_shared_ref.saw	pass	-	mutability.immutable: this exclusive borrow of `c` would let it be written, and `c` is a shared reference, through which nothing is written: take it as `&var`

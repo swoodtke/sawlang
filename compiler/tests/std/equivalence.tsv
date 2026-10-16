@@ -235,3 +235,17 @@ Command	std.process init Command.init program:String	SL-522
 (api)	std.net method TcpStream.write s:String	SL-570
 (api)	std.net method TcpStream.deinit -	SL-570
 (api)	std.net conformance TcpStream NoCopy	SL-570
+(api)	std.signal enum Signal -	SL-575
+(api)	std.signal case Signal.Terminate -	SL-575
+(api)	std.signal case Signal.Interrupt -	SL-575
+(api)	std.signal case Signal.Hangup -	SL-575
+(api)	std.signal case Signal.Quit -	SL-575
+(api)	std.signal case Signal.User1 -	SL-575
+(api)	std.signal case Signal.User2 -	SL-575
+(api)	std.signal case Signal.WindowChanged -	SL-575
+(api)	std.signal method Signal.send_to_self -	SL-575
+(api)	std.signal struct SignalWatch -	SL-575
+(api)	std.signal method SignalWatch.watch which:std.signal.Signal	SL-575
+(api)	std.signal method SignalWatch.next -	SL-575
+(api)	std.signal method SignalWatch.deinit -	SL-575
+(api)	std.signal conformance SignalWatch NoCopy	SL-575

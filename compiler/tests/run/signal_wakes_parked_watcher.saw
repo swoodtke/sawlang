@@ -1,0 +1,49 @@
+// A task parked in `SignalWatch.next` wakes on a raised signal while a sibling
+// keeps running (SL:coroutines A15). The watcher announces its park before the
+// sibling exists, and the signal is raised only after the sibling has run
+// during that park, so the delivery provably reaches a parked task and the
+// sibling provably ran while it was parked. User1's default action ends the
+// process, so reaching the last line also shows the watch replaced it.
+import std.signal.{Signal, SignalWatch}
+import std.channel.{Channel}
+import std.task.{yield_now}
+
+func watcher(w: SignalWatch, ready: Channel<Int>) -> Int {
+    print("watcher parked")
+    try! ready.send(1)
+    try! w.next()
+    print("signal arrived")
+    let _ = move w
+    1
+}
+
+func sibling(ticked: Channel<Int>) -> Int {
+    var turns = 0
+    while turns < 3 {
+        yield_now()
+        turns = turns + 1
+    }
+    print("sibling ran while the watcher was parked")
+    try! ticked.send(turns)
+    turns
+}
+
+func main() {
+    let w = match SignalWatch.watch(Signal.User1) {
+        case Ok(x) -> move x,
+        case Err(e) -> {
+            print("watch failed: {}", e)
+            return
+        }
+    }
+    var group = TaskGroup()
+    let ready = try! Channel<Int>()
+    let ticked = try! Channel<Int>()
+    let wt = group.spawn(watcher(move w, ready.copy()))
+    let _ = try! ready.receive()
+    let st = group.spawn(sibling(ticked.copy()))
+    let _ = try! ticked.receive()
+    try! Signal.User1.send_to_self()
+    print(wt.join() + st.join())
+    print("main still running")
+}

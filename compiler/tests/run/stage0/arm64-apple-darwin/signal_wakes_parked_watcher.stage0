@@ -1,0 +1,11 @@
+program	compiler/tests/run/signal_wakes_parked_watcher.saw
+triple	arm64-apple-darwin
+source	da456031cb78970d
+build	ok
+exit	0
+stdout	"watcher parked"
+stdout	"sibling ran while the watcher was parked"
+stdout	"signal arrived"
+stdout	"4"
+stdout	"main still running"
+stdout	""
