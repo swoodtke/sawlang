@@ -128,3 +128,15 @@ item #126: extern __saw_rt_clock_monotonic_nanos  (frame no)
 item #127: std.taskgroup.channel_parked(cx: UnsafePointer<std.taskgroup.TaskContext>)  (frame no)
 item #128: std.stringbuilder.StringBuilder.mark_truncated()  (frame no)
 item #129: std.stringbuilder.StringBuilder.is_continuation(b: Int)  (frame no)
+lifetimes #6: group_task_root.double(n: Int) task root
+    state: every point
+    _0 result: bb0.t
+    _1 param n: every point
+lifetimes #12: group_task_root.hello(name: String) task root
+    state: every point
+    _0 result: none
+    _1 param name: bb0.t s1 r1 bb1.0-t bb2.0
+    child std.task.yield_now(): bb0.t s1
+lifetimes #39: std.task.yield_now()
+    state: every point
+    _0 result: none

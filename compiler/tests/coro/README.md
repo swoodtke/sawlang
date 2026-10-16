@@ -12,7 +12,8 @@ lower is refused.
 coro/
   README.md               this specification
   coro_lane.py            the lane compiler/tests/run.py runs
-  golden/                 NAME.saw, a program; NAME.coro, its frame decisions;
+  golden/                 NAME.saw, a program; NAME.coro, its frame decisions
+                          and lifetimes;
                           NAME.layouts, its frames' layouts; NAME.lowered, its
                           lowered frames' resume functions
   refuse/                 RULE.saw or RULE.VARIANT.saw, a program refused
@@ -56,7 +57,9 @@ then its chain when it also suspends. CHAIN is the item, then each item its susp
 through, then the source: `main -> caller -> nap -> usleep`. Each link is the
 declaration's path inside its module (`ping`, `Walker.walk`), so the two
 instantiations of a generic function name it alike, and an accessor's
-prologue and epilogue both name the accessor. With `--layouts`, the record
+prologue and epilogue both name the accessor. After the item lines, `--dump`
+prints each frame's storage lifetimes, in item order (see "Storage
+lifetimes", below). With `--layouts`, the record
 holds instead each frame laid out for `--target` (`arm64-apple-darwin` by
 default), in item order (see "Frames", below), or the line `no frame` when
 the program has none; with `--lowered`, each lowered frame's resume function
@@ -113,49 +116,93 @@ line, not a refusal: one of the two stages is wrong.
 
 A frame is bytes with a layout, not a struct with glue (SL:coroutines §3.1).
 What each item's frame holds is decided by one funnel,
-`compiler/coro/src/frames.saw`, and where each value sits by another,
+`compiler/coro/src/frames.saw`, each value's storage lifetime by another,
+`compiler/coro/src/lifetimes.saw`, and where each value sits by a third,
 `compiler/coro/src/layout.saw`; each docstring names its entry points. No
 frame is found when a cycle is refused, since none is finite then.
 
 **Program points and suspension points.** An item's program points are each
 statement and each terminator of its body, in block order. A call that
-definitely suspends adds one more point after its terminator's: the moment
-the call is suspended, its arguments taken and its destination not yet
-written. The suspension points are those, and each yield-capable op-budget
-point, which lowers to a yield in a framed item (SL:architecture §3.9). They
-are numbered in block order from 1, the states the resume function re-enters
-at; state 0 is the start.
+definitely suspends adds two more after its terminator's: the moment the call
+is suspended, its arguments taken and its destination not yet written; then,
+when the call returns, its return edge, where its destination is written,
+the resume transition out of that state. The suspension points are the
+first of those, and each yield-capable op-budget point, which lowers to a
+yield in a framed item (SL:architecture §3.9). They are numbered in block
+order from 1, the states the resume function re-enters at; state 0 is the
+start.
 
-**Storage lifetimes, first cut.** A local's storage lifetime is the set of
-points just before which the initialisation analysis says it may be
-initialised, whole or in part (`compiler/mir/src/initialisation.saw`), so it
-runs through its scope-end drop, and a local that is moved is dead until it
-is assigned again. A local only ever copied never stops being initialised, so
-its lifetime runs to the end. That is conservative: unit B1 replaces it with
-lifetimes that end at a last use and cover every loan into a value. A
-window's state record is the exception, since its accessor's halves write and
-read it through a reference the analysis never sees: its lifetime is every
-point at which its window may be open, its open and its close included, the
-time a suspending half runs among them (golden `windows`).
+**Storage lifetimes.** A frame value's storage lifetime is the set of
+program points just before which its bytes are needed. Residency, the
+layout's interference and the dump all read it from the one funnel,
+`compiler/coro/src/lifetimes.saw`:
+
+- **the state word and the op-budget counter:** every point;
+- **a local**, the result and the parameters included: the points just before
+  which the initialisation analysis says it may be initialised, whole or in
+  part (`compiler/mir/src/initialisation.saw`). So it runs through its
+  scope-end drop, and a local that is moved is dead until it is assigned
+  again. A local only ever copied never stops being initialised, so its
+  lifetime runs to the end;
+- **a window's state record**, a local whose accessor's halves write and read
+  it through a reference the analysis never sees: also every point at which
+  its window may be open, from its open's terminator through its close's
+  call, the time a suspending half runs and its open's return edge among
+  them (golden `windows`);
+- **a child slot:** its call's terminator, before which its parameter slots
+  are written; its suspension point, where it is driven to `Ready`; and when
+  the call has a destination, its return edge, where its result is moved out;
+- **an offload's storage:** its call's terminator, which starts the job; its
+  suspension point; and its return edge, where the take reads the job word.
+
+No loan needs a set of its own. References are parameters only, so a frame
+never holds a reference local, and a loan live across a suspension is a call
+argument to a suspended child, a window's lend or a spawn borrow, each
+already inside the maybe-initialised set of the value it points into or the
+record's window. Nor does a lifetime end at a last use: an owning value is
+read by its own scope-end drop (the spec's "Scope-end release"), so its
+storage is never dead before that drop, and only a value with no drop could
+end earlier.
+
+Sequential suspending calls have disjoint child-slot lifetimes, so packing
+(SL:coroutines B2) may overlay them (golden `lifetimes`).
+
+**The lifetimes in `--dump`**, per frame, in item order:
+
+```
+lifetimes #K: NAME
+    state: every point
+    op budget: every point
+    _L WHAT: POINTS
+    child NAME: POINTS
+    offload EXTERN: POINTS
+```
+
+one line per value, in the frame's order (below). POINTS is `every point`,
+`none`, or the points in order: `bbB.N` for statement N of block B and
+`bbB.t` for its terminator, a run of them in one block as `bbB.N-M`; `sK` for
+state K, the suspension point, which for a yield-capable op-budget point is
+its statement; and `rK` for the resume transition out of state K, its call's
+return edge. So `bb0.t s1 r1` is a child driven at state 1 whose result is
+moved out, and `bb0.t s1` one with no destination.
 
 **What a frame holds**, in this order:
 
-- the state word, an `Int`, live at every point;
-- when the body has an op-budget point, the op-budget counter, an `Int`, live
-  at every point (Lowering, below);
+- the state word, an `Int`;
+- when the body has an op-budget point, the op-budget counter, an `Int`
+  (Lowering, below);
 - the result, `_0`, which the caller moves out after `Ready`;
 - every parameter, the receiver and an environment included, which the
   caller writes into the frame before the first resume;
 - every other local whose storage lifetime contains a suspension point, in
   local order;
 - a child slot per suspending call to an item that needs a frame, in the
-  order of the calls: the child's frame, embedded by value, live from the
-  call, where the child starts, through its suspension point, where it is
-  driven to `Ready`. Two calls of one function have a slot each;
+  order of the calls: the child's frame, embedded by value. Two calls of one
+  function have a slot each;
 - an offload storage per call of a `blocking` extern (Lowering, below),
   among the child slots in the order of the calls: an `[Int; N + 1]` for an
   extern of N parameters, the job word, then each argument widened to a
-  word, live over the same two points as a child slot.
+  word.
 
 Every other local stays on the resume function's stack. A resident local is
 reached through a frame slot, `(*frame).[OFFSET: T]`, a MIR projection
@@ -652,7 +699,10 @@ which `oracle.v0_compiler` finds; nothing else does.
 The layout goldens' frames are the first cut's (golden `yield_loop`, a loop
 whose suspension carries values across it, and whose op-budget point gives
 its frame a counter): the values each frame holds, and
-offsets with no sharing. Golden `drive_and_park` is the lowered shapes: drives
+offsets with no sharing. Golden `lifetimes` is the storage lifetimes, one
+function per shape: a value live across one suspension only, a child slot
+through its result's move-out, a window's record, an offload's storage, and
+sequential children whose lifetimes are disjoint. Golden `drive_and_park` is the lowered shapes: drives
 of children, two of one function among them, ready parks, and values across
 both, reached through frame slots; the run lane builds and runs the same
 shapes (`yield_main`). Golden `drive_arguments` is the drive of a child that

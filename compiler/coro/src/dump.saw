@@ -1,8 +1,9 @@
 // Coroutine lowering's dump (compiler/tests/coro/README.md): each item in
 // mono's item order, named as mono's dump names it, with its frame decision
 // and, for one that needs a frame, the chain its suspension was found
-// through; and each frame's layout.
+// through, and each frame's storage lifetimes; and each frame's layout.
 
+import sawcoro.lifetimes.{CoroPointLabel, CoroPointRole, coro_lifetime_across, coro_lifetime_at, coro_point_labels}
 import sawcoro.program.{CoroFrame, CoroPoint, CoroPointKind, CoroProgram, CoroResume, CoroValue, CoroValueKind}
 import sawcoro.suspends.{coro_cause_chain, coro_source_label}
 import sawmir.dump.{mir_dump_module}
@@ -12,7 +13,7 @@ import sawmono.program.{MonoProgram}
 
 // `item #K: NAME  (frame yes (via CHAIN))` or `item #K: NAME  (frame no)`,
 // one line per item; a task root says so, before its chain when it also
-// suspends.
+// suspends. Then each frame's storage lifetimes, in item order.
 public func coro_dump_items(coro: &CoroProgram, out: &var StringBuilder) {
     var k = 0
     while k < coro.mono.items.len() {
@@ -38,6 +39,133 @@ public func coro_dump_items(coro: &CoroProgram, out: &var StringBuilder) {
             try! out.append("  (frame no)\n")
         }
         k = k + 1
+    }
+    k = 0
+    while k < coro.frames.len() {
+        coro_dump_lifetimes(&coro, &var out, k)
+        k = k + 1
+    }
+}
+
+// Frame `k`'s storage lifetimes: a header naming its item, then one line per
+// value, in the frame's order, `    WHAT: POINTS`. POINTS is `every point`,
+// `none`, or the points in order: `bbB.N` statement N of block B, `bbB.t`
+// its terminator, a run of them in one block as `bbB.N-M`; `sK` state K, a
+// suspension point; `rK` the resume transition out of state K, its call's
+// return edge. The body is read as it is before lowering.
+func coro_dump_lifetimes(coro: &CoroProgram, out: &var StringBuilder, k: Int) {
+    let frame = coro.frames[k]
+    let labels = coro_point_labels(&coro, frame.body)
+    try! out.append("lifetimes #")
+    try! out.append(frame.item)
+    try! out.append(": ")
+    try! out.append(coro.mono.item_name(frame.item))
+    try! out.append("\n")
+    var j = 0
+    while j < frame.value_count {
+        let v = coro.values[frame.value_first + j]
+        j = j + 1
+        try! out.append("    ")
+        if v.kind == CoroValueKind.State {
+            try! out.append("state")
+        } else if v.kind == CoroValueKind.Budget {
+            try! out.append("op budget")
+        } else if v.kind == CoroValueKind.Child {
+            try! out.append("child ")
+            try! out.append(coro.mono.item_name(v.child))
+        } else if v.kind == CoroValueKind.Offload {
+            try! out.append("offload ")
+            try! out.append(coro.item_label(v.child))
+        } else {
+            try! out.append("_")
+            try! out.append(v.local)
+            let local = coro.mono.dp.bc.mir.locals[coro.mono.dp.bc.mir.funcs[frame.body].local_first + v.local]
+            coro_append_local_note(&coro, &var out, &local)
+        }
+        try! out.append(": ")
+        if labels.len() != frame.points {
+            try! out.append("unknown: the body was rewritten\n")
+            continue
+        }
+        coro_append_points(&coro, &var out, &v, &labels)
+        try! out.append("\n")
+    }
+}
+
+// Value `v`'s lifetime over the points `labels` names, as
+// `coro_dump_lifetimes` writes it.
+func coro_append_points(coro: &CoroProgram, out: &var StringBuilder, v: &CoroValue, labels: &Vector<CoroPointLabel>) {
+    let n = labels.len()
+    var count = 0
+    var p = 0
+    while p < n {
+        if coro_lifetime_at(&coro, &v, p) {
+            count = count + 1
+        }
+        p = p + 1
+    }
+    if count == n {
+        try! out.append("every point")
+        return
+    }
+    if count == 0 {
+        try! out.append("none")
+        return
+    }
+    var first = true
+    p = 0
+    while p < n {
+        if not coro_lifetime_at(&coro, &v, p) {
+            p = p + 1
+            continue
+        }
+        if not first {
+            try! out.append(" ")
+        }
+        first = false
+        let label = labels[p]
+        if label.role == CoroPointRole.State {
+            try! out.append("s")
+            try! out.append(label.state)
+            p = p + 1
+            continue
+        }
+        if label.role == CoroPointRole.Resume {
+            try! out.append("r")
+            try! out.append(label.state)
+            p = p + 1
+            continue
+        }
+        var q = p
+        while q + 1 < n && coro_lifetime_at(&coro, &v, q + 1) && coro_in_run(&labels, q + 1, label.block) {
+            q = q + 1
+        }
+        try! out.append("bb")
+        try! out.append(label.block)
+        try! out.append(".")
+        coro_append_ordinal(&var out, &labels, p)
+        if q > p {
+            try! out.append("-")
+            coro_append_ordinal(&var out, &labels, q)
+        }
+        p = q + 1
+    }
+}
+
+// Whether point `p` is a statement or the terminator of block `block`, and
+// so continues a run of that block's points.
+func coro_in_run(labels: &Vector<CoroPointLabel>, p: Int, block: Int) -> Bool {
+    let label = labels[p]
+    label.block == block && (label.role == CoroPointRole.Statement || label.role == CoroPointRole.Terminator)
+}
+
+// A statement's ordinal in its block, or `t` for a terminator.
+func coro_append_ordinal(out: &var StringBuilder, labels: &Vector<CoroPointLabel>, p: Int) {
+    let label = labels[p]
+    if label.role == CoroPointRole.Terminator {
+        try! out.append("t")
+    } else {
+        try! out.append(label.ordinal)
     }
 }
 
@@ -167,8 +295,7 @@ func coro_dump_value(coro: &CoroProgram, out: &var StringBuilder, frame: &CoroFr
     var across = StringBuilder()
     var s = 0
     while s < frame.suspend_count {
-        let point = coro.suspends[frame.suspend_first + s]
-        if coro.live[v.live_first + point.point] {
+        if coro_lifetime_across(&coro, &frame, &v, s) {
             try! across.append(" ")
             try! across.append(s + 1)
         }

@@ -3,20 +3,10 @@
 // which the caller writes into the frame before the first resume, every
 // other local whose storage lifetime contains a suspension point, the
 // embedded frame of each child it drives, and the storage of each `blocking`
-// extern call it offloads. A local whose
-// lifetime holds none stays on the resume function's stack. The frame has no
-// drop glue: every drop stays where drop elaboration placed it.
-//
-// A storage lifetime here is the set of program points where the
-// initialisation analysis says the local may be initialised, whole or in
-// part, which runs through its scope-end drop. A local only ever copied has
-// no such end, so its lifetime runs to the function's end. That is sound
-// but loose: a loan into a value cannot outlive the value's initialisation,
-// and a last use does not end a lifetime here (compiler/tests/coro/README.md).
-// A window's state record is the exception: the accessor's halves write and
-// read it through a reference, which the analysis never sees, so its
-// lifetime is every point inside its window instead, from its open through
-// its close, the time its halves run included.
+// extern call it offloads. A local whose lifetime holds none stays on the
+// resume function's stack. The frame has no drop glue: every drop stays
+// where drop elaboration placed it. Each value's lifetime is the lifetimes
+// funnel's (`compiler/coro/src/lifetimes.saw`).
 //
 // ENTRY POINTS of the frame contents:
 //   coro_find_frames
@@ -25,12 +15,10 @@
 //   coro_offloaded_extern
 
 import sawborrowck.program.{BorrowckProgram}
-import sawcoro.program.{CoroFrame, CoroProgram, CoroSuspend, CoroValue, CoroValueKind}
+import sawcoro.lifetimes.{CoroLifetimes, coro_lifetime_append, coro_lifetime_resident, coro_lifetimes_of}
+import sawcoro.program.{CoroFrame, CoroProgram, CoroValue, CoroValueKind}
 import sawdrops.program.{DropsProgram}
-import sawcoro.suspends.{coro_call_suspends}
-import sawmir.initialisation.{MIR_INIT_PARTIAL, MIR_INIT_WHOLE, MirAccess, MirAccessKind, MirInit,
-                              mir_init_apply_all}
-import sawmir.model.{MirCallKind, MirFuncKind, MirLocalKind, MirStmtKind, MirTermKind}
+import sawmir.model.{MirCallKind}
 import sawmir.program.{MirProgram}
 import sawmono.program.{MonoItemKind, MonoProgram}
 import sawtypecheck.model.{TC_FLAG_BLOCKING}
@@ -73,92 +61,23 @@ public func coro_frame_of(coro: &CoroProgram, k: Int) -> Int {
     coro.frame_of[k]
 }
 
-// The local-by-point liveness of one function: `live[l * points + p]`
-// says local `l` may be initialised just before point `p`.
-struct CoroLiveness {
-    points: Int
-    live: Vector<Bool>
-}
-
-extension CoroLiveness: NoCopy {}
-
-// Item `item`'s frame, appended to `coro.frames`. A program point is each
-// statement and each terminator, in block order, and a suspending call
-// adds one more after its terminator's: the moment it is suspended, with
-// its arguments taken and its destination not yet written.
+// Item `item`'s frame, appended to `coro.frames`, with its suspension points
+// and its values in the frame's order, each with its lifetime.
 func coro_find_frame(coro: &var CoroProgram, item: Int) {
     let f = coro.mono.items[item].body
     let info = coro.mono.dp.bc.mir.funcs[f]
-    let facts = coro.mono.dp.bc.mir.init_analysis(f)
+    let lt = coro_lifetimes_of(&coro, f)
     let suspend_first = coro.suspends.len()
-    let points = coro_count_points(&coro, f)
-    var lv = CoroLiveness(points: points, live: Vector<Bool>())
-    var k = 0
-    while k < info.local_count * points {
-        try! lv.live.push(false)
-        k = k + 1
-    }
-    let open = coro_windows_open(&coro, f)
-    let width = info.window_count
-    var p = 0
-    var b = 0
-    var charges = false
-    while b < info.block_count {
-        let block = coro.mono.dp.bc.mir.blocks[info.block_first + b]
-        var state = facts.entry_state(b)
-        // The window this block's terminator opens, whose record its prologue
-        // writes from the terminator on.
-        var opening = -1
-        if block.term == MirTermKind.Call {
-            let call = coro.mono.dp.bc.mir.calls[block.call]
-            if call.kind == MirCallKind.WindowOpen {
-                opening = call.window
-            }
-        }
-        var s = block.first
-        while s >= 0 {
-            let stmt = coro.mono.dp.bc.mir.stmts[s]
-            coro_mark_live(&facts, &state, &var lv, p)
-            coro_mark_records(&coro, f, &open, b * width, -1, &var lv, p)
-            if stmt.kind == MirStmtKind.Budget {
-                charges = true
-                if stmt.yields {
-                    try! coro.suspends.push(CoroSuspend(block: b, point: p, call: -1))
-                }
-            }
-            let accesses = coro.mono.dp.bc.mir.init_stmt_accesses(f, s, &facts)
-            mir_init_apply_all(&facts, &var state, &accesses)
-            p = p + 1
-            s = stmt.next
-        }
-        coro_mark_live(&facts, &state, &var lv, p)
-        coro_mark_records(&coro, f, &open, b * width, opening, &var lv, p)
-        p = p + 1
-        if coro_block_suspends(&coro, f, b) {
-            coro_mark_records(&coro, f, &open, b * width, opening, &var lv, p)
-            let accesses = coro.mono.dp.bc.mir.init_term_accesses(f, b, &facts)
-            let dest = coro.mono.dp.bc.mir.calls[block.call].dest
-            var taken = Vector<MirAccess>()
-            var j = 0
-            while j < accesses.len() {
-                let a = accesses[j]
-                j = j + 1
-                if not (a.kind == MirAccessKind.Write && a.place == dest) {
-                    try! taken.push(a)
-                }
-            }
-            mir_init_apply_all(&facts, &var state, &taken)
-            coro_mark_live(&facts, &state, &var lv, p)
-            try! coro.suspends.push(CoroSuspend(block: b, point: p, call: block.call))
-            p = p + 1
-        }
-        b = b + 1
+    var j = 0
+    while j < lt.suspends.len() {
+        try! coro.suspends.push(lt.suspends[j])
+        j = j + 1
     }
     let value_first = coro.values.len()
     let word = coro.mono.dp.bc.mir.tc.int_type()
-    coro_add_value(&var coro, CoroValueKind.State, -1, word, &lv, true)
-    if charges {
-        coro_add_value(&var coro, CoroValueKind.Budget, -1, word, &lv, true)
+    coro_add_value(&var coro, &lt, CoroValueKind.State, -1, -1, word, -1)
+    if lt.charges {
+        coro_add_value(&var coro, &lt, CoroValueKind.Budget, -1, -1, word, -1)
     }
     var l = 0
     while l < info.local_count {
@@ -169,210 +88,43 @@ func coro_find_frame(coro: &var CoroProgram, item: Int) {
         } else if l <= info.param_count {
             kind = CoroValueKind.Param
         }
-        if kind != CoroValueKind.Local || coro_resident(&coro, &lv, l, suspend_first) {
-            coro_add_value(&var coro, kind, l, local.ty, &lv, false)
+        if kind != CoroValueKind.Local || coro_lifetime_resident(&lt, l) {
+            coro_add_value(&var coro, &lt, kind, l, -1, local.ty, -1)
         }
         l = l + 1
     }
-    // A child's slot holds its frame from the call, where the child starts,
-    // through its suspension, where it is driven to `Ready`. An offload's
-    // storage spans the same two points: the job's thread reads its argument
-    // words, and the take reads its job word, after the call has returned
-    // into a park.
-    var j = suspend_first
-    while j < coro.suspends.len() {
-        let point = coro.suspends[j]
+    // A child slot and an offload's storage each serve one suspending call,
+    // in the order of the calls.
+    j = 0
+    while j < lt.suspends.len() {
+        let call = lt.suspends[j].call
+        let s = j
         j = j + 1
-        let child = coro_driven_child(&coro, point.call)
-        let offloaded = coro_offloaded_extern(&coro, point.call)
-        if child < 0 && offloaded < 0 {
-            continue
-        }
-        let live_first = coro.live.len()
-        var q = 0
-        while q < points {
-            try! coro.live.push(q == point.point - 1 || q == point.point)
-            q = q + 1
-        }
+        let child = coro_driven_child(&coro, call)
+        let offloaded = coro_offloaded_extern(&coro, call)
         if child >= 0 {
-            try! coro.values.push(CoroValue(kind: CoroValueKind.Child, local: -1, child: child, ty: -1,
-                                            live_first: live_first, offset: -1, size: -1, align: -1))
-        } else {
-            let ty = coro_offload_storage_type(&var coro, point.call)
-            try! coro.values.push(CoroValue(kind: CoroValueKind.Offload, local: -1, child: offloaded, ty: ty,
-                                            live_first: live_first, offset: -1, size: -1, align: -1))
+            coro_add_value(&var coro, &lt, CoroValueKind.Child, -1, child, -1, s)
+        } else if offloaded >= 0 {
+            let ty = coro_offload_storage_type(&var coro, call)
+            coro_add_value(&var coro, &lt, CoroValueKind.Offload, -1, offloaded, ty, s)
         }
     }
-    // Stage 0 workaround (SL:hazards S4): canonical: try! coro.frames.push(CoroFrame(item: item, body: f, points: points, suspend_first: suspend_first, suspend_count: coro.suspends.len() - suspend_first, value_first: value_first, value_count: coro.values.len() - value_first, size: -1, align: -1, unsupported: -1))
+    // Stage 0 workaround (SL:hazards S4): canonical: try! coro.frames.push(CoroFrame(item: item, body: f, points: lt.points, suspend_first: suspend_first, suspend_count: coro.suspends.len() - suspend_first, value_first: value_first, value_count: coro.values.len() - value_first, size: -1, align: -1, unsupported: -1))
     let suspend_count = coro.suspends.len() - suspend_first
     let value_count = coro.values.len() - value_first
-    try! coro.frames.push(CoroFrame(item: item, body: f, points: points, suspend_first: suspend_first,
+    try! coro.frames.push(CoroFrame(item: item, body: f, points: lt.points, suspend_first: suspend_first,
                                     suspend_count: suspend_count, value_first: value_first, value_count: value_count,
                                     size: -1, align: -1, unsupported: -1))
 }
 
-// How many program points function `f` has.
-func coro_count_points(coro: &CoroProgram, f: Int) -> Int {
-    let info = coro.mono.dp.bc.mir.funcs[f]
-    var points = 0
-    var b = 0
-    while b < info.block_count {
-        let block = coro.mono.dp.bc.mir.blocks[info.block_first + b]
-        var s = block.first
-        while s >= 0 {
-            points = points + 1
-            s = coro.mono.dp.bc.mir.stmts[s].next
-        }
-        points = points + 1
-        if coro_block_suspends(&coro, f, b) {
-            points = points + 1
-        }
-        b = b + 1
-    }
-    points
-}
-
-// Whether block `b` of function `f` ends in a call that definitely suspends.
-func coro_block_suspends(coro: &CoroProgram, f: Int, b: Int) -> Bool {
-    let info = coro.mono.dp.bc.mir.funcs[f]
-    let block = coro.mono.dp.bc.mir.blocks[info.block_first + b]
-    block.term == MirTermKind.Call && coro_call_suspends(&coro, block.call)
-}
-
-// Marks, at point `p`, each local `state` says may be initialised: some
-// move path inside it may be whole or partial.
-func coro_mark_live(facts: &MirInit, state: &Vector<Int>, lv: &var CoroLiveness, p: Int) {
-    var q = 0
-    while q < facts.path_count() {
-        if (facts.own(&state, q) & (MIR_INIT_WHOLE | MIR_INIT_PARTIAL)) != 0 {
-            let l = facts.path_local[q]
-            lv.live[l * lv.points + p] = true
-        }
-        q = q + 1
-    }
-}
-
-// The windows of function `f` that may be open on entry to each block:
-// `open[b * window_count + w]`. A window opens on its open's present edge and
-// closes on its close's; an accessor's epilogue starts with the windows its
-// prologue carries open.
-func coro_windows_open(coro: &CoroProgram, f: Int) -> Vector<Bool> {
-    let info = coro.mono.dp.bc.mir.funcs[f]
-    let width = info.window_count
-    var open = Vector<Bool>()
-    var reached = Vector<Bool>()
-    var k = 0
-    while k < info.block_count * width {
-        try! open.push(false)
-        k = k + 1
-    }
-    k = 0
-    while k < info.block_count {
-        try! reached.push(k == 0)
-        k = k + 1
-    }
-    if width == 0 || info.block_count == 0 {
-        return move open
-    }
-    if info.kind == MirFuncKind.Epilogue {
-        k = 0
-        while k < info.carried_count {
-            let w = coro.mono.dp.bc.mir.aux[info.carried_first + k]
-            if w >= 0 && w < width {
-                open[w] = true
-            }
-            k = k + 1
-        }
-    }
-    let order = coro.mono.dp.bc.mir.init_block_order(f)
-    var changed = true
-    while changed {
-        changed = false
-        var i = 0
-        while i < order.len() {
-            let bb = order[i]
-            i = i + 1
-            if not reached[bb] {
-                continue
-            }
-            let block = coro.mono.dp.bc.mir.blocks[info.block_first + bb]
-            var opened = -1
-            var closed = -1
-            var absent = -1
-            if block.term == MirTermKind.Call {
-                let c = coro.mono.dp.bc.mir.calls[block.call]
-                if c.kind == MirCallKind.WindowOpen {
-                    opened = c.window
-                    absent = c.absent
-                } else if c.kind == MirCallKind.WindowClose {
-                    closed = c.window
-                }
-            }
-            let succ = coro.mono.dp.bc.mir.init_successors(f, bb)
-            var j = 0
-            while j < succ.len() {
-                let target = succ[j]
-                j = j + 1
-                if not reached[target] {
-                    reached[target] = true
-                    changed = true
-                }
-                var w = 0
-                while w < width {
-                    let here = (open[bb * width + w] && w != closed) || (w == opened && target != absent)
-                    if here && not open[target * width + w] {
-                        open[target * width + w] = true
-                        changed = true
-                    }
-                    w = w + 1
-                }
-            }
-        }
-    }
-    move open
-}
-
-// Marks, at point `p`, the record of each window `open` holds from `at` on,
-// and of window `opening` when it is not -1.
-func coro_mark_records(coro: &CoroProgram, f: Int, open: &Vector<Bool>, at: Int, opening: Int,
-                       lv: &var CoroLiveness, p: Int) {
-    let info = coro.mono.dp.bc.mir.funcs[f]
-    var w = 0
-    while w < info.window_count {
-        if open[at + w] || w == opening {
-            let record = coro.mono.dp.bc.mir.windows[info.window_first + w].record
-            if record >= 0 {
-                lv.live[record * lv.points + p] = true
-            }
-        }
-        w = w + 1
-    }
-}
-
-// Whether local `l`'s lifetime contains one of the frame's suspension
-// points, which start at `coro.suspends[first]`.
-func coro_resident(coro: &CoroProgram, lv: &CoroLiveness, l: Int, first: Int) -> Bool {
-    var k = first
-    while k < coro.suspends.len() {
-        if lv.live[l * lv.points + coro.suspends[k].point] {
-            return true
-        }
-        k = k + 1
-    }
-    false
-}
-
-// Appends a frame value, its lifetime local `l`'s, or every point for one
-// `always` live.
-func coro_add_value(coro: &var CoroProgram, kind: CoroValueKind, l: Int, ty: Int, lv: &CoroLiveness,
-                    always: Bool) {
-    let live_first = coro.live.len()
-    var p = 0
-    while p < lv.points {
-        try! coro.live.push(always || lv.live[l * lv.points + p])
-        p = p + 1
-    }
-    try! coro.values.push(CoroValue(kind: kind, local: l, child: -1, ty: ty, live_first: live_first, offset: -1,
+// Appends a frame value of kind `kind`, with its lifetime: `l` is its local
+// or -1, `child` the item a child slot is the frame of or the extern an
+// offload's storage serves, else -1, and `s` a child's or an offload's
+// suspension point, else -1.
+func coro_add_value(coro: &var CoroProgram, lt: &CoroLifetimes, kind: CoroValueKind, l: Int, child: Int, ty: Int,
+                    s: Int) {
+    let live_first = coro_lifetime_append(&var coro, &lt, kind, l, s)
+    try! coro.values.push(CoroValue(kind: kind, local: l, child: child, ty: ty, live_first: live_first, offset: -1,
                                     size: -1, align: -1))
 }
 

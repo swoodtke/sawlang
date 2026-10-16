@@ -109,3 +109,20 @@ item #107: std.string.String.byte_at(index: Int)  (frame no)
 item #108: std.stringbuilder.StringBuilder.place_byte(b: Int)  (frame no)
 item #109: std.stringbuilder.StringBuilder.mark_truncated()  (frame no)
 item #110: std.stringbuilder.StringBuilder.is_continuation(b: Int)  (frame no)
+lifetimes #0: yield_loop.main()
+    state: every point
+    _0 result: none
+    child yield_loop.tally(rounds: Int): bb0.t s1 r1
+lifetimes #5: yield_loop.tally(rounds: Int)
+    state: every point
+    op budget: every point
+    _0 result: bb2.1-t
+    _1 param rounds: every point
+    _2 label: bb0.1-t bb1.0-t bb2.0-1 s1 bb3.t bb4.t s2 r2 bb5.0-t bb6.0-t
+    _3 total: bb0.2-t bb1.0-t bb2.0-t s1 bb3.t bb4.t s2 r2 bb5.0-t bb6.0-t
+    _4 i: bb0.t bb1.0-t bb2.0-t s1 bb3.t bb4.t s2 r2 bb5.0-t bb6.0-t
+    _6 step: bb1.0-t bb2.0-t s1 bb3.t bb4.t s2 r2 bb5.0-t bb6.0-t
+    child std.task.yield_now(): bb4.t s2
+lifetimes #9: std.task.yield_now()
+    state: every point
+    _0 result: none

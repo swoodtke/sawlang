@@ -82,3 +82,28 @@ item #80: std.string.String.byte_at(index: Int)  (frame no)
 item #81: std.stringbuilder.StringBuilder.place_byte(b: Int)  (frame no)
 item #82: std.stringbuilder.StringBuilder.mark_truncated()  (frame no)
 item #83: std.stringbuilder.StringBuilder.is_continuation(b: Int)  (frame no)
+lifetimes #5: drive_site.work(n: Int, label: String) task root
+    state: every point
+    _0 result: bb2.2-t
+    _1 param n: every point
+    _2 param label: bb0.t s1 r1 bb1.0-t bb2.0-2
+lifetimes #7: drive_site.twice(n: Int) task root
+    state: every point
+    _0 result: bb2.t
+    _1 param n: every point
+    _2: r1 bb1.t s2 r2 bb2.0
+    child drive_site.work(n: Int, label: String): bb0.t s1 r1
+    child drive_site.work(n: Int, label: String): bb1.t s2 r2
+lifetimes #8: drive_site.plain(n: Int) task root
+    state: every point
+    _0 result: bb0.t
+    _1 param n: every point
+lifetimes #9: drive_site.made(id: Int) task root
+    state: every point
+    _0 result: bb1.t
+    _1 param id: every point
+lifetimes #16: drive_site.work(n: Int, label: String)
+    state: every point
+    _0 result: bb2.2-t
+    _1 param n: every point
+    _2 param label: bb0.t s1 r1 bb1.0-t bb2.0-2

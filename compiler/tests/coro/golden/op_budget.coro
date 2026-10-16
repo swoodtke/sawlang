@@ -82,3 +82,26 @@ item #80: std.string.String.byte_at(index: Int)  (frame no)
 item #81: std.stringbuilder.StringBuilder.place_byte(b: Int)  (frame no)
 item #82: std.stringbuilder.StringBuilder.mark_truncated()  (frame no)
 item #83: std.stringbuilder.StringBuilder.is_continuation(b: Int)  (frame no)
+lifetimes #5: op_budget.count(limit: Int) task root
+    state: every point
+    op budget: every point
+    _0 result: bb2.t
+    _1 param limit: every point
+    _2 i: bb0.t bb1.0-t bb2.0-t s1 bb3.t bb4.t s2 r2 bb5.0-t
+    child std.task.yield_now(): bb4.t s2
+lifetimes #7: op_budget.held(limit: Int) task root
+    state: every point
+    op budget: every point
+    _0 result: bb7.t
+    _1 param limit: every point
+    _2 g: bb0.t s1 r1 bb1.0-t bb2.0-t bb3.0-t bb4.t bb5.0-t bb6.0-t bb7.0-t
+    child std.task.yield_now(): bb0.t s1
+lifetimes #8: op_budget.spin(limit: Int) task root
+    state: every point
+    op budget: every point
+    _0 result: bb5.t
+    _1 param limit: every point
+    _2 i: bb0.t bb1.0-t bb2.t s1 bb3.t bb4.0-t bb5.0-t
+lifetimes #11: std.task.yield_now()
+    state: every point
+    _0 result: none

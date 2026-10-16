@@ -9,6 +9,7 @@
 //   coro_assign
 
 import sawcoro.frames.{coro_frame_of}
+import sawcoro.lifetimes.{coro_lifetimes_meet}
 import sawcoro.program.{CoroFrame, CoroProgram, CoroValue, CoroValueKind}
 import sawtarget.layout.{Target, TargetKind}
 
@@ -135,7 +136,7 @@ func coro_lay_out_frame(coro: &var CoroProgram, target: &var Target, k: Int) {
 }
 
 // Which of frame `k`'s values interfere: two whose storage lifetimes share
-// a program point.
+// a program point (`compiler/coro/src/lifetimes.saw`).
 public func coro_interference(coro: &CoroProgram, k: Int) -> CoroInterference {
     let frame = coro.frames[k]
     let n = frame.value_count
@@ -151,12 +152,7 @@ public func coro_interference(coro: &CoroProgram, k: Int) -> CoroInterference {
         var j = i
         while j < n {
             let b = coro.values[frame.value_first + j]
-            var p = 0
-            var meet = false
-            while p < frame.points && not meet {
-                meet = coro.live[a.live_first + p] && coro.live[b.live_first + p]
-                p = p + 1
-            }
+            let meet = coro_lifetimes_meet(&coro, &frame, &a, &b)
             out.pairs[i * n + j] = meet
             out.pairs[j * n + i] = meet
             j = j + 1

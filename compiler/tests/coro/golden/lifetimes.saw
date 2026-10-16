@@ -1,0 +1,80 @@
+// Storage lifetimes (SL:coroutines B1), one function per shape, each read in
+// the `.coro` record's lifetimes sections. `across_one` moves `s` into
+// `consume` between its two suspensions, so `s` is live across the first
+// only. `child_result`'s child slot runs from its call through its return
+// edge, where the result is moved out. `window_record` holds a window open
+// across a suspension, so its record runs from the open through the close.
+// `offload_storage`'s storage runs from the start through the take, on the
+// return edge. `sequential`'s two children, `step_a` then `step_b`, have
+// disjoint lifetimes.
+extern "C" {
+    blocking func pause()
+}
+
+struct Grid { a: Int, gates: Int }
+
+extension Grid {
+    public func counted(&var self) borrows -> &var Int {
+        lend self.a
+        self.gates = self.gates + 1
+    }
+}
+
+func consume(s: String) -> Int {
+    s.len()
+}
+
+func across_one() -> Int {
+    let s = "word"
+    __saw_suspend()
+    let n = consume(move s)
+    __saw_suspend()
+    n
+}
+
+func child(k: Int) -> Int {
+    __saw_suspend()
+    k + 1
+}
+
+func child_result() -> Int {
+    let v = child(3)
+    v * 2
+}
+
+func window_record() -> Int {
+    var g = Grid(a: 1, gates: 0)
+    borrow var c = g.counted() {
+        c += 1
+        __saw_suspend()
+    }
+    g.a + g.gates
+}
+
+func offload_storage() {
+    pause()
+}
+
+func step_a(k: Int) -> Int {
+    __saw_suspend()
+    k + 1
+}
+
+func step_b(k: Int) -> Int {
+    __saw_suspend()
+    k * 2
+}
+
+func sequential() -> Int {
+    let x = step_a(1)
+    step_b(x)
+}
+
+func main() {
+    let a = across_one()
+    let b = child_result()
+    let c = window_record()
+    offload_storage()
+    let d = sequential()
+    print("{} {} {} {}", a, b, c, d)
+}
