@@ -1,0 +1,76 @@
+// A repeat literal `[v; N]`: the value is evaluated once and is the first
+// element, and each later one is a copy of it through the element's copy
+// hook, as Stage 0 makes them; a count of zero drops the value. Every element
+// kind a repeat admits (trivial, a zero that fills by `memset`, Copy with a
+// hook, a String, a nested repeat) at every position (a `let`, an argument, a
+// return, a field, a suspending function, a const generic count).
+
+import std.task.{yield_now}
+
+struct Money {
+    cents: Int
+}
+
+extension Money: Copy {
+    func copy(&self) -> Money {
+        print("hook {}", self.cents)
+        Money(cents: self.cents + 100)
+    }
+}
+
+struct Buffer {
+    bytes: [UInt8; 16]
+    used: Int
+}
+
+func make(c: Int) -> Money {
+    print("make {}", c)
+    Money(cents: c)
+}
+
+func total(xs: [Int; 4]) -> Int {
+    xs[0] + xs[1] + xs[2] + xs[3]
+}
+
+func filled(v: Int) -> [Int; 5] {
+    [v; 5]
+}
+
+func sized<const N: Int>() -> Int {
+    let zeros = [0; N]
+    zeros.len()
+}
+
+func suspended(n: Int) -> Int {
+    let names = ["slot"; 3]
+    yield_now()
+    let row = [n; 4]
+    yield_now()
+    names[2].len() + row[3]
+}
+
+func main() {
+    let flags = [7; 4]
+    print("trivial {} {} {}", flags[0], flags[3], flags.len())
+    var zeros: [Int8; 256] = [0; 256]
+    zeros[255] = 9
+    print("zeros {} {} {}", zeros[0], zeros[255], zeros.len())
+    let hooked = [make(1); 3]
+    print("hooked {} {} {}", hooked[0].cents, hooked[1].cents, hooked[2].cents)
+    let m = Money(cents: 7)
+    let from_place = [m; 2]
+    print("place {} {}", from_place[0].cents, from_place[1].cents)
+    let none = [make(5); 0]
+    print("zero count {}", none.len())
+    let words = ["x"; 3]
+    print("strings {} {}", words[0], words[2])
+    let grid = [[1; 2]; 3]
+    print("nested {} {}", grid[2][1], grid.len())
+    print("argument {}", total([5; 4]))
+    let f = filled(6)
+    print("returned {} {}", f[4], f.len())
+    let b = Buffer(bytes: [0; 16], used: 2)
+    print("field {} {}", b.bytes[15], b.used)
+    print("generic {}", sized<12>())
+    print("suspended {}", __saw_drive(suspended(5)))
+}

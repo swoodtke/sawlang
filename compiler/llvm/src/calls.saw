@@ -19,7 +19,7 @@ import sawmir.model.{MirBlock, MirCall, MirCallKind, MirConstKind, MirOperand, M
 import sawmir.program.{MirProgram}
 import sawmono.program.{MONO_KEY_DROP, MonoItem, MonoItemKind, MonoProgram}
 import sawresolve.program.{ResProgram}
-import sawtarget.layout.{Target, TargetCClass, TargetCase, TargetKind, TargetLayout}
+import sawtarget.layout.{Target, TargetCClass, TargetCase, TargetKind, TargetLayout, TargetShape}
 import sawtypecheck.model.{TC_FLAG_VARIADIC}
 import sawtypecheck.program.{TcProgram}
 import sawtypecheck.spell.{tc_effects_text}
@@ -433,12 +433,36 @@ extension LlEmitter {
             }
         } else if name.equals("init") {
             return
+        } else if name.equals("len") {
+            self.array_length(&var mono, &var target, &info)
         } else if name.equals("__saw_suspend") || name.equals("__saw_test_suspend") {
             // Coroutine lowering replaces every call of either in a lowered
             // frame, and refuses the frames it does not lower.
             self.refuse_here(&var mono, node, "a test suspension outside a lowered frame")
         } else {
             self.atomic(&var mono, &var target, &info, &name)
+        }
+    }
+
+    // `a.len()` on a fixed array: the length its type carries, folded before
+    // mono (design 148), so the receiver is never read.
+    func array_length(&var self, mono: &var MonoProgram, target: &var Target, info: &MirCall) {
+        let o = mono.dp.bc.mir.lists[info.arg_first]
+        var t = mono.dp.bc.mir.operands[o].ty
+        let referent = mono.dp.bc.mir.tc.referent(t)
+        if referent >= 0 {
+            t = referent
+        }
+        let l = self.lay_at(&var mono, &var target, t, info.node)
+        if l.shape != TargetShape.Array {
+            self.refuse_here(&var mono, info.node, "the builtin `len` of a slice is not in the backend slice yet")
+            return
+        }
+        if info.dest >= 0 {
+            let dest = self.place_addr(&var mono, &var target, info.dest, info.node)
+            var v = StringBuilder()
+            try! v.append(l.length)
+            self.store("i64", v.build(), dest)
         }
     }
 

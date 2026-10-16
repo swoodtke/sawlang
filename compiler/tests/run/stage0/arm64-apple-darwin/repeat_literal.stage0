@@ -1,0 +1,24 @@
+program	compiler/tests/run/repeat_literal.saw
+triple	arm64-apple-darwin
+source	297a866523e5190d
+build	ok
+exit	0
+stdout	"trivial 7 7 4"
+stdout	"zeros 0 9 256"
+stdout	"make 1"
+stdout	"hook 1"
+stdout	"hook 1"
+stdout	"hooked 1 101 101"
+stdout	"hook 7"
+stdout	"hook 107"
+stdout	"place 107 207"
+stdout	"make 5"
+stdout	"zero count 0"
+stdout	"strings x x"
+stdout	"nested 1 3"
+stdout	"argument 20"
+stdout	"returned 6 5"
+stdout	"field 0 2"
+stdout	"generic 12"
+stdout	"suspended 9"
+stdout	""

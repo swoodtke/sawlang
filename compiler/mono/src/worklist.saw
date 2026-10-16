@@ -48,7 +48,13 @@ public func mono_rules() -> Vector<String> {
 // The builtins the backend's slice lowers, or coroutine lowering lowers
 // away, by spelling.
 func mono_builtin_supported(name: String) -> Bool {
-    name.equals("print") || name.equals("panic") || name.equals("assert") || name.equals("init") || name.equals("sizeof") || name.equals("alignof") || name.equals("__saw_atomic_add_i64") || name.equals("__saw_atomic_sub_i64_release") || name.equals("__saw_atomic_fence_acquire") || name.equals("__saw_atomic_load_i64_relaxed") || mono_seq_cst_atomic(name) || mono_test_suspension(name)
+    name.equals("print") || name.equals("panic") || name.equals("assert") || name.equals("init") || name.equals("len") || name.equals("sizeof") || name.equals("alignof") || name.equals("__saw_atomic_add_i64") || name.equals("__saw_atomic_sub_i64_release") || name.equals("__saw_atomic_fence_acquire") || name.equals("__saw_atomic_load_i64_relaxed") || mono_seq_cst_atomic(name) || mono_test_suspension(name)
+}
+
+// Whether a construction of kind `agg` is a collection literal: a fixed
+// array, a repeat, or a `Vector`, `Map` or `Set` literal.
+func mono_collection_literal(agg: MirAggregate) -> Bool {
+    agg == MirAggregate.Array || agg == MirAggregate.Repeat || agg == MirAggregate.Vector || agg == MirAggregate.Map || agg == MirAggregate.Set
 }
 
 // The test intrinsics that suspend, `__saw_suspend` and `__saw_test_suspend`.
@@ -721,8 +727,7 @@ extension MonoProgram {
         if rv.kind == MirRvalueKind.Aggregate && rv.aggregate == MirAggregate.Closure {
             self.resolve_closure(k, stmt.rvalue, stmt.node)
         }
-        let collection = rv.aggregate == MirAggregate.Vector || rv.aggregate == MirAggregate.Map || rv.aggregate == MirAggregate.Set
-        if rv.kind == MirRvalueKind.Aggregate && collection {
+        if rv.kind == MirRvalueKind.Aggregate && mono_collection_literal(rv.aggregate) {
             self.resolve_collection_literal(k, stmt.rvalue, stmt.node)
         }
         if rv.kind == MirRvalueKind.Interpolate {
@@ -1337,35 +1342,72 @@ extension MonoProgram {
         }
     }
 
-    // A collection literal: its container's `init()` and its element `push`,
-    // each at the literal's type; in the slice, a `Vector`. A refused `push`
-    // panics naming its error, rendered as a format argument is.
+    // THE COLLECTION-LITERAL FUNNEL, mono's half: what literal `r` of item
+    // `k` needs made for the backend's half, `collection_literal_into`. A
+    // fixed array needs nothing past its operands; a repeat, its element's
+    // copy glue (the copies after the first) and drop glue (a zero count's
+    // value). A `Vector`, `Map` or `Set` needs `init()` and its entry op,
+    // `push(value:)`, `insert(key:value:)` or `insert(value:)`, at the
+    // literal's type, the rendering of the op's error a refused insertion
+    // panics with, and for a `Map` the drop of a replaced value.
+    // ENTRY POINTS:
+    //     resolve_stmt
     func resolve_collection_literal(&var self, k: Int, r: Int, node: Int) {
         let rv = self.dp.bc.mir.rvalues[r]
+        if rv.aggregate == MirAggregate.Array {
+            return
+        }
+        if rv.aggregate == MirAggregate.Repeat {
+            let element = self.dp.bc.mir.tc.types.ty(rv.ty).b
+            if not mono_copies_bitwise(&var self.dp.bc.mir.tc, element) {
+                let _ = self.glue_of(element, MONO_KEY_COPY, k, node)
+            }
+            self.need_drop(k, element, node)
+            return
+        }
         let d = self.dp.bc.mir.tc.nominal_decl(rv.ty)
-        if rv.aggregate != MirAggregate.Vector || d < 0 || d != self.dp.bc.mir.tc.known.vector {
-            self.refuse(node, "mono.not-yet", "a fixed array, a repeat, a `Map` or a `Set` literal is not in the backend slice yet")
+        let known = self.dp.bc.mir.tc.known
+        var labels = Vector<String>()
+        var op = "insert"
+        var expected = known.set
+        if rv.aggregate == MirAggregate.Vector {
+            op = "push"
+            expected = known.vector
+        } else if rv.aggregate == MirAggregate.Map {
+            try! labels.push("key")
+            expected = known.map
+        }
+        try! labels.push("value")
+        if d < 0 || d != expected {
+            self.refuse(node, "mono.not-yet", "a collection literal whose type is not its literal's collection")
             return
         }
         let none = Vector<String>()
-        var labels = Vector<String>()
-        try! labels.push("value")
         let made_decl = self.member_with(d, "init", &none)
-        let push_decl = self.member_with(d, "push", &labels)
-        if made_decl < 0 || push_decl < 0 {
-            self.refuse(node, "mono.not-yet", "a collection literal whose type has no `init()` or `push(value:)`")
+        let op_decl = self.member_with(d, op, &labels)
+        if made_decl < 0 || op_decl < 0 {
+            var msg = StringBuilder()
+            try! msg.append("a collection literal whose type has no `init()` or `")
+            try! msg.append(op)
+            try! msg.append("` taking its entries")
+            self.refuse(node, "mono.not-yet", msg.build())
             return
         }
         let made = self.member_item(k, made_decl, rv.ty, node)
-        let push = self.member_item(k, push_decl, rv.ty, node)
-        if made < 0 || push < 0 {
+        let inserts = self.member_item(k, op_decl, rv.ty, node)
+        if made < 0 || inserts < 0 {
             return
         }
-        self.set_literal_items(r, made, push)
-        let result = self.dp.bc.mir.tc.sigs[push_decl].result
+        self.set_literal_items(r, made, inserts)
+        let result = self.dp.bc.mir.tc.sigs[op_decl].result
         if self.dp.bc.mir.tc.is_result(result) {
             let error = self.dp.bc.mir.tc.types.arg(result, 1)
             let _ = self.need_fixed_render(k, error, node)
+        }
+        if rv.aggregate == MirAggregate.Map {
+            let value = self.dp.bc.mir.tc.arg_of(rv.ty, 1)
+            let replaced = self.dp.bc.mir.tc.mk_optional(value)
+            self.need_drop(k, replaced, node)
         }
     }
 

@@ -11,8 +11,8 @@
 import sawborrowck.program.{BorrowckProgram}
 import sawdrops.program.{DropsProgram}
 import sawmir.build.{mir_func_local}
-import sawmir.model.{MirAggregate, MirCall, MirCallKind, MirFunc, MirFuncKind, MirLocalKind, MirOperandKind,
-                         MirProjKind, MirRvalueKind}
+import sawmir.model.{MirAggregate, MirCall, MirCallKind, MirConstKind, MirFunc, MirFuncKind, MirLocalKind,
+                         MirOperandKind, MirProjKind, MirRvalueKind}
 import sawmir.program.{MirProgram}
 import sawmono.program.{MONO_KEY_COPY, MONO_KEY_DROP, MonoItem, MonoItemKind, MonoProgram}
 import sawresolve.lang.{ResLang}
@@ -37,6 +37,13 @@ public func mono_copies_bitwise(tc: &var TcProgram, t: Int) -> Bool {
         return true
     }
     tc.is_trivial(t)
+}
+
+// The length of concrete array type `t`, the folded constant its type
+// carries.
+public func mono_array_length(tc: &TcProgram, t: Int) -> Int {
+    let length = tc.types.arg(t, 0)
+    tc.types.ty(length).a
 }
 
 extension MonoProgram {
@@ -129,6 +136,10 @@ extension MonoProgram {
             }
             return
         }
+        if info.kind == TcKind.Array {
+            self.drop_elements(t)
+            return
+        }
         if info.kind != TcKind.Nominal {
             return
         }
@@ -210,6 +221,95 @@ extension MonoProgram {
         self.dp.bc.mir.enter(join)
     }
 
+    // The drops of `(*_1)`'s elements, array type `t`, in reverse index order
+    // (spec, Fixed arrays): a loop counting down, so the glue's size does not
+    // grow with the length.
+    func drop_elements(&var self, t: Int) {
+        let element = self.dp.bc.mir.tc.types.ty(t).b
+        if not self.dp.bc.mir.owns(element) {
+            return
+        }
+        // Stage 0 workaround (SL:hazards S4): canonical: let i = self.glue_counter(mono_array_length(&self.dp.bc.mir.tc, t))
+        let length = mono_array_length(&self.dp.bc.mir.tc, t)
+        let i = self.glue_counter(length)
+        let exit = self.dp.bc.mir.new_block()
+        let head = self.glue_loop(i, ">", 0, exit)
+        self.glue_step(i, "&-")
+        let subject = self.glue_subject(t)
+        let part = self.dp.bc.mir.project(subject, MirProjKind.Index, -1, i, element)
+        self.dp.bc.mir.emit_drop(part)
+        self.dp.bc.mir.goto(head)
+        self.dp.bc.mir.enter(exit)
+    }
+
+    // `_0` built from `(*_1)`, array type `t`, element by element in index
+    // order, each element's copy its own glue's.
+    func copy_elements(&var self, t: Int) {
+        let element = self.dp.bc.mir.tc.types.ty(t).b
+        let i = self.glue_counter(0)
+        let exit = self.dp.bc.mir.new_block()
+        // Stage 0 workaround (SL:hazards S4): canonical: let head = self.glue_loop(i, "<", mono_array_length(&self.dp.bc.mir.tc, t), exit)
+        let length = mono_array_length(&self.dp.bc.mir.tc, t)
+        let head = self.glue_loop(i, "<", length, exit)
+        let subject = self.glue_subject(t)
+        let part = self.dp.bc.mir.project(subject, MirProjKind.Index, -1, i, element)
+        let result = self.dp.bc.mir.place_local(0)
+        let slot = self.dp.bc.mir.project(result, MirProjKind.Index, -1, i, element)
+        let o = self.dp.bc.mir.op_copy(part)
+        let rv = self.dp.bc.mir.rv_use(o)
+        self.dp.bc.mir.assign(slot, rv)
+        self.glue_step(i, "&+")
+        self.dp.bc.mir.goto(head)
+        self.dp.bc.mir.enter(exit)
+    }
+
+    // A fresh `Int` local of the glue being built, holding `start`.
+    func glue_counter(&var self, start: Int) -> Int {
+        let int_type = self.dp.bc.mir.tc.int_type()
+        let i = self.dp.bc.mir.new_temp(int_type)
+        var text = StringBuilder()
+        try! text.append(start)
+        let o = self.dp.bc.mir.op_const(MirConstKind.Int, text.build(), int_type)
+        let rv = self.dp.bc.mir.rv_use(o)
+        self.dp.bc.mir.assign_local(i, rv)
+        i
+    }
+
+    // A loop's head, entered from the current block, testing `i OP bound`
+    // and leaving for block `exit` once the test fails; the builder is left
+    // in the loop's body, whose end goes back to the returned head.
+    func glue_loop(&var self, i: Int, op: String, bound: Int, exit: Int) -> Int {
+        let head = self.dp.bc.mir.new_block()
+        let body = self.dp.bc.mir.new_block()
+        self.dp.bc.mir.goto(head)
+        self.dp.bc.mir.enter(head)
+        let int_type = self.dp.bc.mir.tc.int_type()
+        let bool_type = self.dp.bc.mir.tc.bool_type()
+        var text = StringBuilder()
+        try! text.append(bound)
+        var ops = Vector<Int>()
+        let counter = self.dp.bc.mir.place_local(i)
+        try! ops.push(self.dp.bc.mir.op_copy(counter))
+        try! ops.push(self.dp.bc.mir.op_const(MirConstKind.Int, text.build(), int_type))
+        let rv = self.dp.bc.mir.rv_over(MirRvalueKind.Binary, bool_type, op, &ops)
+        let test = self.dp.bc.mir.temp_of(rv)
+        let o = self.dp.bc.mir.move_local(test)
+        self.dp.bc.mir.switch_bool(o, body, exit)
+        self.dp.bc.mir.enter(body)
+        head
+    }
+
+    // `i = i OP 1`, a wrapping step that cannot overflow inside the bounds.
+    func glue_step(&var self, i: Int, op: String) {
+        let int_type = self.dp.bc.mir.tc.int_type()
+        var ops = Vector<Int>()
+        let counter = self.dp.bc.mir.place_local(i)
+        try! ops.push(self.dp.bc.mir.op_copy(counter))
+        try! ops.push(self.dp.bc.mir.op_const(MirConstKind.Int, "1", int_type))
+        let rv = self.dp.bc.mir.rv_over(MirRvalueKind.Binary, int_type, op, &ops)
+        self.dp.bc.mir.assign_local(i, rv)
+    }
+
     public func build_copy_glue(&var self, k: Int) {
         let t = self.items[k].glue_type
         let param = self.dp.bc.mir.tc.mk_ref(false, t)
@@ -260,6 +360,8 @@ extension MonoProgram {
             self.dp.bc.mir.assign(result, rv)
         } else if info.kind == TcKind.Nominal && self.dp.bc.mir.tc.res.decls[info.decl].kind == ResDeclKind.Enum {
             self.by_case(t, true)
+        } else if info.kind == TcKind.Array {
+            self.copy_elements(t)
         } else {
             var msg = StringBuilder()
             try! msg.append("a copy of `")

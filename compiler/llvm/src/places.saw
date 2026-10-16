@@ -4,7 +4,8 @@
 
 import sawborrowck.program.{BorrowckProgram}
 import sawdrops.program.{DropsProgram}
-import sawllvm.prims.{LL_FAIL_TRY, LL_FAIL_UNWRAP, LL_MESSAGE_LIMIT}
+import sawllvm.prims.{LL_FAIL_TRY, LL_FAIL_UNWRAP, LL_MESSAGE_LIMIT, LL_PART_RUN, LL_PART_SIGNED, LlParts,
+                         ll_parts_push}
 import sawllvm.module.{LlEmitter, ll_is_scalar, ll_symbol, ll_value_type}
 import sawllvm.text.{ll_fit_signed, ll_integer_value, ll_quoted, ll_string_bytes}
 import sawmir.model.{MirConstKind, MirOperand, MirOperandKind, MirProjKind}
@@ -12,7 +13,7 @@ import sawmir.program.{MirProgram}
 import sawmono.program.{MONO_KEY_COPY, MonoProgram}
 import sawresolve.dump.{res_sort_strings}
 import sawresolve.program.{ResProgram}
-import sawtarget.layout.{Target, TargetKind, TargetLayout, target_struct_fields}
+import sawtarget.layout.{Target, TargetKind, TargetLayout, TargetShape, target_struct_fields}
 import sawtypecheck.arith.{tc_arith_max, tc_arith_min}
 import sawtypecheck.checks.{tc_check_unsafe}
 import sawtypecheck.program.{TcProgram}
@@ -79,15 +80,22 @@ extension LlEmitter {
                 case Index -> {
                     let element = self.lay_at(&var mono, &var target, step.ty, node)
                     let base_layout = target.layout(&var mono.dp.bc.mir.tc, current)
-                    if base_layout.kind != TargetKind.Pointer {
-                        self.refuse_here(&var mono, node, "indexing an array or a slice is not in the backend slice yet")
-                        return addr
-                    }
-                    let base = self.load("ptr", addr)
                     var index = StringBuilder()
                     try! index.append("%l")
                     try! index.append(step.index)
+                    let array = base_layout.shape == TargetShape.Array
+                    if not array && base_layout.kind != TargetKind.Pointer {
+                        self.refuse_here(&var mono, node, "indexing a slice is not in the backend slice yet")
+                        return addr
+                    }
+                    var base = addr
+                    if not array {
+                        base = self.load("ptr", addr)
+                    }
                     let i = self.load("i64", index.build())
+                    if array {
+                        self.check_index(&var mono, i, base_layout.length, node)
+                    }
                     var mul = StringBuilder()
                     try! mul.append("mul i64 ")
                     try! mul.append(i)
@@ -136,6 +144,34 @@ extension LlEmitter {
         try! widen.append(raw)
         try! widen.append(" to i64")
         self.assign(widen.build())
+    }
+
+    // A fixed array's bounds check: index `i`, an i64, is in `0 ..< length`,
+    // or the program panics as Stage 0's does, naming both (DF-249a).
+    func check_index(&var self, mono: &var MonoProgram, i: String, length: Int, node: Int) {
+        var test = StringBuilder()
+        try! test.append("icmp ult i64 ")
+        try! test.append(i)
+        try! test.append(", ")
+        try! test.append(length)
+        let within = self.assign(test.build())
+        let pass = self.new_label("inbounds")
+        let fail = self.new_label("outofbounds")
+        self.branch(within, pass, fail)
+        self.put_label(fail)
+        var parts = LlParts()
+        ll_parts_push(&var parts, LL_PART_SIGNED, i, "")
+        var tail = StringBuilder()
+        try! tail.append(" (len ")
+        try! tail.append(length)
+        try! tail.append(")")
+        let bytes = self.text_bytes(tail.build())
+        let g = self.pooled(&bytes, false, 0)
+        var len = StringBuilder()
+        try! len.append(bytes.len())
+        ll_parts_push(&var parts, LL_PART_RUN, g, len.build())
+        self.fail_parts(&var mono, node, "array: index out of range: ", &parts)
+        self.put_label(pass)
     }
 
     // A forced payload's check: the value at `addr` holds case `decl`, or

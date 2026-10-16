@@ -1,8 +1,7 @@
 // Rendering through the builder role (design 137): a call of an item mono
 // made with its arguments already spelled, a value formatted through its
 // `Printable.format` into a fixed builder over stack scratch, an
-// interpolation built through a growable one, and a collection literal's
-// container built by its `init()` and a `push` per element.
+// interpolation built through a growable one.
 
 import sawborrowck.program.{BorrowckProgram}
 import sawdrops.program.{DropsProgram}
@@ -150,51 +149,10 @@ extension LlEmitter {
         self.drop_at(&var mono, builder, sb)
     }
 
-    // A collection literal at concrete rvalue `r` built at `dest`: its
-    // container's `init()`, then a `push` per element in order. A refused
-    // push panics naming its error, as Stage 0's synthesized force does.
-    public func collection_into(&var self, mono: &var MonoProgram, target: &var Target, r: Int, dest: String,
-                                node: Int) {
-        let rv = mono.dp.bc.mir.rvalues[r]
-        let made = mono.literal_init(r)
-        let push = mono.literal_push(r)
-        if made < 0 || push < 0 {
-            self.refuse_here(&var mono, node, "a collection literal mono did not resolve")
-            return
-        }
-        let none = Vector<String>()
-        let _ = self.call_item_direct(&var mono, &var target, made, &none, dest, node)
-        let push_body = mono.items[push].body
-        let push_first = mono.dp.bc.mir.funcs[push_body].local_first
-        let status_type = mono.dp.bc.mir.locals[push_first].ty
-        let element_type = mono.dp.bc.mir.locals[push_first + 2].ty
-        let sl = self.lay_at(&var mono, &var target, status_type, node)
-        let el = self.lay_at(&var mono, &var target, element_type, node)
-        var k = 0
-        while k < rv.count {
-            let o = mono.dp.bc.mir.lists[rv.first + k]
-            k = k + 1
-            var args = Vector<String>()
-            try! args.push(ll_spelled("ptr", dest))
-            if el.kind == TargetKind.Zero {
-                // A zero-sized element crosses no argument.
-            } else if ll_is_scalar(&el) {
-                let v = self.operand_value(&var mono, &var target, o, node)
-                try! args.push(ll_spelled(ll_value_type(&el), v))
-            } else {
-                let a = self.operand_addr(&var mono, &var target, o, element_type, node)
-                try! args.push(ll_spelled("ptr", a))
-            }
-            let status = self.slot(sl.size, sl.align)
-            let _ = self.call_item_direct(&var mono, &var target, push, &args, status, node)
-            self.force_ok(&var mono, &var target, status, status_type, "collection literal", node)
-        }
-    }
-
     // The `Result` at `at`, of type `t`, holds `Ok`, or the program panics
     // with `what`, then the error, rendered as a format argument is.
-    func force_ok(&var self, mono: &var MonoProgram, target: &var Target, at: String, t: Int, what: String,
-                  node: Int) {
+    public func force_ok(&var self, mono: &var MonoProgram, target: &var Target, at: String, t: Int,
+                         what: String, node: Int) {
         let ok_decl = mono.dp.bc.mir.result_case("Ok")
         let err_decl = mono.dp.bc.mir.result_case("Err")
         let c = target.case_of(&var mono.dp.bc.mir.tc, t, ok_decl)
@@ -236,7 +194,7 @@ extension LlEmitter {
 
     // The value of type `t` at `at` dropped through its glue, when it has
     // one.
-    func drop_at(&var self, mono: &var MonoProgram, t: Int, at: String) {
+    public func drop_at(&var self, mono: &var MonoProgram, t: Int, at: String) {
         let glue = mono.glue_item(t, MONO_KEY_DROP)
         if glue < 0 {
             return

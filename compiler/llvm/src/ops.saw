@@ -11,6 +11,7 @@ import sawdrops.program.{DropsProgram}
 import sawllvm.prims.{LL_FAIL_DIVIDE, LL_FAIL_OVERFLOW, LL_FAIL_SHIFT, LL_MESSAGE_LIMIT}
 import sawllvm.module.{LlEmitter, ll_is_scalar, ll_symbol, ll_value_type}
 import sawllvm.places.{ll_local_slot, ll_tag_type}
+import sawllvm.literals.{ll_zero_constant}
 import sawllvm.render.{ll_spelled}
 import sawllvm.text.{ll_fit_signed, ll_integer_value}
 import sawmir.model.{MirAggregate, MirConstKind, MirOperandKind, MirRvalue, MirRvalueKind}
@@ -77,8 +78,12 @@ extension LlEmitter {
                 }
             },
             case Closure -> self.closure_into(&var mono, &var target, r, dest, node),
-            case Vector -> self.collection_into(&var mono, &var target, r, dest, node),
-            case _ -> self.refuse_here(&var mono, node, "an array, a repeat, a `Map` or a `Set` literal is not in the backend slice yet")
+            case Plain -> self.refuse_here(&var mono, node, "a construction of no kind reached the backend"),
+            case Array -> self.collection_literal_into(&var mono, &var target, r, dest, node),
+            case Repeat -> self.collection_literal_into(&var mono, &var target, r, dest, node),
+            case Vector -> self.collection_literal_into(&var mono, &var target, r, dest, node),
+            case Map -> self.collection_literal_into(&var mono, &var target, r, dest, node),
+            case Set -> self.collection_literal_into(&var mono, &var target, r, dest, node)
         }
     }
 

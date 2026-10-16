@@ -1,0 +1,70 @@
+// `Map` and `Set` literals: the container's `init()`, then one `insert` per
+// entry in written order, each key and value moved or copied in. A repeated
+// map key keeps the last entry and drops the value it replaces at once.
+// Element kinds: trivial, a String, an owning NoCopy value, an ExplicitCopy
+// value (a nested `Vector` literal); positions: a `let`, an argument, a
+// return, a field, a suspending function, and the empty forms. Drops are
+// counted rather than printed, since a table's drop order is its hash order.
+
+import std.task.{yield_now}
+
+static DROPS: Atomic<Int> = Atomic(0)
+
+struct Val {
+    id: Int
+}
+
+extension Val: NoCopy {
+    func deinit(&var self) { let _ = DROPS.fetch_add(1) }
+}
+
+struct Registry {
+    names: Set<String>
+    sizes: Map<String, Int>
+}
+
+extension Registry: NoCopy {}
+
+func size_of(m: Map<String, Int>) -> Int {
+    m.len()
+}
+
+func colours() -> Set<String> {
+    {"red", "green", "blue", "red"}
+}
+
+func owned_values() -> Int {
+    let m: Map<String, Val> = {"a": Val(id: 1), "b": Val(id: 2), "a": Val(id: 3)}
+    print("owned {} replaced {}", m.len(), DROPS.load())
+    m.len()
+}
+
+func suspended(n: Int) -> Int {
+    let m = {"x": n, "y": n + 1}
+    yield_now()
+    let s = {"p", "q"}
+    yield_now()
+    (m.get("y") ?? -1) + s.len()
+}
+
+func main() {
+    let ages = {"alice": 30, "bob": 25, "alice": 31}
+    print("ages {} {} {}", ages.len(), ages.get("alice") ?? -1, ages.get("bob") ?? -1)
+    let nick = "al"
+    let titles: Map<String, String> = {"alice": "dr", nick: "short"}
+    print("titles {} {}", titles.len(), titles.contains_key("al"))
+    let lists: Map<String, Vector<Int>> = {"one": [1], "two": [1, 2]}
+    print("lists {}", lists.len())
+    let empty: Map<String, Int> = {:}
+    print("empty {}", empty.len())
+    let none: Vector<Int> = []
+    print("empty vector {}", none.len())
+    print("argument {}", size_of({"k": 1, "l": 2, "m": 3}))
+    let c = colours()
+    print("set {} {} {}", c.len(), c.contains("blue"), c.contains("pink"))
+    let n = owned_values()
+    print("after {} drops {}", n, DROPS.load())
+    let r = Registry(names: {"a", "b"}, sizes: {"a": 1})
+    print("field {} {}", r.names.len(), r.sizes.len())
+    print("suspended {}", __saw_drive(suspended(4)))
+}

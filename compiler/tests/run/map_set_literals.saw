@@ -1,5 +1,3 @@
-// due: mono lowers no Map or Set literal (SL-599)
-// refuses: mono.not-yet at 8:13
 // Map and Set literals over String keys: an inferred map, an annotated one,
 // the empty `{:}`, a duplicate key whose last value wins, and a set literal
 // whose duplicates collapse.

@@ -1,0 +1,50 @@
+// A fixed array's glue: a whole-array copy copies each element through its
+// own copy hook in index order, a drop releases each owned element in
+// reverse index order, an element overwritten through an index drops the old
+// one first, and an index outside `0 ..< N` panics naming both numbers.
+
+struct Money {
+    cents: Int
+}
+
+extension Money: Copy {
+    func copy(&self) -> Money {
+        print("hook {}", self.cents)
+        Money(cents: self.cents + 100)
+    }
+}
+
+struct D {
+    v: Int
+}
+
+extension D: NoCopy {
+    func deinit(&var self) { print("d{}", self.v) }
+}
+
+struct Named {
+    labels: [String; 2]
+}
+
+func keep(ds: [D; 2]) -> Int {
+    ds[0].v + ds[1].v
+}
+
+func main() {
+    let a = [Money(cents: 1), Money(cents: 2), Money(cents: 3)]
+    let b = a
+    print("copied {} {} {}", b[0].cents, b[1].cents, b[2].cents)
+    let n = Named(labels: ["left", "right"])
+    let n2 = n
+    print("labels {} {}", n2.labels[1], n.labels[0])
+    var ds = [D(v: 1), D(v: 2), D(v: 3)]
+    var i = 1
+    ds[i] = D(v: 20)
+    print("overwrote {}", ds[1].v)
+    let moved = move ds
+    print("moved {}", moved[2].v)
+    print("kept {}", keep([D(v: 4), D(v: 5)]))
+    i = 3
+    print("reading past the end")
+    print(moved[i].v)
+}

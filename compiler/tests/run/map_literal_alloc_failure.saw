@@ -1,0 +1,22 @@
+// A `Map` literal cannot report a refused insertion, so it panics naming
+// the error, as a `Vector` literal does (spec: a collection literal is one of
+// the places that still panic). The allocator refuses everything, so the
+// first entry's insertion is the refused one.
+
+struct Refusing {}
+
+extension Refusing: Allocator {
+    func alloc(&self, size: Int, align: Int) unsafe -> UnsafePointer<Int8>? {
+        None
+    }
+
+    func dealloc(&self, ptr: UnsafePointer<Int8>, size: Int, align: Int) unsafe {
+        GlobalAllocator().dealloc(ptr, size, align)
+    }
+}
+
+func main() {
+    print("building")
+    let m: Map<String, Int, Refusing> = {"a": 1, "b": 2}
+    print(m.len())
+}

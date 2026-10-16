@@ -1,0 +1,98 @@
+// A fixed array literal `[a, b]` at `[T; N]`: each element moved or copied
+// into its slot in index order, at every element kind (trivial, Copy with a
+// copy hook, a String, an owning NoCopy, an ExplicitCopy, a nested literal)
+// and position (a `let`, an argument, a return, a field, a suspending
+// function). Owned elements drop in reverse index order; an element read by
+// index is bounds-checked, and `len()` is the length the type carries.
+
+import std.task.{yield_now}
+
+struct Money {
+    cents: Int
+}
+
+extension Money: Copy {
+    func copy(&self) -> Money {
+        print("hook {}", self.cents)
+        Money(cents: self.cents + 100)
+    }
+}
+
+struct D {
+    v: Int
+}
+
+extension D: NoCopy {
+    func deinit(&var self) { print("d{}", self.v) }
+}
+
+struct Ledger {
+    n: Int
+}
+
+extension Ledger: ExplicitCopy {
+    func copy(&self) -> Ledger {
+        print("ledger copy {}", self.n)
+        Ledger(n: self.n + 1)
+    }
+}
+
+struct Holder {
+    items: [D; 2]
+    tag: Int
+}
+
+extension Holder: NoCopy {}
+
+func sum(xs: [Int; 3]) -> Int {
+    var total = 0
+    var i = 0
+    while i < xs.len() {
+        total = total + xs[i]
+        i = i + 1
+    }
+    total
+}
+
+func pair(a: Int) -> [D; 2] {
+    [D(v: a), D(v: a + 1)]
+}
+
+func count(ds: [D; 3]) -> Int {
+    ds.len()
+}
+
+func suspended(n: Int) -> Int {
+    let early = [D(v: 50 + n), D(v: 60 + n)]
+    yield_now()
+    let late = [n, n * 2, n * 3]
+    yield_now()
+    early[1].v + late[2]
+}
+
+func main() {
+    let trivial = [3, 4, 5]
+    print("trivial {} {} {}", trivial[0], trivial[2], trivial.len())
+    let m = Money(cents: 1)
+    let copies = [m, Money(cents: 2)]
+    print("copy {} {}", copies[0].cents, copies[1].cents)
+    let words = ["alpha", "beta", "gamma"]
+    print("strings {} {}", words[0], words[2])
+    let ledgers = [Ledger(n: 7), Ledger(n: 8)]
+    print("explicit {}", ledgers[1].n)
+    let grid = [[1, 2], [3, 4], [5, 6]]
+    print("nested {} {}", grid[1][0], grid[2][1])
+    print("argument {}", sum([10, 20, 30]))
+    let p = pair(1)
+    print("returned {} {}", p[0].v, p[1].v)
+    print("moved in {}", count([D(v: 7), D(v: 8), D(v: 9)]))
+    let h = Holder(items: [D(v: 20), D(v: 21)], tag: 4)
+    print("field {} {}", h.items[1].v, h.tag)
+    var i = 2
+    let owned = [D(v: 1), D(v: 2), D(v: 3)]
+    print("indexed {}", owned[i].v)
+    i = 0
+    print("indexed {}", owned[i].v)
+    print("suspended {}", __saw_drive(suspended(3)))
+    print("end")
+}

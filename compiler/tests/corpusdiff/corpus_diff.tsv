@@ -38,42 +38,42 @@ arc_forward.saw	refused	typecheck slice.not-yet	a method `Arc` forwards to its p
 arc_forward_generic_method.saw	refused	typecheck slice.not-yet	a method `Arc` forwards to its payload is not in the bootstrap slice yet
 arc_with_unique.saw	refused	typecheck slice.not-yet	a method `Arc` forwards to its payload is not in the bootstrap slice yet
 arithmetic_no_false_overflow.saw	pass	-	-
-array_const_index_out_of_bounds.saw	refused	llvm backend.not-yet	an array, a repeat, a `Map` or a `Set` literal is not in the backend slice yet
-array_dynamic_compound_oob_panic.saw	refused	llvm backend.not-yet	an array, a repeat, a `Map` or a `Set` literal is not in the backend slice yet
-array_dynamic_index_in_range.saw	refused	llvm backend.not-yet	an array, a repeat, a `Map` or a `Set` literal is not in the backend slice yet
-array_dynamic_index_negative_panic.saw	refused	llvm backend.not-yet	an array, a repeat, a `Map` or a `Set` literal is not in the backend slice yet
-array_dynamic_index_oob_panic.saw	refused	llvm backend.not-yet	an array, a repeat, a `Map` or a `Set` literal is not in the backend slice yet
-array_dynamic_index_write_sum.saw	refused	llvm backend.not-yet	an array, a repeat, a `Map` or a `Set` literal is not in the backend slice yet
-array_dynamic_write_oob_panic.saw	refused	llvm backend.not-yet	an array, a repeat, a `Map` or a `Set` literal is not in the backend slice yet
-array_elem_deinit_order.saw	refused	llvm backend.not-yet	an array, a repeat, a `Map` or a `Set` literal is not in the backend slice yet
-array_elem_field_assign.saw	refused	llvm backend.not-yet	an array, a repeat, a `Map` or a `Set` literal is not in the backend slice yet
-array_elem_field_nested.saw	refused	llvm backend.not-yet	an array, a repeat, a `Map` or a `Set` literal is not in the backend slice yet
-array_elem_field_through_ref.saw	refused	llvm backend.not-yet	an array, a repeat, a `Map` or a `Set` literal is not in the backend slice yet
-array_elem_overwrite_deinit.saw	refused	llvm backend.not-yet	an array, a repeat, a `Map` or a `Set` literal is not in the backend slice yet
-array_elem_overwrite_move.saw	refused	llvm backend.not-yet	an array, a repeat, a `Map` or a `Set` literal is not in the backend slice yet
+array_const_index_out_of_bounds.saw	wrong	accepts a refusal test	array index 5 out of range for array with 3 elements
+array_dynamic_compound_oob_panic.saw	pass	-	-
+array_dynamic_index_in_range.saw	pass	-	-
+array_dynamic_index_negative_panic.saw	pass	-	-
+array_dynamic_index_oob_panic.saw	pass	-	-
+array_dynamic_index_write_sum.saw	pass	-	-
+array_dynamic_write_oob_panic.saw	pass	-	-
+array_elem_deinit_order.saw	pass	-	-
+array_elem_field_assign.saw	pass	-	-
+array_elem_field_nested.saw	pass	-	-
+array_elem_field_through_ref.saw	pass	-	-
+array_elem_overwrite_deinit.saw	pass	-	-
+array_elem_overwrite_move.saw	pass	-	-
 array_element_literal_out_of_range_error.saw	pass	-	type.mismatch: integer literal 300 does not fit in `Int8` (range -128..=127)
 array_explicit_copy_dotcopy.saw	refused	mono mono.not-yet	the builtin `copy` is not in the backend slice yet
-array_explicit_copy_move.saw	refused	llvm backend.not-yet	an array, a repeat, a `Map` or a `Set` literal is not in the backend slice yet
+array_explicit_copy_move.saw	pass	-	-
 array_explicit_copy_requires_move.saw	pass	-	transfer.implicit-copy: this reads a place of type `[array_explicit_copy_requires_move.R; 2]`, which is ExplicitCopy, by value: only a Copy type copies silently; write `move a` to take it, `a.copy()`
-array_field_element_write.saw	refused	llvm backend.not-yet	an array, a repeat, a `Map` or a `Set` literal is not in the backend slice yet
-array_implicit_copy_whole.saw	crash	INVARIANT	a copy of `[array_implicit_copy_whole.RefCounted; 2]` is not in the backend slice yet
-array_in_struct_deinit.saw	refused	llvm backend.not-yet	an array, a repeat, a `Map` or a `Set` literal is not in the backend slice yet
-array_len_builtin.saw	refused	mono mono.not-yet	the builtin `len` is not in the backend slice yet
+array_field_element_write.saw	pass	-	-
+array_implicit_copy_whole.saw	pass	-	-
+array_in_struct_deinit.saw	pass	-	-
+array_len_builtin.saw	pass	-	-
 array_length_mismatch_error.saw	pass	-	type.mismatch: expected `[Int; 5]`, the type of the parameter, and found `[Int; 3]`
 array_length_negative_error.saw	pass	-	type.mismatch: expected `[UInt8; -1]`, the type of the field, and found `[UInt8; 1]`
 array_length_nonconst_error.saw	refused	typecheck slice.not-yet	a constant argument named by a static, `ARENA_BYTES`, is not in the bootstrap slice yet
 array_length_nonint_static_error.saw	refused	typecheck slice.not-yet	a constant argument named by a static, `ENABLED`, is not in the bootstrap slice yet
 array_length_runtime_local_error.saw	refused	typecheck slice.not-yet	a constant argument named by a static, `n`, is not in the bootstrap slice yet
-array_literal_move_in.saw	refused	llvm backend.not-yet	an array, a repeat, a `Map` or a `Set` literal is not in the backend slice yet
+array_literal_move_in.saw	pass	-	-
 array_no_extension_error.saw	pass	-	resolve.parse-refused: the parser refuses `tests/corpus/array_no_extension_error.saw` (syntax.decl.refused-array-extension), so its declarations are not available
 array_nocopy_requires_move.saw	pass	-	transfer.implicit-copy: this reads a place of type `[array_nocopy_requires_move.F; 2]`, which is NoCopy, by value: only a Copy type copies silently; write `move a` to take it, or borrow it
-array_string_field.saw	crash	INVARIANT	a copy of `[String; 2]` is not in the backend slice yet
+array_string_field.saw	pass	-	-
 array_struct_containment.saw	pass	-	copy.undeclared-policy: `Holder` holds `Holder.files` of type `[array_struct_containment.F; 2]`, which is NoCopy, so it declares its own policy: `extension Holder: NoCopy {}`, or `@synthesize` an Expl
 array_swap_builtin.saw	refused	mono mono.not-yet	the builtin `swap` is not in the backend slice yet
 array_swap_const_oob_error.saw	refused	mono mono.not-yet	the builtin `swap` is not in the backend slice yet
 array_swap_dynamic_oob_panic.saw	refused	mono mono.not-yet	the builtin `swap` is not in the backend slice yet
 array_swap_immutable_error.saw	pass	-	mutability.immutable: this exclusive borrow of `a` would let it be written, and `a` is a `let` binding, which is never written: every binding is initialized where it is declared, so only a `var` takes
-array_trivial_copy.saw	refused	llvm backend.not-yet	an array, a repeat, a `Map` or a `Set` literal is not in the backend slice yet
+array_trivial_copy.saw	pass	-	-
 array_unknown_method_error.saw	refused	typecheck member.unknown	`[Int; 3]` has no method `push` this module can see
 arrays.saw	refused	typecheck subscript.role	`(Int, Int, Int)` declares no subscript `[]`, so it has no getitem, setitem or place accessor
 assert_fail.saw	pass	-	-
@@ -317,7 +317,7 @@ conformance/K114_thread_body_refuses_every_cause_but_blocking.saw	refused	resolv
 conformance/K116_one_frame_ledger_answers_every_discovery_question.saw	refused	resolve slice.not-yet	`syntax.decl.module.inline` is not in the bootstrap slice yet
 conformance/K118_every_shape_splits_hoists_or_refuses.saw	pass	-	-
 conformance/K11_spinlock_captured.saw	pass	-	transfer.implicit-copy: the closure captures `lock` by value, and `std.spinlock.SpinLock<Int>` is NoCopy, which does not copy silently: capture it with `[move lock]`, or copy it into a local the closu
-conformance/K123_every_window_opener_reads_the_declared_mode.saw	refused	llvm backend.not-yet	an array, a repeat, a `Map` or a `Set` literal is not in the backend slice yet
+conformance/K123_every_window_opener_reads_the_declared_mode.saw	refused	llvm backend.not-yet	a conditional borrow is not in the backend slice yet
 conformance/K127_conditional_lend_modes.saw	refused	mir slice.not-yet	a `borrow` block binding a conditional lend is not lowered to MIR in the bootstrap slice yet
 conformance/K128_cow_gate_survives_the_var_self_spelling.saw	refused	mono mono.not-yet	a synthesized `Printable.format(into: &var std.stringbuilder.StringBuilder)` on `UInt8` is not in the backend slice yet: only a signed integer's `Printable.format`
 conformance/K129_forwarded_lend_carries_the_window_mode.saw	refused	mono mono.not-yet	a synthesized `Printable.format(into: &var std.stringbuilder.StringBuilder)` on `UInt8` is not in the backend slice yet: only a signed integer's `Printable.format`
@@ -423,8 +423,8 @@ conformance/M26_varself_on_let_implicitcopy.saw	pass	-	mutability.immutable: thi
 conformance/M31_shared_self_place_window_write.saw	pass	-	subscript.role: this subscript is used as a writable place: its `[]` lends read-only (`M31_shared_self_place_window_write.CellGrid` declares or derives no such role)
 conformance/M32_shared_self_place_window_heap_field.saw	pass	-	mutability.immutable: this exclusive borrow of `self.rows[0]` would let it be written, and this method's receiver is `&self`, a shared borrow that writes neither the storage it borrows nor storage rea
 conformance/M33_borrows_body_prologue_place_write.saw	pass	-	mutability.immutable: this compound assignment writes `self.counters[0]`, and this method's receiver is `&self`, a shared borrow that writes neither the storage it borrows nor storage reached through
-conformance/M34_lend_var_gated_place_write.saw	refused	llvm backend.not-yet	an array, a repeat, a `Map` or a `Set` literal is not in the backend slice yet
-conformance/M35_var_self_place_window_write.saw	refused	llvm backend.not-yet	an array, a repeat, a `Map` or a `Set` literal is not in the backend slice yet
+conformance/M34_lend_var_gated_place_write.saw	pass	-	-
+conformance/M35_var_self_place_window_write.saw	pass	-	-
 conformance/M36_shared_self_capture_refuses_write.saw	pass	-	mutability.immutable: this assignment writes `self.n`, and the closure captured `self` by shared borrow, which never writes: capture it with `[&var self]` in a `&var self` method
 conformance/M37_inline_array_immutability_every_shape.saw	pass	-	mutability.immutable: this assignment writes `bare_p[0]`, and `bare_p` is a `let` binding, which is never written: every binding is initialized where it is declared, so only a `var` takes a new value
 conformance/M38_compound_assign_rhs_exclusivity.saw	pass	-	assign.rhs-borrow: `bp.n` is written by this assignment while its right-hand side borrows `bp` exclusively at 29:20; the right-hand side runs first, so what it writes through that borrow is overwritte
@@ -463,7 +463,7 @@ conformance/S09_same_scope_redefinition_owning_across_suspend.saw	refused	mono m
 conformance/T10_vector_index_oob.saw	pass	-	-
 conformance/T11_vector_negative_index.saw	pass	-	-
 conformance/T12_vector_get_none.saw	pass	-	-
-conformance/T18_map_forced_absent_key.saw	refused	mono mono.not-yet	a fixed array, a repeat, a `Map` or a `Set` literal is not in the backend slice yet
+conformance/T18_map_forced_absent_key.saw	wrong	stdout differs	line 1: sawc2 "panic at <std>: Map.[]: no entry for the key", Stage 0 "panic at T18_map_forced_absent_key.saw:?: Map.[]: no place to lend"
 conformance/T25_data_index_oob.saw	pass	-	-
 conformance/U02_plain_struct_unsafe_name.saw	pass	-	built
 conformance/U04_unsafe_param_undeclared.saw	pass	-	unsafe.undeclared: `f` is not declared `unsafe`, but its signature names a value of unsafe type (`UnsafePointer<Int>`): write `unsafe` after its parameter list, where every caller can see it
@@ -490,9 +490,9 @@ conformance/V107_capture_survives_repeated_invocation.saw	refused	mono mono.not-
 conformance/V108_each_copy_capture_owns_one_duplicate.saw	refused	typecheck slice.not-yet	a method `Arc` forwards to its payload is not in the bootstrap slice yet
 conformance/V109_move_in_a_while_condition.saw	pass	-	move.use-after: `r` is used after it may have been moved (moved at 38:11); a moved value is gone until it is assigned again
 conformance/V110_loop_head_moves_that_stay_legal.saw	pass	-	-
-conformance/V111_discard_let_retains_a_projection.saw	refused	llvm backend.not-yet	an array, a repeat, a `Map` or a `Set` literal is not in the backend slice yet
+conformance/V111_discard_let_retains_a_projection.saw	pass	-	-
 conformance/V112_destructuring_let_retains_a_projection.saw	wrong	stdout differs	line 25: sawc2 "E4 if-let fresh        inside 5 after 3", Stage 0 "E4 if-let fresh        inside 4 after 3"
-conformance/V113_chain_assign_retains_a_projection.saw	refused	llvm backend.not-yet	an array, a repeat, a `Map` or a `Set` literal is not in the backend slice yet
+conformance/V113_chain_assign_retains_a_projection.saw	pass	-	-
 conformance/V114_struct_field_retains_a_projection.saw	refused	typecheck member.unknown	`String` has no method `bytes` this module can see
 conformance/V115_stored_closure_owns_its_captures.saw	refused	typecheck type.mismatch	expected `Result<() sync -> Int, V115_stored_closure_owns_its_captures.Res>`, the type of the function's result, which the body's last expression is, and found `() -> Int`
 conformance/V116_non_escaping_closure_keeps_its_stack_env.saw	refused	driver driver.usage	sawc2 build takes no --no-hidden-alloc
@@ -587,8 +587,8 @@ conformance/W18_compound_assign_mixed_width.saw	pass	-	type.mismatch: expected `
 conformance/W19_bitwise_mixed_width.saw	pass	-	type.mismatch: an operator's operands agree on one type, and these are `Int` and `Int16`; convert one with `as`
 conformance/W20_narrowing_transfer_positions_error.saw	pass	-	type.mismatch: expected `Int8`, the type of the function's result, which the body's last expression is, and found `Int`; only a lossless widening into or out of `Int` or `UInt` is implicit: write `as`
 conformance/W21_sign_flip_transfer_positions_error.saw	pass	-	type.mismatch: expected `Int`, the type of the function's result, which the body's last expression is, and found `UInt`; only a lossless widening into or out of `Int` or `UInt` is implicit: write `as`
-conformance/W22_lossless_widening_transfer_positions.saw	refused	mono mono.not-yet	a fixed array, a repeat, a `Map` or a `Set` literal is not in the backend slice yet
-conformance/W23_bare_literal_adopts_transfer_positions.saw	refused	mono mono.not-yet	a fixed array, a repeat, a `Map` or a `Set` literal is not in the backend slice yet
+conformance/W22_lossless_widening_transfer_positions.saw	refused	mono mono.not-yet	a synthesized `Equatable.equals(other: &Self)` on `Int` is not in the backend slice yet: only a signed integer's `Printable.format` (inside std/map.saw:232:24)
+conformance/W23_bare_literal_adopts_transfer_positions.saw	refused	mono mono.not-yet	a synthesized `Equatable.equals(other: &Self)` on `Int8` is not in the backend slice yet: only a signed integer's `Printable.format` (inside std/map.saw:232:24)
 conformance/W24_fixed_width_transfer_never_converts_error.saw	pass	-	type.mismatch: expected `Int16`, the type of the function's result, which the body's last expression is, and found `Int8`; only a lossless widening into or out of `Int` or `UInt` is implicit: write `a
 conformance/X02_varref_aliased_by_shared.saw	pass	-	loan.read-while-exclusive: `x` is borrowed here while the argument at 11:9 holds `x` exclusively for its call; an exclusive borrow admits no other access while it is live
 conformance/X09_disjoint_tuple_elements.saw	pass	-	-
@@ -613,12 +613,12 @@ const_bitwise_static_assert_range_error.saw	pass	-	constant.shift-range: constan
 const_bitwise_width_riscv32.saw	refused	driver driver.usage	sawc2 build takes no --freestanding
 const_builtin_leaf_every_position.saw	refused	typecheck slice.not-yet	`syntax.expr.call.paren` is not in the bootstrap slice yet
 const_expression_adopts_an_operand_width.saw	pass	-	-
-const_generic_arg_notations.saw	refused	llvm backend.not-yet	an array, a repeat, a `Map` or a `Set` literal is not in the backend slice yet
+const_generic_arg_notations.saw	refused	llvm backend.not-yet	the constant `N` is not in the backend slice yet
 const_generic_bad_value_type_error.saw	wrong	accepts a refusal test	a const parameter is `Int` or `UInt`, and `Name` is declared `String`
-const_generic_basic.saw	refused	llvm backend.not-yet	an array, a repeat, a `Map` or a `Set` literal is not in the backend slice yet
+const_generic_basic.saw	refused	llvm backend.not-yet	the constant `N` is not in the backend slice yet
 const_generic_default_and_arith.saw	refused	typecheck slice.not-yet	`syntax.const.term` is not in the bootstrap slice yet
 const_generic_enum_and_function.saw	refused	llvm backend.not-yet	the constant `N` is not in the backend slice yet
-const_generic_infer_length.saw	refused	llvm backend.not-yet	an array, a repeat, a `Map` or a `Set` literal is not in the backend slice yet
+const_generic_infer_length.saw	refused	llvm backend.not-yet	the constant `N` is not in the backend slice yet
 const_generic_specialized_extension_unsupported.saw	pass	-	resolve.parse-refused: the parser refuses `tests/corpus/const_generic_specialized_extension_unsupported.saw` (parse-error), so its declarations are not available
 const_generic_type_for_value_error.saw	pass	-	type.mismatch: expected `[UInt8; Int]`, the type of the field, and found `[UInt8; 4]`
 const_generic_value_for_type_error.saw	pass	-	type.mismatch: expected `4`, the type of the field, and found `Int`
@@ -750,7 +750,7 @@ coro_nested_generic_call.saw	pass	-	-
 coro_nested_generic_call_parks.saw	pass	-	-
 coro_nested_generic_deep.saw	pass	-	-
 coro_nested_generic_tail.saw	pass	-	-
-coro_nested_iflet_struct_init.saw	refused	mono mono.not-yet	a fixed array, a repeat, a `Map` or a `Set` literal is not in the backend slice yet
+coro_nested_iflet_struct_init.saw	pass	-	-
 coro_nested_suspend_method.saw	pass	-	-
 coro_nested_suspend_two_deep.saw	pass	-	-
 coro_nested_yield_wrapper.saw	pass	-	-
@@ -765,13 +765,13 @@ coro_qualified_generic_call_embeds.saw	pass	-	-
 coro_reassign_owning_local.saw	pass	-	-
 coro_ref_arg_beside_suspending_arg.saw	pass	-	-
 coro_ref_arg_beside_suspending_arg_cross_module.saw	pass	-	-
-coro_ref_into_frame_resident_fixed_array.saw	refused	llvm backend.not-yet	an array, a repeat, a `Map` or a `Set` literal is not in the backend slice yet
+coro_ref_into_frame_resident_fixed_array.saw	pass	-	-
 coro_ref_param_compound_assign.saw	refused	mono mono.not-yet	a synthesized `Printable.format(into: &var std.stringbuilder.StringBuilder)` on `Float` is not in the backend slice yet: only a signed integer's `Printable.format`
 coro_ref_param_deinit_once.saw	pass	-	-
 coro_ref_param_mut.saw	pass	-	-
 coro_ref_param_read.saw	pass	-	-
 coro_ref_self_method.saw	pass	-	-
-coro_result_array_and_closure.saw	refused	llvm backend.not-yet	indexing an array or a slice is not in the backend slice yet
+coro_result_array_and_closure.saw	pass	-	-
 coro_return_autowrap_result_suspending.saw	refused	mono mono.not-yet	a call of `Printable.format(into: &var std.stringbuilder.StringBuilder)` on `std.box.Box<any Error, std.alloc.GlobalAllocator>`, which no conformance of it meets, is not in the backend slice yet
 coro_return_in_expression_block.saw	pass	-	-
 coro_same_scope_redefinition_owning_slots.saw	refused	mono mono.not-yet	a synthesized `ExplicitCopy.copy()` on `Int` is not in the backend slice yet: only a signed integer's `Printable.format` (inside std/vector.saw:227:35)
@@ -804,7 +804,7 @@ coro_try_block_suspending.saw	pass	-	-
 coro_try_block_two_error_types.saw	refused	typecheck slice.not-yet	a `try` block whose `try`s propagate more than one error type (`coro_try_block_two_error_types.Flaky`, `coro_try_block_two_error_types.Other`), which its `error` holds as their union, is not in the bo
 coro_try_catch_early_exit.saw	pass	-	-
 coro_try_catch_suspending.saw	pass	-	-
-coro_try_in_borrowed_place_index.saw	refused	llvm backend.not-yet	an array, a repeat, a `Map` or a `Set` literal is not in the backend slice yet
+coro_try_in_borrowed_place_index.saw	wrong	stdout differs	line 14: sawc2 "J4: caught", Stage 0 "drop kept"
 coro_try_landing_relinquishes_by_position.saw	wrong	stdout differs	line 5: sawc2 "caught", Stage 0 "drop kept"
 coro_try_landing_within_guards.saw	refused	typecheck slice.not-yet	`syntax.expr.optional-member` is not in the bootstrap slice yet
 coro_try_propagate_suspending.saw	refused	mono mono.not-yet	a call of `Printable.format(into: &var std.stringbuilder.StringBuilder)` on `std.box.Box<any Error, std.alloc.GlobalAllocator>`, which no conformance of it meets, is not in the backend slice yet
@@ -870,7 +870,7 @@ dependency_named_main_keeps_the_entry_point.saw	pass	-	-
 destructuring_wildcard_over_a_borrowed_projection.saw	pass	-	-
 df137d_literal_width_riscv32.saw	refused	driver driver.usage	sawc2 build takes no --freestanding
 df137d_literal_width_riscv32_ok.saw	refused	driver driver.usage	sawc2 build takes no --freestanding
-df139a_copy_then_overwrite.saw	refused	llvm backend.not-yet	an array, a repeat, a `Map` or a `Set` literal is not in the backend slice yet
+df139a_copy_then_overwrite.saw	pass	-	-
 df140b_import_wrap.saw	refused	resolve import.unknown-module	no module `std.net`
 df140c_qualified_type_position.saw	refused	typecheck slice.not-yet	`syntax.expr.optional-member` is not in the bootstrap slice yet
 df140d_result_optional_autowrap.saw	refused	mono mono.not-yet	a call of `Printable.format(into: &var std.stringbuilder.StringBuilder)` on `std.box.Box<any Error, std.alloc.GlobalAllocator>`, which no conformance of it meets, is not in the backend slice yet
@@ -880,16 +880,16 @@ df140h_std_private_static_two_files.saw	refused	resolve import.unknown-module	no
 df151b_implicit_tier_transfers.saw	refused	mono mono.not-yet	a closure capturing a value that owns something is not in the backend slice yet
 df151c_optional_dest_copy.saw	pass	-	-
 df151d_match_temporary_scrutinee.saw	refused	typecheck slice.not-yet	`syntax.stmt.break` is not in the bootstrap slice yet
-df151e_optional_element_array.saw	refused	llvm backend.not-yet	an array, a repeat, a `Map` or a `Set` literal is not in the backend slice yet
+df151e_optional_element_array.saw	pass	-	-
 df151e_optional_element_repeat_error.saw	pass	-	transfer.implicit-copy: a repeat literal needs a freely copyable element, and `df151e_optional_element_repeat_error.Handle?` is NoCopy: write the elements out, or build the array from a Copy value
-df151f_tuple_drop_glue.saw	refused	llvm backend.not-yet	an array, a repeat, a `Map` or a `Set` literal is not in the backend slice yet
-df151h_assign_rhs_retain.saw	refused	llvm backend.not-yet	an array, a repeat, a `Map` or a `Set` literal is not in the backend slice yet
+df151f_tuple_drop_glue.saw	pass	-	-
+df151h_assign_rhs_retain.saw	pass	-	-
 df151i_tuple_copy.saw	refused	mono mono.not-yet	the builtin `copy` is not in the backend slice yet
 df151i_tuple_copy_nocopy_error.saw	refused	typecheck member.unknown	`(df151i_tuple_copy_nocopy_error.Res, Int)` is NoCopy, so it has no `copy()`; move it instead
 df151i_tuple_transfer_hint_agrees.saw	pass	-	result.discarded: the result of `push` is `Result<Void, std.alloc.AllocError>` and is silently discarded: handle it (`match` it, `try` or `try!` it, or return it), or write `let _ = ...` to discard it
-df151j_tuple_element_mutate.saw	refused	llvm backend.not-yet	an array, a repeat, a `Map` or a `Set` literal is not in the backend slice yet
+df151j_tuple_element_mutate.saw	pass	-	-
 df151j_tuple_element_ref.saw	pass	-	-
-df151j_tuple_element_write.saw	refused	llvm backend.not-yet	an array, a repeat, a `Map` or a `Set` literal is not in the backend slice yet
+df151j_tuple_element_write.saw	pass	-	-
 df151l_tuple_literal_expected_type.saw	pass	-	-
 df165b_place_literal_range_error.saw	pass	-	result.discarded: the result of `push` is `Result<Void, std.alloc.AllocError>` and is silently discarded: handle it (`match` it, `try` or `try!` it, or return it), or write `let _ = ...` to discard it
 df165b_place_literal_width.saw	refused	mono mono.not-yet	a synthesized `Printable.format(into: &var std.stringbuilder.StringBuilder)` on `UInt8` is not in the backend slice yet: only a signed integer's `Printable.format`
@@ -946,10 +946,10 @@ enum145_traits.saw	refused	mono mono.not-yet	a synthesized `Equatable.equals(oth
 enum_arc_struct_payload_match.saw	pass	-	-
 enum_bitwise_value_error.saw	pass	-	operator.undefined: a bit operator takes integers or `Bool`s, and this is `enum_bitwise_value_error.Perm`
 enum_extension_overloads.saw	pass	-	-
-enum_field_drop_glue.saw	refused	llvm backend.not-yet	an array, a repeat, a `Map` or a `Set` literal is not in the backend slice yet
+enum_field_drop_glue.saw	pass	-	-
 enum_optional_payload_roundtrip.saw	pass	-	-
 enum_payload_deinit.saw	pass	-	-
-enum_payload_free_as_key.saw	refused	mono mono.not-yet	a fixed array, a repeat, a `Map` or a `Set` literal is not in the backend slice yet
+enum_payload_free_as_key.saw	refused	mono mono.not-yet	a call of `Equatable.equals(other: &Self)` on `enum_payload_free_as_key.Color`, which no conformance of it meets, is not in the backend slice yet (inside std/map.saw:232:24)
 enum_policy_bare_owning_error.saw	pass	-	copy.undeclared-policy: `Reel` holds `Reel.Loaded` of type `enum_policy_bare_owning_error.Tape`, which is NoCopy, so it declares its own policy: `extension Reel: NoCopy {}`, or `@synthesize` an Explic
 enum_policy_explicit_copy_deep.saw	refused	mono mono.not-yet	a synthesized `ExplicitCopy.copy()` on `enum_policy_explicit_copy_deep.Bag` is not in the backend slice yet: only a signed integer's `Printable.format`
 enum_policy_nocopy_move_only.saw	pass	-	-
@@ -969,7 +969,7 @@ enums_positional.saw	pass	-	-
 enums_simple.saw	pass	-	-
 env_error_surfaced.saw	pass	-	-
 env_simple.saw	pass	-	-
-equatable_array_field.saw	refused	llvm backend.not-yet	an array, a repeat, a `Map` or a `Set` literal is not in the backend slice yet
+equatable_array_field.saw	refused	llvm backend.not-yet	the operator `==` on `equatable_array_field.Row` is not in the backend slice yet: only `==` and `!=` on integers, Bools, raw pointers, payload-free enums, and Optionals, structs and tuples of them
 equatable_auto_enum.saw	pass	-	-
 equatable_auto_struct.saw	pass	-	-
 equatable_custom_override.saw	pass	-	-
@@ -1434,7 +1434,7 @@ escaping_variance_safe.saw	refused	resolve slice.not-yet	`syntax.expr.shorthand-
 exclusivity_assign_rhs_allowed_shapes.saw	pass	-	-
 exclusivity_assign_rhs_borrow.saw	pass	-	assign.rhs-borrow: `p.x` is written by this assignment while its right-hand side borrows `p` exclusively at 28:16; the right-hand side runs first, so what it writes through that borrow is overwritten
 exclusivity_byvalue_snapshot.saw	pass	-	-
-exclusivity_const_indices.saw	refused	llvm backend.not-yet	an array, a repeat, a `Map` or a `Set` literal is not in the backend slice yet
+exclusivity_const_indices.saw	pass	-	-
 exclusivity_disjoint_fields.saw	pass	-	-
 exclusivity_dynamic_index.saw	pass	-	loan.read-while-exclusive: `arr[_]` is borrowed here while the argument at 15:7 holds `arr[_]` exclusively for its call; an exclusive borrow admits no other access while it is live
 exclusivity_erased_and_generic_receivers.saw	refused	typecheck slice.not-yet	a method call on `any Trait` is not in the bootstrap slice yet
@@ -1483,7 +1483,7 @@ expr_suspend_blocking.saw	refused	coro coro.not-yet	`arg_worker` suspends (arg_w
 expr_suspend_chain_head.saw	pass	-	-
 expr_suspend_channel_recv.saw	refused	resolve import.unknown-module	no module `std.channel`
 expr_suspend_coalesce.saw	pass	-	-
-expr_suspend_collection.saw	refused	mono mono.not-yet	a fixed array, a repeat, a `Map` or a `Set` literal is not in the backend slice yet
+expr_suspend_collection.saw	pass	-	-
 expr_suspend_deinit_once.saw	pass	-	-
 expr_suspend_every_hop.saw	pass	-	-
 expr_suspend_iflet_scrutinee.saw	pass	-	-
@@ -1610,7 +1610,7 @@ generic_bound_not_trait_error.saw	pass	-	type.not-a-trait: `Int` is not a trait,
 generic_bound_propagation.saw	refused	mono mono.not-yet	a synthesized `Comparable.compare(other: &Self)` on `Int` is not in the backend slice yet: only a signed integer's `Printable.format`
 generic_bound_unknown_trait_error.saw	refused	resolve name.undefined	cannot find `Fooable` in scope
 generic_container_nomove_cascade.saw	pass	-	transfer.no-move: cannot `move` `w`: `generic_container_nomove_cascade.Wrap<std.taskgroup.TaskGroup>` is `NoMove`, so it lives where its constructor built it and may not be relocated; pass `&var` to l
-generic_default_init.saw	refused	llvm backend.not-yet	an array, a repeat, a `Map` or a `Set` literal is not in the backend slice yet
+generic_default_init.saw	refused	llvm backend.not-yet	the constant `N` is not in the backend slice yet
 generic_default_value.saw	pass	-	-
 generic_effect_poly_call.saw	pass	-	-
 generic_enum.saw	pass	-	-
@@ -1622,7 +1622,7 @@ generic_for_loop_owning_balance.saw	refused	typecheck member.unknown	`std.vector
 generic_init_moved_parameter_is_released_once.saw	stage0-wrong	XFAIL DF-302b	sawc2 meets its directives
 generic_instance_associated_type_binding.saw	refused	resolve name.undefined	cannot find `Item` in scope; an associated type of a bound is named through its type parameter, as `T.Item`
 generic_instance_associated_type_return.saw	refused	resolve name.undefined	cannot find `Item` in scope; an associated type of a bound is named through its type parameter, as `T.Item`
-generic_instance_const_parameter_value.saw	refused	llvm backend.not-yet	an array, a repeat, a `Map` or a `Set` literal is not in the backend slice yet
+generic_instance_const_parameter_value.saw	refused	llvm backend.not-yet	the constant `N` is not in the backend slice yet
 generic_instance_constructs_type_param.saw	pass	-	-
 generic_instantiation_unsafe_signature.saw	wrong	accepts a refusal test	`idn` is not declared `unsafe`, but this instantiation's signature names a value of unsafe type (`UnsafePointer<Int8>`)
 generic_local_at_void.saw	pass	-	-
@@ -1667,7 +1667,7 @@ if_let_void_branches.saw	pass	-	-
 if_value_mismatched_width_arms.saw	pass	-	-
 if_var.saw	pass	-	-
 iflet_tuple_pattern.saw	pass	-	-
-implicit_copy_array_elem.saw	refused	llvm backend.not-yet	an array, a repeat, a `Map` or a `Set` literal is not in the backend slice yet
+implicit_copy_array_elem.saw	pass	-	-
 implicit_copy_call_arg.saw	pass	-	-
 implicit_copy_implicit.saw	pass	-	-
 implicit_copy_interface.saw	pass	-	-
@@ -1711,10 +1711,10 @@ int_parse_unsigned_compare.saw	refused	mono mono.not-yet	a synthesized `Printabl
 int_pow_negative_panics.saw	pass	-	-
 int_sign_flip_transfer_through_platform_int.saw	pass	-	type.mismatch: expected `Int`, the type of the annotated binding, and found `UInt`; only a lossless widening into or out of `Int` or `UInt` is implicit: write `as` to panic out of range, `.from(...)`
 int_types.saw	refused	mono mono.not-yet	a synthesized `Printable.format(into: &var std.stringbuilder.StringBuilder)` on `UInt` is not in the backend slice yet: only a signed integer's `Printable.format`
-int_widening_argument_positions.saw	refused	llvm backend.not-yet	an array, a repeat, a `Map` or a `Set` literal is not in the backend slice yet
-int_widening_call_argument.saw	refused	llvm backend.not-yet	an array, a repeat, a `Map` or a `Set` literal is not in the backend slice yet
+int_widening_argument_positions.saw	pass	-	-
+int_widening_call_argument.saw	pass	-	-
 int_widening_transfer_preserves_unsigned.saw	pass	-	-
-interior_cell_by_pointer_receiver.saw	refused	llvm backend.not-yet	an array, a repeat, a `Map` or a `Set` literal is not in the backend slice yet
+interior_cell_by_pointer_receiver.saw	pass	-	-
 interior_cell_primitive.saw	pass	-	-
 interior_cell_static_placement.saw	refused	typecheck static.not-constant	`UnsafeMutableInterior(11)` is not a constant, and a static's initializer is a constant expression: a call runs only at run time, an `init` body included; only a type alias's construction, `sizeof`, `
 interior_cell_user_type.saw	refused	llvm backend.not-yet	a static whose value is not an integer or a Bool is not in the backend slice yet
@@ -1767,12 +1767,12 @@ labeled_overload_method_static.saw	pass	-	-
 labeled_overload_same_type_diff_label.saw	pass	-	-
 lend_accessor_local.saw	pass	-	mutability.immutable: this assignment writes `borrow var c.slot()`, and `c.slot()` lends a read-only place (`-> &T`): declare the accessor `-> &var T` to lend a writable one
 lend_rooted_in_receiver.saw	refused	mono mono.not-yet	a synthesized `Printable.format(into: &var std.stringbuilder.StringBuilder)` on `UInt8` is not in the backend slice yet: only a signed integer's `Printable.format`
-lend_var_both_branches.saw	refused	llvm backend.not-yet	an array, a repeat, a `Map` or a `Set` literal is not in the backend slice yet
+lend_var_both_branches.saw	pass	-	-
 lend_var_conditional_lend.saw	refused	mir slice.not-yet	a `borrow` block binding a conditional lend is not lowered to MIR in the bootstrap slice yet
-lend_var_coro_and_forwarding.saw	refused	llvm backend.not-yet	an array, a repeat, a `Map` or a `Set` literal is not in the backend slice yet
-lend_var_epilogue_nesting.saw	refused	llvm backend.not-yet	an array, a repeat, a `Map` or a `Set` literal is not in the backend slice yet
+lend_var_coro_and_forwarding.saw	pass	-	-
+lend_var_epilogue_nesting.saw	pass	-	-
 lend_var_generic_and_match.saw	refused	mir slice.not-yet	a `borrow` block binding a conditional lend is not lowered to MIR in the bootstrap slice yet
-lend_var_two_specializations.saw	refused	llvm backend.not-yet	an array, a repeat, a `Map` or a `Set` literal is not in the backend slice yet
+lend_var_two_specializations.saw	pass	-	-
 lends_is_contextual.saw	refused	typecheck slice.not-yet	`syntax.expr.lends` is not in the bootstrap slice yet
 let_refutable_pattern_error.saw	wrong	accepts a refusal test	refutable pattern in `let`/`var`: only bindings, `_`, and nested tuples are allowed (literals/ranges/variants require `match`/`if let`)
 let_struct_field_assign_error.saw	pass	-	mutability.immutable: this assignment writes `p.x`, and `p` is a `let` binding, which is never written: every binding is initialized where it is declared, so only a `var` takes a new value
@@ -1783,7 +1783,7 @@ let_tuple_destructure_use_after_move_error.saw	pass	-	move.use-after: `pair` is 
 let_var_self_method_error.saw	pass	-	mutability.immutable: this exclusive borrow of `c` would let it be written, and `c` is a `let` binding, which is never written: every binding is initialized where it is declared, so only a `var` takes
 lexer_unterminated_interpolation.saw	pass	-	resolve.parse-refused: the parser refuses `tests/corpus/lexer_unterminated_interpolation.saw` (syntax.lex.unterminated-string), so its declarations are not available
 link_dead_strip.saw	refused	typecheck member.unknown	`std.env.Env` has no method `arg` this module can see
-literal_coercion_positions.saw	refused	mono mono.not-yet	a fixed array, a repeat, a `Map` or a `Set` literal is not in the backend slice yet
+literal_coercion_positions.saw	refused	mono mono.not-yet	a synthesized `Equatable.equals(other: &Self)` on `Int8` is not in the backend slice yet: only a signed integer's `Printable.format` (inside std/map.saw:232:24)
 literal_suffix_basic.saw	pass	-	-
 literal_suffix_out_of_range_error.saw	pass	-	resolve.parse-refused: the parser refuses `tests/corpus/literal_suffix_out_of_range_error.saw` (syntax.lex.int-range), so its declarations are not available
 literal_suffix_overflow_panic.saw	pass	-	-
@@ -1802,15 +1802,15 @@ map_grow_collision.saw	refused	mono mono.not-yet	a synthesized `Equatable.equals
 map_hashmap_name_gone_error.saw	refused	resolve name.undefined	cannot find `HashMap` in scope
 map_key_not_hashable_error.saw	pass	-	result.discarded: the result of `insert` is `Result<Int?, std.alloc.AllocError>` and is silently discarded: handle it (`match` it, `try` or `try!` it, or return it), or write `let _ = ...` to discard
 map_keys_values.saw	refused	typecheck member.unknown	`std.vector.Vector<Int, std.alloc.GlobalAllocator>` has no method `sort` this module can see
-map_literal.saw	refused	mono mono.not-yet	a fixed array, a repeat, a `Map` or a `Set` literal is not in the backend slice yet
-map_literal_dup_key_no_leak.saw	refused	mono mono.not-yet	a fixed array, a repeat, a `Map` or a `Set` literal is not in the backend slice yet
+map_literal.saw	refused	mono mono.not-yet	a synthesized `Equatable.equals(other: &Self)` on `Int` is not in the backend slice yet: only a signed integer's `Printable.format` (inside std/map.saw:232:24)
+map_literal_dup_key_no_leak.saw	refused	mono mono.not-yet	a synthesized `Equatable.equals(other: &Self)` on `Int` is not in the backend slice yet: only a signed integer's `Printable.format` (inside std/map.saw:232:24)
 map_literal_empty_no_annotation_error.saw	pass	-	infer.failed: an empty map literal has no key or value type here; give the position a type
 map_literal_key_mismatch_error.saw	pass	-	type.mismatch: expected `Int`, the type of the collection's element, and found `String`
 map_literal_key_out_of_range_error.saw	pass	-	type.mismatch: integer literal 300 does not fit in `Int8` (range -128..=127)
-map_literal_owning_values.saw	refused	mono mono.not-yet	a fixed array, a repeat, a `Map` or a `Set` literal is not in the backend slice yet
+map_literal_owning_values.saw	refused	mono mono.not-yet	a synthesized `Equatable.equals(other: &Self)` on `Int` is not in the backend slice yet: only a signed integer's `Printable.format` (inside std/map.saw:232:24)
 map_literal_value_mismatch_error.saw	pass	-	type.mismatch: expected `Int`, the type of the collection's element, and found `String`
 map_nocopy_key_error.saw	refused	mono mono.not-yet	a synthesized `Equatable.equals(other: &Self)` on `map_nocopy_key_error.Counted` is not in the backend slice yet: only a signed integer's `Printable.format` (inside std/map.saw:232:24)
-map_nocopy_key_literal_error.saw	refused	mono mono.not-yet	a fixed array, a repeat, a `Map` or a `Set` literal is not in the backend slice yet
+map_nocopy_key_literal_error.saw	refused	mono mono.not-yet	a synthesized `Equatable.equals(other: &Self)` on `map_nocopy_key_literal_error.Counted` is not in the backend slice yet: only a signed integer's `Printable.format` (inside std/map.saw:232:24)
 map_nocopy_value_construct.saw	pass	-	-
 map_nocopy_value_copy_bound_error.saw	pass	-	type.bound: `std.map.Map<String, std.file.File, std.alloc.GlobalAllocator>` has no member `copy`: it is declared where `V: ExplicitCopy`, and `std.file.File` does not satisfy `ExplicitCopy`
 map_owning_remove_overwrite.saw	refused	mono mono.not-yet	a synthesized `Equatable.equals(other: &Self)` on `Int` is not in the backend slice yet: only a signed integer's `Printable.format` (inside std/map.saw:232:24)
@@ -1983,7 +1983,7 @@ newline_unclosed_paren_at_brace_error.saw	pass	-	resolve.parse-refused: the pars
 newline_unclosed_paren_error.saw	pass	-	resolve.parse-refused: the parser refuses `tests/corpus/newline_unclosed_paren_error.saw` (syntax.lex.unclosed-bracket), so its declarations are not available
 newline_wrapped_call.saw	pass	-	-
 newline_wrapped_generics.saw	pass	-	-
-newline_wrapped_literals.saw	refused	llvm backend.not-yet	an array, a repeat, a `Map` or a `Set` literal is not in the backend slice yet
+newline_wrapped_literals.saw	pass	-	-
 newline_wrapped_params.saw	pass	-	-
 no_copy_return_error.saw	pass	-	transfer.implicit-copy: this reads a place of type `no_copy_return_error.Resource`, which is NoCopy, by value: only a Copy type copies silently; write `move r` to take it, or borrow it
 no_hidden_alloc_escaping_closure.saw	refused	driver driver.usage	sawc2 build takes no --no-hidden-alloc
@@ -2049,7 +2049,7 @@ optional_generic_nested_spelling.saw	pass	-	-
 optional_generic_none_coalesce.saw	pass	-	-
 optional_generic_none_default_value.saw	pass	-	-
 optional_generic_none_generic_arg.saw	pass	-	infer.failed: `None` has no type here: nothing says what it is a `None` of; annotate the binding, as `let x: Int? = None`
-optional_generic_none_map_literal.saw	refused	mono mono.not-yet	a fixed array, a repeat, a `Map` or a `Set` literal is not in the backend slice yet
+optional_generic_none_map_literal.saw	pass	-	-
 optional_generic_ownership.saw	pass	-	-
 optional_generic_place_assign.saw	pass	-	-
 optional_generic_return_tail.saw	pass	-	-
@@ -2066,7 +2066,7 @@ optional_payload_read_once.saw	pass	-	-
 optional_payload_read_retains.saw	pass	-	-
 optional_presence_tag_only.saw	refused	mono mono.not-yet	a synthesized `Printable.format(into: &var std.stringbuilder.StringBuilder)` on `Bool` is not in the backend slice yet: only a signed integer's `Printable.format`
 optional_presence_unconditional_lend.saw	refused	resolve import.unknown-module	no module `std.compiler.frame`
-optional_slot_literal_adopts_payload_width.saw	refused	llvm backend.not-yet	an array, a repeat, a `Map` or a `Set` literal is not in the backend slice yet
+optional_slot_literal_adopts_payload_width.saw	pass	-	-
 optional_take.saw	pass	-	-
 optional_type_name.saw	pass	-	-
 optionals.saw	pass	-	-
@@ -2105,7 +2105,7 @@ package_tier_refused_argument_reported_error.saw	wrong	accepts a refusal test	`p
 package_tier_refused_type_no_cascade_error.saw	wrong	accepts a refusal test	`PkgBox` is public(package) in `module_tests.pkg232n.src.lib`
 package_tier_refused_type_qualified_error.saw	wrong	accepts a refusal test	`PkgBox` is public(package) in `module_tests.pkg232n.src.lib`
 panic_builtin.saw	pass	-	-
-panic_location_bounds.saw	refused	llvm backend.not-yet	an array, a repeat, a `Map` or a `Set` literal is not in the backend slice yet
+panic_location_bounds.saw	pass	-	-
 panic_location_divzero.saw	pass	-	-
 panic_location_overflow.saw	pass	-	-
 panic_location_shift.saw	refused	mono mono.not-yet	an escaping closure that captures a value is not in the backend slice yet: its environment would live in the frame that builds it, and heap environments are unbuilt (SL-525)
@@ -2119,7 +2119,7 @@ payload_derived_binding_fills_default_type_args.saw	refused	typecheck infer.fail
 place_abstract_value_read.saw	pass	-	-
 place_assignment_targets.saw	refused	typecheck subscript.role	this subscript is used as a writable place: its `[]` lends read-only (`std.map.Map<String, Int, std.alloc.GlobalAllocator>` declares or derives no such role)
 place_comparison_operand_is_a_borrow.saw	refused	mono mono.not-yet	a synthesized `Printable.format(into: &var std.stringbuilder.StringBuilder)` on `Bool` is not in the backend slice yet: only a signed integer's `Printable.format`
-place_conditional_lend_uses.saw	refused	llvm backend.not-yet	an array, a repeat, a `Map` or a `Set` literal is not in the backend slice yet
+place_conditional_lend_uses.saw	refused	llvm backend.not-yet	a conditional borrow is not in the backend slice yet
 place_cross_module_same_name_type.saw	refused	llvm backend.not-yet	a conditional borrow is not in the backend slice yet
 place_enum_payload_lend.saw	refused	mir slice.not-yet	a `borrow` block binding a conditional lend is not lowered to MIR in the bootstrap slice yet
 place_match_arm_move_in_literal.saw	pass	-	transfer.move-from-borrow: cannot move out of `r`: it names a place it only borrows, a `borrow` binding or a part of a scrutinee a match borrows, so the place's owner still ends it; read or borrow it
@@ -2130,10 +2130,10 @@ place_read_retains_owning.saw	pass	-	-
 place_reentry_idempotent.saw	refused	mono mono.not-yet	a call of `Printable.format(into: &var std.stringbuilder.StringBuilder)` on `std.box.Box<any Error, std.alloc.GlobalAllocator>`, which no conformance of it meets, is not in the backend slice yet
 place_rendered_frame_local_migrates.saw	refused	mono mono.not-yet	a call of `Printable.format(into: &var std.stringbuilder.StringBuilder)` on `std.box.Box<any Error, std.alloc.GlobalAllocator>`, which no conformance of it meets, is not in the backend slice yet
 place_rendering_operand_is_a_borrow.saw	pass	-	-
-place_shared_accessor_flavors.saw	refused	llvm backend.not-yet	an array, a repeat, a `Map` or a `Set` literal is not in the backend slice yet
-place_shared_window_readonly.saw	refused	llvm backend.not-yet	an array, a repeat, a `Map` or a `Set` literal is not in the backend slice yet
+place_shared_accessor_flavors.saw	pass	-	-
+place_shared_window_readonly.saw	pass	-	-
 place_two_windows_one_nocopy_root.saw	refused	typecheck subscript.role	this subscript is used as a writable place: its `[]` lends read-only (`std.map.Map<String, Int, std.alloc.GlobalAllocator>` declares or derives no such role)
-place_use_sites.saw	refused	llvm backend.not-yet	an array, a repeat, a `Map` or a `Set` literal is not in the backend slice yet
+place_use_sites.saw	pass	-	-
 place_value_read_retain_oracle.saw	pass	-	-
 place_window_borrows_enclosing_locals.saw	pass	-	-
 place_window_exclusivity.saw	pass	-	loan.window-root: `p` is borrowed exclusively here while the window of `at` opened at 32:13 holds `p` exclusively until the window closes; a window charges its whole root until it closes, so the root
@@ -2193,7 +2193,7 @@ reexport_public_module.saw	refused	resolve slice.not-yet	`syntax.decl.module.inl
 ref_forwarding.saw	pass	-	-
 ref_forwarding_suspend.saw	pass	-	-
 ref_forwarding_suspend_nested.saw	pass	-	-
-ref_into_array_element_addresses_real_storage.saw	refused	llvm backend.not-yet	an array, a repeat, a `Map` or a `Set` literal is not in the backend slice yet
+ref_into_array_element_addresses_real_storage.saw	pass	-	-
 ref_no_escape_alias_boundary.saw	pass	-	-
 ref_parameter_positions.saw	pass	-	-
 ref_pointer_cast_blessed.saw	refused	mono mono.not-yet	a synthesized `Printable.format(into: &var std.stringbuilder.StringBuilder)` on `Bool` is not in the backend slice yet: only a signed integer's `Printable.format`
@@ -2218,18 +2218,18 @@ reference_move_error.saw	pass	-	transfer.move-from-borrow: cannot move out of `r
 references_basic.saw	pass	-	-
 register_mask_idiom.saw	pass	-	-
 renamed_extension_type_param.saw	refused	mono mono.not-yet	a synthesized `Printable.format(into: &var std.stringbuilder.StringBuilder)` on `Bool` is not in the backend slice yet: only a signed integer's `Printable.format`
-repeat_literal_basic.saw	refused	mono mono.not-yet	the builtin `len` is not in the backend slice yet
-repeat_literal_implicit_copy.saw	refused	mono mono.not-yet	the builtin `len` is not in the backend slice yet
-repeat_literal_negative_error.saw	refused	mono mono.not-yet	the builtin `len` is not in the backend slice yet
+repeat_literal_basic.saw	pass	-	-
+repeat_literal_implicit_copy.saw	pass	-	-
+repeat_literal_negative_error.saw	link	clang or the link	sawc2 build: clang exited 1
 repeat_literal_nocopy_error.saw	pass	-	transfer.implicit-copy: a repeat literal needs a freely copyable element, and `repeat_literal_nocopy_error.Handle` is NoCopy: write the elements out, or build the array from a Copy value
 repeat_literal_nonconst_error.saw	refused	typecheck slice.not-yet	a constant argument named by a static, `n`, is not in the bootstrap slice yet
-repeat_literal_static.saw	refused	mono mono.not-yet	the builtin `len` is not in the backend slice yet
+repeat_literal_static.saw	refused	llvm backend.not-yet	a static whose value is not an integer or a Bool is not in the backend slice yet
 repeat_literal_vector_error.saw	pass	-	type.mismatch: expected `std.vector.Vector<Int, std.alloc.GlobalAllocator>`, the type of the annotated binding, and found `[Int; 8]`
 resolve_seam_offloads.saw	refused	typecheck slice.not-yet	a constant argument named by a static, `MAX_ADDRS`, is not in the bootstrap slice yet
 result_autowrap_final.saw	pass	-	-
 result_basic.saw	pass	-	-
 result_discard_erased_error.saw	pass	-	result.discarded: the result of `append` is `Result<Void, std.alloc.AllocError>` and is silently discarded: handle it (`match` it, `try` or `try!` it, or return it), or write `let _ = ...` to discard
-result_discard_legal.saw	refused	mono mono.not-yet	a fixed array, a repeat, a `Map` or a `Set` literal is not in the backend slice yet
+result_discard_legal.saw	pass	-	-
 result_discard_match_arm_error.saw	pass	-	result.discarded: the result of `append` is `Result<Void, std.alloc.AllocError>` and is silently discarded: handle it (`match` it, `try` or `try!` it, or return it), or write `let _ = ...` to discard
 result_discard_positions_error.saw	pass	-	result.discarded: the result of `append` is `Result<Void, std.alloc.AllocError>` and is silently discarded: handle it (`match` it, `try` or `try!` it, or return it), or write `let _ = ...` to discard
 result_discard_statement_error.saw	pass	-	result.discarded: the result of `append` is `Result<Void, std.alloc.AllocError>` and is silently discarded: handle it (`match` it, `try` or `try!` it, or return it), or write `let _ = ...` to discard
@@ -2255,13 +2255,13 @@ runtime_provider_seams.saw	refused	driver driver.usage	sawc2 build takes no --ru
 scalar_removed_char_surface.saw	refused	typecheck member.unknown	`String` has no method `chars` this module can see
 scalar_type.saw	refused	mono mono.not-yet	a synthesized `Comparable.compare(other: &Self)` on `std.scalar.Scalar` is not in the backend slice yet: only a signed integer's `Printable.format`
 section_compose.saw	refused	llvm backend.not-yet	`@section` is not in the backend slice yet: nothing is placed in a named section, so the attribute would be dropped
-self_receiver_pointer_reaches_caller.saw	refused	llvm backend.not-yet	an array, a repeat, a `Map` or a `Set` literal is not in the backend slice yet
+self_receiver_pointer_reaches_caller.saw	wrong	stdout differs	line 5: sawc2 "primitive receiver stays by value: true", Stage 0 "primitive receiver stays by value: false"
 self_type.saw	pass	-	-
 self_type_generic_extension_positions.saw	refused	typecheck slice.not-yet	`syntax.expr.optional-member` is not in the bootstrap slice yet
 self_type_in_extension_parameter.saw	pass	-	-
 self_type_in_generic_extension.saw	pass	-	-
 self_type_signature_positions.saw	refused	typecheck slice.not-yet	`syntax.expr.optional-member` is not in the bootstrap slice yet
-semicolon_joins_statements_on_one_line.saw	refused	mono mono.not-yet	the builtin `len` is not in the backend slice yet
+semicolon_joins_statements_on_one_line.saw	pass	-	-
 send_sync_bounds.saw	refused	llvm backend.not-yet	a Float constant, `3.0`, is not in the backend slice yet
 serde169_derived.saw	refused	resolve name.undefined	cannot find `Serialize` in scope
 serde169_hand_written.saw	refused	resolve name.undefined	cannot find `Serialize` in scope
@@ -2275,9 +2275,9 @@ set_element_not_hashable_error.saw	pass	-	result.discarded: the result of `inser
 set_from_vector.saw	refused	mono mono.not-yet	a synthesized `Equatable.equals(other: &Self)` on `Int` is not in the backend slice yet: only a signed integer's `Printable.format` (inside std/map.saw:232:24)
 set_from_vector_use_after_move_error.saw	pass	-	result.discarded: the result of `push` is `Result<Void, std.alloc.AllocError>` and is silently discarded: handle it (`match` it, `try` or `try!` it, or return it), or write `let _ = ...` to discard it
 set_literal.saw	refused	typecheck member.unknown	`std.vector.Vector<Int, std.alloc.GlobalAllocator>` has no method `sort` this module can see
-set_literal_comparison_elements.saw	refused	mono mono.not-yet	a fixed array, a repeat, a `Map` or a `Set` literal is not in the backend slice yet
+set_literal_comparison_elements.saw	refused	mono mono.not-yet	a synthesized `Equatable.equals(other: &Self)` on `Int` is not in the backend slice yet: only a signed integer's `Printable.format` (inside std/map.saw:232:24)
 set_literal_element_mismatch_error.saw	pass	-	type.mismatch: expected `Int`, the type of the collection's element, and found `String`
-set_literal_not_hashable_error.saw	refused	mono mono.not-yet	a fixed array, a repeat, a `Map` or a `Set` literal is not in the backend slice yet
+set_literal_not_hashable_error.saw	refused	mono mono.not-yet	a call of `Equatable.equals(other: &Self)` on `set_literal_not_hashable_error.NoHash`, which no conformance of it meets, is not in the backend slice yet (inside std/map.saw:232:24)
 set_nocopy_element_copy_bound_error.saw	pass	-	conformance.signature: `Tag.hash` does not meet `Hashable.hash`, as `Tag` conforms to `Hashable` needs: a parameter's name differs
 set_nocopy_key_error.saw	refused	mono mono.not-yet	a synthesized `Equatable.equals(other: &Self)` on `set_nocopy_key_error.Counted` is not in the backend slice yet: only a signed integer's `Printable.format` (inside std/map.saw:232:24)
 set_owning_key_refcount.saw	refused	mono mono.not-yet	a synthesized `Hashable.hash(h: &var Hasher)` on `Int` is not in the backend slice yet: only a signed integer's `Printable.format`
@@ -2387,7 +2387,7 @@ string_withcstring.saw	refused	typecheck infer.failed	this closure parameter has
 stringbuilder_append_int_alloc_free.saw	refused	typecheck call.no-match	no candidate takes these arguments; the candidates are StringBuilder.append(s: String) [std.stringbuilder]; StringBuilder.append(value: Int) [std.stringbuilder]; StringBuilder.append(b: UInt8) [std.st
 stringbuilder_append_scalar.saw	refused	typecheck member.unknown	`String` has no method `scalars` this module can see
 stringbuilder_build_append.saw	pass	-	-
-stringbuilder_fixed.saw	refused	llvm backend.not-yet	an array, a repeat, a `Map` or a `Set` literal is not in the backend slice yet
+stringbuilder_fixed.saw	pass	-	-
 stringbuilder_independence.saw	pass	-	-
 stringbuilder_simple.saw	refused	typecheck member.unknown	`std.stringbuilder.StringBuilder` has no method `as_str` this module can see
 struct_field_deinit.saw	pass	-	-
@@ -2409,7 +2409,7 @@ sync_mutex_pure_closure.saw	refused	mono mono.not-yet	a synthesized `ExplicitCop
 sync_pure_chain.saw	pass	-	-
 sync_suspending_mainline.saw	pass	-	-
 synthesize_across_coro_reentry.saw	refused	mono mono.not-yet	a synthesized `Equatable.equals(other: &Self)` on `synthesize_across_coro_reentry.Tag` is not in the backend slice yet: only a signed integer's `Printable.format`
-synthesize_auto_conformance_unmarked.saw	refused	mono mono.not-yet	a fixed array, a repeat, a `Map` or a `Set` literal is not in the backend slice yet
+synthesize_auto_conformance_unmarked.saw	refused	mono mono.not-yet	a call of `Equatable.equals(other: &Self)` on `synthesize_auto_conformance_unmarked.Point`, which no conformance of it meets, is not in the backend slice yet (inside std/map.saw:232:24)
 synthesize_explicit_copy_holder.saw	refused	mono mono.not-yet	a synthesized `ExplicitCopy.copy()` on `synthesize_explicit_copy_holder.Holder` is not in the backend slice yet: only a signed integer's `Printable.format`
 task_backtrace_churn.saw	refused	resolve name.undefined	cannot find `dump_tasks` in scope
 task_backtrace_mt.saw	refused	resolve import.unknown-module	no module `std.channel`

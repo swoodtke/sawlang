@@ -1,0 +1,17 @@
+program	compiler/tests/run/map_set_literal.saw
+triple	arm64-apple-darwin
+source	9adb363cd7aca86e
+build	ok
+exit	0
+stdout	"ages 2 31 25"
+stdout	"titles 2 true"
+stdout	"lists 2"
+stdout	"empty 0"
+stdout	"empty vector 0"
+stdout	"argument 3"
+stdout	"set 3 true false"
+stdout	"owned 2 replaced 1"
+stdout	"after 2 drops 3"
+stdout	"field 2 1"
+stdout	"suspended 7"
+stdout	""

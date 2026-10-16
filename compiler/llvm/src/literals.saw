@@ -1,0 +1,220 @@
+// Collection literals (spec, Composite Types): a fixed array's elements
+// written in place, a repeat's value written once and copied into the rest,
+// and a `Vector`, `Map` or `Set` built by its container's `init()` and one
+// insertion per entry, in written order. A literal has nowhere to report a
+// refused insertion, so it panics naming the error (design 234).
+
+import sawborrowck.program.{BorrowckProgram}
+import sawdrops.program.{DropsProgram}
+import sawllvm.module.{LlEmitter, ll_is_scalar, ll_symbol, ll_value_type}
+import sawllvm.places.{ll_local_slot}
+import sawllvm.prims.{LL_MESSAGE_LIMIT}
+import sawllvm.render.{ll_spelled}
+import sawllvm.text.{ll_integer_value}
+import sawmir.build.{mir_func_local}
+import sawmir.model.{MirAggregate, MirConstKind, MirOperandKind, MirRvalue}
+import sawmir.program.{MirProgram}
+import sawmono.program.{MONO_KEY_COPY, MonoProgram}
+import sawtarget.layout.{Target, TargetKind}
+import sawtypecheck.program.{TcProgram}
+import sawtypecheck.spell.{tc_effects_text}
+import sawtypecheck.typeops.{TcClient}
+
+extension LlEmitter {
+    // THE COLLECTION-LITERAL FUNNEL: concrete literal `r` written into
+    // `dest`, each kind by its one lowering here. Mono's half,
+    // `resolve_collection_literal`, made the items and glue each one calls.
+    // ENTRY POINTS:
+    //     aggregate_into
+    public func collection_literal_into(&var self, mono: &var MonoProgram, target: &var Target, r: Int,
+                                        dest: String, node: Int) {
+        let rv = mono.dp.bc.mir.rvalues[r]
+        match rv.aggregate {
+            case Array -> self.array_into(&var mono, &var target, &rv, dest, node),
+            case Repeat -> self.repeat_into(&var mono, &var target, &rv, dest, node),
+            case _ -> self.inserted_into(&var mono, &var target, r, dest, node)
+        }
+    }
+
+    // `[a, b, ...]` at a fixed array: each element moved or copied into its
+    // slot, in index order.
+    func array_into(&var self, mono: &var MonoProgram, target: &var Target, rv: &MirRvalue, dest: String,
+                    node: Int) {
+        let l = self.lay_at(&var mono, &var target, rv.ty, node)
+        let el = self.lay_at(&var mono, &var target, l.element, node)
+        var k = 0
+        while k < rv.count {
+            let o = mono.dp.bc.mir.lists[rv.first + k]
+            let at = self.offset_addr(dest, k * el.size)
+            self.operand_into(&var mono, &var target, o, at, l.element, node)
+            k = k + 1
+        }
+    }
+
+    // `[v; N]`: the value, evaluated once, is the first element, and each
+    // later one is a copy of it through the element's copy glue, as Stage 0
+    // makes them. With a count of zero the value is dropped. An all-zero
+    // scalar fills the whole array with one `memset`.
+    func repeat_into(&var self, mono: &var MonoProgram, target: &var Target, rv: &MirRvalue, dest: String,
+                     node: Int) {
+        let l = self.lay_at(&var mono, &var target, rv.ty, node)
+        let element = l.element
+        let el = self.lay_at(&var mono, &var target, element, node)
+        let o = mono.dp.bc.mir.lists[rv.first]
+        if l.length == 0 {
+            let tmp = self.slot(el.size, el.align)
+            self.operand_into(&var mono, &var target, o, tmp, element, node)
+            self.drop_at(&var mono, element, tmp)
+            return
+        }
+        if ll_is_scalar(&el) && ll_zero_constant(&mono, o) {
+            self.declare("llvm.memset.p0.i64", "declare void @llvm.memset.p0.i64(ptr, i8, i64, i1)")
+            var line = StringBuilder()
+            try! line.append("call void @llvm.memset.p0.i64(ptr ")
+            try! line.append(dest)
+            try! line.append(", i8 0, i64 ")
+            try! line.append(l.size)
+            try! line.append(", i1 false)")
+            self.put(line.build())
+            return
+        }
+        self.operand_into(&var mono, &var target, o, dest, element, node)
+        if l.length == 1 || el.kind == TargetKind.Zero {
+            return
+        }
+        let glue = mono.glue_item(element, MONO_KEY_COPY)
+        let counter = self.slot(8, 8)
+        self.store("i64", "1", counter)
+        let head = self.new_label("repeat")
+        let body = self.new_label("copy")
+        let done = self.new_label("repeated")
+        self.jump(head)
+        self.put_label(head)
+        let i = self.load("i64", counter)
+        var test = StringBuilder()
+        try! test.append("icmp slt i64 ")
+        try! test.append(i)
+        try! test.append(", ")
+        try! test.append(l.length)
+        let more = self.assign(test.build())
+        self.branch(more, body, done)
+        self.put_label(body)
+        var scaled = StringBuilder()
+        try! scaled.append("mul i64 ")
+        try! scaled.append(i)
+        try! scaled.append(", ")
+        try! scaled.append(el.size)
+        let off = self.assign(scaled.build())
+        var gep = StringBuilder()
+        try! gep.append("getelementptr i8, ptr ")
+        try! gep.append(dest)
+        try! gep.append(", i64 ")
+        try! gep.append(off)
+        let at = self.assign(gep.build())
+        if glue >= 0 {
+            var line = StringBuilder()
+            try! line.append("call void ")
+            try! line.append(ll_symbol(&mono, glue))
+            try! line.append("(ptr ")
+            try! line.append(at)
+            try! line.append(", ptr ")
+            try! line.append(dest)
+            try! line.append(")")
+            self.put(line.build())
+        } else {
+            self.copy_bits(&el, at, dest)
+        }
+        var step = StringBuilder()
+        try! step.append("add i64 ")
+        try! step.append(i)
+        try! step.append(", 1")
+        let next = self.assign(step.build())
+        self.store("i64", next, counter)
+        self.jump(head)
+        self.put_label(done)
+    }
+
+    // A `Vector`, `Map` or `Set` literal: the container's `init()`, then its
+    // element op per entry in order, `push(value:)`, `insert(key:value:)` or
+    // `insert(value:)`, each entry's operands moved or copied in as
+    // arguments. A refused op panics naming its error; the value a repeated
+    // map key replaces is dropped at once, so the last entry wins.
+    func inserted_into(&var self, mono: &var MonoProgram, target: &var Target, r: Int, dest: String,
+                       node: Int) {
+        let rv = mono.dp.bc.mir.rvalues[r]
+        let made = mono.literal_init(r)
+        let inserts = mono.literal_push(r)
+        if made < 0 || inserts < 0 {
+            self.refuse_here(&var mono, node, "a collection literal mono did not resolve")
+            return
+        }
+        let none = Vector<String>()
+        let _ = self.call_item_direct(&var mono, &var target, made, &none, dest, node)
+        var per = 1
+        if rv.aggregate == MirAggregate.Map {
+            per = 2
+        }
+        let body = mono.items[inserts].body
+        let first = mono.dp.bc.mir.funcs[body].local_first
+        let status_type = mono.dp.bc.mir.locals[first].ty
+        let sl = self.lay_at(&var mono, &var target, status_type, node)
+        let ok_decl = mono.dp.bc.mir.result_case("Ok")
+        var k = 0
+        while k + per <= rv.count {
+            var args = Vector<String>()
+            try! args.push(ll_spelled("ptr", dest))
+            var j = 0
+            while j < per {
+                let o = mono.dp.bc.mir.lists[rv.first + k + j]
+                let t = mono.dp.bc.mir.locals[first + 2 + j].ty
+                self.argument(&var mono, &var target, o, t, &var args, node)
+                j = j + 1
+            }
+            k = k + per
+            let status = self.slot(sl.size, sl.align)
+            let v = self.call_item_direct(&var mono, &var target, inserts, &args, status, node)
+            if ll_is_scalar(&sl) {
+                self.store(ll_value_type(&sl), v, status)
+            }
+            self.force_ok(&var mono, &var target, status, status_type, "collection literal", node)
+            if rv.aggregate == MirAggregate.Map {
+                let replaced = mono.dp.bc.mir.tc.types.arg(status_type, 0)
+                let off = target.payload_offset(&var mono.dp.bc.mir.tc, status_type, ok_decl, 0)
+                let at = self.offset_addr(status, off)
+                self.drop_at(&var mono, replaced, at)
+            }
+        }
+    }
+
+    // Operand `o` as an argument of a parameter of type `t`, appended to
+    // `args`: nothing for a zero-sized value, a scalar by value, a memory
+    // value by the address of a value the callee copies on entry.
+    func argument(&var self, mono: &var MonoProgram, target: &var Target, o: Int, t: Int, args: &var Vector<String>,
+                  node: Int) {
+        let l = self.lay_at(&var mono, &var target, t, node)
+        if l.kind == TargetKind.Zero {
+            return
+        }
+        if ll_is_scalar(&l) {
+            let v = self.operand_value(&var mono, &var target, o, node)
+            try! args.push(ll_spelled(ll_value_type(&l), v))
+            return
+        }
+        let a = self.operand_addr(&var mono, &var target, o, t, node)
+        try! args.push(ll_spelled("ptr", a))
+    }
+}
+
+// Whether operand `o` is a constant whose bits are all zero: an integer `0`
+// or `false`.
+public func ll_zero_constant(mono: &MonoProgram, o: Int) -> Bool {
+    let op = mono.dp.bc.mir.operands[o]
+    if op.kind != MirOperandKind.Const {
+        return false
+    }
+    let text = mono.dp.bc.mir.tc.name_text(op.text)
+    if op.const_kind == MirConstKind.Bool {
+        return text.equals("false")
+    }
+    op.const_kind == MirConstKind.Int && ll_integer_value(text) == 0
+}

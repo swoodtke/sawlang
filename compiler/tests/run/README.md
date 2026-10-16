@@ -142,7 +142,9 @@ description's (`compiler/tests/mono/README.md`, "Layouts").
 - **Values.** A local is an `alloca`, scalar typed (`iN`, `double`, `ptr`) or
   `[N x i8]` for a memory value. A place is its root's address and a
   `getelementptr` per projection at the target's offset; a `(*P)` is a load,
-  an index into a raw pointer scales by the element's size, and a forced
+  an index into a raw pointer scales by the element's size, an index into a
+  fixed array checks `0 ..< N` first and panics with Stage 0's `array: index
+  out of range: I (len N)`, and a forced
   payload (`o!`, `try!`) checks the case first. A scalar value moves as an SSA
   value, a memory value by `memcpy`; a `copy` of a type with copy glue calls
   the glue. An `as` between a raw pointer and an integer of the pointer's
@@ -207,13 +209,27 @@ description's (`compiler/tests/mono/README.md`, "Layouts").
   renders through its `Printable.format` into a fixed builder over 512 bytes
   of stack scratch, Stage 0's size, so a longer rendering is cut and marked
   `…` by the builder. `sizeof` and `alignof`
-  are the target's; the four `__saw_atomic_*` builtins are LLVM atomics of
+  are the target's, and a fixed array's `len()` the length its type carries; the four `__saw_atomic_*` builtins are LLVM atomics of
   the orderings their names state.
 - **Building through the builder.** An interpolation builds its String
   through a growable builder: `init()`, each part's `Printable.format` in
-  order, `build()`, then the builder's drop. A `Vector` literal is its type's
-  `init()`, then a `push` per element in order; a refused push panics with
-  `collection literal: ` and its error, rendered as a format argument is.
+  order, `build()`, then the builder's drop.
+- **Collection literals.** One funnel, `collection_literal_into` in
+  `compiler/llvm/src/literals.saw`, lowers every kind; mono's
+  `resolve_collection_literal` makes the items and glue it calls. A fixed
+  array literal writes each element into its slot in index order. A repeat
+  `[v; N]` writes the value once as the first element and copies it into
+  each later one through the element's copy glue (a loop), as Stage 0 does,
+  fills an all-zero scalar with one `memset`, and drops the value when N is
+  0. A `Vector`, `Map` or `Set` literal is its type's `init()`, then a
+  `push(value:)`, `insert(key:value:)` or `insert(value:)` per entry in
+  order; a refused insertion panics with `collection literal: ` and its
+  error, rendered as a format argument is, and the value a repeated map key
+  replaces is dropped at once. A fixed array's drop glue releases its
+  elements in reverse index order and its copy glue copies them in index
+  order, each a loop. `fixed_array_literal`, `repeat_literal`,
+  `fixed_array_glue`, `map_set_literal` and `map_literal_alloc_failure` pin
+  the kinds, element kinds and positions (SL-710).
 - **Comparisons.** An integer, a Bool or a raw-backed enum compares by
   `icmp` at its signedness. A String compares its bytes through the String
   layer's `string_equals` and `string_compare`, each operand read in place,
@@ -281,7 +297,7 @@ description's (`compiler/tests/mono/README.md`, "Layouts").
 
 | rule | refuses | due program |
 |---|---|---|
-| `backend.not-yet` | what the backend does not lower yet: a Float constant, an operator on a Float, or on anything but an integer, a Bool, a String, two raw pointers or the memory values compared part by part, an erasure, a slice, a take capture, a fixed array, a repeat, a `Map` or a `Set` literal, a static that is not an integer or a Bool, an exported static, a `@section` on a static or a function, an `@align` on a static or a local, a conditional borrow, an aggregate crossing the C convention, a pointer cast to or from an integer narrower than a pointer, an unsupported layout, a `main` returning neither `Void` nor `Int`; a constant is refused at its own spelling, inside an aggregate too | `float_field` |
+| `backend.not-yet` | what the backend does not lower yet: a Float constant, an operator on a Float, or on anything but an integer, a Bool, a String, two raw pointers or the memory values compared part by part, an erasure, a slice, a take capture, a static that is not an integer or a Bool, an exported static, a `@section` on a static or a function, an `@align` on a static or a local, a conditional borrow, an aggregate crossing the C convention, a pointer cast to or from an integer narrower than a pointer, an unsupported layout, a `main` returning neither `Void` nor `Int`; a constant is refused at its own spelling, inside an aggregate too | `float_field` |
 
 **Suspension.** The backend's input is coroutine lowering's program
 (`compiler/tests/coro/README.md`), which lowers the frames whose every
