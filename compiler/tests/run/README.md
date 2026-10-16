@@ -241,7 +241,11 @@ description's (`compiler/tests/mono/README.md`, "Layouts").
   `fneg`, so `-x` of `0.0` is `-0.0`. The comparisons are `fcmp oeq`, `une`,
   `olt`, `ole`, `ogt` and `oge`, so every one involving a NaN is false but
   `!=`. `float_constants`, `float_operators` and `float_equality` pin each
-  constant position, operator and value class.
+  constant position, operator and value class. A Float's synthesized hooks
+  (`compiler/tests/mono/README.md`, "Member glue") answer as Stage 0's:
+  `float_hook_copy`, `float_hook_equals`, `float_hook_compare` and
+  `float_hook_hash` pin each over the two zeros, a NaN and the infinities,
+  called directly, through a bound, and as a `Set` element or `Map` key.
 - **Comparisons.** An integer, a Bool or a raw-backed enum compares by
   `icmp` at its signedness. A String compares its bytes through the String
   layer's `string_equals` and `string_compare`, each operand read in place,

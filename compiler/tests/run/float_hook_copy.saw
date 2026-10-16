@@ -1,0 +1,27 @@
+// A Float's synthesized `ExplicitCopy.copy`, reached through a bound, over an
+// ordinary value, the two zeros, a NaN and the two infinities: the copy is the
+// value, bit for bit, so `-0.0` keeps its sign (`1.0 / c` is `-inf`) and a NaN
+// stays a NaN (SL-722).
+
+func dup<T: ExplicitCopy>(v: T) -> T {
+    v.copy()
+}
+
+func flag(b: Bool) -> Int {
+    if b { 1 } else { 0 }
+}
+
+func main() {
+    let zero = 0.0
+    let inf = 1.0 / zero
+    let ordinary = dup(1.5)
+    print("ordinary {} {}", flag(ordinary == 1.5), flag(ordinary == 2.5))
+    let pz = dup(0.0)
+    let nz = dup(-0.0)
+    print("zeros {} {} {} {}", flag(pz == 0.0), flag(nz == 0.0), flag(1.0 / pz > 0.0), flag(1.0 / nz < 0.0))
+    let nan = dup(zero / zero)
+    print("nan {}", flag(nan != nan))
+    let up = dup(inf)
+    let down = dup(-inf)
+    print("infinities {} {} {}", flag(up == inf), flag(down == -inf), flag(down < up))
+}

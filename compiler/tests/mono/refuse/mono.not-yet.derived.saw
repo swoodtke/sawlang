@@ -1,21 +1,21 @@
 // refuses: mono.not-yet at 15:5
-// A struct's derived `Equatable` asks each field's own `equals` through the
-// requirement funnel. A `Float` field's is a cell the member glue table
-// refuses, since the backend lowers no Float operation (SL-722), and the
-// refusal lands where the derived `equals` was first reached.
+// A struct's derived `Comparable` asks each field's own `compare` through the
+// requirement funnel. A `Bool` field's is a cell the member glue table
+// refuses, since the spec gives `Bool` no builtin `Comparable` (SL-715), and
+// the refusal lands where the derived `compare` was first reached.
 struct Reading {
     id: Int,
-    value: Float
+    on: Bool
 }
 
 @synthesize
-extension Reading: Equatable {}
+extension Reading: Comparable {}
 
-func same<T: Equatable>(a: &T, b: &T) -> Bool {
-    a.equals(&b)
+func order<T: Comparable>(a: &T, b: &T) -> Bool {
+    a.compare(&b) == Ordering.Less
 }
 
 func main() {
-    let r = Reading(id: 1, value: 0.5)
-    print("{}", same(&r, &r))
+    let r = Reading(id: 1, on: true)
+    print("{}", order(&r, &r))
 }

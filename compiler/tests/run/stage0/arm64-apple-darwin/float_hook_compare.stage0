@@ -1,0 +1,27 @@
+program	compiler/tests/run/float_hook_compare.saw
+triple	arm64-apple-darwin
+source	bd1db9459ac09909
+build	ok
+exit	0
+stdout	"row 0 compare 0 1 1 1 0 -1 1 "
+stdout	"row 0 bound 0 1 1 1 0 -1 1 "
+stdout	"row 0 < 0000010 > 0111001"
+stdout	"row 1 compare -1 0 -1 -1 0 -1 1 "
+stdout	"row 1 bound -1 0 -1 -1 0 -1 1 "
+stdout	"row 1 < 1011010 > 0000001"
+stdout	"row 2 compare -1 1 0 0 0 -1 1 "
+stdout	"row 2 bound -1 1 0 0 0 -1 1 "
+stdout	"row 2 < 1000010 > 0100001"
+stdout	"row 3 compare -1 1 0 0 0 -1 1 "
+stdout	"row 3 bound -1 1 0 0 0 -1 1 "
+stdout	"row 3 < 1000010 > 0100001"
+stdout	"row 4 compare 0 0 0 0 0 0 0 "
+stdout	"row 4 bound 0 0 0 0 0 0 0 "
+stdout	"row 4 < 0000000 > 0000000"
+stdout	"row 5 compare 1 1 1 1 0 0 1 "
+stdout	"row 5 bound 1 1 1 1 0 0 1 "
+stdout	"row 5 < 0000000 > 1111001"
+stdout	"row 6 compare -1 -1 -1 -1 0 -1 0 "
+stdout	"row 6 bound -1 -1 -1 -1 0 -1 0 "
+stdout	"row 6 < 1111010 > 0000000"
+stdout	""

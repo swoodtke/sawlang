@@ -368,6 +368,10 @@ public struct MirCall {
     spawn: MirSpawnForm
     // A drive site's form; `Absent` for every other call.
     drive: MirDriveForm
+    // The operator, `<=` or `>=`, that a `compare` call was desugared from,
+    // interned in the texts; -1 for every other call. Its answer over a NaN
+    // is unruled, so mono refuses such a call at `Float` (SL-722 Q3).
+    ordering_operator: Int
 }
 
 // A window a body opens: the accessor, whether it lends exclusively, and

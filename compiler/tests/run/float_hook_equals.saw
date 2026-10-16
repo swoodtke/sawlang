@@ -1,0 +1,50 @@
+// A Float's synthesized `Equatable.equals`, called directly and reached
+// through a bound's `==` and `!=`, over every pair of an ordinary value, the
+// two zeros, a NaN and the two infinities. It is IEEE equality: a NaN equals
+// nothing, itself included, and `-0.0` equals `0.0` (SL-722).
+
+func same(a: Float, b: Float) -> Bool {
+    a.equals(&b)
+}
+
+func equal<T: Equatable>(a: T, b: T) -> Bool {
+    a == b
+}
+
+func differ<T: Equatable>(a: T, b: T) -> Bool {
+    a != b
+}
+
+func flag(b: Bool) -> Int {
+    if b { 1 } else { 0 }
+}
+
+func main() {
+    let zero = 0.0
+    var values = Vector<Float>()
+    try! values.push(1.5)
+    try! values.push(-2.25)
+    try! values.push(0.0)
+    try! values.push(-0.0)
+    try! values.push(zero / zero)
+    try! values.push(1.0 / zero)
+    try! values.push(-1.0 / zero)
+    let n = values.len()
+    var i = 0
+    while i < n {
+        var direct = StringBuilder()
+        var eq = StringBuilder()
+        var ne = StringBuilder()
+        var j = 0
+        while j < n {
+            let a = values[i]
+            let b = values[j]
+            try! direct.append(value: flag(same(a, b)))
+            try! eq.append(value: flag(equal(a, b)))
+            try! ne.append(value: flag(differ(a, b)))
+            j = j + 1
+        }
+        print("row {} equals {} == {} != {}", i, direct.build(), eq.build(), ne.build())
+        i = i + 1
+    }
+}

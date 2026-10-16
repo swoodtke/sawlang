@@ -1,0 +1,16 @@
+program	compiler/tests/run/float_hook_hash.saw
+triple	arm64-apple-darwin
+source	b519069c9c1040ca
+build	ok
+exit	0
+stdout	"hasher zeros 1"
+stdout	"hasher ordinary 3446452952857447059"
+stdout	"ordinary 3446452952857447059 7781583869273967251"
+stdout	"zeros 5808590956661967507 5808590956661967507"
+stdout	"nan 1165233065239906963"
+stdout	"infinities 185700145991649939 9037671888869001875"
+stdout	"set zeros 1 1"
+stdout	"set nans 2 0"
+stdout	"set infinities 2 1"
+stdout	"map 3 2 3 4 -1"
+stdout	""

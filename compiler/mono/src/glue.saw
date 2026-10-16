@@ -532,7 +532,12 @@ extension MonoProgram {
                 }
                 ""
             },
-            case Floating -> "the backend lowers no Float operation",
+            case Floating -> {
+                if hook == MonoHook.Format {
+                    return "a Float's `format` waits for `std.float`'s formatter (SL-722 U5)"
+                }
+                ""
+            },
             case Pointer -> {
                 if hook == MonoHook.Duplicate {
                     return ""
@@ -716,8 +721,10 @@ extension MonoProgram {
         self.return_value(k, f, value)
     }
 
-    // `compare(other:)`: `Less` when `<` holds, `Equal` when `==` does, else
-    // `Greater`.
+    // `compare(other:)`: `Less` when `<` holds. Then an integer is `Equal`
+    // when `==` holds, else `Greater`; a Float is `Greater` when `>` holds,
+    // else `Equal`, so a pair a NaN leaves unordered is `Equal`, never
+    // `Greater`, as Stage 0 answers.
     func build_scalar_compare(&var self, k: Int, t: Int, req: Int) {
         let ordering = self.dp.bc.mir.tc.sigs[req].result
         let other = self.dp.bc.mir.tc.mk_ref(false, t)
@@ -731,9 +738,15 @@ extension MonoProgram {
         let below_op = self.dp.bc.mir.move_local(below)
         self.dp.bc.mir.switch_bool(below_op, less, rest)
         self.dp.bc.mir.enter(rest)
-        let same = self.compared("==", t)
-        let same_op = self.dp.bc.mir.move_local(same)
-        self.dp.bc.mir.switch_bool(same_op, equal, greater)
+        if self.dp.bc.mir.tc.is_float(t) {
+            let above = self.compared(">", t)
+            let above_op = self.dp.bc.mir.move_local(above)
+            self.dp.bc.mir.switch_bool(above_op, greater, equal)
+        } else {
+            let same = self.compared("==", t)
+            let same_op = self.dp.bc.mir.move_local(same)
+            self.dp.bc.mir.switch_bool(same_op, equal, greater)
+        }
         self.ordering_arm(less, ordering, "Less", join)
         self.ordering_arm(equal, ordering, "Equal", join)
         self.ordering_arm(greater, ordering, "Greater", join)
@@ -756,8 +769,9 @@ extension MonoProgram {
     }
 
     // `hash(h:)`: the value's bits fed to the hasher's `write_int(n:)` as an
-    // `Int`, a narrow value zero-extended whatever its sign and a Bool as 1
-    // or 0, which are the words Stage 0 feeds.
+    // `Int`, a narrow value zero-extended whatever its sign, a Bool as 1 or 0
+    // and a Float as `float_word` reads it, which are the words Stage 0
+    // feeds.
     func build_scalar_hash(&var self, k: Int, t: Int, req: Int) {
         let void_decl = self.dp.bc.mir.tc.known.void_type
         let void_type = self.dp.bc.mir.tc.prim(void_decl)
@@ -775,6 +789,8 @@ extension MonoProgram {
         var value = -1
         if self.dp.bc.mir.tc.is_bool(t) {
             value = self.bool_word(t)
+        } else if self.dp.bc.mir.tc.is_float(t) {
+            value = self.float_word(t)
         } else {
             let bits = self.referent_copy(1, t)
             value = self.hash_word(bits, t)
@@ -795,6 +811,43 @@ extension MonoProgram {
         self.dp.bc.mir.switch_bool(flag, yes, no)
         self.set_word(yes, word, "1", join)
         self.set_word(no, word, "0", join)
+        self.dp.bc.mir.enter(join)
+        self.dp.bc.mir.move_local(word)
+    }
+
+    // `(*_1)`, a Float, as an `Int`: 0 when it equals `0.0`, so `-0.0`
+    // hashes as `0.0` does, else its bits, a NaN's unnormalized. The bits are
+    // read through the address `_1` already holds, as `to_bits` reads them,
+    // so the word needs no conversion the backend lacks.
+    func float_word(&var self, t: Int) -> Int {
+        let int_type = self.dp.bc.mir.tc.int_type()
+        let bool_type = self.dp.bc.mir.tc.bool_type()
+        let word = self.dp.bc.mir.new_temp(int_type)
+        let zero = self.dp.bc.mir.new_block()
+        let bits = self.dp.bc.mir.new_block()
+        let join = self.dp.bc.mir.new_block()
+        var test = Vector<Int>()
+        try! test.push(self.referent_copy(1, t))
+        try! test.push(self.dp.bc.mir.op_const(MirConstKind.Float, "0.0", t))
+        let rv = self.dp.bc.mir.rv_over(MirRvalueKind.Binary, bool_type, "==", &test)
+        let is_zero = self.dp.bc.mir.temp_of(rv)
+        let is_zero_op = self.dp.bc.mir.move_local(is_zero)
+        self.dp.bc.mir.switch_bool(is_zero_op, zero, bits)
+        self.set_word(zero, word, "0", join)
+        self.dp.bc.mir.enter(bits)
+        var targs = Vector<Int>()
+        try! targs.push(int_type)
+        let pointer_decl = self.dp.bc.mir.tc.known.unsafe_pointer
+        let pointer = self.dp.bc.mir.tc.mk_nominal(pointer_decl, &targs)
+        let receiver = self.dp.bc.mir.place_local(1)
+        let address = self.dp.bc.mir.op_copy(receiver)
+        let cast = self.dp.bc.mir.rv_one(MirRvalueKind.Cast, pointer, "", address)
+        let at = self.dp.bc.mir.temp_of(cast)
+        let read = self.referent_copy(at, int_type)
+        let read_rv = self.dp.bc.mir.rv_use(read)
+        let p = self.dp.bc.mir.place_local(word)
+        self.dp.bc.mir.assign(p, read_rv)
+        self.dp.bc.mir.goto(join)
         self.dp.bc.mir.enter(join)
         self.dp.bc.mir.move_local(word)
     }

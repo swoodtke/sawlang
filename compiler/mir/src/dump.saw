@@ -773,6 +773,11 @@ extension MirProgram {
             }
             try! out.append(")")
         }
+        if c.ordering_operator >= 0 {
+            try! out.append(" (operator ")
+            try! out.append(self.tc.name_text(c.ordering_operator))
+            try! out.append(")")
+        }
         if c.kind != MirCallKind.WindowClose || c.arg_count > 0 {
             try! out.append(" [")
             self.append_operands(&var out, c.arg_first, c.arg_count)

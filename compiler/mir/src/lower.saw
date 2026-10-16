@@ -3723,6 +3723,11 @@ extension MirProgram {
 
     // A comparison a declared `equals` or `compare` answers: `!=` negates
     // `equals`, and an ordering compares `compare`'s `Ordering` with a case.
+    // THE ORDERING MARK: the `compare` call built for `<=` or `>=` records
+    // its operator, which mono reads to refuse the call where the instance
+    // is `Float`, whose NaN answer is unruled (SL-722 Q3).
+    // ENTRY POINTS:
+    //     comparison
     func operator_call(&var self, e: Int, c: &TcCall, left: Int, right: Int, op: String) -> Int {
         let b = self.tc.bool_type()
         let a = self.operand_as(left, true)
@@ -3737,6 +3742,9 @@ extension MirProgram {
         var call = self.blank_call(MirCallKind.Function, e)
         call.target = c.target
         call.owner = c.owner
+        if op.equals("<=") || op.equals(">=") {
+            call.ordering_operator = self.tc.res.intern(op)
+        }
         self.instantiate(&var call, &c)
         call.arg_first = self.push_args(&args)
         call.arg_count = 2

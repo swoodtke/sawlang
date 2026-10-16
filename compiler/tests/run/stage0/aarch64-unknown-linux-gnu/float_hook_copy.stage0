@@ -1,0 +1,10 @@
+program	compiler/tests/run/float_hook_copy.saw
+triple	aarch64-unknown-linux-gnu
+source	629bc64ff4012bd6
+build	ok
+exit	0
+stdout	"ordinary 1 0"
+stdout	"zeros 1 1 1 1"
+stdout	"nan 1"
+stdout	"infinities 1 1 1"
+stdout	""

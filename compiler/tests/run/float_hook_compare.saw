@@ -1,0 +1,69 @@
+// A Float's synthesized `Comparable.compare`, called directly and reached
+// through a bound's `<` and `>`, over every pair of an ordinary value, the two
+// zeros, a NaN and the two infinities. A pair a NaN leaves unordered is
+// `Equal` (0), never `Greater`, and `<` and `>` on it are both false; the two
+// zeros are `Equal` (SL-722).
+
+func code(a: Float, b: Float) -> Int {
+    match a.compare(&b) {
+        case Less -> -1,
+        case Equal -> 0,
+        case Greater -> 1
+    }
+}
+
+func order<T: Comparable>(a: T, b: T) -> Int {
+    match a.compare(&b) {
+        case Less -> -1,
+        case Equal -> 0,
+        case Greater -> 1
+    }
+}
+
+func below<T: Comparable>(a: T, b: T) -> Bool {
+    a < b
+}
+
+func above<T: Comparable>(a: T, b: T) -> Bool {
+    a > b
+}
+
+func flag(b: Bool) -> Int {
+    if b { 1 } else { 0 }
+}
+
+func main() {
+    let zero = 0.0
+    var values = Vector<Float>()
+    try! values.push(1.5)
+    try! values.push(-2.25)
+    try! values.push(0.0)
+    try! values.push(-0.0)
+    try! values.push(zero / zero)
+    try! values.push(1.0 / zero)
+    try! values.push(-1.0 / zero)
+    let n = values.len()
+    var i = 0
+    while i < n {
+        var direct = StringBuilder()
+        var bound = StringBuilder()
+        var lt = StringBuilder()
+        var gt = StringBuilder()
+        var j = 0
+        while j < n {
+            let a = values[i]
+            let b = values[j]
+            try! direct.append(value: code(a, b))
+            try! direct.append(" ")
+            try! bound.append(value: order(a, b))
+            try! bound.append(" ")
+            try! lt.append(value: flag(below(a, b)))
+            try! gt.append(value: flag(above(a, b)))
+            j = j + 1
+        }
+        print("row {} compare {}", i, direct.build())
+        print("row {} bound {}", i, bound.build())
+        print("row {} < {} > {}", i, lt.build(), gt.build())
+        i = i + 1
+    }
+}

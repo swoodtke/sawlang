@@ -886,6 +886,9 @@ extension MonoProgram {
                     self.resolve_dispatch(k, c, &info)
                     return
                 }
+                if self.unruled_ordering(&info) {
+                    return
+                }
                 var target = MonoTarget(decl: info.target, self_type: -1, item: -1)
                 if decl.kind == ResDeclKind.Requirement {
                     target = self.resolve_requirement(info.target, info.owner, k, info.node)
@@ -1112,6 +1115,21 @@ extension MonoProgram {
             j = j + 1
         }
         self.function_item(body, type_decl, &args, decl, &inst, self_type, k, info.node, key)
+    }
+
+    // THE UNRULED ORDERING: whether call `info`, a `compare` that MIR's
+    // ordering mark says a generic `<=` or `>=` desugars to, is at a `Float`
+    // instance, which is refused. Over a NaN, `compare` answers `Equal`, so
+    // the desugaring would answer `true` where a concrete `nan <= 1.0` is
+    // `false`, and which one is right is unruled (SL-722 Q3).
+    // ENTRY POINTS:
+    //     resolve_call
+    func unruled_ordering(&var self, info: &MirCall) -> Bool {
+        if info.ordering_operator < 0 || not self.dp.bc.mir.tc.is_float(info.owner) {
+            return false
+        }
+        self.refuse(info.node, "mono.not-yet", "a generic `<=`/`>=` over Float waits for SL-722 Q3 (NaN's answer)")
+        true
     }
 
     // The type declaration whose parameters a member's body names: the type

@@ -857,7 +857,7 @@ extension MirProgram {
                 spelling: -1, callee: -1, arg_first: self.lists.len(), arg_count: 0, dest: -1, next: -1,
                 absent: -1, window: -1, suspend: MirSuspend.Never, cond_first: self.conds.len(),
                 cond_count: 0, node: node, half: -1, spawn: MirSpawnForm.Absent,
-                drive: MirDriveForm.Absent)
+                drive: MirDriveForm.Absent, ordering_operator: -1)
     }
 
     // Ends the current block in call `c` and continues in a new block on its

@@ -139,9 +139,12 @@ call:
 - `switch OPERAND -> [true: bbK, false: bbK];` on a `Bool`;
   `switch discriminant(PLACE) -> [CASE: bbK, ..., otherwise: bbK];` on an enum,
   `otherwise` present when some case is not named;
-- `[PLACE = ] CALLEE [(owner T)] [(inst T...)] [ARGS] -> [return: bbK]
-  [SUSPENSION];`, or `-> !` for a call that never returns. CALLEE is `call
-  TARGET`, `call default TARGET.PARAM` (a parameter's default value), `call
+- `[PLACE = ] CALLEE [(owner T)] [(inst T...)] [(operator OP)] [ARGS] ->
+  [return: bbK] [SUSPENSION];`, or `-> !` for a call that never returns.
+  `(operator <=)` or `(operator >=)` marks the `compare` call a declared
+  ordering desugars that operator to (`operator_call`'s ordering mark),
+  which mono refuses at `Float` while NaN's answer is unruled (SL-722 Q3).
+  CALLEE is `call TARGET`, `call default TARGET.PARAM` (a parameter's default value), `call
   builtin NAME`, `call value OPERAND` (a function value), `window_open wK
   prologue TARGET` or `window_close wK epilogue TARGET`, which call its
   accessor's halves at the instantiation the open took. A window's open

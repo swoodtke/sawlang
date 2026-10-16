@@ -1,0 +1,13 @@
+program	compiler/tests/run/float_hook_equals.saw
+triple	aarch64-unknown-linux-gnu
+source	70cb479c406bc338
+build	ok
+exit	0
+stdout	"row 0 equals 1000000 == 1000000 != 0111111"
+stdout	"row 1 equals 0100000 == 0100000 != 1011111"
+stdout	"row 2 equals 0011000 == 0011000 != 1100111"
+stdout	"row 3 equals 0011000 == 0011000 != 1100111"
+stdout	"row 4 equals 0000000 == 0000000 != 1111111"
+stdout	"row 5 equals 0000010 == 0000010 != 1111101"
+stdout	"row 6 equals 0000001 == 0000001 != 1111110"
+stdout	""

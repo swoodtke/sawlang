@@ -1,0 +1,12 @@
+// refuses: mono.not-yet at 6:5
+// A generic `>=` at a `Float` instance is refused as a generic `<=` is
+// (mono.not-yet.float-order-le), and an `Int` instance of the same body
+// lowers (SL-722 Q3).
+func at_least<T: Comparable>(a: T, b: T) -> Bool {
+    a >= b
+}
+
+func main() {
+    print(at_least(3, 2))
+    print(at_least(2.5, 1.5))
+}

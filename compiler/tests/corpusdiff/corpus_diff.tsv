@@ -246,9 +246,9 @@ comparable_synth_enum.saw	pass	-	-
 comparable_synth_struct.saw	pass	-	-
 comparison_literal_coercion.saw	pass	-	-
 comparison_requirement_call_through_bound.saw	pass	-	-
-comparison_requirement_concrete_receiver.saw	refused	mono mono.not-yet	a synthesized `Comparable.compare(other: &Self)` on `Float` is not in the backend slice yet: the backend lowers no Float operation
+comparison_requirement_concrete_receiver.saw	pass	-	-
 complement_requires_integer.saw	pass	-	operator.undefined: `~` complements an integer, and this is `Bool`
-compound_assign.saw	refused	mono mono.not-yet	a synthesized `Printable.format(into: &var std.stringbuilder.StringBuilder)` on `Float` is not in the backend slice yet: the backend lowers no Float operation
+compound_assign.saw	refused	mono mono.not-yet	a synthesized `Printable.format(into: &var std.stringbuilder.StringBuilder)` on `Float` is not in the backend slice yet: a Float's `format` waits for `std.float`'s formatter (SL-722 U5)
 compound_assign_literal_out_of_range_error.saw	pass	-	type.mismatch: integer literal 300 does not fit in `Int8` (range -128..=127)
 conformance/A02_init_declared_return_is_checked.saw	pass	-	init.result: an `init` returns its receiver, `A02_init_declared_return_is_checked.Alpha`, or `Result<A02_init_declared_return_is_checked.Alpha, E>`, and this one returns `Int`
 conformance/B05_orphan_conformance.saw	pass	-	conformance.orphan: a conformance lives in its type's module (`dep`) or its trait's (`std.prelude`); wrap the type in one this module owns
@@ -766,7 +766,7 @@ coro_reassign_owning_local.saw	pass	-	-
 coro_ref_arg_beside_suspending_arg.saw	pass	-	-
 coro_ref_arg_beside_suspending_arg_cross_module.saw	pass	-	-
 coro_ref_into_frame_resident_fixed_array.saw	pass	-	-
-coro_ref_param_compound_assign.saw	refused	mono mono.not-yet	a synthesized `Printable.format(into: &var std.stringbuilder.StringBuilder)` on `Float` is not in the backend slice yet: the backend lowers no Float operation
+coro_ref_param_compound_assign.saw	refused	mono mono.not-yet	a synthesized `Printable.format(into: &var std.stringbuilder.StringBuilder)` on `Float` is not in the backend slice yet: a Float's `format` waits for `std.float`'s formatter (SL-722 U5)
 coro_ref_param_deinit_once.saw	pass	-	-
 coro_ref_param_mut.saw	pass	-	-
 coro_ref_param_read.saw	pass	-	-
@@ -1582,9 +1582,9 @@ format_args_nonliteral_error.saw	pass	-	format.slot-count: a message with format
 format_args_not_printable_error.saw	pass	-	format.argument: `format_args_not_printable_error.Opaque` is formatted here, and it is neither `Printable` nor a primitive
 format_args_panic.saw	pass	-	-
 format_args_placeholder_error.saw	refused	mono mono.not-yet	a `{}` slot in an interpolation is not in the backend slice yet
-format_args_print.saw	refused	mono mono.not-yet	a synthesized `Printable.format(into: &var std.stringbuilder.StringBuilder)` on `Float` is not in the backend slice yet: the backend lowers no Float operation
+format_args_print.saw	refused	mono mono.not-yet	a synthesized `Printable.format(into: &var std.stringbuilder.StringBuilder)` on `Float` is not in the backend slice yet: a Float's `format` waits for `std.float`'s formatter (SL-722 U5)
 format_args_too_many_error.saw	pass	-	format.slot-count: the format string has 1 `{}` slots, and 2 arguments follow it; each slot takes one argument
-format_into_builtin_alloc_free.saw	refused	mono mono.not-yet	a synthesized `Printable.format(into: &var std.stringbuilder.StringBuilder)` on `Float` is not in the backend slice yet: the backend lowers no Float operation
+format_into_builtin_alloc_free.saw	refused	mono mono.not-yet	a synthesized `Printable.format(into: &var std.stringbuilder.StringBuilder)` on `Float` is not in the backend slice yet: a Float's `format` waits for `std.float`'s formatter (SL-722 U5)
 forwarding_nonescaping_ok.saw	refused	resolve slice.not-yet	`syntax.expr.shorthand-param` is not in the bootstrap slice yet
 forwarding_transfer_drops_once_driven.saw	pass	-	-
 free_function_never_shadows_a_runtime_symbol.saw	refused	resolve import.unknown-module	no module `std.net`
@@ -2004,7 +2004,7 @@ nocopy_struct_field_init_with_move.saw	pass	-	-
 nomove_placement_into_its_home.saw	refused	resolve slice.not-yet	the compiler intrinsic `__saw_deinit_in_place` is not in the bootstrap slice yet
 nomove_tier.saw	pass	-	-
 none_return_test.saw	pass	-	-
-number_literal_member_access.saw	refused	mono mono.not-yet	a synthesized `Printable.format(into: &var std.stringbuilder.StringBuilder)` on `Float` is not in the backend slice yet: the backend lowers no Float operation (inside std/prelude.saw:150:9)
+number_literal_member_access.saw	refused	mono mono.not-yet	a synthesized `Printable.format(into: &var std.stringbuilder.StringBuilder)` on `Float` is not in the backend slice yet: a Float's `format` waits for `std.float`'s formatter (SL-722 U5) (inside std/pr
 offload_cancel_multi_arg.saw	refused	typecheck member.unknown	`std.taskgroup.Task<Int>` has no method `cancel_addr` this module can see
 offload_cancel_parked.saw	refused	typecheck member.unknown	`std.taskgroup.Task<Int>` has no method `cancel_addr` this module can see
 offload_multi_arg_pipe_read.saw	refused	coro coro.not-yet	`reader` suspends (reader -> read), so it needs a coroutine frame, which is not lowered yet (SL-545)
@@ -2147,7 +2147,7 @@ pointer_prefix_deref.saw	refused	typecheck slice.not-yet	`syntax.expr.move-deref
 prelude_import_makes_visible.saw	pass	-	-
 prelude_user_ioerror.saw	pass	-	-
 primitive_conformances.saw	pass	-	-
-primitive_extension_self_is_its_own_type.saw	refused	mono mono.not-yet	a synthesized `Printable.format(into: &var std.stringbuilder.StringBuilder)` on `Float` is not in the backend slice yet: the backend lowers no Float operation
+primitive_extension_self_is_its_own_type.saw	refused	mono mono.not-yet	a synthesized `Printable.format(into: &var std.stringbuilder.StringBuilder)` on `Float` is not in the backend slice yet: a Float's `format` waits for `std.float`'s formatter (SL-722 U5)
 print_unsigned_full_width.saw	pass	-	-
 printable_enum_data.saw	pass	-	-
 printable_interp_error.saw	pass	-	format.argument: `printable_interp_error.Bare` is formatted here, and it is neither `Printable` nor a primitive
@@ -2365,7 +2365,7 @@ string_from_bytes.saw	refused	typecheck member.unknown	`String` has no method `f
 string_from_bytes_errors.saw	refused	typecheck member.unknown	`String` has no method `fromBytes` this module can see
 string_implicit_copy.saw	pass	-	-
 string_interp_owned.saw	pass	-	-
-string_interpolation.saw	refused	mono mono.not-yet	a synthesized `Printable.format(into: &var std.stringbuilder.StringBuilder)` on `Float` is not in the backend slice yet: the backend lowers no Float operation
+string_interpolation.saw	refused	mono mono.not-yet	a synthesized `Printable.format(into: &var std.stringbuilder.StringBuilder)` on `Float` is not in the backend slice yet: a Float's `format` waits for `std.float`'s formatter (SL-722 U5)
 string_interpolation_escaped_braces.saw	pass	-	-
 string_iterator_retains_its_receiver.saw	pass	-	-
 string_len_o1.saw	pass	-	-
@@ -2501,7 +2501,7 @@ try_routing_clause.saw	refused	typecheck slice.not-yet	`syntax.expr.try.route` i
 try_routing_clause_needs_a_case.saw	pass	-	resolve.parse-refused: the parser refuses `tests/corpus/try_routing_clause_needs_a_case.saw` (syntax.rule.try-route-case), so its declarations are not available
 try_routing_clause_refusals.saw	pass	-	resolve.parse-refused: the parser refuses `tests/corpus/try_routing_clause_refusals.saw` (syntax.expr.refused-try-route), so its declarations are not available
 tuple_element_literal_out_of_range_error.saw	pass	-	type.mismatch: integer literal 300 does not fit in `Int8` (range -128..=127)
-tuple_index_member_access.saw	refused	mono mono.not-yet	a synthesized `Printable.format(into: &var std.stringbuilder.StringBuilder)` on `Float` is not in the backend slice yet: the backend lowers no Float operation
+tuple_index_member_access.saw	refused	mono mono.not-yet	a synthesized `Printable.format(into: &var std.stringbuilder.StringBuilder)` on `Float` is not in the backend slice yet: a Float's `format` waits for `std.float`'s formatter (SL-722 U5)
 tuples.saw	pass	-	-
 tuples_advanced.saw	pass	-	-
 two_copy_arc.saw	refused	mono mono.not-yet	a closure capturing a value that owns something is not in the backend slice yet
@@ -2567,7 +2567,7 @@ user_enum_poll_coexists.saw	pass	-	-
 value_branch_valueless_arm_preserved.saw	pass	-	-
 value_if_optional_destination_context.saw	pass	-	-
 var_struct_field_assign_ok.saw	pass	-	-
-variables.saw	refused	mono mono.not-yet	a synthesized `Printable.format(into: &var std.stringbuilder.StringBuilder)` on `Float` is not in the backend slice yet: the backend lowers no Float operation
+variables.saw	refused	mono mono.not-yet	a synthesized `Printable.format(into: &var std.stringbuilder.StringBuilder)` on `Float` is not in the backend slice yet: a Float's `format` waits for `std.float`'s formatter (SL-722 U5)
 vector_capacity_reports_oom.saw	pass	-	-
 vector_closure_suspending_transform.saw	pass	-	effect.closure-suspends: a closure body cannot suspend, and this calls `slow_double`, which may suspend: call it outside the closure
 vector_closures_over_nocopy_elements.saw	pass	-	-

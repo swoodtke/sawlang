@@ -1,0 +1,60 @@
+// A Float's synthesized `Hashable.hash`, called on a `Hasher` directly,
+// reached through a bound, and as a `Set` element and a `Map` key: the word is
+// 0 for either zero, so `0.0` and `-0.0` hash alike and are one element, and
+// otherwise the value's bits, a NaN's unnormalized, so two NaNs are two
+// elements since neither equals the other. Each digest is Stage 0's (SL-722).
+
+func digest<T: Hashable>(v: T) -> Int {
+    var h = Hasher()
+    v.hash(&var h)
+    h.finish()
+}
+
+func flag(b: Bool) -> Int {
+    if b { 1 } else { 0 }
+}
+
+func main() {
+    let zero = 0.0
+    let nan = zero / zero
+    let inf = 1.0 / zero
+
+    var hp = Hasher()
+    (0.0).hash(&var hp)
+    var hn = Hasher()
+    (-0.0).hash(&var hn)
+    print("hasher zeros {}", flag(hp.finish() == hn.finish()))
+    var ho = Hasher()
+    (1.5).hash(&var ho)
+    print("hasher ordinary {}", ho.finish())
+
+    print("ordinary {} {}", digest(1.5), digest(-2.25))
+    print("zeros {} {}", digest(0.0), digest(-0.0))
+    print("nan {}", digest(nan))
+    print("infinities {} {}", digest(inf), digest(-inf))
+
+    var zeros = Set<Float>()
+    let _ = try! zeros.insert(0.0)
+    let _ = try! zeros.insert(-0.0)
+    print("set zeros {} {}", zeros.len(), flag(zeros.contains(-0.0)))
+    var nans = Set<Float>()
+    let _ = try! nans.insert(nan)
+    let _ = try! nans.insert(nan)
+    print("set nans {} {}", nans.len(), flag(nans.contains(nan)))
+    var ends = Set<Float>()
+    let _ = try! ends.insert(inf)
+    let _ = try! ends.insert(-inf)
+    let _ = try! ends.insert(inf)
+    print("set infinities {} {}", ends.len(), flag(ends.contains(-inf)))
+
+    var counts: Map<Float, Int> = {:}
+    let _ = try! counts.insert(0.0, 1)
+    let _ = try! counts.insert(-0.0, 2)
+    let _ = try! counts.insert(1.5, 3)
+    let _ = try! counts.insert(-inf, 4)
+    let at_zero = counts.get(-0.0) ?? -1
+    let at_ordinary = counts.get(1.5) ?? -1
+    let at_inf = counts.get(-inf) ?? -1
+    let at_nan = counts.get(nan) ?? -1
+    print("map {} {} {} {} {}", counts.len(), at_zero, at_ordinary, at_inf, at_nan)
+}

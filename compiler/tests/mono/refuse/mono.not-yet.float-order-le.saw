@@ -1,0 +1,12 @@
+// refuses: mono.not-yet at 7:5
+// A generic `<=` desugars to `compare(a, b) != Greater`, which over a NaN
+// answers `true` where a concrete `nan <= 1.0` answers `false`. Which is
+// right is unruled, so at a `Float` instance the call is refused, though
+// `<`, `>`, `compare` and `==` lower (SL-722 Q3).
+func at_most<T: Comparable>(a: T, b: T) -> Bool {
+    a <= b
+}
+
+func main() {
+    print(at_most(1.5, 2.5))
+}

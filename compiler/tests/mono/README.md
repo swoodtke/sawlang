@@ -145,7 +145,7 @@ one builder (`build_member_glue`) builds each lowered cell's body. A scalar's:
 |---|---|---|---|---|---|
 | every integer width, signed and unsigned | the value | `==` | `<`, then `==`, at the type's signedness | its bits as an `Int` into `write_int`, a narrow width zero-extended | its decimal digits through `append(value: Int)` |
 | `Bool` | the value | `==` | refused: the spec grants no `Comparable` (SL-715) | 1 or 0 into `write_int` | `true` or `false` through `append(s:)` |
-| `Float` | refused: the backend lowers no Float operation | the same | the same | the same | the same |
+| `Float` | the value | `==`, IEEE (`fcmp oeq`) | `<`, then `>`, else `Equal`, so a NaN pair is `Equal`; a generic `<=` or `>=` desugared to it is refused until SL-722 Q3 rules on NaN | 0 when `== 0.0`, else its bits read through its address, into `write_int` | refused: waits for `std.float`'s formatter (SL-722 U5) |
 | a raw pointer | the value | refused: the spec grants no `Equatable` (SL-715) | | | |
 | `Void` | nothing | | | | |
 
@@ -153,16 +153,18 @@ An unsigned 64-bit value past `Int.max` is appended as its quotient by ten,
 when that is not zero, then its last digit. Each append panics as `try!` does
 if a growable builder cannot grow. Each answer is Stage 0's, the hash words
 included, so a `Map`'s order is too (run programs `scalar_copy`,
-`scalar_equals`, `scalar_compare`, `scalar_hash`, `scalar_format`, and the
-probe `void_copy_hook`). An empty cell is one typecheck grants no
+`scalar_equals`, `scalar_compare`, `scalar_hash`, `scalar_format`, the
+probe `void_copy_hook`, and for `Float`, over the two zeros, a NaN and the
+infinities, `float_hook_copy`, `float_hook_equals`, `float_hook_compare` and
+`float_hook_hash`). An empty cell is one typecheck grants no
 conformance for.
 
 An aggregate's hook asks its parts' hooks in turn, each a requirement call
 that the requirement funnel resolves as it resolves any, at the place the
 glue was first reached, so a part's hook is its written member, a default
 body or member glue again, and a part's refusal is reported there
-(`mono.not-yet.derived`, a `Float` field; `mono.not-yet.aggregate`, a raw
-pointer in a tuple). Each answer is Stage 0's:
+(`mono.not-yet.derived`, a `Bool` field's `compare`; `mono.not-yet.aggregate`,
+a raw pointer in a tuple). Each answer is Stage 0's:
 
 | kind | `equals` | `compare` | `hash` |
 |---|---|---|---|
@@ -321,7 +323,7 @@ nullable pointer (null is `None`), and an aggregate by value is refused.
 
 | rule | refuses | fixture |
 |---|---|---|
-| `mono.not-yet` | what the backend's slice does not lower: a builtin outside it, a format argument or an interpolated part whose rendering the slice does not make, a requirement no member, default or member glue in the slice meets, a call of a body this program does not lower, a closure capturing an owning value, an escaping closure that captures anything, an erased box whose allocator is not a fieldless struct with no `init` | `mono.not-yet`, `mono.not-yet.format`, `mono.not-yet.std`, `mono.not-yet.aggregate`, `mono.not-yet.derived`, `mono.not-yet.bool-order`, `mono.not-yet.pointer-equality`, and the escaping closure at each position it escapes through, `mono.not-yet.escaping-*` |
+| `mono.not-yet` | what the backend's slice does not lower: a builtin outside it, a format argument or an interpolated part whose rendering the slice does not make, a requirement no member, default or member glue in the slice meets, a call of a body this program does not lower, a closure capturing an owning value, an escaping closure that captures anything, an erased box whose allocator is not a fieldless struct with no `init`, a generic `<=` or `>=` at `Float` (a `compare` call MIR's ordering mark names), whose answer over a NaN is unruled (SL-722 Q3) | `mono.not-yet`, `mono.not-yet.format`, `mono.not-yet.std`, `mono.not-yet.aggregate`, `mono.not-yet.derived`, `mono.not-yet.bool-order`, `mono.not-yet.pointer-equality`, `mono.not-yet.float-order-le`, `mono.not-yet.float-order-ge`, and the escaping closure at each position it escapes through, `mono.not-yet.escaping-*` |
 | `mono.depth` | a concrete argument nested more than 64 deep, once per program, at the first call that met the limit | `mono.depth`, `mono.depth.method`, `mono.depth.recursive`, and `mono.depth.branching`, whose argument doubles its parts at each step |
 | `atomic.width` | an `Atomic<X>` at an `X` other than `Int` that only an instantiation forms, once per type, where the item was reached; one a written or inferred position carries is typecheck's (SL:open-questions D38) | `atomic.width` |
 | `transfer.no-move` | a generic body's move out of a place, which typecheck records where the type names a type parameter, at an instantiation that makes the type `NoMove`: the first such move of each declaration at each set of arguments, its body's, its closures' and its accessor halves' together. A spelled `move`, a `[move x]` capture and a local's by-value read at its last use all count; the fresh placement of a by-value parameter no reference has named does not. A concrete type's is typecheck's (SL-662) | `transfer.no-move`, a `Vector`'s growth; `.element`, `Vector.pop`'s move out of its buffer; `.forward`, a read at its last use; `.capture`, a `[move x]` capture; `.placement-after-borrow`, the placement once a reference named the parameter; `.take`, an Optional's payload; `.map`, a `Map`'s entries |
