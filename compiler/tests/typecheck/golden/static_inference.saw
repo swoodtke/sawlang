@@ -1,0 +1,40 @@
+// flags: --std-root std
+// A static call on a generic type written without its type arguments infers
+// them from its arguments, through a renamed extension's parameter too, and
+// from the declared type at an initializer through its result, peeling the
+// Optional the slot auto-wraps; written arguments are untouched (SL-657).
+
+struct Wrap<T> {
+    t: T
+}
+
+extension Wrap<U> {
+    static func of(t: U) -> Wrap<U> {
+        Wrap<U>(t: t)
+    }
+}
+
+struct Tag<T> {
+    n: Int
+}
+
+extension Tag<T> {
+    static func empty() -> Self {
+        Tag<T>(n: 4)
+    }
+}
+
+extension Tag {
+    static func count() -> Int {
+        3
+    }
+}
+
+func main() {
+    let w = Wrap.of(t: 5)
+    let s = try! Set.of(7)
+    let t: Tag<Int> = Tag.empty()
+    let o: Tag<String>? = Tag.empty()
+    let n = Tag<Int>.count()
+    print("{} {} {} {} {}", w.t, s.len(), t.n, o!.n, n)
+}

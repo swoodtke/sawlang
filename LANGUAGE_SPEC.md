@@ -11500,7 +11500,8 @@ are, so `Vector<Int>` and `Vector<Int, GlobalAllocator>` remain one type.
 
 A **declared slot** at an initializer is an inference source too. At a `let` or
 `var`, a module `static`, and a parameter's default value, the annotation's
-type arguments reach the constructor — which is the only thing that can solve a
+type arguments reach a constructor, or a static call on a generic type written
+without its type arguments. The slot is the only thing that can solve a
 construction carrying no arguments at all:
 
 ```saw
@@ -11516,6 +11517,23 @@ func main() {
     print(EVENTS.used)                     // prints: 0
     print(v.len())                         // prints: 0
 }
+```
+
+A static call meets the slot through its result type, so a static that
+returns its own type solves the type's arguments from the annotation:
+
+```saw-fragment
+struct Tag<T> {
+    n: Int
+}
+
+extension Tag<T> {
+    static func empty() -> Tag<T> {
+        Tag<T>(n: 0)
+    }
+}
+
+let tags: Tag<Int> = Tag.empty()           // T is Int, from the slot
 ```
 
 The slot is peeled through the layers the position auto-wraps, so

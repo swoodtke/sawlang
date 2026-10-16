@@ -1,0 +1,25 @@
+// refuses: type.bound at 23:13
+// a static of a bounded extension, called on its generic type written
+// without its type arguments, whose inferred argument does not meet the
+// bound (SL-657)
+
+struct Pick<T> {
+    t: T
+}
+
+extension Pick<T: Equatable> {
+    static func make(t: T) -> Pick<T> {
+        Pick<T>(t: t)
+    }
+}
+
+struct Loose {
+    v: Vector<Int>
+}
+
+extension Loose: NoCopy {}
+
+func main() {
+    let p = Pick.make(t: Loose(v: Vector<Int>()))
+    print("{}", p.t.v.len())
+}

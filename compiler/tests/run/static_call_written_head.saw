@@ -1,0 +1,23 @@
+// A static call on a generic type whose head writes the type arguments
+// instantiates the type at them, a static naming no type parameter included
+// (SL-657).
+
+struct Tag<T> {
+    t: T
+}
+
+extension Tag<T> {
+    static func count() -> Int {
+        3
+    }
+
+    static func of(t: T) -> Tag<T> {
+        Tag<T>(t: t)
+    }
+}
+
+func main() {
+    print("{}", Tag<Int>.count())
+    let w = Tag<String>.of(t: "seven")
+    print("{}", w.t)
+}

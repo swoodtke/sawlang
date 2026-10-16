@@ -1,0 +1,51 @@
+// probe: stated
+// about: a static call on a generic type written without its type arguments infers them from the call and the declared type (SL-657)
+// stage 0: refuses every inferred call (`argument expects T`, `cannot assign Tag<T>`), and fails on `Tag<Int>.count()` under a bare extension with an internal error
+// speeds: -O0 -O2
+// The arguments solve the type's parameters, `std`'s `Set.of` included; the
+// declared type at an initializer solves them through the result, peeling
+// the Optional it auto-wraps; a head that writes them is untouched under an
+// extension that names no parameter.
+// prints: 5
+// prints: 1
+// prints: 4
+// prints: 4
+// prints: 3
+
+struct Wrap<T> {
+    t: T
+}
+
+extension Wrap<T> {
+    static func of(t: T) -> Wrap<T> {
+        Wrap<T>(t: t)
+    }
+}
+
+struct Tag<T> {
+    n: Int
+}
+
+extension Tag<T> {
+    static func empty() -> Self {
+        Tag<T>(n: 4)
+    }
+}
+
+extension Tag {
+    static func count() -> Int {
+        3
+    }
+}
+
+func main() {
+    let w = Wrap.of(t: 5)
+    print("{}", w.t)
+    let s = try! Set.of(7)
+    print("{}", s.len())
+    let t: Tag<Int> = Tag.empty()
+    print("{}", t.n)
+    let o: Tag<String>? = Tag.empty()
+    print("{}", o!.n)
+    print("{}", Tag<Int>.count())
+}

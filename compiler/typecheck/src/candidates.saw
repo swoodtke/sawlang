@@ -102,7 +102,8 @@ extension TcProgram {
     // - method_candidates (methods, statics, a subscript's `[]`)
     // - resolve_comparison (`==`, `!=`, `<` through `equals`, `compare`)
     // - iterator_item (a `for` loop's `next`)
-    // - finish_call (an `init`, once inference solves its type's arguments)
+    // - finish_call (an `init`, or a static on a type written bare, once
+    //   inference solves its type's arguments)
     public func members_for(&var self, owner: Int, name: Int, viewer: Int, in_test: Bool) -> Vector<Int> {
         self.unmet_member = -1
         self.unmet_owner = -1

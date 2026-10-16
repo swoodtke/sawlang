@@ -1,0 +1,11 @@
+// refuses: member.unknown at 10:9
+// a static the generic type written without its type arguments does not have
+// (SL-657)
+
+struct Tag<T> {
+    t: T
+}
+
+func main() {
+    Tag.nope(1)
+}

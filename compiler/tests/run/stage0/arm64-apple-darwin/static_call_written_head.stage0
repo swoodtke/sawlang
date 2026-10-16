@@ -1,0 +1,8 @@
+program	compiler/tests/run/static_call_written_head.saw
+triple	arm64-apple-darwin
+source	c6c386f25413c8ef
+build	ok
+exit	0
+stdout	"3"
+stdout	"seven"
+stdout	""

@@ -1,0 +1,66 @@
+(Module static_inference
+  (declarations
+    (struct Wrap 7:8 private (generics (T)))
+    (field Wrap.t 8:5 private T)
+    (extension 11:1 (target static_inference.Wrap<T>))
+    (method Wrap.of 12:17 private (signature (params (t T owned)) -> static_inference.Wrap<T> static) (summary body (suspends no) (sync-callable yes)))
+    (struct Tag 17:8 private (generics (T)))
+    (field Tag.n 18:5 private Int)
+    (extension 21:1 (target static_inference.Tag<T>))
+    (method Tag.empty 22:17 private (signature (params) -> static_inference.Tag<T> static) (summary body (suspends no) (sync-callable yes)))
+    (extension 27:1 (target static_inference.Tag<T>))
+    (method Tag.count 28:17 private (signature (params) -> Int static) (summary body (suspends no) (sync-callable yes)))
+    (func main 33:6 private (signature (params) -> Void) (summary body (suspends no) (sync-callable yes))))
+  (members
+    (static_inference.Wrap
+      (field t T private declared)
+      (static of private (extension static_inference))
+      (method deinit public (synthesized Deinit)))
+    (static_inference.Tag
+      (field n Int private declared)
+      (static empty private (extension static_inference))
+      (static count private (extension static_inference))))
+  (views
+    (static_inference.Wrap t of deinit)
+    (static_inference.Tag n empty count))
+  (conformances)
+  (copy-tier
+    (static_inference.Wrap (join Copy T))
+    (static_inference.Tag Copy))
+  (bodies
+    (Wrap.of 12:17
+      (13:9-13:22 Call.paren static_inference.Wrap<T> value temp (memberwise static_inference.Wrap (owner static_inference.Wrap<T>)))
+      (13:20-13:21 Name T place move))
+    (Tag.empty 22:17
+      (23:9-23:21 Call.paren static_inference.Tag<T> value temp (memberwise static_inference.Tag (owner static_inference.Tag<T>)))
+      (23:19-23:20 IntLit Int value temp))
+    (Tag.count 28:17
+      (29:9-29:10 IntLit Int value temp))
+    (main 33:6
+      (34:9-34:10 BindingName static_inference.Wrap<Int> place temp)
+      (34:13-34:26 Call.paren static_inference.Wrap<Int> value temp (call static_inference.Wrap.of(t: T) (owner static_inference.Wrap<Int>)))
+      (34:24-34:25 IntLit Int value temp)
+      (35:9-35:10 BindingName std.set.Set<Int, std.alloc.GlobalAllocator> place temp)
+      (35:13-35:27 Try.force std.set.Set<Int, std.alloc.GlobalAllocator> value temp)
+      (35:18-35:27 Call.paren Result<std.set.Set<Int, std.alloc.GlobalAllocator>, std.alloc.AllocError> value temp (call std.set.Set.of(value: T) (owner std.set.Set<Int, std.alloc.GlobalAllocator>)))
+      (35:25-35:26 IntLit Int value temp)
+      (36:9-36:10 BindingName static_inference.Tag<Int> place temp)
+      (36:23-36:34 Call.paren static_inference.Tag<Int> value temp (call static_inference.Tag.empty() (owner static_inference.Tag<Int>)))
+      (37:9-37:10 BindingName static_inference.Tag<String>? place temp)
+      (37:27-37:38 Call.paren static_inference.Tag<String> (some static_inference.Tag<String>?) value temp (call static_inference.Tag.empty() (owner static_inference.Tag<String>)))
+      (38:9-38:10 BindingName Int place temp)
+      (38:13-38:29 Call.paren Int value temp (call static_inference.Tag.count() (owner static_inference.Tag<Int>)))
+      (39:5-39:56 Call.paren Void value temp (builtin print))
+      (39:11-39:27 Interp String value temp)
+      (39:29-39:32 Member Int place borrow)
+      (39:29-39:30 Name static_inference.Wrap<Int> place project)
+      (39:34-39:41 Call.paren Int value borrow (call std.set.Set.len() (owner std.set.Set<Int, std.alloc.GlobalAllocator>)))
+      (39:34-39:35 Name std.set.Set<Int, std.alloc.GlobalAllocator> (borrow &std.set.Set<Int, std.alloc.GlobalAllocator>) place borrow)
+      (39:43-39:46 Member Int place borrow)
+      (39:43-39:44 Name static_inference.Tag<Int> place project)
+      (39:48-39:52 Member Int place borrow)
+      (39:48-39:50 ForceUnwrap static_inference.Tag<String> place project)
+      (39:48-39:49 Name static_inference.Tag<String>? place project)
+      (39:54-39:55 Name Int place borrow)))
+  (string-positions
+    (39:11 format std.stringbuilder.StringBuilder)))

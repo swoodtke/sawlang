@@ -1,0 +1,18 @@
+// refuses: infer.failed at 17:17
+// a static call on a generic type written without its type arguments, under
+// an extension that names none, where nothing in the call determines `T`
+// (SL-657)
+
+struct Tag<T> {
+    t: T
+}
+
+extension Tag {
+    static func count() -> Int {
+        3
+    }
+}
+
+func main() {
+    print("{}", Tag.count())
+}

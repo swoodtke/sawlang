@@ -1,0 +1,9 @@
+// refuses: member.unknown at 7:32
+// flags: --std-root std
+// a static std's `Box`, written without its type arguments, does not have
+// (SL-657)
+
+func main() {
+    let b: Box<Int> = try! Box.new(1)
+    print("{}", b.value())
+}

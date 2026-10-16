@@ -60,6 +60,9 @@ static TC_WANT_NONE: Int = -1
 // A statement: the value is discarded, and a block's last expression is no
 // tail.
 static TC_WANT_STMT: Int = -2
+// `named_owner`'s answer for a generic type written without its arguments,
+// which the call's inference solves: neither a type nor a refusal.
+static TC_OWNER_INFER: Int = -2
 // The kinds of operator a flat chain may hold.
 static TC_OPS_ARITHMETIC: Int = 1
 static TC_OPS_INTEGRAL: Int = 2
@@ -6326,7 +6329,7 @@ extension TcProgram {
             case Overload -> self.free_call(e, callee, rc.binding, &args),
             case Init -> self.init_call(e, callee, rc.binding, &args, want),
             case Method -> self.method_call(e, callee, &args),
-            case StaticMethod -> self.static_call(e, callee, rc.binding, &args),
+            case StaticMethod -> self.static_call(e, callee, rc.binding, &args, want),
             case Case -> self.case_call(e, callee, rc.binding.decl, &args, want),
             case ImplicitCase -> self.implicit_case_call(e, callee, rc.binding.name, &args, want),
             case Local -> self.value_call(e, callee, &args),
@@ -7189,8 +7192,9 @@ extension TcProgram {
     }
 
     // `T.f(...)`: a static method of a named type, or of a type parameter's
-    // bounds.
-    func static_call(&var self, e: Int, callee: Int, b: ResBinding, args: &TcArgs) -> Int {
+    // bounds. A generic type written without its arguments takes them from
+    // the call (`named_owner`).
+    func static_call(&var self, e: Int, callee: Int, b: ResBinding, args: &TcArgs, want: Int) -> Int {
         let base = self.res.first_node_child(callee)
         let leaf = self.res.first_leaf(callee)
         let m = self.current
@@ -7203,6 +7207,9 @@ extension TcProgram {
         if b.decl >= 0 {
             let written = self.explicit_type_args(base)
             t = self.named_owner(b.decl, &written, leaf)
+            if t == TC_OWNER_INFER {
+                return self.inferred_static_call(e, callee, b.decl, name, &args, want)
+            }
         } else if b.node >= 0 {
             let owner = self.param_owner(b.node)
             let index = self.param_index(b.node)
@@ -7244,6 +7251,79 @@ extension TcProgram {
         }
         let explicit = self.explicit_type_args(callee)
         self.resolve_call(e, &cands, &args, &explicit, -1, TC_WANT_NONE)
+    }
+
+    // `G.f(...)` on generic type `d` written without its arguments: its
+    // statics named `name`, owner-less, so the call's inference solves the
+    // type's parameters from the arguments and from `want` through the
+    // result (`check_candidate`); a raw-backed enum's `from(raw:)` takes them
+    // from `want` as a case does. A bound of the declaring extension is met
+    // once they are solved (`finish_call`).
+    func inferred_static_call(&var self, e: Int, callee: Int, d: Int, name: Int, args: &TcArgs, want: Int) -> Int {
+        let leaf = self.res.first_leaf(callee)
+        let text = self.name_text(name)
+        if text.equals("from") && self.is_enum_decl(d) && self.sigs[d].result >= 0 {
+            let t = self.enum_type_for(e, d, want)
+            if self.has_error(t) {
+                self.type_args_alone(&args)
+                return self.set_type(e, t, false)
+            }
+            return self.raw_from(e, d, t, &args)
+        }
+        let m = self.current
+        let in_test = self.current_test
+        let found = self.visible_members(d, name, m, in_test)
+        var cands = Vector<TcCand>()
+        var own_generics = false
+        var k = 0
+        while k < found.len() {
+            let at = found[k]
+            k = k + 1
+            if self.is_method_member(at, true) {
+                let member = self.members[at]
+                self.build_decl(member.decl)
+                if self.sigs[member.decl].generic_count > 0 {
+                    own_generics = true
+                }
+                try! cands.push(TcCand(decl: member.decl, kind: TcCandKind.Function, member: at, owner: -1))
+            }
+        }
+        if cands.len() == 0 {
+            self.type_args_alone(&args)
+            if text.equals("deinit") {
+                self.refuse_manual_deinit(leaf)
+            } else {
+                var msg = StringBuilder()
+                try! msg.append("`")
+                try! msg.append(self.nominal_name(d))
+                try! msg.append("` has no method `")
+                try! msg.append(text)
+                try! msg.append("` this module can see")
+                self.refuse(leaf, "member.unknown", msg.build())
+            }
+            let poisoned = self.error_type
+            return self.set_type(e, poisoned, false)
+        }
+        if own_generics {
+            // One solve holds one declaration's parameters, and this call
+            // would need the type's and the method's at once.
+            self.type_args_alone(&args)
+            self.not_yet(e, "a generic static method called on a generic type written without its type arguments")
+            let poisoned = self.error_type
+            return self.set_type(e, poisoned, false)
+        }
+        let explicit = self.explicit_type_args(callee)
+        self.resolve_call(e, &cands, &args, &explicit, -1, want)
+    }
+
+    // Whether candidate `c` is a static method found on a generic type
+    // written without its arguments, which the call's inference instantiates
+    // (`inferred_static_call`).
+    func infers_static_owner(&self, c: TcCand) -> Bool {
+        if c.kind != TcCandKind.Function || c.owner >= 0 || c.member < 0 {
+            return false
+        }
+        self.res.decls[c.decl].kind != ResDeclKind.Init
     }
 
     // `Task.spawn(f(x))`, the background spawn form (design 242). Its one
@@ -7709,9 +7789,18 @@ extension TcProgram {
         self.set_type(e, t, false)
     }
 
-    // Nominal `d` named where a static member or a construction is written:
-    // with its written arguments, or its own parameters when it takes some
-    // and none are written, which inference then solves.
+    // THE TYPE-HEAD FUNNEL: nominal `d` named as the head of a construction,
+    // a static call or a case, with the type arguments `written` there. Its
+    // three answers are distinct: the type; the error type once a written
+    // list is refused; or `TC_OWNER_INFER` for a generic type written bare,
+    // whose call builds its candidates owner-less so that inference solves
+    // the type's parameters from the arguments and the expected type, and
+    // refuses `infer.failed` where nothing determines one (SL-657).
+    //
+    // ENTRY POINTS:
+    //     written_enum_owner
+    //     init_call
+    //     static_call
     func named_owner(&var self, d: Int, written: &Vector<Int>, leaf: Int) -> Int {
         self.ensure_generics(d)
         let s = self.sigs[d]
@@ -7719,7 +7808,7 @@ extension TcProgram {
             if s.generic_count == 0 {
                 return self.self_type_of(d)
             }
-            return -1
+            return TC_OWNER_INFER
         }
         if written.len() > s.generic_count {
             self.refuse_type_arity(leaf, d, written.len())
@@ -7785,6 +7874,9 @@ extension TcProgram {
             pinned = tc_copy_ints(&written)
         } else {
             owner = self.named_owner(d, &written, leaf)
+            if owner == TC_OWNER_INFER {
+                owner = -1
+            }
         }
         if owner < 0 && pinned.len() == 0 && want >= 0 && self.is_nominal_of(want, d) {
             owner = want
@@ -8683,6 +8775,12 @@ extension TcProgram {
     // owner's arguments for its type's parameters, `Self`, and a trait's
     // associated types for a requirement a default or derivation fills.
     public func cand_subst(&var self, c: TcCand) -> TcSubst {
+        if self.infers_static_owner(c) {
+            // `Self` is the type at its own parameters, which inference solves.
+            let td = self.members[c.member].type_decl
+            let own = self.self_type_of(td)
+            return self.member_subst(c.member, own)
+        }
         if c.owner < 0 {
             return TcSubst(self_type: -1, from_owner: -1, to_owner: -1, args_owner: -1,
                            args: Vector<Int>(), assoc_decls: Vector<Int>(),
@@ -8862,7 +8960,7 @@ extension TcProgram {
             return self.set_type(e, poisoned, false)
         }
         let bind = self.bind_args(c, &args)
-        let solve = self.check_candidate(e, c, &args, &bind, &explicit)
+        let solve = self.check_candidate(e, c, &args, &bind, &explicit, want)
         let t = self.finish_call(e, c, &solve, receiver)
         let at = self.call_at[e]
         if at >= 0 {
@@ -9315,9 +9413,11 @@ extension TcProgram {
     // argument fixpoint (designs 93 and 105). An argument whose parameter is
     // known goes through the funnel at once; one that types itself is typed
     // and unified; the rest wait for what the others solve, and a literal
-    // left over takes its own default. Returns the solutions.
+    // left over takes its own default. A static on a generic type written
+    // bare first takes what `want` fixes through its result, as a
+    // construction takes its slot. Returns the solutions.
     func check_candidate(&var self, e: Int, c: TcCand, args: &TcArgs, bind: &TcBind,
-                         explicit: &Vector<Int>) -> TcSolve {
+                         explicit: &Vector<Int>, want: Int) -> TcSolve {
         let owner = self.cand_generic_owner(c)
         var count = 0
         if owner >= 0 {
@@ -9340,6 +9440,9 @@ extension TcProgram {
             }
         }
         let sub = self.cand_subst(c)
+        if want >= 0 && owner >= 0 && self.infers_static_owner(c) {
+            self.solve_from_slot(c, want, &sub, &var solve)
+        }
         let n = args.values.len()
         var done = Vector<Bool>()
         var k = 0
@@ -9470,6 +9573,35 @@ extension TcProgram {
         }
         self.check_used_defaults(e, c, &defaults, &sub, &solve)
         move solve
+    }
+
+    // Pins what expected type `slot` fixes of candidate `c`'s parameters by
+    // unifying `c`'s result with the slot or with a layer the slot
+    // auto-wraps, an Optional's payload or a Result's `Ok`. A slot the result
+    // does not match fixes nothing, and the call's arguments are then the
+    // only source.
+    func solve_from_slot(&var self, c: TcCand, slot: Int, sub: &TcSubst, solve: &var TcSolve) {
+        let raw = self.sigs[c.decl].result
+        let result = self.subst(raw, &sub)
+        var w = slot
+        while w >= 0 && not self.has_error(w) {
+            var trial = tc_solve(solve.owner, solve.sol.len())
+            if self.unify(result, w, &var trial) && trial.conflict_index < 0 && self.solved_count(&trial) > 0 {
+                var k = 0
+                while k < trial.sol.len() {
+                    if solve.sol[k] < 0 && trial.sol[k] >= 0 {
+                        solve.sol[k] = trial.sol[k]
+                    }
+                    k = k + 1
+                }
+                return
+            }
+            if self.is_optional(w) || self.is_result(w) {
+                w = self.arg_of(w, 0)
+            } else {
+                return
+            }
+        }
     }
 
     // A default value whose parameter's type is a type parameter `t`: a
@@ -9825,10 +9957,11 @@ extension TcProgram {
         } else if owner_decl >= 0 {
             inst = tc_copy_ints(&solve.sol)
         }
-        // An `init` is found by its type alone, often before inference solves
-        // the type's arguments, so it meets its extension's bounds here
-        // (`members_for`).
-        if c.member >= 0 && self.res.decls[c.decl].kind == ResDeclKind.Init {
+        // An `init`, and a static on a type written bare, is found by its
+        // type alone, often before inference solves the type's arguments, so
+        // it meets its extension's bounds here (`members_for`).
+        let found_by_type = self.res.decls[c.decl].kind == ResDeclKind.Init || self.infers_static_owner(c)
+        if c.member >= 0 && found_by_type && owner >= 0 {
             self.unmet_member = c.member
             self.unmet_owner = owner
             let _ = self.refuse_unmet_member(e)

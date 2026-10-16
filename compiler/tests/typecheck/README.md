@@ -419,6 +419,7 @@ Optional. Under `type.bound` unless a cell says otherwise:
 | a member of a bounded conformance | refused | type.bound.conformance-member |
 | `==` through a bounded conformance's `equals`, which Stage 0 accepts | refused | type.bound.operator |
 | a subscript, a `for` loop's `next`, an `init` whose type inference solves | refused | type.bound.subscript, type.bound.iterator, type.bound.init |
+| a static on its type written without its type arguments, whose inferred argument misses the bound (SL-657) | refused | type.bound.static |
 | std's `copy()` on `Vector<T>` where `T` is not ExplicitCopy | refused | type.bound.vector-copy |
 | the builtin `copy()` reaching an unbounded type parameter, through a tuple, an Optional or an array (row V43) | refused | type.bound.copy-wrapper |
 | the same parameter 18 tuples deep (SL-627) | refused | type.bound.copy-deep-parameter |
@@ -742,6 +743,7 @@ Every body construct in the slice, and how it is typed:
 | a requirement called through a type parameter whose signature names an associated type, `s.take(v)` with `take(v: Self.Item)`; a call instantiating a signature that names `T.Item` | the receiver's projection, `S.Item`, which takes no concrete type and copies silently under no bound; at the call, the conformance's assignment | associated_types; type.mismatch.projection, type.mismatch.projection-concrete, transfer.implicit-copy.projection |
 | a call's arguments: positional, a label skipping a default, a default left out, a construction's or payload's labels out of order, a C variadic tail | the binding of each parameter to its argument or its default | arguments, lowlevel |
 | a construction whose head writes a prefix of its type's arguments, `Two<Int>(a: 1, b: true)` | the prefix pins the leading parameters, inference solves the rest (spec, Generics) | partial_arguments |
+| a static call on a generic type written without its type arguments, `Wrap.of(t: 5)`, `Set.of(7)`, `Tag.empty()` at a declared `Tag<Int>` or `Tag<String>?` | inference solves the type's parameters from the arguments and, through the result, from the expected type, peeled through the Optional or `Ok` it auto-wraps; nothing determining one is `infer.failed`, and a name the type has no static of is `member.unknown`; a written head, `Tag<Int>.count()`, is untouched (SL-657) | static_inference; infer.failed.static-bare-extension, infer.failed.static-generic-extension, member.unknown.static-bare-head, member.unknown.static-bare-std-head |
 | a function value's call | its function type | calls, control |
 | `h.f(x)` where `f` is a field holding a function and the type has no method `f` this module sees | the field's function value, called (`value`); with such a method seen too, refused as `call.field-method-ambiguous` (SL:open-questions D16) | field_calls, multi/field_views |
 | `o.take()`, `o.is_some()`, `o.is_none()`, `x.copy()`, an array's or slice's `len()` and `swap(i, j)` | the methods no declaration writes | places, conversions |
@@ -786,6 +788,7 @@ Every body construct in the slice, and how it is typed:
 | `break` with a value | `slice.not-yet` (`syntax.stmt.break`) |
 | a method or static method named without its call | `slice.not-yet` (`syntax.expr.member`) |
 | a call of a type parameter with arguments, `T(x)` | `slice.not-yet` (`syntax.expr.call`) |
+| a generic static method called on a generic type written without its type arguments, whose call would solve the type's parameters and the method's at once (SL-657) | `slice.not-yet` (generic-static-bare-head) |
 | `sleep`, `cancelled` | `slice.not-yet` (sync-only) |
 | a call whose signature names a type from a std module the parser refuses | `slice.not-yet` |
 | a specialized extension, and every body in it | `slice.not-yet` |

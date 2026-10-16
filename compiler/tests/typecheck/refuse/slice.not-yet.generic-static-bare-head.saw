@@ -1,0 +1,18 @@
+// refuses: slice.not-yet at 17:17
+// a generic static method called on a generic type written without its type
+// arguments, which would infer the type's parameters and the method's at
+// once (SL-657)
+
+struct Tag<T> {
+    t: T
+}
+
+extension Tag<T> {
+    static func pair<U>(t: T, u: U) -> Int {
+        1
+    }
+}
+
+func main() {
+    print("{}", Tag.pair(t: 1, u: true))
+}
