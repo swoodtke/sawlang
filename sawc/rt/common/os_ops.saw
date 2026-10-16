@@ -19,7 +19,7 @@ extern "C" {
     func read(fd: Int32, buf: UnsafePointer<Int8>, count: Int) -> Int
     func write(fd: Int32, buf: UnsafePointer<Int8>, count: Int) -> Int
     func close(fd: Int32) -> Int32
-    // Filesystem / environment ops.
+    // Filesystem ops.
     // `open` is variadic; the mode argument is read only with O_CREAT.
     func open(path: UnsafePointer<Int8>, flags: Int32, ...) -> Int32
     func lseek(fd: Int32, offset: Int64, whence: Int32) -> Int64
@@ -30,8 +30,6 @@ extern "C" {
     func rmdir(path: UnsafePointer<Int8>) -> Int32
     func chdir(path: UnsafePointer<Int8>) -> Int32
     func getcwd(buffer: UnsafePointer<Int8>, size: Int) -> UnsafePointer<Int8>?
-    func setenv(name: UnsafePointer<Int8>, value: UnsafePointer<Int8>, overwrite: Int32) -> Int32
-    func unsetenv(name: UnsafePointer<Int8>) -> Int32
     // Hostname resolution; see `rt_resolve_ipv4` for why it may block.
     func getaddrinfo(node: UnsafePointer<Int8>, service: UnsafePointer<Int8>,
                      hints: UnsafePointer<Int8>, res: UnsafePointer<Int8>) -> Int32
@@ -385,8 +383,9 @@ func rt_resolve_ipv4(host: UnsafePointer<Int8>, out: UnsafePointer<UInt32>, max:
 }
 
 // =============================================================================
-// Filesystem / environment status ops. Same convention as the socket ops:
-// a natural non-negative result (0, fd, byte count, offset) or -tag.
+// Filesystem status ops. Same convention as the socket ops: a natural
+// non-negative result (0, fd, byte count, offset) or -tag. The environment
+// ops are in proc.saw, with the lock they share.
 // =============================================================================
 
 // `mode` is the portable open mode (rt/ABI.md), not a POSIX flag word, because
@@ -505,22 +504,4 @@ func rt_fs_getcwd(status_out: UnsafePointer<Int>) unsafe -> UnsafePointer<Int8> 
     }
     status_out[0] = __saw_rt_last_syserror()
     return 0 as UnsafePointer<Int8>
-}
-
-@export("__saw_rt_env_set")
-func rt_env_set(name: UnsafePointer<Int8>, value: UnsafePointer<Int8>, overwrite: Int) unsafe -> Int {
-    if setenv(name, value, overwrite as Int32) == (0 as Int32) {
-        0
-    } else {
-        0 - __saw_rt_last_syserror()
-    }
-}
-
-@export("__saw_rt_env_unset")
-func rt_env_unset(name: UnsafePointer<Int8>) unsafe -> Int {
-    if unsetenv(name) == (0 as Int32) {
-        0
-    } else {
-        0 - __saw_rt_last_syserror()
-    }
 }

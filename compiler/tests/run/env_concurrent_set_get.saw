@@ -1,0 +1,94 @@
+// due: Thread.spawn is not in sawc2's slice (SL-737's stress pin)
+// refuses: slice.not-yet at 81:17
+// Several OS threads set, read, test and remove environment variables at
+// once: each its own name, one name they all share, and a run of throwaway
+// names that keeps the environment growing so libc reallocates it under the
+// readers. Every read must see a value some write stored, whole, because
+// the runtime serializes Saw's environment calls with one lock and a read
+// copies the value out under it (SL-737). The summary is the same on every
+// run whatever the interleaving.
+import std.env.{Env}
+
+static THREADS: Int = 4
+static ROUNDS: Int = 2000
+static THROWAWAY_NAMES: Int = 50
+
+func shared_name() -> String {
+    "SAW_ENV_STRESS_SHARED"
+}
+
+// A long value, so a torn or freed read is a visible mismatch rather than a
+// lucky short match.
+func shared_value(owner: Int) -> String {
+    "shared-{owner}-abcdefghijklmnopqrstuvwxyz-abcdefghijklmnopqrstuvwxyz-{owner}"
+}
+
+func is_shared_value(text: String) -> Bool {
+    var owner = 0
+    var found = false
+    while owner < THREADS {
+        if text == shared_value(owner) {
+            found = true
+        }
+        owner = owner + 1
+    }
+    found
+}
+
+// Returns how many reads saw something no write stored.
+func hammer(me: Int) unsafe -> Int {
+    let own = "SAW_ENV_STRESS_OWN_{me}"
+    var wrong = 0
+    var round = 0
+    while round < ROUNDS {
+        let want = "own-{me}-{round}-abcdefghijklmnopqrstuvwxyz"
+        try! Env.set(own, want)
+        let mine = Env.get(own) ?? ""
+        if mine != want {
+            wrong = wrong + 1
+        }
+        try! Env.set(shared_name(), shared_value(me))
+        let shared = Env.get(shared_name()) ?? ""
+        if not is_shared_value(shared) {
+            wrong = wrong + 1
+        }
+        if not Env.contains(shared_name()) {
+            wrong = wrong + 1
+        }
+        let throwaway = "SAW_ENV_STRESS_T{me}_{round % THROWAWAY_NAMES}"
+        if round % 2 == 0 {
+            try! Env.set(throwaway, want)
+        } else {
+            try! Env.unset(throwaway)
+        }
+        if round % 100 == 99 {
+            try! Env.unset(own)
+            if Env.contains(own) {
+                wrong = wrong + 1
+            }
+        }
+        round = round + 1
+    }
+    wrong
+}
+
+func main() {
+    try! Env.set(shared_name(), shared_value(0))
+    let zero = 0
+    let one = 1
+    let two = 2
+    let three = 3
+    var first = Thread.spawn { [zero] in hammer(zero) }
+    var second = Thread.spawn { [one] in hammer(one) }
+    var third = Thread.spawn { [two] in hammer(two) }
+    var fourth = Thread.spawn { [three] in hammer(three) }
+    let wrong = first.join() + second.join() + third.join() + fourth.join()
+    print("threads {}", THREADS)
+    print("rounds {}", ROUNDS)
+    print("reads that saw no stored value {}", wrong)
+    if let last = Env.get(shared_name()) {
+        print("shared value at the end is one written {}", is_shared_value(last))
+    } else {
+        print("shared value at the end is missing")
+    }
+}

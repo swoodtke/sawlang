@@ -12960,6 +12960,17 @@ numeric extensions and the
 sockets are still planned. There is no `async`/`future`
 module: concurrency is colorless (no `async`/`await`).
 
+**`Env` across threads.** `Env.get`, `Env.contains`, `Env.set` and
+`Env.unset`, and a spawn's read of the environment it hands a child, all take
+one process-global lock in the runtime. Saw code on several threads may read
+and change the environment at once, and a read returns a copy of a value some
+write stored, never a torn or freed one. The lock covers Saw's own calls
+only. C code that calls `getenv` or `setenv` on another thread does not take
+it, and neither does libc when it reads the environment for itself: glibc's
+resolver reads `LOCALDOMAIN` and `RES_OPTIONS` while `TcpStream.connect`
+resolves a name. Such a read racing an `Env.set` is outside what the lock
+guarantees.
+
 ### The modules
 
 `Optional` and `Result` are language features rather than modules — the empty

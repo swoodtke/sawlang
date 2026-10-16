@@ -10,6 +10,8 @@ public func tc_runtime_abi_rows(names: &var Vector<String>, params: &var Vector<
     tc_abi_row(&var names, &var params, &var results, &var owners, "__saw_rt_blocking_sleep", "word", "word", "runtime")
     tc_abi_row(&var names, &var params, &var results, &var owners, "__saw_rt_clock_monotonic_nanos", "", "i64", "runtime")
     tc_abi_row(&var names, &var params, &var results, &var owners, "__saw_rt_dealloc", "word, word, word", "void", "runtime")
+    tc_abi_row(&var names, &var params, &var results, &var owners, "__saw_rt_env_contains", "word", "word", "runtime")
+    tc_abi_row(&var names, &var params, &var results, &var owners, "__saw_rt_env_get", "word, word", "word", "runtime")
     tc_abi_row(&var names, &var params, &var results, &var owners, "__saw_rt_env_set", "word, word, word", "word", "runtime")
     tc_abi_row(&var names, &var params, &var results, &var owners, "__saw_rt_env_unset", "word", "word", "runtime")
     tc_abi_row(&var names, &var params, &var results, &var owners, "__saw_rt_executable_path", "", "word", "runtime")

@@ -21,11 +21,23 @@
 // blocking. std declares it `blocking`, so it runs on a worker thread while
 // the task parks.
 //
+// The environment seams live here too, beside the spawn that reads `environ`
+// for a child, because every one of them takes the one environment lock and
+// a file's statics are its own.
+//
 // A freestanding runtime supplies its own bodies for these names.
 
 extern "C" {
     func malloc(size: Int) -> UnsafePointer<Int8>
     func free(ptr: UnsafePointer<Int8>)
+    func strlen(text: UnsafePointer<Int8>) -> Int
+    func memcpy(dst: UnsafePointer<Int8>, src: UnsafePointer<Int8>, count: Int) -> UnsafePointer<Int8>
+    func getenv(name: UnsafePointer<Int8>) -> UnsafePointer<Int8>?
+    func setenv(name: UnsafePointer<Int8>, value: UnsafePointer<Int8>, overwrite: Int32) -> Int32
+    func unsetenv(name: UnsafePointer<Int8>) -> Int32
+    // The one-word lock (host_macos/lock.saw, or shim.c on Linux).
+    func __saw_rt_lock_acquire(state: UnsafePointer<Int>)
+    func __saw_rt_lock_release(state: UnsafePointer<Int>)
     func pipe(fds: UnsafePointer<Int8>) -> Int32
     func close(fd: Int32) -> Int32
     func read(fd: Int32, buf: UnsafePointer<Int8>, count: Int) -> Int
@@ -100,6 +112,30 @@ enum RedirectFlag: UInt8 {
     case MergeStderr = 2
 }
 
+// The lock every environment access Saw makes is serialized by. libc's
+// setenv may reallocate `environ`, or free a value, while another thread's
+// getenv walks it, so no read or write of the environment happens outside it,
+// and a read copies the value out before releasing it; a spawn holds it
+// across `fork`. Zero is unlocked, as the one-word lock requires. C code
+// calling getenv or setenv itself takes no part in it. (SL-737)
+// ENTRY POINTS:
+//   rt_env_set
+//   rt_env_unset
+//   rt_env_get
+//   rt_env_contains
+//   merge_environ
+//   rt_proc_spawn
+//   rt_proc_spawn_env
+unsafe static var ENV_LOCK_STATE: Int = 0
+
+func env_lock_take() unsafe sync {
+    __saw_rt_lock_acquire((&ENV_LOCK_STATE) as UnsafePointer<Int>)
+}
+
+func env_lock_give() unsafe sync {
+    __saw_rt_lock_release((&ENV_LOCK_STATE) as UnsafePointer<Int>)
+}
+
 // pipe() writes fds[0]=read, fds[1]=write into two adjacent Int32s.
 struct PipeFds {
     r: Int32
@@ -159,32 +195,41 @@ func same_env_name(entry: UnsafePointer<Int8>, spec: UnsafePointer<Int8>) unsafe
 // The child's environment: the parent's, with every `NAME=VALUE` in `overrides`
 // replacing the entry of that name (appended when the parent had none).
 //
-// Returns a malloc'd NULL-terminated array as a word, or NULL_ENVP when the
-// allocation was refused. The slots BORROW strings from two places — the
-// parent's own `environ` and the caller's `overrides` array — so the result is
-// valid only while both are, which is exactly the fork-then-exec window it
-// exists for. The ARRAY is the caller's to free; the strings are not.
+// Returns one malloc'd block as a word, or NULL_ENVP when the allocation was
+// refused: the NULL-terminated array, then copies of the parent's entries it
+// keeps. The parent's entries are copied under the environment lock because
+// another thread's setenv may free them once it is released; the override
+// slots BORROW the caller's strings, which outlive the spawn. The caller frees
+// the block, and nothing inside it is freed separately.
 //
 // This runs in the PARENT, before the fork, because it allocates: everything
 // the child then does with the result is a pointer store.
 func merge_environ(overrides: UnsafePointer<UnsafePointer<Int8>>) unsafe -> Int {
-    let parent = __saw_environ_get()
     var n_over = 0
     while (overrides[n_over] as Int) != 0 {
         n_over = n_over + 1
     }
+
+    env_lock_take()
+    let parent = __saw_environ_get()
     var n_parent = 0
+    var text_bytes = 0
     while (parent[n_parent] as Int) != 0 {
+        text_bytes = text_bytes + strlen(parent[n_parent]) + 1
         n_parent = n_parent + 1
     }
 
     let slot = sizeof<UnsafePointer<Int8>>()
-    let raw = malloc((n_parent + n_over + 1) * slot)
+    let table_bytes = (n_parent + n_over + 1) * slot
+    let raw = malloc(table_bytes + text_bytes)
     if (raw as Int) == NULL_ENVP {
+        env_lock_give()
         return NULL_ENVP
     }
     let out = raw as UnsafePointer<UnsafePointer<Int8>>
+    let text = raw + table_bytes
 
+    var used = 0
     var w = 0
     var i = 0
     while i < n_parent {
@@ -198,11 +243,17 @@ func merge_environ(overrides: UnsafePointer<UnsafePointer<Int8>>) unsafe -> Int 
             k = k + 1
         }
         if not overridden {
-            out[w] = entry
+            let size = strlen(entry) + 1
+            let copy = text + used
+            let _ = memcpy(copy, entry, size)
+            out[w] = copy
+            used = used + size
             w = w + 1
         }
         i = i + 1
     }
+    env_lock_give()
+
     var j = 0
     while j < n_over {
         out[w] = overrides[j]
@@ -237,9 +288,14 @@ func proc_spawn_impl(path: UnsafePointer<Int8>, argv: UnsafePointer<Int8>, envp:
         }
     }
 
+    // The parent holds the environment lock across `fork`, so the child's
+    // copy of `environ` is never one another thread's setenv left half made;
+    // the parent alone releases it.
+    env_lock_take()
     let pid = fork()
     if pid < (0 as Int32) {
         let e = __saw_rt_last_syserror()
+        env_lock_give()
         if capture != 0 {
             let _ = close(fds.r)
             let _ = close(fds.w)
@@ -250,6 +306,9 @@ func proc_spawn_impl(path: UnsafePointer<Int8>, argv: UnsafePointer<Int8>, envp:
     if pid == (0 as Int32) {
         // Child. Everything here is async-signal-safe (dup2/close/execvp/_exit
         // and a pointer store), as the window between fork and exec requires.
+        // The child inherits the environment lock HELD and never takes or
+        // releases it, so nothing between `fork` and `exec` may reach an env
+        // seam.
         if capture != 0 {
             let _ = close(fds.r)
             let _ = dup2(fds.w, STDOUT_FILENO)
@@ -271,6 +330,7 @@ func proc_spawn_impl(path: UnsafePointer<Int8>, argv: UnsafePointer<Int8>, envp:
         return 0
     }
 
+    env_lock_give()
     // Parent: the write end belongs to the child now.
     if capture != 0 {
         let _ = close(fds.w)
@@ -404,4 +464,65 @@ func rt_proc_release(job: Int) unsafe {
     let _ = waitpid(p[0].pid, (&status) as UnsafePointer<Int32>, WNOHANG)
     proc_job_close(p)
     free(job as UnsafePointer<Int8>)
+}
+
+// =============================================================================
+// Environment seams. Each takes the environment lock around its libc call.
+// =============================================================================
+
+// Returns 0 or -tag. The tag is read before the lock is released, since the
+// release may itself touch errno.
+@export("__saw_rt_env_set")
+func rt_env_set(name: UnsafePointer<Int8>, value: UnsafePointer<Int8>, overwrite: Int) unsafe -> Int {
+    env_lock_take()
+    var status = 0
+    if setenv(name, value, overwrite as Int32) != (0 as Int32) {
+        status = 0 - __saw_rt_last_syserror()
+    }
+    env_lock_give()
+    status
+}
+
+@export("__saw_rt_env_unset")
+func rt_env_unset(name: UnsafePointer<Int8>) unsafe -> Int {
+    env_lock_take()
+    var status = 0
+    if unsetenv(name) != (0 as Int32) {
+        status = 0 - __saw_rt_last_syserror()
+    }
+    env_lock_give()
+    status
+}
+
+// The value of `name` in a malloc'd C string the caller frees, or NULL: with
+// status 0 when `name` is not set, or the positive Exhausted tag when the
+// copy cannot be allocated. getenv's own pointer never leaves the lock, since
+// a later setenv on another thread may free it.
+@export("__saw_rt_env_get")
+func rt_env_get(name: UnsafePointer<Int8>, status_out: UnsafePointer<Int>) unsafe -> UnsafePointer<Int8> {
+    var copy = 0 as UnsafePointer<Int8>
+    var status = 0
+    env_lock_take()
+    if let value = getenv(name) {
+        let size = strlen(value) + 1
+        let raw = malloc(size)
+        if (raw as Int) == 0 {
+            status = (SysError.Exhausted as UInt8) as Int
+        } else {
+            let _ = memcpy(raw, value, size)
+            copy = raw
+        }
+    }
+    env_lock_give()
+    status_out[0] = status
+    copy
+}
+
+// 1 when `name` is set, even to an empty value, else 0.
+@export("__saw_rt_env_contains")
+func rt_env_contains(name: UnsafePointer<Int8>) unsafe -> Int {
+    env_lock_take()
+    let found = getenv(name).is_some()
+    env_lock_give()
+    if found { 1 } else { 0 }
 }

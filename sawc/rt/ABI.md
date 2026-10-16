@@ -493,6 +493,29 @@ captured right after). C-string args.
   the projection is a seam. `entry` is non-NULL (std checks readdir's result).
 - `__saw_rt_env_set(name: i8*, value: i8*, overwrite: word) -> word`
 - `__saw_rt_env_unset(name: i8*) -> word`
+- `__saw_rt_env_get(name: i8*, status_out: word*) -> i8*` — the value of
+  `name` copied into a NUL-terminated string the caller frees, or NULL. On
+  NULL the out-parameter says why, as `__saw_rt_fs_getcwd`'s does: `0` when
+  `name` is not set, the POSITIVE tag on failure (`Exhausted` when the copy
+  cannot be allocated). getenv's own pointer is never handed out, because a
+  later setenv on another thread may free it.
+- `__saw_rt_env_contains(name: i8*) -> word` — `1` when `name` is set, even to
+  an empty value, else `0`. It cannot fail.
+
+**The environment lock (SL-737).** libc's `setenv`/`unsetenv`/`getenv` are
+not thread-safe against each other: a set may reallocate `environ`, or free a
+value, while another thread's get walks it. A runtime therefore serializes
+these four seams and both spawn seams with one process-global lock, and a
+read copies what it needs before the lock is released. A spawn holds it in
+the parent across `fork`, so the child's copy of the environment is never
+caught half rewritten; the child inherits it held and never takes or
+releases it, so nothing between `fork` and `exec` may reach an environment
+seam. std reaches the environment through these seams alone. The lock covers
+Saw's own calls only: C code that calls `getenv`/`setenv` on other threads,
+and libc's own internal readers (the resolver behind
+`__saw_rt_resolve_ipv4` reads `LOCALDOMAIN` and `RES_OPTIONS` on glibc), do
+not take it. The hosted runtime keeps the lock in `rt/common/proc.saw` as a
+one-word lock (`__saw_rt_lock_acquire`/`_release`, below).
 
 ## Status-carrying file I/O (design 132)
 
@@ -537,6 +560,8 @@ the read end of its stdout pipe. Single-owner discipline, as in the offload
 family: `spawn` creates the job, the reap destroys it. The hosted bodies are
 `fork` + `execvp` (`rt/common/proc.saw`, OS-independent); between fork and exec
 the child touches only async-signal-safe calls (`close`/`dup2`/`execvp`/`_exit`).
+The parent holds the environment lock across the `fork` (see the environment
+ops above).
 
 **The child wait uses no thread (design 182).** `try_wait` reaps with `WNOHANG`
 and answers `-WouldBlock` while the child lives, and a caller that has to wait
@@ -578,8 +603,10 @@ environment. Names are unique (std replaces rather than appends), so no
 precedence question reaches the seam. Returns the job handle (`> 0`) or
 `-tag`, and `-Exhausted` when the merged array cannot be allocated.
 
-The merge runs in the parent, before the fork; the child does nothing but point
-`environ` at the result before `execvp`. That ordering is the contract, not an
+The merge runs in the parent, before the fork, under the environment lock
+(above), and copies every parent entry it keeps, so no later `setenv` on
+another thread can free a string the child is handed; the child does nothing
+but point `environ` at the result before `execvp`. That ordering is the contract, not an
 implementation detail: a spawning process may be multi-threaded, and the window
 between fork and exec may only touch async-signal-safe calls, which a merge that
 allocates is not. Pointing `environ` at a pre-built array is how a portable
@@ -965,6 +992,7 @@ a flag bit.
 | —      | `__saw_rt_tcp_listen_on`                                       |
 | D44    | `__saw_rt_executable_path`: one new symbol, required of every runtime because std calls it. sawos's runtime owes its NULL stub when that work resumes |
 | SL-720 | `__saw_rt_fs_getcwd`: one new symbol, status-carrying like `__saw_rt_fs_opendir`, so `Env.cwd` reports the cause getcwd gave. No existing signature moved |
+| SL-737 | `__saw_rt_env_get` (status-carrying like `__saw_rt_fs_getcwd`) and `__saw_rt_env_contains`: two new symbols, so std's environment reads go through the runtime. `__saw_rt_env_set`/`_unset`, `__saw_rt_proc_spawn` and `__saw_rt_proc_spawn_env` **changed** contract: all six take one environment lock, both spawns hold it in the parent across `fork`, and `_spawn_env` copies the parent's entries under it. No existing signature moved |
 
 ## The compiler → executor boundary (design 118)
 
@@ -1090,8 +1118,9 @@ sawc/rt/
   common/       OS-independent bodies: mem.saw (alloc, dealloc, deny_after),
                 sleep.saw, op_budget.saw, pthread.saw (mutex/cond init,
                 thread_join), offload.saw, proc.saw (fork/exec argv spawn,
-                WNOHANG reap), os_ops.saw (the status-carrying tcp_*/fs_*/env_*
-                ops, socket options, resolve_ipv4)
+                WNOHANG reap, the env_* ops and the environment lock),
+                os_ops.saw (the status-carrying tcp_*/fs_* ops, socket
+                options, resolve_ipv4)
   host_macos/   kqueue reactor + macOS specifics: clock, net_os (errno→tag,
                 raw code, sin_set_family), dirent (the d_name offset), lock
                 (os_unfair_lock), proc_wait (the EVFILT_PROC child-exit

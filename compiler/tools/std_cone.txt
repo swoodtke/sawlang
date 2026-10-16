@@ -5,7 +5,7 @@
 # the build's cone differs from this file. `via runtime` marks what only the
 # runtime objects reach; an `instance` line is one type-argument tuple, a type
 # the compiler source declares written as (owning) or (plain).
-# 328 declarations in 24 modules
+# 339 declarations in 25 modules
 
 builtin: 13
   struct Atomic
@@ -42,7 +42,8 @@ rt.common.os_ops: 10
   func rt_fs_write  via runtime
   extern write  via runtime
 
-rt.common.proc: 30
+rt.common.proc: 37
+  static ENV_LOCK_STATE  via runtime
   static EQUALS_BYTE  via runtime
   static EXEC_FAILED_STATUS  via runtime
   static NO_FD  via runtime
@@ -57,13 +58,18 @@ rt.common.proc: 30
   extern __saw_environ_get  via runtime
   extern __saw_environ_set  via runtime
   extern __saw_rt_last_syserror  via runtime
+  extern __saw_rt_lock_acquire  via runtime
+  extern __saw_rt_lock_release  via runtime
   extern _exit  via runtime
   extern close  via runtime
   extern dup2  via runtime
+  func env_lock_give  via runtime
+  func env_lock_take  via runtime
   extern execvp  via runtime
   extern fork  via runtime
   extern free  via runtime
   extern malloc  via runtime
+  extern memcpy  via runtime
   func merge_environ  via runtime
   extern pipe  via runtime
   func proc_job_close  via runtime
@@ -72,6 +78,7 @@ rt.common.proc: 30
   func rt_proc_spawn_env  via runtime
   func rt_proc_try_wait  via runtime
   func same_env_name  via runtime
+  extern strlen  via runtime
   extern waitpid  via runtime
 
 rt.common.sleep: 5
@@ -93,6 +100,12 @@ rt.host_macos.executable_path: 5
   extern malloc  via runtime
   extern realpath  via runtime
   func rt_executable_path  via runtime
+
+rt.host_macos.lock: 4
+  extern os_unfair_lock_lock  via runtime
+  extern os_unfair_lock_unlock  via runtime
+  func rt_lock_acquire  via runtime
+  func rt_lock_release  via runtime
 
 rt.host_macos.net_os: 37
   static EACCES  via runtime
@@ -456,7 +469,7 @@ std.vector: 10
   __saw_string_release
   __saw_string_retain
 
-(external C symbols): 32
+(external C symbols): 34
   _NSGetExecutablePath
   __error
   __saw_environ_get  shim.c
@@ -475,6 +488,8 @@ std.vector: 10
   malloc
   memcpy
   open
+  os_unfair_lock_lock
+  os_unfair_lock_unlock
   pipe
   pthread_getspecific
   pthread_key_create

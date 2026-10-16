@@ -87,6 +87,10 @@ RUNTIME_ABI_SYMBOLS = frozenset({
     "__saw_rt_fs_dirent_name",
     "__saw_rt_env_set",
     "__saw_rt_env_unset",
+    # The environment reads, which copy the value out under the runtime's one
+    # environment lock that set/unset take too (SL-737)
+    "__saw_rt_env_get",
+    "__saw_rt_env_contains",
     # Process spawn (design 122 unit C): real argv spawn, no shell anywhere.
     # The `_env` twin (design 155) carries per-child environment overrides —
     # only the runtime can reach the process environment.
