@@ -1695,7 +1695,9 @@ at the binding: call it as a statement, or write `let _ = ...` if the point is
 to evaluate and discard. Every position that binds a name follows the same
 rule: a `let` or `var`, an element of a tuple pattern, `if let`, `if var`,
 `guard let` and `while let`, a `match` arm's payload or whole-value binding, a
-`for` variable, and a `borrow` binding. At each of them `_` binds nothing, so
+`for` variable, a `borrow` binding, and a parameter, which binds a name too, so
+a function, method or `init` declares no `Void` parameter and a closure that
+takes one writes `{ _ in ... }`. At each of them `_` binds nothing, so
 `if let _ = maybe()` and `case Ok(_)` are the spellings. The line is
 **syntactic**. A `Void` you can see in the source is a visible mistake and is
 rejected; a `Void` that arrives by

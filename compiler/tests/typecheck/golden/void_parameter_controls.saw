@@ -1,0 +1,25 @@
+// The parameter positions that stay legal at `Void`: a closure's `_` through a
+// `(Void) -> Int`, a parameter typed by a type parameter called at `T = Void`, a
+// closure parameter typed `T` in a generic body, and `(Void) -> Int` written as
+// a type (SL-774; spec, "Binding a `Void` expression")
+
+func nothing() { }
+
+func apply(f: (Void) -> Int) -> Int {
+    f(nothing())
+}
+
+func foo<T>(v: T) -> Int { 1 }
+
+func relay<T>(x: T) -> Int {
+    let f = { v: T in 2 }
+    f(x)
+}
+
+func main() {
+    let g: (Void) -> Int = { _ in 3 }
+    print(apply(f: { _ in 2 }))
+    print(apply(f: g))
+    print(foo(v: nothing()))
+    print(relay(x: nothing()))
+}

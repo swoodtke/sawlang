@@ -1,0 +1,15 @@
+// refuses: type.void-parameter at 7:23
+// a method parameter declared `Void`
+
+struct Gauge { n: Int }
+
+extension Gauge {
+    func takes(&self, v: Void) -> Int { self.n }
+}
+
+func noop() { }
+
+func main() {
+    let g = Gauge(n: 1)
+    print(g.takes(v: noop()))
+}

@@ -1,0 +1,12 @@
+// refuses: type.void-binding at 9:22
+// a closure parameter typed `Void` by the type argument a call solves
+
+func apply<T>(f: (T) -> Int, x: T) -> Int {
+    f(x)
+}
+
+func main() {
+    print(apply(f: { v in 2 }, x: noop()))
+}
+
+func noop() { }

@@ -302,6 +302,7 @@ extension TcProgram {
                     escaping = param.escaping
                 }
                 self.local_types[leaf] = t
+                self.refuse_void_binding(c, leaf, t)
                 if not escaping && self.kind_of(t) == TcKind.Func {
                     self.nonescaping_bindings[leaf] = true
                 }
@@ -843,7 +844,10 @@ extension TcProgram {
     // and `_` is the spelling (spec, "Binding a `Void` expression"). A
     // generic body is checked once, so a binding a type parameter types
     // never reaches `Void` here, which keeps it instantiation-uniform.
-    // `bind_part` and `bind_borrow` call it for each binding position:
+    // A declared parameter is the one position `_` does not excuse: no
+    // context dictates a signature, so the parameter is dropped instead, and
+    // its refusal is `type.void-parameter`. `bind_part` and `bind_borrow`
+    // call it for each pattern binding position:
     //
     // ENTRY POINTS:
     //     check_let (`let x = e`, `var x = e`, annotated or not)
@@ -853,19 +857,34 @@ extension TcProgram {
     //         the whole value)
     //     for_expr (a `for` variable)
     //     bind_borrow (a `borrow let` or `borrow var` binding)
+    //     closure_typed (a closure parameter, its type written or expected)
+    //     check_function_body (a function's, method's, `init`'s or
+    //         requirement's declared parameter)
     func refuse_void_binding(&var self, node: Int, leaf: Int, t: Int) {
         if leaf < 0 || not self.is_void(t) {
             return
         }
         let m = self.current
         let name = self.text(m, leaf)
+        if self.has_alt(node, Alt.Decl_Param_Plain) || self.has_alt(node, Alt.Decl_Param_Default) {
+            var msg = StringBuilder()
+            try! msg.append("parameter `")
+            try! msg.append(name)
+            try! msg.append("` is declared `Void`, a value that does not exist, so there is nothing to pass or to name: drop the parameter")
+            self.refuse(node, "type.void-parameter", msg.build())
+            return
+        }
         if name.equals("_") {
             return
         }
         var msg = StringBuilder()
         try! msg.append("cannot bind `")
         try! msg.append(name)
-        try! msg.append("` to an expression of type `Void` — it produces no value: write `_` in its place to evaluate it and bind nothing (`let _ = ...`, `if let _ = ...`, `case Ok(_)`), or call it as a statement on its own line")
+        if self.is_closure_param(node) {
+            try! msg.append("` to an expression of type `Void` — it produces no value: write `_` in its place to take the argument and bind nothing (`\{ _ in ... \}`)")
+        } else {
+            try! msg.append("` to an expression of type `Void` — it produces no value: write `_` in its place to evaluate it and bind nothing (`let _ = ...`, `if let _ = ...`, `case Ok(_)`), or call it as a statement on its own line")
+        }
         self.refuse(node, "type.void-binding", msg.build())
     }
 
@@ -5531,6 +5550,7 @@ extension TcProgram {
             }
             let held = self.strip_escaping(t)
             self.local_types[leaf] = held
+            self.refuse_void_binding(c, leaf, held)
             try! params.push(t)
         }
         var result = -1

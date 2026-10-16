@@ -1,0 +1,9 @@
+// refuses: type.void-binding at 7:15
+// a closure parameter whose written type is `Void`
+
+func noop() { }
+
+func main() {
+    let f = { v: Void in 2 }
+    print(f(noop()))
+}

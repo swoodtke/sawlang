@@ -1,0 +1,12 @@
+// refuses: type.void-binding at 9:22
+// a closure parameter typed `Void` by the expected `(Void) -> Int`
+
+func apply(f: (Void) -> Int) -> Int {
+    f(noop())
+}
+
+func main() {
+    print(apply(f: { v in 2 }))
+}
+
+func noop() { }

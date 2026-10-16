@@ -1245,9 +1245,12 @@ var scratch: [Int8; 256] = [0; 256] // REPEAT literal: N copies of one value
 - Binding a name to a visibly `Void` value is a type error at EVERY binding
   position: `let`/`var`, `if let`/`guard let`/`while let`, a `match` or enum
   payload (`case Ok(v)` on `Result<Void, E>`), a tuple element, a `for`
-  variable. Bind nothing (`let _ = ...`, `if let _ = maybe()`, `case Ok(_)`)
-  or call it as a statement. A binding typed by a type parameter is fine even
-  when it is `Void` at a call (`let r: R = body()`). Separately, a
+  variable, a parameter. A function never declares `v: Void` (drop the
+  parameter), and a closure taking a `Void` writes `{ _ in ... }`. Bind
+  nothing (`let _ = ...`, `if let _ = maybe()`, `case Ok(_)`) or call it as a
+  statement. A binding typed by a type parameter is fine even when it is
+  `Void` at a call (`let r: R = body()`, `func foo<T>(v: T)`), and so is
+  `(Void) -> Int` written as a type. Separately, a
   top-level `func`/`extern` named after a built-in (`print`/`assert`/`sleep`/
   `spawn`/`sizeof`/…) is a duplicate-definition error — the call site always
   resolves to the built-in, so the declaration could never run.

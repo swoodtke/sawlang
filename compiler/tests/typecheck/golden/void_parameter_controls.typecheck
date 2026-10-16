@@ -1,0 +1,43 @@
+(Module void_parameter_controls
+  (declarations
+    (func nothing 6:6 private (signature (params) -> Void) (summary body (suspends no) (sync-callable yes)))
+    (func apply 8:6 private (signature (params (f (Void) -> Int owned)) -> Int) (summary body (suspends no) (sync-callable no)))
+    (func foo 12:6 private (signature (generics (T)) (params (v T owned)) -> Int) (summary body (suspends no) (sync-callable yes)))
+    (func relay 14:6 private (signature (generics (T)) (params (x T owned)) -> Int) (summary body (suspends no) (sync-callable no)))
+    (func main 19:6 private (signature (params) -> Void) (summary body (suspends no) (sync-callable no))))
+  (members)
+  (views)
+  (conformances)
+  (copy-tier)
+  (bodies
+    (nothing 6:6)
+    (apply 8:6
+      (9:5-9:17 Call.paren Int value temp (value (owner (Void) -> Int)))
+      (9:5-9:6 Name (Void) -> Int place borrow)
+      (9:7-9:16 Call.paren Void value temp (call void_parameter_controls.nothing())))
+    (foo 12:6
+      (12:28-12:29 IntLit Int value temp))
+    (relay 14:6
+      (15:9-15:10 BindingName (T) -> Int place temp)
+      (15:13-15:26 Closure (T) -> Int value temp)
+      (15:23-15:24 IntLit Int value temp)
+      (16:5-16:9 Call.paren Int value temp (value (owner (T) -> Int)))
+      (16:5-16:6 Name (T) -> Int place borrow)
+      (16:7-16:8 Name T place move))
+    (main 19:6
+      (20:9-20:10 BindingName (Void) -> Int place temp)
+      (20:28-20:38 Closure (Void) -> Int value temp)
+      (20:35-20:36 IntLit Int value temp)
+      (21:5-21:32 Call.paren Void value temp (builtin print))
+      (21:11-21:31 Call.paren Int value borrow (call void_parameter_controls.apply(f: (Void) -> Int)))
+      (21:20-21:30 Closure (Void) -> Int value temp)
+      (21:27-21:28 IntLit Int value temp)
+      (22:5-22:23 Call.paren Void value temp (builtin print))
+      (22:11-22:22 Call.paren Int value borrow (call void_parameter_controls.apply(f: (Void) -> Int)))
+      (22:20-22:21 Name (Void) -> Int place copy)
+      (23:5-23:29 Call.paren Void value temp (builtin print))
+      (23:11-23:28 Call.paren Int value borrow (call void_parameter_controls.foo(v: T) (inst Void)))
+      (23:18-23:27 Call.paren Void value temp (call void_parameter_controls.nothing()))
+      (24:5-24:31 Call.paren Void value temp (builtin print))
+      (24:11-24:30 Call.paren Int value borrow (call void_parameter_controls.relay(x: T) (inst Void)))
+      (24:20-24:29 Call.paren Void value temp (call void_parameter_controls.nothing())))))

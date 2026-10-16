@@ -1,0 +1,10 @@
+// refuses: type.void-parameter at 4:12
+// a parameter declared `Void` with a default
+
+func takes(v: Void = noop()) -> Int { 1 }
+
+func noop() { }
+
+func main() {
+    print(takes())
+}

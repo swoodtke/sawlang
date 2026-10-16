@@ -1,0 +1,8 @@
+// refuses: type.void-parameter at 5:23
+// a requirement parameter declared `Void`
+
+trait Taker {
+    func takes(&self, v: Void) -> Int
+}
+
+func main() { }

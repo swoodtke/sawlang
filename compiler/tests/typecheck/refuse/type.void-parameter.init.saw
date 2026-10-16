@@ -1,0 +1,15 @@
+// refuses: type.void-parameter at 7:10
+// an `init` parameter declared `Void`
+
+struct Gauge { n: Int }
+
+extension Gauge {
+    init(v: Void) -> Gauge { Gauge(n: 1) }
+}
+
+func noop() { }
+
+func main() {
+    let g = Gauge(v: noop())
+    print(g.n)
+}
