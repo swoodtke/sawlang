@@ -1,0 +1,26 @@
+program	compiler/tests/run/string_scalars_iter.saw
+triple	aarch64-unknown-linux-gnu
+source	c3525ebd344d510f
+build	ok
+exit	0
+stdout	"97"
+stdout	"127"
+stdout	"128"
+stdout	"2047"
+stdout	"2048"
+stdout	"55295"
+stdout	"57344"
+stdout	"65535"
+stdout	"65536"
+stdout	"1114111"
+stdout	"h 104"
+stdout	"é 233"
+stdout	"€ 8364"
+stdout	"😀 128512"
+stdout	"empty 0"
+stdout	"true"
+stdout	"true"
+stdout	"true"
+stdout	"held 4 8948"
+stdout	"total 18050720"
+stdout	""

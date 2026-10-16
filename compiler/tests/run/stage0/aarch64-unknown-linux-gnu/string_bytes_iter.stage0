@@ -1,0 +1,17 @@
+program	compiler/tests/run/string_bytes_iter.saw
+triple	aarch64-unknown-linux-gnu
+source	62abbc92ed25fc71
+build	ok
+exit	0
+stdout	"104"
+stdout	"105"
+stdout	"33"
+stdout	"9 1341"
+stdout	"empty 0"
+stdout	"true"
+stdout	"false"
+stdout	"true"
+stdout	"true"
+stdout	"held 539"
+stdout	"high bytes 4000"
+stdout	""

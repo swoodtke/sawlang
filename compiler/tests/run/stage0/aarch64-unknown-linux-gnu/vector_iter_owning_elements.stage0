@@ -1,0 +1,16 @@
+program	compiler/tests/run/vector_iter_owning_elements.saw
+triple	aarch64-unknown-linux-gnu
+source	bd7dc02496fadba7
+build	ok
+exit	0
+stdout	"alpha"
+stdout	"beta"
+stdout	"gamma"
+stdout	"letters 14"
+stdout	"0 counts 3"
+stdout	"1 counts 2"
+stdout	"shared after 2"
+stdout	"one sees 5"
+stdout	"two sees 5"
+stdout	"shared at end 4"
+stdout	""

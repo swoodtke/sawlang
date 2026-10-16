@@ -1,0 +1,16 @@
+program	compiler/tests/run/directory_list.saw
+triple	aarch64-unknown-linux-gnu
+source	2b81e6cdc6c0aefc
+build	ok
+exit	0
+stdout	"empty: 0"
+stdout	"entries: 3"
+stdout	"alpha.txt: 1"
+stdout	".hidden: 1"
+stdout	"sub: 1"
+stdout	".: 0"
+stdout	"..: 0"
+stdout	"list missing: not found"
+stdout	"list a file: other error"
+stdout	"cleaned up"
+stdout	""

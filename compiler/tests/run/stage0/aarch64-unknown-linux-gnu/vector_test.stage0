@@ -1,0 +1,17 @@
+program	compiler/tests/run/vector_test.saw
+triple	aarch64-unknown-linux-gnu
+source	d41d4e6e78ffabb1
+build	ok
+exit	0
+stdout	"0"
+stdout	"3"
+stdout	"10"
+stdout	"20"
+stdout	"30"
+stdout	"30"
+stdout	"2"
+stdout	"10"
+stdout	"20"
+stdout	"99"
+stdout	"20"
+stdout	""

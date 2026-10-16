@@ -1,0 +1,7 @@
+program	compiler/tests/run/coro_for_of_frames_stress.saw
+triple	aarch64-unknown-linux-gnu
+source	d1a1a034a5109872
+build	ok
+exit	0
+stdout	"150"
+stdout	""

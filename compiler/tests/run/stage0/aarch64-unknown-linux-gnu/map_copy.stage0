@@ -1,0 +1,10 @@
+program	compiler/tests/run/map_copy.saw
+triple	aarch64-unknown-linux-gnu
+source	bc13289c008c4f69
+build	ok
+exit	0
+stdout	"original len 30 copy len 30"
+stdout	"original keeps key0 = 0"
+stdout	"copy has key0 false extra true"
+stdout	"try_copy len 30 has key29 true"
+stdout	""

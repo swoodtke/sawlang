@@ -1,0 +1,20 @@
+program	compiler/tests/run/directory_create_remove.saw
+triple	aarch64-unknown-linux-gnu
+source	2905f7aa560d4dc0
+build	ok
+exit	0
+stdout	"before: false"
+stdout	"create: ok"
+stdout	"after create: true"
+stdout	"create again: already exists"
+stdout	"create under a missing parent: not found"
+stdout	"create inner: ok"
+stdout	"remove non-empty: other error"
+stdout	"still there: true"
+stdout	"file created"
+stdout	"exists on a file: true"
+stdout	"remove inner: ok"
+stdout	"remove: ok"
+stdout	"after remove: false"
+stdout	"remove again: not found"
+stdout	""
