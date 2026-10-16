@@ -28,7 +28,7 @@ run of every program must meet its oracle: a fault, a signal or wrong output
 fails. A blocked program is still built, and fails the lane once sawc2 builds
 it or refuses it by another rule, so the list cannot go stale silently.
 
-COVERAGE: ownership runs a program in 6 of its 6 categories, and 10 of its 26
+COVERAGE: ownership runs a program in 6 of its 6 categories, and 17 of its 26
 Stage 0 programs build; concurrency runs a program in 6 of its 6 categories,
 and 12 of its 25 Stage 0 programs build.
 
@@ -82,7 +82,6 @@ Category = collections.namedtuple("Category", "name shape twins stand_ins blocke
 Blocked = collections.namedtuple("Blocked", "path rule unit why")
 
 CLOSURE_OWNING = "a closure capturing a value that owns something is not in the backend"
-ARRAY_LITERAL = "an array, repeat, Map or Set literal is not in the backend"
 SPAWN_BORROW = "a borrow a `group.spawn` root takes of its spawner is not in the slice"
 
 OWNERSHIP = (
@@ -92,6 +91,10 @@ OWNERSHIP = (
             # A Copy argument and a Copy value nested in a struct run copy().
             CORPUS + "implicit_copy_call_arg.saw",
             CORPUS + "implicit_copy_nested.saw",
+            # A copy read out of storage the source still owns, then the source
+            # overwritten; a repeat literal retaining once per slot.
+            CORPUS + "df139a_copy_then_overwrite.saw",
+            CORPUS + "repeat_literal_implicit_copy.saw",
         ),
         stand_ins=(
             # Heap Strings copied through an enum payload and a struct field
@@ -103,10 +106,6 @@ OWNERSHIP = (
         ),
         blocked=(
             Blocked(CORPUS + "df151b_implicit_tier_transfers.saw", "mono.not-yet", "SL-525", CLOSURE_OWNING),
-            Blocked(CORPUS + "df139a_copy_then_overwrite.saw", "backend.not-yet", "unfiled",
-                    "a fixed-array literal is not in the backend"),
-            Blocked(CORPUS + "repeat_literal_implicit_copy.saw", "mono.not-yet", "unfiled",
-                    "the builtin `len` of a fixed array is not in the backend"),
         )),
     Category(
         "closure environments", "a closure environment retained through copies and released once",
@@ -125,6 +124,8 @@ OWNERSHIP = (
         "container read-out", "an owning value copied out of a container that keeps its own",
         twins=(
             CORPUS + "map_string_owning_value_balance.saw",
+            # Set algebra over Arc-holding elements keeps the counts balanced.
+            CORPUS + "set_algebra_owning_balance.saw",
         ),
         stand_ins=(
             # A String-holding element read out of a Vector, and the copy and
@@ -139,8 +140,6 @@ OWNERSHIP = (
         blocked=(
             Blocked(CORPUS + "closure_vector_copy_get.saw", "mono.not-yet", "SL-525",
                     "an escaping closure's environment is not built"),
-            Blocked(CORPUS + "set_algebra_owning_balance.saw", "mono.not-yet", "SL-598",
-                    "a synthesized `Hashable.hash` on `Int` is not in the backend"),
             Blocked(CORPUS + "generic_for_loop_owning_balance.saw", "member.unknown", "SL-703",
                     "Vector.iter is not in the new std"),
         )),
@@ -149,6 +148,12 @@ OWNERSHIP = (
         "copies into optional destinations, match scrutinee temporaries, tuple glue, assignment sources",
         twins=(
             CORPUS + "df151c_optional_dest_copy.saw",
+            # An array of optionals, a tuple's drop glue, a whole-element write
+            # through a tuple index, and an assignment source read out of storage.
+            CORPUS + "df151e_optional_element_array.saw",
+            CORPUS + "df151f_tuple_drop_glue.saw",
+            CORPUS + "df151j_tuple_element_write.saw",
+            CORPUS + "df151h_assign_rhs_retain.saw",
         ),
         stand_ins=(
             # Every face of the payload read retains once, and the payload
@@ -166,12 +171,8 @@ OWNERSHIP = (
         blocked=(
             Blocked(CORPUS + "df151d_match_temporary_scrutinee.saw", "slice.not-yet", "SL-674",
                     "a value-producing `break` is not in the slice"),
-            Blocked(CORPUS + "df151e_optional_element_array.saw", "backend.not-yet", "SL-710", ARRAY_LITERAL),
-            Blocked(CORPUS + "df151f_tuple_drop_glue.saw", "backend.not-yet", "SL-710", ARRAY_LITERAL),
             Blocked(CORPUS + "df151i_tuple_copy.saw", "mono.not-yet", "SL-734",
                     "the builtin `copy` is not in the backend"),
-            Blocked(CORPUS + "df151j_tuple_element_write.saw", "backend.not-yet", "SL-710", ARRAY_LITERAL),
-            Blocked(CORPUS + "df151h_assign_rhs_retain.saw", "backend.not-yet", "SL-710", ARRAY_LITERAL),
         )),
     Category(
         "hand-off between one task's frames", "a value moved between frames one task owns, dropped on one side",
