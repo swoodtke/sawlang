@@ -1,0 +1,86 @@
+// A channel's queue: a receive after `close` hands out what was queued and
+// then reports `Closed`; `try_receive` answers at once, `None` on an empty
+// channel and the head message on a full one; and messages from two
+// producers reach one consumer each in the order its producer sent them.
+
+import std.channel.{Channel, ChannelError}
+import std.task.{yield_now}
+
+func is_closed(r: Result<Int, ChannelError>) -> Bool {
+    match r {
+        case Ok(_) -> false,
+        case Err(e) -> {
+            match e {
+                case Closed -> true,
+                case _ -> false
+            }
+        }
+    }
+}
+
+func produce(ch: Channel<Int>, base: Int) {
+    var i = 1
+    while i <= 3 {
+        try! ch.send(base + i)
+        yield_now()
+        i = i + 1
+    }
+}
+
+// Each producer's messages carry its base, so the consumer can tell them
+// apart; within one producer they must arrive in increasing order.
+func consume(ch: Channel<Int>) -> Int {
+    var last_low = 0
+    var last_high = 100
+    var n = 0
+    while n < 6 {
+        let v = try! ch.receive()
+        if v > 100 {
+            assert(v > last_high, "the second producer's messages arrive in order")
+            last_high = v
+        } else {
+            assert(v > last_low, "the first producer's messages arrive in order")
+            last_low = v
+        }
+        n = n + 1
+    }
+    assert(last_low == 3 && last_high == 103, "every message arrives")
+    n
+}
+
+func main() -> Int {
+    let empty = try! Channel<Int>()
+    try! empty.close()
+    assert(is_closed(empty.receive()), "a closed, empty channel reports Closed")
+
+    let queued = try! Channel<Int>()
+    try! queued.send(7)
+    try! queued.close()
+    match queued.receive() {
+        case Ok(v) -> assert(v == 7, "close drains what was queued first"),
+        case Err(_) -> panic("a message queued before the close was lost")
+    }
+    assert(is_closed(queued.receive()), "a drained, closed channel reports Closed")
+
+    let poll = try! Channel<Int>()
+    match poll.try_receive() {
+        case Ok(got) -> assert(got.is_none(), "an empty channel answers None"),
+        case Err(_) -> panic("an open, empty channel is not closed")
+    }
+    try! poll.send(5)
+    try! poll.send(6)
+    match poll.try_receive() {
+        case Ok(got) -> assert((got ?? 0) == 5,"a full channel answers its head message"),
+        case Err(_) -> panic("an open channel with a message is not closed")
+    }
+
+    var group = TaskGroup()
+    let ch = try! Channel<Int>()
+    let consumer = group.spawn(consume(ch.copy()))
+    let low = group.spawn(produce(ch.copy(), 0))
+    let high = group.spawn(produce(ch.copy(), 100))
+    low.join()
+    high.join()
+    assert(consumer.join() == 6, "the consumer takes all six messages")
+    0
+}

@@ -1,0 +1,8 @@
+program	compiler/tests/run/channel_recv_nested.saw
+triple	arm64-apple-darwin
+source	dc244098ee77ed0c
+build	ok
+exit	0
+stdout	"4"
+stdout	"64"
+stdout	""

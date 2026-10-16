@@ -1,0 +1,11 @@
+program	compiler/tests/run/channel_recv_cancel.saw
+triple	aarch64-unknown-linux-gnu
+source	505a0bfef1f1ffbd
+build	ok
+exit	0
+stdout	"worker: got 100"
+stdout	"main: cancelling the parked worker"
+stdout	"worker: the receiving task was cancelled"
+stdout	"77"
+stdout	"main: joined 100"
+stdout	""

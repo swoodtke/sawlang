@@ -27,11 +27,11 @@ extern "C" {
 //    < -1   a channel's readiness word, by its negated address
 //
 // A value above 1 names no park, and a frame that records one is refused.
-// The executor waits on a ready park and a timer, and wakes a park of any
-// reason whose task is cancelled (`park_wakes`); each other reason has its own
-// lowering and its own executor half. `PARK_UNSET` is written before every
-// resume, so a frame that reports `Pending` without recording a park is caught
-// rather than read as stale (SL:coroutines §3.3).
+// The executor waits on a ready park, a timer and a channel's readiness word,
+// and wakes a park of any reason whose task is cancelled (`park_wakes`); each
+// other reason has its own lowering and its own executor half. `PARK_UNSET`
+// is written before every resume, so a frame that reports `Pending` without
+// recording a park is caught rather than read as stale (SL:coroutines §3.3).
 static PARK_READY: Int = 0
 static PARK_TIMER: Int = 1
 static PARK_FD: Int = -1
@@ -504,8 +504,8 @@ func request_cancel(cell: UnsafePointer<TaskCell>) unsafe {
 // ready one; when its task has been asked to stop, whatever the park's
 // reason, so a cancelled task reaches its cancel path at its next turn and
 // each park it makes after that resumes at once, a timer's long before its
-// deadline (SL:coroutines §3.1); and when it is a timer whose deadline has
-// passed.
+// deadline (SL:coroutines §3.1); when it is a timer whose deadline has
+// passed; and when it is a channel's readiness word that is set.
 //
 // The cancel word is read here, after the resume that parked has returned,
 // so the park's record and its arm both precede the read: a cancel that
@@ -513,13 +513,23 @@ func request_cancel(cell: UnsafePointer<TaskCell>) unsafe {
 // is seen at this read, and nothing a cancel writes can be overwritten by a
 // later record (SL:coroutines R3).
 //
+// A channel park registers nothing anywhere: the park word itself is the
+// registration, and every resume overwrites it with `PARK_UNSET` first. It is
+// read only while its task is live and parked, when the receiver's handle,
+// held in the parked frame, keeps the word allocated.
+//
 // ENTRY POINTS:
 //   TaskGroup.runnable
 //   should_stop (a drive point's own park)
+//   idle
 func park_wakes(cx: UnsafePointer<TaskContext>) unsafe -> Bool {
     let park = cx[0].park[0]
     if park == PARK_READY || cx[0].cancel[0] {
         return true
+    }
+    if park < PARK_FD && park != PARK_UNSET {
+        let word = (0 - park) as UnsafePointer<Int>
+        return word[0] != 0
     }
     park == PARK_TIMER && monotonic_now() >= cx[0].deadline
 }
@@ -688,21 +698,30 @@ func sweep(term_group: Int, term_slot: Int, term_gen: Int, waiter: Int) unsafe {
 
 // A pass woke nothing: blocks until the earliest deadline among the timers
 // parked off this thread's stack, the drive point's park at `waiter` among
-// them, and answers true; answers false when there is no such timer, since
-// every live frame is then on this thread's stack. A frame parked on a wait
-// this executor does not perform is refused rather than spun on, since
-// nothing here would ever wake it.
+// them, and answers true; answers false when there is neither such a timer
+// nor a channel park, since every live frame is then on this thread's stack.
+// A frame parked on a wait this executor does not perform is refused rather
+// than spun on, since nothing here would ever wake it.
+//
+// A channel's readiness word is set only by code this thread runs, so with
+// no timer to wait for, a channel park that has not woken never will: the
+// frames on this thread's stack are each waiting on this sweep, so it panics.
 func idle(waiter: Int) unsafe -> Bool {
     var timed = false
+    var channel = false
     var earliest = UInt64.max
     if waiter != 0 {
         let w = waiter as UnsafePointer<TaskContext>
         if park_wakes(w) {
             return true
         }
-        if w[0].park[0] == PARK_TIMER {
+        let park = w[0].park[0]
+        if park == PARK_TIMER {
             timed = true
             earliest = w[0].deadline
+        }
+        if park < PARK_FD {
+            channel = true
         }
     }
     let lead = "executor"
@@ -724,9 +743,13 @@ func idle(waiter: Int) unsafe -> Bool {
                 if not waits_on(park) {
                     refuse_park(&lead, "a task", park)
                 }
-                timed = true
-                if cell[0].context.deadline < earliest {
-                    earliest = cell[0].context.deadline
+                if park == PARK_TIMER {
+                    timed = true
+                    if cell[0].context.deadline < earliest {
+                        earliest = cell[0].context.deadline
+                    }
+                } else {
+                    channel = true
                 }
             }
             i = i + 1
@@ -735,28 +758,28 @@ func idle(waiter: Int) unsafe -> Bool {
     }
     if timed {
         wait_until(earliest)
+        return true
     }
-    timed
+    if channel {
+        panic("executor: every task left is waiting on a channel that nothing can send to or close; the deadlock report arrives with SL:coroutines A13b")
+    }
+    false
 }
 
 // Whether the executor performs the wait park word `park` records. A ready
 // park needs none; a cancel wakes a park of any reason (`park_wakes`).
 func waits_on(park: Int) -> Bool {
-    park == PARK_READY || park == PARK_TIMER
+    park == PARK_READY || park == PARK_TIMER || (park < PARK_FD && park != PARK_UNSET)
 }
 
 // Panics for park word `park`, a wait the executor does not perform, which
 // `subject` recorded: `lead` opens the message.
 func refuse_park(lead: &String, subject: String, park: Int) -> Never {
-    if park > PARK_TIMER {
-        panic("{}: {} recorded park word {}, which names no park", lead, subject, park)
-    }
     if park == PARK_FD {
         panic("{}: {} is parked on a descriptor's readiness, which the executor does not wait on until SL:coroutines A12a",
               lead, subject)
     }
-    panic("{}: {} is parked on a channel's readiness word, which the executor does not wait on until SL:coroutines A13a",
-          lead, subject)
+    panic("{}: {} recorded park word {}, which names no park", lead, subject, park)
 }
 
 // The process-wide reactor instance, created on first use; 0 until then

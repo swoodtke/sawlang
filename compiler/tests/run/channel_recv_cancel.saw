@@ -1,0 +1,41 @@
+// tests/corpus/channel_recv_cancel's subject with the worker cancelled while
+// it is parked, rather than before it first runs (SL-571 c2): the worker
+// takes the queued 100, finds the channel empty and parks on its readiness
+// word. Nothing sends again, so only the cancel can wake it, and its
+// `receive()` then answers `Err(Cancelled)` from the cancel check at the loop
+// top. The worker leaves through its own control flow, and the `Res` oracle
+// prints at the task's completion, before `join()` returns.
+import std.channel.{Channel}
+import std.task.{yield_now}
+
+struct Res { id: Int }
+extension Res: NoCopy { func deinit(&var self) { print(self.id) } }
+
+func worker(ch: Channel<Int>) -> Int {
+    let held = Res(id: 77)
+    var got = 0
+    while true {
+        match ch.receive() {
+            case Ok(v) -> {
+                print("worker: got {}", v)
+                got = got + v
+            },
+            case Err(e) -> {
+                print("worker: {}", e.describe())
+                return got
+            }
+        }
+    }
+    return got
+}
+
+func main() {
+    var group = TaskGroup()
+    let ch = try! Channel<Int>()
+    try! ch.send(100)
+    let h = group.spawn(worker(ch.copy()))
+    yield_now()
+    print("main: cancelling the parked worker")
+    h.cancel()
+    print("main: joined {}", h.join())
+}

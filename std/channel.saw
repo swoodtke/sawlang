@@ -1,0 +1,352 @@
+//! `Channel<T>`: an unbounded queue of messages between tasks.
+//!
+//! A `Channel` is a `Copy` handle onto one shared queue: copying the handle
+//! shares the queue, and the last handle to drop destroys whatever is still
+//! queued and frees it. Any holder may send, receive or close.
+//!
+//! ```saw-fragment
+//! import std.channel.{Channel}
+//!
+//! func produce(orders: Channel<Int>) {
+//!     try! orders.send(7)
+//!     try! orders.close()            // the producer says it is finished
+//! }
+//!
+//! func consume(orders: Channel<Int>) -> Int {
+//!     var total = 0
+//!     var going = true
+//!     while going {
+//!         match orders.receive() {
+//!             case Ok(order) -> { total = total + order },
+//!             case Err(_) -> { going = false }   // closed and drained
+//!         }
+//!     }
+//!     total
+//! }
+//! ```
+//!
+//! `receive` suspends the task, never the thread: a waiting receiver parks on
+//! the channel's readiness word and costs nothing until a `send` or a `close`
+//! on that channel sets it. Disconnection is explicit, since a handle carries
+//! no sender or receiver role and so no count of producers exists: a channel
+//! nobody closes and nobody sends to is a deadlock.
+
+import std.mem.{drop_in_place}
+import std.task.{__saw_park_channel}
+
+extern "C" {
+    // The runtime's one-word lock, zero = unlocked (runtime/ABI.md).
+    func __saw_rt_lock_acquire(state: UnsafePointer<Int>)
+    func __saw_rt_lock_release(state: UnsafePointer<Int>)
+}
+
+// The block and every queue node are allocated at this alignment, which no
+// message type exceeds. A refused allocation reports the request as made:
+// the size is the node's or the block's own `sizeof`.
+static CHANNEL_ALIGN: Int = 16
+
+// The block every handle of one channel points at. Every field but
+// `refcount` is read and written under `lock`; `refcount` is atomic.
+//
+// `ready` is the readiness word: a receiver parks on it by its negated
+// address, and the executor resumes the receiver once it is nonzero, so a
+// send wakes only this channel's receivers. Invariant, kept under `lock`:
+// `ready != 0` exactly when `count > 0` or `closed` (design 230).
+//
+// `head` and `tail` are meaningful only while `count > 0`.
+struct ChannelBlock<T> {
+    lock: Int
+    refcount: Int
+    count: Int
+    head: UnsafePointer<ChannelNode<T>>
+    tail: UnsafePointer<ChannelNode<T>>
+    ready: Int
+    closed: Bool
+}
+
+// One queued message. `next` is meaningful only for a node that is not the
+// tail.
+struct ChannelNode<T> {
+    next: UnsafePointer<ChannelNode<T>>
+    value: T
+}
+
+/// Why a channel operation could not be carried out.
+///
+/// `Closed` is reported by `receive` once a closed channel has been drained,
+/// and by `send` and `close` on a channel that is already closed. `Cancelled`
+/// is reported by `receive` when the waiting task was cancelled. `Alloc`
+/// carries the allocator's own refusal when a queue node cannot be made.
+public enum ChannelError {
+    /// The channel was closed with `close()` and, for `receive`, drained.
+    case Closed,
+    /// The waiting task was cancelled. `receive` reports it before it looks at
+    /// the queue, so a cancelled consumer stops rather than taking one more
+    /// message; nothing is dequeued and the channel is untouched.
+    case Cancelled,
+    /// The allocator refused the queue node a `send` needed, with the size and
+    /// alignment it was asked for.
+    case Alloc(e: AllocError)
+}
+
+extension ChannelError {
+    /// Returns a short description of the failure.
+    public func describe(&self) -> String {
+        match self {
+            case Closed -> "channel is closed",
+            case Cancelled -> "the receiving task was cancelled",
+            case Alloc(_) -> "the channel could not allocate a queue node"
+        }
+    }
+}
+
+extension ChannelError: Printable {
+    /// Writes the description, followed by the allocator's refusal for
+    /// `Alloc`.
+    public func format(&self, into: &var StringBuilder) {
+        match self {
+            case Alloc(e) -> {
+                try! into.append(self.describe())
+                try! into.append(": ")
+                e.format(into: &var into)
+            },
+            case _ -> try! into.append(self.describe())
+        }
+    }
+}
+
+extension ChannelError: Error {}
+
+/// A handle onto an unbounded queue of `T` messages, shared by every copy of
+/// the handle.
+///
+/// Copying a handle is a refcount increment. `T` must be `Send`, since a
+/// message may be received on another thread than the one that sent it.
+public struct Channel<T: Send> {
+    private block: UnsafePointer<ChannelBlock<T>>
+}
+
+// A handle points at a block whose queue is guarded by its own lock and whose
+// count is atomic, so it may cross threads whenever its messages may.
+extension Channel<T: Send>: UnsafeSend {}
+extension Channel<T: Send>: UnsafeSync {}
+
+extension Channel<T: Send> {
+    /// Creates an empty, open channel.
+    ///
+    /// Returns `Err(AllocError)` when the allocator refuses the queue's block.
+    public init() unsafe -> Result<Channel<T>, AllocError> {
+        let size = sizeof<ChannelBlock<T>>()
+        guard let raw = GlobalAllocator().alloc(size, CHANNEL_ALIGN) else {
+            return AllocError(size: size, align: CHANNEL_ALIGN)
+        }
+        let block = raw as UnsafePointer<ChannelBlock<T>>
+        let none = 0 as UnsafePointer<ChannelNode<T>>
+        block[0] = ChannelBlock<T>(lock: 0, refcount: 1, count: 0, head: none, tail: none, ready: 0,
+                                   closed: false)
+        Channel<T>(block: block)
+    }
+
+    /// Enqueues `v`, waking the receivers waiting on this channel.
+    ///
+    /// `v` is consumed whatever the answer. The two failures leave the queue
+    /// as it was, and `v` is destroyed:
+    ///
+    /// - `Err(Closed)`: the channel has been closed.
+    /// - `Err(Alloc(e))`: the allocator refused the queue node.
+    public func send(&self, v: T) -> Result<Void, ChannelError> {
+        self.enqueue(move v)
+    }
+
+    /// Closes the channel: no further message is accepted, and every receiver
+    /// waiting on it is woken.
+    ///
+    /// Messages already queued are not lost: a receive hands them out before
+    /// it reports `Closed`. Closing a channel that is already closed returns
+    /// `Err(Closed)`, so a close that races another one can be ignored with
+    /// `let _ =` without being silent.
+    public func close(&self) unsafe -> Result<Void, ChannelError> {
+        let block = self.block
+        self.lock_queue()
+        if block[0].closed {
+            self.unlock_queue()
+            return ChannelError.Closed
+        }
+        block[0].closed = true
+        self.publish_ready()
+        self.unlock_queue()
+        return
+    }
+
+    /// Takes the next message if one is queued, answering at once either way.
+    ///
+    /// - `Ok(Some(v))`: a message, dequeued.
+    /// - `Ok(None)`: nothing yet. Would-block is the normal answer to a poll,
+    ///   not an error.
+    /// - `Err(Closed)`: the channel is closed and drained, so no message will
+    ///   ever arrive.
+    ///
+    /// Never suspends; `receive()` is the spelling that waits.
+    public func try_receive(&self) unsafe -> Result<T?, ChannelError> {
+        var drained = false
+        let got = self.take(&var drained)
+        if drained {
+            return ChannelError.Closed
+        }
+        return move got
+    }
+
+    /// Waits for the next message, suspending the task rather than the thread.
+    ///
+    /// Returns `Err(Closed)` once the channel has been closed and everything
+    /// queued before the close has been handed out, and `Err(Cancelled)` when
+    /// the waiting task is cancelled; a cancelled receive dequeues nothing.
+    ///
+    /// A channel nobody closes and nobody sends to never wakes its receiver.
+    public func receive(&self) -> Result<T, ChannelError> {
+        // The cancel check comes first on every pass, ahead of the queue
+        // read, so a consumer that is stopping takes no further message.
+        while not cancelled() {
+            var drained = false
+            // Stage 0 workaround (SL:hazards S2): canonical: if let v = self.take(&var drained) { return move v }
+            let got = self.take(&var drained)
+            if let v = move got {
+                return move v
+            }
+            if drained {
+                return ChannelError.Closed
+            }
+            __saw_park_channel(self.park_word())
+        }
+        return ChannelError.Cancelled
+    }
+
+    // The park word a receiver records: the readiness word's negated address.
+    // A word is 8-aligned and never at address 0, so the value is below -1,
+    // apart from every other park word (std.taskgroup).
+    func park_word(&self) unsafe -> Int {
+        let block = self.block
+        0 - ((&block[0].ready) as UnsafePointer<Int> as Int)
+    }
+
+    // The head message, or `None` when the queue is empty. `drained` is set
+    // when the queue is empty and closed, read under the same lock as the
+    // emptiness, so a racing `send` or `close` cannot make the two disagree.
+    func take(&self, drained: &var Bool) unsafe -> T? {
+        let block = self.block
+        self.lock_queue()
+        if block[0].count == 0 {
+            drained = block[0].closed
+            self.unlock_queue()
+            return None
+        }
+        let node = block[0].head
+        let at = (&node[0].value) as UnsafePointer<T>
+        let value = move at[0]
+        block[0].count -= 1
+        if block[0].count > 0 {
+            block[0].head = node[0].next
+        }
+        self.publish_ready()
+        self.unlock_queue()
+        free_node(node)
+        move value
+    }
+
+    // Links `v` at the tail. A closed channel and a refused node leave the
+    // queue untouched, and `v`, unmoved, is destroyed at the return.
+    func enqueue(&self, v: T) unsafe -> Result<Void, ChannelError> {
+        let block = self.block
+        self.lock_queue()
+        if block[0].closed {
+            self.unlock_queue()
+            return ChannelError.Closed
+        }
+        let size = sizeof<ChannelNode<T>>()
+        guard let raw = GlobalAllocator().alloc(size, CHANNEL_ALIGN) else {
+            self.unlock_queue()
+            return ChannelError.Alloc(e: AllocError(size: size, align: CHANNEL_ALIGN))
+        }
+        let node = raw as UnsafePointer<ChannelNode<T>>
+        node[0] = ChannelNode<T>(next: 0 as UnsafePointer<ChannelNode<T>>, value: move v)
+        if block[0].count == 0 {
+            block[0].head = node
+        } else {
+            let last = block[0].tail
+            last[0].next = node
+        }
+        block[0].tail = node
+        block[0].count += 1
+        self.publish_ready()
+        self.unlock_queue()
+        return
+    }
+
+    // The one place the readiness invariant is written, with the lock held,
+    // after every change to what a waiting receiver would find.
+    //
+    // ENTRY POINTS:
+    //   close
+    //   enqueue
+    //   take
+    func publish_ready(&self) unsafe {
+        let block = self.block
+        if block[0].count > 0 || block[0].closed {
+            block[0].ready = 1
+        } else {
+            block[0].ready = 0
+        }
+    }
+
+    func lock_queue(&self) unsafe {
+        let block = self.block
+        __saw_rt_lock_acquire((&block[0].lock) as UnsafePointer<Int>)
+    }
+
+    func unlock_queue(&self) unsafe {
+        let block = self.block
+        __saw_rt_lock_release((&block[0].lock) as UnsafePointer<Int>)
+    }
+}
+
+// Frees a node whose value has been moved out or destroyed.
+func free_node<T>(node: UnsafePointer<ChannelNode<T>>) unsafe {
+    GlobalAllocator().dealloc(node as UnsafePointer<Int8>, sizeof<ChannelNode<T>>(), CHANNEL_ALIGN)
+}
+
+/// `Channel` copies by reference count.
+extension Channel<T: Send>: Copy {
+    /// Releases this handle. The last handle destroys every message still
+    /// queued and frees the queue.
+    public func deinit(&var self) unsafe {
+        let block = self.block
+        let old = __saw_atomic_sub_i64_release((&block[0].refcount) as UnsafePointer<Int>, 1)
+        if old < 1 {
+            panic("over-release of a Channel handle (refcount underflow)")
+        }
+        if old == 1 {
+            // Every other handle's last use happens-before the teardown, and
+            // no handle survives to take the lock.
+            __saw_atomic_fence_acquire()
+            while block[0].count > 0 {
+                let node = block[0].head
+                drop_in_place((&node[0].value) as UnsafePointer<T>)
+                block[0].count -= 1
+                if block[0].count > 0 {
+                    block[0].head = node[0].next
+                }
+                free_node(node)
+            }
+            GlobalAllocator().dealloc(block as UnsafePointer<Int8>, sizeof<ChannelBlock<T>>(),
+                                      CHANNEL_ALIGN)
+        }
+    }
+
+    /// Retains the queue and returns a second handle to it.
+    public func copy(&self) unsafe -> Channel<T> {
+        let block = self.block
+        // A live handle keeps the block alive, so monotonic is enough.
+        let _ = __saw_atomic_add_i64((&block[0].refcount) as UnsafePointer<Int>, 1)
+        Channel<T>(block: block)
+    }
+}

@@ -1,0 +1,5 @@
+program	compiler/tests/std/pairs/channel_queue.saw
+triple	arm64-apple-darwin
+source	e3fa1f33815645de
+build	ok
+exit	0

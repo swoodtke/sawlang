@@ -1,0 +1,11 @@
+program	compiler/tests/run/channel_receive_binding_and_try_heads.saw
+triple	aarch64-unknown-linux-gnu
+source	0df07bcaea2721d1
+build	ok
+exit	0
+stdout	"A1"
+stdout	"B1"
+stdout	"A2"
+stdout	"B2"
+stdout	"heads 64"
+stdout	""

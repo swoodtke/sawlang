@@ -1,0 +1,11 @@
+program	compiler/tests/run/channel_receive_woken_by_send.saw
+triple	aarch64-unknown-linux-gnu
+source	e8b12cf1cc44ee6e
+build	ok
+exit	0
+stdout	"A1"
+stdout	"B1"
+stdout	"A2"
+stdout	"B2"
+stdout	"scrutinee 22"
+stdout	""

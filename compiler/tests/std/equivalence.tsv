@@ -169,3 +169,22 @@ Command	std.process init Command.init program:String	SL-522
 (api)	std.once conformance Once NoCopy	SL-672
 (api)	std.once conformance Once UnsafeSync	SL-672
 (api)	std.once conformance Once ZeroInit	SL-672
+(api)	std.channel enum ChannelError -	SL-571
+(api)	std.channel case ChannelError.Closed -	SL-571
+(api)	std.channel case ChannelError.Cancelled -	SL-571
+(api)	std.channel case ChannelError.Alloc -	SL-571
+(api)	std.channel method ChannelError.describe -	SL-571
+(api)	std.channel method ChannelError.format into:&var std.stringbuilder.StringBuilder	SL-571
+(api)	std.channel conformance ChannelError Printable	SL-571
+(api)	std.channel conformance ChannelError Error	SL-571
+(api)	std.channel struct Channel -	SL-571
+(api)	std.channel init Channel.init -	SL-571
+(api)	std.channel method Channel.send v:T	SL-571
+(api)	std.channel method Channel.close -	SL-571
+(api)	std.channel method Channel.try_receive -	SL-571
+(api)	std.channel method Channel.receive -	SL-571
+(api)	std.channel method Channel.deinit -	SL-571
+(api)	std.channel method Channel.copy -	SL-571
+(api)	std.channel conformance Channel Copy	SL-571
+(api)	std.channel conformance Channel UnsafeSend	SL-571
+(api)	std.channel conformance Channel UnsafeSync	SL-571

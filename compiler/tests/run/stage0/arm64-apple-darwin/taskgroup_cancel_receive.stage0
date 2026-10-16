@@ -1,0 +1,8 @@
+program	compiler/tests/run/taskgroup_cancel_receive.saw
+triple	arm64-apple-darwin
+source	2e9079125336cd4b
+build	ok
+exit	0
+stdout	"55"
+stdout	"30"
+stdout	""

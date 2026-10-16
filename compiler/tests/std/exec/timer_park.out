@@ -1,5 +1,3 @@
 sleeper parks
 sleeper wakes at its deadline: true
 joined
-waiter parks
-panic at ?: executor: a task is parked on a channel's readiness word, which the executor does not wait on until SL:coroutines A13a

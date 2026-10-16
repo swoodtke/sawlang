@@ -1,10 +1,6 @@
-// expect-panic: executor: a task is parked on a channel's readiness word, which the executor does not wait on until SL:coroutines A13a
 // A frame that parks on a timer is resumed once the clock reaches the
 // deadline its context records: the join that needs it idles until then
 // rather than spin or return with the task unfinished (SL:coroutines A11).
-// A frame that parks on a wait the executor does not perform yet ends the
-// join that needs it with a panic naming the reason and the unit that brings
-// its wait.
 
 import std.taskgroup.{FrameDescriptor, Poll, TaskContext, TaskProvenance}
 import std.taskgroup.{__saw_exec_background, __saw_exec_task_box, __saw_exec_timer_deadline}
@@ -33,17 +29,6 @@ func sleeper_resume(frame: UnsafePointer<UInt8>, cx: UnsafePointer<TaskContext>)
     Poll.Ready
 }
 
-struct Waiter {
-    word: Int
-}
-
-func waiter_resume(frame: UnsafePointer<UInt8>, cx: UnsafePointer<TaskContext>) unsafe -> Poll {
-    let f = frame as UnsafePointer<Waiter>
-    print("waiter parks")
-    cx[0].park[0] = 0 - ((&f[0].word) as UnsafePointer<Int> as Int)
-    Poll.Pending
-}
-
 func drop_nothing(at: UnsafePointer<UInt8>) unsafe {
 }
 
@@ -59,18 +44,6 @@ func run() unsafe {
     let task = VoidTask.__saw_spawn(__saw_exec_background(), d, frame, TaskProvenance.Singleton)
     task.join()
     print("joined")
-
-    let waiter = FrameDescriptor(resume: { f, c in waiter_resume(f, c) },
-                                 size: sizeof<Waiter>(), align: alignof<Waiter>(),
-                                 result_offset: 0, result_size: 0, result_align: 1,
-                                 drop_result: { p in drop_nothing(p) }, backtrace: -1)
-    let wd = (&waiter) as UnsafePointer<FrameDescriptor>
-    let wframe = __saw_exec_task_box(wd)
-    let w = wframe as UnsafePointer<Waiter>
-    w[0] = Waiter(word: 0)
-    let waiting = VoidTask.__saw_spawn(__saw_exec_background(), wd, wframe, TaskProvenance.Singleton)
-    waiting.join()
-    print("joined the waiter")
 }
 
 func main() {

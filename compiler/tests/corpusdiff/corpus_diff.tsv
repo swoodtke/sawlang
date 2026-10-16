@@ -3,8 +3,8 @@ D21_substituted_never_is_a_value.saw	pass	-	-
 aggregate_copy_is_one_memcpy.saw	pass	-	-
 align_attribute_survives_optimization.saw	refused	llvm backend.not-yet	an exported static is not in the backend slice yet
 align_nonresident_local_in_suspending_function.saw	refused	llvm backend.not-yet	`@align` is not in the backend slice yet: a static or a local is aligned only as its type asks, so the attribute would be dropped
-alloc_channel_send_reports_oom.saw	refused	resolve import.unknown-module	no module `std.channel`
-alloc_channel_taskgroup_reports_oom.saw	refused	resolve import.unknown-module	no module `std.channel`
+alloc_channel_send_reports_oom.saw	pass	-	-
+alloc_channel_taskgroup_reports_oom.saw	refused	typecheck call.label	no parameter is labeled `threads` in TaskGroup.init() [std.taskgroup]
 alloc_collection_literal_panics_named.saw	pass	-	-
 alloc_custom_allocator.saw	pass	-	-
 alloc_data_push_forced_panics_named.saw	wrong	stdout differs	line 2: sawc2 "panic at alloc_data_push_forced_panics_named.saw:28: try! failed", Stage 0 "panic at alloc_data_push_forced_panics_named.saw:28: try! failed: allocation of 32 bytes (align 1) failed"
@@ -144,14 +144,14 @@ cbor169_limits.saw	refused	resolve import.unknown-module	no module `std.cbor`
 cbor169_roundtrip.saw	refused	resolve import.unknown-module	no module `std.cbor`
 cbor169_vectors.saw	refused	resolve import.unknown-module	no module `std.cbor`
 chain_assign_exclusivity_in_literal.saw	wrong	accepts a refusal test	exclusive access violation: `w` is written by this optional-chain assignment while also being accessed in the right-hand side
-channel_pipeline.saw	refused	resolve import.unknown-module	no module `std.channel`
-channel_receive_cancel_mt.saw	refused	resolve import.unknown-module	no module `std.channel`
-channel_receive_in_main.saw	refused	resolve import.unknown-module	no module `std.channel`
-channel_receive_through_helper.saw	refused	resolve import.unknown-module	no module `std.channel`
-channel_recv_buried_expr.saw	refused	resolve import.unknown-module	no module `std.channel`
-channel_recv_cancel.saw	refused	resolve import.unknown-module	no module `std.channel`
-channel_recv_nested.saw	refused	resolve import.unknown-module	no module `std.channel`
-channel_recv_producer_consumer.saw	refused	resolve import.unknown-module	no module `std.channel`
+channel_pipeline.saw	refused	resolve slice.not-yet	the `Thread.spawn` form is not in the bootstrap slice yet
+channel_receive_cancel_mt.saw	refused	typecheck call.label	no parameter is labeled `threads` in TaskGroup.init() [std.taskgroup]
+channel_receive_in_main.saw	pass	-	-
+channel_receive_through_helper.saw	pass	-	-
+channel_recv_buried_expr.saw	pass	-	-
+channel_recv_cancel.saw	pass	-	-
+channel_recv_nested.saw	pass	-	-
+channel_recv_producer_consumer.saw	pass	-	-
 closure_body_owns_its_own_statement_temporaries.saw	refused	mono mono.not-yet	a closure capturing a value that owns something is not in the backend slice yet
 closure_borrow_lend_balance.saw	refused	mono mono.not-yet	a closure capturing a value that owns something is not in the backend slice yet
 closure_captureless_copyable.saw	pass	-	-
@@ -356,37 +356,37 @@ conformance/K36_suspending_conformance_method_embedded.saw	pass	-	-
 conformance/K37_existential_dispatch_suspending_impl_refused.saw	pass	-	effect.any-suspends: `K37_existential_dispatch_suspending_impl_refused.Person` becomes `any K37_existential_dispatch_suspending_impl_refused.Greeter` here, and its implementation of `Greeter.greet`, `
 conformance/K38_std_name_collision_no_frame_on_sync_method.saw	pass	-	-
 conformance/K39_cross_module_suspending_method_shapes_embed.saw	pass	-	-
-conformance/K40_suspending_match_scrutinee_head.saw	refused	resolve import.unknown-module	no module `std.channel`
-conformance/K41_suspending_if_condition_head.saw	refused	resolve import.unknown-module	no module `std.channel`
-conformance/K42_suspending_while_condition_head.saw	refused	resolve import.unknown-module	no module `std.channel`
-conformance/K43_suspending_for_range_head.saw	refused	resolve import.unknown-module	no module `std.channel`
-conformance/K44_suspending_condition_shortcircuit_rhs.saw	refused	resolve import.unknown-module	no module `std.channel`
-conformance/K45_suspending_compound_assign_rhs.saw	refused	resolve import.unknown-module	no module `std.channel`
-conformance/K46_suspending_return_head.saw	refused	resolve import.unknown-module	no module `std.channel`
-conformance/K47_channel_receive_binding_and_try_heads.saw	refused	resolve import.unknown-module	no module `std.channel`
-conformance/K48_mt_group_task_runs_before_join.saw	refused	resolve import.unknown-module	no module `std.channel`
-conformance/K49_mt_worker_feeds_st_group_task.saw	refused	resolve import.unknown-module	no module `std.channel`
+conformance/K40_suspending_match_scrutinee_head.saw	pass	-	-
+conformance/K41_suspending_if_condition_head.saw	pass	-	-
+conformance/K42_suspending_while_condition_head.saw	pass	-	-
+conformance/K43_suspending_for_range_head.saw	pass	-	-
+conformance/K44_suspending_condition_shortcircuit_rhs.saw	pass	-	-
+conformance/K45_suspending_compound_assign_rhs.saw	pass	-	-
+conformance/K46_suspending_return_head.saw	pass	-	-
+conformance/K47_channel_receive_binding_and_try_heads.saw	pass	-	-
+conformance/K48_mt_group_task_runs_before_join.saw	refused	typecheck call.label	no parameter is labeled `threads` in TaskGroup.init() [std.taskgroup]
+conformance/K49_mt_worker_feeds_st_group_task.saw	refused	typecheck call.label	no parameter is labeled `threads` in TaskGroup.init() [std.taskgroup]
 conformance/K50_mt_group_progresses_while_main_sleeps.saw	refused	typecheck call.label	no parameter is labeled `threads` in TaskGroup.init() [std.taskgroup]
 conformance/K51_mt_group_progresses_while_main_yields.saw	refused	typecheck call.label	no parameter is labeled `threads` in TaskGroup.init() [std.taskgroup]
-conformance/K52_mt_two_workers_deliver_before_join.saw	refused	resolve import.unknown-module	no module `std.channel`
+conformance/K52_mt_two_workers_deliver_before_join.saw	refused	typecheck call.label	no parameter is labeled `threads` in TaskGroup.init() [std.taskgroup]
 conformance/K53_driven_for_range_iteration_count.saw	pass	-	-
 conformance/K53_mt_group_stays_live_across_spawns.saw	refused	typecheck call.label	no parameter is labeled `threads` in TaskGroup.init() [std.taskgroup]
-conformance/K54_mt_task_receives_what_main_sent.saw	refused	resolve import.unknown-module	no module `std.channel`
-conformance/K55_mt_same_group_send_and_receive.saw	refused	resolve import.unknown-module	no module `std.channel`
-conformance/K56_thread_engine_feeds_main_receive.saw	refused	resolve import.unknown-module	no module `std.channel`
-conformance/K57_main_receives_prefilled_with_mt_group_live.saw	refused	resolve import.unknown-module	no module `std.channel`
-conformance/K58_main_receives_after_mt_join.saw	refused	resolve import.unknown-module	no module `std.channel`
-conformance/K59_main_receives_after_mt_group_scope.saw	refused	resolve import.unknown-module	no module `std.channel`
-conformance/K60_threads_one_is_the_single_threaded_engine.saw	refused	resolve import.unknown-module	no module `std.channel`
-conformance/K61_st_group_task_feeds_main_receive.saw	refused	resolve import.unknown-module	no module `std.channel`
+conformance/K54_mt_task_receives_what_main_sent.saw	refused	typecheck call.label	no parameter is labeled `threads` in TaskGroup.init() [std.taskgroup]
+conformance/K55_mt_same_group_send_and_receive.saw	refused	typecheck call.label	no parameter is labeled `threads` in TaskGroup.init() [std.taskgroup]
+conformance/K56_thread_engine_feeds_main_receive.saw	refused	resolve slice.not-yet	the `Thread.spawn` form is not in the bootstrap slice yet
+conformance/K57_main_receives_prefilled_with_mt_group_live.saw	refused	typecheck call.label	no parameter is labeled `threads` in TaskGroup.init() [std.taskgroup]
+conformance/K58_main_receives_after_mt_join.saw	refused	typecheck call.label	no parameter is labeled `threads` in TaskGroup.init() [std.taskgroup]
+conformance/K59_main_receives_after_mt_group_scope.saw	refused	typecheck call.label	no parameter is labeled `threads` in TaskGroup.init() [std.taskgroup]
+conformance/K60_threads_one_is_the_single_threaded_engine.saw	refused	typecheck call.label	no parameter is labeled `threads` in TaskGroup.init() [std.taskgroup]
+conformance/K61_st_group_task_feeds_main_receive.saw	pass	-	-
 conformance/K62_mt_join_returns_the_task_result.saw	refused	typecheck call.label	no parameter is labeled `threads` in TaskGroup.init() [std.taskgroup]
-conformance/K63_channel_wait_is_a_park.saw	refused	resolve import.unknown-module	no module `std.channel`
-conformance/K64_close_drains_before_it_reports_closed.saw	refused	resolve import.unknown-module	no module `std.channel`
-conformance/K65_close_wakes_a_parked_receiver.saw	refused	resolve import.unknown-module	no module `std.channel`
-conformance/K66_send_and_close_after_close_report.saw	refused	resolve import.unknown-module	no module `std.channel`
-conformance/K67_quiescent_channel_deadlock_is_reported.saw	refused	resolve import.unknown-module	no module `std.channel`
-conformance/K68_deadlock_report_does_not_fire_on_a_live_program.saw	refused	resolve import.unknown-module	no module `std.channel`
-conformance/K69_cancel_reaches_a_parked_channel_receive.saw	refused	resolve import.unknown-module	no module `std.channel`
+conformance/K63_channel_wait_is_a_park.saw	refused	resolve import.unknown-symbol	`dump_tasks` is not defined in `std.task`
+conformance/K64_close_drains_before_it_reports_closed.saw	pass	-	-
+conformance/K65_close_wakes_a_parked_receiver.saw	pass	-	-
+conformance/K66_send_and_close_after_close_report.saw	pass	-	-
+conformance/K67_quiescent_channel_deadlock_is_reported.saw	wrong	stdout differs	line 2: sawc2 "panic at <std>: executor: every task left is waiting on a channel that nothing can send to or close; the deadlock report arrives with SL:coroutines A13b", Stage 0 "panic at <std>: deadl
+conformance/K68_deadlock_report_does_not_fire_on_a_live_program.saw	refused	resolve slice.not-yet	the `Thread.spawn` form is not in the bootstrap slice yet
+conformance/K69_cancel_reaches_a_parked_channel_receive.saw	pass	-	-
 conformance/K70_driven_scope_end_release_matrix.saw	pass	-	-
 conformance/K74_send_bound_licenses_a_generic_spawn_capture.saw	refused	resolve slice.not-yet	the `Thread.spawn` form is not in the bootstrap slice yet
 conformance/K78_singleton_spawn_discard_is_refused.saw	refused	resolve slice.not-yet	the `Thread.spawn` form is not in the bootstrap slice yet
@@ -643,7 +643,7 @@ consumes_suspending_method.saw	pass	-	-
 copy_bound_generic.saw	pass	-	-
 copy_policy_hook_sync.saw	pass	-	-
 copy_traits_both_declared_legal.saw	pass	-	copy.second-policy: `Buf` conforms to `ExplicitCopy`, a second copy policy beside `Copy` at 22:16: a type has one of `Copy`, `ExplicitCopy` and `NoCopy`, bounded or not, so a transfer of it copies sil
-coro_autowrap_argument_in_driven_body.saw	refused	resolve import.unknown-module	no module `std.channel`
+coro_autowrap_argument_in_driven_body.saw	pass	-	-
 coro_bind_id_closure_local.saw	refused	mono mono.not-yet	an escaping closure that captures a value is not in the backend slice yet: its environment would live in the frame that builds it, and heap environments are unbuilt (SL-525)
 coro_bind_id_for_var_derived.saw	pass	-	-
 coro_bind_id_guardlet_nonspanning.saw	pass	-	-
@@ -656,7 +656,7 @@ coro_bind_id_scopes_stress.saw	pass	-	-
 coro_bind_id_shadow_regressions.saw	pass	-	-
 coro_bind_id_sibling_scopes.saw	pass	-	-
 coro_break_reentered_in_loop.saw	pass	-	-
-coro_channel_receive_moves_element.saw	refused	resolve import.unknown-module	no module `std.channel`
+coro_channel_receive_moves_element.saw	refused	typecheck member.through-pointer	`ident` is a method of the payload, `coro_channel_receive_moves_element.Held`, not of the `Arc`; reach it with `borrow a.value().ident(…)`
 coro_closure_capture_positions.saw	pass	-	-
 coro_closure_capture_reads_by_policy.saw	refused	mono mono.not-yet	an escaping closure that captures a value is not in the backend slice yet: its environment would live in the frame that builds it, and heap environments are unbuilt (SL-525)
 coro_closure_captures_self_nested.saw	pass	-	-
@@ -667,7 +667,7 @@ coro_conditional_move_across_suspend.saw	pass	-	-
 coro_conservative_callee_in_spawned_task.saw	refused	resolve import.unknown-module	no module `std.json`
 coro_conservative_callee_not_embedded.saw	refused	resolve import.unknown-module	no module `std.json`
 coro_conservative_free_callee_not_framed.saw	refused	mono mono.not-yet	a closure capturing a value that owns something is not in the backend slice yet
-coro_conservative_generic_instance_in_spawned_task.saw	refused	resolve import.unknown-module	no module `std.channel`
+coro_conservative_generic_instance_in_spawned_task.saw	pass	-	-
 coro_conservative_generic_instance_not_promoted.saw	pass	-	-
 coro_cross_module_free_call_positions.saw	pass	-	-
 coro_cross_module_generic.saw	pass	-	-
@@ -1056,7 +1056,7 @@ errors/capture_self_move_requires_borrow_sigil.saw	pass	-	resolve.parse-refused:
 errors/capture_self_requires_borrow_sigil.saw	pass	-	resolve.parse-refused: the parser refuses `tests/corpus/errors/capture_self_requires_borrow_sigil.saw` (syntax.expr.refused-capture-self), so its declarations are not available
 errors/cast170_const_out_of_range.saw	pass	-	constant.cast-range: `1000` is not representable as `UInt8`, so this cast would always panic; `UInt8` holds 0 through 255; write `UInt8.from(truncating: ...)` to keep the low bits, or `UInt8.from(...)
 errors/cast170_from_bad_label.saw	pass	-	call.label: an integer's `from` takes an unlabeled argument, or `truncating:`
-errors/channel_not_send.saw	refused	resolve import.unknown-module	no module `std.channel`
+errors/channel_not_send.saw	pass	-	type.bound: `std.channel.Channel<channel_not_send.Handle>` has no member `init`: it is declared where `T: Send`, and `channel_not_send.Handle` does not satisfy `Send`
 errors/closure_statement_never_called.saw	wrong	accepts a refusal test	closure literal is never called: `{ ... }` in statement position builds a closure and discards it, so its body does not run
 errors/comparison_literal_out_of_range.saw	pass	-	type.mismatch: integer literal 200 does not fit in `Int8` (range -128..=127)
 errors/compound_assign_immutable.saw	pass	-	mutability.immutable: this compound assignment writes `x`, and `x` is a `let` binding, which is never written: every binding is initialized where it is declared, so only a `var` takes a new value
@@ -1096,7 +1096,7 @@ errors/coro_mutual_suspending_recursion.saw	pass	-	coro.suspending-cycle: suspen
 errors/coro_reject_anchored.saw	pass	-	coro.suspending-cycle: suspending recursion is not allowed: the suspending-call cycle `slow -> slow` has no compile-time frame size, since a callee's frame is embedded in its caller's by value. Break
 errors/coro_spawn_suspending_recursion.saw	pass	-	coro.suspending-cycle: suspending recursion is not allowed: the suspending-call cycle `recurse -> recurse` has no compile-time frame size, since a callee's frame is embedded in its caller's by value.
 errors/coro_suspending_closure_body_at_a_user_method_call.saw	refused	resolve import.unknown-module	no module `std.json`
-errors/coro_suspending_closure_body_in_a_visitor.saw	refused	resolve import.unknown-module	no module `std.channel`
+errors/coro_suspending_closure_body_in_a_visitor.saw	pass	-	effect.closure-suspends: a closure body cannot suspend, and this calls `yield_now`, which may suspend: call it outside the closure
 errors/coro_suspending_recursion.saw	pass	-	coro.suspending-cycle: suspending recursion is not allowed: the suspending-call cycle `loop -> loop` has no compile-time frame size, since a callee's frame is embedded in its caller's by value. Break
 errors/coro_value_while_suspending_condition.saw	refused	typecheck slice.not-yet	`syntax.stmt.break` is not in the bootstrap slice yet
 errors/default_type_param_bound.saw	pass	-	type.bound: `Int` does not satisfy `Marker`, the bound on `A` of `Crate`
@@ -1481,7 +1481,7 @@ expr_suspend_arg_order.saw	pass	-	-
 expr_suspend_binop.saw	pass	-	-
 expr_suspend_blocking.saw	refused	coro coro.not-yet	`arg_worker` suspends (arg_worker -> __saw_rt_blocking_sleep), so it needs a coroutine frame, which is not lowered yet (SL-545)
 expr_suspend_chain_head.saw	pass	-	-
-expr_suspend_channel_recv.saw	refused	resolve import.unknown-module	no module `std.channel`
+expr_suspend_channel_recv.saw	pass	-	-
 expr_suspend_coalesce.saw	pass	-	-
 expr_suspend_collection.saw	pass	-	-
 expr_suspend_deinit_once.saw	pass	-	-
@@ -2038,7 +2038,7 @@ optional_explicit_read_hints_error.saw	pass	-	transfer.implicit-copy: this reads
 optional_field_store_retain.saw	pass	-	-
 optional_force_unwrap_field_store.saw	pass	-	-
 optional_generic_chain_assign_place_head.saw	refused	typecheck mutability.immutable	this assignment writes `m.find(&"x")?.value`, and `m.find(&"x")` lends a read-only place (`-> &T`): declare the accessor `-> &var T` to lend a writable one
-optional_generic_concurrency.saw	refused	resolve import.unknown-module	no module `std.channel`
+optional_generic_concurrency.saw	refused	mir slice.not-yet	a `borrow` block binding a conditional lend is not lowered to MIR in the bootstrap slice yet
 optional_generic_hashable_keys.saw	pass	-	-
 optional_generic_infer_later_arg.saw	pass	-	-
 optional_generic_insert_autowrap.saw	pass	-	-
@@ -2412,13 +2412,13 @@ synthesize_across_coro_reentry.saw	pass	-	-
 synthesize_auto_conformance_unmarked.saw	pass	-	-
 synthesize_explicit_copy_holder.saw	pass	-	-
 task_backtrace_churn.saw	refused	resolve name.undefined	cannot find `dump_tasks` in scope
-task_backtrace_mt.saw	refused	resolve import.unknown-module	no module `std.channel`
+task_backtrace_mt.saw	refused	resolve import.unknown-symbol	`dump_tasks` is not defined in `std.task`
 task_backtrace_nest.saw	refused	resolve import.unknown-symbol	`dump_tasks` is not defined in `std.task`
 task_backtrace_panic.saw	wrong	stdout differs	line 2: sawc2 "<end>", Stage 0 "saw tasks: 2 live (as-of panic, unsynchronized)"
 taskgroup_budget_loop_semantics.saw	pass	-	-
 taskgroup_cancel_check.saw	pass	-	-
 taskgroup_cancel_during_sleep.saw	refused	typecheck member.unknown	`std.taskgroup.Task<Int>` has no method `cancel_addr` this module can see
-taskgroup_cancel_receive.saw	refused	resolve import.unknown-module	no module `std.channel`
+taskgroup_cancel_receive.saw	pass	-	-
 taskgroup_compute_preemption.saw	pass	-	-
 taskgroup_compute_preemption_mt.saw	refused	typecheck call.label	no parameter is labeled `threads` in TaskGroup.init() [std.taskgroup]
 taskgroup_compute_preemption_unbounded.saw	pass	-	-
@@ -2429,10 +2429,10 @@ taskgroup_in_suspending_fn.saw	pass	-	-
 taskgroup_join_typed.saw	pass	-	-
 taskgroup_move_live.saw	pass	-	transfer.no-move: cannot `move` `group`: `std.taskgroup.TaskGroup` is `NoMove`, so it lives where its constructor built it and may not be relocated; pass `&var` to lend it, or build the value where it
 taskgroup_mt_join_then_respawn.saw	refused	typecheck call.label	no parameter is labeled `threads` in TaskGroup.init() [std.taskgroup]
-taskgroup_mt_live_pool_soak.saw	refused	resolve import.unknown-module	no module `std.channel`
+taskgroup_mt_live_pool_soak.saw	refused	typecheck call.label	no parameter is labeled `threads` in TaskGroup.init() [std.taskgroup]
 taskgroup_nested_ambient.saw	pass	-	-
 taskgroup_nested_groups.saw	pass	-	-
-taskgroup_producer_consumer.saw	refused	resolve import.unknown-module	no module `std.channel`
+taskgroup_producer_consumer.saw	pass	-	-
 taskgroup_result_joined_once.saw	pass	-	-
 taskgroup_result_unjoined_once.saw	pass	-	-
 taskgroup_send_containers.saw	refused	typecheck call.label	no parameter is labeled `threads` in TaskGroup.init() [std.taskgroup]
@@ -2452,8 +2452,8 @@ taskgroup_suspending_parent_sleep.saw	pass	-	-
 taskgroup_threads_cancel.saw	refused	typecheck call.label	no parameter is labeled `threads` in TaskGroup.init() [std.taskgroup]
 taskgroup_threads_deinit_once.saw	refused	typecheck call.label	no parameter is labeled `threads` in TaskGroup.init() [std.taskgroup]
 taskgroup_threads_parallel_sum.saw	refused	typecheck call.label	no parameter is labeled `threads` in TaskGroup.init() [std.taskgroup]
-taskgroup_threads_producer_consumer.saw	refused	resolve import.unknown-module	no module `std.channel`
-taskgroup_threads_send_accept.saw	refused	resolve import.unknown-module	no module `std.channel`
+taskgroup_threads_producer_consumer.saw	refused	typecheck call.label	no parameter is labeled `threads` in TaskGroup.init() [std.taskgroup]
+taskgroup_threads_send_accept.saw	refused	typecheck call.label	no parameter is labeled `threads` in TaskGroup.init() [std.taskgroup]
 taskgroup_threads_send_enum_field.saw	refused	typecheck call.label	no parameter is labeled `threads` in TaskGroup.init() [std.taskgroup]
 taskgroup_threads_sleep.saw	refused	typecheck call.label	no parameter is labeled `threads` in TaskGroup.init() [std.taskgroup]
 taskgroup_two_task_yield.saw	pass	-	-
@@ -2638,7 +2638,7 @@ while_expr_conditional_found.saw	refused	typecheck slice.not-yet	`syntax.stmt.br
 while_expr_conditional_not_found.saw	refused	typecheck slice.not-yet	`syntax.stmt.break` is not in the bootstrap slice yet
 while_expr_infinite.saw	refused	typecheck slice.not-yet	`syntax.stmt.break` is not in the bootstrap slice yet
 while_infinite.saw	pass	-	-
-while_let_channel_drain.saw	refused	resolve import.unknown-module	no module `std.channel`
+while_let_channel_drain.saw	pass	-	-
 while_let_drain.saw	pass	-	-
 while_let_move_scrutinee.saw	pass	-	move.use-after: `slot` is used after it may have been moved (moved at 16:5); a moved value is gone until it is assigned again
 while_let_no_else_clause.saw	pass	-	resolve.parse-refused: the parser refuses `tests/corpus/while_let_no_else_clause.saw` (syntax.expr.refused-while-let-else), so its declarations are not available

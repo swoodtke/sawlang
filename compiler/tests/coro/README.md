@@ -271,11 +271,12 @@ lives as long as the task. The executor functions each lowering calls are
 `std.taskgroup`'s; mono reaches them from the park's call. A park this
 executor does not wait on yet panics, never returns early: the arm of a
 descriptor and of an offload park panics naming the unit that brings its
-executor half (SL:coroutines A12a, A14b), and a channel park, which arms
-nothing, reaches the executor's refusal of a wait it does not perform,
-naming A13a. A timer park, which arms nothing either, is resumed once its
-deadline passes, at a drive point (SL-645) and in the entry executor alike
-(the run lane's `drive_timer_park` and `main_timer_park`). Every park
+executor half (SL:coroutines A12a, A14b). A channel park arms nothing: it
+is resumed once the readiness word it names is nonzero, which a send or a
+close on that channel sets (A13a). A timer park, which arms nothing either,
+is resumed once its deadline passes, at a drive point (SL-645) and in the
+entry executor alike (the run lane's `drive_timer_park` and
+`main_timer_park`). Every park
 returns nothing: its cancelled outcome is the task's cancel word, which the
 frame reads after its park (A10), and a timer has no outcome but its
 deadline; a bounded descriptor park's timed-out outcome comes with that
