@@ -17,6 +17,7 @@ extern "C" {
     func __saw_rt_reactor_poll(r: Int, timeout_ms: Int) -> Int
     func __saw_rt_reactor_register(r: Int, fd: Int, write: Int, token: Int) -> Int
     func __saw_rt_reactor_unregister(r: Int, fd: Int, write: Int)
+    func __saw_rt_sleep_ns(ns: UInt64)
 }
 
 // The park word vocabulary: what a frame records through `TaskContext.park`
@@ -717,10 +718,10 @@ func sweep(term_group: Int, term_slot: Int, term_gen: Int, waiter: Int) unsafe {
 // perform is refused rather than spun on, since nothing here would ever wake
 // it.
 //
-// A channel's readiness word is set only by code this thread runs, so with
-// no timer or descriptor to wait for, a channel park that has not woken never
-// will: the frames on this thread's stack are each waiting on this sweep, so
-// it panics.
+// With no timer or descriptor to wait for and a channel park left, the
+// deadlock walk decides (`check_quiescent`): it reports when nothing in the
+// process can run, and otherwise this naps for the re-scan bound and answers
+// true, since the word's writer is then code still running elsewhere.
 func idle(waiter: Int) unsafe -> Bool {
     var waits = false
     var channel = false
@@ -785,9 +786,105 @@ func idle(waiter: Int) unsafe -> Bool {
         return true
     }
     if channel {
-        panic("executor: every task left is waiting on a channel that nothing can send to or close; the deadlock report arrives with SL:coroutines A13b")
+        check_quiescent(waiter)
+        wait_until(monotonic_now() + CHANNEL_RESCAN_NANOS)
+        return true
     }
     false
+}
+
+// The re-scan bound for a channel park the deadlock walk found someone able
+// to wake. Short, because the wake is a readiness word nothing pokes the
+// reactor for, so the next look is the only way this thread sees it.
+static CHANNEL_RESCAN_NANOS: UInt64 = 1_000_000
+
+// The confirmation nap between the deadlock walk's two looks.
+static QUIESCENT_NAP_NANOS: UInt64 = 1_000_000
+
+// Whether no code in this process can run any more, with at least one task
+// parked on a channel's readiness word that is clear: the quiescent state the
+// deadlock report keys on (design 230).
+//
+// Whether a sender will ever exist for a channel is not decidable, but a
+// readiness word is published only by running code, so the walk asks only
+// whether any code can run, by elimination. Each of these ends it:
+//   * a live frame that is not active and whose park wakes now (`park_wakes`:
+//     ready, latched, cancelled, a deadline passed, a set readiness word);
+//   * a frame parked on a timer or a descriptor, since its deadline or the
+//     reactor can wake it;
+//   * any other park that is not a channel's.
+// A frame active on this thread's stack counts as blocked: it is waiting in a
+// nested join or drive on the very sweep that asks, so it cannot run before
+// that sweep returns, and the spec reports this state rather than waiting
+// forever. A frame active on another thread's stack would count as running.
+// The drive point's own park at `waiter`, on no run queue, is classified as
+// any slot's is.
+//
+// ENTRY POINTS:
+//   check_quiescent
+func quiescent_now(waiter: Int) unsafe -> Bool {
+    var parked = false
+    if waiter != 0 {
+        let w = waiter as UnsafePointer<TaskContext>
+        if not channel_parked(w) {
+            return false
+        }
+        parked = true
+    }
+    var cur = EXEC_HEAD.load()
+    while cur != 0 {
+        let g = cur as UnsafePointer<TaskGroup>
+        var i = 0
+        while i < g[0].slots.len() {
+            let s = g[0].slots[i]
+            if not s.done && not s.active {
+                let cell = g[0].cell_at(i)
+                if not channel_parked((&cell[0].context) as UnsafePointer<TaskContext>) {
+                    return false
+                }
+                parked = true
+            }
+            i = i + 1
+        }
+        cur = g[0].next
+    }
+    parked
+}
+
+// Whether the park recorded through `cx` is a channel's readiness word that
+// is clear, with its task not cancelled: the one park the deadlock walk counts
+// as waiting for good.
+func channel_parked(cx: UnsafePointer<TaskContext>) unsafe -> Bool {
+    if park_wakes(cx) {
+        return false
+    }
+    let park = cx[0].park[0]
+    park < PARK_FD && park != PARK_UNSET
+}
+
+// Set by the first deadlock report, so a second engine reaching the same
+// state stays quiet while the first one ends the process.
+static DEADLOCK_REPORTED: Atomic<Int> = Atomic(0)
+
+// The deadlock report: panics when the walk finds the process quiescent
+// twice, a nap apart, and returns otherwise. The walk reads unsynchronized
+// state, which is fine for a report and not for an abort, so a real deadlock
+// costs one more look and a false one would need the same misreading twice.
+//
+// ENTRY POINTS:
+//   idle
+func check_quiescent(waiter: Int) unsafe {
+    if not quiescent_now(waiter) {
+        return
+    }
+    __saw_rt_sleep_ns(QUIESCENT_NAP_NANOS)
+    if not quiescent_now(waiter) {
+        return
+    }
+    if not DEADLOCK_REPORTED.compare_exchange(0, 1) {
+        return
+    }
+    panic("deadlock: every task is waiting to receive from a channel, and nothing in this program can send. A channel has no sender count — every handle is the same handle — so a producer that is finished must say so with close(), and a receive on a closed, drained channel returns Err(Closed) instead of waiting")
 }
 
 // Whether park word `park` waits until the context's `deadline`: a timer

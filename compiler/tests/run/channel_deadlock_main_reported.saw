@@ -1,0 +1,13 @@
+// differs: the panic is raised inside std, and each compiler's std is its own file
+// A suspending `main` that spawns nothing receives on a channel nobody sends
+// to or closes: the executor's deadlock walk finds every task parked on a
+// clear readiness word and nothing else able to run, and reports it rather
+// than waiting forever (SL:coroutines A13b). No task is live besides `main`,
+// so nothing follows the panic line.
+import std.channel.{Channel}
+
+func main() {
+    let orders = try! Channel<Int>()
+    print("waiting")
+    print("never reached {}", try! orders.receive())
+}

@@ -1,0 +1,35 @@
+// A receiver parked on a channel beside a long computation that sends once
+// it finishes is never reported as a deadlock (SL:coroutines R4): the op
+// budget force-yields the computation, which looks like a permanent wait to
+// any heuristic that counts resumes, but the deadlock walk sees a ready task
+// at every look and so never reports.
+import std.channel.{Channel}
+
+func consume(orders: Channel<Int>) -> Int {
+    try! orders.receive()
+}
+
+func spin(rounds: Int) -> Int {
+    var n = 0
+    var i = 0
+    while i < rounds {
+        n = (n * 31 + i) % 1000003
+        i = i + 1
+    }
+    n
+}
+
+func producer(orders: Channel<Int>) -> Int {
+    let n = spin(5000000)
+    try! orders.send(7)
+    n
+}
+
+func main() {
+    var g = TaskGroup()
+    let orders = try! Channel<Int>()
+    let h = g.spawn(consume(orders.copy()))
+    let p = g.spawn(producer(orders.copy()))
+    print("fed {}", h.join())
+    print("spun {}", p.join())
+}

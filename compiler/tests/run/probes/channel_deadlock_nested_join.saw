@@ -1,0 +1,31 @@
+// probe: panics
+// about: a channel deadlock whose only other task waits in a nested join on this thread is reported, not waited out (SL-572)
+// stage 0: counts the joining task's frame, active on this thread's stack, as able to run, and hangs
+// speeds: -O0 -O2
+// prints: waiting
+// prints: middle joins
+// panics: deadlock: every task is waiting to receive from a channel
+// `middle` joins `consume`, which receives on a channel nobody sends to. The
+// joining frame is active on this thread's stack, waiting on the very sweep
+// that finds `consume` parked, so it cannot run before that sweep returns,
+// and the spec's report applies: the deadlock walk counts it as blocked.
+import std.channel.{Channel}
+
+func consume(orders: Channel<Int>) -> Int {
+    try! orders.receive()
+}
+
+func middle(orders: Channel<Int>) -> Int {
+    var g = TaskGroup()
+    let h = g.spawn(consume(orders.copy()))
+    print("middle joins")
+    h.join()
+}
+
+func main() {
+    var g = TaskGroup()
+    let orders = try! Channel<Int>()
+    let h = g.spawn(middle(orders.copy()))
+    print("waiting")
+    print("never reached {}", h.join())
+}

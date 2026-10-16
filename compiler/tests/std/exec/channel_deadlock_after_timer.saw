@@ -1,0 +1,26 @@
+// expect-panic: deadlock: every task is waiting to receive from a channel
+// A task parked on a channel nobody sends to is not reported while a sibling
+// sleeps: a pending timer can still run code, so the deadlock walk waits it
+// out. Once the sleeper finishes, only the channel park is left and the
+// report fires (SL:coroutines A13b).
+import std.channel.{Channel}
+
+func consume(orders: Channel<Int>) -> Int {
+    try! orders.receive()
+}
+
+func sleeper() {
+    sleep(Duration.ms(50))
+    print("sleeper wakes")
+    sleep(Duration.ms(20))
+    print("sleeper done")
+}
+
+func main() {
+    var g = TaskGroup()
+    let orders = try! Channel<Int>()
+    let h = g.spawn(consume(orders.copy()))
+    let s = g.spawn(sleeper())
+    print("waiting")
+    print("never reached {}", h.join())
+}

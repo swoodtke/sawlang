@@ -384,7 +384,7 @@ conformance/K63_channel_wait_is_a_park.saw	refused	resolve import.unknown-symbol
 conformance/K64_close_drains_before_it_reports_closed.saw	pass	-	-
 conformance/K65_close_wakes_a_parked_receiver.saw	pass	-	-
 conformance/K66_send_and_close_after_close_report.saw	pass	-	-
-conformance/K67_quiescent_channel_deadlock_is_reported.saw	wrong	stdout differs	line 2: sawc2 "panic at <std>: executor: every task left is waiting on a channel that nothing can send to or close; the deadlock report arrives with SL:coroutines A13b", Stage 0 "panic at <std>: deadl
+conformance/K67_quiescent_channel_deadlock_is_reported.saw	wrong	stdout differs	line 3: sawc2 "<end>", Stage 0 "saw tasks: 1 live (as-of panic, unsynchronized)"
 conformance/K68_deadlock_report_does_not_fire_on_a_live_program.saw	refused	resolve slice.not-yet	the `Thread.spawn` form is not in the bootstrap slice yet
 conformance/K69_cancel_reaches_a_parked_channel_receive.saw	pass	-	-
 conformance/K70_driven_scope_end_release_matrix.saw	pass	-	-

@@ -1,0 +1,8 @@
+program	compiler/tests/run/channel_waiter_beside_compute_not_reported.saw
+triple	arm64-apple-darwin
+source	89addb53a8f2638a
+build	ok
+exit	0
+stdout	"fed 7"
+stdout	"spun 915859"
+stdout	""
