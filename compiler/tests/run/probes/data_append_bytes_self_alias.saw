@@ -1,0 +1,60 @@
+// probe: stated
+// about: append_bytes copies its source before the old block can be released (SL-735)
+// stage 0: has the same defect, so its run is no oracle
+// speeds: -O0 -O2
+// A Data filled to its capacity appends its own bytes through byte_ptr: the
+// growth moves the window while the source still addresses the old block, so the
+// copy must happen before that block is released.
+// prints: 16 16
+// prints: 32
+// prints: 1
+// prints: 2
+// prints: 3
+// prints: 4
+// prints: 5
+// prints: 6
+// prints: 7
+// prints: 8
+// prints: 9
+// prints: 10
+// prints: 11
+// prints: 12
+// prints: 13
+// prints: 14
+// prints: 15
+// prints: 16
+// prints: 1
+// prints: 2
+// prints: 3
+// prints: 4
+// prints: 5
+// prints: 6
+// prints: 7
+// prints: 8
+// prints: 9
+// prints: 10
+// prints: 11
+// prints: 12
+// prints: 13
+// prints: 14
+// prints: 15
+// prints: 16
+import std.data.*
+
+func main() unsafe {
+    var d = Data()
+    try! d.reserve(16)
+    var i: UInt8 = 1
+    while i <= 16 {
+        try! d.push(i)
+        i = i + 1
+    }
+    print("{} {}", d.len(), d.capacity())
+    try! d.append_bytes(d.byte_ptr(), d.len())
+    print("{}", d.len())
+    var k = 0
+    while k < d.len() {
+        print("{}", d[k])
+        k = k + 1
+    }
+}

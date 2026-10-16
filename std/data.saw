@@ -306,10 +306,17 @@ extension Data {
             return
         }
         let wanted = self.length + len
-        if not self.ready(wanted) {
-            return AllocError(size: self.grown(wanted), align: 1)
+        if self.has_room(wanted) {
+            self.place(src, len)
+            return
         }
-        self.place(src, len)
+        // Not `ready`: `src` may address the old block, which the move releases.
+        let target = self.grown(wanted)
+        guard var fresh = self.relocated(target) else {
+            return AllocError(size: target, align: 1)
+        }
+        fresh.place(src, len)
+        self = fresh
         return
     }
 
@@ -404,6 +411,12 @@ extension Data {
         target
     }
 
+    // Whether a write to `min_capacity` bytes needs no move: the window sits at
+    // offset 0 of a block this `Data` solely owns, with that much room.
+    func has_room(&self, min_capacity: Int) unsafe -> Bool {
+        self.offset == 0 && self.is_unique() && data_capacity(self.block!) >= min_capacity
+    }
+
     // The gate every mutation passes: afterwards this `Data` solely owns a
     // block that holds the window at offset 0 with at least `min_capacity`
     // bytes of room. `false` means the allocator refused and nothing changed.
@@ -413,7 +426,7 @@ extension Data {
         if min_capacity <= 0 && self.length == 0 {
             return true
         }
-        if self.offset == 0 && self.is_unique() && data_capacity(self.block!) >= min_capacity {
+        if self.has_room(min_capacity) {
             return true
         }
         let wanted = if min_capacity < self.length { self.length } else { min_capacity }
