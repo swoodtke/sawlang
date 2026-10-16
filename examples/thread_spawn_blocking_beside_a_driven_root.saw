@@ -29,7 +29,7 @@ func marker() -> Int {
 }
 
 func main() {
-    var direct = Thread.spawn { __saw_rt_blocking_sleep(1) }
+    var direct = try! Thread.spawn { __saw_rt_blocking_sleep(1) }
     let _ = direct.join()
     print("napped")
     print(__saw_drive_steps(marker()))

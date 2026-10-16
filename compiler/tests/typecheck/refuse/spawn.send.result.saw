@@ -1,0 +1,21 @@
+// refuses: spawn.send at 15:31
+// flags: --std-root std
+// a body whose value is not `Send`: it is made on the spawned thread and
+// `join()` hands it back to this one
+
+struct Raw {
+    p: UnsafePointer<Int>
+}
+
+func make_raw() unsafe -> Raw {
+    Raw(p: 0 as UnsafePointer<Int>)
+}
+
+func run() unsafe -> Raw {
+    var t = try! Thread.spawn { make_raw() }
+    t.join()
+}
+
+func main() {
+    print(0)
+}

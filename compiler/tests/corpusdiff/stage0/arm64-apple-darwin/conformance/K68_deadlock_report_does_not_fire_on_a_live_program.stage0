@@ -2,11 +2,6 @@ program	conformance/K68_deadlock_report_does_not_fire_on_a_live_program.saw
 triple	arm64-apple-darwin
 twin	same
 expect	success
-build	ok
-exit	0
-stdout	"sleeper fed 1"
-stdout	"thread fed 2"
-stdout	"mt fed 3"
-stdout	"busy owner fed 4"
-stdout	""
-meets_expect	yes
+build	refused	Parse error at 68:31: two statements on one line need a `;` between them: the first begins with `var`, the second with `{` — write `;` where they meet
+meets_expect	no: Stage 0 does not build it
+log	"error: Parse error at 68:31: two statements on one line need a `;` between them: the first begins with `var`, the second with `{` — write `;` where they meet"

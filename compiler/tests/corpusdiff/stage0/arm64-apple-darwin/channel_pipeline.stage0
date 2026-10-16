@@ -2,8 +2,6 @@ program	channel_pipeline.saw
 triple	arm64-apple-darwin
 twin	same
 expect	success
-build	ok
-exit	0
-stdout	"5050"
-stdout	""
-meets_expect	yes
+build	refused	Parse error at 15:38: two statements on one line need a `;` between them: the first begins with `var`, the second with `{` — write `;` where they meet
+meets_expect	no: Stage 0 does not build it
+log	"error: Parse error at 15:38: two statements on one line need a `;` between them: the first begins with `var`, the second with `{` — write `;` where they meet"

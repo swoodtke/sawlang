@@ -1,5 +1,5 @@
-// due: Thread.spawn is not in sawc2's slice (SL-737's stress pin)
-// refuses: slice.not-yet at 81:17
+// due: Thread.spawn is not in sawc2's backend slice, SL-765 T3 (SL-737's stress pin)
+// refuses: mono.not-yet at 81:35
 // Several OS threads set, read, test and remove environment variables at
 // once: each its own name, one name they all share, and a run of throwaway
 // names that keeps the environment growing so libc reallocates it under the
@@ -78,10 +78,10 @@ func main() {
     let one = 1
     let two = 2
     let three = 3
-    var first = Thread.spawn { [zero] in hammer(zero) }
-    var second = Thread.spawn { [one] in hammer(one) }
-    var third = Thread.spawn { [two] in hammer(two) }
-    var fourth = Thread.spawn { [three] in hammer(three) }
+    var first = try! Thread.spawn { [zero] in hammer(zero) }
+    var second = try! Thread.spawn { [one] in hammer(one) }
+    var third = try! Thread.spawn { [two] in hammer(two) }
+    var fourth = try! Thread.spawn { [three] in hammer(three) }
     let wrong = first.join() + second.join() + third.join() + fourth.join()
     print("threads {}", THREADS)
     print("rounds {}", ROUNDS)

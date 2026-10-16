@@ -1,0 +1,20 @@
+// refuses: drop.must-consume at 15:18
+// flags: --std-root std
+// a handle bound by `try!` and joined on one branch only: the check is per
+// path, and the other branch drops it (conformance row K79)
+
+func work() {
+    print("worked")
+}
+
+func needed() -> Bool {
+    true
+}
+
+func main() {
+    var t = try! Thread.spawn { work() }
+    if needed() {
+        t.join()
+    }
+    print("done")
+}

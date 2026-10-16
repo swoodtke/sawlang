@@ -2,13 +2,6 @@ program	conformance/k74_refused_at_the_call.saw
 triple	arm64-apple-darwin
 twin	same
 expect	error
-build	refused	type `Cell` does not satisfy the `Sync` bound
-meets_expect	yes
-log	"error: type `Cell` does not satisfy the `Sync` bound"
-log	"  --> examples/conformance/k74_refused_at_the_call.saw:29:19"
-log	"     |"
-log	" 29 |     print(\"count {fan_arc(move c)}\")"
-log	"     |                   ^"
-log	"   hint: Send/Sync are derived structurally; a field or payload of this type is not Sync"
-log	""
-log	"1 error(s) generated"
+build	refused	Parse error at 23:31: two statements on one line need a `;` between them: the first begins with `var`, the second with `{` — write `;` where they meet
+meets_expect	no: no error contains 'type `Cell` does not satisfy the `Sync` bound'
+log	"error: Parse error at 23:31: two statements on one line need a `;` between them: the first begins with `var`, the second with `{` — write `;` where they meet"

@@ -1192,10 +1192,17 @@ extension MirProgram {
     // A spawn site names its form and a free function as its root, returns,
     // and leaves the handle its form gives for the root's result: `Task<T>`,
     // or `VoidTask` for a `Void` root. A group site passes a shared reference
-    // to a `TaskGroup` first. Only a spawn site carries a form.
+    // to a `TaskGroup` first. Only a spawn site carries a form, but for the
+    // `Thread` form, which only the `Thread.spawn` builtin carries.
     func verify_spawn(&var self, f: Int, c: &MirCall, out: &var Vector<String>) {
+        let thread_form = c.spawn == MirSpawnForm.Thread
+        let thread_builtin = c.kind == MirCallKind.Builtin && c.spelling >= 0 && self.tc.name_text(c.spelling).equals("Thread.spawn")
+        if thread_form != thread_builtin {
+            self.problem(f, &var out, "a `Thread.spawn` call and the `Thread` spawn form do not go together")
+            return
+        }
         if c.kind != MirCallKind.Spawn {
-            if c.spawn != MirSpawnForm.Absent {
+            if c.spawn != MirSpawnForm.Absent && not thread_form {
                 self.problem(f, &var out, "a call that is no spawn site carries a spawn form")
             }
             return

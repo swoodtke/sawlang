@@ -160,6 +160,7 @@ extension TcProgram {
         self.check_zero_inits()
         self.settle_places()
         self.settle_captures()
+        self.check_thread_braces()
     }
 
     func check_module_bodies(&var self, m: Int) {
@@ -5522,12 +5523,14 @@ extension TcProgram {
         self.body_result = result
         self.result_open = result < 0
         var body = self.error_type
+        var never = false
         if result >= 0 && self.is_void(result) {
             body = self.check_statements(e, TC_WANT_STMT, TcTail.Closure)
         } else if result >= 0 {
             body = self.check_statements(e, result, TcTail.Closure)
         } else {
             body = self.check_statements(e, TC_WANT_NONE, TcTail.Closure)
+            never = self.is_never(body) && self.body_result < 0
             result = body
             if self.is_reference(result) {
                 result = self.closure_result_value(e, result)
@@ -5549,6 +5552,7 @@ extension TcProgram {
             self.borrow_captures = move kept
         }
         let t = self.mk_func(&params, result, effects)
+        self.closure_never = never
         self.set_type(e, t, false)
     }
 
@@ -6523,6 +6527,9 @@ extension TcProgram {
         }
         let rc = self.res.calls[at]
         let args = self.call_args(e, callee)
+        if self.is_thread_spawn_head(callee) {
+            return self.thread_spawn(e, &args)
+        }
         match rc.classification {
             case Overload -> self.free_call(e, callee, rc.binding, &args),
             case Init -> self.init_call(e, callee, rc.binding, &args, want),
@@ -7544,7 +7551,8 @@ extension TcProgram {
         self.consume(root)
         self.spawn_roots[root] = true
         self.record_builtin(e, -1, TcRole.Spawn, form)
-        let refused = self.refuse_never_task_body(e, root, "the task never completes and `join` on its handle could never return", body)
+        let subject = self.root_subject(root)
+        let refused = self.refuse_never_task_body(e, subject, "the task never completes and `join` on its handle could never return", body)
         let borrowed = self.refuse_spawn_borrows(root, form)
         if refused || borrowed || self.has_error(body) {
             let poisoned = self.error_type
@@ -7552,6 +7560,121 @@ extension TcProgram {
         }
         let handle = self.task_handle(e, body)
         self.set_type(e, handle, false)
+    }
+
+    // Whether call head `callee` is `Thread.spawn`, the OS-thread form. Its
+    // namespace names an engine, not a declaration, so it is known by its
+    // spelling and a program's own `Thread` does not change it (design 242).
+    func is_thread_spawn_head(&self, callee: Int) -> Bool {
+        if callee < 0 || not self.has_alt(callee, Alt.Expr_Member) {
+            return false
+        }
+        let base = self.res.first_node_child(callee)
+        if base < 0 || not self.has_alt(base, Alt.Expr_Name) || self.child_count(base) != 1 {
+            return false
+        }
+        let m = self.node_module(callee)
+        let head = self.text(m, base)
+        let last = self.res.last_leaf_of(callee)
+        let member = self.text(m, last)
+        member.equals("spawn") && head.equals("Thread")
+    }
+
+    // `Thread.spawn { ... }`, the OS-thread form (design 242). Its one
+    // argument is a brace with no parameters, whose capture list is its
+    // parameter list (`check_thread_braces`); the body is a `sync` context
+    // that may call a `blocking` extern (`check_thread_call`). It hands back
+    // `Result<Thread<T>, SystemError>` for a body of type `T`, `Void`
+    // included: the OS may refuse a thread. The result crosses back to the
+    // spawner, so it must be `Send`.
+    func thread_spawn(&var self, e: Int, args: &TcArgs) -> Int {
+        let form = "Thread.spawn"
+        let brace = if args.values.len() == 1 && args.labels[0] < 0 { args.values[0] } else { -1 }
+        if brace < 0 || not self.has_alt(brace, Alt.Expr_Closure) {
+            self.refuse(e, "spawn.argument", "`Thread.spawn` takes exactly one closure argument: `Thread.spawn \{ ... \}`")
+            self.type_args_alone(&args)
+            let poisoned = self.error_type
+            return self.set_type(e, poisoned, false)
+        }
+        let body = self.thread_body_type(brace)
+        self.consume(brace)
+        try! self.thread_forms.push(e)
+        try! self.thread_braces.push(brace)
+        self.record_builtin(e, -1, TcRole.Builtin, form)
+        if self.has_error(body) {
+            let poisoned = self.error_type
+            return self.set_type(e, poisoned, false)
+        }
+        // An inferred closure result reads a body that ends in `Never` as
+        // `Void` (`merge_open_result`), so the brace's own ending is asked.
+        let ends = if self.closure_never { self.never_type() } else { body }
+        if self.refuse_never_task_body(e, "this closure's body", "the task never completes and `join` on its handle could never return", ends) {
+            let poisoned = self.error_type
+            return self.set_type(e, poisoned, false)
+        }
+        self.refuse_unsent_result(brace, body)
+        let d = self.known.thread
+        let error = self.known.system_error
+        let result = self.known.result
+        if d < 0 || error < 0 || result < 0 {
+            // The brace is still checked whole: Stage 0's std declares no
+            // `SystemError`, and its summary table is what a body there reads.
+            self.refuse(e, "slice.not-yet", "`Thread.spawn` under a std root that declares no `Thread` or `SystemError` is not in the bootstrap slice yet")
+            let poisoned = self.error_type
+            return self.set_type(e, poisoned, false)
+        }
+        var handle_args = Vector<Int>()
+        try! handle_args.push(body)
+        let handle = self.mk_nominal(d, &handle_args)
+        let none = Vector<Int>()
+        let failure = self.mk_nominal(error, &none)
+        var result_args = Vector<Int>()
+        try! result_args.push(handle)
+        try! result_args.push(failure)
+        let t = self.mk_nominal(result, &result_args)
+        self.set_type(e, t, false)
+    }
+
+    // The type `Thread.spawn`'s brace gives: its body's, refused when the
+    // brace declares parameters, since nothing calls it with any.
+    func thread_body_type(&var self, brace: Int) -> Int {
+        let ct = self.expr(brace, TC_WANT_NONE)
+        let n = self.child_count(brace)
+        var k = 0
+        while k < n {
+            let c = self.child(brace, k)
+            k = k + 1
+            if self.is_closure_param(c) {
+                self.refuse(c, "spawn.argument", "`Thread.spawn`'s closure takes no parameters")
+                return self.error_type
+            }
+        }
+        if self.has_error(ct) || self.kind_of(ct) != TcKind.Func {
+            return self.error_type
+        }
+        self.types.ty(ct).b
+    }
+
+    // Refuses a `Thread.spawn` body whose type `body` is not `Send`: the value
+    // is made on the spawned thread and `join()` hands it to this one. A type
+    // naming a type parameter is judged where its instantiation is made.
+    func refuse_unsent_result(&var self, brace: Int, body: Int) {
+        let send = self.known.send
+        if send < 0 || self.is_void(body) || self.mentions_param(body) {
+            return
+        }
+        let env_decl = self.current_decl
+        let env_ext = self.current_ext
+        let viewer = self.current
+        let in_test = self.current_test
+        if self.satisfies(body, send, env_decl, env_ext, viewer, in_test) {
+            return
+        }
+        var msg = StringBuilder()
+        try! msg.append("cannot `Thread.spawn`: the closure's result type `")
+        try! msg.append(self.type_text(body))
+        try! msg.append("` is not `Send`, so it cannot travel back from the spawned thread to `join()`. Return a Send value; share thread-unsafe state through `Arc` (and `Mutex` for mutation) or a `Channel` instead of handing it back")
+        self.refuse(brace, "spawn.send", msg.build())
     }
 
     // `group.spawn(f(x))`, the group spawn form: `group`, of type `t` (through
@@ -7579,7 +7702,8 @@ extension TcProgram {
         self.consume(root)
         self.spawn_roots[root] = true
         self.record_builtin(e, -1, TcRole.Spawn, form)
-        let refused = self.refuse_never_task_body(e, root, "the task never completes and `join` on its handle could never return", body)
+        let subject = self.root_subject(root)
+        let refused = self.refuse_never_task_body(e, subject, "the task never completes and `join` on its handle could never return", body)
         if refused || self.has_error(body) {
             let poisoned = self.error_type
             return self.set_type(e, poisoned, false)
@@ -7618,7 +7742,8 @@ extension TcProgram {
         try! consequence.append("`")
         try! consequence.append(name)
         try! consequence.append("` would drive it for ever")
-        if self.refuse_never_task_body(e, root, consequence.build(), body) {
+        let subject = self.root_subject(root)
+        if self.refuse_never_task_body(e, subject, consequence.build(), body) {
             let poisoned = self.error_type
             return self.set_type(e, poisoned, false)
         }
@@ -7687,27 +7812,38 @@ extension TcProgram {
 
     // THE NEVER-BODY FUNNEL: a task body may not be `Never`, since a task is
     // something to wait for and a `Never` body would give it a result that
-    // cannot exist (design 228). Refuses at `at` when root call `root` has
-    // type `body`, with `consequence` saying what would follow, and returns
-    // whether it refused.
+    // cannot exist (design 228). Refuses at `at` when the body `subject`
+    // names has type `body`, with `consequence` saying what would follow, and
+    // returns whether it refused.
     // ENTRY POINTS:
     //     task_spawn
     //     test_drive
     //     group_spawn
-    func refuse_never_task_body(&var self, at: Int, root: Int, consequence: String, body: Int) -> Bool {
+    //     thread_spawn
+    func refuse_never_task_body(&var self, at: Int, subject: String, consequence: String, body: Int) -> Bool {
         if not self.is_never(body) {
             return false
         }
-        let callee = self.res.first_node_child(root)
-        let m = self.node_module(root)
         var msg = StringBuilder()
-        try! msg.append("a task body may not be `Never`: `")
-        try! msg.append(self.text(m, callee))
-        try! msg.append("` never returns, so ")
+        try! msg.append("a task body may not be `Never`: ")
+        try! msg.append(subject)
+        try! msg.append(" never returns, so ")
         try! msg.append(consequence)
         try! msg.append(". Write a forever-task as `-> Void` with a loop, `func serve() \{ while \{ ... \} \}`, and end it by cancelling the task or breaking the loop")
         self.refuse(at, "spawn.never-body", msg.build())
         true
+    }
+
+    // How the Never-body funnel names root call `root`'s body: its callee,
+    // as written.
+    func root_subject(&self, root: Int) -> String {
+        let callee = self.res.first_node_child(root)
+        let m = self.node_module(root)
+        var out = StringBuilder()
+        try! out.append("`")
+        try! out.append(self.text(m, callee))
+        try! out.append("`")
+        out.build()
     }
 
     // THE SPAWN-BORROW FUNNEL: each place where root call `root` takes a
@@ -11386,6 +11522,105 @@ extension TcProgram {
             try! self.capture_count.push(count)
             k = k + 1
         }
+    }
+
+    // Each `Thread.spawn` brace's captures, once they are settled. The capture
+    // list is the body's parameter list, so a binding the body names that the
+    // list does not is refused; and each capture crosses to the spawned
+    // thread, so its type must be `Send`, a generic body's declared bounds
+    // answering for its parameters (design 242).
+    func check_thread_braces(&var self) {
+        var k = 0
+        while k < self.thread_braces.len() {
+            let brace = self.thread_braces[k]
+            k = k + 1
+            let found = self.closure_index.first(brace, 0)
+            if found < 0 {
+                continue
+            }
+            let ordinal = self.closure_index.value(found)
+            self.refuse_implicit_captures(brace, ordinal)
+            self.refuse_unsent_capture(brace, ordinal)
+        }
+    }
+
+    func refuse_implicit_captures(&var self, brace: Int, ordinal: Int) {
+        let first = self.capture_first[ordinal]
+        let end = first + self.capture_count[ordinal]
+        var names = StringBuilder()
+        var list = StringBuilder()
+        var count = 0
+        var at = first
+        while at < end {
+            let cap = self.captures[at]
+            at = at + 1
+            if cap.explicit {
+                continue
+            }
+            let name = self.capture_name(cap.binding)
+            if count > 0 {
+                try! names.append(", ")
+                try! list.append(", ")
+            }
+            try! names.append("`")
+            try! names.append(name)
+            try! names.append("`")
+            try! list.append(name)
+            count = count + 1
+        }
+        if count == 0 {
+            return
+        }
+        var msg = StringBuilder()
+        try! msg.append("a spawned brace captures nothing implicitly, and this body names ")
+        try! msg.append(names.build())
+        try! msg.append(". Name what crosses in the capture list — `Thread.spawn \{ [")
+        try! msg.append(list.build())
+        try! msg.append("] in ... \}`. The list IS the body's parameter list: each entry transfers at the spawn, by value, at its own copy tier, and `[move x]` is how a move-only value goes. Everything that crosses a concurrency boundary is spelled at the crossing")
+        let m = self.node_module(brace)
+        self.refuse_in(m, brace, "spawn.implicit-capture", msg.build())
+    }
+
+    // Refuses the first capture of brace `brace` whose type is not `Send`,
+    // judged in the declaration that holds the brace.
+    func refuse_unsent_capture(&var self, brace: Int, ordinal: Int) {
+        let send = self.known.send
+        let d = self.closure_decls[ordinal]
+        if send < 0 {
+            return
+        }
+        let saved = self.save_context()
+        if d >= 0 {
+            self.enter_decl(d)
+        }
+        let env_decl = self.current_decl
+        let env_ext = self.current_ext
+        let viewer = self.current
+        let in_test = self.current_test
+        let first = self.capture_first[ordinal]
+        let end = first + self.capture_count[ordinal]
+        var unsent = -1
+        var at = first
+        while at < end && unsent < 0 {
+            let cap = self.captures[at]
+            if cap.ty >= 0 && not self.has_error(cap.ty) && not self.satisfies(cap.ty, send, env_decl, env_ext, viewer, in_test) {
+                unsent = at
+            }
+            at = at + 1
+        }
+        self.restore_context(saved)
+        if unsent < 0 {
+            return
+        }
+        let cap = self.captures[unsent]
+        var msg = StringBuilder()
+        try! msg.append("cannot `Thread.spawn`: captured `")
+        try! msg.append(self.capture_name(cap.binding))
+        try! msg.append("` of type `")
+        try! msg.append(self.type_text(cap.ty))
+        try! msg.append("` is not `Send`. Only Send values may cross to another thread; share through `Arc` (and `Mutex` for mutation)")
+        let m = self.node_module(brace)
+        self.refuse_in(m, cap.site, "spawn.send", msg.build())
     }
 
     // Closure `e`'s captures, recorded in order.

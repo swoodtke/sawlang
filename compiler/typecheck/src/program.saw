@@ -10,6 +10,7 @@ import sawresolve.program.{ResProgram}
 import sawtypecheck.model.{TcAdjust, TcAllowance, TcAtom, TcCall, TcCapture, TcConformance, TcDefault, TcDiag,
                                TcGeneric, TcItem, TcMember, TcObligation, TcParam, TcPendingConstant, TcSig, TcStatus,
                                TcSummary, TcRelocation, TcTier, TcUnit, TcUse}
+import sawtypecheck.stdsuspension.{TcStdRows}
 import sawtypecheck.types.{TC_HOLDS_PARAM, TcKind, TcType, TcTypes, tc_types}
 import sawtypecheck.walks.{TcMemo, tc_memo}
 
@@ -74,6 +75,11 @@ public struct TcKnown {
     // that declares `TaskGroup`; -1 under a std root that declares neither.
     task: Int
     void_task: Int
+    // The OS-thread handle `Thread.spawn` hands back inside its `Result`, and
+    // that `Result`'s error, found by module; -1 under a std root that
+    // declares neither (Stage 0's has no `SystemError`).
+    thread: Int
+    system_error: Int
     func_pointer: Int
     ordering: Int
     hasher: Int
@@ -259,10 +265,11 @@ public struct TcProgram {
     // Each checked default value, and (function, parameter) -> its index.
     defaults: Vector<TcDefault>
     default_at: ResIndex
-    // The std suspension table: (key's name id, 0) -> its verdict, and the
-    // keys in row order.
+    // The std suspension table: (key's name id, 0) -> its row, the keys in
+    // row order, and the rows' columns.
     std_verdicts: ResIndex
     std_keys: Vector<Int>
+    std_rows: TcStdRows
     // The std functions a NOTE already names as missing from the table.
     untabled: Vector<Int>
     // Each problem the summary verifier found, and its module.
@@ -285,6 +292,14 @@ public struct TcProgram {
     closure_index: ResIndex
     // By closure ordinal: whether the closure escapes (`closure_escapes`).
     closure_escaping: Vector<Bool>
+    // Every `Thread.spawn` form typed, and its brace, in the order the walk
+    // met them (`thread_spawn`).
+    thread_forms: Vector<Int>
+    thread_braces: Vector<Int>
+    // Whether the closure `closure_typed` finished last has a body that ends
+    // in `Never` and returns nowhere, which its inferred result reads as
+    // `Void` (`merge_open_result`).
+    closure_never: Bool
     // Keyed by node id: the type a position copies though no transfer
     // records the copy, or -1; in a generic body it owes design 219's
     // inferred Copy requirement (D27): a plain subscript read where its
@@ -365,7 +380,7 @@ public func tc_program(res: ResProgram) -> TcProgram {
                         int64: -1, uint8: -1, uint16: -1, uint32: -1, uint64: -1, float: -1,
                         bool_type: -1, range: -1, range_inclusive: -1, iterator: -1, box: -1,
                         vector: -1, map: -1, set: -1, arc: -1, task_group: -1, task: -1, void_task: -1,
-                        func_pointer: -1,
+                        thread: -1, system_error: -1, func_pointer: -1,
                         ordering: -1, hasher: -1, panic_sink: -1, zero_init: -1)
     var p = TcProgram(res: move res, types: tc_types(), sigs: move sigs,
                       generics: Vector<TcGeneric>(), traits: Vector<Int>(),
@@ -398,12 +413,16 @@ public func tc_program(res: ResProgram) -> TcProgram {
                       summaries: Vector<TcSummary>(), atoms: Vector<TcAtom>(), units: Vector<TcUnit>(),
                       items: Vector<TcItem>(), decl_unit: Vector<Int>(), summary_deps: ResIndex(),
                       defaults: Vector<TcDefault>(), default_at: ResIndex(),
-                      std_verdicts: ResIndex(), std_keys: Vector<Int>(), untabled: Vector<Int>(),
+                      std_verdicts: ResIndex(), std_keys: Vector<Int>(),
+                      std_rows: TcStdRows(keys: Vector<String>(), verdicts: Vector<Int>(), causes: Vector<Int>(),
+                                          labels: Vector<String>()),
+                      untabled: Vector<Int>(),
                       summary_problems: Vector<String>(), summary_problem_modules: Vector<Int>(),
                       negated_literal: -1, meets_trait: Vector<Int>(), closures: Vector<Int>(),
                       closure_decls: Vector<Int>(), capture_first: Vector<Int>(),
                       capture_count: Vector<Int>(), captures: Vector<TcCapture>(),
                       closure_index: ResIndex(), closure_escaping: Vector<Bool>(),
+                      thread_forms: Vector<Int>(), thread_braces: Vector<Int>(), closure_never: false,
                       implied_copies: Vector<Int>(), narrow_atomics: Vector<Int>(), narrow_reported: Vector<Bool>(),
                       layout_asserts: Vector<Int>(), layout_assert_messages: Vector<Int>(),
                       layout_assert_decls: Vector<Int>(), layout_assert_generic: Vector<Bool>(),

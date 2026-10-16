@@ -1,0 +1,11 @@
+// refuses: spawn.never-body at 7:18
+// flags: --std-root std
+// a `Thread.spawn` brace whose body never returns: `join` on its handle could
+// never return (conformance row D11)
+
+func main() {
+    let t = try! Thread.spawn {
+        while { }
+    }
+    print("spawned")
+}

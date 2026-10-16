@@ -2,11 +2,9 @@ program	conformance/K74_send_bound_licenses_a_generic_spawn_capture.saw
 triple	arm64-apple-darwin
 twin	same
 expect	success
-build	ok
-exit	0
-stdout	"bare 1"
-stdout	"arc 3"
-stdout	"vector 3"
-stdout	"optional 4"
-stdout	""
-meets_expect	yes
+build	refused	Parse error at 43:31: two statements on one line need a `;` between them: the first begins with `var`, the second with `{` — write `;` where they meet
+meets_expect	no: Stage 0 does not build it
+log	"error: Parse error at 43:31: two statements on one line need a `;` between them: the first begins with `var`, the second with `{` — write `;` where they meet"
+log	"Parse error at 49:31: two statements on one line need a `;` between them: the first begins with `var`, the second with `{` — write `;` where they meet"
+log	"Parse error at 55:31: two statements on one line need a `;` between them: the first begins with `var`, the second with `{` — write `;` where they meet"
+log	"Parse error at 60:31: two statements on one line need a `;` between them: the first begins with `var`, the second with `{` — write `;` where they meet"

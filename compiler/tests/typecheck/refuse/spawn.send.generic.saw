@@ -1,0 +1,13 @@
+// refuses: spawn.send at 7:34
+// flags: --std-root std
+// a generic body capturing an unbounded `T`: only a declared `Send` bound
+// licenses the crossing (conformance row K74's refused twin)
+
+func fan<T>(v: T) -> Int {
+    var t = try! Thread.spawn { [move v] in 1 }
+    t.join()
+}
+
+func main() {
+    print(fan(3))
+}

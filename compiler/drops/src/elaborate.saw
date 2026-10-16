@@ -26,7 +26,8 @@ import sawmir.dump.{mir_module_functions}
 import sawmir.initialisation.{MIR_INIT_PARTIAL, MIR_INIT_WHOLE, MirAccess, MirAccessKind, MirInit,
                                   mir_init_apply_all}
 import sawmir.model.{MirBlock, MirCall, MirCallKind, MirConstKind, MirDiag, MirFuncKind, MirLocal, MirLocalKind,
-                         MirOperandKind, MirProjKind, MirRvalueKind, MirStmt, MirStmtKind, MirTermKind, mir_owes_fate}
+                         MirOperandKind, MirProjKind, MirRvalueKind, MirStmt, MirStmtKind, MirSwitchKind, MirTermKind,
+                         mir_owes_fate}
 import sawmir.program.{MirProgram}
 import sawmir.split.{MirHalf}
 import sawresolve.dump.{res_sort_strings}
@@ -565,6 +566,12 @@ extension DropsProgram {
     // it, and a move into storage whose owner declares a `deinit` discharges
     // it, that `deinit` being the fate the handle's run-time panic backstops.
     // Every other way out is refused once, at the site (`DropsEscape`).
+    // `Thread.spawn`'s site mints on the `Result` it hands back, whose `Ok`
+    // payload is the handle: a move of that payload carries the obligation
+    // (`try!`, an `Ok(h)` arm), a fate written through it clears it, and the
+    // `Err` path owes nothing, so its payload's move and a switch's `Err`
+    // edge clear it too. Dropping the `Result`, `let _ =` included, is an
+    // escape like any other.
     func check_fates(&var self, f: Int, facts: &MirInit) {
         let info = self.bc.mir.funcs[f]
         if not self.mints_fates(f) {
@@ -612,9 +619,10 @@ extension DropsProgram {
                 k = k + 1
                 var changed = not seen[s]
                 seen[s] = true
+                let cleared = self.err_edge_local(&block, s)
                 var j = 0
                 while j < n {
-                    if state[j] >= 0 && entry[s * n + j] < 0 {
+                    if j != cleared && state[j] >= 0 && entry[s * n + j] < 0 {
                         entry[s * n + j] = state[j]
                         changed = true
                     }
@@ -743,7 +751,7 @@ extension DropsProgram {
         var from = -1
         var k = 0
         while k < rv.count {
-            let m = self.moved_local(rv.first + k)
+            let m = self.fate_source(rv.first + k, &var state)
             k = k + 1
             if m >= 0 && state[m] >= 0 {
                 if site < 0 {
@@ -778,14 +786,14 @@ extension DropsProgram {
         let c = self.bc.mir.calls[at]
         let receiver = self.receiver_place(&c, &refs)
         if receiver >= 0 && self.is_fate_method(&c) {
-            let l = self.bc.mir.bare_local(receiver)
+            let l = self.owing_local(receiver)
             if l >= 0 {
                 state[l] = -1
             }
         }
         var k = 0
         while k < c.arg_count {
-            let m = self.moved_local(c.arg_first + k)
+            let m = self.fate_source(c.arg_first + k, &var state)
             k = k + 1
             if m < 0 || state[m] < 0 {
                 continue
@@ -813,6 +821,99 @@ extension DropsProgram {
             let why = if d == 0 { DropsEscape.Returned } else { DropsEscape.Stored }
             self.refuse_fate(f, at, -1, why, -1, &var reported)
         }
+    }
+
+    // The local whose owed fate the operand at operand-list index `at`
+    // carries off: one it moves out of whole, or one whose `Ok` payload it
+    // moves (`Thread.spawn`'s handle). A move of an `Err` payload proves the
+    // local holds no handle, so its obligation is cleared there; -1.
+    func fate_source(&self, at: Int, state: &var Vector<Int>) -> Int {
+        let o = self.bc.mir.lists[at]
+        if o < 0 {
+            return -1
+        }
+        let info = self.bc.mir.operands[o]
+        if info.kind != MirOperandKind.Move || info.place < 0 {
+            return -1
+        }
+        let l = self.owing_local(info.place)
+        if l >= 0 {
+            return l
+        }
+        let p = self.bc.mir.places[info.place]
+        let case_name = self.payload_case(info.place)
+        if p.local >= 0 && p.count == 1 && case_name.equals("Err") {
+            state[p.local] = -1
+        }
+        return -1
+    }
+
+    // The local place `p` names whole, or whose `Ok` payload it is, which is
+    // where `Thread.spawn`'s handle lives until it is bound; -1 otherwise.
+    func owing_local(&self, p: Int) -> Int {
+        let info = self.bc.mir.places[p]
+        if info.count == 0 {
+            return info.local
+        }
+        let case_name = self.payload_case(p)
+        if info.local >= 0 && info.count == 1 && case_name.equals("Ok") {
+            return info.local
+        }
+        return -1
+    }
+
+    // The case whose payload place `p`'s first step reads, `Ok` or `Err`, or
+    // "" when that step reads no payload.
+    func payload_case(&self, p: Int) -> String {
+        let info = self.bc.mir.places[p]
+        if info.count == 0 {
+            return ""
+        }
+        let step = self.bc.mir.projs[info.first]
+        if step.kind != MirProjKind.Payload && step.kind != MirProjKind.Force {
+            return ""
+        }
+        self.result_case_name(step.decl)
+    }
+
+    // `Ok` or `Err` when case declaration `d` is `Result`'s, else "".
+    func result_case_name(&self, d: Int) -> String {
+        if d < 0 || self.bc.mir.tc.res.decls[d].parent != self.bc.mir.tc.known.result {
+            return ""
+        }
+        // Stage 0 workaround (SL:hazards S4): canonical: self.bc.mir.tc.name_text(self.bc.mir.tc.res.decls[d].name)
+        let name = self.bc.mir.tc.res.decls[d].name
+        self.bc.mir.tc.name_text(name)
+    }
+
+    // The local of a `switch discriminant` terminator `block` whose `Err` arm
+    // targets `s` and no other arm does: on that edge the `Result` holds no
+    // handle, so its owed fate is not carried; -1.
+    func err_edge_local(&self, block: &MirBlock, s: Int) -> Int {
+        if block.term != MirTermKind.Switch || block.switch_kind != MirSwitchKind.Discriminant || block.place < 0 {
+            return -1
+        }
+        let l = self.bc.mir.bare_local(block.place)
+        if l < 0 {
+            return -1
+        }
+        var err = false
+        var other = block.otherwise == s
+        var k = 0
+        while k < block.arm_count {
+            let arm = self.bc.mir.arms[block.arm_first + k]
+            k = k + 1
+            if arm.target != s {
+                continue
+            }
+            let case_name = self.result_case_name(arm.value)
+            if case_name.equals("Err") {
+                err = true
+            } else {
+                other = true
+            }
+        }
+        if err && not other { l } else { -1 }
     }
 
     // The local the operand at operand-list index `at` moves out of whole,
@@ -846,7 +947,7 @@ extension DropsProgram {
     }
 
     // Whether call `c` is `join`, `detach` or `cancel` of a handle a
-    // cooperative spawn form mints.
+    // cooperative spawn form mints, or `join` or `detach` of a `Thread`.
     func is_fate_method(&self, c: &MirCall) -> Bool {
         if c.owner < 0 {
             return false
@@ -854,12 +955,16 @@ extension DropsProgram {
         // Stage 0 workaround (SL:hazards S4): canonical: let d = self.bc.mir.tc.nominal_decl(self.bc.mir.tc.strip_refs(c.owner))
         let owner = self.bc.mir.tc.strip_refs(c.owner)
         let d = self.bc.mir.tc.nominal_decl(owner)
-        if d < 0 || (d != self.bc.mir.tc.known.task && d != self.bc.mir.tc.known.void_task) {
+        let thread = d >= 0 && d == self.bc.mir.tc.known.thread
+        if d < 0 || (d != self.bc.mir.tc.known.task && d != self.bc.mir.tc.known.void_task && not thread) {
             return false
         }
         // Stage 0 workaround (SL:hazards S4): canonical: let name = self.bc.mir.tc.name_text(self.bc.mir.tc.res.decls[c.target].name)
         let interned = self.bc.mir.tc.res.decls[c.target].name
         let name = self.bc.mir.tc.name_text(interned)
+        if thread {
+            return name.equals("join") || name.equals("detach")
+        }
         name.equals("join") || name.equals("detach") || name.equals("cancel")
     }
 
@@ -894,12 +999,14 @@ extension DropsProgram {
         if node < 0 {
             node = self.bc.mir.funcs[f].root
         }
-        // Stage 0 workaround (SL:hazards S4): canonical: let handle = self.bc.mir.tc.type_text(self.bc.mir.places[c.dest].ty)
-        let handle_type = self.bc.mir.places[c.dest].ty
-        let handle = self.bc.mir.tc.type_text(handle_type)
+        // A `Thread.spawn` site's destination is the `Result` that carries
+        // the handle; once bound, the obligation sits on the handle.
+        let thread = c.kind == MirCallKind.Builtin
+        var handle_type = self.bc.mir.places[c.dest].ty
         var name = -1
         if l >= 0 {
             let local = mir_func_local(&self.bc.mir, f, l)
+            handle_type = local.ty
             if local.kind == MirLocalKind.User {
                 name = local.name
             }
@@ -907,8 +1014,13 @@ extension DropsProgram {
         if name < 0 {
             name = self.binding_of(f, c.dest)
         }
+        let handle = self.bc.mir.tc.type_text(handle_type)
         var msg = StringBuilder()
-        if name < 0 {
+        if name < 0 && thread {
+            try! msg.append("`Thread.spawn` hands back a `")
+            try! msg.append(handle)
+            try! msg.append("` whose `Ok` handle must be consumed, and this one is discarded. Bind the handle, as `try! Thread.spawn \{ ... \}` does, and consume it on every path: ")
+        } else if name < 0 {
             try! msg.append("`Task.spawn` hands back a `")
             try! msg.append(handle)
             try! msg.append("` that must be consumed, and this one is discarded. Bind it and consume it on every path: ")
@@ -922,7 +1034,13 @@ extension DropsProgram {
             try! msg.append(binding)
             try! msg.append("` ")
             match why {
-                case Dropped -> try! msg.append("is dropped with no `join()`, `detach()` or `cancel()` of it on some path"),
+                case Dropped -> {
+                    if thread {
+                        try! msg.append("is dropped with no `join()` or `detach()` of it on some path")
+                    } else {
+                        try! msg.append("is dropped with no `join()`, `detach()` or `cancel()` of it on some path")
+                    }
+                },
                 case Returned -> try! msg.append("leaves the function by a `return` without consuming it"),
                 case Stored -> try! msg.append("moves into storage whose owner declares no `deinit`, which writes no fate"),
                 case Argument -> {
@@ -934,7 +1052,11 @@ extension DropsProgram {
             }
             try! msg.append(". ")
         }
-        try! msg.append("`join()` waits for it and takes its result, `detach()` hands it to the process (its result is dropped at completion), and `cancel()` asks it to stop. To manage a dynamic set of tasks, spawn them into a `TaskGroup`: a group is a declared consumer, so its handles may be dropped freely")
+        if thread {
+            try! msg.append("`join()` waits for it and takes its result, `(try! Thread.spawn \{ ... \}).join()` being the wait-here spelling, and `detach()` gives the thread to the process. To manage a dynamic set of workers, spawn them into a `TaskGroup`: a group is a declared consumer, so its handles may be dropped freely")
+        } else {
+            try! msg.append("`join()` waits for it and takes its result, `detach()` hands it to the process (its result is dropped at completion), and `cancel()` asks it to stop. To manage a dynamic set of tasks, spawn them into a `TaskGroup`: a group is a declared consumer, so its handles may be dropped freely")
+        }
         if name >= 0 {
             try! msg.append(". Moving it into storage writes its fate only when the storing type declares a `deinit` of its own")
         }

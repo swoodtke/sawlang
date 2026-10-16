@@ -346,7 +346,9 @@ public enum TcRole {
     // A cooperative spawn form, `Task.spawn(f(x))`. No declaration answers
     // it, so the record names the form's spelling and no target; its root
     // call `f(x)` keeps a record of its own, and the task makes that call,
-    // not the body the form is written in (`TcProgram.spawn_roots`).
+    // not the body the form is written in (`TcProgram.spawn_roots`). The
+    // OS-thread form, `Thread.spawn { ... }`, takes a brace and is a
+    // `Builtin` (`TcProgram.thread_spawn`).
     case Spawn
 }
 
@@ -446,6 +448,9 @@ public struct TcAtom {
 // an instantiation of it is refused. Each list is a run of the atom pool.
 public struct TcSummary {
     state: Int
+    // The kinds of suspension source behind `suspends` and `nonsync`, a set
+    // of `TC_CAUSE_*` bits; 0 when neither holds outright.
+    causes: Int
     suspends: Bool
     suspend_first: Int
     suspend_count: Int
@@ -460,20 +465,34 @@ public struct TcSummary {
 
 extension TcSummary {
     public static func blank() -> TcSummary {
-        TcSummary(state: TC_SUMMARY_NONE, suspends: false, suspend_first: 0, suspend_count: 0, nonsync: false,
-                  nonsync_first: 0, nonsync_count: 0, copy_first: 0, copy_count: 0, forbid_first: 0,
-                  forbid_count: 0)
+        TcSummary(state: TC_SUMMARY_NONE, causes: 0, suspends: false, suspend_first: 0, suspend_count: 0,
+                  nonsync: false, nonsync_first: 0, nonsync_count: 0, copy_first: 0, copy_count: 0,
+                  forbid_first: 0, forbid_count: 0)
     }
 }
 
+// The kinds of suspension source a summary's `causes` holds, bit for bit as
+// the std suspension table records them: a park point, a `blocking` extern, a
+// test intrinsic, a call through `any`, a call through a function value not
+// declared `sync`, and a call no rule classifies. A `Thread.spawn` body
+// permits the `blocking` cause alone (`check_thread_call`).
+public static TC_CAUSE_COOPERATIVE: Int = 1
+public static TC_CAUSE_BLOCKING: Int = 2
+public static TC_CAUSE_TEST_SUSPEND: Int = 4
+public static TC_CAUSE_DISPATCH: Int = 8
+public static TC_CAUSE_CLOSURE_CALL: Int = 16
+public static TC_CAUSE_UNCLASSIFIED: Int = 32
+
 // A body's unit: a declaration's body, or a closure in it. `top` is the unit
 // whose summary a closure's conditions join; a top unit's run of items covers
-// its closures' too.
+// its closures' too. `thread` marks a `Thread.spawn` brace's unit, a `sync`
+// context that permits a `blocking` extern.
 public struct TcUnit {
     decl: Int
     node: Int
     top: Int
     sync: Bool
+    thread: Bool
     item_first: Int
     item_end: Int
 }

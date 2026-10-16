@@ -40,10 +40,10 @@ func boundary() -> Int {
 
 func main() {
     // `test_suspend`: a state boundary, and a thread has nothing to resume it.
-    var a = Thread.spawn { boundary() }
+    var a = try! Thread.spawn { boundary() }
     print(a.join())
     // `closure_call`: the conservative cause, refused here exactly as in any
     // other `sync` context — a thread body narrows ONE rule, not this one.
-    var b = Thread.spawn { apply({ v in v + 1 }) }
+    var b = try! Thread.spawn { apply({ v in v + 1 }) }
     print(b.join())
 }

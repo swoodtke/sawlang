@@ -19,12 +19,12 @@ import sawtypecheck.spell.{tc_effects_text}
 import sawtypecheck.typeops.{TcClient}
 import sawtypecheck.model.{TC_BIND_DEFAULT, TC_EFFECT_SYNC, TC_FLAG_DEFAULT_BODY, TC_FORBID_CLOSURE,
                                TC_FORBID_ERASE, TC_FORBID_SYNC,
-                               TC_ITEM_CALL, TC_ITEM_ERASE, TC_SUMMARY_BODY, TC_SUMMARY_UNTABLED,
+                               TC_ITEM_CALL, TC_ITEM_ERASE, TC_SUMMARY_BODY, TC_SUMMARY_TABLE, TC_SUMMARY_UNTABLED,
                                TcAtom, TcCall, TcConformance, TcItem, TcRole, TcStatus, TcStatusKind,
                                TcSummary, TcUnit, TcUse}
 import sawtypecheck.program.{TcProgram}
 import sawtypecheck.signatures.{TcContext}
-import sawtypecheck.summaries.{TcAcc}
+import sawtypecheck.summaries.{TcAcc, tc_thread_struck}
 import sawtypecheck.types.{TcKind, TcType}
 
 // Runs every check that reads the summaries (phase 3).
@@ -193,7 +193,9 @@ extension TcProgram {
                 if unit.sync {
                     self.check_sync_call(item.node, unit, owner)
                 }
-                if unit.node >= 0 {
+                if unit.thread {
+                    self.check_thread_call(item.node, owner)
+                } else if unit.node >= 0 {
                     self.check_closure_call(item.node, owner)
                 }
                 self.check_call_site(item.node, owner)
@@ -282,6 +284,101 @@ extension TcProgram {
         try! msg.append(self.blamed_call_text(e, owner, true))
         try! msg.append(": call it outside the closure")
         self.refuse_at(e, "effect.closure-suspends", msg.build())
+    }
+
+    // A call in a `Thread.spawn` body must not suspend, except by a `blocking`
+    // extern, which blocks the spawned thread on purpose (spec, The thread
+    // body): the thread runs no executor to resume any other suspension. The
+    // refusal names the path to the first source it strikes on.
+    func check_thread_call(&var self, e: Int, owner: Int) {
+        var acc = TcAcc(owner: owner, unit: -1)
+        self.eval_call(e, &var acc)
+        if tc_thread_struck(acc.causes) == 0 {
+            return
+        }
+        var msg = StringBuilder()
+        try! msg.append("cannot suspend in a `Thread.spawn \{ ... \}` body: closure calls ")
+        try! msg.append(self.thread_chain(e))
+        try! msg.append(": a spawned thread runs no executor, so there is nothing there to resume a suspension, and it would simply not cede. For suspending work on a dedicated thread write `TaskGroup(threads: 1)`, which brings an executor with it; a `blocking` extern is the one thing this body may do, and it blocks the spawned thread on purpose")
+        self.refuse_at(e, "effect.thread-body", msg.build())
+    }
+
+    // The path from the call at `e` to the first suspension source a
+    // `Thread.spawn` body refuses: each function it passes, `` `f` → ``, then
+    // the source, `yield_now`, `__saw_suspend` or a call through a function
+    // value; a std function the table answers for ends in its row's label.
+    func thread_chain(&var self, e: Int) -> String {
+        var out = StringBuilder()
+        var visited = Vector<Int>()
+        var at = e
+        while at >= 0 {
+            let ci = self.call_at[at]
+            let c = self.calls[ci]
+            if c.role == TcRole.Value {
+                try! out.append("a call through a non-`sync` function value")
+                return out.build()
+            }
+            let d = c.target
+            if d < 0 || c.role == TcRole.Builtin {
+                try! out.append(self.callee_text(at))
+                return out.build()
+            }
+            let info = self.res.decls[d]
+            let name = self.name_text(info.name)
+            if self.is_park_point(d) || info.kind == ResDeclKind.Extern {
+                try! out.append(name)
+                return out.build()
+            }
+            let s = self.summaries[d]
+            if s.state == TC_SUMMARY_TABLE {
+                let row = self.std_row_of(d)
+                let label = if row >= 0 { self.std_rows.labels.get(row) ?? "" } else { "" }
+                if label.equals(name) {
+                    try! out.append(label)
+                    return out.build()
+                }
+                try! out.append(self.callee_text(at))
+                if label.len() > 0 {
+                    try! out.append(" → ")
+                    try! out.append(label)
+                }
+                return out.build()
+            }
+            try! out.append(self.callee_text(at))
+            if s.state != TC_SUMMARY_BODY || tc_contains(&visited, d) {
+                return out.build()
+            }
+            try! visited.push(d)
+            at = self.struck_call_in(d)
+            if at >= 0 {
+                try! out.append(" → ")
+            }
+        }
+        out.build()
+    }
+
+    // The first call in function `d`'s own body that may suspend by a cause a
+    // `Thread.spawn` body refuses, or -1.
+    func struck_call_in(&var self, d: Int) -> Int {
+        let u = self.decl_unit[d]
+        if u < 0 {
+            return -1
+        }
+        let unit = self.units[u]
+        var k = unit.item_first
+        while k < unit.item_end {
+            let item = self.items[k]
+            k = k + 1
+            if item.kind != TC_ITEM_CALL || item.unit != u {
+                continue
+            }
+            var acc = TcAcc(owner: d, unit: -1)
+            self.eval_call(item.node, &var acc)
+            if tc_thread_struck(acc.causes) != 0 {
+                return item.node
+            }
+        }
+        return -1
     }
 
     // The call at `e`, where its callee's Copy requirement and forbidden

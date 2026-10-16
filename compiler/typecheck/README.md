@@ -310,6 +310,11 @@ to an existential. A function's summary (the dump's `(summary ...)`) is:
   suspending call in a closure body, dispatch through `any` to a suspending
   implementation, or call what is not sync-callable in a `sync` body; the
   call site that makes one true is refused.
+- **the causes** behind an outright may-suspend or not-sync-callable: a park
+  point, a `blocking` extern, a test intrinsic, a dispatch through `any`, a
+  call through a function value, or one no rule classifies (`TC_CAUSE_*`).
+  A `Thread.spawn` body reads them, permitting `blocking` alone. The dump
+  does not print them.
 
 A closure's calls are not its function's: they add nothing to its suspension,
 and what would make one suspend becomes a `refuses-when` condition. Nor are a
@@ -328,6 +333,8 @@ observed once by `compiler/tools/std_suspension.py`, and the one suspension
 analysis it runs over std's effect graph. A function declared `sync`, and an
 extern (by its `blocking`), are summarized by their declaration. A std function
 with no row is taken as suspending, with a `summary.untabled` NOTE naming it.
+A row also records its cause set and the label of its first source that is
+not `blocking`, which a `Thread.spawn` body's refusal names (`io_wait`).
 The table is replaced by real inference when the new std's bodies are
 checked; `run.py` fails when it no longer matches a fresh observation, and
 the verifier when a row names no std function.

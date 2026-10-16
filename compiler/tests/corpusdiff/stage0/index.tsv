@@ -144,7 +144,7 @@ cbor169_limits.saw	arm64-apple-darwin	same	905c1f02b26f	success	ok	0	624:375d45b
 cbor169_roundtrip.saw	arm64-apple-darwin	differs	6001929c71ba	success	ok	0	352:45f3a2406b8a	0:e3b0c44298fc	-	yes	-
 cbor169_vectors.saw	arm64-apple-darwin	differs	881ec15152c9	success	ok	0	70:6d81cc79e18e	0:e3b0c44298fc	-	yes	-
 chain_assign_exclusivity_in_literal.saw	arm64-apple-darwin	same	5c9c0f0cf6a9	error	refused	-	-	-	458:94c1cd5e1d99	yes	exclusive access violation: `w` is written by this optional-chain assignment while also being accessed in the right-hand side
-channel_pipeline.saw	arm64-apple-darwin	same	0dd305283012	success	ok	0	5:cae8934a4412	0:e3b0c44298fc	-	yes	-
+channel_pipeline.saw	arm64-apple-darwin	same	c80d42cd7db3	success	refused	-	-	-	159:ce816748ba81	no: Stage 0 does not build it	Parse error at 15:38: two statements on one line need a `;` between them: the first begins with `var`, the second with `{` — write `;` where they meet
 channel_receive_cancel_mt.saw	arm64-apple-darwin	same	f88deed20b85	success	ok	0	44:4d1a0f0e24f7	0:e3b0c44298fc	-	yes	-
 channel_receive_in_main.saw	arm64-apple-darwin	same	5af71c466c5b	success	ok	0	73:99cdee829195	0:e3b0c44298fc	-	yes	-
 channel_receive_through_helper.saw	arm64-apple-darwin	same	2a26ed217105	success	ok	0	22:3da13fc52aa9	0:e3b0c44298fc	-	yes	-
@@ -181,7 +181,7 @@ closure_pushed_into_a_vector_keeps_its_captures.saw	arm64-apple-darwin	same	55a8
 closure_return_is_local.saw	arm64-apple-darwin	same	e7bedd6f0648	success	ok	0	167:9fdacce4d518	0:e3b0c44298fc	-	yes	-
 closure_satisfies_copy_bound.saw	arm64-apple-darwin	same	099802c4d320	success	ok	0	6:f3d4a1889326	0:e3b0c44298fc	-	yes	-
 closure_shorthand_parameter_inside_a_try.saw	arm64-apple-darwin	same	76c1156d2a33	success	refused	-	-	-	875:65e90bbb80fc	no: Stage 0 does not build it	undefined variable `$0`
-closure_spawn_arc_balance.saw	arm64-apple-darwin	same	c2bf47773c4c	success	ok	0	15:46280c47c884	0:e3b0c44298fc	-	yes	-
+closure_spawn_arc_balance.saw	arm64-apple-darwin	same	ea35c74f8470	success	refused	-	-	-	159:d01a58ed2f60	no: Stage 0 does not build it	Parse error at 22:31: two statements on one line need a `;` between them: the first begins with `var`, the second with `{` — write `;` where they meet
 closure_struct_field_infer.saw	arm64-apple-darwin	same	198667e62793	success	ok	0	5:99254a2bba51	0:e3b0c44298fc	-	yes	-
 closure_tail_adopts_expected_return_type.saw	arm64-apple-darwin	same	60b41435b388	success	ok	0	81:1baeddb546bb	0:e3b0c44298fc	-	yes	-
 closure_tail_autowraps_result.saw	arm64-apple-darwin	same	718b3b5d434a	success	ok	0	115:d124e74cc847	0:e3b0c44298fc	-	yes	-
@@ -285,7 +285,7 @@ conformance/D07_never_method_and_generic.saw	arm64-apple-darwin	same	caa092ed98d
 conformance/D08_never_closure_vtable_default.saw	arm64-apple-darwin	same	f945228c41e5	success	ok	0	8:5456b025959f	0:e3b0c44298fc	-	yes	-
 conformance/D09_diverging_positions_freestanding.saw	arm64-apple-darwin	same	361744297e62	compiles	ok	-	-	-	-	yes	-
 conformance/D10_spawn_never_body_refused.saw	arm64-apple-darwin	same	2297f177e106	error	refused	-	-	-	532:9c1261697ffa	yes	a task body may not be `Never`: `halt` never returns, so the task never completes and `join` on its handle could never return
-conformance/D11_spawn_closure_never_refused.saw	arm64-apple-darwin	same	ef1ec2d9f185	error	refused	-	-	-	550:6976c2c6d813	yes	a task body may not be `Never`: this closure's body never returns, so the task never completes and `join` on its handle could never return
+conformance/D11_spawn_closure_never_refused.saw	arm64-apple-darwin	same	ec140644fb2d	error	refused	-	-	-	159:7c0253d64711	no: no error contains 'a task body may not be `Never`'	Parse error at 14:31: two statements on one line need a `;` between them: the first begins with `let`, the second with `{` — write `;` where they meet
 conformance/D12_drive_never_body_refused.saw	arm64-apple-darwin	same	4a2f07bafeb5	error	refused	-	-	-	479:a8cf91001a66	yes	a task body may not be `Never`: `halt` never returns, so `__saw_drive` would drive it for ever
 conformance/D13_no_fallthrough_past_diverging_call.saw	arm64-apple-darwin	same	27956b76a43c	panic	ok	-6	86:4affed230ce7	0:e3b0c44298fc	-	yes	-
 conformance/D14_diverging_forwarded_and_later_args.saw	arm64-apple-darwin	differs	061207b43cf9	success	ok	0	12:2c492d5ef0ec	0:e3b0c44298fc	-	yes	-
@@ -311,9 +311,9 @@ conformance/G18_main_result_void_ok_exit_zero.saw	arm64-apple-darwin	same	421f68
 conformance/K02_nonsend_across_suspend_local_mt.saw	arm64-apple-darwin	same	b070fce70970	error	refused	-	-	-	508:dca36614bc4d	yes	cannot spawn `work` into a multi-threaded `TaskGroup(threads: ...)`: local `v` of type `Vector<() sync escaping -> Int, GlobalAllocator>` is held across a suspension but is not `Send`, so the task frame cannot cross to a worker thread. `Vector` is `Send` only when its payload is `Send`, and `() sync escaping -> Int` is not — that is the bound to satisfy.
 conformance/K100_shutdown_rides_cancellation.saw	arm64-apple-darwin	same	2e337286afec	success	ok	0	81:edfb401e3795	0:e3b0c44298fc	-	yes	-
 conformance/K111_suspension_causes_decide_framing.saw	arm64-apple-darwin	same	86d628597f9e	success	ok	0	147:1ab08446ebe7	0:e3b0c44298fc	-	yes	-
-conformance/K112_thread_body_refuses_a_multi_cause_std_method.saw	arm64-apple-darwin	same	138ac0f9257d	error	refused	-	-	-	662:5cf1516895a3	yes	cannot suspend in a `Thread.spawn { ... }` body: closure calls `Command.output` → io_wait (`Command.output` suspends at line 469)
+conformance/K112_thread_body_refuses_a_multi_cause_std_method.saw	arm64-apple-darwin	same	30ed89cb8881	error	refused	-	-	-	159:7427bcd2e425	no: no error contains 'cannot suspend in a `Thread.spawn { ... }` body'	Parse error at 41:31: two statements on one line need a `;` between them: the first begins with `var`, the second with `{` — write `;` where they meet
 conformance/K113_test_suspend_is_a_frame_boundary_not_an_executor.saw	arm64-apple-darwin	same	365eb8814ec3	success	ok	0	23:dfa88394a65e	0:e3b0c44298fc	-	yes	-
-conformance/K114_thread_body_refuses_every_cause_but_blocking.saw	arm64-apple-darwin	same	66e3e82280aa	error	refused	-	-	-	1326:44874c66ffb7	yes	cannot suspend in a `Thread.spawn { ... }` body: closure calls `boundary` → __saw_suspend (`boundary` suspends at line 37)
+conformance/K114_thread_body_refuses_every_cause_but_blocking.saw	arm64-apple-darwin	same	ddd345aa2eee	error	refused	-	-	-	159:f11224f8d650	no: no error contains 'cannot suspend in a `Thread.spawn { ... }` body'	Parse error at 43:31: two statements on one line need a `;` between them: the first begins with `var`, the second with `{` — write `;` where they meet
 conformance/K116_one_frame_ledger_answers_every_discovery_question.saw	arm64-apple-darwin	same	f9b9c21d78f9	success	ok	0	190:27cc5fd6fcb9	0:e3b0c44298fc	-	yes	-
 conformance/K118_every_shape_splits_hoists_or_refuses.saw	arm64-apple-darwin	same	3325e2871519	success	ok	0	179:45bcf5b3d652	0:e3b0c44298fc	-	yes	-
 conformance/K11_spinlock_captured.saw	arm64-apple-darwin	differs	36c3f513f61d	error	refused	-	-	-	275:ee66d8cfb33f	yes	cannot copy value of type `SpinLock<Int>` which implements NoCopy
@@ -373,7 +373,7 @@ conformance/K53_driven_for_range_iteration_count.saw	arm64-apple-darwin	same	ab9
 conformance/K53_mt_group_stays_live_across_spawns.saw	arm64-apple-darwin	differs	719d78f7ac95	success	ok	0	28:09e34df9c1c1	0:e3b0c44298fc	-	yes	-
 conformance/K54_mt_task_receives_what_main_sent.saw	arm64-apple-darwin	same	ab4032a454f4	success	ok	0	11:ade4bb46a51e	0:e3b0c44298fc	-	yes	-
 conformance/K55_mt_same_group_send_and_receive.saw	arm64-apple-darwin	same	452ff3862c75	success	ok	0	10:a8ce1dc515c8	0:e3b0c44298fc	-	yes	-
-conformance/K56_thread_engine_feeds_main_receive.saw	arm64-apple-darwin	same	e5a1e8e634c9	success	ok	0	11:ca781696fb86	0:e3b0c44298fc	-	yes	-
+conformance/K56_thread_engine_feeds_main_receive.saw	arm64-apple-darwin	same	b2b82c58b46e	success	refused	-	-	-	159:2f24aef535df	no: Stage 0 does not build it	Parse error at 20:31: two statements on one line need a `;` between them: the first begins with `var`, the second with `{` — write `;` where they meet
 conformance/K57_main_receives_prefilled_with_mt_group_live.saw	arm64-apple-darwin	same	a97a9b7c5f52	success	ok	0	11:22f0f1dc90c2	0:e3b0c44298fc	-	yes	-
 conformance/K58_main_receives_after_mt_join.saw	arm64-apple-darwin	same	04af045dad86	success	ok	0	11:09ff272da2cb	0:e3b0c44298fc	-	yes	-
 conformance/K59_main_receives_after_mt_group_scope.saw	arm64-apple-darwin	same	1e4de278451a	success	ok	0	11:0c0a477a38bc	0:e3b0c44298fc	-	yes	-
@@ -385,24 +385,24 @@ conformance/K64_close_drains_before_it_reports_closed.saw	arm64-apple-darwin	sam
 conformance/K65_close_wakes_a_parked_receiver.saw	arm64-apple-darwin	same	3cb9d3206686	success	ok	0	10:8c4a7ed249a9	0:e3b0c44298fc	-	yes	-
 conformance/K66_send_and_close_after_close_report.saw	arm64-apple-darwin	same	2326c219842e	success	ok	0	110:3f98e2b203b9	0:e3b0c44298fc	-	yes	-
 conformance/K67_quiescent_channel_deadlock_is_reported.saw	arm64-apple-darwin	same	606188c5bd43	panic	ok	-6	502:bda23bee87b4	0:e3b0c44298fc	-	yes	-
-conformance/K68_deadlock_report_does_not_fire_on_a_live_program.saw	arm64-apple-darwin	same	96c47014deab	success	ok	0	53:3f9f7b56ed01	0:e3b0c44298fc	-	yes	-
+conformance/K68_deadlock_report_does_not_fire_on_a_live_program.saw	arm64-apple-darwin	same	7ddb223acd23	success	refused	-	-	-	159:7316200a02ef	no: Stage 0 does not build it	Parse error at 68:31: two statements on one line need a `;` between them: the first begins with `var`, the second with `{` — write `;` where they meet
 conformance/K69_cancel_reaches_a_parked_channel_receive.saw	arm64-apple-darwin	same	0762b7d1f6da	success	ok	0	55:a71a92402550	0:e3b0c44298fc	-	yes	-
 conformance/K70_driven_scope_end_release_matrix.saw	arm64-apple-darwin	same	1c28851c6447	success	ok	0	774:039dc89f1284	0:e3b0c44298fc	-	yes	-
-conformance/K74_send_bound_licenses_a_generic_spawn_capture.saw	arm64-apple-darwin	same	7aaa7048afc8	success	ok	0	33:d73db60bf199	0:e3b0c44298fc	-	yes	-
-conformance/K78_singleton_spawn_discard_is_refused.saw	arm64-apple-darwin	same	5441fe197439	error	refused	-	-	-	1192:c5ec225567ce	yes	`Thread.spawn` hands back a `VoidThread` that must be consumed, and this one is discarded
-conformance/K79_unconsumed_thread_handle_is_refused.saw	arm64-apple-darwin	same	851b01c87efb	error	refused	-	-	-	744:863be44aacf4	yes	`t` holds a `VoidThread` that is never consumed: it was spawned at line 19 and reaches the end of its scope with no `join()` or `detach()` on this path
+conformance/K74_send_bound_licenses_a_generic_spawn_capture.saw	arm64-apple-darwin	same	05416c244749	success	refused	-	-	-	618:39a5aafba490	no: Stage 0 does not build it	Parse error at 43:31: two statements on one line need a `;` between them: the first begins with `var`, the second with `{` — write `;` where they meet
+conformance/K78_singleton_spawn_discard_is_refused.saw	arm64-apple-darwin	same	951796d6adc3	error	refused	-	-	-	1192:11c9788dc0d2	no: no error contains 'the result of this expression is `Result<std.task.Thread<Void>, std.systemerror.SystemError>` and is silently discarded'	`Thread.spawn` hands back a `VoidThread` that must be consumed, and this one is discarded
+conformance/K79_unconsumed_thread_handle_is_refused.saw	arm64-apple-darwin	same	5f8409d62203	error	refused	-	-	-	159:37d9faed120c	no: no error contains '`t` holds the `std.task.Thread<Void>` spawned here, which is never consumed'	Parse error at 19:31: two statements on one line need a `;` between them: the first begins with `var`, the second with `{` — write `;` where they meet
 conformance/K80_group_spawn_handle_may_be_dropped.saw	arm64-apple-darwin	same	070ede623158	success	ok	0	10:8ba0eea36ad6	0:e3b0c44298fc	-	yes	-
-conformance/K81_storage_owner_discharges_the_obligation.saw	arm64-apple-darwin	same	697be1a1ec3c	success	ok	0	19:f6c08501f17f	0:e3b0c44298fc	-	yes	-
-conformance/K82_forgotten_thread_handle_panics_in_deinit.saw	arm64-apple-darwin	same	1c4e2cbce14e	panic	ok	-6	163:ec84714c1dbf	0:e3b0c44298fc	-	yes	-
-conformance/K83_thread_spawn_body_is_sync_enforced.saw	arm64-apple-darwin	same	9b1952616f4a	error	refused	-	-	-	632:0a7207665e99	yes	cannot suspend in a `Thread.spawn { ... }` body: closure calls `cedes` → yield_now (`cedes` suspends at line 21)
-conformance/K84_thread_spawn_permits_a_blocking_extern.saw	arm64-apple-darwin	same	2781704f7896	success	ok	0	7:b7ee927fc92e	0:e3b0c44298fc	-	yes	-
+conformance/K81_storage_owner_discharges_the_obligation.saw	arm64-apple-darwin	same	85d9d3dc719d	success	refused	-	-	-	431:10f58330ae4b	no: Stage 0 does not build it	Parse error at 51:39: two statements on one line need a `;` between them: the first begins with `var`, the second with `{` — write `;` where they meet
+conformance/K82_forgotten_thread_handle_panics_in_deinit.saw	arm64-apple-darwin	same	6a161b452736	panic	refused	-	-	-	159:1960c07de989	no: Stage 0 does not build it	Parse error at 44:31: two statements on one line need a `;` between them: the first begins with `var`, the second with `{` — write `;` where they meet
+conformance/K83_thread_spawn_body_is_sync_enforced.saw	arm64-apple-darwin	same	0cc1aa16ff42	error	refused	-	-	-	159:7aa80815cc3c	no: no error contains 'cannot suspend in a `Thread.spawn { ... }` body'	Parse error at 26:31: two statements on one line need a `;` between them: the first begins with `var`, the second with `{` — write `;` where they meet
+conformance/K84_thread_spawn_permits_a_blocking_extern.saw	arm64-apple-darwin	same	6cea80f48497	success	refused	-	-	-	159:bc4dae4e9462	no: Stage 0 does not build it	Parse error at 37:36: two statements on one line need a `;` between them: the first begins with `var`, the second with `{` — write `;` where they meet
 conformance/K85_background_spawn_handle_must_be_consumed.saw	arm64-apple-darwin	same	ca9029a60af5	error	refused	-	-	-	1918:a7b087c53c61	yes	`Task.spawn` hands back a `Task<Int>` that must be consumed, and this one is discarded
 conformance/K86_background_task_handle_panics_in_deinit.saw	arm64-apple-darwin	same	9b4bd5ab30f0	panic	ok	-6	530:2c9c94d80946	0:e3b0c44298fc	-	yes	-
 conformance/K87_background_group_cancels_then_joins_at_exit.saw	arm64-apple-darwin	same	937737f0b1af	success	ok	0	105:5262a451575d	0:e3b0c44298fc	-	yes	-
 conformance/K88_background_spawn_takes_no_borrows.saw	arm64-apple-darwin	same	a71dfca8d345	error	refused	-	-	-	1448:b7639b0fd16f	yes	`Task.spawn` accepts no borrows: `&var buffer` is an argument of the spawned call
 conformance/K89_detach_gives_up_the_result.saw	arm64-apple-darwin	same	7713ec1b141a	success	ok	0	55:8dddd41bcca3	0:e3b0c44298fc	-	yes	-
-conformance/K90_thread_detach_is_a_fate.saw	arm64-apple-darwin	same	5bee06da2b9f	success	ok	0	66:f9c3eac0759f	0:e3b0c44298fc	-	yes	-
-conformance/K91_spawn_brace_captures_nothing_implicitly.saw	arm64-apple-darwin	same	4e20b811e235	error	refused	-	-	-	618:e23af065c888	yes	a spawned brace captures nothing implicitly, and this body names `count`, `label`
+conformance/K90_thread_detach_is_a_fate.saw	arm64-apple-darwin	same	4e097b0efa2e	success	refused	-	-	-	159:1bc3be75e509	no: Stage 0 does not build it	Parse error at 81:35: two statements on one line need a `;` between them: the first begins with `var`, the second with `{` — write `;` where they meet
+conformance/K91_spawn_brace_captures_nothing_implicitly.saw	arm64-apple-darwin	same	e8e90b9258f2	error	refused	-	-	-	159:acd1e9b89775	no: no error contains 'a spawned brace captures nothing implicitly, and this body names `count`, `label`'	Parse error at 28:37: two statements on one line need a `;` between them: the first begins with `var`, the second with `{` — write `;` where they meet
 conformance/K93_timed_park_observes_cancellation.saw	arm64-apple-darwin	same	c4be02c824e4	success	ok	0	27:78657be68532	0:e3b0c44298fc	-	yes	-
 conformance/K94_timed_park_times_out_in_every_engine.saw	arm64-apple-darwin	same	891a15203743	success	ok	0	69:37b46700eb0a	0:e3b0c44298fc	-	yes	-
 conformance/K94b_timed_park_times_out_in_a_single_frame_drive.saw	arm64-apple-darwin	same	c9373a1d5028	success	ok	0	36:f4ba1219be21	0:e3b0c44298fc	-	yes	-
@@ -602,8 +602,8 @@ conformance/X44_nested_call_ref_overlaps_receiver.saw	arm64-apple-darwin	same	72
 conformance/X45_two_nested_calls_one_root.saw	arm64-apple-darwin	same	b6bb6f23b680	error	refused	-	-	-	682:016475da54dc	yes	exclusive access violation: `n` is borrowed by a nested call in this argument list while `n` is also accessed by reference in the same call — both reach `n`
 conformance/Z03_replace_container_during_window.saw	arm64-apple-darwin	differs	0f756dccefff	error	refused	-	-	-	548:03fc32b84c51	yes	exclusive access violation: the place `v[0]` borrows `v` for the whole window, and `v` is accessed by reference a second time in the same call
 conformance/Z05_escaping_closure_env_deinit_once.saw	arm64-apple-darwin	same	5892dfe5840e	success	ok	0	3:dc51b8c96c2d	0:e3b0c44298fc	-	yes	-
-conformance/k74_refused_at_the_call.saw	arm64-apple-darwin	same	db5dfe9c3698	error	refused	-	-	-	301:adb87467178b	yes	type `Cell` does not satisfy the `Sync` bound
-conformance/k74_refused_unbounded.saw	arm64-apple-darwin	same	1ce8d0ad9187	error	refused	-	-	-	338:da46442ba75e	yes	cannot `Thread.spawn`: captured `v` of type `T` is not `Send`
+conformance/k74_refused_at_the_call.saw	arm64-apple-darwin	same	16c5fcd29da3	error	refused	-	-	-	159:b7ba1f7b855b	no: no error contains 'type `Cell` does not satisfy the `Sync` bound'	Parse error at 23:31: two statements on one line need a `;` between them: the first begins with `var`, the second with `{` — write `;` where they meet
+conformance/k74_refused_unbounded.saw	arm64-apple-darwin	same	a864e71ff43c	error	refused	-	-	-	159:49b3b16c866c	no: no error contains 'cannot `Thread.spawn`: captured `v` of type `T` is not `Send`'	Parse error at 12:31: two statements on one line need a `;` between them: the first begins with `var`, the second with `{` — write `;` where they meet
 conformance/k84_blocking_refused_in_an_ordinary_sync_body.saw	arm64-apple-darwin	same	ef880593d18a	error	refused	-	-	-	418:5dba4b820d4b	yes	cannot suspend in `sync func` declaration: `sync func nap` calls blocking extern `__saw_rt_blocking_sleep` (`nap` suspends at line 18)
 conformance_in_the_traits_module_is_program_wide.saw	arm64-apple-darwin	same	bec80adb3ae7	success	ok	0	16:e8b82ff5296c	0:e3b0c44298fc	-	yes	-
 const_bitwise_fold.saw	arm64-apple-darwin	same	8c93fea685a2	success	ok	0	12:0433d380383a	0:e3b0c44298fc	-	yes	-
@@ -1050,7 +1050,7 @@ errors/byte_digits_spelling_is_as_int.saw	arm64-apple-darwin	same	c20147ad773d	e
 errors/byte_never_adopts_a_literal.saw	arm64-apple-darwin	same	4ada9ab0504f	error	refused	-	-	-	381:c966e6e29ec1	yes	argument `b` expects `Byte` but got `UInt8`
 errors/capture_assign_escaping.saw	arm64-apple-darwin	same	964928cc4d6f	error	refused	-	-	-	442:1747a9a469e4	yes	cannot assign to `n`: it is captured by value, so the write would be discarded when the closure returns
 errors/capture_assign_non_escaping.saw	arm64-apple-darwin	same	0f82cd1d95fc	error	refused	-	-	-	927:1594c629c7b9	yes	cannot assign to `sum`: it is captured by value, so the write would be discarded when the closure returns
-errors/capture_borrow_escaping.saw	arm64-apple-darwin	same	d8cef90adff6	error	refused	-	-	-	637:5f65eaf1e1ce	yes	borrow capture `&var sum` is legal only in a closure passed directly to a non-escaping parameter
+errors/capture_borrow_escaping.saw	arm64-apple-darwin	same	dd54c3771335	error	refused	-	-	-	159:b72db58c30c9	no: no error contains 'borrow capture `&var sum` is legal only'	Parse error at 11:34: two statements on one line need a `;` between them: the first begins with `let`, the second with `{` — write `;` where they meet
 errors/capture_exclusivity_receiver.saw	arm64-apple-darwin	same	ef86ed8a6b5a	error	refused	-	-	-	365:674ffb04e1f8	yes	exclusive access violation: `b` is passed as `&var` while also being accessed in the same call
 errors/capture_self_move_requires_borrow_sigil.saw	arm64-apple-darwin	same	447aefbc7ba0	error	refused	-	-	-	403:3d0fea374ae2	yes	Parse error at 12:42: `self` may be captured only as a borrow — write `[&self]`, or `[&var self]` in a `&var self` method
 errors/capture_self_requires_borrow_sigil.saw	arm64-apple-darwin	same	3ed4630b7917	error	refused	-	-	-	403:9d896e23a42e	yes	Parse error at 13:42: `self` may be captured only as a borrow — write `[&self]`, or `[&var self]` in a `&var self` method
@@ -1296,11 +1296,11 @@ errors/signal_is_hosted_only.saw	arm64-apple-darwin	same	ba313f39495e	error	refu
 errors/sleep_bare_int.saw	arm64-apple-darwin	same	c2c671644e41	error	refused	-	-	-	248:d3d1d77b3f6e	yes	`sleep` expects a `Duration`, got `Int`
 errors/spawn_capture_across_iterations.saw	arm64-apple-darwin	same	6d2187228529	error	refused	-	-	-	1347:ad7badf0f56a	yes	exclusive access violation: this task's `&var total` capture is still live when the loop body ends, so the next iteration would open a second exclusive borrow of the same root: the task spawned at line 26 holds `&var total` until its group `group` is torn down at the end of this scope (nothing joins its handle)
 errors/spawn_capture_mt_send.saw	arm64-apple-darwin	same	b0b3d168e584	error	refused	-	-	-	404:34a1a85f68ff	yes	cannot spawn `run` into a multi-threaded `TaskGroup(threads: ...)`: parameter `f` of type `() -> Int` is not `Send`, so the task frame cannot cross to a worker thread. Share thread-safe state via `Arc` (and `Mutex` for mutation) or a `Channel` instead of moving it in.
-errors/spawn_capture_not_send.saw	arm64-apple-darwin	same	9f70ea7ec059	error	refused	-	-	-	1255:d297bce90a8e	yes	cannot `Thread.spawn`: captured `h` of type `Handle` is not `Send`
+errors/spawn_capture_not_send.saw	arm64-apple-darwin	same	6f2cf93e3d6e	error	refused	-	-	-	159:640e958102be	no: no error contains 'captured `h` of type `Handle` is not `Send`'	Parse error at 13:31: two statements on one line need a `;` between them: the first begins with `var`, the second with `{` — write `;` where they meet
 errors/spawn_capture_unjoined_handle.saw	arm64-apple-darwin	same	bc1b2724b8ac	error	refused	-	-	-	1080:a7cf2050eb02	yes	exclusive access violation: `n` cannot be read here — the task spawned at line 31 holds `&var n` until its group `group` is torn down at the end of this scope (nothing joins its handle)
-errors/spawn_handle_may_not_escape_the_function.saw	arm64-apple-darwin	same	b362b9c75554	error	refused	-	-	-	722:b5375dabc2ed	yes	`t` holds a `VoidThread` that is never consumed: it was spawned at line 18 and this `return` leaves the function without consuming it
+errors/spawn_handle_may_not_escape_the_function.saw	arm64-apple-darwin	same	572fadf8c4a0	error	refused	-	-	-	159:ecdb46cb9f49	no: no error contains '`t` holds the `std.task.Thread<Void>` spawned here, which is never consumed'	Parse error at 18:31: two statements on one line need a `;` between them: the first begins with `var`, the second with `{` — write `;` where they meet
 errors/spawn_names_its_engine.saw	arm64-apple-darwin	same	46c0c48d50d7	error	refused	-	-	-	491:df69d290abd0	yes	`spawn { ... }` no longer names an engine
-errors/spawn_result_not_send.saw	arm64-apple-darwin	same	e1a7c9d4645a	error	refused	-	-	-	453:259bd51af1a6	yes	cannot `Thread.spawn`: the closure's result type `Raw` is not `Send`, so it cannot travel back from the spawned thread to `join()`
+errors/spawn_result_not_send.saw	arm64-apple-darwin	same	84db847aa1ed	error	refused	-	-	-	159:897b02ce4776	no: no error contains "cannot `Thread.spawn`: the closure's result type `Raw` is not `Send`"	Parse error at 25:31: two statements on one line need a `;` between them: the first begins with `var`, the second with `{` — write `;` where they meet
 errors/specialized_method_wrong_type.saw	arm64-apple-darwin	same	5f17e3d2428a	error	refused	-	-	-	1561:030d53769b5f	yes	type `Vector` has no method `join`
 errors/spinlock_needs_atomics.saw	arm64-apple-darwin	differs	140092a52e5c	error	refused	-	-	-	583:3493920125b6	yes	`SpinLock` needs target atomics, and `riscv32-unknown-none-elf` has none: its base ISA omits the `A` extension, so a compare-and-swap lowers to an `__atomic_*` libcall
 errors/spinlock_suspending_body.saw	arm64-apple-darwin	differs	436bbb94d10b	error	refused	-	-	-	368:0eca5ed37d61	yes	cannot suspend in a `sync` closure context: closure calls yield_now (closure suspends at line 17)
@@ -1354,7 +1354,7 @@ errors/synthesize_required_equatable.saw	arm64-apple-darwin	same	041c9076e52f	er
 errors/synthesize_required_explicit_copy.saw	arm64-apple-darwin	same	b25edebb1260	error	refused	-	-	-	337:c0ba4e249376	yes	`Holder` declares `ExplicitCopy` with no `copy`: a derived body must be requested explicitly
 errors/synthesize_required_hashable.saw	arm64-apple-darwin	same	b549fcc944ac	error	refused	-	-	-	969:88a2e4be2eaa	yes	`Keyed` declares `Hashable` with no `hash`: a derived body must be requested explicitly
 errors/taskgroup_threads_nonsend_reject.saw	arm64-apple-darwin	same	3b7af264cf51	error	refused	-	-	-	598:6c6055fd5831	yes	cannot spawn `work` into a multi-threaded `TaskGroup(threads: ...)`: parameter `jobs` of type `Vector<() sync escaping -> Int, GlobalAllocator>` is not `Send`, so the task frame cannot cross to a worker thread. Share thread-safe state via `Arc` (and `Mutex` for mutation) or a `Channel` instead of moving it in. `Vector` is `Send` only when its payload is `Send`, and `() sync escaping -> Int` is not — that is the bound to satisfy.
-errors/thread_body_reports_both_violations.saw	arm64-apple-darwin	same	193b42646662	error	refused	-	-	-	1327:6233cc638183	yes	cannot suspend in a `Thread.spawn { ... }` body: closure calls `boundary` → yield_now (`boundary` suspends at line 43)
+errors/thread_body_reports_both_violations.saw	arm64-apple-darwin	same	d916afc854eb	error	refused	-	-	-	159:a1f0187d68a6	no: no error contains 'closure calls `boundary` → yield_now'	Parse error at 58:35: two statements on one line need a `;` between them: the first begins with `var`, the second with `{` — write `;` where they meet
 errors/trailing_dot_float.saw	arm64-apple-darwin	same	1bbefd412a18	error	refused	-	-	-	149:33592fb6929e	yes	Parse error at 8:15: Expected field name or tuple index after '.', got NEWLINE — a float literal needs a digit after the point (write `7.0`)
 errors/trait_inheritance_missing_method.saw	arm64-apple-darwin	same	e3e55f26d628	error	refused	-	-	-	219:a3be91278a09	yes	type `Number` does not implement required method `getValue` from trait `Child`
 errors/two_exclusive_only_windows_conflict.saw	arm64-apple-darwin	differs	b6cf69a19c80	error	refused	-	-	-	815:8a64247f6a38	yes	exclusive access violation: the place `b.tally(…)` borrows `b` EXCLUSIVELY even though this window only reads — `Bag.tally` mutates `self` outside the place it lends (a write into receiver storage at line 34) — and `b` is accessed by reference a second time in the same call
@@ -1595,7 +1595,7 @@ funcpointer226_coercion_positions.saw	arm64-apple-darwin	same	bcc5f44a44ac	succe
 funcpointer226_composites.saw	arm64-apple-darwin	same	ae5d548451ff	success	ok	0	65:7f8c4852e553	0:e3b0c44298fc	-	yes	-
 funcpointer226_ffi_qsort.saw	arm64-apple-darwin	same	dc38c3bcf2e5	success	ok	0	49:42f1f060a529	0:e3b0c44298fc	-	yes	-
 funcpointer226_no_hidden_alloc.saw	arm64-apple-darwin	same	e3bbc65225dd	success	ok	0	3:25d4f2a86deb	0:e3b0c44298fc	-	yes	-
-funcpointer226_type.saw	arm64-apple-darwin	same	8fe1c1fbd10f	success	ok	0	24:0c7bfb777920	0:e3b0c44298fc	-	yes	-
+funcpointer226_type.saw	arm64-apple-darwin	same	df2616f5b922	success	refused	-	-	-	159:7427bcd2e425	no: Stage 0 does not build it	Parse error at 41:31: two statements on one line need a `;` between them: the first begins with `var`, the second with `{` — write `;` where they meet
 funcpointer_call_in_a_driven_body.saw	arm64-apple-darwin	same	dec34225795c	success	refused	-	-	-	540:aacd0427c2fe	no: Stage 0 does not build it	`yield_now` is a stdlib-internal cooperative-yield intrinsic and cannot be called bare
 generic_body_honors_copy_tier.saw	arm64-apple-darwin	same	0172523a3192	error	refused	-	-	-	428:0dde4ccaa4bc	yes	`twice` requires `T` to be `Copy` — it binds `x` twice, at lines 32 and 33; `Res` is move-only
 generic_body_try_survives_a_second_instantiation.saw	arm64-apple-darwin	same	a47c9c1a747e	success	ok	0	4:d0d729a093ba	0:e3b0c44298fc	-	yes	-
@@ -1914,9 +1914,9 @@ move_out_then_reassign.saw	arm64-apple-darwin	same	2d8ff7ccf5e5	success	ok	0	53:
 move_whole_binding.saw	arm64-apple-darwin	same	1288ae368677	success	ok	0	2:1121cfccd591	0:e3b0c44298fc	-	yes	-
 moved_variables_per_function_reset.saw	arm64-apple-darwin	same	e379263abd49	success	ok	0	4:ad0fadf63cc7	0:e3b0c44298fc	-	yes	-
 mutex_basic.saw	arm64-apple-darwin	differs	735a48b37720	success	ok	0	16:9cb5d5ebf1b4	0:e3b0c44298fc	-	yes	-
-mutex_counter.saw	arm64-apple-darwin	differs	1ef58c2901c3	success	ok	0	5:83c02ac2d48c	0:e3b0c44298fc	-	yes	-
+mutex_counter.saw	arm64-apple-darwin	differs	40fa11368421	success	refused	-	-	-	159:b54b83acbf1d	no: Stage 0 does not build it	Parse error at 15:32: two statements on one line need a `;` between them: the first begins with `var`, the second with `{` — write `;` where they meet
 mutex_lock_result.saw	arm64-apple-darwin	differs	68911948fbea	success	ok	0	29:8cdee2140b51	0:e3b0c44298fc	-	yes	-
-mutex_static_contention_mt.saw	arm64-apple-darwin	differs	eb98795054af	success	ok	0	7:7c5e6d8d7397	0:e3b0c44298fc	-	yes	-
+mutex_static_contention_mt.saw	arm64-apple-darwin	differs	b8c4aca013fb	success	refused	-	-	-	159:3a7dca46d62b	no: Stage 0 does not build it	Parse error at 33:32: two statements on one line need a `;` between them: the first begins with `var`, the second with `{` — write `;` where they meet
 mutex_static_inline.saw	arm64-apple-darwin	differs	6b61cf537894	success	ok	0	12:96873851be84	0:e3b0c44298fc	-	yes	-
 named_tuple_basic.saw	arm64-apple-darwin	same	4adb60e2d558	success	ok	0	17:91d43ddd2cdd	0:e3b0c44298fc	-	yes	-
 named_tuple_different_names_error.saw	arm64-apple-darwin	same	e1134c1d6909	error	refused	-	-	-	225:34efb1a694ad	yes	cannot assign `(a: Int, b: Int)` to variable of type `(x: Int, y: Int)`
@@ -2012,7 +2012,7 @@ offload_pointer_heap_arg.saw	arm64-apple-darwin	same	986c4edb388d	success	ok	0	3
 offload_seam_first_tick.saw	arm64-apple-darwin	same	e355524c906c	success	ok	0	31:a1ff1b0a625f	0:e3b0c44298fc	-	yes	-
 offload_signature_shapes.saw	arm64-apple-darwin	same	e9293755439d	success	ok	0	73:17b5419c5347	0:e3b0c44298fc	-	yes	-
 offload_spawn_interleave.saw	arm64-apple-darwin	same	73ebf1bf1e2d	success	ok	0	9:67df1a21c787	0:e3b0c44298fc	-	yes	-
-once_cross_thread_publish.saw	arm64-apple-darwin	same	ee2837adacaf	success	ok	0	8:d0886b08400c	0:e3b0c44298fc	-	yes	-
+once_cross_thread_publish.saw	arm64-apple-darwin	same	7fb7c431bc7c	success	refused	-	-	-	159:e71b789bdf81	no: Stage 0 does not build it	Parse error at 48:32: two statements on one line need a `;` between them: the first begins with `var`, the second with `{` — write `;` where they meet
 once_double_set_panic.saw	arm64-apple-darwin	same	121e045e4cf6	panic	ok	-6	82:f5aa11f3b0de	0:e3b0c44298fc	-	yes	-
 once_get_before_set_panic.saw	arm64-apple-darwin	same	d52be3180b09	panic	ok	-6	60:4da9bcc51c52	0:e3b0c44298fc	-	yes	-
 once_static_set_get.saw	arm64-apple-darwin	same	2fb879116445	success	ok	0	32:016eb9803c49	0:e3b0c44298fc	-	yes	-
@@ -2171,7 +2171,7 @@ qualified_type_declaration_slots.saw	arm64-apple-darwin	same	1cb05df46485	succes
 qualified_type_in_declaration_slot.saw	arm64-apple-darwin	same	dc650b17673c	success	ok	0	2:53c234e5e847	0:e3b0c44298fc	-	yes	-
 range_inclusive_basics.saw	arm64-apple-darwin	same	9c625486f253	success	ok	0	22:38a7d58e8683	0:e3b0c44298fc	-	yes	-
 range_inclusive_intmax.saw	arm64-apple-darwin	same	5be305fdc6d6	success	ok	0	2:1121cfccd591	0:e3b0c44298fc	-	yes	-
-reactor_cross_thread_wake.saw	arm64-apple-darwin	differs	7a559c08a2ef	success	ok	0	73:346a8c376a0b	0:e3b0c44298fc	-	yes	-
+reactor_cross_thread_wake.saw	arm64-apple-darwin	differs	7ed0eaf00ae5	success	refused	-	-	-	159:ca993191a9d5	no: Stage 0 does not build it	Parse error at 73:31: two statements on one line need a `;` between them: the first begins with `var`, the second with `{` — write `;` where they meet
 receiver_temporary_evaluated_once.saw	arm64-apple-darwin	same	67359a0e924a	success	ok	0	224:572f28c4a7b5	0:e3b0c44298fc	-	yes	-
 recursive_enum_built_in_a_task.saw	arm64-apple-darwin	same	aef46f5ab03d	success	ok	0	27:3ca81d9c651b	0:e3b0c44298fc	-	yes	-
 recursive_enum_inline_payload_refused.saw	arm64-apple-darwin	same	255351d1b7a8	error	refused	-	-	-	412:22735442612f	yes	recursive type `Tree` has infinite size: its storage contains its own storage inline, through Tree.Node.child -> Tree
@@ -2317,12 +2317,12 @@ spawn_capture_caller_alias.saw	arm64-apple-darwin	same	8a2cf2224f8e	error	refuse
 spawn_capture_declared_before.saw	arm64-apple-darwin	same	3685dd757752	success	ok	0	47:18b5e385cec3	0:e3b0c44298fc	-	yes	-
 spawn_capture_join_releases.saw	arm64-apple-darwin	same	566e35883063	success	ok	0	159:f2f3e69a1d9e	0:e3b0c44298fc	-	yes	-
 spawn_capture_move_root.saw	arm64-apple-darwin	same	9288d780e267	error	refused	-	-	-	529:30f0f030b4ad	yes	cannot `move` `buf` while a spawned task borrows it: the task spawned at line 27 holds `&var buf` until `h.join()` releases it
-spawn_join.saw	arm64-apple-darwin	same	0edd16106393	success	ok	0	3:ce516e29a2cc	0:e3b0c44298fc	-	yes	-
-spawn_multi.saw	arm64-apple-darwin	same	fc8344081a09	success	ok	0	3:64459cd36006	0:e3b0c44298fc	-	yes	-
+spawn_join.saw	arm64-apple-darwin	same	f71fcb5507e3	success	refused	-	-	-	159:5b22af7be98a	no: Stage 0 does not build it	Parse error at 14:31: two statements on one line need a `;` between them: the first begins with `var`, the second with `{` — write `;` where they meet
+spawn_multi.saw	arm64-apple-darwin	same	f8ca4de18131	success	refused	-	-	-	159:f1b220de9d8e	no: Stage 0 does not build it	Parse error at 17:32: two statements on one line need a `;` between them: the first begins with `var`, the second with `{` — write `;` where they meet
 spawn_optional_result.saw	arm64-apple-darwin	same	f691c2bc8d36	success	ok	0	78:7dab265c7217	0:e3b0c44298fc	-	yes	-
 spawn_ref_param_dual_role_and_cancel.saw	arm64-apple-darwin	same	75574dd8ee7a	success	ok	0	80:78b379f94a95	0:e3b0c44298fc	-	yes	-
 spawn_ref_param_referent_deinit_once.saw	arm64-apple-darwin	differs	0ad069b0b36c	success	ok	0	68:530fdbf9b1ba	0:e3b0c44298fc	-	yes	-
-spawn_void_body.saw	arm64-apple-darwin	same	8f5a2044ca05	success	ok	0	3:238903180cc1	0:e3b0c44298fc	-	yes	-
+spawn_void_body.saw	arm64-apple-darwin	same	8c8c28a95832	success	refused	-	-	-	312:58a5dd9739fc	no: Stage 0 does not build it	Parse error at 21:31: two statements on one line need a `;` between them: the first begins with `var`, the second with `{` — write `;` where they meet
 spawned_task_runs_before_reactor_park.saw	arm64-apple-darwin	same	53415544d8b4	success	ok	0	44:e6df50d1931d	0:e3b0c44298fc	-	yes	-
 spinlock_basic.saw	arm64-apple-darwin	same	73c645c0aa69	success	ok	0	103:50cdc5a3233f	0:e3b0c44298fc	-	yes	-
 spinlock_contention_mt.saw	arm64-apple-darwin	differs	ca80b464ebe5	success	ok	0	49:ac2920d167ff	0:e3b0c44298fc	-	yes	-
@@ -2337,7 +2337,7 @@ static_assert_nonconst_error.saw	arm64-apple-darwin	same	1a68a80dd558	error	refu
 static_assert_pass.saw	arm64-apple-darwin	same	c6175592024c	success	ok	0	2:9a271f2a916b	0:e3b0c44298fc	-	yes	-
 static_assert_statement_fail_error.saw	arm64-apple-darwin	same	88f95f4c34f5	error	refused	-	-	-	56:ee387c671ce7	yes	static assertion failed: statement-position check
 static_atomic_counter.saw	arm64-apple-darwin	same	a220499139bd	success	ok	0	19:c921f606f120	0:e3b0c44298fc	-	yes	-
-static_atomic_threaded.saw	arm64-apple-darwin	same	f260ea3c12c6	success	ok	0	7:b80500a01f98	0:e3b0c44298fc	-	yes	-
+static_atomic_threaded.saw	arm64-apple-darwin	same	555f5b6eb6fa	success	refused	-	-	-	159:f3d69e6b57e0	no: Stage 0 does not build it	Parse error at 20:32: two statements on one line need a `;` between them: the first begins with `var`, the second with `{` — write `;` where they meet
 static_const_declaration_order.saw	arm64-apple-darwin	same	2f26e24c89e3	success	ok	0	28:89da56c3df64	0:e3b0c44298fc	-	yes	-
 static_const_expr_init.saw	arm64-apple-darwin	same	e22a9e2418c4	success	ok	0	12:4bc6fc6c669b	0:e3b0c44298fc	-	yes	-
 static_derived_from_imported_const.saw	arm64-apple-darwin	same	7a4a56ccf9b5	success	ok	0	78:0e60870a2b3c	0:e3b0c44298fc	-	yes	-
@@ -2459,9 +2459,9 @@ taskgroup_threads_sleep.saw	arm64-apple-darwin	same	34d82223596b	success	ok	0	2:
 taskgroup_two_task_yield.saw	arm64-apple-darwin	same	89745547d467	success	ok	0	21:96a8b6898636	0:e3b0c44298fc	-	yes	-
 taskgroup_unjoined_drop.saw	arm64-apple-darwin	same	638735055b1f	success	ok	0	6:dfdb45aeea27	0:e3b0c44298fc	-	yes	-
 thread_assertion_survives_a_glob_import.saw	arm64-apple-darwin	same	df3ad82ec5f5	success	ok	0	4:d2a8c09af507	0:e3b0c44298fc	-	yes	-
-thread_fate_is_written_not_dropped.saw	arm64-apple-darwin	differs	5fe89fbb8ce8	success	ok	0	6:111dba53a084	0:e3b0c44298fc	-	yes	-
-thread_name_belongs_to_the_user.saw	arm64-apple-darwin	same	7ee8b7cfaa73	success	ok	0	15:d649183b51f3	0:e3b0c44298fc	-	yes	-
-thread_spawn_blocking_beside_a_driven_root.saw	arm64-apple-darwin	same	a7ab1435077a	success	ok	0	9:26514df7d8ef	0:e3b0c44298fc	-	yes	-
+thread_fate_is_written_not_dropped.saw	arm64-apple-darwin	differs	e8f7c54e8ab0	success	refused	-	-	-	211:c6ba86c864c2	no: Stage 0 does not build it	Parse error at 14:31: two statements on one line need a `;` between them: the first begins with `var`, the second with `{` — write `;` where they meet
+thread_name_belongs_to_the_user.saw	arm64-apple-darwin	same	47f0587821c6	success	refused	-	-	-	159:fb5e33e9ed8e	no: Stage 0 does not build it	Parse error at 37:37: two statements on one line need a `;` between them: the first begins with `var`, the second with `{` — write `;` where they meet
+thread_spawn_blocking_beside_a_driven_root.saw	arm64-apple-darwin	same	e0799ad43fc3	success	refused	-	-	-	159:266be86bf841	no: Stage 0 does not build it	Parse error at 32:36: two statements on one line need a `;` between them: the first begins with `var`, the second with `{` — write `;` where they meet
 trailing_closure_inside_a_try_operand.saw	arm64-apple-darwin	same	bb29e8430a7e	success	refused	-	-	-	465:7448c75dc571	no: Stage 0 does not build it	Parse error at 47:32: two statements on one line need a `;` between them: the first begins with `let`, the second with `{` — write `;` where they meet
 trait_bound_error.saw	arm64-apple-darwin	same	51ae1a049e03	error	refused	-	-	-	278:76d6b17a0bc6	yes	type `Point` does not implement trait `Describable`
 trait_default_any.saw	arm64-apple-darwin	same	4f60d2d04cae	success	ok	0	7:00d848464258	0:e3b0c44298fc	-	yes	-

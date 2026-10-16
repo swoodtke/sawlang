@@ -2,10 +2,6 @@ program	reactor_cross_thread_wake.saw
 triple	arm64-apple-darwin
 twin	differs
 expect	success
-build	ok
-exit	0
-stdout	"parked 3"
-stdout	"one wake released 3"
-stdout	"a wake with nobody parked is not lost: true"
-stdout	""
-meets_expect	yes
+build	refused	Parse error at 73:31: two statements on one line need a `;` between them: the first begins with `var`, the second with `{` — write `;` where they meet
+meets_expect	no: Stage 0 does not build it
+log	"error: Parse error at 73:31: two statements on one line need a `;` between them: the first begins with `var`, the second with `{` — write `;` where they meet"

@@ -292,11 +292,14 @@ public enum MirDriveForm {
 }
 
 // The form a spawn site was written in, which decides whether its handle
-// owes a written fate: `Task.spawn`'s does, a group's does not.
+// owes a written fate: `Task.spawn`'s does, a group's does not. `Thread` is
+// `Thread.spawn { ... }`, a builtin call whose destination is the
+// `Result<Thread<T>, SystemError>` the `Ok` payload of which owes one.
 public enum MirSpawnForm {
     case Absent,
     case Singleton,
-    case Group
+    case Group,
+    case Thread
 }
 
 // How many operands spawn site `c` passes before its root's arguments: a
@@ -312,14 +315,19 @@ public func mir_spawn_leading(c: &MirCall) -> Int {
 // added here and nowhere else.
 // ENTRY POINTS:
 //     spawn_site
+//     builtin_call
 public func mir_mint_obligation(c: &var MirCall, form: MirSpawnForm) {
     c.spawn = form
 }
 
-// Whether call `c`'s destination is a handle whose fate must be written
-// (spec: No implicit fates).
+// Whether call `c`'s destination holds a handle whose fate must be written
+// (spec: No implicit fates): `Task.spawn`'s handle, or the `Result` whose
+// `Ok` payload is `Thread.spawn`'s.
 public func mir_owes_fate(c: &MirCall) -> Bool {
-    c.kind == MirCallKind.Spawn && c.spawn == MirSpawnForm.Singleton
+    if c.kind == MirCallKind.Spawn && c.spawn == MirSpawnForm.Singleton {
+        return true
+    }
+    c.kind == MirCallKind.Builtin && c.spawn == MirSpawnForm.Thread
 }
 
 // A call's suspension point, from typecheck's summaries: none, always, or

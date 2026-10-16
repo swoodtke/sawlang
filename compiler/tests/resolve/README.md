@@ -176,6 +176,7 @@ GRAMMAR.md alternative; the last table lists them.
 | member of a module | its surface | multi/imports |
 | member of an enum through its type | the case | calls, patterns, prelude |
 | member of any other type, member or optional member of a value | a selector for typecheck | calls |
+| `Thread.spawn`, whatever `Thread` the scope holds, a program's own included | its head names std's `std.task.Thread` by identity, and the form is a static member of it, which typecheck knows by its spelling | typecheck golden `thread_spawn` |
 | implicit member | a case selector | calls |
 | call head, its arguments | classified once | calls |
 | operators, literals, interpolation, collection literals, casts, `move`, `*`, `&`, `try`, `!`, subscripts | their parts | expressions, lockdown |
@@ -206,7 +207,6 @@ GRAMMAR.md alternative; the last table lists them.
 | a `$0` parameter | `slice.not-yet` (`syntax.expr.shorthand-param`) |
 | a `module` declaration, in a file or inline | `slice.not-yet` |
 | a `package` or `parent` import path | `slice.not-yet` |
-| the `Thread.spawn` form; `Task.spawn` resolves as a member of `Task` | `slice.not-yet` |
 | a frozen-compiler intrinsic, a name that starts `__saw_` that nothing declares and that is none of the test intrinsics and drivers the builtin module declares (`__saw_suspend`, `__saw_test_suspend`, `__saw_drive`, `__saw_drive_steps`) | `slice.not-yet` |
 | a member named through an associated type, `T.Item.Key` | `slice.not-yet` |
 

@@ -1,0 +1,13 @@
+// refuses: drop.must-consume at 12:13
+// flags: --std-root std
+// `let _ =` on `Thread.spawn`'s `Result`: a `Result` may be discarded so, but
+// this one's `Ok` payload is a handle that must reach a fate (conformance row
+// K78)
+
+func work() {
+    print("worked")
+}
+
+func main() {
+    let _ = Thread.spawn { work() }
+}

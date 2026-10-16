@@ -66,12 +66,13 @@ public func mir_module_functions(p: &MirProgram, m: Int) -> Vector<Int> {
 }
 
 // How a spawn site's form prints: `singleton` for `Task.spawn`, `group` for
-// `group.spawn`.
+// `group.spawn`, `thread` for `Thread.spawn`.
 public func mir_spawn_form_text(form: MirSpawnForm) -> String {
     match form {
         case Absent -> "absent",
         case Singleton -> "singleton",
-        case Group -> "group"
+        case Group -> "group",
+        case Thread -> "thread"
     }
 }
 
@@ -726,6 +727,11 @@ extension MirProgram {
             case Builtin -> {
                 try! out.append("call builtin ")
                 try! out.append(self.tc.name_text(c.spelling))
+                if c.spawn != MirSpawnForm.Absent {
+                    try! out.append(" (spawn ")
+                    try! out.append(mir_spawn_form_text(c.spawn))
+                    try! out.append(")")
+                }
             },
             case Value -> {
                 try! out.append("call value ")

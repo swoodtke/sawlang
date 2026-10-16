@@ -11,7 +11,7 @@
 // EXPECT-ERROR-CONTAINS: this closure's body never returns
 
 func main() {
-    let t = Thread.spawn {
+    let t = try! Thread.spawn {
         while { }
     }
     print("spawned")

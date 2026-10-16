@@ -850,6 +850,7 @@ Every body construct in the slice, and how it is typed:
 | `print`, `panic`, `assert` with a message or format arguments; `sizeof`, `alignof` | `Void`, `Never`, `Int` | format, inference |
 | `Task.spawn(f(x))`, under a std root declaring `Task` beside `TaskGroup` | `Task<T>` for a root of type `T`, `VoidTask` for a `Void` one; the root's call is the task's, so its suspension is not the spawner's | task_spawn |
 | `group.spawn(f(x))` on a `TaskGroup`, a local, a field or through a `&TaskGroup` | the group borrowed shared for the spawn; the handle and the root as `Task.spawn`'s | group_spawn |
+| `Thread.spawn { ... }`, under a std root declaring `std.task.Thread` and `std.systemerror.SystemError` | `Result<Thread<T>, SystemError>` for a body of type `T`, `Void` included; a builtin call whose brace is its operand (`Thread.spawn` under Stage 0's std, which has no `SystemError`, is `slice.not-yet`, its brace still checked) | thread_spawn; thread_body_std_table |
 | a subscript | a getitem, setitem or place accessor call, or an array's builtin | places, funnel |
 | `o!`, `-x`, `not b`, `~x`, `&x`, `&var x`, `move x`, `move o!`, `*p` | the payload place, the operand's type, a reference, the moved value, the payload moved out of the optional place (design 131), the pointee | places, operators, conversions, builtin_values |
 | arithmetic, bit, shift, comparison, logic, `??`, `as`, `a..b` | agreeing operands; builtin or a declared `equals`/`compare` | operators |
@@ -924,6 +925,7 @@ fixture (`refuse/RULE.VARIANT`) that covers it.
 | a `sync` requirement met by a member not declared `sync` | the member's summary | effect.sync.requirement |
 | a hand-written `copy()` of a `Copy` or `ExplicitCopy` conformance | refused at the conformance when it suspends | effect.sync.copy-hook |
 | a call in a closure body | refused when it may suspend, at once or at the instantiation | effect.closure-suspends, effect.closure-suspends.instantiation |
+| a call in a `Thread.spawn` body | refused when it may suspend by any cause but `blocking`: each summary carries its causes (park point, `blocking` extern, test intrinsic, `any` dispatch, function value, unclassified), a std row's from the table | effect.thread-body, effect.thread-body.test-suspend, effect.thread-body.closure-call; thread_spawn (`nap`, a direct `blocking` call); thread_body_std_table |
 | a coercion to `any Trait` | refused when an implementation it dispatches to may suspend | effect.any-suspends, effect.any-suspends.instantiation |
 | a call in a `borrows(sync)` window, `borrow` block or `for` | refused when it may suspend | borrows.sync-window; body_rules |
 | a call site of a body that copies its `T` | the Copy tier of the site's argument | summaries; copy.requirement; path_uses |
@@ -1445,7 +1447,7 @@ every copy and outlives each call). Checked once captures are settled
 | a `[copy s]` capture of a `String`, a `[copy v]` of a `Vector`, an implicit `String` capture, moved | refused | c.copy-string, c.copy-vector, c.implicit |
 | conformance row V49's shape | refused | `capture.escaping-consume` (bare) |
 | a non-escaping closure consuming its `move` capture | allowed | capture_rules |
-| a `Thread.spawn` brace consuming its capture | allowed: the brace is exempt; the form is `slice.not-yet` | |
+| a `Thread.spawn` brace consuming its capture | allowed: the brace is exempt | golden `thread_spawn` (`fan`'s `[move v]`) |
 
 ## The conformance rows
 
@@ -1641,9 +1643,12 @@ says what the fixture shows.
 | `erasure.not-object-safe` | a written `any Trait` whose trait is not object-safe: a marker trait, one with an associated type, a static requirement, or a requirement naming `Self` in its result or a parameter, its parents' included, naming the trait, the reason and the member (spec, "Object safety (v1)"; the object-safety matrix) |
 | `effect.any-suspends` | a coercion to `any Trait`, or a call whose type arguments make one in its callee, where the implementation of a requirement not declared `sync` may suspend, naming both (spec: suspension) |
 | `drive.argument` | a test driver (`__saw_drive`, `__saw_drive_steps`) given anything but one positional argument (bare), or a root that is no call of a function or a method: a function value, a closure (`.value-root`) |
-| `spawn.argument` | a `Task.spawn` or `group.spawn` (`.group`) given anything but one positional argument, or a root that is no call of a free function: a method, a closure, a value (`.method-root`) |
+| `spawn.argument` | a `Task.spawn` or `group.spawn` (`.group`) given anything but one positional argument, or a root that is no call of a free function: a method, a closure, a value (`.method-root`); a `Thread.spawn` given anything but one brace (`.thread`), or a brace that declares parameters (`.thread-parameter`) |
+| `spawn.implicit-capture` | a `Thread.spawn` brace naming an enclosing binding its capture list does not: the list is the body's parameter list (design 242; conformance row K91) |
+| `spawn.send` | a `Thread.spawn` capture whose type is not `Send`, a generic body's declared bounds answering for its parameters (`.generic`, conformance row K74); a body whose value is not `Send`, which `join()` hands back across the threads (`.result`) |
+| `effect.thread-body` | a call in a `Thread.spawn` body that may suspend by any cause but a `blocking` extern, named by its path to the first source it strikes on: a park point (conformance row K83), the test intrinsic (`.test-suspend`, K114), a call through a function value not declared `sync` (`.closure-call`, K114), a std function's table row (golden `thread_body_std_table`, K112) |
 | `spawn.borrow` | a borrow a `Task.spawn` root takes of its spawner, at both spellings: a `&` or `&var` argument of the root call, and a borrow capture written in a closure anywhere inside it (`.capture`); a reference a call nested in the arguments makes ends at the spawn and is none (golden `task_spawn`; spec, "BORROWS ARE REFUSED AT THE FORM") |
-| `spawn.never-body` | a task root of type `Never`, whose handle's `join` could never return, or which a test driver would drive for ever (design 228; conformance row D12); the funnel `refuse_never_task_body` names its entry points, the `Task.spawn` form, `group.spawn` (`.group`) and the two test drivers (`.drive`, `.drive-steps`) |
+| `spawn.never-body` | a task root of type `Never`, whose handle's `join` could never return, or which a test driver would drive for ever (design 228; conformance row D12); the funnel `refuse_never_task_body` names its entry points, the `Task.spawn` form, `group.spawn` (`.group`), the two test drivers (`.drive`, `.drive-steps`) and the `Thread.spawn` brace (`.thread`, conformance row D11) |
 | `slice.not-yet` | a signature or body construct outside the bootstrap slice |
 
 The traits that derive under `@synthesize` are `Copy`, `ExplicitCopy`,

@@ -18,7 +18,9 @@ import sawresolve.lang.{res_is_park_point}
 import sawresolve.names.{ResIndex}
 import sawresolve.prelude.{res_is_test_intrinsic}
 import sawtypecheck.conform.{TcSubst}
-import sawtypecheck.model.{TC_BIND_DEFAULT, TC_COPY_COVERED, TC_EFFECT_SYNC, TC_FLAG_BLOCKING, TC_FLAG_DEFAULT_BODY,
+import sawtypecheck.model.{TC_BIND_DEFAULT, TC_CAUSE_BLOCKING, TC_CAUSE_CLOSURE_CALL, TC_CAUSE_COOPERATIVE,
+                               TC_CAUSE_DISPATCH, TC_CAUSE_TEST_SUSPEND, TC_CAUSE_UNCLASSIFIED,
+                               TC_COPY_COVERED, TC_EFFECT_SYNC, TC_FLAG_BLOCKING, TC_FLAG_DEFAULT_BODY,
                                TC_FORBID_CLOSURE, TC_FORBID_ERASE, TC_FORBID_SYNC, TC_ITEM_CALL, TC_ITEM_COPY,
                                TC_ITEM_ERASE, TC_SUMMARY_BODY, TC_SUMMARY_DECLARED, TC_SUMMARY_NONE, TC_SUMMARY_TABLE,
                                TC_SUMMARY_UNTABLED, TC_TIER_COPY, TcAdjust, TcAdjustKind, TcAtom,
@@ -27,7 +29,7 @@ import sawtypecheck.model.{TC_BIND_DEFAULT, TC_COPY_COVERED, TC_EFFECT_SYNC, TC_
 import sawtypecheck.program.{TcProgram}
 import sawtypecheck.signatures.{TcContext}
 import sawtypecheck.spell.{tc_effects_text}
-import sawtypecheck.stdsuspension.{TC_STD_NONSYNC, TC_STD_SUSPENDS, tc_std_suspension_rows}
+import sawtypecheck.stdsuspension.{TC_STD_NONSYNC, TC_STD_SUSPENDS, TcStdRows, tc_std_suspension_rows}
 import sawtypecheck.tier.{tc_bit}
 import sawtypecheck.typeops.{TcClient}
 import sawtypecheck.types.{TC_HOLDS_PARAM, TcKind, TcType}
@@ -37,6 +39,8 @@ import sawtypecheck.walks.{TcMemo, tc_memo}
 public struct TcAcc {
     suspends: Bool
     nonsync: Bool
+    // The `TC_CAUSE_*` kinds behind `suspends` and `nonsync`.
+    causes: Int
     suspend_atoms: Vector<TcAtom>
     nonsync_atoms: Vector<TcAtom>
     copies: Vector<TcAtom>
@@ -51,9 +55,16 @@ extension TcAcc: NoCopy {}
 
 extension TcAcc {
     public init(owner: Int, unit: Int) -> TcAcc {
-        TcAcc(suspends: false, nonsync: false, suspend_atoms: Vector<TcAtom>(), nonsync_atoms: Vector<TcAtom>(),
+        TcAcc(suspends: false, nonsync: false, causes: 0, suspend_atoms: Vector<TcAtom>(), nonsync_atoms: Vector<TcAtom>(),
               copies: Vector<TcAtom>(), forbids: Vector<TcAtom>(), owner: owner, unit: unit)
     }
+}
+
+// The causes in `causes` a `Thread.spawn` body refuses: every one but
+// `blocking`, which blocks the spawned thread on purpose (spec, The thread
+// body).
+public func tc_thread_struck(causes: Int) -> Int {
+    causes - (causes & TC_CAUSE_BLOCKING)
 }
 
 // Solves every summary (phase 2).
@@ -114,17 +125,29 @@ extension TcProgram {
 
     // The rows of the std suspension table, keyed by interned text.
     func load_std_table(&var self) {
-        var keys = Vector<String>()
-        var verdicts = Vector<Int>()
-        tc_std_suspension_rows(&var keys, &var verdicts)
+        var rows = TcStdRows(keys: Vector<String>(), verdicts: Vector<Int>(), causes: Vector<Int>(),
+                             labels: Vector<String>())
+        tc_std_suspension_rows(&var rows)
         var k = 0
-        while k < keys.len() {
-            let key = keys.get(k) ?? ""
+        while k < rows.keys.len() {
+            let key = rows.keys.get(k) ?? ""
             let id = self.res.intern(key)
-            self.std_verdicts.add(id, 0, verdicts[k])
+            self.std_verdicts.add(id, 0, k)
             try! self.std_keys.push(id)
             k = k + 1
         }
+        self.std_rows = move rows
+    }
+
+    // The row of the std table function `d` answers to, or -1.
+    public func std_row_of(&self, d: Int) -> Int {
+        let key = self.std_key(d)
+        let id = self.res.names.find(key)
+        let at = if id >= 0 { self.std_verdicts.first(id, 0) } else { -1 }
+        if at < 0 {
+            return -1
+        }
+        self.std_verdicts.value(at)
     }
 
     // A function's key in the std table: its identity and its parameters'
@@ -161,26 +184,31 @@ extension TcProgram {
             summary.state = TC_SUMMARY_DECLARED
             summary.suspends = true
             summary.nonsync = true
+            summary.causes = TC_CAUSE_COOPERATIVE
         } else if info.kind == ResDeclKind.Extern {
             summary.state = TC_SUMMARY_DECLARED
             let blocking = (s.flags & TC_FLAG_BLOCKING) != 0
             summary.suspends = blocking
             summary.nonsync = blocking
+            summary.causes = if blocking { TC_CAUSE_BLOCKING } else { 0 }
         } else if (s.effects & TC_EFFECT_SYNC) != 0 {
             summary.state = TC_SUMMARY_DECLARED
         } else if self.is_interface(info.module) {
-            let key = self.std_key(d)
-            let id = self.res.names.find(key)
-            let at = if id >= 0 { self.std_verdicts.first(id, 0) } else { -1 }
-            if at < 0 {
+            let row = self.std_row_of(d)
+            if row < 0 {
                 summary.state = TC_SUMMARY_UNTABLED
                 summary.suspends = true
                 summary.nonsync = true
+                summary.causes = TC_CAUSE_UNCLASSIFIED
             } else {
                 summary.state = TC_SUMMARY_TABLE
-                let verdict = self.std_verdicts.value(at)
+                let verdict = self.std_rows.verdicts[row]
                 summary.suspends = verdict == TC_STD_SUSPENDS
                 summary.nonsync = verdict == TC_STD_SUSPENDS || verdict == TC_STD_NONSYNC
+                if summary.nonsync {
+                    let causes = self.std_rows.causes[row]
+                    summary.causes = if causes == 0 { TC_CAUSE_UNCLASSIFIED } else { causes }
+                }
             }
         } else {
             summary.state = TC_SUMMARY_DECLARED
@@ -227,8 +255,8 @@ extension TcProgram {
                 u = self.units.len()
                 let sync = d >= 0 && self.is_sync_context(d)
                 let first = self.items.len()
-                try! self.units.push(TcUnit(decl: d, node: -1, top: u, sync: sync, item_first: first,
-                                            item_end: first))
+                try! self.units.push(TcUnit(decl: d, node: -1, top: u, sync: sync, thread: false,
+                                            item_first: first, item_end: first))
                 if d >= 0 {
                     self.decl_unit[d] = u
                 }
@@ -327,8 +355,9 @@ extension TcProgram {
                 if ct >= 0 && self.kind_of(ct) == TcKind.Func {
                     sync = (self.types.ty(ct).a & TC_EFFECT_SYNC) != 0
                 }
-                try! self.units.push(TcUnit(decl: d, node: id, top: top, sync: sync, item_first: first,
-                                            item_end: first))
+                let thread = self.is_thread_brace(id)
+                try! self.units.push(TcUnit(decl: d, node: id, top: top, sync: sync, thread: thread,
+                                            item_first: first, item_end: first))
             }
             self.note_items(id, here)
             var c = self.child_count(id) - 1
@@ -347,6 +376,18 @@ extension TcProgram {
                 c = c - 1
             }
         }
+    }
+
+    // Whether closure `id` is a `Thread.spawn` form's brace.
+    public func is_thread_brace(&self, id: Int) -> Bool {
+        var k = 0
+        while k < self.thread_braces.len() {
+            if self.thread_braces[k] == id {
+                return true
+            }
+            k = k + 1
+        }
+        false
     }
 
     public func is_skipped_node(&self, id: Int) -> Bool {
@@ -635,6 +676,7 @@ extension TcProgram {
         if inner.nonsync {
             acc.nonsync = true
         }
+        acc.causes = acc.causes | inner.causes
         var k = 0
         while k < inner.suspend_atoms.len() {
             try! acc.suspend_atoms.push(inner.suspend_atoms[k])
@@ -703,6 +745,7 @@ extension TcProgram {
         let sync = self.declares_sync(d)
         s.suspends = acc.suspends && not sync
         s.nonsync = (acc.nonsync || acc.suspends) && not sync
+        s.causes = if s.nonsync { acc.causes } else { 0 }
         s.suspend_first = self.atoms.len()
         if not sync && not s.suspends {
             self.push_unique(&acc.suspend_atoms, true)
@@ -752,7 +795,7 @@ extension TcProgram {
     // Whether two summaries say the same: their words, and each condition
     // list as a set.
     public func same_summary(&self, a: &TcSummary, b: &TcSummary) -> Bool {
-        if a.state != b.state || a.suspends != b.suspends || a.nonsync != b.nonsync {
+        if a.state != b.state || a.suspends != b.suspends || a.nonsync != b.nonsync || a.causes != b.causes {
             return false
         }
         self.same_run(a.suspend_first, a.suspend_count, b.suspend_first, b.suspend_count, true) && self.same_run(a.nonsync_first, a.nonsync_count, b.nonsync_first, b.nonsync_count, true) && self.same_run(a.copy_first, a.copy_count, b.copy_first, b.copy_count, false) && self.same_run(a.forbid_first, a.forbid_count, b.forbid_first, b.forbid_count, true)
@@ -814,6 +857,8 @@ extension TcProgram {
     //   gather_items
     //   check_sync_call
     //   check_closure_call
+    //   check_thread_call
+    //   struck_call_in
     //   check_window_calls
     //   verify_unit_suspensions
     public func eval_call(&var self, e: Int, acc: &var TcAcc) {
@@ -889,6 +934,7 @@ extension TcProgram {
                 let effects = self.types.ty(c.owner).a
                 if (effects & TC_EFFECT_SYNC) == 0 {
                     acc.nonsync = true
+                    acc.causes = acc.causes | TC_CAUSE_CLOSURE_CALL
                 }
             }
             return
@@ -896,6 +942,7 @@ extension TcProgram {
         if c.role == TcRole.Builtin && c.target >= 0 && self.is_suspending_intrinsic(c.target) {
             acc.suspends = true
             acc.nonsync = true
+            acc.causes = acc.causes | TC_CAUSE_TEST_SUSPEND
             return
         }
         if c.target < 0 || c.role == TcRole.Builtin || c.role == TcRole.BuiltinOperator || c.role == TcRole.Conversion || c.role == TcRole.Memberwise || c.role == TcRole.Case {
@@ -972,6 +1019,7 @@ extension TcProgram {
         if s.nonsync {
             acc.nonsync = true
         }
+        acc.causes = acc.causes | s.causes
         if s.suspend_count == 0 && s.nonsync_count == 0 && s.copy_count == 0 && s.forbid_count == 0 {
             return
         }
@@ -1017,11 +1065,13 @@ extension TcProgram {
         if owner < 0 {
             acc.suspends = true
             acc.nonsync = true
+            acc.causes = acc.causes | TC_CAUSE_UNCLASSIFIED
             return
         }
         let recv = self.strip_refs(owner)
         if self.kind_of(recv) == TcKind.Any {
             acc.nonsync = true
+            acc.causes = acc.causes | TC_CAUSE_DISPATCH
             return
         }
         self.eval_condition(recv, req, e, true, &var acc)
@@ -1063,6 +1113,7 @@ extension TcProgram {
         if kind == TcKind.Any {
             if not suspension {
                 acc.nonsync = true
+                acc.causes = acc.causes | TC_CAUSE_DISPATCH
             }
             return
         }
@@ -1080,9 +1131,11 @@ extension TcProgram {
         let s = self.summary_for(impl, &acc)
         if suspension && s.suspends {
             acc.suspends = true
+            acc.causes = acc.causes | s.causes
         }
         if not suspension && s.nonsync {
             acc.nonsync = true
+            acc.causes = acc.causes | s.causes
         }
         let first = if suspension { s.suspend_first } else { s.nonsync_first }
         let count = if suspension { s.suspend_count } else { s.nonsync_count }
@@ -1100,6 +1153,7 @@ extension TcProgram {
             acc.suspends = true
         }
         acc.nonsync = true
+        acc.causes = acc.causes | TC_CAUSE_UNCLASSIFIED
     }
 
     public func strip_refs(&self, t: Int) -> Int {
@@ -1596,7 +1650,13 @@ extension TcProgram {
             let item = self.items[k]
             k = k + 1
             let unit = self.units[item.unit]
-            if item.kind == TC_ITEM_CALL && unit.node >= 0 {
+            if item.kind == TC_ITEM_CALL && unit.thread {
+                var acc = TcAcc(owner: top.decl, unit: -1)
+                self.eval_call(item.node, &var acc)
+                if tc_thread_struck(acc.causes) != 0 {
+                    try! out.push(self.node_problem(item.node, "a `Thread.spawn` body's call may suspend by a cause other than `blocking`, and nothing refused it"))
+                }
+            } else if item.kind == TC_ITEM_CALL && unit.node >= 0 {
                 var acc = TcAcc(owner: top.decl, unit: -1)
                 self.eval_call(item.node, &var acc)
                 if acc.suspends {

@@ -1,0 +1,45 @@
+// flags: --std-root std
+// `Thread.spawn { ... }`: the form's type is `Result<Thread<T>, SystemError>`,
+// `T` the body's, `Void` included; a `blocking` extern runs in the body, by
+// itself or through a helper; a declared `Send` bound licenses a generic
+// capture; a program's own `Thread` leaves the form alone.
+
+extern "C" {
+    blocking func __saw_rt_blocking_sleep(ms: Int) -> Int
+}
+
+struct Thread {
+    handle: Int
+}
+
+func nap() -> Int {
+    __saw_rt_blocking_sleep(1)
+}
+
+func work(n: Int) -> Int {
+    n * n
+}
+
+func bump() {
+    print("bumped")
+}
+
+func fan<T: Send>(v: T) -> Int {
+    var t = try! Thread.spawn { [move v] in 1 }
+    t.join()
+}
+
+func main() {
+    let mine = Thread(handle: 7)
+    let n = 6
+    var squared = try! Thread.spawn { [n] in work(n) }
+    print(squared.join())
+    var voided = try! Thread.spawn { bump() }
+    voided.join()
+    var direct = try! Thread.spawn { __saw_rt_blocking_sleep(1) }
+    var through = try! Thread.spawn { nap() }
+    let _ = direct.join()
+    let _ = through.join()
+    let _ = (try! Thread.spawn { work(2) }).join()
+    print(fan(mine.handle))
+}

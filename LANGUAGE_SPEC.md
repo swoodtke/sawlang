@@ -8426,12 +8426,14 @@ multiple threads (design 75) — carrying the coroutine transform, suspending
   Two copies of one `Arc` name the same mutex under two names, which is why
   re-entry through another name panics at run time rather than being refused
   (see [Synchronized Access](#synchronized-access)).
-- **`Thread.spawn` / `Thread<T>`** — `Thread.spawn { ... } -> Thread<T>`
-  launches the closure on a fresh OS thread (hosted pthread-per-thread engine;
-  the thread identity is never exposed). A body whose value is `Void` yields a
-  `VoidThread` instead, for the same reason `group.spawn` yields a `VoidTask`:
-  `Thread<Void>` cannot be written as an annotation, and joining one has no
-  value to hand back.
+- **`Thread.spawn` / `Thread<T>`** — `Thread.spawn { ... } -> Result<Thread<T>,
+  SystemError>` launches the closure on a fresh OS thread (hosted
+  pthread-per-thread engine; the thread identity is never exposed). The
+  operating system may refuse a thread (resources exhausted, say), and that
+  answer is the `Err`, never a panic; `try! Thread.spawn { ... }` is the
+  spelling for a program that cannot go on without its thread. A body whose
+  value is `Void` yields a `Thread<Void>`, whose `join()` is a statement:
+  binding its `Void` result is the visible-`Void` error, as for any other call.
   The Send capture-audit walks the closure's captures and rejects the first
   whose type is not `Send`, naming the capture. The RESULT type is checked the
   same way: it is computed on the spawned thread and handed back by `join()`, so
@@ -8441,7 +8443,7 @@ multiple threads (design 75) — carrying the coroutine transform, suspending
   body is checked once, abstractly, and a declared bound is a promise the caller
   is separately made to keep (it is checked at the call, against the concrete
   type argument). An unbounded `T` is refused, as it always was.
-  `Thread<T>` and `VoidThread` are `NoCopy + Deinit`. `join` blocks for the
+  `Thread<T>` is `NoCopy + Deinit`. `join` blocks for the
   result; the handle must reach one of the fates below on every path, and
   dropping it is not one of them (see [No implicit
   fates](#no-implicit-fates)).
@@ -9296,8 +9298,9 @@ semantics (fairness, the op budget) designed for a spelling only tests write.
 ### Tasks and Channels
 
 ```saw-fragment
-// Spawn an OS thread (escaping closure; every capture must be Send)
-var worker = Thread.spawn {
+// Spawn an OS thread (escaping closure; every capture must be Send). The OS
+// may refuse the thread, so the form hands back a Result
+var worker = try! Thread.spawn {
     heavy_computation()          // returns Int
 }
 let result = worker.join()       // Thread<Int>: NoCopy. The join is required —
@@ -9305,7 +9308,7 @@ let result = worker.join()       // Thread<Int>: NoCopy. The join is required �
 
 // Channels: Copy handles onto a shared queue
 let ch = try! Channel<Int>()     // Channel<T: Send>; the queue allocates
-var producer = Thread.spawn { [ch] in
+var producer = try! Thread.spawn { [ch] in
     try! ch.send(42)             // send/receive/close report through Result
     true
 }
@@ -9317,27 +9320,47 @@ let _ = producer.join()
 
 #### No implicit fates
 
-The result of `Thread.spawn { ... }` must reach `join()` or `detach()` on every
-path out of the scope that binds it, and the result of `Task.spawn(...)` must
-reach `join()`, `detach()` or `cancel()`. Both discard spellings are compile
-errors, including the `let _ =` that discards a `Result`:
+The handle `Thread.spawn { ... }` hands back, in its `Result`'s `Ok`, must reach
+`join()` or `detach()` on every path out of the scope that binds it, and the
+result of `Task.spawn(...)` must reach `join()`, `detach()` or `cancel()`. Both
+discard spellings are compile errors, including the `let _ =` that discards a
+`Result`, since this `Result`'s `Ok` is a live thread:
 
-```saw-error
-// error-contains: `Thread.spawn` hands bac
-Thread.spawn { crunch(n) }
-// error: `Thread.spawn` hands back a `Thread<Int>` that must be consumed,
+```saw-fragment
+Thread.spawn { [n] in crunch(n) }
+// error: the result of this expression is `Result<std.task.Thread<Int>,
+//        std.systemerror.SystemError>` and is silently discarded
+
+let _ = Thread.spawn { [n] in crunch(n) }
+// error: `Thread.spawn` hands back a `Result<std.task.Thread<Int>,
+//        std.systemerror.SystemError>` whose `Ok` handle must be consumed,
 //        and this one is discarded
 
-var t = Thread.spawn { crunch(n) }
+var t = try! Thread.spawn { [n] in crunch(n) }
 if urgent { let _ = t.join() }
-// error: `t` holds a `Thread<Int>` that is never consumed: it was spawned at
-//        line 1 and reaches the end of its scope with no `join()` or `detach()`
-//        on this path
+// error: `t` holds the `std.task.Thread<Int>` spawned here, which is never
+//        consumed: `t` is dropped with no `join()` or `detach()` of it on
+//        some path
+```
+
+`try!` and a `match` arm that binds the `Ok` payload carry the obligation to
+the handle they bind; the `Err` path owes nothing, since no thread exists
+there:
+
+```saw-fragment
+match Thread.spawn({ [job] in compress(job) }) {
+    case Ok(worker) -> {
+        var w = move worker
+        print("compressed {w.join()} bytes")
+    },
+    case Err(e) -> print("no thread: {e}")
+}
 ```
 
 The check is per-path: a `join()` inside a branch settles that branch and no
-other, and a `return` is an exit like any other. `Thread.spawn { ... }.join()`
-consumes the handle where it is made, which is the wait-here spelling.
+other, and a `return` is an exit like any other.
+`(try! Thread.spawn { ... }).join()` consumes the handle where it is made,
+which is the wait-here spelling.
 
 Two things discharge the obligation besides a written `join()`. One is a move
 into storage whose owner consumes the handle in its own `deinit`; the compiler
@@ -9345,9 +9368,9 @@ asks only that the owning type DECLARE a hand-written `deinit`, which is how a
 worker pool outlives the function that starts it:
 
 ```saw-fragment
-import std.task.{VoidThread}
+import std.task.{Thread}
 
-struct Pool { workers: Vector<VoidThread> }
+struct Pool { workers: Vector<Thread<Void>> }
 
 extension Pool: NoCopy {
     func deinit(&var self) {
@@ -9361,7 +9384,7 @@ extension Pool {
     func start(&var self, count: Int) {
         var i = 0
         while i < count {
-            var t = Thread.spawn { serve() }
+            var t = try! Thread.spawn { serve() }
             try! self.workers.push(move t)   // discharged: `Pool` declares a deinit
             i = i + 1
         }
@@ -9394,7 +9417,7 @@ blocking edge, error paths included.
 gives the work to the process. Nothing will join it, so its result is given up:
 
 ```saw-fragment
-var worker = Thread.spawn { [job] in compress(job) }
+var worker = try! Thread.spawn { [job] in compress(job) }
 worker.detach()                  // the handle is consumed here
 
 let background = Task.spawn(reindex(catalog))
@@ -9440,17 +9463,15 @@ A spawn brace captures nothing implicitly. The capture list is the body's
 parameter list: each entry transfers at the spawn, by value, at its own copy
 tier, and `[move x]` is how a move-only value goes.
 
-```saw-error
-// error-contains: a spawned brace captures nothing implicitly, and this body names
+```saw-fragment
 let count = 3
-var t = Thread.spawn { crunch(count) }
+var t = try! Thread.spawn { crunch(count) }
 // error: a spawned brace captures nothing implicitly, and this body names
-//        `count`
-// hint: name what crosses in the capture list —
-//       `Thread.spawn { [count] in ... }`. The list IS the body's parameter
-//       list ...
+//        `count`. Name what crosses in the capture list —
+//        `Thread.spawn { [count] in ... }`. The list IS the body's parameter
+//        list ...
 
-var t = Thread.spawn { [count] in crunch(count) }   // fine
+var t = try! Thread.spawn { [count] in crunch(count) }   // fine
 ```
 
 Ordinary closures are unaffected: their captures are read at the same frame by
@@ -9464,7 +9485,7 @@ A `Thread.spawn { ... }` body is a `sync` context: a spawned thread runs no
 executor, so there is nothing on it to resume a suspension.
 
 ```saw-fragment
-var t = Thread.spawn { yield_now(); 7 }
+var t = try! Thread.spawn { yield_now(); 7 }
 // error: cannot suspend in a `Thread.spawn { ... }` body: closure calls
 //        yield_now
 ```
@@ -9484,7 +9505,7 @@ here to park. An ordinary `sync` body still refuses the same call.
 extern "C" {
     blocking func compress(src: UnsafePointer<Int8>, n: Int) -> Int
 }
-var t = Thread.spawn { [buf, len] in compress(buf, len) }   // blocks on purpose
+var t = try! Thread.spawn { [buf, len] in compress(buf, len) }   // blocks on purpose
 let bytes = t.join()
 ```
 
@@ -10308,7 +10329,8 @@ be released until that join, which is why the frame keeps its storage until then
 
 **Two engines coexist today, deliberately not unified, and the NAMESPACE is
 which one you are on.** `Thread.spawn`/`Thread<T>`/`Channel.recv` run on the
-**OS-thread** engine: `Thread.spawn` starts an OS thread, its body is a `sync`
+**OS-thread** engine: `Thread.spawn` starts an OS thread (or reports, in its
+`Result`, that the OS refused one), its body is a `sync`
 context that may block on FFI, and `Thread.join()`/`Channel.recv()` block the
 calling thread. `Task.spawn`/`TaskGroup`/`Task<T>`/`Channel.receive` run on the
 **single-threaded cooperative executor** (above), where a body suspends and a
@@ -13022,7 +13044,7 @@ need one of the three [import forms](#imports).
 | `std.numeric` | the `Int` / `Float` extensions | yes (methods on primitives) |
 | `std.float` | `Float` ↔ text, and the bit accessors | yes (methods only) |
 | `std.taskgroup` | `TaskGroup`, `Task<T>`, `VoidTask` | yes |
-| `std.task` | `yield_now`, `Thread<T>`, `VoidThread` (the `Thread.spawn` handles) | no |
+| `std.task` | `yield_now`, `Thread<T>` (the `Thread.spawn` handle) | no |
 | `std.channel` | `Channel<T>`, `ChannelError` | no |
 | `std.mutex` / `std.spinlock` | `Mutex<T>`, `SpinLock<T>` | no |
 | `std.once` | `Once<T>` | no |
@@ -13041,7 +13063,7 @@ need one of the three [import forms](#imports).
 
 Concurrency has no module of its own beyond those: it is colorless, with no
 `async`/`await`. The NAMESPACE is the engine.
-`Thread.spawn { ... } -> Thread<T>` is the OS-thread engine;
+`Thread.spawn { ... } -> Result<Thread<T>, SystemError>` is the OS-thread engine;
 `group.spawn(f(args))` and `Task.spawn(f(args))`, both `-> Task<T>`, are the
 cooperative one. See [§6 Concurrency](#6-concurrency) for the real API.
 

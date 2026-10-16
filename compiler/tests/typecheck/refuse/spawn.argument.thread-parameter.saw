@@ -1,0 +1,8 @@
+// refuses: spawn.argument at 6:33
+// flags: --std-root std
+// a `Thread.spawn` brace that declares a parameter, which nothing would pass
+
+func main() {
+    var t = try! Thread.spawn { n: Int in n + 1 }
+    print(t.join())
+}

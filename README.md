@@ -446,15 +446,17 @@ kernel and inside a panic handler.
 For a dedicated OS thread — a long blocking C call, work that must not share
 the executor's thread — there is a second engine, and the namespace is which
 one you are on. `Thread.spawn` starts a real thread and `join()` blocks for
-its result:
+its result. The operating system may refuse a thread, so the form hands back
+a `Result<Thread<T>, SystemError>`; `try!` says this program cannot go on
+without one:
 
-```saw
+```saw-fragment
 extern "C" {
     blocking func compress(level: Int32) -> Int
 }
 
 func main() {
-    var worker = Thread.spawn { compress(9) }   // blocks its own thread
+    var worker = try! Thread.spawn { compress(9) }   // blocks its own thread
     print("compressed {worker.join()} bytes")
 }
 ```
@@ -467,7 +469,7 @@ thread is written at the crossing (`Thread.spawn { [job] in compress(job) }`).
 
 A unit of concurrent work has a written fate, never an inferred one. The
 handle must reach `join()` or `detach()` on every path, so neither a bare
-`Thread.spawn { ... }` statement nor a `let _ =` compiles. `detach()` gives
+`Thread.spawn { ... }` statement nor a `let _ =` of one compiles. `detach()` gives
 the work to the process and gives up its result — the same statement `let _ =`
 makes about a `Result`, at the scale of a whole task.
 

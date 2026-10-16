@@ -70,9 +70,9 @@ func main() {
     let entered = try! Arc<Mutex<Int>>(value: Mutex<Int>(value: 0))
     let left = try! Arc<Mutex<Int>>(value: Mutex<Int>(value: 0))
 
-    var a = Thread.spawn { [r, entered, left] in parker(r, entered.copy(), left.copy()) }
-    var b = Thread.spawn { [r, entered, left] in parker(r, entered.copy(), left.copy()) }
-    var c = Thread.spawn { [r, entered, left] in parker(r, entered.copy(), left.copy()) }
+    var a = try! Thread.spawn { [r, entered, left] in parker(r, entered.copy(), left.copy()) }
+    var b = try! Thread.spawn { [r, entered, left] in parker(r, entered.copy(), left.copy()) }
+    var c = try! Thread.spawn { [r, entered, left] in parker(r, entered.copy(), left.copy()) }
 
     print("parked {}", await_count(entered.copy(), 3))
     // Let the three actually reach `kevent`. Landing the wake early would still

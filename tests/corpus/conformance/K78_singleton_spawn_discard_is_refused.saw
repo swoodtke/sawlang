@@ -2,16 +2,20 @@
 // are REFUSED
 //
 // design 242 ruling 5: the result of `Thread.spawn { ... }` has a load-bearing
-// fate, so no spelling may throw it away. That includes the EXPLICIT discard
-// design 151 blessed for a `Result` — `let _ =` says "I read this and chose to
-// drop it", and dropping a live thread handle is not a choice the language
-// offers. The bare statement is the one a reader reaches for first (the
+// fate, so no spelling may throw it away. The form hands back
+// `Result<Thread<T>, SystemError>` (the OS may refuse a thread, SL-765), so the
+// bare statement discards a `Result`, refused as every such discard is. That
+// includes the EXPLICIT discard design 151 blessed for a `Result` — `let _ =`
+// says "I read this and chose to drop it", and dropping a live thread handle
+// is not a choice the language offers: drop elaboration refuses it, which a
+// compile reaches only once the bare statement is gone (its own pin is
+// `compiler/tests/drops/refuse/drop.must-consume.thread-let-underscore.saw`).
+// The bare statement is the one a reader reaches for first (the
 // fire-and-forget guess), and it used to compile into a sequential call plus
 // thread overhead, because the handle's `deinit` joined.
 //
 // EXPECT: error
-// EXPECT-ERROR-CONTAINS: `Thread.spawn` hands back a `VoidThread` that must be consumed
-// EXPECT-ERROR-CONTAINS: `join()` waits for it
+// EXPECT-ERROR-CONTAINS: the result of this expression is `Result<std.task.Thread<Void>, std.systemerror.SystemError>` and is silently discarded
 
 func work() {
     print("worked")

@@ -1,0 +1,16 @@
+// refuses: drop.must-consume at 11:19
+// flags: --std-root std
+// a `match` arm that binds the handle out of the `Ok` payload carries the
+// obligation, and this arm drops it
+
+func work() {
+    print("worked")
+}
+
+func main() {
+    let spawned = Thread.spawn { work() }
+    match spawned {
+        case Ok(h) -> print("spawned"),
+        case Err(_) -> print("refused")
+    }
+}

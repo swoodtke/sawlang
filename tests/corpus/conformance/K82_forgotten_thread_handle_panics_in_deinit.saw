@@ -18,17 +18,17 @@
 // Panics do not unwind, so there is no panic-during-panic hazard here.
 //
 // EXPECT: panic
-// EXPECT-PANIC-CONTAINS: VoidThread was dropped without being joined or detached
+// EXPECT-PANIC-CONTAINS: Thread was dropped without being joined or detached
 // EXPECT-PANIC-CONTAINS: `join()` waits for it
 
-import std.task.{VoidThread}
+import std.task.{Thread}
 
 func work() {
     print("worked")
 }
 
 struct Keeper {
-    held: VoidThread?
+    held: Thread<Void>?
 }
 
 extension Keeper: NoCopy {
@@ -41,7 +41,7 @@ extension Keeper: NoCopy {
 
 func main() {
     var keeper = Keeper(held: None)
-    var t = Thread.spawn { work() }
+    var t = try! Thread.spawn { work() }
     keeper.held = move t
     print("stored")
 }

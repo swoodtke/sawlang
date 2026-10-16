@@ -1,0 +1,11 @@
+// refuses: spawn.implicit-capture at 9:37
+// flags: --std-root std
+// a `Thread.spawn` brace naming bindings its capture list does not: the list
+// is the body's parameter list (conformance row K91)
+
+func main() {
+    let count = 3
+    let label = "batch"
+    var spawned = try! Thread.spawn { count + label.len() }
+    print(spawned.join())
+}

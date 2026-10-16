@@ -1,0 +1,12 @@
+// refuses: result.discarded at 11:5
+// flags: --std-root std
+// `Thread.spawn { ... }` as a bare statement discards the `Result` the OS's
+// answer arrives in, and with it the handle (conformance row K78)
+
+func crunch(n: Int) -> Int {
+    n * 2
+}
+
+func main() {
+    Thread.spawn { crunch(4) }
+}

@@ -2,11 +2,6 @@ program	thread_name_belongs_to_the_user.saw
 triple	arm64-apple-darwin
 twin	same
 expect	success
-build	ok
-exit	0
-stdout	"7"
-stdout	"36"
-stdout	"bumped"
-stdout	"43"
-stdout	""
-meets_expect	yes
+build	refused	Parse error at 37:37: two statements on one line need a `;` between them: the first begins with `var`, the second with `{` — write `;` where they meet
+meets_expect	no: Stage 0 does not build it
+log	"error: Parse error at 37:37: two statements on one line need a `;` between them: the first begins with `var`, the second with `{` — write `;` where they meet"

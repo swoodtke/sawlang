@@ -2,8 +2,6 @@ program	mutex_counter.saw
 triple	arm64-apple-darwin
 twin	differs
 expect	success
-build	ok
-exit	0
-stdout	"1000"
-stdout	""
-meets_expect	yes
+build	refused	Parse error at 15:32: two statements on one line need a `;` between them: the first begins with `var`, the second with `{` — write `;` where they meet
+meets_expect	no: Stage 0 does not build it
+log	"error: Parse error at 15:32: two statements on one line need a `;` between them: the first begins with `var`, the second with `{` — write `;` where they meet"

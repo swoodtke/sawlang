@@ -8,15 +8,15 @@
 // reading design 189 gives a task-capture borrow released on one path.
 //
 // EXPECT: error
-// EXPECT-ERROR-CONTAINS: `t` holds a `VoidThread` that is never consumed
-// EXPECT-ERROR-CONTAINS: reaches the end of its scope with no `join()` or `detach()` on this path
+// EXPECT-ERROR-CONTAINS: `t` holds the `std.task.Thread<Void>` spawned here, which is never consumed
+// EXPECT-ERROR-CONTAINS: is dropped with no `join()` or `detach()` of it on some path
 
 func work() {
     print("worked")
 }
 
 func main() {
-    var t = Thread.spawn { work() }
+    var t = try! Thread.spawn { work() }
     if work_needed() {
         t.join()
     }

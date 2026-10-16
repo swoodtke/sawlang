@@ -2,13 +2,6 @@ program	conformance/K83_thread_spawn_body_is_sync_enforced.saw
 triple	arm64-apple-darwin
 twin	same
 expect	error
-build	refused	cannot suspend in a `Thread.spawn { ... }` body: closure calls `cedes` → yield_now (`cedes` suspends at line 21)
-meets_expect	yes
-log	"error: cannot suspend in a `Thread.spawn { ... }` body: closure calls `cedes` → yield_now (`cedes` suspends at line 21)"
-log	"  --> examples/conformance/K83_thread_spawn_body_is_sync_enforced.saw:26:26"
-log	"     |"
-log	" 26 |     var t = Thread.spawn { cedes() }"
-log	"     |                          ^"
-log	"   hint: a spawned thread runs no executor, so there is nothing there to resume a suspension — it would simply not cede. For suspending work on a dedicated thread write `TaskGroup(threads: 1)`, which brings an executor with it; a `blocking` extern is the one thing this body MAY do, and it blocks the spawned thread on purpose"
-log	""
-log	"1 error(s) generated"
+build	refused	Parse error at 26:31: two statements on one line need a `;` between them: the first begins with `var`, the second with `{` — write `;` where they meet
+meets_expect	no: no error contains 'cannot suspend in a `Thread.spawn { ... }` body'
+log	"error: Parse error at 26:31: two statements on one line need a `;` between them: the first begins with `var`, the second with `{` — write `;` where they meet"

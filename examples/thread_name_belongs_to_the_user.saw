@@ -34,11 +34,11 @@ func main() {
     let mine = Thread(handle: 7)
     print(mine.handle_value())
 
-    var spawned = Thread.spawn { work(6) }
+    var spawned = try! Thread.spawn { work(6) }
     let squared = spawned.join()
     print(squared)
 
-    var voided = Thread.spawn { bump() }
+    var voided = try! Thread.spawn { bump() }
     voided.join()
 
     print(mine.handle_value() + squared)

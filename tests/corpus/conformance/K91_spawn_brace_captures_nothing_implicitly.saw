@@ -25,7 +25,7 @@ func main() {
     let count = 3
     let label = "batch"
 
-    var spawned = Thread.spawn { count + label.len() }
+    var spawned = try! Thread.spawn { count + label.len() }
     let _ = spawned.join()
 
     // The control: an ordinary closure, capturing both of them implicitly, and

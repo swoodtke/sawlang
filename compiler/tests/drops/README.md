@@ -149,16 +149,23 @@ handle may be dropped (golden `fates_group`). So it is the spawn site that
 owes it, `mir_owes_fate` over the MIR's spawn terminator (`compiler/tests/mir/README.md`), and no type
 or lang role carries it. Where a site owes one is decided by one funnel,
 `mir_mint_obligation` (`compiler/mir/src/model.saw`), whose docstring names
-its entry points: `Task.spawn`'s lowering now, and `Thread.spawn`'s with
-SL:coroutines A18.
+its entry points: `Task.spawn`'s spawn site and `Thread.spawn`'s builtin
+call. `Thread.spawn` hands back `Result<Thread<T>, SystemError>`, so its site
+owes the fate on the `Result`, whose `Ok` payload is the handle: a move of
+that payload (`try!`, an `Ok(h)` arm) carries the obligation, a `join` or
+`detach` through it writes the fate, and the `Err` path owes nothing, so a
+move of the `Err` payload and a switch's `Err` edge clear it. Dropping the
+`Result`, `let _ =` included, is refused like any discard (golden
+`thread_fates`; the `drop.must-consume.thread-*` fixtures).
 
 The check, `check_fates` (`compiler/drops/src/elaborate.saw`), follows each
 handle's VALUE rather than a binding's name, forward over the borrow-checked
 MIR to a fixpoint, before elaboration rewrites it. Per local it holds the
 site whose handle the local may hold, on some path, with no fate written:
 
-- a call of `join`, `detach` or `cancel` of `Task` or `VoidTask` whose
-  receiver borrows the local whole writes the fate;
+- a call of `join`, `detach` or `cancel` of `Task` or `VoidTask`, or of
+  `join` or `detach` of `Thread`, whose receiver borrows the local whole (or
+  a `Result` local's `Ok` payload) writes the fate;
 - a move into another local carries the handle, whole or as a part of what
   the assignment builds: a struct, a case, a tuple, a closure's environment;
 - a move into storage whose owner declares a hand-written `deinit` (an

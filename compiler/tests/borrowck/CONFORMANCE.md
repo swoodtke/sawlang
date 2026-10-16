@@ -95,7 +95,7 @@ INDEX.md, or when an owner is not one of the words below.
 | R19 | typecheck | `type.reference-position`: `compiler/tests/typecheck/refuse/type.reference-position.static.saw` |
 | R20 | typecheck | `type.reference-position`: `compiler/tests/typecheck/refuse/type.reference-position.alias-field.saw` |
 | R21 | typecheck | `type.reference-position`: `compiler/tests/typecheck/refuse/type.reference-position.alias-return.saw` |
-| R22 | slice.not-yet | the `Thread.spawn` and `Task.spawn` forms (then typecheck `capture.escaping-borrow`) |
+| R22 | typecheck | `capture.escaping-borrow`: `compiler/tests/typecheck/refuse/capture.escaping-borrow.saw`; the row's own program, a `Thread.spawn` brace, is refused by it too |
 | R23 | typecheck | `capture.escaping-borrow`: `compiler/tests/typecheck/refuse/capture.escaping-borrow.saw` |
 | R24 | U6d2 | `loan.drop-while-borrowed`, a spawn borrow of a binding declared after its group (SL:coroutines A8c): `compiler/tests/borrowck/refuse/loan.drop-while-borrowed.spawn-after-group.saw` |
 | R25 | U6d2 | accepted in a single-threaded group: the task's handle holds the borrow of its root until a `join` or the group's drop (SL:coroutines A8c), golden `compiler/tests/borrowck/golden/spawn_borrows.saw`; an access inside that extent, `compiler/tests/borrowck/refuse/loan.read-while-exclusive.spawn-argument.saw` |

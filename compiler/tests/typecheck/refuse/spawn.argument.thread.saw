@@ -1,0 +1,8 @@
+// refuses: spawn.argument at 6:13
+// flags: --std-root std
+// `Thread.spawn` given a value, not the one brace it takes
+
+func main() {
+    let r = Thread.spawn(5)
+    print("spawned")
+}

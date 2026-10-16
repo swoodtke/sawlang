@@ -2,13 +2,6 @@ program	errors/spawn_handle_may_not_escape_the_function.saw
 triple	arm64-apple-darwin
 twin	same
 expect	error
-build	refused	`t` holds a `VoidThread` that is never consumed: it was spawned at line 18 and this `return` leaves the function without consuming it
-meets_expect	yes
-log	"error: `t` holds a `VoidThread` that is never consumed: it was spawned at line 18 and this `return` leaves the function without consuming it"
-log	"  --> examples/errors/spawn_handle_may_not_escape_the_function.saw:18:19"
-log	"     |"
-log	" 18 |     var t = Thread.spawn { work() }"
-log	"     |                   ^"
-log	"   hint: `join()` waits for it and takes its result — `Thread.spawn { ... }.join()` is the wait-here spelling — and `detach()` gives the thread to the process. To manage a dynamic set of workers, spawn them into a `TaskGroup` — a group is a declared consumer, so its handles may be dropped freely. Moving it into storage discharges the obligation only when the storing type declares a `deinit` of its own"
-log	""
-log	"1 error(s) generated"
+build	refused	Parse error at 18:31: two statements on one line need a `;` between them: the first begins with `var`, the second with `{` — write `;` where they meet
+meets_expect	no: no error contains '`t` holds the `std.task.Thread<Void>` spawned here, which is never consumed'
+log	"error: Parse error at 18:31: two statements on one line need a `;` between them: the first begins with `var`, the second with `{` — write `;` where they meet"

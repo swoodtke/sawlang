@@ -55,9 +55,9 @@ func execute(name: String) -> Int { checked(name) }
 func run_job(name: String) -> Int { execute(name) }
 
 func main() {
-    var first = Thread.spawn { boundary() }
+    var first = try! Thread.spawn { boundary() }
     let _ = first.join()
 
-    var second = Thread.spawn { run_job("/bin/echo") }
+    var second = try! Thread.spawn { run_job("/bin/echo") }
     let _ = second.join()
 }

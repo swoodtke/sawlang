@@ -1,0 +1,17 @@
+// refuses: spawn.send at 11:34
+// flags: --std-root std
+// a capture whose type is not `Send`, a struct holding a raw pointer,
+// crossing to the spawned thread
+
+struct Handle {
+    raw: UnsafePointer<Int8>
+}
+
+func spawn_with(h: Handle) unsafe -> Int {
+    var t = try! Thread.spawn { [h] in 1 }
+    t.join()
+}
+
+func main() {
+    print(0)
+}

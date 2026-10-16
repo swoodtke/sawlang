@@ -78,13 +78,13 @@ func hold(id: Int) {
 }
 
 func main() {
-    var first = Thread.spawn { hold(1) }
+    var first = try! Thread.spawn { hold(1) }
     first.detach()
     print("detached")
 
     // The chained spelling: `detach()` consumes the handle where it is made,
-    // exactly as `Thread.spawn { ... }.join()` does.
-    Thread.spawn { hold(2) }.detach()
+    // exactly as `(try! Thread.spawn { ... }).join()` does.
+    (try! Thread.spawn { hold(2) }).detach()
     print("chained")
 
     // Both threads are let go, then OBSERVED — polling the state itself rather

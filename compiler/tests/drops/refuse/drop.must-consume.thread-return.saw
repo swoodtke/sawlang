@@ -1,0 +1,19 @@
+// refuses: drop.must-consume at 12:18
+// flags: --std-root std
+// a thread handle returned out of the function that spawned it writes no fate
+
+import std.task.{Thread}
+
+func work() {
+    print("worked")
+}
+
+func hand_it_out() -> Thread<Void> {
+    var t = try! Thread.spawn { work() }
+    return move t
+}
+
+func main() {
+    var t = hand_it_out()
+    t.join()
+}

@@ -38,7 +38,7 @@ import std.process.{Command}
 func main() {
     var c = Command(program: "/bin/echo")
     try! c.arg("hi")
-    var d = Thread.spawn { [move c] in
+    var d = try! Thread.spawn { [move c] in
         let _ = c.output()
         3
     }

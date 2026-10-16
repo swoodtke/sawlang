@@ -1,0 +1,14 @@
+// refuses: effect.thread-body at 12:33
+// flags: --std-root std
+// a `Thread.spawn` body whose callee calls a function value not declared
+// `sync`, the conservative cause, refused as in any `sync` context
+// (conformance row K114)
+
+func apply(f: (Int) -> Int) -> Int {
+    f(1)
+}
+
+func main() {
+    var t = try! Thread.spawn { apply({ v: Int in v + 1 }) }
+    print(t.join())
+}

@@ -1,0 +1,29 @@
+ERROR	slice.not-yet	compiler/tests/typecheck/golden/thread_body_std_table.saw:12:18	`Thread.spawn` under a std root that declares no `Thread` or `SystemError` is not in the bootstrap slice yet
+ERROR	effect.thread-body	compiler/tests/typecheck/golden/thread_body_std_table.saw:13:17	cannot suspend in a `Thread.spawn { ... }` body: closure calls `Command.output` → io_wait: a spawned thread runs no executor, so there is nothing there to resume a suspension, and it would simply not cede. For suspending work on a dedicated thread write `TaskGroup(threads: 1)`, which brings an executor with it; a `blocking` extern is the one thing this body may do, and it blocks the spawned thread on purpose
+(Module thread_body_std_table
+  (declarations
+    (func main 9:6 private (signature (params) -> Void) (summary body (suspends no) (sync-callable yes))))
+  (members)
+  (views)
+  (conformances)
+  (copy-tier)
+  (bodies
+    (main 9:6
+      (10:9-10:10 BindingName std.process.Command place temp)
+      (10:13-10:42 Call.paren std.process.Command value temp (call std.process.Command.init(program: String) (owner std.process.Command)))
+      (10:30-10:41 StringLit String value temp)
+      (11:5-11:21 Try.force Void value temp)
+      (11:10-11:21 Call.paren Result<Void, std.alloc.AllocError> value temp (call std.process.Command.arg(argument: String) (owner std.process.Command)))
+      (11:10-11:11 Name std.process.Command (borrow-var &var std.process.Command) place borrow-var)
+      (11:16-11:20 StringLit String value temp)
+      (12:9-12:10 BindingName (error) place temp)
+      (12:13-15:6 Try.force (error) value temp)
+      (12:18-15:6 Call (error) value temp (builtin Thread.spawn))
+      (12:31-15:6 Closure () -> Int value temp (captures (c move)))
+      (13:13-13:14 BindingName Result<std.process.CommandOutput?, std.alloc.AllocError> place temp)
+      (13:17-13:27 Call.paren Result<std.process.CommandOutput?, std.alloc.AllocError> value temp (call std.process.Command.output() (owner std.process.Command)))
+      (13:17-13:18 Name std.process.Command (borrow &std.process.Command) place borrow)
+      (14:9-14:10 IntLit Int value temp)
+      (16:5-16:20 Call.paren Void value temp (builtin print))
+      (16:11-16:19 Call.paren (error) value temp)
+      (16:11-16:12 Name (error) place borrow))))

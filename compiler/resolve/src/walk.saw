@@ -957,10 +957,7 @@ extension ResProgram {
         let base = self.first_node_child(e)
         let leaf = self.first_leaf(e)
         if self.is_thread_spawn(base, leaf) {
-            self.refuse(e, "slice.not-yet",
-                        "the `Thread.spawn` form is not in the bootstrap slice yet")
-            try! self.skipped.push(e)
-            return self.error_binding()
+            return self.walk_thread_spawn(e, base, leaf)
         }
         let b = self.walk_expr(base)
         let n = self.child_count(e)
@@ -976,9 +973,11 @@ extension ResProgram {
     }
 
     // Whether `base.leaf` is `Thread.spawn`, the OS-thread engine's form,
-    // whose namespace names an engine rather than a declaration (design 242).
-    // `Task.spawn` resolves as a member of `Task`, and typecheck knows the
-    // form by that declaration.
+    // whose namespace names an engine rather than a declaration (design 242):
+    // `Thread` is not looked up in scope, so a program's own `Thread` leaves
+    // the form alone (`walk_thread_spawn`), and typecheck knows it by the same
+    // spelling (`is_thread_spawn_head`). `Task.spawn` resolves as a member of
+    // `Task`, and typecheck knows the form by that declaration.
     func is_thread_spawn(&self, base: Int, leaf: Int) -> Bool {
         if not self.is_alt(base, Alt.Expr_Name) || leaf < 0 || self.child_count(base) != 1 {
             return false
@@ -988,6 +987,28 @@ extension ResProgram {
         let head_leaf = self.first_leaf(base)
         let head = self.text_of(m, head_leaf)
         member.equals("spawn") && head.equals("Thread")
+    }
+
+    // `Thread.spawn` at member node `e`: its head names std's `Thread` by
+    // identity, whatever `Thread` the scope holds, and the form is a static
+    // member of it, which typecheck knows by its spelling.
+    func walk_thread_spawn(&var self, e: Int, base: Int, leaf: Int) -> ResBinding {
+        let home = self.intern("std.task")
+        let loaded = self.by_name.first(0, home)
+        let m = if loaded >= 0 { self.by_name.value(loaded) } else { -1 }
+        let id = self.intern("Thread")
+        let at = if m >= 0 { self.top.first(m, id) } else { -1 }
+        if at < 0 {
+            self.refuse(e, "slice.not-yet",
+                        "`Thread.spawn` under a std root whose `std.task` declares no `Thread` is not in the bootstrap slice yet")
+            try! self.skipped.push(e)
+            return self.error_binding()
+        }
+        let d = self.top.value(at)
+        let head = self.first_leaf(base)
+        self.record(head, ResBinding(kind: ResBindKind.Decl, module: m, decl: d, name: -1, node: -1))
+        let name = self.leaf_name(leaf)
+        ResBinding(kind: ResBindKind.Member, module: -1, decl: d, name: name, node: -1)
     }
 
     // What member `leaf` of something bound as `b` denotes, recorded when it

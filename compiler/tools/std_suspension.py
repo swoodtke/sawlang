@@ -18,9 +18,16 @@ of that checkout's `sawc/builtin.saw` and `sawc/std` gets one row:
   value does, so it is not sync-callable but frames nothing;
 - `sync`: neither.
 
+A row that may suspend also carries its cause set, the kinds of suspension
+source that reach it (`cooperative`, `blocking`, `test_suspend`,
+`existential_dispatch`, `closure_call`, `unclassified`), and the label of the
+first source that is not `blocking`, as Stage 0's diagnostic path names it:
+a `Thread.spawn` body permits the `blocking` cause alone, and its refusal
+names what it struck on (`io_wait`).
+
 A row is keyed as sawc2 names the declaration: its module, its path, and its
 parameters' names, `self` left out. Overloads sharing a key take the worst
-verdict. `std_suspension.txt` is the record, with the triple it was observed
+verdict and the union of their causes. `std_suspension.txt` is the record, with the triple it was observed
 on; `compiler/typecheck/src/stdsuspension.saw` is the same rows compiled into
 sawc2, and the check holds the two equal.
 
@@ -55,6 +62,14 @@ OBSERVE_FLAG = "--observe"
 TIMEOUT = 600
 VERDICTS = ("sync", "nonsync", "suspends")
 SAW_CODES = {"sync": "TC_STD_SYNC", "nonsync": "TC_STD_NONSYNC", "suspends": "TC_STD_SUSPENDS"}
+# Stage 0's cause bits, by the names its `SuspendCause.NAMES` gives them; the
+# Saw form writes the bits, which sawc2's `TC_CAUSE_*` constants share.
+CAUSE_BITS = (("cooperative", 1), ("blocking", 2), ("test_suspend", 4),
+              ("existential_dispatch", 8), ("closure_call", 16), ("unclassified", 32))
+BLOCKING_BIT = 2
+NONE = "-"
+# Stage 0's `PATH_PLACEHOLDER_LABEL`: a path that found no source.
+PLACEHOLDER_LABEL = "<suspension source>"
 # The spellings a body parks with: the cooperative intrinsics, which no
 # declaration writes. The executor's own `__saw_exec_*` helpers are not among
 # them: the drive loop they serve is `sync`, so naming one parks nothing.
@@ -143,26 +158,41 @@ def observe(out_path):
         raise SystemExit("the frozen compiler's std check failed")
     answers = classify_suspensions(tc._suspend_nodes)
 
-    def verdict(key):
-        causes = answers.causes(key)
+    def verdict(causes):
         if frame_boundary(causes):
             return "suspends"
         if might_suspend(causes):
             return "nonsync"
         return "sync"
 
+    def label(node_key, causes):
+        """The first non-`blocking` source's label on the diagnostic path."""
+        node = tc._suspend_nodes.get(node_key)
+        if node is None or not causes & ~BLOCKING_BIT:
+            return ""
+        hops, _, _ = tc._effect_path(node, skip_blocking=True)
+        return hops[-1]
+
     rows = {}
 
-    def add(key, v):
+    def add(key, node_key):
+        causes = answers.causes(node_key)
+        v = verdict(causes)
         old = rows.get(key)
-        if old is None or VERDICTS.index(v) > VERDICTS.index(old):
-            rows[key] = v
+        if old is None:
+            rows[key] = [v, causes, label(node_key, causes)]
+            return
+        if VERDICTS.index(v) > VERDICTS.index(old[0]):
+            old[0] = v
+        old[1] |= causes
+        if not old[2]:
+            old[2] = label(node_key, causes)
 
     for key, kind, decl in written:
         if kind == "fn":
-            add(key, verdict(("fn", getattr(decl, "mangled_symbol", None) or decl.name)))
+            add(key, ("fn", getattr(decl, "mangled_symbol", None) or decl.name))
         else:
-            add(key, verdict(decl.node_id))
+            add(key, decl.node_id)
     with open(out_path, "w") as fh:
         json.dump(rows, fh)
 
@@ -201,24 +231,39 @@ def observed_rows():
 HEADER = """\
 # The suspension verdict of every std function, as Stage 0's std check decides
 # it: `suspends` (a frame is built around it), `nonsync` (not sync-callable, and
-# framing nothing) or `sync`. Written by compiler/tools/std_suspension.py
-# --write through the v0 compiler; compiler/tests/run.py fails when the Saw
-# form differs. sawc2's phase 2 reads these rows, compiled in as
-# compiler/typecheck/src/stdsuspension.saw, for the std functions whose bodies
-# it does not check.
+# framing nothing) or `sync`; then its cause set and the label of its first
+# source that is not `blocking`, `-` for none. Written by
+# compiler/tools/std_suspension.py --write through the v0 compiler;
+# compiler/tests/run.py fails when the Saw form differs. sawc2's phase 2 reads
+# these rows, compiled in as compiler/typecheck/src/stdsuspension.saw, for the
+# std functions whose bodies it does not check.
 """
 _TRIPLE = "# observed on "
+
+
+def causes_text(bits):
+    named = [name for name, bit in CAUSE_BITS if bits & bit]
+    return ",".join(named) if named else NONE
+
+
+def causes_bits(text):
+    if text == NONE:
+        return 0
+    by_name = dict(CAUSE_BITS)
+    return sum(by_name[name] for name in text.split(","))
 
 
 def table_text(rows, triple):
     lines = [HEADER, "%s%s\n" % (_TRIPLE, triple)]
     for key in sorted(rows):
-        lines.append("%s\t%s\n" % (key, rows[key]))
+        verdict, bits, label = rows[key]
+        lines.append("%s\t%s\t%s\t%s\n" % (key, verdict, causes_text(bits), label or NONE))
     return "".join(lines)
 
 
 def read_table():
-    """(the recorded rows, the triple Stage 0 observed them on)."""
+    """(the recorded rows, the triple Stage 0 observed them on); each row is
+    [verdict, cause bits, label]."""
     rows = {}
     triple = None
     with open(TABLE_FILE, encoding="utf-8") as fh:
@@ -227,8 +272,8 @@ def read_table():
             if line.startswith(_TRIPLE):
                 triple = line[len(_TRIPLE):]
             elif line and not line.startswith("#"):
-                key, verdict = line.split("\t")
-                rows[key] = verdict
+                key, verdict, causes, label = line.split("\t")
+                rows[key] = [verdict, causes_bits(causes), "" if label == NONE else label]
     return rows, triple
 
 
@@ -241,14 +286,28 @@ def saw_text(rows):
            "public static TC_STD_SUSPENDS: Int = 2\n",
            "\n",
            "// Each row's key, as `decl_identity` and the parameters' names spell it,\n",
-           "// and its verdict.\n",
-           "public func tc_std_suspension_rows(keys: &var Vector<String>, verdicts: &var Vector<Int>) {\n"]
+           "// its verdict, its cause bits (`TC_CAUSE_*`) and the label of its first\n",
+           "// source that is not `blocking`, \"\" for none.\n",
+           "public func tc_std_suspension_rows(rows: &var TcStdRows) {\n"]
     for key in sorted(rows):
-        out.append("    tc_std_row(&var keys, &var verdicts, \"%s\", %s)\n" % (key, SAW_CODES[rows[key]]))
+        verdict, bits, label = rows[key]
+        out.append("    tc_std_row(&var rows, \"%s\", %s, %d, \"%s\")\n"
+                   % (key, SAW_CODES[verdict], bits, label))
     out.append("}\n\n")
-    out.append("func tc_std_row(keys: &var Vector<String>, verdicts: &var Vector<Int>, key: String, verdict: Int) {\n")
-    out.append("    try! keys.push(key)\n")
-    out.append("    try! verdicts.push(verdict)\n")
+    out.append("// The table's columns, one entry per row in each.\n")
+    out.append("public struct TcStdRows {\n")
+    out.append("    keys: Vector<String>\n")
+    out.append("    verdicts: Vector<Int>\n")
+    out.append("    causes: Vector<Int>\n")
+    out.append("    labels: Vector<String>\n")
+    out.append("}\n\n")
+    out.append("extension TcStdRows: NoCopy {}\n\n")
+    out.append("func tc_std_row(rows: &var TcStdRows, key: String, verdict: Int, causes: Int, "
+               "label: String) {\n")
+    out.append("    try! rows.keys.push(key)\n")
+    out.append("    try! rows.verdicts.push(verdict)\n")
+    out.append("    try! rows.causes.push(causes)\n")
+    out.append("    try! rows.labels.push(label)\n")
     out.append("}\n")
     return "".join(out)
 
@@ -297,7 +356,12 @@ def check_rows(rows):
     wrapper pin."""
     failures = []
     holding = set()
-    for key, v in rows.items():
+    for key, (v, bits, label) in rows.items():
+        if label == PLACEHOLDER_LABEL:
+            failures.append("std suspension: %s's diagnostic path reaches no source" % key)
+        if bits & ~BLOCKING_BIT and not label:
+            failures.append("std suspension: %s may suspend by a cause other than `blocking`, and "
+                            "its row names no source" % key)
         if v != "suspends":
             continue
         # The module is the longest leading run of the key's path that names
@@ -315,9 +379,10 @@ def check_rows(rows):
     for module in sorted(parks - holding):
         failures.append("std suspension: %s spells a parking primitive, or imports a module that "
                         "does, but holds no `suspends` row" % module)
-    if rows.get("std.task.yield_now()") != "suspends":
+    yield_row = rows.get("std.task.yield_now()")
+    if yield_row is None or yield_row[0] != "suspends":
         failures.append("std suspension: `std.task.yield_now()` must be `suspends`, and is %s"
-                        % rows.get("std.task.yield_now()", "absent"))
+                        % (yield_row[0] if yield_row else "absent"))
     return failures
 
 

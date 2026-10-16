@@ -2,8 +2,6 @@ program	conformance/K84_thread_spawn_permits_a_blocking_extern.saw
 triple	arm64-apple-darwin
 twin	same
 expect	success
-build	ok
-exit	0
-stdout	"napped"
-stdout	""
-meets_expect	yes
+build	refused	Parse error at 37:36: two statements on one line need a `;` between them: the first begins with `var`, the second with `{` — write `;` where they meet
+meets_expect	no: Stage 0 does not build it
+log	"error: Parse error at 37:36: two statements on one line need a `;` between them: the first begins with `var`, the second with `{` — write `;` where they meet"

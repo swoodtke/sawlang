@@ -19,7 +19,7 @@
 // pool of 3
 // worked 3
 
-import std.task.{VoidThread}
+import std.task.{Thread}
 
 static WORKED: Atomic<Int> = Atomic(0)
 
@@ -28,7 +28,7 @@ func work() {
 }
 
 struct Pool {
-    workers: Vector<VoidThread>
+    workers: Vector<Thread<Void>>
 }
 
 extension Pool: NoCopy {
@@ -48,7 +48,7 @@ extension Pool {
     func start(&var self, count: Int) {
         var i = 0
         while i < count {
-            var t = Thread.spawn { work() }
+            var t = try! Thread.spawn { work() }
             // The discharge: the handle moves into storage `Pool` owns, and
             // `Pool` declares a deinit of its own.
             try! self.workers.push(move t)

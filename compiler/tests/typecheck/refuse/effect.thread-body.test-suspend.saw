@@ -1,0 +1,14 @@
+// refuses: effect.thread-body at 12:33
+// flags: --std-root std
+// a `Thread.spawn` body that reaches the test intrinsic `__saw_suspend`, a
+// state boundary the thread has nothing to resume at (conformance row K114)
+
+func boundary() -> Int {
+    __saw_suspend()
+    2
+}
+
+func main() {
+    var t = try! Thread.spawn { boundary() }
+    print(t.join())
+}

@@ -1,0 +1,16 @@
+// refuses: effect.thread-body at 14:33
+// flags: --std-root std
+// a `Thread.spawn` body that reaches a cooperative park through a helper: the
+// spawned thread runs no executor to resume it (conformance row K83)
+
+import std.task.{yield_now}
+
+func cedes() -> Int {
+    yield_now()
+    7
+}
+
+func main() {
+    var t = try! Thread.spawn { cedes() }
+    print(t.join())
+}

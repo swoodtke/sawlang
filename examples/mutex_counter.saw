@@ -12,7 +12,7 @@ import std.mutex.{Mutex}
 func main() {
     let shared = try! Arc<Mutex<Int>>(value: Mutex<Int>(value: 0))
 
-    var t0 = Thread.spawn { [shared] in
+    var t0 = try! Thread.spawn { [shared] in
         var k = 0
         while k < 250 {
             shared.lock { &var c in
@@ -23,7 +23,7 @@ func main() {
         }
         true
     }
-    var t1 = Thread.spawn { [shared] in
+    var t1 = try! Thread.spawn { [shared] in
         var k = 0
         while k < 250 {
             shared.lock { &var c in
@@ -34,7 +34,7 @@ func main() {
         }
         true
     }
-    var t2 = Thread.spawn { [shared] in
+    var t2 = try! Thread.spawn { [shared] in
         var k = 0
         while k < 250 {
             shared.lock { &var c in
@@ -45,7 +45,7 @@ func main() {
         }
         true
     }
-    var t3 = Thread.spawn { [shared] in
+    var t3 = try! Thread.spawn { [shared] in
         var k = 0
         while k < 250 {
             shared.lock { &var c in

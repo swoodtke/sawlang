@@ -2347,12 +2347,14 @@ dump_tasks()                // every live task's logical backtrace (std.task)
   instead: the value stays with one task and peers name operations on it over a
   `Channel` (remote operation, not shared access), which works for every type
   because the message is what has to be Send.
-- `Thread.spawn { … } -> Thread<T>` checks BOTH directions of the thread crossing
+- `Thread.spawn { … } -> Result<Thread<T>, SystemError>`: the OS may refuse a
+  thread, and that is the `Err`, never a panic (`try!` where the program
+  cannot go on without it, a `match` where the refusal is handled). It checks
+  BOTH directions of the thread crossing
   (design 193): every capture must be `Send` on the way in, and `T` must be
   `Send` on the way back, since the body computes the result on its own thread
-  and `join()` hands it over. A `Void` body's handle is the distinct `VoidThread`
-  (`Thread<Void>` is unwritable, by the visible-`Void` rule), exactly as
-  `group.spawn` of a `Void` body gives a `VoidTask`.
+  and `join()` hands it over. A `Void` body's handle is `Thread<Void>`, whose
+  `join()` is a statement.
   A borrow capture (`[&var n]`) is refused before
   either question — an escaping closure cannot hold a pointer into the frame
   that spawned it.
@@ -2373,11 +2375,11 @@ dump_tasks()                // every live task's logical backtrace (std.task)
   `receive` parks — so the call site's namespace is what says which one you are
   on:
   ```saw-fragment
-  var t = Thread.spawn { [n] in crunch(n) }   // Thread<Int>; join() BLOCKS this thread
+  var t = try! Thread.spawn { [n] in crunch(n) }   // Thread<Int>; join() BLOCKS this thread
   let h = group.spawn(crunch(n))       // Task<Int>;   join() drives the group
   let b = Task.spawn(crunch(n))        // Task<Int>;   same engine, no group
   ```
-  A `Void` body gives `VoidThread` / `VoidTask` respectively.
+  A `Void` body gives `Thread<Void>` / `VoidTask` respectively.
   **REACH FOR THEM IN THIS ORDER**: `TaskGroup` by default (structured, one
   thread, deterministic interleaving, and the scope says where the tasks end);
   `Task.spawn` when a task genuinely OUTLIVES the frame that started it and no
@@ -2397,14 +2399,17 @@ dump_tasks()                // every live task's logical backtrace (std.task)
   5/9a/9b).** A `Thread.spawn` handle must reach `join()` or `detach()` on
   EVERY path out of its scope, and a `Task.spawn` handle `join()`, `detach()`
   or `cancel()`. Both discard spellings are compile errors — the bare statement
-  AND the `let _ =` that design 151 blesses for a `Result` — and so is a
-  `return` that leaves the handle unconsumed:
-  ```saw-error
-  // error-contains: ... must be consumed
-  Thread.spawn { [n] in crunch(n) }              // error: ... must be consumed
-  var t = Thread.spawn { [n] in crunch(n) }
-  if urgent { let _ = t.join() }          // error: not consumed on this path
-  Thread.spawn { [n] in crunch(n) }.join()       // the wait-here spelling: fine
+  (a discarded `Result`) AND the `let _ =` that design 151 blesses for a
+  `Result`, since this `Result`'s `Ok` is a live thread — and so is a
+  `return` that leaves the handle unconsumed. `try!` and a `match` arm binding
+  the `Ok` payload carry the obligation to the handle; the `Err` path owes
+  nothing:
+  ```saw-fragment
+  Thread.spawn { [n] in crunch(n) }              // error: ... silently discarded
+  let _ = Thread.spawn { [n] in crunch(n) }      // error: ... must be consumed
+  var t = try! Thread.spawn { [n] in crunch(n) }
+  if urgent { let _ = t.join() }          // error: not consumed on some path
+  (try! Thread.spawn { [n] in crunch(n) }).join()   // the wait-here spelling: fine
   ```
   Two things discharge it besides a written consume. A move into STORAGE whose
   owner declares a hand-written `deinit` (`self.workers.push(move t)` inside a
@@ -2429,7 +2434,7 @@ dump_tasks()                // every live task's logical backtrace (std.task)
   whole unit of work, at one named place instead of a value quietly outliving
   the program.
   ```saw-fragment
-  var worker = Thread.spawn { [job] in compress(job) }
+  var worker = try! Thread.spawn { [job] in compress(job) }
   worker.detach()
   let background = Task.spawn(reindex(catalog))
   background.detach()
@@ -2479,9 +2484,9 @@ dump_tasks()                // every live task's logical backtrace (std.task)
   capture list IS the body's parameter list: each entry transfers at the spawn,
   by value, at its own copy tier, and `[move x]` is how a move-only value goes.
   ```saw-fragment
-  var t = Thread.spawn { crunch(count) }
+  var t = try! Thread.spawn { crunch(count) }
   // error: a spawned brace captures nothing implicitly, and this body names `count`
-  var t = Thread.spawn { [count] in crunch(count) }   // fine
+  var t = try! Thread.spawn { [count] in crunch(count) }   // fine
   ```
   Ordinary closures are untouched — their captures are read at the same frame
   by the same thread, and there is no boundary to spell. Before Aug 25 the list

@@ -23,6 +23,6 @@ func cedes() -> Int {
 }
 
 func main() {
-    var t = Thread.spawn { cedes() }
+    var t = try! Thread.spawn { cedes() }
     print(t.join())
 }

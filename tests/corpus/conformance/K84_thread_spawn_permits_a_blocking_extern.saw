@@ -34,8 +34,8 @@ func nap_helper() -> Int {
 }
 
 func main() {
-    var direct = Thread.spawn { __saw_rt_blocking_sleep(1) }
-    var through = Thread.spawn { nap_helper() }
+    var direct = try! Thread.spawn { __saw_rt_blocking_sleep(1) }
+    var through = try! Thread.spawn { nap_helper() }
     let _ = direct.join()
     let _ = through.join()
     print("napped")

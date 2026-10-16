@@ -4,18 +4,18 @@
 // diagnostic names `TaskGroup` as the structured way to manage a set of tasks
 // whose lifetime outlives the function that spawned them.
 // EXPECT: error
-// EXPECT-ERROR-CONTAINS: `t` holds a `VoidThread` that is never consumed
-// EXPECT-ERROR-CONTAINS: this `return` leaves the function without consuming it
+// EXPECT-ERROR-CONTAINS: `t` holds the `std.task.Thread<Void>` spawned here, which is never consumed
+// EXPECT-ERROR-CONTAINS: leaves the function by a `return` without consuming it
 // EXPECT-ERROR-CONTAINS: spawn them into a `TaskGroup`
 
-import std.task.{VoidThread}
+import std.task.{Thread}
 
 func work() {
     print("worked")
 }
 
-func hand_it_out() -> VoidThread {
-    var t = Thread.spawn { work() }
+func hand_it_out() -> Thread<Void> {
+    var t = try! Thread.spawn { work() }
     return move t
 }
 

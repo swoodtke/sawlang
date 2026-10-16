@@ -15,7 +15,8 @@ directory specifies:
   keeps the entry module's dump alone;
 - each fixture in `refuse/` is refused first at its header's position: by its
   rule, or, for a due row, by the refusal standing in its way, until that one
-  is lifted; every rule drop elaboration refuses by (`drops_rules` in
+  is lifted, checked with the flags a `// flags: ...` line after its header
+  passes; every rule drop elaboration refuses by (`drops_rules` in
   `compiler/drops/src/elaborate.saw`) has a fixture;
 - the compiler's own source, the sawc2 build and each unit program, and the
   new std's entry under `--std-root std`, elaborate with no refusal and no
@@ -126,10 +127,26 @@ def drops_rules():
     return _RULE.findall(body)
 
 
+def refusal_flags(path):
+    """The flags a refusal fixture's `// flags: ...` line, after its header
+    (and its due line), passes."""
+    with open(path) as fh:
+        for line in fh.read().split("\n")[:3]:
+            m = _FLAGS.match(line)
+            if m:
+                return tuple(m.group(1).split())
+    return ()
+
+
 def check_refusals(failures, counts):
     cases = sorted(glob.glob(os.path.join(REFUSE, "*.saw")))
-    code, out = sawc2(["--check"] + [rel(p) for p in cases])
-    got = borrowck_lane.records(out)
+    groups = {}
+    for path in cases:
+        groups.setdefault(refusal_flags(path), []).append(path)
+    got = {}
+    for flags, paths in sorted(groups.items()):
+        code, out = sawc2(["--check"] + list(flags) + [rel(p) for p in paths])
+        got.update(borrowck_lane.records(out))
     rules = drops_rules()
     covered = set()
     for path in cases:

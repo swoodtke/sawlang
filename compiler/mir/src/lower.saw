@@ -3423,6 +3423,10 @@ extension MirProgram {
         }
         call.arg_first = self.push_args(&all)
         call.arg_count = all.len()
+        if name.equals("Thread.spawn") {
+            // The brace is the operand; its body runs on the spawned thread.
+            mir_mint_obligation(&var call, MirSpawnForm.Thread)
+        }
         self.suspension(e, &var call)
         self.finish_call(call, t)
     }
