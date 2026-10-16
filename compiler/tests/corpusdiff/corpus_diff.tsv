@@ -482,7 +482,7 @@ conformance/V04_move_out_of_ref.saw	pass	-	transfer.move-from-borrow: cannot mov
 conformance/V100_bounded_copy_at_the_auto_tier_retains.saw	refused	mono mono.not-yet	a closure capturing a value that owns something is not in the backend slice yet
 conformance/V101_copy_family_carries_the_tier.saw	refused	typecheck member.unknown	`std.vector.Vector<V101_copy_family_carries_the_tier.Rec, std.alloc.GlobalAllocator>` has no method `try_copy` this module can see
 conformance/V102_derived_copy_duplicates_every_field.saw	refused	mono mono.not-yet	a synthesized `ExplicitCopy.copy()` on `V102_derived_copy_duplicates_every_field.Holder` is not in the backend slice yet: only a scalar's builtin hooks
-conformance/V103_copy_funnel_duplicates_exactly_once.saw	refused	mono mono.not-yet	a call of `ExplicitCopy.copy()` on `V103_copy_funnel_duplicates_exactly_once.Counted`, which no conformance of it meets, is not in the backend slice yet (inside std/vector.saw:248:35)
+conformance/V103_copy_funnel_duplicates_exactly_once.saw	refused	mono mono.not-yet	a call of `ExplicitCopy.copy()` on `V103_copy_funnel_duplicates_exactly_once.Counted`, which no conformance of it meets, is not in the backend slice yet (inside std/vector.saw:252:35)
 conformance/V104_unbound_value_is_released.saw	wrong	stdout differs	line 9: sawc2 "if 5", Stage 0 "drop 4"
 conformance/V105_copy_capture_releases_its_duplicate.saw	refused	mono mono.not-yet	a closure capturing a value that owns something is not in the backend slice yet
 conformance/V106_driven_copy_capture_duplicates_once.saw	refused	mono mono.not-yet	a closure capturing a value that owns something is not in the backend slice yet
@@ -1618,7 +1618,7 @@ generic_enum_raw_backing_keeps_values.saw	refused	llvm backend.not-yet	this conv
 generic_extension_overload.saw	pass	-	-
 generic_fn_box_param.saw	pass	-	-
 generic_fn_vector_ref_param.saw	pass	-	-
-generic_for_loop_owning_balance.saw	refused	mono mono.not-yet	a call of `ExplicitCopy.copy()` on `generic_for_loop_owning_balance.W`, which no conformance of it meets, is not in the backend slice yet (inside std/vector.saw:301:17)
+generic_for_loop_owning_balance.saw	refused	mono mono.not-yet	a call of `ExplicitCopy.copy()` on `generic_for_loop_owning_balance.W`, which no conformance of it meets, is not in the backend slice yet (inside std/vector.saw:305:17)
 generic_init_moved_parameter_is_released_once.saw	stage0-wrong	XFAIL DF-302b	sawc2 meets its directives
 generic_instance_associated_type_binding.saw	refused	resolve name.undefined	cannot find `Item` in scope; an associated type of a bound is named through its type parameter, as `T.Item`
 generic_instance_associated_type_return.saw	refused	resolve name.undefined	cannot find `Item` in scope; an associated type of a bound is named through its type parameter, as `T.Item`
@@ -1726,7 +1726,7 @@ io_error_kind_and_raw_code.saw	refused	resolve import.unknown-module	no module `
 iterator_custom.saw	pass	-	-
 iterator_for_loop.saw	pass	-	-
 iterator_generic.saw	pass	-	-
-iterator_generic_type.saw	refused	mono mono.not-yet	a call of `ExplicitCopy.copy()` on `String`, which no conformance of it meets, is not in the backend slice yet (inside std/vector.saw:301:17)
+iterator_generic_type.saw	refused	mono mono.not-yet	a call of `ExplicitCopy.copy()` on `String`, which no conformance of it meets, is not in the backend slice yet (inside std/vector.saw:305:17)
 iterator_simple.saw	pass	-	-
 iterator_string.saw	pass	-	-
 iterator_struct.saw	pass	-	-
@@ -2591,7 +2591,7 @@ vector_literal_owning_use_after_move_error.saw	pass	-	move.use-after: `a.id` is 
 vector_map_fold.saw	refused	resolve slice.not-yet	`syntax.expr.shorthand-param` is not in the bootstrap slice yet
 vector_nested_each_borrows.saw	refused	typecheck infer.failed	this closure parameter has no type: write one, as `x: Int`, or pass the closure where a function type is expected
 vector_nocopy_elem_construct.saw	pass	-	-
-vector_owning_element_safety.saw	refused	mono mono.not-yet	a call of `ExplicitCopy.copy()` on `std.arc.Arc<Int>`, which no conformance of it meets, is not in the backend slice yet (inside std/vector.saw:301:17)
+vector_owning_element_safety.saw	refused	mono mono.not-yet	a call of `ExplicitCopy.copy()` on `std.arc.Arc<Int>`, which no conformance of it meets, is not in the backend slice yet (inside std/vector.saw:305:17)
 vector_pop_refcount_exact.saw	pass	-	-
 vector_set_oob_panic.saw	pass	-	-
 vector_simple.saw	pass	-	-

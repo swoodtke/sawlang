@@ -1,0 +1,21 @@
+// probe: panics
+// about: `Vector.reserve` panics on a negative `additional` rather than answering `Ok` without allocating, and accepts zero and a positive count (SL-748)
+// stage 0: its std's `reserve` checks no sign, so it answers `Ok` without allocating
+// speeds: -O0 -O2
+// prints: 3
+// prints: 4
+// panics: Vector.reserve: additional -1 is negative
+
+func main() {
+    var v = Vector<Int>()
+    try! v.push(1)
+    try! v.push(2)
+    try! v.push(3)
+    try! v.reserve(0)
+    print(v.len())
+    try! v.reserve(8)
+    try! v.push(4)
+    print(v.len())
+    let _ = v.reserve(-1)
+    print("unreachable")
+}

@@ -122,8 +122,12 @@ extension Vector<T, A: Allocator = GlobalAllocator> {
     }
 
     /// Makes room for `additional` more elements, so that many pushes cannot
-    /// fail. Returns `Err(AllocError)` when `A` refuses.
+    /// fail. Returns `Err(AllocError)` when `A` refuses. Panics if
+    /// `additional` is negative.
     public func reserve(&var self, additional: Int) -> Result<Void, AllocError> {
+        if additional < 0 {
+            panic("Vector.reserve: additional {} is negative", additional)
+        }
         let wanted = self.length + additional
         if not self.reserve_slots(wanted) {
             return AllocError(size: self.grow_target(wanted) * sizeof<T>(), align: alignof<T>())
