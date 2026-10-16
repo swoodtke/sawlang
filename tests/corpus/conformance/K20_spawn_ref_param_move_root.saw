@@ -18,7 +18,7 @@ import std.task.*
 func fill(v: &var Vector<Int>, n: Int) -> Int {
     var i = 0
     while i < n {
-        v.push(i)
+        try! v.push(i)
         yield_now()
         i = i + 1
     }

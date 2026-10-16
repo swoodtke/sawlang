@@ -97,8 +97,8 @@ INDEX.md, or when an owner is not one of the words below.
 | R21 | typecheck | `type.reference-position`: `compiler/tests/typecheck/refuse/type.reference-position.alias-return.saw` |
 | R22 | slice.not-yet | the `Thread.spawn` and `Task.spawn` forms (then typecheck `capture.escaping-borrow`) |
 | R23 | typecheck | `capture.escaping-borrow`: `compiler/tests/typecheck/refuse/capture.escaping-borrow.saw` |
-| R24 | slice.not-yet | a borrow a `group.spawn` root takes of its spawner, `compiler/tests/typecheck/refuse/slice.not-yet.group-spawn-borrow.saw` (then typecheck, SL:coroutines A8c) |
-| R25 | slice.not-yet | a borrow a `group.spawn` root takes of its spawner, `compiler/tests/typecheck/refuse/slice.not-yet.group-spawn-borrow.saw` (then typecheck and U6d2: the task borrows its root, SL:coroutines A8c) |
+| R24 | U6d2 | `loan.drop-while-borrowed`, a spawn borrow of a binding declared after its group (SL:coroutines A8c): `compiler/tests/borrowck/refuse/loan.drop-while-borrowed.spawn-after-group.saw` |
+| R25 | U6d2 | accepted in a single-threaded group: the task's handle holds the borrow of its root until a `join` or the group's drop (SL:coroutines A8c), golden `compiler/tests/borrowck/golden/spawn_borrows.saw`; an access inside that extent, `compiler/tests/borrowck/refuse/loan.read-while-exclusive.spawn-argument.saw` |
 | R26 | typecheck | `type.reference-position`: `compiler/tests/typecheck/refuse/type.reference-position.optional-written.saw` |
 | R27 | typecheck | `type.reference-position`: `compiler/tests/typecheck/refuse/type.reference-position.nested-generic.saw` |
 | R28 | typecheck | accepted: the sanctioned `(&var n) as UnsafePointer<Int>`, `address` in `compiler/tests/typecheck/golden/reference_positions.saw` |

@@ -1,0 +1,15 @@
+// refuses: loan.exclusive-twice at 13:34
+// a `&var` spawn argument still held when the loop body ends: the next
+// iteration's spawn would borrow `total` exclusively beside it.
+func bump(n: &var Int, k: Int) -> Int {
+    n = n + k
+    n
+}
+
+func main() {
+    var total = 0
+    var group = TaskGroup()
+    for i in 0..4 {
+        let h = group.spawn(bump(&var total, i))
+    }
+}

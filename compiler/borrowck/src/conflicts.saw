@@ -8,12 +8,12 @@
 // window may be open across a suspension; and inside an accessor, what a
 // `lend` hands out must outlive the prologue.
 
-import sawborrowck.loans.{BorrowckAccess, BorrowckAccessKind, BorrowckEscape, BorrowckLoanKind, BorrowckLoans,
-                              BorrowckPath, borrowck_bit, borrowck_slice, borrowck_zeros}
+import sawborrowck.loans.{BorrowckAccess, BorrowckAccessKind, BorrowckEscape, BorrowckLoan, BorrowckLoanKind,
+                              BorrowckLoans, BorrowckPath, borrowck_bit, borrowck_slice, borrowck_zeros}
 import sawborrowck.program.{BorrowckProgram}
 import sawmir.build.{mir_func_local}
 import sawmir.dump.{mir_module_functions}
-import sawmir.initialisation.{MIR_INIT_WHOLE, MirInit}
+import sawmir.initialisation.{MIR_INIT_PARTIAL, MIR_INIT_WHOLE, MirInit, mir_init_apply_all}
 import sawmir.model.{MirCallKind, MirDiag, MirFuncKind, MirLocalKind, MirProjKind, MirRvalueKind, MirStmtKind,
                          MirTermKind}
 import sawmir.program.{MirProgram}
@@ -39,6 +39,12 @@ struct BorrowckMember {
     chain_count: Int
 }
 
+// An instruction of a function: its block, and its index there.
+struct BorrowckSite {
+    b: Int
+    i: Int
+}
+
 // The innermost call both members stand in the argument lists of, or -1.
 func borrowck_common_call(chains: &Vector<Int>, x: &BorrowckMember, y: &BorrowckMember) -> Int {
     var i = 0
@@ -62,17 +68,20 @@ extension BorrowckProgram {
     public func check_loans(&var self, f: Int, inits: &MirInit) {
         var facts = self.borrowck_loans(f)
         var reported = Vector<Int>()
+        self.check_spawn_order(f, &var facts, &var reported)
+        self.check_spawn_iterations(f, &inits, &var facts, &var reported)
         self.check_call_sets(f, &var facts, &var reported)
         self.check_assignments(f, &var facts, &var reported)
         let info = self.mir.funcs[f]
         var b = 0
         while b < info.block_count {
             if facts.reached[b] {
-                self.check_block(f, b, &var facts, &var reported)
+                self.check_block(f, b, &inits, &var facts, &var reported)
             }
             b = b + 1
         }
         self.check_handle_escapes(f, &var facts, &var reported)
+        self.check_spawn_escapes(f, &var facts, &var reported)
         if info.kind == MirFuncKind.Prologue {
             self.check_prologue(f, &inits, &var facts, &var reported)
         }
@@ -83,7 +92,8 @@ extension BorrowckProgram {
 
     // Each access of block `b` against the loans live before it, and each
     // suspension point against the open `borrows(sync)` windows.
-    func check_block(&var self, f: Int, b: Int, facts: &var BorrowckLoans, reported: &var Vector<Int>) {
+    func check_block(&var self, f: Int, b: Int, inits: &MirInit, facts: &var BorrowckLoans,
+                     reported: &var Vector<Int>) {
         let info = self.mir.funcs[f]
         let block = self.mir.blocks[info.block_first + b]
         let lw = facts.loan_words
@@ -100,15 +110,17 @@ extension BorrowckProgram {
             let s = self.instruction_stmt(f, b, i)
             let restore = self.restores_record(f, s)
             var k = 0
+            let at = BorrowckSite(b: b, i: i)
             while k < accesses.len() && not restore {
                 let a = accesses[k]
-                self.check_access(f, &a, -1, &var facts, &live, &created, &open, &var reported)
+                self.check_access(f, &a, -1, &inits, at, &var facts, &live, &created, &open, &var reported)
                 k = k + 1
             }
             if i == count - 1 && block.term == MirTermKind.Call {
                 let c = self.mir.calls[block.call]
                 if c.kind == MirCallKind.WindowOpen && c.window >= 0 {
-                    self.check_window_charge(f, block.call, &var facts, &live, &created, &open, &var reported)
+                    self.check_window_charge(f, block.call, &inits, at, &var facts, &live, &created, &open,
+                                             &var reported)
                 }
             }
             if self.suspends_at(f, b, i) {
@@ -198,11 +210,323 @@ extension BorrowckProgram {
         false
     }
 
+    // Each spawn loan whose borrow names a binding declared after the group
+    // it is spawned into: destruction is LIFO, so the binding is torn down
+    // before the group's teardown drains the task (design 188). It is
+    // refused at the borrow, joined or not, and the loan is then judged
+    // against no access. A group reached through a reference is the caller's,
+    // whose order this function cannot see; `check_spawn_escapes` holds a
+    // loan into it to a join.
+    func check_spawn_order(&var self, f: Int, facts: &var BorrowckLoans, reported: &var Vector<Int>) {
+        var n = 0
+        while n < facts.loan_count() {
+            let loan = facts.loans[n]
+            n = n + 1
+            if loan.kind != BorrowckLoanKind.Spawn || loan.source_local < 0 {
+                continue
+            }
+            let group = loan.group
+            if group.local < 0 || group.count < 0 || self.through_deref(&group, &facts) {
+                continue
+            }
+            let root = mir_func_local(&self.mir, f, loan.source_local)
+            let owner = mir_func_local(&self.mir, f, group.local)
+            if root.kind != MirLocalKind.User || owner.kind != MirLocalKind.User || root.name < 0 {
+                continue
+            }
+            if root.node < 0 || owner.node < 0 || not self.declared_after(root.node, owner.node) {
+                continue
+            }
+            var refused = facts.loans[n - 1]
+            refused.refused = true
+            facts.loans[n - 1] = refused
+            let name = self.mir.tc.name_text(root.name)
+            let group_name = self.borrowck_path_text(f, &group, &facts)
+            var msg = StringBuilder()
+            if loan.captured {
+                try! msg.append("cannot capture `")
+            } else {
+                try! msg.append("cannot pass `")
+            }
+            try! msg.append(borrowck_sigil(loan.exclusive))
+            try! msg.append(name)
+            try! msg.append("` into a task: `")
+            try! msg.append(name)
+            try! msg.append("` is declared AFTER the group `")
+            try! msg.append(group_name)
+            try! msg.append("` it is spawned into (at ")
+            try! msg.append(self.mir.span_text(root.node, false))
+            try! msg.append(" against ")
+            try! msg.append(self.mir.span_text(owner.node, false))
+            try! msg.append("), and destruction is LIFO — `")
+            try! msg.append(name)
+            try! msg.append("` is torn down BEFORE `")
+            try! msg.append(group_name)
+            try! msg.append("` joins its children, so the task would reach it after it is gone; declare `")
+            try! msg.append(name)
+            try! msg.append("` BEFORE `")
+            try! msg.append(group_name)
+            try! msg.append("` — the group opens the scope it governs, so everything the tasks borrow outlives the join. Or pass the value in by value or through an `Arc` instead of borrowing it")
+            self.report_loan(f, loan.source, "loan.drop-while-borrowed", msg.build(), &var reported)
+        }
+    }
+
+    // Whether the binding declared at node `later` comes after the one at
+    // node `earlier`. Both are in scope at one spawn, so their scopes nest,
+    // and the later declaration is torn down first.
+    func declared_after(&self, later: Int, earlier: Int) -> Bool {
+        if self.mir.tc.node_module(later) != self.mir.tc.node_module(earlier) {
+            return false
+        }
+        let a = self.mir.tc.res.nodes[later]
+        let b = self.mir.tc.res.nodes[earlier]
+        a.start > b.start
+    }
+
+    // Each spawn loan, of either mode, still held when its own spawn runs
+    // again: a loop body ended with it live on some path, `continue`
+    // included (spec: The borrow's extent is the task's life). One textual
+    // spawn would then stand for two live tasks, so an exclusive borrow is
+    // taken twice, and a join of the next iteration's handle cannot tell the
+    // tasks apart to release the borrow. Refused at the borrow, ahead of the
+    // conflict the borrow itself meets there.
+    func check_spawn_iterations(&var self, f: Int, inits: &MirInit, facts: &var BorrowckLoans,
+                                reported: &var Vector<Int>) {
+        let lw = facts.loan_words
+        let ww = facts.window_words
+        var n = 0
+        while n < facts.loan_count() {
+            let loan = facts.loans[n]
+            n = n + 1
+            let held = loan.kind == BorrowckLoanKind.Spawn && not loan.refused
+            if not held || not facts.reached[loan.block] {
+                continue
+            }
+            var created = borrowck_slice(&facts.created_in, loan.block * lw, lw)
+            var open = borrowck_slice(&facts.open_in, loan.block * ww, ww)
+            let count = self.instruction_count(f, loan.block)
+            var i = 0
+            while i < count - 1 {
+                self.step_forward(&facts, f, loan.block, i, &var created, &var open)
+                i = i + 1
+            }
+            if not borrowck_bit(&created, 0, n - 1) {
+                continue
+            }
+            var msg = StringBuilder()
+            if loan.exclusive {
+                try! msg.append("exclusive access violation: ")
+            }
+            try! msg.append("this task's `")
+            try! msg.append(borrowck_sigil(loan.exclusive))
+            try! msg.append(self.borrowck_path_text(f, &loan.path, &facts))
+            if loan.captured {
+                try! msg.append("` capture")
+            } else {
+                try! msg.append("` argument")
+            }
+            if loan.exclusive {
+                try! msg.append(" is still live when the loop body ends, so the next iteration would open a second exclusive borrow of the same root: ")
+            } else {
+                try! msg.append(" is still live when the loop body ends, so the next iteration's task would borrow the same root beside it, and no join of the one handle can tell the two tasks apart to release the borrow: ")
+            }
+            let state = self.init_state_at(f, &inits, BorrowckSite(b: loan.block, i: count - 1))
+            let handle = self.spawn_handle(f, n - 1, &facts, &state)
+            try! msg.append(self.spawn_extent(f, n - 1, &var facts, &handle))
+            try! msg.append("; join this task's handle before the body ends (spawn, join, then loop), or give each iteration its own root. To fan out over ONE piece of shared state, share it through an `Arc<Mutex<T>>` or a `Channel`")
+            let rule = if loan.exclusive { "loan.exclusive-twice" } else { "loan.handle-escape" }
+            self.report_loan(f, loan.source, rule, msg.build(), &var reported)
+        }
+    }
+
+    // Each spawn loan still held at a `return`: no join of its handle
+    // reaches it on some path there, and its group is the caller's, so the
+    // task may run on after this function's borrow of the root has ended.
+    // An owned group's drop comes before every return and releases it.
+    func check_spawn_escapes(&var self, f: Int, facts: &var BorrowckLoans, reported: &var Vector<Int>) {
+        let info = self.mir.funcs[f]
+        let lw = facts.loan_words
+        let ww = facts.window_words
+        var b = 0
+        while b < info.block_count {
+            let block = self.mir.blocks[info.block_first + b]
+            let at = b
+            b = b + 1
+            if not facts.reached[at] || block.term != MirTermKind.Return {
+                continue
+            }
+            var created = borrowck_slice(&facts.created_in, at * lw, lw)
+            var open = borrowck_slice(&facts.open_in, at * ww, ww)
+            let count = self.instruction_count(f, at)
+            var i = 0
+            while i < count - 1 {
+                self.step_forward(&facts, f, at, i, &var created, &var open)
+                i = i + 1
+            }
+            var n = 0
+            while n < facts.loan_count() {
+                let loan = facts.loans[n]
+                n = n + 1
+                if loan.kind != BorrowckLoanKind.Spawn || loan.refused || not borrowck_bit(&created, 0, n - 1) {
+                    continue
+                }
+                var msg = StringBuilder()
+                try! msg.append("the task this `group.spawn` makes still holds `")
+                try! msg.append(borrowck_sigil(loan.exclusive))
+                try! msg.append(self.borrowck_path_text(f, &loan.path, &facts))
+                try! msg.append("` when the function returns at ")
+                try! msg.append(self.mir.span_text(block.term_node, block.term_closing))
+                try! msg.append(": nothing joins its handle on that path, and its group `")
+                let group = loan.group
+                try! msg.append(self.borrowck_path_text(f, &group, &facts))
+                try! msg.append("` is the caller's, which this function cannot see end, so the task may run on after the borrow it was handed has ended; join the handle before the function returns")
+                self.report_loan(f, loan.source, "loan.handle-escape", msg.build(), &var reported)
+            }
+        }
+    }
+
+    // A conflict of access `a`, made by instruction `at`, with spawn loan
+    // `n`: Stage 0's wording, the access, then the task and where its borrow
+    // is released.
+    func report_spawn_conflict(&var self, f: Int, a: &BorrowckAccess, n: Int, inits: &MirInit, at: BorrowckSite,
+                               facts: &var BorrowckLoans, reported: &var Vector<Int>) {
+        let loan = facts.loans[n]
+        var rule = "loan.write-while-shared"
+        let writes = a.kind == BorrowckAccessKind.Write || a.kind == BorrowckAccessKind.Exclusive
+        if a.kind == BorrowckAccessKind.Move {
+            rule = "loan.move-while-borrowed"
+        } else if a.kind == BorrowckAccessKind.Drop {
+            rule = "loan.drop-while-borrowed"
+        } else if loan.exclusive && writes {
+            rule = "loan.exclusive-twice"
+        } else if loan.exclusive {
+            rule = "loan.read-while-exclusive"
+        }
+        let access = self.borrowck_trace(f, &a.path, &var facts)
+        let name = self.borrowck_path_text(f, &access, &facts)
+        let state = self.init_state_at(f, &inits, at)
+        let handle = self.spawn_handle(f, n, &facts, &state)
+        var msg = StringBuilder()
+        if a.kind == BorrowckAccessKind.Move {
+            try! msg.append("cannot `move` `")
+            try! msg.append(name)
+            try! msg.append("` while a spawned task borrows it: ")
+        } else {
+            try! msg.append("exclusive access violation: `")
+            try! msg.append(name)
+            try! msg.append("` cannot be ")
+            try! msg.append(self.spawn_access_phrase(&a, &facts))
+            try! msg.append(" here — ")
+        }
+        try! msg.append(self.spawn_extent(f, n, &var facts, &handle))
+        try! msg.append("; join the task first — ")
+        if handle.len() > 0 {
+            try! msg.append("`")
+            try! msg.append(handle)
+            try! msg.append(".join()`")
+        } else {
+            try! msg.append("joining the task's handle")
+        }
+        try! msg.append(" ends the borrow, and the spawn-join-use order stays legal. To watch the value WHILE the task runs, share it through an `Arc<Mutex<T>>` or a `Channel`, where the synchronization is visible in the types")
+        self.report_loan(f, a.node, rule, msg.build(), &var reported)
+    }
+
+    // How a spawn conflict says access `a` touches its place.
+    func spawn_access_phrase(&self, a: &BorrowckAccess, facts: &BorrowckLoans) -> String {
+        match a.kind {
+            case Read -> "read",
+            case Write -> "written",
+            case Move -> "moved",
+            case Drop -> "dropped",
+            case _ -> {
+                if a.node < 0 || not self.mir.tc.has_alt(a.node, Alt.Expr_Closure) {
+                    return "accessed by reference"
+                }
+                var n = 0
+                while n < facts.loan_count() {
+                    let loan = facts.loans[n]
+                    n = n + 1
+                    if loan.kind == BorrowckLoanKind.Spawn && loan.source == a.node {
+                        return "captured into another task"
+                    }
+                }
+                "captured"
+            }
+        }
+    }
+
+    // `the task spawned at L:C holds `&var x` until ...`: spawn loan `n`'s
+    // borrow and where it is released, through the binding `handle` names,
+    // or at its group's drop when `handle` is empty.
+    func spawn_extent(&self, f: Int, n: Int, facts: &var BorrowckLoans, handle: &String) -> String {
+        let loan = facts.loans[n]
+        var text = StringBuilder()
+        try! text.append("the task spawned at ")
+        try! text.append(self.mir.span_text(loan.source, false))
+        try! text.append(" holds `")
+        try! text.append(borrowck_sigil(loan.exclusive))
+        try! text.append(self.borrowck_path_text(f, &loan.path, &facts))
+        try! text.append("` until ")
+        if handle.len() > 0 {
+            try! text.append("`")
+            try! text.append(handle)
+            try! text.append(".join()` releases it")
+            return text.build()
+        }
+        let group = loan.group
+        try! text.append("its group `")
+        try! text.append(self.borrowck_path_text(f, &group, &facts))
+        if group.local >= 0 && group.count >= 0 && not self.through_deref(&group, &facts) {
+            try! text.append("` is torn down at the end of this scope (nothing joins its handle)")
+        } else {
+            try! text.append("`, the caller's, drains the task (nothing here joins its handle)")
+        }
+        text.build()
+    }
+
+    // The name of the binding that holds spawn loan `n`'s handle, the join
+    // that would release it, or empty when none does: a named local that
+    // holds the handle on every path (`holds_handle`), and, when `state`
+    // holds initialisation conditions, one still in scope there.
+    func spawn_handle(&self, f: Int, n: Int, facts: &BorrowckLoans, state: &Vector<Int>) -> String {
+        let loan = facts.loans[n]
+        var k = 0
+        while k < loan.holder_count {
+            let h = facts.holders[loan.holder_first + k]
+            k = k + 1
+            let local = mir_func_local(&self.mir, f, h)
+            if local.name < 0 || not self.holds_handle(n, h, &facts) {
+                continue
+            }
+            if h < state.len() && (state[h] & (MIR_INIT_WHOLE | MIR_INIT_PARTIAL)) == 0 {
+                continue
+            }
+            return self.mir.tc.name_text(local.name)
+        }
+        ""
+    }
+
+    // The initialisation conditions before instruction `at`.
+    func init_state_at(&self, f: Int, inits: &MirInit, at: BorrowckSite) -> Vector<Int> {
+        var state = inits.entry_state(at.b)
+        let block = self.mir.blocks[self.mir.funcs[f].block_first + at.b]
+        var s = block.first
+        var k = 0
+        while s >= 0 && k < at.i {
+            let accesses = self.mir.init_stmt_accesses(f, s, &inits)
+            mir_init_apply_all(&inits, &var state, &accesses)
+            s = self.mir.stmts[s].next
+            k = k + 1
+        }
+        move state
+    }
+
     // A window's root charge, at its open: an exclusive or shared access of
     // its receiver's place, by the declared mode, beside every live loan but
     // the ones its own arguments carry.
-    func check_window_charge(&var self, f: Int, call: Int, facts: &var BorrowckLoans, live: &Vector<Int>,
-                             created: &Vector<Int>, open: &Vector<Int>, reported: &var Vector<Int>) {
+    func check_window_charge(&var self, f: Int, call: Int, inits: &MirInit, at: BorrowckSite,
+                             facts: &var BorrowckLoans, live: &Vector<Int>, created: &Vector<Int>,
+                             open: &Vector<Int>, reported: &var Vector<Int>) {
         let c = self.mir.calls[call]
         let path = facts.window_path[c.window]
         if path.count < 0 {
@@ -214,14 +538,15 @@ extension BorrowckProgram {
             BorrowckAccessKind.Shared
         }
         let a = BorrowckAccess(kind: kind, path: path, node: c.node, closing: false)
-        self.check_access(f, &a, call, &var facts, &live, &created, &open, &var reported)
+        self.check_access(f, &a, call, &inits, at, &var facts, &live, &created, &open, &var reported)
     }
 
-    // Access `a` against every live loan on an overlapping place, the
-    // loans the arguments of window call `skip` carry excepted; the first
-    // conflict is reported, once per source node.
-    func check_access(&var self, f: Int, a: &BorrowckAccess, skip: Int, facts: &var BorrowckLoans, live: &Vector<Int>,
-                      created: &Vector<Int>, open: &Vector<Int>, reported: &var Vector<Int>) {
+    // Access `a`, made by instruction `at`, against every live loan on an
+    // overlapping place, the loans the arguments of window call `skip`
+    // carry excepted; the first conflict is reported, once per source node.
+    func check_access(&var self, f: Int, a: &BorrowckAccess, skip: Int, inits: &MirInit, at: BorrowckSite,
+                      facts: &var BorrowckLoans, live: &Vector<Int>, created: &Vector<Int>, open: &Vector<Int>,
+                      reported: &var Vector<Int>) {
         if a.path.count < 0 || borrowck_seen(&reported, a.node) {
             return
         }
@@ -241,6 +566,9 @@ extension BorrowckProgram {
             if loan.kind == BorrowckLoanKind.Handle && loan.escape != BorrowckEscape.Contained {
                 continue
             }
+            if loan.kind == BorrowckLoanKind.Spawn && (loan.refused || self.releases_at_drop(&a, &loan, &facts)) {
+                continue
+            }
             if not facts.is_live(n - 1, &live, &created, &open) {
                 continue
             }
@@ -256,9 +584,20 @@ extension BorrowckProgram {
                 found = n - 1
             }
         }
-        if found >= 0 {
+        if found >= 0 && facts.loans[found].kind == BorrowckLoanKind.Spawn {
+            self.report_spawn_conflict(f, &a, found, &inits, at, &var facts, &var reported)
+        } else if found >= 0 {
             self.report_conflict(f, &a, found, &var facts, &var reported)
         }
+    }
+
+    // Whether access `a` is the drop of spawn loan `loan`'s group, which
+    // drains the task and so releases the loan, and drops nothing the loan
+    // holds: a value holding both the group and the root, by fields that
+    // drop in either order, conflicts.
+    func releases_at_drop(&self, a: &BorrowckAccess, loan: &BorrowckLoan, facts: &BorrowckLoans) -> Bool {
+        let group = facts.overlaps(&a.path, &loan.group)
+        a.kind == BorrowckAccessKind.Drop && group && not facts.overlaps(&a.path, &loan.path)
     }
 
     // Whether loan `n` is carried by an argument of window call `call`, or
@@ -820,7 +1159,8 @@ extension BorrowckProgram {
             var n = 0
             while n < facts.loan_count() {
                 let loan = facts.loans[n]
-                let lent = loan.kind != BorrowckLoanKind.Window && loan.kind != BorrowckLoanKind.Handle
+                let held = loan.kind == BorrowckLoanKind.Handle || loan.kind == BorrowckLoanKind.Spawn
+                let lent = loan.kind != BorrowckLoanKind.Window && not held
                 if lent && facts.carries(n, 0) && facts.is_live(n, &live, &created, &open) {
                     let root = self.borrowck_trace(f, &loan.path, &var facts)
                     if not self.lendable_root(f, &root, &var facts) {
@@ -986,6 +1326,11 @@ public func borrowck_seen(xs: &Vector<Int>, x: Int) -> Bool {
         k = k + 1
     }
     false
+}
+
+// The sigil a borrow is written with, and the space after `&var`.
+public func borrowck_sigil(exclusive: Bool) -> String {
+    if exclusive { "&var " } else { "&" }
 }
 
 // How a diagnostic says an access of `kind` touches its place.

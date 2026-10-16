@@ -4,13 +4,6 @@ twin	same
 expect	error
 build	refused	cannot `move` `buf` while a spawned task borrows it: the task spawned at line 33 holds `&var buf` until `h.join()` releases it
 meets_expect	yes
-log	"error: result of `push` is `Result<Void, AllocError>` and is silently discarded"
-log	"  --> examples/conformance/K20_spawn_ref_param_move_root.saw:21:10"
-log	"     |"
-log	" 21 |         v.push(i)"
-log	"     |          ^"
-log	"   hint: handle it — `match` it, `try`/`try!`/`try?` it, or return it — or write `let _ = ...` to discard it explicitly"
-log	""
 log	"error: cannot `move` `buf` while a spawned task borrows it: the task spawned at line 33 holds `&var buf` until `h.join()` releases it"
 log	"  --> examples/conformance/K20_spawn_ref_param_move_root.saw:34:30"
 log	"     |"
@@ -18,4 +11,4 @@ log	" 34 |     print(\"consumed {consume(move buf)}\")"
 log	"     |                              ^"
 log	"   hint: join the task first — `h.join()` ends the borrow, and the spawn-join-use order stays legal. To watch the value WHILE the task runs, share it through an `Arc<Mutex<T>>` or a `Channel`, where the synchronization is visible in the types"
 log	""
-log	"2 error(s) generated"
+log	"1 error(s) generated"

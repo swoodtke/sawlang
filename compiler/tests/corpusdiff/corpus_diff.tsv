@@ -322,7 +322,7 @@ conformance/K127_conditional_lend_modes.saw	refused	mir slice.not-yet	a `borrow`
 conformance/K128_cow_gate_survives_the_var_self_spelling.saw	pass	-	-
 conformance/K129_forwarded_lend_carries_the_window_mode.saw	pass	-	-
 conformance/K133_window_spans_a_suspension.saw	pass	-	-
-conformance/K135_window_conflicts_that_compose.saw	refused	typecheck slice.not-yet	a borrow a `group.spawn` root takes of its spawner for the task's life (SL:coroutines A8c) is not in the bootstrap slice yet
+conformance/K135_window_conflicts_that_compose.saw	pass	-	-
 conformance/K136_window_release_routes.saw	refused	typecheck slice.not-yet	`syntax.stmt.break` is not in the bootstrap slice yet
 conformance/K137_window_destruction_order.saw	pass	-	-
 conformance/K138_window_acquire_sequence.saw	pass	-	-
@@ -331,13 +331,13 @@ conformance/K140_window_under_cancellation.saw	pass	-	-
 conformance/K141_mutex_guarded_for_is_sync.saw	stage0-wrong	XFAIL SL-340	sawc2 meets its directives
 conformance/K147_inline_catch_splits.saw	refused	typecheck slice.not-yet	`syntax.expr.try.route` is not in the bootstrap slice yet
 conformance/K149_sawtracker_loop_shape.saw	pass	-	-
-conformance/K14_spawn_ref_param_join_releases.saw	refused	typecheck slice.not-yet	a borrow a `group.spawn` root takes of its spawner for the task's life (SL:coroutines A8c) is not in the bootstrap slice yet
-conformance/K15_spawn_ref_param_exclusion_window.saw	refused	typecheck slice.not-yet	a borrow a `group.spawn` root takes of its spawner for the task's life (SL:coroutines A8c) is not in the bootstrap slice yet
-conformance/K16_spawn_shared_ref_param_composes.saw	refused	typecheck slice.not-yet	a borrow a `group.spawn` root takes of its spawner for the task's life (SL:coroutines A8c) is not in the bootstrap slice yet
-conformance/K17_spawn_ref_param_across_iterations.saw	refused	typecheck slice.not-yet	a borrow a `group.spawn` root takes of its spawner for the task's life (SL:coroutines A8c) is not in the bootstrap slice yet
-conformance/K18_spawn_ref_param_after_group.saw	refused	typecheck slice.not-yet	a borrow a `group.spawn` root takes of its spawner for the task's life (SL:coroutines A8c) is not in the bootstrap slice yet
+conformance/K14_spawn_ref_param_join_releases.saw	pass	-	-
+conformance/K15_spawn_ref_param_exclusion_window.saw	pass	-	loan.read-while-exclusive: exclusive access violation: `n` cannot be read here — the task spawned at 28:30 holds `&var n` until `h.join()` releases it; join the task first — `h.join()` ends the borrow
+conformance/K16_spawn_shared_ref_param_composes.saw	pass	-	-
+conformance/K17_spawn_ref_param_across_iterations.saw	pass	-	loan.exclusive-twice: exclusive access violation: this task's `&var total` argument is still live when the loop body ends, so the next iteration would open a second exclusive borrow of the same root:
+conformance/K18_spawn_ref_param_after_group.saw	pass	-	loan.drop-while-borrowed: cannot pass `&var buf` into a task: `buf` is declared AFTER the group `group` it is spawned into (at 30:9 against 29:9), and destruction is LIFO — `buf` is torn down BEFORE `
 conformance/K19_spawn_ref_param_mt_send.saw	wrong	refused by another rule	call.label, where the plan names coro.spawn-not-send
-conformance/K20_spawn_ref_param_move_root.saw	refused	typecheck slice.not-yet	a borrow a `group.spawn` root takes of its spawner for the task's life (SL:coroutines A8c) is not in the bootstrap slice yet
+conformance/K20_spawn_ref_param_move_root.saw	pass	-	loan.move-while-borrowed: cannot `move` `buf` while a spawned task borrows it: the task spawned at 33:30 holds `&var buf` until `h.join()` releases it; join the task first — `h.join()` ends the borrow
 conformance/K21_cross_module_embed_private_sibling.saw	refused	typecheck slice.not-yet	a constant argument named by a static, `SLOTS`, is not in the bootstrap slice yet
 conformance/K22_cross_module_generic_embed_private_sibling.saw	refused	typecheck slice.not-yet	a constant argument named by a static, `SLOTS`, is not in the bootstrap slice yet
 conformance/K24_frame_slot_payload_binding_not_a_copy.saw	pass	-	-
@@ -1294,10 +1294,10 @@ errors/shared_self_field_write.saw	pass	-	mutability.immutable: this assignment 
 errors/shared_self_var_method_call.saw	pass	-	mutability.immutable: this exclusive borrow of `self` would let it be written, and this method's receiver is `&self`, a shared borrow that writes neither the storage it borrows nor storage reached thr
 errors/signal_is_hosted_only.saw	refused	driver driver.usage	sawc2 build takes no --freestanding
 errors/sleep_bare_int.saw	pass	-	type.mismatch: expected `std.duration.Duration`, the type of the parameter, and found `Int`
-errors/spawn_capture_across_iterations.saw	refused	typecheck slice.not-yet	a borrow a `group.spawn` root takes of its spawner for the task's life (SL:coroutines A8c) is not in the bootstrap slice yet
+errors/spawn_capture_across_iterations.saw	pass	-	loan.exclusive-twice: exclusive access violation: this task's `&var total` capture is still live when the loop body ends, so the next iteration would open a second exclusive borrow of the same root: t
 errors/spawn_capture_mt_send.saw	wrong	refused by another rule	call.label, where the plan names coro.spawn-not-send
 errors/spawn_capture_not_send.saw	refused	resolve slice.not-yet	the `Thread.spawn` form is not in the bootstrap slice yet
-errors/spawn_capture_unjoined_handle.saw	refused	typecheck slice.not-yet	a borrow a `group.spawn` root takes of its spawner for the task's life (SL:coroutines A8c) is not in the bootstrap slice yet
+errors/spawn_capture_unjoined_handle.saw	pass	-	loan.read-while-exclusive: exclusive access violation: `n` cannot be read here — the task spawned at 31:29 holds `&var n` until its group `group` is torn down at the end of this scope (nothing joins i
 errors/spawn_handle_may_not_escape_the_function.saw	refused	resolve name.undefined	cannot find `VoidThread` in scope
 errors/spawn_names_its_engine.saw	refused	resolve name.undefined	cannot find `spawn` in scope
 errors/spawn_result_not_send.saw	refused	resolve slice.not-yet	the `Thread.spawn` form is not in the bootstrap slice yet
@@ -1420,7 +1420,7 @@ errors/while_expr_incompatible_break_types.saw	refused	typecheck slice.not-yet	`
 errors/while_never_unreachable_after.saw	pass	-	type.mismatch: expected `Never`, the type of the function's result, which the body's last expression is, and found `Void`
 errors/while_true_not_never.saw	pass	-	type.mismatch: expected `Never`, the type of the function's result, which the body's last expression is, and found `Void`
 errors/window_acquire_mutating_argument.saw	pass	-	loan.nested-call: `b` is borrowed by a nested call in this argument list while `b` is also the receiver of the call at 51:14, which borrows it for the whole call; bind the nested call's result in a st
-errors/window_conflicts.saw	refused	typecheck slice.not-yet	a borrow a `group.spawn` root takes of its spawner for the task's life (SL:coroutines A8c) is not in the bootstrap slice yet
+errors/window_conflicts.saw	pass	-	loan.window-root: `v` is borrowed exclusively here while the window of `iter` opened at 39:14 holds `v` shared until the window closes; a window charges its whole root until it closes, so the root is
 errors/window_in_a_threaded_group.saw	wrong	refused by another rule	call.label, where the plan names coro.spawn-not-send
 errors/window_static_root_write.saw	pass	-	loan.window-root: `ROOT.value` is written here while the window of `iter` opened at 38:14 holds `ROOT` shared until the window closes; a window charges its whole root until it closes, so the root is r
 errors/with_var_ref_invalidation.saw	pass	-	loan.window-root: `v` is borrowed exclusively here while the window of `[]` opened at 16:5 holds `v` exclusively until the window closes; a window charges its whole root until it closes, so the root i
@@ -1825,7 +1825,7 @@ map_values_nocopy_error.saw	pass	-	result.discarded: the result of `insert` is `
 match_arm_optional_wrap.saw	pass	-	-
 match_arm_overlap_legal.saw	pass	-	-
 match_bool_exhaustive.saw	pass	-	-
-match_borrowed_payload_in_a_driven_body.saw	refused	typecheck slice.not-yet	a borrow a `group.spawn` root takes of its spawner for the task's life (SL:coroutines A8c) is not in the bootstrap slice yet
+match_borrowed_payload_in_a_driven_body.saw	pass	-	-
 match_duplicate_arm_spellings.saw	pass	-	match.duplicate: duplicate match arm: `"build"` is already matched by the arm at line 20; the first matching arm wins, so this one can never run: delete it (overlapping ranges and guarded arms are not
 match_duplicate_enum_arm.saw	pass	-	match.duplicate: duplicate match arm: `Green` is already matched by the arm at line 24; the first matching arm wins, so this one can never run: delete it (overlapping ranges and guarded arms are not d
 match_enum_guard.saw	pass	-	-
@@ -2311,17 +2311,17 @@ source_location_literals.saw	refused	llvm backend.not-yet	a memory constant is n
 source_location_suspending.saw	refused	llvm backend.not-yet	the constant `#line` is not in the backend slice yet
 spawn_body_destructuring_let.saw	pass	-	-
 spawn_body_same_scope_redefinition.saw	pass	-	-
-spawn_capture_after_group.saw	refused	typecheck slice.not-yet	a borrow a `group.spawn` root takes of its spawner for the task's life (SL:coroutines A8c) is not in the bootstrap slice yet
-spawn_capture_alias.saw	refused	typecheck slice.not-yet	a borrow a `group.spawn` root takes of its spawner for the task's life (SL:coroutines A8c) is not in the bootstrap slice yet
-spawn_capture_caller_alias.saw	refused	typecheck slice.not-yet	a borrow a `group.spawn` root takes of its spawner for the task's life (SL:coroutines A8c) is not in the bootstrap slice yet
-spawn_capture_declared_before.saw	refused	typecheck slice.not-yet	a borrow a `group.spawn` root takes of its spawner for the task's life (SL:coroutines A8c) is not in the bootstrap slice yet
-spawn_capture_join_releases.saw	refused	typecheck slice.not-yet	a borrow a `group.spawn` root takes of its spawner for the task's life (SL:coroutines A8c) is not in the bootstrap slice yet
-spawn_capture_move_root.saw	refused	typecheck slice.not-yet	a borrow a `group.spawn` root takes of its spawner for the task's life (SL:coroutines A8c) is not in the bootstrap slice yet
+spawn_capture_after_group.saw	pass	-	loan.drop-while-borrowed: cannot capture `&var n` into a task: `n` is declared AFTER the group `group` it is spawned into (at 23:9 against 22:9), and destruction is LIFO — `n` is torn down BEFORE `gro
+spawn_capture_alias.saw	pass	-	loan.exclusive-twice: exclusive access violation: `n` cannot be captured into another task here — the task spawned at 22:29 holds `&var n` until `a.join()` releases it; join the task first — `a.join()
+spawn_capture_caller_alias.saw	pass	-	loan.exclusive-twice: exclusive access violation: `n` cannot be written here — the task spawned at 26:29 holds `&var n` until `h.join()` releases it; join the task first — `h.join()` ends the borrow,
+spawn_capture_declared_before.saw	pass	-	-
+spawn_capture_join_releases.saw	pass	-	-
+spawn_capture_move_root.saw	pass	-	loan.move-while-borrowed: cannot `move` `buf` while a spawned task borrows it: the task spawned at 27:29 holds `&var buf` until `h.join()` releases it; join the task first — `h.join()` ends the borrow
 spawn_join.saw	refused	resolve slice.not-yet	the `Thread.spawn` form is not in the bootstrap slice yet
 spawn_multi.saw	refused	resolve slice.not-yet	the `Thread.spawn` form is not in the bootstrap slice yet
 spawn_optional_result.saw	refused	typecheck call.label	no parameter is labeled `threads` in TaskGroup.init() [std.taskgroup]
-spawn_ref_param_dual_role_and_cancel.saw	refused	typecheck slice.not-yet	a borrow a `group.spawn` root takes of its spawner for the task's life (SL:coroutines A8c) is not in the bootstrap slice yet
-spawn_ref_param_referent_deinit_once.saw	refused	typecheck slice.not-yet	a borrow a `group.spawn` root takes of its spawner for the task's life (SL:coroutines A8c) is not in the bootstrap slice yet
+spawn_ref_param_dual_role_and_cancel.saw	pass	-	-
+spawn_ref_param_referent_deinit_once.saw	pass	-	-
 spawn_void_body.saw	refused	resolve slice.not-yet	the `Thread.spawn` form is not in the bootstrap slice yet
 spawned_task_runs_before_reactor_park.saw	refused	resolve import.unknown-module	no module `std.net`
 spinlock_basic.saw	refused	typecheck call.arity	too many arguments: SpinLock.lock() [std.spinlock] takes 0

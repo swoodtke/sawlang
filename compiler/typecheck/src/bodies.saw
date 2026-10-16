@@ -7558,9 +7558,9 @@ extension TcProgram {
     // a reference when `inner` is not -1), is borrowed shared for the spawn
     // alone, since a group enqueues through its address and a task may spawn
     // siblings into a group it was handed as `&TaskGroup` (spec, TaskGroup).
-    // The root is `Task.spawn`'s, and so is the handle; a borrow the root
-    // takes of its spawner lasts the task's life, which needs the group's
-    // extent (SL:coroutines A8c), so each is refused until then.
+    // The root is `Task.spawn`'s, and so is the handle. A borrow the root
+    // takes of its spawner lasts the task's life, a loan the handle carries,
+    // which the borrow check judges (`spawn_loans`, SL:coroutines A8c).
     func group_spawn(&var self, e: Int, base: Int, inner: Int, t: Int, args: &TcArgs) -> Int {
         let form = "group.spawn"
         if inner >= 0 {
@@ -7580,13 +7580,7 @@ extension TcProgram {
         self.spawn_roots[root] = true
         self.record_builtin(e, -1, TcRole.Spawn, form)
         let refused = self.refuse_never_task_body(e, root, "the task never completes and `join` on its handle could never return", body)
-        let sources = self.spawn_borrow_sources(root)
-        var k = 0
-        while k < sources.len() {
-            self.not_yet(sources[k], "a borrow a `group.spawn` root takes of its spawner for the task's life (SL:coroutines A8c)")
-            k = k + 1
-        }
-        if refused || sources.len() > 0 || self.has_error(body) {
+        if refused || self.has_error(body) {
             let poisoned = self.error_type
             return self.set_type(e, poisoned, false)
         }
@@ -7724,7 +7718,6 @@ extension TcProgram {
     // its borrow ends with the statement.
     // ENTRY POINTS:
     //     refuse_spawn_borrows
-    //     group_spawn
     func spawn_borrow_sources(&self, root: Int) -> Vector<Int> {
         var out = Vector<Int>()
         let callee = self.res.first_node_child(root)

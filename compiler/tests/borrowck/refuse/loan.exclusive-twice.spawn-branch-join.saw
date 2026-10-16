@@ -1,0 +1,21 @@
+// refuses: loan.exclusive-twice at 16:5
+// a join inside a branch releases the borrow on that path only, so it is
+// live again below the branch, where `m` is written.
+func bump(n: &var Int) -> Int {
+    n = n + 1
+    n
+}
+
+func conditional(flag: Bool) {
+    var m = 0
+    var group = TaskGroup()
+    let h = group.spawn(bump(&var m))
+    if flag {
+        print("{}", h.join())
+    }
+    m = 5
+}
+
+func main() {
+    conditional(true)
+}

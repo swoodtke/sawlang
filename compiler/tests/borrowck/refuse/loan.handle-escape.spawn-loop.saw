@@ -1,0 +1,27 @@
+// refuses: loan.handle-escape at 19:34
+// a shared spawn borrow still held when a loop body ends: the first
+// iteration's handle is never joined, so the next iteration's task borrows
+// `buf` beside it, and the later join cannot release the first task's
+// borrow before `buf` is moved.
+func look(v: &Vector<Int>, k: Int) -> Int {
+    v.len() + k
+}
+
+func consume(v: Vector<Int>) -> Int {
+    v.len()
+}
+
+func main() {
+    var buf: Vector<Int> = [1, 2, 3]
+    var group = TaskGroup()
+    var i = 0
+    while i < 2 {
+        let h = group.spawn(look(&buf, i))
+        if i == 1 {
+            print("joined {}", h.join())
+            print("taken {}", consume(move buf))
+            break
+        }
+        i = i + 1
+    }
+}

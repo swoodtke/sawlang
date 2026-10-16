@@ -1,7 +1,5 @@
 path	direction	class	why
 tests/corpus/chain_assign_exclusivity_in_literal.saw	accepts	owned	slice.not-yet: optional-chain assignment is outside the bootstrap slice
-tests/corpus/conformance/K17_spawn_ref_param_across_iterations.saw	accepts	owned	slice.not-yet: a group.spawn root's borrow; a task's reference argument is a loan once its extent enters the slice (SL:coroutines A8c)
-tests/corpus/conformance/K20_spawn_ref_param_move_root.saw	accepts	owned	result.discarded, a migration artifact; with the discard spelled, slice.not-yet: a group.spawn root's borrow (SL:coroutines A8c)
 tests/corpus/conformance/M36_shared_self_capture_refuses_write.saw	accepts	owned	typecheck: mutability.immutable, a write through a shared `[&self]` capture
 tests/corpus/errors/borrowing_field_alias_exclusive.saw	accepts	owned	typecheck: mutability.immutable, a write through a borrowing struct's shared field
 tests/corpus/errors/borrowing_field_is_read_only.saw	accepts	owned	typecheck: mutability.immutable, a write through a borrowing struct's shared field
@@ -12,14 +10,12 @@ tests/corpus/errors/mutex_guarded_for_suspends.saw	accepts	owned	slice.not-yet: 
 tests/corpus/errors/mutex_lock_suspend.saw	accepts	owned	slice.not-yet: the intrinsic __saw_test_suspend
 tests/corpus/errors/optional_chain_assign_exclusivity.saw	accepts	owned	slice.not-yet: optional-chain assignment is outside the bootstrap slice
 tests/corpus/errors/place_window_data_corruption.saw	accepts	owned	result.discarded, a migration artifact; with the discards spelled, loan.window-root refuses both windows
-tests/corpus/errors/spawn_capture_across_iterations.saw	accepts	owned	slice.not-yet: a group.spawn root's borrow (SL:coroutines A8c)
 tests/corpus/errors/spinlock_suspending_body.saw	accepts	owned	slice.not-yet: a borrow block over Stage 0's closure-taking SpinLock.lock
-tests/corpus/errors/window_conflicts.saw	accepts	owned	member.unknown: Vector.iter; then slice.not-yet: a group.spawn root's borrow (SL:coroutines A8c)
 tests/corpus/lend_accessor_local.saw	accepts	owned	typecheck: mutability.immutable refuses `borrow var c.slot() = 99` first, a write through the read-only lend `-> &Int`; its `lend tmp` is lend.root (compiler/tests/borrowck/refuse/lend.root.saw)
 tests/corpus/map_each_mutate_error.saw	accepts	owned	result.discarded, a migration artifact; with the discard spelled, loan.closure-carrier refuses the capture beside `each`'s receiver
 tests/corpus/set_each_mutate_error.saw	accepts	owned	result.discarded, a migration artifact; with the discard spelled, loan.closure-carrier refuses the capture beside `each`'s receiver
-tests/corpus/spawn_capture_alias.saw	accepts	owned	slice.not-yet: a group.spawn root's borrow (SL:coroutines A8c)
-tests/corpus/spawn_capture_caller_alias.saw	accepts	owned	slice.not-yet: a group.spawn root's borrow (SL:coroutines A8c)
-tests/corpus/spawn_capture_move_root.saw	accepts	owned	result.discarded, a migration artifact; with the discard spelled, slice.not-yet: a group.spawn root's borrow (SL:coroutines A8c)
 tests/corpus/vector_each_indexed_exclusivity_error.saw	accepts	owned	result.discarded, a migration artifact; with the discard spelled, loan.closure-carrier refuses the capture beside `each_indexed`'s receiver
 compiler/tests/borrowck/refuse/loan.closure-carrier.saw	refuses	stricter	decision 3 (SL-460 c18): a non-escaping closure carries its `[&var v]` loan from its creation to its last call, so a later argument of the call it is passed to may not read `v`; Stage 0 compiles it
+compiler/tests/borrowck/refuse/loan.handle-escape.spawn-borrow.saw	refuses	stricter	SL:coroutines A8c: a spawn borrow is a loan its handle holds until a join or its group's drop, so one still held when the function returns into a caller's group escapes the function; Stage 0 registers no extent for a group it cannot name, and compiles it
+compiler/tests/borrowck/refuse/loan.handle-escape.spawn-loop.saw	refuses	stricter	SL:coroutines A8c, the spec's loop-body rule read for every spawn borrow (the lead on SL-565 c7): a shared spawn borrow still held when a loop body ends is refused, since a later join cannot tell the two tasks apart; Stage 0 refuses only the exclusive one, and compiles it
+compiler/tests/borrowck/refuse/loan.handle-escape.spawn-loop-continue.saw	refuses	stricter	SL:coroutines A8c, the same rule through a `continue` path (the Air's r9b, SL-565 c7); Stage 0 compiles it, and the unjoined task reads the moved buffer

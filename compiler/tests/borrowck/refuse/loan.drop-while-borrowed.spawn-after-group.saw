@@ -1,0 +1,19 @@
+// refuses: loan.drop-while-borrowed at 17:30
+// a spawn borrow of a binding declared after its group: destruction is
+// LIFO, so `buf` is torn down before the group drains the task, joined or
+// not.
+func fill(v: &var Vector<Int>, n: Int) -> Int {
+    var i = 0
+    while i < n {
+        try! v.push(i)
+        i = i + 1
+    }
+    v.len()
+}
+
+func main() {
+    var group = TaskGroup()
+    var buf: Vector<Int> = []
+    let h = group.spawn(fill(&var buf, 3))
+    print("{}", h.join())
+}

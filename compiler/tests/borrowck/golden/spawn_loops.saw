@@ -1,0 +1,22 @@
+// A spawn borrow in a loop whose handle is joined in every iteration is
+// never live at the back edge, so each join releases it and the root moves
+// after the loop (SL:coroutines A8c).
+func look(v: &Vector<Int>, k: Int) -> Int {
+    v.len() + k
+}
+
+func consume(v: Vector<Int>) -> Int {
+    v.len()
+}
+
+func main() {
+    var buf: Vector<Int> = [1, 2, 3]
+    var group = TaskGroup()
+    var i = 0
+    while i < 3 {
+        let h = group.spawn(look(&buf, i))
+        print("{}", h.join())
+        i = i + 1
+    }
+    print("{}", consume(move buf))
+}

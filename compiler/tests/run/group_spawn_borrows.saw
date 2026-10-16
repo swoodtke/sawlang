@@ -1,0 +1,80 @@
+// A `group.spawn` root that borrows its spawner (SL:coroutines A8c): the
+// task writes through a `&var` argument and a `[&var]` capture into the
+// spawner's storage, and the root is read after the join; two shared `&`
+// arguments run beside a read of their root; a join chained onto the spawn;
+// a spawn joined in each loop iteration; a discarded handle's task drained by
+// its group's drop at the end of an inner scope; and a reference parameter's
+// referent spawned into the caller's group and joined before the return.
+import std.task.{yield_now}
+
+func fill(v: &var Vector<Int>, n: Int) -> Int {
+    var i = 0
+    while i < n {
+        try! v.push(i)
+        yield_now()
+        i = i + 1
+    }
+    v.len()
+}
+
+func bump(n: &var Int) -> Int {
+    yield_now()
+    n = n + 10
+    n
+}
+
+func look(n: &Int, k: Int) -> Int {
+    yield_now()
+    n * k
+}
+
+func run(f: () -> Int) -> Int {
+    yield_now()
+    f()
+}
+
+func through(v: &var Int, group: &TaskGroup) -> Int {
+    let h = group.spawn(bump(&var v))
+    h.join()
+}
+
+func main() {
+    var buf: Vector<Int> = []
+    var n = 1
+    let base = 7
+    var last = 5
+    var group = TaskGroup()
+
+    let h = group.spawn(fill(&var buf, 3))
+    print("filled {}", h.join())
+    print("root len {} last {}", buf.len(), buf[2])
+
+    let c = group.spawn(run({ [&var n] in n = n + 1; n }))
+    print("capture {}", c.join())
+    print("n {}", n)
+
+    let a = group.spawn(look(&base, 2))
+    let b = group.spawn(look(&base, 3))
+    print("base {} doubled {} tripled {}", base, a.join(), b.join())
+
+    var k = 0
+    while k < 2 {
+        let t = group.spawn(fill(&var buf, 1))
+        print("iteration {} len {}", k, t.join())
+        k = k + 1
+    }
+
+    if k > 0 {
+        var inner = TaskGroup()
+        let _ = inner.spawn(bump(&var n))
+        print("inner scope ends")
+    }
+    print("n after inner {}", n)
+
+    print("through {}", through(&var n, &group))
+    print("n {}", n)
+
+    // Stage 0 holds a chained join's borrow to the group's drop, so nothing
+    // reads `last` after it here.
+    print("chained {}", group.spawn(bump(&var last)).join())
+}

@@ -893,7 +893,6 @@ Every body construct in the slice, and how it is typed:
 | a default of a type parameter's type that is no literal and no `None` | `slice.not-yet` (generic-default) |
 | a `??` whose fallback is wider than the optional's payload | `slice.not-yet` (coalesce-wider) |
 | constructing a builtin type no declaration writes an `init` for, `UnsafeMemory<T, U>(a)`; `Atomic(v)` and `UnsafeMutableInterior(v)` are their lang roles' positional constructions | `slice.not-yet` (builtin-construction) |
-| a borrow a `group.spawn` root takes of its spawner, a `&`/`&var` argument or a borrow capture, which lasts the task's life (SL:coroutines A8c) | `slice.not-yet` (group-spawn-borrow) |
 | a `borrow` block over a method that lends through a closure parameter, as `borrow var c = m.lock() { ... }` | `slice.not-yet` (lock-borrow) |
 | calling a `FuncPointer`, a function or closure where one is expected | `slice.not-yet` (func-pointer) |
 | downcasting an erased box, `b.is<T>()` and `b.take<T>()` | `slice.not-yet` (erased-box-downcast) |
@@ -1103,7 +1102,7 @@ refused wherever one is recorded. Under `refuse/`:
 | a value assigned into a `&var any Trait`'s referent, which would erase into a bare `any Trait` | refused | type.mismatch.erase-bare |
 | `b.is<T>()`, `b.take<T>()` on an erased box | `slice.not-yet` | slice.not-yet.erased-box-downcast |
 | a `&any Trait` parameter of a suspending function, dispatched on both sides of a suspension | allowed (SL-721's ruling): the frame holds the reference's two words | run probe erased_reference_across_suspension |
-| a write to that parameter's referent while the suspended frame holds it | driven: unreachable, since a drive parks its caller; spawned: refused at the spawn borrow, `slice.not-yet` (SL:coroutines A8c), pinned once A8c lands; in one argument list beside the suspending call: refused as for a plain reference | borrowck's loan.nested-call.erased-suspending |
+| a write to that parameter's referent while the suspended frame holds it | driven: unreachable, since a drive parks its caller; spawned: refused by the borrow check, since the task's handle holds the referent until its join (SL:coroutines A8c); in one argument list beside the suspending call: refused as for a plain reference | borrowck's loan.write-while-shared.spawn-erased, loan.nested-call.erased-suspending |
 
 **Statics are `Sync`** (spec, Module-level statics: "Sync-only"; Interior
 mutability; SL-537). Checked with a static's other signature rules
@@ -1481,7 +1480,7 @@ fixture.
 | R11, R12, R13, R14, R15 | `r` (bare), `r.exclusive-binding`, `r.type-argument` and `r.local-annotation`, `r.explicit-instantiation`, `r.closure-return` |
 | R16, R17, R18, R19, R20, R21 | `r.array-literal`, `r.tuple-literal`, `r.map-value`, `r.static`, `r.alias-field`, `r.alias-return` |
 | R22, R23 | `capture.escaping-borrow` and `capture.escaping-borrow.explicit`: a closure bound to a `let` or passed to an escaping parameter, the `[&x]` spelling |
-| R24, R25 | `slice.not-yet` (a `group.spawn` root's borrow, group-spawn-borrow): due with the spawn borrows' extent (SL:coroutines A8c) |
+| R24, R25 | the borrow check (U6d2): a `group.spawn` root's borrow is a loan its handle holds (SL:coroutines A8c) |
 | R26, R27, R29, R31, R32, R34 | `r.optional-written`, `r.nested-generic`, `r.cast-to-integer`, `r.operand`, `r.box`, `r.field-function-type` |
 | R28, R30, R33 | accepted: golden `reference_positions` (the pointer cast, the `borrows` lends), `captures` (a non-escaping borrow capture) |
 | V03, V04 | `b` (bare), `b.shared` |

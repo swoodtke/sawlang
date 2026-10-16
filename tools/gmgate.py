@@ -30,7 +30,7 @@ it or refuses it by another rule, so the list cannot go stale silently.
 
 COVERAGE: ownership runs a program in 6 of its 6 categories, and 19 of its 26
 Stage 0 programs build; concurrency runs a program in 6 of its 6 categories,
-and 14 of its 25 Stage 0 programs build.
+and 18 of its 25 Stage 0 programs build.
 
 THE SELF-TEST. `gmgate_surplus_release.saw` releases one block twice. Before
 the lanes count, it must pass natively and fault under Guard Malloc; a lane
@@ -82,7 +82,6 @@ Category = collections.namedtuple("Category", "name shape twins stand_ins blocke
 Blocked = collections.namedtuple("Blocked", "path rule unit why")
 
 CLOSURE_OWNING = "a closure capturing a value that owns something is not in the backend"
-SPAWN_BORROW = "a borrow a `group.spawn` root takes of its spawner is not in the slice"
 
 OWNERSHIP = (
     Category(
@@ -221,6 +220,7 @@ CONCURRENCY = (
             CORPUS + "coro_destructure_across_suspend.saw",
             CORPUS + "coro_ref_param_deinit_once.saw",
             CORPUS + "coro_moved_arc_param_deinit_once.saw",
+            CORPUS + "spawn_ref_param_referent_deinit_once.saw",
         ),
         stand_ins=(
             # A hoisted intermediate dies at its statement's end, once.
@@ -228,12 +228,14 @@ CONCURRENCY = (
             # An `if let` over a `move` scrutinee releases its payload once.
             CORPUS + "conformance/O12_iflet_move_binding_released_in_coroutine.saw",
         ),
-        blocked=(
-            Blocked(CORPUS + "spawn_ref_param_referent_deinit_once.saw", "slice.not-yet", "SL-565", SPAWN_BORROW),
-        )),
+        blocked=()),
     Category(
         "captures", "an environment a frame owns, and a root a task borrows",
-        twins=(),
+        twins=(
+            CORPUS + "spawn_capture_declared_before.saw",
+            CORPUS + "spawn_capture_join_releases.saw",
+            CORPUS + "conformance/K14_spawn_ref_param_join_releases.saw",
+        ),
         stand_ins=(
             # Closures in a suspending method, each holding its own handle to
             # the frame's receiver, one nested in another.
@@ -243,10 +245,6 @@ CONCURRENCY = (
             Blocked(CORPUS + "coro_closure_deinit_once.saw", "mono.not-yet", "SL-525", CLOSURE_OWNING),
             Blocked(CORPUS + "coro_closure_taskgroup.saw", "mono.not-yet", "SL-525",
                     "an escaping closure's environment is not built"),
-            Blocked(CORPUS + "spawn_capture_declared_before.saw", "slice.not-yet", "SL-565", SPAWN_BORROW),
-            Blocked(CORPUS + "spawn_capture_join_releases.saw", "slice.not-yet", "SL-565", SPAWN_BORROW),
-            Blocked(CORPUS + "conformance/K14_spawn_ref_param_join_releases.saw", "slice.not-yet", "SL-565",
-                    SPAWN_BORROW),
         )),
     Category(
         "join and teardown", "who drops a task's values, and when",

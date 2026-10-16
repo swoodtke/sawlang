@@ -1,0 +1,14 @@
+// refuses: loan.exclusive-twice at 12:29
+// two tasks capture `[&var n]` of one root: the first task's handle holds `n`
+// exclusively until `a.join()`, so the second capture is refused.
+func run(f: () -> Int) -> Int {
+    f()
+}
+
+func main() {
+    var n = 0
+    var group = TaskGroup()
+    let a = group.spawn(run({ [&var n] in n = n + 1; n }))
+    let b = group.spawn(run({ [&var n] in n = n + 10; n }))
+    print("{} {}", a.join(), b.join())
+}

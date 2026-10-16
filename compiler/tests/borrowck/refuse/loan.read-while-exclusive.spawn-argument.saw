@@ -1,0 +1,15 @@
+// refuses: loan.read-while-exclusive at 13:16
+// a `&var` argument of a group spawn's root: the task's handle holds `n`
+// exclusively until `h.join()`, so the caller's read between them is refused.
+func bump(n: &var Int) -> Int {
+    n = n + 100
+    n
+}
+
+func main() {
+    var n = 1
+    var group = TaskGroup()
+    let h = group.spawn(bump(&var n))
+    let seen = n
+    print("{} {}", h.join(), seen)
+}

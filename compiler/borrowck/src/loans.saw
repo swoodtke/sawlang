@@ -7,9 +7,12 @@
 // `window_open` (on its receiver's place, charging it as the accessor
 // declares: exclusively for a `&var self` receiver or a `&var` lend, or when a
 // window opened through the place it lends charges exclusively), and by
-// a closure that copies a reference into its environment (on the referent).
+// a closure that copies a reference into its environment (on the referent),
+// and by a group spawn, once for each borrow its root takes of the spawner.
 // A window's loan lives until its `window_close`, on the edges it opened on:
-// a conditional lend's absent edge carries none. Any other loan lives while a
+// a conditional lend's absent edge carries none. A spawn loan lives until a
+// `join` of its handle or its group's drop, on the paths that reach neither.
+// Any other loan lives while a
 // local carrying it is live, the backward liveness of locals over the CFG, or
 // while a window it was handed to as an argument is open. A local carries
 // the loans of every value assigned into it, and a reborrow through a
@@ -52,7 +55,11 @@ public enum BorrowckLoanKind {
     case Capture,
     // A `group.spawn` handle's shared borrow of its group, for the handle's
     // whole life (SL-683).
-    case Handle
+    case Handle,
+    // A borrow a group spawn's root takes of its spawner, held by the task's
+    // handle from the spawn until a `join` of the handle or the group's drop
+    // (spec: The borrow's extent is the task's life).
+    case Spawn
 }
 
 // Where a handle's borrow of its group may outlive every scope of the
@@ -114,6 +121,16 @@ public struct BorrowckLoan {
     // through (an `Outside` one's), or -1.
     escape: BorrowckEscape
     escape_local: Int
+    // A spawn loan's borrow as the source writes it: its node, the local its
+    // place is rooted in before tracing, the spawn call, and the group's
+    // place, traced; -1 and no path for every other loan.
+    source: Int
+    source_local: Int
+    site: Int
+    group: BorrowckPath
+    // A spawn loan refused where it is made, which no access is then judged
+    // against: one refusal names the borrow that cannot be written at all.
+    refused: Bool
 }
 
 // One access of a statement or terminator.
@@ -146,8 +163,9 @@ public struct BorrowckLoans {
     // place exclusively.
     window_path: Vector<BorrowckPath>
     window_exclusive: Vector<Bool>
-    // Bit sets per block: the locals live at its end, the loans created on
-    // some path to its entry, the windows open at its entry.
+    // Bit sets per block: the locals live at its end, the loans created (and,
+    // for a spawn loan, not yet released) on some path to its entry, the
+    // windows open at its entry.
     local_words: Int
     loan_words: Int
     window_words: Int
@@ -159,6 +177,11 @@ public struct BorrowckLoans {
     // `trace_walks`, so a walk needs no set of its own.
     trace_mark: Vector<Int>
     trace_walks: Int
+    // Where each spawn loan ends: the loan, then the block and statement (-1
+    // for its terminator) after which it is no longer held, one run each.
+    release_loan: Vector<Int>
+    release_block: Vector<Int>
+    release_stmt: Vector<Int>
 }
 
 extension BorrowckLoans: NoCopy {}
@@ -269,6 +292,12 @@ extension BorrowckLoans {
         if loan.kind == BorrowckLoanKind.Window {
             return borrowck_bit(&open, 0, loan.window)
         }
+        // A spawn loan is held from its spawn to its release on some path
+        // here, whatever its handle's liveness: a handle dropped unjoined
+        // leaves its task running until the group's drop.
+        if loan.kind == BorrowckLoanKind.Spawn {
+            return borrowck_bit(&created, 0, n)
+        }
         if not borrowck_bit(&created, 0, n) {
             return false
         }
@@ -356,7 +385,8 @@ extension BorrowckProgram {
                                   loan_words: 0, window_words: borrowck_words(info.window_count),
                                   live_out: Vector<Int>(), created_in: Vector<Int>(), open_in: Vector<Int>(),
                                   reached: Vector<Bool>(), trace_mark: borrowck_zeros(info.local_count),
-                                  trace_walks: 0)
+                                  trace_walks: 0, release_loan: Vector<Int>(), release_block: Vector<Int>(),
+                                  release_stmt: Vector<Int>())
         self.loan_defs(f, &var facts)
         self.loan_windows(f, &var facts)
         self.loan_collect(f, &var facts)
@@ -835,7 +865,9 @@ extension BorrowckProgram {
         try! facts.loans.push(BorrowckLoan(kind: kind, path: path, exclusive: exclusive, node: node, closing: closing,
                                            block: b, stmt: s, window: w, holder_first: first, holder_count: count,
                                            tie_first: 0, tie_count: 0, captured: kind == BorrowckLoanKind.Capture,
-                                           argument: false, escape: BorrowckEscape.Contained, escape_local: -1))
+                                           argument: false, escape: BorrowckEscape.Contained, escape_local: -1,
+                                           source: -1, source_local: -1, site: -1, group: BorrowckPath.none(),
+                                           refused: false))
     }
 
     // Each loan's carriers: its holder, then every local a value carrying it
@@ -922,7 +954,256 @@ extension BorrowckProgram {
             }
             n = n + 1
         }
+        self.spawn_loans(f, &var facts, &from, &to)
         self.handle_flows(f, &var facts, &from, &to)
+    }
+
+    // THE SPAWN-BORROW FUNNEL (SL:coroutines A8c): each borrow a group
+    // spawn's root takes of its spawner becomes a spawn loan here, made at the
+    // spawn and held by the handle until the group's drop, or until a `join`
+    // of a local holding that handle on every path there: the spawn's
+    // destination, or a local each of whose links back to it is one whole
+    // move or copy into a local defined once.
+    // A borrow is a `ref` or capture loan an operand of the root carries; its
+    // place is traced to the root it charges, and two borrows of one root in
+    // one mode at one site are one loan. A loan a call nested in the root's
+    // arguments makes ends with the statement, carried by no operand.
+    // ENTRY POINTS:
+    //     argument
+    //     capture
+    func spawn_loans(&self, f: Int, facts: &var BorrowckLoans, from: &Vector<Int>, to: &Vector<Int>) {
+        let info = self.mir.funcs[f]
+        let made = facts.loans.len()
+        var b = 0
+        while b < info.block_count {
+            let block = self.mir.blocks[info.block_first + b]
+            let at = b
+            b = b + 1
+            if block.term != MirTermKind.Call {
+                continue
+            }
+            let c = self.mir.calls[block.call]
+            let lead = mir_spawn_leading(&c)
+            if c.kind != MirCallKind.Spawn || lead == 0 || c.dest < 0 {
+                continue
+            }
+            let group = self.spawn_group(f, block.call, &var facts)
+            let holder = self.mir.places[c.dest].local
+            let first = facts.loans.len()
+            var k = lead
+            while k < c.arg_count {
+                let operand = self.mir.lists[c.arg_first + k]
+                k = k + 1
+                var n = 0
+                while n < made {
+                    let loan = facts.loans[n]
+                    n = n + 1
+                    let made_by = loan.kind == BorrowckLoanKind.Ref || loan.kind == BorrowckLoanKind.Capture
+                    if not made_by || not self.operand_carries(&facts, n - 1, operand) {
+                        continue
+                    }
+                    let root = self.borrowck_trace(f, &loan.path, &var facts)
+                    if self.spawn_loan_made(&facts, first, &root, loan.exclusive) {
+                        continue
+                    }
+                    self.add_loan(&var facts, BorrowckLoanKind.Spawn, root, loan.exclusive, block.term_node,
+                                  block.term_closing, at, -1, -1, holder)
+                    let s = facts.loans.len() - 1
+                    var held = facts.loans[s]
+                    held.source = loan.node
+                    held.source_local = loan.path.local
+                    held.site = block.call
+                    held.group = group
+                    held.captured = loan.kind == BorrowckLoanKind.Capture || loan.captured
+                    held.argument = not held.captured
+                    facts.loans[s] = held
+                }
+            }
+        }
+        // Each spawn loan's carriers: the handle, then every local it is
+        // assigned into.
+        var n = made
+        while n < facts.loans.len() {
+            var loan = facts.loans[n]
+            let first = facts.holders.len()
+            if loan.holder_count == 1 {
+                let h = facts.holders[loan.holder_first]
+                var run = Vector<Int>()
+                try! run.push(h)
+                var at = 0
+                while at < run.len() {
+                    let l = run[at]
+                    at = at + 1
+                    var e = 0
+                    while e < from.len() {
+                        if from[e] == l && not borrowck_has(&run, to[e]) {
+                            try! run.push(to[e])
+                        }
+                        e = e + 1
+                    }
+                }
+                var r = 0
+                while r < run.len() {
+                    try! facts.holders.push(run[r])
+                    r = r + 1
+                }
+            }
+            loan.holder_first = first
+            loan.holder_count = facts.holders.len() - first
+            facts.loans[n] = loan
+            n = n + 1
+        }
+        if facts.loans.len() > made {
+            self.spawn_releases(f, made, &var facts)
+        }
+    }
+
+    // The group spawn call `call` enqueues into: the place of the `ref` it
+    // passes first, traced to its root.
+    func spawn_group(&self, f: Int, call: Int, facts: &var BorrowckLoans) -> BorrowckPath {
+        let c = self.mir.calls[call]
+        let o = self.mir.operands[self.mir.lists[c.arg_first]]
+        if o.kind == MirOperandKind.Const || o.place < 0 {
+            return BorrowckPath.none()
+        }
+        let r = self.bare_local_of(o.place)
+        if r < 0 || facts.def_count[r] != 1 || facts.def_stmt[r] < 0 {
+            return BorrowckPath.none()
+        }
+        let rv = self.mir.rvalues[self.mir.stmts[facts.def_stmt[r]].rvalue]
+        if rv.kind != MirRvalueKind.Ref || rv.place < 0 {
+            return BorrowckPath.none()
+        }
+        let raw = self.path_of(rv.place, &var facts)
+        self.borrowck_trace(f, &raw, &var facts)
+    }
+
+    // Whether a spawn loan from `first` on charges `root` in that mode.
+    func spawn_loan_made(&self, facts: &BorrowckLoans, first: Int, root: &BorrowckPath, exclusive: Bool) -> Bool {
+        var n = first
+        while n < facts.loans.len() {
+            let loan = facts.loans[n]
+            n = n + 1
+            if loan.exclusive == exclusive && borrowck_same_path(&facts, &loan.path, &root) {
+                return true
+            }
+        }
+        false
+    }
+
+    // Where each spawn loan from `first` on is released: after a `join` of a
+    // local that holds its handle on every path there (`holds_handle`), and
+    // after a drop of its group, whose teardown drains the task. A handle in
+    // a field or an element, or in a local assigned more than once, is
+    // joined through no binding the check can name, so its loan lasts to the
+    // group's drop.
+    func spawn_releases(&self, f: Int, first: Int, facts: &var BorrowckLoans) {
+        let info = self.mir.funcs[f]
+        var b = 0
+        while b < info.block_count {
+            let block = self.mir.blocks[info.block_first + b]
+            var s = block.first
+            while s >= 0 {
+                let stmt = self.mir.stmts[s]
+                if stmt.kind == MirStmtKind.Drop && stmt.place >= 0 {
+                    let dropped = self.path_of(stmt.place, &var facts)
+                    var n = first
+                    while n < facts.loans.len() {
+                        let group = facts.loans[n].group
+                        if facts.overlaps(&dropped, &group) {
+                            try! facts.release_loan.push(n)
+                            try! facts.release_block.push(b)
+                            try! facts.release_stmt.push(s)
+                        }
+                        n = n + 1
+                    }
+                }
+                s = stmt.next
+            }
+            if block.term == MirTermKind.Call {
+                let h = self.joined_handle(block.call, &facts)
+                var n = first
+                while n < facts.loans.len() && h >= 0 {
+                    if self.holds_handle(n, h, &facts) {
+                        try! facts.release_loan.push(n)
+                        try! facts.release_block.push(b)
+                        try! facts.release_stmt.push(-1)
+                    }
+                    n = n + 1
+                }
+            }
+            b = b + 1
+        }
+    }
+
+    // Whether local `l` holds spawn loan `n`'s handle wherever it is read:
+    // it is the spawn's destination, or its one definition moves or copies
+    // a whole local that does, every local on the way defined once. A local
+    // that ever held the handle and was assigned again may hold another
+    // task's, so a join of it releases nothing (SL:hazards S36).
+    public func holds_handle(&self, n: Int, l: Int, facts: &BorrowckLoans) -> Bool {
+        let site = facts.loans[n].site
+        let dest = self.mir.places[self.mir.calls[site].dest].local
+        var at = l
+        var steps = 0
+        while at >= 0 && steps <= facts.local_count {
+            steps = steps + 1
+            if facts.def_count[at] != 1 {
+                return false
+            }
+            if at == dest {
+                return true
+            }
+            let s = facts.def_stmt[at]
+            if s < 0 {
+                return false
+            }
+            let stmt = self.mir.stmts[s]
+            if stmt.rvalue < 0 {
+                return false
+            }
+            let rv = self.mir.rvalues[stmt.rvalue]
+            if rv.kind != MirRvalueKind.Use || rv.count != 1 {
+                return false
+            }
+            let o = self.mir.operands[self.mir.lists[rv.first]]
+            if o.kind == MirOperandKind.Const || o.place < 0 {
+                return false
+            }
+            at = self.bare_local_of(o.place)
+        }
+        false
+    }
+
+    // The local call `call` joins when it is `join` of a cooperative task
+    // handle, `Task.join` or `VoidTask.join`, whose receiver is a `ref` of a
+    // whole local; -1 otherwise.
+    func joined_handle(&self, call: Int, facts: &BorrowckLoans) -> Int {
+        let c = self.mir.calls[call]
+        if c.kind != MirCallKind.Function || c.target < 0 || c.owner < 0 || c.arg_count < 1 {
+            return -1
+        }
+        let d = self.mir.tc.nominal_decl(c.owner)
+        if d < 0 || (d != self.mir.tc.known.task && d != self.mir.tc.known.void_task) {
+            return -1
+        }
+        let name = self.mir.tc.res.decls[c.target].name
+        if not self.mir.tc.name_text(name).equals("join") {
+            return -1
+        }
+        let o = self.mir.operands[self.mir.lists[c.arg_first]]
+        if o.kind == MirOperandKind.Const || o.place < 0 {
+            return -1
+        }
+        let r = self.bare_local_of(o.place)
+        if r < 0 || facts.def_count[r] != 1 || facts.def_stmt[r] < 0 {
+            return -1
+        }
+        let rv = self.mir.rvalues[self.mir.stmts[facts.def_stmt[r]].rvalue]
+        if rv.kind != MirRvalueKind.Ref || rv.place < 0 {
+            return -1
+        }
+        self.bare_local_of(rv.place)
     }
 
     // Each handle loan's carriers, and its first way out (SL-683): the
@@ -1106,7 +1387,8 @@ extension BorrowckProgram {
         while n < facts.loans.len() {
             let loan = facts.loans[n]
             n = n + 1
-            if not loan.exclusive || not (loan.kind == BorrowckLoanKind.Capture || loan.captured) {
+            let capture = loan.kind == BorrowckLoanKind.Capture || (loan.captured && loan.kind == BorrowckLoanKind.Ref)
+            if not loan.exclusive || not capture {
                 continue
             }
             var carried = c.callee >= 0 && self.operand_carries(&facts, n - 1, c.callee)
@@ -1655,8 +1937,8 @@ extension BorrowckProgram {
     }
 
     // `created` and `open` after instruction `i` of block `b`: the loans it
-    // creates; a close shuts its window. A window opens on its present edge,
-    // which `loan_forward` applies.
+    // creates, less the spawn loans it releases; a close shuts its window. A
+    // window opens on its present edge, which `loan_forward` applies.
     public func step_forward(&self, facts: &BorrowckLoans, f: Int, b: Int, i: Int, created: &var Vector<Int>,
                              open: &var Vector<Int>) {
         let s = self.instruction_stmt(f, b, i)
@@ -1667,6 +1949,13 @@ extension BorrowckProgram {
                 borrowck_set_bit(&var created, 0, n)
             }
             n = n + 1
+        }
+        var r = 0
+        while r < facts.release_loan.len() {
+            if facts.release_block[r] == b && facts.release_stmt[r] == s {
+                borrowck_clear_bit(&var created, 0, facts.release_loan[r])
+            }
+            r = r + 1
         }
         if s >= 0 {
             return
@@ -1886,6 +2175,36 @@ public func borrowck_carrying_rvalue(kind: MirRvalueKind) -> Bool {
         case Slice -> true,
         case _ -> false
     }
+}
+
+// Whether `xs` holds `x`.
+public func borrowck_has(xs: &Vector<Int>, x: Int) -> Bool {
+    var k = 0
+    while k < xs.len() {
+        if xs[k] == x {
+            return true
+        }
+        k = k + 1
+    }
+    false
+}
+
+// Whether paths `a` and `b` of `facts` name one place: one root and the same
+// projections.
+public func borrowck_same_path(facts: &BorrowckLoans, a: &BorrowckPath, b: &BorrowckPath) -> Bool {
+    if a.local != b.local || a.static_decl != b.static_decl || a.count != b.count {
+        return false
+    }
+    var k = 0
+    while k < a.count {
+        let x = facts.proj(&a, k)
+        let y = facts.proj(&b, k)
+        if x.kind != y.kind || x.decl != y.decl || x.index != y.index {
+            return false
+        }
+        k = k + 1
+    }
+    true
 }
 
 // Whether `text` holds `needle` anywhere.

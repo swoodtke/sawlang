@@ -1,0 +1,105 @@
+module spawn_loops
+
+fn spawn_loops.look(v: &std.vector.Vector<Int, std.alloc.GlobalAllocator>, k: Int) {
+    loan L0: shared (*_1);  // argument at 5:5
+
+    bb0: {
+        [] {} _3 = ref(shared, (*_1));
+        [] {L0} _4 = call std.vector.Vector.len() (owner std.vector.Vector<Int, std.alloc.GlobalAllocator>) [move _3] -> [return: bb1];
+    }
+
+    bb1: {
+        [] {} _5 = Add(move _4, copy _2);
+        [] {} _0 = move _5;
+        [] {} return;
+    }
+}
+
+fn spawn_loops.consume(v: std.vector.Vector<Int, std.alloc.GlobalAllocator>) {
+    place _1: std.vector.Vector<Int, std.alloc.GlobalAllocator>;  // v
+    loan L0: shared _1;  // argument at 9:5
+
+    bb0: {
+        [W] {} _2 = ref(shared, _1);
+        [W] {L0} _3 = call std.vector.Vector.len() (owner std.vector.Vector<Int, std.alloc.GlobalAllocator>) [move _2] -> [return: bb1];
+    }
+
+    bb1: {
+        [W] {} _0 = move _3;
+        [W] {} drop(_1);  // static
+        [D] {} return;
+    }
+}
+
+fn spawn_loops.main() {
+    place _1: std.vector.Vector<Int, std.alloc.GlobalAllocator>;  // buf
+    place _2: std.vector.Vector<Int, std.alloc.GlobalAllocator>;  // _2
+    place _3: std.taskgroup.TaskGroup;  // group
+    place _4: std.taskgroup.TaskGroup;  // _4
+    place _7: std.taskgroup.Task<Int>;  // h
+    place _10: std.taskgroup.Task<Int>;  // _10
+    loan L0: shared _1;  // argument at 17:34
+    loan L1: shared _3;  // argument at 17:17
+    loan L2: shared _3;  // handle at 17:17
+    loan L3: shared _7;  // argument at 18:21
+    loan L4: shared _1;  // argument at 17:17
+
+    bb0: {
+        [U U U U U U] {} _2 = vector [const 1: Int, const 2: Int, const 3: Int]: std.vector.Vector<Int, std.alloc.GlobalAllocator>;
+        [U W U U U U] {} _1 = move _2;
+        [W M U U U U] {} _4 = call std.taskgroup.TaskGroup.init() (owner std.taskgroup.TaskGroup) [] -> [return: bb1];
+    }
+
+    bb1: {
+        [W M U W U U] {} _3 = move _4;
+        [W M W M U U] {} _5 = const 0: Int;
+        [W M W M U U] {} goto -> bb2;
+    }
+
+    bb2: {
+        [W M W M UD UM] {} _6 = Lt(copy _5, const 3: Int);
+        [W M W M UD UM] {} switch move _6 -> [true: bb4, false: bb3];
+    }
+
+    bb3: {
+        [W M W M UD UM] {} _14 = call spawn_loops.consume(v: std.vector.Vector<Int, std.alloc.GlobalAllocator>) [move _1] -> [return: bb9];
+    }
+
+    bb4: {
+        [W M W M UD UM] {} budget(yield-capable);
+        [W M W M UD UM] {} goto -> bb5;
+    }
+
+    bb5: {
+        [W M W M UD UM] {} _8 = ref(shared, _1);
+        [W M W M UD UM] {L0} _9 = ref(shared, _3);
+        [W M W M UD UM] {L0 L1} _10 = spawn group spawn_loops.look(v: &std.vector.Vector<Int, std.alloc.GlobalAllocator>, k: Int) [move _9, move _8, copy _5] -> [return: bb6];
+    }
+
+    bb6: {
+        [W M W M UD W] {L2 L4} _7 = move _10;
+        [W M W M W M] {L2 L4} _11 = ref(shared, _7);
+        [W M W M W M] {L3 L4} _12 = call std.taskgroup.Task.join() (owner std.taskgroup.Task<Int>) [move _11] -> [return: bb7];
+    }
+
+    bb7: {
+        [W M W M W M] {} call builtin print [format "{}", copy _12] -> [return: bb8];
+    }
+
+    bb8: {
+        [W M W M W M] {} _13 = Add(copy _5, const 1: Int);
+        [W M W M W M] {} _5 = move _13;
+        [W M W M W M] {} drop(_7);  // static
+        [W M W M D M] {} goto -> bb2;
+    }
+
+    bb9: {
+        [M M W M UD UM] {} call builtin print [format "{}", copy _14] -> [return: bb10];
+    }
+
+    bb10: {
+        [M M W M UD UM] {} drop(_3);  // static
+        [M M D M UD UM] {} drop(_1);  // elided
+        [D M D M UD UM] {} return;
+    }
+}

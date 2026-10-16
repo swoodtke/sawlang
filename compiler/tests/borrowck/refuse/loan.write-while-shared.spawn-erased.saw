@@ -1,0 +1,30 @@
+// refuses: loan.write-while-shared at 28:5
+// an erased reference a spawned task's root takes: the handle holds `sq`
+// shared until `h.join()`, so a write to the referent before it is refused,
+// as for a plain reference.
+
+trait Shape {
+    func area(&self) -> Int
+}
+
+struct Square {
+    side: Int
+}
+
+extension Square: Shape {
+    func area(&self) -> Int { self.side * self.side }
+}
+
+func spanning(s: &any Shape) -> Int {
+    let a = s.area()
+    __saw_suspend()
+    a + s.area()
+}
+
+func main() {
+    var sq = Square(side: 3)
+    var group = TaskGroup()
+    let h = group.spawn(spanning(&sq))
+    sq.side = 4
+    print("{}", h.join())
+}

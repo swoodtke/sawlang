@@ -1,0 +1,14 @@
+// refuses: loan.read-while-exclusive at 13:5
+// a discarded handle never joins its task, so the borrow lasts until the
+// group's drop at the scope's end, and the read before it is refused.
+func bump(n: &var Int) -> Int {
+    n = n + 1
+    n
+}
+
+func main() {
+    var n = 0
+    var group = TaskGroup()
+    let _ = group.spawn(bump(&var n))
+    print("{}", n)
+}

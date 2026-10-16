@@ -1,0 +1,21 @@
+// refuses: loan.exclusive-twice at 20:5
+// the handle variable is assigned another task's handle before its join, so
+// the join releases nothing and the first task still holds `a` exclusively
+// at the write.
+func bump(n: &var Int) -> Int {
+    n = n + 1
+    n
+}
+
+func quick() -> Int {
+    7
+}
+
+func main() {
+    var a = 0
+    var group = TaskGroup()
+    var h = group.spawn(bump(&var a))
+    h = group.spawn(quick())
+    print("{}", h.join())
+    a = 5
+}

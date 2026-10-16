@@ -1,0 +1,23 @@
+// refuses: loan.move-while-borrowed at 21:17
+// `move` of a root a spawned task borrows: the handle holds `buf` until
+// `h.join()`, so the buffer cannot leave before it.
+func fill(v: &var Vector<Int>, n: Int) -> Int {
+    var i = 0
+    while i < n {
+        try! v.push(i)
+        i = i + 1
+    }
+    v.len()
+}
+
+func consume(v: Vector<Int>) -> Int {
+    v.len()
+}
+
+func main() {
+    var buf: Vector<Int> = []
+    var group = TaskGroup()
+    let h = group.spawn(fill(&var buf, 3))
+    print("{}", consume(move buf))
+    print("{}", h.join())
+}

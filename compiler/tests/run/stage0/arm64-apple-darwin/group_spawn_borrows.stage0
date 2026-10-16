@@ -1,0 +1,18 @@
+program	compiler/tests/run/group_spawn_borrows.saw
+triple	arm64-apple-darwin
+source	3a4f30d228dd4938
+build	ok
+exit	0
+stdout	"filled 3"
+stdout	"root len 3 last 2"
+stdout	"capture 2"
+stdout	"n 2"
+stdout	"base 7 doubled 14 tripled 21"
+stdout	"iteration 0 len 4"
+stdout	"iteration 1 len 5"
+stdout	"inner scope ends"
+stdout	"n after inner 12"
+stdout	"through 22"
+stdout	"n 22"
+stdout	"chained 15"
+stdout	""

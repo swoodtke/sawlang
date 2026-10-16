@@ -1,0 +1,17 @@
+// refuses: loan.handle-escape at 10:30
+// a spawn borrow into the caller's group with no join before the return:
+// the task may run on after the caller's `&var` borrow has ended.
+func bump(n: &var Int) -> Int {
+    n = n + 1
+    n
+}
+
+func start(v: &var Int, group: &TaskGroup) {
+    let _ = group.spawn(bump(&var v))
+}
+
+func main() {
+    var x = 1
+    var group = TaskGroup()
+    start(&var x, &group)
+}

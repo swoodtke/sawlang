@@ -1,0 +1,15 @@
+// refuses: loan.write-while-shared at 13:5
+// a shared `&` spawn argument admits reads beside it, and no write: the
+// handle holds `n` shared until `h.join()`.
+func look(n: &Int) -> Int {
+    n + 1
+}
+
+func main() {
+    var n = 4
+    var group = TaskGroup()
+    let h = group.spawn(look(&n))
+    let seen = n
+    n = 5
+    print("{} {}", h.join(), seen)
+}

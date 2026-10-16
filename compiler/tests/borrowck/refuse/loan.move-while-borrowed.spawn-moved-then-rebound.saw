@@ -1,0 +1,31 @@
+// refuses: loan.move-while-borrowed at 29:17
+// the borrowing task's handle moves to `g`, and `h` is assigned another
+// task's handle: the join of `h` releases nothing, since `g` still holds the
+// borrow of `buf`, so the move is refused.
+func fill(v: &var Vector<Int>, n: Int) -> Int {
+    var i = 0
+    while i < n {
+        try! v.push(i)
+        i = i + 1
+    }
+    v.len()
+}
+
+func quick() -> Int {
+    7
+}
+
+func consume(v: Vector<Int>) -> Int {
+    v.len()
+}
+
+func main() {
+    var buf: Vector<Int> = []
+    var group = TaskGroup()
+    var h = group.spawn(fill(&var buf, 200))
+    let g = move h
+    h = group.spawn(quick())
+    print("quick {}", h.join())
+    let taken = consume(move buf)
+    print("taken {} {}", taken, g.join())
+}

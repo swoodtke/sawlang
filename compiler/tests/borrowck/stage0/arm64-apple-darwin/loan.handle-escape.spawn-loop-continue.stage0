@@ -1,0 +1,4 @@
+program	compiler/tests/borrowck/refuse/loan.handle-escape.spawn-loop-continue.saw
+triple	arm64-apple-darwin
+source	daad1b7e6f98e6e4
+build	ok
