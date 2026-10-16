@@ -1,0 +1,5 @@
+// differs: the panic is raised inside std, and each compiler's std is its own file
+// 2^63 is one past Int.max, so pow panics with the overflow check.
+func main() {
+    print("{}", (2).pow(63))
+}

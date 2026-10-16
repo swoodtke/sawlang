@@ -1,0 +1,10 @@
+// pow at the edges of Int's range: the largest power of 2, Int.min reached
+// as (-2)^63, a zero exponent on a zero base, a negative base to an odd
+// exponent, and an exponent of 1.
+func main() {
+    print("{}", (2).pow(62))
+    print("{}", (-2).pow(63))
+    print("{}", (0).pow(0))
+    print("{}", (-3).pow(3))
+    print("{}", (7).pow(1))
+}

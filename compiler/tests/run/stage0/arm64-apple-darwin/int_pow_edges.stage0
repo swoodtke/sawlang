@@ -1,0 +1,11 @@
+program	compiler/tests/run/int_pow_edges.saw
+triple	arm64-apple-darwin
+source	22e93c9175dc190a
+build	ok
+exit	0
+stdout	"4611686018427387904"
+stdout	"-9223372036854775808"
+stdout	"1"
+stdout	"-27"
+stdout	"7"
+stdout	""

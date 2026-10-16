@@ -29,9 +29,12 @@ extension Int {
 
     /// Returns the receiver limited to `low...high`.
     ///
-    /// The result is `low` below the range and `high` above it. `low` must not
-    /// exceed `high`.
+    /// The result is `low` below the range and `high` above it. Panics when
+    /// `low` is greater than `high`.
     public func clamp(&self, low: Int, high: Int) -> Int {
+        if low > high {
+            panic("clamp: low {} is greater than high {}", low, high)
+        }
         if self < low {
             low
         } else if self > high {
@@ -44,16 +47,23 @@ extension Int {
     /// Returns the receiver raised to the power `exp`.
     ///
     /// Panics when `exp` is negative, since there is no integer result, and
-    /// when a multiplication overflows.
+    /// when the result is outside `Int`.
     public func pow(&self, exp: Int) -> Int {
         if exp < 0 {
             panic("negative exponent")
         }
         var result = 1
+        var base = self
         var e = exp
         while e > 0 {
-            result = result * self
-            e = e - 1
+            if e % 2 == 1 {
+                result = result * base
+            }
+            e = e / 2
+            // The square nothing uses can overflow when the result does not.
+            if e > 0 {
+                base = base * base
+            }
         }
         result
     }

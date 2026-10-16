@@ -1,0 +1,12 @@
+// probe: panics
+// about: `clamp` panics when `low` is greater than `high` rather than returning a bound, and accepts `low == high` (SL-736)
+// stage 0: its std's `clamp` checks no order and returns a bound
+// speeds: -O0 -O2
+// prints: 7
+// prints: 5
+// panics: clamp: low 9 is greater than high 2
+func main() {
+    print("{}", (12).clamp(0, 7))
+    print("{}", (3).clamp(5, 5))
+    print("{}", (4).clamp(9, 2))
+}

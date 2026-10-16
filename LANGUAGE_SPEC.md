@@ -8071,8 +8071,9 @@ methods are called with ordinary `value.method(...)` syntax.
 
 - `extension Int`: `abs()` (**panics on `Int.min`** — its positive magnitude is
   unrepresentable, so the negation overflows, per the house overflow rule),
-  `min(other:)` / `max(other:)` / `clamp(low:, high:)`, `pow(exp:)` (repeated
-  **checked** multiply; a negative exponent **panics** — no integer result),
+  `min(other:)` / `max(other:)`, `clamp(low:, high:)` (**panics** when `low`
+  exceeds `high`), `pow(exp:)` (**checked**: a result outside `Int` panics; a
+  negative exponent **panics**, since there is no integer result),
   `is_even()` / `is_odd()`, `signum()` (−1 / 0 / 1).
 - `extension Float`: `abs()`, `floor()`, `ceil()`, `round()` (half away from
   zero), `sqrt()`, `min(other:)` / `max(other:)`. These lower to the libm math
