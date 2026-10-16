@@ -1,11 +1,10 @@
-// Arc payload method forwarding (design 21b E2). An immutable `&self` method
-// on the payload is callable through the Arc: the call borrows the control
-// block's payload slot (sound — a live strong ref pins the payload).
-// The `Arc<Mutex<T>>` idiom composes: arc.lock forwards to Mutex.lock.
-// EXPECT: success
-// EXPECT-OUTPUT:
-// 42
-// 7
+// Refused: Box/Arc forwarding is dropped (SL-712), so a payload method is reached with `borrow p.value().m()`.
+// An `Arc` forwards no payload method: `ac.peek()` names a `&self` method of
+// the payload `Counter`, which the `Arc` does not declare, and is refused at
+// that first call. `shared.lock()` on an `Arc<Mutex<Int>>` is the same shape;
+// the spelling that compiles is `borrow var c = shared.value().lock() { … }`.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: `peek` is a method of the payload
 
 import std.mutex.{Mutex}
 struct Counter {

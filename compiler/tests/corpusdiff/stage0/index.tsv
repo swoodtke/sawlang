@@ -35,7 +35,7 @@ any_vector_deinit.saw	arm64-apple-darwin	same	294ee3a4b864	success	ok	0	33:7297d
 any_vector_shapes.saw	arm64-apple-darwin	same	ca4ebf73ad35	success	ok	0	3:68ca3fba3b7e	0:e3b0c44298fc	-	yes	-
 arc_basic.saw	arm64-apple-darwin	same	bdf4ada91d41	success	ok	0	8:a4998ac3e5c6	0:e3b0c44298fc	-	yes	-
 arc_forward.saw	arm64-apple-darwin	differs	cf7c0bf73772	success	ok	0	5:cb7dbbb6d97c	0:e3b0c44298fc	-	yes	-
-arc_forward_generic_method.saw	arm64-apple-darwin	same	9c07c3591243	success	ok	0	32:d93a0ea27f19	0:e3b0c44298fc	-	yes	-
+arc_forward_generic_method.saw	arm64-apple-darwin	differs	9c07c3591243	success	ok	0	32:d93a0ea27f19	0:e3b0c44298fc	-	yes	-
 arc_with_unique.saw	arm64-apple-darwin	differs	c61b3da1561c	success	ok	0	139:6a8ca23dbf79	0:e3b0c44298fc	-	yes	-
 arithmetic_no_false_overflow.saw	arm64-apple-darwin	same	c5a0bed6f3d7	success	ok	0	33:da8d5835ae9b	0:e3b0c44298fc	-	yes	-
 array_const_index_out_of_bounds.saw	arm64-apple-darwin	same	beb2eed8bf05	error	refused	-	-	-	245:4ad3ccb7fa54	yes	array index 5 out of range for array with 3 elements
@@ -119,7 +119,7 @@ borrowing_rules_resolve_aliases.saw	arm64-apple-darwin	same	83627877ccbf	success
 borrows_declaration_lowers.saw	arm64-apple-darwin	same	73a2f4ff41cb	success	ok	0	9:a23c9e491c7f	0:e3b0c44298fc	-	yes	-
 box_basic.saw	arm64-apple-darwin	differs	fcb7438659cf	success	ok	0	8:72ec642d52be	0:e3b0c44298fc	-	yes	-
 box_deinit_once.saw	arm64-apple-darwin	differs	0eb0d07153b1	success	ok	0	14:4f974917e263	0:e3b0c44298fc	-	yes	-
-box_forward.saw	arm64-apple-darwin	same	94da3648c562	success	ok	0	5:8b5a679f0701	0:e3b0c44298fc	-	yes	-
+box_forward.saw	arm64-apple-darwin	differs	94da3648c562	success	ok	0	5:8b5a679f0701	0:e3b0c44298fc	-	yes	-
 box_make_reports_oom.saw	arm64-apple-darwin	differs	39f93b225fcd	success	ok	0	57:bb60ec7e96ce	0:e3b0c44298fc	-	yes	-
 box_string.saw	arm64-apple-darwin	differs	b1a0c3dec29c	success	ok	0	9:fbc3969cad4a	0:e3b0c44298fc	-	yes	-
 box_value_lends_the_payload.saw	arm64-apple-darwin	differs	c2a2a8948614	success	ok	0	22:e93624dfcc25	0:e3b0c44298fc	-	yes	-

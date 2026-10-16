@@ -34,8 +34,8 @@ any_var_self.saw	pass	-	-
 any_vector_deinit.saw	pass	-	-
 any_vector_shapes.saw	pass	-	-
 arc_basic.saw	pass	-	-
-arc_forward.saw	refused	typecheck member.through-pointer	`peek` is a method of the payload, `arc_forward.Counter`, not of the `Arc`; reach it with `borrow ac.value().peek(…)`
-arc_forward_generic_method.saw	refused	typecheck member.through-pointer	`apply` is a method of the payload, `arc_forward_generic_method.Cell<Int>`, not of the `Arc`; reach it with `borrow cell.value().apply(…)`
+arc_forward.saw	pass	-	member.through-pointer: `peek` is a method of the payload, `arc_forward.Counter`, not of the `Arc`; reach it with `borrow ac.value().peek(…)`
+arc_forward_generic_method.saw	pass	-	member.through-pointer: `apply` is a method of the payload, `arc_forward_generic_method.Cell<Int>`, not of the `Arc`; reach it with `borrow cell.value().apply(…)`
 arc_with_unique.saw	refused	mir slice.not-yet	a `borrow` block binding a conditional lend is not lowered to MIR in the bootstrap slice yet
 arithmetic_no_false_overflow.saw	pass	-	-
 array_const_index_out_of_bounds.saw	wrong	accepts a refusal test	array index 5 out of range for array with 3 elements
@@ -119,7 +119,7 @@ borrowing_rules_resolve_aliases.saw	refused	typecheck call.arity	missing an argu
 borrows_declaration_lowers.saw	pass	-	-
 box_basic.saw	pass	-	-
 box_deinit_once.saw	pass	-	-
-box_forward.saw	refused	typecheck member.through-pointer	`sum` is a method of the payload, `box_forward.Point`, not of the `Box`; reach it with `borrow b.value().sum(…)`
+box_forward.saw	pass	-	member.through-pointer: `sum` is a method of the payload, `box_forward.Point`, not of the `Box`; reach it with `borrow b.value().sum(…)`
 box_make_reports_oom.saw	pass	-	-
 box_string.saw	pass	-	-
 box_value_lends_the_payload.saw	pass	-	-

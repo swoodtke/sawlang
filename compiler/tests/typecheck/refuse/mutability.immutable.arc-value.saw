@@ -1,0 +1,12 @@
+// refuses: mutability.immutable at 11:5
+// flags: --std-root std
+// a write through std's `Arc.value`, which lends read-only; the hint names `Arc<Mutex<T>>` and `unique()`, never a writable accessor (SL-712)
+
+struct Tag {
+    id: Int
+}
+
+func main() {
+    var a = try! Arc<Tag>(value: Tag(id: 0))
+    borrow var a.value().id = 5
+}

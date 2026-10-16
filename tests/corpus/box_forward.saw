@@ -1,11 +1,10 @@
-// Box payload method forwarding (design 42 item 1, mirroring Arc): an immutable
-// `&self` method on the payload struct that is NOT defined on Box is callable
-// through the Box — the call borrows the heap payload at `ptr[0]`. Forwarding
-// with arguments composes too.
-// EXPECT: success
-// EXPECT-OUTPUT:
-// 7
-// 14
+// Refused: Box/Arc forwarding is dropped (SL-712), so a payload method is reached with `borrow p.value().m()`.
+// A `Box` forwards no payload method, as an `Arc` forwards none: `b.sum()`
+// names a `&self` method of the payload `Point`, which the `Box` does not
+// declare, and is refused at that first call; `b.scaled(2)` is the same shape.
+// Each compiles as `borrow b.value().sum()`.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: `sum` is a method of the payload
 
 struct Point { x: Int, y: Int }
 

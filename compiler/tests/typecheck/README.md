@@ -1061,6 +1061,7 @@ shared twin, SL-470), and a `[&var x]` capture. Under
 | a write through a closure's `&T` parameter | refused | mutability.immutable.shared-closure-parameter |
 | a write through a named accessor lending read-only, `-> &T` | refused | mutability.immutable.read-only-lend |
 | a `borrow var` statement writing through a read-only lend: a field, compound, the whole place, on a `let` root (SL-487) | refused | mutability.immutable.read-only-lend-statement, -compound, -whole, -let |
+| a `borrow var` statement writing through std's `Arc.value`, whose hint names `Arc<Mutex<T>>` and `unique()` rather than a writable accessor (SL-712) | refused | mutability.immutable.arc-value |
 | a bare `borrow` statement written through: a field, compound, a `&var self` method, the whole place, on a `let` root, through a `&T` parameter (SL:borrowing §2.2, SL-487) | refused | mutability.immutable.shared-borrow, -compound, -method, -whole, -let, -parameter |
 | a `borrow var` statement on a `let` root, through one exclusive window and through two nested ones (SL-487) | refused | mutability.immutable.borrow-statement, mutability.immutable.borrow-statement-chain |
 | a write through a subscript lending read-only | refused | subscript.role.setitem |
@@ -1469,7 +1470,7 @@ says what the fixture shows.
 | `type.cast` | an `as` between types it does not convert |
 | `type.try` | a `try` propagating out of a body that returns no Result, or into one whose error type does not take its error |
 | `member.unknown` | a field or method the type does not have, or this module does not see; the builtin `copy()` on a NoCopy value |
-| `member.through-pointer` | a method a `Box`'s or an `Arc`'s payload declares and the pointer does not, called on the pointer: a pointer forwards nothing, so the message names `borrow b.value().m(…)`, and for a `&var self` one `borrow var` on a box or a lock on an `Arc`; every receiver mode, through a box (`&self` bare, `.var-self`, `.consumes`, a `borrows` accessor `.borrows`, a `&Box` parameter `.reference`, a `String` payload `.string`) and an `Arc` (`.arc`, `.arc-var-self`, `.arc-consumes`, `Mutex.lock` `.arc-borrows`) (SL-712) |
+| `member.through-pointer` | a method a `Box`'s or an `Arc`'s payload declares and the pointer does not, called on the pointer: a pointer forwards nothing, so the message names `borrow b.value().m(…)`, and for a `&var self` one `borrow var` on a box, or a lock or `unique()` on an `Arc`; every receiver mode, through a box (`&self` bare, `.var-self`, `.consumes`, a `borrows` accessor `.borrows`, a `&Box` parameter `.reference`, a `String` payload `.string`) and an `Arc` (`.arc`, `.arc-var-self`, `.arc-consumes`, `Mutex.lock` `.arc-borrows`) (SL-712) |
 | `call.arity` | too many arguments, a missing one, a case built without its payload |
 | `call.label` | a label no parameter has, one naming a parameter behind the last bound, a repeated label |
 | `call.ambiguous` | overloads the arguments fit equally, named; a bare integer literal over integer overloads with no `Int` one, or preferring `Int` in a different overload at each argument (spec, Overloading, tie-break 4: `.literal-no-int`, `.literal-crossed`) |

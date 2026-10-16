@@ -607,7 +607,12 @@ extension TcProgram {
             case ReadOnlyLend -> {
                 try! msg.append(", and `")
                 try! msg.append(name)
-                try! msg.append("` lends a read-only place (`-> &T`): declare the accessor `-> &var T` to lend a writable one")
+                try! msg.append("` lends a read-only place (`-> &T`)")
+                if self.lends_arc_payload(at) {
+                    try! msg.append(": an `Arc`'s payload is shared by every handle, so write it through a lock, `Arc<Mutex<T>>`, or through `unique()` on a `var` handle that is the only strong owner")
+                } else {
+                    try! msg.append(": declare the accessor `-> &var T` to lend a writable one")
+                }
             },
             case SharedBorrow -> {
                 try! msg.append(", and `")
@@ -616,6 +621,24 @@ extension TcProgram {
             },
             case Allowed -> {}
         }
+    }
+
+    // Whether call `e` lends through std's `Arc`, whose read-only `value()`
+    // no redeclared accessor could widen soundly: every handle reads the
+    // payload it lends.
+    func lends_arc_payload(&self, e: Int) -> Bool {
+        if e < 0 || self.known.arc < 0 {
+            return false
+        }
+        let r = self.call_receiver(e)
+        if r < 0 {
+            return false
+        }
+        var t = self.expr_types[r]
+        if self.is_reference(t) {
+            t = self.deref_type(t)
+        }
+        self.nominal_decl(t) == self.known.arc
     }
 
     // Why a by-value capture is not written, and what writes instead: a

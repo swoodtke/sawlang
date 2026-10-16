@@ -1,6 +1,6 @@
 // refuses: member.through-pointer at 15:7
 // flags: --std-root std
-// a `&var self` payload method called on its `Arc`, whose payload every handle shares; the hint names `Arc<Mutex<T>>`
+// a `&var self` payload method called on its `Arc`, whose payload every handle shares; the hint names `Arc<Mutex<T>>` and `unique()`
 
 struct Counter {
     n: Int

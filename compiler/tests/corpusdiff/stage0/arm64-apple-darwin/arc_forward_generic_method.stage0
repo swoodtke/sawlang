@@ -1,6 +1,6 @@
 program	arc_forward_generic_method.saw
 triple	arm64-apple-darwin
-twin	same
+twin	differs
 expect	success
 build	ok
 exit	0

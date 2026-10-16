@@ -1,21 +1,11 @@
-// Wrapper payload-method forwarding reaches a METHOD-GENERIC payload method
-// (design 133 unit A, closing DF-123c). Before the fix the forward mangled the
-// non-generic callee symbol — a name the method-generic monomorphizer never
-// emits — so `internal compiler error: 'Cell$1$Int_apply'` killed every such
-// call. Covered here: two distinct instantiations of one method, inferred and
-// explicit type args, a generic and a non-generic payload struct, forwarding
-// through Box as well as Arc, and a forward whose method type arg is the
-// ENCLOSING generic's parameter (so codegen must substitute before mangling).
-// EXPECT: success
-// EXPECT-OUTPUT:
-// 42
-// v21
-// 5
-// HELLO
-// 3
-// tag=saw
-// 22
-// n21
+// Refused: Box/Arc forwarding is dropped (SL-712), so a payload method is reached with `borrow p.value().m()`.
+// A METHOD-GENERIC payload method is not forwarded either: `cell.apply(body)`
+// on an `Arc<Cell<Int>>` names a method of the payload, not of the `Arc`, and
+// is refused at that first call, inside `run`. Every later call in the file,
+// through `Arc` and through `Box`, inferred or explicit type arguments alike,
+// is the same refused shape; each compiles as `borrow p.value().apply(…)`.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: `apply` is a method of the payload
 
 struct Cell<T> {
     value: T

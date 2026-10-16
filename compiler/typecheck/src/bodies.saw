@@ -6728,6 +6728,10 @@ extension TcProgram {
             try! msg.append(receiver)
             try! msg.append(".value().lock() \{ p.")
             try! msg.append(method)
+            try! msg.append("(…) \}`, or on a `var` handle that is the only strong owner, as `if borrow var p = ")
+            try! msg.append(receiver)
+            try! msg.append(".unique() \{ p.")
+            try! msg.append(method)
             try! msg.append("(…) \}`")
         } else if arc {
             try! msg.append("it consumes its receiver, and an `Arc`'s payload is shared by every handle, so no call can take it")
@@ -6744,6 +6748,7 @@ extension TcProgram {
     // ENTRY POINTS:
     // - settle_call
     // - place_verdict
+    // - lends_arc_payload
     // - window_receivers
     // - check_exclusive_windows
     // - MIR's call_operands

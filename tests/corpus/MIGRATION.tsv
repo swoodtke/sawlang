@@ -34,8 +34,8 @@ any_var_self.saw	copied	-	-
 any_vector_deinit.saw	copied	-	-
 any_vector_shapes.saw	copied	-	-
 arc_basic.saw	copied	-	-
-arc_forward.saw	rewritten	E.lock:2	-
-arc_forward_generic_method.saw	copied	-	-
+arc_forward.saw	manual,rewritten	E.lock:2,manual.forwarding-refusal.companion:8	SL-712: a refusal test of the dropped Box/Arc forwarding
+arc_forward_generic_method.saw	manual	manual.forwarding-refusal.companion:18	SL-712: a refusal test of the dropped Box/Arc forwarding
 arc_with_unique.saw	manual	manual.E:8,manual.E.companion:11,manual.payload-accessor:2,manual.payload-accessor.companion:4	re-aimed: now tests `Arc.unique()`, the conditional lend present only at strong count 1, discriminated with `if borrow var` (SL:borrowing §2.4, §8, §9); SL-712: a payload method is reached through value() under borrow, since a pointer forwards nothing
 arithmetic_no_false_overflow.saw	copied	-	-
 array_const_index_out_of_bounds.saw	reviewed,expectation-pending	reviewed.unseen:1	-
@@ -120,7 +120,7 @@ borrows_declaration_lowers.saw	reviewed	-	accessors (SL-421): (b) `Bag.counted`:
 borrows_fold_preserves_lexical_scope.saw	retired	-	retired: it tests the frozen compiler's `#lend_var` fold (SL-333 R6: the selected branch keeps its scope, destruction order, value and tail transfer); a body never tests its lend mode any more, so there is no fold (SL:borrowing §4, §9; GRAMMAR syntax.expr.refused-lend-var); its negative twin is errors/fold_selected_tail_is_an_ownership_transfer.saw; K131 goes with it
 box_basic.saw	rewritten	G1.accessor-read:3	-
 box_deinit_once.saw	manual	manual.payload-accessor:1	SL-712: a payload method is reached through value() under borrow, since a pointer forwards nothing
-box_forward.saw	copied	-	-
+box_forward.saw	manual	manual.forwarding-refusal.companion:8	SL-712: a refusal test of the dropped Box/Arc forwarding
 box_make_reports_oom.saw	manual,rewritten	G1.accessor-read:1,manual.payload-accessor:2	SL-712: a payload method is reached through value() under borrow, since a pointer forwards nothing
 box_string.saw	rewritten	G1.accessor-read:3	-
 box_value_lends_the_payload.saw	rewritten	A1.field-write:1,A3.mutating-call:1,G1.accessor-read:2,G3.borrow-let:3	-
