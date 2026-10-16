@@ -1577,7 +1577,16 @@ The binding's name is irrelevant. It works when the field is read as a call argu
 
 **Checker:** not needed: the failure is loud, and the shape needs type resolution and import scope, which the subset checker doesn't have.
 
+### L34. A `&any Trait` parameter of a suspending function: Stage 0 refuses it, sawc2 accepts it (SL-721)
+
+**Shape (loud):** the lead's ruling on SL-721 (c3; the Air agreeing, c4) says a reference to an erased value may span a suspension, as the spec's "References may span suspensions" lets any reference. sawc2 holds it in the frame as its two words, the value's address and its vtable's, and a dispatch through it after the resume reaches the same value (probe `compiler/tests/run/probes/erased_reference_across_suspension.saw`, at -O0 and -O2). Stage 0 refuses the parameter, driven or spawned: "`s: &any Shape` cannot be a parameter of the suspending function `spanning`. A reference that spans a suspension is held in the frame as a handle to its referent (design 88), and an erased referent has no size for the frame to name." So such code builds under sawc2 and fails under Stage 0, at the function's declaration. No corpus program has this shape today.
+
+**Instead:** in code Stage 0 builds, take an erased value across a suspension as an owned `Box<any Trait>`, or take the receiver as a generic bound (`<T: Shape>`, `&T`).
+
+**Checker:** not needed: Stage 0 refuses loudly, and the compiler's source is sync.
+
 ## Cases with no issue
+
 
 
 These four come from codex's review of the parked SL-2.p2 r3 (SL-2 c29, with
