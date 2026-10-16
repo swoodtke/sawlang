@@ -1,0 +1,8 @@
+program	compiler/tests/run/mutex_get.saw
+triple	arm64-apple-darwin
+source	db57ece307315be3
+build	ok
+exit	0
+stdout	"42"
+stdout	"42"
+stdout	""

@@ -1,0 +1,10 @@
+// refuses: mono.not-yet at 5:5
+// The spec gives `Bool` no builtin `Comparable`, so the scalar hook table
+// has no `compare` for it, though typecheck grants the bound (SL-715).
+func order<T: Comparable>(a: T, b: T) -> Bool {
+    a < b
+}
+
+func main() {
+    print(order(false, true))
+}

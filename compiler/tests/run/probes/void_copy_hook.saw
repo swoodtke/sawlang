@@ -1,0 +1,17 @@
+// probe: stated
+// about: `Void`'s synthesized `ExplicitCopy.copy()`, the scalar hook table's one cell outside the numbers and Bool (SL-711)
+// stage 0: an internal compiler error at the `copy()` on a `Void` binding
+// speeds: -O0 -O2
+// A generic body's `copy()` of a value whose type argument is `Void`: the
+// binding has no storage and its copy is nothing.
+// prints: ran
+// prints: void
+func twice<R: ExplicitCopy>(body: () -> R) -> R {
+    let r = body()
+    r.copy()
+}
+
+func main() {
+    twice({ print("ran") })
+    print("void")
+}

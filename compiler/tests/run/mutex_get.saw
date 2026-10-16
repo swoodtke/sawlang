@@ -1,5 +1,3 @@
-// due: mono resolves no `ExplicitCopy.copy()` on `Int`, which Mutex.get calls (SL-598)
-// refuses: mono.not-yet at 10:11
 // `get` copies the payload out under the lock and leaves the mutex unlocked,
 // so a second `get` reads the same value.
 

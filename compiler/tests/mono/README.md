@@ -131,12 +131,27 @@ closure, and a heap environment is unbuilt (SL-525). Typecheck through drop
 elaboration accept such a closure; only mono refuses it.
 
 **Member glue** is made once per (requirement, concrete type) by its own
-funnel (`member_glue_of`), the body a conformance has with nothing written:
-in the slice, a signed integer's `Printable.format(into:)`, which appends the
-value, widened to `Int`, through the builder's `append(value: Int)` and
-panics as `try!` does if a growable builder cannot grow. Every other one,
-an unsigned integer's rendering and a derived `Equatable` among them, is
-refused as `mono.not-yet`.
+funnel (`member_glue_of`), the body a conformance has with nothing written.
+In the slice it is a scalar's builtin hook, and one table in `glue.saw`
+(`scalar_refusal`) decides which cells are lowered; one funnel
+(`build_member_glue`) builds each lowered cell's body:
+
+| kind | `copy()` | `equals` | `compare` | `hash` | `format` |
+|---|---|---|---|---|---|
+| every integer width, signed and unsigned | the value | `==` | `<`, then `==`, at the type's signedness | its bits as an `Int` into `write_int`, a narrow width zero-extended | its decimal digits through `append(value: Int)` |
+| `Bool` | the value | `==` | refused: the spec grants no `Comparable` (SL-715) | 1 or 0 into `write_int` | `true` or `false` through `append(s:)` |
+| `Float` | refused: the backend lowers no Float operation | the same | the same | the same | the same |
+| a raw pointer | the value | refused: the spec grants no `Equatable` (SL-715) | | | |
+| `Void` | nothing | | | | |
+
+An unsigned 64-bit value past `Int.max` is appended as its quotient by ten,
+when that is not zero, then its last digit. Each append panics as `try!` does
+if a growable builder cannot grow. Each answer is Stage 0's, the hash words
+included, so a `Map`'s order is too (run programs `scalar_copy`,
+`scalar_equals`, `scalar_compare`, `scalar_hash`, `scalar_format`, and the
+probe `void_copy_hook`). An empty cell is one typecheck grants no
+conformance for. Every hook on any other type, a derived `Equatable` among
+them, is refused as `mono.not-yet` (`mono.not-yet.aggregate`).
 
 **Task roots.** A cooperative spawn site (`Task.spawn(f(x))`) is no call of
 its root: the task runs the root in a *task root*, a separate specialization
@@ -248,7 +263,7 @@ nullable pointer (null is `None`), and an aggregate by value is refused.
 
 | rule | refuses | fixture |
 |---|---|---|
-| `mono.not-yet` | what the backend's slice does not lower: a builtin outside it, a format argument or an interpolated part whose rendering the slice does not make, a requirement no member, default or member glue in the slice meets, a call of a body this program does not lower, a closure capturing an owning value, an escaping closure that captures anything | `mono.not-yet`, `mono.not-yet.format`, `mono.not-yet.std`, `mono.not-yet.unsigned`, and the escaping closure at each position it escapes through, `mono.not-yet.escaping-*` |
+| `mono.not-yet` | what the backend's slice does not lower: a builtin outside it, a format argument or an interpolated part whose rendering the slice does not make, a requirement no member, default or member glue in the slice meets, a call of a body this program does not lower, a closure capturing an owning value, an escaping closure that captures anything | `mono.not-yet`, `mono.not-yet.format`, `mono.not-yet.std`, `mono.not-yet.aggregate`, `mono.not-yet.bool-order`, `mono.not-yet.pointer-equality`, and the escaping closure at each position it escapes through, `mono.not-yet.escaping-*` |
 | `mono.depth` | a concrete argument nested more than 64 deep, once per program, at the first call that met the limit | `mono.depth`, `mono.depth.method`, `mono.depth.recursive`, and `mono.depth.branching`, whose argument doubles its parts at each step |
 | `atomic.width` | an `Atomic<X>` at an `X` other than `Int` that only an instantiation forms, once per type, where the item was reached; one a written or inferred position carries is typecheck's (SL:open-questions D38) | `atomic.width` |
 | `transfer.no-move` | a generic body's move out of a place, which typecheck records where the type names a type parameter, at an instantiation that makes the type `NoMove`: the first such move of each declaration at each set of arguments, its body's, its closures' and its accessor halves' together. A spelled `move`, a `[move x]` capture and a local's by-value read at its last use all count; the fresh placement of a by-value parameter no reference has named does not. A concrete type's is typecheck's (SL-662) | `transfer.no-move`, a `Vector`'s growth; `.element`, `Vector.pop`'s move out of its buffer; `.forward`, a read at its last use; `.capture`, a `[move x]` capture; `.placement-after-borrow`, the placement once a reference named the parameter; `.take`, an Optional's payload; `.map`, a `Map`'s entries |

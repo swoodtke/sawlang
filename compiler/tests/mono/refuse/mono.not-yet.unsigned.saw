@@ -1,8 +1,0 @@
-// refuses: mono.not-yet at 6:13
-// An unsigned integer's Printable `format` is synthesized glue the slice does
-// not make: the new std's builder renders an `Int` and nothing unsigned.
-func main() {
-    let u: UInt = 7
-    let s = u.to_string()
-    print(s)
-}

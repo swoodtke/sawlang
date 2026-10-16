@@ -1,4 +1,5 @@
 path	kind	reason
+coercion/const_expression_signed_domain_error.saw	stage0-wrong	SL-452: a constant folds as typed arithmetic, so `1 << 63` at a `UInt64` slot is 2^63; Stage 0 folds in the signed platform domain and refuses it
 coro_discarded_match_payload_field_drop_order.saw	stage0-wrong	SL-513 ruling (B), SL:hazards C11: an unbound part dies when its construct completes; Stage 0 releases it at arm entry. This file's EXPECT-OUTPUT states the ruled order
 coro_discarded_match_payload_released_at_extraction.saw	stage0-wrong	SL-513 ruling (B), SL:hazards C11: an unbound part dies when its construct completes; Stage 0 releases it at arm entry. This file's EXPECT-OUTPUT states the ruled order
 coro_iflet_move_out_releases_once.saw	stage0-wrong	SL-513 ruling (B), SL:hazards C11: an unbound part dies when its construct completes; Stage 0 releases it at arm entry. This file's EXPECT-OUTPUT states the ruled order

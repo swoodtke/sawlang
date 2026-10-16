@@ -1,4 +1,4 @@
-// due: mono resolves no `ExplicitCopy.copy()` on `String` or `Int`, which Map.copy calls (SL-598)
+// due: mono resolves no `ExplicitCopy.copy()` on `String`, which Map.copy calls (SL-598)
 // refuses: mono.not-yet at 21:18
 // `copy()` and `try_copy()` build a separate table: a change to the copy
 // leaves the original as it was.

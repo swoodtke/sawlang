@@ -1,0 +1,30 @@
+// A scalar's synthesized `Comparable.compare`, reached through a bound, at
+// every integer width: each answer's case, signed order below zero
+// and unsigned order above the signed range.
+
+func order<T: Comparable>(a: T, b: T) -> String {
+    match a.compare(&b) {
+        case Less -> "less",
+        case Equal -> "equal",
+        case Greater -> "greater"
+    }
+}
+
+func larger<T: Comparable>(a: T, b: T) -> T {
+    if a < b { b } else { a }
+}
+
+func main() {
+    print("Int {} {} {}", order(Int.min, Int.max), order(5, 5), order(1, -1))
+    print("Int8 {} {}", order(-1i8, 1i8), order(Int8.max, Int8.min))
+    print("Int16 {} {}", order(-300i16, 300i16), order(2i16, 2i16))
+    print("Int32 {} {}", order(Int32.min, 0i32), order(Int32.max, 0i32))
+    print("Int64 {} {}", order(Int64.min, Int64.max), order(-1i64, -2i64))
+    let one: UInt = 1
+    print("UInt {} {}", order(UInt.max, one), order(UInt.min, UInt.max))
+    print("UInt8 {} {}", order(255u8, 1u8), order(128u8, 127u8))
+    print("UInt16 {} {}", order(UInt16.max, 0u16), order(3u16, 3u16))
+    print("UInt32 {} {}", order(UInt32.max, 1u32), order(0u32, 1u32))
+    print("UInt64 {} {}", order(UInt64.max, 1u64), order(1u64, UInt64.max))
+    print("larger {} {} {}", larger(-3, -7), larger(200u8, 100u8), larger(UInt64.max, 1u64))
+}

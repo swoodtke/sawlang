@@ -1,0 +1,12 @@
+program	compiler/tests/run/scalar_copy.saw
+triple	arm64-apple-darwin
+source	4038fc6ed768c585
+build	ok
+exit	0
+stdout	"Int -9223372036854775808 9223372036854775807"
+stdout	"Int8 -128 Int16 -300 Int32 2147483647 Int64 -9223372036854775808"
+stdout	"UInt 18446744073709551615 UInt8 255 UInt16 65535"
+stdout	"UInt32 4294967295 UInt64 18446744073709551615"
+stdout	"Bool true false"
+stdout	"pointer 4096"
+stdout	""

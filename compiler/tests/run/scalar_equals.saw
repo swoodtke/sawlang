@@ -1,0 +1,25 @@
+// A scalar's synthesized `Equatable.equals`, reached through a bound, at
+// every integer width and `Bool`: equal values, unequal ones, and values that
+// differ only above a narrow type's sign bit.
+
+func same<T: Equatable>(a: T, b: T) -> Bool {
+    a == b
+}
+
+func differ<T: Equatable>(a: T, b: T) -> Bool {
+    not a.equals(&b)
+}
+
+func main() {
+    print("Int {} {} {}", same(7, 7), same(Int.min, Int.max), differ(-1, 1))
+    print("Int8 {} {}", same(Int8.min, Int8.min), same(-1i8, 127i8))
+    print("Int16 {} {}", same(300i16, 300i16), same(-300i16, 300i16))
+    print("Int32 {} {}", same(Int32.max, Int32.max), same(0i32, -1i32))
+    print("Int64 {} {}", same(Int64.min, Int64.min), same(Int64.min, Int64.max))
+    print("UInt {} {}", same(UInt.max, UInt.max), same(UInt.max, UInt.min))
+    print("UInt8 {} {}", same(255u8, 255u8), same(255u8, 127u8))
+    print("UInt16 {} {}", same(UInt16.max, UInt16.max), same(1u16, 2u16))
+    print("UInt32 {} {}", same(UInt32.max, UInt32.max), same(UInt32.max, 0u32))
+    print("UInt64 {} {}", same(UInt64.max, UInt64.max), same(UInt64.max, 1u64))
+    print("Bool {} {} {} {}", same(true, true), same(false, false), same(true, false), differ(true, false))
+}

@@ -12,17 +12,17 @@ alloc_data_reports_oom.saw	pass	-	-
 alloc_default_equals_global.saw	pass	-	-
 alloc_deny_after_seam.saw	pass	-	-
 alloc_hosted_no_degradation.saw	refused	resolve import.unknown-module	no module `std.directory`
-alloc_map_copy_panics.saw	refused	mono mono.not-yet	a synthesized `Equatable.equals(other: &Self)` on `Int` is not in the backend slice yet: only a signed integer's `Printable.format` (inside std/map.saw:232:24)
-alloc_map_insert_forced_panics_named.saw	refused	mono mono.not-yet	a synthesized `Equatable.equals(other: &Self)` on `Int` is not in the backend slice yet: only a signed integer's `Printable.format` (inside std/map.saw:232:24)
-alloc_map_set_reports_oom.saw	refused	mono mono.not-yet	a synthesized `Equatable.equals(other: &Self)` on `Int` is not in the backend slice yet: only a signed integer's `Printable.format` (inside std/map.saw:232:24)
+alloc_map_copy_panics.saw	pass	-	-
+alloc_map_insert_forced_panics_named.saw	wrong	stdout differs	line 2: sawc2 "panic at alloc_map_insert_forced_panics_named.saw:37: try! failed", Stage 0 "panic at alloc_map_insert_forced_panics_named.saw:37: try! failed: allocation of 384 bytes (align 8) failed"
+alloc_map_set_reports_oom.saw	pass	-	-
 alloc_panic_under_full_denial.saw	pass	-	-
-alloc_set_copy_panics.saw	refused	mono mono.not-yet	a synthesized `Equatable.equals(other: &Self)` on `Int` is not in the backend slice yet: only a signed integer's `Printable.format` (inside std/map.saw:232:24)
+alloc_set_copy_panics.saw	wrong	stdout differs	line 2: sawc2 "panic at <std>: Map.copy: allocation of 192 bytes (align 8) failed", Stage 0 "panic at <std>: Map.copy: allocation of 128 bytes (align 8) failed"
 alloc_string_no_degradation.saw	refused	typecheck member.unknown	`std.vector.Vector<String, std.alloc.GlobalAllocator>` has no method `join` this module can see
 alloc_string_oom_panic.saw	wrong	stdout differs	line 1: sawc2 "panic at <std>: String: allocation of 20 bytes (align 16) failed", Stage 0 "panic: string allocation failed"
 alloc_stringbuilder_append_forced_panics_named.saw	refused	typecheck call.no-match	no candidate takes these arguments; the candidates are StringBuilder.init() [std.stringbuilder]; StringBuilder.init(bytes: UnsafePointer<Int8>, capacity: Int) [std.stringbuilder]
 alloc_stringbuilder_reports_oom.saw	refused	typecheck call.no-match	no candidate takes these arguments; the candidates are StringBuilder.init() [std.stringbuilder]; StringBuilder.init(bytes: UnsafePointer<Int8>, capacity: Int) [std.stringbuilder]
 alloc_taskgroup_threads_forced_panics_named.saw	refused	typecheck call.label	no parameter is labeled `threads` in TaskGroup.init() [std.taskgroup]
-alloc_vector_copy_panics.saw	refused	mono mono.not-yet	a synthesized `ExplicitCopy.copy()` on `Int` is not in the backend slice yet: only a signed integer's `Printable.format` (inside std/vector.saw:227:35)
+alloc_vector_copy_panics.saw	wrong	stdout differs	line 2: sawc2 "panic at <std>: Vector.copy: allocation of 16 bytes (align 8) failed", Stage 0 "panic at <std>: Vector.copy: allocation of 32 bytes (align 8) failed"
 alloc_vector_push_reports_oom.saw	pass	-	-
 alloc_vector_reports_oom.saw	refused	typecheck member.unknown	`std.vector.Vector<Int, alloc_vector_reports_oom.FailAlloc>` has no method `try_copy` this module can see
 any_box_deinit.saw	refused	typecheck slice.not-yet	`Box<any Trait>.make` is not in the bootstrap slice yet
@@ -95,7 +95,7 @@ attr_on_method_error.saw	pass	-	resolve.parse-refused: the parser refuses `tests
 attr_on_struct_error.saw	pass	-	resolve.parse-refused: the parser refuses `tests/corpus/attr_on_struct_error.saw` (parse-error), so its declarations are not available
 attr_synthesize_arg_error.saw	pass	-	resolve.parse-refused: the parser refuses `tests/corpus/attr_synthesize_arg_error.saw` (syntax.rule.attribute-position), so its declarations are not available
 attr_synthesize_on_func_error.saw	pass	-	resolve.parse-refused: the parser refuses `tests/corpus/attr_synthesize_on_func_error.saw` (syntax.rule.attribute-position), so its declarations are not available
-attr_synthesize_parses.saw	refused	mono mono.not-yet	a synthesized `Equatable.equals(other: &Self)` on `attr_synthesize_parses.Named` is not in the backend slice yet: only a signed integer's `Printable.format`
+attr_synthesize_parses.saw	refused	mono mono.not-yet	a synthesized `Equatable.equals(other: &Self)` on `attr_synthesize_parses.Named` is not in the backend slice yet: only a scalar's builtin hooks
 attr_unknown_error.saw	pass	-	resolve.parse-refused: the parser refuses `tests/corpus/attr_unknown_error.saw` (syntax.rule.attribute-position), so its declarations are not available
 autowrap_diverging_arm.saw	refused	mono mono.not-yet	a call of `Printable.format(into: &var std.stringbuilder.StringBuilder)` on `std.box.Box<any Error, std.alloc.GlobalAllocator>`, which no conformance of it meets, is not in the backend slice yet
 autowrap_err_no_premature_free.saw	pass	-	-
@@ -197,30 +197,30 @@ closures_infer.saw	pass	-	-
 closures_ref_param.saw	pass	-	-
 closures_shorthand.saw	refused	resolve slice.not-yet	`syntax.expr.shorthand-param` is not in the bootstrap slice yet
 closures_trailing.saw	refused	resolve slice.not-yet	`syntax.expr.shorthand-param` is not in the bootstrap slice yet
-coercion/adopt_argument_return.saw	refused	mono mono.not-yet	a synthesized `Printable.format(into: &var std.stringbuilder.StringBuilder)` on `UInt16` is not in the backend slice yet: only a signed integer's `Printable.format`
+coercion/adopt_argument_return.saw	pass	-	-
 coercion/adopt_assign_field_const.saw	refused	typecheck slice.not-yet	a constant argument named by a static, `N`, is not in the bootstrap slice yet
-coercion/adopt_coalesce_operand.saw	refused	mono mono.not-yet	a synthesized `Printable.format(into: &var std.stringbuilder.StringBuilder)` on `UInt32` is not in the backend slice yet: only a signed integer's `Printable.format`
-coercion/adopt_compound_and_arms_const.saw	refused	mono mono.not-yet	a synthesized `Printable.format(into: &var std.stringbuilder.StringBuilder)` on `UInt32` is not in the backend slice yet: only a signed integer's `Printable.format`
+coercion/adopt_coalesce_operand.saw	pass	-	-
+coercion/adopt_compound_and_arms_const.saw	pass	-	-
 coercion/adopt_enum_raw_value_non_constant_refused.saw	pass	-	static.not-constant: `N` is not a constant, and a raw case's value is a constant expression: it may not name a static or another enum's case, since an enum's cases are fixed by its own declaration, be
-coercion/adopt_let.saw	refused	mono mono.not-yet	a synthesized `Printable.format(into: &var std.stringbuilder.StringBuilder)` on `UInt16` is not in the backend slice yet: only a signed integer's `Printable.format`
+coercion/adopt_let.saw	pass	-	-
 coercion/adopt_lone_enum_case.saw	refused	typecheck type.mismatch	expected `UInt8`, the type of the compound assignment's target, and found `adopt_lone_enum_case.Perm`
 coercion/adopt_lone_enum_case_range_error.saw	pass	-	type.mismatch: constant expression 300 does not fit in `UInt8` (range 0..=255)
 coercion/adopt_lone_enum_case_value_error.saw	pass	-	type.mismatch: expected `UInt8`, the type of the annotated binding, and found `adopt_lone_enum_case_value_error.Perm`
 coercion/adopt_platform_width_slot_const.saw	pass	-	-
 coercion/adopt_platform_width_slot_range_error.saw	pass	-	constant.overflow: constant expression overflows `UInt` (range 0..=18446744073709551615)
-coercion/adopt_repeat_literal_const.saw	refused	mono mono.not-yet	a synthesized `Printable.format(into: &var std.stringbuilder.StringBuilder)` on `UInt32` is not in the backend slice yet: only a signed integer's `Printable.format`
+coercion/adopt_repeat_literal_const.saw	pass	-	-
 coercion/adopt_result_ambiguous_const.saw	pass	-	type.ambiguous-result: both payloads of `Result<Int32, Int8>` can take this value, so it names neither: write `.Ok(value: ...)` or `.Err(error: ...)`
-coercion/adopt_static_initializer.saw	refused	mono mono.not-yet	a synthesized `Printable.format(into: &var std.stringbuilder.StringBuilder)` on `UInt32` is not in the backend slice yet: only a signed integer's `Printable.format`
-coercion/adopt_struct_literal_field.saw	refused	mono mono.not-yet	a synthesized `Printable.format(into: &var std.stringbuilder.StringBuilder)` on `UInt32` is not in the backend slice yet: only a signed integer's `Printable.format`
-coercion/adopt_typed_source_sweep.saw	refused	mono mono.not-yet	a synthesized `Printable.format(into: &var std.stringbuilder.StringBuilder)` on `UInt16` is not in the backend slice yet: only a signed integer's `Printable.format`
-coercion/array_literal_const_element_mixed.saw	refused	mono mono.not-yet	a synthesized `Printable.format(into: &var std.stringbuilder.StringBuilder)` on `UInt32` is not in the backend slice yet: only a signed integer's `Printable.format`
+coercion/adopt_static_initializer.saw	pass	-	-
+coercion/adopt_struct_literal_field.saw	pass	-	-
+coercion/adopt_typed_source_sweep.saw	pass	-	-
+coercion/array_literal_const_element_mixed.saw	pass	-	-
 coercion/array_literal_const_element_range_check.saw	pass	-	constant.shift-range: constant expression shifts a value of type `UInt32` by a count outside its width
 coercion/compound_assign_const_expression.saw	pass	-	-
-coercion/const_expression_named_enum_case_operand.saw	refused	mono mono.not-yet	a synthesized `Printable.format(into: &var std.stringbuilder.StringBuilder)` on `UInt8` is not in the backend slice yet: only a signed integer's `Printable.format`
+coercion/const_expression_named_enum_case_operand.saw	pass	-	-
 coercion/const_expression_named_static_operand.saw	pass	-	constant.shift-range: constant expression shifts a value of type `UInt16` by a count outside its width
 coercion/const_expression_range_checked_narrow.saw	pass	-	constant.shift-range: constant expression shifts a value of type `UInt16` by a count outside its width
 coercion/const_expression_range_checked_wide.saw	pass	-	constant.shift-range: constant expression shifts a value of type `UInt16` by a count outside its width
-coercion/const_expression_signed_domain_error.saw	refused	mono mono.not-yet	a synthesized `Printable.format(into: &var std.stringbuilder.StringBuilder)` on `UInt64` is not in the backend slice yet: only a signed integer's `Printable.format`
+coercion/const_expression_signed_domain_error.saw	stage0-wrong	annotated SL-452	sawc2 builds it, and its run exits 0
 coercion/const_expression_unary_adopts.saw	refused	typecheck constant.overflow	constant expression overflows `Int8` (range -128..=127)
 coercion/qualname_arr_elem_field.saw	refused	typecheck slice.not-yet	a constant argument named by a static, `N`, is not in the bootstrap slice yet
 coercion/qualname_local.saw	pass	-	-
@@ -231,30 +231,30 @@ coercion/qualname_mod_static_elem_write.saw	refused	llvm backend.not-yet	a stati
 coercion/qualname_mod_static_immutable_error.saw	pass	-	mutability.immutable: this assignment writes `qualname_static_dep.K`, and a `static` is immutable: only an `unsafe static var` is written (design 149)
 coercion/qualname_mod_static_refarg.saw	refused	llvm backend.not-yet	a static whose value is not an integer or a Bool is not in the backend slice yet
 coercion/qualname_obj_field.saw	pass	-	-
-coercion/result_slot_const_expression.saw	refused	mono mono.not-yet	a synthesized `Printable.format(into: &var std.stringbuilder.StringBuilder)` on `UInt16` is not in the backend slice yet: only a signed integer's `Printable.format`
+coercion/result_slot_const_expression.saw	pass	-	-
 collection_literal_closure_rule.saw	refused	resolve slice.not-yet	`syntax.expr.shorthand-param` is not in the bootstrap slice yet
 collection_literal_custom_allocator.saw	pass	-	-
 collection_literal_move_error.saw	pass	-	move.use-after: `r.id` is used after it may have been moved (moved at 18:13); a moved value is gone until it is assigned again
 comparable_custom.saw	pass	-	-
 comparable_float_nan.saw	refused	llvm backend.not-yet	an operator on this type is not in the backend slice yet
-comparable_generic_bound.saw	refused	mono mono.not-yet	a synthesized `Comparable.compare(other: &Self)` on `Int` is not in the backend slice yet: only a signed integer's `Printable.format`
+comparable_generic_bound.saw	refused	mono mono.not-yet	a synthesized `Comparable.compare(other: &Self)` on `comparable_generic_bound.Version` is not in the backend slice yet: only a scalar's builtin hooks
 comparable_not_comparable_error.saw	pass	-	operator.undefined: `<` compares two `comparable_not_comparable_error.P`, which is not `Comparable`
 comparable_operator_desugar.saw	pass	-	-
-comparable_requires_equatable_error.saw	refused	mono mono.not-yet	a synthesized `Comparable.compare(other: &Self)` on `comparable_requires_equatable_error.Tagged` is not in the backend slice yet: only a signed integer's `Printable.format`
+comparable_requires_equatable_error.saw	refused	mono mono.not-yet	a synthesized `Comparable.compare(other: &Self)` on `comparable_requires_equatable_error.Tagged` is not in the backend slice yet: only a scalar's builtin hooks
 comparable_string.saw	pass	-	-
-comparable_synth_enum.saw	refused	mono mono.not-yet	a synthesized `Comparable.compare(other: &Self)` on `comparable_synth_enum.Priority` is not in the backend slice yet: only a signed integer's `Printable.format`
-comparable_synth_struct.saw	refused	mono mono.not-yet	a synthesized `Comparable.compare(other: &Self)` on `comparable_synth_struct.Point` is not in the backend slice yet: only a signed integer's `Printable.format`
+comparable_synth_enum.saw	refused	mono mono.not-yet	a synthesized `Comparable.compare(other: &Self)` on `comparable_synth_enum.Priority` is not in the backend slice yet: only a scalar's builtin hooks
+comparable_synth_struct.saw	refused	mono mono.not-yet	a synthesized `Comparable.compare(other: &Self)` on `comparable_synth_struct.Point` is not in the backend slice yet: only a scalar's builtin hooks
 comparison_literal_coercion.saw	pass	-	-
-comparison_requirement_call_through_bound.saw	refused	mono mono.not-yet	a synthesized `Printable.format(into: &var std.stringbuilder.StringBuilder)` on `Bool` is not in the backend slice yet: only a signed integer's `Printable.format`
-comparison_requirement_concrete_receiver.saw	refused	mono mono.not-yet	a synthesized `Printable.format(into: &var std.stringbuilder.StringBuilder)` on `Bool` is not in the backend slice yet: only a signed integer's `Printable.format`
+comparison_requirement_call_through_bound.saw	refused	mono mono.not-yet	a synthesized `Equatable.equals(other: &Self)` on `comparison_requirement_call_through_bound.Plain` is not in the backend slice yet: only a scalar's builtin hooks
+comparison_requirement_concrete_receiver.saw	refused	mono mono.not-yet	a synthesized `Comparable.compare(other: &Self)` on `Float` is not in the backend slice yet: the backend lowers no Float operation
 complement_requires_integer.saw	pass	-	operator.undefined: `~` complements an integer, and this is `Bool`
-compound_assign.saw	refused	mono mono.not-yet	a synthesized `Printable.format(into: &var std.stringbuilder.StringBuilder)` on `Float` is not in the backend slice yet: only a signed integer's `Printable.format`
+compound_assign.saw	refused	mono mono.not-yet	a synthesized `Printable.format(into: &var std.stringbuilder.StringBuilder)` on `Float` is not in the backend slice yet: the backend lowers no Float operation
 compound_assign_literal_out_of_range_error.saw	pass	-	type.mismatch: integer literal 300 does not fit in `Int8` (range -128..=127)
 conformance/A02_init_declared_return_is_checked.saw	pass	-	init.result: an `init` returns its receiver, `A02_init_declared_return_is_checked.Alpha`, or `Result<A02_init_declared_return_is_checked.Alpha, E>`, and this one returns `Int`
 conformance/B05_orphan_conformance.saw	pass	-	conformance.orphan: a conformance lives in its type's module (`dep`) or its trait's (`std.prelude`); wrap the type in one this module owns
 conformance/B06_transitive_extension_invisible.saw	refused	typecheck member.unknown	`Int` has no method `deep_op` this module can see
 conformance/B08_direct_import_extension_visible.saw	pass	-	-
-conformance/B09_user_type_name_vs_private_std_type.saw	refused	mono mono.not-yet	a synthesized `Printable.format(into: &var std.stringbuilder.StringBuilder)` on `UInt8` is not in the backend slice yet: only a signed integer's `Printable.format`
+conformance/B09_user_type_name_vs_private_std_type.saw	pass	-	-
 conformance/B12_prelude_type_name_stays_reserved.saw	pass	-	name.reserved: `Vector` is a prelude name, so it is reserved and cannot be declared again
 conformance/B13_import_is_not_reexport.saw	refused	resolve name.undefined	cannot find `Header` in scope
 conformance/B14_public_import_reexports.saw	pass	-	import.unknown-symbol: `wire229` is not defined in `facade229`
@@ -264,12 +264,12 @@ conformance/B22_private_type_escapes_module_error.saw	wrong	accepts a refusal te
 conformance/C01_order_operator_nocopy_handwritten_compare.saw	pass	-	-
 conformance/C02_equality_operator_nocopy_handwritten_equals.saw	pass	-	-
 conformance/C03_match_guard_equality_nocopy.saw	pass	-	-
-conformance/C04_synthesized_memberwise_reaches_handwritten.saw	refused	mono mono.not-yet	a synthesized `Equatable.equals(other: &Self)` on `C04_synthesized_memberwise_reaches_handwritten.Holder` is not in the backend slice yet: only a signed integer's `Printable.format`
-conformance/C05_enum_payload_reaches_handwritten.saw	refused	mono mono.not-yet	a synthesized `Equatable.equals(other: &Self)` on `C05_enum_payload_reaches_handwritten.Wrap` is not in the backend slice yet: only a signed integer's `Printable.format`
+conformance/C04_synthesized_memberwise_reaches_handwritten.saw	refused	mono mono.not-yet	a synthesized `Equatable.equals(other: &Self)` on `C04_synthesized_memberwise_reaches_handwritten.Holder` is not in the backend slice yet: only a scalar's builtin hooks
+conformance/C05_enum_payload_reaches_handwritten.saw	refused	mono mono.not-yet	a synthesized `Equatable.equals(other: &Self)` on `C05_enum_payload_reaches_handwritten.Wrap` is not in the backend slice yet: only a scalar's builtin hooks
 conformance/C06_tuple_element_reaches_handwritten.saw	refused	llvm backend.not-yet	the operator `==` on `&(Int, C06_tuple_element_reaches_handwritten.Tag)` is not in the backend slice yet
 conformance/C07_generic_body_operator_nocopy_instantiation.saw	pass	-	-
 conformance/C08_implicitcopy_operand_handwritten_equals_legal.saw	pass	-	-
-conformance/C09_nocopy_synthesized_comparison_legal.saw	refused	mono mono.not-yet	a synthesized `Equatable.equals(other: &Self)` on `C09_nocopy_synthesized_comparison_legal.Tag` is not in the backend slice yet: only a signed integer's `Printable.format`
+conformance/C09_nocopy_synthesized_comparison_legal.saw	refused	mono mono.not-yet	a synthesized `Equatable.equals(other: &Self)` on `C09_nocopy_synthesized_comparison_legal.Tag` is not in the backend slice yet: only a scalar's builtin hooks
 conformance/C10_direct_call_transfer_spellings.saw	pass	-	-
 conformance/C11_explicitcopy_operand_handwritten_compare.saw	pass	-	-
 conformance/C12_implicitcopy_operand_survives_consuming_equals.saw	pass	-	-
@@ -279,8 +279,8 @@ conformance/D01_guard_else_diverging_exit.saw	pass	-	-
 conformance/D02_return_diverging_operand.saw	pass	-	-
 conformance/D03_diverging_call_argument.saw	pass	-	-
 conformance/D04_nil_coalesce_diverging_default.saw	pass	-	-
-conformance/D05_diverging_value_branch_arms.saw	refused	mono mono.not-yet	a synthesized `Printable.format(into: &var std.stringbuilder.StringBuilder)` on `Bool` is not in the backend slice yet: only a signed integer's `Printable.format`
-conformance/D06_diverging_tail_and_never_chain.saw	refused	mono mono.not-yet	a synthesized `Printable.format(into: &var std.stringbuilder.StringBuilder)` on `Bool` is not in the backend slice yet: only a signed integer's `Printable.format`
+conformance/D05_diverging_value_branch_arms.saw	pass	-	-
+conformance/D06_diverging_tail_and_never_chain.saw	pass	-	-
 conformance/D07_never_method_and_generic.saw	pass	-	-
 conformance/D08_never_closure_vtable_default.saw	refused	typecheck type.mismatch	expected `D08_never_closure_vtable_default.Reply`, the type of the function's result, which the body's last expression is, and found `Void`
 conformance/D09_diverging_positions_freestanding.saw	refused	driver driver.usage	sawc2 build takes no --freestanding
@@ -319,8 +319,8 @@ conformance/K118_every_shape_splits_hoists_or_refuses.saw	pass	-	-
 conformance/K11_spinlock_captured.saw	pass	-	transfer.implicit-copy: the closure captures `lock` by value, and `std.spinlock.SpinLock<Int>` is NoCopy, which does not copy silently: capture it with `[move lock]`, or copy it into a local the closu
 conformance/K123_every_window_opener_reads_the_declared_mode.saw	refused	llvm backend.not-yet	a conditional borrow is not in the backend slice yet
 conformance/K127_conditional_lend_modes.saw	refused	mir slice.not-yet	a `borrow` block binding a conditional lend is not lowered to MIR in the bootstrap slice yet
-conformance/K128_cow_gate_survives_the_var_self_spelling.saw	refused	mono mono.not-yet	a synthesized `Printable.format(into: &var std.stringbuilder.StringBuilder)` on `UInt8` is not in the backend slice yet: only a signed integer's `Printable.format`
-conformance/K129_forwarded_lend_carries_the_window_mode.saw	refused	mono mono.not-yet	a synthesized `Printable.format(into: &var std.stringbuilder.StringBuilder)` on `UInt8` is not in the backend slice yet: only a signed integer's `Printable.format`
+conformance/K128_cow_gate_survives_the_var_self_spelling.saw	pass	-	-
+conformance/K129_forwarded_lend_carries_the_window_mode.saw	pass	-	-
 conformance/K133_window_spans_a_suspension.saw	refused	typecheck slice.not-yet	`syntax.expr.lends` is not in the bootstrap slice yet
 conformance/K135_window_conflicts_that_compose.saw	refused	typecheck member.unknown	`std.vector.Vector<Int, std.alloc.GlobalAllocator>` has no method `iter` this module can see
 conformance/K136_window_release_routes.saw	refused	typecheck member.unknown	`std.vector.Vector<Int, std.alloc.GlobalAllocator>` has no method `iter` this module can see
@@ -459,7 +459,7 @@ conformance/R34_field_of_ref_returning_fn_type.saw	pass	-	type.reference-positio
 conformance/R39_explicit_self_borrow_capture.saw	pass	-	-
 conformance/R40_var_self_capture_needs_var_receiver.saw	pass	-	capture.exclusive-self: `[&var self]` needs a `&var self` receiver, and `Counter.read` takes `&self`: a shared borrow has no exclusive borrow to hand out; write `[&self]`
 conformance/R41_explicit_self_capture_escaping_error.saw	pass	-	capture.escaping-borrow: an escaping closure cannot capture `self`: a method's receiver is a borrow of storage the caller owns, and a borrow may not outlive the frame it points into: pass the closure
-conformance/S09_same_scope_redefinition_owning_across_suspend.saw	refused	mono mono.not-yet	a synthesized `ExplicitCopy.copy()` on `Int` is not in the backend slice yet: only a signed integer's `Printable.format` (inside std/vector.saw:227:35)
+conformance/S09_same_scope_redefinition_owning_across_suspend.saw	pass	-	-
 conformance/T10_vector_index_oob.saw	pass	-	-
 conformance/T11_vector_negative_index.saw	pass	-	-
 conformance/T12_vector_get_none.saw	pass	-	-
@@ -481,7 +481,7 @@ conformance/U34_funcpointer_capture_self_error.saw	refused	resolve name.undefine
 conformance/V04_move_out_of_ref.saw	pass	-	transfer.move-from-borrow: cannot move out of `x`: it is a reference, which borrows storage its caller owns and ends; read or borrow it instead, or give the owner a move-out (`take()` on an optional,
 conformance/V100_bounded_copy_at_the_auto_tier_retains.saw	refused	mono mono.not-yet	a closure capturing a value that owns something is not in the backend slice yet
 conformance/V101_copy_family_carries_the_tier.saw	refused	typecheck member.unknown	`std.vector.Vector<V101_copy_family_carries_the_tier.Rec, std.alloc.GlobalAllocator>` has no method `try_copy` this module can see
-conformance/V102_derived_copy_duplicates_every_field.saw	refused	mono mono.not-yet	a synthesized `ExplicitCopy.copy()` on `V102_derived_copy_duplicates_every_field.Holder` is not in the backend slice yet: only a signed integer's `Printable.format`
+conformance/V102_derived_copy_duplicates_every_field.saw	refused	mono mono.not-yet	a synthesized `ExplicitCopy.copy()` on `V102_derived_copy_duplicates_every_field.Holder` is not in the backend slice yet: only a scalar's builtin hooks
 conformance/V103_copy_funnel_duplicates_exactly_once.saw	refused	mono mono.not-yet	a call of `ExplicitCopy.copy()` on `V103_copy_funnel_duplicates_exactly_once.Counted`, which no conformance of it meets, is not in the backend slice yet (inside std/vector.saw:227:35)
 conformance/V104_unbound_value_is_released.saw	wrong	stdout differs	line 9: sawc2 "if 5", Stage 0 "drop 4"
 conformance/V105_copy_capture_releases_its_duplicate.saw	refused	mono mono.not-yet	a closure capturing a value that owns something is not in the backend slice yet
@@ -504,18 +504,18 @@ conformance/V25_implicitcopy_deinit_once.saw	pass	-	-
 conformance/V26_copy_atomic_local.saw	pass	-	transfer.implicit-copy: this reads a place of type `Atomic<Int>`, which is NoCopy, by value: only a Copy type copies silently; write `move a` to take it, or borrow it
 conformance/V27_atomic_field_no_policy.saw	pass	-	copy.undeclared-policy: `Holder` holds `Holder.n` of type `Atomic<Int>`, which is NoCopy, so it declares its own policy: `extension Holder: NoCopy {}`, or `@synthesize` an ExplicitCopy
 conformance/V28_atomic_holder_declares_nocopy.saw	pass	-	-
-conformance/V29_static_atomic_unaffected.saw	refused	mono mono.not-yet	a synthesized `Printable.format(into: &var std.stringbuilder.StringBuilder)` on `Bool` is not in the backend slice yet: only a signed integer's `Printable.format`
+conformance/V29_static_atomic_unaffected.saw	pass	-	-
 conformance/V30_move_atomic_local.saw	pass	-	-
 conformance/V31_move_out_of_vector_element.saw	pass	-	result.discarded: the result of `push` is `Result<Void, std.alloc.AllocError>` and is silently discarded: handle it (`match` it, `try` or `try!` it, or return it), or write `let _ = ...` to discard it
 conformance/V32_copy_bound_is_tier_derived.saw	pass	-	-
 conformance/V33_explicitcopy_refused_at_silent_bound.saw	pass	-	result.discarded: the result of `push` is `Result<Void, std.alloc.AllocError>` and is silently discarded: handle it (`match` it, `try` or `try!` it, or return it), or write `let _ = ...` to discard it
-conformance/V34_explicitcopy_bound_is_the_copyable_family.saw	refused	mono mono.not-yet	a synthesized `ExplicitCopy.copy()` on `Int` is not in the backend slice yet: only a signed integer's `Printable.format`
+conformance/V34_explicitcopy_bound_is_the_copyable_family.saw	refused	mono mono.not-yet	a call of `ExplicitCopy.copy()` on `String`, which no conformance of it meets, is not in the backend slice yet
 conformance/V36_generic_body_double_bind_refused_at_call.saw	pass	-	copy.requirement: `twice` requires `T` to be Copy, as its body binds `x` twice on one path, at tests/corpus/conformance/V36_generic_body_double_bind_refused_at_call.saw:25:18 and 26:18, with nothing w
 conformance/V37_generic_body_field_read_requires_copy.saw	pass	-	copy.requirement: `Cell.get` requires `T` to be Copy, as its body copies one at tests/corpus/conformance/V37_generic_body_field_read_requires_copy.saw:25:28 with nothing written, and `V37_generic_body
 conformance/V38_generic_requirement_propagates_through_forwarding.saw	pass	-	copy.requirement: `outer` requires `T` to be Copy, as its body binds `y` twice on one path, at tests/corpus/conformance/V38_generic_requirement_propagates_through_forwarding.saw:23:18 and 24:18, with
 conformance/V39_generic_method_body_honors_copy_tier.saw	pass	-	copy.requirement: `Wrap.dup` requires `T` to be Copy, as its body binds `x` twice on one path, at tests/corpus/conformance/V39_generic_method_body_honors_copy_tier.saw:32:22 and 33:22, with nothing wr
 conformance/V40_generic_coroutine_body_honors_copy_tier.saw	pass	-	copy.requirement: `launder_s` requires `T` to be Copy, as its body binds `x` twice on one path, at tests/corpus/conformance/V40_generic_coroutine_body_honors_copy_tier.saw:26:18 and 28:18, with nothin
-conformance/V41_branch_exclusive_uses_stay_move_only.saw	refused	mono mono.not-yet	a synthesized `Comparable.compare(other: &Self)` on `Int` is not in the backend slice yet: only a signed integer's `Printable.format`
+conformance/V41_branch_exclusive_uses_stay_move_only.saw	pass	-	-
 conformance/V42_copy_argument_to_duplicating_body_runs.saw	pass	-	-
 conformance/V43_copy_call_needs_a_bound_through_wrappers.saw	pass	-	type.bound: `(T, Int)` has no `copy()`: its copy reaches the type parameter `T`, which no bound makes `ExplicitCopy`; declare `T: ExplicitCopy`, or `Copy`
 conformance/V44_bounded_wrapper_copy_runs.saw	refused	mono mono.not-yet	the builtin `copy` is not in the backend slice yet
@@ -549,7 +549,7 @@ conformance/V77_value_branch_arm_takes_the_move_checkpoint.saw	pass	-	transfer.i
 conformance/V78_value_arm_refusal_is_position_blind.saw	pass	-	transfer.implicit-copy: this reads a place of type `V78_value_arm_refusal_is_position_blind.Res`, which is NoCopy, by value: only a Copy type copies silently; write `move a` to take it, or borrow it
 conformance/V79_every_value_branch_construct_is_a_transfer.saw	refused	typecheck slice.not-yet	`syntax.stmt.break` is not in the bootstrap slice yet
 conformance/V80_copy_tier_arm_retains_exactly_once.saw	pass	-	-
-conformance/V81_value_arm_fence_is_narrow.saw	refused	mono mono.not-yet	a synthesized `ExplicitCopy.copy()` on `Int` is not in the backend slice yet: only a signed integer's `Printable.format` (inside std/vector.saw:227:35)
+conformance/V81_value_arm_fence_is_narrow.saw	pass	-	-
 conformance/V82_closure_tail_takes_the_transfer_checkpoint.saw	pass	-	transfer.implicit-copy: this reads a place of type `V82_closure_tail_takes_the_transfer_checkpoint.Res`, which is NoCopy, by value: only a Copy type copies silently; write `move r` to take it, or borr
 conformance/V83_closure_tail_refusal_reaches_every_source.saw	pass	-	transfer.implicit-copy: this reads a place of type `V83_closure_tail_refusal_reaches_every_source.Res`, which is NoCopy, by value: only a Copy type copies silently; write `move r` to take it, or borro
 conformance/V84_copy_tier_closure_tail_retains_exactly_once.saw	pass	-	-
@@ -587,8 +587,8 @@ conformance/W18_compound_assign_mixed_width.saw	pass	-	type.mismatch: expected `
 conformance/W19_bitwise_mixed_width.saw	pass	-	type.mismatch: an operator's operands agree on one type, and these are `Int` and `Int16`; convert one with `as`
 conformance/W20_narrowing_transfer_positions_error.saw	pass	-	type.mismatch: expected `Int8`, the type of the function's result, which the body's last expression is, and found `Int`; only a lossless widening into or out of `Int` or `UInt` is implicit: write `as`
 conformance/W21_sign_flip_transfer_positions_error.saw	pass	-	type.mismatch: expected `Int`, the type of the function's result, which the body's last expression is, and found `UInt`; only a lossless widening into or out of `Int` or `UInt` is implicit: write `as`
-conformance/W22_lossless_widening_transfer_positions.saw	refused	mono mono.not-yet	a synthesized `Equatable.equals(other: &Self)` on `Int` is not in the backend slice yet: only a signed integer's `Printable.format` (inside std/map.saw:232:24)
-conformance/W23_bare_literal_adopts_transfer_positions.saw	refused	mono mono.not-yet	a synthesized `Equatable.equals(other: &Self)` on `Int8` is not in the backend slice yet: only a signed integer's `Printable.format` (inside std/map.saw:232:24)
+conformance/W22_lossless_widening_transfer_positions.saw	pass	-	-
+conformance/W23_bare_literal_adopts_transfer_positions.saw	pass	-	-
 conformance/W24_fixed_width_transfer_never_converts_error.saw	pass	-	type.mismatch: expected `Int16`, the type of the function's result, which the body's last expression is, and found `Int8`; only a lossless widening into or out of `Int` or `UInt` is implicit: write `a
 conformance/X02_varref_aliased_by_shared.saw	pass	-	loan.read-while-exclusive: `x` is borrowed here while the argument at 11:9 holds `x` exclusively for its call; an exclusive borrow admits no other access while it is live
 conformance/X09_disjoint_tuple_elements.saw	pass	-	-
@@ -640,7 +640,7 @@ consumes_foreign_module_declaration_error.saw	wrong	accepts a refusal test	`leak
 consumes_is_a_contextual_word.saw	pass	-	-
 consumes_receiver_forms.saw	pass	-	-
 consumes_suspending_method.saw	pass	-	-
-copy_bound_generic.saw	refused	mono mono.not-yet	a synthesized `ExplicitCopy.copy()` on `Int` is not in the backend slice yet: only a signed integer's `Printable.format`
+copy_bound_generic.saw	pass	-	-
 copy_policy_hook_sync.saw	pass	-	-
 copy_traits_both_declared_legal.saw	pass	-	copy.second-policy: `Buf` conforms to `ExplicitCopy`, a second copy policy beside `Copy` at 22:16: a type has one of `Copy`, `ExplicitCopy` and `NoCopy`, bounded or not, so a transfer of it copies sil
 coro_autowrap_argument_in_driven_body.saw	refused	resolve import.unknown-module	no module `std.channel`
@@ -649,7 +649,7 @@ coro_bind_id_for_var_derived.saw	pass	-	-
 coro_bind_id_guardlet_nonspanning.saw	pass	-	-
 coro_bind_id_iflet_nonspanning.saw	pass	-	-
 coro_bind_id_match_arm_later_local.saw	pass	-	-
-coro_bind_id_match_arms_same_name.saw	refused	mono mono.not-yet	a synthesized `Printable.format(into: &var std.stringbuilder.StringBuilder)` on `Bool` is not in the backend slice yet: only a signed integer's `Printable.format`
+coro_bind_id_match_arms_same_name.saw	pass	-	-
 coro_bind_id_nested_block_shadow.saw	pass	-	-
 coro_bind_id_param_shadow.saw	pass	-	-
 coro_bind_id_scopes_stress.saw	pass	-	-
@@ -758,7 +758,7 @@ coro_omitted_default_arguments.saw	pass	-	-
 coro_optbind_loop_control.saw	pass	-	-
 coro_optbind_loop_control_spawned.saw	pass	-	-
 coro_optbind_split_in_try.saw	pass	-	-
-coro_optional_binding_suspending_method.saw	refused	mono mono.not-yet	a synthesized `Printable.format(into: &var std.stringbuilder.StringBuilder)` on `Bool` is not in the backend slice yet: only a signed integer's `Printable.format`
+coro_optional_binding_suspending_method.saw	pass	-	-
 coro_optional_presence_unconditional_lend.saw	refused	resolve import.unknown-module	no module `std.compiler.frame`
 coro_panic_value_position.saw	wrong	stdout differs	line 5: sawc2 "<end>", Stage 0 "saw tasks: 1 live (as-of panic, unsynchronized)"
 coro_qualified_generic_call_embeds.saw	pass	-	-
@@ -766,7 +766,7 @@ coro_reassign_owning_local.saw	pass	-	-
 coro_ref_arg_beside_suspending_arg.saw	pass	-	-
 coro_ref_arg_beside_suspending_arg_cross_module.saw	pass	-	-
 coro_ref_into_frame_resident_fixed_array.saw	pass	-	-
-coro_ref_param_compound_assign.saw	refused	mono mono.not-yet	a synthesized `Printable.format(into: &var std.stringbuilder.StringBuilder)` on `Float` is not in the backend slice yet: only a signed integer's `Printable.format`
+coro_ref_param_compound_assign.saw	refused	mono mono.not-yet	a synthesized `Printable.format(into: &var std.stringbuilder.StringBuilder)` on `Float` is not in the backend slice yet: the backend lowers no Float operation
 coro_ref_param_deinit_once.saw	pass	-	-
 coro_ref_param_mut.saw	pass	-	-
 coro_ref_param_read.saw	pass	-	-
@@ -774,7 +774,7 @@ coro_ref_self_method.saw	pass	-	-
 coro_result_array_and_closure.saw	pass	-	-
 coro_return_autowrap_result_suspending.saw	refused	mono mono.not-yet	a call of `Printable.format(into: &var std.stringbuilder.StringBuilder)` on `std.box.Box<any Error, std.alloc.GlobalAllocator>`, which no conformance of it meets, is not in the backend slice yet
 coro_return_in_expression_block.saw	pass	-	-
-coro_same_scope_redefinition_owning_slots.saw	refused	mono mono.not-yet	a synthesized `ExplicitCopy.copy()` on `Int` is not in the backend slice yet: only a signed integer's `Printable.format` (inside std/vector.saw:227:35)
+coro_same_scope_redefinition_owning_slots.saw	wrong	stdout differs	line 4: sawc2 "r2 b123", Stage 0 "D b1"
 coro_spawn_and_embed.saw	pass	-	-
 coro_spawn_and_embed_cancel.saw	pass	-	-
 coro_spawn_and_embed_generic.saw	pass	-	-
@@ -823,7 +823,7 @@ d144_public_same_name_alias.saw	pass	-	-
 d249_bare_import_tie_names_both_origins_error.saw	pass	-	call.ambiguous: ambiguous call: these candidates take the arguments equally well, so write labels or type arguments that pick one: chime(n: Int) [modules.d249_tie_b]; chime(n: Int) [modules.d249_tie_a
 d249_bare_imports_merge_into_one_overload_set.saw	pass	-	-
 d249_both_std_encoders_bare_is_a_tie_error.saw	refused	resolve import.unknown-module	no module `std.json`
-d249_glob_import_binds_whole_overload_set.saw	refused	mono mono.not-yet	a synthesized `Printable.format(into: &var std.stringbuilder.StringBuilder)` on `UInt8` is not in the backend slice yet: only a signed integer's `Printable.format`
+d249_glob_import_binds_whole_overload_set.saw	pass	-	-
 d249_module_twins_qualified.saw	pass	-	-
 d249_own_declaration_beside_bare_std_import_error.saw	wrong	accepts a refusal test	ambiguous call to `dump_tasks`: multiple overloads match the argument types ()
 d249_own_declaration_wins_over_unimported_std_name.saw	pass	-	-
@@ -892,7 +892,7 @@ df151j_tuple_element_ref.saw	pass	-	-
 df151j_tuple_element_write.saw	pass	-	-
 df151l_tuple_literal_expected_type.saw	pass	-	-
 df165b_place_literal_range_error.saw	pass	-	result.discarded: the result of `push` is `Result<Void, std.alloc.AllocError>` and is silently discarded: handle it (`match` it, `try` or `try!` it, or return it), or write `let _ = ...` to discard it
-df165b_place_literal_width.saw	refused	mono mono.not-yet	a synthesized `Printable.format(into: &var std.stringbuilder.StringBuilder)` on `UInt8` is not in the backend slice yet: only a signed integer's `Printable.format`
+df165b_place_literal_width.saw	pass	-	-
 df229a_missing_selection_error.saw	refused	resolve name.undefined	cannot find `gauge_make` in scope
 df229a_private_selection_error.saw	pass	-	visibility.private: `trim` is private in `modules.df229a_leaf`
 df229a_private_type_selection_error.saw	pass	-	visibility.private: `Calibration` is private in `modules.df229a_leaf`
@@ -928,7 +928,7 @@ doc_emit_static_var.saw	refused	driver driver.usage	sawc2 build takes no --emit-
 doc_emit_unsafe.saw	refused	driver driver.usage	sawc2 build takes no --emit-docs
 drive_site_in_suspending_body.saw	pass	-	coro.drive-in-suspending: `__saw_drive` may not appear in `main`, which itself suspends. This body already runs inside an executor, so `s(...)` needs no drive site: call it directly and the suspending
 drive_site_in_suspending_function.saw	pass	-	coro.drive-in-suspending: `__saw_drive_steps` may not appear in `runner`, which itself suspends. This body already runs inside an executor, so `s(...)` needs no drive site: call it directly and the su
-duration_prelude.saw	refused	mono mono.not-yet	a synthesized `Comparable.compare(other: &Self)` on `std.duration.Duration` is not in the backend slice yet: only a signed integer's `Printable.format`
+duration_prelude.saw	refused	mono mono.not-yet	a synthesized `Comparable.compare(other: &Self)` on `std.duration.Duration` is not in the backend slice yet: only a scalar's builtin hooks
 else_if_test.saw	pass	-	-
 enum145_generic_methods.saw	pass	-	-
 enum145_import_scope.saw	pass	-	-
@@ -942,7 +942,7 @@ enum145_raw_missing_value_error.saw	pass	-	type.raw-value: case `Missing.B` need
 enum145_raw_payload_error.saw	pass	-	type.raw-backing: case `WithPayload.Detail` carries a payload, so its enum cannot declare a raw backing: a case with a payload has no integer identity
 enum145_raw_unbacked_cast_error.saw	pass	-	type.cast: `as` cannot convert `enum145_raw_unbacked_cast_error.Plain` to `UInt8`: it converts between numbers, from a raw-backed enum, and between pointers
 enum145_raw_wire_struct.saw	refused	resolve name.undefined	cannot find `UnsafeMemory` in scope
-enum145_traits.saw	refused	mono mono.not-yet	a synthesized `Equatable.equals(other: &Self)` on `enum145_traits.SysError` is not in the backend slice yet: only a signed integer's `Printable.format`
+enum145_traits.saw	refused	mono mono.not-yet	a synthesized `Equatable.equals(other: &Self)` on `enum145_traits.SysError` is not in the backend slice yet: only a scalar's builtin hooks
 enum_arc_struct_payload_match.saw	pass	-	-
 enum_bitwise_value_error.saw	pass	-	operator.undefined: a bit operator takes integers or `Bool`s, and this is `enum_bitwise_value_error.Perm`
 enum_extension_overloads.saw	pass	-	-
@@ -951,7 +951,7 @@ enum_optional_payload_roundtrip.saw	pass	-	-
 enum_payload_deinit.saw	pass	-	-
 enum_payload_free_as_key.saw	refused	mono mono.not-yet	a call of `Equatable.equals(other: &Self)` on `enum_payload_free_as_key.Color`, which no conformance of it meets, is not in the backend slice yet (inside std/map.saw:232:24)
 enum_policy_bare_owning_error.saw	pass	-	copy.undeclared-policy: `Reel` holds `Reel.Loaded` of type `enum_policy_bare_owning_error.Tape`, which is NoCopy, so it declares its own policy: `extension Reel: NoCopy {}`, or `@synthesize` an Explic
-enum_policy_explicit_copy_deep.saw	refused	mono mono.not-yet	a synthesized `ExplicitCopy.copy()` on `enum_policy_explicit_copy_deep.Bag` is not in the backend slice yet: only a signed integer's `Printable.format`
+enum_policy_explicit_copy_deep.saw	refused	mono mono.not-yet	a synthesized `ExplicitCopy.copy()` on `enum_policy_explicit_copy_deep.Bag` is not in the backend slice yet: only a scalar's builtin hooks
 enum_policy_nocopy_move_only.saw	pass	-	-
 enum_policy_undeclared_retaining.saw	pass	-	-
 enum_raw_hex_values.saw	pass	-	-
@@ -960,9 +960,9 @@ enum_raw_value_const_expression_out_of_range.saw	pass	-	constant.shift-range: co
 enum_raw_value_takes_const_expression.saw	refused	llvm backend.not-yet	this conversion is not in the backend slice yet
 enum_ref_payload_escape.saw	pass	-	result.discarded: the result of `push` is `Result<Void, std.alloc.AllocError>` and is silently discarded: handle it (`match` it, `try` or `try!` it, or return it), or write `let _ = ...` to discard it
 enum_variant_through_field_receiver_error.saw	refused	typecheck member.unknown	`enum_variant_through_field_receiver_error.Color` has no method `Custom` this module can see
-enums_associated.saw	refused	mono mono.not-yet	a synthesized `Equatable.equals(other: &Self)` on `enums_associated.OperationResult` is not in the backend slice yet: only a signed integer's `Printable.format`
+enums_associated.saw	refused	mono mono.not-yet	a synthesized `Equatable.equals(other: &Self)` on `enums_associated.OperationResult` is not in the backend slice yet: only a scalar's builtin hooks
 enums_edge_cases.saw	pass	-	-
-enums_equality.saw	refused	mono mono.not-yet	a synthesized `Equatable.equals(other: &Self)` on `enums_equality.OperationResult` is not in the backend slice yet: only a signed integer's `Printable.format`
+enums_equality.saw	refused	mono mono.not-yet	a synthesized `Equatable.equals(other: &Self)` on `enums_equality.OperationResult` is not in the backend slice yet: only a scalar's builtin hooks
 enums_match.saw	pass	-	-
 enums_match_bind.saw	pass	-	-
 enums_positional.saw	pass	-	-
@@ -973,16 +973,16 @@ equatable_array_field.saw	refused	llvm backend.not-yet	the operator `==` on `equ
 equatable_auto_enum.saw	pass	-	-
 equatable_auto_struct.saw	pass	-	-
 equatable_custom_override.saw	pass	-	-
-equatable_enum_deep.saw	refused	mono mono.not-yet	a synthesized `Equatable.equals(other: &Self)` on `equatable_enum_deep.Shape` is not in the backend slice yet: only a signed integer's `Printable.format`
-equatable_enum_optional_payload.saw	refused	mono mono.not-yet	a synthesized `Equatable.equals(other: &Self)` on `equatable_enum_optional_payload.Cell` is not in the backend slice yet: only a signed integer's `Printable.format`
-equatable_field_not_equatable_error.saw	refused	mono mono.not-yet	a synthesized `Equatable.equals(other: &Self)` on `equatable_field_not_equatable_error.Outer` is not in the backend slice yet: only a signed integer's `Printable.format`
-equatable_generic_bound.saw	refused	mono mono.not-yet	a synthesized `Equatable.equals(other: &Self)` on `Int` is not in the backend slice yet: only a signed integer's `Printable.format`
+equatable_enum_deep.saw	refused	mono mono.not-yet	a synthesized `Equatable.equals(other: &Self)` on `equatable_enum_deep.Shape` is not in the backend slice yet: only a scalar's builtin hooks
+equatable_enum_optional_payload.saw	refused	mono mono.not-yet	a synthesized `Equatable.equals(other: &Self)` on `equatable_enum_optional_payload.Cell` is not in the backend slice yet: only a scalar's builtin hooks
+equatable_field_not_equatable_error.saw	refused	mono mono.not-yet	a synthesized `Equatable.equals(other: &Self)` on `equatable_field_not_equatable_error.Outer` is not in the backend slice yet: only a scalar's builtin hooks
+equatable_generic_bound.saw	refused	mono mono.not-yet	a call of `Equatable.equals(other: &Self)` on `equatable_generic_bound.Point`, which no conformance of it meets, is not in the backend slice yet
 equatable_nan.saw	refused	llvm backend.not-yet	an operator on this type is not in the backend slice yet
 equatable_not_equatable_error.saw	pass	-	operator.undefined: `==` compares two `equatable_not_equatable_error.Holder`, which is not `Equatable`
 equatable_optional_direct.saw	pass	-	-
 equatable_optional_field.saw	pass	-	-
-equatable_optional_string_synth.saw	refused	mono mono.not-yet	a synthesized `Equatable.equals(other: &Self)` on `equatable_optional_string_synth.Named` is not in the backend slice yet: only a signed integer's `Printable.format`
-equatable_synth_struct.saw	refused	mono mono.not-yet	a synthesized `Equatable.equals(other: &Self)` on `equatable_synth_struct.Named` is not in the backend slice yet: only a signed integer's `Printable.format`
+equatable_optional_string_synth.saw	refused	mono mono.not-yet	a synthesized `Equatable.equals(other: &Self)` on `equatable_optional_string_synth.Named` is not in the backend slice yet: only a scalar's builtin hooks
+equatable_synth_struct.saw	refused	mono mono.not-yet	a synthesized `Equatable.equals(other: &Self)` on `equatable_synth_struct.Named` is not in the backend slice yet: only a scalar's builtin hooks
 equatable_tuple.saw	refused	llvm backend.not-yet	the operator `==` on `&(Int, String)` is not in the backend slice yet
 erased_downcast_deinit_once.saw	refused	typecheck slice.not-yet	`Box<any Trait>.make` is not in the bootstrap slice yet
 erased_downcast_error_retry.saw	refused	typecheck slice.not-yet	a method `Box` forwards to its payload is not in the bootstrap slice yet
@@ -1054,7 +1054,7 @@ errors/capture_borrow_escaping.saw	refused	resolve slice.not-yet	the `Thread.spa
 errors/capture_exclusivity_receiver.saw	pass	-	loan.closure-carrier: `b` is borrowed here while the closure capture at 22:12 holds `b` exclusively until the closure's last call; the closure carries the borrow from its creation to its last call
 errors/capture_self_move_requires_borrow_sigil.saw	pass	-	resolve.parse-refused: the parser refuses `tests/corpus/errors/capture_self_move_requires_borrow_sigil.saw` (syntax.expr.refused-capture-self), so its declarations are not available
 errors/capture_self_requires_borrow_sigil.saw	pass	-	resolve.parse-refused: the parser refuses `tests/corpus/errors/capture_self_requires_borrow_sigil.saw` (syntax.expr.refused-capture-self), so its declarations are not available
-errors/cast170_const_out_of_range.saw	refused	mono mono.not-yet	a synthesized `Printable.format(into: &var std.stringbuilder.StringBuilder)` on `UInt8` is not in the backend slice yet: only a signed integer's `Printable.format`
+errors/cast170_const_out_of_range.saw	wrong	accepts a refusal test	`1000` is not representable as `UInt8`, so this cast would always panic
 errors/cast170_from_bad_label.saw	pass	-	call.label: an integer's `from` takes an unlabeled argument, or `truncating:`
 errors/channel_not_send.saw	refused	resolve import.unknown-module	no module `std.channel`
 errors/closure_statement_never_called.saw	wrong	accepts a refusal test	closure literal is never called: `{ ... }` in statement position builds a closure and discards it, so its body does not run
@@ -1447,7 +1447,7 @@ exclusivity_swap_same_var.saw	pass	-	loan.exclusive-twice: `x` is borrowed exclu
 exclusivity_var_self_receiver.saw	pass	-	loan.write-while-shared: `c` is borrowed exclusively here while the argument at 19:11 holds `c` shared for its call; a shared borrow admits only reads while it is live
 existential_arg_method.saw	refused	typecheck slice.not-yet	a method call on `any Trait` is not in the bootstrap slice yet
 explicit_copy_basic.saw	pass	-	-
-explicit_copy_derive.saw	refused	mono mono.not-yet	a synthesized `ExplicitCopy.copy()` on `explicit_copy_derive.Outer` is not in the backend slice yet: only a signed integer's `Printable.format`
+explicit_copy_derive.saw	refused	mono mono.not-yet	a synthesized `ExplicitCopy.copy()` on `explicit_copy_derive.Outer` is not in the backend slice yet: only a scalar's builtin hooks
 explicit_copy_requires_move.saw	pass	-	transfer.implicit-copy: this reads a place of type `explicit_copy_requires_move.Buf`, which is ExplicitCopy, by value: only a Copy type copies silently; write `move a` to take it, `a.copy()` for a cop
 export229_chain_error.saw	pass	-	import.unknown-symbol: `export229_leaf` is not defined in `modules.export229_wall`
 export229_facade.saw	pass	-	-
@@ -1582,9 +1582,9 @@ format_args_nonliteral_error.saw	pass	-	format.slot-count: a message with format
 format_args_not_printable_error.saw	pass	-	format.argument: `format_args_not_printable_error.Opaque` is formatted here, and it is neither `Printable` nor a primitive
 format_args_panic.saw	pass	-	-
 format_args_placeholder_error.saw	refused	mono mono.not-yet	a `{}` slot in an interpolation is not in the backend slice yet
-format_args_print.saw	refused	mono mono.not-yet	a synthesized `Printable.format(into: &var std.stringbuilder.StringBuilder)` on `Bool` is not in the backend slice yet: only a signed integer's `Printable.format`
+format_args_print.saw	refused	mono mono.not-yet	a synthesized `Printable.format(into: &var std.stringbuilder.StringBuilder)` on `Float` is not in the backend slice yet: the backend lowers no Float operation
 format_args_too_many_error.saw	pass	-	format.slot-count: the format string has 1 `{}` slots, and 2 arguments follow it; each slot takes one argument
-format_into_builtin_alloc_free.saw	refused	mono mono.not-yet	a synthesized `Printable.format(into: &var std.stringbuilder.StringBuilder)` on `Bool` is not in the backend slice yet: only a signed integer's `Printable.format`
+format_into_builtin_alloc_free.saw	refused	mono mono.not-yet	a synthesized `Printable.format(into: &var std.stringbuilder.StringBuilder)` on `Float` is not in the backend slice yet: the backend lowers no Float operation
 forwarding_nonescaping_ok.saw	refused	resolve slice.not-yet	`syntax.expr.shorthand-param` is not in the bootstrap slice yet
 forwarding_transfer_drops_once_driven.saw	pass	-	-
 free_function_never_shadows_a_runtime_symbol.saw	refused	resolve import.unknown-module	no module `std.net`
@@ -1607,14 +1607,14 @@ generic_bound_call_decidable_param_conversions.saw	pass	-	-
 generic_bound_call_mixed_signature_error.saw	pass	-	call.arity: missing an argument for `index` of Mixed.at(index: Int, item: Self.Item, peer: &Self) [generic_bound_call_mixed_signature_error]
 generic_bound_call_self_param_type.saw	pass	-	type.mismatch: expected `&T`, the type of the parameter, and found `&generic_bound_call_self_param_type.Sack`
 generic_bound_not_trait_error.saw	pass	-	type.not-a-trait: `Int` is not a trait, so it cannot be a bound, a parent or a conformance
-generic_bound_propagation.saw	refused	mono mono.not-yet	a synthesized `Comparable.compare(other: &Self)` on `Int` is not in the backend slice yet: only a signed integer's `Printable.format`
+generic_bound_propagation.saw	pass	-	-
 generic_bound_unknown_trait_error.saw	refused	resolve name.undefined	cannot find `Fooable` in scope
 generic_container_nomove_cascade.saw	pass	-	transfer.no-move: cannot `move` `w`: `generic_container_nomove_cascade.Wrap<std.taskgroup.TaskGroup>` is `NoMove`, so it lives where its constructor built it and may not be relocated; pass `&var` to l
 generic_default_init.saw	refused	llvm backend.not-yet	the constant `N` is not in the backend slice yet
 generic_default_value.saw	pass	-	-
 generic_effect_poly_call.saw	pass	-	-
 generic_enum.saw	pass	-	-
-generic_enum_raw_backing_keeps_values.saw	refused	mono mono.not-yet	a synthesized `Printable.format(into: &var std.stringbuilder.StringBuilder)` on `UInt8` is not in the backend slice yet: only a signed integer's `Printable.format`
+generic_enum_raw_backing_keeps_values.saw	refused	llvm backend.not-yet	this conversion is not in the backend slice yet
 generic_extension_overload.saw	pass	-	-
 generic_fn_box_param.saw	pass	-	-
 generic_fn_vector_ref_param.saw	pass	-	-
@@ -1635,7 +1635,7 @@ generic_method_type_arg_inference.saw	pass	-	-
 generic_nested_tuple_mangling.saw	pass	-	-
 generic_nested_type_args.saw	pass	-	-
 generic_optional_tail_return.saw	pass	-	-
-generic_primitive_bounds.saw	refused	mono mono.not-yet	a synthesized `Comparable.compare(other: &Self)` on `Int` is not in the backend slice yet: only a signed integer's `Printable.format`
+generic_primitive_bounds.saw	refused	mono mono.not-yet	a call of `Equatable.equals(other: &Self)` on `(Int, Int)`, which no conformance of it meets, is not in the backend slice yet
 generic_result_direct_consume.saw	pass	-	-
 generic_same_named_inits_and_overloads.saw	pass	-	-
 generic_static_call_own_type_params.saw	pass	-	-
@@ -1643,7 +1643,7 @@ generic_static_type_arg_inference.saw	pass	-	-
 generic_struct.saw	pass	-	-
 generic_struct_deinit.saw	pass	-	-
 generic_struct_field_assign.saw	pass	-	-
-generic_struct_literal_retains_fields.saw	refused	mono mono.not-yet	a synthesized `ExplicitCopy.copy()` on `generic_struct_literal_retains_fields.Bag` is not in the backend slice yet: only a signed integer's `Printable.format`
+generic_struct_literal_retains_fields.saw	refused	mono mono.not-yet	a synthesized `ExplicitCopy.copy()` on `generic_struct_literal_retains_fields.Bag` is not in the backend slice yet: only a scalar's builtin hooks
 generic_tuple_result_single.saw	pass	-	-
 generic_type_param_shadows_type_name.saw	pass	-	-
 generics_multi_param.saw	pass	-	-
@@ -1655,8 +1655,8 @@ guard_let_no_exit_error.saw	refused	resolve name.undefined	cannot find `Some` in
 guard_let_scope.saw	pass	-	-
 guard_var.saw	pass	-	-
 hashable_auto_struct.saw	refused	mono mono.not-yet	a call of `Hashable.hash(h: &var Hasher)` on `hashable_auto_struct.Point`, which no conformance of it meets, is not in the backend slice yet
-hashable_requires_equatable_error.saw	refused	mono mono.not-yet	a synthesized `Hashable.hash(h: &var Hasher)` on `hashable_requires_equatable_error.Keyed` is not in the backend slice yet: only a signed integer's `Printable.format`
-hashable_synth_struct.saw	refused	mono mono.not-yet	a synthesized `Equatable.equals(other: &Self)` on `hashable_synth_struct.Named` is not in the backend slice yet: only a signed integer's `Printable.format`
+hashable_requires_equatable_error.saw	refused	mono mono.not-yet	a synthesized `Hashable.hash(h: &var Hasher)` on `hashable_requires_equatable_error.Keyed` is not in the backend slice yet: only a scalar's builtin hooks
+hashable_synth_struct.saw	refused	mono mono.not-yet	a synthesized `Equatable.equals(other: &Self)` on `hashable_synth_struct.Named` is not in the backend slice yet: only a scalar's builtin hooks
 hello.saw	pass	-	-
 hex_binary_octal_literals.saw	pass	-	-
 if_arm_literal_out_of_range_error.saw	pass	-	type.mismatch: integer literal 300 does not fit in `Int8` (range -128..=127)
@@ -1691,7 +1691,7 @@ import_std_function_rename.saw	refused	resolve import.unknown-symbol	`dump_tasks
 indexed_read_addresses_the_live_array.saw	refused	llvm backend.not-yet	a static whose value is not an integer or a Bool is not in the backend slice yet
 infer_generic_driven.saw	pass	-	-
 infer_generic_spawned.saw	pass	-	-
-infer_move_argument_checked_once.saw	refused	mono mono.not-yet	a synthesized `Equatable.equals(other: &Self)` on `Int` is not in the backend slice yet: only a signed integer's `Printable.format` (inside std/map.saw:232:24)
+infer_move_argument_checked_once.saw	pass	-	-
 infer_overload.saw	refused	resolve slice.not-yet	`syntax.expr.shorthand-param` is not in the bootstrap slice yet
 infer_overload_driven.saw	refused	resolve slice.not-yet	`syntax.expr.shorthand-param` is not in the bootstrap slice yet
 infer_type_args.saw	refused	resolve slice.not-yet	`syntax.expr.shorthand-param` is not in the bootstrap slice yet
@@ -1706,11 +1706,11 @@ int_limits.saw	pass	-	-
 int_literal_out_of_range.saw	pass	-	resolve.parse-refused: the parser refuses `tests/corpus/int_literal_out_of_range.saw` (syntax.lex.int-range), so its declarations are not available
 int_methods.saw	pass	-	-
 int_narrowing_transfer_through_platform_int.saw	pass	-	type.mismatch: expected `Int8`, the type of the annotated binding, and found `Int`; only a lossless widening into or out of `Int` or `UInt` is implicit: write `as` to panic out of range, `.from(...)`
-int_parse_to_uint.saw	refused	mono mono.not-yet	a synthesized `Printable.format(into: &var std.stringbuilder.StringBuilder)` on `Bool` is not in the backend slice yet: only a signed integer's `Printable.format`
-int_parse_unsigned_compare.saw	refused	mono mono.not-yet	a synthesized `Printable.format(into: &var std.stringbuilder.StringBuilder)` on `Bool` is not in the backend slice yet: only a signed integer's `Printable.format`
+int_parse_to_uint.saw	pass	-	-
+int_parse_unsigned_compare.saw	pass	-	-
 int_pow_negative_panics.saw	pass	-	-
 int_sign_flip_transfer_through_platform_int.saw	pass	-	type.mismatch: expected `Int`, the type of the annotated binding, and found `UInt`; only a lossless widening into or out of `Int` or `UInt` is implicit: write `as` to panic out of range, `.from(...)`
-int_types.saw	refused	mono mono.not-yet	a synthesized `Printable.format(into: &var std.stringbuilder.StringBuilder)` on `UInt` is not in the backend slice yet: only a signed integer's `Printable.format`
+int_types.saw	pass	-	-
 int_widening_argument_positions.saw	pass	-	-
 int_widening_call_argument.saw	pass	-	-
 int_widening_transfer_preserves_unsigned.saw	pass	-	-
@@ -1749,8 +1749,8 @@ l18_module_qualified_annotation.saw	pass	-	-
 l3_private_struct_bare.saw	refused	resolve name.undefined	cannot find `Secret` in scope
 l3_qualified_still_works.saw	pass	-	-
 l3_struct_ambiguity.saw	pass	-	name.ambiguous: ambiguous `Shape`: two imports bind it to different declarations; qualify the use, or import it from a single module
-l6_module_qualified_signedness.saw	refused	mono mono.not-yet	a synthesized `Printable.format(into: &var std.stringbuilder.StringBuilder)` on `UInt` is not in the backend slice yet: only a signed integer's `Printable.format`
-l6_module_uint_field.saw	refused	mono mono.not-yet	a synthesized `Printable.format(into: &var std.stringbuilder.StringBuilder)` on `UInt` is not in the backend slice yet: only a signed integer's `Printable.format`
+l6_module_qualified_signedness.saw	pass	-	-
+l6_module_uint_field.saw	pass	-	-
 labeled_args_basic.saw	pass	-	-
 labeled_args_df3_optional_wrap.saw	pass	-	-
 labeled_args_method_static.saw	pass	-	-
@@ -1766,7 +1766,7 @@ labeled_overload_label_then_type.saw	pass	-	-
 labeled_overload_method_static.saw	pass	-	-
 labeled_overload_same_type_diff_label.saw	pass	-	-
 lend_accessor_local.saw	pass	-	mutability.immutable: this assignment writes `borrow var c.slot()`, and `c.slot()` lends a read-only place (`-> &T`): declare the accessor `-> &var T` to lend a writable one
-lend_rooted_in_receiver.saw	refused	mono mono.not-yet	a synthesized `Printable.format(into: &var std.stringbuilder.StringBuilder)` on `UInt8` is not in the backend slice yet: only a signed integer's `Printable.format`
+lend_rooted_in_receiver.saw	pass	-	-
 lend_var_both_branches.saw	pass	-	-
 lend_var_conditional_lend.saw	refused	mir slice.not-yet	a `borrow` block binding a conditional lend is not lowered to MIR in the bootstrap slice yet
 lend_var_coro_and_forwarding.saw	pass	-	-
@@ -1783,39 +1783,39 @@ let_tuple_destructure_use_after_move_error.saw	pass	-	move.use-after: `pair` is 
 let_var_self_method_error.saw	pass	-	mutability.immutable: this exclusive borrow of `c` would let it be written, and `c` is a `let` binding, which is never written: every binding is initialized where it is declared, so only a `var` takes
 lexer_unterminated_interpolation.saw	pass	-	resolve.parse-refused: the parser refuses `tests/corpus/lexer_unterminated_interpolation.saw` (syntax.lex.unterminated-string), so its declarations are not available
 link_dead_strip.saw	refused	typecheck member.unknown	`std.env.Env` has no method `arg` this module can see
-literal_coercion_positions.saw	refused	mono mono.not-yet	a synthesized `Equatable.equals(other: &Self)` on `Int8` is not in the backend slice yet: only a signed integer's `Printable.format` (inside std/map.saw:232:24)
+literal_coercion_positions.saw	pass	-	-
 literal_suffix_basic.saw	pass	-	-
 literal_suffix_out_of_range_error.saw	pass	-	resolve.parse-refused: the parser refuses `tests/corpus/literal_suffix_out_of_range_error.saw` (syntax.lex.int-range), so its declarations are not available
 literal_suffix_overflow_panic.saw	pass	-	-
 literal_suffix_type_mismatch_error.saw	pass	-	type.mismatch: expected `Int8`, the type of the annotated binding, and found `UInt16`; only a lossless widening into or out of `Int` or `UInt` is implicit: write `as` to panic out of range, `.from(...
 logical_ops.saw	pass	-	-
 loop_exit_releases_body_local.saw	pass	-	-
-map_basic.saw	refused	mono mono.not-yet	a synthesized `Equatable.equals(other: &Self)` on `Int` is not in the backend slice yet: only a signed integer's `Printable.format` (inside std/map.saw:232:24)
+map_basic.saw	pass	-	-
 map_copy.saw	refused	mono mono.not-yet	a call of `ExplicitCopy.copy()` on `String`, which no conformance of it meets, is not in the backend slice yet (inside std/map.saw:456:57)
 map_copy_nested_explicitcopy.saw	refused	typecheck subscript.role	this subscript is used as a writable place: its `[]` lends read-only (`std.map.Map<String, std.vector.Vector<Int, std.alloc.GlobalAllocator>, std.alloc.GlobalAllocator>` declares or derives no such ro
-map_custom_alloc_deinit_pairs.saw	refused	mono mono.not-yet	a synthesized `Equatable.equals(other: &Self)` on `Int` is not in the backend slice yet: only a signed integer's `Printable.format` (inside std/map.saw:232:24)
-map_each.saw	refused	mono mono.not-yet	a synthesized `Equatable.equals(other: &Self)` on `Int` is not in the backend slice yet: only a signed integer's `Printable.format` (inside std/map.saw:232:24)
+map_custom_alloc_deinit_pairs.saw	pass	-	-
+map_each.saw	pass	-	-
 map_each_mutate_error.saw	pass	-	result.discarded: the result of `insert` is `Result<Int?, std.alloc.AllocError>` and is silently discarded: handle it (`match` it, `try` or `try!` it, or return it), or write `let _ = ...` to discard
 map_each_string_enum.saw	pass	-	-
 map_get_is_a_place.saw	refused	typecheck mutability.immutable	this compound assignment writes `borrow var c.find(&"x")!.count`, and `c.find(&"x")` lends a read-only place (`-> &T`): declare the accessor `-> &var T` to lend a writable one
-map_grow_collision.saw	refused	mono mono.not-yet	a synthesized `Equatable.equals(other: &Self)` on `Int` is not in the backend slice yet: only a signed integer's `Printable.format` (inside std/map.saw:232:24)
+map_grow_collision.saw	pass	-	-
 map_hashmap_name_gone_error.saw	refused	resolve name.undefined	cannot find `HashMap` in scope
 map_key_not_hashable_error.saw	pass	-	result.discarded: the result of `insert` is `Result<Int?, std.alloc.AllocError>` and is silently discarded: handle it (`match` it, `try` or `try!` it, or return it), or write `let _ = ...` to discard
 map_keys_values.saw	refused	typecheck member.unknown	`std.vector.Vector<Int, std.alloc.GlobalAllocator>` has no method `sort` this module can see
-map_literal.saw	refused	mono mono.not-yet	a synthesized `Equatable.equals(other: &Self)` on `Int` is not in the backend slice yet: only a signed integer's `Printable.format` (inside std/map.saw:232:24)
-map_literal_dup_key_no_leak.saw	refused	mono mono.not-yet	a synthesized `Equatable.equals(other: &Self)` on `Int` is not in the backend slice yet: only a signed integer's `Printable.format` (inside std/map.saw:232:24)
+map_literal.saw	pass	-	-
+map_literal_dup_key_no_leak.saw	pass	-	-
 map_literal_empty_no_annotation_error.saw	pass	-	infer.failed: an empty map literal has no key or value type here; give the position a type
 map_literal_key_mismatch_error.saw	pass	-	type.mismatch: expected `Int`, the type of the collection's element, and found `String`
 map_literal_key_out_of_range_error.saw	pass	-	type.mismatch: integer literal 300 does not fit in `Int8` (range -128..=127)
-map_literal_owning_values.saw	refused	mono mono.not-yet	a synthesized `Equatable.equals(other: &Self)` on `Int` is not in the backend slice yet: only a signed integer's `Printable.format` (inside std/map.saw:232:24)
+map_literal_owning_values.saw	pass	-	-
 map_literal_value_mismatch_error.saw	pass	-	type.mismatch: expected `Int`, the type of the collection's element, and found `String`
-map_nocopy_key_error.saw	refused	mono mono.not-yet	a synthesized `Equatable.equals(other: &Self)` on `map_nocopy_key_error.Counted` is not in the backend slice yet: only a signed integer's `Printable.format` (inside std/map.saw:232:24)
-map_nocopy_key_literal_error.saw	refused	mono mono.not-yet	a synthesized `Equatable.equals(other: &Self)` on `map_nocopy_key_literal_error.Counted` is not in the backend slice yet: only a signed integer's `Printable.format` (inside std/map.saw:232:24)
+map_nocopy_key_error.saw	refused	mono mono.not-yet	a synthesized `Equatable.equals(other: &Self)` on `map_nocopy_key_error.Counted` is not in the backend slice yet: only a scalar's builtin hooks (inside std/map.saw:232:24)
+map_nocopy_key_literal_error.saw	refused	mono mono.not-yet	a synthesized `Equatable.equals(other: &Self)` on `map_nocopy_key_literal_error.Counted` is not in the backend slice yet: only a scalar's builtin hooks (inside std/map.saw:232:24)
 map_nocopy_value_construct.saw	pass	-	-
 map_nocopy_value_copy_bound_error.saw	pass	-	type.bound: `std.map.Map<String, std.file.File, std.alloc.GlobalAllocator>` has no member `copy`: it is declared where `V: ExplicitCopy`, and `std.file.File` does not satisfy `ExplicitCopy`
-map_owning_remove_overwrite.saw	refused	mono mono.not-yet	a synthesized `Equatable.equals(other: &Self)` on `Int` is not in the backend slice yet: only a signed integer's `Printable.format` (inside std/map.saw:232:24)
-map_owning_value_deinit.saw	refused	mono mono.not-yet	a synthesized `Equatable.equals(other: &Self)` on `Int` is not in the backend slice yet: only a signed integer's `Printable.format` (inside std/map.saw:232:24)
-map_simple.saw	refused	mono mono.not-yet	a synthesized `Equatable.equals(other: &Self)` on `Int` is not in the backend slice yet: only a signed integer's `Printable.format` (inside std/map.saw:232:24)
+map_owning_remove_overwrite.saw	pass	-	-
+map_owning_value_deinit.saw	pass	-	-
+map_simple.saw	pass	-	-
 map_string_keys.saw	pass	-	-
 map_string_owning_value_balance.saw	pass	-	-
 map_subscript_place.saw	refused	typecheck infer.failed	this closure parameter has no type: write one, as `x: Int`, or pass the closure where a function type is expected
@@ -1913,11 +1913,11 @@ move_into_function.saw	pass	-	-
 move_out_then_reassign.saw	pass	-	-
 move_whole_binding.saw	pass	-	-
 moved_variables_per_function_reset.saw	pass	-	-
-mutex_basic.saw	refused	mono mono.not-yet	a synthesized `ExplicitCopy.copy()` on `Int` is not in the backend slice yet: only a signed integer's `Printable.format` (inside std/mutex.saw:81:24)
+mutex_basic.saw	pass	-	-
 mutex_counter.saw	refused	resolve slice.not-yet	the `Thread.spawn` form is not in the bootstrap slice yet
 mutex_lock_result.saw	refused	typecheck slice.not-yet	a method `Arc` forwards to its payload is not in the bootstrap slice yet
 mutex_static_contention_mt.saw	refused	resolve slice.not-yet	the `Thread.spawn` form is not in the bootstrap slice yet
-mutex_static_inline.saw	refused	mono mono.not-yet	a synthesized `ExplicitCopy.copy()` on `Int` is not in the backend slice yet: only a signed integer's `Printable.format` (inside std/mutex.saw:81:24)
+mutex_static_inline.saw	refused	llvm backend.not-yet	a static whose value is not an integer or a Bool is not in the backend slice yet
 named_tuple_basic.saw	refused	typecheck subscript.role	`(x: Int, y: Int)` declares no subscript `[]`, so it has no getitem, setitem or place accessor
 named_tuple_different_names_error.saw	pass	-	type.mismatch: expected `(x: Int, y: Int)`, the type of the annotated binding, and found `(a: Int, b: Int)`
 named_tuple_equality.saw	pass	-	-
@@ -1974,7 +1974,7 @@ net_write_overloads.saw	refused	resolve import.unknown-module	no module `std.net
 net_write_to_closed_peer_is_an_error.saw	refused	resolve import.unknown-module	no module `std.net`
 never_extern_module_abi.saw	pass	-	-
 newline_braces_stay_significant.saw	refused	typecheck infer.failed	this closure parameter has no type: write one, as `x: Int`, or pass the closure where a function type is expected
-newline_comparison_unaffected.saw	refused	mono mono.not-yet	a synthesized `Printable.format(into: &var std.stringbuilder.StringBuilder)` on `Bool` is not in the backend slice yet: only a signed integer's `Printable.format`
+newline_comparison_unaffected.saw	pass	-	-
 newline_generic_call_trailing_comma_error.saw	pass	-	resolve.parse-refused: the parser refuses `tests/corpus/newline_generic_call_trailing_comma_error.saw` (syntax.generic.refused-arg-comma), so its declarations are not available
 newline_generic_param_trailing_comma_error.saw	pass	-	resolve.parse-refused: the parser refuses `tests/corpus/newline_generic_param_trailing_comma_error.saw` (syntax.generic.refused-param-comma), so its declarations are not available
 newline_generic_trailing_comma_error.saw	pass	-	resolve.parse-refused: the parser refuses `tests/corpus/newline_generic_trailing_comma_error.saw` (syntax.generic.refused-arg-comma), so its declarations are not available
@@ -2004,17 +2004,17 @@ nocopy_struct_field_init_with_move.saw	pass	-	-
 nomove_placement_into_its_home.saw	refused	resolve slice.not-yet	the compiler intrinsic `__saw_deinit_in_place` is not in the bootstrap slice yet
 nomove_tier.saw	refused	typecheck slice.not-yet	a method `Box` forwards to its payload is not in the bootstrap slice yet
 none_return_test.saw	pass	-	-
-number_literal_member_access.saw	refused	mono mono.not-yet	a synthesized `Printable.format(into: &var std.stringbuilder.StringBuilder)` on `Float` is not in the backend slice yet: only a signed integer's `Printable.format` (inside std/prelude.saw:150:9)
+number_literal_member_access.saw	refused	mono mono.not-yet	a synthesized `Printable.format(into: &var std.stringbuilder.StringBuilder)` on `Float` is not in the backend slice yet: the backend lowers no Float operation (inside std/prelude.saw:150:9)
 offload_cancel_multi_arg.saw	refused	typecheck member.unknown	`std.taskgroup.Task<Int>` has no method `cancel_addr` this module can see
 offload_cancel_parked.saw	refused	typecheck member.unknown	`std.taskgroup.Task<Int>` has no method `cancel_addr` this module can see
 offload_multi_arg_pipe_read.saw	refused	coro coro.not-yet	`reader` suspends (reader -> read), so it needs a coroutine frame, which is not lowered yet (SL-545)
 offload_pointer_heap_arg.saw	refused	coro coro.not-yet	`reader` suspends (reader -> read), so it needs a coroutine frame, which is not lowered yet (SL-545)
-offload_seam_first_tick.saw	refused	mono mono.not-yet	a synthesized `Printable.format(into: &var std.stringbuilder.StringBuilder)` on `UInt64` is not in the backend slice yet: only a signed integer's `Printable.format`
-offload_signature_shapes.saw	refused	mono mono.not-yet	a synthesized `Printable.format(into: &var std.stringbuilder.StringBuilder)` on `Bool` is not in the backend slice yet: only a signed integer's `Printable.format`
+offload_seam_first_tick.saw	refused	coro coro.not-yet	`blocker` suspends (blocker -> __saw_rt_blocking_sleep), so it needs a coroutine frame, which is not lowered yet (SL-545)
+offload_signature_shapes.saw	refused	coro coro.not-yet	`shapes` suspends (shapes -> usleep), so it needs a coroutine frame, which is not lowered yet (SL-545)
 offload_spawn_interleave.saw	refused	coro coro.not-yet	`worker` suspends (worker -> __saw_rt_blocking_sleep), so it needs a coroutine frame, which is not lowered yet (SL-545)
 once_cross_thread_publish.saw	refused	resolve slice.not-yet	the `Thread.spawn` form is not in the bootstrap slice yet
-once_double_set_panic.saw	refused	mono mono.not-yet	a synthesized `ExplicitCopy.copy()` on `Int` is not in the backend slice yet: only a signed integer's `Printable.format` (inside std/once.saw:96:9)
-once_get_before_set_panic.saw	refused	mono mono.not-yet	a synthesized `ExplicitCopy.copy()` on `Int` is not in the backend slice yet: only a signed integer's `Printable.format` (inside std/once.saw:96:9)
+once_double_set_panic.saw	refused	llvm backend.not-yet	a static whose value is not an integer or a Bool is not in the backend slice yet
+once_get_before_set_panic.saw	refused	llvm backend.not-yet	a static whose value is not an integer or a Bool is not in the backend slice yet
 once_static_set_get.saw	refused	mono mono.not-yet	a call of `ExplicitCopy.copy()` on `once_static_set_get.Limits`, which no conformance of it meets, is not in the backend slice yet (inside std/once.saw:104:9)
 optimization_level_o0_preserves_semantics.saw	refused	typecheck infer.failed	this closure parameter has no type: write one, as `x: Int`, or pass the closure where a function type is expected
 optimization_level_o2_preserves_semantics.saw	refused	typecheck infer.failed	this closure parameter has no type: write one, as `x: Int`, or pass the closure where a function type is expected
@@ -2039,10 +2039,10 @@ optional_field_store_retain.saw	pass	-	-
 optional_force_unwrap_field_store.saw	pass	-	-
 optional_generic_chain_assign_place_head.saw	refused	typecheck mutability.immutable	this assignment writes `m.find(&"x")?.value`, and `m.find(&"x")` lends a read-only place (`-> &T`): declare the accessor `-> &var T` to lend a writable one
 optional_generic_concurrency.saw	refused	resolve import.unknown-module	no module `std.channel`
-optional_generic_hashable_keys.saw	refused	mono mono.not-yet	a synthesized `Printable.format(into: &var std.stringbuilder.StringBuilder)` on `Bool` is not in the backend slice yet: only a signed integer's `Printable.format`
+optional_generic_hashable_keys.saw	refused	mono mono.not-yet	a call of `Equatable.equals(other: &Self)` on `Int?`, which no conformance of it meets, is not in the backend slice yet (inside std/map.saw:232:24)
 optional_generic_infer_later_arg.saw	pass	-	-
 optional_generic_insert_autowrap.saw	pass	-	-
-optional_generic_map.saw	refused	mono mono.not-yet	a synthesized `Printable.format(into: &var std.stringbuilder.StringBuilder)` on `Bool` is not in the backend slice yet: only a signed integer's `Printable.format`
+optional_generic_map.saw	pass	-	-
 optional_generic_map_force_assign.saw	refused	typecheck subscript.role	this subscript is used as a writable place: its `[]` lends read-only (`std.map.Map<String, Int, std.alloc.GlobalAllocator>` declares or derives no such role)
 optional_generic_nested_reads.saw	pass	-	-
 optional_generic_nested_spelling.saw	pass	-	-
@@ -2054,7 +2054,7 @@ optional_generic_ownership.saw	pass	-	-
 optional_generic_place_assign.saw	pass	-	-
 optional_generic_return_tail.saw	pass	-	-
 optional_generic_spawn_result.saw	pass	-	-
-optional_generic_traits_result.saw	refused	mono mono.not-yet	a synthesized `Printable.format(into: &var std.stringbuilder.StringBuilder)` on `Bool` is not in the backend slice yet: only a signed integer's `Printable.format`
+optional_generic_traits_result.saw	refused	mono mono.not-yet	a call of `Equatable.equals(other: &Self)` on `Int?`, which no conformance of it meets, is not in the backend slice yet
 optional_generic_vector.saw	refused	typecheck member.unknown	`std.vector.Vector<Int?, std.alloc.GlobalAllocator>` has no method `swap_out` this module can see
 optional_guard_let_payload_read.saw	pass	-	-
 optional_move_unwrap.saw	pass	-	-
@@ -2064,7 +2064,7 @@ optional_nocopy_move_ok.saw	pass	-	-
 optional_nocopy_whole_read_error.saw	pass	-	transfer.implicit-copy: this reads a place of type `optional_nocopy_whole_read_error.Res?`, which is NoCopy, by value: only a Copy type copies silently; write `move o` to take it, or borrow it
 optional_payload_read_once.saw	pass	-	-
 optional_payload_read_retains.saw	pass	-	-
-optional_presence_tag_only.saw	refused	mono mono.not-yet	a synthesized `Printable.format(into: &var std.stringbuilder.StringBuilder)` on `Bool` is not in the backend slice yet: only a signed integer's `Printable.format`
+optional_presence_tag_only.saw	pass	-	-
 optional_presence_unconditional_lend.saw	refused	resolve import.unknown-module	no module `std.compiler.frame`
 optional_slot_literal_adopts_payload_width.saw	pass	-	-
 optional_take.saw	pass	-	-
@@ -2118,7 +2118,7 @@ path_simple.saw	refused	typecheck member.unknown	`std.path.Path` has no method `
 payload_derived_binding_fills_default_type_args.saw	refused	typecheck infer.failed	this closure parameter has no type: write one, as `x: Int`, or pass the closure where a function type is expected
 place_abstract_value_read.saw	pass	-	-
 place_assignment_targets.saw	refused	typecheck subscript.role	this subscript is used as a writable place: its `[]` lends read-only (`std.map.Map<String, Int, std.alloc.GlobalAllocator>` declares or derives no such role)
-place_comparison_operand_is_a_borrow.saw	refused	mono mono.not-yet	a synthesized `Printable.format(into: &var std.stringbuilder.StringBuilder)` on `Bool` is not in the backend slice yet: only a signed integer's `Printable.format`
+place_comparison_operand_is_a_borrow.saw	pass	-	-
 place_conditional_lend_uses.saw	refused	llvm backend.not-yet	a conditional borrow is not in the backend slice yet
 place_cross_module_same_name_type.saw	refused	llvm backend.not-yet	a conditional borrow is not in the backend slice yet
 place_enum_payload_lend.saw	refused	mir slice.not-yet	a `borrow` block binding a conditional lend is not lowered to MIR in the bootstrap slice yet
@@ -2137,7 +2137,7 @@ place_use_sites.saw	pass	-	-
 place_value_read_retain_oracle.saw	pass	-	-
 place_window_borrows_enclosing_locals.saw	pass	-	-
 place_window_exclusivity.saw	pass	-	loan.window-root: `p` is borrowed exclusively here while the window of `at` opened at 32:13 holds `p` exclusively until the window closes; a window charges its whole root until it closes, so the root
-place_window_exclusivity_boundary.saw	refused	mono mono.not-yet	a synthesized `Printable.format(into: &var std.stringbuilder.StringBuilder)` on `UInt8` is not in the backend slice yet: only a signed integer's `Printable.format`
+place_window_exclusivity_boundary.saw	pass	-	-
 place_window_move_arg_consumes_local.saw	refused	resolve import.unknown-module	no module `std.compiler.frame`
 place_window_nested_writes_land.saw	pass	-	-
 place_window_root_read_in_assignment_rhs.saw	refused	typecheck mutability.immutable	this assignment writes `m.find(&"a")?.n`, and `m.find(&"a")` lends a read-only place (`-> &T`): declare the accessor `-> &var T` to lend a writable one
@@ -2147,12 +2147,12 @@ pointer_prefix_deref.saw	refused	typecheck slice.not-yet	`syntax.expr.move-deref
 prelude_import_makes_visible.saw	refused	typecheck member.unknown	`std.vector.Vector<Int, std.alloc.GlobalAllocator>` has no method `iter` this module can see
 prelude_user_ioerror.saw	pass	-	-
 primitive_conformances.saw	refused	llvm backend.not-yet	a Float constant, `1.5`, is not in the backend slice yet
-primitive_extension_self_is_its_own_type.saw	refused	mono mono.not-yet	a synthesized `Printable.format(into: &var std.stringbuilder.StringBuilder)` on `UInt8` is not in the backend slice yet: only a signed integer's `Printable.format`
-print_unsigned_full_width.saw	refused	mono mono.not-yet	a synthesized `Printable.format(into: &var std.stringbuilder.StringBuilder)` on `UInt` is not in the backend slice yet: only a signed integer's `Printable.format`
+primitive_extension_self_is_its_own_type.saw	refused	mono mono.not-yet	a synthesized `Printable.format(into: &var std.stringbuilder.StringBuilder)` on `Float` is not in the backend slice yet: the backend lowers no Float operation
+print_unsigned_full_width.saw	pass	-	-
 printable_enum_data.saw	pass	-	-
 printable_interp_error.saw	pass	-	format.argument: `printable_interp_error.Bare` is formatted here, and it is neither `Printable` nor a primitive
 printable_nested.saw	pass	-	-
-printable_struct.saw	refused	mono mono.not-yet	a synthesized `Printable.format(into: &var std.stringbuilder.StringBuilder)` on `Bool` is not in the backend slice yet: only a signed integer's `Printable.format`
+printable_struct.saw	pass	-	-
 private_in_public_extension_surface_error.saw	wrong	accepts a refusal test	extension `Wrap`'s surface is public, but the bound on type parameter `T` names `HiddenTrait`, which is private — a public API needs public types
 private_in_public_positions_error.saw	wrong	accepts a refusal test	function `take` is public, but parameter `h` names `Hidden`, which is private — a public API needs public types
 process_argv_no_shell.saw	refused	typecheck member.unknown	`std.process.Command` has no method `output` this module can see
@@ -2176,11 +2176,11 @@ receiver_temporary_evaluated_once.saw	refused	llvm backend.not-yet	a static whos
 recursive_enum_built_in_a_task.saw	refused	typecheck infer.failed	this closure parameter has no type: write one, as `x: Int`, or pass the closure where a function type is expected
 recursive_enum_inline_payload_refused.saw	pass	-	type.infinite-size: recursive type `Tree` has infinite size: its storage contains its own storage inline, through Tree.Node -> Tree; hold the recursive member behind a heap indirection, such as `Box`
 recursive_enum_synthesized_deep_copy.saw	refused	typecheck infer.failed	this closure parameter has no type: write one, as `x: Int`, or pass the closure where a function type is expected
-recursive_enum_through_box_payload.saw	refused	mono mono.not-yet	a synthesized `Printable.format(into: &var std.stringbuilder.StringBuilder)` on `Bool` is not in the backend slice yet: only a signed integer's `Printable.format`
+recursive_enum_through_box_payload.saw	pass	-	-
 recursive_enum_through_user_generic_wrapper.saw	refused	typecheck infer.failed	this closure parameter has no type: write one, as `x: Int`, or pass the closure where a function type is expected
 recursive_enum_through_vector_payload.saw	refused	typecheck infer.failed	this closure parameter has no type: write one, as `x: Int`, or pass the closure where a function type is expected
 recursive_struct_inline_field_refused.saw	pass	-	type.infinite-size: recursive type `Node` has infinite size: its storage contains its own storage inline, through Node.next -> Node; hold the recursive member behind a heap indirection, such as `Box`
-recursive_struct_through_optional_box_field.saw	refused	mono mono.not-yet	a synthesized `Printable.format(into: &var std.stringbuilder.StringBuilder)` on `Bool` is not in the backend slice yet: only a signed integer's `Printable.format`
+recursive_struct_through_optional_box_field.saw	pass	-	-
 recursive_type_through_fixed_array_refused.saw	pass	-	type.infinite-size: recursive type `Branch` has infinite size: its storage contains its own storage inline, through Branch.kids -> Branch; hold the recursive member behind a heap indirection, such as
 recursive_type_through_optional_refused.saw	pass	-	type.infinite-size: recursive type `Node` has infinite size: its storage contains its own storage inline, through Node.next -> Optional.Some -> Node; hold the recursive member behind a heap indirectio
 recursive_type_through_user_generic_refused.saw	pass	-	type.infinite-size: recursive type `Expr` has infinite size: its storage contains its own storage inline, through Expr.Group -> Pair.a -> Expr; hold the recursive member behind a heap indirection, suc
@@ -2196,7 +2196,7 @@ ref_forwarding_suspend_nested.saw	pass	-	-
 ref_into_array_element_addresses_real_storage.saw	pass	-	-
 ref_no_escape_alias_boundary.saw	pass	-	-
 ref_parameter_positions.saw	pass	-	-
-ref_pointer_cast_blessed.saw	refused	mono mono.not-yet	a synthesized `Printable.format(into: &var std.stringbuilder.StringBuilder)` on `Bool` is not in the backend slice yet: only a signed integer's `Printable.format`
+ref_pointer_cast_blessed.saw	pass	-	-
 ref_replace_across_suspend.saw	pass	-	-
 ref_replace_bare_trait_error.saw	pass	-	type.not-a-type: `Shape` is a trait; a type position names it as `any Shape`
 ref_replace_bare_trait_shared_error.saw	pass	-	type.not-a-type: `Shape` is a trait; a type position names it as `any Shape`
@@ -2217,7 +2217,7 @@ reference_assign_error.saw	pass	-	mutability.immutable: this assignment writes `
 reference_move_error.saw	pass	-	transfer.move-from-borrow: cannot move out of `r`: it is a reference, which borrows storage its caller owns and ends; read or borrow it instead, or give the owner a move-out (`take()` on an optional,
 references_basic.saw	pass	-	-
 register_mask_idiom.saw	pass	-	-
-renamed_extension_type_param.saw	refused	mono mono.not-yet	a synthesized `Printable.format(into: &var std.stringbuilder.StringBuilder)` on `Bool` is not in the backend slice yet: only a signed integer's `Printable.format`
+renamed_extension_type_param.saw	pass	-	-
 repeat_literal_basic.saw	pass	-	-
 repeat_literal_implicit_copy.saw	pass	-	-
 repeat_literal_negative_error.saw	link	clang or the link	sawc2 build: clang exited 1
@@ -2241,7 +2241,7 @@ result_optional_none_tail_types_itself.saw	refused	mono mono.not-yet	a call of `
 result_optional_payload_owes_one_wrap.saw	pass	-	-
 result_same_type.saw	pass	-	-
 result_same_type_ambiguous_error.saw	pass	-	type.ambiguous-result: both payloads of `Result<Int, Int>` can take this value, so it names neither: write `.Ok(value: ...)` or `.Err(error: ...)`
-result_slot_literal_adopts_payload_width.saw	refused	mono mono.not-yet	a synthesized `Printable.format(into: &var std.stringbuilder.StringBuilder)` on `UInt16` is not in the backend slice yet: only a signed integer's `Printable.format`
+result_slot_literal_adopts_payload_width.saw	pass	-	-
 result_slot_literal_ambiguous_payloads.saw	pass	-	type.ambiguous-result: both payloads of `Result<Int32, Int8>` can take this value, so it names neither: write `.Ok(value: ...)` or `.Err(error: ...)`
 result_static_method.saw	pass	-	-
 result_string_error.saw	pass	-	-
@@ -2253,7 +2253,7 @@ runtime_build_reserved_without_mode_error.saw	pass	-	export.reserved: `@export` 
 runtime_build_suspending_body_error.saw	refused	driver driver.usage	sawc2 build takes no --runtime-build
 runtime_provider_seams.saw	refused	driver driver.usage	sawc2 build takes no --runtime-provider -c
 scalar_removed_char_surface.saw	refused	typecheck member.unknown	`String` has no method `chars` this module can see
-scalar_type.saw	refused	mono mono.not-yet	a synthesized `Comparable.compare(other: &Self)` on `std.scalar.Scalar` is not in the backend slice yet: only a signed integer's `Printable.format`
+scalar_type.saw	refused	mono mono.not-yet	a synthesized `Comparable.compare(other: &Self)` on `std.scalar.Scalar` is not in the backend slice yet: only a scalar's builtin hooks
 section_compose.saw	refused	llvm backend.not-yet	`@section` is not in the backend slice yet: nothing is placed in a named section, so the attribute would be dropped
 self_receiver_pointer_reaches_caller.saw	wrong	stdout differs	line 5: sawc2 "primitive receiver stays by value: true", Stage 0 "primitive receiver stays by value: false"
 self_type.saw	pass	-	-
@@ -2266,22 +2266,22 @@ send_sync_bounds.saw	refused	llvm backend.not-yet	a Float constant, `3.0`, is no
 serde169_derived.saw	refused	resolve name.undefined	cannot find `Serialize` in scope
 serde169_hand_written.saw	refused	resolve name.undefined	cannot find `Serialize` in scope
 set_algebra.saw	refused	typecheck member.unknown	`std.vector.Vector<Int, std.alloc.GlobalAllocator>` has no method `sort` this module can see
-set_algebra_owning_balance.saw	refused	mono mono.not-yet	a synthesized `Hashable.hash(h: &var Hasher)` on `Int` is not in the backend slice yet: only a signed integer's `Printable.format`
-set_basic.saw	refused	mono mono.not-yet	a synthesized `Equatable.equals(other: &Self)` on `Int` is not in the backend slice yet: only a signed integer's `Printable.format` (inside std/map.saw:232:24)
-set_copy.saw	refused	mono mono.not-yet	a synthesized `Equatable.equals(other: &Self)` on `Int` is not in the backend slice yet: only a signed integer's `Printable.format` (inside std/map.saw:232:24)
+set_algebra_owning_balance.saw	pass	-	-
+set_basic.saw	pass	-	-
+set_copy.saw	pass	-	-
 set_each_mutate_error.saw	pass	-	result.discarded: the result of `insert` is `Result<Bool, std.alloc.AllocError>` and is silently discarded: handle it (`match` it, `try` or `try!` it, or return it), or write `let _ = ...` to discard
 set_each_snapshot.saw	refused	typecheck member.unknown	`std.vector.Vector<Int, std.alloc.GlobalAllocator>` has no method `sort` this module can see
 set_element_not_hashable_error.saw	pass	-	result.discarded: the result of `insert` is `Result<Bool, std.alloc.AllocError>` and is silently discarded: handle it (`match` it, `try` or `try!` it, or return it), or write `let _ = ...` to discard
-set_from_vector.saw	refused	mono mono.not-yet	a synthesized `Equatable.equals(other: &Self)` on `Int` is not in the backend slice yet: only a signed integer's `Printable.format` (inside std/map.saw:232:24)
+set_from_vector.saw	pass	-	-
 set_from_vector_use_after_move_error.saw	pass	-	result.discarded: the result of `push` is `Result<Void, std.alloc.AllocError>` and is silently discarded: handle it (`match` it, `try` or `try!` it, or return it), or write `let _ = ...` to discard it
 set_literal.saw	refused	typecheck member.unknown	`std.vector.Vector<Int, std.alloc.GlobalAllocator>` has no method `sort` this module can see
-set_literal_comparison_elements.saw	refused	mono mono.not-yet	a synthesized `Equatable.equals(other: &Self)` on `Int` is not in the backend slice yet: only a signed integer's `Printable.format` (inside std/map.saw:232:24)
+set_literal_comparison_elements.saw	pass	-	-
 set_literal_element_mismatch_error.saw	pass	-	type.mismatch: expected `Int`, the type of the collection's element, and found `String`
 set_literal_not_hashable_error.saw	refused	mono mono.not-yet	a call of `Equatable.equals(other: &Self)` on `set_literal_not_hashable_error.NoHash`, which no conformance of it meets, is not in the backend slice yet (inside std/map.saw:232:24)
 set_nocopy_element_copy_bound_error.saw	pass	-	conformance.signature: `Tag.hash` does not meet `Hashable.hash`, as `Tag` conforms to `Hashable` needs: a parameter's name differs
-set_nocopy_key_error.saw	refused	mono mono.not-yet	a synthesized `Equatable.equals(other: &Self)` on `set_nocopy_key_error.Counted` is not in the backend slice yet: only a signed integer's `Printable.format` (inside std/map.saw:232:24)
-set_owning_key_refcount.saw	refused	mono mono.not-yet	a synthesized `Hashable.hash(h: &var Hasher)` on `Int` is not in the backend slice yet: only a signed integer's `Printable.format`
-set_try_copy.saw	refused	mono mono.not-yet	a synthesized `ExplicitCopy.copy()` on `Int` is not in the backend slice yet: only a signed integer's `Printable.format` (inside std/map.saw:456:57)
+set_nocopy_key_error.saw	refused	mono mono.not-yet	a synthesized `Equatable.equals(other: &Self)` on `set_nocopy_key_error.Counted` is not in the backend slice yet: only a scalar's builtin hooks (inside std/map.saw:232:24)
+set_owning_key_refcount.saw	pass	-	-
+set_try_copy.saw	pass	-	-
 shadow255_glob_import.saw	pass	-	-
 shadow255_kinds_and_rename.saw	pass	-	-
 shadow255_local_declaration.saw	pass	-	-
@@ -2289,12 +2289,12 @@ shadow255_prelude_name_reserved_error.saw	pass	-	name.reserved: `Duration` is a 
 shadow255_qualified_escape.saw	refused	resolve import.unknown-symbol	`Thread` is not defined in `std.task`
 shadow255_selective_import.saw	pass	-	-
 shadow255_two_imports_ambiguous_error.saw	pass	-	name.ambiguous: ambiguous `Widget`: two imports bind it to different declarations; qualify the use, or import it from a single module
-shadow_derived.saw	refused	mono mono.not-yet	a synthesized `ExplicitCopy.copy()` on `Int` is not in the backend slice yet: only a signed integer's `Printable.format` (inside std/vector.saw:227:35)
+shadow_derived.saw	pass	-	-
 shadow_for_derived.saw	refused	typecheck member.unknown	`std.vector.Vector<Int, std.alloc.GlobalAllocator>` has no method `iter` this module can see
-shadow_owning_lifetime.saw	refused	mono mono.not-yet	a synthesized `ExplicitCopy.copy()` on `Int` is not in the backend slice yet: only a signed integer's `Printable.format` (inside std/vector.saw:227:35)
+shadow_owning_lifetime.saw	pass	-	-
 shadow_redef_nested_owning.saw	wrong	stdout differs	line 1: sawc2 "mid 2001", Stage 0 "deinit 1001"
 shadow_redef_same_scope.saw	refused	resolve slice.not-yet	`syntax.expr.shorthand-param` is not in the bootstrap slice yet
-shared_self_field_call_exemption.saw	refused	mono mono.not-yet	a synthesized `Printable.format(into: &var std.stringbuilder.StringBuilder)` on `Bool` is not in the backend slice yet: only a signed integer's `Printable.format`
+shared_self_field_call_exemption.saw	pass	-	-
 shared_self_write_alternatives.saw	pass	-	-
 shift_negative_panic.saw	pass	-	-
 shift_out_of_range_panic.saw	pass	-	-
@@ -2304,7 +2304,7 @@ short_circuit_token_field_no_crash.saw	pass	-	-
 signal_concurrency_pins.saw	refused	resolve import.unknown-module	no module `std.directory`
 sizeof_missing_type_arg_error.saw	pass	-	type.arity: `sizeof` and `alignof` take one type argument, as `sizeof<T>()`
 slab_basic.saw	refused	llvm backend.not-yet	a static whose value is not an integer or a Bool is not in the backend slice yet
-sleep_seam_multi_chunk.saw	refused	mono mono.not-yet	a synthesized `Printable.format(into: &var std.stringbuilder.StringBuilder)` on `Bool` is not in the backend slice yet: only a signed integer's `Printable.format`
+sleep_seam_multi_chunk.saw	pass	-	-
 slot_all_four_tiers.saw	refused	resolve import.unknown-module	no module `std.compiler.frame`
 slot_optional_payload.saw	refused	resolve import.unknown-module	no module `std.compiler.frame`
 source_location_literals.saw	refused	llvm backend.not-yet	a memory constant is not in the backend slice yet
@@ -2347,7 +2347,7 @@ static_method_called_on_instance.saw	refused	typecheck member.unknown	`static_me
 static_method_through_field_receiver.saw	refused	typecheck member.unknown	`static_method_through_field_receiver.Inner` has no method `nullary` this module can see
 static_methods.saw	pass	-	-
 static_named_array_type_init.saw	refused	resolve name.undefined	cannot find `UnsafeMemory` in scope
-static_non_optional_types_unaffected.saw	refused	mono mono.not-yet	a synthesized `Printable.format(into: &var std.stringbuilder.StringBuilder)` on `UInt32` is not in the backend slice yet: only a signed integer's `Printable.format`
+static_non_optional_types_unaffected.saw	refused	llvm backend.not-yet	a static whose value is not an integer or a Bool is not in the backend slice yet
 static_optional_type_refused.saw	pass	-	static.optional: the static `SLOT` is `Int?`, and a static is never optional: it is initialized once and always present, so give it the payload's type, or compute absent state with `Once<T>` or an `un
 static_optional_type_refused_none.saw	pass	-	static.optional: the static `SLOT` is `Int?`, and a static is never optional: it is initialized once and always present, so give it the payload's type, or compute absent state with `Once<T>` or an `un
 static_pod.saw	refused	llvm backend.not-yet	a static whose value is not an integer or a Bool is not in the backend slice yet
@@ -2355,7 +2355,7 @@ static_zero_bss.saw	refused	driver driver.usage	sawc2 build takes no --freestand
 static_zero_init.saw	refused	llvm backend.not-yet	a static whose value is not an integer or a Bool is not in the backend slice yet
 std_gated_name_redefined_by_user.saw	pass	-	-
 std_import_gate_signature_position.saw	pass	-	name.not-in-prelude: `Data` is not in the prelude and must be imported: `import std.data.{Data}` selects it
-std_time.saw	refused	mono mono.not-yet	a synthesized `Comparable.compare(other: &Self)` on `std.duration.Duration` is not in the backend slice yet: only a signed integer's `Printable.format`
+std_time.saw	refused	mono mono.not-yet	a synthesized `Comparable.compare(other: &Self)` on `std.duration.Duration` is not in the backend slice yet: only a scalar's builtin hooks
 std_time_duration_overflow_panic.saw	pass	-	-
 string_byte_at_oob_panic.saw	pass	-	-
 string_bytes_iter.saw	refused	typecheck member.unknown	`String` has no method `bytes` this module can see
@@ -2365,7 +2365,7 @@ string_from_bytes.saw	refused	typecheck member.unknown	`String` has no method `f
 string_from_bytes_errors.saw	refused	typecheck member.unknown	`String` has no method `fromBytes` this module can see
 string_implicit_copy.saw	pass	-	-
 string_interp_owned.saw	pass	-	-
-string_interpolation.saw	refused	mono mono.not-yet	a synthesized `Printable.format(into: &var std.stringbuilder.StringBuilder)` on `Float` is not in the backend slice yet: only a signed integer's `Printable.format`
+string_interpolation.saw	refused	mono mono.not-yet	a synthesized `Printable.format(into: &var std.stringbuilder.StringBuilder)` on `Float` is not in the backend slice yet: the backend lowers no Float operation
 string_interpolation_escaped_braces.saw	pass	-	-
 string_iterator_retains_its_receiver.saw	refused	typecheck member.unknown	`String` has no method `bytes` this module can see
 string_len_o1.saw	pass	-	-
@@ -2394,7 +2394,7 @@ struct_field_deinit.saw	pass	-	-
 struct_field_deinit_nested.saw	pass	-	-
 struct_fixed_width_field_literals.saw	pass	-	-
 struct_fixed_width_field_out_of_range_error.saw	pass	-	type.mismatch: integer literal 999 does not fit in `Int8` (range -128..=127)
-struct_init_destination_semantics.saw	refused	mono mono.not-yet	a synthesized `Printable.format(into: &var std.stringbuilder.StringBuilder)` on `UInt16` is not in the backend slice yet: only a signed integer's `Printable.format`
+struct_init_destination_semantics.saw	pass	-	-
 struct_init_ownership_and_failure.saw	refused	typecheck transfer.implicit-copy	a repeat literal needs a freely copyable element, and `struct_init_ownership_and_failure.Resource` is NoCopy: write the elements out, or build the array from a Copy value
 struct_optional_cascade_error.saw	pass	-	copy.undeclared-policy: `Keeper` holds `Keeper.handle` of type `std.file.File?`, which is NoCopy, so it declares its own policy: `extension Keeper: NoCopy {}`, or `@synthesize` an ExplicitCopy
 struct_string_field_release.saw	pass	-	-
@@ -2405,12 +2405,12 @@ suspending_binding_scrutinee_propagates_a_try.saw	pass	-	-
 suspending_return_propagates_a_try.saw	pass	-	-
 sync_call_temp_released_once.saw	pass	-	-
 sync_extension_method_pure.saw	pass	-	-
-sync_mutex_pure_closure.saw	refused	mono mono.not-yet	a synthesized `ExplicitCopy.copy()` on `Int` is not in the backend slice yet: only a signed integer's `Printable.format` (inside std/mutex.saw:81:24)
+sync_mutex_pure_closure.saw	pass	-	-
 sync_pure_chain.saw	pass	-	-
 sync_suspending_mainline.saw	pass	-	-
-synthesize_across_coro_reentry.saw	refused	mono mono.not-yet	a synthesized `Equatable.equals(other: &Self)` on `synthesize_across_coro_reentry.Tag` is not in the backend slice yet: only a signed integer's `Printable.format`
+synthesize_across_coro_reentry.saw	refused	mono mono.not-yet	a synthesized `Equatable.equals(other: &Self)` on `synthesize_across_coro_reentry.Tag` is not in the backend slice yet: only a scalar's builtin hooks
 synthesize_auto_conformance_unmarked.saw	refused	mono mono.not-yet	a call of `Equatable.equals(other: &Self)` on `synthesize_auto_conformance_unmarked.Point`, which no conformance of it meets, is not in the backend slice yet (inside std/map.saw:232:24)
-synthesize_explicit_copy_holder.saw	refused	mono mono.not-yet	a synthesized `ExplicitCopy.copy()` on `synthesize_explicit_copy_holder.Holder` is not in the backend slice yet: only a signed integer's `Printable.format`
+synthesize_explicit_copy_holder.saw	refused	mono mono.not-yet	a synthesized `ExplicitCopy.copy()` on `synthesize_explicit_copy_holder.Holder` is not in the backend slice yet: only a scalar's builtin hooks
 task_backtrace_churn.saw	refused	resolve name.undefined	cannot find `dump_tasks` in scope
 task_backtrace_mt.saw	refused	resolve import.unknown-module	no module `std.channel`
 task_backtrace_nest.saw	refused	resolve import.unknown-symbol	`dump_tasks` is not defined in `std.task`
@@ -2501,7 +2501,7 @@ try_routing_clause.saw	refused	typecheck slice.not-yet	`syntax.expr.try.route` i
 try_routing_clause_needs_a_case.saw	pass	-	resolve.parse-refused: the parser refuses `tests/corpus/try_routing_clause_needs_a_case.saw` (syntax.rule.try-route-case), so its declarations are not available
 try_routing_clause_refusals.saw	pass	-	resolve.parse-refused: the parser refuses `tests/corpus/try_routing_clause_refusals.saw` (syntax.expr.refused-try-route), so its declarations are not available
 tuple_element_literal_out_of_range_error.saw	pass	-	type.mismatch: integer literal 300 does not fit in `Int8` (range -128..=127)
-tuple_index_member_access.saw	refused	mono mono.not-yet	a synthesized `Printable.format(into: &var std.stringbuilder.StringBuilder)` on `Float` is not in the backend slice yet: only a signed integer's `Printable.format`
+tuple_index_member_access.saw	refused	mono mono.not-yet	a synthesized `Printable.format(into: &var std.stringbuilder.StringBuilder)` on `Float` is not in the backend slice yet: the backend lowers no Float operation
 tuples.saw	pass	-	-
 tuples_advanced.saw	refused	llvm backend.not-yet	a Float constant, `3.14`, is not in the backend slice yet
 two_copy_arc.saw	refused	typecheck slice.not-yet	a method `Arc` forwards to its payload is not in the bootstrap slice yet
@@ -2522,12 +2522,12 @@ type_alias_sibling_arg_error.saw	wrong	accepts a refusal test	argument `o` expec
 type_alias_sibling_no_flow_error.saw	wrong	accepts a refusal test	cannot assign `UserId` to variable of type `OrderId`
 type_alias_to_underlying.saw	pass	-	-
 type_def_distinct_error.saw	wrong	accepts a refusal test	argument `x` expects `MyInt` but got `Int`
-type_is_a_contextual_keyword.saw	refused	mono mono.not-yet	a synthesized `Printable.format(into: &var std.stringbuilder.StringBuilder)` on `UInt8` is not in the backend slice yet: only a signed integer's `Printable.format`
+type_is_a_contextual_keyword.saw	pass	-	-
 type_order.saw	pass	-	-
 typealias_ref_launder.saw	pass	-	type.reference-position: a field may not name a reference: `&Int` is one, and references are parameters only: a reference borrows storage for the duration of one call and may not escape it; use the va
 uint_compound_division_signedness.saw	pass	-	-
-uint_division_signedness.saw	refused	mono mono.not-yet	a synthesized `Printable.format(into: &var std.stringbuilder.StringBuilder)` on `UInt` is not in the backend slice yet: only a signed integer's `Printable.format`
-uint_modulo_signedness.saw	refused	mono mono.not-yet	a synthesized `Printable.format(into: &var std.stringbuilder.StringBuilder)` on `UInt` is not in the backend slice yet: only a signed integer's `Printable.format`
+uint_division_signedness.saw	pass	-	-
+uint_modulo_signedness.saw	pass	-	-
 unary_minus_fixed_width.saw	pass	-	-
 unary_minus_int8_min_panics.saw	pass	-	-
 unicode_escape_basic.saw	pass	-	-
@@ -2546,32 +2546,32 @@ unsafe_mem_mmio_sim.saw	refused	resolve name.undefined	cannot find `UnsafeMemory
 unsafe_mem_normal_region.saw	refused	resolve name.undefined	cannot find `UnsafeMemory` in scope
 unsafe_mem_projection_nested.saw	refused	resolve name.undefined	cannot find `UnsafeMemory` in scope
 unsafe_mem_static_board.saw	refused	resolve name.undefined	cannot find `ReadOnly` in scope
-unsafe_not_transitive.saw	refused	mono mono.not-yet	a synthesized `Printable.format(into: &var std.stringbuilder.StringBuilder)` on `Bool` is not in the backend slice yet: only a signed integer's `Printable.format`
-unsafe_static_var.saw	refused	mono mono.not-yet	a synthesized `Printable.format(into: &var std.stringbuilder.StringBuilder)` on `UInt8` is not in the backend slice yet: only a signed integer's `Printable.format`
+unsafe_not_transitive.saw	pass	-	-
+unsafe_static_var.saw	refused	llvm backend.not-yet	a static whose value is not an integer or a Bool is not in the backend slice yet
 unsafe_surface_ok.saw	pass	-	-
 unsafe_sync_declared.saw	refused	typecheck static.not-constant	`UnsafeMutableInterior(12)` is not a constant, and a static's initializer is a constant expression: a call runs only at run time, an `init` body included; only a type alias's construction, `sizeof`, `
 unsafe_trait_requirement_effect.saw	pass	-	conformance.signature: `Plain.peek` does not meet `Raw.peek`, as `Plain` conforms to `Raw` needs: the requirement declares `unsafe`, so the implementation must too
 unsaferef_captured_by_closure.saw	refused	resolve import.unknown-module	no module `std.compiler.frame`
 unsaferef_deref_places.saw	refused	resolve import.unknown-module	no module `std.compiler.frame`
 unsigned_comparable_compare.saw	refused	typecheck member.unknown	`std.vector.Vector<UInt, std.alloc.GlobalAllocator>` has no method `sort` this module can see
-unsigned_handle_ordering.saw	refused	mono mono.not-yet	a synthesized `Comparable.compare(other: &Self)` on `UInt` is not in the backend slice yet: only a signed integer's `Printable.format`
-unsigned_ordered_comparison.saw	refused	mono mono.not-yet	a synthesized `Comparable.compare(other: &Self)` on `UInt8` is not in the backend slice yet: only a signed integer's `Printable.format`
+unsigned_handle_ordering.saw	pass	-	-
+unsigned_ordered_comparison.saw	pass	-	-
 unsigned_ordered_comparison_matrix.saw	pass	-	-
 use_after_move_branches_both_return.saw	pass	-	-
 use_after_move_guard_diverge.saw	pass	-	-
 use_after_move_loop_reassign.saw	pass	-	-
 use_after_move_revive.saw	pass	-	-
 use_after_move_shadow.saw	pass	-	-
-user_enum_name_vs_private_std_enum.saw	refused	mono mono.not-yet	a synthesized `Printable.format(into: &var std.stringbuilder.StringBuilder)` on `UInt8` is not in the backend slice yet: only a signed integer's `Printable.format`
+user_enum_name_vs_private_std_enum.saw	pass	-	-
 user_enum_poll_coexists.saw	pass	-	-
 value_branch_valueless_arm_preserved.saw	pass	-	-
 value_if_optional_destination_context.saw	pass	-	-
 var_struct_field_assign_ok.saw	pass	-	-
-variables.saw	refused	mono mono.not-yet	a synthesized `Printable.format(into: &var std.stringbuilder.StringBuilder)` on `Float` is not in the backend slice yet: only a signed integer's `Printable.format`
+variables.saw	refused	mono mono.not-yet	a synthesized `Printable.format(into: &var std.stringbuilder.StringBuilder)` on `Float` is not in the backend slice yet: the backend lowers no Float operation
 vector_capacity_reports_oom.saw	pass	-	-
 vector_closure_suspending_transform.saw	refused	typecheck member.unknown	`std.vector.Vector<Int, std.alloc.GlobalAllocator>` has no method `map` this module can see
 vector_closures_over_nocopy_elements.saw	refused	typecheck infer.failed	this closure parameter has no type: write one, as `x: Int`, or pass the closure where a function type is expected
-vector_copy.saw	refused	mono mono.not-yet	a synthesized `ExplicitCopy.copy()` on `Int` is not in the backend slice yet: only a signed integer's `Printable.format` (inside std/vector.saw:227:35)
+vector_copy.saw	pass	-	-
 vector_custom_alloc_grow_pairs.saw	pass	-	-
 vector_each_fold_map.saw	refused	resolve slice.not-yet	`syntax.expr.shorthand-param` is not in the bootstrap slice yet
 vector_each_indexed.saw	refused	typecheck infer.failed	this closure parameter has no type: write one, as `x: Int`, or pass the closure where a function type is expected
@@ -2659,4 +2659,4 @@ while_simple.saw	pass	-	-
 wrapped_return_takes_the_transfer_checkpoint.saw	pass	-	transfer.implicit-copy: this reads a place of type `wrapped_return_takes_the_transfer_checkpoint.Res`, which is NoCopy, by value: only a Copy type copies silently; a binding that only borrows has noth
 wrapping_and_reference_mix.saw	pass	-	-
 wrapping_operators.saw	pass	-	-
-wrapping_requires_integers.saw	refused	mono mono.not-yet	a synthesized `Printable.format(into: &var std.stringbuilder.StringBuilder)` on `Float` is not in the backend slice yet: only a signed integer's `Printable.format`
+wrapping_requires_integers.saw	refused	mono mono.not-yet	a synthesized `Printable.format(into: &var std.stringbuilder.StringBuilder)` on `Float` is not in the backend slice yet: the backend lowers no Float operation

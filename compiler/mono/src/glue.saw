@@ -15,7 +15,6 @@ import sawmir.model.{MirAggregate, MirCall, MirCallKind, MirConstKind, MirFunc, 
                          MirOperandKind, MirProjKind, MirRvalueKind}
 import sawmir.program.{MirProgram}
 import sawmono.program.{MONO_KEY_COPY, MONO_KEY_DROP, MonoItem, MonoItemKind, MonoProgram}
-import sawresolve.lang.{ResLang}
 import sawresolve.model.{ResDeclKind}
 import sawresolve.program.{ResProgram}
 import sawtarget.layout.{target_enum_cases, target_member_type, target_struct_fields}
@@ -44,6 +43,29 @@ public func mono_copies_bitwise(tc: &var TcProgram, t: Int) -> Bool {
 public func mono_array_length(tc: &TcProgram, t: Int) -> Int {
     let length = tc.types.arg(t, 0)
     tc.types.ty(length).a
+}
+
+// A requirement member glue synthesizes for a scalar's builtin conformance:
+// `ExplicitCopy.copy()`, `Equatable.equals`, `Comparable.compare`,
+// `Hashable.hash` and `Printable.format`, in that order.
+public enum MonoScalarHook {
+    case Duplicate,
+    case Equals,
+    case Compare,
+    case Hash,
+    case Format,
+    case Other
+}
+
+// A row of the scalar hook table: the integers, `Bool`, `Float`, a raw
+// pointer, `Void`.
+public enum MonoScalarKind {
+    case Integer,
+    case Boolean,
+    case Floating,
+    case Pointer,
+    case Empty,
+    case Other
 }
 
 extension MonoProgram {
@@ -373,86 +395,472 @@ extension MonoProgram {
         self.finish_glue(k, f)
     }
 
-    // A signed integer's `Printable.format(into:)`: its decimal digits,
-    // appended through the builder's own `append(value: Int)`, the value
-    // widened first. The append can fail only for a growable builder's
-    // refused growth, which panics as a `try!` does.
+    // The hook requirement `req` names; `Other` for one no scalar hook
+    // answers.
+    public func scalar_hook(&var self, req: Int) -> MonoScalarHook {
+        let info = self.dp.bc.mir.tc.res.decls[req]
+        let k = self.dp.bc.mir.tc.known
+        let name = self.dp.bc.mir.tc.res.name_text(info.name)
+        if info.parent == k.explicit_copy && name.equals("copy") {
+            return MonoScalarHook.Duplicate
+        }
+        if info.parent == k.equatable && name.equals("equals") {
+            return MonoScalarHook.Equals
+        }
+        if info.parent == k.comparable && name.equals("compare") {
+            return MonoScalarHook.Compare
+        }
+        if info.parent == k.hashable && name.equals("hash") {
+            return MonoScalarHook.Hash
+        }
+        if info.parent == k.printable && name.equals("format") {
+            return MonoScalarHook.Format
+        }
+        MonoScalarHook.Other
+    }
+
+    // The scalar kind of concrete type `t`; `Other` for any other type.
+    public func scalar_kind(&var self, t: Int) -> MonoScalarKind {
+        if self.dp.bc.mir.tc.is_integer(t) {
+            return MonoScalarKind.Integer
+        }
+        if self.dp.bc.mir.tc.is_bool(t) {
+            return MonoScalarKind.Boolean
+        }
+        if self.dp.bc.mir.tc.is_float(t) {
+            return MonoScalarKind.Floating
+        }
+        if self.dp.bc.mir.raw_pointer(t) {
+            return MonoScalarKind.Pointer
+        }
+        let void_decl = self.dp.bc.mir.tc.known.void_type
+        let void_type = self.dp.bc.mir.tc.prim(void_decl)
+        if t == void_type {
+            return MonoScalarKind.Empty
+        }
+        MonoScalarKind.Other
+    }
+
+    // THE SCALAR HOOK TABLE: why member glue does not synthesize requirement
+    // `req` on concrete type `t`, or "" when it does. A row is a scalar kind,
+    // a column a hook. A cell is lowered where the spec grants the kind that
+    // builtin conformance (Equality, Ordering, Hashing, the Copy family) and
+    // the backend lowers the kind's values; every other cell says which of
+    // the two it lacks.
+    // ENTRY POINTS:
+    //     member_glue_of
+    //     build_member_glue
+    public func scalar_refusal(&var self, req: Int, t: Int) -> String {
+        let hook = self.scalar_hook(req)
+        let kind = self.scalar_kind(t)
+        let other = "only a scalar's builtin hooks"
+        if hook == MonoScalarHook.Other {
+            return other
+        }
+        match kind {
+            case Integer -> "",
+            case Boolean -> {
+                if hook == MonoScalarHook.Compare {
+                    return "the spec gives `Bool` no builtin `Comparable` (SL-715)"
+                }
+                ""
+            },
+            case Floating -> "the backend lowers no Float operation",
+            case Pointer -> {
+                if hook == MonoScalarHook.Duplicate {
+                    return ""
+                }
+                if hook == MonoScalarHook.Equals {
+                    return "the spec gives a raw pointer no builtin `Equatable` (SL-715)"
+                }
+                other
+            },
+            case Empty -> {
+                if hook == MonoScalarHook.Duplicate {
+                    return ""
+                }
+                other
+            },
+            case Other -> other
+        }
+    }
+
+    // THE SCALAR HOOK FUNNEL: member glue item `k`'s body, its requirement's
+    // hook lowered for its scalar type, a cell the scalar hook table admits.
+    // Each hook's builder states what it computes; every one matches Stage 0's
+    // answer for the kind.
+    // ENTRY POINTS:
+    //     instantiate
     public func build_member_glue(&var self, k: Int) {
         let t = self.items[k].glue_type
         let req = self.items[k].decl
+        let why = self.scalar_refusal(req, t)
+        if why.len() > 0 {
+            try! self.problems.push("member glue was made for a cell the scalar hook table refuses")
+            return
+        }
+        match self.scalar_hook(req) {
+            case Duplicate -> self.build_scalar_copy(k, t),
+            case Equals -> self.build_scalar_equals(k, t),
+            case Compare -> self.build_scalar_compare(k, t, req),
+            case Hash -> self.build_scalar_hash(k, t, req),
+            case Format -> self.build_scalar_format(k, t, req),
+            case Other -> try! self.problems.push("member glue was made for no scalar hook")
+        }
+    }
+
+    // A hook's frame: `_0` of `result`, `_1` the `&t` receiver and, when
+    // `second` is not -1, `_2` a parameter of type `second`.
+    func begin_hook(&var self, result: Int, t: Int, second: Int) -> Int {
+        let receiver = self.dp.bc.mir.tc.mk_ref(false, t)
+        let f = self.begin_glue(result, receiver)
+        if second >= 0 {
+            let _ = self.dp.bc.mir.new_local(second, MirLocalKind.Param, -1, -1)
+            var info = self.dp.bc.mir.funcs[f]
+            info.param_count = 2
+            self.dp.bc.mir.funcs[f] = info
+        }
+        f
+    }
+
+    // A copy of `(*_l)`, a referent of type `t`.
+    func referent_copy(&var self, l: Int, t: Int) -> Int {
+        let p = self.dp.bc.mir.place_local(l)
+        let subject = self.dp.bc.mir.project(p, MirProjKind.Deref, -1, -1, t)
+        self.dp.bc.mir.op_copy(subject)
+    }
+
+    // `_0 = op`, then the return.
+    func return_value(&var self, k: Int, f: Int, op: Int) {
+        let rv = self.dp.bc.mir.rv_use(op)
+        let result = self.dp.bc.mir.place_local(0)
+        self.dp.bc.mir.assign(result, rv)
+        self.dp.bc.mir.ret()
+        self.finish_glue(k, f)
+    }
+
+    // `copy()`: the value itself, which a scalar copies bitwise.
+    func build_scalar_copy(&var self, k: Int, t: Int) {
+        let f = self.begin_hook(t, t, -1)
+        let value = self.referent_copy(1, t)
+        self.return_value(k, f, value)
+    }
+
+    // The Bool temp holding `(*_1) op (*_2)`, compared at `t`'s signedness.
+    func compared(&var self, op: String, t: Int) -> Int {
+        let bool_type = self.dp.bc.mir.tc.bool_type()
+        var ops = Vector<Int>()
+        try! ops.push(self.referent_copy(1, t))
+        try! ops.push(self.referent_copy(2, t))
+        let rv = self.dp.bc.mir.rv_over(MirRvalueKind.Binary, bool_type, op, &ops)
+        self.dp.bc.mir.temp_of(rv)
+    }
+
+    // `equals(other:)`: `==` of the two referents.
+    func build_scalar_equals(&var self, k: Int, t: Int) {
+        let bool_type = self.dp.bc.mir.tc.bool_type()
+        let other = self.dp.bc.mir.tc.mk_ref(false, t)
+        let f = self.begin_hook(bool_type, t, other)
+        let same = self.compared("==", t)
+        let value = self.dp.bc.mir.move_local(same)
+        self.return_value(k, f, value)
+    }
+
+    // `compare(other:)`: `Less` when `<` holds, `Equal` when `==` does, else
+    // `Greater`.
+    func build_scalar_compare(&var self, k: Int, t: Int, req: Int) {
+        let ordering = self.dp.bc.mir.tc.sigs[req].result
+        let other = self.dp.bc.mir.tc.mk_ref(false, t)
+        let f = self.begin_hook(ordering, t, other)
+        let less = self.dp.bc.mir.new_block()
+        let rest = self.dp.bc.mir.new_block()
+        let equal = self.dp.bc.mir.new_block()
+        let greater = self.dp.bc.mir.new_block()
+        let join = self.dp.bc.mir.new_block()
+        let below = self.compared("<", t)
+        let below_op = self.dp.bc.mir.move_local(below)
+        self.dp.bc.mir.switch_bool(below_op, less, rest)
+        self.dp.bc.mir.enter(rest)
+        let same = self.compared("==", t)
+        let same_op = self.dp.bc.mir.move_local(same)
+        self.dp.bc.mir.switch_bool(same_op, equal, greater)
+        self.ordering_arm(less, ordering, "Less", join)
+        self.ordering_arm(equal, ordering, "Equal", join)
+        self.ordering_arm(greater, ordering, "Greater", join)
+        self.dp.bc.mir.enter(join)
+        self.dp.bc.mir.ret()
+        self.finish_glue(k, f)
+    }
+
+    // Block `b`: `_0` is `ordering`'s case `name`, then `join`.
+    func ordering_arm(&var self, b: Int, ordering: Int, name: String, join: Int) {
+        self.dp.bc.mir.enter(b)
+        let d = self.dp.bc.mir.tc.nominal_decl(ordering)
+        let id = self.dp.bc.mir.tc.res.intern(name)
+        let case_decl = self.dp.bc.mir.tc.case_named(d, id)
+        let none = Vector<Int>()
+        let rv = self.dp.bc.mir.rv_aggregate(MirAggregate.Case, case_decl, ordering, &none)
+        let result = self.dp.bc.mir.place_local(0)
+        self.dp.bc.mir.assign(result, rv)
+        self.dp.bc.mir.goto(join)
+    }
+
+    // `hash(h:)`: the value's bits fed to the hasher's `write_int(n:)` as an
+    // `Int`, a narrow value zero-extended whatever its sign and a Bool as 1
+    // or 0, which are the words Stage 0 feeds.
+    func build_scalar_hash(&var self, k: Int, t: Int, req: Int) {
         let void_decl = self.dp.bc.mir.tc.known.void_type
         let void_type = self.dp.bc.mir.tc.prim(void_decl)
-        let receiver = self.dp.bc.mir.tc.mk_ref(false, t)
         let s = self.dp.bc.mir.tc.sigs[req]
         let into = self.dp.bc.mir.tc.params[s.param_first].ty
-        let f = self.begin_glue(void_type, receiver)
-        let _ = self.dp.bc.mir.new_local(into, MirLocalKind.Param, -1, -1)
-        var info = self.dp.bc.mir.funcs[f]
-        info.param_count = 2
-        self.dp.bc.mir.funcs[f] = info
-        let wide = self.dp.bc.mir.tc.int_type()
-        let append = self.builder_append(wide)
-        let builder = self.dp.bc.mir.tc.referent(into)
-        if append < 0 || builder < 0 {
-            self.refuse(-1, "mono.not-yet", "an integer's `Printable.format` with no `append(value: Int)` on the builder")
+        let f = self.begin_hook(void_type, t, into)
+        let hasher = self.dp.bc.mir.tc.referent(into)
+        let write = self.glue_member(hasher, "write_int", "n")
+        if write < 0 {
+            self.refuse(-1, "mono.not-yet", "a scalar's `Hashable.hash` with no `write_int(n:)` on the hasher")
             self.dp.bc.mir.ret()
             self.finish_glue(k, f)
             return
         }
-        let subject = self.glue_subject(t)
-        var value = self.dp.bc.mir.op_copy(subject)
-        if wide != t {
-            let rv = self.dp.bc.mir.rv_one(MirRvalueKind.Widen, wide, "", value)
-            let widened = self.dp.bc.mir.temp_of(rv)
-            value = self.dp.bc.mir.move_local(widened)
+        var value = -1
+        if self.dp.bc.mir.tc.is_bool(t) {
+            value = self.bool_word(t)
+        } else {
+            value = self.hash_word(t)
         }
-        let target = self.dp.bc.mir.place_local(2)
-        var args = Vector<Int>()
-        let into_ref = self.dp.bc.mir.op_copy(target)
-        try! args.push(into_ref)
-        try! args.push(value)
-        let result = self.dp.bc.mir.tc.sigs[append].result
-        let status = self.dp.bc.mir.new_temp(result)
-        var c = self.dp.bc.mir.blank_call(MirCallKind.Function, -1)
-        c.target = append
-        c.owner = builder
-        c.arg_first = self.dp.bc.mir.push_args(&args)
-        c.arg_count = 2
-        c.dest = self.dp.bc.mir.place_local(status)
-        let _ = self.dp.bc.mir.call_and_continue(c)
+        let _ = self.call_member(write, hasher, value)
+        self.dp.bc.mir.ret()
+        self.finish_glue(k, f)
+    }
+
+    // `(*_1)`, a Bool, as the `Int` 1 or 0.
+    func bool_word(&var self, t: Int) -> Int {
+        let int_type = self.dp.bc.mir.tc.int_type()
+        let word = self.dp.bc.mir.new_temp(int_type)
+        let yes = self.dp.bc.mir.new_block()
+        let no = self.dp.bc.mir.new_block()
+        let join = self.dp.bc.mir.new_block()
+        let flag = self.referent_copy(1, t)
+        self.dp.bc.mir.switch_bool(flag, yes, no)
+        self.set_word(yes, word, "1", join)
+        self.set_word(no, word, "0", join)
+        self.dp.bc.mir.enter(join)
+        self.dp.bc.mir.move_local(word)
+    }
+
+    // Block `b`: `Int` local `word` is `text`, then `join`.
+    func set_word(&var self, b: Int, word: Int, text: String, join: Int) {
+        self.dp.bc.mir.enter(b)
+        let int_type = self.dp.bc.mir.tc.int_type()
+        let one = self.dp.bc.mir.op_const(MirConstKind.Int, text, int_type)
+        let rv = self.dp.bc.mir.rv_use(one)
+        let p = self.dp.bc.mir.place_local(word)
+        self.dp.bc.mir.assign(p, rv)
+        self.dp.bc.mir.goto(join)
+    }
+
+    // `(*_1)`, an integer, as the `Int` of its bits: the platform pair and
+    // the 64-bit widths as they are, a narrower width zero-extended.
+    func hash_word(&var self, t: Int) -> Int {
+        let int_type = self.dp.bc.mir.tc.int_type()
+        let value = self.referent_copy(1, t)
+        if t == int_type {
+            return value
+        }
+        let width = self.dp.bc.mir.tc.int_width(t)
+        if self.dp.bc.mir.tc.is_unsigned(t) && width == 64 {
+            return self.to_int(value, "from(truncating:)")
+        }
+        let widened = self.to_int(value, "")
+        if self.dp.bc.mir.tc.is_unsigned(t) || width == 64 {
+            return widened
+        }
+        var mask = "255"
+        if width == 16 {
+            mask = "65535"
+        } else if width == 32 {
+            mask = "4294967295"
+        }
+        var ops = Vector<Int>()
+        try! ops.push(widened)
+        try! ops.push(self.dp.bc.mir.op_const(MirConstKind.Int, mask, int_type))
+        let rv = self.dp.bc.mir.rv_over(MirRvalueKind.Binary, int_type, "&", &ops)
+        let low = self.dp.bc.mir.temp_of(rv)
+        self.dp.bc.mir.move_local(low)
+    }
+
+    // Integer operand `value` as an `Int`: the implicit widening when `word`
+    // is "", else the conversion `word` spells.
+    func to_int(&var self, value: Int, word: String) -> Int {
+        let int_type = self.dp.bc.mir.tc.int_type()
+        var rv = -1
+        if word.len() == 0 {
+            rv = self.dp.bc.mir.rv_one(MirRvalueKind.Widen, int_type, "", value)
+        } else {
+            rv = self.dp.bc.mir.rv_one(MirRvalueKind.Conversion, int_type, word, value)
+        }
+        let l = self.dp.bc.mir.temp_of(rv)
+        self.dp.bc.mir.move_local(l)
+    }
+
+    // `format(into:)`: a Bool's `true` or `false`, an integer's decimal
+    // digits, each appended through the builder. An unsigned 64-bit value
+    // past `Int.max` is no `Int`, so it is appended as its quotient by ten,
+    // when not zero, then its last digit. An append fails only for a
+    // growable builder's refused growth, which panics as `try!` does.
+    func build_scalar_format(&var self, k: Int, t: Int, req: Int) {
+        let void_decl = self.dp.bc.mir.tc.known.void_type
+        let void_type = self.dp.bc.mir.tc.prim(void_decl)
+        let s = self.dp.bc.mir.tc.sigs[req]
+        let into = self.dp.bc.mir.tc.params[s.param_first].ty
+        let f = self.begin_hook(void_type, t, into)
+        let builder = self.dp.bc.mir.tc.referent(into)
+        let digits = self.glue_member(builder, "append", "value")
+        let text = self.glue_member(builder, "append", "s")
+        if digits < 0 || text < 0 {
+            self.refuse(-1, "mono.not-yet", "a scalar's `Printable.format` with no `append(value: Int)` or `append(s:)` on the builder")
+            self.dp.bc.mir.ret()
+            self.finish_glue(k, f)
+            return
+        }
+        if self.dp.bc.mir.tc.is_bool(t) {
+            self.append_bool(t, text, builder)
+        } else if self.dp.bc.mir.tc.is_unsigned(t) && self.dp.bc.mir.tc.int_width(t) == 64 {
+            self.append_wide_unsigned(t, digits, builder)
+        } else {
+            let value = self.referent_copy(1, t)
+            let int_type = self.dp.bc.mir.tc.int_type()
+            if t == int_type {
+                self.append_checked(digits, builder, value)
+            } else {
+                let wide = self.to_int(value, "")
+                self.append_checked(digits, builder, wide)
+            }
+        }
+        self.dp.bc.mir.ret()
+        self.finish_glue(k, f)
+    }
+
+    // `true` or `false` by `(*_1)`, appended through `text`.
+    func append_bool(&var self, t: Int, text: Int, builder: Int) {
+        let yes = self.dp.bc.mir.new_block()
+        let no = self.dp.bc.mir.new_block()
+        let join = self.dp.bc.mir.new_block()
+        let flag = self.referent_copy(1, t)
+        self.dp.bc.mir.switch_bool(flag, yes, no)
+        self.append_word(yes, text, builder, "\"true\"", join)
+        self.append_word(no, text, builder, "\"false\"", join)
+        self.dp.bc.mir.enter(join)
+    }
+
+    // Block `b`: String literal `spelling` appended through `text`, then
+    // `join`.
+    func append_word(&var self, b: Int, text: Int, builder: Int, spelling: String, join: Int) {
+        self.dp.bc.mir.enter(b)
+        let string_type = self.dp.bc.mir.tc.string_type()
+        let word = self.dp.bc.mir.op_const(MirConstKind.String, spelling, string_type)
+        self.append_checked(text, builder, word)
+        self.dp.bc.mir.goto(join)
+    }
+
+    // An unsigned 64-bit `(*_1)` in decimal: its quotient by ten, when that
+    // is not zero, then its remainder, each of which is an `Int`.
+    func append_wide_unsigned(&var self, t: Int, digits: Int, builder: Int) {
+        let bool_type = self.dp.bc.mir.tc.bool_type()
+        let quotient = self.by_ten("/", t)
+        let remainder = self.by_ten("%", t)
+        var test = Vector<Int>()
+        let q = self.dp.bc.mir.place_local(quotient)
+        try! test.push(self.dp.bc.mir.op_copy(q))
+        try! test.push(self.dp.bc.mir.op_const(MirConstKind.Int, "0", t))
+        let rv = self.dp.bc.mir.rv_over(MirRvalueKind.Binary, bool_type, "!=", &test)
+        let more = self.dp.bc.mir.temp_of(rv)
+        let lead = self.dp.bc.mir.new_block()
+        let last = self.dp.bc.mir.new_block()
+        let more_op = self.dp.bc.mir.move_local(more)
+        self.dp.bc.mir.switch_bool(more_op, lead, last)
+        self.dp.bc.mir.enter(lead)
+        let lead_value = self.dp.bc.mir.move_local(quotient)
+        let lead_int = self.to_int(lead_value, "from(truncating:)")
+        self.append_checked(digits, builder, lead_int)
+        self.dp.bc.mir.goto(last)
+        self.dp.bc.mir.enter(last)
+        let last_value = self.dp.bc.mir.move_local(remainder)
+        let last_int = self.to_int(last_value, "from(truncating:)")
+        self.append_checked(digits, builder, last_int)
+    }
+
+    // The temp holding `(*_1) op 10` at `t`.
+    func by_ten(&var self, op: String, t: Int) -> Int {
+        var ops = Vector<Int>()
+        try! ops.push(self.referent_copy(1, t))
+        try! ops.push(self.dp.bc.mir.op_const(MirConstKind.Int, "10", t))
+        let rv = self.dp.bc.mir.rv_over(MirRvalueKind.Binary, t, op, &ops)
+        self.dp.bc.mir.temp_of(rv)
+    }
+
+    // `append` member `append` called on the builder `_2` refers to with
+    // `value`, its `Result` forced as `try!` forces one.
+    func append_checked(&var self, append: Int, builder: Int, value: Int) {
+        let status = self.call_member(append, builder, value)
+        let void_decl = self.dp.bc.mir.tc.known.void_type
+        let void_type = self.dp.bc.mir.tc.prim(void_decl)
         let ok = self.dp.bc.mir.result_case("Ok")
         let whole = self.dp.bc.mir.place_local(status)
         let payload = self.dp.bc.mir.project(whole, MirProjKind.Force, ok, 0, void_type)
         let checked = self.dp.bc.mir.op_copy(payload)
         let rv = self.dp.bc.mir.rv_use(checked)
         let _ = self.dp.bc.mir.temp_of(rv)
-        self.dp.bc.mir.ret()
-        self.finish_glue(k, f)
     }
 
-    // The builder's `append(value:)` taking `wide`, or -1.
-    func builder_append(&var self, wide: Int) -> Int {
-        let d = self.dp.bc.mir.tc.res.lang_item(ResLang.StringBuilderStruct)
+    // Member `member` of `owner` called on the receiver `_2` refers to with
+    // `value`; returns the temp its result lands in.
+    func call_member(&var self, member: Int, owner: Int, value: Int) -> Int {
+        let target = self.dp.bc.mir.place_local(2)
+        var args = Vector<Int>()
+        try! args.push(self.dp.bc.mir.op_copy(target))
+        try! args.push(value)
+        let result = self.dp.bc.mir.tc.sigs[member].result
+        let status = self.dp.bc.mir.new_temp(result)
+        var c = self.dp.bc.mir.blank_call(MirCallKind.Function, -1)
+        c.target = member
+        c.owner = owner
+        c.arg_first = self.dp.bc.mir.push_args(&args)
+        c.arg_count = 2
+        c.dest = self.dp.bc.mir.place_local(status)
+        let _ = self.dp.bc.mir.call_and_continue(c)
+        status
+    }
+
+    // The member of type `t`'s declaration named `name` taking one parameter
+    // labelled `label`, the `Int` one where several share the label, or -1.
+    func glue_member(&var self, t: Int, name: String, label: String) -> Int {
+        let d = self.dp.bc.mir.tc.nominal_decl(t)
         if d < 0 || d >= self.dp.bc.mir.tc.member_first.len() || self.dp.bc.mir.tc.member_first[d] < 0 {
             return -1
         }
         let first = self.dp.bc.mir.tc.member_first[d]
         let count = self.dp.bc.mir.tc.member_count[d]
-        let name = self.dp.bc.mir.tc.res.intern("append")
-        let label = self.dp.bc.mir.tc.res.intern("value")
+        let name_id = self.dp.bc.mir.tc.res.intern(name)
+        let label_id = self.dp.bc.mir.tc.res.intern(label)
+        let int_type = self.dp.bc.mir.tc.int_type()
+        var found = -1
         var j = first
         while j < first + count {
             let member = self.dp.bc.mir.tc.members[j]
             j = j + 1
-            if member.name != name {
+            if member.name != name_id {
                 continue
             }
             let s = self.dp.bc.mir.tc.sigs[member.decl]
-            if s.param_count == 1 && self.dp.bc.mir.tc.params[s.param_first].name == label && self.dp.bc.mir.tc.params[s.param_first].ty == wide {
-                return member.decl
+            if s.param_count != 1 || self.dp.bc.mir.tc.params[s.param_first].name != label_id {
+                continue
+            }
+            if found < 0 || self.dp.bc.mir.tc.params[s.param_first].ty == int_type {
+                found = member.decl
             }
         }
-        return -1
+        found
     }
 
     // The `copy()` type `t`'s copy-policy conformance writes, or -1.

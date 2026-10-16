@@ -1,0 +1,24 @@
+// A scalar's synthesized `ExplicitCopy.copy`, reached through a bound, at
+// every integer width, `Bool` and a raw pointer: the copy is the value.
+
+func dup<T: ExplicitCopy>(v: T) -> T {
+    v.copy()
+}
+
+func dup_address<T: ExplicitCopy>(v: T) unsafe -> T {
+    v.copy()
+}
+
+func pointer() unsafe -> Int {
+    let p = 4096 as UnsafePointer<Int>
+    dup_address(p) as Int
+}
+
+func main() {
+    print("Int {} {}", dup(Int.min), dup(Int.max))
+    print("Int8 {} Int16 {} Int32 {} Int64 {}", dup(Int8.min), dup(-300i16), dup(Int32.max), dup(Int64.min))
+    print("UInt {} UInt8 {} UInt16 {}", dup(UInt.max), dup(255u8), dup(UInt16.max))
+    print("UInt32 {} UInt64 {}", dup(UInt32.max), dup(UInt64.max))
+    print("Bool {} {}", dup(true), dup(false))
+    print("pointer {}", pointer())
+}

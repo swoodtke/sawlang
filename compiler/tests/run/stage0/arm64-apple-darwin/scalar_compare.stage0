@@ -1,0 +1,17 @@
+program	compiler/tests/run/scalar_compare.saw
+triple	arm64-apple-darwin
+source	657de22eaab9e808
+build	ok
+exit	0
+stdout	"Int less equal greater"
+stdout	"Int8 less greater"
+stdout	"Int16 less equal"
+stdout	"Int32 less greater"
+stdout	"Int64 less greater"
+stdout	"UInt greater less"
+stdout	"UInt8 greater greater"
+stdout	"UInt16 greater equal"
+stdout	"UInt32 greater less"
+stdout	"UInt64 greater less"
+stdout	"larger -3 200 18446744073709551615"
+stdout	""

@@ -1,0 +1,32 @@
+// A scalar's synthesized `Printable.format`, reached through `to_string()`
+// and an interpolation, at every integer width and both signs, their
+// extremes, and `Bool`.
+
+func show<T: Printable>(label: String, v: T) {
+    print("{label}: {v.to_string()} [{v}]")
+}
+
+func main() {
+    show("Int", Int.min)
+    show("Int", Int.max)
+    show("Int8", Int8.min)
+    show("Int16", Int16.min)
+    show("Int32", Int32.max)
+    show("Int64", Int64.min)
+    show("UInt", UInt.min)
+    show("UInt", UInt.max)
+    show("UInt8", UInt8.max)
+    show("UInt16", UInt16.max)
+    show("UInt32", UInt32.max)
+    show("UInt64", UInt64.max)
+    show("UInt64", 9_223_372_036_854_775_808u64)
+    show("UInt64", 10_000_000_000_000_000_000u64)
+    let small: UInt = 7
+    show("UInt", small)
+    show("UInt8", 0u8)
+    show("Bool", true)
+    show("Bool", false)
+    let flag = 3 > 4
+    print("{flag} {not flag}")
+    print(true.to_string().len() + false.to_string().len())
+}

@@ -1,0 +1,24 @@
+// A scalar's synthesized `Hashable.hash`, reached through a bound, at every
+// integer width and `Bool`: each feeds its bits into the hasher, a narrow
+// value zero-extended, so `-1i8` and `255u8` digest alike.
+
+func digest<T: Hashable>(v: T) -> Int {
+    var h = Hasher()
+    v.hash(&var h)
+    h.finish()
+}
+
+func main() {
+    print("Int {} {} {}", digest(0), digest(-1), digest(Int.max))
+    print("Int8 {} {}", digest(-1i8), digest(Int8.min))
+    print("Int16 {} {}", digest(-1i16), digest(300i16))
+    print("Int32 {} {}", digest(-1i32), digest(Int32.max))
+    print("Int64 {} {}", digest(-1i64), digest(Int64.min))
+    print("UInt {} {}", digest(UInt.max), digest(UInt.min))
+    print("UInt8 {} {}", digest(255u8), digest(128u8))
+    print("UInt16 {} {}", digest(UInt16.max), digest(1u16))
+    print("UInt32 {} {}", digest(UInt32.max), digest(1u32))
+    print("UInt64 {} {}", digest(UInt64.max), digest(1u64))
+    print("Bool {} {}", digest(true), digest(false))
+    print("narrow alike {}", digest(-1i8) == digest(255u8))
+}

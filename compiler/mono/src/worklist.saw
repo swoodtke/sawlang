@@ -1172,8 +1172,8 @@ extension MonoProgram {
     }
 
     // THE MEMBER GLUE FUNNEL: the glue that synthesizes requirement `req` for
-    // concrete type `t`, made when new; -1 when refused. In the slice: a signed
-    // integer's `Printable.format`, its decimal digits.
+    // concrete type `t`, made when new; -1 when refused. In the slice: the
+    // cells the scalar hook table admits (`scalar_refusal` in glue.saw).
     // ENTRY POINTS:
     //     glued
     public func member_glue_of(&var self, req: Int, t: Int, origin: Int, node: Int) -> Int {
@@ -1185,13 +1185,15 @@ extension MonoProgram {
             }
             at = self.by_key.following(at)
         }
-        if not self.integer_format(req, t) {
+        let why = self.scalar_refusal(req, t)
+        if why.len() > 0 {
             var msg = StringBuilder()
             try! msg.append("a synthesized `")
             try! msg.append(self.dp.bc.mir.tc.target_text(req))
             try! msg.append("` on `")
             try! msg.append(self.dp.bc.mir.tc.type_text(t))
-            try! msg.append("` is not in the backend slice yet: only a signed integer's `Printable.format`")
+            try! msg.append("` is not in the backend slice yet: ")
+            try! msg.append(why)
             self.refuse(node, "mono.not-yet", msg.build())
             return -1
         }
@@ -1203,15 +1205,6 @@ extension MonoProgram {
                                       origin_node: node))
         self.by_key.add(t, MONO_KEY_MEMBER, k)
         k
-    }
-
-    // Whether `req` is `Printable.format` and `t` a signed integer type: the
-    // new std's builder renders an `Int` and has no unsigned rendering.
-    public func integer_format(&var self, req: Int, t: Int) -> Bool {
-        let info = self.dp.bc.mir.tc.res.decls[req]
-        let format = self.dp.bc.mir.tc.res.intern("format")
-        let printable = info.parent == self.dp.bc.mir.tc.known.printable && info.name == format
-        printable && self.dp.bc.mir.tc.is_integer(t) && not self.dp.bc.mir.tc.is_unsigned(t)
     }
 
     // `T()` on a type parameter, at a concrete `T`: in the slice, a fieldless

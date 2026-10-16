@@ -1,0 +1,11 @@
+// refuses: mono.not-yet at 5:5
+// The spec gives a raw pointer no builtin `Equatable`, so the scalar hook
+// table has no `equals` for it, though typecheck grants the bound (SL-715).
+func same<T: Equatable>(a: T, b: T) unsafe -> Bool {
+    a == b
+}
+
+func main() unsafe {
+    let p = 4096 as UnsafePointer<Int>
+    print(same(p, p))
+}
