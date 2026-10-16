@@ -1,0 +1,9 @@
+program	compiler/tests/run/constant_cast_runtime.saw
+triple	arm64-apple-darwin
+source	a51a2053f62f8ed9
+build	ok
+exit	-6
+stdout	"255"
+stdout	"300"
+stdout	"panic at constant_cast_runtime.saw:19: cast to UInt8 out of range: 300"
+stdout	""

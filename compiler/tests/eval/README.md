@@ -104,7 +104,8 @@ which has none, by its condition's position: `the static_assert at 12:16`.
 Typecheck's constant-position funnel (`compiler/tests/typecheck/README.md`)
 reads the same fold at every constant position and refuses each fault, a
 cycle and a false `static_assert` first, in a statement-position
-`static_assert` too, which has no MIR function here (SL-493, SL-494). So no
+`static_assert` too, which has no MIR function here (SL-493, SL-494); a cast
+that does not fit is the constant-cast funnel's, `constant.cast-range`. So no
 program typecheck accepts reaches the six `eval.` rules: they stand as
 defence in depth, held to the fold by the agreement check. Each one's fixture
 is headed `// shadowed: TC-RULE at L:C` instead: it is refused first by that

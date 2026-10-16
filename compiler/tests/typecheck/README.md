@@ -689,7 +689,8 @@ depends on itself (`static.cycle`, once per cycle, at the earliest-declared
 static on it, naming the statics in order), a fault the fold meets in the
 expression itself (`constant.overflow`, `constant.shift-range`,
 `constant.divide-by-zero`, and `type.mismatch` for a value that does not
-fit), and a `static_assert` whose condition folds to `false`
+fit, but `constant.cast-range` for a cast that does not, which it hands to the
+constant-cast funnel), and a `static_assert` whose condition folds to `false`
 (`static_assert.failed`, carrying its message). A fault met inside a static
 the expression names is that static's refusal. An expression with a refusal
 inside it already is not judged again, and neither is an optional static's,
@@ -701,7 +702,7 @@ defence in depth (`compiler/tests/eval/README.md`).
 
 | position | entry point | grammar beyond the shared one | covered by |
 |---|---|---|---|
-| a static's initializer | `check_static_body` | a struct's memberwise construction, an array and a repeat literal, a float, an earlier static of any type; no `init` body, call, tuple, `String`, or case of an enum with no backing | constant_positions, constant_refusals; static.not-constant, .conversion, .init, .interpolation, .tuple, .unbacked-case, .mutable; static.cycle; constant.divide-by-zero; type.mismatch.constant-cast |
+| a static's initializer | `check_static_body` | a struct's memberwise construction, an array and a repeat literal, a float, an earlier static of any type; no `init` body, call, tuple, `String`, or case of an enum with no backing | constant_positions, constant_refusals; static.not-constant, .conversion, .init, .interpolation, .tuple, .unbacked-case, .mutable; static.cycle; constant.divide-by-zero; constant.cast-range.static-initializer |
 | a raw case's value | `check_raw_value` | names no static and no other enum's case (spec, Raw backings) | constant_positions; static.not-constant.raw-static, .raw-case |
 | an `@align` argument on a static | `check_align_attribute` | none | constant_positions |
 | an `@align` argument on a local | `check_align_local` | none | constant_positions; static.not-constant.align |
@@ -749,6 +750,35 @@ it stays a run-time check.
 | a count in code that never runs | `constant.shift-range` | .unreachable |
 | a zero divisor of `/`, `%`, `/=`, and `%=` over a static | `constant.divide-by-zero` | .division, .remainder, .compound, .compound-remainder |
 | a run-time count or divisor; a constant one that cannot fault; one that names a const parameter | nothing | certain_fault_controls; run programs runtime_count_divisor, const_generic_shift_guard |
+
+### The constant-cast funnel
+
+A cast whose operand is constant before generic instantiation and whose value
+its integer target cannot hold panics wherever it runs, so it is a compile
+error at its `as` (spec, Integer Conversions, "Constants"; SL-757). One
+funnel, `refuse_constant_cast`, refuses it as `constant.cast-range`, in Stage
+0's words, naming the value, the target and the target's range; its docstring
+names its entry points. "Constant before instantiation" is the certain-fault
+funnel's `fold_before_instantiation`: a literal, const arithmetic, a module
+static, a raw-backed case, an integer type's limit, and a cast of one of them.
+Every cast to an integer type is judged once every body is typed
+(`check_constant_casts`), so a static or a case declared after the cast folds
+too. At a constant position the constant-position funnel meets the same fault
+first and hands it to this funnel, so a cast that does not fit is refused by
+one rule, at its `as`, wherever it is written. A slot a lone case adopts holds
+no cast: `let x: UInt8 = Wide.Big` stays `type.mismatch`'s "does not fit".
+Reachability is not asked. A `let` local, a value computed at run time and a
+const parameter keep the run-time check, `cast to T out of range`.
+
+| operand | refused | covered by |
+|---|---|---|
+| a literal, in a `let`, an argument, and code that never runs | `constant.cast-range` | (bare), .argument, .unreachable |
+| const arithmetic, a negative constant to an unsigned type, an integer limit | `constant.cast-range` | .arithmetic, .sign, .limit |
+| a raw-backed case below its backing, and a negative one to an unsigned type | `constant.cast-range` | .case, .case-sign |
+| a case declared after the cast; a module static | `constant.cast-range` | .declared-later, .static |
+| a cast of a cast | `constant.cast-range` | .nested |
+| a static's initializer, a `static_assert` condition | `constant.cast-range` | .static-initializer, .assert; goldens constant_refusals, constant_faults |
+| a case to its own backing, to a wider type, below its backing where it fits; a literal, a sum and a limit that fit; a static that fits; a `let` local, a computed enum value, a const parameter | nothing | constant_cast_controls; run programs constant_cast_accepted, constant_cast_runtime |
 
 ### Layout asserts
 
@@ -1508,8 +1538,9 @@ says what the fixture shows.
 | `extension.default-omitted` | an extension head renaming its type's parameters that leaves out a defaulted one, with the head written out (D14) |
 | `extension.partial-specialization` | an extension head naming a type for some of its parameters and renaming others, a generic specialized extension, which the spec leaves planned (SL-740) |
 | `extension.specialized-conformance` | a conformance declared in a specialized extension, for one instantiation, which the spec leaves planned; it counts for nothing (bare), an `UnsafeSend` assertion included (`.assertion`) (SL-740) |
-| `type.mismatch` | a value that does not convert to what its position expects, one fixture per funnel position and one per cell of the wrap and erasure matrix a position refuses; a condition that is not a `Bool`; a pattern that does not fit its value; operands that disagree; a bare integer literal, or a constant expression's literal, leaf or cast, that does not fit the type it adopts or converts to; a literal or range pattern's integer that does not fit the matched type (`.pattern-literal-range`, `.pattern-negative-unsigned`, `.pattern-range-end`); a literal past its signed suffix's range (D6) |
+| `type.mismatch` | a value that does not convert to what its position expects, one fixture per funnel position and one per cell of the wrap and erasure matrix a position refuses; a condition that is not a `Bool`; a pattern that does not fit its value; operands that disagree; a bare integer literal, or a constant expression's literal or leaf, that does not fit the type it adopts; a literal or range pattern's integer that does not fit the matched type (`.pattern-literal-range`, `.pattern-negative-unsigned`, `.pattern-range-end`); a literal past its signed suffix's range (D6) |
 | `constant.overflow`, `constant.shift-range`, `constant.divide-by-zero` | a constant expression whose typed arithmetic overflows, shifts by a count outside its width, or divides by zero, where it adopts an integer slot and at every constant position (the constant-position funnel); a shift count or divisor constant before instantiation that faults whatever the other operand is, reachable or not (the certain-fault funnel) |
+| `constant.cast-range` | a cast whose operand is constant before instantiation and whose value its integer target cannot hold, at its `as`, in any position and at every constant position, reachable or not (the constant-cast funnel) |
 | `type.ambiguous-result` | a value both of a Result slot's payloads could take |
 | `type.not-a-value` | a type, module or trait named where a value is read |
 | `type.not-a-place` | a value where a place is needed: an assignment's target, `move`, `&var` |

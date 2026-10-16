@@ -1,0 +1,9 @@
+program	compiler/tests/run/constant_cast_accepted.saw
+triple	arm64-apple-darwin
+source	82af4e5916cba793
+build	ok
+exit	0
+stdout	"300 300 300 7"
+stdout	"255 255 -128 7"
+stdout	"200 7"
+stdout	""

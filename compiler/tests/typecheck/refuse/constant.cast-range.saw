@@ -1,0 +1,7 @@
+// refuses: constant.cast-range at 5:18
+// a literal cast to a type that cannot hold it, outside any constant position, panics wherever it runs (SL-757)
+
+func main() {
+    let a = 1000 as UInt8
+    print(a)
+}

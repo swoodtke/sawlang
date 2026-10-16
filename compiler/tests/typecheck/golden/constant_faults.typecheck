@@ -7,7 +7,7 @@ ERROR	constant.overflow	compiler/tests/typecheck/golden/constant_faults.saw:15:1
 ERROR	constant.overflow	compiler/tests/typecheck/golden/constant_faults.saw:16:16	constant expression overflows `Int` (range -9223372036854775808..=9223372036854775807)
 ERROR	constant.divide-by-zero	compiler/tests/typecheck/golden/constant_faults.saw:17:16	constant expression divides by zero
 ERROR	constant.divide-by-zero	compiler/tests/typecheck/golden/constant_faults.saw:18:16	constant expression divides by zero
-ERROR	type.mismatch	compiler/tests/typecheck/golden/constant_faults.saw:19:16	constant expression 300 does not fit in `UInt8` (range 0..=255)
+ERROR	constant.cast-range	compiler/tests/typecheck/golden/constant_faults.saw:19:20	`300` is not representable as `UInt8`, so this cast would always panic; `UInt8` holds 0 through 255; write `UInt8.from(truncating: ...)` to keep the low bits, or `UInt8.from(...)` to get `None` instead
 ERROR	constant.overflow	compiler/tests/typecheck/golden/constant_faults.saw:20:16	constant expression overflows `UInt8` (range 0..=255)
 (Module constant_faults
   (declarations

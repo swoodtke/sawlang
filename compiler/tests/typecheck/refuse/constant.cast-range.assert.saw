@@ -1,0 +1,8 @@
+// refuses: constant.cast-range at 8:25
+// in a `static_assert` condition the constant-position funnel meets the cast's fault and hands it to the constant-cast funnel (SL-757)
+
+enum Wide: UInt16 {
+    case Big = 300
+}
+
+static_assert((Wide.Big as UInt8) == 44, "the low byte")

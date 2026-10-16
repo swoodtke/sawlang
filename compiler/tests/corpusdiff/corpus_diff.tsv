@@ -1054,7 +1054,7 @@ errors/capture_borrow_escaping.saw	refused	resolve slice.not-yet	the `Thread.spa
 errors/capture_exclusivity_receiver.saw	pass	-	loan.closure-carrier: `b` is borrowed here while the closure capture at 22:12 holds `b` exclusively until the closure's last call; the closure carries the borrow from its creation to its last call
 errors/capture_self_move_requires_borrow_sigil.saw	pass	-	resolve.parse-refused: the parser refuses `tests/corpus/errors/capture_self_move_requires_borrow_sigil.saw` (syntax.expr.refused-capture-self), so its declarations are not available
 errors/capture_self_requires_borrow_sigil.saw	pass	-	resolve.parse-refused: the parser refuses `tests/corpus/errors/capture_self_requires_borrow_sigil.saw` (syntax.expr.refused-capture-self), so its declarations are not available
-errors/cast170_const_out_of_range.saw	wrong	accepts a refusal test	`1000` is not representable as `UInt8`, so this cast would always panic
+errors/cast170_const_out_of_range.saw	pass	-	constant.cast-range: `1000` is not representable as `UInt8`, so this cast would always panic; `UInt8` holds 0 through 255; write `UInt8.from(truncating: ...)` to keep the low bits, or `UInt8.from(...)
 errors/cast170_from_bad_label.saw	pass	-	call.label: an integer's `from` takes an unlabeled argument, or `truncating:`
 errors/channel_not_send.saw	refused	resolve import.unknown-module	no module `std.channel`
 errors/closure_statement_never_called.saw	wrong	accepts a refusal test	closure literal is never called: `{ ... }` in statement position builds a closure and discards it, so its body does not run

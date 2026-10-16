@@ -31,7 +31,7 @@ import sawtypecheck.checks.{tc_check_unsafe}
 import sawtypecheck.conform.{TcSubst, tc_copy_ints, tc_extension_sets}
 import sawtypecheck.declarations.{tc_build_signatures}
 import sawtypecheck.erasure.{tc_check_object_safety}
-import sawtypecheck.arith.{TcFault, tc_arith_literal}
+import sawtypecheck.arith.{TcFault, tc_arith_literal, tc_arith_max, tc_arith_min, tc_arith_text}
 import sawtypecheck.binders.{TcBinder, tc_binder_of, tc_binder_text}
 import sawtypecheck.fold.{TcFold}
 import sawtypecheck.infer.{TcSolve, tc_solve}
@@ -164,6 +164,7 @@ extension TcProgram {
             }
             m = m + 1
         }
+        self.check_constant_casts()
         self.check_zero_inits()
         self.settle_places()
         self.settle_captures()
@@ -1576,9 +1577,14 @@ extension TcProgram {
 
     // A fault the fold met, reported at `at`; `t` is the type a value did
     // not fit, for `NotFit`. A value adopting a slot it does not fit is a
-    // mismatch; the other faults are the run-time panics a constant turns
-    // into compile errors, each by name.
+    // mismatch, but a cast's own conversion is the constant-cast funnel's;
+    // the other faults are the run-time panics a constant turns into compile
+    // errors, each by name.
     func refuse_constant_fault(&var self, v: &TcFold, at: Int, t: Int) {
+        if v.fault == TcFault.NotFit && v.at == at && self.has_alt(at, Alt.Expr_Cast) {
+            self.refuse_constant_cast(&v, at)
+            return
+        }
         var msg = StringBuilder()
         var rule = "type.mismatch"
         if v.fault == TcFault.NotFit {
@@ -4209,7 +4215,80 @@ extension TcProgram {
             try! msg.append("`: it converts between numbers, from a raw-backed enum, and between pointers")
             self.refuse(e, "type.cast", msg.build())
         }
+        if self.is_integer(to) {
+            try! self.constant_casts.push(e)
+        }
         self.set_type(e, to, false)
+    }
+
+    // Each cast to an integer type, once every body is typed: refused when
+    // its own conversion is the fault its fold meets, so its operand is
+    // constant before instantiation and its value does not fit the target.
+    func check_constant_casts(&var self) {
+        var k = 0
+        while k < self.constant_casts.len() {
+            let e = self.constant_casts[k]
+            k = k + 1
+            self.check_constant_cast(e)
+        }
+    }
+
+    func check_constant_cast(&var self, e: Int) {
+        let to = self.expr_types[e]
+        if to < 0 || not self.is_integer(to) || self.refused_within(e) {
+            return
+        }
+        let v = self.fold_before_instantiation(e)
+        if v.ok || v.fault != TcFault.NotFit || v.at != e {
+            return
+        }
+        self.refuse_constant_cast(&v, e)
+    }
+
+    // The constant-cast funnel (spec, Integer Conversions, "Constants"): cast
+    // `e`, whose operand folds to `v` at the operand's type, a value the
+    // cast's integer target cannot hold, panics wherever it runs, so it is
+    // refused at its `as`, reachable or not, as `constant.cast-range`. The
+    // fold reads through const arithmetic, statics and raw-backed cases, not
+    // a `let`, and an operand naming a type or const parameter is constant
+    // only per instantiation: both keep the run-time check.
+    //
+    // ENTRY POINTS (refuse_constant_cast):
+    //     check_constant_cast
+    //     refuse_constant_fault
+    func refuse_constant_cast(&var self, v: &TcFold, e: Int) {
+        let to = self.expr_types[e]
+        let name = self.type_text(to)
+        let w = self.int_width(to)
+        let signed = not self.is_unsigned(to)
+        var msg = StringBuilder()
+        try! msg.append("`")
+        try! msg.append(self.fold_text(&v))
+        try! msg.append("` is not representable as `")
+        try! msg.append(name)
+        try! msg.append("`, so this cast would always panic; `")
+        try! msg.append(name)
+        try! msg.append("` holds ")
+        try! msg.append(tc_arith_text(tc_arith_min(w, signed), w, signed))
+        try! msg.append(" through ")
+        try! msg.append(tc_arith_text(tc_arith_max(w, signed), w, signed))
+        try! msg.append("; write `")
+        try! msg.append(name)
+        try! msg.append(".from(truncating: ...)` to keep the low bits, or `")
+        try! msg.append(name)
+        try! msg.append(".from(...)` to get `None` instead")
+        let m = self.node_module(e)
+        var at = e
+        let n = self.child_count(e)
+        var k = 0
+        while k < n {
+            let c = self.child(e, k)
+            k = k + 1
+            if self.is_leaf(c) && self.text(m, c).equals("as") {
+                at = c
+            }
+        }
+        self.refuse_in(m, at, "constant.cast-range", msg.build())
     }
 
     func cast_allowed(&var self, from: Int, to: Int) -> Bool {

@@ -1,0 +1,7 @@
+// refuses: constant.cast-range at 5:25
+// const arithmetic folds before the cast judges it, so `(200 + 100) as UInt8` is `300` (SL-757)
+
+func main() {
+    let b = (200 + 100) as UInt8
+    print(b)
+}

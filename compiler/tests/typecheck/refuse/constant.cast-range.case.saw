@@ -1,0 +1,11 @@
+// refuses: constant.cast-range at 9:22
+// a raw-backed case cast below its backing is an ordinary narrowing, and its value folds (SL-757)
+
+enum Wide: UInt16 {
+    case Big = 300
+}
+
+func main() {
+    let d = Wide.Big as UInt8
+    print(d)
+}

@@ -1,0 +1,7 @@
+// refuses: constant.cast-range at 5:24
+// an integer type's limit is a constant: `UInt64.max` has no `Int64` value (SL-757)
+
+func main() {
+    let x = UInt64.max as Int64
+    print(x)
+}

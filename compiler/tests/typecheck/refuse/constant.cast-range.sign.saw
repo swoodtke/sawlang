@@ -1,0 +1,7 @@
+// refuses: constant.cast-range at 5:21
+// a negative constant has no unsigned image at any width (SL-757)
+
+func main() {
+    let c = (0 - 1) as UInt
+    print(c)
+}

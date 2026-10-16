@@ -1,0 +1,9 @@
+// refuses: constant.cast-range at 7:19
+// a negative raw-backed case cast to an unsigned type of its own width (SL-757)
+
+enum Neg: Int8 { case M = -1, case Z = 0 }
+
+func main() {
+    let x = Neg.M as UInt8
+    print(x)
+}

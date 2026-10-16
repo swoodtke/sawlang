@@ -1,0 +1,8 @@
+// refuses: constant.cast-range at 7:15
+// a constant cast in argument position (SL-757)
+
+func show(b: UInt8) { print(b) }
+
+func main() {
+    show(1000 as UInt8)
+}

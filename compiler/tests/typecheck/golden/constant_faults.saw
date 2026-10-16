@@ -1,6 +1,6 @@
 // Every fault a `static_assert` condition can meet, one assertion each
-// (SL-459, SL-493). Typecheck's constant-position funnel refuses each at the
-// operation or cast that faults, behind a cast and `Int.max` too; the
+// (SL-459, SL-493). Typecheck refuses each at the operation that faults,
+// behind a cast and `Int.max` too, and a cast that does not fit at its `as`; the
 // evaluator computes the same faults and is held to agreement with the fold.
 // A shift keeps its type's low bits, so `2 << 63` is no fault. A condition
 // that reads a refused static is refused only at that static.

@@ -1,0 +1,4 @@
+// refuses: constant.cast-range at 4:28
+// a constant cast to a type that cannot hold its value, in a static's initializer: the constant-cast funnel's, at its `as` (SL-493, SL-757)
+
+static NARROW: UInt8 = 300 as UInt8

@@ -1,0 +1,9 @@
+// refuses: constant.cast-range at 7:17
+// a module static is a leaf of the fold, so a cast of one that cannot fit is refused too; Stage 0 builds it and panics (SL-757)
+
+static BIG: Int = 1000
+
+func main() {
+    let x = BIG as UInt8
+    print(x)
+}

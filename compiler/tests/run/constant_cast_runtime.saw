@@ -1,0 +1,20 @@
+// A cast whose operand is not a constant keeps its run-time check, whatever
+// the operand was built from: a `let` local holding a literal that fits, then
+// an enum value computed at run time whose case does not fit, which panics
+// (SL-757).
+enum Wide: UInt16 {
+    case Small = 7,
+    case Big = 300
+}
+
+func pick(n: Int) -> Wide {
+    if n > 0 { Wide.Big } else { Wide.Small }
+}
+
+func main() {
+    let local = 255
+    print("{}", local as UInt8)
+    let w = pick(1)
+    print("{}", w as UInt16)
+    print("{}", w as UInt8)
+}

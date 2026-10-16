@@ -1,0 +1,9 @@
+// refuses: constant.cast-range at 6:22
+// reachability is not asked: the cast panics wherever it runs, so code that never runs is refused too (SL-757)
+
+func main() {
+    if false {
+        let x = 1000 as UInt8
+        print(x)
+    }
+}

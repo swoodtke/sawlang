@@ -1,0 +1,7 @@
+// refuses: constant.cast-range at 5:29
+// the outer of two casts is the one that cannot fit: `1000` is an `Int16`, never a `UInt8` (SL-757)
+
+func main() {
+    let x = (1000 as Int16) as UInt8
+    print(x)
+}

@@ -312,6 +312,10 @@ public struct TcProgram {
     // call node, and its value at the layout being checked.
     measured_nodes: Vector<Int>
     measured_values: Vector<Int>
+    // Every cast to an integer type, by node, judged by the constant-cast
+    // funnel once every body is typed: its operand may fold through a static
+    // or a raw-backed case declared after it.
+    constant_casts: Vector<Int>
     // Whether the program is a runtime, whose `@export`s may be the frozen
     // `__saw_rt_*` seams, as `sawc2 runtime` checks one (design 149).
     runtime_build: Bool
@@ -402,7 +406,8 @@ public func tc_program(res: ResProgram) -> TcProgram {
                       implied_copies: Vector<Int>(), narrow_atomics: Vector<Int>(), narrow_reported: Vector<Bool>(),
                       layout_asserts: Vector<Int>(), layout_assert_messages: Vector<Int>(),
                       layout_assert_decls: Vector<Int>(), layout_assert_generic: Vector<Bool>(),
-                      measured_nodes: Vector<Int>(), measured_values: Vector<Int>(), runtime_build: false,
+                      measured_nodes: Vector<Int>(), measured_values: Vector<Int>(),
+                      constant_casts: Vector<Int>(), runtime_build: false,
                       export_symbols: move symbols, export_nodes: move export_nodes,
                       erased_nodes: Vector<Int>())
     let empty = Vector<Int>()
