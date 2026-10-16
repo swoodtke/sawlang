@@ -955,6 +955,14 @@ The same hole is reached through `let g = move h; h = group.spawn(…); h.join()
 
 **Checker:** not needed: the compiler's source spawns no task.
 
+### S37. A detached thread that finishes after the detach drops no result (SL-765)
+
+**Shape (silent: a lost deinit, and a leak):** `Thread.spawn { … }` then `detach()`. When the detach runs first and the thread finishes after it, Stage 0's thread exit (`_generate_spawn_trampoline`, `sawc/codegen/calls.py`) frees the control block without destroying the result. A result that owns something (a `String`, a value with a printing `deinit`) is never dropped. `leaks --atExit` shows the result's storage as a root leak. The other order (exit, then detach) and a join both drop it. sawc2 drops it once in both orders (SL-765 T2's `__saw_exit` and T3a's detach report).
+
+**Instead:** join the thread when its result owns anything, or return a value with no drop from a thread you detach.
+
+**Checker:** not needed: the compiler's source spawns no thread.
+
 ## Loud hazards
 
 
@@ -1884,6 +1892,7 @@ ledger's reading. Where it differs from the sweep, Notes for the lead says why.
 | SL-673 | L31 Derivation-only parents: Stage 0 and sawc2 differ | loud in two forms, silent in one (a deinit reached through `trait X: Deinit` never runs under Stage 0; no live instance) |
 | SL-675 | L32 `UnsafeSend`/`UnsafeSync` as a trait parent: Stage 0 accepts it, sawc2 refuses it | loud (sawc2 refuses at the trait; Stage 0 grants nothing through it; no live instance) |
 | SL-565 | S36 A spawn borrow released by joining a rebound handle variable | silent, a use-after-free (found by the Air reviewing SL-565.p1; no live instance: the compiler spawns no task) |
+| SL-765 | S37 A detached thread that finishes after the detach drops no result | silent, a lost deinit and a leak (found by the Air reviewing SL-765.p3; no live instance: the compiler spawns no thread) |
 | SL-649 | L33 A field read two struct hops away, bound by a `let`, with neither struct type named in the module | loud (Stage 0 reports an undefined variable; one marked instance in `compiler/typecheck/src/conform.saw`) |
 
 No issue is marked "not reachable from the subset". Several entries depend on
