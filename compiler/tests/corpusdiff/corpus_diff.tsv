@@ -403,12 +403,12 @@ conformance/K88_background_spawn_takes_no_borrows.saw	pass	-	spawn.borrow: `Task
 conformance/K89_detach_gives_up_the_result.saw	pass	-	-
 conformance/K90_thread_detach_is_a_fate.saw	refused	resolve slice.not-yet	the `Thread.spawn` form is not in the bootstrap slice yet
 conformance/K91_spawn_brace_captures_nothing_implicitly.saw	refused	resolve slice.not-yet	the `Thread.spawn` form is not in the bootstrap slice yet
-conformance/K93_timed_park_observes_cancellation.saw	refused	resolve import.unknown-module	no module `std.net`
-conformance/K94_timed_park_times_out_in_every_engine.saw	refused	resolve import.unknown-module	no module `std.net`
-conformance/K94b_timed_park_times_out_in_a_single_frame_drive.saw	refused	resolve import.unknown-module	no module `std.net`
-conformance/K95_ready_before_deadline_reports_the_value.saw	refused	resolve import.unknown-module	no module `std.net`
-conformance/K96_timed_and_untimed_parks_coexist.saw	refused	resolve import.unknown-module	no module `std.net`
-conformance/K97_timed_park_leaves_no_registration_behind.saw	refused	resolve import.unknown-module	no module `std.net`
+conformance/K93_timed_park_observes_cancellation.saw	refused	resolve import.unknown-symbol	`Timed` is not defined in `std.net`
+conformance/K94_timed_park_times_out_in_every_engine.saw	refused	resolve import.unknown-symbol	`Timed` is not defined in `std.net`
+conformance/K94b_timed_park_times_out_in_a_single_frame_drive.saw	refused	resolve import.unknown-symbol	`Timed` is not defined in `std.net`
+conformance/K95_ready_before_deadline_reports_the_value.saw	refused	resolve import.unknown-symbol	`Timed` is not defined in `std.net`
+conformance/K96_timed_and_untimed_parks_coexist.saw	refused	resolve import.unknown-symbol	`Timed` is not defined in `std.net`
+conformance/K97_timed_park_leaves_no_registration_behind.saw	refused	resolve import.unknown-symbol	`Timed` is not defined in `std.net`
 conformance/K98_signal_wakes_a_parked_watcher.saw	refused	resolve import.unknown-module	no module `std.signal`
 conformance/K99_watch_is_scoped_and_singly_owned.saw	refused	resolve import.unknown-module	no module `std.signal`
 conformance/M06_push_on_let_vector.saw	pass	-	result.discarded: the result of `push` is `Result<Void, std.alloc.AllocError>` and is silently discarded: handle it (`match` it, `try` or `try!` it, or return it), or write `let _ = ...` to discard it
@@ -672,7 +672,7 @@ coro_conservative_generic_instance_not_promoted.saw	pass	-	-
 coro_cross_module_free_call_positions.saw	pass	-	-
 coro_cross_module_generic.saw	pass	-	-
 coro_cross_module_generic_callee.saw	pass	-	-
-coro_cross_module_io_wake.saw	refused	resolve import.unknown-module	no module `std.net`
+coro_cross_module_io_wake.saw	pass	-	-
 coro_deinit_across_suspend.saw	pass	-	-
 coro_destructure_across_suspend.saw	pass	-	-
 coro_destructure_nocopy_into_frame.saw	pass	-	-
@@ -721,7 +721,7 @@ coro_iflet_move_scrutinee_releases_payload.saw	pass	-	-
 coro_iflet_over_suspending.saw	pass	-	-
 coro_iflet_suspending_deinit.saw	pass	-	-
 coro_imported_callee_discovery_matrix.saw	pass	-	-
-coro_imported_private_helper_parks_on_io.saw	refused	resolve import.unknown-module	no module `std.net`
+coro_imported_private_helper_parks_on_io.saw	pass	-	-
 coro_imported_private_helper_suspends.saw	pass	-	-
 coro_inline_catch_loop_exit_in_child_positions.saw	pass	-	-
 coro_json_encode_in_task.saw	refused	resolve import.unknown-module	no module `std.json`
@@ -871,12 +871,12 @@ destructuring_wildcard_over_a_borrowed_projection.saw	pass	-	-
 df137d_literal_width_riscv32.saw	refused	driver driver.usage	sawc2 build takes no --freestanding
 df137d_literal_width_riscv32_ok.saw	refused	driver driver.usage	sawc2 build takes no --freestanding
 df139a_copy_then_overwrite.saw	pass	-	-
-df140b_import_wrap.saw	refused	resolve import.unknown-module	no module `std.net`
+df140b_import_wrap.saw	pass	-	-
 df140c_qualified_type_position.saw	refused	typecheck slice.not-yet	`syntax.expr.optional-member` is not in the bootstrap slice yet
 df140d_result_optional_autowrap.saw	pass	-	-
 df140f_private_static_collision.saw	pass	-	-
 df140h_std_private_static.saw	pass	-	-
-df140h_std_private_static_two_files.saw	refused	resolve import.unknown-module	no module `std.net`
+df140h_std_private_static_two_files.saw	pass	-	-
 df151b_implicit_tier_transfers.saw	refused	mono mono.not-yet	a closure capturing a value that owns something is not in the backend slice yet
 df151c_optional_dest_copy.saw	pass	-	-
 df151d_match_temporary_scrutinee.saw	refused	typecheck slice.not-yet	`syntax.stmt.break` is not in the bootstrap slice yet
@@ -1088,7 +1088,7 @@ errors/coro_group_spawn_suspending_recursion.saw	pass	-	coro.suspending-cycle: s
 errors/coro_guarded_arm_owning_payload.saw	stage0-wrong	annotated SL-283	sawc2 builds it, and its run exits 0
 errors/coro_imported_closure_body_suspends.saw	pass	-	effect.closure-suspends: a closure body cannot suspend, and this calls `yield_now`, which may suspend: call it outside the closure
 errors/coro_imported_closure_body_suspends_with_no_driven_root.saw	pass	-	effect.closure-suspends: a closure body cannot suspend, and this calls `yield_now`, which may suspend: call it outside the closure
-errors/coro_io_park_in_closure_body_beside_a_conservative_call.saw	refused	resolve import.unknown-module	no module `std.net`
+errors/coro_io_park_in_closure_body_beside_a_conservative_call.saw	pass	-	effect.closure-suspends: a closure body cannot suspend, and this calls `TcpStream.read`, which may suspend: call it outside the closure
 errors/coro_let_init_move_beside_early_exit.saw	stage0-wrong	annotated SL-234	sawc2 meets its directives
 errors/coro_main_suspending_recursion.saw	pass	-	coro.suspending-cycle: suspending recursion is not allowed: the suspending-call cycle `recurse -> recurse` has no compile-time frame size, since a callee's frame is embedded in its caller's by value.
 errors/coro_method_suspending_recursion.saw	pass	-	coro.suspending-cycle: suspending recursion is not allowed: the suspending-call cycle `Walker.walk -> Walker.walk` has no compile-time frame size, since a callee's frame is embedded in its caller's by
@@ -1180,7 +1180,7 @@ errors/map_get_nocopy_value_read.saw	pass	-	type.bound: `std.map.Map<String, map
 errors/map_subscript_immutable_root.saw	pass	-	subscript.role: this subscript is used as a writable place: its `[]` lends read-only (`std.map.Map<String, map_subscript_immutable_root.Counter, std.alloc.GlobalAllocator>` declares or derives no such
 errors/map_subscript_nocopy_value_read.saw	pass	-	operator.undefined: `!` unwraps an Optional, and this is `map_subscript_nocopy_value_read.Res`
 errors/match_non_exhaustive.saw	pass	-	match.non-exhaustive: this `match` on `match_non_exhaustive.Status` does not cover every value: `Status.Pending` is not matched; add an arm for each, or a `case _ ->` arm (a guarded arm covers nothing
-errors/match_on_suspending_call_in_a_loop.saw	refused	resolve import.unknown-module	no module `std.net`
+errors/match_on_suspending_call_in_a_loop.saw	pass	-	-
 errors/method_overload_identical_signature.saw	pass	-	overload.indistinguishable: `Bag.at(index: Int)` is already declared at 14:17 as `Bag.at(index: Int)`, and no call could tell the two apart: overloads must differ in a parameter's label or type, or in
 errors/mixed_window_modes_conflict.saw	pass	-	loan.window-root: `b` is borrowed exclusively here while the window of `[]` opened at 62:18 holds `b` shared until the window closes; a window charges its whole root until it closes, so the root is re
 errors/move_in_a_while_condition_nested_loop_header.saw	pass	-	move.use-after: `resource` is used after it may have been moved (moved at 40:11); a moved value is gone until it is assigned again
@@ -1233,7 +1233,7 @@ errors/place_window_enum_method_let_root.saw	pass	-	mutability.immutable: this e
 errors/place_window_root_read_teaches_the_asymmetry.saw	pass	-	loan.window-root: `v` is borrowed here while the window of `[]` opened at 41:16 holds `v` exclusively until the window closes; a window charges its whole root until it closes, so the root is reached o
 errors/place_window_through_a_forced_lend_charges_its_root.saw	pass	-	loan.window-root: `b` is borrowed exclusively here while the window of `opt` opened at 35:13 holds `b` exclusively until the window closes; a window charges its whole root until it closes, so the root
 errors/place_write_immutable_root.saw	pass	-	subscript.role: this subscript is used as a writable place: its `[]` lends read-only (`std.map.Map<String, Int, std.alloc.GlobalAllocator>` declares or derives no such role)
-errors/prelude_tcp_needs_import.saw	refused	resolve name.undefined	cannot find `TcpStream` in scope
+errors/prelude_tcp_needs_import.saw	pass	-	name.not-in-prelude: `TcpStream` is not in the prelude and must be imported: `import std.net.{TcpStream}` selects it
 errors/primitive_box_erasure_refused.saw	pass	-	erasure.primitive: `String` is a primitive and cannot be erased to `any primitive_box_erasure_refused.Tagged`: an existential carries a vtable beside the value, and a primitive has no boxed form to ca
 errors/primitive_erasure_refused.saw	pass	-	erasure.primitive: `Int` is a primitive and cannot be erased to `any primitive_erasure_refused.Tagged`: an existential carries a vtable beside the value, and a primitive has no boxed form to carry one
 errors/primitive_type_called_as_a_function.saw	refused	typecheck slice.not-yet	constructing the builtin type `UInt8` is not in the bootstrap slice yet
@@ -1263,7 +1263,7 @@ errors/ref_sigil_var_on_let.saw	pass	-	mutability.immutable: this exclusive borr
 errors/ref_static_declaration.saw	pass	-	type.mismatch: expected `&Int`, the type of the static's type, and found `Int`
 errors/ref_type_arg_generic_func.saw	pass	-	type.reference-position: a type argument may not name a reference: `&Int` is one, and references are parameters only: a reference borrows storage for the duration of one call and may not escape it; us
 errors/ref_type_arg_generic_struct.saw	pass	-	result.discarded: the result of `push` is `Result<Void, std.alloc.AllocError>` and is silently discarded: handle it (`match` it, `try` or `try!` it, or return it), or write `let _ = ...` to discard it
-errors/resolve_seam_must_be_blocking.saw	refused	resolve import.unknown-module	no module `std.net`
+errors/resolve_seam_must_be_blocking.saw	pass	-	type.cast: `as` cannot convert `String` to `UnsafePointer<Int8>`: it converts between numbers, from a raw-backed enum, and between pointers
 errors/result_none_tail_needs_an_optional_ok.saw	pass	-	result.discarded: the result of `append` is `Result<Void, std.alloc.AllocError>` and is silently discarded: handle it (`match` it, `try` or `try!` it, or return it), or write `let _ = ...` to discard
 errors/retired_task_handle_names.saw	refused	resolve name.undefined	cannot find `TaskHandle` in scope
 errors/runtime_provider_bad_signature.saw	refused	driver driver.usage	sawc2 build takes no --runtime-provider -c
@@ -1546,8 +1546,8 @@ field_assign_through_ref_param.saw	pass	-	-
 field_call_indirect.saw	pass	-	-
 file_error_surfaced.saw	pass	-	-
 file_open_modes.saw	refused	typecheck member.unknown	`String` has no method `to_data` this module can see
-file_open_read_write_surfaced.saw	refused	resolve import.unknown-module	no module `std.net`
-file_simple.saw	refused	resolve import.unknown-module	no module `std.net`
+file_open_read_write_surfaced.saw	pass	-	-
+file_simple.saw	pass	-	-
 fixed_string_builder.saw	crash	INVARIANT	23:24 an expression has no type
 fixed_string_builder_too_small_error.saw	crash	INVARIANT	13:34 an expression has no type
 fixed_width_arith_literal.saw	pass	-	-
@@ -1565,8 +1565,8 @@ flat_and_nested_modules_declare_distinct_types.saw	refused	resolve slice.not-yet
 float_integer_operand_mix.saw	pass	-	type.mismatch: an operator's operands agree on one type, and these are `Int` and `Float`; convert one with `as`
 float_methods.saw	refused	typecheck member.unknown	`Float` has no method `abs` this module can see
 float_text_format.saw	refused	typecheck call.no-match	no candidate takes these arguments; the candidates are StringBuilder.append(s: String) [std.stringbuilder]; StringBuilder.append(value: Int) [std.stringbuilder]; StringBuilder.append(b: UInt8) [std.st
-float_text_parse_vectors.saw	refused	resolve import.unknown-module	no module `std.net`
-float_text_shortest_vectors.saw	refused	resolve import.unknown-module	no module `std.net`
+float_text_parse_vectors.saw	refused	typecheck type.try	`try` propagates a `std.systemerror.SystemError`, and this body's error type is `std.net.IoError`
+float_text_shortest_vectors.saw	refused	typecheck type.try	`try` propagates a `std.systemerror.SystemError`, and this body's error type is `std.net.IoError`
 for_head_transfer_accepts.saw	refused	typecheck slice.not-yet	`syntax.stmt.break` is not in the bootstrap slice yet
 for_loop_break.saw	pass	-	-
 for_loop_continue.saw	pass	-	-
@@ -1587,7 +1587,7 @@ format_args_too_many_error.saw	pass	-	format.slot-count: the format string has 1
 format_into_builtin_alloc_free.saw	refused	mono mono.not-yet	a synthesized `Printable.format(into: &var std.stringbuilder.StringBuilder)` on `Float` is not in the backend slice yet: a Float's `format` waits for `std.float`'s formatter (SL-722 U5)
 forwarding_nonescaping_ok.saw	refused	resolve slice.not-yet	`syntax.expr.shorthand-param` is not in the bootstrap slice yet
 forwarding_transfer_drops_once_driven.saw	pass	-	-
-free_function_never_shadows_a_runtime_symbol.saw	refused	resolve import.unknown-module	no module `std.net`
+free_function_never_shadows_a_runtime_symbol.saw	refused	typecheck type.try	`try` propagates a `std.systemerror.SystemError`, and this body's error type is `std.net.IoError`
 freestanding_aarch64_no_simd.saw	refused	driver driver.usage	sawc2 build takes no --freestanding
 freestanding_seams_extern_no_runtime.saw	refused	driver driver.usage	sawc2 build takes no --freestanding
 funcpointer226_call.saw	refused	resolve name.undefined	cannot find `FuncPointer` in scope
@@ -1722,7 +1722,7 @@ interp_escapes_scope.saw	pass	-	-
 interp_hot_loop.saw	pass	-	-
 interp_large_string.saw	pass	-	-
 interp_string_escaped_braces_and_control_bytes.saw	pass	-	-
-io_error_kind_and_raw_code.saw	refused	resolve import.unknown-module	no module `std.net`
+io_error_kind_and_raw_code.saw	refused	typecheck format.argument	`std.systemerror.SystemErrorKind` is formatted here, and it is neither `Printable` nor a primitive
 iterator_custom.saw	pass	-	-
 iterator_for_loop.saw	pass	-	-
 iterator_generic.saw	pass	-	-
@@ -1928,50 +1928,50 @@ named_tuple_reorder_error.saw	pass	-	type.mismatch: expected `(x: Int, y: Int)`,
 nested_closure_captures_frame_local.saw	refused	mono mono.not-yet	a closure capturing a value that owns something is not in the backend slice yet
 nested_if_iflet_tail.saw	refused	typecheck type.mismatch	expected `Int?`, the type of the value the branches merge into, and found `Void`
 nested_optional_tail_branch_arms.saw	pass	-	-
-net_accept_loop_concurrent.saw	refused	resolve import.unknown-module	no module `std.net`
-net_accept_loop_eager_fd_close.saw	refused	resolve import.unknown-module	no module `std.net`
-net_accept_roundtrip.saw	refused	resolve import.unknown-module	no module `std.net`
-net_accumulate_across_reads.saw	refused	resolve import.unknown-module	no module `std.net`
-net_budget_fairness.saw	refused	resolve import.unknown-module	no module `std.net`
-net_cancel_parked_mt.saw	refused	resolve import.unknown-module	no module `std.net`
-net_cancel_parked_read.saw	refused	resolve import.unknown-module	no module `std.net`
-net_cancel_precise.saw	refused	resolve import.unknown-module	no module `std.net`
-net_cancel_unregisters_token.saw	refused	resolve import.unknown-module	no module `std.net`
-net_connect_by_name.saw	refused	resolve import.unknown-module	no module `std.net`
-net_connect_dials_the_host_it_was_given.saw	refused	resolve import.unknown-module	no module `std.net`
-net_connect_unresolvable_host.saw	refused	resolve import.unknown-module	no module `std.net`
-net_deinit_across_parks.saw	refused	resolve import.unknown-module	no module `std.net`
-net_error_surfaced.saw	refused	resolve import.unknown-module	no module `std.net`
-net_fd_leak.saw	refused	resolve import.unknown-module	no module `std.net`
-net_fd_reuse_across_connections.saw	refused	resolve import.unknown-module	no module `std.net`
-net_http_roundtrip.saw	refused	resolve import.unknown-module	no module `std.net`
-net_iflet_guardlet_bodies.saw	refused	resolve import.unknown-module	no module `std.net`
-net_io_cancel.saw	refused	resolve import.unknown-module	no module `std.net`
-net_io_main_entry.saw	refused	resolve import.unknown-module	no module `std.net`
-net_io_sleep_interleave.saw	refused	resolve import.unknown-module	no module `std.net`
-net_ipv4_literal_parse.saw	refused	resolve import.unknown-module	no module `std.net`
-net_listen_bind_address.saw	refused	resolve import.unknown-module	no module `std.net`
-net_loopback_echo.saw	refused	resolve import.unknown-module	no module `std.net`
-net_multi_msg_echo.saw	refused	resolve import.unknown-module	no module `std.net`
-net_nested_method_three_deep.saw	refused	resolve import.unknown-module	no module `std.net`
-net_nested_method_two_deep.saw	refused	resolve import.unknown-module	no module `std.net`
-net_nested_parks_roundtrip.saw	refused	resolve import.unknown-module	no module `std.net`
-net_nested_shape_matrix.saw	refused	resolve import.unknown-module	no module `std.net`
-net_owning_echo.saw	refused	resolve import.unknown-module	no module `std.net`
-net_precise_n_readers.saw	refused	resolve import.unknown-module	no module `std.net`
-net_precise_wakeup.saw	refused	resolve import.unknown-module	no module `std.net`
-net_read_into.saw	refused	resolve import.unknown-module	no module `std.net`
-net_serve_three_connections.saw	refused	resolve import.unknown-module	no module `std.net`
-net_serve_two_connections.saw	refused	resolve import.unknown-module	no module `std.net`
-net_sibling_eof_no_deadlock.saw	refused	resolve import.unknown-module	no module `std.net`
-net_socket_options.saw	refused	resolve import.unknown-module	no module `std.net`
-net_socketpair_echo.saw	refused	resolve import.unknown-module	no module `std.net`
-net_threads_io.saw	refused	resolve import.unknown-module	no module `std.net`
-net_three_park_sequence.saw	refused	resolve import.unknown-module	no module `std.net`
-net_two_concurrent_parked_reads.saw	refused	resolve import.unknown-module	no module `std.net`
-net_unroutable_connect_names_the_cause.saw	refused	resolve import.unknown-module	no module `std.net`
-net_write_overloads.saw	refused	resolve import.unknown-module	no module `std.net`
-net_write_to_closed_peer_is_an_error.saw	refused	resolve import.unknown-module	no module `std.net`
+net_accept_loop_concurrent.saw	pass	-	-
+net_accept_loop_eager_fd_close.saw	pass	-	-
+net_accept_roundtrip.saw	pass	-	-
+net_accumulate_across_reads.saw	pass	-	-
+net_budget_fairness.saw	refused	typecheck member.through-pointer	`lock` is a method of the payload, `std.mutex.Mutex<Int>`, not of the `Arc`; reach it with `borrow stop.value().lock(…)`
+net_cancel_parked_mt.saw	refused	typecheck call.label	no parameter is labeled `threads` in TaskGroup.init() [std.taskgroup]
+net_cancel_parked_read.saw	refused	typecheck member.unknown	`std.taskgroup.VoidTask` has no method `cancel_addr` this module can see
+net_cancel_precise.saw	refused	typecheck member.unknown	`std.taskgroup.Task<Int>` has no method `cancel_addr` this module can see
+net_cancel_unregisters_token.saw	refused	typecheck member.unknown	`std.taskgroup.Task<std.net.TcpStream>` has no method `cancel_addr` this module can see
+net_connect_by_name.saw	wrong	sawc2's binary panics	panic at net.saw:521: TcpStream.connect: resolving the host name "localhost" needs the offload worker (SL:coroutines A14b)
+net_connect_dials_the_host_it_was_given.saw	pass	-	-
+net_connect_unresolvable_host.saw	wrong	sawc2's binary panics	panic at net.saw:521: TcpStream.connect: resolving the host name "" needs the offload worker (SL:coroutines A14b)
+net_deinit_across_parks.saw	pass	-	-
+net_error_surfaced.saw	pass	-	-
+net_fd_leak.saw	pass	-	-
+net_fd_reuse_across_connections.saw	pass	-	-
+net_http_roundtrip.saw	pass	-	-
+net_iflet_guardlet_bodies.saw	pass	-	-
+net_io_cancel.saw	pass	-	-
+net_io_main_entry.saw	refused	resolve import.unknown-symbol	`tcp_close` is not defined in `std.net`
+net_io_sleep_interleave.saw	pass	-	-
+net_ipv4_literal_parse.saw	refused	resolve visibility.private	`parse_ipv4_literal` is private in `std.net`
+net_listen_bind_address.saw	pass	-	-
+net_loopback_echo.saw	pass	-	-
+net_multi_msg_echo.saw	pass	-	-
+net_nested_method_three_deep.saw	pass	-	-
+net_nested_method_two_deep.saw	pass	-	-
+net_nested_parks_roundtrip.saw	pass	-	-
+net_nested_shape_matrix.saw	pass	-	-
+net_owning_echo.saw	pass	-	-
+net_precise_n_readers.saw	refused	resolve import.unknown-symbol	`net_buffer` is not defined in `std.net`
+net_precise_wakeup.saw	refused	resolve import.unknown-symbol	`net_buffer` is not defined in `std.net`
+net_read_into.saw	refused	typecheck member.unknown	`std.net.TcpStream` has no method `read_into` this module can see
+net_serve_three_connections.saw	pass	-	-
+net_serve_two_connections.saw	pass	-	-
+net_sibling_eof_no_deadlock.saw	pass	-	-
+net_socket_options.saw	refused	typecheck member.unknown	`std.net.TcpStream` has no method `set_no_delay` this module can see
+net_socketpair_echo.saw	pass	-	-
+net_threads_io.saw	refused	resolve import.unknown-symbol	`tcp_close` is not defined in `std.net`
+net_three_park_sequence.saw	pass	-	-
+net_two_concurrent_parked_reads.saw	pass	-	-
+net_unroutable_connect_names_the_cause.saw	pass	-	-
+net_write_overloads.saw	pass	-	-
+net_write_to_closed_peer_is_an_error.saw	pass	-	-
 never_extern_module_abi.saw	pass	-	-
 newline_braces_stay_significant.saw	pass	-	-
 newline_comparison_unaffected.saw	pass	-	-
@@ -2323,7 +2323,7 @@ spawn_optional_result.saw	refused	typecheck call.label	no parameter is labeled `
 spawn_ref_param_dual_role_and_cancel.saw	pass	-	-
 spawn_ref_param_referent_deinit_once.saw	pass	-	-
 spawn_void_body.saw	refused	resolve slice.not-yet	the `Thread.spawn` form is not in the bootstrap slice yet
-spawned_task_runs_before_reactor_park.saw	refused	resolve import.unknown-module	no module `std.net`
+spawned_task_runs_before_reactor_park.saw	pass	-	-
 spinlock_basic.saw	refused	typecheck call.arity	too many arguments: SpinLock.lock() [std.spinlock] takes 0
 spinlock_contention_mt.saw	refused	typecheck call.label	no parameter is labeled `threads` in TaskGroup.init() [std.taskgroup]
 spinlock_import_gate.saw	pass	-	name.not-in-prelude: `SpinLock` is not in the prelude and must be imported: `import std.spinlock.{SpinLock}` selects it

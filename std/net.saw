@@ -1,0 +1,629 @@
+//! TCP over the cooperative reactor: `TcpListener` and `TcpStream`.
+//!
+//! Both types own their descriptor, and the deinit closes it once. A read, a
+//! write, an accept or a connect that would block parks the task, never the
+//! thread, until the descriptor is ready; siblings run meanwhile.
+//!
+//! ```saw-fragment
+//! import std.net.{TcpStream}
+//!
+//! func echo(stream: TcpStream) -> Int {
+//!     let chunk = try! stream.read()     // an empty chunk means the peer closed
+//!     let n = chunk.len()
+//!     try! stream.write(move chunk)      // every byte, or the error
+//!     n
+//! }
+//! ```
+//!
+//! A failure is an `IoError`: the operation, a portable `IoErrorKind`, and
+//! the platform's own code.
+
+import std.data.{Data}
+import std.systemerror.{system_error_kind}
+import std.task.{IoWaitOutcome, io_wait, yield_now}
+
+extern "C" {
+    func close(fd: Int32) -> Int32
+    func socketpair(domain: Int32, ty: Int32, protocol: Int32, fds: UnsafePointer<Int32>) -> Int32
+
+    // The status-carrying socket seams: each returns a count or a descriptor,
+    // `>= 0`, or the negated portable tag of the failure (runtime/ABI.md).
+    func __saw_rt_tcp_listen_with(addr_be: Int, port: Int, reuse_address: Int, backlog: Int) -> Int
+    func __saw_rt_tcp_local_port(fd: Int) -> Int
+    func __saw_rt_tcp_accept(listen_fd: Int) -> Int
+    func __saw_rt_tcp_connect_start(addr_be: Int, port: Int) -> Int
+    func __saw_rt_tcp_connect_check(fd: Int, addr_be: Int, port: Int) -> Int
+    func __saw_rt_tcp_read(fd: Int, buf: UnsafePointer<Int8>, len: Int) -> Int
+    func __saw_rt_tcp_write(fd: Int, buf: UnsafePointer<Int8>, len: Int) -> Int
+    func __saw_rt_set_nonblocking(fd: Int) -> Int
+
+    // The raw platform code behind the tag a failing seam just returned, on
+    // this thread; anything that runs in between may replace it.
+    func __saw_rt_last_raw_code() -> Int
+
+    // The io budget (runtime/common/op_budget.saw): a tick answers nonzero
+    // once a run of operations that never parked has used the budget up.
+    func __saw_rt_op_budget_tick() -> Int
+    func __saw_rt_op_budget_reset()
+}
+
+// The readiness a park waits for, as `io_wait` numbers it.
+enum Interest: UInt8 {
+    case Read = 0,
+    case Write = 1
+}
+
+// An unbounded park: `io_wait` takes 0 as "no deadline".
+static NO_DEADLINE: UInt64 = 0
+
+static AF_UNIX: Int32 = 1
+static SOCK_STREAM: Int32 = 1
+static PROTO_DEFAULT: Int32 = 0
+
+// The most one `read` takes in one system call.
+static READ_CHUNK: Int = 4096
+
+static PORT_MAX: Int = 65535
+
+// The answer `read_once` gives when std, not the operating system, refused
+// the read: its scratch buffer, or the growth of the caller's `Data`. It is
+// below every negated tag, so the two never collide.
+static NO_SCRATCH: Int = -1000
+
+// The descriptor of a socket that is not open, which the deinit skips.
+static INVALID_FD: Int = -1
+
+// The two descriptors `socketpair` writes.
+struct FdPair {
+    a: Int32
+    b: Int32
+}
+
+// The two ends of a connected local stream pair, each `INVALID_FD` when the
+// system refuses the pair.
+struct Ends {
+    a: Int
+    b: Int
+}
+
+// A connected, nonblocking local stream pair.
+func socket_pair() unsafe -> Ends {
+    var fds = FdPair(a: 0, b: 0)
+    if socketpair(AF_UNIX, SOCK_STREAM, PROTO_DEFAULT, (&fds) as UnsafePointer<Int32>) != 0 {
+        return Ends(a: INVALID_FD, b: INVALID_FD)
+    }
+    let _ = __saw_rt_set_nonblocking(fds.a as Int)
+    let _ = __saw_rt_set_nonblocking(fds.b as Int)
+    Ends(a: fds.a as Int, b: fds.b as Int)
+}
+
+/// The portable kind of a failed operating-system operation.
+///
+/// Several platform codes share one kind (`EACCES` and `EPERM` are both
+/// `PermissionDenied`), so the kind is for branching and `IoError.code()` is
+/// for the log. `Unknown` is a failure the portable set has no word for; treat
+/// it as opaque. A case added later breaks an exhaustive `match` at compile
+/// time rather than rerouting a code silently.
+///
+/// A runtime's portable tag (runtime/ABI.md) becomes a kind through
+/// `of(tag:)`.
+public enum IoErrorKind {
+    /// The operation would have blocked, and the descriptor is non-blocking.
+    case WouldBlock,
+    /// A connection is still being established.
+    case InProgress,
+    /// The socket is already connected.
+    case AlreadyConnected,
+    /// The call was interrupted, by a signal or by the task's cancellation.
+    case Interrupted,
+    /// The peer reset the connection.
+    case ConnectionReset,
+    /// Nothing was listening at the address.
+    case ConnectionRefused,
+    /// The connection was aborted before it was established.
+    case ConnectionAborted,
+    /// The write end has no reader left.
+    case BrokenPipe,
+    /// The socket is not connected.
+    case NotConnected,
+    /// No such file, directory or host.
+    case NotFound,
+    /// The caller is not allowed to do this.
+    case PermissionDenied,
+    /// The thing being created is already there.
+    case AlreadyExists,
+    /// The address is already bound.
+    case AddressInUse,
+    /// The system rejected an argument.
+    case InvalidArgument,
+    /// A system resource ran out: descriptors, memory or disk space.
+    case ResourcesExhausted,
+    /// A failure the portable set has no word for.
+    case Unknown,
+    /// The host cannot be reached.
+    case HostUnreachable,
+    /// The network cannot be reached.
+    case NetworkUnreachable,
+    /// The operation ran out of time.
+    case TimedOut,
+    /// The host is down.
+    case HostDown,
+    /// The network is down.
+    case NetworkDown
+}
+
+extension IoErrorKind {
+    /// Returns the kind a portable tag names, or `Unknown` for a tag this set
+    /// does not know, such as one a newer runtime reports.
+    public static func of(tag: Int) -> IoErrorKind {
+        // std.systemerror holds std's one table of the runtime's tags. The
+        // two kinds it adds name failures std raises itself, which no tag
+        // carries.
+        match system_error_kind(tag) {
+            case WouldBlock -> IoErrorKind.WouldBlock,
+            case InProgress -> IoErrorKind.InProgress,
+            case AlreadyConnected -> IoErrorKind.AlreadyConnected,
+            case Interrupted -> IoErrorKind.Interrupted,
+            case ConnectionReset -> IoErrorKind.ConnectionReset,
+            case ConnectionRefused -> IoErrorKind.ConnectionRefused,
+            case ConnectionAborted -> IoErrorKind.ConnectionAborted,
+            case BrokenPipe -> IoErrorKind.BrokenPipe,
+            case NotConnected -> IoErrorKind.NotConnected,
+            case NotFound -> IoErrorKind.NotFound,
+            case PermissionDenied -> IoErrorKind.PermissionDenied,
+            case AlreadyExists -> IoErrorKind.AlreadyExists,
+            case AddressInUse -> IoErrorKind.AddressInUse,
+            case InvalidArgument -> IoErrorKind.InvalidArgument,
+            case ResourcesExhausted -> IoErrorKind.ResourcesExhausted,
+            case Unknown -> IoErrorKind.Unknown,
+            case HostUnreachable -> IoErrorKind.HostUnreachable,
+            case NetworkUnreachable -> IoErrorKind.NetworkUnreachable,
+            case TimedOut -> IoErrorKind.TimedOut,
+            case HostDown -> IoErrorKind.HostDown,
+            case NetworkDown -> IoErrorKind.NetworkDown,
+            case UnexpectedEnd -> IoErrorKind.Unknown,
+            case LaunchFailed -> IoErrorKind.Unknown
+        }
+    }
+
+    /// Returns a short description, the one `IoError` renders.
+    public func describe(&self) -> String {
+        match self {
+            case WouldBlock -> "would block",
+            case InProgress -> "in progress",
+            case AlreadyConnected -> "already connected",
+            case Interrupted -> "interrupted",
+            case ConnectionReset -> "connection reset",
+            case ConnectionRefused -> "connection refused",
+            case ConnectionAborted -> "connection aborted",
+            case BrokenPipe -> "broken pipe",
+            case NotConnected -> "not connected",
+            case NotFound -> "not found",
+            case PermissionDenied -> "permission denied",
+            case AlreadyExists -> "already exists",
+            case AddressInUse -> "address in use",
+            case InvalidArgument -> "invalid argument",
+            case ResourcesExhausted -> "resources exhausted",
+            case Unknown -> "other error",
+            case HostUnreachable -> "host unreachable",
+            case NetworkUnreachable -> "network unreachable",
+            case TimedOut -> "timed out",
+            case HostDown -> "host is down",
+            case NetworkDown -> "network is down"
+        }
+    }
+}
+
+extension IoErrorKind: Printable {
+    /// Writes the description.
+    public func format(&self, into: &var StringBuilder) {
+        try! into.append(self.describe())
+    }
+}
+
+/// A failed operating-system operation: which operation, the portable kind of
+/// the failure, and the platform's own code for it.
+///
+/// It renders as `io error: connect failed (connection refused)`, the kind
+/// only, so the text reads the same on every host.
+public struct IoError {
+    private syscall: String
+    private kind: IoErrorKind
+    private code: Int32
+}
+
+extension IoError {
+    /// Returns the portable kind of the failure.
+    public func kind(&self) -> IoErrorKind {
+        self.kind
+    }
+
+    /// Returns the platform's own code for the failure, or 0 where there is
+    /// none, as for a failure std raised itself.
+    ///
+    /// The number is not portable: `ECONNREFUSED` is 61 on macOS and 111 on
+    /// Linux. Log it, and branch on `kind()`.
+    public func code(&self) -> Int32 {
+        self.code
+    }
+
+    /// Returns the error for `syscall` from the portable tag a failing
+    /// runtime operation just returned, with the platform's code behind it.
+    ///
+    /// Valid only directly after that operation, on the same thread: the
+    /// platform's code is read from the runtime, and anything that runs in
+    /// between may replace it. A failure no operation reported takes
+    /// `of(syscall:kind:)`.
+    public static func of(syscall: String, tag: Int) -> IoError {
+        IoError(syscall: syscall, kind: IoErrorKind.of(tag), code: raw_code_now())
+    }
+
+    /// Returns an error for a failure the platform did not report, such as a
+    /// wait cut short by cancellation. Its `code()` is 0.
+    public static func of(syscall: String, kind: IoErrorKind) -> IoError {
+        IoError(syscall: syscall, kind: kind, code: 0)
+    }
+}
+
+extension IoError: Error {
+    /// Writes `io error: `, the operation and the kind's description.
+    public func format(&self, into: &var StringBuilder) {
+        try! into.append("io error: ")
+        try! into.append(self.syscall)
+        try! into.append(" failed (")
+        try! into.append(self.kind.describe())
+        try! into.append(")")
+    }
+}
+
+// The raw code the runtime captured with the last tag, or 0 when it does not
+// fit an `Int32`: a diagnostic field must not be able to panic.
+func raw_code_now() -> Int32 {
+    Int32.from(__saw_rt_last_raw_code()) ?? 0
+}
+
+// A wait the task's cancellation cut short. Nothing classified an errno, so
+// the error carries no platform code.
+func io_cancelled(syscall: String) -> IoError {
+    IoError.of(syscall: syscall, kind: IoErrorKind.Interrupted)
+}
+
+// Whether a seam's answer is the would-block refusal.
+func would_block(r: Int) -> Bool {
+    if r >= 0 {
+        return false
+    }
+    match system_error_kind(0 - r) {
+        case WouldBlock -> true,
+        case _ -> false
+    }
+}
+
+// Whether a connect check's answer says the connection is still being made.
+func in_progress(r: Int) -> Bool {
+    if r >= 0 {
+        return false
+    }
+    match system_error_kind(0 - r) {
+        case InProgress -> true,
+        case _ -> false
+    }
+}
+
+// Parks until `fd` is ready for `interest`. True when the task was cancelled
+// meanwhile, in which case `io_wait` has withdrawn the registration.
+func park(fd: Int, interest: Interest) -> Bool {
+    match io_wait(fd, interest as Int, NO_DEADLINE) {
+        case Cancelled -> true,
+        case _ -> {
+            // A park ceded to the scheduler, so the run of operations that
+            // never parked starts over.
+            __saw_rt_op_budget_reset()
+            false
+        }
+    }
+}
+
+// Cedes once the io budget runs out, so a task whose operations never park,
+// such as a read from an always-ready socket, does not keep its siblings from
+// running.
+func charge_io_budget() {
+    if __saw_rt_op_budget_tick() != 0 {
+        yield_now()
+    }
+}
+
+// One nonblocking read of up to READ_CHUNK bytes, appended to `into`: the
+// byte count (0 at end of stream), a negated tag, or NO_SCRATCH.
+func read_once(fd: Int, into: &var Data) unsafe -> Int {
+    guard let scratch = GlobalAllocator().alloc(READ_CHUNK, 1) else {
+        return NO_SCRATCH
+    }
+    let r = __saw_rt_tcp_read(fd, scratch, READ_CHUNK)
+    var placed = r
+    if r > 0 {
+        match into.append_bytes(scratch, r) {
+            case Ok(_) -> {},
+            case Err(_) -> { placed = NO_SCRATCH }
+        }
+    }
+    GlobalAllocator().dealloc(scratch, READ_CHUNK, 1)
+    placed
+}
+
+// One nonblocking write of `bytes` from `offset` on: the count written, which
+// may be short, or a negated tag.
+func write_once(fd: Int, bytes: &Data, offset: Int) unsafe -> Int {
+    __saw_rt_tcp_write(fd, bytes.byte_ptr() + offset, bytes.len() - offset)
+}
+
+func close_fd(fd: Int) {
+    let _ = close(fd as Int32)
+}
+
+// The address word of a dotted-quad IPv4 literal, or `None` when `host` is not
+// one: exactly four octets of one to three digits, no leading zero, nothing
+// else. A near miss is not guessed at, since a leading zero is octal to some
+// readers. The first octet is the word's low byte, which is its place in
+// memory on the little-endian targets the hosted runtime builds for.
+func parse_ipv4_literal(host: String) -> UInt32? {
+    let n = host.len()
+    var address: UInt32 = 0
+    var filled = 0
+    var value = 0
+    var digits = 0
+    var i = 0
+    while i < n {
+        let b = host.byte_at(i) as Int
+        if b == IPV4_DOT {
+            if digits == 0 || filled == IPV4_OCTETS - 1 {
+                return None
+            }
+            address = address | ((value as UInt32) << (filled * 8))
+            filled = filled + 1
+            value = 0
+            digits = 0
+        } else if b < IPV4_DIGIT_ZERO || b > IPV4_DIGIT_NINE {
+            return None
+        } else {
+            if digits == OCTET_MAX_DIGITS || (digits == 1 && value == 0) {
+                return None
+            }
+            value = value * 10 + (b - IPV4_DIGIT_ZERO)
+            if value > OCTET_MAX {
+                return None
+            }
+            digits = digits + 1
+        }
+        i = i + 1
+    }
+    if filled != IPV4_OCTETS - 1 || digits == 0 {
+        return None
+    }
+    address | ((value as UInt32) << (filled * 8))
+}
+
+static IPV4_DOT: Int = 46
+static IPV4_DIGIT_ZERO: Int = 48
+static IPV4_DIGIT_NINE: Int = 57
+static IPV4_OCTETS: Int = 4
+static OCTET_MAX: Int = 255
+static OCTET_MAX_DIGITS: Int = 3
+
+/// A listening TCP socket, which owns its descriptor.
+public struct TcpListener {
+    private fd: Int
+}
+
+extension TcpListener {
+    /// Binds `host`:`port` and listens there.
+    ///
+    /// `port` 0 asks for an ephemeral port, which `local_port` reads back.
+    /// `host` is a dotted IPv4 literal ("0.0.0.0" for every interface), and
+    /// listening never looks a name up. `reuse_address` lets a restarted
+    /// server bind over the remains of a closed connection; a socket still
+    /// listening on the address is `AddressInUse` either way. `backlog` is the
+    /// depth of the queue of arrived connections not yet accepted.
+    ///
+    /// Returns `Err(IoError)` of kind `InvalidArgument` for a port outside
+    /// 0..65535, a backlog below 1 or a host that is not an IPv4 literal, and
+    /// the platform's refusal otherwise.
+    public static func listen(port: Int,
+                              host: String = "127.0.0.1",
+                              reuse_address: Bool = true,
+                              backlog: Int = 16) -> Result<TcpListener, IoError> {
+        if port < 0 || port > PORT_MAX {
+            return IoError.of(syscall: "listen: port must be 0..65535", kind: IoErrorKind.InvalidArgument)
+        }
+        if backlog < 1 {
+            return IoError.of(syscall: "listen: backlog must be at least 1", kind: IoErrorKind.InvalidArgument)
+        }
+        guard let address = parse_ipv4_literal(host) else {
+            return IoError.of(syscall: "listen: expected an IPv4 address", kind: IoErrorKind.InvalidArgument)
+        }
+        let reuse = if reuse_address { 1 } else { 0 }
+        let fd = __saw_rt_tcp_listen_with(address as Int, port, reuse, backlog)
+        if fd < 0 {
+            return IoError.of(syscall: "listen", tag: 0 - fd)
+        }
+        TcpListener(fd: fd)
+    }
+
+    /// Returns the local port the listener is bound to, the one the system
+    /// chose when it was asked for port 0.
+    public func local_port(&self) -> Int {
+        __saw_rt_tcp_local_port(self.fd)
+    }
+
+    /// Accepts the next connection, suspending until one arrives.
+    ///
+    /// Returns `Err(IoError)` when the accept fails, and one of kind
+    /// `Interrupted` when the task is cancelled while it waits.
+    public func accept(&self) -> Result<TcpStream, IoError> {
+        while not cancelled() {
+            let c = __saw_rt_tcp_accept(self.fd)
+            if would_block(c) {
+                if park(self.fd, Interest.Read) {
+                    return io_cancelled("accept")
+                }
+            } else if c < 0 {
+                return IoError.of(syscall: "accept", tag: 0 - c)
+            } else {
+                charge_io_budget()
+                return TcpStream(fd: c)
+            }
+        }
+        io_cancelled("accept")
+    }
+}
+
+/// `TcpListener` is move-only; its deinit closes the descriptor.
+extension TcpListener: NoCopy {
+    /// Closes the descriptor.
+    public func deinit(&var self) {
+        if self.fd != INVALID_FD {
+            close_fd(self.fd)
+        }
+    }
+}
+
+/// A connected TCP socket, or one end of a connected local pair, which owns
+/// its descriptor.
+public struct TcpStream {
+    private fd: Int
+}
+
+extension TcpStream {
+    /// Returns a connected pair of local stream sockets, for tests and for
+    /// talking between tasks, with no port bound.
+    ///
+    /// When the system refuses the pair, both ends hold no descriptor, and
+    /// every operation on them fails.
+    public static func pair() -> (TcpStream, TcpStream) {
+        let fds = socket_pair()
+        (TcpStream(fd: fds.a), TcpStream(fd: fds.b))
+    }
+
+    /// Connects to `host`:`port`, suspending until the connection is made.
+    ///
+    /// `host` is a dotted IPv4 literal. Returns `Err(IoError)` when the
+    /// connection is refused or fails, and one of kind `Interrupted` when the
+    /// task is cancelled while it waits.
+    ///
+    /// Panics when `host` is a name: resolving one runs on an offload worker,
+    /// which this std does not have yet.
+    public static func connect(host: String, port: Int) -> Result<TcpStream, IoError> {
+        guard let address = parse_ipv4_literal(host) else {
+            // A name resolves through a `blocking` seam on an offload worker,
+            // whose executor half is not in this std. A missing executor half
+            // panics, naming its unit, rather than answering a made-up error
+            // (SL:coroutines A3c).
+            panic("TcpStream.connect: resolving the host name \"{}\" needs the offload worker (SL:coroutines A14b)", host)
+        }
+        TcpStream.dial(address as Int, port)
+    }
+
+    // Dials `address`:`port` and parks until the socket is writable, checking
+    // the connection again after every wake, since a wake is no proof of it.
+    static func dial(address: Int, port: Int) -> Result<TcpStream, IoError> {
+        let fd = __saw_rt_tcp_connect_start(address, port)
+        if fd < 0 {
+            return IoError.of(syscall: "connect", tag: 0 - fd)
+        }
+        while not cancelled() {
+            let check = __saw_rt_tcp_connect_check(fd, address, port)
+            if in_progress(check) {
+                if park(fd, Interest.Write) {
+                    close_fd(fd)
+                    return io_cancelled("connect")
+                }
+            } else if check < 0 {
+                let failure = IoError.of(syscall: "connect", tag: 0 - check)
+                close_fd(fd)
+                return failure
+            } else {
+                charge_io_budget()
+                return TcpStream(fd: fd)
+            }
+        }
+        close_fd(fd)
+        io_cancelled("connect")
+    }
+
+    /// Reads the next chunk of bytes, suspending until some arrive.
+    ///
+    /// An empty chunk means the peer closed the connection. Returns
+    /// `Err(IoError)` when the read fails, `ResourcesExhausted` when the bytes
+    /// cannot be stored, and `Interrupted` when the task is cancelled; a
+    /// cancelled read takes no bytes.
+    public func read(&self) -> Result<Data, IoError> {
+        var out = Data()
+        while not cancelled() {
+            let r = read_once(self.fd, &var out)
+            if would_block(r) {
+                if park(self.fd, Interest.Read) {
+                    return io_cancelled("read")
+                }
+            } else if r == NO_SCRATCH {
+                return IoError.of(syscall: "read", kind: IoErrorKind.ResourcesExhausted)
+            } else if r < 0 {
+                return IoError.of(syscall: "read", tag: 0 - r)
+            } else {
+                charge_io_budget()
+                return move out
+            }
+        }
+        io_cancelled("read")
+    }
+
+    /// Writes every byte of `bytes`, suspending while the socket cannot take
+    /// more.
+    ///
+    /// Returns `Err(IoError)` when a write fails, `BrokenPipe` when the peer
+    /// has gone, and `Interrupted` when the task is cancelled; the bytes
+    /// written before a failure stay written.
+    public func write(&self, bytes: Data) -> Result<Void, IoError> {
+        var offset = 0
+        let total = bytes.len()
+        while offset < total {
+            if cancelled() {
+                return io_cancelled("write")
+            }
+            let w = write_once(self.fd, &bytes, offset)
+            if would_block(w) {
+                if park(self.fd, Interest.Write) {
+                    return io_cancelled("write")
+                }
+            } else if w < 0 {
+                return IoError.of(syscall: "write", tag: 0 - w)
+            } else {
+                offset = offset + w
+            }
+        }
+        charge_io_budget()
+        return
+    }
+
+    /// Writes the UTF-8 bytes of `s`, as `write(bytes:)` does.
+    ///
+    /// Returns `ResourcesExhausted` when the bytes cannot be staged.
+    public func write(&self, s: String) -> Result<Void, IoError> {
+        let bytes = match s.to_data() {
+            case Ok(d) -> d,
+            case Err(_) -> {
+                return IoError.of(syscall: "write", kind: IoErrorKind.ResourcesExhausted)
+            }
+        }
+        self.write(bytes: bytes)
+    }
+}
+
+/// `TcpStream` is move-only; its deinit closes the descriptor.
+extension TcpStream: NoCopy {
+    /// Closes the descriptor.
+    public func deinit(&var self) {
+        if self.fd != INVALID_FD {
+            close_fd(self.fd)
+        }
+    }
+}

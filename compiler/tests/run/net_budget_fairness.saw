@@ -1,0 +1,47 @@
+// tests/corpus/net_budget_fairness's shape with the plan's vocabulary
+// (SL:coroutines A12b, SL-570 c2): a static `Atomic` stop flag stands in for
+// the original's `Arc<Mutex<Int>>`. `recirc` reads from one end of a pair and
+// writes the bytes back into the other, so every read finds data and never
+// parks; its only exit is the flag, which `sibling` sets after five turns of
+// its own. The sibling gets those turns only because `recirc` cedes, so the
+// program completes and prints 5 instead of hanging. The loop's back edge is
+// a compute-budget point as well, so `net_io_budget_without_loops` pins the
+// io budget on its own.
+import std.net.{TcpStream}
+import std.task.{yield_now}
+
+static STOP: Atomic<Int> = Atomic(0)
+
+func sibling() -> Int {
+    var k = 0
+    while k < 5 {
+        k = k + 1
+        yield_now()
+    }
+    STOP.store(1)
+    k
+}
+
+func recirc(s_read: TcpStream, s_write: TcpStream) -> Int {
+    try! s_write.write("seed")
+    var reads = 0
+    var going = true
+    while going {
+        going = STOP.load() == 0
+        if going {
+            let chunk = try! s_read.read()      // always ready: never parks
+            try! s_write.write(move chunk)      // refills the next read
+            reads = reads + 1
+        }
+    }
+    reads
+}
+
+func main() {
+    let (s0, s1) = TcpStream.pair()
+    var group = TaskGroup()
+    let hs = group.spawn(sibling())
+    let hr = group.spawn(recirc(move s0, move s1))
+    print(hs.join())
+    let _ = hr.join()
+}

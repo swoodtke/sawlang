@@ -1,0 +1,13 @@
+program	compiler/tests/run/net_precise_wakeup.saw
+triple	aarch64-unknown-linux-gnu
+source	c8d1a8b46e24945a
+build	ok
+exit	0
+stdout	"reader A woke with 65"
+stdout	"main joined reader A"
+stdout	"reader B woke with 66"
+stdout	"main joined reader B"
+stdout	"65"
+stdout	"66"
+stdout	"2"
+stdout	""

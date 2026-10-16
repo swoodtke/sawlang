@@ -1,0 +1,10 @@
+program	compiler/tests/run/net_io_budget_without_loops.saw
+triple	aarch64-unknown-linux-gnu
+source	01527f79d833b56e
+build	ok
+exit	0
+stdout	"pump starts"
+stdout	"sibling runs"
+stdout	"pump ends; the sibling ran meanwhile: true"
+stdout	"257"
+stdout	""

@@ -1,0 +1,7 @@
+program	compiler/tests/run/net_budget_fairness.saw
+triple	aarch64-unknown-linux-gnu
+source	f5afb9b505c43c35
+build	ok
+exit	0
+stdout	"5"
+stdout	""

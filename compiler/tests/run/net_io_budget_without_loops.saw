@@ -1,0 +1,63 @@
+// The io budget alone cedes (SL:coroutines A12b): `pump` makes 512 socket
+// operations that never park, through a tree of calls with no loop anywhere,
+// so no compute-budget point can make it yield. Each read finds the bytes the
+// write before it put back. `sibling`, spawned second, runs in the middle of
+// the pump only because std.net's io budget runs out and its operation cedes.
+import std.net.{TcpStream}
+
+static SIBLING_RAN: Atomic<Int> = Atomic(0)
+
+// One read of the recirculating bytes, written straight back.
+func step(s_read: &TcpStream, s_write: &TcpStream) {
+    let chunk = try! s_read.read()
+    try! s_write.write(move chunk)
+}
+
+func two(s_read: &TcpStream, s_write: &TcpStream) {
+    step(&s_read, &s_write)
+    step(&s_read, &s_write)
+}
+
+func four(s_read: &TcpStream, s_write: &TcpStream) {
+    two(&s_read, &s_write)
+    two(&s_read, &s_write)
+}
+
+func sixteen(s_read: &TcpStream, s_write: &TcpStream) {
+    four(&s_read, &s_write)
+    four(&s_read, &s_write)
+    four(&s_read, &s_write)
+    four(&s_read, &s_write)
+}
+
+func sixty_four(s_read: &TcpStream, s_write: &TcpStream) {
+    sixteen(&s_read, &s_write)
+    sixteen(&s_read, &s_write)
+    sixteen(&s_read, &s_write)
+    sixteen(&s_read, &s_write)
+}
+
+func pump(s_read: TcpStream, s_write: TcpStream) -> Int {
+    print("pump starts")
+    try! s_write.write("seed")
+    sixty_four(&s_read, &s_write)
+    sixty_four(&s_read, &s_write)
+    sixty_four(&s_read, &s_write)
+    sixty_four(&s_read, &s_write)
+    print("pump ends; the sibling ran meanwhile: {}", SIBLING_RAN.load() == 1)
+    256
+}
+
+func sibling() -> Int {
+    print("sibling runs")
+    SIBLING_RAN.store(1)
+    1
+}
+
+func main() {
+    let (s0, s1) = TcpStream.pair()
+    var group = TaskGroup()
+    let hp = group.spawn(pump(move s0, move s1))
+    let hs = group.spawn(sibling())
+    print(hp.join() + hs.join())
+}

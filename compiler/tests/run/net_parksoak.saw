@@ -1,0 +1,52 @@
+// SL-355's `parksoak` stress program, single-threaded (SL:coroutines A12b): a
+// task parked on a socket read is woken exactly once and never lost. Each
+// pair of tasks owns the two ends of a connected pair and ping-pongs a byte,
+// so every read really parks and its readiness is made by the peer. Every
+// exchange has to arrive for the total to be exact, and a lost wake stalls
+// the program, which the lane's timeout reports.
+//
+// Reshaped from the original (`examples/park_wake_net_stress.saw` on
+// SL-355.p1): one cooperative thread runs every task where the original ran
+// `TaskGroup(threads: 4)` (SL-578), the sizes are its defaults rather than
+// `PARKSOAK_*` variables, and the lane's timeout stands in for its watchdog
+// thread (`Thread.spawn`, SL-765).
+import std.net.{TcpStream}
+
+// One end of a pair: `rounds` one-byte exchanges, the starter writing first.
+func side(stream: TcpStream, rounds: Int, starter: Bool) -> Int {
+    var total = 0
+    var i = 0
+    while i < rounds {
+        if starter {
+            try! stream.write("x")
+            let chunk = try! stream.read()
+            total = total + chunk.len()
+        } else {
+            let chunk = try! stream.read()
+            total = total + chunk.len()
+            try! stream.write("x")
+        }
+        i = i + 1
+    }
+    total
+}
+
+func main() {
+    let pairs = 2
+    let rounds = 200
+    var group = TaskGroup()
+    var handles = Vector<Task<Int>>()
+    var p = 0
+    while p < pairs {
+        let (a, b) = TcpStream.pair()
+        try! handles.push(group.spawn(side(move a, rounds, true)))
+        try! handles.push(group.spawn(side(move b, rounds, false)))
+        p = p + 1
+    }
+    var total = 0
+    while handles.len() > 0 {
+        let h = handles.pop()!
+        total = total + h.join()
+    }
+    print("total={}", total)
+}

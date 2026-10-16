@@ -1,0 +1,34 @@
+// `accept` on a listener (SL:coroutines A12b): `main` accepts before any
+// client has connected, so the accept parks, and the client task spawned
+// beside it runs, connects and sends. The listener reports its ephemeral port,
+// and `listen` refuses a port out of range and a host that is no IPv4 literal
+// with `InvalidArgument`, before any socket is made.
+import std.net.{IoError, TcpListener, TcpStream}
+
+func client(port: Int) -> Int {
+    let stream = try! TcpStream.connect("127.0.0.1", port)
+    try! stream.write("ping")
+    4
+}
+
+func refusal(answer: Result<TcpListener, IoError>) -> String {
+    match answer {
+        case Ok(_) -> "listening",
+        case Err(e) -> "{e}"
+    }
+}
+
+func main() {
+    print("port 70000: {}", refusal(TcpListener.listen(70000)))
+    print("host by name: {}", refusal(TcpListener.listen(0, host: "localhost")))
+
+    let listener = try! TcpListener.listen(0)
+    print("ephemeral port chosen: {}", listener.local_port() > 0)
+    var group = TaskGroup()
+    let h = group.spawn(client(listener.local_port()))
+    print("main accepts")
+    let stream = try! listener.accept()
+    let chunk = try! stream.read()
+    print("accepted; it sent: {}", try! chunk.to_string())
+    print("client wrote {} bytes", h.join())
+}

@@ -1,0 +1,32 @@
+// A read's three answers stay apart (SL:coroutines A12b): bytes are a
+// non-empty `Ok`, the peer's clean close is an empty `Ok`, and a failure is
+// an `Err`. The failure is a reset: the server closes a connection whose
+// request it never read, which sends a reset instead of a clean close, so the
+// client's read fails with `ConnectionReset`. The platform's code for it
+// differs between hosts, so only its presence is printed.
+import std.data.{Data}
+import std.net.{IoError, TcpListener, TcpStream}
+
+func describe(answer: Result<Data, IoError>) -> String {
+    match answer {
+        case Ok(bytes) -> {
+            if bytes.len() == 0 { "end of stream" } else { "bytes" }
+        },
+        case Err(e) -> "{e}; the platform code is nonzero: {e.code() != 0}"
+    }
+}
+
+func main() {
+    let (near, far) = TcpStream.pair()
+    try! far.write("x")
+    print("pair, data waiting: {}", describe(near.read()))
+    let _ = move far
+    print("pair, peer closed: {}", describe(near.read()))
+
+    let listener = try! TcpListener.listen(0)
+    let client = try! TcpStream.connect("127.0.0.1", listener.local_port())
+    let server = try! listener.accept()
+    try! client.write("request")
+    let _ = move server
+    print("connection, peer reset: {}", describe(client.read()))
+}

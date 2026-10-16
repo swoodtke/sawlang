@@ -30,7 +30,7 @@ it or refuses it by another rule, so the list cannot go stale silently.
 
 COVERAGE: ownership runs a program in 6 of its 6 categories, and 19 of its 26
 Stage 0 programs build; concurrency runs a program in 6 of its 6 categories,
-and 18 of its 25 Stage 0 programs build.
+and 19 of its 25 Stage 0 programs build.
 
 THE SELF-TEST. `gmgate_surplus_release.saw` releases one block twice. Before
 the lanes count, it must pass natively and fault under Guard Malloc; a lane
@@ -268,6 +268,7 @@ CONCURRENCY = (
         "the executor's drive paths", "main as a frame the executor drives, beside the tasks it spawns",
         twins=(
             CORPUS + "channel_receive_through_helper.saw",
+            CORPUS + "spawned_task_runs_before_reactor_park.saw",
         ),
         stand_ins=(
             # A function run as a task root, as an embedded child and directly
@@ -276,10 +277,7 @@ CONCURRENCY = (
             # Valued, Void and cancelled background tasks.
             CORPUS + "background_task_spawn.saw",
         ),
-        blocked=(
-            Blocked(CORPUS + "spawned_task_runs_before_reactor_park.saw", "import.unknown-module", "SL-570",
-                    "std.net is not in the new std"),
-        )),
+        blocked=()),
     Category(
         "values crossing a task boundary", "an owning value moved into a task, dropped by exactly one side",
         twins=(

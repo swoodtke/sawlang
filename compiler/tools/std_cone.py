@@ -1054,7 +1054,14 @@ def _new_std_dump(entry, std_root, extra=()):
 def new_std_cone(entry, std_root="std", extra=()):
     """(text, problems, reached) for `entry` against the new std at `std_root`,
     `extra` the sawc2 arguments it also needs (its `--module-path`s): the cone
-    as `module: count` blocks of `kind name` lines, like std_cone.txt."""
+    as `module: count` blocks of `kind name` lines, like std_cone.txt.
+
+    A reached trait requirement reaches each written implementor whose self
+    type the cone also reaches. That is sound because a dispatch reaches an
+    implementation only through a value of its type, and an `any Trait` value
+    is made at a conversion site whose concrete type the cone already holds. An
+    implementor on a type the dump declares nowhere (`String`, a range) is kept
+    unconditionally, since its reach is not tracked."""
     dump, resolved, problems = _new_std_dump(entry, std_root, extra)
     if problems:
         return None, ["new std cone: %s" % p for p in problems], None
@@ -1121,6 +1128,9 @@ def new_std_cone(entry, std_root="std", extra=()):
         elif m and m.group(1) == "Optional":
             optional = m.group(2)
     reached, work = set(), list(seeds)
+    # A reached requirement's implementors on a declared type whose type is not
+    # reached yet, by that type: they join the cone when it does.
+    waiting = {}
     while work:
         d = work.pop()
         if d is None or d in reached:
@@ -1146,11 +1156,16 @@ def new_std_cone(entry, std_root="std", extra=()):
             # a value drops, with no call written.
             work.append(identity_of(d + ".deinit"))
             work.append(identity_of(d + ".copy"))
+            work += waiting.pop(d, [])
         if kind == "requirement":
             trait, req = d.rsplit(".", 1)
             short = trait.split(".")[-1] if trait.startswith("std.prelude.") else trait
             for impl in implementors.get((short, req), []) + implementors.get((trait, req), []):
-                work.append(identity_of(impl))
+                owner = impl.rsplit(".", 1)[0]
+                if decls.get(owner) in ("struct", "enum") and owner not in reached:
+                    waiting.setdefault(owner, []).append(identity_of(impl))
+                else:
+                    work.append(identity_of(impl))
     by_module = {}
     for d in reached:
         if d.startswith(("std.", "builtin.")) and d in decls:

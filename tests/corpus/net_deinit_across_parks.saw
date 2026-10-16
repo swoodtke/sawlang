@@ -12,76 +12,46 @@
 // deinit 7
 // 999
 
-import std.net.{net_buffer, net_free_buffer, net_would_block, tcp_close, tcp_socketpair, tcp_try_read, tcp_try_write}
+import std.net.{TcpStream}
 struct Res { id: Int }
 extension Res: NoCopy {
     func deinit(&var self) { print("deinit {self.id}") }
 }
 
-func read_n(fd: Int) unsafe -> Int {
-    let buf = net_buffer(16)
-    var n = 0
-    var going = true
-    while going {
-        let r = tcp_try_read(fd, buf, 16)
-        if net_would_block(r) {
-            io_wait(fd, 0)
-        } else {
-            n = r
-            going = false
-        }
-    }
-    net_free_buffer(buf, 16)
-    return n
+func read_n(stream: &TcpStream) -> Int {
+    let chunk = try! stream.read()
+    chunk.len()
 }
 
-func write_hi(fd: Int) unsafe -> Int {
-    let buf = net_buffer(2)
-    buf[0] = 104 as Int8
-    buf[1] = 105 as Int8
-    var off = 0
-    var going = true
-    while going {
-        let w = tcp_try_write(fd, buf + off, 2 - off)
-        if net_would_block(w) {
-            io_wait(fd, 1)
-        } else {
-            off = off + w
-            if off >= 2 {
-                going = false
-            }
-        }
-    }
-    net_free_buffer(buf, 2)
-    return off
+func write_hi(stream: &TcpStream) -> Int {
+    try! stream.write("hi")
+    2
 }
 
 // `a` (an Arc<Res>) is live across read (park 1) AND write (park 2).
-func worker(fd: Int, a: Arc<Res>) -> Int {
-    let _ = read_n(fd)                 // park 1
-    let _ = write_hi(fd)               // park 2
+func worker(stream: TcpStream, a: Arc<Res>) -> Int {
+    let _ = read_n(&stream)            // park 1
+    let _ = write_hi(&stream)          // park 2
     a.strong_count()                   // 2 = the frame's ref + the caller's k1
 }
 
-func client(fd: Int) -> Int {
-    let _ = write_hi(fd)               // send "hi" so the worker's read completes
-    let n = read_n(fd)                // read the worker's echo
+func client(stream: TcpStream) -> Int {
+    let _ = write_hi(&stream)          // send "hi" so the worker's read completes
+    let n = read_n(&stream)            // read the worker's echo
     if n == 2 { 1 } else { 0 }
 }
 
 func run() {
-    let pair = tcp_socketpair()
+    let (s0, s1) = TcpStream.pair()
     let a = try! Arc<Res>(value: Res(id: 7))    // strong = 1
     let k1 = a.copy()                       // strong = 2
     var group = TaskGroup()
-    let hs = group.spawn(worker(pair.0, move a))   // frame owns a's ref
-    let hc = group.spawn(client(pair.1))
+    let hs = group.spawn(worker(move s0, move a))   // frame owns a's ref
+    let hc = group.spawn(client(move s1))
     print(hs.join())      // 2 = strong count with the frame still holding its ref
     print(hc.join())      // 1 = round-trip content ok
-    tcp_close(pair.0)
-    tcp_close(pair.1)
-}   // group teardown drops the worker frame's Arc ref (2 -> 1); then k1 drops
-    // (1 -> 0) -> Res deinits EXACTLY ONCE
+}   // the worker frame's Arc ref dropped at its completion (2 -> 1); then k1
+    // drops (1 -> 0) -> Res deinits EXACTLY ONCE
 
 func main() {
     run()

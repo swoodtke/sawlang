@@ -9,62 +9,38 @@
 // 241
 // 65
 
-import std.net.{net_buffer, net_free_buffer, net_would_block, tcp_close, tcp_socketpair, tcp_try_read, tcp_try_write}
-func read_one(fd: Int) unsafe -> Int {
-    let buf = net_buffer(1)
-    var v = 0
-    var going = true
-    while going {
-        let r = tcp_try_read(fd, buf, 1)
-        if net_would_block(r) {
-            io_wait(fd, 0)                 // park until a byte arrives
-        } else {
-            v = (buf[0]) as Int
-            going = false
-        }
-    }
-    net_free_buffer(buf, 1)
-    return v
+import std.net.{TcpStream}
+
+func read_one(stream: &TcpStream) -> Int {
+    let chunk = try! stream.read()         // park until a byte arrives
+    chunk.get(0)! as Int
 }
 
-func write_byte(fd: Int, b: Int) unsafe -> Int {
-    let buf = net_buffer(1)
-    buf[0] = b as Int8
-    var going = true
-    while going {
-        let w = tcp_try_write(fd, buf, 1)
-        if net_would_block(w) {
-            io_wait(fd, 1)                 // park until writable
-        } else {
-            going = false
-        }
-    }
-    net_free_buffer(buf, 1)
-    return 1
+func write_byte(stream: &TcpStream, b: String) -> Int {
+    try! stream.write(b)                   // park until writable
+    1
 }
 
 // Three parking nested calls in a row.
-func server(fd: Int) -> Int {
-    let b1 = read_one(fd)                  // park 1: receive 'x' (120)
-    let _ = write_byte(fd, 65)             // park 2: send 'A' (65)
-    let b2 = read_one(fd)                  // park 3: receive 'y' (121)
+func server(stream: TcpStream) -> Int {
+    let b1 = read_one(&stream)             // park 1: receive 'x' (120)
+    let _ = write_byte(&stream, "A")       // park 2: send 'A' (65)
+    let b2 = read_one(&stream)             // park 3: receive 'y' (121)
     return b1 + b2                         // 120 + 121 = 241
 }
 
-func client(fd: Int) -> Int {
-    let _ = write_byte(fd, 120)            // 'x'
-    let a = read_one(fd)                  // read 'A'
-    let _ = write_byte(fd, 121)            // 'y'
+func client(stream: TcpStream) -> Int {
+    let _ = write_byte(&stream, "x")
+    let a = read_one(&stream)              // read 'A'
+    let _ = write_byte(&stream, "y")
     return a                               // 65
 }
 
 func main() {
-    let pair = tcp_socketpair()
+    let (s0, s1) = TcpStream.pair()
     var group = TaskGroup()
-    let hs = group.spawn(server(pair.0))
-    let hc = group.spawn(client(pair.1))
+    let hs = group.spawn(server(move s0))
+    let hc = group.spawn(client(move s1))
     print(hs.join())     // 241 = both received bytes summed
     print(hc.join())     // 65 = the 'A' the server sent back
-    tcp_close(pair.0)
-    tcp_close(pair.1)
 }

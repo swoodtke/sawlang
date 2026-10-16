@@ -1,0 +1,39 @@
+// tests/corpus/net_precise_wakeup's shape over std.net's public API
+// (SL:coroutines A12b): two readers park on two different socket pairs, and
+// only the first pair's writer fires. Reader A wakes with its byte while
+// reader B stays parked; B reads only after `main` has joined A and spawned
+// B's writer. The original also counts spurious wakes through the raw
+// `tcp_try_read` loop, which std.net keeps private (a parked read re-parks
+// on a spurious wake, so the count is not observable here); the descriptor
+// park's own precision is pinned at that layer by the std lane's
+// `exec/park_cancel`.
+import std.net.{TcpStream}
+
+func reader(label: String, stream: TcpStream) -> Int {
+    let chunk = try! stream.read()
+    let value = chunk.get(0)! as Int
+    print("reader {} woke with {}", label, value)
+    value
+}
+
+func writer(stream: TcpStream, byte: String) -> Int {
+    try! stream.write(byte)
+    1
+}
+
+func main() {
+    let (read_a, wake_a) = TcpStream.pair()
+    let (read_b, wake_b) = TcpStream.pair()
+    var group = TaskGroup()
+    let ra = group.spawn(reader("A", move read_a))
+    let rb = group.spawn(reader("B", move read_b))
+    let wa = group.spawn(writer(move wake_a, "A"))
+    let a = ra.join()
+    print("main joined reader A")
+    let wb = group.spawn(writer(move wake_b, "B"))
+    let b = rb.join()
+    print("main joined reader B")
+    print(a)
+    print(b)
+    print(wa.join() + wb.join())
+}

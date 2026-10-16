@@ -436,6 +436,7 @@ extension ResProgram {
         self.std_module("task")
         self.std_module("taskgroup")
         self.std_module("channel")
+        self.std_module("net")
         self.std_module("time")
         self.std_module("spinlock")
         self.std_module("mutex")

@@ -1,24 +1,19 @@
 // design 102 item 2 (multi-threaded): a task io-parked on a permanently-idle fd in
 // a `TaskGroup(threads: 2)` group is cancelled by a peer (via the Send cancel-word
 // address) and unblocks. An idle worker polls the reactor on a bounded timeout, then
-// its wake scan finds the parked frame cancelled and makes it runnable; the frame
-// re-checks `cancelled()` at its park-loop top and returns. Send-only frame (an Int
-// fd + a Bool, no buffer held across the suspend). Time-bounded — a hang is a failure.
+// its wake scan finds the parked frame cancelled and makes it runnable; the read
+// re-checks `cancelled()` and returns the cancellation. Send-only frame (an owning
+// stream, no buffer held across the suspend). Time-bounded — a hang is a failure.
 // EXPECT: success
 // EXPECT-OUTPUT: cancelled
 
-import std.net.{tcp_socketpair, tcp_close}
+import std.net.{TcpStream}
 
-func parker(fd: Int) -> Int {
-    var done = false
-    while not done {
-        if cancelled() {
-            done = true                 // observed the peer cancel at the loop top
-        } else {
-            io_wait(fd, 0)              // park on an idle read fd (never ready)
-        }
+func parker(stream: TcpStream) -> Int {
+    match stream.read() {           // parks on an idle read fd (never ready)
+        case Ok(_) -> 0,
+        case Err(_) -> -1           // the peer's cancel woke the parked read
     }
-    return -1
 }
 
 func canceller(addr: Int) unsafe -> Int {
@@ -28,11 +23,9 @@ func canceller(addr: Int) unsafe -> Int {
 }
 
 func main() {
-    let pair = tcp_socketpair()
-    let a = pair.0
-    let b = pair.1                       // peer: never written, so `a` stays idle
+    let (a, b) = TcpStream.pair()        // peer `b`: never written, so `a` stays idle
     var g = try! TaskGroup(threads: 2)
-    let hp = g.spawn(parker(a))
+    let hp = g.spawn(parker(move a))
     let addr = hp.cancel_addr()
     let _ = g.spawn(canceller(addr))
     let r = hp.join()
@@ -41,6 +34,5 @@ func main() {
     } else {
         print("wrong {r}")
     }
-    tcp_close(a)
-    tcp_close(b)
+    let _ = move b
 }

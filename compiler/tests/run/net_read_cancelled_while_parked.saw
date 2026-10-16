@@ -1,0 +1,30 @@
+// A read cancelled while it is parked (SL:coroutines A12b): the reader finds
+// its socket empty and parks; `main` cancels it, and the read wakes and
+// answers `Err` of kind `Interrupted`, with no platform code behind it. The
+// cancelled read takes no bytes and leaves the stream usable: the reader hands
+// the stream back through `join`, and a later read on it gets what the peer
+// sends afterwards.
+import std.net.{TcpStream}
+import std.task.{yield_now}
+
+func reader(stream: TcpStream) -> TcpStream {
+    print("reader parks")
+    match stream.read() {
+        case Ok(chunk) -> print("reader: {} bytes", chunk.len()),
+        case Err(e) -> print("reader: {} (kind {}, code {})", e, e.kind(), e.code())
+    }
+    move stream
+}
+
+func main() {
+    let (near, far) = TcpStream.pair()
+    var group = TaskGroup()
+    let h = group.spawn(reader(move near))
+    yield_now()
+    print("main cancels the parked read")
+    h.cancel()
+    let back = h.join()
+    try! far.write("after")
+    let chunk = try! back.read()
+    print("the stream still reads: {}", try! chunk.to_string())
+}
