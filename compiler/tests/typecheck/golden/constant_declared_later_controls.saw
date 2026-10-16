@@ -1,0 +1,29 @@
+// What a constant judgment held until every body is typed leaves alone
+// (SL-760): a count, a divisor, a slot value, a lone case and a
+// `static_assert` naming a static or a raw-backed case declared after the
+// use, each of which folds and cannot fault; and a run-time count beside them.
+
+func shifted(x: Int, k: Int) -> Int {
+    var y = x << WIDTH
+    y <<= WIDTH
+    y /= DIVISOR
+    y %= DIVISOR
+    y + (x >> k) + x / DIVISOR + x % DIVISOR
+}
+
+func adopted() -> UInt16 {
+    let low: UInt8 = Wide.Fits
+    let mask: UInt16 = (1 << NARROW) - 1
+    static_assert(WIDTH == 62, "a later static")
+    static_assert(NARROW + 1 == 16, "arithmetic over a later static")
+    mask + (low as UInt16) + (Wide.Fits as UInt16)
+}
+
+func main() {
+    print("{} {}", shifted(1, 3), adopted())
+}
+
+static WIDTH: Int = 62
+static DIVISOR: Int = 7
+static NARROW: Int = 15
+enum Wide: UInt16 { case Fits = 255 }

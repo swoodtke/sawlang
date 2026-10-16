@@ -1,0 +1,9 @@
+// refuses: type.mismatch at 5:20
+// a lone raw-backed case adopting an integer slot, its enum declared after the use, is judged by its value all the same, which the slot cannot hold (SL-760)
+
+func main() {
+    let x: UInt8 = Wide.Big
+    print(x)
+}
+
+enum Wide: UInt16 { case Big = 300 }

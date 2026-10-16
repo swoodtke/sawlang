@@ -1,0 +1,8 @@
+// refuses: constant.shift-range at 5:10
+// a count naming a static declared after the shift folds all the same: the certain-fault funnel's judgment waits until every body is typed (SL-760)
+
+func high(x: Int) -> Int {
+    x << LATE
+}
+
+static LATE: Int = 64

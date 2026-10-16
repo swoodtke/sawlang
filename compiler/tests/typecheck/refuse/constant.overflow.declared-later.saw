@@ -1,0 +1,9 @@
+// refuses: constant.overflow at 5:19
+// a constant expression adopting an integer slot, naming a static declared after it, folds all the same: its judgment waits until every body is typed (SL-760)
+
+func main() {
+    let x: Int8 = 100 + LATE
+    print(x)
+}
+
+static LATE: Int8 = 100

@@ -706,7 +706,7 @@ defence in depth (`compiler/tests/eval/README.md`).
 | a raw case's value | `check_raw_value` | names no static and no other enum's case (spec, Raw backings) | constant_positions; static.not-constant.raw-static, .raw-case |
 | an `@align` argument on a static | `check_align_attribute` | none | constant_positions |
 | an `@align` argument on a local | `check_align_local` | none | constant_positions; static.not-constant.align |
-| a `static_assert` condition, at the top and in every body kind | `check_static_assert` | a const parameter in scope | constant_positions, constant_faults; static_assert.failed, .function, .method, .init, .closure, .default-body, .test-case; static.not-constant.assert-local; constant.overflow.assert, constant.shift-range |
+| a `static_assert` condition, at the top and in every body kind | `check_static_assert` | a const parameter in scope | constant_positions, constant_faults; static_assert.failed, .function, .method, .init, .closure, .default-body, .test-case, .declared-later, .declared-later-module; static.not-constant.assert-local; constant.overflow.assert, constant.shift-range |
 
 The shared grammar is the fold's: integer and `Bool` literals, `#line`, module
 statics that are not an `unsafe static var`, raw-backed cases, an integer
@@ -749,6 +749,7 @@ it stays a run-time check.
 | a count whose own fold faults | `constant.shift-range` | .count-fault |
 | a count in code that never runs | `constant.shift-range` | .unreachable |
 | a zero divisor of `/`, `%`, `/=`, and `%=` over a static | `constant.divide-by-zero` | .division, .remainder, .compound, .compound-remainder |
+| a count or a divisor naming a static declared after it (the pending-constant funnel) | `constant.shift-range`, `constant.divide-by-zero` | .declared-later |
 | a run-time count or divisor; a constant one that cannot fault; one that names a const parameter | nothing | certain_fault_controls; run programs runtime_count_divisor, const_generic_shift_guard |
 
 ### The constant-cast funnel
@@ -761,8 +762,8 @@ funnel, `refuse_constant_cast`, refuses it as `constant.cast-range`, in Stage
 names its entry points. "Constant before instantiation" is the certain-fault
 funnel's `fold_before_instantiation`: a literal, const arithmetic, a module
 static, a raw-backed case, an integer type's limit, and a cast of one of them.
-Every cast to an integer type is judged once every body is typed
-(`check_constant_casts`), so a static or a case declared after the cast folds
+Every cast to an integer type is judged once every body is typed, through the
+pending-constant funnel, so a static or a case declared after the cast folds
 too. At a constant position the constant-position funnel meets the same fault
 first and hands it to this funnel, so a cast that does not fit is refused by
 one rule, at its `as`, wherever it is written. A slot a lone case adopts holds
@@ -779,6 +780,33 @@ const parameter keep the run-time check, `cast to T out of range`.
 | a cast of a cast | `constant.cast-range` | .nested |
 | a static's initializer, a `static_assert` condition | `constant.cast-range` | .static-initializer, .assert; goldens constant_refusals, constant_faults |
 | a case to its own backing, to a wider type, below its backing where it fits; a literal, a sum and a limit that fit; a static that fits; a `let` local, a computed enum value, a const parameter | nothing | constant_cast_controls; run programs constant_cast_accepted, constant_cast_runtime |
+
+### The pending-constant funnel
+
+Bodies are typed in declaration order, module by module, and a static's or a
+raw-backed case's value has no type until its own body is checked. A constant
+judgment that folds through one declared after the expression, or in a module
+checked later, would stop short where it is met and let a certain fault
+through (SL-760). One funnel, `defer_constant`, holds such a judgment, and
+`judge_pending_constants` makes each held one, in the order it was met, once
+every body is typed; its docstring names its entry points. A cast is always
+held (the constant-cast funnel). Every other check folds where it is met and
+holds its judgment only when the fold stops at a node no body has typed yet
+(`awaits_typing`), so a judgment that can be made at once is made there and
+the order of refusals is unchanged. A held judgment whose expression holds a
+refusal already is not made again. A static's initializer holds nothing: it
+may name only the statics above it (spec, Compile-Time Evaluation), which is
+the declaration-order rule's to refuse. The array-length, repeat-count and
+const-argument positions fold in `build_const`, which takes no static at all
+(`slice.not-yet`), so nothing there waits on a body.
+
+| judgment | entry point | refused, through a later static or case | covered by |
+|---|---|---|---|
+| a cast to an integer type | `cast_expr` | `constant.cast-range` | constant.cast-range.declared-later |
+| a shift count or a divisor, binary and compound | `check_certain_fault` | `constant.shift-range`, `constant.divide-by-zero` | constant.shift-range.declared-later, constant.divide-by-zero.declared-later |
+| a constant expression or a lone case adopting an integer slot | `check_constant_range` | `constant.overflow`, `constant.shift-range`, `type.mismatch` | constant.overflow.declared-later, type.mismatch.constant-declared-later |
+| a `static_assert` condition, an `@align` argument | `check_constant_position` | `static_assert.failed`, a fault the fold meets | static_assert.failed.declared-later, .declared-later-module |
+| each of the above, through a later static or case, where it folds and cannot fault | each of the above | nothing | golden constant_declared_later_controls |
 
 ### Layout asserts
 
@@ -1539,8 +1567,8 @@ says what the fixture shows.
 | `extension.default-omitted` | an extension head renaming its type's parameters that leaves out a defaulted one, with the head written out (D14) |
 | `extension.partial-specialization` | an extension head naming a type for some of its parameters and renaming others, a generic specialized extension, which the spec leaves planned (SL-740) |
 | `extension.specialized-conformance` | a conformance declared in a specialized extension, for one instantiation, which the spec leaves planned; it counts for nothing (bare), an `UnsafeSend` assertion included (`.assertion`) (SL-740) |
-| `type.mismatch` | a value that does not convert to what its position expects, one fixture per funnel position and one per cell of the wrap and erasure matrix a position refuses; a condition that is not a `Bool`; a pattern that does not fit its value; operands that disagree; a bare integer literal, or a constant expression's literal or leaf, that does not fit the type it adopts; a literal or range pattern's integer that does not fit the matched type (`.pattern-literal-range`, `.pattern-negative-unsigned`, `.pattern-range-end`); a literal past its signed suffix's range (D6) |
-| `constant.overflow`, `constant.shift-range`, `constant.divide-by-zero` | a constant expression whose typed arithmetic overflows, shifts by a count outside its width, or divides by zero, where it adopts an integer slot and at every constant position (the constant-position funnel); a shift count or divisor constant before instantiation that faults whatever the other operand is, reachable or not (the certain-fault funnel) |
+| `type.mismatch` | a value that does not convert to what its position expects, one fixture per funnel position and one per cell of the wrap and erasure matrix a position refuses; a condition that is not a `Bool`; a pattern that does not fit its value; operands that disagree; a bare integer literal, or a constant expression's literal or leaf, that does not fit the type it adopts, a case of an enum declared later included (`.constant-declared-later`); a literal or range pattern's integer that does not fit the matched type (`.pattern-literal-range`, `.pattern-negative-unsigned`, `.pattern-range-end`); a literal past its signed suffix's range (D6) |
+| `constant.overflow`, `constant.shift-range`, `constant.divide-by-zero` | a constant expression whose typed arithmetic overflows, shifts by a count outside its width, or divides by zero, where it adopts an integer slot and at every constant position (the constant-position funnel); a shift count or divisor constant before instantiation that faults whatever the other operand is, reachable or not (the certain-fault funnel); either one folding through a static or a case declared after it (`.declared-later`, the pending-constant funnel) |
 | `constant.cast-range` | a cast whose operand is constant before instantiation and whose value its integer target cannot hold, at its `as`, in any position and at every constant position, reachable or not (the constant-cast funnel) |
 | `type.ambiguous-result` | a value both of a Result slot's payloads could take |
 | `type.not-a-value` | a type, module or trait named where a value is read |
@@ -1591,7 +1619,7 @@ says what the fixture shows.
 | `static.zero-hidden` | a static or `unsafe static var` with no initializer whose all-zero value holds, at any depth, a struct with a field the declaring module does not see and no `ZeroInit` conformance vouching for it, naming the field (SL-660; the zero-init matrix below) |
 | `static.zero-invalid` | a static or `unsafe static var` with no initializer whose all-zero value holds, at any depth, a part with no valid zero: a `String`, an enum with a payload, a raw-backed enum with no case of value 0, a function, a `FuncPointer`, `Never`, naming it (SL-660; the zero-init matrix below) |
 | `static.cycle` | a static whose value depends on itself, through any number of statics, named in order |
-| `static_assert.failed` | a `static_assert` whose condition folds to `false`, at the top of a file or in a body; one over a layout once the layout-assert funnel measures it (Layout asserts) |
+| `static_assert.failed` | a `static_assert` whose condition folds to `false`, at the top of a file or in a body, a static it names declared later or in a module checked later included (`.declared-later`, `.declared-later-module`); one over a layout once the layout-assert funnel measures it (Layout asserts) |
 | `borrowing.containment` | a borrowing struct (spec, Borrowing structs) bound outside the head of a `borrow` or a `for`, taken as a parameter by value, stored in a field or a payload, erased to an existential, returned by a function that does not lend it with `borrows`, or carried by a function type; a `borrows` call lending one anywhere but such a head; a construction of one outside a returning path of the `borrows` function that lends it |
 | `lends.origin` | a `lends` whose operand is not `self`: a projection of the receiver, a parameter, a local, named in the message (spec, Borrowing structs, "The origin is the receiver") |
 | `lends.position` | a `lends` anywhere but a reference field's value in a construction a `borrows` function returns |

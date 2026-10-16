@@ -1,0 +1,10 @@
+// refuses: constant.divide-by-zero at 6:10
+// a compound divisor naming a static declared after it folds all the same: the certain-fault funnel's judgment waits until every body is typed (SL-760)
+
+func ratio(x: Int) -> Int {
+    var y = x
+    y /= NONE
+    y
+}
+
+static NONE: Int = 0

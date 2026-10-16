@@ -37,8 +37,8 @@ import sawtypecheck.fold.{TcFold}
 import sawtypecheck.infer.{TcSolve, tc_solve}
 import sawtypecheck.members.{tc_build_members}
 import sawtypecheck.model.{TC_ANY_DEPTH, TC_BIND_DEFAULT, TC_EFFECT_BORROWS, TC_EFFECT_CONSUMES, TC_EFFECT_ESCAPING, TC_FLAG_STATIC, TC_FLAG_SYNTHESIZE_SHARED, TC_FLAG_UNSAFE_VAR, TC_FLAG_VARIADIC,
-                               TC_TIER_EXPLICIT, TC_TIER_NOCOPY, TcAdjust, TcAdjustKind, TcAllowance, TcCall, TcCapture, TcHeadKind, TcLend, TcMember, TcParam, TcReceiver,
-                               TcRelocation, TcRole, TcSig, TcSource, TcUse}
+                               TC_TIER_EXPLICIT, TC_TIER_NOCOPY, TcAdjust, TcAdjustKind, TcAllowance, TcCall, TcCapture, TcConstPosition, TcHeadKind, TcLend, TcMember, TcParam,
+                               TcPendingConstant, TcReceiver, TcRelocation, TcRole, TcSig, TcSource, TcUse}
 import sawtypecheck.overloads.{tc_check_redeclarations}
 import sawtypecheck.program.{TcProgram}
 import sawtypecheck.signatures.{TcContext}
@@ -87,14 +87,6 @@ public enum TcPosition {
     case ClosureTail,
     case Operand,
     case Coalesce
-}
-
-// The positions the constant-position funnel serves, which its refusals name.
-public enum TcConstPosition {
-    case Static,
-    case RawValue,
-    case Align,
-    case Assert
 }
 
 // Which funnel entry a block's tail goes through.
@@ -164,7 +156,7 @@ extension TcProgram {
             }
             m = m + 1
         }
-        self.check_constant_casts()
+        self.judge_pending_constants()
         self.check_zero_inits()
         self.settle_places()
         self.settle_captures()
@@ -1559,7 +1551,8 @@ extension TcProgram {
     // integer type it is typed or adopted as, by typed arithmetic
     // (SL:architecture §3.10): a value that does not fit where it adopts, or
     // an operation that overflows its type, leaves its range; a shift count
-    // out of range and a division by zero are faults of their own.
+    // out of range and a division by zero are faults of their own. A fold that
+    // waits on a later declaration is judged by `defer_constant`.
     func check_constant_range(&var self, e: Int) {
         if not self.is_constant_expr(e) && self.raw_case_named(e) < 0 {
             return
@@ -1569,6 +1562,10 @@ extension TcProgram {
             return
         }
         let v = self.fold_constant(e)
+        if self.awaits_typing(&v) {
+            self.defer_constant(TcPendingConstant.SlotRange(e: e))
+            return
+        }
         if v.ok || v.fault == TcFault.NotConstant || v.fault == TcFault.Cycle {
             return
         }
@@ -1615,6 +1612,67 @@ extension TcProgram {
     }
 }
 
+// The pending-constant funnel.
+extension TcProgram {
+    // The pending-constant funnel: constant judgment `j`, held until every
+    // body is typed. A static or a raw-backed case declared after the
+    // expression that names it has no typed value yet, so a fold through it
+    // stops short and would let a certain fault through. A cast is always
+    // held; any other check holds its judgment only when its fold
+    // `awaits_typing`, so one that folds where it is met is judged there. A
+    // static's initializer holds nothing: it may name only the statics above
+    // it (spec, Compile-Time Evaluation).
+    //
+    // ENTRY POINTS (defer_constant):
+    //     cast_expr
+    //     check_certain_fault
+    //     check_constant_range
+    //     check_constant_position
+    func defer_constant(&var self, j: TcPendingConstant) {
+        try! self.pending_constants.push(j)
+    }
+
+    // Whether fold `v` stopped at a node no body has typed yet, while some
+    // body is still unchecked: a value its judgment must wait for.
+    func awaits_typing(&self, v: &TcFold) -> Bool {
+        if self.constants_final || v.ok || v.fault != TcFault.NotConstant || v.at < 0 {
+            return false
+        }
+        self.expr_types[v.at] < 0
+    }
+
+    // Each held judgment, in the order it was met, now that every body is
+    // typed, each in its own module; a judgment whose expression holds a
+    // refusal already is not made again.
+    func judge_pending_constants(&var self) {
+        self.constants_final = true
+        let saved = self.save_context()
+        var k = 0
+        while k < self.pending_constants.len() {
+            let j = self.pending_constants[k]
+            k = k + 1
+            match j {
+                case Cast(e) -> self.check_constant_cast(e),
+                case CertainFault(e, count, shifted, divides) -> {
+                    self.current = self.node_module(count)
+                    self.check_certain_fault(e, count, shifted, divides)
+                },
+                case SlotRange(e) -> {
+                    if not self.refused_within(e) {
+                        self.current = self.node_module(e)
+                        self.check_constant_range(e)
+                    }
+                },
+                case Position(e, pos, d, message) -> {
+                    self.current = self.node_module(e)
+                    self.check_constant_position(e, pos, d, message)
+                }
+            }
+        }
+        self.restore_context(saved)
+    }
+}
+
 // The constant-position funnel.
 extension TcProgram {
     // The constant-position funnel (spec, Compile-Time Evaluation, "The
@@ -1624,8 +1682,10 @@ extension TcProgram {
     // depends on itself (`static.cycle`), a fault the fold meets in `e`
     // itself, and a `static_assert` whose condition folds to `false`
     // (`static_assert.failed`). An expression already refused inside is not
-    // judged again. What the grammar admits and the fold does not compute
-    // (an aggregate, `sizeof`, a const parameter) is constant and unfolded;
+    // judged again, and outside a static's initializer a fold that waits on a
+    // later declaration is judged by `defer_constant`. What the grammar admits
+    // and the fold does not compute (an aggregate, `sizeof`, a const
+    // parameter) is constant and unfolded;
     // `sizeof` and `alignof` of a type code generation lays out are admitted
     // only in a `static_assert`.
     //
@@ -1662,6 +1722,13 @@ extension TcProgram {
         }
         if pos == TcConstPosition.Static && d >= 0 && self.refuse_static_cycle(d, e) {
             return
+        }
+        if pos != TcConstPosition.Static {
+            let early = self.fold_constant(e)
+            if self.awaits_typing(&early) {
+                self.defer_constant(TcPendingConstant.Position(e: e, pos: pos, d: d, message: message))
+                return
+            }
         }
         let v = self.check_constant_faults(e)
         if pos == TcConstPosition.Assert && v.ok && v.ty >= 0 && self.is_bool(v.ty) && v.bits == 0 {
@@ -3753,7 +3820,8 @@ extension TcProgram {
     // outside the width of `shifted` as `constant.shift-range`, a zero divisor
     // as `constant.divide-by-zero`. A constant `e` is refused at the fault its
     // own fold meets, as at a constant position. It serves `<<`, `>>`, `<<=`,
-    // `>>=`, `/`, `%`, `/=` and `%=`, and asks nothing of reachability.
+    // `>>=`, `/`, `%`, `/=` and `%=`, and asks nothing of reachability. A
+    // fold that waits on a later declaration is judged by `defer_constant`.
     //
     // ENTRY POINTS (check_certain_fault):
     //     shift_count
@@ -3772,6 +3840,10 @@ extension TcProgram {
             if whole.ok || whole.fault == TcFault.Cycle {
                 return
             }
+            if self.awaits_typing(&whole) {
+                self.defer_constant(TcPendingConstant.CertainFault(e: e, count: c, shifted: shifted, divides: divides))
+                return
+            }
             if whole.fault != TcFault.NotConstant {
                 if not self.refused_within(e) {
                     self.refuse_fold_fault(&whole, e)
@@ -3780,6 +3852,10 @@ extension TcProgram {
             }
         }
         let v = self.fold_before_instantiation(c)
+        if self.awaits_typing(&v) {
+            self.defer_constant(TcPendingConstant.CertainFault(e: e, count: c, shifted: shifted, divides: divides))
+            return
+        }
         if v.fault == TcFault.NotConstant || v.fault == TcFault.Cycle {
             return
         }
@@ -4250,23 +4326,14 @@ extension TcProgram {
             self.refuse(e, "type.cast", msg.build())
         }
         if self.is_integer(to) {
-            try! self.constant_casts.push(e)
+            self.defer_constant(TcPendingConstant.Cast(e: e))
         }
         self.set_type(e, to, false)
     }
 
-    // Each cast to an integer type, once every body is typed: refused when
-    // its own conversion is the fault its fold meets, so its operand is
-    // constant before instantiation and its value does not fit the target.
-    func check_constant_casts(&var self) {
-        var k = 0
-        while k < self.constant_casts.len() {
-            let e = self.constant_casts[k]
-            k = k + 1
-            self.check_constant_cast(e)
-        }
-    }
-
+    // A cast to an integer type, once every body is typed: refused when its
+    // own conversion is the fault its fold meets, so its operand is constant
+    // before instantiation and its value does not fit the target.
     func check_constant_cast(&var self, e: Int) {
         let to = self.expr_types[e]
         if to < 0 || not self.is_integer(to) || self.refused_within(e) {

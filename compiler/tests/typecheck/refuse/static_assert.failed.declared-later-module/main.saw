@@ -1,0 +1,10 @@
+// refuses: static_assert.failed at 6:15
+// a `static_assert` naming a static of a module checked after this one folds all the same: the constant-position funnel's judgment waits until every body is typed (SL-760)
+
+import limits
+
+static_assert(limits.PAGE_SHIFT == 12, "4K pages")
+
+func main() {
+    print(limits.PAGE_SHIFT)
+}

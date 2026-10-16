@@ -498,6 +498,30 @@ public struct TcItem {
     unit: Int
 }
 
+// The positions the constant-position funnel serves, which its refusals name.
+public enum TcConstPosition {
+    case Static,
+    case RawValue,
+    case Align,
+    case Assert
+}
+
+// A constant judgment held until every body is typed, by the nodes its check
+// reads: its operand may fold through a static or a raw-backed case declared
+// after it, whose value no body has typed yet where the check meets it.
+public enum TcPendingConstant {
+    // A cast to an integer type: the constant-cast funnel.
+    case Cast(e: Int),
+    // A count or divisor `count` of operation `e`, -1 for a compound one,
+    // over type `shifted`: the certain-fault funnel.
+    case CertainFault(e: Int, count: Int, shifted: Int, divides: Bool),
+    // A constant expression adopting an integer slot.
+    case SlotRange(e: Int),
+    // A constant position other than a static's initializer: the
+    // constant-position funnel.
+    case Position(e: Int, pos: TcConstPosition, d: Int, message: Int)
+}
+
 public struct TcDiag {
     module: Int
     start: Int

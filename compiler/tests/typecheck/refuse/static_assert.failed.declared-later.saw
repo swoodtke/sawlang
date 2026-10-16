@@ -1,0 +1,9 @@
+// refuses: static_assert.failed at 5:19
+// a function body's `static_assert` naming a static declared after the function folds all the same: the constant-position funnel's judgment waits until every body is typed (SL-760)
+
+func check(n: Int) -> Int {
+    static_assert(LATE == 1, "a later static")
+    n
+}
+
+static LATE: Int = 64

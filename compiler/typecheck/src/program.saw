@@ -8,8 +8,8 @@ import sawresolve.model.{ResBindKind, ResBinding, ResDecl, ResDeclKind, ResModul
 import sawresolve.names.{ResIndex}
 import sawresolve.program.{ResProgram}
 import sawtypecheck.model.{TcAdjust, TcAllowance, TcAtom, TcCall, TcCapture, TcConformance, TcDefault, TcDiag,
-                               TcGeneric, TcItem, TcMember, TcObligation, TcParam, TcSig, TcStatus, TcSummary,
-                               TcRelocation, TcTier, TcUnit, TcUse}
+                               TcGeneric, TcItem, TcMember, TcObligation, TcParam, TcPendingConstant, TcSig, TcStatus,
+                               TcSummary, TcRelocation, TcTier, TcUnit, TcUse}
 import sawtypecheck.types.{TC_HOLDS_PARAM, TcKind, TcType, TcTypes, tc_types}
 import sawtypecheck.walks.{TcMemo, tc_memo}
 
@@ -312,10 +312,11 @@ public struct TcProgram {
     // call node, and its value at the layout being checked.
     measured_nodes: Vector<Int>
     measured_values: Vector<Int>
-    // Every cast to an integer type, by node, judged by the constant-cast
-    // funnel once every body is typed: its operand may fold through a static
-    // or a raw-backed case declared after it.
-    constant_casts: Vector<Int>
+    // The constant judgments held until every body is typed, in the order
+    // they were met (`defer_constant`), and whether that point is reached,
+    // after which a judgment is final where it is met.
+    pending_constants: Vector<TcPendingConstant>
+    constants_final: Bool
     // Whether the program is a runtime, whose `@export`s may be the frozen
     // `__saw_rt_*` seams, as `sawc2 runtime` checks one (design 149).
     runtime_build: Bool
@@ -407,7 +408,8 @@ public func tc_program(res: ResProgram) -> TcProgram {
                       layout_asserts: Vector<Int>(), layout_assert_messages: Vector<Int>(),
                       layout_assert_decls: Vector<Int>(), layout_assert_generic: Vector<Bool>(),
                       measured_nodes: Vector<Int>(), measured_values: Vector<Int>(),
-                      constant_casts: Vector<Int>(), runtime_build: false,
+                      pending_constants: Vector<TcPendingConstant>(), constants_final: false,
+                      runtime_build: false,
                       export_symbols: move symbols, export_nodes: move export_nodes,
                       erased_nodes: Vector<Int>())
     let empty = Vector<Int>()
