@@ -1,0 +1,9 @@
+program	compiler/tests/run/map_int_keys.saw
+triple	aarch64-unknown-linux-gnu
+source	e664ab8cebe26ae4
+build	ok
+exit	0
+stdout	"20"
+stdout	"true"
+stdout	"3"
+stdout	""

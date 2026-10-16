@@ -1,0 +1,32 @@
+program	compiler/tests/run/fixed_array_literal.saw
+triple	aarch64-unknown-linux-gnu
+source	b2ac58cfdf422cbe
+build	ok
+exit	0
+stdout	"trivial 3 5 3"
+stdout	"hook 1"
+stdout	"copy 101 2"
+stdout	"strings alpha gamma"
+stdout	"explicit 8"
+stdout	"nested 3 6"
+stdout	"argument 60"
+stdout	"returned 1 2"
+stdout	"d9"
+stdout	"d8"
+stdout	"d7"
+stdout	"moved in 3"
+stdout	"field 21 4"
+stdout	"indexed 3"
+stdout	"indexed 1"
+stdout	"d63"
+stdout	"d53"
+stdout	"suspended 72"
+stdout	"end"
+stdout	"d3"
+stdout	"d2"
+stdout	"d1"
+stdout	"d21"
+stdout	"d20"
+stdout	"d2"
+stdout	"d1"
+stdout	""

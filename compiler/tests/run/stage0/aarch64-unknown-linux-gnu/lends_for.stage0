@@ -1,0 +1,16 @@
+program	compiler/tests/run/lends_for.saw
+triple	aarch64-unknown-linux-gnu
+source	d07484a8a2c2375d
+build	ok
+exit	0
+stdout	"weighted = 40"
+stdout	"pairs = 6"
+stdout	"before three = 3"
+stdout	"first over two = 3"
+stdout	"first over nine = -1"
+stdout	"ints = 12"
+stdout	"flags = 2"
+stdout	"reader deinit, ledger still has 3"
+stdout	"ledger sum = 60"
+stdout	"ledger deinit"
+stdout	""

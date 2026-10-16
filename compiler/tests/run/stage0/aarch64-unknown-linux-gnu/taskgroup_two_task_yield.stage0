@@ -1,0 +1,13 @@
+program	compiler/tests/run/taskgroup_two_task_yield.saw
+triple	aarch64-unknown-linux-gnu
+source	89745547d46782a3
+build	ok
+exit	0
+stdout	"10"
+stdout	"20"
+stdout	"11"
+stdout	"21"
+stdout	"12"
+stdout	"22"
+stdout	"30"
+stdout	""

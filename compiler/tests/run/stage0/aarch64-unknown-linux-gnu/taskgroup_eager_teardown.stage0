@@ -1,0 +1,12 @@
+program	compiler/tests/run/taskgroup_eager_teardown.saw
+triple	aarch64-unknown-linux-gnu
+source	3408ab36ace2c52e
+build	ok
+exit	0
+stdout	"1"
+stdout	"2"
+stdout	"3"
+stdout	"4"
+stdout	"5"
+stdout	"999"
+stdout	""

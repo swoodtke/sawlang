@@ -1,0 +1,17 @@
+program	compiler/tests/run/scalar_equals.saw
+triple	aarch64-unknown-linux-gnu
+source	ad9a35c42543e113
+build	ok
+exit	0
+stdout	"Int true false true"
+stdout	"Int8 true false"
+stdout	"Int16 true false"
+stdout	"Int32 true false"
+stdout	"Int64 true false"
+stdout	"UInt true false"
+stdout	"UInt8 true false"
+stdout	"UInt16 true false"
+stdout	"UInt32 true false"
+stdout	"UInt64 true false"
+stdout	"Bool true true false true"
+stdout	""

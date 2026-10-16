@@ -1,0 +1,10 @@
+program	compiler/tests/run/env_set_cwd.saw
+triple	aarch64-unknown-linux-gnu
+source	500208da8e407c4e
+build	ok
+exit	0
+stdout	"true"
+stdout	"false"
+stdout	"set_cwd missing: surfaced"
+stdout	"true"
+stdout	""

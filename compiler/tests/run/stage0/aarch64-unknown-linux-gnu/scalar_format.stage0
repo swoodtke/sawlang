@@ -1,0 +1,26 @@
+program	compiler/tests/run/scalar_format.saw
+triple	aarch64-unknown-linux-gnu
+source	3f88bdca9064396e
+build	ok
+exit	0
+stdout	"Int: -9223372036854775808 [-9223372036854775808]"
+stdout	"Int: 9223372036854775807 [9223372036854775807]"
+stdout	"Int8: -128 [-128]"
+stdout	"Int16: -32768 [-32768]"
+stdout	"Int32: 2147483647 [2147483647]"
+stdout	"Int64: -9223372036854775808 [-9223372036854775808]"
+stdout	"UInt: 0 [0]"
+stdout	"UInt: 18446744073709551615 [18446744073709551615]"
+stdout	"UInt8: 255 [255]"
+stdout	"UInt16: 65535 [65535]"
+stdout	"UInt32: 4294967295 [4294967295]"
+stdout	"UInt64: 18446744073709551615 [18446744073709551615]"
+stdout	"UInt64: 9223372036854775808 [9223372036854775808]"
+stdout	"UInt64: 10000000000000000000 [10000000000000000000]"
+stdout	"UInt: 7 [7]"
+stdout	"UInt8: 0 [0]"
+stdout	"Bool: true [true]"
+stdout	"Bool: false [false]"
+stdout	"false true"
+stdout	"9"
+stdout	""

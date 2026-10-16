@@ -1,0 +1,8 @@
+program	compiler/tests/run/group_handle_detach.saw
+triple	aarch64-unknown-linux-gnu
+source	73b9ab3e16642995
+build	ok
+exit	-6
+stdout	"4"
+stdout	"panic at taskgroup.saw:1853: Task.detach: this handle came from `group.spawn`, and a group task's fate is its group's scope — drop the handle instead, or use `Task.spawn` for a detachable task"
+stdout	""

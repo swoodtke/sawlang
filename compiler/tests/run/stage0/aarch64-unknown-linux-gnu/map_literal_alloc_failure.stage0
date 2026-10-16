@@ -1,0 +1,8 @@
+program	compiler/tests/run/map_literal_alloc_failure.saw
+triple	aarch64-unknown-linux-gnu
+source	b4af09b77440f2f5
+build	ok
+exit	-6
+stdout	"building"
+stdout	"panic at map_literal_alloc_failure.saw:20: collection literal: allocation of 192 bytes (align 8) failed"
+stdout	""

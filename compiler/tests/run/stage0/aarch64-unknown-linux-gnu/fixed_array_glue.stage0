@@ -1,0 +1,19 @@
+program	compiler/tests/run/fixed_array_glue.saw
+triple	aarch64-unknown-linux-gnu
+source	58dc5508b7e1175f
+build	ok
+exit	-6
+stdout	"hook 1"
+stdout	"hook 2"
+stdout	"hook 3"
+stdout	"copied 101 102 103"
+stdout	"labels right left"
+stdout	"d2"
+stdout	"overwrote 20"
+stdout	"moved 3"
+stdout	"d5"
+stdout	"d4"
+stdout	"kept 9"
+stdout	"reading past the end"
+stdout	"panic at fixed_array_glue.saw:49: array: index out of range: 3 (len 3)"
+stdout	""

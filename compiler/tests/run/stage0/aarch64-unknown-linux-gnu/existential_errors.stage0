@@ -1,0 +1,16 @@
+program	compiler/tests/run/existential_errors.saw
+triple	aarch64-unknown-linux-gnu
+source	8e98db5cec2216bc
+build	ok
+exit	0
+stdout	"ok 41"
+stdout	"parse fault at 3"
+stdout	"parse fault at 3"
+stdout	"parse fault at 3"
+stdout	"parse fault at 3"
+stdout	"closed socket"
+stdout	"closed socket"
+stdout	"closed socket"
+stdout	"closed socket"
+stdout	"released socket"
+stdout	""

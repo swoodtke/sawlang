@@ -1,0 +1,21 @@
+program	compiler/tests/run/path_join.saw
+triple	aarch64-unknown-linux-gnu
+source	a738932d7265a57b
+build	ok
+exit	0
+stdout	"a/b + c = c<b<a<rel"
+stdout	"a/b/ + c = c<b<a<rel"
+stdout	"a/b + /c = c<-<abs"
+stdout	"a/b + empty = b<a<rel"
+stdout	"empty + c = c<rel"
+stdout	"empty + empty = -<rel"
+stdout	"/ + c = c<-<abs"
+stdout	"/a + b = b<a<-<abs"
+stdout	"a// + c = c<-<a<rel"
+stdout	"a + b/c = c<b<a<rel"
+stdout	"a + b/ = -<b<a<rel"
+stdout	"a + b path = b<a<rel"
+stdout	"a + absolute path = b<-<abs"
+stdout	"a + empty path = a<rel"
+stdout	"chain = x.so<lib<local<usr<-<abs"
+stdout	""

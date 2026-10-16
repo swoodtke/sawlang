@@ -1,0 +1,14 @@
+program	compiler/tests/run/map_set_literals.saw
+triple	aarch64-unknown-linux-gnu
+source	c330f91a8c6fee7c
+build	ok
+exit	0
+stdout	"3"
+stdout	"2"
+stdout	"2"
+stdout	"0"
+stdout	"20"
+stdout	"3"
+stdout	"true"
+stdout	"false"
+stdout	""

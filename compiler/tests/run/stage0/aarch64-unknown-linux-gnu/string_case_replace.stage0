@@ -1,0 +1,27 @@
+program	compiler/tests/run/string_case_replace.saw
+triple	aarch64-unknown-linux-gnu
+source	015d38a711b2256b
+build	ok
+exit	0
+stdout	"[HELLO, WORLD 123!]"
+stdout	"[hello, world 123!]"
+stdout	"[]"
+stdout	"[]"
+stdout	"[HéLLO WöRLD]"
+stdout	"[hÉllo wÖrld]"
+stdout	"[AZAZ@[`~]"
+stdout	"[azaz@[`~]"
+stdout	"[a+b+c]"
+stdout	"[abc]"
+stdout	"[a<->b<->c]"
+stdout	"[abc]"
+stdout	"[abc]"
+stdout	"[]"
+stdout	"[bb]"
+stdout	"[ba]"
+stdout	"[]"
+stdout	"[abc]"
+stdout	"[x->y->z]"
+stdout	"[three two three]"
+stdout	"[keep me] [keep me]"
+stdout	""
