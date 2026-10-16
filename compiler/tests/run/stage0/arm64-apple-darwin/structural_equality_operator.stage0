@@ -1,0 +1,17 @@
+program	compiler/tests/run/structural_equality_operator.saw
+triple	arm64-apple-darwin
+source	1768b37f307c23f8
+build	ok
+exit	0
+stdout	"tuple true false false true true false"
+stdout	"optional true false true false true false"
+stdout	"array true false false true true false"
+stdout	"array of tuples true false false true true false"
+stdout	"tuple of arrays true false false true true false"
+stdout	"optional of array true false true false true false"
+stdout	"string array true false false true true false"
+stdout	"tuple with string true false false true true false"
+stdout	"optional string true false true false true false"
+stdout	"struct with array true false true false true false"
+stdout	"float tuple false true true false"
+stdout	""

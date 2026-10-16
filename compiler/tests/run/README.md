@@ -250,8 +250,12 @@ description's (`compiler/tests/mono/README.md`, "Layouts").
   reference or a function pointer, is refused. `==` and `!=` on a trivially
   copyable value in memory compare part by part: a payload-free enum by its
   case, an Optional by its case and then, when both are present, its
-  payload, a struct or tuple member by member, a Float member by `fcmp oeq`;
-  a type declaring its own `Equatable` or a String inside one is refused.
+  payload, a struct or tuple member by member, a Float member by `fcmp oeq`.
+  Which types those are is typecheck's `compares_in_place`, the one test
+  both sides ask: a structural `==` on any other type, one declaring its own
+  `Equatable` or holding a String or a fixed array, arrives as a call to the
+  `Equatable.equals` requirement, which mono's member glue answers
+  (`structural_equality_operator`, SL-759).
 - **Erased values** (spec, `any Trait` existentials; SL-721). A pointer to
   an erased value, a `&any Trait` or the pointer an erased box holds, is two
   words: the value's address, then its vtable's. A vtable is a private

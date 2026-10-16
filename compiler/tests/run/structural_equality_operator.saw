@@ -1,0 +1,72 @@
+// `==` and `!=` on a type `Equatable` through its parts with no `equals` of
+// its own (SL-759): a tuple, an Optional, a fixed array, an array of tuples,
+// a tuple of arrays, an Optional of an array, an array and a tuple and an
+// Optional holding a `String`, and a trivial struct holding an array. Each
+// is compared equal and unequal by both operators and through a
+// `T: Equatable` bound, which must agree. A Float inside a tuple compares by
+// IEEE equality, so a NaN member makes its tuple unequal to itself.
+
+struct Row { cells: [Int; 3], tag: Bool }
+
+func same<T: Equatable>(a: &T, b: &T) -> Bool {
+    a == b
+}
+
+func main() {
+    let t1 = (1, 2)
+    let t2 = (1, 3)
+    print("tuple {} {} {} {} {} {}", t1 == t1, t1 == t2, t1 != t1, t1 != t2, same(&t1, &t1), same(&t1, &t2))
+
+    let o1: Int? = 1
+    let o2: Int? = 2
+    let on: Int? = None
+    print("optional {} {} {} {} {} {}", o1 == o1, o1 == o2, o1 != on, on != on, same(&o1, &o1), same(&o1, &on))
+
+    let a1: [Int; 3] = [1, 2, 3]
+    let a2: [Int; 3] = [1, 2, 4]
+    print("array {} {} {} {} {} {}", a1 == a1, a1 == a2, a1 != a1, a1 != a2, same(&a1, &a1), same(&a1, &a2))
+
+    let at1: [(Int, Int); 2] = [(1, 2), (3, 4)]
+    let at2: [(Int, Int); 2] = [(1, 2), (3, 5)]
+    print("array of tuples {} {} {} {} {} {}", at1 == at1, at1 == at2, at1 != at1, at1 != at2, same(&at1, &at1),
+          same(&at1, &at2))
+
+    let ta1: ([Int; 2], [Int; 2]) = ([1, 2], [3, 4])
+    let ta2: ([Int; 2], [Int; 2]) = ([1, 2], [3, 5])
+    print("tuple of arrays {} {} {} {} {} {}", ta1 == ta1, ta1 == ta2, ta1 != ta1, ta1 != ta2, same(&ta1, &ta1),
+          same(&ta1, &ta2))
+
+    let oa1: [Int; 2]? = [1, 2]
+    let oa2: [Int; 2]? = [1, 3]
+    let oan: [Int; 2]? = None
+    print("optional of array {} {} {} {} {} {}", oa1 == oa1, oa1 == oa2, oa1 != oan, oan != oan, same(&oa1, &oa1),
+          same(&oa1, &oan))
+
+    let s1: [String; 2] = ["a", "b"]
+    let s2: [String; 2] = ["a", "c"]
+    print("string array {} {} {} {} {} {}", s1 == s1, s1 == s2, s1 != s1, s1 != s2, same(&s1, &s1), same(&s1, &s2))
+
+    let ts1 = (1, "a")
+    let ts2 = (1, "b")
+    print("tuple with string {} {} {} {} {} {}", ts1 == ts1, ts1 == ts2, ts1 != ts1, ts1 != ts2, same(&ts1, &ts1),
+          same(&ts1, &ts2))
+
+    let os1: String? = "x"
+    let os2: String? = "y"
+    let osn: String? = None
+    print("optional string {} {} {} {} {} {}", os1 == os1, os1 == os2, os1 != osn, osn != osn, same(&os1, &os1),
+          same(&os1, &os2))
+
+    let r1 = Row(cells: [1, 2, 3], tag: true)
+    let r2 = Row(cells: [1, 2, 4], tag: true)
+    let r3 = Row(cells: [1, 2, 3], tag: false)
+    print("struct with array {} {} {} {} {} {}", r1 == r1, r1 == r2, r1 != r3, r1 != r1, same(&r1, &r1),
+          same(&r1, &r3))
+
+    let z = 0.0
+    let nan = z / z
+    let f1 = (1, nan)
+    let f2 = (1, 0.0)
+    let f3 = (1, -0.0)
+    print("float tuple {} {} {} {}", f1 == f1, f1 != f1, f2 == f3, f2 != f3)
+}

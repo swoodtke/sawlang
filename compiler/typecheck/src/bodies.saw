@@ -3975,9 +3975,11 @@ extension TcProgram {
     // What answers a comparison of two `t`s: a builtin operator for the
     // numbers, `Bool`, `String`, the pointers, a payload-free enum and an
     // Optional of those; else the type's `equals` or `compare`, a bound's
-    // requirement for a type parameter, or the structural comparison of a
-    // trivially copyable type's automatic `Equatable` and of a tuple whose
-    // elements all conform (spec, Equality).
+    // requirement for a type parameter, or the structural equality of
+    // whatever `satisfies` grants `Equatable` without a member (spec,
+    // Equality). Asking the bound's own funnel keeps `==` and a
+    // `T: Equatable` bound from disagreeing; a structural `==` the backend
+    // cannot do in place (`compares_in_place`) calls `equals`, as the bound does.
     func resolve_comparison(&var self, e: Int, t: Int, equality: Bool, spelling: String) {
         if self.builtin_comparable(t, equality) {
             self.record_builtin(e, -1, TcRole.BuiltinOperator, spelling)
@@ -4019,12 +4021,16 @@ extension TcProgram {
             }
             k = k + 1
         }
-        if equality && (kind == TcKind.Nominal || kind == TcKind.Tuple) {
+        if equality {
             let equatable = self.known.equatable
             let env = self.current_decl
             let ext = self.current_ext
             if self.satisfies(t, equatable, env, ext, m, in_test) {
-                self.record_builtin(e, -1, TcRole.BuiltinOperator, spelling)
+                if self.compares_in_place(t) {
+                    self.record_builtin(e, -1, TcRole.BuiltinOperator, spelling)
+                    return
+                }
+                self.record_structural_equals(e, t, name, spelling)
                 return
             }
         }
@@ -4044,6 +4050,32 @@ extension TcProgram {
         self.refuse(e, "operator.undefined", msg.build())
     }
 
+    // A structural `==` or `!=` the backend cannot compare in place, a fixed
+    // array's or an aggregate holding a `String`'s: a call to `Equatable`'s
+    // `equals` requirement at `t`, which mono's member glue answers exactly
+    // as it answers the same call through a `T: Equatable` bound.
+    func record_structural_equals(&var self, e: Int, t: Int, name: Int, spelling: String) {
+        let equatable = self.known.equatable
+        let members = self.members_of(equatable)
+        var k = 0
+        while k < members.len() {
+            let req = members[k]
+            k = k + 1
+            let ri = self.res.decls[req]
+            if ri.kind != ResDeclKind.Requirement || ri.name != name {
+                continue
+            }
+            self.build_decl(req)
+            let args = Vector<Int>()
+            let at = self.record_call(e, req, TcRole.Operator, t, &args)
+            var c = self.calls[at]
+            c.spelling = self.res.intern(spelling)
+            self.calls[at] = c
+            return
+        }
+        self.refuse(e, "operator.undefined", "the `Equatable` trait declares no `equals` requirement")
+    }
+
     func builtin_comparable(&var self, t: Int, equality: Bool) -> Bool {
         if self.is_numeric(t) || self.is_string(t) {
             return true
@@ -4058,9 +4090,11 @@ extension TcProgram {
         if d == self.known.unsafe_pointer || d == self.known.unsafe_const_pointer {
             return true
         }
+        // An Optional of a `String` is no scalar the backend compares in
+        // place, so it takes the structural `equals` instead.
         if self.is_optional(t) {
             let inner = self.arg_of(t, 0)
-            return self.builtin_comparable(inner, true)
+            return self.builtin_comparable(inner, true) && self.compares_in_place(t)
         }
         if self.is_enum_decl(d) && self.declared_policy(d) < 0 {
             let members = self.members_of(d)

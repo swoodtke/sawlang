@@ -284,7 +284,7 @@ extension LlEmitter {
     func memory_comparison(&var self, mono: &var MonoProgram, target: &var Target, op: String, a: Int, b: Int,
                            t: Int, dest: String, node: Int) {
         let equality = op.equals("==") || op.equals("!=")
-        if not equality || not self.comparable_bits(&var mono, &var target, t) {
+        if not equality || not mono.dp.bc.mir.tc.compares_in_place(t) {
             var msg = StringBuilder()
             try! msg.append("the operator `")
             try! msg.append(op)
@@ -303,55 +303,6 @@ extension LlEmitter {
         }
         let v = self.to_bool(bit)
         self.store("i8", v, dest)
-    }
-
-    // MEMORY EQUALITY, with `equal_at`: whether a value of `t` is equal to
-    // another exactly when its parts are, part by part, as `equal_at`
-    // compares them. Its parts are the inline members of a finite type, so the
-    // walk ends, and it follows the paths `equal_at` emits a comparison along.
-    // A Float part compares by IEEE equality, not by its bits.
-    // ENTRY POINTS:
-    //     memory_comparison
-    func comparable_bits(&var self, mono: &var MonoProgram, target: &var Target, t: Int) -> Bool {
-        if mono.dp.bc.mir.tc.is_string(t) {
-            return false
-        }
-        let d = mono.dp.bc.mir.tc.nominal_decl(t)
-        if d >= 0 && ll_declares_equality(&mono.dp.bc.mir.tc, d) {
-            return false
-        }
-        let l = self.lay(&var mono, &var target, t)
-        if l.kind == TargetKind.Int || l.kind == TargetKind.Float {
-            return true
-        }
-        if l.kind == TargetKind.Pointer {
-            return ll_raw_pointer(&mono.dp.bc.mir.tc, t)
-        }
-        if l.kind == TargetKind.Zero {
-            return true
-        }
-        if l.kind != TargetKind.Memory {
-            return false
-        }
-        if l.shape == TargetShape.Enum {
-            return target.payload_free(&var mono.dp.bc.mir.tc, t)
-        }
-        if l.shape == TargetShape.Flagged {
-            let payload = mono.dp.bc.mir.tc.types.arg(t, 0)
-            return self.comparable_bits(&var mono, &var target, payload)
-        }
-        if l.shape == TargetShape.Record {
-            let parts = self.record_parts(&var mono, t)
-            var k = 0
-            while k < parts.len() {
-                if not self.comparable_bits(&var mono, &var target, parts[k]) {
-                    return false
-                }
-                k = k + 1
-            }
-            return true
-        }
-        false
     }
 
     // The member types of record type `t`: a tuple's elements, a struct's
@@ -382,7 +333,8 @@ extension LlEmitter {
     }
 
     // An `i1` saying whether the values of type `t` at `x` and `y` are equal,
-    // for a type `comparable_bits` accepts. An Optional's payloads are read
+    // for a type typecheck's `compares_in_place` accepts, whose walk follows
+    // the paths this one emits a comparison along. An Optional's payloads are read
     // only when both are present; a Float part is `fcmp oeq`, so a NaN member
     // makes its aggregate unequal and `-0.0` equals `0.0`.
     // ENTRY POINTS:
@@ -982,21 +934,6 @@ func ll_signed_min(bits: Int) -> String {
         try! out.append(0 - (1 << (bits - 1)))
     }
     out.build()
-}
-
-// Whether type declaration `d` declares an `Equatable` conformance, whose
-// equality is its own rather than its parts'.
-func ll_declares_equality(tc: &TcProgram, d: Int) -> Bool {
-    let equatable = tc.known.equatable
-    var k = 0
-    while k < tc.conformances.len() {
-        let c = tc.conformances[k]
-        if c.type_decl == d && c.trait_decl == equatable {
-            return true
-        }
-        k = k + 1
-    }
-    false
 }
 
 // Whether `t` is `UnsafePointer<T>` or `UnsafeConstPointer<T>`.

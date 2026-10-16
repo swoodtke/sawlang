@@ -46,7 +46,7 @@
       (23:11-23:12 Name comparisons.Point place borrow)
       (23:16-23:17 Name comparisons.Point place borrow)
       (24:5-24:18 Call.paren Void value temp (builtin print))
-      (24:11-24:17 Binary.pair Bool value borrow (op !=))
+      (24:11-24:17 Binary.pair Bool value borrow (operator Equatable.equals(other: &Self) != (owner (Int, String))))
       (24:11-24:12 Name (Int, String) place borrow)
       (24:16-24:17 Name (Int, String) place borrow)
       (25:5-25:22 Call.paren Void value temp (builtin print))

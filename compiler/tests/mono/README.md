@@ -182,9 +182,11 @@ A struct's or an enum's cell is its written `@synthesize`, or the automatic
 `Equatable` and `Hashable` of a trivially copyable struct or payload-free
 enum, which no conformance writes; a payload-carrying enum gets no automatic
 conformance, and no struct or enum an automatic `Comparable`. The run
-programs `aggregate_equals`, `aggregate_compare`, `aggregate_hash` and
-`aggregate_map_keys` pin the kinds at each position (an operator, a bound,
-an interpolation, a `Map` key or `Set` element, `Vector.sort`), and the probe
+programs `aggregate_equals`, `aggregate_compare`, `aggregate_hash`,
+`aggregate_map_keys` and `structural_equality_operator` (a structural `==`
+the backend cannot compare in place, SL-759) pin the kinds at each position
+(an operator, a bound, an interpolation, a `Map` key or `Set` element,
+`Vector.sort`), and the probe
 `automatic_hashable_through_bound` the one Stage 0 refuses. A `copy()` on a
 struct, an enum, a tuple or an array is its copy glue (above), and one on a
 function value is refused (SL-525); every other hook on any other type is

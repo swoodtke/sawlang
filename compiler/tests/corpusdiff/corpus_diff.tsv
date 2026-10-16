@@ -266,7 +266,7 @@ conformance/C02_equality_operator_nocopy_handwritten_equals.saw	pass	-	-
 conformance/C03_match_guard_equality_nocopy.saw	pass	-	-
 conformance/C04_synthesized_memberwise_reaches_handwritten.saw	pass	-	-
 conformance/C05_enum_payload_reaches_handwritten.saw	pass	-	-
-conformance/C06_tuple_element_reaches_handwritten.saw	refused	llvm backend.not-yet	the operator `==` on `&(Int, C06_tuple_element_reaches_handwritten.Tag)` is not in the backend slice yet
+conformance/C06_tuple_element_reaches_handwritten.saw	pass	-	-
 conformance/C07_generic_body_operator_nocopy_instantiation.saw	pass	-	-
 conformance/C08_implicitcopy_operand_handwritten_equals_legal.saw	pass	-	-
 conformance/C09_nocopy_synthesized_comparison_legal.saw	pass	-	-
@@ -969,7 +969,7 @@ enums_positional.saw	pass	-	-
 enums_simple.saw	pass	-	-
 env_error_surfaced.saw	pass	-	-
 env_simple.saw	pass	-	-
-equatable_array_field.saw	refused	llvm backend.not-yet	the operator `==` on `equatable_array_field.Row` is not in the backend slice yet: only `==` and `!=` on integers, Floats, Bools, raw pointers, payload-free enums, and Optionals, structs and tuples of
+equatable_array_field.saw	pass	-	-
 equatable_auto_enum.saw	pass	-	-
 equatable_auto_struct.saw	pass	-	-
 equatable_custom_override.saw	pass	-	-
@@ -983,7 +983,7 @@ equatable_optional_direct.saw	pass	-	-
 equatable_optional_field.saw	pass	-	-
 equatable_optional_string_synth.saw	pass	-	-
 equatable_synth_struct.saw	pass	-	-
-equatable_tuple.saw	refused	llvm backend.not-yet	the operator `==` on `&(Int, String)` is not in the backend slice yet
+equatable_tuple.saw	pass	-	-
 erased_downcast_deinit_once.saw	refused	typecheck slice.not-yet	downcasting an erased box with `is` or `take` is not in the bootstrap slice yet
 erased_downcast_error_retry.saw	refused	typecheck slice.not-yet	downcasting an erased box with `is` or `take` is not in the bootstrap slice yet
 erased_downcast_generic.saw	refused	typecheck slice.not-yet	downcasting an erased box with `is` or `take` is not in the bootstrap slice yet

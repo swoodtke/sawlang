@@ -3,6 +3,7 @@
 // with no name occurrence to read.
 
 import sawresolve.model.{ResDecl, ResDeclKind}
+import sawtypecheck.conform.{TcSubst}
 import sawtypecheck.declarations.{tc_build_signatures}
 import sawtypecheck.model.{TC_TIER_COPY, TcTier}
 import sawtypecheck.program.{TcKnown, TcProgram}
@@ -411,5 +412,99 @@ extension TcProgram {
             return f
         }
         return -1
+    }
+
+    // IN-PLACE EQUALITY: whether `==` on a `t` with no `equals` of its own is
+    // the backend's part-by-part comparison of the two values where they sit,
+    // each scalar by `icmp` and a Float by `fcmp`. A type declaring its own
+    // `Equatable` and every type holding a `String`, a fixed array, a closure
+    // or a reference is compared through the `equals` requirement instead.
+    // The walk follows a finite type's inline members, so it ends.
+    // ENTRY POINTS:
+    //     resolve_comparison
+    //     builtin_comparable
+    //     memory_comparison (compiler/llvm)
+    public func compares_in_place(&var self, t: Int) -> Bool {
+        let info = self.types.ty(t)
+        if info.kind == TcKind.Tuple {
+            var k = 0
+            while k < info.count {
+                let part = self.types.arg(t, k)
+                if not self.compares_in_place(part) {
+                    return false
+                }
+                k = k + 1
+            }
+            return true
+        }
+        if info.kind != TcKind.Nominal || self.is_string(t) {
+            return false
+        }
+        let d = info.decl
+        if self.declares_equality(d) {
+            return false
+        }
+        let k = self.known
+        if self.is_numeric(t) || self.is_bool(t) || d == k.void_type || d == k.never {
+            return true
+        }
+        if d == k.unsafe_pointer || d == k.unsafe_const_pointer {
+            return true
+        }
+        if d == k.optional {
+            let payload = self.types.arg(t, 0)
+            return self.compares_in_place(payload)
+        }
+        let decl = self.res.decls[d]
+        if decl.kind == ResDeclKind.Enum {
+            if self.sigs[d].result >= 0 {
+                return true
+            }
+            let cases = self.members_of(d)
+            var j = 0
+            while j < cases.len() {
+                let c = self.res.decls[cases[j]]
+                if c.kind == ResDeclKind.Case && c.flag {
+                    return false
+                }
+                j = j + 1
+            }
+            return true
+        }
+        if decl.kind != ResDeclKind.Struct {
+            return false
+        }
+        let arguments = self.nominal_args(t)
+        let subst = TcSubst(owner: d, args: move arguments)
+        let members = self.members_of(d)
+        var j = 0
+        while j < members.len() {
+            let m = members[j]
+            j = j + 1
+            if self.res.decls[m].kind != ResDeclKind.Field {
+                continue
+            }
+            let written = self.sigs[m].result
+            let ft = self.subst(written, &subst)
+            if not self.compares_in_place(ft) {
+                return false
+            }
+        }
+        true
+    }
+
+    // Whether type declaration `d` declares an `Equatable` conformance, whose
+    // equality is its own rather than its parts'.
+    public func declares_equality(&self, d: Int) -> Bool {
+        let equatable = self.known.equatable
+        var k = 0
+        while k < self.conformances.len() {
+            let c = self.conformances[k]
+            if c.type_decl == d && c.trait_decl == equatable {
+                return true
+            }
+            k = k + 1
+        }
+        false
     }
 }
