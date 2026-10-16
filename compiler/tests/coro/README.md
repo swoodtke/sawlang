@@ -587,7 +587,7 @@ holding a spawn or a drive site. For each it keeps every place and call as it
 was, and each drop with its block; for a frame, also its suspension points,
 numbered as its states are, with the initialisation analysis's conditions of
 each local at each. Once the lowering is done, each recorded body is checked
-against four rules, and a broken one is an `INVARIANT` line,
+against five rules, and a broken one is an `INVARIANT` line,
 `verify rule N (NAME): `ITEM`: …`:
 
 1. **frame in place.** A frame slot is only ever the second step of its place,
@@ -646,6 +646,30 @@ task's context, last in a block going where the call returned.
    a channel), the deadline its park's bound or 0, and a descriptor park's arm
    registers the descriptor and direction the park was given. An armed park is
    entered only from its arm.
+5. **lifetimes disjoint.** No two values of a lowered frame that share a byte
+   are live at one program point (SL:architecture §3.9). Each value's storage
+   lifetime is recomputed from the lowered body, not read from the sets the
+   layout packed by, under the definition "Storage lifetimes" gives. The
+   points are the lowered body's statements and terminators, in block order,
+   and after the terminator of a block whose call parks for a suspension
+   point, its state and, when the call returns, the resume transition out of
+   it. The state word and the op-budget counter are live at every point. A
+   local, the result and the parameters included, is live where the
+   initialisation analysis, over the lowered body read with every place put
+   back as it was, says it may be initialised, and at each assignment that
+   writes into it other than through a dereference; a window's record also
+   wherever its window may be open. A child slot is live from the first
+   parameter write lowering added to its drive's block, through the drive and
+   its state, and when the call had a destination, the resume transition and
+   the move-out its return block starts with. An offload's storage is live
+   from its start through every point of every block its continuation reaches
+   before its take. Values that share an offset share its spelling, so a
+   place is attributed to a value by the place the body named before
+   lowering, or by the call a place lowering added serves. A broken one names
+   both values, the bytes they share, the first point at which both are live,
+   `bbB.N`, `bbB.t`, `sK` or `rK`, and the state it runs in: for a statement
+   or a terminator, the lowest state whose run reaches its block, 0 being the
+   start.
 
 Each rule has a unit program that lowers a fixture of `inject/`, finds it
 clean, edits the lowered MIR into a shape no lowering emits, and requires the
@@ -659,6 +683,7 @@ verifier's report naming the rule:
 | 3 | `compiler/coro/tests/verify_windows` | `windows` | a window close returns to a second close of its window |
 | 4 | `parks/verify_records` | `records` | a descriptor park's record moves past its arm |
 | 1, 2 | `compiler/coro/tests/verify_zero_size` | `zero_size` | a drop's slot starts inside the frame and runs past its end; a statement copies a child's zero-size result slot, at that child's end and the frame's |
+| 5 | `compiler/coro/tests/verify_lifetimes` | `lifetimes` | a value live across both suspensions moves onto another's offset, its layout and its places alike; a temporary's drop moves, inside its block, past the initialisation of the value that shares its bytes |
 
 `records` parks on a descriptor, which no std module calls yet, so it is
 lowered under the lane's copy of std, as the park goldens are; its unit

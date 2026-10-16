@@ -1,0 +1,232 @@
+// The post-lowering verifier's rule 5 (compiler/tests/coro/README.md, "The
+// verifier"): no two frame values that share a byte are live at one program
+// point. The fixture `compiler/tests/coro/inject/lifetimes.saw` is lowered and
+// found clean. Then, each on a fresh lowering: `extra` is moved onto `both`'s
+// offset, its layout and every place naming it alike, so rule 1 still holds;
+// and the drop of the `Tag` temporary is moved, inside its block, past the
+// initialisation of `second`, which shares its bytes, so rule 2 still holds.
+// Rule 5 must report each once, naming both values, the point and the state.
+// Paths are the repository root's, where the runner runs.
+import sawcoro.api.{coro_lower_file, coro_lower_for}
+import sawcoro.frames.{coro_frame_of}
+import sawcoro.program.{CoroProgram, CoroValueKind}
+import sawcoro.verify.{coro_verify_lowering}
+import sawmir.model.{MirProjKind, MirStmtKind}
+import sawmono.dump.{mono_dump_layouts}
+
+// Whether `text` holds `word` at some byte.
+func holds(text: &String, word: String) -> Bool {
+    let n = text.len()
+    let w = word.len()
+    var at = 0
+    while at + w <= n {
+        var k = 0
+        while k < w && text.byte_at(at + k) == word.byte_at(k) {
+            k = k + 1
+        }
+        if k == w {
+            return true
+        }
+        at = at + 1
+    }
+    false
+}
+
+// The verified body whose item's name holds `name`, by its index in
+// `coro.before.bodies`, or -1.
+func body_of(coro: &CoroProgram, name: String) -> Int {
+    var k = 0
+    while k < coro.before.bodies.len() {
+        let b = coro.before.bodies[k]
+        let item = coro.mono.item_name(b.item)
+        if holds(&item, name) {
+            return k
+        }
+        k = k + 1
+    }
+    return -1
+}
+
+// The fixture, lowered for one target, with nothing refused or broken.
+func lowered() -> CoroProgram {
+    let names = Vector<String>()
+    let dirs = Vector<String>()
+    var front = StringBuilder()
+    var coro = coro_lower_file(out: &var front, path: "compiler/tests/coro/inject/lifetimes.saw", std_root: "std",
+                               notes: false, names: &names, dirs: &dirs)
+    assert(not coro.blocked && coro.diags.len() == 0, "the fixture is refused: run from the repository root")
+    var target = coro.mono.target_for("arm64-apple-darwin")
+    coro_lower_for(&var coro, &var target)
+    // Stage 0 workaround (SL:hazards S23): canonical: assert(coro.problems.len() == 0, "the fixture's lowering is not clean: {}", coro.problems.get(0) ?? "")
+    let first = coro.problems.get(0) ?? ""
+    assert(coro.problems.len() == 0, "the fixture's lowering is not clean: {}", first)
+    move coro
+}
+
+// The verifier's one report after an edit, which must name rule 5 and hold
+// each of `words`.
+func one_report(coro: &CoroProgram, words: &Vector<String>) {
+    // Stage 0 workaround (SL:hazards S23): canonical: assert(coro.problems.len() == 1, "the verifier reports {} problems, not one: {}", coro.problems.len(), coro.problems.get(0) ?? "")
+    let first = coro.problems.get(0) ?? ""
+    assert(coro.problems.len() == 1, "the verifier reports {} problems, not one: {}", coro.problems.len(), first)
+    assert(holds(&first, "verify rule 5 (lifetimes disjoint)"), "the report does not name rule 5: {}", first)
+    var k = 0
+    while k < words.len() {
+        let word = words.get(k) ?? ""
+        k = k + 1
+        assert(holds(&first, word), "the report does not say `{}`: {}", word, first)
+    }
+}
+
+// The index in `keep`'s frame of the value holding the local named `name`.
+func value_named(coro: &CoroProgram, item: Int, name: String) -> Int {
+    let frame = coro.frames[coro_frame_of(&coro, item)]
+    var k = 0
+    while k < frame.value_count {
+        let at = k
+        let v = coro.values[frame.value_first + at]
+        k = k + 1
+        if v.kind != CoroValueKind.Local || v.local < 0 {
+            continue
+        }
+        let local = coro.mono.dp.bc.mir.locals[coro.mono.dp.bc.mir.funcs[frame.body].local_first + v.local]
+        if local.name >= 0 {
+            let text = coro.mono.dp.bc.mir.tc.name_text(local.name)
+            if text.equals(name) {
+                return at
+            }
+        }
+    }
+    return -1
+}
+
+// `extra` moves onto `both`'s offset: its value in the layout, and every place
+// the body named it by, which lowering rewrote into its slot.
+func overlap() {
+    var coro = lowered()
+    let at = body_of(&coro, "keep")
+    assert(at >= 0, "the verifier records no body for `keep`")
+    let body = coro.before.bodies[at]
+    let frame = coro.frames[coro_frame_of(&coro, body.item)]
+    let both = value_named(&coro, body.item, "both")
+    let extra = value_named(&coro, body.item, "extra")
+    assert(both >= 0 && extra >= 0, "`keep`'s frame holds no `both` or no `extra`")
+    let into = coro.values[frame.value_first + both].offset
+    var moved = coro.values[frame.value_first + extra]
+    let from = moved.offset
+    let local = moved.local
+    assert(from != into, "`both` and `extra` already share an offset")
+    moved.offset = into
+    coro.values[frame.value_first + extra] = moved
+    var rewritten = 0
+    var k = 0
+    while k < body.place_count {
+        let p = coro.before.place_ids[body.place_first + k]
+        let pre = coro.before.places[body.place_first + k]
+        k = k + 1
+        if pre.local != local {
+            continue
+        }
+        let post = coro.mono.dp.bc.mir.places[p]
+        var slot = coro.mono.dp.bc.mir.projs[post.first + 1]
+        assert(post.count >= 2 && slot.kind == MirProjKind.FrameSlot && slot.index == from,
+               "a place naming `extra` is not its frame slot")
+        slot.index = into
+        coro.mono.dp.bc.mir.projs[post.first + 1] = slot
+        rewritten = rewritten + 1
+    }
+    assert(rewritten > 0, "`keep`'s body names `extra` nowhere")
+    var target = coro.mono.target_for("arm64-apple-darwin")
+    coro_verify_lowering(&var coro, &var target)
+    var words = Vector<String>()
+    try! words.push("_2 `both` at (*frame).[")
+    try! words.push("_3 `extra` at (*frame).[")
+    try! words.push("both are live at bb0.1, in state 0")
+    one_report(&coro, &words)
+}
+
+// The first drop of `keep`'s lowered body that a later assignment of its own
+// block follows into the same frame slot moves to just after that
+// assignment: the `Tag` temporary's drop, past `second`'s initialisation.
+func drop_too_late() {
+    var coro = lowered()
+    let at = body_of(&coro, "keep")
+    assert(at >= 0, "the verifier records no body for `keep`")
+    let f = coro.before.bodies[at].body
+    let info = coro.mono.dp.bc.mir.funcs[f]
+    var moved = false
+    var b = 0
+    while b < info.block_count && not moved {
+        let index = info.block_first + b
+        b = b + 1
+        var block = coro.mono.dp.bc.mir.blocks[index]
+        var prev = -1
+        var s = block.first
+        while s >= 0 && not moved {
+            let stmt = coro.mono.dp.bc.mir.stmts[s]
+            let offset = slot_offset(&coro, stmt.place)
+            if stmt.kind != MirStmtKind.Drop || offset < 0 {
+                prev = s
+                s = stmt.next
+                continue
+            }
+            var later = stmt.next
+            while later >= 0 && not moved {
+                let next = coro.mono.dp.bc.mir.stmts[later]
+                if next.kind == MirStmtKind.Assign && slot_offset(&coro, next.place) == offset {
+                    if prev < 0 {
+                        block.first = stmt.next
+                    } else {
+                        var before = coro.mono.dp.bc.mir.stmts[prev]
+                        before.next = stmt.next
+                        coro.mono.dp.bc.mir.stmts[prev] = before
+                    }
+                    var dropped = stmt
+                    dropped.next = next.next
+                    coro.mono.dp.bc.mir.stmts[s] = dropped
+                    var after = next
+                    after.next = s
+                    coro.mono.dp.bc.mir.stmts[later] = after
+                    if block.last == later {
+                        block.last = s
+                    }
+                    coro.mono.dp.bc.mir.blocks[index] = block
+                    moved = true
+                }
+                later = next.next
+            }
+            prev = s
+            s = stmt.next
+        }
+    }
+    assert(moved, "`keep`'s lowered body has no drop a later assignment follows into its slot")
+    var target = coro.mono.target_for("arm64-apple-darwin")
+    coro_verify_lowering(&var coro, &var target)
+    var words = Vector<String>()
+    try! words.push("_4 at (*frame).[")
+    try! words.push("_7 `second` at (*frame).[")
+    try! words.push("both are live at bb3.1, in state 1")
+    one_report(&coro, &words)
+}
+
+// The offset of the frame slot place `p` names whole, `(*_F).[OFFSET: T]`,
+// or -1.
+func slot_offset(coro: &CoroProgram, p: Int) -> Int {
+    if p < 0 {
+        return -1
+    }
+    let place = coro.mono.dp.bc.mir.places[p]
+    if place.count != 2 {
+        return -1
+    }
+    let slot = coro.mono.dp.bc.mir.projs[place.first + 1]
+    if slot.kind != MirProjKind.FrameSlot {
+        return -1
+    }
+    slot.index
+}
+
+func main() {
+    overlap()
+    drop_too_late()
+}

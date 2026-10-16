@@ -1,0 +1,47 @@
+// The program compiler/coro/tests/verify_lifetimes.saw lowers, then edits:
+// `keep` holds `both` and `extra` across both of its suspensions, so their
+// bytes are their own. The `Tag` that `tag(n)` makes for `show` is a
+// temporary held across `pause`, the first suspension, and dropped once
+// `show` returns, in the block that then initialises `second`, which lives
+// across the second; the two are the frame's largest values and never live at
+// once, so the layout lays them on one offset. One edit moves `extra` onto
+// `both`'s offset; the other moves the temporary's drop past `second`'s
+// initialisation. The verifier must report each under rule 5, naming both
+// values, the point and the state.
+import std.task.{yield_now}
+
+struct Tag {
+    name: String,
+    a: Int,
+    b: Int,
+    c: Int,
+    d: Int
+}
+
+func tag(n: Int) -> Tag {
+    Tag(name: "tag", a: n, b: n + 1, c: n + 2, d: n + 3)
+}
+
+func pause(n: Int) -> Int {
+    yield_now()
+    n
+}
+
+func show(t: &Tag, k: Int) {
+    print("{} {}", t.name, t.a + t.d + k)
+}
+
+func keep(n: Int) -> Int {
+    let both = "both"
+    let extra = "extra"
+    show(&tag(n), pause(n))
+    let second = Tag(name: "second", a: n, b: n, c: n, d: n)
+    yield_now()
+    print("{} {} {} {}", second.name, second.b, both, extra)
+    n + 1
+}
+
+func main() {
+    let m = keep(4)
+    print("{}", m)
+}
