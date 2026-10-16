@@ -1,0 +1,33 @@
+program	compiler/tests/run/static_aggregates.saw
+triple	aarch64-unknown-linux-gnu
+source	733aaeb895fff1ad
+build	ok
+exit	0
+stdout	"-128 255 -32768 65535"
+stdout	"-2147483648 4294967295 -9223372036854775808 18446744073709551615"
+stdout	"-7 7 true"
+stdout	"3 -1 false"
+stdout	"3 -1 false"
+stdout	"1 -2 300 -32768"
+stdout	"true false true"
+stdout	"-1"
+stdout	"0"
+stdout	"1"
+stdout	"127"
+stdout	"-128"
+stdout	"2"
+stdout	"3"
+stdout	"4"
+stdout	"3 -1 false"
+stdout	"3 -1 false"
+stdout	"9 2 true"
+stdout	"1"
+stdout	"4 5 true"
+stdout	"3 -1 false"
+stdout	"2"
+stdout	"1 18446744073709551615"
+stdout	"-3 4"
+stdout	"15"
+stdout	"3 700"
+stdout	"4 0"
+stdout	""

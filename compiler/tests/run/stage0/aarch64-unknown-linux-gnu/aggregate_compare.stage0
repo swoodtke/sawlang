@@ -1,0 +1,16 @@
+program	compiler/tests/run/aggregate_compare.saw
+triple	aarch64-unknown-linux-gnu
+source	eb4cfc30742b2dfc
+build	ok
+exit	0
+stdout	"version true false true true"
+stdout	"version less greater equal"
+stdout	"suit true greater equal"
+stdout	"wide true less greater"
+stdout	"signed true greater equal"
+stdout	"token less greater less greater"
+stdout	"token true true true"
+stdout	"rank greater true"
+stdout	"entry greater less equal true"
+stdout	"sorted 1.2a 1.2c 1.10z 2.0b"
+stdout	""

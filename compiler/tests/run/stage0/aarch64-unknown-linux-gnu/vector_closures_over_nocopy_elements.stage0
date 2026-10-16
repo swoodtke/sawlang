@@ -1,0 +1,20 @@
+program	compiler/tests/run/vector_closures_over_nocopy_elements.saw
+triple	aarch64-unknown-linux-gnu
+source	cdac6bd870064d44
+build	ok
+exit	0
+stdout	"each: alpha"
+stdout	"each: beta"
+stdout	"each: gamma"
+stdout	"map: ALPHA/5"
+stdout	"map: BETA/4"
+stdout	"map: GAMMA/5"
+stdout	"fold: 14"
+stdout	"idx 0 = alpha"
+stdout	"idx 1 = beta"
+stdout	"idx 2 = gamma"
+stdout	"still 3 elements"
+stdout	"drop alpha"
+stdout	"drop beta"
+stdout	"drop gamma"
+stdout	""

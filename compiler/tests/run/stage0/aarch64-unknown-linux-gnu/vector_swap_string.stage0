@@ -1,0 +1,11 @@
+program	compiler/tests/run/vector_swap_string.saw
+triple	aarch64-unknown-linux-gnu
+source	d6e062661e03db73
+build	ok
+exit	0
+stdout	"gamma padding cccccccccccccccccccccccc"
+stdout	"beta padding bbbbbbbbbbbbbbbbbbbbbbbbbb"
+stdout	"alpha padding aaaaaaaaaaaaaaaaaaaaaaaa"
+stdout	"DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD"
+stdout	"gamma padding cccccccccccccccccccccccc"
+stdout	""
