@@ -2,9 +2,24 @@ program	net_owning_echo.saw
 triple	arm64-apple-darwin
 twin	same
 expect	success
-build	ok
-exit	0
-stdout	"5"
-stdout	"5"
-stdout	""
-meets_expect	yes
+build	refused	`try` requires a Result type, got `(TcpStream, TcpStream)`
+meets_expect	no: Stage 0 does not build it
+log	"error: `try` requires a Result type, got `(TcpStream, TcpStream)`"
+log	"  --> examples/net_owning_echo.saw:32:18"
+log	"     |"
+log	" 32 |     let (a, b) = try! TcpStream.pair()"
+log	"     |                  ^"
+log	""
+log	"error: undefined variable `a`"
+log	"  --> examples/net_owning_echo.saw:34:33"
+log	"     |"
+log	" 34 |     let hs = group.spawn(sender(move a))"
+log	"     |                                 ^"
+log	""
+log	"error: undefined variable `b`"
+log	"  --> examples/net_owning_echo.saw:35:35"
+log	"     |"
+log	" 35 |     let hr = group.spawn(receiver(move b))"
+log	"     |                                   ^"
+log	""
+log	"3 error(s) generated"

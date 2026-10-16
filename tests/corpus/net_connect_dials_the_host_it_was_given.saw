@@ -27,7 +27,7 @@ func report(label: String, r: Result<TcpStream, IoError>) {
 
 func main() {
     let listener = try! TcpListener.listen(0)     // binds 127.0.0.1:ephemeral
-    let port = listener.local_port()
+    let port = try! listener.local_port()
     report("127.0.0.1", TcpStream.connect("127.0.0.1", port))
     report("255.255.255.255", TcpStream.connect("255.255.255.255", port))
 }

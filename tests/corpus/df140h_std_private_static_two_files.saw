@@ -22,7 +22,7 @@ func main() {
     print(AF_UNIX)
     print(READ_CHUNK)
 
-    let (a, b) = TcpStream.pair()
+    let (a, b) = try! TcpStream.pair()
     try! a.write("ping")
     let got = try! b.read()
     print(got.len())

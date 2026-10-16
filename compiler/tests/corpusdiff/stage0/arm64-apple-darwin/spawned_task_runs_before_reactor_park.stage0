@@ -2,11 +2,18 @@ program	spawned_task_runs_before_reactor_park.saw
 triple	arm64-apple-darwin
 twin	same
 expect	success
-build	ok
-exit	0
-stdout	"worker connecting"
-stdout	"worker done"
-stdout	"accepted"
-stdout	"done"
-stdout	""
-meets_expect	yes
+build	refused	`try` requires a Result type, got `Int`
+meets_expect	no: Stage 0 does not build it
+log	"error: `try` requires a Result type, got `Int`"
+log	"  --> examples/spawned_task_runs_before_reactor_park.saw:42:16"
+log	"     |"
+log	" 42 |     let port = try! listener.local_port()"
+log	"     |                ^"
+log	""
+log	"error: undefined variable `port`"
+log	"  --> examples/spawned_task_runs_before_reactor_park.saw:43:32"
+log	"     |"
+log	" 43 |     let h = group.spawn(worker(port))"
+log	"     |                                ^"
+log	""
+log	"2 error(s) generated"

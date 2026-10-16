@@ -2,11 +2,30 @@ program	net_accept_loop_eager_fd_close.saw
 triple	arm64-apple-darwin
 twin	same
 expect	success
-build	ok
-exit	0
-stdout	"2"
-stdout	"2"
-stdout	"2"
-stdout	"3"
-stdout	""
-meets_expect	yes
+build	refused	`try` requires a Result type, got `Int`
+meets_expect	no: Stage 0 does not build it
+log	"error: `try` requires a Result type, got `Int`"
+log	"  --> examples/net_accept_loop_eager_fd_close.saw:55:16"
+log	"     |"
+log	" 55 |     let port = try! listener.local_port()"
+log	"     |                ^"
+log	""
+log	"error: undefined variable `port`"
+log	"  --> examples/net_accept_loop_eager_fd_close.saw:58:33"
+log	"     |"
+log	" 58 |     let c0 = group.spawn(client(port))"
+log	"     |                                 ^"
+log	""
+log	"error: undefined variable `port`"
+log	"  --> examples/net_accept_loop_eager_fd_close.saw:59:33"
+log	"     |"
+log	" 59 |     let c1 = group.spawn(client(port))"
+log	"     |                                 ^"
+log	""
+log	"error: undefined variable `port`"
+log	"  --> examples/net_accept_loop_eager_fd_close.saw:60:33"
+log	"     |"
+log	" 60 |     let c2 = group.spawn(client(port))"
+log	"     |                                 ^"
+log	""
+log	"4 error(s) generated"

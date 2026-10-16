@@ -2,9 +2,30 @@ program	coro_cross_module_io_wake.saw
 triple	arm64-apple-darwin
 twin	same
 expect	success
-build	ok
-exit	0
-stdout	"3"
-stdout	"3"
-stdout	""
-meets_expect	yes
+build	refused	`try` requires a Result type, got `Int`
+meets_expect	no: Stage 0 does not build it
+log	"error: `try` requires a Result type, got `Int`"
+log	"  --> examples/coro_cross_module_io_wake.saw:81:16"
+log	"     |"
+log	" 81 |     let port = try! listener.local_port()"
+log	"     |                ^"
+log	""
+log	"error: undefined variable `port`"
+log	"  --> examples/coro_cross_module_io_wake.saw:84:33"
+log	"     |"
+log	" 84 |     let h0 = group.spawn(client(port))"
+log	"     |                                 ^"
+log	""
+log	"error: undefined variable `port`"
+log	"  --> examples/coro_cross_module_io_wake.saw:85:33"
+log	"     |"
+log	" 85 |     let h1 = group.spawn(client(port))"
+log	"     |                                 ^"
+log	""
+log	"error: undefined variable `port`"
+log	"  --> examples/coro_cross_module_io_wake.saw:86:33"
+log	"     |"
+log	" 86 |     let h2 = group.spawn(client(port))"
+log	"     |                                 ^"
+log	""
+log	"4 error(s) generated"

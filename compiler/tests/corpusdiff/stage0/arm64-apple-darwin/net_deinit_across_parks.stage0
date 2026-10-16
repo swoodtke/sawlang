@@ -2,11 +2,24 @@ program	net_deinit_across_parks.saw
 triple	arm64-apple-darwin
 twin	same
 expect	success
-build	ok
-exit	0
-stdout	"2"
-stdout	"1"
-stdout	"deinit 7"
-stdout	"999"
-stdout	""
-meets_expect	yes
+build	refused	`try` requires a Result type, got `(TcpStream, TcpStream)`
+meets_expect	no: Stage 0 does not build it
+log	"error: `try` requires a Result type, got `(TcpStream, TcpStream)`"
+log	"  --> examples/net_deinit_across_parks.saw:45:20"
+log	"     |"
+log	" 45 |     let (s0, s1) = try! TcpStream.pair()"
+log	"     |                    ^"
+log	""
+log	"error: undefined variable `s0`"
+log	"  --> examples/net_deinit_across_parks.saw:49:33"
+log	"     |"
+log	" 49 |     let hs = group.spawn(worker(move s0, move a))   // frame owns a's ref"
+log	"     |                                 ^"
+log	""
+log	"error: undefined variable `s1`"
+log	"  --> examples/net_deinit_across_parks.saw:50:33"
+log	"     |"
+log	" 50 |     let hc = group.spawn(client(move s1))"
+log	"     |                                 ^"
+log	""
+log	"3 error(s) generated"

@@ -2,9 +2,24 @@ program	net_io_cancel.saw
 triple	arm64-apple-darwin
 twin	same
 expect	success
-build	ok
-exit	0
-stdout	"55"
-stdout	"3"
-stdout	""
-meets_expect	yes
+build	refused	`try` requires a Result type, got `(TcpStream, TcpStream)`
+meets_expect	no: Stage 0 does not build it
+log	"error: `try` requires a Result type, got `(TcpStream, TcpStream)`"
+log	"  --> examples/net_io_cancel.saw:47:18"
+log	"     |"
+log	" 47 |     let (a, b) = try! TcpStream.pair()"
+log	"     |                  ^"
+log	""
+log	"error: undefined variable `a`"
+log	"  --> examples/net_io_cancel.saw:49:10"
+log	"     |"
+log	" 49 |     try! a.write(\"abc\")"
+log	"     |          ^"
+log	""
+log	"error: undefined variable `b`"
+log	"  --> examples/net_io_cancel.saw:52:32"
+log	"     |"
+log	" 52 |     let h = group.spawn(reader(move b))"
+log	"     |                                ^"
+log	""
+log	"3 error(s) generated"

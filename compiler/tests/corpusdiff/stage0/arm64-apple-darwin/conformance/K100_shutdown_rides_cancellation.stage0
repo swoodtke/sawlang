@@ -2,12 +2,24 @@ program	conformance/K100_shutdown_rides_cancellation.saw
 triple	arm64-apple-darwin
 twin	same
 expect	success
-build	ok
-exit	0
-stdout	"worker parked"
-stdout	"shutdown signalled"
-stdout	"worker unwound"
-stdout	"deinits=1"
-stdout	"main returned normally"
-stdout	""
-meets_expect	yes
+build	refused	`try` requires a Result type, got `(TcpStream, TcpStream)`
+meets_expect	no: Stage 0 does not build it
+log	"error: `try` requires a Result type, got `(TcpStream, TcpStream)`"
+log	"  --> examples/conformance/K100_shutdown_rides_cancellation.saw:73:18"
+log	"     |"
+log	" 73 |     let (a, b) = try! TcpStream.pair()"
+log	"     |                  ^"
+log	""
+log	"error: undefined variable `a`"
+log	"  --> examples/conformance/K100_shutdown_rides_cancellation.saw:78:33"
+log	"     |"
+log	" 78 |     let hw = group.spawn(worker(move a, parked.copy()))"
+log	"     |                                 ^"
+log	""
+log	"error: undefined variable `b`"
+log	"  --> examples/conformance/K100_shutdown_rides_cancellation.saw:87:13"
+log	"     |"
+log	" 87 |     let _ = move b"
+log	"     |             ^"
+log	""
+log	"3 error(s) generated"

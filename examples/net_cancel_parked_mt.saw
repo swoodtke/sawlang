@@ -23,7 +23,7 @@ func canceller(addr: Int) unsafe -> Int {
 }
 
 func main() {
-    let (a, b) = TcpStream.pair()        // peer `b`: never written, so `a` stays idle
+    let (a, b) = try! TcpStream.pair()        // peer `b`: never written, so `a` stays idle
     var g = try! TaskGroup(threads: 2)
     let hp = g.spawn(parker(move a))
     let addr = hp.cancel_addr()

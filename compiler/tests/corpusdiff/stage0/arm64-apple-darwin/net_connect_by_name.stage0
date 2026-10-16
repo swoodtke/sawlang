@@ -2,10 +2,18 @@ program	net_connect_by_name.saw
 triple	arm64-apple-darwin
 twin	same
 expect	success
-build	ok
-exit	0
-stdout	"sibling: ran while the resolve was in flight"
-stdout	"localhost: connected"
-stdout	"empty host: io error: resolve \"\" failed (not found)"
-stdout	""
-meets_expect	yes
+build	refused	`try` requires a Result type, got `Int`
+meets_expect	no: Stage 0 does not build it
+log	"error: `try` requires a Result type, got `Int`"
+log	"  --> examples/net_connect_by_name.saw:45:16"
+log	"     |"
+log	" 45 |     let port = try! listener.local_port()"
+log	"     |                ^"
+log	""
+log	"error: undefined variable `port`"
+log	"  --> examples/net_connect_by_name.saw:47:39"
+log	"     |"
+log	" 47 |     let hd = group.spawn(dial_by_name(port))     // parks inside the offloaded resolve"
+log	"     |                                       ^"
+log	""
+log	"2 error(s) generated"

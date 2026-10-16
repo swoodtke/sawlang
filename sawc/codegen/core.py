@@ -1992,11 +1992,12 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         passes the platform-correct NULL and forwards the rest.
 
         `__saw_rt_thread_spawn` takes the trampoline as an `i8*(i8*)` start
-        routine plus its env arg and RETURNS the OS thread handle
-        (pointer-sized `pthread_t` on both macOS and glibc); spawn codegen
-        stores it into the task control block's first slot.
+        routine, its env arg and the address to store the OS thread handle
+        at (pointer-sized `pthread_t` on both macOS and glibc), the task
+        control block's first slot, and returns 0 or the negated tag.
         `__saw_rt_thread_join` takes that handle BY VALUE and is called from
-        `PosixThread.join` in std/task.saw.
+        `PosixThread.join` in std/task.saw. Every status-carrying thread seam
+        follows rt/ABI.md's portable-tag convention (SL-768).
         """
         i8ptr = ir.IntType(8).as_pointer()
         void = ir.VoidType()
@@ -2021,16 +2022,16 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         start_ty = i8ptr if self.runtime_build else tramp_ptr_ty
         word = self.int_type
         decls = [
-            ("__saw_rt_pthread_mutex_init_default", ir.FunctionType(void, [i8ptr])),
-            ("__saw_rt_pthread_cond_init_default", ir.FunctionType(void, [i8ptr])),
+            ("__saw_rt_pthread_mutex_init_default", ir.FunctionType(word, [i8ptr])),
+            ("__saw_rt_pthread_cond_init_default", ir.FunctionType(word, [i8ptr])),
             ("__saw_rt_thread_spawn",
-             ir.FunctionType(word, [start_ty, i8ptr])),
-            ("__saw_rt_thread_join", ir.FunctionType(void, [word])),
+             ir.FunctionType(word, [start_ty, i8ptr, word.as_pointer()])),
+            ("__saw_rt_thread_join", ir.FunctionType(word, [word])),
             # The daemon-thread fate. It takes the CONTROL BLOCK, not the
             # handle, because it does two things: it detaches the OS thread,
-            # and it takes over the block's ownership handshake with the
-            # thread's own exit path (rt/ABI.md).
-            ("__saw_rt_thread_detach", ir.FunctionType(void, [i8ptr])),
+            # and it settles the block's ownership handshake with the thread's
+            # own exit path, answering 1 when the caller frees (rt/ABI.md).
+            ("__saw_rt_thread_detach", ir.FunctionType(word, [i8ptr])),
         ]
         for name, fty in decls:
             fn = ir.Function(self.module, fty, name=name)
@@ -2094,11 +2095,14 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         # hardcoded i64 return produced against an i32 `Atomic<Int>` cell (DF-112a
         # class: platform-width the seam args, per design 47).
         word = self.int_type
-        create = ir.Function(self.module, ir.FunctionType(word, []),
+        # SL-768: create and poll return 0 or the negated tag, the instance
+        # and the count travelling through an out-parameter.
+        wordptr = word.as_pointer()
+        create = ir.Function(self.module, ir.FunctionType(word, [wordptr]),
                              name="__saw_rt_reactor_create")
         reg = ir.Function(self.module, ir.FunctionType(word, [word, word, word, word]),
                           name="__saw_rt_reactor_register")
-        poll = ir.Function(self.module, ir.FunctionType(word, [word, word]),
+        poll = ir.Function(self.module, ir.FunctionType(word, [word, word, wordptr]),
                            name="__saw_rt_reactor_poll")
         # design 102 item 2: the reactor self-wake seam. `reactor_wake(r)` writes
         # one byte to the instance's self-pipe whose read end the reactor poll
@@ -2165,15 +2169,17 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         budreset = ir.Function(self.module, ir.FunctionType(void, []),
                                name="__saw_rt_op_budget_reset")
         # The blocking-extern offload seams. `__saw_rt_offload_start(fn, argp,
-        # argc)` copies the call's argument slots into the job and spawns a
-        # thread-per-call that runs `fn` over them and signals a self-pipe;
+        # argc, job_out)` copies the call's argument slots into the job and
+        # spawns a thread-per-call that runs `fn` over them and signals a
+        # self-pipe, storing the job through `job_out`, or reports the step
+        # that failed as the negated tag (SL-768);
         # `__saw_rt_offload_done` / `_pipe_fd` / `_take` poll / expose the
         # readable fd / join+collect+free. `__saw_rt_blocking_sleep(ms)` is the
         # reference blocking primitive (a real thread-blocking sleep returning
         # its argument) the offload path and its tests exercise via a
         # `blocking func` extern declaration (design 103).
         offload_start = ir.Function(self.module,
-                                    ir.FunctionType(word, [word, word, word]),
+                                    ir.FunctionType(word, [word, word, word, wordptr]),
                                     name="__saw_rt_offload_start")
         offload_done = ir.Function(self.module, ir.FunctionType(word, [word]),
                                    name="__saw_rt_offload_done")

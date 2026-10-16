@@ -497,7 +497,7 @@ Stage 0 and runs it as the lane runs sawc2's, and writes its record for this
 host; over every program it also removes a record that names none. That and
 `--bench` are the lane's only runs of Stage 0, and both take the v0 compiler
 from `oracle.v0_compiler`, which names its checkout in one place: this tree
-until `sawc/` is deleted, then a checkout of the v0.14.0 tag (SL-668). The
+until `sawc/` is deleted, then a checkout of the v0.15.0 tag (SL-668). The
 Linux records are written in the VM: `tools/linux.py stage0 [NAME...]` runs
 `--stage0` in its clone of HEAD and copies `aarch64-unknown-linux-gnu/` back,
 as `tools/linux.py seed` copies the seed.

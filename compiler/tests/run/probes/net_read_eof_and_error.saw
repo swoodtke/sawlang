@@ -1,3 +1,10 @@
+// probe: stated
+// about: a read's bytes, its clean end of stream and its failure stay three answers (SL-570)
+// stage 0: its frozen std.net answers `local_port()` with an `Int` and `TcpStream.pair()` with a bare pair, so it refuses the `try!` on each (SL-768)
+// speeds: -O0 -O2
+// prints: pair, data waiting: bytes
+// prints: pair, peer closed: end of stream
+// prints: connection, peer reset: io error: read failed (connection reset); the platform code is nonzero: true
 // A read's three answers stay apart (SL:coroutines A12b): bytes are a
 // non-empty `Ok`, the peer's clean close is an empty `Ok`, and a failure is
 // an `Err`. The failure is a reset: the server closes a connection whose
@@ -17,14 +24,14 @@ func describe(answer: Result<Data, IoError>) -> String {
 }
 
 func main() {
-    let (near, far) = TcpStream.pair()
+    let (near, far) = try! TcpStream.pair()
     try! far.write("x")
     print("pair, data waiting: {}", describe(near.read()))
     let _ = move far
     print("pair, peer closed: {}", describe(near.read()))
 
     let listener = try! TcpListener.listen(0)
-    let client = try! TcpStream.connect("127.0.0.1", listener.local_port())
+    let client = try! TcpStream.connect("127.0.0.1", try! listener.local_port())
     let server = try! listener.accept()
     try! client.write("request")
     let _ = move server

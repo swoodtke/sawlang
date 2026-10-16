@@ -2,9 +2,30 @@ program	net_accept_loop_concurrent.saw
 triple	arm64-apple-darwin
 twin	same
 expect	success
-build	ok
-exit	0
-stdout	"3"
-stdout	"3"
-stdout	""
-meets_expect	yes
+build	refused	`try` requires a Result type, got `Int`
+meets_expect	no: Stage 0 does not build it
+log	"error: `try` requires a Result type, got `Int`"
+log	"  --> examples/net_accept_loop_concurrent.saw:69:16"
+log	"     |"
+log	" 69 |     let port = try! listener.local_port()"
+log	"     |                ^"
+log	""
+log	"error: undefined variable `port`"
+log	"  --> examples/net_accept_loop_concurrent.saw:72:33"
+log	"     |"
+log	" 72 |     let h0 = group.spawn(client(port))"
+log	"     |                                 ^"
+log	""
+log	"error: undefined variable `port`"
+log	"  --> examples/net_accept_loop_concurrent.saw:73:33"
+log	"     |"
+log	" 73 |     let h1 = group.spawn(client(port))"
+log	"     |                                 ^"
+log	""
+log	"error: undefined variable `port`"
+log	"  --> examples/net_accept_loop_concurrent.saw:74:33"
+log	"     |"
+log	" 74 |     let h2 = group.spawn(client(port))"
+log	"     |                                 ^"
+log	""
+log	"4 error(s) generated"

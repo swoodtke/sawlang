@@ -1,3 +1,8 @@
+// probe: stated
+// about: the io budget cedes from a task whose reads never park, so its sibling runs (SL-570)
+// stage 0: its frozen std.net answers `local_port()` with an `Int` and `TcpStream.pair()` with a bare pair, so it refuses the `try!` on each (SL-768)
+// speeds: -O0 -O2
+// prints: 5
 // tests/corpus/net_budget_fairness's shape with the plan's vocabulary
 // (SL:coroutines A12b, SL-570 c2): a static `Atomic` stop flag stands in for
 // the original's `Arc<Mutex<Int>>`. `recirc` reads from one end of a pair and
@@ -38,7 +43,7 @@ func recirc(s_read: TcpStream, s_write: TcpStream) -> Int {
 }
 
 func main() {
-    let (s0, s1) = TcpStream.pair()
+    let (s0, s1) = try! TcpStream.pair()
     var group = TaskGroup()
     let hs = group.spawn(sibling())
     let hr = group.spawn(recirc(move s0, move s1))

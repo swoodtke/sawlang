@@ -2,10 +2,24 @@ program	net_serve_two_connections.saw
 triple	arm64-apple-darwin
 twin	same
 expect	success
-build	ok
-exit	0
-stdout	"2"
-stdout	"1"
-stdout	"1"
-stdout	""
-meets_expect	yes
+build	refused	`try` requires a Result type, got `Int`
+meets_expect	no: Stage 0 does not build it
+log	"error: `try` requires a Result type, got `Int`"
+log	"  --> examples/net_serve_two_connections.saw:64:16"
+log	"     |"
+log	" 64 |     let port = try! listener.local_port()"
+log	"     |                ^"
+log	""
+log	"error: undefined variable `port`"
+log	"  --> examples/net_serve_two_connections.saw:67:33"
+log	"     |"
+log	" 67 |     let c0 = group.spawn(client(port))"
+log	"     |                                 ^"
+log	""
+log	"error: undefined variable `port`"
+log	"  --> examples/net_serve_two_connections.saw:68:33"
+log	"     |"
+log	" 68 |     let c1 = group.spawn(client(port))"
+log	"     |                                 ^"
+log	""
+log	"3 error(s) generated"

@@ -70,7 +70,7 @@ func serve() {
             return
         }
     }
-    let (a, b) = TcpStream.pair()
+    let (a, b) = try! TcpStream.pair()
     var group = TaskGroup()
     let parked = try! Channel<Int>()
     let signalled = try! Channel<Int>()

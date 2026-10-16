@@ -2,8 +2,30 @@ program	errors/match_on_suspending_call_in_a_loop.saw
 triple	arm64-apple-darwin
 twin	same
 expect	success
-build	ok
-exit	0
-stdout	"err nope"
-stdout	""
-meets_expect	yes
+build	refused	`try` requires a Result type, got `(TcpStream, TcpStream)`
+meets_expect	no: Stage 0 does not build it
+log	"error: `try` requires a Result type, got `(TcpStream, TcpStream)`"
+log	"  --> examples/errors/match_on_suspending_call_in_a_loop.saw:32:18"
+log	"     |"
+log	" 32 |     let (a, b) = try! TcpStream.pair()"
+log	"     |                  ^"
+log	""
+log	"error: undefined variable `b`"
+log	"  --> examples/errors/match_on_suspending_call_in_a_loop.saw:33:13"
+log	"     |"
+log	" 33 |     let _ = move b"
+log	"     |             ^"
+log	""
+log	"error: undefined variable `a`"
+log	"  --> examples/errors/match_on_suspending_call_in_a_loop.saw:36:17"
+log	"     |"
+log	" 36 |         let _ = a.write(\"x\")        // the suspension, NOT the scrutinee"
+log	"     |                 ^"
+log	""
+log	"error: undefined variable `a`"
+log	"  --> examples/errors/match_on_suspending_call_in_a_loop.saw:46:13"
+log	"     |"
+log	" 46 |     let _ = move a"
+log	"     |             ^"
+log	""
+log	"4 error(s) generated"

@@ -1,0 +1,89 @@
+// probe: stated
+// about: `TcpListener.local_port` and `TcpStream.pair` report a refusal as `Err`, never port 0 or two dead streams (SL-768)
+// stage 0: its frozen std.net answers `local_port()` with an `Int` and `TcpStream.pair()` with a bare pair, so it refuses the `try!` and the `match` on each
+// speeds: -O0 -O2
+// prints: port while listening: true
+// prints: port once closed: io error: getsockname failed (other error)
+// prints: descriptors exhausted: true
+// prints: pair with no descriptors: io error: socketpair failed (other error)
+// The two std.net members that once hid a failure report it (SL-768). A
+// listener whose socket is closed under it cannot say its port, where it once
+// answered 0; and a pair the system refuses, here for want of descriptors, is
+// an `Err`, where it once handed back two streams with no descriptor.
+//
+// The listener's descriptor is found by asking for the lowest free one just
+// before the listen, which takes it. `socketpair` is a bare libc call, so its
+// refusal carries no portable kind. The descriptor limit is lowered first so
+// the exhaustion is quick; its resource number is per host (`RLIMIT_NOFILE`
+// is 8 on macOS and 7 on Linux), so both are capped, the other being a limit
+// this program never meets.
+import std.net.{IoError, TcpListener, TcpStream}
+
+extern "C" {
+    func pipe(fds: UnsafePointer<Int32>) -> Int32
+    func dup(fd: Int32) -> Int32
+    func close(fd: Int32) -> Int32
+    func getrlimit(resource: Int32, limit: UnsafePointer<Limit>) -> Int32
+    func setrlimit(resource: Int32, limit: UnsafePointer<Limit>) -> Int32
+}
+
+struct Limit {
+    soft: UInt64
+    hard: UInt64
+}
+
+struct Ends {
+    read: Int32
+    write: Int32
+}
+
+static DESCRIPTOR_CAP: UInt64 = 64
+static NOFILE_MACOS: Int32 = 8
+static NOFILE_LINUX: Int32 = 7
+
+func cap(resource: Int32) unsafe {
+    var limit = Limit(soft: 0, hard: 0)
+    if getrlimit(resource, (&limit) as UnsafePointer<Limit>) == (0 as Int32) {
+        if limit.soft > DESCRIPTOR_CAP {
+            limit.soft = DESCRIPTOR_CAP
+            let _ = setrlimit(resource, (&limit) as UnsafePointer<Limit>)
+        }
+    }
+}
+
+func exhaust() unsafe -> Bool {
+    var ends = Ends(read: 0 as Int32, write: 0 as Int32)
+    var made = 0
+    while pipe((&ends) as UnsafePointer<Int32>) == (0 as Int32) {
+        made = made + 1
+    }
+    while dup(0 as Int32) >= (0 as Int32) {
+        made = made + 1
+    }
+    made > 0
+}
+
+// The descriptor the next socket will take: the lowest free one.
+func next_descriptor() unsafe -> Int32 {
+    let probe = dup(0 as Int32)
+    let _ = close(probe)
+    probe
+}
+
+func main() unsafe {
+    let fd = next_descriptor()
+    let listener = try! TcpListener.listen(0)
+    print("port while listening: {}", try! listener.local_port() > 0)
+    let _ = close(fd)
+    match listener.local_port() {
+        case Ok(port) -> print("port once closed: {}", port),
+        case Err(e) -> print("port once closed: {}", e)
+    }
+    cap(NOFILE_MACOS)
+    cap(NOFILE_LINUX)
+    print("descriptors exhausted: {}", exhaust())
+    match TcpStream.pair() {
+        case Ok(_) -> print("pair with no descriptors: made"),
+        case Err(e) -> print("pair with no descriptors: {}", e)
+    }
+}

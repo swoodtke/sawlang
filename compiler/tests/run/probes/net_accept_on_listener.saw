@@ -1,3 +1,13 @@
+// probe: stated
+// about: an accept parks until a client connects, and the listener reads back its ephemeral port (SL-570)
+// stage 0: its frozen std.net answers `local_port()` with an `Int` and `TcpStream.pair()` with a bare pair, so it refuses the `try!` on each (SL-768)
+// speeds: -O0 -O2
+// prints: port 70000: io error: listen: port must be 0..65535 failed (invalid argument)
+// prints: host by name: io error: listen: expected an IPv4 address failed (invalid argument)
+// prints: ephemeral port chosen: true
+// prints: main accepts
+// prints: accepted; it sent: ping
+// prints: client wrote 4 bytes
 // `accept` on a listener (SL:coroutines A12b): `main` accepts before any
 // client has connected, so the accept parks, and the client task spawned
 // beside it runs, connects and sends. The listener reports its ephemeral port,
@@ -23,9 +33,10 @@ func main() {
     print("host by name: {}", refusal(TcpListener.listen(0, host: "localhost")))
 
     let listener = try! TcpListener.listen(0)
-    print("ephemeral port chosen: {}", listener.local_port() > 0)
+    let port = try! listener.local_port()
+    print("ephemeral port chosen: {}", port > 0)
     var group = TaskGroup()
-    let h = group.spawn(client(listener.local_port()))
+    let h = group.spawn(client(port))
     print("main accepts")
     let stream = try! listener.accept()
     let chunk = try! stream.read()

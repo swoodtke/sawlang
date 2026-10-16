@@ -2,9 +2,18 @@ program	net_loopback_echo.saw
 triple	arm64-apple-darwin
 twin	same
 expect	success
-build	ok
-exit	0
-stdout	"3"
-stdout	"1"
-stdout	""
-meets_expect	yes
+build	refused	`try` requires a Result type, got `Int`
+meets_expect	no: Stage 0 does not build it
+log	"error: `try` requires a Result type, got `Int`"
+log	"  --> examples/net_loopback_echo.saw:31:16"
+log	"     |"
+log	" 31 |     let port = try! listener.local_port()"
+log	"     |                ^"
+log	""
+log	"error: undefined variable `port`"
+log	"  --> examples/net_loopback_echo.saw:34:33"
+log	"     |"
+log	" 34 |     let hc = group.spawn(client(port))"
+log	"     |                                 ^"
+log	""
+log	"2 error(s) generated"

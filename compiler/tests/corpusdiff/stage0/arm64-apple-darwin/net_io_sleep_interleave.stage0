@@ -2,9 +2,24 @@ program	net_io_sleep_interleave.saw
 triple	arm64-apple-darwin
 twin	same
 expect	success
-build	ok
-exit	0
-stdout	"5"
-stdout	"5"
-stdout	""
-meets_expect	yes
+build	refused	`try` requires a Result type, got `(TcpStream, TcpStream)`
+meets_expect	no: Stage 0 does not build it
+log	"error: `try` requires a Result type, got `(TcpStream, TcpStream)`"
+log	"  --> examples/net_io_sleep_interleave.saw:26:18"
+log	"     |"
+log	" 26 |     let (a, b) = try! TcpStream.pair()"
+log	"     |                  ^"
+log	""
+log	"error: undefined variable `b`"
+log	"  --> examples/net_io_sleep_interleave.saw:28:33"
+log	"     |"
+log	" 28 |     let hr = group.spawn(reader(move b))"
+log	"     |                                 ^"
+log	""
+log	"error: undefined variable `a`"
+log	"  --> examples/net_io_sleep_interleave.saw:29:33"
+log	"     |"
+log	" 29 |     let hw = group.spawn(writer(move a))"
+log	"     |                                 ^"
+log	""
+log	"3 error(s) generated"

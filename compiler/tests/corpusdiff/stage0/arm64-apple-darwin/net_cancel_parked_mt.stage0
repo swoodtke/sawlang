@@ -2,8 +2,24 @@ program	net_cancel_parked_mt.saw
 triple	arm64-apple-darwin
 twin	same
 expect	success
-build	ok
-exit	0
-stdout	"cancelled"
-stdout	""
-meets_expect	yes
+build	refused	`try` requires a Result type, got `(TcpStream, TcpStream)`
+meets_expect	no: Stage 0 does not build it
+log	"error: `try` requires a Result type, got `(TcpStream, TcpStream)`"
+log	"  --> examples/net_cancel_parked_mt.saw:26:18"
+log	"     |"
+log	" 26 |     let (a, b) = try! TcpStream.pair()        // peer `b`: never written, so `a` stays idle"
+log	"     |                  ^"
+log	""
+log	"error: undefined variable `a`"
+log	"  --> examples/net_cancel_parked_mt.saw:28:29"
+log	"     |"
+log	" 28 |     let hp = g.spawn(parker(move a))"
+log	"     |                             ^"
+log	""
+log	"error: undefined variable `b`"
+log	"  --> examples/net_cancel_parked_mt.saw:37:13"
+log	"     |"
+log	" 37 |     let _ = move b"
+log	"     |             ^"
+log	""
+log	"3 error(s) generated"

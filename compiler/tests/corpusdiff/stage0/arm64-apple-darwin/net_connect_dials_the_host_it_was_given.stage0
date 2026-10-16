@@ -2,9 +2,24 @@ program	net_connect_dials_the_host_it_was_given.saw
 triple	arm64-apple-darwin
 twin	same
 expect	success
-build	ok
-exit	0
-stdout	"127.0.0.1 -> connected"
-stdout	"255.255.255.255 -> refused"
-stdout	""
-meets_expect	yes
+build	refused	`try` requires a Result type, got `Int`
+meets_expect	no: Stage 0 does not build it
+log	"error: `try` requires a Result type, got `Int`"
+log	"  --> examples/net_connect_dials_the_host_it_was_given.saw:30:16"
+log	"     |"
+log	" 30 |     let port = try! listener.local_port()"
+log	"     |                ^"
+log	""
+log	"error: undefined variable `port`"
+log	"  --> examples/net_connect_dials_the_host_it_was_given.saw:31:56"
+log	"     |"
+log	" 31 |     report(\"127.0.0.1\", TcpStream.connect(\"127.0.0.1\", port))"
+log	"     |                                                        ^"
+log	""
+log	"error: undefined variable `port`"
+log	"  --> examples/net_connect_dials_the_host_it_was_given.saw:32:68"
+log	"     |"
+log	" 32 |     report(\"255.255.255.255\", TcpStream.connect(\"255.255.255.255\", port))"
+log	"     |                                                                    ^"
+log	""
+log	"3 error(s) generated"

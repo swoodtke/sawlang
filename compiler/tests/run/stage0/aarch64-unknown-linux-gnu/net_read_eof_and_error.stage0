@@ -1,9 +1,0 @@
-program	compiler/tests/run/net_read_eof_and_error.saw
-triple	aarch64-unknown-linux-gnu
-source	5e12a9e9b14e041e
-build	ok
-exit	0
-stdout	"pair, data waiting: bytes"
-stdout	"pair, peer closed: end of stream"
-stdout	"connection, peer reset: io error: read failed (connection reset); the platform code is nonzero: true"
-stdout	""

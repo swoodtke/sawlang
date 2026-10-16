@@ -1,3 +1,11 @@
+// probe: stated
+// about: a read cancelled while parked answers Interrupted with no platform code (SL-570)
+// stage 0: its frozen std.net answers `local_port()` with an `Int` and `TcpStream.pair()` with a bare pair, so it refuses the `try!` on each (SL-768)
+// speeds: -O0 -O2
+// prints: reader parks
+// prints: main cancels the parked read
+// prints: reader: io error: read failed (interrupted) (kind interrupted, code 0)
+// prints: the stream still reads: after
 // A read cancelled while it is parked (SL:coroutines A12b): the reader finds
 // its socket empty and parks; `main` cancels it, and the read wakes and
 // answers `Err` of kind `Interrupted`, with no platform code behind it. The
@@ -17,7 +25,7 @@ func reader(stream: TcpStream) -> TcpStream {
 }
 
 func main() {
-    let (near, far) = TcpStream.pair()
+    let (near, far) = try! TcpStream.pair()
     var group = TaskGroup()
     let h = group.spawn(reader(move near))
     yield_now()

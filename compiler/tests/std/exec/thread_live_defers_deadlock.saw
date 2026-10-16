@@ -16,7 +16,8 @@ import std.taskgroup.{__saw_exec_thread_started}
 extern "C" {
     func dlopen(path: UnsafePointer<UInt8>, mode: Int32) -> UnsafePointer<UInt8>
     func dlsym(handle: UnsafePointer<UInt8>, symbol: UnsafePointer<UInt8>) -> UnsafePointer<UInt8>
-    func __saw_rt_thread_spawn(entry: UnsafePointer<UInt8>, env: UnsafePointer<UInt8>) -> Int
+    func __saw_rt_thread_spawn(entry: UnsafePointer<UInt8>, env: UnsafePointer<UInt8>,
+                               handle_out: UnsafePointer<Int>) -> Int
     func __saw_rt_sleep_ns(ns: UInt64)
 }
 
@@ -60,7 +61,10 @@ func main() unsafe {
     let block = Thread<Int>.__saw_control_block()
     __saw_exec_thread_started()
     var b = block
-    b[0].tid = __saw_rt_thread_spawn(entry_point("p765_quiet_body"), block as UnsafePointer<UInt8>)
+    if __saw_rt_thread_spawn(entry_point("p765_quiet_body"), block as UnsafePointer<UInt8>,
+                             (&b[0].tid) as UnsafePointer<Int>) != 0 {
+        panic("the thread was refused")
+    }
     print("waiting")
     print("never reached {}", h.join())
 }

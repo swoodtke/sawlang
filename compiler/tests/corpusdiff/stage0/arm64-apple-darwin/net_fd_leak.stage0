@@ -2,8 +2,30 @@ program	net_fd_leak.saw
 triple	arm64-apple-darwin
 twin	same
 expect	success
-build	ok
-exit	0
-stdout	"600"
-stdout	""
-meets_expect	yes
+build	refused	`try` requires a Result type, got `Int`
+meets_expect	no: Stage 0 does not build it
+log	"error: `try` requires a Result type, got `Int`"
+log	"  --> examples/net_fd_leak.saw:20:25"
+log	"     |"
+log	" 20 |                 let _ = try! l.local_port()   // touch it, then it drops (Deinit closes)"
+log	"     |                         ^"
+log	""
+log	"error: `try` requires a Result type, got `(TcpStream, TcpStream)`"
+log	"  --> examples/net_fd_leak.saw:34:22"
+log	"     |"
+log	" 34 |         let (a, b) = try! TcpStream.pair()"
+log	"     |                      ^"
+log	""
+log	"error: undefined variable `a`"
+log	"  --> examples/net_fd_leak.saw:35:17"
+log	"     |"
+log	" 35 |         let _ = move a"
+log	"     |                 ^"
+log	""
+log	"error: undefined variable `b`"
+log	"  --> examples/net_fd_leak.saw:36:17"
+log	"     |"
+log	" 36 |         let _ = move b                   // both drop here (Deinit closes both fds)"
+log	"     |                 ^"
+log	""
+log	"4 error(s) generated"

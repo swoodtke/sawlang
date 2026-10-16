@@ -2,9 +2,24 @@ program	net_sibling_eof_no_deadlock.saw
 triple	arm64-apple-darwin
 twin	same
 expect	success
-build	ok
-exit	0
-stdout	"5"
-stdout	"5"
-stdout	""
-meets_expect	yes
+build	refused	`try` requires a Result type, got `(TcpStream, TcpStream)`
+meets_expect	no: Stage 0 does not build it
+log	"error: `try` requires a Result type, got `(TcpStream, TcpStream)`"
+log	"  --> examples/net_sibling_eof_no_deadlock.saw:40:18"
+log	"     |"
+log	" 40 |     let (a, b) = try! TcpStream.pair()"
+log	"     |                  ^"
+log	""
+log	"error: undefined variable `a`"
+log	"  --> examples/net_sibling_eof_no_deadlock.saw:42:33"
+log	"     |"
+log	" 42 |     let hs = group.spawn(sender(move a))"
+log	"     |                                 ^"
+log	""
+log	"error: undefined variable `b`"
+log	"  --> examples/net_sibling_eof_no_deadlock.saw:43:35"
+log	"     |"
+log	" 43 |     let hr = group.spawn(receiver(move b))"
+log	"     |                                   ^"
+log	""
+log	"3 error(s) generated"

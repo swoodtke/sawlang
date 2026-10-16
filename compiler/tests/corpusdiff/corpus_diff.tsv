@@ -309,7 +309,7 @@ conformance/G16_try_propagates_out_of_main.saw	crash	INVARIANT	a `main` returnin
 conformance/G17_early_return_from_main.saw	pass	-	-
 conformance/G18_main_result_void_ok_exit_zero.saw	crash	INVARIANT	a `main` returning anything but Void or Int is not in the backend slice yet
 conformance/K02_nonsend_across_suspend_local_mt.saw	wrong	refused by another rule	call.label, where the plan names coro.spawn-not-send
-conformance/K100_shutdown_rides_cancellation.saw	pass	-	-
+conformance/K100_shutdown_rides_cancellation.saw	stage0-wrong	annotated SL-768	sawc2 meets its directives
 conformance/K111_suspension_causes_decide_framing.saw	refused	resolve import.unknown-module	no module `std.json`
 conformance/K112_thread_body_refuses_a_multi_cause_std_method.saw	refused	typecheck member.unknown	`std.process.Command` has no method `output` this module can see
 conformance/K113_test_suspend_is_a_frame_boundary_not_an_executor.saw	refused	coro coro.drive-in-suspending	`__saw_drive` may not appear in `main`, which itself suspends. This body already runs inside an executor, so `driven(...)` needs no drive site: call it directly and the suspending call embeds here (de
@@ -672,7 +672,7 @@ coro_conservative_generic_instance_not_promoted.saw	pass	-	-
 coro_cross_module_free_call_positions.saw	pass	-	-
 coro_cross_module_generic.saw	pass	-	-
 coro_cross_module_generic_callee.saw	pass	-	-
-coro_cross_module_io_wake.saw	pass	-	-
+coro_cross_module_io_wake.saw	stage0-wrong	annotated SL-768	sawc2 meets its directives
 coro_deinit_across_suspend.saw	pass	-	-
 coro_destructure_across_suspend.saw	pass	-	-
 coro_destructure_nocopy_into_frame.saw	pass	-	-
@@ -721,7 +721,7 @@ coro_iflet_move_scrutinee_releases_payload.saw	pass	-	-
 coro_iflet_over_suspending.saw	pass	-	-
 coro_iflet_suspending_deinit.saw	pass	-	-
 coro_imported_callee_discovery_matrix.saw	pass	-	-
-coro_imported_private_helper_parks_on_io.saw	pass	-	-
+coro_imported_private_helper_parks_on_io.saw	stage0-wrong	annotated SL-768	sawc2 meets its directives
 coro_imported_private_helper_suspends.saw	pass	-	-
 coro_inline_catch_loop_exit_in_child_positions.saw	pass	-	-
 coro_json_encode_in_task.saw	refused	resolve import.unknown-module	no module `std.json`
@@ -876,7 +876,7 @@ df140c_qualified_type_position.saw	refused	typecheck slice.not-yet	`syntax.expr.
 df140d_result_optional_autowrap.saw	pass	-	-
 df140f_private_static_collision.saw	pass	-	-
 df140h_std_private_static.saw	pass	-	-
-df140h_std_private_static_two_files.saw	pass	-	-
+df140h_std_private_static_two_files.saw	stage0-wrong	annotated SL-768	sawc2 meets its directives
 df151b_implicit_tier_transfers.saw	refused	mono mono.not-yet	a closure capturing a value that owns something is not in the backend slice yet
 df151c_optional_dest_copy.saw	pass	-	-
 df151d_match_temporary_scrutinee.saw	refused	typecheck slice.not-yet	`syntax.stmt.break` is not in the bootstrap slice yet
@@ -1180,7 +1180,7 @@ errors/map_get_nocopy_value_read.saw	pass	-	type.bound: `std.map.Map<String, map
 errors/map_subscript_immutable_root.saw	pass	-	subscript.role: this subscript is used as a writable place: its `[]` lends read-only (`std.map.Map<String, map_subscript_immutable_root.Counter, std.alloc.GlobalAllocator>` declares or derives no such
 errors/map_subscript_nocopy_value_read.saw	pass	-	operator.undefined: `!` unwraps an Optional, and this is `map_subscript_nocopy_value_read.Res`
 errors/match_non_exhaustive.saw	pass	-	match.non-exhaustive: this `match` on `match_non_exhaustive.Status` does not cover every value: `Status.Pending` is not matched; add an arm for each, or a `case _ ->` arm (a guarded arm covers nothing
-errors/match_on_suspending_call_in_a_loop.saw	pass	-	-
+errors/match_on_suspending_call_in_a_loop.saw	stage0-wrong	annotated SL-768	sawc2 meets its directives
 errors/method_overload_identical_signature.saw	pass	-	overload.indistinguishable: `Bag.at(index: Int)` is already declared at 14:17 as `Bag.at(index: Int)`, and no call could tell the two apart: overloads must differ in a parameter's label or type, or in
 errors/mixed_window_modes_conflict.saw	pass	-	loan.window-root: `b` is borrowed exclusively here while the window of `[]` opened at 62:18 holds `b` shared until the window closes; a window charges its whole root until it closes, so the root is re
 errors/move_in_a_while_condition_nested_loop_header.saw	pass	-	move.use-after: `resource` is used after it may have been moved (moved at 40:11); a moved value is gone until it is assigned again
@@ -1479,7 +1479,7 @@ expr_suspend_andor.saw	pass	-	-
 expr_suspend_arg.saw	pass	-	-
 expr_suspend_arg_order.saw	pass	-	-
 expr_suspend_binop.saw	pass	-	-
-expr_suspend_blocking.saw	wrong	sawc2's binary panics	panic at taskgroup.saw:1117: executor: an offload needs its job's completion, which arrives with SL:coroutines A14b
+expr_suspend_blocking.saw	wrong	sawc2's binary panics	panic at taskgroup.saw:1145: executor: an offload needs its job's completion, which arrives with SL:coroutines A14b
 expr_suspend_chain_head.saw	pass	-	-
 expr_suspend_channel_recv.saw	pass	-	-
 expr_suspend_coalesce.saw	pass	-	-
@@ -1491,7 +1491,7 @@ expr_suspend_interp.saw	pass	-	-
 expr_suspend_later_hop.saw	pass	-	-
 expr_suspend_match_scrutinee.saw	pass	-	-
 expr_suspend_move_error.saw	pass	-	move.use-after: `data` is used after it may have been moved (moved at 19:5); a moved value is gone until it is assigned again
-expr_suspend_nested_blocking.saw	wrong	sawc2's binary panics	panic at taskgroup.saw:1117: executor: an offload needs its job's completion, which arrives with SL:coroutines A14b
+expr_suspend_nested_blocking.saw	wrong	sawc2's binary panics	panic at taskgroup.saw:1145: executor: an offload needs its job's completion, which arrives with SL:coroutines A14b
 expr_suspend_nested_shortcircuit.saw	pass	-	-
 expr_suspend_optchain_assign.saw	wrong	stdout differs	line 4: sawc2 "2", Stage 0 "1"
 expr_suspend_optchain_compound_assign.saw	wrong	stdout differs	line 4: sawc2 "2", Stage 0 "1"
@@ -1928,50 +1928,50 @@ named_tuple_reorder_error.saw	pass	-	type.mismatch: expected `(x: Int, y: Int)`,
 nested_closure_captures_frame_local.saw	refused	mono mono.not-yet	a closure capturing a value that owns something is not in the backend slice yet
 nested_if_iflet_tail.saw	refused	typecheck type.mismatch	expected `Int?`, the type of the value the branches merge into, and found `Void`
 nested_optional_tail_branch_arms.saw	pass	-	-
-net_accept_loop_concurrent.saw	pass	-	-
-net_accept_loop_eager_fd_close.saw	pass	-	-
-net_accept_roundtrip.saw	pass	-	-
-net_accumulate_across_reads.saw	pass	-	-
+net_accept_loop_concurrent.saw	stage0-wrong	annotated SL-768	sawc2 meets its directives
+net_accept_loop_eager_fd_close.saw	stage0-wrong	annotated SL-768	sawc2 meets its directives
+net_accept_roundtrip.saw	stage0-wrong	annotated SL-768	sawc2 meets its directives
+net_accumulate_across_reads.saw	stage0-wrong	annotated SL-768	sawc2 meets its directives
 net_budget_fairness.saw	refused	typecheck member.through-pointer	`lock` is a method of the payload, `std.mutex.Mutex<Int>`, not of the `Arc`; reach it with `borrow stop.value().lock(…)`
 net_cancel_parked_mt.saw	refused	typecheck call.label	no parameter is labeled `threads` in TaskGroup.init() [std.taskgroup]
 net_cancel_parked_read.saw	refused	typecheck member.unknown	`std.taskgroup.Task<Void>` has no method `cancel_addr` this module can see
 net_cancel_precise.saw	refused	typecheck member.unknown	`std.taskgroup.Task<Int>` has no method `cancel_addr` this module can see
 net_cancel_unregisters_token.saw	refused	typecheck member.unknown	`std.taskgroup.Task<std.net.TcpStream>` has no method `cancel_addr` this module can see
-net_connect_by_name.saw	wrong	sawc2's binary panics	panic at net.saw:521: TcpStream.connect: resolving the host name "localhost" needs the offload worker (SL:coroutines A14b)
-net_connect_dials_the_host_it_was_given.saw	pass	-	-
-net_connect_unresolvable_host.saw	wrong	sawc2's binary panics	panic at net.saw:521: TcpStream.connect: resolving the host name "" needs the offload worker (SL:coroutines A14b)
-net_deinit_across_parks.saw	pass	-	-
-net_error_surfaced.saw	pass	-	-
-net_fd_leak.saw	pass	-	-
-net_fd_reuse_across_connections.saw	pass	-	-
-net_http_roundtrip.saw	pass	-	-
-net_iflet_guardlet_bodies.saw	pass	-	-
-net_io_cancel.saw	pass	-	-
+net_connect_by_name.saw	stage0-wrong	annotated SL-768	sawc2: exit -6
+net_connect_dials_the_host_it_was_given.saw	stage0-wrong	annotated SL-768	sawc2 meets its directives
+net_connect_unresolvable_host.saw	stage0-wrong	annotated SL-768	sawc2: exit -6
+net_deinit_across_parks.saw	stage0-wrong	annotated SL-768	sawc2 meets its directives
+net_error_surfaced.saw	stage0-wrong	annotated SL-768	sawc2 meets its directives
+net_fd_leak.saw	stage0-wrong	annotated SL-768	sawc2 meets its directives
+net_fd_reuse_across_connections.saw	stage0-wrong	annotated SL-768	sawc2 meets its directives
+net_http_roundtrip.saw	stage0-wrong	annotated SL-768	sawc2 meets its directives
+net_iflet_guardlet_bodies.saw	stage0-wrong	annotated SL-768	sawc2 meets its directives
+net_io_cancel.saw	stage0-wrong	annotated SL-768	sawc2 meets its directives
 net_io_main_entry.saw	refused	resolve import.unknown-symbol	`tcp_close` is not defined in `std.net`
-net_io_sleep_interleave.saw	pass	-	-
+net_io_sleep_interleave.saw	stage0-wrong	annotated SL-768	sawc2 meets its directives
 net_ipv4_literal_parse.saw	refused	resolve visibility.private	`parse_ipv4_literal` is private in `std.net`
-net_listen_bind_address.saw	pass	-	-
-net_loopback_echo.saw	pass	-	-
-net_multi_msg_echo.saw	pass	-	-
-net_nested_method_three_deep.saw	pass	-	-
-net_nested_method_two_deep.saw	pass	-	-
-net_nested_parks_roundtrip.saw	pass	-	-
-net_nested_shape_matrix.saw	pass	-	-
-net_owning_echo.saw	pass	-	-
+net_listen_bind_address.saw	stage0-wrong	annotated SL-768	sawc2 meets its directives
+net_loopback_echo.saw	stage0-wrong	annotated SL-768	sawc2 meets its directives
+net_multi_msg_echo.saw	stage0-wrong	annotated SL-768	sawc2 meets its directives
+net_nested_method_three_deep.saw	stage0-wrong	annotated SL-768	sawc2 meets its directives
+net_nested_method_two_deep.saw	stage0-wrong	annotated SL-768	sawc2 meets its directives
+net_nested_parks_roundtrip.saw	stage0-wrong	annotated SL-768	sawc2 meets its directives
+net_nested_shape_matrix.saw	stage0-wrong	annotated SL-768	sawc2 meets its directives
+net_owning_echo.saw	stage0-wrong	annotated SL-768	sawc2 meets its directives
 net_precise_n_readers.saw	refused	resolve import.unknown-symbol	`net_buffer` is not defined in `std.net`
 net_precise_wakeup.saw	refused	resolve import.unknown-symbol	`net_buffer` is not defined in `std.net`
 net_read_into.saw	refused	typecheck member.unknown	`std.net.TcpStream` has no method `read_into` this module can see
-net_serve_three_connections.saw	pass	-	-
-net_serve_two_connections.saw	pass	-	-
-net_sibling_eof_no_deadlock.saw	pass	-	-
+net_serve_three_connections.saw	stage0-wrong	annotated SL-768	sawc2 meets its directives
+net_serve_two_connections.saw	stage0-wrong	annotated SL-768	sawc2 meets its directives
+net_sibling_eof_no_deadlock.saw	stage0-wrong	annotated SL-768	sawc2 meets its directives
 net_socket_options.saw	refused	typecheck member.unknown	`std.net.TcpStream` has no method `set_no_delay` this module can see
-net_socketpair_echo.saw	pass	-	-
+net_socketpair_echo.saw	stage0-wrong	annotated SL-768	sawc2 meets its directives
 net_threads_io.saw	refused	resolve import.unknown-symbol	`tcp_close` is not defined in `std.net`
-net_three_park_sequence.saw	pass	-	-
-net_two_concurrent_parked_reads.saw	pass	-	-
+net_three_park_sequence.saw	stage0-wrong	annotated SL-768	sawc2 meets its directives
+net_two_concurrent_parked_reads.saw	stage0-wrong	annotated SL-768	sawc2 meets its directives
 net_unroutable_connect_names_the_cause.saw	pass	-	-
-net_write_overloads.saw	pass	-	-
-net_write_to_closed_peer_is_an_error.saw	pass	-	-
+net_write_overloads.saw	stage0-wrong	annotated SL-768	sawc2 meets its directives
+net_write_to_closed_peer_is_an_error.saw	stage0-wrong	annotated SL-768	sawc2 meets its directives
 never_extern_module_abi.saw	pass	-	-
 newline_braces_stay_significant.saw	pass	-	-
 newline_comparison_unaffected.saw	pass	-	-
@@ -2007,11 +2007,11 @@ none_return_test.saw	pass	-	-
 number_literal_member_access.saw	refused	mono mono.not-yet	a synthesized `Printable.format(into: &var std.stringbuilder.StringBuilder)` on `Float` is not in the backend slice yet: a Float's `format` waits for `std.float`'s formatter (SL-722 U5) (inside std/pr
 offload_cancel_multi_arg.saw	refused	typecheck member.unknown	`std.taskgroup.Task<Int>` has no method `cancel_addr` this module can see
 offload_cancel_parked.saw	refused	typecheck member.unknown	`std.taskgroup.Task<Int>` has no method `cancel_addr` this module can see
-offload_multi_arg_pipe_read.saw	wrong	sawc2's binary panics	panic at taskgroup.saw:1117: executor: an offload needs its job's completion, which arrives with SL:coroutines A14b
-offload_pointer_heap_arg.saw	wrong	sawc2's binary panics	panic at taskgroup.saw:1117: executor: an offload needs its job's completion, which arrives with SL:coroutines A14b
-offload_seam_first_tick.saw	wrong	sawc2's binary panics	panic at taskgroup.saw:1117: executor: an offload needs its job's completion, which arrives with SL:coroutines A14b
-offload_signature_shapes.saw	wrong	sawc2's binary panics	panic at taskgroup.saw:1117: executor: an offload needs its job's completion, which arrives with SL:coroutines A14b
-offload_spawn_interleave.saw	wrong	sawc2's binary panics	panic at taskgroup.saw:1117: executor: an offload needs its job's completion, which arrives with SL:coroutines A14b
+offload_multi_arg_pipe_read.saw	wrong	sawc2's binary panics	panic at taskgroup.saw:1145: executor: an offload needs its job's completion, which arrives with SL:coroutines A14b
+offload_pointer_heap_arg.saw	wrong	sawc2's binary panics	panic at taskgroup.saw:1145: executor: an offload needs its job's completion, which arrives with SL:coroutines A14b
+offload_seam_first_tick.saw	wrong	sawc2's binary panics	panic at taskgroup.saw:1145: executor: an offload needs its job's completion, which arrives with SL:coroutines A14b
+offload_signature_shapes.saw	wrong	sawc2's binary panics	panic at taskgroup.saw:1145: executor: an offload needs its job's completion, which arrives with SL:coroutines A14b
+offload_spawn_interleave.saw	wrong	sawc2's binary panics	panic at taskgroup.saw:1145: executor: an offload needs its job's completion, which arrives with SL:coroutines A14b
 once_cross_thread_publish.saw	refused	mono mono.not-yet	the builtin `Thread.spawn` is not in the backend slice yet
 once_double_set_panic.saw	pass	-	-
 once_get_before_set_panic.saw	pass	-	-
@@ -2323,7 +2323,7 @@ spawn_optional_result.saw	refused	typecheck call.label	no parameter is labeled `
 spawn_ref_param_dual_role_and_cancel.saw	pass	-	-
 spawn_ref_param_referent_deinit_once.saw	pass	-	-
 spawn_void_body.saw	refused	mono mono.not-yet	the builtin `Thread.spawn` is not in the backend slice yet
-spawned_task_runs_before_reactor_park.saw	pass	-	-
+spawned_task_runs_before_reactor_park.saw	stage0-wrong	annotated SL-768	sawc2 meets its directives
 spinlock_basic.saw	refused	typecheck call.arity	too many arguments: SpinLock.lock() [std.spinlock] takes 0
 spinlock_contention_mt.saw	refused	typecheck call.label	no parameter is labeled `threads` in TaskGroup.init() [std.taskgroup]
 spinlock_import_gate.saw	pass	-	name.not-in-prelude: `SpinLock` is not in the prelude and must be imported: `import std.spinlock.{SpinLock}` selects it

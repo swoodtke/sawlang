@@ -42,7 +42,7 @@ func sibling() -> Int {
 
 func main() {
     let listener = try! TcpListener.listen(0)
-    let port = listener.local_port()
+    let port = try! listener.local_port()
     var group = TaskGroup()
     let hd = group.spawn(dial_by_name(port))     // parks inside the offloaded resolve
     let ht = group.spawn(sibling())              // runs while it is parked

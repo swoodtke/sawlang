@@ -309,7 +309,7 @@ conformance/G16_try_propagates_out_of_main.saw	arm64-apple-darwin	same	24e8eb030
 conformance/G17_early_return_from_main.saw	arm64-apple-darwin	same	3d7494c9ef81	success	ok	3	6:1925258482b3	0:e3b0c44298fc	-	yes	-
 conformance/G18_main_result_void_ok_exit_zero.saw	arm64-apple-darwin	same	421f68de6ad0	success	ok	0	9:318585d34b81	0:e3b0c44298fc	-	yes	-
 conformance/K02_nonsend_across_suspend_local_mt.saw	arm64-apple-darwin	same	b070fce70970	error	refused	-	-	-	508:dca36614bc4d	yes	cannot spawn `work` into a multi-threaded `TaskGroup(threads: ...)`: local `v` of type `Vector<() sync escaping -> Int, GlobalAllocator>` is held across a suspension but is not `Send`, so the task frame cannot cross to a worker thread. `Vector` is `Send` only when its payload is `Send`, and `() sync escaping -> Int` is not — that is the bound to satisfy.
-conformance/K100_shutdown_rides_cancellation.saw	arm64-apple-darwin	same	2e337286afec	success	ok	0	81:edfb401e3795	0:e3b0c44298fc	-	yes	-
+conformance/K100_shutdown_rides_cancellation.saw	arm64-apple-darwin	same	3870ae92adac	success	refused	-	-	-	600:240f94452e35	no: Stage 0 does not build it	`try` requires a Result type, got `(TcpStream, TcpStream)`
 conformance/K111_suspension_causes_decide_framing.saw	arm64-apple-darwin	same	86d628597f9e	success	ok	0	147:1ab08446ebe7	0:e3b0c44298fc	-	yes	-
 conformance/K112_thread_body_refuses_a_multi_cause_std_method.saw	arm64-apple-darwin	same	30ed89cb8881	error	refused	-	-	-	159:7427bcd2e425	no: no error contains 'cannot suspend in a `Thread.spawn { ... }` body'	Parse error at 41:31: two statements on one line need a `;` between them: the first begins with `var`, the second with `{` — write `;` where they meet
 conformance/K113_test_suspend_is_a_frame_boundary_not_an_executor.saw	arm64-apple-darwin	same	365eb8814ec3	success	ok	0	23:dfa88394a65e	0:e3b0c44298fc	-	yes	-
@@ -403,12 +403,12 @@ conformance/K88_background_spawn_takes_no_borrows.saw	arm64-apple-darwin	same	a7
 conformance/K89_detach_gives_up_the_result.saw	arm64-apple-darwin	same	7713ec1b141a	success	ok	0	55:8dddd41bcca3	0:e3b0c44298fc	-	yes	-
 conformance/K90_thread_detach_is_a_fate.saw	arm64-apple-darwin	same	4e097b0efa2e	success	refused	-	-	-	159:1bc3be75e509	no: Stage 0 does not build it	Parse error at 81:35: two statements on one line need a `;` between them: the first begins with `var`, the second with `{` — write `;` where they meet
 conformance/K91_spawn_brace_captures_nothing_implicitly.saw	arm64-apple-darwin	same	e8e90b9258f2	error	refused	-	-	-	159:acd1e9b89775	no: no error contains 'a spawned brace captures nothing implicitly, and this body names `count`, `label`'	Parse error at 28:37: two statements on one line need a `;` between them: the first begins with `var`, the second with `{` — write `;` where they meet
-conformance/K93_timed_park_observes_cancellation.saw	arm64-apple-darwin	same	c4be02c824e4	success	ok	0	27:78657be68532	0:e3b0c44298fc	-	yes	-
-conformance/K94_timed_park_times_out_in_every_engine.saw	arm64-apple-darwin	same	891a15203743	success	ok	0	69:37b46700eb0a	0:e3b0c44298fc	-	yes	-
-conformance/K94b_timed_park_times_out_in_a_single_frame_drive.saw	arm64-apple-darwin	same	c9373a1d5028	success	ok	0	36:f4ba1219be21	0:e3b0c44298fc	-	yes	-
-conformance/K95_ready_before_deadline_reports_the_value.saw	arm64-apple-darwin	same	b7097ad822fc	success	ok	0	48:4cb76b5944f9	0:e3b0c44298fc	-	yes	-
-conformance/K96_timed_and_untimed_parks_coexist.saw	arm64-apple-darwin	same	68fb7b80275b	success	ok	0	35:bfe7433ec8ed	0:e3b0c44298fc	-	yes	-
-conformance/K97_timed_park_leaves_no_registration_behind.saw	arm64-apple-darwin	same	40a592ba90ee	success	ok	0	31:d4515b307e83	0:e3b0c44298fc	-	yes	-
+conformance/K93_timed_park_observes_cancellation.saw	arm64-apple-darwin	same	3ff231b804fe	success	refused	-	-	-	597:a28f3e2ca003	no: Stage 0 does not build it	`try` requires a Result type, got `(TcpStream, TcpStream)`
+conformance/K94_timed_park_times_out_in_every_engine.saw	arm64-apple-darwin	same	1e70259a0f6b	success	refused	-	-	-	1221:312d8fdad84e	no: Stage 0 does not build it	`try` requires a Result type, got `(TcpStream, TcpStream)`
+conformance/K94b_timed_park_times_out_in_a_single_frame_drive.saw	arm64-apple-darwin	same	485b6132f563	success	refused	-	-	-	795:ac12af3da4b9	no: Stage 0 does not build it	`try` requires a Result type, got `(TcpStream, TcpStream)`
+conformance/K95_ready_before_deadline_reports_the_value.saw	arm64-apple-darwin	same	6a550def7608	success	refused	-	-	-	1590:a6121f8159ec	no: Stage 0 does not build it	`try` requires a Result type, got `(TcpStream, TcpStream)`
+conformance/K96_timed_and_untimed_parks_coexist.saw	arm64-apple-darwin	same	337076b4f566	success	refused	-	-	-	1424:c949bc2d9f13	no: Stage 0 does not build it	`try` requires a Result type, got `(TcpStream, TcpStream)`
+conformance/K97_timed_park_leaves_no_registration_behind.saw	arm64-apple-darwin	same	d30cb18655d5	success	refused	-	-	-	652:cb6ba539e557	no: Stage 0 does not build it	`try` requires a Result type, got `(TcpStream, TcpStream)`
 conformance/K98_signal_wakes_a_parked_watcher.saw	arm64-apple-darwin	same	7c2b7ff31548	success	ok	0	49:563a7ad3b36d	0:e3b0c44298fc	-	yes	-
 conformance/K99_watch_is_scoped_and_singly_owned.saw	arm64-apple-darwin	same	929f00a0c1f6	success	ok	0	90:d640cdcdfaee	0:e3b0c44298fc	-	yes	-
 conformance/M06_push_on_let_vector.saw	arm64-apple-darwin	same	8a8c8d94e0d2	error	refused	-	-	-	563:2b63cf317f79	yes	cannot call `&var self` method `push` on immutable variable `v`
@@ -672,7 +672,7 @@ coro_conservative_generic_instance_not_promoted.saw	arm64-apple-darwin	same	fb89
 coro_cross_module_free_call_positions.saw	arm64-apple-darwin	same	bdb969dddfee	success	ok	0	27:0294fdd92f55	0:e3b0c44298fc	-	yes	-
 coro_cross_module_generic.saw	arm64-apple-darwin	same	cda69536c597	success	ok	0	12:180b27ab9168	0:e3b0c44298fc	-	yes	-
 coro_cross_module_generic_callee.saw	arm64-apple-darwin	same	57874613fdc5	success	ok	0	10:ec97c02866f5	0:e3b0c44298fc	-	yes	-
-coro_cross_module_io_wake.saw	arm64-apple-darwin	same	1bab9f594ee0	success	ok	0	4:9422b95a5e93	0:e3b0c44298fc	-	yes	-
+coro_cross_module_io_wake.saw	arm64-apple-darwin	same	2b49f002a3e3	success	refused	-	-	-	732:6412ba32af47	no: Stage 0 does not build it	`try` requires a Result type, got `Int`
 coro_deinit_across_suspend.saw	arm64-apple-darwin	same	68ae09d050ee	success	ok	0	6:c132b0dc4b97	0:e3b0c44298fc	-	yes	-
 coro_destructure_across_suspend.saw	arm64-apple-darwin	same	5757f59bd6a6	success	ok	0	9:01d357ae9493	0:e3b0c44298fc	-	yes	-
 coro_destructure_nocopy_into_frame.saw	arm64-apple-darwin	same	950cb38e00b3	success	ok	0	69:7dc83add517c	0:e3b0c44298fc	-	yes	-
@@ -721,7 +721,7 @@ coro_iflet_move_scrutinee_releases_payload.saw	arm64-apple-darwin	same	7239cb867
 coro_iflet_over_suspending.saw	arm64-apple-darwin	same	143edf8c1c77	success	ok	0	6:0d0010808896	0:e3b0c44298fc	-	yes	-
 coro_iflet_suspending_deinit.saw	arm64-apple-darwin	same	a7b110bd62ba	success	ok	0	9:519091341726	0:e3b0c44298fc	-	yes	-
 coro_imported_callee_discovery_matrix.saw	arm64-apple-darwin	same	376869f459d3	success	ok	0	60:ce14304414ee	0:e3b0c44298fc	-	yes	-
-coro_imported_private_helper_parks_on_io.saw	arm64-apple-darwin	same	8ef6c86273c6	success	ok	0	4:133f46e9df9c	0:e3b0c44298fc	-	yes	-
+coro_imported_private_helper_parks_on_io.saw	arm64-apple-darwin	same	3ac66d8a5109	success	refused	-	-	-	615:8255e2e2f413	no: Stage 0 does not build it	`try` requires a Result type, got `(TcpStream, TcpStream)`
 coro_imported_private_helper_suspends.saw	arm64-apple-darwin	same	08dd881130a3	success	ok	0	19:5411944fff0d	0:e3b0c44298fc	-	yes	-
 coro_inline_catch_loop_exit_in_child_positions.saw	arm64-apple-darwin	same	d26d1dd2e071	success	ok	0	5080:e9ad04e4a4b5	0:e3b0c44298fc	-	yes	-
 coro_json_encode_in_task.saw	arm64-apple-darwin	differs	812315c6c21f	success	ok	0	8:e346432021b0	0:e3b0c44298fc	-	yes	-
@@ -876,7 +876,7 @@ df140c_qualified_type_position.saw	arm64-apple-darwin	same	f80d2220aef4	success	
 df140d_result_optional_autowrap.saw	arm64-apple-darwin	same	0470c50b843e	success	ok	0	125:a737d68cc276	0:e3b0c44298fc	-	yes	-
 df140f_private_static_collision.saw	arm64-apple-darwin	same	e07281295701	success	ok	0	6:d136e0c23a0d	0:e3b0c44298fc	-	yes	-
 df140h_std_private_static.saw	arm64-apple-darwin	same	a3c51018a390	success	ok	0	15:bc79a5079742	0:e3b0c44298fc	-	yes	-
-df140h_std_private_static_two_files.saw	arm64-apple-darwin	same	bd0dc3a0aeb5	success	ok	0	11:dbf973aeff57	0:e3b0c44298fc	-	yes	-
+df140h_std_private_static_two_files.saw	arm64-apple-darwin	same	6e845040344c	success	refused	-	-	-	682:c40a28b42281	no: Stage 0 does not build it	`try` requires a Result type, got `(TcpStream, TcpStream)`
 df151b_implicit_tier_transfers.saw	arm64-apple-darwin	differs	c51cf3730056	success	ok	0	309:3f84a4accc0e	0:e3b0c44298fc	-	yes	-
 df151c_optional_dest_copy.saw	arm64-apple-darwin	same	83d34b7dc0e0	success	ok	0	282:fe7ec4066e60	0:e3b0c44298fc	-	yes	-
 df151d_match_temporary_scrutinee.saw	arm64-apple-darwin	same	53d3e3cef6b7	success	ok	0	242:2ae59dd0cdd3	0:e3b0c44298fc	-	yes	-
@@ -1088,7 +1088,7 @@ errors/coro_group_spawn_suspending_recursion.saw	arm64-apple-darwin	same	a222d84
 errors/coro_guarded_arm_owning_payload.saw	arm64-apple-darwin	same	b10cc215fdcd	error	refused	-	-	-	423:92df777cf596	yes	coroutine transform: a suspension-spanning `match` in `driven` cannot combine a guarded arm with the move-only payload binding `r`; drop the guard and test inside the arm body, or match on a copyable projection of the payload
 errors/coro_imported_closure_body_suspends.saw	arm64-apple-darwin	same	fe59d084e319	error	refused	-	-	-	445:48e0a544d357	yes	coroutine transform: this closure body suspends, and a closure body is not driven — it is called through a function value, so its suspension has no frame to park in. Move the suspending work into a named function `each_yield_public` calls directly, or call it outside the closure and pass the result in.
 errors/coro_imported_closure_body_suspends_with_no_driven_root.saw	arm64-apple-darwin	same	67a2f1d107f6	error	refused	-	-	-	445:48e0a544d357	yes	coroutine transform: this closure body suspends, and a closure body is not driven — it is called through a function value, so its suspension has no frame to park in. Move the suspending work into a named function `each_yield_public` calls directly, or call it outside the closure and pass the result in.
-errors/coro_io_park_in_closure_body_beside_a_conservative_call.saw	arm64-apple-darwin	same	9b05e0fcfa68	error	refused	-	-	-	525:767a5cbc5e27	yes	coroutine transform: the suspending call `TcpStream.read(...)` appears inside a CLOSURE BODY in driven `drain`, and a closure body is not driven — its suspension has no frame to park in. Call it outside the closure and pass the result in, or move the whole closure body into a named function the driven body calls.
+errors/coro_io_park_in_closure_body_beside_a_conservative_call.saw	arm64-apple-darwin	same	8a227c4d0147	error	refused	-	-	-	681:9ba69b99b769	no: no error contains 'appears inside a CLOSURE BODY in driven `drain`'	`try` requires a Result type, got `(TcpStream, TcpStream)`
 errors/coro_let_init_move_beside_early_exit.saw	arm64-apple-darwin	differs	bd73026ec83f	error	refused	-	-	-	418:dee5b4db813c	yes	coroutine transform: `move` of a frame local in the initializer of `v` of driven `run` whose expression also `return`s, `break`s or `continue`s is not supported; bind the moving call to its own `let` first, then use the binding
 errors/coro_main_suspending_recursion.saw	arm64-apple-darwin	same	6a61863bfa7d	error	refused	-	-	-	579:701f05b448b6	yes	suspending recursion is not allowed: the suspending-call cycle `recurse -> recurse` has no compile-time frame size (design 44 embeds callee frames by value). Break the cycle or drive the inner call separately. This refusal is PENDING SL-322, the heap-allocated-frame design: an existential dispatch of a suspending body and suspending recursion both need a heap frame with an indirect resume, so the two land together and neither alone.
 errors/coro_method_suspending_recursion.saw	arm64-apple-darwin	same	4a7985683c39	error	refused	-	-	-	601:5d1e806d96b9	yes	suspending recursion is not allowed: the suspending-call cycle `Walker.walk -> Walker.walk` has no compile-time frame size (design 44 embeds callee frames by value). Break the cycle or drive the inner call separately. This refusal is PENDING SL-322, the heap-allocated-frame design: an existential dispatch of a suspending body and suspending recursion both need a heap frame with an indirect resume, so the two land together and neither alone.
@@ -1180,7 +1180,7 @@ errors/map_get_nocopy_value_read.saw	arm64-apple-darwin	same	7a7b5468109e	error	
 errors/map_subscript_immutable_root.saw	arm64-apple-darwin	differs	37076a31cc01	error	refused	-	-	-	264:1b8233af5398	yes	cannot open an exclusive place window on immutable variable `m`
 errors/map_subscript_nocopy_value_read.saw	arm64-apple-darwin	same	e66c0155f367	error	refused	-	-	-	368:3a8f57f03cfc	yes	`m[…]` lends a place of type `Res`, which is move-only — reading it out as a value would alias storage the container still owns
 errors/match_non_exhaustive.saw	arm64-apple-darwin	same	25ba4d95770d	error	refused	-	-	-	232:6ef06516706b	yes	match is not exhaustive, missing variants: `Pending`
-errors/match_on_suspending_call_in_a_loop.saw	arm64-apple-darwin	same	6649af0b8b47	success	ok	0	9:047be209f6a6	0:e3b0c44298fc	-	yes	-
+errors/match_on_suspending_call_in_a_loop.saw	arm64-apple-darwin	same	eefcd88528c7	success	refused	-	-	-	743:74f2563f1b7d	no: Stage 0 does not build it	`try` requires a Result type, got `(TcpStream, TcpStream)`
 errors/method_overload_identical_signature.saw	arm64-apple-darwin	same	fcaf89ed9e79	error	refused	-	-	-	325:b34ca5219463	yes	method `at` is already defined for struct `Bag` with an indistinguishable signature
 errors/mixed_window_modes_conflict.saw	arm64-apple-darwin	differs	71a7878d0aba	error	refused	-	-	-	3289:7aa3e071ae6a	yes	exclusive access violation: the place `b.tally(…)` borrows `b` EXCLUSIVELY even though this window only reads — `Bag.tally` mutates `self` outside the place it lends (a write into receiver storage at line 41) — and `b` is accessed by reference a second time in the same call
 errors/move_in_a_while_condition_nested_loop_header.saw	arm64-apple-darwin	same	a9bafd262832	error	refused	-	-	-	1882:6992a534e7c0	yes	use of moved variable `resource` across loop iterations
@@ -1233,7 +1233,7 @@ errors/place_window_enum_method_let_root.saw	arm64-apple-darwin	differs	e5b320ca
 errors/place_window_root_read_teaches_the_asymmetry.saw	arm64-apple-darwin	differs	4c774dfd2afa	error	refused	-	-	-	3066:17bed275a61b	yes	cannot read `v` from inside a place window opened on it
 errors/place_window_through_a_forced_lend_charges_its_root.saw	arm64-apple-darwin	differs	4c47964dd0b6	error	refused	-	-	-	1122:d00e6b365555	yes	exclusive access violation: the place `b.opt(…)` borrows `b` for the whole window, and `b` is accessed by reference a second time in the same call
 errors/place_write_immutable_root.saw	arm64-apple-darwin	differs	7984b4448b30	error	refused	-	-	-	259:9ab87db67b3f	yes	cannot open an exclusive place window on immutable variable `m`
-errors/prelude_tcp_needs_import.saw	arm64-apple-darwin	same	7bf3de5983b9	error	refused	-	-	-	385:9db83d825d6f	yes	`TcpStream` is not in the prelude and must be imported
+errors/prelude_tcp_needs_import.saw	arm64-apple-darwin	same	30af91ce6a94	error	refused	-	-	-	395:0b263b1b28c6	yes	`TcpStream` is not in the prelude and must be imported
 errors/primitive_box_erasure_refused.saw	arm64-apple-darwin	same	ebb4cfcb2913	error	refused	-	-	-	544:48ca4be35fa3	yes	`String` is a primitive and cannot be erased to `any Tagged`: an existential carries a vtable beside the value, and a primitive has no boxed form to carry one
 errors/primitive_erasure_refused.saw	arm64-apple-darwin	same	d563deb72713	error	refused	-	-	-	469:0e7d627b5d38	yes	`Int` is a primitive and cannot be erased to `any Tagged`: an existential carries a vtable beside the value, and a primitive has no boxed form to carry one
 errors/primitive_type_called_as_a_function.saw	arm64-apple-darwin	same	4d28ea031bbf	error	refused	-	-	-	136:7eaaf5e79de5	yes	internal compiler error at examples/errors/primitive_type_called_as_a_function.saw:26:5 (FunctionCall): Undefined function: UInt8
@@ -1928,50 +1928,50 @@ named_tuple_reorder_error.saw	arm64-apple-darwin	same	898c1aaf92b6	error	refused
 nested_closure_captures_frame_local.saw	arm64-apple-darwin	same	919385e1a441	success	ok	0	272:d722b254bfe8	0:e3b0c44298fc	-	yes	-
 nested_if_iflet_tail.saw	arm64-apple-darwin	same	faefa8068f23	success	ok	0	3:917df3320d77	0:e3b0c44298fc	-	yes	-
 nested_optional_tail_branch_arms.saw	arm64-apple-darwin	same	e56af0390caf	success	ok	0	131:cceb2bf5d483	0:e3b0c44298fc	-	yes	-
-net_accept_loop_concurrent.saw	arm64-apple-darwin	same	f33bf80b6059	success	ok	0	4:9422b95a5e93	0:e3b0c44298fc	-	yes	-
-net_accept_loop_eager_fd_close.saw	arm64-apple-darwin	same	11caee9b63c3	success	ok	0	8:c1258f0aa90a	0:e3b0c44298fc	-	yes	-
-net_accept_roundtrip.saw	arm64-apple-darwin	same	9602b66c6a32	success	ok	0	4:ad0fadf63cc7	0:e3b0c44298fc	-	yes	-
-net_accumulate_across_reads.saw	arm64-apple-darwin	same	002b84ea2ee1	success	ok	0	5:bc18f2c1f944	0:e3b0c44298fc	-	yes	-
-net_budget_fairness.saw	arm64-apple-darwin	differs	dfe7c0a8e0a1	success	ok	0	2:f0b5c2c2211c	0:e3b0c44298fc	-	yes	-
-net_cancel_parked_mt.saw	arm64-apple-darwin	same	4bb9c1de2cd2	success	ok	0	10:36a7ecb15129	0:e3b0c44298fc	-	yes	-
-net_cancel_parked_read.saw	arm64-apple-darwin	same	79f6b428fc30	success	ok	0	27:78657be68532	0:e3b0c44298fc	-	yes	-
-net_cancel_precise.saw	arm64-apple-darwin	same	3e69fd929ee6	success	ok	0	5:858d60e9521e	0:e3b0c44298fc	-	yes	-
-net_cancel_unregisters_token.saw	arm64-apple-darwin	same	4a4fec274934	success	ok	0	71:714ef31c6d7b	0:e3b0c44298fc	-	yes	-
-net_connect_by_name.saw	arm64-apple-darwin	same	9abba6f4dee3	success	ok	0	118:06cd55c6bf7a	0:e3b0c44298fc	-	yes	-
-net_connect_dials_the_host_it_was_given.saw	arm64-apple-darwin	same	4e95c4f206b5	success	ok	0	50:79d08eb620d6	0:e3b0c44298fc	-	yes	-
-net_connect_unresolvable_host.saw	arm64-apple-darwin	same	f9ae3035eaae	success	ok	0	108:0d0d699ac50f	0:e3b0c44298fc	-	yes	-
-net_deinit_across_parks.saw	arm64-apple-darwin	same	df492ad4b7da	success	ok	0	17:9d40f74133d0	0:e3b0c44298fc	-	yes	-
-net_error_surfaced.saw	arm64-apple-darwin	same	d4f0de7e0b17	success	ok	0	41:3b93d7e2ca82	0:e3b0c44298fc	-	yes	-
-net_fd_leak.saw	arm64-apple-darwin	same	7e23698a98d4	success	ok	0	4:ab8e9a58c47a	0:e3b0c44298fc	-	yes	-
-net_fd_reuse_across_connections.saw	arm64-apple-darwin	same	a6aedc554a92	success	ok	0	4:8d58f634a5b5	0:e3b0c44298fc	-	yes	-
-net_http_roundtrip.saw	arm64-apple-darwin	same	2fa5131cee13	success	ok	0	4:f3b68ed9e5d9	0:e3b0c44298fc	-	yes	-
-net_iflet_guardlet_bodies.saw	arm64-apple-darwin	same	d0160c3c3d84	success	ok	0	60:5662833a2eb0	0:e3b0c44298fc	-	yes	-
-net_io_cancel.saw	arm64-apple-darwin	same	e30e02b5c806	success	ok	0	5:05004e9b53dd	0:e3b0c44298fc	-	yes	-
+net_accept_loop_concurrent.saw	arm64-apple-darwin	same	897253afc061	success	refused	-	-	-	736:cf23bad02b34	no: Stage 0 does not build it	`try` requires a Result type, got `Int`
+net_accept_loop_eager_fd_close.saw	arm64-apple-darwin	same	6e0fe0cdaa25	success	refused	-	-	-	752:1dccff847f57	no: Stage 0 does not build it	`try` requires a Result type, got `Int`
+net_accept_roundtrip.saw	arm64-apple-darwin	same	0165f73a33ab	success	refused	-	-	-	366:793c0110f7af	no: Stage 0 does not build it	`try` requires a Result type, got `Int`
+net_accumulate_across_reads.saw	arm64-apple-darwin	same	8df7f4733b40	success	refused	-	-	-	576:d01a7a70d78d	no: Stage 0 does not build it	`try` requires a Result type, got `(TcpStream, TcpStream)`
+net_budget_fairness.saw	arm64-apple-darwin	differs	5acc0aff48c8	success	refused	-	-	-	599:5f6249aca7d1	no: Stage 0 does not build it	`try` requires a Result type, got `(TcpStream, TcpStream)`
+net_cancel_parked_mt.saw	arm64-apple-darwin	same	9e9c2c0e0d9a	success	refused	-	-	-	558:f1edf39bd4f7	no: Stage 0 does not build it	`try` requires a Result type, got `(TcpStream, TcpStream)`
+net_cancel_parked_read.saw	arm64-apple-darwin	same	10762f545f0e	success	refused	-	-	-	553:67af05416b2b	no: Stage 0 does not build it	`try` requires a Result type, got `(TcpStream, TcpStream)`
+net_cancel_precise.saw	arm64-apple-darwin	same	15ac4ab8d84b	success	refused	-	-	-	1066:da05b07627fc	no: Stage 0 does not build it	`try` requires a Result type, got `(TcpStream, TcpStream)`
+net_cancel_unregisters_token.saw	arm64-apple-darwin	same	3677efde07a8	success	refused	-	-	-	820:1aac16974274	no: Stage 0 does not build it	`try` requires a Result type, got `(TcpStream, TcpStream)`
+net_connect_by_name.saw	arm64-apple-darwin	same	ae2050b1d217	success	refused	-	-	-	418:c5e6d0e6fa74	no: Stage 0 does not build it	`try` requires a Result type, got `Int`
+net_connect_dials_the_host_it_was_given.saw	arm64-apple-darwin	same	dcd2ff15fd3b	success	refused	-	-	-	712:60486f95a4e6	no: Stage 0 does not build it	`try` requires a Result type, got `Int`
+net_connect_unresolvable_host.saw	arm64-apple-darwin	same	a427c16028cd	success	refused	-	-	-	1039:e71b4d2ea812	no: Stage 0 does not build it	`try` requires a Result type, got `Int`
+net_deinit_across_parks.saw	arm64-apple-darwin	same	3d0f8f81e95d	success	refused	-	-	-	604:a3c85e7feecd	no: Stage 0 does not build it	`try` requires a Result type, got `(TcpStream, TcpStream)`
+net_error_surfaced.saw	arm64-apple-darwin	same	61c2306d2045	success	refused	-	-	-	808:f5119a5eb691	no: Stage 0 does not build it	`try` requires a Result type, got `Int`
+net_fd_leak.saw	arm64-apple-darwin	same	bda231b0ecc1	success	refused	-	-	-	749:b5cf1d14b8be	no: Stage 0 does not build it	`try` requires a Result type, got `Int`
+net_fd_reuse_across_connections.saw	arm64-apple-darwin	same	b1334a6f7743	success	refused	-	-	-	400:ac2b92271dbb	no: Stage 0 does not build it	`try` requires a Result type, got `Int`
+net_http_roundtrip.saw	arm64-apple-darwin	same	0f891f430b8f	success	refused	-	-	-	549:6e8340aae7ff	no: Stage 0 does not build it	`try` requires a Result type, got `(TcpStream, TcpStream)`
+net_iflet_guardlet_bodies.saw	arm64-apple-darwin	same	6e1322617db2	success	refused	-	-	-	2501:81afcc642d5a	no: Stage 0 does not build it	`try` requires a Result type, got `(TcpStream, TcpStream)`
+net_io_cancel.saw	arm64-apple-darwin	same	69de072f49dc	success	refused	-	-	-	492:2e852eaa2d95	no: Stage 0 does not build it	`try` requires a Result type, got `(TcpStream, TcpStream)`
 net_io_main_entry.saw	arm64-apple-darwin	same	2d2de6efed67	success	ok	0	4:a6e2b7a04068	0:e3b0c44298fc	-	yes	-
-net_io_sleep_interleave.saw	arm64-apple-darwin	same	ac7388e2b88a	success	ok	0	4:133f46e9df9c	0:e3b0c44298fc	-	yes	-
+net_io_sleep_interleave.saw	arm64-apple-darwin	same	9d42fc669f83	success	refused	-	-	-	564:0bd6200ca567	no: Stage 0 does not build it	`try` requires a Result type, got `(TcpStream, TcpStream)`
 net_ipv4_literal_parse.saw	arm64-apple-darwin	same	9e0ad5b902d2	success	ok	0	459:c00b420a2182	0:e3b0c44298fc	-	yes	-
-net_listen_bind_address.saw	arm64-apple-darwin	same	ffb802e55ce8	success	ok	0	166:474e8c8f8db3	0:e3b0c44298fc	-	yes	-
-net_loopback_echo.saw	arm64-apple-darwin	same	16d6bc7cbc72	success	ok	0	4:a4e80b45e633	0:e3b0c44298fc	-	yes	-
-net_multi_msg_echo.saw	arm64-apple-darwin	same	f8f2c1f2291c	success	ok	0	4:1e5040b4db14	0:e3b0c44298fc	-	yes	-
-net_nested_method_three_deep.saw	arm64-apple-darwin	same	fd16ae80be53	success	ok	0	4:133f46e9df9c	0:e3b0c44298fc	-	yes	-
-net_nested_method_two_deep.saw	arm64-apple-darwin	same	aecb19c1075e	success	ok	0	4:133f46e9df9c	0:e3b0c44298fc	-	yes	-
-net_nested_parks_roundtrip.saw	arm64-apple-darwin	same	5ffc703ae902	success	ok	0	4:451d660bc5f3	0:e3b0c44298fc	-	yes	-
-net_nested_shape_matrix.saw	arm64-apple-darwin	same	18a8fd3ae3f7	success	ok	0	89:cfbaab9fcce1	0:e3b0c44298fc	-	yes	-
-net_owning_echo.saw	arm64-apple-darwin	same	4fb5ec5f5e7d	success	ok	0	4:133f46e9df9c	0:e3b0c44298fc	-	yes	-
+net_listen_bind_address.saw	arm64-apple-darwin	same	24ea02cd6648	success	refused	-	-	-	1310:b3a8ca78ec22	no: Stage 0 does not build it	`try` requires a Result type, got `Int`
+net_loopback_echo.saw	arm64-apple-darwin	same	7339545d9937	success	refused	-	-	-	360:eaeb8bf92ca7	no: Stage 0 does not build it	`try` requires a Result type, got `Int`
+net_multi_msg_echo.saw	arm64-apple-darwin	same	216aea934b9c	success	refused	-	-	-	559:329108361b19	no: Stage 0 does not build it	`try` requires a Result type, got `(TcpStream, TcpStream)`
+net_nested_method_three_deep.saw	arm64-apple-darwin	same	4becca5bc21c	success	refused	-	-	-	579:4ab52bedc781	no: Stage 0 does not build it	`try` requires a Result type, got `(TcpStream, TcpStream)`
+net_nested_method_two_deep.saw	arm64-apple-darwin	same	5626d2a4964f	success	refused	-	-	-	573:b07402c7c959	no: Stage 0 does not build it	`try` requires a Result type, got `(TcpStream, TcpStream)`
+net_nested_parks_roundtrip.saw	arm64-apple-darwin	same	33245065061e	success	refused	-	-	-	573:5bff5e7d8cdb	no: Stage 0 does not build it	`try` requires a Result type, got `(TcpStream, TcpStream)`
+net_nested_shape_matrix.saw	arm64-apple-darwin	same	ceaf996db1c0	success	refused	-	-	-	3707:7d7729267107	no: Stage 0 does not build it	`try` requires a Result type, got `(TcpStream, TcpStream)`
+net_owning_echo.saw	arm64-apple-darwin	same	dbfaa7555104	success	refused	-	-	-	544:ac0490811196	no: Stage 0 does not build it	`try` requires a Result type, got `(TcpStream, TcpStream)`
 net_precise_n_readers.saw	arm64-apple-darwin	same	0487bf188821	success	ok	0	11:da69f0aef208	0:e3b0c44298fc	-	yes	-
 net_precise_wakeup.saw	arm64-apple-darwin	same	57debce267fd	success	ok	0	8:dd0f0e18a4e9	0:e3b0c44298fc	-	yes	-
-net_read_into.saw	arm64-apple-darwin	same	89bdec3215ee	success	ok	0	4:133f46e9df9c	0:e3b0c44298fc	-	yes	-
-net_serve_three_connections.saw	arm64-apple-darwin	same	3e226aac6291	success	ok	0	8:39683d450ec8	0:e3b0c44298fc	-	yes	-
-net_serve_two_connections.saw	arm64-apple-darwin	same	34f53177d11b	success	ok	0	6:ac3dc235f4f0	0:e3b0c44298fc	-	yes	-
-net_sibling_eof_no_deadlock.saw	arm64-apple-darwin	same	e683aeff3fe1	success	ok	0	4:133f46e9df9c	0:e3b0c44298fc	-	yes	-
-net_socket_options.saw	arm64-apple-darwin	same	32eaeaa4faf3	success	ok	0	84:ec6eb2bc72b0	0:e3b0c44298fc	-	yes	-
-net_socketpair_echo.saw	arm64-apple-darwin	same	35113b979dd9	success	ok	0	4:451d660bc5f3	0:e3b0c44298fc	-	yes	-
+net_read_into.saw	arm64-apple-darwin	same	156137ab0de3	success	refused	-	-	-	534:80b6c8d48cf3	no: Stage 0 does not build it	`try` requires a Result type, got `(TcpStream, TcpStream)`
+net_serve_three_connections.saw	arm64-apple-darwin	same	d93fd36fb100	success	refused	-	-	-	740:d74f0821f2d7	no: Stage 0 does not build it	`try` requires a Result type, got `Int`
+net_serve_two_connections.saw	arm64-apple-darwin	same	38dd1b59dc3f	success	refused	-	-	-	554:adbe4d8eb185	no: Stage 0 does not build it	`try` requires a Result type, got `Int`
+net_sibling_eof_no_deadlock.saw	arm64-apple-darwin	same	454cce2add3b	success	refused	-	-	-	580:e9e0869c7058	no: Stage 0 does not build it	`try` requires a Result type, got `(TcpStream, TcpStream)`
+net_socket_options.saw	arm64-apple-darwin	same	8c7f8c07dc90	success	refused	-	-	-	268:a32aae8e82f2	no: Stage 0 does not build it	`try` requires a Result type, got `Int`
+net_socketpair_echo.saw	arm64-apple-darwin	same	c928cab718e1	success	refused	-	-	-	552:1db565f3c2d2	no: Stage 0 does not build it	`try` requires a Result type, got `(TcpStream, TcpStream)`
 net_threads_io.saw	arm64-apple-darwin	same	aea3965d380c	success	ok	0	2:53c234e5e847	0:e3b0c44298fc	-	yes	-
-net_three_park_sequence.saw	arm64-apple-darwin	same	d7bdd22423fb	success	ok	0	7:38254a796605	0:e3b0c44298fc	-	yes	-
-net_two_concurrent_parked_reads.saw	arm64-apple-darwin	same	2d91bf2f1601	success	ok	0	8:2e7d64ded903	0:e3b0c44298fc	-	yes	-
+net_three_park_sequence.saw	arm64-apple-darwin	same	9bbdb3a4974e	success	refused	-	-	-	572:75ff436b2ab9	no: Stage 0 does not build it	`try` requires a Result type, got `(TcpStream, TcpStream)`
+net_two_concurrent_parked_reads.saw	arm64-apple-darwin	same	35e9913de5bd	success	refused	-	-	-	1208:325fe7603902	no: Stage 0 does not build it	`try` requires a Result type, got `(TcpStream, TcpStream)`
 net_unroutable_connect_names_the_cause.saw	arm64-apple-darwin	same	2d421069a5b8	success	ok	0	254:703c610cea4e	0:e3b0c44298fc	-	yes	-
-net_write_overloads.saw	arm64-apple-darwin	same	4f008ba36ff2	success	ok	0	4:19e16bd832f1	0:e3b0c44298fc	-	yes	-
-net_write_to_closed_peer_is_an_error.saw	arm64-apple-darwin	same	4307e837fada	success	ok	0	41:17e8c8f7bf89	0:e3b0c44298fc	-	yes	-
+net_write_overloads.saw	arm64-apple-darwin	same	36892af86dd0	success	refused	-	-	-	556:3173ef4acb7f	no: Stage 0 does not build it	`try` requires a Result type, got `(TcpStream, TcpStream)`
+net_write_to_closed_peer_is_an_error.saw	arm64-apple-darwin	same	51b2787a5fa8	success	refused	-	-	-	749:59f5cabc7e07	no: Stage 0 does not build it	`try` requires a Result type, got `(TcpStream, TcpStream)`
 never_extern_module_abi.saw	arm64-apple-darwin	same	6fe5c3abdb59	panic	ok	-6	54:3562ed6f971d	0:e3b0c44298fc	-	yes	-
 newline_braces_stay_significant.saw	arm64-apple-darwin	same	0b2ea79350e7	success	ok	0	7:d19c96f75adc	0:e3b0c44298fc	-	yes	-
 newline_comparison_unaffected.saw	arm64-apple-darwin	same	55f8c89af515	success	ok	0	27:c8a6d7175cd8	0:e3b0c44298fc	-	yes	-
@@ -2171,7 +2171,7 @@ qualified_type_declaration_slots.saw	arm64-apple-darwin	same	1cb05df46485	succes
 qualified_type_in_declaration_slot.saw	arm64-apple-darwin	same	dc650b17673c	success	ok	0	2:53c234e5e847	0:e3b0c44298fc	-	yes	-
 range_inclusive_basics.saw	arm64-apple-darwin	same	9c625486f253	success	ok	0	22:38a7d58e8683	0:e3b0c44298fc	-	yes	-
 range_inclusive_intmax.saw	arm64-apple-darwin	same	5be305fdc6d6	success	ok	0	2:1121cfccd591	0:e3b0c44298fc	-	yes	-
-reactor_cross_thread_wake.saw	arm64-apple-darwin	differs	7ed0eaf00ae5	success	refused	-	-	-	159:ca993191a9d5	no: Stage 0 does not build it	Parse error at 73:31: two statements on one line need a `;` between them: the first begins with `var`, the second with `{` — write `;` where they meet
+reactor_cross_thread_wake.saw	arm64-apple-darwin	differs	db7d27d0685a	success	refused	-	-	-	159:cde9b6fcd94c	no: Stage 0 does not build it	Parse error at 92:31: two statements on one line need a `;` between them: the first begins with `var`, the second with `{` — write `;` where they meet
 receiver_temporary_evaluated_once.saw	arm64-apple-darwin	same	67359a0e924a	success	ok	0	224:572f28c4a7b5	0:e3b0c44298fc	-	yes	-
 recursive_enum_built_in_a_task.saw	arm64-apple-darwin	same	aef46f5ab03d	success	ok	0	27:3ca81d9c651b	0:e3b0c44298fc	-	yes	-
 recursive_enum_inline_payload_refused.saw	arm64-apple-darwin	same	255351d1b7a8	error	refused	-	-	-	412:22735442612f	yes	recursive type `Tree` has infinite size: its storage contains its own storage inline, through Tree.Node.child -> Tree
@@ -2323,7 +2323,7 @@ spawn_optional_result.saw	arm64-apple-darwin	same	f691c2bc8d36	success	ok	0	78:7
 spawn_ref_param_dual_role_and_cancel.saw	arm64-apple-darwin	same	75574dd8ee7a	success	ok	0	80:78b379f94a95	0:e3b0c44298fc	-	yes	-
 spawn_ref_param_referent_deinit_once.saw	arm64-apple-darwin	differs	0ad069b0b36c	success	ok	0	68:530fdbf9b1ba	0:e3b0c44298fc	-	yes	-
 spawn_void_body.saw	arm64-apple-darwin	same	8c8c28a95832	success	refused	-	-	-	312:58a5dd9739fc	no: Stage 0 does not build it	Parse error at 21:31: two statements on one line need a `;` between them: the first begins with `var`, the second with `{` — write `;` where they meet
-spawned_task_runs_before_reactor_park.saw	arm64-apple-darwin	same	53415544d8b4	success	ok	0	44:e6df50d1931d	0:e3b0c44298fc	-	yes	-
+spawned_task_runs_before_reactor_park.saw	arm64-apple-darwin	same	b4bcde2bc0cd	success	refused	-	-	-	398:3ac5c7d65385	no: Stage 0 does not build it	`try` requires a Result type, got `Int`
 spinlock_basic.saw	arm64-apple-darwin	same	73c645c0aa69	success	ok	0	103:50cdc5a3233f	0:e3b0c44298fc	-	yes	-
 spinlock_contention_mt.saw	arm64-apple-darwin	differs	ca80b464ebe5	success	ok	0	49:ac2920d167ff	0:e3b0c44298fc	-	yes	-
 spinlock_import_gate.saw	arm64-apple-darwin	differs	abce05993363	error	refused	-	-	-	371:f6abe9eba7a4	yes	`SpinLock` is not in the prelude and must be imported

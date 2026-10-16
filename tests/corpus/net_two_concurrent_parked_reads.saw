@@ -36,8 +36,8 @@ func writer(stream: TcpStream, msg: String) -> Int {
 }
 
 func main() {
-    let (a0, b0) = TcpStream.pair()
-    let (a1, b1) = TcpStream.pair()
+    let (a0, b0) = try! TcpStream.pair()
+    let (a1, b1) = try! TcpStream.pair()
     var group = TaskGroup()
     // Spawn both readers first (they park on empty fds), then the writers.
     let r0 = group.spawn(reader(move b0, "ping0"))

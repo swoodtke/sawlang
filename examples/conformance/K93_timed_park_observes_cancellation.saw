@@ -49,7 +49,7 @@ func canceller(addr: Int) unsafe {
 }
 
 func run() {
-    let (a, b) = TcpStream.pair()
+    let (a, b) = try! TcpStream.pair()
     var group = TaskGroup()
     let hr = group.spawn(reader(move a))
     let addr = hr.cancel_addr()

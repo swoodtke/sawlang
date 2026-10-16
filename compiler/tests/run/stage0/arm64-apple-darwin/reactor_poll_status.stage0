@@ -1,0 +1,10 @@
+program	compiler/tests/run/reactor_poll_status.saw
+triple	arm64-apple-darwin
+source	0b46e7f202ed823d
+build	ok
+exit	0
+stdout	"create: status 0, an instance: true"
+stdout	"idle poll: status 0, count 0"
+stdout	"woken poll: status 0, count 1"
+stdout	"broken poll: status -16, code 9, count unwritten: true"
+stdout	""

@@ -535,9 +535,13 @@ extension LlEmitter {
         try! code.append(thunk)
         try! code.append(" to i64")
         let fn = self.assign(code.build())
-        self.declare("__saw_rt_offload_start", "declare i64 @__saw_rt_offload_start(i64, i64, i64)")
-        // SL-768 changes this seam to `(fn, argp, argc, job_out: word*) -> 0/-tag`;
-        // its sweep updates this call.
+        // The seam stores the job straight into the storage's job word, and
+        // reports a job it could not start (no memory, no pipe, no thread) as
+        // a negated tag. An extern call has no error channel, so that panics
+        // with the cause, as Stage 0's offload does, rather than park on a job
+        // that does not exist (runtime/ABI.md).
+        let job_at = self.offset_addr("%frame", point.slot)
+        self.declare("__saw_rt_offload_start", "declare i64 @__saw_rt_offload_start(i64, i64, i64, ptr)")
         var call = StringBuilder()
         try! call.append("call i64 @__saw_rt_offload_start(i64 ")
         try! call.append(fn)
@@ -545,10 +549,28 @@ extension LlEmitter {
         try! call.append(argp)
         try! call.append(", i64 ")
         try! call.append(sig.params.len())
+        try! call.append(", ptr ")
+        try! call.append(job_at)
         try! call.append(")")
-        let job = self.assign(call.build())
-        let job_at = self.offset_addr("%frame", point.slot)
-        self.store("i64", job, job_at)
+        let status = self.assign(call.build())
+        var test = StringBuilder()
+        try! test.append("icmp eq i64 ")
+        try! test.append(status)
+        try! test.append(", 0")
+        let started = self.assign(test.build())
+        let pass = self.new_label("offload.started")
+        let fail = self.new_label("offload.refused")
+        self.branch(started, pass, fail)
+        self.put_label(fail)
+        self.declare("__saw_rt_last_raw_code", "declare i64 @__saw_rt_last_raw_code()")
+        let raw = self.assign("call i64 @__saw_rt_last_raw_code()")
+        var parts = LlParts()
+        ll_parts_push(&var parts, LL_PART_SIGNED, raw, "")
+        let close = self.text_bytes(")")
+        let g = self.pooled(&close, false, 0)
+        ll_parts_push(&var parts, LL_PART_RUN, g, "1")
+        self.fail_parts(&var mono, node, "blocking call: starting its offload failed (errno ", &parts)
+        self.put_label(pass)
     }
 
     // An offload's take, in a resume function: the job in the storage's job

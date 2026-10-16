@@ -1,0 +1,41 @@
+// The reactor's create and poll seams report through a status, the instance
+// and the count through out-parameters (SL-768). A poll that delivers nothing
+// stores 0, a woken poll counts its wake, and a poll on an instance whose
+// kqueue or epoll descriptor is gone answers the negated tag (`EBADF` is
+// `Other`, 16), stamps the raw code and leaves the count unwritten, where it
+// once answered -1 with no cause.
+//
+// The instance's first word is its kqueue or epoll descriptor on both hosts
+// (runtime/host_*/reactor.saw), which is how this program breaks it.
+
+extern "C" {
+    func __saw_rt_reactor_create(r_out: UnsafePointer<Int>) -> Int
+    func __saw_rt_reactor_poll(r: Int, timeout_ms: Int, count_out: UnsafePointer<Int>) -> Int
+    func __saw_rt_reactor_wake(r: Int)
+    func __saw_rt_last_raw_code() -> Int
+    func close(fd: Int32) -> Int32
+}
+
+static UNWRITTEN: Int = -1
+
+func poll_now(r: Int, count: &var Int) unsafe -> Int {
+    count = UNWRITTEN
+    __saw_rt_reactor_poll(r, 0, (&count) as UnsafePointer<Int>)
+}
+
+func main() unsafe {
+    var r = 0
+    print("create: status {}, an instance: {}",
+          __saw_rt_reactor_create((&r) as UnsafePointer<Int>), r != 0)
+    var count = 0
+    let idle = poll_now(r, &var count)
+    print("idle poll: status {}, count {}", idle, count)
+    __saw_rt_reactor_wake(r)
+    let woken = poll_now(r, &var count)
+    print("woken poll: status {}, count {}", woken, count)
+    let fd = (r as UnsafePointer<Int>)[0]
+    let _ = close(fd as Int32)
+    let broken = poll_now(r, &var count)
+    print("broken poll: status {}, code {}, count unwritten: {}", broken, __saw_rt_last_raw_code(),
+          count == UNWRITTEN)
+}

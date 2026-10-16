@@ -2,9 +2,36 @@ program	net_error_surfaced.saw
 triple	arm64-apple-darwin
 twin	same
 expect	success
-build	ok
-exit	0
-stdout	"connect failed: surfaced"
-stdout	"eof is ok empty"
-stdout	""
-meets_expect	yes
+build	refused	`try` requires a Result type, got `Int`
+meets_expect	no: Stage 0 does not build it
+log	"error: `try` requires a Result type, got `Int`"
+log	"  --> examples/net_error_surfaced.saw:18:13"
+log	"     |"
+log	" 18 |     let p = try! listener.local_port()"
+log	"     |             ^"
+log	""
+log	"error: undefined variable `p`"
+log	"  --> examples/net_error_surfaced.saw:19:12"
+log	"     |"
+log	" 19 |     return p"
+log	"     |            ^"
+log	""
+log	"error: `try` requires a Result type, got `(TcpStream, TcpStream)`"
+log	"  --> examples/net_error_surfaced.saw:33:18"
+log	"     |"
+log	" 33 |     let (a, b) = try! TcpStream.pair()"
+log	"     |                  ^"
+log	""
+log	"error: undefined variable `a`"
+log	"  --> examples/net_error_surfaced.saw:34:17"
+log	"     |"
+log	" 34 |     drop_stream(move a)                 // close b's peer -> b sees EOF"
+log	"     |                 ^"
+log	""
+log	"error: undefined variable `b`"
+log	"  --> examples/net_error_surfaced.saw:35:11"
+log	"     |"
+log	" 35 |     match b.read() {"
+log	"     |           ^"
+log	""
+log	"5 error(s) generated"

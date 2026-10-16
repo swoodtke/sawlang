@@ -22,6 +22,18 @@ provider must follow it):
   status word (`0` armed, else `errno`) instead of `void`, and
   `__saw_rt_reactor_poll` latches a token word by compare-and-swap from `-1`
   to `0`.
+- sawc 0.15.0 (SL-765 T3a, SL-768): every seam that can fail reports it, in
+  one convention, the portable tag (see "Errors"): it returns `0`, or the
+  negated `SysError` tag with the raw code stamped for
+  `__saw_rt_last_raw_code`, and a pointer or a count it produces goes through
+  an out-parameter. `__saw_rt_thread_spawn`, `__saw_rt_thread_join`,
+  `__saw_rt_offload_start`, `__saw_rt_reactor_create`, `__saw_rt_reactor_poll`,
+  `__saw_rt_pthread_mutex_init_default` and
+  `__saw_rt_pthread_cond_init_default` change signature;
+  `__saw_rt_reactor_register` keeps its shape and reports the tag where it
+  reported `errno`; `__saw_rt_tcp_local_port` and `__saw_rt_set_nonblocking`
+  report failures they hid; `__saw_rt_thread_detach` returns who frees the
+  control block. Each entry below carries its own amendment note.
 
 Two symbol tiers exist (design 113); only the first is this ABI:
 
@@ -171,6 +183,26 @@ error vocabulary.
 `connect()` can be classified (done / still connecting / failed) without an
 errno accessor.
 
+**A seam classifies a number in its own call's context.** The table reads an
+errno the way a nonblocking descriptor call means it. Where a call gives the
+number another meaning, the seam reports that meaning: `EAGAIN` from
+`pthread_create` or `fork` is a thread or process limit, so
+`__saw_rt_thread_spawn`, `__saw_rt_offload_start` and the process spawns
+report `Exhausted`. `WouldBlock` there would invite a retry loop that cannot
+succeed. The raw code stays stamped either way. A call that returns its error
+number rather than setting errno (the pthread functions) is classified through
+the same table, which the hosted runtime reaches with `__saw_classify_code` in
+`shim.c`.
+
+**Every seam that can fail reports in this convention** (sawc 0.15.0): it
+returns `0` or `-tag`, and a pointer or count it produces travels through an
+out-parameter, as `__saw_rt_reactor_create`'s instance and
+`__saw_rt_reactor_poll`'s count do. A seam whose natural result is a
+non-negative number (a descriptor, a byte count, a port) returns it or
+`-tag`, and a seam that returns a pointer puts a positive tag in a
+`status_out` parameter (`__saw_rt_fs_opendir`). A runtime with no errno
+implements every seam in the same shape, since the tag is its native status.
+
 **The status word carries no errno.** A single negated-word return cannot
 carry a tag and a raw errno, and SOS has no errno to preserve, so a failing op
 returns only the tag, and `Other` carries nothing extra. Diagnostic detail
@@ -252,9 +284,13 @@ status of its own answers `0` ("`0` where the platform has none").
 
 ## Sockets — OS-divergent helpers
 
-### `__saw_rt_set_nonblocking(fd: word) -> word  (0/-1)`
+### `__saw_rt_set_nonblocking(fd: word) -> word  (0/-tag)`
 Set `O_NONBLOCK` on `fd`. **OS-divergent** flag value; C shim (DF-113c: variadic
-`fcntl`). Returns 0 on success, -1 on the `F_GETFL` failure.
+`fcntl`). Returns 0 on success, or the negated tag of whichever of the
+`F_GETFL` read and the `F_SETFL` write failed.
+
+> **Amended in sawc 0.15.0 (SL-765 T3a, SL-768):** it returned `-1` with no
+> cause on an `F_GETFL` failure and ignored `F_SETFL`'s result.
 
 ### `__saw_rt_sin_set_family(buf: i8*) -> void`
 Stamp the OS-divergent prefix of a `struct sockaddr_in` at `buf`, the only part
@@ -422,7 +458,10 @@ never-hide-errors rule forbids.
 | 3   | ReuseAddress  | `SOL_SOCKET`/`SO_REUSEADDR` | `SOL_SOCKET`/`SO_REUSEADDR` |
 
 ### `__saw_rt_tcp_local_port(fd: word) -> word`
-`getsockname` → the bound local port (resolves an ephemeral 0).
+`getsockname` → the bound local port (resolves an ephemeral 0), or `-tag`.
+
+> **Amended in sawc 0.15.0 (SL-765 T3a, SL-768):** a refused `getsockname`
+> answered port `0`.
 
 ### `__saw_rt_tcp_accept(listen_fd: word) -> word`
 Nonblocking accept → a nonblocking conn fd, or `-tag` (`-WouldBlock` when no
@@ -727,12 +766,20 @@ of the threads at the blocking call: a poller that consumed the wake re-posts
 it while that count is positive, and the chain stops when a consumer reads
 zero. `examples/reactor_cross_thread_wake.saw` is the seam-level test.
 
-### `__saw_rt_reactor_create() -> ptr`
+### `__saw_rt_reactor_create(r_out: word*) -> word  (0/-tag)`
 Create a reactor instance: a kqueue (macOS) / epoll (Linux) fd + its wake source
-(an armed `EVFILT_USER` event / a nonblocking `eventfd`). Returns an opaque
-instance pointer (as a `word`).
+(an armed `EVFILT_USER` event / a nonblocking `eventfd`). Stores the opaque
+instance pointer (as a `word`) through `r_out` and returns `0`, or returns
+`-tag` and stores nothing, having undone every step before the one that
+failed (descriptor exhaustion is `Exhausted`). An instance whose kqueue or
+epoll set does not exist would look live: every poll would return at once,
+and the executor would spin through every timed wait.
 
-### `__saw_rt_reactor_register(r: ptr, fd: word, write: word, token: word) -> word  (0/errno)`
+> **Amended in sawc 0.15.0 (SL-765 T3a, SL-768):** it took no parameter and
+> returned the instance itself, one holding fd `-1` when a call inside it
+> failed.
+
+### `__saw_rt_reactor_register(r: ptr, fd: word, write: word, token: word) -> word  (0/-tag)`
 Arm **one-shot** readiness interest on `fd` in `r` for read (`write==0`) or write
 (`write!=0`). `token` is carried as the event's user-data and is **the parked
 frame's `__wake`-word address** (design 91), the precise-routing contract, or
@@ -742,14 +789,17 @@ known fd with `EPOLL_CTL_MOD` when the `EPOLL_CTL_ADD` fails with `EEXIST`.
 
 > **Amended in sawc 0.14.0 (SL-569, SL-355's R5):** the return is a status
 > word; it was `void` in v2 as frozen.
+>
+> **Amended in sawc 0.15.0 (SL-765 T3a, SL-768):** a failure is the negated
+> tag, with the raw code stamped; it was the platform's raw `errno`.
 
-**Returns `0` when readiness is armed, else the platform's raw `errno`.** A
-registration that fails and says nothing leaves its task parked forever on an
-event that can never arrive, which is exactly the signature of a lost wake
-(SL-354). The executor's arm funnel `__saw_exec_io_register` turns a nonzero
-status into a panic naming the fd, the direction and the code: a failed arm is a
-runtime invariant violation, never a recoverable condition. A runtime that
-implements this seam must report.
+**Returns `0` when readiness is armed, else `-tag`.** A registration that fails
+and says nothing leaves its task parked forever on an event that can never
+arrive, which is exactly the signature of a lost wake (SL-354). The executor's
+arm funnel `__saw_exec_io_register` turns a nonzero status into a panic naming
+the fd, the direction and the raw code `__saw_rt_last_raw_code` answers: a
+failed arm is a runtime invariant violation, never a recoverable condition. A
+runtime that implements this seam must report.
 
 **The park order** the executor keeps around this call: the parking side writes
 the park value (`-1`) into the token's word before it calls register, and
@@ -773,7 +823,7 @@ event firing (a cancellation or a timeout), and a coroutine frame's synthesized
 field drops so the fd is still open and still the frame's. A frame whose body
 contains no literal `io_wait` gets neither the bookkeeping fields nor the call.
 
-### `__saw_rt_reactor_poll(r: ptr, timeout_ms: word) -> word  (ready count)`
+### `__saw_rt_reactor_poll(r: ptr, timeout_ms: word, count_out: word*) -> word  (0/-tag)`
 Block in `kevent`/`epoll_wait` on `r` up to `timeout_ms` (`< 0` = forever). For
 each ready event with a nonzero token, **latch its token word to 0 (ready)**,
 waking the task whose frame registered for that `(fd, direction)`. The token
@@ -786,8 +836,15 @@ the park is never lost. Token `0` is never latched:
 it belongs to the wake source and to registrations made outside any frame.
 Consuming the wake event makes the poll re-post the wake while another poller
 is blocked (the cascade above) and clear the source so it does not busy-fire.
-Returns the number of events delivered, a consumed wake event included. The
-event buffer is a per-call heap allocation (see Concurrency above).
+Stores the number of events delivered, a consumed wake event included, through
+`count_out` and returns `0`; or returns `-tag` and stores nothing. A signal
+that cuts the wait short is `-Interrupted`, which a caller treats as an early
+return and polls again; any other tag is a broken instance or a refused event
+buffer. The event buffer is a per-call heap allocation (see Concurrency
+above).
+
+> **Amended in sawc 0.15.0 (SL-765 T3a, SL-768):** it returned the count
+> itself, and `-1` with no cause on a failure.
 
 ### `__saw_rt_reactor_wake(r: ptr) -> void`
 Rouse every thread blocked in `poll` on `r`, from any thread, including one the
@@ -810,21 +867,42 @@ v1's `__saw_rt_pthread_create`/`__saw_rt_pthread_join` are replaced by
 spawn/join (see the migration table); detach was added later. pthread symbols
 resolve from libSystem (macOS) / libc+libpthread (Linux).
 
-### `__saw_rt_thread_spawn(entry: void*(*)(void*), env: i8*) -> word  (handle)`
-`pthread_create(&t, NULL, entry, env)`; return the OS thread handle (`pthread_t`,
-pointer-sized on both hosts) as a word. Spawn codegen stores the returned handle
-into the control block's first slot. C shim (DF-113b: a raw C function
+### `__saw_rt_thread_spawn(entry: void*(*)(void*), env: i8*, handle_out: word*) -> word  (0/-tag)`
+`pthread_create(&t, NULL, entry, env)`; store the OS thread handle (`pthread_t`,
+pointer-sized on both hosts) as a word through `handle_out` and return `0`, or
+return `-tag` and store nothing, the thread never started. A thread limit
+(`EAGAIN`) is `Exhausted` (see "Errors"). Spawn codegen passes the control
+block's first slot as `handle_out`. C shim (DF-113b: a raw C function
 pointer).
 
-### `__saw_rt_thread_join(handle: word) -> void`
-`pthread_join((pthread_t)handle, NULL)`: join by the handle value. Saw body
+> **Amended in sawc 0.15.0 (SL-765 T3a, SL-768):** it took no `handle_out`,
+> returned the handle itself, and ignored `pthread_create`'s result, handing
+> back an uninitialized handle when the thread was refused (SL-276).
+
+### `__saw_rt_thread_join(handle: word) -> word  (0/-tag)`
+`pthread_join((pthread_t)handle, NULL)`: join by the handle value. Returns `0`,
+or `-tag` when the join is refused: a thread joining itself is `EDEADLK`, and
+a handle that names no joinable thread `EINVAL` or `ESRCH`. Saw body
 (`rt/common/pthread.saw`).
 
-### `__saw_rt_thread_detach(ctrl: i8*) -> void`
-`pthread_detach` on the thread whose control block is `ctrl`, and the handoff of
-that block's ownership to the thread's own exit path. C shim (DF-113b's reason
-plus one of its own, below). The daemon-thread fate (design 242): the values a
-thread owns deinit if it completes, and the OS terminates it at process exit.
+> **Amended in sawc 0.15.0 (SL-765 T3a, SL-768):** it returned `void` and
+> ignored `pthread_join`'s result.
+
+### `__saw_rt_thread_detach(ctrl: i8*) -> word  (1 caller frees / 0)`
+`pthread_detach` on the thread whose control block is `ctrl`, and the
+settlement of which side frees that block. C shim (DF-113b's reason plus one
+of its own, below). The daemon-thread fate (design 242): the values a thread
+owns deinit if it completes, and the OS terminates it at process exit.
+
+Returns `1` when the thread had already finished, so the caller now owns the
+block, else `0`, the thread's own exit owning it. It never frees the block:
+the caller knows the result type, and a finished thread's result is a live
+value that has to be destroyed before its block goes.
+
+> **Amended in sawc 0.15.0 (SL-765 T3a, SL-768):** it returned `void` and
+> freed a finished thread's block itself, which leaked an owning result: the
+> seam cannot name `T`, so it could free the memory but never destroy the
+> value in it.
 
 **Why it takes the block and not the handle.** Its twin `__saw_rt_thread_join`
 takes the handle by value, and symmetry would say this should too. It cannot,
@@ -842,13 +920,14 @@ positive number) before the thread exists. Then:
 
 | party | exchange | what a returned value means |
 |-------|----------|-----------------------------|
-| this seam | `prev = xchg(state, 0)` | `prev > 0` — the thread is still running and its exit will free the block. `prev < 0` — the thread already finished and left `-size`; **free it here**, `size = -prev` |
-| the thread's exit path (the per-spawn trampoline, after the result is stored and the env released) | `prev = xchg(state, -size)` | `prev == 0` — the detacher already ran; **free it there**. Otherwise the detacher has not run and will |
+| this seam | `prev = xchg(state, 0)` | `prev > 0` — the thread is still running and its exit will free the block; return `0`. `prev < 0` — the thread already finished and left `-size`; return `1`, and **the caller** destroys the result and frees the block |
+| the thread's exit path (the per-spawn trampoline, after the result is stored and the env released) | `prev = xchg(state, -size)` | `prev == 0` — the detacher already ran; destroy the result and **free it there**. Otherwise the detacher has not run and will |
 
 Both exchanges are acquire-release. Exactly one side frees, always, with no lock
-and no wait. **The size travels in the word** so this seam can call
-`__saw_rt_dealloc` without knowing `T`: the block's layout is the compiler's,
-and the seam learns one word of it and nothing else.
+and no wait. The seam learns one word of the block's layout and nothing else;
+the side that frees is compiled code that knows `T`, so the result is
+destroyed exactly once whichever order the two take. The size still travels in
+the word, which is how the thread's exit marks that it finished.
 
 `join` never touches `state`: a joined thread was never detached, so the joiner
 is the block's only owner and frees it.
@@ -865,12 +944,17 @@ thread and would tell a caller its thread was detached when no thread exists.
 Without the spawn seam, a `Thread.spawn` fails at link before a `detach` could
 be reached, which is that refusal.
 
-### `__saw_rt_pthread_mutex_init_default(m: i8*) -> void`
+### `__saw_rt_pthread_mutex_init_default(m: i8*) -> word  (0/-tag)`
 `pthread_mutex_init(m, NULL)`. Saw reserves a conservative slot (<= 64 bytes).
+Returns `0`, or `-tag` when the platform refuses (`ENOMEM` is `Exhausted`).
 
-### `__saw_rt_pthread_cond_init_default(c: i8*) -> void`
+### `__saw_rt_pthread_cond_init_default(c: i8*) -> word  (0/-tag)`
 `pthread_cond_init(c, NULL)`. `pthread_cond_t` is 48 bytes on macOS/glibc; std
-reserves 64.
+reserves 64. Returns `0`, or `-tag` when the platform refuses (`ENOMEM`,
+`EAGAIN`).
+
+> **Amended in sawc 0.15.0 (SL-765 T3a, SL-768):** both returned `void` and
+> ignored the init's result.
 
 ### `__saw_rt_lock_acquire(state: word*) -> void`
 ### `__saw_rt_lock_release(state: word*) -> void`
@@ -914,11 +998,21 @@ that storage after the join. What a pointer slot points at is the caller's
 obligation (LANGUAGE_SPEC, "Blocking externs and the offload"): it must live in
 the suspended frame or the heap, both of which outlive the park.
 
-### `__saw_rt_offload_start(fn: word, argp: ptr, argc: word) -> word  (job handle)`
+### `__saw_rt_offload_start(fn: word, argp: ptr, argc: word, job_out: word*) -> word  (0/-tag)`
 Copy `argc` argument slots from `argp` into the job, then spawn a thread that runs
 `fn(<the job's copy>)`, stores the result, publishes `done` (atomic release), and
 writes one byte to the job pipe. `argc == 0` copies nothing and passes a null
-pointer. Returns the job record's address as a handle.
+pointer. Stores the job record's address as a handle through `job_out` and
+returns `0`; or returns `-tag` and stores nothing, every step before the one
+that failed undone. The job, the slot copy, the pipe and the thread can each
+be refused: an allocation or a descriptor limit is `Exhausted`, and so is a
+thread limit (`EAGAIN`, see "Errors"). An offloaded extern call has no error
+channel, so the compiler's offload lowering panics with the cause; it never
+parks on a job that does not exist.
+
+> **Amended in sawc 0.15.0 (SL-765 T3a, SL-768):** it took no `job_out`,
+> returned the job itself, and checked none of its steps: a refused `pipe`
+> left both descriptors 0, so `take` closed the program's standard input.
 
 ### `__saw_rt_offload_done(job: word) -> word  (0/1)`
 Acquire-load the published `done` flag.
@@ -930,7 +1024,9 @@ The job's readable pipe fd (the parked task registers this with the reactor).
 Join the worker (full barrier), read the result, close the pipe, free the argument
 slots and the job. One result word; a Void/Never extern's caller ignores it. The
 join is unconditional: a cancelled task still takes, which is what makes freeing
-the slots safe.
+the slots safe. The join cannot fail, since each job is taken once by a thread
+that is not its worker; the hosted body aborts if it does rather than free
+slots a running worker still reads.
 
 ### `__saw_rt_blocking_sleep(ms: word) -> word  (ms)`
 The reference blocking primitive: a thread-blocking sleep that returns its
@@ -1021,6 +1117,7 @@ a flag bit.
 | SL-720 | `__saw_rt_fs_getcwd`: one new symbol, status-carrying like `__saw_rt_fs_opendir`, so `Env.cwd` reports the cause getcwd gave. No existing signature moved |
 | SL-737 | `__saw_rt_env_get` (status-carrying like `__saw_rt_fs_getcwd`) and `__saw_rt_env_contains`: two new symbols, so std's environment reads go through the runtime. `__saw_rt_env_set`/`_unset`, `__saw_rt_proc_spawn` and `__saw_rt_proc_spawn_env` **changed** contract: all six take one environment lock, both spawns hold it in the parent across `fork`, and `_spawn_env` copies the parent's entries under it. No existing signature moved |
 | SL-569 | `__saw_rt_reactor_register` **changed**: returns a status word, `0` armed or the platform's `errno`, where it returned `void`; `__saw_rt_reactor_poll` **changed** contract: its latch is a compare-and-swap from `-1` to `0` on an `Atomic<Int>` token word (sawc 0.14.0, SL-355's R5). Every runtime provider follows it |
+| SL-768 | sawc 0.15.0 (SL-765 T3a): the portable-tag convention for every seam that can fail. **Changed** signatures: `__saw_rt_thread_spawn` gains `handle_out` and returns `0`/`-tag`; `__saw_rt_thread_join`, `__saw_rt_pthread_mutex_init_default` and `__saw_rt_pthread_cond_init_default` return `0`/`-tag` where they returned `void`; `__saw_rt_offload_start` gains `job_out`, `__saw_rt_reactor_create` takes `r_out` and `__saw_rt_reactor_poll` gains `count_out`, each returning `0`/`-tag`; `__saw_rt_thread_detach` returns `1` when the caller owns the control block and no longer frees it. **Changed** contracts with the same signature: `__saw_rt_reactor_register` reports `-tag` where it reported `errno`, `__saw_rt_tcp_local_port` reports `-tag` where it answered port 0, and `__saw_rt_set_nonblocking` reports `-tag` for both of its calls where it answered `-1` for one. Every runtime provider follows it |
 
 ## The compiler → executor boundary (design 118)
 
@@ -1188,4 +1285,7 @@ and moves to Saw when its gap closes:
   pointer): `__saw_open_flags`, the `getaddrinfo` projections
   (`__saw_ai_next`, `__saw_ai_ipv4`, `__saw_gai_tag`),
   `__saw_environ_get`/`_set`, the socket-option and SIGPIPE helpers, the
-  signal family, and on Linux `__saw_epoll_event_size`/`_data_offset`.
+  signal family, `__saw_classify_code` (an error number a call returned,
+  stored into the per-host errno macro and classified by
+  `__saw_rt_last_syserror`), and on Linux
+  `__saw_epoll_event_size`/`_data_offset`.

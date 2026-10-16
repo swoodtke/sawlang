@@ -2,11 +2,36 @@ program	net_connect_unresolvable_host.saw
 triple	arm64-apple-darwin
 twin	same
 expect	success
-build	ok
-exit	0
-stdout	"empty: io error: resolve \"\" failed (not found)"
-stdout	"over-long: refused"
-stdout	"localhost: connected"
-stdout	"127.0.0.1: connected"
-stdout	""
-meets_expect	yes
+build	refused	`try` requires a Result type, got `Int`
+meets_expect	no: Stage 0 does not build it
+log	"error: `try` requires a Result type, got `Int`"
+log	"  --> examples/net_connect_unresolvable_host.saw:44:16"
+log	"     |"
+log	" 44 |     let port = try! listener.local_port()"
+log	"     |                ^"
+log	""
+log	"error: undefined variable `port`"
+log	"  --> examples/net_connect_unresolvable_host.saw:47:33"
+log	"     |"
+log	" 47 |     match TcpStream.connect(\"\", port) {"
+log	"     |                                 ^"
+log	""
+log	"error: undefined variable `port`"
+log	"  --> examples/net_connect_unresolvable_host.saw:52:47"
+log	"     |"
+log	" 52 |     match TcpStream.connect(over_long_name(), port) {"
+log	"     |                                               ^"
+log	""
+log	"error: undefined variable `port`"
+log	"  --> examples/net_connect_unresolvable_host.saw:56:26"
+log	"     |"
+log	" 56 |     attempt(\"localhost\", port)      // the RESOLVED path — /etc/hosts, no network"
+log	"     |                          ^"
+log	""
+log	"error: undefined variable `port`"
+log	"  --> examples/net_connect_unresolvable_host.saw:57:26"
+log	"     |"
+log	" 57 |     attempt(\"127.0.0.1\", port)      // the LITERAL path — never reaches the resolver"
+log	"     |                          ^"
+log	""
+log	"5 error(s) generated"

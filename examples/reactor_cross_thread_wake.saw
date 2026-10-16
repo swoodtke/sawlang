@@ -28,14 +28,33 @@ import std.mutex.*
 import std.time.{Instant}
 
 extern "C" {
-    func __saw_rt_reactor_create() -> Int
-    func __saw_rt_reactor_poll(r: Int, timeout_ms: Int) -> Int
+    func __saw_rt_reactor_create(r_out: UnsafePointer<Int>) -> Int
+    func __saw_rt_reactor_poll(r: Int, timeout_ms: Int, count_out: UnsafePointer<Int>) -> Int
     func __saw_rt_reactor_wake(r: Int)
     func __saw_rt_sleep_ns(ns: UInt64)
 }
 
 static WAIT_MS: UInt64 = 5000
 static SETTLE_NS: UInt64 = 50000000
+
+// A new reactor instance, which the create seam stores through its
+// out-parameter.
+func new_reactor() unsafe -> Int {
+    var r = 0
+    if __saw_rt_reactor_create((&r) as UnsafePointer<Int>) != 0 {
+        panic("the reactor was refused")
+    }
+    r
+}
+
+// One poll of `r`, up to `timeout_ms`. The count it stores is not needed here,
+// and nothing in this program can make a poll fail.
+func poll(r: Int, timeout_ms: Int) unsafe {
+    var count = 0
+    if __saw_rt_reactor_poll(r, timeout_ms, (&count) as UnsafePointer<Int>) != 0 {
+        panic("the poll was refused")
+    }
+}
 
 // Announce arrival, park until woken, then announce departure. Both counters
 // are plain `Arc<Mutex<Int>>` — the sanctioned cross-thread share.
@@ -44,7 +63,7 @@ func parker(r: Int, entered: Arc<Mutex<Int>>, left: Arc<Mutex<Int>>) {
         c = c + 1
         c
     })
-    let _ = __saw_rt_reactor_poll(r, -1)
+    poll(r, -1)
     let _ = left.lock({ &var c in
         c = c + 1
         c
@@ -66,7 +85,7 @@ func await_count(counter: Arc<Mutex<Int>>, want: Int) -> Int {
 }
 
 func main() {
-    let r = __saw_rt_reactor_create()
+    let r = new_reactor()
     let entered = try! Arc<Mutex<Int>>(value: Mutex<Int>(value: 0))
     let left = try! Arc<Mutex<Int>>(value: Mutex<Int>(value: 0))
 
@@ -92,6 +111,6 @@ func main() {
     // its whole timeout, which is what design 102's cancel path depends on.
     __saw_rt_reactor_wake(r)
     let before = Instant.now()
-    let _ = __saw_rt_reactor_poll(r, 2000)
+    poll(r, 2000)
     print("a wake with nobody parked is not lost: {}", before.elapsed().as_millis() < 2000u64)
 }

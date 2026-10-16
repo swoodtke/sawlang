@@ -79,22 +79,28 @@ struct FdPair {
     b: Int32
 }
 
-// The two ends of a connected local stream pair, each `INVALID_FD` when the
-// system refuses the pair.
-struct Ends {
-    a: Int
-    b: Int
-}
-
-// A connected, nonblocking local stream pair.
-func socket_pair() unsafe -> Ends {
+// A connected, nonblocking local stream pair's descriptors.
+//
+// `socketpair` is a bare libc call, whose errno std cannot read, so its
+// refusal reports kind `Unknown`. The `O_NONBLOCK` seam cannot refuse
+// descriptors `socketpair` just made; its status is still read, since a
+// blocking end would block the executor's thread in its first read.
+func socket_pair() unsafe -> Result<FdPair, IoError> {
     var fds = FdPair(a: 0, b: 0)
     if socketpair(AF_UNIX, SOCK_STREAM, PROTO_DEFAULT, (&fds) as UnsafePointer<Int32>) != 0 {
-        return Ends(a: INVALID_FD, b: INVALID_FD)
+        return IoError.of(syscall: "socketpair", kind: IoErrorKind.Unknown)
     }
-    let _ = __saw_rt_set_nonblocking(fds.a as Int)
-    let _ = __saw_rt_set_nonblocking(fds.b as Int)
-    Ends(a: fds.a as Int, b: fds.b as Int)
+    var status = __saw_rt_set_nonblocking(fds.a as Int)
+    if status == 0 {
+        status = __saw_rt_set_nonblocking(fds.b as Int)
+    }
+    if status != 0 {
+        let failure = IoError.of(syscall: "fcntl", tag: 0 - status)
+        close_fd(fds.a as Int)
+        close_fd(fds.b as Int)
+        return failure
+    }
+    fds
 }
 
 /// The portable kind of a failed operating-system operation.
@@ -451,8 +457,15 @@ extension TcpListener {
 
     /// Returns the local port the listener is bound to, the one the system
     /// chose when it was asked for port 0.
-    public func local_port(&self) -> Int {
-        __saw_rt_tcp_local_port(self.fd)
+    ///
+    /// Returns `Err(IoError)` when the system will not say, which a listener
+    /// this type opened meets only when its socket has been shut down under it.
+    public func local_port(&self) -> Result<Int, IoError> {
+        let port = __saw_rt_tcp_local_port(self.fd)
+        if port < 0 {
+            return IoError.of(syscall: "getsockname", tag: 0 - port)
+        }
+        port
     }
 
     /// Accepts the next connection, suspending until one arrives.
@@ -497,11 +510,11 @@ extension TcpStream {
     /// Returns a connected pair of local stream sockets, for tests and for
     /// talking between tasks, with no port bound.
     ///
-    /// When the system refuses the pair, both ends hold no descriptor, and
-    /// every operation on them fails.
-    public static func pair() -> (TcpStream, TcpStream) {
-        let fds = socket_pair()
-        (TcpStream(fd: fds.a), TcpStream(fd: fds.b))
+    /// Returns `Err(IoError)` when the system refuses the pair, as it does
+    /// when the process has run out of descriptors.
+    public static func pair() -> Result<(TcpStream, TcpStream), IoError> {
+        let fds = try socket_pair()
+        (TcpStream(fd: fds.a as Int), TcpStream(fd: fds.b as Int))
     }
 
     /// Connects to `host`:`port`, suspending until the connection is made.

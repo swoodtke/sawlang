@@ -1,0 +1,79 @@
+// A thread the operating system refuses is reported as `Exhausted`, with the
+// raw `EAGAIN` stamped beside it, and no handle is stored (SL-768). The
+// program starts threads that block on an empty pipe until the per-process
+// thread limit refuses one: `pthread_create`'s `EAGAIN` there is a limit a
+// retry does not fix, so the spawn seam reports `Exhausted` rather than the
+// classifier's `WouldBlock`. `Thread.spawn` itself is lowered by SL-765 T3b,
+// so the seam is called directly; the start routine is an `@export`ed
+// function whose address `dlsym` finds. macOS only: there `dlsym` finds a
+// symbol the executable exports with no extra link flag, and `EAGAIN` is 35.
+
+extern "C" {
+    func dlopen(path: UnsafePointer<UInt8>, mode: Int32) -> UnsafePointer<UInt8>
+    func dlsym(handle: UnsafePointer<UInt8>, symbol: UnsafePointer<UInt8>) -> UnsafePointer<UInt8>
+    func pipe(fds: UnsafePointer<Int32>) -> Int32
+    func read(fd: Int32, buf: UnsafePointer<UInt8>, count: Int) -> Int
+    func __saw_rt_thread_spawn(entry: UnsafePointer<UInt8>, env: UnsafePointer<UInt8>,
+                               handle_out: UnsafePointer<Int>) -> Int
+    func __saw_rt_last_raw_code() -> Int
+}
+
+struct Ends {
+    read: Int32
+    write: Int32
+}
+
+static RTLD_LAZY: Int32 = 1
+// Far past any per-process thread limit, so a run that never meets one ends.
+static MOST_THREADS: Int = 100_000
+static TAG_EXHAUSTED: Int = 15
+static EAGAIN_MACOS: Int = 35
+static UNWRITTEN: Int = -1
+
+// The pipe every started thread blocks reading; nothing writes it.
+static BLOCK_FD: Atomic<Int> = Atomic(0)
+
+func entry_point(name: String) unsafe -> UnsafePointer<UInt8> {
+    var text: [UInt8; 64] = [0; 64]
+    var i = 0
+    while i < name.len() {
+        text[i] = name.byte_at(i)
+        i = i + 1
+    }
+    let found = dlsym(dlopen(0 as UnsafePointer<UInt8>, RTLD_LAZY), (&text) as UnsafePointer<UInt8>)
+    if found as Int == 0 {
+        panic("dlsym found no `{}`", name)
+    }
+    found
+}
+
+@export("p768_blocked_body")
+func blocked_body(raw: UnsafePointer<UInt8>) unsafe -> UnsafePointer<UInt8> {
+    var byte: UInt8 = 0
+    let _ = read(BLOCK_FD.load() as Int32, (&byte) as UnsafePointer<UInt8>, 1)
+    0 as UnsafePointer<UInt8>
+}
+
+func main() unsafe {
+    var ends = Ends(read: 0 as Int32, write: 0 as Int32)
+    if pipe((&ends) as UnsafePointer<Int32>) != (0 as Int32) {
+        panic("pipe failed")
+    }
+    BLOCK_FD.store(ends.read as Int)
+    let entry = entry_point("p768_blocked_body")
+    var started = 0
+    var status = 0
+    var handle = UNWRITTEN
+    while status == 0 && started < MOST_THREADS {
+        handle = UNWRITTEN
+        status = __saw_rt_thread_spawn(entry, 0 as UnsafePointer<UInt8>, (&handle) as UnsafePointer<Int>)
+        if status == 0 {
+            started = started + 1
+        }
+    }
+    let code = __saw_rt_last_raw_code()
+    print("a spawn was refused: {}", status != 0)
+    print("the refusal is Exhausted: {}", status == 0 - TAG_EXHAUSTED)
+    print("the raw code is EAGAIN: {}", code == EAGAIN_MACOS)
+    print("no handle was stored: {}", handle == UNWRITTEN)
+}

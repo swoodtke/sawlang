@@ -31,8 +31,8 @@ func agitator(addr: Int, peer: TcpStream) unsafe {
 }
 
 func run() -> (Int, Int) {
-    let (a1, b1) = TcpStream.pair()
-    let (a2, b2) = TcpStream.pair()
+    let (a1, b1) = try! TcpStream.pair()
+    let (a2, b2) = try! TcpStream.pair()
     var g = TaskGroup()
     let h1 = g.spawn(reader_cancel(move a1))
     let h2 = g.spawn(reader_data(move a2))

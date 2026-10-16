@@ -17,7 +17,7 @@ func main() {
     while i < 300 {
         match TcpListener.listen(0) {
             case Ok(l) -> {
-                let _ = l.local_port()   // touch it, then it drops (Deinit closes)
+                let _ = try! l.local_port()   // touch it, then it drops (Deinit closes)
                 opened = opened + 1
             },
             case Err(e) -> {
@@ -31,7 +31,7 @@ func main() {
     // 300 connected stream pairs (2 fds each), dropped each iteration.
     var j = 0
     while j < 300 {
-        let (a, b) = TcpStream.pair()
+        let (a, b) = try! TcpStream.pair()
         let _ = move a
         let _ = move b                   // both drop here (Deinit closes both fds)
         opened = opened + 1

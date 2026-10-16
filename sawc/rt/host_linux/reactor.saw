@@ -52,6 +52,8 @@ extern "C" {
     func __saw_epoll_data_offset() -> Int
     // errno lives behind __errno_location() on Linux (returns `int*`).
     func __errno_location() -> UnsafePointer<Int32>
+    // errno -> SysError tag mapper (net_os.saw).
+    func __saw_rt_last_syserror() -> Int
 }
 
 // EEXIST: the fd is already in this epoll set, so the arm is a re-arm.
@@ -93,11 +95,30 @@ static EPOLL_CTL_MOD: Int32 = 3
 static EFD_NONBLOCK: Int32 = 0x800
 static POLL_EVENTS: Int = 64
 
+// Create an instance and store it through `r_out`: 0, or the negated tag of
+// the epoll set, the eventfd, the allocation or the wake source's arm, with
+// whatever the earlier steps made undone. An instance whose epoll set does not
+// exist would look live and make every poll return at once, so the executor
+// would spin.
 @export("__saw_rt_reactor_create")
-func rt_reactor_create() unsafe -> Int {
+func rt_reactor_create(r_out: UnsafePointer<Int>) unsafe -> Int {
     let epfd = epoll_create1(0 as Int32)
+    if epfd < (0 as Int32) {
+        return 0 - __saw_rt_last_syserror()
+    }
     let efd = eventfd(0 as UInt32, EFD_NONBLOCK)
+    if efd < (0 as Int32) {
+        let e = __saw_rt_last_syserror()
+        let _ = close(epfd)
+        return 0 - e
+    }
     let raw = calloc(1, sizeof<Reactor>())
+    if raw as Int == 0 {
+        let e = __saw_rt_last_syserror()
+        let _ = close(efd)
+        let _ = close(epfd)
+        return 0 - e
+    }
     let rp = raw as UnsafePointer<Reactor>
     rp[0].fd = epfd as Int
     rp[0].wake_fd = efd as Int
@@ -107,19 +128,26 @@ func rt_reactor_create() unsafe -> Int {
     (evp as UnsafePointer<UInt32>)[0] = EV_IN_LEVEL
     let datap = (evp + __saw_epoll_data_offset()) as UnsafePointer<Int>
     datap[0] = 0
-    epoll_ctl(epfd as Int32, EPOLL_CTL_ADD, efd, evp)
-    raw as Int
+    if epoll_ctl(epfd as Int32, EPOLL_CTL_ADD, efd, evp) != (0 as Int32) {
+        let e = __saw_rt_last_syserror()
+        let _ = close(efd)
+        let _ = close(epfd)
+        free(raw)
+        return 0 - e
+    }
+    r_out[0] = raw as Int
+    0
 }
 
 // Arm one-shot readiness on `fd` for read (w==0) or write (w!=0). `token` is the
 // parked task's park-word address, stored as epoll_event.data; 0 comes from a
 // registration made outside any frame (see the header).
 //
-// Returns 0 when armed, else errno, as the kqueue side does. ADD is tried
-// first; EEXIST means the fd is already in the set (a one-shot that fired
-// stays registered, disarmed), so that one case re-arms with MOD and reports
-// MOD's outcome. Every other ADD failure (EBADF for a closed fd, EPERM for a
-// file epoll cannot watch, ENOMEM, ...) is reported as it is (SL-354).
+// Returns 0 when armed, else the negated tag, as the kqueue side does. ADD is
+// tried first; EEXIST means the fd is already in the set (a one-shot that
+// fired stays registered, disarmed), so that one case re-arms with MOD and
+// reports MOD's outcome. Every other ADD failure (EBADF for a closed fd, EPERM
+// for a file epoll cannot watch, ENOMEM, ...) is reported as it is (SL-354).
 @export("__saw_rt_reactor_register")
 func rt_reactor_register(r: Int, fd: Int, w: Int, token: Int) unsafe -> Int {
     let rp = r as UnsafePointer<Reactor>
@@ -134,13 +162,13 @@ func rt_reactor_register(r: Int, fd: Int, w: Int, token: Int) unsafe -> Int {
     if r0 == (0 as Int32) {
         return 0
     }
-    let add_errno = __errno_location()[0] as Int
-    if add_errno != EEXIST {
-        return add_errno
+    // Read before the classifier, which reads the same errno.
+    if (__errno_location()[0] as Int) != EEXIST {
+        return 0 - __saw_rt_last_syserror()
     }
     let r1 = epoll_ctl(epfd as Int32, EPOLL_CTL_MOD, fd as Int32, evp)
     if r1 != (0 as Int32) {
-        return __errno_location()[0] as Int
+        return 0 - __saw_rt_last_syserror()
     }
     0
 }
@@ -176,24 +204,38 @@ func latch_ready(word: &Atomic<Int>) {
 
 // Block in epoll_wait up to `timeout_ms` (< 0 = forever), latch each ready
 // event's nonzero data token word from parked (-1) to ready (0), and pass a
-// consumed wake on to the next blocked poller. Returns the number of events
-// delivered, a consumed wake event included. A per-call heap event buffer
-// keeps concurrent polls independent.
+// consumed wake on to the next blocked poller. Stores the number of events
+// delivered, a consumed wake event included, through `count_out` and returns
+// 0, or returns the negated tag (`Interrupted` for a signal) and stores
+// nothing. A per-call heap event buffer keeps concurrent polls independent.
 @export("__saw_rt_reactor_poll")
-func rt_reactor_poll(r: Int, timeout_ms: Int) unsafe -> Int {
+func rt_reactor_poll(r: Int, timeout_ms: Int, count_out: UnsafePointer<Int>) unsafe -> Int {
     let rp = r as UnsafePointer<Reactor>
     let epfd = rp[0].fd
     let efd = rp[0].wake_fd
     let ev_size = __saw_epoll_event_size()
     let data_off = __saw_epoll_data_offset()
     let buf = malloc(POLL_EVENTS * ev_size)
+    if buf as Int == 0 {
+        return 0 - __saw_rt_last_syserror()
+    }
     let to: Int32 = if timeout_ms < 0 { -1 } else { timeout_ms as Int32 }
     // Counted around the blocking call only, so the count leaves out threads
     // that are scanning. A thread counted just before it enters `epoll_wait`
     // finds a re-post pending and consumes it at once.
     let _ = rp[0].waiters.fetch_add(1)
     let n = epoll_wait(epfd as Int32, buf, POLL_EVENTS as Int32, to)
+    // Classified before anything else runs; the count's decrement touches no
+    // errno.
+    var failure = 0
+    if n < (0 as Int32) {
+        failure = __saw_rt_last_syserror()
+    }
     let _ = rp[0].waiters.fetch_add(-1)
+    if failure != 0 {
+        free(buf)
+        return 0 - failure
+    }
     var woke = false
     var i = 0
     while i < (n as Int) {
@@ -225,7 +267,8 @@ func rt_reactor_poll(r: Int, timeout_ms: Int) unsafe -> Int {
             rt_reactor_post(efd)
         }
     }
-    n as Int
+    count_out[0] = n as Int
+    0
 }
 
 // Rouse every blocked poll, through the cascade. Callable from any thread,

@@ -3,6 +3,10 @@
 // Thin wrappers so std never spells a NULL attr pointer. `pthread_t` is
 // treated as an opaque pointer-sized word. `pthread_create` stays in shim.c
 // because it takes a raw C function pointer, which Saw cannot name (DF-113b).
+//
+// Each returns 0 or the negated portable tag. A pthread function returns its
+// error number rather than setting errno, so the number goes through the
+// shim's `__saw_classify_code`, which also stamps it as the raw code.
 
 extern "C" {
     func pthread_mutex_init(m: UnsafePointer<Int8>, attr: UnsafePointer<Int8>) -> Int32
@@ -10,24 +14,33 @@ extern "C" {
     // pthread_t is pointer-sized on macOS and glibc and is passed BY VALUE; model
     // it as a platform word (`Int`). retval is NULL (we discard the thread result).
     func pthread_join(thread: Int, retval: UnsafePointer<Int8>) -> Int32
+    func __saw_classify_code(code: Int) -> Int
+}
+
+// A pthread function's result as a seam status.
+func pthread_status(code: Int32) -> Int {
+    if code == (0 as Int32) {
+        return 0
+    }
+    0 - __saw_classify_code(code as Int)
 }
 
 // pthread_mutex_init(m, NULL). The Saw side reserves a conservative slot
 // (pthread_mutex_t <= 64 bytes on the hosted targets) and inits within it.
 @export("__saw_rt_pthread_mutex_init_default")
-func rt_pthread_mutex_init_default(m: UnsafePointer<Int8>) unsafe {
-    pthread_mutex_init(m, 0 as UnsafePointer<Int8>)
+func rt_pthread_mutex_init_default(m: UnsafePointer<Int8>) unsafe -> Int {
+    pthread_status(pthread_mutex_init(m, 0 as UnsafePointer<Int8>))
 }
 
 // pthread_cond_init(c, NULL). pthread_cond_t is 48 bytes on macOS and glibc;
 // std reserves 64.
 @export("__saw_rt_pthread_cond_init_default")
-func rt_pthread_cond_init_default(c: UnsafePointer<Int8>) unsafe {
-    pthread_cond_init(c, 0 as UnsafePointer<Int8>)
+func rt_pthread_cond_init_default(c: UnsafePointer<Int8>) unsafe -> Int {
+    pthread_status(pthread_cond_init(c, 0 as UnsafePointer<Int8>))
 }
 
-// Join an OS thread by the handle value `__saw_rt_thread_spawn` returned.
+// Join an OS thread by the handle value `__saw_rt_thread_spawn` stored.
 @export("__saw_rt_thread_join")
-func rt_thread_join(handle: Int) unsafe {
-    pthread_join(handle, 0 as UnsafePointer<Int8>)
+func rt_thread_join(handle: Int) unsafe -> Int {
+    pthread_status(pthread_join(handle, 0 as UnsafePointer<Int8>))
 }

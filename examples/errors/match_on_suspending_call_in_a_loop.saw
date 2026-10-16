@@ -29,7 +29,7 @@ func attempt(n: Int) -> Result<Int, String> {
 }
 
 func main() {
-    let (a, b) = TcpStream.pair()
+    let (a, b) = try! TcpStream.pair()
     let _ = move b
     var i = 0
     while i < 4 {

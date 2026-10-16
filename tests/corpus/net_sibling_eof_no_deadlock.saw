@@ -37,7 +37,7 @@ func receiver(r: TcpStream) -> Int {
 }
 
 func main() {
-    let (a, b) = TcpStream.pair()
+    let (a, b) = try! TcpStream.pair()
     var group = TaskGroup()
     let hs = group.spawn(sender(move a))
     let hr = group.spawn(receiver(move b))

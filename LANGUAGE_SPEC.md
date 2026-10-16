@@ -10066,7 +10066,7 @@ on its own behalf such as a park cut short by cancellation. Log the code, branch
 on the kind. Growth is loud: promoting a code out of `Unknown` into a new kind
 breaks an exhaustive match at compile time instead of silently rerouting it.
 
-```saw
+```saw-fragment
 import std.net.{TcpListener, TcpStream}
 
 // A cooperative echo, entirely over the safe owning API. Failable ops return
@@ -10081,10 +10081,12 @@ func serve(stream: TcpStream) -> Int {
 
 func main() {
     let listener = try! TcpListener.listen(0)         // Result<TcpListener, IoError>
-    let stream = try! TcpStream.connect("127.0.0.1", listener.local_port())
+    let port = try! listener.local_port()             // Result<Int, IoError>
+    let stream = try! TcpStream.connect("127.0.0.1", port)
     // ... spawn workers over accept()/read()/write() in a TaskGroup ...
 }
-// TcpStream.pair() gives a connected pair for tests/IPC with no bound port.
+// TcpStream.pair() gives a connected pair for tests/IPC with no bound port:
+// Result<(TcpStream, TcpStream), IoError>, Err when the system refuses it.
 ```
 
 The design-76 raw layer (`tcp_*` / `net_*` free functions + `io_wait(fd, dir)`, a
@@ -10154,7 +10156,9 @@ public static func listen(port: Int,
                           backlog: Int = 16) -> Result<TcpListener, IoError>
 ```
 
-`port` 0 selects an ephemeral port, read back with `local_port`. `host` takes a
+`port` 0 selects an ephemeral port, read back with `local_port() ->
+Result<Int, IoError>`, which reports a refused `getsockname` rather than
+answering port 0. `host` takes a
 dotted IPv4 literal — "0.0.0.0" for all IPv4 interfaces — and listening performs
 no DNS lookup. Invalid text, a port outside 0..65535, and a backlog below 1 are
 each `IoErrorKind.InvalidArgument`.

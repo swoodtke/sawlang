@@ -104,7 +104,7 @@
 extern "C" {
     // The pthread mutex (the init seam is rt/common/pthread.saw; the rest
     // resolve from libSystem/libc). std/channel.saw uses the same symbols.
-    func __saw_rt_pthread_mutex_init_default(m: UnsafePointer<Int8>)
+    func __saw_rt_pthread_mutex_init_default(m: UnsafePointer<Int8>) -> Int
     func pthread_mutex_lock(m: UnsafePointer<Int8>) -> Int
     func pthread_mutex_unlock(m: UnsafePointer<Int8>) -> Int
     func pthread_mutex_destroy(m: UnsafePointer<Int8>) -> Int
@@ -114,30 +114,31 @@ extern "C" {
     // `broadcast` rather than `signal`: one push can make several parked
     // workers runnable, and waking one too many costs a re-scan while waking
     // one too few costs a worker.
-    func __saw_rt_pthread_cond_init_default(c: UnsafePointer<Int8>)
+    func __saw_rt_pthread_cond_init_default(c: UnsafePointer<Int8>) -> Int
     func pthread_cond_wait(c: UnsafePointer<Int8>, m: UnsafePointer<Int8>) -> Int
     func pthread_cond_broadcast(c: UnsafePointer<Int8>) -> Int
     func pthread_cond_destroy(c: UnsafePointer<Int8>) -> Int
 
     // The instance-based IO reactor seams (kqueue on macOS, epoll on Linux;
     // bodies in sawc/rt/host_*/reactor.saw). All but `create` take the reactor
-    // instance `r` that `__saw_rt_reactor_create` returned; the process-wide
+    // instance `r` that `__saw_rt_reactor_create` stored; the process-wide
     // instance is `__saw_host_reactor()` below, and `SystemReactor` wraps these
-    // seams as the hosted `Reactor` impl.
-    func __saw_rt_reactor_create() -> Int
+    // seams as the hosted `Reactor` impl. Each status is 0 or the negated
+    // portable tag, the raw code beside it in `__saw_rt_last_raw_code`.
+    func __saw_rt_reactor_create(r_out: UnsafePointer<Int>) -> Int
     func __saw_rt_reactor_destroy(r: Int)
+    func __saw_rt_last_raw_code() -> Int
     // Arm one-shot readiness on `fd` in `r` (write==0 => read). `token` is the
     // parked task's ROOT frame `__wake`-word address (a nested frame hands
-    // that token down), or 0 from outside any frame. Returns 0 when armed,
-    // else the platform's errno.
+    // that token down), or 0 from outside any frame. Returns 0 when armed.
     func __saw_rt_reactor_register(r: Int, fd: Int, write: Int, token: Int) -> Int
     // Drop an armed registration that never fired, so a token pointing into a
     // frame cannot outlive the frame. Idempotent: unregistering an
     // already-fired one-shot or an unarmed fd is a no-op.
     func __saw_rt_reactor_unregister(r: Int, fd: Int, write: Int)
-    // Block up to `timeout_ms` (< 0 = forever); latch each ready token; return
+    // Block up to `timeout_ms` (< 0 = forever); latch each ready token; store
     // the number of events delivered, a consumed wake event included.
-    func __saw_rt_reactor_poll(r: Int, timeout_ms: Int) -> Int
+    func __saw_rt_reactor_poll(r: Int, timeout_ms: Int, count_out: UnsafePointer<Int>) -> Int
     // Rouse every thread blocked in `poll` on `r`, from any thread: `cancel()`
     // uses it so an io-parked task's poll returns and the scheduler re-checks
     // its cancel flag, and MT workers use it to reach a scheduler parked on
@@ -168,7 +169,7 @@ extern "C" {
 // to the executor module (not `public`), so no user-facing `Reactor` or
 // `SystemReactor` name can collide with it.
 trait Reactor {
-    // 0 when readiness is armed, else the platform's error code, which the
+    // 0 when readiness is armed, else the negated portable tag, which the
     // executor's arm funnel turns into a panic.
     func register(&self, fd: Int, dir: Int, token: Int) -> Int
     // The inverse of `register`. A park that ends without its event firing
@@ -196,7 +197,7 @@ extension SystemReactor: Reactor {
         __saw_rt_reactor_unregister(self.instance, fd, dir)
     }
     func poll(&self, timeout_ms: Int) -> Int {
-        __saw_rt_reactor_poll(self.instance, timeout_ms)
+        __saw_exec_poll_counted(self.instance, timeout_ms)
     }
     func wake(&self) {
         __saw_rt_reactor_wake(self.instance)
@@ -208,12 +209,43 @@ extension SystemReactor: Reactor {
 // The instance lives for the whole process and is never destroyed.
 static __saw_reactor_instance: Atomic<Int> = Atomic(0)
 
+// The portable tag of a poll a signal cut short (rt/ABI.md).
+static TAG_INTERRUPTED: Int = 4
+
+// The poll seam as the executor reads it: the number of events delivered. A
+// signal that cut the wait short counts as one event, a wake, so the caller
+// looks again and charges no sleeper for a wait that did not happen. Any
+// other failure is a broken instance, which no caller can recover from, so it
+// panics with the cause.
+func __saw_exec_poll_counted(r: Int, timeout_ms: Int) unsafe sync -> Int {
+    var count = 0
+    let status = __saw_rt_reactor_poll(r, timeout_ms, (&count) as UnsafePointer<Int>)
+    if status == 0 {
+        return count
+    }
+    if status == 0 - TAG_INTERRUPTED {
+        return 1
+    }
+    panic("reactor: polling the reactor failed (errno {})", __saw_rt_last_raw_code())
+}
+
+// A new reactor instance, from the create seam. A reactor that cannot be made (descriptor exhaustion, say) leaves the
+// executor nothing to wait in, so it panics with the cause rather than hand
+// back an instance every poll would return from at once.
+func __saw_exec_create_reactor() unsafe sync -> Int {
+    var instance = 0
+    if __saw_rt_reactor_create((&instance) as UnsafePointer<Int>) != 0 {
+        panic("reactor: creating the reactor failed (errno {})", __saw_rt_last_raw_code())
+    }
+    instance
+}
+
 func __saw_host_reactor() -> SystemReactor {
     let cur = __saw_reactor_instance.load()
     if cur != 0 {
         return SystemReactor(instance: cur)
     }
-    let newp = __saw_rt_reactor_create()
+    let newp = __saw_exec_create_reactor()
     if __saw_reactor_instance.compare_exchange(0, newp) {
         return SystemReactor(instance: newp)
     }
@@ -560,10 +592,11 @@ func __saw_exec_io_register(fd: Int, dir: Int, token: Int) unsafe {
         // Stage 0 workaround (SL:hazards S15): canonical: word[0].store(WAKE_IO)
         __saw_exec_store_park(&word[0], WAKE_IO)
     }
-    let code = __saw_host_reactor().register(fd, dir, token)
-    if code != 0 {
+    let status = __saw_host_reactor().register(fd, dir, token)
+    if status != 0 {
         let direction = if dir != 0 { "write" } else { "read" }
-        panic("reactor: arming fd {} for {} readiness failed (errno {})", fd, direction, code)
+        panic("reactor: arming fd {} for {} readiness failed (errno {})", fd, direction,
+              __saw_rt_last_raw_code())
     }
 }
 
@@ -852,8 +885,17 @@ extension TaskGroup {
             // variable at +64 (conservative 64-byte slots). They are one
             // object, so they are one allocation and one failure.
             if let block = GlobalAllocator().alloc(128, 16) {
-                __saw_rt_pthread_mutex_init_default(block)
-                __saw_rt_pthread_cond_init_default(block + 64)
+                // A refused init is no allocation failure, and `AllocError`
+                // is the only error this constructor reports, so it panics
+                // with the cause instead.
+                if __saw_rt_pthread_mutex_init_default(block) != 0 {
+                    panic("TaskGroup: initializing its lock failed (errno {})",
+                          __saw_rt_last_raw_code())
+                }
+                if __saw_rt_pthread_cond_init_default(block + 64) != 0 {
+                    panic("TaskGroup: initializing its condition variable failed (errno {})",
+                          __saw_rt_last_raw_code())
+                }
                 lk = block
                 cv = block + 64
             } else {

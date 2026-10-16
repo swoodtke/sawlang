@@ -1,3 +1,8 @@
+// probe: stated
+// about: a task parked on a socket read is woken exactly once and never lost (SL-570)
+// stage 0: its frozen std.net answers `local_port()` with an `Int` and `TcpStream.pair()` with a bare pair, so it refuses the `try!` on each (SL-768)
+// speeds: -O0 -O2
+// prints: total=800
 // SL-355's `parksoak` stress program, single-threaded (SL:coroutines A12b): a
 // task parked on a socket read is woken exactly once and never lost. Each
 // pair of tasks owns the two ends of a connected pair and ping-pongs a byte,
@@ -38,7 +43,7 @@ func main() {
     var handles = Vector<Task<Int>>()
     var p = 0
     while p < pairs {
-        let (a, b) = TcpStream.pair()
+        let (a, b) = try! TcpStream.pair()
         try! handles.push(group.spawn(side(move a, rounds, true)))
         try! handles.push(group.spawn(side(move b, rounds, false)))
         p = p + 1

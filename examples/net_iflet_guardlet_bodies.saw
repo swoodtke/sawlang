@@ -96,10 +96,10 @@ func iflet_shadow(s_read: TcpStream, s_write: TcpStream) -> Int {
 }
 
 func main() {
-    let (a0, a1) = TcpStream.pair()
-    let (b0, b1) = TcpStream.pair()
-    let (c0, c1) = TcpStream.pair()
-    let (d0, d1) = TcpStream.pair()
+    let (a0, a1) = try! TcpStream.pair()
+    let (b0, b1) = try! TcpStream.pair()
+    let (c0, c1) = try! TcpStream.pair()
+    let (d0, d1) = try! TcpStream.pair()
     var group = TaskGroup()
     let h0 = group.spawn(iflet_body(move a0, move a1))
     let h1 = group.spawn(guardlet_cont(move b0, move b1))

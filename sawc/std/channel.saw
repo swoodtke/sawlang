@@ -36,9 +36,11 @@ extern "C" {
     func __saw_atomic_sub_i64_release(ptr: UnsafePointer<Int>, delta: Int) -> Int
     func __saw_atomic_fence_acquire()
 
-    // The init wrappers are runtime seams (rt/common/pthread.saw).
-    func __saw_rt_pthread_mutex_init_default(m: UnsafePointer<Int8>)
-    func __saw_rt_pthread_cond_init_default(c: UnsafePointer<Int8>)
+    // The init wrappers are runtime seams (rt/common/pthread.saw), each 0 or
+    // the negated tag.
+    func __saw_rt_pthread_mutex_init_default(m: UnsafePointer<Int8>) -> Int
+    func __saw_rt_pthread_cond_init_default(c: UnsafePointer<Int8>) -> Int
+    func __saw_rt_last_raw_code() -> Int
     func pthread_mutex_lock(m: UnsafePointer<Int8>) -> Int
     func pthread_mutex_unlock(m: UnsafePointer<Int8>) -> Int
     func pthread_mutex_destroy(m: UnsafePointer<Int8>) -> Int
@@ -120,9 +122,17 @@ extension Channel<T: Send> {
     /// `Err(AllocError)`.
     public init() unsafe -> Result<Channel<T>, AllocError> {
         if let block = GlobalAllocator().alloc(176, 16) {
-            __saw_rt_pthread_mutex_init_default(block)
+            // A refused init is no allocation failure, and `AllocError` is
+            // the only error this constructor reports, so it panics with the
+            // cause instead.
+            if __saw_rt_pthread_mutex_init_default(block) != 0 {
+                panic("Channel: initializing its lock failed (errno {})", __saw_rt_last_raw_code())
+            }
             let cond = (block + 64) as UnsafePointer<Int8>
-            __saw_rt_pthread_cond_init_default(cond)
+            if __saw_rt_pthread_cond_init_default(cond) != 0 {
+                panic("Channel: initializing its condition variable failed (errno {})",
+                      __saw_rt_last_raw_code())
+            }
             let refcount = (block + 128) as UnsafePointer<Int>
             refcount[0] = 1
             let count = (block + 136) as UnsafePointer<Int>

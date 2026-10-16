@@ -42,7 +42,7 @@ func client(stream: TcpStream) -> Int {
 }
 
 func run() {
-    let (s0, s1) = TcpStream.pair()
+    let (s0, s1) = try! TcpStream.pair()
     let a = try! Arc<Res>(value: Res(id: 7))    // strong = 1
     let k1 = a.copy()                       // strong = 2
     var group = TaskGroup()

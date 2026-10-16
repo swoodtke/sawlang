@@ -42,7 +42,7 @@ func write_once(s: &TcpStream) -> Int {
 }
 
 func main() {
-    let (a, b) = TcpStream.pair()
+    let (a, b) = try! TcpStream.pair()
     let _ = move b                      // the peer is gone as of here
 
     var i = 0

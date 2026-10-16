@@ -39,7 +39,7 @@ func worker(port: Int) -> Int {
 func main() {
     var group = TaskGroup()
     let listener = try! TcpListener.listen(0)
-    let port = listener.local_port()
+    let port = try! listener.local_port()
     let h = group.spawn(worker(port))
     let s = try! listener.accept()
     print("accepted")

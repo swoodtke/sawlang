@@ -2,12 +2,24 @@ program	errors/coro_io_park_in_closure_body_beside_a_conservative_call.saw
 triple	arm64-apple-darwin
 twin	same
 expect	error
-build	refused	coroutine transform: the suspending call `TcpStream.read(...)` appears inside a CLOSURE BODY in driven `drain`, and a closure body is not driven — its suspension has no frame to park in. Call it outside the closure and pass the result in, or move the whole closure body into a named function the driven body calls.
-meets_expect	yes
-log	"error: coroutine transform: the suspending call `TcpStream.read(...)` appears inside a CLOSURE BODY in driven `drain`, and a closure body is not driven — its suspension has no frame to park in. Call it outside the closure and pass the result in, or move the whole closure body into a named function the driven body calls."
-log	"  --> examples/errors/coro_io_park_in_closure_body_beside_a_conservative_call.saw:24:32"
+build	refused	`try` requires a Result type, got `(TcpStream, TcpStream)`
+meets_expect	no: no error contains 'appears inside a CLOSURE BODY in driven `drain`'
+log	"error: `try` requires a Result type, got `(TcpStream, TcpStream)`"
+log	"  --> examples/errors/coro_io_park_in_closure_body_beside_a_conservative_call.saw:36:18"
 log	"     |"
-log	" 24 |         let chunk = try! stream.read()"
-log	"     |                                ^"
+log	" 36 |     let (a, b) = try! TcpStream.pair()"
+log	"     |                  ^"
 log	""
-log	"1 error(s) generated"
+log	"error: undefined variable `a`"
+log	"  --> examples/errors/coro_io_park_in_closure_body_beside_a_conservative_call.saw:38:33"
+log	"     |"
+log	" 38 |     let hs = group.spawn(server(move a))"
+log	"     |                                 ^"
+log	""
+log	"error: undefined variable `b`"
+log	"  --> examples/errors/coro_io_park_in_closure_body_beside_a_conservative_call.saw:39:33"
+log	"     |"
+log	" 39 |     let hc = group.spawn(client(move b))"
+log	"     |                                 ^"
+log	""
+log	"3 error(s) generated"

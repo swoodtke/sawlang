@@ -44,7 +44,7 @@ func reader(stream: TcpStream) -> Int {
 }
 
 func main() {
-    let (a, b) = TcpStream.pair()
+    let (a, b) = try! TcpStream.pair()
     // Pre-load 3 bytes; the reader drains them, then parks on the empty socket.
     try! a.write("abc")
 

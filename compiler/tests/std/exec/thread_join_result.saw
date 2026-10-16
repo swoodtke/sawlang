@@ -13,7 +13,8 @@ import std.taskgroup.{__saw_exec_thread_started}
 extern "C" {
     func dlopen(path: UnsafePointer<UInt8>, mode: Int32) -> UnsafePointer<UInt8>
     func dlsym(handle: UnsafePointer<UInt8>, symbol: UnsafePointer<UInt8>) -> UnsafePointer<UInt8>
-    func __saw_rt_thread_spawn(entry: UnsafePointer<UInt8>, env: UnsafePointer<UInt8>) -> Int
+    func __saw_rt_thread_spawn(entry: UnsafePointer<UInt8>, env: UnsafePointer<UInt8>,
+                               handle_out: UnsafePointer<Int>) -> Int
 }
 
 static RTLD_LAZY: Int32 = 1
@@ -38,9 +39,11 @@ func entry_point(name: String) unsafe -> UnsafePointer<UInt8> {
 // counted as running, and returns the handle owning the block.
 func start<T>(name: String, block: UnsafePointer<ThreadControlBlock<T>>) unsafe -> Thread<T> {
     __saw_exec_thread_started()
-    let tid = __saw_rt_thread_spawn(entry_point(name), block as UnsafePointer<UInt8>)
     var b = block
-    b[0].tid = tid
+    if __saw_rt_thread_spawn(entry_point(name), block as UnsafePointer<UInt8>,
+                             (&b[0].tid) as UnsafePointer<Int>) != 0 {
+        panic("the thread was refused")
+    }
     Thread<T>.__saw_adopt(block)
 }
 

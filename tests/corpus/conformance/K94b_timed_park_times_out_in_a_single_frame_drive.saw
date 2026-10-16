@@ -22,7 +22,7 @@ static ASKED_MS: UInt64 = 60
 static FLOOR_MS: UInt64 = 50
 
 func main() {
-    let (a, b) = TcpStream.pair()
+    let (a, b) = try! TcpStream.pair()
     let start = time.Instant.now()
     // Suspends in `main` itself — no group, no sibling, one frame.
     match a.read(timeout: Duration.ms(ASKED_MS)) {

@@ -33,7 +33,7 @@ func server(stream: TcpStream) -> Int {
 }
 
 func main() {
-    let (a, b) = TcpStream.pair()
+    let (a, b) = try! TcpStream.pair()
     var group = TaskGroup()
     let hs = group.spawn(server(move a))
     let hc = group.spawn(client(move b))

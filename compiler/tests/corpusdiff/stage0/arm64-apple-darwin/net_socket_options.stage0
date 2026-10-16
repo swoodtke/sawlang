@@ -2,12 +2,12 @@ program	net_socket_options.saw
 triple	arm64-apple-darwin
 twin	same
 expect	success
-build	ok
-exit	0
-stdout	"no_delay off ok"
-stdout	"no_delay on ok"
-stdout	"keepalive on ok"
-stdout	"keepalive off ok"
-stdout	"wrote 5 bytes worth"
-stdout	""
-meets_expect	yes
+build	refused	`try` requires a Result type, got `Int`
+meets_expect	no: Stage 0 does not build it
+log	"error: `try` requires a Result type, got `Int`"
+log	"  --> examples/net_socket_options.saw:26:54"
+log	"     |"
+log	" 26 |     let client = try! TcpStream.connect(\"127.0.0.1\", try! listener.local_port())"
+log	"     |                                                      ^"
+log	""
+log	"1 error(s) generated"

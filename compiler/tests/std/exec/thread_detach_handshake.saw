@@ -5,7 +5,8 @@
 //     and the thread's exit (`Thread.__saw_exit`) destroys the result nobody
 //     will read and frees the block;
 //   * exit then detach: the exit leaves the negated size and frees nothing,
-//     and the seam frees the block;
+//     the seam reports that the caller owns the block, and `detach` destroys
+//     the result and frees it;
 //   * a join frees the block itself.
 // This program plays the thread's exit on the main thread, so the two orders
 // are deterministic; a real OS thread, started through an `@export`ed start
@@ -19,7 +20,8 @@ extern "C" {
     func dlopen(path: UnsafePointer<UInt8>, mode: Int32) -> UnsafePointer<UInt8>
     func dlsym(handle: UnsafePointer<UInt8>, symbol: UnsafePointer<UInt8>) -> UnsafePointer<UInt8>
     func malloc_zone_statistics(zone: UnsafePointer<UInt8>, stats: UnsafePointer<MallocStatistics>)
-    func __saw_rt_thread_spawn(entry: UnsafePointer<UInt8>, env: UnsafePointer<UInt8>) -> Int
+    func __saw_rt_thread_spawn(entry: UnsafePointer<UInt8>, env: UnsafePointer<UInt8>,
+                               handle_out: UnsafePointer<Int>) -> Int
     func __saw_rt_sleep_ns(ns: UInt64)
 }
 
@@ -81,7 +83,10 @@ func adopt_started<T>(block: UnsafePointer<ThreadControlBlock<T>>) unsafe -> Thr
     let before = STARTED.load()
     __saw_exec_thread_started()
     var b = block
-    b[0].tid = __saw_rt_thread_spawn(entry_point("p765_idle_body"), block as UnsafePointer<UInt8>)
+    if __saw_rt_thread_spawn(entry_point("p765_idle_body"), block as UnsafePointer<UInt8>,
+                             (&b[0].tid) as UnsafePointer<Int>) != 0 {
+        panic("the thread was refused")
+    }
     while STARTED.load() == before {
         __saw_rt_sleep_ns(NAP_NANOS)
     }
@@ -104,18 +109,19 @@ func detach_then_exit() unsafe {
 }
 
 func exit_then_detach() unsafe {
-    let block = Thread<Int>.__saw_control_block()
-    block[0].result = 7
+    let block = Thread<Loud>.__saw_control_block()
+    let at = (&block[0].result) as UnsafePointer<Loud>
+    at[0] = Loud(id: 2)
     var t = adopt_started(block)
     let b0 = live_blocks()
-    let freed = Thread<Int>.__saw_exit(block)
+    let freed = Thread<Loud>.__saw_exit(block)
     let b1 = live_blocks()
     let word = block[0].state
     t.detach()
     let b2 = live_blocks()
     print("exit then detach: the exit freed {} and says {}", b0 - b1, freed)
     print("exit then detach: the word holds the negated size: {}",
-          word == 0 - sizeof<ThreadControlBlock<Int>>())
+          word == 0 - sizeof<ThreadControlBlock<Loud>>())
     print("exit then detach: the detach freed {}", b1 - b2)
 }
 

@@ -15,6 +15,7 @@
 #define _GNU_SOURCE
 
 #include <stddef.h>
+#include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -121,36 +122,57 @@ void __saw_environ_set(char **env) {
     SAW_ENVIRON = env;
 }
 
+/* ---- The portable tag of an error a call returns -----------------------
+ * The pthread functions return their error number instead of setting errno,
+ * and the one classifier, `__saw_rt_last_syserror` (net_os.saw), reads errno.
+ * Handing it the number through errno keeps one errno-to-tag table and stamps
+ * the raw code `__saw_rt_last_raw_code` answers. Returns the positive tag. */
+long __saw_rt_last_syserror(void);
+
+long __saw_classify_code(long code) {
+    errno = (int)code;
+    return __saw_rt_last_syserror();
+}
+
+/* `Exhausted` in the portable tag table (rt/ABI.md). */
+#define SAW_TAG_EXHAUSTED 15L
+
 /* ---- DF-113b: no C function-pointer type -------------------------------
  * `entry` is a raw `void *(*)(void *)` start routine, which Saw cannot
- * forward. Returns the `pthread_t` as a word; spawn codegen stores it in the
- * control block and `__saw_rt_thread_join` takes it back (design 117). */
-long __saw_rt_thread_spawn(void *(*entry)(void *), void *env) {
+ * forward. Stores the `pthread_t` as a word through `handle_out`, where spawn
+ * codegen keeps it for `__saw_rt_thread_join`, and returns 0 or the negated
+ * tag. `pthread_create`'s EAGAIN is a thread limit, which a retry does not
+ * fix, so it is `Exhausted` rather than the classifier's `WouldBlock`; the raw
+ * code stays stamped (SL-768). */
+long __saw_rt_thread_spawn(void *(*entry)(void *), void *env, long *handle_out) {
     pthread_t t;
-    pthread_create(&t, NULL, entry, env);
-    return (long)t;
+    int rc = pthread_create(&t, NULL, entry, env);
+    if (rc != 0) {
+        long tag = __saw_classify_code(rc);
+        return rc == EAGAIN ? -SAW_TAG_EXHAUSTED : -tag;
+    }
+    *handle_out = (long)t;
+    return 0;
 }
 
 /* ---- DF-113b, plus no atomics over raw memory (design 242) --------------
- * `Thread<T>.detach()`. Detaches the OS thread, then hands ownership of the
- * control block to whichever side finishes last. The word at `+2 words` holds
- * the block's size while both sides are live; exchanging 0 into it returns a
- * negative `-size` if the thread already exited, and then this call frees the
- * block. Otherwise the thread's exit sees the 0 and frees it. Exactly one side
- * frees, with no lock. The layout is frozen in rt/ABI.md; the other end is
- * `_generate_spawn_trampoline` in sawc/codegen/calls.py. */
-void __saw_rt_dealloc(void *ptr, size_t size, size_t align);
-
-void __saw_rt_thread_detach(void *ctrl) {
+ * `Thread<T>.detach()`. Detaches the OS thread, then settles which side frees
+ * the control block. The word at `+2 words` holds the block's size while both
+ * sides are live; exchanging 0 into it returns a negative `-size` if the
+ * thread already exited, and then the caller owns the block, so this returns
+ * 1. Otherwise the thread's exit sees the 0 and frees it, and this returns 0.
+ * It never frees the block: the caller knows the result type, whose value has
+ * to be destroyed before the block goes (SL-765). The layout is frozen in
+ * rt/ABI.md. `pthread_detach` cannot fail here: the handle's own fate flag
+ * lets a thread be detached once, and never after a join. */
+long __saw_rt_thread_detach(void *ctrl) {
     unsigned char *cb = (unsigned char *)ctrl;
     pthread_t t;
     memcpy(&t, cb, sizeof(pthread_t));
     pthread_detach(t);
     long *state = (long *)(void *)(cb + 2 * sizeof(void *));
     long prev = __atomic_exchange_n(state, (long)0, __ATOMIC_ACQ_REL);
-    if (prev < 0) {
-        __saw_rt_dealloc(ctrl, (size_t)(-prev), 16);
-    }
+    return prev < 0 ? 1 : 0;
 }
 
 /* ---- DF-113c: variadic fcntl -------------------------------------------
@@ -158,11 +180,12 @@ void __saw_rt_thread_detach(void *ctrl) {
  * is wrong on some ABIs: on Apple arm64 the F_SETFL argument would go in a
  * register the callee reads from the stack. It is called from C here; Saw
  * can now declare variadic externs (`open` in rt/common/os_ops.saw), so this
- * reason no longer holds. Returns 0, or -1 if F_GETFL fails. */
+ * reason no longer holds. Returns 0, or the negated tag of whichever of the
+ * two calls failed. */
 long __saw_rt_set_nonblocking(long fd) {
     int flags = fcntl((int)fd, F_GETFL, 0);
-    if (flags < 0) return -1;
-    fcntl((int)fd, F_SETFL, flags | O_NONBLOCK);
+    if (flags < 0) return -__saw_rt_last_syserror();
+    if (fcntl((int)fd, F_SETFL, flags | O_NONBLOCK) < 0) return -__saw_rt_last_syserror();
     return 0;
 }
 
@@ -265,7 +288,6 @@ long __saw_socket_send_flags(void) {
  * can run, and never changes (RULE 2).
  */
 #include <signal.h>
-#include <errno.h>
 
 #ifndef NSIG
 #define NSIG 65

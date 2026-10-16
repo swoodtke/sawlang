@@ -23,7 +23,7 @@ import std.net.{TcpListener, TcpStream}
 
 func main() {
     let listener = try! TcpListener.listen(0)
-    let client = try! TcpStream.connect("127.0.0.1", listener.local_port())
+    let client = try! TcpStream.connect("127.0.0.1", try! listener.local_port())
     let server = try! listener.accept()
 
     match client.set_no_delay(false) {

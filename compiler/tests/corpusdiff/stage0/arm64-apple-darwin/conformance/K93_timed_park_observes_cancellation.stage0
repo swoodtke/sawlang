@@ -2,9 +2,24 @@ program	conformance/K93_timed_park_observes_cancellation.saw
 triple	arm64-apple-darwin
 twin	same
 expect	success
-build	ok
-exit	0
-stdout	"reader-cancelled"
-stdout	"deinits=1"
-stdout	""
-meets_expect	yes
+build	refused	`try` requires a Result type, got `(TcpStream, TcpStream)`
+meets_expect	no: Stage 0 does not build it
+log	"error: `try` requires a Result type, got `(TcpStream, TcpStream)`"
+log	"  --> examples/conformance/K93_timed_park_observes_cancellation.saw:52:18"
+log	"     |"
+log	" 52 |     let (a, b) = try! TcpStream.pair()"
+log	"     |                  ^"
+log	""
+log	"error: undefined variable `a`"
+log	"  --> examples/conformance/K93_timed_park_observes_cancellation.saw:54:33"
+log	"     |"
+log	" 54 |     let hr = group.spawn(reader(move a))"
+log	"     |                                 ^"
+log	""
+log	"error: undefined variable `b`"
+log	"  --> examples/conformance/K93_timed_park_observes_cancellation.saw:58:13"
+log	"     |"
+log	" 58 |     let _ = move b"
+log	"     |             ^"
+log	""
+log	"3 error(s) generated"

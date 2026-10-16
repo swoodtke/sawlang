@@ -35,8 +35,8 @@ extern "C" {
     func calloc(count: Int, size: Int) -> UnsafePointer<Int8>
     func malloc(size: Int) -> UnsafePointer<Int8>
     func free(ptr: UnsafePointer<Int8>)
-    // errno lives behind __error() on macOS (returns `int*`).
-    func __error() -> UnsafePointer<Int32>
+    // errno -> SysError tag mapper (net_os.saw).
+    func __saw_rt_last_syserror() -> Int
 }
 
 // The reactor instance: the kqueue fd, plus the count of threads at the
@@ -83,27 +83,45 @@ static NOTE_TRIGGER: UInt32 = 0x01000000
 static WAKE_IDENT: Int = 1
 static POLL_EVENTS: Int = 64
 
+// Create an instance and store it through `r_out`: 0, or the negated tag of
+// the kqueue, the allocation or the wake event's arm, with whatever the
+// earlier steps made undone. An instance whose kqueue does not exist would
+// look live and make every poll return at once, so the executor would spin.
 @export("__saw_rt_reactor_create")
-func rt_reactor_create() unsafe -> Int {
+func rt_reactor_create(r_out: UnsafePointer<Int>) unsafe -> Int {
     let kfd = kqueue()
+    if kfd < (0 as Int32) {
+        return 0 - __saw_rt_last_syserror()
+    }
     let raw = calloc(1, sizeof<Reactor>())
+    if raw as Int == 0 {
+        let e = __saw_rt_last_syserror()
+        let _ = close(kfd)
+        return 0 - e
+    }
     let rp = raw as UnsafePointer<Reactor>
     rp[0].fd = kfd as Int
     // Arm the wake event once, for the instance's whole life (see the header).
     var kev = KEvent(ident: WAKE_IDENT, filter: EVFILT_USER, flags: EV_ADD_CLEAR, fflags: 0 as UInt32, data: 0, udata: 0)
     let nullp = 0 as UnsafePointer<Int8>
-    kevent(kfd as Int32, (&kev) as UnsafePointer<Int8>, 1, nullp, 0, nullp)
-    raw as Int
+    if kevent(kfd as Int32, (&kev) as UnsafePointer<Int8>, 1, nullp, 0, nullp) < (0 as Int32) {
+        let e = __saw_rt_last_syserror()
+        let _ = close(kfd)
+        free(raw)
+        return 0 - e
+    }
+    r_out[0] = raw as Int
+    0
 }
 
 // Arm one-shot readiness on `fd` for read (w==0) or write (w!=0). `token` is the
 // parked task's park-word address, carried as kevent.udata; 0 (a registration
 // made outside any frame) is never latched.
 //
-// Returns 0 when armed, else errno. With an empty event list kevent reports a
-// failed change as -1 and errno (EBADF for a closed fd, ENOMEM, ...); a
-// failure that went unreported would leave its task parked on an event that
-// can never arrive, which reads exactly like a lost wake (SL-354).
+// Returns 0 when armed, else the negated tag. With an empty event list kevent
+// reports a failed change as -1 and errno (EBADF for a closed fd, ENOMEM,
+// ...); a failure that went unreported would leave its task parked on an event
+// that can never arrive, which reads exactly like a lost wake (SL-354).
 @export("__saw_rt_reactor_register")
 func rt_reactor_register(r: Int, fd: Int, w: Int, token: Int) unsafe -> Int {
     let rp = r as UnsafePointer<Reactor>
@@ -113,7 +131,7 @@ func rt_reactor_register(r: Int, fd: Int, w: Int, token: Int) unsafe -> Int {
     let nullp = 0 as UnsafePointer<Int8>
     let rc = kevent(kfd as Int32, (&kev) as UnsafePointer<Int8>, 1, nullp, 0, nullp)
     if rc < (0 as Int32) {
-        return __error()[0] as Int
+        return 0 - __saw_rt_last_syserror()
     }
     0
 }
@@ -155,14 +173,18 @@ func latch_ready(word: &Atomic<Int>) {
 
 // Block in kevent up to `timeout_ms` (< 0 = forever), latch each ready event's
 // nonzero udata token word from parked (-1) to ready (0), and pass a consumed
-// wake on to the next blocked poller. Returns the number of events delivered,
-// a consumed wake event included. A per-call heap event buffer keeps
-// concurrent polls independent.
+// wake on to the next blocked poller. Stores the number of events delivered,
+// a consumed wake event included, through `count_out` and returns 0, or
+// returns the negated tag (`Interrupted` for a signal) and stores nothing. A
+// per-call heap event buffer keeps concurrent polls independent.
 @export("__saw_rt_reactor_poll")
-func rt_reactor_poll(r: Int, timeout_ms: Int) unsafe -> Int {
+func rt_reactor_poll(r: Int, timeout_ms: Int, count_out: UnsafePointer<Int>) unsafe -> Int {
     let rp = r as UnsafePointer<Reactor>
     let kfd = rp[0].fd
     let buf = malloc(POLL_EVENTS * sizeof<KEvent>())
+    if buf as Int == 0 {
+        return 0 - __saw_rt_last_syserror()
+    }
     var ts = TimeSpec(sec: timeout_ms / 1000, nsec: (timeout_ms % 1000) * 1000000)
     let tsp = if timeout_ms < 0 { 0 as UnsafePointer<Int8> } else { (&ts) as UnsafePointer<Int8> }
     // Counted around the blocking call only, so the count leaves out threads
@@ -170,7 +192,17 @@ func rt_reactor_poll(r: Int, timeout_ms: Int) unsafe -> Int {
     // a re-trigger pending and consumes it at once.
     let _ = rp[0].waiters.fetch_add(1)
     let n = kevent(kfd as Int32, 0 as UnsafePointer<Int8>, 0, buf, POLL_EVENTS as Int32, tsp)
+    // Classified before anything else runs; the count's decrement touches no
+    // errno.
+    var failure = 0
+    if n < (0 as Int32) {
+        failure = __saw_rt_last_syserror()
+    }
     let _ = rp[0].waiters.fetch_add(-1)
+    if failure != 0 {
+        free(buf)
+        return 0 - failure
+    }
     let evs = buf as UnsafePointer<KEvent>
     var woke = false
     var i = 0
@@ -200,7 +232,8 @@ func rt_reactor_poll(r: Int, timeout_ms: Int) unsafe -> Int {
             rt_reactor_trigger(kfd)
         }
     }
-    n as Int
+    count_out[0] = n as Int
+    0
 }
 
 // Rouse every blocked poll, through the cascade. Callable from any thread,

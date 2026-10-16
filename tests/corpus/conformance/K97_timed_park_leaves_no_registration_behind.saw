@@ -50,7 +50,7 @@ func one_round(s: TcpStream, id: Int) {
 func main() {
     var i = 0
     while i < 10 {
-        let (a, b) = TcpStream.pair()
+        let (a, b) = try! TcpStream.pair()
         var group = TaskGroup()
         let t = group.spawn(one_round(move a, i))
         t.join()

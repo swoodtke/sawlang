@@ -1,7 +1,0 @@
-program	compiler/tests/run/net_parksoak.saw
-triple	arm64-apple-darwin
-source	894a873768b45ed9
-build	ok
-exit	0
-stdout	"total=800"
-stdout	""

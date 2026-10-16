@@ -30,20 +30,20 @@
 import std.net.{TcpListener}
 func main() {
     let local = try! TcpListener.listen(0)
-    print("default {local.local_port() > 0}")
+    print("default {(try! local.local_port()) > 0}")
     let all = try! TcpListener.listen(0, host: "0.0.0.0")
-    print("wildcard {all.local_port() > 0}")
+    print("wildcard {(try! all.local_port()) > 0}")
 
     // An EXACT duplicate: the same address AND port the live listener holds.
     // Refused whatever reuse says — reuse permits binding over a CLOSED
     // connection's remains, never over a socket that is still listening.
     let held = try! TcpListener.listen(0, host: "127.0.0.1")
-    let conflict = TcpListener.listen(held.local_port(), host: "127.0.0.1")
+    let conflict = TcpListener.listen(try! held.local_port(), host: "127.0.0.1")
     match conflict {
         case Err(_) -> print("exact conflict refused"),
         case Ok(_) -> print("WRONG: exact conflict allowed")
     }
-    let conflict_no_reuse = TcpListener.listen(held.local_port(), host: "127.0.0.1",
+    let conflict_no_reuse = TcpListener.listen(try! held.local_port(), host: "127.0.0.1",
                                                reuse_address: false)
     match conflict_no_reuse {
         case Err(_) -> print("exact conflict refused without reuse"),
@@ -52,9 +52,9 @@ func main() {
 
     // The opt-out and the backlog parameter both bind an unused address.
     let no_reuse = try! TcpListener.listen(0, reuse_address: false)
-    print("no-reuse bind {no_reuse.local_port() > 0}")
+    print("no-reuse bind {(try! no_reuse.local_port()) > 0}")
     let deep = try! TcpListener.listen(0, backlog: 128)
-    print("backlog bind {deep.local_port() > 0}")
+    print("backlog bind {(try! deep.local_port()) > 0}")
 
     let bad_host = TcpListener.listen(0, host: "localhost")
     match bad_host { case Err(_) -> print("invalid host"), case Ok(_) -> print("wrong host") }

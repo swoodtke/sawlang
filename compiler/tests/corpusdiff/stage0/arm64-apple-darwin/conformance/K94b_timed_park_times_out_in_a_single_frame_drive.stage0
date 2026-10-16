@@ -2,8 +2,30 @@ program	conformance/K94b_timed_park_times_out_in_a_single_frame_drive.saw
 triple	arm64-apple-darwin
 twin	same
 expect	success
-build	ok
-exit	0
-stdout	"drive timed out, waited long enough"
-stdout	""
-meets_expect	yes
+build	refused	`try` requires a Result type, got `(TcpStream, TcpStream)`
+meets_expect	no: Stage 0 does not build it
+log	"error: `try` requires a Result type, got `(TcpStream, TcpStream)`"
+log	"  --> examples/conformance/K94b_timed_park_times_out_in_a_single_frame_drive.saw:25:18"
+log	"     |"
+log	" 25 |     let (a, b) = try! TcpStream.pair()"
+log	"     |                  ^"
+log	""
+log	"error: undefined variable `a`"
+log	"  --> examples/conformance/K94b_timed_park_times_out_in_a_single_frame_drive.saw:28:11"
+log	"     |"
+log	" 28 |     match a.read(timeout: Duration.ms(ASKED_MS)) {"
+log	"     |           ^"
+log	""
+log	"error: undefined variable `a`"
+log	"  --> examples/conformance/K94b_timed_park_times_out_in_a_single_frame_drive.saw:42:13"
+log	"     |"
+log	" 42 |     let _ = move a"
+log	"     |             ^"
+log	""
+log	"error: undefined variable `b`"
+log	"  --> examples/conformance/K94b_timed_park_times_out_in_a_single_frame_drive.saw:43:13"
+log	"     |"
+log	" 43 |     let _ = move b"
+log	"     |             ^"
+log	""
+log	"4 error(s) generated"

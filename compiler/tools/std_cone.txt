@@ -5,7 +5,7 @@
 # the build's cone differs from this file. `via runtime` marks what only the
 # runtime objects reach; an `instance` line is one type-argument tuple, a type
 # the compiler source declares written as (owning) or (plain).
-# 353 declarations in 27 modules
+# 358 declarations in 27 modules
 
 builtin: 13
   struct Atomic
@@ -30,15 +30,18 @@ rt.common.mem: 6
   func rt_alloc  via runtime
   func rt_dealloc  via runtime
 
-rt.common.offload: 12
+rt.common.offload: 15
   struct Job  via runtime
   struct PipeFds  via runtime
   extern __saw_offload_thread_ptr  via runtime
+  extern __saw_rt_last_syserror  via runtime
   extern __saw_rt_thread_join  via runtime
   extern __saw_rt_thread_spawn  via runtime
+  extern abort  via runtime
   extern close  via runtime
   func copy_arg_slots  via runtime
   extern free  via runtime
+  func free_arg_slots  via runtime
   extern malloc  via runtime
   extern pipe  via runtime
   func rt_offload_start  via runtime
@@ -95,8 +98,10 @@ rt.common.proc: 37
   extern strlen  via runtime
   extern waitpid  via runtime
 
-rt.common.pthread: 2
+rt.common.pthread: 4
+  extern __saw_classify_code  via runtime
   extern pthread_join  via runtime
+  func pthread_status  via runtime
   func rt_thread_join  via runtime
 
 rt.common.sleep: 5
@@ -489,9 +494,10 @@ std.vector: 10
   __saw_string_release
   __saw_string_retain
 
-(external C symbols): 37
+(external C symbols): 39
   _NSGetExecutablePath
   __error
+  __saw_classify_code  shim.c
   __saw_environ_get  shim.c
   __saw_environ_set  shim.c
   __saw_offload_thread_ptr  shim.c
@@ -500,6 +506,7 @@ std.vector: 10
   __saw_rt_thread_spawn  shim.c
   __saw_rt_write  shim.c
   _exit
+  abort
   clock_gettime
   close
   dup2

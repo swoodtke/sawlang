@@ -49,7 +49,7 @@ func idle_read(s: TcpStream, label: String) {
 
 // Engine 1: the ambient cooperative sweep (a default single-threaded group).
 func sweep_case() {
-    let (a, b) = TcpStream.pair()
+    let (a, b) = try! TcpStream.pair()
     var group = TaskGroup()
     let t = group.spawn(idle_read(move a, "sweep"))
     t.join()
@@ -59,7 +59,7 @@ func sweep_case() {
 // Engine 2: an MT group, whose worker owns its own scan, its own poll bound and
 // its own post-poll promote — none of them shared with the sweep above.
 func mt_case() {
-    let (a, b) = TcpStream.pair()
+    let (a, b) = try! TcpStream.pair()
     var group = try! TaskGroup(threads: 2)
     let t = group.spawn(idle_read(move a, "mt"))
     t.join()

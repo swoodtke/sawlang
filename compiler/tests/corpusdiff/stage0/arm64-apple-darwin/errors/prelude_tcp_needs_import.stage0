@@ -5,10 +5,10 @@ expect	error
 build	refused	`TcpStream` is not in the prelude and must be imported
 meets_expect	yes
 log	"error: `TcpStream` is not in the prelude and must be imported"
-log	"  --> examples/errors/prelude_tcp_needs_import.saw:10:27"
+log	"  --> examples/errors/prelude_tcp_needs_import.saw:10:32"
 log	"     |"
-log	" 10 |     let (a, b) = TcpStream.pair()"
-log	"     |                           ^"
+log	" 10 |     let (a, b) = try! TcpStream.pair()"
+log	"     |                                ^"
 log	"   hint: `import std.net.{TcpStream}` selects it, `import std.net.*` takes the module's whole vocabulary bare, and `import std.net` lets you write `net.TcpStream`"
 log	""
 log	"1 error(s) generated"

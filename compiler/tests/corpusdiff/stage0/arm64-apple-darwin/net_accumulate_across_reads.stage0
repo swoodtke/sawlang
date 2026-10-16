@@ -2,9 +2,24 @@ program	net_accumulate_across_reads.saw
 triple	arm64-apple-darwin
 twin	same
 expect	success
-build	ok
-exit	0
-stdout	"15"
-stdout	"1"
-stdout	""
-meets_expect	yes
+build	refused	`try` requires a Result type, got `(TcpStream, TcpStream)`
+meets_expect	no: Stage 0 does not build it
+log	"error: `try` requires a Result type, got `(TcpStream, TcpStream)`"
+log	"  --> examples/net_accumulate_across_reads.saw:43:18"
+log	"     |"
+log	" 43 |     let (a, b) = try! TcpStream.pair()"
+log	"     |                  ^"
+log	""
+log	"error: undefined variable `a`"
+log	"  --> examples/net_accumulate_across_reads.saw:45:33"
+log	"     |"
+log	" 45 |     let hs = group.spawn(server(move a))"
+log	"     |                                 ^"
+log	""
+log	"error: undefined variable `b`"
+log	"  --> examples/net_accumulate_across_reads.saw:46:33"
+log	"     |"
+log	" 46 |     let hc = group.spawn(client(move b))"
+log	"     |                                 ^"
+log	""
+log	"3 error(s) generated"

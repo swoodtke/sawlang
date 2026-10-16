@@ -12,10 +12,13 @@ import std.mem.{copy_bytes, drop_in_place}
 
 extern "C" {
     func __saw_rt_clock_monotonic_nanos() -> Int64
-    func __saw_rt_reactor_create() -> Int
+    // The reactor seams that can fail return 0 or the negated portable tag,
+    // with the raw code beside it in `__saw_rt_last_raw_code` (runtime/ABI.md).
+    func __saw_rt_reactor_create(r_out: UnsafePointer<Int>) -> Int
     func __saw_rt_reactor_destroy(r: Int)
-    func __saw_rt_reactor_poll(r: Int, timeout_ms: Int) -> Int
+    func __saw_rt_reactor_poll(r: Int, timeout_ms: Int, count_out: UnsafePointer<Int>) -> Int
     func __saw_rt_reactor_register(r: Int, fd: Int, write: Int, token: Int) -> Int
+    func __saw_rt_last_raw_code() -> Int
     func __saw_rt_reactor_unregister(r: Int, fd: Int, write: Int)
     func __saw_rt_reactor_wake(r: Int)
     func __saw_rt_sleep_ns(ns: UInt64)
@@ -804,7 +807,7 @@ func idle(waiter: Int) unsafe -> Bool {
         if earliest == UInt64.max {
             // Only unbounded descriptor parks wait, so nothing but a
             // descriptor becoming ready can wake one.
-            let _ = __saw_rt_reactor_poll(host_reactor(), -1)
+            reactor_poll(-1)
         } else {
             wait_until(earliest)
         }
@@ -812,7 +815,7 @@ func idle(waiter: Int) unsafe -> Bool {
     }
     if channel {
         check_quiescent(waiter)
-        let _ = __saw_rt_reactor_poll(host_reactor(), -1)
+        reactor_poll(-1)
         return true
     }
     false
@@ -937,12 +940,20 @@ static REACTOR: Atomic<Int> = Atomic(0)
 
 // The process-wide reactor. A thread that loses the race to publish its new
 // instance destroys it and takes the winner's.
-func host_reactor() -> Int {
+//
+// A reactor that cannot be made (descriptor exhaustion, say) leaves the
+// executor nothing to wait in, and no caller has an error channel, so it
+// panics with the cause; an instance every poll returns from at once would
+// make the executor spin through every timed wait.
+func host_reactor() unsafe -> Int {
     let current = REACTOR.load()
     if current != 0 {
         return current
     }
-    let fresh = __saw_rt_reactor_create()
+    var fresh = 0
+    if __saw_rt_reactor_create((&fresh) as UnsafePointer<Int>) != 0 {
+        panic("reactor: creating the reactor failed (errno {})", __saw_rt_last_raw_code())
+    }
     if REACTOR.compare_exchange(0, fresh) {
         return fresh
     }
@@ -1028,7 +1039,23 @@ func wait_until(deadline: UInt64) unsafe {
     if rest < (IDLE_POLL_CAP_MILLIS as UInt64) * POLL_TICK_NANOS {
         millis = ((rest + POLL_TICK_NANOS - 1) / POLL_TICK_NANOS) as Int
     }
-    let _ = __saw_rt_reactor_poll(host_reactor(), millis)
+    reactor_poll(millis)
+}
+
+// The portable tag of a poll a signal cut short (runtime/ABI.md).
+static POLL_INTERRUPTED_TAG: Int = 4
+
+// Blocks this thread in the reactor's poll for up to `millis` milliseconds,
+// forever when negative. Every caller looks again at what changed once it
+// returns, so a poll a signal cut short is an early return like any other.
+// Any other failure is a broken instance, which nothing can recover from, so
+// it panics with the cause.
+func reactor_poll(millis: Int) unsafe {
+    var count = 0
+    let status = __saw_rt_reactor_poll(host_reactor(), millis, (&count) as UnsafePointer<Int>)
+    if status != 0 && status != 0 - POLL_INTERRUPTED_TAG {
+        panic("reactor: polling the reactor failed (errno {})", __saw_rt_last_raw_code())
+    }
 }
 
 // The executor halves the park lowerings call (SL:coroutines §3.1). Each park
@@ -1073,10 +1100,11 @@ public func __saw_exec_io_register(fd: Int, dir: Int, token: Int) unsafe {
     let word = token as UnsafePointer<Atomic<Int>>
     // Stage 0 workaround (SL:hazards S15): canonical: word[0].store(PARK_FD)
     store_park(&word[0], PARK_FD)
-    let code = __saw_rt_reactor_register(host_reactor(), fd, dir, token)
-    if code != 0 {
+    let status = __saw_rt_reactor_register(host_reactor(), fd, dir, token)
+    if status != 0 {
         let direction = if dir != 0 { "write" } else { "read" }
-        panic("reactor: arming fd {} for {} readiness failed (errno {})", fd, direction, code)
+        panic("reactor: arming fd {} for {} readiness failed (errno {})", fd, direction,
+              __saw_rt_last_raw_code())
     }
 }
 

@@ -16,9 +16,12 @@ import std.taskgroup.{FrameDescriptor, TaskContext, __saw_exec_deadline_passed, 
 import std.taskgroup.{__saw_exec_io_unregister, __saw_exec_thread_finished}
 
 extern "C" {
-    func __saw_rt_thread_join(handle: Int)
-    // Hands the block's ownership to the thread's own exit (runtime/ABI.md).
-    func __saw_rt_thread_detach(ctrl: UnsafePointer<Int8>)
+    // 0, or the negated portable tag of a refused join (runtime/ABI.md).
+    func __saw_rt_thread_join(handle: Int) -> Int
+    // Settles the block's ownership with the thread's own exit: 1 when the
+    // thread already finished and the caller frees the block (runtime/ABI.md).
+    func __saw_rt_thread_detach(ctrl: UnsafePointer<Int8>) -> Int
+    func __saw_rt_last_raw_code() -> Int
 }
 
 // The alignment every control block is allocated and freed at. The detach seam
@@ -35,7 +38,7 @@ static THREAD_BLOCK_ALIGN: Int = 16
 /// `tid` and `env` are each one pointer-sized word. Every size the detach
 /// handshake carries or a deallocation passes is `sizeof` of this type.
 public struct ThreadControlBlock<T> {
-    /// The OS thread's handle, as `__saw_rt_thread_spawn` returned it.
+    /// The OS thread's handle, as `__saw_rt_thread_spawn` stored it.
     tid: Int
     /// The body's captured environment, which the thread releases.
     env: UnsafePointer<UInt8>
@@ -60,9 +63,14 @@ struct PosixThread {
     handle: Int
 }
 
+// A refused join panics with the cause, since `Thread.join` hands back the
+// result with no error channel. A join is refused only for a handle naming no
+// joinable thread, or a thread joining itself.
 extension PosixThread: NativeThread {
     func join(&self) {
-        __saw_rt_thread_join(self.handle)
+        if __saw_rt_thread_join(self.handle) != 0 {
+            panic("Thread.join: joining the thread failed (errno {})", __saw_rt_last_raw_code())
+        }
     }
 }
 
@@ -89,7 +97,8 @@ extension Thread<T> {
     /// Waits for the thread to finish and returns its result.
     ///
     /// Blocks the calling thread. A thread yields its result once, so joining
-    /// a second time, or after `detach`, panics.
+    /// a second time, or after `detach`, panics. A join the operating system
+    /// refuses, as for a thread joining itself, panics with the cause.
     public func join(&var self) unsafe -> T {
         if self.joined {
             panic("Thread.join: this thread's fate was already written")
@@ -115,10 +124,14 @@ extension Thread<T> {
         if self.joined {
             panic("Thread.detach: this thread's fate was already written")
         }
-        // When the thread finished first, the seam frees the block without
-        // destroying the result, which it cannot name, so an owning `T` leaks
-        // on that path (SL-765).
-        __saw_rt_thread_detach(self.block as UnsafePointer<Int8>)
+        // When the thread finished first, the block is this side's: the
+        // result is a live value nobody will read, destroyed here because the
+        // seam cannot name `T`. Otherwise the thread's exit does both.
+        let block = self.block
+        if __saw_rt_thread_detach(block as UnsafePointer<Int8>) != 0 {
+            drop_in_place((&block[0].result) as UnsafePointer<T>)
+            free_thread_block(block)
+        }
         self.joined = true
     }
 
@@ -198,6 +211,7 @@ func exchange_state<T>(block: UnsafePointer<ThreadControlBlock<T>>, value: Int) 
 //
 // ENTRY POINTS:
 //   Thread.join
+//   Thread.detach
 //   Thread.__saw_exit
 func free_thread_block<T>(block: UnsafePointer<ThreadControlBlock<T>>) unsafe {
     GlobalAllocator().dealloc(block as UnsafePointer<Int8>, sizeof<ThreadControlBlock<T>>(),

@@ -1,0 +1,67 @@
+// An offload that cannot start panics with its cause, at the call (SL-768).
+// The program uses up its descriptors, then calls a `blocking` extern from a
+// suspending `main`: the offload's job needs a pipe, the pipe is refused with
+// EMFILE, and the call panics naming it. The runtime once carried on with
+// both pipe ends left at descriptor 0, parked on that, and closed the
+// program's standard input when it took the job.
+//
+// The descriptor limit is lowered first so the exhaustion is quick at any
+// starting limit. Its resource number is per host (`RLIMIT_NOFILE` is 8 on
+// macOS and 7 on Linux), so both are capped: the other number is a limit
+// this program never meets (`RLIMIT_NPROC` on macOS, `RLIMIT_MEMLOCK` on
+// Linux).
+
+extern "C" {
+    func pipe(fds: UnsafePointer<Int32>) -> Int32
+    func dup(fd: Int32) -> Int32
+    func getrlimit(resource: Int32, limit: UnsafePointer<Limit>) -> Int32
+    func setrlimit(resource: Int32, limit: UnsafePointer<Limit>) -> Int32
+    blocking func __saw_rt_blocking_sleep(ms: Int) -> Int
+}
+
+struct Limit {
+    soft: UInt64
+    hard: UInt64
+}
+
+struct Ends {
+    read: Int32
+    write: Int32
+}
+
+static DESCRIPTOR_CAP: UInt64 = 64
+static NOFILE_MACOS: Int32 = 8
+static NOFILE_LINUX: Int32 = 7
+static NAP_MS: Int = 5
+
+// Lowers resource `resource`'s soft limit to `DESCRIPTOR_CAP`.
+func cap(resource: Int32) unsafe {
+    var limit = Limit(soft: 0, hard: 0)
+    if getrlimit(resource, (&limit) as UnsafePointer<Limit>) == (0 as Int32) {
+        if limit.soft > DESCRIPTOR_CAP {
+            limit.soft = DESCRIPTOR_CAP
+            let _ = setrlimit(resource, (&limit) as UnsafePointer<Limit>)
+        }
+    }
+}
+
+// Opens pipes until the system refuses one, then duplicates standard input
+// into the odd descriptor a pipe could not take; whether any were opened.
+func exhaust() unsafe -> Bool {
+    var ends = Ends(read: 0 as Int32, write: 0 as Int32)
+    var made = 0
+    while pipe((&ends) as UnsafePointer<Int32>) == (0 as Int32) {
+        made = made + 1
+    }
+    while dup(0 as Int32) >= (0 as Int32) {
+        made = made + 1
+    }
+    made > 0
+}
+
+func main() {
+    cap(NOFILE_MACOS)
+    cap(NOFILE_LINUX)
+    print("descriptors exhausted: {}", exhaust())
+    print("unreachable: {}", __saw_rt_blocking_sleep(NAP_MS))
+}

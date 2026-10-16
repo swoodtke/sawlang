@@ -2,11 +2,30 @@ program	df140h_std_private_static_two_files.saw
 triple	arm64-apple-darwin
 twin	same
 expect	success
-build	ok
-exit	0
-stdout	"48"
-stdout	"999"
-stdout	"7"
-stdout	"4"
-stdout	""
-meets_expect	yes
+build	refused	`try` requires a Result type, got `(TcpStream, TcpStream)`
+meets_expect	no: Stage 0 does not build it
+log	"error: `try` requires a Result type, got `(TcpStream, TcpStream)`"
+log	"  --> examples/df140h_std_private_static_two_files.saw:25:18"
+log	"     |"
+log	" 25 |     let (a, b) = try! TcpStream.pair()"
+log	"     |                  ^"
+log	""
+log	"error: undefined variable `a`"
+log	"  --> examples/df140h_std_private_static_two_files.saw:26:10"
+log	"     |"
+log	" 26 |     try! a.write(\"ping\")"
+log	"     |          ^"
+log	""
+log	"error: undefined variable `b`"
+log	"  --> examples/df140h_std_private_static_two_files.saw:27:20"
+log	"     |"
+log	" 27 |     let got = try! b.read()"
+log	"     |                    ^"
+log	""
+log	"error: undefined variable `got`"
+log	"  --> examples/df140h_std_private_static_two_files.saw:28:11"
+log	"     |"
+log	" 28 |     print(got.len())"
+log	"     |           ^"
+log	""
+log	"4 error(s) generated"

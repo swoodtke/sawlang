@@ -2620,12 +2620,12 @@ dump_tasks()                // every live task's logical backtrace (std.task)
   let strict = try! TcpListener.listen(0, reuse_address: false, backlog: 128)
   try! stream.set_no_delay(false)               // Result; per-connection setters
   try! stream.set_keepalive(true)
-  let port = listener.local_port()
+  let port = try! listener.local_port()        // Result<Int, IoError>
   let stream = try! listener.accept()          // Result<TcpStream, IoError>; suspends
   let chunk = try! stream.read()               // Result<Data, IoError>; Ok(EMPTY) = EOF
   try! stream.write("hi")                      // write(s: String) -> Result<Void, IoError>
   try! stream.write(move data)                 // write(bytes: Data); whole buffer, suspends
-  let (a, b) = TcpStream.pair()                // connected pair, tests/IPC (no port)
+  let (a, b) = try! TcpStream.pair()           // Result; connected pair, tests/IPC (no port)
   let s = try! TcpStream.connect("127.0.0.1", port)  // Result; suspends until connected
   ```
   **SOCKET OPTIONS: labelled parameters at `listen`, `Result`-returning setters

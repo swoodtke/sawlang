@@ -195,9 +195,15 @@ func tcp_listen(port: Int) -> Int {
     net_sentinel(__saw_rt_tcp_listen(port))
 }
 
-// The actual local port a (possibly ephemeral) listen fd is bound to.
+// The actual local port a (possibly ephemeral) listen fd is bound to. Its one
+// caller, `TcpListener.local_port`, has no error channel in this std, so a
+// refused `getsockname` panics with the cause rather than answer port 0.
 func tcp_local_port(fd: Int) -> Int {
-    __saw_rt_tcp_local_port(fd)
+    let port = __saw_rt_tcp_local_port(fd)
+    if port < 0 {
+        panic("TcpListener.local_port: getsockname failed (errno {})", __saw_rt_last_raw_code())
+    }
+    port
 }
 
 // Nonblocking accept: a nonblocking connection fd (>= 0), the would-block
@@ -257,9 +263,13 @@ func tcp_socketpair() unsafe -> (Int, Int) {
     if socketpair(AF_UNIX, SOCK_STREAM, PROTO_DEFAULT, fp) == 0 {
         let a = fp[0]
         let b = fp[1]
-        let _ = __saw_rt_set_nonblocking(a as Int)
-        let _ = __saw_rt_set_nonblocking(b as Int)
-        return (a as Int, b as Int)
+        // Fresh descriptors cannot be refused `O_NONBLOCK`; the status is
+        // still read, since a blocking end would block the executor's thread.
+        if __saw_rt_set_nonblocking(a as Int) == 0 && __saw_rt_set_nonblocking(b as Int) == 0 {
+            return (a as Int, b as Int)
+        }
+        tcp_close(a as Int)
+        tcp_close(b as Int)
     }
     (NET_ERROR, NET_ERROR)
 }

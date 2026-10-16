@@ -2,9 +2,42 @@ program	conformance/K94_timed_park_times_out_in_every_engine.saw
 triple	arm64-apple-darwin
 twin	same
 expect	success
-build	ok
-exit	0
-stdout	"sweep timed out, waited long enough"
-stdout	"mt timed out, waited long enough"
-stdout	""
-meets_expect	yes
+build	refused	`try` requires a Result type, got `(TcpStream, TcpStream)`
+meets_expect	no: Stage 0 does not build it
+log	"error: `try` requires a Result type, got `(TcpStream, TcpStream)`"
+log	"  --> examples/conformance/K94_timed_park_times_out_in_every_engine.saw:52:18"
+log	"     |"
+log	" 52 |     let (a, b) = try! TcpStream.pair()"
+log	"     |                  ^"
+log	""
+log	"error: undefined variable `a`"
+log	"  --> examples/conformance/K94_timed_park_times_out_in_every_engine.saw:54:35"
+log	"     |"
+log	" 54 |     let t = group.spawn(idle_read(move a, \"sweep\"))"
+log	"     |                                   ^"
+log	""
+log	"error: undefined variable `b`"
+log	"  --> examples/conformance/K94_timed_park_times_out_in_every_engine.saw:56:13"
+log	"     |"
+log	" 56 |     let _ = move b"
+log	"     |             ^"
+log	""
+log	"error: `try` requires a Result type, got `(TcpStream, TcpStream)`"
+log	"  --> examples/conformance/K94_timed_park_times_out_in_every_engine.saw:62:18"
+log	"     |"
+log	" 62 |     let (a, b) = try! TcpStream.pair()"
+log	"     |                  ^"
+log	""
+log	"error: undefined variable `a`"
+log	"  --> examples/conformance/K94_timed_park_times_out_in_every_engine.saw:64:35"
+log	"     |"
+log	" 64 |     let t = group.spawn(idle_read(move a, \"mt\"))"
+log	"     |                                   ^"
+log	""
+log	"error: undefined variable `b`"
+log	"  --> examples/conformance/K94_timed_park_times_out_in_every_engine.saw:66:13"
+log	"     |"
+log	" 66 |     let _ = move b"
+log	"     |             ^"
+log	""
+log	"6 error(s) generated"

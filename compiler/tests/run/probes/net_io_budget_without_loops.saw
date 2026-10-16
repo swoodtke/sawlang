@@ -1,3 +1,11 @@
+// probe: stated
+// about: the io budget alone cedes from a loop-free tree of socket calls (SL-570)
+// stage 0: its frozen std.net answers `local_port()` with an `Int` and `TcpStream.pair()` with a bare pair, so it refuses the `try!` on each (SL-768)
+// speeds: -O0 -O2
+// prints: pump starts
+// prints: sibling runs
+// prints: pump ends; the sibling ran meanwhile: true
+// prints: 257
 // The io budget alone cedes (SL:coroutines A12b): `pump` makes 512 socket
 // operations that never park, through a tree of calls with no loop anywhere,
 // so no compute-budget point can make it yield. Each read finds the bytes the
@@ -55,7 +63,7 @@ func sibling() -> Int {
 }
 
 func main() {
-    let (s0, s1) = TcpStream.pair()
+    let (s0, s1) = try! TcpStream.pair()
     var group = TaskGroup()
     let hp = group.spawn(pump(move s0, move s1))
     let hs = group.spawn(sibling())

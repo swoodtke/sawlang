@@ -447,9 +447,52 @@ class CallsMixin:
             slots = ir.Constant(slot, 0)
         fnptr = self.builder.ptrtoint(self._blk_thunk(inner.name), slot,
                                       name="blkfn")
-        return self.builder.call(
+        job_at = self._entry_alloca(self.int_type, name="blkjobat")
+        status = self.builder.call(
             self.functions["__saw_rt_offload_start"],
-            [fnptr, slots, ir.Constant(slot, len(argv))], name="blkjob")
+            [fnptr, slots, ir.Constant(slot, len(argv)), job_at], name="blkstart")
+        # An extern call has no error channel, so a job that cannot start (no
+        # memory, no pipe, no thread) panics with the cause rather than parking
+        # on a job that does not exist.
+        self._panic_on_seam_status(
+            status, "blocking call: starting its offload failed", inner.line)
+        return self.builder.load(job_at, name="blkjob")
+
+    def _panic_on_seam_status(self, status, what: str, line: int):
+        """Panic with `what` and the raw platform code when the seam status
+        `status` is not 0; the builder is left in the success block.
+
+        The panic paths of the seams the compiler itself calls, which have no
+        `Result` to report through (rt/ABI.md's portable-tag convention). The
+        message is `WHAT (errno N)`, `N` from `__saw_rt_last_raw_code`, the
+        wording the executor's own seam panics use.
+
+        Entry points:
+            _gen_offload_start
+            _generate_spawn
+        """
+        word = self.int_type
+        func = self.builder.function
+        fail_bb = func.append_basic_block("seam_failed")
+        ok_bb = func.append_basic_block("seam_ok")
+        self.builder.cbranch(
+            self.builder.icmp_signed("!=", status, ir.Constant(word, 0)),
+            fail_bb, ok_bb)
+        self.builder.position_at_end(fail_bb)
+        raw_fn = self.functions.get("__saw_rt_last_raw_code")
+        if raw_fn is None:
+            raw_fn = ir.Function(self.module, ir.FunctionType(word, []),
+                                 name="__saw_rt_last_raw_code")
+            raw_fn.linkage = "external"
+            self.functions["__saw_rt_last_raw_code"] = raw_fn
+        raw = self.builder.call(raw_fn, [], name="seam_raw")
+        prefix = self._panic_location_prefix(line or self._di_current_line())
+        self._emit_panic_message([
+            self._text_step(f"{prefix}{what} (errno "),
+            self._int_step(raw, False),
+            self._text_step(")"),
+        ])
+        self.builder.position_at_end(ok_bb)
 
     def _generate_function_call(self, expr: FunctionCall):
         """Generate code for a function call.
@@ -2764,12 +2807,17 @@ class CallsMixin:
         tid_slot = self.builder.gep(
             cb, [ir.Constant(ir.IntType(32), 0), ir.Constant(ir.IntType(32), 0)],
             name="task_tid_slot")
-        # design 117: __saw_rt_thread_spawn(entry, env) RETURNS the OS thread
-        # handle (pthread_t word); store it into the control block's first slot
-        # (byte 0), where Thread.join/Thread.deinit read it back. Byte-identical
-        # control-block layout to the pre-117 pthread_create-writes-the-slot form.
-        handle = self.builder.call(self.functions["__saw_rt_thread_spawn"],
-                                   [tramp, raw], name="task_handle")
+        # SL-768: __saw_rt_thread_spawn(entry, env, handle_out) stores the OS
+        # thread handle (pthread_t word) through `handle_out`, the control
+        # block's first slot (byte 0), where Thread.join/Thread.deinit read it
+        # back, and returns 0 or the negated tag. This compiler's `Thread.spawn`
+        # has no `Result`, so a thread the OS refuses panics with the cause.
+        tid_word_slot = self.builder.bitcast(
+            tid_slot, self.int_type.as_pointer(), name="task_tid_word")
+        status = self.builder.call(self.functions["__saw_rt_thread_spawn"],
+                                   [tramp, raw, tid_word_slot], name="task_spawned")
+        self._panic_on_seam_status(
+            status, "Thread.spawn: starting the thread failed", expr.line)
         # design 230 unit B: a `Thread.spawn {}` body is code this process can
         # still run and no run queue knows about it, so the quiescent deadlock
         # report has to count it. Bumped HERE (the launch) and dropped in
@@ -2779,9 +2827,6 @@ class CallsMixin:
         # dependency, exactly as the `io_wait` fallback below is.
         if "__saw_exec_thread_task_started" in self.functions:
             self.builder.call(self.functions["__saw_exec_thread_task_started"], [])
-        tid_word_slot = self.builder.bitcast(
-            tid_slot, self.int_type.as_pointer(), name="task_tid_word")
-        self.builder.store(handle, tid_word_slot)
 
         # Build the handle value { handle: Some(raw), joined: false } — a
         # `VoidThread` for a `Void` body, a `Thread<T>` otherwise (design 242).

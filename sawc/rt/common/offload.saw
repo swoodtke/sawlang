@@ -22,10 +22,14 @@ extern "C" {
     func free(ptr: UnsafePointer<Int8>)
     func pipe(fds: UnsafePointer<Int8>) -> Int32
     func close(fd: Int32) -> Int32
+    func abort()
     // Join is Saw (rt/common/pthread.saw); spawn is C (rt/shim.c).
-    func __saw_rt_thread_spawn(entry: UnsafePointer<Int8>, env: UnsafePointer<Int8>) -> Int
-    func __saw_rt_thread_join(handle: Int)
+    func __saw_rt_thread_spawn(entry: UnsafePointer<Int8>, env: UnsafePointer<Int8>,
+                               handle_out: UnsafePointer<Int>) -> Int
+    func __saw_rt_thread_join(handle: Int) -> Int
     func __saw_rt_sleep_ns(ns: UInt64)
+    // errno -> SysError tag mapper (net_os.saw).
+    func __saw_rt_last_syserror() -> Int
     // The offload thread thunk's address (shim). Saw cannot name a C function
     // pointer, so the shim exposes it as an opaque pointer for pthread_create.
     func __saw_offload_thread_ptr() -> UnsafePointer<Int8>
@@ -61,13 +65,18 @@ static_assert(sizeof<Job>() == 48, "offload Job layout must match shim.c")
 // Copy `argc` argument slots out of the caller's storage into a block the job
 // owns. The worker reads them on its own thread, at a time this call cannot
 // bound, so borrowing the caller's array would be a dangling read; `take` frees
-// the copy. Zero arguments allocate nothing and the thunk gets a null pointer.
+// the copy. Zero arguments allocate nothing and the thunk gets a null pointer,
+// so 0 is a refused allocation only when `argc` is positive.
 func copy_arg_slots(argp: Int, argc: Int) unsafe -> Int {
     if argc <= 0 {
         return 0
     }
     let src = argp as UnsafePointer<Int64>
-    let dst = malloc(argc * sizeof<Int64>()) as UnsafePointer<Int64>
+    let raw = malloc(argc * sizeof<Int64>())
+    if raw as Int == 0 {
+        return 0
+    }
+    let dst = raw as UnsafePointer<Int64>
     var i = 0
     while i < argc {
         dst[i] = src[i]
@@ -76,22 +85,58 @@ func copy_arg_slots(argp: Int, argc: Int) unsafe -> Int {
     dst as Int
 }
 
+// Start the job and store its handle through `job_out`: 0, or the negated tag
+// of the first step that failed, with everything the earlier steps made
+// undone. Each failure is classified before anything else can touch errno.
+// The thread's own refusal comes classified from the spawn seam, an `EAGAIN`
+// there already `Exhausted`.
 @export("__saw_rt_offload_start")
-func rt_offload_start(fn: Int, argp: Int, argc: Int) unsafe -> Int {
+func rt_offload_start(fn: Int, argp: Int, argc: Int, job_out: UnsafePointer<Int>) unsafe -> Int {
     let raw = malloc(sizeof<Job>())
+    if raw as Int == 0 {
+        return 0 - __saw_rt_last_syserror()
+    }
+    let args = copy_arg_slots(argp, argc)
+    if argc > 0 && args == 0 {
+        let e = __saw_rt_last_syserror()
+        free(raw)
+        return 0 - e
+    }
+    var fds = PipeFds(r: 0, w: 0)
+    if pipe((&fds) as UnsafePointer<Int8>) != (0 as Int32) {
+        let e = __saw_rt_last_syserror()
+        free_arg_slots(args)
+        free(raw)
+        return 0 - e
+    }
     let p = raw as UnsafePointer<Job>
     p[0].fn = fn
-    p[0].args = copy_arg_slots(argp, argc)
+    p[0].args = args
     p[0].result = 0
     p[0].done.store(0)
-    var fds = PipeFds(r: 0, w: 0)
-    pipe((&fds) as UnsafePointer<Int8>)
     p[0].pipe_r = fds.r
     p[0].pipe_w = fds.w
     // `take` joins the thread through the handle stored here.
     let thunk = __saw_offload_thread_ptr()
-    p[0].thread = __saw_rt_thread_spawn(thunk, raw)
-    raw as Int
+    var handle: Int = 0
+    let status = __saw_rt_thread_spawn(thunk, raw, (&handle) as UnsafePointer<Int>)
+    if status != 0 {
+        let _ = close(fds.r)
+        let _ = close(fds.w)
+        free_arg_slots(args)
+        free(raw)
+        return status
+    }
+    p[0].thread = handle
+    job_out[0] = raw as Int
+    0
+}
+
+// Free a job's copy of the argument slots, which a zero-argument job has none of.
+func free_arg_slots(args: Int) unsafe {
+    if args != 0 {
+        free(args as UnsafePointer<Int8>)
+    }
 }
 
 @export("__saw_rt_offload_done")
@@ -113,13 +158,18 @@ func rt_offload_take(job: Int) unsafe -> Int {
     // The join is a full barrier, so the thread's stores are visible below. It
     // is also what makes freeing the argument slots safe: the worker has
     // finished reading them whether or not the caller was cancelled.
-    __saw_rt_thread_join(p[0].thread)
+    //
+    // The join cannot fail: each job is taken once, and its handle names a
+    // joinable thread that is not this one. `take` has no status to report a
+    // failure through, and freeing slots a still-running worker reads would be
+    // a use after free, so a failed join aborts.
+    if __saw_rt_thread_join(p[0].thread) != 0 {
+        abort()
+    }
     let result = p[0].result
     close(p[0].pipe_r)
     close(p[0].pipe_w)
-    if p[0].args != 0 {
-        free(p[0].args as UnsafePointer<Int8>)
-    }
+    free_arg_slots(p[0].args)
     free(raw)
     result
 }

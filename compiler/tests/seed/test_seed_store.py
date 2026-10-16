@@ -59,8 +59,8 @@ RUNTIME_IR = b"""define i32 @seed_value() {
   ret i32 %d
 }
 
-define void @__saw_rt_dealloc(ptr %%p, i64 %%size, i64 %%align) {
-  ret void
+define i64 @__saw_rt_last_syserror() {
+  ret i64 0
 }
 """ % EXIT_VALUE
 

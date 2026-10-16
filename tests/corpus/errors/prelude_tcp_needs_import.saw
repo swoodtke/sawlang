@@ -7,6 +7,6 @@
 // silent resolution to the hidden std symbol.
 
 func main() {
-    let (a, b) = TcpStream.pair()
+    let (a, b) = try! TcpStream.pair()
     print(1)
 }

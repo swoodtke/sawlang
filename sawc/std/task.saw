@@ -15,7 +15,7 @@
 // `Thread.spawn` codegen launches the thread and allocates its control block;
 // this file is the value-level API over that block. Layout (the compiler's;
 // rt/ABI.md's `__saw_rt_thread_detach` entry freezes the state word):
-//     [0,  8)  pthread_t tid  (the word `__saw_rt_thread_spawn` returned)
+//     [0,  8)  pthread_t tid  (the word `__saw_rt_thread_spawn` stored)
 //     [8, 16)  i8* env        (the closure's heap environment)
 //     [16,24)  state          (the detach ownership handshake)
 //     [24, ..) T result       (written by the trampoline when the body returns)
@@ -27,9 +27,12 @@
 // faults while it is clear.
 
 extern "C" {
-    func __saw_rt_thread_join(handle: Int)
-    // Hands the block's ownership to the thread's own exit path (rt/ABI.md).
-    func __saw_rt_thread_detach(ctrl: UnsafePointer<Int8>)
+    // 0, or the negated tag of a refused join (rt/ABI.md).
+    func __saw_rt_thread_join(handle: Int) -> Int
+    // Settles the block's ownership with the thread's own exit path: 1 when
+    // the thread already finished and the caller frees the block (rt/ABI.md).
+    func __saw_rt_thread_detach(ctrl: UnsafePointer<Int8>) -> Int
+    func __saw_rt_last_raw_code() -> Int
 }
 
 // The OS-thread surface the executor consumes: join by handle. Spawn stays the
@@ -46,9 +49,15 @@ struct PosixThread {
     handle: Int
 }
 
+// A refused join panics with the cause: `Thread.join` hands back the result
+// with no error channel, and the MT crew's drain has none either. A join is
+// refused only for a handle naming no joinable thread, or a thread joining
+// itself.
 extension PosixThread: NativeThread {
     func join(&self) {
-        __saw_rt_thread_join(self.handle)
+        if __saw_rt_thread_join(self.handle) != 0 {
+            panic("Thread.join: joining the thread failed (errno {})", __saw_rt_last_raw_code())
+        }
     }
 }
 
@@ -115,7 +124,13 @@ extension Thread<T> {
                 // The body may still run, but nothing will observe its result,
                 // so the deadlock report stops counting it, as after a join.
                 __saw_exec_thread_task_ended()
-                __saw_rt_thread_detach(h)
+                if __saw_rt_thread_detach(h) != 0 {
+                    // The thread finished first, so its result is a live
+                    // value nobody will read: destroy it, then free the block.
+                    let result_ptr = (h + 24) as UnsafePointer<T>
+                    let unread = move result_ptr[0]
+                    GlobalAllocator().dealloc(h, 24 + sizeof<T>(), 16)
+                }
                 self.joined = true
             } else {
                 panic("Thread.detach: thread has no control block")
@@ -191,7 +206,10 @@ extension VoidThread {
         } else {
             if let h = self.handle {
                 __saw_exec_thread_task_ended()
-                __saw_rt_thread_detach(h)
+                if __saw_rt_thread_detach(h) != 0 {
+                    // The thread finished first; there is no result to destroy.
+                    GlobalAllocator().dealloc(h, 24, 16)
+                }
                 self.joined = true
             } else {
                 panic("VoidThread.detach: thread has no control block")

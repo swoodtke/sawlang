@@ -2,9 +2,30 @@ program	net_write_to_closed_peer_is_an_error.saw
 triple	arm64-apple-darwin
 twin	same
 expect	success
-build	ok
-exit	0
-stdout	"write refused: broken pipe"
-stdout	"still running"
-stdout	""
-meets_expect	yes
+build	refused	`try` requires a Result type, got `(TcpStream, TcpStream)`
+meets_expect	no: Stage 0 does not build it
+log	"error: `try` requires a Result type, got `(TcpStream, TcpStream)`"
+log	"  --> examples/net_write_to_closed_peer_is_an_error.saw:45:18"
+log	"     |"
+log	" 45 |     let (a, b) = try! TcpStream.pair()"
+log	"     |                  ^"
+log	""
+log	"error: undefined variable `b`"
+log	"  --> examples/net_write_to_closed_peer_is_an_error.saw:46:13"
+log	"     |"
+log	" 46 |     let _ = move b                      // the peer is gone as of here"
+log	"     |             ^"
+log	""
+log	"error: undefined variable `a`"
+log	"  --> examples/net_write_to_closed_peer_is_an_error.saw:51:31"
+log	"     |"
+log	" 51 |         verdict = write_once(&a)"
+log	"     |                               ^"
+log	""
+log	"error: undefined variable `a`"
+log	"  --> examples/net_write_to_closed_peer_is_an_error.saw:66:13"
+log	"     |"
+log	" 66 |     let _ = move a"
+log	"     |             ^"
+log	""
+log	"4 error(s) generated"

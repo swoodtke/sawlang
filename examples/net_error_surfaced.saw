@@ -15,7 +15,7 @@
 import std.net.{TcpListener, TcpStream}
 func closed_ephemeral_port() -> Int {
     let listener = try! TcpListener.listen(0)
-    let p = listener.local_port()
+    let p = try! listener.local_port()
     return p
 }
 
@@ -30,7 +30,7 @@ func main() {
         case Err(_) -> print("connect failed: surfaced")
     }
 
-    let (a, b) = TcpStream.pair()
+    let (a, b) = try! TcpStream.pair()
     drop_stream(move a)                 // close b's peer -> b sees EOF
     match b.read() {
         case Ok(chunk) -> {

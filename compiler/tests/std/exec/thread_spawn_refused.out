@@ -1,0 +1,4 @@
+a spawn was refused: true
+the refusal is Exhausted: true
+the raw code is EAGAIN: true
+no handle was stored: true

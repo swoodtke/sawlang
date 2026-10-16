@@ -49,7 +49,7 @@ func untimed_reader(s: TcpStream, ready: Channel<Int>) {
 
 func main() {
     // Each case gets its own pair, so neither can see the other's bytes.
-    let (a, b) = TcpStream.pair()
+    let (a, b) = try! TcpStream.pair()
     var g1 = TaskGroup()
     let r1 = try! Channel<Int>()
     let t1 = g1.spawn(timed_reader(move a, r1.copy()))
@@ -58,7 +58,7 @@ func main() {
     t1.join()
     let _ = move b
 
-    let (c, d) = TcpStream.pair()
+    let (c, d) = try! TcpStream.pair()
     var g2 = TaskGroup()
     let r2 = try! Channel<Int>()
     let t2 = g2.spawn(untimed_reader(move c, r2.copy()))

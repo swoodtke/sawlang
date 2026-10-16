@@ -50,8 +50,8 @@ func patient(s: TcpStream) {
 }
 
 func main() {
-    let (ia, ib) = TcpStream.pair()   // ib is never written: idle must time out
-    let (pa, pb) = TcpStream.pair()
+    let (ia, ib) = try! TcpStream.pair()   // ib is never written: idle must time out
+    let (pa, pb) = try! TcpStream.pair()
     var group = TaskGroup()
     let done = try! Channel<Int>()
 

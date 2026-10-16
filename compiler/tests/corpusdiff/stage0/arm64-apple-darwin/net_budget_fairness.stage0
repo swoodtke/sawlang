@@ -2,8 +2,24 @@ program	net_budget_fairness.saw
 triple	arm64-apple-darwin
 twin	differs
 expect	success
-build	ok
-exit	0
-stdout	"5"
-stdout	""
-meets_expect	yes
+build	refused	`try` requires a Result type, got `(TcpStream, TcpStream)`
+meets_expect	no: Stage 0 does not build it
+log	"error: `try` requires a Result type, got `(TcpStream, TcpStream)`"
+log	"  --> examples/net_budget_fairness.saw:69:20"
+log	"     |"
+log	" 69 |     let (s0, s1) = try! TcpStream.pair()"
+log	"     |                    ^"
+log	""
+log	"error: undefined variable `s0`"
+log	"  --> examples/net_budget_fairness.saw:73:33"
+log	"     |"
+log	" 73 |     let hr = group.spawn(recirc(move s0, move s1, stop))"
+log	"     |                                 ^"
+log	""
+log	"error: undefined variable `s1`"
+log	"  --> examples/net_budget_fairness.saw:73:42"
+log	"     |"
+log	" 73 |     let hr = group.spawn(recirc(move s0, move s1, stop))"
+log	"     |                                          ^"
+log	""
+log	"3 error(s) generated"

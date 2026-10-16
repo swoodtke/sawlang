@@ -179,7 +179,10 @@ func rt_tcp_listen_with(addr_be: Int, port: Int, reuse_address: Int,
     if fd < (0 as Int32) {
         return -__saw_rt_last_syserror()
     }
-    let _ = __saw_rt_set_nonblocking(fd as Int)
+    let nb = make_nonblocking(fd)
+    if nb < 0 {
+        return nb
+    }
     __saw_socket_suppress_sigpipe(fd as Int)
     if reuse_address != 0 {
         let r = rt_socket_set_option(fd as Int, OPT_REUSE_ADDRESS, 1)
@@ -223,14 +226,30 @@ func rt_socket_set_option(fd: Int, option: Int, value: Int) unsafe -> Int {
     0
 }
 
-// The actual local port a (possibly ephemeral) listen fd is bound to.
+// Make the socket `fd` nonblocking: 0, or the negated tag with `fd` closed.
+// Every caller passes a descriptor `socket` or `accept` has just returned, so
+// the two `fcntl` calls cannot be refused by construction. The status is still
+// checked: a socket left blocking would block the executor's thread in its
+// first `accept` or `read`.
+func make_nonblocking(fd: Int32) unsafe -> Int {
+    let status = __saw_rt_set_nonblocking(fd as Int)
+    if status < 0 {
+        let _ = close(fd)
+    }
+    status
+}
+
+// The actual local port a (possibly ephemeral) listen fd is bound to, or the
+// negated tag of `getsockname`'s refusal.
 @export("__saw_rt_tcp_local_port")
 func rt_tcp_local_port(fd: Int) unsafe -> Int {
     var sa = SockAddrIn(family: 0 as UInt16, port: 0 as UInt16, addr: 0 as UInt32, zero: 0 as UInt64)
     let ap = (&sa) as UnsafePointer<Int8>
     var len: Int32 = SOCKADDR_IN_LEN
     let lp = (&len) as UnsafePointer<Int32>
-    let _ = getsockname(fd as Int32, ap, lp)
+    if getsockname(fd as Int32, ap, lp) != (0 as Int32) {
+        return 0 - __saw_rt_last_syserror()
+    }
     ntohs(sa.port)
 }
 
@@ -244,7 +263,10 @@ func rt_tcp_accept(listen_fd: Int) unsafe -> Int {
     let lp = (&len) as UnsafePointer<Int32>
     let c = accept(listen_fd as Int32, ap, lp)
     if c >= (0 as Int32) {
-        let _ = __saw_rt_set_nonblocking(c as Int)
+        let nb = make_nonblocking(c)
+        if nb < 0 {
+            return nb
+        }
         // An accepted socket does not inherit the listener's options, so the
         // hardening is applied per connection.
         __saw_socket_suppress_sigpipe(c as Int)
@@ -263,7 +285,10 @@ func rt_tcp_connect_start(addr_be: Int, port: Int) unsafe -> Int {
     if fd < (0 as Int32) {
         return -__saw_rt_last_syserror()
     }
-    let _ = __saw_rt_set_nonblocking(fd as Int)
+    let nb = make_nonblocking(fd)
+    if nb < 0 {
+        return nb
+    }
     // Same hardening as the accept path, set before `connect` while the socket
     // is certainly still ours alone.
     __saw_socket_suppress_sigpipe(fd as Int)

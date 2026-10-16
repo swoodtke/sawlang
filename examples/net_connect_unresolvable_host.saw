@@ -41,7 +41,7 @@ func attempt(host: String, port: Int) {
 
 func main() {
     let listener = try! TcpListener.listen(0)
-    let port = listener.local_port()
+    let port = try! listener.local_port()
 
     // Named in full, so the "the error says WHICH host" half is pinned.
     match TcpStream.connect("", port) {

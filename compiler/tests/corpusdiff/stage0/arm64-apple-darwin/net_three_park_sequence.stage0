@@ -2,9 +2,24 @@ program	net_three_park_sequence.saw
 triple	arm64-apple-darwin
 twin	same
 expect	success
-build	ok
-exit	0
-stdout	"241"
-stdout	"65"
-stdout	""
-meets_expect	yes
+build	refused	`try` requires a Result type, got `(TcpStream, TcpStream)`
+meets_expect	no: Stage 0 does not build it
+log	"error: `try` requires a Result type, got `(TcpStream, TcpStream)`"
+log	"  --> examples/net_three_park_sequence.saw:40:20"
+log	"     |"
+log	" 40 |     let (s0, s1) = try! TcpStream.pair()"
+log	"     |                    ^"
+log	""
+log	"error: undefined variable `s0`"
+log	"  --> examples/net_three_park_sequence.saw:42:33"
+log	"     |"
+log	" 42 |     let hs = group.spawn(server(move s0))"
+log	"     |                                 ^"
+log	""
+log	"error: undefined variable `s1`"
+log	"  --> examples/net_three_park_sequence.saw:43:33"
+log	"     |"
+log	" 43 |     let hc = group.spawn(client(move s1))"
+log	"     |                                 ^"
+log	""
+log	"3 error(s) generated"

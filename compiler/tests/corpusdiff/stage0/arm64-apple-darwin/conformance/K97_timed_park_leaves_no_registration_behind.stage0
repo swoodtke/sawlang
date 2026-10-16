@@ -2,9 +2,24 @@ program	conformance/K97_timed_park_leaves_no_registration_behind.saw
 triple	arm64-apple-darwin
 twin	same
 expect	success
-build	ok
-exit	0
-stdout	"10 rounds timed out"
-stdout	"deinits=10"
-stdout	""
-meets_expect	yes
+build	refused	`try` requires a Result type, got `(TcpStream, TcpStream)`
+meets_expect	no: Stage 0 does not build it
+log	"error: `try` requires a Result type, got `(TcpStream, TcpStream)`"
+log	"  --> examples/conformance/K97_timed_park_leaves_no_registration_behind.saw:53:22"
+log	"     |"
+log	" 53 |         let (a, b) = try! TcpStream.pair()"
+log	"     |                      ^"
+log	""
+log	"error: undefined variable `a`"
+log	"  --> examples/conformance/K97_timed_park_leaves_no_registration_behind.saw:55:39"
+log	"     |"
+log	" 55 |         let t = group.spawn(one_round(move a, i))"
+log	"     |                                       ^"
+log	""
+log	"error: undefined variable `b`"
+log	"  --> examples/conformance/K97_timed_park_leaves_no_registration_behind.saw:57:17"
+log	"     |"
+log	" 57 |         let _ = move b"
+log	"     |                 ^"
+log	""
+log	"3 error(s) generated"
