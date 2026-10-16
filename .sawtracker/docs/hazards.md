@@ -938,7 +938,7 @@ sawc2 refuses both: `static.zero-hidden` names the field, and `static.zero-inval
 
 **Checker:** not needed: the compiler's source declares no bare static.
 
-## Loud hazards
+
 
 
 ### L1. Integer literal adoption (SL-13, SL-53, SL-56, SL-70, SL-75, SL-84, SL-194)
