@@ -1019,7 +1019,7 @@ errors/array_mixed_types.saw	pass	-	type.mismatch: expected `Int`, the type of t
 errors/array_non_int_index.saw	pass	-	type.mismatch: expected `Int`, the type of the parameter, and found `String`
 errors/array_wrong_type.saw	pass	-	type.mismatch: expected `Int`, the type of the assignment's target, and found `String`
 errors/background_spawn_needs_a_hosted_entry.saw	refused	driver driver.usage	sawc2 build takes no --freestanding
-errors/blocking_extern_decl_conflict.saw	refused	coro coro.not-yet	`worker` suspends (worker -> __saw_rt_last_syserror), so it needs a coroutine frame, which is not lowered yet (SL-545)
+errors/blocking_extern_decl_conflict.saw	wrong	accepts a refusal test	`__saw_rt_last_syserror` is declared `blocking` here, but another declaration of the same symbol says the opposite
 errors/blocking_extern_sync_reject.saw	pass	-	effect.sync: `f` is declared `sync`, and it calls `slow`, which may suspend
 errors/borrowing_field_alias_exclusive.saw	pass	-	mutability.immutable: this assignment writes `self.source.value`, and `self.source` is a shared reference, through which nothing is written: take it as `&var`
 errors/borrowing_field_is_read_only.saw	pass	-	mutability.immutable: this assignment writes `self.source.n`, and `self.source` is a shared reference, through which nothing is written: take it as `&var`
@@ -1479,7 +1479,7 @@ expr_suspend_andor.saw	pass	-	-
 expr_suspend_arg.saw	pass	-	-
 expr_suspend_arg_order.saw	pass	-	-
 expr_suspend_binop.saw	pass	-	-
-expr_suspend_blocking.saw	refused	coro coro.not-yet	`arg_worker` suspends (arg_worker -> __saw_rt_blocking_sleep), so it needs a coroutine frame, which is not lowered yet (SL-545)
+expr_suspend_blocking.saw	wrong	sawc2's binary panics	panic at taskgroup.saw:1034: executor: an offload needs its job's completion, which arrives with SL:coroutines A14b
 expr_suspend_chain_head.saw	pass	-	-
 expr_suspend_channel_recv.saw	pass	-	-
 expr_suspend_coalesce.saw	pass	-	-
@@ -1491,7 +1491,7 @@ expr_suspend_interp.saw	pass	-	-
 expr_suspend_later_hop.saw	pass	-	-
 expr_suspend_match_scrutinee.saw	pass	-	-
 expr_suspend_move_error.saw	pass	-	move.use-after: `data` is used after it may have been moved (moved at 19:5); a moved value is gone until it is assigned again
-expr_suspend_nested_blocking.saw	refused	coro coro.not-yet	`in_arg` suspends (in_arg -> __saw_rt_blocking_sleep), so it needs a coroutine frame, which is not lowered yet (SL-545)
+expr_suspend_nested_blocking.saw	wrong	sawc2's binary panics	panic at taskgroup.saw:1034: executor: an offload needs its job's completion, which arrives with SL:coroutines A14b
 expr_suspend_nested_shortcircuit.saw	pass	-	-
 expr_suspend_optchain_assign.saw	wrong	stdout differs	line 4: sawc2 "2", Stage 0 "1"
 expr_suspend_optchain_compound_assign.saw	wrong	stdout differs	line 4: sawc2 "2", Stage 0 "1"
@@ -2007,11 +2007,11 @@ none_return_test.saw	pass	-	-
 number_literal_member_access.saw	refused	mono mono.not-yet	a synthesized `Printable.format(into: &var std.stringbuilder.StringBuilder)` on `Float` is not in the backend slice yet: a Float's `format` waits for `std.float`'s formatter (SL-722 U5) (inside std/pr
 offload_cancel_multi_arg.saw	refused	typecheck member.unknown	`std.taskgroup.Task<Int>` has no method `cancel_addr` this module can see
 offload_cancel_parked.saw	refused	typecheck member.unknown	`std.taskgroup.Task<Int>` has no method `cancel_addr` this module can see
-offload_multi_arg_pipe_read.saw	refused	coro coro.not-yet	`reader` suspends (reader -> read), so it needs a coroutine frame, which is not lowered yet (SL-545)
-offload_pointer_heap_arg.saw	refused	coro coro.not-yet	`reader` suspends (reader -> read), so it needs a coroutine frame, which is not lowered yet (SL-545)
-offload_seam_first_tick.saw	refused	coro coro.not-yet	`blocker` suspends (blocker -> __saw_rt_blocking_sleep), so it needs a coroutine frame, which is not lowered yet (SL-545)
-offload_signature_shapes.saw	refused	coro coro.not-yet	`shapes` suspends (shapes -> usleep), so it needs a coroutine frame, which is not lowered yet (SL-545)
-offload_spawn_interleave.saw	refused	coro coro.not-yet	`worker` suspends (worker -> __saw_rt_blocking_sleep), so it needs a coroutine frame, which is not lowered yet (SL-545)
+offload_multi_arg_pipe_read.saw	wrong	sawc2's binary panics	panic at taskgroup.saw:1034: executor: an offload needs its job's completion, which arrives with SL:coroutines A14b
+offload_pointer_heap_arg.saw	wrong	sawc2's binary panics	panic at taskgroup.saw:1034: executor: an offload needs its job's completion, which arrives with SL:coroutines A14b
+offload_seam_first_tick.saw	wrong	sawc2's binary panics	panic at taskgroup.saw:1034: executor: an offload needs its job's completion, which arrives with SL:coroutines A14b
+offload_signature_shapes.saw	wrong	sawc2's binary panics	panic at taskgroup.saw:1034: executor: an offload needs its job's completion, which arrives with SL:coroutines A14b
+offload_spawn_interleave.saw	wrong	sawc2's binary panics	panic at taskgroup.saw:1034: executor: an offload needs its job's completion, which arrives with SL:coroutines A14b
 once_cross_thread_publish.saw	refused	mono mono.not-yet	the builtin `Thread.spawn` is not in the backend slice yet
 once_double_set_panic.saw	pass	-	-
 once_get_before_set_panic.saw	pass	-	-

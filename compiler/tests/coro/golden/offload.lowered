@@ -1,0 +1,116 @@
+resume #0: offload.main()  (frame size 56 align 8, pointer _9, context _10)
+    state 0: bb0
+    offload bb0 start #5 extern pause, storage (*frame).[16]
+    state 1: bb8 park offload
+    offload bb10 take #5 extern pause, storage (*frame).[16]
+    offload bb1 start #9 extern fill, storage (*frame).[24]
+    state 2: bb15 park offload
+    offload bb17 take #9 extern fill, storage (*frame).[24]
+fn offload.main() -> Void {
+    let _0: Void;  // return
+    let _1: [Int8; 8];  // buf
+    let _2: [Int8; 8];
+    let _3: Int32;  // got
+    let _4: &[Int8; 8];
+    let _5: UnsafePointer<Int8>;
+    let _6: Int32;
+    let _7: Int32;
+    let _8: Int;
+    let _9: &var Int;
+    let _10: &var std.taskgroup.TaskContext;
+    let _11: Bool;
+    let _12: Int;
+    let _13: Int;
+    let _14: Bool;
+    let _15: Bool;
+    let _16: Int;
+    let _17: Int;
+    let _18: Bool;
+
+    bb0: {
+        call offload.pause() [] -> [return: bb4];
+    }
+
+    bb1: {
+        _2 = [const 0: Int8; const 8: Int];
+        (*_9).[8: [Int8; 8]] = move _2;
+        _4 = ref(shared, (*_9).[8: [Int8; 8]]);
+        _5 = cast(move _4 as UnsafePointer<Int8>);
+        call offload.fill(buf: UnsafePointer<Int8>, n: Int32, scale: Float) [move _5, const 8: Int32, const 0.5: Float] -> [return: bb11];
+    }
+
+    bb2: {
+        _3 = move _6;
+        _7 = copy _3;
+        _8 = const 0: Int;
+        call builtin print [format "{} {}", move _7, copy (*_9).[8: [Int8; 8]][_8]] -> [return: bb3];
+    }
+
+    bb3: {
+        return;
+    }
+
+    bb4: {
+        _14 = copy (*(*_10).cancel);
+        switch move _14 -> [true: bb10, false: bb5];
+    }
+
+    bb5: {
+        _11 = call std.taskgroup.__saw_exec_offload_done(job: Int) [copy (*_9).[16: Int]] -> [return: bb6];
+    }
+
+    bb6: {
+        switch move _11 -> [true: bb10, false: bb7];
+    }
+
+    bb7: {
+        (*_10).deadline = const 0: UInt64;
+        (*(*_10).park) = const -1: Int;
+        _12 = cast(copy (*_10).park as Int);
+        _13 = call std.taskgroup.__saw_exec_offload_pipe(job: Int) [copy (*_9).[16: Int]] -> [return: bb9];
+    }
+
+    bb8: {
+        call std.task.__saw_park_offload(job: Int) [] -> [return: bb4] suspends;
+    }
+
+    bb9: {
+        call std.taskgroup.__saw_exec_io_register(fd: Int, dir: Int, token: Int) [move _13, const 0: Int, move _12] -> [return: bb8];
+    }
+
+    bb10: {
+        call offload.pause() [] -> [return: bb1];
+    }
+
+    bb11: {
+        _18 = copy (*(*_10).cancel);
+        switch move _18 -> [true: bb17, false: bb12];
+    }
+
+    bb12: {
+        _15 = call std.taskgroup.__saw_exec_offload_done(job: Int) [copy (*_9).[24: Int]] -> [return: bb13];
+    }
+
+    bb13: {
+        switch move _15 -> [true: bb17, false: bb14];
+    }
+
+    bb14: {
+        (*_10).deadline = const 0: UInt64;
+        (*(*_10).park) = const -1: Int;
+        _16 = cast(copy (*_10).park as Int);
+        _17 = call std.taskgroup.__saw_exec_offload_pipe(job: Int) [copy (*_9).[24: Int]] -> [return: bb16];
+    }
+
+    bb15: {
+        call std.task.__saw_park_offload(job: Int) [] -> [return: bb11] suspends;
+    }
+
+    bb16: {
+        call std.taskgroup.__saw_exec_io_register(fd: Int, dir: Int, token: Int) [move _17, const 0: Int, move _16] -> [return: bb15];
+    }
+
+    bb17: {
+        _6 = call offload.fill(buf: UnsafePointer<Int8>, n: Int32, scale: Float) [] -> [return: bb2];
+    }
+}

@@ -1,0 +1,21 @@
+// The offload of a `blocking` extern call (SL:coroutines A14a). The call
+// keeps its arguments and is the start, which writes each into the frame's
+// offload storage after the job word. Then the cancel word's test, whose true
+// edge is the cancel exit to the take; the job's completion check, whose
+// true edge is the completion exit to the same take and whose false edge
+// parks on the job's pipe; and the park, which returns to the cancel word's
+// test: a wake that finds the job running parks again. The take writes the
+// extern's result where the call wrote it. `pause` returns nothing and takes
+// no argument; `fill` takes a pointer into the frame, a narrow integer and a
+// Float.
+extern "C" {
+    blocking func pause()
+    blocking func fill(buf: UnsafePointer<Int8>, n: Int32, scale: Float) -> Int32
+}
+
+func main() unsafe {
+    pause()
+    var buf: [Int8; 8] = [0; 8]
+    let got = fill((&buf) as UnsafePointer<Int8>, 8, 0.5)
+    print("{} {}", got, buf[0])
+}

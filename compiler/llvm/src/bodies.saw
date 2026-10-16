@@ -269,11 +269,15 @@ extension LlEmitter {
         j = 0
         while j < resume.point_count {
             let point = self.lowering.points[resume.point_first + j]
+            j = j + 1
+            // An offload's start and take never pend, so no state enters there.
+            if point.state < 0 {
+                continue
+            }
             try! entry.append(" i64 ")
             try! entry.append(point.state)
             try! entry.append(", label %")
             try! entry.append(ll_state_label("coro.state", point.state))
-            j = j + 1
         }
         try! entry.append(" ]\n")
         try! self.defs.append("define internal i32 ")
@@ -311,6 +315,8 @@ extension LlEmitter {
     // returning `Pending` with the state recorded while the child pends, and
     // continuing once it is `Ready`; re-entered, it resumes the child again.
     // The child's park records the root's word, so a pend passes up as it is.
+    // An offload's start and take run their seam calls and continue; neither
+    // pends (`offload_start`, `offload_take`).
     // ENTRY POINTS:
     //     emit_resume
     func point_term(&var self, mono: &var MonoProgram, target: &var Target, point: &CoroPoint) {
@@ -357,6 +363,14 @@ extension LlEmitter {
                 self.put_poll(CORO_POLL_PENDING)
                 self.put_label(state)
                 self.jump(drive)
+            },
+            case OffloadStart -> {
+                self.offload_start(&var mono, &var target, &point, &info)
+                self.continue_to(next)
+            },
+            case OffloadTake -> {
+                self.offload_take(&var mono, &var target, &point, &info)
+                self.continue_to(next)
             },
             case _ -> {
                 self.put_state(point.state)

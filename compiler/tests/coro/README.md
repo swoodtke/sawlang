@@ -151,7 +151,11 @@ time a suspending half runs among them (golden `windows`).
 - a child slot per suspending call to an item that needs a frame, in the
   order of the calls: the child's frame, embedded by value, live from the
   call, where the child starts, through its suspension point, where it is
-  driven to `Ready`. Two calls of one function have a slot each.
+  driven to `Ready`. Two calls of one function have a slot each;
+- an offload storage per call of a `blocking` extern (Lowering, below),
+  among the child slots in the order of the calls: an `[Int; N + 1]` for an
+  extern of N parameters, the job word, then each argument widened to a
+  word, live over the same two points as a child slot.
 
 Every other local stays on the resume function's stack. A resident local is
 reached through a frame slot, `(*frame).[OFFSET: T]`, a MIR projection
@@ -186,6 +190,7 @@ frame #K: NAME  (size S align A)
     (*frame).[OFFSET: T]  size S align A  op budget
     (*frame).[OFFSET: T]  size S align A  _L WHAT  (across N...)
     (*frame).[OFFSET: frame NAME]  size S align A  child  (across N)
+    (*frame).[OFFSET: [Int; N]]  size S align A  offload EXTERN  (across N)
     stack: _L...
 ```
 
@@ -211,6 +216,7 @@ lowers:
   `__saw_park_timer`, which `sleep`'s is; `__saw_park_fd` and
   `__saw_park_fd_until`; `__saw_park_channel`; `__saw_park_offload`), or of
   the test intrinsic `__saw_suspend`, a ready park;
+- a call of a `blocking` extern, which is offloaded (below);
 - a call of the test intrinsic `__saw_test_suspend`, a suspension for the
   effects alone (design 22): it frames its caller and runs as nothing;
 - a yield-capable op-budget point (design 127), which charges the frame's
@@ -284,6 +290,47 @@ park (A10), and a timer has no outcome but its deadline; `std.task`'s
 after the cancel word (the std lane's `park_` executor programs).
 
 A call of `__saw_test_suspend` becomes a goto where it returned.
+
+A call of a `blocking` extern, `dest = ext(args)` in block `bbB` (design
+103; SL:coroutines A14a), is offloaded: the extern runs on a thread of its
+own while the frame parks, and the frame's offload storage at offset S holds
+the job and the arguments. Which calls are offloaded is one funnel,
+`coro_offloaded_extern` in `compiler/coro/src/frames.saw`, which the frame's
+storage, the lowering and the verifier all ask. The call keeps its arguments
+and loses its destination, and new blocks follow it:
+
+| block | what it holds |
+|---|---|
+| `bbB` | the start: the call itself, `ext(args) -> bbH` |
+| `bbH` | `_c = copy (*(*_C).cancel)`, then `switch move _c -> [true: bbT, false: bbD]`: the cancel exit |
+| `bbD` | `_d = __saw_exec_offload_done(copy (*_F).[S: Int])`, the job's completion |
+| `bbE` | `switch move _d -> [true: bbT, false: bbP]`: the completion exit, else the park |
+| `bbP` ... | the offload park on the job `copy (*_F).[S: Int]` (the table above), whose park returns to `bbH` |
+| `bbT` | the take: `dest = ext()`, which goes where the call returned |
+
+The backend writes the start and the take, which never pend. The start
+widens each argument into its word, `(*_F).[S + 8(J + 1)]` for argument J,
+starts the job with the extern's thunk (`__saw_rt_offload_start`), and
+records the job in `(*_F).[S]`; the take joins the job's thread
+(`__saw_rt_offload_take`) and narrows the extern's result from the word it
+returns into the destination. A thunk is synthesized once per offloaded
+extern: it reads each argument back at its declared type and makes the
+ordinary extern call (runtime/ABI.md, "Blocking-extern offload"). A wake
+that finds the job running and the task not cancelled parks again, since
+the take would hold the executor's thread in the C call; a cancelled task
+takes all the same, waiting for the call, since the storage and every
+pointer argument must outlive the job's thread (spec, the offload's
+"Cancellation"). `__saw_exec_offload_done` and `__saw_exec_offload_pipe` are
+the executor's half, which panics until SL:coroutines A14b lands.
+
+Two cases are not offloaded. A `Thread.spawn` body is a `sync` item with no
+frame (SL:architecture §3.8), so its `blocking` extern calls are plain calls:
+whether such a call is a suspension source at all is decided in
+`coro_call_is_source` once the form reaches this stage (SL-765). The
+freestanding profile, which has no thread to offload onto, refuses a
+`blocking` extern call in a framed body; sawc2 has no freestanding profile
+yet, so the refusal has no fixture, and it keys on the profile at the
+calls `coro_offloaded_extern` finds.
 
 An op-budget point (SL:coroutines A9) charges the frame's op-budget counter
 at offset K, which `bb0` starts at 128 first thing, since state 0 enters
@@ -441,6 +488,8 @@ resume #K: NAME  (frame size S align A, pointer _F, context _C)
     state 0: bb0
     state N: bbB park ready | timer | fd | channel | offload
     state N: bbB drive #J CHILD at (*frame).[OFFSET]
+    offload bbB start #J EXTERN, storage (*frame).[OFFSET]
+    offload bbB take #J EXTERN, storage (*frame).[OFFSET]
     spawn bbB task root #J ROOT, descriptor _D, box _B
 fn NAME -> T { ... }
 ```
@@ -505,8 +554,13 @@ task's context, last in a block going where the call returned.
    exactly once after lowering, a drive or a site's in a write into its
    parameter's slot, a drive's in its own block, which its state re-enters
    past. A drive's result is moved out of the child's result slot once, on its
-   return edge, into the call's destination. Nothing else reaches into a
-   child's frame, and no place lowering adds reaches a frame value of the body
+   return edge, into the call's destination. An offload's start keeps its
+   arguments, each used there alone, and loses its destination; it goes to a
+   test of the cancel word whose true edge reaches the take, a call of the
+   same extern with no arguments, the destination's one write, going where
+   the call returned. Nothing else reaches into a
+   child's frame, nothing reaches into an offload's storage but a read of its
+   job word, and no place lowering adds reaches a frame value of the body
    itself but an index's load into its stack local. So lowering adds no
    ownership operation, and teardown at each state
    is the body's own.
@@ -550,7 +604,7 @@ their lowering is verified with every build.
 |---|---|---|
 | `coro.drive-in-suspending` | a drive site (`__saw_drive` or `__saw_drive_steps`) in an item that has a frame: one that suspends, as Stage 0 refuses it (DF-218n), or a task root, which runs inside an executor too; at the site, with Stage 0's message naming the root to call directly, where it embeds | `coro.drive-in-suspending`, from `tests/corpus/drive_site_in_suspending_body`; `function`, from `drive_site_in_suspending_function`; and `task-root`, a spawned body that never suspends |
 | `coro.suspending-cycle` | a cycle of items that suspend, which has no finite frame since a callee's frame is embedded in its caller's by value; once per strongly connected component, naming the shortest cycle through its first item in item order, at that item's declaration, with the note that the refusal is pending SL-322's heap frames | `coro.suspending-cycle` and its variants, one from each of the eight recursion tests of `tests/corpus/errors/`, and `generic`, a cycle that suspends at one instantiation only |
-| `coro.not-yet` | an item that needs a frame this compiler does not lower (Lowering, above), at its first suspending call that is not lowered, the chain through it in the message: each child it drives that is not lowered, then the source or the child that ends it, a child refused for a conditional window among them, so a frame holding a lowered park beside one that is not names the one that is not; failing a call, at the call its suspension was found through, naming the conditional window that is not lowered; only when no cycle is refused, and only the program's own items when any of them is refused, every std item that suspends being reached from one | `coro.not-yet`, `beside-a-lowered-park` and `conditional-window`, a conditional window whose prologue suspends |
+| `coro.not-yet` | an item that needs a frame this compiler does not lower (Lowering, above), at its first suspending call that is not lowered, the chain through it in the message: each child it drives that is not lowered, then the source or the child that ends it, a child refused for a conditional window among them, so a frame holding a lowered park beside one that is not names the one that is not; failing a call, at the call its suspension was found through, naming the conditional window that is not lowered; only when no cycle is refused, and only the program's own items when any of them is refused, every std item that suspends being reached from one | `coro.not-yet`, a conditional window two calls down; `beside-a-lowered-park`, the drive of a child holding one beside a ready park; and `conditional-window`, a conditional window whose prologue suspends |
 | `effect.sync` | a copy-policy `copy()` (`Copy` or `ExplicitCopy`, a written member) that suspends at its instantiation, at its declaration, naming its chain as Stage 0 does (`method Wrap.copy calls Slow.step → blocking extern usleep`): the compiler calls it at transfer sites no source names. Typecheck refuses one that suspends at every instantiation; this is the instantiation's half, decided per item | `effect.sync.copy-hook`, beside the run lane's `copy_hook_per_instantiation`, the same program built at `Fast` |
 
 A refusal whose node lies in std or the builtin module is reported at the
@@ -639,6 +693,16 @@ golden `cancel_read` is reads of the cancel word, in a frame and in a sync
 helper. The run lane's `op_budget_counts`, `op_budget_loop_shapes_driven`,
 `background_compute_preemption`, `taskgroup_compute_preemption`, `yield_main_loop` and
 `background_task_spawn` run them.
+
+Golden `offload` is the offload of `blocking` extern calls: one with no
+argument and no result, and one taking a pointer into the frame, a narrow
+integer and a Float, each with its storage in the frame and its start, its
+cancel exit and completion exit to the take, and its park returning to the
+cancel test, the re-park edge. Golden `chains` offloads in a function, a
+method, a default body and an accessor's prologue. The run lane's
+`probes/suspend_blocking_main` builds an offload and panics where the
+executor's half, SL:coroutines A14b, is not here yet; the run pins come with
+A14b.
 
 The park goldens, `park_timer`, `park_fd`, `park_channel`, `park_offload`
 and `park_signal`, are one park reason each (the ready park is

@@ -13,7 +13,10 @@ import sawllvm.module.{LlEmitter, ll_is_scalar, ll_symbol, ll_value_type}
 import sawllvm.ops.{ll_lossless}
 import sawllvm.places.{ll_local_slot}
 import sawllvm.render.{ll_spelled}
-import sawllvm.text.{LlPieces, ll_format_pieces, ll_string_bytes}
+import sawllvm.text.{LlPieces, ll_format_pieces, ll_quoted, ll_string_bytes}
+import sawllvm.attributes.{ll_function_attributes}
+import sawcoro.program.{CoroPoint}
+import sawmono.dump.{mono_dump_layouts}
 import sawmir.model.{MirBlock, MirCall, MirCallKind, MirConstKind, MirOperand, MirOperandKind, MirSwitchKind,
                          MirTermKind}
 import sawmir.program.{MirProgram}
@@ -306,6 +309,50 @@ extension LlEmitter {
         self.call_with(&var mono, &var target, code, result, &params, &leading, &rest)
     }
 
+    // Extern `d`'s C signature (`LlExternSig`): its result's class and LLVM
+    // type, and each declared parameter's layout, refused at `node` when its
+    // result or a parameter crosses the C convention as an aggregate. Both
+    // the extern's own calls and an offload's thunk read it, so the two
+    // declare and call the extern alike.
+    func extern_signature(&var self, mono: &var MonoProgram, target: &var Target, d: Int, node: Int) -> LlExternSig {
+        let s = mono.dp.bc.mir.tc.sigs[d]
+        let name_id = mono.dp.bc.mir.tc.res.decls[d].name
+        let name = mono.dp.bc.mir.tc.res.name_text(name_id)
+        let result_class = target.c_class(&var mono.dp.bc.mir.tc, s.result, true)
+        let rl = self.lay(&var mono, &var target, s.result)
+        var out = LlExternSig(ok: false, name: name, variadic: (s.flags & TC_FLAG_VARIADIC) != 0, result: s.result,
+                              result_class: result_class, ret: rl, ret_type: "void", params: Vector<TargetLayout>(),
+                              types: "")
+        if result_class == TargetCClass.Direct {
+            out.ret_type = ll_value_type(&rl)
+        } else if result_class == TargetCClass.NullablePointer {
+            out.ret_type = "ptr"
+        } else if result_class == TargetCClass.Refused {
+            self.refuse_here(&var mono, node, "an extern whose result crosses the C convention as an aggregate is not in the backend slice yet")
+            return move out
+        }
+        var types = StringBuilder()
+        var k = 0
+        while k < s.param_count {
+            let pt = mono.dp.bc.mir.tc.params[s.param_first + k].ty
+            let passing = target.c_class(&var mono.dp.bc.mir.tc, pt, false)
+            if passing != TargetCClass.Direct {
+                self.refuse_here(&var mono, node, "an extern parameter that crosses the C convention as an aggregate is not in the backend slice yet")
+                return move out
+            }
+            let pl = self.lay(&var mono, &var target, pt)
+            if k > 0 {
+                try! types.append(", ")
+            }
+            try! types.append(ll_value_type(&pl))
+            try! out.params.push(pl)
+            k = k + 1
+        }
+        out.types = types.build()
+        out.ok = true
+        move out
+    }
+
     // An extern call by the C convention: scalars direct, a nullable pointer
     // result made an Optional, anything else refused. A variadic extern's
     // extra arguments pass by C's default promotions, an integer narrower
@@ -313,37 +360,23 @@ extension LlEmitter {
     // callee's function type, as LLVM requires of a variadic one.
     func extern_call(&var self, mono: &var MonoProgram, target: &var Target, d: Int, info: &MirCall) {
         let node = info.node
-        let s = mono.dp.bc.mir.tc.sigs[d]
-        let name_id = mono.dp.bc.mir.tc.res.decls[d].name
-        let name = mono.dp.bc.mir.tc.res.name_text(name_id)
-        let variadic = (s.flags & TC_FLAG_VARIADIC) != 0
-        var types = StringBuilder()
-        var args = StringBuilder()
-        let result_class = target.c_class(&var mono.dp.bc.mir.tc, s.result, true)
-        let rl = self.lay(&var mono, &var target, s.result)
-        var ret_type = "void"
-        if result_class == TargetCClass.Direct {
-            ret_type = ll_value_type(&rl)
-        } else if result_class == TargetCClass.NullablePointer {
-            ret_type = "ptr"
-        } else if result_class == TargetCClass.Refused {
-            self.refuse_here(&var mono, node, "an extern whose result crosses the C convention as an aggregate is not in the backend slice yet")
+        let sig = self.extern_signature(&var mono, &var target, d, node)
+        if not sig.ok {
             return
         }
+        let name = sig.name
+        let variadic = sig.variadic
+        let result_class = sig.result_class
+        let ret_type = sig.ret_type
+        var types = StringBuilder()
+        try! types.append(sig.types)
+        var args = StringBuilder()
         var k = 0
-        while k < s.param_count {
-            let pt = mono.dp.bc.mir.tc.params[s.param_first + k].ty
-            let passing = target.c_class(&var mono.dp.bc.mir.tc, pt, false)
-            if passing != TargetCClass.Direct {
-                self.refuse_here(&var mono, node, "an extern parameter that crosses the C convention as an aggregate is not in the backend slice yet")
-                return
-            }
-            let pl = self.lay(&var mono, &var target, pt)
+        while k < sig.params.len() {
+            let pl = sig.params[k]
             if k > 0 {
-                try! types.append(", ")
                 try! args.append(", ")
             }
-            try! types.append(ll_value_type(&pl))
             let o = mono.dp.bc.mir.lists[info.arg_first + k]
             let v = self.operand_value(&var mono, &var target, o, node)
             try! args.append(ll_value_type(&pl))
@@ -382,15 +415,7 @@ extension LlEmitter {
             }
         }
         let params = types.build()
-        var decl = StringBuilder()
-        try! decl.append("declare ")
-        try! decl.append(ret_type)
-        try! decl.append(" @")
-        try! decl.append(name)
-        try! decl.append("(")
-        try! decl.append(params)
-        try! decl.append(")")
-        self.declare(name, decl.build())
+        self.declare_extern(&sig, params)
         var call = StringBuilder()
         try! call.append("call ")
         try! call.append(ret_type)
@@ -424,11 +449,317 @@ extension LlEmitter {
         let present = self.assign(cmp.build())
         let flag = self.to_bool(present)
         self.store("i8", flag, dest)
-        let some = target.present_case(&var mono.dp.bc.mir.tc, s.result)
-        let off = target.payload_offset(&var mono.dp.bc.mir.tc, s.result, some.decl, 0)
+        let some = target.present_case(&var mono.dp.bc.mir.tc, sig.result)
+        let off = target.payload_offset(&var mono.dp.bc.mir.tc, sig.result, some.decl, 0)
         let at = self.offset_addr(dest, off)
         self.store("ptr", v, at)
     }
+}
+
+// An extern's C signature: whether the backend lowers it, its symbol,
+// whether it is variadic, its result's type, class, layout and LLVM type,
+// each declared parameter's layout, and those parameters' LLVM types,
+// comma-separated.
+struct LlExternSig {
+    ok: Bool
+    name: String
+    variadic: Bool
+    result: Int
+    result_class: TargetCClass
+    ret: TargetLayout
+    ret_type: String
+    params: Vector<TargetLayout>
+    types: String
+}
+
+extension LlExternSig: NoCopy {}
+
+extension LlEmitter {
+    // Declares the extern `sig` describes once, with parameter types `params`.
+    func declare_extern(&var self, sig: &LlExternSig, params: String) {
+        var decl = StringBuilder()
+        try! decl.append("declare ")
+        try! decl.append(sig.ret_type)
+        try! decl.append(" @")
+        try! decl.append(sig.name)
+        try! decl.append("(")
+        try! decl.append(params)
+        try! decl.append(")")
+        self.declare(sig.name, decl.build())
+    }
+}
+
+// The blocking-extern offload (design 183; runtime/ABI.md, "Blocking-extern
+// offload"). The runtime runs a C-ABI `word(word)` thunk on the job's thread
+// and hands it the address of the job's copy of the argument words, so each
+// offloaded extern gets a thunk that reads its arguments back at their
+// declared types and makes the ordinary extern call. A word is 64 bits, as
+// the runtime's copy of the slots reads them; widening a value into its word
+// and narrowing it back are exact inverses, so the extern receives the bits
+// the call computed.
+extension LlEmitter {
+    // An offload's start, in a resume function: each argument of the
+    // extern's call `info` widened into its word of the offload's storage at
+    // `(*frame).[point.slot]`, after the job word, then the job started on the
+    // extern's thunk and recorded in the job word. The arguments are words of
+    // the frame, which outlives the job's thread by the take's join.
+    public func offload_start(&var self, mono: &var MonoProgram, target: &var Target, point: &CoroPoint,
+                              info: &MirCall) {
+        let node = info.node
+        let sig = self.offload_signature(&var mono, &var target, point.child, node)
+        if not sig.ok {
+            return
+        }
+        let thunk = self.offload_thunk(&mono, point.child, &sig)
+        var k = 0
+        while k < sig.params.len() && k < info.arg_count {
+            let pl = sig.params[k]
+            let o = mono.dp.bc.mir.lists[info.arg_first + k]
+            k = k + 1
+            let v = self.operand_value(&var mono, &var target, o, node)
+            let wide = self.offload_widen(v, &pl)
+            let at = self.offset_addr("%frame", point.slot + k * 8)
+            self.store("i64", wide, at)
+        }
+        var argp = "0"
+        if sig.params.len() > 0 {
+            let first = self.offset_addr("%frame", point.slot + 8)
+            var cast = StringBuilder()
+            try! cast.append("ptrtoint ptr ")
+            try! cast.append(first)
+            try! cast.append(" to i64")
+            argp = self.assign(cast.build())
+        }
+        var code = StringBuilder()
+        try! code.append("ptrtoint ptr ")
+        try! code.append(thunk)
+        try! code.append(" to i64")
+        let fn = self.assign(code.build())
+        self.declare("__saw_rt_offload_start", "declare i64 @__saw_rt_offload_start(i64, i64, i64)")
+        // SL-768 changes this seam to `(fn, argp, argc, job_out: word*) -> 0/-tag`;
+        // its sweep updates this call.
+        var call = StringBuilder()
+        try! call.append("call i64 @__saw_rt_offload_start(i64 ")
+        try! call.append(fn)
+        try! call.append(", i64 ")
+        try! call.append(argp)
+        try! call.append(", i64 ")
+        try! call.append(sig.params.len())
+        try! call.append(")")
+        let job = self.assign(call.build())
+        let job_at = self.offset_addr("%frame", point.slot)
+        self.store("i64", job, job_at)
+    }
+
+    // An offload's take, in a resume function: the job in the storage's job
+    // word taken, which joins its thread and frees the job, and the extern's
+    // result narrowed from the word it returns into the take's destination.
+    public func offload_take(&var self, mono: &var MonoProgram, target: &var Target, point: &CoroPoint,
+                             info: &MirCall) {
+        let node = info.node
+        let sig = self.offload_signature(&var mono, &var target, point.child, node)
+        if not sig.ok {
+            return
+        }
+        let job_at = self.offset_addr("%frame", point.slot)
+        let job = self.load("i64", job_at)
+        self.declare("__saw_rt_offload_take", "declare i64 @__saw_rt_offload_take(i64)")
+        var call = StringBuilder()
+        try! call.append("call i64 @__saw_rt_offload_take(i64 ")
+        try! call.append(job)
+        try! call.append(")")
+        let word = self.assign(call.build())
+        if info.dest < 0 || sig.result_class != TargetCClass.Direct {
+            return
+        }
+        let v = self.offload_narrow(word, &sig.ret)
+        let dest = self.place_addr(&var mono, &var target, info.dest, node)
+        self.store(sig.ret_type, v, dest)
+    }
+
+    // Extern item `ext`'s signature as an offload carries it: its result
+    // nothing or one value, its parameters fixed in number, on a target whose
+    // word is the runtime's 64-bit slot; refused at `node` otherwise.
+    func offload_signature(&var self, mono: &var MonoProgram, target: &var Target, ext: Int, node: Int) -> LlExternSig {
+        let d = mono.items[ext].decl
+        var sig = self.extern_signature(&var mono, &var target, d, node)
+        if not sig.ok {
+            return move sig
+        }
+        if sig.variadic || sig.result_class == TargetCClass.NullablePointer || target.word != 8 {
+            self.refuse_here(&var mono, node, "an offload of a variadic extern, of one returning an optional pointer, or on a target whose word is not 64 bits is not in the backend slice yet")
+            sig.ok = false
+        }
+        move sig
+    }
+
+    // THE OFFLOAD THUNK FUNNEL: the thunk of offloaded extern item `ext`,
+    // `i64 (i64 %slots)`, defined once per extern: it reads each argument
+    // word from the slot array `%slots` points at, narrows it to its declared
+    // type, calls the extern, and returns its result widened into a word, or
+    // 0 for an extern that returns nothing. Returns the thunk's symbol.
+    // ENTRY POINTS:
+    //     offload_start
+    func offload_thunk(&var self, mono: &MonoProgram, ext: Int, sig: &LlExternSig) -> String {
+        var symbol = StringBuilder()
+        try! symbol.append("@\"saw offload thunk ")
+        try! symbol.append(ll_quoted(sig.name))
+        try! symbol.append("\"")
+        let name = symbol.build()
+        var k = 0
+        while k < self.declared.len() {
+            let one = self.declared.get(k) ?? ""
+            if one.equals(name) {
+                return name
+            }
+            k = k + 1
+        }
+        try! self.declared.push(name)
+        // Stage 0 workaround (SL:hazards S4): canonical: self.declare_extern(&sig, sig.types)
+        let types = sig.types
+        self.declare_extern(&sig, types)
+        var text = StringBuilder()
+        try! text.append("define internal i64 ")
+        try! text.append(name)
+        try! text.append("(i64 %slots)")
+        try! text.append(ll_function_attributes(""))
+        try! text.append(" \{\nentry:\n  %base = inttoptr i64 %slots to ptr\n")
+        var args = StringBuilder()
+        k = 0
+        while k < sig.params.len() {
+            let pl = sig.params[k]
+            try! text.append("  %at.")
+            try! text.append(k)
+            try! text.append(" = getelementptr i64, ptr %base, i64 ")
+            try! text.append(k)
+            try! text.append("\n  %word.")
+            try! text.append(k)
+            try! text.append(" = load i64, ptr %at.")
+            try! text.append(k)
+            try! text.append("\n")
+            var word = StringBuilder()
+            try! word.append("%word.")
+            try! word.append(k)
+            var arg = StringBuilder()
+            try! arg.append("%arg.")
+            try! arg.append(k)
+            let narrowed = ll_offload_narrow_text(arg.build(), word.build(), &pl)
+            try! text.append(narrowed.text)
+            if k > 0 {
+                try! args.append(", ")
+            }
+            try! args.append(ll_value_type(&pl))
+            try! args.append(" ")
+            try! args.append(narrowed.value)
+            k = k + 1
+        }
+        try! text.append("  ")
+        if not sig.ret_type.equals("void") {
+            try! text.append("%result = ")
+        }
+        try! text.append("call ")
+        try! text.append(sig.ret_type)
+        try! text.append(" @")
+        try! text.append(sig.name)
+        try! text.append("(")
+        try! text.append(args.build())
+        try! text.append(")\n")
+        if sig.ret_type.equals("void") {
+            try! text.append("  ret i64 0\n")
+        } else {
+            let widened = ll_offload_widen_text("%result.word", "%result", &sig.ret)
+            try! text.append(widened.text)
+            try! text.append("  ret i64 ")
+            try! text.append(widened.value)
+            try! text.append("\n")
+        }
+        try! text.append("\}\n\n")
+        try! self.defs.append(text.build())
+        name
+    }
+
+    // Value `v`, of layout `l`, widened into a 64-bit word.
+    func offload_widen(&var self, v: String, l: &TargetLayout) -> String {
+        let name = self.fresh()
+        let made = ll_offload_widen_text(name, v, &l)
+        if made.text.len() > 0 {
+            try! self.body.append(made.text)
+        }
+        made.value
+    }
+
+    // Word `word` narrowed back to a value of layout `l`.
+    func offload_narrow(&var self, word: String, l: &TargetLayout) -> String {
+        let name = self.fresh()
+        let made = ll_offload_narrow_text(name, word, &l)
+        if made.text.len() > 0 {
+            try! self.body.append(made.text)
+        }
+        made.value
+    }
+}
+
+// An instruction converting an offload's value, as text, and the value it
+// leaves: `text` is empty, and `value` the operand itself, when no
+// conversion is needed.
+struct LlOffloadValue {
+    text: String
+    value: String
+}
+
+// Value `v`, of layout `l`, widened into a 64-bit word named `name`: an
+// integer zero-extended, a pointer's address, a Float's bits.
+func ll_offload_widen_text(name: String, v: String, l: &TargetLayout) -> LlOffloadValue {
+    var op = ""
+    var from = ll_value_type(&l)
+    if l.kind == TargetKind.Int {
+        if l.bits == 64 {
+            return LlOffloadValue(text: "", value: v)
+        }
+        op = "zext"
+    } else if l.kind == TargetKind.Pointer {
+        op = "ptrtoint"
+    } else {
+        op = "bitcast"
+    }
+    var text = StringBuilder()
+    try! text.append("  ")
+    try! text.append(name)
+    try! text.append(" = ")
+    try! text.append(op)
+    try! text.append(" ")
+    try! text.append(from)
+    try! text.append(" ")
+    try! text.append(v)
+    try! text.append(" to i64\n")
+    LlOffloadValue(text: text.build(), value: name)
+}
+
+// Word `word` narrowed into a value of layout `l` named `name`: the inverse
+// of `ll_offload_widen_text`.
+func ll_offload_narrow_text(name: String, word: String, l: &TargetLayout) -> LlOffloadValue {
+    var op = ""
+    if l.kind == TargetKind.Int {
+        if l.bits == 64 {
+            return LlOffloadValue(text: "", value: word)
+        }
+        op = "trunc"
+    } else if l.kind == TargetKind.Pointer {
+        op = "inttoptr"
+    } else {
+        op = "bitcast"
+    }
+    var text = StringBuilder()
+    try! text.append("  ")
+    try! text.append(name)
+    try! text.append(" = ")
+    try! text.append(op)
+    try! text.append(" i64 ")
+    try! text.append(word)
+    try! text.append(" to ")
+    try! text.append(ll_value_type(&l))
+    try! text.append("\n")
+    LlOffloadValue(text: text.build(), value: name)
 }
 
 // Builtins.

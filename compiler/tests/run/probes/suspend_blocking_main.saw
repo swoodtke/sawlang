@@ -1,0 +1,25 @@
+// probe: panics
+// about: a `blocking` extern reached from `main` through two helpers is offloaded, and parks on an executor half that arrives with A14b (SL-574)
+// stage 0: runs the offload and prints 41
+// speeds: -O0 -O2
+// panics: an offload needs its job's completion, which arrives with SL:coroutines A14b
+// A `main` that reaches a `blocking` extern through two helpers suspends, and
+// so does each helper, so the call is offloaded rather than compiled as a
+// plain call that blocks the only thread: it starts the job, then asks
+// whether the job is done before it parks, which std's executor answers
+// once SL:coroutines A14b lands.
+extern "C" {
+    blocking func usleep(us: UInt32) -> Int32
+}
+
+func nap() -> Int32 {
+    usleep(10)
+}
+
+func caller() -> Int {
+    (nap() as Int) + 41
+}
+
+func main() {
+    print("{}", caller())
+}

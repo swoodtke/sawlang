@@ -1,8 +1,9 @@
 // What each framed item's frame holds: the state word, the op-budget counter
 // when the body has an op-budget point, the result `_0`, every parameter,
 // which the caller writes into the frame before the first resume, every
-// other local whose storage lifetime contains a suspension point, and the
-// embedded frame of each child it drives. A local whose
+// other local whose storage lifetime contains a suspension point, the
+// embedded frame of each child it drives, and the storage of each `blocking`
+// extern call it offloads. A local whose
 // lifetime holds none stays on the resume function's stack. The frame has no
 // drop glue: every drop stays where drop elaboration placed it.
 //
@@ -21,6 +22,7 @@
 //   coro_find_frames
 //   coro_frame_of
 //   coro_driven_child
+//   coro_offloaded_extern
 
 import sawborrowck.program.{BorrowckProgram}
 import sawcoro.program.{CoroFrame, CoroProgram, CoroSuspend, CoroValue, CoroValueKind}
@@ -30,8 +32,10 @@ import sawmir.initialisation.{MIR_INIT_PARTIAL, MIR_INIT_WHOLE, MirAccess, MirAc
                               mir_init_apply_all}
 import sawmir.model.{MirCallKind, MirFuncKind, MirLocalKind, MirStmtKind, MirTermKind}
 import sawmir.program.{MirProgram}
-import sawmono.program.{MonoProgram}
+import sawmono.program.{MonoItemKind, MonoProgram}
+import sawtypecheck.model.{TC_FLAG_BLOCKING}
 import sawtypecheck.program.{TcProgram}
+import sawtypecheck.signatures.{TcContext}
 import sawtypecheck.typeops.{TcClient}
 
 // Finds the frame of every item that needs one: its suspension points, each
@@ -171,13 +175,17 @@ func coro_find_frame(coro: &var CoroProgram, item: Int) {
         l = l + 1
     }
     // A child's slot holds its frame from the call, where the child starts,
-    // through its suspension, where it is driven to `Ready`.
+    // through its suspension, where it is driven to `Ready`. An offload's
+    // storage spans the same two points: the job's thread reads its argument
+    // words, and the take reads its job word, after the call has returned
+    // into a park.
     var j = suspend_first
     while j < coro.suspends.len() {
         let point = coro.suspends[j]
         j = j + 1
         let child = coro_driven_child(&coro, point.call)
-        if child < 0 {
+        let offloaded = coro_offloaded_extern(&coro, point.call)
+        if child < 0 && offloaded < 0 {
             continue
         }
         let live_first = coro.live.len()
@@ -186,8 +194,14 @@ func coro_find_frame(coro: &var CoroProgram, item: Int) {
             try! coro.live.push(q == point.point - 1 || q == point.point)
             q = q + 1
         }
-        try! coro.values.push(CoroValue(kind: CoroValueKind.Child, local: -1, child: child, ty: -1,
-                                        live_first: live_first, offset: -1, size: -1, align: -1))
+        if child >= 0 {
+            try! coro.values.push(CoroValue(kind: CoroValueKind.Child, local: -1, child: child, ty: -1,
+                                            live_first: live_first, offset: -1, size: -1, align: -1))
+        } else {
+            let ty = coro_offload_storage_type(&var coro, point.call)
+            try! coro.values.push(CoroValue(kind: CoroValueKind.Offload, local: -1, child: offloaded, ty: ty,
+                                            live_first: live_first, offset: -1, size: -1, align: -1))
+        }
     }
     // Stage 0 workaround (SL:hazards S4): canonical: try! coro.frames.push(CoroFrame(item: item, body: f, points: points, suspend_first: suspend_first, suspend_count: coro.suspends.len() - suspend_first, value_first: value_first, value_count: coro.values.len() - value_first, size: -1, align: -1, unsupported: -1))
     let suspend_count = coro.suspends.len() - suspend_first
@@ -373,4 +387,35 @@ public func coro_driven_child(coro: &CoroProgram, c: Int) -> Int {
         return -1
     }
     t
+}
+
+// The extern a suspending call `c` offloads, or -1: a call of a `blocking`
+// extern runs on a thread of its own while its frame parks (design 103).
+// Every offloaded call is found here, so the frame's storage, its lowering
+// and the verifier's check of it agree on which calls they are.
+public func coro_offloaded_extern(coro: &CoroProgram, c: Int) -> Int {
+    if c < 0 || coro.mono.dp.bc.mir.calls[c].kind != MirCallKind.Function {
+        return -1
+    }
+    let t = coro.mono.call_item(c)
+    if t < 0 || coro.mono.items[t].kind != MonoItemKind.Extern {
+        return -1
+    }
+    let d = coro.mono.items[t].decl
+    if d < 0 || d >= coro.mono.dp.bc.mir.tc.sigs.len() || (coro.mono.dp.bc.mir.tc.sigs[d].flags & TC_FLAG_BLOCKING) == 0 {
+        return -1
+    }
+    t
+}
+
+// The type of offloaded call `c`'s storage, `[Int; N + 1]` for an extern of
+// N parameters: the job word, then each argument widened to a word, which is
+// the slot array the runtime's offload seam copies (runtime/ABI.md).
+func coro_offload_storage_type(coro: &var CoroProgram, c: Int) -> Int {
+    let word = coro.mono.dp.bc.mir.tc.int_type()
+    let t = coro.mono.call_item(c)
+    let d = coro.mono.items[t].decl
+    let count = coro.mono.dp.bc.mir.tc.sigs[d].param_count + 1
+    let length = coro.mono.dp.bc.mir.tc.mk_const(count)
+    coro.mono.dp.bc.mir.tc.mk_array(word, length)
 }

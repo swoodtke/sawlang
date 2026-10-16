@@ -1,21 +1,40 @@
-// refuses: coro.not-yet at 19:17
-// message: `main` suspends (main -> usleep), so it needs a coroutine frame
+// refuses: coro.not-yet at 39:17
+// message: `main` suspends (main -> poke -> Slot.find), so it needs a coroutine frame
 // A frame is lowered only when every suspension in it is: here `yield_now`
-// is a ready park this compiler lowers, and the `blocking` extern beside it
-// is not (its offload is SL:coroutines A14). So `main` is refused, and the
-// cause chain names the suspension that is not lowered, not the one that is
-// (`main -> yield_now -> __saw_park_ready`), which is where its suspension
-// was first found. A decision that asked only whether a frame held a ready
-// park would let this half-lowered frame reach the backend.
+// is a ready park this compiler lowers, and the drive of `poke` beside it is
+// not, since `poke`'s conditional borrow has an accessor that suspends. So
+// `main` is refused, and the chain names the suspension that is not lowered,
+// not the one that is (`main -> yield_now -> __saw_park_ready`), which is
+// where its suspension was first found. A decision that asked only whether
+// a frame held a ready park would let this half-lowered frame reach the
+// backend.
 import std.task.{yield_now}
 
-extern "C" {
-    blocking func usleep(us: UInt32) -> Int32
+struct Slot {
+    value: Int
+    full: Bool
+}
+
+extension Slot {
+    func find(&var self) borrows -> &var Int? {
+        __saw_suspend()
+        if not self.full {
+            return None
+        }
+        lend self.value
+    }
+}
+
+func poke(s: &var Slot) -> Int {
+    if borrow var v = s.find() {
+        v += 1
+    }
+    s.value
 }
 
 func main() {
+    var s = Slot(value: 1, full: true)
     yield_now()
     print("between")
-    let slept = usleep(1)
-    print("{}", slept)
+    print("{}", poke(&var s))
 }

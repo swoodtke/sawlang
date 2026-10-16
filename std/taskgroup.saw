@@ -1100,6 +1100,15 @@ public func __saw_exec_offload_pipe(job: Int) -> Int {
     panic("executor: an offload park needs its job's pipe, which arrives with SL:coroutines A14b")
 }
 
+/// Whether offload job `job`'s C call has returned, which an offload asks
+/// before it parks and after every wake, so that only a finished job, or a
+/// cancelled task, reaches the take that joins the job's thread.
+///
+/// Panics: the offload's executor half is not here yet.
+public func __saw_exec_offload_done(job: Int) -> Bool {
+    panic("executor: an offload needs its job's completion, which arrives with SL:coroutines A14b")
+}
+
 /// The process-wide group `Task.spawn` spawns into, built on the first call.
 ///
 /// Panics if the group cannot be allocated.

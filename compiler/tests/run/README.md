@@ -361,12 +361,13 @@ description's (`compiler/tests/mono/README.md`, "Layouts").
 
 | rule | refuses | due program |
 |---|---|---|
-| `backend.not-yet` | what the backend does not lower yet: an operator on anything but an integer, a Bool, a Float, a String, two raw pointers or the memory values compared part by part, a Float operator but `+ - * /`, the comparisons and unary `-`, a slice, a take capture, a static whose initializer holds a Float or a value the evaluator does not hold, an exported static, a `@section` on a static or a function, an `@align` on a static or a local, a conditional borrow, an aggregate crossing the C convention, a pointer cast to or from an integer narrower than a pointer, an unsupported layout, a `main` returning neither `Void` nor `Int`; a constant is refused at its own spelling, inside an aggregate too | `section_static`, `static_float_leaf` |
+| `backend.not-yet` | what the backend does not lower yet: an operator on anything but an integer, a Bool, a Float, a String, two raw pointers or the memory values compared part by part, a Float operator but `+ - * /`, the comparisons and unary `-`, a slice, a take capture, a static whose initializer holds a Float or a value the evaluator does not hold, an exported static, a `@section` on a static or a function, an `@align` on a static or a local, a conditional borrow, an aggregate crossing the C convention, an offload of a variadic extern or of one returning an optional pointer, or on a target whose word is not 64 bits, a pointer cast to or from an integer narrower than a pointer, an unsupported layout, a `main` returning neither `Void` nor `Int`; a constant is refused at its own spelling, inside an aggregate too | `section_static`, `static_float_leaf` |
 
 **Suspension.** The backend's input is coroutine lowering's program
 (`compiler/tests/coro/README.md`), which lowers the frames whose every
-suspension is a park, an op-budget point, an effect-only test suspension or
-the drive of a lowered child, and refuses every
+suspension is a park, an offloaded `blocking` extern call, an op-budget
+point, an effect-only test suspension or the drive of a lowered child, and
+refuses every
 other item that needs a frame (`coro.not-yet`) and every suspending cycle
 (`coro.suspending-cycle`), so every suspending call that reaches the backend
 is a lowered point, and none is emitted as a plain call that blocks the
@@ -399,9 +400,11 @@ sleep in a suspending `main`, `drive_timer_park` in a driven frame,
 too, `task_sleep_ordering` wakes two sleeping tasks in deadline order, and
 `task_cancel_idle_sleep` cancels a sleeping task once the executor has
 idled until `main`'s earlier deadline, and `instant_after_sleep` measures a
-sleep with `std.time`'s `Instant`. The due programs
-`suspend_blocking_main` and `suspend_cycle` pin the refusals at a build: a
-`blocking` extern's offload and a cycle.
+sleep with `std.time`'s `Instant`. The due program `suspend_cycle` pins
+the refusal of a cycle at a build. The offload (SL:coroutines A14a): the probe
+`probes/suspend_blocking_main` offloads a `blocking` extern from a
+suspending `main`, and panics where it asks whether the job is done, until
+the offload's executor half (A14b) lands.
 
 **Closures.** A closure's environment is a slot of the frame that builds it,
 which is sound only for a closure that does not escape; mono refuses an

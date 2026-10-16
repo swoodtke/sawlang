@@ -1,21 +1,39 @@
-// refuses: coro.not-yet at 20:17
-// message: `main` suspends (main -> caller -> nap -> usleep)
-// A function that suspends needs a frame, and no frame is lowered yet, so
-// each such function is refused at the call its suspension was found
-// through, its cause chain in the message, rather than compiled as a plain
-// call that blocks the thread.
-extern "C" {
-    blocking func usleep(us: UInt32) -> Int32
+// refuses: coro.not-yet at 38:17
+// message: `main` suspends (main -> caller -> poke -> Slot.find), so it needs a coroutine frame
+// A function that suspends needs a frame, and one whose frame holds a
+// suspension this compiler does not lower is refused at the call its
+// suspension was found through, the chain through the frames that are not
+// lowered in the message, rather than compiled as a plain call that blocks
+// the thread. Here the suspension is a conditional borrow whose accessor
+// suspends (`coro.not-yet.conditional-window`), two calls down.
+
+struct Slot {
+    value: Int
+    full: Bool
 }
 
-func nap() -> Int32 {
-    usleep(10)
+extension Slot {
+    func find(&var self) borrows -> &var Int? {
+        __saw_suspend()
+        if not self.full {
+            return None
+        }
+        lend self.value
+    }
 }
 
-func caller() -> Int {
-    (nap() as Int) + 41
+func poke(s: &var Slot) -> Int {
+    if borrow var v = s.find() {
+        v += 1
+    }
+    s.value
+}
+
+func caller(s: &var Slot) -> Int {
+    poke(&var s) + 41
 }
 
 func main() {
-    print("{}", caller())
+    var s = Slot(value: 1, full: true)
+    print("{}", caller(&var s))
 }

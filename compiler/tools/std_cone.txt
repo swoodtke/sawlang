@@ -5,7 +5,7 @@
 # the build's cone differs from this file. `via runtime` marks what only the
 # runtime objects reach; an `instance` line is one type-argument tuple, a type
 # the compiler source declares written as (owning) or (plain).
-# 339 declarations in 25 modules
+# 353 declarations in 27 modules
 
 builtin: 13
   struct Atomic
@@ -29,6 +29,20 @@ rt.common.mem: 6
   extern malloc  via runtime
   func rt_alloc  via runtime
   func rt_dealloc  via runtime
+
+rt.common.offload: 12
+  struct Job  via runtime
+  struct PipeFds  via runtime
+  extern __saw_offload_thread_ptr  via runtime
+  extern __saw_rt_thread_join  via runtime
+  extern __saw_rt_thread_spawn  via runtime
+  extern close  via runtime
+  func copy_arg_slots  via runtime
+  extern free  via runtime
+  extern malloc  via runtime
+  extern pipe  via runtime
+  func rt_offload_start  via runtime
+  func rt_offload_take  via runtime
 
 rt.common.os_ops: 10
   extern __saw_open_flags  via runtime
@@ -80,6 +94,10 @@ rt.common.proc: 37
   func same_env_name  via runtime
   extern strlen  via runtime
   extern waitpid  via runtime
+
+rt.common.pthread: 2
+  extern pthread_join  via runtime
+  func rt_thread_join  via runtime
 
 rt.common.sleep: 5
   static CHUNK_NANOS  via runtime
@@ -471,13 +489,15 @@ std.vector: 10
   __saw_string_release
   __saw_string_retain
 
-(external C symbols): 34
+(external C symbols): 37
   _NSGetExecutablePath
   __error
   __saw_environ_get  shim.c
   __saw_environ_set  shim.c
+  __saw_offload_thread_ptr  shim.c
   __saw_open_flags  shim.c
   __saw_rt_panic  shim.c
+  __saw_rt_thread_spawn  shim.c
   __saw_rt_write  shim.c
   _exit
   clock_gettime
@@ -494,6 +514,7 @@ std.vector: 10
   os_unfair_lock_unlock
   pipe
   pthread_getspecific
+  pthread_join
   pthread_key_create
   pthread_key_delete
   pthread_setspecific

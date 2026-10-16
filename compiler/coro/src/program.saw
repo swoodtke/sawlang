@@ -140,21 +140,24 @@ public struct CoroBeforePoint {
 // What a frame value is: the state word the resume function switches on,
 // the op-budget counter its loops charge, the result the caller moves out
 // after `Ready`, a parameter the caller writes before the first resume, a
-// local resident across a suspension, or the embedded frame of a child the
-// item drives.
+// local resident across a suspension, the embedded frame of a child the
+// item drives, or an offloaded `blocking` extern call's storage: its job
+// word, then one word per argument, which the job's thread reads.
 public enum CoroValueKind {
     case State,
     case Budget,
     case Result,
     case Param,
     case Local,
-    case Child
+    case Child,
+    case Offload
 }
 
 // One value of a frame. `local` is the item body's local, or -1 for the
-// state word, the op-budget counter and a child; `child` is the item a child
-// slot's frame is, or
-// -1; `ty` is -1 for a child, whose bytes are its frame's. `live_first`
+// state word, the op-budget counter, a child and an offload's storage;
+// `child` is the item a child slot's frame is, or the extern an offload's
+// storage serves, else -1; `ty` is -1 for a child, whose bytes are its
+// frame's. `live_first`
 // starts its lifetime's run of `live`. The offset, size and alignment are
 // the layout's, -1 until it runs.
 public struct CoroValue {
@@ -179,8 +182,8 @@ public struct CoroUnlowered {
 public enum CoroUnloweredKind {
     // Lowered, or never framed.
     case Lowered,
-    // A call that is a suspension source other than a park, such as a
-    // `blocking` extern, whose offload is not lowered yet.
+    // A call that is a suspension source other than a park or an offloaded
+    // `blocking` extern.
     case Source,
     // A call driving a child whose frame is not lowered.
     case Child,
@@ -209,15 +212,25 @@ public enum CoroPointKind {
     // returning `Pending` while it pends and continuing once it is `Ready`.
     // The call's own block has already written the child's parameter slots,
     // and the block it continues to moves the child's result out.
-    case Drive
+    case Drive,
+    // An offloaded `blocking` extern's start: the extern's own call, its
+    // arguments kept, widens each into its argument word of the offload's
+    // storage, starts the job with the extern's thunk, and records the job
+    // in the storage's job word. Nothing suspends here.
+    case OffloadStart,
+    // The offload's take: joins the job's thread and narrows the extern's
+    // result into the call's destination. Nothing suspends here either.
+    case OffloadTake
 }
 
-// One suspension point of a lowered frame: the state the frame records when
-// it pends there, the block whose call terminator the point replaces (for
-// an op-budget point, the block lowering added for its yield), and
-// for a drive the child item, its slot's offset in the frame, and the place
-// the call wrote its result to and the block that moves it there from the
-// child's result slot, each -1 for a call with no destination.
+// One point of a lowered frame: the state the frame records when it pends
+// there, or -1 for an offload's start and take, which never pend; the block
+// whose call terminator the point replaces (for an op-budget point, the
+// block lowering added for its yield); for a drive the child item, its
+// slot's offset in the frame, and the place the call wrote its result to
+// and the block that moves it there from the child's result slot, each -1
+// for a call with no destination; for an offload's start and take the
+// extern, as `child`, and its storage's offset, as `slot`.
 public struct CoroPoint {
     kind: CoroPointKind
     state: Int

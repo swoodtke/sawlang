@@ -4,7 +4,9 @@
 // each suspension point becomes a point of its resume function, a park or a
 // child's drive, which the backend emits around the body's own blocks. A
 // drive's arguments and result travel through the child's slots by ordinary
-// MIR statements, so the backend's drive passes nothing. An op-budget point
+// MIR statements, so the backend's drive passes nothing. A `blocking` extern
+// call starts an offload job and parks on it until it is done or the task
+// is cancelled, then takes its result. An op-budget point
 // charges the frame's counter and yields when it runs out; a read of the
 // cancel word reads it through the task's context. An item that needs a
 // frame and is not lowered is refused (`coro.not-yet`), naming the
@@ -19,7 +21,7 @@
 //   coro_cancel_read
 
 import sawborrowck.program.{BorrowckProgram}
-import sawcoro.frames.{coro_driven_child, coro_frame_of}
+import sawcoro.frames.{coro_driven_child, coro_frame_of, coro_offloaded_extern}
 import sawcoro.program.{CoroFrame, CoroPoint, CoroPointKind, CoroProgram, CoroResume, CoroSuspend, CoroUnlowered,
                         CoroUnloweredKind, CoroValue, CoroValueKind}
 import sawcoro.suspends.{coro_cause_chain, coro_source_label}
@@ -61,6 +63,7 @@ public static CORO_BUDGET: Int = 128
 
 // Decides, for every item, whether its frame is lowered: every suspension
 // point of the frame is a shape this compiler lowers, a park of any reason,
+// an offloaded `blocking` extern call,
 // an op-budget point, an effect-only suspension or the drive of a lowered
 // child (a window's open or close among them, driving the accessor half that
 // suspends), and none is the open of a conditional window. Children are
@@ -153,12 +156,13 @@ func coro_decide_frame(coro: &var CoroProgram, f: Int) {
 }
 
 // What is not lowered about suspending call `c`, or `Lowered`: a park, an
-// effect-only suspension and the drive of a lowered child are.
+// offloaded `blocking` extern call, an effect-only suspension and the drive
+// of a lowered child are.
 func coro_call_unlowered(coro: &CoroProgram, c: Int) -> CoroUnloweredKind {
     if let _kind = coro_park_kind(&coro, c) {
         return CoroUnloweredKind.Lowered
     }
-    if coro_effect_only(&coro, c) {
+    if coro_effect_only(&coro, c) || coro_offloaded_extern(&coro, c) >= 0 {
         return CoroUnloweredKind.Lowered
     }
     let child = coro_driven_child(&coro, c)
@@ -805,15 +809,27 @@ func coro_lower_frame(coro: &var CoroProgram, context: &CoroContext, f: Int) {
     let point_first = coro.points.len()
     let counter = coro_child_offset(&coro, &frame, CoroValueKind.Budget, -1)
     // The frame's child slots are in the order of the suspensions that
-    // drive them, one each.
+    // drive them, one each, and its offload storages in the order of the
+    // calls they serve.
     var slot_at = 0
+    var storage_at = 0
     var s = 0
     while s < frame.suspend_count {
         let point = coro.suspends[frame.suspend_first + s]
         s = s + 1
         let block = point.block
         let park = coro_park_kind(&coro, point.call)
-        if point.call < 0 {
+        let offloaded = coro_offloaded_extern(&coro, point.call)
+        if offloaded >= 0 {
+            if context_local < 0 {
+                context_local = coro_add_local(&var coro, frame.body, context.pointer)
+            }
+            storage_at = coro_next_value(&coro, &frame, storage_at, CoroValueKind.Offload)
+            let storage = coro.values[frame.value_first + storage_at].offset
+            storage_at = storage_at + 1
+            coro_lower_offload(&var coro, &context, frame.body, frame_local, context_local, block, s, storage,
+                               offloaded)
+        } else if point.call < 0 {
             if context_local < 0 {
                 context_local = coro_add_local(&var coro, frame.body, context.pointer)
             }
@@ -831,7 +847,7 @@ func coro_lower_frame(coro: &var CoroProgram, context: &CoroContext, f: Int) {
                                             dest: -1, result_block: -1))
         } else {
             let child = coro_driven_child(&coro, point.call)
-            slot_at = coro_next_child_slot(&coro, &frame, slot_at)
+            slot_at = coro_next_value(&coro, &frame, slot_at, CoroValueKind.Child)
             let slot = coro.values[frame.value_first + slot_at].offset
             slot_at = slot_at + 1
             let drive = coro_lower_drive(&var coro, frame.body, frame_local, block, child, slot)
@@ -1034,8 +1050,132 @@ func coro_lower_park(coro: &var CoroProgram, cx: &CoroContext, f: Int, ctx: Int,
         case Drive -> {
             try! coro.problems.push("a drive reached the park lowering")
             b
+        },
+        case OffloadStart -> {
+            try! coro.problems.push("an offload's start reached the park lowering")
+            b
+        },
+        case OffloadTake -> {
+            try! coro.problems.push("an offload's take reached the park lowering")
+            b
         }
     }
+}
+
+// Lowers the offloaded call of `blocking` extern `ext` ending block `b` of
+// function `f`, suspension state `state`, whose frame `_F` (local
+// `frame_local`) holds its storage at offset `S`. The call keeps its
+// arguments and is the start; the park repeats
+// until the job is done or the task is cancelled; the take writes the
+// destination and goes where the call returned:
+//
+//   bbB  dest = ext(args) -> bbN   becomes the start, ext(args) -> bbH
+//   bbH  _c = copy (*(*_C).cancel); switch move _c -> [true: bbT, false: bbD]
+//   bbD  _d = __saw_exec_offload_done(copy (*_F).[S: Int]) -> bbE
+//   bbE  switch move _d -> [true: bbT, false: bbP]
+//   bbP  the offload park on job (*_F).[S: Int] (`coro_lower_park`), whose
+//        park returns to bbH
+//   bbT  dest = ext() -> bbN, the take
+//
+// A wake that finds the job running and the task not cancelled parks again:
+// the take joins the job's thread, so reaching it early would hold the
+// executor's thread in the C call, the wait the offload exists to avoid. A
+// cancelled task takes all the same, waiting for the call, since its
+// storage and every pointer argument must outlive the job's thread.
+func coro_lower_offload(coro: &var CoroProgram, cx: &CoroContext, f: Int, frame_local: Int, ctx: Int, b: Int,
+                        state: Int, storage: Int, ext: Int) {
+    let at = coro.mono.dp.bc.mir.funcs[f].block_first + b
+    let c = coro.mono.dp.bc.mir.blocks[at].call
+    let start = coro.mono.dp.bc.mir.calls[c]
+    let node = start.node
+    let park_decl = coro.mono.dp.bc.mir.tc.res.lang_item(ResLang.ParkOffloadFunction)
+    let done_item = coro_taskgroup_item(&coro, "__saw_exec_offload_done")
+    if cx.cancel < 0 || park_decl < 0 || done_item < 0 {
+        try! coro.problems.push("an offload reached coroutine lowering under a std root with no cancel word, offload park or `__saw_exec_offload_done`")
+        return
+    }
+    let word = coro.mono.dp.bc.mir.tc.int_type()
+    let truth = coro.mono.dp.bc.mir.tc.bool_type()
+    let header = coro_add_goto_block(&var coro, f, -1, node)
+    let done = coro_add_local(&var coro, f, truth)
+    var check = coro_exec_call(&var coro, done_item, node)
+    let job = coro_slot_operand(&var coro, frame_local, storage, word)
+    coro_push_arg(&var coro, &var check, job)
+    check.dest = coro_whole_place(&var coro, done, truth)
+    let checked = coro_add_exec_block(&var coro, f, check, done_item, node)
+    let test = coro_add_goto_block(&var coro, f, -1, node)
+    var park = coro.mono.dp.bc.mir.blank_call(MirCallKind.Function, node)
+    park.target = park_decl
+    park.suspend = MirSuspend.Always
+    park.next = header
+    let parked_job = coro_slot_operand(&var coro, frame_local, storage, word)
+    coro_push_arg(&var coro, &var park, parked_job)
+    let park_item = coro_item_of_decl(&coro, park_decl)
+    let parking = coro_add_exec_block(&var coro, f, park, park_item, node)
+    let parked = coro_lower_park(&var coro, &cx, f, ctx, parking, CoroPointKind.ParkOffload)
+    var take = start
+    take.arg_count = 0
+    take.suspend = MirSuspend.Never
+    let taking = coro_add_exec_block(&var coro, f, take, ext, node)
+    let cancel_seen = coro_add_local(&var coro, f, truth)
+    let word_place = coro_context_place_to(&var coro, ctx, cx.ty, cx.cancel, cx.cancel_ty, truth)
+    let o = coro.mono.dp.bc.mir.operands.len()
+    try! coro.mono.dp.bc.mir.operands.push(MirOperand(kind: MirOperandKind.Copy, place: word_place, ty: truth,
+                                                      const_kind: MirConstKind.Unit, text: -1))
+    let read = coro_operand_rvalue(&var coro, truth, o)
+    let into = coro_whole_place(&var coro, cancel_seen, truth)
+    coro_append_stmt(&var coro, f, header, into, read, node)
+    coro_end_in_test(&var coro, f, header, cancel_seen, taking, checked)
+    let check_at = coro.mono.dp.bc.mir.funcs[f].block_first + checked
+    let check_call = coro.mono.dp.bc.mir.blocks[check_at].call
+    var checking = coro.mono.dp.bc.mir.calls[check_call]
+    checking.next = test
+    coro.mono.dp.bc.mir.calls[check_call] = checking
+    coro_end_in_test(&var coro, f, test, done, taking, parking)
+    var started = start
+    started.dest = -1
+    started.next = header
+    started.suspend = MirSuspend.Never
+    coro.mono.dp.bc.mir.calls[c] = started
+    let take_call = coro.mono.dp.bc.mir.blocks[coro.mono.dp.bc.mir.funcs[f].block_first + taking].call
+    let park_call = coro.mono.dp.bc.mir.blocks[coro.mono.dp.bc.mir.funcs[f].block_first + parked].call
+    try! coro.points.push(CoroPoint(kind: CoroPointKind.OffloadStart, state: -1, block: b, call: c, child: ext,
+                                    slot: storage, dest: -1, result_block: -1))
+    try! coro.points.push(CoroPoint(kind: CoroPointKind.ParkOffload, state: state, block: parked, call: park_call,
+                                    child: -1, slot: -1, dest: -1, result_block: -1))
+    try! coro.points.push(CoroPoint(kind: CoroPointKind.OffloadTake, state: -1, block: taking, call: take_call,
+                                    child: ext, slot: storage, dest: start.dest, result_block: -1))
+}
+
+// Ends block `b` of function `f` in `switch move _l -> [true: yes, false:
+// no]` over `Bool` local `l`.
+func coro_end_in_test(coro: &var CoroProgram, f: Int, b: Int, l: Int, yes: Int, no: Int) {
+    let truth = coro.mono.dp.bc.mir.tc.bool_type()
+    let arm_first = coro.mono.dp.bc.mir.arms.len()
+    try! coro.mono.dp.bc.mir.arms.push(MirArm(value: 1, target: yes))
+    try! coro.mono.dp.bc.mir.arms.push(MirArm(value: 0, target: no))
+    let moved = coro_whole_operand(&var coro, l, truth, true)
+    let at = coro.mono.dp.bc.mir.funcs[f].block_first + b
+    var ends = coro.mono.dp.bc.mir.blocks[at]
+    ends.term = MirTermKind.Switch
+    ends.target = -1
+    ends.switch_kind = MirSwitchKind.Bool
+    ends.operand = moved
+    ends.arm_first = arm_first
+    ends.arm_count = 2
+    ends.otherwise = -1
+    coro.mono.dp.bc.mir.blocks[at] = ends
+}
+
+// The item of `std.taskgroup`'s top-level function `name`, or -1 when mono
+// made none.
+func coro_taskgroup_item(coro: &CoroProgram, name: String) -> Int {
+    let m = coro.mono.dp.bc.mir.tc.module_named("std.taskgroup")
+    let d = if m >= 0 { coro.mono.dp.bc.mir.tc.top_decl(m, name) } else { -1 }
+    if d < 0 {
+        return -1
+    }
+    coro_item_of_decl(&coro, d)
 }
 
 // Appends to block `b` of function `f` the park word's record, `(*(*_C).park)
@@ -1761,10 +1901,11 @@ func coro_drive_problem(coro: &var CoroProgram, item: Int, point: &CoroPoint, wh
     try! coro.problems.push(msg.build())
 }
 
-// The index in `frame`'s values of its first child slot from `from` on.
-func coro_next_child_slot(coro: &CoroProgram, frame: &CoroFrame, from: Int) -> Int {
+// The index in `frame`'s values of its first value of kind `kind` from
+// `from` on.
+func coro_next_value(coro: &CoroProgram, frame: &CoroFrame, from: Int, kind: CoroValueKind) -> Int {
     var j = from
-    while j < frame.value_count && coro.values[frame.value_first + j].kind != CoroValueKind.Child {
+    while j < frame.value_count && coro.values[frame.value_first + j].kind != kind {
         j = j + 1
     }
     j

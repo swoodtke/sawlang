@@ -20,7 +20,7 @@
 //   coro_verify_lowering
 
 import sawborrowck.program.{BorrowckProgram}
-import sawcoro.frames.{coro_driven_child, coro_frame_of}
+import sawcoro.frames.{coro_driven_child, coro_frame_of, coro_offloaded_extern}
 import sawcoro.lower.{CORO_PARK_FD, CORO_PARK_READY, CORO_PARK_TIMER, CoroContext, coro_call_decl, coro_cancel_read,
                       coro_child_offset, coro_context_shape, coro_frame_lowered}
 import sawcoro.program.{CoroBefore, CoroBeforeBody, CoroBeforePoint, CoroFrame, CoroProgram, CoroValue,
@@ -1173,7 +1173,8 @@ func coro_verify_uses(coro: &CoroProgram, f: Int) -> Vector<CoroVerifyUse> {
 
 // Rule 2 over the calls lowering rewrote in body `b`: only a child's drive,
 // a park, a spawn site and a drive site lose their arguments or destination,
-// and then all of them; each operand the call passed is used exactly once
+// and then all of them, and an offload's start its destination alone
+// (`coro_verify_offload`); each operand the call passed is used exactly once
 // after lowering, so lowering adds no transfer and loses none. A drive or a
 // site writes each into its parameter's slot, a drive in its own block, which
 // its state re-enters past. A drive's result is moved out of the child's
@@ -1202,6 +1203,11 @@ func coro_verify_transfers(coro: &var CoroProgram, target: &var Target, cx: &Cor
             continue
         }
         if coro_verify_same_args(&coro, &pre, &post) && pre.dest == post.dest {
+            continue
+        }
+        let offloaded = if b.framed { coro_offloaded_extern(&coro, c) } else { -1 }
+        if offloaded >= 0 {
+            coro_verify_offload(&var coro, &cx, &b, &uses, c, &pre, offloaded)
             continue
         }
         let child = if b.framed { coro_driven_child(&coro, c) } else { -1 }
@@ -1300,6 +1306,100 @@ func coro_verify_transfers(coro: &var CoroProgram, target: &var Target, cx: &Cor
     }
     coro_verify_regions(&var coro, &var target, &b, frame, &slots, &places, &allowed, &region_start, &region_end,
                         &region_child)
+}
+
+// Offloaded call `c` of `blocking` extern item `ext` in lowered frame `b`, as
+// `pre` was before lowering: the start keeps its arguments, each used there
+// alone, and loses its destination; it continues to a test of the cancel
+// word whose true edge reaches the take, a call of the same extern with no
+// arguments that writes the destination, the only write of it, and goes
+// where the call returned. So the offload moves no value and loses none,
+// and a cancelled task still takes.
+func coro_verify_offload(coro: &var CoroProgram, cx: &CoroContext, b: &CoroBeforeBody, uses: &Vector<CoroVerifyUse>,
+                         c: Int, pre: &MirCall, ext: Int) {
+    let post = coro.mono.dp.bc.mir.calls[c]
+    if not coro_verify_same_args(&coro, &pre, &post) || post.dest >= 0 {
+        var what = StringBuilder()
+        try! what.append("the offload's start, ")
+        coro_verify_append_callee(&coro, &var what, c)
+        try! what.append(", does not keep its arguments and lose its destination")
+        coro_verify_problem(&var coro, 2, b.item, what.build())
+        return
+    }
+    var j = 0
+    while j < pre.arg_count {
+        let o = coro.mono.dp.bc.mir.lists[pre.arg_first + j]
+        j = j + 1
+        let _at = coro_verify_single_use(&var coro, &b, &uses, o, c)
+    }
+    let info = coro.mono.dp.bc.mir.funcs[b.body]
+    var take = -1
+    if post.next >= 0 && post.next < info.block_count {
+        let header = coro.mono.dp.bc.mir.blocks[info.block_first + post.next]
+        if header.term == MirTermKind.Switch && header.switch_kind == MirSwitchKind.Bool {
+            var k = 0
+            while k < header.arm_count {
+                let arm = coro.mono.dp.bc.mir.arms[header.arm_first + k]
+                k = k + 1
+                if arm.value == 1 {
+                    take = arm.target
+                }
+            }
+            if not coro_verify_tests_cancel(&coro, &cx, &header) {
+                take = -1
+            }
+        }
+    }
+    var taken = take >= 0
+    if taken {
+        let block = coro.mono.dp.bc.mir.blocks[info.block_first + take]
+        taken = block.term == MirTermKind.Call
+        if taken {
+            let t = coro.mono.dp.bc.mir.calls[block.call]
+            taken = block.call != c && coro.mono.call_item(block.call) == ext && t.arg_count == 0 && t.dest == pre.dest && t.next == pre.next
+        }
+    }
+    if taken && pre.dest >= 0 {
+        taken = coro_verify_writes_of(&coro, b.body, pre.dest) == 1
+    }
+    if not taken {
+        var what = StringBuilder()
+        try! what.append("the offload of ")
+        coro_verify_append_callee(&coro, &var what, c)
+        try! what.append(" does not go to a test of the cancel word whose true edge takes the job into its destination, its one write, and returns where the call returned")
+        coro_verify_problem(&var coro, 2, b.item, what.build())
+    }
+}
+
+// Whether `block`, a `Bool` switch, tests a local whose last write in the
+// block is a copy of the cancel word through the task's context.
+func coro_verify_tests_cancel(coro: &CoroProgram, cx: &CoroContext, block: &MirBlock) -> Bool {
+    if block.operand < 0 {
+        return false
+    }
+    let tested = coro.mono.dp.bc.mir.operands[block.operand].place
+    if tested < 0 {
+        return false
+    }
+    let local = coro.mono.dp.bc.mir.places[tested].local
+    var read = false
+    var s = block.first
+    while s >= 0 {
+        let here = s
+        let stmt = coro.mono.dp.bc.mir.stmts[here]
+        s = stmt.next
+        if stmt.kind != MirStmtKind.Assign || stmt.place < 0 || coro.mono.dp.bc.mir.places[stmt.place].local != local {
+            continue
+        }
+        let o = coro_verify_record_operand(&coro, here)
+        read = o >= 0 && coro.mono.dp.bc.mir.operands[o].kind == MirOperandKind.Copy
+        if read {
+            // Stage 0 workaround (SL:hazards S4): canonical: read = coro_verify_is_cancel(&coro, &cx, coro.mono.dp.bc.mir.operands[o].place)
+            let source = coro.mono.dp.bc.mir.operands[o].place
+            read = coro_verify_is_cancel(&coro, &cx, source)
+        }
+    }
+    read
 }
 
 // Call `c` of body `b`, as `pre` was before lowering, ends no block after it:
@@ -1601,6 +1701,18 @@ func coro_verify_regions(coro: &var CoroProgram, target: &var Target, b: &CoroBe
         // A zero-size slot at a child's end is that child's: its last value,
         // whose offset is where the next child's region begins.
         let offset = slot.index
+        let storage = coro_verify_offload_storage(&coro, b.item, offset)
+        if storage >= 0 {
+            let word = coro.mono.dp.bc.mir.tc.int_type()
+            let job = offset == storage && pl.count == 2 && slot.ty == word
+            if not job || coro_verify_written(&coro, b.body, p) {
+                var what = StringBuilder()
+                try! what.append("a place reaches into an offload's storage other than to read its job word, which the backend writes: ")
+                coro.mono.dp.bc.mir.append_place(&var what, p)
+                coro_verify_problem(&var coro, 2, b.item, what.build())
+            }
+            continue
+        }
         let end = coro_verify_slot_end(&var coro, &var target, &slot)
         var inside = -1
         var r = 0
@@ -1637,6 +1749,31 @@ func coro_verify_regions(coro: &var CoroProgram, target: &var Target, b: &CoroBe
             l = l + 1
         }
     }
+}
+
+// The offset of the offload storage in item `item`'s frame layout whose
+// bytes hold `offset`, or -1.
+func coro_verify_offload_storage(coro: &CoroProgram, item: Int, offset: Int) -> Int {
+    let fr = coro_frame_of(&coro, item)
+    if fr < 0 {
+        return -1
+    }
+    let frame = coro.frames[fr]
+    var k = 0
+    while k < frame.value_count {
+        let v = coro.values[frame.value_first + k]
+        k = k + 1
+        if v.kind == CoroValueKind.Offload && offset >= v.offset && offset < v.offset + v.size {
+            return v.offset
+        }
+    }
+    return -1
+}
+
+// Whether function `f` writes place `p`, as an assignment's place or a
+// call's destination.
+func coro_verify_written(coro: &CoroProgram, f: Int, p: Int) -> Bool {
+    coro_verify_writes_of(&coro, f, p) > 0
 }
 
 // Whether place `p` is only read by an index temporary's load, `_t = copy p`

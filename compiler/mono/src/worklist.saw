@@ -31,7 +31,7 @@ import sawresolve.model.{ResDeclKind, ResModuleKind}
 import sawresolve.program.{ResProgram}
 import sawtypecheck.conform.{TcSubst}
 import sawtypecheck.erasure.{tc_check_object_safety}
-import sawtypecheck.model.{TC_FLAG_DEFAULT_BODY, TcStatusKind}
+import sawtypecheck.model.{TC_FLAG_BLOCKING, TC_FLAG_DEFAULT_BODY, TcStatusKind}
 import sawtypecheck.program.{TcProgram}
 import sawtypecheck.tier.{tc_compute_tiers}
 import sawtypecheck.types.{TcKind}
@@ -901,6 +901,7 @@ extension MonoProgram {
                 if decl.kind == ResDeclKind.Extern {
                     let item = self.extern_item(k, info.target)
                     self.set_call_item(c, item)
+                    self.resolve_offload(k, info.target, info.node)
                     return
                 }
                 if decl.kind == ResDeclKind.Requirement && self.dp.bc.mir.tc.kind_of(info.owner) == TcKind.Any {
@@ -1058,6 +1059,25 @@ extension MonoProgram {
         if offload && self.park_pipe_item < 0 {
             self.park_pipe_item = self.exec_entry(k, m, "__saw_exec_offload_pipe", node, "an offload park")
         }
+    }
+
+    // A call of a `blocking` extern, declaration `d`, reaches what its
+    // offload calls (SL:coroutines A14a): the job's completion check, and the
+    // offload park's pipe and reactor arm.
+    func resolve_offload(&var self, k: Int, d: Int, node: Int) {
+        if d < 0 || d >= self.dp.bc.mir.tc.sigs.len() || (self.dp.bc.mir.tc.sigs[d].flags & TC_FLAG_BLOCKING) == 0 {
+            return
+        }
+        let m = self.dp.bc.mir.tc.module_named("std.taskgroup")
+        if self.park_register_item < 0 {
+            self.park_register_item = self.exec_entry(k, m, "__saw_exec_io_register", node, "an offload")
+        }
+        if self.park_pipe_item < 0 {
+            self.park_pipe_item = self.exec_entry(k, m, "__saw_exec_offload_pipe", node, "an offload")
+        }
+        // Coroutine lowering finds the check's item by its declaration; the
+        // item is made once, however many calls reach it.
+        self.exec_entry(k, m, "__saw_exec_offload_done", node, "an offload")
     }
 
     func spawn_entry(&var self, k: Int, m: Int, name: String, node: Int) -> Int {

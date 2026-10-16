@@ -155,6 +155,9 @@ func coro_dump_value(coro: &CoroProgram, out: &var StringBuilder, frame: &CoroFr
     }
     if v.kind == CoroValueKind.Child {
         try! out.append("child")
+    } else if v.kind == CoroValueKind.Offload {
+        try! out.append("offload ")
+        try! out.append(coro.item_label(v.child))
     } else {
         try! out.append("_")
         try! out.append(v.local)
@@ -322,6 +325,22 @@ func coro_dump_resumes(coro: &CoroProgram, out: &var StringBuilder) {
         while j < r.point_count {
             let point = coro.points[r.point_first + j]
             j = j + 1
+            if point.kind == CoroPointKind.OffloadStart || point.kind == CoroPointKind.OffloadTake {
+                try! out.append("    offload bb")
+                try! out.append(point.block)
+                if point.kind == CoroPointKind.OffloadStart {
+                    try! out.append(" start #")
+                } else {
+                    try! out.append(" take #")
+                }
+                try! out.append(point.child)
+                try! out.append(" ")
+                try! out.append(coro.mono.item_name(point.child))
+                try! out.append(", storage (*frame).[")
+                try! out.append(point.slot)
+                try! out.append("]\n")
+                continue
+            }
             try! out.append("    state ")
             try! out.append(point.state)
             try! out.append(": bb")
@@ -340,7 +359,9 @@ func coro_dump_resumes(coro: &CoroProgram, out: &var StringBuilder) {
                     try! out.append(" at (*frame).[")
                     try! out.append(point.slot)
                     try! out.append("]\n")
-                }
+                },
+                case OffloadStart -> {},
+                case OffloadTake -> {}
             }
         }
         coro_dump_spawns(&coro, &var out, r.item)
